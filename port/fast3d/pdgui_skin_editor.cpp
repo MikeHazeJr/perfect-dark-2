@@ -888,7 +888,14 @@ static void renderCharacterSelector(float w, float h, float scale)
     ImGui::Spacing();
 
     /* Character list */
+    if (s_NumCharEntries == 0) {
+        refreshCharacterList();
+    }
+
     float listH = h - 120.0f * scale;
+    if (listH < (120.0f * scale)) {
+        listH = 120.0f * scale;
+    }
     if (ImGui::BeginListBox("##charlist", ImVec2(-1, listH))) {
         /* Auto-select first entry if nothing is selected (controller UX) */
         if (s_SelectedChar < 0 && s_NumCharEntries > 0) {

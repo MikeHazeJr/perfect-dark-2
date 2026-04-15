@@ -863,9 +863,9 @@ static void import_texture_ci8(int tile, const LoadedTexture& loaded_texture, bo
 static bool s_SkinOverrideUsedThisFrame = false;
 
 /* Skin texture capture: when active during preview FBO render, instead of
- * overriding the first texture, we record its GL texture ID and dimensions
- * so pdgui_charpreview can read back the original body texture pixels.
- * This is a one-shot operation: the flag resets after capture.  (Batch S-9) */
+ * overriding the first texture, record that texture's GL id + dimensions so
+ * pdgui_charpreview can read back the native uploaded texture (UV-space source),
+ * not the preview framebuffer image. One-shot per request.  (Batch S-9) */
 static bool s_SkinCaptureRequested = false;
 static bool s_SkinCaptureComplete  = false;
 static uint32_t s_SkinCapturedTexId = 0;
@@ -874,19 +874,39 @@ static int s_SkinCapturedHeight = 0;
 
 static void import_texture(int i, int tile, bool importReplacement) {
     /* Skin capture check: if capture mode is active during the preview FBO
-     * pass, let the first texture import through normally but record the
-     * texture tile dimensions so we can read it back after the pass.
-     * Skip the normal override so the original body texture renders.  (S-9) */
+     * pass, record the first imported texture as the capture source and let
+     * normal import continue so the preview model still renders normally.
+     * Skip the override path for this frame.  (S-9) */
     if (fbActive && s_SkinCaptureRequested && !s_SkinOverrideUsedThisFrame) {
-        /* Record tile dimensions from the N64 texture data.  The actual GL
-         * texture read-back happens after the FBO pass completes, using the
-         * preview FBO's color attachment (which contains the rendered model
-         * with the original body texture).  We just need to flag that the
-         * first body texture has been encountered. */
+        /* Ensure texture cache resolves/allocates the GL texture object so we
+         * can read it back later even when this import is a cache hit. */
+        const LoadedTexture& loaded_texture = rdp.loaded_texture[rdp.texture_tile[tile].tmem];
+        const uint8_t fmt = rdp.texture_tile[tile].fmt;
+        const uint8_t siz = rdp.texture_tile[tile].siz;
+        const uint8_t palette_index = rdp.texture_tile[tile].palette;
+        const uint8_t* orig_addr = loaded_texture.addr;
+        if (orig_addr) {
+            TextureCacheKey key;
+            if (fmt == G_IM_FMT_CI) {
+                key = { orig_addr, { rdp.palette_addrs[0], rdp.palette_addrs[1] }, fmt, siz, palette_index };
+            } else {
+                key = { orig_addr, {}, fmt, siz, palette_index };
+            }
+            (void)gfx_texture_cache_lookup(i, key);
+            if (rendering_state.textures[i]) {
+                s_SkinCapturedTexId = rendering_state.textures[i]->second.texture_id;
+            }
+        }
         s_SkinCapturedWidth  = rdp.texture_tile[tile].width;
         s_SkinCapturedHeight = rdp.texture_tile[tile].height;
+        s_SkinCaptureComplete = (s_SkinCapturedTexId != 0 &&
+                                 s_SkinCapturedWidth > 0 &&
+                                 s_SkinCapturedHeight > 0);
+        if (s_SkinCaptureComplete) {
+            s_SkinCaptureRequested = false;
+        }
         s_SkinOverrideUsedThisFrame = true;
-        /* Fall through to normal import — don't substitute */
+        /* Fall through to normal import for this frame — don't substitute. */
     }
     /* Skin override check: if we're rendering into the preview FBO and
      * the skin editor has an active override, substitute the first
@@ -2912,15 +2932,9 @@ extern "C" void gfxSkinCaptureRequest(void) {
 }
 
 extern "C" void gfxSkinCaptureFinalizeFbo(u32 fboTexId) {
-    /* Called by charpreview after the FBO pass completes with capture mode.
-     * The fboTexId is the preview FBO's color texture containing the rendered
-     * model with the original body texture.  We don't need the individual
-     * body texture GL ID — we read back the entire FBO render. */
-    if (s_SkinCaptureRequested) {
-        s_SkinCapturedTexId   = fboTexId;
-        s_SkinCaptureComplete = true;
-        s_SkinCaptureRequested = false;
-    }
+    /* Deprecated path retained for ABI compatibility.
+     * Capture now snapshots the first imported model texture directly. */
+    (void)fboTexId;
 }
 
 extern "C" s32 gfxSkinCaptureIsComplete(void) {

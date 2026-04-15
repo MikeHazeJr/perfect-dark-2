@@ -3,6 +3,89 @@
 > **S241–S259** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/](_archive/sessions/).
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S268 — 2026-04-15 (Skin Editor base texture capture fidelity pass)
+
+**Scope**:
+- Completed the next Skin Tool milestone after selector stabilization: base-skin capture now reads a captured source texture path instead of preview-FBO screenshot content.
+
+**Code changes shipped in working tree**:
+- `port/fast3d/gfx_pc.cpp`:
+  - Updated skin-capture flow to snapshot the first preview-model texture import source (GL texture id + tile dimensions) during preview FBO render.
+  - Retained normal model render behavior while capture is armed (no draw-path fork).
+  - Kept `gfxSkinCaptureFinalizeFbo()` as a compatibility no-op; capture now completes from texture-import observation.
+- `port/fast3d/pdgui_charpreview.c`:
+  - Reworked `pdguiCharPreviewSkinCapturePoll()` to wait on `gfxSkinCaptureIsComplete()` and read back pixels from the captured texture id (`glGetTexImage`), using capture-reported dimensions directly.
+  - Removed the previous dependency on reading the preview FBO color texture as the base-skin source.
+- `port/include/pdgui_charpreview.h`:
+  - Updated capture-flow comments to reflect source-texture readback semantics.
+
+**Build verification**:
+- Verified compile with project toolchain path:
+  - dot-source `devtools/_build-env-prelude.ps1`
+  - `cmake -G Ninja -S . -B Build -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++`
+  - `ninja -C Build pd`
+- Result: client target linked clean (`PerfectDark.exe`).
+
+**Next steps**:
+- Playtest New Skin capture on one base body + one mod body.
+- Validate UV overlay alignment and export output quality against the captured base layer.
+
+## Session S267 — 2026-04-15 (ImGui nav parity closure: tab routing + Agent Select focus trap)
+
+**Scope**:
+- Closed menu-input audit gaps for cross-device navigation consistency (controller + MKB) in active ImGui menus.
+
+**Code changes shipped in working tree**:
+- `port/fast3d/pdgui_menu_room.cpp`:
+  - Replaced direct `ImGuiKey_GamepadL1/R1` tab switching with action-driven `ImGuiKey_PageUp/PageDown` handling, aligning Room tab behavior with the shared `ACTION_MENU_TAB_PREV/NEXT` path in `pdguiDriveImGuiNav()`.
+- `port/fast3d/pdgui_menu_solomission.cpp`:
+  - Updated Solo Options tab cycling to use `PageUp/PageDown` (plus existing `Q/E`) instead of direct raw gamepad shoulder keys.
+- `port/fast3d/pdgui_menu_agentselect.cpp`:
+  - Removed `ImGuiWindowFlags_NoNav` from the agent list child region so focus can traverse naturally and not become trapped in custom-only navigation flow.
+
+**Build verification**:
+- `devtools/build-headless.ps1 -Target client` failed in this shell with the known PowerShell runspace exception (script/runtime issue, not compile diagnostics).
+- Verified with equivalent toolchain path:
+  - dot-source `devtools/_build-env-prelude.ps1`
+  - `cmake -G Ninja -S . -B Build -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++`
+  - `ninja -C Build pd`
+  - `ninja -C Build pd-server`
+- Result: both targets linked clean (`PerfectDark.exe`, `PerfectDarkServer.exe`).
+
+**Next steps**:
+- Playtest Room tabs with both controller and keyboard: bumper mapping should follow the same path as keyboard PageUp/PageDown.
+- Playtest Agent Select to confirm full list traversal without getting stuck and with mouse/controller handoff remaining stable.
+
+## Session S266 — 2026-04-15 (Skin Editor selector stability + renderer seam deep-dive)
+
+**Scope**:
+- Investigated renderer architecture seams for a future backend swap and traced Skin Editor live-preview/export flow end-to-end.
+- Fixed Skin Editor character selection instability in Modding Hub navigation.
+
+**Code changes shipped in working tree**:
+- `port/fast3d/pdgui_menu_moddinghub.cpp`:
+  - Suppressed global hub tab cycling (`PageUp`/`PageDown`, used by LB/RB nav mapping) while Skin Editor tab is active, preventing tool-switch input steal during character list navigation.
+- `port/fast3d/pdgui_skin_editor.cpp`:
+  - Added a character-list refresh fallback when the list is empty at render time.
+  - Clamped character listbox height to a minimum so small content heights do not collapse selection UI.
+
+**Build verification**:
+- `devtools/build-headless.ps1 -Target client` failed in this shell due a PowerShell runspace exception (script/runtime issue, not compile diagnostics).
+- Verified compile with equivalent project toolchain path:
+  - dot-source `devtools/_build-env-prelude.ps1`
+  - `cmake -G Ninja -S . -B Build -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++`
+  - `ninja -C Build pd`
+- Result: client target linked clean (`PerfectDark.exe`).
+
+**Design outcome (renderer path)**:
+- Most effective long-term new-renderer seam remains `GfxRenderingAPI` backend replacement under `gfx_run_dl` (keep GBI interpreter contract intact).
+- Most effective first milestone for Skin Tool is **not** full renderer replacement: stabilize existing preview FBO + skin override pipeline first, then iterate base-skin export fidelity.
+
+**Next steps**:
+- Playtest Skin Editor selector with mouse + controller in Modding Hub.
+- Validate character list/preview behavior after tab switching and on low-height UI layouts.
+- If stable, proceed to base-skin export fidelity pass (true UV-space/base texture path instead of preview-FBO screenshot capture).
+
 ## Session S265 — 2026-04-15 (Post-merge sanity pass + focused playtest checklist)
 
 **Scope**:

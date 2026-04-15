@@ -117,7 +117,8 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu);
 
 /* ---- Skin Texture Capture (Batch S-9) ----
  * One-shot capture of the original body texture from the GBI pipeline.
- * Flow: request → wait for model load → render without override → readback.
+ * Flow: request -> wait for model load -> render without override ->
+ * read back captured source texture pixels.
  *
  * Call RequestSkinCapture to start.
  * Call SkinCapturePoll each frame during ImGui phase.

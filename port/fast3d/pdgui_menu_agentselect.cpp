@@ -413,8 +413,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     float listH = dialogH - pdTitleH - 36.0f * scale - footerH;
     float rowH = 64.0f * scale;
 
-    if (ImGui::BeginChild("##agent_list", ImVec2(0, listH), true,
-                           ImGuiWindowFlags_NoNav)) {
+    if (ImGui::BeginChild("##agent_list", ImVec2(0, listH), true, 0)) {
         for (s32 i = 0; i < totalEntries; i++) {
             bool isSelected = (i == s_SelectedIdx);
 

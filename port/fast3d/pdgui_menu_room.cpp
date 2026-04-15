@@ -2313,17 +2313,18 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     };
     static const int s_NumTabs = 4;
 
-    /* LB/RB bumper tab switching: use a pending flag so SetSelected only fires
-     * for ONE frame after a bumper press, not continuously. */
+    /* Tab switching: use action-driven PageUp/PageDown (LB/RB mapping comes
+     * from pdguiDriveImGuiNav) so controller/keyboard rebinds share one path.
+     * Use a pending flag so SetSelected only fires for one frame. */
     static s32 s_BumperPendingTab = -1;
 
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
         s_ActiveTab--;
         if (s_ActiveTab < 0) s_ActiveTab = s_NumTabs - 1;
         s_BumperPendingTab = s_ActiveTab;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
         s_ActiveTab++;
         if (s_ActiveTab >= s_NumTabs) s_ActiveTab = 0;
         s_BumperPendingTab = s_ActiveTab;

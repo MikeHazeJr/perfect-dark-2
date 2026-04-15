@@ -580,12 +580,12 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
 }
 
 /**
- * Poll the skin capture state machine.  Must be called during the ImGui
- * phase (after gfx_run has processed GBI commands) so the FBO texture
- * contains valid rendered data.
+ * Poll the skin capture state machine. Must be called during the ImGui
+ * phase (after gfx_run has processed GBI commands), when gfx_pc has had a
+ * chance to observe the preview model import path.
  *
- * When the capture FBO pass completed this frame, reads back the FBO
- * texture pixels and transitions to SKIN_CAPTURE_COMPLETE.
+ * When capture completes, reads back the captured source texture and
+ * transitions to SKIN_CAPTURE_COMPLETE.
  */
 void pdguiCharPreviewSkinCapturePoll(void)
 {
@@ -593,22 +593,21 @@ void pdguiCharPreviewSkinCapturePoll(void)
         return;
     }
 
-    /* The capture pass was active this frame.  By the time ImGui renders,
-     * gfx_run_dl has processed the GBI and the preview FBO texture
-     * (s_PreviewTexId) contains the model rendered with the ORIGINAL body
-     * texture (since gfx_pc's capture mode suppressed the override).
-     *
-     * Read back the FBO color texture.  gfx_pc recorded the N64 body
-     * texture tile dimensions — we read the whole FBO and the caller can
-     * scale as needed. */
-
-    if (s_PreviewTexId == 0 || !s_PreviewReady) {
-        /* FBO didn't render yet — stay in RENDERING, try next frame */
+    if (!gfxSkinCaptureIsComplete()) {
+        /* Capture source has not been observed yet — try next frame. */
         return;
     }
 
-    const s32 w = CHARPREVIEW_WIDTH;
-    const s32 h = CHARPREVIEW_HEIGHT;
+    u32 texId = 0;
+    s32 w = 0, h = 0;
+    gfxSkinCaptureGetResult(&texId, &w, &h);
+    if (texId == 0 || w <= 0 || h <= 0) {
+        sysLogPrintf(LOG_WARNING, "skin_capture: invalid capture result tex=%u size=%dx%d",
+                     texId, w, h);
+        s_SkinCaptureState = SKIN_CAPTURE_IDLE;
+        gfxSkinCaptureClear();
+        return;
+    }
 
     u8 *pixels = (u8 *)malloc((size_t)w * h * 4);
     if (!pixels) {
@@ -618,32 +617,20 @@ void pdguiCharPreviewSkinCapturePoll(void)
         return;
     }
 
-    glBindTexture(GL_TEXTURE_2D, s_PreviewTexId);
+    glBindTexture(GL_TEXTURE_2D, texId);
     glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     glBindTexture(GL_TEXTURE_2D, 0);
 
-    /* Get the N64 body texture dimensions from the capture result.
-     * If gfx_pc didn't record them (model didn't render a texture),
-     * use the FBO dimensions as fallback. */
-    s32 srcW = 0, srcH = 0;
-    gfxSkinCaptureGetResult(NULL, &srcW, &srcH);
-    if (srcW <= 0 || srcH <= 0) {
-        srcW = w;
-        srcH = h;
-    }
-
-    /* Store the FBO pixels (full 256x256 render).  The caller will use
-     * the N64 texture dimensions for proper scaling into the canvas. */
     if (s_SkinCapturePixels) {
         free(s_SkinCapturePixels);
     }
     s_SkinCapturePixels = pixels;
-    s_SkinCaptureSrcW = w;  /* FBO dimensions — full rendered frame */
+    s_SkinCaptureSrcW = w;
     s_SkinCaptureSrcH = h;
 
     s_SkinCaptureState = SKIN_CAPTURE_COMPLETE;
     gfxSkinCaptureClear();
 
-    sysLogPrintf(LOG_NOTE, "skin_capture: readback complete %dx%d (body tex %dx%d)",
-                 w, h, srcW, srcH);
+    sysLogPrintf(LOG_NOTE, "skin_capture: texture readback complete tex=%u size=%dx%d",
+                 texId, w, h);
 }

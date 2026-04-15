@@ -3310,14 +3310,15 @@ static s32 renderOptions(struct menudialog *dialog,
     static const char *k_TabNames[] = { "Audio", "Video", "Controls" };
     static const s32 k_NumTabs = 3;
 
-    /* LB/RB or Left/Right to switch tabs */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false) ||
+    /* Tab switching uses action-driven PageUp/PageDown (LB/RB mapping comes
+     * from pdguiDriveImGuiNav) plus Q/E keyboard shortcuts. */
+    if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false) ||
         ImGui::IsKeyPressed(ImGuiKey_Q, false)) {
         s_OptionsTabIdx--;
         if (s_OptionsTabIdx < 0) s_OptionsTabIdx = k_NumTabs - 1;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false) ||
+    if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false) ||
         ImGui::IsKeyPressed(ImGuiKey_E, false)) {
         s_OptionsTabIdx++;
         if (s_OptionsTabIdx >= k_NumTabs) s_OptionsTabIdx = 0;

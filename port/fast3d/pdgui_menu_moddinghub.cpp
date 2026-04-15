@@ -1090,8 +1090,11 @@ static void renderModdingHub(s32 winW, s32 winH)
             "Mod Manager", "INI Editor", "Scale Tool", "Mod Pack", "Audio Mods", "Skin Editor", "Map Import"
         };
 
-        /* Bumper (LB/RB) tab cycling — PageUp/PageDown driven by pdguiDriveImGuiNav */
-        if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
+        /* Bumper (LB/RB) tab cycling — PageUp/PageDown driven by pdguiDriveImGuiNav.
+         * Skin Editor uses list navigation heavily; suppress global tab cycling there
+         * to avoid stealing selection input from the character list/editor UI. */
+        const bool allowHubTabCycle = (s_ActiveTool != 5);
+        if (allowHubTabCycle && ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
             int next = (s_ActiveTool - 1 + NUM_TOOLS) % NUM_TOOLS;
             s_ActiveTool = next;
             if (next == 0) pdguiModManagerRefreshSnapshot();
@@ -1103,7 +1106,7 @@ static void renderModdingHub(s32 winW, s32 winH)
             else if (next == 6) importReset();
             pdguiPlaySound(PDGUI_SND_SWIPE);
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
+        if (allowHubTabCycle && ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
             int next = (s_ActiveTool + 1) % NUM_TOOLS;
             s_ActiveTool = next;
             if (next == 0) pdguiModManagerRefreshSnapshot();
