@@ -207,6 +207,7 @@ static bool s_Registered      = false;
 static s32  s_CheatsTab       = SC_TAB_FUN;   /* currently-shown tab */
 static s32  s_PendingTab      = -1;           /* set by redirect renderer */
 static bool s_ConfirmUnlockModal = false;     /* inline confirm open? */
+static bool s_CheatsHubPushedCtx = false;
 
 /* =========================================================================
  * Per-tab content definition
@@ -451,8 +452,10 @@ static s32 renderCheatsHub(struct menudialog *dialog,
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: Cheats hub OPEN (tab=%d)",
                      (int)s_CheatsTab);
+        s_CheatsHubPushedCtx = false;
         if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
             inputCtxPush(&g_CtxImGuiMenu);
+            s_CheatsHubPushedCtx = true;
         }
     }
 
@@ -466,9 +469,10 @@ static s32 renderCheatsHub(struct menudialog *dialog,
         (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
          ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+        if (s_CheatsHubPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
             inputCtxPopDeferred(&g_CtxImGuiMenu);
         }
+        s_CheatsHubPushedCtx = false;
         menuPopDialog();
         ImGui::End();
         return 1;
@@ -634,9 +638,10 @@ static s32 renderCheatsHub(struct menudialog *dialog,
         menuPushDialog(&g_CheatsConfirmUnlockMenuDialog);
     }
     if (wantClose) {
-        if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+        if (s_CheatsHubPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
             inputCtxPopDeferred(&g_CtxImGuiMenu);
         }
+        s_CheatsHubPushedCtx = false;
         menuPopDialog();
     }
 

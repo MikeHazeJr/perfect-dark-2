@@ -547,12 +547,24 @@ char *mpMenuTextWeaponOfChoiceName(struct menuitem *item)
 
 char *mpMenuTextAward1(struct menuitem *item)
 {
-	return g_Vars.players[g_Menus[g_MpPlayerNum].playernum]->award1;
+	s32 playernum = g_Menus[g_MpPlayerNum].playernum;
+
+	if (playernum < 0 || playernum >= MAX_PLAYERS || !g_Vars.players[playernum]) {
+		return "";
+	}
+
+	return g_Vars.players[playernum]->award1;
 }
 
 char *mpMenuTextAward2(struct menuitem *item)
 {
-	return g_Vars.players[g_Menus[g_MpPlayerNum].playernum]->award2;
+	s32 playernum = g_Menus[g_MpPlayerNum].playernum;
+
+	if (playernum < 0 || playernum >= MAX_PLAYERS || !g_Vars.players[playernum]) {
+		return "";
+	}
+
+	return g_Vars.players[playernum]->award2;
 }
 
 struct menuitem g_Mp2PMissionInventoryMenuItems[] = {

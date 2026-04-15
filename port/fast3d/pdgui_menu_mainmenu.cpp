@@ -2029,7 +2029,7 @@ static void renderSettingsCatalog(float scale)
         ImGui::TableSetupColumn("Type",     ImGuiTableColumnFlags_WidthStretch, 1.2f);
         ImGui::TableSetupColumn("State",    ImGuiTableColumnFlags_WidthStretch, 1.0f);
         ImGui::TableSetupColumn("Idx",      ImGuiTableColumnFlags_WidthFixed,   40.0f * scale);
-        ImGui::TableSetupColumn("NetHash",  ImGuiTableColumnFlags_WidthFixed,   80.0f * scale);
+        ImGui::TableSetupColumn("Namespace",ImGuiTableColumnFlags_WidthFixed,   90.0f * scale);
         ImGui::TableSetupColumn("Src",      ImGuiTableColumnFlags_WidthFixed,   36.0f * scale);
         ImGui::TableHeadersRow();
 
@@ -2067,7 +2067,15 @@ static void renderSettingsCatalog(float scale)
                             case 1: cmp = (int)a->type - (int)b->type; break;
                             case 2: cmp = (int)a->load_state - (int)b->load_state; break;
                             case 3: cmp = a->runtime_index - b->runtime_index; break;
-                            case 4: cmp = (a->net_hash < b->net_hash) ? -1 : (a->net_hash > b->net_hash) ? 1 : 0; break;
+                            case 4: {
+                                const char *acolon = strchr(a->id, ':');
+                                const char *bcolon = strchr(b->id, ':');
+                                s32 alen = acolon ? (s32)(acolon - a->id) : 4;
+                                s32 blen = bcolon ? (s32)(bcolon - b->id) : 4;
+                                cmp = strncmp(a->id, b->id, alen < blen ? alen : blen);
+                                if (cmp == 0) cmp = alen - blen;
+                                break;
+                            }
                             case 5: cmp = (int)a->bundled - (int)b->bundled; break;
                             default: break;
                         }
@@ -2147,9 +2155,16 @@ static void renderSettingsCatalog(float scale)
                 ImGui::TextDisabled("--");
             }
 
-            /* Net hash */
+            /* Namespace */
             ImGui::TableSetColumnIndex(4);
-            ImGui::TextDisabled("%08X", e->net_hash);
+            {
+                const char *colon = strchr(e->id, ':');
+                if (colon && colon != e->id) {
+                    ImGui::TextDisabled("%.*s", (int)(colon - e->id), e->id);
+                } else {
+                    ImGui::TextDisabled("base");
+                }
+            }
 
             /* Source: mod indicator */
             ImGui::TableSetColumnIndex(5);
@@ -2198,7 +2213,7 @@ static void renderSettingsCatalog(float scale)
                 ImGui::TableSetupColumn("ID",       ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort, 3.0f);
                 ImGui::TableSetupColumn("Type",     ImGuiTableColumnFlags_WidthStretch, 1.0f);
                 ImGui::TableSetupColumn("Slot",     ImGuiTableColumnFlags_WidthFixed,   36.0f * scale);
-                ImGui::TableSetupColumn("NetHash",  ImGuiTableColumnFlags_WidthFixed,   80.0f * scale);
+                ImGui::TableSetupColumn("Namespace",ImGuiTableColumnFlags_WidthFixed,   90.0f * scale);
                 ImGui::TableHeadersRow();
 
                 /* Rebuild sorted index list when manifest or sort changes */
@@ -2226,7 +2241,15 @@ static void renderSettingsCatalog(float scale)
                                     case 0: cmp = strcmp(a->id, b->id); break;
                                     case 1: cmp = (int)a->type - (int)b->type; break;
                                     case 2: cmp = (int)a->slot_index - (int)b->slot_index; break;
-                                    case 3: cmp = (a->net_hash < b->net_hash) ? -1 : (a->net_hash > b->net_hash) ? 1 : 0; break;
+                                    case 3: {
+                                        const char *acolon = strchr(a->id, ':');
+                                        const char *bcolon = strchr(b->id, ':');
+                                        s32 alen = acolon ? (s32)(acolon - a->id) : 4;
+                                        s32 blen = bcolon ? (s32)(bcolon - b->id) : 4;
+                                        cmp = strncmp(a->id, b->id, alen < blen ? alen : blen);
+                                        if (cmp == 0) cmp = alen - blen;
+                                        break;
+                                    }
                                     default: break;
                                 }
                                 return asc ? (cmp < 0) : (cmp > 0);
@@ -2260,7 +2283,12 @@ static void renderSettingsCatalog(float scale)
                     }
 
                     ImGui::TableSetColumnIndex(3);
-                    ImGui::TextDisabled("%08X", me->net_hash);
+                    const char *colon = strchr(me->id, ':');
+                    if (colon && colon != me->id) {
+                        ImGui::TextDisabled("%.*s", (int)(colon - me->id), me->id);
+                    } else {
+                        ImGui::TextDisabled("base");
+                    }
                 }
                 ImGui::EndTable();
             }

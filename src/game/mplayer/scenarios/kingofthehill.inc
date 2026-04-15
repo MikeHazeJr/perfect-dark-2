@@ -427,10 +427,16 @@ void kohTick(void)
 
 				prevplayernum2 = g_Vars.currentplayernum;
 
-				for (playernum1 = 0; playernum1 < PLAYERCOUNT(); playernum1++) {
+				for (playernum1 = 0; playernum1 < MAX_PLAYERS; playernum1++) {
+					if (!g_Vars.players[playernum1]) {
+						continue;
+					}
 					setCurrentPlayerNum(playernum1);
 
 					chr = g_Vars.currentplayer->prop->chr;
+					if (!chr) {
+						continue;
+					}
 
 #if VERSION >= VERSION_JPN_FINAL
 					if (radarGetTeamIndex(chr->team) == g_ScenarioData.koh.occupiedteam) {

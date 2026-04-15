@@ -3,6 +3,38 @@
 > **S241–S259** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/](_archive/sessions/).
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S264 — 2026-04-15 (Audit remediation batch: countdown cancel, menu context ownership, SP-6/SP-8, manifest hardening)
+
+**Scope implemented**:
+- Closed the requested 1–5 audit items in one pass across net countdown authority, ImGui menu context ownership, MP scenario null-safety, manifest check/rescan behavior, and net_hash cleanup/de-emphasis.
+
+**Fixes shipped in working tree**:
+- `port/fast3d/pdgui_bridge.c` + `port/src/net/netmsg.c` + `port/include/net/netmsg.h`:
+  - Added host-local countdown cancel path (`netReadyGateCancelByLocalClient`) so listen host Back/Esc can abort ready-gate countdown through the same server authority path.
+  - `SVC_MATCH_MANIFEST` read now sets local client state to `CLSTATE_PREPARING`; `SVC_MATCH_CANCELLED` read returns it to `CLSTATE_LOBBY`.
+  - `CLC_LOBBY_CANCEL` server read now delegates to shared gate/state validation helper.
+- ImGui menu ownership hardening:
+  - Added per-dialog ownership flags and pop guards in `pdgui_menu_botsetup.cpp`, `pdgui_menu_playerconfig.cpp`, `pdgui_menu_mpsetup.cpp`, `pdgui_menu_mppause.cpp`, `pdgui_menu_mpadvanced.cpp`, `pdgui_menu_cheats.cpp`.
+  - Close handlers now pop `g_CtxImGuiMenu` only when that dialog actually pushed it.
+- SP-6/SP-8 hardening in MP gameplay/scenario paths:
+  - `src/game/mplayer/mplayer.c`: award pipeline now builds an explicit local-player index list and uses slot-safe playerstats/award writes.
+  - `src/game/mplayer/ingame.c`: guarded award text accessors against invalid/null player slots.
+  - `src/game/activemenu.c`: bounds-guarded `g_MpPlayerNum` before root dialog push.
+  - `src/game/mplayer/scenarios.c` + scenario includes (`capturethecase.inc`, `hackthatmac.inc`, `holdthebriefcase.inc`, `kingofthehill.inc`, `popacap.inc`): added sparse-slot guards and `prop->chr` null checks in radar/hud/scenario loops.
+- Manifest/cross-boundary hardening:
+  - `port/src/net/netmanifest.c`: removed net_hash fallback in `manifestValidate`, removed count-based early-exit in `manifestSPRescanSetup` (always diff/apply), blocked `manifestEnsureLoaded` in non-SP net modes, and made unresolved non-base namespaces count as missing in `manifestCheck`.
+- Hash cleanup and UI de-emphasis:
+  - Removed deprecated pre-session net_hash wire helpers from `port/include/assetcatalog.h` + `port/src/assetcatalog_api.c`.
+  - `port/fast3d/pdgui_menu_mainmenu.cpp`: replaced NetHash manifest/catalog table column with namespace-based sort/display.
+  - Updated stale wire-format comments in `port/src/net/netmsg.c`.
+
+**Verification**:
+- Attempted `devtools/build-headless.ps1 -Target all` twice (normal + verbose): configure failed immediately in this shell environment.
+- Direct configure repro: `cmake -G Ninja -B Build -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++` failed with `gcc/g++ not found in PATH`.
+- Runtime playtest still required for S264 behavioral checks (countdown cancel broadcast + menu input ownership + scenario guards).
+
+---
+
 ## Session S263 — 2026-04-15 (Systemic gameplay pipeline fixes: campaign + MP + Counter-Op authority)
 
 **Scope implemented**:

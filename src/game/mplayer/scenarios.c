@@ -503,7 +503,8 @@ void scenarioCreateMatchStartHudmsgs(void)
 	snprintf(scenarioname, sizeof(scenarioname), "%s\n", langGet(g_MpScenarioOverviews[g_MpSetup.scenario].name));
 
 	for (i = 0; i < g_MpNumChrs; i++) {
-		if (g_MpAllChrPtrs[i] != NULL && g_MpAllChrPtrs[i]->aibot == NULL) {
+		if (g_MpAllChrPtrs[i] != NULL && g_MpAllChrPtrs[i]->aibot == NULL
+				&& i < MAX_PLAYERS && g_Vars.players[i]) {
 			setCurrentPlayerNum(i);
 
 			if (g_BossFile.locktype == MPLOCKTYPE_CHALLENGE) {
@@ -747,6 +748,7 @@ bool scenarioHighlightProp(struct prop *prop, s32 *colour)
 			}
 		}
 	} else if (prop->type == PROPTYPE_CHR || prop->type == PROPTYPE_PLAYER) {
+		struct chrdata *chr = prop->chr;
 		bool pulse = false;
 		bool isunselectedbot = false;
 		bool useblue = false;
@@ -756,7 +758,7 @@ bool scenarioHighlightProp(struct prop *prop, s32 *colour)
 			struct chrdata *botchr = currentPlayerGetCommandingAibot();
 
 			if (botchr) {
-				if (botchr == prop->chr) {
+				if (botchr == chr) {
 					pulse = true;
 					useteamcolour = true;
 				} else {
@@ -775,8 +777,8 @@ bool scenarioHighlightProp(struct prop *prop, s32 *colour)
 			}
 		}
 
-		if (useteamcolour) {
-			u32 tmp = g_TeamColours[radarGetTeamIndex(prop->chr->team)];
+		if (useteamcolour && chr) {
+			u32 tmp = g_TeamColours[radarGetTeamIndex(chr->team)];
 
 			colour[0] = tmp >> 24 & 0xff;
 			colour[1] = tmp >> 16 & 0xff;
@@ -1054,7 +1056,7 @@ struct prop *scenarioCreateObj(s32 modelnum, s16 padnum, f32 arg2, u32 flags, u3
  */
 void scenarioCreateHudmsg(s32 playernum, char *message)
 {
-	if (playernum >= 0 && playernum < LOCALPLAYERCOUNT()) {
+	if (playernum >= 0 && playernum < MAX_PLAYERS && g_Vars.players[playernum]) {
 		s32 prevplayernum = g_Vars.currentplayernum;
 
 		setCurrentPlayerNum(playernum);
@@ -1140,7 +1142,10 @@ s32 scenarioPickUpBriefcase(struct chrdata *chr, struct prop *prop)
 
 		prevplayernum = g_Vars.currentplayernum;
 
-		for (i = 0; i < PLAYERCOUNT(); i++) {
+		for (i = 0; i < MAX_PLAYERS; i++) {
+			if (!g_Vars.players[i]) {
+				continue;
+			}
 			if (chr->aibot || i != prevplayernum) {
 				setCurrentPlayerNum(i);
 #if VERSION >= VERSION_JPN_FINAL
@@ -1227,7 +1232,10 @@ s32 scenarioPickUpBriefcase(struct chrdata *chr, struct prop *prop)
 
 				if (caseteam);
 
-				for (i = 0; i < PLAYERCOUNT(); i++) {
+				for (i = 0; i < MAX_PLAYERS; i++) {
+					if (!g_Vars.players[i]) {
+						continue;
+					}
 					setCurrentPlayerNum(i);
 
 #if VERSION >= VERSION_JPN_FINAL
@@ -1299,7 +1307,10 @@ s32 scenarioPickUpBriefcase(struct chrdata *chr, struct prop *prop)
 
 				prevplayernum = g_Vars.currentplayernum;
 
-				for (i = 0; i < PLAYERCOUNT(); i++) {
+				for (i = 0; i < MAX_PLAYERS; i++) {
+					if (!g_Vars.players[i]) {
+						continue;
+					}
 					setCurrentPlayerNum(i);
 
 #if VERSION >= VERSION_JPN_FINAL
@@ -1434,7 +1445,10 @@ s32 scenarioPickUpUplink(struct chrdata *chr, struct prop *prop)
 #endif
 		playernum = g_Vars.currentplayernum;
 
-		for (i = 0; i < PLAYERCOUNT(); i++) {
+		for (i = 0; i < MAX_PLAYERS; i++) {
+			if (!g_Vars.players[i]) {
+				continue;
+			}
 			if (chr->aibot || i != playernum) {
 				setCurrentPlayerNum(i);
 

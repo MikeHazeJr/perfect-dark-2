@@ -459,6 +459,8 @@ struct WindowFrame {
     ImVec2 pos;
 };
 
+static bool s_BotSetupPushedCtx = false;
+
 static WindowFrame bs_BeginStandardWindow(const char *imguiId, const char *title,
                                           float widthFrac, float heightFrac)
 {
@@ -487,8 +489,10 @@ static WindowFrame bs_BeginStandardWindow(const char *imguiId, const char *title
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+        s_BotSetupPushedCtx = false;
         if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
             inputCtxPush(&g_CtxImGuiMenu);
+            s_BotSetupPushedCtx = true;
         }
     }
 
@@ -501,9 +505,10 @@ static WindowFrame bs_BeginStandardWindow(const char *imguiId, const char *title
 static void bs_CloseCurrentDialog(void)
 {
     pdguiPlaySound(PDGUI_SND_KBCANCEL);
-    if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+    if (s_BotSetupPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
         inputCtxPopDeferred(&g_CtxImGuiMenu);
     }
+    s_BotSetupPushedCtx = false;
     menuPopDialog();
 }
 

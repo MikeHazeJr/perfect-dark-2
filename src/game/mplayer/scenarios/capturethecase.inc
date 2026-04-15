@@ -403,7 +403,9 @@ bool ctcRadarChr(Gfx **gdl, struct prop *prop)
 			if (prop == g_ScenarioData.ctc.tokens[i] &&
 					(g_ScenarioData.ctc.tokens[i]->type == PROPTYPE_CHR || g_ScenarioData.ctc.tokens[i]->type == PROPTYPE_PLAYER)) {
 				struct coord dist;
-				s32 colour = g_TeamColours[radarGetTeamIndex(prop->chr->team)];
+				s32 colour = (prop->chr != NULL)
+					? g_TeamColours[radarGetTeamIndex(prop->chr->team)]
+					: 0x00ff0000;
 				dist.x = g_ScenarioData.ctc.tokens[i]->pos.x - g_Vars.currentplayer->prop->pos.x;
 				dist.y = g_ScenarioData.ctc.tokens[i]->pos.y - g_Vars.currentplayer->prop->pos.y;
 				dist.z = g_ScenarioData.ctc.tokens[i]->pos.z - g_Vars.currentplayer->prop->pos.z;

@@ -268,7 +268,9 @@ void pacTick(void)
 	if (data->victimindex >= 0) {
 #if VERSION >= VERSION_NTSC_1_0
 		if (data->victims[data->victimindex] >= PLAYERCOUNT() ||
-				g_Vars.players[data->victims[data->victimindex]]->isdead == false)
+				(data->victims[data->victimindex] < MAX_PLAYERS
+					&& g_Vars.players[data->victims[data->victimindex]]
+					&& g_Vars.players[data->victims[data->victimindex]]->isdead == false))
 #endif
 		{
 			data->age240 += g_Vars.lvupdate240;
@@ -393,7 +395,7 @@ bool pacRadarChr(Gfx **gdl, struct prop *prop)
 			dist.y = prop->pos.y - g_Vars.currentplayer->prop->pos.y;
 			dist.z = prop->pos.z - g_Vars.currentplayer->prop->pos.z;
 
-			if (g_MpSetup.options & MPOPTION_TEAMSENABLED) {
+			if (g_MpSetup.options & MPOPTION_TEAMSENABLED && prop->chr) {
 				u32 colour = g_TeamColours[radarGetTeamIndex(prop->chr->team)];
 				*gdl = radarDrawDot(*gdl, vprop, &dist, colour, 0, 1);
 			} else {

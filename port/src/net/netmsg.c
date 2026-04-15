@@ -1252,11 +1252,9 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			}
 		}
 
-		/* Receive per-bot configs from wire; resolve catalog net_hash → local runtime_index.
-		 * The write side (netmsgSvcStageStartWrite) serialises name/body_hash/head_hash/
-		 * difficulty/type for every active bot slot.  We resolve the CRC32 hashes through
-		 * the asset catalog so local mpbodynum/mpheadnum are correct regardless of whether
-		 * the client and server have the same mod load order. */
+		/* Receive per-bot configs from wire as catalog/session references.
+		 * The write side (netmsgSvcStageStartWrite) serialises name + body/head
+		 * session refs + difficulty/type for every active bot slot. */
 		for (s32 botidx = 0; botidx < MAX_BOTS; botidx++) {
 			if (!(g_MpSetup.chrslots & (1ull << (botidx + BOT_SLOT_OFFSET)))) {
 				continue;

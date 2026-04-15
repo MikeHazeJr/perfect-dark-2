@@ -2338,6 +2338,7 @@ u32 g_MpFemaleHeads[] = {
 void mpCalculateAwards(void)
 {
 	s32 playercount;
+	s32 localplayers[MAX_PLAYERS];
 	s32 i;
 	s32 j;
 	s32 prevplayernum;
@@ -2363,7 +2364,12 @@ void mpCalculateAwards(void)
 	u32 stack[3];
 #endif
 
-	playercount = PLAYERCOUNT();
+	playercount = 0;
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (g_Vars.players[i]) {
+			localplayers[playercount++] = i;
+		}
+	}
 
 	duration60 = playerGetMissionTime();
 
@@ -2380,6 +2386,7 @@ void mpCalculateAwards(void)
 	// At the same time, populate the metrics array
 	// which is a temporary array for award calculation.
 	for (i = 0; i < playercount; i++) {
+		s32 playernum = localplayers[i];
 		struct mpchrconfig *mpchr = mpGetChrConfigBySlotNum(i);
 		struct mpplayerconfig *mpplayer = (struct mpplayerconfig *)mpchr;
 #if VERSION >= VERSION_NTSC_1_0
@@ -2389,7 +2396,11 @@ void mpCalculateAwards(void)
 #endif
 		s32 sum;
 
-		setCurrentPlayerNum(i);
+		setCurrentPlayerNum(playernum);
+
+		if (!g_Vars.currentplayer) {
+			continue;
+		}
 
 		g_Vars.currentplayer->award1 = NULL;
 		g_Vars.currentplayer->award2 = NULL;
@@ -2424,13 +2435,13 @@ void mpCalculateAwards(void)
 
 		metrics[i].ksratio = metrics[i].numkills * 100.0f / (metrics[i].numshots + 1.0f);
 		metrics[i].kdratio = metrics[i].numkills * 100.0f / (metrics[i].numdeaths + 1.0f);
-		metrics[i].backshotcount = g_Vars.playerstats[i].backshotcount;
-		metrics[i].drawplayercount = g_Vars.playerstats[i].drawplayercount;
-		metrics[i].avgkmperhour = g_Vars.playerstats[i].distance / 100000.0f / ((duration60 + 1) / (3600.0f * 60.0f));
-		metrics[i].armourcount = g_Vars.playerstats[i].armourcount;
+		metrics[i].backshotcount = g_Vars.playerstats[playernum].backshotcount;
+		metrics[i].drawplayercount = g_Vars.playerstats[playernum].drawplayercount;
+		metrics[i].avgkmperhour = g_Vars.playerstats[playernum].distance / 100000.0f / ((duration60 + 1) / (3600.0f * 60.0f));
+		metrics[i].armourcount = g_Vars.playerstats[playernum].armourcount;
 		metrics[i].awards = 0;
-		metrics[i].longestlife = g_Vars.playerstats[i].longestlife;
-		metrics[i].shortestlife = g_Vars.playerstats[i].shortestlife;
+		metrics[i].longestlife = g_Vars.playerstats[playernum].longestlife;
+		metrics[i].shortestlife = g_Vars.playerstats[playernum].shortestlife;
 
 		sum = mpstatsGetPlayerShotCountByRegion(SHOTREGION_HEAD)
 			+ mpstatsGetPlayerShotCountByRegion(SHOTREGION_BODY)
@@ -2456,7 +2467,7 @@ void mpCalculateAwards(void)
 			mpplayer->deaths += metrics[i].numdeaths;
 			mpplayer->gamesplayed++;
 			mpplayer->time += duration60 / 60;
-			mpplayer->distance += (u32)(g_Vars.playerstats[i].distance / 10000.0f);
+			mpplayer->distance += (u32)(g_Vars.playerstats[playernum].distance / 10000.0f);
 
 #if VERSION >= VERSION_NTSC_1_0
 			if (metrics[i].numshots > 0) {
@@ -2470,8 +2481,8 @@ void mpCalculateAwards(void)
 			mpplayer->accuracy = ((metrics[i].accuracyfrac * 0.3f) + (mpplayer->accuracy / 1000.0f * 0.7f)) * 1000.0f;
 #endif
 
-			mpplayer->damagedealt += (u32)(g_Vars.playerstats[i].damtransmitted / 0.1f);
-			mpplayer->painreceived += (u32)(g_Vars.playerstats[i].damreceived / 0.1f);
+			mpplayer->damagedealt += (u32)(g_Vars.playerstats[playernum].damtransmitted / 0.1f);
+			mpplayer->painreceived += (u32)(g_Vars.playerstats[playernum].damreceived / 0.1f);
 			mpplayer->headshots += metrics[i].numheadshots;
 			mpplayer->ammoused += metrics[i].numshots;
 
@@ -2622,11 +2633,13 @@ void mpCalculateAwards(void)
 	}
 
 	for (i = 0; i < playercount; i++) {
-		if (g_Vars.playerstats[i].maxsimulkills == 4) {
+		s32 playernum = localplayers[i];
+
+		if (g_Vars.playerstats[playernum].maxsimulkills == 4) {
 			metrics[i].awards |= AWARD_QUADKILL;
-		} else if (g_Vars.playerstats[i].maxsimulkills == 3) {
+		} else if (g_Vars.playerstats[playernum].maxsimulkills == 3) {
 			metrics[i].awards |= AWARD_TRIPLEKILL;
-		} else if (g_Vars.playerstats[i].maxsimulkills == 2) {
+		} else if (g_Vars.playerstats[playernum].maxsimulkills == 2) {
 			metrics[i].awards |= AWARD_DOUBLEKILL;
 		}
 	}
@@ -2644,6 +2657,7 @@ void mpCalculateAwards(void)
 	// it on the endscreen, but this is not the case for triple kill or any
 	// other awards.
 	for (i = 0; i < playercount; i++) {
+		s32 playernum = localplayers[i];
 		s32 numdone = 0;
 		s32 awardindex = 16;
 
@@ -2663,7 +2677,9 @@ void mpCalculateAwards(void)
 		while (numdone == 0) {
 			if (metrics[i].awards & (1 << awardindex)) {
 				metrics[i].awards &= ~(1 << awardindex);
-				g_Vars.players[i]->award1 = langGet(g_AwardNames[awardindex]);
+				if (g_Vars.players[playernum]) {
+					g_Vars.players[playernum]->award1 = langGet(g_AwardNames[awardindex]);
+				}
 				numdone = 1;
 			}
 
@@ -2679,7 +2695,9 @@ void mpCalculateAwards(void)
 
 			if (metrics[i].awards & (1 << awardindex)) {
 				metrics[i].awards &= ~(1 << awardindex);
-				g_Vars.players[i]->award2 = langGet(g_AwardNames[awardindex]);
+				if (g_Vars.players[playernum]) {
+					g_Vars.players[playernum]->award2 = langGet(g_AwardNames[awardindex]);
+				}
 				numdone = 2;
 			}
 

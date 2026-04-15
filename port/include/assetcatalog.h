@@ -1025,20 +1025,6 @@ void catalogWriteAssetRef(struct netbuf *buf, u16 session_id);
  */
 u16 catalogReadAssetRef(struct netbuf *buf);
 
-/**
- * Phase C wire helpers for PRE-SESSION-CATALOG boundaries (e.g., CLC_LOBBY_START).
- * These use the stable CRC32 net_hash instead of session IDs, because the
- * session catalog does not exist yet when CLC_LOBBY_START is transmitted.
- * Both client and server have identical base catalog entries for arenas and
- * weapons, so net_hash lookups succeed on both sides.
- *
- * Usage:
- *   write: catalogWritePreSessionRef(buf, catalog_id);   -- writes u32 net_hash
- *   read:  catalogReadPreSessionRef(buf);                -- returns asset_entry_t* or NULL
- */
-void catalogWritePreSessionRef(struct netbuf *buf, const char *id);
-const asset_entry_t *catalogReadPreSessionRef(struct netbuf *buf);
-
 #ifdef __cplusplus
 }
 #endif

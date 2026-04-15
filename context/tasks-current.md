@@ -28,6 +28,11 @@ Mike to confirm each on next build. Bug/feature → commit on `dev`:
 - **S250 input authority Phase 1** (`5098f903`) — Ctrl+V in Online window = no background jump; hold W → menu → close = no residual walk.
 - **Dev-window-v2 polish** — S248 font/control baseline (`11fd1d5e`); S255 adds Pull/Push + DPI/text layout (verify legibility on your display scaling).
 - **Bug B** countdown-cancel-on-room-close (`731831ec`, 2026-04-14) — fixed, awaiting playtest verification. Leader leaves room during countdown or client disconnects mid-countdown → 3-2-1 overlay clears, "cancelled" banner shows, no stuck UI. See session-log S254 + spec §7.
+- **S264 audit remediation batch (uncommitted)** — verify end-to-end:
+  - Back/Esc during countdown now cancels from both host and client paths and shows canceller name on all clients.
+  - Nested ImGui dialog close paths no longer pop parent-owned menu context (no gameplay input bleed-through while submenu is open).
+  - MP scenario/radar SP-6/SP-8 guards hold under sparse player slots and NULL `prop->chr` transitions.
+  - Manifest hardening: post-setup SP rescan always diff/applies; unresolved non-base IDs are treated as missing in manifest check.
 
 ### Still open (post-drop)
 
@@ -46,9 +51,6 @@ Mike to confirm each on next build. Bug/feature → commit on `dev`:
 
 - **Campaign end-path OOB guard** — `src/game/menutick.c`: Deep Sea next-stage path increments `g_MissionConfig.stageindex` and indexes `g_SoloStages[]` without `NUM_SOLOSTAGES` clamp. Align with guards in `endscreen.c`.
 - **Endscreen menu index safety (SP-1)** — `src/game/endscreen.c`: guard `g_MpPlayerNum` before `g_Menus[g_MpPlayerNum]` writes in `endscreenPushCoop/Anti`.
-- **Counter-op role authority mismatch** — `port/fast3d/pdgui_menu_room.cpp`, `port/src/net/netmsg.c`, `port/src/net/net.c`: "Counter-Op Player" picker is UI-only today; serialize authoritative anti-role assignment on wire or remove picker.
-- **Co-op/anti ready-gate double stage-change** — `port/src/net/netmsg.c` + `port/src/net/net.c`: remove duplicate `mainChangeToStage` call path to avoid transition ordering ambiguity.
-- **Sparse-slot null safety (SP-6)** — `src/game/mplayer/mplayer.c`: `mpEndMatch` iterates `i < PLAYERCOUNT()` then dereferences `g_Vars.currentplayer` without null guard.
 - **Team rankings data/UI mismatch** — `port/fast3d/pdgui_menu_endscreen.cpp`: `buildRankings` consumes `mpGetTeamRankings()` rows with `mpchr=NULL`; use per-player rankings + team sort for display consistency.
 - **Room-scope teardown hygiene (SP-14 follow-up)** — `port/src/net/net.c`: review/reset lifecycle for `g_NetMatchRoomId` at stage end.
 

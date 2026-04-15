@@ -489,37 +489,6 @@ u16 catalogReadAssetRef(struct netbuf *buf)
 }
 
 /* -------------------------------------------------------------------------
- * Phase C: Pre-session-catalog wire helpers
- * Used at CLC_LOBBY_START boundaries where the session catalog has not been
- * built yet.  We encode by net_hash (CRC32 of the catalog ID) which is stable
- * across both client and server because both share the same base catalog data
- * for arenas (g_MpArenas[]) and weapons (s_BaseWeapons[] static table).
- *
- * NOTE: body/head assets are NOT encodable this way — the server
- * zero-initialises g_HeadsAndBodies[] (server_stubs.c:326) so the server
- * catalog has no ASSET_BODY/HEAD entries (server catalog gap, fixed in Phase D).
- * Bot body/head in CLC_LOBBY_START is still sent as raw mpbodynum u8 with the
- * bodynum→mpbodynum conversion applied at the write site (FIX-5).
- * ------------------------------------------------------------------------- */
-
-/* DEPRECATED (v27-04-02): net_hash wire format replaced by catalog ID strings.
- * No live callers remain in wire paths. Retained only to avoid link errors
- * if any tool or test binary still references these symbols. Remove on next cleanup. */
-void catalogWritePreSessionRef(struct netbuf *buf, const char *id)
-{
-    const asset_entry_t *e = id ? assetCatalogResolve(id) : NULL;
-    netbufWriteU32(buf, e ? e->net_hash : 0u);
-}
-
-/* DEPRECATED (v27-04-02): see catalogWritePreSessionRef. */
-const asset_entry_t *catalogReadPreSessionRef(struct netbuf *buf)
-{
-    const u32 hash = netbufReadU32(buf);
-    if (hash == 0u) return NULL;
-    return catalogResolveByNetHash(hash);
-}
-
-/* -------------------------------------------------------------------------
  * SA-5 global failure state
  * Set by catalog helpers when a required asset is not found.
  * Callers should check g_CatalogFailure after load-path calls.

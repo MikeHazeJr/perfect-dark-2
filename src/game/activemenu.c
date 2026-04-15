@@ -70,6 +70,10 @@ void amOpenPickTarget(void)
 		g_AmMenus[g_AmIndex].prevallbots = g_AmMenus[g_AmIndex].allbots;
 		g_Vars.currentplayer->activemenumode = AMMODE_CLOSED;
 		g_MpPlayerNum = g_Vars.currentplayerstats->mpindex;
+		if (g_MpPlayerNum >= MAX_PLAYERS) {
+			g_MpPlayerNum = prevplayernum;
+			return;
+		}
 		menuPushRootDialog(&g_AmPickTargetMenuDialog, MENUROOT_PICKTARGET);
 		g_MpPlayerNum = prevplayernum;
 	}

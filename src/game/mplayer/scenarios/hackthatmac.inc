@@ -368,7 +368,10 @@ void htmTick(void)
 
 	// Check if a player is holding it
 	if (g_ScenarioData.htm.uplink == NULL) {
-		for (i = 0; i < PLAYERCOUNT(); i++) {
+		for (i = 0; i < MAX_PLAYERS; i++) {
+			if (!g_Vars.players[i]) {
+				continue;
+			}
 			setCurrentPlayerNum(i);
 
 			if (invHasDataUplink()) {
@@ -746,7 +749,7 @@ bool htmRadarChr(Gfx **gdl, struct prop *prop)
 			dist.y = prop->pos.y - g_Vars.currentplayer->prop->pos.y;
 			dist.z = prop->pos.z - g_Vars.currentplayer->prop->pos.z;
 
-			if (g_MpSetup.options & MPOPTION_TEAMSENABLED) {
+			if (g_MpSetup.options & MPOPTION_TEAMSENABLED && prop->chr) {
 				u32 colour = g_TeamColours[radarGetTeamIndex(prop->chr->team)];
 				*gdl = radarDrawDot(*gdl, g_ScenarioData.htm.uplink, &dist, colour, 0, 1);
 			} else {

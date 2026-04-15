@@ -1240,13 +1240,9 @@ s32 manifestValidate(manifest_diff_t *diff)
             continue; /* already cleared by a prior pass */
         }
 
-        /* Try catalog lookup by string ID first, then net_hash as fallback
-         * (net_hash lookup handles the rare case where ID was truncated or
-         * the entry was re-registered under a different string form). */
+        /* Resolve strictly by catalog ID string.  Manifest boundaries are
+         * string-authoritative; avoid hash fallback that can mask ID drift. */
         e = assetCatalogResolve(entry->id);
-        if (!e) {
-            e = assetCatalogResolveByNetHash(entry->net_hash);
-        }
 
         if (!e) {
             sysLogPrintf(LOG_WARNING,
@@ -1365,20 +1361,10 @@ void manifestSPRescanSetup(s32 stagenum)
 
     post_count = (s32)s_SpNeededManifest.num_entries;
 
-    if (post_count <= pre_count) {
-        /* No new entries found — setup scan added nothing beyond what the
-         * pre-load phase already captured.  Skip the diff/apply cycle. */
-        sysLogPrintf(LOG_NOTE,
-                     "MANIFEST-SP: post-setup rescan for 0x%02x — no new entries"
-                     " (pre=%d, post=%d)",
-                     (unsigned)stagenum, pre_count, post_count);
-        return;
-    }
-
     sysLogPrintf(LOG_NOTE,
-                 "MANIFEST-SP: post-setup rescan for 0x%02x — %d new entries"
+                 "MANIFEST-SP: post-setup rescan for 0x%02x — diff/apply"
                  " (pre=%d, post=%d)",
-                 (unsigned)stagenum, post_count - pre_count,
+                 (unsigned)stagenum,
                  pre_count, post_count);
 
     manifestDiff(&g_CurrentLoadedManifest, &s_SpNeededManifest, &s_SpLastDiff);
@@ -1453,7 +1439,7 @@ void manifestMPTransition(void)
  * asset_type: MANIFEST_TYPE_BODY, MANIFEST_TYPE_HEAD, or MANIFEST_TYPE_MODEL.
  *
  * Returns 1 if the asset is now tracked; 0 if catalog_id is NULL/empty, the
- * active manifest has no entries (MP mode or pre-load), or the asset could not
+ * active manifest has no entries (pre-load), MP mode is active, or the asset could not
  * be resolved (synthetic hash is still added to suppress future log spam).
  *
  * Safe to call on every spawn: the dedup check is O(n) over the entry list.
@@ -1468,9 +1454,12 @@ s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
         return 0;
     }
 
-    /* Only active when an SP manifest has been built (num_entries > 0).
-     * In MP mode g_CurrentLoadedManifest is never populated, so this
-     * returns immediately without touching the server-managed manifest. */
+    if (g_NetMode != NETMODE_NONE) {
+        /* MP/lobby: never mutate the server-driven manifest from local late-load paths. */
+        return 0;
+    }
+
+    /* Only active when an SP manifest has been built (num_entries > 0). */
     if (g_CurrentLoadedManifest.num_entries == 0) {
         return 0;
     }
@@ -1590,9 +1579,24 @@ void manifestCheck(const match_manifest_t *manifest)
             continue;
         }
 
-        /* Not found.  Non-component types are base game assets — always present
-         * locally even if the catalog doesn't have a named entry for them. */
+        /* Not found.  Non-component ids in non-base namespaces are treated as
+         * missing (mod content not present/registered locally). */
         if (e->type != MANIFEST_TYPE_COMPONENT) {
+            const char *colon = strchr(e->id, ':');
+            const s32 non_base_namespace = (colon && strncmp(e->id, "base:", 5) != 0);
+
+            if (non_base_namespace) {
+                sysLogPrintf(LOG_WARNING,
+                             "MANIFEST: [%2d] %-9s id='%s' — unresolved non-base namespace, marking MISSING",
+                             i, type_name, e->id);
+                if (num_missing < 255) {
+                    strncpy(missing_ids[num_missing], e->id, CATALOG_ID_LEN - 1);
+                    missing_ids[num_missing][CATALOG_ID_LEN - 1] = '\0';
+                    num_missing++;
+                }
+                continue;
+            }
+
             sysLogPrintf(LOG_NOTE,
                          "MANIFEST: [%2d] %-9s id='%s' — not in catalog, assumed base game",
                          i, type_name, e->id);
