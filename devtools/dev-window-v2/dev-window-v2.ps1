@@ -18,6 +18,43 @@ $env:PD_BUILD_ENV_QUIET = '1'
 # Build environment -- self-configures TEMP/TMP, PATH (MinGW64), MSYSTEM, ccache.
 . (Join-Path $PSScriptRoot ".." "_build-env-prelude.ps1")
 
+# ----------------------------------------------------------------------------
+# GitHub CLI: PATH from registry + default install dirs
+# winget / MSI often add User or Machine PATH; a Dev Window started from Explorer
+# can inherit a stale PATH until logoff. Merge registry PATH + probe gh.exe.
+# ----------------------------------------------------------------------------
+function Sync-UserMachinePath {
+    try {
+        $m = [System.Environment]::GetEnvironmentVariable('Path', 'Machine')
+        $u = [System.Environment]::GetEnvironmentVariable('Path', 'User')
+        if ($m) { $env:Path = $m + ';' + $env:Path }
+        if ($u) { $env:Path = $u + ';' + $env:Path }
+    } catch {}
+}
+
+function Resolve-GhExecutable {
+    Sync-UserMachinePath
+    $cmd = Get-Command gh -ErrorAction SilentlyContinue
+    if ($null -ne $cmd -and $cmd.Source) { return $cmd.Source.Trim() }
+    $pf = [System.Environment]::GetEnvironmentVariable('ProgramFiles')
+    if ($pf) {
+        $p = Join-Path $pf 'GitHub CLI\gh.exe'
+        if (Test-Path -LiteralPath $p) { return $p }
+    }
+    $pf86 = [System.Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+    if ($pf86) {
+        $p = Join-Path $pf86 'GitHub CLI\gh.exe'
+        if (Test-Path -LiteralPath $p) { return $p }
+    }
+    if ($env:LocalAppData) {
+        $p = Join-Path $env:LocalAppData 'GitHub CLI\gh.exe'
+        if (Test-Path -LiteralPath $p) { return $p }
+    }
+    return $null
+}
+
+Sync-UserMachinePath
+
 # ============================================================================
 # Section 1: Assembly loading + console hide
 # ============================================================================
@@ -132,6 +169,7 @@ $script:LastGitCheck        = [DateTime]::MinValue
 
 $script:GhAuthOk            = $false
 $script:GhCliAvailable      = $false
+$script:GhExe               = $null   # full path from Resolve-GhExecutable
 $script:GhAuthChecked       = $false
 $script:LatestRelease       = $null
 
@@ -1118,6 +1156,11 @@ function Start-PushRelease {
         [System.Windows.MessageBox]::Show("release.ps1 not found in devtools/.", "Release Error", "OK", "Warning") | Out-Null
         return
     }
+    $ghResolved = Resolve-GhExecutable
+    if ($ghResolved) {
+        $script:GhExe = $ghResolved
+        $script:GhCliAvailable = $true
+    }
     if (-not $script:GhCliAvailable -or -not $script:GhAuthOk) {
         $go = [System.Windows.MessageBox]::Show(
             "GitHub CLI (gh) is missing or you are not logged in.`n`n" +
@@ -1490,22 +1533,26 @@ function Update-Auth-Labels {
 }
 
 function Invoke-GhAuthHelp {
-    if (-not $script:GhCliAvailable) {
+    $exe = Resolve-GhExecutable
+    if (-not $exe) {
         [System.Windows.MessageBox]::Show(
-            "GitHub CLI (gh) is not installed or not on your PATH.`n`n" +
+            "GitHub CLI (gh) was not found.`n`n" +
             "Install (example):`n" +
             "  winget install GitHub.cli`n`n" +
             "Or: https://cli.github.com/`n`n" +
-            "Restart Dev Window after installing, then click here again to run: gh auth login",
+            "Default location: Program Files\GitHub CLI\gh.exe`n`n" +
+            "This window merges Machine + User PATH from the registry when it starts, so a full sign-out is usually not required. If gh still is not found, open a new Command Prompt and run: where gh",
             "GitHub CLI",
             "OK",
             "Information") | Out-Null
         return
     }
+    $script:GhExe = $exe
+    $script:GhCliAvailable = $true
+    Update-Auth-Labels
     if ($script:GhAuthOk) { return }
     try {
-        $gh = Get-Command gh -ErrorAction Stop
-        Start-Process -FilePath $gh.Source -ArgumentList @('auth','login') -WorkingDirectory $script:ProjectRoot
+        Start-Process -FilePath $exe -ArgumentList @('auth','login') -WorkingDirectory $script:ProjectRoot
     } catch {
         [System.Windows.MessageBox]::Show(
             "Could not start GitHub CLI: " + $_.Exception.Message,
@@ -1647,19 +1694,22 @@ $window.Add_Loaded({
         # Status bar (initial)
         Update-StatusBar
 
-        # Background: detect gh CLI + auth (no stderr spam if gh missing)
+        # Background: detect gh CLI + auth (path resolved on UI thread; pass full path into runspace)
+        $script:GhExe = Resolve-GhExecutable
+        $ghPathForJob = $script:GhExe
         $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
         $rs.Open()
         $ps = [System.Management.Automation.PowerShell]::Create()
         $ps.Runspace = $rs
         [void]$ps.AddScript({
-            $ghCmd = Get-Command gh -ErrorAction SilentlyContinue
-            if (-not $ghCmd) {
+            param([string]$GhExePath)
+            if (-not $GhExePath -or -not (Test-Path -LiteralPath $GhExePath)) {
                 return [PSCustomObject]@{ Present = $false; Ok = $false }
             }
-            $null = & gh auth status 2>&1
+            $null = & $GhExePath auth status 2>&1
             return [PSCustomObject]@{ Present = $true; Ok = ($LASTEXITCODE -eq 0) }
         })
+        [void]$ps.AddArgument($ghPathForJob)
         $handle = $ps.BeginInvoke()
         $authPollTimer = New-Object System.Windows.Threading.DispatcherTimer
         $authPollTimer.Interval = [TimeSpan]::FromMilliseconds(500)

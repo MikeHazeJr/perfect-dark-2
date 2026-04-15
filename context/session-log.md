@@ -15,6 +15,8 @@
 
 **Readability**: Status bar + build-status labels `FontSize` 14 (was 13) to match hero scale.
 
+**Follow-up (same session)**: `gh` detection failed when the CLI was installed but the GUI process inherited a stale PATH. `Sync-UserMachinePath` merges registry Machine+User `Path`, `Resolve-GhExecutable` falls back to `Program Files\GitHub CLI\gh.exe` (and x86 / LocalAppData); auth runspace uses the resolved full path.
+
 ---
 
 ## Session S255 — 2026-04-14 (Dev Window v2: Pull / Push + DPI font scaling)
