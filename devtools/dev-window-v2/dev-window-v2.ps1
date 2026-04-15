@@ -106,7 +106,8 @@ namespace PD2V2 {
 
 $script:ScriptDir           = $PSScriptRoot
 $script:ProjectRoot         = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-$script:BuildDir            = Join-Path $script:ProjectRoot "Build"   # unified dir for pd + pd-server
+try { $script:ProjectRoot = [System.IO.Path]::GetFullPath($script:ProjectRoot) } catch {}
+$script:BuildDir            = [System.IO.Path]::GetFullPath((Join-Path $script:ProjectRoot "Build"))   # unified dir for pd + pd-server
 $script:SettingsPath        = Join-Path $script:ScriptDir "settings.json"
 $script:ReleaseCachePath    = Join-Path $script:ProjectRoot ".dev-window-release-cache.json"
 $script:AddinDir            = Join-Path $script:ProjectRoot "..\post-batch-addin"
@@ -230,6 +231,40 @@ function Format-ElapsedTime($seconds) {
     return "" + $m + "m " + $s + "s"
 }
 
+# cmd.exe build steps do not always inherit the same PATH as this PowerShell host; resolve git and
+# prepend tool dirs so "git" and CMake/MinGW binaries are found.
+function Resolve-GitExecutable {
+    $cmd = Get-Command git -ErrorAction SilentlyContinue
+    if ($null -ne $cmd) {
+        if ($cmd.Path) { return $cmd.Path }
+        if ($cmd.Source) { return $cmd.Source }
+    }
+    $candidates = @("C:\msys64\usr\bin\git.exe", "C:\msys64\mingw64\bin\git.exe")
+    if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles "Git\cmd\git.exe") }
+    if (${env:ProgramFiles(x86)}) { $candidates += (Join-Path ${env:ProgramFiles(x86)} "Git\cmd\git.exe") }
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path -LiteralPath $candidate)) { return $candidate }
+    }
+    return $null
+}
+
+function Get-ChildProcessPathEnv {
+    $segments = [System.Collections.ArrayList]::new()
+    $gitExe = Resolve-GitExecutable
+    if ($gitExe) {
+        $gd = Split-Path -Parent $gitExe
+        if ($gd) { [void]$segments.Add($gd) }
+    }
+    foreach ($d in @("C:\msys64\usr\bin", "C:\msys64\mingw64\bin")) {
+        if (Test-Path -LiteralPath $d) { [void]$segments.Add($d) }
+    }
+    $uniq = $segments | Select-Object -Unique
+    if ($uniq.Count -gt 0) {
+        return (($uniq -join ";") + ";" + $env:PATH)
+    }
+    return $env:PATH
+}
+
 function Get-ExePath($name) {
     # Both pd and pd-server land in the unified Build/ directory
     $p = Join-Path $script:BuildDir $name
@@ -244,7 +279,15 @@ function Test-NeedsConfigure($buildDir) {
     if (-not (Test-Path $cache)) { return $true }
     $cmake = Join-Path $script:ProjectRoot "CMakeLists.txt"
     if (-not (Test-Path $cmake)) { return $true }
-    return ((Get-Item $cmake).LastWriteTime -gt (Get-Item $cache).LastWriteTime)
+    if ((Get-Item $cmake).LastWriteTime -gt (Get-Item $cache).LastWriteTime) { return $true }
+    try {
+        $snippet = (Get-Content -LiteralPath $cache -TotalCount 150 -ErrorAction Stop) -join "`n"
+        # Cache produced under WSL/Unix while we build from C:\ -> mixed paths (".../home/.../C:/...")
+        if ($script:ProjectRoot -match '^[A-Za-z]:\\' -and $snippet -match '/home/[^\s\r\n]+') {
+            return $true
+        }
+    } catch {}
+    return $false
 }
 
 # ============================================================================
@@ -1128,7 +1171,7 @@ function Start-Build-Step($step) {
     $psi.WorkingDirectory = $script:ProjectRoot
     $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true; $psi.CreateNoWindow = $true
-    $psi.EnvironmentVariables["PATH"]                 = $env:PATH
+    $psi.EnvironmentVariables["PATH"]                 = Get-ChildProcessPathEnv
     $psi.EnvironmentVariables["MSYSTEM"]              = "MINGW64"
     $psi.EnvironmentVariables["MINGW_PREFIX"]         = "/mingw64"
     $psi.EnvironmentVariables["GIT_TERMINAL_PROMPT"]  = "0"
@@ -1161,7 +1204,10 @@ function Get-BuildSteps($ver, [bool]$forceClean = $false) {
     $steps = [System.Collections.ArrayList]::new()
 
     $commitMsg = "Build v" + $ver.Major + "." + $ver.Minor + "." + $ver.Patch + " - auto-commit before build"
-    $commitArgs = "/c cd /d `"" + $script:ProjectRoot + "`" && git add -A && (git diff --cached --quiet || git commit -m `"" + $commitMsg + "`") && (git push >nul 2>&1 & exit 0)"
+    $gitExe = Resolve-GitExecutable
+    if (-not $gitExe) { $gitExe = "git" }
+    $gitQ = '"' + $gitExe + '"'
+    $commitArgs = "/c cd /d `"" + $script:ProjectRoot + "`" && " + $gitQ + " add -A && (" + $gitQ + " diff --cached --quiet || " + $gitQ + " commit -m `"" + $commitMsg + "`") && (" + $gitQ + " push >nul 2>&1 & exit 0)"
     [void]$steps.Add(@{Name="Auto-commit + push"; Exe="cmd.exe"; Target="client"; Args=$commitArgs})
 
     if ($forceClean) {
