@@ -139,7 +139,7 @@ Completed audits, superseded plans, and old session logs in `_archive/`:
 
 - **Language**: C11 game code, C++ port code. No C++ in `src/game/` or `src/lib/`.
 - **Build**: CMake + MSYS2/MinGW. `devtools/build-headless.ps1` for AI.
-- **Net**: Protocol **v35**, 60Hz tick. All wire fields use catalog ID strings. net_hash is dead. match_seed synced via SVC_STAGE_START.
+- **Net**: Protocol **v36**, 60Hz tick. All wire fields use catalog ID strings. net_hash is dead. match_seed synced via SVC_STAGE_START; Counter-Op anti role identity is explicit on wire.
 - **Input**: Action map system (M0.2). `actionPressed()`/`actionHeld()`/`actionValue()`. No CK_*.
 - **Menus**: ImGui sole system (P10 D5.7). `pdgui_menu_*.cpp`. Legacy rendering removed.
 - **Limits**: MAX_MPCHRS=36, MAX_PLAYERS=4, MAX_BOTS=32.
