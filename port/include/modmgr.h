@@ -96,7 +96,7 @@ modinfo_t  *modmgrFindMod(const char *id);
 
 void modmgrSetEnabled(s32 index, s32 enabled);
 s32  modmgrIsDirty(void);              // true if enable state changed since last reload
-void modmgrApplyChanges(void);         // save + reload + return to title
+void modmgrApplyChanges(void);         // save + rebuild catalog in-place (no stage restart)
 
 // Check if all dependencies of a mod are enabled.
 // Returns 0 if all satisfied, >0 = number of missing deps.

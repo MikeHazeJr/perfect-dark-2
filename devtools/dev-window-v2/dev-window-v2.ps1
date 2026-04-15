@@ -252,6 +252,47 @@ function Resolve-GitExecutable {
     return $null
 }
 
+function Get-MsysToolPath {
+    param(
+        [string]$ToolName,
+        [string]$GitExe
+    )
+    if (-not $ToolName) { return $null }
+    if (-not $GitExe) { $GitExe = Resolve-GitExecutable }
+    if ($GitExe) {
+        try {
+            $gitDir = Split-Path -Parent $GitExe
+            $msysRoot = Split-Path -Parent $gitDir
+            $msysLeaf = Split-Path -Leaf $msysRoot
+            if ($msysLeaf -ieq "usr" -or $msysLeaf -ieq "mingw64") {
+                $msysRoot = Split-Path -Parent $msysRoot
+            }
+            if ($msysRoot) {
+                $toolPath = Join-Path (Join-Path $msysRoot "usr\bin") ($ToolName + ".exe")
+                if (Test-Path -LiteralPath $toolPath) { return $toolPath }
+            }
+        } catch {}
+    }
+    $fallback = Join-Path "C:\msys64\usr\bin" ($ToolName + ".exe")
+    if (Test-Path -LiteralPath $fallback) { return $fallback }
+    return $null
+}
+
+function Convert-WindowsPathToMsysPosixPath {
+    param(
+        [string]$WindowsPath,
+        [string]$GitExe
+    )
+    if (-not $WindowsPath) { return $null }
+    $cygpathExe = Get-MsysToolPath -ToolName "cygpath" -GitExe $GitExe
+    if (-not $cygpathExe) { return $null }
+    try {
+        $posix = & $cygpathExe -au $WindowsPath 2>$null
+        if ($posix) { return $posix.Trim() }
+    } catch {}
+    return $null
+}
+
 function Convert-PosixPathToWindowsPath {
     param([string]$PosixPath)
     if (-not $PosixPath -or -not ($PosixPath -match '^/')) { return $null }
@@ -294,9 +335,13 @@ function Convert-PosixPathToWindowsPath {
 # /home/.../.git/index.lock (WSL-native tree) or /mnt/c/... (same repo via wslpath) — not the same path string.
 # Builds assume the main dev tree (no separate worktree builds).
 function Remove-GitIndexLockFromGitStderr {
-    param([string]$Text)
+    param(
+        [string]$Text,
+        [string]$GitExe
+    )
     if (-not $Text) { return }
     $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
+    $rmExe = Get-MsysToolPath -ToolName "rm" -GitExe $GitExe
     foreach ($m in [regex]::Matches($Text, "Unable to create '([^']+)'")) {
         $pth = $m.Groups[1].Value
         if (-not $pth) { continue }
@@ -311,8 +356,7 @@ function Remove-GitIndexLockFromGitStderr {
                 if ($null -ne $wsl) {
                     [void](& wsl.exe -- rm -f -- $pth 2>&1)
                 }
-                $rmExe = "C:\msys64\usr\bin\rm.exe"
-                if (Test-Path -LiteralPath $rmExe) {
+                if ($rmExe -and (Test-Path -LiteralPath $rmExe)) {
                     [void](& $rmExe -f -- $pth 2>&1)
                 }
             }
@@ -327,6 +371,7 @@ function Remove-GitIndexLockForRepo {
     )
     if (-not $RepoRoot) { return }
     $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
+    $rmExe = Get-MsysToolPath -ToolName "rm" -GitExe $GitExe
 
     # 1) Windows working copy (what Explorer shows under C:\...\ .git\)
     $winLock = Join-Path $RepoRoot ".git\index.lock"
@@ -346,6 +391,19 @@ function Remove-GitIndexLockForRepo {
             }
         } catch {}
     }
+
+    # 3) Same repo as seen by the active MSYS/Git runtime (can be /home/... with custom mounts).
+    if ($rmExe -and (Test-Path -LiteralPath $rmExe)) {
+        try {
+            $msysRepo = Convert-WindowsPathToMsysPosixPath -WindowsPath $RepoRoot -GitExe $GitExe
+            if ($msysRepo) {
+                $msysRepo = $msysRepo.Trim().TrimEnd('/')
+                if ($msysRepo) {
+                    [void](& $rmExe -f -- ($msysRepo + '/.git/index.lock') 2>&1)
+                }
+            }
+        } catch {}
+    }
 }
 
 function Force-DeleteGitIndexLockHard {
@@ -359,22 +417,50 @@ function Force-DeleteGitIndexLockHard {
 
     # Extra safety: force-delete common Linux path variants explicitly.
     $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
-    if ($null -eq $wsl) { return }
-    try {
-        # 1) Repo as seen by current shell through WSL path translation.
-        $wslRepo = (& wsl.exe wslpath -a $RepoRoot 2>$null)
-        if ($wslRepo) {
-            $wslRepo = $wslRepo.Trim().TrimEnd('/')
+    if ($null -ne $wsl) {
+        try {
+            # 1) Repo as seen by current shell through WSL path translation.
+            $wslRepo = (& wsl.exe wslpath -a $RepoRoot 2>$null)
             if ($wslRepo) {
-                [void](& wsl.exe -- rm -f -- ($wslRepo + '/.git/index.lock') 2>&1)
+                $wslRepo = $wslRepo.Trim().TrimEnd('/')
+                if ($wslRepo) {
+                    [void](& wsl.exe -- rm -f -- ($wslRepo + '/.git/index.lock') 2>&1)
+                }
             }
-        }
-        # 2) Also try MSYS rm against drvfs path for git-for-windows/msys callers.
-        $rmExe = "C:\msys64\usr\bin\rm.exe"
-        if (Test-Path -LiteralPath $rmExe -and $wslRepo) {
-            [void](& $rmExe -f -- ($wslRepo + '/.git/index.lock') 2>&1)
-        }
-    } catch {}
+            # 2) Also try MSYS rm against drvfs path for git-for-windows/msys callers.
+            $rmExe = Get-MsysToolPath -ToolName "rm" -GitExe $GitExe
+            if ($rmExe -and (Test-Path -LiteralPath $rmExe) -and $wslRepo) {
+                [void](& $rmExe -f -- ($wslRepo + '/.git/index.lock') 2>&1)
+            }
+        } catch {}
+    }
+
+    # 3) Force delete via the same MSYS runtime that owns the current git.exe path.
+    $rmExe = Get-MsysToolPath -ToolName "rm" -GitExe $GitExe
+    if ($rmExe -and (Test-Path -LiteralPath $rmExe)) {
+        try {
+            $msysRepo = Convert-WindowsPathToMsysPosixPath -WindowsPath $RepoRoot -GitExe $GitExe
+            if ($msysRepo) {
+                $msysRepo = $msysRepo.Trim().TrimEnd('/')
+                if ($msysRepo) {
+                    [void](& $rmExe -f -- ($msysRepo + '/.git/index.lock') 2>&1)
+                }
+            }
+        } catch {}
+    }
+}
+
+function Get-MsysExpectedLockPath {
+    param(
+        [string]$RepoRoot,
+        [string]$GitExe
+    )
+    if (-not $RepoRoot) { return $null }
+    $msysRepo = Convert-WindowsPathToMsysPosixPath -WindowsPath $RepoRoot -GitExe $GitExe
+    if (-not $msysRepo) { return $null }
+    $msysRepo = $msysRepo.Trim().TrimEnd('/')
+    if (-not $msysRepo) { return $null }
+    return ($msysRepo + '/.git/index.lock')
 }
 
 function Get-ChildProcessPathEnv {
@@ -1235,6 +1321,10 @@ function Invoke-GitSyncBeforeBuild {
                     Add-LogSessionLine "git expected lock (wsl): $wslRepo/.git/index.lock" "#44586C"
                 }
             }
+            $msysExpectedLock = Get-MsysExpectedLockPath -RepoRoot $script:ProjectRoot -GitExe $gitExe
+            if ($msysExpectedLock) {
+                Add-LogSessionLine "git expected lock (msys): $msysExpectedLock" "#44586C"
+            }
         } catch {}
     }
     Push-Location $script:ProjectRoot
@@ -1250,7 +1340,7 @@ function Invoke-GitSyncBeforeBuild {
             if ($addText -match 'index\.lock|Unable to create') {
                 Add-LogSessionLine "git add: index.lock detected (attempt $attempt/3), forcing lock cleanup + retry..." "#CDAA32"
                 Write-DevWindowDebugLog ("git add lock retry attempt " + $attempt + " stderr: " + $addText.Replace("`r"," ").Replace("`n"," | ")) "WARN"
-                Remove-GitIndexLockFromGitStderr $addText
+                Remove-GitIndexLockFromGitStderr -Text $addText -GitExe $gitExe
                 Force-DeleteGitIndexLockHard -RepoRoot $script:ProjectRoot -GitExe $gitExe
                 Start-Sleep -Milliseconds 250
                 continue
@@ -1274,7 +1364,7 @@ function Invoke-GitSyncBeforeBuild {
             $commitCode = $LASTEXITCODE
             if ($commitCode -ne 0 -and (($co | ForEach-Object { "$_" }) -join "`n") -match 'index\.lock|Unable to create') {
                 $commitText = ($co | ForEach-Object { "$_" }) -join "`n"
-                Remove-GitIndexLockFromGitStderr $commitText
+                Remove-GitIndexLockFromGitStderr -Text $commitText -GitExe $gitExe
                 Remove-GitIndexLockForRepo -RepoRoot $script:ProjectRoot -GitExe $gitExe
                 $co = @(& $gitExe commit -m $CommitMessage 2>&1)
                 $commitCode = $LASTEXITCODE

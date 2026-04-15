@@ -132,6 +132,27 @@ void pdguiChromeInitializeBaseMod(void);
 void pdguiThemeSetUiChromeEnabled(s32 enabled);
 s32  pdguiThemeGetUiChromeEnabled(void);
 
+/** Persisted selected chrome style catalog ID (for nineslice-based chrome).
+ *  Defaults to "base:ui_chrome_frame". */
+void pdguiThemeSetUiChromeStyleId(const char *catalog_id);
+const char *pdguiThemeGetUiChromeStyleId(void);
+
+/** Enumerate discovered chrome styles (nineslice + texture registrations).
+ *  These are populated from the base template and user chrome mods that
+ *  declare components.textures + components.nineslice in mod.json. */
+s32 pdguiThemeGetChromeStyleCount(void);
+const char *pdguiThemeGetChromeStyleId(s32 index);
+const char *pdguiThemeGetChromeStyleName(s32 index);
+
+/** Runtime chrome mod hooks (for importer/save flows).
+ * Register + optionally activate a chrome mod directory that contains
+ * `mod.json` with `components.textures` + `components.nineslice`.
+ * Returns 1 on success, 0 on no valid chrome manifest. */
+s32 pdguiThemeRegisterChromeModDir(const char *mod_dir, s32 activate_now);
+
+/** Rescan known mod roots for chrome styles (used after bulk imports). */
+void pdguiThemeRescanChromeStyles(void);
+
 #ifdef __cplusplus
 }
 #endif

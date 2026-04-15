@@ -14,8 +14,8 @@
  *
  * Apply Changes:
  *   1. Commits s_Entries[] enable state to catalog via assetCatalogSetEnabled()
- *   2. Calls modmgrApplyChanges() — saves .modstate, invalidates caches,
- *      returns to title screen.
+ *   2. Calls modmgrApplyChanges() — saves .modstate and rebuilds catalogs
+ *      in-place (no forced title restart).
  *
  * IMPORTANT: C++ file — must NOT include types.h (#define bool s32 breaks C++).
  * Forward-declare all C symbols via extern "C" blocks.
@@ -117,6 +117,11 @@ static bool s_Visible      = false;
 static int  s_Tab          = 0;   /* 0 = By Category, 1 = By Mod */
 static char s_SelectedId[CATALOG_ID_LEN] = "";
 
+/* Apply flow modal state:
+ * 0=idle, 1=open popup next frame, 2=run apply, 3=done/waiting for acknowledge */
+static int  s_ApplyFlowState      = 0;
+static bool s_ApplyCloseAfterDone = false;
+
 /* By-Category: collapsed state per type */
 static bool s_TypeCollapsed[ASSET_TYPE_COUNT];
 static bool s_BaseCollapsed = true;  /* base game section starts collapsed */
@@ -215,6 +220,16 @@ static int countPending(void)
         }
     }
     return n;
+}
+
+static void applyPendingSelectionToCatalog(void)
+{
+    for (int i = 0; i < s_NumEntries; i++) {
+        if (!s_Entries[i].bundled &&
+            s_Entries[i].enabled != s_Entries[i].orig_enabled) {
+            assetCatalogSetEnabled(s_Entries[i].id, s_Entries[i].enabled);
+        }
+    }
 }
 
 /* ========================================================================
@@ -721,7 +736,7 @@ static void renderByModTab(float scale)
 {
     if (s_NumCategories == 0) {
         ImGui::TextDisabled("No mod components installed.");
-        ImGui::TextDisabled("Add components to mods/{category}/{id}/ and restart.");
+        ImGui::TextDisabled("Add components to mods/{category}/{id}/ then click Apply Changes.");
         return;
     }
 
@@ -1160,14 +1175,9 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
         if (applyDisabled) ImGui::BeginDisabled();
 
         if (ImGui::Button(applyLabel, ImVec2(160.0f * scale, 28.0f * scale))) {
-            for (int i = 0; i < s_NumEntries; i++) {
-                if (!s_Entries[i].bundled &&
-                    s_Entries[i].enabled != s_Entries[i].orig_enabled) {
-                    assetCatalogSetEnabled(s_Entries[i].id, s_Entries[i].enabled);
-                }
-            }
-            modmgrApplyChanges();
-            *outClose = 1;
+            applyPendingSelectionToCatalog();
+            s_ApplyCloseAfterDone = false;
+            s_ApplyFlowState = 1;
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
         if (!applyDisabled &&
@@ -1217,15 +1227,10 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
         ImGui::TextUnformatted("Apply them now, or discard?");
         ImGui::Spacing();
         if (ImGui::Button("Apply & Close", ImVec2(120.0f * scale, 0))) {
-            for (int i = 0; i < s_NumEntries; i++) {
-                if (!s_Entries[i].bundled &&
-                    s_Entries[i].enabled != s_Entries[i].orig_enabled) {
-                    assetCatalogSetEnabled(s_Entries[i].id, s_Entries[i].enabled);
-                }
-            }
-            modmgrApplyChanges();
             ImGui::CloseCurrentPopup();
-            *outClose = 1;
+            applyPendingSelectionToCatalog();
+            s_ApplyCloseAfterDone = true;
+            s_ApplyFlowState = 1;
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
         ImGui::SameLine();
@@ -1240,6 +1245,56 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
         }
         ImGui::EndPopup();
+    }
+
+    if (s_ApplyFlowState > 0) {
+        ImGuiIO &io = ImGui::GetIO();
+        ImVec2 center(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
+        ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(pdguiScale(600.0f), pdguiScale(240.0f)));
+
+        ImGuiWindowFlags applyFlags = ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+            ImGuiWindowFlags_NoSavedSettings;
+
+        /* Match updater UX: neutral during work, green-tinted on success. */
+        if (s_ApplyFlowState >= 3) {
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.08f, 0.25f, 0.08f, 0.95f));
+        }
+
+        if (ImGui::Begin("Applying Changes", NULL, applyFlags)) {
+            if (s_ApplyFlowState <= 1) {
+                ImGui::TextUnformatted("Applying mod changes...");
+                ImGui::TextDisabled("Rebuilding catalog and refreshing assets.");
+                ImGui::Spacing();
+                ImGui::ProgressBar(0.5f, ImVec2(-1, 24), "");
+                /* Let this frame paint the window before synchronous apply. */
+                s_ApplyFlowState = 2;
+            } else if (s_ApplyFlowState == 2) {
+                modmgrApplyChanges();
+                refreshSnapshot();
+                s_ApplyFlowState = 3;
+            } else {
+                ImGui::TextUnformatted("Apply complete.");
+                ImGui::TextDisabled("Catalog changes are live. No restart required.");
+                ImGui::Spacing();
+
+                float btnWidth = 120.0f * scale;
+                ImGui::SetCursorPosX((ImGui::GetWindowWidth() - btnWidth) * 0.5f);
+                if (ImGui::Button(s_ApplyCloseAfterDone ? "OK & Close" : "OK",
+                                  ImVec2(btnWidth, 0))) {
+                    if (s_ApplyCloseAfterDone) {
+                        *outClose = 1;
+                    }
+                    s_ApplyFlowState = 0;
+                    s_ApplyCloseAfterDone = false;
+                }
+            }
+        }
+        ImGui::End();
+        if (s_ApplyFlowState >= 3) {
+            ImGui::PopStyleColor();
+        }
     }
 
     /* Validation popup (modal) */
@@ -1310,6 +1365,8 @@ void pdguiModManagerShow(void)
 {
     if (!s_Visible) {
         refreshSnapshot();
+        s_ApplyFlowState = 0;
+        s_ApplyCloseAfterDone = false;
         s_Visible = true;
         sysLogPrintf(LOG_NOTE, "MODMGR: opened");
     }
@@ -1317,6 +1374,8 @@ void pdguiModManagerShow(void)
 
 void pdguiModManagerHide(void)
 {
+    s_ApplyFlowState = 0;
+    s_ApplyCloseAfterDone = false;
     s_Visible = false;
 }
 
@@ -1343,7 +1402,7 @@ void pdguiModManagerRefreshSnapshot(void)
 
 /* Render modmgr content into an already-open ImGui child window context.
  * w/h are the available content area dimensions. scale is winH/480.
- * Sets *outClose to 1 if the user clicks Close, Apply, or presses B/Escape. */
+ * Sets *outClose to 1 if the user clicks Close or presses B/Escape. */
 void pdguiModManagerRenderContent(float w, float h, float scale, s32 *outClose)
 {
     renderModManagerBody(w, h, scale, outClose);

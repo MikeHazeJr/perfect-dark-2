@@ -161,6 +161,30 @@ struct CharEntry {
 static CharEntry s_CharEntries[MAX_CHAR_ENTRIES];
 static s32 s_NumCharEntries = 0;
 static s32 s_SelectedChar   = -1;
+static s32 s_LastRenderEditorActive = -1;
+static s32 s_LastLoggedPreviewReady = -1;
+static u32 s_LastLoggedPreviewTexId = 0;
+static char s_LastLoggedPreviewBodyId[64] = "";
+static char s_LastLoggedPreviewHeadId[64] = "";
+static bool s_LoggedEmptyCharList = false;
+static bool s_LoggedZeroCanvasTex = false;
+
+static void skinEditorDismissTransientUi(void)
+{
+    s_SaveDialogOpen = false;
+    s_ImportDialogOpen = false;
+    s_DownrezDialogOpen = false;
+    s_ExportDialogOpen = false;
+
+    if (s_DownrezPreview) {
+        free(s_DownrezPreview);
+        s_DownrezPreview = NULL;
+    }
+    if (s_DownrezPreviewTex) {
+        glDeleteTextures(1, &s_DownrezPreviewTex);
+        s_DownrezPreviewTex = 0;
+    }
+}
 
 /* ========================================================================
  * Color helpers
@@ -823,7 +847,22 @@ static void renderPreviewPanel(float panelW, float panelH, float scale)
 
         /* Display preview texture */
         u32 prevTex = pdguiCharPreviewGetTextureId();
-        if (prevTex != 0) {
+        s32 previewReady = pdguiCharPreviewIsReady();
+        if (strncmp(s_LastLoggedPreviewBodyId, s_PreviewBodyId, sizeof(s_LastLoggedPreviewBodyId)) != 0
+                || strncmp(s_LastLoggedPreviewHeadId, s_PreviewHeadId, sizeof(s_LastLoggedPreviewHeadId)) != 0
+                || s_LastLoggedPreviewReady != previewReady
+                || s_LastLoggedPreviewTexId != prevTex) {
+            sysLogPrintf(LOG_NOTE,
+                         "skin_editor.preview: request body='%s' head='%s' ready=%d tex=%u editor_active=%d",
+                         s_PreviewBodyId, s_PreviewHeadId, previewReady, prevTex, s_EditorActive ? 1 : 0);
+            strncpy(s_LastLoggedPreviewBodyId, s_PreviewBodyId, sizeof(s_LastLoggedPreviewBodyId) - 1);
+            s_LastLoggedPreviewBodyId[sizeof(s_LastLoggedPreviewBodyId) - 1] = '\0';
+            strncpy(s_LastLoggedPreviewHeadId, s_PreviewHeadId, sizeof(s_LastLoggedPreviewHeadId) - 1);
+            s_LastLoggedPreviewHeadId[sizeof(s_LastLoggedPreviewHeadId) - 1] = '\0';
+            s_LastLoggedPreviewReady = previewReady;
+            s_LastLoggedPreviewTexId = prevTex;
+        }
+        if (prevTex != 0 && previewReady) {
             float availW = ImGui::GetContentRegionAvail().x;
             float availH = ImGui::GetContentRegionAvail().y - 20.0f * scale;
             float side = availW < availH ? availW : availH;
@@ -833,7 +872,15 @@ static void renderPreviewPanel(float panelW, float panelH, float scale)
                          ImVec2(side, side),
                          ImVec2(0, 1), ImVec2(1, 0));  /* UV-flip for GL */
         } else {
-            ImGui::TextDisabled("(rendering...)");
+            ImGui::TextDisabled("(rendering preview...)");
+            if (s_PreviewBodyId[0]) {
+                ImGui::TextDisabled("body=%s", s_PreviewBodyId);
+            }
+            if (s_PreviewHeadId[0]) {
+                ImGui::TextDisabled("head=%s", s_PreviewHeadId);
+            } else {
+                ImGui::TextDisabled("head=(none)");
+            }
         }
 
         /* Show capture status during capture */
@@ -864,6 +911,9 @@ static void refreshCharacterList(void)
 {
     s_NumCharEntries = 0;
     assetCatalogIterateByType(ASSET_BODY, charCollector, NULL);
+    sysLogPrintf(LOG_NOTE, "skin_editor: refreshCharacterList -> %d ASSET_BODY entries",
+                 s_NumCharEntries);
+    s_LoggedEmptyCharList = false;
 }
 
 static void renderCharacterSelector(float w, float h, float scale)
@@ -890,6 +940,11 @@ static void renderCharacterSelector(float w, float h, float scale)
     /* Character list */
     if (s_NumCharEntries == 0) {
         refreshCharacterList();
+        if (s_NumCharEntries == 0 && !s_LoggedEmptyCharList) {
+            sysLogPrintf(LOG_WARNING,
+                         "skin_editor: no ASSET_BODY entries available for character selector");
+            s_LoggedEmptyCharList = true;
+        }
     }
 
     float listH = h - 120.0f * scale;
@@ -907,6 +962,8 @@ static void renderCharacterSelector(float w, float h, float scale)
             } else {
                 s_PreviewHeadId[0] = '\0';
             }
+            sysLogPrintf(LOG_NOTE, "skin_editor: auto-selected first character body='%s' head='%s'",
+                         s_PreviewBodyId, s_PreviewHeadId);
         }
         for (s32 i = 0; i < s_NumCharEntries; i++) {
             bool sel = (i == s_SelectedChar);
@@ -1565,10 +1622,22 @@ extern "C" {
 void pdguiSkinEditorRefresh(void)
 {
     refreshCharacterList();
+    sysLogPrintf(LOG_NOTE, "skin_editor: refresh requested by Modding Hub");
+}
+
+void pdguiSkinEditorDismissTransientUi(void)
+{
+    skinEditorDismissTransientUi();
+    sysLogPrintf(LOG_NOTE, "skin_editor: transient popups/dialogs dismissed");
 }
 
 void pdguiSkinEditorRender(float contentW, float contentH, float scale)
 {
+    if (s_LastRenderEditorActive != (s_EditorActive ? 1 : 0)) {
+        sysLogPrintf(LOG_NOTE, "skin_editor: editor_active -> %d", s_EditorActive ? 1 : 0);
+        s_LastRenderEditorActive = s_EditorActive ? 1 : 0;
+    }
+
     if (s_EditorActive) {
         /* S-9: Poll skin capture state machine FIRST.  This runs during the
          * ImGui phase — the GBI has already executed so the FBO texture
@@ -1608,10 +1677,21 @@ void pdguiSkinEditorRender(float contentW, float contentH, float scale)
         if (canvasTex != 0) {
             pdguiCharPreviewSetSkinOverride(canvasTex,
                 skinCanvasGetWidth(), skinCanvasGetHeight());
+            if (s_LoggedZeroCanvasTex) {
+                sysLogPrintf(LOG_NOTE,
+                             "skin_editor: canvas texture recovered tex=%u size=%dx%d",
+                             canvasTex, skinCanvasGetWidth(), skinCanvasGetHeight());
+                s_LoggedZeroCanvasTex = false;
+            }
+        } else if (!s_LoggedZeroCanvasTex) {
+            sysLogPrintf(LOG_WARNING,
+                         "skin_editor: canvas texture is 0 while editor active (preview override not applied)");
+            s_LoggedZeroCanvasTex = true;
         }
     } else {
         /* Clear override when editor is not active */
         pdguiCharPreviewClearSkinOverride();
+        s_LoggedZeroCanvasTex = false;
     }
 
     if (!s_EditorActive) {

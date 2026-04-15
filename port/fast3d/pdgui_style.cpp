@@ -148,6 +148,7 @@ static const struct pdgui_palette *s_ActivePalette = &s_PaletteBlue;
 /* Custom palette for JSON-loaded themes (writable copy) */
 static struct pdgui_palette s_PaletteCustom;
 static bool s_UsingCustomPalette = false;
+static s32 s_CloseClickConsumedFrame = -1;
 
 /* -----------------------------------------------------------------------
  * Chrome render state
@@ -490,6 +491,7 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
                                    const char *title, int focused)
 {
     ImDrawList *dl = ImGui::GetWindowDrawList();
+    ImGuiIO &io = ImGui::GetIO();
     const struct pdgui_palette *pal = s_ActivePalette;
 
     /* Title bar height -- PD uses LINEHEIGHT (11 at 240p). Scale proportionally. */
@@ -521,6 +523,44 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
     int titleShimmerAlpha = pal->dialog_border1 & 0xFF;
     pdguiDrawShimmerExact(dl, x, y, x + w, y + 1, titleShimmerAlpha, 40, false);
     pdguiDrawShimmerExact(dl, x, y + titleH - 1, x + w, y + titleH, titleShimmerAlpha, 40, true);
+
+    /* Universal mouse close affordance ("X") in the title bar.
+     * Clicking this emits an Escape key edge so every menu uses its existing
+     * back/cancel path (the same path used by keyboard/gamepad cancel). */
+    {
+        float btnPad = 4.0f;
+        float btnSize = titleH - btnPad * 2.0f;
+        if (btnSize < 14.0f) btnSize = 14.0f;
+
+        ImVec2 bmin(x + w - btnPad - btnSize, y + btnPad);
+        ImVec2 bmax(bmin.x + btnSize, bmin.y + btnSize);
+        bool hovered = ImGui::IsMouseHoveringRect(bmin, bmax, false);
+
+        ImU32 bgCol = hovered
+            ? PdColorA(pal->dialog_border2, 224)
+            : PdColorA(pal->dialog_border1, 176);
+        ImU32 xCol = hovered
+            ? PdColorA(pal->dialog_titlebg, 255)
+            : PdColorA(pal->dialog_titlefg, 255);
+
+        dl->AddRectFilled(bmin, bmax, bgCol, 0.0f);
+        dl->AddRect(bmin, bmax, PdColorA(pal->dialog_border2, 255), 0.0f, 0, 1.0f);
+
+        float inset = btnSize * 0.28f;
+        dl->AddLine(ImVec2(bmin.x + inset, bmin.y + inset),
+                    ImVec2(bmax.x - inset, bmax.y - inset), xCol, 2.0f);
+        dl->AddLine(ImVec2(bmin.x + inset, bmax.y - inset),
+                    ImVec2(bmax.x - inset, bmin.y + inset), xCol, 2.0f);
+
+        if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left, false)) {
+            s32 frame = ImGui::GetFrameCount();
+            if (s_CloseClickConsumedFrame != frame) {
+                io.AddKeyEvent(ImGuiKey_Escape, true);
+                io.AddKeyEvent(ImGuiKey_Escape, false);
+                s_CloseClickConsumedFrame = frame;
+            }
+        }
+    }
 
     /* === Chrome render branch ===
      * When chrome is enabled AND the active chrome catalog id resolves to

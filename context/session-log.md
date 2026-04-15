@@ -1,7 +1,375 @@
 # Session Log (Active)
 
-> **S241–S272** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S286** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S286 — 2026-04-15 (Mod Apply completion tint parity with updater success prompt)
+
+**Scope**:
+- Align Mod Apply completion visuals with the updater's success-state treatment.
+
+**Code changes shipped in working tree**:
+- `port/fast3d/pdgui_menu_modmgr.cpp`:
+  - Added success-state window background tint for the `Applying Changes` window when apply reaches completion state (`s_ApplyFlowState >= 3`):
+    - `ImGuiCol_WindowBg = ImVec4(0.08f, 0.25f, 0.08f, 0.95f)`
+  - Kept in-progress state neutral (no tint) so active work and completion are visually distinct.
+
+**Why**:
+- Improves consistency with updater UX while preserving clear phase signaling (working vs complete).
+
+**Verification**:
+- Build verification passed:
+  - `. .\devtools\_build-env-prelude.ps1`
+  - `ninja -C Build pd pd-server`
+  - Result: `PerfectDark.exe` and `PerfectDarkServer.exe` linked clean.
+
+## Session S285 — 2026-04-15 (Mod Apply popup visual parity with updater download window)
+
+**Scope**:
+- Make Mod Manager Apply UX match the existing updater download popup style.
+
+**Code changes shipped in working tree**:
+- `port/fast3d/pdgui_menu_modmgr.cpp`:
+  - Replaced `BeginPopupModal("Applying Changes")` flow with a centered updater-style window (`ImGui::Begin("Applying Changes", ...)`) using:
+    - fixed centered positioning and fixed size (`600x240` scaled),
+    - no resize/move/collapse/saved-settings flags,
+    - wide progress bar (`ImVec2(-1, 24)`),
+    - centered acknowledgment button (`OK` / `OK & Close`) on completion.
+  - Kept existing apply state machine behavior (paint first frame, run synchronous apply next frame, then completion state).
+
+**Why**:
+- User-requested UX consistency: Apply should present the same style pattern as the update download window while catalog rebuild/diff/apply runs.
+
+**Verification**:
+- Build verification passed:
+  - `. .\devtools\_build-env-prelude.ps1`
+  - `ninja -C Build pd pd-server`
+  - Result: `PerfectDark.exe` and `PerfectDarkServer.exe` linked clean.
+
+## Session S284 — 2026-04-15 (Mod Apply: in-place modal apply, no forced title restart)
+
+**Scope**:
+- Remove the forced stage transition from Mod Manager Apply and keep the user in the current menu flow while catalog rebuild/diff/apply runs.
+
+**Code changes shipped in working tree**:
+- `port/src/modmgr.c`:
+  - `modmgrApplyChanges()` now performs in-place apply only:
+    - save component state/config,
+    - rebuild catalog from current selection,
+    - invalidate catalog-backed caches,
+    - reset texture cache,
+    - rescan themes,
+    - clear dirty state.
+  - Removed the forced teardown/transition behavior from apply:
+    - no `menuStop()`,
+    - no `pdguiMainMenuReset()`,
+    - no `mainChangeToStage(MODMGR_STAGE_TITLE)`.
+  - Updated apply-complete logging to explicitly note no stage restart.
+- `port/fast3d/pdgui_menu_modmgr.cpp`:
+  - Added in-UI apply flow modal state machine:
+    - opens `Applying Changes` modal,
+    - runs synchronous `modmgrApplyChanges()` while modal is active,
+    - shows completion message (`Catalog changes are live. No restart required.`),
+    - supports `Apply` and `Apply & Close` paths.
+  - Refactored selection commit into helper (`applyPendingSelectionToCatalog()`).
+  - Updated empty-state copy to remove restart guidance.
+- `port/include/modmgr.h`:
+  - Updated `modmgrApplyChanges()` comment to document in-place apply semantics.
+
+**Why**:
+- Returning to title on every Apply is unnecessary for this architecture and creates avoidable UX churn/risk. In-place apply keeps users in context and aligns with hot-reload behavior already used elsewhere.
+
+**Verification**:
+- Build verification passed (client + server):
+  - `. .\devtools\_build-env-prelude.ps1`
+  - `ninja -C Build pd pd-server`
+  - Result: `PerfectDark.exe` and `PerfectDarkServer.exe` linked clean.
+
+## Session S283 — 2026-04-15 (UI Chrome Style: mod-discovered picker + persisted style ID)
+
+**Scope**:
+- Extend Settings -> Video -> UI Chrome Style from fixed Procedural/Classic toggle to a picker that includes discovered chrome mods and restores the exact chosen chrome style on restart.
+
+**Code changes shipped in working tree**:
+- `port/include/pdgui_theme.h`:
+  - Added UI chrome style APIs for persisted style id and runtime style enumeration:
+    - `pdguiThemeSetUiChromeStyleId` / `pdguiThemeGetUiChromeStyleId`
+    - `pdguiThemeGetChromeStyleCount` / `pdguiThemeGetChromeStyleId` / `pdguiThemeGetChromeStyleName`
+- `port/fast3d/pdgui_theme.cpp`:
+  - Added `Video.UiChromeStyleId` config registration/backing storage (default `base:ui_chrome_frame`).
+  - Added chrome style registry cache and manifest parser for `mod.json` entries using the extracted schema:
+    - `components.textures[]` (`id`, `file`)
+    - `components.nineslice[]` (`id`, `src_inset`, `dst_corner_px`, `*_mode`)
+  - Added mod scan over common mods roots and dynamic registration:
+    - load texture via existing `s_registerModTexture(...)`
+    - register nineslice via `pdguiNinesliceRegister(...)`
+    - expose style in runtime picker list
+  - Startup chrome apply now:
+    - resolves persisted `Video.UiChromeStyleId`,
+    - falls back to `base:ui_chrome_frame` if style is unavailable,
+    - applies the resolved style when chrome is enabled.
+- `port/fast3d/pdgui_menu_mainmenu.cpp`:
+  - Replaced static two-option UI Chrome combo with dynamic options:
+    - `Procedural` + discovered style names from theme API.
+  - Selection now persists both:
+    - `Video.UiChromeEnabled` (existing),
+    - `Video.UiChromeStyleId` (new),
+    and still calls `configSave("pd.ini")` immediately on change.
+- `port/include/pdgui_theme.h` + `port/fast3d/pdgui_theme.cpp`:
+  - Added runtime chrome registration hooks for importer/save flows:
+    - `pdguiThemeRegisterChromeModDir(mod_dir, activate_now)` to hot-register a newly written chrome mod directory and optionally auto-activate/persist it immediately.
+    - `pdguiThemeRescanChromeStyles()` to rebuild chrome style list from disk after bulk import operations.
+- `port/fast3d/pdgui_menu_moddinghub.cpp`:
+  - Mod Pack import success path now calls `pdguiThemeRescanChromeStyles()` so newly imported chrome mods appear in Settings -> Video style picker without restart.
+
+**Why**:
+- The previous picker could only target hardcoded `base:ui_chrome_frame`, which blocked users from selecting custom chrome mods created from the same manifest template format.
+
+**Verification**:
+- Build verification passed (client + server):
+  - `. .\devtools\_build-env-prelude.ps1`
+  - `ninja -C Build pd pd-server`
+  - Result: `PerfectDark.exe` and `PerfectDarkServer.exe` linked clean.
+
+## Session S282 — 2026-04-15 (UI Chrome Style: immediate persistence on change)
+
+**Scope**:
+- Ensure Settings -> Video -> UI Chrome Style saves immediately when changed, so toggling Procedural/Classic persists across restart without relying on later config writes.
+
+**Code changes shipped in working tree**:
+- `port/fast3d/pdgui_menu_mainmenu.cpp`:
+  - In `renderSettingsVideo()`, the `UI Chrome Style` combo change handler now calls `configSave("pd.ini")` immediately after applying `pdguiThemeSetUiChromeEnabled(...)` and the chrome runtime toggle.
+
+**Context note**:
+- Verified the external default template at `Downloads/Perfect Dark 2.0/data/mods/base-game/ui-chrome/mod.json` still uses embedded `components.nineslice` entries (`src_inset`/`dst_corner_px`) and no separate nineslice JSON file.
+
+**Verification**:
+- Build verification passed:
+  - `. .\devtools\_build-env-prelude.ps1`
+  - `ninja -C Build pd pd-server`
+  - Result: `PerfectDark.exe` and `PerfectDarkServer.exe` linked clean.
+
+## Session S281 — 2026-04-15 (Skin Editor preview: avoid drawing non-ready black texture)
+
+**Scope**:
+- Address Skin Editor report of pitch-black preview panel while character preview is still loading/not ready.
+
+**Code changes shipped in working tree**:
+- `port/fast3d/pdgui_skin_editor.cpp`:
+  - `renderPreviewPanel()` now requires both:
+    - non-zero texture id, and
+    - `pdguiCharPreviewIsReady() == true`
+    before drawing the preview image.
+  - When not ready, panel now shows explicit rendering status + selected body/head IDs instead of drawing a black texture.
+
+**Why**:
+- The previous path drew whenever texture id was non-zero, even if charpreview readiness had not been established yet, which could present as a black panel.
+
+**Verification**:
+- Build verification passed:
+  - `. .\devtools\_build-env-prelude.ps1`
+  - `ninja -C Build pd`
+  - Result: `PerfectDark.exe` linked clean.
+
+## Session S280 — 2026-04-15 (Modding Hub close-state hardening for Skin Editor popups)
+
+**Scope**:
+- Fix modal/popup lifecycle bug where closing certain Skin Editor popups (`X`/`Cancel`) could close Modding Hub and leave stale popup state visible on next open.
+
+**Code changes shipped in working tree**:
+- `port/fast3d/pdgui_skin_editor.cpp`:
+  - Added `pdguiSkinEditorDismissTransientUi()` C API to force-dismiss transient popup/dialog state (`Save`, `Import`, `Convert to PD Style`, `Export Template`) and free downrez preview resources when hub closes.
+- `port/fast3d/pdgui_menu_moddinghub.cpp`:
+  - Added centralized close helper `moddingHubClose(reason)` used by all close paths (button, Esc/B, outside-click, explicit hide, Mod Manager close request).
+  - Centralized close now calls `pdguiSkinEditorDismissTransientUi()` so stale popup state cannot survive hub closure.
+  - Outside-click-to-close and Esc/B close are now suppressed while any ImGui popup is open (`ImGui::IsPopupOpen(..., AnyPopupId)`), preventing modal interactions from accidentally closing the entire hub.
+
+**Why**:
+- Skin Editor popup windows can extend near/over hub bounds. Hub-level outside-click close and global Esc/B close were firing during popup interaction, causing a full hub close and stale modal state on reopen.
+
+**Verification**:
+- Build verification passed:
+  - `. .\devtools\_build-env-prelude.ps1`
+  - `ninja -C Build pd`
+  - Result: `PerfectDark.exe` linked clean.
+
+## Session S279 — 2026-04-15 (Global title-bar close button for ImGui menus)
+
+**Scope**:
+- Add a visible mouse-click close affordance to PD-styled ImGui dialog title bars.
+
+**Code changes shipped in working tree**:
+- `port/fast3d/pdgui_style.cpp`:
+  - Added a shared title-bar close button (`X`) render path inside `pdguiDrawPdDialog()`.
+  - Added hover/pressed visuals using the active PD palette colors.
+  - Left-click on the `X` now emits an Escape press/release event (`ImGuiKey_Escape`) via ImGui IO, reusing existing menu cancel/back handlers.
+  - Added per-frame click consumption guard (`s_CloseClickConsumedFrame`) so one click cannot trigger multiple closes when multiple dialogs draw in a frame.
+
+**Why**:
+- Middle-click back (S276) provided a universal mouse escape path, but it is hidden. A visible title-bar `X` makes exit/discard affordance discoverable across menus without per-screen button rewrites.
+
+**Verification**:
+- Build verification passed:
+  - `ninja -C Build pd`
+  - Result: `PerfectDark.exe` linked clean.
+
+**Next steps**:
+- Playtest top-level and nested modal flows (Main Menu, Solo Mission dialogs, Room/MP settings subdialogs, warning popups) to confirm:
+  - `X` closes exactly one layer per click,
+  - existing right-click interactions remain unchanged.
+
+## Session S278 — 2026-04-15 (Modding Hub + Skin Editor diagnostics, multi-texture skin capture selection)
+
+**Scope**:
+- Add targeted diagnostics to investigate:
+  - Mods visible in Mod Manager but missing in INI Editor list.
+  - Skin Editor preview/capture path showing black or incomplete (head-only style) results.
+
+**Code changes shipped in working tree**:
+- `port/fast3d/pdgui_menu_moddinghub.cpp`:
+  - Added tool-switch logging (`modhub: active tool -> ...`).
+  - Added INI refresh diagnostics:
+    - per-asset-type add counts,
+    - total/mod/base entry counts.
+  - Added INI selection/load/save diagnostics:
+    - selected entry id + bundled flag,
+    - full ini path used for load/save,
+    - parsed line counts (editable/comment/blank),
+    - warning when list is empty.
+  - Added first-edit logging for key/value edits so input-application flow is visible.
+- `port/fast3d/pdgui_skin_editor.cpp`:
+  - Added character-list refresh and empty-list warnings.
+  - Added editor active/inactive transition logs.
+  - Added preview request state logs (body/head ids, ready flag, tex id) on state change.
+  - Added logs for zero canvas texture while editor is active (override not applied) and recovery log when it returns.
+- `port/fast3d/pdgui_charpreview.c`:
+  - Added character request resolution logs:
+    - head/body catalog id -> resolved mp indices/params,
+    - warnings when head/body resolve fails.
+  - Added non-character resolve failure logs.
+- `port/fast3d/gfx_pc.cpp`:
+  - Reworked skin-capture source selection from "first imported texture" to "collect all candidates this preview pass, choose largest-area texture".
+  - Added per-pass capture diagnostics:
+    - summary selected texture,
+    - candidate list (tex id, size, fmt/siz, tile, area),
+    - retry note when no candidates were observed in a pass.
+
+**Why**:
+- Prior capture logic could lock onto the first imported texture, which is often not representative (for example a head/aux texture), producing poor or partial base capture in Skin Editor.
+- Missing INI entries and black previews require full pipeline visibility (catalog iterate -> list populate -> selection -> file path load -> preview request -> model/texture capture).
+
+**Verification**:
+- Build verification passed:
+  - `. .\devtools\_build-env-prelude.ps1`
+  - `ninja -C Build pd`
+  - Result: `PerfectDark.exe` linked clean.
+
+## Session S277 — 2026-04-15 (Select Tunes: Mod Tracks click now toggles playlist membership)
+
+**Scope**:
+- Fix Select Tunes interaction where clicking a mod track in the left "Mod Tracks" list did not remove/re-add consistently as users toggle selections.
+
+**Code changes shipped in working tree**:
+- `port/fast3d/pdgui_menu_mpsettings.cpp`:
+  - Updated Mod Tracks click handler in `renderSelectTunes()` to behave as a true toggle:
+    - click when not selected -> add to playlist,
+    - click when already selected -> remove from playlist.
+  - Kept playlist index reset + room playlist sync dispatch after both add and remove paths.
+  - Preserved existing add/remove UI sounds (`PDGUI_SND_SELECT` on add, `PDGUI_SND_KBCANCEL` on remove).
+
+**Why**:
+- The left panel should be a direct add/remove control surface for mod tracks. The previous branch only added on first click and ignored subsequent clicks while selected.
+
+**Verification**:
+- Compile verification pending in this session shell.
+
+## Session S276 — 2026-04-15 (Universal mouse back/cancel for ImGui menus)
+
+**Scope**:
+- Ensure every ImGui menu has a mouse-driven exit path without per-menu rewrites.
+
+**Code changes shipped in working tree**:
+- `port/fast3d/pdgui_backend.cpp`:
+  - Extended `pdguiDriveImGuiNav()` with a middle-mouse back/cancel bridge.
+  - Middle mouse button now emits `ImGuiKey_Escape` press/release events, which reuses existing menu cancel handling paths (`Escape` / `GamepadFaceRight` checks) across the menu suite.
+  - Chose middle-click specifically to avoid conflicts with right-click list interactions (for example contextual remove actions in room/tunes screens).
+
+**Why**:
+- Many menus already support cancel semantics, but user-facing mouse-only flows were inconsistent. A backend-level bridge gives one behavior across all menus and keeps diffs small.
+
+**Verification**:
+- `devtools/build-headless.ps1 -Target client` still reproduces the known PowerShell runspace failure in this shell.
+- Fallback toolchain verification passed:
+  - `. .\devtools\_build-env-prelude.ps1`
+  - `cmake -G Ninja -S . -B Build -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++`
+  - `ninja -C Build pd`
+- Result: client linked clean (`PerfectDark.exe`).
+
+**Next steps**:
+- Playtest representative menu flows (Main Menu, Solo Mission, Room, Training, Pause, typed warning dialogs) and confirm middle-click consistently backs out one menu layer.
+
+## Session S275 — 2026-04-15 (Audio mod category parse hardening for Songs list)
+
+**Scope**:
+- Fix enabled song/audio mods not appearing under Select Tunes when `audio.ini` used textual category values.
+
+**Code changes shipped in working tree**:
+- `port/src/modmgr.c`:
+  - Added `modmgrParseAudioCategoryValue()` helper to parse `audio.ini` category values as either numeric (`0/1/2`) or text (`music`, `sfx`, `voice`, plus common aliases).
+  - Updated both audio.ini parse paths (`modmgrParseAudioIni`, `modmgrLoadAudioIni`) to use the helper instead of raw `atoi`.
+  - Kept fallback behavior defaulting to music when category is missing/invalid.
+  - Extended registration log line to include resolved category for runtime diagnosis.
+
+**Why**:
+- `renderSelectTunes` only lists `ASSET_AUDIO` entries with `category == AUDIO_CAT_MUSIC`. Textual `audio.ini` values like `category=music` previously parsed as `0` via `atoi`, so tracks were registered as SFX and filtered out.
+
+**Verification**:
+- Code-path verification complete (parse -> register -> Select Tunes filter alignment).
+- Runtime playtest required: enabled song mods should now populate Mod Tracks in Select Tunes.
+
+## Session S274 — 2026-04-15 (Mod Apply transition hardening: stop menu runtime before title restart)
+
+**Scope**:
+- Fix regression reported from Modding Hub -> Apply Changes where title/CI reload could land in a state with captured gameplay mouse and no accessible menu.
+
+**Code changes shipped in working tree**:
+- `port/src/modmgr.c`:
+  - Added explicit include usage for menu/runtime reset (`game/menu.h`, `pdgui.h`).
+  - `modmgrApplyChanges()` now performs teardown before `mainChangeToStage(MODMGR_STAGE_TITLE)`:
+    - `menuStop()` to clear active legacy menu runtime/dialog stack,
+    - `pdguiMainMenuReset()` (client-only) to force top-level main-menu view on next open.
+
+**Why**:
+- Apply currently rebuilds catalog state and stage-switches directly from within active Modding Hub/Main Menu UI. Stopping menu runtime before the stage transition avoids carrying half-open menu state into the title->CI restart path.
+
+**Verification**:
+- Log analysis from `pd-client.log` confirms transition path through Modding Hub and stage reload into intro/CI.
+- Build attempt via `devtools/build-headless.ps1 -Target client` in this shell did not complete configure cleanly (exit code 5 after configure start, no compile diagnostics emitted); runtime verification required.
+
+**Next steps**:
+- Re-test: open Modding Hub, toggle a few theme mods, press Apply.
+- Confirm post-reload behavior: main menu opens normally, and Esc/Start can open/close menus in CI.
+
+## Session S273 — 2026-04-15 (Dev Window v2 lock cleanup: same-MSYS path fidelity)
+
+**Scope**:
+- Follow-up on repeated `index.lock` sync failures where git was resolved from `c:\devkitPro\msys2\usr\bin\git.exe` and lock cleanup targeted a different MSYS runtime.
+
+**Code changes shipped in working tree**:
+- `devtools/dev-window-v2/dev-window-v2.ps1`:
+  - Added `Get-MsysToolPath()` to resolve `rm.exe`/`cygpath.exe` from the same MSYS root as the active `git.exe` (with `C:\msys64` fallback).
+  - Added `Convert-WindowsPathToMsysPosixPath()` and `Get-MsysExpectedLockPath()` so sync can derive the active MSYS `/home/...` repo path from `ProjectRoot`.
+  - Updated `Remove-GitIndexLockForRepo()` and `Force-DeleteGitIndexLockHard()` to delete `/.git/index.lock` through that same MSYS runtime path in addition to existing Windows/WSL cleanup.
+  - Updated `Remove-GitIndexLockFromGitStderr()` callsites to pass `-GitExe` so retry cleanup uses matching toolchain semantics.
+  - Added Log-tab diagnostic line for `git expected lock (msys): ...` to surface runtime path mapping per build.
+
+**Verification**:
+- PowerShell parser validation passed for `dev-window-v2.ps1` after edits.
+- Failure evidence reviewed: `failed build.txt` showed lock creation failure at `/home/mikeh/.../.git/index.lock` while sync diagnostics only surfaced Windows lock path.
+
+**Next steps**:
+- Re-run Dev Window v2 Build once and confirm log includes `git expected lock (msys): /home/.../.git/index.lock`.
+- If lock retry triggers, verify sync no longer exits at `git commit failed` for the same stale-lock condition.
 
 ## Session S272 — 2026-04-15 (Dev Window v2 lock path policy simplification: dev-root primary)
 

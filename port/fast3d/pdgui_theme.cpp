@@ -35,6 +35,8 @@
 #include <stdint.h>
 #include <math.h>
 #include <assert.h>
+#include <dirent.h>
+#include <sys/stat.h>
 #include <string>
 #include <unordered_map>
 
@@ -496,6 +498,15 @@ static bool s_ThemeLateInitDone = false;
 /* Background texture ID for haze overlay in dialogs */
 static const char *s_BgTexId = NULL;
 
+struct chrome_style_entry {
+    char id[64];
+    char name[96];
+};
+
+#define PDGUI_MAX_CHROME_STYLES 32
+static chrome_style_entry s_ChromeStyles[PDGUI_MAX_CHROME_STYLES];
+static s32 s_ChromeStyleCount = 0;
+
 /* Scanline config */
 static bool  s_ScanlineEnabled = true;
 static float s_ScanlineAlpha   = 0.5f;
@@ -720,6 +731,463 @@ static void s_registerProceduralTexture(const char *catalog_id,
 }
 
 /* =========================================================================
+ * UI chrome style registry + mod.json chrome parser
+ * ========================================================================= */
+
+enum chrome_jtok_type {
+    CJT_NONE = 0, CJT_LBRACE, CJT_RBRACE, CJT_LBRACKET, CJT_RBRACKET,
+    CJT_COLON, CJT_COMMA, CJT_STRING, CJT_NUMBER, CJT_TRUE, CJT_FALSE,
+    CJT_NULL_TOK, CJT_EOF, CJT_ERROR
+};
+
+struct chrome_jtok {
+    const char *start;
+    int len;
+    chrome_jtok_type type;
+};
+
+struct chrome_jparse {
+    const char *pos;
+};
+
+static void cjson_skip_ws(chrome_jparse *j)
+{
+    while (*j->pos && (*j->pos == ' ' || *j->pos == '\t' ||
+           *j->pos == '\n' || *j->pos == '\r')) {
+        j->pos++;
+    }
+}
+
+static chrome_jtok cjson_next(chrome_jparse *j)
+{
+    chrome_jtok tok = { nullptr, 0, CJT_NONE };
+    cjson_skip_ws(j);
+    if (!*j->pos) { tok.type = CJT_EOF; return tok; }
+
+    tok.start = j->pos;
+    char c = *j->pos;
+    switch (c) {
+    case '{': tok.type = CJT_LBRACE; tok.len = 1; j->pos++; break;
+    case '}': tok.type = CJT_RBRACE; tok.len = 1; j->pos++; break;
+    case '[': tok.type = CJT_LBRACKET; tok.len = 1; j->pos++; break;
+    case ']': tok.type = CJT_RBRACKET; tok.len = 1; j->pos++; break;
+    case ':': tok.type = CJT_COLON; tok.len = 1; j->pos++; break;
+    case ',': tok.type = CJT_COMMA; tok.len = 1; j->pos++; break;
+    case '"': {
+        j->pos++;
+        tok.start = j->pos;
+        while (*j->pos && *j->pos != '"') {
+            if (*j->pos == '\\') j->pos++;
+            if (*j->pos) j->pos++;
+        }
+        tok.len = (int)(j->pos - tok.start);
+        tok.type = CJT_STRING;
+        if (*j->pos == '"') j->pos++;
+        break;
+    }
+    default:
+        if (c == '-' || (c >= '0' && c <= '9')) {
+            if (c == '-') j->pos++;
+            while (*j->pos >= '0' && *j->pos <= '9') j->pos++;
+            tok.len = (int)(j->pos - tok.start);
+            tok.type = CJT_NUMBER;
+        } else if (strncmp(j->pos, "true", 4) == 0) {
+            tok.type = CJT_TRUE; tok.len = 4; j->pos += 4;
+        } else if (strncmp(j->pos, "false", 5) == 0) {
+            tok.type = CJT_FALSE; tok.len = 5; j->pos += 5;
+        } else if (strncmp(j->pos, "null", 4) == 0) {
+            tok.type = CJT_NULL_TOK; tok.len = 4; j->pos += 4;
+        } else {
+            tok.type = CJT_ERROR;
+            j->pos++;
+        }
+        break;
+    }
+    return tok;
+}
+
+static void cjson_str(const chrome_jtok *tok, char *dst, int maxlen)
+{
+    if (tok->type != CJT_STRING || !tok->start || maxlen <= 0) {
+        if (maxlen > 0) dst[0] = '\0';
+        return;
+    }
+    int n = tok->len < (maxlen - 1) ? tok->len : (maxlen - 1);
+    memcpy(dst, tok->start, n);
+    dst[n] = '\0';
+}
+
+static s32 cjson_int(const chrome_jtok *tok, s32 def)
+{
+    if (tok->type != CJT_NUMBER || !tok->start) return def;
+    return (s32)strtol(tok->start, nullptr, 10);
+}
+
+static bool cjson_key_eq(const chrome_jtok *tok, const char *key)
+{
+    int klen = (int)strlen(key);
+    return tok->type == CJT_STRING && tok->len == klen &&
+           memcmp(tok->start, key, klen) == 0;
+}
+
+static void cjson_skip_value(chrome_jparse *j)
+{
+    chrome_jtok tok = cjson_next(j);
+    if (tok.type == CJT_LBRACE) {
+        int depth = 1;
+        while (depth > 0) {
+            tok = cjson_next(j);
+            if (tok.type == CJT_LBRACE) depth++;
+            else if (tok.type == CJT_RBRACE) depth--;
+            else if (tok.type == CJT_EOF || tok.type == CJT_ERROR) return;
+        }
+    } else if (tok.type == CJT_LBRACKET) {
+        int depth = 1;
+        while (depth > 0) {
+            tok = cjson_next(j);
+            if (tok.type == CJT_LBRACKET) depth++;
+            else if (tok.type == CJT_RBRACKET) depth--;
+            else if (tok.type == CJT_EOF || tok.type == CJT_ERROR) return;
+        }
+    }
+}
+
+static s32 s_parseFillModeToken(const chrome_jtok *tok)
+{
+    char mode[32];
+    cjson_str(tok, mode, sizeof(mode));
+    return strcmp(mode, "tile") == 0 ? NINESLICE_TILE : NINESLICE_STRETCH;
+}
+
+static void s_chromeStylesClear(void)
+{
+    s_ChromeStyleCount = 0;
+}
+
+static bool s_chromeStyleHasId(const char *id)
+{
+    for (s32 i = 0; i < s_ChromeStyleCount; i++) {
+        if (strcmp(s_ChromeStyles[i].id, id) == 0) return true;
+    }
+    return false;
+}
+
+static void s_chromeStyleAdd(const char *id, const char *name)
+{
+    if (!id || !id[0]) return;
+    if (s_ChromeStyleCount >= PDGUI_MAX_CHROME_STYLES) return;
+    if (s_chromeStyleHasId(id)) return;
+
+    chrome_style_entry *e = &s_ChromeStyles[s_ChromeStyleCount++];
+    snprintf(e->id, sizeof(e->id), "%s", id);
+    snprintf(e->name, sizeof(e->name), "%s", (name && name[0]) ? name : id);
+}
+
+static s32 s_parseChromeManifest(const char *json,
+                                 char *out_name, s32 out_name_len,
+                                 char *out_tex_id, s32 out_tex_id_len,
+                                 char *out_tex_file, s32 out_tex_file_len,
+                                 nineslice_def_t *out_ns);
+
+static s32 s_registerChromeStyleFromModDir(const char *mod_dir,
+                                           const char *fallback_name,
+                                           s32 allow_existing,
+                                           char *out_style_id,
+                                           s32 out_style_id_len)
+{
+    if (out_style_id && out_style_id_len > 0) {
+        out_style_id[0] = '\0';
+    }
+    if (!mod_dir || !mod_dir[0]) return 0;
+
+    char mod_json[FS_MAXPATH];
+    snprintf(mod_json, sizeof(mod_json), "%s/mod.json", mod_dir);
+    u32 size = 0;
+    char *raw = (char *)fsFileLoad(mod_json, &size);
+    if (!raw || !size) {
+        if (raw) free(raw);
+        return 0;
+    }
+
+    char *json = (char *)malloc(size + 1);
+    if (!json) {
+        free(raw);
+        return 0;
+    }
+    memcpy(json, raw, size);
+    json[size] = '\0';
+    free(raw);
+
+    char style_name[96];
+    char tex_id[64];
+    char tex_file[256];
+    nineslice_def_t ns;
+    s32 ok = s_parseChromeManifest(json, style_name, sizeof(style_name),
+                                   tex_id, sizeof(tex_id),
+                                   tex_file, sizeof(tex_file), &ns);
+    if (!ok) {
+        free(json);
+        return 0;
+    }
+
+    if (out_style_id && out_style_id_len > 0) {
+        snprintf(out_style_id, out_style_id_len, "%s", tex_id);
+    }
+
+    if (s_chromeStyleHasId(tex_id) && !allow_existing) {
+        free(json);
+        return 0;
+    }
+
+    char tex_path[FS_MAXPATH];
+    snprintf(tex_path, sizeof(tex_path), "%s/%s", mod_dir, tex_file);
+    s_registerModTexture(tex_id, tex_path);
+    pdguiNinesliceRegister(tex_id, &ns);
+    s_chromeStyleAdd(tex_id, style_name[0] ? style_name :
+                              (fallback_name && fallback_name[0]) ? fallback_name : tex_id);
+    sysLogPrintf(LOG_NOTE, "UI.CHROME: registered style '%s' (%s)", tex_id, tex_path);
+
+    free(json);
+    return 1;
+}
+
+static s32 s_parseChromeManifest(const char *json,
+                                 char *out_name, s32 out_name_len,
+                                 char *out_tex_id, s32 out_tex_id_len,
+                                 char *out_tex_file, s32 out_tex_file_len,
+                                 nineslice_def_t *out_ns)
+{
+    if (!json || !out_name || !out_tex_id || !out_tex_file || !out_ns) return 0;
+
+    out_name[0] = '\0';
+    out_tex_id[0] = '\0';
+    out_tex_file[0] = '\0';
+    memset(out_ns, 0, sizeof(*out_ns));
+    out_ns->edge_mode = NINESLICE_STRETCH;
+    out_ns->center_mode = NINESLICE_STRETCH;
+    out_ns->top_mode = NINESLICE_STRETCH;
+    out_ns->bottom_mode = NINESLICE_STRETCH;
+    out_ns->left_mode = NINESLICE_STRETCH;
+    out_ns->right_mode = NINESLICE_STRETCH;
+
+    chrome_jparse jp = { json };
+    chrome_jtok tok = cjson_next(&jp);
+    if (tok.type != CJT_LBRACE) return 0;
+
+    bool has_nineslice = false;
+    bool has_chrome_tag = false;
+
+    while (true) {
+        tok = cjson_next(&jp);
+        if (tok.type == CJT_RBRACE || tok.type == CJT_EOF) break;
+        if (tok.type == CJT_COMMA) continue;
+        if (tok.type != CJT_STRING) { cjson_skip_value(&jp); continue; }
+
+        chrome_jtok key = tok;
+        tok = cjson_next(&jp);
+        if (tok.type != CJT_COLON) break;
+
+        if (cjson_key_eq(&key, "name")) {
+            tok = cjson_next(&jp);
+            cjson_str(&tok, out_name, out_name_len);
+        } else if (cjson_key_eq(&key, "tags")) {
+            tok = cjson_next(&jp);
+            if (tok.type == CJT_LBRACKET) {
+                while (true) {
+                    tok = cjson_next(&jp);
+                    if (tok.type == CJT_RBRACKET || tok.type == CJT_EOF) break;
+                    if (tok.type == CJT_COMMA) continue;
+                    if (tok.type != CJT_STRING) { cjson_skip_value(&jp); continue; }
+                    char tag[32];
+                    cjson_str(&tok, tag, sizeof(tag));
+                    if (strcmp(tag, "chrome") == 0) {
+                        has_chrome_tag = true;
+                    }
+                }
+            } else {
+                cjson_skip_value(&jp);
+            }
+        } else if (cjson_key_eq(&key, "components")) {
+            tok = cjson_next(&jp);
+            if (tok.type != CJT_LBRACE) { cjson_skip_value(&jp); continue; }
+
+            while (true) {
+                tok = cjson_next(&jp);
+                if (tok.type == CJT_RBRACE || tok.type == CJT_EOF) break;
+                if (tok.type == CJT_COMMA) continue;
+                if (tok.type != CJT_STRING) { cjson_skip_value(&jp); continue; }
+
+                chrome_jtok ckey = tok;
+                tok = cjson_next(&jp);
+                if (tok.type != CJT_COLON) break;
+
+                if (cjson_key_eq(&ckey, "textures")) {
+                    tok = cjson_next(&jp);
+                    if (tok.type != CJT_LBRACKET) { cjson_skip_value(&jp); continue; }
+                    while (true) {
+                        tok = cjson_next(&jp);
+                        if (tok.type == CJT_RBRACKET || tok.type == CJT_EOF) break;
+                        if (tok.type == CJT_COMMA) continue;
+                        if (tok.type != CJT_LBRACE) { cjson_skip_value(&jp); continue; }
+
+                        char tex_id[64] = "";
+                        char tex_file[256] = "";
+                        while (true) {
+                            tok = cjson_next(&jp);
+                            if (tok.type == CJT_RBRACE || tok.type == CJT_EOF) break;
+                            if (tok.type == CJT_COMMA) continue;
+                            if (tok.type != CJT_STRING) { cjson_skip_value(&jp); continue; }
+                            chrome_jtok tkey = tok;
+                            tok = cjson_next(&jp);
+                            if (tok.type != CJT_COLON) break;
+                            tok = cjson_next(&jp);
+                            if (cjson_key_eq(&tkey, "id")) cjson_str(&tok, tex_id, sizeof(tex_id));
+                            else if (cjson_key_eq(&tkey, "file")) cjson_str(&tok, tex_file, sizeof(tex_file));
+                        }
+                        if (tex_id[0] && tex_file[0] && !out_tex_id[0]) {
+                            snprintf(out_tex_id, out_tex_id_len, "%s", tex_id);
+                            snprintf(out_tex_file, out_tex_file_len, "%s", tex_file);
+                        }
+                    }
+                } else if (cjson_key_eq(&ckey, "nineslice")) {
+                    tok = cjson_next(&jp);
+                    if (tok.type != CJT_LBRACKET) { cjson_skip_value(&jp); continue; }
+                    while (true) {
+                        tok = cjson_next(&jp);
+                        if (tok.type == CJT_RBRACKET || tok.type == CJT_EOF) break;
+                        if (tok.type == CJT_COMMA) continue;
+                        if (tok.type != CJT_LBRACE) { cjson_skip_value(&jp); continue; }
+
+                        char ns_id[64] = "";
+                        nineslice_def_t ns = *out_ns;
+                        while (true) {
+                            tok = cjson_next(&jp);
+                            if (tok.type == CJT_RBRACE || tok.type == CJT_EOF) break;
+                            if (tok.type == CJT_COMMA) continue;
+                            if (tok.type != CJT_STRING) { cjson_skip_value(&jp); continue; }
+                            chrome_jtok nkey = tok;
+                            tok = cjson_next(&jp);
+                            if (tok.type != CJT_COLON) break;
+
+                            if (cjson_key_eq(&nkey, "id")) {
+                                tok = cjson_next(&jp);
+                                cjson_str(&tok, ns_id, sizeof(ns_id));
+                            } else if (cjson_key_eq(&nkey, "src_inset")) {
+                                tok = cjson_next(&jp);
+                                if (tok.type == CJT_LBRACE) {
+                                    while (true) {
+                                        tok = cjson_next(&jp);
+                                        if (tok.type == CJT_RBRACE || tok.type == CJT_EOF) break;
+                                        if (tok.type == CJT_COMMA) continue;
+                                        if (tok.type != CJT_STRING) { cjson_skip_value(&jp); continue; }
+                                        chrome_jtok skey = tok;
+                                        tok = cjson_next(&jp); if (tok.type != CJT_COLON) break;
+                                        tok = cjson_next(&jp);
+                                        if (cjson_key_eq(&skey, "top")) ns.src_top = cjson_int(&tok, ns.src_top);
+                                        else if (cjson_key_eq(&skey, "bottom")) ns.src_bottom = cjson_int(&tok, ns.src_bottom);
+                                        else if (cjson_key_eq(&skey, "left")) ns.src_left = cjson_int(&tok, ns.src_left);
+                                        else if (cjson_key_eq(&skey, "right")) ns.src_right = cjson_int(&tok, ns.src_right);
+                                    }
+                                } else {
+                                    cjson_skip_value(&jp);
+                                }
+                            } else if (cjson_key_eq(&nkey, "dst_corner_px")) {
+                                tok = cjson_next(&jp);
+                                if (tok.type == CJT_LBRACE) {
+                                    ns.has_split = 1;
+                                    while (true) {
+                                        tok = cjson_next(&jp);
+                                        if (tok.type == CJT_RBRACE || tok.type == CJT_EOF) break;
+                                        if (tok.type == CJT_COMMA) continue;
+                                        if (tok.type != CJT_STRING) { cjson_skip_value(&jp); continue; }
+                                        chrome_jtok dkey = tok;
+                                        tok = cjson_next(&jp); if (tok.type != CJT_COLON) break;
+                                        tok = cjson_next(&jp);
+                                        if (cjson_key_eq(&dkey, "top")) ns.dst_top = cjson_int(&tok, ns.dst_top);
+                                        else if (cjson_key_eq(&dkey, "bottom")) ns.dst_bottom = cjson_int(&tok, ns.dst_bottom);
+                                        else if (cjson_key_eq(&dkey, "left")) ns.dst_left = cjson_int(&tok, ns.dst_left);
+                                        else if (cjson_key_eq(&dkey, "right")) ns.dst_right = cjson_int(&tok, ns.dst_right);
+                                    }
+                                } else {
+                                    cjson_skip_value(&jp);
+                                }
+                            } else if (cjson_key_eq(&nkey, "top_mode")) {
+                                tok = cjson_next(&jp);
+                                ns.top_mode = s_parseFillModeToken(&tok);
+                                ns.has_per_edge_mode = 1;
+                            } else if (cjson_key_eq(&nkey, "bottom_mode")) {
+                                tok = cjson_next(&jp);
+                                ns.bottom_mode = s_parseFillModeToken(&tok);
+                                ns.has_per_edge_mode = 1;
+                            } else if (cjson_key_eq(&nkey, "left_mode")) {
+                                tok = cjson_next(&jp);
+                                ns.left_mode = s_parseFillModeToken(&tok);
+                                ns.has_per_edge_mode = 1;
+                            } else if (cjson_key_eq(&nkey, "right_mode")) {
+                                tok = cjson_next(&jp);
+                                ns.right_mode = s_parseFillModeToken(&tok);
+                                ns.has_per_edge_mode = 1;
+                            } else if (cjson_key_eq(&nkey, "center_mode")) {
+                                tok = cjson_next(&jp);
+                                ns.center_mode = s_parseFillModeToken(&tok);
+                            } else {
+                                cjson_skip_value(&jp);
+                            }
+                        }
+
+                        if (!out_tex_id[0] && ns_id[0]) {
+                            snprintf(out_tex_id, out_tex_id_len, "%s", ns_id);
+                        }
+                        if (ns_id[0] && out_tex_id[0] && strcmp(ns_id, out_tex_id) != 0) {
+                            /* Current chrome draw path expects a shared texture/nineslice ID. */
+                            continue;
+                        }
+                        *out_ns = ns;
+                        has_nineslice = true;
+                    }
+                } else {
+                    cjson_skip_value(&jp);
+                }
+            }
+        } else {
+            cjson_skip_value(&jp);
+        }
+    }
+
+    return (has_chrome_tag && out_tex_id[0] && out_tex_file[0] && has_nineslice) ? 1 : 0;
+}
+
+static void s_scanModChromeStyles(void)
+{
+    const char *roots[] = {
+        fsFullPath("$E/../mods"),
+        "mods",
+        fsFullPath("$E/mods"),
+        fsFullPath("mods"),
+    };
+
+    for (int ri = 0; ri < 4; ri++) {
+        if (!roots[ri] || !roots[ri][0]) continue;
+        DIR *d = opendir(roots[ri]);
+        if (!d) continue;
+
+        struct dirent *ent;
+        while ((ent = readdir(d)) != nullptr) {
+            if (!ent->d_name || ent->d_name[0] == '.') continue;
+            if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
+
+            char mod_dir[FS_MAXPATH];
+            snprintf(mod_dir, sizeof(mod_dir), "%s/%s", roots[ri], ent->d_name);
+            struct stat st;
+            if (stat(mod_dir, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+
+            s_registerChromeStyleFromModDir(mod_dir, ent->d_name, 0, nullptr, 0);
+        }
+        closedir(d);
+    }
+}
+
+/* =========================================================================
  * Lifecycle
  * ========================================================================= */
 
@@ -732,6 +1200,7 @@ static s32 s_CfgScanlineEnabled = 1;
  * 0 = Procedural (default, pixel-for-pixel S195 behaviour)
  * 1 = Classic (base-game test chrome — visible via Settings toggle) */
 static s32 s_CfgUiChromeEnabled = 0;
+static char s_CfgUiChromeStyleId[64] = "base:ui_chrome_frame";
 
 /**
  * Early init: called from pdguiInit(), before texInit().
@@ -752,6 +1221,8 @@ void pdguiThemeInit(void)
     /* Register UI chrome config.  The actual toggle applies later, after
      * pdguiChromeInitializeBaseMod has registered the nineslice. */
     configRegisterInt("Video.UiChromeEnabled", &s_CfgUiChromeEnabled, 0, 1);
+    configRegisterString("Video.UiChromeStyleId", s_CfgUiChromeStyleId,
+                         sizeof(s_CfgUiChromeStyleId));
 
     sysLogPrintf(LOG_NOTE,
         "PDGUI theme: D5.0 early init (scanlines=%s alpha=%.0f%% chrome=%s, textures deferred)",
@@ -775,6 +1246,74 @@ void pdguiThemeSetUiChromeEnabled(s32 enabled)
 s32 pdguiThemeGetUiChromeEnabled(void)
 {
     return s_CfgUiChromeEnabled;
+}
+
+void pdguiThemeSetUiChromeStyleId(const char *catalog_id)
+{
+    if (!catalog_id || !catalog_id[0]) {
+        snprintf(s_CfgUiChromeStyleId, sizeof(s_CfgUiChromeStyleId),
+                 "%s", "base:ui_chrome_frame");
+        return;
+    }
+    snprintf(s_CfgUiChromeStyleId, sizeof(s_CfgUiChromeStyleId), "%s", catalog_id);
+}
+
+const char *pdguiThemeGetUiChromeStyleId(void)
+{
+    return s_CfgUiChromeStyleId;
+}
+
+s32 pdguiThemeGetChromeStyleCount(void)
+{
+    return s_ChromeStyleCount;
+}
+
+const char *pdguiThemeGetChromeStyleId(s32 index)
+{
+    if (index < 0 || index >= s_ChromeStyleCount) return "";
+    return s_ChromeStyles[index].id;
+}
+
+const char *pdguiThemeGetChromeStyleName(s32 index)
+{
+    if (index < 0 || index >= s_ChromeStyleCount) return "";
+    return s_ChromeStyles[index].name;
+}
+
+s32 pdguiThemeRegisterChromeModDir(const char *mod_dir, s32 activate_now)
+{
+    char style_id[64];
+    if (!s_registerChromeStyleFromModDir(mod_dir, nullptr, 1,
+                                         style_id, sizeof(style_id))) {
+        return 0;
+    }
+
+    if (activate_now) {
+        pdguiThemeSetUiChromeStyleId(style_id);
+        pdguiThemeSetUiChromeEnabled(1);
+        pdguiSetPanelNineSlice(style_id);
+        pdguiChromeSetEnabled(1);
+        configSave("pd.ini");
+        sysLogPrintf(LOG_NOTE,
+            "UI.CHROME: activated newly-registered style '%s'", style_id);
+    }
+
+    return 1;
+}
+
+void pdguiThemeRescanChromeStyles(void)
+{
+    const char *active_id = pdguiThemeGetUiChromeStyleId();
+    s_chromeStylesClear();
+    s_chromeStyleAdd("base:ui_chrome_frame", "Classic (base-game)");
+    s_scanModChromeStyles();
+
+    if (active_id && active_id[0] && s_chromeStyleHasId(active_id)) {
+        pdguiSetPanelNineSlice(active_id);
+    } else {
+        pdguiThemeSetUiChromeStyleId("base:ui_chrome_frame");
+        pdguiSetPanelNineSlice("base:ui_chrome_frame");
+    }
 }
 
 /**
@@ -2024,6 +2563,8 @@ void pdguiChromeInitializeBaseMod(void)
     static bool s_done = false;
     if (s_done) return;
 
+    s_chromeStylesClear();
+
     /* Ensure the directory tree exists. */
     fsCreateDir("mods");
     fsCreateDir("mods/base-game");
@@ -2148,18 +2689,32 @@ void pdguiChromeInitializeBaseMod(void)
     nsdef.center_mode = NINESLICE_TILE;
     nsdef.has_per_edge_mode = 1;
     pdguiNinesliceRegister("base:ui_chrome_frame", &nsdef);
+    s_chromeStyleAdd("base:ui_chrome_frame", "Classic (base-game)");
+
+    /* Discover additional chrome mods that follow the extracted template
+     * schema (components.textures + components.nineslice in mod.json). */
+    s_scanModChromeStyles();
 
     /* Apply persisted chrome enable state from pd.ini now that the
      * nineslice + texture are registered and resolvable. */
+    const char *style_id = s_CfgUiChromeStyleId[0]
+        ? s_CfgUiChromeStyleId
+        : "base:ui_chrome_frame";
+    if (!s_chromeStyleHasId(style_id)) {
+        style_id = "base:ui_chrome_frame";
+        pdguiThemeSetUiChromeStyleId(style_id);
+    }
+
     if (s_getCfgUiChromeEnabled()) {
-        pdguiSetPanelNineSlice("base:ui_chrome_frame");
+        pdguiSetPanelNineSlice(style_id);
         pdguiChromeSetEnabled(1);
         sysLogPrintf(LOG_NOTE,
-            "UI.CHROME: auto-activated on startup (Video.UiChromeEnabled=1)");
+            "UI.CHROME: auto-activated on startup (Video.UiChromeEnabled=1, style=%s)",
+            style_id);
     } else {
         /* Ensure the active chrome id is set even when disabled, so flipping
          * the toggle to ON later doesn't require re-selecting a mod. */
-        pdguiSetPanelNineSlice("base:ui_chrome_frame");
+        pdguiSetPanelNineSlice(style_id);
     }
 
     sysLogPrintf(LOG_NOTE,

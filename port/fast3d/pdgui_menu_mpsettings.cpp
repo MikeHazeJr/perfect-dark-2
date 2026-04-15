@@ -694,14 +694,17 @@ static s32 renderSelectTunes(struct menudialog *, struct menu *, s32, s32)
                     /* Highlight in library if already in playlist */
                     if (ImGui::Selectable(disp, inPl, 0,
                                           ImVec2(0, pdguiScale(22.0f)))) {
-                        if (!inPl) {
+                        if (inPl) {
+                            audioRemoveModPlaylistEntry(t->catalog_id);
+                            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                        } else {
                             audioAddModPlaylistEntry(t->catalog_id);
-                            audioResetPlaylistIndex();
-                            if (g_NetMode == MPSETTINGS_NETMODE_CLIENT
-                                && lobbyIsLocalLeader()) {
-                                netSendRoomPlaylistUpdate();
-                            }
                             pdguiPlaySound(PDGUI_SND_SELECT);
+                        }
+                        audioResetPlaylistIndex();
+                        if (g_NetMode == MPSETTINGS_NETMODE_CLIENT
+                            && lobbyIsLocalLeader()) {
+                            netSendRoomPlaylistUpdate();
                         }
                     }
                     if (ImGui::IsItemHovered()) {

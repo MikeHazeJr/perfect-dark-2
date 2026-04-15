@@ -871,13 +871,64 @@ static bool s_SkinCaptureComplete  = false;
 static uint32_t s_SkinCapturedTexId = 0;
 static int s_SkinCapturedWidth  = 0;
 static int s_SkinCapturedHeight = 0;
+static int s_SkinCaptureAttempts = 0;
+
+#define SKIN_CAPTURE_MAX_CANDIDATES 32
+struct skin_capture_candidate_t {
+    uint32_t tex_id;
+    int width;
+    int height;
+    int fmt;
+    int siz;
+    int tile;
+    uint64_t area;
+};
+
+static skin_capture_candidate_t s_SkinCaptureCandidates[SKIN_CAPTURE_MAX_CANDIDATES];
+static int s_SkinCaptureCandidateCount = 0;
+
+static void skinCaptureResetCandidates(void) {
+    s_SkinCaptureCandidateCount = 0;
+    memset(s_SkinCaptureCandidates, 0, sizeof(s_SkinCaptureCandidates));
+}
+
+static void skinCaptureObserveCandidate(uint32_t texId, int width, int height, int fmt, int siz, int tile) {
+    if (texId == 0 || width <= 0 || height <= 0) {
+        return;
+    }
+
+    uint64_t area = (uint64_t)width * (uint64_t)height;
+    for (int i = 0; i < s_SkinCaptureCandidateCount; i++) {
+        if (s_SkinCaptureCandidates[i].tex_id == texId) {
+            if (area > s_SkinCaptureCandidates[i].area) {
+                s_SkinCaptureCandidates[i].width = width;
+                s_SkinCaptureCandidates[i].height = height;
+                s_SkinCaptureCandidates[i].area = area;
+            }
+            return;
+        }
+    }
+
+    if (s_SkinCaptureCandidateCount >= SKIN_CAPTURE_MAX_CANDIDATES) {
+        return;
+    }
+
+    skin_capture_candidate_t* c = &s_SkinCaptureCandidates[s_SkinCaptureCandidateCount++];
+    c->tex_id = texId;
+    c->width = width;
+    c->height = height;
+    c->fmt = fmt;
+    c->siz = siz;
+    c->tile = tile;
+    c->area = area;
+}
 
 static void import_texture(int i, int tile, bool importReplacement) {
     /* Skin capture check: if capture mode is active during the preview FBO
      * pass, record the first imported texture as the capture source and let
      * normal import continue so the preview model still renders normally.
      * Skip the override path for this frame.  (S-9) */
-    if (fbActive && s_SkinCaptureRequested && !s_SkinOverrideUsedThisFrame) {
+    if (fbActive && s_SkinCaptureRequested) {
         /* Ensure texture cache resolves/allocates the GL texture object so we
          * can read it back later even when this import is a cache hit. */
         const LoadedTexture& loaded_texture = rdp.loaded_texture[rdp.texture_tile[tile].tmem];
@@ -894,19 +945,15 @@ static void import_texture(int i, int tile, bool importReplacement) {
             }
             (void)gfx_texture_cache_lookup(i, key);
             if (rendering_state.textures[i]) {
-                s_SkinCapturedTexId = rendering_state.textures[i]->second.texture_id;
+                uint32_t texId = rendering_state.textures[i]->second.texture_id;
+                int texW = rdp.texture_tile[tile].width;
+                int texH = rdp.texture_tile[tile].height;
+                skinCaptureObserveCandidate(texId, texW, texH, fmt, siz, tile);
             }
         }
-        s_SkinCapturedWidth  = rdp.texture_tile[tile].width;
-        s_SkinCapturedHeight = rdp.texture_tile[tile].height;
-        s_SkinCaptureComplete = (s_SkinCapturedTexId != 0 &&
-                                 s_SkinCapturedWidth > 0 &&
-                                 s_SkinCapturedHeight > 0);
-        if (s_SkinCaptureComplete) {
-            s_SkinCaptureRequested = false;
-        }
-        s_SkinOverrideUsedThisFrame = true;
-        /* Fall through to normal import for this frame — don't substitute. */
+        /* Fall through to normal import for this frame — don't substitute.
+         * Capture mode intentionally suppresses the override path so we can
+         * observe all source textures used by this preview pass. */
     }
     /* Skin override check: if we're rendering into the preview FBO and
      * the skin editor has an active override, substitute the first
@@ -2586,7 +2633,50 @@ static void gfx_run_dl(Gfx* cmd) {
                     gfx_set_framebuffer(cmd->words.w1, 1.f);
                     fbActive = true;
                     s_SkinOverrideUsedThisFrame = false; /* reset for new FBO pass (S-2) */
+                    if (s_SkinCaptureRequested) {
+                        skinCaptureResetCandidates();
+                    }
                 } else {
+                    if (fbActive && s_SkinCaptureRequested) {
+                        if (s_SkinCaptureCandidateCount > 0) {
+                            int bestIdx = 0;
+                            for (int i = 1; i < s_SkinCaptureCandidateCount; i++) {
+                                if (s_SkinCaptureCandidates[i].area > s_SkinCaptureCandidates[bestIdx].area) {
+                                    bestIdx = i;
+                                }
+                            }
+                            const skin_capture_candidate_t* best = &s_SkinCaptureCandidates[bestIdx];
+                            s_SkinCapturedTexId = best->tex_id;
+                            s_SkinCapturedWidth = best->width;
+                            s_SkinCapturedHeight = best->height;
+                            s_SkinCaptureComplete = true;
+                            s_SkinCaptureRequested = false;
+                            s_SkinCaptureAttempts = 0;
+
+                            sysLogPrintf(LOG_NOTE,
+                                         "skin_capture.gfx: selected best tex=%u size=%dx%d area=%llu candidates=%d",
+                                         s_SkinCapturedTexId,
+                                         s_SkinCapturedWidth,
+                                         s_SkinCapturedHeight,
+                                         (unsigned long long)best->area,
+                                         s_SkinCaptureCandidateCount);
+                            for (int i = 0; i < s_SkinCaptureCandidateCount; i++) {
+                                const skin_capture_candidate_t* c = &s_SkinCaptureCandidates[i];
+                                sysLogPrintf(LOG_NOTE,
+                                             "skin_capture.gfx: candidate[%d] tex=%u size=%dx%d fmt=%d siz=%d tile=%d area=%llu",
+                                             i, c->tex_id, c->width, c->height,
+                                             c->fmt, c->siz, c->tile,
+                                             (unsigned long long)c->area);
+                            }
+                        } else {
+                            s_SkinCaptureAttempts++;
+                            if (s_SkinCaptureAttempts <= 3 || (s_SkinCaptureAttempts % 30) == 0) {
+                                sysLogPrintf(LOG_NOTE,
+                                             "skin_capture.gfx: no capture candidates this pass (attempt=%d)",
+                                             s_SkinCaptureAttempts);
+                            }
+                        }
+                    }
                     gfx_reset_framebuffer();
                     fbActive = false;
                 }
@@ -2929,6 +3019,8 @@ extern "C" void gfxSkinCaptureRequest(void) {
     s_SkinCapturedTexId    = 0;
     s_SkinCapturedWidth    = 0;
     s_SkinCapturedHeight   = 0;
+    s_SkinCaptureAttempts  = 0;
+    skinCaptureResetCandidates();
 }
 
 extern "C" void gfxSkinCaptureFinalizeFbo(u32 fboTexId) {
@@ -2953,4 +3045,6 @@ extern "C" void gfxSkinCaptureClear(void) {
     s_SkinCapturedTexId    = 0;
     s_SkinCapturedWidth    = 0;
     s_SkinCapturedHeight   = 0;
+    s_SkinCaptureAttempts  = 0;
+    skinCaptureResetCandidates();
 }

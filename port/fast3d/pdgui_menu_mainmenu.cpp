@@ -668,26 +668,51 @@ static void renderSettingsVideo(float scale)
         }
     }
 
-    /* UI Chrome Style (S196) — swap the procedural dialog chrome for a
-     * nineslice-based chrome mod.  The dropdown is hot-applied so users
-     * see the change immediately; the selection persists to pd.ini via
-     * Video.UiChromeEnabled. */
+    /* UI Chrome Style — Procedural plus discovered nineslice chrome mods
+     * from mod.json manifests (components.textures + components.nineslice).
+     * Selection is hot-applied and persisted immediately to pd.ini. */
     {
-        int chromeIdx = pdguiThemeGetUiChromeEnabled() ? 1 : 0;
-        const char *chromeOpts[] = {
-            "Procedural",
-            "Classic (base-game test)",
-        };
-        if (PdCombo("UI Chrome Style", &chromeIdx, chromeOpts, 2)) {
-            pdguiThemeSetUiChromeEnabled(chromeIdx != 0 ? 1 : 0);
-            if (chromeIdx != 0) {
-                pdguiSetPanelNineSlice("base:ui_chrome_frame");
-                pdguiChromeSetEnabled(1);
-            } else {
-                pdguiChromeSetEnabled(0);
+        const s32 styleCount = pdguiThemeGetChromeStyleCount();
+        const s32 maxStyles = 31; /* Keep stack buffers bounded. */
+        const s32 usedStyles = styleCount < maxStyles ? styleCount : maxStyles;
+        const char *chromeOpts[1 + maxStyles];
+        chromeOpts[0] = "Procedural";
+
+        for (s32 i = 0; i < usedStyles; i++) {
+            chromeOpts[i + 1] = pdguiThemeGetChromeStyleName(i);
+        }
+
+        int chromeIdx = 0;
+        if (pdguiThemeGetUiChromeEnabled() && usedStyles > 0) {
+            const char *savedStyleId = pdguiThemeGetUiChromeStyleId();
+            chromeIdx = 1; /* Fallback to first chrome style. */
+            for (s32 i = 0; i < usedStyles; i++) {
+                const char *id = pdguiThemeGetChromeStyleId(i);
+                if (savedStyleId && id && strcmp(savedStyleId, id) == 0) {
+                    chromeIdx = (int)(i + 1);
+                    break;
+                }
             }
+        }
+
+        if (PdCombo("UI Chrome Style", &chromeIdx, chromeOpts, 1 + usedStyles)) {
+            if (chromeIdx <= 0) {
+                pdguiThemeSetUiChromeEnabled(0);
+                pdguiChromeSetEnabled(0);
+            } else {
+                const char *selectedId = pdguiThemeGetChromeStyleId(chromeIdx - 1);
+                pdguiThemeSetUiChromeStyleId(selectedId);
+                pdguiThemeSetUiChromeEnabled(1);
+                pdguiSetPanelNineSlice(selectedId);
+                pdguiChromeSetEnabled(1);
+            }
+            /* Persist immediately so style survives app restarts/crashes. */
+            configSave("pd.ini");
             sysLogPrintf(LOG_NOTE,
-                "UI.CHROME: style changed to '%s'", chromeOpts[chromeIdx]);
+                "UI.CHROME: style changed to '%s' (id=%s)",
+                chromeOpts[chromeIdx],
+                chromeIdx <= 0 ? "procedural"
+                               : pdguiThemeGetChromeStyleId(chromeIdx - 1));
         }
     }
 

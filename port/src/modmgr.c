@@ -25,7 +25,9 @@
 #include "assetcatalog_load.h"
 #include "data.h"
 #include "game/stagetable.h"
+#include "game/menu.h"
 #include "video.h"
+#include "pdgui.h"
 #include "pdgui_theme_loader.h"  /* Issue 2/8: theme rescan after mod apply */
 
 /* Forward declaration — defined in src/lib/main.c */
@@ -97,6 +99,7 @@ static void modmgrRegisterModJsonContent(modinfo_t *mod);
 static void modmgrLoadMod(modinfo_t *mod);
 static void modmgrUnloadAllMods(void);
 static void modmgrRebuildCatalogFromCurrentSelection(void);
+static s32  modmgrParseAudioCategoryValue(const char *value, s32 defaultCategory);
 static u32  modmgrHashString(const char *str);
 static void modmgrParseEnabledList(void);
 static void modmgrBuildEnabledList(void);
@@ -480,6 +483,50 @@ static bool modmgrParseModJson(modinfo_t *mod)
 //
 // Populates modinfo_t fields so the mod appears in the Mod Manager and catalog.
 
+static s32 modmgrParseAudioCategoryValue(const char *value, s32 defaultCategory)
+{
+	if (!value || !value[0]) {
+		return defaultCategory;
+	}
+
+	while (*value == ' ' || *value == '\t') {
+		value++;
+	}
+	if (!*value) {
+		return defaultCategory;
+	}
+
+	/* Numeric form: category=0/1/2 */
+	if ((*value >= '0' && *value <= '9') || *value == '-' || *value == '+') {
+		s32 n = (s32)strtol(value, NULL, 10);
+		if (n >= AUDIO_CAT_SFX && n <= AUDIO_CAT_VOICE) {
+			return n;
+		}
+		return defaultCategory;
+	}
+
+	/* Text form: category=music/sfx/voice */
+	char lower[32];
+	s32 i = 0;
+	while (value[i] && i < (s32)sizeof(lower) - 1) {
+		lower[i] = (char)tolower((unsigned char)value[i]);
+		i++;
+	}
+	lower[i] = '\0';
+
+	if (strcmp(lower, "music") == 0 || strcmp(lower, "track") == 0) {
+		return AUDIO_CAT_MUSIC;
+	}
+	if (strcmp(lower, "sfx") == 0 || strcmp(lower, "sound") == 0 || strcmp(lower, "soundfx") == 0) {
+		return AUDIO_CAT_SFX;
+	}
+	if (strcmp(lower, "voice") == 0 || strcmp(lower, "dialog") == 0 || strcmp(lower, "dialogue") == 0) {
+		return AUDIO_CAT_VOICE;
+	}
+
+	return defaultCategory;
+}
+
 static bool modmgrParseAudioIni(modinfo_t *mod)
 {
 	char path[FS_MAXPATH + 1];
@@ -533,7 +580,7 @@ static bool modmgrParseAudioIni(modinfo_t *mod)
 			strncpy(name, vstart, sizeof(name) - 1);
 			name[sizeof(name) - 1] = '\0';
 		} else if (strcmp(kstart, "category") == 0) {
-			category = atoi(vstart);
+			category = modmgrParseAudioCategoryValue(vstart, category);
 		} else if (strcmp(kstart, "duration_ms") == 0) {
 			duration_ms = atoi(vstart);
 		} else if (strcmp(kstart, "file_path") == 0) {
@@ -1327,7 +1374,7 @@ static void modmgrLoadAudioIni(modinfo_t *mod)
 			strncpy(name, vstart, sizeof(name) - 1);
 			name[sizeof(name) - 1] = '\0';
 		} else if (strcmp(kstart, "category") == 0) {
-			category = atoi(vstart);
+			category = modmgrParseAudioCategoryValue(vstart, category);
 		} else if (strcmp(kstart, "duration_ms") == 0) {
 			duration_ms = atoi(vstart);
 		} else if (strcmp(kstart, "file_path") == 0) {
@@ -1360,8 +1407,8 @@ static void modmgrLoadAudioIni(modinfo_t *mod)
 		e->dirpath[FS_MAXPATH - 1] = '\0';
 	}
 
-	sysLogPrintf(LOG_NOTE, "modmgr: registered audio mod '%s' -> %s (%s)",
-		name, catalogId, relPath);
+	sysLogPrintf(LOG_NOTE, "modmgr: registered audio mod '%s' -> %s (%s) category=%d",
+		name, catalogId, relPath, category);
 }
 
 static void modmgrLoadMod(modinfo_t *mod)
@@ -1728,6 +1775,7 @@ void modmgrApplyChanges(void)
 
 	/* Invalidate catalog-backed caches so accessors pick up new state */
 	modmgrCatalogChanged();
+	videoResetTextureCache();
 	g_ModDirty = false;
 
 	/* Issue 2/8: rescan mods/ for new theme.json files so newly-installed
@@ -1736,10 +1784,9 @@ void modmgrApplyChanges(void)
 	 * need an explicit rescan here. */
 	pdguiThemeRescanMods();
 
-	/* Return to title screen — clean slate for the new mod configuration */
-	mainChangeToStage(MODMGR_STAGE_TITLE);
-
-	sysLogPrintf(LOG_NOTE, "modmgr: apply complete — returning to title");
+	/* Stay in-place: no forced title restart.  Callers keep the active menu
+	 * and present an in-UI apply progress/completion modal. */
+	sysLogPrintf(LOG_NOTE, "modmgr: apply complete — no stage restart");
 }
 
 // ---------------------------------------------------------------------------

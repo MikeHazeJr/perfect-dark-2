@@ -165,6 +165,10 @@ void pdguiCharPreviewRequestEx(PdguiPreviewType type,
             const asset_entry_t *be = assetCatalogResolve(id2);
             if (be && be->type == ASSET_BODY && be->mp_index >= 0) {
                 bodynum = (u8)be->mp_index;
+            } else {
+                sysLogPrintf(LOG_WARNING,
+                             "pdgui_charpreview: body resolve failed id='%s' (entry=%p type=%d mp_index=%d)",
+                             id2, be, be ? (int)be->type : -1, be ? (int)be->mp_index : -1);
             }
         }
 
@@ -172,6 +176,10 @@ void pdguiCharPreviewRequestEx(PdguiPreviewType type,
             const asset_entry_t *he = assetCatalogResolve(id1);
             if (he && he->type == ASSET_HEAD && he->mp_index >= 0) {
                 headnum = (u8)he->mp_index;
+            } else {
+                sysLogPrintf(LOG_WARNING,
+                             "pdgui_charpreview: head resolve failed id='%s' (entry=%p type=%d mp_index=%d)",
+                             id1, he, he ? (int)he->type : -1, he ? (int)he->mp_index : -1);
             }
         }
 
@@ -185,6 +193,9 @@ void pdguiCharPreviewRequestEx(PdguiPreviewType type,
             | ((u32)headnum << 16)
             | ((u32)bodynum << 24);
 
+        sysLogPrintf(LOG_NOTE,
+                     "pdgui_charpreview: request character head_id='%s' body_id='%s' -> headnum=%u bodynum=%u params=0x%08x",
+                     id1 ? id1 : "", id2 ? id2 : "", headnum, bodynum, params);
         charPreviewSubmitParams(params, PDGUI_PREVIEW_CHARACTER);
         return;
     }
@@ -202,9 +213,15 @@ void pdguiCharPreviewRequestEx(PdguiPreviewType type,
     if (filenum == 0) {
         /* Resolution failed -- don't touch pending state; leave the
          * existing preview / placeholder on screen. */
+        sysLogPrintf(LOG_WARNING,
+                     "pdgui_charpreview: request non-character resolve failed type=%d id='%s'",
+                     type, id1 ? id1 : "");
         return;
     }
 
+    sysLogPrintf(LOG_NOTE,
+                 "pdgui_charpreview: request non-character type=%d id='%s' filenum=%u",
+                 type, id1 ? id1 : "", filenum);
     pdguiCharPreviewRequestFilenum(type, filenum);
 }
 

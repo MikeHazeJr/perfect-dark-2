@@ -27,6 +27,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_theme.h"
 #include "system.h"
 #include "assetcatalog.h"
 #include "pdgui_charpreview.h"
@@ -55,6 +56,7 @@ void pdguiAudioModRender(float contentW, float contentH, float scale);
 /* Skin Editor (Batch S-1 — pdgui_skin_editor.cpp) */
 void pdguiSkinEditorRefresh(void);
 void pdguiSkinEditorRender(float contentW, float contentH, float scale);
+void pdguiSkinEditorDismissTransientUi(void);
 
 /* Map Import Pipeline (L3 — port/src/mapimport.c) */
 s32 mapImportExists(const char *map_name);
@@ -109,6 +111,17 @@ static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0,0))
 
 static bool s_Visible    = false;
 static int  s_ActiveTool = 0;    /* 0=ModManager, 1=INI, 2=Scale, 3=Pack, 4=Audio, 5=SkinEditor, 6=MapImport */
+static int  s_LastLoggedTool = -1;
+
+static void moddingHubClose(const char *reason)
+{
+    if (!s_Visible) {
+        return;
+    }
+    s_Visible = false;
+    pdguiSkinEditorDismissTransientUi();
+    sysLogPrintf(LOG_NOTE, "MODHUB: closed (%s)", reason ? reason : "no-reason");
+}
 
 /* ========================================================================
  * Map Import state (Tab 6)
@@ -156,6 +169,7 @@ static int      s_IniNumPairs   = 0;
 static bool     s_IniDirty      = false;
 static char     s_IniStatusMsg[128] = "";
 static bool     s_IniStatusOk  = true;
+static bool     s_IniEmptyLogged = false;
 
 /* ========================================================================
  * INI Editor — helpers
@@ -179,6 +193,23 @@ static const char *iniNameForType(asset_type_e t)
         case ASSET_TOOL:        return "tool.ini";
         default:                return "";
     }
+}
+
+static const char *hubToolName(int tool)
+{
+    static const char *kNames[] = {
+        "Mod Manager",
+        "INI Editor",
+        "Scale Tool",
+        "Mod Pack",
+        "Audio Mods",
+        "Skin Editor",
+        "Map Import",
+    };
+    if (tool < 0 || tool >= (int)(sizeof(kNames) / sizeof(kNames[0]))) {
+        return "Unknown";
+    }
+    return kNames[tool];
 }
 
 static void iniCollectCallback(const asset_entry_t *e, void *ud)
@@ -206,13 +237,37 @@ static const int s_NumAllTypes = (int)(sizeof(s_AllTypes)/sizeof(s_AllTypes[0]))
 static void iniRefreshEntries(void)
 {
     s_IniNumEntries = 0;
+    int modEntries = 0;
+    int baseEntries = 0;
+
     for (int t = 0; t < s_NumAllTypes; t++) {
+        int before = s_IniNumEntries;
         assetCatalogIterateByType(s_AllTypes[t], iniCollectCallback, &s_IniNumEntries);
+        int added = s_IniNumEntries - before;
+        if (added > 0) {
+            sysLogPrintf(LOG_NOTE,
+                         "modhub.ini: type=%d added=%d running_total=%d",
+                         (int)s_AllTypes[t], added, s_IniNumEntries);
+        }
     }
+
+    for (int i = 0; i < s_IniNumEntries; i++) {
+        if (s_IniEntries[i].bundled) {
+            baseEntries++;
+        } else {
+            modEntries++;
+        }
+    }
+
     s_IniSelected = -1;
     s_IniNumPairs = 0;
     s_IniDirty    = false;
     s_IniStatusMsg[0] = '\0';
+    s_IniEmptyLogged = false;
+
+    sysLogPrintf(LOG_NOTE,
+                 "modhub.ini: refresh complete total=%d mod=%d base=%d",
+                 s_IniNumEntries, modEntries, baseEntries);
 }
 
 static void iniLoadFile(int idx)
@@ -230,8 +285,15 @@ static void iniLoadFile(int idx)
         s_IniNumPairs = 0;
         snprintf(s_IniStatusMsg, sizeof(s_IniStatusMsg), "File not found: %s", iniName);
         s_IniStatusOk = false;
+        sysLogPrintf(LOG_WARNING,
+                     "modhub.ini: load failed id='%s' path='%s' (not found)",
+                     ie.id, path);
         return;
     }
+
+    sysLogPrintf(LOG_NOTE,
+                 "modhub.ini: loading id='%s' path='%s'",
+                 ie.id, path);
 
     s_IniNumPairs = 0;
     char line[HUB_INI_KEY_LEN + HUB_INI_VAL_LEN + 4];
@@ -281,6 +343,18 @@ static void iniLoadFile(int idx)
     s_IniDirty = false;
     snprintf(s_IniStatusMsg, sizeof(s_IniStatusMsg), "Loaded: %s", iniName);
     s_IniStatusOk = true;
+
+    int editable = 0;
+    int comments = 0;
+    int blanks = 0;
+    for (int i = 0; i < s_IniNumPairs; i++) {
+        if (s_IniPairs[i].is_blank) blanks++;
+        else if (s_IniPairs[i].is_comment) comments++;
+        else editable++;
+    }
+    sysLogPrintf(LOG_NOTE,
+                 "modhub.ini: loaded id='%s' pairs=%d editable=%d comments=%d blanks=%d",
+                 ie.id, s_IniNumPairs, editable, comments, blanks);
 }
 
 static bool iniSaveFile(int idx)
@@ -297,6 +371,9 @@ static bool iniSaveFile(int idx)
     if (!f) {
         snprintf(s_IniStatusMsg, sizeof(s_IniStatusMsg), "Save failed (read-only?)");
         s_IniStatusOk = false;
+        sysLogPrintf(LOG_WARNING,
+                     "modhub.ini: save failed id='%s' path='%s' (open failed)",
+                     ie.id, path);
         return false;
     }
 
@@ -314,6 +391,9 @@ static bool iniSaveFile(int idx)
     s_IniDirty = false;
     snprintf(s_IniStatusMsg, sizeof(s_IniStatusMsg), "Saved: %s", iniName);
     s_IniStatusOk = true;
+    sysLogPrintf(LOG_NOTE,
+                 "modhub.ini: saved id='%s' path='%s' pairs=%d",
+                 ie.id, path, s_IniNumPairs);
     return true;
 }
 
@@ -341,6 +421,9 @@ static void renderIniEditor(float contentW, float contentH, float scale)
         if (ImGui::Selectable(label, sel)) {
             if (!s_IniDirty || s_IniSelected != i) {
                 s_IniSelected = i;
+                sysLogPrintf(LOG_NOTE,
+                             "modhub.ini: selected idx=%d id='%s' bundled=%d",
+                             i, ie.id, ie.bundled);
                 iniLoadFile(i);
             }
         }
@@ -351,6 +434,13 @@ static void renderIniEditor(float contentW, float contentH, float scale)
 
     if (s_IniNumEntries == 0) {
         ImGui::TextDisabled("No mod assets with .ini files found.");
+        if (!s_IniEmptyLogged) {
+            sysLogPrintf(LOG_WARNING,
+                         "modhub.ini: entry list is empty (no catalog assets mapped to ini types)");
+            s_IniEmptyLogged = true;
+        }
+    } else {
+        s_IniEmptyLogged = false;
     }
 
     ImGui::EndChild();
@@ -400,7 +490,13 @@ static void renderIniEditor(float contentW, float contentH, float scale)
             snprintf(inputId, sizeof(inputId), "##ini_v%d", i);
             ImGui::SetNextItemWidth(inputW);
             if (ImGui::InputText(inputId, kv.val, HUB_INI_VAL_LEN)) {
+                bool wasDirty = s_IniDirty;
                 s_IniDirty = true;
+                if (!wasDirty) {
+                    sysLogPrintf(LOG_NOTE,
+                                 "modhub.ini: first edit in session id='%s' key='%s' value='%s'",
+                                 ie.id, kv.key, kv.val);
+                }
             }
         }
     }
@@ -986,6 +1082,9 @@ static void renderPackTool(float contentW, float contentH, float scale)
                                          s_ImportSessionOnly ? 1 : 0,
                                          &result);
             if (imported >= 0) {
+                /* Hot-refresh chrome style registry so newly imported chrome
+                 * mods appear in Settings -> Video without restart. */
+                pdguiThemeRescanChromeStyles();
                 snprintf(s_PackStatusMsg, sizeof(s_PackStatusMsg),
                          "Imported %d component(s). Use Apply Changes to reload.",
                          imported);
@@ -1174,7 +1273,7 @@ static void renderModdingHub(s32 winW, s32 winH)
             if (s_ActiveTool == 0) {
                 s32 wantsClose = 0;
                 pdguiModManagerRenderContent(dialogW, contentH, scale, &wantsClose);
-                if (wantsClose) s_Visible = false;
+                if (wantsClose) moddingHubClose("mod-manager-request");
             } else if (s_ActiveTool == 1) {
                 renderIniEditor(dialogW, contentH, scale);
             } else if (s_ActiveTool == 2) {
@@ -1218,7 +1317,7 @@ static void renderModdingHub(s32 winW, s32 winH)
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
         ImVec4(0.55f, 0.10f, 0.10f, 0.70f));
     if (ImGui::Button("Close", ImVec2(closeW, closeH))) {
-        s_Visible = false;
+        moddingHubClose("close-button");
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
     }
     if (ImGui::IsItemHovered() || ImGui::IsItemActive() || ImGui::IsItemFocused()) {
@@ -1231,16 +1330,22 @@ static void renderModdingHub(s32 winW, s32 winH)
     ImGui::PopStyleColor(2);
 
     /* B button / Escape closes hub (only when Mod Manager isn't consuming it) */
-    if (s_ActiveTool != 0) {
+    if (s_ActiveTool != 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
         if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight) ||
             ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-            s_Visible = false;
+            moddingHubClose("escape-or-b-button");
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
         }
     }
 
     ImGui::EndChild();
     ImGui::End();
+
+    if (s_LastLoggedTool != s_ActiveTool) {
+        sysLogPrintf(LOG_NOTE, "modhub: active tool -> %d (%s)",
+                     s_ActiveTool, hubToolName(s_ActiveTool));
+        s_LastLoggedTool = s_ActiveTool;
+    }
 }
 
 /* ========================================================================
@@ -1405,7 +1510,7 @@ void pdguiModdingHubShow(void)
 
 void pdguiModdingHubHide(void)
 {
-    s_Visible = false;
+    moddingHubClose("explicit-hide");
 }
 
 s32 pdguiModdingHubIsVisible(void)
@@ -1430,14 +1535,14 @@ void pdguiModdingHubRender(s32 winW, s32 winH)
 
     /* Click-outside-to-close: if the user clicks outside the dialog area,
      * dismiss the modding hub.  Uses pdguiMenuPos/Size for the hub bounds. */
-    if (ImGui::IsMouseClicked(0)) {
+    if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId) && ImGui::IsMouseClicked(0)) {
         ImVec2 mp = ImGui::GetMousePos();
         ImVec2 hubPos  = pdguiMenuPos();
         float  hubW    = pdguiMenuWidth();
         float  hubH    = pdguiMenuHeight();
         if (mp.x < hubPos.x || mp.x > hubPos.x + hubW ||
             mp.y < hubPos.y || mp.y > hubPos.y + hubH) {
-            s_Visible = false;
+            moddingHubClose("outside-click");
         }
     }
 }
