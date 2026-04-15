@@ -486,6 +486,19 @@ void lvReset(s32 stagenum)
 			g_Vars.playerstats[i].tokenheldtime = 0;
 			g_Vars.playerstats[i].damreceived = 0;
 			g_Vars.playerstats[i].damtransmitted = 0;
+			/* Per-weapon / summary combat counters — must reset every stage load.
+			 * Previously only kills[] was cleared; killcount/shotcount stayed stale,
+			 * so pause menu / HUD could show phantom kills from the prior match
+			 * (playtest 2026-04-13 false-kills report). */
+			for (j = 0; j != ARRAYCOUNT(g_Vars.playerstats[i].shotcount); j++) {
+				g_Vars.playerstats[i].shotcount[j] = 0;
+			}
+			g_Vars.playerstats[i].killcount = 0;
+			g_Vars.playerstats[i].ggkillcount = 0;
+			g_Vars.playerstats[i].unk64 = 0;
+			g_Vars.playerstats[i].cloaktime = 0;
+			g_Vars.playerstats[i].speedpillcount = 0;
+			g_Vars.playerstats[i].scale_bg2gfx = 0;
 
 			for (j = 0; j != ARRAYCOUNT(g_Vars.playerstats[i].kills); j++) {
 				g_Vars.playerstats[i].kills[j] = 0;

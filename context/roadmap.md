@@ -1,10 +1,10 @@
 # Modernization Roadmap
 
-> Last updated: 2026-04-13 (S247 — daily context audit)
+> Last updated: 2026-04-14 (S254 — daily context maintenance audit)
 
 ## Current State
 
-**Build**: v0.0.93 | **Protocol**: v35 | **Sessions**: 247+
+**Build**: v0.0.95 | **Protocol**: v35 | **Sessions**: 254+
 
 The project has crossed the threshold from "port with mods" to "platform with a modern engine shell." The core identity migration is complete, the input system is unified, the legacy menu system is dead, and 47 deep audit bugs have been fixed. What remains is feature completion toward v0.1.0.
 

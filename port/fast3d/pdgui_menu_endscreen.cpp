@@ -701,6 +701,10 @@ static void renderSoloEndscreen(bool completed)
  * MP End Screen
  * ======================================================================== */
 
+/* Suppress A/Enter for a few frames after the endscreen appears so the
+ * pause→End Game confirm / Alt combo cannot instantly dismiss or rematch. */
+static s32 s_MpEndscreenDebounce = 0;
+
 /* challengeResult: 0=normal, 1=completed, 2=failed, 3=cheated */
 static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
 {
@@ -720,6 +724,9 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
 
     ImVec2 disp  = ImGui::GetIO().DisplaySize;
     float  sf    = pdguiScaleFactor();
+    if (sf < 0.05f) {
+        sf = 1.0f; /* degenerate DPI / theme edge case — keep text visible */
+    }
     float  menuW = disp.x * 0.68f;
     float  menuH = disp.y * 0.80f;
     if (menuW > pdguiScale(1440.0f)) menuW = pdguiScale(1440.0f);
@@ -757,6 +764,10 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     }
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
+        s_MpEndscreenDebounce = 5;
+    }
+    if (s_MpEndscreenDebounce > 0) {
+        s_MpEndscreenDebounce--;
     }
 
     pdguiDrawPdDialog(menuX, menuY, menuW, menuH, "Game Over", 1);
@@ -810,10 +821,18 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
 
     /* ----- Content area ----------------------------------------------- */
     float contentH = menuH - padY - pdguiScale(150.0f);  /* room for awards + button */
+    {
+        const float minH = pdguiScale(100.0f);
+        if (contentH < minH) {
+            contentH = minH; /* avoid zero/negative ImGui child height (invisible body) */
+        }
+    }
     float contentW = menuW - padX * 2.0f;
 
     ImGui::BeginChild("##MpContent", ImVec2(contentW, contentH), false,
                       ImGuiWindowFlags_AlwaysVerticalScrollbar);
+    /* Explicit body text color — style Text can match body BG on some palette/theme combos. */
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.88f, 0.84f, 0.78f, 1.0f));
 
     /* Rankings table */
     u32 options     = pdguiPauseGetOptions();
@@ -968,6 +987,7 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
         ImGui::PopStyleColor();
     }
 
+    ImGui::PopStyleColor(); /* ImGuiCol_Text for ##MpContent body */
     ImGui::EndChild();
 
     /* ----- Action buttons ---------------------------------------------- */
@@ -975,13 +995,14 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     float btnGap = pdguiScale(18.0f);
     float btnY   = menuH - btnH - pdguiScale(18.0f);
     bool networked = (g_NetMode != ES_NETMODE_NONE);
+    const bool inputSuppressed = (s_MpEndscreenDebounce > 0);
 
     if (networked) {
         /* Two buttons: Return to Room (blue) | Disconnect (red) */
         float halfW = (menuW - padX * 2 - btnGap) * 0.5f;
 
         ImGui::SetCursorPos(ImVec2(padX, btnY));
-        if (PdEndButton("Return to Room", ImVec2(halfW, btnH))) {
+        if (PdEndButton("Return to Room", ImVec2(halfW, btnH)) && !inputSuppressed) {
             pdguiEndscreenExitToMainMenu();
             pdguiSetInRoom(1);
         }
@@ -990,7 +1011,7 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
         ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive,   ImVec4(0.5f, 0.1f, 0.1f, 1.0f));
-        if (PdEndButton("Disconnect", ImVec2(halfW, btnH))) {
+        if (PdEndButton("Disconnect", ImVec2(halfW, btnH)) && !inputSuppressed) {
             netDisconnect();
             pdguiEndscreenExitToMainMenu();
         }
@@ -1000,7 +1021,7 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
         float halfW = (menuW - padX * 2 - btnGap) * 0.5f;
 
         ImGui::SetCursorPos(ImVec2(padX, btnY));
-        if (PdEndButton("Play Again", ImVec2(halfW, btnH))) {
+        if (PdEndButton("Play Again", ImVec2(halfW, btnH)) && !inputSuppressed) {
             pdguiEndscreenExitToMainMenu();
             pdguiSoloRoomReturn(); /* U-12: preserve config for rematch */
         }
@@ -1009,27 +1030,29 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
         ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive,   ImVec4(0.5f, 0.1f, 0.1f, 1.0f));
-        if (PdEndButton("Quit", ImVec2(halfW, btnH))) {
+        if (PdEndButton("Quit", ImVec2(halfW, btnH)) && !inputSuppressed) {
             pdguiEndscreenExitToMainMenu();
         }
         ImGui::PopStyleColor(3);
     }
 
     /* Keyboard shortcuts */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape) ||
-        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight)) {
-        if (networked) {
-            netDisconnect();
+    if (!inputSuppressed) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape) ||
+            ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight)) {
+            if (networked) {
+                netDisconnect();
+            }
+            pdguiEndscreenExitToMainMenu();
         }
-        pdguiEndscreenExitToMainMenu();
-    }
-    if (ImGui::IsKeyPressed(ImGuiKey_Enter) ||
-        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown)) {
-        pdguiEndscreenExitToMainMenu();
-        if (networked) {
-            pdguiSetInRoom(1);
-        } else {
-            pdguiSoloRoomReturn(); /* U-12: preserve config for rematch */
+        if (ImGui::IsKeyPressed(ImGuiKey_Enter) ||
+            ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown)) {
+            pdguiEndscreenExitToMainMenu();
+            if (networked) {
+                pdguiSetInRoom(1);
+            } else {
+                pdguiSoloRoomReturn(); /* U-12: preserve config for rematch */
+            }
         }
     }
 

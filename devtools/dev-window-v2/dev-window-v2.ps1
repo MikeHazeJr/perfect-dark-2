@@ -12,6 +12,9 @@
 # Section 0: PATH fix - BEFORE ANYTHING ELSE
 # ============================================================================
 
+# Suppress prelude Write-Host when launched from a visible console (see Dev Window v2.bat).
+$env:PD_BUILD_ENV_QUIET = '1'
+
 # Build environment -- self-configures TEMP/TMP, PATH (MinGW64), MSYSTEM, ccache.
 . (Join-Path $PSScriptRoot ".." "_build-env-prelude.ps1")
 
@@ -116,6 +119,8 @@ $script:GitBusy             = $false
 $script:LastGitCheck        = [DateTime]::MinValue
 
 $script:GhAuthOk            = $false
+$script:GhCliAvailable      = $false
+$script:GhAuthChecked       = $false
 $script:LatestRelease       = $null
 
 # ============================================================================
@@ -470,7 +475,7 @@ function Auto-Commit-Sync {
                            FontFamily="Consolas" FontSize="13" FontWeight="SemiBold"
                            DockPanel.Dock="Right" VerticalAlignment="Center"/>
                 <Rectangle Width="1" Fill="#162030" Margin="12,0" DockPanel.Dock="Right"/>
-                <TextBlock x:Name="StatusAuth" Text="auth: --" Foreground="#506070"
+                <TextBlock x:Name="StatusAuth" Text="auth: ..." Foreground="#506070"
                            FontFamily="Consolas" FontSize="13"
                            DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,12,0"/>
                 <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0"/>
@@ -650,7 +655,7 @@ function Auto-Commit-Sync {
                                 </StackPanel>
                                 <CheckBox x:Name="ChkStable" Content="Stable release" Foreground="#C8A000"
                                           FontSize="13" FontWeight="SemiBold" Margin="0,2,0,6"/>
-                                <TextBlock x:Name="LblAuthStatus" Text="auth: --" Foreground="#44586C"
+                                <TextBlock x:Name="LblAuthStatus" Text="auth: ..." Foreground="#44586C"
                                            FontFamily="Consolas" FontSize="13" Margin="0,0,0,3" Cursor="Hand"/>
                                 <TextBlock x:Name="LblLatestRelease" Text="latest: --" Foreground="#44586C"
                                            FontFamily="Consolas" FontSize="13" Margin="0,0,0,2"/>
@@ -1007,6 +1012,16 @@ function Start-PushRelease {
         [System.Windows.MessageBox]::Show("release.ps1 not found in devtools/.", "Release Error", "OK", "Warning") | Out-Null
         return
     }
+    if (-not $script:GhCliAvailable -or -not $script:GhAuthOk) {
+        $go = [System.Windows.MessageBox]::Show(
+            "GitHub CLI (gh) is missing or you are not logged in.`n`n" +
+            "The release pipeline will fail when pushing to GitHub.`n`n" +
+            "Continue anyway (local build + package still run), or Cancel to install gh / run gh auth login first?",
+            "GitHub authentication",
+            "YesNo",
+            "Warning")
+        if ($go -ne [System.Windows.MessageBoxResult]::Yes) { return }
+    }
     $ver = Get-UiVersion
     $vs = "" + $ver.Major + "." + $ver.Minor + "." + $ver.Patch
     $isStable = $ui["ChkStable"].IsChecked
@@ -1160,16 +1175,10 @@ $ui["BtnOpenFolder"].Add_Click({
     try { Start-Process "explorer.exe" $script:ProjectRoot } catch {}
 })
 
-$ui["LblAuthStatus"].Add_MouseLeftButtonDown({
-    if ($script:GhAuthOk) { return }
-    try {
-        $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = "powershell.exe"
-        $psi.Arguments = "-NoExit -Command `"gh auth login`""
-        $psi.UseShellExecute = $true
-        [System.Diagnostics.Process]::Start($psi) | Out-Null
-    } catch {}
-})
+$ui["LblAuthStatus"].Cursor = [System.Windows.Input.Cursors]::Hand
+$ui["LblAuthStatus"].Add_MouseLeftButtonDown({ Invoke-GhAuthHelp })
+$ui["StatusAuth"].Cursor = [System.Windows.Input.Cursors]::Hand
+$ui["StatusAuth"].Add_MouseLeftButtonDown({ Invoke-GhAuthHelp })
 
 # ============================================================================
 # Section 18: Timers (WPF DispatcherTimer)
@@ -1344,6 +1353,55 @@ $script:MainTimer.Add_Tick({
 # Section 19: Status bar updates
 # ============================================================================
 
+function Update-Auth-Labels {
+    $authText  = "auth: ..."
+    $authColor = "#8C8C8C"
+    if (-not $script:GhAuthChecked) {
+        # still checking — avoids flashing auth: no gh before background run finishes
+    } elseif (-not $script:GhCliAvailable) {
+        $authText  = "auth: no gh"
+        $authColor = "#C9A020"
+    } elseif (-not $script:GhAuthOk) {
+        $authText  = "auth: sign in"
+        $authColor = "#FF8C00"
+    } else {
+        $authText  = "auth: ok"
+        $authColor = "#00B400"
+    }
+    try {
+        $ui["StatusAuth"].Text = $authText
+        $ui["StatusAuth"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($authColor)))
+        $ui["LblAuthStatus"].Text = $authText
+        $ui["LblAuthStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($authColor)))
+    } catch {}
+}
+
+function Invoke-GhAuthHelp {
+    if (-not $script:GhCliAvailable) {
+        [System.Windows.MessageBox]::Show(
+            "GitHub CLI (gh) is not installed or not on your PATH.`n`n" +
+            "Install (example):`n" +
+            "  winget install GitHub.cli`n`n" +
+            "Or: https://cli.github.com/`n`n" +
+            "Restart Dev Window after installing, then click here again to run: gh auth login",
+            "GitHub CLI",
+            "OK",
+            "Information") | Out-Null
+        return
+    }
+    if ($script:GhAuthOk) { return }
+    try {
+        $gh = Get-Command gh -ErrorAction Stop
+        Start-Process -FilePath $gh.Source -ArgumentList @('auth','login') -WorkingDirectory $script:ProjectRoot
+    } catch {
+        [System.Windows.MessageBox]::Show(
+            "Could not start GitHub CLI: " + $_.Exception.Message,
+            "Error",
+            "OK",
+            "Error") | Out-Null
+    }
+}
+
 function Update-StatusBar {
     # Guard: skip if a git poll is already in flight
     if ($script:GitBusy) { return }
@@ -1387,12 +1445,7 @@ function Update-StatusBar {
                     $ui["StatusDirty"].Text = [string]$r.Count + " uncommitted"
                     $ui["StatusDirty"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#FF8C00")))
                 }
-                $authText  = if ($script:GhAuthOk) { "auth: ok" } else { "auth: --" }
-                $authColor = if ($script:GhAuthOk) { "#00B400" } else { "#8C8C8C" }
-                $ui["StatusAuth"].Text = $authText
-                $ui["StatusAuth"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($authColor)))
-                $ui["LblAuthStatus"].Text = $authText
-                $ui["LblAuthStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($authColor)))
+                Update-Auth-Labels
             }
             try { $ps.Dispose() } catch {}
             try { $rs.Close(); $rs.Dispose() } catch {}
@@ -1481,17 +1534,18 @@ $window.Add_Loaded({
         # Status bar (initial)
         Update-StatusBar
 
-        # Background: gh auth check
+        # Background: detect gh CLI + auth (no stderr spam if gh missing)
         $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
         $rs.Open()
         $ps = [System.Management.Automation.PowerShell]::Create()
         $ps.Runspace = $rs
         [void]$ps.AddScript({
-            try {
-                $o = gh auth status 2>&1
-                $ok = ($LASTEXITCODE -eq 0)
-                return $ok
-            } catch { return $false }
+            $ghCmd = Get-Command gh -ErrorAction SilentlyContinue
+            if (-not $ghCmd) {
+                return [PSCustomObject]@{ Present = $false; Ok = $false }
+            }
+            $null = & gh auth status 2>&1
+            return [PSCustomObject]@{ Present = $true; Ok = ($LASTEXITCODE -eq 0) }
         })
         $handle = $ps.BeginInvoke()
         $authPollTimer = New-Object System.Windows.Threading.DispatcherTimer
@@ -1501,13 +1555,26 @@ $window.Add_Loaded({
                 if (-not $handle.IsCompleted) { return }
                 $this.Stop()
                 $result = $ps.EndInvoke($handle)
-                $script:GhAuthOk = $(if ($null -ne $result -and $result.Count -gt 0) { [bool]$result[0] } else { $false })
+                $script:GhCliAvailable = $false
+                $script:GhAuthOk = $false
+                $script:GhAuthChecked = $true
+                if ($null -ne $result -and $result.Count -gt 0) {
+                    $o = $result[0]
+                    if ($null -ne $o -and $o.Present) {
+                        $script:GhCliAvailable = $true
+                        $script:GhAuthOk = [bool]$o.Ok
+                    }
+                }
                 try { $ps.Dispose() } catch {}
                 try { $rs.Close(); $rs.Dispose() } catch {}
+                Update-Auth-Labels
                 Update-StatusBar
             } catch {}
         })
         $authPollTimer.Start()
+
+        $authTip = "GitHub CLI: click for install help or gh auth login"
+        try { $ui["LblAuthStatus"].ToolTip = $authTip; $ui["StatusAuth"].ToolTip = $authTip } catch {}
 
         # Start main timer
         $script:MainTimer.Start()
