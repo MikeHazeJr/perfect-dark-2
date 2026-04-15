@@ -1,6 +1,6 @@
 # Perfect Dark 2 -- Project Context Index
 
-> **Last updated**: 2026-04-14, S255 — Dev Window v2: **Pull** / **Push** buttons (`git pull` / `git push`), DPI awareness + WPF text/layout for font scaling. Context sync (README, session-log, tasks-current, infrastructure, roadmap).
+> **Last updated**: 2026-04-14, S256 — Dev Window v2: BUILD tab layout (`LastChildFill="False"` fixes stretched utility buttons); proportional VERSION column + wrap; status/build label font 14. See session-log S256.
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding
@@ -34,6 +34,7 @@ Recent sessions in [session-log.md](session-log.md). Older session archives in `
 
 | Sessions | Period | Focus |
 |----------|--------|-------|
+| S256 | 2026-04-14 | Dev Window v2: fix BUILD tab DockPanel fill (utility buttons no longer stretch full height); VERSION column `2*`/`*` + min widths + text wrap; status/build fonts 14. |
 | S255 | 2026-04-14 | Dev Window v2: utility-row **Pull** / **Push** (`git pull` / `git push`, log + status refresh; disabled during build/release). **Font scaling**: `SetProcessDPIAware` + `UseLayoutRounding` / `SnapsToDevicePixels` / `TextFormattingMode=Display` / `ClearTypeHint` on main window. |
 | S254 | 2026-04-14 | Bug B fix: countdown-cancel-on-room-close. `netReadyGateOnClientLeft()` + `netReadyGateAbortForRoom()` in `roomLeave()`; defensive room-missing guard in `readyGateTickCountdown()`. No protocol bump. SP-14 (room-bound server state must be cleaned on teardown) added to systemic-bugs.md; constraint added to constraints.md. Build-verified (pd + pd-server). Needs in-game playtest. v0.0.95 pre-release commit. |
 | S248-S253 | 2026-04-13 | MP lobby & mod stabilization drop. S248 mod persistence + room name + countdown + songs F-2.1 (B-135/B-136/B-137/B-138/B-139). S249 B-140 Issue A playlist auto-advance + B-134 spawn validator railing trap. S250 input authority Phase 1 (`gameplayInputSuppressed()` + focus handling). S251 B-141 audio telemetry (drop/underrun/hitch counters). S252 B-143 End-Game-Crash (`manifestClear` in netDisconnect) + B-142 false kills NULL-guard + modal confirm UX. S253 MP lobby residual — Issue 7 SVC_ROOM_SETTINGS, Weapons F-2.1, Issue 2/8 theme rescan, B-140 Issue B two-panel Select Tunes. Parallel: dev-window-v2 font/control polish. Forensic detail in `scratch/archive/2026-04-13/`. |

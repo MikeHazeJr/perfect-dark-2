@@ -314,7 +314,7 @@ function Auto-Commit-Sync {
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Perfect Dark 2  |  Dev Window v2"
-        MinWidth="700" MinHeight="500"
+        MinWidth="820" MinHeight="500"
         Background="#141820"
         WindowStartupLocation="CenterScreen"
         UseLayoutRounding="True"
@@ -403,6 +403,8 @@ function Auto-Commit-Sync {
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="BorderBrush" Value="#505050"/>
             <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -488,21 +490,21 @@ function Auto-Commit-Sync {
         <Border DockPanel.Dock="Bottom" Background="#0A0F1A" BorderBrush="#0A2040" BorderThickness="0,1,0,0" Padding="10,7">
             <DockPanel>
                 <TextBlock x:Name="StatusVersion" Text="v0.0.0" Foreground="#C8A000"
-                           FontFamily="Consolas" FontSize="13" FontWeight="SemiBold"
+                           FontFamily="Consolas" FontSize="14" FontWeight="SemiBold"
                            DockPanel.Dock="Right" VerticalAlignment="Center"/>
                 <Rectangle Width="1" Fill="#162030" Margin="12,0" DockPanel.Dock="Right"/>
                 <TextBlock x:Name="StatusAuth" Text="auth: ..." Foreground="#506070"
-                           FontFamily="Consolas" FontSize="13"
+                           FontFamily="Consolas" FontSize="14"
                            DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,12,0"/>
                 <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0"/>
                 <TextBlock x:Name="StatusBranch" Text="branch: --" Foreground="#0090D0"
-                           FontFamily="Consolas" FontSize="13" Margin="0,0,12,0"/>
+                           FontFamily="Consolas" FontSize="14" Margin="0,0,12,0"/>
                 <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0"/>
                 <TextBlock x:Name="StatusHash" Text="HEAD: ------" Foreground="#3A5070"
-                           FontFamily="Consolas" FontSize="13" Margin="0,0,12,0"/>
+                           FontFamily="Consolas" FontSize="14" Margin="0,0,12,0"/>
                 <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0"/>
                 <TextBlock x:Name="StatusDirty" Text="clean" Foreground="#00B400"
-                           FontFamily="Consolas" FontSize="13"/>
+                           FontFamily="Consolas" FontSize="14"/>
             </DockPanel>
         </Border>
 
@@ -557,7 +559,7 @@ function Auto-Commit-Sync {
 
             <!-- BUILD TAB -->
             <TabItem Header="BUILD">
-                <DockPanel Margin="10">
+                <DockPanel Margin="12,10,12,10" LastChildFill="False">
                     <!-- Hero Buttons Row -->
                     <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
                         <Grid.ColumnDefinitions>
@@ -576,12 +578,12 @@ function Auto-Commit-Sync {
                         </Button>
                     </Grid>
 
-                    <!-- Status Area -->
+                    <!-- Status Area: proportional columns so VERSION card never clips -->
                     <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="2*" MinWidth="220"/>
                             <ColumnDefinition Width="8"/>
-                            <ColumnDefinition Width="252"/>
+                            <ColumnDefinition Width="*" MinWidth="280"/>
                         </Grid.ColumnDefinitions>
 
                         <!-- Left: Build Status (card panel) -->
@@ -589,11 +591,11 @@ function Auto-Commit-Sync {
                                 BorderBrush="#162438" BorderThickness="1" Padding="10,8">
                             <StackPanel>
                                 <TextBlock x:Name="LblClientStatus" Text="client: --"
-                                           Foreground="#44586C" FontFamily="Consolas" FontSize="13" Margin="0,0,0,3"/>
+                                           Foreground="#44586C" FontFamily="Consolas" FontSize="14" Margin="0,0,0,3"/>
                                 <TextBlock x:Name="LblServerStatus" Text="server: --"
-                                           Foreground="#44586C" FontFamily="Consolas" FontSize="13" Margin="0,0,0,6"/>
+                                           Foreground="#44586C" FontFamily="Consolas" FontSize="14" Margin="0,0,0,6"/>
                                 <TextBlock x:Name="LblBuildActivity" Text="" Foreground="#506880"
-                                           FontFamily="Consolas" FontSize="13" Margin="0,0,0,4"/>
+                                           FontFamily="Consolas" FontSize="14" Margin="0,0,0,4"/>
 
                                 <!-- Progress Bar -->
                                 <Border x:Name="ProgressBack" Background="#0A1520" Height="16"
@@ -624,7 +626,8 @@ function Auto-Commit-Sync {
 
                         <!-- Right: Version + Auth (card panel) -->
                         <Border Grid.Column="2" Background="#0E1420" CornerRadius="4"
-                                BorderBrush="#162438" BorderThickness="1" Padding="10,8">
+                                BorderBrush="#162438" BorderThickness="1" Padding="10,8"
+                                MinWidth="260" HorizontalAlignment="Stretch">
                             <StackPanel>
                                 <TextBlock Text="V E R S I O N" Foreground="#2A4060" FontSize="11"
                                            FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,5"/>
@@ -672,17 +675,20 @@ function Auto-Commit-Sync {
                                 <CheckBox x:Name="ChkStable" Content="Stable release" Foreground="#C8A000"
                                           FontSize="13" FontWeight="SemiBold" Margin="0,2,0,6"/>
                                 <TextBlock x:Name="LblAuthStatus" Text="auth: ..." Foreground="#44586C"
-                                           FontFamily="Consolas" FontSize="13" Margin="0,0,0,3" Cursor="Hand"/>
+                                           FontFamily="Consolas" FontSize="13" Margin="0,0,0,3" Cursor="Hand"
+                                           TextWrapping="Wrap"/>
                                 <TextBlock x:Name="LblLatestRelease" Text="latest: --" Foreground="#44586C"
-                                           FontFamily="Consolas" FontSize="13" Margin="0,0,0,2"/>
+                                           FontFamily="Consolas" FontSize="13" Margin="0,0,0,2"
+                                           TextWrapping="Wrap"/>
                                 <TextBlock x:Name="LblDevVersion" Text="local: --" Foreground="#3860A0"
-                                           FontFamily="Consolas" FontSize="13"/>
+                                           FontFamily="Consolas" FontSize="13" TextWrapping="Wrap"/>
                             </StackPanel>
                         </Border>
                     </Grid>
 
-                    <!-- Utility Buttons Row -->
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,2,0,0">
+                    <!-- Utility Buttons Row (Top-dock + no fill: prevents vertical stretch of buttons) -->
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,2,0,0"
+                                VerticalAlignment="Top">
                         <Button x:Name="BtnOpenGitHub" Content="GitHub" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"/>
                         <Button x:Name="BtnOpenFolder" Content="Project Folder" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"/>
                         <Button x:Name="BtnCleanBuild" Content="Clean Build" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"/>

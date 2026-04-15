@@ -5,7 +5,7 @@
 > (v0.1.0 → v1.0.0) live in roadmap.md under "Release Milestones".
 > Back to [index](README.md)
 
-> **Last updated**: 2026-04-14, S255 Dev Window v2 Pull/Push + DPI. Wire protocol at
+> **Last updated**: 2026-04-14, S256 Dev Window v2 layout (DockPanel fill + VERSION grid). Wire protocol at
 > **v35** (v34 seamless audio-mod sync + v35 L5 match_seed + S253 additive
 > `SVC_ROOM_SETTINGS` / `SVC_ROOM_PLAYLIST` / CLC counterparts). D13 Update
 > System FIXED (S245 FIX-F). R-1 / R-2 / R-3 DONE; R-4 protocol-side DONE
@@ -39,7 +39,7 @@ main working copy OR in session-created worktrees under `.claude/worktrees/`.
 |------|----------|-------|
 | `devtools/build-headless.ps1` | PowerShell headless build (AI-facing). Self-configures env via `_build-env-prelude.ps1`. | S247 self-heal |
 | `devtools/build-env.sh` | Bash prelude: `source devtools/build-env.sh && ninja -C Build pd pd-server`. Sets TEMP/TMP + prepends MinGW to PATH. | S247 |
-| `devtools/dev-window-v2/dev-window-v2.ps1` | WPF dev window v2 — build / run / version / status / **git Pull·Push** (S255) + DPI-aware font scaling (`SetProcessDPIAware`, layout rounding, Display text mode). Font polish baseline S248. | S255 |
+| `devtools/dev-window-v2/dev-window-v2.ps1` | WPF dev window v2 — build / run / version / status / git Pull·Push + DPI (S255); BUILD tab layout: `LastChildFill=false`, proportional VERSION column, wrapped labels (S256). | S256 |
 | `devtools/release.ps1` | Versioned release build. | — |
 
 **Build environment invariants** (see project `CLAUDE.md`):

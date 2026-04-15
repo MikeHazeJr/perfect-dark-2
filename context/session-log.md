@@ -3,6 +3,20 @@
 > Recent sessions only. Session archives (S1-S119) moved to `_archive/sessions/`.
 > Back to [index](README.md)
 
+## Session S256 — 2026-04-14 (Dev Window v2: layout + VERSION column)
+
+**Scope**: `devtools/dev-window-v2/dev-window-v2.ps1` (XAML only in practice).
+
+**Root cause of “tall skinny” tool buttons**: BUILD tab `DockPanel` had default `LastChildFill="True"`, so the last child (utility `StackPanel`) filled **all remaining vertical space**; horizontal `StackPanel` stretched tall and `ToolBtn` children stretched with it.
+
+**Fix**: `LastChildFill="False"` on BUILD tab `DockPanel`; utility row `VerticalAlignment="Top"`; `ToolBtn` style `MinHeight="32"` + `VerticalAlignment="Center"`. Slightly wider window default (`MinWidth` 820) and symmetric horizontal margin `12,10,12,10`.
+
+**VERSION card clipping**: Replaced fixed `252` px third column with proportional `2*` / `*` columns (`MinWidth` 220 / 280), `MinWidth="260"` on version `Border`, `TextWrapping="Wrap"` on auth/latest/dev lines.
+
+**Readability**: Status bar + build-status labels `FontSize` 14 (was 13) to match hero scale.
+
+---
+
 ## Session S255 — 2026-04-14 (Dev Window v2: Pull / Push + DPI font scaling)
 
 **Scope**: `devtools/dev-window-v2/dev-window-v2.ps1` only (no game/protocol changes).
