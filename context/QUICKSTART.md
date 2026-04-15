@@ -1,7 +1,7 @@
 # AI Session Quick Start -- Perfect Dark 2
 
 > **Read this file FIRST on every cold start.** After this, you can contribute productively.
-> For deep dives, follow links to domain files. Updated: 2026-04-09 (S185).
+> For deep dives, follow links to domain files. Updated: 2026-04-14 (S258 — session log split; see [INDEX.md](INDEX.md)).
 
 ---
 
@@ -33,7 +33,7 @@ If you're about to write code that uses an integer asset index at any boundary, 
 Before writing ANY code:
 1. Read this file (done)
 2. Read `context/constraints.md` -- active constraints to respect, removed constraints to NOT work around
-3. Read `context/session-log.md` (last 2-3 sessions) -- what was done, what's next
+3. Read `context/session-log.md` (last few sessions; older tiers in `context/_archive/`) -- what was done, what's next
 4. Read `context/tasks-current.md` -- active punch list
 5. Summarize to Mike: where we are, what's next, any blockers
 6. Confirm direction before starting

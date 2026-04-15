@@ -1,15 +1,17 @@
 # Perfect Dark 2 -- Project Context Index
 
-> **Last updated**: 2026-04-14, S256 — Dev Window v2: BUILD tab layout (`LastChildFill="False"` fixes stretched utility buttons); proportional VERSION column + wrap; status/build label font 14. See session-log S256.
+> **Last updated**: 2026-04-14, S258 — **Context organization**: `session-log.md` split (active **S241–S258**; archive for S240↓); [INDEX.md](INDEX.md) + README Session History + QUICKSTART cross-links. Prior: S257 git sync before build/release.
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding
 
 > **COLD START?** Read **[QUICKSTART.md](QUICKSTART.md)** first. Then come back here for deep dives.
 
+In **Cursor**, attach the project skill **[context-session-start](../.cursor/skills/context-session-start/SKILL.md)** at session start for a structured agent checklist aligned with onboarding below.
+
 **Project**: PC port of Perfect Dark (N64 FPS, Rare 2000). C11 codebase, CMake + MinGW/GCC.
 **Developer**: Mike (sole dev, builds on Windows). AI writes code, Mike compiles and tests.
-**Session start**: Read [QUICKSTART.md](QUICKSTART.md) -> [constraints.md](constraints.md) -> [session-log.md](session-log.md) (last 3) -> [tasks-current.md](tasks-current.md).
+**Session start**: Read [QUICKSTART.md](QUICKSTART.md) → [constraints.md](constraints.md) → [session-log.md](session-log.md) (last few sessions) → [tasks-current.md](tasks-current.md). Optional map: [INDEX.md](INDEX.md).
 
 ---
 
@@ -30,10 +32,12 @@
 
 ## Session History
 
-Recent sessions in [session-log.md](session-log.md). Older session archives in `_archive/sessions/`.
+**Active log** ([session-log.md](session-log.md)): sessions **S241–S258** (~210 lines). **Next tier** ([_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md)): S240 through S157. **S1–S119** chunked files in [_archive/sessions/](_archive/sessions/). Map: [INDEX.md](INDEX.md).
 
 | Sessions | Period | Focus |
 |----------|--------|-------|
+| S258 | 2026-04-14 | **Context organization**: `session-log.md` split (active S241–S258); S240→S157 → `_archive/session-log-archive-S240-and-older.md`; new `INDEX.md`. |
+| S257 | 2026-04-14 | **Git before build/release**: `dev-window-v2.ps1` runs commit+push before pipeline; `release.ps1` uses `git diff --cached` + failing commit exits before `pull --rebase`. CRITICAL-PROCEDURES § solo-dev git. |
 | S256 | 2026-04-14 | Dev Window v2: fix BUILD tab DockPanel fill (utility buttons no longer stretch full height); VERSION column `2*`/`*` + min widths + text wrap; status/build fonts 14. |
 | S255 | 2026-04-14 | Dev Window v2: utility-row **Pull** / **Push** (`git pull` / `git push`, log + status refresh; disabled during build/release). **Font scaling**: `SetProcessDPIAware` + `UseLayoutRounding` / `SnapsToDevicePixels` / `TextFormattingMode=Display` / `ClearTypeHint` on main window. |
 | S254 | 2026-04-14 | Bug B fix: countdown-cancel-on-room-close. `netReadyGateOnClientLeft()` + `netReadyGateAbortForRoom()` in `roomLeave()`; defensive room-missing guard in `readyGateTickCountdown()`. No protocol bump. SP-14 (room-bound server state must be cleaned on teardown) added to systemic-bugs.md; constraint added to constraints.md. Build-verified (pd + pd-server). Needs in-game playtest. v0.0.95 pre-release commit. |
@@ -117,6 +121,7 @@ Recent sessions in [session-log.md](session-log.md). Older session archives in `
 
 Completed audits, superseded plans, and old session logs in `_archive/`:
 
+- `_archive/session-log-archive-S240-and-older.md` — session entries **S240 down to S157** (split from active `session-log.md` for size; 2026-04-14).
 - `_archive/audits/` — completed security / null-guard / compliance audits (catalog-ID-compliance, infrastructure-integrity, legacy-hacks, pipeline-compliance, asset-reference-audit, mod-system-features-and-todos, older init-order / netsend / rendering / player-count audits).
 - `_archive/designs/` — superseded design docs (Skin Editor, Audio Mod Menu, scaling baseline, D5 settings plan, menu replacement plan, input flow chart, input repair plan, HUD score panel, state-transition audit, dev-window-v2, menu storyboard / asset audit, menu replacement, plan-bot-crash-fixes, rendering-trace, roadmap-synthesis).
 - `_archive/designs/2026-04-13/` — 2026-04-13 stabilization-drop design docs (build-pipeline-improvements, infrastructural-repair-plan, master-orchestration-plan, match-lifecycle audit + fix plan, menu-input audit + fix plan, mod-map-import-pipeline, spawn-and-import-fix-plan, static-link-dll-elimination).

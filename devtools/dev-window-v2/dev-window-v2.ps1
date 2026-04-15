@@ -16,7 +16,7 @@
 $env:PD_BUILD_ENV_QUIET = '1'
 
 # Build environment -- self-configures TEMP/TMP, PATH (MinGW64), MSYSTEM, ccache.
-. (Join-Path $PSScriptRoot ".." "_build-env-prelude.ps1")
+. (Join-Path (Join-Path $PSScriptRoot "..") "_build-env-prelude.ps1")
 
 # ----------------------------------------------------------------------------
 # GitHub CLI PATH: merge Machine+User from registry (same idea as original Dev Window
@@ -250,6 +250,83 @@ function Resolve-GitExecutable {
     return $null
 }
 
+# Delete stale index.lock. Explorer may show C:\...\.git with no lock while Git errors on
+# /home/.../.git/index.lock (WSL-native tree) or /mnt/c/... (same repo via wslpath) — not the same path string.
+# Builds assume the main dev tree (no separate worktree builds).
+function Remove-GitIndexLockFromGitStderr {
+    param([string]$Text)
+    if (-not $Text) { return }
+    $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
+    foreach ($m in [regex]::Matches($Text, "Unable to create '([^']+)'")) {
+        $pth = $m.Groups[1].Value
+        if (-not $pth) { continue }
+        try {
+            if ($pth -match '^[A-Za-z]:\\' -or $pth -match '^\\\\') {
+                if (Test-Path -LiteralPath $pth) { Remove-Item -LiteralPath $pth -Force -ErrorAction SilentlyContinue }
+            } elseif ($pth -match '^/' -and $null -ne $wsl) {
+                [void](& wsl.exe -- rm -f -- $pth 2>&1)
+            }
+        } catch {}
+    }
+}
+
+function Remove-GitIndexLockForRepo {
+    param([string]$RepoRoot)
+    if (-not $RepoRoot) { return }
+    $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
+
+    # 1) Windows working copy (what Explorer shows under C:\...\ .git\)
+    $winLock = Join-Path $RepoRoot ".git\index.lock"
+    try {
+        if (Test-Path -LiteralPath $winLock) {
+            Remove-Item -LiteralPath $winLock -Force -ErrorAction SilentlyContinue
+        }
+    } catch {}
+
+    # 2) Same folder via WSL drvfs: /mnt/c/.../ .git/index.lock (lock may exist only on Linux side of 9p)
+    if ($null -ne $wsl) {
+        try {
+            $wslp = (& wsl.exe wslpath -a $RepoRoot 2>$null)
+            if ($wslp) {
+                $wslLock = ($wslp.Trim().TrimEnd('/') + '/.git/index.lock')
+                [void](& wsl.exe -- rm -f -- $wslLock 2>&1)
+            }
+        } catch {}
+    }
+
+    # 3) Path Git reports for this -C (may differ from Explorer on MSYS/WSL mixes)
+    $lockPath = $null
+    try {
+        $p = (& git -C $RepoRoot rev-parse --path-format=absolute --git-path index.lock 2>$null)
+        if ($p) { $lockPath = $p.Trim() }
+    } catch {}
+    if (-not $lockPath) {
+        try {
+            $gd = (& git -C $RepoRoot rev-parse --absolute-git-dir 2>$null)
+            if ($gd) { $lockPath = [System.IO.Path]::Combine($gd.Trim(), "index.lock") }
+        } catch {}
+    }
+    if ($lockPath) {
+        try {
+            if (Test-Path -LiteralPath $lockPath) {
+                Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
+            }
+        } catch {}
+        if ($lockPath -match '^/' -and $null -ne $wsl) {
+            try { [void](& wsl.exe -- rm -f -- $lockPath 2>&1) } catch {}
+        }
+    }
+
+    # 4) Git dir under /home or /mnt — extra rm (covers Linux checkout path Git prints in fatal:)
+    try {
+        $gd2 = (& git -C $RepoRoot rev-parse --absolute-git-dir 2>$null).Trim()
+        if ($gd2 -match '^/(home|mnt)/' -and $null -ne $wsl) {
+            $ul = ($gd2.TrimEnd('/') + '/index.lock')
+            [void](& wsl.exe -- rm -f -- $ul 2>&1)
+        }
+    } catch {}
+}
+
 function Get-ChildProcessPathEnv {
     $segments = [System.Collections.ArrayList]::new()
     $gitExe = Resolve-GitExecutable
@@ -386,13 +463,14 @@ function Get-GitChangeCount {
 }
 
 function Auto-Commit-Sync {
-    $lock = Join-Path $script:ProjectRoot ".git\index.lock"
-    if (Test-Path $lock) { Remove-Item $lock -Force -ErrorAction SilentlyContinue }
+    Remove-GitIndexLockForRepo $script:ProjectRoot
     $st = git -C $script:ProjectRoot status --porcelain 2>$null
     if (-not $st) { return $true }
     $ver = $(if ($null -ne $script:BuildVersion) { $script:BuildVersion } else { Get-ProjectVersion })
     $msg = "Build v" + $ver.Major + "." + $ver.Minor + "." + $ver.Patch + " - auto-commit before build"
+    Remove-GitIndexLockForRepo $script:ProjectRoot
     git -C $script:ProjectRoot add -A 2>$null | Out-Null
+    Remove-GitIndexLockForRepo $script:ProjectRoot
     git -C $script:ProjectRoot commit -m $msg 2>$null | Out-Null
     $commitOk = ($LASTEXITCODE -eq 0)
     try { git -C $script:ProjectRoot push 2>$null | Out-Null } catch {}
@@ -1078,6 +1156,85 @@ function Get-GitCurrentBranch {
     return "HEAD"
 }
 
+# Solo-dev workflow: commit + push any dirty tree before Build / Release so subprocesses (e.g.
+# release.ps1 git pull --rebase) never hit "index contains uncommitted changes".
+function Invoke-GitSyncBeforeBuild {
+    param([string]$CommitMessage = "chore: auto-commit before build (dev window)")
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        [System.Windows.MessageBox]::Show("git was not found on PATH.", "Git", "OK", "Warning") | Out-Null
+        return $false
+    }
+    Remove-GitIndexLockForRepo $script:ProjectRoot
+    $br = Get-GitCurrentBranch
+    Add-LogSessionLine "" "#1A3050"
+    Add-LogSessionLine ">>> git: sync before build (branch: $br)" "#0090D0"
+    Push-Location $script:ProjectRoot
+    try {
+        Remove-GitIndexLockForRepo $script:ProjectRoot
+        $addOut = @(git add -A 2>&1)
+        $addCode = $LASTEXITCODE
+        if ($addCode -ne 0 -and (($addOut | ForEach-Object { "$_" }) -join "`n") -match 'index\.lock|Unable to create') {
+            $addText = ($addOut | ForEach-Object { "$_" }) -join "`n"
+            Remove-GitIndexLockFromGitStderr $addText
+            Remove-GitIndexLockForRepo $script:ProjectRoot
+            $addOut = @(git add -A 2>&1)
+            $addCode = $LASTEXITCODE
+        }
+        if ($addCode -ne 0) {
+            foreach ($line in $addOut) { Add-LogSessionLine "$line" "#DC3232" }
+            Add-LogSessionLine "git add failed before build." "#DC3232"
+            [System.Windows.MessageBox]::Show(
+                "git add failed before build. Fix the repo, then retry.",
+                "Git",
+                "OK",
+                "Error") | Out-Null
+            return $false
+        }
+        git diff --cached --quiet 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Remove-GitIndexLockForRepo $script:ProjectRoot
+            $co = @(git commit -m $CommitMessage 2>&1)
+            $commitCode = $LASTEXITCODE
+            if ($commitCode -ne 0 -and (($co | ForEach-Object { "$_" }) -join "`n") -match 'index\.lock|Unable to create') {
+                $commitText = ($co | ForEach-Object { "$_" }) -join "`n"
+                Remove-GitIndexLockFromGitStderr $commitText
+                Remove-GitIndexLockForRepo $script:ProjectRoot
+                $co = @(git commit -m $CommitMessage 2>&1)
+                $commitCode = $LASTEXITCODE
+            }
+            foreach ($line in $co) { Add-LogSessionLine "$line" $(if ($commitCode -ne 0) { "#DC3232" } else { "#8C8C8C" }) }
+            if ($commitCode -ne 0) {
+                Add-LogSessionLine "git commit failed (hooks, conflicts, or repo state)." "#DC3232"
+                [System.Windows.MessageBox]::Show(
+                    "git commit failed before build. Fix the repo, then retry.",
+                    "Git",
+                    "OK",
+                    "Error") | Out-Null
+                return $false
+            }
+            Add-LogSessionLine "Committed: $CommitMessage" "#508CDC"
+        } else {
+            Add-LogSessionLine "(working tree already clean - nothing to commit)" "#44586C"
+        }
+        $pu = @(git push origin $br 2>&1)
+        $pushCode = $LASTEXITCODE
+        foreach ($line in $pu) { Add-LogSessionLine "$line" $(if ($pushCode -ne 0) { "#DC3232" } else { "#8C8C8C" }) }
+        if ($pushCode -ne 0) {
+            [System.Windows.MessageBox]::Show(
+                "git push failed (exit $pushCode). Check network, credentials, and upstream.`nBuild / release aborted.",
+                "Git",
+                "OK",
+                "Error") | Out-Null
+            return $false
+        }
+        Add-LogSessionLine "git push: ok" "#508CDC"
+    } finally {
+        Pop-Location
+    }
+    Add-LogSessionLine "" "#1A3050"
+    return $true
+}
+
 function Invoke-GitPull {
     if ($script:IsBuilding -or $script:IsPushing) {
         [System.Windows.MessageBox]::Show("Wait for the current build or release to finish.", "Git Pull", "OK", "Information") | Out-Null
@@ -1087,7 +1244,6 @@ function Invoke-GitPull {
         [System.Windows.MessageBox]::Show("git was not found on PATH.", "Git Pull", "OK", "Warning") | Out-Null
         return
     }
-    $ui["TabControl"].SelectedIndex = 1
     $br = Get-GitCurrentBranch
     Add-LogLine ">>> git pull (branch: $br)" "#0090D0"
     try {
@@ -1120,7 +1276,6 @@ function Invoke-GitPush {
         [System.Windows.MessageBox]::Show("git was not found on PATH.", "Git Push", "OK", "Warning") | Out-Null
         return
     }
-    $ui["TabControl"].SelectedIndex = 1
     $br = Get-GitCurrentBranch
     Add-LogLine ">>> git push (branch: $br)" "#0090D0"
     try {
@@ -1157,6 +1312,7 @@ function Stop-Build {
     $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Collapsed
     $ui["ProgressBack"].Visibility = [System.Windows.Visibility]::Collapsed
     $ui["LblBuildActivity"].Text = "Stopped."
+    $ui["LblProgressText"].Text = ""
 }
 
 function Start-Build-Step($step) {
@@ -1168,6 +1324,9 @@ function Start-Build-Step($step) {
     $script:LastReleaseHeartbeat = [DateTime]::Now
     $script:BuildPercent   = 0
     $ui["LblBuildActivity"].Text = $step.Name + "..."
+    $ui["LblProgressText"].Text = "0% - " + $step.Name
+    $ui["ProgressFill"].Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0090D0")))
+    $ui["ProgressFill"].Width = 0
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $step.Exe; $psi.Arguments = $step.Args
@@ -1210,7 +1369,7 @@ function Get-BuildSteps($ver, [bool]$forceClean = $false) {
     $gitExe = Resolve-GitExecutable
     if (-not $gitExe) { $gitExe = "git" }
     $gitQ = '"' + $gitExe + '"'
-    $commitArgs = "/c cd /d `"" + $script:ProjectRoot + "`" && " + $gitQ + " add -A && (" + $gitQ + " diff --cached --quiet || " + $gitQ + " commit -m `"" + $commitMsg + "`") && (" + $gitQ + " push >nul 2>&1 & exit 0)"
+    $commitArgs = "/c cd /d `"" + $script:ProjectRoot + "`" && if exist .git/index.lock del /f /q .git/index.lock >nul 2>&1 && " + $gitQ + " add -A && (" + $gitQ + " diff --cached --quiet || " + $gitQ + " commit -m `"" + $commitMsg + "`") && (" + $gitQ + " push >nul 2>&1 & exit 0)"
     [void]$steps.Add(@{Name="Auto-commit + push"; Exe="cmd.exe"; Target="client"; Args=$commitArgs})
 
     if ($forceClean) {
@@ -1233,7 +1392,6 @@ function Get-BuildSteps($ver, [bool]$forceClean = $false) {
 
 function Start-Build {
     if ($script:IsBuilding) { return }
-    $script:IsBuilding = $true
     $script:ClientErrors.Clear(); $script:ServerErrors.Clear(); $script:AllOutput.Clear()
     $script:ClientBuildResult = $null; $script:ServerBuildResult = $null
     $script:ClientBuildTime = 0; $script:ServerBuildTime = 0
@@ -1248,10 +1406,29 @@ function Start-Build {
     $ui["BtnCopyErrors"].Visibility = [System.Windows.Visibility]::Collapsed
     $ui["BtnCopyLog"].Visibility = [System.Windows.Visibility]::Collapsed
     $ui["ProgressBack"].Visibility = [System.Windows.Visibility]::Visible
+    $ui["LblBuildActivity"].Text = "Git: syncing..."
+    $ui["LblProgressText"].Text = "Git: syncing..."
+    $ui["ProgressFill"].Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0090D0")))
+    $pw0 = $ui["ProgressBack"].ActualWidth
+    if ($pw0 -gt 0) { $ui["ProgressFill"].Width = [math]::Floor($pw0 * 0.12) } else { $ui["ProgressFill"].Width = 0 }
+
+    if (-not (Invoke-GitSyncBeforeBuild "chore: auto-commit before build (dev window)")) {
+        $ui["BtnBuild"].IsEnabled = $true; $ui["BtnRelease"].IsEnabled = $true; $ui["BtnCleanBuild"].IsEnabled = $true
+        $ui["BtnPull"].IsEnabled = $true
+        $ui["BtnPush"].IsEnabled = $true
+        $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Collapsed
+        $ui["ProgressBack"].Visibility = [System.Windows.Visibility]::Collapsed
+        $ui["LblBuildActivity"].Text = "Idle"
+        $ui["LblProgressText"].Text = ""
+        return
+    }
+
+    $script:IsBuilding = $true
 
     $clean = $script:ForceCleanBuild; $script:ForceCleanBuild = $false
     $buildMode = $(if ($clean) { "clean" } else { "incremental" })
     $ui["LblBuildActivity"].Text = "Starting " + $buildMode + " build..."
+    $ui["LblProgressText"].Text = "0% - starting " + $buildMode + " build..."
     Add-LogSessionLine "" "#1A3050"
     Add-LogSessionLine (">>> BUILD (" + $buildMode + ")") "#0090D0"
     Add-LogSessionLine "" "#1A3050"
@@ -1291,19 +1468,38 @@ function Start-PushRelease {
     $msg = "Release v" + $vs + " (" + $kind + ")?`n`nThis will:`n1. Set version to " + $vs + " in CMakeLists.txt`n2. Build client + server`n3. Package and push to GitHub"
     $ok = [System.Windows.MessageBox]::Show($msg, ($kind + " Release v" + $vs), "YesNo", "Warning")
     if ($ok -ne [System.Windows.MessageBoxResult]::Yes) { return }
-    $script:IsPushing = $true
+
     $ui["BtnBuild"].IsEnabled = $false; $ui["BtnRelease"].IsEnabled = $false; $ui["BtnCleanBuild"].IsEnabled = $false
     $ui["BtnPull"].IsEnabled = $false
     $ui["BtnPush"].IsEnabled = $false
-    Set-ProjectVersion $ver.Major $ver.Minor $ver.Patch
-    $ui["LblBuildActivity"].Text = "Release v" + $vs + ": building..."
+    $ui["ProgressBack"].Visibility = [System.Windows.Visibility]::Visible
+    $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Visible
+    $ui["LblBuildActivity"].Text = "Git: syncing..."
+    $ui["LblProgressText"].Text = "Git: syncing..."
+    $ui["ProgressFill"].Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0090D0")))
+    $pw0r = $ui["ProgressBack"].ActualWidth
+    if ($pw0r -gt 0) { $ui["ProgressFill"].Width = [math]::Floor($pw0r * 0.12) } else { $ui["ProgressFill"].Width = 0 }
 
     $script:HasBuildErrors = $false; $script:AllOutput.Clear()
     $script:ClientErrors.Clear(); $script:ServerErrors.Clear()
+    if (-not (Invoke-GitSyncBeforeBuild "chore: auto-commit before release (dev window)")) {
+        $ui["BtnBuild"].IsEnabled = $true; $ui["BtnRelease"].IsEnabled = $true; $ui["BtnCleanBuild"].IsEnabled = $true
+        $ui["BtnPull"].IsEnabled = $true
+        $ui["BtnPush"].IsEnabled = $true
+        $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Collapsed
+        $ui["ProgressBack"].Visibility = [System.Windows.Visibility]::Collapsed
+        $ui["LblBuildActivity"].Text = "Idle"
+        $ui["LblProgressText"].Text = ""
+        return
+    }
+
+    $script:IsPushing = $true
+    Set-ProjectVersion $ver.Major $ver.Minor $ver.Patch
+    $ui["LblBuildActivity"].Text = "Release v" + $vs + ": building..."
+    $ui["LblProgressText"].Text = "0% - release v" + $vs + " (starting steps...)"
+
     $script:ClientBuildResult = $null; $script:ServerBuildResult = $null
     $script:BuildStepQueue.Clear()
-    $ui["ProgressBack"].Visibility = [System.Windows.Visibility]::Visible
-    $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Visible
     $ui["LblClientStatus"].Text = "client: building..."
     $ui["BtnCopyLog"].Visibility = [System.Windows.Visibility]::Visible
 
@@ -1325,8 +1521,6 @@ function Start-PushRelease {
         Target = "client"
         Args   = "-ExecutionPolicy Bypass -File `"" + $releaseScript + "`" -Version `"" + $vs + "`"" + $prerelArg + " -SkipBuild -SkipPush:`$false"
     })
-    # Auto-switch to Log tab so release output is visible (gh upload can take 30-60s silently)
-    $ui["TabControl"].SelectedIndex = 1
     $script:BuildTimer.Start()
 }
 
@@ -1520,6 +1714,9 @@ $script:BuildTimer.Add_Tick({
                     $hint = "  [gh upload -- see Log tab]"
                 }
                 $ui["LblBuildActivity"].Text = $script:CurrentStepName + " " + $spin + " " + $el + "s" + $hint
+                if ($script:BuildPercent -eq 0) {
+                    $ui["LblProgressText"].Text = $script:CurrentStepName + " " + $spin + " " + $el + "s"
+                }
                 if ($script:CurrentStepName -match "Release" -and $sil -ge 12) {
                     $sinceHb = ([DateTime]::Now - $script:LastReleaseHeartbeat).TotalSeconds
                     if ($sinceHb -ge 12) {
@@ -1531,6 +1728,9 @@ $script:BuildTimer.Add_Tick({
                 }
             } else {
                 $ui["LblBuildActivity"].Text = $script:CurrentStepName + " (" + $el + "s)"
+                if ($script:BuildPercent -eq 0) {
+                    $ui["LblProgressText"].Text = "0% - " + $script:CurrentStepName + " (" + $el + "s)"
+                }
             }
             return
         }
@@ -1604,8 +1804,10 @@ $script:BuildTimer.Add_Tick({
                 if ($pw -gt 0) { $ui["ProgressFill"].Width = $pw }
                 if ($anyErr) {
                     $ui["LblBuildActivity"].Text = $(if ($script:IsPushing) { "Release finished (with errors)." } else { "Build complete (with errors)." })
+                    $ui["LblProgressText"].Text = $(if ($script:IsPushing) { "Release finished (errors)" } else { "Build finished (errors)" })
                 } else {
                     $ui["LblBuildActivity"].Text = $(if ($script:IsPushing) { "Release complete." } else { "Build complete." })
+                    $ui["LblProgressText"].Text = $(if ($script:IsPushing) { "100% - release complete" } else { "100% - build complete" })
                 }
                 $errCnt = $script:ClientErrors.Count + $script:ServerErrors.Count
                 $ui["BtnCopyErrors"].Visibility = $(if ($errCnt -gt 0) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed })

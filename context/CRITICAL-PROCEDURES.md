@@ -16,6 +16,17 @@ Context files in `context/` are the project's memory across sessions. Without th
 
 ---
 
+## Solo-dev Git Before Automated Build / Release
+
+Dev Window v2 runs **`git pull --rebase`** inside `devtools/release.ps1` before pushing. A **non-clean index** (staged but uncommitted changes) makes that step fail with *cannot pull with rebase: Your index contains uncommitted changes*.
+
+- **Dev Window v2** calls **`Invoke-GitSyncBeforeBuild`** at the start of **Build** and **Release**: `git add -A`, commit only if the index has staged changes (`git diff --cached --quiet`), then **`git push`** to the current branch.
+- **`release.ps1`** now uses the same **diff --cached** check before `git commit` (no longer relies on `git status --porcelain` alone, and does not swallow commit failures).
+
+**Rule:** Let the Dev Window perform the sync step; avoid leaving staged edits mid-pipeline.
+
+---
+
 ## Build Verification
 
 **Every code change must be build-verified before being reported as complete.**

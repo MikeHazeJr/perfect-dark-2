@@ -39,8 +39,8 @@ main working copy OR in session-created worktrees under `.claude/worktrees/`.
 |------|----------|-------|
 | `devtools/build-headless.ps1` | PowerShell headless build (AI-facing). Self-configures env via `_build-env-prelude.ps1`. | S247 self-heal |
 | `devtools/build-env.sh` | Bash prelude: `source devtools/build-env.sh && ninja -C Build pd pd-server`. Sets TEMP/TMP + prepends MinGW to PATH. | S247 |
-| `devtools/dev-window-v2/dev-window-v2.ps1` | WPF dev window v2 — build / run / version / status / git Pull·Push + DPI (S255); BUILD tab layout: `LastChildFill=false`, proportional VERSION column, wrapped labels (S256). | S256 |
-| `devtools/release.ps1` | Versioned release build. | — |
+| `devtools/dev-window-v2/dev-window-v2.ps1` | WPF dev window v2 — build / run / version / status / git Pull·Push + DPI (S255); BUILD layout (S256); **git sync before Build/Release** `Invoke-GitSyncBeforeBuild` (S257). | S257 |
+| `devtools/release.ps1` | Versioned release; push step uses `git pull --rebase` — pre-commit uses `git diff --cached` + fatal on commit failure (S257). | S257 |
 
 **Build environment invariants** (see project `CLAUDE.md`):
 `TEMP=C:\Users\mikeh\AppData\Local\Temp`, `/c/msys64/mingw64/bin` prepended

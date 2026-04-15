@@ -1,0 +1,31 @@
+---
+description: Nudge SP-* systemic safety audits via context/systemic-bugs.md and the pd2-systemic-safety-audit skill
+globs: src/game/**/*.c,port/src/net/**/*.c,port/fast3d/pdgui*.cpp
+alwaysApply: false
+---
+
+# PD2 Systemic Safety Audit
+
+When the user asks to **audit for SP-***, requests a **pre-merge** safety pass on risky changes, or you have **substantively edited** files matching this rule’s globs: treat this as a cue to run a **read-only** systemic audit, not a drive-by refactor.
+
+## Authority
+
+- **`context/systemic-bugs.md`** — sections **SP-*** and documented search patterns.
+- Agent Skill **`pd2-systemic-safety-audit`** (`~/.cursor/skills/pd2-systemic-safety-audit/SKILL.md`) — full process and report template when available.
+
+## Defaults (high risk until proven safe)
+
+- **`% MAX_PLAYERS`** or other modulo used to **derive bot or slot indices** — verify against SP rules; prefer explicit bounds checks.
+- **`prop->chr`** may be **NULL** for `PROPTYPE_PLAYER` in some states.
+- **`g_Vars.players[i]`** may be **NULL** — guard in loops.
+
+## Behavior
+
+1. Open the relevant **SP-*** section(s) in `context/systemic-bugs.md` and apply the doc’s patterns **to the user’s scoped paths** (or the current change set), not the whole repo unless asked.
+2. Output a **prioritized** findings list (severity, location, fix pattern from the doc). **Do not mass-edit** or apply fixes unless the user **explicitly** asks in the same turn.
+3. If useful, note whether a **matching guard** already exists elsewhere in the repo.
+
+## Related
+
+- Broader constraints: `context/constraints.md`.
+- Networking skill when wire/teardown overlaps: `pd2-networking-protocol` skill.

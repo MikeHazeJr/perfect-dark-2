@@ -102,6 +102,8 @@ $BuildDir  = Join-Path $ProjectRoot "Build"
 # Build environment -- self-configures TEMP/TMP, PATH (MinGW64), MSYSTEM, ccache.
 . (Join-Path $PSScriptRoot "_build-env-prelude.ps1")
 $env:GIT_TERMINAL_PROMPT = "0"                          # prevent git from hanging on credential prompts
+$gitIndexLock = Join-Path $ProjectRoot ".git\index.lock"
+if (Test-Path $gitIndexLock) { Remove-Item $gitIndexLock -Force -ErrorAction SilentlyContinue }
 
 # Version parts for cmake -D flags (resolved above from CMakeLists.txt or -Version param)
 $vParts = $Version -split '\.'
@@ -445,12 +447,18 @@ if ($SkipPush -or $DryRun) {
     $currentBranch = git branch --show-current
     Write-Host "  Pushing branch '$currentBranch' ..." -ForegroundColor Gray
 
-    # Auto-commit any uncommitted changes before rebase
-    $statusOut = git status --porcelain 2>&1
-    if ($statusOut) {
-        Write-Host "  Committing uncommitted changes before sync..." -ForegroundColor Gray
-        git add -A 2>&1 | Out-Null
-        git commit -m "chore: auto-commit before release v$Version" 2>&1 | Out-Null
+    # Index must be clean for `git pull --rebase` (staged-but-uncommitted breaks rebase).
+    git add -A 2>&1 | Out-Null
+    git diff --cached --quiet 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  Committing staged changes before pull --rebase..." -ForegroundColor Gray
+        $commitOut = @(git commit -m "chore: auto-commit before release v$Version" 2>&1)
+        $commitCode = $LASTEXITCODE
+        foreach ($line in $commitOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
+        if ($commitCode -ne 0) {
+            Write-Host "  ERROR: git commit failed before pull --rebase. Fix hooks or repo state." -ForegroundColor Red
+            exit 1
+        }
     }
 
     # Sync with remote before pushing — code sessions may have pushed commits
