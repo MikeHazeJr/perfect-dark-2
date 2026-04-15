@@ -1400,9 +1400,6 @@ void pdguiGameOverRender(s32 winW, s32 winH)
             pdguiPlaySound(PDGUI_SND_SELECT);
             s_prevWasGameOver = 0;
             mpSetPaused(MPPAUSEMODE_UNPAUSED);
-            if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-                inputCtxPush(&g_CtxImGuiMenu);
-            }
             if (g_NetMode == NETMODE_CLIENT) {
                 netDisconnect(); /* handles mainEndStage + mainChangeToStage(CITRAINING) */
             } else {

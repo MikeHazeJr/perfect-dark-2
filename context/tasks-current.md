@@ -41,6 +41,16 @@ Mike to confirm each on next build. Bug/feature → commit on `dev`:
 | **FIX-B.1 deep manifest scanner** | `netmanifest.c`, `setup.c`. Cinematics + AI scripts spawn assets not in the setup list. FIX-B.2 dependency DONE. |
 | **Manifest gap follow-ups** | See `scratch/archive/2026-04-13/manifest-gap-report-2026-04-13.md`. (1) Title/menu stage has no manifest — Skin Editor mod chars silently missing; fix: `manifestBuildForMenu()`. (2) SP pre-scan timing — split `manifestBuildMission()` into pre/post-load phases (partially mitigated by `manifestSPRescanSetup`). (3) Cutscene cinema models never in manifest — safety net only. |
 
+### Audit follow-ups (S262, uncommitted)
+
+- **Campaign end-path OOB guard** — `src/game/menutick.c`: Deep Sea next-stage path increments `g_MissionConfig.stageindex` and indexes `g_SoloStages[]` without `NUM_SOLOSTAGES` clamp. Align with guards in `endscreen.c`.
+- **Endscreen menu index safety (SP-1)** — `src/game/endscreen.c`: guard `g_MpPlayerNum` before `g_Menus[g_MpPlayerNum]` writes in `endscreenPushCoop/Anti`.
+- **Counter-op role authority mismatch** — `port/fast3d/pdgui_menu_room.cpp`, `port/src/net/netmsg.c`, `port/src/net/net.c`: "Counter-Op Player" picker is UI-only today; serialize authoritative anti-role assignment on wire or remove picker.
+- **Co-op/anti ready-gate double stage-change** — `port/src/net/netmsg.c` + `port/src/net/net.c`: remove duplicate `mainChangeToStage` call path to avoid transition ordering ambiguity.
+- **Sparse-slot null safety (SP-6)** — `src/game/mplayer/mplayer.c`: `mpEndMatch` iterates `i < PLAYERCOUNT()` then dereferences `g_Vars.currentplayer` without null guard.
+- **Team rankings data/UI mismatch** — `port/fast3d/pdgui_menu_endscreen.cpp`: `buildRankings` consumes `mpGetTeamRankings()` rows with `mpchr=NULL`; use per-player rankings + team sort for display consistency.
+- **Room-scope teardown hygiene (SP-14 follow-up)** — `port/src/net/net.c`: review/reset lifecycle for `g_NetMatchRoomId` at stage end.
+
 ---
 
 ## Build / Release
@@ -48,6 +58,7 @@ Mike to confirm each on next build. Bug/feature → commit on `dev`:
 | Item | Status | Detail |
 |------|--------|--------|
 | **Git sync before Build/Release (dev-window-v2)** | DONE (S257) | `Invoke-GitSyncBeforeBuild` + `release.ps1` index-safe commit before `pull --rebase`. See `session-log` S257, `CRITICAL-PROCEDURES.md`. |
+| **Dev-window python command robustness** | DONE (S261) | Dev-window-v2 + headless configure now pass `-DPD_PYTHON_EXECUTABLE=C:/msys64/usr/bin/python3.exe` explicitly so asset generator custom commands never depend on `python3` being on child PATH. |
 | **Static link / DLL elimination** | DONE (S224) — **Mike: verify with objdump** | CMakeLists.txt: SDL2 deps completed (dinput8/dxguid/shell32/user32/uuid), DLL copy block removed. Carve-out: `opengl32.dll` only. Verify: `objdump -p Build/PerfectDark.exe \| grep "DLL Name"` should show only system DLLs. Design: `designs/static-link-dll-elimination-2026-04-13.md`. |
 | **L0-LINK: pdguiThemeRegisterModDir server link** | DONE (S231) | Stub confirmed at `port/src/server_stubs.c:417`. Both-targets link verify pending Mike's build. |
 | **L0-BUILD: ccache warm-build regression** | CODE DONE (S231) — **Mike: run warm-build timing verify** | `CCACHE_SLOPPINESS=pch_defines,time_macros` in all 3 build scripts. Target: warm `pd` <12 s (was 30.7 s after PCH in `955dffa2`). Run `.\devtools\build-headless.ps1 -Target client` twice; second run should be <12 s. |

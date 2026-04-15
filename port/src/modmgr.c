@@ -420,19 +420,38 @@ static bool modmgrParseModJson(modinfo_t *mod)
 	free(buf);
 	mod->has_modjson = true;
 
-	// Validate required fields
+	// Compatibility validation / defaults:
+	// - id: if missing, derive from directory slug
+	// - name: if missing, use id
+	// - base_fallback: if missing, default to "base-game"
 	mod->valid = true;
 	mod->validation_error[0] = '\0';
+	{
+		const char *slash = strrchr(mod->dirpath, '/');
+		const char *bslash = strrchr(mod->dirpath, '\\');
+		const char *base = slash;
+		if (!base || (bslash && bslash > base)) base = bslash;
+		base = base ? base + 1 : mod->dirpath;
 
-	if (mod->id[0] == '\0') {
-		mod->valid = false;
-		snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Missing required field: id");
-	} else if (mod->base_fallback[0] == '\0') {
-		mod->valid = false;
-		snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Missing required field: base_fallback");
-	} else if (mod->name[0] == '\0') {
-		mod->valid = false;
-		snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Missing required field: name");
+		if (mod->id[0] == '\0' && base && base[0] != '\0') {
+			strncpy(mod->id, base, MODMGR_ID_LEN - 1);
+			mod->id[MODMGR_ID_LEN - 1] = '\0';
+			sysLogPrintf(LOG_WARNING,
+				"modmgr: mod '%s' missing id in mod.json — using directory name fallback",
+				mod->id);
+		}
+		if (mod->name[0] == '\0' && mod->id[0] != '\0') {
+			strncpy(mod->name, mod->id, MODMGR_NAME_LEN - 1);
+			mod->name[MODMGR_NAME_LEN - 1] = '\0';
+		}
+		if (mod->base_fallback[0] == '\0') {
+			strncpy(mod->base_fallback, "base-game", MODMGR_FALLBACK_LEN - 1);
+			mod->base_fallback[MODMGR_FALLBACK_LEN - 1] = '\0';
+		}
+		if (mod->id[0] == '\0') {
+			mod->valid = false;
+			snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Missing required field: id");
+		}
 	}
 
 	if (mod->valid) {
@@ -812,32 +831,40 @@ static void modmgrScanDirectory(void)
 	// Ensure mods directory exists on fresh install
 	fsCreateDir("./" MODMGR_MODS_DIR);
 
-	// PC: fsFullPath("mods") resolves relative to baseDir (./data/mods), but
-	// mods live at ./mods/ relative to the working directory. Try CWD first,
-	// then exe dir, then the base dir fallback. fsFullPath returns a static
-	// pointer so we must copy before calling it again.
+	// PC: multiple roots are valid depending on launch dir:
+	// - $E/../mods (repo root when exe is in Build/)
+	// - ./mods (current working directory)
+	// - $E/mods (mods alongside exe)
+	// - base-dir fallback (often data/mods)
+	// fsFullPath returns a static pointer so we must copy before calling again.
 	const char *modsdir = NULL;
 	DIR *dir = NULL;
-	char candidateBufs[3][512];
-	const char *candidates[3];
+	char candidateBufs[4][512];
+	const char *candidates[4];
 
-	strncpy(candidateBufs[0], "./" MODMGR_MODS_DIR, sizeof(candidateBufs[0]));
-	candidateBufs[0][sizeof(candidateBufs[0]) - 1] = '\0';
+	{
+		const char *p = fsFullPath("$E/../" MODMGR_MODS_DIR);
+		strncpy(candidateBufs[0], p ? p : "", sizeof(candidateBufs[0]));
+		candidateBufs[0][sizeof(candidateBufs[0]) - 1] = '\0';
+	}
+	strncpy(candidateBufs[1], "./" MODMGR_MODS_DIR, sizeof(candidateBufs[1]));
+	candidateBufs[1][sizeof(candidateBufs[1]) - 1] = '\0';
 	{
 		const char *p = fsFullPath("$E/" MODMGR_MODS_DIR);
-		strncpy(candidateBufs[1], p ? p : "", sizeof(candidateBufs[1]));
-		candidateBufs[1][sizeof(candidateBufs[1]) - 1] = '\0';
+		strncpy(candidateBufs[2], p ? p : "", sizeof(candidateBufs[2]));
+		candidateBufs[2][sizeof(candidateBufs[2]) - 1] = '\0';
 	}
 	{
 		const char *p = fsFullPath(MODMGR_MODS_DIR);
-		strncpy(candidateBufs[2], p ? p : "", sizeof(candidateBufs[2]));
-		candidateBufs[2][sizeof(candidateBufs[2]) - 1] = '\0';
+		strncpy(candidateBufs[3], p ? p : "", sizeof(candidateBufs[3]));
+		candidateBufs[3][sizeof(candidateBufs[3]) - 1] = '\0';
 	}
 	candidates[0] = candidateBufs[0];
 	candidates[1] = candidateBufs[1];
 	candidates[2] = candidateBufs[2];
+	candidates[3] = candidateBufs[3];
 
-	for (s32 i = 0; i < 3; i++) {
+	for (s32 i = 0; i < 4; i++) {
 		if (!candidates[i][0]) continue;
 		dir = opendir(candidates[i]);
 		if (dir) {
@@ -847,8 +874,8 @@ static void modmgrScanDirectory(void)
 	}
 
 	if (!dir) {
-		sysLogPrintf(LOG_WARNING, "modmgr: could not open mods directory (tried ./%s, $E/%s, base/%s)",
-			MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR);
+		sysLogPrintf(LOG_WARNING, "modmgr: could not open mods directory (tried $E/../%s, ./%s, $E/%s, base/%s)",
+			MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR);
 		return;
 	}
 
@@ -967,7 +994,7 @@ static void modmgrScanDirectory(void)
 	/* Scan remaining candidate directories for mods not in the primary dir.
 	 * This catches mods placed in data/mods/ when ./mods/ was the primary,
 	 * or vice versa. Duplicate mod IDs are skipped. */
-	for (s32 ci = 0; ci < 3 && g_ModRegistryCount < MODMGR_MAX_MODS; ci++) {
+	for (s32 ci = 0; ci < 4 && g_ModRegistryCount < MODMGR_MAX_MODS; ci++) {
 		if (!candidates[ci][0]) continue;
 		if (strcmp(candidates[ci], modsdir) == 0) continue; /* skip primary */
 

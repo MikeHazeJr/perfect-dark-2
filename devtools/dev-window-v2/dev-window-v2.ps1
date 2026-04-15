@@ -116,6 +116,7 @@ $script:AddinDir            = Join-Path $script:ProjectRoot "..\post-batch-addin
 $script:CMake               = "C:/msys64/mingw64/bin/cmake.exe"
 $script:CC                  = "C:/msys64/mingw64/bin/cc.exe"
 $script:CXX                 = "C:/msys64/mingw64/bin/c++.exe"
+$script:Python              = "C:/msys64/usr/bin/python3.exe"
 $script:ClientExeName       = "PerfectDark.exe"
 $script:ServerExeName       = "PerfectDarkServer.exe"
 $script:SoundsDir           = Join-Path $script:ProjectRoot "dist\build-sounds"
@@ -1418,7 +1419,7 @@ function Get-BuildSteps($ver, [bool]$forceClean = $false) {
     # Always reconfigure for Build/Release in v2.
     # This avoids stale cache/version metadata when CMake regenerates via Ninja
     # and keeps behavior aligned with build-headless.ps1.
-    $cfgArgs = "-G Ninja -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -DCMAKE_CXX_COMPILER=`"" + $script:CXX + "`" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -B `"" + $script:BuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags
+    $cfgArgs = "-G Ninja -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -DCMAKE_CXX_COMPILER=`"" + $script:CXX + "`" -DPD_PYTHON_EXECUTABLE=`"" + $script:Python + "`" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -B `"" + $script:BuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags
     [void]$steps.Add(@{Name="Configure (Ninja + ccache)"; Exe=$script:CMake; Target="client"; Args=$cfgArgs})
     [void]$steps.Add(@{Name="Build (client: pd)"; Exe=$script:CMake; Target="client"; Args="--build `"" + $script:BuildDir + "`" --target pd"})
     [void]$steps.Add(@{Name="Build (server: pd-server)"; Exe=$script:CMake; Target="server"; Args="--build `"" + $script:BuildDir + "`" --target pd-server"})

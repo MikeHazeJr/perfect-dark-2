@@ -1741,6 +1741,7 @@ void menuPopDialog(void)
 	/* F-3.2: Log underflow — helps diagnose push/pop mismatches. */
 	if (g_Menus[g_MpPlayerNum].depth == 0) {
 		sysLogPrintf(LOG_WARNING, "MENU: menuPopDialog called at depth 0 (underflow)");
+		return;
 	}
 	menuCloseDialog();
 	menuUpdateCurFrame();

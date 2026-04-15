@@ -3,6 +3,50 @@
 > **S241–S259** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/](_archive/sessions/).
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S262 — 2026-04-15 (Deep gameplay pipeline audit: local/online/campaign/CombatSim/Counter-op)
+
+**Scope (read-only audit)**:
+- End-to-end gameplay pipeline review across local and online flows, Campaign, Combat Simulator, and Counter-op.
+- Focused on lifecycle edges: stage transitions, manifest usage, room/ready-gate teardown, ranking/endscreen paths, and menu/input handoff.
+- Systemic cross-check against `systemic-bugs.md` patterns (SP-1/2/3/6/8/13/14).
+
+**Highest-impact findings**:
+- `src/game/menutick.c`: Deep Sea end path increments `g_MissionConfig.stageindex` and indexes `g_SoloStages[]` without `NUM_SOLOSTAGES` clamp (OOB risk); other endscreen paths already clamp.
+- `src/game/endscreen.c`: `endscreenPushCoop/Anti` write `g_Menus[g_MpPlayerNum]` after assigning `g_MpPlayerNum = currentplayerstats->mpindex` without bounds guard (`MAX_PLAYERS` domain mismatch risk).
+- `port/src/net/netmsg.c` + `port/src/net/net.c`: co-op/anti ready-gate launch path does `mainChangeToStage()` then calls `netServerCoopStageStart()`, which calls `mainChangeToStage()` again (double-transition inconsistency window).
+- `port/fast3d/pdgui_menu_room.cpp` + `port/src/net/netmsg.c` + `port/src/net/net.c`: Counter-op "Counter-Op Player" UI selection is not serialized on wire; runtime still forces anti role to player slot 1 when two clients are present.
+- `src/game/mplayer/mplayer.c` (`mpEndMatch`): `for (i < PLAYERCOUNT()) setCurrentPlayerNum(i); g_Vars.currentplayer->...` assumes contiguous player slots (SP-6 sparse-slot risk).
+- `port/fast3d/pdgui_menu_endscreen.cpp` + `src/game/mplayer/mplayer.c`: team-mode ranking feed uses `mpGetTeamRankings()` (rows with `mpchr = NULL`) while UI expects per-player rows, producing placeholder entries and inconsistent endscreen data.
+- `port/src/net/net.c`: `g_NetMatchRoomId` is set on start paths but not reset on stage end; stage-end room filtering remains dependent on last writer.
+
+**Verification status**:
+- Audit-only session; no gameplay/runtime code changed in this entry.
+- Findings delivered as prioritized follow-up items for implementation sessions.
+
+---
+
+## Session S261 — 2026-04-15 (Build python pin + menu/input lifecycle + mod root compatibility)
+
+**Problems observed**:
+- Dev Window run logs showed client build failures in generated-asset commands (`python3` not found in subprocess PATH).
+- Runtime mod logs showed scan roots missing user-installed mod locations when launched from `Build/`, causing enabled mods to appear as unknown and songs/themes not to populate.
+- Menu/input lifecycle still had a depth-0 `menuPopDialog` path that could trigger unintended teardown behavior.
+
+**Fixes shipped in working tree**:
+- `devtools/dev-window-v2/dev-window-v2.ps1` and `devtools/build-headless.ps1` now pass explicit `-DPD_PYTHON_EXECUTABLE=C:/msys64/usr/bin/python3.exe` in configure args (no ambient PATH dependency for mklang/mkanims custom commands).
+- `port/src/modmgr.c` scan roots now include `$E/../mods` first (repo-root mods when exe runs from `Build/`) and continue scanning all candidates (`./mods`, `$E/mods`, base fallback).
+- `port/fast3d/pdgui_theme_loader.cpp` root scanning aligned with modmgr (`$E/../mods`, `./mods`, `$E/mods`, base fallback).
+- `port/src/modmgr.c` `mod.json` compatibility improved: missing `id` now falls back to directory slug, missing `name` falls back to `id`, missing `base_fallback` defaults to `base-game` (logs warning instead of silently dropping mod identity).
+- `src/game/menu.c` `menuPopDialog()` now returns immediately on depth-0 underflow after logging.
+- `port/fast3d/pdgui_menu_pausemenu.cpp` removed redundant `inputCtxPush(&g_CtxImGuiMenu)` just before `netDisconnect()` / `mainChangeToStage()`.
+- `src/lib/main.c` added warning log when stage transition is queued while input stack is not gameplay-only.
+
+**Verification**:
+- Reconfigure + build succeeded (`Asset tools Python: C:/msys64/usr/bin/python3.exe`, client/server link clean).
+- Incremental rebuilds after mod/theme path fixes also link clean.
+
+---
+
 ## Session S260 — 2026-04-14 (Mod Apply rebuild + theme roots + MP dialog input ownership)
 
 **Problem**: After enabling mods and pressing Apply, enabled mod themes/songs did not appear, Select Tunes interactions were inert (no mod tracks to add), and menu input/cursor state could break after backing out of MP dialogs.

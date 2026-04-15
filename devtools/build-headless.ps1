@@ -109,6 +109,7 @@ if (Test-Path $PreferredCMake) {
 }
 $CC         = "C:/msys64/mingw64/bin/cc.exe"
 $CXX        = "C:/msys64/mingw64/bin/c++.exe"
+$PythonExe  = "C:/msys64/usr/bin/python3.exe"
 $NinjaExe   = "C:\msys64\mingw64\bin\ninja.exe"
 $Generator  = "Ninja"
 
@@ -574,7 +575,7 @@ if ($needsClean) {
 # CMake Configure (unified Build/ dir for both pd and pd-server)
 # ============================================================================
 
-$configArgs = "-G $Generator -DCMAKE_C_COMPILER=`"$CC`" -DCMAKE_CXX_COMPILER=`"$CXX`" $CcacheLauncher -B `"$BuildDir`" -S `"$ProjectDir`"$vFlags"
+$configArgs = "-G $Generator -DCMAKE_C_COMPILER=`"$CC`" -DCMAKE_CXX_COMPILER=`"$CXX`" -DPD_PYTHON_EXECUTABLE=`"$PythonExe`" $CcacheLauncher -B `"$BuildDir`" -S `"$ProjectDir`"$vFlags"
 
 $script:StepStart = [DateTime]::Now
 $configOk = Invoke-BuildStep -StepName "Configure (CMake - Ninja + ccache)" `

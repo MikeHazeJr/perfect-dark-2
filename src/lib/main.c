@@ -1110,6 +1110,15 @@ void mainLoop(void)
 		g_StageNum = g_MainChangeToStageNum;
 		g_MainChangeToStageNum = -1;
 
+		/* Lifecycle audit guard: scene changes should normally happen with
+		 * gameplay as top context. Keep this warning to catch menu/input
+		 * ownership gaps before they become soft-locks. */
+		if (inputCtxGetDepth() > 1 || inputCtxGetTop() != &g_CtxGameplay) {
+			sysLogPrintf(LOG_WARNING,
+					"MAIN: stage transition with non-gameplay input stack (depth=%d top=%s stage=0x%02x)",
+					inputCtxGetDepth(), inputCtxGetTopName(), g_StageNum);
+		}
+
 		/* B-117 fix: Reset input context stack on stage transition.
 		 * Any active menu/pause contexts are popped cleanly before the new
 		 * stage initializes. Without this, stale context callbacks can fire
