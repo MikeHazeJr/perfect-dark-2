@@ -2,6 +2,14 @@
 
 Professional build tool for Perfect Dark 2. Independent from the original Dev Window (`devtools/_dev-window.ps1`).
 
+## Debug log
+
+UTF-8 append log (for troubleshooting auth, startup, fatal errors):
+
+`devtools/dev-window-v2/dev-window-v2-debug.log`
+
+To disable logging: `$env:PD_DEV_WINDOW_DEBUG = '0'` before launch (or in the user environment).
+
 ## Launch
 
 Double-click `Dev Window v2.bat` or run:

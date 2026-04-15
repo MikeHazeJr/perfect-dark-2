@@ -37,6 +37,7 @@ src/generated
 .build-settings.json
 .build-release-cache.json
 devtools/dev-window-v2/settings.json
+devtools/dev-window-v2/dev-window-v2-debug.log
 
 # Tools
 tools/mkrom/mkrom

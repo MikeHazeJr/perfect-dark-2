@@ -151,6 +151,7 @@ $script:GhAuthChecked       = $false
 $script:GhAuthRefreshBusy   = $false  # runspace probe in flight
 $script:LastGhAuthProbeUtc  = [DateTime]::UtcNow
 $script:LatestRelease       = $null
+$script:DevWindowDebugLogPath = Join-Path $script:ScriptDir "dev-window-v2-debug.log"
 
 # ============================================================================
 # Section 4: Settings persistence
@@ -187,6 +188,26 @@ $script:Settings = Load-Settings
 # ============================================================================
 # Section 5: Utility functions
 # ============================================================================
+
+# Debug log (UTF-8 append). Path: devtools/dev-window-v2/dev-window-v2-debug.log
+# Disable: $env:PD_DEV_WINDOW_DEBUG = '0'
+function Write-DevWindowDebugLog {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Message,
+        [ValidateSet('INFO', 'WARN', 'ERROR', 'AUTH', 'DEBUG')]
+        [string]$Level = 'INFO'
+    )
+    if ($env:PD_DEV_WINDOW_DEBUG -eq '0') { return }
+    try {
+        $ts = [DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss.fff')
+        $safe = $Message -replace "`r`n", ' | ' -replace "`n", ' | '
+        $line = "[$ts] [$Level] $safe"
+        Add-Content -LiteralPath $script:DevWindowDebugLogPath -Value $line -Encoding UTF8 -ErrorAction Stop
+    } catch {}
+}
+
+Write-DevWindowDebugLog ("Session start pid=$PID PSVersion=$($PSVersionTable.PSVersion) ProjectRoot=$($script:ProjectRoot) LogFile=$($script:DevWindowDebugLogPath)") "INFO"
 
 function Classify-Line($line) {
     if ($line -match '(?i)\berror\b|^FAILED|undefined reference|multiple definition|fatal error') { return "error" }
@@ -1491,8 +1512,12 @@ $script:MainTimer.Add_Tick({
 # Matches devtools/_dev-window.ps1: pass $env:PATH into runspace, Get-Command gh,
 # gh auth status 2>&1, success = output matches 'Logged in' (not exit code).
 function Invoke-GhAuthBackgroundCheck {
-    if ($script:GhAuthRefreshBusy) { return }
+    if ($script:GhAuthRefreshBusy) {
+        Write-DevWindowDebugLog "GhAuthBackgroundCheck: skipped (already busy)" "AUTH"
+        return
+    }
     Sync-UserMachinePath
+    Write-DevWindowDebugLog "GhAuthBackgroundCheck: starting runspace" "AUTH"
     $script:GhAuthRefreshBusy = $true
     $script:LastGhAuthProbeUtc = [DateTime]::UtcNow
     $pathToPass = $env:PATH
@@ -1534,11 +1559,22 @@ function Invoke-GhAuthBackgroundCheck {
             $script:GhAuthChecked = $true
             $script:GhCliAvailable = -not $notInstalled
             $script:GhAuthOk = $ok
+            try {
+                $errRecords = $ps.Streams.Error.ReadAll()
+                if ($null -ne $errRecords -and $errRecords.Count -gt 0) {
+                    Write-DevWindowDebugLog ("GhAuth PowerShell Streams.Error: " + (($errRecords | ForEach-Object { $_.ToString() }) -join " | ")) "DEBUG"
+                }
+            } catch {}
+            $maxRaw = 4000
+            $rawPreview = if ($txt.Length -le $maxRaw) { $txt } else { $txt.Substring(0, $maxRaw) + "...(truncated)" }
+            Write-DevWindowDebugLog ("GhAuth: notInstalled=$notInstalled loggedInRegex=$ok GhCliAvailable=$($script:GhCliAvailable) GhAuthOk=$($script:GhAuthOk) rawLen=$($txt.Length)") "AUTH"
+            Write-DevWindowDebugLog ("GhAuth raw: " + $rawPreview) "DEBUG"
             try { $ps.Dispose() } catch {}
             try { $rs.Close(); $rs.Dispose() } catch {}
             Update-Auth-Labels
             Update-StatusBar
         } catch {
+            Write-DevWindowDebugLog ("GhAuthBackgroundCheck handler exception: " + ($_ | Out-String)) "ERROR"
             $script:GhAuthRefreshBusy = $false
             $script:GhAuthChecked = $true
             try { Update-Auth-Labels } catch {}
@@ -1579,6 +1615,7 @@ function Update-Auth-Labels {
 function Invoke-GhAuthHelp {
     # Same as devtools/_dev-window.ps1: visible PowerShell with gh on normal PATH
     if ($script:GhAuthOk) { return }
+    Write-DevWindowDebugLog "Invoke-GhAuthHelp: launching powershell -NoExit gh auth login" "AUTH"
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = "powershell.exe"
@@ -1586,6 +1623,7 @@ function Invoke-GhAuthHelp {
         $psi.UseShellExecute = $true
         [System.Diagnostics.Process]::Start($psi) | Out-Null
     } catch {
+        Write-DevWindowDebugLog ("Invoke-GhAuthHelp failed: " + ($_ | Out-String)) "ERROR"
         [System.Windows.MessageBox]::Show(
             "Could not launch gh auth login. Make sure GitHub CLI (gh) is installed.",
             "Auth Error",
@@ -1688,6 +1726,7 @@ $window.Add_KeyDown({
 
 $window.Add_Loaded({
     try {
+        Write-DevWindowDebugLog "Window Loaded event" "INFO"
         # Restore window size/position
         $s = $script:Settings
         if ($s.WindowWidth -gt 0 -and $s.WindowHeight -gt 0) {
@@ -1772,7 +1811,9 @@ $window.Add_Closing({
 
 try {
     [void]$window.ShowDialog()
+    Write-DevWindowDebugLog "ShowDialog returned (window closed)" "INFO"
 } catch {
+    Write-DevWindowDebugLog ("ShowDialog fatal: " + ($_ | Out-String)) "ERROR"
     [System.Windows.MessageBox]::Show(
         "Fatal error: " + $_.Exception.Message,
         "Dev Window v2 Error",
