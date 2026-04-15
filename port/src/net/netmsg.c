@@ -749,6 +749,9 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 		netbufWriteU8(dst, g_MissionConfig.difficulty);
 		netbufWriteU8(dst, g_NetCoopFriendlyFire);
 		netbufWriteU8(dst, g_NetCoopRadar);
+		/* v36: authoritative anti player slot for Counter-Op.
+		 * NET_NULL_CLIENT / 0xFF means "none / unused". */
+		netbufWriteU8(dst, g_Vars.antiplayernum >= 0 ? (u8)g_Vars.antiplayernum : NET_NULL_CLIENT);
 	} else {
 		// combat simulator settings
 		/* M0.1d: scenario as catalog ID string. Prefer g_MatchConfig.scenario_id
@@ -926,6 +929,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 	}
 
 	const u8 mode = netbufReadU8(src);
+	u8 antiPlayerNumWire = NET_NULL_CLIENT;
 	g_NetGameMode = mode;
 
 	/* Phase 2: resolve stage catalog ID for all paths below */
@@ -948,6 +952,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		g_MissionConfig.isanti = (mode == NETGAMEMODE_ANTI);
 		g_NetCoopFriendlyFire = netbufReadU8(src);
 		g_NetCoopRadar = netbufReadU8(src);
+		antiPlayerNumWire = netbufReadU8(src);
 	} else {
 		// combat simulator settings
 		g_MpSetup.stagenum = stagenum;
@@ -1159,8 +1164,14 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			g_Vars.coopplayernum = (numplayers > 1) ? 1 : -1;
 			g_Vars.antiplayernum = -1;
 		} else {
+			s32 antiPlayerNum = (antiPlayerNumWire == NET_NULL_CLIENT)
+				? ((numplayers > 1) ? 1 : -1)
+				: (s32)antiPlayerNumWire;
+			if (antiPlayerNum >= MAX_PLAYERS) {
+				antiPlayerNum = (numplayers > 1) ? 1 : -1;
+			}
 			g_Vars.coopplayernum = -1;
-			g_Vars.antiplayernum = (numplayers > 1) ? 1 : -1;
+			g_Vars.antiplayernum = antiPlayerNum;
 		}
 
 		/* Dismiss countdown overlay before changing stage. */
@@ -3926,8 +3937,9 @@ u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl)
  * chosen a game mode and are ready to start. The server validates that
  * the sender is actually the lobby leader, then starts the match.
  *
- * Payload (v32+): gamemode (u8), stage_id (str catalog ID),
- *          difficulty (u8), numSims (u8), simType (u8),
+ * Payload (v36+): gamemode (u8), stage_id (str catalog ID),
+ *          difficulty (u8), antiClientId (u8, NET_NULL_CLIENT when unused),
+ *          numSims (u8), simType (u8),
  *          timelimit (u8), options (u32), scenario_id (str catalog ID), scorelimit (u8), teamscorelimit (u16),
  *          weaponSetIndex (u8, 0xFF = custom/default),
  *          weapons (str[NUM_MPWEAPONSLOTS]) — per-slot ASSET_WEAPON catalog ID string
@@ -3939,7 +3951,7 @@ u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl)
  * Server resolves stage_id → stagenum and weapon IDs → weapon_id via assetCatalogResolve().
  * ======================================================================== */
 
-u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex)
+u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 antiClientId, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex)
 {
 	(void)stagenum; /* stage identity comes from g_MatchConfig.stage_id, not stagenum */
 	netbufWriteU8(dst, CLC_LOBBY_START);
@@ -3953,6 +3965,7 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	sysLogPrintf(LOG_WARNING, "MATCH-START: client sending CLC_LOBBY_START, stage_id='%s'", g_MatchConfig.stage_id);
 	netbufWriteStr(dst, g_MatchConfig.stage_id[0] ? g_MatchConfig.stage_id : "");
 	netbufWriteU8(dst, difficulty);
+	netbufWriteU8(dst, antiClientId);
 	netbufWriteU8(dst, numSims);
 	netbufWriteU8(dst, simType);
 	netbufWriteU8(dst, timelimit);
@@ -4177,7 +4190,6 @@ void readyGateTickCountdown(void)
 		 * which sets up g_MissionConfig and player numbers differently. */
 		if (s_ReadyGate.game_mode == NETGAMEMODE_COOP ||
 		    s_ReadyGate.game_mode == NETGAMEMODE_ANTI) {
-			mainChangeToStage(s_ReadyGate.stagenum);
 			netServerCoopStageStart(s_ReadyGate.stagenum, s_ReadyGate.difficulty);
 		} else {
 			mainChangeToStage(s_ReadyGate.stagenum);
@@ -4286,6 +4298,7 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		sysLogPrintf(LOG_WARNING, "MATCH-START: server received CLC_LOBBY_START, stage_id='%s'", g_MpSetup.stage_id);
 	}
 	const u8 difficulty      = netbufReadU8(src);
+	const u8 antiClientId    = netbufReadU8(src);
 	const u8 numSims         = netbufReadU8(src);
 	const u8 simType         = netbufReadU8(src);
 	const u8 timelimit       = netbufReadU8(src);
@@ -4424,12 +4437,37 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 
-	sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_START from leader %s: gamemode=%u stage='%s'(num=%u) diff=%u tl=%u opt=0x%08x",
+	sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_START from leader %s: gamemode=%u stage='%s'(num=%u) diff=%u antiClient=%u tl=%u opt=0x%08x",
 	             srccl->settings.name, gamemode, g_MatchConfig.stage_id, (unsigned)g_MpSetup.stagenum,
-	             difficulty, timelimit, (unsigned)options);
+	             difficulty, (unsigned)antiClientId, timelimit, (unsigned)options);
 
 	/* Apply settings */
 	g_NetGameMode = gamemode;
+	g_NetCounterOpClientId = NET_NULL_CLIENT;
+	if (gamemode == NETGAMEMODE_ANTI) {
+		g_NetCounterOpClientId = antiClientId;
+		if (antiClientId == NET_NULL_CLIENT || antiClientId >= NET_MAX_CLIENTS) {
+			sysLogPrintf(LOG_WARNING,
+			             "NET: CLC_LOBBY_START rejected — invalid Counter-Op anti client id %u",
+			             (unsigned)antiClientId);
+			return src->error;
+		}
+		{
+			struct netclient *antiCl = &g_NetClients[antiClientId];
+			if (antiCl->state < CLSTATE_LOBBY) {
+				sysLogPrintf(LOG_WARNING,
+				             "NET: CLC_LOBBY_START rejected — anti client %u not lobby-ready (state=%u)",
+				             (unsigned)antiClientId, (unsigned)antiCl->state);
+				return src->error;
+			}
+			if (srccl->room_id != 0xFF && antiCl->room_id != srccl->room_id) {
+				sysLogPrintf(LOG_WARNING,
+				             "NET: CLC_LOBBY_START rejected — anti client %u not in leader room %u",
+				             (unsigned)antiClientId, (unsigned)srccl->room_id);
+				return src->error;
+			}
+		}
+	}
 
 	/* Start the match based on game mode.
 	 * For Combat Sim: load the requested stage and start.
@@ -4773,7 +4811,6 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			if (total_count == 0) {
 				/* No clients -- fire immediately */
 				s_ReadyGate.active = 0;
-				mainChangeToStage(g_MpSetup.stagenum);
 				netServerCoopStageStart(g_MpSetup.stagenum, difficulty);
 			} else {
 				readyGateBroadcastCountdown(MANIFEST_PHASE_CHECKING);

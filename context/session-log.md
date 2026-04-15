@@ -3,6 +3,34 @@
 > **S241–S259** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/](_archive/sessions/).
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S263 — 2026-04-15 (Systemic gameplay pipeline fixes: campaign + MP + Counter-Op authority)
+
+**Scope implemented**:
+- Executed the full follow-up from S262 across Campaign, Combat Simulator, online room/ready-gate flow, Counter-Op role authority, and endscreen safety.
+- Included a deliberate networking wire-format change for Counter-Op anti-player selection and bumped protocol.
+
+**Fixes shipped in working tree**:
+- `src/game/menutick.c`: added `NUM_SOLOSTAGES` clamp in Deep Sea next-stage path; added NULL-safe currentplayer/prop room checks in training/music branch.
+- `src/game/endscreen.c`: guarded `g_MpPlayerNum` bounds in `endscreenPushCoop()` and `endscreenPushAnti()` before indexing `g_Menus[]`.
+- `src/game/mplayer/mplayer.c`: `mpEndMatch()` now iterates `MAX_PLAYERS` with `g_Vars.players[i]` guard instead of using `PLAYERCOUNT()` as an index bound (SP-6 hardening).
+- `port/fast3d/pdgui_menu_endscreen.cpp`: ranking feed now always uses per-player rankings; team mode remains a sort/group view (fixes team aggregate placeholder rows).
+- `port/fast3d/pdgui_bridge.c`: `lobbyGetPlayerInfo` now exports `clientId`; endscreen cheat-name bridge accessors now guard `g_MpPlayerNum` bounds.
+- `port/fast3d/pdgui_menu_room.cpp` + `pdgui_lobby.cpp` + `pdgui_menu_lobby.cpp`: lobby player view includes `clientId`; Counter-Op picker now tracks/uses selected client ID for start request.
+- `port/include/net/net.h`: protocol bump `NET_PROTOCOL_VER 35 -> 36`; added `g_NetCounterOpClientId` state.
+- `port/include/net/netmsg.h` + `port/src/net/netmsg.c` + `port/src/net/netmenu.c` + `port/fast3d/pdgui_bridge.c`:
+  - `CLC_LOBBY_START` now carries `antiClientId` (v36).
+  - server validates anti client selection for Counter-Op starts.
+  - co-op/anti ready-gate launch path now uses a single `mainChangeToStage` callsite via `netServerCoopStageStart()` (removed duplicate pre-call from ready-gate paths).
+  - `SVC_STAGE_START` now carries authoritative anti player slot; client applies it for Counter-Op instead of forcing slot 1.
+- `port/src/net/net.c`: `netServerCoopStageStart()` maps anti role from `g_NetCounterOpClientId` to `playernum` with fallback; `netServerStageEnd()` resets `g_NetMatchRoomId` and `g_NetCounterOpClientId`.
+
+**Verification**:
+- Reconfigure + build completed successfully for both targets:
+  - `PerfectDark.exe`
+  - `PerfectDarkServer.exe`
+
+---
+
 ## Session S262 — 2026-04-15 (Deep gameplay pipeline audit: local/online/campaign/CombatSim/Counter-op)
 
 **Scope (read-only audit)**:

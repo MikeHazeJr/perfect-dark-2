@@ -1781,6 +1781,10 @@ void endscreenPushCoop(void)
 	if (!g_Vars.currentplayerstats) return;
 
 	g_MpPlayerNum = g_Vars.currentplayerstats->mpindex;
+	if (g_MpPlayerNum < 0 || g_MpPlayerNum >= MAX_PLAYERS) {
+		g_MpPlayerNum = prevplayernum;
+		return;
+	}
 
 #if VERSION >= VERSION_NTSC_1_0
 	g_Menus[g_MpPlayerNum].endscreen.cheatinfo = 0;
@@ -1889,6 +1893,10 @@ void endscreenPushAnti(void)
 		return;
 	}
 	g_MpPlayerNum = g_Vars.currentplayerstats->mpindex;
+	if (g_MpPlayerNum < 0 || g_MpPlayerNum >= MAX_PLAYERS) {
+		g_MpPlayerNum = prevplayernum;
+		return;
+	}
 
 #if VERSION >= VERSION_NTSC_1_0
 	g_Menus[g_MpPlayerNum].endscreen.cheatinfo = 0;

@@ -114,6 +114,7 @@ struct lobbyplayer_view {
     char name[32];  /* matches LOBBY_NAME_LEN */
     s32 isLocal;
     s32 state; /* CLSTATE_* */
+    u8 clientId;
 };
 
 s32 lobbyGetPlayerCount(void);

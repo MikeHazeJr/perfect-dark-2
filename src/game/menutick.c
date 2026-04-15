@@ -586,6 +586,9 @@ void menuTick(void)
 						if (g_Vars.coopplayernum >= 0) {
 							if (g_Vars.stagenum == STAGE_DEEPSEA) {
 								g_MissionConfig.stageindex++;
+								if (g_MissionConfig.stageindex >= NUM_SOLOSTAGES) {
+									g_MissionConfig.stageindex = NUM_SOLOSTAGES - 1;
+								}
 								g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
 								/* Phase 2: populate PRIMARY catalog ID string field */
 								{ const char *cid = catalogIdByRuntime(ASSET_MAP, g_MissionConfig.stagenum); if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; } else { g_MissionConfig.stage_id[0] = '\0'; } }
@@ -637,12 +640,19 @@ void menuTick(void)
 
 				if (g_MenuData.root == MENUROOT_MAINMENU || g_MenuData.root == MENUROOT_TRAINING) {
 					struct trainingdata *dtdata = dtGetData();
+					bool inTrainingArea = false;
+
+					if (g_Vars.currentplayer
+							&& g_Vars.currentplayer->prop
+							&& g_Vars.currentplayer->prop->rooms[0] >= 0) {
+						s32 room = g_Vars.currentplayer->prop->rooms[0];
+						inTrainingArea = (room >= 0x16 && room <= 0x19)
+							|| room == 0x0a
+							|| room == 0x1e;
+					}
 
 					if ((g_Vars.stagenum == STAGE_CITRAINING || g_Vars.stagenum == STAGE_4MBMENU)
-							&& ((g_Vars.currentplayer->prop->rooms[0] >= 0x16 && g_Vars.currentplayer->prop->rooms[0] <= 0x19)
-								|| g_Vars.currentplayer->prop->rooms[0] == 0x0a
-								|| g_Vars.currentplayer->prop->rooms[0] == 0x1e
-								|| (dtdata && dtdata->intraining))) {
+							&& (inTrainingArea || (dtdata && dtdata->intraining))) {
 						startmusic = false;
 					} else {
 						startmusic = true;

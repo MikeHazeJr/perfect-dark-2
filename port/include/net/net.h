@@ -9,7 +9,10 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 35  /* v35: co-op/anti manifest pipeline, CLC_STAGE_READY for co-op,
+#define NET_PROTOCOL_VER 36  /* v36: Counter-Op leader-selected anti player identity on wire
+                               * (CLC_LOBBY_START + SVC_STAGE_START), plus co-op/anti launch
+                               * path de-dup to a single mainChangeToStage callsite.
+                               * v35: co-op/anti manifest pipeline, CLC_STAGE_READY for co-op,
                                * match_seed in SVC_STAGE_START for deterministic spawn pools.
                                * v34: playlist tracks in manifest, SVC_MUSIC_ADVANCE, per-client DL status.
                                * v33: A-7 mod audio network sync — SVC_STAGE_START includes mod_track_id
@@ -87,6 +90,7 @@ extern struct netpreservedplayer g_NetPreservedPlayers[NET_MAX_CLIENTS];
 extern s32 g_NetNumPreserved;
 extern struct netrecentserver g_NetRecentServers[NET_MAX_RECENT_SERVERS];
 extern s32 g_NetNumRecentServers;
+extern u8 g_NetCounterOpClientId; /* NET_NULL_CLIENT when not in Counter-Op */
 
 #define NETCHAN_DEFAULT  0
 #define NETCHAN_CONTROL  1

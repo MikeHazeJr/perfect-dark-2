@@ -90,6 +90,7 @@ struct lobbyplayer_view {
     char name[32];
     s32 isLocal;
     s32 state;
+    u8 clientId;
 };
 s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
 
@@ -106,6 +107,7 @@ s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
  * stage_id: catalog ID string ("base:mp_complex", "base:defection", etc.) */
 s32 netLobbyRequestStart(u8 gamemode, const char *stage_id, u8 difficulty);
 s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficulty,
+                                  u8 antiClientId,
                                   u8 numSims, u8 simType, u8 timelimit, u32 options,
                                   u8 scenario, u8 scorelimit, u16 teamscorelimit,
                                   u8 weaponSetIndex);
@@ -542,6 +544,7 @@ static int s_CampaignDiff      = DIFF_A;
 static int s_CounterOpMission  = 0;
 static int s_CounterOpDiff     = DIFF_A;
 static int s_CounterOpPlayer   = 0;  /* index into lobby player list = the counter-op player */
+static u8  s_CounterOpClientId = 0xFF;
 
 /* Arena picker state (index into s_Arenas[]) */
 static int s_SelectedArena = 0;
@@ -2082,6 +2085,15 @@ static void renderCounterOpTab(float panelW, float panelH, bool leader)
         if (s_CounterOpPlayer < playerCount &&
             lobbyGetPlayerInfo(s_CounterOpPlayer, &pv2)) {
             antiPlayerName = pv2.name;
+            s_CounterOpClientId = pv2.clientId;
+        } else {
+            for (s32 pi = 0; pi < playerCount; pi++) {
+                if (!lobbyGetPlayerInfo(pi, &pv2)) continue;
+                s_CounterOpPlayer = pi;
+                s_CounterOpClientId = pv2.clientId;
+                antiPlayerName = pv2.name;
+                break;
+            }
         }
     }
 
@@ -2097,6 +2109,7 @@ static void renderCounterOpTab(float panelW, float panelH, bool leader)
                      pv.name, pv.isLocal ? " (you)" : "", pi);
             if (ImGui::Selectable(pLabel, sel)) {
                 s_CounterOpPlayer = pi;
+                s_CounterOpClientId = pv.clientId;
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
             }
             if (sel) ImGui::SetItemDefaultFocus();
@@ -2392,6 +2405,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                             GAMEMODE_MP,
                             s_Arenas[s_SelectedArena].id,
                             0,
+                            0xFF,
                             (u8)numBots,
                             simType,
                             g_MatchConfig.timelimit,
@@ -2426,7 +2440,23 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                             (unsigned)s_Missions[s_CounterOpMission].stagenum);
                         break;
                     }
-                    netLobbyRequestStart(GAMEMODE_ANTI, anti_id, (u8)s_CounterOpDiff);
+                    if (s_CounterOpClientId == 0xFF) {
+                        sysLogPrintf(LOG_ERROR, "ROOM: Counter-Op start rejected — no anti player selected");
+                        break;
+                    }
+                    netLobbyRequestStartWithSims(
+                        GAMEMODE_ANTI,
+                        anti_id,
+                        (u8)s_CounterOpDiff,
+                        s_CounterOpClientId,
+                        0,
+                        0,
+                        60,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0xFF);
                     break;
                 }
             }
@@ -2983,6 +3013,7 @@ extern "C" void pdguiRoomScreenReset(void)
     s_CounterOpMission  = 0;
     s_CounterOpDiff     = DIFF_A;
     s_CounterOpPlayer   = 0;
+    s_CounterOpClientId = 0xFF;
     s_SelectedArena     = 0;
     botSelectClear();
     s_BotModalOpen         = false;

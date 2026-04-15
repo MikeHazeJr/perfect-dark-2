@@ -371,6 +371,9 @@ s32 lobbyGetPlayerInfo(s32 idx, void *out)
     s32 state = g_NetClients[lp->clientId].state;
     memcpy(p + 44, &state, sizeof(s32));
 
+	/* clientId (u8 at offset 48) */
+	p[48] = lp->clientId;
+
     return 1;
 }
 
@@ -728,7 +731,11 @@ s32 pdguiEndscreenGetDifficulty(void)
  */
 const char *pdguiEndscreenGetCheatTimedName(void)
 {
-    u32 info = g_Menus[g_MpPlayerNum].endscreen.cheatinfo;
+    s32 idx = g_MpPlayerNum;
+    if (idx < 0 || idx >= MAX_PLAYERS) {
+        return NULL;
+    }
+    u32 info = g_Menus[idx].endscreen.cheatinfo;
     if ((info & 0x100) && cheatGetTime(info & 0xff) > 0) {
         return cheatGetName(info & 0xff);
     }
@@ -740,7 +747,11 @@ const char *pdguiEndscreenGetCheatTimedName(void)
  */
 const char *pdguiEndscreenGetCheatComplName(void)
 {
-    u32 info = g_Menus[g_MpPlayerNum].endscreen.cheatinfo;
+    s32 idx = g_MpPlayerNum;
+    if (idx < 0 || idx >= MAX_PLAYERS) {
+        return NULL;
+    }
+    u32 info = g_Menus[idx].endscreen.cheatinfo;
     if (info & 0x800) {
         return cheatGetName((info >> 16) & 0xff);
     }
@@ -876,7 +887,7 @@ static s32 s_resolveStageIdToStagenum(const char *stage_id)
     return -1;
 }
 
-s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficulty, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex)
+s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficulty, u8 antiClientId, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex)
 {
     if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient) {
         return -1;
@@ -898,17 +909,17 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficult
      * server.  Without the explicit netSend the packet sits unsent — the
      * netFlushSendBuffers() path only drains g_NetMsgRel / g_NetMsg. */
     netbufStartWrite(&g_NetLocalClient->out);
-    netmsgClcLobbyStartWrite(&g_NetLocalClient->out, gamemode, (u8)stagenum, difficulty, numSims, simType, timelimit, options, scenario, scorelimit, teamscorelimit, weaponSetIndex);
+    netmsgClcLobbyStartWrite(&g_NetLocalClient->out, gamemode, (u8)stagenum, difficulty, antiClientId, numSims, simType, timelimit, options, scenario, scorelimit, teamscorelimit, weaponSetIndex);
     netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
-    sysLogPrintf(LOG_NOTE, "BRIDGE: sent CLC_LOBBY_START gamemode=%u stage='%s'(0x%02x) diff=%u sims=%u simtype=%u tl=%u opt=0x%08x scen=%u sc=%u tsc=%u weaponset=%u",
-                 gamemode, stage_id, (unsigned)stagenum, difficulty, numSims, simType, timelimit, (unsigned)options, scenario, scorelimit, (unsigned)teamscorelimit, (unsigned)weaponSetIndex);
+    sysLogPrintf(LOG_NOTE, "BRIDGE: sent CLC_LOBBY_START gamemode=%u stage='%s'(0x%02x) diff=%u antiClient=%u sims=%u simtype=%u tl=%u opt=0x%08x scen=%u sc=%u tsc=%u weaponset=%u",
+                 gamemode, stage_id, (unsigned)stagenum, difficulty, (unsigned)antiClientId, numSims, simType, timelimit, (unsigned)options, scenario, scorelimit, (unsigned)teamscorelimit, (unsigned)weaponSetIndex);
     return 0;
 }
 
 s32 netLobbyRequestStart(u8 gamemode, const char *stage_id, u8 difficulty)
 {
     /* timelimit=60 (unlimited), options=0, no scenario/score limits for non-Combat-Sim modes */
-    return netLobbyRequestStartWithSims(gamemode, stage_id, difficulty, 0, 0, 60, 0, 0, 0, 0, 0xFF);
+    return netLobbyRequestStartWithSims(gamemode, stage_id, difficulty, NET_NULL_CLIENT, 0, 0, 60, 0, 0, 0, 0, 0xFF);
 }
 
 /* ========================================================================

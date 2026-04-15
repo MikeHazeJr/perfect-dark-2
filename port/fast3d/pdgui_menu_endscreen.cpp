@@ -297,7 +297,10 @@ struct ESRankRow {
 static s32 buildRankings(ESRankRow *rows, s32 maxRows, bool teams)
 {
     struct ranking_es raw[ES_MAX_MPCHRS];
-    s32 count = teams ? mpGetTeamRankings(raw) : mpGetPlayerRankings(raw);
+    (void)teams;
+    /* Always build from per-player rankings; team mode is represented by
+     * ordering/grouping, not by mpGetTeamRankings() aggregate rows. */
+    s32 count = mpGetPlayerRankings(raw);
     if (count > maxRows) count = maxRows;
 
     for (s32 i = 0; i < count; i++) {

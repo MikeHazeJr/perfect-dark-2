@@ -52,6 +52,7 @@
 
 s32 g_NetMode = NETMODE_NONE;
 u8  g_NetMatchRoomId = 0xFF; /* R-3: which room is currently starting/in match (0xFF = global) */
+u8  g_NetCounterOpClientId = NET_NULL_CLIENT;
 
 s32 g_NetHostLatch = false;
 s32 g_NetJoinLatch = false;
@@ -774,8 +775,23 @@ void netServerCoopStageStart(u8 stagenum, u8 difficulty)
 		g_Vars.coopplayernum = (g_NetNumClients > 1) ? 1 : -1;
 		g_Vars.antiplayernum = -1;
 	} else {
+		s32 antiPlayerNum = -1;
+		if (g_NetCounterOpClientId != NET_NULL_CLIENT) {
+			for (s32 i = 0; i < g_NetMaxClients; i++) {
+				struct netclient *ncl = &g_NetClients[i];
+				if (ncl->id != g_NetCounterOpClientId) continue;
+				if (ncl->state < CLSTATE_LOBBY) continue;
+				if (ncl->playernum < MAX_PLAYERS) {
+					antiPlayerNum = ncl->playernum;
+				}
+				break;
+			}
+		}
+		if (antiPlayerNum < 0) {
+			antiPlayerNum = (g_NetNumClients > 1) ? 1 : -1;
+		}
 		g_Vars.coopplayernum = -1;
-		g_Vars.antiplayernum = (g_NetNumClients > 1) ? 1 : -1;
+		g_Vars.antiplayernum = antiPlayerNum;
 	}
 
 	// re-read the player config
@@ -854,6 +870,8 @@ void netServerStageEnd(void)
 	netbufStartWrite(&g_NetMsgRel);
 	netmsgSvcStageEndWrite(&g_NetMsgRel, g_NetMatchRoomId);
 	netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+	g_NetMatchRoomId = 0xFF;
+	g_NetCounterOpClientId = NET_NULL_CLIENT;
 
 	/* L-E3: tear down session catalog on server-side stage end */
 	sessionCatalogTeardown();

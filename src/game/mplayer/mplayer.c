@@ -2799,7 +2799,6 @@ void mpCalculateAwards(void)
 void mpEndMatch(void)
 {
 	s32 stack;
-	s32 playercount = PLAYERCOUNT();
 	s32 prevplayernum;
 	s32 i;
 
@@ -2812,7 +2811,10 @@ void mpEndMatch(void)
 
 	prevplayernum = g_Vars.currentplayernum;
 
-	for (i = 0; i < playercount; i++) {
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (!g_Vars.players[i]) {
+			continue;
+		}
 		setCurrentPlayerNum(i);
 
 		g_Vars.currentplayer->award1 = NULL;

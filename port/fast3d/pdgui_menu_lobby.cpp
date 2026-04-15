@@ -79,6 +79,7 @@ struct lobbyplayer_view {
     char name[32];  /* matches LOBBY_NAME_LEN */
     s32 isLocal;
     s32 state;
+    u8 clientId;
 };
 s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
 
