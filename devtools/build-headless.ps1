@@ -100,8 +100,15 @@ if ($OutputDir -ne "") {
 }
 $StateFile  = Join-Path $BuildDir ".last_build_state.json"
 $AddinDir   = Join-Path $ProjectDir "..\post-batch-addin"
-$CMakeExe   = "cmake"
+$PreferredCMake = "C:\msys64\mingw64\bin\cmake.exe"
+if (Test-Path $PreferredCMake) {
+    $CMakeExe = $PreferredCMake
+} else {
+    # Fallback to PATH if the pinned MSYS2 cmake is unavailable.
+    $CMakeExe = "cmake"
+}
 $CC         = "C:/msys64/mingw64/bin/cc.exe"
+$CXX        = "C:/msys64/mingw64/bin/c++.exe"
 $NinjaExe   = "C:\msys64\mingw64\bin\ninja.exe"
 $Generator  = "Ninja"
 
@@ -567,7 +574,7 @@ if ($needsClean) {
 # CMake Configure (unified Build/ dir for both pd and pd-server)
 # ============================================================================
 
-$configArgs = "-G $Generator -DCMAKE_C_COMPILER=`"$CC`" $CcacheLauncher -B `"$BuildDir`" -S `"$ProjectDir`"$vFlags"
+$configArgs = "-G $Generator -DCMAKE_C_COMPILER=`"$CC`" -DCMAKE_CXX_COMPILER=`"$CXX`" $CcacheLauncher -B `"$BuildDir`" -S `"$ProjectDir`"$vFlags"
 
 $script:StepStart = [DateTime]::Now
 $configOk = Invoke-BuildStep -StepName "Configure (CMake - Ninja + ccache)" `

@@ -117,9 +117,10 @@ $script:QcFilePath         = Join-Path $script:ProjectRoot "context\qc-tests.md"
 $script:SettingsPath       = Join-Path $script:ProjectRoot "._dev-window-settings.json"
 $script:ReleaseCachePath   = Join-Path $script:ProjectRoot ".dev-window-release-cache.json"
 $script:AddinDir           = Join-Path $script:ProjectRoot "..\post-batch-addin"
-$script:CMake              = "cmake"
+$script:CMake              = "C:/msys64/mingw64/bin/cmake.exe"
 $script:Make               = "C:\msys64\usr\bin\make.exe"
 $script:CC                 = "C:/msys64/mingw64/bin/cc.exe"
+$script:CXX                = "C:/msys64/mingw64/bin/c++.exe"
 $script:ClientExeName      = "PerfectDark.exe"
 $script:ServerExeName      = "PerfectDarkServer.exe"
 $script:SoundsDir          = Join-Path $script:ProjectRoot "dist\build-sounds"
@@ -1609,12 +1610,12 @@ function Get-BuildSteps($ver, [bool]$forceClean = $false) {
     $needServerConfigure = $forceClean -or (Test-NeedsConfigure $script:ServerBuildDir)
 
     if ($needClientConfigure) {
-        [void]$steps.Add(@{Name="Configure (client)"; Exe=$script:CMake; Target="client"; Args="-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"" + $script:Make + "`" -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -B `"" + $script:ClientBuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags})
+        [void]$steps.Add(@{Name="Configure (client)"; Exe=$script:CMake; Target="client"; Args="-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"" + $script:Make + "`" -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -DCMAKE_CXX_COMPILER=`"" + $script:CXX + "`" -B `"" + $script:ClientBuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags})
     }
     [void]$steps.Add(@{Name="Build (client)";     Exe=$script:CMake; Target="client"; Args="--build `"" + $script:ClientBuildDir + "`" --target pd -- -j" + $cores + " -k"})
 
     if ($needServerConfigure) {
-        [void]$steps.Add(@{Name="Configure (server)"; Exe=$script:CMake; Target="server"; Args="-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"" + $script:Make + "`" -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -B `"" + $script:ServerBuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags})
+        [void]$steps.Add(@{Name="Configure (server)"; Exe=$script:CMake; Target="server"; Args="-G `"Unix Makefiles`" -DCMAKE_MAKE_PROGRAM=`"" + $script:Make + "`" -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -DCMAKE_CXX_COMPILER=`"" + $script:CXX + "`" -B `"" + $script:ServerBuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags})
     }
     [void]$steps.Add(@{Name="Build (server)";     Exe=$script:CMake; Target="server"; Args="--build `"" + $script:ServerBuildDir + "`" --target pd-server -- -j" + $cores + " -k"})
 

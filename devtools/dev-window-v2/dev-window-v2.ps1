@@ -115,6 +115,7 @@ $script:AddinDir            = Join-Path $script:ProjectRoot "..\post-batch-addin
 # maps C:\... CWD to /home/... and corrupts -S/-B paths when mixed with Windows paths.
 $script:CMake               = "C:/msys64/mingw64/bin/cmake.exe"
 $script:CC                  = "C:/msys64/mingw64/bin/cc.exe"
+$script:CXX                 = "C:/msys64/mingw64/bin/c++.exe"
 $script:ClientExeName       = "PerfectDark.exe"
 $script:ServerExeName       = "PerfectDarkServer.exe"
 $script:SoundsDir           = Join-Path $script:ProjectRoot "dist\build-sounds"
@@ -1381,7 +1382,7 @@ function Get-BuildSteps($ver, [bool]$forceClean = $false) {
     $needsConfigure = $forceClean -or (Test-NeedsConfigure $script:BuildDir)
 
     if ($needsConfigure) {
-        $cfgArgs = "-G Ninja -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -B `"" + $script:BuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags
+        $cfgArgs = "-G Ninja -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -DCMAKE_CXX_COMPILER=`"" + $script:CXX + "`" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -B `"" + $script:BuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags
         [void]$steps.Add(@{Name="Configure (Ninja + ccache)"; Exe=$script:CMake; Target="client"; Args=$cfgArgs})
     }
     [void]$steps.Add(@{Name="Build (client: pd)"; Exe=$script:CMake; Target="client"; Args="--build `"" + $script:BuildDir + "`" --target pd"})

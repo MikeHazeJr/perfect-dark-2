@@ -30,10 +30,26 @@ if (-not (Test-Path -LiteralPath $env:TEMP)) {
     }
 }
 
-# PATH -- prepend MinGW64 + MSYS2 usr/bin only if not already present.
-# The check prevents double-adding on re-runs or nested dot-source calls.
-if ($env:PATH -notlike "*C:\msys64\mingw64\bin*") {
-    $env:PATH = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$env:PATH"
+# PATH -- force MinGW64 + MSYS2 usr/bin to the front (order matters).
+# Some environments already contain these entries later in PATH, so a plain
+# "if contains" check can leave another toolchain (for example devkitPro
+# MSYS/Cygwin cmake) ahead of the intended one.
+$mingwBin = "C:\msys64\mingw64\bin"
+$msysUsr  = "C:\msys64\usr\bin"
+$pathParts = @()
+if ($env:PATH) {
+    $pathParts = $env:PATH -split ';'
+}
+$filtered = @()
+foreach ($p in $pathParts) {
+    if (-not $p) { continue }
+    if ($p -ieq $mingwBin) { continue }
+    if ($p -ieq $msysUsr) { continue }
+    $filtered += $p
+}
+$env:PATH = "$mingwBin;$msysUsr"
+if ($filtered.Count -gt 0) {
+    $env:PATH = "$env:PATH;" + ($filtered -join ';')
 }
 
 $env:MSYSTEM           = "MINGW64"
