@@ -136,6 +136,7 @@ $script:StepStartTime       = [DateTime]::Now
 $script:LastOutputTime      = [DateTime]::Now
 $script:OutputQueue         = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
 $script:CurrentStepName     = ""
+$script:LastReleaseHeartbeat = [DateTime]::MinValue
 $script:ForceCleanBuild     = $false
 $script:BuildVersion        = $null
 
@@ -152,6 +153,11 @@ $script:GhAuthRefreshBusy   = $false  # runspace probe in flight
 $script:LastGhAuthProbeUtc  = [DateTime]::UtcNow
 $script:GhAuthRunspaceStartedUtc = [DateTime]::UtcNow
 $script:LastGhAuthWaitLogUtc     = [DateTime]::MinValue
+$script:GhAuthPollTimer     = $null
+$script:GhAuthPS            = $null
+$script:GhAuthRS            = $null
+$script:GhAuthHandle        = $null
+$script:GhAuthHadGhOnHost   = $false  # set before each probe; used if probe times out
 $script:LatestRelease       = $null
 $script:DevWindowDebugLogPath = Join-Path $script:ScriptDir "dev-window-v2-debug.log"
 
@@ -212,8 +218,9 @@ function Write-DevWindowDebugLog {
 Write-DevWindowDebugLog ("Session start pid=$PID PSVersion=$($PSVersionTable.PSVersion) ProjectRoot=$($script:ProjectRoot) LogFile=$($script:DevWindowDebugLogPath)") "INFO"
 
 function Classify-Line($line) {
-    if ($line -match '(?i)\berror\b|^FAILED|undefined reference|multiple definition|fatal error') { return "error" }
-    if ($line -match '(?i)\bwarning\b') { return "warning" }
+    if ($line -match '(?i)\berror\b|^FAILED|undefined reference|multiple definition|fatal error|Write-Error|ErrorRecord|Exception:|ERROR\s*:|^\s*At .+:\d+ char:\d+') { return "error" }
+    if ($line -match '(?i)\bwarning\b|Write-Warning|WARNING\s*:|^\s*WARN\s') { return "warning" }
+    if ($line -match '^\[\d{2}:\d{2}:\d{2}\]\s+Still running:') { return "info" }
     return "normal"
 }
 
@@ -746,6 +753,8 @@ function Auto-Commit-Sync {
                     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
                         <Button x:Name="BtnLogClear" Content="Clear" Style="{StaticResource ToolBtn}"
                                 DockPanel.Dock="Right" Margin="6,0,0,0"/>
+                        <Button x:Name="BtnLogExport" Content="Export..." Style="{StaticResource ToolBtn}"
+                                DockPanel.Dock="Right" Margin="6,0,0,0"/>
                         <CheckBox x:Name="ChkAutoScroll" Content="Auto-scroll" Foreground="#44586C"
                                   FontFamily="Consolas" FontSize="11"
                                   IsChecked="True" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="10,0"/>
@@ -808,7 +817,7 @@ $namedElements = @(
     "BtnVerMajDown","BtnVerMajUp","BtnVerMinDown","BtnVerMinUp","BtnVerPatDown","BtnVerPatUp",
     "ChkStable","LblAuthStatus","LblLatestRelease","LblDevVersion",
     "BtnOpenGitHub","BtnOpenFolder","BtnCleanBuild","BtnPull","BtnPush",
-    "BtnLogClear","ChkAutoScroll","TxtLogFilter","LogOutput",
+    "BtnLogClear","BtnLogExport","ChkAutoScroll","TxtLogFilter","LogOutput",
     "DocList","DocContent"
 )
 foreach ($name in $namedElements) {
@@ -862,8 +871,37 @@ $ui["ChkStable"].Add_Unchecked({ Update-ReleaseButtonText })
 # Section 12: Log tab
 # ============================================================================
 
+function Get-LogFilterText {
+    if ($null -eq $ui["TxtLogFilter"]) { return "" }
+    $t = $ui["TxtLogFilter"].Text
+    if ($t -eq "Filter..." -or $t -eq "") { return "" }
+    return $t
+}
+
+function Test-LogLineMatchesFilter([string]$line) {
+    $f = Get-LogFilterText
+    if ($f -eq "") { return $true }
+    return $line -match [regex]::Escape($f)
+}
+
+function Get-ClassifiedLogColor($cls) {
+    switch ($cls) {
+        "error"   { return "#DC3232" }
+        "warning" { return "#FF8C00" }
+        "info"    { return "#508CDC" }
+        default   { return "#8C8C8C" }
+    }
+}
+
+# Session / step banners: also append to AllOutput so Copy Log, Export, and filter apply.
+function Add-LogSessionLine($text, $color) {
+    [void]$script:AllOutput.Add($text)
+    Add-LogLine $text $color
+}
+
 function Add-LogLine($text, $color) {
     if ($null -eq $ui["LogOutput"]) { return }
+    if (-not (Test-LogLineMatchesFilter $text)) { return }
     $doc = $ui["LogOutput"].Document
     $para = $doc.Blocks.LastBlock
     if ($null -eq $para) { $para = New-Object System.Windows.Documents.Paragraph; $doc.Blocks.Add($para) }
@@ -873,27 +911,52 @@ function Add-LogLine($text, $color) {
     if ($ui["ChkAutoScroll"].IsChecked) { $ui["LogOutput"].ScrollToEnd() }
 }
 
-function Add-LogLines {
-    $filter = ""
-    if ($null -ne $ui["TxtLogFilter"] -and $ui["TxtLogFilter"].Text -ne "Filter...") {
-        $filter = $ui["TxtLogFilter"].Text
-    }
+function Rebuild-LogView {
+    if ($null -eq $ui["LogOutput"]) { return }
+    $doc = $ui["LogOutput"].Document
+    $doc.Blocks.Clear()
+    $para = New-Object System.Windows.Documents.Paragraph
+    $doc.Blocks.Add($para)
     foreach ($line in $script:AllOutput) {
-        if ($filter -ne "" -and $line -notmatch [regex]::Escape($filter)) { continue }
+        if (-not (Test-LogLineMatchesFilter $line)) { continue }
         $cls = Classify-Line $line
-        $color = "#8C8C8C"
-        if ($cls -eq "error") { $color = "#DC3232" }
-        elseif ($cls -eq "warning") { $color = "#FF8C00" }
-        Add-LogLine $line $color
+        $color = Get-ClassifiedLogColor $cls
+        $run = New-Object System.Windows.Documents.Run($line + "`n")
+        $run.Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($color)))
+        $para.Inlines.Add($run)
     }
+    if ($ui["ChkAutoScroll"].IsChecked) { $ui["LogOutput"].ScrollToEnd() }
+}
+
+function Add-LogLines {
+    Rebuild-LogView
 }
 
 $ui["BtnLogClear"].Add_Click({
     try {
+        [void]$script:AllOutput.Clear()
         $ui["LogOutput"].Document.Blocks.Clear()
         $ui["LogOutput"].Document.Blocks.Add((New-Object System.Windows.Documents.Paragraph))
     } catch {}
 })
+
+$ui["BtnLogExport"].Add_Click({
+    try {
+        $dlg = New-Object Microsoft.Win32.SaveFileDialog
+        $dlg.Title = "Export build log"
+        $dlg.Filter = "Log files (*.log;*.txt)|*.log;*.txt|All files (*.*)|*.*"
+        $dlg.FileName = "dev-window-log-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".txt"
+        $dlg.DefaultExt = ".txt"
+        if ($true -eq $dlg.ShowDialog()) {
+            $body = ($script:AllOutput | ForEach-Object { $_ }) -join "`r`n"
+            [System.IO.File]::WriteAllText($dlg.FileName, $body, [System.Text.UTF8Encoding]::new($false))
+        }
+    } catch {
+        [System.Windows.MessageBox]::Show("Export failed: " + $_.Exception.Message, "Export", "OK", "Error") | Out-Null
+    }
+})
+
+$ui["TxtLogFilter"].Add_TextChanged({ try { Rebuild-LogView } catch {} })
 
 # Filter placeholder behavior
 $ui["TxtLogFilter"].Add_GotFocus({
@@ -1056,6 +1119,7 @@ function Start-Build-Step($step) {
     $script:OutputQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
     $script:StepStartTime  = [DateTime]::Now
     $script:LastOutputTime = [DateTime]::Now
+    $script:LastReleaseHeartbeat = [DateTime]::Now
     $script:BuildPercent   = 0
     $ui["LblBuildActivity"].Text = $step.Name + "..."
 
@@ -1139,6 +1203,9 @@ function Start-Build {
     $clean = $script:ForceCleanBuild; $script:ForceCleanBuild = $false
     $buildMode = $(if ($clean) { "clean" } else { "incremental" })
     $ui["LblBuildActivity"].Text = "Starting " + $buildMode + " build..."
+    Add-LogSessionLine "" "#1A3050"
+    Add-LogSessionLine (">>> BUILD (" + $buildMode + ")") "#0090D0"
+    Add-LogSessionLine "" "#1A3050"
 
     $script:BuildVersion = Get-UiVersion
     $script:BuildProcess = $null
@@ -1189,8 +1256,14 @@ function Start-PushRelease {
     $ui["ProgressBack"].Visibility = [System.Windows.Visibility]::Visible
     $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Visible
     $ui["LblClientStatus"].Text = "client: building..."
+    $ui["BtnCopyLog"].Visibility = [System.Windows.Visibility]::Visible
 
     $script:BuildVersion = $ver
+    Add-LogSessionLine "" "#1A3050"
+    Add-LogSessionLine (">>> RELEASE PIPELINE v" + $vs + " (" + $kind + ")") "#C8A000"
+    Add-LogSessionLine "    Version written to CMakeLists.txt; steps below run in order (build, then package/push)." "#44586C"
+    Add-LogSessionLine "" "#1A3050"
+
     foreach ($s in (Get-BuildSteps $ver $false)) { [void]$script:BuildStepQueue.Add($s) }
 
     $prerelArg = $(if ($isStable) { "" } else { " -Prerelease" })
@@ -1341,19 +1414,18 @@ $script:BuildTimer.Interval = [TimeSpan]::FromMilliseconds(100)
 $script:BuildTimer.Add_Tick({
     try {
         if ($null -eq $script:BuildProcess) {
-            if ($script:BuildStepQueue.Count -gt 0 -and $script:IsBuilding) {
+            if ($script:BuildStepQueue.Count -gt 0 -and ($script:IsBuilding -or $script:IsPushing)) {
                 $next = $script:BuildStepQueue[0]; $script:BuildStepQueue.RemoveAt(0)
                 if ($next.Target -eq "server") {
                     $ui["LblServerStatus"].Text = "server: building..."
                     $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#508CDC")))
                 }
-                # When the release step starts, inject a banner in the log so output is traceable
+                Add-LogSessionLine "" "#1A3050"
+                Add-LogSessionLine (">>> " + $next.Name) "#0090D0"
                 if ($next.Name -match "Release") {
-                    Add-LogLine "" "#1A3050"
-                    Add-LogLine ">>> Release: packaging + GitHub push" "#0090D0"
-                    Add-LogLine "    gh upload may be quiet for 30-90s -- output arrives when GitHub responds" "#44586C"
-                    Add-LogLine "" "#1A3050"
+                    Add-LogSessionLine "    Packaging / gh release upload may print little until GitHub responds (30-90s is normal)." "#44586C"
                 }
+                Add-LogSessionLine "" "#1A3050"
                 Start-Build-Step $next
             } else {
                 $script:BuildTimer.Stop()
@@ -1372,11 +1444,7 @@ $script:BuildTimer.Add_Tick({
                 else { [void]$script:ClientErrors.Add($text) }
                 $ui["ProgressFill"].Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#DC3232")))
             }
-            # Add to live log
-            $logColor = "#8C8C8C"
-            if ($cls -eq "error") { $logColor = "#DC3232" }
-            elseif ($cls -eq "warning") { $logColor = "#FF8C00" }
-            Add-LogLine $text $logColor
+            Add-LogLine $text (Get-ClassifiedLogColor $cls)
 
             if ($text -match '^\[\s*(\d+)%\]') {
                 $pct = [int]$Matches[1]
@@ -1403,6 +1471,15 @@ $script:BuildTimer.Add_Tick({
                     $hint = "  [gh upload -- see Log tab]"
                 }
                 $ui["LblBuildActivity"].Text = $script:CurrentStepName + " " + $spin + " " + $el + "s" + $hint
+                if ($script:CurrentStepName -match "Release" -and $sil -ge 12) {
+                    $sinceHb = ([DateTime]::Now - $script:LastReleaseHeartbeat).TotalSeconds
+                    if ($sinceHb -ge 12) {
+                        $script:LastReleaseHeartbeat = [DateTime]::Now
+                        $hb = "[" + (Get-Date -Format "HH:mm:ss") + "] Still running: " + $script:CurrentStepName + " (" + $el + "s elapsed, last output " + $sil + "s ago)"
+                        [void]$script:AllOutput.Add($hb)
+                        Add-LogLine $hb (Get-ClassifiedLogColor (Classify-Line $hb))
+                    }
+                }
             } else {
                 $ui["LblBuildActivity"].Text = $script:CurrentStepName + " (" + $el + "s)"
             }
@@ -1476,8 +1553,11 @@ $script:BuildTimer.Add_Tick({
                 $ui["ProgressFill"].Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($fillColor)))
                 $pw = $ui["ProgressBack"].ActualWidth
                 if ($pw -gt 0) { $ui["ProgressFill"].Width = $pw }
-                if ($anyErr) { $ui["LblBuildActivity"].Text = "Build complete (with errors)" }
-                else { $ui["LblBuildActivity"].Text = "Build complete." }
+                if ($anyErr) {
+                    $ui["LblBuildActivity"].Text = $(if ($script:IsPushing) { "Release finished (with errors)." } else { "Build complete (with errors)." })
+                } else {
+                    $ui["LblBuildActivity"].Text = $(if ($script:IsPushing) { "Release complete." } else { "Build complete." })
+                }
                 $errCnt = $script:ClientErrors.Count + $script:ServerErrors.Count
                 $ui["BtnCopyErrors"].Visibility = $(if ($errCnt -gt 0) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed })
                 $ui["BtnCopyLog"].Visibility = [System.Windows.Visibility]::Visible
@@ -1498,9 +1578,10 @@ $script:MainTimer.Interval = [TimeSpan]::FromSeconds(2)
 $script:MainTimer.Add_Tick({
     try {
         Update-RunButtons
-        if (-not $script:IsBuilding) { Update-StatusBar }
-        # Re-check gh auth (same cadence as post-login refresh; includes "gh not installed" yet)
-        if ($script:GhAuthChecked -and -not $script:GhAuthOk -and -not $script:GhAuthRefreshBusy) {
+        if (-not $script:IsBuilding -and -not $script:IsPushing) { Update-StatusBar }
+        # Re-check gh auth if not signed in (do not require GhAuthChecked — if the first probe never
+        # completes, GhAuthChecked stays false and we would never retry; activation/F5 cancel instead).
+        if (-not $script:GhAuthOk -and -not $script:GhAuthRefreshBusy) {
             $elapsed = ([DateTime]::UtcNow - $script:LastGhAuthProbeUtc).TotalSeconds
             if ($elapsed -ge 10) { Invoke-GhAuthBackgroundCheck }
         }
@@ -1513,22 +1594,45 @@ $script:MainTimer.Add_Tick({
 
 # Matches devtools/_dev-window.ps1: pass $env:PATH into runspace, Get-Command gh,
 # gh auth status 2>&1, success = output matches 'Logged in' (not exit code).
+function Stop-GhAuthProbeInFlight {
+    if (-not $script:GhAuthRefreshBusy -and $null -eq $script:GhAuthPollTimer -and $null -eq $script:GhAuthPS) { return }
+    Write-DevWindowDebugLog "GhAuth: stopping in-flight probe (user refresh or window activation)" "AUTH"
+    if ($null -ne $script:GhAuthPollTimer) {
+        try { $script:GhAuthPollTimer.Stop() } catch {}
+        $script:GhAuthPollTimer = $null
+    }
+    if ($null -ne $script:GhAuthHandle -and $null -ne $script:GhAuthPS) {
+        try { $script:GhAuthPS.Stop() } catch {}
+    }
+    $script:GhAuthHandle = $null
+    if ($null -ne $script:GhAuthPS) {
+        try { $script:GhAuthPS.Dispose() } catch {}
+        $script:GhAuthPS = $null
+    }
+    if ($null -ne $script:GhAuthRS) {
+        try { $script:GhAuthRS.Close(); $script:GhAuthRS.Dispose() } catch {}
+        $script:GhAuthRS = $null
+    }
+    $script:GhAuthRefreshBusy = $false
+}
+
 function Invoke-GhAuthBackgroundCheck {
     if ($script:GhAuthRefreshBusy) {
         Write-DevWindowDebugLog "GhAuthBackgroundCheck: skipped (already busy)" "AUTH"
         return
     }
     Sync-UserMachinePath
+    $script:GhAuthHadGhOnHost = $null -ne (Get-Command gh -ErrorAction SilentlyContinue)
     Write-DevWindowDebugLog "GhAuthBackgroundCheck: starting runspace" "AUTH"
     $script:GhAuthRefreshBusy = $true
     $script:LastGhAuthProbeUtc = [DateTime]::UtcNow
     $pathToPass = $env:PATH
 
-    $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
-    $rs.Open()
-    $ps = [System.Management.Automation.PowerShell]::Create()
-    $ps.Runspace = $rs
-    [void]$ps.AddScript({
+    $script:GhAuthRS = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+    $script:GhAuthRS.Open()
+    $script:GhAuthPS = [System.Management.Automation.PowerShell]::Create()
+    $script:GhAuthPS.Runspace = $script:GhAuthRS
+    [void]$script:GhAuthPS.AddScript({
         param([string]$EnvPath)
         try {
             $env:PATH = $EnvPath
@@ -1540,25 +1644,31 @@ function Invoke-GhAuthBackgroundCheck {
             return "ERROR"
         }
     })
-    [void]$ps.AddArgument($pathToPass)
+    [void]$script:GhAuthPS.AddArgument($pathToPass)
     $script:GhAuthRunspaceStartedUtc = [DateTime]::UtcNow
-    $handle = $ps.BeginInvoke()
+    $script:GhAuthHandle = $script:GhAuthPS.BeginInvoke()
     Write-DevWindowDebugLog "GhAuth BeginInvoke returned; poll timer 400ms (log WARN every 5s while waiting)" "AUTH"
-    $authPollTimer = New-Object System.Windows.Threading.DispatcherTimer
-    $authPollTimer.Interval = [TimeSpan]::FromMilliseconds(400)
-    $authPollTimer.Add_Tick({
+    $script:GhAuthPollTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $script:GhAuthPollTimer.Interval = [TimeSpan]::FromMilliseconds(400)
+    $script:GhAuthPollTimer.Add_Tick({
         try {
-            if (-not $handle.IsCompleted) {
+            if ($null -eq $script:GhAuthHandle) { $this.Stop(); $script:GhAuthPollTimer = $null; return }
+            if (-not $script:GhAuthHandle.IsCompleted) {
                 $waitSec = ([DateTime]::UtcNow - $script:GhAuthRunspaceStartedUtc).TotalSeconds
                 if ($waitSec -ge 45) {
                     $this.Stop()
+                    $script:GhAuthPollTimer = $null
                     Write-DevWindowDebugLog "GhAuth timeout 45s: runspace still not complete; aborting wait (dispose may fail)" "WARN"
-                    try { $ps.Stop() } catch {}
-                    try { $ps.Dispose() } catch {}
-                    try { $rs.Close(); $rs.Dispose() } catch {}
+                    try { $script:GhAuthPS.Stop() } catch {}
+                    try { $script:GhAuthPS.Dispose() } catch {}
+                    try { $script:GhAuthRS.Close(); $script:GhAuthRS.Dispose() } catch {}
+                    $script:GhAuthPS = $null
+                    $script:GhAuthRS = $null
+                    $script:GhAuthHandle = $null
                     $script:GhAuthRefreshBusy = $false
                     $script:GhAuthChecked = $true
-                    $script:GhCliAvailable = $false
+                    # Do not claim gh is missing on timeout; only NOT_INSTALLED means that.
+                    $script:GhCliAvailable = $script:GhAuthHadGhOnHost
                     $script:GhAuthOk = $false
                     try { Update-Auth-Labels } catch {}
                     return
@@ -1570,43 +1680,53 @@ function Invoke-GhAuthBackgroundCheck {
                 return
             }
             $this.Stop()
+            $script:GhAuthPollTimer = $null
             $ms = [math]::Round(([DateTime]::UtcNow - $script:GhAuthRunspaceStartedUtc).TotalMilliseconds, 0)
             Write-DevWindowDebugLog "GhAuth runspace completed in ${ms}ms, calling EndInvoke" "AUTH"
             # EndInvoke may return a collection or a single object; @() preserves one string (avoid
             # -join splitting a string into characters). Do not gate on .Count — breaks in PS 5.1.
-            $res = $ps.EndInvoke($handle)
+            $res = $script:GhAuthPS.EndInvoke($script:GhAuthHandle)
             $script:GhAuthRefreshBusy = $false
             $txt = ""
             if ($null -ne $res) {
                 $txt = (@($res) | ForEach-Object { $_.ToString() }) -join " "
             }
-            $ok = $txt -match '(?i)logged\s+in'
+            # Same test as devtools/_dev-window.ps1 Section 22 (PowerShell -match is case-insensitive).
+            $ok = $txt -match 'Logged in'
             $notInstalled = $txt -match 'NOT_INSTALLED'
             $script:GhAuthChecked = $true
             $script:GhCliAvailable = -not $notInstalled
             $script:GhAuthOk = $ok
             try {
-                $errRecords = $ps.Streams.Error.ReadAll()
+                $errRecords = $script:GhAuthPS.Streams.Error.ReadAll()
                 if ($null -ne $errRecords -and $errRecords.Count -gt 0) {
                     Write-DevWindowDebugLog ("GhAuth PowerShell Streams.Error: " + (($errRecords | ForEach-Object { $_.ToString() }) -join " | ")) "DEBUG"
                 }
             } catch {}
             $maxRaw = 4000
             $rawPreview = if ($txt.Length -le $maxRaw) { $txt } else { $txt.Substring(0, $maxRaw) + "...(truncated)" }
-            Write-DevWindowDebugLog ("GhAuth: notInstalled=$notInstalled loggedInRegex=$ok GhCliAvailable=$($script:GhCliAvailable) GhAuthOk=$($script:GhAuthOk) rawLen=$($txt.Length)") "AUTH"
+            Write-DevWindowDebugLog ("GhAuth: notInstalled=$notInstalled loggedInMatch=$ok GhCliAvailable=$($script:GhCliAvailable) GhAuthOk=$($script:GhAuthOk) rawLen=$($txt.Length)") "AUTH"
             Write-DevWindowDebugLog ("GhAuth raw: " + $rawPreview) "DEBUG"
-            try { $ps.Dispose() } catch {}
-            try { $rs.Close(); $rs.Dispose() } catch {}
+            try { $script:GhAuthPS.Dispose() } catch {}
+            try { $script:GhAuthRS.Close(); $script:GhAuthRS.Dispose() } catch {}
+            $script:GhAuthPS = $null
+            $script:GhAuthRS = $null
+            $script:GhAuthHandle = $null
             try { Update-Auth-Labels } catch { Write-DevWindowDebugLog ("Update-Auth-Labels after GhAuth: " + ($_ | Out-String)) "WARN" }
             try { Update-StatusBar } catch { Write-DevWindowDebugLog ("Update-StatusBar after GhAuth: " + ($_ | Out-String)) "WARN" }
         } catch {
             Write-DevWindowDebugLog ("GhAuthBackgroundCheck handler exception: " + ($_ | Out-String)) "ERROR"
             $script:GhAuthRefreshBusy = $false
             $script:GhAuthChecked = $true
+            try { $script:GhAuthPS.Dispose() } catch {}
+            try { $script:GhAuthRS.Close(); $script:GhAuthRS.Dispose() } catch {}
+            $script:GhAuthPS = $null
+            $script:GhAuthRS = $null
+            $script:GhAuthHandle = $null
             try { Update-Auth-Labels } catch {}
         }
     })
-    $authPollTimer.Start()
+    $script:GhAuthPollTimer.Start()
 }
 
 function Update-Auth-Labels {
@@ -1740,6 +1860,7 @@ $window.Add_KeyDown({
     }
     elseif ($e.Key -eq [System.Windows.Input.Key]::F5) {
         Update-StatusBar
+        Stop-GhAuthProbeInFlight
         Invoke-GhAuthBackgroundCheck
         Refresh-VersionDisplay
         $e.Handled = $true
@@ -1803,9 +1924,14 @@ $window.Add_Loaded({
 
 $window.Add_Activated({
     try {
-        if (-not $script:GhAuthChecked) { return }
         if ($script:GhAuthOk) { return }
-        if ($script:GhAuthRefreshBusy) { return }
+        # If the first gh auth status is still stuck, GhAuthChecked stays false — still re-probe when
+        # the user returns from the browser (cancel stale runspace first).
+        if ($script:GhAuthRefreshBusy) {
+            $hangSec = ([DateTime]::UtcNow - $script:GhAuthRunspaceStartedUtc).TotalSeconds
+            if ($hangSec -ge 2) { Stop-GhAuthProbeInFlight }
+            else { return }
+        }
         $elapsed = ([DateTime]::UtcNow - $script:LastGhAuthProbeUtc).TotalSeconds
         if ($elapsed -lt 3) { return }
         Invoke-GhAuthBackgroundCheck
