@@ -1521,13 +1521,15 @@ function Invoke-GhAuthBackgroundCheck {
         try {
             if (-not $handle.IsCompleted) { return }
             $this.Stop()
-            $result = $ps.EndInvoke($handle)
+            # EndInvoke may return a collection or a single object; @() preserves one string (avoid
+            # -join splitting a string into characters). Do not gate on .Count — breaks in PS 5.1.
+            $res = $ps.EndInvoke($handle)
             $script:GhAuthRefreshBusy = $false
             $txt = ""
-            if ($null -ne $result -and $result.Count -gt 0) {
-                $txt = ($result | ForEach-Object { $_ }) -join " "
+            if ($null -ne $res) {
+                $txt = (@($res) | ForEach-Object { $_.ToString() }) -join " "
             }
-            $ok = $txt -match 'Logged in'
+            $ok = $txt -match '(?i)logged\s+in'
             $notInstalled = $txt -match 'NOT_INSTALLED'
             $script:GhAuthChecked = $true
             $script:GhCliAvailable = -not $notInstalled
@@ -1538,6 +1540,8 @@ function Invoke-GhAuthBackgroundCheck {
             Update-StatusBar
         } catch {
             $script:GhAuthRefreshBusy = $false
+            $script:GhAuthChecked = $true
+            try { Update-Auth-Labels } catch {}
         }
     })
     $authPollTimer.Start()
