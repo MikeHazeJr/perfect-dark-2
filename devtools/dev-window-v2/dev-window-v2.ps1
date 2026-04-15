@@ -150,6 +150,8 @@ $script:GhCliAvailable      = $false
 $script:GhAuthChecked       = $false
 $script:GhAuthRefreshBusy   = $false  # runspace probe in flight
 $script:LastGhAuthProbeUtc  = [DateTime]::UtcNow
+$script:GhAuthRunspaceStartedUtc = [DateTime]::UtcNow
+$script:LastGhAuthWaitLogUtc     = [DateTime]::MinValue
 $script:LatestRelease       = $null
 $script:DevWindowDebugLogPath = Join-Path $script:ScriptDir "dev-window-v2-debug.log"
 
@@ -1539,13 +1541,37 @@ function Invoke-GhAuthBackgroundCheck {
         }
     })
     [void]$ps.AddArgument($pathToPass)
+    $script:GhAuthRunspaceStartedUtc = [DateTime]::UtcNow
     $handle = $ps.BeginInvoke()
+    Write-DevWindowDebugLog "GhAuth BeginInvoke returned; poll timer 400ms (log WARN every 5s while waiting)" "AUTH"
     $authPollTimer = New-Object System.Windows.Threading.DispatcherTimer
     $authPollTimer.Interval = [TimeSpan]::FromMilliseconds(400)
     $authPollTimer.Add_Tick({
         try {
-            if (-not $handle.IsCompleted) { return }
+            if (-not $handle.IsCompleted) {
+                $waitSec = ([DateTime]::UtcNow - $script:GhAuthRunspaceStartedUtc).TotalSeconds
+                if ($waitSec -ge 45) {
+                    $this.Stop()
+                    Write-DevWindowDebugLog "GhAuth timeout 45s: runspace still not complete; aborting wait (dispose may fail)" "WARN"
+                    try { $ps.Stop() } catch {}
+                    try { $ps.Dispose() } catch {}
+                    try { $rs.Close(); $rs.Dispose() } catch {}
+                    $script:GhAuthRefreshBusy = $false
+                    $script:GhAuthChecked = $true
+                    $script:GhCliAvailable = $false
+                    $script:GhAuthOk = $false
+                    try { Update-Auth-Labels } catch {}
+                    return
+                }
+                if (([DateTime]::UtcNow - $script:LastGhAuthWaitLogUtc).TotalSeconds -ge 5) {
+                    $script:LastGhAuthWaitLogUtc = [DateTime]::UtcNow
+                    Write-DevWindowDebugLog ("GhAuth still waiting for runspace: " + [math]::Round($waitSec, 1) + "s elapsed, IsCompleted=false") "WARN"
+                }
+                return
+            }
             $this.Stop()
+            $ms = [math]::Round(([DateTime]::UtcNow - $script:GhAuthRunspaceStartedUtc).TotalMilliseconds, 0)
+            Write-DevWindowDebugLog "GhAuth runspace completed in ${ms}ms, calling EndInvoke" "AUTH"
             # EndInvoke may return a collection or a single object; @() preserves one string (avoid
             # -join splitting a string into characters). Do not gate on .Count — breaks in PS 5.1.
             $res = $ps.EndInvoke($handle)
@@ -1571,8 +1597,8 @@ function Invoke-GhAuthBackgroundCheck {
             Write-DevWindowDebugLog ("GhAuth raw: " + $rawPreview) "DEBUG"
             try { $ps.Dispose() } catch {}
             try { $rs.Close(); $rs.Dispose() } catch {}
-            Update-Auth-Labels
-            Update-StatusBar
+            try { Update-Auth-Labels } catch { Write-DevWindowDebugLog ("Update-Auth-Labels after GhAuth: " + ($_ | Out-String)) "WARN" }
+            try { Update-StatusBar } catch { Write-DevWindowDebugLog ("Update-StatusBar after GhAuth: " + ($_ | Out-String)) "WARN" }
         } catch {
             Write-DevWindowDebugLog ("GhAuthBackgroundCheck handler exception: " + ($_ | Out-String)) "ERROR"
             $script:GhAuthRefreshBusy = $false
@@ -1792,6 +1818,7 @@ $window.Add_Activated({
 
 $window.Add_Closing({
     try {
+        Write-DevWindowDebugLog "Window Closing" "INFO"
         $script:MainTimer.Stop()
         $script:BuildTimer.Stop()
         if ($null -ne $script:BuildProcess) { try { $script:BuildProcess.Kill() } catch {} }

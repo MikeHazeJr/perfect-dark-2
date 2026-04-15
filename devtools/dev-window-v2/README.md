@@ -10,6 +10,8 @@ UTF-8 append log (for troubleshooting auth, startup, fatal errors):
 
 To disable logging: `$env:PD_DEV_WINDOW_DEBUG = '0'` before launch (or in the user environment).
 
+If auth lines stop after `GhAuth BeginInvoke`, the runspace is still running; new builds log **WARN** every 5s while waiting and **timeout** at 45s. **Window Closing** is logged on exit.
+
 ## Launch
 
 Double-click `Dev Window v2.bat` or run:
