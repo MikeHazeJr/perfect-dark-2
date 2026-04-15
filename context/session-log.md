@@ -17,6 +17,8 @@
 
 **Follow-up (same session)**: `gh` detection failed when the CLI was installed but the GUI process inherited a stale PATH. `Sync-UserMachinePath` merges registry Machine+User `Path`, `Resolve-GhExecutable` falls back to `Program Files\GitHub CLI\gh.exe` (and x86 / LocalAppData); auth runspace uses the resolved full path.
 
+**Follow-up — auth UI stale after `gh auth login`**: Dev Window only ran `gh auth status` once at startup; tokens live in the user profile (not Dev Window settings). Re-probe via `Invoke-GhAuthStatusProbeAsync` using `Process.ExitCode`, plus timer (10s while not ok), window `Activated`, F5, and delayed timers after launching login.
+
 ---
 
 ## Session S255 — 2026-04-14 (Dev Window v2: Pull / Push + DPI font scaling)
