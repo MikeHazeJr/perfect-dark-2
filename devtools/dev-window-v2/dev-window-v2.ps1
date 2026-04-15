@@ -252,6 +252,44 @@ function Resolve-GitExecutable {
     return $null
 }
 
+function Convert-PosixPathToWindowsPath {
+    param([string]$PosixPath)
+    if (-not $PosixPath -or -not ($PosixPath -match '^/')) { return $null }
+
+    # WSL drvfs path: /mnt/c/path/to/file -> C:\path\to\file
+    if ($PosixPath -match '^/mnt/([A-Za-z])/(.+)$') {
+        $drive = $Matches[1].ToUpper()
+        $tail = ($Matches[2] -replace '/', '\')
+        return ($drive + ":\\" + $tail)
+    }
+
+    # MSYS/Git-for-Windows home path: /home/user/... -> C:\Users\user\...
+    if ($PosixPath -match '^/home/([^/]+)/(.+)$') {
+        $user = $Matches[1]
+        $tail = ($Matches[2] -replace '/', '\')
+        return (Join-Path (Join-Path "C:\Users" $user) $tail)
+    }
+
+    # Fallback: ask cygpath if available.
+    $cygCandidates = @("C:\msys64\usr\bin\cygpath.exe")
+    $gitExe = Resolve-GitExecutable
+    if ($gitExe) {
+        try {
+            $gitDir = Split-Path -Parent $gitExe
+            $msysRoot = Split-Path -Parent $gitDir
+            $cygCandidates += (Join-Path $msysRoot "usr\bin\cygpath.exe")
+        } catch {}
+    }
+    foreach ($cyg in ($cygCandidates | Select-Object -Unique)) {
+        try {
+            if (-not (Test-Path -LiteralPath $cyg)) { continue }
+            $out = & $cyg -aw $PosixPath 2>$null
+            if ($out) { return $out.Trim() }
+        } catch {}
+    }
+    return $null
+}
+
 # Delete stale index.lock. Explorer may show C:\...\.git with no lock while Git errors on
 # /home/.../.git/index.lock (WSL-native tree) or /mnt/c/... (same repo via wslpath) — not the same path string.
 # Builds assume the main dev tree (no separate worktree builds).
@@ -265,8 +303,18 @@ function Remove-GitIndexLockFromGitStderr {
         try {
             if ($pth -match '^[A-Za-z]:\\' -or $pth -match '^\\\\') {
                 if (Test-Path -LiteralPath $pth) { Remove-Item -LiteralPath $pth -Force -ErrorAction SilentlyContinue }
-            } elseif ($pth -match '^/' -and $null -ne $wsl) {
-                [void](& wsl.exe -- rm -f -- $pth 2>&1)
+            } elseif ($pth -match '^/') {
+                $winFromPosix = Convert-PosixPathToWindowsPath $pth
+                if ($winFromPosix -and (Test-Path -LiteralPath $winFromPosix)) {
+                    Remove-Item -LiteralPath $winFromPosix -Force -ErrorAction SilentlyContinue
+                }
+                if ($null -ne $wsl) {
+                    [void](& wsl.exe -- rm -f -- $pth 2>&1)
+                }
+                $rmExe = "C:\msys64\usr\bin\rm.exe"
+                if (Test-Path -LiteralPath $rmExe) {
+                    [void](& $rmExe -f -- $pth 2>&1)
+                }
             }
         } catch {}
     }
@@ -314,8 +362,24 @@ function Remove-GitIndexLockForRepo {
                 Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
             }
         } catch {}
+        try {
+            if ($lockPath -match '^/') {
+                $winFromPosix = Convert-PosixPathToWindowsPath $lockPath
+                if ($winFromPosix -and (Test-Path -LiteralPath $winFromPosix)) {
+                    Remove-Item -LiteralPath $winFromPosix -Force -ErrorAction SilentlyContinue
+                }
+            }
+        } catch {}
         if ($lockPath -match '^/' -and $null -ne $wsl) {
             try { [void](& wsl.exe -- rm -f -- $lockPath 2>&1) } catch {}
+        }
+        if ($lockPath -match '^/') {
+            try {
+                $rmExe = "C:\msys64\usr\bin\rm.exe"
+                if (Test-Path -LiteralPath $rmExe) {
+                    [void](& $rmExe -f -- $lockPath 2>&1)
+                }
+            } catch {}
         }
     }
 
@@ -354,6 +418,10 @@ function Force-DeleteGitIndexLockHard {
             $gitTop = $gitTop.Trim().TrimEnd('/')
             if ($gitTop -match '^/') {
                 [void](& wsl.exe -- rm -f -- ($gitTop + '/.git/index.lock') 2>&1)
+                $rmExe = "C:\msys64\usr\bin\rm.exe"
+                if (Test-Path -LiteralPath $rmExe) {
+                    [void](& $rmExe -f -- ($gitTop + '/.git/index.lock') 2>&1)
+                }
             }
         }
     } catch {}
@@ -1198,8 +1266,18 @@ function Invoke-GitSyncBeforeBuild {
     }
     Remove-GitIndexLockForRepo $script:ProjectRoot
     $br = Get-GitCurrentBranch
+    $gitExe = Resolve-GitExecutable
     Add-LogSessionLine "" "#1A3050"
     Add-LogSessionLine ">>> git: sync before build (branch: $br)" "#0090D0"
+    if ($gitExe) {
+        Add-LogSessionLine "git exe: $gitExe" "#44586C"
+        try {
+            $gitTop = (& $gitExe -C $script:ProjectRoot rev-parse --show-toplevel 2>$null | Select-Object -First 1).Trim()
+            if ($gitTop) { Add-LogSessionLine "git top: $gitTop" "#44586C" }
+            $gitLock = (& $gitExe -C $script:ProjectRoot rev-parse --path-format=absolute --git-path index.lock 2>$null | Select-Object -First 1).Trim()
+            if ($gitLock) { Add-LogSessionLine "git lock path: $gitLock" "#44586C" }
+        } catch {}
+    }
     Push-Location $script:ProjectRoot
     try {
         Force-DeleteGitIndexLockHard $script:ProjectRoot

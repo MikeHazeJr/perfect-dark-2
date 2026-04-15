@@ -1,7 +1,33 @@
 # Session Log (Active)
 
-> **S241–S259** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/](_archive/sessions/).
+> **S241–S269** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S269 — 2026-04-15 (Dev Window v2 git index.lock path fidelity hardening)
+
+**Scope**:
+- Hardened Dev Window v2 git sync lock cleanup so retries are accurate when git reports POSIX-style lock paths (`/home/...` or `/mnt/...`) instead of Windows paths.
+
+**Code changes shipped in working tree**:
+- `devtools/dev-window-v2/dev-window-v2.ps1`:
+  - Added `Convert-PosixPathToWindowsPath()` helper to map lock paths from POSIX style to Windows style when possible.
+  - Updated `Remove-GitIndexLockFromGitStderr()` and `Remove-GitIndexLockForRepo()` to attempt lock deletion across:
+    - direct Windows path,
+    - converted POSIX->Windows path,
+    - `wsl rm -f`,
+    - `C:\msys64\usr\bin\rm.exe -f` (MSYS path semantics).
+  - Extended hard-delete path (`Force-DeleteGitIndexLockHard`) to run MSYS `rm` for git-top POSIX path variants.
+  - Added explicit sync diagnostics in `Invoke-GitSyncBeforeBuild()` log output:
+    - resolved git executable path,
+    - git toplevel path,
+    - git-resolved `index.lock` path.
+
+**Verification**:
+- PowerShell parser validation passed for `dev-window-v2.ps1`.
+- Runtime path probes in this environment confirm git resolves repository/toplevel as POSIX (`/home/...`), matching the observed Dev Window v2 error surface.
+
+**Next steps**:
+- Re-run Build from Dev Window v2 once to verify retry path logs and lock cleanup behavior on the next transient lock event.
 
 ## Session S268 — 2026-04-15 (Skin Editor base texture capture fidelity pass)
 
