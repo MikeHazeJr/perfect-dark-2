@@ -1,7 +1,63 @@
 # Session Log (Active)
 
-> **S241–S269** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S272** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S272 — 2026-04-15 (Dev Window v2 lock path policy simplification: dev-root primary)
+
+**Scope**:
+- Simplified index lock cleanup policy per project workflow (build tool uses only the main dev repo location, not worktrees).
+
+**Code changes shipped in working tree**:
+- `devtools/dev-window-v2/dev-window-v2.ps1`:
+  - `Remove-GitIndexLockForRepo()` now treats `Join-Path $RepoRoot ".git\\index.lock"` as the primary canonical cleanup target.
+  - Removed `rev-parse --git-path` / `--absolute-git-dir` probing and related dynamic gitdir cleanup branches.
+  - `Force-DeleteGitIndexLockHard()` now keeps only path-format fallback cleanup (`wslpath`-derived repo path + optional MSYS `rm`) and no longer probes git top-level via `rev-parse`.
+  - Sync diagnostics now log expected lock paths (`Windows` + `WSL` derived from project root) instead of git-reported dynamic paths.
+
+**Verification**:
+- PowerShell parser validation passed for `dev-window-v2.ps1` after simplification.
+
+**Next steps**:
+- Re-run Build in Dev Window v2 and confirm lock diagnostics show expected dev-root paths only.
+
+## Session S271 — 2026-04-15 (Cursor rule: PowerShell-safe git commit message method)
+
+**Scope**:
+- Added a persistent Cursor rule so git commit message passing in this repo defaults to a PowerShell-safe method and avoids bash heredoc parse failures.
+
+**Code changes shipped in working tree**:
+- `.cursor/rules/powershell-git-commit-message.mdc` (new):
+  - `alwaysApply: true` rule covering the repository.
+  - Requires PowerShell here-string message assignment for multiline commit messages (`$msg = @'... '@; git commit -m $msg`).
+  - Explicitly disallows bash heredoc commit syntax in PowerShell shells.
+
+**Verification**:
+- Rule file added in `.cursor/rules/` with active metadata and example command.
+
+**Next steps**:
+- Subsequent commits in this repo should use the PowerShell here-string flow by default.
+
+## Session S270 — 2026-04-15 (Dev Window v2 git sync: single-executable path consistency)
+
+**Scope**:
+- Follow-up hardening for persistent `index.lock` retries where cleanup and mutation commands could still resolve different git path semantics in the same run.
+
+**Code changes shipped in working tree**:
+- `devtools/dev-window-v2/dev-window-v2.ps1`:
+  - `Invoke-GitSyncBeforeBuild()` now resolves one `git` executable once and uses it for all sync commands (`add`, `diff --cached`, `commit`, `push`).
+  - `Get-GitCurrentBranch()` now accepts `-GitExe` and resolves branch via that same executable.
+  - `Remove-GitIndexLockForRepo()` / `Force-DeleteGitIndexLockHard()` now accept `-GitExe` and run all `rev-parse`/top-level probes via the same executable used for sync.
+  - Added debug-log emission for lock-retry stderr payloads (`Write-DevWindowDebugLog`) so future failures include exact failing path text in `dev-window-v2-debug.log`.
+
+**Verification**:
+- PowerShell parser validation passed for `dev-window-v2.ps1` after edits.
+
+**Next steps**:
+- Re-run Build from Dev Window v2 and capture:
+  - Log tab lines: `git exe`, `git top`, `git lock path`.
+  - Any lock-retry line.
+  - Matching `dev-window-v2-debug.log` WARN line (if a retry occurs).
 
 ## Session S269 — 2026-04-15 (Dev Window v2 git index.lock path fidelity hardening)
 

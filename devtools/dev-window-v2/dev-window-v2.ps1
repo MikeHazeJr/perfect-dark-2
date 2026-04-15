@@ -321,7 +321,10 @@ function Remove-GitIndexLockFromGitStderr {
 }
 
 function Remove-GitIndexLockForRepo {
-    param([string]$RepoRoot)
+    param(
+        [string]$RepoRoot,
+        [string]$GitExe
+    )
     if (-not $RepoRoot) { return }
     $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
 
@@ -343,62 +346,16 @@ function Remove-GitIndexLockForRepo {
             }
         } catch {}
     }
-
-    # 3) Path Git reports for this -C (may differ from Explorer on MSYS/WSL mixes)
-    $lockPath = $null
-    try {
-        $p = (& git -C $RepoRoot rev-parse --path-format=absolute --git-path index.lock 2>$null)
-        if ($p) { $lockPath = $p.Trim() }
-    } catch {}
-    if (-not $lockPath) {
-        try {
-            $gd = (& git -C $RepoRoot rev-parse --absolute-git-dir 2>$null)
-            if ($gd) { $lockPath = [System.IO.Path]::Combine($gd.Trim(), "index.lock") }
-        } catch {}
-    }
-    if ($lockPath) {
-        try {
-            if (Test-Path -LiteralPath $lockPath) {
-                Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
-            }
-        } catch {}
-        try {
-            if ($lockPath -match '^/') {
-                $winFromPosix = Convert-PosixPathToWindowsPath $lockPath
-                if ($winFromPosix -and (Test-Path -LiteralPath $winFromPosix)) {
-                    Remove-Item -LiteralPath $winFromPosix -Force -ErrorAction SilentlyContinue
-                }
-            }
-        } catch {}
-        if ($lockPath -match '^/' -and $null -ne $wsl) {
-            try { [void](& wsl.exe -- rm -f -- $lockPath 2>&1) } catch {}
-        }
-        if ($lockPath -match '^/') {
-            try {
-                $rmExe = "C:\msys64\usr\bin\rm.exe"
-                if (Test-Path -LiteralPath $rmExe) {
-                    [void](& $rmExe -f -- $lockPath 2>&1)
-                }
-            } catch {}
-        }
-    }
-
-    # 4) Git dir under /home or /mnt — extra rm (covers Linux checkout path Git prints in fatal:)
-    try {
-        $gd2 = (& git -C $RepoRoot rev-parse --absolute-git-dir 2>$null).Trim()
-        if ($gd2 -match '^/(home|mnt)/' -and $null -ne $wsl) {
-            $ul = ($gd2.TrimEnd('/') + '/index.lock')
-            [void](& wsl.exe -- rm -f -- $ul 2>&1)
-        }
-    } catch {}
 }
 
 function Force-DeleteGitIndexLockHard {
-    param([string]$RepoRoot)
+    param(
+        [string]$RepoRoot,
+        [string]$GitExe
+    )
     if (-not $RepoRoot) { return }
-
     # Normal cleanup path first.
-    Remove-GitIndexLockForRepo $RepoRoot
+    Remove-GitIndexLockForRepo -RepoRoot $RepoRoot -GitExe $GitExe
 
     # Extra safety: force-delete common Linux path variants explicitly.
     $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
@@ -412,17 +369,10 @@ function Force-DeleteGitIndexLockHard {
                 [void](& wsl.exe -- rm -f -- ($wslRepo + '/.git/index.lock') 2>&1)
             }
         }
-        # 2) Repo root as reported by git itself (can be /home/...).
-        $gitTop = (& git -C $RepoRoot rev-parse --show-toplevel 2>$null)
-        if ($gitTop) {
-            $gitTop = $gitTop.Trim().TrimEnd('/')
-            if ($gitTop -match '^/') {
-                [void](& wsl.exe -- rm -f -- ($gitTop + '/.git/index.lock') 2>&1)
-                $rmExe = "C:\msys64\usr\bin\rm.exe"
-                if (Test-Path -LiteralPath $rmExe) {
-                    [void](& $rmExe -f -- ($gitTop + '/.git/index.lock') 2>&1)
-                }
-            }
+        # 2) Also try MSYS rm against drvfs path for git-for-windows/msys callers.
+        $rmExe = "C:\msys64\usr\bin\rm.exe"
+        if (Test-Path -LiteralPath $rmExe -and $wslRepo) {
+            [void](& $rmExe -f -- ($wslRepo + '/.git/index.lock') 2>&1)
         }
     } catch {}
 }
@@ -1249,8 +1199,11 @@ function Copy-AddinFiles {
 }
 
 function Get-GitCurrentBranch {
+    param([string]$GitExe)
+    if (-not $GitExe) { $GitExe = Resolve-GitExecutable }
+    if (-not $GitExe) { $GitExe = "git" }
     try {
-        $b = git -C $script:ProjectRoot rev-parse --abbrev-ref HEAD 2>$null
+        $b = & $GitExe -C $script:ProjectRoot rev-parse --abbrev-ref HEAD 2>$null
         if ($b) { return $b.Trim() }
     } catch {}
     return "HEAD"
@@ -1260,38 +1213,45 @@ function Get-GitCurrentBranch {
 # release.ps1 git pull --rebase) never hit "index contains uncommitted changes".
 function Invoke-GitSyncBeforeBuild {
     param([string]$CommitMessage = "chore: auto-commit before build (dev window)")
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    $gitExe = Resolve-GitExecutable
+    if (-not $gitExe) {
         [System.Windows.MessageBox]::Show("git was not found on PATH.", "Git", "OK", "Warning") | Out-Null
         return $false
     }
-    Remove-GitIndexLockForRepo $script:ProjectRoot
-    $br = Get-GitCurrentBranch
-    $gitExe = Resolve-GitExecutable
+    Remove-GitIndexLockForRepo -RepoRoot $script:ProjectRoot -GitExe $gitExe
+    $br = Get-GitCurrentBranch -GitExe $gitExe
     Add-LogSessionLine "" "#1A3050"
     Add-LogSessionLine ">>> git: sync before build (branch: $br)" "#0090D0"
     if ($gitExe) {
         Add-LogSessionLine "git exe: $gitExe" "#44586C"
         try {
-            $gitTop = (& $gitExe -C $script:ProjectRoot rev-parse --show-toplevel 2>$null | Select-Object -First 1).Trim()
-            if ($gitTop) { Add-LogSessionLine "git top: $gitTop" "#44586C" }
-            $gitLock = (& $gitExe -C $script:ProjectRoot rev-parse --path-format=absolute --git-path index.lock 2>$null | Select-Object -First 1).Trim()
-            if ($gitLock) { Add-LogSessionLine "git lock path: $gitLock" "#44586C" }
+            $expectedWinLock = Join-Path $script:ProjectRoot ".git\index.lock"
+            Add-LogSessionLine "git expected lock: $expectedWinLock" "#44586C"
+            $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
+            if ($null -ne $wsl) {
+                $wslRepo = (& wsl.exe wslpath -a $script:ProjectRoot 2>$null)
+                if ($wslRepo) {
+                    $wslRepo = $wslRepo.Trim().TrimEnd('/')
+                    Add-LogSessionLine "git expected lock (wsl): $wslRepo/.git/index.lock" "#44586C"
+                }
+            }
         } catch {}
     }
     Push-Location $script:ProjectRoot
     try {
-        Force-DeleteGitIndexLockHard $script:ProjectRoot
+        Force-DeleteGitIndexLockHard -RepoRoot $script:ProjectRoot -GitExe $gitExe
         $addOut = @()
         $addCode = 1
         for ($attempt = 1; $attempt -le 3; $attempt++) {
-            $addOut = @(git add -A 2>&1)
+            $addOut = @(& $gitExe add -A 2>&1)
             $addCode = $LASTEXITCODE
             if ($addCode -eq 0) { break }
             $addText = ($addOut | Out-String)
             if ($addText -match 'index\.lock|Unable to create') {
                 Add-LogSessionLine "git add: index.lock detected (attempt $attempt/3), forcing lock cleanup + retry..." "#CDAA32"
+                Write-DevWindowDebugLog ("git add lock retry attempt " + $attempt + " stderr: " + $addText.Replace("`r"," ").Replace("`n"," | ")) "WARN"
                 Remove-GitIndexLockFromGitStderr $addText
-                Force-DeleteGitIndexLockHard $script:ProjectRoot
+                Force-DeleteGitIndexLockHard -RepoRoot $script:ProjectRoot -GitExe $gitExe
                 Start-Sleep -Milliseconds 250
                 continue
             }
@@ -1307,16 +1267,16 @@ function Invoke-GitSyncBeforeBuild {
                 "Error") | Out-Null
             return $false
         }
-        git diff --cached --quiet 2>$null
+        & $gitExe diff --cached --quiet 2>$null
         if ($LASTEXITCODE -ne 0) {
-            Remove-GitIndexLockForRepo $script:ProjectRoot
-            $co = @(git commit -m $CommitMessage 2>&1)
+            Remove-GitIndexLockForRepo -RepoRoot $script:ProjectRoot -GitExe $gitExe
+            $co = @(& $gitExe commit -m $CommitMessage 2>&1)
             $commitCode = $LASTEXITCODE
             if ($commitCode -ne 0 -and (($co | ForEach-Object { "$_" }) -join "`n") -match 'index\.lock|Unable to create') {
                 $commitText = ($co | ForEach-Object { "$_" }) -join "`n"
                 Remove-GitIndexLockFromGitStderr $commitText
-                Remove-GitIndexLockForRepo $script:ProjectRoot
-                $co = @(git commit -m $CommitMessage 2>&1)
+                Remove-GitIndexLockForRepo -RepoRoot $script:ProjectRoot -GitExe $gitExe
+                $co = @(& $gitExe commit -m $CommitMessage 2>&1)
                 $commitCode = $LASTEXITCODE
             }
             foreach ($line in $co) { Add-LogSessionLine "$line" $(if ($commitCode -ne 0) { "#DC3232" } else { "#8C8C8C" }) }
@@ -1333,7 +1293,7 @@ function Invoke-GitSyncBeforeBuild {
         } else {
             Add-LogSessionLine "(working tree already clean - nothing to commit)" "#44586C"
         }
-        $pu = @(git push origin $br 2>&1)
+        $pu = @(& $gitExe push origin $br 2>&1)
         $pushCode = $LASTEXITCODE
         foreach ($line in $pu) { Add-LogSessionLine "$line" $(if ($pushCode -ne 0) { "#DC3232" } else { "#8C8C8C" }) }
         if ($pushCode -ne 0) {

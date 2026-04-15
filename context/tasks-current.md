@@ -68,7 +68,8 @@ Mike to confirm each on next build. Bug/feature → commit on `dev`:
 | Item | Status | Detail |
 |------|--------|--------|
 | **Git sync before Build/Release (dev-window-v2)** | DONE (S257) | `Invoke-GitSyncBeforeBuild` + `release.ps1` index-safe commit before `pull --rebase`. See `session-log` S257, `CRITICAL-PROCEDURES.md`. |
-| **Git index.lock path fidelity (dev-window-v2)** | DONE (S269) | Lock cleanup now handles POSIX lock paths reported by git (`/home/...`, `/mnt/...`) via path conversion + WSL/MSYS deletion fallback, and logs resolved git exe/top/lock paths before sync. |
+| **Git index.lock path fidelity (dev-window-v2)** | DONE (S269/S270/S272) | Lock cleanup handles path-format mismatch while treating dev-root `.git\\index.lock` as canonical (S272 simplification): Windows path first, then wslpath/MSYS fallback; dynamic gitdir `rev-parse` probing removed. |
+| **Cursor commit method (PowerShell-safe)** | DONE (S271) | Added always-apply rule `.cursor/rules/powershell-git-commit-message.mdc` so multiline commit messages use PowerShell here-strings (`$msg = @'...'@; git commit -m $msg`) instead of bash heredoc syntax. |
 | **Dev-window python command robustness** | DONE (S261) | Dev-window-v2 + headless configure now pass `-DPD_PYTHON_EXECUTABLE=C:/msys64/usr/bin/python3.exe` explicitly so asset generator custom commands never depend on `python3` being on child PATH. |
 | **Static link / DLL elimination** | DONE (S224) — **Mike: verify with objdump** | CMakeLists.txt: SDL2 deps completed (dinput8/dxguid/shell32/user32/uuid), DLL copy block removed. Carve-out: `opengl32.dll` only. Verify: `objdump -p Build/PerfectDark.exe \| grep "DLL Name"` should show only system DLLs. Design: `designs/static-link-dll-elimination-2026-04-13.md`. |
 | **L0-LINK: pdguiThemeRegisterModDir server link** | DONE (S231) | Stub confirmed at `port/src/server_stubs.c:417`. Both-targets link verify pending Mike's build. |

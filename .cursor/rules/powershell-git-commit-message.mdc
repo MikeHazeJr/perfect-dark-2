@@ -1,0 +1,24 @@
+---
+description: Use PowerShell-safe commit message passing in this repo
+globs: "**/*"
+alwaysApply: true
+---
+
+# PowerShell Git Commit Message Rule
+
+When running git commit commands from this repository in a PowerShell shell:
+
+- Do not use bash heredoc syntax (`$(cat <<'EOF' ...)`) because it fails under PowerShell.
+- Pass multi-line commit messages via a PowerShell here-string assigned to a variable, then `git commit -m $msg`.
+- Keep this as the default method to avoid retry/failure loops.
+
+Example:
+
+```powershell
+$msg = @'
+fix(scope): concise title
+
+Why-focused body line.
+'@
+git commit -m $msg
+```
