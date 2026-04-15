@@ -84,8 +84,8 @@ void matchConfigInit(void)
 	strncpy(g_MatchConfig.scenario_id, "base:combat", sizeof(g_MatchConfig.scenario_id) - 1);
 	g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
 	/* stage_id is PRIMARY — resolve stagenum from it at matchStart().
-	 * Default arena: Complex ("base:mp_complex"). */
-	strncpy(g_MatchConfig.stage_id, "base:mp_complex", sizeof(g_MatchConfig.stage_id) - 1);
+	 * Default arena: Complex ("base:arena_mp_complex"). */
+	strncpy(g_MatchConfig.stage_id, "base:arena_mp_complex", sizeof(g_MatchConfig.stage_id) - 1);
 	g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
 	{
 		const asset_entry_t *ae = assetCatalogResolve(g_MatchConfig.stage_id);

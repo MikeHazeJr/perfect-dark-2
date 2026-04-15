@@ -1290,6 +1290,12 @@ void mainChangeToStage(s32 stagenum)
 	pak0f11c6d0();
 #endif
 
+	if (g_MainChangeToStageNum >= 0 && g_MainChangeToStageNum != stagenum) {
+		sysLogPrintf(LOG_WARNING,
+			"MAIN: replacing pending stage change 0x%02x -> 0x%02x",
+			(u32)g_MainChangeToStageNum, (u32)stagenum);
+	}
+
 	g_MainChangeToStageNum = stagenum;
 }
 

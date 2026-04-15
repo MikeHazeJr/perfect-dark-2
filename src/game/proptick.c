@@ -53,7 +53,10 @@ void propsTick(void)
 	s32 done;
 	s32 tickop;
 
-	for (i = 0; i < PLAYERCOUNT(); i++) {
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (!g_Vars.players[i]) {
+			continue;
+		}
 		g_Vars.players[i]->bondextrapos.x = 0;
 		g_Vars.players[i]->bondextrapos.y = 0;
 		g_Vars.players[i]->bondextrapos.z = 0;

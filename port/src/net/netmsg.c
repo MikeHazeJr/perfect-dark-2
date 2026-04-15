@@ -516,6 +516,12 @@ u32 netmsgClcMoveRead(struct netbuf *src, struct netclient *srccl)
 	srccl->outmoveack = outmoveack;
 
 	if (!src->error) {
+		if (srccl->inmove[0].tick != 0
+				&& (s32)(newmove.tick - srccl->inmove[0].tick) <= 0) {
+			/* Drop stale/out-of-order moves to prevent rollback snaps. */
+			return src->error;
+		}
+
 		// enforce teleports and such
 		if (srccl->forcetick && srccl->player) {
 			if (srccl->outmoveack >= srccl->forcetick) {
@@ -646,7 +652,7 @@ u32 netmsgSvcAuthWrite(struct netbuf *dst, struct netclient *authcl)
 
 u32 netmsgSvcAuthRead(struct netbuf *src, struct netclient *srccl)
 {
-	if (g_NetLocalClient->state != CLSTATE_AUTH) {
+	if (!g_NetLocalClient || g_NetLocalClient->state != CLSTATE_AUTH) {
 		sysLogPrintf(LOG_WARNING, "NET: SVC_AUTH from server but we're not in AUTH state");
 		return 1;
 	}
@@ -1136,13 +1142,15 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 	for (u32 i = 0; i < NET_MAX_CLIENTS; ++i) {
 		struct netclient *ncl = &g_NetClients[i];
 		if (ncl->state) {
-			u32 playernum = 0;
+			u32 playernum = ncl->playernum;
 			if (ncl->id == 0) {
+				if (!g_NetLocalClient) {
+					sysLogPrintf(LOG_WARNING, "NET: SvcStageStartRead missing local client for server-slot remap");
+					continue;
+				}
 				playernum = g_NetLocalClient->playernum;
-			} else if (ncl == g_NetLocalClient) {
+			} else if (g_NetLocalClient && ncl == g_NetLocalClient) {
 				playernum = g_NetClients[0].playernum;
-			} else {
-				playernum = ncl->playernum;
 			}
 			if (playernum >= MAX_PLAYERS) {
 				sysLogPrintf(LOG_WARNING, "NET: SvcStageStartRead invalid playernum %u for client %u", playernum, i);
@@ -1222,13 +1230,15 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		for (u32 pcl = 0; pcl < NET_MAX_CLIENTS; ++pcl) {
 			struct netclient *pncl = &g_NetClients[pcl];
 			if (pncl->state == CLSTATE_GAME) {
-				u32 pnum = 0;
+				u32 pnum = pncl->playernum;
 				if (pncl->id == 0) {
+					if (!g_NetLocalClient) {
+						sysLogPrintf(LOG_WARNING, "NET: SvcStageStartRead missing local client for body/head remap");
+						continue;
+					}
 					pnum = g_NetLocalClient->playernum;
-				} else if (pncl == g_NetLocalClient) {
+				} else if (g_NetLocalClient && pncl == g_NetLocalClient) {
 					pnum = g_NetClients[0].playernum;
-				} else {
-					pnum = pncl->playernum;
 				}
 				if (pnum < MAX_PLAYERS) {
 					/* Phase 8: validate catalog IDs, derive mp indices from entry */
@@ -1475,6 +1485,9 @@ u32 netmsgSvcPlayerMoveRead(struct netbuf *src, struct netclient *srccl)
 	}
 
 	struct netclient *movecl = &g_NetClients[id];
+	if (movecl->state < CLSTATE_GAME) {
+		return src->error;
+	}
 
 	// make space in the move stack
 	memmove(movecl->inmove + 1, movecl->inmove, sizeof(movecl->inmove) - sizeof(*movecl->inmove));
@@ -1575,7 +1588,7 @@ static s32 netReadModelRef(struct netbuf *src)
 
 u32 netmsgSvcPlayerStatsWrite(struct netbuf *dst, struct netclient *actcl)
 {
-	if (actcl->state < CLSTATE_GAME || !actcl->player || !actcl->player->prop) {
+	if (actcl->state < CLSTATE_GAME || !actcl->player || !actcl->player->prop || !actcl->player->prop->chr) {
 		return dst->error;
 	}
 	const struct player *pl = actcl->player;
@@ -4292,6 +4305,20 @@ s32 netReadyGateCancelByLocalClient(struct netclient *srccl)
 	return 0;
 }
 
+s32 netReadyGateCancelByServer(void)
+{
+	if (g_NetMode != NETMODE_SERVER) {
+		return -1;
+	}
+
+	if (!s_ReadyGate.active || !s_ReadyGate.countdown_active) {
+		return -3;
+	}
+
+	readyGateAbort("Server");
+	return 0;
+}
+
 u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u8 gamemode        = netbufReadU8(src);
@@ -4440,15 +4467,9 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 				isLeader = true;
 			}
 		}
-		/* Fallback: first connected lobby client if no leader assigned yet */
+		/* Fallback: if no explicit leader exists yet, allow any lobby sender. */
 		if (!isLeader && leaderSlot == 0xFF) {
-			for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
-				struct netclient *ncl = &g_NetClients[ci];
-				if (ncl == g_NetLocalClient) continue;
-				if (ncl->state < CLSTATE_LOBBY) continue;
-				isLeader = (ncl == srccl);
-				break;
-			}
+			isLeader = (srccl->state >= CLSTATE_LOBBY);
 		}
 	}
 
@@ -5404,8 +5425,7 @@ u32 netmsgSvcMatchCountdownRead(struct netbuf *src, struct netclient *srccl)
 u32 netmsgSvcSessionCatalogRead(struct netbuf *src, struct netclient *srccl)
 {
 	(void)srccl;
-	sessionCatalogReceive(src);
-	return src->error;
+	return sessionCatalogReceive(src);
 }
 
 /* ---- CLC_LOBBY_CANCEL ---- */
@@ -5572,9 +5592,11 @@ u32 netmsgClcBotMoveWrite(struct netbuf *dst)
 
 u32 netmsgClcBotMoveRead(struct netbuf *src, struct netclient *srccl)
 {
-	(void)srccl;
-
 	const u8 count = netbufReadU8(src);
+	const bool authorized = srccl
+		&& srccl->state == CLSTATE_GAME
+		&& g_NetBotAuthorityClientId != NET_NULL_CLIENT
+		&& srccl->id == g_NetBotAuthorityClientId;
 
 	if (g_NetTick < 600 && (g_NetTick % 60) == 0) {
 		sysLogPrintf(LOG_NOTE, "MATCH-TRACE: CLC_BOT_MOVE server recv count=%d tick=%d",
@@ -5597,6 +5619,10 @@ u32 netmsgClcBotMoveRead(struct netbuf *src, struct netclient *srccl)
 
 		if (src->error) {
 			return src->error;
+		}
+
+		if (!authorized) {
+			continue;
 		}
 
 		if (aibotnum >= g_BotCount || !g_MpBotChrPtrs[aibotnum]) {
@@ -6017,6 +6043,7 @@ u32 netmsgClcStageReadyRead(struct netbuf *src, struct netclient *srccl)
 				netbufStartWrite(&g_NetMsgRel);
 				netmsgSvcBotAuthorityWrite(&g_NetMsgRel);
 				netSend(&g_NetClients[ci], &g_NetMsgRel, true, NETCHAN_DEFAULT);
+				g_NetBotAuthorityClientId = g_NetClients[ci].id;
 				g_NetBotAuthorityDelegated = true;
 				g_NetStageReadyDeadline    = -1;
 				break;

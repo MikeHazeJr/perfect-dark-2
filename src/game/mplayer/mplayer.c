@@ -723,7 +723,9 @@ void mpPlayerSetDefaults(s32 playernum, bool autonames)
 
 	g_PlayerConfigsArray[playernum].controlmode = CONTROLMODE_11;
 
-	if (g_PlayerExtCfg[playernum % MAX_PLAYERS].extcontrols) {
+	if (playernum >= 0
+			&& playernum < MAX_LOCAL_PLAYERS
+			&& g_PlayerExtCfg[playernum].extcontrols) {
 		g_PlayerConfigsArray[playernum].controlmode = CONTROLMODE_PC;
 	}
 
@@ -3919,7 +3921,9 @@ void mpplayerfileLoadWad(s32 playernum, struct savebuffer *buffer, s32 arg2)
 	g_PlayerConfigsArray[playernum].options = savebufferReadBits(buffer, 12);
 
 	// override with PC controls if enabled in the config
-	if (g_PlayerExtCfg[playernum % MAX_PLAYERS].extcontrols) {
+	if (playernum >= 0
+			&& playernum < MAX_LOCAL_PLAYERS
+			&& g_PlayerExtCfg[playernum].extcontrols) {
 		g_PlayerConfigsArray[playernum].controlmode = CONTROLMODE_PC;
 	}
 

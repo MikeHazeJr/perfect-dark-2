@@ -199,6 +199,35 @@ s32 mpGetNumStages(void)
 	return modmgrGetTotalArenas();
 }
 
+static bool mpArenaIndexIsUsable(s32 index)
+{
+	struct mparena *arena = modmgrGetArena(index);
+	char *name;
+
+	if (!arena) {
+		return false;
+	}
+
+	if (arena->stagenum <= 0) {
+		return false;
+	}
+
+	if (!challengeIsFeatureUnlocked(arena->requirefeature)) {
+		return false;
+	}
+
+	name = langGet(arena->name);
+	if (!name || !name[0]) {
+		return false;
+	}
+
+	if (strcmp(name, "???") == 0) {
+		return false;
+	}
+
+	return true;
+}
+
 s16 mpChooseRandomStage(void)
 {
 	s32 i;
@@ -206,15 +235,19 @@ s16 mpChooseRandomStage(void)
 	s32 index;
 
 	for (i = 0; i < 71; i++) {
-		if (challengeIsFeatureUnlocked(modmgrGetArena(i)->requirefeature)) {
+		if (mpArenaIndexIsUsable(i)) {
 			numchallengescomplete++;
 		}
+	}
+
+	if (numchallengescomplete <= 0) {
+		return STAGE_MP_SKEDAR;
 	}
 
 	index = rngRandom() % numchallengescomplete;
 
 	for (i = 0; i < 71; i++) {
-		if (challengeIsFeatureUnlocked(modmgrGetArena(i)->requirefeature)) {
+		if (mpArenaIndexIsUsable(i)) {
 			if (index == 0) {
 				return modmgrGetArena(i)->stagenum;
 			}
@@ -233,15 +266,19 @@ s16 mpChooseRandomMultiStage(void)
 	s32 index;
 
 	for (i = 0; i < 32; i++) {
-		if ((i <= 12 || i >= 27) && challengeIsFeatureUnlocked(modmgrGetArena(i)->requirefeature)) {
+		if ((i <= 12 || i >= 27) && mpArenaIndexIsUsable(i)) {
 			numchallengescomplete++;
 		}
+	}
+
+	if (numchallengescomplete <= 0) {
+		return STAGE_MP_SKEDAR;
 	}
 
 	index = rngRandom() % numchallengescomplete;
 
 	for (i = 0; i < 32; i++) {
-		if ((i <= 12 || i >= 27) && challengeIsFeatureUnlocked(modmgrGetArena(i)->requirefeature)) {
+		if ((i <= 12 || i >= 27) && mpArenaIndexIsUsable(i)) {
 			if (index == 0) {
 				return modmgrGetArena(i)->stagenum;
 			}
@@ -260,15 +297,19 @@ s16 mpChooseRandomSoloStage(void)
 	s32 index;
 
 	for (i = 0; i < 27; i++) {
-		if ((i >= 13 && i <= 26) && challengeIsFeatureUnlocked(modmgrGetArena(i)->requirefeature)) {
+		if ((i >= 13 && i <= 26) && mpArenaIndexIsUsable(i)) {
 			numchallengescomplete++;
 		}
+	}
+
+	if (numchallengescomplete <= 0) {
+		return STAGE_DEFECTION;
 	}
 
 	index = rngRandom() % numchallengescomplete;
 
 	for (i = 0; i < 27; i++) {
-		if ((i >= 13 && i <= 26) && challengeIsFeatureUnlocked(modmgrGetArena(i)->requirefeature)) {
+		if ((i >= 13 && i <= 26) && mpArenaIndexIsUsable(i)) {
 			if (index == 0) {
 				return modmgrGetArena(i)->stagenum;
 			}
@@ -288,16 +329,20 @@ s16 mpChooseRandomGexStage(void)
 
 	for (i = 0; i < 61; i++) {
 		if (((i >= 32 && i <= 54) || (i >= 59 && i <= 60))
-				&& challengeIsFeatureUnlocked(modmgrGetArena(i)->requirefeature)) {
+				&& mpArenaIndexIsUsable(i)) {
 			numchallengescomplete++;
 		}
+	}
+
+	if (numchallengescomplete <= 0) {
+		return STAGE_EXTRA6; // Temple
 	}
 
 	index = rngRandom() % numchallengescomplete;
 
 	for (i = 0; i < 61; i++) {
 		if (((i >= 32 && i <= 54) || (i >= 59 && i <= 60))
-				&& challengeIsFeatureUnlocked(modmgrGetArena(i)->requirefeature)) {
+				&& mpArenaIndexIsUsable(i)) {
 			if (index == 0) {
 				return modmgrGetArena(i)->stagenum;
 			}
@@ -349,7 +394,7 @@ static s32 arenaMapIndex(s32 visidx, s32 *outGroup, s32 *outArena)
 			s32 groupEnd = (g + 1 < ARENA_NUM_GROUPS) ? g_ArenaGroupDefs[g + 1].offset : totalArenas;
 
 			for (s32 a = g_ArenaGroupDefs[g].offset; a < groupEnd; a++) {
-				if (challengeIsFeatureUnlocked(modmgrGetArena(a)->requirefeature)) {
+				if (mpArenaIndexIsUsable(a)) {
 					if (pos == visidx) {
 						*outArena = a;
 						return 1;
@@ -374,7 +419,7 @@ static s32 arenaCountVisible(void)
 			s32 groupEnd = (g + 1 < ARENA_NUM_GROUPS) ? g_ArenaGroupDefs[g + 1].offset : totalArenas;
 
 			for (s32 a = g_ArenaGroupDefs[g].offset; a < groupEnd; a++) {
-				if (challengeIsFeatureUnlocked(modmgrGetArena(a)->requirefeature)) {
+				if (mpArenaIndexIsUsable(a)) {
 					count++;
 				}
 			}
@@ -397,7 +442,7 @@ static s32 arenaFindSelected(s16 stagenum)
 			s32 groupEnd = (g + 1 < ARENA_NUM_GROUPS) ? g_ArenaGroupDefs[g + 1].offset : totalArenas;
 
 			for (s32 a = g_ArenaGroupDefs[g].offset; a < groupEnd; a++) {
-				if (challengeIsFeatureUnlocked(modmgrGetArena(a)->requirefeature)) {
+				if (mpArenaIndexIsUsable(a)) {
 					if (modmgrGetArena(a)->stagenum == stagenum) {
 						return pos;
 					}
@@ -2590,7 +2635,7 @@ char *mpMenuTextMpconfigMarquee(struct menuitem *item)
 				filename, &numsims, &stagenum, &scenarionum);
 
 		for (i = 0; i < modmgrGetTotalArenas(); i++) {
-			if (modmgrGetArena(i)->stagenum == stagenum) {
+			if (mpArenaIndexIsUsable(i) && modmgrGetArena(i)->stagenum == stagenum) {
 				arenanum = i;
 			}
 		}
@@ -5410,7 +5455,7 @@ char *mpMenuTextArenaName(struct menuitem *item)
 	s32 i;
 
 	for (i = 0; i != modmgrGetTotalArenas(); i++) {
-		if (modmgrGetArena(i)->stagenum == g_MpSetup.stagenum) {
+		if (mpArenaIndexIsUsable(i) && modmgrGetArena(i)->stagenum == g_MpSetup.stagenum) {
 			return langGet(modmgrGetArena(i)->name);
 		}
 	}

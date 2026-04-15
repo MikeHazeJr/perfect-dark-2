@@ -346,6 +346,13 @@ void netHolePunchClientTick(struct _ENetHost *host)
     /* Apply longer timeout: NAT holes need a moment to stabilize */
     enet_peer_timeout(peer, ENET_PEER_TIMEOUT_LIMIT, 300, PUNCH_ENET_TIMEOUT_MS);
 
+	if (!g_NetLocalClient) {
+		sysLogPrintf(LOG_WARNING, "NET: hole punch missing local client for post-punch connect");
+		enet_peer_reset(peer);
+		s_ConnPhase = CONN_PHASE_DONE;
+		return;
+	}
+
     g_NetLocalClient->peer  = peer;
     g_NetLocalClient->state = CLSTATE_CONNECTING;
 

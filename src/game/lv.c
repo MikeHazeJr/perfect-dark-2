@@ -2474,7 +2474,10 @@ void lvTick(void)
 			if (elapsed < warntime && nexttime >= warntime) {
 				s32 i;
 
-				for (i = 0; i < PLAYERCOUNT(); i++) {
+				for (i = 0; i < MAX_PLAYERS; i++) {
+					if (!g_Vars.players[i]) {
+						continue;
+					}
 					setCurrentPlayerNum(i);
 					hudmsgCreate(langGet(L_MISC_068), HUDMSGTYPE_DEFAULT); // "One minute left."
 				}
@@ -2563,11 +2566,6 @@ void lvTick(void)
 	}
 
 	if (g_Vars.stagenum == STAGE_TITLE) {
-		static s32 s_TitleTickCount = 0;
-		if (s_TitleTickCount < 5 || s_TitleTickCount % 300 == 0) {
-			sysLogPrintf(LOG_NOTE, "INTRO: lvTick calling titleTick (tick #%d, g_TitleMode=%d)", s_TitleTickCount, g_TitleMode);
-		}
-		s_TitleTickCount++;
 		titleTick();
 		langTick();
 		musicTick();

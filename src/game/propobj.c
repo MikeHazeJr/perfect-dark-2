@@ -192,7 +192,10 @@ bool doorCallLift(struct prop *doorprop, bool allowclose)
 						s32 numchrslots = chrsGetNumSlots();
 						s32 i;
 
-						for (i = 0; i < PLAYERCOUNT(); i++) {
+						for (i = 0; i < MAX_PLAYERS; i++) {
+							if (!g_Vars.players[i]) {
+								continue;
+							}
 							if (g_Vars.players[i]->lift == link->lift) {
 								vacant = false;
 							}
@@ -2630,7 +2633,10 @@ void objFree(struct defaultobj *obj, bool freeprop, bool canregen)
 		s32 prevplayernum = g_Vars.currentplayernum;
 		s32 i;
 
-		for (i = 0; i < PLAYERCOUNT(); i++) {
+		for (i = 0; i < MAX_PLAYERS; i++) {
+			if (!g_Vars.players[i]) {
+				continue;
+			}
 			setCurrentPlayerNum(i);
 
 			if (obj->prop == bmoveGetGrabbedProp() || obj->prop == bmoveGetHoverbike()) {
@@ -4499,7 +4505,10 @@ void weaponTick(struct prop *prop)
 				{
 					s32 i;
 
-					for (i = 0; i < PLAYERCOUNT(); i++) {
+					for (i = 0; i < MAX_PLAYERS; i++) {
+						if (!g_Vars.players[i]) {
+							continue;
+						}
 						if (g_Vars.players[i]->slayerrocket == (struct weaponobj *) obj) {
 							g_Vars.players[i]->slayerrocket = NULL;
 							g_Vars.players[i]->visionmode = VISIONMODE_SLAYERROCKETSTATIC;
@@ -4541,7 +4550,10 @@ void weaponTick(struct prop *prop)
 				{
 					s32 i;
 
-					for (i = 0; i < PLAYERCOUNT(); i++) {
+					for (i = 0; i < MAX_PLAYERS; i++) {
+						if (!g_Vars.players[i]) {
+							continue;
+						}
 						if (g_Vars.players[i]->slayerrocket == (struct weaponobj *)obj) {
 							g_Vars.players[i]->slayerrocket = NULL;
 							g_Vars.players[i]->visionmode = VISIONMODE_SLAYERROCKETSTATIC;
@@ -4568,7 +4580,10 @@ void weaponTick(struct prop *prop)
 			{
 				s32 i;
 
-				for (i = 0; i < PLAYERCOUNT(); i++) {
+				for (i = 0; i < MAX_PLAYERS; i++) {
+					if (!g_Vars.players[i]) {
+						continue;
+					}
 					if (g_Vars.players[i]->slayerrocket == (struct weaponobj *)obj) {
 						g_Vars.players[i]->slayerrocket = NULL;
 						g_Vars.players[i]->visionmode = VISIONMODE_SLAYERROCKETSTATIC;
@@ -4699,7 +4714,10 @@ void weaponTick(struct prop *prop)
 				{
 					s32 i;
 
-					for (i = 0; i < PLAYERCOUNT(); i++) {
+					for (i = 0; i < MAX_PLAYERS; i++) {
+						if (!g_Vars.players[i]) {
+							continue;
+						}
 						if (g_Vars.players[i]->slayerrocket == (struct weaponobj *)obj) {
 							g_Vars.players[i]->slayerrocket = NULL;
 							g_Vars.players[i]->visionmode = VISIONMODE_SLAYERROCKETSTATIC;
@@ -4819,7 +4837,10 @@ void weaponTick(struct prop *prop)
 			{
 				s32 i;
 
-				for (i = 0; i < PLAYERCOUNT(); i++) {
+				for (i = 0; i < MAX_PLAYERS; i++) {
+					if (!g_Vars.players[i]) {
+						continue;
+					}
 					if (g_Vars.players[i]->slayerrocket == (struct weaponobj *)obj) {
 						g_Vars.players[i]->slayerrocket = NULL;
 						g_Vars.players[i]->visionmode = VISIONMODE_SLAYERROCKETSTATIC;

@@ -423,8 +423,33 @@ void playerReset(void)
 		u32 match_seed = (g_NetMode != NETMODE_NONE && g_NetMatchSeed != 0)
 			? g_NetMatchSeed
 			: (u32)g_Vars.stagenum ^ (u32)g_Vars.lvframe60;
+		spawn_aabb_t aabb;
+		f32 span_x;
+		f32 span_z;
+		f32 dominant_span;
+		s32 span_bonus = 0;
+
 		if (spawn_needed < 4) spawn_needed = 4; /* minimum for reasonable dispersal */
+
+		/* Large maps need a deeper candidate pool to avoid repeated spawn reuse. */
+		spawnPoolComputeAABB(&aabb);
+		if (aabb.valid) {
+			span_x = aabb.max.x - aabb.min.x;
+			span_z = aabb.max.z - aabb.min.z;
+			dominant_span = span_x > span_z ? span_x : span_z;
+			if (dominant_span > 4000.0f) {
+				span_bonus = (s32)((dominant_span - 4000.0f) / 2000.0f) + 1;
+			}
+		}
+
+		spawn_needed += span_bonus;
+		if (spawn_needed > MAX_MPCHRS) {
+			spawn_needed = MAX_MPCHRS;
+		}
+
 		spawnPoolBuildGlobal(g_MissionConfig.stage_id, match_seed, spawn_needed);
+	} else {
+		spawnPoolReset();
 	}
 
 	invGiveSingleWeapon(WEAPON_UNARMED);
@@ -594,7 +619,7 @@ void playerReset(void)
 			struct coord occupied[MAX_MPCHRS];
 			s32 num_occupied = 0;
 			s32 pi;
-			for (pi = 0; pi < PLAYERCOUNT(); pi++) {
+			for (pi = 0; pi < MAX_PLAYERS; pi++) {
 				if (g_Vars.players[pi] && g_Vars.players[pi]->prop
 						&& g_Vars.players[pi]->prop != g_Vars.currentplayer->prop
 						&& g_Vars.players[pi]->prop->rooms[0] >= 0) {

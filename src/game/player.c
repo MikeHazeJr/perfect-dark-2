@@ -230,11 +230,139 @@ s32 g_NumDeathAnimations = 0;
  * so the same spawn can't repeat back-to-back. */
 static s16 s_LastSpawnPad = -1;
 
+static bool playerTrySelectPoolSpawn(struct coord *dstpos, RoomNum *dstrooms, struct prop *selfprop)
+{
+	const spawn_pool_t *pool;
+	s32 needed;
+	struct coord occupied[MAX_MPCHRS];
+	s32 num_occupied = 0;
+	s32 team = -1;
+	s32 num_teams = 0;
+	struct coord center = {0, 0, 0};
+	spawn_aabb_t aabb;
+	s32 i;
+
+	if (!g_Vars.mplayerisrunning || !spawnPoolIsReady()) {
+		return false;
+	}
+
+	pool = spawnPoolGet();
+	if (!pool || pool->count <= 0) {
+		return false;
+	}
+
+	needed = PLAYERCOUNT() + g_BotCount;
+	if (needed < 1) {
+		needed = 1;
+	}
+
+	/* Keep legacy pad shortlist behavior when the map has enough declared pads. */
+	if (g_NumSpawnPoints > 0 && g_NumSpawnPoints >= needed) {
+		return false;
+	}
+
+	for (i = 0; i < MAX_PLAYERS && num_occupied < MAX_MPCHRS; i++) {
+		if (!g_Vars.players[i] || !g_Vars.players[i]->prop) {
+			continue;
+		}
+
+		if (g_Vars.players[i]->prop == selfprop) {
+			continue;
+		}
+
+		if (g_Vars.players[i]->prop->rooms[0] < 0) {
+			continue;
+		}
+
+		occupied[num_occupied++] = g_Vars.players[i]->prop->pos;
+	}
+
+	for (i = 0; i < g_BotCount && num_occupied < MAX_MPCHRS; i++) {
+		if (!g_MpBotChrPtrs[i] || !g_MpBotChrPtrs[i]->prop) {
+			continue;
+		}
+
+		if (g_MpBotChrPtrs[i]->prop == selfprop) {
+			continue;
+		}
+
+		if (g_MpBotChrPtrs[i]->prop->rooms[0] < 0) {
+			continue;
+		}
+
+		occupied[num_occupied++] = g_MpBotChrPtrs[i]->prop->pos;
+	}
+
+	if (g_MpSetup.options & MPOPTION_TEAMSENABLED) {
+		u32 active_teams = 0;
+
+		for (i = 0; i < MAX_PLAYERS; i++) {
+			if (!g_Vars.players[i] || !g_Vars.players[i]->prop || !g_Vars.players[i]->prop->chr) {
+				continue;
+			}
+			active_teams |= (u32)g_Vars.players[i]->prop->chr->team;
+		}
+
+		for (i = 0; i < g_BotCount; i++) {
+			if (!g_MpBotChrPtrs[i] || !g_MpBotChrPtrs[i]->prop) {
+				continue;
+			}
+			active_teams |= (u32)g_MpBotChrPtrs[i]->team;
+		}
+
+		for (i = 0; i < 4; i++) {
+			if (active_teams & (1u << i)) {
+				num_teams++;
+			}
+		}
+
+		if (selfprop && selfprop->chr) {
+			for (i = 0; i < 4; i++) {
+				if (selfprop->chr->team & (1u << i)) {
+					team = i;
+					break;
+				}
+			}
+		}
+
+		if (num_teams < 2) {
+			num_teams = 0;
+			team = -1;
+		}
+	}
+
+	spawnPoolComputeAABB(&aabb);
+	if (aabb.valid) {
+		center.x = (aabb.min.x + aabb.max.x) * 0.5f;
+		center.y = (aabb.min.y + aabb.max.y) * 0.5f;
+		center.z = (aabb.min.z + aabb.max.z) * 0.5f;
+	}
+
+	i = spawnPoolSelect(pool, occupied, num_occupied, team, num_teams, &center);
+	if (i < 0) {
+		return false;
+	}
+
+	*dstpos = pool->points[i].pos;
+	dstrooms[0] = pool->points[i].room;
+	dstrooms[1] = -1;
+
+	sysLogPrintf(LOG_NOTE,
+		"SPAWN: pool fallback picked idx=%d layer=%d room=%d (declared=%d needed=%d)",
+		i, pool->points[i].layer, (s32)dstrooms[0], g_NumSpawnPoints, needed);
+
+	return true;
+}
+
 f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstrooms, struct prop *prop, s16 *pads, s32 numpads)
 {
 	u8 verybadpads[MAX_MPCHRS];
 	u8 badpads[MAX_MPCHRS];
 	f32 padsqdists[MAX_MPCHRS];
+
+	if (playerTrySelectPoolSpawn(dstpos, dstrooms, prop)) {
+		return 0;
+	}
 
 	/* PC: If no pad-based spawn points are available, check the spawn pool
 	 * for validated positions (L3 grid / L4 radial). The pool guarantees
@@ -343,7 +471,10 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 		// Iterate players other than the one being spawned.
 		// Note the closest chr's distance.
 		// Decide whether the pad is considered to be ok, bad or very bad.
-		for (i = 0; i < playercount; i++) {
+		for (i = 0; i < MAX_PLAYERS; i++) {
+			if (!g_Vars.players[i]) {
+				continue;
+			}
 			if (g_Vars.players[i]->prop
 					&& g_Vars.players[i]->prop != prop
 					&& (!prop || chrCompareTeams(prop->chr, g_Vars.players[i]->prop->chr, COMPARE_ENEMIES))) {
@@ -6343,23 +6474,33 @@ struct sndstate *playerSndStart(s32 arg0, s16 sound, struct sndstate **handle, s
 f32 playerGetDefaultFovY(s32 playernum)
 {
 	if (g_NetMode) {
-		const struct player *pl = g_Vars.players[playernum % MAX_PLAYERS];
+		const struct player *pl = (playernum >= 0 && playernum < MAX_PLAYERS)
+			? g_Vars.players[playernum]
+			: NULL;
 		if (pl && pl->client) {
 			return pl->client->settings.fovy;
 		}
 	}
-	return g_PlayerExtCfg[playernum % MAX_LOCAL_PLAYERS].fovy;
+	if (playernum >= 0 && playernum < MAX_LOCAL_PLAYERS) {
+		return g_PlayerExtCfg[playernum].fovy;
+	}
+	return g_PlayerExtCfg[0].fovy;
 }
 
 f32 playerGetZoomFovMult(s32 playernum)
 {
 	if (g_NetMode) {
-		const struct player *pl = g_Vars.players[playernum % MAX_PLAYERS];
+		const struct player *pl = (playernum >= 0 && playernum < MAX_PLAYERS)
+			? g_Vars.players[playernum]
+			: NULL;
 		if (pl && pl->client) {
 			return pl->client->settings.fovzoommult;
 		}
 	}
-	return g_PlayerExtCfg[playernum % MAX_LOCAL_PLAYERS].fovzoommult;
+	if (playernum >= 0 && playernum < MAX_LOCAL_PLAYERS) {
+		return g_PlayerExtCfg[playernum].fovzoommult;
+	}
+	return g_PlayerExtCfg[0].fovzoommult;
 }
 
 s32 playerGetCount(void)

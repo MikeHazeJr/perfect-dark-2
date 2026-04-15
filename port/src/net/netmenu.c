@@ -326,6 +326,8 @@ static const char *menutextJoinAddress(struct menuitem *item)
 	if (item && item->flags & MENUITEMFLAG_SELECTABLE_CENTRE) {
 		if (g_NetMode == NETMODE_NONE) {
 			snprintf(tmp, sizeof(tmp), "%s_\n", g_NetJoinAddr);
+		} else if (!g_NetLocalClient) {
+			snprintf(tmp, sizeof(tmp), "Connecting to %s...\n", g_NetJoinAddr);
 		} else if (g_NetLocalClient->state == CLSTATE_CONNECTING) {
 			snprintf(tmp, sizeof(tmp), "Connecting to %s...\n", g_NetJoinAddr);
 		} else if (g_NetLocalClient->state == CLSTATE_AUTH) {

@@ -3,6 +3,38 @@
 > **S241–S259** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/](_archive/sessions/).
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S265 — 2026-04-15 (Post-merge sanity pass + focused playtest checklist)
+
+**Scope**:
+- Read-through sanity pass on the high-risk flows requested after merge:
+  1) Counter-Op anti-role authority on wire,
+  2) ready-gate cancel state transitions,
+  3) MP endscreen team ranking feed behavior.
+
+**Verification findings (code-level)**:
+- Counter-Op role authority path is wired end-to-end:
+  - `pdgui_menu_room.cpp` sends selected `clientId` as `antiClientId`,
+  - `CLC_LOBBY_START` carries `antiClientId`,
+  - server validates anti client room/state,
+  - server maps anti client -> anti player slot,
+  - `SVC_STAGE_START` carries authoritative anti slot to clients.
+- Ready-gate cancel path is unified:
+  - `netReadyGateCancelByLocalClient()` now centralizes countdown-active + `CLSTATE_PREPARING` validation,
+  - `CLC_LOBBY_CANCEL` server read delegates to that helper,
+  - client state moves to `CLSTATE_PREPARING` on `SVC_MATCH_MANIFEST`,
+  - client state returns to `CLSTATE_LOBBY` on `SVC_MATCH_CANCELLED`.
+- MP endscreen rankings now build from per-player rankings and apply team sorting for team mode (no aggregate `mpchr=NULL` feed path).
+
+**Operational note**:
+- The working tree currently also contains additional in-progress gameplay edits from parallel sessions (outside this sanity pass); no changes were made to those files here.
+
+**Playtest checklist queued**:
+- Counter-Op: choose non-slot-1 anti player, start match, confirm selected player is anti on all clients.
+- Countdown cancel: test host cancel and remote cancel during visible 3-2-1; verify cancel banner and return to lobby state on all peers.
+- Team endscreen: run a teams-enabled Combat Sim match; verify player rows render correctly (no placeholder `?` entries), grouped/sorted by team.
+
+---
+
 ## Session S264 — 2026-04-15 (Audit remediation batch: countdown cancel, menu context ownership, SP-6/SP-8, manifest hardening)
 
 **Scope implemented**:

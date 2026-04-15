@@ -7999,10 +7999,12 @@ struct eyespy *chrToEyespy(struct chrdata *chr)
 {
 	if (chr && chr->prop) {
 		if (CHRRACE(chr) == RACE_EYESPY) {
-			s32 playercount = PLAYERCOUNT();
 			s32 i;
 
-			for (i = 0; i < playercount; i++) {
+			for (i = 0; i < MAX_PLAYERS; i++) {
+				if (!g_Vars.players[i]) {
+					continue;
+				}
 				if (g_Vars.players[i]->eyespy && chr->prop == g_Vars.players[i]->eyespy->prop) {
 					return g_Vars.players[i]->eyespy;
 				}

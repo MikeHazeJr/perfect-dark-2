@@ -928,16 +928,18 @@ s32 netLobbyRequestStart(u8 gamemode, const char *stage_id, u8 difficulty)
 
 s32 netLobbyRequestCancel(void)
 {
-    if (!g_NetLocalClient) {
-        return -1;
-    }
-
     if (g_NetMode == NETMODE_SERVER) {
-        const s32 rc = netReadyGateCancelByLocalClient(g_NetLocalClient);
+        const s32 rc = g_NetLocalClient
+            ? netReadyGateCancelByLocalClient(g_NetLocalClient)
+            : netReadyGateCancelByServer();
         if (rc == 0) {
             sysLogPrintf(LOG_NOTE, "BRIDGE: local host cancelled ready-gate countdown");
         }
         return rc;
+    }
+
+    if (!g_NetLocalClient) {
+        return -1;
     }
 
     if (g_NetMode != NETMODE_CLIENT) {

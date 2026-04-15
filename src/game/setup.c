@@ -1,3 +1,4 @@
+#include <string.h>
 #include <ultra64.h>
 #include "constants.h"
 #include "game/cheats.h"
@@ -5,6 +6,7 @@
 #include "game/setup.h"
 #include "game/objectives.h"
 #include "game/playerreset.h"
+#include "game/spawnpool.h"
 #include "game/botmgr.h"
 #include "game/bot.h"
 #include "game/chr.h"
@@ -39,11 +41,14 @@
 #include "types.h"
 #include "system.h"
 #include "assetcatalog.h"
+#include "net/matchsetup.h"
 
 /* Phase 3: lang manifest tracking (port/src/langmanifest.c) */
 void langManifestRecordBank(s32 bank);
 
 s32 g_SetupCurMpLocation;
+static s32 s_SetupMpWeaponLocationCount;
+static s32 s_SetupMpCreatedWeaponCount;
 
 struct tvscreen var80061a80 = {
 	g_TvCmdlist00, // cmdlist
@@ -736,6 +741,7 @@ void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 			case WEAPON_MPLOCATION14:
 			case WEAPON_MPLOCATION15:
 				locationindex = weapon->weaponnum - WEAPON_MPLOCATION00;
+				s_SetupMpWeaponLocationCount++;
 				mpweapon = mpGetMpWeaponByLocation(locationindex);
 				g_SetupCurMpLocation = locationindex;
 				weapon->weaponnum = mpweapon->weaponnum;
@@ -761,6 +767,9 @@ void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 		if (weapon->weaponnum != WEAPON_NONE && createweapon) {
 			modelmgrLoadProjectileModeldefs(weapon->weaponnum);
 			setupCreateObject(&weapon->base, cmdindex);
+			if (g_Vars.normmplayerisrunning || g_Vars.lvmpbotlevel) {
+				s_SetupMpCreatedWeaponCount++;
+			}
 		}
 	}
 }
@@ -1536,6 +1545,11 @@ void setupCreateProps(s32 stagenum)
 	struct defaultobj *obj;
 	s32 i;
 	s32 j;
+	s32 mpSpawnFallbackApplied = false;
+	s32 desiredPickups = 0;
+
+	s_SetupMpWeaponLocationCount = 0;
+	s_SetupMpCreatedWeaponCount = 0;
 
 	withhovercars = !(stagenum == STAGE_EXTRACTION || stagenum == STAGE_DEFECTION)
 		|| !(g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0);
@@ -2364,9 +2378,65 @@ void setupCreateProps(s32 stagenum)
 				index++;
 			}
 			sysLogPrintf(LOG_NOTE, "SETUP: prop iteration done (%d objects)", index);
+
+			if (g_Vars.normmplayerisrunning) {
+				spawn_aabb_t aabb;
+				f32 span_x = 0;
+				f32 span_z = 0;
+				f32 dominant_span = 0;
+				s32 span_bonus = 0;
+
+				desiredPickups = PLAYERCOUNT() + g_BotCount;
+				if (desiredPickups < 4) {
+					desiredPickups = 4;
+				}
+
+				spawnPoolComputeAABB(&aabb);
+				if (aabb.valid) {
+					span_x = aabb.max.x - aabb.min.x;
+					span_z = aabb.max.z - aabb.min.z;
+					dominant_span = span_x > span_z ? span_x : span_z;
+					if (dominant_span > 4000.0f) {
+						span_bonus = (s32)((dominant_span - 4000.0f) / 3000.0f) + 1;
+					}
+				}
+
+				desiredPickups += span_bonus;
+				if (desiredPickups > 16) {
+					desiredPickups = 16;
+				}
+			}
+
+			if (g_Vars.normmplayerisrunning
+					&& s_SetupMpCreatedWeaponCount < desiredPickups) {
+				/* Too few (or zero) world pickups for this map/participant count.
+				 * Force spawn-with-weapon to keep matches armed. */
+				g_MatchConfig.options |= MPOPTION_SPAWNWITHWEAPON;
+				g_MpSetup.options |= MPOPTION_SPAWNWITHWEAPON;
+
+				if (g_MatchConfig.spawn_weapon_id[0] == '\0') {
+					for (i = 0; i < 6; i++) {
+						const char *wid = catalogIdByRuntime(ASSET_WEAPON, g_MpSetup.weapons[i]);
+						if (wid && wid[0]) {
+							strncpy(g_MatchConfig.spawn_weapon_id, wid, sizeof(g_MatchConfig.spawn_weapon_id) - 1);
+							g_MatchConfig.spawn_weapon_id[sizeof(g_MatchConfig.spawn_weapon_id) - 1] = '\0';
+							break;
+						}
+					}
+				}
+
+				mpSpawnFallbackApplied = true;
+			}
 		}
 	} else {
 		chrmgrConfigure(0);
+	}
+
+	if (mpSpawnFallbackApplied) {
+		sysLogPrintf(LOG_WARNING,
+			"SETUP: world pickups %d below target %d (markers=%d); forcing spawn-with-weapon fallback id='%s'",
+			s_SetupMpCreatedWeaponCount, desiredPickups, s_SetupMpWeaponLocationCount,
+			g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "(random)");
 	}
 
 	sysLogPrintf(LOG_NOTE, "SETUP: calling stageAllocateBgChrs");

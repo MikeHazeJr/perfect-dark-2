@@ -67,7 +67,8 @@ typedef struct spawn_aabb {
  * match_seed: server-generated seed distributed via SVC_STAGE_START
  * needed:     number of spawn points required (players + bots)
  *
- * After return, pool->count >= needed is guaranteed.
+ * The builder attempts to satisfy needed points, but may return fewer when
+ * geometry constraints make additional valid points impossible.
  */
 void spawnPoolBuild(spawn_pool_t *pool, const char *stage_id,
                     u32 match_seed, s32 needed);

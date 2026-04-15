@@ -1820,7 +1820,7 @@ void bot0f192a74(struct chrdata *chr)
 	if (chr->target != -1) {
 		struct prop *target = chrGetTargetProp(chr);
 
-		if (target->chr->hidden & CHRHFLAG_CLOAKED) {
+		if (target && target->chr && (target->chr->hidden & CHRHFLAG_CLOAKED)) {
 			if (fVar11 < g_BotDifficulties[diff].unk14) {
 				fVar11 = g_BotDifficulties[diff].unk14;
 			}

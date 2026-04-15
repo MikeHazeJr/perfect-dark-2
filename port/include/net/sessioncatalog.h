@@ -120,7 +120,7 @@ u16 sessionCatalogGetIdByHash(u32 net_hash);
  * string ID fallback.  Populates s_LocalTranslation[] for O(1) gameplay lookups.
  * Called client-side in the SVC_SESSION_CATALOG handler.
  */
-void sessionCatalogReceive(struct netbuf *src);
+u32 sessionCatalogReceive(struct netbuf *src);
 
 /**
  * Resolve a session wire_id to a local catalog entry pointer.

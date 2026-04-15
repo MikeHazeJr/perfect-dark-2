@@ -5624,7 +5624,7 @@ Gfx *menuRender(Gfx *gdl)
 				if (g_NetMode == NETMODE_SERVER) {
 					snprintf(text, sizeof(text), "Server: %d/%d %04x", g_NetNumClients, g_NetMaxClients, g_MpSetup.chrslots);
 				} else {
-					snprintf(text, sizeof(text), "Client: ID %u", g_NetLocalClient->id);
+					snprintf(text, sizeof(text), "Client: ID %u", g_NetLocalClient ? g_NetLocalClient->id : 0);
 				}
 				x = viewleft + 2;
 				y = viewbottom - 9;

@@ -325,6 +325,8 @@ void netReadyGateOnClientLeft(u8 clientId);
 /* Local host/listen-server cancel path used by UI Back/Escape during countdown.
  * Returns 0 on success, <0 when not cancellable in current state. */
 s32 netReadyGateCancelByLocalClient(struct netclient *srccl);
+/* Dedicated-server cancel path used when no local client exists. */
+s32 netReadyGateCancelByServer(void);
 
 /* Prop syncid → prop* lookup map.
  * Replaces the O(n) linear scan in netbufReadPropPtr with a direct-indexed O(1) lookup.

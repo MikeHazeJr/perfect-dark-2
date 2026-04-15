@@ -385,7 +385,10 @@ void objectivesShowHudmsg(char *buffer, s32 hudmsgtype)
 	s32 prevplayernum = g_Vars.currentplayernum;
 	s32 i;
 
-	for (i = 0; i < PLAYERCOUNT(); i++) {
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (!g_Vars.players[i]) {
+			continue;
+		}
 		setCurrentPlayerNum(i);
 
 		if (g_Vars.currentplayer == g_Vars.bond || g_Vars.currentplayer == g_Vars.coop) {

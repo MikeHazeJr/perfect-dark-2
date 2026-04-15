@@ -91,6 +91,7 @@ extern s32 g_NetNumPreserved;
 extern struct netrecentserver g_NetRecentServers[NET_MAX_RECENT_SERVERS];
 extern s32 g_NetNumRecentServers;
 extern u8 g_NetCounterOpClientId; /* NET_NULL_CLIENT when not in Counter-Op */
+extern u8 g_NetBotAuthorityClientId; /* NET_NULL_CLIENT when no authority delegated */
 
 #define NETCHAN_DEFAULT  0
 #define NETCHAN_CONTROL  1

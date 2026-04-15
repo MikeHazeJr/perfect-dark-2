@@ -53,6 +53,7 @@
 s32 g_NetMode = NETMODE_NONE;
 u8  g_NetMatchRoomId = 0xFF; /* R-3: which room is currently starting/in match (0xFF = global) */
 u8  g_NetCounterOpClientId = NET_NULL_CLIENT;
+u8  g_NetBotAuthorityClientId = NET_NULL_CLIENT;
 
 s32 g_NetHostLatch = false;
 s32 g_NetJoinLatch = false;
@@ -735,6 +736,7 @@ void netServerStageStart(void)
 			g_NetClients[ci].stage_ready = false;
 		}
 		g_NetBotAuthorityDelegated = false;
+		g_NetBotAuthorityClientId  = NET_NULL_CLIENT;
 		g_NetStageReadyDeadline    = (s32)(g_NetTick + 300); /* 300 ticks = 5 s at 60 fps */
 		sysLogPrintf(LOG_NOTE, "NET: waiting for CLC_STAGE_READY from %d client(s), deadline tick %d",
 		             g_NetNumClients, (int)g_NetStageReadyDeadline);
@@ -860,6 +862,7 @@ void netServerStageEnd(void)
 	/* U-10: disarm the stage-ready handshake for the next match. */
 	g_NetStageReadyDeadline    = -1;
 	g_NetBotAuthorityDelegated = false;
+	g_NetBotAuthorityClientId  = NET_NULL_CLIENT;
 
 	sysLogPrintf(LOG_NOTE, "NET: === STAGE END === game mode=%u tick=%u", g_NetGameMode, g_NetTick);
 
@@ -993,6 +996,7 @@ s32 netDisconnect(void)
 	g_NetGameMode = NETGAMEMODE_MP;
 	g_NetLocalBotAuthority = false;
 	g_NetPendingBotAuthority = false;
+	g_NetBotAuthorityClientId = NET_NULL_CLIENT;
 
 	sysLogPrintf(LOG_CHAT, "NET: disconnected");
 
@@ -1228,6 +1232,17 @@ static void netServerEvDisconnect(struct netclient *cl)
 		}
 	}
 
+	if (cl->id == g_NetBotAuthorityClientId) {
+		g_NetBotAuthorityClientId = NET_NULL_CLIENT;
+		if (g_NetDedicated && cl->state >= CLSTATE_GAME) {
+			g_NetBotAuthorityDelegated = false;
+			g_NetStageReadyDeadline = (s32)(g_NetTick + 120);
+			sysLogPrintf(LOG_NOTE,
+				"NET: bot authority client disconnected; re-election armed (deadline tick %d)",
+				(int)g_NetStageReadyDeadline);
+		}
+	}
+
 	if (cl->settings.name[0]) {
 		sysLogPrintf(LOG_NOTE, "NET: client %u (%s) disconnected", cl->id, cl->settings.name);
 		netChatPrintf(NULL, "%s disconnected", cl->settings.name);
@@ -1370,7 +1385,7 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_MATCH_COUNTDOWN:  rc = netmsgSvcMatchCountdownRead(&cl->in, cl); break;
 			case SVC_MATCH_CANCELLED:  rc = netmsgSvcMatchCancelledRead(&cl->in, cl); break;
 			case SVC_SESSION_CATALOG:
-				netmsgSvcSessionCatalogRead(&cl->in, NULL);
+				rc = netmsgSvcSessionCatalogRead(&cl->in, NULL);
 				break;
 			default:
 				rc = 1;
@@ -1714,6 +1729,7 @@ void netEndFrame(void)
 					netbufStartWrite(&g_NetMsgRel);
 					netmsgSvcBotAuthorityWrite(&g_NetMsgRel);
 					netSend(&g_NetClients[ci], &g_NetMsgRel, true, NETCHAN_DEFAULT);
+					g_NetBotAuthorityClientId = g_NetClients[ci].id;
 					sysLogPrintf(LOG_NOTE, "NET: SVC_BOT_AUTHORITY (timeout) sent to client %u ('%s') — %u bot stubs ready",
 					             g_NetClients[ci].id, g_NetClients[ci].settings.name, (u32)g_BotCount);
 					break;

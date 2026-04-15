@@ -112,10 +112,11 @@ void sessionCatalogBroadcast(void)
  * Client-side: receive
  * ------------------------------------------------------------------------- */
 
-void sessionCatalogReceive(struct netbuf *src)
+u32 sessionCatalogReceive(struct netbuf *src)
 {
     s32 i;
     u16 count;
+    u16 wire_count;
     u16 wire_id;
     u8  asset_type;
     char *id;
@@ -129,16 +130,18 @@ void sessionCatalogReceive(struct netbuf *src)
     count = netbufReadU16(src);
     if (src->error) {
         sysLogPrintf(LOG_WARNING, "NET: SVC_SESSION_CATALOG: malformed header");
-        return;
+        return src->error ? src->error : 1;
     }
 
-    if (count > SESSION_CATALOG_MAX_ENTRIES) {
+    wire_count = count;
+
+    if (wire_count > SESSION_CATALOG_MAX_ENTRIES) {
         sysLogPrintf(LOG_WARNING, "NET: SVC_SESSION_CATALOG: entry count %u exceeds max %u, clamping",
-                     (unsigned)count, (unsigned)SESSION_CATALOG_MAX_ENTRIES);
+                     (unsigned)wire_count, (unsigned)SESSION_CATALOG_MAX_ENTRIES);
         count = SESSION_CATALOG_MAX_ENTRIES;
     }
 
-    for (i = 0; i < (s32)count; i++) {
+    for (i = 0; i < (s32)wire_count; i++) {
         wire_id    = netbufReadU16(src);
         asset_type = netbufReadU8(src);
         /* v27: catalog ID string only — no net_hash on wire. */
@@ -146,7 +149,11 @@ void sessionCatalogReceive(struct netbuf *src)
 
         if (src->error) {
             sysLogPrintf(LOG_WARNING, "NET: SVC_SESSION_CATALOG: parse error at entry %d", i);
-            break;
+            return src->error ? src->error : 1;
+        }
+
+        if (i >= (s32)count) {
+            continue;
         }
 
         e             = &g_SessionCatalog.entries[i];
@@ -178,10 +185,9 @@ void sessionCatalogReceive(struct netbuf *src)
         }
     }
 
-    if (!src->error) {
-        g_SessionCatalog.num_entries = count;
-        sysLogPrintf(LOG_NOTE, "NET: SVC_SESSION_CATALOG received (%u entries)", (unsigned)count);
-    }
+    g_SessionCatalog.num_entries = count;
+    sysLogPrintf(LOG_NOTE, "NET: SVC_SESSION_CATALOG received (%u entries)", (unsigned)count);
+    return src->error;
 }
 
 /* -------------------------------------------------------------------------

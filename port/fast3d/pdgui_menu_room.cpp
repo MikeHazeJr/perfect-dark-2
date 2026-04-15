@@ -50,6 +50,7 @@ extern "C" {
 #include "pdgui_nav.h"
 char *langGet(s32 textid);
 char *langSafe(s32 textid);
+s32 challengeIsFeatureUnlocked(u32 feature);
 
 /* Network mode */
 #define NETMODE_NONE   0
@@ -312,6 +313,7 @@ struct arena_entry {
     char name[64];
     char id[64];
     s32  stagenum;
+    u8   requirefeature;
     char category[32]; /* F-2.1: from catalog (Dark, Solo Missions, Classic, etc.) */
     s32  bundled;      /* F-2.1: shipped with game */
     s32  section;      /* F-2.1: ARENA_SEC_MP_BASE / CAMPAIGN / MOD */
@@ -348,12 +350,17 @@ static void catalogArenaCollect(const asset_entry_t *e, void *userdata)
         return;
     }
 
+    if (!challengeIsFeatureUnlocked((u8)e->ext.arena.requirefeature)) {
+        return;
+    }
+
     arena_entry *a = &s_Arenas[s_NumArenas];
     strncpy(a->name, name, 63);
     a->name[63] = '\0';
     strncpy(a->id, e->id, 63);
     a->id[63] = '\0';
     a->stagenum = e->ext.arena.stagenum;
+    a->requirefeature = (u8)e->ext.arena.requirefeature;
 
     /* F-2.1: Capture category and bundled for section classification */
     strncpy(a->category, e->category, 31);
@@ -1216,6 +1223,28 @@ static void syncArenaFromConfig(void)
             if (strcmp(s_Arenas[i].id, g_MatchConfig.stage_id) == 0) {
                 s_SelectedArena = i;
                 return;
+            }
+        }
+        /* Fallback: accept legacy aliases by resolving stage number. */
+        const asset_entry_t *stageEntry = assetCatalogResolve(g_MatchConfig.stage_id);
+        if (stageEntry) {
+            s32 desiredStage = -1;
+            if (stageEntry->type == ASSET_ARENA) {
+                desiredStage = stageEntry->ext.arena.stagenum;
+            } else if (stageEntry->type == ASSET_MAP) {
+                desiredStage = stageEntry->runtime_index;
+            }
+
+            if (desiredStage >= 0) {
+                for (int i = 0; i < s_NumArenas; i++) {
+                    if (s_Arenas[i].stagenum == desiredStage) {
+                        s_SelectedArena = i;
+                        strncpy(g_MatchConfig.stage_id, s_Arenas[i].id,
+                                sizeof(g_MatchConfig.stage_id) - 1);
+                        g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+                        return;
+                    }
+                }
             }
         }
     }
