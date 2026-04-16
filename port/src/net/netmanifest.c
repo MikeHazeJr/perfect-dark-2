@@ -43,6 +43,7 @@
 #include "sha256.h"
 #include "net/netbuf.h"
 #include "net/matchsetup.h"
+#include "game/chrai.h"     /* FIX-B.1: chraiGetCommandLength for ailist walk */
 
 /* =========================================================================
  * Config — hard cap on manifest entries, overridable via pd.ini
@@ -882,6 +883,239 @@ match_manifest_t g_CurrentLoadedManifest;
 static match_manifest_t s_SpNeededManifest;
 static manifest_diff_t  s_SpLastDiff;
 
+/* =========================================================================
+ * FIX-B.1 — deep manifest scanner for cinematics + AI scripts
+ *
+ * The base `manifestBuildMission` only reads g_StageSetup.props.  That
+ * misses two whole classes of runtime spawns:
+ *
+ *   1. Intro commands (INTROCMD_WEAPON / INTROCMD_OUTFIT) set the player's
+ *      starting weapon and outfit — those model/weapon refs never appear
+ *      in the props list.
+ *
+ *   2. AI scripts (g_StageSetup.ailists) run from AICMD_SPAWNCHRATPAD /
+ *      AICMD_SPAWNCHRATCHR / AICMD_DROPITEM / AICMD_EQUIPWEAPON /
+ *      AICMD_EQUIPHAT spawn chrs and props mid-mission.  Cinematic
+ *      cutscenes piggy-back on these (cutscene chrs are BG chrs running
+ *      cinematic ai scripts).
+ *
+ * Mirrors the logic in `stageLoadAllAilistModels` (game_00b820.c) and the
+ * INTROCMD_WEAPON branch of `playerReset` (playerreset.c:200), using
+ * catalog IDs instead of raw bodynum/modelnum.
+ * ========================================================================= */
+
+static void s_manifestAddBody(match_manifest_t *out, s32 bodynum, s32 slot_tag)
+{
+    const char *bcan;
+    const asset_entry_t *be;
+
+    if (bodynum < 0 || bodynum >= 256) {
+        return; /* 255 = random, negative = reserved */
+    }
+    bcan = catalogIdByRuntime(ASSET_BODY, bodynum);
+    be   = bcan ? assetCatalogResolve(bcan) : NULL;
+    if (!be) {
+        return;
+    }
+    manifestAddEntry(out, be->id, MANIFEST_TYPE_BODY, slot_tag);
+    s_manifestExpandDeps(out, be->id, slot_tag);
+}
+
+static void s_manifestAddHead(match_manifest_t *out, s32 headnum, s32 slot_tag)
+{
+    const char *hcan;
+    const asset_entry_t *he;
+
+    if (headnum < 0 || headnum >= 256) {
+        return; /* negative = hologram / special */
+    }
+    hcan = catalogIdByRuntime(ASSET_HEAD, headnum);
+    he   = hcan ? assetCatalogResolve(hcan) : NULL;
+    if (!he) {
+        return;
+    }
+    manifestAddEntry(out, he->id, MANIFEST_TYPE_HEAD, slot_tag);
+    s_manifestExpandDeps(out, he->id, slot_tag);
+}
+
+static void s_manifestAddModel(match_manifest_t *out, s32 modelnum)
+{
+    const char *mcan;
+    const asset_entry_t *me;
+
+    if (modelnum <= 0 || modelnum >= 0xFFFF) {
+        return;
+    }
+    mcan = catalogIdByRuntime(ASSET_MODEL, modelnum);
+    if (!mcan) {
+        return;
+    }
+    me = assetCatalogResolve(mcan);
+    if (me) {
+        manifestAddEntry(out, me->id, MANIFEST_TYPE_MODEL, MANIFEST_SLOT_MATCH);
+    } else {
+        manifestAddEntry(out, mcan, MANIFEST_TYPE_MODEL, MANIFEST_SLOT_MATCH);
+    }
+}
+
+/* Walk g_StageSetup.intro for INTROCMD_WEAPON / INTROCMD_OUTFIT hints and
+ * add any referenced models/weapons.  Command widths are mirrored from
+ * playerReset's dispatcher (playerreset.c). */
+static void s_manifestScanIntro(match_manifest_t *out)
+{
+    struct cmd32 {
+        s32 type;
+        s32 param1;
+        s32 param2;
+        s32 param3;
+    };
+    const struct cmd32 *cmd = (const struct cmd32 *)g_StageSetup.intro;
+    s32 safety = 0;
+
+    if (!cmd) {
+        return;
+    }
+
+    while (cmd->type != INTROCMD_END) {
+        if (++safety > 10000) {
+            sysLogPrintf(LOG_WARNING,
+                         "manifestBuildMission: intro scan exceeded 10000 cmds, aborting");
+            break;
+        }
+
+        switch (cmd->type) {
+        case INTROCMD_WEAPON:
+            /* param1 = primary weapon, param2 = secondary (>=0 if set).
+             * In PD the "weapon" for the player also pulls in its model
+             * via modelmgrLoadProjectileModeldefs; we only register the
+             * catalog weapon ID — projectile deps flow through
+             * s_manifestExpandDeps. */
+            {
+                const char *w1 = catalogIdByRuntime(ASSET_WEAPON, cmd->param1);
+                if (w1) {
+                    const asset_entry_t *we = assetCatalogResolve(w1);
+                    if (we) {
+                        manifestAddEntry(out, we->id,
+                                         MANIFEST_TYPE_WEAPON,
+                                         MANIFEST_SLOT_MATCH);
+                        s_manifestExpandDeps(out, we->id, MANIFEST_SLOT_MATCH);
+                    }
+                }
+                if (cmd->param2 >= 0) {
+                    const char *w2 = catalogIdByRuntime(ASSET_WEAPON, cmd->param2);
+                    if (w2) {
+                        const asset_entry_t *we = assetCatalogResolve(w2);
+                        if (we) {
+                            manifestAddEntry(out, we->id,
+                                             MANIFEST_TYPE_WEAPON,
+                                             MANIFEST_SLOT_MATCH);
+                            s_manifestExpandDeps(out, we->id,
+                                                 MANIFEST_SLOT_MATCH);
+                        }
+                    }
+                }
+                cmd = (const struct cmd32 *)((uintptr_t)cmd + 16);
+            }
+            break;
+        case INTROCMD_AMMO:
+            cmd = (const struct cmd32 *)((uintptr_t)cmd + 16);
+            break;
+        case INTROCMD_SPAWN:
+        case INTROCMD_CASE:
+        case INTROCMD_CASERESPAWN:
+        case INTROCMD_WATCHTIME:
+            cmd = (const struct cmd32 *)((uintptr_t)cmd + 12);
+            break;
+        case INTROCMD_3:
+            cmd = (const struct cmd32 *)((uintptr_t)cmd + 32);
+            break;
+        case INTROCMD_6:
+            cmd = (const struct cmd32 *)((uintptr_t)cmd + 40);
+            break;
+        case INTROCMD_HILL:
+        case INTROCMD_4:
+        case INTROCMD_OUTFIT:
+        case INTROCMD_CREDITOFFSET:
+            cmd = (const struct cmd32 *)((uintptr_t)cmd + 8);
+            break;
+        default:
+            /* Unknown intro cmd: advance by one word (matches playerReset's
+             * default branch). */
+            cmd = (const struct cmd32 *)((uintptr_t)cmd + 4);
+            break;
+        }
+    }
+}
+
+/* Walk every AI script in g_StageSetup.ailists looking for spawn commands,
+ * mirrors game_00b820.c::stageLoadAllAilistModels. */
+static void s_manifestScanAilists(match_manifest_t *out)
+{
+    s32 listidx = 0;
+    u8 *cmd;
+
+    if (!g_StageSetup.ailists) {
+        return;
+    }
+
+    cmd = g_StageSetup.ailists[listidx].list;
+    while (cmd) {
+        s32 safety = 0;
+        while (cmd[0] != AICMD_END) {
+            if (++safety > 50000) {
+                sysLogPrintf(LOG_WARNING,
+                             "manifestBuildMission: ailist[%d] exceeded 50000 cmds, aborting",
+                             listidx);
+                break;
+            }
+
+            switch (cmd[0]) {
+            case AICMD_DROPITEM: {
+                u16 modelid = (u16)((cmd[2] << 8) | cmd[3]);
+                s_manifestAddModel(out, (s32)modelid);
+                break;
+            }
+            case AICMD_SPAWNCHRATPAD:
+            case AICMD_SPAWNCHRATCHR:
+                /* cmd[2] = bodynum (u8), cmd[3] = headnum (s8) */
+                s_manifestAddBody(out, (s32)cmd[2], 0);
+                if ((s8)cmd[3] >= 0) {
+                    s_manifestAddHead(out, (s32)(s8)cmd[3], 0);
+                }
+                break;
+            case AICMD_EQUIPWEAPON: {
+                u16 modelid = (u16)((cmd[2] << 8) | cmd[3]);
+                s_manifestAddModel(out, (s32)modelid);
+                /* cmd[4] = weapon num */
+                {
+                    const char *wcan = catalogIdByRuntime(ASSET_WEAPON, (s32)cmd[4]);
+                    const asset_entry_t *we = wcan ? assetCatalogResolve(wcan) : NULL;
+                    if (we) {
+                        manifestAddEntry(out, we->id,
+                                         MANIFEST_TYPE_WEAPON,
+                                         MANIFEST_SLOT_MATCH);
+                        s_manifestExpandDeps(out, we->id, MANIFEST_SLOT_MATCH);
+                    }
+                }
+                break;
+            }
+            case AICMD_EQUIPHAT: {
+                u16 modelid = (u16)((cmd[2] << 8) | cmd[3]);
+                s_manifestAddModel(out, (s32)modelid);
+                break;
+            }
+            default:
+                break;
+            }
+
+            cmd += chraiGetCommandLength(cmd, 0);
+        }
+
+        listidx++;
+        cmd = g_StageSetup.ailists[listidx].list;
+    }
+}
+
 void manifestBuildMission(s32 stagenum, match_manifest_t *out)
 {
     char id[64];
@@ -1024,6 +1258,11 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
                                          setupGetCmdLength((u32 *)sobj));
         }
     }
+
+    /* FIX-B.1: deep scan intro commands + AI scripts for spawned assets.
+     * Both pointers may be NULL pre-load; the helpers are guarded. */
+    s_manifestScanIntro(out);
+    s_manifestScanAilists(out);
 
     /* ---- Counter-op player body/head ---- */
     /* When a counter-operative player is active (antiplayernum >= 0), their

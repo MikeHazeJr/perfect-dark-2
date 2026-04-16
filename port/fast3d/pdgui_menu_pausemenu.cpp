@@ -61,6 +61,10 @@ void pdguiSoloRoomReturn(void);
 /* Mouse */
 s32 inputMouseIsLocked(void);
 
+/* S297 content-inset API — pull content off the chrome nineslice border. */
+void pdguiThemeGetContentInset(float *out_l, float *out_r,
+                               float *out_t, float *out_b);
+
 /* Game state */
 struct vars_opaque;
 extern s32 g_MainIsEndscreen;
@@ -618,14 +622,25 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
         /* PD-authentic dialog frame */
         pdguiDrawPdDialog(menuX, menuY, menuW, menuH, "PAUSED", 1);
 
-        /* Inset content area */
+        /* Inset content area — S297 chrome-aware padding.  The base values
+         * (24px / 60px) assume the procedural dialog + title bar; large
+         * user chrome corners could otherwise clip buttons and the
+         * Resume button against the bottom border. */
+        float insL = 0, insR = 0, insT = 0, insB = 0;
+        pdguiThemeGetContentInset(&insL, &insR, &insT, &insB);
         float padX = pdguiScale(24.0f);
         float padY = pdguiScale(60.0f); /* below title */
+        if (insL > padX) padX = insL;
+        if (insT + pdguiScale(28.0f) > padY) padY = insT + pdguiScale(28.0f);
+        float padR = pdguiScale(24.0f);
+        if (insR > padR) padR = insR;
+        float padB = pdguiScale(14.0f);
+        if (insB > padB) padB = insB;
 
         ImGui::SetCursorPos(ImVec2(padX, padY));
 
         /* Tab buttons across the top */
-        float tabW = (menuW - padX * 2 - pdguiScale(12.0f) * 2) / 3.0f;
+        float tabW = (menuW - padX - padR - pdguiScale(12.0f) * 2) / 3.0f;
         ImVec2 tabSize(tabW, pdguiScale(42.0f));
 
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(pdguiScale(12.0f), pdguiScale(12.0f)));
@@ -677,21 +692,23 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
 
         /* Tab content area (scrollable) */
         float contentTop = ImGui::GetCursorPosY();
-        float contentH = menuH - contentTop - 50.0f; /* leave room for Resume button */
+        float resumeH = pdguiScale(36.0f);
+        float resumeSpacing = pdguiScale(14.0f);
+        float contentH = menuH - contentTop - resumeH - padB - resumeSpacing;
+        float contentW = menuW - padX - padR;
 
-        ImGui::BeginChild("##PauseTabContent", ImVec2(menuW - padX * 2, contentH), false);
+        ImGui::BeginChild("##PauseTabContent", ImVec2(contentW, contentH), false);
 
         switch (s_PauseTab) {
-        case 0: renderRankingsTab(menuW - padX * 2); break;
+        case 0: renderRankingsTab(contentW); break;
         case 1: renderSettingsTab(); break;
         }
 
         ImGui::EndChild();
 
         /* Resume button at bottom center */
-        float resumeW = 180.0f;
-        float resumeH = 36.0f;
-        ImGui::SetCursorPos(ImVec2((menuW - resumeW) * 0.5f, menuH - resumeH - 10.0f));
+        float resumeW = pdguiScale(180.0f);
+        ImGui::SetCursorPos(ImVec2((menuW - resumeW) * 0.5f, menuH - resumeH - padB));
         if (PdPauseButton("Resume##pm", ImVec2(resumeW, resumeH))) {
             pdguiPauseMenuClose();
         }

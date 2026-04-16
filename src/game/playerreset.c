@@ -639,11 +639,16 @@ void playerReset(void)
 					pos = pool->points[sel].pos;
 					rooms[0] = pool->points[sel].room;
 					rooms[1] = -1;
-					turnanglerad = 0;
+					/* S298: use the wall-probe facing angle computed at
+					 * pool build time so we don't spawn staring into a
+					 * wall.  Falls back to 0 (face +Z) if no walls were
+					 * nearby, which matches the legacy behaviour. */
+					turnanglerad = pool->points[sel].angle_rad;
 					sysLogPrintf(LOG_NOTE,
-						"SPAWN: initial MP spawn via pool[%d] L%d pos=(%.0f,%.0f,%.0f) room=%d team=%d",
+						"SPAWN: initial MP spawn via pool[%d] L%d pos=(%.0f,%.0f,%.0f) room=%d team=%d angle=%.3f",
 						sel, pool->points[sel].layer,
-						pos.x, pos.y, pos.z, (s32)rooms[0], my_team);
+						pos.x, pos.y, pos.z, (s32)rooms[0], my_team,
+						turnanglerad);
 				} else {
 					/* Pool empty/exhausted -- fall through to legacy */
 					turnanglerad = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop);

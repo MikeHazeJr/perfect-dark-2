@@ -587,8 +587,14 @@ void menuTick(void)
 						if (g_Vars.coopplayernum >= 0) {
 							if (g_Vars.stagenum == STAGE_DEEPSEA) {
 								g_MissionConfig.stageindex++;
+								/* S298 audit: align fully with endscreen.c guards — cover both
+								 * overflow (stageindex >= NUM_SOLOSTAGES) AND the degenerate
+								 * negative path (stageindex < 0) so a corrupted pre-increment
+								 * value still cannot flow into g_SoloStages[] below. */
 								if (g_MissionConfig.stageindex >= NUM_SOLOSTAGES) {
 									g_MissionConfig.stageindex = NUM_SOLOSTAGES - 1;
+								} else if (g_MissionConfig.stageindex < 0) {
+									g_MissionConfig.stageindex = 0;
 								}
 								g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
 								/* Phase 2: populate PRIMARY catalog ID string field */

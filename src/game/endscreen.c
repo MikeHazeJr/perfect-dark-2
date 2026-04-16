@@ -1467,6 +1467,21 @@ char *endscreenMenuTextTargetTime(struct menuitem *item)
 
 void endscreenSetCoopCompleted(void)
 {
+	/* SP-1 audit: propagate the g_MpPlayerNum + stageindex bounds guards from
+	 * endscreenPushCoop/Anti callers so this helper cannot corrupt g_Menus[]
+	 * or undefined-shift into coopcompletions[] when called from a path where
+	 * the indices are untrusted (mod stages can have stageindex >= 32, and a
+	 * corrupted g_MpPlayerNum from out-of-range slots would AV here). */
+	if (g_MpPlayerNum < 0 || g_MpPlayerNum >= MAX_PLAYERS) {
+		return;
+	}
+	if (g_MissionConfig.difficulty < 0 || g_MissionConfig.difficulty >= 3) {
+		return;
+	}
+	if (g_MissionConfig.stageindex < 0 || g_MissionConfig.stageindex >= 32) {
+		return; /* 1 << stageindex would be UB outside [0,31] on s32 */
+	}
+
 	if (g_CheatsActiveBank0 == 0 && g_CheatsActiveBank1 == 0) {
 #if VERSION >= VERSION_NTSC_1_0
 		if (g_GameFile.coopcompletions[g_MissionConfig.difficulty] & (1 << g_MissionConfig.stageindex)) {

@@ -46,6 +46,10 @@ typedef struct spawn_point {
 	s16 source_pad;    /* pad number if from L1/L2, -1 if synthetic */
 	u8 layer;          /* SPAWNLAYER_* */
 	f32 budget_score;  /* raycast budget score (sum of ray distances) */
+	f32 angle_rad;     /* S298: facing-angle from 8-direction wall probe
+	                    *       (radians, 0 = +Z).  Faces away from the average
+	                    *       wall normal so the chr doesn't spawn staring
+	                    *       straight at a wall. */
 } spawn_point_t;
 
 typedef struct spawn_pool {
@@ -129,6 +133,22 @@ void spawnPoolReset(void);
 s32 spawnPoolSelect(const spawn_pool_t *pool, const struct coord *occupied,
                     s32 num_occupied, s32 team, s32 num_teams,
                     const struct coord *pool_center);
+
+/*
+ * S298: same-tick reservation bitset.
+ *
+ * Adjacent spawnPoolSelect() calls in the same tick (e.g. placing every
+ * bot at match start) only know about slot positions in `occupied[]`.  If
+ * the caller hasn't finished writing a peer's pos yet, the peer doesn't
+ * appear in occupied[], and two calls can pick the same pool index.
+ *
+ * Reservations fix that: spawnPoolSelect() internally skips reserved
+ * indices and marks its chosen slot reserved.  Callers orchestrating a
+ * burst of selections should call spawnPoolClearReservations() at the
+ * start of the burst (or per-tick).  Reservations are also auto-cleared
+ * whenever the pool is rebuilt (spawnPoolBuild / spawnPoolReset).
+ */
+void spawnPoolClearReservations(void);
 
 /*
  * Log current pool state; summary of accumulated session data.

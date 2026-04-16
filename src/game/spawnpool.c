@@ -44,6 +44,29 @@ extern s32 g_NumSpawnPoints;
 static spawn_pool_t s_Pool;
 static bool s_PoolReady = false;
 
+/* S298 same-tick reservation bitset -- see spawnPoolClearReservations() in
+ * the header.  Sized for SPAWNPOOL_MAX slots; auto-cleared on every
+ * spawnPoolBuild() / spawnPoolReset() call, and also every time we detect
+ * a new `g_Vars.lvframenum` (so reservations never persist across ticks —
+ * the same slot that held bot A at match-start can hold a respawner
+ * minutes later). */
+static bool s_SpawnReserved[SPAWNPOOL_MAX];
+static s32  s_SpawnReservedFrame = -1;
+
+static void spawnPoolTickCheck(void)
+{
+	if (g_Vars.lvframenum != s_SpawnReservedFrame) {
+		memset(s_SpawnReserved, 0, sizeof(s_SpawnReserved));
+		s_SpawnReservedFrame = g_Vars.lvframenum;
+	}
+}
+
+void spawnPoolClearReservations(void)
+{
+	memset(s_SpawnReserved, 0, sizeof(s_SpawnReserved));
+	s_SpawnReservedFrame = g_Vars.lvframenum;
+}
+
 /* ========================================================================
  * Smoke test accumulator (M-7.x retroactive validation)
  *
@@ -312,9 +335,37 @@ f32 spawnPoolValidateCandidate(const struct coord *pos, RoomNum room,
 	/* 2. Ground clearance: must have a floor within 500 units below.
 	 * Guard the ground sentinel: cdFindGroundInfoAtCyl returns -100000
 	 * when no floor is found. Treating that as a real ground causes
-	 * mid-air spawns. */
+	 * mid-air spawns.
+	 *
+	 * S298: pass neighbour rooms too.  Near room boundaries (doorways,
+	 * portal seams, overlapping rooms) the actual floor geometry lives in
+	 * an adjacent room; a single-room query returns the -100000 sentinel
+	 * and the candidate gets rejected as "mid-air" even though a real
+	 * floor is a few units away.  bgFindRoomsByPos(inrooms) returns up to
+	 * 20 candidate rooms including neighbours. */
 	{
-		RoomNum grooms[2] = { room, -1 };
+		RoomNum grooms[8];
+		RoomNum ginrooms[21];
+		RoomNum gaboverooms[21];
+		RoomNum gbest = -1;
+		s32 grcount = 0;
+
+		grooms[grcount++] = room;
+
+		bgFindRoomsByPos((struct coord *)pos, ginrooms, gaboverooms,
+		                 20, &gbest);
+		for (i = 0; ginrooms[i] >= 0 && grcount < 7; i++) {
+			s32 k;
+			bool dup = false;
+			for (k = 0; k < grcount; k++) {
+				if (grooms[k] == ginrooms[i]) { dup = true; break; }
+			}
+			if (!dup) {
+				grooms[grcount++] = ginrooms[i];
+			}
+		}
+		grooms[grcount] = -1;
+
 		ground_y = cdFindGroundInfoAtCyl((struct coord *)pos, 30.0f, grooms,
 		                                 NULL, NULL, NULL, NULL, NULL, NULL);
 		if (ground_y <= -99000.0f) {
@@ -361,6 +412,52 @@ f32 spawnPoolValidateCandidate(const struct coord *pos, RoomNum room,
 }
 
 /* ========================================================================
+ * Helper: 8-direction wall probe -> facing angle (radians)
+ *
+ * Mirrors the probe in playerreset.c:691-715.  For a given spawn candidate
+ * we fire 8 cylindrical-move tests at 200 units; whichever directions hit
+ * a BG wall contribute a unit vector, and we face 180° away from the
+ * average wall normal.  If no walls are near, angle_rad stays 0 (face
+ * +Z) since any direction is fine.
+ * ======================================================================== */
+
+static f32 poolWallProbeAngle(const struct coord *pos, RoomNum room)
+{
+	static const f32 dirX[8] = { 0.0f,  0.707f,  1.0f,  0.707f,
+	                              0.0f, -0.707f, -1.0f, -0.707f };
+	static const f32 dirZ[8] = { 1.0f,  0.707f,  0.0f, -0.707f,
+	                             -1.0f, -0.707f,  0.0f,  0.707f };
+
+	RoomNum rooms[2];
+	f32 wallX = 0.0f, wallZ = 0.0f;
+	s32 wallCount = 0;
+	s32 dir;
+
+	rooms[0] = room;
+	rooms[1] = -1;
+
+	for (dir = 0; dir < 8; dir++) {
+		struct coord probe;
+		probe.x = pos->x + dirX[dir] * 200.0f;
+		probe.y = pos->y;
+		probe.z = pos->z + dirZ[dir] * 200.0f;
+
+		if (cdExamCylMove01((struct coord *)pos, &probe, 30.0f, rooms,
+		                    CDTYPE_BG, false, 0, 0) == CDRESULT_COLLISION) {
+			wallX += dirX[dir];
+			wallZ += dirZ[dir];
+			wallCount++;
+		}
+	}
+
+	if (wallCount > 0) {
+		/* Face away from the average wall direction */
+		return atan2f(wallX, -wallZ);
+	}
+	return 0.0f;
+}
+
+/* ========================================================================
  * Helper: add a point to the pool
  * ======================================================================== */
 
@@ -376,6 +473,7 @@ static bool poolAdd(spawn_pool_t *pool, const struct coord *pos, RoomNum room,
 	pt->source_pad = source_pad;
 	pt->layer = layer;
 	pt->budget_score = budget;
+	pt->angle_rad = poolWallProbeAngle(pos, room);
 	pool->count++;
 	if (layer > pool->max_layer_used) {
 		pool->max_layer_used = layer;
@@ -843,6 +941,9 @@ void spawnPoolBuild(spawn_pool_t *pool, const char *stage_id,
 	pool->seed = match_seed;
 	pool->needed = needed;
 
+	/* S298: pool rebuild invalidates any prior reservations. */
+	spawnPoolClearReservations();
+
 	if (needed <= 0) {
 		s_PoolReady = true;
 		return;
@@ -948,6 +1049,8 @@ void spawnPoolReset(void)
 {
 	s_PoolReady = false;
 	memset(&s_Pool, 0, sizeof(s_Pool));
+	/* S298: stage change invalidates reservations. */
+	spawnPoolClearReservations();
 }
 
 /* ========================================================================
@@ -977,6 +1080,10 @@ s32 spawnPoolSelect(const spawn_pool_t *pool, const struct coord *occupied,
 		return -1;
 	}
 
+	/* S298: auto-clear reservations at tick boundary so this bitset only
+	 * arbitrates within a single 60Hz tick of selects. */
+	spawnPoolTickCheck();
+
 	memset(used, 0, sizeof(used));
 
 	/* Mark pool entries that are already occupied (within 10 units of an
@@ -989,6 +1096,16 @@ s32 spawnPoolSelect(const spawn_pool_t *pool, const struct coord *occupied,
 				used[i] = true;
 				break;
 			}
+		}
+	}
+
+	/* S298: respect same-tick reservations.  When a caller orchestrates a
+	 * burst of selections (match-start bot placement), a peer may not yet
+	 * have its prop->pos written, so it won't show up in occupied[].  The
+	 * reservation bitset prevents two bursts from selecting the same slot. */
+	for (i = 0; i < pool->count && i < SPAWNPOOL_MAX; i++) {
+		if (s_SpawnReserved[i]) {
+			used[i] = true;
 		}
 	}
 
@@ -1030,6 +1147,11 @@ s32 spawnPoolSelect(const spawn_pool_t *pool, const struct coord *occupied,
 
 		/* If found a point in team sector, use it */
 		if (best_idx >= 0) {
+			/* S298: reserve before returning so the next same-tick caller
+			 * can't pick this slot again. */
+			if (best_idx < SPAWNPOOL_MAX) {
+				s_SpawnReserved[best_idx] = true;
+			}
 			return best_idx;
 		}
 
@@ -1060,6 +1182,11 @@ s32 spawnPoolSelect(const spawn_pool_t *pool, const struct coord *occupied,
 		}
 	}
 
+	/* S298: claim the chosen slot so concurrent same-tick selects won't
+	 * pick it again. */
+	if (best_idx >= 0 && best_idx < SPAWNPOOL_MAX) {
+		s_SpawnReserved[best_idx] = true;
+	}
 	return best_idx;
 }
 

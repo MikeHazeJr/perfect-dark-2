@@ -111,6 +111,11 @@ const char *pdguiEndscreenGetAward2(void);
 u32 pdguiEndscreenGetMedals(void);
 s32 pdguiEndscreenGetChallengeStatus(void);
 
+/* S297 content-inset API: pull content in from the dialog edge so it never
+ * overlaps the chrome nineslice border / title bar artwork. */
+void pdguiThemeGetContentInset(float *out_l, float *out_r,
+                               float *out_t, float *out_b);
+
 /* MP rankings — layout-compatible with pause menu */
 struct mpchrconfig_es {
     char name[15];
@@ -238,6 +243,38 @@ static void safeCopy(char *dst, const char *src, s32 maxLen)
     if (!src) src = "";
     strncpy(dst, src, (size_t)(maxLen - 1));
     dst[maxLen - 1] = '\0';
+}
+
+/* S297: Resolve effective inner padding for a PD dialog so content clears the
+ * active chrome nineslice border.  The defaults (27px / 54px) are designed for
+ * the procedural dialog + title bar; a user chrome style may have larger
+ * border corners, which without this adjustment would clip rankings/stats
+ * into the frame artwork.  We take the max so built-in padding is preserved. */
+static void resolveEndscreenPadding(float basePadX, float basePadY,
+                                    float *outPadX, float *outPadY,
+                                    float *outPadR, float *outPadB)
+{
+    float l = 0.0f, r = 0.0f, t = 0.0f, b = 0.0f;
+    pdguiThemeGetContentInset(&l, &r, &t, &b);
+
+    float px = basePadX;
+    if (l > px) px = l;
+
+    /* padY already budgets the title bar (~32px). The top inset only covers
+     * the frame corner, so keep basePadY as the floor. */
+    float py = basePadY;
+    if (t + pdguiScale(22.0f) > py) py = t + pdguiScale(22.0f);
+
+    float pr = basePadX;
+    if (r > pr) pr = r;
+
+    float pb = pdguiScale(18.0f);
+    if (b > pb) pb = b;
+
+    if (outPadX) *outPadX = px;
+    if (outPadY) *outPadY = py;
+    if (outPadR) *outPadR = pr;
+    if (outPadB) *outPadB = pb;
 }
 
 /* PD-styled button with audio + edge glow. */
@@ -376,8 +413,13 @@ static void renderSoloEndscreen(bool completed)
     float menuX = (disp.x - menuW) * 0.5f;
     float menuY = (disp.y - menuH) * 0.5f;
 
-    float padX = pdguiScale(27.0f);
-    float padY = pdguiScale(54.0f);  /* below title bar */
+    /* S297: honour the active chrome style's content inset so the debrief
+     * columns clear any nineslice border corners.  `padX` is the left edge,
+     * `padR` the right, `padY` the top (inclusive of title bar), `padB` the
+     * bottom; the bottom is used to park the action buttons. */
+    float padX, padY, padR, padB;
+    resolveEndscreenPadding(pdguiScale(27.0f), pdguiScale(54.0f),
+                            &padX, &padY, &padR, &padB);
 
     /* ----- Dim the background (P9: palette-derived) --------------------- */
     ImGui::GetBackgroundDrawList()->AddRectFilled(
@@ -478,8 +520,8 @@ static void renderSoloEndscreen(bool completed)
 
     /* ----- Left column: stats  |  Right column: objectives ------------ */
     float colSplit = menuW * 0.47f;
-    float contentW = menuW - padX * 2.0f;
-    float contentH = menuH - padY - pdguiScale(78.0f); /* leave room for buttons */
+    float contentW = menuW - padX - padR;
+    float contentH = menuH - padY - padB - pdguiScale(60.0f); /* leave room for buttons */
 
     ImGui::BeginChild("##EsContent", ImVec2(contentW, contentH), false);
 
@@ -615,7 +657,9 @@ static void renderSoloEndscreen(bool completed)
     /* ----- Action buttons at bottom ----------------------------------- */
     float btnH   = pdguiScale(48.0f);
     float btnGap = pdguiScale(18.0f);
-    float btnY   = menuH - btnH - pdguiScale(18.0f);
+    /* Respect the bottom chrome inset so the action row never clips into
+     * the nineslice border. */
+    float btnY   = menuH - btnH - padB;
 
     /* During input debounce, suppress button activations so the A press
      * that skipped the cutscene doesn't immediately trigger a button. */
@@ -749,8 +793,11 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     float menuX = (disp.x - menuW) * 0.5f;
     float menuY = (disp.y - menuH) * 0.5f;
 
-    float padX = pdguiScale(27.0f);
-    float padY = pdguiScale(54.0f);
+    /* S297: resolve the effective inner padding for the active chrome style
+     * so rankings / awards / buttons all clear the nineslice border. */
+    float padX, padY, padR, padB;
+    resolveEndscreenPadding(pdguiScale(27.0f), pdguiScale(54.0f),
+                            &padX, &padY, &padR, &padB);
 
     /* ----- Dim background (P9: palette-derived) ------------------------- */
     ImGui::GetBackgroundDrawList()->AddRectFilled(
@@ -844,7 +891,9 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     ImGui::Spacing();
 
     /* ----- Content area ----------------------------------------------- */
-    float contentH = menuH - padY - pdguiScale(150.0f);  /* room for awards + button */
+    /* Reserve space for the action button row + bottom chrome inset. */
+    float buttonReserve = pdguiScale(96.0f) + padB;
+    float contentH = menuH - padY - buttonReserve;
     {
         const float minH = pdguiScale(100.0f);
         if (contentH < minH) {
@@ -852,12 +901,12 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
              * child is being starved of height -- investigate menuH / padY /
              * pdguiScale() factors. */
             sysLogPrintf(LOG_WARNING,
-                "ENDSCREEN: contentH clamped sf=%.3f menuH=%.1f padY=%.1f raw=%.1f min=%.1f",
-                sf, menuH, padY, contentH, minH);
+                "ENDSCREEN: contentH clamped sf=%.3f menuH=%.1f padY=%.1f padB=%.1f raw=%.1f min=%.1f",
+                sf, menuH, padY, padB, contentH, minH);
             contentH = minH; /* avoid zero/negative ImGui child height (invisible body) */
         }
     }
-    float contentW = menuW - padX * 2.0f;
+    float contentW = menuW - padX - padR;
 
     ImGui::BeginChild("##MpContent", ImVec2(contentW, contentH), false,
                       ImGuiWindowFlags_AlwaysVerticalScrollbar);
@@ -1023,13 +1072,14 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     /* ----- Action buttons ---------------------------------------------- */
     float btnH   = pdguiScale(48.0f);
     float btnGap = pdguiScale(18.0f);
-    float btnY   = menuH - btnH - pdguiScale(18.0f);
+    /* S297: honour the chrome bottom inset so the action row never clips. */
+    float btnY   = menuH - btnH - padB;
     bool networked = (g_NetMode != ES_NETMODE_NONE);
     const bool inputSuppressed = (s_MpEndscreenDebounce > 0);
 
     if (networked) {
         /* Two buttons: Return to Room (blue) | Disconnect (red) */
-        float halfW = (menuW - padX * 2 - btnGap) * 0.5f;
+        float halfW = (menuW - padX - padR - btnGap) * 0.5f;
 
         ImGui::SetCursorPos(ImVec2(padX, btnY));
         if (PdEndButton("Return to Room", ImVec2(halfW, btnH)) && !inputSuppressed) {
@@ -1048,7 +1098,7 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
         ImGui::PopStyleColor(3);
     } else {
         /* Solo: Play Again (blue) | Quit (red) */
-        float halfW = (menuW - padX * 2 - btnGap) * 0.5f;
+        float halfW = (menuW - padX - padR - btnGap) * 0.5f;
 
         ImGui::SetCursorPos(ImVec2(padX, btnY));
         if (PdEndButton("Play Again", ImVec2(halfW, btnH)) && !inputSuppressed) {

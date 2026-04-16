@@ -321,8 +321,26 @@ static void renderThemeEditor(s32 winW, s32 winH)
 
         ImGui::Separator();
 
+        /* --- Docked footer geometry (S298) ---
+         * Reserve footer height at the bottom so the scroll body always sits
+         * above the Save/Reset/Close row.  Mirrors the Nine-Slice Chrome tool
+         * footer pattern so the Save controls don't scroll out of view on
+         * short displays.  Footer holds two rows: [Name/Author/Save status]
+         * and [Reset | Close]. */
+        float btnW = 120.0f * scale;
+        float btnH = 28.0f * scale;
+        float rowSpacing = ImGui::GetStyle().ItemSpacing.y;
+        float inputH  = ImGui::GetFrameHeightWithSpacing();
+        float statusH = s_SaveStatus[0] ? ImGui::GetTextLineHeightWithSpacing() : 0.0f;
+        float footerH = inputH              /* "Save as Mod:" heading line */
+                      + inputH              /* Name + Author row */
+                      + btnH + rowSpacing   /* Reset / Close row */
+                      + statusH
+                      + ImGui::GetStyle().ItemSpacing.y * 2.0f
+                      + 10.0f * scale;
+
         /* ---- Color pickers ---- */
-        ImGui::BeginChild("PaletteScroll", ImVec2(0, -100.0f * scale), true);
+        ImGui::BeginChild("PaletteScroll", ImVec2(0, -footerH), true);
 
         bool changed = false;
         for (int i = 0; i < NUM_FIELDS; i++) {
@@ -355,37 +373,18 @@ static void renderThemeEditor(s32 winW, s32 winH)
             pdguiSetPaletteCustom(s_WorkPalette);
         }
 
-        /* ---- Action buttons ---- */
+        /* ---- Docked footer ---- */
         ImGui::Separator();
-
-        float btnW = 120.0f * scale;
-        float btnH = 28.0f * scale;
 
         bool wantClose = false;
 
-        /* Reset button */
-        if (ImGui::Button("Reset", ImVec2(btnW, btnH))) {
-            memcpy(s_WorkPalette, s_OrigPalette, sizeof(s_WorkPalette));
-            pdguiSetPaletteCustom(s_WorkPalette);
-            s_SaveStatus[0] = '\0';
-        }
-
-        ImGui::SameLine();
-
-        /* Close button */
-        if (ImGui::Button("Close", ImVec2(btnW, btnH))) {
-            sysLogPrintf(LOG_NOTE, "Theme editor: exit — Close button");
-            wantClose = true;
-        }
-
-        /* ---- Save section ---- */
-        ImGui::Spacing();
+        /* Save section (row 1) */
         ImGui::Text("Save as Mod:");
         ImGui::PushItemWidth(200.0f * scale);
         ImGui::InputText("Name##save", s_SaveName, sizeof(s_SaveName));
+        ImGui::SameLine();
         ImGui::InputText("Author##save", s_SaveAuthor, sizeof(s_SaveAuthor));
         ImGui::PopItemWidth();
-
         ImGui::SameLine();
         if (ImGui::Button("Save", ImVec2(btnW, btnH))) {
             s_SaveSuccess = saveThemeAsMod(s_SaveName, s_SaveAuthor);
@@ -405,6 +404,20 @@ static void renderThemeEditor(s32 winW, s32 winH)
                 ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)
                 : ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
             ImGui::TextColored(statusCol, "%s", s_SaveStatus);
+        }
+
+        /* Action row (row 2): Reset | Close */
+        if (ImGui::Button("Reset", ImVec2(btnW, btnH))) {
+            memcpy(s_WorkPalette, s_OrigPalette, sizeof(s_WorkPalette));
+            pdguiSetPaletteCustom(s_WorkPalette);
+            s_SaveStatus[0] = '\0';
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("Close", ImVec2(btnW, btnH))) {
+            sysLogPrintf(LOG_NOTE, "Theme editor: exit — Close button");
+            wantClose = true;
         }
 
         /* ---- Click-outside-to-close detection ----

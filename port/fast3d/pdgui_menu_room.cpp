@@ -2495,7 +2495,15 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         renderPlayerPanel(rightW, contentH, isLeader);
     }
 
-    /* ---- Footer ---- */
+    /* ---- Docked footer ----
+     * Pin to the dialog's bottom edge.  Prior to S298 this flowed after the
+     * two-column content, so on narrow windows or short tab bodies the footer
+     * could creep up or be clipped off the bottom.  Mirrors the Nine-Slice
+     * Chrome tool's docked footer pattern. */
+    float dockedFooterY = dialogH - footerH + ImGui::GetStyle().ItemSpacing.y;
+    if (dockedFooterY > ImGui::GetCursorPosY()) {
+        ImGui::SetCursorPosY(dockedFooterY);
+    }
     ImGui::Separator();
     ImGui::Spacing();
 
