@@ -402,6 +402,59 @@ is bound to its room's lifetime".
 
 ---
 
+## SP-15: GL texture size and cache lifetime — upload-time caps, cache-scoped teardown
+
+**Severity**: MED — GPU memory leak, possible driver-level allocation failure on large skin/theme assets
+**Root cause**: Any code path that uploads a user-controlled image to a
+`GLuint` texture must both (a) bound the upload dimensions against
+`GL_MAX_TEXTURE_SIZE` (or enforce a compile-time cap below the
+lowest-common-denominator driver limit), and (b) free the texture via
+`glDeleteTextures` on the exact lifetime boundary of the cache that
+owns it. A rescan that rebuilds the cache without deleting the old
+GL names leaks textures on every reload.
+
+**When it happens**:
+- Theme / chrome style rescans (`pdguiThemeRescanChromeStyles`,
+  `pdguiThemeRescanMods`) invoked on mod apply, dev hot-reload, and
+  startup.
+- Skin editor preview uploads (`s_DownrezPreview`) on character or
+  quantization-level change.
+- Any mod-supplied PNG loaded via `pdguiLoadTextureFromPNG` or similar.
+
+**Canonical fix pattern** (S-6 / S-5, 2026-04-16):
+1. Before uploading, clamp `w`/`h` to
+   `min(GL_MAX_TEXTURE_SIZE_RUNTIME_CAP, compile_time_cap)`. If the
+   asset exceeds the cap, downscale or reject with a log warning — do
+   not pass the raw dimensions to `glTexImage2D`.
+2. Before clearing a cache (e.g. `s_chromeStylesClear`), iterate the
+   cache and `glDeleteTextures(1, &tex)` for each mod-owned entry.
+   **Skip base entries owned by a different init path** (e.g.
+   `"base:ui_chrome_frame"` owned by `pdguiThemeLateInit`). Erase from
+   the cache map after deletion.
+3. For reusable scratch buffers (downrez preview, quantization
+   staging), track owner dimensions (`W`, `H`) alongside the pointer
+   and `realloc` whenever the target dimensions change — do not reuse
+   a buffer sized for a previous character.
+
+**Known sites audited**:
+- `pdguiThemeRescanChromeStyles()` (S-6, S294) — fixed via
+  `s_chromeStylesFreeModTextures()` in `pdgui_theme.cpp`.
+- `s_DownrezPreview` in `pdgui_skin_editor.cpp` (S-5, S294) — fixed
+  via tracked `s_DownrezPreviewW`/`H` and realloc-on-resize.
+- `modmgrApplyChanges()` (S-8, S294) — now also calls
+  `pdguiThemeRescanChromeStyles()` so the cache is torn down on mod
+  apply (previously only `pdguiThemeRescanMods()` was called).
+
+**Audit command** (run when adding new GL texture uploads or caches):
+```
+grep -nE 'glTexImage2D|glGenTextures|s_ThemeTexCache|GL_MAX_TEXTURE_SIZE' port/fast3d/*.cpp port/src/*.c
+```
+Then verify every texture creation site has a matching
+`glDeleteTextures` on its cache's teardown path, and every upload has
+a dimension cap check.
+
+---
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.

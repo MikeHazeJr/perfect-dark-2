@@ -19,15 +19,22 @@ $env:PD_BUILD_ENV_QUIET = '1'
 . (Join-Path (Join-Path $PSScriptRoot "..") "_build-env-prelude.ps1")
 
 # ----------------------------------------------------------------------------
-# GitHub CLI PATH: merge Machine+User from registry (same idea as original Dev Window
-# passing $env:PATH into the auth runspace). See devtools/_dev-window.ps1 Section 22.
+# GitHub CLI PATH: APPEND Machine+User PATH so gh.exe is reachable for the auth
+# runspace (same intent as original Dev Window / _dev-window.ps1 Section 22).
+#
+# NOTE (audit 2026-04-16): previously this function *prepended* Machine+User PATH
+# onto $env:Path AFTER _build-env-prelude.ps1 had already placed
+# C:\msys64\mingw64\bin at the front. That shadowing let a Cygwin or devkitPro
+# cmake/gcc/ninja earlier in the system PATH win over the MSYS2 MinGW64
+# toolchain and broke CMake configure in v2 where v1 was fine.
+# We now APPEND instead, so the prelude's prepend keeps precedence.
 # ----------------------------------------------------------------------------
 function Sync-UserMachinePath {
     try {
         $m = [System.Environment]::GetEnvironmentVariable('Path', 'Machine')
         $u = [System.Environment]::GetEnvironmentVariable('Path', 'User')
-        if ($m) { $env:Path = $m + ';' + $env:Path }
-        if ($u) { $env:Path = $u + ';' + $env:Path }
+        if ($m) { $env:Path = $env:Path + ';' + $m }
+        if ($u) { $env:Path = $env:Path + ';' + $u }
     } catch {}
 }
 
@@ -1390,16 +1397,16 @@ function Invoke-GitSyncBeforeBuild {
         }
         $pu = @(& $gitExe push origin $br 2>&1)
         $pushCode = $LASTEXITCODE
-        foreach ($line in $pu) { Add-LogSessionLine "$line" $(if ($pushCode -ne 0) { "#DC3232" } else { "#8C8C8C" }) }
+        foreach ($line in $pu) { Add-LogSessionLine "$line" $(if ($pushCode -ne 0) { "#CDAA32" } else { "#8C8C8C" }) }
         if ($pushCode -ne 0) {
-            [System.Windows.MessageBox]::Show(
-                "git push failed (exit $pushCode). Check network, credentials, and upstream.`nBuild / release aborted.",
-                "Git",
-                "OK",
-                "Error") | Out-Null
-            return $false
+            # Audit 2026-04-16: push failure must NOT abort the build. v1 treats
+            # push as a best-effort step; v2 previously aborted, leaving the user
+            # unable to iterate locally when the network was flaky or credentials
+            # weren't cached. Log and continue.
+            Add-LogSessionLine "git push failed (exit $pushCode) - continuing build without pushing." "#CDAA32"
+        } else {
+            Add-LogSessionLine "git push: ok" "#508CDC"
         }
-        Add-LogSessionLine "git push: ok" "#508CDC"
     } finally {
         Pop-Location
     }
@@ -1682,17 +1689,25 @@ function Start-PushRelease {
     Add-LogSessionLine "    Version written to CMakeLists.txt; steps below run in order (build, then package/push)." "#44586C"
     Add-LogSessionLine "" "#1A3050"
 
-    foreach ($s in (Get-BuildSteps $ver $false)) { [void]$script:BuildStepQueue.Add($s) }
+    # Audit 2026-04-16: release builds now do a clean build to match v1 behavior.
+    # Stale object files from a previous broken build can otherwise link into
+    # the release binary.
+    foreach ($s in (Get-BuildSteps $ver $true)) { [void]$script:BuildStepQueue.Add($s) }
 
     $prerelArg = $(if ($isStable) { "" } else { " -Prerelease" })
     $psExe = $(if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" })
+    # Audit 2026-04-16: switched from -File to -Command to match v1. With -File,
+    # switch parameters like `-SkipPush:$false` are parsed as a literal string
+    # and can be misinterpreted; -Command evaluates the expression. Also adding
+    # -NonInteractive so a credential/auth prompt doesn't hang the subprocess.
     # -SkipBuild: dev-window-v2 already built both targets above; release.ps1 skips cmake step 0.
     # -SkipPush:$false: always push to GitHub (not skipped).
+    $relCmd = "& `"$releaseScript`" -Version `"$vs`"$prerelArg -SkipBuild -SkipPush:`$false"
     [void]$script:BuildStepQueue.Add(@{
         Name   = "Release: packaging + GitHub push"
         Exe    = $psExe
         Target = "client"
-        Args   = "-ExecutionPolicy Bypass -File `"" + $releaseScript + "`" -Version `"" + $vs + "`"" + $prerelArg + " -SkipBuild -SkipPush:`$false"
+        Args   = "-NonInteractive -ExecutionPolicy Bypass -Command `"$relCmd`""
     })
     $script:BuildTimer.Start()
 }

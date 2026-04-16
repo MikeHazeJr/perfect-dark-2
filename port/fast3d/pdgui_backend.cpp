@@ -333,9 +333,16 @@ static void pdguiDriveImGuiNav(void)
 
     /* Universal mouse back/cancel: middle-click maps to the same back path
      * menus already use (Escape / ACTION_CANCEL_USE). Using middle-click avoids
-     * collisions with right-click behaviors in list widgets. */
+     * collisions with right-click behaviors in list widgets.
+     *
+     * S-2: Do not inject Escape while a middle-button drag is active — tools
+     * like the Skin Editor use middle-drag for canvas pan. An Escape during
+     * the drag would close the tool mid-gesture. We only treat a pure
+     * middle-click press (no drag) as back. */
     {
-        bool mouseBackHeld = (SDL_GetMouseState(NULL, NULL) & SDL_BUTTON(SDL_BUTTON_MIDDLE)) != 0;
+        bool mouseBackRaw = (SDL_GetMouseState(NULL, NULL) & SDL_BUTTON(SDL_BUTTON_MIDDLE)) != 0;
+        bool draggingMiddle = ImGui::IsMouseDragging(ImGuiMouseButton_Middle);
+        bool mouseBackHeld = mouseBackRaw && !draggingMiddle;
         if (mouseBackHeld != s_MouseBackHeld) {
             io.AddKeyEvent(ImGuiKey_Escape, mouseBackHeld);
             s_MouseBackHeld = mouseBackHeld;

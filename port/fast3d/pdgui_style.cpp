@@ -534,7 +534,10 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
 
         ImVec2 bmin(x + w - btnPad - btnSize, y + btnPad);
         ImVec2 bmax(bmin.x + btnSize, bmin.y + btnSize);
-        bool hovered = ImGui::IsMouseHoveringRect(bmin, bmax, false);
+        /* S-4: window-clip the hover rect so hovering a close button drawn
+         * on a background dialog (under a modal popup) doesn't light up /
+         * fire a click through the popup. */
+        bool hovered = ImGui::IsMouseHoveringRect(bmin, bmax, true);
 
         ImU32 bgCol = hovered
             ? PdColorA(pal->dialog_border2, 224)
@@ -552,7 +555,10 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
         dl->AddLine(ImVec2(bmin.x + inset, bmax.y - inset),
                     ImVec2(bmax.x - inset, bmin.y + inset), xCol, 2.0f);
 
-        if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left, false)) {
+        /* S-4: only accept the click when this window is focused — prevents
+         * background dialogs from being dismissed through a modal popup. */
+        if (hovered && ImGui::IsWindowFocused()
+                && ImGui::IsMouseClicked(ImGuiMouseButton_Left, false)) {
             s32 frame = ImGui::GetFrameCount();
             if (s_CloseClickConsumedFrame != frame) {
                 io.AddKeyEvent(ImGuiKey_Escape, true);

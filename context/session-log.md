@@ -1,6 +1,6 @@
 # Session Log (Active)
 
-> **S241–S293** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S294** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
 ## Session S293 — 2026-04-16 (Nine-Slice Chrome redesign + mods/ category subfolder scanning)
@@ -57,7 +57,93 @@
 - S-4 Close-button hover clip.
 - S-5 Skin Editor downrez preview realloc.
 - S-6 Chrome style rescan GL texture leak.
-- S-11 (mods-apply) missing chrome style rescan in `modmgrApplyChanges`.
+- S-11 (mods-apply) missing chrome style rescan in `modmgrApplyChanges` — **fixed in S294**.
+
+---
+
+## Session S294 — 2026-04-16 (Mechanical audit sweep: bot cap callsites, input-ctx ownership, GL cache lifetimes, Dev Window v2 fixes)
+
+**Scope**:
+- Sweep mechanical fixes from `context/scratch/audit-s255-s292-2026-04-16.md`.
+  Parallel session (bold-boyd) owns Nine-Slice Chrome & mods folder —
+  this session must NOT touch `pdgui_menu_moddinghub.cpp`.
+
+**Code changes shipped in working tree**:
+- `port/src/net/matchsetup.c` + `port/include/net/matchsetup.h`
+  (**C-6 / S-15**):
+  - New `matchConfigCountHumans()` helper (counts `SLOT_PLAYER`, min 1).
+  - `matchConfigAddBot()` now calls `matchConfigMaxBotsForHumans(matchConfigCountHumans())`
+    instead of the hardcoded `matchConfigMaxBotsForHumans(1)`.
+  - `matchConfigChooseBotTeam()` promoted to public, now takes `numTeams`
+    parameter (2..MAX_TEAMS), supports full 8-team range.
+- `port/src/net/netmsg.c` (**C-6 / S-12 / S-13**):
+  - `SVC_ROOM_SETTINGS` client rebuild uses `matchConfigCountHumans()`
+    for the cap.
+  - Switched bot team assignment from positional `(i-1) & 1` to
+    `matchConfigChooseBotTeam(2)` — matches host strategy.
+  - Now zeros slot entries beyond the new `numSlots`, preventing
+    stale bot rows on bot-count decrease.
+- `port/fast3d/pdgui_backend.cpp` (**S-2**):
+  - Middle-click back bridge now suppresses mouse-back when a middle
+    drag is active (fixes Skin Editor middle-drag pan conflict).
+- `port/fast3d/pdgui_style.cpp` (**S-4**):
+  - Close-button hover detection clipped to window via
+    `IsMouseHoveringRect(..., true)` and gated on `IsWindowFocused`.
+- `port/fast3d/pdgui_menu_mpsettings.cpp` (**S-3**):
+  - Removed shared `s_PdmsOwnsMenuCtx`; each dialog (SelectTunes,
+    Soundtrack, TeamNames, Handicap) owns its own `ownsCtx` bool.
+    `pdms_BeginStandardWindow` / `pdms_CloseCurrentDialog` now take
+    `bool *ownsCtx` (nullptr allowed for dialogs that never push ctx).
+- `port/fast3d/pdgui_skin_editor.cpp` (**S-5**):
+  - `s_DownrezPreview` now tracks `s_DownrezPreviewW`/`H` and reallocs
+    when the target dimensions change — prevents stale buffer reuse
+    after character/quantization switch.
+- `port/fast3d/pdgui_theme.cpp` (**S-6**):
+  - New `s_chromeStylesFreeModTextures()` deletes mod-owned GL
+    textures from `s_ThemeTexCache` before `s_chromeStylesClear()`;
+    skips `"base:ui_chrome_frame"` (owned by `pdguiThemeLateInit`).
+    Called from `pdguiThemeRescanChromeStyles()`.
+- `port/src/modmgr.c` (**S-8**):
+  - `modmgrApplyChanges()` now calls `pdguiThemeRescanChromeStyles()`
+    after `pdguiThemeRescanMods()` (previously only theme.json was
+    rescanned, leaving nineslice chrome stale).
+- `devtools/dev-window-v2/dev-window-v2.ps1` (Dev Window v2):
+  - `Sync-UserMachinePath`: append Machine PATH instead of prepending
+    (fixes PATH pollution that overrode worktree tools).
+  - Git push failure now logs a warning and continues the build
+    instead of MessageBox-and-fail.
+  - Release invocation switched from `-File` to `-Command` + added
+    `-NonInteractive` (prevents interactive prompts blocking CI-style
+    release builds).
+  - Release build path passes `forceClean=$true` to `Get-BuildSteps`
+    (release must be clean, not incremental).
+
+**Context updates**:
+- `context/constraints.md` — new canonical-usage constraint:
+  `matchConfigMaxBotsForHumans(humanCount)` is single-source-of-truth
+  for bot cap; all callers must pass actual human count (never hardcode 1).
+- `context/bugs.md` — **B-144** entry documenting the
+  `matchConfigAddBot(1)` / `SVC_ROOM_SETTINGS(1)` hardcoding.
+- `context/systemic-bugs.md` — **SP-15** (GL texture size + cache
+  lifetime) documenting the S-5/S-6/S-8 pattern.
+
+**Ground rules honored**:
+- Did NOT touch `pdgui_menu_moddinghub.cpp` (bold-boyd session scope).
+- Working in angry-dijkstra worktree (main working copy), commits
+  target `dev` branch, no push.
+
+**Why**:
+- Audit surfaced a class of "hardcoded value where a helper exists"
+  bugs (C-6), three input-ctx ownership bugs (S-2/S-3), three GL/buffer
+  lifetime bugs (S-4/S-5/S-6/S-8), and two multiplayer-protocol
+  coherence bugs (S-12/S-13/S-15). All mechanical — pattern is clear,
+  fix is low-risk, touches well-scoped functions.
+
+**Verification**:
+- `ninja -C Build pd pd-server` — see commit for status.
+- Runtime verification pending (playtest dashboard).
+
+---
 
 ## Session S292 — 2026-04-16 (Room max-bot/team defaults hardening for Chicago bot-match regression)
 
