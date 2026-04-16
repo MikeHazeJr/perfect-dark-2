@@ -2000,48 +2000,69 @@ static void chromeToolApplySquarePreset(void)
     if (s_ChromeCenterCutPct < 0) s_ChromeCenterCutPct = 0;
 }
 
-static void renderChromeTool(float w, float h, float scale)
+/* Renders the docked image-preview sidebar: source rulers + assembled frame. */
+static void chromeToolRenderSidebarPreview(float sidebarW, float sidebarH, float scale)
 {
-    if (pdguiFileBrowserIsOpen()) {
-        if (pdguiFileBrowserRender()) {
-            strncpy(s_ChromeImgPath, pdguiFileBrowserGetPath(), sizeof(s_ChromeImgPath) - 1);
-            s_ChromeImgPath[sizeof(s_ChromeImgPath) - 1] = '\0';
-            pdguiFileBrowserClose();
-            chromeToolLoadImage(s_ChromeImgPath);
-        }
-        return;
-    }
+    /* Two stacked previews split the sidebar vertically. */
+    float previewH = (sidebarH - ImGui::GetStyle().ItemSpacing.y * 3.0f) * 0.5f;
+    if (previewH < 100.0f * scale) previewH = 100.0f * scale;
 
-    ImGui::TextDisabled("Nine-Slice Chrome -- import image, set rulers, save as mod");
+    /* Output dims drive scaling so both previews match the current crop/scale. */
+    float sx = sidebarW / (float)s_ChromeOutW;
+    float sy = previewH / (float)s_ChromeOutH;
+    float imgScale = sx < sy ? sx : sy;
+    if (imgScale > 1.0f) imgScale = 1.0f;
+    float drawW = s_ChromeOutW * imgScale;
+    float drawH = s_ChromeOutH * imgScale;
+
+    GLuint previewTex = s_ChromePreviewTex;
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+
+    /* --- Top: source preview with ruler overlay --- */
+    ImGui::TextDisabled("Source Preview (with rulers)");
+    /* Center the image horizontally within the sidebar column. */
+    float leftPad = (sidebarW - drawW) * 0.5f;
+    if (leftPad > 0.0f) {
+        ImGui::Dummy(ImVec2(leftPad, 0.0f));
+        ImGui::SameLine(0.0f, 0.0f);
+    }
+    ImGui::Image((ImTextureID)(uintptr_t)previewTex, ImVec2(drawW, drawH));
+    ImVec2 p0 = ImGui::GetItemRectMin();
+    ImVec2 p1 = ImGui::GetItemRectMax();
+
+    float lx = p0.x + (float)s_ChromeInsetL * imgScale;
+    float rx = p1.x - (float)s_ChromeInsetR * imgScale;
+    float ty = p0.y + (float)s_ChromeInsetT * imgScale;
+    float by = p1.y - (float)s_ChromeInsetB * imgScale;
+    dl->AddLine(ImVec2(lx, p0.y), ImVec2(lx, p1.y), IM_COL32(255, 80, 80, 220), 2.0f);
+    dl->AddLine(ImVec2(rx, p0.y), ImVec2(rx, p1.y), IM_COL32(255, 80, 80, 220), 2.0f);
+    dl->AddLine(ImVec2(p0.x, ty), ImVec2(p1.x, ty), IM_COL32(80, 255, 80, 220), 2.0f);
+    dl->AddLine(ImVec2(p0.x, by), ImVec2(p1.x, by), IM_COL32(80, 255, 80, 220), 2.0f);
+
     ImGui::Spacing();
 
-    ImGui::Text("Image:");
-    float browseW = 90.0f * scale;
-    ImGui::SetNextItemWidth(-browseW - ImGui::GetStyle().ItemSpacing.x);
-    ImGui::InputText("##chrome_img", s_ChromeImgPath, sizeof(s_ChromeImgPath));
-    ImGui::SameLine();
-    if (PdButton("Browse", ImVec2(browseW, 0))) {
-        pdguiFileBrowserOpen("Import Nine-Slice Image", "mods", ".png;.jpg;.bmp;.tga");
-    }
+    /* --- Bottom: assembled nine-slice frame preview --- */
+    ImGui::TextDisabled("Frame Preview (assembled nine-slice)");
+    float frameW = sidebarW;
+    float frameH = previewH;
+    ImVec2 framePos = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(frameW, frameH));
+    dl->AddRectFilled(framePos, ImVec2(framePos.x + frameW, framePos.y + frameH),
+                      IM_COL32(18, 22, 28, 255), 3.0f);
+    dl->AddRect(framePos, ImVec2(framePos.x + frameW, framePos.y + frameH),
+                IM_COL32(90, 120, 170, 220), 3.0f);
 
-    ImGui::SameLine();
-    if (PdButton("Load", ImVec2(80.0f * scale, 0))) {
-        chromeToolLoadImage(s_ChromeImgPath);
-    }
+    nineslice_def_t previewDef;
+    chromeToolBuildDef(&previewDef);
+    pdguiNinesliceDrawEx((void *)(uintptr_t)previewTex, s_ChromeOutW, s_ChromeOutH, &previewDef,
+                         framePos.x + 10.0f * scale, framePos.y + 10.0f * scale,
+                         frameW - 20.0f * scale, frameH - 20.0f * scale,
+                         IM_COL32(255, 255, 255, 255));
+}
 
-    /* S-11 audit fix: gate on preview texture, not the retired s_ChromeTex. */
-    if (!s_ChromePixels || s_ChromePreviewTex == 0) {
-        ImGui::Spacing();
-        ImGui::TextDisabled("Load an image to edit nine-slice rulers.");
-        if (s_ChromeStatus[0]) {
-            ImGui::TextColored(s_ChromeStatusOk ? ImVec4(0.2f,1.0f,0.4f,1.0f)
-                                                : ImVec4(1.0f,0.3f,0.3f,1.0f),
-                               "%s", s_ChromeStatus);
-        }
-        return;
-    }
-
-    ImGui::Separator();
+/* Renders the scrollable settings column (all sliders/toggles/presets). */
+static void chromeToolRenderSettings(float /*colW*/, float /*scale*/)
+{
     ImGui::InputText("Mod Name", s_ChromeModName, sizeof(s_ChromeModName));
     ImGui::Checkbox("L/R symmetry", &s_ChromeLrSymmetry);
     ImGui::SameLine();
@@ -2077,25 +2098,27 @@ static void renderChromeTool(float w, float h, float scale)
     }
     editsChanged = editsChanged || desatChanged;
 
+    float scale2 = ImGui::GetIO().FontGlobalScale;
+    if (scale2 <= 0.0f) scale2 = 1.0f;
     ImGui::TextDisabled("Quick Presets");
-    if (PdButton("Square Auto", ImVec2(110.0f * scale, 0))) {
+    if (PdButton("Square Auto", ImVec2(110.0f * scale2, 0))) {
         chromeToolApplySquarePreset();
         editsChanged = true;
     }
     ImGui::SameLine();
-    if (PdButton("Cut 40% V", ImVec2(95.0f * scale, 0))) {
+    if (PdButton("Cut 40% V", ImVec2(95.0f * scale2, 0))) {
         s_ChromeCenterCutAxis = 1;
         s_ChromeCenterCutPct = 40;
         editsChanged = true;
     }
     ImGui::SameLine();
-    if (PdButton("Cut 40% H", ImVec2(95.0f * scale, 0))) {
+    if (PdButton("Cut 40% H", ImVec2(95.0f * scale2, 0))) {
         s_ChromeCenterCutAxis = 2;
         s_ChromeCenterCutPct = 40;
         editsChanged = true;
     }
     ImGui::SameLine();
-    if (PdButton("Tint Gray", ImVec2(90.0f * scale, 0))) {
+    if (PdButton("Tint Gray", ImVec2(90.0f * scale2, 0))) {
         s_ChromeDesaturate = true;
         s_ChromeDesaturatePct = 100;
         editsChanged = true;
@@ -2108,9 +2131,7 @@ static void renderChromeTool(float w, float h, float scale)
     /* Border Scale (always visible): multiplies dst_corner_px relative to
      * src_inset. Lets users produce a chrome that renders with a different
      * corner thickness than the source slice. 1.0 = source size. */
-    if (ImGui::SliderFloat("Border Scale", &s_ChromeBorderScale, 0.25f, 4.0f, "%.2fx")) {
-        /* Border scale only changes dst_*, not preview pixels — no rebake. */
-    }
+    ImGui::SliderFloat("Border Scale", &s_ChromeBorderScale, 0.25f, 4.0f, "%.2fx");
     ImGui::Checkbox("Proportional Insets (%% of output)", &s_ChromeProportionalInsets);
     ImGui::SameLine();
     ImGui::TextDisabled("(%%)");
@@ -2121,8 +2142,6 @@ static void renderChromeTool(float w, float h, float scale)
     }
 
     if (s_ChromeProportionalInsets) {
-        /* Sliders operate on percentages; pixel insets are resolved on the
-         * next UpdatePreviewTexture pass. */
         bool insetChanged = false;
         if (ImGui::SliderFloat("Left %",  &s_ChromeInsetLPct, 0.0f, 50.0f, "%.2f%%")) {
             if (s_ChromeLrSymmetry) s_ChromeInsetRPct = s_ChromeInsetLPct;
@@ -2141,8 +2160,6 @@ static void renderChromeTool(float w, float h, float scale)
             insetChanged = true;
         }
         if (insetChanged) {
-            /* Resolve to pixels right away so the ruler overlay below draws
-             * against the current slider values, not last frame's. */
             s_ChromeInsetL = (s32)((s_ChromeInsetLPct * (float)s_ChromeOutW) / 100.0f + 0.5f);
             s_ChromeInsetR = (s32)((s_ChromeInsetRPct * (float)s_ChromeOutW) / 100.0f + 0.5f);
             s_ChromeInsetT = (s32)((s_ChromeInsetTPct * (float)s_ChromeOutH) / 100.0f + 0.5f);
@@ -2166,7 +2183,6 @@ static void renderChromeTool(float w, float h, float scale)
         if (ImGui::SliderInt("Bottom", &s_ChromeInsetB, 0, maxT)) {
             if (s_ChromeTbSymmetry) s_ChromeInsetT = s_ChromeInsetB;
         }
-        /* Keep pct fields in sync so toggling the mode back doesn't jump. */
         if (s_ChromeOutW > 0) {
             s_ChromeInsetLPct = (float)s_ChromeInsetL * 100.0f / (float)s_ChromeOutW;
             s_ChromeInsetRPct = (float)s_ChromeInsetR * 100.0f / (float)s_ChromeOutW;
@@ -2186,64 +2202,95 @@ static void renderChromeTool(float w, float h, float scale)
         s_ChromeInsetB = s_ChromeOutH - s_ChromeInsetT - 1;
         if (s_ChromeInsetB < 0) s_ChromeInsetB = 0;
     }
+}
 
+static void renderChromeTool(float w, float h, float scale)
+{
+    if (pdguiFileBrowserIsOpen()) {
+        if (pdguiFileBrowserRender()) {
+            strncpy(s_ChromeImgPath, pdguiFileBrowserGetPath(), sizeof(s_ChromeImgPath) - 1);
+            s_ChromeImgPath[sizeof(s_ChromeImgPath) - 1] = '\0';
+            pdguiFileBrowserClose();
+            chromeToolLoadImage(s_ChromeImgPath);
+        }
+        return;
+    }
+
+    /* --- Header (fixed) --- */
+    ImGui::TextDisabled("Nine-Slice Chrome -- import image, set rulers, save as mod");
     ImGui::Spacing();
-    float previewW = w * 0.46f;
-    float previewH = h * 0.30f;
-    float sx = previewW / (float)s_ChromeOutW;
-    float sy = previewH / (float)s_ChromeOutH;
-    float imgScale = sx < sy ? sx : sy;
-    if (imgScale > 1.0f) imgScale = 1.0f;
-    float drawW = s_ChromeOutW * imgScale;
-    float drawH = s_ChromeOutH * imgScale;
-    /* s_ChromeTex retired (S-11 audit fix) — preview is always available since
-     * chromeToolLoadImage calls UpdatePreviewTexture before returning. */
-    GLuint previewTex = s_ChromePreviewTex;
 
-    ImGui::TextDisabled("Source Preview (with rulers)");
-    ImGui::Image((ImTextureID)(uintptr_t)previewTex, ImVec2(drawW, drawH));
-    ImVec2 p0 = ImGui::GetItemRectMin();
-    ImVec2 p1 = ImGui::GetItemRectMax();
-    ImDrawList *dl = ImGui::GetWindowDrawList();
+    ImGui::Text("Image:");
+    float browseW = 90.0f * scale;
+    ImGui::SetNextItemWidth(-browseW - ImGui::GetStyle().ItemSpacing.x);
+    ImGui::InputText("##chrome_img", s_ChromeImgPath, sizeof(s_ChromeImgPath));
+    ImGui::SameLine();
+    if (PdButton("Browse", ImVec2(browseW, 0))) {
+        pdguiFileBrowserOpen("Import Nine-Slice Image", "mods", ".png;.jpg;.bmp;.tga");
+    }
+    ImGui::SameLine();
+    if (PdButton("Load", ImVec2(80.0f * scale, 0))) {
+        chromeToolLoadImage(s_ChromeImgPath);
+    }
 
-    float lx = p0.x + (float)s_ChromeInsetL * imgScale;
-    float rx = p1.x - (float)s_ChromeInsetR * imgScale;
-    float ty = p0.y + (float)s_ChromeInsetT * imgScale;
-    float by = p1.y - (float)s_ChromeInsetB * imgScale;
-    dl->AddLine(ImVec2(lx, p0.y), ImVec2(lx, p1.y), IM_COL32(255, 80, 80, 220), 2.0f);
-    dl->AddLine(ImVec2(rx, p0.y), ImVec2(rx, p1.y), IM_COL32(255, 80, 80, 220), 2.0f);
-    dl->AddLine(ImVec2(p0.x, ty), ImVec2(p1.x, ty), IM_COL32(80, 255, 80, 220), 2.0f);
-    dl->AddLine(ImVec2(p0.x, by), ImVec2(p1.x, by), IM_COL32(80, 255, 80, 220), 2.0f);
+    /* S-11 audit fix: gate on preview texture, not the retired s_ChromeTex. */
+    if (!s_ChromePixels || s_ChromePreviewTex == 0) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("Load an image to edit nine-slice rulers.");
+        if (s_ChromeStatus[0]) {
+            ImGui::TextColored(s_ChromeStatusOk ? ImVec4(0.2f,1.0f,0.4f,1.0f)
+                                                : ImVec4(1.0f,0.3f,0.3f,1.0f),
+                               "%s", s_ChromeStatus);
+        }
+        return;
+    }
+
+    ImGui::Separator();
+
+    /* --- Docked footer height reserved at bottom --- */
+    float footerH  = 34.0f * scale;
+    float statusH  = s_ChromeStatus[0] ? ImGui::GetTextLineHeightWithSpacing() : 0.0f;
+    float headerUsed = ImGui::GetCursorPosY();
+    float bodyH = h - headerUsed - footerH - statusH
+                  - ImGui::GetStyle().ItemSpacing.y * 2.0f;
+    if (bodyH < 80.0f * scale) bodyH = 80.0f * scale;
+
+    /* --- Body: sidebar (left) + scrollable settings (right) ---
+     * Sidebar is wide enough to show a readable preview but never exceeds
+     * 45 % of the tool area — ensures the settings column keeps priority on
+     * narrow displays. */
+    float sidebarW = w * 0.42f;
+    if (sidebarW > 420.0f * scale) sidebarW = 420.0f * scale;
+    if (sidebarW < 220.0f * scale) sidebarW = 220.0f * scale;
+    float settingsW = w - sidebarW - ImGui::GetStyle().ItemSpacing.x * 2.0f;
+
+    /* Left sidebar (no scroll — previews are fixed layout). */
+    if (ImGui::BeginChild("##chrome_sidebar", ImVec2(sidebarW, bodyH), true,
+                          ImGuiWindowFlags_NoScrollbar |
+                          ImGuiWindowFlags_NoScrollWithMouse)) {
+        float innerW = ImGui::GetContentRegionAvail().x;
+        float innerH = ImGui::GetContentRegionAvail().y;
+        chromeToolRenderSidebarPreview(innerW, innerH, scale);
+    }
+    ImGui::EndChild();
 
     ImGui::SameLine();
-    ImGui::BeginGroup();
-    ImGui::TextDisabled("Frame Preview (assembled nine-slice)");
-    float frameW = previewW;
-    float frameH = drawH;
-    ImVec2 framePos = ImGui::GetCursorScreenPos();
-    ImGui::Dummy(ImVec2(frameW, frameH));
-    dl->AddRectFilled(framePos, ImVec2(framePos.x + frameW, framePos.y + frameH),
-                      IM_COL32(18, 22, 28, 255), 3.0f);
-    dl->AddRect(framePos, ImVec2(framePos.x + frameW, framePos.y + frameH),
-                IM_COL32(90, 120, 170, 220), 3.0f);
 
-    nineslice_def_t previewDef;
-    chromeToolBuildDef(&previewDef);
-    pdguiNinesliceDrawEx((void *)(uintptr_t)previewTex, s_ChromeOutW, s_ChromeOutH, &previewDef,
-                         framePos.x + 10.0f * scale, framePos.y + 10.0f * scale,
-                         frameW - 20.0f * scale, frameH - 20.0f * scale,
-                         IM_COL32(255, 255, 255, 255));
-    ImGui::EndGroup();
+    /* Right settings column (scrolls). */
+    if (ImGui::BeginChild("##chrome_settings", ImVec2(settingsW, bodyH), true)) {
+        chromeToolRenderSettings(ImGui::GetContentRegionAvail().x, scale);
+    }
+    ImGui::EndChild();
 
+    /* --- Status line (above footer) --- */
     if (s_ChromeStatus[0]) {
         ImGui::TextColored(s_ChromeStatusOk ? ImVec4(0.2f, 1.0f, 0.4f, 1.0f)
                                             : ImVec4(1.0f, 0.3f, 0.3f, 1.0f),
                            "%s", s_ChromeStatus);
     }
 
-    /* Dock action row to bottom of tool panel. */
-    float dockH = 34.0f * scale;
-    float dockY = h - dockH;
+    /* --- Docked footer: Save / Reset.  Pinned to the tool's bottom edge. --- */
+    float dockY = h - footerH;
     if (dockY > ImGui::GetCursorPosY()) {
         ImGui::SetCursorPosY(dockY);
     }

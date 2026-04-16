@@ -153,6 +153,51 @@ s32 pdguiThemeRegisterChromeModDir(const char *mod_dir, s32 activate_now);
 /** Rescan known mod roots for chrome styles (used after bulk imports). */
 void pdguiThemeRescanChromeStyles(void);
 
+/* -----------------------------------------------------------------------
+ * Content inset API (S297)
+ *
+ * Tells renderers how much to pull their content in from the outer dialog
+ * bounds so nothing overlaps the border / frame artwork.  When chrome is
+ * off, the procedural dialog has 1–2 px borders so the inset is tiny.
+ * When chrome is on, the active nineslice def's destination corners drive
+ * the inset.  Callers should add their own title-bar height if they are
+ * drawing above the body (most ImGui windows already subtract title bar
+ * via client area).
+ *
+ * Any pointer may be NULL if the caller only cares about a subset.
+ * --------------------------------------------------------------------- */
+void pdguiThemeGetContentInset(float *out_l, float *out_r,
+                               float *out_t, float *out_b);
+
+/** Shrink a rect by the active content inset.  x/y/w/h must be non-NULL. */
+void pdguiThemeApplyContentInset(float *x, float *y, float *w, float *h);
+
+/* -----------------------------------------------------------------------
+ * Title-bar style (S297)
+ *
+ * Procedural title-bar options. Chosen via `Video.UiTitleBarStyle` in
+ * pd.ini. Affects pdguiDrawPdDialog() title rendering only; the gradient
+ * shimmer and close-button overlay still run on top.
+ *
+ * 0 = Classic gradient   (PD default: titlebg→border1→titlebg)
+ * 1 = Solid               (border1 flat fill)
+ * 2 = Vertical bars       (titlebg base + subtle vertical stripes)
+ * 3 = Horizontal scanlines(classic gradient + scanline overlay)
+ * 4 = Diagonal stripes    (border1 base + 45° gradient bars)
+ * --------------------------------------------------------------------- */
+enum {
+    PDGUI_TITLEBAR_CLASSIC      = 0,
+    PDGUI_TITLEBAR_SOLID        = 1,
+    PDGUI_TITLEBAR_VERT_BARS    = 2,
+    PDGUI_TITLEBAR_SCANLINES    = 3,
+    PDGUI_TITLEBAR_DIAG_STRIPES = 4,
+    PDGUI_TITLEBAR_STYLE_COUNT  = 5,
+};
+
+void pdguiThemeSetTitleBarStyle(s32 style);
+s32  pdguiThemeGetTitleBarStyle(void);
+const char *pdguiThemeGetTitleBarStyleName(s32 style);
+
 #ifdef __cplusplus
 }
 #endif

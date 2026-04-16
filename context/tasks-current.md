@@ -7,6 +7,35 @@
 
 ---
 
+## Open — 2026-04-16 (S297 — elegant-mahavira)
+
+### Playtest verification of the S297 UI polish drop
+
+Commit on `claude/elegant-mahavira-198cc0`.
+
+- **Docked Chrome tool footer** — Open Modding Hub → Nine-Slice Chrome, load any image ≥ 1024 × 1024, resize the game window smaller (e.g. 720 p).  The left sidebar should show both **Source Preview (with rulers)** and **Frame Preview (assembled nine-slice)** stacked vertically without scrolling; the right column scrolls through all sliders/toggles/presets; **Save as Mod** / **Reset** remain visible at the bottom at all window sizes.  Verify the two previews still live-update when sliders change.
+- **Room member list (teams on)** — Start a room with `Teams` option enabled and at least two human players across two teams plus a few bots.  Verify:
+  - Members are grouped by team, humans render before bots within each team.
+  - Each team band shows a `-- Team N --` header in that team's color (Red/Blue/Green/Yellow/…).
+  - Row background behind each name is tinted to the team color (18 % alpha for others, 35 % for the local player).
+  - Local player's row also gets a 2 px white left-edge accent bar.
+- **Room member list (teams off)** — Same flow without `Teams` enabled.  Verify no team separators are emitted, local-player row still has a subtle cyan background + accent bar, and bots still render after humans.
+- **Title-bar styles** — Open Settings → Video, scroll to `UI Chrome Style`, change `Title Bar Style` through all five values.  Expect:
+  - Classic (default) — original 3-color PD gradient.
+  - Solid — flat `dialog_border1` band.
+  - Vertical Bars — lighter `titlebg` base with darker 1-px stripes every 8 px.
+  - Scanlines — classic gradient with 1-px horizontal scanlines.
+  - Diagonal Stripes — border1 base with 45° `titlebg` bars every 10 px.
+  Verify persistence: restart client, style should be restored from `pd.ini`.
+- **Content-inset API (smoke)** — Toggle chrome on, then off.  No visible difference in existing menus (the API is additive; no caller wired yet).  Expect `PDGUI theme: D5.0 early init (...)` log line unchanged.
+
+### Follow-up tasks queued from S297 (not yet implemented)
+
+- Migrate Theme Editor / Room `Start Match` action rows to the Chrome tool's child → child → footer pattern for overflow resilience.
+- Wire `pdguiThemeGetContentInset` into custom-drawn menus (endscreen, scorecard, HUD overlays) so they never clip into nineslice borders.
+
+---
+
 ## Open — 2026-04-16 (S296 — vigilant-robinson)
 
 ### Playtest verification of B-152 (stuck WASD) and B-153 (double main menu)

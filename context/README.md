@@ -1,6 +1,6 @@
 # Perfect Dark 2 -- Project Context Index
 
-> **Last updated**: 2026-04-16, S292 — **Room max-bot/team hardening** (S292), Nine-Slice Chrome creator + transforms (S288–S290), Select Tunes fix (S291), Mod Apply UX/hardening (S284–S287), Skin Editor fidelity + Dev Window v2 lock (S266–S273), gameplay audit + Counter-Op wire (S262–S265). Prior: S258 context organization.
+> **Last updated**: 2026-04-16, S297 — **UI polish drop** (Chrome tool docked footer + sidebar preview, room member team-sort + colored rows + local highlight, content-inset API + title-bar procedural samples) (S297). Recent: S296 input/menu fixes, S295 collision/match-pipeline, Room max-bot/team hardening (S292), Nine-Slice Chrome creator + transforms (S288–S290), Select Tunes fix (S291), Mod Apply UX/hardening (S284–S287), Skin Editor fidelity + Dev Window v2 lock (S266–S273), gameplay audit + Counter-Op wire (S262–S265). Prior: S258 context organization.
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding
@@ -36,6 +36,7 @@ In **Cursor**, attach the project skill **[context-session-start](../.cursor/ski
 
 | Sessions | Period | Focus |
 |----------|--------|-------|
+| S297 | 2026-04-16 | **UI polish drop** (elegant-mahavira): Nine-Slice Chrome tool restructured to sidebar preview + scroll settings + docked Save/Reset footer; room member list grouped by team with humans-first + team-tinted row backgrounds + local-player accent bar; new `pdguiThemeGetContentInset` / `pdguiThemeApplyContentInset` API; five procedural title-bar styles (Classic / Solid / Vertical Bars / Scanlines / Diagonal Stripes) selectable in Settings → Video, persisted via `Video.UiTitleBarStyle`. |
 | S292 | 2026-04-16 | **Room max-bot/team hardening**: `matchConfigMaxBotsForHumans()` unified cap across room/scenario/sync; balanced default bot team assignment in team mode (`35a8daaf`). |
 | S288–S291 | 2026-04-15/16 | **Nine-Slice Chrome tool** added to Modding Hub (image import, ruler sliders, save-as-mod, S288); assembled frame preview + desaturation (S289); transform pipeline — trim, scale, center-cut + docked actions + Back parity (S290). **Select Tunes**: audio.ini textual category fix + playlist add path hardening for `modmgrRebuildCatalog` (S291). |
 | S284–S287 | 2026-04-15 | **Mod Apply UX**: in-place modal, no forced title restart (S284); updater-style centered progress popup (S285); green-tint success state (S286). **Release/build hardening**: force-commit fallback (`--no-verify`) + Build dir auto-creation in release.ps1 + dev-window + build-headless (S287). |

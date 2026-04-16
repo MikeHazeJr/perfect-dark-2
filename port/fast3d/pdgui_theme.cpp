@@ -1239,6 +1239,9 @@ static s32 s_CfgScanlineEnabled = 1;
 static s32 s_CfgUiChromeEnabled = 0;
 static char s_CfgUiChromeStyleId[64] = "base:ui_chrome_frame";
 
+/* Config-backed title-bar style (S297; registered in pdguiThemeInit). */
+static s32 s_CfgTitleBarStyle = 0;  /* PDGUI_TITLEBAR_CLASSIC */
+
 /**
  * Early init: called from pdguiInit(), before texInit().
  * Registers config vars and marks theme as initialized.
@@ -1260,6 +1263,10 @@ void pdguiThemeInit(void)
     configRegisterInt("Video.UiChromeEnabled", &s_CfgUiChromeEnabled, 0, 1);
     configRegisterString("Video.UiChromeStyleId", s_CfgUiChromeStyleId,
                          sizeof(s_CfgUiChromeStyleId));
+
+    /* Register title-bar procedural style (S297). Clamped on getter/setter. */
+    configRegisterInt("Video.UiTitleBarStyle", &s_CfgTitleBarStyle,
+                      0, PDGUI_TITLEBAR_STYLE_COUNT - 1);
 
     sysLogPrintf(LOG_NOTE,
         "PDGUI theme: D5.0 early init (scanlines=%s alpha=%.0f%% chrome=%s, textures deferred)",
@@ -1353,6 +1360,101 @@ void pdguiThemeRescanChromeStyles(void)
     } else {
         pdguiThemeSetUiChromeStyleId("base:ui_chrome_frame");
         pdguiSetPanelNineSlice("base:ui_chrome_frame");
+    }
+}
+
+/* =========================================================================
+ * Content inset API (S297)
+ *
+ * Runtime answer to "how many pixels do I need to pull content in from the
+ * outer dialog rect to avoid overlapping the border artwork?".  Drives
+ * menus that paint inside a PD dialog so inputs/lists/images don't clip
+ * into the frame.
+ *
+ * When chrome is on and an active nineslice resolves, returns the dst_*
+ * corner pixels from that def (what the frame actually draws).  When
+ * chrome is off, returns the procedural-border fallback (2 px) so a
+ * single code path works for both modes.
+ * ========================================================================= */
+
+void pdguiThemeGetContentInset(float *out_l, float *out_r,
+                               float *out_t, float *out_b)
+{
+    float l = 2.0f, r = 2.0f, t = 2.0f, b = 2.0f;
+
+    if (s_CfgUiChromeEnabled && s_CfgUiChromeStyleId[0]) {
+        const nineslice_def_t *def = pdguiNinesliceGet(s_CfgUiChromeStyleId);
+        void *tex = pdguiThemeGetTexture(s_CfgUiChromeStyleId);
+        if (def && tex) {
+            /* dst_* is the render-side corner size in screen pixels. */
+            l = (float)def->dst_left;
+            r = (float)def->dst_right;
+            t = (float)def->dst_top;
+            b = (float)def->dst_bottom;
+
+            /* Guarantee a small safety margin so widgets never butt up
+             * directly against the inner edge of the frame. */
+            if (l < 2.0f) l = 2.0f;
+            if (r < 2.0f) r = 2.0f;
+            if (t < 2.0f) t = 2.0f;
+            if (b < 2.0f) b = 2.0f;
+        }
+    }
+
+    if (out_l) *out_l = l;
+    if (out_r) *out_r = r;
+    if (out_t) *out_t = t;
+    if (out_b) *out_b = b;
+}
+
+void pdguiThemeApplyContentInset(float *x, float *y, float *w, float *h)
+{
+    if (!x || !y || !w || !h) return;
+    float l, r, t, b;
+    pdguiThemeGetContentInset(&l, &r, &t, &b);
+    *x += l;
+    *y += t;
+    *w -= (l + r);
+    *h -= (t + b);
+    if (*w < 0.0f) *w = 0.0f;
+    if (*h < 0.0f) *h = 0.0f;
+}
+
+/* =========================================================================
+ * Title-bar style (S297)
+ *
+ * Persisted via `Video.UiTitleBarStyle`.  Classic gradient (0) is the PD
+ * default; a handful of simple procedural variants let users pick a look
+ * without shipping a chrome mod.
+ * ========================================================================= */
+
+/* (s_CfgTitleBarStyle declared at file scope earlier; registered in pdguiThemeInit.) */
+
+void pdguiThemeSetTitleBarStyle(s32 style)
+{
+    if (style < 0 || style >= PDGUI_TITLEBAR_STYLE_COUNT) {
+        style = PDGUI_TITLEBAR_CLASSIC;
+    }
+    s_CfgTitleBarStyle = style;
+}
+
+s32 pdguiThemeGetTitleBarStyle(void)
+{
+    if (s_CfgTitleBarStyle < 0 || s_CfgTitleBarStyle >= PDGUI_TITLEBAR_STYLE_COUNT) {
+        s_CfgTitleBarStyle = PDGUI_TITLEBAR_CLASSIC;
+    }
+    return s_CfgTitleBarStyle;
+}
+
+const char *pdguiThemeGetTitleBarStyleName(s32 style)
+{
+    switch (style) {
+        case PDGUI_TITLEBAR_CLASSIC:      return "Classic (gradient)";
+        case PDGUI_TITLEBAR_SOLID:        return "Solid";
+        case PDGUI_TITLEBAR_VERT_BARS:    return "Vertical Bars";
+        case PDGUI_TITLEBAR_SCANLINES:    return "Scanlines";
+        case PDGUI_TITLEBAR_DIAG_STRIPES: return "Diagonal Stripes";
+        default:                          return "Classic (gradient)";
     }
 }
 
