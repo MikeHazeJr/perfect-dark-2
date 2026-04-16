@@ -6122,13 +6122,15 @@ u32 netmsgSvcRoomSettingsRead(struct netbuf *src, struct netclient *srccl)
 	 * Slot 0 = local player, slots 1..numBots = bots (defaults only —
 	 * full per-bot config is deferred to R-4 CLC_ROOM_SETTINGS). */
 	s32 clampedBots = (s32)numBots;
-	if (clampedBots > MATCH_MAX_SLOTS - 1) clampedBots = MATCH_MAX_SLOTS - 1;
+	if (clampedBots > matchConfigMaxBotsForHumans(1)) clampedBots = matchConfigMaxBotsForHumans(1);
 	g_MatchConfig.numSlots = (u8)(1 + clampedBots);
 	g_MatchConfig.slots[0].type = SLOT_PLAYER;
 	for (s32 i = 1; i <= clampedBots; i++) {
 		if (g_MatchConfig.slots[i].type == SLOT_EMPTY) {
 			g_MatchConfig.slots[i].type          = SLOT_BOT;
 			g_MatchConfig.slots[i].botDifficulty = 2; /* NormalSim */
+			g_MatchConfig.slots[i].team          =
+				(options & MPOPTION_TEAMSENABLED) ? (u8)((i - 1) & 1) : 0;
 			g_MatchConfig.slots[i].name[0]       = '\0';
 		}
 	}

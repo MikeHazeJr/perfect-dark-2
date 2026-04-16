@@ -255,6 +255,43 @@ static asset_type_e sectionToType(const char *section)
  * Component Registration
  * ======================================================================== */
 
+static s32 parseAudioCategoryValue(const char *value, s32 default_category)
+{
+	if (!value || !value[0]) {
+		return default_category;
+	}
+
+	/* Numeric form: 0/1/2 */
+	if (((u8)value[0] >= '0' && (u8)value[0] <= '9') || value[0] == '-' || value[0] == '+') {
+		s32 n = (s32)strtol(value, NULL, 10);
+		if (n >= AUDIO_CAT_SFX && n <= AUDIO_CAT_VOICE) {
+			return n;
+		}
+		return default_category;
+	}
+
+	/* Text form: music/sfx/voice (+ aliases) */
+	char lower[32];
+	s32 i = 0;
+	while (value[i] && i < (s32)sizeof(lower) - 1) {
+		lower[i] = (char)tolower((u8)value[i]);
+		i++;
+	}
+	lower[i] = '\0';
+
+	if (strcmp(lower, "music") == 0 || strcmp(lower, "track") == 0) {
+		return AUDIO_CAT_MUSIC;
+	}
+	if (strcmp(lower, "sfx") == 0 || strcmp(lower, "sound") == 0 || strcmp(lower, "soundfx") == 0) {
+		return AUDIO_CAT_SFX;
+	}
+	if (strcmp(lower, "voice") == 0 || strcmp(lower, "dialog") == 0 || strcmp(lower, "dialogue") == 0) {
+		return AUDIO_CAT_VOICE;
+	}
+
+	return default_category;
+}
+
 /**
  * Register a single component from a parsed INI section.
  *
@@ -397,7 +434,8 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 	case ASSET_AUDIO:
 		e->ext.audio.sound_id = iniGetInt(ini, "sound_id", -1);
 		strncpy(e->ext.audio.name, iniGet(ini, "name", ""), sizeof(e->ext.audio.name) - 1);
-		e->ext.audio.category = iniGetInt(ini, "category", AUDIO_CAT_SFX);
+		e->ext.audio.category = parseAudioCategoryValue(
+			iniGet(ini, "category", ""), AUDIO_CAT_SFX);
 		e->ext.audio.duration_ms = iniGetInt(ini, "duration_ms", 0);
 		strncpy(e->ext.audio.file_path, iniGet(ini, "file_path", ""), sizeof(e->ext.audio.file_path) - 1);
 		break;

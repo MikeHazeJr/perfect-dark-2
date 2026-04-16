@@ -1552,6 +1552,13 @@ static void modmgrRebuildCatalogFromCurrentSelection(void)
 	// modmgrSaveComponentState during apply).
 	modmgrLoadComponentState();
 
+	// assetCatalogClearMods() removes catalog entries, but not mod->loaded flags.
+	// Reset them so enabled audio/mod.json packages are re-registered in this
+	// rebuild pass (without requiring a full modmgrUnloadAllMods()).
+	for (s32 i = 0; i < g_ModRegistryCount; i++) {
+		g_ModRegistry[i].loaded = false;
+	}
+
 	// Re-register enabled manifest/audio mods so theme/audio content is present
 	// in the catalog for the next reverse-index build.
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {

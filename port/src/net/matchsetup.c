@@ -386,10 +386,56 @@ static void pickRandomBodyHead(char *body_id, s32 bodyLen, char *head_id, s32 he
  * Slot management — called from ImGui bridge
  * ======================================================================== */
 
+s32 matchConfigMaxBotsForHumans(s32 humanCount)
+{
+	s32 humans = humanCount > 0 ? humanCount : 1;
+	s32 byslots = MATCH_MAX_SLOTS - humans;
+	s32 maxbots = byslots < MAX_BOTS ? byslots : MAX_BOTS;
+
+	return maxbots > 0 ? maxbots : 0;
+}
+
+static s32 matchConfigCountBots(void)
+{
+	s32 bots = 0;
+
+	for (s32 i = 0; i < g_MatchConfig.numSlots && i < MATCH_MAX_SLOTS; i++) {
+		if (g_MatchConfig.slots[i].type == SLOT_BOT) {
+			bots++;
+		}
+	}
+
+	return bots;
+}
+
+static u8 matchConfigChooseBotTeam(void)
+{
+	/* Keep team mode playable by balancing default bot assignment across
+	 * team 0/1 when teams are enabled. */
+	s32 counts[2] = {0, 0};
+
+	for (s32 i = 0; i < g_MatchConfig.numSlots && i < MATCH_MAX_SLOTS; i++) {
+		if (g_MatchConfig.slots[i].type == SLOT_PLAYER
+				|| g_MatchConfig.slots[i].type == SLOT_BOT) {
+			u8 team = g_MatchConfig.slots[i].team;
+
+			if (team < 2) {
+				counts[team]++;
+			}
+		}
+	}
+
+	return counts[0] <= counts[1] ? 0 : 1;
+}
+
 s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
                       const char *head_id, const char *name)
 {
 	if (g_MatchConfig.numSlots >= MATCH_MAX_SLOTS) {
+		return -1;
+	}
+
+	if (matchConfigCountBots() >= matchConfigMaxBotsForHumans(1)) {
 		return -1;
 	}
 
@@ -398,7 +444,9 @@ s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
 	slot->type = SLOT_BOT;
 	slot->botType = botType;
 	slot->botDifficulty = botDifficulty;
-	slot->team = 0;
+	slot->team = (g_MatchConfig.options & MPOPTION_TEAMSENABLED)
+		? matchConfigChooseBotTeam()
+		: 0;
 
 	/* Set catalog IDs as PRIMARY identity. Random if not specified. */
 	if (body_id && body_id[0]) {

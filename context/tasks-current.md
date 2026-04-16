@@ -30,7 +30,7 @@ Mike to confirm each on next build. Bug/feature → commit on `dev`:
 - **Skin Editor base-capture source fix (S267, uncommitted)** — verify New Skin capture seeds layer-0 from captured source body texture dimensions (not 256x256 preview-FBO screenshot content). Check UV overlay alignment and exported base skin quality on at least one base body and one mod body.
 - **ImGui nav parity closure (S267, uncommitted)** — verify Room and Solo Options tab cycling follow action-driven `PageUp/PageDown` mapping (controller + keyboard parity), and Agent Select list no longer traps focus (full traversal via controller and MKB).
 - **Mod Apply menu-lock regression fix (S274/S284, uncommitted)** — verify Modding Hub -> Apply no longer lands in CI with captured mouse + no accessible menus; apply should remain in the current UI flow with the new in-place modal.
-- **Song mods missing in Select Tunes fix (S275, uncommitted)** — verify audio mods with `audio.ini` textual categories (e.g. `category=music`) appear in Mod Tracks list and can be added to playlist.
+- **Song mods missing in Select Tunes follow-up (S291, uncommitted)** — verify both paths now surface music tracks in Mod Tracks and keep add/remove working: (1) component audio INIs with textual `category` values (`music`/`sfx`/`voice`) and (2) Mod Apply in-place rebuild no longer drops enabled `audio.ini` mods from the catalog due stale `mod->loaded` flags.
 - **Universal menu mouse-back bridge (S276, uncommitted)** — verify middle-click backs out of ImGui menus consistently (Main Menu submenus, Solo Mission stack, Room, Pause, Training, typed warning dialogs) without breaking right-click list interactions.
 - **Global title-bar close button (S279, uncommitted)** — verify PD title-bar `X` appears across ImGui dialogs and closes one menu layer per click without affecting existing right-click item actions.
 - **Select Tunes Mod Tracks click-toggle fix (S277, uncommitted)** — verify clicking a mod track in the left list toggles membership (adds to right playlist when absent, removes when already present), and leader sync still updates room peers.
@@ -41,6 +41,10 @@ Mike to confirm each on next build. Bug/feature → commit on `dev`:
 - **UI Chrome runtime registration hook + picker persistence (S283, uncommitted)** — verify chrome style runtime APIs now support importer/save flows (`pdguiThemeRegisterChromeModDir`, `pdguiThemeRescanChromeStyles`), Mod Pack import triggers chrome style rescan immediately, and Settings -> Video persists/restores exact style via `Video.UiChromeStyleId`.
 - **S263 systemic pipeline fixes** — verify: Deep Sea coop transition clamps stage index; Counter-Op selected anti player is honored online (not forced to slot 1); co-op/anti launch has no double-transition side effects; team-mode endscreen rankings show player rows (no placeholder '?' entries).
 - **B-142** false kills (`4d1e13c1`) — fresh 32-bot Chicago match, idle 30 s, pause → kill counter 0/0.
+- **S291 room max-bot/team-mode hardening (uncommitted)** — verify Chicago with max bots from Room UI:
+  - Room bot cap now respects runtime bot limit (no `MATCH_MAX_SLOTS` spillover paths).
+  - Team-enabled + newly added bots no longer default to all one team (balanced default assignment).
+  - Scoreboard should no longer show all `T1` by default in team mode; bots should engage and take damage.
 - **B-143 End-Game-Crash** + modal confirm (`d37e9677`) — End Game → Confirm → no AV, CI training loads.
 - **B-141 telemetry** (`5a42f234`) — on next audio-skip repro, tail `pd.log` for `AUDIO[B-141]`.
 - **B-134 spawn validator** (`0b44b2b8`) — Chicago fire-escape area, no railing-interior spawn.

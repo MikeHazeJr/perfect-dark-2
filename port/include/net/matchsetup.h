@@ -92,6 +92,9 @@ s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
 s32 matchConfigRemoveSlot(s32 idx);
 void matchConfigRerollBot(s32 idx);
 s32 matchStart(void);
+/* Returns max bot slots allowed for the current human count, clamped against
+ * both participant slots and MAX_BOTS runtime limits. */
+s32 matchConfigMaxBotsForHumans(s32 humanCount);
 
 /* Handicap accessors (avoid exposing types.h to C++ translation units) */
 u8   matchGetPlayerHandicap(s32 playernum);

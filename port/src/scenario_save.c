@@ -502,8 +502,7 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
      *   maxBots = MATCH_MAX_SLOTS - humanCount
      *   Bots are added in order; excess silently dropped.
      */
-    s32 maxBots = MATCH_MAX_SLOTS - (humanCount > 0 ? humanCount : 1);
-    if (maxBots < 0) maxBots = 0;
+    s32 maxBots = matchConfigMaxBotsForHumans(humanCount);
     s32 botCount = 0;
 
     const char *botsKey = strstr(buf, "\"bots\":");

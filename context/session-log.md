@@ -1,7 +1,63 @@
 # Session Log (Active)
 
-> **S241–S290** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S292** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S292 — 2026-04-16 (Room max-bot/team defaults hardening for Chicago bot-match regression)
+
+**Scope**:
+- Address report of Chicago max-bot match showing all entries on one team (`T1`), clustered spawns, and non-lethal/no-engagement behavior.
+
+**Code changes shipped in working tree**:
+- `port/src/net/matchsetup.c`:
+  - Added `matchConfigMaxBotsForHumans()` and reused it as the canonical cap helper (`min(MATCH_MAX_SLOTS-humans, MAX_BOTS)`).
+  - Added internal bot-count guard so `matchConfigAddBot()` cannot create more runtime bots than `MAX_BOTS`.
+  - Added balanced default bot team assignment when `MPOPTION_TEAMSENABLED` is active (auto-balance between team 0/1 instead of forcing all new bots to team 0).
+- `port/include/net/matchsetup.h`:
+  - Exported `matchConfigMaxBotsForHumans()` for UI/save/network callers.
+- `port/fast3d/pdgui_menu_room.cpp`:
+  - Room panel max-bot calculation now uses `matchConfigMaxBotsForHumans(humanCount)`.
+  - Combat start request now clamps `numBots` against that cap before send.
+- `port/src/scenario_save.c`:
+  - Scenario load bot cap now uses the same canonical helper (prevents over-limit bot restoration paths).
+- `port/src/net/netmsg.c`:
+  - `SVC_ROOM_SETTINGS` bot rebuild now clamps with the canonical helper and assigns alternating default team values when teams are enabled (keeps client shadow config coherent before full per-bot sync).
+
+**Why**:
+- Prior code mixed participant-slot limits (`MATCH_MAX_SLOTS`) with runtime bot limits (`MAX_BOTS`) and defaulted newly-added bots to a single team in team mode, which can create "all one team" matches that appear non-combative.
+
+**Verification**:
+- Build/runtime verification pending in this session (code-only pass complete).
+
+## Session S291 — 2026-04-15 (Select Tunes custom-song visibility + playlist add path hardening)
+
+**Scope**:
+- Investigate report that custom songs were missing from Match Soundtrack -> Select Tunes and could not be added to the playlist.
+
+**Code changes shipped in working tree**:
+- `port/src/modmgr.c`:
+  - In `modmgrRebuildCatalogFromCurrentSelection()`, reset all `mod->loaded` flags before re-registering enabled mods.
+  - Prevents in-place Mod Apply catalog rebuilds from skipping `audio.ini` re-registration after `assetCatalogClearMods()` removed non-bundled entries.
+- `port/src/assetcatalog_scanner.c`:
+  - Added `parseAudioCategoryValue()` for component INI audio parsing.
+  - `ASSET_AUDIO` category now accepts numeric (`0/1/2`) and text (`music`, `sfx`, `voice`, common aliases), matching `audio.ini` behavior.
+
+**Why**:
+- Two separate paths can feed Select Tunes:
+  - `audio.ini` package mods (via modmgr load/reload), and
+  - component-scanned audio assets (via `_components/audio/*.ini`).
+- Before this fix:
+  - Mod Apply rebuild could clear catalog audio entries then skip re-registering enabled package mods due stale loaded flags.
+  - Component INIs with textual categories defaulted to SFX, so they were filtered out of Mod Tracks.
+- Both conditions produce "song mods missing / cannot add" behavior in the soundtrack flow.
+
+**Verification**:
+- `devtools/build-headless.ps1 -Target all` still exits early at configure in this shell (existing script/runtime issue in this environment).
+- Compile verification passed via project toolchain path:
+  - `. .\devtools\_build-env-prelude.ps1`
+  - `cmake -G Ninja -S . -B Build -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++`
+  - `ninja -C Build pd pd-server`
+  - Result: both `PerfectDark.exe` and `PerfectDarkServer.exe` linked clean.
 
 ## Session S290 — 2026-04-16 (Nine-Slice Chrome transforms + docked actions + Back parity)
 

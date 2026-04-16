@@ -182,6 +182,7 @@ const char *mpPlayerConfigGetName(s32 playernum);
 
 /* Solo match start (matchsetup.c) — configure g_MpSetup from g_MatchConfig + call mpStartMatch() */
 s32 matchStart(void);
+s32 matchConfigMaxBotsForHumans(s32 humanCount);
 /* M0.1c: weapon slot catalog ID accessor (matchsetup.c) */
 const char *matchGetWeaponSlotCatalogId(s32 slot);
 
@@ -1324,8 +1325,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
     int humanCount = s_IsSoloMode ? 1 : lobbyGetPlayerCount();
     int curBots    = countBots();
     /* Max bots = remaining slots after accounting for human players. */
-    int maxBots = MATCH_MAX_SLOTS - humanCount;
-    if (maxBots < 0) maxBots = 0;
+    int maxBots = matchConfigMaxBotsForHumans(humanCount);
 
     float btnH   = pdguiScale(39.0f);
     float listH  = panelH - btnH
@@ -2429,7 +2429,12 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                         pdguiSoloRoomClose();
                         matchStart();
                     } else {
+                        int humanCount = s_IsSoloMode ? 1 : lobbyGetPlayerCount();
+                        int maxBots = matchConfigMaxBotsForHumans(humanCount);
                         int numBots = countBots();
+                        if (numBots > maxBots) {
+                            numBots = maxBots;
+                        }
                         u8 simType  = getLeadSimType();
                         netLobbyRequestStartWithSims(
                             GAMEMODE_MP,
