@@ -17,6 +17,7 @@
 #include "input.h"
 #include "inputctx.h"
 #include "actionmap.h"
+#include "menupool.h"
 #include "system.h"
 
 /* ---- Stack storage ---- */
@@ -50,11 +51,28 @@ void inputCtxInit(void)
     s_GamePaused = 0;
     s_WindowFocusLost = 0;
     s_FocusRegainTick = 0;
+    /* Phase 2: bring up the menu pool so menuPushDialog / ImGui renderers
+     * can immediately consult it. menupoolInit is idempotent, so repeated
+     * inputCtxInit calls (stage-transition nuclear reset) are fine. */
+    menupoolInit();
+    /* Stage-transition reset path also gets here after an inputCtxShutdown.
+     * Ensure no pool slots survive that reset — inputCtxShutdown popped
+     * every context, so any slot that was holding a context pop is stale. */
+    menupoolReleaseAll();
     sysLogPrintf(LOG_NOTE, "INPUTCTX: initialized");
 }
 
 void inputCtxShutdown(void)
 {
+    /* Phase 2: release every pool slot FIRST. If a pool slot owns a
+     * context pop and we tear the stack down without consulting the
+     * pool, the slot's "owned_ctx" pointer dangles — the next
+     * menupoolRelease for that type would call inputCtxPopDeferred on
+     * a context that's already been physically popped.  Releasing
+     * first makes the slot→ctx relationship observe the nuclear reset
+     * cleanly. */
+    menupoolReleaseAll();
+
     for (s32 i = s_Depth - 1; i >= 0; i--) {
         /* M-L1: Guard all dereferences — s_Stack[i] could be NULL. */
         if (s_Stack[i]) {

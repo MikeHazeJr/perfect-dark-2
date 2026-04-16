@@ -1,6 +1,6 @@
 # ADR — Input Authority + Menu Pool (Architecture Fix)
 
-> Status: **ACTIVE (Phase 1 implemented 2026-04-13, Phase 2 queued)**
+> Status: **ACTIVE (Phase 1 implemented 2026-04-13 S250, Phase 2 structural-dedup layer implemented 2026-04-16 S299 — `port/src/menupool.{h,c}`)**
 > Date: 2026-04-13
 > Branch: `input-authority-and-menu-pool`
 > Trigger: Mike's 2026-04-13 playtest — Ctrl+V pasted into a server-name field in the
@@ -288,7 +288,9 @@ to Phase 2 alongside the menu-pool per-scope state arrays.
 
 ---
 
-## 6. Phase 2 scope (queued, **not** in this session)
+## 6. Phase 2 scope (**partially shipped 2026-04-16 S299**)
+
+> **Status**: 6.1 structural dedup layer landed (`port/src/menupool.{h,c}` + wiring into `menu.c`, `inputctx.c`, force-close sites). 6.2 (shared-action scope) and 6.3 (tests) deferred.
 
 ### 6.1 Menu-pool single-instance discipline
 
@@ -316,6 +318,27 @@ Sketch:
 `src/game/menu.c`, `port/fast3d/pdgui_menu_*.cpp` (~20 files), `port/include/pdgui_menus.h`.
 
 Large. Requires its own session + branch.
+
+#### 6.1a — Landed in S299 (2026-04-16)
+
+Minimum viable structural-dedup layer. Delivers the architectural barrier without migrating the 10 existing `s_*PushedCtx` ctx-ownership bools in the ImGui renderers.
+
+**New files**:
+- `port/include/menupool.h` — `menu_type_t` enum (29 identities), `menupoolAcquire`/`Release`/`IsActive`, dialogdef convenience wrappers, `menupoolReleaseAll`, diagnostics.
+- `port/src/menupool.c` — `s_Pool[MENU_TYPE_COUNT]` flat slot array, 96-entry dialogdef→type registry, `menupoolInit()` maps ~56 dialogdefs from `data.h` to types.
+
+**Wiring**:
+- `src/game/menu.c:menuPushDialog` — pool dedup check after F-3.1 pointer scan; nextsibling loop consults `menupoolIsDialogActive` + acquires per-sibling slot.
+- `src/game/menu.c:menuCloseDialog` — releases every sibling's slot before decrementing `numdialogs`.
+- `port/src/inputctx.c:inputCtxInit/Shutdown` — pool init on startup + bulk release on the stage-transition nuclear reset.
+- Force-close sites (`pdgui_bridge.c` endscreen exits, `matchsetup.c` match start, `netmsg.c` stage handlers) — `menupoolReleaseAll()` alongside existing `inputCtxPopDeferred`.
+
+**Deliberately NOT migrated in 6.1a**: the 10 ImGui renderers that own `g_CtxImGuiMenu` via `s_*PushedCtx` (`pdgui_menu_{cheats,mpsetup,mppause,mpadvanced,playerconfig,botsetup,agentselect,room,training}.cpp`). Pool API supports ctx ownership — those renderers can migrate one at a time later.
+
+#### 6.1b — Remaining work
+
+- Migrate `s_*PushedCtx` patterns to pool-owned ctx. Each file: delete the bool, replace `inputCtxPush(&g_CtxImGuiMenu)` on `IsWindowAppearing` with `menupoolAcquireDialog(def, &g_CtxImGuiMenu)`, replace Begin-false cull path with `menupoolReleaseDialog(def)`, drop the explicit close-button pop (pool release via `menuPopDialog → menuCloseDialog` does it). Per-file diff is small (~10 lines) but the behaviour change is subtle — migrate one renderer per PR and playtest.
+- State-blob support (`populate_fn` / `state_blob` in ADR §6.1). Let the pool slot own the renderer's file-static state. This is what unlocks per-scope state arrays for the shared-action leak (§6.2).
 
 ### 6.2 Shared-action scope (follow-up to §3.5)
 

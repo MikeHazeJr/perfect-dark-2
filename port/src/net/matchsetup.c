@@ -30,6 +30,7 @@
 #include "net/matchsetup.h"
 #include "input.h"
 #include "inputctx.h"
+#include "menupool.h"
 #include "fs.h"
 #include <stdlib.h>
 #include <stdio.h>
@@ -778,6 +779,12 @@ s32 matchStart(void)
 	/* Stop the menu system and let the game take over */
 	menuStop();
 
+	/* Phase 2: release every pool slot before the stage transition.
+	 * Any slot surviving here would be stale once the new stage loads.
+	 * Pairs with the inputCtxPopDeferred below — pool handles identity,
+	 * inputctx handles the shared menu context. */
+	menupoolReleaseAll();
+
 	/* Pop menu context — gameplay context's on_push handles mouse capture. */
 	if (inputCtxIsActive(&g_CtxImGuiMenu)) {
 		inputCtxPopDeferred(&g_CtxImGuiMenu);
@@ -874,6 +881,9 @@ s32 matchStartFromChallenge(s32 slot)
 	/* Start directly — g_MpSetup already fully configured by challengeApply() */
 	mpStartMatch();
 	menuStop();
+
+	/* Phase 2: release every pool slot — see matchStart for rationale. */
+	menupoolReleaseAll();
 
 	/* Pop menu context — gameplay context's on_push handles mouse capture. */
 	if (inputCtxIsActive(&g_CtxImGuiMenu)) {

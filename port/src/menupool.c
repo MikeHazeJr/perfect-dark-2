@@ -1,0 +1,454 @@
+/**
+ * menupool.c -- Pre-allocated menu pool keyed by type (Phase 2).
+ *
+ * See menupool.h for the rationale and invariants. This file implements
+ * the flat slot array, the dialogdef→type registry, and the built-in
+ * registration table.
+ *
+ * Auto-discovered by GLOB_RECURSE in CMakeLists.txt.
+ */
+
+#include <string.h>
+#include <PR/ultratypes.h>
+#include "data.h"
+#include "types.h"
+#include "menupool.h"
+#include "inputctx.h"
+#include "system.h"
+
+/* Dialogdef→type registry. One entry per (def,type) pair. Capacity is
+ * chosen to cover all ~70 data.h externs plus headroom for late-registered
+ * mod dialogs. Linear scan is fine — registry is read-heavy but short. */
+#define MENUPOOL_REGISTRY_CAP 96
+
+typedef struct {
+    const struct menudialogdef *def;
+    menu_type_t type;
+} menupool_reg_entry_t;
+
+static menupool_reg_entry_t s_Registry[MENUPOOL_REGISTRY_CAP];
+static s32 s_RegistryCount = 0;
+static s32 s_Initialised = 0;
+
+/* Per-type state. Indexed by menu_type_t. */
+typedef struct {
+    s32 active;
+    const struct menudialogdef *def;  /* what opened this (may be NULL) */
+    InputContext *owned_ctx;          /* ctx pushed+owned by this slot, or NULL */
+    u32 generation;                   /* bumped each acquire, for diagnostics */
+} menupool_slot_t;
+
+static menupool_slot_t s_Pool[MENU_TYPE_COUNT];
+
+/* Name table — must stay index-aligned with menu_type_t. */
+static const char *const s_TypeNames[MENU_TYPE_COUNT] = {
+    [MENU_TYPE_NONE]                = "none",
+    [MENU_TYPE_MAIN_MENU]           = "main_menu",
+    [MENU_TYPE_CI_OPTIONS]          = "ci_options",
+    [MENU_TYPE_SOLO_MISSION]        = "solo_mission",
+    [MENU_TYPE_SOLO_MISSION_PAUSE]  = "solo_mission_pause",
+    [MENU_TYPE_SOLO_OPTIONS]        = "solo_options",
+    [MENU_TYPE_ENDSCREEN_SOLO]      = "endscreen_solo",
+    [MENU_TYPE_ENDSCREEN_MP]        = "endscreen_mp",
+    [MENU_TYPE_CHEATS]              = "cheats",
+    [MENU_TYPE_MP_SETUP]            = "mp_setup",
+    [MENU_TYPE_MP_SETTINGS]         = "mp_settings",
+    [MENU_TYPE_MP_ADVANCED]         = "mp_advanced",
+    [MENU_TYPE_MP_PAUSE]            = "mp_pause",
+    [MENU_TYPE_MP_PLAYER_CONFIG]    = "mp_player_config",
+    [MENU_TYPE_MP_BOT_SETUP]        = "mp_bot_setup",
+    [MENU_TYPE_MP_TEAM_SETUP]       = "mp_team_setup",
+    [MENU_TYPE_CONTROL_DIAGRAM]     = "control_diagram",
+    [MENU_TYPE_TRAINING]            = "training",
+    [MENU_TYPE_AGENT_SELECT]        = "agent_select",
+    [MENU_TYPE_AGENT_CREATE]        = "agent_create",
+    [MENU_TYPE_NETWORK]             = "network",
+    [MENU_TYPE_CHALLENGES]          = "challenges",
+    [MENU_TYPE_WARNING_MODAL]       = "warning_modal",
+    [MENU_TYPE_ROOM]                = "room",
+    [MENU_TYPE_PAUSE_MENU]          = "pause_menu",
+    [MENU_TYPE_MODDING_HUB]         = "modding_hub",
+    [MENU_TYPE_THEME_EDITOR]        = "theme_editor",
+    [MENU_TYPE_STATS_PANEL]         = "stats_panel",
+    [MENU_TYPE_DEBUG_OVERLAY]       = "debug_overlay",
+};
+
+/* ---- Private helpers ---- */
+
+static s32 typeInRange(menu_type_t t)
+{
+    return (t > MENU_TYPE_NONE && t < MENU_TYPE_COUNT);
+}
+
+/* Linear scan of registry. Returns MENU_TYPE_NONE if not found. */
+static menu_type_t lookupType(const struct menudialogdef *def)
+{
+    if (!def) {
+        return MENU_TYPE_NONE;
+    }
+    for (s32 i = 0; i < s_RegistryCount; i++) {
+        if (s_Registry[i].def == def) {
+            return s_Registry[i].type;
+        }
+    }
+    return MENU_TYPE_NONE;
+}
+
+/* ---- Public API ---- */
+
+const char *menupoolTypeName(menu_type_t type)
+{
+    if (type >= 0 && type < MENU_TYPE_COUNT && s_TypeNames[type]) {
+        return s_TypeNames[type];
+    }
+    return "?";
+}
+
+s32 menupoolRegisterDialogdef(const struct menudialogdef *def, menu_type_t type)
+{
+    if (!def || !typeInRange(type)) {
+        return 0;
+    }
+
+    /* Duplicate registration → update to new type and log. Callers
+     * shouldn't rely on this, but it's safer than silently retaining
+     * a stale mapping. */
+    for (s32 i = 0; i < s_RegistryCount; i++) {
+        if (s_Registry[i].def == def) {
+            if (s_Registry[i].type != type) {
+                sysLogPrintf(LOG_WARNING,
+                    "MENUPOOL: dialogdef %p re-registered, %s → %s",
+                    (const void *)def,
+                    menupoolTypeName(s_Registry[i].type),
+                    menupoolTypeName(type));
+                s_Registry[i].type = type;
+            }
+            return 1;
+        }
+    }
+
+    if (s_RegistryCount >= MENUPOOL_REGISTRY_CAP) {
+        sysLogPrintf(LOG_ERROR,
+            "MENUPOOL: registry full (cap=%d), cannot register %s",
+            MENUPOOL_REGISTRY_CAP, menupoolTypeName(type));
+        return 0;
+    }
+
+    s_Registry[s_RegistryCount].def = def;
+    s_Registry[s_RegistryCount].type = type;
+    s_RegistryCount++;
+    return 1;
+}
+
+menu_type_t menupoolTypeForDialogdef(const struct menudialogdef *def)
+{
+    return lookupType(def);
+}
+
+s32 menupoolAcquire(menu_type_t type, const struct menudialogdef *def, InputContext *ctx)
+{
+    if (!typeInRange(type)) {
+        return -1;
+    }
+
+    menupool_slot_t *slot = &s_Pool[type];
+    if (slot->active) {
+        /* Structural dedup: second acquire is denied. */
+        return 0;
+    }
+
+    slot->active = 1;
+    slot->def = def;
+    slot->owned_ctx = NULL;
+    slot->generation++;
+
+    if (ctx) {
+        if (!inputCtxIsActive(ctx)) {
+            /* Only take ownership of the ctx push when WE perform it.
+             * If the context is already live (pushed externally or by
+             * another pool slot), we just attach to it passively —
+             * release will not pop it. This is important because
+             * several menus legitimately share g_CtxImGuiMenu: the main
+             * menu pushes it once, then modding-hub / theme-editor /
+             * etc. open under the same context. Only the first opener
+             * owns the pop. */
+            inputCtxPush(ctx);
+            slot->owned_ctx = ctx;
+        }
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "MENUPOOL: acquired %s gen=%u def=%p ctx=%s(%s)",
+        menupoolTypeName(type),
+        (unsigned)slot->generation,
+        (const void *)def,
+        ctx ? (ctx->name ? ctx->name : "?") : "none",
+        slot->owned_ctx ? "owned" : "shared");
+
+    return 1;
+}
+
+s32 menupoolRelease(menu_type_t type)
+{
+    if (!typeInRange(type)) {
+        return -1;
+    }
+
+    menupool_slot_t *slot = &s_Pool[type];
+    if (!slot->active) {
+        /* Already free — idempotent release, no warning. */
+        return 0;
+    }
+
+    InputContext *ctx = slot->owned_ctx;
+    u32 gen = slot->generation;
+
+    /* Clear slot FIRST so that any callback triggered by the context
+     * pop (on_pop handlers, deferred flush) reads the pool as already
+     * released. This makes re-entry during teardown safe. */
+    slot->active = 0;
+    slot->def = NULL;
+    slot->owned_ctx = NULL;
+
+    if (ctx) {
+        if (inputCtxIsActive(ctx)) {
+            inputCtxPopDeferred(ctx);
+        }
+        /* If ctx has already been popped externally (force-close race),
+         * inputCtxPopDeferred would warn; skip the call to keep logs clean. */
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "MENUPOOL: released %s gen=%u ctx=%s",
+        menupoolTypeName(type), (unsigned)gen,
+        ctx ? (ctx->name ? ctx->name : "?") : "none");
+
+    return 1;
+}
+
+s32 menupoolIsActive(menu_type_t type)
+{
+    if (!typeInRange(type)) {
+        return 0;
+    }
+    return s_Pool[type].active;
+}
+
+s32 menupoolAcquireDialog(const struct menudialogdef *def, InputContext *ctx)
+{
+    menu_type_t type = lookupType(def);
+    if (type == MENU_TYPE_NONE) {
+        /* Unregistered dialogdef — fall through with no pool dedup
+         * enforcement. Treat as success so legacy flows are unaffected.
+         * Optionally push the context so callers get the same behavior
+         * as registered paths. */
+        if (ctx && !inputCtxIsActive(ctx)) {
+            inputCtxPush(ctx);
+        }
+        return 1;
+    }
+    return menupoolAcquire(type, def, ctx);
+}
+
+s32 menupoolReleaseDialog(const struct menudialogdef *def)
+{
+    menu_type_t type = lookupType(def);
+    if (type == MENU_TYPE_NONE) {
+        return 0;
+    }
+    return menupoolRelease(type);
+}
+
+s32 menupoolIsDialogActive(const struct menudialogdef *def)
+{
+    menu_type_t type = lookupType(def);
+    if (type == MENU_TYPE_NONE) {
+        return 0;
+    }
+    return menupoolIsActive(type);
+}
+
+s32 menupoolCountActive(void)
+{
+    s32 n = 0;
+    for (s32 i = MENU_TYPE_NONE + 1; i < MENU_TYPE_COUNT; i++) {
+        if (s_Pool[i].active) {
+            n++;
+        }
+    }
+    return n;
+}
+
+void menupoolReleaseAll(void)
+{
+    s32 released = 0;
+    for (s32 i = MENU_TYPE_NONE + 1; i < MENU_TYPE_COUNT; i++) {
+        if (s_Pool[i].active) {
+            if (menupoolRelease((menu_type_t)i) == 1) {
+                released++;
+            }
+        }
+    }
+    if (released > 0) {
+        sysLogPrintf(LOG_NOTE, "MENUPOOL: released %d slot(s) (bulk)", released);
+    }
+}
+
+void menupoolDumpActive(void)
+{
+    s32 n = 0;
+    for (s32 i = MENU_TYPE_NONE + 1; i < MENU_TYPE_COUNT; i++) {
+        const menupool_slot_t *slot = &s_Pool[i];
+        if (slot->active) {
+            sysLogPrintf(LOG_NOTE,
+                "MENUPOOL dump: [%s] gen=%u def=%p ctx=%s",
+                menupoolTypeName((menu_type_t)i),
+                (unsigned)slot->generation,
+                (const void *)slot->def,
+                slot->owned_ctx
+                    ? (slot->owned_ctx->name ? slot->owned_ctx->name : "?")
+                    : "shared/none");
+            n++;
+        }
+    }
+    if (n == 0) {
+        sysLogPrintf(LOG_NOTE, "MENUPOOL dump: (no active slots)");
+    }
+}
+
+/* ---- Built-in registration table ----
+ *
+ * Maps the canonical data.h dialogdefs to their pool types. Sticks to
+ * the dialogdefs that can actually be pushed at runtime (excludes 2P
+ * splitscreen and PAK-device variants — those are dead on PC per
+ * 2026-04-10 no-local-multiplayer constraint).
+ *
+ * Unregistered dialogs pass through acquire with no dedup enforcement,
+ * so this table doesn't need to be exhaustive to be correct — only
+ * exhaustive to be MAXIMALLY protective. Dialogs whose push-path is
+ * known to collide structurally belong here.
+ *
+ * The macro form is just to keep the list readable. If you rename a
+ * dialogdef, update data.h AND this table together. */
+
+#define REG(defptr, type) menupoolRegisterDialogdef(defptr, type)
+
+void menupoolInit(void)
+{
+    if (s_Initialised) {
+        return;
+    }
+
+    memset(s_Pool, 0, sizeof(s_Pool));
+    memset(s_Registry, 0, sizeof(s_Registry));
+    s_RegistryCount = 0;
+
+    /* ---- Main menu family (CI free-roam + pause variants) ---- */
+    REG(&g_CiMenuViaPcMenuDialog,        MENU_TYPE_MAIN_MENU);
+    REG(&g_CiMenuViaPauseMenuDialog,     MENU_TYPE_MAIN_MENU);
+    REG(&g_MainMenu4MbMenuDialog,        MENU_TYPE_MAIN_MENU);
+
+    /* ---- CI Options subtree (nextsibling of main menu) ---- */
+    REG(&g_CiControlStyleMenuDialog,     MENU_TYPE_CI_OPTIONS);
+
+    /* ---- Solo mission ---- */
+    REG(&g_PreAndPostMissionBriefingMenuDialog, MENU_TYPE_SOLO_MISSION);
+    REG(&g_SoloMissionPauseMenuDialog,   MENU_TYPE_SOLO_MISSION_PAUSE);
+    REG(&g_SoloMissionControlStyleMenuDialog, MENU_TYPE_SOLO_OPTIONS);
+
+    /* ---- Endscreen (MP challenge variants only — Solo endscreens
+     * use different defs registered via hotswap type fallbacks) ---- */
+    REG(&g_MpEndscreenChallengeCheatedMenuDialog, MENU_TYPE_ENDSCREEN_MP);
+    REG(&g_MpEndscreenChallengeFailedMenuDialog,  MENU_TYPE_ENDSCREEN_MP);
+
+    /* ---- Cheats ---- */
+    REG(&g_CheatsMenuDialog,             MENU_TYPE_CHEATS);
+
+    /* ---- MP setup (arena / scenario / weapons / limits) ---- */
+    REG(&g_MpArenaMenuDialog,            MENU_TYPE_MP_SETUP);
+    REG(&g_MpScenarioMenuDialog,         MENU_TYPE_MP_SETUP);
+    REG(&g_MpQuickTeamScenarioMenuDialog, MENU_TYPE_MP_SETUP);
+    REG(&g_MpWeaponsMenuDialog,          MENU_TYPE_MP_SETUP);
+    REG(&g_MpLimitsMenuDialog,           MENU_TYPE_MP_SETUP);
+    REG(&g_MpCombatOptionsMenuDialog,    MENU_TYPE_MP_SETUP);
+    REG(&g_HtbOptionsMenuDialog,         MENU_TYPE_MP_SETUP);
+    REG(&g_CtcOptionsMenuDialog,         MENU_TYPE_MP_SETUP);
+    REG(&g_KohOptionsMenuDialog,         MENU_TYPE_MP_SETUP);
+    REG(&g_HtmOptionsMenuDialog,         MENU_TYPE_MP_SETUP);
+    REG(&g_PacOptionsMenuDialog,         MENU_TYPE_MP_SETUP);
+
+    /* ---- MP settings (handicap / tunes / teams) ---- */
+    REG(&g_MpHandicapsMenuDialog,        MENU_TYPE_MP_SETTINGS);
+
+    /* ---- MP advanced (quick-go / quick-team / advanced hub) ---- */
+    REG(&g_MpAdvancedSetupMenuDialog,    MENU_TYPE_MP_ADVANCED);
+    REG(&g_MpQuickGoMenuDialog,          MENU_TYPE_MP_ADVANCED);
+    REG(&g_MpQuickTeamMenuDialog,        MENU_TYPE_MP_ADVANCED);
+    REG(&g_MpQuickTeamGameSetupMenuDialog, MENU_TYPE_MP_ADVANCED);
+    REG(&g_MpQuickGo4MbMenuDialog,       MENU_TYPE_MP_ADVANCED);
+    REG(&g_MpConfirmChallenge4MbMenuDialog, MENU_TYPE_MP_ADVANCED);
+    REG(&g_AdvancedSetup4MbMenuDialog,   MENU_TYPE_MP_ADVANCED);
+    REG(&g_MpChallengeListOrDetailsMenuDialog, MENU_TYPE_MP_ADVANCED);
+    REG(&g_MpChallengeListOrDetailsViaAdvChallengeMenuDialog, MENU_TYPE_MP_ADVANCED);
+
+    /* ---- MP in-match pause ---- */
+    REG(&g_MpControlMenuDialog,          MENU_TYPE_MP_PAUSE);
+    REG(&g_MpDropOutMenuDialog,          MENU_TYPE_MP_PAUSE);
+
+    /* ---- MP player config ---- */
+    REG(&g_MpPlayerOptionsMenuDialog,    MENU_TYPE_MP_PLAYER_CONFIG);
+    REG(&g_MpPlayerStatsMenuDialog,      MENU_TYPE_MP_PLAYER_CONFIG);
+    REG(&g_MpPlayerNameMenuDialog,       MENU_TYPE_MP_PLAYER_CONFIG);
+    REG(&g_MpLoadSettingsMenuDialog,     MENU_TYPE_MP_PLAYER_CONFIG);
+    REG(&g_MpLoadPresetMenuDialog,       MENU_TYPE_MP_PLAYER_CONFIG);
+    REG(&g_MpLoadPlayerMenuDialog,       MENU_TYPE_MP_PLAYER_CONFIG);
+
+    /* ---- MP bot setup ---- */
+    REG(&g_MpSimulantsMenuDialog,        MENU_TYPE_MP_BOT_SETUP);
+    REG(&g_MpEditSimulant4MbMenuDialog,  MENU_TYPE_MP_BOT_SETUP);
+
+    /* ---- MP team setup ---- */
+    REG(&g_MpTeamsMenuDialog,            MENU_TYPE_MP_TEAM_SETUP);
+
+    /* ---- Training (FR / DT / HT / Bio / Hangar) ---- */
+    REG(&g_FrWeaponListMenuDialog,       MENU_TYPE_TRAINING);
+    REG(&g_FrWeaponsAvailableMenuDialog, MENU_TYPE_TRAINING);
+    REG(&g_FrTrainingInfoInGameMenuDialog, MENU_TYPE_TRAINING);
+    REG(&g_FrTrainingInfoPreGameMenuDialog, MENU_TYPE_TRAINING);
+    REG(&g_FrCompletedMenuDialog,        MENU_TYPE_TRAINING);
+    REG(&g_FrFailedMenuDialog,           MENU_TYPE_TRAINING);
+    REG(&g_BioListMenuDialog,            MENU_TYPE_TRAINING);
+    REG(&g_DtListMenuDialog,             MENU_TYPE_TRAINING);
+    REG(&g_DtDetailsMenuDialog,          MENU_TYPE_TRAINING);
+    REG(&g_DtFailedMenuDialog,           MENU_TYPE_TRAINING);
+    REG(&g_DtCompletedMenuDialog,        MENU_TYPE_TRAINING);
+    REG(&g_HtListMenuDialog,             MENU_TYPE_TRAINING);
+    REG(&g_HtDetailsMenuDialog,          MENU_TYPE_TRAINING);
+    REG(&g_HtFailedMenuDialog,           MENU_TYPE_TRAINING);
+    REG(&g_HtCompletedMenuDialog,        MENU_TYPE_TRAINING);
+    REG(&g_HangarListMenuDialog,         MENU_TYPE_TRAINING);
+
+    /* ---- Combat simulator top-level (acts as the MP lobby entry point) ---- */
+    REG(&g_CombatSimulatorMenuDialog,    MENU_TYPE_MP_ADVANCED);
+
+    /* ---- Filemgr / Pak (solo save flows — MP uses different paths) ---- */
+    REG(&g_FilemgrFileSelect4MbMenuDialog, MENU_TYPE_AGENT_SELECT);
+    REG(&g_PakChoosePakMenuDialog,       MENU_TYPE_AGENT_SELECT);
+    REG(&g_ChangeAgentMenuDialog,        MENU_TYPE_AGENT_SELECT);
+
+    /* Dedicated "ready" dialog used by MP match-start — share slot with setup. */
+    REG(&g_MpReadyMenuDialog,            MENU_TYPE_MP_SETUP);
+
+    /* All remaining dialogs (PAK device errors, 2P splitscreen variants,
+     * and whatever else lives in src/game/ .c files) pass through
+     * unregistered — acquire returns 1 with no dedup, release is no-op.
+     * That preserves legacy behavior for any dialog we haven't explicitly
+     * wired in. */
+
+    s_Initialised = 1;
+    sysLogPrintf(LOG_NOTE,
+        "MENUPOOL: initialised (%d dialogdef registrations, %d types)",
+        s_RegistryCount, (int)MENU_TYPE_COUNT);
+}
+
+#undef REG
