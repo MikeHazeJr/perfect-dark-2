@@ -480,6 +480,11 @@ static WindowFrame mpp_BeginStandardWindow(const char *imguiId, const char *titl
 
     if (!ImGui::Begin(imguiId, nullptr, flags)) {
         wf.mw = 0.0f;
+        /* S295 F4 leak guard: see pdgui_menu_agentselect.cpp for rationale. */
+        if (s_MpPausePushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+            s_MpPausePushedCtx = false;
+        }
         return wf;
     }
 

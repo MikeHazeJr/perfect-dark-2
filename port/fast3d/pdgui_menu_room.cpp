@@ -2221,6 +2221,12 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 
     if (!ImGui::Begin("##room_interior", nullptr, wflags)) {
         ImGui::End();
+        /* S295 F4 leak guard: release the context we own if the window is
+         * culled this frame, so the player isn't frozen with no menu visible. */
+        if (s_RoomPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+            s_RoomPushedCtx = false;
+        }
         return;
     }
 

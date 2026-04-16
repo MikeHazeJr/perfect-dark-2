@@ -415,6 +415,11 @@ static WindowFrame pc_BeginStandardWindow(const char *imguiId, const char *title
 
     if (!ImGui::Begin(imguiId, nullptr, flags)) {
         wf.mw = 0.0f;
+        /* S295 F4 leak guard: see pdgui_menu_agentselect.cpp for rationale. */
+        if (s_PlayerConfigPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+            s_PlayerConfigPushedCtx = false;
+        }
         return wf;
     }
 

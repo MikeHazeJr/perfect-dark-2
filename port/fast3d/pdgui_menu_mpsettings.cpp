@@ -329,6 +329,13 @@ static PdmsWindowFrame pdms_BeginStandardWindow(const char *imguiId, const char 
 
     if (!ImGui::Begin(imguiId, nullptr, flags)) {
         wf.mw = 0.0f;
+        /* S295 F4 leak guard: release the context this caller owned if the
+         * window is culled this frame. Each caller owns its own bool so we
+         * only release our own ownership here. */
+        if (ownsCtx && *ownsCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+            *ownsCtx = false;
+        }
         return wf;
     }
 

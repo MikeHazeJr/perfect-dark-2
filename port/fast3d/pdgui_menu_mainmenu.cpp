@@ -1535,10 +1535,13 @@ static void renderSettingsGame(float scale)
 /* Menu view state: 0 = top-level (Play/Settings/Quit), 1 = Play, 2 = Settings */
 static s32 s_MenuView = 0;
 
-/* B-124 pattern: true if renderMainMenu pushed g_CtxImGuiMenu itself.
- * Only pop it on close if we pushed it — prevents unintended double-pop
- * when another system already had the context active. */
-static bool s_MainMenuPushedCtx = false;
+/* S295 F7: s_MainMenuPushedCtx removed. The close handler at ~line 2618
+ * already pops unconditionally via `inputCtxIsActive` — see comment there.
+ * The ownership bool had a documented failure mode (it could be cleared by a
+ * second IsWindowAppearing and then skip the pop) and was effectively dead
+ * state by the time of removal. If the need for ownership tracking comes back,
+ * prefer the `freshEntry = frame-gap` pattern used in pdgui_menu_endscreen.cpp
+ * (S295 F5) rather than a one-shot bool. */
 
 /* B-131 (2026-04-11): wall-clock tick at which the main menu last appeared.
  * Used to gate the ESC/B close handler: the first MAIN_MENU_CLOSE_GRACE_MS
@@ -2520,12 +2523,10 @@ static s32 renderMainMenu(struct menudialog *dialog,
          *   (c) push_tick is set, enabling inputCtxShouldSuppressKey 100ms
          *       grace period to prevent the opening key from immediately
          *       closing the menu (Bugs 1 & 2)
-         * Track ownership — only pop it on close if we pushed it here. */
+         * S295 F7: Ownership tracking removed — the close handler pops
+         * unconditionally via inputCtxIsActive. */
         if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
             inputCtxPush(&g_CtxImGuiMenu);
-            s_MainMenuPushedCtx = true;
-        } else {
-            s_MainMenuPushedCtx = false;
         }
         /* B-131: clear the stale Escape / GamepadFaceRight edges that the
          * opening press queued into ImGui's input queue before this window
@@ -2612,13 +2613,12 @@ static s32 renderMainMenu(struct menudialog *dialog,
              * s_MainMenuPushedCtx ownership guard caused a leak: if
              * IsWindowAppearing fired twice (legacy dialog re-push, ImGui
              * visibility cycle), the second appearing saw the context already
-             * active and set s_MainMenuPushedCtx=false, so the close handler
+             * active and cleared the ownership bool, so the close handler
              * skipped the pop. All other menus (solomission, endscreen,
-             * bridge) use the unconditional pattern. */
+             * bridge) use the unconditional pattern. S295 F7: bool removed. */
             if (inputCtxIsActive(&g_CtxImGuiMenu)) {
                 inputCtxPopDeferred(&g_CtxImGuiMenu);
             }
-            s_MainMenuPushedCtx = false;
 
             /* Restore game control BEFORE menuPopDialog. The legacy
              * menutick bg-transition (func0f0fa6ac) never completes

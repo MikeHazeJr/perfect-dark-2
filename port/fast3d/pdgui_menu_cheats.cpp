@@ -444,6 +444,12 @@ static s32 renderCheatsHub(struct menudialog *dialog,
 
     if (!ImGui::Begin("##cheats_hub", nullptr, wf)) {
         ImGui::End();
+        /* S295 F4 leak guard: release context if window is culled so we don't
+         * trap the player in a frozen state. */
+        if (s_CheatsHubPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+            s_CheatsHubPushedCtx = false;
+        }
         return 1;
     }
 
