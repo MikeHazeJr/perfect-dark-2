@@ -864,6 +864,27 @@ static void s_chromeStylesClear(void)
     s_ChromeStyleCount = 0;
 }
 
+/* S-6: Delete mod-provided chrome style GL textures and drop them from the
+ * theme texture cache. The base "base:ui_chrome_frame" texture is owned by
+ * pdguiThemeLateInit and must NOT be freed here. */
+static void s_chromeStylesFreeModTextures(void)
+{
+    for (s32 i = 0; i < s_ChromeStyleCount; i++) {
+        const char *id = s_ChromeStyles[i].id;
+        if (!id || !id[0]) continue;
+        if (strcmp(id, "base:ui_chrome_frame") == 0) continue;
+
+        auto it = s_ThemeTexCache.find(id);
+        if (it != s_ThemeTexCache.end()) {
+            if (it->second) {
+                GLuint tex = it->second;
+                glDeleteTextures(1, &tex);
+            }
+            s_ThemeTexCache.erase(it);
+        }
+    }
+}
+
 static bool s_chromeStyleHasId(const char *id)
 {
     for (s32 i = 0; i < s_ChromeStyleCount; i++) {
@@ -1304,6 +1325,9 @@ s32 pdguiThemeRegisterChromeModDir(const char *mod_dir, s32 activate_now)
 void pdguiThemeRescanChromeStyles(void)
 {
     const char *active_id = pdguiThemeGetUiChromeStyleId();
+    /* S-6: free mod-provided GL textures before clearing so they don't leak
+     * across repeated rescans. Base chrome texture is preserved. */
+    s_chromeStylesFreeModTextures();
     s_chromeStylesClear();
     s_chromeStyleAdd("base:ui_chrome_frame", "Classic (base-game)");
     s_scanModChromeStyles();

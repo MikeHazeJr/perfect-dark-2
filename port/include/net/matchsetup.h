@@ -96,6 +96,16 @@ s32 matchStart(void);
  * both participant slots and MAX_BOTS runtime limits. */
 s32 matchConfigMaxBotsForHumans(s32 humanCount);
 
+/* Count SLOT_PLAYER entries currently in g_MatchConfig (min 1). Canonical way
+ * for any caller of matchConfigMaxBotsForHumans() to discover the human count
+ * when no external lobby-aware count is available. */
+s32 matchConfigCountHumans(void);
+
+/* Pick a team index for a new bot balancing against existing slots.
+ * numTeams: 2..MAX_TEAMS (clamped). Pass 2 for classic team mode, or the
+ * scenario-dependent team count for multi-team modes. */
+u8 matchConfigChooseBotTeam(s32 numTeams);
+
 /* Handicap accessors (avoid exposing types.h to C++ translation units) */
 u8   matchGetPlayerHandicap(s32 playernum);
 void matchSetPlayerHandicap(s32 playernum, u8 val);

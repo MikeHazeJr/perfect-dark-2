@@ -138,6 +138,12 @@ static bool s_DownrezDialogOpen = false;
 static int  s_DownrezMaxColors  = 16;
 static int  s_DownrezDitherMode = 1;
 static u8  *s_DownrezPreview    = NULL;
+/* S-5: Track the dimensions of the currently-allocated s_DownrezPreview so
+ * we can realloc when the character switches to a differently-sized canvas.
+ * Without this, skinQuantize writes cw*ch*4 into a buffer sized for the old
+ * character, which can overflow heap memory. */
+static s32  s_DownrezPreviewW   = 0;
+static s32  s_DownrezPreviewH   = 0;
 static u32  s_DownrezPreviewTex = 0;
 
 /* Export Template dialog state */
@@ -179,6 +185,8 @@ static void skinEditorDismissTransientUi(void)
     if (s_DownrezPreview) {
         free(s_DownrezPreview);
         s_DownrezPreview = NULL;
+        s_DownrezPreviewW = 0;
+        s_DownrezPreviewH = 0;
     }
     if (s_DownrezPreviewTex) {
         glDeleteTextures(1, &s_DownrezPreviewTex);
@@ -759,7 +767,7 @@ static void renderToolPanel(float panelW, float panelH, float scale)
         s_DownrezDialogOpen = true;
         s_DownrezMaxColors = 16;
         s_DownrezDitherMode = 1;
-        if (s_DownrezPreview) { free(s_DownrezPreview); s_DownrezPreview = NULL; }
+        if (s_DownrezPreview) { free(s_DownrezPreview); s_DownrezPreview = NULL; s_DownrezPreviewW = 0; s_DownrezPreviewH = 0; }
     }
 
     ImGui::Spacing();
@@ -1327,9 +1335,14 @@ static void downrezGeneratePreview(void)
     if (!composite) return;
 
     size_t bufSize = (size_t)cw * ch * 4;
-    if (!s_DownrezPreview) {
-        s_DownrezPreview = (u8 *)malloc(bufSize);
-        if (!s_DownrezPreview) return;
+    /* S-5: Realloc when canvas dimensions change (character switch while the
+     * downrez dialog is open). The old buffer could be smaller than cw*ch*4. */
+    if (!s_DownrezPreview || cw != s_DownrezPreviewW || ch != s_DownrezPreviewH) {
+        u8 *neu = (u8 *)realloc(s_DownrezPreview, bufSize);
+        if (!neu) return;
+        s_DownrezPreview  = neu;
+        s_DownrezPreviewW = cw;
+        s_DownrezPreviewH = ch;
     }
 
     skinQuantize(composite, s_DownrezPreview, cw, ch,
@@ -1426,7 +1439,7 @@ static void renderDownrezDialog(float scale)
 
     /* Cleanup preview on close */
     if (!s_DownrezDialogOpen) {
-        if (s_DownrezPreview) { free(s_DownrezPreview); s_DownrezPreview = NULL; }
+        if (s_DownrezPreview) { free(s_DownrezPreview); s_DownrezPreview = NULL; s_DownrezPreviewW = 0; s_DownrezPreviewH = 0; }
         if (s_DownrezPreviewTex) {
             glDeleteTextures(1, &s_DownrezPreviewTex);
             s_DownrezPreviewTex = 0;

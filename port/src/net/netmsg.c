@@ -6121,8 +6121,11 @@ u32 netmsgSvcRoomSettingsRead(struct netbuf *src, struct netclient *srccl)
 	/* Rebuild slot array to match numBots.
 	 * Slot 0 = local player, slots 1..numBots = bots (defaults only —
 	 * full per-bot config is deferred to R-4 CLC_ROOM_SETTINGS). */
+	s32 humanCount = matchConfigCountHumans();
 	s32 clampedBots = (s32)numBots;
-	if (clampedBots > matchConfigMaxBotsForHumans(1)) clampedBots = matchConfigMaxBotsForHumans(1);
+	s32 maxBots = matchConfigMaxBotsForHumans(humanCount);
+	if (clampedBots > maxBots) clampedBots = maxBots;
+	s32 oldNumSlots = g_MatchConfig.numSlots;
 	g_MatchConfig.numSlots = (u8)(1 + clampedBots);
 	g_MatchConfig.slots[0].type = SLOT_PLAYER;
 	for (s32 i = 1; i <= clampedBots; i++) {
@@ -6130,9 +6133,18 @@ u32 netmsgSvcRoomSettingsRead(struct netbuf *src, struct netclient *srccl)
 			g_MatchConfig.slots[i].type          = SLOT_BOT;
 			g_MatchConfig.slots[i].botDifficulty = 2; /* NormalSim */
 			g_MatchConfig.slots[i].team          =
-				(options & MPOPTION_TEAMSENABLED) ? (u8)((i - 1) & 1) : 0;
+				(options & MPOPTION_TEAMSENABLED)
+					? matchConfigChooseBotTeam(2)
+					: 0;
 			g_MatchConfig.slots[i].name[0]       = '\0';
 		}
+	}
+	/* S-12: clear stale bot slots beyond the new count when numBots decreases.
+	 * Without this, SLOT_BOT entries at indices >= new numSlots retain stale
+	 * data that any full-array scan could pick up as ghost bots. */
+	for (s32 i = 1 + clampedBots; i < oldNumSlots && i < MATCH_MAX_SLOTS; i++) {
+		g_MatchConfig.slots[i].type = SLOT_EMPTY;
+		g_MatchConfig.slots[i].name[0] = '\0';
 	}
 
 	sysLogPrintf(LOG_NOTE,

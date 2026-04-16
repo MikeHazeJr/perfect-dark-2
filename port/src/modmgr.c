@@ -29,6 +29,7 @@
 #include "video.h"
 #include "pdgui.h"
 #include "pdgui_theme_loader.h"  /* Issue 2/8: theme rescan after mod apply */
+#include "pdgui_theme.h"         /* S-8: chrome style rescan after mod apply */
 
 /* Forward declaration — defined in src/lib/main.c */
 extern void mainChangeToStage(s32 stagenum);
@@ -1790,6 +1791,9 @@ void modmgrApplyChanges(void)
 	 * Audio is self-healing (renderSelectTunes scans per-frame); only themes
 	 * need an explicit rescan here. */
 	pdguiThemeRescanMods();
+	/* S-8: chrome styles are tracked in a separate subsystem from themes —
+	 * without this rescan the chrome style picker goes stale after Apply. */
+	pdguiThemeRescanChromeStyles();
 
 	/* Stay in-place: no forced title restart.  Callers keep the active menu
 	 * and present an in-UI apply progress/completion modal. */

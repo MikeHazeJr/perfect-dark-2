@@ -301,11 +301,14 @@ struct PdmsWindowFrame {
     ImVec2 pos;
 };
 
-/* True only when this module pushed g_CtxImGuiMenu itself. */
-static bool s_PdmsOwnsMenuCtx = false;
-
+/* S-3: Per-dialog ownership tracking. A single shared flag corrupted input-
+ * context ownership when dialogs stacked (e.g., Soundtrack -> SelectTunes):
+ * the nested dialog's IsWindowAppearing saw the ctx already active and
+ * cleared the outer dialog's ownership bit. Each caller now owns its own
+ * bool; pass NULL if the caller never pushes the menu context itself. */
 static PdmsWindowFrame pdms_BeginStandardWindow(const char *imguiId, const char *title,
-                                                 float widthFrac, float heightFrac)
+                                                 float widthFrac, float heightFrac,
+                                                 bool *ownsCtx)
 {
     pdguiPopupDarkenBehind(0.55f);
 
@@ -334,9 +337,9 @@ static PdmsWindowFrame pdms_BeginStandardWindow(const char *imguiId, const char 
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
         if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
             inputCtxPush(&g_CtxImGuiMenu);
-            s_PdmsOwnsMenuCtx = true;
-        } else {
-            s_PdmsOwnsMenuCtx = false;
+            if (ownsCtx) *ownsCtx = true;
+        } else if (ownsCtx) {
+            *ownsCtx = false;
         }
     }
 
@@ -346,12 +349,12 @@ static PdmsWindowFrame pdms_BeginStandardWindow(const char *imguiId, const char 
     return wf;
 }
 
-static void pdms_CloseCurrentDialog(void)
+static void pdms_CloseCurrentDialog(bool *ownsCtx)
 {
     pdguiPlaySound(PDGUI_SND_KBCANCEL);
-    if (s_PdmsOwnsMenuCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+    if (ownsCtx && *ownsCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
         inputCtxPopDeferred(&g_CtxImGuiMenu);
-        s_PdmsOwnsMenuCtx = false;
+        *ownsCtx = false;
     }
     menuPopDialog();
 }
@@ -507,7 +510,9 @@ static s32 renderHandicap(struct menudialog *dialog,
         || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)
         || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
     {
-        pdms_CloseCurrentDialog();
+        /* Handicap uses its own Begin path and never pushes g_CtxImGuiMenu,
+         * so no ownership flag needed. */
+        pdms_CloseCurrentDialog(nullptr);
     }
 
     ImGui::End();
@@ -596,9 +601,11 @@ static int modTrackCompare(const void *a, const void *b)
 
 static s32 renderSelectTunes(struct menudialog *, struct menu *, s32, s32)
 {
+    static bool s_TunesOwnsCtx = false;
     PdmsWindowFrame wf = pdms_BeginStandardWindow("##pdms_tunes",
                                                     "Select Tunes",
-                                                    0.70f, 0.82f);
+                                                    0.70f, 0.82f,
+                                                    &s_TunesOwnsCtx);
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (ImGui::IsWindowAppearing()) {
@@ -607,7 +614,7 @@ static s32 renderSelectTunes(struct menudialog *, struct menu *, s32, s32)
 
     if (pdms_BackPressed()) {
         pdms_EndTunesPreview();
-        pdms_CloseCurrentDialog();
+        pdms_CloseCurrentDialog(&s_TunesOwnsCtx);
         ImGui::End();
         return 1;
     }
@@ -799,7 +806,7 @@ static s32 renderSelectTunes(struct menudialog *, struct menu *, s32, s32)
     if (pdguiBeginActionBar("##pdms_tunes_ab")) {
         if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
             pdms_EndTunesPreview();
-            pdms_CloseCurrentDialog();
+            pdms_CloseCurrentDialog(&s_TunesOwnsCtx);
         }
     }
     pdguiEndActionBar();
@@ -830,13 +837,15 @@ static s32 renderSelectTunes(struct menudialog *, struct menu *, s32, s32)
 
 static s32 renderSoundtrack(struct menudialog *, struct menu *, s32, s32)
 {
+    static bool s_SoundtrackOwnsCtx = false;
     PdmsWindowFrame wf = pdms_BeginStandardWindow("##pdms_soundtrack",
                                                     "Soundtrack",
-                                                    0.50f, 0.58f);
+                                                    0.50f, 0.58f,
+                                                    &s_SoundtrackOwnsCtx);
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (pdms_BackPressed()) {
-        pdms_CloseCurrentDialog();
+        pdms_CloseCurrentDialog(&s_SoundtrackOwnsCtx);
         ImGui::End();
         return 1;
     }
@@ -909,7 +918,7 @@ static s32 renderSoundtrack(struct menudialog *, struct menu *, s32, s32)
 
     if (pdguiBeginActionBar("##pdms_soundtrack_ab")) {
         if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
-            pdms_CloseCurrentDialog();
+            pdms_CloseCurrentDialog(&s_SoundtrackOwnsCtx);
         }
     }
     pdguiEndActionBar();
@@ -980,9 +989,11 @@ static void tn_CommitBuffer(u32 team)
 
 static s32 renderTeamNames(struct menudialog *, struct menu *, s32, s32)
 {
+    static bool s_TeamNamesOwnsCtx = false;
     PdmsWindowFrame wf = pdms_BeginStandardWindow("##pdms_teamnames",
                                                     "Team Names",
-                                                    0.56f, 0.72f);
+                                                    0.56f, 0.72f,
+                                                    &s_TeamNamesOwnsCtx);
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (ImGui::IsWindowAppearing()) {
@@ -995,7 +1006,7 @@ static s32 renderTeamNames(struct menudialog *, struct menu *, s32, s32)
         for (u32 t = 0; t < PDMS_MAX_TEAMS; t++) {
             tn_CommitBuffer(t);
         }
-        pdms_CloseCurrentDialog();
+        pdms_CloseCurrentDialog(&s_TeamNamesOwnsCtx);
         ImGui::End();
         return 1;
     }
@@ -1063,7 +1074,7 @@ static s32 renderTeamNames(struct menudialog *, struct menu *, s32, s32)
             for (u32 t = 0; t < PDMS_MAX_TEAMS; t++) {
                 tn_CommitBuffer(t);
             }
-            pdms_CloseCurrentDialog();
+            pdms_CloseCurrentDialog(&s_TeamNamesOwnsCtx);
         }
     }
     pdguiEndActionBar();

@@ -408,24 +408,50 @@ static s32 matchConfigCountBots(void)
 	return bots;
 }
 
-static u8 matchConfigChooseBotTeam(void)
+s32 matchConfigCountHumans(void)
 {
-	/* Keep team mode playable by balancing default bot assignment across
-	 * team 0/1 when teams are enabled. */
-	s32 counts[2] = {0, 0};
+	s32 humans = 0;
+
+	for (s32 i = 0; i < g_MatchConfig.numSlots && i < MATCH_MAX_SLOTS; i++) {
+		if (g_MatchConfig.slots[i].type == SLOT_PLAYER) {
+			humans++;
+		}
+	}
+
+	/* Always at least 1 (local player) to avoid degenerate caps when slots[] is
+	 * mid-rebuild (e.g., SVC_ROOM_SETTINGS read before slot 0 is populated). */
+	return humans > 0 ? humans : 1;
+}
+
+u8 matchConfigChooseBotTeam(s32 numTeams)
+{
+	/* Balance default bot assignment across the active team count (2..MAX_TEAMS).
+	 * Ties are broken by lowest-index team, preserving prior 2-team behavior. */
+	if (numTeams < 2) numTeams = 2;
+	if (numTeams > MAX_TEAMS) numTeams = MAX_TEAMS;
+
+	s32 counts[MAX_TEAMS] = {0};
 
 	for (s32 i = 0; i < g_MatchConfig.numSlots && i < MATCH_MAX_SLOTS; i++) {
 		if (g_MatchConfig.slots[i].type == SLOT_PLAYER
 				|| g_MatchConfig.slots[i].type == SLOT_BOT) {
 			u8 team = g_MatchConfig.slots[i].team;
 
-			if (team < 2) {
+			if (team < (u8)numTeams) {
 				counts[team]++;
 			}
 		}
 	}
 
-	return counts[0] <= counts[1] ? 0 : 1;
+	s32 bestTeam = 0;
+	s32 bestCount = counts[0];
+	for (s32 t = 1; t < numTeams; t++) {
+		if (counts[t] < bestCount) {
+			bestTeam = t;
+			bestCount = counts[t];
+		}
+	}
+	return (u8)bestTeam;
 }
 
 s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
@@ -435,7 +461,7 @@ s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
 		return -1;
 	}
 
-	if (matchConfigCountBots() >= matchConfigMaxBotsForHumans(1)) {
+	if (matchConfigCountBots() >= matchConfigMaxBotsForHumans(matchConfigCountHumans())) {
 		return -1;
 	}
 
@@ -445,7 +471,7 @@ s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
 	slot->botType = botType;
 	slot->botDifficulty = botDifficulty;
 	slot->team = (g_MatchConfig.options & MPOPTION_TEAMSENABLED)
-		? matchConfigChooseBotTeam()
+		? matchConfigChooseBotTeam(2)
 		: 0;
 
 	/* Set catalog IDs as PRIMARY identity. Random if not specified. */
