@@ -1747,6 +1747,28 @@ void menuPopDialog(void)
 	menuUpdateCurFrame();
 }
 
+/* B-153 (2026-04-16): menuPushDialog auto-opens every `nextsibling` under
+ * the same layer, so hotswap renderers that share a renderFn across a
+ * dialogdef and its sibling (e.g. g_CiMenuViaPauseMenuDialog +
+ * g_CiOptionsViaPauseMenuDialog, or main menu PC + Pause variants) can be
+ * fired for the sibling while the user is actually on the primary dialog.
+ * Renderers use this predicate to early-out when they're being called on a
+ * non-curdialog sibling. Scans all player slots so the check is mpplayernum-
+ * agnostic (render callbacks may run from any player's render pass). */
+s32 menuDialogIsCurrent(const struct menudialog *dialog)
+{
+	s32 i;
+	if (!dialog) {
+		return 0;
+	}
+	for (i = 0; i < ARRAYCOUNT(g_Menus); i++) {
+		if (g_Menus[i].curdialog == dialog) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 void func0f0f3704(struct menudialogdef *dialogdef)
 {
 	menuCloseDialog();

@@ -59,6 +59,13 @@ void func0f0f3220(s32 arg0);
 void menuCloseDialog(void);
 void menuUpdateCurFrame(void);
 void menuPopDialog(void);
+/* Returns 1 iff the passed dialog pointer is the active g_Menus[p].curdialog
+ * for its owning player slot. Menu renderers use this to skip rendering
+ * themselves when invoked for a pre-loaded sibling (menuPushDialog auto-opens
+ * every `nextsibling` at the same layer, so renderers for those dialogdefs
+ * are queued by menuRenderDialogs alongside the real current dialog and
+ * would otherwise paint on top of it). */
+s32 menuDialogIsCurrent(const struct menudialog *dialog);
 void func0f0f3704(struct menudialogdef *dialogdef);
 void menuConfigureModel(struct menumodel *menumodel, f32 x, f32 y, f32 z, f32 rotx, f32 roty, f32 rotz, f32 scale, u8 flags);
 void menuUnsetModel(struct menumodel *menumodel);
