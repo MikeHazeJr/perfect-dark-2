@@ -789,6 +789,22 @@ static chrome_jtok cjson_next(chrome_jparse *j)
         if (c == '-' || (c >= '0' && c <= '9')) {
             if (c == '-') j->pos++;
             while (*j->pos >= '0' && *j->pos <= '9') j->pos++;
+            /* Fractional part: accept '.' followed by digits so floats like
+             * 1.000 don't trip the ERROR branch (which aborts cjson_skip_value
+             * mid-value and corrupts the parser position for later top-level
+             * keys). Essential for skipping the nine-slice tool's
+             * chrome_authoring block (contains border_scale / inset_pct
+             * floats) before components is read. */
+            if (*j->pos == '.') {
+                j->pos++;
+                while (*j->pos >= '0' && *j->pos <= '9') j->pos++;
+            }
+            /* Exponent part (1e6, -2.5E-3). */
+            if (*j->pos == 'e' || *j->pos == 'E') {
+                j->pos++;
+                if (*j->pos == '+' || *j->pos == '-') j->pos++;
+                while (*j->pos >= '0' && *j->pos <= '9') j->pos++;
+            }
             tok.len = (int)(j->pos - tok.start);
             tok.type = CJT_NUMBER;
         } else if (strncmp(j->pos, "true", 4) == 0) {

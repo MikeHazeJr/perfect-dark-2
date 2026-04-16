@@ -46,6 +46,11 @@
 extern "C" {
 
 void modmgrApplyChanges(void);
+void modmgrRescanDirectory(void);
+s32  modmgrGetCount(void);
+const char *modmgrGetModId(s32 index);
+void modmgrSetEnabled(s32 index, s32 enabled);
+void modmgrSaveConfig(void);
 s32  viGetWidth(void);
 s32  viGetHeight(void);
 void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
@@ -1941,6 +1946,27 @@ static bool chromeToolSaveMod(void)
     }
 
     pdguiThemeRegisterChromeModDir(modDir, 1);
+
+    /* Make the new mod visible in the Modding Hub Mods list immediately:
+     * re-scan mods/ so the registry picks up the newly-written dir, then
+     * flip its enabled bit + persist to pd.ini so state matches the
+     * "Saved & activated" status we advertise and survives restart. */
+    char newModId[128];
+    snprintf(newModId, sizeof(newModId), "user.%s.ui-chrome", slug);
+    modmgrRescanDirectory();
+    s32 modCount = modmgrGetCount();
+    for (s32 i = 0; i < modCount; i++) {
+        const char *id = modmgrGetModId(i);
+        if (id && strcmp(id, newModId) == 0) {
+            modmgrSetEnabled(i, 1);
+            break;
+        }
+    }
+    modmgrSaveConfig();
+    /* Rebuild the Mods tab's display snapshot so the new entry shows up
+     * next time the user switches to the Mod Manager tool. */
+    pdguiModManagerRefreshSnapshot();
+
     s_ChromeStatusOk = true;
     snprintf(s_ChromeStatus, sizeof(s_ChromeStatus),
              "Saved & activated: %s%s",

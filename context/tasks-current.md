@@ -7,6 +7,30 @@
 
 ---
 
+## Open — 2026-04-16 (S297 — silly-jepsen)
+
+### Playtest verification of B-154 / B-155 / B-156
+
+Commit on `claude/silly-jepsen-cc481a`. Build: pd 51,424,970 / pd-server 22,816,554 bytes.
+
+- **B-154 (textbox input leak)** — Open each of these and type alphabetic keys, confirming the background player takes no action:
+  - Modding Hub → Nine-Slice Chrome → "Mod Name" InputText: type `Weapon` / `Esteemed` / `Tactical` — no ACTION_USE / ACTION_LOOK / etc.
+  - Modding Hub → Nine-Slice Chrome → "Image" path InputText.
+  - Skin Editor → name field.
+  - MP connect-code entry field.
+  - MP chat InputText (if active).
+  - Verify Esc still closes each menu and Return/Enter still submits (these are the only keys that bypass the new gate).
+- **B-155 (chrome mod visibility in Mods list)** — Nine-Slice Chrome → load image → Save as Mod. Open Modding Hub → Mods tab. The new entry (`user.<slug>.ui-chrome`) should appear immediately, enabled (checked). Quit + relaunch; confirm the mod is still in the list and still enabled (config persisted via `modmgrSaveConfig`). Also verify pending (unapplied) enable/disable toggles on OTHER mods are preserved across the save-triggered rescan (pick a mod, flip enabled, save a chrome mod, confirm the flipped mod's state survived).
+- **B-156 (chrome mod visibility in Video dropdown)** — Same save flow. Open Settings → Video → UI Chrome Style. The new chrome style name should appear between "Procedural" and any other discovered style. Select it; chrome updates live. Restart the game; confirm the style persists (`Video.UiChromeStyleId`) and is still in the dropdown.
+
+### Follow-up if any of the three recur
+
+- If B-154 recurs: capture `io.WantCaptureKeyboard` + `inputCtxGetTopName()` state around the leak (add temporary `sysLogPrintf` in the new gate block). If WantCaptureKeyboard reads 0 during an active InputText, upgrade the gate to also consult `io.WantTextInput`.
+- If B-155 recurs: verify `modmgrRescanDirectory()` actually finds the new dir — add `sysLogPrintf` listing each candidate `modsdir` and the path the scan decided to walk. Path-mismatch between `$E/../mods` vs `./mods` is the likely suspect.
+- If B-156 recurs: grep `pd.log` for `UI.CHROME: registered style` — if the expected id isn't logged, re-trace `s_parseChromeManifest` (dump `has_chrome_tag / out_tex_id / out_tex_file / has_nineslice` just before the final `return`). The S297 float-tokenizer fix doesn't cover every possible JSON parser weakness; `\u` escapes are also unhandled, for instance.
+
+---
+
 ## Open — 2026-04-16 (S296 — vigilant-robinson)
 
 ### Playtest verification of B-152 (stuck WASD) and B-153 (double main menu)

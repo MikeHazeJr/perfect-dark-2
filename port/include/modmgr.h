@@ -86,6 +86,16 @@ void modmgrShutdown(void);
 // Caller should return to title screen after this.
 void modmgrReload(void);
 
+// Re-scan mods/ on disk and merge into the registry, preserving the
+// enabled/loaded state of mods already known. New mods discovered on disk
+// appear in the list with enabled=0; disappeared mods are dropped. Does
+// NOT rebuild the catalog or change the active stage — intended for in-game
+// content creation flows (e.g. Nine-Slice Chrome save, Map Import) that
+// drop a new mod dir to disk and need the Mods list to reflect it without
+// a title restart. Pair with modmgrSaveConfig() if the caller also wants
+// a newly-discovered mod to persist as enabled.
+void modmgrRescanDirectory(void);
+
 // ---- Registry queries ----
 
 s32         modmgrGetCount(void);

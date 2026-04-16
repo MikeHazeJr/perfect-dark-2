@@ -1522,6 +1522,54 @@ void modmgrReload(void)
 	mainChangeToStage(MODMGR_STAGE_TITLE);
 }
 
+void modmgrRescanDirectory(void)
+{
+	// Snapshot {id, enabled, loaded} of currently-known mods so we can
+	// restore per-entry state after the rescan wipes g_ModRegistry. This
+	// preserves in-memory edits the user hasn't applied yet (pending
+	// enable/disable toggles) and avoids re-loading catalog content that
+	// already lives there.
+	struct {
+		char id[MODMGR_ID_LEN];
+		s32  enabled;
+		s32  loaded;
+	} saved[MODMGR_MAX_MODS];
+	s32 numSaved = g_ModRegistryCount;
+	if (numSaved > MODMGR_MAX_MODS) numSaved = MODMGR_MAX_MODS;
+	for (s32 i = 0; i < numSaved; i++) {
+		strncpy(saved[i].id, g_ModRegistry[i].id, MODMGR_ID_LEN - 1);
+		saved[i].id[MODMGR_ID_LEN - 1] = '\0';
+		saved[i].enabled = g_ModRegistry[i].enabled;
+		saved[i].loaded  = g_ModRegistry[i].loaded;
+	}
+
+	sysLogPrintf(LOG_NOTE, "modmgr: rescanning mods/ (was %d mods)", numSaved);
+
+	// Re-scan from disk — resets g_ModRegistryCount to 0 and re-parses every
+	// mod.json / audio.ini under the mods roots.
+	modmgrScanDirectory();
+
+	// Keep list ordering stable after rescan.
+	if (g_ModRegistryCount > 1) {
+		qsort(g_ModRegistry, g_ModRegistryCount, sizeof(modinfo_t), modmgrCompare);
+	}
+
+	// Restore enabled/loaded for entries that existed before the rescan.
+	// Newly-discovered entries keep scanDirectory's defaults (enabled=0,
+	// loaded=0); caller can flip them via modmgrSetEnabled + modmgrSaveConfig.
+	for (s32 i = 0; i < g_ModRegistryCount; i++) {
+		for (s32 j = 0; j < numSaved; j++) {
+			if (strcmp(g_ModRegistry[i].id, saved[j].id) == 0) {
+				g_ModRegistry[i].enabled = saved[j].enabled;
+				g_ModRegistry[i].loaded  = saved[j].loaded;
+				break;
+			}
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "modmgr: rescan complete (now %d mods)", g_ModRegistryCount);
+}
+
 static void modmgrRebuildCatalogFromCurrentSelection(void)
 {
 	s32 enabledCount = 0;

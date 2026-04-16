@@ -746,14 +746,42 @@ s32 pdguiProcessEvent(void *sdlEvent)
         return 1; /* consumed: don't forward to ImGui or dispatch */
     }
 
+    /* ---- B-154 fix: Textbox keystroke leak to action map ---- */
+    /* When ImGui has captured the keyboard (InputText active, or a nav-focused
+     * window claims keys), keystrokes must NOT reach actionmapDispatch — else
+     * typing "E" in a mod-name box still fires ACTION_USE, etc. Esc and Enter
+     * still pass through so dialogs can close/submit via their normal action
+     * bindings. Everything else is handed to ImGui only (and consumed so the
+     * game never sees it). */
+    s32 isKeyEv = (ev->type == SDL_KEYDOWN || ev->type == SDL_KEYUP);
+    s32 imguiEatsKey = 0;
+    if (isKeyEv && ImGui::GetIO().WantCaptureKeyboard) {
+        SDL_Keycode sym = ev->key.keysym.sym;
+        /* Allow Esc (cancel/close) and Enter (submit) through to the action
+         * map — those are the only keys that must continue to drive menu-
+         * level actions while a textbox has focus. */
+        if (sym != SDLK_ESCAPE && sym != SDLK_RETURN && sym != SDLK_KP_ENTER) {
+            imguiEatsKey = 1;
+        }
+    }
+
     /* ---- M0.2 Phase A: Update action map state ---- */
-    actionmapDispatch(ev);
+    if (!imguiEatsKey) {
+        actionmapDispatch(ev);
+    }
 
     /* ---- Forward to ImGui for internal state tracking ---- */
     /* ImGui always needs to see events (mouse position, key state, gamepad)
      * even when the game also processes them. The context stack decides
      * whether the game sees the event too. */
     ImGui_ImplSDL2_ProcessEvent(ev);
+
+    /* If ImGui is eating this keystroke (textbox focused), don't let the
+     * input-context stack forward it to legacy paths either — the text
+     * widget is the sole consumer. */
+    if (imguiEatsKey) {
+        return 1;
+    }
 
     /* ---- Dispatch through the input context stack ---- */
     /* The stack walks top-to-bottom. If any context's can_consume() returns

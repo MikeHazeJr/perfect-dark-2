@@ -1,6 +1,6 @@
 # Perfect Dark 2 -- Project Context Index
 
-> **Last updated**: 2026-04-16, S292 — **Room max-bot/team hardening** (S292), Nine-Slice Chrome creator + transforms (S288–S290), Select Tunes fix (S291), Mod Apply UX/hardening (S284–S287), Skin Editor fidelity + Dev Window v2 lock (S266–S273), gameplay audit + Counter-Op wire (S262–S265). Prior: S258 context organization.
+> **Last updated**: 2026-04-16, S297 — **Textbox leak + chrome mod visibility** (S297, B-154/B-155/B-156), S295/296 collision + menu + match-pipeline drops (B-145..B-153), **Room max-bot/team hardening** (S292), Nine-Slice Chrome creator + transforms (S288–S290), Select Tunes fix (S291), Mod Apply UX/hardening (S284–S287), Skin Editor fidelity + Dev Window v2 lock (S266–S273), gameplay audit + Counter-Op wire (S262–S265). Prior: S258 context organization.
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding
@@ -32,10 +32,11 @@ In **Cursor**, attach the project skill **[context-session-start](../.cursor/ski
 
 ## Session History
 
-**Active log** ([session-log.md](session-log.md)): sessions **S241–S292** (rolling window). **Next tier** ([_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md)): S240 through S157. **S1–S119** chunked files in [_archive/sessions/](_archive/sessions/). Map: [INDEX.md](INDEX.md).
+**Active log** ([session-log.md](session-log.md)): sessions **S241–S297** (rolling window). **Next tier** ([_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md)): S240 through S157. **S1–S119** chunked files in [_archive/sessions/](_archive/sessions/). Map: [INDEX.md](INDEX.md).
 
 | Sessions | Period | Focus |
 |----------|--------|-------|
+| S297 | 2026-04-16 | **Playtest triage (silly-jepsen)**: B-154 textbox keyboard leak to actionmap (WantCaptureKeyboard gate in `pdguiProcessEvent`); B-155 Nine-Slice chrome mod not in Mods list without restart (new `modmgrRescanDirectory` + chrome save wiring); B-156 chrome mod missing from Video dropdown (float tokenizer bug in `cjson_next` broke `s_parseChromeManifest` on the `chrome_authoring` block). |
 | S292 | 2026-04-16 | **Room max-bot/team hardening**: `matchConfigMaxBotsForHumans()` unified cap across room/scenario/sync; balanced default bot team assignment in team mode (`35a8daaf`). |
 | S288–S291 | 2026-04-15/16 | **Nine-Slice Chrome tool** added to Modding Hub (image import, ruler sliders, save-as-mod, S288); assembled frame preview + desaturation (S289); transform pipeline — trim, scale, center-cut + docked actions + Back parity (S290). **Select Tunes**: audio.ini textual category fix + playlist add path hardening for `modmgrRebuildCatalog` (S291). |
 | S284–S287 | 2026-04-15 | **Mod Apply UX**: in-place modal, no forced title restart (S284); updater-style centered progress popup (S285); green-tint success state (S286). **Release/build hardening**: force-commit fallback (`--no-verify`) + Build dir auto-creation in release.ps1 + dev-window + build-headless (S287). |
