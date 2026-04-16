@@ -7,6 +7,31 @@
 
 ---
 
+## Open — 2026-04-16 (S298 — stoic-proskuriakova)
+
+### Playtest verification of the S298 follow-up batch
+
+Commit on `dev` (fast-forwarded from `claude/stoic-proskuriakova-2440de`). Build: `PerfectDark.exe` 51,363,805 / `PerfectDarkServer.exe` 22,838,411 bytes.
+
+- **Content inset in endscreens** — load a chrome style with large nineslice corners (e.g. 24+ px `border_scale: 2.0` on the Nine-Slice template). Play a solo mission to end; play a Combat Sim match to end. Expect: DEBRIEF / OBJECTIVES columns, rankings table, awards, and the action button row all sit inside the inner frame — no text or button bleeds into the chrome border. Pause menu tabs + Resume button same check.
+- **Theme Editor docked footer** — open Main Menu → Theme Editor. On 720p and 1080p verify the Save-as-Mod inputs + Reset/Close buttons are always visible even as the color list is scrolled, and scrolling only affects the color pickers.
+- **Room Start Match docked footer** — host a room on a narrow window (resize game window to ~900 px wide), fill the bot list, toggle tabs (Combat Simulator / Campaign / Counter-Op / Level Editor). Expect Start Match + Leave Room button row to always be pinned at the bottom of the dialog, never clipped or pushed offscreen.
+- **Deep Sea end-path OOB** — replay Deep Sea co-op → mission complete → expect the next-mission transition to land cleanly on the Deep Sea follow-up (no AV / no -1 index crash even when the campaign list has been modified by mods).
+- **SP-1 guard — `endscreenSetCoopCompleted`** — complete any co-op mission; sanity-check no crash from the `1 << stageindex` shift on a mod stage whose `stageindex >= 32`. No visible UI change, just no crash.
+- **Manifest scanner FIX-B.1** — play through a mission with cinematic spawns (Deep Sea intro, Crash Site intro, any stage with SPAWNCHRATPAD-driven cutscene chrs). Tail `pd.log` for `manifest-diff:` lines; expect the set of `load` entries to include bodies/heads/models referenced by intro/ailist scans, not just the static props. Best signal: no more "CHR 0xXX missing from manifest" runtime warnings that previously showed up during Deep Sea act 2 cinematic.
+- **Spawn pool residuals**:
+  - **Reservation** — 32-bot Chicago, inspect log for `SPAWN: initial MP spawn via pool[N]` lines. Every N should be unique (no duplicates across the 32+ entries from the same match-start tick).
+  - **Wall-probe orientation** — same match, watch the initial facing of bots on a map with lots of pocket spawns (G5 elevators, Skedar Ruins recessed spawns). Bots should face out of pockets, not into the corner.
+  - **Neighbour-room ground check** — on any stage with portal seams (Felicity balconies, Temple bridges) verify no bots spawn mid-air or fall through portal boundaries on first-spawn.
+
+### Follow-up if any of the seven recur
+
+- If content inset clips persist, dump `pdguiThemeGetContentInset` values at render time and compare against `pdguiNinesliceGet(s_CfgUiChromeStyleId)->dst_*` corner values.
+- If manifest scanner misses an asset, log the ailist index + cmd[0]..cmd[7] hex bytes for the suspect command — the scanner's dispatch may need an extra AICMD case.
+- If reservation bitset exhausts the pool during normal play, drop to logging `s_SpawnReserved[]` snapshots around each select call; expected pattern is "reset each tick" — if it survives longer, `g_Vars.lvframenum` is not advancing as expected.
+
+---
+
 ## Open — 2026-04-16 (S297 — silly-jepsen)
 
 ### Playtest verification of B-154 / B-155 / B-156
@@ -52,10 +77,10 @@ Commit on `claude/elegant-mahavira-198cc0`.
   Verify persistence: restart client, style should be restored from `pd.ini`.
 - **Content-inset API (smoke)** — Toggle chrome on, then off.  No visible difference in existing menus (the API is additive; no caller wired yet).  Expect `PDGUI theme: D5.0 early init (...)` log line unchanged.
 
-### Follow-up tasks queued from S297 (not yet implemented)
+### Follow-up tasks queued from S297 — CLOSED S298
 
-- Migrate Theme Editor / Room `Start Match` action rows to the Chrome tool's child → child → footer pattern for overflow resilience.
-- Wire `pdguiThemeGetContentInset` into custom-drawn menus (endscreen, scorecard, HUD overlays) so they never clip into nineslice borders.
+- ~~Migrate Theme Editor / Room `Start Match` action rows to the Chrome tool's child → child → footer pattern for overflow resilience.~~ DONE S298 — Theme Editor uses explicit `footerH` reservation with pinned Save/Reset/Close row; Room `pdguiRoomScreenRender` pins Start Match/Leave Room footer at `dialogH - footerH`.
+- ~~Wire `pdguiThemeGetContentInset` into custom-drawn menus (endscreen, scorecard, HUD overlays) so they never clip into nineslice borders.~~ DONE S298 — wired into `renderSoloEndscreen`, `renderMpEndscreen`, and `renderPauseMenu` via `resolveEndscreenPadding`. Scorecard + HUD don't use `pdguiDrawPdDialog` so no change needed.
 
 ---
 
@@ -89,7 +114,7 @@ Commit on `claude/vigilant-robinson-ba0ee9`. Reproduction source: `019d97ef-pdcl
 
 - **Issue 1-B** (mesh ceiling wiring): `classifyTriFlags` emits a real `GEOFLAG_CEILING`, `meshFindCeiling` filters on normal.y; wire into `bondwalk.c` pre-move clamp and into `capsuleSweep` for upward motion.
 - **Issue 2-B** (per-prop mesh extraction): extend `meshWorldAddRoomGeo`-style top-face extraction to per-prop colmesh so desks/crates/tables get correct top faces generally.
-- **Issue 5 residual**: same-tick reservation bitset for `spawnPoolSelect`, pool orientation via 8-direction wall probe (reuse `playerreset.c:695-714`), neighbor-room ground check in `spawnPoolValidateCandidate`.
+- ~~**Issue 5 residual**~~: DONE S298 — `s_SpawnReserved[]` same-tick bitset in `spawnPoolSelect` (auto-cleared on `g_Vars.lvframenum` change + pool rebuild), `spawn_point_t.angle_rad` wall-probe stored at build time and used from `playerreset.c`, `spawnPoolValidateCandidate` passes `bgFindRoomsByPos`-collected neighbour rooms into `cdFindGroundInfoAtCyl`.
 
 ---
 
@@ -220,10 +245,13 @@ Mike to confirm each on next build. Bug/feature → commit on `dev`:
 
 ### Audit follow-ups (S262 — open, not yet implemented)
 
-- **Campaign end-path OOB guard** — `src/game/menutick.c`: Deep Sea next-stage path increments `g_MissionConfig.stageindex` and indexes `g_SoloStages[]` without `NUM_SOLOSTAGES` clamp. Align with guards in `endscreen.c`.
-- **Endscreen menu index safety (SP-1)** — `src/game/endscreen.c`: guard `g_MpPlayerNum` before `g_Menus[g_MpPlayerNum]` writes in `endscreenPushCoop/Anti`.
-- **Team rankings data/UI mismatch** — `port/fast3d/pdgui_menu_endscreen.cpp`: `buildRankings` consumes `mpGetTeamRankings()` rows with `mpchr=NULL`; use per-player rankings + team sort for display consistency.
 - **Room-scope teardown hygiene (SP-14 follow-up)** — `port/src/net/net.c`: review/reset lifecycle for `g_NetMatchRoomId` at stage end.
+
+### Audit follow-ups (S262 — closed in S298)
+
+- ~~**Campaign end-path OOB guard**~~ — DONE S298 (lower-bound check added to menutick.c alongside S264 upper-bound clamp).
+- ~~**Endscreen menu index safety (SP-1)**~~ — DONE (`endscreenPushCoop/Anti` guards already in place; S298 extends the same guard pattern into `endscreenSetCoopCompleted`).
+- ~~**Team rankings data/UI mismatch**~~ — DONE S295 (`buildRankings` now uses `mpGetPlayerRankings` + team sort; verified in S298).
 
 ---
 
@@ -334,7 +362,7 @@ Open supporting items:
 
 | ID | Title | Status |
 |----|-------|--------|
-| **FIX-B.1** | Deep manifest scanner (cinematics + AI scripts) | OPEN — `netmanifest.c`, `setup.c` |
+| **FIX-B.1** | Deep manifest scanner (cinematics + AI scripts) | DONE S298 — `netmanifest.c` now scans `g_StageSetup.intro` + `g_StageSetup.ailists`. |
 
 ---
 
