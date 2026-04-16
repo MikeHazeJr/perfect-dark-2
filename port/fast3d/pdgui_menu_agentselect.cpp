@@ -198,6 +198,13 @@ static s32 renderAgentSelect(struct menudialog *dialog,
 
     if (!ImGui::Begin("##agent_select", nullptr, wflags)) {
         ImGui::End();
+        /* S295 F4: leak guard. If we previously pushed g_CtxImGuiMenu but the
+         * window is culled this frame, the back/close branch can't run to pop.
+         * Release now so the context doesn't leak into a dead-input state. */
+        if (s_AgentSelectPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+            s_AgentSelectPushedCtx = false;
+        }
         return 1;
     }
 

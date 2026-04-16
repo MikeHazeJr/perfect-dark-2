@@ -708,6 +708,19 @@ static void renderSoloEndscreen(bool completed)
  * pause→End Game confirm / Alt combo cannot instantly dismiss or rematch. */
 static s32 s_MpEndscreenDebounce = 0;
 
+/* S295 F5: Replace the previous every-frame re-push pattern with a one-shot
+ * push on fresh entry. The previous code called inputCtxPush every frame that
+ * the window rendered while !inputCtxIsActive — which papered over a
+ * first-frame miss but created a bad resurrect pattern: if a force-close site
+ * popped the context, the very next frame this renderer would re-push it,
+ * trapping the player in a menu that no longer had a meaningful owner.
+ *
+ * New pattern: detect "fresh entry" by observing a gap in frame numbers
+ * (i.e., this renderer wasn't called last frame). On fresh entry, push once
+ * if no other context owns the menu. After that, force-close sites and
+ * stage-transition reset handle cleanup. */
+static s32 s_MpEndscreenLastFrame = -1;
+
 /* challengeResult: 0=normal, 1=completed, 2=failed, 3=cheated */
 static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
 {
@@ -758,14 +771,17 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
         return;
     }
 
-    /* E.2: Keep ImGuiMenu input active for the whole time this window exists.
-     * Gating push on IsWindowAppearing() alone misses the first frame on some
-     * transitions (MP pause → end game → endscreen), so gameplay-relative mouse
-     * stays on: no clicks, no visible interaction (Bug C / post-game soft-lock). */
-    if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+    /* S295 F5: One-shot push on fresh entry. See comment on
+     * s_MpEndscreenLastFrame for rationale. */
+    s32 curFrame = (s32)ImGui::GetFrameCount();
+    bool freshEntry = (s_MpEndscreenLastFrame < 0) ||
+                      ((curFrame - s_MpEndscreenLastFrame) > 1);
+    s_MpEndscreenLastFrame = curFrame;
+
+    if (freshEntry && !inputCtxIsActive(&g_CtxImGuiMenu)) {
         inputCtxPush(&g_CtxImGuiMenu);
     }
-    if (ImGui::IsWindowAppearing()) {
+    if (ImGui::IsWindowAppearing() || freshEntry) {
         ImGui::SetWindowFocus();
         s_MpEndscreenDebounce = 5;
     }

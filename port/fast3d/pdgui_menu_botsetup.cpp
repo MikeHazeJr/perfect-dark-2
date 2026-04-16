@@ -483,6 +483,13 @@ static WindowFrame bs_BeginStandardWindow(const char *imguiId, const char *title
 
     if (!ImGui::Begin(imguiId, nullptr, flags)) {
         wf.mw = 0.0f;
+        /* S295 F4 leak guard: window culled this frame. Release context we
+         * previously owned so dead-input doesn't persist. Next IsWindowAppearing
+         * will re-push cleanly. */
+        if (s_BotSetupPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+            s_BotSetupPushedCtx = false;
+        }
         return wf;
     }
 

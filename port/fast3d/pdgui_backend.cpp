@@ -129,7 +129,12 @@ extern "C" void* pdguiGetUiTexture(const char *id)
  * --------------------------------------------------------------------------- */
 
 static bool g_PdguiInitialized = false;
-static bool g_PdguiActive = false;  /* overlay visible? */
+/* S295 F1: Removed g_PdguiActive mirror boolean.
+ * The debug overlay's visibility is now derived solely from the input context
+ * stack via inputCtxIsActive(&g_CtxDebugOverlay). The mirror boolean could
+ * drift from the stack (e.g. if some code path popped the context without
+ * updating the bool), producing dead-input desync. See
+ * context/scratch/menu-system-investigation-2026-04-16.md §5.4. */
 static SDL_Window *g_PdguiWindow = nullptr;
 
 /* Note: Mouse grab state is now owned by the input context lifecycle.
@@ -256,7 +261,6 @@ void pdguiInit(void *sdlWindow)
     ImGui_ImplOpenGL3_Init("#version 130");
 
     g_PdguiInitialized = true;
-    g_PdguiActive = false;
 
     /* Initialize the F8 in-game hot-swap system (D4) */
     pdguiHotswapInit();
@@ -363,8 +367,9 @@ void pdguiNewFrame(void)
     bool pauseActive = (pdguiIsPauseMenuOpen() || pdguiIsScorecardVisible());
     bool hubActive = (pdguiModdingHubIsVisible() != 0);
 
+    bool debugOverlayActive = (inputCtxIsActive(&g_CtxDebugOverlay) != 0);
     if (!g_PdguiInitialized ||
-        (!g_PdguiActive && !pdguiHotswapHasQueued() && !pdguiHotswapWasActive() &&
+        (!debugOverlayActive && !pdguiHotswapHasQueued() && !pdguiHotswapWasActive() &&
          !networkActive && !pauseActive && !hubActive)) {
         return;
     }
@@ -456,8 +461,9 @@ void pdguiRender(void)
     bool hubActive = (pdguiModdingHubIsVisible() != 0);
 
     /* D13: Also render when update UI is visible (notification banner, version picker) */
+    bool debugOverlayActive = (inputCtxIsActive(&g_CtxDebugOverlay) != 0);
     if (!g_PdguiInitialized ||
-        (!g_PdguiActive && !s_ConsoleVisible && !hotswapQueued && !hotswapWasActive &&
+        (!debugOverlayActive && !s_ConsoleVisible && !hotswapQueued && !hotswapWasActive &&
          !networkActive && !updateActive && !pauseActive && !hubActive)) {
         return;
     }
@@ -475,7 +481,7 @@ void pdguiRender(void)
     }
 
     /* F12 debug menu — PD-styled, game-relative scaling */
-    if (g_PdguiActive) {
+    if (debugOverlayActive) {
         pdguiDebugMenuRender((s32)winW, (s32)winH);
         /* Log Viewer Dev Window — shown alongside the debug menu */
         pdguiLogViewerRender((s32)winW, (s32)winH);
@@ -695,7 +701,6 @@ void pdguiShutdown(void)
     ImGui::DestroyContext();
 
     g_PdguiInitialized = false;
-    g_PdguiActive = false;
     g_PdguiWindow = nullptr;
 }
 
@@ -720,14 +725,13 @@ s32 pdguiProcessEvent(void *sdlEvent)
         return 1;
     }
 
-    /* F12: toggle debug overlay via context stack push/pop */
+    /* F12: toggle debug overlay via context stack push/pop.
+     * S295 F1: Authoritative state is the input context stack — no mirror bool. */
     if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F12) {
-        if (!g_PdguiActive) {
+        if (!inputCtxIsActive(&g_CtxDebugOverlay)) {
             inputCtxPush(&g_CtxDebugOverlay);
-            g_PdguiActive = true;
         } else {
             inputCtxPopDeferred(&g_CtxDebugOverlay);
-            g_PdguiActive = false;
         }
         return 1;
     }
@@ -779,12 +783,11 @@ s32 pdguiIsActive(void)
 
 void pdguiToggle(void)
 {
-    if (!g_PdguiActive) {
+    /* S295 F1: Authoritative state is the input context stack — no mirror bool. */
+    if (!inputCtxIsActive(&g_CtxDebugOverlay)) {
         inputCtxPush(&g_CtxDebugOverlay);
-        g_PdguiActive = true;
     } else {
         inputCtxPopDeferred(&g_CtxDebugOverlay);
-        g_PdguiActive = false;
     }
 }
 

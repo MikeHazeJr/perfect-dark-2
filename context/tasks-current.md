@@ -7,7 +7,19 @@
 
 ---
 
-## Open — 2026-04-16 (S293)
+## Open — 2026-04-16 (S295)
+
+### Playtest verification of the 2026-04-16 menu dead-input desync fixes (B-145)
+
+Reference: `context/scratch/menu-system-investigation-2026-04-16.md` §7, commit on `claude/relaxed-ride`.
+
+- **F1 — g_PdguiActive removed** — toggle F12 overlay on/off several times in CI free-roam; overlay should appear/disappear and player input toggle correctly each time; verify no "F12 does nothing" regression after rapid cycles.
+- **F2 — dead `pdguiGameOverRender` body removed** — no behavioral change expected; just confirm no crash on MP end screen (hotswap endscreen path remains the sole renderer).
+- **F3 — `inputCtxEndFrame` watchdog** — tail `pd.log` across a full session (title → solo mission → MP match → end screen → main menu → quit). Expect **zero** `INPUTCTX watchdog:` lines. Any occurrence identifies a remaining leak; capture the stack-dump context.
+- **F4 — Begin()=false leak guards (9 renderers)** — stress navigating sub-dialogs quickly (Bot Setup → edit sim → back → back; MP Settings → Soundtrack → Select Tunes → back → back). On any transient window cull we should not see the player frozen without a menu visible.
+- **F5 — MpEndscreen one-shot push** — MP match → pause → End Game → verify first-frame clickability of endscreen (original Bug C repro). Then Return-to-Lobby → ensure player control resumes in the lobby.
+- **F6 — force-close contract** — no runtime change; review by human.
+- **F7 — `s_MainMenuPushedCtx` removed** — open/close main menu from CI multiple times; then from CI exit via Quit → ensure the close path still pops the context (watch for any "menu gone but player frozen" state).
 
 ### Playtest verification of the 2026-04-16 Nine-Slice + mods folder drop
 

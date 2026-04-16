@@ -1186,6 +1186,11 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
 {
     if (!beginTrainingWindow("##fr_weapon_list", "Weapon", winW, winH)) {
         ImGui::End();
+        /* S295 F4 leak guard: release owned context if the window is culled. */
+        if (s_FrWeaponPushedCtx) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+            s_FrWeaponPushedCtx = 0;
+        }
         return 1;
     }
 

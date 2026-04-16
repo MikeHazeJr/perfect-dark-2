@@ -413,6 +413,11 @@ static WindowFrame mp_BeginStandardWindow(const char *imguiId, const char *title
         /* Defer End() to caller via a return-value convention:
          * wf.mw==0 signals "Begin returned false". */
         wf.mw = 0.0f;
+        /* S295 F4 leak guard: see pdgui_menu_agentselect.cpp for rationale. */
+        if (s_MpSetupPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
+            inputCtxPopDeferred(&g_CtxImGuiMenu);
+            s_MpSetupPushedCtx = false;
+        }
         return wf;
     }
 

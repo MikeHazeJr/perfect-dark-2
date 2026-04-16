@@ -237,6 +237,42 @@ void inputCtxPollFrame(void)
     }
 }
 
+/* S295 F3: Watchdog state for end-of-frame sanity checks. */
+#define INPUTCTX_WATCHDOG_DEEP_THRESHOLD 5      /* depths >= this get warned */
+#define INPUTCTX_WATCHDOG_FORCE_RESET    (INPUTCTX_MAX_STACK - 1) /* near-overflow = pathology */
+#define INPUTCTX_WATCHDOG_LOG_COOLDOWN_MS 1000
+
+static u32 s_WatchdogLastLogMs = 0;
+
+static s32 inputctxWatchdogShouldLog(void)
+{
+    u32 now = SDL_GetTicks();
+    if (now - s_WatchdogLastLogMs >= INPUTCTX_WATCHDOG_LOG_COOLDOWN_MS) {
+        s_WatchdogLastLogMs = now;
+        return 1;
+    }
+    return 0;
+}
+
+/* Dump the current stack names at WARNING level. Caller controls rate-limit. */
+static void inputctxWatchdogDumpStack(const char *why)
+{
+    sysLogPrintf(LOG_WARNING,
+                 "INPUTCTX watchdog: %s depth=%d bottom='%s' top='%s'",
+                 why,
+                 (int)s_Depth,
+                 (s_Depth > 0 && s_Stack[0]) ? (s_Stack[0]->name ? s_Stack[0]->name : "?") : "(empty)",
+                 inputCtxGetTopName());
+    for (s32 i = 0; i < s_Depth; i++) {
+        if (s_Stack[i]) {
+            sysLogPrintf(LOG_WARNING, "  [%d] %s%s",
+                         (int)i,
+                         s_Stack[i]->name ? s_Stack[i]->name : "?",
+                         s_Stack[i]->marked_for_removal ? " (marked)" : "");
+        }
+    }
+}
+
 void inputCtxEndFrame(void)
 {
     /* Remove all contexts marked for removal, compacting the array */
@@ -263,6 +299,45 @@ void inputCtxEndFrame(void)
     }
 
     s_Depth = write;
+
+    /* ---- S295 F3: End-of-frame watchdog ----
+     *
+     * Catches leaked push/pop imbalances. Two severity levels:
+     *   - WARN: depth unexpectedly deep, or bottom of stack is not gameplay
+     *     (rate-limited to 1 log/second to avoid spam).
+     *   - FORCE-RESET: depth near MAX_STACK (true pathology: a renderer is
+     *     pushing every frame without popping). Blow away the stack and
+     *     re-seed with gameplay to prevent overflow + dead-input.
+     *
+     * Rationale: context/scratch/menu-system-investigation-2026-04-16.md §6.1
+     * documented direction-A desync (no menu visible, player frozen). The
+     * root cause is a leaked push — this watchdog surfaces it in logs and
+     * provides a recovery path instead of silent stuck state. */
+    if (s_Depth >= INPUTCTX_WATCHDOG_FORCE_RESET) {
+        inputctxWatchdogDumpStack("DEPTH NEAR OVERFLOW — forcing reset to gameplay");
+        for (s32 i = s_Depth - 1; i >= 0; i--) {
+            if (s_Stack[i]) {
+                if (s_Stack[i]->on_pop) {
+                    s_Stack[i]->on_pop(s_Stack[i]);
+                }
+                s_Stack[i]->active = 0;
+                s_Stack[i]->marked_for_removal = 0;
+                s_Stack[i] = NULL;
+            }
+        }
+        s_Depth = 0;
+        /* Re-seed: gameplay must always be on the bottom. */
+        inputCtxPush(&g_CtxGameplay);
+        s_WatchdogLastLogMs = SDL_GetTicks();
+    } else if (s_Depth >= INPUTCTX_WATCHDOG_DEEP_THRESHOLD) {
+        if (inputctxWatchdogShouldLog()) {
+            inputctxWatchdogDumpStack("DEEP STACK (possible leak)");
+        }
+    } else if (s_Depth > 0 && s_Stack[0] != &g_CtxGameplay) {
+        if (inputctxWatchdogShouldLog()) {
+            inputctxWatchdogDumpStack("BOTTOM != gameplay (invariant violated)");
+        }
+    }
 
     /* Ensure SDL mouse mode matches the current top context.
      * This catches any case where something outside the context system

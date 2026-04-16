@@ -54,7 +54,32 @@ void inputCtxShutdown(void);
 /* Push a context onto the top of the stack. Calls ctx->on_push(). */
 void inputCtxPush(InputContext *ctx);
 
-/* Mark a context for deferred removal. Actual pop happens in inputCtxEndFrame(). */
+/* Mark a context for deferred removal. Actual pop happens in inputCtxEndFrame().
+ *
+ * ---- Force-close contract (S295 F6) ----
+ *
+ * The normal pattern is: the renderer that pushed a context is also the one
+ * that pops it — ownership is local.  However, several sites outside any
+ * renderer ("force-close" sites) pop g_CtxImGuiMenu because they transition
+ * the player out of menu state from a different code path.  These sites
+ * MUST guard the pop with `inputCtxIsActive(ctx)` — they may be called when
+ * no menu is open.
+ *
+ * Allowed force-close sites (updated 2026-04-16):
+ *   - port/fast3d/pdgui_bridge.c  — endscreen start/next/exit helpers
+ *   - port/src/net/matchsetup.c   — solo + MP match start (after accept)
+ *   - port/src/net/netmsg.c       — co-op / combat stage change handlers
+ *   - src/lib/main.c              — stage-transition nuclear reset via
+ *                                    inputCtxShutdown + re-init
+ *
+ * When adding a new force-close site:
+ *   1. Guard with `if (inputCtxIsActive(&g_CtxImGuiMenu)) { ... }`
+ *   2. Document the rationale locally (what transition is happening).
+ *   3. Prefer having the renderer pop itself — force-close is a last resort
+ *      for cross-cutting transitions (stage change, netplay state machine).
+ *   4. Never pop a context you didn't confirm is active. Popping an inactive
+ *      context produces a noisy warning and suggests the caller's logic is
+ *      confused about the current state. */
 void inputCtxPopDeferred(InputContext *ctx);
 
 /* Immediately pop the top context. Use sparingly -- prefer PopDeferred for safety. */
