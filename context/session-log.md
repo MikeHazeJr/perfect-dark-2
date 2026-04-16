@@ -1,7 +1,107 @@
 # Session Log (Active)
 
-> **S241–S286** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S289** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S289 — 2026-04-16 (Nine-Slice Chrome: assembled frame preview + desaturation workflow)
+
+**Scope**:
+- Extend the new in-client Nine-Slice Chrome tool with:
+  - assembled frame preview (actual nine-slice render),
+  - desaturation option for tint/theme-friendly outputs.
+
+**Code changes shipped in working tree**:
+- `port/fast3d/pdgui_menu_moddinghub.cpp`:
+  - Added `pdgui_nineslice.h` integration and runtime preview helpers:
+    - `chromeToolBuildDef(...)` to construct `nineslice_def_t` from current ruler/mode settings.
+    - frame preview pane now renders assembled frame via `pdguiNinesliceDrawEx(...)`.
+  - Added desaturation controls/state:
+    - `Desaturate for tint-friendly chrome` checkbox,
+    - `Desaturate %` slider.
+  - Added processed preview texture path:
+    - `chromeToolUpdatePreviewTexture()` builds/uploads desaturated (or original) preview texture,
+    - source preview now reflects desaturation settings live.
+  - Save path now writes processed preview pixels to `ui_chrome_frame.tga`, so exported mod texture matches the chosen desaturation settings.
+  - Updated save status text to indicate when output is desaturated.
+  - Added cleanup for processed preview texture/buffer in tool reset/release paths.
+
+**Why**:
+- Ruler overlays alone are not enough to validate how corners/edges/center behave when assembled.
+- Desaturation is needed so theme/tint passes can recolor chrome assets more predictably.
+
+**Verification**:
+- Build verification passed:
+  - `. .\devtools\_build-env-prelude.ps1`
+  - `ninja -C Build pd pd-server`
+  - Result: `PerfectDark.exe` and `PerfectDarkServer.exe` linked clean.
+
+## Session S288 — 2026-04-16 (Nine-Slice Chrome creator added to Modding Hub)
+
+**Scope**:
+- Add an in-client tool so players can create UI chrome nine-slice mods directly in-game (import image, set rulers, save/activate mod).
+
+**Code changes shipped in working tree**:
+- `port/fast3d/pdgui_menu_moddinghub.cpp`:
+  - Added new tab/tool: **Nine-Slice Chrome** (tab index 7).
+  - Added tool state + lifecycle (`chromeToolReset`, texture/pixel ownership cleanup, status messaging).
+  - Added image import support using the shared file browser and `stb_image` decode:
+    - `Browse` + `Load` for `.png/.jpg/.bmp/.tga`.
+  - Added live preview with ruler overlays:
+    - visual guide lines for `Left/Right/Top/Bottom` slice positions over imported image.
+  - Added ruler controls:
+    - `Left`, `Right`, `Top`, `Bottom` sliders,
+    - `L/R symmetry` and `T/B symmetry` toggles.
+  - Added nineslice mode controls:
+    - `Center tile mode`,
+    - `Edge tile mode` (applies to top/bottom/left/right).
+  - Added `Save as Mod` flow:
+    - writes `mods/<slug>/ui_chrome_frame.tga`,
+    - writes `mods/<slug>/mod.json` with `tags:["chrome"]` and `components.textures + components.nineslice`,
+    - immediately registers + activates via `pdguiThemeRegisterChromeModDir(modDir, 1)` so style appears/applies without restart.
+  - Wired tab selector/nav/content/footer descriptions for 8 tools total.
+  - Hooked hub close to chrome tool reset/cleanup.
+
+**Why**:
+- Project requirement is fully in-client mod creation. This provides a first-class in-game authoring path for UI chrome nineslice mods instead of requiring external file editing.
+
+**Verification**:
+- Build verification passed (client + server):
+  - `. .\devtools\_build-env-prelude.ps1`
+  - `ninja -C Build pd pd-server`
+  - Result: `PerfectDark.exe` and `PerfectDarkServer.exe` linked clean.
+
+## Session S287 — 2026-04-15 (Release/build outage hardening: force-commit fallback + missing Build dir creation)
+
+**Scope**:
+- Address outage-recovery friction:
+  1) release/build sync failing on pre-pull commit hook rejection,
+  2) build flows failing when `Build/` was deleted.
+
+**Code changes shipped in working tree**:
+- `devtools/release.ps1`:
+  - Added switch `-ForceCommitNoVerify`.
+  - Added helper `Invoke-ReleaseCommit(...)`:
+    - normal `git commit` first,
+    - optional fallback retry with `git commit --no-verify` when `-ForceCommitNoVerify` is set.
+  - Wired helper into all release auto-commit paths:
+    - pre-release (`-SkipBuild` path),
+    - pre-build path,
+    - Step 4 pre-`pull --rebase` auto-commit.
+  - Added explicit creation of missing build directory before configure/build.
+- `devtools/dev-window-v2/dev-window-v2.ps1`:
+  - `Invoke-GitSyncBeforeBuild(...)` now retries failed commit with `--no-verify` before aborting.
+  - Added explicit `Ensure build dir` step in build queue before configure.
+- `devtools/build-headless.ps1`:
+  - Added explicit missing build-directory creation before configure/build phases.
+
+**Why**:
+- Power outage / interrupted sessions can leave repo state where hooks block auto-commit, and users may clear `Build/`. These changes keep the solo-dev pipeline resilient and recoverable without manual repair.
+
+**Verification**:
+- PowerShell parse checks passed for modified scripts:
+  - `devtools/release.ps1`
+  - `devtools/dev-window-v2/dev-window-v2.ps1`
+  - `devtools/build-headless.ps1`
 
 ## Session S286 — 2026-04-15 (Mod Apply completion tint parity with updater success prompt)
 

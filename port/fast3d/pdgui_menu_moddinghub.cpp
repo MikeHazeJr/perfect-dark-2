@@ -22,17 +22,22 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <stdint.h>
+#include <errno.h>
 
+#include "glad/glad.h"
 #include "imgui/imgui.h"
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_theme.h"
+#include "pdgui_nineslice.h"
+#include "pdgui_filebrowser.h"
 #include "system.h"
 #include "assetcatalog.h"
 #include "pdgui_charpreview.h"
 #include "fs.h"
 #include "modpack.h"
+#include "../external/stb_image.h"
 
 /* ========================================================================
  * Forward declarations for C symbols
@@ -110,8 +115,9 @@ static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0,0))
  * ======================================================================== */
 
 static bool s_Visible    = false;
-static int  s_ActiveTool = 0;    /* 0=ModManager, 1=INI, 2=Scale, 3=Pack, 4=Audio, 5=SkinEditor, 6=MapImport */
+static int  s_ActiveTool = 0;    /* 0=ModManager, 1=INI, 2=Scale, 3=Pack, 4=Audio, 5=SkinEditor, 6=MapImport, 7=NineSlice */
 static int  s_LastLoggedTool = -1;
+static void chromeToolReset(void);
 
 static void moddingHubClose(const char *reason)
 {
@@ -120,6 +126,7 @@ static void moddingHubClose(const char *reason)
     }
     s_Visible = false;
     pdguiSkinEditorDismissTransientUi();
+    chromeToolReset();
     sysLogPrintf(LOG_NOTE, "MODHUB: closed (%s)", reason ? reason : "no-reason");
 }
 
@@ -141,6 +148,35 @@ static bool s_MapImpDone         = false;
 /* Forward declarations for Map Import (defined after other tools) */
 static void importReset(void);
 static void renderMapImport(float w, float h, float scale);
+
+/* Forward declarations for Nine-Slice Chrome tool (Tab 7) */
+static void chromeToolReset(void);
+static void renderChromeTool(float w, float h, float scale);
+
+/* ========================================================================
+ * Nine-Slice Chrome tool state (Tab 7)
+ * ======================================================================== */
+
+static char   s_ChromeImgPath[FS_MAXPATH] = "";
+static char   s_ChromeModName[96] = "my-ui-chrome";
+static char   s_ChromeStatus[192] = "";
+static bool   s_ChromeStatusOk = true;
+static bool   s_ChromeLrSymmetry = true;
+static bool   s_ChromeTbSymmetry = true;
+static bool   s_ChromeCenterTile = true;
+static bool   s_ChromeEdgeTile = false;
+static bool   s_ChromeDesaturate = false;
+static s32    s_ChromeDesaturatePct = 100;
+static s32    s_ChromeInsetL = 16;
+static s32    s_ChromeInsetR = 16;
+static s32    s_ChromeInsetT = 16;
+static s32    s_ChromeInsetB = 16;
+static s32    s_ChromeImgW = 0;
+static s32    s_ChromeImgH = 0;
+static u8    *s_ChromePixels = NULL; /* RGBA8, owned by tool */
+static GLuint s_ChromeTex = 0;
+static u8    *s_ChromePreviewPixels = NULL; /* optional processed preview buffer */
+static GLuint s_ChromePreviewTex = 0;
 
 /* ========================================================================
  * INI Editor state
@@ -205,6 +241,7 @@ static const char *hubToolName(int tool)
         "Audio Mods",
         "Skin Editor",
         "Map Import",
+        "Nine-Slice Chrome",
     };
     if (tool < 0 || tool >= (int)(sizeof(kNames) / sizeof(kNames[0]))) {
         return "Unknown";
@@ -1183,10 +1220,11 @@ static void renderModdingHub(s32 winW, s32 winH)
     {
         const float btnW = 120.0f * scale;
         const float btnH = 28.0f * scale;
-        static const int NUM_TOOLS = 7;
+        static const int NUM_TOOLS = 8;
 
         static const char *toolNames[] = {
-            "Mod Manager", "INI Editor", "Scale Tool", "Mod Pack", "Audio Mods", "Skin Editor", "Map Import"
+            "Mod Manager", "INI Editor", "Scale Tool", "Mod Pack",
+            "Audio Mods", "Skin Editor", "Map Import", "Nine-Slice Chrome"
         };
 
         /* Bumper (LB/RB) tab cycling — PageUp/PageDown driven by pdguiDriveImGuiNav.
@@ -1203,6 +1241,7 @@ static void renderModdingHub(s32 winW, s32 winH)
             else if (next == 4) pdguiAudioModRefresh();
             else if (next == 5) pdguiSkinEditorRefresh();
             else if (next == 6) importReset();
+                    else if (next == 7) chromeToolReset();
             pdguiPlaySound(PDGUI_SND_SWIPE);
         }
         if (allowHubTabCycle && ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
@@ -1214,6 +1253,8 @@ static void renderModdingHub(s32 winW, s32 winH)
             else if (next == 3) packRefreshEntries();
             else if (next == 4) pdguiAudioModRefresh();
             else if (next == 5) pdguiSkinEditorRefresh();
+                    else if (next == 6) importReset();
+                    else if (next == 7) chromeToolReset();
             pdguiPlaySound(PDGUI_SND_SWIPE);
         }
 
@@ -1239,6 +1280,7 @@ static void renderModdingHub(s32 winW, s32 winH)
                     else if (i == 4) pdguiAudioModRefresh();
                     else if (i == 5) pdguiSkinEditorRefresh();
                     else if (i == 6) importReset();
+                    else if (i == 7) chromeToolReset();
                 }
             }
             if (active) ImGui::PopStyleColor(2);
@@ -1265,7 +1307,8 @@ static void renderModdingHub(s32 winW, s32 winH)
 
         const char *childIds[] = {
             "##modhub_modmgr", "##modhub_ini", "##modhub_scale",
-            "##modhub_pack", "##modhub_audio", "##modhub_skin", "##modhub_import"
+            "##modhub_pack", "##modhub_audio", "##modhub_skin",
+            "##modhub_import", "##modhub_nineslice"
         };
 
         if (ImGui::BeginChild(childIds[s_ActiveTool],
@@ -1286,6 +1329,8 @@ static void renderModdingHub(s32 winW, s32 winH)
                 pdguiSkinEditorRender(dialogW, contentH, scale);
             } else if (s_ActiveTool == 6) {
                 renderMapImport(dialogW, contentH, scale);
+            } else if (s_ActiveTool == 7) {
+                renderChromeTool(dialogW, contentH, scale);
             }
         }
         ImGui::EndChild();
@@ -1303,7 +1348,8 @@ static void renderModdingHub(s32 winW, s32 winH)
         "Export/import .pdpack files",
         "Browse, audition, and import audio mods",
         "Paint custom character skins",
-        "Import PD-format map files as playable arenas"
+        "Import PD-format map files as playable arenas",
+        "Create UI chrome nine-slice mods in-game"
     };
     ImGui::TextDisabled("%s", toolDescs[s_ActiveTool]);
 
@@ -1345,6 +1391,433 @@ static void renderModdingHub(s32 winW, s32 winH)
         sysLogPrintf(LOG_NOTE, "modhub: active tool -> %d (%s)",
                      s_ActiveTool, hubToolName(s_ActiveTool));
         s_LastLoggedTool = s_ActiveTool;
+    }
+}
+
+/* ========================================================================
+ * Nine-Slice Chrome tool renderer (Tab 7)
+ * ======================================================================== */
+
+static void chromeToolSanitizeSlug(const char *name, char *out, s32 outlen)
+{
+    s32 n = 0;
+    for (s32 i = 0; name && name[i] && n < outlen - 1; i++) {
+        char c = name[i];
+        if (c == ' ') c = '-';
+        else if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+        else if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_')) continue;
+        out[n++] = c;
+    }
+    out[n] = '\0';
+}
+
+static bool chromeToolWriteTga(const char *path, const u8 *rgba, s32 w, s32 h)
+{
+    FILE *f = fsFileOpenWrite(path);
+    if (!f) return false;
+
+    u8 header[18];
+    memset(header, 0, sizeof(header));
+    header[2] = 2; /* uncompressed true-color */
+    header[12] = (u8)(w & 0xFF);
+    header[13] = (u8)((w >> 8) & 0xFF);
+    header[14] = (u8)(h & 0xFF);
+    header[15] = (u8)((h >> 8) & 0xFF);
+    header[16] = 32;
+    header[17] = 0x28; /* top-left + alpha bits */
+    fwrite(header, 1, sizeof(header), f);
+
+    for (s32 i = 0; i < w * h; i++) {
+        u8 bgra[4] = { rgba[i*4 + 2], rgba[i*4 + 1], rgba[i*4 + 0], rgba[i*4 + 3] };
+        fwrite(bgra, 1, 4, f);
+    }
+
+    bool ok = !ferror(f);
+    fclose(f);
+    return ok;
+}
+
+static void chromeToolReleaseImage(void)
+{
+    if (s_ChromeTex != 0) {
+        glDeleteTextures(1, &s_ChromeTex);
+        s_ChromeTex = 0;
+    }
+    if (s_ChromePreviewTex != 0) {
+        glDeleteTextures(1, &s_ChromePreviewTex);
+        s_ChromePreviewTex = 0;
+    }
+    if (s_ChromePixels) {
+        stbi_image_free(s_ChromePixels);
+        s_ChromePixels = NULL;
+    }
+    if (s_ChromePreviewPixels) {
+        free(s_ChromePreviewPixels);
+        s_ChromePreviewPixels = NULL;
+    }
+    s_ChromeImgW = 0;
+    s_ChromeImgH = 0;
+}
+
+static void chromeToolUpdatePreviewTexture(void)
+{
+    if (!s_ChromePixels || s_ChromeImgW <= 0 || s_ChromeImgH <= 0) return;
+
+    size_t pxCount = (size_t)s_ChromeImgW * (size_t)s_ChromeImgH;
+    size_t bytes = pxCount * 4u;
+    if (!s_ChromePreviewPixels) {
+        s_ChromePreviewPixels = (u8 *)malloc(bytes);
+        if (!s_ChromePreviewPixels) return;
+    }
+
+    float t = s_ChromeDesaturate ? ((float)s_ChromeDesaturatePct / 100.0f) : 0.0f;
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+
+    for (size_t i = 0; i < pxCount; i++) {
+        const u8 *src = &s_ChromePixels[i * 4u];
+        float rf = (float)src[0];
+        float gf = (float)src[1];
+        float bf = (float)src[2];
+        float gray = rf * 0.299f + gf * 0.587f + bf * 0.114f;
+        s_ChromePreviewPixels[i * 4u + 0] = (u8)(rf + (gray - rf) * t);
+        s_ChromePreviewPixels[i * 4u + 1] = (u8)(gf + (gray - gf) * t);
+        s_ChromePreviewPixels[i * 4u + 2] = (u8)(bf + (gray - bf) * t);
+        s_ChromePreviewPixels[i * 4u + 3] = src[3];
+    }
+
+    if (s_ChromePreviewTex == 0) {
+        glGenTextures(1, &s_ChromePreviewTex);
+    }
+    glBindTexture(GL_TEXTURE_2D, s_ChromePreviewTex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
+                 s_ChromeImgW, s_ChromeImgH, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, s_ChromePreviewPixels);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+static void chromeToolBuildDef(nineslice_def_t *out)
+{
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+    out->src_left = s_ChromeInsetL;
+    out->src_right = s_ChromeInsetR;
+    out->src_top = s_ChromeInsetT;
+    out->src_bottom = s_ChromeInsetB;
+    out->dst_left = s_ChromeInsetL;
+    out->dst_right = s_ChromeInsetR;
+    out->dst_top = s_ChromeInsetT;
+    out->dst_bottom = s_ChromeInsetB;
+    out->has_split = 1;
+    out->has_per_edge_mode = 1;
+    out->top_mode = s_ChromeEdgeTile ? NINESLICE_TILE : NINESLICE_STRETCH;
+    out->bottom_mode = s_ChromeEdgeTile ? NINESLICE_TILE : NINESLICE_STRETCH;
+    out->left_mode = s_ChromeEdgeTile ? NINESLICE_TILE : NINESLICE_STRETCH;
+    out->right_mode = s_ChromeEdgeTile ? NINESLICE_TILE : NINESLICE_STRETCH;
+    out->center_mode = s_ChromeCenterTile ? NINESLICE_TILE : NINESLICE_STRETCH;
+}
+
+static bool chromeToolLoadImage(const char *path)
+{
+    if (!path || !path[0]) return false;
+
+    s32 w = 0, h = 0, c = 0;
+    u8 *rgba = stbi_load(path, &w, &h, &c, 4);
+    if (!rgba || w <= 0 || h <= 0) {
+        snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Load failed: %s",
+                 stbi_failure_reason() ? stbi_failure_reason() : "unknown");
+        s_ChromeStatusOk = false;
+        if (rgba) stbi_image_free(rgba);
+        return false;
+    }
+
+    chromeToolReleaseImage();
+    s_ChromePixels = rgba;
+    s_ChromeImgW = w;
+    s_ChromeImgH = h;
+
+    glGenTextures(1, &s_ChromeTex);
+    glBindTexture(GL_TEXTURE_2D, s_ChromeTex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, s_ChromePixels);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    s_ChromeInsetL = w / 4;
+    s_ChromeInsetR = w / 4;
+    s_ChromeInsetT = h / 4;
+    s_ChromeInsetB = h / 4;
+    chromeToolUpdatePreviewTexture();
+    s_ChromeStatusOk = true;
+    snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Loaded %dx%d image", w, h);
+    return true;
+}
+
+static bool chromeToolSaveMod(void)
+{
+    if (!s_ChromePixels || s_ChromeImgW <= 0 || s_ChromeImgH <= 0) {
+        snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "No image loaded");
+        s_ChromeStatusOk = false;
+        return false;
+    }
+    chromeToolUpdatePreviewTexture();
+
+    char slug[64];
+    chromeToolSanitizeSlug(s_ChromeModName, slug, sizeof(slug));
+    if (!slug[0]) {
+        snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Invalid mod name");
+        s_ChromeStatusOk = false;
+        return false;
+    }
+
+    if (fsCreateDir("mods") < 0 && errno != EEXIST) {
+        snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Could not create mods/");
+        s_ChromeStatusOk = false;
+        return false;
+    }
+
+    char modDir[FS_MAXPATH];
+    snprintf(modDir, sizeof(modDir), "mods/%s", slug);
+    if (fsCreateDir(modDir) < 0 && errno != EEXIST) {
+        snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Could not create %s", modDir);
+        s_ChromeStatusOk = false;
+        return false;
+    }
+
+    char texPath[FS_MAXPATH];
+    snprintf(texPath, sizeof(texPath), "%s/ui_chrome_frame.tga", modDir);
+    const u8 *savePixels = (s_ChromePreviewPixels != NULL) ? s_ChromePreviewPixels : s_ChromePixels;
+    if (!chromeToolWriteTga(texPath, savePixels, s_ChromeImgW, s_ChromeImgH)) {
+        snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Failed writing TGA");
+        s_ChromeStatusOk = false;
+        return false;
+    }
+
+    char styleId[CATALOG_ID_LEN];
+    snprintf(styleId, sizeof(styleId), "mod:%s_ui_chrome_frame", slug);
+
+    char jsonPath[FS_MAXPATH];
+    snprintf(jsonPath, sizeof(jsonPath), "%s/mod.json", modDir);
+    FILE *f = fsFileOpenWrite(jsonPath);
+    if (!f) {
+        snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Failed writing mod.json");
+        s_ChromeStatusOk = false;
+        return false;
+    }
+
+    const char *fillMode = s_ChromeEdgeTile ? "tile" : "stretch";
+    fprintf(f,
+        "{\n"
+        "  \"id\": \"user.%s.ui-chrome\",\n"
+        "  \"name\": \"%s\",\n"
+        "  \"version\": \"1.0.0\",\n"
+        "  \"description\": \"Created in-game with Nine-Slice Chrome tool.\",\n"
+        "  \"author\": \"Player\",\n"
+        "  \"tags\": [\"chrome\", \"ui\", \"user\"],\n"
+        "  \"enabled\": true,\n"
+        "  \"components\": {\n"
+        "    \"textures\": [\n"
+        "      { \"id\": \"%s\", \"file\": \"ui_chrome_frame.tga\" }\n"
+        "    ],\n"
+        "    \"nineslice\": [\n"
+        "      {\n"
+        "        \"id\": \"%s\",\n"
+        "        \"texture\": \"%s\",\n"
+        "        \"src_inset\": { \"top\": %d, \"bottom\": %d, \"left\": %d, \"right\": %d },\n"
+        "        \"dst_corner_px\": { \"top\": %d, \"bottom\": %d, \"left\": %d, \"right\": %d },\n"
+        "        \"top_mode\": \"%s\",\n"
+        "        \"bottom_mode\": \"%s\",\n"
+        "        \"left_mode\": \"%s\",\n"
+        "        \"right_mode\": \"%s\",\n"
+        "        \"center_mode\": \"%s\"\n"
+        "      }\n"
+        "    ]\n"
+        "  }\n"
+        "}\n",
+        slug, s_ChromeModName,
+        styleId,
+        styleId, styleId,
+        s_ChromeInsetT, s_ChromeInsetB, s_ChromeInsetL, s_ChromeInsetR,
+        s_ChromeInsetT, s_ChromeInsetB, s_ChromeInsetL, s_ChromeInsetR,
+        fillMode, fillMode, fillMode, fillMode,
+        s_ChromeCenterTile ? "tile" : "stretch");
+
+    bool writeOk = !ferror(f);
+    fclose(f);
+    if (!writeOk) {
+        snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Failed finalizing mod.json");
+        s_ChromeStatusOk = false;
+        return false;
+    }
+
+    pdguiThemeRegisterChromeModDir(modDir, 1);
+    s_ChromeStatusOk = true;
+    snprintf(s_ChromeStatus, sizeof(s_ChromeStatus),
+             "Saved & activated: %s%s",
+             slug,
+             s_ChromeDesaturate ? " (desaturated for tinting)" : "");
+    return true;
+}
+
+static void chromeToolReset(void)
+{
+    s_ChromeImgPath[0] = '\0';
+    snprintf(s_ChromeModName, sizeof(s_ChromeModName), "%s", "my-ui-chrome");
+    s_ChromeStatus[0] = '\0';
+    s_ChromeStatusOk = true;
+    s_ChromeLrSymmetry = true;
+    s_ChromeTbSymmetry = true;
+    s_ChromeCenterTile = true;
+    s_ChromeEdgeTile = false;
+    s_ChromeDesaturate = false;
+    s_ChromeDesaturatePct = 100;
+    s_ChromeInsetL = s_ChromeInsetR = 16;
+    s_ChromeInsetT = s_ChromeInsetB = 16;
+    chromeToolReleaseImage();
+}
+
+static void renderChromeTool(float w, float h, float scale)
+{
+    if (pdguiFileBrowserIsOpen()) {
+        if (pdguiFileBrowserRender()) {
+            strncpy(s_ChromeImgPath, pdguiFileBrowserGetPath(), sizeof(s_ChromeImgPath) - 1);
+            s_ChromeImgPath[sizeof(s_ChromeImgPath) - 1] = '\0';
+            pdguiFileBrowserClose();
+            chromeToolLoadImage(s_ChromeImgPath);
+        }
+        return;
+    }
+
+    ImGui::TextDisabled("Nine-Slice Chrome -- import image, set rulers, save as mod");
+    ImGui::Spacing();
+
+    ImGui::Text("Image:");
+    float browseW = 90.0f * scale;
+    ImGui::SetNextItemWidth(-browseW - ImGui::GetStyle().ItemSpacing.x);
+    ImGui::InputText("##chrome_img", s_ChromeImgPath, sizeof(s_ChromeImgPath));
+    ImGui::SameLine();
+    if (PdButton("Browse", ImVec2(browseW, 0))) {
+        pdguiFileBrowserOpen("Import Nine-Slice Image", "mods", ".png;.jpg;.bmp;.tga");
+    }
+
+    ImGui::SameLine();
+    if (PdButton("Load", ImVec2(80.0f * scale, 0))) {
+        chromeToolLoadImage(s_ChromeImgPath);
+    }
+
+    if (!s_ChromePixels || s_ChromeTex == 0) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("Load an image to edit nine-slice rulers.");
+        if (s_ChromeStatus[0]) {
+            ImGui::TextColored(s_ChromeStatusOk ? ImVec4(0.2f,1.0f,0.4f,1.0f)
+                                                : ImVec4(1.0f,0.3f,0.3f,1.0f),
+                               "%s", s_ChromeStatus);
+        }
+        return;
+    }
+
+    ImGui::Separator();
+    ImGui::InputText("Mod Name", s_ChromeModName, sizeof(s_ChromeModName));
+    ImGui::Checkbox("L/R symmetry", &s_ChromeLrSymmetry);
+    ImGui::SameLine();
+    ImGui::Checkbox("T/B symmetry", &s_ChromeTbSymmetry);
+    ImGui::Checkbox("Center tile mode", &s_ChromeCenterTile);
+    ImGui::SameLine();
+    ImGui::Checkbox("Edge tile mode", &s_ChromeEdgeTile);
+    bool desatChanged = ImGui::Checkbox("Desaturate for tint-friendly chrome", &s_ChromeDesaturate);
+    if (s_ChromeDesaturate) {
+        desatChanged |= ImGui::SliderInt("Desaturate %", &s_ChromeDesaturatePct, 0, 100, "%d%%");
+    }
+
+    s32 maxL = s_ChromeImgW > 1 ? s_ChromeImgW - 1 : 1;
+    s32 maxT = s_ChromeImgH > 1 ? s_ChromeImgH - 1 : 1;
+    if (ImGui::SliderInt("Left", &s_ChromeInsetL, 0, maxL)) {
+        if (s_ChromeLrSymmetry) s_ChromeInsetR = s_ChromeInsetL;
+    }
+    if (ImGui::SliderInt("Right", &s_ChromeInsetR, 0, maxL)) {
+        if (s_ChromeLrSymmetry) s_ChromeInsetL = s_ChromeInsetR;
+    }
+    if (ImGui::SliderInt("Top", &s_ChromeInsetT, 0, maxT)) {
+        if (s_ChromeTbSymmetry) s_ChromeInsetB = s_ChromeInsetT;
+    }
+    if (ImGui::SliderInt("Bottom", &s_ChromeInsetB, 0, maxT)) {
+        if (s_ChromeTbSymmetry) s_ChromeInsetT = s_ChromeInsetB;
+    }
+
+    /* Clamp total inset pairs so center region always exists. */
+    if (s_ChromeInsetL + s_ChromeInsetR >= s_ChromeImgW) {
+        s_ChromeInsetR = s_ChromeImgW - s_ChromeInsetL - 1;
+        if (s_ChromeInsetR < 0) s_ChromeInsetR = 0;
+    }
+    if (s_ChromeInsetT + s_ChromeInsetB >= s_ChromeImgH) {
+        s_ChromeInsetB = s_ChromeImgH - s_ChromeInsetT - 1;
+        if (s_ChromeInsetB < 0) s_ChromeInsetB = 0;
+    }
+    if (desatChanged) {
+        chromeToolUpdatePreviewTexture();
+    }
+
+    ImGui::Spacing();
+    float previewW = w * 0.46f;
+    float previewH = h * 0.40f;
+    float sx = previewW / (float)s_ChromeImgW;
+    float sy = previewH / (float)s_ChromeImgH;
+    float imgScale = sx < sy ? sx : sy;
+    if (imgScale > 1.0f) imgScale = 1.0f;
+    float drawW = s_ChromeImgW * imgScale;
+    float drawH = s_ChromeImgH * imgScale;
+    GLuint previewTex = s_ChromePreviewTex ? s_ChromePreviewTex : s_ChromeTex;
+
+    ImGui::TextDisabled("Source Preview (with rulers)");
+    ImGui::Image((ImTextureID)(uintptr_t)previewTex, ImVec2(drawW, drawH));
+    ImVec2 p0 = ImGui::GetItemRectMin();
+    ImVec2 p1 = ImGui::GetItemRectMax();
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+
+    float lx = p0.x + (float)s_ChromeInsetL * imgScale;
+    float rx = p1.x - (float)s_ChromeInsetR * imgScale;
+    float ty = p0.y + (float)s_ChromeInsetT * imgScale;
+    float by = p1.y - (float)s_ChromeInsetB * imgScale;
+    dl->AddLine(ImVec2(lx, p0.y), ImVec2(lx, p1.y), IM_COL32(255, 80, 80, 220), 2.0f);
+    dl->AddLine(ImVec2(rx, p0.y), ImVec2(rx, p1.y), IM_COL32(255, 80, 80, 220), 2.0f);
+    dl->AddLine(ImVec2(p0.x, ty), ImVec2(p1.x, ty), IM_COL32(80, 255, 80, 220), 2.0f);
+    dl->AddLine(ImVec2(p0.x, by), ImVec2(p1.x, by), IM_COL32(80, 255, 80, 220), 2.0f);
+
+    ImGui::SameLine();
+    ImGui::BeginGroup();
+    ImGui::TextDisabled("Frame Preview (assembled nine-slice)");
+    float frameW = previewW;
+    float frameH = drawH;
+    ImVec2 framePos = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(frameW, frameH));
+    dl->AddRectFilled(framePos, ImVec2(framePos.x + frameW, framePos.y + frameH),
+                      IM_COL32(18, 22, 28, 255), 3.0f);
+    dl->AddRect(framePos, ImVec2(framePos.x + frameW, framePos.y + frameH),
+                IM_COL32(90, 120, 170, 220), 3.0f);
+
+    nineslice_def_t previewDef;
+    chromeToolBuildDef(&previewDef);
+    pdguiNinesliceDrawEx((void *)(uintptr_t)previewTex, s_ChromeImgW, s_ChromeImgH, &previewDef,
+                         framePos.x + 10.0f * scale, framePos.y + 10.0f * scale,
+                         frameW - 20.0f * scale, frameH - 20.0f * scale,
+                         IM_COL32(255, 255, 255, 255));
+    ImGui::EndGroup();
+
+    ImGui::Spacing();
+    if (PdButton("Save as Mod", ImVec2(160.0f * scale, 28.0f * scale))) {
+        chromeToolSaveMod();
+    }
+    ImGui::SameLine();
+    if (PdButton("Reset", ImVec2(90.0f * scale, 28.0f * scale))) {
+        chromeToolReset();
+    }
+
+    if (s_ChromeStatus[0]) {
+        ImGui::TextColored(s_ChromeStatusOk ? ImVec4(0.2f, 1.0f, 0.4f, 1.0f)
+                                            : ImVec4(1.0f, 0.3f, 0.3f, 1.0f),
+                           "%s", s_ChromeStatus);
     }
 }
 

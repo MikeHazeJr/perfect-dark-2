@@ -28,7 +28,8 @@ param(
     [switch]$SkipPush,
     [switch]$DryRun,
     [switch]$Prerelease,
-    [switch]$SkipBuild   # Skip cmake reconfigure+build (caller already built; artifacts must exist in Build/)
+    [switch]$SkipBuild,   # Skip cmake reconfigure+build (caller already built; artifacts must exist in Build/)
+    [switch]$ForceCommitNoVerify  # If commit hooks fail, retry commit with --no-verify
 )
 
 $ErrorActionPreference = "Stop"
@@ -111,6 +112,31 @@ $vMaj = if ($vParts.Count -ge 1 -and $vParts[0] -match '^\d+$') { $vParts[0] } e
 $vMin = if ($vParts.Count -ge 2 -and $vParts[1] -match '^\d+$') { $vParts[1] } else { "0" }
 $vPat = if ($vParts.Count -ge 3 -and $vParts[2] -match '^\d+$') { $vParts[2] } else { "0" }
 
+function Invoke-ReleaseCommit {
+    param(
+        [string]$Message,
+        [switch]$AllowNoVerifyFallback
+    )
+
+    $commitOut = @(git commit -m $Message 2>&1)
+    $commitCode = $LASTEXITCODE
+    foreach ($line in $commitOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
+
+    if ($commitCode -eq 0) {
+        return $true
+    }
+
+    if (-not $AllowNoVerifyFallback) {
+        return $false
+    }
+
+    Write-Host "  Commit failed; retrying with --no-verify (--force commit mode)." -ForegroundColor Yellow
+    $commitOut2 = @(git commit --no-verify -m $Message 2>&1)
+    $commitCode2 = $LASTEXITCODE
+    foreach ($line in $commitOut2) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
+    return ($commitCode2 -eq 0)
+}
+
 Write-Host ""
 if ($SkipBuild) {
     Write-Host "[0/7] Skipping rebuild (-SkipBuild set; using existing artifacts in Build/)." -ForegroundColor Gray
@@ -121,8 +147,12 @@ if ($SkipBuild) {
     $statusOut = git -C $ProjectRoot status --porcelain 2>&1
     if ($statusOut) {
         git -C $ProjectRoot add -A 2>&1 | Out-Null
-        git -C $ProjectRoot commit -m "chore: pre-release commit v$Version" 2>&1 | Out-Null
-        Write-Host "  [pre-release] Committed pending changes." -ForegroundColor Green
+        if (Invoke-ReleaseCommit -Message "chore: pre-release commit v$Version" -AllowNoVerifyFallback:$ForceCommitNoVerify) {
+            Write-Host "  [pre-release] Committed pending changes." -ForegroundColor Green
+        } else {
+            Write-Host "  [pre-release] Commit failed." -ForegroundColor Red
+            exit 1
+        }
     } else {
         Write-Host "  [pre-release] Nothing to commit." -ForegroundColor Gray
     }
@@ -146,8 +176,12 @@ if ($SkipBuild) {
     $statusOut = git -C $ProjectRoot status --porcelain 2>&1
     if ($statusOut) {
         git -C $ProjectRoot add -A 2>&1 | Out-Null
-        git -C $ProjectRoot commit -m "chore: pre-release commit v$Version" 2>&1 | Out-Null
-        Write-Host "  [pre-build] Committed pending changes." -ForegroundColor Green
+        if (Invoke-ReleaseCommit -Message "chore: pre-release commit v$Version" -AllowNoVerifyFallback:$ForceCommitNoVerify) {
+            Write-Host "  [pre-build] Committed pending changes." -ForegroundColor Green
+        } else {
+            Write-Host "  [pre-build] Commit failed." -ForegroundColor Red
+            exit 1
+        }
     } else {
         Write-Host "  [pre-build] Nothing to commit." -ForegroundColor Gray
     }
@@ -163,6 +197,10 @@ if ($SkipBuild) {
 
     # ---- Single configure (unified Build/ dir) then build both targets ----
     $buildOk = $true
+    if (-not (Test-Path $BuildDir)) {
+        New-Item -ItemType Directory -Path $BuildDir -Force | Out-Null
+        Write-Host "  [cmake] created missing build directory: $BuildDir" -ForegroundColor Gray
+    }
 
     Write-Host "  [cmake] configure (Ninja + ccache)..." -ForegroundColor Gray
     $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
@@ -452,11 +490,9 @@ if ($SkipPush -or $DryRun) {
     git diff --cached --quiet 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  Committing staged changes before pull --rebase..." -ForegroundColor Gray
-        $commitOut = @(git commit -m "chore: auto-commit before release v$Version" 2>&1)
-        $commitCode = $LASTEXITCODE
-        foreach ($line in $commitOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
-        if ($commitCode -ne 0) {
-            Write-Host "  ERROR: git commit failed before pull --rebase. Fix hooks or repo state." -ForegroundColor Red
+        $okCommit = Invoke-ReleaseCommit -Message "chore: auto-commit before release v$Version" -AllowNoVerifyFallback:$ForceCommitNoVerify
+        if (-not $okCommit) {
+            Write-Host "  ERROR: git commit failed before pull --rebase. Fix hooks or repo state, or use -ForceCommitNoVerify." -ForegroundColor Red
             exit 1
         }
     }

@@ -571,6 +571,12 @@ if ($needsClean) {
     Write-Info "  [smart-clean] Incremental build (no clean needed)"
 }
 
+# Ensure build directory exists before configure/build phases.
+if (-not (Test-Path $BuildDir)) {
+    New-Item -ItemType Directory -Path $BuildDir -Force | Out-Null
+    Write-Info "  Created build dir: $BuildDir"
+}
+
 # ============================================================================
 # CMake Configure (unified Build/ dir for both pd and pd-server)
 # ============================================================================
