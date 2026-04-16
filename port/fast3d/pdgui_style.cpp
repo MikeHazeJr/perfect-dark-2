@@ -499,24 +499,75 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
     if (titleH < 20.0f) titleH = 20.0f;
     if (titleH > 32.0f) titleH = 32.0f;
 
-    /* === Title bar gradient ===
-     * menugfxRenderGradient(gdl, x1, y1, x2, y2, titlebg, border1, titlebg)
-     * 3-color vertical: top=titlebg, mid=border1, bottom=titlebg
-     * ymid = (y1 + y2) / 2 */
+    /* === Title bar render ===
+     * Procedural style chosen via pdguiThemeGetTitleBarStyle() (S297).
+     * Classic = PD default (3-color vertical gradient titlebg→border1→titlebg).
+     * Others reuse the same palette entries so theme recolour still flows
+     * through to every variant. */
+    s32 titleStyle = pdguiThemeGetTitleBarStyle();
     ImU32 titleTop    = PdColor(pal->dialog_titlebg);
     ImU32 titleMid    = PdColor(pal->dialog_border1);
     ImU32 titleBottom = PdColor(pal->dialog_titlebg);
-
     float titleMidY = y + titleH * 0.5f;
 
-    /* Top half: titlebg -> border1 */
-    dl->AddRectFilledMultiColor(
-        ImVec2(x, y), ImVec2(x + w, titleMidY),
-        titleTop, titleTop, titleMid, titleMid);
-    /* Bottom half: border1 -> titlebg */
-    dl->AddRectFilledMultiColor(
-        ImVec2(x, titleMidY), ImVec2(x + w, y + titleH),
-        titleMid, titleMid, titleBottom, titleBottom);
+    switch (titleStyle) {
+    case PDGUI_TITLEBAR_SOLID:
+        dl->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + titleH), titleMid);
+        break;
+
+    case PDGUI_TITLEBAR_VERT_BARS: {
+        dl->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + titleH), titleTop);
+        ImU32 barCol = PdColorA(pal->dialog_border1, 96);
+        float barStride = 8.0f;
+        for (float bx = x; bx < x + w; bx += barStride) {
+            dl->AddRectFilled(ImVec2(bx, y),
+                              ImVec2(bx + 1.0f, y + titleH), barCol);
+        }
+        break;
+    }
+
+    case PDGUI_TITLEBAR_SCANLINES: {
+        /* Classic gradient + 1px scanline every other row */
+        dl->AddRectFilledMultiColor(
+            ImVec2(x, y), ImVec2(x + w, titleMidY),
+            titleTop, titleTop, titleMid, titleMid);
+        dl->AddRectFilledMultiColor(
+            ImVec2(x, titleMidY), ImVec2(x + w, y + titleH),
+            titleMid, titleMid, titleBottom, titleBottom);
+        ImU32 scan = IM_COL32(0, 0, 0, 40);
+        for (float sy = y + 1.0f; sy < y + titleH; sy += 2.0f) {
+            dl->AddRectFilled(ImVec2(x, sy), ImVec2(x + w, sy + 1.0f), scan);
+        }
+        break;
+    }
+
+    case PDGUI_TITLEBAR_DIAG_STRIPES: {
+        dl->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + titleH), titleMid);
+        ImU32 stripe = PdColorA(pal->dialog_titlebg, 128);
+        float stripeStride = 10.0f;
+        float stripeWidth = 4.0f;
+        for (float sx = x - titleH; sx < x + w; sx += stripeStride) {
+            ImVec2 p0(sx,               y);
+            ImVec2 p1(sx + stripeWidth, y);
+            ImVec2 p2(sx + stripeWidth + titleH, y + titleH);
+            ImVec2 p3(sx + titleH,               y + titleH);
+            dl->AddQuadFilled(p0, p1, p2, p3, stripe);
+        }
+        break;
+    }
+
+    case PDGUI_TITLEBAR_CLASSIC:
+    default:
+        /* Top half: titlebg -> border1 */
+        dl->AddRectFilledMultiColor(
+            ImVec2(x, y), ImVec2(x + w, titleMidY),
+            titleTop, titleTop, titleMid, titleMid);
+        /* Bottom half: border1 -> titlebg */
+        dl->AddRectFilledMultiColor(
+            ImVec2(x, titleMidY), ImVec2(x + w, y + titleH),
+            titleMid, titleMid, titleBottom, titleBottom);
+        break;
+    }
 
     /* Title shimmer -- 40px width on top and bottom edges of title bar.
      * The original passes the title bar's border1 alpha for shimmer intensity. */

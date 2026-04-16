@@ -1349,44 +1349,204 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
     }
     ImGui::Separator();
 
+    /* S297: Build a unified row list (humans + bots) that we can group by
+     * team and sort humans-before-bots within each team.  Rendering is then
+     * uniform for both kinds, with team-tinted row backgrounds and a
+     * distinct highlight for the local player.
+     *
+     * Row payload is intentionally small — heavy metadata (body name, state
+     * string, context-menu actions) is re-derived at render time keyed on
+     * `slotIdx` for bots / `lobbyIdx` for humans. */
+    bool teamsOn = (g_MatchConfig.options & MPOPTION_TEAMSENABLED) != 0;
+
+    /* Team color palette (matches pdgui_bridge.c pdguiHudGetTeamColor and
+     * pdgui_menu_pausemenu.cpp s_TeamColors — keep in sync). */
+    static const ImVec4 kTeamColors[8] = {
+        ImVec4(1.0f, 0.3f, 0.3f, 1.0f),  /* 0 Red */
+        ImVec4(0.3f, 0.5f, 1.0f, 1.0f),  /* 1 Blue */
+        ImVec4(0.3f, 1.0f, 0.3f, 1.0f),  /* 2 Green */
+        ImVec4(1.0f, 1.0f, 0.3f, 1.0f),  /* 3 Yellow */
+        ImVec4(1.0f, 0.5f, 0.0f, 1.0f),  /* 4 Orange */
+        ImVec4(0.8f, 0.3f, 1.0f, 1.0f),  /* 5 Purple */
+        ImVec4(0.6f, 0.6f, 0.6f, 1.0f),  /* 6 Grey */
+        ImVec4(1.0f, 1.0f, 1.0f, 1.0f),  /* 7 White */
+    };
+    auto teamRowBg = [&](u8 team, bool isLocal) -> ImU32 {
+        if (team >= 8) team = 7;
+        const ImVec4 &c = kTeamColors[team];
+        float a = isLocal ? 0.35f : 0.18f;
+        return IM_COL32((int)(c.x * 255), (int)(c.y * 255), (int)(c.z * 255),
+                        (int)(a * 255));
+    };
+
+    struct RoomRow {
+        bool  isBot;
+        s32   slotIdx;     /* for bots: index into g_MatchConfig.slots */
+        s32   lobbyIdx;    /* for humans: lobby player index */
+        u8    team;
+        u8    isLeader;
+        u8    isLocal;
+        u8    bodynum;
+        s32   state;       /* CLSTATE_* for humans, -1 for bots */
+        u8    botDiff;     /* bots only */
+        char  name[48];
+    };
+    static const s32 kMaxRows = 64;
+    RoomRow rows[kMaxRows];
+    s32 rowCount = 0;
+
     if (s_IsSoloMode) {
-        /* Solo mode: always exactly one local human player (g_MatchConfig.slots[0]).
-         * Uses identity profile name (agent name) via mpPlayerConfigGetName. */
+        /* Solo mode: always exactly one local human player. */
+        RoomRow &r = rows[rowCount++];
+        memset(&r, 0, sizeof(r));
+        r.isBot = false;
+        r.slotIdx = 0;
+        r.lobbyIdx = 0;
+        r.team = g_MatchConfig.slots[0].team;
+        r.isLocal = 1;
+        r.isLeader = 1;
+        r.state = -1;
         const char *playerName = mpPlayerConfigGetName(0);
-        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", playerName ? playerName : "Player 1");
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 0.7f), "(you)");
+        snprintf(r.name, sizeof(r.name), "%s", playerName ? playerName : "Player 1");
     } else {
-        /* Network mode: show lobby player list */
-        for (s32 i = 0; i < humanCount; i++) {
+        for (s32 i = 0; i < humanCount && rowCount < kMaxRows; i++) {
             struct lobbyplayer_view pv;
             memset(&pv, 0, sizeof(pv));
             if (!lobbyGetPlayerInfo(i, &pv)) continue;
+            RoomRow &r = rows[rowCount++];
+            memset(&r, 0, sizeof(r));
+            r.isBot = false;
+            r.slotIdx = -1;
+            r.lobbyIdx = i;
+            r.team = pv.team;
+            r.isLeader = pv.isLeader;
+            r.isLocal = pv.isLocal ? 1 : 0;
+            r.bodynum = pv.bodynum;
+            r.state = pv.state;
+            snprintf(r.name, sizeof(r.name), "%s", pv.name);
+        }
+    }
 
-            ImGui::PushID(i);
+    for (s32 i = 1; i < g_MatchConfig.numSlots && rowCount < kMaxRows; i++) {
+        struct matchslot *sl = &g_MatchConfig.slots[i];
+        if (sl->type != SLOT_BOT) continue;
+        RoomRow &r = rows[rowCount++];
+        memset(&r, 0, sizeof(r));
+        r.isBot = true;
+        r.slotIdx = i;
+        r.lobbyIdx = -1;
+        r.team = sl->team;
+        r.bodynum = sl->bodynum;
+        r.state = -1;
+        r.botDiff = sl->botDifficulty;
+        snprintf(r.name, sizeof(r.name), "%s", sl->name);
+    }
 
+    /* Sort: if teams on → primary team asc, secondary humans-before-bots;
+     * if teams off → humans-before-bots only (preserves original grouping). */
+    for (s32 a = 0; a < rowCount; a++) {
+        for (s32 b = a + 1; b < rowCount; b++) {
+            bool swap = false;
+            if (teamsOn && rows[a].team != rows[b].team) {
+                swap = rows[a].team > rows[b].team;
+            } else if (rows[a].isBot != rows[b].isBot) {
+                swap = rows[a].isBot && !rows[b].isBot; /* humans first */
+            }
+            if (swap) {
+                RoomRow tmp = rows[a];
+                rows[a] = rows[b];
+                rows[b] = tmp;
+            }
+        }
+    }
+
+    if (!s_IsSoloMode && humanCount == 0) {
+        ImGui::TextDisabled("Waiting for players...");
+    }
+
+    float rowW = panelW - ImGui::GetStyle().WindowPadding.x * 2.0f - 4.0f;
+    s32 lastTeam = -1;
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+
+    for (s32 ri = 0; ri < rowCount; ri++) {
+        RoomRow &r = rows[ri];
+
+        /* Team separator: emit a colored "-- Team N --" header when teams
+         * are on and the team index just changed. */
+        if (teamsOn && r.team != lastTeam) {
+            if (lastTeam != -1) ImGui::Spacing();
+            ImVec4 tc = kTeamColors[r.team < 8 ? r.team : 7];
+            ImGui::TextColored(tc, "-- Team %d --", (s32)r.team + 1);
+            lastTeam = r.team;
+        }
+
+        ImGui::PushID(r.isBot ? (2000 + r.slotIdx) : (1000 + r.lobbyIdx));
+
+        /* Background tint.  In non-teams mode we still highlight the local
+         * player (brighter band) so the eye finds them instantly. */
+        ImVec2 rowStart = ImGui::GetCursorScreenPos();
+        float rowH = ImGui::GetTextLineHeightWithSpacing() * 1.15f;
+        if (teamsOn) {
+            dl->AddRectFilled(rowStart, ImVec2(rowStart.x + rowW, rowStart.y + rowH),
+                              teamRowBg(r.team, r.isLocal != 0));
+        } else if (r.isLocal) {
+            dl->AddRectFilled(rowStart, ImVec2(rowStart.x + rowW, rowStart.y + rowH),
+                              IM_COL32(120, 200, 255, 60));
+        }
+
+        if (r.isBot) {
+            struct matchslot *sl = &g_MatchConfig.slots[r.slotIdx];
+            bool selected = s_BotSelected[r.slotIdx];
+            char rowLabel[80];
+            snprintf(rowLabel, sizeof(rowLabel), "[BOT] %s", sl->name);
+
+            if (ImGui::Selectable(rowLabel, selected,
+                                  ImGuiSelectableFlags_AllowDoubleClick,
+                                  ImVec2(rowW, 0.0f))) {
+                bool ctrl = ImGui::GetIO().KeyCtrl;
+                if (ctrl) botSelectToggle(r.slotIdx);
+                else      botSelectSet(r.slotIdx);
+                if (ImGui::IsMouseDoubleClicked(0) && isLeader) {
+                    s_EditBotSlotIdx = r.slotIdx;
+                    s_BotModalOpen   = true;
+                    s_BotPreviewRotY = 0.0f;
+                }
+                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            }
+
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right) ||
+                (ImGui::IsItemFocused() && ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft))) {
+                if (!s_BotSelected[r.slotIdx]) botSelectSet(r.slotIdx);
+                ImGui::OpenPopup("##bot_ctx");
+            }
+
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.55f, 0.55f, 0.4f, 0.8f),
+                               "[%s]", s_SimDiffNames[sl->botDifficulty]);
+        } else {
+            /* Human row: name + role suffix (you / leader / you-leader). */
             char label[80];
-            const char *suffix = pv.isLeader ? " *" : "";
-            snprintf(label, sizeof(label), "%s%s", pv.name, suffix);
+            const char *suffix = r.isLeader ? " *" : "";
+            snprintf(label, sizeof(label), "%s%s", r.name, suffix);
 
-            if (pv.isLeader && pv.isLocal) {
-                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", label);
+            if (r.isLeader && r.isLocal) {
+                ImGui::TextColored(ImVec4(1.0f, 0.95f, 0.55f, 1.0f), "%s", label);
                 ImGui::SameLine();
-                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 0.7f), "(you, leader)");
-            } else if (pv.isLeader) {
+                ImGui::TextColored(ImVec4(0.7f, 1.0f, 0.7f, 0.9f), "(you, leader)");
+            } else if (r.isLeader) {
                 ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", label);
                 ImGui::SameLine();
                 ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 0.7f), "(leader)");
-            } else if (pv.isLocal) {
-                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", label);
+            } else if (r.isLocal) {
+                ImGui::TextColored(ImVec4(0.7f, 1.0f, 0.7f, 1.0f), "%s", label);
                 ImGui::SameLine();
-                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 0.6f), "(you)");
+                ImGui::TextColored(ImVec4(0.7f, 1.0f, 0.7f, 0.8f), "(you)");
             } else {
                 ImGui::Text("%s", label);
             }
 
-            if (pv.bodynum < (u8)mpGetNumBodies()) {
-                const char *bodyName = mpGetBodyName(pv.bodynum);
+            if (r.bodynum < (u8)mpGetNumBodies()) {
+                const char *bodyName = mpGetBodyName(r.bodynum);
                 if (bodyName && bodyName[0]) {
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(0.45f, 0.45f, 0.55f, 0.75f), "[%s]", bodyName);
@@ -1395,7 +1555,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
 
             const char *stateStr  = "";
             ImVec4      stateColor = ImVec4(0.5f, 0.5f, 0.5f, 0.6f);
-            switch (pv.state) {
+            switch (r.state) {
                 case CLSTATE_CONNECTING:
                 case CLSTATE_AUTH:
                     stateStr  = "connecting...";
@@ -1414,66 +1574,20 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 ImGui::SameLine();
                 ImGui::TextColored(stateColor, "  %s", stateStr);
             }
-
-            ImGui::PopID();
         }
 
-        if (humanCount == 0) {
-            ImGui::TextDisabled("Waiting for players...");
-        }
-    }
-
-    /* Bot rows */
-    if (curBots > 0) {
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.8f, 0.7f, 0.3f, 0.9f), "Bots");
-    }
-
-    /* Row layout */
-    float rowW = panelW - ImGui::GetStyle().WindowPadding.x * 2.0f - 4.0f;
-
-    int removeSlot = -1; /* deferred removal — can't remove while iterating */
-    for (int i = 1; i < g_MatchConfig.numSlots; i++) {
-        struct matchslot *sl = &g_MatchConfig.slots[i];
-        if (sl->type != SLOT_BOT) continue;
-
-        ImGui::PushID(i);
-
-        bool selected = s_BotSelected[i];
-
-        char rowLabel[80];
-        snprintf(rowLabel, sizeof(rowLabel), "[BOT] %s", sl->name);
-
-        /* Selectable row — click selects, ctrl-click toggles, double-click edits */
-        if (ImGui::Selectable(rowLabel, selected,
-                              ImGuiSelectableFlags_AllowDoubleClick,
-                              ImVec2(rowW, 0.0f))) {
-            bool ctrl = ImGui::GetIO().KeyCtrl;
-            if (ctrl) {
-                botSelectToggle(i);
-            } else {
-                botSelectSet(i);
-            }
-            if (ImGui::IsMouseDoubleClicked(0) && isLeader) {
-                s_EditBotSlotIdx = i;
-                s_BotModalOpen   = true;
-                s_BotPreviewRotY = 0.0f;
-            }
-            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+        /* Local-player emphasis: draw a 2 px accent bar on the left edge of
+         * the row (visible under both team-tint and non-teams backgrounds). */
+        if (r.isLocal) {
+            dl->AddRectFilled(rowStart,
+                              ImVec2(rowStart.x + 3.0f, rowStart.y + rowH),
+                              IM_COL32(255, 255, 255, 220));
         }
 
-        /* Right-click context menu OR gamepad X button */
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Right) ||
-            (ImGui::IsItemFocused() && ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft))) {
-            if (!s_BotSelected[i]) botSelectSet(i);
-            ImGui::OpenPopup("##bot_ctx");
-        }
-
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.55f, 0.55f, 0.4f, 0.8f),
-                           "[%s]", s_SimDiffNames[sl->botDifficulty]);
-
+        /* --- Bot context menu popup (emitted inline so PushID(r.slotIdx)
+         * scoping works). Mirrors the old in-loop behaviour.  Skip for
+         * humans; PushID(..) keeps the popup key unique to this bot row. */
+        if (r.isBot) {
         /* Context menu popup */
         if (ImGui::BeginPopup("##bot_ctx")) {
             ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
@@ -1635,15 +1749,10 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
 
             ImGui::EndPopup();
         }
+        } /* end if (r.isBot) — bot context popup scope */
 
         ImGui::PopID();
-    }
-
-    /* Deferred removal */
-    if (removeSlot >= 1) {
-        matchConfigRemoveSlot(removeSlot);
-        botSelectClear();
-    }
+    } /* end for (s32 ri = 0; ri < rowCount; ri++) */
 
     ImGui::EndChild(); /* ##room_players_list */
 

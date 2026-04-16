@@ -717,6 +717,23 @@ static void renderSettingsVideo(float scale)
         }
     }
 
+    /* Title-bar procedural style (S297) — pairs with UI Chrome Style so
+     * users can pick a simple title treatment without shipping a mod. */
+    {
+        s32 tbIdx = pdguiThemeGetTitleBarStyle();
+        const char *tbOpts[PDGUI_TITLEBAR_STYLE_COUNT];
+        for (s32 i = 0; i < PDGUI_TITLEBAR_STYLE_COUNT; i++) {
+            tbOpts[i] = pdguiThemeGetTitleBarStyleName(i);
+        }
+        if (PdCombo("Title Bar Style", &tbIdx, tbOpts, PDGUI_TITLEBAR_STYLE_COUNT)) {
+            pdguiThemeSetTitleBarStyle(tbIdx);
+            configSave("pd.ini");
+            sysLogPrintf(LOG_NOTE,
+                "UI.TITLEBAR: style changed to '%s' (%d)",
+                pdguiThemeGetTitleBarStyleName(tbIdx), tbIdx);
+        }
+    }
+
     ImGui::Spacing();
 
     /* ---- Gameplay Visuals ---- */
