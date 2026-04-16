@@ -7,6 +7,24 @@
 
 ---
 
+## Open — 2026-04-16 (S295)
+
+### Playtest verification of the S295 collision + spawning drop
+
+- **B-145 slope jump**: on any Skedar ramp / Carrington stairs / outdoor slope, spam jump while walking up — every press should fire `JUMP: APPLIED` in the log, not `JUMP: BLOCKED`.
+- **B-146 pickup walkthrough**: drop a rifle / sniper / launcher in an MP arena, walk into the model — capsule should push the prop or pass through, never step up onto it. Multi-ammocrate piles should be identically non-standable.
+- **B-147 ceiling clip**: jump against the edge of a slanted ceiling (Skedar temple, G5 / CI corridor bends). Head should stop at the ceiling, not poke through on the diagonal.
+- **B-148 Carrington tables**: break-room tables — player should stand on the top face, not fall through the middle.
+- **B-149 spawn pool**: multi-bot match in a small arena with scattered pickups. Over 5 rounds, confirm no mid-air spawns, no "stuck in wall" spawns, no spawns standing on a dropped weapon / crate. Cross-check pool dump in `pd.log` for L4 last-resort entries.
+
+### Scheduled architectural follow-ups (deferred, not regressed by S295)
+
+- **Issue 1-B** (mesh ceiling wiring): `classifyTriFlags` emits a real `GEOFLAG_CEILING`, `meshFindCeiling` filters on normal.y; wire into `bondwalk.c` pre-move clamp and into `capsuleSweep` for upward motion.
+- **Issue 2-B** (per-prop mesh extraction): extend `meshWorldAddRoomGeo`-style top-face extraction to per-prop colmesh so desks/crates/tables get correct top faces generally.
+- **Issue 5 residual**: same-tick reservation bitset for `spawnPoolSelect`, pool orientation via 8-direction wall probe (reuse `playerreset.c:695-714`), neighbor-room ground check in `spawnPoolValidateCandidate`.
+
+---
+
 ## Open — 2026-04-16 (S293)
 
 ### Playtest verification of the 2026-04-16 Nine-Slice + mods folder drop

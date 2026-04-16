@@ -25,12 +25,17 @@
 	_generic_object(0x06, scale, model, pad, flags, flags2, flags3, maxdamage), \
 	_mkword(targetpad, 0), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, yaw, 0, 0, ymaxspeed, 0, maxdist, 0,
 
+/* Pickup macros force OBJFLAG3_WALKTHROUGH so the PC auto-floor synthesizer
+ * (propobj.c:2179-2225) skips collision tile emission for ammocrates and
+ * ground weapons — otherwise they become standable floors. The network
+ * receipt path (netmsg.c:2026) already sets WALKTHROUGH; local/setup paths
+ * match that behavior here. */
 #define ammocrate(scale, model, pad, flags, flags2, flags3, maxdamage, ammotype) \
-	_generic_object(0x07, scale, model, pad, flags, flags2, flags3, maxdamage), \
+	_generic_object(0x07, scale, model, pad, flags, flags2, ((flags3) | OBJFLAG3_WALKTHROUGH), maxdamage), \
 	ammotype,
 
 #define weapon(scale, model, chr, flags, flags2, flags3, weapon) \
-	_generic_object(0x08, scale, model, chr, flags, flags2, flags3, 1000), \
+	_generic_object(0x08, scale, model, chr, flags, flags2, ((flags3) | OBJFLAG3_WALKTHROUGH), 1000), \
 	_mkword(_mkshort(weapon, 0), 0), 0x00ffffff, 0,
 
 #define chr(spawnflags, chrnum, pad, body, head, function, padpreset, chrpreset, hear_scale, view_dist, flags, flags2, team, squadron, chair, convtalk, tude, naturalanim, yvisang, teamscandist) \

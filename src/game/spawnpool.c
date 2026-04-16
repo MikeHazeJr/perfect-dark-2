@@ -194,12 +194,16 @@ void spawnPoolComputeAABB(spawn_aabb_t *aabb)
 /* ========================================================================
  * Raycast-budget validation
  *
- * Fires 14 rays from candidate: 6 cardinal + 8 horizontal diagonals.
- * Returns sum of ray distances, or -1.0f if a backface hit is detected
- * (indicating the candidate is inside solid geometry).
+ * Fires 18 rays from candidate: 6 cardinal + 4 horizontal XZ diag +
+ * 4 upper diag + 4 lower diag. Returns sum of ray distances, or -1.0f
+ * if a hit is detected closer than the capsule radius (inside solid).
+ *
+ * Lower diagonals added 2026-04-16 to catch overhangs BELOW the candidate
+ * (previously the 14-ray set had 4 upper diagonals and 0 lower → a candidate
+ * hovering off a ledge would validate clean).
  * ======================================================================== */
 
-/* Ray directions: 6 cardinal + 8 XZ diagonals */
+/* Ray directions: 6 cardinal + 4 XZ diag + 4 upper diag + 4 lower diag */
 static const struct coord s_RayDirs[SPAWNPOOL_RAY_COUNT] = {
 	{ 1.0f,  0.0f,  0.0f},  /* +X */
 	{-1.0f,  0.0f,  0.0f},  /* -X */
@@ -215,6 +219,10 @@ static const struct coord s_RayDirs[SPAWNPOOL_RAY_COUNT] = {
 	{-0.7071f, 0.3536f, 0.0f},   /* -X upper */
 	{ 0.0f, 0.3536f,  0.7071f},  /* +Z upper */
 	{ 0.0f, 0.3536f, -0.7071f},  /* -Z upper */
+	{ 0.7071f, -0.3536f, 0.0f},  /* +X lower */
+	{-0.7071f, -0.3536f, 0.0f},  /* -X lower */
+	{ 0.0f, -0.3536f,  0.7071f}, /* +Z lower */
+	{ 0.0f, -0.3536f, -0.7071f}, /* -Z lower */
 };
 
 f32 spawnPoolRaycastBudget(const struct coord *pos, RoomNum room)
@@ -230,6 +238,12 @@ f32 spawnPoolRaycastBudget(const struct coord *pos, RoomNum room)
 		struct coord endpoint;
 		struct hitthing hit;
 		bool didHit;
+		/* Rays with a downward component (-Y) are probing for ground /
+		 * overhangs beneath the candidate. A close hit on a downward ray
+		 * means "ground is right there" -- that's GOOD, not a trap. So
+		 * skip the capsule-clearance reject for those; the horizontal /
+		 * upward rays still gate on it. */
+		const bool isDownward = (s_RayDirs[i].y < -0.1f);
 
 		endpoint.x = pos->x + s_RayDirs[i].x * SPAWNPOOL_RAY_RANGE;
 		endpoint.y = pos->y + s_RayDirs[i].y * SPAWNPOOL_RAY_RANGE;
@@ -248,14 +262,19 @@ f32 spawnPoolRaycastBudget(const struct coord *pos, RoomNum room)
 			 * player capsule radius, the player would clip or be trapped.
 			 * bgTestHitInRoom doesn't expose face normals, so we use
 			 * capsule radius as a proxy for "inside/against geometry":
-			 * any hit within SPAWNPOOL_CAPSULE_RADIUS units is too close. */
-			if (dist < SPAWNPOOL_CAPSULE_RADIUS) {
+			 * any hit within SPAWNPOOL_CAPSULE_RADIUS units is too close.
+			 * Not applied to downward rays (see comment above). */
+			if (!isDownward && dist < SPAWNPOOL_CAPSULE_RADIUS) {
 				return -1.0f;
 			}
 
 			budget += dist;
 		} else {
-			/* No hit = ray traveled full range = open space */
+			/* No hit = ray traveled full range = open space. For downward
+			 * rays this means no ground beneath this direction (void /
+			 * overhang). Keep the full range contribution — candidates
+			 * are still gated by spawnPoolValidateCandidate's ground
+			 * sentinel check, which catches the direct -Y-void case. */
 			budget += SPAWNPOOL_RAY_RANGE;
 		}
 	}
@@ -290,17 +309,26 @@ f32 spawnPoolValidateCandidate(const struct coord *pos, RoomNum room,
 		}
 	}
 
-	/* 2. Ground clearance: must have a floor within 500 units below */
+	/* 2. Ground clearance: must have a floor within 500 units below.
+	 * Guard the ground sentinel: cdFindGroundInfoAtCyl returns -100000
+	 * when no floor is found. Treating that as a real ground causes
+	 * mid-air spawns. */
 	{
 		RoomNum grooms[2] = { room, -1 };
 		ground_y = cdFindGroundInfoAtCyl((struct coord *)pos, 30.0f, grooms,
 		                                 NULL, NULL, NULL, NULL, NULL, NULL);
+		if (ground_y <= -99000.0f) {
+			return -1.0f;
+		}
 		if (pos->y - ground_y > 500.0f) {
 			return -1.0f;
 		}
 	}
 
-	/* 3. Vertical clearance: 180 units above must be clear */
+	/* 3. Vertical clearance: 180 units above must be clear.
+	 * Uses CDTYPE_ALL so prop geometry (crates, pickups, decor) is also
+	 * tested — previously BG-only, which missed spawns landing on top
+	 * of a dropped weapon / crate pile. */
 	{
 		struct coord above;
 		RoomNum crooms[2] = { room, -1 };
@@ -308,7 +336,7 @@ f32 spawnPoolValidateCandidate(const struct coord *pos, RoomNum room,
 		above.y = pos->y + 180.0f;
 		above.z = pos->z;
 		if (cdExamCylMove01((struct coord *)pos, &above, 30.0f, crooms,
-		                    CDTYPE_BG, true, pos->y + 180.0f, pos->y)
+		                    CDTYPE_ALL, true, pos->y + 180.0f, pos->y)
 		    == CDRESULT_COLLISION) {
 			return -1.0f;
 		}
@@ -585,6 +613,35 @@ static void spawnPoolL3Grid(spawn_pool_t *pool, s32 needed,
  * L4: Centroid + radial dilation (unconditional guarantee)
  * ======================================================================== */
 
+/* Lightweight L4 safety check: room valid, ground found (not sentinel),
+ * position actually inside a room. Skips spacing + ray-budget (L4 path
+ * already applies ray-budget upstream). Used at last-resort accept so
+ * we never commit a pool entry pointing into nowhere. */
+static bool l4ValidateSafety(const struct coord *pos, RoomNum room)
+{
+	RoomNum grooms[2];
+	f32 ground_y;
+
+	if (room < 0) {
+		return false;
+	}
+	if (!bgTestPosInRoom((struct coord *)pos, room)) {
+		return false;
+	}
+
+	grooms[0] = room;
+	grooms[1] = -1;
+	ground_y = cdFindGroundInfoAtCyl((struct coord *)pos, 30.0f, grooms,
+	                                 NULL, NULL, NULL, NULL, NULL, NULL);
+	if (ground_y <= -99000.0f) {
+		return false;
+	}
+	if (pos->y - ground_y > 500.0f) {
+		return false;
+	}
+	return true;
+}
+
 /* Scratch space for L4 candidates across dilations */
 typedef struct l4_candidate {
 	struct coord pos;
@@ -709,11 +766,14 @@ static void spawnPoolL4Radial(spawn_pool_t *pool, s32 needed,
 			}
 		}
 
-		/* If all candidates in this ring passed, accept them */
+		/* If all candidates in this ring passed, accept them (each still
+		 * goes through a lightweight safety check — room valid / in-room /
+		 * ground found — so we don't commit into a wall or mid-air). */
 		if (pass_count == slots_needed) {
 			s32 j;
 			for (j = 0; j < ring_count && pool->count < SPAWNPOOL_MAX; j++) {
-				if (ring[j].budget >= SPAWNPOOL_BUDGET_THRESHOLD) {
+				if (ring[j].budget >= SPAWNPOOL_BUDGET_THRESHOLD
+						&& l4ValidateSafety(&ring[j].pos, ring[j].room)) {
 					poolAdd(pool, &ring[j].pos, ring[j].room, -1,
 					        SPAWNLAYER_RADIAL, ring[j].budget);
 					if (pool->count >= needed) break;
@@ -750,6 +810,13 @@ static void spawnPoolL4Radial(spawn_pool_t *pool, s32 needed,
 
 		for (j = 0; j < best_count && pool->count < needed &&
 		     pool->count < SPAWNPOOL_MAX; j++) {
+			/* Last-resort gate: even in worst-case, reject entries that
+			 * point into no-room / no-ground. Better a short pool that
+			 * cycles through valid points than a full pool that spawns
+			 * players into the void. */
+			if (!l4ValidateSafety(&best[j].pos, best[j].room)) {
+				continue;
+			}
 			poolAdd(pool, &best[j].pos, best[j].room, -1,
 			        SPAWNLAYER_RADIAL, best[j].budget);
 		}

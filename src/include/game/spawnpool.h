@@ -22,8 +22,12 @@
  */
 
 #define SPAWNPOOL_MAX       MAX_MPCHRS  /* 40 (8 players + 32 bots) */
-#define SPAWNPOOL_RAY_COUNT 14          /* 6 cardinal + 8 horizontal diag */
+#define SPAWNPOOL_RAY_COUNT 18          /* 6 cardinal + 4 XZ diag + 4 upper + 4 lower */
 #define SPAWNPOOL_RAY_RANGE 2000.0f     /* max ray distance (units) */
+/* Budget threshold unchanged (1500) even though ray count grew to 18 — the
+ * extra rays are safety nets (lower diagonals catch overhangs below), not
+ * harder gates. Keeping the threshold avoids regressing stages that used to
+ * produce valid pools. */
 #define SPAWNPOOL_BUDGET_THRESHOLD 1500.0f /* min sum of ray distances */
 #define SPAWNPOOL_L4_MAX_DILATIONS 8
 /* Player capsule radius (units). Any ray hit closer than this means the
