@@ -32,6 +32,7 @@
 
 #include "system.h"
 #include "net/net.h"
+#include "net/netmanifest.h"
 #include <string.h>
 
 /* PC port: solo room screen (ImGui overlay — replaces old Match Setup dialog) */
@@ -595,6 +596,12 @@ void menuTick(void)
 								titleSetNextStage(g_MissionConfig.stagenum);
 								lvSetDifficulty(g_MissionConfig.difficulty);
 								titleSetNextMode(TITLEMODE_SKIP);
+								/* SP-13 / Bug A hazard: must clear the client manifest before
+								 * mainChangeToStage, otherwise manifestMPTransition() diffs a
+								 * torn-down manifest against the loading stage and AVs. Mirrors
+								 * the patterns in pdguiEndscreenExitToMainMenu (F-0.4) and
+								 * netDisconnect (Bug A). See constraints.md. */
+								manifestClear(&g_ClientManifest);
 								mainChangeToStage(g_MissionConfig.stagenum);
 							} else {
 								s32 prevplayernum = g_Vars.currentplayernum;

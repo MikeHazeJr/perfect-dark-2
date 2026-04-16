@@ -140,6 +140,11 @@ static bool beginPdWindow(const char *imguiId, const char *title)
         return false;
     }
 
+    /* C-4: controller nav requires focus on appear. */
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetWindowFocus();
+    }
+
     {
         ImDrawList *dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(pos, ImVec2(pos.x + diagW, pos.y + diagH),

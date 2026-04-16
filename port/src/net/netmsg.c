@@ -1441,6 +1441,15 @@ u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl)
 	g_NetLocalBotAuthority = false;
 	g_NetPendingBotAuthority = false;
 
+	/* GAP-4 / SP-14: mirror the server-side reset at net.c:876 so the client's
+	 * view of the "match room" is cleared once the match actually ends.
+	 * Without this, stale match_room_id survives into the lobby state and
+	 * any code path that branches on g_NetMatchRoomId != 0xFF misbehaves. */
+	{
+		extern u8 g_NetMatchRoomId;
+		g_NetMatchRoomId = 0xFF;
+	}
+
 	return src->error;
 }
 
@@ -5483,6 +5492,16 @@ u32 netmsgSvcMatchCancelledRead(struct netbuf *src, struct netclient *srccl)
 
 	/* Clear the countdown so the overlay goes away */
 	memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
+
+	/* GAP-10: explicit canonical reset call mirrors the B-139 pattern used in
+	 * pdgui_lobby.cpp on mode→NONE transition. The memset above already
+	 * zeros the state, but routing through pdguiCountdownReset() keeps the
+	 * "countdown cleared" site grep-able and future-proofs against the
+	 * reset function gaining side-effects (UI notification, sound, etc.). */
+	{
+		extern void pdguiCountdownReset(void);
+		pdguiCountdownReset();
+	}
 
 	/* Record who cancelled so the UI can display the message */
 	g_MatchCancelledState.active = 1;

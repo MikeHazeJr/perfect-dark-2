@@ -651,13 +651,15 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 0.1f, 0.1f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
             if (PdPauseButton("Confirm?##pm", ImVec2(halfTab, 28.0f))) {
-                /* Actually end the game */
+                /* GAP-3: route BOTH offline and online through mainEndStage so
+                 * the player sees final rankings/awards before returning to
+                 * the main menu. Previously NETMODE_CLIENT called netDisconnect
+                 * directly, which tore down ENet and jumped straight to
+                 * CITRAINING — bypassing the endscreen entirely. The MP
+                 * endscreen's "Disconnect" button already calls netDisconnect
+                 * for the teardown once the player has seen results. */
                 pdguiPauseSetPlayerAborted();
-                if (g_NetMode == NETMODE_CLIENT) {
-                    netDisconnect();
-                } else {
-                    mainEndStage();
-                }
+                mainEndStage();
                 pdguiPauseMenuClose();
             }
             ImGui::PopStyleColor(3);
