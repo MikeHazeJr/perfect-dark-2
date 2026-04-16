@@ -35,6 +35,7 @@
 #include "assetcatalog.h"
 #include "modelcatalog.h"
 #include "inputctx.h"
+#include "menupool.h"
 #include "config.h"
 #include "lib/vi.h"
 #include "net/netmanifest.h"  /* F-0.4: manifestClear */
@@ -774,6 +775,11 @@ void pdguiEndscreenStartMission(void)
         }
     }
     menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
+    /* Phase 2: release every pool slot before we pop the shared menu
+     * context. This ensures any slot that was passively relying on the
+     * ctx staying active (main menu, endscreen sub-dialogs) isn't left
+     * thinking it's still open during stage transition. */
+    menupoolReleaseAll();
     if (inputCtxIsActive(&g_CtxImGuiMenu)) {
         inputCtxPopDeferred(&g_CtxImGuiMenu);
     }
@@ -787,6 +793,8 @@ void pdguiEndscreenNextMission(void)
 {
     endscreenAdvance();
     menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
+    /* Phase 2: release all pool slots — see pdguiEndscreenStartMission. */
+    menupoolReleaseAll();
     if (inputCtxIsActive(&g_CtxImGuiMenu)) {
         inputCtxPopDeferred(&g_CtxImGuiMenu);
     }
@@ -821,6 +829,11 @@ void pdguiEndscreenExitToMainMenu(void)
     }
     /* F-1.2: Reset solo mission menu state so re-entry starts clean. */
     pdguiSoloMissionReset();
+    /* Phase 2: release all pool slots — the exit-to-main-menu path
+     * changes stage, and any residual slot would be stale at the next
+     * menu open. menupoolReleaseAll is idempotent and safe during the
+     * transition. */
+    menupoolReleaseAll();
     if (inputCtxIsActive(&g_CtxImGuiMenu)) {
         inputCtxPopDeferred(&g_CtxImGuiMenu);
     }

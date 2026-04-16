@@ -58,6 +58,7 @@
 #include "pdgui_hotswap.h"
 #include "pdgui_charpreview.h"
 #include "assetcatalog.h"
+#include "menupool.h"
 #define BLUR_OFS 10
 
 #if VERSION >= VERSION_PAL_FINAL
@@ -1511,9 +1512,10 @@ void menuPushDialog(struct menudialogdef *dialogdef)
 	g_AllowMouseHeld = false;
 
 	if (dialogdef) {
-		/* F-3.1: Reject duplicate push of the same dialogdef.
-		 * Scan current layers — if this def is already on the stack, log and bail.
-		 * Legitimate sibling tabs use nextsibling, not double push. */
+		/* F-3.1: Reject duplicate push of the same dialogdef pointer.
+		 * Runtime pointer-equality scan — catches literal duplicates even
+		 * for unregistered dialogs where the menupool type mapping is
+		 * MENU_TYPE_NONE (belt, ahead of the pool dedup braces below). */
 		for (s32 d = 0; d < g_Menus[g_MpPlayerNum].depth; d++) {
 			struct menulayer *chk = &g_Menus[g_MpPlayerNum].layers[d];
 			for (s32 s = 0; s < chk->numsiblings; s++) {
@@ -1524,6 +1526,22 @@ void menuPushDialog(struct menudialogdef *dialogdef)
 					return;
 				}
 			}
+		}
+
+		/* Phase 2: consult the menu pool. If this dialogdef's TYPE is
+		 * already active (possibly via a different dialogdef variant
+		 * mapped to the same type, e.g. PC vs Pause main menu), deny
+		 * structurally. The pool is the authoritative source-of-truth
+		 * for "one instance per menu type". Unregistered dialogdefs
+		 * (not in the data.h→type table) return 1 from acquire and pass
+		 * through with no dedup enforcement. */
+		s32 pool_rc = menupoolAcquireDialog(dialogdef, NULL);
+		if (pool_rc == 0) {
+			menu_type_t t = menupoolTypeForDialogdef(dialogdef);
+			sysLogPrintf(LOG_WARNING,
+				"MENU: menuPushDialog rejected — pool slot [%s] already active (def %p)",
+				menupoolTypeName(t), (void *)dialogdef);
+			return;
 		}
 
 		menuUnsetModel(&g_Menus[g_MpPlayerNum].menumodel);
@@ -1553,6 +1571,21 @@ void menuPushDialog(struct menudialogdef *dialogdef)
 			sibling = dialogdef->nextsibling;
 
 			while (sibling && layer->numsiblings < 5) {
+				/* Phase 2: the nextsibling auto-open chain must respect pool
+				 * occupancy. If a sibling's TYPE is already active elsewhere
+				 * in the system, skipping it prevents two renderers from
+				 * firing for the same type (B-153 class — though the active
+				 * menuDialogIsCurrent() guard in renderers is the belt, this
+				 * is the braces at the open site). An unregistered sibling
+				 * returns 0 from menupoolIsDialogActive and opens normally. */
+				if (menupoolIsDialogActive(sibling)) {
+					sysLogPrintf(LOG_NOTE,
+						"MENU: nextsibling auto-open skipped — pool slot [%s] already active",
+						menupoolTypeName(menupoolTypeForDialogdef(sibling)));
+					sibling = sibling->nextsibling;
+					continue;
+				}
+
 				// @bug:
 				// If this limit were to be reached, the game would soft lock
 				// because sibling is incremented inside the if-statement block.
@@ -1566,6 +1599,13 @@ void menuPushDialog(struct menudialogdef *dialogdef)
 					dialog->swipedir = -1;
 
 					menuOpenDialog(sibling, dialog, &g_Menus[g_MpPlayerNum]);
+
+					/* Acquire the sibling's pool slot so nested open/close
+					 * bookkeeping stays symmetric: menuCloseDialog releases
+					 * every sibling, and every sibling we opened must have
+					 * a corresponding pool slot to release. Unregistered
+					 * sibling returns 1 (no dedup, no real slot). */
+					menupoolAcquireDialog(sibling, NULL);
 
 					dialog->dstx = dialog->x = -SCREEN_320;
 					dialog->dsty = dialog->y = (viGetHeight() - dialog->height) / 2;
@@ -1683,6 +1723,17 @@ void menuCloseDialog(void)
 
 			if (value_prevent == data.dialog1.preventclose) {
 				return;
+			}
+		}
+
+		/* Phase 2: release each sibling's pool slot BEFORE we decrement
+		 * numdialogs — once the g_Menus entries are gone we'd lose the
+		 * dialogdef pointer needed for the release lookup. Unregistered
+		 * dialogs return 0 from menupoolReleaseDialog and are safely
+		 * no-opped. */
+		for (i = 0; i < layer->numsiblings; i++) {
+			if (layer->siblings[i] && layer->siblings[i]->definition) {
+				menupoolReleaseDialog(layer->siblings[i]->definition);
 			}
 		}
 

@@ -7,6 +7,26 @@
 
 ---
 
+## Open — 2026-04-16 (S299 — trusting-banach)
+
+### Playtest verification of Input Authority Phase 2 (menu pool)
+
+Reference: `context/designs/input-authority-and-menu-pool-2026-04-13.md` §6, commit on `claude/trusting-banach-a43c0e`.
+
+- **Structural dedup at `menuPushDialog`** — Try to force a duplicate push: from the main menu, open any dialog (e.g. Cheats) and attempt to invoke the same menu again via a second binding (keyboard + controller nearly simultaneous). Confirm `pd.log` shows either `MENU: menuPushDialog rejected duplicate def %p` (F-3.1 pointer scan) OR `MENU: menuPushDialog rejected — pool slot [...] already active` (pool layer). No double-open should be possible.
+- **Nextsibling respect** — Open the main menu (CI free-roam). Pool should log `MENUPOOL: acquired main_menu ...` and `MENUPOOL: acquired ci_options ...` (the auto-opened sibling). No B-153-style double-render. Close with Esc.
+- **Force-close cleanup** — Start a solo mission → End Game → Exit to Main Menu. Confirm `pd.log` shows `MENUPOOL: released N slot(s) (bulk)` alongside the existing `INPUTCTX: 'imgui_menu' marked for deferred removal`.
+- **Stage-transition reset** — Transition from main menu → mission load → gameplay. Pool should be cleanly empty during and after `inputCtxShutdown` / `inputCtxInit`. Tail `pd.log` across the transition for any residual `MENUPOOL:` lines after the stage has loaded.
+- **Regression sweep** — Repeat the S296/S297 playtest checklists (stuck WASD, double main menu, textbox leak, chrome mod visibility). The pool is identity-only this session and should not affect those existing fixes.
+
+### Follow-up queued for future sessions
+
+- Migrate the 10 ImGui renderer `s_*PushedCtx` bools to pool-owned input-context (see ADR §6.1b). Per-file migration: `pdgui_menu_{cheats,mpsetup,mppause,mpadvanced,playerconfig,botsetup,agentselect,room,training}.cpp`. Replace `s_FooPushedCtx`/manual push/pop with `menupoolAcquireDialog(def, &g_CtxImGuiMenu)` on IsWindowAppearing + `menupoolReleaseDialog(def)` on Begin-false cull + `menuPopDialog()` on close.
+- Per-scope state arrays for the shared-action leak (ADR §6.2 follow-up). Still open.
+- Unit/integration tests for menu pool (ADR §6.3).
+
+---
+
 ## Open — 2026-04-16 (S297 — silly-jepsen)
 
 ### Playtest verification of B-154 / B-155 / B-156

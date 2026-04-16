@@ -1,7 +1,52 @@
 # Session Log (Active)
 
-> **S241–S297** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S299** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S299 — 2026-04-16 (Input Authority Phase 2 — menu pool single-instance discipline — trusting-banach worktree)
+
+**Scope**: Implement Phase 2 of the input-authority / menu-pool ADR (`context/designs/input-authority-and-menu-pool-2026-04-13.md` §6). Phase 1 (S250) added `gameplayInputSuppressed()`, dispatch-site gates, and flushes on menu push + focus events. Phase 2 adds a **pre-allocated menu pool keyed by type** so that duplicate-push becomes structurally impossible and the `nextsibling` auto-open chain respects pool occupancy.
+
+**New files**:
+
+- `port/include/menupool.h` — public API for the pool layer. Declares `menu_type_t` enum covering ~29 menu identities (legacy-dialog menus + pure-ImGui pages), plus `menupoolAcquire` / `menupoolRelease` / `menupoolAcquireDialog` / `menupoolReleaseDialog` / `menupoolIsActive` / `menupoolIsDialogActive` / `menupoolReleaseAll` / `menupoolDumpActive` / `menupoolTypeName` / `menupoolCountActive`.  Pool slot has three fields: `active`, `owned_ctx` (optional — pool pushes + pops if present), `generation` (bump on each acquire, for diagnostics).  Acquire is atomic (0 on deny, 1 on fresh, -1 on invalid type); release is idempotent (always safe to call on inactive slot).
+- `port/src/menupool.c` — implementation.  Flat `s_Pool[MENU_TYPE_COUNT]` slot array + `s_Registry[]` (capacity 96) dialogdef→type table.  `menupoolInit()` registers ~56 dialogdef pointers from `src/include/data.h` against their menu types (main menu PC + Pause variants → `MENU_TYPE_MAIN_MENU`; MP setup arena/scenario/weapons/limits/etc. → `MENU_TYPE_MP_SETUP`; training FR/DT/HT/Bio/Hangar → `MENU_TYPE_TRAINING`; etc.).  Unregistered dialogdefs pass through with no pool dedup (legacy-safe default).
+
+**Wiring**:
+
+1. **`port/src/inputctx.c`** — `inputCtxInit()` calls `menupoolInit()` + `menupoolReleaseAll()` so the pool is live before any menu can open and resets cleanly across the stage-transition nuclear reset. `inputCtxShutdown()` calls `menupoolReleaseAll()` BEFORE walking the stack — prevents pool slots from holding dangling `owned_ctx` pointers after the contexts are physically popped.
+2. **`src/game/menu.c`** — `menuPushDialog()` calls `menupoolAcquireDialog(def, NULL)` after the existing F-3.1 pointer-equality scan; if the pool returns 0 (type already active), the push is denied. The `nextsibling` auto-open loop now checks `menupoolIsDialogActive(sibling)` and skips any sibling whose type is already active elsewhere, then calls `menupoolAcquireDialog(sibling, NULL)` for siblings that proceed. `menuCloseDialog()` iterates the layer's siblings and calls `menupoolReleaseDialog(def)` for each BEFORE decrementing `numdialogs` (otherwise the dialogdef pointers needed for the lookup would be gone).
+3. **`port/fast3d/pdgui_bridge.c`** — `pdguiEndscreenStartMission` / `pdguiEndscreenNextMission` / `pdguiEndscreenExitToMainMenu` call `menupoolReleaseAll()` before `inputCtxPopDeferred(&g_CtxImGuiMenu)`. Pool handles identity cleanup; inputctx handles the shared menu context.
+4. **`port/src/net/matchsetup.c`** — `matchStart()` and `matchStartFromChallenge()` add `menupoolReleaseAll()` alongside existing `inputCtxPopDeferred`.
+5. **`port/src/net/netmsg.c`** — both stage-change handlers (co-op/anti at line 1190; combat at line 1345) add `menupoolReleaseAll()` inside their `!defined(PD_SERVER)` guards.
+6. **`src/lib/main.c`** — no direct change needed. Stage-transition nuclear reset (`inputCtxShutdown()` + `inputCtxInit()`) now releases the pool via the inputctx.c wiring above.
+
+**Design decisions**:
+
+- **Pool = identity only (for now)**. The pool API supports optional ctx ownership, but this session does NOT migrate the 10 existing `s_*PushedCtx` patterns in the ImGui renderers (`pdgui_menu_{cheats,mpsetup,mppause,mpadvanced,playerconfig,botsetup,agentselect,room,training}.cpp`). Each renderer continues to own its own `inputCtxPush`/`PopDeferred` for `g_CtxImGuiMenu`, because those have been stabilized through S250 Phase 1 and S295 F4 leak guards. The pool is additive: it enforces **structural dedup at the `menuPushDialog` boundary** without disturbing the renderers' cull-handling. Future sessions can opt-in individual renderers to pool-owned ctx via the existing `ctx` parameter of `menupoolAcquire`.
+- **Nextsibling chain** (`menu.c:1553-1620`): new `menupoolIsDialogActive` check at the top of the loop short-circuits sibling auto-open when that sibling's TYPE is already active elsewhere — complements the existing `menuDialogIsCurrent` guard in renderers (S296 F-3.2 belt; pool is the architectural braces).
+- **Unregistered dialogs pass through**. `menupoolAcquireDialog` returns 1 (success, no dedup) for any dialogdef not in the registry table — preserves legacy behavior for dialogs whose push paths haven't been audited.
+- **Registry capacity = 96**. Covers all 70 `data.h` externs + headroom for late-registered mod dialogs via `menupoolRegisterDialogdef(def, type)`.
+
+**Guarantees delivered** (from ADR §6 acceptance criteria):
+
+- ✅ Duplicate-push of the same menu TYPE is structurally impossible (not just runtime-rejected).
+- ✅ Nextsibling auto-open chain respects pool occupancy (B-153 class prevention).
+- ✅ Force-close paths (endscreen exit/next/start, MP match start, co-op stage change, MP stage change, stage-transition nuclear reset) release every pool slot cleanly.
+- ✅ Pool API supports input-context ownership tied to slot lifecycle for renderers that opt in.
+- ⚠️ Shared-action leak (ADR §3.5) is NOT fixed this session — it requires per-scope state arrays in the actionmap, which is a separate architectural change.
+
+**Build verify**: direct worktree build via `cmake -G Ninja -DCMAKE_C_COMPILER=/c/msys64/mingw64/bin/cc.exe -DCMAKE_CXX_COMPILER=/c/msys64/mingw64/bin/c++.exe -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache ..` then `ninja -C Build pd pd-server`.  751/751 targets; `PerfectDark.exe` 51,502,778 bytes (+62,506 vs S297); `PerfectDarkServer.exe` 22,817,578 bytes (-976 bytes — pd-server doesn't include menupool/inputctx, which is correct: the server does not open client menus). Only pre-existing `'/*' within comment` warnings and `f32 near/far` macro-name warnings; no new ones.  Note: the `build-headless.ps1` script is designed to redirect worktree invocations to the main working copy, so direct `cmake + ninja` is the canonical worktree build.
+
+**Not done in this session**:
+
+- ImGui renderer migration to pool-owned ctx (the 10 `s_*PushedCtx` boolean patterns). Deliberate deferral — the existing pattern is stable and touches ~20 renderers. Future sessions can migrate one renderer at a time, converting `s_FooPushedCtx` into `menupoolAcquire(MENU_TYPE_FOO, def, &g_CtxImGuiMenu)` / `menupoolRelease(MENU_TYPE_FOO)` and removing the bool.
+- Per-scope state arrays for shared actions (ADR §3.5 follow-up). Still open.
+- Unit / integration tests for the pool (ADR §6.3). No automation for input/menu layer exists; any regression would still surface the hard way.
+
+**Next**: playtest verification — open/close every major menu (main menu, cheats, MP setup, MP pause, endscreen), confirm no duplicate-push warnings in `pd.log`, confirm force-close paths (retry mission, next mission, exit to main menu) log `MENUPOOL: released N slot(s) (bulk)` and the stage transition completes cleanly.
+
+---
 
 ## Session S297 (playtest-triage track) — 2026-04-16 (Textbox leak + chrome mod visibility — silly-jepsen worktree)
 

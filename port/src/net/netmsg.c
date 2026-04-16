@@ -57,6 +57,7 @@
 #if !defined(PD_SERVER)
 #include "pdgui.h"
 #include "inputctx.h"
+#include "menupool.h"
 #endif
 #include <SDL.h>
 
@@ -1186,6 +1187,10 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
 		menuStop();
 #if !defined(PD_SERVER)
+		/* Phase 2: pool slot cleanup precedes the shared menu ctx pop
+		 * so any slot that was about to survive the stage transition
+		 * is released cleanly first. */
+		menupoolReleaseAll();
 		if (inputCtxIsActive(&g_CtxImGuiMenu)) {
 			inputCtxPopDeferred(&g_CtxImGuiMenu);
 		}
@@ -1338,6 +1343,8 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
 		menuStop();
 #if !defined(PD_SERVER)
+		/* Phase 2: release pool slots before popping the menu ctx. */
+		menupoolReleaseAll();
 		if (inputCtxIsActive(&g_CtxImGuiMenu)) {
 			inputCtxPopDeferred(&g_CtxImGuiMenu);
 		}
