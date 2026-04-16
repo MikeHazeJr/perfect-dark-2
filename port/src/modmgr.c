@@ -871,6 +871,149 @@ static u32 modmgrHashString(const char *str)
 // Directory scanning
 // ---------------------------------------------------------------------------
 
+/* Try to register a single mod entry rooted at `fullpath`. `display_id` is
+ * the directory-leaf name used for fallback id/name when mod.json parse
+ * fails. `source_tag` labels the originating root for log messages (or NULL
+ * for the primary root). When `dedupe_by_id` is true, entries whose id
+ * already exists in the registry are skipped (used by the alt-root pass and
+ * the category-folder recursion).
+ *
+ * Returns 1 if a slot was consumed, 0 otherwise. Does not recurse. */
+static s32 modmgrTryRegisterModEntry(const char *fullpath, const char *display_id,
+                                      const char *source_tag, bool dedupe_by_id)
+{
+	if (g_ModRegistryCount >= MODMGR_MAX_MODS) return 0;
+
+	/* Check for manifest: mod.json (full mod) or audio.ini (audio mod) */
+	char checkpath[FS_MAXPATH + 1];
+	bool has_modjson = false;
+	bool has_audioini = false;
+
+	snprintf(checkpath, sizeof(checkpath), "%s/mod.json", fullpath);
+	if (fsFileSize(checkpath) > 0) {
+		has_modjson = true;
+	} else {
+		snprintf(checkpath, sizeof(checkpath), "%s/audio.ini", fullpath);
+		if (fsFileSize(checkpath) > 0) {
+			has_audioini = true;
+		}
+	}
+
+	if (!has_modjson && !has_audioini) {
+		return 0;
+	}
+
+	/* Initialize mod entry */
+	modinfo_t *mod = &g_ModRegistry[g_ModRegistryCount];
+	memset(mod, 0, sizeof(modinfo_t));
+	strncpy(mod->dirpath, fullpath, FS_MAXPATH - 1);
+	mod->dirpath[FS_MAXPATH - 1] = '\0';
+
+	if (has_modjson) {
+		if (!modmgrParseModJson(mod)) {
+			strncpy(mod->id, display_id, MODMGR_ID_LEN - 1);
+			mod->id[MODMGR_ID_LEN - 1] = '\0';
+			strncpy(mod->name, display_id, MODMGR_NAME_LEN - 1);
+			mod->name[MODMGR_NAME_LEN - 1] = '\0';
+			mod->valid = false;
+			snprintf(mod->validation_error, MODMGR_ERROR_LEN,
+				"Malformed mod.json — failed to parse");
+			mod->has_modjson = false;
+			sysLogPrintf(LOG_WARNING, "modmgr: '%s' has invalid mod.json (kept for error display)",
+				display_id);
+		}
+	} else {
+		if (!modmgrParseAudioIni(mod)) {
+			strncpy(mod->id, display_id, MODMGR_ID_LEN - 1);
+			mod->id[MODMGR_ID_LEN - 1] = '\0';
+			strncpy(mod->name, display_id, MODMGR_NAME_LEN - 1);
+			mod->name[MODMGR_NAME_LEN - 1] = '\0';
+			mod->valid = false;
+			snprintf(mod->validation_error, MODMGR_ERROR_LEN,
+				"Malformed audio.ini — failed to parse");
+			mod->has_audioini = false;
+			sysLogPrintf(LOG_WARNING, "modmgr: '%s' has invalid audio.ini (kept for error display)",
+				display_id);
+		}
+	}
+
+	if (dedupe_by_id) {
+		for (s32 k = 0; k < g_ModRegistryCount; k++) {
+			if (strcmp(g_ModRegistry[k].id, mod->id) == 0) {
+				/* Duplicate — rewind slot and skip. memset above means we
+				 * haven't leaked anything. */
+				memset(mod, 0, sizeof(*mod));
+				return 0;
+			}
+		}
+	}
+
+	mod->bundled = 0;
+
+	/* Compute content hash from ID + version */
+	char hashsrc[256];
+	snprintf(hashsrc, sizeof(hashsrc), "%s:%s", mod->id, mod->version);
+	mod->contenthash = modmgrHashString(hashsrc);
+
+	/* SHA-256 over manifest content for network verification. */
+	{
+		char manifestpath[FS_MAXPATH + 1];
+		if (has_modjson) {
+			snprintf(manifestpath, sizeof(manifestpath), "%s/mod.json", fullpath);
+		} else {
+			snprintf(manifestpath, sizeof(manifestpath), "%s/audio.ini", fullpath);
+		}
+		if (sha256HashFile(manifestpath, mod->sha256) != 0) {
+			sha256Hash((const u8 *)hashsrc, strlen(hashsrc), mod->sha256);
+		}
+	}
+
+	mod->size_bytes = modmgrComputeDirSize(fullpath);
+	mod->enabled = 0;
+
+	g_ModRegistryCount++;
+	if (source_tag) {
+		sysLogPrintf(LOG_NOTE, "modmgr: discovered mod [%d] '%s' (%s) %s from '%s'",
+			g_ModRegistryCount - 1, mod->id, mod->name,
+			mod->has_modjson ? "[mod.json]" : mod->has_audioini ? "[audio.ini]" : "[legacy]",
+			source_tag);
+	} else {
+		sysLogPrintf(LOG_NOTE, "modmgr: discovered mod [%d] '%s' (%s) %s",
+			g_ModRegistryCount - 1, mod->id, mod->name,
+			mod->has_modjson ? "[mod.json]" : mod->has_audioini ? "[audio.ini]" : "[legacy]");
+	}
+	return 1;
+}
+
+/* Iterate children of `catPath` (a category folder such as
+ * `mods/UI Chrome/`). Each child directory is tried as a mod entry.
+ * Non-directory entries are skipped. This function does NOT recurse
+ * further — depth is capped at one level under root to prevent runaway
+ * directory walks on arbitrary user layouts. */
+static void modmgrScanCategoryFolder(const char *catPath, const char *catName,
+                                      bool dedupe_by_id)
+{
+	DIR *d = opendir(catPath);
+	if (!d) return;
+
+	sysLogPrintf(LOG_NOTE, "modmgr: entering category folder '%s'", catName);
+
+	struct dirent *ent;
+	while ((ent = readdir(d)) != NULL && g_ModRegistryCount < MODMGR_MAX_MODS) {
+		if (ent->d_name[0] == '.') continue;
+
+		char subpath[FS_MAXPATH + 1];
+		snprintf(subpath, sizeof(subpath), "%s/%s", catPath, ent->d_name);
+
+		struct stat st;
+		if (stat(subpath, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+
+		modmgrTryRegisterModEntry(subpath, ent->d_name, catName, dedupe_by_id);
+	}
+
+	closedir(d);
+}
+
 static void modmgrScanDirectory(void)
 {
 	g_ModRegistryCount = 0;
@@ -932,108 +1075,26 @@ static void modmgrScanDirectory(void)
 
 	sysLogPrintf(LOG_NOTE, "modmgr: scanning '%s' for mods...", modsdir);
 
+	/* Root pass: try each top-level entry as a mod. If an entry is a dir
+	 * with no manifest, treat it as a category folder (e.g. UI Chrome,
+	 * Weapons, MP Maps) and scan one level deeper. This is bounded at
+	 * depth 1 from the primary root. */
 	struct dirent *ent;
 	while ((ent = readdir(dir)) != NULL && g_ModRegistryCount < MODMGR_MAX_MODS) {
-		// Skip . and ..
 		if (ent->d_name[0] == '.') continue;
 
-		// Build full path
 		char fullpath[FS_MAXPATH + 1];
 		snprintf(fullpath, sizeof(fullpath), "%s/%s", modsdir, ent->d_name);
 
-		// Check if it's a directory
 		struct stat st;
-		if (stat(fullpath, &st) != 0 || !S_ISDIR(st.st_mode)) {
+		if (stat(fullpath, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+
+		if (modmgrTryRegisterModEntry(fullpath, ent->d_name, NULL, false)) {
 			continue;
 		}
 
-		// Check for manifest: mod.json (full mod) or audio.ini (audio mod)
-		char checkpath[FS_MAXPATH + 1];
-		bool has_modjson = false;
-		bool has_audioini = false;
-
-		snprintf(checkpath, sizeof(checkpath), "%s/mod.json", fullpath);
-		if (fsFileSize(checkpath) > 0) {
-			has_modjson = true;
-		}
-
-		if (!has_modjson) {
-			snprintf(checkpath, sizeof(checkpath), "%s/audio.ini", fullpath);
-			if (fsFileSize(checkpath) > 0) {
-				has_audioini = true;
-			}
-		}
-
-		if (!has_modjson && !has_audioini) {
-			sysLogPrintf(LOG_NOTE, "modmgr: skipping '%s' (no mod.json or audio.ini)", ent->d_name);
-			continue;
-		}
-
-		// Initialize mod entry
-		modinfo_t *mod = &g_ModRegistry[g_ModRegistryCount];
-		memset(mod, 0, sizeof(modinfo_t));
-		strncpy(mod->dirpath, fullpath, FS_MAXPATH - 1);
-		mod->dirpath[FS_MAXPATH - 1] = '\0';
-
-		if (has_modjson) {
-			if (!modmgrParseModJson(mod)) {
-				// Keep the mod in the registry for UI error display, but mark invalid
-				strncpy(mod->id, ent->d_name, MODMGR_ID_LEN - 1);
-				mod->id[MODMGR_ID_LEN - 1] = '\0';
-				strncpy(mod->name, ent->d_name, MODMGR_NAME_LEN - 1);
-				mod->name[MODMGR_NAME_LEN - 1] = '\0';
-				mod->valid = false;
-				snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Malformed mod.json — failed to parse");
-				mod->has_modjson = false;
-				sysLogPrintf(LOG_WARNING, "modmgr: '%s' has invalid mod.json (kept for error display)", ent->d_name);
-			}
-		} else {
-			// audio.ini-based mod
-			if (!modmgrParseAudioIni(mod)) {
-				strncpy(mod->id, ent->d_name, MODMGR_ID_LEN - 1);
-				mod->id[MODMGR_ID_LEN - 1] = '\0';
-				strncpy(mod->name, ent->d_name, MODMGR_NAME_LEN - 1);
-				mod->name[MODMGR_NAME_LEN - 1] = '\0';
-				mod->valid = false;
-				snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Malformed audio.ini — failed to parse");
-				mod->has_audioini = false;
-				sysLogPrintf(LOG_WARNING, "modmgr: '%s' has invalid audio.ini (kept for error display)", ent->d_name);
-			}
-		}
-
-		// mod->bundled is always 0 — no hardcoded bundled mods exist
-		mod->bundled = 0;
-
-		// Compute content hash from ID + version
-		char hashsrc[256];
-		snprintf(hashsrc, sizeof(hashsrc), "%s:%s", mod->id, mod->version);
-		mod->contenthash = modmgrHashString(hashsrc);
-
-		// Compute SHA-256 for authoritative network verification.
-		// Primary: hash manifest content (stable, covers declared assets).
-		// Fallback: hash the "id:version" string so sha256 is never all-zeroes.
-		{
-			char manifestpath[FS_MAXPATH + 1];
-			if (has_modjson) {
-				snprintf(manifestpath, sizeof(manifestpath), "%s/mod.json", fullpath);
-			} else {
-				snprintf(manifestpath, sizeof(manifestpath), "%s/audio.ini", fullpath);
-			}
-			if (sha256HashFile(manifestpath, mod->sha256) != 0) {
-				sha256Hash(hashsrc, strlen(hashsrc), mod->sha256);
-			}
-		}
-
-		// Compute directory size for download estimation
-		mod->size_bytes = modmgrComputeDirSize(fullpath);
-
-		// Default: disabled until user explicitly enables
-		mod->enabled = 0;
-
-		g_ModRegistryCount++;
-		sysLogPrintf(LOG_NOTE, "modmgr: discovered mod [%d] '%s' (%s) %s",
-			g_ModRegistryCount - 1, mod->id, mod->name,
-			mod->has_modjson ? "[mod.json]" : mod->has_audioini ? "[audio.ini]" : "[legacy]");
+		/* Entry is a directory with no manifest — treat as category. */
+		modmgrScanCategoryFolder(fullpath, ent->d_name, false);
 	}
 
 	closedir(dir);
@@ -1060,82 +1121,14 @@ static void modmgrScanDirectory(void)
 			struct stat altst;
 			if (stat(altpath, &altst) != 0 || !S_ISDIR(altst.st_mode)) continue;
 
-			char altcheck[FS_MAXPATH + 1];
-			bool alt_has_modjson = false;
-			bool alt_has_audioini = false;
-
-			snprintf(altcheck, sizeof(altcheck), "%s/mod.json", altpath);
-			if (fsFileSize(altcheck) > 0) {
-				alt_has_modjson = true;
-			} else {
-				snprintf(altcheck, sizeof(altcheck), "%s/audio.ini", altpath);
-				if (fsFileSize(altcheck) > 0) {
-					alt_has_audioini = true;
-				}
+			/* Try as mod first; if that fails (no manifest), try as category. */
+			if (modmgrTryRegisterModEntry(altpath, altent->d_name,
+			                              candidates[ci], true)) {
+				continue;
 			}
-			if (!alt_has_modjson && !alt_has_audioini) continue;
-
-			/* Check for duplicate mod ID (already scanned from primary dir) */
-			bool dup = false;
-			for (s32 k = 0; k < g_ModRegistryCount; k++) {
-				if (strcmp(g_ModRegistry[k].id, altent->d_name) == 0) {
-					dup = true;
-					break;
-				}
-			}
-			if (dup) continue;
-
-			modinfo_t *mod = &g_ModRegistry[g_ModRegistryCount];
-			memset(mod, 0, sizeof(modinfo_t));
-			strncpy(mod->dirpath, altpath, FS_MAXPATH - 1);
-			mod->dirpath[FS_MAXPATH - 1] = '\0';
-
-			if (alt_has_modjson) {
-				if (!modmgrParseModJson(mod)) {
-					strncpy(mod->id, altent->d_name, MODMGR_ID_LEN - 1);
-					mod->id[MODMGR_ID_LEN - 1] = '\0';
-					strncpy(mod->name, altent->d_name, MODMGR_NAME_LEN - 1);
-					mod->name[MODMGR_NAME_LEN - 1] = '\0';
-					mod->valid = false;
-					snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Malformed mod.json");
-					mod->has_modjson = false;
-				}
-			} else {
-				if (!modmgrParseAudioIni(mod)) {
-					strncpy(mod->id, altent->d_name, MODMGR_ID_LEN - 1);
-					mod->id[MODMGR_ID_LEN - 1] = '\0';
-					strncpy(mod->name, altent->d_name, MODMGR_NAME_LEN - 1);
-					mod->name[MODMGR_NAME_LEN - 1] = '\0';
-					mod->valid = false;
-					snprintf(mod->validation_error, MODMGR_ERROR_LEN, "Malformed audio.ini");
-					mod->has_audioini = false;
-				}
-			}
-
-			mod->bundled = 0;
-
-			char hashsrc[256];
-			snprintf(hashsrc, sizeof(hashsrc), "%s:%s", mod->id, mod->version);
-			mod->contenthash = modmgrHashString(hashsrc);
-
-			{
-				char manifestpath[FS_MAXPATH + 1];
-				if (alt_has_modjson) {
-					snprintf(manifestpath, sizeof(manifestpath), "%s/mod.json", altpath);
-				} else {
-					snprintf(manifestpath, sizeof(manifestpath), "%s/audio.ini", altpath);
-				}
-				if (sha256HashFile(manifestpath, mod->sha256) != 0) {
-					sha256Hash((const u8 *)hashsrc, strlen(hashsrc), mod->sha256);
-				}
-			}
-
-			mod->size_bytes = modmgrComputeDirSize(altpath);
-			mod->enabled = 0;
-
-			g_ModRegistryCount++;
-			sysLogPrintf(LOG_NOTE, "modmgr: discovered mod [%d] '%s' (%s) from alt dir '%s'",
-				g_ModRegistryCount - 1, mod->id, mod->name, candidates[ci]);
+			modmgrScanCategoryFolder(altpath, altent->d_name, true);
+			/* Loop-scoped continue is implicit (we fall through to the top). */
+			continue;
 		}
 
 		closedir(altdir);

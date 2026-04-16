@@ -1077,6 +1077,52 @@ static void register_mod_theme_dir(const char *mods_dir, const char *slug)
     }
 }
 
+/* Return true if `dirpath` contains theme.json, or a mod.json whose body
+ * mentions a "theme" key. Used to decide whether a subdir is a leaf mod
+ * (don't descend further) or a category folder (descend one level). */
+static bool dir_has_theme_or_mod(const char *dirpath)
+{
+    char p[THEME_FILEPATH_LEN];
+    struct stat st;
+    snprintf(p, sizeof(p), "%s/theme.json", dirpath);
+    if (stat(p, &st) == 0 && S_ISREG(st.st_mode)) return true;
+    snprintf(p, sizeof(p), "%s/mod.json", dirpath);
+    if (stat(p, &st) == 0 && S_ISREG(st.st_mode)) return true;
+    return false;
+}
+
+/* Walk a mods-tree root, registering every theme mod directly under it,
+ * and for any manifest-less subdirectory, recurse ONE more level (category
+ * folder support — e.g., mods/UI Chrome/<slug>/). Tracks walked count via
+ * the passed-in pointer. */
+static void scan_themes_in_root(const char *root, int allow_recurse, int *walked)
+{
+    if (!root || !root[0]) return;
+    DIR *d = opendir(root);
+    if (!d) return;
+
+    struct dirent *ent;
+    while ((ent = readdir(d)) != nullptr) {
+        const char *name = ent->d_name;
+        if (!name || name[0] == '.') continue;
+        if (!strcmp(name, ".") || !strcmp(name, "..")) continue;
+
+        char subdir[THEME_FILEPATH_LEN];
+        snprintf(subdir, sizeof(subdir), "%s/%s", root, name);
+        struct stat st;
+        if (stat(subdir, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+
+        if (dir_has_theme_or_mod(subdir)) {
+            register_mod_theme_dir(root, name);
+            if (walked) (*walked)++;
+        } else if (allow_recurse) {
+            /* Treat as category folder. Depth-1 only. */
+            scan_themes_in_root(subdir, 0, walked);
+        }
+    }
+    closedir(d);
+}
+
 /** Scan the `mods/` directory and register every `<slug>/theme.json` found. */
 static void scan_mods_for_themes(void)
 {
@@ -1111,25 +1157,7 @@ static void scan_mods_for_themes(void)
         }
         if (dup) continue;
 
-        DIR *d = opendir(candidateBufs[ci]);
-        if (!d) continue;
-
-        struct dirent *ent;
-        while ((ent = readdir(d)) != nullptr) {
-            const char *name = ent->d_name;
-            if (!name || name[0] == '.') continue;
-            if (!strcmp(name, ".") || !strcmp(name, "..")) continue;
-
-            /* Verify it's a directory */
-            char subdir[THEME_FILEPATH_LEN];
-            snprintf(subdir, sizeof(subdir), "%s/%s", candidateBufs[ci], name);
-            struct stat st;
-            if (stat(subdir, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
-
-            register_mod_theme_dir(candidateBufs[ci], name);
-            walked++;
-        }
-        closedir(d);
+        scan_themes_in_root(candidateBufs[ci], 1, &walked);
     }
 
     sysLogPrintf(LOG_NOTE,

@@ -7,6 +7,36 @@
 
 ---
 
+## Open — 2026-04-16 (S293)
+
+### Playtest verification of the 2026-04-16 Nine-Slice + mods folder drop
+
+- **S293 Nine-Slice Chrome redesign** — verify:
+  - Save-as-Mod writes to `mods/UI Chrome/<slug>/` and immediately activates in Settings → Video → UI Chrome Style.
+  - Border Scale slider (0.25x–4.0x) changes on-screen corner thickness without rebaking pixels.
+  - Proportional Insets toggle: on → sliders show `%`, resolved pixel insets print under the sliders and track Scale X/Y; off → sliders revert to absolute pixels.
+  - Import a large image (e.g., 8K screenshot) — expect a clear "Image too large" status line, no crash.
+  - Scale X/Y to 400% on a 2K image — expect preview to cap at 4096px, status shows OOM-style hint only if the cap is still too large.
+  - Trim sliders: dragging Trim Left past `ImgW - TrimRight - 1` is blocked; no 1-pixel degenerate crop.
+  - Mod name with a literal double quote (`foo"bar`) → saved `mod.json` parses cleanly on next scan (no registry drop).
+- **S293 mods/ category subfolder scanning** — verify:
+  - Existing flat mods (`mods/base-ui/`, `mods/pd-modern-ui/`, `mods/bot-names/`) still load normally.
+  - A chrome mod saved to `mods/UI Chrome/<slug>/` appears in Mod Manager and in Settings → Video → UI Chrome Style.
+  - Creating an empty `mods/Weapons/` (or similar) does not break the scanner.
+
+### Audit follow-ups deferred from S293
+
+Non-nine-slice items from `scratch/audit-s255-s292-2026-04-16.md`:
+- **C-6** `matchConfigAddBot` hardcoded `1` human count (`matchsetup.c:438`, `netmsg.c:6125` SVC_ROOM_SETTINGS rebuild).
+- **S-2** Middle-click back bridge vs Skin Editor canvas pan (`pdgui_backend.cpp:337-343` vs `pdgui_skin_editor.cpp:454`).
+- **S-3** Shared `s_PdmsOwnsMenuCtx` across Handicap/SelectTunes/Soundtrack/TeamNames (input ctx leak).
+- **S-4** `IsMouseHoveringRect(..., false)` on custom close button not clipped to focused window.
+- **S-5** Skin Editor downrez preview buffer never realloced on character change.
+- **S-6** Chrome style rescan leaks GL textures (`s_chromeStylesClear` zeros count only).
+- **S-11** (mods-apply) `modmgrApplyChanges` missing `pdguiThemeRescanChromeStyles()` call.
+
+---
+
 ## Open — 2026-04-13+
 
 > Carried forward from the 2026-04-13 stabilization drop. Forensic detail in

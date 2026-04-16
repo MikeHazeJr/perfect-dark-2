@@ -1157,6 +1157,38 @@ static s32 s_parseChromeManifest(const char *json,
     return (has_chrome_tag && out_tex_id[0] && out_tex_file[0] && has_nineslice) ? 1 : 0;
 }
 
+/* Scan a single directory for chrome-style mods. Each child directory is
+ * attempted as a mod. If registration fails (no mod.json or no chrome
+ * components inside), the child is treated as a category folder and its
+ * own children are scanned one level deeper. Depth is capped at the single
+ * recursion below to avoid walking arbitrary user directory trees. */
+static void s_scanChromeStylesInDir(const char *dir_path, int allow_recurse)
+{
+    if (!dir_path || !dir_path[0]) return;
+    DIR *d = opendir(dir_path);
+    if (!d) return;
+
+    struct dirent *ent;
+    while ((ent = readdir(d)) != nullptr) {
+        if (!ent->d_name || ent->d_name[0] == '.') continue;
+        if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
+
+        char child[FS_MAXPATH];
+        snprintf(child, sizeof(child), "%s/%s", dir_path, ent->d_name);
+        struct stat st;
+        if (stat(child, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+
+        /* Attempt registration; if the child has no parseable chrome manifest
+         * and we're allowed to recurse (depth 0), treat it as a category. */
+        int registered = s_registerChromeStyleFromModDir(child, ent->d_name, 0,
+                                                         nullptr, 0);
+        if (!registered && allow_recurse) {
+            s_scanChromeStylesInDir(child, 0);
+        }
+    }
+    closedir(d);
+}
+
 static void s_scanModChromeStyles(void)
 {
     const char *roots[] = {
@@ -1167,23 +1199,7 @@ static void s_scanModChromeStyles(void)
     };
 
     for (int ri = 0; ri < 4; ri++) {
-        if (!roots[ri] || !roots[ri][0]) continue;
-        DIR *d = opendir(roots[ri]);
-        if (!d) continue;
-
-        struct dirent *ent;
-        while ((ent = readdir(d)) != nullptr) {
-            if (!ent->d_name || ent->d_name[0] == '.') continue;
-            if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
-
-            char mod_dir[FS_MAXPATH];
-            snprintf(mod_dir, sizeof(mod_dir), "%s/%s", roots[ri], ent->d_name);
-            struct stat st;
-            if (stat(mod_dir, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
-
-            s_registerChromeStyleFromModDir(mod_dir, ent->d_name, 0, nullptr, 0);
-        }
-        closedir(d);
+        s_scanChromeStylesInDir(roots[ri], 1);
     }
 }
 

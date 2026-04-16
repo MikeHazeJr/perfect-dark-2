@@ -163,6 +163,12 @@ static void renderChromeTool(float w, float h, float scale);
  * Nine-Slice Chrome tool state (Tab 7)
  * ======================================================================== */
 
+/* Hard caps to prevent runaway allocations from high-res inputs or large
+ * scale factors. 4096 covers most authoring needs and keeps a worst-case
+ * RGBA8 buffer at ~64 MB (output) and ~64 MB (input). */
+#define CHROME_MAX_IMG_DIM  4096
+#define CHROME_MAX_OUT_DIM  4096
+
 static char   s_ChromeImgPath[FS_MAXPATH] = "";
 static char   s_ChromeModName[96] = "my-ui-chrome";
 static char   s_ChromeStatus[192] = "";
@@ -185,14 +191,30 @@ static s32    s_ChromeInsetL = 16;
 static s32    s_ChromeInsetR = 16;
 static s32    s_ChromeInsetT = 16;
 static s32    s_ChromeInsetB = 16;
+/* Proportional insets (0..50 percent of the corresponding output dim). These
+ * are the authoritative values when s_ChromeProportionalInsets is true; the
+ * pixel-space insets above are then recomputed each preview pass from the
+ * current output dimensions, so changing Scale X/Y keeps the visual border
+ * proportion stable. */
+static bool   s_ChromeProportionalInsets = true;
+static float  s_ChromeInsetLPct = 12.5f;
+static float  s_ChromeInsetRPct = 12.5f;
+static float  s_ChromeInsetTPct = 12.5f;
+static float  s_ChromeInsetBPct = 12.5f;
+/* Border Scale decouples on-screen corner size (dst_corner_px) from the
+ * source slice location (src_inset). 1.0 = corners render at source size;
+ * 2.0 = corners render twice as big as their source rect. */
+static float  s_ChromeBorderScale = 1.0f;
 static s32    s_ChromeImgW = 0;
 static s32    s_ChromeImgH = 0;
 static s32    s_ChromeOutW = 0;
 static s32    s_ChromeOutH = 0;
 static u8    *s_ChromePixels = NULL; /* RGBA8, owned by tool */
-static GLuint s_ChromeTex = 0;
+static GLuint s_ChromeTex = 0;       /* unused since S293 (kept to avoid renaming fallback paths) */
 static u8    *s_ChromePreviewPixels = NULL; /* optional processed preview buffer */
 static GLuint s_ChromePreviewTex = 0;
+static s32    s_ChromePreviewTexW = 0; /* tracks current GL tex dims so we can glTexSubImage2D vs glTexImage2D */
+static s32    s_ChromePreviewTexH = 0;
 
 /* ========================================================================
  * INI Editor state
@@ -1425,8 +1447,46 @@ static void chromeToolSanitizeSlug(const char *name, char *out, s32 outlen)
     out[n] = '\0';
 }
 
+/* Minimal JSON string escaper. Writes a quoted-string body (no surrounding
+ * quotes) into out. Escapes the characters JSON requires: `"`, `\`, control
+ * chars (<0x20) via \uXXXX. Everything else (including high-ASCII / UTF-8
+ * bytes) passes through as-is. */
+static void chromeToolJsonEscape(const char *in, char *out, size_t outlen)
+{
+    if (!out || outlen == 0) return;
+    size_t o = 0;
+    out[0] = '\0';
+    if (!in) return;
+    for (size_t i = 0; in[i] && o + 7 < outlen; i++) {
+        unsigned char c = (unsigned char)in[i];
+        if (c == '"' || c == '\\') {
+            out[o++] = '\\';
+            out[o++] = (char)c;
+        } else if (c == '\b') { out[o++] = '\\'; out[o++] = 'b'; }
+        else if (c == '\f') { out[o++] = '\\'; out[o++] = 'f'; }
+        else if (c == '\n') { out[o++] = '\\'; out[o++] = 'n'; }
+        else if (c == '\r') { out[o++] = '\\'; out[o++] = 'r'; }
+        else if (c == '\t') { out[o++] = '\\'; out[o++] = 't'; }
+        else if (c < 0x20) {
+            /* \u00XX form */
+            static const char hex[] = "0123456789abcdef";
+            out[o++] = '\\'; out[o++] = 'u';
+            out[o++] = '0'; out[o++] = '0';
+            out[o++] = hex[(c >> 4) & 0xF];
+            out[o++] = hex[c & 0xF];
+        } else {
+            out[o++] = (char)c;
+        }
+    }
+    out[o] = '\0';
+}
+
 static bool chromeToolWriteTga(const char *path, const u8 *rgba, s32 w, s32 h)
 {
+    /* TGA format width/height are u16 — hard cap at 65535. We also cap
+     * elsewhere to CHROME_MAX_OUT_DIM (4096), but defend in depth here. */
+    if (w <= 0 || h <= 0 || w > 65535 || h > 65535) return false;
+
     FILE *f = fsFileOpenWrite(path);
     if (!f) return false;
 
@@ -1441,7 +1501,9 @@ static bool chromeToolWriteTga(const char *path, const u8 *rgba, s32 w, s32 h)
     header[17] = 0x28; /* top-left + alpha bits */
     fwrite(header, 1, sizeof(header), f);
 
-    for (s32 i = 0; i < w * h; i++) {
+    /* Use size_t to avoid s32 overflow on very large outputs (C-1 audit fix). */
+    size_t px = (size_t)w * (size_t)h;
+    for (size_t i = 0; i < px; i++) {
         u8 bgra[4] = { rgba[i*4 + 2], rgba[i*4 + 1], rgba[i*4 + 0], rgba[i*4 + 3] };
         fwrite(bgra, 1, 4, f);
     }
@@ -1473,6 +1535,8 @@ static void chromeToolReleaseImage(void)
     s_ChromeImgH = 0;
     s_ChromeOutW = 0;
     s_ChromeOutH = 0;
+    s_ChromePreviewTexW = 0;
+    s_ChromePreviewTexH = 0;
 }
 
 static void chromeToolUpdatePreviewTexture(void)
@@ -1518,20 +1582,50 @@ static void chromeToolUpdatePreviewTexture(void)
     if (scaleX > 400) scaleX = 400;
     if (scaleY > 400) scaleY = 400;
 
-    s_ChromeOutW = (stitchedW * scaleX) / 100;
-    s_ChromeOutH = (stitchedH * scaleY) / 100;
-    if (s_ChromeOutW < 1) s_ChromeOutW = 1;
-    if (s_ChromeOutH < 1) s_ChromeOutH = 1;
+    /* Compute new output dims into locals; commit to s_ChromeOutW/H only
+     * after a successful allocation (C-5/S-7 audit fix). */
+    s32 newOutW = (stitchedW * scaleX) / 100;
+    s32 newOutH = (stitchedH * scaleY) / 100;
+    if (newOutW < 1) newOutW = 1;
+    if (newOutH < 1) newOutH = 1;
+    /* C-1/C-2 audit fix: hard-cap output dims. Anything beyond this would
+     * produce TGAs larger than the format supports and/or multi-GB allocs. */
+    if (newOutW > CHROME_MAX_OUT_DIM) newOutW = CHROME_MAX_OUT_DIM;
+    if (newOutH > CHROME_MAX_OUT_DIM) newOutH = CHROME_MAX_OUT_DIM;
 
-    size_t pxCount = (size_t)s_ChromeOutW * (size_t)s_ChromeOutH;
+    size_t pxCount = (size_t)newOutW * (size_t)newOutH;
     size_t bytes = pxCount * 4u;
-    if (!s_ChromePreviewPixels) {
-        s_ChromePreviewPixels = (u8 *)malloc(bytes);
-        if (!s_ChromePreviewPixels) return;
-    } else {
-        u8 *resized = (u8 *)realloc(s_ChromePreviewPixels, bytes);
-        if (!resized) return;
-        s_ChromePreviewPixels = resized;
+    u8 *resized = (u8 *)(s_ChromePreviewPixels ? realloc(s_ChromePreviewPixels, bytes)
+                                               : malloc(bytes));
+    if (!resized) {
+        /* S-7: leave existing preview intact; surface the failure. Do NOT
+         * overwrite s_ChromeOutW/H — they still describe the current buffer. */
+        snprintf(s_ChromeStatus, sizeof(s_ChromeStatus),
+                 "Preview alloc failed (%dx%d, %.1f MB) — reduce scale or image size",
+                 newOutW, newOutH, (double)bytes / (1024.0 * 1024.0));
+        s_ChromeStatusOk = false;
+        return;
+    }
+    s_ChromePreviewPixels = resized;
+    s_ChromeOutW = newOutW;
+    s_ChromeOutH = newOutH;
+
+    /* Resolve proportional insets to pixels against the freshly-committed
+     * output dims. This keeps the visual border proportion stable across
+     * Scale X/Y changes. In pixel mode the user's values are used as-is. */
+    if (s_ChromeProportionalInsets) {
+        if (s_ChromeInsetLPct < 0.0f) s_ChromeInsetLPct = 0.0f;
+        if (s_ChromeInsetRPct < 0.0f) s_ChromeInsetRPct = 0.0f;
+        if (s_ChromeInsetTPct < 0.0f) s_ChromeInsetTPct = 0.0f;
+        if (s_ChromeInsetBPct < 0.0f) s_ChromeInsetBPct = 0.0f;
+        if (s_ChromeInsetLPct > 50.0f) s_ChromeInsetLPct = 50.0f;
+        if (s_ChromeInsetRPct > 50.0f) s_ChromeInsetRPct = 50.0f;
+        if (s_ChromeInsetTPct > 50.0f) s_ChromeInsetTPct = 50.0f;
+        if (s_ChromeInsetBPct > 50.0f) s_ChromeInsetBPct = 50.0f;
+        s_ChromeInsetL = (s32)((s_ChromeInsetLPct * (float)s_ChromeOutW) / 100.0f + 0.5f);
+        s_ChromeInsetR = (s32)((s_ChromeInsetRPct * (float)s_ChromeOutW) / 100.0f + 0.5f);
+        s_ChromeInsetT = (s32)((s_ChromeInsetTPct * (float)s_ChromeOutH) / 100.0f + 0.5f);
+        s_ChromeInsetB = (s32)((s_ChromeInsetBPct * (float)s_ChromeOutH) / 100.0f + 0.5f);
     }
 
     float t = s_ChromeDesaturate ? ((float)s_ChromeDesaturatePct / 100.0f) : 0.0f;
@@ -1577,13 +1671,26 @@ static void chromeToolUpdatePreviewTexture(void)
 
     if (s_ChromePreviewTex == 0) {
         glGenTextures(1, &s_ChromePreviewTex);
+        s_ChromePreviewTexW = 0;
+        s_ChromePreviewTexH = 0;
     }
     glBindTexture(GL_TEXTURE_2D, s_ChromePreviewTex);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
-                 s_ChromeOutW, s_ChromeOutH, 0,
-                 GL_RGBA, GL_UNSIGNED_BYTE, s_ChromePreviewPixels);
+    /* S-10 audit fix: skip the full glTexImage2D reallocation when only the
+     * pixels changed (common case on slider ticks). glTexSubImage2D reuses
+     * the driver-side storage — saves ~16 MB/tick on a 2K preview. */
+    if (s_ChromePreviewTexW == s_ChromeOutW && s_ChromePreviewTexH == s_ChromeOutH) {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
+                        s_ChromeOutW, s_ChromeOutH,
+                        GL_RGBA, GL_UNSIGNED_BYTE, s_ChromePreviewPixels);
+    } else {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
+                     s_ChromeOutW, s_ChromeOutH, 0,
+                     GL_RGBA, GL_UNSIGNED_BYTE, s_ChromePreviewPixels);
+        s_ChromePreviewTexW = s_ChromeOutW;
+        s_ChromePreviewTexH = s_ChromeOutH;
+    }
     glBindTexture(GL_TEXTURE_2D, 0);
 
     /* Clamp insets into edited output dimensions to keep a valid center area. */
@@ -1605,14 +1712,18 @@ static void chromeToolBuildDef(nineslice_def_t *out)
 {
     if (!out) return;
     memset(out, 0, sizeof(*out));
+    /* Border Scale decouples on-screen corner size from source slice loc. */
+    float bs = s_ChromeBorderScale;
+    if (bs < 0.25f) bs = 0.25f;
+    if (bs > 4.0f)  bs = 4.0f;
     out->src_left = s_ChromeInsetL;
     out->src_right = s_ChromeInsetR;
     out->src_top = s_ChromeInsetT;
     out->src_bottom = s_ChromeInsetB;
-    out->dst_left = s_ChromeInsetL;
-    out->dst_right = s_ChromeInsetR;
-    out->dst_top = s_ChromeInsetT;
-    out->dst_bottom = s_ChromeInsetB;
+    out->dst_left = (s32)((float)s_ChromeInsetL * bs + 0.5f);
+    out->dst_right = (s32)((float)s_ChromeInsetR * bs + 0.5f);
+    out->dst_top = (s32)((float)s_ChromeInsetT * bs + 0.5f);
+    out->dst_bottom = (s32)((float)s_ChromeInsetB * bs + 0.5f);
     out->has_split = 1;
     out->has_per_edge_mode = 1;
     out->top_mode = s_ChromeEdgeTile ? NINESLICE_TILE : NINESLICE_STRETCH;
@@ -1636,18 +1747,33 @@ static bool chromeToolLoadImage(const char *path)
         return false;
     }
 
+    /* C-2 audit fix: reject absurdly-large source images before we commit
+     * VRAM/RAM to them. User-facing hint tells them what to do. */
+    if (w > CHROME_MAX_IMG_DIM || h > CHROME_MAX_IMG_DIM) {
+        snprintf(s_ChromeStatus, sizeof(s_ChromeStatus),
+                 "Image too large (%dx%d). Max %d x %d — downscale in an editor first.",
+                 w, h, CHROME_MAX_IMG_DIM, CHROME_MAX_IMG_DIM);
+        s_ChromeStatusOk = false;
+        stbi_image_free(rgba);
+        return false;
+    }
+
     chromeToolReleaseImage();
     s_ChromePixels = rgba;
     s_ChromeImgW = w;
     s_ChromeImgH = h;
 
-    glGenTextures(1, &s_ChromeTex);
-    glBindTexture(GL_TEXTURE_2D, s_ChromeTex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, s_ChromePixels);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    /* S-11 audit fix: do NOT upload the full-res source to a separate GL
+     * texture. The processed preview is always generated in the same call
+     * path, so `s_ChromePreviewTex` is the only texture we ever render. */
 
+    /* Default insets: 25% of each side (quarter-rule). In proportional mode
+     * the pct values drive; they're resolved to pixels inside
+     * chromeToolUpdatePreviewTexture against the current output dims. */
+    s_ChromeInsetLPct = 25.0f;
+    s_ChromeInsetRPct = 25.0f;
+    s_ChromeInsetTPct = 25.0f;
+    s_ChromeInsetBPct = 25.0f;
     s_ChromeInsetL = w / 4;
     s_ChromeInsetR = w / 4;
     s_ChromeInsetT = h / 4;
@@ -1685,14 +1811,22 @@ static bool chromeToolSaveMod(void)
         return false;
     }
 
+    /* Chrome mods live under the "UI Chrome" category folder so they are
+     * grouped with other UI-chrome mods in the mods/ tree. Recursive scanners
+     * (modmgr + theme) pick them up from this nested location. */
     if (fsCreateDir("mods") < 0 && errno != EEXIST) {
         snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Could not create mods/");
         s_ChromeStatusOk = false;
         return false;
     }
+    if (fsCreateDir("mods/UI Chrome") < 0 && errno != EEXIST) {
+        snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Could not create mods/UI Chrome/");
+        s_ChromeStatusOk = false;
+        return false;
+    }
 
     char modDir[FS_MAXPATH];
-    snprintf(modDir, sizeof(modDir), "mods/%s", slug);
+    snprintf(modDir, sizeof(modDir), "mods/UI Chrome/%s", slug);
     if (fsCreateDir(modDir) < 0 && errno != EEXIST) {
         snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Could not create %s", modDir);
         s_ChromeStatusOk = false;
@@ -1701,9 +1835,14 @@ static bool chromeToolSaveMod(void)
 
     char texPath[FS_MAXPATH];
     snprintf(texPath, sizeof(texPath), "%s/ui_chrome_frame.tga", modDir);
+    /* The preview buffer is the normalized/resampled output — exactly what
+     * Mike wants written (not the raw import). All transforms (trim, cut,
+     * scale, desat) are already baked into this buffer, and its dimensions
+     * are the standardized output size driven by Scale X/Y. */
     const u8 *savePixels = s_ChromePreviewPixels;
     if (!chromeToolWriteTga(texPath, savePixels, s_ChromeOutW, s_ChromeOutH)) {
-        snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Failed writing TGA");
+        snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Failed writing TGA (dims %dx%d)",
+                 s_ChromeOutW, s_ChromeOutH);
         s_ChromeStatusOk = false;
         return false;
     }
@@ -1720,6 +1859,25 @@ static bool chromeToolSaveMod(void)
         return false;
     }
 
+    /* Apply Border Scale so dst_corner_px can differ from src_inset. */
+    float bs = s_ChromeBorderScale;
+    if (bs < 0.25f) bs = 0.25f;
+    if (bs > 4.0f)  bs = 4.0f;
+    s32 dstT = (s32)((float)s_ChromeInsetT * bs + 0.5f);
+    s32 dstB = (s32)((float)s_ChromeInsetB * bs + 0.5f);
+    s32 dstL = (s32)((float)s_ChromeInsetL * bs + 0.5f);
+    s32 dstR = (s32)((float)s_ChromeInsetR * bs + 0.5f);
+    if (dstT < 0) dstT = 0;
+    if (dstB < 0) dstB = 0;
+    if (dstL < 0) dstL = 0;
+    if (dstR < 0) dstR = 0;
+
+    /* C-4 audit fix: escape the name for JSON. Without this, a name with a
+     * quote or backslash corrupts mod.json and the mod silently fails to
+     * parse at next scan. */
+    char escName[384];
+    chromeToolJsonEscape(s_ChromeModName, escName, sizeof(escName));
+
     const char *fillMode = s_ChromeEdgeTile ? "tile" : "stretch";
     fprintf(f,
         "{\n"
@@ -1730,6 +1888,13 @@ static bool chromeToolSaveMod(void)
         "  \"author\": \"Player\",\n"
         "  \"tags\": [\"chrome\", \"ui\", \"user\"],\n"
         "  \"enabled\": true,\n"
+        "  \"chrome_authoring\": {\n"
+        "    \"output_w\": %d,\n"
+        "    \"output_h\": %d,\n"
+        "    \"border_scale\": %.3f,\n"
+        "    \"proportional_insets\": %s,\n"
+        "    \"inset_pct\": { \"top\": %.3f, \"bottom\": %.3f, \"left\": %.3f, \"right\": %.3f }\n"
+        "  },\n"
         "  \"components\": {\n"
         "    \"textures\": [\n"
         "      { \"id\": \"%s\", \"file\": \"ui_chrome_frame.tga\" }\n"
@@ -1749,11 +1914,16 @@ static bool chromeToolSaveMod(void)
         "    ]\n"
         "  }\n"
         "}\n",
-        slug, s_ChromeModName,
+        slug, escName,
+        s_ChromeOutW, s_ChromeOutH,
+        (double)bs,
+        s_ChromeProportionalInsets ? "true" : "false",
+        (double)s_ChromeInsetTPct, (double)s_ChromeInsetBPct,
+        (double)s_ChromeInsetLPct, (double)s_ChromeInsetRPct,
         styleId,
         styleId, styleId,
         s_ChromeInsetT, s_ChromeInsetB, s_ChromeInsetL, s_ChromeInsetR,
-        s_ChromeInsetT, s_ChromeInsetB, s_ChromeInsetL, s_ChromeInsetR,
+        dstT, dstB, dstL, dstR,
         fillMode, fillMode, fillMode, fillMode,
         s_ChromeCenterTile ? "tile" : "stretch");
 
@@ -1793,6 +1963,10 @@ static void chromeToolReset(void)
     s_ChromeCenterCutPct = 0;
     s_ChromeInsetL = s_ChromeInsetR = 16;
     s_ChromeInsetT = s_ChromeInsetB = 16;
+    s_ChromeProportionalInsets = true;
+    s_ChromeInsetLPct = s_ChromeInsetRPct = 25.0f;
+    s_ChromeInsetTPct = s_ChromeInsetBPct = 25.0f;
+    s_ChromeBorderScale = 1.0f;
     chromeToolReleaseImage();
 }
 
@@ -1850,7 +2024,8 @@ static void renderChromeTool(float w, float h, float scale)
         chromeToolLoadImage(s_ChromeImgPath);
     }
 
-    if (!s_ChromePixels || s_ChromeTex == 0) {
+    /* S-11 audit fix: gate on preview texture, not the retired s_ChromeTex. */
+    if (!s_ChromePixels || s_ChromePreviewTex == 0) {
         ImGui::Spacing();
         ImGui::TextDisabled("Load an image to edit nine-slice rulers.");
         if (s_ChromeStatus[0]) {
@@ -1870,10 +2045,17 @@ static void renderChromeTool(float w, float h, float scale)
     ImGui::SameLine();
     ImGui::Checkbox("Edge tile mode", &s_ChromeEdgeTile);
     bool editsChanged = false;
-    editsChanged |= ImGui::SliderInt("Trim Left", &s_ChromeTrimL, 0, s_ChromeImgW > 1 ? s_ChromeImgW - 1 : 1);
-    editsChanged |= ImGui::SliderInt("Trim Right", &s_ChromeTrimR, 0, s_ChromeImgW > 1 ? s_ChromeImgW - 1 : 1);
-    editsChanged |= ImGui::SliderInt("Trim Top", &s_ChromeTrimT, 0, s_ChromeImgH > 1 ? s_ChromeImgH - 1 : 1);
-    editsChanged |= ImGui::SliderInt("Trim Bottom", &s_ChromeTrimB, 0, s_ChromeImgH > 1 ? s_ChromeImgH - 1 : 1);
+    /* S-9 audit fix: cross-clamp trim sliders so the opposite pair can never
+     * over-commit the image (which previously yielded degenerate 1px crops
+     * with no user feedback). */
+    s32 trimLMax = s_ChromeImgW - s_ChromeTrimR - 1; if (trimLMax < 0) trimLMax = 0;
+    s32 trimRMax = s_ChromeImgW - s_ChromeTrimL - 1; if (trimRMax < 0) trimRMax = 0;
+    s32 trimTMax = s_ChromeImgH - s_ChromeTrimB - 1; if (trimTMax < 0) trimTMax = 0;
+    s32 trimBMax = s_ChromeImgH - s_ChromeTrimT - 1; if (trimBMax < 0) trimBMax = 0;
+    editsChanged |= ImGui::SliderInt("Trim Left", &s_ChromeTrimL, 0, trimLMax > 0 ? trimLMax : 1);
+    editsChanged |= ImGui::SliderInt("Trim Right", &s_ChromeTrimR, 0, trimRMax > 0 ? trimRMax : 1);
+    editsChanged |= ImGui::SliderInt("Trim Top", &s_ChromeTrimT, 0, trimTMax > 0 ? trimTMax : 1);
+    editsChanged |= ImGui::SliderInt("Trim Bottom", &s_ChromeTrimB, 0, trimBMax > 0 ? trimBMax : 1);
     editsChanged |= ImGui::SliderInt("Scale X", &s_ChromeScaleXPct, 10, 400, "%d%%");
     editsChanged |= ImGui::SliderInt("Scale Y", &s_ChromeScaleYPct, 10, 400, "%d%%");
     static const char *cutAxes[] = { "None", "Vertical (height)", "Horizontal (width)" };
@@ -1918,19 +2100,76 @@ static void renderChromeTool(float w, float h, float scale)
         chromeToolUpdatePreviewTexture();
     }
 
-    s32 maxL = s_ChromeOutW > 1 ? s_ChromeOutW - 1 : 1;
-    s32 maxT = s_ChromeOutH > 1 ? s_ChromeOutH - 1 : 1;
-    if (ImGui::SliderInt("Left", &s_ChromeInsetL, 0, maxL)) {
-        if (s_ChromeLrSymmetry) s_ChromeInsetR = s_ChromeInsetL;
+    /* Border Scale (always visible): multiplies dst_corner_px relative to
+     * src_inset. Lets users produce a chrome that renders with a different
+     * corner thickness than the source slice. 1.0 = source size. */
+    if (ImGui::SliderFloat("Border Scale", &s_ChromeBorderScale, 0.25f, 4.0f, "%.2fx")) {
+        /* Border scale only changes dst_*, not preview pixels — no rebake. */
     }
-    if (ImGui::SliderInt("Right", &s_ChromeInsetR, 0, maxL)) {
-        if (s_ChromeLrSymmetry) s_ChromeInsetL = s_ChromeInsetR;
+    ImGui::Checkbox("Proportional Insets (%% of output)", &s_ChromeProportionalInsets);
+    ImGui::SameLine();
+    ImGui::TextDisabled("(%%)");
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("When on, inset sliders are percentages of the output dims\n"
+                          "and track Scale X/Y, keeping borders proportional.\n"
+                          "When off, sliders are absolute pixels in the output.");
     }
-    if (ImGui::SliderInt("Top", &s_ChromeInsetT, 0, maxT)) {
-        if (s_ChromeTbSymmetry) s_ChromeInsetB = s_ChromeInsetT;
-    }
-    if (ImGui::SliderInt("Bottom", &s_ChromeInsetB, 0, maxT)) {
-        if (s_ChromeTbSymmetry) s_ChromeInsetT = s_ChromeInsetB;
+
+    if (s_ChromeProportionalInsets) {
+        /* Sliders operate on percentages; pixel insets are resolved on the
+         * next UpdatePreviewTexture pass. */
+        bool insetChanged = false;
+        if (ImGui::SliderFloat("Left %",  &s_ChromeInsetLPct, 0.0f, 50.0f, "%.2f%%")) {
+            if (s_ChromeLrSymmetry) s_ChromeInsetRPct = s_ChromeInsetLPct;
+            insetChanged = true;
+        }
+        if (ImGui::SliderFloat("Right %", &s_ChromeInsetRPct, 0.0f, 50.0f, "%.2f%%")) {
+            if (s_ChromeLrSymmetry) s_ChromeInsetLPct = s_ChromeInsetRPct;
+            insetChanged = true;
+        }
+        if (ImGui::SliderFloat("Top %",   &s_ChromeInsetTPct, 0.0f, 50.0f, "%.2f%%")) {
+            if (s_ChromeTbSymmetry) s_ChromeInsetBPct = s_ChromeInsetTPct;
+            insetChanged = true;
+        }
+        if (ImGui::SliderFloat("Bottom %",&s_ChromeInsetBPct, 0.0f, 50.0f, "%.2f%%")) {
+            if (s_ChromeTbSymmetry) s_ChromeInsetTPct = s_ChromeInsetBPct;
+            insetChanged = true;
+        }
+        if (insetChanged) {
+            /* Resolve to pixels right away so the ruler overlay below draws
+             * against the current slider values, not last frame's. */
+            s_ChromeInsetL = (s32)((s_ChromeInsetLPct * (float)s_ChromeOutW) / 100.0f + 0.5f);
+            s_ChromeInsetR = (s32)((s_ChromeInsetRPct * (float)s_ChromeOutW) / 100.0f + 0.5f);
+            s_ChromeInsetT = (s32)((s_ChromeInsetTPct * (float)s_ChromeOutH) / 100.0f + 0.5f);
+            s_ChromeInsetB = (s32)((s_ChromeInsetBPct * (float)s_ChromeOutH) / 100.0f + 0.5f);
+        }
+        ImGui::TextDisabled("  = %d / %d / %d / %d px (L/R/T/B at current output %dx%d)",
+                            s_ChromeInsetL, s_ChromeInsetR, s_ChromeInsetT, s_ChromeInsetB,
+                            s_ChromeOutW, s_ChromeOutH);
+    } else {
+        s32 maxL = s_ChromeOutW > 1 ? s_ChromeOutW - 1 : 1;
+        s32 maxT = s_ChromeOutH > 1 ? s_ChromeOutH - 1 : 1;
+        if (ImGui::SliderInt("Left", &s_ChromeInsetL, 0, maxL)) {
+            if (s_ChromeLrSymmetry) s_ChromeInsetR = s_ChromeInsetL;
+        }
+        if (ImGui::SliderInt("Right", &s_ChromeInsetR, 0, maxL)) {
+            if (s_ChromeLrSymmetry) s_ChromeInsetL = s_ChromeInsetR;
+        }
+        if (ImGui::SliderInt("Top", &s_ChromeInsetT, 0, maxT)) {
+            if (s_ChromeTbSymmetry) s_ChromeInsetB = s_ChromeInsetT;
+        }
+        if (ImGui::SliderInt("Bottom", &s_ChromeInsetB, 0, maxT)) {
+            if (s_ChromeTbSymmetry) s_ChromeInsetT = s_ChromeInsetB;
+        }
+        /* Keep pct fields in sync so toggling the mode back doesn't jump. */
+        if (s_ChromeOutW > 0) {
+            s_ChromeInsetLPct = (float)s_ChromeInsetL * 100.0f / (float)s_ChromeOutW;
+            s_ChromeInsetRPct = (float)s_ChromeInsetR * 100.0f / (float)s_ChromeOutW;
+        }
+        if (s_ChromeOutH > 0) {
+            s_ChromeInsetTPct = (float)s_ChromeInsetT * 100.0f / (float)s_ChromeOutH;
+            s_ChromeInsetBPct = (float)s_ChromeInsetB * 100.0f / (float)s_ChromeOutH;
+        }
     }
 
     /* Clamp total inset pairs so center region always exists. */
@@ -1952,7 +2191,9 @@ static void renderChromeTool(float w, float h, float scale)
     if (imgScale > 1.0f) imgScale = 1.0f;
     float drawW = s_ChromeOutW * imgScale;
     float drawH = s_ChromeOutH * imgScale;
-    GLuint previewTex = s_ChromePreviewTex ? s_ChromePreviewTex : s_ChromeTex;
+    /* s_ChromeTex retired (S-11 audit fix) — preview is always available since
+     * chromeToolLoadImage calls UpdatePreviewTexture before returning. */
+    GLuint previewTex = s_ChromePreviewTex;
 
     ImGui::TextDisabled("Source Preview (with rulers)");
     ImGui::Image((ImTextureID)(uintptr_t)previewTex, ImVec2(drawW, drawH));
