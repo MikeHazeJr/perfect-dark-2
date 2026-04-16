@@ -411,6 +411,11 @@ static s32 renderHandicap(struct menudialog *dialog,
         return 1;
     }
 
+    /* C-6: grab focus on appear so controller nav reaches the handicap sliders. */
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetWindowFocus();
+    }
+
     /* Backdrop */
     {
         ImDrawList *dl = ImGui::GetWindowDrawList();

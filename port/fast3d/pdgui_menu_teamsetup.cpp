@@ -204,6 +204,11 @@ static s32 renderTeamSetup(struct menudialog *dialog,
         return 1;
     }
 
+    /* C-3: focus on appear so controller can nav team slots. */
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetWindowFocus();
+    }
+
     /* Backdrop */
     {
         ImDrawList *dl = ImGui::GetWindowDrawList();

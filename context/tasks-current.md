@@ -7,7 +7,17 @@
 
 ---
 
-## Open — 2026-04-16 (S293)
+## Open — 2026-04-16 (S295 match-pipeline drop)
+
+### Playtest verification of S295 match-pipeline fixes (festive-saha worktree)
+
+- **B-145 (GAP-1)** — Online co-op advance past Deep Sea. Expect clean stage transition, no `c0000005`.
+- **C-1 (Challenges)** — Open Combat Challenges with a controller only. D-pad should move the selection from first frame; no "extra key to wake up" gap.
+- **Bug C (MP endscreen)** — Next end-of-match repro: tail `pd.log` for `ENDSCREEN:` lines. If either appears, that narrows the six hypotheses (`Begin=false` = window-level issue; `contentH clamped` = layout-arithmetic issue).
+- **GAP-3** — Online pause → End Game (Confirm?): expect endscreen to render with rankings/awards before Disconnect. Previously client jumped straight to main menu.
+- **C-3/C-4/C-5/C-6/C-8 focus sweep** — Open Team Control, Control Diagram, Cheats → warning + unlock confirm, Player Handicaps, Modding Hub each with controller only: D-pad nav should work from first frame.
+- **GAP-4** — After an online match ends, verify the client is not stuck with stale `g_NetMatchRoomId`. Leaving the room and rejoining should have clean state.
+- **GAP-10** — When SVC_MATCH_CANCELLED fires, countdown overlay must clear (already covered by memset; this is defense-in-depth via `pdguiCountdownReset`).
 
 ### Playtest verification of the 2026-04-16 Nine-Slice + mods folder drop
 

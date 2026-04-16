@@ -102,6 +102,7 @@ static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0, 0))
 static int  s_SelectedSlot = 0;     /* currently highlighted challenge slot */
 static bool s_NeedsInit    = true;  /* re-focus auto-selection on open */
 static bool s_Registered   = false;
+static bool s_FocusPending = true;  /* C-1: SetItemDefaultFocus on selected row after appear */
 
 /* ========================================================================
  * Main render function
@@ -141,6 +142,14 @@ static s32 renderChallenges(struct menudialog *dialog,
     if (!ImGui::Begin("##challenges", nullptr, wflags)) {
         ImGui::End();
         return 1;
+    }
+
+    /* C-1: list-driven menu — controller user is stuck without default focus.
+     * Grab window focus on appear and arm SetItemDefaultFocus on the
+     * auto-selected row for the next render. */
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetWindowFocus();
+        s_FocusPending = true;
     }
 
     /* Backdrop */
@@ -205,6 +214,13 @@ static s32 renderChallenges(struct menudialog *dialog,
                               ImVec2(leftW * 0.62f, 0))) {
             s_SelectedSlot = i;
             pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+        }
+
+        /* C-1: establish default focus on the auto-selected row after open
+         * so a controller user can immediately navigate the list. */
+        if (isSelected && s_FocusPending) {
+            ImGui::SetItemDefaultFocus();
+            s_FocusPending = false;
         }
 
         /* Completion dots (1–4 players) inline on same row */

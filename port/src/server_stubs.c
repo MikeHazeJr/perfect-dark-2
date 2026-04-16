@@ -416,6 +416,9 @@ void catalogUnloadAsset(const char *assetId) { (void)assetId; }
 /* --- Theme stubs — server has no renderer/ImGui --- */
 s32 pdguiThemeRegisterModDir(const char *slug, const char *filepath) { (void)slug; (void)filepath; return 0; }
 
+/* --- Countdown UI stub — server has no UI to reset (GAP-10) --- */
+void pdguiCountdownReset(void) { /* no-op on server */ }
+
 /* --- Audio stubs (v34) — server has no audio state --- */
 s32         audioGetModPlaylistCount(void)                  { return 0; }
 const char *audioGetModPlaylistEntry(s32 idx)               { (void)idx; return ""; }

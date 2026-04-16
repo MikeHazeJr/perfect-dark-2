@@ -753,6 +753,11 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
                            | ImGuiWindowFlags_NoBackground;
 
     if (!ImGui::Begin("##MpEndscreen", NULL, flags)) {
+        /* Bug C instrumentation: this early-return is one of the six hypotheses
+         * for the invisible body. Log the geometry on the frame it fires. */
+        sysLogPrintf(LOG_WARNING,
+            "ENDSCREEN: Begin=false sf=%.3f w=%.1f h=%.1f disp=%.1fx%.1f",
+            sf, menuW, menuH, disp.x, disp.y);
         ImGui::End();
         pdguiSetPalette(prevPalette);
         return;
@@ -827,6 +832,12 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     {
         const float minH = pdguiScale(100.0f);
         if (contentH < minH) {
+            /* Bug C instrumentation: clamped path. If this logs often, the body
+             * child is being starved of height -- investigate menuH / padY /
+             * pdguiScale() factors. */
+            sysLogPrintf(LOG_WARNING,
+                "ENDSCREEN: contentH clamped sf=%.3f menuH=%.1f padY=%.1f raw=%.1f min=%.1f",
+                sf, menuH, padY, contentH, minH);
             contentH = minH; /* avoid zero/negative ImGui child height (invisible body) */
         }
     }

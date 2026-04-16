@@ -1218,6 +1218,11 @@ static void renderModdingHub(s32 winW, s32 winH)
         return;
     }
 
+    /* C-8: focus on appear so controller nav reaches the tool selector. */
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetWindowFocus();
+    }
+
     /* Viewport-relative dialog area — ultrawide-clamped via pdguiMenuWidth() */
     float dialogW = pdguiMenuWidth();
     float dialogH = pdguiMenuHeight();

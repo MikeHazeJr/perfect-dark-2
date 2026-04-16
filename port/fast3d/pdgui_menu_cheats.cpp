@@ -740,6 +740,8 @@ static s32 renderCheatsWarning(struct menudialog *dialog,
     }
 
     if (ImGui::IsWindowAppearing()) {
+        /* C-5: controller user needs keyboard focus to reach OK/Cancel. */
+        ImGui::SetWindowFocus();
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
     }
 
@@ -818,6 +820,8 @@ static s32 renderCheatsConfirmUnlock(struct menudialog *dialog,
     }
 
     if (ImGui::IsWindowAppearing()) {
+        /* C-5: DANGER modal — grab focus so controller Cancel is reachable. */
+        ImGui::SetWindowFocus();
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
     }
 

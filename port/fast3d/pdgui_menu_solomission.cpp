@@ -2532,6 +2532,25 @@ static s32 renderAcceptMission(struct menudialog *dialog,
  * Shows stage name, objectives (with completion status), and navigation
  * to Inventory / Options, plus the Abort button.
  * g_Briefing populated by soloMenuDialogPauseStatus before this renders.
+ *
+ * Gap 8 (investigation 2026-04-16) — input context asymmetry:
+ *   Solo pause enters via menuPushRootDialog(&g_SoloMissionPauseMenuDialog,
+ *   MENUROOT_MAINMENU), which walks the legacy push path and pushes
+ *   &g_CtxImGuiMenu (priority 10). It does NOT push &g_CtxPauseMenu
+ *   (priority 11) the way MP pause does via pdguiPauseMenuOpen().
+ *   Consequence: &g_ImcPauseMenu never activates for solo and
+ *   s_GamePaused stays 0. This is INTENTIONAL for now:
+ *     - Solo pause is tied to MENUROOT_MAINMENU (player presses Start ->
+ *       mainmenu root, not a dedicated pause modal). Its lifecycle is
+ *       owned by the legacy menu stack, not by pdguiPauseMenuOpen/Close.
+ *     - g_ImcPauseMenu was added for MP's dedicated pause window, which
+ *       does NOT freeze the net tick. Solo pause does freeze the game
+ *       loop, so the extra IMC buys nothing.
+ *   Planned unification: Phase 2 menu-pool ADR
+ *   (designs/input-authority-and-menu-pool-2026-04-13.md) will migrate
+ *   both paths onto a single pause context. Until then, any code that
+ *   assumes "pause => g_CtxPauseMenu active" must also consult the
+ *   solo-pause menu-stack state (PAUSEMODE_PAUSING / MENUROOT_MAINMENU).
  * ========================================================================= */
 
 static s32 renderPauseMenu(struct menudialog *dialog,
