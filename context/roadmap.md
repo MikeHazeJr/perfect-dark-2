@@ -1,10 +1,10 @@
 # Modernization Roadmap
 
-> Last updated: 2026-04-14 (S256 — Dev Window v2 layout + VERSION column)
+> Last updated: 2026-04-16 (S292 — Room max-bot/team hardening; Nine-Slice Chrome creator; Mod Apply UX; Skin Editor + dev pipeline stabilization)
 
 ## Current State
 
-**Build**: v0.0.95 | **Protocol**: v35 | **Sessions**: 256+
+**Build**: v0.0.103 | **Protocol**: v36 | **Sessions**: 292+
 
 The project has crossed the threshold from "port with mods" to "platform with a modern engine shell." The core identity migration is complete, the input system is unified, the legacy menu system is dead, and 47 deep audit bugs have been fixed. What remains is feature completion toward v0.1.0.
 

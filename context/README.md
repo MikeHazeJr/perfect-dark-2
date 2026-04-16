@@ -1,6 +1,6 @@
 # Perfect Dark 2 -- Project Context Index
 
-> **Last updated**: 2026-04-14, S258 — **Context organization**: `session-log.md` split (active **S241–S258**; archive for S240↓); [INDEX.md](INDEX.md) + README Session History + QUICKSTART cross-links. Prior: S257 git sync before build/release.
+> **Last updated**: 2026-04-16, S292 — **Room max-bot/team hardening** (S292), Nine-Slice Chrome creator + transforms (S288–S290), Select Tunes fix (S291), Mod Apply UX/hardening (S284–S287), Skin Editor fidelity + Dev Window v2 lock (S266–S273), gameplay audit + Counter-Op wire (S262–S265). Prior: S258 context organization.
 > This file is the master hub. Read it first every session. Everything links from here.
 
 ## Onboarding
@@ -32,10 +32,17 @@ In **Cursor**, attach the project skill **[context-session-start](../.cursor/ski
 
 ## Session History
 
-**Active log** ([session-log.md](session-log.md)): sessions **S241–S258** (~210 lines). **Next tier** ([_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md)): S240 through S157. **S1–S119** chunked files in [_archive/sessions/](_archive/sessions/). Map: [INDEX.md](INDEX.md).
+**Active log** ([session-log.md](session-log.md)): sessions **S241–S292** (rolling window). **Next tier** ([_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md)): S240 through S157. **S1–S119** chunked files in [_archive/sessions/](_archive/sessions/). Map: [INDEX.md](INDEX.md).
 
 | Sessions | Period | Focus |
 |----------|--------|-------|
+| S292 | 2026-04-16 | **Room max-bot/team hardening**: `matchConfigMaxBotsForHumans()` unified cap across room/scenario/sync; balanced default bot team assignment in team mode (`35a8daaf`). |
+| S288–S291 | 2026-04-15/16 | **Nine-Slice Chrome tool** added to Modding Hub (image import, ruler sliders, save-as-mod, S288); assembled frame preview + desaturation (S289); transform pipeline — trim, scale, center-cut + docked actions + Back parity (S290). **Select Tunes**: audio.ini textual category fix + playlist add path hardening for `modmgrRebuildCatalog` (S291). |
+| S284–S287 | 2026-04-15 | **Mod Apply UX**: in-place modal, no forced title restart (S284); updater-style centered progress popup (S285); green-tint success state (S286). **Release/build hardening**: force-commit fallback (`--no-verify`) + Build dir auto-creation in release.ps1 + dev-window + build-headless (S287). |
+| S274–S283 | 2026-04-15 | **Mod Apply + UI polish**: stop menu before apply transition (S274); audio.ini category parse hardening (S275); universal mouse-back via middle-click → ImGui Escape bridge (S276); Select Tunes Mod Tracks click-toggle fix (S277); Modding Hub + Skin Editor diagnostics + skin-capture largest-area texture (S278); global title-bar X close button (S279); Modding Hub popup close-state guard (S280); Skin Editor non-ready preview guard (S281); UI Chrome Style immediate persistence (S282); chrome style picker w/ mod discovery + `Video.UiChromeStyleId` persist (S283). |
+| S266–S273 | 2026-04-15 | **Skin Editor stability**: selector input-steal fix + hub tab-cycle suppression (S266); ImGui nav parity — action-driven PageUp/PageDown tab routing, Agent Select focus trap fix (S267); base-texture capture via source texture readback (S268). **Dev Window v2 git lock**: POSIX path conversion + MSYS rm (S269); single-exe consistency (S270); PowerShell here-string commit rule (S271); dev-root canonical lock path (S272); same-MSYS root path fidelity (S273). |
+| S262–S265 | 2026-04-15 | **Gameplay audit + remediation**: deep pipeline audit — campaign/MP/Counter-Op lifecycle (S262); Counter-Op anti-player wire authority + protocol v36 + double-transition fix + team endscreen (S263); countdown cancel authority + menu context ownership + SP-6/SP-8 guards + manifest hardening (S264); post-merge sanity pass (S265). |
+| S259–S261 | 2026-04-14/15 | **Dev Window v2**: git index.lock path cleanup + progress strip + no forced Log tab (S259). **Mod Apply rebuild**: catalog re-registration + theme root scanning + MP dialog input ownership (S260). **Build python pin + mod root compat** + `menuPopDialog` underflow guard + input stack warning (S261). |
 | S258 | 2026-04-14 | **Context organization**: `session-log.md` split (active S241–S258); S240→S157 → `_archive/session-log-archive-S240-and-older.md`; new `INDEX.md`. |
 | S257 | 2026-04-14 | **Git before build/release**: `dev-window-v2.ps1` runs commit+push before pipeline; `release.ps1` uses `git diff --cached` + failing commit exits before `pull --rebase`. CRITICAL-PROCEDURES § solo-dev git. |
 | S256 | 2026-04-14 | Dev Window v2: fix BUILD tab DockPanel fill (utility buttons no longer stretch full height); VERSION column `2*`/`*` + min widths + text wrap; status/build fonts 14. |
