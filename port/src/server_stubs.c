@@ -324,6 +324,11 @@ void roomsCopy(s16 *dst, s16 *src) { if (dst && src) memcpy(dst, src, 8 * sizeof
 struct modeldef *setupLoadModeldef(s32 filenum) { (void)filenum; return NULL; }
 struct stagesetup g_StageSetup; /* zero-initialised; props=NULL so manifest scan skips */
 u32 setupGetCmdLength(u32 *cmd) { (void)cmd; return 1; } /* stub — never reached (props==NULL) */
+/* S298 FIX-B.1: manifestBuildMission walks g_StageSetup.ailists via
+ * chraiGetCommandLength.  The server stub g_StageSetup has ailists==NULL
+ * so the scan returns immediately without dispatching any commands, but
+ * the symbol still has to link. */
+u32 chraiGetCommandLength(u8 *ailist, u32 aioffset) { (void)ailist; (void)aioffset; return 1; }
 struct model *modelmgrInstantiateModelWithoutAnim(struct modeldef *def) { (void)def; return NULL; }
 void laptopDeploy(struct prop *prop) { (void)prop; }
 struct prop *psCreate(void *a, void *b, void *c, void *d) {
