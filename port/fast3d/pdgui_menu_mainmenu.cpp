@@ -114,6 +114,7 @@ struct missionconfig {
 void menuPushDialog(struct menudialogdef *dialogdef);
 void menuPopDialog(void);
 s32 menuIsDialogOpen(struct menudialogdef *dialogdef);
+s32 menuDialogIsCurrent(const struct menudialog *dialog);
 
 /* Pause/control restoration — needed when ImGui menu close bypasses
  * the legacy menutick bg-transition that normally calls func0f0fa6ac. */
@@ -2469,6 +2470,18 @@ static s32 renderMainMenu(struct menudialog *dialog,
     if (s_MainMenuIsRendering) {
         return 1; /* consumed — prevent legacy from rendering */
     }
+    /* B-153: main menu (PC) and main menu (Pause) share renderMainMenu;
+     * when one is pushed, menuPushDialog auto-opens its `nextsibling` (the
+     * CiOptions variant) at the same layer, so menuRenderDialogs queues
+     * TWO hotswap entries per frame. The sibling maps to
+     * renderCiSettingsRedirect (different renderer), but if a future mod
+     * or refactor ever attaches two dialogdefs to this renderer we want
+     * the sibling path to early-out cleanly. Also guards against
+     * transition-frac edge cases where the "other" dialog is rendered
+     * alongside curdialog during a swipe. */
+    if (!menuDialogIsCurrent(dialog)) {
+        return 1; /* consumed — sibling, not the active dialog */
+    }
     s_MainMenuIsRendering = true;
     /* E.3: Enforce the user's saved theme — prevents tint bleed from post-mission
      * endscreen (which sets palette 3=green or 2=red and never restores it).
@@ -3095,6 +3108,19 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
     (void)menu;
     (void)winW;
     (void)winH;
+
+    /* B-153: five CI Options dialogdefs route through this renderer
+     * (CiOptionsViaPc, CiOptionsViaPause, CiControlOptions, CiControlStyle,
+     * CiDisplay). When any of them is pushed as a nextsibling of the main
+     * menu (g_CiMenuViaPauseMenuDialog's nextsibling IS g_CiOptions...), the
+     * sibling gets queued for render alongside the main menu. Without this
+     * guard the 0.55 darken scrim below compounds with the main menu's own
+     * frame, producing the "two menus overlaid / darker background" visual
+     * Mike reported after rapid close → reopen. Skip unless we're the
+     * user's actual current dialog. */
+    if (!menuDialogIsCurrent(dialog)) {
+        return 1; /* consumed — sibling preload, not the active dialog */
+    }
 
     /* Extract the dialog definition pointer.  struct menudialog's first
      * field is a pointer to its menudialogdef -- same pattern used by

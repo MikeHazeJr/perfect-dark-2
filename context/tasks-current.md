@@ -7,6 +7,22 @@
 
 ---
 
+## Open — 2026-04-16 (S296 — vigilant-robinson)
+
+### Playtest verification of B-152 (stuck WASD) and B-153 (double main menu)
+
+Commit on `claude/vigilant-robinson-ba0ee9`. Reproduction source: `019d97ef-pdclient.log`.
+
+- **B-152 (stuck WASD)** — keyboard-only recommended. Open main menu from CI free-roam, close with Esc, press+release W individually. Character should stop on release. Repeat with A, S, D. Do the same with a controller plugged in to verify the controller path is unaffected (axis should continue to reset each frame from the stick poll). Tail `pd.log` for `BMOVE:` lines — `AXIS_MOVE=0.000,0.000` should be visible after each release, not stuck at 1.0.
+- **B-153 (double main menu)** — open main menu → press Esc immediately to close → press Esc again within < 1s to reopen. Single menu copy should render with normal backdrop. Repeat 5+ times to confirm no spurious double-render. Test controller B-button path as well (Mike flagged "also with controller I think").
+
+### Follow-up if B-152 or B-153 recur
+
+- If stuck-axis returns: capture `pd.log` with the BMOVE lines straddling the close → stuck window; check whether `.value` is being written from an unexpected path. Consider adding verbose diagnostic to `actionmapPollFrame`'s synthesis block under `sysLogGetVerbose()`.
+- If double-menu returns: hotswap queue is the next place to instrument. Dump `s_Queue` contents (name + dialogdef pointer) each frame when it has > 1 entry. Likely candidate: a new renderer or mod attaching to a dialogdef that's in a nextsibling chain.
+
+---
+
 ## Open — 2026-04-16 (S295)
 
 ### Playtest verification of the S295 collision + spawning drop

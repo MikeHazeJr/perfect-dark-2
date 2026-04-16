@@ -797,6 +797,16 @@ void actionmapPollFrame(void)
         }
     }
 
+    /* Track whether P0 had a controller actively writing to AXIS_MOVE this
+     * frame. When no controller is enumerated for P0 (keyboard-only setup),
+     * nothing else resets AXIS_MOVE.value — the WASD synthesis block below
+     * would leave .value at its last non-zero write forever, because its
+     * analogStickActive guard reads the stale .value and short-circuits.
+     * The flag lets the synthesis path distinguish "real analog input" from
+     * "stale axis value" and always drive the axis from digital keys.
+     * (B-152: stuck WASD after menu close, 2026-04-16.) */
+    s32 p0CtrlDroveAxis = 0;
+
     for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
         SDL_GameController *ctrl = SDL_GameControllerFromPlayerIndex(p);
 
@@ -836,6 +846,10 @@ void actionmapPollFrame(void)
             s_State[p][ACTION_AXIS_MOVE_Y].held = (fly != 0.0f) ? 1 : 0;
             s_State[p][ACTION_AXIS_AIM_X].held  = (frx != 0.0f) ? 1 : 0;
             s_State[p][ACTION_AXIS_AIM_Y].held  = (fry != 0.0f) ? 1 : 0;
+
+            if (p == 0) {
+                p0CtrlDroveAxis = 1;
+            }
 
             /* DIAG: Log raw and processed axis values every ~120 frames (verbose-only). */
             if (sysLogGetVerbose() && (s_DiagFrameCount % 120) == 1 && p == 0 &&
@@ -890,7 +904,13 @@ void actionmapPollFrame(void)
     {
         f32 axmx = s_State[0][ACTION_AXIS_MOVE_X].value;
         f32 axmy = s_State[0][ACTION_AXIS_MOVE_Y].value;
-        bool analogStickActive = (axmx != 0.0f || axmy != 0.0f);
+        /* B-152: only treat the axis as "driven by analog stick" when a
+         * controller actually wrote it this frame. If p0CtrlDroveAxis is 0,
+         * any non-zero axmx/axmy we see is stale data from a previous WASD
+         * synthesis write, not live stick input. Treating it as analog-active
+         * would skip the synthesis block below and leave AXIS_MOVE pegged at
+         * its previous value even after WASD keys were released. */
+        bool analogStickActive = p0CtrlDroveAxis && (axmx != 0.0f || axmy != 0.0f);
 
         f32 mx = 0.0f, my = 0.0f;
         if (s_State[0][ACTION_MOVE_RIGHT].held)    mx += 1.0f;
@@ -898,15 +918,19 @@ void actionmapPollFrame(void)
         if (s_State[0][ACTION_MOVE_FORWARD].held)  my += 1.0f;  /* Y+ = forward (N64 convention) */
         if (s_State[0][ACTION_MOVE_BACKWARD].held) my -= 1.0f;
 
-        if ((mx != 0.0f || my != 0.0f) && !analogStickActive) {
-            /* Normalize diagonal */
-            f32 len = sqrtf(mx * mx + my * my);
-            if (len > 1.0f) { mx /= len; my /= len; }
-            /* Digital overrides analog: if WASD/D-pad is held, it takes priority */
+        if (!analogStickActive) {
+            if (mx != 0.0f || my != 0.0f) {
+                /* Normalize diagonal */
+                f32 len = sqrtf(mx * mx + my * my);
+                if (len > 1.0f) { mx /= len; my /= len; }
+            }
+            /* Always assign — when no digital keys are held, this writes 0,0
+             * and clears any stuck axis value from a previous synthesis frame.
+             * (B-152.) */
             s_State[0][ACTION_AXIS_MOVE_X].value = mx;
             s_State[0][ACTION_AXIS_MOVE_Y].value = my;
-            s_State[0][ACTION_AXIS_MOVE_X].held  = 1;
-            s_State[0][ACTION_AXIS_MOVE_Y].held  = 1;
+            s_State[0][ACTION_AXIS_MOVE_X].held  = (mx != 0.0f) ? 1 : 0;
+            s_State[0][ACTION_AXIS_MOVE_Y].held  = (my != 0.0f) ? 1 : 0;
         }
     }
 
