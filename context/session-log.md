@@ -1,7 +1,35 @@
 # Session Log (Active)
 
-> **S241–S289** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S290** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S290 — 2026-04-16 (Nine-Slice Chrome transforms + docked actions + Back parity)
+
+**Scope**:
+- Extend the Nine-Slice Chrome tool with image transformation controls requested for in-client authoring and tighten close/back UX parity.
+
+**Code changes shipped in working tree**:
+- `port/fast3d/pdgui_menu_moddinghub.cpp`:
+  - Added edit pipeline controls for imported chrome image:
+    - edge trim sliders (`Trim Left/Right/Top/Bottom`),
+    - non-uniform scaling sliders (`Scale X`, `Scale Y`),
+    - center-strip removal controls (`Center Cut Axis`, `Center Cut %`) that remove from image center and stitch remaining parts together.
+  - Reworked preview processing:
+    - `chromeToolUpdatePreviewTexture()` now applies trim + center-cut + scale + optional desaturation and produces transformed output buffer/texture dimensions.
+    - save path now writes transformed output dimensions/pixels to `ui_chrome_frame.tga` (not just source image dimensions).
+  - Nine-slice inset slider bounds/clamps now operate on transformed output dimensions (`s_ChromeOutW/s_ChromeOutH`) so ruler math stays valid after transforms.
+  - Docked action row (`Save as Mod`, `Reset`) to bottom of the tool panel.
+  - Added shared hub close helper `moddingHubCloseFromUi(...)` and made Back input (`Escape` / gamepad Back) call the same close path as footer `Close` button for parity.
+
+**Why**:
+- Full in-client mod creation requires non-destructive image shaping tools before save; users need to trim/reshape source art and crop from center for square-ready chrome assets.
+- Docked actions and unified Back/Close behavior reduce navigation ambiguity and align interaction model across windows.
+
+**Verification**:
+- Build verification passed:
+  - `. .\devtools\_build-env-prelude.ps1`
+  - `ninja -C Build pd pd-server`
+  - Result: `PerfectDark.exe` and `PerfectDarkServer.exe` linked clean.
 
 ## Session S289 — 2026-04-16 (Nine-Slice Chrome: assembled frame preview + desaturation workflow)
 

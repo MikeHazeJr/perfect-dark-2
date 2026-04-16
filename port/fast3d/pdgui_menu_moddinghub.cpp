@@ -130,6 +130,12 @@ static void moddingHubClose(const char *reason)
     sysLogPrintf(LOG_NOTE, "MODHUB: closed (%s)", reason ? reason : "no-reason");
 }
 
+static void moddingHubCloseFromUi(const char *reason)
+{
+    moddingHubClose(reason);
+    pdguiPlaySound(PDGUI_SND_KBCANCEL);
+}
+
 /* ========================================================================
  * Map Import state (Tab 6)
  * ======================================================================== */
@@ -167,12 +173,22 @@ static bool   s_ChromeCenterTile = true;
 static bool   s_ChromeEdgeTile = false;
 static bool   s_ChromeDesaturate = false;
 static s32    s_ChromeDesaturatePct = 100;
+static s32    s_ChromeTrimL = 0;
+static s32    s_ChromeTrimR = 0;
+static s32    s_ChromeTrimT = 0;
+static s32    s_ChromeTrimB = 0;
+static s32    s_ChromeScaleXPct = 100;
+static s32    s_ChromeScaleYPct = 100;
+static s32    s_ChromeCenterCutAxis = 0; /* 0=None, 1=Vertical(height), 2=Horizontal(width) */
+static s32    s_ChromeCenterCutPct = 0;
 static s32    s_ChromeInsetL = 16;
 static s32    s_ChromeInsetR = 16;
 static s32    s_ChromeInsetT = 16;
 static s32    s_ChromeInsetB = 16;
 static s32    s_ChromeImgW = 0;
 static s32    s_ChromeImgH = 0;
+static s32    s_ChromeOutW = 0;
+static s32    s_ChromeOutH = 0;
 static u8    *s_ChromePixels = NULL; /* RGBA8, owned by tool */
 static GLuint s_ChromeTex = 0;
 static u8    *s_ChromePreviewPixels = NULL; /* optional processed preview buffer */
@@ -1363,8 +1379,7 @@ static void renderModdingHub(s32 winW, s32 winH)
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
         ImVec4(0.55f, 0.10f, 0.10f, 0.70f));
     if (ImGui::Button("Close", ImVec2(closeW, closeH))) {
-        moddingHubClose("close-button");
-        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        moddingHubCloseFromUi("close-button");
     }
     if (ImGui::IsItemHovered() || ImGui::IsItemActive() || ImGui::IsItemFocused()) {
         ImVec2 rmin = ImGui::GetItemRectMin();
@@ -1375,12 +1390,11 @@ static void renderModdingHub(s32 winW, s32 winH)
     }
     ImGui::PopStyleColor(2);
 
-    /* B button / Escape closes hub (only when Mod Manager isn't consuming it) */
-    if (s_ActiveTool != 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
+    /* Back input mirrors footer Close behavior. */
+    if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
         if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight) ||
             ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-            moddingHubClose("escape-or-b-button");
-            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            moddingHubCloseFromUi("escape-or-b-button");
         }
     }
 
@@ -1457,33 +1471,108 @@ static void chromeToolReleaseImage(void)
     }
     s_ChromeImgW = 0;
     s_ChromeImgH = 0;
+    s_ChromeOutW = 0;
+    s_ChromeOutH = 0;
 }
 
 static void chromeToolUpdatePreviewTexture(void)
 {
     if (!s_ChromePixels || s_ChromeImgW <= 0 || s_ChromeImgH <= 0) return;
 
-    size_t pxCount = (size_t)s_ChromeImgW * (size_t)s_ChromeImgH;
+    s32 trimL = s_ChromeTrimL; if (trimL < 0) trimL = 0; if (trimL >= s_ChromeImgW) trimL = s_ChromeImgW - 1;
+    s32 trimR = s_ChromeTrimR; if (trimR < 0) trimR = 0; if (trimR >= s_ChromeImgW) trimR = s_ChromeImgW - 1;
+    s32 trimT = s_ChromeTrimT; if (trimT < 0) trimT = 0; if (trimT >= s_ChromeImgH) trimT = s_ChromeImgH - 1;
+    s32 trimB = s_ChromeTrimB; if (trimB < 0) trimB = 0; if (trimB >= s_ChromeImgH) trimB = s_ChromeImgH - 1;
+
+    s32 cropW = s_ChromeImgW - trimL - trimR;
+    s32 cropH = s_ChromeImgH - trimT - trimB;
+    if (cropW < 1) cropW = 1;
+    if (cropH < 1) cropH = 1;
+
+    s32 cutPct = s_ChromeCenterCutPct;
+    if (cutPct < 0) cutPct = 0;
+    if (cutPct > 90) cutPct = 90;
+
+    s32 cutAxis = s_ChromeCenterCutAxis;
+    s32 cutPxX = 0;
+    s32 cutPxY = 0;
+    if (cutAxis == 1) {
+        cutPxY = (cropH * cutPct) / 100;
+        if (cutPxY >= cropH) cutPxY = cropH - 1;
+        if (cutPxY < 0) cutPxY = 0;
+    } else if (cutAxis == 2) {
+        cutPxX = (cropW * cutPct) / 100;
+        if (cutPxX >= cropW) cutPxX = cropW - 1;
+        if (cutPxX < 0) cutPxX = 0;
+    }
+
+    s32 stitchedW = cropW - cutPxX;
+    s32 stitchedH = cropH - cutPxY;
+    if (stitchedW < 1) stitchedW = 1;
+    if (stitchedH < 1) stitchedH = 1;
+
+    s32 scaleX = s_ChromeScaleXPct;
+    s32 scaleY = s_ChromeScaleYPct;
+    if (scaleX < 10) scaleX = 10;
+    if (scaleY < 10) scaleY = 10;
+    if (scaleX > 400) scaleX = 400;
+    if (scaleY > 400) scaleY = 400;
+
+    s_ChromeOutW = (stitchedW * scaleX) / 100;
+    s_ChromeOutH = (stitchedH * scaleY) / 100;
+    if (s_ChromeOutW < 1) s_ChromeOutW = 1;
+    if (s_ChromeOutH < 1) s_ChromeOutH = 1;
+
+    size_t pxCount = (size_t)s_ChromeOutW * (size_t)s_ChromeOutH;
     size_t bytes = pxCount * 4u;
     if (!s_ChromePreviewPixels) {
         s_ChromePreviewPixels = (u8 *)malloc(bytes);
         if (!s_ChromePreviewPixels) return;
+    } else {
+        u8 *resized = (u8 *)realloc(s_ChromePreviewPixels, bytes);
+        if (!resized) return;
+        s_ChromePreviewPixels = resized;
     }
 
     float t = s_ChromeDesaturate ? ((float)s_ChromeDesaturatePct / 100.0f) : 0.0f;
     if (t < 0.0f) t = 0.0f;
     if (t > 1.0f) t = 1.0f;
 
-    for (size_t i = 0; i < pxCount; i++) {
-        const u8 *src = &s_ChromePixels[i * 4u];
-        float rf = (float)src[0];
-        float gf = (float)src[1];
-        float bf = (float)src[2];
-        float gray = rf * 0.299f + gf * 0.587f + bf * 0.114f;
-        s_ChromePreviewPixels[i * 4u + 0] = (u8)(rf + (gray - rf) * t);
-        s_ChromePreviewPixels[i * 4u + 1] = (u8)(gf + (gray - gf) * t);
-        s_ChromePreviewPixels[i * 4u + 2] = (u8)(bf + (gray - bf) * t);
-        s_ChromePreviewPixels[i * 4u + 3] = src[3];
+    s32 keepTop = (cropH - cutPxY) / 2;
+    s32 keepLeft = (cropW - cutPxX) / 2;
+
+    for (s32 oy = 0; oy < s_ChromeOutH; oy++) {
+        s32 syStitched = (oy * stitchedH) / s_ChromeOutH;
+        s32 syCrop = syStitched;
+        if (cutPxY > 0 && cutAxis == 1 && syStitched >= keepTop) {
+            syCrop += cutPxY;
+        }
+        if (syCrop >= cropH) syCrop = cropH - 1;
+
+        for (s32 ox = 0; ox < s_ChromeOutW; ox++) {
+            s32 sxStitched = (ox * stitchedW) / s_ChromeOutW;
+            s32 sxCrop = sxStitched;
+            if (cutPxX > 0 && cutAxis == 2 && sxStitched >= keepLeft) {
+                sxCrop += cutPxX;
+            }
+            if (sxCrop >= cropW) sxCrop = cropW - 1;
+
+            s32 srcX = trimL + sxCrop;
+            s32 srcY = trimT + syCrop;
+            if (srcX < 0) srcX = 0; if (srcX >= s_ChromeImgW) srcX = s_ChromeImgW - 1;
+            if (srcY < 0) srcY = 0; if (srcY >= s_ChromeImgH) srcY = s_ChromeImgH - 1;
+
+            const u8 *src = &s_ChromePixels[(srcY * s_ChromeImgW + srcX) * 4];
+            float rf = (float)src[0];
+            float gf = (float)src[1];
+            float bf = (float)src[2];
+            float gray = rf * 0.299f + gf * 0.587f + bf * 0.114f;
+            size_t di = (size_t)(oy * s_ChromeOutW + ox) * 4u;
+            s_ChromePreviewPixels[di + 0] = (u8)(rf + (gray - rf) * t);
+            s_ChromePreviewPixels[di + 1] = (u8)(gf + (gray - gf) * t);
+            s_ChromePreviewPixels[di + 2] = (u8)(bf + (gray - bf) * t);
+            s_ChromePreviewPixels[di + 3] = src[3];
+        }
     }
 
     if (s_ChromePreviewTex == 0) {
@@ -1493,9 +1582,23 @@ static void chromeToolUpdatePreviewTexture(void)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
-                 s_ChromeImgW, s_ChromeImgH, 0,
+                 s_ChromeOutW, s_ChromeOutH, 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, s_ChromePreviewPixels);
     glBindTexture(GL_TEXTURE_2D, 0);
+
+    /* Clamp insets into edited output dimensions to keep a valid center area. */
+    if (s_ChromeInsetL < 0) s_ChromeInsetL = 0;
+    if (s_ChromeInsetR < 0) s_ChromeInsetR = 0;
+    if (s_ChromeInsetT < 0) s_ChromeInsetT = 0;
+    if (s_ChromeInsetB < 0) s_ChromeInsetB = 0;
+    if (s_ChromeInsetL + s_ChromeInsetR >= s_ChromeOutW) {
+        s_ChromeInsetR = s_ChromeOutW - s_ChromeInsetL - 1;
+        if (s_ChromeInsetR < 0) s_ChromeInsetR = 0;
+    }
+    if (s_ChromeInsetT + s_ChromeInsetB >= s_ChromeOutH) {
+        s_ChromeInsetB = s_ChromeOutH - s_ChromeInsetT - 1;
+        if (s_ChromeInsetB < 0) s_ChromeInsetB = 0;
+    }
 }
 
 static void chromeToolBuildDef(nineslice_def_t *out)
@@ -1549,6 +1652,11 @@ static bool chromeToolLoadImage(const char *path)
     s_ChromeInsetR = w / 4;
     s_ChromeInsetT = h / 4;
     s_ChromeInsetB = h / 4;
+    s_ChromeTrimL = s_ChromeTrimR = s_ChromeTrimT = s_ChromeTrimB = 0;
+    s_ChromeScaleXPct = 100;
+    s_ChromeScaleYPct = 100;
+    s_ChromeCenterCutAxis = 0;
+    s_ChromeCenterCutPct = 0;
     chromeToolUpdatePreviewTexture();
     s_ChromeStatusOk = true;
     snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Loaded %dx%d image", w, h);
@@ -1563,6 +1671,11 @@ static bool chromeToolSaveMod(void)
         return false;
     }
     chromeToolUpdatePreviewTexture();
+    if (!s_ChromePreviewPixels || s_ChromeOutW <= 0 || s_ChromeOutH <= 0) {
+        snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Image processing failed");
+        s_ChromeStatusOk = false;
+        return false;
+    }
 
     char slug[64];
     chromeToolSanitizeSlug(s_ChromeModName, slug, sizeof(slug));
@@ -1588,8 +1701,8 @@ static bool chromeToolSaveMod(void)
 
     char texPath[FS_MAXPATH];
     snprintf(texPath, sizeof(texPath), "%s/ui_chrome_frame.tga", modDir);
-    const u8 *savePixels = (s_ChromePreviewPixels != NULL) ? s_ChromePreviewPixels : s_ChromePixels;
-    if (!chromeToolWriteTga(texPath, savePixels, s_ChromeImgW, s_ChromeImgH)) {
+    const u8 *savePixels = s_ChromePreviewPixels;
+    if (!chromeToolWriteTga(texPath, savePixels, s_ChromeOutW, s_ChromeOutH)) {
         snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Failed writing TGA");
         s_ChromeStatusOk = false;
         return false;
@@ -1673,9 +1786,39 @@ static void chromeToolReset(void)
     s_ChromeEdgeTile = false;
     s_ChromeDesaturate = false;
     s_ChromeDesaturatePct = 100;
+    s_ChromeTrimL = s_ChromeTrimR = s_ChromeTrimT = s_ChromeTrimB = 0;
+    s_ChromeScaleXPct = 100;
+    s_ChromeScaleYPct = 100;
+    s_ChromeCenterCutAxis = 0;
+    s_ChromeCenterCutPct = 0;
     s_ChromeInsetL = s_ChromeInsetR = 16;
     s_ChromeInsetT = s_ChromeInsetB = 16;
     chromeToolReleaseImage();
+}
+
+static void chromeToolApplySquarePreset(void)
+{
+    if (s_ChromeImgW <= 0 || s_ChromeImgH <= 0) return;
+
+    /* Preserve trim, then choose center-cut axis/% from cropped aspect. */
+    s32 cropW = s_ChromeImgW - s_ChromeTrimL - s_ChromeTrimR;
+    s32 cropH = s_ChromeImgH - s_ChromeTrimT - s_ChromeTrimB;
+    if (cropW < 1) cropW = 1;
+    if (cropH < 1) cropH = 1;
+
+    if (cropH > cropW) {
+        s_ChromeCenterCutAxis = 1; /* remove height center strip */
+        s_ChromeCenterCutPct = ((cropH - cropW) * 100) / cropH;
+    } else if (cropW > cropH) {
+        s_ChromeCenterCutAxis = 2; /* remove width center strip */
+        s_ChromeCenterCutPct = ((cropW - cropH) * 100) / cropW;
+    } else {
+        s_ChromeCenterCutAxis = 0;
+        s_ChromeCenterCutPct = 0;
+    }
+
+    if (s_ChromeCenterCutPct > 90) s_ChromeCenterCutPct = 90;
+    if (s_ChromeCenterCutPct < 0) s_ChromeCenterCutPct = 0;
 }
 
 static void renderChromeTool(float w, float h, float scale)
@@ -1726,13 +1869,57 @@ static void renderChromeTool(float w, float h, float scale)
     ImGui::Checkbox("Center tile mode", &s_ChromeCenterTile);
     ImGui::SameLine();
     ImGui::Checkbox("Edge tile mode", &s_ChromeEdgeTile);
+    bool editsChanged = false;
+    editsChanged |= ImGui::SliderInt("Trim Left", &s_ChromeTrimL, 0, s_ChromeImgW > 1 ? s_ChromeImgW - 1 : 1);
+    editsChanged |= ImGui::SliderInt("Trim Right", &s_ChromeTrimR, 0, s_ChromeImgW > 1 ? s_ChromeImgW - 1 : 1);
+    editsChanged |= ImGui::SliderInt("Trim Top", &s_ChromeTrimT, 0, s_ChromeImgH > 1 ? s_ChromeImgH - 1 : 1);
+    editsChanged |= ImGui::SliderInt("Trim Bottom", &s_ChromeTrimB, 0, s_ChromeImgH > 1 ? s_ChromeImgH - 1 : 1);
+    editsChanged |= ImGui::SliderInt("Scale X", &s_ChromeScaleXPct, 10, 400, "%d%%");
+    editsChanged |= ImGui::SliderInt("Scale Y", &s_ChromeScaleYPct, 10, 400, "%d%%");
+    static const char *cutAxes[] = { "None", "Vertical (height)", "Horizontal (width)" };
+    editsChanged |= ImGui::Combo("Center Cut Axis", &s_ChromeCenterCutAxis, cutAxes, 3);
+    if (s_ChromeCenterCutAxis != 0) {
+        editsChanged |= ImGui::SliderInt("Center Cut %", &s_ChromeCenterCutPct, 0, 90, "%d%%");
+    } else {
+        s_ChromeCenterCutPct = 0;
+    }
+
     bool desatChanged = ImGui::Checkbox("Desaturate for tint-friendly chrome", &s_ChromeDesaturate);
     if (s_ChromeDesaturate) {
         desatChanged |= ImGui::SliderInt("Desaturate %", &s_ChromeDesaturatePct, 0, 100, "%d%%");
     }
+    editsChanged = editsChanged || desatChanged;
 
-    s32 maxL = s_ChromeImgW > 1 ? s_ChromeImgW - 1 : 1;
-    s32 maxT = s_ChromeImgH > 1 ? s_ChromeImgH - 1 : 1;
+    ImGui::TextDisabled("Quick Presets");
+    if (PdButton("Square Auto", ImVec2(110.0f * scale, 0))) {
+        chromeToolApplySquarePreset();
+        editsChanged = true;
+    }
+    ImGui::SameLine();
+    if (PdButton("Cut 40% V", ImVec2(95.0f * scale, 0))) {
+        s_ChromeCenterCutAxis = 1;
+        s_ChromeCenterCutPct = 40;
+        editsChanged = true;
+    }
+    ImGui::SameLine();
+    if (PdButton("Cut 40% H", ImVec2(95.0f * scale, 0))) {
+        s_ChromeCenterCutAxis = 2;
+        s_ChromeCenterCutPct = 40;
+        editsChanged = true;
+    }
+    ImGui::SameLine();
+    if (PdButton("Tint Gray", ImVec2(90.0f * scale, 0))) {
+        s_ChromeDesaturate = true;
+        s_ChromeDesaturatePct = 100;
+        editsChanged = true;
+    }
+
+    if (editsChanged) {
+        chromeToolUpdatePreviewTexture();
+    }
+
+    s32 maxL = s_ChromeOutW > 1 ? s_ChromeOutW - 1 : 1;
+    s32 maxT = s_ChromeOutH > 1 ? s_ChromeOutH - 1 : 1;
     if (ImGui::SliderInt("Left", &s_ChromeInsetL, 0, maxL)) {
         if (s_ChromeLrSymmetry) s_ChromeInsetR = s_ChromeInsetL;
     }
@@ -1747,27 +1934,24 @@ static void renderChromeTool(float w, float h, float scale)
     }
 
     /* Clamp total inset pairs so center region always exists. */
-    if (s_ChromeInsetL + s_ChromeInsetR >= s_ChromeImgW) {
-        s_ChromeInsetR = s_ChromeImgW - s_ChromeInsetL - 1;
+    if (s_ChromeInsetL + s_ChromeInsetR >= s_ChromeOutW) {
+        s_ChromeInsetR = s_ChromeOutW - s_ChromeInsetL - 1;
         if (s_ChromeInsetR < 0) s_ChromeInsetR = 0;
     }
-    if (s_ChromeInsetT + s_ChromeInsetB >= s_ChromeImgH) {
-        s_ChromeInsetB = s_ChromeImgH - s_ChromeInsetT - 1;
+    if (s_ChromeInsetT + s_ChromeInsetB >= s_ChromeOutH) {
+        s_ChromeInsetB = s_ChromeOutH - s_ChromeInsetT - 1;
         if (s_ChromeInsetB < 0) s_ChromeInsetB = 0;
-    }
-    if (desatChanged) {
-        chromeToolUpdatePreviewTexture();
     }
 
     ImGui::Spacing();
     float previewW = w * 0.46f;
-    float previewH = h * 0.40f;
-    float sx = previewW / (float)s_ChromeImgW;
-    float sy = previewH / (float)s_ChromeImgH;
+    float previewH = h * 0.30f;
+    float sx = previewW / (float)s_ChromeOutW;
+    float sy = previewH / (float)s_ChromeOutH;
     float imgScale = sx < sy ? sx : sy;
     if (imgScale > 1.0f) imgScale = 1.0f;
-    float drawW = s_ChromeImgW * imgScale;
-    float drawH = s_ChromeImgH * imgScale;
+    float drawW = s_ChromeOutW * imgScale;
+    float drawH = s_ChromeOutH * imgScale;
     GLuint previewTex = s_ChromePreviewTex ? s_ChromePreviewTex : s_ChromeTex;
 
     ImGui::TextDisabled("Source Preview (with rulers)");
@@ -1799,25 +1983,31 @@ static void renderChromeTool(float w, float h, float scale)
 
     nineslice_def_t previewDef;
     chromeToolBuildDef(&previewDef);
-    pdguiNinesliceDrawEx((void *)(uintptr_t)previewTex, s_ChromeImgW, s_ChromeImgH, &previewDef,
+    pdguiNinesliceDrawEx((void *)(uintptr_t)previewTex, s_ChromeOutW, s_ChromeOutH, &previewDef,
                          framePos.x + 10.0f * scale, framePos.y + 10.0f * scale,
                          frameW - 20.0f * scale, frameH - 20.0f * scale,
                          IM_COL32(255, 255, 255, 255));
     ImGui::EndGroup();
 
-    ImGui::Spacing();
+    if (s_ChromeStatus[0]) {
+        ImGui::TextColored(s_ChromeStatusOk ? ImVec4(0.2f, 1.0f, 0.4f, 1.0f)
+                                            : ImVec4(1.0f, 0.3f, 0.3f, 1.0f),
+                           "%s", s_ChromeStatus);
+    }
+
+    /* Dock action row to bottom of tool panel. */
+    float dockH = 34.0f * scale;
+    float dockY = h - dockH;
+    if (dockY > ImGui::GetCursorPosY()) {
+        ImGui::SetCursorPosY(dockY);
+    }
+    ImGui::Separator();
     if (PdButton("Save as Mod", ImVec2(160.0f * scale, 28.0f * scale))) {
         chromeToolSaveMod();
     }
     ImGui::SameLine();
     if (PdButton("Reset", ImVec2(90.0f * scale, 28.0f * scale))) {
         chromeToolReset();
-    }
-
-    if (s_ChromeStatus[0]) {
-        ImGui::TextColored(s_ChromeStatusOk ? ImVec4(0.2f, 1.0f, 0.4f, 1.0f)
-                                            : ImVec4(1.0f, 0.3f, 0.3f, 1.0f),
-                           "%s", s_ChromeStatus);
     }
 }
 
