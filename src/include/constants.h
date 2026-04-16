@@ -3236,6 +3236,7 @@
 #define OBJH2FLAG_CANREGEN     0x04
 #define OBJH2FLAG_08           0x08
 #define OBJH2FLAG_10           0x10
+#define OBJH2FLAG_AUTOFLOOR    0x20 // PC: auto-floor tile emitted at end of geo buffer
 #define OBJH2FLAG_DESTROYED    0x40
 #define OBJH2FLAG_80           0x80
 

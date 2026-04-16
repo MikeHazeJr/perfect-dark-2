@@ -1938,10 +1938,12 @@ void func0f069b4c(struct defaultobj *obj)
 		}
 
 		/* Update auto-generated bbox floor tile. Created by objInit for
-		 * props without MODELPART_0065 floor tiles. The auto tile is
-		 * always at the END of the geo buffer. Detect it by scanning
-		 * backwards for a GEOTYPE_TILE_F with FLOOR1|FLOOR2 flags. */
-		if (modelGetPartRodata(obj->model->definition, MODELPART_0065) == NULL
+		 * props without adequate MODELPART_0065 floor coverage (either the
+		 * part is absent, or it exists but covers < 50% of the bbox XZ —
+		 * e.g. Carrington tables). The auto tile is always at the END of
+		 * the geo buffer. The OBJH2FLAG_AUTOFLOOR marker in obj->hidden2
+		 * tells us it was emitted. */
+		if ((obj->hidden2 & OBJH2FLAG_AUTOFLOOR)
 				&& obj->unkgeo != NULL && obj->geocount >= 1) {
 			struct modelrodata_bbox *autobbox = modelFindBboxRodata(obj->model);
 
@@ -2187,9 +2189,49 @@ struct prop *objInit(struct defaultobj *obj, struct modeldef *modeldef, struct p
 		 * same allocation. The tile uses the top face (ymax) of the
 		 * bounding box, flagged GEOFLAG_FLOOR1|GEOFLAG_FLOOR2. */
 		bool needAutoFloor = false;
-		bool hasFloorParts = (modelGetPartRodata(modeldef, MODELPART_BASIC_0065) != NULL);
+		union modelrodata *floorPart = modelGetPartRodata(modeldef, MODELPART_BASIC_0065);
+		bool hasFloorCoverage = false;
 
-		if (!hasFloorParts
+		/* Tighten auto-floor gate: an existing MODELPART_BASIC_0065 doesn't
+		 * mean the top is actually covered. Carrington tables have a
+		 * non-covering 0065 part plus rim-only 0066 wall panels, leaving a
+		 * ring of solid edges around a hole. Require the floor part to cover
+		 * at least ~50% of the bbox XZ extent; otherwise fall through and
+		 * synthesize a full-bbox auto-floor anyway. */
+		if (floorPart != NULL) {
+			struct modelrodata_bbox *autobbox = modelFindBboxRodata(obj->model);
+			s32 nv = floorPart->type19.numvertices;
+			if (autobbox != NULL && nv >= 3 && nv <= 4) {
+				f32 fxmin = floorPart->type19.vertices[0].x;
+				f32 fxmax = fxmin;
+				f32 fzmin = floorPart->type19.vertices[0].z;
+				f32 fzmax = fzmin;
+				for (s32 vi = 1; vi < nv; vi++) {
+					f32 vx = floorPart->type19.vertices[vi].x;
+					f32 vz = floorPart->type19.vertices[vi].z;
+					if (vx < fxmin) fxmin = vx;
+					if (vx > fxmax) fxmax = vx;
+					if (vz < fzmin) fzmin = vz;
+					if (vz > fzmax) fzmax = vz;
+				}
+
+				f32 bboxX = autobbox->xmax - autobbox->xmin;
+				f32 bboxZ = autobbox->zmax - autobbox->zmin;
+				f32 floorX = fxmax - fxmin;
+				f32 floorZ = fzmax - fzmin;
+
+				if (bboxX > 0.0f && bboxZ > 0.0f
+						&& floorX >= bboxX * 0.5f
+						&& floorZ >= bboxZ * 0.5f) {
+					hasFloorCoverage = true;
+				}
+			} else if (autobbox == NULL) {
+				/* No bbox to compare against — trust the floor part exists. */
+				hasFloorCoverage = true;
+			}
+		}
+
+		if (!hasFloorCoverage
 				&& (obj->flags3 & OBJFLAG3_WALKTHROUGH) == 0) {
 			struct modelrodata_bbox *autobbox = modelFindBboxRodata(obj->model);
 
@@ -2202,8 +2244,13 @@ struct prop *objInit(struct defaultobj *obj, struct modeldef *modeldef, struct p
 					needAutoFloor = true;
 					geosize += 0x40;
 					obj->geocount++;
+					obj->hidden2 |= OBJH2FLAG_AUTOFLOOR;
 				}
 			}
+		}
+
+		if (!needAutoFloor) {
+			obj->hidden2 &= ~OBJH2FLAG_AUTOFLOOR;
 		}
 
 		if (obj->geocount > 0) {
@@ -19007,7 +19054,7 @@ struct prop *weaponCreateForChr(struct chrdata *chr, s32 modelnum, s32 weaponnum
 			0,                      // pad
 			OBJFLAG_FALL | OBJFLAG_ASSIGNEDTOCHR, // flags
 			0,                      // flags2
-			0,                      // flags3
+			OBJFLAG3_WALKTHROUGH,   // flags3 — weapon pickups must be walkthrough, not solid
 			NULL,                   // prop
 			NULL,                   // model
 			1, 0, 0,                // realrot

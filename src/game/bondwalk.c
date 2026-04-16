@@ -918,13 +918,17 @@ void bwalkUpdateVertical(void)
 		/* Grounded check:
 		 * - If feet are within 3 units of ground, always grounded (handles
 		 *   ramps where bdeltapos.y follows the slope surface upward).
-		 * - If feet are within 10 units and not rising fast, grounded
-		 *   (generous tolerance for uneven terrain).
+		 * - If feet are within 20 units and not rising faster than the jump
+		 *   impulse itself, grounded (generous tolerance for slope climbing —
+		 *   active slope ascent leaves residual upward bdeltapos.y that the
+		 *   original < 2.0f threshold failed on). Ceiling stays below
+		 *   FIXED_JUMP_IMPULSE (8.2f) so a mid-jump player still reads as
+		 *   airborne and doesn't double-jump.
 		 * - Never grounded on a ladder. */
 		const f32 groundgap = g_Vars.currentplayer->vv_manground - g_Vars.currentplayer->vv_ground;
 		const bool grounded =
 			(groundgap < 3.0f
-			|| (groundgap < 10.0f && g_Vars.currentplayer->bdeltapos.y < 2.0f))
+			|| (groundgap < 20.0f && g_Vars.currentplayer->bdeltapos.y < 6.0f))
 			&& !g_Vars.currentplayer->onladder;
 
 		sysLogPrintf(LOG_NOTE, "JUMP: impulse=%.1f grounded=%d gap=%.2f "
@@ -1277,17 +1281,39 @@ void bwalkUpdateVertical(void)
 		/* Pre-move ceiling check: the capsule sweep only tests WALL geometry
 		 * (via cdTestVolume). FLOOR1|FLOOR2-only ceiling surfaces are invisible
 		 * to it. Use the geo system to find floor-flagged ceilings and clamp
-		 * the move before it happens — prevents clipping through angled roofs. */
+		 * the move before it happens — prevents clipping through angled roofs.
+		 *
+		 * Radius-aware probe: sample at player center + 4 points at ±radius in
+		 * X and Z, take the min. A single point-probe missed diagonal clipping
+		 * against the edge of a ceiling tile. */
 		if (verticalDelta > 0.5f) {
 			f32 preCeilY = 99999.0f;
 			struct coord ceilpos;
-			ceilpos.x = g_Vars.currentplayer->prop->pos.x;
 			ceilpos.y = g_Vars.currentplayer->prop->pos.y;
-			ceilpos.z = g_Vars.currentplayer->prop->pos.z;
 
-			cdFindCeilingRoomYColourFlagsAtPos(&ceilpos,
-					g_Vars.currentplayer->prop->rooms,
-					&preCeilY, NULL, NULL);
+			const f32 pcx = g_Vars.currentplayer->prop->pos.x;
+			const f32 pcz = g_Vars.currentplayer->prop->pos.z;
+			const f32 probeR = (f32)radius;
+
+			static const f32 s_probeOff[5][2] = {
+				{  0.0f,  0.0f },
+				{  1.0f,  0.0f },
+				{ -1.0f,  0.0f },
+				{  0.0f,  1.0f },
+				{  0.0f, -1.0f },
+			};
+
+			for (s32 pi = 0; pi < 5; pi++) {
+				f32 sampY = 99999.0f;
+				ceilpos.x = pcx + s_probeOff[pi][0] * probeR;
+				ceilpos.z = pcz + s_probeOff[pi][1] * probeR;
+				cdFindCeilingRoomYColourFlagsAtPos(&ceilpos,
+						g_Vars.currentplayer->prop->rooms,
+						&sampY, NULL, NULL);
+				if (sampY < preCeilY) {
+					preCeilY = sampY;
+				}
+			}
 
 			if (preCeilY < 99990.0f) {
 				f32 headheight = g_Vars.currentplayer->vv_headheight
