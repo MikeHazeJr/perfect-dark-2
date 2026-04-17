@@ -82,7 +82,7 @@ void forgeLogicDetectCycles(s32 *out_warn_count)
 		if (!n || !n->in_use) continue;
 		if (!visited[i] && forgeLogicDfsHasCycle(n->uid, visiting, visited)) {
 			++warn;
-			sysLogPrintf(LOG_WARNING, "FORGE.LOGIC: cycle detected involving node uid=%u",
+			sysLogPrintf(LOG_WARNING, "GRID.LOGIC: cycle detected involving node uid=%u",
 					n->uid);
 		}
 	}
@@ -143,7 +143,7 @@ static void forgeLogicExecuteAction(forge_logic_node_t *a)
 	case FORGE_OP_OPEN_DOOR: {
 		forge_object_t *o = forgeObjectFindByUid(a->target_uid_a);
 		if (o && o->category == FORGE_CAT_INTERACTABLE) {
-			sysLogPrintf(LOG_NOTE, "FORGE.LOGIC: open door uid=%u '%s'", o->uid, o->label);
+			sysLogPrintf(LOG_NOTE, "GRID.LOGIC: open door uid=%u '%s'", o->uid, o->label);
 			o->props.door.locked = 0;
 		}
 		break;
@@ -151,7 +151,7 @@ static void forgeLogicExecuteAction(forge_logic_node_t *a)
 	case FORGE_OP_CLOSE_DOOR: {
 		forge_object_t *o = forgeObjectFindByUid(a->target_uid_a);
 		if (o && o->category == FORGE_CAT_INTERACTABLE) {
-			sysLogPrintf(LOG_NOTE, "FORGE.LOGIC: close door uid=%u", o->uid);
+			sysLogPrintf(LOG_NOTE, "GRID.LOGIC: close door uid=%u", o->uid);
 		}
 		break;
 	}
@@ -178,25 +178,25 @@ static void forgeLogicExecuteAction(forge_logic_node_t *a)
 	case FORGE_OP_DESTROY_OBJECT: {
 		forge_object_t *o = forgeObjectFindByUid(a->target_uid_a);
 		if (o) {
-			sysLogPrintf(LOG_NOTE, "FORGE.LOGIC: destroy uid=%u '%s'", o->uid, o->catalog_id);
+			sysLogPrintf(LOG_NOTE, "GRID.LOGIC: destroy uid=%u '%s'", o->uid, o->catalog_id);
 			o->in_use = 0;
 		}
 		break;
 	}
 	case FORGE_OP_SHOW_MESSAGE:
-		sysLogPrintf(LOG_NOTE, "FORGE.LOGIC: HUD message '%s' (recipient=%d dur=%.1f)",
+		sysLogPrintf(LOG_NOTE, "GRID.LOGIC: HUD message '%s' (recipient=%d dur=%.1f)",
 				a->param_text_a, a->param_int_a, a->param_float_a);
 		break;
 	case FORGE_OP_PLAY_SOUND:
-		sysLogPrintf(LOG_NOTE, "FORGE.LOGIC: play sound '%s' vol=%.2f",
+		sysLogPrintf(LOG_NOTE, "GRID.LOGIC: play sound '%s' vol=%.2f",
 				a->param_text_a, a->param_float_a);
 		break;
 	case FORGE_OP_AWARD_SCORE:
-		sysLogPrintf(LOG_NOTE, "FORGE.LOGIC: award %d to team %d",
+		sysLogPrintf(LOG_NOTE, "GRID.LOGIC: award %d to team %d",
 				a->param_int_a, a->param_int_b);
 		break;
 	case FORGE_OP_END_MISSION:
-		sysLogPrintf(LOG_NOTE, "FORGE.LOGIC: end mission success=%d msg='%s'",
+		sysLogPrintf(LOG_NOTE, "GRID.LOGIC: end mission success=%d msg='%s'",
 				a->param_int_a, a->param_text_a);
 		break;
 	case FORGE_OP_OBJECTIVE_COMPLETE: {
@@ -216,11 +216,11 @@ static void forgeLogicExecuteAction(forge_logic_node_t *a)
 		break;
 	}
 	case FORGE_OP_TRIGGER_BOSS_PHASE:
-		sysLogPrintf(LOG_NOTE, "FORGE.LOGIC: trigger boss phase %d", a->param_int_a);
+		sysLogPrintf(LOG_NOTE, "GRID.LOGIC: trigger boss phase %d", a->param_int_a);
 		break;
 	case FORGE_OP_TELEPORT_PLAYER: {
 		forge_object_t *o = forgeObjectFindByUid(a->target_uid_a);
-		if (o) sysLogPrintf(LOG_NOTE, "FORGE.LOGIC: teleport to uid=%u (%.0f,%.0f,%.0f)",
+		if (o) sysLogPrintf(LOG_NOTE, "GRID.LOGIC: teleport to uid=%u (%.0f,%.0f,%.0f)",
 				o->uid, o->pos[0], o->pos[1], o->pos[2]);
 		break;
 	}
@@ -254,7 +254,7 @@ static void forgeLogicExecuteAction(forge_logic_node_t *a)
 	case FORGE_OP_CHANGE_ZONE:
 	case FORGE_OP_CAMERA_EVENT:
 	case FORGE_OP_ACTIVATE_ELEVATOR:
-		sysLogPrintf(LOG_NOTE, "FORGE.LOGIC: action op=%d (runtime placeholder)", (int)a->op);
+		sysLogPrintf(LOG_NOTE, "GRID.LOGIC: action op=%d (runtime placeholder)", (int)a->op);
 		break;
 	default:
 		break;
@@ -271,7 +271,7 @@ static void forgeLogicExecuteAction(forge_logic_node_t *a)
 static void forgeLogicFollowOutputs(u32 from_uid)
 {
 	if (s_recursion_guard > 128) {
-		sysLogPrintf(LOG_WARNING, "FORGE.LOGIC: recursion depth cap hit");
+		sysLogPrintf(LOG_WARNING, "GRID.LOGIC: recursion depth cap hit");
 		return;
 	}
 	++s_recursion_guard;

@@ -1,14 +1,16 @@
 /**
- * pdgui_forge_hud.cpp -- Forge mode HUD overlay (Phase F0 shell).
+ * pdgui_forge_hud.cpp -- The Grid HUD overlay.
  *
- * Renders only when a forge session is active.  Shows the current sub-mode
- * (NORMAL / FREEFLY) plus a freefly reticle and camera-readout.  Intentional
- * placeholder panels reserve the screen real-estate that later phases will
- * populate (catalog browser left, properties panel right).
+ * Renders only when a Grid session is active.  Shows the current sub-mode
+ * (NORMAL / FREEFLY), placement ghost reticle, grid-snap indicator,
+ * camera readout, and the controls reminder.  Badge label reads
+ * "THE GRID -- NORMAL" or "THE GRID -- FREEFLY" per the S313 rename.
  *
  * IMPORTANT: This is a C++ TU.  Do NOT include types.h -- the project's
- * `#define bool s32` breaks C++.  Forge module is reached via its
- * extern "C" interface in game/forgemode.h.
+ * `#define bool s32` breaks C++.  The game-side module is reached via its
+ * extern "C" interface in game/forgemode.h.  Internal code names and
+ * filesystem paths retain the forge_* prefix for code stability; the
+ * user-facing taxonomy is "The Grid" / "GRID" log channel.
  *
  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
  */
