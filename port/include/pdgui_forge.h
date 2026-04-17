@@ -1,11 +1,14 @@
 /**
- * pdgui_forge.h -- Forge UI shims (Phase F0).
+ * pdgui_forge.h -- The Grid (Forge) UI shims.
  *
- * F0 surface area is intentionally tiny: one entry-point that the main menu
- * button calls to start a forge session, and the HUD overlay renderer.
+ * Entry points for the ImGui overlay components:
+ *  - pdguiForgeStartSession (F0) kicks off the in-game editor session
+ *  - pdguiForgeHudRender (F0) draws the always-on HUD shell
+ *  - pdguiForgeEditorRender (F1+) draws the full editor overlay
+ *    (catalog, properties, logic graph, gametype, mission, settings)
  *
- * Future phases (F1 catalog, F2 gizmo, F3 save/load) will add their own
- * pdgui_forge_*.cpp files and grow this header.
+ * All entry points are safe to call every frame; they early-out when no
+ * forge session is active.
  */
 
 #ifndef _IN_PDGUI_FORGE_H
@@ -17,24 +20,23 @@
 extern "C" {
 #endif
 
-/** Begin a forge session.
- *
- *  Currently loads CI Training as the base stage.  In F3 this will dispatch
- *  to a base-stage browser; for F0 it's a single fixed entry point so the
- *  freefly camera + mode toggle can be exercised end-to-end.
- *
- *  Safe to call from any menu context.  Returns 1 on success (stage change
- *  queued), 0 on rejection (e.g. an existing stage transition is already
- *  pending). */
+/** Begin a forge session on a specific base stage.
+ *  Pass 0 / negative to use the legacy default (CI Training). */
 s32 pdguiForgeStartSession(void);
+s32 pdguiForgeStartSessionOn(s32 stagenum);
 
-/** Forge HUD overlay (Phase F0 shell).
- *
- *  Draws the in-session "FORGE -- NORMAL/FREEFLY" indicator plus a freefly
- *  reticle and placeholder catalog/properties panels.  Called from the
- *  ImGui overlay dispatch in pdgui_backend.cpp.  Renders nothing when
- *  forgeSessionIsActive() is false, so it's safe to call every frame. */
+/** HUD overlay (F0 shell + F1+ live readouts). */
 void pdguiForgeHudRender(s32 winW, s32 winH);
+
+/** Full editor overlay -- drawn on top of the HUD when in-session. The
+ *  editor is visible regardless of NORMAL vs FREEFLY sub-mode, but the
+ *  catalog/placement panels only respond to input in FREEFLY. */
+void pdguiForgeEditorRender(s32 winW, s32 winH);
+
+/** Per-frame hook called from the game loop (before render) so the
+ *  editor runtime can tick (currently a no-op placeholder; room for
+ *  placement reticle integration with the freefly camera). */
+void pdguiForgeEditorTick(void);
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -7,6 +7,97 @@
 
 ---
 
+## Open — 2026-04-17 (S310 — The Grid editor F1-F8 bulk drop, `sharp-lovelace` worktree)
+
+### Playtest verification of The Grid editor overlay
+
+Build: PerfectDark.exe 52,176,729. Two commits in the `sharp-lovelace-a08d90`
+worktree (`0732c806` and `ac7be593`). Files touched:
+`port/include/forge/forge_core.h`, `port/src/forge/forge_{core,undo,logic,gametype,serialize,ai}.c`,
+`port/fast3d/pdgui_forge_editor.cpp`, plus small edits to
+`port/fast3d/pdgui_backend.cpp`, `port/src/pdmain.c`,
+`port/include/pdgui_forge.h`, `src/game/setup.c`.
+
+**Primary repro -- editor overlay in FREEFLY**:
+
+1. Launch client; click "Forge" on main menu. CI Training loads in NORMAL play mode.
+2. Press **F7** to toggle into FREEFLY. Expect a large "The Grid -- Editor"
+   window to appear on the right side of the screen with 8 tabs:
+   Catalog, Properties, Zones, Lighting, Logic, Game Type, Mission, Settings.
+3. **Catalog tab**: search box, category filter dropdown, budget bar
+   (green/yellow/red by soft/hard cap), collapsible category headers
+   (Geometry, Props, Weapons, Spawn Points, Pickups, Lighting, Effects,
+   Zones, Interactables, Characters). Clicking any button places an
+   object ~400 units forward from the freefly camera.
+4. **Properties tab**: select an object (click one in the catalog or via
+   the selection UI), see its transform + type-specific props. Numeric
+   transform editing and duplicate/delete buttons work.
+5. **Zones tab**: quick-create Trigger/Kill/Teleporter; table lists all
+   placed zones. Select/X buttons per row.
+6. **Lighting tab**: skylight direction/color/intensity, atmosphere
+   (fog/ambient/exposure/bloom), weather (rain/snow/sandstorm/storm),
+   ToD cycle enable, sky catalog ID input.
+7. **Logic tab**: add event/condition/action nodes (Op dropdown filters
+   by kind), table of nodes with Fire button (triggers execution for
+   events), wire create by src/dst UID, channel management (add,
+   toggle, delete).
+8. **Game Type tab**: name/description, structure (single/BoN/wave/phase),
+   win condition, scoring rules, starting weapon, health mult, role mode
+   (None/Infection/VIP/Juggernaut/HordeDefender/GunGameHunter), 8
+   modifier flags, HUD toggles, wave spawner table with per-wave
+   enemy/scale/hp/spawn-zone, boss state with simulate button.
+9. **Mission tab**: Is-Mission checkbox, briefing/debrief text,
+   sequential toggle, Add Primary/Secondary/Bonus objective buttons,
+   table with desc + link-node UIDs + Complete/Fail/X buttons.
+10. **Settings tab**: map metadata, players, default rules, bounds,
+    grid/snap prefs, editor toggles, budget summary, Save-as-Mod +
+    Load-from-Mod + Reset Map.
+
+**Persistence**: Settings → type a name → click Save As Mod. Expect
+`mods/Forge Maps/<slug>/mod.json` and `map.json` written. Reload via
+Load From Mod restores the map metadata + settings.
+
+**Primary repro -- MP elevator fix (`setup.c`)**:
+Start a Combat Simulator match on any arena with a lift (Area 51,
+Complex, or any CI Training variant with an elevator). Walk onto the
+lift pad. Expect the lift to move between its stops. Prior behavior:
+lift was completely dead in MP because it was never registered in
+`g_Lifts[]`. Solo missions are unaffected (AI script `aiActivateLift`
+still re-registers idempotently).
+
+### Follow-up queued from S310
+
+- **3D gizmo handles** -- the Properties tab edits transform
+  numerically; the design doc §4.2 calls for drag-axis gizmos. Needs
+  freefly-camera raycast + in-world axis rendering. Data model supports
+  this already.
+- **Placement reticle** -- clicking in the Catalog places the object
+  ~400u forward from the camera. Full ghost reticle with
+  valid/invalid tint needs a forge-owned input tick + click capture.
+- **Runtime engine wire-in** -- placed doors/elevators/switches are
+  serialized but not yet instantiated as live engine props at match
+  load. The F3 map-load path should walk `forge_object_t` pool and
+  call into `setupCreateObject` equivalents. Currently the UI shows
+  the objects + saves them, but they don't render in NORMAL play.
+- **Logic runtime engine hooks** -- OPEN_DOOR / TELEPORT_PLAYER /
+  SPAWN_AI actions log-only for now; wire them to the live engine once
+  map-load instantiation lands.
+- **AI navmesh generation** -- `forge_ai.c::forgeAiGenerateNavmesh` is a
+  stub that logs counts. Full navmesh auto-gen from placed geometry is
+  a post-F8 polish pass.
+- **Boss health bar HUD** -- data model tracks boss state; the HUD
+  drawing for the full-width bar belongs in `pdguiForgeHudRender`
+  when `forgeBossState()->active`. Currently only shown in the Game
+  Type tab's editor UI.
+- **Terrain brushes** (F8 stretch) -- catalog entries for floors /
+  ramps / platforms exist. True height-paint terrain is out of scope
+  here and would require a new mesh-edit pipeline.
+- **Co-op Forge** (F8 stretch) -- multiple Dr. Carroll editors syncing
+  edits over the wire. Design doc §13.2 sketches the lock-per-object
+  protocol; requires new SVC/CLC msgs.
+
+---
+
 ## Open — 2026-04-17 (S308 — dev direct)
 
 ### Playtest verification of B-161 (door-tick crash) + B-162 (pause menu hardening)

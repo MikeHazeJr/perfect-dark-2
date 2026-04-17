@@ -1781,6 +1781,30 @@ void setupCreateProps(s32 stagenum)
 							lift->prevpos.z = prop->pos.z;
 
 							liftUpdateTiles(lift, true);
+
+							/* F6: auto-register the lift in g_Lifts[] so it
+							 * works without an AI script.  In SP the stage
+							 * AI list calls aiActivateLift (cmd 0x018d) but
+							 * CI arenas (MP) have no AI scripts, so lifts
+							 * were silently never registered, which made
+							 * liftFindByPad return NULL and players stepping
+							 * on a lift pad did nothing.  Auto-register using
+							 * the liftnum from the lift's own pads.  An AI
+							 * script calling liftActivate later overwrites
+							 * with the same pointer -- safe. */
+							{
+								s32 pi;
+								for (pi = 0; pi < (s32)ARRAYCOUNT(lift->pads); pi++) {
+									if (lift->pads[pi] < 0) continue;
+									struct pad padinfo;
+									padUnpack(lift->pads[pi], PADFIELD_LIFT, &padinfo);
+									if (padinfo.liftnum > 0 &&
+											(u32)padinfo.liftnum <= ARRAYCOUNT(g_Lifts)) {
+										liftActivate(prop, padinfo.liftnum);
+										break;
+									}
+								}
+							}
 						}
 					}
 					break;
