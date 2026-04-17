@@ -464,6 +464,15 @@ asset_entry_t *assetCatalogRegister(const char *id, asset_type_e type)
     entry->source_texnum   = -1;
     entry->source_animnum  = -1;
     entry->source_soundnum = -1;
+    /* Asset Provider source descriptor starts cleared; registration
+     * helpers and catalog{Set,Clear}{Primary,Override} populate it. */
+    entry->source.primary.provider = NULL;
+    entry->source.primary.opaque[0] = 0;
+    entry->source.primary.opaque[1] = 0;
+    entry->source.override.provider = NULL;
+    entry->source.override.opaque[0] = 0;
+    entry->source.override.opaque[1] = 0;
+    entry->source.flags = ASSET_SRC_FLAG_NONE;
     entry->load_state = ASSET_STATE_REGISTERED;
     entry->loaded_data = NULL;
     entry->data_size_bytes = 0;
@@ -1079,4 +1088,50 @@ void catalogRefreshMods(const char *modsdir)
         assetCatalogScanComponents(modsdir);
         assetCatalogScanBotVariants(modsdir);
     }
+}
+
+/* ========================================================================
+ * Asset Source API (Direct File Access — Phase 2)
+ * ======================================================================== */
+
+void catalogSetPrimary(asset_entry_t *entry, asset_data_handle_t handle)
+{
+    if (!entry) {
+        return;
+    }
+    entry->source.primary = handle;
+}
+
+void catalogSetOverride(asset_entry_t *entry, asset_data_handle_t handle)
+{
+    if (!entry) {
+        return;
+    }
+    entry->source.override = handle;
+}
+
+void catalogClearOverride(asset_entry_t *entry)
+{
+    if (!entry) {
+        return;
+    }
+    entry->source.override.provider = NULL;
+    entry->source.override.opaque[0] = 0;
+    entry->source.override.opaque[1] = 0;
+}
+
+asset_data_handle_t catalogEffectiveHandle(const asset_entry_t *entry)
+{
+    asset_data_handle_t null_h;
+    null_h.provider = NULL;
+    null_h.opaque[0] = 0;
+    null_h.opaque[1] = 0;
+
+    if (!entry) {
+        return null_h;
+    }
+    if (entry->source.override.provider) {
+        return entry->source.override;
+    }
+    return entry->source.primary;
 }

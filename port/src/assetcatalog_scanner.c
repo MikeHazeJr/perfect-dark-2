@@ -27,6 +27,7 @@
 #include "types.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
+#include "assetprovider.h"
 #include "romdata.h"
 #include "system.h"
 #include "fs.h"
@@ -368,6 +369,10 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 				if (fnum > 0) {
 					e->source_filenum = fnum;
 				}
+				/* Asset Provider: mod characters are served by FileProvider
+				 * from a loose file on disk. The bodyfile path is relative
+				 * to the FS base dir (fsFileLoad resolves it). */
+				catalogSetPrimary(e, fileProviderHandle(bf));
 			}
 		}
 		break;

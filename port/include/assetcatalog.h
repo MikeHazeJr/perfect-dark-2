@@ -32,10 +32,36 @@
 
 #include <PR/ultratypes.h>
 #include "fs.h"
+#include "assetprovider.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* ========================================================================
+ * Asset Source Descriptor (Direct File Access — Phase 2)
+ * ========================================================================
+ *
+ * Every catalog entry carries a source descriptor that answers "where do
+ * this asset's bytes come from?" The `primary` handle is the canonical
+ * location (RomProvider for base ROM assets, FileProvider for mods loaded
+ * from loose files). The `override` handle, if non-null, wins over
+ * `primary` and is used to model mod overrides of base assets.
+ *
+ * Phase 2 populates `primary` at registration time and keeps
+ * `override` unused for now. Future phases migrate callers to
+ * `assetLoadToNew(entry->source.primary|override, ...)` and retire the
+ * reverse-index intercept inside `romdataFileLoad`. */
+
+#define ASSET_SRC_FLAG_NONE       0u
+#define ASSET_SRC_FLAG_PINNED     (1u << 0) /* do not evict */
+#define ASSET_SRC_FLAG_MOD_LOCKED (1u << 1) /* mod cannot be disabled */
+
+typedef struct {
+    asset_data_handle_t primary;   /* canonical source (never null for registered entries) */
+    asset_data_handle_t override;  /* active override (null when none) */
+    u32                 flags;     /* ASSET_SRC_FLAG_* bitmask */
+} asset_source_t;
 
 /* ========================================================================
  * Constants & Sizes
@@ -276,6 +302,14 @@ typedef struct asset_entry {
     s32 source_texnum;     /* ROM textures table index, or -1 */
     s32 source_animnum;    /* ROM animations table index, or -1 */
     s32 source_soundnum;   /* ROM sounds table index, or -1 */
+
+    /* Asset Provider source descriptor (Direct File Access — Phase 2).
+     * `source.primary` binds this entry's bytes to a provider — RomProvider
+     * for base-game assets, FileProvider for mod assets served from loose
+     * files. `source.override`, if non-null, takes precedence (mod
+     * overriding a base asset). Populated by registration helpers and by
+     * `catalogSetPrimary` / `catalogSetOverride`. */
+    asset_source_t source;
 
     /* Load state tracking (MEM-1) */
     asset_load_state_t load_state;     /* lifecycle state of this entry */
@@ -615,6 +649,30 @@ s32 assetCatalogGetSkinsForTarget(const char *target_id,
  * temporary UI purposes, but they re-enable on catalog reset/reload.
  */
 void assetCatalogSetEnabled(const char *id, s32 enabled);
+
+/* ========================================================================
+ * Asset Source API (Direct File Access — Phase 2)
+ * ========================================================================
+ *
+ * These helpers bind an `asset_source_t` to a catalog entry. `primary` is
+ * the canonical bytes (RomProvider or FileProvider); `override` replaces
+ * `primary` at load time when non-null (mod overriding a base asset).
+ *
+ * All functions are no-ops if `entry` is NULL. Passing a null handle to
+ * `catalogSetPrimary` is a logic error (primary must always resolve); a
+ * null handle to `catalogSetOverride` is equivalent to `catalogClearOverride`.
+ */
+
+void catalogSetPrimary(asset_entry_t *entry, asset_data_handle_t handle);
+void catalogSetOverride(asset_entry_t *entry, asset_data_handle_t handle);
+void catalogClearOverride(asset_entry_t *entry);
+
+/**
+ * Effective load source for an entry — `override` if non-null, otherwise
+ * `primary`. Returns a null handle if `entry` is NULL or both fields
+ * are null.
+ */
+asset_data_handle_t catalogEffectiveHandle(const asset_entry_t *entry);
 
 /**
  * Enumerate unique category strings across all registered entries.

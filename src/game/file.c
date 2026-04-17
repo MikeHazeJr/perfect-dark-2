@@ -11,6 +11,8 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "assetprovider.h"
+#include "assetload.h"
 
 /**
  * This file contains functions relating to ROM asset files.
@@ -223,7 +225,14 @@ u32 fileGetInflatedSize(s32 filenum, u32 loadtype)
 	return 0;
 }
 
-void *fileLoadToNew(s32 filenum, u32 method, u32 loadtype)
+/**
+ * Asset Provider dispatcher entry point: serves ROM-backed assets.
+ * Exported so `port/src/assetload.c::assetLoadToNew` can forward RomProvider
+ * handles here without `fileLoadToNew` (a wrapper around the dispatcher)
+ * recursing back into itself. Behavior-identical to the pre-provider
+ * `fileLoadToNew` body.
+ */
+void *fileLoadRomToNew(s32 filenum, u32 method, u32 loadtype)
 {
 	struct fileinfo *info = &g_FileInfo[filenum];
 	u32 stack;
@@ -266,6 +275,16 @@ void *fileLoadToNew(s32 filenum, u32 method, u32 loadtype)
 	}
 
 	return ptr;
+}
+
+/**
+ * Public entry point. Routes through the Asset Provider dispatcher so call
+ * sites transparently pick up any future provider (FileProvider, archives,
+ * etc.) without code changes.
+ */
+void *fileLoadToNew(s32 filenum, u32 method, u32 loadtype)
+{
+	return assetLoadToNew(romProviderHandle(filenum), method, loadtype);
 }
 
 void fileRemove(s32 filenum)

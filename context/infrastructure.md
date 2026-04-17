@@ -75,6 +75,7 @@ to PATH, `CCACHE_SLOPPINESS=pch_defines,time_macros`. Do not rediscover.
 | D-STAGE | Stage Decoupling | ✅ **ALL 3 PHASES DONE** | S47c |
 | B-12 | Dynamic Participant System | 🔶 Phase 1–2 DONE; Phase 3 (remove chrslots) next | S47b |
 | SPF | Server Platform Foundation | ✅ **ALL SHIPPED** — SPF-1 Hub/Room/Identity/Phonetic + SPF-2a Menu Mgr + SPF-3 Lobby + SPF-3 Connect Codes + R-1 through R-4 | S51 / S143 / S253 |
+| AP | Asset Provider (Direct File Access) | 🔶 **Phase 1 + 2 DONE** — provider vtable, RomProvider/FileProvider, asset_source_t on catalog entries; Phase 3 (call-site migration) + Phase 4 (retire filenum) remain | S326 (2026-04-17) |
 
 ### Audio / Skin / Map-Import feature lines
 

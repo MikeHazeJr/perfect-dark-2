@@ -12,6 +12,10 @@ void filesInit(void);
 void fileLoadPartToAddr(u16 filenum, void *memaddr, s32 offset, u32 len);
 u32 fileGetInflatedSize(s32 filenum, u32 loadtype);
 void *fileLoadToNew(s32 filenum, u32 method, u32 loadtype);
+/* Internal ROM-load entry point used by the Asset Provider dispatcher
+ * (port/src/assetload.c) to avoid recursion when `fileLoadToNew` is a
+ * wrapper around `assetLoadToNew(romProviderHandle(filenum), ...)`. */
+void *fileLoadRomToNew(s32 filenum, u32 method, u32 loadtype);
 void *fileLoadToAddr(s32 filenum, s32 method, u8 *ptr, u32 size);
 u32 fileGetLoadedSize(s32 filenum);
 u32 fileGetAllocationSize(s32 filenum);

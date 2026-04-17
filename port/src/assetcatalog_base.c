@@ -25,6 +25,7 @@
 #include "constants.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
+#include "assetprovider.h"
 #include "system.h"
 #include "data.h"
 #include "game/stagetable.h"
@@ -480,6 +481,8 @@ s32 assetCatalogRegisterBaseGame(void)
 		e->ref_count = ASSET_REF_BUNDLED;
 		/* C-2-ext: record the ROM filenum for this body model */
 		e->source_filenum = (s32)g_HeadsAndBodies[g_MpBodies[idx].bodynum].filenum;
+		/* Asset Provider: base bodies are served by RomProvider. */
+		catalogSetPrimary(e, romProviderHandle(e->source_filenum));
 		body_count++;
 	}
 
@@ -532,6 +535,8 @@ s32 assetCatalogRegisterBaseGame(void)
 		e->ref_count = ASSET_REF_BUNDLED;
 		/* C-2-ext: record the ROM filenum for this head model */
 		e->source_filenum = (s32)g_HeadsAndBodies[g_MpHeads[mpidx].headnum].filenum;
+		/* Asset Provider: base heads are served by RomProvider. */
+		catalogSetPrimary(e, romProviderHandle(e->source_filenum));
 		head_count++;
 	}
 
@@ -703,6 +708,7 @@ s32 assetCatalogRegisterBaseGame(void)
 					e->load_state = ASSET_STATE_LOADED;
 					e->ref_count = ASSET_REF_BUNDLED;
 					e->source_filenum = (s32)g_HeadsAndBodies[i].filenum;
+					catalogSetPrimary(e, romProviderHandle(e->source_filenum));
 					sp_head_count++;
 				}
 			} else {
@@ -717,6 +723,7 @@ s32 assetCatalogRegisterBaseGame(void)
 					e->load_state = ASSET_STATE_LOADED;
 					e->ref_count = ASSET_REF_BUNDLED;
 					e->source_filenum = (s32)g_HeadsAndBodies[i].filenum;
+					catalogSetPrimary(e, romProviderHandle(e->source_filenum));
 					sp_body_count++;
 				}
 			}

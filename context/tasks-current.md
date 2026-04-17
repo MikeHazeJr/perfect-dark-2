@@ -7,6 +7,43 @@
 
 ---
 
+## Done — 2026-04-17 (S326 — Asset Provider Phase 1 + 2, `jolly-booth-fb5419` worktree)
+
+**Build verified.** Clean link 771/771, zero errors. Both `PerfectDark.exe` and `PerfectDarkServer.exe` link clean.
+
+**Phase 1 — Provider interface (zero behavior change):**
+- New `port/include/assetprovider.h` defines `asset_data_handle_t` (opaque 128-bit payload + vtable pointer) and `asset_provider_t` vtable (`resolve_size` / `load` / `unload` / `describe`)
+- New `port/include/assetload.h` declares `assetLoad` / `assetLoadToNew` / `assetUnload` / `assetDescribe` — the provider-aware dispatcher entry points
+- New `port/src/assetprovider_rom.c` — `RomProvider` wraps the existing `romdataFileLoad` path; `opaque[0]` = filenum
+- New `port/src/assetprovider_file.c` — `FileProvider` serves loose files via `fsFileLoad`; paths interned into a 32 KB pool so handles stay 128-bit regardless of path length
+- New `port/src/assetload.c` — dispatcher; RomProvider fast-path delegates to `fileLoadRomToNew` (legacy body), generic path does `mempAlloc(MEMPOOL_STAGE) + provider.load`
+- `src/game/file.c::fileLoadToNew` becomes a one-line wrapper: `return assetLoadToNew(romProviderHandle(filenum), method, loadtype);`. Original body moved to `fileLoadRomToNew` (declared in `src/include/game/file.h`) so the dispatcher avoids recursion. Every existing call site works unchanged.
+- Server stubs added in `port/src/server_stubs.c` for the 6 provider entry points (return null handles; server never dispatches through the provider layer)
+
+**Phase 2 — Catalog source descriptor + mod-override provider selection:**
+- `asset_entry_t` gains an `asset_source_t source` field with `primary` / `override` handles + a `flags` bitmask
+- New `catalogSetPrimary` / `catalogSetOverride` / `catalogClearOverride` / `catalogEffectiveHandle` API (`port/include/assetcatalog.h`, implemented in `port/src/assetcatalog.c`)
+- Registration populates `source.primary` declaratively:
+  - `assetcatalog_base.c` — every base body/head/sp entry binds to `romProviderHandle(source_filenum)`
+  - `assetcatalog_base_extended.c` — base prop models bind to `romProviderHandle(g_ModelStates[i].fileid)` when `fileid > 0`
+  - `assetcatalog_scanner.c` — mod characters with `bodyfile` bind to `fileProviderHandle(bodyfile)`
+- `entryGetFilePath` in `assetcatalog_load.c` consults `source.primary` first: if it holds a FileProvider handle, the interned path wins over the type-specific `ext.*` fields. Legacy fallback retained for entries with no populated source.
+- Net effect: the mod-override path that used to live inside `romdataFileLoad` now flows through declarative `asset_source_t` fields. `catalogResolveFile` still routes by reverse-index, but the file path it returns comes from the provider handle instead of a type-specific switch.
+
+### Playtest verification
+
+- **Base game cold boot** — launch PerfectDark.exe, boot to main menu. No new log errors. All character models, arenas, stages load.
+- **Mod loading** — install any component mod that overrides a base character (e.g. any ASSET_CHARACTER with a bodyfile matching a ROM file name). Load CI Training. Verify the mod character body still loads from disk (not ROM). Log line `CATALOG: file N → mod override "..."` should still appear in `pd-client.log`.
+- **Dedicated server** — launch PerfectDarkServer.exe. Boot should proceed normally; catalog registers with null provider handles (server has no ROM/disk assets). No crashes on catalog population.
+
+### Follow-up (not in this session)
+
+- Phase 3: migrate call sites from `fileLoadToNew(filenum, ...)` to `assetLoadToNew(handle, ...)` so the catalog becomes the sole entry to loads
+- Phase 4: retire `filenum` from public catalog API once Phase 3 completes
+- `FileProvider.load` inflate/preprocess path: currently the generic `assetLoadToNew` path skips rzipInflate + `romdataFilePreprocess`. Acceptable for Phase 2 because mod-override bytes still flow through the legacy `romdataFileLoad` pipeline that does its own preprocessing. Phase 3 migration will need to either inline the inflate/preprocess steps into `assetLoadToNew` or push preprocess responsibility to callers.
+
+---
+
 ## Done — 2026-04-17 (S323 Batch G — cross-audit gap fixes)
 
 **Build verified.** Clean link 768/768, zero errors. 6 items fixed:
