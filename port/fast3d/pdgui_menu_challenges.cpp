@@ -237,16 +237,14 @@ static s32 renderChallenges(struct menudialog *dialog,
 
         /* Keyboard / gamepad navigation: up/down arrows */
         if (isSelected && ImGui::IsWindowFocused()) {
-            if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)
-                || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true))
+            if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true))
             {
                 if (s_SelectedSlot < numChallenges - 1) {
                     s_SelectedSlot++;
                     pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                 }
             }
-            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)
-                || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true))
+            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true))
             {
                 if (s_SelectedSlot > 0) {
                     s_SelectedSlot--;
@@ -329,8 +327,7 @@ static s32 renderChallenges(struct menudialog *dialog,
         bool activated = pdguiActionBarButton("Accept Challenge",
                                                canAccept ? 1 : 0,
                                                barW);
-        if (activated
-            || (canAccept && ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false)))
+        if (activated)
         {
             sysLogPrintf(LOG_NOTE, "CHALLENGES: accepting slot %d", s_SelectedSlot);
             s_NeedsInit = true;  /* reset for next time */
@@ -354,7 +351,6 @@ static s32 renderChallenges(struct menudialog *dialog,
     ImGui::SetCursorPosX((diagW - backW) * 0.5f);
 
     if (PdButton("Back", ImVec2(backW, backH))
-        || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)
         || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
     {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);

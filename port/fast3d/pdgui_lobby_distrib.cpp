@@ -229,7 +229,7 @@ extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
             float fs = floorf(13.0f * scale);
             ImGui::SetWindowFontScale(fs / ImGui::GetFontSize());
             ImGui::SetCursorPosY((barH - fs) * 0.5f - 2.0f);
-            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f),
+            ImGui::TextColored(pdguiVec4TintDanger(),
                                "  Mod download failed. You may be missing required components.");
             ImGui::SetWindowFontScale(1.0f);
         }
@@ -263,7 +263,7 @@ extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
                 ImGui::SetWindowFontScale(fs / ImGui::GetFontSize());
 
                 ImGui::Spacing();
-                ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
+                ImGui::TextColored(pdguiVec4TintInfo(),
                                    "  SERVER MOD COMPONENTS");
                 ImGui::Separator();
                 ImGui::Spacing();
@@ -315,7 +315,7 @@ extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
                 float fs = floorf(13.0f * scale);
                 ImGui::SetWindowFontScale(fs / ImGui::GetFontSize());
                 ImGui::SetCursorPosY((barH - fs) * 0.5f - 2.0f);
-                ImGui::TextColored(ImVec4(0.7f, 0.9f, 1.0f, 1.0f),
+                ImGui::TextColored(pdguiVec4TintInfo(),
                                    "  Comparing mod catalog with server...");
                 ImGui::SetWindowFontScale(1.0f);
             }
@@ -374,7 +374,8 @@ extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
             snprintf(overlay, sizeof(overlay), "%s / %s", brecv, btotal);
 
             ImGui::SetCursorPos(ImVec2(padX, floorf(22.0f * scale)));
-            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.2f, 0.5f, 0.9f, 1.0f));
+            /* S311: download progress bar tracks theme info tint. */
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, pdguiVec4TintInfo());
             ImGui::ProgressBar(frac, ImVec2(barW, floorf(16.0f * scale)), overlay);
             ImGui::PopStyleColor();
 
@@ -428,7 +429,7 @@ extern "C" void pdguiHostDistribOverlayRender(s32 winW, s32 winH)
         float fs = floorf(12.0f * scale);
         ImGui::SetWindowFontScale(fs / ImGui::GetFontSize());
 
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "  Player Status");
+        ImGui::TextColored(pdguiVec4TintInfo(), "  Player Status");
         ImGui::Separator();
 
         for (s32 i = 0; i < clientCount; i++) {
@@ -439,7 +440,7 @@ extern "C" void pdguiHostDistribOverlayRender(s32 winW, s32 winH)
 
             if (cstate == CLSTATE_GAME_UI) {
                 /* Already in-game / ready */
-                ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f),
+                ImGui::TextColored(pdguiVec4TintSuccess(),
                                    "  [READY] %s", name);
             } else if (cstate == CLSTATE_PREPARING_UI) {
                 /* Check download status */
@@ -447,7 +448,7 @@ extern "C" void pdguiHostDistribOverlayRender(s32 winW, s32 winH)
                 netDistribServerGetClientStatus(i, &dst);
 
                 if (dst.queue_remaining > 0) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f),
+                    ImGui::TextColored(pdguiVec4TextWarning(),
                                        "  [DL %d left] %s",
                                        dst.queue_remaining, name);
                     if (dst.current_id[0]) {
@@ -455,7 +456,7 @@ extern "C" void pdguiHostDistribOverlayRender(s32 winW, s32 winH)
                         ImGui::TextDisabled("(%s)", dst.current_id);
                     }
                 } else {
-                    ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.4f, 1.0f),
+                    ImGui::TextColored(pdguiVec4TextWarning(200),
                                        "  [CHECKING] %s", name);
                 }
             } else {

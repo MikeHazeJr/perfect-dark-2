@@ -468,9 +468,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
 
     {
         /* Left arrow */
-        if (ImGui::ArrowButton("##body_prev", ImGuiDir_Left) ||
-            ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) {
+        if (ImGui::ArrowButton("##body_prev", ImGuiDir_Left)) {
             s_SelectedBody--;
             if (s_SelectedBody < 0) s_SelectedBody = s_NumBodies - 1;
             s_HeadOverridden = false;
@@ -506,9 +504,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         ImGui::SameLine();
 
         /* Right arrow */
-        if (ImGui::ArrowButton("##body_next", ImGuiDir_Right) ||
-            ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) {
+        if (ImGui::ArrowButton("##body_next", ImGuiDir_Right)) {
             s_SelectedBody++;
             if (s_SelectedBody >= s_NumBodies) s_SelectedBody = 0;
             s_HeadOverridden = false;
@@ -626,8 +622,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         bool doCancel = ImGui::Button("Cancel", ImVec2(buttonW, buttonH));
 
         /* B button / Escape = cancel */
-        if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
             doCancel = true;
         }
 

@@ -263,6 +263,38 @@ may-be-uninitialized, `/*` within comment noise across multiple files).
 
 ---
 
+## Session S311 follow-up — 2026-04-17 (UI polish marathon continuation — `zen-poitras-f86b73` worktree)
+
+**Scope**: Five-task continuation of the S311 UI polish marathon. Sweeps remaining palette literals, wires the S312 glyph system into HUD prompts, migrates the last raw-ctx renderers to pool ownership, removes dead `ImGuiKey_Gamepad*` checks, and extends the S306 title-close channel across every remaining close handler.
+
+### Six commits (`9281decf` → `c486dc72`)
+
+1. **Palette sweep pt2** (`9281decf`) — ~95 remaining semantic color literals migrated to `pdguiVec4/ImU32 TitleGlow/TintInfo/TintSuccess/TintDanger/TextWarning/TextPositive`. Files: `pdgui_lobby.cpp`, `pdgui_lobby_distrib.cpp`, `pdgui_skin_editor.cpp`, `pdgui_menu_{agentselect,modmgr,moddinghub,solomission}.cpp`. Adds `pdguiVec4TextWarning` / `pdguiVec4TextPositive` ImVec4 companions. `server_gui.cpp` NOT migrated — pd-server doesn't link `pdgui_style.cpp`.
+2. **Glyph wiring** (`5f18c65f`) — new `pdgui_interact_prompt.{h,cpp}` reads `g_InteractProp` each frame and draws "[E] Pick up" / "[E] Open" / "[E] Access" below the reticle via the S312 glyph system. Label from new `propInteractPromptLabel()` helper in `src/game/prop.c` that branches on `prop->type` + `OBJFLAG3_HTMTERMINAL` / `OBJFLAG3_INTERACTABLE`. Grid HUD controls reminder (`pdgui_forge_hud.cpp`) rewritten to a 4-row `pdguiDrawActionPrompt` layout. Menu tab hints + countdown cancel hint now fill key portion via `pdguiGlyphGetActionLabel`.
+3. **Pool-ctx migration** (`94f0583f`) — renderCiSettingsRedirect, renderCiDeadPlayer2, renderCinemaList moved from raw `inputCtxPush/Pop` to `menupoolAcquireDialog` / `menupoolReleaseDialog`. New `MENU_TYPE_CINEMA` enum + 8 `REG()` calls + 7 local extern decls for dialogdefs mainmenu.cpp owns but data.h doesn't publish. Boot-time CI-redirect ctx leak class fixed at source.
+4. **Dead Gamepad* checks** (`d18b87c1`) — 141 `ImGui::IsKeyPressed(ImGuiKey_Gamepad*)` read sites removed across 29 files. NavEnableGamepad is disabled; parallel keyboard checks already catch controller input via `pdguiDriveImGuiNav()`. Preserved: `io.AddKeyEvent` writes + `pdgui_glyphs.cpp` VK lookup. Net -203 lines.
+5. **Title-close sweep** (`c486dc72`) — `pdguiConsumeTitleClose()` wired into Theme Editor, Modding Hub, Pause Menu, CI redirect (renderCiSettingsRedirect + renderCiDeadPlayer2 + renderCinemaList), and Endscreen (solo + MP). Fixes "first X click does nothing" class across all remaining dialogs.
+
+### Files touched (summary)
+
+- **New**: `port/include/pdgui_interact_prompt.h`, `port/fast3d/pdgui_interact_prompt.cpp`.
+- **API additions**: `pdguiVec4TextWarning/TextPositive` in `pdgui_style.h`; `propInteractPromptLabel` in `src/game/prop.c` + `src/include/game/prop.h`; `MENU_TYPE_CINEMA` in `menupool.h` + menupool.c registry entries.
+- **Renderer migrations**: `pdgui_menu_mainmenu.cpp` (CI redirect + DeadPlayer2 + CinemaList pool-ctx + title-close), `pdgui_menu_{moddinghub,theme_editor,pausemenu,endscreen}.cpp` (title-close), `pdgui_forge_hud.cpp` (glyph pill rewrite), `pdgui_countdown.cpp` (glyph label).
+- **Palette fixes**: `pdgui_{lobby,lobby_distrib,skin_editor}.cpp`, `pdgui_menu_{agentselect,modmgr,moddinghub,solomission}.cpp`.
+- **Gamepad cleanup**: 29 menu / tool files.
+
+### Build verify
+
+`PerfectDark.exe` 52,516,524 / `PerfectDarkServer.exe` 22,838,513 — clean link.
+
+### Not done in this session (deferred)
+
+- **`server_gui.cpp` palette migration** — blocked by pd-server not linking pdgui_style.cpp. Would cascade into theme/nineslice/effects/fontmgr deps.
+- **Item-specific prompt text** — interact prompt shows "Pick up" / "Open" / "Access" but not the weapon / door name. Deeper `prop->obj` walk needed to surface "AR34" etc.
+- **training.cpp Resume/OK controller activation** — removed a Gamepad-only check with no parallel Enter. Button click + action-map→Enter translation should still work but needs playtest to confirm.
+
+---
+
 ## Session S311 — 2026-04-17 (UI polish marathon — theme palette sweep + content inset + scaled buttons — `zen-poitras-f86b73` worktree)
 
 **Scope**: Mike's S311 punch list — hardcoded blue tints, content-inset compliance, menu close-path audit, font/element scaling, controller-first verification, CS music picker sanity check. Parallel with S312 (game logic) + S313 (forge). File ownership: menu renderers + theme system + `pdgui_style.*`. Did not touch `src/game/`, networking, or forge code.

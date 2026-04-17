@@ -224,7 +224,8 @@ static void renderDedicatedServerOverlay(s32 winW, s32 winH, s32 clientCount)
                            | ImGuiWindowFlags_NoTitleBar;
 
     if (ImGui::Begin("##dedicated_server_info", nullptr, flags)) {
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "DEDICATED SERVER");
+        /* S311: banner follows theme warning tint (gold) — identity marker. */
+        ImGui::TextColored(pdguiVec4TextWarning(), "DEDICATED SERVER");
         ImGui::Separator();
 
         u32 port = netGetServerPort();
@@ -241,7 +242,7 @@ static void renderDedicatedServerOverlay(s32 winW, s32 winH, s32 clientCount)
                 }
             }
             connectCodeEncode(ipAddr, connectCode, sizeof(connectCode));
-            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", connectCode);
+            ImGui::TextColored(pdguiVec4TintSuccess(), "%s", connectCode);
             ImGui::SameLine();
             if (ImGui::SmallButton("Copy")) {
                 SDL_SetClipboardText(connectCode);
@@ -267,20 +268,20 @@ static void renderDedicatedServerOverlay(s32 winW, s32 winH, s32 clientCount)
     ImGui::SetNextWindowBgAlpha(0.75f);
 
     if (ImGui::Begin("##server_log", nullptr, flags)) {
-        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Server Log");
+        ImGui::TextColored(pdguiVec4TintInfo(), "Server Log");
         ImGui::Separator();
 
         if (ImGui::BeginChild("##log_scroll", ImVec2(0, 0), false)) {
             s32 lineCount = sysLogRingGetCount();
             for (s32 i = 0; i < lineCount; i++) {
                 const char *line = sysLogRingGetLine(i);
-                /* Color-code by prefix */
+                /* S311: log prefix color-coding follows theme palette. */
                 if (strncmp(line, "ERROR:", 6) == 0) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "%s", line);
+                    ImGui::TextColored(pdguiVec4TintDanger(), "%s", line);
                 } else if (strncmp(line, "WARNING:", 8) == 0) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "%s", line);
+                    ImGui::TextColored(pdguiVec4TextWarning(), "%s", line);
                 } else if (strncmp(line, "CHAT:", 5) == 0) {
-                    ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", line);
+                    ImGui::TextColored(pdguiVec4TintSuccess(), "%s", line);
                 } else {
                     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.8f, 0.9f), "%s", line);
                 }
@@ -332,7 +333,7 @@ static void renderInGameSidebar(s32 winW, s32 winH)
     }
 
     /* Compact header */
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Connected: %d", playerCount);
+    ImGui::TextColored(pdguiVec4TintInfo(), "Connected: %d", playerCount);
     ImGui::Separator();
 
     /* Compact player entries */
@@ -347,15 +348,16 @@ static void renderInGameSidebar(s32 winW, s32 winH)
         /* State indicator dot */
         ImU32 stateColor;
         switch (pv.state) {
+            /* S311: lobby state dots follow theme semantic tints. */
             case CLSTATE_CONNECTING:
             case CLSTATE_AUTH:
-                stateColor = IM_COL32(255, 200, 0, 255);
+                stateColor = pdguiRgbaToImU32(pdguiGetTextWarning(), 255);
                 break;
             case CLSTATE_LOBBY:
-                stateColor = IM_COL32(100, 255, 100, 255);
+                stateColor = pdguiImU32TintSuccess(255);
                 break;
             case CLSTATE_GAME:
-                stateColor = IM_COL32(100, 200, 255, 255);
+                stateColor = pdguiImU32TintInfo(255);
                 break;
             default:
                 stateColor = IM_COL32(128, 128, 128, 255);
@@ -370,11 +372,11 @@ static void renderInGameSidebar(s32 winW, s32 winH)
 
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + dotR * 2 + 6.0f);
 
-        /* Name — gold for leader, green for local, white for others */
+        /* S311: leader = warning gold, local = success green (theme-driven). */
         if (pv.isLeader) {
-            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", pv.name);
+            ImGui::TextColored(pdguiVec4TextWarning(), "%s", pv.name);
         } else if (pv.isLocal) {
-            ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", pv.name);
+            ImGui::TextColored(pdguiVec4TintSuccess(), "%s", pv.name);
         } else {
             ImGui::Text("%s", pv.name);
         }

@@ -472,13 +472,6 @@ static void renderThemeEditor(s32 winW, s32 winH)
 
     bool open = true;
     if (ImGui::BeginPopupModal("Theme Editor##Modal", &open, flags)) {
-        /* B button / Escape closes (modal Escape is handled by ImGui, but
-         * GamepadFaceRight needs explicit handling since NavEnableGamepad is off) */
-        if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
-            ImGui::CloseCurrentPopup();
-            pdguiThemeEditorHide();
-        }
-
         /* ---- Load Theme dropdown ---- */
         s32 themeCount = pdguiThemeGetCount();
         if (themeCount > 0 && ImGui::BeginCombo("Load Theme", pdguiThemeGetActiveId())) {
@@ -650,6 +643,13 @@ static void renderThemeEditor(s32 winW, s32 winH)
         ImGui::Separator();
 
         bool wantClose = false;
+
+        /* S311: S306 title-close channel — catches the titlebar X click
+         * before ImGui's own popup handling swallows the Escape edge. */
+        if (pdguiConsumeTitleClose()) {
+            sysLogPrintf(LOG_NOTE, "Theme editor: exit — title X button");
+            wantClose = true;
+        }
 
         /* Save section (row 1): Name + Author inputs only — Save button moved
          * to the action row so all three action buttons (Save / Reset / Close)

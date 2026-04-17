@@ -445,8 +445,7 @@ static void pc_CloseCurrentDialog(void)
 static bool pc_BackPressed(void)
 {
     return !ImGui::IsWindowAppearing() &&
-           (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_Escape, false));
+           ImGui::IsKeyPressed(ImGuiKey_Escape, false);
 }
 
 /* Notify the networking layer that the local player's settings have

@@ -312,8 +312,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                     IM_COL32(200, 200, 200, 220), promptLine2);
 
         /* Handle input — A = confirm, B/Escape = cancel */
-        if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
             if (s_ConfirmMode == CONFIRM_DELETE) {
                 pdguiPlaySound(PDGUI_SND_SELECT);
                 g_FilemgrFileToDelete.fileid = cf->fileid;
@@ -331,8 +330,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
             s_ConfirmMode = CONFIRM_NONE;
             s_ConfirmIdx = -1;
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
             s_ConfirmMode = CONFIRM_NONE;
             s_ConfirmIdx = -1;
@@ -343,22 +341,8 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         return 1;
     }
 
-    /* ================================================================
-     * Gamepad navigation (only when no confirmation prompt)
-     * ================================================================ */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true)) {
-        s_SelectedIdx++;
-        if (s_SelectedIdx >= totalEntries) s_SelectedIdx = 0;
-        pdguiPlaySound(PDGUI_SND_FOCUS);
-    }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true)) {
-        s_SelectedIdx--;
-        if (s_SelectedIdx < 0) s_SelectedIdx = totalEntries - 1;
-        pdguiPlaySound(PDGUI_SND_FOCUS);
-    }
     /* A / Enter = load/select */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
         if (s_SelectedIdx == fl->numfiles) {
             pdguiPlaySound(PDGUI_SND_SELECT);
             /* B-124 / S300: pop owned ctx before transitioning away */
@@ -377,8 +361,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         }
     }
     /* X / C = copy (with confirmation) */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_C, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_C, false)) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
             pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
             s_ConfirmMode = CONFIRM_COPY;
@@ -386,8 +369,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         }
     }
     /* Y / Delete = delete (with confirmation) */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceUp, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
             pdguiPlaySound(PDGUI_SND_ERROR);
             s_ConfirmMode = CONFIRM_DELETE;
@@ -395,8 +377,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         }
     }
     /* D / RB = set as default agent */
-    if (ImGui::IsKeyPressed(ImGuiKey_D, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_D, false)) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
             struct filelistfile *file = &fl->files[s_SelectedIdx];
             if (s_DefaultAgentFileId == file->fileid) {
@@ -410,8 +391,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         }
     }
     /* L-4: B / Escape = go back to previous menu */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
         menuPopDialog();
@@ -527,11 +507,11 @@ static s32 renderAgentSelect(struct menudialog *dialog,
 
                 dl->AddText(ImVec2(textX, lineY), pdguiPalImU32(PDPAL_TITLEFG, 255), name);
 
-                /* Show [DEFAULT] tag if this agent is the default */
+                /* Show [DEFAULT] tag if this agent is the default — S311 theme success tint. */
                 if (file->fileid == s_DefaultAgentFileId) {
                     ImVec2 nameSize = ImGui::CalcTextSize(name);
                     dl->AddText(ImVec2(textX + nameSize.x + 8.0f * scale, lineY),
-                                IM_COL32(100, 255, 180, 200), "[DEFAULT]");
+                                pdguiImU32TintSuccess(200), "[DEFAULT]");
                 }
 
                 lineY += 18.0f * scale;
@@ -543,11 +523,6 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                 char timeLine[128];
                 snprintf(timeLine, sizeof(timeLine), "Time: %s", timeStr);
                 dl->AddText(ImVec2(textX, lineY), IM_COL32(140, 140, 160, 180), timeLine);
-            }
-
-            if (isSelected && (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true) ||
-                               ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true))) {
-                ImGui::SetScrollHereY();
             }
 
             ImGui::PopID();

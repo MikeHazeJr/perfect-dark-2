@@ -434,9 +434,8 @@ s32 pdguiFileBrowserRender(void)
     ImGui::BeginChild("##fb_list", ImVec2(-1, listH), true,
                       ImGuiWindowFlags_AlwaysVerticalScrollbar);
 
-    /* Controller: B button navigates to parent */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight) ||
-        ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+    /* Escape navigates to parent */
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
         /* Navigate to parent directory */
         char parent[FB_PATH_LEN];
         strncpy(parent, s_CurrentDir, FB_PATH_LEN);
@@ -478,9 +477,8 @@ s32 pdguiFileBrowserRender(void)
             s_Selected = i;
             pdguiPlaySound(PDGUI_SND_FOCUS);
 
-            /* Double-click or controller A: enter directory or confirm file */
-            if (ImGui::IsMouseDoubleClicked(0) ||
-                ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown)) {
+            /* Double-click: enter directory or confirm file */
+            if (ImGui::IsMouseDoubleClicked(0)) {
                 if (e->isDir) {
                     navigateToDir(e->fullpath);
                     pdguiPlaySound(PDGUI_SND_OPENDIALOG);
@@ -491,21 +489,6 @@ s32 pdguiFileBrowserRender(void)
                     s_Open = false;
                     pdguiPlaySound(PDGUI_SND_SELECT);
                 }
-            }
-        }
-
-        /* Controller A on focused item (not via double-click) */
-        if (sel && ImGui::IsItemFocused() &&
-            ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown)) {
-            if (e->isDir) {
-                navigateToDir(e->fullpath);
-                pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-            } else {
-                strncpy(s_ResultPath, e->fullpath, FB_PATH_LEN - 1);
-                s_ResultPath[FB_PATH_LEN - 1] = '\0';
-                s_Confirmed = true;
-                s_Open = false;
-                pdguiPlaySound(PDGUI_SND_SELECT);
             }
         }
 

@@ -36,6 +36,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
+#include "pdgui_glyphs.h"
 #include "pdgui_theme_loader.h"
 #include "pdgui_theme.h"
 #include "pdgui_font_mod.h"
@@ -1130,13 +1131,6 @@ static void renderSettingsInterface(float scale)
                     pdguiInterfaceRequestThemeDelete(ti);
                 }
                 ImGui::EndPopup();
-            }
-            /* S306 BATCH 2: controller X-button (GamepadFaceLeft) also
-             * opens the context menu. Matches the mouse right-click path
-             * established by pdgui_menu_room.cpp bot-slot handling. */
-            if (ImGui::IsItemFocused() &&
-                ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft, false)) {
-                ImGui::OpenPopup(ctxId);
             }
         }
 
@@ -3188,8 +3182,13 @@ static void renderSettingsView(float scale, float contentH)
         ImGui::EndTabBar();
     }
 
-    /* Bumper hint at bottom */
-    ImGui::TextDisabled("LB / RB to switch tabs");
+    /* Bumper hint at bottom — S311: glyph-driven key labels track active device. */
+    {
+        char prevKey[24], nextKey[24];
+        pdguiGlyphGetActionLabel(ACTION_MENU_TAB_PREV, prevKey, (s32)sizeof(prevKey));
+        pdguiGlyphGetActionLabel(ACTION_MENU_TAB_NEXT, nextKey, (s32)sizeof(nextKey));
+        ImGui::TextDisabled("%s / %s to switch tabs", prevKey, nextKey);
+    }
 }
 
 /* B-131 ext: duplicate dialog guard — prevents overlapped instances when
@@ -3359,7 +3358,6 @@ static s32 renderMainMenu(struct menudialog *dialog,
     bool titleClose = pdguiConsumeTitleClose() != 0;
     if (!ImGui::IsWindowAppearing() && !closeGracePending &&
         (titleClose ||
-         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
          ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         if (s_MenuView != 0) {
             if (s_MenuView == 2) {
@@ -3939,10 +3937,14 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
 
     if (!ImGui::Begin("##ci_settings_redirect", nullptr, wflags)) {
         ImGui::End();
+        /* S311: pool slot leak guard — if Begin fails mid-frame the
+         * menuCloseDialog cascade hasn't fired yet, so drop the slot
+         * defensively (idempotent). */
+        menupoolReleaseDialog(menupoolDialogDef(dialog));
         return 1;
     }
 
-    /* On first appearance: play open cue, force input context, select the
+    /* On first appearance: play open cue, acquire pool ctx, select the
      * pre-determined sub-tab for this CI dialog. */
     static struct menudialogdef *s_LastDialog = nullptr;
     if (ImGui::IsWindowAppearing() || s_LastDialog != def) {
@@ -3955,11 +3957,12 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
             (void *)def, (int)s_SettingsSubTab);
         s_LastDialog = def;
 
-        /* Safety: ensure the ImGui menu input context is active so mouse
-         * mode flips to visible and gameplay input is blocked. */
-        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPush(&g_CtxImGuiMenu);
-        }
+        /* S311: pool attaches ctx to the MENU_TYPE_CI_OPTIONS slot —
+         * menuPopDialog → menuCloseDialog → menupoolReleaseDialog cascade
+         * owns the release.  Replaces the raw inputCtxPush that produced
+         * the S306 boot-time ctx-leak class. */
+        menupoolAcquireDialog(menupoolDialogDef(dialog),
+                              &g_CtxImGuiMenu);
     }
 
     /* PD title frame -- same look as the main menu. */
@@ -4005,22 +4008,22 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
     }
     pdguiEndActionBar();
 
-    /* B / Escape also backs out. */
+    /* S311: title X / Escape / B all back out.  pdguiConsumeTitleClose
+     * fires on the X click before ImGui's own nav swallows the Escape
+     * edge, so the X button closes on the first attempt. */
+    bool titleCloseCi = pdguiConsumeTitleClose() != 0;
     if (!ImGui::IsWindowAppearing() &&
-        (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-         ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
+        (titleCloseCi || ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         wantBack = true;
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
     }
 
     if (wantBack) {
         sysLogPrintf(LOG_NOTE,
-            "MENU_IMGUI: CI Options redirect CLOSE (dialog=%p)",
-            (void *)def);
-        /* Pop the input context on close so gameplay mouse mode restores. */
-        if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-        }
+            "MENU_IMGUI: CI Options redirect CLOSE (dialog=%p)%s",
+            (void *)def, titleCloseCi ? " [via X]" : "");
+        /* S311: menuCloseDialog (invoked by menuPopDialog) releases the
+         * pool slot and pops the owned ctx; no explicit ctx pop here. */
         s_LastDialog = nullptr;
         menuPopDialog();
     }
@@ -4070,6 +4073,8 @@ static s32 renderCiDeadPlayer2(struct menudialog *dialog,
 
     if (!ImGui::Begin("##ci_dead_p2", nullptr, wflags)) {
         ImGui::End();
+        /* S311: pool slot leak guard. */
+        menupoolReleaseDialog(menupoolDialogDef(dialog));
         return 1;
     }
 
@@ -4077,6 +4082,10 @@ static s32 renderCiDeadPlayer2(struct menudialog *dialog,
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
         sysLogPrintf(LOG_NOTE,
             "MENU_IMGUI: CI Player-2 dialog (deprecated; no split-screen)");
+        /* S311: acquire the pool ctx so the OK close fires a proper
+         * release cascade — dead dialog path still needs clean lifecycle. */
+        menupoolAcquireDialog(menupoolDialogDef(dialog),
+                              &g_CtxImGuiMenu);
     }
 
     f32 pdTitleH = drawPdWindowFrame(dX, dY, dW, dH, "Not Available");
@@ -4102,8 +4111,9 @@ static s32 renderCiDeadPlayer2(struct menudialog *dialog,
     }
     pdguiEndActionBar();
 
+    /* S311: title X / Escape / Enter all close the dead-P2 notice. */
     if (!ImGui::IsWindowAppearing() &&
-        (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
+        (pdguiConsumeTitleClose() ||
          ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
          ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
         wantClose = true;
@@ -4165,6 +4175,8 @@ static s32 renderCinemaList(struct menudialog *dialog,
 
     if (!ImGui::Begin("##cinema_list", nullptr, wf)) {
         ImGui::End();
+        /* S311: pool slot leak guard. */
+        menupoolReleaseDialog(menupoolDialogDef(dialog));
         return 1;
     }
 
@@ -4172,9 +4184,10 @@ static s32 renderCinemaList(struct menudialog *dialog,
         ImGui::SetWindowFocus();
         s_CinemaSelectIdx = 0;
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPush(&g_CtxImGuiMenu);
-        }
+        /* S311: pool attaches MENU_TYPE_CINEMA ctx — menuCloseDialog
+         * release cascade owns the pop. */
+        menupoolAcquireDialog(menupoolDialogDef(dialog),
+                              &g_CtxImGuiMenu);
     }
 
     f32 titleH = pdguiScale(39.0f);
@@ -4192,10 +4205,10 @@ static s32 renderCinemaList(struct menudialog *dialog,
     if (insTc + breatheC + titleH > padTc) padTc = insTc + breatheC + titleH;
     ImGui::SetCursorPos(ImVec2(padXc, padTc));
 
-    /* B / Escape closes. */
+    /* S311: title X / Escape / B close. */
     bool wantClose = false;
     if (!ImGui::IsWindowAppearing() &&
-        (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
+        (pdguiConsumeTitleClose() ||
          ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         wantClose = true;
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
@@ -4212,13 +4225,11 @@ static s32 renderCinemaList(struct menudialog *dialog,
 
     /* D-pad nav with wrap -- include +1 action-bar row for Back */
     const s32 totalFocusable = (s32)optionCount + 1;
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
         s_CinemaSelectIdx = (s_CinemaSelectIdx + 1) % totalFocusable;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
         s_CinemaSelectIdx = (s_CinemaSelectIdx - 1 + totalFocusable) % totalFocusable;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
@@ -4279,19 +4290,16 @@ static s32 renderCinemaList(struct menudialog *dialog,
             if (ImGui::IsItemHovered()) s_CinemaSelectIdx = (s32)i;
 
             bool kbConfirm = isActive &&
-                (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-                 ImGui::IsKeyPressed(ImGuiKey_Enter, false));
+                ImGui::IsKeyPressed(ImGuiKey_Enter, false);
 
             if (clicked || kbConfirm) {
                 pdguiPlaySound(PDGUI_SND_SELECT);
                 /* Delegate to legacy handler -- it sets g_Vars.autocutgroupcur
-                 * and autocutgroupleft, then calls menuPopDialog + menuStop. */
+                 * and autocutgroupleft, then calls menuPopDialog + menuStop.
+                 * S311: the embedded menuPopDialog cascades through
+                 * menuCloseDialog → menupoolReleaseDialog so the pool slot +
+                 * owned ctx are released without an explicit pop here. */
                 cn_handlerQuery(MENUOP_SET, i);
-                /* menuhandlerCinema already popped + stopped the menu for us.
-                 * Clean up our input context on the way out. */
-                if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-                    inputCtxPopDeferred(&g_CtxImGuiMenu);
-                }
                 ImGui::PopID();
                 ImGui::EndChild();
                 ImGui::End();
@@ -4310,17 +4318,14 @@ static s32 renderCinemaList(struct menudialog *dialog,
             wantClose = true;
         }
         if (backActive &&
-            (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-             ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
+            ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
             wantClose = true;
         }
     }
     pdguiEndActionBar();
 
     if (wantClose) {
-        if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-        }
+        /* S311: menuCloseDialog cascade releases pool slot + ctx. */
         menuPopDialog();
     }
 

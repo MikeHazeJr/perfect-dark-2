@@ -507,9 +507,9 @@ static void renderDetails(float scale)
     }
 
     if (curEnabled) {
-        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "* Enabled");
+        ImGui::TextColored(pdguiVec4TintSuccess(), "* Enabled");
     } else {
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "* Disabled");
+        ImGui::TextColored(pdguiVec4TintDanger(), "* Disabled");
     }
 }
 
@@ -564,7 +564,7 @@ static void renderEntryRow(int idx, float scale)
     /* Pending change indicator */
     if (e.enabled != e.orig_enabled) {
         ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 0.9f), "*");
+        ImGui::TextColored(pdguiVec4TextWarning(229), "*");
     }
 
     if (isSelected) {
@@ -839,7 +839,7 @@ static void renderValidationModal(float scale)
     }
 
     if (s_NumErrors == 0) {
-        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f),
+        ImGui::TextColored(pdguiVec4TintSuccess(),
                            "All %d components validated OK.", s_NumEntries);
     } else {
         ImGui::Text("%d issue(s) found:", s_NumErrors);
@@ -848,8 +848,8 @@ static void renderValidationModal(float scale)
                           ImVec2(0, -40.0f * scale), true);
         for (int i = 0; i < s_NumErrors; i++) {
             ImVec4 col = s_Errors[i].isError
-                ? ImVec4(1.0f, 0.4f, 0.4f, 1.0f)
-                : ImVec4(1.0f, 0.8f, 0.2f, 1.0f);
+                ? pdguiVec4TintDanger()
+                : pdguiVec4TextWarning();
             ImGui::TextColored(col, "[%s] %s",
                 s_Errors[i].isError ? "ERROR" : "WARN",
                 s_Errors[i].id);
@@ -882,7 +882,7 @@ static void renderInstalledModsTab(float scale)
     /* --- No mods found --- */
     if (modCount == 0) {
         ImGui::Spacing();
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "No mods found");
+        ImGui::TextColored(pdguiVec4TextWarning(), "No mods found");
         ImGui::Spacing();
         const char *modsDir = modmgrGetModsDir();
         if (modsDir) {
@@ -908,14 +908,14 @@ static void renderInstalledModsTab(float scale)
 
         /* --- Invalid manifest: show error inline --- */
         if (!valid) {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintDanger());
             ImGui::BulletText("%s", name[0] ? name : "(unknown mod)");
             ImGui::PopStyleColor();
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 0.8f), "[INVALID]");
+            ImGui::TextColored(pdguiVec4TintDanger(204), "[INVALID]");
             if (valErr[0]) {
                 ImGui::Indent(20.0f * scale);
-                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 0.9f), "%s", valErr);
+                ImGui::TextColored(pdguiVec4TintDanger(230), "%s", valErr);
                 ImGui::Unindent(20.0f * scale);
             }
             ImGui::PopID();
@@ -971,14 +971,6 @@ static void renderInstalledModsTab(float scale)
                 }
                 ImGui::EndPopup();
             }
-            /* Controller X-button (GamepadFaceLeft) on focused row also
-             * opens the context menu. Pattern mirrors the Color Theme
-             * picker in the Interface tab and the bot-slot context menu
-             * in pdgui_menu_room.cpp. */
-            if (ImGui::IsItemFocused() &&
-                ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft, false)) {
-                ImGui::OpenPopup(ctxId);
-            }
         }
 
         /* Dependency warning */
@@ -987,7 +979,7 @@ static void renderInstalledModsTab(float scale)
             s32 nmiss = modmgrCheckDependencies(i, missing, sizeof(missing));
             if (nmiss > 0) {
                 ImGui::SameLine();
-                ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "[deps: %s]", missing);
+                ImGui::TextColored(pdguiVec4TextWarning(220), "[deps: %s]", missing);
             }
         }
 
@@ -1103,9 +1095,9 @@ static void renderModDetails(float scale)
     ImGui::Spacing();
     ImGui::Separator();
     if (modmgrGetModEnabled(i)) {
-        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "* Enabled");
+        ImGui::TextColored(pdguiVec4TintSuccess(), "* Enabled");
     } else {
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "* Disabled");
+        ImGui::TextColored(pdguiVec4TintDanger(), "* Disabled");
     }
 }
 
@@ -1203,7 +1195,7 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
     /* Pending change count */
     int pending = countPending();
     if (pending > 0) {
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f),
+        ImGui::TextColored(pdguiVec4TextWarning(),
                            "%d change(s) pending", pending);
     } else {
         ImGui::TextDisabled("No pending changes");
@@ -1260,11 +1252,9 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
 
     ImGui::SameLine();
 
-    /* Close */
-    ImGui::PushStyleColor(ImGuiCol_Button,
-        ImVec4(0.35f, 0.05f, 0.05f, 0.50f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-        ImVec4(0.55f, 0.10f, 0.10f, 0.70f));
+    /* Close — S311: theme danger tint at sub-opaque alpha. */
+    ImGui::PushStyleColor(ImGuiCol_Button, pdguiVec4TintDanger(128));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, pdguiVec4TintDanger(179));
     if (ImGui::Button("Close", ImVec2(70.0f * scale, 28.0f * scale))) {
         bool hasDirty = (pending > 0) || (modmgrIsDirty() != 0);
         if (hasDirty) {
@@ -1277,8 +1267,7 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
     ImGui::PopStyleColor(2);
 
     /* B button / Escape also closes — same guard */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight) ||
-        ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
         bool hasDirty = (pending > 0) || (modmgrIsDirty() != 0);
         if (hasDirty) {
             ImGui::OpenPopup("Unsaved Changes");
@@ -1324,9 +1313,9 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
             ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
             ImGuiWindowFlags_NoSavedSettings;
 
-        /* Match updater UX: neutral during work, green-tinted on success. */
+        /* Match updater UX: neutral during work, green-tinted on success (S311 theme). */
         if (s_ApplyFlowState >= 3) {
-            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.08f, 0.25f, 0.08f, 0.95f));
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, pdguiVec4TintSuccess(60));
         }
 
         if (ImGui::Begin("Applying Changes", NULL, applyFlags)) {

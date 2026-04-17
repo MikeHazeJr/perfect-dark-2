@@ -42,6 +42,7 @@
 
 /* Forge level editor (F0+) */
 #include "pdgui_forge.h"
+#include "pdgui_interact_prompt.h"
 
 /* F8 in-game menu hot-swap */
 #include "pdgui_hotswap.h"
@@ -599,6 +600,11 @@ void pdguiRender(void)
     /* In-match HUD: top 2 scorers + remaining time.
      * Only visible during normmplayerisrunning (combat sim active). */
     pdguiHudRender((s32)winW, (s32)winH);
+
+    /* S311: contextual interact prompt ("[E] Pick up", "[E] Open" etc).
+     * No-op when no interact target is tracked.  Drawn above the HUD so the
+     * player sees the prompt beside the reticle. */
+    pdguiInteractPromptRender((s32)winW, (s32)winH);
 
     /* Kill/score ticker overlay: slide-in notifications for score events.
      * Active during normmplayerisrunning; auto-suppressed on game over. */

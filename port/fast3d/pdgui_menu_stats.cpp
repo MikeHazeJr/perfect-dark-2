@@ -422,8 +422,7 @@ void pdguiMenuStatsRender(s32 winW, s32 winH)
     ImGui::TextDisabled("B/Esc: Close");
 
     /* Escape = close */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_StatsOpen = false;
     }

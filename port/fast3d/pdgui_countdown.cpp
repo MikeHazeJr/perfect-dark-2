@@ -25,6 +25,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_scaling.h"
 #include "pdgui_style.h"
+#include "pdgui_glyphs.h"
 #include "pdgui_audio.h"
 #include "system.h"
 
@@ -117,8 +118,7 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH)
 
     /* ---- Check for cancel input (ESC or gamepad B) ---- */
     if (showCountdown) {
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
             sysLogPrintf(LOG_NOTE, "MENU_STACK: countdown CANCEL by local player (ESC/B)");
             netLobbyRequestCancel();
         }
@@ -223,11 +223,14 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH)
                             numBuf);
             }
 
-            /* Footer hint */
+            /* Footer hint — S311 glyph-driven cancel key. */
             {
                 ImGui::SetWindowFontScale(1.0f);
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.55f, 0.8f));
-                const char *hint = "Press ESC / B to cancel";
+                char cancelKey[24];
+                pdguiGlyphGetActionLabel(ACTION_CANCEL_USE, cancelKey, (s32)sizeof(cancelKey));
+                char hint[64];
+                snprintf(hint, sizeof(hint), "Press %s to cancel", cancelKey);
                 float hw = ImGui::CalcTextSize(hint).x;
                 ImGui::SetCursorPos(ImVec2((boxW - hw) * 0.5f,
                                            boxH - pdguiScale(39.0f)));
