@@ -781,6 +781,7 @@ void netServerStageStart(void)
 	// kills get current scores immediately rather than waiting for the next
 	// 300-frame periodic broadcast (L1-2).
 	g_NetPendingResyncFlags = NET_RESYNC_FLAG_CHRS | NET_RESYNC_FLAG_PROPS | NET_RESYNC_FLAG_SCORES;
+	netPropSnapReset();
 
 	sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_START sent, resync flags=0x%x", g_NetPendingResyncFlags);
 }
@@ -888,6 +889,7 @@ void netServerCoopStageStart(u8 stagenum, u8 difficulty)
 
 	// Schedule a full state resync shortly after stage start (NPCs + props)
 	g_NetPendingResyncFlags = NET_RESYNC_FLAG_NPCS | NET_RESYNC_FLAG_PROPS;
+	netPropSnapReset();
 
 	// start the mission on the server
 	menuStop();
@@ -1661,9 +1663,10 @@ void netEndFrame(void)
 				netmsgSvcChrSyncWrite(&g_NetMsgRel);
 			}
 
-			// Send prop desync detection checksum every 120 frames (~2/sec)
-			if ((g_NetTick % 120) == 0) {
-				netmsgSvcPropSyncWrite(&g_NetMsgRel);
+			// Event-driven prop dirty check: snapshot comparison replaces CRC polling.
+			// Only triggers SVC_PROP_RESYNC when hidden/damage state actually changed.
+			if ((g_NetTick % 120) == 0 && g_Vars.mplayerisrunning && netPropDirtyCheck()) {
+				g_NetPendingResyncFlags |= NET_RESYNC_FLAG_PROPS;
 			}
 
 			g_NetNextUpdate = g_NetTick + g_NetServerUpdateRate;

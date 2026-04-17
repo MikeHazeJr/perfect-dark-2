@@ -28,7 +28,14 @@ D5 Phase 5 portrait system wired into `pdgui_menu_room.cpp` (+276 LOC / -43 LOC)
 - **Join fade-in**: `s_LobbyPortraitAlpha[]` ramps 0→1 over ~25 frames per slot.
 - **Lifecycle**: reset on every room open (`IsWindowAppearing`) and `pdguiRoomScreenReset`; portrait invalidated when player's body/head IDs change.
 - **Solo mode**: baking skipped; initials placeholder; instant alpha.
+---
 
+## Done — 2026-04-17 (S353 — Prop Sync Event-Driven + Killfeed Bot Kills, `quizzical-murdock-95eb09`)
+
+**Build verified.** Clean 774/774 objects, zero errors.
+
+- **Prop sync**: Replaced CRC polling (`netPropSyncChecksum` + `SVC_PROP_SYNC` write) with per-prop `{hidden, damage}` snapshot dirty detection. Server now only triggers `NET_RESYNC_FLAG_PROPS` when a prop actually diverged. `SVC_PROP_SYNC` read handler still consumes bytes for old-server compat.
+- **Killfeed bot kills**: Fixed gap where `mpstatsRecordDeath` never broadcast kill events to network clients. `netDistribSendKillFeed` now called from both suicide and normal kill paths (server only). `SVC_LOBBY_KILL_FEED` extended to reach `CLSTATE_GAME` clients. Client-side read handler now calls `pdguiKillfeedPush` with team lookup from `g_MpAllChrConfigPtrs[]`.
 ---
 
 ## Done — 2026-04-17 (S351 — D5 Phase 4: UI Texture Mod Overrides, `dazzling-heisenberg-f84acc`)

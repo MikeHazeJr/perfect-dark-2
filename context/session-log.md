@@ -3429,3 +3429,48 @@ Also deferred — hooking `pdguiThemeGetContentInset` through to the menus.  The
   - `ninja -C Build pd`
   - Result: `PerfectDark.exe` linked clean.
 
+
+## Session S353 — 2026-04-17 (Prop Sync Event-Driven + Killfeed Bot Kills, `quizzical-murdock-95eb09`)
+
+**Scope**:
+- Task 1: Replace prop CRC polling (`SVC_PROP_SYNC` / `netPropSyncChecksum`) with snapshot-based dirty detection
+- Task 2: Ensure killfeed shows bot kills to all in-game clients (not just local host)
+
+**Code changes**:
+
+### Task 1 — Prop Sync Event-Driven (`port/src/net/netmsg.c`, `net.c`, `netmsg.h`)
+
+**Removed**:
+- `g_NetPropDesyncCount`, `g_NetPropResyncLastReq` globals
+- `netPropSyncChecksum()` — O(N) XOR-rotate CRC function
+- `netmsgSvcPropSyncWrite()` — server no longer sends CRC packet
+- CRC comparison logic from `netmsgSvcPropSyncRead` (now just consumes bytes for backward compat)
+
+**Added** (`netmsg.c`):
+- `PropStateSnap` struct with 128-entry static array `s_PropSnaps[]`
+- `netPropSnapReset()` — clears snapshot at stage start (called from net.c at both MP and co-op stage start)
+- `netPropSnapUpdate(prop)` — records `{syncid, hidden, damage}` snapshot when a prop event message is sent (move/damage/door/lift write paths)
+- `netPropDirtyCheck()` — scans active sync-relevant props, compares vs snapshot; returns 1 if any diverged and updates snapshot. Logs divergences at LOG_NOTE.
+
+**Changed** (`net.c`):
+- Server tick: replaced `netmsgSvcPropSyncWrite(&g_NetMsgRel)` every 120 frames with `netPropDirtyCheck()` → sets `NET_RESYNC_FLAG_PROPS` if dirty. Guard added: only runs when `g_Vars.mplayerisrunning`.
+
+**Protocol**: No change to wire format or version. `SVC_PROP_SYNC` (0x37) read handler still consumes 10 bytes so old servers remain compatible.
+
+### Task 2 — Killfeed Bot Kills (`netdistrib.c`, `netmsg.c`, `mpstats.c`)
+
+**Root cause**: `mpstatsRecordDeath` only called `pdguiKillfeedPush` locally. `netDistribSendKillFeed` was never called from this path, so networked clients never received kill events.
+
+**Fix 1** (`netdistrib.c` — `netDistribSendKillFeed`):
+- Extended recipient set from `CLSTATE_LOBBY` only → also `CLSTATE_GAME`. In-game clients now receive `SVC_LOBBY_KILL_FEED` (0x74).
+
+**Fix 2** (`netmsg.c` — `netmsgSvcLobbyKillFeedRead`):
+- Added `pdguiKillfeedPush` call (inside `#if !defined(PD_SERVER)`) to render the kill notification locally on clients. Team looked up from `g_MpAllChrConfigPtrs[]` by name match. Suicide detected via empty attacker string or attacker == victim.
+
+**Fix 3** (`mpstats.c` — `mpstatsRecordDeath`):
+- Suicide path: added `netDistribSendKillFeed("", vmpchr->name, "", 0)` (empty attacker = suicide signal)
+- Normal kill path: added `netDistribSendKillFeed(ampchr->name, vmpchr->name, "", 0)`
+- Both use `extern` pattern (matching existing score-sync pattern in same file). Guard: `g_NetMode == NETMODE_SERVER`.
+
+**Verification**:
+- Build: 774/774 objects clean, zero errors. `PerfectDark.exe` + `PerfectDarkServer.exe` both linked.

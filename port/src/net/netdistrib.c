@@ -565,10 +565,11 @@ void netDistribSendKillFeed(const char *attacker, const char *victim,
 {
     if (!s_Initialized || g_NetMode != NETMODE_SERVER) return;
 
-    /* Broadcast to all clients in CLSTATE_LOBBY (spectating) */
+    /* Broadcast to all active clients: spectators (CLSTATE_LOBBY) and
+     * in-game players (CLSTATE_GAME) so the HUD killfeed shows on all clients. */
     for (s32 i = 0; i < NET_MAX_CLIENTS; i++) {
         struct netclient *cl = &g_NetClients[i];
-        if (cl->state != CLSTATE_LOBBY) continue;
+        if (cl->state != CLSTATE_LOBBY && cl->state != CLSTATE_GAME) continue;
 
         netbufStartWrite(&g_NetMsgRel);
         netmsgSvcLobbyKillFeedWrite(&g_NetMsgRel, attacker, victim, weapon, flags);

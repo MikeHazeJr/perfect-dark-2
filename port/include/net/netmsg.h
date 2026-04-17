@@ -149,10 +149,12 @@ u32 netmsgSvcChrStateWrite(struct netbuf *dst, struct chrdata *chr);
 u32 netmsgSvcChrStateRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcChrSyncWrite(struct netbuf *dst);
 u32 netmsgSvcChrSyncRead(struct netbuf *src, struct netclient *srccl);
-u32 netmsgSvcPropSyncWrite(struct netbuf *dst);
 u32 netmsgSvcPropSyncRead(struct netbuf *src, struct netclient *srccl);
 /* Mark a prop as dirty (event-driven). Called by each SvcProp*Write function. */
 void netPropMarkDirty(u32 syncid);
+/* Prop snapshot dirty-detection (event-driven replacement for CRC polling) */
+int  netPropDirtyCheck(void);
+void netPropSnapReset(void);
 u32 netmsgSvcChrResyncWrite(struct netbuf *dst);
 u32 netmsgSvcChrResyncRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcPropResyncWrite(struct netbuf *dst);
