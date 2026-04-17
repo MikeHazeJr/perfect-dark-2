@@ -315,13 +315,42 @@ void amgrFrame(void)
 		osAiSetNextBuffer(previnfo->data, previnfo->frameSamples * 4);
 	}
 
-	if (somevalue > 1100 && var8005cf94 == 0) {
+	/* B-141 fix: three-tier audio production pacing for the PC port so the SDL
+	 * audio queue can absorb main-thread stalls without draining to zero.
+	 *
+	 * 22050 Hz stereo, 60 Hz game tick.  Consumer = 367.5 stereo samples/frame.
+	 * info->data is sized to 3072 bytes = 768 stereo samples, so a fast-fill
+	 * push of 736 is safely in-bounds.
+	 *
+	 *   tier 1 (queue > 3000):   push 184  — brake, drains 183.5/frame
+	 *   tier 2 (queue 2500-3000): push 368 — steady, drifts +0.5/frame
+	 *   tier 3 (queue < 2500):   push 736 — fast-fill, fills +368/frame
+	 *
+	 * Why the change?  Original code targets ~1100 (50ms) with 368 everywhere
+	 * below the threshold.  Two problems: (1) 50ms cushion is smaller than
+	 * typical main-thread hitches (50-100ms), causing underruns.  (2) From a
+	 * cold queue (stage load / startup) the +0.5/frame drift needs 36s to
+	 * reach 1100 and 100s to reach 3000 — unplayable.  With tier 3, a cold
+	 * queue fills to 2500 in 2500/368 ~= 7 frames = 115ms.  Steady state
+	 * oscillates between 2800 and 3000 (~128-136ms cushion), so a 100ms
+	 * hitch drains to ~700 stereo samples, well above the 128-sample
+	 * underrun threshold.  PAL systems retain the original 368+184=552/frame
+	 * (already enough for 50Hz). */
+	if (somevalue > 3000 && var8005cf94 == 0) {
 		// already a lot queued, render 1 naudio frame (184 samples) this frame
 		info->frameSamples = 184;
 		var8005cf94 = 2;
 	} else {
 		// have space in audio queue, render 2 naudio frames this frame (and 1 extra on PAL)
 		info->frameSamples = 368 + PAL * 184;
+
+		/* B-141 fast-fill (NTSC only): cushion below steady-state target,
+		 * push 4 naudio chunks (736 stereo samples) instead of 2.  This
+		 * rebuilds cushion from a cold queue in ~100ms and recovers from
+		 * hitches in ~1 sec instead of tens of seconds. */
+		if (somevalue < 2500 && var8005cf94 == 0 && !PAL) {
+			info->frameSamples = 736;
+		}
 
 		if (var8005cf94 != 0) {
 			var8005cf94--;

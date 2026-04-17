@@ -162,6 +162,22 @@ No playtest needed — audio volume fix is functional; rest is dead-code removal
 
 ---
 
+## Open — 2026-04-17 (S323 — B-161 + B-141 root-cause fixes, `magical-mahavira-f3726f` worktree)
+
+### Playtest verification
+
+**B-161 (modeldef torn-load reject at the single chokepoint):**
+- **Mission 1 → Mission 2 seamless advance** — Defection → Next Mission → Investigation. Walk 1-2 minutes. No AV expected. If a modeldef was torn at load time, log now shows `MODELDEF: file %u loaded torn — parts=%d root=%p scale=%.3f -- rejecting` at ERROR (caller will handle the NULL as missing-asset via existing FIX-B.2 / S308 guards).
+- **CI Training boot** — load CI Training normally. No AV; no new MODELDEF reject lines on healthy assets. Scale clamp WARNING (`... loaded with degenerate scale ... clamping to 1.0`) is acceptable for AllInOneMods models if they ship with bad scale.
+- **MP arena transitions** — any stage with props: no modeldef-reject lines in log (all MP stage assets should load clean). If any fire, report the file id.
+
+**B-141 (audio three-tier pacing):**
+- **60-second arena play** — tail pd-client.log for `AUDIO[B-141]: 30s summary`. Expect `underruns=0` in a non-hitching run. `buffered(samples) min` should hover 2800-3000 (up from 900-1100). `drops` should stay 0 (queue won't hit the 8192-sample drop threshold).
+- **Startup** — from a cold boot through title → mission load, audio should be audible essentially immediately. Under the old path, the queue took 36 seconds to fill from 0 to 1100; now it reaches 2500 in ~115ms (7 frames of fast-fill 736).
+- **Stall recovery** — briefly hitch the main thread (alt-tab, heavy pause-menu render). Queue drains; after hitch ends, fast-fill kicks in automatically and restores cushion in ~1s.
+
+---
+
 ## Open — 2026-04-17 (S323 Batch D+F — font atlas rebuild + legacy sidecar migration)
 
 ### Playtest verification

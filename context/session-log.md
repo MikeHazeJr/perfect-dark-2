@@ -288,6 +288,42 @@ protocol change; bump `NET_PROTOCOL_VER` 36 → 37.
 - `context/constraints.md` ENet version bullet updated to v37; the chrslots active-constraint bullet is replaced by "participant pool is sole slot store"; a new Removed-Constraints entry documents the chrslots + BOT_SLOT_OFFSET retirement.
 - Design doc `context/b12-participant-system.md` is still accurate in spirit; the "Phase 3" section is now the shipped state.
 
+## Session S323 — 2026-04-17 (B-161 + B-141 root-cause fixes — `magical-mahavira-f3726f` worktree)
+
+**Scope**: Two root-cause investigations and fixes. B-161 class: modeldef corruption (torn parts=0, root=NULL) reaching cached g_ModelStates/g_HeadsAndBodies and exploding in downstream traversal. B-141: ~200 audio underruns per 30s window from inadequate SDL queue cushion on PC.
+
+### What was done
+
+**B-161 root-cause fix — `src/game/modeldef.c::modeldefLoad`:**
+Traced the torn-modeldef class from symptom (S308/S312 defensive guards catching AV in bbox traversal, late-add diagnostic logging `MANIFEST-SP: late-add ... post-load modeldef torn: parts=0`) back to `modeldefLoad` — the single chokepoint every body/head/prop modeldef flows through. Validation was absent: `fileLoadToNew` could succeed with non-NULL but torn data (partial ROM load, garbage rwdata, etc.), and the torn struct would be cached by `catalogGetBodyModeldef` / `setupLoadModeldef` without any fields being sanity-checked, leading to an AV up to minutes later deep in the tick loop.
+
+Fix: after `modelPromoteTypeToPointer` + `modelPromoteOffsetsToPointers` + `modeldef0f1a7560` (all promotions), validate:
+- `rootnode == NULL` OR `numparts <= 0` OR `numparts > 500` → log `MODELDEF: file %u loaded torn — parts=%d root=%p scale=%.3f -- rejecting` at ERROR, reset `g_LoadType = LOADTYPE_NONE`, return NULL.
+- `scale <= 0.0f` → log `MODELDEF: file %u loaded with degenerate scale %.3f — clamping to 1.0` at WARNING, clamp to 1.0, continue.
+
+Single chokepoint — every caller inherits the guarantee. Existing NULL handlers (FIX-B.2 in `setuputils.c`, S308 bbox-chain guards, `body0f02ce8c` torn-body skip) already convert NULL returns into "missing asset" log lines, so the fix lands without touching any caller.
+
+**B-141 root-cause fix — `src/lib/audiomgr.c::amgrFrame`:**
+Traced the PC audio path: at 22050 Hz stereo × 60 Hz NTSC, SDL consumes 367.5 stereo samples/frame and the game pushes 368 (non-brake) or 184 (brake). Net drift is +0.5 stereo samples/frame when below the brake threshold. Original `1100` threshold = 50ms cushion; typical main-thread hitches (50-100ms) drain queue below the 128-sample underrun detection, explaining the observed rate.
+
+Fix: three-tier production pacing.
+- Queue > 3000 → push 184 (brake, drains 183.5/frame).
+- Queue 2500-3000 → push 368 (steady, drifts +0.5/frame).
+- Queue < 2500 → push 736 (fast-fill, adds 368.5/frame).
+
+`info->data` is allocated at 3072 bytes = 768 stereo samples capacity (audiomgr.c:102), so a 736-sample push is safely in-bounds. Steady state now hovers 2800-3000 (~128-136ms cushion, 3× original). Cold-queue fill reaches 2500 in 7 frames (~115ms) instead of 36 seconds. PAL retains its 552/frame rate (already sufficient for 50 Hz).
+
+### Build result
+
+Clean: 768/768 objects, zero errors. `PerfectDark.exe` = 52,638,334 bytes. `PerfectDarkServer.exe` = 22,838,473 bytes. Only pre-existing `-Wcomment` and `-Wunused-function` warnings in vendored code.
+
+### Next steps
+
+- **B-161 playtest**: Defection → Next Mission → Investigation. Walk 1–2 minutes. No AV expected. If any modeldef loads torn, log will now pinpoint `MODELDEF: file %u loaded torn — parts=%d root=%p scale=%.3f -- rejecting`.
+- **B-141 playtest**: Play any arena for 60s, tail pd-client.log for `AUDIO[B-141]: 30s summary`. Expect `underruns=0` in a non-hitching run; `buffered(samples) min` should hover 2800-3000 instead of 900-1100.
+
+---
+
 ## Session S323 — 2026-04-17 (Batch G — cross-audit gap fixes — `practical-wozniak-051afa` worktree)
 
 **Scope**: Six items flagged by cross-audit: one critical runtime bug (audio volumes never applied), four 4MB dead-code remnants, one stale tooltip.
