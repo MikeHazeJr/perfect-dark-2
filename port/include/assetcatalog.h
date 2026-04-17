@@ -735,6 +735,13 @@ typedef catalog_body_result_t catalog_head_result_t;
  * bgfileid/padsfileid/setupfileid/mpsetupfileid/tilefileid come from
  * g_Stages[runtime_index] when the stage table is loaded (client);
  * all -1 on server or unloaded stages.
+ *
+ * Phase 4 — handle fields: each *_handle field is the provider-ready
+ * load source for the corresponding file.  Populated internally from the
+ * fileid using romProviderHandle().  On the dedicated server all handles
+ * are null (server never loads stage geometry/pads/tiles).
+ * Callers must use assetLoadToNew(stage.<x>_handle, ...) instead of
+ * assetLoadToNew(romProviderHandle((s32)stage.<x>fileid), ...).
  */
 typedef struct {
     const asset_entry_t *entry;
@@ -746,6 +753,12 @@ typedef struct {
     s32                  stagenum;    /**< logical stage ID (e.g. 0x5e) */
     u32                  net_hash;
     u16                  session_id;
+    /* Phase 4: provider handles — use these instead of romProviderHandle(fileid). */
+    asset_data_handle_t  bg_handle;
+    asset_data_handle_t  pads_handle;
+    asset_data_handle_t  setup_handle;
+    asset_data_handle_t  mpsetup_handle;
+    asset_data_handle_t  tile_handle;
 } catalog_stage_result_t;
 
 /** Result struct for weapon asset resolution. */
@@ -887,21 +900,47 @@ extern char g_CatalogFailureMsg[256];
 
 /* ── SA-5a: Load-site helpers ───────────────────────────────────────────── */
 
+/* ── Phase 4: Handle-based load accessors ───────────────────────────────────
+ *
+ * These replace the pattern:
+ *   assetLoadToNew(romProviderHandle(catalogGetBodyFilenumByIndex(n)), ...)
+ * with:
+ *   assetLoadToNew(catalogGetBodyHandle(n), ...)
+ *
+ * Returns the effective provider handle for the asset (override wins over
+ * primary; null handle on catalog miss or server build).  Safe to call with
+ * a null out from assetLoadToNew — it returns NULL on a null handle.
+ * O(1) after cache build.
+ */
+
+/** Phase 4: Effective provider handle for a body by runtime body index. */
+asset_data_handle_t catalogGetBodyHandle(s32 bodynum);
+
+/** Phase 4: Effective provider handle for a head by runtime head index. */
+asset_data_handle_t catalogGetHeadHandle(s32 headnum);
+
+/** Phase 4: Effective provider handle for a prop model by MODEL_* index. */
+asset_data_handle_t catalogGetPropHandle(s32 propnum);
+
+/* ── SA-5a: [MIGRATION BRIDGE] filenum accessors ────────────────────────────
+ *
+ * DEPRECATED — Phase 4.  These functions return a raw ROM filenum, which is
+ * still required by legacy game APIs (fileGetInflatedSize, fileGetLoadedSize,
+ * modeldefLoad) that have not yet been migrated to handle-based equivalents.
+ * Do NOT use for new code.  Migrate callers to catalogGetBody/Head/PropHandle
+ * once the legacy APIs are updated.
+ */
+
 /**
- * SA-5a: Resolve a body model filenum by runtime body index.
- * Mod-override-aware drop-in for g_HeadsAndBodies[bodynum].filenum at model
- * load call sites.  Performs an O(n) catalog scan -- acceptable at load time
- * (called once at match/stage start, not per frame).
- * On catalog miss: logs [CATALOG-FATAL], sets g_CatalogFailure, returns 0.
- * No silent fallback to legacy arrays.
+ * [DEPRECATED] Resolve a body model filenum by runtime body index.
+ * Mod-override-aware.  O(n) scan.  On miss: logs CATALOG-FATAL, sets
+ * g_CatalogFailure, returns 0.  Prefer catalogGetBodyHandle().
  */
 s32 catalogGetBodyFilenumByIndex(s32 bodynum);
 
 /**
- * SA-5a: Resolve a head model filenum by runtime head index.
- * Mod-override-aware drop-in for g_HeadsAndBodies[headnum].filenum at model
- * load call sites.  Same behaviour as catalogGetBodyFilenumByIndex.
- * On catalog miss: logs [CATALOG-FATAL], sets g_CatalogFailure, returns 0.
+ * [DEPRECATED] Resolve a head model filenum by runtime head index.
+ * Same contract as catalogGetBodyFilenumByIndex.  Prefer catalogGetHeadHandle().
  */
 s32 catalogGetHeadFilenumByIndex(s32 headnum);
 
@@ -928,13 +967,9 @@ f32 catalogGetBodyScaleByIndex(s32 bodynum);
 s32 catalogGetStageResultByIndex(s32 stageindex, catalog_stage_result_t *out);
 
 /**
- * SA-5c: Resolve a prop model filenum by runtime model array index (MODEL_* enum).
- * Mod-override-aware drop-in for g_ModelStates[modelnum].fileid at model file
- * load call sites in setupLoadModeldef(), player.c, etc.
- * Performs an O(n) catalog scan over ASSET_MODEL entries -- acceptable at load
- * time (called once per model, result cached in g_ModelStates[].modeldef).
- * On catalog miss: logs [CATALOG-FATAL], sets g_CatalogFailure, returns 0.
- * No silent fallback to g_ModelStates[].fileid.
+ * [DEPRECATED] SA-5c: Resolve a prop model filenum by runtime model array
+ * index (MODEL_* enum).  Prefer catalogGetPropHandle().
+ * O(n) scan.  On miss: logs CATALOG-FATAL, sets g_CatalogFailure, returns 0.
  */
 s32 catalogGetPropFilenumByIndex(s32 propnum);
 

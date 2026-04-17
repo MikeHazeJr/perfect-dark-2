@@ -4,6 +4,56 @@
 > **S281–S345** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S346 — 2026-04-17 (`crazy-wilbur-ae5c6d` worktree) — Asset Provider Phase 4
+
+**Scope**: Retire raw `filenum` (u16/s32) from the public catalog API surface. All game code that previously called `romProviderHandle(filenum)` directly now goes through catalog or loader abstractions.
+
+### What was done
+
+**New internal header** `port/include/assetprovider_internal.h`:
+- Declares `romProviderHandle()` and `romProviderFilenum()` for catalog/provider layer use only
+- Lists allowed files (assetload.c, assetcatalog_api.c, assetcatalog_base.c, assetcatalog_base_extended.c, server_stubs.c)
+
+**`port/include/assetprovider.h`**: removed `romProviderHandle` / `romProviderFilenum` from public API; `romProvider()` singleton remains public.
+
+**`port/include/assetload.h` + `port/src/assetload.c`**: added `assetLoadRomToNew(s32 filenum, u32 method, u32 loadtype)` — the new public ROM-load helper for game code; wraps `assetLoadToNew(romProviderHandle(...), ...)` internally.
+
+**`port/include/assetcatalog.h`**:
+- Added 5 handle fields to `catalog_stage_result_t`: `bg_handle`, `pads_handle`, `setup_handle`, `mpsetup_handle`, `tile_handle` — populated internally in `s_fillStageResult()` from fileids using `romProviderHandle()`
+- Added Phase 4 handle accessor declarations: `catalogGetBodyHandle`, `catalogGetHeadHandle`, `catalogGetPropHandle` → `asset_data_handle_t`
+- Moved `catalogGetBodyFilenumByIndex`, `catalogGetHeadFilenumByIndex`, `catalogGetPropFilenumByIndex` to `[MIGRATION BRIDGE]` deprecated section
+
+**`port/src/assetcatalog_api.c`**: added `assetprovider_internal.h` include; stage handle population in `s_fillStageResult()`; implemented `catalogGetBodyHandle`, `catalogGetHeadHandle`, `catalogGetPropHandle`.
+
+**`port/src/assetcatalog_base.c` + `assetcatalog_base_extended.c`**: replaced `assetprovider.h` with `assetprovider_internal.h` (both call `romProviderHandle`).
+
+**`port/src/server_stubs.c`**: added `assetprovider_internal.h` include alongside `assetprovider.h`.
+
+**`src/game/file.c`**: `fileLoadToNew` now calls `assetLoadRomToNew(filenum, ...)` instead of `assetLoadToNew(romProviderHandle(filenum), ...)`; removed `assetprovider.h` include.
+
+**`src/game/modeldef.c`**: model load calls `assetLoadRomToNew` instead of `assetLoadToNew(romProviderHandle(...), ...)`; removed `assetprovider.h`.
+
+**`src/game/lang.c` + `src/game/langreset.c`**: reverted Phase 3 lang call sites from `assetLoadToNew(romProviderHandle(file_id), ...)` back to `fileLoadToNew(file_id, ...)` — `langGetFileId` depends on runtime state, cannot be in the catalog at registration time; removed `assetprovider.h` + `assetload.h`.
+
+**`src/game/setup.c`**: stage setup and pads loads now use `stage.setup_handle` / `stage.mpsetup_handle` / `stage.pads_handle` instead of `romProviderHandle(fileid)`; removed `assetprovider.h`.
+
+**`src/game/tilesreset.c`**: tile load uses `stage.tile_handle`; removed `assetprovider.h`.
+
+### Build
+
+Clean 773/773 (warm cache). `PerfectDark.exe` + `PerfectDarkServer.exe` linked. Warnings only (pre-existing).
+
+### Result
+
+`romProviderHandle()` is now internal to the catalog/provider layer. Zero calls remain in `src/game/`. The SA-5a filenum bridge functions remain for call sites that pass filenums to legacy APIs (`fileGetInflatedSize`, `modeldefLoad`) — those are marked `[DEPRECATED]` for future Phase 5 work.
+
+### Next
+
+- Migrate remaining SA-5a deprecated bridge sites (`catalogGetBodyFilenumByIndex` etc.) to handle-based `modeldefLoadByHandle` — requires adding handle-accepting overloads to the legacy model load APIs (Phase 5 scope)
+- Forge wire-in (props/zones/weapon pads) still deferred
+
+---
+
 ## Session S345 — 2026-04-17 (`pensive-bell-5597dd` worktree) — Wave 2 Audit
 
 **Scope**: Audit S341 (per-agent prefs + AP3) and S342 (forge runtime wire-in). Find bugs/gaps, fix, build-verify.

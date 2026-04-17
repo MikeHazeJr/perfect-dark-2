@@ -11,7 +11,6 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
-#include "assetprovider.h"
 #include "assetload.h"
 
 /**
@@ -284,7 +283,7 @@ void *fileLoadRomToNew(s32 filenum, u32 method, u32 loadtype)
  */
 void *fileLoadToNew(s32 filenum, u32 method, u32 loadtype)
 {
-	return assetLoadToNew(romProviderHandle(filenum), method, loadtype);
+	return assetLoadRomToNew(filenum, method, loadtype);
 }
 
 void fileRemove(s32 filenum)

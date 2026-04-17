@@ -8,7 +8,6 @@
 #include "types.h"
 #include "system.h"
 #include "assetcatalog.h"
-#include "assetprovider.h"
 #include "assetload.h"
 
 void stageParseTiles(void);
@@ -25,7 +24,7 @@ void tilesReset(void)
 	catalogGetStageResultByIndex(index, &stage);
 
 	g_LoadType = LOADTYPE_TILES;
-	g_TileFileData.u8 = assetLoadToNew(romProviderHandle((s32)stage.tilefileid), FILELOADMETHOD_DEFAULT, LOADTYPE_TILES);
+	g_TileFileData.u8 = assetLoadToNew(stage.tile_handle, FILELOADMETHOD_DEFAULT, LOADTYPE_TILES);
 	if (!g_TileFileData.u8) {
 		sysLogPrintf(LOG_ERROR, "TILES: failed to load tilefileid=%d for stage index=%d",
 			stage.tilefileid, index);

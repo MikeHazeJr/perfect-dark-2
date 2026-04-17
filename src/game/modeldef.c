@@ -24,7 +24,6 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
-#include "assetprovider.h"
 #include "assetload.h"
 
 struct skeleton *g_Skeletons[] = {
@@ -193,7 +192,7 @@ struct modeldef *modeldefLoad(u16 fileid, u8 *dst, s32 size, struct texpool *arg
 	if (dst) {
 		modeldef = fileLoadToAddr(fileid, FILELOADMETHOD_EXTRAMEM, dst, size);
 	} else {
-		modeldef = assetLoadToNew(romProviderHandle((s32)fileid), FILELOADMETHOD_EXTRAMEM, LOADTYPE_MODEL);
+		modeldef = assetLoadRomToNew((s32)fileid, FILELOADMETHOD_EXTRAMEM, LOADTYPE_MODEL);
 	}
 
 	if (modeldef == NULL) {

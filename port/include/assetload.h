@@ -41,6 +41,16 @@ s32 assetLoad(asset_data_handle_t handle, void *buf, s32 buf_size);
 void *assetLoadToNew(asset_data_handle_t handle, u32 method, u32 loadtype);
 
 /**
+ * Load a ROM asset by raw filenum through the provider dispatcher.
+ * Equivalent to assetLoadToNew(romProviderHandle(filenum), method, loadtype)
+ * but does not require the caller to know about the provider abstraction.
+ * Game code that previously called fileLoadToNew() or
+ * assetLoadToNew(romProviderHandle(filenum),...) should use this instead.
+ * The implementation is in assetload.c (provider layer).
+ */
+void *assetLoadRomToNew(s32 filenum, u32 method, u32 loadtype);
+
+/**
  * Provider-side cleanup when an asset is evicted. No-op for ROM; future
  * providers may release cached handles / ref counts.
  */
