@@ -1445,9 +1445,12 @@ static void renderModdingHub(s32 winW, s32 winH)
     }
     ImGui::PopStyleColor(2);
 
-    /* Back input mirrors footer Close behavior. */
+    /* Back input mirrors footer Close behavior.  S311: title X button
+     * also closes via pdguiConsumeTitleClose (first-click reliability). */
     if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        if (pdguiConsumeTitleClose()) {
+            moddingHubCloseFromUi("title-x-button");
+        } else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             moddingHubCloseFromUi("escape-or-b-button");
         }
     }

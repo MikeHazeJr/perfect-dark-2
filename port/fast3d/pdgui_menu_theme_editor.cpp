@@ -644,6 +644,13 @@ static void renderThemeEditor(s32 winW, s32 winH)
 
         bool wantClose = false;
 
+        /* S311: S306 title-close channel — catches the titlebar X click
+         * before ImGui's own popup handling swallows the Escape edge. */
+        if (pdguiConsumeTitleClose()) {
+            sysLogPrintf(LOG_NOTE, "Theme editor: exit — title X button");
+            wantClose = true;
+        }
+
         /* Save section (row 1): Name + Author inputs only — Save button moved
          * to the action row so all three action buttons (Save / Reset / Close)
          * are docked together. Previously Save was inline after Author, which

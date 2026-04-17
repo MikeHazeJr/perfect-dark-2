@@ -732,9 +732,11 @@ static void renderSoloEndscreen(bool completed)
         ImGui::PopStyleVar();
     }
 
-    /* Keyboard navigation: Enter/Start or Escape/Back — also debounced */
+    /* Keyboard navigation: Enter/Start or Escape/Back — also debounced.
+     * S311: title X button also exits (first-click reliability). */
     if (!inputSuppressed) {
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        if (pdguiConsumeTitleClose() ||
+            ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             pdguiEndscreenExitToMainMenu();
         }
     }
@@ -1241,9 +1243,10 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
         ImGui::PopStyleColor(3);
     }
 
-    /* Keyboard shortcuts */
+    /* Keyboard shortcuts.  S311: title X button mirrors Escape exit. */
     if (!inputSuppressed) {
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        if (pdguiConsumeTitleClose() ||
+            ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             if (networked) {
                 netDisconnect();
             }

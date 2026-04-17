@@ -720,8 +720,10 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
         if (s_PauseJustOpened) {
             s_PauseJustOpened = false;
         } else {
-            /* Close on Escape (when not in confirm dialog) */
-            if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            /* S311: title X button or Escape closes (X channel avoids
+             * the one-frame-swallow class that needed two clicks). */
+            if (pdguiConsumeTitleClose() ||
+                ImGui::IsKeyPressed(ImGuiKey_Escape)) {
                 pdguiPauseMenuClose();
             }
         }

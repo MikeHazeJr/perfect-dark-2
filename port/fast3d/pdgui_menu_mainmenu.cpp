@@ -4008,17 +4008,20 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
     }
     pdguiEndActionBar();
 
-    /* B / Escape also backs out. */
+    /* S311: title X / Escape / B all back out.  pdguiConsumeTitleClose
+     * fires on the X click before ImGui's own nav swallows the Escape
+     * edge, so the X button closes on the first attempt. */
+    bool titleCloseCi = pdguiConsumeTitleClose() != 0;
     if (!ImGui::IsWindowAppearing() &&
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        (titleCloseCi || ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         wantBack = true;
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
     }
 
     if (wantBack) {
         sysLogPrintf(LOG_NOTE,
-            "MENU_IMGUI: CI Options redirect CLOSE (dialog=%p)",
-            (void *)def);
+            "MENU_IMGUI: CI Options redirect CLOSE (dialog=%p)%s",
+            (void *)def, titleCloseCi ? " [via X]" : "");
         /* S311: menuCloseDialog (invoked by menuPopDialog) releases the
          * pool slot and pops the owned ctx; no explicit ctx pop here. */
         s_LastDialog = nullptr;
@@ -4108,8 +4111,10 @@ static s32 renderCiDeadPlayer2(struct menudialog *dialog,
     }
     pdguiEndActionBar();
 
+    /* S311: title X / Escape / Enter all close the dead-P2 notice. */
     if (!ImGui::IsWindowAppearing() &&
-        (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+        (pdguiConsumeTitleClose() ||
+         ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
          ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
         wantClose = true;
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
@@ -4200,10 +4205,11 @@ static s32 renderCinemaList(struct menudialog *dialog,
     if (insTc + breatheC + titleH > padTc) padTc = insTc + breatheC + titleH;
     ImGui::SetCursorPos(ImVec2(padXc, padTc));
 
-    /* B / Escape closes. */
+    /* S311: title X / Escape / B close. */
     bool wantClose = false;
     if (!ImGui::IsWindowAppearing() &&
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        (pdguiConsumeTitleClose() ||
+         ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         wantClose = true;
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
     }
