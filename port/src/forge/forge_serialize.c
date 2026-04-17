@@ -196,6 +196,8 @@ static void forgeSerializeWriteObject(forge_jw_t *w, const forge_object_t *o)
 	jwKvFloat(w, "emissive",    o->emissive);
 	jwKvBool(w,  "cast_shadows",o->cast_shadows);
 	jwKvInt(w,   "lod_bias",    o->lod_bias);
+	/* S313 variant: 0 = author-placed, 1 = from base stage / base map. */
+	jwKvInt(w,   "from_base",   o->from_base);
 
 	/* Type-specific props. We emit as a flat "props" object. */
 	jwObjectBegin(w, "props");
@@ -454,7 +456,27 @@ s32 forgeSerializeSaveToMod(const char *mod_slug)
 	/* R2/R4 -- weapon source policy. */
 	jwKvInt(&w,   "weapon_source",  s->weapon_source);
 	jwKvBool(&w,  "allow_match_override", s->allow_match_override);
+	/* S313 -- variant metadata. */
+	jwKvInt(&w,    "variant_mode",         s->variant_mode);
+	jwKvString(&w, "variant_source_slug",  s->variant_source_slug);
 	jwObjectEnd(&w);
+
+	/* S313 -- bot testing settings block (serialised so map-author's
+	 * preferred bot count / spawn mode / body choice persists between
+	 * editor sessions on the same map). */
+	{
+		const forge_bot_settings_t *bs = forgeBotSettings();
+		jwObjectBegin(&w, "bot_testing");
+		jwKvInt(&w,    "spawn_mode",        bs->spawn_mode);
+		jwKvInt(&w,    "active_count",      bs->active_count);
+		jwKvInt(&w,    "frozen_count",      bs->frozen_count);
+		jwKvBool(&w,   "all_frozen",        bs->all_frozen);
+		jwKvFloat(&w,  "near_me_radius",    bs->near_me_radius);
+		jwKvFloat(&w,  "smart_aggression",  bs->smart_aggression);
+		jwKvString(&w, "default_body_id",   bs->default_body_id);
+		jwKvString(&w, "default_difficulty",bs->default_difficulty);
+		jwObjectEnd(&w);
+	}
 
 	/* mission */
 	if (s->is_mission) {
@@ -801,6 +823,29 @@ static void forgeSerializeReadSettings(forge_jr_t *r)
 		else if (!strcmp(key, "edge_snap"))            { s32 v; if (jrReadBool(r,&v)) s->edge_snap = (u8)v; }
 		else if (!strcmp(key, "weapon_source"))        { s32 v; if (jrReadInt(r,&v)) s->weapon_source = (u8)v; }
 		else if (!strcmp(key, "allow_match_override")) { s32 v; if (jrReadBool(r,&v)) s->allow_match_override = (u8)v; }
+		else if (!strcmp(key, "variant_mode"))         { s32 v; if (jrReadInt(r,&v)) s->variant_mode = (u8)v; }
+		else if (!strcmp(key, "variant_source_slug")) jrReadString(r, s->variant_source_slug, sizeof(s->variant_source_slug));
+		else jrSkipValue(r);
+	}
+}
+
+static void forgeSerializeReadBotTesting(forge_jr_t *r)
+{
+	forge_bot_settings_t *bs = forgeBotSettings();
+	if (!jrMatch(r, '{')) return;
+	for (;;) {
+		jrSkipWs(r);
+		if (jrMatch(r, '}')) return;
+		char key[64];
+		if (!jrReadKey(r, key, sizeof(key))) return;
+		if      (!strcmp(key, "spawn_mode"))         { s32 v; if (jrReadInt(r,&v)) bs->spawn_mode = (u8)v; }
+		else if (!strcmp(key, "active_count"))       { s32 v; if (jrReadInt(r,&v)) bs->active_count = (u8)v; }
+		else if (!strcmp(key, "frozen_count"))       { s32 v; if (jrReadInt(r,&v)) bs->frozen_count = (u8)v; }
+		else if (!strcmp(key, "all_frozen"))         { s32 v; if (jrReadBool(r,&v)) bs->all_frozen = (u8)v; }
+		else if (!strcmp(key, "near_me_radius"))     jrReadFloat(r, &bs->near_me_radius);
+		else if (!strcmp(key, "smart_aggression"))   jrReadFloat(r, &bs->smart_aggression);
+		else if (!strcmp(key, "default_body_id"))    jrReadString(r, bs->default_body_id, sizeof(bs->default_body_id));
+		else if (!strcmp(key, "default_difficulty")) jrReadString(r, bs->default_difficulty, sizeof(bs->default_difficulty));
 		else jrSkipValue(r);
 	}
 }
@@ -839,6 +884,7 @@ static void forgeSerializeReadObject(forge_jr_t *r)
 		else if (!strcmp(key, "emissive"))    jrReadFloat(r, &stage.emissive);
 		else if (!strcmp(key, "cast_shadows")){ s32 v; if (jrReadBool(r,&v)) stage.cast_shadows = (u8)v; }
 		else if (!strcmp(key, "lod_bias"))    { s32 v; if (jrReadInt(r,&v)) stage.lod_bias = (u8)v; }
+		else if (!strcmp(key, "from_base"))   { s32 v; if (jrReadInt(r,&v)) stage.from_base = (u8)v; }
 		else if (!strcmp(key, "props")) {
 			/* Props are category-specific; we defer parse by placing them into
 			 * the staged object after it's allocated with defaults, then reading
@@ -865,6 +911,7 @@ static void forgeSerializeReadObject(forge_jr_t *r)
 		dst->emissive = stage.emissive;
 		dst->cast_shadows = stage.cast_shadows;
 		dst->lod_bias = stage.lod_bias;
+		dst->from_base = stage.from_base;
 		forgeCopyStr(dst->label, stage.label, FORGE_LABEL_LEN);
 		dst->uid = keep_uid; /* keep freshly-generated uid */
 	}
@@ -904,6 +951,7 @@ s32 forgeSerializeLoadFromMod(const char *mod_slug)
 		else if (!strcmp(key, "base_stage"))  jrReadString(&r, forgeMapSettings()->base_stage_id, FORGE_ID_LEN);
 		else if (!strcmp(key, "is_mission"))  { s32 v; if (jrReadBool(&r,&v)) forgeMapSettings()->is_mission = (u8)v; }
 		else if (!strcmp(key, "settings"))    forgeSerializeReadSettings(&r);
+		else if (!strcmp(key, "bot_testing")) forgeSerializeReadBotTesting(&r);
 		else if (!strcmp(key, "objects")) {
 			if (!jrMatch(&r, '[')) continue;
 			for (;;) {
