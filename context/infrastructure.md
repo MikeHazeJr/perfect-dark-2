@@ -59,7 +59,7 @@ to PATH, `CCACHE_SLOPPINESS=pch_defines,time_macros`. Do not rediscover.
 | D3 | Mod Manager (legacy) | ♻️ Redesigned → D3R | S24 |
 | D3R | Component Mod Architecture | ✅ **ALL DONE** (D3R-1–11, S46a, S46b) | S80 |
 | D4 | Menu Migration | ♻️ Superseded by ImGui hotswap | S22 |
-| D5 | Settings / Graphics / QoL | 🔶 Phase 3 DONE; Phase 4 (themes) partial; Phase 5 (lobby scene) planned | S221 |
+| D5 | Settings / Graphics / QoL | 🔶 Phase 3 DONE; Phase 4 (themes) UI texture overrides DONE (S351); Phase 5 (lobby scene) planned | S351 |
 | D6 | Persistent Stats | 🔶 Partial — `playerstats.c` coded (S49), gameplay-site wire-in partial | S49 |
 | D7 | Discord Rich Presence | ✅ **DONE** (S348) | S348 |
 | D8 | NAT Traversal / LAN | ✅ **DONE** | S83 |
@@ -164,10 +164,12 @@ stack retained only as plumbing.
   menu.
 - **Phase 3 (menu replacement)**: ✅ **COMPLETE 2026-04-11**. All 254 dialogs
   ported to ImGui — 13 batches S192 – S209.
-- **Phase 4 (themes)**: 🔶 Partial. Theme loader + base-game template mod
+- **Phase 4 (themes)**: 🔶 Mostly done. Theme loader + base-game template mod
   (S196). Theme editor shipped (B-130 rewrite S208 — native `BeginPopupModal`).
   Mod themes auto-rescan on mod apply (Issue 2/8 S253). Nineslice pipeline
-  infrastructure shipped.
+  infrastructure shipped. **UI texture mod overrides** ✅ DONE (S351) —
+  `pdguiThemeScanModUiTextures` / `pdguiThemeApplyEnabledModUiTextures` allow
+  enabled mods to override `"type": "ui"` catalog textures at runtime.
 - **Phase 5 (lobby scene)**: 📋 Planned — player portraits, connected player
   avatars, character preview.
 - **D5.1 Input ownership boundary**: ✅ DONE (S136).
@@ -406,7 +408,7 @@ DONE ── D1 (N64 strip) ── D3R (component mods) ── D3R-1..11
           │     ├── R-5 server GUI redesign — PLANNED
           │     └── → D16 master server (post content tools)
           │
-          ├── D5 Phase 3 DONE; Phase 4 partial; Phase 5 planned
+          ├── D5 Phase 3 DONE; Phase 4 UI texture overrides DONE (S351); Phase 5 planned
           │
           ├── D13 update system DONE (S245 FIX-F)
           │

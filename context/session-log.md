@@ -1,8 +1,37 @@
 
 # Session Log (Active)
 
-> **S281–S350** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S351** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S351 — 2026-04-17 (`dazzling-heisenberg-f84acc` worktree) — D5 Phase 4: UI Texture Mod Overrides
+
+**Scope**: D5 Phase 4 — implement runtime mod override of base-UI theme textures.
+
+**Problem**: `pdguiThemeLateInit()` loaded base-ui TGA textures (or procedural fallbacks)
+but had no mechanism for enabled mods to supply alternate textures.  Mods could declare
+`"type": "ui"` components in `mod.json` but nothing parsed them.
+
+**New API** (`port/include/pdgui_theme.h`):
+- `s32 pdguiThemeScanModUiTextures(const char *mod_dir)` — parse `mod.json` components[]
+  for `"type": "ui"` entries; call `s_registerModTexture` for each `catalog_id`/`path` pair.
+- `void pdguiThemeApplyEnabledModUiTextures()` — iterate all enabled mods and apply overrides.
+  Guard: no-op if late init hasn't run yet.
+
+**Wire-in**:
+- `pdguiThemeLateInit()`: call `pdguiThemeApplyEnabledModUiTextures()` after base textures load.
+- `modmgrApplyChanges()` (`port/src/modmgr.c`): call after `pdguiThemeRescanChromeStyles()`.
+
+**Parser design**: Two-pass per component object (handles `"type"` and `"textures"` in any
+order). Reused existing `chrome_jparse`/`chrome_jtok`/`cjson_*` infrastructure.
+Includes `modmgr.h` via `extern "C" {}` block.
+
+**Fix commits** (same session): split `extern "C" { #include }` to multi-line;
+move functions after `cjson_skip_value` to resolve forward-reference errors.
+
+**Build**: Clean 585/585. `PerfectDark.exe` 52,759,787 / `PerfectDarkServer.exe` 22,922,823.
+
+---
 
 ## Session S350 — 2026-04-17 (`vigorous-benz-f8cb68` worktree) — Wave 3 Cross-Audit: S348 D7 Discord Rich Presence
 

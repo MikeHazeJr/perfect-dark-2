@@ -7,6 +7,20 @@
 
 ---
 
+## Done — 2026-04-17 (S351 — D5 Phase 4: UI Texture Mod Overrides, `dazzling-heisenberg-f84acc`)
+
+**Build verified.** Clean 585/585 objects, zero errors.
+`PerfectDark.exe` 52,759,787 / `PerfectDarkServer.exe` 22,922,823.
+
+New API in `port/include/pdgui_theme.h`:
+- `pdguiThemeScanModUiTextures(mod_dir)` — parse mod.json `"type": "ui"` components; register `catalog_id`/`path` overrides via `s_registerModTexture`.
+- `pdguiThemeApplyEnabledModUiTextures()` — apply overrides from all enabled mods.
+
+Wired into `pdguiThemeLateInit()` (after base textures load) and `modmgrApplyChanges()`
+(after chrome rescan). Two-pass cjson parser handles key-order independence.
+
+---
+
 ## Done — 2026-04-17 (S350 — Wave 3 Cross-Audit: S348 Discord, `vigorous-benz-f8cb68`)
 
 **Build verified.** Clean 775/775 objects, zero errors. Post-merge on dev.
