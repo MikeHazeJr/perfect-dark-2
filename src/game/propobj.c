@@ -1286,14 +1286,35 @@ struct modelnode *func0f0687e4(struct model *model)
 struct modelnode *modeldefFindBboxNode(struct modeldef *modeldef)
 {
 	struct modelnode *node;
+	u32 steps = 0;
 
-	if (modeldef == NULL) {
+	/* S312: reject torn modeldefs (NULL, numparts invalid, scale invalid).
+	 * A non-NULL modeldef with numparts=0 / negative / absurdly large /
+	 * zero-scale is a late-add / recycled-memory fingerprint (see S308).
+	 * Without this guard the rootnode walk can deref stale memory. */
+	if (modeldef == NULL
+			|| modeldef->rootnode == NULL
+			|| modeldef->numparts <= 0
+			|| modeldef->numparts > 500
+			|| modeldef->scale <= 0.0f) {
 		return NULL;
 	}
 
 	node = modeldef->rootnode;
 
 	while (node) {
+		/* S312: bounded walk — any healthy modeldef tree is << 10000
+		 * nodes.  A runaway walk means the tree has a cycle or points
+		 * into freed memory; bail out before AV'ing. */
+		if (++steps > 10000) {
+			sysLogPrintf(LOG_WARNING,
+					"modeldefFindBboxNode: walker exceeded 10000 steps "
+					"(modeldef=%p rootnode=%p numparts=%d) -- suspect tree",
+					(void *)modeldef, (void *)modeldef->rootnode,
+					modeldef->numparts);
+			return NULL;
+		}
+
 		if ((node->type & 0xff) == MODELNODETYPE_BBOX) {
 			return node;
 		}
@@ -1329,15 +1350,41 @@ struct modelrodata_bbox *modeldefFindBboxRodata(struct modeldef *modeldef)
 struct modelnode *modelFindBboxNode(struct model *model)
 {
 	struct modelnode *node;
+	u32 steps = 0;
+	struct modeldef *def;
 
+	/* S312: reject torn model/modeldef.  Matches the sibling guard in
+	 * modeldefFindBboxNode — if the owning modeldef is corrupt (numparts
+	 * zero/invalid, scale zero/negative, rootnode NULL), bail out before
+	 * the walker deref's stale memory. */
 	if (model == NULL || model->definition == NULL) {
 		return NULL;
 	}
 
-	node = model->definition->rootnode;
+	def = model->definition;
+	if (def->rootnode == NULL
+			|| def->numparts <= 0
+			|| def->numparts > 500
+			|| def->scale <= 0.0f) {
+		return NULL;
+	}
+
+	node = def->rootnode;
 
 	while (node) {
-		u32 type = node->type & 0xff;
+		u32 type;
+
+		/* S312: bounded walk — see modeldefFindBboxNode */
+		if (++steps > 10000) {
+			sysLogPrintf(LOG_WARNING,
+					"modelFindBboxNode: walker exceeded 10000 steps "
+					"(model=%p def=%p root=%p numparts=%d) -- suspect tree",
+					(void *)model, (void *)def,
+					(void *)def->rootnode, def->numparts);
+			return NULL;
+		}
+
+		type = node->type & 0xff;
 
 		switch (type) {
 		case MODELNODETYPE_BBOX:

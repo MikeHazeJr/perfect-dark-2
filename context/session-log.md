@@ -1,8 +1,102 @@
 
 # Session Log (Active)
 
-> **S241–S310** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S312** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S312 — 2026-04-17 (Modeldef defensive guards + glyph system + net review — `amazing-mccarthy` worktree)
+
+**Scope**: Gameplay bug fixes, input system polish, net review.  Parallel
+session on an isolated worktree; merges cleanly to `dev`.  File-ownership
+split with S311 (menu renderers / theme / settings / config / UI scaling)
+and S313 (The Grid forge code only) — this session touched game logic
+(`src/game/`), networking (`port/src/net/`), and new input-helper module.
+
+### What landed
+
+1. **sp_body_108 parts=0 modeldef corruption class — defensive guards
+   +  instrumentation** (root cause from S308 B-161).  `propobj.c` bbox
+   walkers (`modeldefFindBboxNode`, `modelFindBboxNode`) now reject torn
+   modeldefs at the top of the function: NULL rootnode, numparts out of
+   [1, 500], or scale <= 0 short-circuits to NULL instead of
+   descending into stale memory.  Both walkers also carry a 10000-step
+   safety cap so a cyclic/dangling tree logs a WARNING and bails out
+   rather than AV'ing.  `port/src/net/netmanifest.c`
+   `manifestEnsureLoaded` late-add path now logs the post-load
+   modeldef state for body/head assets — `MANIFEST-SP: late-add '...'
+   post-load modeldef torn: parts=%d root=%p scale=%.3f` pinpoints the
+   exact catalog id whose late-add produced the torn state, giving the
+   next playtest log the fingerprint needed to move B-161 from defensive
+   to root-cause fixed.  Guarded by `#if !defined(PD_SERVER)` so the
+   server build still links (`catalogGetBodyModeldef` is client-only).
+
+2. **Glyph system for contextual input prompts** — new
+   `port/include/pdgui_glyphs.h` + `port/fast3d/pdgui_glyphs.cpp`
+   module.  Maps any `InputAction` to the primary VK currently bound
+   in the active IMC stack, picks the right device using
+   `actionmapGetLastDevice()` (500 ms debounce), and exposes
+   `pdguiGlyphGetActionLabel` for short labels ("E", "Space", "LMB",
+   "A", "LB", "D-Up") plus `pdguiDrawActionPrompt(action, x, y,
+   label)` / `pdguiDrawActionPromptCentered` which render a compact
+   `[KEY] Label` pill on the foreground drawlist using the theme's
+   title-glow accent.  Walks all six default IMCs in priority order so
+   prompts reflect whichever context is on top; falls back to the
+   other device if no binding for the current device.  VK ordinals
+   mirrored locally (cannot include input.h directly — it pulls
+   PR/os_cont.h which references OSThread and breaks C++ TUs).
+
+3. **Net / gameplay / input review** — confirmed the current state of
+   the previously-shipped fixes:
+   - S306 / S304 input-context leak defensive pop is wired into
+     `renderMainMenu` close (`pdguiConsumeTitleClose` channel + fallback
+     Escape), and `inputCtxEndFrame` watchdog auto-recovers deep stacks
+     at `MAX_STACK-1`.
+   - `g_NetMatchRoomId` / `g_NetCounterOpClientId` reset paths cover
+     disconnect (`net.c:1060-1066`), stage end (`net.c:925-928`), and
+     server start (`net.c:630-631`); `netSendToRoom(0xFF, ...)` is a
+     no-op on clients (no `room_id == 0xFF` match).
+   - `roomLeave` / `roomDestroy` call `netReadyGateOnClientLeft` and
+     `netReadyGateAbortForRoom` per Bug B.
+   - `botSpawn` retains S301 `CHR.DIAG` breadcrumb + invisible-state
+     fingerprint; no regression in the ground-clamp / room-recovery
+     fallbacks.
+   - ACTION_JUMP / ACTION_CROUCH / ACTION_USE correctly feed
+     c1buttons/c1buttonsthisframe in `bondmove.c`; no residual CK_* or
+     parallel `inputKeyJustPressed(VK_ESCAPE)` paths remain.
+
+### Files touched
+
+- **New**: `port/include/pdgui_glyphs.h`, `port/fast3d/pdgui_glyphs.cpp`
+- **Modified**: `src/game/propobj.c` (two bbox walkers — torn-modeldef
+  guards + 10000-step cap), `port/src/net/netmanifest.c`
+  (manifestEnsureLoaded post-load diagnostic)
+
+### Build verify
+
+`source devtools/build-env.sh && ninja -C Build pd pd-server` — both
+targets link.  `PerfectDark.exe` 52,400,200 bytes / `PerfectDarkServer.exe`
+22,840,561 bytes.  Only pre-existing warnings (propobj.c sp144/sp112
+may-be-uninitialized, `/*` within comment noise across multiple files).
+
+### Not done in this session (deferred)
+
+- **Per-player glyph device detection** — `pdguiGlyphGetDevice` returns
+  a single global device for all prompts.  Splitscreen is disabled in
+  this port so the single-device answer is fine; if the mode ever
+  returns we'll need a per-player signal.
+- **Wire glyphs into actual gameplay HUD prompts** — the module is ready
+  but no renderer consumes it yet.  Obvious first callers: pickup prompts
+  (`[E] Pick up AR34`), interact prompts near doors/terminals, forge
+  HUD's controls-reminder row.  Hooks belong in follow-up polish passes
+  (S313 for forge, S311 for menus).
+- **Root-cause fix for modeldef corruption** — S308 + S312 are both
+  defensive.  Next playtest repro of the Mission 1 Obj 2 crash should
+  produce a `MANIFEST-SP: ... post-load modeldef torn:` line (or a
+  `MANIFEST-SP: ... post-load modeldef OK` followed by a later torn
+  state, which would point at a post-late-add corruptor rather than the
+  late-add itself).
+
+---
 
 ## Session S310 addendum — 2026-04-17 (Mike R1-R4 refinements — same worktree)
 

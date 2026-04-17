@@ -1785,6 +1785,52 @@ s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
         manifestAddEntry(&g_CurrentLoadedManifest, e->id,
                          (u8)asset_type, MANIFEST_SLOT_MATCH);
         catalogLoadAsset(e->id);
+
+        /* S312: late-add diagnostic for body/head modeldefs — the
+         * sp_body_108 parts=0 class (S308) was observed after a late-add
+         * of body/head assets during stage transitions.  Log the
+         * post-load modeldef state so we can correlate "truly invalid
+         * bodymodeldef" / "parts=0" with the specific catalog id that
+         * arrived late.  MODEL (prop) assets aren't checked here — their
+         * modeldef lives in a different accessor path.
+         * Client-only: catalogGetBodyModeldef is #if !defined(PD_SERVER). */
+#if !defined(PD_SERVER)
+        if (asset_type == MANIFEST_TYPE_BODY
+                || asset_type == MANIFEST_TYPE_HEAD) {
+            s32 runtime_idx = e->runtime_index;
+            const struct modeldef *md = NULL;
+
+            if (asset_type == MANIFEST_TYPE_BODY) {
+                md = catalogGetBodyModeldef(runtime_idx);
+            } else {
+                md = catalogGetHeadModeldef(runtime_idx);
+            }
+
+            if (md == NULL) {
+                sysLogPrintf(LOG_WARNING,
+                             "MANIFEST-SP: late-add '%s' type=%d runtime=%d -- "
+                             "post-load modeldef is NULL (catalog miss after late-add)",
+                             catalog_id, asset_type, runtime_idx);
+            } else if (md->numparts <= 0
+                       || md->numparts > 500
+                       || md->rootnode == NULL
+                       || md->scale <= 0.0f) {
+                sysLogPrintf(LOG_WARNING,
+                             "MANIFEST-SP: late-add '%s' type=%d runtime=%d -- "
+                             "post-load modeldef torn: parts=%d root=%p scale=%.3f "
+                             "(root cause class: sp_body_108 parts=0 / S308)",
+                             catalog_id, asset_type, runtime_idx,
+                             md->numparts, (void *)md->rootnode,
+                             md->scale);
+            } else {
+                sysLogPrintf(LOG_NOTE,
+                             "MANIFEST-SP: late-add '%s' type=%d runtime=%d -- "
+                             "post-load modeldef OK parts=%d scale=%.3f",
+                             catalog_id, asset_type, runtime_idx,
+                             md->numparts, md->scale);
+            }
+        }
+#endif /* !PD_SERVER */
         return 1;
     }
 

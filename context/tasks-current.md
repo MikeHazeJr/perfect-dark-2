@@ -7,6 +7,53 @@
 
 ---
 
+## Open — 2026-04-17 (S312 — Modeldef guards + glyph system + net review, `amazing-mccarthy` worktree)
+
+### Playtest verification of the S312 drop
+
+Build: `PerfectDark.exe` 52,400,200 / `PerfectDarkServer.exe` 22,840,561.
+
+- **Modeldef defensive guards (B-161 reinforcement)** — Replay the B-161
+  repro: Defection (0x30) → Next Mission → Investigation (0x33), walk 1-2
+  minutes.  Tail `pd-client.log` for either:
+  - `DOOR.DIAG: doorGetBbox — no bbox for modelnum=...` (S308 guard) or
+  - `MANIFEST-SP: late-add '...' post-load modeldef torn: parts=%d root=%p
+    scale=%.3f` (new S312 diagnostic — identifies the exact catalog id
+    whose late-add produced the torn state), or
+  - `modelFindBboxNode: walker exceeded 10000 steps` / `modeldefFindBboxNode:
+    walker exceeded 10000 steps` (new S312 guard — fires on a cyclic
+    or dangling rootnode tree).
+  No crash should occur.  The diagnostic fingerprints are the handoff for
+  root-cause investigation.
+- **Glyph system smoke** — no UI surface consumes it yet; the module
+  compiles and exposes the API:
+  - `pdguiGlyphGetDevice()` returns KBM or GAMEPAD based on the
+    actionmap's 500 ms debounce.
+  - `pdguiGlyphGetPrimaryVk(ACTION_USE)` returns the primary VK for the
+    current device (E on KBM default, A on gamepad default).
+  - `pdguiGlyphGetActionLabel(ACTION_USE, buf, sizeof buf)` writes "E"
+    or "A" depending on device.
+  - `pdguiDrawActionPrompt(ACTION_USE, x, y, "Use")` draws a pill.
+  Pull the header via `#include "pdgui_glyphs.h"` (port/include on path);
+  any C or C++ TU can call it.
+
+### Follow-up queued from S312
+
+- **Wire glyphs into in-world prompts** — obvious callers: pickup
+  prompts (`[E] Pick up AR34` / `[A] Pick up AR34`), door prompts,
+  terminal interact prompts, forge HUD controls reminder.  Currently
+  the HUD uses hard-coded labels.
+- **Root-cause fix for modeldef corruption class** — the S312 late-add
+  diagnostic should produce enough log evidence in the next repro to
+  pinpoint either the catalog id whose load is torn or a post-late-add
+  corruptor.  Landing an actual fix (e.g. reloading the modeldef when
+  numparts=0 is detected) is the next step.
+- **Per-player glyph device** — if splitscreen is ever re-enabled,
+  `pdguiGlyphGetDevice` needs a per-player signal.  Not a concern
+  today (single local player only per constraints.md).
+
+---
+
 ## Open — 2026-04-17 (S310 — The Grid editor F1-F8 bulk drop, `sharp-lovelace` worktree)
 
 ### Playtest verification of The Grid editor overlay
