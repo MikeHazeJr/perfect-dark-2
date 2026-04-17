@@ -85,6 +85,7 @@ void gamefileLoadDefaults(struct gamefile *file);
  * sits in port/include/ and the C++ ABI guard (#define bool s32) blocks
  * including prefs_agent.h directly from this translation unit. */
 extern "C" void prefsAgentLoad(const char *agent_name);
+extern "C" void prefsAgentResetVisuals(void);
 
 static void prefsLoadForFile(struct filelistfile *file)
 {
@@ -242,6 +243,12 @@ static s32 renderAgentSelect(struct menudialog *dialog,
          * (already acquired by menuPushDialog). */
         menupoolAcquireDialog(menupoolDialogDef(dialog),
                               &g_CtxImGuiMenu);
+
+        /* Agent Select is pre-sign-in: reset to base defaults so the
+         * screen never shows a previous agent's custom theme/chrome/font.
+         * Per-agent visuals are applied below only if auto-load fires, or
+         * later when the user explicitly selects an agent. */
+        prefsAgentResetVisuals();
 
         /* Auto-load default agent on first appearance */
         if (!s_AutoLoadTriggered && s_DefaultAgentFileId >= 0) {

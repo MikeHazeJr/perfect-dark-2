@@ -4,6 +4,41 @@
 > **S281–S317** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S320 — 2026-04-17 (Agent Select default theme — dev direct)
+
+**Scope**: Agent Select was showing whatever per-agent theme was previously applied (from a prior sign-in) instead of the base system defaults. Since Agent Select is pre-sign-in, no per-agent prefs should be active.
+
+### What changed
+
+Added `prefsAgentResetVisuals()` to `prefs_agent.c`:
+- Resets color theme to `base:theme_blue`
+- Restores chrome to enabled + clears any custom nine-slice style ID
+- Resets title bar to `PDGUI_TITLEBAR_CLASSIC` (0)
+- Clears any per-agent custom font
+- Disables scanlines
+
+Called in `pdgui_menu_agentselect.cpp:IsWindowAppearing` block, BEFORE the auto-load check. After the user selects an agent, `prefsLoadForFile` fires and applies their per-agent theme — producing a visible transition from base defaults → their theme.
+
+The auto-load path (default agent configured) also fires after the reset, so first-frame appearance is base → agent theme in the same tick (no visual flash, but correct ordering).
+
+### Commit
+
+| SHA | Scope |
+|-----|-------|
+| `(this commit)` | **feat(agent-select): reset visual prefs to defaults on open — theme transition visible on sign-in** |
+
+### Files touched
+
+- `port/src/prefs_agent.c` — `prefsAgentResetVisuals()` implementation
+- `port/include/prefs_agent.h` — declaration
+- `port/fast3d/pdgui_menu_agentselect.cpp` — extern "C" decl + call in IsWindowAppearing
+
+### Build verify
+
+`ninja -C Build pd` — clean (only pre-existing `/*` within comment warnings).
+
+---
+
 ## Session S319 — 2026-04-17 (Spurious STAGE_DEFECTION boot transition fix — `nostalgic-lichterman-3c1259` worktree)
 
 **Scope**: Root-cause the double-transition `STAGE_DEFECTION (0x30) → STAGE_CITRAINING (0x26)` logged on every cold boot. The crash guard added in S317 addendum was defense-in-depth; this session eliminates the bad transition at the source.

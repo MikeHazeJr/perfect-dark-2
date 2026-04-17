@@ -43,6 +43,11 @@ void prefsAgentSetActive(const char *agent_name);
  *  owning subsystem's setter.  Missing file is a no-op. */
 void prefsAgentLoad(const char *agent_name);
 
+/** Reset all visual per-agent prefs (theme, chrome, font, scanlines) to
+ *  built-in defaults.  Call when Agent Select opens so the screen always
+ *  shows the unmodified base appearance before any agent is signed in. */
+void prefsAgentResetVisuals(void);
+
 /** Write the current in-memory values for every per-agent key to the
  *  active agent's sidecar.  No-op if no active agent is set. */
 void prefsAgentSave(void);

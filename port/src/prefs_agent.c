@@ -280,6 +280,22 @@ void prefsAgentLoad(const char *agent_name)
     sysLogPrintf(LOG_NOTE, "PREFS.AGENT: loaded %d key(s) from %s", applied, path);
 }
 
+void prefsAgentResetVisuals(void)
+{
+    /* Reset all per-agent visual prefs to built-in defaults. Called when
+     * Agent Select opens so the screen always shows the unmodified base
+     * appearance before any agent is signed in. Per-agent theme/chrome/font
+     * are applied later when the user actually selects an agent. */
+    pdguiThemeLoadFromCatalog("base:theme_blue");
+    pdguiThemeSetUiChromeEnabled(1);
+    pdguiChromeSetEnabled(1);
+    pdguiThemeSetUiChromeStyleId("");
+    pdguiThemeSetTitleBarStyle(PDGUI_TITLEBAR_CLASSIC);
+    pdguiFontModSetActiveId("");
+    pdguiThemeSetScanlineEnabled(0);
+    sysLogPrintf(LOG_NOTE, "PREFS.AGENT: visuals reset to defaults (Agent Select open)");
+}
+
 void prefsAgentSave(void)
 {
     if (!s_ActiveAgent[0]) {

@@ -7,6 +7,16 @@
 
 ---
 
+## Open — 2026-04-17 (S320 — Agent Select default theme)
+
+### Playtest verification
+
+- **Agent Select shows base theme on open** — after playing as a custom-themed agent, return to Agent Select (Escape from main menu). The screen should render with `base:theme_blue` (default grey/blue PD palette), not the previously-active agent's custom theme.
+- **Theme transition visible on sign-in** — select an agent with a custom theme. The moment the agent is signed in, the UI should visually transform to their theme.
+- **Auto-load default agent** — if a default agent is configured (D key), Agent Select should immediately load that agent's theme on first open (no flickering required since it happens same frame).
+
+---
+
 ## Open — 2026-04-17 (S319 — spurious boot transition fix)
 
 ### Playtest verification
