@@ -7,6 +7,16 @@
 
 ---
 
+## Open — 2026-04-17 (S323 — menuPushRootDialog pool hygiene, `naughty-buck-8ede1d` worktree)
+
+### Playtest verification
+
+- **Cold boot into main menu** — open main menu, navigate to Settings, close.  Re-open main menu.  No "menuPushDialog rejected — pool slot already active" in log.  Menu is interactive on every open.
+- **CI redirect at boot** — if CI Options dialog is pushed at boot (Settings via CI path), close it, return to main menu.  Watchdog in `menuPoolConsistencyCheck` should log nothing (previously logged stale-slot warning on the frame after menuPushRootDialog wiped the stack).
+- **Pause → Main Menu transition** — pause in-game, return to main menu via "Exit to Main Menu".  Pool should be cleanly released before the root push.  No "pool slot already active" cascade on subsequent main menu opens.
+
+---
+
 ## Open — 2026-04-17 (S322 — N64 legacy audit Tier 1/2)
 
 ### Playtest verification
@@ -175,7 +185,7 @@ Commit `55c37fc2` + merge. Build: `PerfectDark.exe` 52,288,651 / `PerfectDarkSer
 
 - **Remaining non-blue literal sweep** — agentselect/agentcreate/solomission/modmgr/moddinghub still have PD-blue `IM_COL32` panel/border decorations plus red/yellow/green semantic literals that could fold into `tint_danger`/`text_warning`/`text_positive`.
 - **Dead `ImGuiKey_Gamepad*` checks** — ~130 redundant checks across menu files. Harmless (Enter/Escape parallels catch the edges via action-map→keyboard translation). Removing is a ~1h churn task.
-- **renderCiSettingsRedirect / renderCiDeadPlayer2 / renderCinemaList S300 pool-ctx migration** — still on raw `inputCtxPush/Pop`. Defensive leak-catch in mainmenu.cpp:3416 masks the symptom.
+- ~~**renderCiSettingsRedirect / renderCiDeadPlayer2 / renderCinemaList S300 pool-ctx migration**~~ — **DONE (S311+/S323)**. All three use `menupoolAcquireDialog` + `pdguiConsumeTitleClose`. The defensive `inputCtxPopDeferred` at mainmenu.cpp:3414 is retained as an idempotent belt-and-suspenders guard.
 - ~~**pdgui_lobby.cpp / pdgui_lobby_distrib.cpp / server_gui.cpp / pdgui_skin_editor.cpp blue-tint sweep**~~ — **DONE (S311 pt2 + S315)**. `server_gui.cpp` intentionally skipped (pd-server doesn't link pdgui_style). All semantic cyan/blue accents across all non-server UI files now use `pdguiVec4TitleGlow()`. Remaining hardcoded blues are intentional: log-viewer LOAD category (debug), Solo Mission difficulty colors (PD identity), agentselect initials (artistic).
 
 ---

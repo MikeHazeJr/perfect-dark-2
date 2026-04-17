@@ -27,6 +27,38 @@ None — audit session only.
 - Batch C task closed in tasks-current.md.
 - Remaining S312 follow-ups still open: font-atlas rebuild on runtime swap, Theme Editor mini-preview content-inset.
 
+---
+
+## Session S323 — 2026-04-17 (Batch B — menuPushRootDialog pool hygiene — `naughty-buck-8ede1d` worktree)
+
+**Scope**: Batch B — pool-ctx migration audit + menuPushRootDialog pool hygiene + X-button close sweep.
+
+### What was done
+
+**Audit — Tasks 1 and 3 already complete:**
+Tasks 1 (migrate renderCiSettingsRedirect/renderCiDeadPlayer2/renderCinemaList to pool-ctx) and Task 3 (wire pdguiConsumeTitleClose into additional renderers) were already completed in earlier sessions (S311+). All three renderers have `menupoolAcquireDialog` + `pdguiConsumeTitleClose`. Theme Editor, Modding Hub, Pause Menu, and Endscreen all have `pdguiConsumeTitleClose`. The stale tasks-current entry was updated to reflect this.
+
+**Task 2 — menuPushRootDialog pool hygiene (new):**
+Added `menupoolReleaseAll()` at the top of `menuPushRootDialog` (`src/game/menu.c:3712`) before the `numdialogs = 0` / `depth = 0` zeroing. Without this, any ctx-owning pool slot active at root-push time (e.g. MENU_TYPE_CI_OPTIONS from a boot-path open) became permanently unreachable once the stack was wiped, causing structural dedup to reject all subsequent pushes for that type. The per-frame watchdog (`menuPoolConsistencyCheck`) caught the symptom; this call removes the root cause.
+
+### Commit
+
+| SHA | Scope |
+|-----|-------|
+| `1fd30166` | **fix(S323): menuPushRootDialog — release pool before zeroing dialog stack** |
+
+1 file changed, 8 insertions(+). Fast-forward merged to dev.
+
+### Build result
+
+Clean: `pd` + `pd-server` both link with zero errors (`PerfectDark.exe` + `PerfectDarkServer.exe`). Build configured fresh in worktree (no pre-existing Build dir).
+
+### Next steps
+
+- Playtest: cold boot → main menu → Settings → close → reopen. No "pool slot already active" watchdog warnings. CI redirect path clean.
+
+---
+
 ## Session S322 — 2026-04-17 (N64 legacy audit — Tier 1/2 execution — `nostalgic-lichterman-3c1259` worktree)
 
 **Scope**: Execute all Tier 1 and Tier 2 quick-win items from the N64 legacy audit (`context/designs/n64-legacy-audit-2026-04-17.md`). Strip compile-time-dead IS4MB() branches, IS8MB() guards, `fourmeg2player` mode, and STAGE_4MBMENU routing. Bump N64-era resource limits.
