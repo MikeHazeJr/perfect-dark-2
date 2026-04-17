@@ -658,164 +658,6 @@ static void s_registerModTexture(const char *catalog_id, const char *path)
     s_ThemeTexDims[catalog_id]  = { w, h };
 }
 
-/* =========================================================================
- * UI Texture Mod Override System (D5 Phase 4)
- *
- * Parses mod.json components[] for { "type": "ui" } entries and calls
- * s_registerModTexture for each catalog_id/path pair found.  Overrides
- * are applied on top of the base-ui textures already loaded by
- * pdguiThemeLateInit, and re-applied when modmgrApplyChanges runs.
- * ========================================================================= */
-
-s32 pdguiThemeScanModUiTextures(const char *mod_dir)
-{
-    if (!mod_dir || !mod_dir[0]) return 0;
-
-    char mod_json_path[FS_MAXPATH];
-    snprintf(mod_json_path, sizeof(mod_json_path), "%s/mod.json", mod_dir);
-
-    u32 size = 0;
-    char *raw = (char *)fsFileLoad(mod_json_path, &size);
-    if (!raw || !size) { if (raw) free(raw); return 0; }
-    char *json = (char *)malloc(size + 1);
-    if (!json) { free(raw); return 0; }
-    memcpy(json, raw, size);
-    json[size] = '\0';
-    free(raw);
-
-    s32 count = 0;
-    chrome_jparse jp = { json };
-    chrome_jtok tok = cjson_next(&jp);
-    if (tok.type != CJT_LBRACE) { free(json); return 0; }
-
-    /* Find "components" key at top level */
-    bool found_components = false;
-    while (!found_components) {
-        tok = cjson_next(&jp);
-        if (tok.type == CJT_RBRACE || tok.type == CJT_EOF) break;
-        if (tok.type == CJT_COMMA) continue;
-        if (tok.type != CJT_STRING) { cjson_skip_value(&jp); continue; }
-        chrome_jtok k = tok;
-        tok = cjson_next(&jp);
-        if (tok.type != CJT_COLON) break;
-        if (cjson_key_eq(&k, "components")) found_components = true;
-        else cjson_skip_value(&jp);
-    }
-    if (!found_components) { free(json); return 0; }
-
-    tok = cjson_next(&jp);
-    if (tok.type != CJT_LBRACKET) { free(json); return 0; }
-
-    /* Iterate component array objects — two-pass to handle key order */
-    while (true) {
-        tok = cjson_next(&jp);
-        if (tok.type == CJT_RBRACKET || tok.type == CJT_EOF) break;
-        if (tok.type == CJT_COMMA) continue;
-        if (tok.type != CJT_LBRACE) { cjson_skip_value(&jp); continue; }
-
-        const char *obj_brace   = tok.start;  /* points to '{' */
-        const char *obj_content = jp.pos;      /* points to after '{' */
-
-        /* Pass 1: extract "type" value */
-        char comp_type[32] = "";
-        {
-            chrome_jparse p = { obj_content };
-            while (true) {
-                tok = cjson_next(&p);
-                if (tok.type == CJT_RBRACE || tok.type == CJT_EOF) break;
-                if (tok.type == CJT_COMMA) continue;
-                if (tok.type != CJT_STRING) { cjson_skip_value(&p); continue; }
-                chrome_jtok ck = tok;
-                tok = cjson_next(&p);
-                if (tok.type != CJT_COLON) break;
-                if (cjson_key_eq(&ck, "type")) {
-                    tok = cjson_next(&p);
-                    cjson_str(&tok, comp_type, sizeof(comp_type));
-                    break;
-                }
-                cjson_skip_value(&p);
-            }
-        }
-
-        /* Pass 2: if type=="ui", walk the textures array */
-        if (strcmp(comp_type, "ui") == 0) {
-            chrome_jparse p = { obj_content };
-            while (true) {
-                tok = cjson_next(&p);
-                if (tok.type == CJT_RBRACE || tok.type == CJT_EOF) break;
-                if (tok.type == CJT_COMMA) continue;
-                if (tok.type != CJT_STRING) { cjson_skip_value(&p); continue; }
-                chrome_jtok ck = tok;
-                tok = cjson_next(&p);
-                if (tok.type != CJT_COLON) break;
-                if (!cjson_key_eq(&ck, "textures")) { cjson_skip_value(&p); continue; }
-                tok = cjson_next(&p);
-                if (tok.type != CJT_LBRACKET) break;
-                while (true) {
-                    tok = cjson_next(&p);
-                    if (tok.type == CJT_RBRACKET || tok.type == CJT_EOF) break;
-                    if (tok.type == CJT_COMMA) continue;
-                    if (tok.type != CJT_LBRACE) { cjson_skip_value(&p); continue; }
-                    char cat_id[64]   = "";
-                    char rel_path[256] = "";
-                    while (true) {
-                        tok = cjson_next(&p);
-                        if (tok.type == CJT_RBRACE || tok.type == CJT_EOF) break;
-                        if (tok.type == CJT_COMMA) continue;
-                        if (tok.type != CJT_STRING) { cjson_skip_value(&p); continue; }
-                        chrome_jtok tk = tok;
-                        tok = cjson_next(&p);
-                        if (tok.type != CJT_COLON) break;
-                        tok = cjson_next(&p);
-                        if (cjson_key_eq(&tk, "catalog_id"))
-                            cjson_str(&tok, cat_id, sizeof(cat_id));
-                        else if (cjson_key_eq(&tk, "path"))
-                            cjson_str(&tok, rel_path, sizeof(rel_path));
-                    }
-                    if (cat_id[0] && rel_path[0]) {
-                        char full[FS_MAXPATH];
-                        snprintf(full, sizeof(full), "%s/%s", mod_dir, rel_path);
-                        s_registerModTexture(cat_id, full);
-                        count++;
-                    }
-                }
-                break; /* only one textures array per ui component */
-            }
-        }
-
-        /* Advance main parser past this object */
-        {
-            chrome_jparse skip = { obj_brace };
-            cjson_skip_value(&skip);
-            jp.pos = skip.pos;
-        }
-    }
-
-    free(json);
-    return count;
-}
-
-void pdguiThemeApplyEnabledModUiTextures(void)
-{
-    if (!s_ThemeLateInitDone) return;
-
-    s32 n = modmgrGetCount();
-    s32 total = 0;
-    for (s32 i = 0; i < n; i++) {
-        modinfo_t *m = modmgrGetMod(i);
-        if (!m || !m->enabled || !m->dirpath[0]) continue;
-        s32 added = pdguiThemeScanModUiTextures(m->dirpath);
-        if (added > 0) {
-            sysLogPrintf(LOG_NOTE,
-                "PDGUI theme: mod '%s' provided %d UI texture override(s)",
-                m->id, added);
-            total += added;
-        }
-    }
-    if (total > 0)
-        sysLogPrintf(LOG_NOTE,
-            "PDGUI theme: %d UI texture override(s) applied from mods", total);
-}
 
 /**
  * Generate a procedural texture and upload to GL.
@@ -1029,6 +871,165 @@ static void cjson_skip_value(chrome_jparse *j)
             else if (tok.type == CJT_EOF || tok.type == CJT_ERROR) return;
         }
     }
+}
+
+/* =========================================================================
+ * UI Texture Mod Override System (D5 Phase 4)
+ *
+ * Parses mod.json components[] for { "type": "ui" } entries and calls
+ * s_registerModTexture for each catalog_id/path pair found.  Overrides
+ * are applied on top of the base-ui textures already loaded by
+ * pdguiThemeLateInit, and re-applied when modmgrApplyChanges runs.
+ * ========================================================================= */
+
+s32 pdguiThemeScanModUiTextures(const char *mod_dir)
+{
+    if (!mod_dir || !mod_dir[0]) return 0;
+
+    char mod_json_path[FS_MAXPATH];
+    snprintf(mod_json_path, sizeof(mod_json_path), "%s/mod.json", mod_dir);
+
+    u32 size = 0;
+    char *raw = (char *)fsFileLoad(mod_json_path, &size);
+    if (!raw || !size) { if (raw) free(raw); return 0; }
+    char *json = (char *)malloc(size + 1);
+    if (!json) { free(raw); return 0; }
+    memcpy(json, raw, size);
+    json[size] = '\0';
+    free(raw);
+
+    s32 count = 0;
+    chrome_jparse jp = { json };
+    chrome_jtok tok = cjson_next(&jp);
+    if (tok.type != CJT_LBRACE) { free(json); return 0; }
+
+    /* Find "components" key at top level */
+    bool found_components = false;
+    while (!found_components) {
+        tok = cjson_next(&jp);
+        if (tok.type == CJT_RBRACE || tok.type == CJT_EOF) break;
+        if (tok.type == CJT_COMMA) continue;
+        if (tok.type != CJT_STRING) { cjson_skip_value(&jp); continue; }
+        chrome_jtok k = tok;
+        tok = cjson_next(&jp);
+        if (tok.type != CJT_COLON) break;
+        if (cjson_key_eq(&k, "components")) found_components = true;
+        else cjson_skip_value(&jp);
+    }
+    if (!found_components) { free(json); return 0; }
+
+    tok = cjson_next(&jp);
+    if (tok.type != CJT_LBRACKET) { free(json); return 0; }
+
+    /* Iterate component array objects — two-pass to handle key order */
+    while (true) {
+        tok = cjson_next(&jp);
+        if (tok.type == CJT_RBRACKET || tok.type == CJT_EOF) break;
+        if (tok.type == CJT_COMMA) continue;
+        if (tok.type != CJT_LBRACE) { cjson_skip_value(&jp); continue; }
+
+        const char *obj_brace   = tok.start;  /* points to '{' */
+        const char *obj_content = jp.pos;      /* points to after '{' */
+
+        /* Pass 1: extract "type" value */
+        char comp_type[32] = "";
+        {
+            chrome_jparse p = { obj_content };
+            while (true) {
+                tok = cjson_next(&p);
+                if (tok.type == CJT_RBRACE || tok.type == CJT_EOF) break;
+                if (tok.type == CJT_COMMA) continue;
+                if (tok.type != CJT_STRING) { cjson_skip_value(&p); continue; }
+                chrome_jtok ck = tok;
+                tok = cjson_next(&p);
+                if (tok.type != CJT_COLON) break;
+                if (cjson_key_eq(&ck, "type")) {
+                    tok = cjson_next(&p);
+                    cjson_str(&tok, comp_type, sizeof(comp_type));
+                    break;
+                }
+                cjson_skip_value(&p);
+            }
+        }
+
+        /* Pass 2: if type=="ui", walk the textures array */
+        if (strcmp(comp_type, "ui") == 0) {
+            chrome_jparse p = { obj_content };
+            while (true) {
+                tok = cjson_next(&p);
+                if (tok.type == CJT_RBRACE || tok.type == CJT_EOF) break;
+                if (tok.type == CJT_COMMA) continue;
+                if (tok.type != CJT_STRING) { cjson_skip_value(&p); continue; }
+                chrome_jtok ck = tok;
+                tok = cjson_next(&p);
+                if (tok.type != CJT_COLON) break;
+                if (!cjson_key_eq(&ck, "textures")) { cjson_skip_value(&p); continue; }
+                tok = cjson_next(&p);
+                if (tok.type != CJT_LBRACKET) break;
+                while (true) {
+                    tok = cjson_next(&p);
+                    if (tok.type == CJT_RBRACKET || tok.type == CJT_EOF) break;
+                    if (tok.type == CJT_COMMA) continue;
+                    if (tok.type != CJT_LBRACE) { cjson_skip_value(&p); continue; }
+                    char cat_id[64]   = "";
+                    char rel_path[256] = "";
+                    while (true) {
+                        tok = cjson_next(&p);
+                        if (tok.type == CJT_RBRACE || tok.type == CJT_EOF) break;
+                        if (tok.type == CJT_COMMA) continue;
+                        if (tok.type != CJT_STRING) { cjson_skip_value(&p); continue; }
+                        chrome_jtok tk = tok;
+                        tok = cjson_next(&p);
+                        if (tok.type != CJT_COLON) break;
+                        tok = cjson_next(&p);
+                        if (cjson_key_eq(&tk, "catalog_id"))
+                            cjson_str(&tok, cat_id, sizeof(cat_id));
+                        else if (cjson_key_eq(&tk, "path"))
+                            cjson_str(&tok, rel_path, sizeof(rel_path));
+                    }
+                    if (cat_id[0] && rel_path[0]) {
+                        char full[FS_MAXPATH];
+                        snprintf(full, sizeof(full), "%s/%s", mod_dir, rel_path);
+                        s_registerModTexture(cat_id, full);
+                        count++;
+                    }
+                }
+                break; /* only one textures array per ui component */
+            }
+        }
+
+        /* Advance main parser past this object */
+        {
+            chrome_jparse skip = { obj_brace };
+            cjson_skip_value(&skip);
+            jp.pos = skip.pos;
+        }
+    }
+
+    free(json);
+    return count;
+}
+
+void pdguiThemeApplyEnabledModUiTextures(void)
+{
+    if (!s_ThemeLateInitDone) return;
+
+    s32 n = modmgrGetCount();
+    s32 total = 0;
+    for (s32 i = 0; i < n; i++) {
+        modinfo_t *m = modmgrGetMod(i);
+        if (!m || !m->enabled || !m->dirpath[0]) continue;
+        s32 added = pdguiThemeScanModUiTextures(m->dirpath);
+        if (added > 0) {
+            sysLogPrintf(LOG_NOTE,
+                "PDGUI theme: mod '%s' provided %d UI texture override(s)",
+                m->id, added);
+            total += added;
+        }
+    }
+    if (total > 0)
+        sysLogPrintf(LOG_NOTE,
+            "PDGUI theme: %d UI texture override(s) applied from mods", total);
 }
 
 static s32 s_parseFillModeToken(const chrome_jtok *tok)
