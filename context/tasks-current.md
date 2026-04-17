@@ -7,6 +7,34 @@
 
 ---
 
+## Done — 2026-04-17 (S348 — D7 Discord Rich Presence, `ecstatic-cartwright-11459d`)
+
+**Build verified.** Clean 774/774 objects, zero errors.
+`PerfectDark.exe` 52,883,797 / `PerfectDarkServer.exe` 22,906,762.
+
+D7 implemented as a thin Windows IPC client — no external library, zero new DLL
+dependencies.  New files: `port/src/discord.c` + `port/include/discord.h`.  Wired
+into `port/src/main.c` (init/shutdown) and `port/src/pdmain.c` (tick).
+
+Presence states: Main Menu / Solo Mission (stage + difficulty) / Combat Simulator
+(stage + scenario + counts) / Co-op / Counter-Op / The Grid editor / Lobby /
+Dedicated Server.
+
+**Setup required before presence appears in Discord:**
+1. Register app at https://discord.com/developers/applications
+2. Copy Application ID → replace `"0"` in `port/include/discord.h` → `DISCORD_APP_ID`
+3. Upload art assets in Rich Presence → Art Assets tab:
+   `pd2_logo`, `icon_solo`, `icon_combat`, `icon_coop`, `icon_counterop`, `icon_forge`
+
+**Playtest items:**
+- Launch PD2 with Discord open — verify presence shows "In Main Menu".
+- Start a solo mission — verify presence shows stage name + difficulty.
+- Start a Combat Simulator match — verify presence shows stage + scenario + counts.
+- Close Discord mid-session — verify game does not crash or log spam.
+- Reopen Discord — verify presence reconnects within 30 seconds.
+
+---
+
 ## Done — 2026-04-17 (S344 — Audit S339+S340, `optimistic-mcclintock-47fc8d`)
 
 **Build verified.** Clean 4/4 objects, zero errors. Merge commit to dev.

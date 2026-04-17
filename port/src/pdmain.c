@@ -86,6 +86,7 @@
 #include "pdmain.h"
 #include "pdgui_theme.h"
 #include "audio.h"
+#include "discord.h"
 
 extern u8 *g_MempHeap;
 extern u32 g_MempHeapSize;
@@ -686,6 +687,7 @@ void mainTick(void)
 		rdpCreateTask(gdlstart, gdl, 0, (uintptr_t) &msg);
 		memaPrint();
 		profileSetMarker(PROFILE_MAINTICK_END);
+		discordTick();
 	}
 }
 

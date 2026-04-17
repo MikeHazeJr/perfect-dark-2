@@ -61,7 +61,7 @@ to PATH, `CCACHE_SLOPPINESS=pch_defines,time_macros`. Do not rediscover.
 | D4 | Menu Migration | ♻️ Superseded by ImGui hotswap | S22 |
 | D5 | Settings / Graphics / QoL | 🔶 Phase 3 DONE; Phase 4 (themes) partial; Phase 5 (lobby scene) planned | S221 |
 | D6 | Persistent Stats | 🔶 Partial — `playerstats.c` coded (S49), gameplay-site wire-in partial | S49 |
-| D7 | Discord Rich Presence | 📋 Planned | — |
+| D7 | Discord Rich Presence | ✅ **DONE** (S348) | S348 |
 | D8 | NAT Traversal / LAN | ✅ **DONE** | S83 |
 | D9 | Dedicated Server | ✅ **MOSTLY DONE** — R-1 / R-2 / R-3 / R-4 shipped; R-5 server GUI redesign planned | S253 |
 | D10 | Spectator Mode | 📋 Planned | — |
@@ -199,9 +199,27 @@ stack retained only as plumbing.
   - Save-on-event: `statsSave()` called at match end and solo mission end.
 - Achievements = future query layer on top.
 
-### D7: Discord Rich Presence — 📋 PLANNED
+### D7: Discord Rich Presence — ✅ DONE (S348)
 
-Activity API + join button.
+Thin IPC client in `port/src/discord.c` + `port/include/discord.h`.  No external
+library — speaks the Discord RPC named-pipe protocol directly (Windows
+`\\.\pipe\discord-ipc-{0..9}`).  Zero new link dependencies.
+
+Presence states:
+- **Main Menu**: "In Main Menu"
+- **Solo Mission**: stage name (e.g. "Ci Training") / difficulty
+- **Combat Simulator**: "Combat Simulator: \<stage\>" / scenario + player/bot counts
+- **Co-op**: "Co-op: \<stage\>" / player count
+- **Counter-Op**: "Counter-Op: \<stage\>" / player count
+- **The Grid editor**: "Editing in The Grid" / stage name
+- **Lobby**: "In Lobby" / player count
+- **Dedicated Server**: "Running Dedicated Server" (no presence for headless)
+
+Art asset keys (upload in Discord Developer Portal → Rich Presence → Art Assets):
+`pd2_logo`, `icon_solo`, `icon_combat`, `icon_coop`, `icon_counterop`, `icon_forge`
+
+**Setup**: register application at https://discord.com/developers/applications, copy
+the "Application ID", set `DISCORD_APP_ID` in `port/include/discord.h`.
 
 ### D8: NAT Traversal / LAN — ✅ DONE (S83)
 
