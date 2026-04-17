@@ -7,6 +7,18 @@
 
 ---
 
+## Done — 2026-04-17 (S344 — Audit S339+S340, `optimistic-mcclintock-47fc8d`)
+
+**Build verified.** Clean 4/4 objects, zero errors. Merge commit to dev.
+
+4 bugs fixed:
+- `server_gui.cpp`: Stage ID InputText width reserves room for Apply button when dirty
+- `server_gui.cpp`: Force Start button also requires `roomGetActiveCount() > 0`
+- `server_gui.cpp`: Ban button tooltip clarifies no IP block (same as kick currently)
+- `pdgui_menu_theme_editor.cpp`: `renderLivePreview` cursor height uses full drawn dialog height (`headerH + 6*scale`)
+
+---
+
 ## Done — 2026-04-17 (S340 — Content-Inset Sweep, `elated-lichterman-9c8f69`)
 
 **Build verified.** Clean 585/585, zero errors. Merge commit `56338aaa` on dev.

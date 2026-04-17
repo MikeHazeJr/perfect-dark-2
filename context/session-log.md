@@ -32,6 +32,34 @@ Forge wire-in (props/zones/weapon pads) still deferred — needs a dedicated ses
 
 ---
 
+## Session S344 — 2026-04-17 (`optimistic-mcclintock-47fc8d` worktree) — Wave 2 Audit
+
+**Scope**: Audit S339 (R-5 server GUI redesign) and S340 (content-inset sweep). Find bugs/gaps, fix, build-verify.
+
+### S339 audit — server_gui.cpp + server_bridge.c
+
+4 bugs found and fixed (commit `63ad5f89`):
+
+1. **Stage ID InputText clipped Apply button** — `SetNextItemWidth(-1)` filled all available width, leaving zero room for the Apply button placed `SameLine`. Fixed: use `-60.0f` width when dirty (Apply button visible), `-1.0f` when idle. (`server_gui.cpp:762`)
+
+2. **Force Start active with no rooms** — button was enabled when `g_NetNumClients > 0` but players can be connected with no active room. Fixed: guard also requires `roomGetActiveCount() > 0`. (`server_gui.cpp:794`)
+
+3. **Ban button misleading** — `netServerBanClient` calls `enet_peer_disconnect` (same as kick) with no IP-level blocklist. Added tooltip: "Kick + log (IP block not yet implemented)". (`server_gui.cpp:605`)
+
+4. **S339 items verified correct**: Table column counts (Players 6, Rooms 6, Updates 5) ✓ · `netServerBanClient` does disconnect the peer ✓ · `serverGetMemoryMB` returns 0 on non-Windows (correct, documented) ✓ · `netServerKickClient` checks `cl->state == CLSTATE_DISCONNECTED` before accessing peer (mid-kick safety) ✓ · Log buffer uses a ring (sysLogRingGetCount/sysLogRingGetLine) — bounded ✓ · `g_NetClients[NET_MAX_CLIENTS + 1]` declared with +1 extra slot, so `> NET_MAX_CLIENTS` bound-check is correct ✓.
+
+### S340 audit — content-inset sweep
+
+1. **`renderLivePreview` cursor overlap** — `pdguiSetCursorBelowTitle(headerH)` passed only the title height but `pdguiDrawPdDialog` draws `headerH + 6*scale` tall. Content overlapped drawn header by `6*scale` px (6px at scale=1). Fixed: pass `headerH + 6.0f * scale`. (`pdgui_menu_theme_editor.cpp:399`)
+
+2. **All 7 patched files verified correct**: `pdguiSetCursorBelowTitle(0.0f)` calls in audiomod, logviewer, moddinghub, modmgr, update are all placed after `ImGui::Begin`/`BeginChild` before content ✓. `mpingame` decl-only (correct — pill windows manage their own padding) ✓. No missed pdgui_menu_*.cpp files (22 of 30 already covered, 7 patched, forge is no-op shim) ✓.
+
+### Build
+
+Clean 4/4. `PerfectDark.exe` + `PerfectDarkServer.exe` linked. Merge commit to dev.
+
+---
+
 ## Session S343 — 2026-04-17 (`bold-pascal-bc7b8c` worktree)
 
 **Scope**: Audit session. Wave 2 retrospective — S337 (dev-window-v2 fixes) and S338 (memory M5+M6). Find bugs, gaps, and missing improvements. Fix anything found. Build verify.
