@@ -81,6 +81,9 @@ extern "C" void pdguiLogViewerRender(s32 winW, s32 winH);
 /* In-match HUD overlay (top scorers + timer) */
 #include "pdgui_hud.h"
 
+/* ImGui subtitle renderer — replaces legacy hudmsg subtitle path */
+#include "pdgui_subtitles.h"
+
 /* MP In-Game overlays: kill ticker + endscreen suppression */
 extern "C" void pdguiMpIngameRender(s32 winW, s32 winH);
 
@@ -617,6 +620,13 @@ void pdguiRender(void)
     /* In-match HUD: top 2 scorers + remaining time.
      * Only visible during normmplayerisrunning (combat sim active). */
     pdguiHudRender((s32)winW, (s32)winH);
+
+    /* Subtitle overlay: bottom-center panel for HUDMSGTYPE_INGAMESUBTITLE
+     * and HUDMSGTYPE_CUTSCENESUBTITLE — replaces the legacy hudmsg path
+     * for these two types.  hudmsgsRender skips them so ImGui is the sole
+     * renderer.  Draws on the foreground draw list so cutscene letterbox
+     * bars do not occlude subtitles. */
+    pdguiSubtitlesRender((s32)winW, (s32)winH);
 
     /* S311: contextual interact prompt ("[E] Pick up", "[E] Open" etc).
      * No-op when no interact target is tracked.  Drawn above the HUD so the

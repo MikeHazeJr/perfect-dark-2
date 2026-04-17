@@ -2471,6 +2471,12 @@ void mpCalculateAwards(void)
 			mpplayer->time += duration60 / 60;
 			mpplayer->distance += (u32)(g_Vars.playerstats[playernum].distance / 10000.0f);
 
+			/* PC: track per-match time/distance/headshots in persistent stats (local players only) */
+			if (playernum < PLAYERCOUNT()) {
+				statIncrement("mp.time_played_seconds", (u64)(duration60 / 60));
+				statIncrement("mp.distance_units", (u64)(g_Vars.playerstats[playernum].distance / 10000.0f));
+			}
+
 #if VERSION >= VERSION_NTSC_1_0
 			if (metrics[i].numshots > 0) {
 				if (mpplayer->gamesplayed < 2) {
@@ -2512,6 +2518,10 @@ void mpCalculateAwards(void)
 
 					if (!lost) {
 						mpplayer->gameswon++;
+						/* PC: track match win in persistent stats (local players only) */
+						if (playernum < PLAYERCOUNT()) {
+							statIncrement("mp.matches_won", 1);
+						}
 					}
 				}
 
@@ -2539,6 +2549,10 @@ void mpCalculateAwards(void)
 
 					if (!won) {
 						mpplayer->gameslost++;
+						/* PC: track match loss in persistent stats (local players only) */
+						if (playernum < PLAYERCOUNT()) {
+							statIncrement("mp.matches_lost", 1);
+						}
 					}
 				}
 			}

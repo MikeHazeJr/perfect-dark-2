@@ -1631,3 +1631,73 @@ void pdguiCdSetAimControl(s32 mode)
     g_Vars.modifiedfiles |= MODFILE_GAME;
 }
 
+/* ===========================================================================
+ * Subtitle snapshot bridge — feeds pdgui_subtitles.cpp with active subtitle
+ * text/opacity from g_HudMessages[] without exposing the full struct.
+ *
+ * hudmsg.c still owns the tick/lifecycle (hudmsgsTick).  The legacy renderer
+ * in hudmsgsRender skips HUDMSGTYPE_INGAMESUBTITLE and HUDMSGTYPE_CUTSCENESUBTITLE
+ * entries so only ImGui draws them.
+ *
+ * Cutscene subtitles are drawn even when the cutscene cinema bars are up,
+ * in-game subtitles honour the player-alive guard to match legacy behaviour.
+ * =========================================================================== */
+
+/* Exposed globals defined in hudmsg.c */
+extern s32 g_NumHudMessages;
+extern struct hudmessage *g_HudMessages;
+
+/* Public shape consumed by pdgui_subtitles.cpp.  Keep simple / POD. */
+struct pdguiSubtitleEntry {
+    const char *text;    /* NUL-terminated, points into g_HudMessages slot */
+    u32 textcolour;      /* RGBA u32 */
+    u32 glowcolour;      /* RGBA u32 (shadow) */
+    u8  opacity;         /* 0-255 */
+    u8  is_cutscene;     /* 1 if HUDMSGTYPE_CUTSCENESUBTITLE, 0 if in-game */
+    u8  _pad[2];
+};
+
+/* Snapshot up to maxOut active subtitle entries; returns count.
+ * Safe to call every frame.  The pointers inside each entry remain valid
+ * for the duration of the frame (hudmsg entries are static memory). */
+s32 pdguiSubtitlesSnapshot(struct pdguiSubtitleEntry *out, s32 maxOut)
+{
+    if (!out || maxOut <= 0 || !g_HudMessages || g_NumHudMessages <= 0) {
+        return 0;
+    }
+
+    s32 count = 0;
+    for (s32 i = 0; i < g_NumHudMessages && count < maxOut; i++) {
+        struct hudmessage *msg = &g_HudMessages[i];
+        if (!msg->opacity) {
+            continue;
+        }
+        if (msg->state == HUDMSGSTATE_FREE || msg->state == HUDMSGSTATE_QUEUED) {
+            continue;
+        }
+        if (msg->type != HUDMSGTYPE_INGAMESUBTITLE
+                && msg->type != HUDMSGTYPE_CUTSCENESUBTITLE) {
+            continue;
+        }
+        /* Legacy gate: cutscene subtitles suppressed outside cutscenes */
+        if (msg->type == HUDMSGTYPE_CUTSCENESUBTITLE
+                && g_Vars.tickmode != TICKMODE_CUTSCENE) {
+            continue;
+        }
+        /* Only render subtitles owned by the current local player */
+        if (msg->playernum != g_Vars.currentplayernum) {
+            continue;
+        }
+
+        out[count].text = msg->text;
+        out[count].textcolour = msg->textcolour;
+        out[count].glowcolour = msg->glowcolour;
+        out[count].opacity = msg->opacity;
+        out[count].is_cutscene = (msg->type == HUDMSGTYPE_CUTSCENESUBTITLE) ? 1 : 0;
+        out[count]._pad[0] = 0;
+        out[count]._pad[1] = 0;
+        count++;
+    }
+    return count;
+}
+

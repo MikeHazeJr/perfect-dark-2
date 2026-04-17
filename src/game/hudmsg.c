@@ -1393,6 +1393,16 @@ Gfx *hudmsgsRender(Gfx *gdl)
 			continue;
 		}
 
+		/* PC: subtitles now render through pdguiSubtitlesRender (ImGui bottom
+		 * panel) instead of the legacy N64 viewmodel overlay.  Skip both
+		 * in-game and cutscene subtitle types in this loop so there is no
+		 * duplicate/competing render.  The tick lifecycle (fade, opacity,
+		 * audio-channel tracking in hudmsgsTick) still runs on these entries. */
+		if (msg->type == HUDMSGTYPE_INGAMESUBTITLE
+				|| msg->type == HUDMSGTYPE_CUTSCENESUBTITLE) {
+			continue;
+		}
+
 		if (msg->flash) {
 			s32 alpha;
 			sin = sinf((msg->timer * M_PI) / 60.0f);

@@ -1,8 +1,72 @@
 
 # Session Log (Active)
 
-> **S281–S323** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S325** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S325 — 2026-04-17 (D6 stats wire-in + ImGui subtitles — `xenodochial-mendel-93fca2` worktree)
+
+**Scope**: Two parallel focused tasks. Task 1: complete D6 persistent stats gameplay wire-in at remaining call sites. Task 2: migrate subtitle rendering from legacy N64 viewmodel overlay to ImGui bottom-center panel.
+
+### Task 1 — D6 gameplay stats wire-in
+
+**Context (already wired pre-S325)**: `mpstats.c` had shots (+per-weapon/headshot), kills (+per-weapon/per-mode/vs_bot/vs_player), deaths (+per-mode/suicide/by_bot/by_player). `mplayer.c::mpEndMatch` had `matches.played` + `statsSave()`.
+
+**What was added**:
+
+- **mplayer.c::mpCalculateAwards** — wins/losses/time/distance
+  - At `mpplayer->gameswon++`: `statIncrement("mp.matches_won", 1)` (local player only via `playernum < PLAYERCOUNT()`)
+  - At `mpplayer->gameslost++`: `statIncrement("mp.matches_lost", 1)` (same guard)
+  - At per-player time/distance accumulation: `statIncrement("mp.time_played_seconds", duration60/60)` + `statIncrement("mp.distance_units", distance/10000)`
+- **endscreen.c::endscreenPrepare** — solo mission outcomes
+  - Early in function, before any legacy logic: classify completion via `!isdead && !aborted && objectiveIsAllComplete()`
+  - `statIncrement("solo.missions_completed"|"solo.mission_failures", 1)`
+  - Accumulate `solo.time_played_seconds`
+  - Gated on `!coop !anti !cheats` (pdmode branches through normal solo)
+  - `statsSave()` after increment for safety
+- **lv.c::lvTick** (distance accumulator site) — per-tick sampling
+  - File-scope static `s_StatDistanceAccum[MAX_PLAYERS]` accumulator
+  - Flushes `statIncrement("distance_units", 1)` + `{mp,solo}.distance_units_sample` per 10000 world-unit threshold to avoid hash-table churn every frame
+  - Local-player gated (`g_Vars.currentplayernum < PLAYERCOUNT()`)
+- **propobj.c::propPickupByPlayer** — item pickups
+  - After `result != TICKOP_NONE` check (successful pickup): `items.picked_up` (always) + typed counter switch (`keys_picked_up`, `ammo_crates`, `weapons_picked_up`, `shields_picked_up`)
+  - Local-player gated
+- **propobj.c::doorsCheckAutomatic** — door opens
+  - Inside `canopen` branch (player-triggered auto-open only — skips AI/script opens): `doors.opened`
+  - Local-player gated
+
+**Include hygiene**: added `extern void statIncrement(const char *key, u64 amount);` to lv.c, propobj.c, endscreen.c (+ `statsSave` extern to endscreen.c).
+
+### Task 2 — Subtitle ImGui migration
+
+**Root cause**: `hudmsgsRender` (src/game/hudmsg.c) rendered `HUDMSGTYPE_INGAMESUBTITLE` and `HUDMSGTYPE_CUTSCENESUBTITLE` through the legacy N64 text-on-GBI path, which positioned subtitles at the top of the screen and fought the modern ImGui overlay.
+
+**What was done**:
+
+- **New `port/fast3d/pdgui_subtitles.cpp` + `port/include/pdgui_subtitles.h`** — standalone ImGui renderer
+  - Reads subtitle data via new `pdguiSubtitlesSnapshot(out, maxOut)` bridge function (`pdgui_bridge.c`) — POD-only output so the C++ renderer does not have to include types.h
+  - Bottom-center panel: 560 px wide (scales with `pdguiScale`), 46 px bottom margin, semi-transparent rounded backdrop (rgba 0,0,0,173), subtle 1px white-alpha border
+  - Word-wrapped + horizontally centered text with 1-px drop shadow from `msg->glowcolour` for readability
+  - Rendered on `ImGui::GetForegroundDrawList()` so cutscene letterbox bars do not occlude
+  - Respects `msg->opacity` (legacy hudmsgsTick drives fade-in/out via audio-channel lifecycle — untouched)
+- **Bridge snapshot — `pdgui_bridge.c::pdguiSubtitlesSnapshot`** — walks `g_HudMessages[]`, filters `HUDMSGSTATE_{FREE,QUEUED}` + opacity=0 + non-subtitle types + cutscene-gate + playernum mismatch, copies text pointer + colours + opacity + `is_cutscene` flag into output array
+- **Hook — `pdgui_backend.cpp::pdguiRender`** — calls `pdguiSubtitlesRender(winW, winH)` immediately after `pdguiHudRender` and before `pdguiInteractPromptRender`
+- **Legacy renderer disabled — `hudmsg.c::hudmsgsRender`** — skips both subtitle types via a `continue` branch at the top of the per-message loop; tick lifecycle (hudmsgsTick, position calc, audio-channel opacity) still runs untouched so this is a rendering-only swap
+
+### Commit
+
+(pending) — see Task dir for staged changes.
+
+### Build result
+
+Clean: 769/769 objects, zero errors, both `PerfectDark.exe` (52,732,103 bytes) and `PerfectDarkServer.exe` (22,838,985 bytes) link clean. Only pre-existing `-Wcomment` warnings in vendored code.
+
+### Next steps
+
+- Playtest verification: solo mission with subtitles → bottom-center panel; cutscene → panel not occluded by letterbox; match end → `saves/playerstats.json` contains `mp.matches_won/lost`, `mp.time_played_seconds`, `items.picked_up`, `doors.opened`.
+- D6 marked DONE in infrastructure.md.
+
+---
 
 ## Session S323 — 2026-04-17 (Batch G — cross-audit gap fixes — `practical-wozniak-051afa` worktree)
 

@@ -34,6 +34,10 @@
 #include "savefile.h"
 #include "system.h"
 
+/* PC: persistent stats tracking */
+extern void statIncrement(const char *key, u64 amount);
+extern void statsSave(void);
+
 /* M0.1a: catalog-first stage setter — catalog ID is primary identity.
  * Resolves stagenum from catalog at point of consumption. */
 static void missionSetStageByCatalog(const char *catalog_id)
@@ -1539,6 +1543,33 @@ void endscreenPrepare(void)
 		g_Vars.stagenum, g_MissionConfig.stageindex,
 		g_MissionConfig.difficulty,
 		g_MissionConfig.iscoop, g_MissionConfig.isanti);
+
+	/* PC: persistent stats — record solo mission completion or failure.
+	 * Only counts for unmodded, non-cheat solo runs (not coop, not anti, not pdmode). */
+	if (g_MenuData.root != MENUROOT_ENDSCREEN
+			&& g_Vars.mplayerisrunning == false
+			&& g_MissionConfig.iscoop == false
+			&& g_MissionConfig.isanti == false
+			&& g_Vars.currentplayer
+			&& g_CheatsActiveBank0 == 0
+			&& g_CheatsActiveBank1 == 0) {
+		bool completed = (g_Vars.currentplayer->isdead == false
+			&& g_Vars.currentplayer->aborted == false
+			&& objectiveIsAllComplete());
+		if (completed) {
+			statIncrement("solo.missions_completed", 1);
+		} else {
+			statIncrement("solo.mission_failures", 1);
+		}
+		/* Accumulate solo time played (seconds) regardless of outcome */
+		{
+			u32 solosecs = playerGetMissionTime() / 60;
+			if (solosecs > 0) {
+				statIncrement("solo.time_played_seconds", (u64)solosecs);
+			}
+		}
+		statsSave();
+	}
 
 #if VERSION >= VERSION_NTSC_1_0
 	g_Menus[g_MpPlayerNum].endscreen.stageindex = g_MissionConfig.stageindex;
