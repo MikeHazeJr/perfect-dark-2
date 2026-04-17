@@ -154,7 +154,9 @@ static void serializeModPlaylist(char *out, size_t outmax)
     for (s32 i = 0; i < cnt; i++) {
         const char *e = audioGetModPlaylistEntry(i);
         if (e && e[0]) {
-            off += snprintf(out + off, (s32)outmax - off,
+            s32 rem = (s32)outmax - off;
+            if (rem <= 1) break;
+            off += snprintf(out + off, (size_t)rem,
                             "%s%s", off > 0 ? ";" : "", e);
         }
     }
