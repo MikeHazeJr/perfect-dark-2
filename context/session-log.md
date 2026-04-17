@@ -1,8 +1,70 @@
 
 # Session Log (Active)
 
-> **S281–S323** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S324** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S324 — 2026-04-17 (B-12 Phase 3 — remove chrslots, protocol v37 — `exciting-meitner-bc8c70` worktree)
+
+**Scope**: Retire the legacy `u64 chrslots` bitmask and make the dynamic
+participant pool the sole source of match slot state. Breaking wire
+protocol change; bump `NET_PROTOCOL_VER` 36 → 37.
+
+### What was done
+
+**Struct / constants:**
+- `src/include/types.h` — deleted `u64 chrslots` from `struct mpsetup`; left a note pointing readers at the participant pool.
+- `src/include/constants.h` — deleted `BOT_SLOT_OFFSET`, `CHRSLOTS_PLAYER_MASK`, `CHRSLOTS_BOT_MASK`. Replacement rule documented inline: bot slots live at `MAX_PLAYERS..MAX_MPCHRS-1`.
+- `src/include/game/mplayer/participant.h` — dropped `MpParticipant.legacy_slot`; replaced the "Legacy Compatibility" block with wire-serialization helpers (`mpParticipantsEncodeActiveMask` / `mpParticipantsDecodeActiveMask`).
+- `src/game/mplayer/participant.c` — rewrote the encode/decode pair to derive directly from the pool (no chrslots semantics); dropped the `p->legacy_slot = -1` writes in add / addAt.
+
+**Protocol:**
+- `port/include/net/net.h` — `NET_PROTOCOL_VER 36 → 37` with a new comment block describing the B-12 Phase 3 wire change.
+- `port/src/net/netmsg.c`:
+  - `netmsgSvcStageStartWrite` now serialises the active-slot mask via `mpParticipantsEncodeActiveMask()` instead of `g_MpSetup.chrslots`.
+  - `netmsgSvcStageStartRead` decodes the mask via `mpParticipantsDecodeActiveMask()` in-place — the post-read `mpParticipantsFromLegacyChrslots()` hop is gone.
+  - CLC_LOBBY_START server handler: `mpParticipantPoolInit(MAX_MPCHRS)` + `mpAddParticipantAt()` per player and per bot replace direct chrslots bit-building.
+  - Bot-iterate loops migrated from `chrslots & (1ull << (botidx + BOT_SLOT_OFFSET))` to `mpIsParticipantActive(botidx + MAX_PLAYERS)`.
+
+**Server build:**
+- `CMakeLists.txt` now links `src/game/mplayer/participant.c` into `SRC_SERVER` (server previously stubbed `mpParticipantsFromLegacyChrslots` only; now owns slot state via the same participant API as the client).
+- `port/src/server_stubs.c::mpStartMatch` replaced the chrslots bot-count loop with `mpGetActiveBotCount()`; deleted the legacy shim stub.
+
+**ROM / save / default configs:**
+- `port/src/preprocess/misc.c::preprocessMpConfigs` — removed the `PD_SWAP_VAL(cfg->setup.chrslots)` + N64→PC bit-shift block (vestigial — the DMA buffer is overwritten by `g_MpConfigs[]` before any reader consults it; with chrslots gone from the struct it would no longer compile).
+- `src/game/mpconfigs.c` — dropped the chrslots placeholder from each of 44 positional `g_MpConfigs[]` initializers (plus one non-zero `0x00f0` value on the `Simulants` preset; bot activity is reconstructed from `BotConfigsArray[i].difficulty` at load time).
+
+**Runtime callsites:** every `g_MpSetup.chrslots` read/write across `src/game` and `port/` migrated to the participant API. Significant files:
+- `src/game/challenge.c` — `challengeIsAvailableToAnyPlayer` now builds its per-player availability mask by iterating `mpIsParticipantActive(0..MAX_LOCAL_PLAYERS-1)`. `challengePerformSanityChecks` uses `mpRemoveParticipant` + `mpAddParticipantAt` to rebuild bots from difficulty.
+- `src/game/mplayer/mplayer.c` — `mpStartMatch` server path, `mpReset`, `mpAddSimulant`/`mpRemoveSimulant`/`mpCopySimulant`, `mpGetSlotForNewBot`, `mpIsSimSlotEnabled`, `mpGenerateBotNames`, `mpApplyConfig`, `mpsetupfileSaveWad`/`LoadWad`, `mp0f18dec4` — all migrated. `func0f18d074` now returns `i + MAX_PLAYERS` instead of `+ BOT_SLOT_OFFSET`.
+- `src/game/setup.c` — model-slot and chrmgr bot accounting reads `mpIsParticipantActive(k + MAX_PLAYERS)` + `mpGetActiveBotCount()`.
+- `src/game/menutick.c` — MP setup player-add/remove loops + Deep Sea continue branch rewritten.
+- `src/game/menuitem.c`, `src/game/menu.c`, `src/game/mainmenu.c`, `src/game/lv.c`, `src/game/mplayer/ingame.c`, `src/game/mplayer/scenarios/capturethecase.inc` — reader sites migrated to `mpIsParticipantActive(i)`.
+- `src/lib/main.c` and `port/src/pdmain.c` — boot-path mplayer init seeds the participant pool directly (`mpAddParticipantAt` for each local slot) instead of writing `chrslots`.
+- `port/src/net/net.c` — `netDisconnect`-style fallback re-seeds pool via `mpParticipantPoolInit` + `mpAddParticipantAt(0, PARTICIPANT_LOCAL, ...)`.
+- `port/src/net/matchsetup.c` — `matchConfigCommitAndStart` path now uses the participant pool exclusively; every log line moved from `chrslots=0x...` to `activeMask=0x...`.
+- `port/fast3d/pdgui_bridge.c::pdguiPauseGetChrSlots` derives a 32-bit mask from `mpParticipantsEncodeActiveMask()` (pause menu consumer unchanged).
+- `port/fast3d/pdgui_menu_botsetup.cpp` — retained a local `#define BOT_SLOT_OFFSET 8` alias (that unit doesn't include constants.h); row-label predicates unaffected.
+
+**Includes:** added `game/mplayer/participant.h` to every file that now calls the pool directly (scenarios.c, setup.c, menutick.c, menuitem.c, menu.c, mainmenu.c, ingame.c, lv.c, pdmain.c, net.c, server_stubs.c, pdgui_bridge.c, lib/main.c).
+
+### Build verification
+
+- `source devtools/build-env.sh && ninja -C Build pd pd-server` → clean build [474/474] after forcing rebuild with `touch src/include/types.h`.
+- `PerfectDark.exe` 52,640,380 bytes, `PerfectDarkServer.exe` 22,876,668 bytes. Both link cleanly.
+- No new warnings from the refactor (only pre-existing `-Wmaybe-uninitialized` in unrelated files).
+
+### Wire compatibility
+
+- `NET_PROTOCOL_VER` moved 36 → 37. Pre-v37 clients are rejected at handshake. Client and server must be upgraded together.
+- `SVC_STAGE_START` payload layout unchanged beyond the one affected field: the same u64 offset that previously carried `chrslots` now carries the participant-derived active-slot mask with identical bit semantics (bit i = slot i active), so on-wire packet length is unchanged.
+
+### Follow-ups
+
+- Playtest verification checklist lives in `tasks-current.md` under the new Done section.
+- Backlog entry "B-12 Phase 3 — Remove chrslots" removed from `tasks-current.md`.
+- `context/constraints.md` ENet version bullet updated to v37; the chrslots active-constraint bullet is replaced by "participant pool is sole slot store"; a new Removed-Constraints entry documents the chrslots + BOT_SLOT_OFFSET retirement.
+- Design doc `context/b12-participant-system.md` is still accurate in spirit; the "Phase 3" section is now the shipped state.
 
 ## Session S323 — 2026-04-17 (Batch G — cross-audit gap fixes — `practical-wozniak-051afa` worktree)
 

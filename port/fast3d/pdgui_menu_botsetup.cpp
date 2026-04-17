@@ -117,8 +117,9 @@ const char *catalogMpBodyId(s32 mpbodynum);
 /* ---- Bot slots live at MAX_PLAYERS..MAX_MPCHRS-1 in the participant pool
  * (B-12 Phase 3 — BOT_SLOT_OFFSET constant was retired). Local alias kept
  * ABI-stable for the row-label predicates below; all state mutation still
- * flows through the server. ---- */
-#define BOT_SLOT_OFFSET MAX_PLAYERS
+ * flows through the server. MAX_PLAYERS is 8; hard-coded here because this
+ * .cpp unit doesn't include constants.h. ---- */
+#define BOT_SLOT_OFFSET 8
 
 /* ---- s204 shadow menuitem / handlerdata
  * ABI-compatible with the real types in src/include/types.h:3337..3417.

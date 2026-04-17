@@ -7,6 +7,43 @@
 
 ---
 
+## Done — 2026-04-17 (B-12 Phase 3 — remove chrslots, protocol v37, `exciting-meitner-bc8c70` worktree)
+
+**Build verified.** Clean link [474/474], zero errors. Wire format is a breaking protocol change.
+
+Removed the legacy `u64 chrslots` bitmask end-to-end and made the participant
+pool (`g_MpParticipants`) the sole source of match slot state. Constants
+`BOT_SLOT_OFFSET`, `CHRSLOTS_PLAYER_MASK`, and `CHRSLOTS_BOT_MASK` are gone;
+`MpParticipant.legacy_slot` is gone; the `mpParticipantsTo/FromLegacyChrslots`
+shims are replaced with wire-only helpers `mpParticipantsEncodeActiveMask` /
+`mpParticipantsDecodeActiveMask`. `NET_PROTOCOL_VER` bumped 36 → 37.
+
+44 mpconfigs.c initializers updated (chrslots placeholder dropped). 60+
+runtime callsites migrated: challenge.c, mplayer.c, mpscenarios, menutick.c,
+menuitem.c, menu.c, mainmenu.c, ingame.c, setup.c, lv.c, pdmain.c, net.c,
+netmsg.c, matchsetup.c, server_stubs.c, pdgui_bridge.c. The dedicated server
+now links `participant.c` directly (slot state is no longer stubbed).
+
+### Playtest verification
+
+- **Combat Sim 4 humans + 32 bots** — host from the room screen, connect 3 remote
+  clients, hit Start. All 4 humans + 32 bots spawn. Log shows `MATCHSETUP:
+  activeMask=0x...` and `NET: Combat Sim setup: ... activeMask=0x...`.
+- **Client-side bot spawn** — on any connected client, verify bots appear
+  (`SIMULANT: spawning started activeBots=N maxsim=32`). Before the fix,
+  `mpParticipantsFromLegacyChrslots` ran after the `chrslots` read; now the
+  pool is decoded from the wire active mask in-place.
+- **Challenges / quick-team sim** — go to Challenges, select a challenge that
+  gifts bots. Bot difficulties and slot count match. `challengePerformSanityChecks`
+  clears + rebuilds bot participants using the new API.
+- **Save/load MP setup** — save a custom MP config with 16+ bots and reload it.
+  Bot participants are re-added via `mpAddParticipantAt` purely from bot
+  difficulty (chrslots storage is gone).
+- **Pre-v37 client rejected** — connecting a pre-patch client to a v37 server
+  should fail handshake with "protocol mismatch (got 36, expected 37)".
+
+---
+
 ## Done — 2026-04-17 (S323 Batch G — cross-audit gap fixes)
 
 **Build verified.** Clean link 768/768, zero errors. 6 items fixed:
@@ -1103,7 +1140,6 @@ bug-level detail in `bugs.md`; forensic handoffs in
 | Item | Target | Detail |
 |------|--------|--------|
 | **D5 Phase 5 -- Lobby scene** | v0.1.0+ | Player portraits, connected player avatars, character preview |
-| **B-12 Phase 3 -- Remove chrslots** | v0.2.0 | Protocol bump, participant system replaces bitmask entirely |
 | **D14a -- Counter-Op mode** | v0.6.0 | NPC possession mechanic |
 | **D15 -- Map Editor / Forge** | v0.5.0 | Level editor, character creator, skin system |
 | **D16 -- Master Server** | v0.4.0 | Server registry, heartbeat, browser |
