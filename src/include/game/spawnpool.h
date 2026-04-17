@@ -241,4 +241,19 @@ s32 spawnPoolSmokeAll(void);
  */
 void spawnPoolSmokeWriteCSV(const char *path);
 
+/*
+ * Append forge-authored spawn points to the already-built global pool.
+ * Called from forge_runtime.c on FREEFLY->NORMAL transition after
+ * spawnPoolBuildGlobal() has already run at stage load.
+ *
+ * positions:    world-space positions (count entries)
+ * facing_rads:  author-set facing angles in radians (count entries, or NULL)
+ * count:        number of points to inject
+ *
+ * Returns the number of points actually appended (capped at SPAWNPOOL_MAX).
+ */
+s32 spawnPoolAppendForgePoints(const struct coord *positions,
+                               const f32 *facing_rads,
+                               s32 count);
+
 #endif /* IN_GAME_SPAWNPOOL_H */

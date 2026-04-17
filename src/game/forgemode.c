@@ -23,6 +23,8 @@
 
 #include "PR/ultratypes.h"
 
+#include "forge/forge_runtime.h"
+
 #include "bss.h"
 #include "constants.h"
 #include "data.h"
@@ -301,6 +303,7 @@ static void forgeTransitionToNormal(const char *reason)
 	}
 	if (s_forge.state != FORGE_SESSION_NORMAL) {
 		sysLogPrintf(LOG_NOTE, "GRID: -> NORMAL (%s)", reason ? reason : "");
+		forgeRuntimeEnterPlay();
 	}
 	s_forge.state = FORGE_SESSION_NORMAL;
 }
@@ -319,6 +322,7 @@ static void forgeTransitionToFreefly(const char *reason)
 				reason ? reason : "",
 				s_forge.fly.pos.x, s_forge.fly.pos.y, s_forge.fly.pos.z,
 				s_forge.fly.yaw_deg);
+		forgeRuntimeExitPlay();
 	}
 	s_forge.state = FORGE_SESSION_FREEFLY;
 }
@@ -331,6 +335,7 @@ static void forgeTransitionToInactive(const char *reason)
 	}
 	if (s_forge.state != FORGE_SESSION_INACTIVE) {
 		sysLogPrintf(LOG_NOTE, "GRID: -> INACTIVE (%s)", reason ? reason : "");
+		forgeRuntimeExitPlay();
 	}
 	s_forge.state = FORGE_SESSION_INACTIVE;
 	s_forge.request_enter_session = false;

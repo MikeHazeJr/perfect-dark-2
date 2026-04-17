@@ -383,13 +383,13 @@ void forgeCoreReset(void)
 /* Forward to undo for the per-tick logic advance. */
 void forgeLogicTick(void);
 void forgeLogicResetPerFrameFlags(void);
+void forgeRuntimeTick(void);
 
 void forgeCoreTick(void)
 {
 	if (!s_initialized) forgeCoreInit();
 	forgeLogicResetPerFrameFlags();
-	/* Per-tick logic is forgeLogicTick but it lives in forge_logic.c; runtime
-	 * execution remains a placeholder until real gameplay wiring lands. */
+	forgeRuntimeTick();
 }
 
 /* ============================================================
