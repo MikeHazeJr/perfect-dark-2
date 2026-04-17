@@ -7,6 +7,16 @@
 
 ---
 
+## Done — 2026-04-17 (S347 — Blue Tint Sweep + Gamepad Audit, `gracious-poitras-6eeeb6`)
+
+**Build verified.** Clean 773/773 (worktree) + 775/775 (dev post-merge). Merge commit to dev.
+
+**Task 1 — Blue tint sweep (6 files, 13 sites):** `pdgui_menu_modmgr.cpp`, `pdgui_menu_moddinghub.cpp`, `pdgui_menu_agentselect.cpp`, `pdgui_menu_agentcreate.cpp`, `pdgui_countdown.cpp`, `pdgui_menu_mainmenu.cpp` — all hardcoded `IM_COL32` PD-blue accent literals replaced with `pdguiImU32TintInfo` / `pdguiImU32TitleGlow` / `pdguiPalImU32(PDPAL_TITLEBG,…)` accessors.
+
+**Task 2 — ImGuiKey_Gamepad audit:** No dead checks found. M0.2 (S181–183) already removed the ~130 redundant gamepad key checks. The 3 remaining `AddKeyEvent(ImGuiKey_Gamepad*,false)` calls in `pdgui_menu_mainmenu.cpp` are B-131 input-flush fixes and must stay.
+
+---
+
 ## Done — 2026-04-17 (S344 — Audit S339+S340, `optimistic-mcclintock-47fc8d`)
 
 **Build verified.** Clean 4/4 objects, zero errors. Merge commit to dev.

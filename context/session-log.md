@@ -1,8 +1,41 @@
 
 # Session Log (Active)
 
-> **S281–S345** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S347** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S347 — 2026-04-17 (`gracious-poitras-6eeeb6` worktree) — Blue Tint Sweep + Gamepad Audit
+
+**Scope**: Two mechanical sweep tasks: (1) replace remaining hardcoded IM_COL32 blue accent literals with theme accessors, (2) audit and remove dead ImGuiKey_Gamepad checks post-M0.2.
+
+### Task 1 — Hardcoded blue tint sweep (6 files)
+
+Replaced all remaining hardcoded PD-blue `IM_COL32` literals with theme system accessors:
+
+| File | Sites | Old → New |
+|------|-------|-----------|
+| `pdgui_menu_modmgr.cpp` | 1 | `borderCol IM_COL32(80,140,200,220)` → `pdguiImU32TintInfo(220)` |
+| `pdgui_menu_moddinghub.cpp` | 1 | same pattern → `pdguiImU32TintInfo(220)` |
+| `pdgui_menu_agentselect.cpp` | 3 | ring border (×2) → `pdguiImU32TintInfo(200)`; placeholder bg → `pdguiPalImU32(PDPAL_TITLEBG,180)`; initials text → `pdguiImU32TitleGlow(255)` |
+| `pdgui_menu_agentcreate.cpp` | 4 | preview frame border → `pdguiImU32TintInfo(200)`; silhouette head+body (×2) → `pdguiImU32TintInfo(200)`; initials text → `pdguiImU32TitleGlow(255)` |
+| `pdgui_countdown.cpp` | 1 | accent border → `pdguiImU32TitleGlow(200)` |
+| `pdgui_menu_mainmenu.cpp` | 2 | focused row bg → `pdguiImU32TintInfo(80)`; hovered row bg → `pdguiImU32TitleGlow(40)` |
+
+**Excluded**: `solomission.cpp IM_COL32(80,160,255,255)` is the Special Agent difficulty badge — intentional semantic color, not UI accent. Forge HUD and glyph pill colors are editor-specific intentional styling.
+
+### Task 2 — Dead ImGuiKey_Gamepad check audit
+
+**Finding: no dead checks remain.** Only 2 PD code files reference `ImGuiKey_Gamepad`:
+- `pdgui_backend.cpp` — comment only, explaining NavEnableGamepad is OFF
+- `pdgui_menu_mainmenu.cpp` — 3 `AddKeyEvent(..., false)` calls that are B-131 input-flush fixes (clearing stale opening-press state); these are LIVE, not dead
+
+The ~130 redundant checks described in the task were already removed during M0.2 Input System Unification (S181–183, 2026-04-07, commit `-823 lines`). All remaining `ImGuiKey_Gamepad` in PD code are vendor files (`imgui_impl_sdl2.cpp`, `imgui.cpp`).
+
+### Build + merge
+
+Build clean 773/773 (worktree), 775/775 (dev post-merge). `PerfectDark.exe` 52,804,107 / `PerfectDarkServer.exe` 22,905,738. Merge commit to dev. Line counts of all 6 files identical pre- and post-merge.
+
+---
 
 ## Session S345 — 2026-04-17 (`pensive-bell-5597dd` worktree) — Wave 2 Audit
 
