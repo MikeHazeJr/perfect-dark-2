@@ -273,12 +273,8 @@ void menuTick(void)
 						} else if (g_MpNumJoined == 0) {
 							g_MpNumJoined++;
 
-							if (IS4MB()) {
-								menuPushRootDialog(&g_MainMenu4MbMenuDialog, MENUROOT_4MBMAINMENU);
-							} else {
-								menuPushRootDialog(&g_CombatSimulatorMenuDialog, MENUROOT_MPSETUP);
-								pdguiSoloRoomOpen(); /* PC port: ImGui room screen renders on top */
-							}
+							menuPushRootDialog(&g_CombatSimulatorMenuDialog, MENUROOT_MPSETUP);
+							pdguiSoloRoomOpen(); /* PC port: ImGui room screen renders on top */
 						} else {
 							g_Vars.waitingtojoin[i] = true;
 							if (g_NetMode == NETMODE_CLIENT) {
@@ -295,7 +291,7 @@ void menuTick(void)
 				if (g_MpSetup.chrslots & CHRSLOTS_PLAYER_MASK) {
 					sndStart(var80095200, SFX_EXPLOSION_8098, 0, -1, -1, -1, -1, -1);
 
-					playerPause(IS4MB() ? MENUROOT_4MBMAINMENU : MENUROOT_MPSETUP);
+					playerPause(MENUROOT_MPSETUP);
 				}
 			}
 
@@ -442,11 +438,7 @@ void menuTick(void)
 							// Joining from quick go - open Quick Go dialog
 							g_MpNumJoined++;
 
-							if (IS4MB()) {
-								menuPushRootDialog(&g_MpQuickGo4MbMenuDialog, MENUROOT_4MBMAINMENU);
-							} else {
-								menuPushRootDialog(&g_MpQuickGoMenuDialog, MENUROOT_MPSETUP);
-							}
+							menuPushRootDialog(&g_MpQuickGoMenuDialog, MENUROOT_MPSETUP);
 						} else {
 							// Joining from advanced setup
 							g_MpNumJoined++;
@@ -468,12 +460,8 @@ void menuTick(void)
 								g_Vars.waitingtojoin[i] = false;
 								g_MpNumJoined++;
 
-								if (IS4MB()) {
-									menuPushRootDialog(&g_MpQuickGo4MbMenuDialog, MENUROOT_4MBMAINMENU);
-								} else {
-									menuPushRootDialog(&g_MpQuickGoMenuDialog, MENUROOT_MPSETUP);
-								}
-							} else if (g_Vars.mpsetupmenu == MPSETUPMENU_ADVSETUP) {
+							menuPushRootDialog(&g_MpQuickGoMenuDialog, MENUROOT_MPSETUP);
+						} else if (g_Vars.mpsetupmenu == MPSETUPMENU_ADVSETUP) {
 								// Player was waiting to join and we have just
 								// reached the adv setup layer - open the dialog
 								g_Vars.waitingtojoin[i] = false;
@@ -561,10 +549,7 @@ void menuTick(void)
 				&& g_MenuData.prevmenuroot == -1) {
 			if (g_Vars.mpsetupmenu == MPSETUPMENU_GENERAL) {
 				g_MenuData.prevmenuroot = MENUROOT_MAINMENU;
-				g_MenuData.prevmenudialog = IS4MB() ? &g_CiMenuViaPauseMenuDialog : &g_CiMenuViaPcMenuDialog;
-			} else if (IS4MB()) {
-				g_MenuData.prevmenuroot = MENUROOT_4MBMAINMENU;
-				g_MenuData.prevmenudialog = &g_MainMenu4MbMenuDialog;
+				g_MenuData.prevmenudialog = &g_CiMenuViaPcMenuDialog;
 			} else {
 				g_MenuData.prevmenuroot = MENUROOT_MPSETUP;
 				/* PC port: return to room screen after match */
@@ -654,7 +639,7 @@ void menuTick(void)
 				g_FileState = FILESTATE_CHANGINGAGENT;
 				gamefileLoadDefaults(&g_GameFile);
 				gamefileApplyOptions(&g_GameFile);
-				mainChangeToStage(IS4MB() ? STAGE_4MBMENU : STAGE_CITRAINING);
+				mainChangeToStage(STAGE_CITRAINING);
 				musicQueueStopAllEvent();
 			} else {
 				bool startmusic = false;
@@ -758,21 +743,14 @@ void menuTick(void)
 						manifestClear(&g_ClientManifest);
 					}
 
-					if (IS8MB()) {
-						sysLogPrintf(LOG_NOTE,
-							"GAMELOOP.%s: MPENDSCREEN → CITRAINING lobby return",
-							g_Vars.coopplayernum >= 0 ? "COOP" :
-							g_Vars.antiplayernum >= 0 ? "COUNTEROP" : "CAMPAIGN");
-						titleSetNextStage(STAGE_CITRAINING);
-						setNumPlayers(1);
-						titleSetNextMode(TITLEMODE_SKIP);
-						mainChangeToStage(STAGE_CITRAINING);
-					} else {
-						titleSetNextStage(STAGE_4MBMENU);
-						setNumPlayers(1);
-						titleSetNextMode(TITLEMODE_SKIP);
-						mainChangeToStage(STAGE_4MBMENU);
-					}
+					sysLogPrintf(LOG_NOTE,
+						"GAMELOOP.%s: MPENDSCREEN → CITRAINING lobby return",
+						g_Vars.coopplayernum >= 0 ? "COOP" :
+						g_Vars.antiplayernum >= 0 ? "COUNTEROP" : "CAMPAIGN");
+					titleSetNextStage(STAGE_CITRAINING);
+					setNumPlayers(1);
+					titleSetNextMode(TITLEMODE_SKIP);
+					mainChangeToStage(STAGE_CITRAINING);
 
 				}
 				break;

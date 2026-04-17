@@ -75,34 +75,11 @@ void viConfigureForLogos(void)
 	g_ViBackData = g_ViDataArray + g_ViBackIndex;
 
 #if VERSION >= VERSION_PAL_FINAL
-	if (IS4MB()) {
-		g_ViDataArray[0].y = FBALLOC_HEIGHT_LO;
-		g_ViDataArray[0].bufy = FBALLOC_HEIGHT_LO;
-		g_ViDataArray[0].viewy = FBALLOC_HEIGHT_LO;
-
-		g_ViDataArray[1].y = FBALLOC_HEIGHT_LO;
-		g_ViDataArray[1].bufy = FBALLOC_HEIGHT_LO;
-		g_ViDataArray[1].viewy = FBALLOC_HEIGHT_LO;
-
-		g_ViTargetHStart = 0;
-		g_ViTargetVStart = 0;
-	} else {
-		g_ViTargetHStart = 0;
-		g_ViTargetVStart = VERSION >= VERSION_JPN_FINAL ? 0 : 12;
-	}
+	g_ViTargetHStart = 0;
+	g_ViTargetVStart = VERSION >= VERSION_JPN_FINAL ? 0 : 12;
 #else
 	g_ViTargetHStart = 0;
 	g_ViTargetVStart = 0;
-
-	if (IS4MB()) {
-		g_ViDataArray[0].y = FBALLOC_HEIGHT_LO;
-		g_ViDataArray[0].bufy = FBALLOC_HEIGHT_LO;
-		g_ViDataArray[0].viewy = FBALLOC_HEIGHT_LO;
-
-		g_ViDataArray[1].y = FBALLOC_HEIGHT_LO;
-		g_ViDataArray[1].bufy = FBALLOC_HEIGHT_LO;
-		g_ViDataArray[1].viewy = FBALLOC_HEIGHT_LO;
-	}
 #endif
 }
 
@@ -133,7 +110,6 @@ void viConfigureForCopyright(u16 *texturedata)
 	g_ViBackData->fb = g_FrameBuffers[g_ViBackIndex];
 
 	g_ViReconfigured = true;
-	g_Vars.fourmeg2player = false;
 }
 
 /**
@@ -156,7 +132,6 @@ void viConfigureForLegal(void)
 		g_ViDataArray[i].viewy = FBALLOC_HEIGHT_LO;
 	}
 
-	g_Vars.fourmeg2player = false;
 
 #if PAL
 	playerResetLoResIf4Mb();
@@ -184,34 +159,18 @@ void viReset(s32 stagenum)
 	u8 *fb0;
 	u8 *fb1;
 
-	g_Vars.fourmeg2player = false;
 
 	if (stagenum == STAGE_TITLE || stagenum == STAGE_TEST_OLD) {
-		if (IS4MB()) {
-			viSetMode(VIMODE_HI);
-			fbsize = (FBALLOC_WIDTH_LO * 2) * (FBALLOC_HEIGHT_LO * 2) * NUM_FRAMEBUFFERS;
-		} else {
-			viSetMode(VIMODE_HI);
-			fbsize = g_ViModeWidths[2] * g_ViModeHeights[2] * NUM_FRAMEBUFFERS;
-		}
+		viSetMode(VIMODE_HI);
+		fbsize = g_ViModeWidths[2] * g_ViModeHeights[2] * NUM_FRAMEBUFFERS;
 	} else {
 		viSetMode(VIMODE_LO);
 
 		if (1);
 
-		fbsize = IS4MB()
-			? FBALLOC_WIDTH_LO * FBALLOC_HEIGHT_LO * NUM_FRAMEBUFFERS
-			: FBALLOC_WIDTH_HI * FBALLOC_HEIGHT_HI * NUM_FRAMEBUFFERS;
+		fbsize = FBALLOC_WIDTH_HI * FBALLOC_HEIGHT_HI * NUM_FRAMEBUFFERS;
 
-		if (IS4MB() && PLAYERCOUNT() == 2) {
-			// 4MB 2-player: The viewports are 110px tall
-#if VERSION >= VERSION_NTSC_1_0
-			fbsize = FBALLOC_WIDTH_LO * (FBALLOC_HEIGHT_LO / 2) * NUM_FRAMEBUFFERS;
-#else
-			fbsize = SCREEN_320 * (SCREEN_240 / 2) * NUM_FRAMEBUFFERS;
-#endif
-			g_Vars.fourmeg2player = true;
-		} else if ((g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) && PLAYERCOUNT() == 2) {
+		if ((g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) && PLAYERCOUNT() == 2) {
 			// PAL is using its correct size
 			fbsize = SCREEN_WIDTH_LO * SCREEN_HEIGHT_LO * NUM_FRAMEBUFFERS;
 		}
@@ -367,13 +326,8 @@ void viUpdateMode(void)
 		var8008dcc0[slot].fldRegs[0].yScale = 1024;
 		var8008dcc0[slot].fldRegs[1].yScale = 1024;
 #else
-		if (IS4MB()) {
-			var8008dcc0[slot].fldRegs[0].yScale = 1024;
-			var8008dcc0[slot].fldRegs[1].yScale = 1024;
-		} else {
-			var8008dcc0[slot].fldRegs[0].yScale = g_ViBackData->bufy * 2048 / 440;
-			var8008dcc0[slot].fldRegs[1].yScale = g_ViBackData->bufy * 2048 / 440;
-		}
+		var8008dcc0[slot].fldRegs[0].yScale = g_ViBackData->bufy * 2048 / 440;
+		var8008dcc0[slot].fldRegs[1].yScale = g_ViBackData->bufy * 2048 / 440;
 #endif
 
 		hstart = var8008dcc0[slot].comRegs.hStart;
@@ -732,7 +686,7 @@ Gfx *viRenderViewportEdges(Gfx *gdl)
 			gDPPipeSync(gdl++);
 
 			if (PLAYERCOUNT() >= 3 ||
-					(PLAYERCOUNT() == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || g_Vars.fourmeg2player))) {
+					(PLAYERCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL)) {
 				if (PLAYERCOUNT() == 2) {
 					tmpplayernum = 0;
 				}

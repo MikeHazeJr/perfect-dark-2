@@ -4112,7 +4112,7 @@
  * the four known system stage IDs.
  */
 #define STAGE_IS_SYSTEM(s) \
-	((s) == STAGE_TITLE || (s) == STAGE_BOOTPAKMENU || (s) == STAGE_CREDITS || (s) == STAGE_4MBMENU)
+	((s) == STAGE_TITLE || (s) == STAGE_BOOTPAKMENU || (s) == STAGE_CREDITS)
 
 #define STAGE_IS_GAMEPLAY(s) (!STAGE_IS_SYSTEM(s))
 

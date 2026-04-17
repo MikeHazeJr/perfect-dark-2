@@ -607,9 +607,6 @@ u32 crashGenerate(OSThread *thread, u32 *callstack, s32 *tracelen)
 
 	rmonPrintf("\n\nFAULT-\n");
 
-#if VERSION >= VERSION_NTSC_1_0
-	if (!g_Vars.fourmeg2player)
-#endif
 	{
 		// Print a stack trace in a dodgy way.
 		// It works by iterating through the stack allocation, looking for any
@@ -635,9 +632,6 @@ u32 crashGenerate(OSThread *thread, u32 *callstack, s32 *tracelen)
 	rmonPrintf("\nPerfect Crash (tm)\n\n");
 #endif
 
-#if VERSION >= VERSION_NTSC_1_0
-	if (!g_Vars.fourmeg2player)
-#endif
 	{
 		// Print floating point registers
 		crashPrint2Floats(0, ctx->fp0.f.f_odd, ctx->fp0.f.f_even);

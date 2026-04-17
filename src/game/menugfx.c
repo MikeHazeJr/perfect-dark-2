@@ -87,11 +87,6 @@ Gfx *menugfxRenderBgBlur(Gfx *gdl, u32 colour, s16 arg2, s16 arg3)
 	s32 width;
 	s32 height;
 
-	if (IS4MB())
-	{
-		return menugfxRenderGradient(gdl, 0, 0, viGetWidth(), viGetHeight(), 0xff, 0xff, 0xff);
-	}
-
 	width = viGetWidth();
 	height = viGetHeight();
 	if (g_MenuBlurFb >= 0 && !g_MenuBlurDone) {

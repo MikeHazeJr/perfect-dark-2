@@ -1429,7 +1429,7 @@ s32 bgunTickIncAutoSwitch(struct handweaponinfo *info, s32 handnum, struct hand 
 		hand->shotremainder = 0;
 
 		if (bgunIsReadyToSwitch(handnum) && bgunSetState(handnum, HANDSTATE_CHANGEGUN)) {
-			if (g_Vars.mplayerisrunning && (IS8MB() || PLAYERCOUNT() != 1)) {
+			if (g_Vars.mplayerisrunning) {
 				playermgrDeleteWeapon(handnum);
 			}
 
@@ -2923,7 +2923,7 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 
 		if (hand->stateframes >= delay) {
 			if (!throwing) {
-				if (g_Vars.mplayerisrunning && (IS8MB() || PLAYERCOUNT() != 1)) {
+				if (g_Vars.mplayerisrunning) {
 					playermgrDeleteWeapon(handnum);
 				}
 
@@ -2993,7 +2993,7 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 		}
 
 		if (hand->count == 0) {
-			if (g_Vars.mplayerisrunning && (IS8MB() || PLAYERCOUNT() != 1)) {
+			if (g_Vars.mplayerisrunning) {
 				playermgrCreateWeapon(handnum);
 			}
 
@@ -3644,10 +3644,6 @@ u8 *bgunGetGunMem(void)
 
 u32 bgunCalculateGunMemCapacity(void)
 {
-	if (IS4MB() && PLAYERCOUNT() == 2) {
-		return g_BgunGunMemBaseSize4Mb2P;
-	}
-
 	if (PLAYERCOUNT() == 1) {
 		return g_BgunGunMemBaseSizeDefault + stageGetCurrent()->extragunmem;
 	}
@@ -4028,10 +4024,6 @@ void bgunTickMasterLoad(void)
 			playerChooseBodyAndHead(&bodynum, &headnum, NULL);
 
 			handfilenum = catalogGetBodyHandFilenum(bodynum); /* SA-5d */
-
-			if (IS4MB()) {
-				handfilenum = FILE_GCOMBATHANDSLOD;
-			}
 
 			filenum = weaponGetFileNum(newweaponnum);
 
@@ -5455,7 +5447,7 @@ void bgunFreeWeapon(s32 handnum)
 		}
 	}
 
-	if (g_Vars.mplayerisrunning && (IS8MB() || PLAYERCOUNT() != 1)) {
+	if (g_Vars.mplayerisrunning) {
 		playermgrDeleteWeapon(handnum);
 	}
 
@@ -7719,7 +7711,7 @@ void bgun0f0a5550(s32 handnum)
 
 	mtx4LoadIdentity(&sp234);
 
-	if (PLAYERCOUNT() == 1 && IS8MB() && weaponHasFlag(weaponnum, WEAPONFLAG_GANGSTA)) {
+	if (PLAYERCOUNT() == 1 && weaponHasFlag(weaponnum, WEAPONFLAG_GANGSTA)) {
 		bgunUpdateGangsta(hand, handnum, &sp274, funcdef, &sp284, &sp234);
 	}
 
@@ -8099,7 +8091,7 @@ void bgun0f0a5550(s32 handnum)
 		bgunCreateFx(hand, handnum, funcdef, weaponnum, modeldef, mtxallocation);
 	}
 
-	if (PLAYERCOUNT() == 1 && IS8MB() && g_Vars.lvupdate240 != 0) {
+	if (PLAYERCOUNT() == 1 && g_Vars.lvupdate240 != 0) {
 		bgunUpdateSmoke(hand, handnum, weaponnum, funcdef);
 	}
 
@@ -8107,7 +8099,7 @@ void bgun0f0a5550(s32 handnum)
 		bgunTickEject(hand, modeldef, isdetonator);
 	}
 
-	if (PLAYERCOUNT() == 1 && IS8MB() && hand->visible
+	if (PLAYERCOUNT() == 1 && hand->visible
 			&& weaponnum >= WEAPON_FALCON2 && weaponnum <= WEAPON_FALCON2_SCOPE) {
 		bgunUpdateLasersight(hand, modeldef, handnum, mtxallocation);
 	} else {
@@ -10986,7 +10978,7 @@ void bgunRender(Gfx **gdlptr)
 		gdl = vi0000b0e8(gdl, 60, f2);
 	}
 
-	if (PLAYERCOUNT() == 1 && IS8MB()) {
+	if (PLAYERCOUNT() == 1) {
 		gdl = lasersightRenderBeam(gdl);
 	}
 
@@ -12810,7 +12802,7 @@ Gfx *bgunDrawHud(Gfx *gdl)
 		clipheight = 47;
 
 		if (playercount == 2) {
-			if (IS4MB() || (optionsGetScreenSplit() != SCREENSPLIT_VERTICAL && playernum == 0)) {
+			if (optionsGetScreenSplit() != SCREENSPLIT_VERTICAL && playernum == 0) {
 				bottom += 10;
 			} else {
 				bottom += 2;
@@ -12841,7 +12833,7 @@ Gfx *bgunDrawHud(Gfx *gdl)
 
 	xpos = (viGetViewLeft() + viGetViewWidth()) / g_ScaleX - barwidth - 24;
 
-	if (playercount == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB()) && playernum == 0) {
+	if (playercount == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) && playernum == 0) {
 		xpos += 15;
 	} else if (playercount >= 3 && (playernum % 2) == 0) {
 		xpos += 15;
@@ -13044,7 +13036,7 @@ Gfx *bgunDrawHud(Gfx *gdl)
 			&& lefthand->gset.weaponnum != WEAPON_REMOTEMINE) {
 		xpos = viGetViewLeft() / g_ScaleX + 24;
 
-		if (playercount == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB()) && playernum == 1) {
+		if (playercount == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) && playernum == 1) {
 			xpos -= 14;
 		} else if (playercount >= 3 && (playernum & 1) == 1) {
 			xpos -= 14;
@@ -13082,7 +13074,7 @@ Gfx *bgunDrawHud(Gfx *gdl)
 		xpos = viGetViewLeft() + viGetViewWidth() / g_ScaleX - barwidth - 24;
 #endif
 
-		if (playercount == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB()) && playernum == 0) {
+		if (playercount == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) && playernum == 0) {
 			xpos += 15;
 		} else if (playercount >= 3 && (playernum % 2) == 0) {
 			xpos += 15;

@@ -904,9 +904,6 @@ void func0f002a98(void)
 
 	var80061420 = NULL;
 
-	if (IS4MB()) {
-		var80061444 = 0;
-	}
 }
 
 void roomSetLightsOn(s32 roomnum, s32 enable)

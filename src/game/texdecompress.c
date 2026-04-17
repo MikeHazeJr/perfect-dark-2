@@ -229,11 +229,6 @@ s32 texInflateZlib(u8 *src, u8 *dst, bool hasloddata, s32 numlods, struct texpoo
 		texSetBitstring(rzipGetSomething());
 
 		if (hasloddata == true) {
-			if (IS4MB() && lod == 2 && !foundthething) {
-				pool->rightpos->numlods = lod;
-				foundthething = true;
-			}
-
 			if (totalbytesout + imagebytesout > 0x800 || foundthething) {
 				if (!foundthething) {
 					pool->rightpos->numlods = lod;
@@ -270,11 +265,6 @@ s32 texInflateZlib(u8 *src, u8 *dst, bool hasloddata, s32 numlods, struct texpoo
 
 			for (lod = 1; lod < numlods; lod++) {
 				imagebytesout = texShrinkPaletted(lodsrc, loddst, tmpwidth, tmpheight, format, palette, numcolours);
-
-				if (IS4MB() && lod == 2) {
-					pool->rightpos->numlods = lod;
-					break;
-				}
 
 				if (totalbytesout + imagebytesout > 0x800) {
 					pool->rightpos->numlods = lod;

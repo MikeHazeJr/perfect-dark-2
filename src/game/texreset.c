@@ -126,33 +126,4 @@ void texReset(void)
 
 	stage = mainGetStageNum();
 
-	if (IS4MB() && stage != STAGE_TITLE && stage != STAGE_CITRAINING && stage != STAGE_4MBMENU) {
-		for (i = 0; i < ARRAYCOUNT(g_TcWallhitConfigs); i++) {
-			texLoadFromConfig(&g_TexWallhitConfigs[i]);
-		}
-
-		for (i = 0; i < ARRAYCOUNT(g_TcBeamConfigs); i++) {
-			texLoadFromConfig(&g_TexBeamConfigs[i]);
-		}
-
-		for (i = 0; i < ARRAYCOUNT(g_TcSkyWaterConfigs); i++) {
-			texLoadFromConfig(&g_TexSkyWaterConfigs[i]);
-		}
-
-		for (i = 0; i < ARRAYCOUNT(g_TcShadowConfigs); i++) {
-			texLoadFromConfig(&g_TexShadowConfigs[i]);
-		}
-
-		for (i = 0; i < ARRAYCOUNT(g_TcShieldConfigs); i++) {
-			texLoadFromConfig(&g_TexShieldConfigs[i]);
-		}
-
-		for (i = 0; i < ARRAYCOUNT(g_TcRadarConfigs); i++) {
-			texLoadFromConfig(&g_TexRadarConfigs[i]);
-		}
-
-		for (i = 0; i < ARRAYCOUNT(g_TcSparkConfigs); i++) {
-			texLoadFromConfig(&g_TexSparkConfigs[i]);
-		}
-	}
 }

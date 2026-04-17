@@ -10,7 +10,7 @@ void smokeReset(void)
 	s32 i;
 	s32 j;
 
-	g_MaxSmokes = IS4MB() ? 10 : 20;
+	g_MaxSmokes = 20;
 
 	if (STAGE_IS_SYSTEM(g_Vars.stagenum)) {
 		g_MaxSmokes = 0;

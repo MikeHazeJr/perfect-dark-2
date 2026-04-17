@@ -1,8 +1,49 @@
 
 # Session Log (Active)
 
-> **S281–S318** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S322** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S322 — 2026-04-17 (N64 legacy audit — Tier 1/2 execution — `nostalgic-lichterman-3c1259` worktree)
+
+**Scope**: Execute all Tier 1 and Tier 2 quick-win items from the N64 legacy audit (`context/designs/n64-legacy-audit-2026-04-17.md`). Strip compile-time-dead IS4MB() branches, IS8MB() guards, `fourmeg2player` mode, and STAGE_4MBMENU routing. Bump N64-era resource limits.
+
+### What was done
+
+**Tier 2 quick wins:**
+- `MEMP_EXPANSION_POOL_SIZE` 8 MB → 64 MB (`src/lib/memp.c`)
+- Audio synthesizer limits raised: `maxPVoices` 30 → 64, `maxVVoices` 44 → 96, `maxSounds` 20 → 48, `ADMA_MAX_ITEMS` 80 → 200 (`src/lib/snd.c`, `src/lib/audiodma.c`)
+
+**Tier 1 — IS4MB() dead branch removal** (~100+ sites, 20+ files):
+- `src/lib/memp.c`, `src/lib/snd.c`, `src/lib/audiodma.c`, `src/lib/rdp.c`, `src/lib/vi.c`
+- `src/game/setup.c`, `src/game/smokereset.c`, `src/game/modelmgr.c`, `src/game/modelmgrreset.c`
+- `src/game/texreset.c`, `src/game/bondgunreset.c`, `src/game/botmgr.c`, `src/game/vtxstore.c`
+- `src/game/player.c`, `src/game/titleinit.c`, `src/game/lv.c`, `src/game/filemgr.c`
+- `port/src/pdmain.c`, `port/src/pdsched.c`
+
+**Tier 1 — IS8MB() guard removal** (~25 sites):
+- `src/game/player.c`, `src/game/lv.c`, `src/game/menu.c`, `src/game/menugfx.c`, `src/game/menutick.c`
+- `port/src/pdmain.c`, `port/src/pdsched.c`
+
+**Tier 1 — fourmeg2player removal** (14 sites):
+- Struct field `fourmeg2player` removed from `src/include/types.h`
+- All setters/consumers: `src/lib/varsinit.c`, `src/lib/vi.c`, `src/game/player.c`, `src/game/playermgr.c`, `src/game/mplayer/scenarios.c`, `src/lib/crash.c`
+
+**Tier 1 — STAGE_4MBMENU routing removal** (6+ files):
+- `src/include/constants.h` (STAGE_IS_SYSTEM macro), `src/lib/main.c`, `src/game/lv.c`, `port/src/pdmain.c`
+
+**Build fixes during session:**
+- `activemenu.c`: restored orphaned `#endif` that closed `#if VERSION != VERSION_JPN_FINAL`
+- `menu.c`: removed orphaned `} else { ... }` (88 lines) + bare `{` left by IS8MB guard removal; restored missing `}` closing `if (modeltype == MENUMODELTYPE_HUDPIECE)` block; changed tentative forward decl to `extern` decl for `g_PakAttemptRepairMenuDialog`
+
+### Build result
+
+Clean: `pd` + `pd-server` both compile with zero errors.
+
+### Next steps
+
+- Playtest verification: cold boot, menus, audio, multiplayer (see tasks-current S322 QC items)
+- Remaining audit items: Tier 3 (dynamic memory grow-on-demand) and systemic cleanup deferred
 
 ## Session S318 — 2026-04-17 (Direct file access design — `hopeful-rosalind-4f1033` worktree)
 

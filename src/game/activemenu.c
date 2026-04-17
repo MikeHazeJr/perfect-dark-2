@@ -771,10 +771,6 @@ bool amIsCramped(void)
 		return true;
 	}
 
-	if (IS4MB() && LOCALPLAYERCOUNT() == 2) {
-		return true;
-	}
-
 	if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL
 			&& LOCALPLAYERCOUNT() == 2
 			&& g_AmMenus[g_AmIndex].screenindex != 1) {
@@ -784,7 +780,6 @@ bool amIsCramped(void)
 	return false;
 #else
 	return (g_AmMenus[g_AmIndex].screenindex == 0 && LOCALPLAYERCOUNT() >= 3)
-		|| (IS4MB() && LOCALPLAYERCOUNT() == 2)
 		|| (LOCALPLAYERCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL);
 #endif
 }
@@ -837,7 +832,7 @@ void amCalculateSlotPosition(s16 column, s16 row, s16 *x, s16 *y)
 		*y += 4;
 	}
 
-	if ((playercount == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB()))
+	if ((playercount == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL)
 			|| playercount >= 3) {
 		if ((g_Vars.currentplayernum % 2) == 0) {
 			*x += 8;
@@ -889,7 +884,7 @@ void amCalculateSlotPosition(s16 column, s16 row, s16 *x, s16 *y)
 	*x += viGetViewLeft() / g_ScaleX + viGetViewWidth() / (g_ScaleX * 2);
 	*y += viGetViewTop() + viGetViewHeight() / 2;
 
-	if ((playercount == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB()))
+	if ((playercount == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL)
 			|| playercount >= 3) {
 		if ((g_Vars.currentplayernum % 2) == 0) {
 			*x += 8;
@@ -983,11 +978,7 @@ Gfx *amRenderAibotInfo(Gfx *gdl, s32 buddynum)
 	}
 #endif
 
-#if VERSION >= VERSION_NTSC_1_0
-	if ((LOCALPLAYERCOUNT() == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB())) || LOCALPLAYERCOUNT() >= 3)
-#else
 	if ((LOCALPLAYERCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) || LOCALPLAYERCOUNT() >= 3)
-#endif
 	{
 		if ((g_Vars.currentplayernum % 2) == 0) {
 			offset = 8;
@@ -1599,8 +1590,7 @@ Gfx *amRender(Gfx *gdl)
 		barheight = LOCALPLAYERCOUNT() >= 2 ? 7 : 11;
 		xoffset = 0;
 
-#if VERSION >= VERSION_NTSC_1_0
-		if ((LOCALPLAYERCOUNT() == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB())) || LOCALPLAYERCOUNT() >= 3) {
+		if ((LOCALPLAYERCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) || LOCALPLAYERCOUNT() >= 3) {
 			xoffset = (g_Vars.currentplayernum & 1) == 0 ? 8 : -8;
 		}
 
@@ -1612,16 +1602,6 @@ Gfx *amRender(Gfx *gdl)
 				- (s32) (barwidth * 0.5f)
 				+ xoffset;
 		}
-#else
-		if ((LOCALPLAYERCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) || LOCALPLAYERCOUNT() >= 3) {
-			xoffset = (g_Vars.currentplayernum & 1) == 0 ? 8 : -8;
-		}
-
-		part1left = (s32) ((viGetViewWidth() / g_ScaleX) * 0.5f)
-			+ (s32) (viGetViewLeft() / g_ScaleX)
-			- (s32) (barwidth * 0.5f)
-			+ xoffset;
-#endif
 
 		part1width = (s32) (barwidth * 0.25f) - 1;
 

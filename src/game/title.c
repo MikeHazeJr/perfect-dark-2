@@ -395,11 +395,7 @@ Gfx *titleRenderLegal(Gfx *gdl)
 					prevx += 10;
 #endif
 
-					if (IS4MB()) {
-						elem->textid = L_OPTIONS_074;
-					} else {
-						elem->textid = L_OPTIONS_073;
-					}
+					elem->textid = L_OPTIONS_073;
 				}
 				break;
 			case LEGALELEMENTTYPE_WHITETEXTSM:
@@ -737,7 +733,7 @@ void titleTickPdLogo(void)
 
 	if (g_PdLogoTriggerExit) {
 		// Exiting due to player not pressing anything
-		if (g_AltTitleEnabled && IS8MB()) {
+		if (g_AltTitleEnabled) {
 			g_TitleMode = TITLEMODE_SKIP;
 			creditsRequestAltTitle();
 			g_TitleNextStage = STAGE_CREDITS; // for alt title screen
@@ -2278,15 +2274,6 @@ void titleInitSkip(void)
 
 	setNumPlayers(1);
 
-	if (IS4MB()) {
-		g_TitleNextStage = STAGE_4MBMENU;
-		viSetAspect(PAL ? 1.7316017150879f : ((f32) FBALLOC_WIDTH_LO / (f32) FBALLOC_HEIGHT_LO));
-		viSetSize(FBALLOC_WIDTH_LO, FBALLOC_HEIGHT_LO);
-		viSetBufSize(FBALLOC_WIDTH_LO, FBALLOC_HEIGHT_LO);
-		playermgrSetViewSize(FBALLOC_WIDTH_LO, FBALLOC_HEIGHT_LO);
-		viSetViewSize(FBALLOC_WIDTH_LO, FBALLOC_HEIGHT_LO);
-		sysLogPrintf(LOG_NOTE, "INTRO: titleInitSkip - 4MB mode, stage=4MBMENU");
-	}
 
 	sysLogPrintf(LOG_NOTE, "INTRO: titleInitSkip - calling mainChangeToStage(0x%02x)", g_TitleNextStage);
 	mainChangeToStage(g_TitleNextStage);

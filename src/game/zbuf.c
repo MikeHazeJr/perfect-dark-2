@@ -51,22 +51,12 @@ void zbufReset(s32 stagenum)
  */
 void zbufAllocate(void)
 {
-	if (IS4MB()) {
-		g_ZbufWidth = MAX(320, FBALLOC_WIDTH_LO);
+	g_ZbufWidth = MAX(640, FBALLOC_WIDTH_HI);
 
-		if (g_Vars.normmplayerisrunning && LOCALPLAYERCOUNT() >= 2) {
-			g_ZbufHeight = MAX(220, FBALLOC_HEIGHT_LO) / 2;
-		} else {
-			g_ZbufHeight = MAX(220, FBALLOC_HEIGHT_LO);
-		}
+	if (g_Vars.normmplayerisrunning && LOCALPLAYERCOUNT() >= 2) {
+		g_ZbufHeight = MAX(220, FBALLOC_HEIGHT_HI);
 	} else {
-		g_ZbufWidth = MAX(640, FBALLOC_WIDTH_HI);
-
-		if (g_Vars.normmplayerisrunning && LOCALPLAYERCOUNT() >= 2) {
-			g_ZbufHeight = MAX(220, FBALLOC_HEIGHT_HI);
-		} else {
-			g_ZbufHeight = MAX(220, FBALLOC_HEIGHT_HI);
-		}
+		g_ZbufHeight = MAX(220, FBALLOC_HEIGHT_HI);
 	}
 
 	g_ZbufPtr1 = mempAlloc(g_ZbufWidth * g_ZbufHeight * sizeof(u16) + ZBUF_ALIGN_PAD, MEMPOOL_STAGE);
@@ -105,7 +95,7 @@ Gfx *zbufConfigureRdp(Gfx *gdl)
 			&& (g_Vars.currentplayernum >= 2 || (LOCALPLAYERCOUNT() == 2 && g_Vars.currentplayernum == 1))) {
 		subamount = playerGetFbWidth() * playerGetFbHeight();
 
-		if (IS4MB() || optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) {
+		if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) {
 			subamount = 0;
 		}
 	} else {

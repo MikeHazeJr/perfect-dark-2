@@ -12,12 +12,6 @@ void titleInit(void)
 	g_TitleNextMode = TITLEMODE_LEGAL;
 	sysLogPrintf(LOG_NOTE, "INTRO: titleInit() - g_TitleNextMode set to TITLEMODE_LEGAL (%d)", TITLEMODE_LEGAL);
 
-#if VERSION >= VERSION_JPN_FINAL
-	if (IS4MB()) {
-		g_TitleNextMode = TITLEMODE_NOEXPANSION;
-	}
-#endif
-
 	g_TitleTimer = 0;
 	g_TitleNextStage = -1;
 	var800624e0 = 0;

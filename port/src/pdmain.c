@@ -261,7 +261,6 @@ struct stageallocation g_StageAllocations4Mb[] = {
 	{ STAGE_EXTRA24,       "-ml0 -me0 -mgfx96 -mvtx96 -ma140"              },
 	{ STAGE_EXTRA25,       "-ml0 -me0 -mgfx96 -mvtx96 -ma140"              },
 	{ STAGE_EXTRA26,       "-ml0 -me0 -mgfx96 -mvtx96 -ma140"              },
-	{ STAGE_4MBMENU,       "-mgfx100 -mvtx50 -ma50"                        },
 	{ STAGE_TITLE,         "-ml0 -me0 -mgfx80 -mvtx20 -ma001"              },
 	{ 0,                   "-ml0 -me0 -mgfx100 -mvtx96 -ma300"             },
 };
@@ -448,10 +447,6 @@ void mainLoop(void)
 		}
 	}
 
-	if (g_StageNum == STAGE_CITRAINING && IS4MB()) {
-		g_StageNum = STAGE_4MBMENU;
-	}
-
 	rngSetSeed(osGetCount());
 
 	// Outer loop - this is infinite because ending is never changed
@@ -463,67 +458,35 @@ void mainLoop(void)
 		if (var8005d9b0 && var8005d9c4 == 0) {
 			index = -1;
 
-			if (IS4MB()) {
-				if (STAGE_IS_GAMEPLAY(g_StageNum) && getNumPlayers() >= 2) {
-					index = 0; \
-					while (g_StageAllocations4Mb[index].stagenum) { \
-						if (g_StageAllocations4Mb[index].stagenum == g_StageNum + 400) { \
-							break; \
-						} \
-						index++;
+			if (STAGE_IS_GAMEPLAY(g_StageNum) && getNumPlayers() >= 2) {
+				index = 0;
+				while (g_StageAllocations8Mb[index].stagenum) {
+					if (g_StageNum + 400 == g_StageAllocations8Mb[index].stagenum) {
+						break;
 					}
-
-					if (g_StageAllocations4Mb[index].stagenum == 0) {
-						index = -1;
-					}
+					index++;
 				}
 
-				if (index);
-
-				if (index < 0) {
-					index = 0;
-					while (g_StageAllocations4Mb[index].stagenum) {
-						if (g_StageNum == g_StageAllocations4Mb[index].stagenum) {
-							break;
-						}
-
-						index++;
-					}
+				if (g_StageAllocations8Mb[index].stagenum == 0) {
+					index = -1;
 				}
-
-				argSetString(g_StageAllocations4Mb[index].string);
-			} else {
-				// 8MB
-				if (STAGE_IS_GAMEPLAY(g_StageNum) && getNumPlayers() >= 2) {
-					index = 0; \
-					while (g_StageAllocations8Mb[index].stagenum) { \
-						if (g_StageNum + 400 == g_StageAllocations8Mb[index].stagenum) { \
-							break; \
-						} \
-						index++;
-					}
-
-					if (g_StageAllocations8Mb[index].stagenum == 0) {
-						index = -1;
-					}
-				}
-
-				if (index < 0) {
-					index = 0;
-
-					while (g_StageAllocations8Mb[index].stagenum) {
-						if (g_StageNum == g_StageAllocations8Mb[index].stagenum) {
-							break;
-						}
-
-						index++;
-					}
-				}
-
-				argSetString(g_StageAllocations8Mb[index].string);
-				sysLogPrintf(LOG_NOTE, "LOAD: 8Mb alloc index=%d stagenum_in_table=0x%02x string=\"%s\"",
-					index, g_StageAllocations8Mb[index].stagenum, g_StageAllocations8Mb[index].string);
 			}
+
+			if (index < 0) {
+				index = 0;
+
+				while (g_StageAllocations8Mb[index].stagenum) {
+					if (g_StageNum == g_StageAllocations8Mb[index].stagenum) {
+						break;
+					}
+
+					index++;
+				}
+			}
+
+			argSetString(g_StageAllocations8Mb[index].string);
+			sysLogPrintf(LOG_NOTE, "LOAD: 8Mb alloc index=%d stagenum_in_table=0x%02x string=\"%s\"",
+				index, g_StageAllocations8Mb[index].stagenum, g_StageAllocations8Mb[index].string);
 		}
 
 		var8005d9c4 = 0;

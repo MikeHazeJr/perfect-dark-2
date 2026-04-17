@@ -17026,7 +17026,7 @@ void ammotypeGetDeterminer(char *dst, s32 ammotype, s32 qty)
 
 	s32 playercount = PLAYERCOUNT();
 	s32 full = playercount <= 2
-		&& !(playercount == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB()));
+		&& !(playercount == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL);
 
 	switch (ammotype) {
 	case AMMOTYPE_CLOAK:
@@ -17271,7 +17271,7 @@ void ammotypeGetPickupMessage(char *dst, s32 ammotype, s32 qty)
 {
 	s32 playercount = PLAYERCOUNT();
 	s32 full = playercount <= 2
-		&& !(playercount == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB()));
+		&& !(playercount == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL);
 
 	*dst = '\0';
 
@@ -17459,7 +17459,7 @@ void weaponGetPickupText(char *buffer, s32 weaponnum, bool dual)
 	// with some fake weaponnums for the different eyespy types.
 	s32 playercount = PLAYERCOUNT();
 	s32 full = playercount <= 2
-		&& !(playercount == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB()));
+		&& !(playercount == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL);
 
 	if (weaponnum == WEAPON_EYESPY) {
 		if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_AIRBASE) {
@@ -17474,7 +17474,7 @@ void weaponGetPickupText(char *buffer, s32 weaponnum, bool dual)
 #else
 	s32 playercount = PLAYERCOUNT();
 	s32 full = playercount <= 2
-		&& !(playercount == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB()));
+		&& !(playercount == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL);
 	s32 textid;
 	bool plural = false;
 
@@ -17775,7 +17775,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 				if (text == NULL) {
 					s32 playercount = PLAYERCOUNT();
 
-					if (playercount <= 2 && !(playercount == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB()))) {
+					if (playercount <= 2 && !(playercount == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL)) {
 						text = langGet(L_PROPOBJ_041); // "Picked up a shield."
 					} else {
 						text = langGet(L_PROPOBJ_042); // "A shield."
@@ -21374,7 +21374,7 @@ Gfx *countdownTimerRender(Gfx *gdl)
 		char *fmt = ":\n";
 
 		if (playercount == 2) {
-			if (IS4MB() || (optionsGetScreenSplit() != SCREENSPLIT_VERTICAL && g_Vars.currentplayernum == 0)) {
+			if (optionsGetScreenSplit() != SCREENSPLIT_VERTICAL && g_Vars.currentplayernum == 0) {
 				y += 10;
 			} else {
 				y += 2;

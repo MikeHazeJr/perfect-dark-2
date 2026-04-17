@@ -1590,16 +1590,9 @@ void playerSpawn(void)
 				bgunEquipWeapon2(HAND_RIGHT, g_DefaultWeapons[HAND_RIGHT]);
 			}
 
-#if VERSION >= VERSION_NTSC_1_0
-			if (g_Vars.currentplayer->model00d4 == NULL
-					&& (IS8MB() || g_Vars.fourmeg2player || g_MpAllChrPtrs[g_Vars.currentplayernum] == NULL)) {
-				playerTickChrBody();
-			}
-#else
 			if (g_Vars.currentplayer->model00d4 == NULL) {
 				playerTickChrBody();
 			}
-#endif
 		}
 	}
 
@@ -1868,12 +1861,7 @@ void playerTickChrBody(void)
 
 		weaponmodelnum = playermgrGetModelOfWeapon(weaponnum);
 
-		if (IS4MB()) {
-			bodynum = BODY_DARK_COMBAT;
-			headnum = HEAD_DARK_COMBAT;
-		}
-
-		if (!g_Vars.mplayerisrunning || (IS4MB() && PLAYERCOUNT() == 1)) {
+		if (!g_Vars.mplayerisrunning) {
 			// 1 player
 			if (g_Vars.currentplayer->gunmem2 == NULL) {
 				if (!var8009dfc0 && bgunChangeGunMem(GUNMEMOWNER_CHRBODY)) {
@@ -2117,7 +2105,7 @@ void playerTickChrBody(void)
 void playerRemoveChrBody(void)
 {
 	if (g_Vars.currentplayer->haschrbody) {
-		if (!g_Vars.mplayerisrunning || (IS4MB() && PLAYERCOUNT() == 1)) {
+		if (!g_Vars.mplayerisrunning) {
 			g_Vars.currentplayer->haschrbody = false;
 			chrRemove(g_Vars.currentplayer->prop, false);
 			g_Vars.currentplayer->model00d4 = NULL;
@@ -3383,26 +3371,6 @@ void playerTickExplode(void)
 
 void playerResetLoResIf4Mb(void)
 {
-	if (IS4MB()) {
-#if VERSION >= VERSION_PAL_BETA
-		g_ViModes[VIRES_LO].fbwidth = FBALLOC_WIDTH_LO;
-		g_ViModes[VIRES_LO].fbheight = FBALLOC_HEIGHT_LO;
-		g_ViModes[VIRES_LO].width = FBALLOC_WIDTH_LO;
-		g_ViModes[VIRES_LO].yscale = 1;
-		g_ViModes[VIRES_LO].xscale = VIMODE_LO;
-		g_ViModes[VIRES_LO].fullheight = FBALLOC_HEIGHT_LO;
-		g_ViModes[VIRES_LO].fulltop = 0;
-#else
-		g_ViModes[VIRES_LO].fbheight = FBALLOC_HEIGHT_LO;
-		g_ViModes[VIRES_LO].fulltop = 0;
-		g_ViModes[VIRES_LO].fullheight = FBALLOC_HEIGHT_LO;
-#endif
-
-		g_ViModes[VIRES_LO].wideheight = 180;
-		g_ViModes[VIRES_LO].widetop = 20;
-		g_ViModes[VIRES_LO].cinemaheight = 136;
-		g_ViModes[VIRES_LO].cinematop = 42;
-	}
 }
 
 void playerSetHiResEnabled(bool enable)
@@ -3418,13 +3386,7 @@ s16 playerGetFbWidth(void)
 
 s16 playerGetFbHeight(void)
 {
-	s16 height = g_ViModes[g_ViRes].fbheight;
-
-	if (g_Vars.fourmeg2player) {
-		height = height >> 1;
-	}
-
-	return height;
+	return g_ViModes[g_ViRes].fbheight;
 }
 
 #if VERSION >= VERSION_NTSC_1_0
@@ -3462,7 +3424,7 @@ s16 playerGetViewportWidth(void)
 				width--;
 			}
 		} else if (LOCALPLAYERCOUNT() == 2) {
-			if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || g_Vars.fourmeg2player) {
+			if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) {
 				// 2 players vsplit
 				width = g_ViModes[g_ViRes].width / 2;
 
@@ -3503,7 +3465,7 @@ s16 playerGetViewportLeft(void)
 			left = g_ViModes[g_ViRes].fbwidth - g_ViModes[g_ViRes].width;
 		}
 	} else if (LOCALPLAYERCOUNT() == 2 && something != 0) {
-		if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || g_Vars.fourmeg2player) {
+		if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) {
 			if (g_Vars.currentplayernum == 1) {
 				// 2 players vsplit - right side
 				left = (g_ViModes[g_ViRes].width / 2) + g_ViModes[g_ViRes].fbwidth - g_ViModes[g_ViRes].width;
@@ -3536,16 +3498,12 @@ s16 playerGetViewportHeight(void)
 			) {
 		s16 tmp = g_ViModes[g_ViRes].fullheight;
 
-		if (IS4MB() && !g_Vars.fourmeg2player) {
-			height = tmp;
-		} else {
-			height = tmp / 2;
-		}
+		height = tmp / 2;
 
 		if (LOCALPLAYERCOUNT() == 2) {
 			if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) {
 				height = tmp;
-			} else if (g_Vars.currentplayernum == 0 && IS8MB()) {
+			} else if (g_Vars.currentplayernum == 0) {
 				height--;
 			}
 		} else if (g_Vars.currentplayernum == 0 || g_Vars.currentplayernum == 1) {
@@ -3597,7 +3555,7 @@ s16 playerGetViewportTop(void)
 			if (LOCALPLAYERCOUNT() == 2
 					&& g_Vars.currentplayernum == 1
 					&& optionsGetScreenSplit() != SCREENSPLIT_VERTICAL
-					&& !g_Vars.fourmeg2player) {
+					) {
 				// 2 players hsplit - bottom side
 				top = g_ViModes[g_ViRes].fulltop + g_ViModes[g_ViRes].fullheight / 2;
 			} else if (g_Vars.currentplayernum == 2 || g_Vars.currentplayernum == 3) {

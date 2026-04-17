@@ -7,6 +7,18 @@
 
 ---
 
+## Open — 2026-04-17 (S322 — N64 legacy audit Tier 1/2)
+
+### Playtest verification
+
+- **Cold boot** — boot log clean (no IS4MB path taken, no audio init errors). Menu renders normally.
+- **Audio** — music plays in multiplayer lobby. No audio crackling or voice-limit errors in log.
+- **Multiplayer** — 2-player split-screen works. No crash from fourmeg2player removal or screensplit logic.
+- **Stage loading** — load any gameplay stage; no crash from MEMP expansion pool change or model/texture count increases.
+- **Menu blur** — menu blur effect renders (IS8MB guard was removed; `g_BlurBuffer` allocated unconditionally).
+
+---
+
 ## Open — 2026-04-17 (S321 — N64 demo system stripped)
 
 ### Playtest verification

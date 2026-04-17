@@ -19,7 +19,7 @@ void langInit(void)
 	s32 i;
 
 #if VERSION >= VERSION_JPN_FINAL
-	g_JpnMaxCacheItems = IS4MB() ? 124 : 174;
+	g_JpnMaxCacheItems = 174;
 
 	g_JpnCharCachePixels = mempAlloc(MAX_JPN_CACHE_ITEMS() * (sizeof(struct jpncharpixels) * 8), MEMPOOL_PERMANENT);
 	g_JpnCacheCacheItems = mempAlloc(ALIGN16(MAX_JPN_CACHE_ITEMS() * sizeof(struct jpncacheitem)), MEMPOOL_PERMANENT);

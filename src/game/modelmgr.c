@@ -33,9 +33,9 @@ s32 g_ModelMostAnims = 0;
  * Type 2: medium rwdata (<=52 words / 0xD0 bytes) - weapons, animated objects
  * Type 3: large rwdata (<=256 words / 0x400 bytes) - character body models
  */
-#define NUMTYPE1() (IS4MB() ? 0 : 70)
-#define NUMTYPE2() (IS4MB() ? 24 : 50)
-#define NUMTYPE3() (IS4MB() ? 0 : 48)
+#define NUMTYPE1() 70
+#define NUMTYPE2() 50
+#define NUMTYPE3() 48
 
 bool modelmgrCanSlotFitRwdata(struct model *modelslot, struct modeldef *modeldef)
 {
@@ -109,8 +109,6 @@ void modelmgrPrintCounts(void)
 	osSyncPrintf("MOT : Type OA = %d/%d/%d/%d");
 	osSyncPrintf("MOT : g_ObjCount = %d");
 	osSyncPrintf("MOT : g_AnimCount = %d");
-
-	if (IS4MB());
 }
 
 struct model *modelmgrInstantiateModel(struct modeldef *modeldef, bool withanim)
@@ -191,7 +189,6 @@ struct model *modelmgrInstantiateModel(struct modeldef *modeldef, bool withanim)
 					for (i = 0; i < NUMTYPE2(); i++) {
 						if (g_ModelRwdataBindings[1][i].model == NULL) {
 							osSyncPrintf("MotInst: Using cache entry type 2 %d (0x%08x) - Bytes=%d\n");
-							if (IS4MB());
 							rwdatas = g_ModelRwdataBindings[1][i].rwdata;
 							g_ModelRwdataBindings[1][i].model = model;
 							done = true;
@@ -206,7 +203,6 @@ struct model *modelmgrInstantiateModel(struct modeldef *modeldef, bool withanim)
 					for (i = 0; i < NUMTYPE3(); i++) {
 						if (g_ModelRwdataBindings[2][i].model == NULL && g_ModelRwdataBindings[2][i].rwdata != NULL) {
 							osSyncPrintf("MotInst: Using cache entry type 3 %d (0x%08x) - Bytes=%d\n");
-							if (IS4MB());
 							rwdatas = g_ModelRwdataBindings[2][i].rwdata;
 							g_ModelRwdataBindings[2][i].model = model;
 							done = true;
@@ -236,11 +232,7 @@ struct model *modelmgrInstantiateModel(struct modeldef *modeldef, bool withanim)
 					NUMTYPE1(), NUMTYPE2(), NUMTYPE3(), modeldef->rwdatalen);
 			}
 
-			if (withanim) {
-				datalen = 256;
-			} else {
-				datalen = IS4MB() ? 52 : 256;
-			}
+			datalen = 256;
 
 			datalen += extra;
 

@@ -46,11 +46,9 @@
  */
 
 // Size of the "expansion" portion of the heap, carved out before memp pool assignment.
-// This maps to the N64's expansion pak concept. On PC we have ample memory, so this is a
-// fixed compile-time constant. 8MB is sufficient for large stages + mod assets at current
-// workloads. Increase here (not in pd.ini) if stages start OOM — pools are assigned once
-// at startup from a fixed heap and cannot be resized at runtime.
-#define MEMP_EXPANSION_POOL_SIZE (8 * 1024 * 1024)
+// Pools are assigned once at startup from a fixed heap and cannot be resized at runtime.
+// Bumped from N64 expansion pak size (8MB) to 64MB — no architectural reason to keep it low.
+#define MEMP_EXPANSION_POOL_SIZE (64 * 1024 * 1024)
 
 struct memorypool {
 	/*0x00*/ u8 *start;
@@ -126,11 +124,7 @@ u32 mempGetStageFree(void)
 {
 	u32 free;
 
-	if (IS4MB()) {
-		free = g_MempOnboardPools[MEMPOOL_STAGE].rightpos - g_MempOnboardPools[MEMPOOL_STAGE].leftpos;
-	} else {
-		free = g_MempExpansionPools[MEMPOOL_STAGE].rightpos - g_MempExpansionPools[MEMPOOL_STAGE].leftpos;
-	}
+	free = g_MempExpansionPools[MEMPOOL_STAGE].rightpos - g_MempExpansionPools[MEMPOOL_STAGE].leftpos;
 
 	return free;
 }
@@ -139,11 +133,7 @@ void *mempGetNextStageAllocation(void)
 {
 	void *next;
 
-	if (IS4MB()) {
-		next = g_MempOnboardPools[MEMPOOL_STAGE].leftpos;
-	} else {
-		next = g_MempExpansionPools[MEMPOOL_STAGE].leftpos;
-	}
+	next = g_MempExpansionPools[MEMPOOL_STAGE].leftpos;
 
 	return next;
 }

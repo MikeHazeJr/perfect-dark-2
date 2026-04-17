@@ -5,7 +5,7 @@
 #include "data.h"
 #include "types.h"
 
-#define ADMA_MAX_ITEMS 80
+#define ADMA_MAX_ITEMS 200
 #define ADMA_ITEM_SIZE 0x400
 
 struct admaitem {
@@ -129,11 +129,7 @@ uintptr_t admaExec(uintptr_t offset, s32 len, void *state)
  */
 void *admaNew(struct admastate **state)
 {
-#if PAL
 	s32 max = ADMA_MAX_ITEMS;
-#else
-	s32 max = IS4MB() ? ADMA_MAX_ITEMS - 20 : ADMA_MAX_ITEMS;
-#endif
 	s32 i;
 
 	if (!g_AdmaState.initialised) {

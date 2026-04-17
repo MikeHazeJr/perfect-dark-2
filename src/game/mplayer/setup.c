@@ -977,10 +977,6 @@ MenuItemHandlerResult mpChallengesListHandler(s32 operation, struct menuitem *it
 		renderdata = data->type19.renderdata2;
 		challengeindex = data->list.unk04;
 
-		if (IS4MB()) {
-			maxplayers = 2;
-		}
-
 		x = renderdata->x + 10;
 		y = renderdata->y + 1;
 
@@ -2582,11 +2578,7 @@ MenuItemHandlerResult mpLoadSettingsMenuHandler(s32 operation, struct menuitem *
 		}
 
 		if (item->param == 1) {
-			if (IS4MB()) {
-				func0f0f820c(&g_MpQuickGo4MbMenuDialog, MENUROOT_4MBMAINMENU);
-			} else {
-				func0f0f820c(&g_MpQuickGoMenuDialog, MENUROOT_MPSETUP);
-			}
+			func0f0f820c(&g_MpQuickGoMenuDialog, MENUROOT_MPSETUP);
 		}
 		break;
 	case MENUOP_GETSELECTEDINDEX:
@@ -3600,8 +3592,6 @@ MenuItemHandlerResult menuhandlerMpSimulantSlot(s32 operation, struct menuitem *
 
 		if (!mpIsParticipantActive(item->param + BOT_SLOT_OFFSET)) { /* B-12 Phase 2 */
 			menuPushDialog(&g_MpAddSimulantMenuDialog);
-		} else if (IS4MB()) {
-			menuPushDialog(&g_MpEditSimulant4MbMenuDialog);
 		} else {
 			menuPushDialog(&g_MpEditSimulantMenuDialog);
 		}
@@ -5166,8 +5156,6 @@ MenuItemHandlerResult mpChallengesListMenuHandler(s32 operation, struct menuitem
 
 		if (item->param == 0) {
 			menuPushDialog(&g_MpConfirmChallengeViaListOrDetailsMenuDialog);
-		} else if (IS4MB()) {
-			menuPushDialog(&g_MpConfirmChallenge4MbMenuDialog);
 		} else {
 			menuPushDialog(&g_MpConfirmChallengeMenuDialog);
 		}
@@ -5188,10 +5176,6 @@ MenuItemHandlerResult mpChallengesListMenuHandler(s32 operation, struct menuitem
 		renderdata = data->type19.renderdata2;
 		marginleft = 10;
 		maxchrs = 4;
-
-		if (IS4MB()) {
-			maxchrs = 2;
-		}
 
 		x = renderdata->x + 10;
 		y = renderdata->y + 1;
@@ -5423,11 +5407,7 @@ MenuItemHandlerResult menuhandler0017ef30(s32 operation, struct menuitem *item, 
 {
 	if (operation == MENUOP_SET) {
 		if (g_Vars.stagenum == STAGE_CITRAINING) {
-			if (IS4MB()) {
-				func0f0f820c(&g_CiMenuViaPauseMenuDialog, 2);
-			} else {
-				func0f0f820c(&g_CiMenuViaPcMenuDialog, 2);
-			}
+			func0f0f820c(&g_CiMenuViaPcMenuDialog, 2);
 		} else {
 			func0f0f820c(&g_SoloMissionPauseMenuDialog, 2);
 		}
@@ -5595,11 +5575,7 @@ void func0f17f428(void)
 {
 	mpConfigureQuickTeamPlayers();
 
-	if (IS4MB()) {
-		func0f0f820c(&g_MpQuickGo4MbMenuDialog, MENUROOT_4MBMAINMENU);
-	} else {
-		func0f0f820c(&g_MpQuickGoMenuDialog, MENUROOT_MPSETUP);
-	}
+	func0f0f820c(&g_MpQuickGoMenuDialog, MENUROOT_MPSETUP);
 }
 
 MenuItemHandlerResult menuhandlerMpFinishedSetup(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -6518,18 +6494,13 @@ void func0f17fcb0(s32 silent)
 {
 	g_Menus[g_MpPlayerNum].playernum = g_MpPlayerNum;
 
-	if (IS4MB()) {
-		menuPushRootDialog(&g_AdvancedSetup4MbMenuDialog, MENUROOT_4MBMAINMENU);
-		func0f0f8300();
+	if (g_BossFile.locktype == MPLOCKTYPE_CHALLENGE) {
+		menuPushRootDialog(&g_MpChallengeListOrDetailsViaAdvChallengeMenuDialog, MENUROOT_MPSETUP);
 	} else {
-		if (g_BossFile.locktype == MPLOCKTYPE_CHALLENGE) {
-			menuPushRootDialog(&g_MpChallengeListOrDetailsViaAdvChallengeMenuDialog, MENUROOT_MPSETUP);
-		} else {
-			menuPushRootDialog(&g_MpAdvancedSetupMenuDialog, MENUROOT_MPSETUP);
-		}
-
-		func0f0f8300();
+		menuPushRootDialog(&g_MpAdvancedSetupMenuDialog, MENUROOT_MPSETUP);
 	}
+
+	func0f0f8300();
 
 	if (!silent) {
 		// Explosion sound

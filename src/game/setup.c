@@ -198,8 +198,8 @@ void propsReset(void)
 	g_MaxHatSlots = 20;
 	g_MaxAmmoCrates = 40;
 	g_MaxDebrisSlots = 30;
-	g_MaxProjectiles = IS4MB() ? 20 : 200;
-	g_MaxEmbedments = IS4MB() ? 40 : 160;
+	g_MaxProjectiles = 200;
+	g_MaxEmbedments = 160;
 
 	if (STAGE_IS_SYSTEM(g_Vars.stagenum)) {
 		g_MaxWeaponSlots = 0;
@@ -1546,13 +1546,7 @@ void setupLoadFiles(s32 stagenum)
 		modelmgrAllocateSlots(0, 0);
 	}
 
-	if (IS4MB()) {
-		extra = 40;
-	} else {
-		extra = 60;
-	}
-
-	if (IS4MB());
+	extra = 60;
 
 	g_Vars.maxprops = numobjs + numchrs + extra + 40;
 }

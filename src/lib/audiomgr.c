@@ -67,17 +67,11 @@ void amgrCreate(ALSynConfig *config)
 #if VERSION >= VERSION_JPN_FINAL
 	freqpertick = settings[1] * (f32)config->outputRate / 30.0f;
 
-	if (IS4MB()) {
-		freqpertick *= 0.5f;
-	}
 #elif VERSION >= VERSION_PAL_BETA
 	freqpertick = settings[1] * (f32)config->outputRate / 25.0f;
 #else
 	freqpertick = config->outputRate / 30.0f;
 
-	if (IS4MB()) {
-		freqpertick *= 0.5f;
-	}
 #endif
 
 	g_AmgrFreqPerTick = (s32)freqpertick;
@@ -97,12 +91,6 @@ void amgrCreate(ALSynConfig *config)
 	osCreateMesgQueue(&g_AudioManager.audioFrameMsgQ, g_AudioManager.audioFrameMsgBuf, ARRAYCOUNT(g_AudioManager.audioFrameMsgBuf));
 
 	var800918ec = 2000;
-
-#if !PAL
-	if (IS4MB()) {
-		var800918ec >>= 1;
-	}
-#endif
 
 	for (i = 0; i < ARRAYCOUNT(g_AudioManager.ACMDList); i++) {
 		g_AudioManager.ACMDList[i] = alHeapAlloc(&g_SndHeap, 1, var800918ec * sizeof(Acmd));
@@ -133,11 +121,11 @@ void amgrCreate(ALSynConfig *config)
 		s32 sp068[] = { 0x00000001, 0x00000a50, 0x00000000, 0x00000898, 0x00003334, 0x00000000, 0x00007335, 0x00000000, 0x00000000, 0x00000000 };
 		s32 sp040[] = { 0x00000001, 0x00000148, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000 };
 
-		config->params[0] = (s32 *) (IS4MB() ? sp1c0 : sp090);
+		config->params[0] = (s32 *) sp090;
 
 		if (g_SndMaxFxBusses >= 2) {
 			for (i = 1; i < g_SndMaxFxBusses; i++) {
-				config->params[i] = (s32 *) (IS4MB() ? sp198 : sp068);
+				config->params[i] = (s32 *) sp068;
 			}
 		}
 #ifndef AVOID_UB
@@ -191,7 +179,7 @@ void amgrMain(void *arg)
 #else
 	// 8MB - Receive retrace events every second retrace
 	// 4MB - Receive retrace events every retrace due to smaller command buffer
-	osScAddClient(&g_Sched, &g_AudioSchedClient, &g_AudioManager.audioFrameMsgQ, !IS4MB());
+	osScAddClient(&g_Sched, &g_AudioSchedClient, &g_AudioManager.audioFrameMsgQ, true);
 #endif
 
 	while (!done) {

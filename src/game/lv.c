@@ -355,8 +355,7 @@ void lvReset(s32 stagenum)
 	if (stagenum == STAGE_CITRAINING
 			|| stagenum == STAGE_TITLE
 			|| stagenum == STAGE_BOOTPAKMENU
-			|| stagenum == STAGE_CREDITS
-			|| stagenum == STAGE_4MBMENU) {
+			|| stagenum == STAGE_CREDITS) {
 		g_NotLoadMod = true;
 	}
 
@@ -417,8 +416,6 @@ void lvReset(s32 stagenum)
 	} else if (stagenum == STAGE_BOOTPAKMENU) {
 		// empty
 	} else if (stagenum == STAGE_CREDITS) {
-		// empty
-	} else if (stagenum == STAGE_4MBMENU) {
 		// empty
 	} else {
 		s32 i;
@@ -576,9 +573,6 @@ void lvReset(s32 stagenum)
 	} else if (stagenum == STAGE_BOOTPAKMENU) {
 		setCurrentPlayerNum(0);
 		menuReset();
-	} else if (stagenum == STAGE_4MBMENU) {
-		setCurrentPlayerNum(0);
-		menuReset();
 	} else if (stagenum == STAGE_CREDITS) {
 		creditsReset();
 	} else {
@@ -628,13 +622,7 @@ void lvReset(s32 stagenum)
 		bootmenuReset();
 	}
 
-	if (stagenum == STAGE_4MBMENU) {
-		fmbReset();
-	}
-
-	if (IS8MB()) {
-		pheadReset();
-	}
+	pheadReset();
 
 	if (g_NetMode) {
 		netSyncIdsAllocate();
@@ -1241,35 +1229,6 @@ Gfx *lvRender(Gfx *gdl)
 		gdl = viRenderViewportEdges(gdl);
 		gdl = bgScissorToViewport(gdl);
 		gdl = menuRender(gdl);
-	} else if (g_Vars.stagenum == STAGE_4MBMENU) {
-		gSPClipRatio(gdl++, FRUSTRATIO_2);
-		gSPDisplayList(gdl++, &var800613a0);
-		gSPDisplayList(gdl++, &var80061380);
-
-		setCurrentPlayerNum(0);
-
-#if VERSION >= VERSION_PAL_BETA
-		viSetMode(VIMODE_LO);
-		viSetViewPosition(g_Vars.currentplayer->viewleft, g_Vars.currentplayer->viewtop);
-		viSetSize(playerGetFbWidth(), playerGetFbHeight());
-		viSetBufSize(playerGetFbWidth(), playerGetFbHeight());
-		viSetViewSize(playerGetFbWidth(), playerGetFbHeight());
-#else
-		viSetViewPosition(g_Vars.currentplayer->viewleft, g_Vars.currentplayer->viewtop);
-#endif
-
-		viSetFovAspectAndSize(g_Vars.currentplayer->fovy, g_Vars.currentplayer->aspect,
-				g_Vars.currentplayer->viewwidth, g_Vars.currentplayer->viewheight);
-
-		mtx00016748(1);
-
-		gdl = vi0000b1d0(gdl);
-		gdl = bgScissorToViewport(gdl);
-		gdl = menuRender(gdl);
-
-		if (g_Vars.currentplayer->pausemode != PAUSEMODE_UNPAUSED) {
-			playerTickPauseMenu();
-		}
 	} else if (g_Vars.stagenum == STAGE_CREDITS) {
 		gSPClipRatio(gdl++, FRUSTRATIO_2);
 		gSPDisplayList(gdl++, &var800613a0);
@@ -2335,8 +2294,7 @@ void lvTick(void)
 
 		if (g_Vars.stagenum == STAGE_TITLE
 				|| g_Vars.stagenum == STAGE_BOOTPAKMENU
-				|| g_Vars.stagenum == STAGE_CREDITS
-				|| g_Vars.stagenum == STAGE_4MBMENU) {
+				|| g_Vars.stagenum == STAGE_CREDITS) {
 			g_Vars.paksneededforgame = 0;
 		} else {
 			g_Vars.paksneededforgame = 0x1f;
@@ -2344,10 +2302,6 @@ void lvTick(void)
 		}
 
 		g_Vars.joydisableframestogo = -1;
-	}
-
-	if (IS4MB()) {
-		vmPrintStatsIfEnabled();
 	}
 
 	for (j = 0; j < PLAYERCOUNT(); j++) {
@@ -2558,11 +2512,6 @@ void lvTick(void)
 #if VERSION >= VERSION_PAL_BETA
 		playerConfigureVi();
 #endif
-		menuTick();
-		musicTick();
-		langTick();
-		pakExecuteDebugOperations();
-	} else if (g_Vars.stagenum == STAGE_4MBMENU) {
 		menuTick();
 		musicTick();
 		langTick();

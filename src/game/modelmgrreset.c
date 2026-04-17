@@ -26,10 +26,10 @@
 #include "system.h"
 
 /* PC port: Match increased pool sizes from modelmgr.c */
-#define NUMTYPE1() (IS4MB() ? 0 : 70)
-#define NUMTYPE2() (IS4MB() ? 24 : 50)
-#define NUMTYPE3() (IS4MB() ? 0 : 48)
-#define NUMSPARE() (IS4MB() ? 40 : 80)
+#define NUMTYPE1() 70
+#define NUMTYPE2() 50
+#define NUMTYPE3() 48
+#define NUMSPARE() 80
 
 void modelmgrReset(void)
 {

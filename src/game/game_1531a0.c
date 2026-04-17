@@ -469,24 +469,9 @@ void textReset(void)
 #if VERSION >= VERSION_JPN_FINAL
 		textLoadFont(REF_SEG _fontnumericSegmentRomStart, REF_SEG _fontnumericSegmentRomEnd, &g_FontNumeric, &g_CharsNumeric, false);
 
-		if (g_Vars.normmplayerisrunning) {
-			if (IS4MB()) {
-				s32 i;
-
-				for (i = 0; i < 169; i++) {
-					g_JpnKerning[i] = 0;
-				}
-
-				g_FontHandelGothicXs = g_FontHandelGothicSm = (struct font *) g_JpnKerning;
-				return;
-			}
-		}
-
 		textLoadFont(REF_SEG _fonthandelgothicsmSegmentRomStart, REF_SEG _fonthandelgothicsmSegmentRomEnd, &g_FontHandelGothicSm, &g_CharsHandelGothicSm, false);
 
-		if (!g_Vars.normmplayerisrunning || IS8MB()) {
-			textLoadFont(REF_SEG _fonthandelgothicmdSegmentRomStart, REF_SEG _fonthandelgothicmdSegmentRomEnd, &g_FontHandelGothicMd, &g_CharsHandelGothicMd, false);
-		}
+		textLoadFont(REF_SEG _fonthandelgothicmdSegmentRomStart, REF_SEG _fonthandelgothicmdSegmentRomEnd, &g_FontHandelGothicMd, &g_CharsHandelGothicMd, false);
 
 		if (g_Vars.stagenum == STAGE_TEST_OLD) {
 			textLoadFont(REF_SEG _fonthandelgothiclgSegmentRomStart, REF_SEG _fonthandelgothiclgSegmentRomEnd, &g_FontHandelGothicLg, &g_CharsHandelGothicLg, false);

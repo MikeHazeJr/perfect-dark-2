@@ -46,11 +46,7 @@ void langReset(s32 stagenum)
 	if (stagenum == STAGE_CITRAINING) {
 		size = 108000;
 	} else {
-		size = 56000;
-
-		if (IS8MB()) {
-			size = 68000;
-		}
+		size = 68000;
 	}
 
 #ifdef PLATFORM_64BIT

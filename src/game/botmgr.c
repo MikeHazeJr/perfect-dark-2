@@ -61,11 +61,6 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
 	crashBreadcrumbPush("BOT.ALLOC chrnum=%d slot=%d body=%d head=%d",
 		chrnum, aibotnum, bodynum, headnum);
 
-	if (IS4MB()) {
-		headnum = HEAD_DDSHOCK;
-		bodynum = BODY_DDSHOCK;
-	}
-
 	model = bodyAllocateModel(bodynum, headnum, 0);
 
 	sysLogPrintf(LOG_NOTE,

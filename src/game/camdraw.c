@@ -448,18 +448,16 @@ void pheadInit(void)
 {
 	s32 i;
 
-	if (IS8MB()) {
-		u32 size1 = align16(sizeof(struct var8007f8dc) * 4);
-		u32 size2 = align16(sizeof(struct var800a45a0));
+	u32 size1 = align16(sizeof(struct var8007f8dc) * 4);
+	u32 size2 = align16(sizeof(struct var800a45a0));
 
-		var8007f8dc = mempAlloc(size1, MEMPOOL_PERMANENT);
-		var800a45a0 = mempAlloc(size2, MEMPOOL_PERMANENT);
+	var8007f8dc = mempAlloc(size1, MEMPOOL_PERMANENT);
+	var800a45a0 = mempAlloc(size2, MEMPOOL_PERMANENT);
 
-		func0f14a240();
+	func0f14a240();
 
-		for (i = 0; i < 4; i++) {
-			func0f14ad58(i);
-		}
+	for (i = 0; i < 4; i++) {
+		func0f14ad58(i);
 	}
 }
 

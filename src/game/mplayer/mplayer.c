@@ -4255,16 +4255,7 @@ void mpApplyConfig(struct mpconfigfull *config)
 
 		g_BotConfigsArray[i].difficulty = g_MpSimulantDifficultiesPerNumPlayers[i][0];
 
-#if VERSION >= VERSION_NTSC_1_0
-		if (IS4MB()) {
-			// "ShockSim:%d"
-			snprintf(g_BotConfigsArray[i].base.name, sizeof(g_BotConfigsArray[i].base.name), langGet(L_MPWEAPONS_241), i + 1);
-		} else {
-			strncpy(g_BotConfigsArray[i].base.name, config->strings.aibotnames[i], 14); g_BotConfigsArray[i].base.name[14] = '\0';
-		}
-#else
 		strncpy(g_BotConfigsArray[i].base.name, config->strings.aibotnames[i], 14); g_BotConfigsArray[i].base.name[14] = '\0';
-#endif
 
 		g_BotConfigsArray[i].base.mpheadnum = config->config.simulants[i].mpheadnum;
 		g_BotConfigsArray[i].base.mpbodynum = config->config.simulants[i].mpbodynum;

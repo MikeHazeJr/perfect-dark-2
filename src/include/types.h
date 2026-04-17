@@ -240,8 +240,7 @@ struct g_vars {
 	/*0x4d7*/ s8 autocutgroupskip; // true if pressed start during auto cutscene
 	/*0x4d8*/ s32 joydisableframestogo;
 	/*0x4dc*/ u8 playertojoymap[MAX_PLAYERS];
-	/*0x4e0*/ u8 fourmeg2player;
-	/*0x4e1*/ u8 remakewallhitvtx;
+	/*0x4e0*/ u8 remakewallhitvtx;
 	/*0x4e2*/ u8 cutsceneskip60ths;
 	/*0x4e3*/ u8 langfilteron;
 

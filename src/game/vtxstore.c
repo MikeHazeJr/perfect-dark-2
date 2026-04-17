@@ -136,12 +136,6 @@ void *vtxstoreAllocate(s32 count, s32 index, struct modelnode *node, s32 level)
 	u32 size;
 	struct chrdata *chrs[6];
 
-#if VERSION >= VERSION_NTSC_1_0
-	if (IS4MB()) {
-		return NULL;
-	}
-#endif
-
 	if (count <= g_VtxstoreTypes[index].val2) {
 		for (i = 0; i < g_VtxstoreTypes[index].numallocated; i++) {
 			if (g_VtxstoreTypes[index].unk24[i].unk0e == 0) {

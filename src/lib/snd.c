@@ -1407,11 +1407,7 @@ void seqInit(struct seqinstance *seq)
 
 	func00030c98(&config);
 
-	if (IS4MB()) {
-		g_SeqBufferSize = MAX_SEQ_SIZE_4MB;
-	} else {
-		g_SeqBufferSize = MAX_SEQ_SIZE_8MB;
-	}
+	g_SeqBufferSize = MAX_SEQ_SIZE_8MB;
 
 	seq->data = alHeapAlloc(&g_SndHeap, 1, g_SeqBufferSize);
 	seq->seqp = alHeapAlloc(&g_SndHeap, 1, sizeof(N_ALCSPlayer));
@@ -1461,22 +1457,11 @@ void sndInit(void)
 
 	g_Vars.langfilteron = false;
 
-	if (IS4MB()) {
-		g_SndMaxFxBusses = 1;
+	g_SndMp3Enabled = true;
+	g_SndMaxFxBusses = 2;
 
-		heaplen -= 1024 * (PAL ? 6 : 38);
-		heaplen -= 1024 * 137;
-		heaplen -= 1024 * 12;
-		heaplen -= 1024 * 23;
-
+	if (argFindByPrefix(1, "-nomp3")) {
 		g_SndMp3Enabled = false;
-	} else {
-		g_SndMp3Enabled = true;
-		g_SndMaxFxBusses = 2;
-
-		if (argFindByPrefix(1, "-nomp3")) {
-			g_SndMp3Enabled = false;
-		}
 	}
 
 	if (!g_SndDisabled) {
@@ -1530,8 +1515,8 @@ void sndInit(void)
 			g_SeqRomAddrs[i] = g_SeqTable->entries[i].romaddr + (romptr_t) REF_SEG _sequencesSegmentRomStart;
 		}
 
-		synconfig.maxVVoices = 44;
-		synconfig.maxPVoices = 30;
+		synconfig.maxVVoices = 96;
+		synconfig.maxPVoices = 64;
 		synconfig.maxUpdates = 64;
 		synconfig.dmaproc = NULL;
 		synconfig.outputRate = 0;
@@ -1544,7 +1529,7 @@ void sndInit(void)
 
 		sndpconfig.maxEvents = 64;
 		sndpconfig.maxStates = 64;
-		sndpconfig.maxSounds = 20;
+		sndpconfig.maxSounds = 48;
 		sndpconfig.unk10 = NUM_KEYTHINGS;
 		sndpconfig.heap = &g_SndHeap;
 
@@ -2202,12 +2187,12 @@ struct sndstate *sndStart(s32 arg0, s16 sound, struct sndstate **handle, s32 vol
 
 #if VERSION >= VERSION_NTSC_1_0
 	if (sp40.id < (u32)g_NumSounds) {
-		return func00033820(arg0, sp40.id, volume, pan & 0x7f, pitch, fxmix, IS4MB() ? 0 : fxbus, handle);
+		return func00033820(arg0, sp40.id, volume, pan & 0x7f, pitch, fxmix, fxbus, handle);
 	}
 
 	return NULL;
 #else
-	return func00033820(arg0, sp40.id, volume, pan & 0x7f, pitch, fxmix, IS4MB() ? 0 : fxbus, handle);
+	return func00033820(arg0, sp40.id, volume, pan & 0x7f, pitch, fxmix, fxbus, handle);
 #endif
 }
 

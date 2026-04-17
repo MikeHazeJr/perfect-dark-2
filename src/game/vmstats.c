@@ -8,26 +8,4 @@
 
 void vmPrintStatsIfEnabled(void)
 {
-	char buffer[80];
-
-	if (IS4MB()) {
-#ifdef DEBUG
-		if (g_VmShowStats) {
-			dhudSetFgColour(0xff, 0xff, 0xff, 0xff);
-			dhudSetBgColour(0, 0, 0, 0xff);
-
-			snprintf(buffer, sizeof(buffer), "VM: Page Misses %d (%d Replaces)", g_VmNumPageMisses, g_VmNumPageReplaces);
-			dhudSetPos(2, 1);
-			dhudPrintString(buffer);
-
-			snprintf(buffer, sizeof(buffer), "VM: TLB Misses %d", g_VmNumTlbMisses);
-			dhudSetPos(2, 2);
-			dhudPrintString(buffer);
-		}
-#endif
-
-		g_VmNumTlbMisses = 0;
-		g_VmNumPageMisses = 0;
-		g_VmNumPageReplaces = 0;
-	}
 }

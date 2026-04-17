@@ -631,12 +631,6 @@ Gfx *scenarioRenderHud(Gfx *gdl)
 					gDPFillRectangle(gdl++, viewleft, viewtop, viewright - 1, viewtop);
 				}
 			}
-#if VERSION >= VERSION_NTSC_1_0
-			else if (g_Vars.fourmeg2player) {
-				// Draw line at bottom of viewport
-				gDPFillRectangle(gdl++, viewleft, viewheight + viewtop - 2, viewright - 1, viewheight + viewtop - 2);
-			}
-#endif
 			else {
 				// @bug: No consideration is made for vertical splits here,
 				// however when using a vertical split neither line is visible.

@@ -2234,152 +2234,61 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 
 		// For the hudpiece, tween the position and scale to the new values and apply rotation.
 		if (modeltype == MENUMODELTYPE_HUDPIECE) {
-			if (IS8MB()) {
-				s32 i;
+			s32 i;
 
-				if (menumodel->curposx != menumodel->newposx) {
-					for (i = 0; i < g_Vars.diffframe60; i++) {
-						menumodel->curposx = (menumodel->newposx * PALUPF(0.002f)) + ((1.0f - PALUPF(0.002f)) * menumodel->curposx);
-					}
+			if (menumodel->curposx != menumodel->newposx) {
+				for (i = 0; i < g_Vars.diffframe60; i++) {
+					menumodel->curposx = (menumodel->newposx * PALUPF(0.002f)) + ((1.0f - PALUPF(0.002f)) * menumodel->curposx);
 				}
+			}
 
-				if (menumodel->curposy != menumodel->newposy) {
-					for (i = 0; i < g_Vars.diffframe60; i++) {
-						menumodel->curposy = (menumodel->newposy * PALUPF(0.002f)) + ((1.0f - PALUPF(0.002f)) * menumodel->curposy);
-					}
+			if (menumodel->curposy != menumodel->newposy) {
+				for (i = 0; i < g_Vars.diffframe60; i++) {
+					menumodel->curposy = (menumodel->newposy * PALUPF(0.002f)) + ((1.0f - PALUPF(0.002f)) * menumodel->curposy);
 				}
+			}
 
-				if (menumodel->curposz != menumodel->newposz) {
-					for (i = 0; i < g_Vars.diffframe60; i++) {
-						menumodel->curposz = (menumodel->newposz * PALUPF(0.002f)) + ((1.0f - PALUPF(0.002f)) * menumodel->curposz);
-					}
+			if (menumodel->curposz != menumodel->newposz) {
+				for (i = 0; i < g_Vars.diffframe60; i++) {
+					menumodel->curposz = (menumodel->newposz * PALUPF(0.002f)) + ((1.0f - PALUPF(0.002f)) * menumodel->curposz);
 				}
+			}
 
-				if (menumodel->curscale != menumodel->newscale) {
-					for (i = 0; i < g_Vars.diffframe60; i++) {
-						menumodel->curscale = (menumodel->newscale * PALUPF(0.002f)) + ((1.0f - PALUPF(0.002f)) * menumodel->curscale);
-					}
+			if (menumodel->curscale != menumodel->newscale) {
+				for (i = 0; i < g_Vars.diffframe60; i++) {
+					menumodel->curscale = (menumodel->newscale * PALUPF(0.002f)) + ((1.0f - PALUPF(0.002f)) * menumodel->curscale);
 				}
+			}
 
-				posx = menumodel->curposx;
+			posx = menumodel->curposx;
 
 #if !PAL
-				if (g_ViRes == VIRES_HI) {
-					posx *= 2.0f;
-				}
+			if (g_ViRes == VIRES_HI) {
+				posx *= 2.0f;
+			}
 #endif
 
-				posy = menumodel->curposy;
-				posz = menumodel->curposz;
+			posy = menumodel->curposy;
+			posz = menumodel->curposz;
 
-				scale = menumodel->curscale;
+			scale = menumodel->curscale;
 
-				menumodel->currotx = rotx = menumodel->newrotx;
-				menumodel->curroty = roty = menumodel->newroty;
-				menumodel->currotz = rotz = menumodel->newrotz;
+			menumodel->currotx = rotx = menumodel->newrotx;
+			menumodel->curroty = roty = menumodel->newroty;
+			menumodel->currotz = rotz = menumodel->newrotz;
 
-				tmpcoord.x = rotx;
-				tmpcoord.y = roty;
-				tmpcoord.z = rotz;
+			tmpcoord.x = rotx;
+			tmpcoord.y = roty;
+			tmpcoord.z = rotz;
 
-				mtx4LoadRotation(&tmpcoord, &rotmtx);
-			}
-		} else {
-			// If the caller is reconfiguring the model's position, rotation or scale, tween towards the new values.
-			if (menumodel->configuring) {
-#if VERSION >= VERSION_PAL_BETA
-				menumodel->configurefrac += g_Vars.diffframe60freal / 40.0f;
-#else
-				menumodel->configurefrac += g_Vars.diffframe60f / 40.0f;
-#endif
-
-				if (menumodel->configurefrac > 1.0f) {
-					menumodel->configuring = false;
-					menumodel->curposx = menumodel->newposx;
-					menumodel->curposy = menumodel->newposy;
-					menumodel->curposz = menumodel->newposz;
-					menumodel->curscale = menumodel->newscale;
-				} else {
-					f32 fracnew = (-cosf(menumodel->configurefrac * M_PI) * 0.5f) + 0.5f;
-					f32 fraccur = 1.0f - fracnew;
-
-					if (menumodel->flags & MENUMODELFLAG_HASPOSITION) {
-						posx = (menumodel->curposx * fraccur) + (fracnew * menumodel->newposx);
-						posy = (menumodel->curposy * fraccur) + (fracnew * menumodel->newposy);
-						posz = (menumodel->curposz * fraccur) + (fracnew * menumodel->newposz);
-					} else {
-						posx = menumodel->curposx = menumodel->newposx;
-						posy = menumodel->curposy = menumodel->newposy;
-						posz = menumodel->curposz = menumodel->newposz;
-					}
-
-					if (menumodel->flags & MENUMODELFLAG_HASSCALE) {
-						scale = (menumodel->curscale * fraccur) + (fracnew * menumodel->newscale);
-					} else {
-						scale = menumodel->curscale = menumodel->newscale;
-					}
-
-					if (menumodel->flags & MENUMODELFLAG_HASROTATION) {
-						f32 sp2bc[4];
-						f32 sp2ac[4];
-						f32 sp29c[4];
-						struct coord tmprot;
-
-						tmprot.x = menumodel->currotx;
-						tmprot.y = menumodel->curroty;
-						tmprot.z = menumodel->currotz;
-
-						quaternion0f096ca0(&tmprot, sp2bc);
-
-						tmprot.x = menumodel->newrotx;
-						tmprot.y = menumodel->newroty;
-						tmprot.z = menumodel->newrotz;
-
-						quaternion0f096ca0(&tmprot, sp2ac);
-						quaternionSlerp(sp2bc, sp2ac, fracnew, sp29c);
-						quaternionToMtx(sp29c, &rotmtx);
-					} else {
-						menumodel->currotx = rotx = menumodel->newrotx;
-						menumodel->curroty = roty = menumodel->newroty;
-						menumodel->currotz = rotz = menumodel->newrotz;
-
-						tmpcoord.x = rotx;
-						tmpcoord.y = roty;
-						tmpcoord.z = rotz;
-
-						mtx4LoadRotation(&tmpcoord, &rotmtx);
-					}
-				}
-			}
-
-			if (!menumodel->configuring) {
-				posx = menumodel->curposx = menumodel->newposx;
-				posy = menumodel->curposy = menumodel->newposy;
-				posz = menumodel->curposz = menumodel->newposz;
-
-				scale = menumodel->curscale = menumodel->newscale;
-
-				if (1);
-
-				menumodel->currotx = rotx = menumodel->newrotx;
-				menumodel->curroty = roty = menumodel->newroty;
-				menumodel->currotz = rotz = menumodel->newrotz;
-
-				tmpcoord.x = rotx;
-				tmpcoord.y = roty;
-				tmpcoord.z = rotz;
-
-				mtx4LoadRotation(&tmpcoord, &rotmtx);
-			}
+			mtx4LoadRotation(&tmpcoord, &rotmtx);
 		}
 
 		screenz[0] = -100.0f + posz;
 
 		if (modeltype == MENUMODELTYPE_HUDPIECE) {
-			if (IS8MB()) {
-				screenpos[0] = menumodel->curposx * g_ScaleX;
-				screenpos[1] = menumodel->curposy;
-			}
+			screenpos[0] = menumodel->curposx * g_ScaleX;
+			screenpos[1] = menumodel->curposy;
 		} else {
 			screenpos[0] = posx * g_ScaleX + viGetViewLeft() + viGetViewWidth() * 0.5f;
 			screenpos[1] = posy + viGetViewTop() + viGetViewHeight() * 0.5f;
@@ -3616,7 +3525,7 @@ void menuFindAvailableSize(s32 *leftptr, s32 *topptr, s32 *rightptr, s32 *bottom
 		}
 
 #if VERSION >= VERSION_NTSC_1_0
-		if (PLAYERCOUNT() == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB()))
+		if (PLAYERCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL)
 #else
 		if (PLAYERCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL)
 #endif
@@ -3844,7 +3753,7 @@ void menuPushRootDialog(struct menudialogdef *dialogdef, s32 root)
 			|| root == MENUROOT_MPSETUP
 			|| root == MENUROOT_TRAINING
 			|| root == MENUROOT_FILEMGR) {
-		if (IS8MB() && (g_MenuData.unk5d4 == 0 || g_MenuData.hudpiece.reverseanim)) {
+		if (g_MenuData.unk5d4 == 0 || g_MenuData.hudpiece.reverseanim) {
 			if (!g_MenuData.unk5d5_04) {
 				g_MenuData.unk5d5_05 = true;
 			}
@@ -4065,9 +3974,7 @@ void menuReset(void)
 
 	var8009dfc0 = 0;
 
-	if (IS8MB()) {
-		g_BlurBuffer = mempAlloc(MENU_BLUR_BUFFER_SIZE, MEMPOOL_STAGE);
-	}
+	g_BlurBuffer = mempAlloc(MENU_BLUR_BUFFER_SIZE, MEMPOOL_STAGE);
 
 	g_MenuData.unk5d5_01 = false;
 
@@ -4118,19 +4025,17 @@ void menuReset(void)
 
 		for (i = 0; i < max; i++) {
 #ifdef PLATFORM_64BIT
-			menuResetModel(&g_Menus[i].menumodel, IS4MB() ? MENU_MODEL_BUF_4MB : MENU_MODEL_BUF_8MB_64BIT, true);
+			menuResetModel(&g_Menus[i].menumodel, MENU_MODEL_BUF_8MB_64BIT, true);
 #else
-			menuResetModel(&g_Menus[i].menumodel, IS4MB() ? MENU_MODEL_BUF_4MB : MENU_MODEL_BUF_8MB_32BIT, true);
+			menuResetModel(&g_Menus[i].menumodel, MENU_MODEL_BUF_8MB_32BIT, true);
 #endif
 		}
 
-		if (IS8MB()) {
 #ifdef PLATFORM_64BIT
-			menuResetModel(&g_MenuData.hudpiece, 0x12c00, true); // 50% more
+		menuResetModel(&g_MenuData.hudpiece, 0x12c00, true); // 50% more
 #else
-			menuResetModel(&g_MenuData.hudpiece, 0xc800, true);
+		menuResetModel(&g_MenuData.hudpiece, 0xc800, true);
 #endif
-		}
 
 		g_MenuData.hudpiece.newparams = MENUMODELPARAMS_SET_FILENUM(FILE_GHUDPIECE);
 		g_MenuData.hudpiece.curroty = g_MenuData.hudpiece.newroty = -M_PI;
@@ -4712,11 +4617,7 @@ void dialogTick(struct menudialog *dialog, struct menuinputs *inputs, u32 tickfl
 
 		if (inputs->back) {
 			if ((dialog->definition->flags & MENUDIALOGFLAG_DROPOUTONCLOSE) && g_Vars.unk000498) {
-				if (IS4MB()) {
-					menuPushDialog(&g_MpDropOut4MbMenuDialog);
-				} else {
-					menuPushDialog(&g_MpDropOutMenuDialog);
-				}
+				menuPushDialog(&g_MpDropOutMenuDialog);
 			} else if ((dialog->definition->flags & MENUDIALOGFLAG_IGNOREBACK) == 0) {
 				menuPopDialog();
 			}
@@ -5627,7 +5528,7 @@ Gfx *menuRender(Gfx *gdl)
 		g_MenuData.unk5d5_05 = false;
 	}
 
-	if (IS8MB() && g_MenuData.unk5d4) {
+	if (g_MenuData.unk5d4) {
 		bool removepiece = false;
 
 		gSPSetGeometryMode(gdl++, G_ZBUFFER);
@@ -5909,7 +5810,7 @@ Gfx *menuRender(Gfx *gdl)
 			}
 		}
 
-		if (PLAYERCOUNT() == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB())) {
+		if (PLAYERCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) {
 			if (g_Vars.currentplayernum == 1) {
 				right = 15;
 			} else {
@@ -5927,7 +5828,7 @@ Gfx *menuRender(Gfx *gdl)
 			}
 		}
 
-		if (PLAYERCOUNT() == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB())) {
+		if (PLAYERCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) {
 			if (g_Vars.currentplayernum == 1) {
 				x2 -= 10;
 			} else {
@@ -6038,7 +5939,7 @@ u32 menuGetRoot(void)
 }
 
 #if VERSION >= VERSION_NTSC_1_0
-struct menudialogdef g_PakAttemptRepairMenuDialog;
+extern struct menudialogdef g_PakAttemptRepairMenuDialog;
 
 MenuItemHandlerResult menuhandler000fcc34(s32 operation, struct menuitem *item, union handlerdata *data)
 {
