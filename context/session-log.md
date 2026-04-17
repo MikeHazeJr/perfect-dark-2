@@ -4,6 +4,39 @@
 > **S281–S333** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S334 — 2026-04-17 (Audit S327 Asset Provider + S330 Memory)
+
+**Scope**: Wave 1 audit session. Read all files touched by S327 (Asset Provider Phase 1–2) and S330 (Memory M2+M4). Found one real bug and one dead-code issue; fixed the bug.
+
+### S327 — Asset Provider Phase 1–2: CLEAN
+
+- Vtable positional initializers match struct member order. ✓
+- `assetHandleIsNull` + dispatcher NULL guards are correct. ✓
+- Path intern pool is single-threaded at boot (catalog registration) — no mutex needed. ✓
+- `catalogEffectiveHandle` override-first logic correct. ✓
+- ROM path byte-identical: `fileLoadRomToNew` is the verbatim original body. ✓
+- `fileProvider()` singleton pointer comparison in `assetcatalog_load.c` is safe. ✓
+
+### S330 — Memory M2+M4
+
+**Bug fixed:** `pak.c:pak0f11d9c4` — `malloc(0x4000)` result was not null-checked. `PAK00C_01` and `PAK00C_02` branches passed `sp60` to `pakConvertFromGbcImage()` without a NULL guard. Added early-return after malloc. Commit `5773c465`.
+
+**Not bugs:**
+- Static buffers in `texdecompress.c` / `menuitem.c`: only called from single-threaded render path. ✓
+- ALIGN16 no-op: all remaining callers are either size rounding (harmless) or pointer alignment (unnecessary on x86_64). ✓
+- `segaudio.c`: `ALIGN16(reallen) > dstlen` overflow check is dead code (redundant with `reallen > dstlen`) but not a runtime error. Audio bank data doesn't require DMA alignment on PC.
+
+### Build result
+
+Clean: 773/773 objects, zero errors. Only pre-existing `-Wcomment` warnings in vendored code.
+
+### Next steps
+
+- Merge `cool-hawking-f26a42` worktree into `dev`.
+- Playtest verification for B-161 and B-141 (still open from S333).
+
+---
+
 ## Session S333 — 2026-04-17 (Merge S329 + S332 into dev)
 
 **Scope**: Integration session. Merged two completed worktree branches into `dev` with post-merge conflict resolution and full build validation.

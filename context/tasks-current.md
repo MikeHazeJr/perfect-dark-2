@@ -7,6 +7,14 @@
 
 ---
 
+## Done — 2026-04-17 (S334 — Audit S327 Asset Provider + S330 Memory)
+
+Fixed one bug: `pak.c:pak0f11d9c4` malloc null-check (`5773c465`). S327 and S330 otherwise clean.
+
+**Next**: merge `cool-hawking-f26a42` into `dev`. Then playtest B-161 + B-141 (checklist below).
+
+---
+
 ## Done — 2026-04-17 (S333 — Merge S329 + S332 into dev)
 
 **Build verified.** Clean 585/585, zero errors. `PerfectDark.exe` 52,660,473 bytes, `PerfectDarkServer.exe` 22,901,400 bytes.
