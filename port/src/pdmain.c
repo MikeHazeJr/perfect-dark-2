@@ -33,6 +33,7 @@
 #include "game/game_1531a0.h"
 #include "game/gfxmemory.h"
 #include "game/lang.h"
+#include "game/forgemode.h"
 #include "game/lv.h"
 #include "game/timing.h"
 #include "game/music.h"
@@ -655,6 +656,12 @@ void mainTick(void)
 
 			lvTick();
 			playermgrShuffle();
+
+			/* Forge level editor (F0+): drives session state, mode toggle,
+			 * and the freefly editor camera.  Must run before the per-player
+			 * gameplay loop so a freefly bondmovemode override is in place
+			 * before bmoveTick dispatches. */
+			forgeTick();
 
 			if (STAGE_IS_GAMEPLAY(g_StageNum)) {
 				for (i = 0; i < PLAYERCOUNT(); i++) {

@@ -136,6 +136,138 @@ All six commits built clean via `source devtools/build-env.sh && ninja -C Build 
 
 ---
 
+## Session S307 — 2026-04-17 (Forge level editor F0 Foundation — merged to dev from tender-sutherland worktree)
+
+**Scope**: Phase F0 of the in-game Forge level editor.  Design ref:
+`context/designs/forge-level-editor-2026-04-16.md` §15.  Worktree session
+running in parallel with S306 on `dev` (per Mike's instruction: don't merge
+until F0 is complete and clean so S306's UI work can build/test
+independently).  No protocol bump (forge is local-only at F0).
+
+### What shipped (single commit `8d412cc1` on `claude/tender-sutherland-536de7`)
+
+- **`src/include/game/forgemode.h`** — public C-callable API.  3-state
+  `forge_session_state_t` (INACTIVE / NORMAL / FREEFLY).  Forward-declares
+  `struct coord` and uses `s32` for boolean returns so the header is safe
+  to include from C++ TUs (project's `#define bool s32` would otherwise
+  break C++ ABI).
+- **`src/game/forgemode.c`** — module state, freefly camera integrator
+  (yaw + pitch from look axes, world-relative WASD movement, Q/E vertical,
+  3x boost / 0.25x precision modifiers, 600 u/s base speed, 89° pitch
+  clamp, 60Hz dt assumed for F0).  Mode toggle hijacks the player by
+  setting `bondmovemode = MOVEMODE_CUTSCENE` (so `bmoveTick` routes to
+  `bcutsceneTick`, suppressing the legacy walk update) and overrides
+  `prop->pos + vv_theta + vv_verta` each tick.  Session-exit watchdog
+  drops to INACTIVE whenever `g_StageNum` is no longer `STAGE_IS_GAMEPLAY`.
+  Lazy-init guard so `forgeTick` is safe before any explicit `forgeInit()`.
+- **`port/include/pdgui_forge.h`** — two C entry points
+  (`pdguiForgeStartSession`, `pdguiForgeHudRender`).
+- **`port/fast3d/pdgui_menu_forge.cpp`** — `pdguiForgeStartSession()`
+  rejects if a stage transition is already pending; otherwise queues
+  `forgeRequestEnterSession()` and calls
+  `mainChangeToStage(STAGE_CITRAINING)`.  F3 will replace the hard-wired
+  CITRAINING with a base-stage browser.
+- **`port/fast3d/pdgui_forge_hud.cpp`** — foreground-draw-list HUD shell:
+  top-left mode badge (NORMAL green / FREEFLY cyan), centered placement
+  reticle in freefly, bottom-left camera readout
+  (pos / yaw / pitch / speed-scale tag), right-edge placeholder for the F1
+  catalog panel, bottom-right controls reminder.  Renders nothing when
+  `forgeSessionIsActive()` is false; safe to call every frame.  Avoids
+  including `types.h` (forward-declares `struct coord`) per the standing
+  C++ TU rule.
+- **`port/include/actionmap.h`** — five new `InputAction` enums between
+  `ACTION_SCORECARD` and `ACTION_COUNT`: `ACTION_FORGE_TOGGLE`,
+  `ACTION_FORGE_ASCEND`, `ACTION_FORGE_DESCEND`, `ACTION_FORGE_BOOST`,
+  `ACTION_FORGE_PRECISION`.  `ACTION_COUNT` 57 → 62.
+- **`port/src/actionmap.cpp`** — `s_ActionNames[]` table extended with the
+  five new strings; default keyboard binds for player 0 added at the end of
+  `setupGameplayDefaults` (F7 toggle, E ascend, Q descend, LSHIFT boost,
+  LCTRL precision).  Dual-bind to LSHIFT/LCTRL is intentional — sprint and
+  crouch share the same keys but freefly reads the dedicated FORGE actions.
+  Controller toggle deliberately unbound; LB+RB chord per design comes
+  later.
+- **`port/src/pdmain.c`** — `forgeTick()` called from `mainTick` between
+  `playermgrShuffle()` and the per-player gameplay loop, so a freefly
+  bondmovemode override is in place before any per-player `bmoveTick`
+  dispatches.  `#include "game/forgemode.h"` added.
+- **`port/fast3d/pdgui_backend.cpp`** — `pdguiForgeHudRender()` called
+  after `pdguiGameOverRender`, before `pdguiRenderAllWindowShimmers` /
+  scanline overlay so the editor HUD sits beneath those post-process
+  effects.
+- **`port/fast3d/pdgui_menu_mainmenu.cpp`** — new top-level "Forge" button
+  between Stats and Quit in the `s_MenuView == 0` block; clicks dispatch
+  to `pdguiForgeStartSession()` plus `PDGUI_SND_OPENDIALOG`.
+
+### F0 architecture decisions
+
+1. **Mode toggle hijack** — instead of building a parallel camera matrix
+   path, freefly hijacks `g_Vars.currentplayer->prop->pos` plus `vv_theta`
+   and `vv_verta` each tick, with `bondmovemode = MOVEMODE_CUTSCENE` to
+   suppress the legacy walk overwrite.  This works because the existing
+   camera setup (`camSetLookAt` flow in `player.c:5027`) reads from the
+   player struct.  Later phases can refactor this if needed; for F0 it's
+   the smallest possible diff.
+2. **Single tap toggle** — design specifies "hold for 0.5s" but that
+   needs a hold-time tracker.  F0 uses single-tap on `ACTION_FORGE_TOGGLE`
+   (F7 default) — accidental triggers in normal gameplay are unlikely
+   since F7 isn't bound to anything else and normal gameplay reads the
+   action via `actionPressed` (rising edge) so accidental taps from
+   sprint/crouch holds don't fire it.
+3. **No collision in freefly** — design explicitly says Dr. Carroll
+   passes through geometry.  Forge camera ignores all collision.
+   Placement-time collision queries land in F1 with the catalog/reticle.
+4. **CI Training as the only base stage** — F0 hard-wires
+   `STAGE_CITRAINING` since that's the existing free-roam scaffold.  F3
+   brings the base-stage browser per the design doc.
+5. **Session lifecycle bound to stage** — entering a forge session sets
+   the request flag and queues a stage change; once in gameplay the
+   watchdog activates the session.  Leaving gameplay (Esc → main menu →
+   Quit, etc.) auto-cleans the session and restores the player's
+   bondmovemode.
+6. **C++ ABI safety** — `forgemode.h` deliberately forward-declares
+   `struct coord` and uses `s32` for boolean predicates because the
+   project's `#define bool s32` (in `types.h`) breaks any C++ TU that
+   includes `types.h` directly.  Same pattern as `pdgui_hud.cpp` and
+   `pdgui_menu_mainmenu.cpp`.
+
+### Build verify
+
+`source devtools/build-env.sh && cmake -G Ninja ... -B Build -S .` (one-time
+configure for the worktree's own `Build/`; `build-headless.ps1` redirects to
+the main working copy by design and can't be used in worktrees), then
+`ninja -C Build pd pd-server`.  Both targets link cleanly:
+`PerfectDark.exe` 51,780,176 bytes, `PerfectDarkServer.exe` 22,840,512.
+Only pre-existing warnings (`f32 near/far` typed-name macro, `/*` within
+comment); no new warnings from the F0 files.  Object files
+`forgemode.c.obj`, `pdgui_menu_forge.cpp.obj`, `pdgui_forge_hud.cpp.obj`
+all present in `Build/CMakeFiles/pd.dir/...`.
+
+### Process
+
+- Worktree-only commit `8d412cc1`.  No merge to `dev` yet — Mike requested
+  the worktree stay parallel with S306's UI work until F0 is verified
+  in-game.  Merge plan (post-playtest): fast-forward into `dev`, post-merge
+  line-count verification per CLAUDE.md §9.
+- HEAD pre-edit was `b546736d` (v0.0.107 release commit).  Single F0
+  commit on top: 10 files, +830 / −1 lines.
+
+### Not done in this session (deferred to F1+)
+
+- Object catalog browser, placement reticle, gizmo, properties panel
+  (F1–F2 per the design phase plan).
+- Save/load `map.json`, base-stage browser, network sync (F3).
+- Drop-to-ground transition on freefly exit (polish).
+- Dr. Carroll model swap (visual; F0 keeps the player chr model in CUTSCENE
+  mode).
+- Controller binding for the toggle (LB+RB chord per design).
+- Sim pause toggle in HUD.
+- Forge entry from custom/private matches (currently main-menu only; F3
+  base-stage browser is the natural place to add this).
+
+**Next**: in-game playtest of the F0 verification recipe in `tasks-current.md` (see S307 section). Worktree `claude/tender-sutherland-536de7` merged to `dev` 2026-04-17.
+
+---
+
 ## Session S305 — 2026-04-16 (Playtest batch: content inset + settings persistence + font mods + theme bundle — dev direct)
 
 **Scope**: Mike's post-S304 playtest surfaced eight issues in one pass; worked directly on `dev` (no worktree). All items landed + pushed to origin.

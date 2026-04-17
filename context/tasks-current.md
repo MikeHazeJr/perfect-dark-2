@@ -7,6 +7,104 @@
 
 ---
 
+## Open — 2026-04-17 (S308 — dev direct)
+
+### Playtest verification of B-161 (door-tick crash) + B-162 (pause menu hardening)
+
+Commits on `dev`. All items build-verified; needs in-game playtest.
+
+- **B-161 defensive crash guard** — Replay the exact repro from the bug report: Start Mission 1 Objective 1 (`base:defection` stage 0x30), complete it, click "Next Mission" on endscreen, start into Mission 1 Objective 2 (`base:investigation` stage 0x33), run around for 1-2 minutes. Expect: no crash. If crash moved elsewhere, look in `pd-client.log` for the new `DOOR.DIAG: doorGetBbox — no bbox for modelnum=... model=... flags=... doortype=...` WARNING — that line names the exact door's modelnum that has a NULL/torn bbox, which is the handoff for root-cause investigation.
+- **B-162 pause menu hardening** — In Mission 1 Obj 2 (or any solo mission), open pause menu ≥3 times per mission. Confirm: (a) all 5 buttons always have visible labels (Resume / Restart Mission / Inventory / Settings / Abort Mission), never blank; (b) title reads "Investigation: Status" (or similar with the stage name) — never just ": Status"; (c) open Restart Confirm overlay, Escape to cancel, close pause, reopen pause — no Restart Confirm overlay bleeds in. Complete mission, advance to next mission, open pause — objectives list must be for the CURRENT mission (never shows leftover objective entries from the prior mission).
+
+### Root-cause investigation queue (B-161 follow-on)
+
+If the defensive fix holds but the `DOOR.DIAG:` WARNING fires repeatedly, the root cause is a modeldef being torn mid-gameplay. Playtest log from 2026-04-16 23:50 showed parallel `WARNING: body0f02ce8c: truly invalid bodymodeldef for bodynum 108 (file 0x004b) ... parts=0 -- skipping` at stage 0x33 load time — catalog says `base:sp_body_108` loaded successfully but modeldef has 0 parts. Two possible mechanisms:
+1. Late-add manifest path (`MANIFEST-SP: late-add 'base:sp_body_108' type=0 (missed by pre-scan)`) loading the ROM bytes but not binding rodata correctly.
+2. Catalog cache has a stub entry that shadows the ROM-load result.
+
+Targeted instrumentation needed in `bodyAllocateModel` / `setupLoadModeldef` / `catalogResolveXXX` for late-add codepath to confirm.
+
+---
+
+## Open — 2026-04-17 (S307 — Forge F0 merged to dev)
+
+### Playtest verification of Forge F0 Foundation
+
+New modules merged from `claude/tender-sutherland-536de7` commit `8d412cc1`.
+Full design ref: `context/designs/forge-level-editor-2026-04-16.md` §15 Phase F0.
+Files: `src/include/game/forgemode.h`, `src/game/forgemode.c`,
+`port/include/pdgui_forge.h`, `port/fast3d/pdgui_menu_forge.cpp`,
+`port/fast3d/pdgui_forge_hud.cpp`; modifications to actionmap (5 new
+`ACTION_FORGE_*`), `pdmain.c` (forgeTick wiring), backend.cpp (HUD dispatch),
+`pdgui_menu_mainmenu.cpp` (top-level "Forge" button).
+
+Build sizes: PerfectDark.exe 51,780,176 / PerfectDarkServer.exe 22,840,512.
+
+**Primary repro -- Forge entry + mode toggle**:
+1. Launch client. Open main menu (F12 from CI, or normal title-screen flow).
+2. Click new "Forge" button (between Stats and Quit). Expect log
+   `FORGE: launching session (base stage = CITRAINING 0x26)` + sound effect.
+3. CI Training stage loads. Once player is wired, expect log
+   `FORGE: -> NORMAL (session start (request))` + `FORGE: session active stage=0x26`.
+4. Top-left HUD badge should show `FORGE -- NORMAL` in green.
+5. Press **F7**. Expect `FORGE: -> FREEFLY (toggle press) pos=(...) yaw=...`,
+   badge flips to cyan `FORGE -- FREEFLY`, centered crosshair appears,
+   bottom-left readout shows pos / yaw+pitch / `spd NORMAL`, right edge shows
+   placeholder "Object Catalog (F1: not yet implemented)" panel, bottom-right
+   shows controls reminder.
+6. **WASD** moves freefly camera relative to look direction. **Q**/**E**
+   descend/ascend. **Mouse** looks (right-stick on controller). **LSHIFT**
+   `spd BOOST`. **LCTRL** `spd PRECISION`. Pos readout updates live.
+7. Camera should pass through walls/floors (no collision).
+8. Press **F7** again. Expect `FORGE: -> NORMAL (toggle press)`. Player chr
+   resumes at the freefly camera position; first-person controls work again.
+9. Press **Esc** to open main menu. Forge session stays NORMAL. Click Quit.
+   Stage transitions to TITLE. Expect `FORGE: -> INACTIVE (stage left gameplay)`.
+
+**Health-signal log lines** (tail with `grep '^.*FORGE:' pd-client.log`):
+- `FORGE: init` -- one-time at startup
+- `FORGE: enter requested ...` -- on Forge button click
+- `FORGE: -> NORMAL` -- on session entry or freefly exit
+- `FORGE: -> FREEFLY` -- on freefly entry (with pos+yaw)
+- `FORGE: -> INACTIVE` -- on stage leaving gameplay
+
+**Absence is the failure signal**:
+- No `-> FREEFLY` after F7 = action binding never registered or actionPressed
+  not firing. Check `actionmapSaveBinds` output / `pd.ini` for ForgeToggle.
+- No `pos` change in FREEFLY readout = `forgeUpdateFreefly` not running, or
+  player chr's prop pointer was NULL.
+- No badge after Forge button click = `forgeRequestEnterSession` was queued
+  but stage transition didn't complete (g_MainChangeToStageNum stuck), or
+  forgeTick is being called from wrong place.
+
+### Follow-up queued from S307 (out of F0 scope)
+
+- **F1 Object Catalog & Placement** -- left-side catalog tree, placement
+  reticle with green/red validity tint, undo/redo, object budget tracking.
+  See design doc §3 + §4 + §15 Phase F1.
+- **Drop-to-ground on freefly exit** -- design says exiting freefly should
+  fly Dr. Carroll to nearest valid ground. F0 just leaves the player at the
+  freefly position (which can be mid-air; player falls naturally). Acceptable
+  for F0 but worth a polish pass before F1 lands.
+- **Dr. Carroll model swap** -- design says "the player's body disappears and
+  is replaced by the Dr. Carroll model". F0 uses the existing player chr
+  model with bondmovemode = CUTSCENE. Need a model swap or hide-mesh + spawn
+  Carroll prop in F1 or F2.
+- **Controller toggle binding** -- F0 ships keyboard-only (F7). Design says
+  hold LB+RB. Add a chord binding once the action map supports chords, or
+  bind to a single button in the controller IMC.
+- **Pause simulation toggle** -- design says editor mode "pauses (or
+  optionally continues) the simulation". F0 leaves sim running; need a
+  forge-controlled `lvSetPaused()` toggle in F1 or F2 with a HUD checkbox.
+- **Multi-stage base** -- F0 hard-wires CITRAINING. F3 brings the stage
+  browser (Paradox template, blank canvas, MP map list).
+- **Custom-match integration** -- F0 only enters from main menu. The user
+  prompt notes Forge "must work in CI free-roam AND in custom/private
+  matches". Latter requires hooking into match setup / room flow; deferred
+  to F3 when the base-stage browser exists.
+
+---
+
 ## Open — 2026-04-17 (S306 — dev direct)
 
 ### Playtest verification of the S306 multi-batch drop
@@ -30,25 +128,6 @@ Commits on `dev`: `feb5431c` palette extensions, `a504f3e7` Interface tab + dele
 - **X-button close polling in other renderers** — `pdguiConsumeTitleClose()` is only wired into `renderMainMenu`'s close handler. Sweep needed for Theme Editor / Modding Hub / Pause Menu / CI redirect / Endscreen — they still rely on the Escape fallback.
 - **Tooltip sweep for input mapping** — 51 actions have basic display names; ~12 have explanatory tooltips. Bind tooltips for the remaining actions would raise the polish level.
 - **Per-action save — keyboard / controller device filter** — currently search matches on display name only. Could extend to accept "key:W" or "ctrl:A" syntax to find all actions bound to a given device/key.
-
----
-
-## Open — 2026-04-17 (S308 — dev direct)
-
-### Playtest verification of B-161 (door-tick crash) + B-162 (pause menu hardening)
-
-Commits on `dev`. All items build-verified; needs in-game playtest.
-
-- **B-161 defensive crash guard** — Replay the exact repro from the bug report: Start Mission 1 Objective 1 (`base:defection` stage 0x30), complete it, click "Next Mission" on endscreen, start into Mission 1 Objective 2 (`base:investigation` stage 0x33), run around for 1-2 minutes. Expect: no crash. If crash moved elsewhere, look in `pd-client.log` for the new `DOOR.DIAG: doorGetBbox — no bbox for modelnum=... model=... flags=... doortype=...` WARNING — that line names the exact door's modelnum that has a NULL/torn bbox, which is the handoff for root-cause investigation.
-- **B-162 pause menu hardening** — In Mission 1 Obj 2 (or any solo mission), open pause menu ≥3 times per mission. Confirm: (a) all 5 buttons always have visible labels (Resume / Restart Mission / Inventory / Settings / Abort Mission), never blank; (b) title reads "Investigation: Status" (or similar with the stage name) — never just ": Status"; (c) open Restart Confirm overlay, Escape to cancel, close pause, reopen pause — no Restart Confirm overlay bleeds in. Complete mission, advance to next mission, open pause — objectives list must be for the CURRENT mission (never shows leftover objective entries from the prior mission).
-
-### Root-cause investigation queue (B-161 follow-on)
-
-If the defensive fix holds but the `DOOR.DIAG:` WARNING fires repeatedly, the root cause is a modeldef being torn mid-gameplay. Playtest log from 2026-04-16 23:50 showed parallel `WARNING: body0f02ce8c: truly invalid bodymodeldef for bodynum 108 (file 0x004b) ... parts=0 -- skipping` at stage 0x33 load time — catalog says `base:sp_body_108` loaded successfully but modeldef has 0 parts. Two possible mechanisms:
-1. Late-add manifest path (`MANIFEST-SP: late-add 'base:sp_body_108' type=0 (missed by pre-scan)`) loading the ROM bytes but not binding rodata correctly.
-2. Catalog cache has a stub entry that shadows the ROM-load result.
-
-Targeted instrumentation needed in `bodyAllocateModel` / `setupLoadModeldef` / `catalogResolveXXX` for late-add codepath to confirm.
 
 ---
 

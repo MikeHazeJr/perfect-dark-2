@@ -119,7 +119,14 @@ typedef enum InputAction {
     ACTION_CHEAT_ENTER,         /* = 55 */
     ACTION_SCORECARD,           /* = 56 hold-to-show scoreboard (Tab / Back button) */
 
-    ACTION_COUNT                /* = 57, sentinel — keep last */
+    /* ---- Forge level editor (F0+) ---- */
+    ACTION_FORGE_TOGGLE,        /* = 57 toggle Normal <-> Freefly within a forge session */
+    ACTION_FORGE_ASCEND,        /* = 58 freefly +Y (E by default) */
+    ACTION_FORGE_DESCEND,       /* = 59 freefly -Y (Q by default) */
+    ACTION_FORGE_BOOST,         /* = 60 hold for 3x freefly speed (LSHIFT) */
+    ACTION_FORGE_PRECISION,     /* = 61 hold for 0.25x freefly speed (LCTRL) */
+
+    ACTION_COUNT                /* = 62, sentinel — keep last */
 } InputAction;
 
 /* Backward-compat aliases */

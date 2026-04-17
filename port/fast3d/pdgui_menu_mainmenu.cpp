@@ -41,6 +41,7 @@
 #include "pdgui_font_mod.h"
 #include "pdgui_menu_stats.h"
 #include "pdgui_menu_theme_editor.h"
+#include "pdgui_forge.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
@@ -3476,6 +3477,17 @@ static s32 renderMainMenu(struct menudialog *dialog,
         if (PdButton("Stats", ImVec2(buttonW, buttonH * 1.2f))) {
             s_MenuView = 5;
             pdguiMenuStatsShow();
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        /* Forge -- in-game level editor (F0+).  For F0 we hard-wire the
+         * base stage to CI Training; F3 will replace this with a base-stage
+         * browser sub-view. */
+        if (PdButton("Forge", ImVec2(buttonW, buttonH * 1.2f))) {
+            if (pdguiForgeStartSession()) {
+                pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+            }
         }
 
         /* Quit Game -- docked to bottom-right with confirmation */
