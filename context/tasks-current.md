@@ -240,14 +240,19 @@ still re-registers idempotently).
 - **Placement reticle** -- clicking in the Catalog places the object
   ~400u forward from the camera. Full ghost reticle with
   valid/invalid tint needs a forge-owned input tick + click capture.
-- **Runtime engine wire-in** -- placed doors/elevators/switches are
-  serialized but not yet instantiated as live engine props at match
-  load. The F3 map-load path should walk `forge_object_t` pool and
-  call into `setupCreateObject` equivalents. Currently the UI shows
-  the objects + saves them, but they don't render in NORMAL play.
-- **Logic runtime engine hooks** -- OPEN_DOOR / TELEPORT_PLAYER /
-  SPAWN_AI actions log-only for now; wire them to the live engine once
-  map-load instantiation lands.
+- **Runtime engine wire-in (partial — S314)** -- SPAWN_POINT objects inject
+  into the live spawn pool via `spawnPoolAppendForgePoints`; AI objects spawn
+  live bots via `botmgrAllocateBot`. Remaining deferred: placed props/weapons/
+  geometry/doors/zones still log-only (need `propAllocate` + model wire path).
+  `FORGE_OP_TELEPORT_PLAYER` + `SPAWN_AI` + `ENABLE/DISABLE_OBJECT` are now
+  live-engine calls. `FORGE_OP_OPEN_DOOR` still only clears the data-model
+  locked flag; `doorActivate()` needs the prop handle wired first.
+- **Prop/weapon pad visual spawning** -- bots + spawn points are live (S314);
+  floor decor / pickups / geometry still deferred. Need `propAllocate` path
+  separate from `setupCreateObject` (which requires full intro-command context).
+- **Door prop instantiation** -- `FORGE_CAT_INTERACTABLE` objects are logged
+  but not spawned as live engine door props. Needs `propAllocate` + door model
+  allocation + `doorActivate` wiring before `OPEN_DOOR` logic action is fully live.
 - **AI navmesh generation** -- `forge_ai.c::forgeAiGenerateNavmesh` is a
   stub that logs counts. Full navmesh auto-gen from placed geometry is
   a post-F8 polish pass.
