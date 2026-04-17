@@ -240,6 +240,7 @@ static bool playerTrySelectPoolSpawn(struct coord *dstpos, RoomNum *dstrooms, st
 	s32 num_teams = 0;
 	struct coord center = {0, 0, 0};
 	spawn_aabb_t aabb;
+	spawn_select_tier_t tier = SPAWN_TIER_NONE;
 	s32 i;
 
 	if (!g_Vars.mplayerisrunning || !spawnPoolIsReady()) {
@@ -256,8 +257,16 @@ static bool playerTrySelectPoolSpawn(struct coord *dstpos, RoomNum *dstrooms, st
 		needed = 1;
 	}
 
-	/* Keep legacy pad shortlist behavior when the map has enough declared pads. */
-	if (g_NumSpawnPoints > 0 && g_NumSpawnPoints >= needed) {
+	/* S302: Keep legacy pad shortlist behavior ONLY when the map has
+	 * comfortably more declared pads than participants.  Previously we
+	 * bypassed the pool whenever `g_NumSpawnPoints >= needed`, which
+	 * meant respawn bursts on stock maps never went through the tier
+	 * cascade — and stock maps with exactly enough pads could still
+	 * telefrag because the legacy shortlist doesn't reserve slots.
+	 * Require a 1.5x safety margin so ties (e.g. 8 pads for 8 players)
+	 * route through the pool and pick up burst reservation + farthest-
+	 * point dispersal. */
+	if (g_NumSpawnPoints > 0 && g_NumSpawnPoints >= needed + (needed / 2)) {
 		return false;
 	}
 
@@ -338,9 +347,26 @@ static bool playerTrySelectPoolSpawn(struct coord *dstpos, RoomNum *dstrooms, st
 		center.z = (aabb.min.z + aabb.max.z) * 0.5f;
 	}
 
-	i = spawnPoolSelect(pool, occupied, num_occupied, team, num_teams, &center);
+	i = spawnPoolSelectTiered(pool, occupied, num_occupied,
+	                          team, num_teams, &center, &tier);
 	if (i < 0) {
-		return false;
+		/* T4: pool entirely exhausted.  Synthesise a fallback rather
+		 * than returning false — the caller's legacy path would hit the
+		 * same "no candidates" condition. */
+		struct coord lr_pos;
+		RoomNum lr_room = -1;
+		f32 lr_angle = 0.0f;
+		spawnPoolLastResort(occupied, num_occupied,
+		                    &lr_pos, &lr_room, &lr_angle);
+		*dstpos = lr_pos;
+		dstrooms[0] = lr_room;
+		dstrooms[1] = -1;
+		sysLogPrintf(LOG_WARNING,
+			"SPAWN.TIER: %s respawn last-resort pos=(%.0f,%.0f,%.0f) room=%d (declared=%d needed=%d occupied=%d)",
+			spawnPoolTierName(SPAWN_TIER_4_LASTRESORT),
+			dstpos->x, dstpos->y, dstpos->z, (s32)dstrooms[0],
+			g_NumSpawnPoints, needed, num_occupied);
+		return true;
 	}
 
 	*dstpos = pool->points[i].pos;
@@ -348,8 +374,10 @@ static bool playerTrySelectPoolSpawn(struct coord *dstpos, RoomNum *dstrooms, st
 	dstrooms[1] = -1;
 
 	sysLogPrintf(LOG_NOTE,
-		"SPAWN: pool fallback picked idx=%d layer=%d room=%d (declared=%d needed=%d)",
-		i, pool->points[i].layer, (s32)dstrooms[0], g_NumSpawnPoints, needed);
+		"SPAWN.TIER: %s respawn pool[%d] L%d room=%d (declared=%d needed=%d occupied=%d)",
+		spawnPoolTierName(tier),
+		i, pool->points[i].layer, (s32)dstrooms[0],
+		g_NumSpawnPoints, needed, num_occupied);
 
 	return true;
 }
@@ -364,71 +392,123 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 		return 0;
 	}
 
-	/* PC: If no pad-based spawn points are available, check the spawn pool
-	 * for validated positions (L3 grid / L4 radial). The pool guarantees
-	 * points exist even on maps with zero declared pads. */
+	/* PC: If no pad-based spawn points are available, route through the
+	 * tiered pool selector so the log shows which tier covered the
+	 * zero-pad scenario (any map without INTROCMD_SPAWN AND with no
+	 * waypoint / pad-scan fallback ends up here). */
 	if (numpads <= 0) {
 		const spawn_pool_t *pool = spawnPoolGet();
 
 		if (spawnPoolIsReady() && pool->count > 0) {
-			/* Pick a random pool entry using the game RNG (fine for
-			 * runtime selection -- determinism only matters for pool
-			 * construction, not for which point is chosen per-respawn). */
-			s32 idx = rngRandom() % pool->count;
-			dstpos->x = pool->points[idx].pos.x;
-			dstpos->y = pool->points[idx].pos.y;
-			dstpos->z = pool->points[idx].pos.z;
-			dstrooms[0] = pool->points[idx].room;
-			dstrooms[1] = -1;
+			/* Build an occupied[] snapshot from live props — gives the
+			 * tiered selector real farthest-point data instead of a
+			 * blind random pick. */
+			struct coord occupied[MAX_MPCHRS];
+			s32 num_occupied = 0;
+			spawn_aabb_t aabb;
+			struct coord center = {0, 0, 0};
+			spawn_select_tier_t tier = SPAWN_TIER_NONE;
+			s32 pi;
+			s32 sel;
 
-			sysLogPrintf(LOG_NOTE,
-				"SPAWN: zero-pad path using pool[%d] L%d pos=(%.0f,%.0f,%.0f) room=%d",
-				idx, pool->points[idx].layer,
-				dstpos->x, dstpos->y, dstpos->z, (s32)dstrooms[0]);
+			for (pi = 0; pi < MAX_PLAYERS && num_occupied < MAX_MPCHRS; pi++) {
+				if (g_Vars.players[pi] && g_Vars.players[pi]->prop
+						&& g_Vars.players[pi]->prop != prop
+						&& g_Vars.players[pi]->prop->rooms[0] >= 0) {
+					occupied[num_occupied++] = g_Vars.players[pi]->prop->pos;
+				}
+			}
+			for (pi = 0; pi < g_BotCount && num_occupied < MAX_MPCHRS; pi++) {
+				if (g_MpBotChrPtrs[pi] && g_MpBotChrPtrs[pi]->prop
+						&& g_MpBotChrPtrs[pi]->prop != prop
+						&& g_MpBotChrPtrs[pi]->prop->rooms[0] >= 0) {
+					occupied[num_occupied++] = g_MpBotChrPtrs[pi]->prop->pos;
+				}
+			}
 
-			return 0;
+			spawnPoolComputeAABB(&aabb);
+			if (aabb.valid) {
+				center.x = (aabb.min.x + aabb.max.x) * 0.5f;
+				center.y = (aabb.min.y + aabb.max.y) * 0.5f;
+				center.z = (aabb.min.z + aabb.max.z) * 0.5f;
+			}
+
+			sel = spawnPoolSelectTiered(pool, occupied, num_occupied,
+			                            -1, 0, &center, &tier);
+			if (sel >= 0) {
+				dstpos->x = pool->points[sel].pos.x;
+				dstpos->y = pool->points[sel].pos.y;
+				dstpos->z = pool->points[sel].pos.z;
+				dstrooms[0] = pool->points[sel].room;
+				dstrooms[1] = -1;
+
+				sysLogPrintf(LOG_NOTE,
+					"SPAWN.TIER: %s zero-pad pool[%d] L%d pos=(%.0f,%.0f,%.0f) room=%d occupied=%d",
+					spawnPoolTierName(tier),
+					sel, pool->points[sel].layer,
+					dstpos->x, dstpos->y, dstpos->z, (s32)dstrooms[0],
+					num_occupied);
+				return 0;
+			}
+			/* Pool fell through — synthesise a last-resort below. */
 		}
 
-		/* Legacy fallback if pool isn't ready yet (shouldn't happen in
-		 * normal flow, but keep as safety net) */
+		/* T4 last-resort — pool unbuilt or completely exhausted.  Build
+		 * an occupied[] snapshot so the synthesised position still
+		 * tries to stay away from live players. */
 		{
-			struct pad fallbackpad;
-			s32 fallbackpadnum = 0;
-			s32 maxpads = (g_PadsFile != NULL) ? g_PadsFile->numpads : 1;
+			struct coord occupied[MAX_MPCHRS];
+			s32 num_occupied = 0;
+			struct coord lr_pos;
+			RoomNum lr_room = -1;
+			f32 lr_angle = 0.0f;
 			s32 pi;
-			for (pi = 0; pi < maxpads && pi < 64; pi++) {
-				struct pad probePad;
-				padUnpack(pi, PADFIELD_ROOM, &probePad);
-				if (probePad.room >= 0) {
-					fallbackpadnum = pi;
-					break;
+
+			for (pi = 0; pi < MAX_PLAYERS && num_occupied < MAX_MPCHRS; pi++) {
+				if (g_Vars.players[pi] && g_Vars.players[pi]->prop
+						&& g_Vars.players[pi]->prop != prop
+						&& g_Vars.players[pi]->prop->rooms[0] >= 0) {
+					occupied[num_occupied++] = g_Vars.players[pi]->prop->pos;
 				}
 			}
-			padUnpack(fallbackpadnum, PADFIELD_POS | PADFIELD_ROOM, &fallbackpad);
-			dstpos->x = fallbackpad.pos.x;
-			dstpos->y = fallbackpad.pos.y;
-			dstpos->z = fallbackpad.pos.z;
-			dstrooms[0] = fallbackpad.room;
+			for (pi = 0; pi < g_BotCount && num_occupied < MAX_MPCHRS; pi++) {
+				if (g_MpBotChrPtrs[pi] && g_MpBotChrPtrs[pi]->prop
+						&& g_MpBotChrPtrs[pi]->prop != prop
+						&& g_MpBotChrPtrs[pi]->prop->rooms[0] >= 0) {
+					occupied[num_occupied++] = g_MpBotChrPtrs[pi]->prop->pos;
+				}
+			}
+
+			spawnPoolLastResort(occupied, num_occupied,
+			                    &lr_pos, &lr_room, &lr_angle);
+			dstpos->x = lr_pos.x;
+			dstpos->y = lr_pos.y;
+			dstpos->z = lr_pos.z;
+			dstrooms[0] = lr_room;
 			dstrooms[1] = -1;
-
-			if (dstrooms[0] == -1) {
-				RoomNum inrooms[21];
-				RoomNum aboverooms[21];
-				RoomNum bestroom = -1;
-				inrooms[0] = -1;
-				bgFindRoomsByPos(dstpos, inrooms, aboverooms, 20, &bestroom);
-				if (inrooms[0] >= 0) {
-					dstrooms[0] = inrooms[0];
-					dstrooms[1] = -1;
-				} else if (bestroom >= 0) {
-					dstrooms[0] = bestroom;
-					dstrooms[1] = -1;
+			/* Room may still be -1 if the synthesised pos landed in
+			 * void; fall through to a pad 0 probe for a final safety
+			 * net (mod stages with no pad data at all). */
+			if (dstrooms[0] == -1 && g_PadsFile != NULL) {
+				s32 maxpads = g_PadsFile->numpads;
+				s32 pj;
+				for (pj = 0; pj < maxpads && pj < 64; pj++) {
+					struct pad probePad;
+					padUnpack(pj, PADFIELD_ROOM, &probePad);
+					if (probePad.room >= 0) {
+						struct pad posPad;
+						padUnpack(pj, PADFIELD_POS | PADFIELD_ROOM, &posPad);
+						dstpos->x = posPad.pos.x;
+						dstpos->y = posPad.pos.y;
+						dstpos->z = posPad.pos.z;
+						dstrooms[0] = posPad.room;
+						sysLogPrintf(LOG_WARNING,
+							"SPAWN.TIER: T4_LAST_RESORT — synthesised room=-1, fell through to pad %d (room=%d)",
+							pj, (s32)posPad.room);
+						break;
+					}
 				}
 			}
-
-			sysLogPrintf(LOG_WARNING,
-				"SPAWN: no pool available, using legacy pad %d fallback (room=%d)",
-				fallbackpadnum, (s32)fallbackpad.room);
 			return 0;
 		}
 	}

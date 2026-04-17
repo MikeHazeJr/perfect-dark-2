@@ -40,6 +40,41 @@
 #define SPAWNLAYER_GRID      3  /* L3: AABB grid raycast */
 #define SPAWNLAYER_RADIAL    4  /* L4: centroid + radial offsets */
 
+/*
+ * S302: runtime selection tiers.
+ *
+ * Distinct from the BUILD layers above: these describe how we PICKED a
+ * point from an already-built pool.  Each spawn decision logs the tier
+ * that produced it so playtest traces show the tier distribution
+ * (healthy = mostly T1; heavy T3/T4 = pool is being exhausted and the
+ * map / participant count need attention).
+ *
+ *   T1 OPTIMAL      — farthest-point-first over unused + unreserved
+ *                     slots.  Ideal case; the pool had spare capacity.
+ *   T2 CYCLED       — same-tick reservation bitset was exhausted; we
+ *                     cleared the reservations and retried (unused slots
+ *                     from prior ticks are back in play).  Still ideal
+ *                     quality, just indicates burst pressure.
+ *   T3 REUSED       — every slot is either reserved OR occupied by a
+ *                     live player; we picked the slot farthest from all
+ *                     occupied positions.  The spawn may briefly overlap
+ *                     another player, but telefragging is the designed
+ *                     behaviour for over-subscribed maps.
+ *   T4 LAST_RESORT  — pool is effectively unusable (empty or every slot
+ *                     failed validation).  Caller falls back to legacy
+ *                     pad selection or a radial offset from center.
+ */
+typedef enum spawn_select_tier {
+	SPAWN_TIER_NONE        = 0,
+	SPAWN_TIER_1_OPTIMAL   = 1,
+	SPAWN_TIER_2_CYCLED    = 2,
+	SPAWN_TIER_3_REUSED    = 3,
+	SPAWN_TIER_4_LASTRESORT = 4,
+} spawn_select_tier_t;
+
+/* Human-readable name for SPAWN.TIER log lines. */
+const char *spawnPoolTierName(spawn_select_tier_t tier);
+
 typedef struct spawn_point {
 	struct coord pos;
 	RoomNum room;
@@ -133,6 +168,41 @@ void spawnPoolReset(void);
 s32 spawnPoolSelect(const spawn_pool_t *pool, const struct coord *occupied,
                     s32 num_occupied, s32 team, s32 num_teams,
                     const struct coord *pool_center);
+
+/*
+ * S302: tiered select — same contract as spawnPoolSelect but cascades
+ * through T1 -> T2 -> T3 before returning -1 (T4 is the caller's
+ * responsibility).  out_tier receives the tier that produced the
+ * returned index (SPAWN_TIER_NONE on -1).
+ *
+ * Guarantees at least one valid selection when pool->count > 0, unless
+ * every slot has `used` flagged by occupied[] AND the pool has fewer
+ * slots than occupied (physically impossible to avoid overlap).  Even
+ * then T3 returns the farthest-from-occupied slot so the caller never
+ * has to pick blindly.
+ */
+s32 spawnPoolSelectTiered(const spawn_pool_t *pool,
+                          const struct coord *occupied, s32 num_occupied,
+                          s32 team, s32 num_teams,
+                          const struct coord *pool_center,
+                          spawn_select_tier_t *out_tier);
+
+/*
+ * S302: last-resort position when the pool is unavailable or empty.
+ * Picks the point farthest from `occupied` — uses a pool slot if any
+ * exist (even ones with failed validation), else synthesises a radial
+ * position around the AABB centre.  Always writes a non-void pos +
+ * room.  Returns the tier that produced the answer (T3 if a pool slot
+ * was reused, T4 if synthesised).
+ *
+ * Exists so every caller can reach a final position without
+ * re-implementing the fallback cascade locally.
+ */
+spawn_select_tier_t spawnPoolLastResort(const struct coord *occupied,
+                                        s32 num_occupied,
+                                        struct coord *out_pos,
+                                        RoomNum *out_room,
+                                        f32 *out_angle);
 
 /*
  * S298: same-tick reservation bitset.

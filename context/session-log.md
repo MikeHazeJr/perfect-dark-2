@@ -1,7 +1,54 @@
 # Session Log (Active)
 
-> **S241–S301** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S302** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S302 — 2026-04-16 (Spawn pool robustness — tiered selection + last-resort + solo-map CombatSim coverage — quirky-mendeleev worktree)
+
+**Scope**: harden the spawn pool so every Combat Simulator scenario (stock MP maps, solo campaign maps reused as arenas, over-subscribed maps where players > pool slots) produces a spawn without crashing / stalling / leaving the player in the void. Adds an explicit selection-tier cascade (T1 optimal → T2 cycled → T3 reused → T4 last-resort) with `SPAWN.TIER:` logging so playtest traces show the distribution.
+
+**Changes**
+
+- **`src/include/game/spawnpool.h`**: new `spawn_select_tier_t` enum (`SPAWN_TIER_{NONE,1_OPTIMAL,2_CYCLED,3_REUSED,4_LASTRESORT}`), `spawnPoolSelectTiered()` (same params as `spawnPoolSelect` + `out_tier`), `spawnPoolLastResort(occupied, num_occupied, out_pos, out_room, out_angle)`, `spawnPoolTierName()` for log strings.
+- **`src/game/spawnpool.c`**:
+  - Refactored `spawnPoolSelect()` into internal helpers `poolMinDistSq`, `poolPickFarthest` (team-sector + FFA fallthrough), `poolMarkUsedFromOccupied`.
+  - New `spawnPoolSelectTiered()` runs three passes: T1 = skip `used | reserved`, T2 = clear reservations and retry skipping `used` only (logs `SPAWN.TIER: T2_CYCLED — reservations cleared...`), T3 = skip nothing (every slot eligible, picks farthest-from-occupied — logs `SPAWN.TIER: T3_REUSED — pool oversubscribed...`). Legacy `spawnPoolSelect()` is now a thin wrapper that ignores tier.
+  - New `spawnPoolLastResort()` — pool non-empty? pick the farthest point from occupied regardless of validation (logs `T4_LAST_RESORT — pool-slot reuse`). Pool empty? synthesise center + radial offset staggered by `num_occupied & 7` so consecutive fallback calls don't pile up (logs `T4_LAST_RESORT — synthesised pos=...`). Always writes a non-void pos + room; falls through to pad-file scan if bgFindRoomsByPos can't resolve.
+- **`src/game/playerreset.c`**:
+  - `spawn_needed` now uses `MAX_PLAYERS + g_BotCount + 4` in netplay (remote slots fill AFTER playerReset on each client), `PLAYERCOUNT() + g_BotCount + 4` locally, floored at 16 so small matches still have respawn headroom. Still capped at `MAX_MPCHRS`. Large-map span bonus retained.
+  - Initial MP spawn (`g_Vars.mplayerisrunning && spawnPoolIsReady() && lvframe60 == 0`) now routes through `spawnPoolSelectTiered` + `spawnPoolLastResort` instead of falling back to `scenarioChooseSpawnLocation` on -1. Logs `SPAWN.TIER: %s initial MP spawn pool[%d] L%d ...`.
+- **`src/game/player.c`**:
+  - `playerTrySelectPoolSpawn` gate relaxed: was `g_NumSpawnPoints >= needed`, now `g_NumSpawnPoints >= needed + needed/2` (require a 1.5× margin). Previously stock maps with ties routed through the legacy shortlist (no burst reservation, telefrag-prone). Returns `true` with last-resort position when pool yields -1, so the caller never falls through to the legacy shortlist with an empty pool.
+  - Zero-pad path in `playerChooseSpawnLocation` now builds an `occupied[]` snapshot from live players + bots and calls `spawnPoolSelectTiered` (tier logged). If the pool is entirely empty, calls `spawnPoolLastResort` which synthesises a position; final room-resolution fallback kicks in when even the synthesised pos has no room (maps with zero pad data). Logs `SPAWN.TIER: T4_LAST_RESORT — synthesised room=-1, fell through to pad %d`.
+
+**Coverage of task requirements**
+
+1. **Limited spawn points (pool < players)** — T3 REUSED picks farthest-from-occupied even when all slots collide with live positions; reservation bitset no longer permanently locks out slots because T2 clears + retries mid-burst. Log line identifies the scenario.
+2. **Solo maps in Combat Simulator** — pool build already covers these (L2 waypoints / L3 grid / L4 radial). This session adds graceful SELECT-side exhaustion: when L4 produced only a tiny pool, T3/T4 keep each spawn placement working. `playerTrySelectPoolSpawn` gate also kicks in for maps with 0 declared pads because `g_NumSpawnPoints < needed + needed/2` is trivially true.
+3. **Too many players (32-bot Chicago)** — initial match-start burst: reservation bitset claims slots as each placement commits, T1 handles the burst; if 32+ spawn calls hit within the same tick and run out of T1 slots, T2 cycles (reservations clear once all slots have been dished out) then T3 reuses the farthest-from-occupied slot. Respawn waves: same cascade, but with live `occupied[]` from actual props.
+4. **Tier logging** — every spawn decision now logs `SPAWN.TIER: <tier> ...` at NOTE level for T1 (optimal) and WARNING level for T2/T3/T4 (degraded). Playtest tail can grep `SPAWN.TIER:` for the distribution.
+5. **Integration points** — verified every caller: `playerReset` (initial spawn), `playerStartNewLife → scenarioChooseSpawnLocation → playerChooseGeneralSpawnLocation → playerChooseSpawnLocation → playerTrySelectPoolSpawn` (player respawn), `botSpawn → scenarioChooseSpawnLocation → ...` (bot spawn + respawn + failsafe re-spawn in `bot.c:1122`). All paths funnel through `playerChooseSpawnLocation`, which now tries the tiered pool first and falls through to `spawnPoolLastResort` on pool failure before invoking the legacy shortlist.
+6. **Non-MP map spawn discovery** — retained existing `playerReset` waypoint/pad fallback (lines 283–406). Pool build then handles the rest via L2/L3/L4. If pool build itself fails (no waypoints + no pads + degenerate AABB), `spawnPoolLastResort` still synthesises a radial position around wherever `spawnPoolComputeAABB` lands (falls back to origin + 200u radius).
+
+**Design decisions**
+
+- **Keep back-compat `spawnPoolSelect`** as a wrapper that discards the tier — minimises blast radius for any future caller that doesn't care about the tier breakdown.
+- **Legacy shortlist still runs when `g_NumSpawnPoints >= needed + needed/2`** — stock 21-pad maps for 4-player FFA (needed=4, 21 ≥ 6) keep battle-tested behaviour; CombatSim against a 4-pad solo map with 8 participants goes through the pool.
+- **T2 clears ALL reservations** rather than just expiring them — the reservation bitset is a burst coordination mechanism, not a long-term exclusion. Once we've hit T2 we know earlier reservations have committed, so clearing them is correct.
+- **T4 synthesised position uses `(num_occupied & 7)` stagger** — 8 distinct positions around the centre cover the worst plausible simultaneous-T4 burst. Not deterministic across ticks (occupied changes) but that's fine; T4 is already an escape hatch.
+
+**Build-verify**: `source devtools/build-env.sh && ninja -C Build pd pd-server` — 751/751 targets clean. `PerfectDark.exe` 51,533,440 bytes, `PerfectDarkServer.exe` 22,824,057 bytes. Only pre-existing `/*` within comment warnings + `f32 near`/`far` macro-name warnings. No new warnings from the changed files.
+
+**Files touched**: `src/include/game/spawnpool.h`, `src/game/spawnpool.c`, `src/game/playerreset.c`, `src/game/player.c`.
+
+**Not done in this session** (deferred):
+- No in-game playtest yet — Mike to confirm tier distribution on: 32-bot Chicago (burst at match start), solo map used in CombatSim (pool should show high L4 layer), over-subscribed tiny arena (T3 should fire occasionally), regular stock maps (T1 every spawn).
+- `playerChooseSpawnLocation` legacy shortlist fallback (4 passes, sllen==0 cycling) unchanged. Could be retired once playtest confirms the pool path covers every scenario, but keeping it as a safety net for now.
+- No unit tests — the input/match layer has no automated coverage.
+
+**Next**: playtest across the scenarios above, then audit `pd.log` for `SPAWN.TIER:` tier distribution. Healthy signal is mostly T1 with occasional T2/T3 on oversubscribed maps and zero T4 on stock maps.
+
+---
 
 ## Session S301 — 2026-04-16 (Comprehensive instrumentation for Bug C / Bug D / Chicago crash / Airbase start / B-141 — confident-chaum worktree)
 
