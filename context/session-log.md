@@ -4,6 +4,20 @@
 > **S241–S310** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S310 addendum — 2026-04-17 (Mike R1-R4 refinements — same worktree)
+
+Four design refinements from Mike rolled into The Grid feature branch:
+
+- **R1 Seamless swap + per-player foundation**: `forgemode.c` now saves the player chr's `bodynum`/`headnum` on FREEFLY entry and restores on NORMAL exit, so the visual body swap can land at any later rung without touching the session logic.  No stage reload on toggle (already true).  New `forgeGetPlayerSessionState(playerNum)` + `forgeTogglePlayerMode(playerNum)` entry points wire per-player state for MP co-op forge (F8 stretch); F0 proxies to the global state for player 0.
+- **R2/R4 Weapon pad source**: new `forge_weapon_source_t` enum + `forge_map_settings_t.weapon_source` / `allow_match_override` fields.  Default is MAP_DEFAULTS + allow_match_override=1.  Modes: MAP_DEFAULTS (each pad spawns its author-chosen weapon), MATCH_OVERRIDE (lobby weapon set overrides every pad), PREFER_MAP (specific pads keep weapon, "Any" pads use lobby).  Settings tab gained a three-option dropdown + checkbox.  Serializer round-trips both fields.
+- **R3 Mod dependency collection**: new `forgeCollectDependencies` in `forge_core.c` walks all state (object catalog_id + material_id, AI body/head/weapon, weapon pad weapon_id, pickup item_id, effect asset_id, zone sounds, door key_id + sounds, atmosphere sky_id, gametype starting_weapon, every wave's enemy_catalog_id, base_stage_id) and returns the unique list of non-`base:` catalog IDs.  Serializer writes a `dependencies` array into both mod.json (for the distribution pipeline's recursive resolver) and map.json (for standalone-preview callers).  Settings tab shows a live dependency-count bullet list.
+
+Commit: `833c3a95`.  Build verify clean: PerfectDark.exe 52,186,794 / PerfectDarkServer.exe 22,839,025.
+
+Deferred: actual engine-level Dr. Carroll model hot-reload (currently logs the intent + swaps chr->bodynum + chr->headnum but doesn't re-skin the mesh live).
+
+---
+
 ## Session S310 — 2026-04-17 (The Grid level editor F1-F8 bulk drop + MP lift fix — `sharp-lovelace` worktree)
 
 **Scope**: Full F1 through F8 pass over the in-game level editor (now branded "The Grid" in user-facing UI -- internal code names stay `forge_*`). Parallel session on an isolated worktree; merges cleanly to `dev`. Also addresses the long-standing MP elevator dead-pad bug the design doc called out as an F6 blocker.
