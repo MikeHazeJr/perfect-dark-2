@@ -33,6 +33,10 @@
 #include "pdgui_scaling.h"
 #include "system.h"
 
+extern "C" {
+void pdguiSetCursorBelowTitle(float title_h);
+} /* extern "C" */
+
 /* -----------------------------------------------------------------------
  * Portable case-insensitive substring search (strcasestr not in MinGW C++)
  * ----------------------------------------------------------------------- */
@@ -219,6 +223,8 @@ extern "C" void pdguiLogViewerRender(s32 winW, s32 winH)
         ImGui::End();
         return;
     }
+
+    pdguiSetCursorBelowTitle(0.0f); /* content-inset: protect top/left from chrome border */
 
     /* ---- Filter controls ---- */
 

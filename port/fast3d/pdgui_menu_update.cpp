@@ -37,6 +37,7 @@ extern "C" {
 #include "pdgui_pausemenu.h"
 s32 pdguiHotswapWasActive(void);
 s32 pdguiPauseGetNormMplayerIsRunning(void);
+void pdguiSetCursorBelowTitle(float title_h);
 }
 
 /* ========================================================================
@@ -190,6 +191,7 @@ static void renderDownloadProgress(void)
 		ImGuiWindowFlags_NoSavedSettings;
 
 	if (ImGui::Begin("Downloading Update", nullptr, flags)) {
+		pdguiSetCursorBelowTitle(0.0f); /* content-inset: protect top/left from chrome border */
 		/* Show download size */
 		if (prog.bytesTotal > 0) {
 			ImGui::Text("Downloading: %.1f / %.1f MB",
@@ -578,6 +580,7 @@ static void renderVersionPicker(void)
 	bool open = true;
 
 	if (ImGui::Begin("Update Manager", &open, flags)) {
+		pdguiSetCursorBelowTitle(0.0f); /* content-inset: protect top/left from chrome border */
 		renderVersionPickerContent(pdguiScale(420.0f), pdguiScale(120.0f));
 	}
 	ImGui::End();
