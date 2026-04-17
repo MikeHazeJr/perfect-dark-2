@@ -140,6 +140,26 @@ static const char *flight_name(int t) {
 	}
 }
 
+/* Case-insensitive substring search.  Matches the forge_core helper in
+ * behaviour but local so the editor TU doesn't leak internals across the
+ * C/C++ boundary. */
+static int f_icontains(const char *hay, const char *needle)
+{
+	if (!hay || !needle || !*needle) return 1;
+	for (const char *p = hay; *p; ++p) {
+		const char *a = p;
+		const char *b = needle;
+		while (*a && *b) {
+			char ca = (*a >= 'A' && *a <= 'Z') ? (char)(*a + ('a' - 'A')) : *a;
+			char cb = (*b >= 'A' && *b <= 'Z') ? (char)(*b + ('a' - 'A')) : *b;
+			if (ca != cb) break;
+			++a; ++b;
+		}
+		if (!*b) return 1;
+	}
+	return 0;
+}
+
 static void f_slug_from_name(const char *name, char *out, size_t n)
 {
 	if (n == 0) return;
@@ -165,6 +185,43 @@ static void forgeDrawCatalogTab(void)
 {
 	forge_editor_state_t *ed = forgeGetEditor();
 	forge_budget_stats_t b; forgeBudgetCompute(&b);
+
+	/* S313 -- active ghost placement controls.  When a catalog entry
+	 * has been picked, show a banner with Place / Cancel buttons so
+	 * the author commits or aborts without having to re-find the
+	 * entry in the catalog tree. */
+	{
+		forge_placement_state_t *pp = forgeGetPlacement();
+		if (pp && pp->ghost_active) {
+			ImU32 ring = pp->ghost_valid ? IM_COL32(120, 220, 140, 255)
+			                             : IM_COL32(240, 130, 130, 255);
+			ImGui::PushStyleColor(ImGuiCol_Border, ring);
+			ImGui::BeginChild("PlaceBanner", ImVec2(0, 44 * pdguiScale(1.0f)),
+					true, ImGuiWindowFlags_NoScrollbar);
+			ImGui::Text("Placing:  %s", pp->pending_catalog_id);
+			ImGui::SameLine();
+			ImGui::TextColored(pp->ghost_valid
+					? ImVec4(0.5f, 0.95f, 0.6f, 1.0f)
+					: ImVec4(0.95f, 0.5f, 0.5f, 1.0f),
+					pp->ghost_valid ? "[VALID]" : "[INVALID]");
+			ImGui::SameLine();
+			if (ImGui::Button("Place Here")) {
+				s32 uid = forgePlaceCommit();
+				if (uid > 0) forgeSelectionSelectOnly((u32)uid);
+				forgePlaceCancel();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel (Esc)")) {
+				forgePlaceCancel();
+			}
+			ImGui::EndChild();
+			ImGui::PopStyleColor();
+			/* Escape cancels placement when the editor has focus. */
+			if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+				forgePlaceCancel();
+			}
+		}
+	}
 
 	/* Search + category filter */
 	ImGui::SetNextItemWidth(-160 * pdguiScale(1.0f));
@@ -205,9 +262,9 @@ static void forgeDrawCatalogTab(void)
 			if (!e) continue;
 			if ((int)e->category != c) continue;
 			if (ed->search_filter[0]) {
-				if (!strstr(e->name, ed->search_filter) &&
-				    !strstr(e->id,   ed->search_filter) &&
-				    !(e->tags && strstr(e->tags, ed->search_filter))) {
+				if (!f_icontains(e->name, ed->search_filter) &&
+				    !f_icontains(e->id,   ed->search_filter) &&
+				    !(e->tags && f_icontains(e->tags, ed->search_filter))) {
 					continue;
 				}
 			}
@@ -225,9 +282,9 @@ static void forgeDrawCatalogTab(void)
 			if (!e) continue;
 			if ((int)e->category != c) continue;
 			if (ed->search_filter[0]) {
-				if (!strstr(e->name, ed->search_filter) &&
-				    !strstr(e->id,   ed->search_filter) &&
-				    !(e->tags && strstr(e->tags, ed->search_filter))) {
+				if (!f_icontains(e->name, ed->search_filter) &&
+				    !f_icontains(e->id,   ed->search_filter) &&
+				    !(e->tags && f_icontains(e->tags, ed->search_filter))) {
 					continue;
 				}
 			}
@@ -243,21 +300,14 @@ static void forgeDrawCatalogTab(void)
 				ImGui::EndTooltip();
 			}
 			if (pressed) {
-				/* Place at current freefly camera forward ~400 units (F1 ghost
-				 * reticle will take over once editor-tick drives placement).
-				 * NOTE: struct coord is forward-declared in forgemode.h to
-				 * avoid pulling types.h into C++; we shadow it here as three
-				 * contiguous f32 which is the same layout. */
-				struct forge_editor_coord { f32 x, y, z; } p = { 0.0f, 0.0f, 0.0f };
-				forgeGetCameraPos((struct coord *)&p);
-				f32 cpos[3] = { p.x, p.y, p.z };
+				/* S313 -- begin a ghost placement session; the editor tick
+				 * updates the ghost position every frame from the freefly
+				 * camera, the HUD draws the ghost preview + valid/invalid
+				 * tint, and the user commits via "Place Here" (below) or
+				 * cancels via "Cancel Placement" / Escape.  This
+				 * decoupling is what makes the §4.1 ghost reticle flow
+				 * work end-to-end in-session. */
 				forgePlaceBegin(e->id);
-				forgePlaceUpdate(cpos, forgeGetCameraYawDeg(), forgeGetCameraPitchDeg(), 400.0f);
-				s32 uid = forgePlaceCommit();
-				forgePlaceCancel();
-				if (uid > 0) {
-					forgeSelectionSelectOnly((u32)uid);
-				}
 			}
 			ImGui::PopID();
 		}
@@ -292,7 +342,27 @@ static void forgeDrawPropertiesTab(void)
 	if (!o) { ImGui::Text("(stale selection)"); return; }
 
 	ImGui::Text("UID %u  -  %s  [%s]", o->uid, o->catalog_id, fcat_label(o->category));
+	if (o->from_base) {
+		ImGui::SameLine();
+		ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.4f, 1.0f), "[BASE]");
+	}
 	ImGui::Separator();
+
+	/* S313 -- Variant delta controls for base-imported objects. */
+	if (o->from_base) {
+		ImGui::TextDisabled("This object came from the variant's base.  "
+				"Changes are stored as a delta.");
+		if (ImGui::Button("Reset to Base")) {
+			forgeObjectResetToBase(o->uid);
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Remove Base Object (delta-delete)")) {
+			u32 uid = o->uid;
+			forgeObjectRemoveFromBase(uid);
+			return; /* object is gone; early-out */
+		}
+		ImGui::Separator();
+	}
 
 	/* Label */
 	ImGui::InputText("Label", o->label, FORGE_LABEL_LEN);
@@ -321,12 +391,25 @@ static void forgeDrawPropertiesTab(void)
 	switch (o->category) {
 	case FORGE_CAT_WEAPON_PAD: {
 		auto *p = &o->props.weapon;
-		ImGui::InputText("Weapon ID", p->weapon_id, FORGE_ID_LEN);
-		ImGui::InputInt("Ammo (-1 default)", &p->ammo);
+		ImGui::InputText("Weapon ID (Default)", p->weapon_id, FORGE_ID_LEN);
+		ImGui::TextDisabled("This is the map-author default.  At runtime the "
+				"match-setup Weapon Source (Settings tab) decides whether "
+				"this default, the lobby weapon set, or a hybrid wins.");
+		/* Preview: what will this pad actually spawn based on current map source? */
+		const forge_map_settings_t *ms = forgeMapSettings();
+		const char *src_label =
+			(ms->weapon_source == FORGE_WEAPONS_MAP_DEFAULTS)   ? "Map Defaults -> uses this weapon" :
+			(ms->weapon_source == FORGE_WEAPONS_MATCH_OVERRIDE) ? "Match Override -> uses lobby weapon set" :
+			                                                     "Prefer Map -> uses this (specific) weapon";
+		ImGui::TextColored(ImVec4(0.7f, 0.95f, 1.0f, 1.0f), "Preview: %s", src_label);
+		ImGui::InputInt("Ammo (-1 = weapon default)", &p->ammo);
 		bool dual = p->dual_wield; if (ImGui::Checkbox("Dual Wield", &dual)) p->dual_wield = dual;
-		ImGui::SliderFloat("Respawn (sec)", &p->respawn_sec, 0.0f, 60.0f);
+		ImGui::SliderFloat("Respawn (sec, 0 = one-time pickup)", &p->respawn_sec, 0.0f, 60.0f);
 		int team_lock = p->team_lock;
-		if (ImGui::SliderInt("Team Lock", &team_lock, 0, 8)) p->team_lock = (u8)team_lock;
+		if (ImGui::SliderInt("Team Lock (0=any, 1..8)", &team_lock, 0, 8)) p->team_lock = (u8)team_lock;
+		int respawn_effect = p->respawn_effect;
+		const char *effects[] = { "None", "Glow", "Hologram" };
+		if (ImGui::Combo("Respawn Effect", &respawn_effect, effects, 3)) p->respawn_effect = (u8)respawn_effect;
 		break;
 	}
 	case FORGE_CAT_SPAWN_POINT: {
@@ -988,6 +1071,88 @@ static void forgeDrawMissionTab(void)
 			"(use OBJECTIVE_COMPLETE / OBJECTIVE_FAIL action nodes in the Logic tab).");
 }
 
+/* ============================================================
+ * S313 -- Live Bot testing tab.
+ *
+ * Author can add/remove bots on the fly without a match restart.
+ * Bots can be Active (fighting) or Frozen (for spawn-spot testing).
+ * Spawn mode picks whether respawns happen anywhere, near the
+ * requesting player, or bias toward combat flow.
+ *
+ * Engine integration is deferred -- this tab publishes intent and
+ * logs actions.  The runtime tick that consumes `pending_*` counters
+ * + drives botmgrAllocateBot / botmgrRemoveAll lands in a follow-up
+ * polish pass so gameplay doesn't destabilise mid-edit.
+ * ============================================================ */
+
+static void forgeDrawBotsTab(void)
+{
+	forge_bot_settings_t *bs = forgeBotSettings();
+
+	ImGui::SeparatorText("Live Bot Testing");
+	ImGui::TextWrapped(
+			"Spawn bots on-the-fly without a match restart.  Active bots fight; "
+			"frozen bots hold their spawn spot so you can validate placement "
+			"without combat noise.  Spawn-mode controls respawn behaviour.");
+	ImGui::Spacing();
+
+	/* Live counter readout. */
+	ImGui::Text("Active: %d    Frozen: %d    Global freeze: %s",
+			(int)bs->active_count, (int)bs->frozen_count,
+			bs->all_frozen ? "YES" : "no");
+
+	ImGui::SeparatorText("Add / Remove");
+	if (ImGui::Button("+ Add Active Bot", ImVec2(-1, 0))) {
+		forgeBotAddRequest(1);
+	}
+	if (ImGui::Button("+ Add Frozen Bot", ImVec2(-1, 0))) {
+		forgeBotAddRequest(0);
+	}
+	if (ImGui::Button("Remove All Bots", ImVec2(-1, 0))) {
+		forgeBotRemoveAll();
+	}
+
+	ImGui::SeparatorText("Freeze State");
+	bool freeze = bs->all_frozen;
+	if (ImGui::Checkbox("Freeze all bots (hold positions)", &freeze)) {
+		forgeBotFreezeAll(freeze ? 1 : 0);
+	}
+	ImGui::TextDisabled("Frozen bots keep their spawn coords fixed -- useful "
+			"for validating team-spawn zones and LoS to key pads.");
+
+	ImGui::SeparatorText("Spawn Mode");
+	const char *modes[] = {
+			"Any -- bots respawn at any valid spawn point (default)",
+			"Spawn Near Me -- respawn within radius of the requesting player",
+			"Spawn Smart -- bots aggressively seek combat (flow testing)"
+	};
+	int sm = bs->spawn_mode;
+	if (ImGui::Combo("Mode", &sm, modes, 3)) bs->spawn_mode = (u8)sm;
+
+	if (bs->spawn_mode == FORGE_BOT_SPAWN_NEAR_ME) {
+		ImGui::SliderFloat("Near-Me Radius (units)",
+				&bs->near_me_radius, 100.0f, 5000.0f, "%.0f");
+		ImGui::TextDisabled("Bots respawn within this radius of the requesting "
+				"player.  Useful for testing contested-area flow.");
+	} else if (bs->spawn_mode == FORGE_BOT_SPAWN_SMART) {
+		ImGui::SliderFloat("Smart Aggression",
+				&bs->smart_aggression, 0.0f, 1.0f, "%.2f");
+		ImGui::TextDisabled("0 = passive roam, 1 = full sprint at the nearest "
+				"human.  Higher values surface combat-flow issues faster.");
+	}
+
+	ImGui::SeparatorText("Bot Defaults");
+	ImGui::InputText("Default Body ID", bs->default_body_id, FORGE_ID_LEN);
+	ImGui::InputText("Difficulty",      bs->default_difficulty, FORGE_NAME_LEN);
+	ImGui::TextDisabled("valid difficulties: meat, easy, normal, hard, perfect, dark");
+
+	ImGui::SeparatorText("Runtime Hook Status");
+	ImGui::TextDisabled("Pending engine sync: +%d active  +%d frozen  %d remove-all",
+			bs->pending_add_active, bs->pending_add_frozen, bs->pending_remove_all);
+	ImGui::TextDisabled("Engine botmgr wire (allocate / remove / freeze) is a "
+			"follow-up polish pass.  Current session captures intent + logs.");
+}
+
 static void forgeDrawSettingsTab(void)
 {
 	forge_map_settings_t *s = forgeMapSettings();
@@ -998,7 +1163,38 @@ static void forgeDrawSettingsTab(void)
 	ImGui::InputText("Map Name",    s->map_name, FORGE_NAME_LEN);
 	ImGui::InputText("Author",      s->author,   FORGE_NAME_LEN);
 	ImGui::InputTextMultiline("Description", s->description, FORGE_DESC_LEN, ImVec2(-1, 60));
-	ImGui::InputText("Base Stage ID", s->base_stage_id, FORGE_ID_LEN);
+
+	ImGui::SeparatorText("Variant Mode (S313)");
+	const char *variant_labels[] = {
+		"New Empty Map -- blank canvas, author-placed objects only",
+		"Edit Existing Stage -- start from an engine stage, track deltas",
+		"Edit Existing Map -- start from another Grid map, track deltas",
+	};
+	int vm = s->variant_mode;
+	if (ImGui::Combo("Variant", &vm, variant_labels, 3)) {
+		s->variant_mode = (u8)vm;
+	}
+	if (s->variant_mode == FORGE_VARIANT_NEW_EMPTY) {
+		ImGui::InputText("Base Stage ID", s->base_stage_id, FORGE_ID_LEN);
+		ImGui::TextDisabled("Loader will drop the author's objects onto this "
+				"engine stage.  Use base:training for the default sandbox.");
+	} else if (s->variant_mode == FORGE_VARIANT_EDIT_STAGE) {
+		ImGui::InputText("Base Stage ID", s->base_stage_id, FORGE_ID_LEN);
+		if (ImGui::Button("Import Base Stage Now -> mark placed objects as from_base")) {
+			forgeImportBaseStageObjects();
+		}
+		ImGui::TextDisabled("%d base objects  |  %d author deltas",
+				forgeCountBaseObjects(), forgeCountDeltaObjects());
+		ImGui::TextDisabled("The save format elides unchanged base objects; only "
+				"added / moved / modified objects land in map.json as deltas.");
+	} else { /* FORGE_VARIANT_EDIT_MAP */
+		ImGui::InputText("Variant Source Slug", s->variant_source_slug, FORGE_NAME_LEN);
+		ImGui::TextDisabled("Points to another Grid map mod.  The loader opens "
+				"that map's base_stage + objects first, then layers the current "
+				"map's author changes on top.");
+		ImGui::TextDisabled("%d base objects  |  %d author deltas",
+				forgeCountBaseObjects(), forgeCountDeltaObjects());
+	}
 
 	ImGui::SeparatorText("Players & Spawn");
 	int mp = s->max_players;
@@ -1060,7 +1256,7 @@ static void forgeDrawSettingsTab(void)
 	bool srf = ed->snap_surface_enabled;
 	if (ImGui::Checkbox("Surface Snap (editor)", &srf)) ed->snap_surface_enabled = srf ? 1 : 0;
 	bool ps = ed->paused_sim;
-	if (ImGui::Checkbox("Pause Simulation in Forge", &ps)) ed->paused_sim = ps ? 1 : 0;
+	if (ImGui::Checkbox("Pause Simulation in The Grid", &ps)) ed->paused_sim = ps ? 1 : 0;
 	bool zv = ed->zone_viz_enabled;
 	if (ImGui::Checkbox("Show Zone Wireframes (V)", &zv)) ed->zone_viz_enabled = zv ? 1 : 0;
 	ImGui::SameLine();
@@ -1100,7 +1296,9 @@ static void forgeDrawSettingsTab(void)
 	if (save_slug[0] == '\0') f_slug_from_name(s->map_name, save_slug, sizeof(save_slug));
 	ImGui::InputText("Mod Slug", save_slug, FORGE_NAME_LEN);
 	if (ImGui::Button("Save As Mod")) {
-		if (save_slug[0]) forgeSerializeSaveToMod(save_slug);
+		/* Open confirmation modal so the author sees exactly which mods
+		 * will be bundled with this Grid map before committing. */
+		if (save_slug[0]) ImGui::OpenPopup("Confirm Save -- Mod Dependencies");
 	}
 	ImGui::SameLine();
 	if (ImGui::Button("Quick Re-Derive Slug")) {
@@ -1110,7 +1308,48 @@ static void forgeDrawSettingsTab(void)
 	if (ImGui::Button("Load From Mod")) {
 		if (save_slug[0]) forgeSerializeLoadFromMod(save_slug);
 	}
-	ImGui::TextDisabled("Saves to mods/Forge Maps/<slug>/ with mod.json + map.json.");
+	ImGui::TextDisabled("Saves to mods/Forge Maps/<slug>/ (The Grid map format; "
+			"writes mod.json + map.json).");
+
+	/* Save confirmation modal -- lists mod dependencies so the author
+	 * knows the full bundle before pressing Save. */
+	{
+		if (ImGui::BeginPopupModal("Confirm Save -- Mod Dependencies", nullptr,
+				ImGuiWindowFlags_AlwaysAutoResize)) {
+			ImGui::Text("Saving The Grid map  '%s'", s->map_name);
+			ImGui::Text("Slug:  mods/Forge Maps/%s/", save_slug);
+			ImGui::Separator();
+
+			char deps[FORGE_MAX_DEPENDENCIES][FORGE_ID_LEN];
+			s32 nd = forgeCollectDependencies(deps, FORGE_MAX_DEPENDENCIES);
+			if (nd == 0) {
+				ImGui::TextColored(ImVec4(0.6f, 0.95f, 0.6f, 1.0f),
+						"No mod dependencies.  Map uses only base-game assets.");
+			} else {
+				ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.5f, 1.0f),
+						"This map references %d mod asset(s) that will be bundled:", nd);
+				ImGui::BeginChild("DepsListModal", ImVec2(420 * pdguiScale(1.0f),
+						120 * pdguiScale(1.0f)), true);
+				for (s32 i = 0; i < nd; ++i) {
+					ImGui::BulletText("%s", deps[i]);
+				}
+				ImGui::EndChild();
+				ImGui::TextDisabled("The distribution pipeline will recursively "
+						"include each mod's own dependencies too.");
+			}
+
+			ImGui::Separator();
+			if (ImGui::Button("Save", ImVec2(120 * pdguiScale(1.0f), 0))) {
+				forgeSerializeSaveToMod(save_slug);
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel", ImVec2(120 * pdguiScale(1.0f), 0))) {
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
+	}
 
 	ImGui::SeparatorText("Reset");
 	if (ImGui::Button("Reset Map (destructive)")) {
@@ -1122,6 +1361,57 @@ static void forgeDrawSettingsTab(void)
  * Main entry
  * ============================================================ */
 
+/* S313 -- Persistent tab index so bumper navigation (LB/RB on gamepad,
+ * keyboard PageUp/PageDown) can cycle through tabs without relying on
+ * ImGui's tab-bar click state. */
+enum {
+	FGT_CATALOG = 0,
+	FGT_PROPS,
+	FGT_ZONES,
+	FGT_LIGHTING,
+	FGT_LOGIC,
+	FGT_GAMETYPE,
+	FGT_MISSION,
+	FGT_BOTS,
+	FGT_SETTINGS,
+	FGT_COUNT
+};
+
+static int s_forge_active_tab = FGT_CATALOG;
+static int s_forge_tab_set_request = -1; /* -1 = free, else force-set to this tab this frame */
+
+static const char *forgeTabLabel(int idx)
+{
+	switch (idx) {
+	case FGT_CATALOG:  return "Catalog";
+	case FGT_PROPS:    return "Properties";
+	case FGT_ZONES:    return "Zones";
+	case FGT_LIGHTING: return "Lighting";
+	case FGT_LOGIC:    return "Logic";
+	case FGT_GAMETYPE: return "Game Type";
+	case FGT_MISSION:  return "Mission";
+	case FGT_BOTS:     return "Bots";
+	case FGT_SETTINGS: return "Settings";
+	default:           return "?";
+	}
+}
+
+static void forgeDrawActiveTab(int idx)
+{
+	switch (idx) {
+	case FGT_CATALOG:  forgeDrawCatalogTab();    break;
+	case FGT_PROPS:    forgeDrawPropertiesTab(); break;
+	case FGT_ZONES:    forgeDrawZonesTab();      break;
+	case FGT_LIGHTING: forgeDrawLightingTab();   break;
+	case FGT_LOGIC:    forgeDrawLogicTab();      break;
+	case FGT_GAMETYPE: forgeDrawGameTypeTab();   break;
+	case FGT_MISSION:  forgeDrawMissionTab();    break;
+	case FGT_BOTS:     forgeDrawBotsTab();       break;
+	case FGT_SETTINGS: forgeDrawSettingsTab();   break;
+	default: break;
+	}
+}
+
 void pdguiForgeEditorRender(s32 winW, s32 winH)
 {
 	if (!forgeSessionIsActive()) return;
@@ -1129,9 +1419,22 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 
 	forgeCoreInit();
 
+	/* S313 -- Keyboard navigation is already enabled globally in
+	 * pdguiInit; we ensure it here idempotently.  Gamepad nav is
+	 * intentionally left off because the freefly camera consumes the
+	 * same stick inputs ImGui would consume for focus navigation --
+	 * having both active at once fights over the sticks.  Controller
+	 * tab-cycling is still reachable via PageUp/PageDown on keyboard
+	 * (mapped to L1/R1 in the game's actionmap layer through the
+	 * actionmap binding UI). */
+	{
+		ImGuiIO &io = ImGui::GetIO();
+		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+	}
+
 	const float scale = pdguiScale(1.0f);
-	ImGui::SetNextWindowSize(ImVec2(560.0f * scale, 560.0f * scale), ImGuiCond_FirstUseEver);
-	ImGui::SetNextWindowPos(ImVec2((float)winW - 580.0f * scale, 70.0f * scale), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowSize(ImVec2(620.0f * scale, 620.0f * scale), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowPos(ImVec2((float)winW - 640.0f * scale, 70.0f * scale), ImGuiCond_FirstUseEver);
 
 	ImGui::Begin("The Grid -- Editor", nullptr,
 			ImGuiWindowFlags_NoCollapse);
@@ -1147,27 +1450,79 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 	ImGui::Text("Selected: %d", sel);
 	ImGui::SameLine();
 	ImGui::TextDisabled(" | Objects: %d / %d", forgeObjectCount(), FORGE_MAX_OBJECTS);
+	ImGui::SameLine();
+	ImGui::TextDisabled(" | Tab: %s", forgeTabLabel(s_forge_active_tab));
+
+	/* S313 -- Controller/keyboard bumper navigation: PageUp/PageDown on
+	 * keyboard, Gamepad L1/R1 on controller cycle between tabs.  Only
+	 * acts when the editor window is focused so it doesn't fight with
+	 * game input in NORMAL mode. */
+	if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+		bool prev = ImGui::IsKeyPressed(ImGuiKey_PageUp, false) ||
+		            ImGui::IsKeyPressed(ImGuiKey_GamepadL1,  false);
+		bool next = ImGui::IsKeyPressed(ImGuiKey_PageDown, false) ||
+		            ImGui::IsKeyPressed(ImGuiKey_GamepadR1,  false);
+		if (prev) {
+			s_forge_active_tab = (s_forge_active_tab + FGT_COUNT - 1) % FGT_COUNT;
+			s_forge_tab_set_request = s_forge_active_tab;
+		} else if (next) {
+			s_forge_active_tab = (s_forge_active_tab + 1) % FGT_COUNT;
+			s_forge_tab_set_request = s_forge_active_tab;
+		}
+	}
 
 	ImGui::Separator();
 
-	if (ImGui::BeginTabBar("GridTabs")) {
-		if (ImGui::BeginTabItem("Catalog"))    { forgeDrawCatalogTab();    ImGui::EndTabItem(); }
-		if (ImGui::BeginTabItem("Properties")) { forgeDrawPropertiesTab(); ImGui::EndTabItem(); }
-		if (ImGui::BeginTabItem("Zones"))      { forgeDrawZonesTab();      ImGui::EndTabItem(); }
-		if (ImGui::BeginTabItem("Lighting"))   { forgeDrawLightingTab();   ImGui::EndTabItem(); }
-		if (ImGui::BeginTabItem("Logic"))      { forgeDrawLogicTab();      ImGui::EndTabItem(); }
-		if (ImGui::BeginTabItem("Game Type"))  { forgeDrawGameTypeTab();   ImGui::EndTabItem(); }
-		if (ImGui::BeginTabItem("Mission"))    { forgeDrawMissionTab();    ImGui::EndTabItem(); }
-		if (ImGui::BeginTabItem("Settings"))   { forgeDrawSettingsTab();   ImGui::EndTabItem(); }
+	/* S313 -- Use resizable tab-bar policy so labels fit on smaller
+	 * editor windows without truncating; scroll if they overflow. */
+	const ImGuiTabBarFlags tb_flags =
+			ImGuiTabBarFlags_Reorderable |
+			ImGuiTabBarFlags_FittingPolicyScroll;
+	if (ImGui::BeginTabBar("GridTabs", tb_flags)) {
+		for (int i = 0; i < FGT_COUNT; ++i) {
+			ImGuiTabItemFlags flags = 0;
+			if (s_forge_tab_set_request == i) {
+				flags |= ImGuiTabItemFlags_SetSelected;
+			}
+			if (ImGui::BeginTabItem(forgeTabLabel(i), nullptr, flags)) {
+				s_forge_active_tab = i;
+				forgeDrawActiveTab(i);
+				ImGui::EndTabItem();
+			}
+		}
 		ImGui::EndTabBar();
 	}
+	s_forge_tab_set_request = -1;
+
+	/* Controller / keyboard hint footer so authors know which buttons
+	 * drive the editor.  Always on so it's visible from any tab. */
+	ImGui::Separator();
+	ImGui::TextDisabled("PgUp/PgDn or LB/RB cycle tabs  -  Enter/A select  -  Esc/B cancel  -  Tab focus next");
 
 	ImGui::End();
 }
 
 void pdguiForgeEditorTick(void)
 {
-	/* Reserved -- would drive per-frame placement reticle + editor hotkeys.
-	 * F0-F8 data-model and UI are callable now; hotkey integration comes in
-	 * a follow-up polish pass once the freefly camera exposes a raycast. */
+	/* S313 -- per-frame update of the ghost placement position from
+	 * the freefly camera, so the HUD draws the ghost in the correct
+	 * world-space spot (translated to screen-center crosshair).  The
+	 * distance (400u) is the default placement reach; a later polish
+	 * pass can add a scroll-wheel / D-pad adjuster bound to the
+	 * editor's tool-mode. */
+	if (!forgeSessionIsActive())    return;
+	if (!forgeIsFreefly())          return;
+	forge_placement_state_t *pp = forgeGetPlacement();
+	if (!pp || !pp->ghost_active)   return;
+
+	/* Reach into the forge freefly camera via its C-API (struct coord
+	 * is forward-declared in forgemode.h to avoid including types.h
+	 * in this C++ TU -- we shadow it here and pass a pointer). */
+	struct forge_editor_coord { f32 x, y, z; } cpos = { 0.0f, 0.0f, 0.0f };
+	forgeGetCameraPos((struct coord *)&cpos);
+	f32 camera_pos[3] = { cpos.x, cpos.y, cpos.z };
+	forgePlaceUpdate(camera_pos,
+	                 forgeGetCameraYawDeg(),
+	                 forgeGetCameraPitchDeg(),
+	                 400.0f);
 }

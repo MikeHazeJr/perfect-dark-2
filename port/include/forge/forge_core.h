@@ -267,6 +267,31 @@ typedef enum forge_weapon_source {
 	FORGE_WEAPONS_PREFER_MAP      = 2, /* pad defaults win for pads with a specific weapon; "Any" pads use lobby choice */
 } forge_weapon_source_t;
 
+/* S313: Map variant mode.  A map can be either built from scratch
+ * (NEW_EMPTY -- default -- objects placed from zero) or authored as a
+ * delta on top of an existing stage (EDIT_EXISTING -- the base stage's
+ * props are imported, marked `from_base`, and only author changes are
+ * stored in the save as deltas).  Saves of variant maps carry a
+ * `variant_source_slug` (another Grid map) or a `base_stage_id`
+ * (engine stage) pointer so the loader can re-import the base on
+ * open. */
+typedef enum forge_map_variant_mode {
+	FORGE_VARIANT_NEW_EMPTY   = 0, /* blank canvas, objects placed from scratch */
+	FORGE_VARIANT_EDIT_STAGE  = 1, /* start from a base engine stage's props */
+	FORGE_VARIANT_EDIT_MAP    = 2, /* start from another Grid map's objects */
+} forge_map_variant_mode_t;
+
+/* S313: Bot spawn mode.  Author-side declaration of how bots should be
+ * placed at runtime during live testing.  Gameplay code is not yet
+ * wired to act on these -- they are a forge-side data capture so the
+ * editor can publish intent today, and the runtime hook lands in a
+ * follow-up polish pass alongside engine botmgr integration. */
+typedef enum forge_bot_spawn_mode {
+	FORGE_BOT_SPAWN_ANY       = 0, /* default -- respawn at any spawn point */
+	FORGE_BOT_SPAWN_NEAR_ME   = 1, /* spawn within radius of requesting player */
+	FORGE_BOT_SPAWN_SMART     = 2, /* aggressively seek combat for flow testing */
+} forge_bot_spawn_mode_t;
+
 /* ============================================================
  * Catalog entry (what can be placed)
  * ============================================================ */
@@ -431,7 +456,13 @@ typedef struct forge_object {
 	u8 category;                         /* forge_category_t */
 	u8 team;                             /* 0=neutral, 1..8 */
 	u8 enabled;                          /* logic disable */
-	u8 pad0;
+	/* S313: map variant -- tracks whether this object came from the
+	 * base stage/map (0 = author-placed, 1 = imported from base, 2 =
+	 * imported from base then author-modified).  Saves only write
+	 * in_use=1 objects, and the load path re-imports base objects
+	 * alongside the author deltas so the map always reflects the
+	 * latest base-stage content plus the author's changes. */
+	u8 from_base;
 	char catalog_id[FORGE_ID_LEN];
 	char label[FORGE_LABEL_LEN];
 	f32 pos[3];
@@ -685,7 +716,34 @@ typedef struct forge_map_settings {
 	u8 allow_match_override; /* 1 = match-setup UI shows "Use Map Defaults"
 	                          *     checkbox next to weapon-set picker */
 	u8 pad_weaponsrc[2];
+
+	/* S313 -- Map variant metadata.  variant_mode picks whether this
+	 * save is a blank-canvas map or a delta on top of another map /
+	 * engine stage.  `variant_source_slug` is meaningful when
+	 * variant_mode == EDIT_MAP and points at another Grid mod slug.
+	 * EDIT_STAGE reuses the existing `base_stage_id` field. */
+	u8 variant_mode;                     /* forge_map_variant_mode_t */
+	u8 pad_variant[3];
+	char variant_source_slug[FORGE_NAME_LEN];
 } forge_map_settings_t;
+
+/* S313 -- Author-side live bot testing settings.  Exposed via the
+ * "Bots" tab so mid-test the author can add/remove bots without a
+ * match restart.  Runtime hook to engine botmgr is deferred; today
+ * the data model captures intent and logs actions. */
+typedef struct forge_bot_settings {
+	u8 spawn_mode;                       /* forge_bot_spawn_mode_t */
+	u8 active_count;                     /* desired bots fighting */
+	u8 frozen_count;                     /* desired bots frozen for spawn-spot testing */
+	u8 all_frozen;                       /* global "freeze all" toggle */
+	f32 near_me_radius;                  /* when spawn_mode==NEAR_ME */
+	f32 smart_aggression;                /* when spawn_mode==SMART (0..1) */
+	char default_body_id[FORGE_ID_LEN];  /* preferred body for added bots */
+	char default_difficulty[FORGE_NAME_LEN]; /* "meat","easy","normal","hard","perfect","dark" */
+	s32 pending_add_active;              /* runtime counter: +1 per Add Bot click (active) */
+	s32 pending_add_frozen;              /* runtime counter: +1 per Add Bot click (frozen) */
+	s32 pending_remove_all;              /* runtime counter: +1 per Remove All click */
+} forge_bot_settings_t;
 
 /* ============================================================
  * Placement / editor state
@@ -849,6 +907,20 @@ forge_atmosphere_t *forgeAtmosphere(void);
 
 /* Map settings (F3) */
 forge_map_settings_t *forgeMapSettings(void);
+
+/* S313 -- Live bot testing (author-side data + log-only runtime today;
+ * engine botmgr wire is a follow-up polish pass). */
+forge_bot_settings_t *forgeBotSettings(void);
+void forgeBotAddRequest(s32 active);  /* active != 0 -> fighting bot; else frozen */
+void forgeBotRemoveAll(void);
+void forgeBotFreezeAll(s32 frozen);    /* 0 = unfreeze, 1 = freeze */
+
+/* S313 -- Map variant helpers. */
+void forgeImportBaseStageObjects(void); /* marks current object pool as from_base */
+s32  forgeObjectResetToBase(u32 uid);   /* revert an object to its base snapshot */
+s32  forgeObjectRemoveFromBase(u32 uid);/* delete a base object (variant-side delete) */
+s32  forgeCountBaseObjects(void);       /* number of objects with from_base != 0 */
+s32  forgeCountDeltaObjects(void);      /* number of author-only objects */
 
 /* Budget reporting (F1) */
 typedef struct forge_budget_stats {

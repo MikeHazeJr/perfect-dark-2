@@ -45,6 +45,7 @@ static forge_atmosphere_t   s_atmosphere;
 static forge_map_settings_t s_settings;
 static forge_editor_state_t s_editor;
 static forge_placement_state_t s_placement;
+static forge_bot_settings_t s_bot_settings;
 
 static u32 s_next_uid = 1;
 static s32 s_initialized = 0;
@@ -338,6 +339,19 @@ void forgeCoreInit(void)
 	 * the match explicitly opts out via "Use Map Defaults" UX. */
 	s_settings.weapon_source = FORGE_WEAPONS_MAP_DEFAULTS;
 	s_settings.allow_match_override = 1;
+	/* S313 variant default -- new empty canvas. */
+	s_settings.variant_mode = FORGE_VARIANT_NEW_EMPTY;
+	s_settings.variant_source_slug[0] = '\0';
+
+	/* S313 -- live bot testing defaults. */
+	memset(&s_bot_settings, 0, sizeof(s_bot_settings));
+	s_bot_settings.spawn_mode = FORGE_BOT_SPAWN_ANY;
+	s_bot_settings.active_count = 0;
+	s_bot_settings.frozen_count = 0;
+	s_bot_settings.near_me_radius = 1500.0f;
+	s_bot_settings.smart_aggression = 0.75f;
+	forgeCopyStr(s_bot_settings.default_body_id, "base:body_bond", FORGE_ID_LEN);
+	forgeCopyStr(s_bot_settings.default_difficulty, "normal", FORGE_NAME_LEN);
 
 	memset(&s_editor, 0, sizeof(s_editor));
 	s_editor.tool = FORGE_TOOL_SELECT;
@@ -1063,6 +1077,124 @@ void forgeObjectiveSetStatus(s32 index, forge_objective_status_t status)
 forge_skylight_t   *forgeSkylight(void)   { return &s_skylight; }
 forge_atmosphere_t *forgeAtmosphere(void) { return &s_atmosphere; }
 forge_map_settings_t *forgeMapSettings(void) { return &s_settings; }
+
+/* ============================================================
+ * S313 -- Live bot testing
+ *
+ * The forge-side data captures what the author has asked for.  Engine
+ * integration (botmgrAllocateBot / botmgrRemoveAll) is a follow-up
+ * polish pass -- today these entry points log intent and bump pending
+ * counters that can be consumed by a runtime tick once wired up.
+ * ============================================================ */
+
+forge_bot_settings_t *forgeBotSettings(void) { return &s_bot_settings; }
+
+void forgeBotAddRequest(s32 active)
+{
+	if (!s_initialized) forgeCoreInit();
+	if (active) {
+		s_bot_settings.active_count++;
+		s_bot_settings.pending_add_active++;
+		sysLogPrintf(LOG_NOTE, "FORGE.BOT: add active (mode=%d active=%d frozen=%d body='%s' diff='%s')",
+				s_bot_settings.spawn_mode,
+				(s32)s_bot_settings.active_count,
+				(s32)s_bot_settings.frozen_count,
+				s_bot_settings.default_body_id,
+				s_bot_settings.default_difficulty);
+	} else {
+		s_bot_settings.frozen_count++;
+		s_bot_settings.pending_add_frozen++;
+		sysLogPrintf(LOG_NOTE, "FORGE.BOT: add frozen (active=%d frozen=%d)",
+				(s32)s_bot_settings.active_count,
+				(s32)s_bot_settings.frozen_count);
+	}
+}
+
+void forgeBotRemoveAll(void)
+{
+	if (!s_initialized) forgeCoreInit();
+	s_bot_settings.active_count = 0;
+	s_bot_settings.frozen_count = 0;
+	s_bot_settings.pending_remove_all++;
+	sysLogPrintf(LOG_NOTE, "FORGE.BOT: remove all (pending_engine_sync=%d)",
+			s_bot_settings.pending_remove_all);
+}
+
+void forgeBotFreezeAll(s32 frozen)
+{
+	if (!s_initialized) forgeCoreInit();
+	s_bot_settings.all_frozen = frozen ? 1 : 0;
+	sysLogPrintf(LOG_NOTE, "FORGE.BOT: freeze-all = %d", (s32)s_bot_settings.all_frozen);
+}
+
+/* ============================================================
+ * S313 -- Map variant helpers
+ *
+ * Base stage imports are lightweight today: the editor tags every
+ * currently-placed object with `from_base=1` on import, so the save
+ * path can elide them from the delta.  Full engine-side import of the
+ * base stage's intro-commands / pads / props into forge objects is a
+ * follow-up polish pass.
+ * ============================================================ */
+
+void forgeImportBaseStageObjects(void)
+{
+	if (!s_initialized) forgeCoreInit();
+	s32 marked = 0;
+	for (s32 i = 0; i < FORGE_MAX_OBJECTS; ++i) {
+		if (s_objects[i].in_use && !s_objects[i].from_base) {
+			s_objects[i].from_base = 1;
+			++marked;
+		}
+	}
+	sysLogPrintf(LOG_NOTE, "FORGE.VARIANT: marked %d objects as from_base", marked);
+}
+
+s32 forgeObjectResetToBase(u32 uid)
+{
+	forge_object_t *o = forgeObjectFindByUid(uid);
+	if (!o) return 0;
+	if (!o->from_base) return 0;
+	/* Reset the modified-from-base flag back to pristine.  The author's
+	 * transform/property edits remain in the object for now; a richer
+	 * implementation would snapshot the base-state at import and
+	 * diff/restore it here. */
+	o->from_base = 1;
+	sysLogPrintf(LOG_NOTE, "FORGE.VARIANT: reset uid=%u to base pristine state", uid);
+	return 1;
+}
+
+s32 forgeObjectRemoveFromBase(u32 uid)
+{
+	forge_object_t *o = forgeObjectFindByUid(uid);
+	if (!o) return 0;
+	if (!o->from_base) return 0;
+	/* Variant-side "delete the base object" means in_use=0; the save
+	 * path uses the absence of this UID in the saved list to signal
+	 * the loader to elide that object during base re-import. */
+	o->in_use = 0;
+	forgeSelectionRemove(uid);
+	sysLogPrintf(LOG_NOTE, "FORGE.VARIANT: removed base object uid=%u", uid);
+	return 1;
+}
+
+s32 forgeCountBaseObjects(void)
+{
+	s32 n = 0;
+	for (s32 i = 0; i < FORGE_MAX_OBJECTS; ++i) {
+		if (s_objects[i].in_use && s_objects[i].from_base) ++n;
+	}
+	return n;
+}
+
+s32 forgeCountDeltaObjects(void)
+{
+	s32 n = 0;
+	for (s32 i = 0; i < FORGE_MAX_OBJECTS; ++i) {
+		if (s_objects[i].in_use && !s_objects[i].from_base) ++n;
+	}
+	return n;
+}
 
 /* ============================================================
  * Budget

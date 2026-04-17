@@ -35,6 +35,7 @@
 #include "game/lang.h"
 #include "game/forgemode.h"
 #include "forge/forge_core.h"
+#include "pdgui_forge.h"
 #include "game/lv.h"
 #include "game/timing.h"
 #include "game/music.h"
@@ -668,6 +669,12 @@ void mainTick(void)
 			 * advances logic graph runtime, wave spawner, etc.  Cheap when
 			 * no objects exist (early-outs on empty pools). */
 			forgeCoreTick();
+
+			/* S313 -- drive ghost placement update so the HUD reticle
+			 * follows the freefly camera every frame while a catalog
+			 * pick is pending.  Early-outs when FREEFLY is inactive or
+			 * no ghost is active. */
+			pdguiForgeEditorTick();
 
 			if (STAGE_IS_GAMEPLAY(g_StageNum)) {
 				for (i = 0; i < PLAYERCOUNT(); i++) {
