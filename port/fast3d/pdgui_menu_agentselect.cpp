@@ -86,6 +86,7 @@ void gamefileLoadDefaults(struct gamefile *file);
  * including prefs_agent.h directly from this translation unit. */
 extern "C" void prefsAgentLoad(const char *agent_name);
 extern "C" void prefsAgentResetVisuals(void);
+extern "C" void prefsAgentMigrateLegacySidecar(const char *raw_name, const char *display_name);
 
 static void prefsLoadForFile(struct filelistfile *file)
 {
@@ -108,6 +109,10 @@ static void prefsLoadForFile(struct filelistfile *file)
     if (!name[0]) {
         snprintf(name, sizeof(name), "id%d", (int)file->fileid);
     }
+    /* One-shot migration: agents created before the S313 gamefileGetOverview
+     * fix had sidecars named from raw save bytes.  Rename to display-name path
+     * if the old file exists and the new one doesn't. */
+    prefsAgentMigrateLegacySidecar(file->name, name);
     prefsAgentLoad(name);
 }
 s32 filemgrSaveOrLoad(struct fileguid *guid, s32 fileop, uintptr_t playernum);
