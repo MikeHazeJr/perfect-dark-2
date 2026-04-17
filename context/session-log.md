@@ -1,8 +1,63 @@
 
 # Session Log (Active)
 
-> **S241–S310** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S311** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S311 — 2026-04-17 (UI polish marathon — theme palette sweep + content inset + scaled buttons — `zen-poitras-f86b73` worktree)
+
+**Scope**: Mike's S311 punch list — hardcoded blue tints, content-inset compliance, menu close-path audit, font/element scaling, controller-first verification, CS music picker sanity check. Parallel with S312 (game logic) + S313 (forge). File ownership: menu renderers + theme system + `pdgui_style.*`. Did not touch `src/game/`, networking, or forge code.
+
+### What shipped (single commit `55c37fc2`)
+
+1. **Theme palette accessor expansion** (`pdgui_style.cpp`/.h):
+   - New `pdguiRgbaToImU32(rgba, alpha)` helper centralises 0xRRGGBBAA→ImU32 conversion.
+   - New semantic accessors `pdguiImU32TitleGlow/TintSuccess/TintDanger/TintInfo(alpha)` for C callers.
+   - C++-only `pdguiVec4*` inline companions in pdgui_style.h (guarded by `__cplusplus && IMGUI_VERSION`) so TextColored / PushStyleColor sites stay terse.
+
+2. **Hardcoded blue tint sweep** — 35+ sites migrated to the theme palette:
+   - `IM_COL32(100, 200, 255, ...)` → `pdguiImU32TitleGlow(alpha)` in:
+     - `pdgui_menu_warning.cpp:695` (default dialog title) and `:991` (MP File Manager title)
+     - `pdgui_menu_agentselect.cpp:284` (copy-action confirm prompt)
+     - `pdgui_menu_pausemenu.cpp:990` (local-player row tint, alpha=35 preserved)
+     - Agentselect delete-action prompt red → `pdguiImU32TintDanger(255)`
+   - `ImVec4(0.4f, 0.8f, 1.0f, 1.0f)` cyan section headers → `pdguiVec4TitleGlow()` (20 sites):
+     - lobby.cpp (2), network.cpp (2), challenges.cpp (1), teamsetup.cpp (2), mpsettings.cpp (1), mainmenu.cpp (2), room.cpp (10)
+   - Additional cyan variants → `pdguiVec4TitleGlow()`:
+     - `ImVec4(0.5f, 0.85f, 1.0f, 1.0f)` in audiomod.cpp (Selected-track label) + moddinghub.cpp (skin + ini entry headers)
+     - `ImVec4(0.6f, 0.85f, 1.0f, 1.0f)` in controldiagram.cpp (control-mode name) + mpsettings.cpp (Library header)
+   - `ImVec4(0.7f, 0.8f, 1.0f, 1.0f)` endscreen SectionHeader → `pdguiVec4TitleGlow()`.
+   - `ImVec4(0.6f, 0.8f, 1.0f, 1.0f)` modmgr "Base Game Asset" label → `pdguiVec4TintInfo()` (semantic info badge).
+
+3. **Content inset fix** — `pdgui_menu_warning.cpp:789-790`: MP End Game dialog body-top switched from raw `SetCursorPosY(pdTitleH + WindowPadding.y + breathe)` arithmetic to `pdguiSetCursorBelowTitle(pdTitleH) + 8px breathe` so user chrome insets are honoured. Last remaining S309-pattern miss. endscreen/pausemenu/theme_editor use different per-dialog padding helpers that already call `pdguiThemeGetContentInset` directly — no changes needed.
+
+4. **Element scaling fix** — `pdgui_menu_mainmenu.cpp:935/947`: delete-confirm Cancel/Delete buttons migrated from `ImVec2(120, 0)` to `ImVec2(pdguiScale(120.0f), 0)` so they scale with resolution/DPI.
+
+5. **CS music picker verification (S309 fix)**: re-walked the import + discovery + render path. `importAudioFile` in audiomod.cpp:402-413 correctly calls `modmgrRescanDirectory()` → locate new mod by slug → `modmgrSetEnabled(i, 1)` + `modmgrSaveConfig()`. `collectModMusicTrack` in mpsettings.cpp:580 emits `SELECTTUNES: skip` diagnostic for filtered tracks. `renderSelectTunes` emits `SELECTTUNES: open — base_tracks=N mod_tracks=N` one-shot on appear. Wiring solid, no changes needed.
+
+6. **Menu close-path audit**: all S300/S304/S306 migration debt resolved. No residual `s_*PushedCtx` raw patterns. `pausemenu` uses dedicated `g_CtxPauseMenu`. `endscreen` uses `inputCtxPush(&g_CtxImGuiMenu)` gated on `!inputCtxIsActive + freshEntry`. `solomission` manual `inputCtxPopDeferred` calls (3 sites) all guarded by `inputCtxIsActive`. `mainmenu` defensive leak-catch at `:3416` still guarded + logs `MENU_IMGUI: defensive inputCtxPopDeferred — leak class caught`. `renderCiSettingsRedirect` still uses raw push/pop (queued S306 follow-up), but isActive guards keep it idempotent. No new bugs surfaced.
+
+7. **Controller-first audit**: `pdguiDriveImGuiNav()` in pdgui_backend.cpp:356-398 translates action-map events (controller A/B/D-pad/LB/RB) into ImGui keyboard nav keys (Enter/Escape/arrows/PageUp/Down) because `ImGuiConfigFlags_NavEnableGamepad` is disabled. Menu renderers' `ImGuiKey_GamepadFaceDown/Right/...` checks are redundant (NavEnableGamepad off → those events never fire) but harmless — the parallel `ImGuiKey_Enter/Escape` checks catch the same edges via the action-map→key translation. Input-mapping capture path uses `inputGetLastKey()` which accepts raw controller button codes (via `isVkController()`) so rebinding works with controller. No changes needed.
+
+### Files touched
+
+- `port/include/pdgui_style.h` — 7 new declarations (generic RGBA→ImU32, 4 semantic ImU32 accessors, + 4 C++-only ImVec4 inlines behind `__cplusplus && IMGUI_VERSION` guard).
+- `port/fast3d/pdgui_style.cpp` — 5 new implementations (+35 lines).
+- `port/fast3d/pdgui_menu_{agentselect,audiomod,challenges,controldiagram,endscreen,lobby,mainmenu,moddinghub,modmgr,mpsettings,network,pausemenu,room,teamsetup,warning}.cpp` — palette migrations + content-inset + button scaling.
+
+### Build verify
+
+`source devtools/build-env.sh && ninja -C Build pd pd-server` — both targets link clean. `PerfectDark.exe` = 52,288,651 bytes. `PerfectDarkServer.exe` = 22,838,513 bytes. Only pre-existing warnings (`/*` within comment noise, types.h declaration warnings).
+
+### Not done in this session (deferred)
+
+- **Remaining non-blue literal sweep** — agentselect/agentcreate/solomission/modmgr/moddinghub still have a handful of PD-blue `IM_COL32` panel/border literals (PD-blue deco rather than semantic color) plus red/yellow/green literals that could fold into `tint_danger`/`text_warning`/`text_positive`. Lower-value cosmetic cleanup; leaving for a follow-up.
+- **Dead `ImGuiKey_Gamepad*` checks** — ~130 redundant checks remain across solomission/training/mainmenu/agentselect/warning/etc. All dead code (NavEnableGamepad off) but working alongside the redundant Enter/Escape checks that catch the same actions. Removing is a ~1h churn task queued separately.
+- **renderCiSettingsRedirect / renderCiDeadPlayer2 / renderCinemaList S300 pool-ctx migration** — still on raw `inputCtxPush/Pop`. Defensive leak-catch in mainmenu.cpp:3416 hides the symptom.
+- **Full hardcoded-blue audit of pdgui_lobby.cpp / pdgui_lobby_distrib.cpp / server_gui.cpp / pdgui_skin_editor.cpp** — touched only menu_*.cpp files this session; those other files have matching `ImVec4(0.4f, 0.8f, 1.0f, 1.0f)` headers that could migrate.
+- **ImVec4 `pdguiVec4*` helper usage in non-menu files** — if/when lobby.cpp (not pdgui_menu_lobby.cpp) and other non-menu UI files adopt the theme palette.
+
+---
 
 ## Session S310 addendum — 2026-04-17 (Mike R1-R4 refinements — same worktree)
 

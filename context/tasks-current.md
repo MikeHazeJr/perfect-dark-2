@@ -7,6 +7,32 @@
 
 ---
 
+## Open — 2026-04-17 (S311 — UI polish marathon, `zen-poitras-f86b73` worktree → merged to dev)
+
+### Playtest verification of the S311 theme palette sweep
+
+Commit `55c37fc2`. Build: `PerfectDark.exe` 52,288,651 / `PerfectDarkServer.exe` 22,838,513.
+
+- **Theme-driven title glow** — install a custom theme with a deliberately wild `titleGlow` (e.g. pure magenta `#ff00ff`). Open each of these dialogs and confirm the previously-cyan accents now follow the custom color:
+  - **Warning dialogs** — trigger a default/info dialog (e.g. "Network: Server offline") and confirm the title glow under the title text matches. Trigger the **MP End Game modal** (end a match via pause → End Game → Confirm) — "End Match?" and body text should honour the custom tint via `pdguiImU32TitleGlow`.
+  - **File Manager** (agentselect → Copy) — the "Copy agent" prompt should match; the "Delete agent" prompt stays red (tint_danger).
+  - **Pause-menu rankings** — local-player row tint should follow the custom color (35 alpha).
+  - **Section headers** — open Lobby, Network, Challenges, Team Setup, MP Settings → Select Tunes, the Room screen (Bot Settings / Custom Traits / Save/Load Scenario / Level Editor / Properties), and Main Menu (Recent Servers / D5.0a catalog). Every cyan section header should follow the custom theme.
+  - **Moddinghub + Audiomod + Controldiagram + Modmgr** — selected-entry headers (Audio Mod "Selected: ...", Modding Hub ini/skin entry headers, Control Diagram control-mode name, MP Settings → Select Tunes "Library" header) should follow the custom tint. Mod Manager "Base Game Asset" label should follow `pdguiVec4TintInfo()` (tint_info).
+- **Delete-confirm button scaling** — open Settings → Interface → right-click a user theme → Delete Theme → hit the resolution slider 1080p → 4K while the confirm modal is open and confirm Cancel/Delete buttons stay readable (no shrink to button-height minimum).
+- **MP End Game content inset** — load a Menu Style mod with thick border corners, trigger the End Game modal. Body text ("Are you sure...") should clear the chrome border by the normal 8px breathe regardless of corner thickness.
+- **CS music picker still works** — import a `.mp3` via Modding Hub → Audio Mods → Music → Import. Launch Combat Simulator → MP Settings → Soundtrack → Select Tunes. Track should appear under "Mod Tracks (N)". Log should carry `SELECTTUNES: open — base_tracks=N mod_tracks=M` + `AUDIOMOD: auto-enabled mod '...'`.
+- **Controller nav** — with a controller connected, navigate main menu / Settings tabs / Room screen via D-pad + A + B + LB/RB. All should work transparently via `pdguiDriveImGuiNav()` action-map → keyboard-nav translation.
+
+### Follow-up queued from S311
+
+- **Remaining non-blue literal sweep** — agentselect/agentcreate/solomission/modmgr/moddinghub still have PD-blue `IM_COL32` panel/border decorations plus red/yellow/green semantic literals that could fold into `tint_danger`/`text_warning`/`text_positive`. Lower-value cosmetic cleanup.
+- **Dead `ImGuiKey_Gamepad*` checks** — ~130 redundant checks across solomission/training/mainmenu/agentselect/warning/etc. All dead code (NavEnableGamepad off) but harmless; parallel `Enter/Escape` checks catch controller A/B via action-map→keyboard translation. Removing is ~1h churn task.
+- **renderCiSettingsRedirect / renderCiDeadPlayer2 / renderCinemaList S300 pool-ctx migration** — still on raw `inputCtxPush/Pop`. Defensive leak-catch in mainmenu.cpp:3416 currently masks the symptom.
+- **pdgui_lobby.cpp / pdgui_lobby_distrib.cpp / server_gui.cpp / pdgui_skin_editor.cpp blue-tint sweep** — S311 only touched `pdgui_menu_*.cpp`; the other UI files have matching cyan `ImVec4(0.4f, 0.8f, 1.0f, 1.0f)` headers that can migrate.
+
+---
+
 ## Open — 2026-04-17 (S310 — The Grid editor F1-F8 bulk drop, `sharp-lovelace` worktree)
 
 ### Playtest verification of The Grid editor overlay
