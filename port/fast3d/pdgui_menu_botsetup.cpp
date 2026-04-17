@@ -499,7 +499,7 @@ static WindowFrame bs_BeginStandardWindow(const char *imguiId, const char *title
 
     float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(wf.pos.x, wf.pos.y, wf.mw, wf.mh, title, 1);
-    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(titleH);
     return wf;
 }
 

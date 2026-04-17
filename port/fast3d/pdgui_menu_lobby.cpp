@@ -170,7 +170,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
                     pdguiPalImU32(PDPAL_TITLEFG, 255), title);
     }
 
-    ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(pdTitleH);
 
     /* Connection status + player count */
     {

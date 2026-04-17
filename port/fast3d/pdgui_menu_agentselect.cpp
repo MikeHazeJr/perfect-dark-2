@@ -80,6 +80,28 @@ extern struct gamefile g_GameFile;
 void gamefileLoadDefaults(struct gamefile *file);
 
 #define FILEOP_LOAD_GAME  100
+
+/* S309: per-agent preferences sidecar. Declared here because the C header
+ * sits in port/include/ and the C++ ABI guard (#define bool s32) blocks
+ * including prefs_agent.h directly from this translation unit. */
+extern "C" void prefsAgentLoad(const char *agent_name);
+
+static void prefsLoadForFile(struct filelistfile *file)
+{
+    if (!file) return;
+    char name[32];
+    s32 j = 0;
+    for (s32 i = 0; i < (s32)sizeof(file->name) && j < 15; i++) {
+        char c = file->name[i];
+        if (!c) break;
+        name[j++] = c;
+    }
+    name[j] = '\0';
+    if (!name[0]) {
+        snprintf(name, sizeof(name), "id%d", (int)file->fileid);
+    }
+    prefsAgentLoad(name);
+}
 s32 filemgrSaveOrLoad(struct fileguid *guid, s32 fileop, uintptr_t playernum);
 
 extern struct fileguid g_FilemgrFileToDelete;
@@ -222,6 +244,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                     g_GameFileGuid.fileid = fl->files[i].fileid;
                     g_GameFileGuid.deviceserial = fl->files[i].deviceserial;
                     filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0);
+                    prefsLoadForFile(&fl->files[i]);
                     s_SelectedIdx = i;
                     break;
                 }
@@ -241,7 +264,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                     pdguiPalImU32(PDPAL_TITLEFG, 255), "Perfect Dark");
     }
 
-    ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(pdTitleH);
     ImGui::TextDisabled("Choose Your Reality");
     ImGui::Separator();
 
@@ -294,6 +317,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                 g_GameFileGuid.fileid = cf->fileid;
                 g_GameFileGuid.deviceserial = cf->deviceserial;
                 filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0);
+                prefsLoadForFile(cf);
                 filemgrPushSelectLocationDialog(0, FILETYPE_GAME);
             }
             s_ConfirmMode = CONFIRM_NONE;
@@ -341,6 +365,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
             g_GameFileGuid.fileid = file->fileid;
             g_GameFileGuid.deviceserial = file->deviceserial;
             filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0);
+            prefsLoadForFile(file);
         }
     }
     /* X / C = copy (with confirmation) */
@@ -450,6 +475,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                     g_GameFileGuid.fileid = file->fileid;
                     g_GameFileGuid.deviceserial = file->deviceserial;
                     filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0);
+                    prefsLoadForFile(file);
                 }
                 if (ImGui::IsItemHovered()) s_SelectedIdx = i;
 

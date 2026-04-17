@@ -230,7 +230,7 @@ static s32 renderTeamSetup(struct menudialog *dialog,
                     pdguiPalImU32(PDPAL_TITLEFG, 255), title);
     }
 
-    ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(pdTitleH);
 
     float footerH  = pdguiScale(75.0f);
     float contentH = diagH - pdTitleH - footerH

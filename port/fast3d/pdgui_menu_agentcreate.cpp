@@ -413,7 +413,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
     }
 
     /* Content starts below PD title bar */
-    ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(pdTitleH);
 
     float pad = 12.0f * scale;
     float contentW = dialogW - pad * 2.0f;

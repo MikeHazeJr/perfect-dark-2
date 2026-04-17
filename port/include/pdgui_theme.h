@@ -172,6 +172,19 @@ void pdguiThemeGetContentInset(float *out_l, float *out_r,
 /** Shrink a rect by the active content inset.  x/y/w/h must be non-NULL. */
 void pdguiThemeApplyContentInset(float *x, float *y, float *w, float *h);
 
+/** Resolve padding that clears the nineslice chrome border + 8px breathe.
+ *  Returns max(base, inset+breathe) per edge.  Pass title_h=0 if no title.
+ *  Any out_* may be NULL. */
+void pdguiThemeResolveContentPad(float title_h,
+                                 float base_l, float base_t,
+                                 float base_r, float base_b,
+                                 float *out_l, float *out_t,
+                                 float *out_r, float *out_b);
+
+/** Shorthand: set ImGui cursor below title bar at chrome-safe origin.
+ *  Replaces `ImGui::SetCursorPosY(title_h + WindowPadding.y)`. */
+void pdguiSetCursorBelowTitle(float title_h);
+
 /* -----------------------------------------------------------------------
  * Title-bar style (S297)
  *
