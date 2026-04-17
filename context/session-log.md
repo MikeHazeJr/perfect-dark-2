@@ -25,7 +25,7 @@ The auto-load path (default agent configured) also fires after the reset, so fir
 
 | SHA | Scope |
 |-----|-------|
-| `(this commit)` | **feat(agent-select): reset visual prefs to defaults on open — theme transition visible on sign-in** |
+| `d047d6eb` | **feat(agent-select): reset visual prefs to defaults on open — theme transition visible on sign-in** |
 
 ### Files touched
 
