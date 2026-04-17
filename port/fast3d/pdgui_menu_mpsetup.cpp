@@ -446,8 +446,7 @@ static void mp_CloseCurrentDialog(void)
 static bool mp_BackPressed(void)
 {
     return !ImGui::IsWindowAppearing() &&
-           (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_Escape, false));
+           ImGui::IsKeyPressed(ImGuiKey_Escape, false);
 }
 
 /* =========================================================================

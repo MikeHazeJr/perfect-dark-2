@@ -680,9 +680,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
     pdguiSetCursorBelowTitle(titleH);
 
     /* Global escape */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
-        (!s_DetailPanelFocus &&
-         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false))) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
         ImGui::End();
@@ -690,16 +688,14 @@ static s32 renderMissionSelect(struct menudialog *dialog,
     }
 
     /* Panel focus switching: Left/Right D-pad or Tab */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) {
         if (!s_DetailPanelFocus) {
             s_DetailPanelFocus = true;
             s_DetailFocusIdx = 0;
             pdguiPlaySound(PDGUI_SND_FOCUS);
         }
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) {
         if (s_DetailPanelFocus) {
             s_DetailPanelFocus = false;
             pdguiPlaySound(PDGUI_SND_FOCUS);
@@ -707,7 +703,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
     }
     /* B button in right panel = go back to left panel */
     if (s_DetailPanelFocus &&
-        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         s_DetailPanelFocus = false;
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
     }
@@ -722,10 +718,8 @@ static s32 renderMissionSelect(struct menudialog *dialog,
 
         /* D-pad up/down navigation in left panel */
         if (!s_DetailPanelFocus) {
-            bool navDown = ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true) ||
-                           ImGui::IsKeyPressed(ImGuiKey_DownArrow, true);
-            bool navUp   = ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true) ||
-                           ImGui::IsKeyPressed(ImGuiKey_UpArrow, true);
+            bool navDown = ImGui::IsKeyPressed(ImGuiKey_DownArrow, true);
+            bool navUp   = ImGui::IsKeyPressed(ImGuiKey_UpArrow, true);
 
             if (navDown) {
                 s32 next = s_MissionSelectIdx + 1;
@@ -745,8 +739,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
             }
 
             /* A button / Enter in left panel = move focus to right panel */
-            if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-                ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+            if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
                 s_DetailPanelFocus = true;
                 s_DetailFocusIdx = 0;
                 pdguiPlaySound(PDGUI_SND_FOCUS);
@@ -1035,10 +1028,8 @@ static s32 renderMissionSelect(struct menudialog *dialog,
         static const s32 k_NumDetailItems = 4; /* 3 diffs + Start */
 
         if (s_DetailPanelFocus) {
-            bool navDown = ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true) ||
-                           ImGui::IsKeyPressed(ImGuiKey_DownArrow, true);
-            bool navUp   = ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true) ||
-                           ImGui::IsKeyPressed(ImGuiKey_UpArrow, true);
+            bool navDown = ImGui::IsKeyPressed(ImGuiKey_DownArrow, true);
+            bool navUp   = ImGui::IsKeyPressed(ImGuiKey_UpArrow, true);
 
             if (navDown) {
                 s_DetailFocusIdx++;
@@ -1095,8 +1086,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
 
             /* Confirm from keyboard/gamepad */
             bool doConfirm = isFocus &&
-                (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-                 ImGui::IsKeyPressed(ImGuiKey_Enter, false));
+                ImGui::IsKeyPressed(ImGuiKey_Enter, false);
 
             if ((clicked || doConfirm) && !locked) {
                 s_DetailDiffIdx = d;
@@ -1325,20 +1315,17 @@ static s32 renderDifficulty(struct menudialog *dialog,
     if (s_DiffSelectIdx >= numOptions) s_DiffSelectIdx = numOptions - 1;
 
     /* Navigation */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
         s_DiffSelectIdx++;
         if (s_DiffSelectIdx >= numOptions) s_DiffSelectIdx = 0;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
         s_DiffSelectIdx--;
         if (s_DiffSelectIdx < 0) s_DiffSelectIdx = numOptions - 1;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
         ImGui::End();
@@ -1409,8 +1396,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
 
         /* Confirm from keyboard/gamepad */
         bool kbConfirm = isActive &&
-            (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-             ImGui::IsKeyPressed(ImGuiKey_Enter, false));
+            ImGui::IsKeyPressed(ImGuiKey_Enter, false);
 
         if ((clicked || kbConfirm) && !locked) {
             s_DiffSelectIdx = i;
@@ -1488,8 +1474,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
         ImGui::PopStyleColor();
 
         if (ImGui::IsItemHovered()) s_DiffSelectIdx = pdIdx;
-        if (isActive && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-                         ImGui::IsKeyPressed(ImGuiKey_Enter, false)))
+        if (isActive && ImGui::IsKeyPressed(ImGuiKey_Enter, false))
             doSelect = true;
 
         if (doSelect) {
@@ -1529,8 +1514,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
         ImGui::PopStyleColor();
 
         if (ImGui::IsItemHovered()) s_DiffSelectIdx = cancelIdx;
-        if (isActive && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-                         ImGui::IsKeyPressed(ImGuiKey_Enter, false)))
+        if (isActive && ImGui::IsKeyPressed(ImGuiKey_Enter, false))
             doCancel = true;
 
         if (doCancel) {
@@ -1629,18 +1613,15 @@ static s32 renderCoopAntiDifficultyImpl(struct menudialog *dialog,
     if (s_CoopAntiDiffSelectIdx >= numOptions) s_CoopAntiDiffSelectIdx = numOptions - 1;
 
     /* D-pad nav with wrap (d5 rule: circular wrapping always enabled) */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
         s_CoopAntiDiffSelectIdx = (s_CoopAntiDiffSelectIdx + 1) % numOptions;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
         s_CoopAntiDiffSelectIdx = (s_CoopAntiDiffSelectIdx - 1 + numOptions) % numOptions;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
         ImGui::End();
@@ -1686,8 +1667,7 @@ static s32 renderCoopAntiDifficultyImpl(struct menudialog *dialog,
         if (ImGui::IsItemHovered()) s_CoopAntiDiffSelectIdx = i;
 
         bool kbConfirm = isActive &&
-            (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-             ImGui::IsKeyPressed(ImGuiKey_Enter, false));
+            ImGui::IsKeyPressed(ImGuiKey_Enter, false);
 
         if ((clicked || kbConfirm) && !locked) {
             s_CoopAntiDiffSelectIdx = i;
@@ -1742,8 +1722,7 @@ static s32 renderCoopAntiDifficultyImpl(struct menudialog *dialog,
         ImGui::PopStyleColor();
 
         if (ImGui::IsItemHovered()) s_CoopAntiDiffSelectIdx = cancelIdx;
-        if (isActive && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-                         ImGui::IsKeyPressed(ImGuiKey_Enter, false)))
+        if (isActive && ImGui::IsKeyPressed(ImGuiKey_Enter, false))
             doCancel = true;
 
         if (doCancel) {
@@ -1913,28 +1892,22 @@ static s32 renderCoopAntiOptionsImpl(struct menudialog *dialog,
         s_CoopAntiOptSelectIdx = numFocusable - 1;
 
     /* D-pad nav with wrap (d5 circular wrapping rule). */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
         s_CoopAntiOptSelectIdx = (s_CoopAntiOptSelectIdx + 1) % numFocusable;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
         s_CoopAntiOptSelectIdx =
             (s_CoopAntiOptSelectIdx - 1 + numFocusable) % numFocusable;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
     /* B / Escape closes the dialog (d5 back rule). */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
         ImGui::End();
         return 1;
     }
-    /* Start button fires Continue (matches legacy menudialogCoopAntiOptions TICK). */
-    bool startPressed = ImGui::IsKeyPressed(ImGuiKey_GamepadStart, false);
-
     /* ---- Body (scrollable if it ever grows beyond the window) ---- */
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
@@ -1972,11 +1945,8 @@ static s32 renderCoopAntiOptionsImpl(struct menudialog *dialog,
             if (ImGui::IsItemHovered()) s_CoopAntiOptSelectIdx = rowIdx;
 
             bool kbToggle = isActive &&
-                (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-                 ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
                  ImGui::IsKeyPressed(ImGuiKey_Space, false) ||
-                 ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, false) ||
-                 ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, false) ||
                  ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false) ||
                  ImGui::IsKeyPressed(ImGuiKey_RightArrow, false));
 
@@ -2013,11 +1983,8 @@ static s32 renderCoopAntiOptionsImpl(struct menudialog *dialog,
             if (ImGui::IsItemHovered()) s_CoopAntiOptSelectIdx = rowIdx;
 
             bool kbToggle = isActive &&
-                (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-                 ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
                  ImGui::IsKeyPressed(ImGuiKey_Space, false) ||
-                 ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, false) ||
-                 ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, false) ||
                  ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false) ||
                  ImGui::IsKeyPressed(ImGuiKey_RightArrow, false));
 
@@ -2068,12 +2035,9 @@ static s32 renderCoopAntiOptionsImpl(struct menudialog *dialog,
             /* Left/Right decrements/increments the dropdown value.
              * A / Enter cycles forward (advance one step). */
             bool decrement = isActive && ddCount > 1 &&
-                (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, true) ||
-                 ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true));
+                ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true);
             bool increment = isActive && ddCount > 1 &&
-                ((ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, true) ||
-                  ImGui::IsKeyPressed(ImGuiKey_RightArrow, true)) ||
-                 ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
+                (ImGui::IsKeyPressed(ImGuiKey_RightArrow, true) ||
                  ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
                  clicked);
 
@@ -2120,18 +2084,11 @@ static s32 renderCoopAntiOptionsImpl(struct menudialog *dialog,
         }
 
         /* Keyboard / gamepad confirm on the focused action button */
-        if (continueActive && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-                               ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
+        if (continueActive && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
             doContinue = true;
         }
-        if (cancelActive && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-                             ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
+        if (cancelActive && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
             doCancel = true;
-        }
-
-        /* Start button is equivalent to Continue per legacy TICK handler. */
-        if (startPressed) {
-            doContinue = true;
         }
 
         if (doContinue) {
@@ -2213,8 +2170,7 @@ static s32 renderBriefingImpl(struct menudialog *dialog,
     ImGui::Separator();
 
     /* Close with B / Escape */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
     }
@@ -2338,8 +2294,7 @@ static s32 renderInventory(struct menudialog *dialog,
     ImGui::TextDisabled("B/Esc: Close");
 
     /* B / Escape = dismiss */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
     }
@@ -2409,23 +2364,19 @@ static s32 renderAcceptMission(struct menudialog *dialog,
     bool doAccept  = false;
     bool doDecline = false;
 
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
         s_AcceptSelectIdx = 1;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
         s_AcceptSelectIdx = 0;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
         if (s_AcceptSelectIdx == 0) doAccept  = true;
         else                        doDecline = true;
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         doDecline = true;
     }
 
@@ -2636,20 +2587,17 @@ static s32 renderPauseMenu(struct menudialog *dialog,
     if (s_PauseSelectIdx >= k_NumPauseItems) s_PauseSelectIdx = k_NumPauseItems - 1;
 
     /* Navigation */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
         s_PauseSelectIdx++;
         if (s_PauseSelectIdx >= k_NumPauseItems) s_PauseSelectIdx = 0;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
         s_PauseSelectIdx--;
         if (s_PauseSelectIdx < 0) s_PauseSelectIdx = k_NumPauseItems - 1;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    bool doConfirm = ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-                     ImGui::IsKeyPressed(ImGuiKey_Enter, false);
+    bool doConfirm = ImGui::IsKeyPressed(ImGuiKey_Enter, false);
 
     /* ---- Objectives with completion status ---- */
     /* Height = total - title - separators/padding - 5 action buttons */
@@ -2840,23 +2788,19 @@ static s32 renderPauseMenu(struct menudialog *dialog,
             ImGui::Separator();
 
             /* Nav: left/right toggle, B/Escape = cancel */
-            if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, true)  ||
-                ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, true) ||
-                ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true)        ||
+            if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true)        ||
                 ImGui::IsKeyPressed(ImGuiKey_RightArrow, true)) {
                 s_RestartSelectIdx = 1 - s_RestartSelectIdx;
                 pdguiPlaySound(PDGUI_SND_FOCUS);
             }
-            if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-                ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
                 s_RestartConfirm = false;
                 pdguiPlaySound(PDGUI_SND_KBCANCEL);
                 ImGui::End();
                 return 1;
             }
 
-            bool rcConfirm = ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-                             ImGui::IsKeyPressed(ImGuiKey_Enter, false);
+            bool rcConfirm = ImGui::IsKeyPressed(ImGuiKey_Enter, false);
 
             float rbtnH = pdguiScale(54.0f);
             float rbtnW = (rcW - ImGui::GetStyle().WindowPadding.x * 2.0f - pdguiScale(15.0f)) * 0.5f;
@@ -2954,16 +2898,13 @@ static s32 renderAbortMission(struct menudialog *dialog,
     ImGui::Separator();
 
     /* Navigation */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, true)  ||
-        ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true)        ||
+    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true)        ||
         ImGui::IsKeyPressed(ImGuiKey_RightArrow, true)) {
         s_AbortSelectIdx = 1 - s_AbortSelectIdx;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
     /* B / Escape always cancels — safety default */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
         pdguiSetPalette(prevPalette);
@@ -2971,8 +2912,7 @@ static s32 renderAbortMission(struct menudialog *dialog,
         return 1;
     }
 
-    bool doConfirm = ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-                     ImGui::IsKeyPressed(ImGuiKey_Enter, false);
+    bool doConfirm = ImGui::IsKeyPressed(ImGuiKey_Enter, false);
 
     /* ---- Cancel / Abort buttons side by side ---- */
     float btnH = pdguiScale(54.0f);
@@ -3370,8 +3310,7 @@ static s32 renderOptions(struct menudialog *dialog,
     }
 
     /* B / Escape = back + save config */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         configSave("pd.ini");
         menuPopDialog();

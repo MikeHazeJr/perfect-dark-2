@@ -413,7 +413,6 @@ static s32 renderFrDifficulty(struct menudialog *dialog,
         ImGui::SetCursorPosX((diagW - backW) * 0.5f);
 
         if (PdButton("Cancel", ImVec2(backW, backH))
-            || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)
             || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
         {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
@@ -485,8 +484,7 @@ static s32 renderFrTrainingInfo(struct menudialog *dialog,
     btnW = (childW - pdguiScale(18.0f)) * 0.5f;
     btnH = pdguiScale(45.0f);
 
-    if (PdButton(inGame ? "Resume" : "Ok", ImVec2(btnW, btnH))
-        || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false))
+    if (PdButton(inGame ? "Resume" : "Ok", ImVec2(btnW, btnH)))
     {
         frDetailsOkMenuHandler(MENUOP_SET, nullptr, nullptr);
     }
@@ -494,7 +492,6 @@ static s32 renderFrTrainingInfo(struct menudialog *dialog,
     ImGui::SameLine(0, pdguiScale(18.0f));
 
     if (PdButton(inGame ? "Abort" : "Cancel", ImVec2(btnW, btnH))
-        || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)
         || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
     {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
@@ -584,7 +581,6 @@ static s32 renderFrStats(struct menudialog *dialog,
         ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
 
         if (PdButton("Continue", ImVec2(btnW, btnH))
-            || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false)
             || ImGui::IsKeyPressed(ImGuiKey_Enter, false)
             || ImGui::IsKeyPressed(ImGuiKey_Space, false))
         {
@@ -664,7 +660,6 @@ static s32 renderBioText(struct menudialog *dialog,
         ImGui::SetCursorPosX((diagW - backW) * 0.5f);
 
         if (PdButton("Back", ImVec2(backW, backH))
-            || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)
             || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
         {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
@@ -736,7 +731,6 @@ static s32 renderDtResult(struct menudialog *dialog,
         ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
 
         if (PdButton("Continue", ImVec2(btnW, btnH))
-            || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false)
             || ImGui::IsKeyPressed(ImGuiKey_Enter, false))
         {
             menuPopDialog();
@@ -819,16 +813,14 @@ static s32 renderHtList(struct menudialog *dialog,
         }
 
         if (isSelected && ImGui::IsWindowFocused()) {
-            if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)
-                || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true))
+            if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true))
             {
                 if (s_HtSelectedSlot < numHt - 1) {
                     s_HtSelectedSlot++;
                     pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                 }
             }
-            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)
-                || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true))
+            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true))
             {
                 if (s_HtSelectedSlot > 0) {
                     s_HtSelectedSlot--;
@@ -853,7 +845,6 @@ static s32 renderHtList(struct menudialog *dialog,
         ImGui::SetCursorPosX((diagW - backW) * 0.5f);
 
         if (PdButton("Back", ImVec2(backW, backH))
-            || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)
             || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
         {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
@@ -926,7 +917,6 @@ static s32 renderHtResult(struct menudialog *dialog,
         ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
 
         if (PdButton("Continue", ImVec2(btnW, btnH))
-            || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false)
             || ImGui::IsKeyPressed(ImGuiKey_Enter, false))
         {
             menuPopDialog();
@@ -985,7 +975,6 @@ static s32 renderNowSafe(struct menudialog *dialog,
         ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
 
         if (PdButton("Cancel", ImVec2(btnW, btnH))
-            || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)
             || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
         {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
@@ -1118,16 +1107,14 @@ static bool listHandleKeyboardNav(s32 *cursor, s32 count)
 {
     bool moved = false;
     if (count <= 0) return false;
-    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)
-        || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
         if (*cursor < count - 1) {
             (*cursor)++;
             pdguiPlaySound(PDGUI_SND_SUBFOCUS);
             moved = true;
         }
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)
-        || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
         if (*cursor > 0) {
             (*cursor)--;
             pdguiPlaySound(PDGUI_SND_SUBFOCUS);
@@ -1140,8 +1127,7 @@ static bool listHandleKeyboardNav(s32 *cursor, s32 count)
 /* Shared "Back pressed" check for any Batch-10 dialog. */
 static bool backPressed(void)
 {
-    return ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)
-        || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+    return ImGui::IsKeyPressed(ImGuiKey_Escape, false);
 }
 
 /* =========================================================================
@@ -1235,8 +1221,7 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
      * frLoadData() + frSetSlot() + frSetDifficulty() before pushing
      * the sub-dialog.  Without frLoadData(), the pre-game info dialog
      * reads uninitialized g_FrData → ACCESS_VIOLATION. */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false)
-        || ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
         if (s_FrWeaponCursor >= 0 && s_FrWeaponCursor < count) {
             frLoadData();
             pdguiTrFrSetSlot(s_FrWeaponCursor);

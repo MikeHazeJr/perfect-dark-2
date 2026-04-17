@@ -386,7 +386,6 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
     float discBtnW = 120.0f * scale;
     ImGui::SetCursorPosX((dialogW - discBtnW) * 0.5f);
     if (ImGui::Button("Disconnect", ImVec2(discBtnW, 26.0f * scale)) ||
-        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
         ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: social lobby CLOSE/DISCONNECT via button/ESC");
         pdguiPlaySound(PDGUI_SND_KBCANCEL);

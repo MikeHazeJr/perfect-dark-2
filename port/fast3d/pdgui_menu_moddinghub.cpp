@@ -511,9 +511,6 @@ static void renderIniEditor(float contentW, float contentH, float scale)
                 iniLoadFile(i);
             }
         }
-        if (sel && ImGui::IsWindowFocused() && ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown)) {
-            /* Already selected — navigate into edit panel */
-        }
     }
 
     if (s_IniNumEntries == 0) {
@@ -1450,8 +1447,7 @@ static void renderModdingHub(s32 winW, s32 winH)
 
     /* Back input mirrors footer Close behavior. */
     if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
-        if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight) ||
-            ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             moddingHubCloseFromUi("escape-or-b-button");
         }
     }

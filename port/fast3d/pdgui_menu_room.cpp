@@ -1516,8 +1516,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
             }
 
-            if (ImGui::IsItemClicked(ImGuiMouseButton_Right) ||
-                (ImGui::IsItemFocused() && ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft))) {
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
                 if (!s_BotSelected[r.slotIdx]) botSelectSet(r.slotIdx);
                 ImGui::OpenPopup("##bot_ctx");
             }
@@ -2632,8 +2631,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     bool countdownBlocks = (!s_IsSoloMode && pdguiCountdownIsActive());
     if (ImGui::Button(leaveLabel, ImVec2(leaveW, btnH)) ||
         (!countdownBlocks &&
-         (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-          ImGui::IsKeyPressed(ImGuiKey_Escape, false)))) {
+         ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room CLOSE via %s/ESC (solo=%d)",
                      leaveLabel, s_IsSoloMode);
         pdguiPlaySound(PDGUI_SND_KBCANCEL);

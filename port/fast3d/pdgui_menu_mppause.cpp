@@ -511,8 +511,7 @@ static void mpp_CloseCurrentDialog(void)
 static bool mpp_BackPressed(void)
 {
     return !ImGui::IsWindowAppearing() &&
-           (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_Escape, false));
+           ImGui::IsKeyPressed(ImGuiKey_Escape, false);
 }
 
 /* ---- Label row: plain text, optional right-side dynamic text ---- */

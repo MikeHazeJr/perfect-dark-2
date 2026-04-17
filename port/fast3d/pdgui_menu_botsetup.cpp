@@ -514,8 +514,7 @@ static void bs_CloseCurrentDialog(void)
 static bool bs_BackPressed(void)
 {
     return !ImGui::IsWindowAppearing() &&
-           (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_Escape, false));
+           ImGui::IsKeyPressed(ImGuiKey_Escape, false);
 }
 
 /* =========================================================================

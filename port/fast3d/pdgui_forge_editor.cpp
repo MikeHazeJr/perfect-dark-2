@@ -1458,10 +1458,8 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 	 * acts when the editor window is focused so it doesn't fight with
 	 * game input in NORMAL mode. */
 	if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
-		bool prev = ImGui::IsKeyPressed(ImGuiKey_PageUp, false) ||
-		            ImGui::IsKeyPressed(ImGuiKey_GamepadL1,  false);
-		bool next = ImGui::IsKeyPressed(ImGuiKey_PageDown, false) ||
-		            ImGui::IsKeyPressed(ImGuiKey_GamepadR1,  false);
+		bool prev = ImGui::IsKeyPressed(ImGuiKey_PageUp, false);
+		bool next = ImGui::IsKeyPressed(ImGuiKey_PageDown, false);
 		if (prev) {
 			s_forge_active_tab = (s_forge_active_tab + FGT_COUNT - 1) % FGT_COUNT;
 			s_forge_tab_set_request = s_forge_active_tab;

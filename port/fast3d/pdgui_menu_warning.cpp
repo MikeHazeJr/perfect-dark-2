@@ -646,8 +646,7 @@ static s32 renderTypedDialog(struct menudialog *dialog,
     }
 
     /* B / Escape = dismiss */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_KbdInitialised = false;
         s_KbdDialogDef = nullptr;
@@ -863,14 +862,12 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
         /* ACTION_ACCEPT equivalents (per pdguiDriveImGuiNav convention) */
         if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
             ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_Space, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false)) {
+            ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
             doConfirm = true;
         }
 
         /* ACTION_CANCEL_USE equivalents */
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
             doCancel = true;
         }
     }
@@ -1027,8 +1024,7 @@ static s32 renderFilemgrPcPlaceholder(struct menudialog *dialog,
     pdguiEndActionBar();
 
     /* B / Escape = dismiss */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
     }

@@ -169,8 +169,7 @@ static bool beginPdWindow(const char *imguiId, const char *title)
 
 static bool backPressed(void)
 {
-    return ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)
-        || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+    return ImGui::IsKeyPressed(ImGuiKey_Escape, false);
 }
 
 /* =========================================================================
@@ -321,15 +320,13 @@ static s32 renderSoloMissionControlStyle(struct menudialog *dialog,
     }
 
     /* Keyboard / D-pad nav */
-    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)
-        || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
         if (s_SmcCursor < 8) {
             s_SmcCursor++;
             pdguiPlaySound(PDGUI_SND_SUBFOCUS);
         }
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)
-        || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
         if (s_SmcCursor > 0) {
             s_SmcCursor--;
             pdguiPlaySound(PDGUI_SND_SUBFOCUS);

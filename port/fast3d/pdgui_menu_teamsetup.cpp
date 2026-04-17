@@ -386,7 +386,6 @@ static s32 renderTeamSetup(struct menudialog *dialog,
     ImGui::SetCursorPosX((diagW - doneW) * 0.5f);
 
     if (PdButton("Done", ImVec2(doneW, doneH))
-        || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)
         || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
     {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);

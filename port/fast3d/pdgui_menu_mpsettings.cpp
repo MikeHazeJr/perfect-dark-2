@@ -359,8 +359,7 @@ static void pdms_CloseCurrentDialog(void)
 static bool pdms_BackPressed(void)
 {
     return !ImGui::IsWindowAppearing() &&
-           (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_Escape, false));
+           ImGui::IsKeyPressed(ImGuiKey_Escape, false);
 }
 
 /* ========================================================================
@@ -509,7 +508,6 @@ static s32 renderHandicap(struct menudialog *dialog,
     ImGui::SameLine(0, pdguiScale(12.0f));
 
     if (PdButton("Done", ImVec2(btnW, btnH))
-        || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)
         || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
     {
         /* Handicap uses its own Begin path and never pushes g_CtxImGuiMenu,

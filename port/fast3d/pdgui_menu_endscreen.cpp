@@ -734,8 +734,7 @@ static void renderSoloEndscreen(bool completed)
 
     /* Keyboard navigation: Enter/Start or Escape/Back — also debounced */
     if (!inputSuppressed) {
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape) ||
-            ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight)) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             pdguiEndscreenExitToMainMenu();
         }
     }
@@ -1244,15 +1243,13 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
 
     /* Keyboard shortcuts */
     if (!inputSuppressed) {
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape) ||
-            ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight)) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             if (networked) {
                 netDisconnect();
             }
             pdguiEndscreenExitToMainMenu();
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_Enter) ||
-            ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown)) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Enter)) {
             pdguiEndscreenExitToMainMenu();
             if (networked) {
                 pdguiSetInRoom(1);

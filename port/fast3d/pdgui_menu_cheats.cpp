@@ -469,8 +469,7 @@ static s32 renderCheatsHub(struct menudialog *dialog,
 
     /* B / Escape closes the hub entirely. */
     if (!ImGui::IsWindowAppearing() && !s_ConfirmUnlockModal &&
-        (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-         ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         /* S300: menuCloseDialog (invoked by menuPopDialog) releases the
          * pool slot and pops the owned ctx; no explicit ctx pop here. */
@@ -771,8 +770,7 @@ static s32 renderCheatsWarning(struct menudialog *dialog,
     pdguiEndActionBar();
 
     if (!ImGui::IsWindowAppearing() &&
-        (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-         ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+        (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
          ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
         wantClose = true;
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
@@ -858,8 +856,7 @@ static s32 renderCheatsConfirmUnlock(struct menudialog *dialog,
     pdguiEndActionBar();
 
     if (!ImGui::IsWindowAppearing() &&
-        (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-         ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         doNo = true;
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
     }

@@ -1132,13 +1132,6 @@ static void renderSettingsInterface(float scale)
                 }
                 ImGui::EndPopup();
             }
-            /* S306 BATCH 2: controller X-button (GamepadFaceLeft) also
-             * opens the context menu. Matches the mouse right-click path
-             * established by pdgui_menu_room.cpp bot-slot handling. */
-            if (ImGui::IsItemFocused() &&
-                ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft, false)) {
-                ImGui::OpenPopup(ctxId);
-            }
         }
 
         ImGui::PopStyleColor(4);
@@ -3365,7 +3358,6 @@ static s32 renderMainMenu(struct menudialog *dialog,
     bool titleClose = pdguiConsumeTitleClose() != 0;
     if (!ImGui::IsWindowAppearing() && !closeGracePending &&
         (titleClose ||
-         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
          ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         if (s_MenuView != 0) {
             if (s_MenuView == 2) {
@@ -4018,8 +4010,7 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
 
     /* B / Escape also backs out. */
     if (!ImGui::IsWindowAppearing() &&
-        (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-         ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         wantBack = true;
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
     }
@@ -4118,8 +4109,7 @@ static s32 renderCiDeadPlayer2(struct menudialog *dialog,
     pdguiEndActionBar();
 
     if (!ImGui::IsWindowAppearing() &&
-        (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-         ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+        (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
          ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
         wantClose = true;
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
@@ -4213,8 +4203,7 @@ static s32 renderCinemaList(struct menudialog *dialog,
     /* B / Escape closes. */
     bool wantClose = false;
     if (!ImGui::IsWindowAppearing() &&
-        (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-         ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         wantClose = true;
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
     }
@@ -4230,13 +4219,11 @@ static s32 renderCinemaList(struct menudialog *dialog,
 
     /* D-pad nav with wrap -- include +1 action-bar row for Back */
     const s32 totalFocusable = (s32)optionCount + 1;
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
         s_CinemaSelectIdx = (s_CinemaSelectIdx + 1) % totalFocusable;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, true) ||
-        ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
         s_CinemaSelectIdx = (s_CinemaSelectIdx - 1 + totalFocusable) % totalFocusable;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
@@ -4297,8 +4284,7 @@ static s32 renderCinemaList(struct menudialog *dialog,
             if (ImGui::IsItemHovered()) s_CinemaSelectIdx = (s32)i;
 
             bool kbConfirm = isActive &&
-                (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-                 ImGui::IsKeyPressed(ImGuiKey_Enter, false));
+                ImGui::IsKeyPressed(ImGuiKey_Enter, false);
 
             if (clicked || kbConfirm) {
                 pdguiPlaySound(PDGUI_SND_SELECT);
@@ -4326,8 +4312,7 @@ static s32 renderCinemaList(struct menudialog *dialog,
             wantClose = true;
         }
         if (backActive &&
-            (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-             ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
+            ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
             wantClose = true;
         }
     }

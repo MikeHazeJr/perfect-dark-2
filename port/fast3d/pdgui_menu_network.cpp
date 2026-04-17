@@ -290,7 +290,6 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
     ImGui::SetCursorPosX((dialogW - btnW) * 0.5f);
 
     if (ImGui::Button("Back", ImVec2(btnW, btnH)) ||
-        ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
         ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: network/join menu CLOSE via Back/ESC");
         pdguiPlaySound(PDGUI_SND_KBCANCEL);

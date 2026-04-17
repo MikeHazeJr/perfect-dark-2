@@ -405,8 +405,7 @@ static void ma_CloseCurrentDialog(void)
 static bool ma_BackPressed(void)
 {
     return !ImGui::IsWindowAppearing() &&
-           (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_Escape, false));
+           ImGui::IsKeyPressed(ImGuiKey_Escape, false);
 }
 
 /* ---- Hub row: label + optional dynamic-text on the right, pushes a

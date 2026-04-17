@@ -108,10 +108,9 @@ s32 pdguiActionBarButton(const char *label, s32 isFocused, f32 width)
 
     bool clicked = ImGui::Button(label, ImVec2(width, btnH));
 
-    /* A / Enter confirms the focused button from the controller / keyboard. */
+    /* Enter confirms the focused button. */
     bool doActivate = (isFocused != 0) &&
-        (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceDown, false) ||
-         ImGui::IsKeyPressed(ImGuiKey_Enter, false));
+        ImGui::IsKeyPressed(ImGuiKey_Enter, false);
 
     if (clicked || doActivate) {
         pdguiPlaySound(PDGUI_SND_SELECT);

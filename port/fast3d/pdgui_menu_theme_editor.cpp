@@ -472,13 +472,6 @@ static void renderThemeEditor(s32 winW, s32 winH)
 
     bool open = true;
     if (ImGui::BeginPopupModal("Theme Editor##Modal", &open, flags)) {
-        /* B button / Escape closes (modal Escape is handled by ImGui, but
-         * GamepadFaceRight needs explicit handling since NavEnableGamepad is off) */
-        if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
-            ImGui::CloseCurrentPopup();
-            pdguiThemeEditorHide();
-        }
-
         /* ---- Load Theme dropdown ---- */
         s32 themeCount = pdguiThemeGetCount();
         if (themeCount > 0 && ImGui::BeginCombo("Load Theme", pdguiThemeGetActiveId())) {

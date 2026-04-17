@@ -971,14 +971,6 @@ static void renderInstalledModsTab(float scale)
                 }
                 ImGui::EndPopup();
             }
-            /* Controller X-button (GamepadFaceLeft) on focused row also
-             * opens the context menu. Pattern mirrors the Color Theme
-             * picker in the Interface tab and the bot-slot context menu
-             * in pdgui_menu_room.cpp. */
-            if (ImGui::IsItemFocused() &&
-                ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft, false)) {
-                ImGui::OpenPopup(ctxId);
-            }
         }
 
         /* Dependency warning */
@@ -1253,8 +1245,7 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
     ImGui::PopStyleColor(2);
 
     /* B button / Escape also closes — same guard */
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight) ||
-        ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
         bool hasDirty = (pending > 0) || (modmgrIsDirty() != 0);
         if (hasDirty) {
             ImGui::OpenPopup("Unsaved Changes");

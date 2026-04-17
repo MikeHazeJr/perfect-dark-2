@@ -720,20 +720,9 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
         if (s_PauseJustOpened) {
             s_PauseJustOpened = false;
         } else {
-            /* Close on START, Escape, or B button (when not in confirm dialog) */
-            if (ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsKeyPressed(ImGuiKey_GamepadStart)) {
+            /* Close on Escape (when not in confirm dialog) */
+            if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
                 pdguiPauseMenuClose();
-            }
-
-            /* B-16 fix: B button (GamepadFaceRight) navigates back.
-             * If in End Game confirm → cancel back to normal pause.
-             * Otherwise → close the pause menu (resume game). */
-            if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight)) {
-                if (s_EndGameConfirm) {
-                    s_EndGameConfirm = false;
-                } else {
-                    pdguiPauseMenuClose();
-                }
             }
         }
     }
