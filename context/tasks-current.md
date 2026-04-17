@@ -7,6 +7,35 @@
 
 ---
 
+## Open — 2026-04-16 (S303 — reverent-chatelet)
+
+### Playtest verification of S303 game-loop sweep
+
+Commit on `claude/reverent-chatelet-e076df`. Build: `PerfectDark.exe` 51,564,390 / `PerfectDarkServer.exe` 22,837,840 bytes. Full findings: `context/scratch/game-loop-sweep-2026-04-16.md`.
+
+Tail the following across every playtest:
+
+```bash
+grep -E "GAMELOOP\.(CAMPAIGN|COOP|COUNTEROP|MANIFEST|WEAPON)" pd-client.log
+grep -E "GAMELOOP\.(COOP|COUNTEROP|MANIFEST)" pd-server.log
+```
+
+- **Solo campaign first mission** — expect entry log `GAMELOOP.CAMPAIGN: menuhandlerAcceptMission entry stage_id=...`, SP transition log, per-weapon grants, endscreen prepare + NEXT_MISSION or EXIT_TO_MAIN_MENU bridge log.
+- **Deep Sea co-op auto-advance** — expect `GAMELOOP.COOP: Deep Sea auto-advance → ...` followed by `GAMELOOP.MANIFEST: MP transition to 0x...` for the next stage.
+- **Non-Deep-Sea co-op mission complete** — expect `GAMELOOP.COOP: MPENDSCREEN → CITRAINING lobby return` + `GAMELOOP.MANIFEST: MPENDSCREEN exit clearing manifest (N entries) before CITRAINING`. If the new `manifestClear` didn't fire (line missing), SP-13-class regression.
+- **Counter-Op 2-client match** — server log: `GAMELOOP.COUNTEROP: server start anti stage=0x... antiClientId=N antiplayernum=N (from wire)`. Any `WARNING antiClientId unresolved` = bug — v36 wire didn't carry the value or server state is stale. Both clients log `GAMELOOP.COUNTEROP: endscreenPushAnti entry role=bond|anti`; anti client's weapon log is `GAMELOOP.WEAPON: ... INTRO skipped for anti role`.
+- **Co-op 1-pad telefrag audit** — any coop mission should log `GAMELOOP.COOP: only N spawn pad(s) declared ...` as a WARNING if `g_NumSpawnPoints < 2`. Each warning identifies a problem stage.
+- **Stale MP manifest leak detection** — if `GAMELOOP.MANIFEST: stale MP manifest (N entries) leaked into SP transition to 0x%02x — routing via MPTransition` ever fires, that identifies a previously-silent teardown gap.
+
+### Follow-up queued from S303
+
+- **GAP-A co-op manifest ignores host payload** — server-side `manifestBuild(&g_ServerManifest, NULL, NULL)` at `netmsg.c:4870` ignores the CLC_LOBBY_START manifest payload on the co-op/anti path (Combat-Sim deserializes via `manifestDeserialize` at `:4706`). Now logged via `GAMELOOP.COOP: server-side manifest built ...`. Design call needed: adopt host manifest + diff-merge against server state, or stay server-authoritative and document the behaviour.
+- **GAP-B co-op 1-pad telefrag (proper fix)** — coop-aware pad scoring in `playerChooseSpawnLocation` or a co-op-specific SP-14 expansion in `playerreset.c` that triggers on `g_NumSpawnPoints < LOCALPLAYERCOUNT()`. The S303 audit log makes the problem observable but doesn't prevent the telefrag.
+- **Anti body/head pre-load manifest gap** — possession-based resolution already relies on post-load catalog lookup. A proper fix would require modelling a canonical anti-chr per mission in mission config, or upgrading `manifestSPRescanSetup` to scan `g_StageSetup.intro` for possession-bait chrs.
+- **`menuhandlerAcceptMission` menu pool release** — now logged but does not call `menupoolReleaseAll`. Low priority — `menuStop()` already walks stack — but could add defensively for parity with endscreen bridge paths.
+
+---
+
 ## Open — 2026-04-16 (S300 — peaceful-aryabhata)
 
 ### Playtest verification of the S300 batch

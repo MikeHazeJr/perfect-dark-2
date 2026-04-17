@@ -765,6 +765,15 @@ const char *pdguiEndscreenGetCheatComplName(void)
  */
 void pdguiEndscreenStartMission(void)
 {
+    /* S303 bookend: "Retry Mission" from endscreen. Tag with mode so the
+     * log distinguishes retry-from-retry vs retry-from-success. */
+    sysLogPrintf(LOG_NOTE,
+        "GAMELOOP.%s: endscreen RETRY mission (netmode=%d iscoop=%d isanti=%d)",
+        (g_NetGameMode == NETGAMEMODE_COOP) ? "COOP"
+            : (g_NetGameMode == NETGAMEMODE_ANTI) ? "COUNTEROP"
+            : "CAMPAIGN",
+        (int)g_NetMode, g_MissionConfig.iscoop, g_MissionConfig.isanti);
+
     /* L1-4: Clear stale co-op player-netclient linkages (same as ExitToMainMenu path).
      * Mission retry re-loads the stage, which calls playermgrReset() — any live
      * ncl->player pointer becomes dangling at that point. */
@@ -791,7 +800,18 @@ void pdguiEndscreenStartMission(void)
  */
 void pdguiEndscreenNextMission(void)
 {
+    /* S303 bookend: "Next Mission" advance-and-load. endscreenAdvance bumps
+     * g_MissionConfig.stageindex + resolves the next stage; menuhandler
+     * then calls mainChangeToStage with the new stage. Log pre/post so the
+     * playtest log shows the exact advance. */
+    sysLogPrintf(LOG_NOTE,
+        "GAMELOOP.CAMPAIGN: endscreen NEXT_MISSION (from stageindex=%d stage=0x%02x)",
+        g_MissionConfig.stageindex, (u32)g_MissionConfig.stagenum);
     endscreenAdvance();
+    sysLogPrintf(LOG_NOTE,
+        "GAMELOOP.CAMPAIGN: endscreen NEXT_MISSION advanced to stageindex=%d stage=0x%02x stage_id='%s'",
+        g_MissionConfig.stageindex, (u32)g_MissionConfig.stagenum,
+        g_MissionConfig.stage_id[0] ? g_MissionConfig.stage_id : "(empty)");
     menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
     /* Phase 2: release all pool slots — see pdguiEndscreenStartMission. */
     menupoolReleaseAll();
@@ -808,6 +828,15 @@ void pdguiEndscreenNextMission(void)
  */
 void pdguiEndscreenExitToMainMenu(void)
 {
+    /* S303 bookend: "Exit to Main Menu" from endscreen. Only clean exit
+     * path that runs manifestClear + ctx pop; other paths (retry, next
+     * mission, SVC_STAGE_END) have their own teardown. */
+    sysLogPrintf(LOG_NOTE,
+        "GAMELOOP.%s: endscreen EXIT_TO_MAIN_MENU (manifest=%d netmode=%d)",
+        (g_NetGameMode == NETGAMEMODE_COOP) ? "COOP"
+            : (g_NetGameMode == NETGAMEMODE_ANTI) ? "COUNTEROP"
+            : "CAMPAIGN",
+        g_ClientManifest.num_entries, (int)g_NetMode);
     configSave("pd.ini");
     /* F-0.4: Clear client manifest before stage transition.
      * STAGE_CITRAINING is a gameplay stage, so mainChangeToStage() won't

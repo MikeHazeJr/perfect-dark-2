@@ -175,6 +175,23 @@ void playerReset(void)
 	g_DefaultWeapons[HAND_LEFT] = 0;
 	g_DefaultWeapons[HAND_RIGHT] = 0;
 
+	/* S303: log player-reset entry so playtest can attribute weapon loadout
+	 * + spawn decisions to a specific player in a specific mode. */
+	{
+		const char *mode =
+			g_Vars.coopplayernum >= 0 ? "COOP" :
+			g_Vars.antiplayernum >= 0 ? "COUNTEROP" :
+			g_Vars.normmplayerisrunning ? "MP_COMBATSIM" : "CAMPAIGN";
+		const char *role =
+			(g_Vars.antiplayernum >= 0 && g_Vars.currentplayer == g_Vars.anti) ? "anti" :
+			(g_Vars.coopplayernum >= 0 && g_Vars.currentplayer == g_Vars.coop) ? "coop" :
+			"bond";
+		sysLogPrintf(LOG_NOTE,
+			"GAMELOOP.%s: playerReset begin playernum=%d role=%s stage=0x%02x diff=%d intro=%p",
+			mode, g_Vars.currentplayernum, role,
+			g_Vars.stagenum, g_MissionConfig.difficulty, (void *)cmd);
+	}
+
 	sysLogPrintf(LOG_NOTE, "LOAD: playerReset intro cmd=%p", (void *)cmd);
 	if (cmd) {
 		s32 introSafety = 0;
@@ -222,6 +239,26 @@ void playerReset(void)
 					if (cmd->param1 == WEAPON_EYESPY) {
 						haseyespy = true;
 					}
+
+					/* S303 weapon audit: log every INTROCMD_WEAPON granted to
+					 * the player so playtest can reconstruct the exact loadout
+					 * a mission intended vs. what the inventory actually holds. */
+					sysLogPrintf(LOG_NOTE,
+						"GAMELOOP.WEAPON: playernum=%d mission=0x%02x INTRO gave R=%d L=%d default=%d%s",
+						g_Vars.currentplayernum, g_Vars.stagenum,
+						(s32)cmd->param1, (s32)cmd->param2,
+						hasdefaultweapon ? 1 : 0,
+						cmd->param1 == WEAPON_EYESPY ? " +eyespy" : "");
+				} else if (cmd->param3 == 0 && !PLAYER_IS_NOT_ANTI(g_Vars.currentplayer)) {
+					/* Counter-Op: anti-player skips INTROCMD_WEAPON entirely
+					 * and gets its weapons from chrPossess() at possession
+					 * time (player.c:1262-1303 copies possessed chr's
+					 * weapons_held to inventory). Log the skip so playtest
+					 * can correlate empty-hands-on-start with "waiting for
+					 * first possession" rather than a loadout bug. */
+					sysLogPrintf(LOG_NOTE,
+						"GAMELOOP.WEAPON: playernum=%d mission=0x%02x INTRO skipped for anti role (weapons come from possession)",
+						g_Vars.currentplayernum, g_Vars.stagenum);
 				}
 				cmd = (struct cmd32 *)((uintptr_t)cmd + 16);
 				break;
@@ -411,6 +448,25 @@ void playerReset(void)
 		g_NetMode,
 		cmd ? "ok" : "null",
 		g_PadsFile ? "ok" : "null");
+
+	/* S303: co-op telefrag audit — co-op missions whose intro data declares
+	 * fewer spawn pads than active humans will land both players on the
+	 * same pad (scenarioChooseSpawnLocation → playerChooseGeneralSpawnLocation
+	 * → playerChooseSpawnLocation). The pad shortlist only dedupes on enemy
+	 * teams; co-op teammates share TEAM_ALLY so they're not filtered apart.
+	 * playerTrySelectPoolSpawn is gated on g_Vars.mplayerisrunning so the
+	 * spawn pool doesn't save us in co-op. Log a warning so playtest can
+	 * identify the problem stages; a real fix would need coop-aware pad
+	 * scoring or an additive pad-file fallback here. */
+	if ((g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0)
+			&& g_NumSpawnPoints < 2) {
+		sysLogPrintf(LOG_WARNING,
+			"GAMELOOP.COOP: only %d spawn pad(s) declared for %s stage 0x%02x — P1/P2 telefrag risk (mode=%s)",
+			g_NumSpawnPoints,
+			g_Vars.coopplayernum >= 0 ? "coop" : "counter-op",
+			g_Vars.stagenum,
+			g_Vars.coopplayernum >= 0 ? "coop" : "anti");
+	}
 
 	/* L2 spawn pool: build validated pool from L1-L4 hierarchy.
 	 * This runs after INTROCMD_SPAWN + waypoint/pad fallbacks have populated

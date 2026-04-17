@@ -763,11 +763,35 @@ void mainChangeToStage(s32 stagenum)
 	 * diffs correctly. */
 	if (STAGE_IS_GAMEPLAY(stagenum)) {
 		if (g_ClientManifest.num_entries > 0) {
+			/* S303: log every MP transition with its asset counts so the
+			 * playtest trail shows exactly what was diffed. If the local
+			 * session is supposed to be SP (netmode==NONE, !iscoop, !isanti)
+			 * the manifest should not have entries here — emit a WARNING so
+			 * leaked MP state from a prior session is obvious in pd.log. */
+			const bool looksLikeMP = (g_NetMode != NETMODE_NONE)
+				|| g_MissionConfig.iscoop || g_MissionConfig.isanti
+				|| g_Vars.normmplayerisrunning;
+			if (!looksLikeMP) {
+				sysLogPrintf(LOG_WARNING,
+					"GAMELOOP.MANIFEST: stale MP manifest (%d entries) leaked into SP transition to 0x%02x — routing via MPTransition",
+					g_ClientManifest.num_entries, (u32)stagenum);
+			} else {
+				sysLogPrintf(LOG_NOTE,
+					"GAMELOOP.MANIFEST: MP transition to 0x%02x (manifest=%d netmode=%d iscoop=%d isanti=%d)",
+					(u32)stagenum, g_ClientManifest.num_entries,
+					(int)g_NetMode, g_MissionConfig.iscoop, g_MissionConfig.isanti);
+			}
 			manifestMPTransition();
 		} else {
+			sysLogPrintf(LOG_NOTE,
+				"GAMELOOP.MANIFEST: SP transition to 0x%02x (coop=%d anti=%d)",
+				(u32)stagenum, g_MissionConfig.iscoop, g_MissionConfig.isanti);
 			manifestSPTransition(stagenum);
 		}
 	} else {
+		sysLogPrintf(LOG_NOTE,
+			"GAMELOOP.MANIFEST: menu transition to 0x%02x — clearing manifest (%d entries)",
+			(u32)stagenum, g_ClientManifest.num_entries);
 		manifestClear(&g_ClientManifest);
 		manifestMenuTransition();
 	}

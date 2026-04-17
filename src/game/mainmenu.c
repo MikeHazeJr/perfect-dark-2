@@ -38,6 +38,7 @@
 #include "net/net.h"
 #include "input.h"
 #include "assetcatalog.h"
+#include "system.h"
 
 /* PC port: ImGui room screen (replaces old Match Setup dialog) */
 extern void pdguiSoloRoomOpen(void);
@@ -728,6 +729,24 @@ struct menudialogdef g_PreAndPostMissionBriefingMenuDialog = {
 MenuItemHandlerResult menuhandlerAcceptMission(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
+		/* S303 GAMELOOP: this is the single-source-of-truth entry point for
+		 * solo / local-coop / local-anti mission starts AND for retry /
+		 * next-mission from the solo endscreen. Tag the entry with mode +
+		 * mission identity so playtest logs clearly mark the "campaign
+		 * bookend" at stage-load entry. Network co-op/anti flows bypass
+		 * this and go via netServerCoopStageStart. */
+		{
+			const char *mode = g_MissionConfig.iscoop ? "COOP"
+				: g_MissionConfig.isanti ? "COUNTEROP"
+				: "CAMPAIGN";
+			sysLogPrintf(LOG_NOTE,
+				"GAMELOOP.%s: menuhandlerAcceptMission entry stage_id='%s' stagenum=0x%02x stageindex=%d diff=%d%s",
+				mode,
+				g_MissionConfig.stage_id[0] ? g_MissionConfig.stage_id : "(empty)",
+				(u32)g_MissionConfig.stagenum,
+				g_MissionConfig.stageindex, g_MissionConfig.difficulty,
+				g_Vars.stagenum == (s32)g_MissionConfig.stagenum ? " RETRY" : "");
+		}
 		menuStop();
 		inputLockMouse(1); /* B-92: pdguiIsActive() deferred the SDL lock inside menuStop; force it now */
 

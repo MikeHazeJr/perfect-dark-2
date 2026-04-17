@@ -1,7 +1,66 @@
 # Session Log (Active)
 
-> **S241–S302** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S303** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S303 — 2026-04-16 (Campaign/Co-Op/Counter-Op full game loop sweep — reverent-chatelet worktree)
+
+**Scope**: end-to-end audit of the three gameplay modes (Campaign solo, networked Co-Op, networked Counter-Op) plus manifest pipeline / starting weapons / menu bookends. Find problems AND fix them; add logging where runtime verification is needed. Full findings in `context/scratch/game-loop-sweep-2026-04-16.md`.
+
+### Fixes landed (7)
+
+1. **Manifest clear generalization** (`src/game/menutick.c`) — S298 Deep Sea `manifestClear(&g_ClientManifest)` pattern now covers three additional transition sites that previously could leak a torn-down manifest into `manifestMPTransition`: MPENDSCREEN restart-level (`case MENUROOT_MPENDSCREEN` + `g_Vars.restartlevel`), MPENDSCREEN → CITRAINING exit, and COOPCONTINUE → CITRAINING exit. Each new clear site logs `GAMELOOP.MANIFEST: ... clearing manifest (N entries) before ...`. The Deep Sea block itself gained a `GAMELOOP.COOP: Deep Sea auto-advance → stageindex=... stagenum=0x... manifest=N` line.
+
+2. **Counter-Op antiplayernum fallback logging** (`port/src/net/net.c::netServerCoopStageStart`) — the silent `antiplayernum = 1` fallback (when `g_NetCounterOpClientId` lookup misses) now emits `GAMELOOP.COUNTEROP: antiClientId unresolved (id=...) — falling back to slot %d (clients=%u)` at LOG_WARNING. Success path logs `GAMELOOP.COUNTEROP: server start anti stage=... clients=... antiClientId=... antiplayernum=... (from wire)`. Coop start similarly logs `GAMELOOP.COOP: server start coop ...`.
+
+3. **Stale MP manifest leak WARNING** (`port/src/pdmain.c::mainChangeToStage`) — new WARNING when `g_ClientManifest.num_entries > 0` but the local session is not in any MP/coop/anti state (`g_NetMode==NONE && !iscoop && !isanti && !normmplayerisrunning`): "stale MP manifest (%d entries) leaked into SP transition to 0x%02x — routing via MPTransition". Every gameplay transition also gets a `GAMELOOP.MANIFEST: MP transition to 0x%02x (manifest=N netmode=... iscoop=... isanti=...)` or `GAMELOOP.MANIFEST: SP transition to 0x%02x ...` or `GAMELOOP.MANIFEST: menu transition to 0x%02x — clearing manifest ...` so every stage change is attributable.
+
+4. **Co-op telefrag audit** (`src/game/playerreset.c`) — new WARNING when `(coopplayernum >= 0 || antiplayernum >= 0) && g_NumSpawnPoints < 2`: "GAMELOOP.COOP: only N spawn pad(s) declared for coop stage 0xXX — P1/P2 telefrag risk (mode=coop|anti)". Identifies the GAP-B class (mission has a single `INTROCMD_SPAWN`, the scenario-choose path uses `chrCompareTeams` which skips same-team filtering, `playerTrySelectPoolSpawn` is gated on `mplayerisrunning` which is false in coop). A full fix needs coop-aware pad scoring; this session only makes the problem observable.
+
+5. **Starting weapon logging** (`src/game/playerreset.c::playerReset`) — every INTROCMD_WEAPON grant now logs `GAMELOOP.WEAPON: playernum=%d mission=0x%02x INTRO gave R=%d L=%d default=%d [+eyespy]`. Anti-role gets an explicit `GAMELOOP.WEAPON: ... INTRO skipped for anti role (weapons come from possession)` line so "empty-handed anti" is diagnosable. Entry of `playerReset` also logs `GAMELOOP.{CAMPAIGN,COOP,COUNTEROP,MP_COMBATSIM}: playerReset begin playernum=... role=bond|coop|anti ...`.
+
+6. **Endscreen push bookends + anti NULL guard** (`src/game/endscreen.c`) — `endscreenPushCoop` / `endscreenPushAnti` / `endscreenPushSolo` / `endscreenPrepare` all log `GAMELOOP.{CAMPAIGN,COOP,COUNTEROP}: endscreenPush* entry playernum=... stats=... ...` at entry. `endscreenPushCoop` and `endscreenPushAnti` log their NULL-currentplayerstats / out-of-range g_MpPlayerNum aborts as WARNINGs. `endscreenPushAnti` gains a `g_Vars.bond` NULL guard before the decision branch (`endscreen.c:1926-1929` derefs `g_Vars.bond->isdead` without a guard — prevents AV in teardown races).
+
+7. **Menu bookend + coop manifest logs** (`src/game/mainmenu.c`, `port/fast3d/pdgui_bridge.c`, `port/src/net/netmsg.c`) — `menuhandlerAcceptMission` entry logs `GAMELOOP.{CAMPAIGN,COOP,COUNTEROP}: menuhandlerAcceptMission entry stage_id='...' stagenum=0x... stageindex=... diff=... [RETRY]` (the RETRY flag is set when the resolved stagenum matches the live stage). `pdguiEndscreenStartMission` / `NextMission` / `ExitToMainMenu` each log their entry + pre/post stageindex for Next. `SVC_STAGE_END` receive logs `GAMELOOP.{COOP,COUNTEROP,CAMPAIGN}: SVC_STAGE_END received — entering endscreen teardown`. Co-op server-side `manifestBuild` at `netmsg.c:~4870` logs `GAMELOOP.{COOP,COUNTEROP}: server-side manifest built entries=... hash=... stage='...' clients=...` so host vs. server manifest divergence is measurable.
+
+### GAMELOOP.* log taxonomy (new)
+
+Five tags, all pass through the log-channel classifier unchanged (appear in every playtest log):
+
+- `GAMELOOP.CAMPAIGN:` — solo start/retry/next/exit, SVC_STAGE_END (combat-sim), endscreen prepare
+- `GAMELOOP.COOP:` — coop server start, endscreen push, Deep Sea auto-advance, manifest-build, telefrag audit
+- `GAMELOOP.COUNTEROP:` — anti server start, endscreen push, anti-NULL guard, wire-resolution status
+- `GAMELOOP.MANIFEST:` — every `mainChangeToStage` branch (SP/MP/menu), stale-leak WARNING
+- `GAMELOOP.WEAPON:` — INTROCMD_WEAPON per-grant, anti-skip notice
+
+Grep recipe: `grep -E "GAMELOOP\.(CAMPAIGN|COOP|COUNTEROP|MANIFEST|WEAPON)" pd-client.log`.
+
+### Gaps identified, not fully fixed (logged only, queued)
+
+- **GAP-A co-op manifest ignores host payload** — `netmsg.c:4859 manifestBuild(&g_ServerManifest, NULL, NULL)` rebuilds server-side for coop/anti (Combat-Sim path uses `manifestDeserialize` at `:4706`). New `GAMELOOP.COOP: server-side manifest built ...` log makes divergence observable. Fix needs a design call.
+- **GAP-B co-op 1-pad telefrag** — now observable via log; fix needs coop-aware pad scoring in `playerChooseSpawnLocation` or a coop-specific SP-14 expansion in playerreset.
+- **Anti body/head pre-load manifest gap** — possession-based resolution already relies on post-load catalog; pre-load would require a canonical anti-chr per mission (not currently modeled).
+- **Menu pool not released on `menuhandlerAcceptMission` entry** — S303 logs the entry but doesn't add `menupoolReleaseAll` (entry paths already go through `menuStop`). Queued.
+
+### Build verify
+
+`source devtools/build-env.sh && ninja -C Build pd pd-server` — both targets link. `PerfectDark.exe` 51,564,390 bytes, `PerfectDarkServer.exe` 22,837,840 bytes. Only pre-existing warnings (`/*` in comment in `pdgui_theme.h`/`pdgui_bridge.c`, pointer cast in `mainmenu.c` 2P anti menu handler, `chraction.c` maybe-uninitialized). Two forgotten `#include "system.h"` in `endscreen.c` + `mainmenu.c` added during build-verify to land the new logs.
+
+### Files touched
+
+- `src/game/menutick.c` — generalized manifestClear in three exit paths + GAMELOOP logs
+- `src/game/mainmenu.c` — `menuhandlerAcceptMission` entry log + `system.h` include
+- `src/game/endscreen.c` — `endscreenPush*` entry logs + `g_Vars.bond` NULL guard + `system.h` include
+- `src/game/playerreset.c` — `playerReset` entry log + per-weapon logs + coop telefrag audit
+- `port/src/pdmain.c` — `mainChangeToStage` manifest-route logs + stale-leak WARNING
+- `port/src/net/net.c` — `netServerCoopStageStart` anti fallback WARNING + coop/anti success logs
+- `port/src/net/netmsg.c` — `SVC_STAGE_END` teardown log + coop `manifestBuild` log
+- `port/fast3d/pdgui_bridge.c` — endscreen bridge entry logs at StartMission / NextMission / ExitToMainMenu
+- `context/scratch/game-loop-sweep-2026-04-16.md` (new)
+
+**Next**: playtest the five recipes in the findings report. Expected healthy signal: every stage transition produces a `GAMELOOP.MANIFEST:` line; every coop/counter-op start produces a matching server + client pair; no WARNING-level GAMELOOP lines on clean stock paths. Warnings identify regressions.
+
+---
 
 ## Session S300 — 2026-04-16 (Menu pool ctx migration + SP-14 + manifest audit — peaceful-aryabhata worktree)
 
