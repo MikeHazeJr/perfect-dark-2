@@ -2620,11 +2620,10 @@ void lvTickPlayer(void)
 		s_StatDistanceAccum[pn] += step;
 		while (s_StatDistanceAccum[pn] >= STAT_FLUSH_THRESHOLD) {
 			s_StatDistanceAccum[pn] -= STAT_FLUSH_THRESHOLD;
-			statIncrement("distance_units", 1);
 			if (g_Vars.normmplayerisrunning) {
-				statIncrement("mp.distance_units_sample", 1);
+				statIncrement("mp.distance_units", 1);
 			} else {
-				statIncrement("solo.distance_units_sample", 1);
+				statIncrement("solo.distance_units", 1);
 			}
 		}
 	}

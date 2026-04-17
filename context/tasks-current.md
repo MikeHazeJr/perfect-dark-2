@@ -20,11 +20,22 @@ Stale `chrslots` comment in `netmanifest.c` also cleaned up.
 
 ---
 
+## Done — 2026-04-17 (S335 — Wave 1 audit: S328 + S331, `quirky-mcnulty-60c44a` worktree)
+
+**Build verified.** Clean 773/773, zero errors. `PerfectDark.exe` 52,768,999 bytes, `PerfectDarkServer.exe` 22,887,046 bytes.
+
+Three fixes:
+1. `port/src/net/netmanifest.c` — `s_manifestAddWeapon` now emits `LOG_WARNING` when a weapon has a catalog ID (`wcan != NULL`) but the entry is missing, matching the body/head helper behavior.
+2. `port/src/main.c` — Added `statsShutdown()` to `cleanup()`; stats are now flushed to disk on normal game exit regardless of whether a match finished.
+3. `src/game/lv.c` — Distance stat keys renamed from `"distance_units"` + `"mp.distance_units_sample"` / `"solo.distance_units_sample"` to `"mp.distance_units"` / `"solo.distance_units"` — consistent with all other namespaced stats.
+
+**Playtest items:** solo walk then X-quit → `playerstats.json` has `solo.distance_units`; no `distance_units` or `_sample` keys.
+
+---
+
 ## Done — 2026-04-17 (S334 — Audit S327 Asset Provider + S330 Memory)
 
 Fixed one bug: `pak.c:pak0f11d9c4` malloc null-check (`5773c465`). S327 and S330 otherwise clean.
-
-**Next**: merge `cool-hawking-f26a42` into `dev`. Then playtest B-161 + B-141 (checklist below).
 
 ---
 

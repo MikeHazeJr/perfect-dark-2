@@ -76,8 +76,39 @@ Clean: 773/773 objects, zero errors. Only pre-existing `-Wcomment` warnings in v
 
 ### Next steps
 
-- Merge `cool-hawking-f26a42` worktree into `dev`.
 - Playtest verification for B-161 and B-141 (still open from S333).
+
+---
+
+## Session S335 — 2026-04-17 (Wave 1 audit — S328 + S331, `quirky-mcnulty-60c44a` worktree)
+
+**Scope**: Audit of two merged sessions: S328 (FIX-B.1 deep manifest scanner) and S331 (D6 stats wire-in + subtitle migration). Read all modified files, traced call sites, verified design intent vs. implementation.
+
+### Findings
+
+**S328 (FIX-B.1 deep manifest scanner — netmanifest.c):**
+
+- **`INTROCMD_OUTFIT` correctly skipped**: Sets `g_Vars.currentplayer->bondtype` (Joanna outfit variant), NOT a separate catalog BODY entry. Joanna is already scanned at the top of `manifestBuildMission`. No action needed.
+- **Ailist sentinel termination confirmed safe**: `ailists[]` is always null-terminated; the post-loop `ailists[listidx].list` read hits the sentinel, not OOB.
+- **Minor gap fixed**: `s_manifestAddWeapon` silently skipped weapons not in catalog — inconsistent with `s_manifestAddBody`/`s_manifestAddHead` which both emit `LOG_WARNING`. Added WARNING branch for `wcan != NULL && we == NULL` (catalog ID known but entry missing). Silent skip retained when `wcan == NULL` (no mapping — expected for unregistered weapon IDs).
+
+**S331 (D6 stats wire-in + subtitle migration):**
+
+- **Bug 1 fixed — `statsShutdown()` not called on exit**: `cleanup()` in `port/src/main.c` called `statsInit()` at startup but did not call `statsShutdown()` (which flushes to disk). Normal exit without a match finish would lose accumulated distance/in-session stats. Added `statsShutdown()` after `configSave()` in the `cleanup()` sequence.
+- **Bug 2 fixed — distance stat key naming**: `lv.c` tracked `"distance_units"` (non-namespaced global total) + `"mp.distance_units_sample"` + `"solo.distance_units_sample"`. The `_sample` suffix is non-standard (every other stat uses `mp.*` / `solo.*` directly), and the non-namespaced total was redundant. Replaced with `"mp.distance_units"` / `"solo.distance_units"` matching the session design spec and the convention used by `mp.time_played_seconds`.
+- **Subtitle snapshot comment verified**: Line 1686 in pdgui_bridge.c has correct `/* ... */` syntax (grep display artifact showed `\*`).
+- **Thread safety**: All stat increments fire on the main game thread (single-threaded PC), safe.
+- **Subtitle foreground drawlist placement**: `GetForegroundDrawList()` is correct — panel renders above cutscene letterbox bars.
+
+### Files changed
+
+- `port/src/net/netmanifest.c` — added WARNING in `s_manifestAddWeapon` for unresolvable catalog entries
+- `port/src/main.c` — added `statsShutdown()` to `cleanup()`
+- `src/game/lv.c` — renamed distance stat keys (`distance_units` / `mp.distance_units_sample` / `solo.distance_units_sample` → `mp.distance_units` / `solo.distance_units`)
+
+### Build result
+
+Clean: 773/773 objects, zero errors. `PerfectDark.exe` 52,768,999 bytes, `PerfectDarkServer.exe` 22,887,046 bytes. Only pre-existing `-Wcomment` in vendored code. Merge commit on dev.
 
 ---
 
