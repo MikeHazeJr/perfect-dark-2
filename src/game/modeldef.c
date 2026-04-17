@@ -24,6 +24,8 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "assetprovider.h"
+#include "assetload.h"
 
 struct skeleton *g_Skeletons[] = {
 	&g_SkelChr,
@@ -191,11 +193,11 @@ struct modeldef *modeldefLoad(u16 fileid, u8 *dst, s32 size, struct texpool *arg
 	if (dst) {
 		modeldef = fileLoadToAddr(fileid, FILELOADMETHOD_EXTRAMEM, dst, size);
 	} else {
-		modeldef = fileLoadToNew(fileid, FILELOADMETHOD_EXTRAMEM, LOADTYPE_MODEL);
+		modeldef = assetLoadToNew(romProviderHandle((s32)fileid), FILELOADMETHOD_EXTRAMEM, LOADTYPE_MODEL);
 	}
 
 	if (modeldef == NULL) {
-		/* fileLoadToNew returned NULL (file not in ROM data). Clear
+		/* assetLoadToNew returned NULL (file not in ROM data). Clear
 		 * g_LoadType since fileLoad never ran to reset it -- leaving it
 		 * stale would cause the next fileLoad to misapply model
 		 * preprocessing to unrelated data. */

@@ -399,8 +399,25 @@ Three commits on top of the S311/S312/S313 three-way merge:
 ### Deferred
 
 - **Legacy sidecar migration** -- agents created before the `gamefileGetOverview` fix may have `prefs_<encoded>.ini` files that no longer match their new `prefs_<overview>.ini` path.  Small one-shot migration on first Agent Select load is queued.
-- **Gameplay-preference pd.ini → per-agent** -- `Game.CenterHUD`, `Game.SkipIntro`, `Game.DisableMpDeathMusic`, `Game.GEMuzzleFlashes`, `Game.ScreenShakeIntensity`, `Game.MenuMouseControl` are candidates for the per-agent sidecar.  Listed in `config-pd-ini-audit.md`.
-- **Audio.ModPlaylist / ModShuffle / ModTrackId → per-agent** -- each Agent could own their own Combat Simulator music selection.
+- ~~**Gameplay-preference pd.ini → per-agent**~~ — **DONE S341**: `[Game]` block added to `prefs_agent.c` with all 6 keys + pd.ini baseline capture + reset-on-agent-select.
+- ~~**Audio.ModPlaylist / ModShuffle / ModTrackId → per-agent**~~ — **DONE S341**: `[Audio]` extended with `ModPlaylist` (semicolon-delimited) + `ModShuffle`.
+
+---
+
+## Open — 2026-04-17 (S341 — `tender-borg-b2fc3b` worktree)
+
+### Playtest checklist
+
+1. **[Game] round-trip**: Sign in as agent, change HUD centering / SkipIntro / screen shake in Settings → exit → relaunch → same agent; values persist via sidecar.
+2. **Reset on sign-out**: Open Agent Select screen; game prefs revert to pd.ini defaults (not previous agent's values).
+3. **Audio playlist per-agent**: Two agents with different CS playlists; switching applies each agent's playlist.
+4. **Stage loading**: SP mission + MP match — no regressions after assetLoadToNew migration in lang/setup/tiles/modeldef.
+
+### Asset Provider Phase 3 follow-up
+
+- **Phase 4**: retire raw filenum from public catalog API now that all call sites use provider handles
+- **FileProvider inflate/preprocess**: generic `assetLoadToNew` path skips rzipInflate + `romdataFilePreprocess` — OK for Phase 3 (mod assets still go through legacy pipeline), needs resolution in Phase 4
+- **lang/tiles catalog handles**: `langGetFileId()` + `stage.tilefileid` are still ROM integers. Phase 4 should introduce `langGetHandle()` / `catalogGetTileHandle()` so FileProvider lang/tile packs work.
 
 ---
 

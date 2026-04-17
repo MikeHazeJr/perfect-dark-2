@@ -1,8 +1,64 @@
 
 # Session Log (Active)
 
-> **S281–S336** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S341** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S341 — 2026-04-17 (`tender-borg-b2fc3b` worktree)
+
+**Scope**: Two-track session. Task A: per-agent gameplay prefs expansion. Task B: Asset Provider Phase 3 — fileLoadToNew migration.
+
+### Task A — Per-agent gameplay prefs expansion
+
+**What shipped**: `port/src/prefs_agent.c` gained a `[Game]` sidecar block + audio playlist fields in `[Audio]`.
+
+**New per-agent keys in `[Game]`**:
+- `CenterHUD` → `g_HudCenter` (int 0/1/2) + side-effect `g_HudAlignModeL/R` update via inline `applyHudCenter()`
+- `SkipIntro` → `g_SkipIntro` (bool)
+- `DisableMpDeathMusic` → `g_MusicDisableMpDeath` (bool)
+- `GEMuzzleFlashes` → `g_BgunGeMuzzleFlashes` (bool)
+- `ScreenShakeIntensity` → `g_ViShakeIntensityMult` (float)
+- `MenuMouseControl` → `g_MenuMouseControl` (bool)
+
+**New audio playlist keys in `[Audio]`** (S313 deferred item completed):
+- `ModPlaylist` — semicolon-delimited catalog IDs; applied via `audioClearModPlaylist()` + `audioAddModPlaylistEntry()` per entry
+- `ModShuffle` — applied via `audioSetModShuffle()`
+- `ModTrackId` — legacy compat key; only applied if playlist empty
+
+**Baseline capture**: `prefsAgentInit()` now snapshots all 6 gameplay globals + playlist state at startup (after configLoad sets pd.ini values). `prefsAgentResetVisuals()` restores all of them so agents without a sidecar block revert to machine defaults rather than inheriting the previous agent's settings.
+
+**Buffer size**: prefs save buffer increased from 2048 → 4096 to accommodate [Game] + ModPlaylist.
+
+**Build**: clean 773/773 — PerfectDark.exe 52,772,583 / PerfectDarkServer.exe 22,886,022.
+
+### Task B — Asset Provider Phase 3: fileLoadToNew migration
+
+**Scope**: Grep all `fileLoadToNew` call sites outside `assetload.c` + `file.c`. Categorize. Migrate straightforward ROM-backed calls to `assetLoadToNew(romProviderHandle(...), ...)`.
+
+**Sites found and categorized**:
+
+| Subsystem | File | Calls | Verdict |
+|-----------|------|-------|---------|
+| Lang | `src/game/lang.c` | 1 | ✅ Migrated |
+| Lang reset | `src/game/langreset.c` | 7 | ✅ Migrated |
+| Modeldef | `src/game/modeldef.c` | 1 | ✅ Migrated |
+| Stage setup | `src/game/setup.c` | 2 | ✅ Migrated |
+| Tiles | `src/game/tilesreset.c` | 1 | ✅ Migrated |
+
+All 12 call sites were straightforward ROM-backed loads (`s32` or `u16` filenum from ROM data tables / stage structs). No complex cases found.
+
+**Migration pattern**: added `#include "assetprovider.h"` + `#include "assetload.h"` to each file (same path available to `src/game/` per CMake include config, as evidenced by `file.c` already using these headers). Changed `fileLoadToNew(X, M, L)` → `assetLoadToNew(romProviderHandle((s32)X), M, L)`. `u16` filenums (modeldef, setup, tiles) got explicit `(s32)` cast.
+
+**Zero behavior change**: `assetLoadToNew(romProviderHandle(N), ...)` delegates to `fileLoadRomToNew(N, ...)` which is byte-identical to the old `fileLoadToNew(N, ...)` body. Phase 3 is a pure refactor enabling future FileProvider substitution at these sites.
+
+**`fileLoadToNew` status**: still declared in `game/file.h` and implemented in `game/file.c` as the public ROM-load API. No callers remain outside of assetload.c / file.c — it's now a leaf entry point for game code that doesn't yet have a catalog handle.
+
+### Playtest checklist
+
+1. **Agent sidecar round-trip**: Load agent → change HUD centering in Settings → close → reload; sidecar should preserve the new value across restarts.
+2. **Reset on Agent Select open**: Open Agent Select screen; HUD centering / screen shake / muzzle flashes should all match pd.ini defaults (not the previous agent's values).
+3. **Audio playlist per-agent**: Create two agents with different Combat Simulator playlists; switching agents should apply each agent's playlist.
+4. **Stage loading**: Play any SP mission + MP match; no regressions in lang/setup/tiles loading after the assetLoadToNew migration.
 
 ## Session S336 — 2026-04-17 (Audit S329 B-12 Chrslots + S332 Modeldef/Audio)
 

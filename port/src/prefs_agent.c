@@ -1,5 +1,5 @@
 /**
- * prefs_agent.c -- per-agent preferences sidecar (S309 + S313 batch)
+ * prefs_agent.c -- per-agent preferences sidecar (S309 + S313 + S341 batch)
  *
  * See prefs_agent.h for the overall shape.  Format is plain INI:
  *
@@ -19,6 +19,16 @@
  *     MusicVolume      = 0.70
  *     GameplayVolume   = 0.90
  *     UIVolume         = 0.75
+ *     ModPlaylist      = user.track1.audio;user.track2.audio
+ *     ModShuffle       = 1
+ *
+ *     [Game]
+ *     CenterHUD            = 0
+ *     SkipIntro            = 0
+ *     DisableMpDeathMusic  = 0
+ *     GEMuzzleFlashes      = 0
+ *     ScreenShakeIntensity = 1.000
+ *     MenuMouseControl     = 1
  *
  *     [Mods]
  *     Enabled = slug1,slug2,slug3
@@ -27,6 +37,11 @@
  * directly through subsystem accessors — we deliberately do NOT route
  * through configLoad/configSave because per-agent prefs overlay onto
  * global pd.ini rather than replacing it.
+ *
+ * On Agent Select open, prefsAgentResetVisuals() restores all settings to
+ * the pd.ini baselines captured at prefsAgentInit() time so an agent
+ * without a sidecar block inherits the machine default rather than the
+ * previous agent's value.
  */
 
 #include <stdio.h>
@@ -53,13 +68,117 @@ extern void        pdguiSetPanelNineSlice(const char *catalog_id);
 
 #include "modmgr.h"  /* modinfo_t + modmgrGetCount/GetMod/FindMod/SetEnabled */
 
+/* -----------------------------------------------------------------------
+ * Game-layer globals accessed from port code.  Declared extern rather than
+ * pulling in heavy game headers.  Types match the definitions in data.h /
+ * the respective .c files.
+ * --------------------------------------------------------------------- */
+extern s32  g_HudCenter;          /* game_1531a0.c */
+extern u32  g_HudAlignModeL;      /* game_1531a0.c */
+extern u32  g_HudAlignModeR;      /* game_1531a0.c */
+extern f32  g_ViShakeIntensityMult; /* pdsched.c */
+extern s32  g_MusicDisableMpDeath; /* music.c */
+extern s32  g_BgunGeMuzzleFlashes; /* bondgun.c */
+extern s32  g_SkipIntro;           /* main.c */
+extern s32  g_MenuMouseControl;    /* menu.c */
+
+/* G_ASPECT_* bit-flags (from gbiex.h) used to update g_HudAlignModeL/R
+ * when CenterHUD changes.  Hardcoded values — kept in sync by code, not
+ * by the compiler, so comment them carefully. */
+#define PREFS_ASPECT_LEFT   0x00000010u  /* G_ASPECT_LEFT_EXT  */
+#define PREFS_ASPECT_RIGHT  0x00000020u  /* G_ASPECT_RIGHT_EXT */
+#define PREFS_ASPECT_WIDE   0x00000040u  /* G_ASPECT_WIDE_EXT  */
+#define PREFS_ASPECT_CENTER (PREFS_ASPECT_LEFT | PREFS_ASPECT_RIGHT)
+
+/* HUDCENTER_* constants (from constants.h) */
+#define PREFS_HUDCENTER_NONE   0
+#define PREFS_HUDCENTER_NORMAL 1
+#define PREFS_HUDCENTER_WIDE   2
+
 #define PREFS_MAX_NAME     64
 #define PREFS_MAX_PATH     512
 #define PREFS_MAX_LINE     1024
 #define PREFS_MAX_VAL      256
 
+/* Serialization buffer sizes */
+#define PREFS_BUF_SIZE       4096
+#define PREFS_PLAYLIST_SIZE  (AUDIO_MAX_PLAYLIST * 65)
+
 static char s_ActiveAgent[PREFS_MAX_NAME] = "";
 static s32  s_Initialized = 0;
+
+/* -----------------------------------------------------------------------
+ * pd.ini baselines -- gameplay prefs captured at prefsAgentInit() before
+ * any per-agent sidecar can overlay them.  prefsAgentResetVisuals() uses
+ * these to revert to the machine default when no sidecar block is present.
+ * --------------------------------------------------------------------- */
+static s32  s_BaseHudCenter            = 0;
+static s32  s_BaseSkipIntro            = 0;
+static s32  s_BaseDisableMpDeathMusic  = 0;
+static s32  s_BaseGEMuzzleFlashes      = 0;
+static f32  s_BaseScreenShakeIntensity = 1.0f;
+static s32  s_BaseMenuMouseControl     = 1;
+static char s_BaseModPlaylist[PREFS_PLAYLIST_SIZE] = "";
+static s32  s_BaseModShuffle           = 1;
+
+/* -----------------------------------------------------------------------
+ * HUD centering — setting g_HudCenter also requires updating the render
+ * alignment mode flags.  This helper mirrors the logic in optionsmenu.c
+ * and main.c so all paths stay consistent.
+ * --------------------------------------------------------------------- */
+static void applyHudCenter(s32 val)
+{
+    g_HudCenter = val;
+    if (val == PREFS_HUDCENTER_NORMAL) {
+        g_HudAlignModeL = PREFS_ASPECT_CENTER;
+        g_HudAlignModeR = PREFS_ASPECT_CENTER;
+    } else if (val == PREFS_HUDCENTER_WIDE) {
+        g_HudAlignModeL = PREFS_ASPECT_LEFT  | PREFS_ASPECT_WIDE;
+        g_HudAlignModeR = PREFS_ASPECT_RIGHT | PREFS_ASPECT_WIDE;
+    } else { /* PREFS_HUDCENTER_NONE */
+        g_HudAlignModeL = PREFS_ASPECT_LEFT;
+        g_HudAlignModeR = PREFS_ASPECT_RIGHT;
+    }
+}
+
+/* -----------------------------------------------------------------------
+ * Mod playlist serialization helpers.
+ * serializeModPlaylist  -- iterate audioGetModPlaylist* → semicolon string
+ * deserializeModPlaylist -- semicolon string → audioClear + audioAdd calls
+ * --------------------------------------------------------------------- */
+static void serializeModPlaylist(char *out, size_t outmax)
+{
+    s32 cnt = audioGetModPlaylistCount();
+    s32 off = 0;
+    out[0] = '\0';
+    for (s32 i = 0; i < cnt; i++) {
+        const char *e = audioGetModPlaylistEntry(i);
+        if (e && e[0]) {
+            off += snprintf(out + off, (s32)outmax - off,
+                            "%s%s", off > 0 ? ";" : "", e);
+        }
+    }
+}
+
+static void deserializeModPlaylist(const char *src)
+{
+    audioClearModPlaylist();
+    if (!src || !src[0]) return;
+    char buf[PREFS_PLAYLIST_SIZE];
+    snprintf(buf, sizeof(buf), "%s", src);
+    char *p = buf;
+    while (*p) {
+        while (*p == ';' || *p == ' ') p++;
+        if (!*p) break;
+        char *start = p;
+        while (*p && *p != ';') p++;
+        char save = *p;
+        *p = '\0';
+        if (start[0]) audioAddModPlaylistEntry(start);
+        *p = save;
+        if (save) p++;
+    }
+}
 
 static void sanitize(const char *src, char *dst, size_t dstmax)
 {
@@ -165,6 +284,48 @@ static void applyKV(const char *section, const char *key, const char *val)
             audioSetUiVolume((f32)atof(val));
             return;
         }
+        if (strcasecmp(key, "ModPlaylist") == 0) {
+            deserializeModPlaylist(val);
+            return;
+        }
+        if (strcasecmp(key, "ModShuffle") == 0) {
+            audioSetModShuffle((s32)atoi(val));
+            return;
+        }
+        if (strcasecmp(key, "ModTrackId") == 0) {
+            /* Legacy single-track compat key: only apply if playlist
+             * isn't set (the ModPlaylist key takes precedence). */
+            if (audioGetModPlaylistCount() == 0 && val[0]) {
+                audioSetModTrackId(val);
+            }
+            return;
+        }
+    }
+    if (strcasecmp(section, "Game") == 0) {
+        if (strcasecmp(key, "CenterHUD") == 0) {
+            applyHudCenter((s32)atoi(val));
+            return;
+        }
+        if (strcasecmp(key, "SkipIntro") == 0) {
+            g_SkipIntro = (s32)atoi(val);
+            return;
+        }
+        if (strcasecmp(key, "DisableMpDeathMusic") == 0) {
+            g_MusicDisableMpDeath = (s32)atoi(val);
+            return;
+        }
+        if (strcasecmp(key, "GEMuzzleFlashes") == 0) {
+            g_BgunGeMuzzleFlashes = (s32)atoi(val);
+            return;
+        }
+        if (strcasecmp(key, "ScreenShakeIntensity") == 0) {
+            g_ViShakeIntensityMult = (f32)atof(val);
+            return;
+        }
+        if (strcasecmp(key, "MenuMouseControl") == 0) {
+            g_MenuMouseControl = (s32)atoi(val);
+            return;
+        }
     }
     if (strcasecmp(section, "Mods") == 0) {
         if (strcasecmp(key, "Enabled") == 0) {
@@ -216,7 +377,20 @@ void prefsAgentInit(void)
     if (s_Initialized) return;
     s_Initialized = 1;
     s_ActiveAgent[0] = '\0';
-    sysLogPrintf(LOG_NOTE, "PREFS.AGENT: initialised");
+
+    /* Capture pd.ini baselines before any per-agent sidecar can overlay
+     * them.  prefsAgentResetVisuals() restores these values so agents
+     * without a given block revert to the machine default. */
+    s_BaseHudCenter            = g_HudCenter;
+    s_BaseSkipIntro            = g_SkipIntro;
+    s_BaseDisableMpDeathMusic  = g_MusicDisableMpDeath;
+    s_BaseGEMuzzleFlashes      = g_BgunGeMuzzleFlashes;
+    s_BaseScreenShakeIntensity = g_ViShakeIntensityMult;
+    s_BaseMenuMouseControl     = g_MenuMouseControl;
+    serializeModPlaylist(s_BaseModPlaylist, sizeof(s_BaseModPlaylist));
+    s_BaseModShuffle           = audioGetModShuffle();
+
+    sysLogPrintf(LOG_NOTE, "PREFS.AGENT: initialised (baselines captured)");
 }
 
 void prefsAgentSetActive(const char *agent_name)
@@ -334,9 +508,23 @@ void prefsAgentResetVisuals(void)
     pdguiThemeSetTitleBarStyle(PDGUI_TITLEBAR_CLASSIC);
     pdguiFontModSetActiveId("");
     pdguiThemeSetScanlineEnabled(0);
-    /* Also restore audio layers to pd.ini baseline so agents without an
+
+    /* Restore audio volume layers to pd.ini baseline so agents without an
      * [Audio] block don't inherit the previous agent's volume settings. */
     audioResetToDefaults();
+
+    /* Restore audio mod playlist to pd.ini baseline. */
+    deserializeModPlaylist(s_BaseModPlaylist);
+    audioSetModShuffle(s_BaseModShuffle);
+
+    /* Restore gameplay prefs to pd.ini baseline (captured at init). */
+    applyHudCenter(s_BaseHudCenter);
+    g_SkipIntro            = s_BaseSkipIntro;
+    g_MusicDisableMpDeath  = s_BaseDisableMpDeathMusic;
+    g_BgunGeMuzzleFlashes  = s_BaseGEMuzzleFlashes;
+    g_ViShakeIntensityMult = s_BaseScreenShakeIntensity;
+    g_MenuMouseControl     = s_BaseMenuMouseControl;
+
     sysLogPrintf(LOG_NOTE, "PREFS.AGENT: prefs reset to defaults (Agent Select open)");
 }
 
@@ -349,7 +537,7 @@ void prefsAgentSave(void)
     /* Build the full content in a scratch buffer first so we can debounce:
      * many callers invoke this every frame while a Settings screen is
      * open, but only on an actual value change should we touch disk. */
-    char buf[2048];
+    char buf[PREFS_BUF_SIZE];
     s32 off = 0;
 
     /* [Theme] */
@@ -376,19 +564,39 @@ void prefsAgentSave(void)
                     (int)pdguiThemeGetScanlineEnabled(),
                     (double)pdguiThemeGetScanlineAlpha());
 
-    /* [Audio] -- per-agent volume layers (S313 batch).  Global pd.ini
-     * still holds the same keys as fallback defaults; the per-agent
-     * sidecar overlays them on Agent load. */
+    /* [Audio] -- per-agent volume layers (S313) + mod playlist (S341). */
+    char playlist[PREFS_PLAYLIST_SIZE];
+    serializeModPlaylist(playlist, sizeof(playlist));
     off += snprintf(buf + off, sizeof(buf) - off,
                     "[Audio]\n"
                     "MasterVolume   = %.3f\n"
                     "MusicVolume    = %.3f\n"
                     "GameplayVolume = %.3f\n"
-                    "UIVolume       = %.3f\n\n",
+                    "UIVolume       = %.3f\n"
+                    "ModPlaylist    = %s\n"
+                    "ModShuffle     = %d\n\n",
                     (double)audioGetMasterVolume(),
                     (double)audioGetMusicVolume(),
                     (double)audioGetGameplayVolume(),
-                    (double)audioGetUiVolume());
+                    (double)audioGetUiVolume(),
+                    playlist,
+                    (int)audioGetModShuffle());
+
+    /* [Game] -- per-agent gameplay preferences (S341). */
+    off += snprintf(buf + off, sizeof(buf) - off,
+                    "[Game]\n"
+                    "CenterHUD           = %d\n"
+                    "SkipIntro           = %d\n"
+                    "DisableMpDeathMusic = %d\n"
+                    "GEMuzzleFlashes     = %d\n"
+                    "ScreenShakeIntensity = %.3f\n"
+                    "MenuMouseControl    = %d\n\n",
+                    (int)g_HudCenter,
+                    (int)g_SkipIntro,
+                    (int)g_MusicDisableMpDeath,
+                    (int)g_BgunGeMuzzleFlashes,
+                    (double)g_ViShakeIntensityMult,
+                    (int)g_MenuMouseControl);
 
     /* [Mods] */
     off += snprintf(buf + off, sizeof(buf) - off, "[Mods]\nEnabled = ");
@@ -404,7 +612,7 @@ void prefsAgentSave(void)
     off += snprintf(buf + off, sizeof(buf) - off, "\n");
 
     /* Debounce by content hash — skip disk write when nothing changed. */
-    static char s_LastBuf[2048] = "";
+    static char s_LastBuf[PREFS_BUF_SIZE] = "";
     static char s_LastAgent[PREFS_MAX_NAME] = "";
     if (strcmp(s_LastAgent, s_ActiveAgent) == 0 &&
         strcmp(s_LastBuf, buf) == 0) {
