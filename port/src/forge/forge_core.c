@@ -334,6 +334,10 @@ void forgeCoreInit(void)
 	s_settings.grid_size = 100.0f;
 	s_settings.rotation_snap_deg = 15.0f;
 	s_settings.surface_snap = 1;
+	/* R2/R4 defaults: honour the map author's weapon choices unless
+	 * the match explicitly opts out via "Use Map Defaults" UX. */
+	s_settings.weapon_source = FORGE_WEAPONS_MAP_DEFAULTS;
+	s_settings.allow_match_override = 1;
 
 	memset(&s_editor, 0, sizeof(s_editor));
 	s_editor.tool = FORGE_TOOL_SELECT;
@@ -1173,6 +1177,91 @@ forge_prefab_t *forgePrefabSaveFromSelection(const char *name)
 	}
 	sysLogPrintf(LOG_WARNING, "FORGE: prefab pool full");
 	return NULL;
+}
+
+/* ============================================================
+ * S310 R3 -- dependency collection
+ * ============================================================ */
+
+static s32 forgeIdIsBase(const char *id)
+{
+	/* "base:" prefix => shipped with the base game, no dependency needed */
+	return (id && id[0] == 'b' && id[1] == 'a' && id[2] == 's' && id[3] == 'e' && id[4] == ':') ? 1 : 0;
+}
+
+static s32 forgeIdIsUnique(const char *id, char out[][FORGE_ID_LEN], s32 n)
+{
+	for (s32 i = 0; i < n; ++i) {
+		if (strcmp(out[i], id) == 0) return 0;
+	}
+	return 1;
+}
+
+static void forgeMaybeAddDep(const char *id, char out[][FORGE_ID_LEN], s32 *n, s32 max)
+{
+	if (!id || !*id) return;
+	if (forgeIdIsBase(id)) return;
+	if (*n >= max) return;
+	if (!forgeIdIsUnique(id, out, *n)) return;
+	forgeCopyStr(out[*n], id, FORGE_ID_LEN);
+	++(*n);
+}
+
+s32 forgeCollectDependencies(char out[][FORGE_ID_LEN], s32 max)
+{
+	if (!out || max <= 0) return 0;
+	s32 n = 0;
+
+	for (s32 i = 0; i < FORGE_MAX_OBJECTS; ++i) {
+		forge_object_t *o = forgeObjectGet(i);
+		if (!o || !o->in_use) continue;
+		forgeMaybeAddDep(o->catalog_id,  out, &n, max);
+		forgeMaybeAddDep(o->material_id, out, &n, max);
+		switch (o->category) {
+		case FORGE_CAT_WEAPON_PAD:
+			forgeMaybeAddDep(o->props.weapon.weapon_id, out, &n, max);
+			break;
+		case FORGE_CAT_AI:
+			forgeMaybeAddDep(o->props.ai.body_id,   out, &n, max);
+			forgeMaybeAddDep(o->props.ai.head_id,   out, &n, max);
+			forgeMaybeAddDep(o->props.ai.weapon_id, out, &n, max);
+			break;
+		case FORGE_CAT_EFFECT:
+			forgeMaybeAddDep(o->props.effect.asset_id, out, &n, max);
+			break;
+		case FORGE_CAT_PICKUP:
+			forgeMaybeAddDep(o->props.pickup.item_id, out, &n, max);
+			break;
+		case FORGE_CAT_ZONE:
+			forgeMaybeAddDep(o->props.zone.sound_loop_id,  out, &n, max);
+			forgeMaybeAddDep(o->props.zone.enter_sound_id, out, &n, max);
+			break;
+		case FORGE_CAT_INTERACTABLE:
+			if (strncmp(o->catalog_id, "base:door_", 10) == 0) {
+				forgeMaybeAddDep(o->props.door.key_id,     out, &n, max);
+				forgeMaybeAddDep(o->props.door.open_sound, out, &n, max);
+				forgeMaybeAddDep(o->props.door.close_sound,out, &n, max);
+			}
+			break;
+		default:
+			break;
+		}
+	}
+
+	/* Atmosphere */
+	forgeMaybeAddDep(s_atmosphere.sky_id, out, &n, max);
+
+	/* Game type */
+	forgeMaybeAddDep(s_gametype.starting_weapon, out, &n, max);
+	for (s32 w = 0; w < s_gametype.num_waves && w < FORGE_MAX_WAVES; ++w) {
+		if (!s_gametype.waves[w].in_use) continue;
+		forgeMaybeAddDep(s_gametype.waves[w].enemy_catalog_id, out, &n, max);
+	}
+
+	/* Base stage is a dependency too if it's a mod stage. */
+	forgeMaybeAddDep(s_settings.base_stage_id, out, &n, max);
+
+	return n;
 }
 
 s32 forgePrefabInstantiate(s32 prefab_index, const f32 origin[3])

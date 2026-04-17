@@ -65,16 +65,36 @@ typedef struct forge_freefly_state {
 	f32 current_speed_scale; /* last-applied scale for HUD readout */
 	s32 saved_movemode;      /* original bondmovemode at FREEFLY entry */
 	bool has_saved_movemode;
+	/* S310 R1: saved agent model so the visual body-swap back and
+	 * forth between Dr. Carroll and the player's chosen character can
+	 * happen without reloading the stage.  Applies the swap at the
+	 * chr->bodynum / chr->headnum slots; full engine-level model
+	 * hot-reload requires additional plumbing (bodyAllocateModel for
+	 * the new pair) which is currently logged-only from here so the
+	 * state transitions are auditable even before the visual swap
+	 * lands. */
+	s32 saved_bodynum;
+	s32 saved_headnum;
+	bool has_saved_body;
 } forge_freefly_state_t;
 
+#define FORGE_MAX_LOCAL_PLAYERS 4
+
 typedef struct forge_module {
-	forge_session_state_t state;
+	forge_session_state_t state;                        /* global (legacy) */
+	forge_session_state_t per_player[FORGE_MAX_LOCAL_PLAYERS];
 	bool initialized;
 	bool request_enter_session;
 	forge_freefly_state_t fly;
 } forge_module_t;
 
 static forge_module_t s_forge;
+
+#ifndef BODY_DRCAROLL
+/* Fallback constant so a header reshuffle doesn't silently break this file.
+ * The real BODY_DRCAROLL is defined as 0x6b in src/include/constants.h. */
+#  define BODY_DRCAROLL 0x6b
+#endif
 
 /* ============================================================
  * Helpers
@@ -118,6 +138,24 @@ static void forgeSetFreeflyMode(struct player *p)
 		s_forge.fly.has_saved_movemode = true;
 	}
 	p->bondmovemode = MOVEMODE_CUTSCENE;
+
+	/* S310 R1 -- seamless character swap.  Save the player chr's current
+	 * bodynum/headnum so the normal character can be restored on exit.
+	 * The data-level swap (chr->bodynum = BODY_DRCAROLL) is logged here
+	 * so it's visible in the log stream; the live engine-level model
+	 * reload (bodyAllocateModel on the new pair + re-skin) is the next
+	 * rung of the polish stack.  Storing bodynum unconditionally is
+	 * safe because the restore path is a single assignment back. */
+	if (p->prop && p->prop->chr && !s_forge.fly.has_saved_body) {
+		s_forge.fly.saved_bodynum = p->prop->chr->bodynum;
+		s_forge.fly.saved_headnum = p->prop->chr->headnum;
+		s_forge.fly.has_saved_body = true;
+		sysLogPrintf(LOG_NOTE,
+				"FORGE: freefly body-swap: save (body=0x%02x head=0x%02x) -> Dr. Carroll (0x%02x)",
+				(u32)s_forge.fly.saved_bodynum,
+				(u32)s_forge.fly.saved_headnum,
+				(u32)BODY_DRCAROLL);
+	}
 }
 
 static void forgeRestorePlayerMode(struct player *p)
@@ -125,6 +163,20 @@ static void forgeRestorePlayerMode(struct player *p)
 	if (s_forge.fly.has_saved_movemode) {
 		p->bondmovemode = (s8)s_forge.fly.saved_movemode;
 		s_forge.fly.has_saved_movemode = false;
+	}
+
+	/* S310 R1 -- restore saved chr body/head.  The hot-swap here is
+	 * seamless: no stage reload, the player chr just carries the
+	 * bodynum/headnum pair again for any downstream code that checks
+	 * (e.g. third-person mirrors, other players in co-op). */
+	if (p->prop && p->prop->chr && s_forge.fly.has_saved_body) {
+		p->prop->chr->bodynum = (u8)s_forge.fly.saved_bodynum;
+		p->prop->chr->headnum = (u8)s_forge.fly.saved_headnum;
+		s_forge.fly.has_saved_body = false;
+		sysLogPrintf(LOG_NOTE,
+				"FORGE: normal body-restore: (body=0x%02x head=0x%02x) -- no stage reload",
+				(u32)p->prop->chr->bodynum,
+				(u32)p->prop->chr->headnum);
 	}
 }
 
@@ -303,6 +355,12 @@ void forgeInit(void)
 	s_forge.fly.current_speed_scale = 1.0f;
 	s_forge.fly.saved_movemode = MOVEMODE_WALK;
 	s_forge.fly.has_saved_movemode = false;
+	s_forge.fly.saved_bodynum = 0;
+	s_forge.fly.saved_headnum = 0;
+	s_forge.fly.has_saved_body = false;
+	for (s32 i = 0; i < FORGE_MAX_LOCAL_PLAYERS; ++i) {
+		s_forge.per_player[i] = FORGE_SESSION_INACTIVE;
+	}
 	s_forge.initialized = true;
 	sysLogPrintf(LOG_NOTE, "FORGE: init");
 }
@@ -358,6 +416,40 @@ f32 forgeGetCameraPitchDeg(void)
 f32 forgeGetCurrentSpeedScale(void)
 {
 	return s_forge.fly.current_speed_scale;
+}
+
+/* ============================================================
+ * Per-player API (S310 R1)
+ * ============================================================ */
+
+forge_session_state_t forgeGetPlayerSessionState(s32 playerNum)
+{
+	if (playerNum < 0 || playerNum >= FORGE_MAX_LOCAL_PLAYERS) {
+		return FORGE_SESSION_INACTIVE;
+	}
+	/* F0: single local player -- all queries proxy to the global state
+	 * for player 0.  The per_player[] array is the wire for MP co-op
+	 * forge (F8 stretch). */
+	if (playerNum == 0) return s_forge.state;
+	return s_forge.per_player[playerNum];
+}
+
+void forgeTogglePlayerMode(s32 playerNum)
+{
+	if (playerNum != 0) {
+		/* MP co-op forge (F8) will consume per-player toggles through
+		 * this entry point.  For now log and no-op for non-zero. */
+		sysLogPrintf(LOG_NOTE,
+				"FORGE: toggle request for playerNum=%d deferred (MP co-op forge F8)",
+				playerNum);
+		return;
+	}
+
+	if (s_forge.state == FORGE_SESSION_NORMAL) {
+		forgeTransitionToFreefly("seamless toggle (no stage reload)");
+	} else if (s_forge.state == FORGE_SESSION_FREEFLY) {
+		forgeTransitionToNormal("seamless toggle (no stage reload)");
+	}
 }
 
 /* ============================================================

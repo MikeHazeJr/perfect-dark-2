@@ -85,6 +85,31 @@ f32  forgeGetCameraYawDeg(void);
 f32  forgeGetCameraPitchDeg(void);
 f32  forgeGetCurrentSpeedScale(void); /* 1.0 default, 3.0 boost, 0.25 precision */
 
+/* ============================================================
+ * Per-player session tracking (foundation for MP co-op forge)
+ *
+ * In a MP co-op forge session each human player can independently be in
+ * FREEFLY (editor) or NORMAL (playtest) mode.  Single-player sessions
+ * currently use playerNum=0 only; wire carries per-player state for the
+ * future.  Stage reload is NEVER triggered by a sub-mode toggle -- the
+ * transition is purely a bondmovemode swap + pos hijack.
+ * ============================================================ */
+
+/** Returns the per-player editor sub-mode (NORMAL or FREEFLY) if that
+ *  player is currently in-session.  Returns FORGE_SESSION_INACTIVE
+ *  for players outside the session. F0 impl: all queries proxy to the
+ *  global state (only playerNum=0 is meaningful on PC). */
+forge_session_state_t forgeGetPlayerSessionState(s32 playerNum);
+
+/** Request a seamless sub-mode toggle for a specific player.  Does NOT
+ *  reload the stage.  Entering FREEFLY snaps Dr. Carroll's camera to
+ *  the player's current pos; exiting FREEFLY puts the player back into
+ *  NORMAL at the freefly camera's final position.  The player chr's
+ *  bodynum/headnum are saved on entry and restored on exit so a future
+ *  engine-level hot-swap can put the Dr. Carroll model visible to other
+ *  players during FREEFLY. */
+void forgeTogglePlayerMode(s32 playerNum);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
