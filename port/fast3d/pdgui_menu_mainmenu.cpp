@@ -1377,46 +1377,146 @@ static void renderSettingsAudio(float scale)
     }
 }
 
-/* ---- Key rebinding state (M0.2 Phase D: uses actionmap instead of CK_*) ---- */
+/* ============================================================================
+ * Input Mapping (S306 redesign — BATCH 1).
+ *
+ * Before S306 the Controls tab exposed only 23 of 57 available actions via a
+ * hardcoded `s_BindableActions[]` list rendered as a flat 3-column table.
+ * Power users couldn't rebind weapon slots, zoom, radial, menu nav, or the
+ * debug / screenshot / scorecard hotkeys at all — those still worked because
+ * of compile-time defaults but vanished from the UI.
+ *
+ * This rewrite covers every gameplay-IMC action (51 — the 4 axis actions are
+ * omitted because they aren't per-key bindings), organised into eight
+ * logical groups with human-readable display names, a live search filter, a
+ * conflict-detection pass that flags keys bound to more than one action, and
+ * a polished per-row layout. The capture flow, Right-click-to-clear, Esc to
+ * cancel, and Reset-to-defaults behaviours carry over unchanged.
+ * ========================================================================= */
 
+/* Capture state — untouched from prior design. */
 static s32 s_CaptureActive = 0;
 static InputAction s_CaptureAction = ACTION_MOVE_FORWARD;
 static s32 s_CaptureColumn = 0;      /* 0 = MKB, 1 = Controller */
 static s32 s_CaptureBind = 0;        /* trigger slot index */
 static s32 s_CaptureIsSecond = 0;
 
-/* Bindable actions table — maps InputAction to display name. */
+/* Logical groupings for the binding list. Keep in sync with s_BindableGroups
+ * below. BG_COUNT is used as a sentinel; do not insert after it. */
+enum BindableGroup {
+    BG_MOVEMENT = 0,
+    BG_AIM,
+    BG_COMBAT,
+    BG_WEAPONS,
+    BG_VEHICLE,
+    BG_MENU_NAV,
+    BG_CBUTTONS,
+    BG_DPAD,
+    BG_SYSTEM,
+    BG_COUNT
+};
+
+struct BindableGroupInfo {
+    int         id;
+    const char *name;
+    const char *blurb;
+};
+
+static const BindableGroupInfo s_BindableGroups[BG_COUNT] = {
+    { BG_MOVEMENT, "Movement",        "Walking, strafing, jumping, crouching." },
+    { BG_AIM,      "Aim",             "Looking, pitching, zoom in / out." },
+    { BG_COMBAT,   "Combat",          "Fire, reload, use, throw weapon." },
+    { BG_WEAPONS,  "Weapons",         "Next / Prev, direct weapon-slot hotkeys." },
+    { BG_VEHICLE,  "Vehicle",         "Drive + exit bindings for pilotable props." },
+    { BG_MENU_NAV, "Menu Navigation", "Nav in ImGui menus / pause / scorecard." },
+    { BG_CBUTTONS, "C-Buttons",       "Legacy C-stick directions (still live for GEX/Dark Noon)." },
+    { BG_DPAD,     "D-Pad",           "Directional pad — often doubles as menu + radial." },
+    { BG_SYSTEM,   "System Hotkeys",  "Screenshots, debug overlay, cheat entry." },
+};
+
 struct BindableAction {
     InputAction action;
     const char *name;
+    int         group;
+    const char *tooltip;   /* NULL if no extra hint needed */
 };
 
+/* Full coverage of the gameplay IMC (AXIS_* actions omitted — they're
+ * synthesised from analog stick input, not per-key bindings). Display
+ * names here are user-facing; the save format keys come from
+ * s_ActionNames[] in actionmap.cpp and are separate. Keep the rows
+ * ordered by group so the renderer doesn't need to sort. */
 static const BindableAction s_BindableActions[] = {
-    { ACTION_MOVE_FORWARD,     "Forward"       },
-    { ACTION_MOVE_BACKWARD,    "Backward"      },
-    { ACTION_MOVE_LEFT,        "Strafe Left"   },
-    { ACTION_MOVE_RIGHT,       "Strafe Right"  },
-    { ACTION_FIRE_PRIMARY,     "Fire"          },
-    { ACTION_FIRE_SECONDARY,   "Aim Mode"      },
-    { ACTION_FIRE_MODE,        "Fire Mode"     },
-    { ACTION_RELOAD,           "Reload"        },
-    { ACTION_WEAPON_NEXT,      "Next Weapon"   },
-    { ACTION_WEAPON_PREV,      "Prev Weapon"   },
-    { ACTION_CANCEL_USE,       "Use / Cancel"  },
-    { ACTION_USE,              "Use / Accept"  },
-    { ACTION_DPAD_DOWN,        "Radial Menu"   },
-    { ACTION_PAUSE,            "Pause Menu"    },
-    { ACTION_JUMP,             "Jump"          },
-    { ACTION_CROUCH,           "Crouch"        },
-    { ACTION_SPRINT,           "Sprint"        },
-    { ACTION_CBUTTON_LEFT,     "C-Left"        },
-    { ACTION_CBUTTON_RIGHT,    "C-Right"       },
-    { ACTION_CBUTTON_UP,       "C-Up"          },
-    { ACTION_CBUTTON_DOWN,     "C-Down"        },
-    { ACTION_DPAD_UP,          "D-Pad Up"      },
-    { ACTION_DPAD_RIGHT,       "D-Pad Right"   },
-    /* ACTION_MENU_ACCEPT and ACTION_MENU_CANCEL removed — consolidated into
-     * ACTION_USE and ACTION_CANCEL_USE respectively. */
+    /* --- Movement --- */
+    { ACTION_MOVE_FORWARD,       "Move Forward",       BG_MOVEMENT, NULL },
+    { ACTION_MOVE_BACKWARD,      "Move Backward",      BG_MOVEMENT, NULL },
+    { ACTION_MOVE_LEFT,          "Strafe Left",        BG_MOVEMENT, NULL },
+    { ACTION_MOVE_RIGHT,         "Strafe Right",       BG_MOVEMENT, NULL },
+    { ACTION_JUMP,               "Jump",               BG_MOVEMENT, NULL },
+    { ACTION_CROUCH,             "Crouch",             BG_MOVEMENT, NULL },
+    { ACTION_SPRINT,             "Sprint",             BG_MOVEMENT, NULL },
+
+    /* --- Aim --- */
+    { ACTION_AIM_UP,             "Look Up",            BG_AIM, "Digital pitch up (controller / keyboard — not mouse)." },
+    { ACTION_AIM_DOWN,           "Look Down",          BG_AIM, "Digital pitch down." },
+    { ACTION_AIM_LEFT,           "Look Left",          BG_AIM, "Digital yaw left." },
+    { ACTION_AIM_RIGHT,          "Look Right",         BG_AIM, "Digital yaw right." },
+    { ACTION_ZOOM_IN,            "Zoom In",            BG_AIM, NULL },
+    { ACTION_ZOOM_OUT,           "Zoom Out",           BG_AIM, NULL },
+
+    /* --- Combat --- */
+    { ACTION_FIRE_PRIMARY,       "Fire",               BG_COMBAT, NULL },
+    { ACTION_FIRE_SECONDARY,     "Aim Mode / Secondary", BG_COMBAT, "Aim-mode on hold, secondary fire in aim mode." },
+    { ACTION_FIRE_MODE,          "Fire Mode",          BG_COMBAT, "Cycle through a weapon's firing modes." },
+    { ACTION_RELOAD,             "Reload",             BG_COMBAT, NULL },
+    { ACTION_USE,                "Use / Interact",     BG_COMBAT, "Doors, terminals, pickups. Doubles as menu Accept." },
+    { ACTION_CANCEL_USE,         "Cancel / Back",      BG_COMBAT, "Abort an interaction. Doubles as menu Cancel." },
+    { ACTION_THROW_WEAPON,       "Throw Weapon",       BG_COMBAT, NULL },
+
+    /* --- Weapons --- */
+    { ACTION_WEAPON_PREV,        "Previous Weapon",    BG_WEAPONS, NULL },
+    { ACTION_WEAPON_NEXT,        "Next Weapon",        BG_WEAPONS, NULL },
+    { ACTION_WEAPON_1,           "Weapon Slot 1",      BG_WEAPONS, "Direct hotkey for weapon slot 1." },
+    { ACTION_WEAPON_2,           "Weapon Slot 2",      BG_WEAPONS, NULL },
+    { ACTION_WEAPON_3,           "Weapon Slot 3",      BG_WEAPONS, NULL },
+    { ACTION_WEAPON_4,           "Weapon Slot 4",      BG_WEAPONS, NULL },
+    { ACTION_WEAPON_5,           "Weapon Slot 5",      BG_WEAPONS, NULL },
+    { ACTION_WEAPON_6,           "Weapon Slot 6",      BG_WEAPONS, NULL },
+
+    /* --- Vehicle --- */
+    { ACTION_VEHICLE_ACCELERATE, "Accelerate",         BG_VEHICLE, NULL },
+    { ACTION_VEHICLE_BRAKE,      "Brake / Reverse",    BG_VEHICLE, NULL },
+    { ACTION_VEHICLE_STEER_LEFT, "Steer Left",         BG_VEHICLE, NULL },
+    { ACTION_VEHICLE_STEER_RIGHT,"Steer Right",        BG_VEHICLE, NULL },
+    { ACTION_VEHICLE_EXIT,       "Exit Vehicle",       BG_VEHICLE, NULL },
+
+    /* --- Menu / Nav --- */
+    { ACTION_PAUSE,              "Pause / Open Menu",  BG_MENU_NAV, NULL },
+    { ACTION_SCORECARD,          "Scorecard",          BG_MENU_NAV, "In-match scoreboard toggle." },
+    { ACTION_MENU_UP,            "Menu Up",            BG_MENU_NAV, NULL },
+    { ACTION_MENU_DOWN,          "Menu Down",          BG_MENU_NAV, NULL },
+    { ACTION_MENU_LEFT,          "Menu Left",          BG_MENU_NAV, NULL },
+    { ACTION_MENU_RIGHT,         "Menu Right",         BG_MENU_NAV, NULL },
+    { ACTION_MENU_TAB_PREV,      "Menu Prev Tab",      BG_MENU_NAV, "LB / PageUp in settings tabs." },
+    { ACTION_MENU_TAB_NEXT,      "Menu Next Tab",      BG_MENU_NAV, "RB / PageDown in settings tabs." },
+
+    /* --- C-Buttons --- */
+    { ACTION_CBUTTON_UP,         "C-Up",               BG_CBUTTONS, "Legacy C-stick up (GEX / Dark Noon inventory)." },
+    { ACTION_CBUTTON_DOWN,       "C-Down",             BG_CBUTTONS, NULL },
+    { ACTION_CBUTTON_LEFT,       "C-Left",             BG_CBUTTONS, NULL },
+    { ACTION_CBUTTON_RIGHT,      "C-Right",            BG_CBUTTONS, NULL },
+
+    /* --- D-Pad --- */
+    { ACTION_DPAD_UP,            "D-Pad Up",           BG_DPAD,     NULL },
+    { ACTION_DPAD_DOWN,          "D-Pad Down",         BG_DPAD,     "Historically \"Radial Menu\" — D-Pad-Down triggers the weapon radial." },
+    { ACTION_DPAD_LEFT,          "D-Pad Left",         BG_DPAD,     NULL },
+    { ACTION_DPAD_RIGHT,         "D-Pad Right",        BG_DPAD,     NULL },
+
+    /* --- System Hotkeys --- */
+    { ACTION_SCREENSHOT,         "Screenshot",         BG_SYSTEM,   "Save a .png of the current frame." },
+    { ACTION_CONSOLE_TOGGLE,     "Console Toggle",     BG_SYSTEM,   NULL },
+    { ACTION_DEBUG_TOGGLE,       "Debug Overlay",      BG_SYSTEM,   "F12 by default — overlay with per-system diagnostics." },
+    { ACTION_CHEAT_ENTER,        "Enter Cheat",        BG_SYSTEM,   "Open the cheat-code entry dialog." },
 };
 #define NUM_BINDABLE_ACTIONS (sizeof(s_BindableActions) / sizeof(s_BindableActions[0]))
 
@@ -1452,9 +1552,72 @@ static s32 findFreeTriggerSlot(InputAction action)
     return 0;
 }
 
+/* Conflict map — computed once per frame, per filter column. Keys are the
+ * u32 VK values. When a VK shows up in more than one bindable action's
+ * triggers we raise a flag so the row's button can render with a red
+ * border. Uses a tiny open-addressing hash over 128 slots — plenty for
+ * 51×2 possible bindings. */
+#define CONFLICT_HASH_SIZE 128
+
+static u32  s_ConflictKey[CONFLICT_HASH_SIZE];   /* vk value (0 = empty) */
+static u8   s_ConflictCount[CONFLICT_HASH_SIZE]; /* # of actions binding this vk */
+
+static void conflictMapReset(void)
+{
+    for (int i = 0; i < CONFLICT_HASH_SIZE; i++) {
+        s_ConflictKey[i]   = 0;
+        s_ConflictCount[i] = 0;
+    }
+}
+static void conflictMapAdd(u32 vk)
+{
+    if (!vk) return;
+    u32 h = (vk * 2654435761u) & (CONFLICT_HASH_SIZE - 1);
+    for (int probe = 0; probe < CONFLICT_HASH_SIZE; probe++) {
+        u32 slot = (h + probe) & (CONFLICT_HASH_SIZE - 1);
+        if (s_ConflictKey[slot] == 0) {
+            s_ConflictKey[slot]   = vk;
+            s_ConflictCount[slot] = 1;
+            return;
+        }
+        if (s_ConflictKey[slot] == vk) {
+            if (s_ConflictCount[slot] < 255) s_ConflictCount[slot]++;
+            return;
+        }
+    }
+}
+static u32 conflictMapCount(u32 vk)
+{
+    if (!vk) return 0;
+    u32 h = (vk * 2654435761u) & (CONFLICT_HASH_SIZE - 1);
+    for (int probe = 0; probe < CONFLICT_HASH_SIZE; probe++) {
+        u32 slot = (h + probe) & (CONFLICT_HASH_SIZE - 1);
+        if (s_ConflictKey[slot] == 0) return 0;
+        if (s_ConflictKey[slot] == vk) return s_ConflictCount[slot];
+    }
+    return 0;
+}
+static void conflictMapRebuild(s32 filterCol)
+{
+    conflictMapReset();
+    for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
+        InputAction action = s_BindableActions[row].action;
+        InputMapping *m = &g_ImcGameplay.mappings[action];
+        for (s32 i = 0; i < m->num_triggers; i++) {
+            u32 vk = m->triggers[i].vk;
+            if (!vk) continue;
+            bool isMkb  = isVkMKB(vk);
+            bool isCtrl = isVkController(vk);
+            if (filterCol == 0 && !isMkb)  continue;
+            if (filterCol == 1 && !isCtrl) continue;
+            conflictMapAdd(vk);
+        }
+    }
+}
+
 static void renderBindButton(InputAction action, const char *idSuffix, s32 captureCol,
                               s32 isSecond, u32 vk, s32 slot, s32 otherSlot,
-                              bool *rowHov, bool *rowNav)
+                              bool *rowHov, bool *rowNav, bool conflict)
 {
     char btnLabel[64];
     bool isCap = (s_CaptureActive && s_CaptureAction == action
@@ -1465,6 +1628,20 @@ static void renderBindButton(InputAction action, const char *idSuffix, s32 captu
     } else {
         snprintf(btnLabel, sizeof(btnLabel), "%s##%s_%d", getBindName(vk), idSuffix, (int)action);
     }
+
+    /* Conflict + capture state feedback — push a coloured border so the
+     * affordance reads at a glance without demanding a tooltip. */
+    int pushedBorder = 0;
+    if (conflict) {
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.85f, 0.20f, 0.20f, 1.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
+        pushedBorder = 1;
+    } else if (isCap) {
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.95f, 0.75f, 0.15f, 1.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
+        pushedBorder = 1;
+    }
+
     if (ImGui::SmallButton(btnLabel) && !s_CaptureActive) {
         s32 useSlot = slot;
         if (useSlot < 0) {
@@ -1485,6 +1662,16 @@ static void renderBindButton(InputAction action, const char *idSuffix, s32 captu
         s_CaptureBind = useSlot;
         inputClearLastKey();
         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+    }
+
+    if (pushedBorder) {
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
+    }
+
+    if (conflict && ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Conflict: '%s' is bound to more than one action in this device group.",
+                          getBindName(vk));
     }
     if (ImGui::IsItemHovered()) *rowHov = true;
     if (ImGui::IsItemFocused()) *rowNav = true;
@@ -1509,6 +1696,28 @@ static s32 s_ControlsSubTab = 0;
 
 /* Track whether we need to reload binds on Controls tab entry */
 static bool s_ControlsNeedsInit = true;
+
+/* S306: optional search filter. Empty means "show all". Case-insensitive
+ * substring match on the display name. */
+static char s_BindSearch[64] = "";
+
+static bool stringIContains(const char *hay, const char *needle)
+{
+    if (!needle || !needle[0]) return true;
+    if (!hay) return false;
+    size_t nlen = strlen(needle);
+    for (size_t i = 0; hay[i]; i++) {
+        size_t k = 0;
+        while (k < nlen && hay[i + k]) {
+            char a = hay[i + k]; if (a >= 'A' && a <= 'Z') a += 32;
+            char b = needle[k];  if (b >= 'A' && b <= 'Z') b += 32;
+            if (a != b) break;
+            k++;
+        }
+        if (k == nlen) return true;
+    }
+    return false;
+}
 
 /* Shared capture-mode handler — called at the top of each sub-tab that uses it. */
 static void handleCaptureInput(void)
@@ -1535,85 +1744,160 @@ static void handleCaptureInput(void)
     }
 }
 
-/* Render a 3-column bind table for one device type (MKB or Controller).
- * filterCol: 0 = MKB, 1 = Controller. */
+/* Render the grouped bind list for one device type (MKB or Controller).
+ * filterCol: 0 = MKB, 1 = Controller. S306 rewrite replaces the old flat
+ * 3-column table with per-group collapsing sections, a live search field,
+ * and red-border conflict highlighting. */
 static void renderBindTable(s32 filterCol, const char *tableId)
 {
-    /* Capture banner */
+    /* Capture banner — sticky at the top of the list so the user doesn't
+     * scroll away from it. */
     if (s_CaptureActive && s_CaptureColumn == filterCol) {
+        u32 warnRgba = pdguiGetTextWarning();
+        ImVec4 warnCol = ImVec4(
+            ((warnRgba >> 24) & 0xFF) / 255.0f,
+            ((warnRgba >> 16) & 0xFF) / 255.0f,
+            ((warnRgba >>  8) & 0xFF) / 255.0f,
+            ((warnRgba >>  0) & 0xFF) / 255.0f);
         const char *typeStr = (filterCol == 0) ? "keyboard/mouse" : "controller";
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f),
+        ImGui::TextColored(warnCol,
             "Press a %s key for \"%s\" (Esc to cancel)",
             typeStr, getActionName(s_CaptureAction));
         ImGui::Spacing();
     }
+
+    /* Search / filter input — stays focused for quick access. The suffix on
+     * the label varies per device so MKB and Controller don't share state. */
+    {
+        char label[32];
+        snprintf(label, sizeof(label), "Search##bsrch_%d", (int)filterCol);
+        ImGui::SetNextItemWidth(260.0f);
+        if (ImGui::InputTextWithHint(label, "filter by action name", s_BindSearch,
+                                     sizeof(s_BindSearch))) {
+            /* no side effects; next frame's loop picks it up */
+        }
+        if (s_BindSearch[0]) {
+            ImGui::SameLine();
+            char clearLbl[32];
+            snprintf(clearLbl, sizeof(clearLbl), "Clear##bclr_%d", (int)filterCol);
+            if (ImGui::SmallButton(clearLbl)) s_BindSearch[0] = '\0';
+        }
+    }
+
+    /* Conflict detection pass — per-column so a keyboard key can legitimately
+     * coexist with an identically-named controller button without flagging. */
+    conflictMapRebuild(filterCol);
 
     ImGuiTableFlags tableFlags = ImGuiTableFlags_BordersInnerV
                                 | ImGuiTableFlags_RowBg
                                 | ImGuiTableFlags_SizingStretchProp
                                 | ImGuiTableFlags_PadOuterX;
 
-    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.0f, 1.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(3.0f, 1.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 1.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.0f, 2.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 2.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 2.0f));
 
-    if (ImGui::BeginTable(tableId, 3, tableFlags)) {
-        ImGui::TableSetupColumn("Action",  ImGuiTableColumnFlags_WidthStretch, 1.6f);
-        ImGui::TableSetupColumn("Bind 1",  ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableSetupColumn("Bind 2",  ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableHeadersRow();
-
+    /* Per-group render. Each group is an explicit header row + its own
+     * table — lets us keep row-striping clean + localise horizontal
+     * layout per group (all groups currently use the same 3-col layout
+     * but future groups, e.g. toggle-on-release, can extend). */
+    for (int g = 0; g < BG_COUNT; g++) {
+        /* Pre-count how many rows in this group pass the search filter
+         * so we can hide empty groups. */
+        int hits = 0;
         for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
-            InputAction action = s_BindableActions[row].action;
-            const char *actionName = s_BindableActions[row].name;
-
-            u32 mkbVKs[2], ctrlVKs[2];
-            s32 mkbSlots[2], ctrlSlots[2];
-            s32 mkbCount, ctrlCount;
-            getBindsByType(action, mkbVKs, mkbSlots, &mkbCount,
-                           ctrlVKs, ctrlSlots, &ctrlCount);
-
-            u32 *vks    = (filterCol == 0) ? mkbVKs    : ctrlVKs;
-            s32 *slots  = (filterCol == 0) ? mkbSlots  : ctrlSlots;
-            const char *prefix = (filterCol == 0) ? "mkb" : "ctrl";
-
-            ImGui::TableNextRow();
-            bool rowHovered = false;
-            bool rowNavFocus = false;
-
-            ImGui::TableSetColumnIndex(0);
-            ImGui::TextUnformatted(actionName);
-
-            char id1[16], id2[16];
-            snprintf(id1, sizeof(id1), "%s1", prefix);
-            snprintf(id2, sizeof(id2), "%s2", prefix);
-
-            ImGui::TableSetColumnIndex(1);
-            renderBindButton(action, id1, filterCol, 0, vks[0],
-                             (slots[0] >= 0) ? slots[0] : findFreeTriggerSlot(action),
-                             slots[1], &rowHovered, &rowNavFocus);
-
-            ImGui::TableSetColumnIndex(2);
-            renderBindButton(action, id2, filterCol, 1, vks[1], slots[1], slots[0],
-                             &rowHovered, &rowNavFocus);
-
-            if (s_CaptureActive && s_CaptureAction == action && s_CaptureColumn == filterCol) {
-                rowNavFocus = true;
-            }
-            if (rowHovered || rowNavFocus) {
-                ImU32 hlColor = rowNavFocus
-                    ? IM_COL32(80, 120, 200, 80)
-                    : IM_COL32(200, 200, 255, 40);
-                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, hlColor);
-            }
+            if (s_BindableActions[row].group != g) continue;
+            if (!stringIContains(s_BindableActions[row].name, s_BindSearch)) continue;
+            hits++;
         }
+        if (hits == 0) continue;
 
-        ImGui::EndTable();
+        /* Group header. Uses the theme's warning (amber) color for a
+         * consistent section-heading look across the Interface / Debug
+         * tabs and the Theme Editor. */
+        u32 warnRgba = pdguiGetTextWarning();
+        ImVec4 warnCol = ImVec4(
+            ((warnRgba >> 24) & 0xFF) / 255.0f,
+            ((warnRgba >> 16) & 0xFF) / 255.0f,
+            ((warnRgba >>  8) & 0xFF) / 255.0f,
+            ((warnRgba >>  0) & 0xFF) / 255.0f);
+        ImGui::TextColored(warnCol, "%s", s_BindableGroups[g].name);
+        ImGui::SameLine();
+        ImGui::TextDisabled("  %s", s_BindableGroups[g].blurb);
+        ImGui::Separator();
+
+        char perTableId[64];
+        snprintf(perTableId, sizeof(perTableId), "%s_g%d", tableId, g);
+
+        if (ImGui::BeginTable(perTableId, 3, tableFlags)) {
+            ImGui::TableSetupColumn("Action",  ImGuiTableColumnFlags_WidthStretch, 1.6f);
+            ImGui::TableSetupColumn("Bind 1",  ImGuiTableColumnFlags_WidthStretch, 1.0f);
+            ImGui::TableSetupColumn("Bind 2",  ImGuiTableColumnFlags_WidthStretch, 1.0f);
+            ImGui::TableHeadersRow();
+
+            for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
+                if (s_BindableActions[row].group != g) continue;
+                if (!stringIContains(s_BindableActions[row].name, s_BindSearch)) continue;
+
+                InputAction action        = s_BindableActions[row].action;
+                const char *actionName    = s_BindableActions[row].name;
+                const char *actionTooltip = s_BindableActions[row].tooltip;
+
+                u32 mkbVKs[2], ctrlVKs[2];
+                s32 mkbSlots[2], ctrlSlots[2];
+                s32 mkbCount, ctrlCount;
+                getBindsByType(action, mkbVKs, mkbSlots, &mkbCount,
+                               ctrlVKs, ctrlSlots, &ctrlCount);
+
+                u32 *vks    = (filterCol == 0) ? mkbVKs    : ctrlVKs;
+                s32 *slots  = (filterCol == 0) ? mkbSlots  : ctrlSlots;
+                const char *prefix = (filterCol == 0) ? "mkb" : "ctrl";
+
+                ImGui::TableNextRow();
+                bool rowHovered = false;
+                bool rowNavFocus = false;
+
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextUnformatted(actionName);
+                if (actionTooltip && ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", actionTooltip);
+                }
+
+                char id1[24], id2[24];
+                snprintf(id1, sizeof(id1), "%s1g%d", prefix, g);
+                snprintf(id2, sizeof(id2), "%s2g%d", prefix, g);
+
+                ImGui::TableSetColumnIndex(1);
+                renderBindButton(action, id1, filterCol, 0, vks[0],
+                                 (slots[0] >= 0) ? slots[0] : findFreeTriggerSlot(action),
+                                 slots[1], &rowHovered, &rowNavFocus,
+                                 conflictMapCount(vks[0]) > 1);
+
+                ImGui::TableSetColumnIndex(2);
+                renderBindButton(action, id2, filterCol, 1, vks[1], slots[1], slots[0],
+                                 &rowHovered, &rowNavFocus,
+                                 conflictMapCount(vks[1]) > 1);
+
+                if (s_CaptureActive && s_CaptureAction == action && s_CaptureColumn == filterCol) {
+                    rowNavFocus = true;
+                }
+                if (rowHovered || rowNavFocus) {
+                    ImU32 hlColor = rowNavFocus
+                        ? IM_COL32(80, 120, 200, 80)
+                        : IM_COL32(200, 200, 255, 40);
+                    ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, hlColor);
+                }
+            }
+
+            ImGui::EndTable();
+        }
+        ImGui::Spacing();
     }
     ImGui::PopStyleVar(3);
 
     ImGui::Spacing();
-    ImGui::TextDisabled("Click to rebind. Right-click to clear. Esc to cancel.");
+    ImGui::TextDisabled("Click to rebind.  Right-click to clear.  Esc to cancel.");
+    ImGui::TextDisabled("A red-bordered bind means the same key is used for another action in this group.");
 }
 
 static void renderSettingsControls(float scale)
@@ -1821,15 +2105,8 @@ static void renderSettingsControls(float scale)
         ImGui::EndTabBar();
     }
 
-    /* ---- Save Controls button ---- */
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-    if (PdButton("Save Controls")) {
-        actionmapSaveBinds();
-        configSave("pd.ini");
-        pdguiPlaySound(PDGUI_SND_SELECT);
-    }
+    /* S306: removed the redundant "Save Controls" button — every rebind +
+     * per-slider change already calls actionmapSaveBinds + configSave. */
 }
 
 static void renderSettingsGame(float scale)
