@@ -1221,10 +1221,28 @@ void pdguiThemeLoaderInit(void)
         }
     }
 
-    /* Apply the configured theme (if no first-sight override happened) */
-    s32 palIdx = pdguiThemeIdToPaletteIndex(s_ActiveThemeId);
-    if (palIdx >= 0) {
-        pdguiThemeSetPalette(palIdx);
+    /* S305: apply the configured theme (if no first-sight override already
+     * applied one).  Previously only built-in palette themes were applied on
+     * startup, because the fallback only called pdguiThemeSetPalette directly;
+     * mod themes (file-based theme.json under mods/) resolved via
+     * pdguiThemeLoadFromCatalog were silently skipped on every restart,
+     * reverting the user to the default built-in palette.  Route through
+     * pdguiThemeLoadFromCatalog so BOTH builtin and mod themes apply. */
+    if (s_ActiveThemeId[0]) {
+        s32 palIdx = pdguiThemeIdToPaletteIndex(s_ActiveThemeId);
+        if (palIdx >= 0) {
+            pdguiThemeSetPalette(palIdx);
+        } else {
+            /* Mod theme — load from the registry (which scan_mods_for_themes
+             * has already populated) so theme_def JSON gets applied. */
+            s32 ok = pdguiThemeLoadFromCatalog(s_ActiveThemeId);
+            if (!ok) {
+                sysLogPrintf(LOG_WARNING,
+                    "PDGUI theme loader: saved theme '%s' not resolvable on startup — "
+                    "falling back to default palette",
+                    s_ActiveThemeId);
+            }
+        }
     }
 }
 

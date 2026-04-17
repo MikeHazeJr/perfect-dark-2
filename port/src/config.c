@@ -11,6 +11,7 @@
 #define CONFIG_MAX_SECNAME 128
 #define CONFIG_MAX_KEYNAME 256
 #define CONFIG_MAX_SETTINGS 512
+#define CONFIG_PENDING_VAL_MAX 256
 
 typedef enum {
 	CFG_NONE,
@@ -31,6 +32,15 @@ struct configentry {
 		struct { u32 min_u32, max_u32; };
 		u32 max_str;
 	};
+	/* S305: raw value stashed by configLoad when the key is seen before the
+	 * owning subsystem has had a chance to call configRegister*.  When the
+	 * registration eventually arrives, we replay the pending value into the
+	 * now-typed ptr.  Fixes theme/chrome/title-bar persistence bug where
+	 * pd.ini is read (in configInit) before pdguiThemeInit registers its
+	 * Video.* keys — the saved value was silently dropped and the next
+	 * restart reverted to defaults. */
+	char pending[CONFIG_PENDING_VAL_MAX];
+	u8 has_pending;
 } settings[CONFIG_MAX_SETTINGS];
 
 static s32 numSettings = 0;
@@ -101,6 +111,21 @@ static inline const char *configGetSection(char *sec, const struct configentry *
 	return sec;
 }
 
+/* Forward declarations for S305 pending-value replay plumbing. */
+static void configApplyEntry(struct configentry *cfg, const char *val);
+static void configStashPending(struct configentry *cfg, const char *val);
+
+/* S305: replay a pending raw value (stashed by configLoad before this
+ * entry was registered).  Called at the tail of every configRegister*. */
+static void configReplayPending(struct configentry *cfg)
+{
+	if (cfg && cfg->has_pending) {
+		configApplyEntry(cfg, cfg->pending);
+		cfg->has_pending = 0;
+		cfg->pending[0] = '\0';
+	}
+}
+
 void configRegisterInt(const char *key, s32 *var, s32 min, s32 max)
 {
 	struct configentry *cfg = configFindOrAddEntry(key);
@@ -109,6 +134,7 @@ void configRegisterInt(const char *key, s32 *var, s32 min, s32 max)
 		cfg->ptr = var;
 		cfg->min_s32 = min;
 		cfg->max_s32 = max;
+		configReplayPending(cfg);
 	}
 }
 
@@ -120,6 +146,7 @@ void configRegisterUInt(const char* key, u32* var, u32 min, u32 max)
 		cfg->ptr = var;
 		cfg->min_u32 = min;
 		cfg->max_u32 = max;
+		configReplayPending(cfg);
 	}
 }
 
@@ -131,6 +158,7 @@ void configRegisterFloat(const char *key, f32 *var, f32 min, f32 max)
 		cfg->ptr = var;
 		cfg->min_f32 = min;
 		cfg->max_f32 = max;
+		configReplayPending(cfg);
 	}
 }
 
@@ -141,14 +169,12 @@ void configRegisterString(const char *key, char *var, u32 maxstr)
 		cfg->type = CFG_STR;
 		cfg->ptr = var;
 		cfg->max_str = maxstr;
+		configReplayPending(cfg);
 	}
 }
 
-static void configSetFromString(const char *key, const char *val)
+static void configApplyEntry(struct configentry *cfg, const char *val)
 {
-	struct configentry *cfg = configFindEntry(key);
-	if (!cfg) return;
-
 	s32 tmp_s32;
 	f32 tmp_f32;
 	u32 tmp_u32;
@@ -186,6 +212,33 @@ static void configSetFromString(const char *key, const char *val)
 	}
 }
 
+static void configStashPending(struct configentry *cfg, const char *val)
+{
+	if (!cfg || !val) return;
+	const size_t maxlen = CONFIG_PENDING_VAL_MAX - 1;
+	strncpy(cfg->pending, val, maxlen);
+	cfg->pending[maxlen] = '\0';
+	cfg->has_pending = 1;
+}
+
+static void configSetFromString(const char *key, const char *val)
+{
+	/* S305: use FindOrAdd so keys loaded from pd.ini BEFORE the owning
+	 * subsystem has registered their ptr still retain the raw value.
+	 * configRegister* will replay pending values when the entry type
+	 * gets set. */
+	struct configentry *cfg = configFindOrAddEntry(key);
+	if (!cfg) return;
+
+	if (cfg->type == CFG_NONE) {
+		/* Not yet registered — stash raw value for later replay. */
+		configStashPending(cfg, val);
+		return;
+	}
+
+	configApplyEntry(cfg, val);
+}
+
 static void configSaveEntry(struct configentry *cfg, FILE *f)
 {
 	switch (cfg->type) {
@@ -211,6 +264,13 @@ static void configSaveEntry(struct configentry *cfg, FILE *f)
 			fprintf(f, "%s=%s\n", cfg->key + cfg->seclen + 1, (char *)cfg->ptr);
 			break;
 		default:
+			/* S305: unregistered key with a pending raw value — preserve it on
+			 * save so an uninitialised subsystem doesn't lose user data.  Once
+			 * the owning subsystem registers later, the replay path applies
+			 * the value and the next save will write the typed form. */
+			if (cfg->has_pending) {
+				fprintf(f, "%s=%s\n", cfg->key + cfg->seclen + 1, cfg->pending);
+			}
 			break;
 	}
 }
