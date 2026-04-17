@@ -1803,7 +1803,7 @@ static void renderBindTable(s32 filterCol, const char *tableId)
     {
         char label[32];
         snprintf(label, sizeof(label), "Search##bsrch_%d", (int)filterCol);
-        ImGui::SetNextItemWidth(260.0f);
+        ImGui::SetNextItemWidth(pdguiScale(260.0f));
         if (ImGui::InputTextWithHint(label, "filter by action name", s_BindSearch,
                                      sizeof(s_BindSearch))) {
             /* no side effects; next frame's loop picks it up */
@@ -1825,9 +1825,9 @@ static void renderBindTable(s32 filterCol, const char *tableId)
                                 | ImGuiTableFlags_SizingStretchProp
                                 | ImGuiTableFlags_PadOuterX;
 
-    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.0f, 2.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 2.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 2.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding,  ImVec2(pdguiScale(4.0f), pdguiScale(2.0f)));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(pdguiScale(4.0f), pdguiScale(2.0f)));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,  ImVec2(pdguiScale(4.0f), pdguiScale(2.0f)));
 
     /* Per-group render. Each group is an explicit header row + its own
      * table — lets us keep row-striping clean + localise horizontal
