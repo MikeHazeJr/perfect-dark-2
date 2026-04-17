@@ -72,6 +72,70 @@ The fixes are **defensive** — they prevent the AV and log a diagnostic when th
 
 ---
 
+## Session S306 — 2026-04-16 / 2026-04-17 (Interface tab + Input Mapping redesign + theme palette extensions + delete flow + X-button close fix — dev direct)
+
+**Scope**: Mike's multi-batch request — redesign Input Mapping screen, add delete actions for themes/mods, extend theme color editor, plus three addenda: new Settings → Interface tab, theme-bundle UI, per-agent settings. Worked directly on `dev` (no worktree). Six commits landed; per-agent prefs deferred to its own session.
+
+### Commits on dev
+
+| SHA | Scope |
+|---|---|
+| `feb5431c` | **Palette extensions** — 5 new palette fields (toolbar_tint, text_positive, text_warning, button_hover, button_active) + `checkbox_checked` now live. `pdgui_palette` struct gains 5-field tail; zero = derived default. New accessors `pdguiGetToolbarTint/TextPositive/TextWarning/CheckmarkColor` exposed via pdgui_style.h. Theme.json schema gains `toolbarTint`/`textPositive`/`textWarning`/`buttonHover`/`buttonActive` (snake + camel aliases, plus `checkmark` alias for `checkbox_checked`). Theme Editor rebuilt with grouped sections (Frame / Text / Interact / Semantic / Reserved) + per-row tooltip + "(auto)" reset button on extension slots. Moddinghub tool selector now pulls its active tint from `pdguiGetToolbarTint` instead of hardcoded blue. |
+| `a504f3e7` | **Interface tab + delete scaffolding**. New `Settings → Interface` tab (between Video and Audio, index 1). Moved Menu Style / Title Bar / Font dropdowns out of Video and the Color Theme selector out of Debug — each still lives in one place. Added "Open Color Editor..." + "Open Menu Style Tool..." buttons that launch the deeper tools via the new `pdguiModdingHubShowTool(int tool)` entry point. Tab order is now 0=Video 1=Interface 2=Audio 3=Controls 4=Game 5=Updates 6=Debug 7=Catalog — `ciRedirectTargetTabForDialog` updated to match. Delete support: `pdguiThemeGetFilePath(s32)` exposed; `pdguiInterfaceRequestThemeDelete/ModDelete` + `pdguiInterfaceRenderDeleteConfirm` implemented — right-click or controller X-button on a user theme opens the context menu with "Delete Theme…"; confirmation modal echoes the on-disk path, deletes theme.json / mod.json / audio.ini, then rmdirs the folder (best-effort — user-added files stop rmdir cleanly). Theme rescan fires on success. |
+| `ae4f2f50` | **Input Mapping redesign (BATCH 1)**. Pulled all 51 gameplay-IMC actions into the UI (previously 23); `AXIS_*` stays excluded because they're analog-synthesised. Nine-group taxonomy (Movement / Aim / Combat / Weapons / Vehicle / Menu Nav / C-Buttons / D-Pad / System Hotkeys). Added: live search filter (case-insensitive substring match), per-column conflict detection with red-border render on any VK bound to two or more actions, per-row tooltips for non-obvious actions (Fire Mode, D-Pad Down = radial, etc.), capture-state yellow-border affordance. Removed the redundant "Save Controls" button at the bottom (every rebind already auto-saves via actionmapSaveBinds + configSave). Click-to-rebind / right-click-to-clear / Esc-to-cancel preserved. |
+| `5840f28a` | **(Mike parallel — S308)**. Door-tick bbox NULL guard + pause menu hardening. Absorbed my BATCH 2 delete wiring (right-click + controller X-button → "Delete Mod…" on Installed Mods tab; delete-confirm modal rendered both from Interface tab and from inside the Modding Hub so deletes initiated in the hub don't depend on Settings being open). |
+| `db509d87` | **Theme Editor bundle dropdowns**. Added "Menu Style (optional)" + "Font (optional)" dropdowns to the Save-as-Mod panel, populated from `pdguiThemeGetChromeStyle{Id,Name}` and `pdguiFontModGet{Id,Name}`. Selection writes into theme.json as `menuStyle` / `font` keys per the S305 P4 schema. Both default to "(none)" — omits the key entirely when unbundled so older loaders stay byte-identical. |
+| `affc61fa` | **X-button close path + ctx-leak fix**. Direct-signal close channel (`s_TitleCloseFrame` + `pdguiConsumeTitleClose()`) replaces pure-Escape-injection from the title X button. Fixes the "first X click does nothing, second click works" symptom — ImGui's own nav was eating the injected Escape edge before the renderer's IsKeyPressed saw it. Escape AddKeyEvent fallback preserved for renderers that haven't been migrated yet. Also adds a defensive `inputCtxPopDeferred(&g_CtxImGuiMenu)` in the top-level main-menu close path — catches the ctx-leak class where `renderCiSettingsRedirect` pushes the ctx at boot and never pops, which was producing "movement locked after menu closed" because g_ImcMenu stayed priority-active. NOTE log fires when the defensive pop catches a leak. |
+
+### Log investigation
+
+Mike's post-S305 playtest log (`Downloads/Perfect Dark 2.0/pd-client.log`, 22:48 → 23:40) showed:
+
+- `MENUPOOL: acquired main_menu` at 00:03.55 with `ctx=none(shared)` — same symptom Mike reported before S304 rebuild. Root cause: `INPUTCTX: imgui_menu on_push` at **00:01.30** (one second after boot, before main menu ever opens) — `renderCiSettingsRedirect` auto-pushes `g_CtxImGuiMenu` when the CI Options dialog opens at boot and never pops it (that renderer is still on the raw ctx pattern, per the S304 deferred-migration list). When the main menu opens, the pool's acquire finds `g_CtxImGuiMenu` already on the stack → attaches in "shared" mode, does not own the pop on release. All subsequent menu close paths leave the ctx stuck, g_ImcMenu stays priority-active, and movement input gets routed away from gameplay.
+- `affc61fa`'s defensive pop catches this on top-level main-menu close. A proper fix is to migrate `renderCiSettingsRedirect` (+ `renderCiDeadPlayer2` + `renderCinemaList`) to the S300 pool-owned ctx pattern; queued as S304 follow-up.
+- No crash, no watchdog warnings, audio underruns persist (~37/30s) — B-141 unchanged.
+
+### Not fixed in this session (deferred)
+
+- **Per-agent prefs.ini** — design doc `context/designs/theme-bundle-and-per-agent-settings-2026-04-16.md` already covers the storage layout + agent-switch hook + Settings write-through. Implementation estimate ~300-400 lines; dedicated future session because of careful test-matrix needs (mid-match switch, guest agent, Settings-open switch). Theme bundle plumbing that per-agent depends on already shipped in S305 + this session's Theme Editor bundle dropdowns.
+- **renderCiSettingsRedirect / renderCiDeadPlayer2 / renderCinemaList migration to S300 pool ctx** — still on raw `inputCtxPush/Pop`. `affc61fa`'s defensive pop hides the symptom; the underlying leak class remains.
+- **B-141 audio underruns** — persistent but not catastrophic.
+- **Settings Close X button on non-main-menu dialogs** — the S306 X-click fix only wires `pdguiConsumeTitleClose()` into `renderMainMenu`'s close handler. The CI redirect, endscreen, pause menu, modding hub, and theme editor still rely on the Escape fallback. Sweep queued.
+
+### Files touched
+
+- `port/fast3d/pdgui_style.cpp` + `port/include/pdgui_style.h` — palette struct extension, `pdguiSetPaletteExtensions`, semantic accessors, `s_TitleCloseFrame` + `pdguiConsumeTitleClose`.
+- `port/fast3d/pdgui_theme_loader.cpp` + `port/include/pdgui_theme_loader.h` — 20-field palette in theme_def, alias table, `pdguiThemeGetFilePath`, apply_theme_def forwards extensions.
+- `port/fast3d/pdgui_menu_theme_editor.cpp` — grouped sections, bundle dropdowns, 20-slot working palette, skip-zero save.
+- `port/fast3d/pdgui_menu_mainmenu.cpp` — **largest change this session**: Interface tab (`renderSettingsInterface` ~300 lines), moved Menu Style / Title Bar / Font / Color Theme out of Video + Debug tabs, delete helpers + confirm modal, input mapping rewrite (`s_BindableGroups` + `s_BindableActions` with all 51 entries + conflict map + search + grouped rendering), X-button close + defensive ctx pop. Also shifted s_SettingsSubTab indices for the new Interface tab (0=Video 1=Interface 2=Audio 3=Controls 4=Game 5=Updates 6=Debug 7=Catalog) and updated `ciRedirectTargetTabForDialog` + Controls-tab re-init guard to match.
+- `port/fast3d/pdgui_menu_moddinghub.cpp` — `pdguiModdingHubShowTool(int)` entry for deep-links from the Interface tab; toolbar tint now uses `pdguiGetToolbarTint`.
+- `port/fast3d/pdgui_menu_modmgr.cpp` — (landed via Mike's 5840f28a) right-click + controller X-button → "Delete Mod…" context menu on Installed Mods tab; delete-confirm modal rendered from within modmgr too.
+
+### Build verify
+
+All six commits built clean via `source devtools/build-env.sh && ninja -C Build pd pd-server`. Final `PerfectDark.exe` ~51.5 MB, `PerfectDarkServer.exe` ~22.9 MB. Only pre-existing warnings (propobj.c size-casts, xrayalphafrac may-be-uninit, ImageBase comment-in-comment).
+
+### Playtest punch list (what Mike should exercise)
+
+1. **Interface tab** — open Settings, confirm a new "Interface" tab sits between Video and Audio. All four dropdowns (Color Theme, Menu Style, Title Bar, Font) + Open Color Editor + Open Menu Style Tool should work from it. LB/RB bumpers cycle through 8 tabs now instead of 7.
+2. **Color Theme delete** — right-click a user theme in Interface tab → "Delete Theme…" → confirm. Theme should disappear from the list without a restart. Built-in themes should refuse the delete silently.
+3. **Mod delete** — right-click a mod in Modding Hub → Mod Manager tab → "Delete Mod…" → confirm. Mod disappears from the list.
+4. **Controller X-button** — GamepadFaceLeft on focused theme/mod row opens the same context menu. No-op on built-in themes.
+5. **Theme palette extensions** — open Theme Editor. Four groups visible (Window Frame / Text Colors / Interactive Elements / Semantic Accents) + checkbox to show Reserved. "Auto" button on Semantic slots resets them to the derived default. Save as mod → theme.json only includes extension keys that were actually touched.
+6. **Theme bundle** — open Theme Editor → fill Name, pick a Menu Style (optional) + Font (optional), Save. Open the resulting `mods/<slug>/theme.json` and confirm `menuStyle` / `font` keys are present.
+7. **Input Mapping redesign** — Settings → Controls → Keyboard & Mouse. Should see Movement / Aim / Combat / Weapons / Vehicle / Menu Nav / C-Buttons / D-Pad / System Hotkeys group headers. Search box filters by action name. Bind "W" to two actions deliberately — both should show red borders. Click Fire Mode — should rebind cleanly to next press (try a controller button — should play error sfx because MKB tab is showing).
+8. **X-button close on Settings** — open Settings, click the X in the top-right on the first attempt. Should close to main menu immediately. If it works first-try, `affc61fa` landed. Log should show `MENU_IMGUI: main menu ESC — settings CLOSE (view 2->0) [via X]`.
+9. **Movement after menu close** — open main menu, close it, WASD should move immediately. If log shows `MENU_IMGUI: defensive inputCtxPopDeferred(g_CtxImGuiMenu) — leak class caught`, that means the ctx-leak was caught and unlocked movement.
+
+### Constraints touched
+
+- **Interface tab + sub-tab numbering** — `s_SettingsSubTab` range is now 0..7 (was 0..6). Downstream code that compares specific index literals (Controls re-init guard at old index 2, CI redirect mapper) updated.
+- **Theme palette size** — `struct pdgui_palette` gained a 5-field tail. `pdguiSetPaletteCustom` now memcpys only the legacy 15 fields to avoid buffer over-read; new `pdguiSetPaletteExtensions` writes the tail.
+- **Theme editor working palette** — `s_WorkPalette[15]` expanded to `s_WorkPalette[20]`; snapshot + reset paths cover the full 20.
+- **Theme.json schema** — gained optional extension keys (`toolbarTint`, `textPositive`, `textWarning`, `buttonHover`, `buttonActive`, plus `checkmark` / `checkMark` aliases for `checkbox_checked`). Older loaders skip unknown keys.
+
+---
+
 ## Session S305 — 2026-04-16 (Playtest batch: content inset + settings persistence + font mods + theme bundle — dev direct)
 
 **Scope**: Mike's post-S304 playtest surfaced eight issues in one pass; worked directly on `dev` (no worktree). All items landed + pushed to origin.

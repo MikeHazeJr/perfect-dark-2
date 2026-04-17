@@ -7,6 +7,32 @@
 
 ---
 
+## Open — 2026-04-17 (S306 — dev direct)
+
+### Playtest verification of the S306 multi-batch drop
+
+Commits on `dev`: `feb5431c` palette extensions, `a504f3e7` Interface tab + delete scaffolding, `ae4f2f50` input mapping redesign, `5840f28a` (Mike parallel, absorbs BATCH 2 mod delete wiring), `db509d87` Theme Editor bundle dropdowns, `affc61fa` X-button close fix + defensive ctx pop.
+
+1. **Interface tab** — open Settings. New "Interface" tab between Video and Audio. Dropdowns for Color Theme / Menu Style / Title Bar / Font all live here. "Open Color Editor..." and "Open Menu Style Tool..." buttons launch the deeper tools. LB/RB bumpers cycle through 8 tabs.
+2. **Color Theme delete** — right-click a user theme (mod theme, not Grey/Blue/Red/Green/White/Silver/Black & Gold) → "Delete Theme…" → confirm. Theme disappears immediately. Built-ins silently refuse. GamepadFaceLeft (controller X) on focused row also opens the context menu.
+3. **Mod delete** — open Modding Hub → Installed Mods tab. Right-click (or X-button) a mod → "Delete Mod…" → confirm. Mod disappears.
+4. **Theme palette extensions** — open Theme Editor (Interface tab → Open Color Editor). Four groups visible: Window Frame / Text Colors / Interactive Elements / Semantic Accents (+ Reserved behind checkbox). "(auto)" button on Semantic slots zeros to derived default. Save as mod → examine theme.json in `mods/<slug>/` and confirm only the extension keys you actually touched are present.
+5. **Theme bundle authoring** — Theme Editor → fill Name → pick a Menu Style (optional) + Font (optional) → Save. Confirm `menuStyle` / `font` keys appear in the saved theme.json.
+6. **Input Mapping redesign** — Settings → Controls → Keyboard & Mouse. Group headers visible (Movement / Aim / Combat / Weapons / Vehicle / Menu Nav / C-Buttons / D-Pad / System Hotkeys). Search box filters by action name. Deliberately bind W to two actions — both show red borders with "Conflict: 'W' is bound to more than one action" tooltip. Non-obvious actions show explanatory tooltips on hover (Fire Mode, D-Pad Down, C-Up, etc.). "Save Controls" button at the bottom is gone (auto-saves).
+7. **X-button close on Settings** — open Settings, click the X on the first attempt. Should close on first click. Log: `MENU_IMGUI: main menu ESC — settings CLOSE (view 2->0) [via X]` (the `[via X]` suffix is diagnostic — if you see it, the direct-signal channel fired).
+8. **Movement after menu close** — open main menu, close. WASD should move immediately, no restart needed. If log shows `MENU_IMGUI: defensive inputCtxPopDeferred(g_CtxImGuiMenu) — leak class caught on top-level close`, that means the boot-time CI-redirect ctx leak was caught and unlocked movement.
+9. **Controller X-button on themes + mods** — focus a user theme or mod row with the stick, press X (GamepadFaceLeft = Xbox X / PS Square). Context menu should open.
+
+### Follow-up queued from S306
+
+- **Per-agent prefs.ini** — full implementation per `context/designs/theme-bundle-and-per-agent-settings-2026-04-16.md`. ~300-400 LOC + careful test matrix (mid-match agent switch, guest agent, Settings-open switch). Dedicated future session.
+- **`renderCiSettingsRedirect` / `renderCiDeadPlayer2` / `renderCinemaList` migration to S300 pool-owned ctx** — `affc61fa`'s defensive pop hides the symptom but the underlying raw inputCtxPush/Pop pattern remains. S304 deferred list.
+- **X-button close polling in other renderers** — `pdguiConsumeTitleClose()` is only wired into `renderMainMenu`'s close handler. Sweep needed for Theme Editor / Modding Hub / Pause Menu / CI redirect / Endscreen — they still rely on the Escape fallback.
+- **Tooltip sweep for input mapping** — 51 actions have basic display names; ~12 have explanatory tooltips. Bind tooltips for the remaining actions would raise the polish level.
+- **Per-action save — keyboard / controller device filter** — currently search matches on display name only. Could extend to accept "key:W" or "ctrl:A" syntax to find all actions bound to a given device/key.
+
+---
+
 ## Open — 2026-04-17 (S308 — dev direct)
 
 ### Playtest verification of B-161 (door-tick crash) + B-162 (pause menu hardening)
