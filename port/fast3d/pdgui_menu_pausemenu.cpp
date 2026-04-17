@@ -986,8 +986,9 @@ static void renderGameOverRankings(float contentW, s32 count,
             ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1,
                                    IM_COL32(255, 210, 50, 40));
         } else if (rows[i].isPlayer) {
+            /* S311: local-player row tint tracks theme title glow. */
             ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1,
-                                   IM_COL32(100, 200, 255, 35));
+                                   pdguiImU32TitleGlow(35));
         }
 
         /* Name color: gold for 1st, cyan for local player, white for others */

@@ -166,7 +166,7 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
     float sectionH = dialogH - pdTitleH - 100.0f * scale;
 
     /* ---- Server Browser section ---- */
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Server Browser");
+    ImGui::TextColored(pdguiVec4TitleGlow(), "Server Browser");
     ImGui::SameLine(itemW - 60.0f * scale);
     if (ImGui::SmallButton("Refresh")) {
         pdguiPlaySound(PDGUI_SND_SELECT);
@@ -229,7 +229,7 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
     ImGui::Spacing();
 
     /* ---- Direct IP / Connect Code section ---- */
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Direct Connect");
+    ImGui::TextColored(pdguiVec4TitleGlow(), "Direct Connect");
     ImGui::Separator();
     ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.7f, 1.0f), "Enter IP:port or connect code");
 

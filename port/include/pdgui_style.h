@@ -142,6 +142,18 @@ u32 pdguiGetPaletteColor(s32 index);
  * If alpha < 0, uses the palette color's own alpha. */
 u32 pdguiPalImU32(s32 index, s32 alpha);
 
+/* S311: convert a 0xRRGGBBAA color into ImU32 (IM_COL32 packing).
+ * alpha >= 0 overrides the RGBA alpha byte; -1 preserves it. */
+u32 pdguiRgbaToImU32(u32 rgba, s32 alpha);
+
+/* S311: semantic ImU32 accessors for the S309 extension-2 tints.
+ * Return the palette's title-glow / success / danger / info packed as
+ * ImU32.  alpha >= 0 overrides the alpha byte. */
+u32 pdguiImU32TitleGlow(s32 alpha);
+u32 pdguiImU32TintSuccess(s32 alpha);
+u32 pdguiImU32TintDanger(s32 alpha);
+u32 pdguiImU32TintInfo(s32 alpha);
+
 /* --- P4: 9-slice panel texture API (chrome rendering) ---
  *
  * The chrome system lets pdguiDrawPdDialog swap its procedural body fill
@@ -169,6 +181,29 @@ const char *pdguiGetPanelNineSlice(void);
 void pdguiClearPanelNineSlice(void);
 
 #ifdef __cplusplus
+}
+#endif
+
+/* S311: C++-only ImVec4 helpers for the semantic extension tints.  Routing
+ * the RGBA → ImVec4 conversion through a single inline keeps TextColored /
+ * PushStyleColor call sites terse.  Only visible when imgui.h is already
+ * included (all pdgui_menu_*.cpp files pull it in before this header). */
+#if defined(__cplusplus) && defined(IMGUI_VERSION)
+static inline ImVec4 pdguiVec4TitleGlow(int alpha = 255)
+{
+    return ImGui::ColorConvertU32ToFloat4(pdguiImU32TitleGlow(alpha));
+}
+static inline ImVec4 pdguiVec4TintSuccess(int alpha = 255)
+{
+    return ImGui::ColorConvertU32ToFloat4(pdguiImU32TintSuccess(alpha));
+}
+static inline ImVec4 pdguiVec4TintDanger(int alpha = 255)
+{
+    return ImGui::ColorConvertU32ToFloat4(pdguiImU32TintDanger(alpha));
+}
+static inline ImVec4 pdguiVec4TintInfo(int alpha = 255)
+{
+    return ImGui::ColorConvertU32ToFloat4(pdguiImU32TintInfo(alpha));
 }
 #endif
 

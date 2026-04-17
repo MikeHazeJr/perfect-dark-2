@@ -223,7 +223,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
      * Left column — Connected Players
      * ================================================================ */
     ImGui::BeginChild("##social_players", ImVec2(colW, contentH), true);
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Connected Players");
+    ImGui::TextColored(pdguiVec4TitleGlow(), "Connected Players");
     ImGui::Separator();
 
     s32 playerCount = lobbyGetPlayerCount();
@@ -292,7 +292,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
      * Right column — Active Rooms
      * ================================================================ */
     ImGui::BeginChild("##social_rooms", ImVec2(colW, contentH), true);
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Active Rooms");
+    ImGui::TextColored(pdguiVec4TitleGlow(), "Active Rooms");
     ImGui::Separator();
 
     float innerW = colW - ImGui::GetStyle().WindowPadding.x * 2 - 4.0f;

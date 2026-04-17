@@ -932,7 +932,10 @@ extern "C" void pdguiInterfaceRenderDeleteConfirm(void)
         ImGui::TextDisabled("The change takes effect immediately and cannot be undone.");
         ImGui::Spacing();
 
-        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+        /* S311: confirm-modal buttons now scale with pdguiScaleFactor so the
+         * Cancel/Delete pair reads the same at 1080p and 4K. */
+        ImVec2 confirmBtn(pdguiScale(120.0f), 0);
+        if (ImGui::Button("Cancel", confirmBtn)) {
             s_InterfaceDeleteKind = IFACE_DEL_NONE;
             s_InterfaceDeleteTarget = -1;
             ImGui::CloseCurrentPopup();
@@ -944,7 +947,7 @@ extern "C" void pdguiInterfaceRenderDeleteConfirm(void)
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.10f, 0.10f, 0.90f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.70f, 0.15f, 0.15f, 0.95f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.85f, 0.20f, 0.20f, 1.0f));
-        if (ImGui::Button("Delete", ImVec2(120, 0))) {
+        if (ImGui::Button("Delete", confirmBtn)) {
             s32 ok = interfaceDeleteModDir(s_InterfaceDeletePath);
             if (ok) {
                 snprintf(s_InterfaceDeleteStatus, sizeof(s_InterfaceDeleteStatus),
@@ -2667,7 +2670,7 @@ static void renderSettingsCatalog(float scale)
 
     /* ------ D5.0a Spike: ROM texture bridge proof of concept ------ */
     {
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "D5.0a Texture Bridge Spike");
+        ImGui::TextColored(pdguiVec4TitleGlow(), "D5.0a Texture Bridge Spike");
         ImGui::SameLine();
         ImGui::TextDisabled("catalog id: ui/test_panel");
         void *tex = pdguiGetUiTexture("ui/test_panel");
@@ -3702,7 +3705,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
         ImGui::Separator();
 
         /* Header: title + in-flight indicator or Refresh button */
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Recent Servers");
+        ImGui::TextColored(pdguiVec4TitleGlow(), "Recent Servers");
         ImGui::SameLine();
         if (g_NetQueryInFlight) {
             /* Pulse the dot between yellow and white while queries are in flight. */

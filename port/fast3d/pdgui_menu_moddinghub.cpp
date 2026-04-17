@@ -539,7 +539,7 @@ static void renderIniEditor(float contentW, float contentH, float scale)
     } else {
         const IniEntry &ie = s_IniEntries[s_IniSelected];
         /* Entry header */
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.85f, 1.0f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow());
         ImGui::Text("%s", ie.id);
         ImGui::PopStyleColor();
         ImGui::TextDisabled("[%s]", iniNameForType(ie.type));
@@ -790,7 +790,7 @@ static void renderScaleTool(float contentW, float contentH, float scale)
         ImGui::Separator();
 
         /* Entry info */
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.85f, 1.0f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow());
         ImGui::Text("%s", se.id);
         ImGui::PopStyleColor();
 

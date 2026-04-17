@@ -279,9 +279,10 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         gamefileGetOverview(cf->name, cfName, &cs, &cd, &ct);
 
         const char *actionWord = (s_ConfirmMode == CONFIRM_DELETE) ? "Delete" : "Copy";
+        /* S311: confirmation prompt color follows the theme palette. */
         ImU32 promptColor = (s_ConfirmMode == CONFIRM_DELETE)
-            ? IM_COL32(255, 100, 100, 255)
-            : IM_COL32(100, 200, 255, 255);
+            ? pdguiImU32TintDanger(255)
+            : pdguiImU32TitleGlow(255);
 
         /* Draw a dimmed overlay behind the prompt */
         ImDrawList *dl = ImGui::GetWindowDrawList();

@@ -298,7 +298,9 @@ static void SectionHeader(const char *label)
 {
     float padX = pdguiScale(6.0f);
     ImGui::Spacing();
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.8f, 1.0f, 1.0f));
+    /* S311: section header follows theme title glow so the endscreen
+     * reads the same palette as every other menu. */
+    ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow());
     ImGui::TextUnformatted(label);
     ImGui::PopStyleColor();
     ImGui::Separator();
