@@ -954,10 +954,30 @@ static manifest_diff_t  s_SpLastDiff;
  * catalog IDs instead of raw bodynum/modelnum.
  * ========================================================================= */
 
-static void s_manifestAddBody(match_manifest_t *out, s32 bodynum, s32 slot_tag)
+/* FIX-B.1: return 1 if `id` is already present in the manifest.  Used by
+ * the scan helpers below to emit a one-shot discovery log only when an
+ * entry is newly added -- repeat references in intro/ailist commands
+ * dedup via manifestAddEntry() but would otherwise spam the log. */
+static s32 s_manifestHasEntry(const match_manifest_t *m, const char *id)
+{
+    s32 i;
+    if (!id || !m) {
+        return 0;
+    }
+    for (i = 0; i < (s32)m->num_entries; i++) {
+        if (strncmp(m->entries[i].id, id, sizeof(m->entries[i].id)) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void s_manifestAddBody(match_manifest_t *out, s32 bodynum, s32 slot_tag,
+                              const char *scan_source)
 {
     const char *bcan;
     const asset_entry_t *be;
+    s32 was_present;
 
     if (bodynum < 0 || bodynum >= 256) {
         return; /* 255 = random, negative = reserved */
@@ -965,16 +985,29 @@ static void s_manifestAddBody(match_manifest_t *out, s32 bodynum, s32 slot_tag)
     bcan = catalogIdByRuntime(ASSET_BODY, bodynum);
     be   = bcan ? assetCatalogResolve(bcan) : NULL;
     if (!be) {
+        if (scan_source) {
+            sysLogPrintf(LOG_WARNING,
+                         "MANIFEST-SP: %s-scan body bodynum=%d not in catalog",
+                         scan_source, (int)bodynum);
+        }
         return;
     }
+    was_present = s_manifestHasEntry(out, be->id);
     manifestAddEntry(out, be->id, MANIFEST_TYPE_BODY, slot_tag);
     s_manifestExpandDeps(out, be->id, slot_tag);
+    if (!was_present && scan_source) {
+        sysLogPrintf(LOG_NOTE,
+                     "MANIFEST-SP: %s-scan discovered body '%s' (bodynum=%d)",
+                     scan_source, be->id, (int)bodynum);
+    }
 }
 
-static void s_manifestAddHead(match_manifest_t *out, s32 headnum, s32 slot_tag)
+static void s_manifestAddHead(match_manifest_t *out, s32 headnum, s32 slot_tag,
+                              const char *scan_source)
 {
     const char *hcan;
     const asset_entry_t *he;
+    s32 was_present;
 
     if (headnum < 0 || headnum >= 256) {
         return; /* negative = hologram / special */
@@ -982,16 +1015,30 @@ static void s_manifestAddHead(match_manifest_t *out, s32 headnum, s32 slot_tag)
     hcan = catalogIdByRuntime(ASSET_HEAD, headnum);
     he   = hcan ? assetCatalogResolve(hcan) : NULL;
     if (!he) {
+        if (scan_source) {
+            sysLogPrintf(LOG_WARNING,
+                         "MANIFEST-SP: %s-scan head headnum=%d not in catalog",
+                         scan_source, (int)headnum);
+        }
         return;
     }
+    was_present = s_manifestHasEntry(out, he->id);
     manifestAddEntry(out, he->id, MANIFEST_TYPE_HEAD, slot_tag);
     s_manifestExpandDeps(out, he->id, slot_tag);
+    if (!was_present && scan_source) {
+        sysLogPrintf(LOG_NOTE,
+                     "MANIFEST-SP: %s-scan discovered head '%s' (headnum=%d)",
+                     scan_source, he->id, (int)headnum);
+    }
 }
 
-static void s_manifestAddModel(match_manifest_t *out, s32 modelnum)
+static void s_manifestAddModel(match_manifest_t *out, s32 modelnum,
+                               const char *scan_source)
 {
     const char *mcan;
     const asset_entry_t *me;
+    const char *add_id;
+    s32 was_present;
 
     if (modelnum <= 0 || modelnum >= 0xFFFF) {
         return;
@@ -1001,10 +1048,38 @@ static void s_manifestAddModel(match_manifest_t *out, s32 modelnum)
         return;
     }
     me = assetCatalogResolve(mcan);
-    if (me) {
-        manifestAddEntry(out, me->id, MANIFEST_TYPE_MODEL, MANIFEST_SLOT_MATCH);
-    } else {
-        manifestAddEntry(out, mcan, MANIFEST_TYPE_MODEL, MANIFEST_SLOT_MATCH);
+    add_id = me ? me->id : mcan;
+    was_present = s_manifestHasEntry(out, add_id);
+    manifestAddEntry(out, add_id, MANIFEST_TYPE_MODEL, MANIFEST_SLOT_MATCH);
+    if (!was_present && scan_source) {
+        sysLogPrintf(LOG_NOTE,
+                     "MANIFEST-SP: %s-scan discovered model '%s' (modelnum=%d)",
+                     scan_source, add_id, (int)modelnum);
+    }
+}
+
+static void s_manifestAddWeapon(match_manifest_t *out, s32 weaponnum,
+                                const char *scan_source)
+{
+    const char *wcan;
+    const asset_entry_t *we;
+    s32 was_present;
+
+    if (weaponnum <= 0) {
+        return;
+    }
+    wcan = catalogIdByRuntime(ASSET_WEAPON, weaponnum);
+    we   = wcan ? assetCatalogResolve(wcan) : NULL;
+    if (!we) {
+        return;
+    }
+    was_present = s_manifestHasEntry(out, we->id);
+    manifestAddEntry(out, we->id, MANIFEST_TYPE_WEAPON, MANIFEST_SLOT_MATCH);
+    s_manifestExpandDeps(out, we->id, MANIFEST_SLOT_MATCH);
+    if (!was_present && scan_source) {
+        sysLogPrintf(LOG_NOTE,
+                     "MANIFEST-SP: %s-scan discovered weapon '%s' (weaponnum=%d)",
+                     scan_source, we->id, (int)weaponnum);
     }
 }
 
@@ -1040,32 +1115,11 @@ static void s_manifestScanIntro(match_manifest_t *out)
              * via modelmgrLoadProjectileModeldefs; we only register the
              * catalog weapon ID — projectile deps flow through
              * s_manifestExpandDeps. */
-            {
-                const char *w1 = catalogIdByRuntime(ASSET_WEAPON, cmd->param1);
-                if (w1) {
-                    const asset_entry_t *we = assetCatalogResolve(w1);
-                    if (we) {
-                        manifestAddEntry(out, we->id,
-                                         MANIFEST_TYPE_WEAPON,
-                                         MANIFEST_SLOT_MATCH);
-                        s_manifestExpandDeps(out, we->id, MANIFEST_SLOT_MATCH);
-                    }
-                }
-                if (cmd->param2 >= 0) {
-                    const char *w2 = catalogIdByRuntime(ASSET_WEAPON, cmd->param2);
-                    if (w2) {
-                        const asset_entry_t *we = assetCatalogResolve(w2);
-                        if (we) {
-                            manifestAddEntry(out, we->id,
-                                             MANIFEST_TYPE_WEAPON,
-                                             MANIFEST_SLOT_MATCH);
-                            s_manifestExpandDeps(out, we->id,
-                                                 MANIFEST_SLOT_MATCH);
-                        }
-                    }
-                }
-                cmd = (const struct cmd32 *)((uintptr_t)cmd + 16);
+            s_manifestAddWeapon(out, cmd->param1, "intro");
+            if (cmd->param2 >= 0) {
+                s_manifestAddWeapon(out, cmd->param2, "intro");
             }
+            cmd = (const struct cmd32 *)((uintptr_t)cmd + 16);
             break;
         case INTROCMD_AMMO:
             cmd = (const struct cmd32 *)((uintptr_t)cmd + 16);
@@ -1122,36 +1176,27 @@ static void s_manifestScanAilists(match_manifest_t *out)
             switch (cmd[0]) {
             case AICMD_DROPITEM: {
                 u16 modelid = (u16)((cmd[2] << 8) | cmd[3]);
-                s_manifestAddModel(out, (s32)modelid);
+                s_manifestAddModel(out, (s32)modelid, "ailist");
                 break;
             }
             case AICMD_SPAWNCHRATPAD:
             case AICMD_SPAWNCHRATCHR:
                 /* cmd[2] = bodynum (u8), cmd[3] = headnum (s8) */
-                s_manifestAddBody(out, (s32)cmd[2], 0);
+                s_manifestAddBody(out, (s32)cmd[2], 0, "ailist");
                 if ((s8)cmd[3] >= 0) {
-                    s_manifestAddHead(out, (s32)(s8)cmd[3], 0);
+                    s_manifestAddHead(out, (s32)(s8)cmd[3], 0, "ailist");
                 }
                 break;
             case AICMD_EQUIPWEAPON: {
                 u16 modelid = (u16)((cmd[2] << 8) | cmd[3]);
-                s_manifestAddModel(out, (s32)modelid);
+                s_manifestAddModel(out, (s32)modelid, "ailist");
                 /* cmd[4] = weapon num */
-                {
-                    const char *wcan = catalogIdByRuntime(ASSET_WEAPON, (s32)cmd[4]);
-                    const asset_entry_t *we = wcan ? assetCatalogResolve(wcan) : NULL;
-                    if (we) {
-                        manifestAddEntry(out, we->id,
-                                         MANIFEST_TYPE_WEAPON,
-                                         MANIFEST_SLOT_MATCH);
-                        s_manifestExpandDeps(out, we->id, MANIFEST_SLOT_MATCH);
-                    }
-                }
+                s_manifestAddWeapon(out, (s32)cmd[4], "ailist");
                 break;
             }
             case AICMD_EQUIPHAT: {
                 u16 modelid = (u16)((cmd[2] << 8) | cmd[3]);
-                s_manifestAddModel(out, (s32)modelid);
+                s_manifestAddModel(out, (s32)modelid, "ailist");
                 break;
             }
             default:
@@ -1168,10 +1213,14 @@ static void s_manifestScanAilists(match_manifest_t *out)
 
 void manifestBuildMission(s32 stagenum, match_manifest_t *out)
 {
-    char id[64];
     catalog_stage_result_t stage_result;
     const asset_entry_t   *be;
     const asset_entry_t   *he;
+    /* FIX-B.1: per-phase entry counters so the scan can be audited in logs. */
+    s32 count_after_joanna;
+    s32 count_after_props;
+    s32 count_after_intro;
+    s32 count_after_ailist;
 
     manifestClear(out);
 
@@ -1207,6 +1256,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
     } else {
         sysLogPrintf(LOG_WARNING, "manifestBuildMission: Joanna head (base:head_dark_combat) not in catalog");
     }
+    count_after_joanna = (s32)out->num_entries;
 
     /* ---- Stage characters and prop models from setup spawn list ----
      * g_StageSetup.props is NULL when called pre-load; the scan silently
@@ -1220,39 +1270,18 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
 
         while (sobj->type != OBJTYPE_END) {
             if (sobj->type == OBJTYPE_CHR) {
-                /* ---- character body / head ---- */
+                /* ---- character body / head ----
+                 * bodynum 255 = random; no fixed catalog entry to require.
+                 * headnum < 0 = holograph / special; no fixed catalog entry. */
                 const struct packedchr *chr = (const struct packedchr *)sobj;
-
-                /* bodynum 255 = random; no fixed catalog entry to require */
                 if (chr->bodynum != 255) {
-                    const char *bcan = catalogIdByRuntime(ASSET_BODY,
-                                                                     (s32)chr->bodynum);
-                    const asset_entry_t *cbe = bcan ? assetCatalogResolve(bcan) : NULL;
-                    if (cbe) {
-                        manifestAddEntry(out, cbe->id,
-                                         MANIFEST_TYPE_BODY, 0);
-                        s_manifestExpandDeps(out, cbe->id, 0);
-                    }
-                    /* else: bodynum not in catalog — skip */
+                    s_manifestAddBody(out, (s32)chr->bodynum, 0, "props");
                 }
-
-                /* headnum < 0 = holograph / special; no fixed catalog entry */
                 if (chr->headnum >= 0) {
-                    const char *hcan = catalogIdByRuntime(ASSET_HEAD,
-                                                                     (s32)chr->headnum);
-                    const asset_entry_t *che = hcan ? assetCatalogResolve(hcan) : NULL;
-                    if (che) {
-                        manifestAddEntry(out, che->id,
-                                         MANIFEST_TYPE_HEAD, 0);
-                        s_manifestExpandDeps(out, che->id, 0);
-                    }
-                    /* else: headnum not in catalog — skip */
+                    s_manifestAddHead(out, (s32)chr->headnum, 0, "props");
                 }
             } else {
                 /* ---- prop model (types that embed struct defaultobj) ---- */
-                const char *model_id;
-                const asset_entry_t *me;
-
                 switch (sobj->type) {
                 case OBJTYPE_DOOR:
                 case OBJTYPE_BASIC:
@@ -1284,20 +1313,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
                 case OBJTYPE_CHOPPER:
                 case OBJTYPE_MINE:
                 case OBJTYPE_ESCASTEP:
-                    model_id = catalogIdByRuntime(ASSET_MODEL,
-                                                            (s32)sobj->modelnum);
-                    if (model_id) {
-                        me = assetCatalogResolve(model_id);
-                        if (me) {
-                            manifestAddEntry(out, me->id,
-                                             MANIFEST_TYPE_MODEL,
-                                             MANIFEST_SLOT_MATCH);
-                        } else {
-                            manifestAddEntry(out, model_id,
-                                             MANIFEST_TYPE_MODEL,
-                                             MANIFEST_SLOT_MATCH);
-                        }
-                    }
+                    s_manifestAddModel(out, (s32)sobj->modelnum, "props");
                     break;
                 default:
                     break;
@@ -1308,11 +1324,27 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
                                          setupGetCmdLength((u32 *)sobj));
         }
     }
+    count_after_props = (s32)out->num_entries;
 
     /* FIX-B.1: deep scan intro commands + AI scripts for spawned assets.
-     * Both pointers may be NULL pre-load; the helpers are guarded. */
+     * Both pointers may be NULL pre-load; the helpers are guarded.
+     * Per-phase counts let us confirm in playtest logs that each source
+     * (props / intro / ailists) is actually contributing entries --
+     * silent regressions in any phase would otherwise only surface as
+     * runtime late-adds via manifestEnsureLoaded(). */
     s_manifestScanIntro(out);
+    count_after_intro = (s32)out->num_entries;
     s_manifestScanAilists(out);
+    count_after_ailist = (s32)out->num_entries;
+
+    sysLogPrintf(LOG_NOTE,
+                 "MANIFEST-SP: scan stage=0x%02x joanna=%d props+=%d intro+=%d ailist+=%d (total=%d)",
+                 (unsigned)stagenum,
+                 (int)count_after_joanna,
+                 (int)(count_after_props - count_after_joanna),
+                 (int)(count_after_intro - count_after_props),
+                 (int)(count_after_ailist - count_after_intro),
+                 (int)count_after_ailist);
 
     /* ---- Counter-op player body/head ---- */
     /* When a counter-operative player is active (antiplayernum >= 0), their

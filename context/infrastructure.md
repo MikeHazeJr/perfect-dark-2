@@ -11,8 +11,10 @@
 > System FIXED (S245 FIX-F). R-1 / R-2 / R-3 DONE; R-4 protocol-side DONE
 > (S143 + S253 additives); L-1 through L-4 DONE; R-5 server GUI redesign,
 > L-5 Campaign / Counter-Op setup, L-6 drop-in, D14a Counter-Op, D16 master
-> server remain planned. Master Orchestration Plan L0–L7 complete (FIX-B.1
-> sole open supporting item). See `session-log.md` S231–S253 for layer-by-layer
+> server remain planned. **Master Orchestration Plan L0–L7 fully CLOSED —
+> FIX-B.1 completed S323 Batch H (per-discovery `MANIFEST-SP:` logging on
+> props/intro/ailist scans, `zealous-saha-02c1f5` worktree).**
+> See `session-log.md` S231–S253 for layer-by-layer
 > detail; `constraints.md` for current invariants;
 > [network-architecture.md](network-architecture.md) for the consolidated
 > networking roadmap.
@@ -340,7 +342,7 @@ Layer-by-layer status (all DONE unless noted):
   MITIGATED)
 - **L1-1**: clear `g_ClientManifest` on match end
 - **FIX-B.2**: graceful fallback for missing models
-- **FIX-B.1**: deep manifest scanner (cinematics + AI scripts) — 📋 **OPEN**
+- **FIX-B.1**: deep manifest scanner (cinematics + AI scripts) — ✅ **DONE** (S298 scanners + S323 Batch H per-discovery `MANIFEST-SP:` logging)
 - **L1-2 / 3 / 4 / 5**: periodic score broadcast / HUD gate during endscreen /
   clear co-op netclient / NET_RESYNC_FLAG_SCORES in initial resync
 - **F-1.1 / 2 / 3 / 4**: pause SDL warp removed / `pdguiSoloMissionReset()` /
