@@ -30,11 +30,10 @@
 
 ### Build result
 
-Pending — merge to dev and build required.
+Clean: 771/771 objects, zero errors. Both `PerfectDark.exe` and `PerfectDarkServer.exe` link clean. Only pre-existing `-Wmaybe-uninitialized` and format warnings in vendored code.
 
 ### Next steps
 
-- Build to verify: `source devtools/build-env.sh && ninja -C Build pd pd-server`
 - No playtest needed — pure dead-code / allocation-source changes; behavior identical
 - Remaining: M5 (separate pool regions), M6 (heap sizing)
 
