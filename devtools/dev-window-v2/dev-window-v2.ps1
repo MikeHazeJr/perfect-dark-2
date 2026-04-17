@@ -819,6 +819,9 @@ function Auto-Commit-Sync {
                 <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0"/>
                 <TextBlock x:Name="StatusDirty" Text="clean" Foreground="#00B400"
                            FontFamily="Consolas" FontSize="14"/>
+                <Rectangle Width="1" Fill="#162030" Margin="12,0"/>
+                <TextBlock x:Name="StatusWorktrees" Text="worktrees: --" Foreground="#506070"
+                           FontFamily="Consolas" FontSize="14"/>
             </DockPanel>
         </Border>
 
@@ -1010,6 +1013,8 @@ function Auto-Commit-Sync {
                                 ToolTip="git pull (current branch, upstream)"/>
                         <Button x:Name="BtnPush" Content="Push" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"
                                 ToolTip="git push (current branch to upstream)"/>
+                        <Button x:Name="BtnPruneWorktrees" Content="Prune Worktrees" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"
+                                ToolTip="git worktree prune (remove stale worktree references from .claude/worktrees/)"/>
                     </StackPanel>
                 </DockPanel>
             </TabItem>
@@ -1075,7 +1080,7 @@ $window = [Windows.Markup.XamlReader]::Load($reader)
 # Find named elements
 $ui = @{}
 $namedElements = @(
-    "StatusBranch","StatusHash","StatusDirty","StatusAuth","StatusVersion",
+    "StatusBranch","StatusHash","StatusDirty","StatusWorktrees","StatusAuth","StatusVersion",
     "BtnRunServer","BtnRunGame","TabControl",
     "BtnBuild","BtnRelease","TxtRelease","BtnStop","BtnCopyErrors","BtnCopyLog","BtnCheck",
     "LblClientStatus","LblServerStatus","LblBuildActivity",
@@ -1083,7 +1088,7 @@ $namedElements = @(
     "TxtVerMajor","TxtVerMinor","TxtVerPatch",
     "BtnVerMajDown","BtnVerMajUp","BtnVerMinDown","BtnVerMinUp","BtnVerPatDown","BtnVerPatUp",
     "ChkStable","LblAuthStatus","LblLatestRelease","LblDevVersion",
-    "BtnOpenGitHub","BtnOpenFolder","BtnCleanBuild","BtnPull","BtnPush",
+    "BtnOpenGitHub","BtnOpenFolder","BtnCleanBuild","BtnPull","BtnPush","BtnPruneWorktrees",
     "BtnLogClear","BtnLogExport","ChkAutoScroll","TxtLogFilter","LogOutput",
     "DocList","DocContent"
 )
@@ -1478,6 +1483,44 @@ function Invoke-GitPush {
     Update-StatusBar
 }
 
+function Invoke-GitPruneWorktrees {
+    if ($script:IsBuilding -or $script:IsPushing) {
+        [System.Windows.MessageBox]::Show("Wait for the current build or release to finish.", "Prune Worktrees", "OK", "Information") | Out-Null
+        return
+    }
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        [System.Windows.MessageBox]::Show("git was not found on PATH.", "Prune Worktrees", "OK", "Warning") | Out-Null
+        return
+    }
+    try {
+        $gitExe = Resolve-GitExecutable
+        if (-not $gitExe) { $gitExe = "git" }
+        Add-LogSessionLine "" "#1A3050"
+        Add-LogSessionLine ">>> git worktree prune -v" "#0090D0"
+        Add-LogSessionLine "" "#1A3050"
+        $outFile = Join-Path $env:TEMP "pd2-wt-prune.txt"
+        $errFile = Join-Path $env:TEMP "pd2-wt-prune-err.txt"
+        $proc = Start-Process -FilePath $gitExe -ArgumentList @("-C", $script:ProjectRoot, "worktree", "prune", "-v") `
+            -Wait -PassThru -NoNewWindow `
+            -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+        $out = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
+        $err = Get-Content $errFile -Raw -ErrorAction SilentlyContinue
+        if ($out) { foreach ($l in ($out -split "`n")) { if ($l.Trim()) { Add-LogLine $l "#6888A8" } } }
+        if ($err) { foreach ($l in ($err -split "`n")) { if ($l.Trim()) { Add-LogLine $l "#DC3232" } } }
+        $code = $proc.ExitCode
+        if ($code -eq 0) {
+            $pruned = if ($out -and $out.Trim()) { $out.Trim() } else { "(no stale worktrees found)" }
+            [System.Windows.MessageBox]::Show("Prune completed.`n`n" + $pruned, "Prune Worktrees", "OK", "Information") | Out-Null
+        } else {
+            [System.Windows.MessageBox]::Show("git worktree prune exited $code.`nSee Log tab for details.", "Prune Worktrees", "OK", "Warning") | Out-Null
+        }
+    } catch {
+        Add-LogLine $_.Exception.Message "#DC3232"
+        [System.Windows.MessageBox]::Show($_.Exception.Message, "Prune Worktrees", "OK", "Error") | Out-Null
+    }
+    Update-StatusBar
+}
+
 function Stop-Build {
     if ($null -ne $script:BuildProcess) { try { $script:BuildProcess.Kill() } catch {}; $script:BuildProcess = $null }
     $script:BuildStepQueue.Clear()
@@ -1488,6 +1531,7 @@ function Stop-Build {
     $ui["BtnCleanBuild"].IsEnabled = $true
     $ui["BtnPull"].IsEnabled = $true
     $ui["BtnPush"].IsEnabled = $true
+    $ui["BtnPruneWorktrees"].IsEnabled = $true
     $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Collapsed
     $ui["ProgressBack"].Visibility = [System.Windows.Visibility]::Collapsed
     $ui["LblBuildActivity"].Text = "Stopped."
@@ -1533,6 +1577,7 @@ function Start-Build-Step($step) {
         $ui["BtnCleanBuild"].IsEnabled = $true
         $ui["BtnPull"].IsEnabled = $true
         $ui["BtnPush"].IsEnabled = $true
+        $ui["BtnPruneWorktrees"].IsEnabled = $true
         $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Collapsed
         $ui["LblBuildActivity"].Text = "ERROR starting: " + $step.Exe
     }
@@ -1582,6 +1627,7 @@ function Start-Build {
     $ui["BtnBuild"].IsEnabled = $false; $ui["BtnRelease"].IsEnabled = $false; $ui["BtnCleanBuild"].IsEnabled = $false
     $ui["BtnPull"].IsEnabled = $false
     $ui["BtnPush"].IsEnabled = $false
+    $ui["BtnPruneWorktrees"].IsEnabled = $false
     $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Visible
     $ui["BtnCopyErrors"].Visibility = [System.Windows.Visibility]::Collapsed
     $ui["BtnCopyLog"].Visibility = [System.Windows.Visibility]::Collapsed
@@ -1589,13 +1635,16 @@ function Start-Build {
     $ui["LblBuildActivity"].Text = "Git: syncing..."
     $ui["LblProgressText"].Text = "Git: syncing..."
     $ui["ProgressFill"].Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0090D0")))
+    $ui["ProgressFill"].Width = 0
+    $ui["ProgressBack"].UpdateLayout()
     $pw0 = $ui["ProgressBack"].ActualWidth
-    if ($pw0 -gt 0) { $ui["ProgressFill"].Width = [math]::Floor($pw0 * 0.12) } else { $ui["ProgressFill"].Width = 0 }
+    if ($pw0 -gt 0) { $ui["ProgressFill"].Width = [math]::Floor($pw0 * 0.12) }
 
     if (-not (Invoke-GitSyncBeforeBuild "chore: auto-commit before build (dev window)")) {
         $ui["BtnBuild"].IsEnabled = $true; $ui["BtnRelease"].IsEnabled = $true; $ui["BtnCleanBuild"].IsEnabled = $true
         $ui["BtnPull"].IsEnabled = $true
         $ui["BtnPush"].IsEnabled = $true
+        $ui["BtnPruneWorktrees"].IsEnabled = $true
         $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Collapsed
         $ui["ProgressBack"].Visibility = [System.Windows.Visibility]::Collapsed
         $ui["LblBuildActivity"].Text = "Idle"
@@ -1652,13 +1701,16 @@ function Start-PushRelease {
     $ui["BtnBuild"].IsEnabled = $false; $ui["BtnRelease"].IsEnabled = $false; $ui["BtnCleanBuild"].IsEnabled = $false
     $ui["BtnPull"].IsEnabled = $false
     $ui["BtnPush"].IsEnabled = $false
+    $ui["BtnPruneWorktrees"].IsEnabled = $false
     $ui["ProgressBack"].Visibility = [System.Windows.Visibility]::Visible
     $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Visible
     $ui["LblBuildActivity"].Text = "Git: syncing..."
     $ui["LblProgressText"].Text = "Git: syncing..."
     $ui["ProgressFill"].Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0090D0")))
+    $ui["ProgressFill"].Width = 0
+    $ui["ProgressBack"].UpdateLayout()
     $pw0r = $ui["ProgressBack"].ActualWidth
-    if ($pw0r -gt 0) { $ui["ProgressFill"].Width = [math]::Floor($pw0r * 0.12) } else { $ui["ProgressFill"].Width = 0 }
+    if ($pw0r -gt 0) { $ui["ProgressFill"].Width = [math]::Floor($pw0r * 0.12) }
 
     $script:HasBuildErrors = $false; $script:AllOutput.Clear()
     $script:ClientErrors.Clear(); $script:ServerErrors.Clear()
@@ -1666,6 +1718,7 @@ function Start-PushRelease {
         $ui["BtnBuild"].IsEnabled = $true; $ui["BtnRelease"].IsEnabled = $true; $ui["BtnCleanBuild"].IsEnabled = $true
         $ui["BtnPull"].IsEnabled = $true
         $ui["BtnPush"].IsEnabled = $true
+        $ui["BtnPruneWorktrees"].IsEnabled = $true
         $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Collapsed
         $ui["ProgressBack"].Visibility = [System.Windows.Visibility]::Collapsed
         $ui["LblBuildActivity"].Text = "Idle"
@@ -1829,6 +1882,7 @@ $ui["BtnOpenFolder"].Add_Click({
 
 $ui["BtnPull"].Add_Click({ Invoke-GitPull })
 $ui["BtnPush"].Add_Click({ Invoke-GitPush })
+$ui["BtnPruneWorktrees"].Add_Click({ Invoke-GitPruneWorktrees })
 
 $ui["LblAuthStatus"].Cursor = [System.Windows.Input.Cursors]::Hand
 $ui["LblAuthStatus"].Add_MouseLeftButtonDown({ Invoke-GhAuthHelp })
@@ -1903,7 +1957,7 @@ $script:BuildTimer.Add_Tick({
                 }
                 $ui["LblBuildActivity"].Text = $script:CurrentStepName + " " + $spin + " " + $el + "s" + $hint
                 if ($script:BuildPercent -eq 0) {
-                    $ui["LblProgressText"].Text = $script:CurrentStepName + " " + $spin + " " + $el + "s"
+                    $ui["LblProgressText"].Text = "0% - " + $script:CurrentStepName + " " + $spin + " " + $el + "s"
                 }
                 if ($script:CurrentStepName -match "Release" -and $sil -ge 12) {
                     $sinceHb = ([DateTime]::Now - $script:LastReleaseHeartbeat).TotalSeconds
@@ -1969,7 +2023,6 @@ $script:BuildTimer.Add_Tick({
                     $ui["LblServerStatus"].Text = "server: building..."
                     $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#508CDC")))
                 }
-                $ui["ProgressFill"].Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#00B400")))
                 Start-Build-Step $next; $script:BuildTimer.Start()
             } else {
                 $anyErr = $script:HasBuildErrors -or ($script:ClientBuildResult -eq "FAILED") -or ($script:ServerBuildResult -eq "FAILED")
@@ -2004,6 +2057,7 @@ $script:BuildTimer.Add_Tick({
                 $ui["BtnBuild"].IsEnabled = $true; $ui["BtnRelease"].IsEnabled = $true; $ui["BtnCleanBuild"].IsEnabled = $true
                 $ui["BtnPull"].IsEnabled = $true
                 $ui["BtnPush"].IsEnabled = $true
+                $ui["BtnPruneWorktrees"].IsEnabled = $true
                 $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Collapsed
                 Refresh-VersionDisplay; Update-RunButtons; Update-StatusBar
             }
@@ -2234,7 +2288,8 @@ function Update-StatusBar {
         $b = try { $x = git -C $root branch --show-current 2>$null; if ($x) { $x.Trim() } else { 'unknown' } } catch { 'unknown' }
         $h = try { $x = git -C $root rev-parse --short HEAD 2>$null; if ($x) { $x.Trim() } else { '------' } } catch { '------' }
         $c = try { $st = git -C $root status --porcelain 2>$null; if ($st) { @($st).Count } else { 0 } } catch { 0 }
-        [PSCustomObject]@{ Branch = $b; Hash = $h; Count = $c }
+        $w = try { $wt = git -C $root worktree list --porcelain 2>$null; if ($wt) { ([regex]::Matches($wt, '^worktree ', [System.Text.RegularExpressions.RegexOptions]::Multiline)).Count } else { 1 } } catch { 0 }
+        [PSCustomObject]@{ Branch = $b; Hash = $h; Count = $c; Worktrees = $w }
     })
     [void]$ps.AddArgument($root)
     $handle = $ps.BeginInvoke()
@@ -2259,6 +2314,11 @@ function Update-StatusBar {
                 } else {
                     $ui["StatusDirty"].Text = [string]$r.Count + " uncommitted"
                     $ui["StatusDirty"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#FF8C00")))
+                }
+                if ($r.Worktrees -gt 0) {
+                    $ui["StatusWorktrees"].Text = "worktrees: " + $r.Worktrees
+                    $wtColor = if ($r.Worktrees -gt 20) { "#FF8C00" } else { "#506070" }
+                    $ui["StatusWorktrees"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($wtColor)))
                 }
                 Update-Auth-Labels
             }
