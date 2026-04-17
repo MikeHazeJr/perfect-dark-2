@@ -30,6 +30,7 @@
 #include "net/netmanifest.h"
 #include "system.h"
 #include "inputctx.h"
+#include "menupool.h"
 
 extern "C" {
 
@@ -134,8 +135,8 @@ static bool s_AutoLoadTriggered = false;
 static s32 s_ConfirmMode = CONFIRM_NONE;
 static s32 s_ConfirmIdx = -1;
 
-/* B-124 pattern: track whether this screen pushed g_CtxImGuiMenu */
-static bool s_AgentSelectPushedCtx = false;
+/* S300: s_AgentSelectPushedCtx removed — menu pool owns the ctx for
+ * MENU_TYPE_AGENT_SELECT via menupoolAcquireDialog / menupoolReleaseDialog. */
 
 /* ========================================================================
  * Helpers
@@ -198,13 +199,8 @@ static s32 renderAgentSelect(struct menudialog *dialog,
 
     if (!ImGui::Begin("##agent_select", nullptr, wflags)) {
         ImGui::End();
-        /* S295 F4: leak guard. If we previously pushed g_CtxImGuiMenu but the
-         * window is culled this frame, the back/close branch can't run to pop.
-         * Release now so the context doesn't leak into a dead-input state. */
-        if (s_AgentSelectPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-            s_AgentSelectPushedCtx = false;
-        }
+        /* S295 F4: leak guard — S300 pool owns ctx, release pops it. */
+        menupoolReleaseDialog(menupoolDialogDef(dialog));
         return 1;
     }
 
@@ -213,13 +209,10 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         s_ConfirmMode = CONFIRM_NONE;
         s_ConfirmIdx = -1;
 
-        /* B-124 pattern: push g_CtxImGuiMenu so mouse works and gameplay input is blocked. */
-        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPush(&g_CtxImGuiMenu);
-            s_AgentSelectPushedCtx = true;
-        } else {
-            s_AgentSelectPushedCtx = false;
-        }
+        /* S300: pool attaches ctx to the MENU_TYPE_AGENT_SELECT slot
+         * (already acquired by menuPushDialog). */
+        menupoolAcquireDialog(menupoolDialogDef(dialog),
+                              &g_CtxImGuiMenu);
 
         /* Auto-load default agent on first appearance */
         if (!s_AutoLoadTriggered && s_DefaultAgentFileId >= 0) {
@@ -336,21 +329,15 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
         if (s_SelectedIdx == fl->numfiles) {
             pdguiPlaySound(PDGUI_SND_SELECT);
-            /* B-124: pop context before transitioning away */
-            if (s_AgentSelectPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-                inputCtxPopDeferred(&g_CtxImGuiMenu);
-                s_AgentSelectPushedCtx = false;
-            }
+            /* B-124 / S300: pop owned ctx before transitioning away */
+            menupoolReleaseDialog(menupoolDialogDef(dialog));
             gamefileLoadDefaults(&g_GameFile);
             menuPushDialog(&g_FilemgrEnterNameMenuDialog);
         } else if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
             struct filelistfile *file = &fl->files[s_SelectedIdx];
             pdguiPlaySound(PDGUI_SND_SELECT);
-            /* B-124: pop context before transitioning away */
-            if (s_AgentSelectPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-                inputCtxPopDeferred(&g_CtxImGuiMenu);
-                s_AgentSelectPushedCtx = false;
-            }
+            /* B-124 / S300: pop owned ctx before transitioning away */
+            menupoolReleaseDialog(menupoolDialogDef(dialog));
             g_GameFileGuid.fileid = file->fileid;
             g_GameFileGuid.deviceserial = file->deviceserial;
             filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0);
@@ -393,10 +380,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
         ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        if (s_AgentSelectPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-            s_AgentSelectPushedCtx = false;
-        }
+        /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
         menuPopDialog();
         ImGui::End();
         return 1;

@@ -49,6 +49,7 @@
 #include "pdgui.h"        /* langSafe */
 #include "system.h"
 #include "inputctx.h"
+#include "menupool.h"
 
 extern "C" {
 #include "pdgui_menus.h"  /* for pdguiMenuCheatsRegister declaration */
@@ -207,7 +208,8 @@ static bool s_Registered      = false;
 static s32  s_CheatsTab       = SC_TAB_FUN;   /* currently-shown tab */
 static s32  s_PendingTab      = -1;           /* set by redirect renderer */
 static bool s_ConfirmUnlockModal = false;     /* inline confirm open? */
-static bool s_CheatsHubPushedCtx = false;
+/* S300: s_CheatsHubPushedCtx removed — menu pool owns the ctx for
+ * MENU_TYPE_CHEATS via menupoolAcquireDialog / menupoolReleaseDialog. */
 
 /* =========================================================================
  * Per-tab content definition
@@ -444,12 +446,8 @@ static s32 renderCheatsHub(struct menudialog *dialog,
 
     if (!ImGui::Begin("##cheats_hub", nullptr, wf)) {
         ImGui::End();
-        /* S295 F4 leak guard: release context if window is culled so we don't
-         * trap the player in a frozen state. */
-        if (s_CheatsHubPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-            s_CheatsHubPushedCtx = false;
-        }
+        /* S295 F4 leak guard — S300: pool owns the ctx, release pops it. */
+        menupoolReleaseDialog(menupoolDialogDef(dialog));
         return 1;
     }
 
@@ -458,11 +456,10 @@ static s32 renderCheatsHub(struct menudialog *dialog,
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: Cheats hub OPEN (tab=%d)",
                      (int)s_CheatsTab);
-        s_CheatsHubPushedCtx = false;
-        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPush(&g_CtxImGuiMenu);
-            s_CheatsHubPushedCtx = true;
-        }
+        /* S300: pool attaches ctx to the MENU_TYPE_CHEATS slot (already
+         * acquired by menuPushDialog). */
+        menupoolAcquireDialog(menupoolDialogDef(dialog),
+                              &g_CtxImGuiMenu);
     }
 
     /* PD-style title frame */
@@ -475,10 +472,8 @@ static s32 renderCheatsHub(struct menudialog *dialog,
         (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
          ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        if (s_CheatsHubPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-        }
-        s_CheatsHubPushedCtx = false;
+        /* S300: menuCloseDialog (invoked by menuPopDialog) releases the
+         * pool slot and pops the owned ctx; no explicit ctx pop here. */
         menuPopDialog();
         ImGui::End();
         return 1;
@@ -644,10 +639,7 @@ static s32 renderCheatsHub(struct menudialog *dialog,
         menuPushDialog(&g_CheatsConfirmUnlockMenuDialog);
     }
     if (wantClose) {
-        if (s_CheatsHubPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-        }
-        s_CheatsHubPushedCtx = false;
+        /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
         menuPopDialog();
     }
 

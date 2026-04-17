@@ -62,6 +62,7 @@
 #include "pdgui.h"        /* langSafe */
 #include "system.h"
 #include "inputctx.h"
+#include "menupool.h"
 
 extern "C" {
 #include "pdgui_menus.h"  /* for pdguiMenuBotSetupRegister declaration */
@@ -459,10 +460,12 @@ struct WindowFrame {
     ImVec2 pos;
 };
 
-static bool s_BotSetupPushedCtx = false;
+/* S300: s_BotSetupPushedCtx removed — menu pool owns the ctx for
+ * MENU_TYPE_MP_BOT_SETUP via menupoolAcquireDialog / menupoolReleaseDialog. */
 
 static WindowFrame bs_BeginStandardWindow(const char *imguiId, const char *title,
-                                          float widthFrac, float heightFrac)
+                                          float widthFrac, float heightFrac,
+                                          const struct menudialogdef *def)
 {
     pdguiPopupDarkenBehind(0.55f);
 
@@ -483,24 +486,15 @@ static WindowFrame bs_BeginStandardWindow(const char *imguiId, const char *title
 
     if (!ImGui::Begin(imguiId, nullptr, flags)) {
         wf.mw = 0.0f;
-        /* S295 F4 leak guard: window culled this frame. Release context we
-         * previously owned so dead-input doesn't persist. Next IsWindowAppearing
-         * will re-push cleanly. */
-        if (s_BotSetupPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-            s_BotSetupPushedCtx = false;
-        }
+        /* S300: pool owns the ctx; release pops it. */
+        menupoolReleaseDialog(def);
         return wf;
     }
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-        s_BotSetupPushedCtx = false;
-        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPush(&g_CtxImGuiMenu);
-            s_BotSetupPushedCtx = true;
-        }
+        menupoolAcquireDialog(def, &g_CtxImGuiMenu);
     }
 
     float titleH = pdguiScale(39.0f);
@@ -512,10 +506,7 @@ static WindowFrame bs_BeginStandardWindow(const char *imguiId, const char *title
 static void bs_CloseCurrentDialog(void)
 {
     pdguiPlaySound(PDGUI_SND_KBCANCEL);
-    if (s_BotSetupPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-        inputCtxPopDeferred(&g_CtxImGuiMenu);
-    }
-    s_BotSetupPushedCtx = false;
+    /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
     menuPopDialog();
 }
 
@@ -616,9 +607,10 @@ extern "C" void pdguiBotSetupDrawSimulantsBody(float bodyHeight)
  * primary room.cpp entry point is the inline panel.
  */
 
-static s32 renderMpSimulants(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpSimulants(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    WindowFrame wf = bs_BeginStandardWindow("##bs_simulants", "Simulants", 0.50f, 0.72f);
+    WindowFrame wf = bs_BeginStandardWindow("##bs_simulants", "Simulants", 0.50f, 0.72f,
+                                            menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (bs_BackPressed()) {
@@ -660,12 +652,13 @@ enum SimDialogVariant {
     SIM_VAR_CHANGE,
 };
 
-static s32 renderMpAddChangeSimulantImpl(SimDialogVariant variant)
+static s32 renderMpAddChangeSimulantImpl(SimDialogVariant variant,
+                                          const struct menudialogdef *def)
 {
     const char *title   = (variant == SIM_VAR_ADD) ? "Add Simulant"  : "Change Simulant";
     const char *imguiId = (variant == SIM_VAR_ADD) ? "##bs_addsim"   : "##bs_chgsim";
 
-    WindowFrame wf = bs_BeginStandardWindow(imguiId, title, 0.60f, 0.78f);
+    WindowFrame wf = bs_BeginStandardWindow(imguiId, title, 0.60f, 0.78f, def);
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (bs_BackPressed()) {
@@ -771,14 +764,16 @@ static s32 renderMpAddChangeSimulantImpl(SimDialogVariant variant)
     return 1;
 }
 
-static s32 renderMpAddSimulant(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpAddSimulant(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    return renderMpAddChangeSimulantImpl(SIM_VAR_ADD);
+    return renderMpAddChangeSimulantImpl(SIM_VAR_ADD,
+                                          menupoolDialogDef(dialog));
 }
 
-static s32 renderMpChangeSimulant(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpChangeSimulant(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    return renderMpAddChangeSimulantImpl(SIM_VAR_CHANGE);
+    return renderMpAddChangeSimulantImpl(SIM_VAR_CHANGE,
+                                          menupoolDialogDef(dialog));
 }
 
 /* =========================================================================
@@ -795,10 +790,11 @@ static s32 renderMpChangeSimulant(struct menudialog *, struct menu *, s32, s32)
  * SELECTABLE_OPENSDIALOG with dialogdef in param3; we do the push in C++).
  */
 
-static s32 renderMpEditSimulant(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpEditSimulant(struct menudialog *dialog, struct menu *, s32, s32)
 {
     const char *title = bot_GetEditTitle();
-    WindowFrame wf = bs_BeginStandardWindow("##bs_editsim", title, 0.52f, 0.62f);
+    WindowFrame wf = bs_BeginStandardWindow("##bs_editsim", title, 0.52f, 0.62f,
+                                            menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (bs_BackPressed()) {
@@ -918,9 +914,10 @@ static s32 renderMpEditSimulant(struct menudialog *, struct menu *, s32, s32)
  *     no behavioral conflict.
  */
 
-static s32 renderMpSimulantCharacter(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpSimulantCharacter(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    WindowFrame wf = bs_BeginStandardWindow("##bs_simchar", "Simulant Character", 0.62f, 0.62f);
+    WindowFrame wf = bs_BeginStandardWindow("##bs_simchar", "Simulant Character", 0.62f, 0.62f,
+                                            menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (bs_BackPressed()) {

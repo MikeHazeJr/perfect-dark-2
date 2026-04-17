@@ -74,6 +74,7 @@
 #include "pdgui.h"        /* langSafe */
 #include "system.h"
 #include "inputctx.h"
+#include "menupool.h"
 
 extern "C" {
 #include "pdgui_menus.h"  /* for pdguiMenuMpPauseRegister declaration */
@@ -456,10 +457,12 @@ struct WindowFrame {
     ImVec2 pos;
 };
 
-static bool s_MpPausePushedCtx = false;
+/* S300: s_MpPausePushedCtx removed — menu pool owns the ctx for
+ * MENU_TYPE_MP_PAUSE via menupoolAcquireDialog / menupoolReleaseDialog. */
 
 static WindowFrame mpp_BeginStandardWindow(const char *imguiId, const char *title,
-                                           float widthFrac, float heightFrac)
+                                           float widthFrac, float heightFrac,
+                                           const struct menudialogdef *def)
 {
     pdguiPopupDarkenBehind(0.55f);
 
@@ -480,22 +483,15 @@ static WindowFrame mpp_BeginStandardWindow(const char *imguiId, const char *titl
 
     if (!ImGui::Begin(imguiId, nullptr, flags)) {
         wf.mw = 0.0f;
-        /* S295 F4 leak guard: see pdgui_menu_agentselect.cpp for rationale. */
-        if (s_MpPausePushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-            s_MpPausePushedCtx = false;
-        }
+        /* S300: pool owns the ctx; release pops it. */
+        menupoolReleaseDialog(def);
         return wf;
     }
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-        s_MpPausePushedCtx = false;
-        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPush(&g_CtxImGuiMenu);
-            s_MpPausePushedCtx = true;
-        }
+        menupoolAcquireDialog(def, &g_CtxImGuiMenu);
     }
 
     float titleH = pdguiScale(39.0f);
@@ -507,10 +503,7 @@ static WindowFrame mpp_BeginStandardWindow(const char *imguiId, const char *titl
 static void mpp_CloseCurrentDialog(void)
 {
     pdguiPlaySound(PDGUI_SND_KBCANCEL);
-    if (s_MpPausePushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-        inputCtxPopDeferred(&g_CtxImGuiMenu);
-    }
-    s_MpPausePushedCtx = false;
+    /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
     menuPopDialog();
 }
 
@@ -624,9 +617,10 @@ static bool hubHandlerRow(const char *label,
  *     Dialog-push only, no direct state write here.
  */
 
-static s32 renderMpPauseControl(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpPauseControl(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    WindowFrame wf = mpp_BeginStandardWindow("##mp_pause_ctrl", "Pause", 0.50f, 0.85f);
+    WindowFrame wf = mpp_BeginStandardWindow("##mp_pause_ctrl", "Pause", 0.50f, 0.85f,
+                                             menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (mpp_BackPressed()) {
@@ -752,9 +746,10 @@ static s32 renderMpPauseControl(struct menudialog *, struct menu *, s32, s32)
  * for a regular weapon cycle.
  */
 
-static s32 renderMpPauseInventory(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpPauseInventory(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    WindowFrame wf = mpp_BeginStandardWindow("##mp_pause_inv", "Inventory", 0.50f, 0.80f);
+    WindowFrame wf = mpp_BeginStandardWindow("##mp_pause_inv", "Inventory", 0.50f, 0.80f,
+                                             menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (mpp_BackPressed()) {
@@ -842,7 +837,7 @@ static s32 renderMpPauseInventory(struct menudialog *, struct menu *, s32, s32)
  * a local preference -- not serialized anywhere.
  */
 
-static s32 renderMpPausePlayerStats(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpPausePlayerStats(struct menudialog *dialog, struct menu *, s32, s32)
 {
     /* Dynamic title: "Stats for <name>" -- the legacy title function
      * reads g_MpSelectedPlayersForStats[g_MpPlayerNum] and ignores its
@@ -850,7 +845,8 @@ static s32 renderMpPausePlayerStats(struct menudialog *, struct menu *, s32, s32
     const char *title = mpMenuTitleStatsFor(nullptr);
     WindowFrame wf = mpp_BeginStandardWindow("##mp_pause_pstats",
                                              title ? title : "Player Stats",
-                                             0.55f, 0.85f);
+                                             0.55f, 0.85f,
+                                             menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (mpp_BackPressed()) {
@@ -969,10 +965,11 @@ static s32 renderMpPausePlayerStats(struct menudialog *, struct menu *, s32, s32
  * scoring is handled by the sibling Team Rankings dialog below.
  */
 
-static s32 renderMpPausePlayerRanking(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpPausePlayerRanking(struct menudialog *dialog, struct menu *, s32, s32)
 {
     WindowFrame wf = mpp_BeginStandardWindow("##mp_pause_prank",
-                                             "Player Ranking", 0.55f, 0.85f);
+                                             "Player Ranking", 0.55f, 0.85f,
+                                             menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (mpp_BackPressed()) {
@@ -1048,10 +1045,11 @@ static s32 renderMpPausePlayerRanking(struct menudialog *, struct menu *, s32, s
  * bridge-style extern pointer to avoid cloning the bossfile struct.
  */
 
-static s32 renderMpPauseTeamRankings(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpPauseTeamRankings(struct menudialog *dialog, struct menu *, s32, s32)
 {
     WindowFrame wf = mpp_BeginStandardWindow("##mp_pause_trank",
-                                             "Team Ranking", 0.55f, 0.75f);
+                                             "Team Ranking", 0.55f, 0.75f,
+                                             menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (mpp_BackPressed()) {
@@ -1139,10 +1137,11 @@ struct DisplayOptionRow {
     intptr_t    mask;
 };
 
-static s32 renderMpPlayerOptions(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpPlayerOptions(struct menudialog *dialog, struct menu *, s32, s32)
 {
     WindowFrame wf = mpp_BeginStandardWindow("##mp_player_opts",
-                                             "Options", 0.45f, 0.55f);
+                                             "Options", 0.45f, 0.55f,
+                                             menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (mpp_BackPressed()) {

@@ -79,7 +79,10 @@ typedef enum {
     MENU_TYPE_ENDSCREEN_MP,
     MENU_TYPE_CHEATS,
     MENU_TYPE_MP_SETUP,           /* arena / scenario / weapons / limits */
-    MENU_TYPE_MP_SETTINGS,        /* handicap / tunes / soundtrack / teams */
+    MENU_TYPE_MP_SETTINGS,        /* handicap entry point */
+    MENU_TYPE_MP_SOUNDTRACK,      /* soundtrack hub (S300 — S-3) */
+    MENU_TYPE_MP_TUNES,           /* tunes picker, can stack over soundtrack (S300 — S-3) */
+    MENU_TYPE_MP_TEAMNAMES,       /* team-name editor (S300 — S-3) */
     MENU_TYPE_MP_ADVANCED,
     MENU_TYPE_MP_PAUSE,           /* in-match MP pause */
     MENU_TYPE_MP_PLAYER_CONFIG,
@@ -176,6 +179,12 @@ s32 menupoolReleaseDialog(const struct menudialogdef *def);
 
 /* Query: is this dialogdef's type currently active? Unregistered def → 0. */
 s32 menupoolIsDialogActive(const struct menudialogdef *def);
+
+/* Helper for C++ renderer callbacks that receive `struct menudialog *dialog`
+ * but can't include types.h (which redefines `bool`). Returns the dialogdef
+ * pointer stored at `dialog->definition` (a.k.a. the first struct field),
+ * or NULL when dialog is NULL. Implemented in C where types.h is available. */
+const struct menudialogdef *menupoolDialogDef(const struct menudialog *dialog);
 
 /* ---- Bulk release (force-close) ---- */
 

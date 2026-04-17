@@ -78,6 +78,7 @@
 #include "pdgui.h"                /* langSafe */
 #include "system.h"
 #include "inputctx.h"
+#include "menupool.h"
 
 extern "C" {
 #include "pdgui_menus.h"  /* for pdguiMenuPlayerConfigRegister declaration */
@@ -391,10 +392,12 @@ struct WindowFrame {
     ImVec2 pos;
 };
 
-static bool s_PlayerConfigPushedCtx = false;
+/* S300: s_PlayerConfigPushedCtx removed — menu pool owns the ctx for
+ * MENU_TYPE_MP_PLAYER_CONFIG via menupoolAcquireDialog / menupoolReleaseDialog. */
 
 static WindowFrame pc_BeginStandardWindow(const char *imguiId, const char *title,
-                                           float widthFrac, float heightFrac)
+                                           float widthFrac, float heightFrac,
+                                           const struct menudialogdef *def)
 {
     pdguiPopupDarkenBehind(0.55f);
 
@@ -415,22 +418,15 @@ static WindowFrame pc_BeginStandardWindow(const char *imguiId, const char *title
 
     if (!ImGui::Begin(imguiId, nullptr, flags)) {
         wf.mw = 0.0f;
-        /* S295 F4 leak guard: see pdgui_menu_agentselect.cpp for rationale. */
-        if (s_PlayerConfigPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-            s_PlayerConfigPushedCtx = false;
-        }
+        /* S300: pool owns the ctx; release pops it. */
+        menupoolReleaseDialog(def);
         return wf;
     }
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-        s_PlayerConfigPushedCtx = false;
-        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPush(&g_CtxImGuiMenu);
-            s_PlayerConfigPushedCtx = true;
-        }
+        menupoolAcquireDialog(def, &g_CtxImGuiMenu);
     }
 
     float titleH = pdguiScale(39.0f);
@@ -442,10 +438,7 @@ static WindowFrame pc_BeginStandardWindow(const char *imguiId, const char *title
 static void pc_CloseCurrentDialog(void)
 {
     pdguiPlaySound(PDGUI_SND_KBCANCEL);
-    if (s_PlayerConfigPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-        inputCtxPopDeferred(&g_CtxImGuiMenu);
-    }
-    s_PlayerConfigPushedCtx = false;
+    /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
     menuPopDialog();
 }
 
@@ -503,9 +496,10 @@ static void pc_NetNotifyLocalPlayerChanged(void)
  *   netmenu.c:179 / :403 apply to the modern netmenu character dropdowns.
  */
 
-static s32 renderMpCharacter(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    WindowFrame wf = pc_BeginStandardWindow("##pc_char", "Character", 0.68f, 0.70f);
+    WindowFrame wf = pc_BeginStandardWindow("##pc_char", "Character", 0.68f, 0.70f,
+                                            menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (pc_BackPressed()) {
@@ -774,14 +768,15 @@ static const char *pc_Strip(const char *s, char *buf, size_t bufsz)
     return buf;
 }
 
-static s32 renderMpPlayerStats(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpPlayerStats(struct menudialog *dialog, struct menu *, s32, s32)
 {
     const char *title = mpMenuTitleStatsForPlayerName(nullptr);
     char titleBuf[128];
     const char *titleSafe = pc_Strip(title, titleBuf, sizeof(titleBuf));
     if (!titleSafe[0]) titleSafe = "Statistics";
 
-    WindowFrame wf = pc_BeginStandardWindow("##pc_stats", titleSafe, 0.55f, 0.80f);
+    WindowFrame wf = pc_BeginStandardWindow("##pc_stats", titleSafe, 0.55f, 0.80f,
+                                            menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (pc_BackPressed()) {
@@ -1016,10 +1011,11 @@ static GroupedListResult pc_RenderGroupedList(const char *childId,
 
 static s32 s_LoadSettingsFocus = -1;
 
-static s32 renderMpLoadSettings(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpLoadSettings(struct menudialog *dialog, struct menu *, s32, s32)
 {
     WindowFrame wf = pc_BeginStandardWindow("##pc_load_settings",
-                                             "Load Game Settings", 0.58f, 0.72f);
+                                             "Load Game Settings", 0.58f, 0.72f,
+                                             menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (ImGui::IsWindowAppearing()) {
@@ -1113,10 +1109,11 @@ static s32 renderMpLoadSettings(struct menudialog *, struct menu *, s32, s32)
 
 static s32 s_LoadPresetFocus = -1;
 
-static s32 renderMpLoadPreset(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpLoadPreset(struct menudialog *dialog, struct menu *, s32, s32)
 {
     WindowFrame wf = pc_BeginStandardWindow("##pc_load_preset",
-                                             "Load Game Settings", 0.58f, 0.72f);
+                                             "Load Game Settings", 0.58f, 0.72f,
+                                             menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (ImGui::IsWindowAppearing()) {
@@ -1204,10 +1201,11 @@ static s32 renderMpLoadPreset(struct menudialog *, struct menu *, s32, s32)
 
 static s32 s_LoadPlayerFocus = -1;
 
-static s32 renderMpLoadPlayer(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpLoadPlayer(struct menudialog *dialog, struct menu *, s32, s32)
 {
     WindowFrame wf = pc_BeginStandardWindow("##pc_load_player",
-                                             "Load Player", 0.56f, 0.72f);
+                                             "Load Player", 0.56f, 0.72f,
+                                             menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (ImGui::IsWindowAppearing()) {

@@ -625,6 +625,11 @@ s32 netStartServer(u16 port, s32 maxclients)
 	g_NetNextSyncId = 1;
 	netSyncIdMapClear(); // ensure map is empty from any previous session
 
+	/* S300 / SP-14: belt-and-braces — make sure no room-scoped state
+	 * survived an earlier session that terminated without a clean stage-end. */
+	g_NetMatchRoomId = 0xFF;
+	g_NetCounterOpClientId = NET_NULL_CLIENT;
+
 	sysLogPrintf(LOG_NOTE, "NET: using protocol version %d", NET_PROTOCOL_VER);
 	sysLogPrintf(LOG_NOTE, "NET: created server on port %u", port);
 
@@ -1023,6 +1028,22 @@ s32 netDisconnect(void)
 	g_NetLocalBotAuthority = false;
 	g_NetPendingBotAuthority = false;
 	g_NetBotAuthorityClientId = NET_NULL_CLIENT;
+
+	/* S300 / SP-14: reset room-scoped state so a stale room id doesn't survive
+	 * into the next hosting/client session. Server-side disconnect during a
+	 * live match previously left g_NetMatchRoomId stuck until the next ready
+	 * gate overwrote it; client-side value was already 0xFF via
+	 * netmsgSvcStageEndRead, but if disconnect happened BEFORE SVC_STAGE_END
+	 * arrived the client would also see a non-sentinel value. Same story for
+	 * g_NetCounterOpClientId (co-op / anti role identity). Log the prior
+	 * value when non-trivial so we can diagnose any unexpected leaks. */
+	if (g_NetMatchRoomId != 0xFF || g_NetCounterOpClientId != NET_NULL_CLIENT) {
+		sysLogPrintf(LOG_NOTE,
+			"NET: disconnect-time reset — g_NetMatchRoomId %u -> 0xFF, g_NetCounterOpClientId %u -> NET_NULL_CLIENT",
+			(unsigned)g_NetMatchRoomId, (unsigned)g_NetCounterOpClientId);
+	}
+	g_NetMatchRoomId = 0xFF;
+	g_NetCounterOpClientId = NET_NULL_CLIENT;
 
 	sysLogPrintf(LOG_CHAT, "NET: disconnected");
 
