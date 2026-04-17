@@ -585,6 +585,26 @@ static bool s_BotModalShowAdvanced = false;
 /* 3D character preview rotation (radians, wraps at 2pi) */
 static float s_BotPreviewRotY = 0.0f;
 
+/* ---- Per-player portrait system (S352 — D5 Phase 5) ----
+ * Bakes each connected lobby player's character to a standalone GL texture
+ * using the shared pdguiCharPreview FBO.  Sequential pipeline: one bake at a
+ * time.  Portraits are invalidated when a player's body/head changes or when
+ * they leave.  Bot modal guard: baking is skipped while the bot edit modal is
+ * open so the two callers never fight over the charpreview FBO. */
+#define LOBBY_PORTRAIT_MAX 8
+
+struct LobbyPortrait {
+    u32  glTex;          /* 0 = not baked */
+    char head_id[64];    /* "" = not yet captured */
+    char body_id[64];
+};
+
+static LobbyPortrait s_LobbyPortraits[LOBBY_PORTRAIT_MAX];
+static bool s_LobbyPortraitsInited    = false;
+static s32  s_LobbyPortraitPending    = -1;    /* lobby idx in current bake */
+static bool s_LobbyPortraitWaitReady  = false;
+static float s_LobbyPortraitAlpha[LOBBY_PORTRAIT_MAX]; /* join fade-in [0,1] */
+
 /* Bot preset cache — ASSET_BOT_VARIANT entries from catalog */
 #define MAX_BOT_PRESETS 64
 static const asset_entry_t *s_BotPresets[MAX_BOT_PRESETS];
@@ -1318,6 +1338,107 @@ static void optToggleInverted(const char *label, u32 flag, bool leader)
 }
 
 /* ========================================================================
+ * Per-player portrait helpers (S352 — D5 Phase 5)
+ * ======================================================================== */
+
+static void lobbyPortraitsReset(void)
+{
+    for (s32 i = 0; i < LOBBY_PORTRAIT_MAX; i++) {
+        if (s_LobbyPortraits[i].glTex)
+            pdguiCharPreviewFreeTexture(s_LobbyPortraits[i].glTex);
+    }
+    memset(s_LobbyPortraits, 0, sizeof(s_LobbyPortraits));
+    for (s32 i = 0; i < LOBBY_PORTRAIT_MAX; i++)
+        s_LobbyPortraitAlpha[i] = 0.0f;
+    s_LobbyPortraitPending   = -1;
+    s_LobbyPortraitWaitReady = false;
+    s_LobbyPortraitsInited   = true;
+}
+
+/* Sync portrait cache against current lobby state: invalidate stale entries,
+ * advance fade-in alphas, free portraits for players who left. */
+static void lobbyPortraitsSync(s32 humanCount)
+{
+    for (s32 i = humanCount; i < LOBBY_PORTRAIT_MAX; i++) {
+        if (s_LobbyPortraits[i].glTex) {
+            pdguiCharPreviewFreeTexture(s_LobbyPortraits[i].glTex);
+            s_LobbyPortraits[i].glTex = 0;
+        }
+        s_LobbyPortraits[i].head_id[0] = '\0';
+        s_LobbyPortraits[i].body_id[0] = '\0';
+        if (s_LobbyPortraitPending == i) {
+            s_LobbyPortraitPending   = -1;
+            s_LobbyPortraitWaitReady = false;
+        }
+    }
+
+    for (s32 i = 0; i < humanCount && i < LOBBY_PORTRAIT_MAX; i++) {
+        const char *hid = lobbyGetPlayerHeadId(i);
+        const char *bid = lobbyGetPlayerBodyId(i);
+        LobbyPortrait &p = s_LobbyPortraits[i];
+
+        bool match = (hid && bid && hid[0] && bid[0] &&
+                      strcmp(p.head_id, hid) == 0 &&
+                      strcmp(p.body_id, bid) == 0);
+        if (!match && p.glTex) {
+            pdguiCharPreviewFreeTexture(p.glTex);
+            p.glTex = 0;
+            if (s_LobbyPortraitPending == i) {
+                s_LobbyPortraitPending   = -1;
+                s_LobbyPortraitWaitReady = false;
+            }
+        }
+        if (!match) {
+            p.head_id[0] = '\0';
+            p.body_id[0] = '\0';
+        }
+
+        /* Fade-in: ramp alpha toward 1.0 over ~25 frames */
+        if (s_LobbyPortraitAlpha[i] < 1.0f) {
+            s_LobbyPortraitAlpha[i] += 0.04f;
+            if (s_LobbyPortraitAlpha[i] > 1.0f)
+                s_LobbyPortraitAlpha[i] = 1.0f;
+        }
+    }
+}
+
+/* Drive the sequential baking pipeline.  One bake per frame maximum.
+ * Skipped while the bot modal is open (they share the charpreview FBO). */
+static void lobbyPortraitsTick(s32 humanCount)
+{
+    if (s_BotModalOpen) return;
+
+    if (s_LobbyPortraitWaitReady && s_LobbyPortraitPending >= 0) {
+        if (pdguiCharPreviewIsReady()) {
+            u32 tex = pdguiCharPreviewBakeToTexture();
+            s32 idx = s_LobbyPortraitPending;
+            if (tex && idx < LOBBY_PORTRAIT_MAX)
+                s_LobbyPortraits[idx].glTex = tex;
+            s_LobbyPortraitPending   = -1;
+            s_LobbyPortraitWaitReady = false;
+        }
+        return;
+    }
+
+    for (s32 i = 0; i < humanCount && i < LOBBY_PORTRAIT_MAX; i++) {
+        LobbyPortrait &p = s_LobbyPortraits[i];
+        if (p.glTex) continue;
+        const char *hid = lobbyGetPlayerHeadId(i);
+        const char *bid = lobbyGetPlayerBodyId(i);
+        if (!hid || !hid[0] || !bid || !bid[0]) continue;
+
+        strncpy(p.head_id, hid, sizeof(p.head_id) - 1);
+        p.head_id[sizeof(p.head_id) - 1] = '\0';
+        strncpy(p.body_id, bid, sizeof(p.body_id) - 1);
+        p.body_id[sizeof(p.body_id) - 1] = '\0';
+        pdguiCharPreviewRequest(hid, bid);
+        s_LobbyPortraitPending   = i;
+        s_LobbyPortraitWaitReady = true;
+        return;
+    }
+}
+
+/* ========================================================================
  * Right panel: room player list + bot management
  * ======================================================================== */
 
@@ -1328,6 +1449,13 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
     int curBots    = countBots();
     /* Max bots = remaining slots after accounting for human players. */
     int maxBots = matchConfigMaxBotsForHumans(humanCount);
+
+    /* Portrait system: init on first call, sync IDs, drive baking pipeline */
+    if (!s_LobbyPortraitsInited) lobbyPortraitsReset();
+    if (!s_IsSoloMode) {
+        lobbyPortraitsSync(humanCount);
+        lobbyPortraitsTick(humanCount);
+    }
 
     float btnH   = pdguiScale(39.0f);
     float listH  = panelH - btnH
@@ -1484,10 +1612,15 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
 
         ImGui::PushID(r.isBot ? (2000 + r.slotIdx) : (1000 + r.lobbyIdx));
 
+        /* Row height: human rows are taller to fit the portrait thumbnail.
+         * Bot rows keep the original single-line height. */
+        const float kThumb = pdguiScale(44.0f);
+        const float kHumanRowH = kThumb + pdguiScale(6.0f);
+        float rowH = r.isBot ? (ImGui::GetTextLineHeightWithSpacing() * 1.15f) : kHumanRowH;
+
         /* Background tint.  In non-teams mode we still highlight the local
          * player (brighter band) so the eye finds them instantly. */
         ImVec2 rowStart = ImGui::GetCursorScreenPos();
-        float rowH = ImGui::GetTextLineHeightWithSpacing() * 1.15f;
         if (teamsOn) {
             dl->AddRectFilled(rowStart, ImVec2(rowStart.x + rowW, rowStart.y + rowH),
                               teamRowBg(r.team, r.isLocal != 0));
@@ -1525,55 +1658,151 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
             ImGui::TextColored(ImVec4(0.55f, 0.55f, 0.4f, 0.8f),
                                "[%s]", s_SimDiffNames[sl->botDifficulty]);
         } else {
-            /* Human row: name + role suffix (you / leader / you-leader). */
-            char label[80];
-            const char *suffix = r.isLeader ? " *" : "";
-            snprintf(label, sizeof(label), "%s%s", r.name, suffix);
+            /* Human row with portrait thumbnail.
+             * Invisible Selectable reserves the full rowH; content drawn manually. */
+            ImGui::Selectable("##hr", false, ImGuiSelectableFlags_None,
+                              ImVec2(rowW, rowH));
 
-            if (r.isLeader && r.isLocal) {
-                ImGui::TextColored(ImVec4(1.0f, 0.95f, 0.55f, 1.0f), "%s", label);
-                ImGui::SameLine();
-                ImGui::TextColored(ImVec4(0.7f, 1.0f, 0.7f, 0.9f), "(you, leader)");
-            } else if (r.isLeader) {
-                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%s", label);
-                ImGui::SameLine();
-                ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 0.7f), "(leader)");
-            } else if (r.isLocal) {
-                ImGui::TextColored(ImVec4(0.7f, 1.0f, 0.7f, 1.0f), "%s", label);
-                ImGui::SameLine();
-                ImGui::TextColored(ImVec4(0.7f, 1.0f, 0.7f, 0.8f), "(you)");
+            /* Portrait alpha: network players fade in; solo is instant */
+            s32 pidx = (r.lobbyIdx >= 0 && r.lobbyIdx < LOBBY_PORTRAIT_MAX) ? r.lobbyIdx : -1;
+            float alpha = (pidx >= 0 && !s_IsSoloMode) ? s_LobbyPortraitAlpha[pidx] : 1.0f;
+            int   iAlpha = (int)(alpha * 255.0f);
+
+            /* Portrait: left-aligned in the row */
+            float thumbX = rowStart.x + 4.0f;
+            float thumbY = rowStart.y + (rowH - kThumb) * 0.5f;
+
+            LobbyPortrait *portrait = (pidx >= 0) ? &s_LobbyPortraits[pidx] : nullptr;
+            if (portrait && portrait->glTex) {
+                /* Baked portrait texture */
+                dl->AddRectFilled(ImVec2(thumbX, thumbY),
+                                  ImVec2(thumbX + kThumb, thumbY + kThumb),
+                                  IM_COL32(10, 15, 30, (int)(alpha * 220)), 3.0f);
+                dl->AddImage((ImTextureID)(uintptr_t)portrait->glTex,
+                             ImVec2(thumbX + 1.0f, thumbY + 1.0f),
+                             ImVec2(thumbX + kThumb - 1.0f, thumbY + kThumb - 1.0f),
+                             ImVec2(0, 1), ImVec2(1, 0),
+                             IM_COL32(255, 255, 255, iAlpha));
+                ImU32 borderCol = r.isLocal
+                    ? IM_COL32(200, 255, 200, (int)(alpha * 220))
+                    : pdguiImU32TintInfo((int)(alpha * 160));
+                dl->AddRect(ImVec2(thumbX, thumbY),
+                            ImVec2(thumbX + kThumb, thumbY + kThumb),
+                            borderCol, 3.0f, 0, 1.5f);
             } else {
-                ImGui::Text("%s", label);
+                /* Initials circle placeholder */
+                const ImVec4 &tc = kTeamColors[r.team < 8 ? r.team : 7];
+                ImU32 bgCol = teamsOn
+                    ? IM_COL32((int)(tc.x * 70), (int)(tc.y * 70), (int)(tc.z * 70), iAlpha)
+                    : pdguiPalImU32(PDPAL_TITLEBG, iAlpha);
+                dl->AddRectFilled(ImVec2(thumbX, thumbY),
+                                  ImVec2(thumbX + kThumb, thumbY + kThumb),
+                                  bgCol, kThumb * 0.5f);
+                dl->AddRect(ImVec2(thumbX, thumbY),
+                            ImVec2(thumbX + kThumb, thumbY + kThumb),
+                            pdguiImU32TintInfo((int)(alpha * 100)), 2.0f, 0, 1.5f);
+                char init[3] = {0};
+                if (r.name[0]) {
+                    init[0] = r.name[0];
+                    if (r.name[1]) init[1] = r.name[1];
+                }
+                ImVec2 isz = ImGui::CalcTextSize(init);
+                dl->AddText(ImVec2(thumbX + (kThumb - isz.x) * 0.5f,
+                                   thumbY + (kThumb - isz.y) * 0.5f),
+                            IM_COL32(255, 255, 255, iAlpha), init);
             }
 
-            if (r.bodynum < (u8)mpGetNumBodies()) {
-                const char *bodyName = mpGetBodyName(r.bodynum);
-                if (bodyName && bodyName[0]) {
-                    ImGui::SameLine();
-                    ImGui::TextColored(ImVec4(0.45f, 0.45f, 0.55f, 0.75f), "[%s]", bodyName);
+            /* State badge: colored dot in top-right corner of portrait */
+            {
+                float badgeR = pdguiScale(5.0f);
+                float badgeX = thumbX + kThumb - badgeR - 2.0f;
+                float badgeY = thumbY + badgeR + 2.0f;
+                ImU32 badgeCol = IM_COL32(100, 100, 100, iAlpha);
+                switch (r.state) {
+                    case CLSTATE_CONNECTING:
+                    case CLSTATE_AUTH:
+                        badgeCol = IM_COL32(255, 200, 50, iAlpha);
+                        break;
+                    case CLSTATE_LOBBY:
+                        badgeCol = IM_COL32(80, 220, 80, iAlpha);
+                        break;
+                    case CLSTATE_GAME:
+                        badgeCol = pdguiImU32TitleGlow(iAlpha);
+                        break;
+                }
+                dl->AddCircleFilled(ImVec2(badgeX, badgeY), badgeR, badgeCol);
+                dl->AddCircle(ImVec2(badgeX, badgeY), badgeR,
+                              IM_COL32(255, 255, 255, (int)(alpha * 180)));
+            }
+
+            /* Text block to the right of the portrait */
+            float textX  = thumbX + kThumb + pdguiScale(8.0f);
+            float lineH  = ImGui::GetTextLineHeight();
+            float lineY0 = rowStart.y + (rowH - lineH * 2.0f - pdguiScale(3.0f)) * 0.5f;
+            float lineY1 = lineY0 + lineH + pdguiScale(3.0f);
+
+            /* Line 1: name + leader/you badge */
+            {
+                char label[80];
+                snprintf(label, sizeof(label), "%s%s", r.name, r.isLeader ? " *" : "");
+
+                ImU32 nameCol;
+                if (r.isLeader && r.isLocal)      nameCol = IM_COL32(255, 245, 140, iAlpha);
+                else if (r.isLeader)               nameCol = IM_COL32(255, 220,  80, iAlpha);
+                else if (r.isLocal)                nameCol = IM_COL32(180, 255, 180, iAlpha);
+                else                               nameCol = IM_COL32(220, 220, 240, iAlpha);
+
+                dl->AddText(ImVec2(textX, lineY0), nameCol, label);
+
+                const char *badge = "";
+                ImU32 badgeCol = IM_COL32(0, 0, 0, 0);
+                if      (r.isLeader && r.isLocal) { badge = "(you, leader)"; badgeCol = IM_COL32(180, 255, 180, (int)(alpha * 200)); }
+                else if (r.isLeader)              { badge = "(leader)";      badgeCol = IM_COL32(160, 160, 160, (int)(alpha * 180)); }
+                else if (r.isLocal)               { badge = "(you)";         badgeCol = IM_COL32(180, 255, 180, (int)(alpha * 200)); }
+                if (badge[0]) {
+                    ImVec2 nameSz = ImGui::CalcTextSize(label);
+                    dl->AddText(ImVec2(textX + nameSz.x + pdguiScale(6.0f), lineY0),
+                                badgeCol, badge);
                 }
             }
 
-            const char *stateStr  = "";
-            ImVec4      stateColor = ImVec4(0.5f, 0.5f, 0.5f, 0.6f);
-            switch (r.state) {
-                case CLSTATE_CONNECTING:
-                case CLSTATE_AUTH:
-                    stateStr  = "connecting...";
-                    stateColor = ImVec4(1.0f, 0.8f, 0.2f, 0.8f);
-                    break;
-                case CLSTATE_LOBBY:
-                    stateStr  = "ready";
-                    stateColor = ImVec4(0.3f, 1.0f, 0.3f, 0.8f);
-                    break;
-                case CLSTATE_GAME:
-                    stateStr  = "in game";
-                    stateColor = pdguiVec4TitleGlow();
-                    break;
-            }
-            if (stateStr[0]) {
-                ImGui::SameLine();
-                ImGui::TextColored(stateColor, "  %s", stateStr);
+            /* Line 2: body name + state label */
+            {
+                const char *bodyName = "";
+                if (r.bodynum < (u8)mpGetNumBodies()) {
+                    const char *bn = mpGetBodyName(r.bodynum);
+                    if (bn && bn[0]) bodyName = bn;
+                }
+                if (bodyName[0]) {
+                    dl->AddText(ImVec2(textX, lineY1),
+                                IM_COL32(115, 115, 140, (int)(alpha * 190)), bodyName);
+                }
+
+                const char *stateStr = "";
+                ImU32 stateCol = IM_COL32(0, 0, 0, 0);
+                switch (r.state) {
+                    case CLSTATE_CONNECTING:
+                    case CLSTATE_AUTH:
+                        stateStr = "connecting...";
+                        stateCol = IM_COL32(255, 200, 50, (int)(alpha * 200));
+                        break;
+                    case CLSTATE_LOBBY:
+                        stateStr = "ready";
+                        stateCol = IM_COL32(80, 220, 80, (int)(alpha * 200));
+                        break;
+                    case CLSTATE_GAME:
+                        stateStr = "in game";
+                        stateCol = pdguiImU32TitleGlow((int)(alpha * 200));
+                        break;
+                }
+                if (stateStr[0]) {
+                    float stateX = textX;
+                    if (bodyName[0]) {
+                        ImVec2 bnSz = ImGui::CalcTextSize(bodyName);
+                        stateX = textX + bnSz.x + pdguiScale(10.0f);
+                    }
+                    dl->AddText(ImVec2(stateX, lineY1), stateCol, stateStr);
+                }
             }
         }
 
@@ -2345,6 +2574,8 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
          * records shared mode and won't pop on release. In network mode the
          * pool pushes ctx and owns the pop. */
         menupoolAcquire(MENU_TYPE_ROOM, NULL, &g_CtxImGuiMenu);
+        /* S352: reset portrait cache on every room open */
+        lobbyPortraitsReset();
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room OPEN (solo=%d)",
                      s_IsSoloMode);
     }
@@ -3142,6 +3373,8 @@ extern "C" void pdguiRoomScreenSetSolo(s32 solo)
 extern "C" void pdguiRoomScreenReset(void)
 {
     s_MatchConfigInited = false;
+    /* S352: free any baked portrait textures before state teardown */
+    lobbyPortraitsReset();
     /* S300: pool release handles ctx cleanup. */
     menupoolRelease(MENU_TYPE_ROOM);
     free(s_Arenas);
