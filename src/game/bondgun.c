@@ -173,10 +173,8 @@ Lights1 var80070090 = gdSPDefLights1(0x96, 0x96, 0x96, 0xff, 0xff, 0xff, 0xb2, 0
 // that expand from 4 to 8 bytes after preprocessing (similar to bg room data). 2x the N64 size
 // is a safe upper bound. Per-stage tuning is still possible via stageGetCurrent()->extragunmem.
 u32 g_BgunGunMemBaseSizeDefault = 150 * 1024 * 2;
-u32 g_BgunGunMemBaseSize4Mb2P = 120 * 1024 * 2;
 #else
 u32 g_BgunGunMemBaseSizeDefault = 150 * 1024;
-u32 g_BgunGunMemBaseSize4Mb2P = 120 * 1024;
 #endif
 
 u16 g_CartFileNums[] = {

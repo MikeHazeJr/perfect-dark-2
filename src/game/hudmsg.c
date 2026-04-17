@@ -116,7 +116,6 @@ Gfx *hudmsgRenderMissionTimer(Gfx *gdl, u32 alpha)
 	s32 timery;
 	char buffer[24];
 	u32 textcolour;
-	s32 is4mb;
 	s32 playercount;
 	s32 playernum;
 	s16 viewtop;
@@ -135,13 +134,11 @@ Gfx *hudmsgRenderMissionTimer(Gfx *gdl, u32 alpha)
 	timery -= g_HudPaddingY;
 	timery -= 8;
 
-	is4mb = false;
-
 	// @bug: There is no check for playercount >= 2 in the next two statements.
 	// Because of this, in 1 player the timer is drawn out of place when the
 	// screen split option is vertical and either the countdown timer is visible
 	// or a zoomable weapon is in use.
-	if ((is4mb || optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) && countdownTimerIsVisible()) {
+	if ((optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) && countdownTimerIsVisible()) {
 		timery -= 8;
 	}
 

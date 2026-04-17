@@ -3369,10 +3369,6 @@ void playerTickExplode(void)
 	}
 }
 
-void playerResetLoResIf4Mb(void)
-{
-}
-
 void playerSetHiResEnabled(bool enable)
 {
 	g_HiResEnabled = false;

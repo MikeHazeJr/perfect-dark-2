@@ -132,10 +132,6 @@ void viConfigureForLegal(void)
 		g_ViDataArray[i].viewy = FBALLOC_HEIGHT_LO;
 	}
 
-
-#if PAL
-	playerResetLoResIf4Mb();
-#endif
 }
 
 const s16 g_ViModeWidths[]  = {FBALLOC_WIDTH_LO,  FBALLOC_WIDTH_LO,  SCREEN_320 * 2};

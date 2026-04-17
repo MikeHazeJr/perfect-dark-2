@@ -28,7 +28,6 @@
 #include "preprocess.h"
 #include "mod.h"
 
-#define MAX_SEQ_SIZE_4MB 1024 * 14
 #define MAX_SEQ_SIZE_8MB 1024 * 18
 
 #define NUM_CACHE_SLOTS 45

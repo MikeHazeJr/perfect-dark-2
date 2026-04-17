@@ -1288,7 +1288,6 @@ static void renderSettingsInterface(float scale)
         ImGui::TextColored(warnCol, "Font");
     }
     ImGui::Separator();
-    ImGui::TextDisabled("Font swap takes effect on next restart (ImGui atlas is built at backend init).");
     ImGui::TextDisabled("Drop .ttf / .otf files into mods/Fonts/<slug>/ and they show up here.");
     ImGui::Spacing();
     {

@@ -4,6 +4,55 @@
 > **S281–S323** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S323 — 2026-04-17 (Batch G — cross-audit gap fixes — `practical-wozniak-051afa` worktree)
+
+**Scope**: Six items flagged by cross-audit: one critical runtime bug (audio volumes never applied), four 4MB dead-code remnants, one stale tooltip.
+
+### What was done
+
+**CRITICAL — audioNotifyEngineReady() was never called on PC:**
+- `src/lib/main.c:819` has the call, but that file is not compiled on PC — the entry point is `port/src/pdmain.c::mainProc()`
+- Added `#include "audio.h"` to pdmain.c and called `audioNotifyEngineReady()` immediately after `sndInit()`
+- Effect: `g_AudioEngineReady` is now set at runtime; `audioApplyVolumes()` early-return guard is lifted; music and SFX volume sliders now reach the engine
+
+**S320 gap 1 — `playerResetLoResIf4Mb` empty stub (player.c, player.h, vi.c, playerreset.c):**
+- Deleted the empty function body from `src/game/player.c:3372-3374`
+- Removed declaration from `src/include/game/player.h:45`
+- Removed `#if PAL` call site from `src/lib/vi.c:137`
+- Removed unconditional call site from `src/game/playerreset.c:133`
+
+**S320 gap 2 — Dead `is4mb` local in hudmsg.c:**
+- Removed `s32 is4mb;` declaration and `is4mb = false;` assignment
+- Simplified condition from `(is4mb || optionsGetScreenSplit() == SCREENSPLIT_VERTICAL)` to `(optionsGetScreenSplit() == SCREENSPLIT_VERTICAL)`
+
+**S320 gap 3 — Orphaned `MAX_SEQ_SIZE_4MB` define in snd.c:**
+- Deleted `#define MAX_SEQ_SIZE_4MB 1024 * 14` from `src/lib/snd.c:31`
+
+**S320 gap 4 — Dead `g_BgunGunMemBaseSize4Mb2P` global:**
+- Removed definition (both `#ifdef PLATFORM_64BIT` and `#else` branches) from `src/game/bondgun.c:176-179`
+- Removed extern from `src/include/data.h:237`
+- Removed extern from `src/game/bondgunreset.c:12`
+
+**S323 gap — Stale font tooltip:**
+- Removed "Font swap takes effect on next restart (ImGui atlas is built at backend init)." line from `port/fast3d/pdgui_menu_mainmenu.cpp:1291` — atlas now rebuilds live since S323 Batch D+F
+
+### Commit
+
+| SHA | Scope |
+|-----|-------|
+| *(pending merge)* | **fix(S323): Batch G — cross-audit gaps: audioNotifyEngineReady, 4MB remnants, stale tooltip** |
+
+### Build result
+
+Clean: 768/768 objects, zero errors, both `PerfectDark.exe` and `PerfectDarkServer.exe` link clean. Only pre-existing `-Wcomment` and `-Wunused-function` warnings in vendored code.
+
+### Next steps
+
+- No playtest verification needed for dead-code removals
+- Audio volume fix should be transparent — if music/SFX volume sliders were previously unresponsive, they now work
+
+---
+
 ## Session S323 — 2026-04-17 (Batch D+F — font atlas live rebuild + legacy sidecar migration — `mystifying-mirzakhani-e0e10a` worktree)
 
 **Scope**: Two focused runtime polish tasks. Task 1: font atlas live rebuild so font swaps take effect immediately without restart. Task 2: one-shot migration for pre-S313 agent sidecar files that were named from raw save bytes instead of display names.

@@ -42,7 +42,6 @@ void playerDisplayDamage(void);
 Gfx *playerRenderHealthBar(Gfx *gdl);
 void playerSurroundWithExplosions(s32 arg0);
 void playerTickExplode(void);
-void playerResetLoResIf4Mb(void);
 s16 playerGetFbWidth(void);
 s16 playerGetFbHeight(void);
 bool playerHasSharedViewport(void);
