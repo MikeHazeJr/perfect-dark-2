@@ -25,6 +25,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+/* S306: direct.h / unistd.h provide rmdir() for the BATCH 2 theme/mod
+ * deletion flow. MinGW uses _rmdir; POSIX uses rmdir. */
+#ifdef _WIN32
+#  include <direct.h>
+#else
+#  include <unistd.h>
+#endif
 
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
@@ -301,8 +308,20 @@ void updaterCheckAsync(void);
 
 /* Modding Hub UI — declared in pdgui_menu_moddinghub.cpp */
 void pdguiModdingHubShow(void);
+void pdguiModdingHubShowTool(s32 tool);  /* S306: jump directly to a tool */
 void pdguiModdingHubHide(void);
 s32  pdguiModdingHubIsVisible(void);
+
+/* Modding Hub tool indices (mirror NUM_TOOLS layout in moddinghub.cpp).
+ * Keep in sync with pdgui_menu_moddinghub.cpp s_ActiveTool comment. */
+#define MODHUB_TOOL_MOD_MANAGER  0
+#define MODHUB_TOOL_INI_EDITOR   1
+#define MODHUB_TOOL_MODEL_SCALE  2
+#define MODHUB_TOOL_PACK         3
+#define MODHUB_TOOL_AUDIO_MODS   4
+#define MODHUB_TOOL_SKIN_EDITOR  5
+#define MODHUB_TOOL_MAP_IMPORT   6
+#define MODHUB_TOOL_MENU_STYLE   7
 
 /* Solo Room screen — open the Room screen in offline (NETMODE_NONE) mode */
 void pdguiSoloRoomOpen(void);
@@ -433,7 +452,10 @@ void menuStop(void);
 
 static bool s_RegisteredPc = false;
 static bool s_RegisteredPause = false;
-static s32 s_SettingsSubTab = 0; /* 0=Video, 1=Audio, 2=Controls, 3=Game, 4=Updates, 5=Debug, 6=Catalog */
+/* S306: Interface tab inserted between Video and Audio.
+ * 0=Video, 1=Interface, 2=Audio, 3=Controls, 4=Game, 5=Updates,
+ * 6=Debug, 7=Catalog. */
+static s32 s_SettingsSubTab = 0;
 static s32 s_PrevView = -1;     /* Previous menu view, for sound on switch */
 static s32 s_PrevSubTab = -1;
 static bool s_ViewJustChanged = false; /* true on frame after s_MenuView changes */
@@ -671,109 +693,10 @@ static void renderSettingsVideo(float scale)
         }
     }
 
-    /* UI Chrome Style — Procedural plus discovered nineslice chrome mods
-     * from mod.json manifests (components.textures + components.nineslice).
-     * Selection is hot-applied and persisted immediately to pd.ini. */
-    {
-        const s32 styleCount = pdguiThemeGetChromeStyleCount();
-        const s32 maxStyles = 31; /* Keep stack buffers bounded. */
-        const s32 usedStyles = styleCount < maxStyles ? styleCount : maxStyles;
-        const char *chromeOpts[1 + maxStyles];
-        chromeOpts[0] = "Procedural";
-
-        for (s32 i = 0; i < usedStyles; i++) {
-            chromeOpts[i + 1] = pdguiThemeGetChromeStyleName(i);
-        }
-
-        int chromeIdx = 0;
-        if (pdguiThemeGetUiChromeEnabled() && usedStyles > 0) {
-            const char *savedStyleId = pdguiThemeGetUiChromeStyleId();
-            chromeIdx = 1; /* Fallback to first chrome style. */
-            for (s32 i = 0; i < usedStyles; i++) {
-                const char *id = pdguiThemeGetChromeStyleId(i);
-                if (savedStyleId && id && strcmp(savedStyleId, id) == 0) {
-                    chromeIdx = (int)(i + 1);
-                    break;
-                }
-            }
-        }
-
-        if (PdCombo("Menu Style", &chromeIdx, chromeOpts, 1 + usedStyles)) {
-            if (chromeIdx <= 0) {
-                pdguiThemeSetUiChromeEnabled(0);
-                pdguiChromeSetEnabled(0);
-            } else {
-                const char *selectedId = pdguiThemeGetChromeStyleId(chromeIdx - 1);
-                pdguiThemeSetUiChromeStyleId(selectedId);
-                pdguiThemeSetUiChromeEnabled(1);
-                pdguiSetPanelNineSlice(selectedId);
-                pdguiChromeSetEnabled(1);
-            }
-            /* Persist immediately so style survives app restarts/crashes. */
-            configSave("pd.ini");
-            sysLogPrintf(LOG_NOTE,
-                "UI.CHROME: style changed to '%s' (id=%s)",
-                chromeOpts[chromeIdx],
-                chromeIdx <= 0 ? "procedural"
-                               : pdguiThemeGetChromeStyleId(chromeIdx - 1));
-        }
-    }
-
-    /* Title-bar procedural style (S297) — pairs with UI Chrome Style so
-     * users can pick a simple title treatment without shipping a mod. */
-    {
-        s32 tbIdx = pdguiThemeGetTitleBarStyle();
-        const char *tbOpts[PDGUI_TITLEBAR_STYLE_COUNT];
-        for (s32 i = 0; i < PDGUI_TITLEBAR_STYLE_COUNT; i++) {
-            tbOpts[i] = pdguiThemeGetTitleBarStyleName(i);
-        }
-        if (PdCombo("Title Bar Style", &tbIdx, tbOpts, PDGUI_TITLEBAR_STYLE_COUNT)) {
-            pdguiThemeSetTitleBarStyle(tbIdx);
-            configSave("pd.ini");
-            sysLogPrintf(LOG_NOTE,
-                "UI.TITLEBAR: style changed to '%s' (%d)",
-                pdguiThemeGetTitleBarStyleName(tbIdx), tbIdx);
-        }
-    }
-
-    /* S305 P3: Font selector — picks between the built-in Handel Gothic
-     * and any .ttf/.otf dropped into mods/Fonts/<slug>/. Font changes apply
-     * on next app restart (ImGui atlas is built once at backend init). */
-    {
-        s32 fontCount = pdguiFontModGetCount();
-        const s32 maxFonts = 32;
-        const char *fontOpts[1 + maxFonts];
-        fontOpts[0] = "Handel Gothic (built-in)";
-        s32 fontOptCount = 1;
-        for (s32 i = 0; i < fontCount && fontOptCount < (s32)(sizeof(fontOpts) / sizeof(fontOpts[0])); i++) {
-            fontOpts[fontOptCount++] = pdguiFontModGetName(i);
-        }
-
-        /* Map the saved Video.FontId back to a combo index. */
-        int fontIdx = 0;
-        const char *activeFontId = pdguiFontModGetActiveId();
-        if (activeFontId && activeFontId[0]) {
-            for (s32 i = 0; i < fontCount; i++) {
-                const char *id = pdguiFontModGetId(i);
-                if (id && strcmp(activeFontId, id) == 0) { fontIdx = (int)(i + 1); break; }
-            }
-        }
-
-        if (PdCombo("Font", &fontIdx, fontOpts, fontOptCount)) {
-            if (fontIdx <= 0) {
-                pdguiFontModSetActiveId("");
-            } else {
-                pdguiFontModSetActiveId(pdguiFontModGetId(fontIdx - 1));
-            }
-            configSave("pd.ini");
-            sysLogPrintf(LOG_NOTE,
-                "UI.FONT: selection changed to '%s' (requires restart to apply)",
-                fontOpts[fontIdx]);
-        }
-
-        ImGui::SameLine();
-        ImGui::TextDisabled("(restart required)");
-    }
+    /* S306: Menu Style / Title Bar Style / Font dropdowns moved to the new
+     * Settings → Interface tab. A single pointer to that tab keeps the
+     * Video section focused on raw display / rendering settings. */
+    ImGui::TextDisabled("Menu Style, Title Bar, Color Theme, Font → Settings → Interface");
 
     ImGui::Spacing();
 
@@ -833,6 +756,564 @@ static void renderSettingsVideo(float scale)
             optionsSetScreenSplit((u8)sp);
         }
     }
+}
+
+/* ========================================================================
+ * Interface tab (S306) — consolidates all UI / visual-customization
+ * controls in one tab. Pulls Menu Style + Title Bar + Font out of Video
+ * and the Color Theme selector out of Debug, then adds launchers for the
+ * deeper tools (Theme Editor, Menu Style tool in the Modding Hub).
+ * ======================================================================== */
+
+/* Built-in theme count — used by both the Color Theme picker and the
+ * delete-theme guard (built-ins cannot be deleted). Defined here so it's
+ * visible before both the delete helpers and the renderer. */
+#define INTERFACE_NUM_BUILTIN_THEMES 7
+
+/* BATCH 2 — delete-theme / delete-mod support (shared state + helpers).
+ * The delete flow is: right-click a user theme → "Delete Theme..." → sets
+ * s_InterfaceDeleteTarget to the theme index → renderDeleteConfirm opens
+ * a modal next frame → user confirms → fsRemoveAll on the theme's mod
+ * dir → pdguiThemeRescanMods. Mirrors the S255 push flow in net rooms so
+ * the UI stays in a consistent popup stack while destructive work runs. */
+enum InterfaceDeleteKind {
+    IFACE_DEL_NONE = 0,
+    IFACE_DEL_THEME,
+    IFACE_DEL_MOD,
+};
+
+static s32 s_InterfaceDeleteTarget = -1;          /* theme index or mod index */
+static int s_InterfaceDeleteKind   = IFACE_DEL_NONE;
+static char s_InterfaceDeleteName[96] = "";       /* captured for the confirm dialog */
+static char s_InterfaceDeletePath[280] = "";      /* mods/<slug>/ path to remove */
+static char s_InterfaceDeleteStatus[160] = "";    /* last status string (red/green) */
+static bool s_InterfaceDeleteSuccess = false;
+
+/* Forward decl for theme path helper — implementation lives in the theme
+ * loader (see pdgui_theme_loader.h). We prefer pdguiThemeGetFilePath
+ * because it returns the theme.json path, from which we can derive the
+ * parent dir. If the theme is built-in, the path is empty and the delete
+ * request is silently rejected. */
+extern "C" const char *pdguiThemeGetFilePath(s32 index);
+extern "C" const char *pdguiThemeGetName(s32 index);
+extern "C" void pdguiThemeRescanMods(void);
+
+/* Best-effort mod directory deletion. The Save-as-Mod path in theme
+ * editor / chrome tool / modmgr writes a predictable set of files
+ * (theme.json, mod.json, audio.ini, optional component manifests). We
+ * `remove()` each candidate, then try `rmdir()` — which succeeds iff the
+ * directory is empty after the known files are gone. User-added extras
+ * stop the rmdir cleanly so we never nuke unrelated files the player
+ * copied in by hand. Returns 1 on rmdir success. */
+static s32 interfaceDeleteModDir(const char *dirPath)
+{
+    if (!dirPath || !dirPath[0]) return 0;
+
+    static const char *k_known[] = {
+        "theme.json", "mod.json", "audio.ini",
+        "chrome.png", "chrome.tga",
+        "character.ini", "skin.ini", "map.ini", "bot.ini", "weapon.ini",
+        /* font mods can leave a .ttf sitting in the directory — we do
+         * not auto-delete them because the user might want to re-use the
+         * font for another theme. rmdir() will surface the failure. */
+        NULL
+    };
+
+    char p[320];
+    for (int i = 0; k_known[i]; i++) {
+        snprintf(p, sizeof(p), "%s/%s", dirPath, k_known[i]);
+        (void)remove(p); /* silently ignore not-found */
+    }
+
+#ifdef _WIN32
+    return _rmdir(dirPath) == 0 ? 1 : 0;
+#else
+    return rmdir(dirPath) == 0 ? 1 : 0;
+#endif
+}
+
+/* Public entry points (called from Color Theme picker above + Mod Manager
+ * in a later commit). Capture the target + name + on-disk path now so the
+ * confirm dialog can render even after the popup owner (context menu)
+ * closes. */
+extern "C" void pdguiInterfaceRequestThemeDelete(s32 themeIndex)
+{
+    if (themeIndex < 0) return;
+    const char *id   = pdguiThemeGetId(themeIndex);
+    const char *name = pdguiThemeGetName(themeIndex);
+    if (!id || !name) return;
+    s32 builtin = pdguiThemeIdToPaletteIndex(id);
+    if (builtin >= 0 && builtin < INTERFACE_NUM_BUILTIN_THEMES) {
+        /* Refuse to delete built-ins. */
+        snprintf(s_InterfaceDeleteStatus, sizeof(s_InterfaceDeleteStatus),
+                 "Built-in themes cannot be deleted.");
+        s_InterfaceDeleteSuccess = false;
+        return;
+    }
+    const char *fp = pdguiThemeGetFilePath(themeIndex);
+    if (!fp || !fp[0]) return;
+
+    /* fp is like ".../mods/<slug>/theme.json" — strip the trailing filename */
+    snprintf(s_InterfaceDeletePath, sizeof(s_InterfaceDeletePath), "%s", fp);
+    char *slash = strrchr(s_InterfaceDeletePath, '/');
+    if (!slash) slash = strrchr(s_InterfaceDeletePath, '\\');
+    if (slash) *slash = '\0';
+
+    s_InterfaceDeleteTarget = themeIndex;
+    s_InterfaceDeleteKind   = IFACE_DEL_THEME;
+    snprintf(s_InterfaceDeleteName, sizeof(s_InterfaceDeleteName), "%s", name);
+    s_InterfaceDeleteStatus[0] = '\0';
+}
+
+extern "C" void pdguiInterfaceRequestModDelete(s32 modIndex,
+                                               const char *displayName,
+                                               const char *modDirPath)
+{
+    if (modIndex < 0) return;
+    if (!displayName || !modDirPath) return;
+    s_InterfaceDeleteTarget = modIndex;
+    s_InterfaceDeleteKind   = IFACE_DEL_MOD;
+    snprintf(s_InterfaceDeleteName, sizeof(s_InterfaceDeleteName), "%s", displayName);
+    snprintf(s_InterfaceDeletePath, sizeof(s_InterfaceDeletePath), "%s", modDirPath);
+    s_InterfaceDeleteStatus[0] = '\0';
+}
+
+extern "C" void pdguiInterfaceRenderDeleteConfirm(void)
+{
+    if (s_InterfaceDeleteKind == IFACE_DEL_NONE && !s_InterfaceDeleteStatus[0]) {
+        return;
+    }
+
+    /* Open the popup the same frame the request fires. IsPopupOpen is the
+     * guard against repeat OpenPopup calls (same-frame stacking). */
+    const char *popupId = "Delete?##iface_delete_confirm";
+    if (s_InterfaceDeleteKind != IFACE_DEL_NONE &&
+            !ImGui::IsPopupOpen(popupId)) {
+        ImGui::OpenPopup(popupId);
+    }
+
+    ImGuiIO &io = ImGui::GetIO();
+    ImGui::SetNextWindowPos(
+        ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f),
+        ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if (ImGui::BeginPopupModal(popupId, nullptr,
+            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+
+        if (s_InterfaceDeleteKind == IFACE_DEL_THEME) {
+            ImGui::Text("Delete the theme \"%s\"?", s_InterfaceDeleteName);
+        } else if (s_InterfaceDeleteKind == IFACE_DEL_MOD) {
+            ImGui::Text("Delete the mod \"%s\"?", s_InterfaceDeleteName);
+        } else {
+            /* Idle / status-only path: previous delete finished, we're
+             * just showing the status string. */
+            ImVec4 col = s_InterfaceDeleteSuccess
+                ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)
+                : ImVec4(1.0f, 0.55f, 0.2f, 1.0f);
+            ImGui::TextColored(col, "%s", s_InterfaceDeleteStatus);
+            if (ImGui::Button("OK")) {
+                s_InterfaceDeleteStatus[0] = '\0';
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+            return;
+        }
+
+        ImGui::TextDisabled("This removes theme.json / mod.json / audio.ini in:");
+        ImGui::TextWrapped("  %s", s_InterfaceDeletePath);
+        ImGui::Spacing();
+        ImGui::TextDisabled("The change takes effect immediately and cannot be undone.");
+        ImGui::Spacing();
+
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            s_InterfaceDeleteKind = IFACE_DEL_NONE;
+            s_InterfaceDeleteTarget = -1;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        /* Red-tinted Delete button — push the theme's warning colour if
+         * available, fall back to a hard-coded red so the affordance reads
+         * even on palette-missing setups. */
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.10f, 0.10f, 0.90f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.70f, 0.15f, 0.15f, 0.95f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.85f, 0.20f, 0.20f, 1.0f));
+        if (ImGui::Button("Delete", ImVec2(120, 0))) {
+            s32 ok = interfaceDeleteModDir(s_InterfaceDeletePath);
+            if (ok) {
+                snprintf(s_InterfaceDeleteStatus, sizeof(s_InterfaceDeleteStatus),
+                         "Deleted \"%s\" from mods/.", s_InterfaceDeleteName);
+                s_InterfaceDeleteSuccess = true;
+                /* Refresh the theme registry / mod manager so the UI
+                 * catches up without a restart. */
+                pdguiThemeRescanMods();
+            } else {
+                snprintf(s_InterfaceDeleteStatus, sizeof(s_InterfaceDeleteStatus),
+                         "Could not fully delete \"%s\" — extra files may remain.",
+                         s_InterfaceDeleteName);
+                s_InterfaceDeleteSuccess = false;
+            }
+            sysLogPrintf(s_InterfaceDeleteSuccess ? LOG_NOTE : LOG_WARNING,
+                         "INTERFACE: delete %s '%s' from %s -> %s",
+                         s_InterfaceDeleteKind == IFACE_DEL_THEME ? "theme" : "mod",
+                         s_InterfaceDeleteName, s_InterfaceDeletePath,
+                         s_InterfaceDeleteSuccess ? "OK" : "partial");
+            s_InterfaceDeleteKind   = IFACE_DEL_NONE;
+            s_InterfaceDeleteTarget = -1;
+            ImGui::CloseCurrentPopup();
+            /* Re-open the popup next frame in status-only mode so the
+             * user sees the result without having to re-navigate. */
+            ImGui::OpenPopup(popupId);
+        }
+        ImGui::PopStyleColor(3);
+
+        ImGui::EndPopup();
+    }
+}
+
+/* Theme presentation tables — shared with a fallback disabled-list view
+ * used by the Color Theme picker. Live above renderSettingsInterface so
+ * it's visible here; the Debug tab no longer references them after the
+ * S306 consolidation but keeping them accessible means future screens
+ * can reuse the colour mapping. */
+static const char *s_InterfaceThemeNames[] = {
+    "Grey", "Blue", "Red", "Green", "White", "Silver", "Black & Gold"
+};
+/* INTERFACE_NUM_BUILTIN_THEMES defined above with delete helpers. */
+
+static const ImVec4 s_InterfaceThemeAccents[] = {
+    ImVec4(0.45f, 0.45f, 0.50f, 0.85f),
+    ImVec4(0.15f, 0.30f, 0.70f, 0.85f),
+    ImVec4(0.70f, 0.12f, 0.12f, 0.85f),
+    ImVec4(0.10f, 0.55f, 0.20f, 0.85f),
+    ImVec4(0.70f, 0.70f, 0.75f, 0.85f),
+    ImVec4(0.55f, 0.55f, 0.60f, 0.85f),
+    ImVec4(0.20f, 0.18f, 0.10f, 0.85f),
+};
+static const ImVec4 s_InterfaceThemeTexts[] = {
+    ImVec4(0.90f, 0.90f, 0.90f, 1.0f),
+    ImVec4(0.80f, 0.85f, 1.00f, 1.0f),
+    ImVec4(1.00f, 0.80f, 0.80f, 1.0f),
+    ImVec4(0.80f, 1.00f, 0.80f, 1.0f),
+    ImVec4(0.15f, 0.15f, 0.20f, 1.0f),
+    ImVec4(0.10f, 0.10f, 0.15f, 1.0f),
+    ImVec4(0.90f, 0.78f, 0.35f, 1.0f),
+};
+
+static void renderSettingsInterface(float scale)
+{
+    /* ---- Intro ---- */
+    ImGui::TextDisabled("Every visual-customization control lives here: colors,");
+    ImGui::TextDisabled("menu chrome, title bar, font. Editors for deeper tweaks");
+    ImGui::TextDisabled("launch into the Modding Hub.");
+    ImGui::Spacing();
+
+    float btnW = 110.0f * scale;
+    float btnH = 24.0f * scale;
+
+    /* ================================================================
+     * Section 1 — Color Theme
+     * ================================================================ */
+    {
+        u32 warnRgba = pdguiGetTextWarning();
+        ImVec4 warnCol = ImVec4(
+            ((warnRgba >> 24) & 0xFF) / 255.0f,
+            ((warnRgba >> 16) & 0xFF) / 255.0f,
+            ((warnRgba >>  8) & 0xFF) / 255.0f,
+            ((warnRgba >>  0) & 0xFF) / 255.0f);
+        ImGui::TextColored(warnCol, "Color Theme");
+    }
+    ImGui::Separator();
+    ImGui::TextDisabled("Accent + background palette. Right-click a custom theme to enable/disable.");
+    ImGui::Spacing();
+
+    const char *activeThemeId = pdguiThemeGetActiveId();
+    s32 themeCount = pdguiThemeGetCount();
+
+    static const ImVec4 k_ModAccent = ImVec4(0.30f, 0.18f, 0.45f, 0.85f);
+    static const ImVec4 k_ModText   = ImVec4(0.95f, 0.85f, 0.55f, 1.00f);
+
+    s32 shownOnCurrentRow = 0;
+    bool modHeaderShown = false;
+    for (s32 ti = 0; ti < themeCount; ti++) {
+        const char *id   = pdguiThemeGetId(ti);
+        const char *name = pdguiThemeGetName(ti);
+        if (!id || !name) continue;
+
+        s32 builtinIdx = pdguiThemeIdToPaletteIndex(id);
+        bool isBuiltin = (builtinIdx >= 0 && builtinIdx < INTERFACE_NUM_BUILTIN_THEMES);
+        bool selected  = (activeThemeId && strcmp(id, activeThemeId) == 0);
+        bool themeEnabled = pdguiThemeIsEnabled(ti) != 0;
+
+        if (!isBuiltin && !modHeaderShown) {
+            if (shownOnCurrentRow > 0) shownOnCurrentRow = 0;
+            ImGui::Spacing();
+            ImGui::TextDisabled("Custom (from mods/)");
+            modHeaderShown = true;
+        }
+
+        ImVec4 btnCol  = isBuiltin ? s_InterfaceThemeAccents[builtinIdx] : k_ModAccent;
+        ImVec4 txtCol  = isBuiltin ? s_InterfaceThemeTexts[builtinIdx]   : k_ModText;
+
+        if (!isBuiltin && !themeEnabled) {
+            btnCol.w *= 0.35f;
+            txtCol.w *= 0.45f;
+        }
+
+        ImVec4 btnHover = ImVec4(
+            btnCol.x + 0.15f, btnCol.y + 0.15f, btnCol.z + 0.15f, 0.95f);
+        ImVec4 btnActive = ImVec4(
+            btnCol.x + 0.25f, btnCol.y + 0.25f, btnCol.z + 0.25f, 1.0f);
+
+        if (selected) {
+            btnCol.x += 0.12f; btnCol.y += 0.12f; btnCol.z += 0.12f; btnCol.w = 1.0f;
+            ImGui::PushStyleColor(ImGuiCol_Border, txtCol);
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f * scale);
+        }
+
+        ImGui::PushStyleColor(ImGuiCol_Button, btnCol);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, btnHover);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, btnActive);
+        ImGui::PushStyleColor(ImGuiCol_Text, txtCol);
+
+        char btnLabel[96];
+        snprintf(btnLabel, sizeof(btnLabel), "%s##iface_theme_%d", name, (int)ti);
+
+        if (!isBuiltin && !themeEnabled) {
+            ImGui::Button(btnLabel, ImVec2(btnW, btnH));
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Disabled — right-click to re-enable, or X / Delete to remove");
+            }
+        } else {
+            if (ImGui::Button(btnLabel, ImVec2(btnW, btnH))) {
+                pdguiThemeLoadFromCatalog(id);
+                configSave("pd.ini");
+            }
+        }
+
+        if (!isBuiltin) {
+            char ctxId[64];
+            snprintf(ctxId, sizeof(ctxId), "##iface_themectx_%d", (int)ti);
+            if (ImGui::BeginPopupContextItem(ctxId)) {
+                if (themeEnabled) {
+                    if (ImGui::MenuItem("Disable Theme")) {
+                        pdguiThemeSetEnabled(ti, 0);
+                    }
+                } else {
+                    if (ImGui::MenuItem("Enable Theme")) {
+                        pdguiThemeSetEnabled(ti, 1);
+                    }
+                }
+                /* S306 BATCH 2: delete for user themes — opens the confirm
+                 * dialog handled in renderSettingsInterface below (see
+                 * s_InterfaceDeleteTarget). */
+                extern void pdguiInterfaceRequestThemeDelete(s32 themeIndex);
+                ImGui::Separator();
+                if (ImGui::MenuItem("Delete Theme...")) {
+                    pdguiInterfaceRequestThemeDelete(ti);
+                }
+                ImGui::EndPopup();
+            }
+            /* S306 BATCH 2: controller X-button (GamepadFaceLeft) also
+             * opens the context menu. Matches the mouse right-click path
+             * established by pdgui_menu_room.cpp bot-slot handling. */
+            if (ImGui::IsItemFocused() &&
+                ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft, false)) {
+                ImGui::OpenPopup(ctxId);
+            }
+        }
+
+        ImGui::PopStyleColor(4);
+        if (selected) {
+            ImGui::PopStyleVar();
+            ImGui::PopStyleColor();
+        }
+
+        shownOnCurrentRow++;
+        if (shownOnCurrentRow < 3 && ti + 1 < themeCount) {
+            s32 nextBuiltin = -1;
+            const char *nextId = pdguiThemeGetId(ti + 1);
+            if (nextId) nextBuiltin = pdguiThemeIdToPaletteIndex(nextId);
+            bool nextIsMod = (nextBuiltin < 0);
+            if (!(nextIsMod && !modHeaderShown)) {
+                ImGui::SameLine();
+            } else {
+                shownOnCurrentRow = 0;
+            }
+        } else {
+            shownOnCurrentRow = 0;
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* Customize + delete confirm (BATCH 2 delete dialog is driven below).
+     * "Open Color Editor..." is a direct launcher for pdguiThemeEditorShow. */
+    if (ImGui::Button("Open Color Editor...", ImVec2(btnW * 2.0f, btnH))) {
+        pdguiThemeEditorShow();
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Full palette editor with live preview + Save-as-Mod.");
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ================================================================
+     * Section 2 — Menu Style
+     * ================================================================ */
+    {
+        u32 warnRgba = pdguiGetTextWarning();
+        ImVec4 warnCol = ImVec4(
+            ((warnRgba >> 24) & 0xFF) / 255.0f,
+            ((warnRgba >> 16) & 0xFF) / 255.0f,
+            ((warnRgba >>  8) & 0xFF) / 255.0f,
+            ((warnRgba >>  0) & 0xFF) / 255.0f);
+        ImGui::TextColored(warnCol, "Menu Style");
+    }
+    ImGui::Separator();
+    ImGui::TextDisabled("Nine-slice chrome artwork for window frames. Applies live.");
+    ImGui::Spacing();
+    {
+        const s32 styleCount = pdguiThemeGetChromeStyleCount();
+        const s32 maxStyles = 31;
+        const s32 usedStyles = styleCount < maxStyles ? styleCount : maxStyles;
+        const char *chromeOpts[1 + maxStyles];
+        chromeOpts[0] = "Procedural (built-in)";
+        for (s32 i = 0; i < usedStyles; i++) {
+            chromeOpts[i + 1] = pdguiThemeGetChromeStyleName(i);
+        }
+
+        int chromeIdx = 0;
+        if (pdguiThemeGetUiChromeEnabled() && usedStyles > 0) {
+            const char *savedStyleId = pdguiThemeGetUiChromeStyleId();
+            chromeIdx = 1;
+            for (s32 i = 0; i < usedStyles; i++) {
+                const char *id = pdguiThemeGetChromeStyleId(i);
+                if (savedStyleId && id && strcmp(savedStyleId, id) == 0) {
+                    chromeIdx = (int)(i + 1);
+                    break;
+                }
+            }
+        }
+
+        if (PdCombo("Menu Style", &chromeIdx, chromeOpts, 1 + usedStyles)) {
+            if (chromeIdx <= 0) {
+                pdguiThemeSetUiChromeEnabled(0);
+                pdguiChromeSetEnabled(0);
+            } else {
+                const char *selectedId = pdguiThemeGetChromeStyleId(chromeIdx - 1);
+                pdguiThemeSetUiChromeStyleId(selectedId);
+                pdguiThemeSetUiChromeEnabled(1);
+                pdguiSetPanelNineSlice(selectedId);
+                pdguiChromeSetEnabled(1);
+            }
+            configSave("pd.ini");
+            sysLogPrintf(LOG_NOTE,
+                "UI.CHROME: style changed to '%s' (id=%s)",
+                chromeOpts[chromeIdx],
+                chromeIdx <= 0 ? "procedural"
+                               : pdguiThemeGetChromeStyleId(chromeIdx - 1));
+        }
+    }
+    if (ImGui::Button("Open Menu Style Tool...", ImVec2(btnW * 2.0f, btnH))) {
+        /* Close the main menu so the Modding Hub modal has the foreground. */
+        pdguiModdingHubShowTool(MODHUB_TOOL_MENU_STYLE);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Import a PNG, set corner insets, save as a new Menu Style mod.");
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ================================================================
+     * Section 3 — Title Bar Style
+     * ================================================================ */
+    {
+        u32 warnRgba = pdguiGetTextWarning();
+        ImVec4 warnCol = ImVec4(
+            ((warnRgba >> 24) & 0xFF) / 255.0f,
+            ((warnRgba >> 16) & 0xFF) / 255.0f,
+            ((warnRgba >>  8) & 0xFF) / 255.0f,
+            ((warnRgba >>  0) & 0xFF) / 255.0f);
+        ImGui::TextColored(warnCol, "Title Bar Style");
+    }
+    ImGui::Separator();
+    ImGui::TextDisabled("Procedural pattern drawn behind window titles.");
+    ImGui::Spacing();
+    {
+        s32 tbIdx = pdguiThemeGetTitleBarStyle();
+        const char *tbOpts[PDGUI_TITLEBAR_STYLE_COUNT];
+        for (s32 i = 0; i < PDGUI_TITLEBAR_STYLE_COUNT; i++) {
+            tbOpts[i] = pdguiThemeGetTitleBarStyleName(i);
+        }
+        if (PdCombo("Title Bar Style", &tbIdx, tbOpts, PDGUI_TITLEBAR_STYLE_COUNT)) {
+            pdguiThemeSetTitleBarStyle(tbIdx);
+            configSave("pd.ini");
+            sysLogPrintf(LOG_NOTE,
+                "UI.TITLEBAR: style changed to '%s' (%d)",
+                pdguiThemeGetTitleBarStyleName(tbIdx), tbIdx);
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ================================================================
+     * Section 4 — Font
+     * ================================================================ */
+    {
+        u32 warnRgba = pdguiGetTextWarning();
+        ImVec4 warnCol = ImVec4(
+            ((warnRgba >> 24) & 0xFF) / 255.0f,
+            ((warnRgba >> 16) & 0xFF) / 255.0f,
+            ((warnRgba >>  8) & 0xFF) / 255.0f,
+            ((warnRgba >>  0) & 0xFF) / 255.0f);
+        ImGui::TextColored(warnCol, "Font");
+    }
+    ImGui::Separator();
+    ImGui::TextDisabled("Font swap takes effect on next restart (ImGui atlas is built at backend init).");
+    ImGui::TextDisabled("Drop .ttf / .otf files into mods/Fonts/<slug>/ and they show up here.");
+    ImGui::Spacing();
+    {
+        s32 fontCount = pdguiFontModGetCount();
+        const s32 maxFonts = 32;
+        const char *fontOpts[1 + maxFonts];
+        fontOpts[0] = "Handel Gothic (built-in)";
+        s32 fontOptCount = 1;
+        for (s32 i = 0; i < fontCount && fontOptCount < (s32)(sizeof(fontOpts) / sizeof(fontOpts[0])); i++) {
+            fontOpts[fontOptCount++] = pdguiFontModGetName(i);
+        }
+
+        int fontIdx = 0;
+        const char *activeFontId = pdguiFontModGetActiveId();
+        if (activeFontId && activeFontId[0]) {
+            for (s32 i = 0; i < fontCount; i++) {
+                const char *id = pdguiFontModGetId(i);
+                if (id && strcmp(activeFontId, id) == 0) { fontIdx = (int)(i + 1); break; }
+            }
+        }
+
+        if (PdCombo("Font", &fontIdx, fontOpts, fontOptCount)) {
+            if (fontIdx <= 0) {
+                pdguiFontModSetActiveId("");
+            } else {
+                pdguiFontModSetActiveId(pdguiFontModGetId(fontIdx - 1));
+            }
+            configSave("pd.ini");
+            sysLogPrintf(LOG_NOTE,
+                "UI.FONT: selection changed to '%s' (requires restart to apply)",
+                fontOpts[fontIdx]);
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(restart required)");
+    }
+
+    /* BATCH 2 delete-theme confirm — rendered as an ImGui popup triggered
+     * by pdguiInterfaceRequestThemeDelete above. See implementation near
+     * the bottom of the Interface tab. */
+    extern void pdguiInterfaceRenderDeleteConfirm(void);
+    pdguiInterfaceRenderDeleteConfirm();
 }
 
 static void renderSettingsAudio(float scale)
@@ -1772,149 +2253,21 @@ static void renderSettingsDebug(float scale)
     ImGui::Spacing();
     ImGui::Spacing();
 
-    /* ------ Theme Selector ------
-     *
-     * 2026-04-11: enumerate the FULL theme registry instead of the seven
-     * hardcoded built-ins.  User-saved themes (theme editor Save-as-Mod
-     * path -> mods/<slug>/theme.json) are registered at init by
-     * pdguiThemeLoaderInit's scan_mods_for_themes(), AND on-save via
-     * pdguiThemeRegisterModDir() so they appear without a restart.
-     *
-     * Built-in themes keep their pre-tinted accent colours (s_ThemeAccentColors
-     * indexed by palette index 0..6); mod themes use a neutral purple/gold
-     * tint to visually distinguish them from the shipped set. */
-    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "UI Theme");
+    /* S306: UI Theme selector + Theme Editor launcher moved to the new
+     * Settings → Interface tab so all visual-customisation controls live
+     * in one place. The Debug tab now focuses on diagnostics only. */
+    {
+        u32 warnRgba = pdguiGetTextWarning();
+        ImVec4 warnCol = ImVec4(
+            ((warnRgba >> 24) & 0xFF) / 255.0f,
+            ((warnRgba >> 16) & 0xFF) / 255.0f,
+            ((warnRgba >>  8) & 0xFF) / 255.0f,
+            ((warnRgba >>  0) & 0xFF) / 255.0f);
+        ImGui::TextColored(warnCol, "Visual Customization");
+    }
     ImGui::Separator();
-    ImGui::Spacing();
-
-    const char *activeThemeId = pdguiThemeGetActiveId();
-    s32 themeCount = pdguiThemeGetCount();
-
-    /* Default mod-theme tint (used when palette_index < 0) — purple/gold so
-     * mods stand out from built-ins without being ugly. */
-    static const ImVec4 k_ModAccent = ImVec4(0.30f, 0.18f, 0.45f, 0.85f);
-    static const ImVec4 k_ModText   = ImVec4(0.95f, 0.85f, 0.55f, 1.00f);
-
-    s32 shownOnCurrentRow = 0;
-    bool modHeaderShown = false;
-    for (s32 ti = 0; ti < themeCount; ti++) {
-        const char *id   = pdguiThemeGetId(ti);
-        const char *name = pdguiThemeGetName(ti);
-        if (!id || !name) continue;
-
-        s32 builtinIdx = pdguiThemeIdToPaletteIndex(id);
-        bool isBuiltin = (builtinIdx >= 0 && builtinIdx < 7);
-        bool selected  = (activeThemeId && strcmp(id, activeThemeId) == 0);
-        bool themeEnabled = pdguiThemeIsEnabled(ti) != 0;
-
-        /* Insert a header + row break when transitioning from built-ins to mods. */
-        if (!isBuiltin && !modHeaderShown) {
-            /* Close any partial built-in row */
-            if (shownOnCurrentRow > 0) {
-                shownOnCurrentRow = 0;
-            }
-            ImGui::Spacing();
-            ImGui::TextDisabled("Custom (from mods/)");
-            modHeaderShown = true;
-        }
-
-        /* Pick accent + text colour for this theme */
-        ImVec4 btnCol  = isBuiltin ? s_ThemeAccentColors[builtinIdx] : k_ModAccent;
-        ImVec4 txtCol  = isBuiltin ? s_ThemeTextColors[builtinIdx]   : k_ModText;
-
-        /* Disabled mod themes: reduce alpha to visually distinguish */
-        if (!isBuiltin && !themeEnabled) {
-            btnCol.w *= 0.35f;
-            txtCol.w *= 0.45f;
-        }
-
-        ImVec4 btnHover = ImVec4(
-            btnCol.x + 0.15f, btnCol.y + 0.15f, btnCol.z + 0.15f, 0.95f);
-        ImVec4 btnActive = ImVec4(
-            btnCol.x + 0.25f, btnCol.y + 0.25f, btnCol.z + 0.25f, 1.0f);
-
-        if (selected) {
-            /* Brighten selected button and add a visible border */
-            btnCol.x += 0.12f; btnCol.y += 0.12f; btnCol.z += 0.12f;
-            btnCol.w = 1.0f;
-            ImGui::PushStyleColor(ImGuiCol_Border, txtCol);
-            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f * scale);
-        }
-
-        ImGui::PushStyleColor(ImGuiCol_Button, btnCol);
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, btnHover);
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, btnActive);
-        ImGui::PushStyleColor(ImGuiCol_Text, txtCol);
-
-        char btnLabel[96];
-        snprintf(btnLabel, sizeof(btnLabel), "%s##theme_%d", name, (int)ti);
-
-        if (!isBuiltin && !themeEnabled) {
-            /* Disabled mod theme: show as button but don't activate on click */
-            ImGui::Button(btnLabel, ImVec2(btnW, btnH));
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Disabled — right-click to re-enable");
-            }
-        } else {
-            if (ImGui::Button(btnLabel, ImVec2(btnW, btnH))) {
-                /* P5: catalog-backed load, handles both built-in and mod themes.
-                 * This persists the selection via Theme.ActiveTheme in pd.ini. */
-                pdguiThemeLoadFromCatalog(id);
-                configSave("pd.ini");
-            }
-        }
-
-        /* Right-click context menu for mod themes: enable/disable toggle */
-        if (!isBuiltin) {
-            char ctxId[64];
-            snprintf(ctxId, sizeof(ctxId), "##themectx_%d", (int)ti);
-            if (ImGui::BeginPopupContextItem(ctxId)) {
-                if (themeEnabled) {
-                    if (ImGui::MenuItem("Disable Theme")) {
-                        pdguiThemeSetEnabled(ti, 0);
-                    }
-                } else {
-                    if (ImGui::MenuItem("Enable Theme")) {
-                        pdguiThemeSetEnabled(ti, 1);
-                    }
-                }
-                ImGui::EndPopup();
-            }
-        }
-
-        ImGui::PopStyleColor(4); /* Text, Active, Hovered, Button */
-
-        if (selected) {
-            ImGui::PopStyleVar();   /* FrameBorderSize */
-            ImGui::PopStyleColor(); /* Border */
-        }
-
-        /* 3 buttons per row */
-        shownOnCurrentRow++;
-        if (shownOnCurrentRow < 3 && ti + 1 < themeCount) {
-            /* Don't SameLine right before a mod-section header — let the
-             * next iteration handle the row break. */
-            s32 nextBuiltin = -1;
-            const char *nextId = pdguiThemeGetId(ti + 1);
-            if (nextId) nextBuiltin = pdguiThemeIdToPaletteIndex(nextId);
-            bool nextIsMod = (nextBuiltin < 0);
-            if (!(nextIsMod && !modHeaderShown)) {
-                ImGui::SameLine();
-            } else {
-                shownOnCurrentRow = 0;
-            }
-        } else {
-            shownOnCurrentRow = 0;
-        }
-    }
-
-    ImGui::Spacing();
-
-    /* P5: Theme Editor button */
-    if (ImGui::Button("Theme Editor...", ImVec2(btnW * 2.0f, btnH))) {
-        pdguiThemeEditorShow();
-    }
-
+    ImGui::TextDisabled("Color Theme, Menu Style, Title Bar, Font");
+    ImGui::TextDisabled("-> Settings > Interface tab");
     ImGui::Spacing();
     ImGui::Spacing();
 
@@ -2400,16 +2753,19 @@ static void renderSettingsView(float scale, float contentH)
      * tab's list instead of switching tabs. */
     static s32 s_BumperPendingTab = -1; /* -1 = no pending switch */
 
+    /* S306: tab count is now 8 — inserted Interface between Video and
+     * Audio. Order: 0=Video 1=Interface 2=Audio 3=Controls 4=Game
+     * 5=Updates 6=Debug 7=Catalog. */
     if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
         s_SettingsSubTab--;
-        if (s_SettingsSubTab < 0) s_SettingsSubTab = 6;
+        if (s_SettingsSubTab < 0) s_SettingsSubTab = 7;
         s_BumperPendingTab = s_SettingsSubTab;
         s_NeedsFocus = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
     if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
         s_SettingsSubTab++;
-        if (s_SettingsSubTab > 6) s_SettingsSubTab = 0;
+        if (s_SettingsSubTab > 7) s_SettingsSubTab = 0;
         s_BumperPendingTab = s_SettingsSubTab;
         s_NeedsFocus = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
@@ -2429,6 +2785,7 @@ static void renderSettingsView(float scale, float contentH)
         ImGuiTabItemFlags selFlag4 = (s_BumperPendingTab == 4) ? ImGuiTabItemFlags_SetSelected : 0;
         ImGuiTabItemFlags selFlag5 = (s_BumperPendingTab == 5) ? ImGuiTabItemFlags_SetSelected : 0;
         ImGuiTabItemFlags selFlag6 = (s_BumperPendingTab == 6) ? ImGuiTabItemFlags_SetSelected : 0;
+        ImGuiTabItemFlags selFlag7 = (s_BumperPendingTab == 7) ? ImGuiTabItemFlags_SetSelected : 0;
         s_BumperPendingTab = -1; /* Clear after consuming */
 
         if (ImGui::BeginTabItem("Video", nullptr, selFlag0)) {
@@ -2442,8 +2799,19 @@ static void renderSettingsView(float scale, float contentH)
             ImGui::EndTabItem();
         }
 
-        if (ImGui::BeginTabItem("Audio", nullptr, selFlag1)) {
+        if (ImGui::BeginTabItem("Interface", nullptr, selFlag1)) {
             s_SettingsSubTab = 1;
+            ImGui::BeginChild("##settings_scroll_i", ImVec2(0, 0),
+                              ImGuiChildFlags_NavFlattened);
+            if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
+            if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
+            renderSettingsInterface(scale);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Audio", nullptr, selFlag2)) {
+            s_SettingsSubTab = 2;
             ImGui::BeginChild("##settings_scroll_a", ImVec2(0, 0),
                               ImGuiChildFlags_NavFlattened);
             if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
@@ -2453,8 +2821,8 @@ static void renderSettingsView(float scale, float contentH)
             ImGui::EndTabItem();
         }
 
-        if (ImGui::BeginTabItem("Controls", nullptr, selFlag2)) {
-            s_SettingsSubTab = 2;
+        if (ImGui::BeginTabItem("Controls", nullptr, selFlag3)) {
+            s_SettingsSubTab = 3;
             ImGui::BeginChild("##settings_scroll_c", ImVec2(0, 0),
                               ImGuiChildFlags_NavFlattened);
             if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
@@ -2464,8 +2832,8 @@ static void renderSettingsView(float scale, float contentH)
             ImGui::EndTabItem();
         }
 
-        if (ImGui::BeginTabItem("Game", nullptr, selFlag3)) {
-            s_SettingsSubTab = 3;
+        if (ImGui::BeginTabItem("Game", nullptr, selFlag4)) {
+            s_SettingsSubTab = 4;
             ImGui::BeginChild("##settings_scroll_g", ImVec2(0, 0),
                               ImGuiChildFlags_NavFlattened);
             if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
@@ -2475,8 +2843,8 @@ static void renderSettingsView(float scale, float contentH)
             ImGui::EndTabItem();
         }
 
-        if (ImGui::BeginTabItem("Updates", nullptr, selFlag4)) {
-            s_SettingsSubTab = 4;
+        if (ImGui::BeginTabItem("Updates", nullptr, selFlag5)) {
+            s_SettingsSubTab = 5;
             ImGui::BeginChild("##settings_scroll_u", ImVec2(0, 0),
                               ImGuiChildFlags_NavFlattened);
             if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
@@ -2486,8 +2854,8 @@ static void renderSettingsView(float scale, float contentH)
             ImGui::EndTabItem();
         }
 
-        if (ImGui::BeginTabItem("Debug", nullptr, selFlag5)) {
-            s_SettingsSubTab = 5;
+        if (ImGui::BeginTabItem("Debug", nullptr, selFlag6)) {
+            s_SettingsSubTab = 6;
             ImGui::BeginChild("##settings_scroll_d", ImVec2(0, 0),
                               ImGuiChildFlags_NavFlattened);
             if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
@@ -2497,8 +2865,8 @@ static void renderSettingsView(float scale, float contentH)
             ImGui::EndTabItem();
         }
 
-        if (ImGui::BeginTabItem("Catalog", nullptr, selFlag6)) {
-            s_SettingsSubTab = 6;
+        if (ImGui::BeginTabItem("Catalog", nullptr, selFlag7)) {
+            s_SettingsSubTab = 7;
             ImGui::BeginChild("##settings_scroll_cat", ImVec2(0, 0),
                               ImGuiChildFlags_NavFlattened);
             if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
@@ -3103,12 +3471,14 @@ static s32 renderMainMenu(struct menudialog *dialog,
     if (s_PrevSubTab >= 0 && s_PrevSubTab != s_SettingsSubTab) {
         pdguiPlaySound(PDGUI_SND_FOCUS);
         s_NeedsFocus = true;  /* focus first widget when tab changes */
-        /* S197a: re-init Controls binds only when LEAVING the Controls tab
-         * (prev==2, new!=2).  Previously fired on both leave and enter,
-         * causing a redundant reload on the frame after the user clicked
-         * the Controls tab (the enter-frame already reloaded via the
-         * default/view-change flag). */
-        if (s_PrevSubTab == 2 && s_SettingsSubTab != 2) {
+        /* S197a: re-init Controls binds only when LEAVING the Controls tab.
+         * (S306 shifted Controls from 2 → 3 when the Interface tab was
+         * inserted, so the guard now compares against the new index.)
+         * Previously fired on both leave and enter, causing a redundant
+         * reload on the frame after the user clicked the Controls tab
+         * (the enter-frame already reloaded via the default/view-change
+         * flag). */
+        if (s_PrevSubTab == 3 && s_SettingsSubTab != 3) {
             s_ControlsNeedsInit = true;
         }
     }
@@ -3160,12 +3530,11 @@ static s32 renderMainMenu(struct menudialog *dialog,
 static s32 ciRedirectTargetTabForDialog(struct menudialogdef *dlg)
 {
     /* Map each CI Options sub-dialog to its matching unified Settings tab.
-     * Sub-tab indices match the numbering in s_SettingsSubTab:
-     *   0 = Video, 1 = Audio, 2 = Controls, 3 = Game,
-     *   4 = Updates, 5 = Debug, 6 = Catalog. */
-    if (dlg == &g_CiControlOptionsMenuDialog)    return 2; /* Controls */
+     * S306 tab order: 0=Video 1=Interface 2=Audio 3=Controls 4=Game
+     * 5=Updates 6=Debug 7=Catalog. */
+    if (dlg == &g_CiControlOptionsMenuDialog)    return 3; /* Controls */
     /* g_CiControlOptionsMenuDialog2 is PAL-only — not linked in NTSC builds. */
-    if (dlg == &g_CiControlStyleMenuDialog)      return 2; /* Controls */
+    if (dlg == &g_CiControlStyleMenuDialog)      return 3; /* Controls */
     if (dlg == &g_CiDisplayMenuDialog)           return 0; /* Video */
     if (dlg == &g_CiOptionsViaPcMenuDialog)      return 0; /* start on Video */
     if (dlg == &g_CiOptionsViaPauseMenuDialog)   return 0; /* start on Video */

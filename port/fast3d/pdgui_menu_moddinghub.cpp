@@ -2518,6 +2518,31 @@ void pdguiModdingHubShow(void)
     }
 }
 
+/* S306: open the Modding Hub on a specific tool index. Used by the
+ * Settings → Interface tab to provide "Open Menu Style Editor..." /
+ * "Open Skin Editor..." shortcuts that route to the deeper mod tools
+ * without requiring the user to navigate through the hub manually. */
+void pdguiModdingHubShowTool(s32 tool)
+{
+    /* Clamp to the known tool range (0..7); out-of-range requests land
+     * on Mod Manager rather than an undefined child render. */
+    if (tool < 0 || tool > 7) tool = 0;
+    s_Visible    = 1;
+    s_ActiveTool = tool;
+    /* Refresh whichever tool we're about to show so its data is live. */
+    switch (tool) {
+        case 0: pdguiModManagerRefreshSnapshot(); break;
+        case 1: iniRefreshEntries();              break;
+        case 2: scaleRefreshEntries();            break;
+        case 3: packRefreshEntries();             break;
+        case 4: pdguiAudioModRefresh();           break;
+        case 5: pdguiSkinEditorRefresh();         break;
+        case 6: importReset();                    break;
+        case 7: chromeToolReset();                break;
+    }
+    sysLogPrintf(LOG_NOTE, "MODHUB: opened on tool %d", (int)tool);
+}
+
 void pdguiModdingHubHide(void)
 {
     moddingHubClose("explicit-hide");

@@ -104,6 +104,12 @@ const char *pdguiThemeGetId(s32 index);
  *  Returns NULL if index out of range. */
 const char *pdguiThemeGetName(s32 index);
 
+/** S306: Get the on-disk theme.json filepath for a registered theme.
+ *  Returns an empty string for built-in themes (no on-disk asset),
+ *  NULL if the index is out of range. Used by the Settings → Interface
+ *  tab's "Delete Theme" flow to derive the parent mod directory. */
+const char *pdguiThemeGetFilePath(s32 index);
+
 /** Get the currently active theme catalog ID.
  *  Returns "base:theme_blue" as default. */
 const char *pdguiThemeGetActiveId(void);

@@ -1449,6 +1449,14 @@ const char *pdguiThemeGetName(s32 index)
     return s_Themes[index].name;
 }
 
+/* S306: the on-disk theme.json path for a given theme. Built-in themes
+ * return an empty string (they have no file on disk). */
+const char *pdguiThemeGetFilePath(s32 index)
+{
+    if (index < 0 || index >= s_ThemeCount) return nullptr;
+    return s_Themes[index].filepath;
+}
+
 const char *pdguiThemeGetActiveId(void)
 {
     return s_ActiveThemeId;
