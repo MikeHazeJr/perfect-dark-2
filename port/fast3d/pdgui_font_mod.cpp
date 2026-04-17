@@ -188,8 +188,8 @@ static void scan_candidate_dir(const char *absdir, const char *slug)
 }
 
 /** Scan a root directory (e.g. "<base>/mods").  Recognises two layouts:
- *    mods/Fonts/<slug>/*.ttf   (category folder)
- *    mods/<slug>/*.ttf         (top-level slug with no manifest)
+ *    mods/Fonts/<slug>/ - category folder; look for TTF/OTF inside
+ *    mods/<slug>/       - top-level slug with no manifest
  */
 static void scan_mods_root(const char *root)
 {
