@@ -22,7 +22,7 @@
 #include "types.h"
 #include "constants.h"
 #include "assetcatalog.h"
-#include "assetprovider.h"
+#include "assetprovider_internal.h"
 #include "system.h"
 #include "data.h"
 #include "game/mplayer/scenarios.h"

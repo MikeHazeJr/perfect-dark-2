@@ -45,6 +45,29 @@ Dedicated Server.
 
 ---
 
+## Done — 2026-04-17 (S346 — Asset Provider Phase 4, `crazy-wilbur-ae5c6d`)
+
+**Build verified.** Clean 773/773, zero errors. `PerfectDark.exe` + `PerfectDarkServer.exe` linked.
+
+`romProviderHandle()` retired from all game code — now internal to catalog/provider layer only.
+
+Changes:
+- `port/include/assetprovider_internal.h` — new internal header for `romProviderHandle`/`romProviderFilenum`
+- `port/include/assetprovider.h` — removed `romProviderHandle`/`romProviderFilenum` from public API
+- `port/include/assetload.h` + `port/src/assetload.c` — new `assetLoadRomToNew()` for game code
+- `port/include/assetcatalog.h` — 5 stage handle fields in `catalog_stage_result_t`; `catalogGetBodyHandle`/`catalogGetHeadHandle`/`catalogGetPropHandle` declared; SA-5a filenum fns demoted to `[MIGRATION BRIDGE]`
+- `port/src/assetcatalog_api.c` — stage handle population; 3 new handle accessor impls
+- `port/src/assetcatalog_base.c` + `assetcatalog_base_extended.c` — use `assetprovider_internal.h`
+- `src/game/file.c` — `fileLoadToNew` calls `assetLoadRomToNew`
+- `src/game/modeldef.c` — calls `assetLoadRomToNew`
+- `src/game/lang.c` + `langreset.c` — reverted to `fileLoadToNew` (lang file IDs are runtime-computed)
+- `src/game/setup.c` — uses `stage.setup_handle`/`mpsetup_handle`/`pads_handle`
+- `src/game/tilesreset.c` — uses `stage.tile_handle`
+
+**Pending (Phase 5 scope)**: Migrate SA-5a deprecated bridge calls (`catalogGetBodyFilenumByIndex` etc.) to handle-based model load APIs — requires `modeldefLoadByHandle` overloads.
+
+---
+
 ## Done — 2026-04-17 (S344 — Audit S339+S340, `optimistic-mcclintock-47fc8d`)
 
 **Build verified.** Clean 4/4 objects, zero errors. Merge commit to dev.

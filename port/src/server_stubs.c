@@ -430,6 +430,7 @@ void        audioNetworkMusicTick(void)                     { /* no-op on server
  * these to bind handles to entries. Returning null handles is harmless
  * because the server never dispatches through the provider layer. --- */
 #include "assetprovider.h"
+#include "assetprovider_internal.h"
 const asset_provider_t *romProvider(void)                    { return NULL; }
 asset_data_handle_t romProviderHandle(s32 filenum)
 {

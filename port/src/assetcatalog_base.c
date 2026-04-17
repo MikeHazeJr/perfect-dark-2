@@ -25,7 +25,7 @@
 #include "constants.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
-#include "assetprovider.h"
+#include "assetprovider_internal.h"
 #include "system.h"
 #include "data.h"
 #include "game/stagetable.h"

@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "assetprovider.h"
+#include "assetprovider_internal.h"
 #include "assetload.h"
 #include "constants.h"
 #include "lib/memp.h"
@@ -117,4 +118,12 @@ const char *assetDescribe(asset_data_handle_t handle, char *buf, s32 buf_size)
         return buf;
     }
     return handle.provider->describe(handle.provider, handle, buf, buf_size);
+}
+
+/* Phase 4: public ROM-load helper so game code never needs to call
+ * romProviderHandle() directly.  Identical behavior to
+ * assetLoadToNew(romProviderHandle(filenum), method, loadtype). */
+void *assetLoadRomToNew(s32 filenum, u32 method, u32 loadtype)
+{
+    return assetLoadToNew(romProviderHandle(filenum), method, loadtype);
 }

@@ -85,10 +85,15 @@ typedef struct asset_provider_s {
  * ======================================================================== */
 
 /* RomProvider — serves bytes from the mmap'd ROM file via the existing
- * `romdataFileLoad` path. opaque[0] = ROM filenum. */
+ * `romdataFileLoad` path. opaque[0] = ROM filenum.
+ *
+ * romProvider() — singleton getter (public: used by the dispatcher in assetload.c
+ * to detect RomProvider handles and fast-path to fileLoadRomToNew).
+ *
+ * romProviderHandle() / romProviderFilenum() — INTERNAL to the catalog/provider
+ * layer.  Declared in assetprovider_internal.h.  Game code must not call these;
+ * use fileLoadToNew() or assetLoadRomToNew() instead. */
 const asset_provider_t *romProvider(void);
-asset_data_handle_t      romProviderHandle(s32 filenum);
-s32                      romProviderFilenum(asset_data_handle_t h);
 
 /* FileProvider — serves bytes from a loose file on disk via `fsFileLoad`.
  * Path interning keeps handles small and stable across catalog growth.

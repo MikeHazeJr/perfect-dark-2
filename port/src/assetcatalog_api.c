@@ -29,6 +29,7 @@
 #include "system.h"
 #include "data.h"
 #include "assetcatalog.h"
+#include "assetprovider_internal.h"
 #include "modelcatalog.h"
 #include "net/sessioncatalog.h"
 #include "net/netbuf.h"
@@ -81,8 +82,16 @@ static void s_fillStageResult(const asset_entry_t *e, catalog_stage_result_t *ou
         out->setupfileid   = (s32)g_Stages[idx].setupfileid;
         out->mpsetupfileid = (s32)g_Stages[idx].mpsetupfileid;
         out->tilefileid    = (s32)g_Stages[idx].tilefileid;
+        /* Phase 4: populate handles internally so callers never need
+         * romProviderHandle(fileid) outside the catalog/provider layer. */
+        if (out->bgfileid      > 0) out->bg_handle      = romProviderHandle(out->bgfileid);
+        if (out->padsfileid    > 0) out->pads_handle    = romProviderHandle(out->padsfileid);
+        if (out->setupfileid   > 0) out->setup_handle   = romProviderHandle(out->setupfileid);
+        if (out->mpsetupfileid > 0) out->mpsetup_handle = romProviderHandle(out->mpsetupfileid);
+        if (out->tilefileid    > 0) out->tile_handle    = romProviderHandle(out->tilefileid);
     } else {
-        /* Server build: g_Stages is NULL; file IDs not available. */
+        /* Server build: g_Stages is NULL; file IDs not available.
+         * Handle fields remain null (zeroed by memset above). */
         out->bgfileid      = (e->source_filenum >= 0) ? e->source_filenum : -1;
         out->padsfileid    = -1;
         out->setupfileid   = -1;
@@ -617,6 +626,80 @@ s32 catalogGetPropFilenumByIndex(s32 propnum)
     snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
         "CATALOG-FATAL: prop model propnum=%d not found in catalog", propnum);
     return 0;
+}
+
+/* -------------------------------------------------------------------------
+ * Phase 4: Handle-based load accessors
+ * Return an asset_data_handle_t so callers never need romProviderHandle().
+ * ------------------------------------------------------------------------- */
+
+asset_data_handle_t catalogGetBodyHandle(s32 bodynum)
+{
+    const char *id;
+    const asset_entry_t *e;
+    asset_data_handle_t null_h;
+    memset(&null_h, 0, sizeof(null_h));
+
+    id = catalogIdByRuntime(ASSET_BODY, bodynum);
+    if (id) {
+        e = assetCatalogResolve(id);
+        if (e) {
+            return catalogEffectiveHandle(e);
+        }
+    }
+    sysLogPrintf(LOG_ERROR,
+        "[CATALOG-FATAL] catalogGetBodyHandle: bodynum=%d not in catalog", bodynum);
+    g_CatalogFailure = 1;
+    snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
+        "CATALOG-FATAL: body bodynum=%d not found in catalog", bodynum);
+    return null_h;
+}
+
+asset_data_handle_t catalogGetHeadHandle(s32 headnum)
+{
+    const char *id;
+    const asset_entry_t *e;
+    asset_data_handle_t null_h;
+    memset(&null_h, 0, sizeof(null_h));
+
+    if (headnum == HEAD_RANDOM_GENDER) {
+        return null_h;
+    }
+    id = catalogIdByRuntime(ASSET_HEAD, headnum);
+    if (id) {
+        e = assetCatalogResolve(id);
+        if (e) {
+            return catalogEffectiveHandle(e);
+        }
+    }
+    sysLogPrintf(LOG_ERROR,
+        "[CATALOG-FATAL] catalogGetHeadHandle: headnum=%d not in catalog", headnum);
+    g_CatalogFailure = 1;
+    snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
+        "CATALOG-FATAL: head headnum=%d not found in catalog", headnum);
+    return null_h;
+}
+
+asset_data_handle_t catalogGetPropHandle(s32 propnum)
+{
+    const char *id;
+    const asset_entry_t *e;
+    asset_data_handle_t null_h;
+    memset(&null_h, 0, sizeof(null_h));
+
+    id = catalogIdByRuntime(ASSET_MODEL, propnum);
+    if (id) {
+        e = assetCatalogResolve(id);
+        if (e) {
+            return catalogEffectiveHandle(e);
+        }
+    }
+    sysLogPrintf(LOG_ERROR,
+        "[CATALOG-FATAL] catalogGetPropHandle: propnum=%d not in catalog", propnum);
+    g_CatalogFailure = 1;
+    snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
+        "CATALOG-FATAL: prop model propnum=%d not found in catalog", propnum);
+    return null_h;
 }
 
 /* Stage/arena/weapon lookup by numeric ID — DELETED (Phase 7).
