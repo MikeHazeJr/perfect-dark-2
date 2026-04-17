@@ -78,7 +78,7 @@ s32 forgeAiGenerateNavmesh(void)
 {
 	s32 ai_count = forgeAiCount();
 	s32 patrol_count = forgeAiPatrolPointCount();
-	sysLogPrintf(LOG_NOTE, "FORGE.AI: navmesh pass -- %d AI, %d patrol points (base-stage reuse)",
+	sysLogPrintf(LOG_NOTE, "GRID.AI: navmesh pass -- %d AI, %d patrol points (base-stage reuse)",
 			ai_count, patrol_count);
 	return 1;
 }

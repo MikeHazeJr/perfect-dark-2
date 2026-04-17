@@ -368,7 +368,7 @@ void forgeCoreInit(void)
 
 	s_next_uid = 1;
 	s_initialized = 1;
-	sysLogPrintf(LOG_NOTE, "FORGE: core init (catalog=%d entries, cap obj=%d logic=%d)",
+	sysLogPrintf(LOG_NOTE, "GRID: core init (catalog=%d entries, cap obj=%d logic=%d)",
 			FORGE_CATALOG_STATIC_COUNT, FORGE_MAX_OBJECTS, FORGE_MAX_LOGIC_NODES);
 }
 
@@ -592,7 +592,7 @@ forge_object_t *forgeObjectAllocate(forge_category_t cat, const char *catalog_id
 			return &s_objects[i];
 		}
 	}
-	sysLogPrintf(LOG_WARNING, "FORGE: object pool full (FORGE_MAX_OBJECTS=%d)", FORGE_MAX_OBJECTS);
+	sysLogPrintf(LOG_WARNING, "GRID: object pool full (FORGE_MAX_OBJECTS=%d)", FORGE_MAX_OBJECTS);
 	return NULL;
 }
 
@@ -734,7 +734,7 @@ void forgePlaceBegin(const char *catalog_id)
 	if (!catalog_id) return;
 	const forge_catalog_entry_t *e = forgeCatalogFind(catalog_id);
 	if (!e) {
-		sysLogPrintf(LOG_WARNING, "FORGE: placeBegin unknown catalog id '%s'", catalog_id);
+		sysLogPrintf(LOG_WARNING, "GRID: placeBegin unknown catalog id '%s'", catalog_id);
 		return;
 	}
 	s_placement.ghost_active = 1;
@@ -742,7 +742,7 @@ void forgePlaceBegin(const char *catalog_id)
 	forgeCopyStr(s_placement.pending_catalog_id, catalog_id, FORGE_ID_LEN);
 	s_placement.ghost_scale[0] = s_placement.ghost_scale[1] = s_placement.ghost_scale[2] = 1.0f;
 	s_editor.tool = FORGE_TOOL_PLACE;
-	sysLogPrintf(LOG_NOTE, "FORGE: place begin '%s' (%s)", e->id, e->name);
+	sysLogPrintf(LOG_NOTE, "GRID: place begin '%s' (%s)", e->id, e->name);
 }
 
 void forgePlaceUpdate(const f32 cpos[3], f32 yaw_deg, f32 pitch_deg, f32 distance)
@@ -798,7 +798,7 @@ s32 forgePlaceCommit(void)
 		o->scale[1] = s_placement.ghost_scale[1];
 		o->scale[2] = s_placement.ghost_scale[2];
 	}
-	sysLogPrintf(LOG_NOTE, "FORGE: place commit '%s' uid=%u at (%.0f %.0f %.0f)",
+	sysLogPrintf(LOG_NOTE, "GRID: place commit '%s' uid=%u at (%.0f %.0f %.0f)",
 			o->catalog_id, o->uid, o->pos[0], o->pos[1], o->pos[2]);
 	forgeUndoRecordPlace(o->uid, o);
 	return (s32)o->uid;
@@ -807,7 +807,7 @@ s32 forgePlaceCommit(void)
 void forgePlaceCancel(void)
 {
 	if (s_placement.ghost_active) {
-		sysLogPrintf(LOG_NOTE, "FORGE: place cancel '%s'", s_placement.pending_catalog_id);
+		sysLogPrintf(LOG_NOTE, "GRID: place cancel '%s'", s_placement.pending_catalog_id);
 	}
 	s_placement.ghost_active = 0;
 	s_placement.pending_catalog_id[0] = '\0';
@@ -854,7 +854,7 @@ forge_logic_node_t *forgeLogicNodeAllocate(forge_logic_kind_t kind, forge_logic_
 			return &s_logic_nodes[i];
 		}
 	}
-	sysLogPrintf(LOG_WARNING, "FORGE: logic node pool full (max=%d)", FORGE_MAX_LOGIC_NODES);
+	sysLogPrintf(LOG_WARNING, "GRID: logic node pool full (max=%d)", FORGE_MAX_LOGIC_NODES);
 	return NULL;
 }
 
@@ -965,7 +965,7 @@ void forgeChannelSet(const char *name, u8 state)
 	if (!c) c = forgeChannelCreate(name);
 	if (c) {
 		if (c->state != state) {
-			sysLogPrintf(LOG_NOTE, "FORGE.LOGIC: channel '%s' %s", name,
+			sysLogPrintf(LOG_NOTE, "GRID.LOGIC: channel '%s' %s", name,
 					state ? "ON" : "OFF");
 			/* Fire ON_CHANNEL events matching this channel. */
 			extern void forgeLogicFireChannelChange(const char *name, u8 state);
@@ -1011,7 +1011,7 @@ void forgeBossSetActive(u32 chr_uid, const char *name, f32 max_health, f32 *phas
 			FORGE_UNUSED(phases[i]);
 		}
 	}
-	sysLogPrintf(LOG_NOTE, "FORGE.BOSS: active uid=%u name='%s' hp=%.1f phases=%d",
+	sysLogPrintf(LOG_NOTE, "GRID.BOSS: active uid=%u name='%s' hp=%.1f phases=%d",
 			chr_uid, s_boss_state.name, max_health, num_phases);
 }
 
@@ -1023,7 +1023,7 @@ void forgeBossApplyDamage(u32 chr_uid, f32 amount)
 	/* Phase transition logic would fire here in full runtime. */
 	if (s_boss_state.current_health <= 0.0f) {
 		s_boss_state.active = 0;
-		sysLogPrintf(LOG_NOTE, "FORGE.BOSS: defeated '%s'", s_boss_state.name);
+		sysLogPrintf(LOG_NOTE, "GRID.BOSS: defeated '%s'", s_boss_state.name);
 	}
 }
 
@@ -1068,7 +1068,7 @@ void forgeObjectiveSetStatus(s32 index, forge_objective_status_t status)
 	if (index < 0 || index >= FORGE_MAX_OBJECTIVES) return;
 	if (!s_objectives[index].in_use) return;
 	s_objectives[index].status = (u8)status;
-	sysLogPrintf(LOG_NOTE, "FORGE.MISSION: objective %d -> %s",
+	sysLogPrintf(LOG_NOTE, "GRID.MISSION: objective %d -> %s",
 			index,
 			status == FORGE_OBJ_COMPLETE ? "COMPLETE" :
 			status == FORGE_OBJ_FAILED   ? "FAILED"   : "PENDING");
@@ -1095,7 +1095,7 @@ void forgeBotAddRequest(s32 active)
 	if (active) {
 		s_bot_settings.active_count++;
 		s_bot_settings.pending_add_active++;
-		sysLogPrintf(LOG_NOTE, "FORGE.BOT: add active (mode=%d active=%d frozen=%d body='%s' diff='%s')",
+		sysLogPrintf(LOG_NOTE, "GRID.BOT: add active (mode=%d active=%d frozen=%d body='%s' diff='%s')",
 				s_bot_settings.spawn_mode,
 				(s32)s_bot_settings.active_count,
 				(s32)s_bot_settings.frozen_count,
@@ -1104,7 +1104,7 @@ void forgeBotAddRequest(s32 active)
 	} else {
 		s_bot_settings.frozen_count++;
 		s_bot_settings.pending_add_frozen++;
-		sysLogPrintf(LOG_NOTE, "FORGE.BOT: add frozen (active=%d frozen=%d)",
+		sysLogPrintf(LOG_NOTE, "GRID.BOT: add frozen (active=%d frozen=%d)",
 				(s32)s_bot_settings.active_count,
 				(s32)s_bot_settings.frozen_count);
 	}
@@ -1116,7 +1116,7 @@ void forgeBotRemoveAll(void)
 	s_bot_settings.active_count = 0;
 	s_bot_settings.frozen_count = 0;
 	s_bot_settings.pending_remove_all++;
-	sysLogPrintf(LOG_NOTE, "FORGE.BOT: remove all (pending_engine_sync=%d)",
+	sysLogPrintf(LOG_NOTE, "GRID.BOT: remove all (pending_engine_sync=%d)",
 			s_bot_settings.pending_remove_all);
 }
 
@@ -1124,7 +1124,7 @@ void forgeBotFreezeAll(s32 frozen)
 {
 	if (!s_initialized) forgeCoreInit();
 	s_bot_settings.all_frozen = frozen ? 1 : 0;
-	sysLogPrintf(LOG_NOTE, "FORGE.BOT: freeze-all = %d", (s32)s_bot_settings.all_frozen);
+	sysLogPrintf(LOG_NOTE, "GRID.BOT: freeze-all = %d", (s32)s_bot_settings.all_frozen);
 }
 
 /* ============================================================
@@ -1147,7 +1147,7 @@ void forgeImportBaseStageObjects(void)
 			++marked;
 		}
 	}
-	sysLogPrintf(LOG_NOTE, "FORGE.VARIANT: marked %d objects as from_base", marked);
+	sysLogPrintf(LOG_NOTE, "GRID.VARIANT: marked %d objects as from_base", marked);
 }
 
 s32 forgeObjectResetToBase(u32 uid)
@@ -1160,7 +1160,7 @@ s32 forgeObjectResetToBase(u32 uid)
 	 * implementation would snapshot the base-state at import and
 	 * diff/restore it here. */
 	o->from_base = 1;
-	sysLogPrintf(LOG_NOTE, "FORGE.VARIANT: reset uid=%u to base pristine state", uid);
+	sysLogPrintf(LOG_NOTE, "GRID.VARIANT: reset uid=%u to base pristine state", uid);
 	return 1;
 }
 
@@ -1174,7 +1174,7 @@ s32 forgeObjectRemoveFromBase(u32 uid)
 	 * the loader to elide that object during base re-import. */
 	o->in_use = 0;
 	forgeSelectionRemove(uid);
-	sysLogPrintf(LOG_NOTE, "FORGE.VARIANT: removed base object uid=%u", uid);
+	sysLogPrintf(LOG_NOTE, "GRID.VARIANT: removed base object uid=%u", uid);
 	return 1;
 }
 
@@ -1302,12 +1302,12 @@ forge_prefab_t *forgePrefabSaveFromSelection(const char *name)
 				++k;
 			}
 			s_prefabs[i].num_objects = (u8)k;
-			sysLogPrintf(LOG_NOTE, "FORGE.PREFAB: saved '%s' with %d objects",
+			sysLogPrintf(LOG_NOTE, "GRID.PREFAB: saved '%s' with %d objects",
 					s_prefabs[i].name, (s32)k);
 			return &s_prefabs[i];
 		}
 	}
-	sysLogPrintf(LOG_WARNING, "FORGE: prefab pool full");
+	sysLogPrintf(LOG_WARNING, "GRID: prefab pool full");
 	return NULL;
 }
 

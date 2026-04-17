@@ -7,6 +7,30 @@
 
 ---
 
+## Open — 2026-04-17 (S313 marathon follow-up batch -- `great-robinson-15f409` worktree, merged to dev)
+
+Three commits on top of the S311/S312/S313 three-way merge:
+
+- `8057f064` -- **FORGE → GRID log prefix rename** across `forgemode.c` + all `port/src/forge/*.c` files + `pdgui_menu_forge.cpp`.  User-facing rename now complete: HUD badge already read "THE GRID", editor title already read "The Grid", log channel now reads "GRID:".  Internal code names (`forge_*`, `FORGE_MAX_*`, catalog namespaces, file paths) retained.
+- `1694d3ec` -- **Audio volumes move to per-agent prefs**.  `prefs_agent.c` gained `[Audio]` block.  Agent Select load applies `MasterVolume` / `MusicVolume` / `GameplayVolume` / `UIVolume` via the corresponding `audioSet*Volume` setters.  Global pd.ini keys remain as per-machine defaults.  Also fixed **agent name handoff** -- `prefsLoadForFile` now uses `gamefileGetOverview` so sidecar filenames match Agent Select display text exactly.
+- `6aaf299f` -- **pd.ini audit cleanup**.  Dropped `configRegister` for `Net.LerpTicks`, `Net.Client.{InRate,OutRate,UpdateFrames}`, `Net.Server.{Port,InRate,OutRate,UpdateFrames}`, `Update.ProtectedFolders` -- these are tuning knobs, not user prefs.  Globals retain their file-scope initializers so runtime code still works and `-port` CLI override still works.  New doc `context/config-pd-ini-audit.md` catalogs every remaining `configRegister*` call with a three-tier model + decision flowchart.
+
+### Playtest verification
+
+1. **Log prefix**.  Launch client, tail `pd-client.log`, press F7 to toggle The Grid freefly.  Every line that used to read `FORGE:` / `FORGE.LOGIC:` / `FORGE.SERIALIZE:` etc. should now read `GRID:` / `GRID.LOGIC:` / `GRID.SERIALIZE:`.  No "FORGE" strings should appear in the log for Grid operations.
+2. **Per-agent audio volumes**.  Create Agent A, go to Settings → Audio, slide Master to 25%.  Create Agent B, set Master to 100%.  Quit and relaunch.  Load Agent A -- volume should be 25%.  Load Agent B -- volume should be 100%.  Open `saves/prefs_AgentA.ini` / `prefs_AgentB.ini` and confirm the `[Audio]` section reflects each setting independently.
+3. **Agent-name handoff**.  Create an Agent with a long or special-char name.  Confirm `saves/prefs_<visible_name>.ini` is written with exactly the display text (not the raw encoded byte sequence).  Legacy agents from before this fix may orphan their old sidecar -- one-shot migration queued as a follow-up.
+4. **pd.ini cleanup**.  Delete pd.ini.  Launch client.  Launch dedicated server with `--port 27123`.  Client connects.  Game plays normally.  Stop + restart client -- network tuning, server port, and protected folders all pick up their compile-time defaults; no warnings.
+5. **Context doc**.  Open `context/config-pd-ini-audit.md` and verify the three-tier model section matches the actual configRegister surface (run `grep -rn configRegister port/ | wc -l` and spot-check).
+
+### Deferred
+
+- **Legacy sidecar migration** -- agents created before the `gamefileGetOverview` fix may have `prefs_<encoded>.ini` files that no longer match their new `prefs_<overview>.ini` path.  Small one-shot migration on first Agent Select load is queued.
+- **Gameplay-preference pd.ini → per-agent** -- `Game.CenterHUD`, `Game.SkipIntro`, `Game.DisableMpDeathMusic`, `Game.GEMuzzleFlashes`, `Game.ScreenShakeIntensity`, `Game.MenuMouseControl` are candidates for the per-agent sidecar.  Listed in `config-pd-ini-audit.md`.
+- **Audio.ModPlaylist / ModShuffle / ModTrackId → per-agent** -- each Agent could own their own Combat Simulator music selection.
+
+---
+
 ## Open — 2026-04-17 (S311 — UI polish marathon, `zen-poitras-f86b73` worktree → merged to dev)
 
 ### Playtest verification of the S311 theme palette sweep

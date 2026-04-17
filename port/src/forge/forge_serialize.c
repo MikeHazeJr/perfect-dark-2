@@ -352,7 +352,7 @@ s32 forgeSerializeSaveToMod(const char *mod_slug)
 	char deps[FORGE_MAX_DEPENDENCIES][FORGE_ID_LEN];
 	s32 num_deps = forgeCollectDependencies(deps, FORGE_MAX_DEPENDENCIES);
 	if (num_deps > 0) {
-		sysLogPrintf(LOG_NOTE, "FORGE.SERIALIZE: collected %d mod dependencies", num_deps);
+		sysLogPrintf(LOG_NOTE, "GRID.SERIALIZE: collected %d mod dependencies", num_deps);
 	}
 
 	/* ---- mod.json ---- */
@@ -361,7 +361,7 @@ s32 forgeSerializeSaveToMod(const char *mod_slug)
 		snprintf(modjson_path, sizeof(modjson_path), "%s/mod.json", dir);
 		FILE *f = fsFileOpenWrite(modjson_path);
 		if (!f) {
-			sysLogPrintf(LOG_WARNING, "FORGE.SERIALIZE: cannot open %s", modjson_path);
+			sysLogPrintf(LOG_WARNING, "GRID.SERIALIZE: cannot open %s", modjson_path);
 			return 0;
 		}
 		forge_map_settings_t *s = forgeMapSettings();
@@ -398,7 +398,7 @@ s32 forgeSerializeSaveToMod(const char *mod_slug)
 	snprintf(mapjson_path, sizeof(mapjson_path), "%s/map.json", dir);
 	FILE *f = fsFileOpenWrite(mapjson_path);
 	if (!f) {
-		sysLogPrintf(LOG_WARNING, "FORGE.SERIALIZE: cannot open %s", mapjson_path);
+		sysLogPrintf(LOG_WARNING, "GRID.SERIALIZE: cannot open %s", mapjson_path);
 		return 0;
 	}
 
@@ -618,7 +618,7 @@ s32 forgeSerializeSaveToMod(const char *mod_slug)
 	fputs("\n}\n", f);
 	fclose(f);
 
-	sysLogPrintf(LOG_NOTE, "FORGE.SERIALIZE: saved '%s' -> %s (%d objects, %d logic nodes)",
+	sysLogPrintf(LOG_NOTE, "GRID.SERIALIZE: saved '%s' -> %s (%d objects, %d logic nodes)",
 			mod_slug, mapjson_path,
 			forgeObjectCount(), forgeLogicNodeCount());
 	return 1;
@@ -928,7 +928,7 @@ s32 forgeSerializeLoadFromMod(const char *mod_slug)
 	u32 size = 0;
 	void *data = fsFileLoad(mapjson_path, &size);
 	if (!data || size == 0) {
-		sysLogPrintf(LOG_WARNING, "FORGE.SERIALIZE: failed to load %s", mapjson_path);
+		sysLogPrintf(LOG_WARNING, "GRID.SERIALIZE: failed to load %s", mapjson_path);
 		return 0;
 	}
 
@@ -964,7 +964,7 @@ s32 forgeSerializeLoadFromMod(const char *mod_slug)
 	}
 
 	free(data);
-	sysLogPrintf(LOG_NOTE, "FORGE.SERIALIZE: loaded '%s' (%d objects)",
+	sysLogPrintf(LOG_NOTE, "GRID.SERIALIZE: loaded '%s' (%d objects)",
 			mod_slug, forgeObjectCount());
 	return 1;
 }

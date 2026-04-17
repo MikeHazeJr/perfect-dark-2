@@ -2,11 +2,12 @@
 #define _IN_PREFS_AGENT_H
 
 /**
- * prefs_agent.h -- Per-agent preference sidecar (S309)
+ * prefs_agent.h -- Per-agent preference sidecar (S309 + S313 batch)
  *
- * Tracks visual + mod-enablement preferences per Agent profile so the
- * user's look (theme, menu style, title bar, font, scanlines, enabled
- * mods) follows the active agent.  Sidecar file at
+ * Tracks visual + audio + mod-enablement preferences per Agent profile
+ * so the user's preferences (theme, menu style, title bar, font,
+ * scanlines, audio volume layers, enabled mods) follow the active
+ * agent.  Sidecar file at
  *
  *     saves/prefs_<agent_name>.ini
  *
@@ -17,9 +18,10 @@
  * Font changes still take effect on next restart (ImGui atlas is built
  * once per session — see pdgui_font_mod.h).  All other fields swap live.
  *
- * Global pd.ini remains the source of per-machine defaults (resolution,
- * audio volume, gameplay bindings).  The global file is still read at
- * boot; agent prefs overlay on top.
+ * Global pd.ini remains the source of per-machine / hardware-level
+ * defaults (resolution, fullscreen, video mode, gameplay bindings,
+ * server port, network tuning).  The global file is still read at
+ * boot; agent prefs overlay on top for visuals + audio + mods.
  */
 
 #include <PR/ultratypes.h>
