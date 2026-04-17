@@ -12,6 +12,8 @@
 #include "platform.h"
 #include "video.h"
 #include "system.h"
+#include "assetprovider.h"
+#include "assetload.h"
 
 /**
  * Officially, the NTSC versions are American English only, while the PAL
@@ -414,7 +416,7 @@ void langLoad(s32 bank)
 #else
 	s32 file_id = langGetFileId(bank);
 	g_LoadType = LOADTYPE_LANG;
-	g_LangBanks[bank] = fileLoadToNew(file_id, FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
+	g_LangBanks[bank] = assetLoadToNew(romProviderHandle(file_id), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
 	if (!g_LangBanks[bank]) {
 		sysLogPrintf(LOG_WARNING, "LANG: failed to load bank=%d fileid=%d", bank, file_id);
 	}

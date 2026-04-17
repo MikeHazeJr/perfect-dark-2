@@ -7,6 +7,8 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+#include "assetprovider.h"
+#include "assetload.h"
 
 extern u8 *g_LangBuffer;
 extern s32 g_LangBufferSize;
@@ -71,32 +73,32 @@ void langReset(s32 stagenum)
 #else
 	// Versions prior to PAL load the language directly
 	g_LoadType = LOADTYPE_LANG; // find be a better way to do this..
-	g_LangBanks[LANGBANK_GUN] = fileLoadToNew(langGetFileId(LANGBANK_GUN), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
+	g_LangBanks[LANGBANK_GUN] = assetLoadToNew(romProviderHandle(langGetFileId(LANGBANK_GUN)), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
 	langManifestRecordBank(LANGBANK_GUN);
 
 	g_LoadType = LOADTYPE_LANG;
-	g_LangBanks[LANGBANK_MPMENU] = fileLoadToNew(langGetFileId(LANGBANK_MPMENU), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
+	g_LangBanks[LANGBANK_MPMENU] = assetLoadToNew(romProviderHandle(langGetFileId(LANGBANK_MPMENU)), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
 	langManifestRecordBank(LANGBANK_MPMENU);
 
 	g_LoadType = LOADTYPE_LANG;
-	g_LangBanks[LANGBANK_PROPOBJ] = fileLoadToNew(langGetFileId(LANGBANK_PROPOBJ), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
+	g_LangBanks[LANGBANK_PROPOBJ] = assetLoadToNew(romProviderHandle(langGetFileId(LANGBANK_PROPOBJ)), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
 	langManifestRecordBank(LANGBANK_PROPOBJ);
 
 	g_LoadType = LOADTYPE_LANG;
-	g_LangBanks[LANGBANK_MPWEAPONS] = fileLoadToNew(langGetFileId(LANGBANK_MPWEAPONS), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
+	g_LangBanks[LANGBANK_MPWEAPONS] = assetLoadToNew(romProviderHandle(langGetFileId(LANGBANK_MPWEAPONS)), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
 	langManifestRecordBank(LANGBANK_MPWEAPONS);
 
 	g_LoadType = LOADTYPE_LANG;
-	g_LangBanks[LANGBANK_OPTIONS] = fileLoadToNew(langGetFileId(LANGBANK_OPTIONS), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
+	g_LangBanks[LANGBANK_OPTIONS] = assetLoadToNew(romProviderHandle(langGetFileId(LANGBANK_OPTIONS)), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
 	langManifestRecordBank(LANGBANK_OPTIONS);
 
 	g_LoadType = LOADTYPE_LANG;
-	g_LangBanks[LANGBANK_MISC] = fileLoadToNew(langGetFileId(LANGBANK_MISC), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
+	g_LangBanks[LANGBANK_MISC] = assetLoadToNew(romProviderHandle(langGetFileId(LANGBANK_MISC)), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
 	langManifestRecordBank(LANGBANK_MISC);
 
 	if (stagenum == STAGE_CREDITS) {
 		g_LoadType = LOADTYPE_LANG;
-		g_LangBanks[LANGBANK_TITLE] = fileLoadToNew(langGetFileId(LANGBANK_TITLE), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
+		g_LangBanks[LANGBANK_TITLE] = assetLoadToNew(romProviderHandle(langGetFileId(LANGBANK_TITLE)), FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
 		langManifestRecordBank(LANGBANK_TITLE);
 	}
 #endif

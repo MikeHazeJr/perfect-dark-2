@@ -42,6 +42,8 @@
 #include "types.h"
 #include "system.h"
 #include "assetcatalog.h"
+#include "assetprovider.h"
+#include "assetload.h"
 #include "net/matchsetup.h"
 
 /* Phase 3: lang manifest tracking (port/src/langmanifest.c) */
@@ -1364,7 +1366,7 @@ void setupLoadFiles(s32 stagenum)
 		g_LoadType = LOADTYPE_SETUP;
 
 		sysLogPrintf(LOG_NOTE, "LOAD: loading setup file id=%d (mp=%d, sp=%d)", filenum, stage.mpsetupfileid, stage.setupfileid);
-		g_GeCreditsData = (u8 *)fileLoadToNew(filenum, FILELOADMETHOD_DEFAULT, LOADTYPE_SETUP);
+		g_GeCreditsData = (u8 *)assetLoadToNew(romProviderHandle((s32)filenum), FILELOADMETHOD_DEFAULT, LOADTYPE_SETUP);
 		setup = (struct stagesetup *)g_GeCreditsData;
 		{
 			s32 stagebank = (s32)langGetLangBankIndexFromStagenum(stagenum);
@@ -1408,7 +1410,7 @@ void setupLoadFiles(s32 stagenum)
 		g_LoadType = LOADTYPE_PADS;
 
 		sysLogPrintf(LOG_NOTE, "LOAD: loading pad file id=%d", stage.padsfileid);
-		g_StageSetup.padfiledata = fileLoadToNew(stage.padsfileid, FILELOADMETHOD_DEFAULT, LOADTYPE_PADS);
+		g_StageSetup.padfiledata = assetLoadToNew(romProviderHandle((s32)stage.padsfileid), FILELOADMETHOD_DEFAULT, LOADTYPE_PADS);
 		if (!g_StageSetup.padfiledata) {
 			sysLogPrintf(LOG_ERROR, "SETUP: failed to load pads fileid=%d for stage index=%d",
 				stage.padsfileid, g_StageIndex);
