@@ -4,6 +4,23 @@
 > **S281–S336** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S337 — 2026-04-17 (Dev Window v2 — Prune Worktrees + Progress Bar + HUD)
+
+**Scope**: Three improvements to `devtools/dev-window-v2/dev-window-v2.ps1`. No game code touched.
+
+### What was done
+
+**1. Prune Worktrees button** — `BtnPruneWorktrees` added to the utility toolbar (next to Push). Runs `git worktree prune -v`, logs output to Log tab, shows result dialog. Disabled during builds/releases (tracked alongside BtnPull/BtnPush in all enable/disable paths). Worktree count (`StatusWorktrees`) added to the status bar; turns orange when >20 stale worktrees are present. Count is fetched in the same background runspace as branch/hash/dirty.
+
+**2. Progress bar ActualWidth fix** — `$ui["ProgressBack"].UpdateLayout()` now called before each `ActualWidth` read in `Start-Build` and `Start-PushRelease`. Previously, `ProgressBack` was made `Visible` immediately before reading `ActualWidth`, which returned 0 (layout not yet computed), so the 12% "git sync" fill was never drawn. Now the fill appears immediately when a build or release starts.
+
+**3. HUD consistency fix** — Spinner path's `LblProgressText` now shows `"0% - "` prefix when `BuildPercent == 0`, matching the non-spinner path. All three code paths (`Start-Build-Step`, spinner, non-spinner) are now consistent. Removed the premature green `ProgressFill.Background` set on step transitions (it was immediately overwritten by `Start-Build-Step`, but was a confusing dead assignment).
+
+### Commit
+`4d117d67` on `claude/peaceful-williams-59ec2f`.
+
+---
+
 ## Session S336 — 2026-04-17 (Audit S329 B-12 Chrslots + S332 Modeldef/Audio)
 
 **Scope**: Wave 1 audit. Read all files touched by S329 (B-12 Phase 3 chrslots removal, protocol v37) and S332 (B-161 modeldef chokepoint + B-141 audio pacing). Found two real bugs; fixed both. Build clean in worktree, merged to dev.

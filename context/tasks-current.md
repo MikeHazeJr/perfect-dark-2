@@ -7,6 +7,16 @@
 
 ---
 
+## Done — 2026-04-17 (S337 — Dev Window v2 improvements)
+
+Three fixes to `devtools/dev-window-v2/dev-window-v2.ps1` (commit `4d117d67`, worktree `peaceful-williams-59ec2f`):
+
+1. **Prune Worktrees button** — runs `git worktree prune -v`, shows result dialog, logs to Log tab. Button disabled during builds/releases. Worktree count shown in status bar (orange when >20).
+2. **Progress bar ActualWidth fix** — `UpdateLayout()` called before `ActualWidth` reads in Start-Build and Start-PushRelease so the 12% git-sync fill actually renders.
+3. **HUD "0%" consistency** — spinner path now prefixes `"0% - "` on LblProgressText, matching non-spinner path. Removed dead green background assignment on step transitions.
+
+---
+
 ## Done — 2026-04-17 (S336 — Audit S329 B-12 + S332 Modeldef/Audio)
 
 Two bugs fixed, merged to dev (`e1081911`):
