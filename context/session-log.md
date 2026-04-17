@@ -222,6 +222,7 @@ Pre-existing `-Wcomment` warnings in `updater.h`, `pdgui_theme.h`, `pdgui_bridge
 | SHA | Scope |
 |-----|-------|
 | `e029eec3` | **fix(S323): FIX-B.1 per-discovery MANIFEST-SP logging on props/intro/ailist scans** |
+| `5d9fbb19` | **Merge FIX-B.1 manifest scanner discovery logging (zealous-saha-02c1f5)** |
 
 ---
 
