@@ -7,6 +7,17 @@
 
 ---
 
+## Done — 2026-04-17 (S340 — Content-Inset Sweep, `elated-lichterman-9c8f69`)
+
+**Build verified.** Clean 585/585, zero errors. Merge commit `56338aaa` on dev.
+
+7 `pdgui_menu_*.cpp` files patched with `pdguiSetCursorBelowTitle`:
+- audiomod, logviewer, moddinghub, modmgr, theme_editor, update: added call
+- mpingame: decl only (pill windows manage their own padding)
+- forge: no-op shim, no render sites — skipped
+
+---
+
 ## Done — 2026-04-17 (S339 — R-5 Server GUI Redesign, `thirsty-jemison-84f6ce`)
 
 **Build verified.** Clean 252/252 server, 521/521 game. Zero errors.

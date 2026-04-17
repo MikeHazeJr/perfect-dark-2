@@ -62,6 +62,28 @@ All 12 call sites were straightforward ROM-backed loads (`s32` or `u16` filenum 
 
 ---
 
+## Session S340 — 2026-04-17 (Content-Inset Sweep, `elated-lichterman-9c8f69` worktree)
+
+**Scope**: Added `pdguiSetCursorBelowTitle` / `pdguiThemeGetContentInset` content-inset pattern to all `pdgui_menu_*.cpp` files that lacked it. 22 of 30 files were already covered. 7 needed patching; `pdgui_menu_forge.cpp` is a no-op shim with no render sites.
+
+### Files patched
+
+| File | Change |
+|------|--------|
+| `pdgui_menu_audiomod.cpp` | Added decl + `pdguiSetCursorBelowTitle(0.0f)` at top of `pdguiAudioModRender` |
+| `pdgui_menu_logviewer.cpp` | Added extern "C" decl + `pdguiSetCursorBelowTitle(0.0f)` after `ImGui::Begin` |
+| `pdgui_menu_moddinghub.cpp` | Replaced raw `SetCursorPosX` bump with `pdguiSetCursorBelowTitle(0.0f)` |
+| `pdgui_menu_modmgr.cpp` | Added decl + `pdguiSetCursorBelowTitle(0.0f)` in `renderModManagerBody` |
+| `pdgui_menu_mpingame.cpp` | Added decl only — pill windows use custom `WindowPadding`, no cursor shift |
+| `pdgui_menu_theme_editor.cpp` | Replaced manual `Dummy(headerH+8)` with `pdguiSetCursorBelowTitle(headerH)` |
+| `pdgui_menu_update.cpp` | Added decl + `pdguiSetCursorBelowTitle(0.0f)` in both render functions |
+
+### Build result
+
+Clean: 585/585 objects, zero errors. Merge commit `56338aaa` on dev.
+
+---
+
 ## Session S339 — 2026-04-17 (R-5 Server GUI Redesign, `thirsty-jemison-84f6ce` worktree)
 
 **Scope**: Full redesign of `port/fast3d/server_gui.cpp` (~860 → ~870 lines of new code). Added 5 bridge functions to `port/src/server_bridge.c`. Added psapi link to `CMakeLists.txt` for the pd-server target.
