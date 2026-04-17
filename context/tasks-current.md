@@ -23,7 +23,7 @@ Wired into `pdguiThemeLateInit()` (after base textures load) and `modmgrApplyCha
 
 ## Done — 2026-04-17 (S350 — Wave 3 Cross-Audit: S348 Discord, `vigorous-benz-f8cb68`)
 
-**Build verified.** Clean 775/775 objects, zero errors. Post-merge on dev.
+**Build verified.** Clean 776/776 objects, zero errors (includes S351 sources). `PerfectDark.exe` 52,759,787 / `PerfectDarkServer.exe` 22,922,823. Note: S351's `pdgui_theme.cpp` had a latent GCC stray-'#' error (single-line `extern "C" { #include }`) — fixed inline during build verify.
 
 1 bug fixed in `port/src/discord.c`:
 - **JSON injection in SET_ACTIVITY payload**: `details`/`state` strings inserted raw via `%s` into JSON. A mod stage slug containing `"` or `\` would corrupt the pipe frame. Fix: added `disc_json_str()` escape helper — escapes `\` and `"` before both `_snprintf` branches in `disc_send_activity`.

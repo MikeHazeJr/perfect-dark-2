@@ -51,7 +51,7 @@ move functions after `cjson_skip_value` to resolve forward-reference errors.
 
 **Fix**: `port/src/discord.c` — new `disc_json_str()` escape helper (+23 lines). Applied to `esc_details`/`esc_state` before both `_snprintf` branches in `disc_send_activity`.
 
-**Build**: Clean 775/775. `PerfectDark.exe` / `PerfectDarkServer.exe` (sizes recorded post-merge).
+**Build verify**: During post-merge build, discovered S351 had a latent `extern "C" { #include "modmgr.h" }` single-line form that GCC rejects as a "stray '#'". Fixed inline (`port/fast3d/pdgui_theme.cpp:57`) by splitting to 3-line form. Build clean 776/776 (includes S351 sources). `PerfectDark.exe` 52,759,787 / `PerfectDarkServer.exe` 22,922,823.
 
 ---
 
