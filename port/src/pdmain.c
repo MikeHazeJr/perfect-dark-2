@@ -83,6 +83,7 @@
 #include "modelcatalog.h"
 #include "pdmain.h"
 #include "pdgui_theme.h"
+#include "audio.h"
 
 extern u8 *g_MempHeap;
 extern u32 g_MempHeapSize;
@@ -384,6 +385,7 @@ void mainProc(void)
 	mainInit();
 	rdpInit();
 	sndInit();
+	audioNotifyEngineReady();
 
 	while (1) {
 		mainLoop();
