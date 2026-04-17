@@ -246,7 +246,7 @@ void menuTick(void)
 	// Check if returning from a multiplayer match
 	if (var80087260 > 0) {
 		if (g_Vars.lvframenum >= 4) {
-			if (g_Vars.stagenum == STAGE_CITRAINING || g_Vars.stagenum == STAGE_4MBMENU) {
+			if (g_Vars.stagenum == STAGE_CITRAINING) {
 				viBlack(false);
 				g_MpNumJoined = 0;
 
@@ -664,7 +664,7 @@ void menuTick(void)
 							|| room == 0x1e;
 					}
 
-					if ((g_Vars.stagenum == STAGE_CITRAINING || g_Vars.stagenum == STAGE_4MBMENU)
+					if (g_Vars.stagenum == STAGE_CITRAINING
 							&& (inTrainingArea || (dtdata && dtdata->intraining))) {
 						startmusic = false;
 					} else {

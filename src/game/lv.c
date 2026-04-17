@@ -1166,8 +1166,6 @@ Gfx *lvRenderFPS(Gfx *gdl)
  *     // title screen rendering
  * } else if (stage == STAGE_BOOTPAKMENU) {
  *     // boot pak menu rendering
- * } else if (stage == STAGE_4MBMENU) {
- *     // 4MB menu rendering
  * } else if (stage == STAGE_CREDITS) {
  *     // credits rendering
  * } else {
