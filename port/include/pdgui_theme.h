@@ -154,6 +154,19 @@ s32 pdguiThemeRegisterChromeModDir(const char *mod_dir, s32 activate_now);
 void pdguiThemeRescanChromeStyles(void);
 
 /* -----------------------------------------------------------------------
+ * UI Texture Mod Override API (D5 Phase 4)
+ *
+ * Scan a single mod directory for type="ui" component textures in mod.json
+ * and register any catalog_id/path pairs as overrides.  Returns the number
+ * of textures registered (0 if none or mod.json absent).
+ * pdguiThemeApplyEnabledModUiTextures iterates all enabled mods and calls
+ * pdguiThemeScanModUiTextures for each one. Called from pdguiThemeLateInit
+ * and modmgrApplyChanges.
+ * --------------------------------------------------------------------- */
+s32  pdguiThemeScanModUiTextures(const char *mod_dir);
+void pdguiThemeApplyEnabledModUiTextures(void);
+
+/* -----------------------------------------------------------------------
  * Content inset API (S297)
  *
  * Tells renderers how much to pull their content in from the outer dialog

@@ -1835,6 +1835,8 @@ void modmgrApplyChanges(void)
 	/* S-8: chrome styles are tracked in a separate subsystem from themes —
 	 * without this rescan the chrome style picker goes stale after Apply. */
 	pdguiThemeRescanChromeStyles();
+	/* D5 Phase 4: apply UI texture overrides from newly-enabled mods */
+	pdguiThemeApplyEnabledModUiTextures();
 
 	/* Stay in-place: no forced title restart.  Callers keep the active menu
 	 * and present an in-UI apply progress/completion modal. */
