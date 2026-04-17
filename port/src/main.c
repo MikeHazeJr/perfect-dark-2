@@ -33,6 +33,7 @@
 #include "savemigrate.h"
 #include "savefile.h"
 #include "prefs_agent.h"
+#include "discord.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
@@ -116,6 +117,7 @@ static void cleanup(void)
 	// stage transitions) are skipped and the process exits quickly.
 	g_AppQuitting = 1;
 
+	discordShutdown();
 	inputCtxShutdown();
 	updaterShutdown();
 	pdguiShutdown();
@@ -189,6 +191,10 @@ int main(int argc, const char **argv)
 	/* S309: per-agent preferences sidecar.  prefsAgentLoad runs on agent
 	 * switch; this init just marks the subsystem live. */
 	prefsAgentInit();
+
+	/* D7: Discord Rich Presence — connects to Discord IPC pipe if running.
+	 * Fails silently if Discord is not open. */
+	discordInit();
 	inputInit();
 
 	/* Input context stack: must init after inputInit() (SDL event watch)

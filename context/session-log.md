@@ -4,6 +4,48 @@
 > **S281–S347** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S348 — 2026-04-17 (`ecstatic-cartwright-11459d` worktree) — D7 Discord Rich Presence
+
+**Scope**: Implement Discord Rich Presence (D7) — thin Windows IPC client, no external library.
+
+**Approach**: Implemented the Discord RPC named-pipe protocol directly in C, bypassing
+the archived discord-rpc library (which requires C++ + rapidjson) and the Discord Game
+SDK (DLL-only, violates zero-DLL policy).  The client speaks `\\.\pipe\discord-ipc-{0..9}`
+directly using Windows `CreateFile` / `WriteFile` / `ReadFile` + `PIPE_NOWAIT` mode.
+
+**New files**:
+- `port/include/discord.h` — public API: `discordInit` / `discordShutdown` / `discordTick`
+- `port/src/discord.c` — IPC client implementation (~280 lines)
+
+**Wiring**:
+- `port/src/main.c` — `discordInit()` after `prefsAgentInit()`; `discordShutdown()` first in `cleanup()`
+- `port/src/pdmain.c` — `discordTick()` at end of `mainTick` inner block (inside `g_MainChangeToStageNum < 0`)
+
+**Presence states implemented**:
+- In Main Menu, Solo Mission (stage + difficulty), Combat Simulator (stage + scenario + P/Bot counts), Co-op, Counter-Op, The Grid editor, In Lobby, Running Dedicated Server
+
+**Protocol details**:
+- Handshake: opcode=0, `{"v":1,"client_id":"<DISCORD_APP_ID>"}`
+- Activity: opcode=1, `{"cmd":"SET_ACTIVITY","args":{"pid":N,"activity":{...}},"nonce":"N"}`
+- Pipe set to `PIPE_NOWAIT` so drain reads are non-blocking; writes are ~500 bytes every 15s, never blocking in practice
+- Reconnect backoff: 30 seconds after disconnect
+- Activity timestamp resets when state changes; periodic refresh every 15 seconds
+
+**Constraints satisfied**:
+- Zero new link dependencies (no new libs, no DLLs)
+- Fails silently if Discord is not running
+- No IP or connect-code exposure in presence strings
+- MinGW/GCC compatible (C11, Windows-only, no MSVC APIs)
+
+**Setup**: `DISCORD_APP_ID "0"` placeholder in `port/include/discord.h` — replace with real
+app Client ID from https://discord.com/developers/applications.
+
+**Build**: Clean 774/774. `PerfectDark.exe` 52,883,797 / `PerfectDarkServer.exe` 22,906,762.
+
+**Context updates**: `infrastructure.md` D7 → ✅ DONE; `tasks-current.md` updated.
+
+---
+
 ## Session S347 — 2026-04-17 (`gracious-poitras-6eeeb6` worktree) — Blue Tint Sweep + Gamepad Audit
 
 **Scope**: Two mechanical sweep tasks: (1) replace remaining hardcoded IM_COL32 blue accent literals with theme accessors, (2) audit and remove dead ImGuiKey_Gamepad checks post-M0.2.
