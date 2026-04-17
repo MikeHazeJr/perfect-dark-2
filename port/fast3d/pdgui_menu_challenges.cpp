@@ -186,7 +186,7 @@ static s32 renderChallenges(struct menudialog *dialog,
     ImGui::BeginChild("##chal_list", ImVec2(leftW, contentH), true,
                       ImGuiWindowFlags_AlwaysVerticalScrollbar);
 
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Challenges");
+    ImGui::TextColored(pdguiVec4TitleGlow(), "Challenges");
     ImGui::Separator();
     ImGui::Spacing();
 

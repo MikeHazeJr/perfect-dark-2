@@ -1318,6 +1318,41 @@ extern "C" unsigned int pdguiPalImU32(int index, int alpha)
     return IM_COL32(r, g, b, a);
 }
 
+/* S311: convert a 0xRRGGBBAA palette color into an ImU32 (IM_COL32 packing).
+ * Pass alpha >= 0 to override the RGBA alpha byte.  Centralises the shift/mask
+ * dance that was previously duplicated across menu renderers. */
+extern "C" unsigned int pdguiRgbaToImU32(unsigned int rgba, int alpha)
+{
+    unsigned char r = (rgba >> 24) & 0xFF;
+    unsigned char g = (rgba >> 16) & 0xFF;
+    unsigned char b = (rgba >>  8) & 0xFF;
+    unsigned char a = (alpha >= 0) ? (unsigned char)alpha : (rgba & 0xFF);
+    return IM_COL32(r, g, b, a);
+}
+
+/* S311: semantic ImU32 accessors.  Returns the palette's title-glow / success /
+ * danger / info tint packed as ImU32 for direct AddText/AddRectFilled use.
+ * alpha >= 0 overrides the palette alpha; -1 preserves it. */
+extern "C" unsigned int pdguiImU32TitleGlow(int alpha)
+{
+    return pdguiRgbaToImU32(pdguiGetTitleGlow(), alpha);
+}
+
+extern "C" unsigned int pdguiImU32TintSuccess(int alpha)
+{
+    return pdguiRgbaToImU32(pdguiGetTintSuccess(), alpha);
+}
+
+extern "C" unsigned int pdguiImU32TintDanger(int alpha)
+{
+    return pdguiRgbaToImU32(pdguiGetTintDanger(), alpha);
+}
+
+extern "C" unsigned int pdguiImU32TintInfo(int alpha)
+{
+    return pdguiRgbaToImU32(pdguiGetTintInfo(), alpha);
+}
+
 /* -----------------------------------------------------------------------
  * Theme System -- extended settings beyond palette selection
  *

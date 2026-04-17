@@ -794,7 +794,7 @@ static void renderLevelEditorTab(float panelW, float panelH)
 
     ImGui::BeginChild("##le_left", ImVec2(panelW, panelH), false);
 
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Level Editor");
+    ImGui::TextColored(pdguiVec4TitleGlow(), "Level Editor");
     ImGui::TextDisabled("Spawn catalog assets into an empty level and explore freely.");
     ImGui::Separator();
     ImGui::Spacing();
@@ -950,7 +950,7 @@ static void renderLevelEditorObjectPanel(float panelW, float panelH)
     ImGui::BeginChild("##le_right_outer", ImVec2(panelW, panelH), true);
 
     /* ---- Spawned objects list ---- */
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
+    ImGui::TextColored(pdguiVec4TitleGlow(),
                        "Spawned Objects  (%d)", s_LENumSpawned);
     ImGui::Separator();
 
@@ -996,7 +996,7 @@ static void renderLevelEditorObjectPanel(float panelW, float panelH)
     ImGui::Spacing();
 
     /* ---- Property editor ---- */
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Properties");
+    ImGui::TextColored(pdguiVec4TitleGlow(), "Properties");
 
     if (s_LESelectedSpawned < 0 || s_LESelectedSpawned >= s_LENumSpawned) {
         ImGui::TextDisabled("Select a spawned object to edit.");
@@ -1145,7 +1145,7 @@ static void renderLevelEditorOverlay(void)
         return;
     }
 
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Level Editor  [Active]");
+    ImGui::TextColored(pdguiVec4TitleGlow(), "Level Editor  [Active]");
     ImGui::Separator();
     ImGui::Spacing();
 
@@ -1344,7 +1344,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
     {
         s32 numPlayers = s_IsSoloMode ? 1 : humanCount;
         s32 numBots = s_BotSelectCount;
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
+        ImGui::TextColored(pdguiVec4TitleGlow(),
                            "Players in Room  (%d Player%s, %d Bot%s)",
                            numPlayers, numPlayers != 1 ? "s" : "",
                            numBots,    numBots != 1    ? "s" : "");
@@ -1592,7 +1592,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
         if (r.isBot) {
         /* Context menu popup */
         if (ImGui::BeginPopup("##bot_ctx")) {
-            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
+            ImGui::TextColored(pdguiVec4TitleGlow(),
                                s_BotSelectCount > 1 ? "%d Bots Selected" : "Bot Options",
                                s_BotSelectCount);
             ImGui::Separator();
@@ -2671,7 +2671,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             struct matchslot *sl = &g_MatchConfig.slots[s_EditBotSlotIdx];
             float mw = pdguiScale(480.0f);
 
-            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Bot Settings");
+            ImGui::TextColored(pdguiVec4TitleGlow(), "Bot Settings");
             ImGui::Separator();
             ImGui::Spacing();
 
@@ -2768,7 +2768,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 BotTraits *traits = &s_BotTraits[s_EditBotSlotIdx];
 
                 ImGui::Spacing();
-                ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Custom Traits");
+                ImGui::TextColored(pdguiVec4TitleGlow(), "Custom Traits");
                 ImGui::Separator();
 
                 /* Load Preset combo */
@@ -2946,7 +2946,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     ImGui::SetNextWindowSize(ImVec2(pdguiScale(480.0f), 0.0f));
     if (ImGui::BeginPopupModal("Save Scenario##savescenpop", nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Save Scenario");
+        ImGui::TextColored(pdguiVec4TitleGlow(), "Save Scenario");
         ImGui::Separator();
         ImGui::Spacing();
 
@@ -2991,7 +2991,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     ImGui::SetNextWindowSize(ImVec2(pdguiScale(570.0f), pdguiScale(420.0f)));
     if (ImGui::BeginPopupModal("Load Scenario##loadscenpop", nullptr,
                                ImGuiWindowFlags_NoResize)) {
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Load Scenario");
+        ImGui::TextColored(pdguiVec4TitleGlow(), "Load Scenario");
         ImGui::Separator();
         ImGui::Spacing();
 

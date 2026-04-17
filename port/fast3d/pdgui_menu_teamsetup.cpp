@@ -264,7 +264,7 @@ static s32 renderTeamSetup(struct menudialog *dialog,
     if (!teamsActive) {
         ImGui::TextDisabled("Enable teams above to assign players to teams.");
     } else {
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Slot Assignments");
+        ImGui::TextColored(pdguiVec4TitleGlow(), "Slot Assignments");
         ImGui::Spacing();
 
         float comboW = leftW * 0.45f;
@@ -328,7 +328,7 @@ static s32 renderTeamSetup(struct menudialog *dialog,
     ImGui::BeginGroup();
     ImGui::BeginChild("##team_presets", ImVec2(rightW, contentH), true);
 
-    ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Auto Team Presets");
+    ImGui::TextColored(pdguiVec4TitleGlow(), "Auto Team Presets");
     ImGui::Separator();
     ImGui::Spacing();
     ImGui::TextDisabled("One click assigns all slots.");

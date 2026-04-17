@@ -374,7 +374,8 @@ static s32 renderSoloMissionControlStyle(struct menudialog *dialog,
     {
         if (s_SmcCursor >= 0 && s_SmcCursor < 9) {
             const ControlModeInfo *info = &g_ControlModes[s_SmcCursor];
-            ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "%s", info->name);
+            /* S311: control-mode header follows theme title glow. */
+            ImGui::TextColored(pdguiVec4TitleGlow(), "%s", info->name);
             ImGui::Separator();
             ImGui::Spacing();
             ImGui::PushTextWrapPos(0.0f);

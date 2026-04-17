@@ -444,7 +444,8 @@ static void renderDetails(float scale)
     ImGui::Spacing();
 
     if (sel->bundled) {
-        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Base Game Asset");
+        /* S311: "Base Game Asset" label uses theme tint_info. */
+        ImGui::TextColored(pdguiVec4TintInfo(), "Base Game Asset");
         ImGui::TextDisabled("(always enabled — cannot be\npermanently disabled)");
     } else {
         /* Read display name and description from ini if available */

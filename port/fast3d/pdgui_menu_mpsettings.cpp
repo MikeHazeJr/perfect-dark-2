@@ -673,7 +673,8 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
 
     /* ---- LEFT: Library ---- */
     ImGui::BeginGroup();
-    ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Library");
+    /* S311: "Library" section header follows theme title glow. */
+    ImGui::TextColored(pdguiVec4TitleGlow(), "Library");
     ImGui::Separator();
     if (ImGui::BeginChild("##tunes_lib", ImVec2(colW, bodyH), false,
                           ImGuiWindowFlags_NoBackground)) {
@@ -875,7 +876,7 @@ static s32 renderSoundtrack(struct menudialog *dialog, struct menu *, s32, s32)
                           ImGuiWindowFlags_NoBackground)) {
 
         /* "Current:" row — show playlist info or single track name */
-        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Current Track:");
+        ImGui::TextColored(pdguiVec4TitleGlow(), "Current Track:");
         ImGui::SameLine();
         {
             s32 plCount = audioGetModPlaylistCount();

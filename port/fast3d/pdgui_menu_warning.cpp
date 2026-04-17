@@ -692,7 +692,7 @@ static s32 renderDefaultDialog(struct menudialog *dialog,
     return renderTypedDialog(dialog, menu, winW, winH,
                               1,                          /* Blue palette (default) */
                               -1,                         /* No special sound */
-                              IM_COL32(100, 200, 255, 255), /* Light-blue title */
+                              pdguiImU32TitleGlow(255),   /* S311: themable title glow */
                               "");
 }
 
@@ -786,8 +786,10 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
     }
 
     /* ---- Body ---- */
-    float bodyTop = pdTitleH + ImGui::GetStyle().WindowPadding.y + 8.0f * scale;
-    ImGui::SetCursorPosY(bodyTop);
+    /* S311: route through pdguiSetCursorBelowTitle so the nineslice content
+     * inset is honored; extra 8px breathe preserved beneath. */
+    pdguiSetCursorBelowTitle(pdTitleH);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8.0f * scale);
 
     const char *bodyMsg = "Are you sure you want to end the match?";
     {
@@ -988,7 +990,7 @@ static s32 renderFilemgrPcPlaceholder(struct menudialog *dialog,
         ImVec2 ts = ImGui::CalcTextSize(title);
         dl->AddText(ImVec2(dlgPos.x + (dialogW - ts.x) * 0.5f,
                            dlgPos.y + (pdTitleH - ts.y) * 0.5f),
-                    IM_COL32(100, 200, 255, 255), title);
+                    pdguiImU32TitleGlow(255), title);
     }
 
     pdguiSetCursorBelowTitle(pdTitleH);

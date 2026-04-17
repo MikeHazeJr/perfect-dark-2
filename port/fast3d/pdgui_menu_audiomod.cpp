@@ -775,7 +775,8 @@ void pdguiAudioModRender(float contentW, float contentH, float scale)
         s_AudioEntries[s_AudioSelected].category == AUDIO_CAT_MUSIC) {
         const AudioModEntry &ae = s_AudioEntries[s_AudioSelected];
 
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.85f, 1.0f, 1.0f));
+        /* S311: "Selected" accent follows theme title glow. */
+        ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow());
         ImGui::Text("Selected: %s", ae.name[0] ? ae.name : ae.id);
         ImGui::PopStyleColor();
 
