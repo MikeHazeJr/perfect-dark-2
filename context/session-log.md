@@ -1,8 +1,32 @@
 
 # Session Log (Active)
 
-> **S281–S313** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S317** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S317 — 2026-04-17 (ROM hash cache path fix + crash investigation — `nostalgic-lichterman-3c1259` worktree)
+
+**Scope**: Urgent crash report — Mike's second PC crashes at startup (stage 0x26 CI Training bodiesReset) after removing `.sha256` files from the game folder.
+
+### Investigation findings
+
+1. **`.sha256` files are NOT read at runtime.** `PerfectDark.exe.sha256` / `PerfectDarkServer.exe.sha256` are release-only artifacts uploaded to GitHub for the updater's download-integrity verification. They are never opened during normal game operation. Removing them cannot cause any crash.
+
+2. **`catalogCacheVerifyRom` path bug (fixed).** The function was calling `sha256HashFile(romPath, ...)` with the bare filename `g_RomName = "pd.ntsc-final.z64"` instead of the full filesystem path. `sha256HashFile` calls `fopen(path, "rb")` directly without `fsFullPath`, so it fails whenever the CWD is not the data directory. This caused `WARNING: CATALOG: ROM hash cache: could not hash 'pd.ntsc-final.z64'` on every boot. Fix: added `fsFullPath(romPath)` call before `sha256HashFile`.
+
+3. **Actual crash (B-163 — open).** AV at PC+0x161258 during CI Training setup. Crash log upload path inaccessible; no binary for `addr2line`. Double-transition `MAIN: replacing pending stage change 0x30 -> 0x26` at boot is suspicious. Most likely hypothesis: pre-S312 build (`aee52a8a`) without modeldef defensive guards. Current HEAD should be safe.
+
+### Commit
+
+| SHA | Scope |
+|-----|-------|
+| `48bf97d6` | **fix(catalog): use fsFullPath in catalogCacheVerifyRom ROM hash path** |
+
+### Build verify
+
+`ninja -C Build pd pd-server` clean. PerfectDark.exe 52,552,467 / PerfectDarkServer.exe 22,840,009. No new warnings.
+
+---
 
 ## Session S316 — 2026-04-17 (solo mission select UX + session-log archive — `epic-mirzakhani-884cc2` worktree)
 

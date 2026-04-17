@@ -7,6 +7,19 @@
 
 ---
 
+## Open — 2026-04-17 (S317 — ROM hash path fix + crash triage, `nostalgic-lichterman-3c1259` worktree)
+
+### B-163: Startup AV in CI Training `bodiesReset` — needs crash log from Mike's second PC
+
+**Status**: Code fix landed (`fsFullPath` added to `catalogCacheVerifyRom`). AV root cause unclear without crash log.
+
+- **Get crash log from Mike's second PC** — need `pdclient.log` from the failing session on build `aee52a8a`
+- **Run addr2line** — `addr2line -e PerfectDark.exe 0x161258` on the `aee52a8a` binary to confirm call site
+- **Verify on current HEAD** — confirm crash does not reproduce post-S312 (modeldef NULL-guard fixes)
+- **Double-transition 0x30 → 0x26** — log shows `replacing pending stage change 0x30 -> 0x26` at boot; investigate what triggers stage 0x30 and whether it interacts with CI Training redirect
+
+---
+
 ## Open — 2026-04-17 (S316 — solo mission select UX, `epic-mirzakhani-884cc2` worktree)
 
 ### Playtest verification

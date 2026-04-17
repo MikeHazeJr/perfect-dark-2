@@ -113,9 +113,11 @@ s32 catalogCacheVerifyRom(const char *romPath, char *romHashHexOut)
         return -1;
     }
 
-    /* Hash the ROM file. */
+    /* Hash the ROM file.  Resolve bare filenames (e.g. "pd.ntsc-final.z64")
+     * to the full filesystem path via fsFullPath so this works regardless of
+     * the working directory — matches the same resolution fsFileLoad uses. */
     u8 digest[SHA256_DIGEST_SIZE];
-    if (sha256HashFile(romPath, digest) != 0) {
+    if (sha256HashFile(fsFullPath(romPath), digest) != 0) {
         sysLogPrintf(LOG_WARNING,
                      "CATALOG: ROM hash cache: could not hash '%s'", romPath);
         return -1;
