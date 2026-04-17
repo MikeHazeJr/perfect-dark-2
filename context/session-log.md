@@ -4,6 +4,55 @@
 > **S241–S313** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S313 marathon batch — 2026-04-17 (Grid rename completion + per-agent audio + pd.ini audit — `great-robinson-15f409` worktree, direct to dev)
+
+**Scope**: Continuation of the three-session marathon (S311 + S312 + S313 all merged).  S313 owns this batch of targeted follow-ups on top of the merged dev.  Worktree FF-ed to origin/dev; commits land on the same branch and merge via `--no-ff`.
+
+### Commits on `claude/great-robinson-15f409` (on top of dev at `d96d64cb`)
+
+| SHA | Scope |
+|-----|-------|
+| `8057f064` | **feat(grid): rename `FORGE:` / `FORGE.*` log prefix → `GRID:` / `GRID.*`**.  Completes the user-facing rename from the main S313 drop.  All `sysLogPrintf` prefixes flipped across `src/game/forgemode.c`, `port/src/forge/{forge_core,forge_serialize,forge_gametype,forge_ai,forge_logic,forge_undo}.c`, `port/fast3d/pdgui_menu_forge.cpp`.  Internal symbol names (`forge_*`, `FORGE_MAX_*`, `FORGE_CAT_*`, `FORGE_MOD_*`, catalog namespaces, file paths) retained for code stability.  `pdgui_forge_hud.cpp` header comment reworded to describe the module as "The Grid HUD overlay" with an explicit note on the internal/external taxonomy split. |
+| `1694d3ec` | **feat(prefs): audio volumes per-agent + agent-name from `gamefileGetOverview`**.  (a) `prefs_agent.c` now reads/writes an `[Audio]` block with `MasterVolume` / `MusicVolume` / `GameplayVolume` / `UIVolume`.  Setters `audioSet{Master,Music,Gameplay,Ui}Volume` applied on load; current globals read on save.  Global pd.ini keeps the same four keys as per-machine defaults.  (b) `prefsLoadForFile` in `pdgui_menu_agentselect.cpp` switches from raw `filelistfile::name[]` byte-walk to `gamefileGetOverview` so the sidecar path matches the Agent Select display text exactly -- prior code could produce mismatched filenames because the stored name is a variable-length char-code encoding. |
+| `6aaf299f` | **feat(config): drop network-tuning + protected-folders from pd.ini**.  Removed `configRegister*` for `Net.LerpTicks`, `Net.Client.{InRate,OutRate,UpdateFrames}`, `Net.Server.{Port,InRate,OutRate,UpdateFrames}`, `Update.ProtectedFolders`.  Globals kept with file-scope initializers so runtime code compiles; `-port` CLI override for the server still works.  Retained: `Net.Client.LastJoinAddr`, `Net.RecentServer.*`, `Net.Server.AllowInfoQuery`, `Net.RecentServerCount`.  New doc `context/config-pd-ini-audit.md` catalogs every `configRegister*` call in the port and documents the three-tier model (pd.ini / per-agent / compile-time) with a decision flowchart for future settings. |
+| `(next)` | **Merge commit** into dev via `git merge --no-ff` from main working copy. |
+
+### Files touched
+
+- **Renamed log prefix** (task 1): `src/game/forgemode.c`, `port/src/forge/{forge_core,forge_serialize,forge_gametype,forge_ai,forge_logic,forge_undo}.c`, `port/fast3d/pdgui_menu_forge.cpp`, `port/fast3d/pdgui_forge_hud.cpp` (header comment).
+- **Per-agent audio + agent-name fix** (tasks 2 + 3): `port/src/prefs_agent.c`, `port/include/prefs_agent.h`, `port/fast3d/pdgui_menu_agentselect.cpp`.
+- **pd.ini audit** (task 4): `port/src/net/net.c` (netConfigInit), `port/src/updater.c` (updaterConfigInit), `context/config-pd-ini-audit.md` (new doc).
+- **Context** (task 5): `context/session-log.md`, `context/tasks-current.md`, `context/README.md`.
+
+### Three-tier configuration model (landed)
+
+1. **pd.ini** = per-machine (hardware, display, audio backend, network history, ops toggles, debug).
+2. **saves/prefs_\<agent\>.ini** (prefs_agent.c) = per-agent (visuals + **audio volumes (NEW)** + mod enablement).  Overlays pd.ini on Agent Select load.
+3. **Compile-time constants** = tuning knobs (**network rates (NEW)**, **server port (NEW)**, **protected folders (NEW)**) where user override would only cause confusion or break compatibility.
+
+Net global initializers and `-port` CLI override continue to work.  UPDATER_DEFAULT_PROTECTED ("mods,data,extracted,saves") remains the source of truth for updater protections -- pd.ini is always protected regardless.
+
+### Marathon wave -- cross-session summary (S311 + S312 + S313 all on dev)
+
+| Session | Branch | Focus | Status |
+|---------|--------|-------|--------|
+| **S311** | zen-poitras-f86b73 | Theme palette sweep (35+ hardcoded blue tints → `pdgui{ImU32,Vec4}TitleGlow`/`TintSuccess/Danger/Info`), `pdguiRgbaToImU32` + semantic accessors, warning.cpp MP End Game inset fix, `mainmenu.cpp` delete-confirm button scaling, CS music picker re-verified, controller-nav bridge via `pdguiDriveImGuiNav`. | **Merged to dev (`d96d64cb`)** |
+| **S312** | amazing-mccarthy | Modeldef defensive guards in `modeldefFindBboxNode` / `modelFindBboxNode` (NULL rootnode / parts ∉ [1,500] / scale ≤ 0 + walker step cap 10000), `manifestEnsureLoaded` late-add WARNING for torn body/head modeldefs, new `pdgui_glyphs.{h,cpp}` -- resolve `InputAction` → short-label `[KEY] Label` pills with KBM/gamepad auto-detect, net/input wire audit. | **Merged to dev (`85421a8a`)** |
+| **S313** (bulk) | great-robinson-15f409 | The Grid polish: Forge→Grid rename (strings), Bots tab (live testing), Map Variant editing (`from_base` flag + delta API), weapon pad preview, controller nav (bumper-cycle tabs), save modal w/ deps list, placement ghost, grid snap viz. | **Merged to dev (`16cb6f7e`)** |
+| **S313** (marathon follow-up) | great-robinson-15f409 (same) | Log-prefix FORGE→GRID; per-agent audio volumes; agent-name handoff via `gamefileGetOverview`; pd.ini cleanup -- drop network tuning rates + server port + protected folders. | **This commit set** (`8057f064` / `1694d3ec` / `6aaf299f`) |
+
+### Build verify
+
+`ninja -C Build pd pd-server` clean after each commit.  Worktree build: PerfectDark.exe ~52.3 MB / PerfectDarkServer.exe ~22.8 MB.  Only pre-existing warnings (collision `sum2`, modelasm dangling-pointer, `/*` within comment noise, snd strncpy truncation) -- no new warnings introduced.
+
+### Deferred
+
+- Agent-name `gamefileGetOverview` fix lands the sidecar-path alignment, but existing agents with old sidecars (prefs_<old_encoded>.ini) will effectively be orphaned.  A one-shot migration pass (rename old sidecar to new name on first load of each agent) is queued.
+- Gameplay-preference pd.ini keys (`Game.CenterHUD`, `Game.SkipIntro`, `Game.DisableMpDeathMusic`, etc.) could migrate per-agent next -- see `config-pd-ini-audit.md` candidate list.
+- `Audio.ModPlaylist` / `ModShuffle` / `ModTrackId` are per-machine today; per-agent migration would let each Agent have its own CS music selection.
+
+---
+
 ## Session S313 — 2026-04-17 (The Grid polish + missing features — `great-robinson-15f409` worktree → merged to dev)
 
 **Scope**: S313 is the parallel Grid-owning session in the S311/S312/S313 three-way split. Picks up on top of S310's F1-F8 bulk drop to ship the remaining design-doc items plus targeted polish. File ownership per parallel prompt: **Grid code only** (`port/src/forge/*`, `src/game/forgemode.*`, `port/fast3d/pdgui_forge_*`, `port/include/pdgui_forge.h`). No menu / theme / gameplay-logic files touched.
