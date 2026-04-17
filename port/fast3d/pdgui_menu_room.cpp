@@ -604,6 +604,7 @@ static bool s_LobbyPortraitsInited    = false;
 static s32  s_LobbyPortraitPending    = -1;    /* lobby idx in current bake */
 static bool s_LobbyPortraitWaitReady  = false;
 static float s_LobbyPortraitAlpha[LOBBY_PORTRAIT_MAX]; /* join fade-in [0,1] */
+static s32   s_HoverLobbyIdx = -1;  /* lobby idx of currently-hovered human row; -1 = none */
 
 /* Bot preset cache — ASSET_BOT_VARIANT entries from catalog */
 #define MAX_BOT_PRESETS 64
@@ -1407,6 +1408,7 @@ static void lobbyPortraitsSync(s32 humanCount)
 static void lobbyPortraitsTick(s32 humanCount)
 {
     if (s_BotModalOpen) return;
+    if (s_HoverLobbyIdx >= 0) return;  /* hover preview owns the FBO this frame */
 
     if (s_LobbyPortraitWaitReady && s_LobbyPortraitPending >= 0) {
         if (pdguiCharPreviewIsReady()) {
@@ -1597,6 +1599,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
     float rowW = panelW - ImGui::GetStyle().WindowPadding.x * 2.0f - 4.0f;
     s32 lastTeam = -1;
     ImDrawList *dl = ImGui::GetWindowDrawList();
+    s_HoverLobbyIdx = -1;  /* reset each frame; set below if a row is hovered */
 
     for (s32 ri = 0; ri < rowCount; ri++) {
         RoomRow &r = rows[ri];
@@ -1662,9 +1665,11 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
              * Invisible Selectable reserves the full rowH; content drawn manually. */
             ImGui::Selectable("##hr", false, ImGuiSelectableFlags_None,
                               ImVec2(rowW, rowH));
+            bool rowHovered = ImGui::IsItemHovered();
 
             /* Portrait alpha: network players fade in; solo is instant */
             s32 pidx = (r.lobbyIdx >= 0 && r.lobbyIdx < LOBBY_PORTRAIT_MAX) ? r.lobbyIdx : -1;
+            if (rowHovered && pidx >= 0) s_HoverLobbyIdx = pidx;
             float alpha = (pidx >= 0 && !s_IsSoloMode) ? s_LobbyPortraitAlpha[pidx] : 1.0f;
             int   iAlpha = (int)(alpha * 255.0f);
 
@@ -1674,6 +1679,10 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
 
             LobbyPortrait *portrait = (pidx >= 0) ? &s_LobbyPortraits[pidx] : nullptr;
             if (portrait && portrait->glTex) {
+                /* Drop shadow */
+                dl->AddRectFilled(ImVec2(thumbX + 3.0f, thumbY + 3.0f),
+                                  ImVec2(thumbX + kThumb + 3.0f, thumbY + kThumb + 3.0f),
+                                  IM_COL32(0, 0, 0, (int)(alpha * 100)), 3.0f);
                 /* Baked portrait texture */
                 dl->AddRectFilled(ImVec2(thumbX, thumbY),
                                   ImVec2(thumbX + kThumb, thumbY + kThumb),
@@ -1683,9 +1692,16 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                              ImVec2(thumbX + kThumb - 1.0f, thumbY + kThumb - 1.0f),
                              ImVec2(0, 1), ImVec2(1, 0),
                              IM_COL32(255, 255, 255, iAlpha));
-                ImU32 borderCol = r.isLocal
-                    ? IM_COL32(200, 255, 200, (int)(alpha * 220))
-                    : pdguiImU32TintInfo((int)(alpha * 160));
+                ImU32 borderCol;
+                if (r.isLocal) {
+                    borderCol = IM_COL32(200, 255, 200, (int)(alpha * 220));
+                } else if (teamsOn) {
+                    const ImVec4 &tc = kTeamColors[r.team < 8 ? r.team : 7];
+                    borderCol = IM_COL32((int)(tc.x * 255), (int)(tc.y * 255),
+                                         (int)(tc.z * 255), (int)(alpha * 200));
+                } else {
+                    borderCol = pdguiImU32TintInfo((int)(alpha * 160));
+                }
                 dl->AddRect(ImVec2(thumbX, thumbY),
                             ImVec2(thumbX + kThumb, thumbY + kThumb),
                             borderCol, 3.0f, 0, 1.5f);
@@ -1802,6 +1818,32 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                         stateX = textX + bnSz.x + pdguiScale(10.0f);
                     }
                     dl->AddText(ImVec2(stateX, lineY1), stateCol, stateStr);
+                }
+            }
+
+            /* Phase 5C: hover tooltip — live charpreview or baked fallback */
+            if (rowHovered && pidx >= 0) {
+                LobbyPortrait *hp = &s_LobbyPortraits[pidx];
+                if (hp->head_id[0] && hp->body_id[0]) {
+                    pdguiCharPreviewRequest(hp->head_id, hp->body_id);
+                    ImGui::BeginTooltip();
+                    if (pdguiCharPreviewIsReady()) {
+                        u32 liveTex = pdguiCharPreviewGetTextureId();
+                        s32 pw = 0, ph = 0;
+                        pdguiCharPreviewGetSize(&pw, &ph);
+                        float scale = 128.0f / (float)(ph > 0 ? ph : 1);
+                        ImGui::Image((ImTextureID)(uintptr_t)liveTex,
+                                     ImVec2(pw * scale, ph * scale),
+                                     ImVec2(0, 1), ImVec2(1, 0));
+                    } else if (hp->glTex) {
+                        float sz = pdguiScale(128.0f);
+                        ImGui::Image((ImTextureID)(uintptr_t)hp->glTex,
+                                     ImVec2(sz, sz),
+                                     ImVec2(0, 1), ImVec2(1, 0));
+                    } else {
+                        ImGui::Text("%s", r.name);
+                    }
+                    ImGui::EndTooltip();
                 }
             }
         }
