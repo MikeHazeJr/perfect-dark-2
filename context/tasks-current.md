@@ -7,6 +7,20 @@
 
 ---
 
+## Done — 2026-04-17 (S323 Batch G — cross-audit gap fixes)
+
+**Build verified.** Clean link 768/768, zero errors. 6 items fixed:
+- **CRITICAL**: `audioNotifyEngineReady()` now called in `port/src/pdmain.c::mainProc()` after `sndInit()` — `g_AudioEngineReady` is now set at runtime; volume sliders are no longer permanent no-ops
+- `playerResetLoResIf4Mb` empty stub deleted (body in player.c, declaration in player.h, call in vi.c behind `#if PAL`, call in playerreset.c)
+- Dead `is4mb` local variable removed from hudmsg.c (decl, assignment, always-false arm of condition)
+- Orphaned `#define MAX_SEQ_SIZE_4MB` removed from snd.c
+- Dead `g_BgunGunMemBaseSize4Mb2P` global deleted (definition in bondgun.c, extern in data.h, extern in bondgunreset.c)
+- Stale "takes effect on next restart" tooltip removed from pdgui_menu_mainmenu.cpp font panel
+
+No playtest needed — audio volume fix is functional; rest is dead-code removal.
+
+---
+
 ## Open — 2026-04-17 (S323 Batch D+F — font atlas rebuild + legacy sidecar migration)
 
 ### Playtest verification
