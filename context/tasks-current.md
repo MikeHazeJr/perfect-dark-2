@@ -117,8 +117,10 @@ Three renderers touched; no user-visible regression expected.  Verify:
 
 ### Follow-up queued from S312 batch 2
 
-- **Wire pdgui_glyphs into in-world prompts** (still open from batch 1):
-  pickup / door interact / forge HUD controls reminder.
+- ~~**Wire pdgui_glyphs into in-world prompts**~~ — **DONE (S323 audit confirmed)**:
+  S311 wired `pdguiInteractPromptRender` → `pdguiDrawActionPromptCentered(ACTION_USE)` for all
+  pickup/door/terminal/object prompts. S312 wired forge HUD via `pdguiDrawActionPrompt()`.
+  Zero hardcoded `[E]`/`[A]` labels remain in runtime rendering code.
 - **Font-atlas rebuild on runtime font swap** — atlas built once at
   `pdguiInit`; runtime swap needs a rebuild or early-pick to take
   effect without restart.

@@ -4,6 +4,29 @@
 > **S281–S322** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S323 — 2026-04-17 (Batch C glyph audit — `strange-visvesvaraya-248471` worktree)
+
+**Scope**: Audit all in-world and HUD prompts for Batch C: verify or implement device-aware glyph calls (pickup / door / terminal interact prompts, forge HUD controls reminder). Replace any hardcoded `[E]`/`[A]` labels with `pdguiDrawActionPrompt()` / `pdguiGlyphGetActionLabel()`.
+
+### What was done
+
+Full audit of `port/fast3d/pdgui_interact_prompt.cpp`, `pdgui_forge_hud.cpp`, `pdgui_hud.cpp`, `pdgui_backend.cpp`, and `src/game/prop.c`. Also grepped entire `port/fast3d/` tree (excluding vendored imgui) for `[E]`, `[A]`, `Press E`, `Press A`.
+
+**Finding: all items already implemented.**
+
+- `pdgui_interact_prompt.cpp` — S311 wired `pdguiInteractPromptRender()` → `pdguiDrawActionPromptCentered(ACTION_USE, cx, cy, label)` where `label` comes from `propInteractPromptLabel()` (returns "Pick up" / "Open" / "Access" / "Use" / NULL). All four prompt types (weapon pickup, door, terminal, generic interactable) route through this single call. Device-aware — gamepad shows "[A]", KBM shows "[E]".
+- `pdgui_forge_hud.cpp` — S312 wired the bottom-right controls reminder via `pdguiDrawActionPrompt()` and `pdguiGlyphGetActionLabel()` for all 4 rows (toggle/ascend/descend, boost/precision, tab-prev/next, use/cancel). Fully device-aware.
+- Zero hardcoded `[E]`, `[A]`, `Press E`, or `Press A` strings found in runtime rendering code (only in doc comments).
+
+### Code changes
+
+None — audit session only.
+
+### Next steps
+
+- Batch C task closed in tasks-current.md.
+- Remaining S312 follow-ups still open: font-atlas rebuild on runtime swap, Theme Editor mini-preview content-inset.
+
 ## Session S322 — 2026-04-17 (N64 legacy audit — Tier 1/2 execution — `nostalgic-lichterman-3c1259` worktree)
 
 **Scope**: Execute all Tier 1 and Tier 2 quick-win items from the N64 legacy audit (`context/designs/n64-legacy-audit-2026-04-17.md`). Strip compile-time-dead IS4MB() branches, IS8MB() guards, `fourmeg2player` mode, and STAGE_4MBMENU routing. Bump N64-era resource limits.
