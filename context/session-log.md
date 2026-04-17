@@ -1,8 +1,34 @@
 
 # Session Log (Active)
 
-> **S241–S313** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S315** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S315 — 2026-04-17 (Palette sweep completion — `pedantic-austin-4a93bc` worktree)
+
+**Scope**: Verify and complete the four tasks from the S311/S312/S313 marathon that were either shipped already or had remaining gaps.
+
+### Status: all four tasks shipped
+
+1. **In-world glyph prompts** — Verified complete from S311 pt3. `pdgui_interact_prompt.cpp` reads `g_InteractProp` each frame, renders `[KEY] Pick up / Open / Access` pills via `pdguiDrawActionPromptCentered(ACTION_USE, ...)`. `propInteractPromptLabel()` in `prop.c` classifies weapon pickup / door / terminal / generic. Wired into `pdgui_backend.cpp:607`. `g_InteractProp` set in `propobj.c` (weapon pickup line 16420, door lines 20939/20942/20964).
+
+2. **The Grid HUD glyph integration** — Verified complete from S311 pt3 + S313. `pdgui_forge_hud.cpp` uses 4-row `pdguiDrawActionPrompt` layout covering `ACTION_FORGE_TOGGLE`, `ACTION_FORGE_ASCEND`, `ACTION_FORGE_DESCEND`, `ACTION_FORGE_BOOST`, `ACTION_FORGE_PRECISION`, `ACTION_MENU_TAB_PREV/NEXT`, `ACTION_USE`, `ACTION_CANCEL_USE`. Background panel with TitleGlow border.
+
+3. **Blue-tint palette sweep** — S311 pt2 swept `pdgui_lobby.cpp` / `pdgui_lobby_distrib.cpp` / `pdgui_skin_editor.cpp` / `pdgui_menu_{agentselect,modmgr,moddinghub,solomission}.cpp`. S315 caught 10 additional hardcoded cyan/blue literals: `pdgui_lobby_distrib.cpp:356`, `pdgui_menu_challenges.cpp:293`, `pdgui_menu_lobby.cpp` (3 sites), `pdgui_menu_pausemenu.cpp` (2 sites), `pdgui_menu_room.cpp` (3 sites) — all → `pdguiVec4TitleGlow()`. Remaining untouched intentionally: `pdgui_backend.cpp:471` (log-viewer LOAD category, functional debug color) + `pdgui_menu_solomission.cpp` difficulty colors (Agent/SA/PA canonical PD identity) + `pdgui_menu_agentselect.cpp:502` initials text (artistic). `server_gui.cpp` explicitly skipped — pd-server doesn't link `pdgui_style.cpp`.
+
+4. **X-button close consistency** — Verified complete from S311 pt6. `pdguiConsumeTitleClose()` wired: main menu (line 3358), CI redirect/DeadPlayer2/CinemaList (lines 4011/4116/4211), theme editor (line 649), moddinghub (line 1451), pause menu (line 725), endscreen solo + MP (lines 738/1248).
+
+### Commit
+
+| SHA | Scope |
+|-----|-------|
+| `cd7a7e01` | **feat(S315): complete blue-tint palette sweep — 10 missed literals** |
+
+### Build verify
+
+`ninja -C Build pd pd-server` clean. PerfectDark.exe 52,534,547 / PerfectDarkServer.exe 22,837,961. Only pre-existing warnings.
+
+---
 
 ## Session S313 marathon batch — 2026-04-17 (Grid rename completion + per-agent audio + pd.ini audit — `great-robinson-15f409` worktree, direct to dev)
 
