@@ -13,6 +13,7 @@
 #include <PR/ultratypes.h>
 #include "lib/rzip.h"
 #include "romdata.h"
+#include "sha256.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
 #include "fs.h"
@@ -199,6 +200,76 @@ static inline void romdataWrongRomError(const char *fmt, ...)
 	sysFatalError("Wrong ROM file.\n%s\nEnsure that you have the correct " ROMDATA_ROM_DESC " ROM in z64 format.", reason);
 }
 
+/* ========================================================================
+ * ROM SHA-256 known-good hash table
+ *
+ * Each entry is a 64-character lowercase hex string (SHA-256 of the z64
+ * ROM file, big-endian byte order). The binary validates the ROM against
+ * this compile-time table so no loose .sha256 files need to be shipped.
+ *
+ * To populate: run the game once, look for the log line:
+ *   ROM: SHA-256 <64-char hex>
+ * Copy that string into the appropriate array below and rebuild.
+ *
+ * Leaving the array empty (just NULL) disables validation — the ROM is
+ * accepted as long as it passes the size + header check. Adding a wrong
+ * hash only produces a WARNING; it never prevents the game from running.
+ *
+ * === ROM version compatibility ===
+ * NTSC v1.0 (VERSION_NTSC_1_0 = 1): NOT compatible with NTSC_FINAL binaries.
+ *   Game code uses `VERSION >= VERSION_NTSC_FINAL` guards throughout; struct
+ *   sizes and file counts differ. Accept NTSC v1.1 (NTSC_FINAL) only.
+ * PAL and JPN finals share DATA_OFS (0x39850) with NTSC but differ in
+ *   FILES_OFS and game data — each requires its own binary build.
+ * ======================================================================== */
+
+#if VERSION == VERSION_NTSC_FINAL
+static const char *const s_KnownRomHashes[] = {
+	/* Perfect Dark (U) (V1.1) NTSC — primary decompilation target.
+	 * Run the game once and copy the "ROM: SHA-256" log line here.    */
+	/* "e03b088b6ac9e0080412ef9b89b1e4c6f47e408d32bb3d406744b65168b75b4b", */
+	NULL
+};
+#elif VERSION == VERSION_PAL_FINAL
+static const char *const s_KnownRomHashes[] = {
+	/* Perfect Dark (E) PAL final. Run once and paste "ROM: SHA-256" here. */
+	NULL
+};
+#elif VERSION == VERSION_JPN_FINAL
+static const char *const s_KnownRomHashes[] = {
+	/* Perfect Dark (J) JPN final. Run once and paste "ROM: SHA-256" here. */
+	NULL
+};
+#else
+static const char *const s_KnownRomHashes[] = { NULL };
+#endif
+
+static void romdataVerifyRomHash(void)
+{
+	u8 digest[SHA256_DIGEST_SIZE];
+	sha256Hash(g_RomFile, g_RomFileSize, digest);
+
+	char hex[SHA256_HEX_SIZE];
+	sha256ToHex(digest, hex);
+
+	/* Always log the hash — developers can paste it into s_KnownRomHashes. */
+	sysLogPrintf(LOG_NOTE, "ROM: SHA-256 %s", hex);
+
+	s32 numKnown = 0;
+	for (const char *const *h = s_KnownRomHashes; *h; h++) {
+		numKnown++;
+		if (strncmp(hex, *h, 64) == 0) {
+			sysLogPrintf(LOG_NOTE, "ROM: hash verified (known-good)");
+			return;
+		}
+	}
+
+	if (numKnown > 0) {
+		sysLogPrintf(LOG_WARNING,
+		             "ROM: hash not in known-good list — wrong ROM version?");
+	}
+}
+
 /**
  * Show a user-friendly ROM missing dialog with an "Open Folder" button.
  * Uses SDL_ShowMessageBox with custom buttons so users can quickly
@@ -328,6 +399,10 @@ static inline void romdataLoadRom(void)
 	if (memcmp(g_RomFile + 0x3b, ROMDATA_ROM_ID, 4) || memcmp(g_RomFile + 0x20, ROMDATA_ROM_TITLE, sizeof(ROMDATA_ROM_TITLE) - 1)) {
 		romdataWrongRomError("ROM header does not match.");
 	}
+
+	/* SHA-256 validation against compile-time known-good list.
+	 * Always logs the hash; warns if it's not in the list. */
+	romdataVerifyRomHash();
 
 	// inflate the compressed data segment since that's where some useful stuff is
 
