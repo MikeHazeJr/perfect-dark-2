@@ -1127,20 +1127,42 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
     ImGui::Separator();
 
     /* --- Tab bar --- */
+    /* S312: LB/RB bumper tab cycling — pdguiDriveImGuiNav translates
+     * ACTION_MENU_TAB_PREV/NEXT to PageUp/PageDown so we poll those. */
+    static s32 s_ModMgrPendingTab = -1;
+    const s32 k_ModMgrTabCount = 3;
+    /* Visual/UI order: Installed Mods (2), By Category (0), By Mod (1). */
+    static const s32 k_ModMgrOrder[3] = { 2, 0, 1 };
+    s32 s_ModMgrUiIdx = (s_Tab == 2) ? 0 : (s_Tab == 0 ? 1 : 2);
+    if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
+        s_ModMgrUiIdx = (s_ModMgrUiIdx - 1 + k_ModMgrTabCount) % k_ModMgrTabCount;
+        s_ModMgrPendingTab = s_ModMgrUiIdx;
+        pdguiPlaySound(PDGUI_SND_SWIPE);
+    } else if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
+        s_ModMgrUiIdx = (s_ModMgrUiIdx + 1) % k_ModMgrTabCount;
+        s_ModMgrPendingTab = s_ModMgrUiIdx;
+        pdguiPlaySound(PDGUI_SND_SWIPE);
+    }
+
     if (ImGui::BeginTabBar("##modmgr_tabs")) {
-        if (ImGui::BeginTabItem("Installed Mods")) {
-            s_Tab = 2;
+        const ImGuiTabItemFlags sel0 = (s_ModMgrPendingTab == 0) ? ImGuiTabItemFlags_SetSelected : 0;
+        const ImGuiTabItemFlags sel1 = (s_ModMgrPendingTab == 1) ? ImGuiTabItemFlags_SetSelected : 0;
+        const ImGuiTabItemFlags sel2 = (s_ModMgrPendingTab == 2) ? ImGuiTabItemFlags_SetSelected : 0;
+
+        if (ImGui::BeginTabItem("Installed Mods", nullptr, sel0)) {
+            s_Tab = k_ModMgrOrder[0];
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("By Category")) {
-            s_Tab = 0;
+        if (ImGui::BeginTabItem("By Category", nullptr, sel1)) {
+            s_Tab = k_ModMgrOrder[1];
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("By Mod")) {
-            s_Tab = 1;
+        if (ImGui::BeginTabItem("By Mod", nullptr, sel2)) {
+            s_Tab = k_ModMgrOrder[2];
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
+        s_ModMgrPendingTab = -1;
     }
 
     /* --- Two-panel layout --- */
