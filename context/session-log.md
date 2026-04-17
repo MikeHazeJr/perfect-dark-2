@@ -1,7 +1,71 @@
 # Session Log (Active)
 
-> **S241–S304** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S305** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S305 — 2026-04-16 (Playtest batch: content inset + settings persistence + font mods + theme bundle — dev direct)
+
+**Scope**: Mike's post-S304 playtest surfaced eight issues in one pass; worked directly on `dev` (no worktree). All items landed + pushed to origin.
+
+### Fixes landed
+
+1. **P0 content-inset enforcement** (`port/fast3d/pdgui_menu_mainmenu.cpp`): main menu items, Quit button, Settings body `BeginChild`, CI Settings redirect, and Cinema list all honour the nineslice chrome content inset (S297/S298 `pdguiThemeGetContentInset`) plus an 8px breathing-room buffer. Fixes the screenshot bug where Solo Play / Online Play / Change Agent / Settings / Mods / Cheats / Stats / Quit Game bled edge-to-edge into the border chrome.
+
+2. **Settings persistence** (`port/src/config.c`, `port/fast3d/pdgui_theme_loader.cpp`): two root-causes for "theme / title-bar / menu-style don't survive restart":
+   - `configLoad` used strict `configFindEntry` so any pd.ini key whose owning subsystem called `configRegister*` AFTER `configInit` was silently dropped. `pdguiThemeInit` (inside `pdguiInit`, line 183 of main.c) runs after `configInit` (line 169), so theme/chrome/title-bar/scanline keys never loaded. Fix: pending-value stash + replay — `configLoad` uses `FindOrAdd`, stores raw values on unregistered entries, `configRegister*` replays on registration. `configSave` preserves pending entries as raw key=value so data isn't lost if registration never happens in a run.
+   - `pdguiThemeLoaderInit`'s startup apply only handled built-in palette themes. Mod themes saved via Save-as-Mod (resolved via `pdguiThemeLoadFromCatalog`) were skipped on every restart, reverting the user to the default palette. Fix: route through `pdguiThemeLoadFromCatalog` for non-builtin ids.
+
+3. **Nine-Slice → Menu Style** rename (`port/fast3d/pdgui_menu_moddinghub.cpp`, `port/fast3d/pdgui_menu_mainmenu.cpp`): all user-visible references updated. Internal API names (`pdguiNineslice*`, catalog id `base:ui_chrome_frame`, `mods/UI Chrome/` tree) stay for compatibility. Modding Hub tab label + tool array + saved mod description + header blurb + Settings → Video dropdown label all flipped.
+
+4. **Theme Editor P1 + P2** (`port/fast3d/pdgui_menu_theme_editor.cpp`): Save button moved off the Name/Author row into the action-button row alongside Reset/Close (was partly off-screen on narrow windows + only reachable via Tab). After a successful Save, calls `pdguiThemeRescanMods()` so the new theme appears in Settings → Debug → UI Theme list immediately. Same pattern as B-155/B-156 chrome mod auto-appear.
+
+5. **Menu Style tool preview scaling + screen cleanup (P5 + P6)** (`port/fast3d/pdgui_menu_moddinghub.cpp`): source preview now scales UP as well as down so small imported images fill the sidebar preview at the same standard size as the assembled frame preview below (removed the `if (imgScale > 1) clamp = 1`). Power-user controls (Scale X/Y, Center Cut Axis/%, Desaturate + %, Quick Presets) moved into a collapsed "Advanced" `CollapsingHeader` so Mod Name / symmetry / tile mode / trim / Border Scale / per-edge insets stay front-and-center.
+
+6. **Font Import as Mod (P3)** — new module: `port/include/pdgui_font_mod.h` + `port/fast3d/pdgui_font_mod.cpp`. Scans `mods/Fonts/<slug>/` (or top-level `mods/<slug>/`) for `.ttf`/`.otf` files, optionally reads `font.json` for a display name, registers each under `user.<slug>.font`. New `Video.FontId` pd.ini key tracks the active choice. `pdgui_backend.cpp` calls `pdguiFontModInit()` BEFORE the ImGui font atlas is built — if the saved FontId resolves to a mod path, `AddFontFromFileTTF` loads it as `io.FontDefault`; Handel Gothic still loads as the fallback. Settings → Video gets a "Font" dropdown with "(restart required)" hint. Font mod discovery uses the same modmgr search roots as theme/chrome discovery.
+
+7. **Theme Mod Bundling (P4) — plumbing + design doc** (`port/fast3d/pdgui_theme_loader.cpp`, `context/designs/theme-bundle-and-per-agent-settings-2026-04-16.md`): `theme_def` gains `bundle_chrome_id` + `bundle_font_id` fields. `theme.json` can now declare `"menuStyle"` (user-facing alias; legacy `"chromeStyle"` also accepted) + `"font"` to reference a registered chrome style + font mod by catalog id. `apply_theme_def` forwards the ids to `pdguiThemeSetUiChromeStyleId` / `pdguiFontModSetActiveId` so one theme activation swaps the whole visual identity. Missing: Theme Editor UI doesn't yet expose the two new fields — bundles must be hand-authored after Save-as-Mod for now.
+
+8. **Per-Agent Settings — design doc only**: `context/designs/theme-bundle-and-per-agent-settings-2026-04-16.md` covers the architecture for theme/menu-style/font/enabled-mods following the active Agent profile. Storage via `saves/agents/<slot>/prefs.ini` sidecar, applied on agent switch via existing setters. Flagged as a dedicated future session — ~300-400 lines + careful test matrix.
+
+### Playtest log analysis
+
+Reviewed `/c/Users/mikeh/Downloads/Perfect Dark 2.0/pd-client.log` (22:48, 22+ minutes). Findings:
+
+- Main menu acquired at 00:03.85 with `ctx=none(shared)` — PRE-S304 build (S304 migrated to `ctx=imgui_menu(owned)`). Mike needs to rebuild to pick up the S304 fix.
+- No `MENUPOOL: released main_menu` line in the entire log — menu was closed via a path that bypassed `menuCloseDialog`. That's exactly the leak S304's three-layer defense was built for. The watchdog and underflow auto-release aren't in this build either.
+- Audio underruns: ~200 every 30s, ~16 hitches. B-141 persists but not catastrophic.
+- Game ran 22+ minutes, stable heartbeats, no crashes.
+
+**Recommendation**: rebuild with the latest `dev` (S304 fix + everything S305 landed above). If darkened/layered menu persists after that, the bug is architectural rather than slot-leak.
+
+### Constraints touched
+
+- `configLoad` semantics (config.c): now uses FindOrAdd instead of strict find; pending-value replay on register; save preserves pending. Documented behaviour.
+- Theme.json schema: gained `menuStyle` + `font` keys.
+
+### Build verify
+
+All commits build-verified via `source devtools/build-env.sh && ninja -C Build pd pd-server`. Final sizes: PerfectDark.exe ~51.48 MB, PerfectDarkServer.exe ~22.85 MB.
+
+### Not fixed in this session (deferred)
+
+- **Theme Editor UI** for bundle_chrome_id / bundle_font_id dropdowns — today bundles are hand-authored.
+- **Per-agent prefs.ini** — full implementation queued (design doc ships).
+- **Content inset on OTHER menus** — renderCiSettingsRedirect + Cinema covered; 10+ other ImGui renderers (cheats, mpsetup family, mppause family, room, etc.) still render without inset if they use `pdguiDrawPdDialog` directly. Separate sweep needed.
+- **B-141 audio underruns** — persistent, not addressed.
+
+### Commits (dev)
+
+- `fc614b2e fix(menu): S305 content-inset for main menu + CI redirect + Cinema (P0)`
+- `8d4b6b62 fix(config): S305 persist settings registered after configInit`
+- `9b4a24fd refactor(ui): S305 rename Nine-Slice Chrome → Menu Style`
+- `74655a9d fix(theme-editor): S305 dock Save + auto-refresh themes list (P1 + P2)`
+- `dfb38c62 refactor(menu-style-tool): S305 scale preview to standard + collapse Advanced (P5 + P6)`
+- `3daa5275 chore: auto-commit before release (dev window)` — captured the font module diff
+- `aaa245bc feat(theme): S305 P4 theme bundle plumbing + per-agent design doc`
+- Mike's interleaved auto-commits + v0.0.107 release commit.
+
+---
 
 ## Session S304 — 2026-04-16 (Menu pool slot leak + consistency watchdog — focused-roentgen worktree)
 

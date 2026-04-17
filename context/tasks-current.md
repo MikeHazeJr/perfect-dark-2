@@ -7,6 +7,30 @@
 
 ---
 
+## Open — 2026-04-16 (S305 — dev direct)
+
+### Playtest verification of the S305 batch
+
+Commits on `dev`. All items build-verified; needs in-game playtest.
+
+- **P0 content-inset** — launch game, open main menu on a narrow window + on 1080p. Confirm Solo Play / Online Play / Change Agent / Settings / Mods / Cheats / Stats / Quit Game all clear the chrome border with visible breathing space. Repeat for Settings body (tabs + content), CI Settings redirect, Cinema list. Absence of edge-to-edge bleed = pass.
+- **Settings persistence** — with a mod theme active (Save-as-Mod output, e.g. `user.pokemon.theme`), pick a Menu Style, pick a Title Bar style, quit client, relaunch. Expect the same theme + menu style + title bar on restart. Watch for `PDGUI theme loader: saved theme '...' not resolvable on startup` WARNING (indicates the mod theme was saved but the registry lost it between runs).
+- **Menu Style rename** — confirm the Modding Hub tab reads "Menu Style" (not "Nine-Slice Chrome"), the Settings → Video dropdown reads "Menu Style", and the tool header blurb starts with "Menu Style --".
+- **Theme Editor dock + refresh** — open Theme Editor, enter Name + Author, click Save on the action row. Expect status "Saved to mods/" green text, and the saved theme to appear under "Custom (from mods/)" in Settings → Debug → UI Theme WITHOUT restart.
+- **Menu Style tool preview + Advanced header** — import a small PNG (e.g. 64x64). Source Preview should now fill the sidebar width (not show tiny). Expand Advanced header to confirm Scale X/Y, Center Cut, Desaturate, Quick Presets are all still wired.
+- **Font import** — drop a `.ttf` into `mods/Fonts/MyFont/MyFont.ttf`, restart, confirm Settings → Video → Font dropdown lists "MyFont". Pick it, save, confirm `Video.FontId=user.MyFont.font` in `pd.ini`. Restart, confirm menus render with the new font. Remove the mod → confirm graceful fallback to Handel Gothic.
+- **Theme bundle** — hand-edit a `mods/<theme_slug>/theme.json` to include `"menuStyle": "user.<chrome_slug>.ui-chrome"` + `"font": "user.<font_slug>.font"`. Activate the theme; chrome should swap live, font message should say restart-needed.
+
+### Follow-up queued from S305
+
+- **Theme Editor UI for bundle fields** — add Menu Style + Font dropdowns to Save-as-Mod panel so users don't have to hand-edit `theme.json`.
+- **Per-agent prefs.ini** — full implementation per `context/designs/theme-bundle-and-per-agent-settings-2026-04-16.md`. Dedicated future session.
+- **Content-inset sweep for remaining menus** — cheats, mpsetup family, mppause family, room, training, mpsettings, playerconfig, botsetup, agentselect, agentcreate, stats, network, lobby, warning, teamsetup, solomission, controldiagram, challenges, matchsetup — any ImGui renderer that calls `pdguiDrawPdDialog` directly. Audit for `SetCursorPos` + `buttonW = -1.0f` antipattern.
+- **B-141 audio underruns** — still ~200/30s in the latest log. Not caused by S305 work but remains open.
+- **Old renderers still on raw `inputCtxPush/Pop`** (from S304) — `renderCiDeadPlayer2`, `renderCinemaList` still leak-prone. Watchdog covers them; proper S300 migration pending.
+
+---
+
 ## Open — 2026-04-16 (S304 — focused-roentgen)
 
 ### Playtest verification of B-160 (menu pool slot leak + darkened/dead main menu)
