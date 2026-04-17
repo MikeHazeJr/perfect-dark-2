@@ -30,6 +30,7 @@
 #include "pdgui_nineslice.h"
 #include "pdgui_effects.h"
 #include "pdgui_fontmgr.h"
+#include "pdgui_font_mod.h"   /* S305 P4: theme → font-mod bundling */
 #include "assetcatalog.h"
 #include "config.h"
 #include "system.h"
@@ -88,6 +89,12 @@ struct theme_def {
 
     /* Sound pack */
     char sound_pack[THEME_SOUNDPACK_LEN];
+
+    /* S305 P4: bundled component references. When a theme is loaded, any
+     * non-empty id here is forwarded to the matching subsystem so one
+     * theme activation can swap the chrome + font + palette together. */
+    char bundle_chrome_id[THEME_CATALOG_ID_LEN];  /* pdguiThemeSetUiChromeStyleId */
+    char bundle_font_id[THEME_CATALOG_ID_LEN];    /* pdguiFontModSetActiveId */
 
     /* P4: 9-slice definitions for UI textures */
     struct {
@@ -366,6 +373,18 @@ static s32 parse_theme_json(const char *src, struct theme_def *def)
         } else if (strcmp(key, "soundPack") == 0) {
             tok = jnext(&jp);
             jstr(&tok, def->sound_pack, sizeof(def->sound_pack));
+        } else if (strcmp(key, "menuStyle") == 0 || strcmp(key, "chromeStyle") == 0) {
+            /* S305 P4: theme bundle — "menuStyle" (user-facing name) or
+             * the legacy "chromeStyle" alias references a registered
+             * chrome style id (e.g. "user.MyChrome.ui-chrome") that the
+             * theme activation should apply. */
+            tok = jnext(&jp);
+            jstr(&tok, def->bundle_chrome_id, sizeof(def->bundle_chrome_id));
+        } else if (strcmp(key, "font") == 0) {
+            /* S305 P4: theme bundle — font mod id to activate alongside
+             * the palette (e.g. "user.MyFont.font"). */
+            tok = jnext(&jp);
+            jstr(&tok, def->bundle_font_id, sizeof(def->bundle_font_id));
         } else if (strcmp(key, "palette") == 0) {
             /* Parse palette object: { "field_name": "hex", ... } */
             tok = jnext(&jp);
@@ -785,6 +804,25 @@ static void apply_theme_def(const struct theme_def *def)
         bd.scroll_speed_x = def->border_effects[i].scroll_x;
         bd.scroll_speed_y = def->border_effects[i].scroll_y;
         pdguiEffectsSetBorderFx(def->border_effects[i].element_id, &bd);
+    }
+
+    /* S305 P4: Apply bundled components.  A theme mod may name a chrome
+     * style + font mod to activate alongside its palette — one theme
+     * activation swaps the whole visual identity.  Fails silently if the
+     * referenced id isn't registered (user hasn't installed that mod yet). */
+    if (def->bundle_chrome_id[0]) {
+        pdguiThemeSetUiChromeStyleId(def->bundle_chrome_id);
+        pdguiThemeSetUiChromeEnabled(1);
+        pdguiSetPanelNineSlice(def->bundle_chrome_id);
+        pdguiChromeSetEnabled(1);
+        sysLogPrintf(LOG_NOTE,
+            "PDGUI theme bundle: menuStyle='%s' applied", def->bundle_chrome_id);
+    }
+    if (def->bundle_font_id[0]) {
+        pdguiFontModSetActiveId(def->bundle_font_id);
+        sysLogPrintf(LOG_NOTE,
+            "PDGUI theme bundle: font='%s' applied (restart to take effect)",
+            def->bundle_font_id);
     }
 
     /* P4: Apply font override */
