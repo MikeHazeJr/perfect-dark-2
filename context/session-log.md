@@ -1,8 +1,32 @@
 
 # Session Log (Active)
 
-> **S281–S355** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S357** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S357 — 2026-04-17 (worktree `hopeful-payne-558fb2`) — B-112 Root Cause Investigation
+
+**Scope**: Deep dive into B-112 (chr rbx corruption, 31-bot matches). Verify whether B-12 Phase 3 (participant pool) introduced new overflow vectors, confirm or deny recursive AI execution hypothesis, check all array bounds.
+
+**Findings** (investigation only — no code change):
+
+- **No recursive AI**: `chraiExecute` (chrai.c:671) uses an iterative `while(g_Vars.ailist)` dispatch loop over `g_CommandPointers[type]()`. Neither AI commands nor action-dispatch functions call `chraTick` or `chraiExecute` on other chrs. Confirmed by grep across `chraicommands.c` and the entire `src/game/` tree.
+
+- **Array bounds correct**: participant pool initialized at `MAX_MPCHRS=40` at all call sites (mplayer.c, netmsg.c, net.c). Chr slot pool sized to `PLAYERCOUNT()+numchrs+10 = 1+31+10 = 42`. `g_MpAllChrPtrs`, `g_MpAllChrConfigPtrs` sized `MAX_MPCHRS=40`, `g_MpBotChrPtrs` sized `MAX_BOTS=32`. All fit 31 bots without overflow.
+
+- **B-12 Phase 3 cleared**: participant pool API (`mpAddParticipantAt`, `mpRemoveParticipant`) has correct bounds checks. Bot slots 8..38 for 31 bots fit within capacity 40. No off-by-one at 31-bot boundary.
+
+- **`AVOID_UB=1` in CMakeLists.txt**: guards the known N64 `mpCalculateAwards` `playerrankings[1]` overflow — PC build correctly sizes it as `[MAX_MPCHRS]`.
+
+- **Class 1 confirmed**: Stack depth accumulated within a single bot's `chraTick→chraiExecute→action dispatch→collision/combat` call chain. More bots in combat = more probability of hitting the worst-case path. FIX-A.1 (512 KB guard at chraTick entry) correctly mitigates this.
+
+- **Class 2 confirmed**: Bot respawn never frees/reallocates chr slots — `botSpawn` teleports in place. FIX-A.2 generation tokens handle the rare edge case. No B-12 Phase 3 impact.
+
+**Context updated**: B-112 entry in bugs.md expanded with full root cause confirmation.
+
+**Next steps**: 31-bot repro test to confirm FIX-A eliminates crashes in practice (no code change needed this session).
+
+---
 
 ## Session S355 — 2026-04-17 (`goofy-pike-572f8a` worktree) — Wave 5 Cross-Audit: S352 + S353 + S354
 
