@@ -64,7 +64,15 @@ const char *modmgrGetModAuthor(s32 index);
 const char *modmgrGetModDescription(s32 index);
 const char *modmgrGetModBaseFallback(s32 index);
 const char *modmgrGetModValidationError(s32 index);
+const char *modmgrGetModDir(s32 index);  /* S306 BATCH 2: needed by delete flow */
 s32  modmgrGetModEnabled(s32 index);
+
+/* S306 BATCH 2: cross-file delete-flow hooks — defined in
+ * pdgui_menu_mainmenu.cpp. Exposed here (file-scope extern "C") so the
+ * Installed Mods tab can request a delete and render the confirm. */
+void pdguiInterfaceRequestModDelete(s32 modIndex, const char *displayName,
+                                    const char *modDirPath);
+void pdguiInterfaceRenderDeleteConfirm(void);
 s32  modmgrGetModValid(s32 index);
 u32  modmgrGetModSizeBytes(s32 index);
 s32  modmgrGetModNumDeps(s32 index);
@@ -942,6 +950,36 @@ static void renderInstalledModsTab(float scale)
             s_SelectedModIdx = i;
         }
 
+        /* S306 BATCH 2: right-click + controller X-button → context menu
+         * with "Delete Mod..." (opens the Interface-tab confirm modal).
+         * The delete helper lives in pdgui_menu_mainmenu.cpp; we forward
+         * the mod index + display name + on-disk dir so the confirm
+         * dialog can show a clear path echo. Declared file-scope in the
+         * extern "C" block at the top of this file. */
+        {
+            char ctxId[32];
+            snprintf(ctxId, sizeof(ctxId), "##modctx_%d", i);
+            if (ImGui::BeginPopupContextItem(ctxId)) {
+                const char *dir = modmgrGetModDir(i);
+                ImGui::TextDisabled("%s", name);
+                ImGui::Separator();
+                if (ImGui::MenuItem("Delete Mod...")) {
+                    if (dir) {
+                        pdguiInterfaceRequestModDelete(i, name, dir);
+                    }
+                }
+                ImGui::EndPopup();
+            }
+            /* Controller X-button (GamepadFaceLeft) on focused row also
+             * opens the context menu. Pattern mirrors the Color Theme
+             * picker in the Interface tab and the bot-slot context menu
+             * in pdgui_menu_room.cpp. */
+            if (ImGui::IsItemFocused() &&
+                ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft, false)) {
+                ImGui::OpenPopup(ctxId);
+            }
+        }
+
         /* Dependency warning */
         if (enabled) {
             char missing[256];
@@ -978,6 +1016,12 @@ static void renderInstalledModsTab(float scale)
 
         ImGui::PopID();
     }
+
+    /* S306 BATCH 2: render the shared delete-confirm modal here too so
+     * deletes initiated inside the Modding Hub don't depend on Settings →
+     * Interface being open. The state is file-scope in mainmenu.cpp;
+     * this call is idempotent (no-op unless a delete request is live). */
+    pdguiInterfaceRenderDeleteConfirm();
 
     /* --- Size threshold confirmation modal --- */
     if (s_SizeConfirmPending) {

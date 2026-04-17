@@ -4547,7 +4547,6 @@ MenuDialogHandlerResult soloMenuDialogPauseStatus(s32 operation, struct menudial
 {
 	if (operation == MENUOP_OPEN) {
 		struct briefingobj *briefing = g_BriefingObjs;
-		struct objective *objective;
 		s32 wanttype = BRIEFINGTYPE_TEXT_PA;
 		s32 i;
 
@@ -4574,7 +4573,17 @@ MenuDialogHandlerResult soloMenuDialogPauseStatus(s32 operation, struct menudial
 			briefing = briefing->next;
 		}
 
-		for (i = 0; i < objectiveGetCount(); i++) {
+		/* S308: zero the entire objectives array before repopulating so
+		 * stale entries from the previous mission can never show in the
+		 * pause menu. setupCreateProps already clears once per stage load,
+		 * but re-clearing on every pause open is cheap and makes the
+		 * handler self-contained. */
+		for (i = 0; i < (s32)ARRAYCOUNT(g_Briefing.objectivenames); i++) {
+			g_Briefing.objectivenames[i] = 0;
+			g_Briefing.objectivedifficulties[i] = 0;
+		}
+
+		for (i = 0; i < objectiveGetCount() && i < (s32)ARRAYCOUNT(g_Briefing.objectivenames); i++) {
 			if (g_Objectives[i]) {
 				g_Briefing.objectivenames[i] = g_Objectives[i]->text;
 				g_Briefing.objectivedifficulties[i] = objectiveGetDifficultyBits(i);

@@ -7,6 +7,25 @@
 
 ---
 
+## Open — 2026-04-17 (S308 — dev direct)
+
+### Playtest verification of B-161 (door-tick crash) + B-162 (pause menu hardening)
+
+Commits on `dev`. All items build-verified; needs in-game playtest.
+
+- **B-161 defensive crash guard** — Replay the exact repro from the bug report: Start Mission 1 Objective 1 (`base:defection` stage 0x30), complete it, click "Next Mission" on endscreen, start into Mission 1 Objective 2 (`base:investigation` stage 0x33), run around for 1-2 minutes. Expect: no crash. If crash moved elsewhere, look in `pd-client.log` for the new `DOOR.DIAG: doorGetBbox — no bbox for modelnum=... model=... flags=... doortype=...` WARNING — that line names the exact door's modelnum that has a NULL/torn bbox, which is the handoff for root-cause investigation.
+- **B-162 pause menu hardening** — In Mission 1 Obj 2 (or any solo mission), open pause menu ≥3 times per mission. Confirm: (a) all 5 buttons always have visible labels (Resume / Restart Mission / Inventory / Settings / Abort Mission), never blank; (b) title reads "Investigation: Status" (or similar with the stage name) — never just ": Status"; (c) open Restart Confirm overlay, Escape to cancel, close pause, reopen pause — no Restart Confirm overlay bleeds in. Complete mission, advance to next mission, open pause — objectives list must be for the CURRENT mission (never shows leftover objective entries from the prior mission).
+
+### Root-cause investigation queue (B-161 follow-on)
+
+If the defensive fix holds but the `DOOR.DIAG:` WARNING fires repeatedly, the root cause is a modeldef being torn mid-gameplay. Playtest log from 2026-04-16 23:50 showed parallel `WARNING: body0f02ce8c: truly invalid bodymodeldef for bodynum 108 (file 0x004b) ... parts=0 -- skipping` at stage 0x33 load time — catalog says `base:sp_body_108` loaded successfully but modeldef has 0 parts. Two possible mechanisms:
+1. Late-add manifest path (`MANIFEST-SP: late-add 'base:sp_body_108' type=0 (missed by pre-scan)`) loading the ROM bytes but not binding rodata correctly.
+2. Catalog cache has a stub entry that shadows the ROM-load result.
+
+Targeted instrumentation needed in `bodyAllocateModel` / `setupLoadModeldef` / `catalogResolveXXX` for late-add codepath to confirm.
+
+---
+
 ## Open — 2026-04-16 (S305 — dev direct)
 
 ### Playtest verification of the S305 batch

@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "system.h"
 #include "game/bondmove.h"
 #include "game/bondwalk.h"
 #include "game/cheats.h"
@@ -300,32 +301,32 @@ void objUpdateLinkedScenery(struct defaultobj *obj, struct prop *prop)
 
 f32 objGetLocalXMin(struct modelrodata_bbox *bbox)
 {
-	return bbox->xmin;
+	return bbox ? bbox->xmin : 0.0f;
 }
 
 f32 objGetLocalXMax(struct modelrodata_bbox *bbox)
 {
-	return bbox->xmax;
+	return bbox ? bbox->xmax : 0.0f;
 }
 
 f32 objGetLocalYMin(struct modelrodata_bbox *bbox)
 {
-	return bbox->ymin;
+	return bbox ? bbox->ymin : 0.0f;
 }
 
 f32 objGetLocalYMax(struct modelrodata_bbox *bbox)
 {
-	return bbox->ymax;
+	return bbox ? bbox->ymax : 0.0f;
 }
 
 f32 objGetLocalZMin(struct modelrodata_bbox *bbox)
 {
-	return bbox->zmin;
+	return bbox ? bbox->zmin : 0.0f;
 }
 
 f32 objGetLocalZMax(struct modelrodata_bbox *bbox)
 {
-	return bbox->zmax;
+	return bbox ? bbox->zmax : 0.0f;
 }
 
 f32 objGetRotatedLocalXMinByMtx4(struct modelrodata_bbox *bbox, Mtxf *mtx)
@@ -392,6 +393,10 @@ f32 objGetRotatedLocalMin(struct modelrodata_bbox *bbox, f32 arg1, f32 arg2, f32
 {
 	f32 sum = 0;
 
+	if (bbox == NULL) {
+		return 0.0f;
+	}
+
 	if (arg1 >= 0) {
 		sum += bbox->xmin * arg1;
 	} else {
@@ -416,6 +421,10 @@ f32 objGetRotatedLocalMin(struct modelrodata_bbox *bbox, f32 arg1, f32 arg2, f32
 f32 objGetRotatedLocalMax(struct modelrodata_bbox *bbox, f32 arg1, f32 arg2, f32 arg3)
 {
 	f32 sum = 0;
+
+	if (bbox == NULL) {
+		return 0.0f;
+	}
 
 	if (arg1 <= 0) {
 		sum += bbox->xmin * arg1;
@@ -1230,8 +1239,15 @@ s32 objGetDestroyedLevel(struct defaultobj *obj)
 
 struct modelnode *func0f0687e4(struct model *model)
 {
-	struct modeldef *modeldef = model->definition;
-	struct modelnode *node = modeldef->rootnode;
+	struct modeldef *modeldef;
+	struct modelnode *node;
+
+	if (model == NULL || model->definition == NULL) {
+		return NULL;
+	}
+
+	modeldef = model->definition;
+	node = modeldef->rootnode;
 
 	while (node) {
 		u32 type = node->type & 0xff;
@@ -1269,7 +1285,13 @@ struct modelnode *func0f0687e4(struct model *model)
 
 struct modelnode *modeldefFindBboxNode(struct modeldef *modeldef)
 {
-	struct modelnode *node = modeldef->rootnode;
+	struct modelnode *node;
+
+	if (modeldef == NULL) {
+		return NULL;
+	}
+
+	node = modeldef->rootnode;
 
 	while (node) {
 		if ((node->type & 0xff) == MODELNODETYPE_BBOX) {
@@ -1297,7 +1319,7 @@ struct modelrodata_bbox *modeldefFindBboxRodata(struct modeldef *modeldef)
 {
 	struct modelnode *node = modeldefFindBboxNode(modeldef);
 
-	if (node) {
+	if (node && node->rodata) {
 		return &node->rodata->bbox;
 	}
 
@@ -1306,7 +1328,13 @@ struct modelrodata_bbox *modeldefFindBboxRodata(struct modeldef *modeldef)
 
 struct modelnode *modelFindBboxNode(struct model *model)
 {
-	struct modelnode *node = model->definition->rootnode;
+	struct modelnode *node;
+
+	if (model == NULL || model->definition == NULL) {
+		return NULL;
+	}
+
+	node = model->definition->rootnode;
 
 	while (node) {
 		u32 type = node->type & 0xff;
@@ -1346,7 +1374,7 @@ struct modelrodata_bbox *modelFindBboxRodata(struct model *model)
 {
 	struct modelnode *node = modelFindBboxNode(model);
 
-	if (node) {
+	if (node && node->rodata) {
 		return &node->rodata->bbox;
 	}
 
@@ -19422,6 +19450,31 @@ void func0f08c424(struct doorobj *door, Mtxf *matrix)
 void doorGetBbox(struct doorobj *door, struct modelrodata_bbox *dst)
 {
 	struct modelrodata_bbox *bbox = modelFindBboxRodata(door->base.model);
+
+	if (bbox == NULL) {
+		/* DOOR.DIAG S308: door model has no resolvable bbox (unloaded
+		 * modeldef, missing bbox node, or NULL model ptr). Zero-init dst
+		 * so the caller's tile/geo math runs against an empty box rather
+		 * than AV'ing. Log at WARNING for post-mortem. */
+		static u32 s_DoorBboxMissWarnCount = 0;
+		if (s_DoorBboxMissWarnCount < 16) {
+			s_DoorBboxMissWarnCount++;
+			sysLogPrintf(LOG_WARNING,
+					"DOOR.DIAG: doorGetBbox — no bbox for modelnum=%d model=%p flags=0x%x doortype=%d (count=%u)",
+					door->base.modelnum,
+					(void *)door->base.model,
+					door->doorflags,
+					door->doortype,
+					s_DoorBboxMissWarnCount);
+		}
+		dst->xmin = 0;
+		dst->xmax = 0;
+		dst->ymin = 0;
+		dst->ymax = 0;
+		dst->zmin = 0;
+		dst->zmax = 0;
+		return;
+	}
 
 	*dst = *bbox;
 

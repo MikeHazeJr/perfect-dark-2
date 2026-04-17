@@ -1,7 +1,76 @@
 # Session Log (Active)
 
-> **S241–S305** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S308** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S308 — 2026-04-17 (Door-tick bbox crash + pause menu hardening — dev direct)
+
+**Scope**: Fatal crash during Mission 1 Obj 1 → Obj 2 transition playthrough (0xc0000005 in door bbox chain 38s into stage 0x33 / Investigation), plus pause-menu defensive audit. Worked directly on `dev` (no worktree).
+
+### Crash trace (addr2line resolved against Downloads/PerfectDark.exe, ImageBase 0x140000000)
+
+```
+#00 modelFindBboxNode     propobj.c:1312   (node->type deref on bad node)
+#01 modelFindBboxRodata   propobj.c:1349
+#02 doorGetBbox           propobj.c:19426  (*dst = *bbox with NULL bbox)
+#03 doorUpdateTiles       propobj.c:19522
+#04 doorsCalcFrac         propobj.c:20521
+#05 doorTick              propobj.c:7913
+#06 objTickPlayer         propobj.c:11501
+#07 propsTickPlayer       prop.c:2173
+#08 lvRender              lv.c:1451
+#09 mainTick              pdmain.c:674
+```
+
+Stage 0x33 ("base:investigation") transition completed cleanly — 49 new model loads + 44 unloads. Player was in room 44 at `pos=(-409,149,-4280)` walking for ~38s. Log also flagged `WARNING: body0f02ce8c: truly invalid bodymodeldef for bodynum 108 (file 0x004b) ptr=... parts=0 -- skipping` at stage-load time, evidence of the same modeldef-corruption class bleeding into a door.
+
+### Fixes landed
+
+1. **NULL guards in bbox traversal chain** (`src/game/propobj.c`):
+   - `modelFindBboxNode()` — early-return NULL if `model == NULL` or `model->definition == NULL` (was: deref `model->definition->rootnode` unconditionally at line 1309).
+   - `modeldefFindBboxNode()` — same guard for the `modeldef` variant.
+   - `modelFindBboxRodata()` / `modeldefFindBboxRodata()` — also check `node->rodata` before returning `&node->rodata->bbox`.
+   - `func0f0687e4()` — same guard for the DL-node walker (shared pattern with bbox walker).
+
+2. **doorGetBbox NULL-safe + diagnostic** (`src/game/propobj.c` line 19422):
+   - If `modelFindBboxRodata(door->base.model)` returns NULL, zero-init the destination bbox and log `DOOR.DIAG: doorGetBbox — no bbox for modelnum=... model=... flags=... doortype=...` at WARNING (rate-limited to 16 per run via `s_DoorBboxMissWarnCount` file-static).
+   - Prevents the AV; the tile/geo math runs against an empty box rather than a dangling pointer. If this warning fires in future logs it pinpoints the exact door.
+
+3. **Local bbox helpers NULL-safe** (`src/game/propobj.c` lines 302–444):
+   - `objGetLocalXMin/XMax/YMin/YMax/ZMin/ZMax` now return `0.0f` if `bbox == NULL`.
+   - `objGetRotatedLocalMin/Max` early-return `0.0f` on NULL.
+   - Called from ~15 prop-tick sites across weapon/hovercar/door/misc paths.
+
+4. **Pause menu hardening** (`port/fast3d/pdgui_menu_solomission.cpp::renderPauseMenu`):
+   - `IsWindowAppearing` path now resets `s_RestartConfirm = false` and `s_RestartSelectIdx = 0` in addition to `s_PauseSelectIdx = 0`. Prior: Restart-Confirm overlay could leak between opens if the previous close happened mid-overlay.
+   - Title fallback: if `langSafe(g_SoloStages[si].name3)` returns empty, show `Mission %d: Status` instead of `: Status` with leading colon.
+   - Button labels `Inventory` / `Abort Mission` now resolve via `langSafe` + hard-coded English fallback, so a missing lang bank can't paint blank buttons. `Options` → `Settings` (user-facing rename to match pause menu convention).
+
+5. **Objective-list sanitation** (`src/game/mainmenu.c::soloMenuDialogPauseStatus` MENUOP_OPEN handler):
+   - Zero the entire `g_Briefing.objectivenames[]` + `objectivedifficulties[]` arrays before repopulating on every pause open (was: only wrote up to `objectiveGetCount()`, leaving tail indices potentially stale from prior mission).
+   - `setupCreateProps` still does the stage-load clear; this is a defense-in-depth second clear that makes the pause handler self-contained.
+
+### Files touched
+
+- `src/game/propobj.c` — bbox NULL guards + `doorGetBbox` diagnostic + local-helper NULL safety
+- `src/game/mainmenu.c` — objectivenames full-array zero in pause status handler
+- `port/fast3d/pdgui_menu_solomission.cpp` — IsWindowAppearing state reset + title fallback + button-label lang fallbacks
+
+### Build verify
+
+`source devtools/build-env.sh && ninja -C Build pd pd-server` — both targets link. No new warnings. `PerfectDark.exe` ~51.52 MB (server unchanged — propobj.c is client-only in the ninja graph).
+
+### What the fix doesn't do
+
+The fixes are **defensive** — they prevent the AV and log a diagnostic when the bad state is reached, but don't identify the root cause of how a door's `model->definition` became invalid mid-gameplay. The `parts=0` warning on `sp_body_108` at stage load is the strongest clue: something in the 0x30 → 0x33 manifest swap is leaving a door modeldef in an inconsistent state (rootnode points into a region whose node->type is garbage). Root-cause investigation queued — next playtest log should surface `DOOR.DIAG:` lines pointing at the specific door's modelnum.
+
+### Not fixed in this session (deferred)
+
+- **Root cause of modeldef corruption** — the `sp_body_108` late-add bodyAllocate warning + parts=0 + door bbox NULL all point at the manifest-diff path leaving some modeldefs in a torn state. Needs targeted instrumentation at `bodyAllocateModel` + `setupLoadModeldef` for any late-add that hits a body/door.
+- **Pause menu "Quit to Menu" vs. Abort** — user described a 5-button layout including "Quit to Menu"; current set is Resume/Restart Mission/Inventory/Settings/Abort Mission. Abort routes through `g_MissionAbortMenuDialog` which quits to main menu, so functional parity exists but the label mismatch remains.
+- **Mission-Complete crash from `body108`** — orthogonal, but the invalid-modeldef WARNING persists across multiple stages (any stage whose manifest references sp_body_108 without a valid ROM file or catalog registration). The catalog says `base:sp_body_108 (75) → ROM` loaded successfully, but the modeldef parts=0 — catalog cache may have an empty entry shadowing ROM data. Separate investigation.
+
+---
 
 ## Session S305 — 2026-04-16 (Playtest batch: content inset + settings persistence + font mods + theme bundle — dev direct)
 

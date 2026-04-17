@@ -2588,17 +2588,33 @@ static s32 renderPauseMenu(struct menudialog *dialog,
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
-        s_PauseSelectIdx = 0;
+        /* S308: reset ALL pause-state statics on every fresh open so the
+         * Restart-Confirm overlay and selection cursor can't leak between
+         * mission opens (prior impl only reset s_PauseSelectIdx). */
+        s_PauseSelectIdx   = 0;
+        s_RestartConfirm   = false;
+        s_RestartSelectIdx = 0;
     }
 
     /* Title: "StageName: Status" */
     char title[128] = "Status";
     {
         s32 si = g_MissionConfig.stageindex;
-        if (si >= 0 && si < NUM_SOLOSTAGES)
-            snprintf(title, sizeof(title), "%s: %s",
-                     langSafe(g_SoloStages[si].name3),
-                     langSafe(L_OPTIONS_172));
+        if (si >= 0 && si < NUM_SOLOSTAGES) {
+            const char *sname = langSafe(g_SoloStages[si].name3);
+            const char *slabel = langSafe(L_OPTIONS_172);
+            /* Guard: if the lang bank hasn't resolved the stage name (empty
+             * string) fall back to "Mission %d" so the title never reads
+             * ": Status" with leading colon. */
+            if (sname && sname[0]) {
+                snprintf(title, sizeof(title), "%s: %s",
+                         sname, (slabel && slabel[0]) ? slabel : "Status");
+            } else {
+                snprintf(title, sizeof(title), "Mission %d: %s",
+                         (int)(si + 1),
+                         (slabel && slabel[0]) ? slabel : "Status");
+            }
+        }
     }
 
     float titleH = pdguiScale(39.0f);
@@ -2714,13 +2730,21 @@ static s32 renderPauseMenu(struct menudialog *dialog,
     /* ---- Action buttons ---- */
     float btnH = pdguiScale(54.0f);
 
+    /* S308: resolve lang labels once with hard-coded fallbacks, so a missing
+     * lang bank can't paint blank buttons. Visible fallbacks match the
+     * English equivalents of the L_OPTIONS_* ids. */
+    const char *invLabel   = langSafe(L_OPTIONS_178);
+    const char *abortLabel = langSafe(L_OPTIONS_173);
+    if (!invLabel   || !invLabel[0])   invLabel   = "Inventory";
+    if (!abortLabel || !abortLabel[0]) abortLabel = "Abort Mission";
+
     struct PauseBtn { const char *label; s32 idx; };
     const PauseBtn k_Btns[] = {
-        { "Resume",                 0 },
-        { "Restart Mission",        1 },
-        { langSafe(L_OPTIONS_178),  2 },  /* "Inventory" */
-        { "Options",                3 },
-        { langSafe(L_OPTIONS_173),  4 },  /* "Abort!" */
+        { "Resume",          0 },
+        { "Restart Mission", 1 },
+        { invLabel,          2 },
+        { "Settings",        3 },
+        { abortLabel,        4 },
     };
 
     for (s32 b = 0; b < 5; b++) {

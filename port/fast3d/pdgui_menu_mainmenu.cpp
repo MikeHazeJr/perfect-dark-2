@@ -943,9 +943,17 @@ extern "C" void pdguiInterfaceRenderDeleteConfirm(void)
                 snprintf(s_InterfaceDeleteStatus, sizeof(s_InterfaceDeleteStatus),
                          "Deleted \"%s\" from mods/.", s_InterfaceDeleteName);
                 s_InterfaceDeleteSuccess = true;
-                /* Refresh the theme registry / mod manager so the UI
-                 * catches up without a restart. */
+                /* Refresh the theme registry so the UI catches up without
+                 * a restart. For mod deletes we also re-scan the mods
+                 * directory and refresh the Mod Manager snapshot so the
+                 * list drops the removed entry on the next frame. */
                 pdguiThemeRescanMods();
+                if (s_InterfaceDeleteKind == IFACE_DEL_MOD) {
+                    extern void modmgrRescanDirectory(void);
+                    extern void pdguiModManagerRefreshSnapshot(void);
+                    modmgrRescanDirectory();
+                    pdguiModManagerRefreshSnapshot();
+                }
             } else {
                 snprintf(s_InterfaceDeleteStatus, sizeof(s_InterfaceDeleteStatus),
                          "Could not fully delete \"%s\" — extra files may remain.",
@@ -1106,7 +1114,7 @@ static void renderSettingsInterface(float scale)
                 /* S306 BATCH 2: delete for user themes — opens the confirm
                  * dialog handled in renderSettingsInterface below (see
                  * s_InterfaceDeleteTarget). */
-                extern void pdguiInterfaceRequestThemeDelete(s32 themeIndex);
+                /* extern decl in file-scope extern "C" block at top */
                 ImGui::Separator();
                 if (ImGui::MenuItem("Delete Theme...")) {
                     pdguiInterfaceRequestThemeDelete(ti);
@@ -1312,7 +1320,7 @@ static void renderSettingsInterface(float scale)
     /* BATCH 2 delete-theme confirm — rendered as an ImGui popup triggered
      * by pdguiInterfaceRequestThemeDelete above. See implementation near
      * the bottom of the Interface tab. */
-    extern void pdguiInterfaceRenderDeleteConfirm(void);
+    /* pdguiInterfaceRenderDeleteConfirm — declared at file scope */
     pdguiInterfaceRenderDeleteConfirm();
 }
 
