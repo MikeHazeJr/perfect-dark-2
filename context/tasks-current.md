@@ -7,6 +7,16 @@
 
 ---
 
+## Open — 2026-04-17 (S323 — Audio channel routing enforcement)
+
+### Playtest verification
+
+- **Mod SFX override + GameplayVolume** — requires a mod with a sound override (`catalogResolveSound` returning `is_mod_override=true`).  Set GameplayVolume to 25%.  Trigger the overridden sound.  It should play at roughly 25% of full volume.  Without the fix it would play at 100% regardless.  Check `pd-client.log` for `CATALOG: sound %d → mod override` line confirming the WAV path was taken.
+- **Per-agent audio isolation** — load Agent A, set MasterVolume to 50% via Settings → Audio. Quit to Agent Select (do not sign out — just press Escape from main menu to reach Agent Select). Screen should open and audio volumes should revert to pd.ini defaults (`AUDIO.DIAG` in log shows `audioNotifyEngineReady` baseline). Select Agent B (no custom prefs). Audio should stay at baseline, NOT at Agent A's 50%.
+- **Agent A volumes reload on sign-in** — re-select Agent A.  MasterVolume should return to 50%.
+
+---
+
 ## Open — 2026-04-17 (S322 — N64 legacy audit Tier 1/2)
 
 ### Playtest verification

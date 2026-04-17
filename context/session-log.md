@@ -4,6 +4,59 @@
 > **S281–S322** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S323 — 2026-04-17 (Audio channel routing audit + enforcement — `nice-allen-193a0c` worktree)
+
+**Scope**: Batch E — Audit all audio playback paths for correct channel (Music/Gameplay/UI) volume routing. Verify per-agent `[Audio]` prefs are applied. Fix any gaps.
+
+### What was found
+
+Full audit of the four audio playback paths:
+
+| Channel | Path | Volume applied? |
+|---------|------|----------------|
+| Music | `musicSetVolume(master × music)` via `audioApplyVolumes()` | ✅ |
+| Gameplay SFX (ROM) | `sndSetSfxVolume(master × gameplay)` via `audioApplyVolumes()` | ✅ |
+| UI | `pdguiPlaySound → audioGetUiVolumeScaled()` per-call | ✅ |
+| Voice | Gameplay channel (N64 engine has no separate voice path) | ✅ acceptable |
+| Gameplay SFX (mod WAV) | `audioPlayFileSound(volume, pan)` — **volume NOT scaled** | ❌ gap |
+
+Per-agent `[Audio]` block in `prefs_agent.c` was confirmed correct: `applyKV` calls all four `audioSet*Volume` setters on load. The wiring to Agent Select was intact.
+
+**Two gaps fixed:**
+
+1. **`audioPlayFileSound` skipped gameplay volume** — mod WAV SFX overrides in `snd.c` call `audioPlayFileSound(path, volume, pan)` where `volume` is the per-sound `AL_VOL_FULL` value, never scaled by `g_SfxVolume` (which encodes `master × gameplay`). Fixed by multiplying `volScale` by `g_AudioMasterVolume * g_AudioGameplayVolume` inside `audioPlayFileSound`.
+
+2. **`prefsAgentResetVisuals` didn't reset audio** — when Agent Select opened, visual prefs were reset to base but audio volumes remained at the previous agent's values. If Agent B had no sidecar file, `prefsAgentLoad` returned early and Agent B inherited Agent A's volumes. Fixed by:
+   - Snapshot pd.ini baseline volumes in `g_AudioBaseline*` at `audioNotifyEngineReady` time (before any per-agent overlay)
+   - New `audioResetToDefaults()` restores those baselines
+   - `prefsAgentResetVisuals()` now calls `audioResetToDefaults()` before the visual resets
+
+### Files changed
+
+- `port/src/audio.c` — `audioPlayFileSound` gameplay scale; `audioNotifyEngineReady` baseline snapshot; `audioResetToDefaults()` impl
+- `port/include/audio.h` — `audioResetToDefaults()` declaration
+- `port/src/prefs_agent.c` — `prefsAgentResetVisuals` now calls `audioResetToDefaults()`
+
+### Commit
+
+| SHA | Scope |
+|-----|-------|
+| `b99ac9af` | **fix(audio): enforce channel volume routing on all playback paths** |
+
+3 files changed, 37 insertions(+), 6 deletions(−).
+
+### Build result
+
+Build-headless.ps1 targets main working copy (worktree redirect — expected). Changes pending merge to dev.
+
+### Next steps
+
+- Merge worktree to dev
+- Playtest: mod SFX override path (needs a mod with a sound override to verify), per-agent audio volume isolation between agents
+- If S313 deferred item is tackled: `Audio.ModPlaylist / ModShuffle / ModTrackId → per-agent` sidecar
+
+---
+
 ## Session S322 — 2026-04-17 (N64 legacy audit — Tier 1/2 execution — `nostalgic-lichterman-3c1259` worktree)
 
 **Scope**: Execute all Tier 1 and Tier 2 quick-win items from the N64 legacy audit (`context/designs/n64-legacy-audit-2026-04-17.md`). Strip compile-time-dead IS4MB() branches, IS8MB() guards, `fourmeg2player` mode, and STAGE_4MBMENU routing. Bump N64-era resource limits.
