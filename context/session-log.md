@@ -1,7 +1,55 @@
 # Session Log (Active)
 
-> **S241–S303** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S304** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S304 — 2026-04-16 (Menu pool slot leak + consistency watchdog — focused-roentgen worktree)
+
+**Scope**: Fix CRITICAL B-160 — menu pool slot leak where the main menu's close path left the `MENU_TYPE_MAIN_MENU` slot active, causing every subsequent `menuPushDialog` to be rejected by the pool's structural dedup (S299). User-visible symptom: darkened/stacked/dead main menu on reopen, broken input authority. Playtest log evidence: `MENUPOOL: acquired main_menu gen=1 ctx=none(shared)` at 00:07.28 was paired only with a `MENUPOOL: released main_menu` at 00:33.24 (shutdown) — between them, three `menuPopDialog called at depth 0 (underflow)` warnings and two `menuPushDialog rejected — pool slot [main_menu] already active` rejections.
+
+### Root cause
+
+`port/fast3d/pdgui_menu_mainmenu.cpp::renderMainMenu` top-level ESC close handler (S295 F7 era) did:
+
+```cpp
+if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+    inputCtxPopDeferred(&g_CtxImGuiMenu);     // pops ctx
+}
+// restore game state ...
+menuPopDialog();                               // pops legacy stack + releases pool
+```
+
+When a force-close path (endscreen bridge, matchStart, netmsg stage handlers, or a previous iteration of the ESC handler that already fired) had already zeroed `g_Menus[].depth`, `menuPopDialog` hit its `depth == 0` underflow guard (F-3.2, S261) and early-returned WITHOUT releasing the pool slot. The ctx was already popped by the first step, but the pool slot stayed active — the leak class that surfaces as "darkened/layered menu when switching around."
+
+The bug is systemic: any close path that pops the input ctx AND the legacy stack as two independent steps is vulnerable if the stack is popped by something else in between. The pool release was only ever wired into `menuCloseDialog`, which is only reached when `menuPopDialog` gets past the underflow guard.
+
+### Fix (three layers — defense in depth)
+
+1. **Underflow-path pool recovery** (`src/game/menu.c::menuPopDialog`): the underflow guard now calls `menupoolReleaseAll()` if `menupoolCountActive() > 0`, with a `MENU: underflow detected N stale pool slot(s) — releasing (stack desync)` WARNING. This closes the leak class at the exact point where it was previously silently dropping slots. Safe because normal close paths release their own slot before depth goes to 0, and force-close sites already call `menupoolReleaseAll` explicitly; the only flows that reach underflow with active slots are the buggy ones we want to recover from.
+
+2. **Per-frame consistency watchdog** (`src/game/menu.c::menuPoolConsistencyCheck`, wired at top of `menuTick`): detects the `legacy stack empty ∧ pool has active slots` invariant violation every frame. If it fires, logs `MENU: watchdog — legacy stack empty but N pool slot(s) active; releasing leaked slot(s)` at WARNING and calls `menupoolDumpActive()` for diagnostics before `menupoolReleaseAll()`. This catches ANY leak path we haven't thought of, even future regressions — e.g. `menuPushRootDialog`'s blanket `numdialogs = 0; depth = 0;` reset (menu.c:3735-3736) silently discards any pool slots that were active before the root push, which the watchdog will now surface.
+
+3. **Main menu renderer migrated to S300 pool-owned ctx** (`port/fast3d/pdgui_menu_mainmenu.cpp`): `IsWindowAppearing` path replaces the raw `inputCtxPush(&g_CtxImGuiMenu)` with `menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu)` — the pool attaches the ctx to the slot that `menuPushDialog` pre-acquired (S300 attach-to-active semantics). Close path drops the explicit `inputCtxPopDeferred` call; `menuPopDialog` → `menuCloseDialog` → `menupoolReleaseDialog` now cascades the ctx pop atomically, symmetric with the acquire. This brings the main menu into parity with the ten ImGui renderers migrated in S300 (cheats, mpsetup family, mppause family, mpadvanced family, playerconfig, botsetup, agentselect, room, training, mpsettings).
+
+### Files touched
+
+- `src/game/menu.c` — `menuPopDialog` underflow recovery + new `menuPoolConsistencyCheck()` function
+- `src/include/game/menu.h` — `menuPoolConsistencyCheck` declaration
+- `src/game/menutick.c` — call `menuPoolConsistencyCheck()` at top of `menuTick`
+- `port/fast3d/pdgui_menu_mainmenu.cpp` — S300 pool-owned ctx migration for `renderMainMenu` (open + close path); `menupool.h` added to extern "C" includes
+
+### Build verify
+
+`source devtools/build-env.sh && ninja -C Build pd pd-server` — both targets link. `PerfectDark.exe` 51,563,427 bytes, `PerfectDarkServer.exe` 22,837,840 bytes. Only pre-existing warnings (types.h `f32 near/far` typed-name macro, `/*` within comments in `pdgui_theme.h` / `pdgui_bridge.c` / `updater.h`). No new warnings.
+
+### Not fixed in this session (deferred)
+
+- **Other mainmenu.cpp renderers still on raw ctx pattern** — `renderCiSettingsRedirect` (line 3170+), `renderCiDeadPlayer2` (line 3249+), `renderCinemaList` (line 3358+) all still use raw `inputCtxPush/Pop` around `menuPopDialog`. They are vulnerable to the same class of leak if their legacy stack is force-popped before their close handler fires. The watchdog will catch any resulting leak, but a proper S300 migration is deferred for a scope-focused future session.
+- **CI Options sibling registration** — `g_CiOptionsViaPcMenuDialog` / `g_CiOptionsViaPauseMenuDialog` are siblings opened by `menuPushDialog`'s nextsibling loop but NOT registered in `menupool.c`. Registering them would collide with `g_CiControlStyleMenuDialog` (already `MENU_TYPE_CI_OPTIONS`), producing dedup rejections on legitimate opens. Left unregistered — pool passthrough is correct behavior for placeholder siblings.
+
+**Next**: playtest B-160 per the verify column (main-menu reopen stress, force-close paths, watchdog absence on healthy flow).
+
+---
 
 ## Session S303 — 2026-04-16 (Campaign/Co-Op/Counter-Op full game loop sweep — reverent-chatelet worktree)
 
