@@ -25,6 +25,7 @@
 
 extern "C" {
 #include "game/forgemode.h"
+#include "forge/forge_core.h"
 }
 
 /* Local mirror of struct coord for the readout.  Same memory layout as the
@@ -98,7 +99,7 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 				forgehudModeColor(state), 4.0f * scale, 0, 1.5f * scale);
 
 		char label[64];
-		snprintf(label, sizeof(label), "FORGE  --  %s", forgehudModeLabel(state));
+		snprintf(label, sizeof(label), "THE GRID  --  %s", forgehudModeLabel(state));
 		const ImVec2 ts = ImGui::CalcTextSize(label);
 		fg->AddText(ImVec2(x + (badgeW - ts.x) * 0.5f,
 		                   y + (badgeH - ts.y) * 0.5f),
@@ -111,6 +112,69 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 
 	/* ---- Center: freefly placement reticle ---- */
 	forgehudDrawReticle(fg, (float)winW * 0.5f, (float)winH * 0.5f, scale);
+
+	/* ---- Center: ghost placement preview when a catalog pick is pending ---- */
+	forge_placement_state_t *pp = forgeGetPlacement();
+	if (pp && pp->ghost_active) {
+		const float cx = (float)winW * 0.5f;
+		const float cy = (float)winH * 0.5f;
+		const ImU32 valid_col   = IM_COL32(120, 240, 140, 180);
+		const ImU32 invalid_col = IM_COL32(240, 100, 100, 200);
+		const ImU32 col = pp->ghost_valid ? valid_col : invalid_col;
+		/* Semi-transparent square indicator */
+		const float half = 32.0f * scale;
+		fg->AddRect(ImVec2(cx - half, cy - half),
+		            ImVec2(cx + half, cy + half),
+		            col, 6.0f * scale, 0, 2.0f * scale);
+		fg->AddCircle(ImVec2(cx, cy), half + 4.0f * scale, col, 24, 1.0f * scale);
+		/* Label: object name + valid/invalid tag */
+		char lbl[96];
+		snprintf(lbl, sizeof(lbl), "%s%s",
+				pp->pending_catalog_id[0] ? pp->pending_catalog_id : "(ghost)",
+				pp->ghost_valid ? "" : "  [INVALID]");
+		const ImVec2 ts = ImGui::CalcTextSize(lbl);
+		fg->AddRectFilled(ImVec2(cx - ts.x * 0.5f - 6.0f * scale, cy + half + 4.0f * scale),
+		                  ImVec2(cx + ts.x * 0.5f + 6.0f * scale, cy + half + 6.0f * scale + ts.y),
+		                  IM_COL32(8, 14, 24, 220), 3.0f * scale);
+		fg->AddText(ImVec2(cx - ts.x * 0.5f, cy + half + 5.0f * scale),
+		            col, lbl);
+	}
+
+	/* ---- Top-center: grid snap indicator when grid snap is on ---- */
+	{
+		forge_editor_state_t *ed = forgeGetEditor();
+		if (ed && ed->snap_grid_enabled && ed->grid_size > 0.0f) {
+			char msg[64];
+			snprintf(msg, sizeof(msg), "GRID SNAP  %.0fu", (double)ed->grid_size);
+			const ImVec2 ts = ImGui::CalcTextSize(msg);
+			const float boxW = ts.x + 18.0f * scale;
+			const float boxH = ts.y + 10.0f * scale;
+			const float x = ((float)winW - boxW) * 0.5f;
+			const float y = 14.0f * scale;
+			fg->AddRectFilled(ImVec2(x, y), ImVec2(x + boxW, y + boxH),
+					IM_COL32(8, 14, 24, 180), 3.0f * scale);
+			fg->AddRect(ImVec2(x, y), ImVec2(x + boxW, y + boxH),
+					IM_COL32(120, 220, 255, 200), 3.0f * scale, 0, 1.0f * scale);
+			fg->AddText(ImVec2(x + 9.0f * scale, y + 5.0f * scale),
+					IM_COL32(220, 240, 255, 230), msg);
+
+			/* Lightweight on-screen grid cue: 5x5 crosses spread around the
+			 * center reticle at screen-space grid spacing (scaled for
+			 * readability so authors get a clear rhythm of grid cells). */
+			const float spacing = 48.0f * scale;
+			const ImU32 gcol = IM_COL32(100, 180, 220, 70);
+			const float arm = 3.0f * scale;
+			for (int gy = -2; gy <= 2; ++gy) {
+				for (int gx = -2; gx <= 2; ++gx) {
+					if (gx == 0 && gy == 0) continue;
+					float px = (float)winW * 0.5f + (float)gx * spacing;
+					float py = (float)winH * 0.5f + (float)gy * spacing;
+					fg->AddLine(ImVec2(px - arm, py), ImVec2(px + arm, py), gcol, 1.0f);
+					fg->AddLine(ImVec2(px, py - arm), ImVec2(px, py + arm), gcol, 1.0f);
+				}
+			}
+		}
+	}
 
 	/* ---- Bottom-left: camera readout (pos + look + speed scale) ---- */
 	{
@@ -150,36 +214,13 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 				IM_COL32(180, 210, 240, 220), line2);
 	}
 
-	/* ---- Right edge: placeholder Object Catalog panel (F1) ---- */
-	{
-		const float pad = 14.0f * scale;
-		const float panelW = 240.0f * scale;
-		const float panelH = (float)winH * 0.55f;
-		const float x = (float)winW - panelW - pad;
-		const float y = pad + 40.0f * scale; /* below mode badge area */
-
-		fg->AddRectFilled(ImVec2(x, y), ImVec2(x + panelW, y + panelH),
-				IM_COL32(8, 14, 24, 110), 4.0f * scale);
-		fg->AddRect(ImVec2(x, y), ImVec2(x + panelW, y + panelH),
-				IM_COL32(60, 100, 150, 160), 4.0f * scale, 0, 1.0f * scale);
-
-		const char *title = "Object Catalog";
-		const char *hint  = "(F1: not yet implemented)";
-		const ImVec2 tts = ImGui::CalcTextSize(title);
-		fg->AddText(ImVec2(x + (panelW - tts.x) * 0.5f, y + 8.0f * scale),
-				IM_COL32(140, 200, 240, 220), title);
-		const ImVec2 hts = ImGui::CalcTextSize(hint);
-		fg->AddText(ImVec2(x + (panelW - hts.x) * 0.5f,
-		                   y + 8.0f * scale + tts.y + 4.0f * scale),
-				IM_COL32(120, 140, 170, 180), hint);
-	}
-
-	/* ---- Bottom-right: forge controls reminder ---- */
+	/* ---- Bottom-right: Grid controls reminder (KB + controller) ---- */
 	{
 		const char *help =
-			"F7  toggle mode\n"
-			"WASD  move    Q/E  down/up\n"
-			"Mouse  look   Shift  boost   Ctrl  precision";
+			"F7 / LB+RB   toggle mode\n"
+			"WASD / LStick  move    Q/E  down/up\n"
+			"Mouse / RStick look    Shift/LSC boost    Ctrl/RSC precision\n"
+			"LB / RB    prev / next editor tab    A select / place    B cancel";
 		const float pad = 14.0f * scale;
 		const ImVec2 ts = ImGui::CalcTextSize(help);
 		const float boxW = ts.x + 16.0f * scale;
