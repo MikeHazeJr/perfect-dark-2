@@ -7,6 +7,18 @@
 
 ---
 
+## Done — 2026-04-17 (S333 — Merge S329 + S332 into dev)
+
+**Build verified.** Clean 585/585, zero errors. `PerfectDark.exe` 52,660,473 bytes, `PerfectDarkServer.exe` 22,901,400 bytes.
+
+Two worktree branches merged into `dev`:
+- `exciting-meitner-bc8c70` (S329, B-12 chrslots removal + protocol v37) — merge commit `37bdb4b6`
+- `magical-mahavira-f3726f` (S332, B-161 modeldef chokepoint + B-141 audio pacing) — merge commit `12170710`
+
+Context conflicts in `session-log.md` and `tasks-current.md` resolved by keeping both sets of content chronologically.
+
+---
+
 ## Done — 2026-04-17 (B-12 Phase 3 — remove chrslots, protocol v37, `exciting-meitner-bc8c70` worktree)
 
 **Build verified.** Clean link [474/474], zero errors. Wire format is a breaking protocol change.

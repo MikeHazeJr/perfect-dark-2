@@ -1,8 +1,33 @@
 
 # Session Log (Active)
 
-> **S281–S326** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S333** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S333 — 2026-04-17 (Merge S329 + S332 into dev)
+
+**Scope**: Integration session. Merged two completed worktree branches into `dev` with post-merge conflict resolution and full build validation.
+
+### What was done
+
+**Branch 1 — S329 `claude/exciting-meitner-bc8c70` (already merged as 37bdb4b6):**
+- B-12 Phase 3: chrslots removal + protocol v36 → v37. Already landed; no additional work needed.
+
+**Branch 2 — S332 `claude/magical-mahavira-f3726f`:**
+- Merge commit: `12170710`
+- Conflicts in `context/session-log.md` and `context/tasks-current.md` resolved by keeping both sets of content ordered chronologically.
+- Code changes: `src/game/modeldef.c` (B-161 chokepoint validation — rootnode NULL or numparts outside [1,500] → LOG_ERROR + return NULL) and `src/lib/audiomgr.c` (B-141 three-tier audio pacing: >3000 brake/184, 2500–3000 steady/368, <2500 fast-fill/736).
+
+### Build result
+
+Clean: 585/585 objects, zero errors. `PerfectDark.exe` 52,660,473 bytes, `PerfectDarkServer.exe` 22,901,400 bytes. Only pre-existing `-Wcomment` warnings in vendored code.
+
+### Next steps
+
+- Playtest verification for B-161 and B-141 (see tasks-current.md Open section for checklist).
+- Push `dev` to origin when ready.
+
+---
 
 ## Session S326 — 2026-04-17 (Asset Provider Phases 1 + 2 — `jolly-booth-fb5419` worktree)
 
