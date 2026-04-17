@@ -1,8 +1,43 @@
 
 # Session Log (Active)
 
-> **S281–S336** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S339** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S339 — 2026-04-17 (R-5 Server GUI Redesign, `thirsty-jemison-84f6ce` worktree)
+
+**Scope**: Full redesign of `port/fast3d/server_gui.cpp` (~860 → ~870 lines of new code). Added 5 bridge functions to `port/src/server_bridge.c`. Added psapi link to `CMakeLists.txt` for the pd-server target.
+
+### What changed
+
+**`port/fast3d/server_gui.cpp`** — complete rewrite, same file:
+- **Status bar** (top): 4-column layout — connect code + copy button; Players X/Y + active Rooms count; Uptime HH:MM:SS + Tick rate Hz; Memory MB + Online/OFFLINE + update badge.
+- **Players tab** (was "Server"): ImGui `BeginTable` with 6 columns — Agent Name (gold leader badge), State (color-coded), Ping (green/amber/red), Team (team name + color), Kick, Ban. Ban button calls new `netServerBanClient`.
+- **Rooms tab** (was "Hub"): Hub state summary row (hub state + slot usage). Room table with 6 columns — ID, Name, Players X/max, State (color-coded), Stage 0xNN, Scenario N.
+- **Operator tab** (new): split left/right. Left: Game Mode dropdown + Stage ID text input (apply-on-button with `serverSetStageId`) + Scenario int-input + Force Start Match + End Match. Right: Shutdown Server (+ Restart & Update when staged).
+- **Updates tab**: unchanged from prior design.
+- **Log panel** (bottom, always visible): filter row [All][NET][ERROR][WARN][CHAT][HUB] with active-highlight toggle buttons, Auto-scroll checkbox. Lines outside the selected filter are hidden; colors unchanged.
+- Added `s_SrvStartMs` (SDL_GetTicks at init) for uptime. Tick rate computed as `g_NetTick / uptime_secs`.
+
+**`port/src/server_bridge.c`** additions:
+- `netServerBanClient(clientId, reason)` — kick with "Banned" reason (IP-level reconnect blocking is future work).
+- `serverGetMemoryMB()` — Windows `GetProcessMemoryInfo` WorkingSetSize / 1MB; returns 0 on non-Windows.
+- `serverGetStageId()` / `serverSetStageId(s)` — read/write `g_MpSetup.stage_id`.
+- `serverGetScenario()` / `serverSetScenario(n)` — read/write `g_MpSetup.scenario`.
+
+**`CMakeLists.txt`**: `target_link_libraries(pd-server psapi)` under `if(WIN32)` after the existing server link line.
+
+### Build result
+
+Clean: 252/252 server objects, 521/521 game objects. Zero errors, only pre-existing vendor warnings.
+`PerfectDark.exe` 52,773,095 / `PerfectDarkServer.exe` 22,905,738 (+18.7 KB).
+
+### Deferred
+- Ban list: in-memory IP blocklist to reject reconnects (needs net.c intercept hook).
+- Room stage name: dedicated server has `r->stagenum` as u8, no catalog lookup — shows `0xNN` until catalog is available server-side.
+- Scenario name: shows integer until server-side scenario name table is added.
+
+---
 
 ## Session S336 — 2026-04-17 (Audit S329 B-12 Chrslots + S332 Modeldef/Audio)
 
