@@ -45,10 +45,14 @@ static char s_ProtectedFoldersCfg[512] = UPDATER_DEFAULT_PROTECTED;
 
 PD_CONSTRUCTOR static void updaterConfigInit(void)
 {
+	/* S313 batch: Update.ProtectedFolders no longer persists to pd.ini.
+	 * UPDATER_DEFAULT_PROTECTED ("mods,data,extracted,saves") is the
+	 * canonical list; pd.ini itself is always protected regardless of
+	 * this value, so the default has been fit-for-purpose from day one.
+	 * UpdateChannel stays configurable (stable/beta switching is a real
+	 * user decision). */
 	configRegisterInt("Game.UpdateChannel", &s_UpdateChannelCfg,
 		UPDATE_CHANNEL_STABLE, UPDATE_CHANNEL_COUNT - 1);
-	configRegisterString("Update.ProtectedFolders", s_ProtectedFoldersCfg,
-		sizeof(s_ProtectedFoldersCfg));
 }
 
 /* ========================================================================

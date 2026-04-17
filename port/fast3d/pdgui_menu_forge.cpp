@@ -22,12 +22,12 @@ s32 pdguiForgeStartSession(void)
 {
 	if (g_MainChangeToStageNum >= 0) {
 		sysLogPrintf(LOG_WARNING,
-				"FORGE: start rejected -- stage transition already pending (%d)",
+				"GRID: start rejected -- stage transition already pending (%d)",
 				g_MainChangeToStageNum);
 		return 0;
 	}
 
-	sysLogPrintf(LOG_NOTE, "FORGE: launching session (base stage = CITRAINING 0x%02x)",
+	sysLogPrintf(LOG_NOTE, "GRID: launching session (base stage = CITRAINING 0x%02x)",
 			(u32)STAGE_CITRAINING);
 
 	forgeRequestEnterSession();

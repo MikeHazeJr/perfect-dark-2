@@ -1,5 +1,5 @@
 /**
- * prefs_agent.c -- per-agent preferences sidecar (S309)
+ * prefs_agent.c -- per-agent preferences sidecar (S309 + S313 batch)
  *
  * See prefs_agent.h for the overall shape.  Format is plain INI:
  *
@@ -13,6 +13,12 @@
  *     FontId           = user.PokemonFont.font
  *     Scanlines        = 1
  *     ScanlineAlpha    = 0.8
+ *
+ *     [Audio]
+ *     MasterVolume     = 0.85
+ *     MusicVolume      = 0.70
+ *     GameplayVolume   = 0.90
+ *     UIVolume         = 0.75
  *
  *     [Mods]
  *     Enabled = slug1,slug2,slug3
@@ -38,6 +44,7 @@
 #include "pdgui_theme_loader.h"
 #include "pdgui_theme.h"
 #include "pdgui_font_mod.h"
+#include "audio.h"
 
 /* Forward declarations for C symbols that live in C++ TUs — mirrors
  * the pattern in savefile.c / main.c. */
@@ -138,6 +145,24 @@ static void applyKV(const char *section, const char *key, const char *val)
         }
         if (strcasecmp(key, "ScanlineAlpha") == 0) {
             pdguiThemeSetScanlineAlpha((f32)atof(val));
+            return;
+        }
+    }
+    if (strcasecmp(section, "Audio") == 0) {
+        if (strcasecmp(key, "MasterVolume") == 0) {
+            audioSetMasterVolume((f32)atof(val));
+            return;
+        }
+        if (strcasecmp(key, "MusicVolume") == 0) {
+            audioSetMusicVolume((f32)atof(val));
+            return;
+        }
+        if (strcasecmp(key, "GameplayVolume") == 0) {
+            audioSetGameplayVolume((f32)atof(val));
+            return;
+        }
+        if (strcasecmp(key, "UIVolume") == 0) {
+            audioSetUiVolume((f32)atof(val));
             return;
         }
     }
@@ -290,6 +315,20 @@ void prefsAgentSave(void)
                     fontId ? fontId : "",
                     (int)pdguiThemeGetScanlineEnabled(),
                     (double)pdguiThemeGetScanlineAlpha());
+
+    /* [Audio] -- per-agent volume layers (S313 batch).  Global pd.ini
+     * still holds the same keys as fallback defaults; the per-agent
+     * sidecar overlays them on Agent load. */
+    off += snprintf(buf + off, sizeof(buf) - off,
+                    "[Audio]\n"
+                    "MasterVolume   = %.3f\n"
+                    "MusicVolume    = %.3f\n"
+                    "GameplayVolume = %.3f\n"
+                    "UIVolume       = %.3f\n\n",
+                    (double)audioGetMasterVolume(),
+                    (double)audioGetMusicVolume(),
+                    (double)audioGetGameplayVolume(),
+                    (double)audioGetUiVolume());
 
     /* [Mods] */
     off += snprintf(buf + off, sizeof(buf) - off, "[Mods]\nEnabled = ");

@@ -190,7 +190,7 @@ void forgeUndoApplyUndo(void)
 		if (i == s_tail && !s_undo[s_tail].in_use) break;
 	}
 	s_head = forgeUndoAdvance(i);
-	sysLogPrintf(LOG_NOTE, "FORGE.UNDO: undo %d step(s)", steps);
+	sysLogPrintf(LOG_NOTE, "GRID.UNDO: undo %d step(s)", steps);
 }
 
 void forgeUndoApplyRedo(void)
@@ -212,5 +212,5 @@ void forgeUndoApplyRedo(void)
 		i = forgeUndoAdvance(i);
 	}
 	s_head = i;
-	sysLogPrintf(LOG_NOTE, "FORGE.UNDO: redo %d step(s)", steps);
+	sysLogPrintf(LOG_NOTE, "GRID.UNDO: redo %d step(s)", steps);
 }

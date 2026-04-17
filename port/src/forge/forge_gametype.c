@@ -42,12 +42,12 @@ void forgeGametypeTriggerWave(s32 wave_index)
 {
 	forge_gametype_t *gt = forgeGameType();
 	if (wave_index < 0 || wave_index >= gt->num_waves) {
-		sysLogPrintf(LOG_WARNING, "FORGE.WAVE: invalid index %d", wave_index);
+		sysLogPrintf(LOG_WARNING, "GRID.WAVE: invalid index %d", wave_index);
 		return;
 	}
 	const forge_wave_t *w = &gt->waves[wave_index];
 	if (!w->in_use) {
-		sysLogPrintf(LOG_WARNING, "FORGE.WAVE: index %d not in use", wave_index);
+		sysLogPrintf(LOG_WARNING, "GRID.WAVE: index %d not in use", wave_index);
 		return;
 	}
 
@@ -63,7 +63,7 @@ void forgeGametypeTriggerWave(s32 wave_index)
 	}
 
 	sysLogPrintf(LOG_NOTE,
-			"FORGE.WAVE: spawn wave %d count=%d scale=%.2f hp=%.2f at (%.0f,%.0f,%.0f) boss=%d",
+			"GRID.WAVE: spawn wave %d count=%d scale=%.2f hp=%.2f at (%.0f,%.0f,%.0f) boss=%d",
 			wave_index, w->enemy_count, w->enemy_scale, w->enemy_health_mult,
 			zx, zy, zz, w->is_boss);
 
@@ -89,7 +89,7 @@ void forgeGametypeTriggerWave(s32 wave_index)
 		++placed;
 	}
 	if (placed < w->enemy_count) {
-		sysLogPrintf(LOG_WARNING, "FORGE.WAVE: only placed %d of %d enemies",
+		sysLogPrintf(LOG_WARNING, "GRID.WAVE: only placed %d of %d enemies",
 				placed, w->enemy_count);
 	}
 }
@@ -111,14 +111,14 @@ void forgeGametypeTick(f32 dt)
 
 void forgeGametypeApplyModifiers(u32 flags)
 {
-	if (flags & FORGE_MOD_LOW_GRAVITY)   sysLogPrintf(LOG_NOTE, "FORGE.GT: modifier LOW_GRAVITY");
-	if (flags & FORGE_MOD_ONE_HIT_KILLS) sysLogPrintf(LOG_NOTE, "FORGE.GT: modifier ONE_HIT_KILLS");
-	if (flags & FORGE_MOD_INFINITE_AMMO) sysLogPrintf(LOG_NOTE, "FORGE.GT: modifier INFINITE_AMMO");
-	if (flags & FORGE_MOD_NO_RADAR)      sysLogPrintf(LOG_NOTE, "FORGE.GT: modifier NO_RADAR");
-	if (flags & FORGE_MOD_FRIENDLY_FIRE) sysLogPrintf(LOG_NOTE, "FORGE.GT: modifier FRIENDLY_FIRE");
-	if (flags & FORGE_MOD_NO_AUTO_AIM)   sysLogPrintf(LOG_NOTE, "FORGE.GT: modifier NO_AUTO_AIM");
-	if (flags & FORGE_MOD_FAST_MOVE)     sysLogPrintf(LOG_NOTE, "FORGE.GT: modifier FAST_MOVE");
-	if (flags & FORGE_MOD_TEAM_SHUFFLE)  sysLogPrintf(LOG_NOTE, "FORGE.GT: modifier TEAM_SHUFFLE");
+	if (flags & FORGE_MOD_LOW_GRAVITY)   sysLogPrintf(LOG_NOTE, "GRID.GT: modifier LOW_GRAVITY");
+	if (flags & FORGE_MOD_ONE_HIT_KILLS) sysLogPrintf(LOG_NOTE, "GRID.GT: modifier ONE_HIT_KILLS");
+	if (flags & FORGE_MOD_INFINITE_AMMO) sysLogPrintf(LOG_NOTE, "GRID.GT: modifier INFINITE_AMMO");
+	if (flags & FORGE_MOD_NO_RADAR)      sysLogPrintf(LOG_NOTE, "GRID.GT: modifier NO_RADAR");
+	if (flags & FORGE_MOD_FRIENDLY_FIRE) sysLogPrintf(LOG_NOTE, "GRID.GT: modifier FRIENDLY_FIRE");
+	if (flags & FORGE_MOD_NO_AUTO_AIM)   sysLogPrintf(LOG_NOTE, "GRID.GT: modifier NO_AUTO_AIM");
+	if (flags & FORGE_MOD_FAST_MOVE)     sysLogPrintf(LOG_NOTE, "GRID.GT: modifier FAST_MOVE");
+	if (flags & FORGE_MOD_TEAM_SHUFFLE)  sysLogPrintf(LOG_NOTE, "GRID.GT: modifier TEAM_SHUFFLE");
 }
 
 /* ============================================================

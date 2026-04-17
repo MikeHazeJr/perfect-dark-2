@@ -151,7 +151,7 @@ static void forgeSetFreeflyMode(struct player *p)
 		s_forge.fly.saved_headnum = p->prop->chr->headnum;
 		s_forge.fly.has_saved_body = true;
 		sysLogPrintf(LOG_NOTE,
-				"FORGE: freefly body-swap: save (body=0x%02x head=0x%02x) -> Dr. Carroll (0x%02x)",
+				"GRID: freefly body-swap: save (body=0x%02x head=0x%02x) -> Dr. Carroll (0x%02x)",
 				(u32)s_forge.fly.saved_bodynum,
 				(u32)s_forge.fly.saved_headnum,
 				(u32)BODY_DRCAROLL);
@@ -174,7 +174,7 @@ static void forgeRestorePlayerMode(struct player *p)
 		p->prop->chr->headnum = (u8)s_forge.fly.saved_headnum;
 		s_forge.fly.has_saved_body = false;
 		sysLogPrintf(LOG_NOTE,
-				"FORGE: normal body-restore: (body=0x%02x head=0x%02x) -- no stage reload",
+				"GRID: normal body-restore: (body=0x%02x head=0x%02x) -- no stage reload",
 				(u32)p->prop->chr->bodynum,
 				(u32)p->prop->chr->headnum);
 	}
@@ -300,7 +300,7 @@ static void forgeTransitionToNormal(const char *reason)
 		forgeRestorePlayerMode(p);
 	}
 	if (s_forge.state != FORGE_SESSION_NORMAL) {
-		sysLogPrintf(LOG_NOTE, "FORGE: -> NORMAL (%s)", reason ? reason : "");
+		sysLogPrintf(LOG_NOTE, "GRID: -> NORMAL (%s)", reason ? reason : "");
 	}
 	s_forge.state = FORGE_SESSION_NORMAL;
 }
@@ -309,13 +309,13 @@ static void forgeTransitionToFreefly(const char *reason)
 {
 	struct player *p = forgeCurrentPlayer();
 	if (!p) {
-		sysLogPrintf(LOG_WARNING, "FORGE: cannot enter FREEFLY -- no current player");
+		sysLogPrintf(LOG_WARNING, "GRID: cannot enter FREEFLY -- no current player");
 		return;
 	}
 	forgeSnapFreeflyToPlayer();
 	forgeSetFreeflyMode(p);
 	if (s_forge.state != FORGE_SESSION_FREEFLY) {
-		sysLogPrintf(LOG_NOTE, "FORGE: -> FREEFLY (%s) pos=(%.0f,%.0f,%.0f) yaw=%.1f",
+		sysLogPrintf(LOG_NOTE, "GRID: -> FREEFLY (%s) pos=(%.0f,%.0f,%.0f) yaw=%.1f",
 				reason ? reason : "",
 				s_forge.fly.pos.x, s_forge.fly.pos.y, s_forge.fly.pos.z,
 				s_forge.fly.yaw_deg);
@@ -330,7 +330,7 @@ static void forgeTransitionToInactive(const char *reason)
 		forgeRestorePlayerMode(p);
 	}
 	if (s_forge.state != FORGE_SESSION_INACTIVE) {
-		sysLogPrintf(LOG_NOTE, "FORGE: -> INACTIVE (%s)", reason ? reason : "");
+		sysLogPrintf(LOG_NOTE, "GRID: -> INACTIVE (%s)", reason ? reason : "");
 	}
 	s_forge.state = FORGE_SESSION_INACTIVE;
 	s_forge.request_enter_session = false;
@@ -362,13 +362,13 @@ void forgeInit(void)
 		s_forge.per_player[i] = FORGE_SESSION_INACTIVE;
 	}
 	s_forge.initialized = true;
-	sysLogPrintf(LOG_NOTE, "FORGE: init");
+	sysLogPrintf(LOG_NOTE, "GRID: init");
 }
 
 void forgeRequestEnterSession(void)
 {
 	s_forge.request_enter_session = true;
-	sysLogPrintf(LOG_NOTE, "FORGE: enter requested (will activate on gameplay stage load)");
+	sysLogPrintf(LOG_NOTE, "GRID: enter requested (will activate on gameplay stage load)");
 }
 
 void forgeExitSession(void)
@@ -440,7 +440,7 @@ void forgeTogglePlayerMode(s32 playerNum)
 		/* MP co-op forge (F8) will consume per-player toggles through
 		 * this entry point.  For now log and no-op for non-zero. */
 		sysLogPrintf(LOG_NOTE,
-				"FORGE: toggle request for playerNum=%d deferred (MP co-op forge F8)",
+				"GRID: toggle request for playerNum=%d deferred (MP co-op forge F8)",
 				playerNum);
 		return;
 	}
@@ -478,7 +478,7 @@ void forgeTick(void)
 		if (p) {
 			s_forge.request_enter_session = false;
 			forgeTransitionToNormal("session start (request)");
-			sysLogPrintf(LOG_NOTE, "FORGE: session active stage=0x%02x", g_StageNum);
+			sysLogPrintf(LOG_NOTE, "GRID: session active stage=0x%02x", g_StageNum);
 		}
 	}
 
