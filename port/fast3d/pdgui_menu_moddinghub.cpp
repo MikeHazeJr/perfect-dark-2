@@ -1311,10 +1311,26 @@ static void renderModdingHub(s32 winW, s32 winH)
 
             bool active = (s_ActiveTool == i);
             if (active) {
-                ImGui::PushStyleColor(ImGuiCol_Button,
-                    ImVec4(0.10f, 0.25f, 0.50f, 0.90f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-                    ImVec4(0.15f, 0.35f, 0.65f, 0.95f));
+                /* S306: tool-selector active-state colors follow the theme's
+                 * toolbar tint so themed builds can redecorate the Modding
+                 * Hub. pdguiGetToolbarTint() returns 0xRRGGBBAA; derives a
+                 * default tied to the theme's primary accent when the
+                 * theme doesn't opt in via theme.json "toolbarTint". */
+                u32 tintRgba = pdguiGetToolbarTint();
+                ImVec4 base = ImVec4(
+                    ((tintRgba >> 24) & 0xFF) / 255.0f,
+                    ((tintRgba >> 16) & 0xFF) / 255.0f,
+                    ((tintRgba >>  8) & 0xFF) / 255.0f,
+                    ((tintRgba >>  0) & 0xFF) / 255.0f);
+                /* Hover = lerp toward white by 20% so the press affordance
+                 * reads even when the tint is dark. */
+                ImVec4 hover = ImVec4(
+                    base.x + (1.0f - base.x) * 0.20f,
+                    base.y + (1.0f - base.y) * 0.20f,
+                    base.z + (1.0f - base.z) * 0.20f,
+                    base.w);
+                ImGui::PushStyleColor(ImGuiCol_Button, base);
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, hover);
             }
 
             if (PdButton(toolNames[i], ImVec2(btnW, btnH))) {

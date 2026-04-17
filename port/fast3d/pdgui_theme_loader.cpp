@@ -67,8 +67,11 @@ struct theme_def {
     char author[THEME_AUTHOR_LEN];
     char version[THEME_VERSION_LEN];
 
-    /* Palette: 15 u32 values in 0xRRGGBBAA format */
-    u32  palette[15];
+    /* Palette: 15 legacy fields + 5 S306 extensions (toolbar tint,
+     * text_positive, text_warning, button_hover, button_active). The
+     * extensions are zero unless theme.json opts in — pdguiApplyPdStyle
+     * falls back to derived defaults when zero. */
+    u32  palette[20];
     s32  has_palette;
 
     /* Texture overrides */
@@ -311,7 +314,10 @@ static u32 parse_hex_color(const char *hex, int len)
  * Palette field names (order matches struct pdgui_palette in pdgui_style.cpp)
  * ========================================================================= */
 
-static const char *k_PaletteFieldNames[15] = {
+/* S306: 15 legacy fields + 5 extensions. The extension keys also accept
+ * friendlier aliases so modders can use "toolbarTint" instead of the
+ * underscored legacy style (see palette_field_index_alias). */
+static const char *k_PaletteFieldNames[20] = {
     "dialog_border1",
     "dialog_titlebg",
     "dialog_border2",
@@ -326,14 +332,31 @@ static const char *k_PaletteFieldNames[15] = {
     "listgroup_headerbg",
     "listgroup_headerfg",
     "unused34",
-    "unused38"
+    "unused38",
+    /* S306 extensions */
+    "toolbar_tint",
+    "text_positive",
+    "text_warning",
+    "button_hover",
+    "button_active",
 };
 
 static int palette_field_index(const char *name) {
-    for (int i = 0; i < 15; i++) {
+    for (int i = 0; i < 20; i++) {
         if (strcmp(name, k_PaletteFieldNames[i]) == 0)
             return i;
     }
+    /* S306 camelCase aliases for the extension fields */
+    if (strcmp(name, "toolbarTint") == 0)  return 15;
+    if (strcmp(name, "textPositive") == 0) return 16;
+    if (strcmp(name, "textWarning") == 0)  return 17;
+    if (strcmp(name, "buttonHover") == 0)  return 18;
+    if (strcmp(name, "buttonActive") == 0) return 19;
+    /* Backwards-compat: "checkmark" / "checkMark" as alias for
+     * checkbox_checked so users editing by hand don't need to know the
+     * legacy name. */
+    if (strcmp(name, "checkmark") == 0 ||
+        strcmp(name, "checkMark") == 0) return 9;
     return -1;
 }
 
@@ -734,12 +757,22 @@ static s32 parse_theme_json(const char *src, struct theme_def *def)
  * from raw u32[15] values. This avoids duplicating the palette struct.
  */
 extern "C" void pdguiSetPaletteCustom(const u32 *colors15);
+extern "C" void pdguiSetPaletteExtensions(u32 toolbarTint, u32 textPositive,
+                                          u32 textWarning, u32 buttonHover,
+                                          u32 buttonActive);
 
 static void apply_theme_def(const struct theme_def *def)
 {
     /* Apply palette if present */
     if (def->has_palette) {
         pdguiSetPaletteCustom(def->palette);
+        /* S306: push the extension tail (indices 15-19). Fields left at 0
+         * in theme.json tell the style apply to derive defaults. */
+        pdguiSetPaletteExtensions(def->palette[15],
+                                  def->palette[16],
+                                  def->palette[17],
+                                  def->palette[18],
+                                  def->palette[19]);
     }
 
     /* Apply scanline settings */

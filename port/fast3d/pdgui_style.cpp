@@ -57,12 +57,22 @@ struct pdgui_palette {
     unsigned int item_unfocused;        /* 0x18 - normal menu item text */
     unsigned int item_disabled;         /* 0x1c - greyed out item text */
     unsigned int item_focused_inner;    /* 0x20 - focused/hovered item text */
-    unsigned int checkbox_checked;      /* 0x24 - checked checkbox color */
+    unsigned int checkbox_checked;      /* 0x24 - checked checkbox color (S306: now live) */
     unsigned int item_focused_outer;    /* 0x28 - focused item background */
     unsigned int listgroup_headerbg;    /* 0x2c - list group header bg */
     unsigned int listgroup_headerfg;    /* 0x30 - list group header fg */
     unsigned int unused34;              /* 0x34 */
     unsigned int unused38;              /* 0x38 */
+    /* ---- S306 extensions ----
+     * Zero means "derive from legacy fields at apply time" so the existing
+     * 15-field built-ins keep their look unchanged until a theme.json opts in.
+     * Read/written via theme.json keys: toolbarTint, textPositive, textWarning,
+     * buttonHover, buttonActive. Checkbox checkmark uses `checkbox_checked`. */
+    unsigned int toolbar_tint;          /* 0x3c - toolbars / modding-hub nav / segmented rows */
+    unsigned int text_positive;         /* 0x40 - success/status-ok text (lime) */
+    unsigned int text_warning;          /* 0x44 - section-heading / warning text (amber) */
+    unsigned int button_hover;          /* 0x48 - ImGuiCol_ButtonHovered override */
+    unsigned int button_active;         /* 0x4c - ImGuiCol_ButtonActive override */
 };
 
 /* ------- Built-in Palettes ------- */
@@ -893,13 +903,32 @@ extern "C" void pdguiApplyPdStyle(void)
 
     /* Buttons -- dark body background, border accent on hover/active.
      * PD's menu items sit on the dark body, not on bright colored backgrounds.
-     * This keeps buttons readable across all themes including Black & Gold. */
+     * This keeps buttons readable across all themes including Black & Gold.
+     * S306: `button_hover` / `button_active` extension fields override the
+     * derived values when non-zero, letting themers tune the highlight. */
     colors[ImGuiCol_Button]             = C((pal->dialog_bodybg & 0xFFFFFF00) | 0x99);
-    colors[ImGuiCol_ButtonHovered]      = C((pal->dialog_border1 & 0xFFFFFF00) | 0x66);
-    colors[ImGuiCol_ButtonActive]       = C((pal->dialog_border1 & 0xFFFFFF00) | 0xAA);
+    {
+        unsigned int bh = pal->button_hover
+            ? pal->button_hover
+            : ((pal->dialog_border1 & 0xFFFFFF00) | 0x66);
+        unsigned int ba = pal->button_active
+            ? pal->button_active
+            : ((pal->dialog_border1 & 0xFFFFFF00) | 0xAA);
+        colors[ImGuiCol_ButtonHovered]  = C(bh);
+        colors[ImGuiCol_ButtonActive]   = C(ba);
+    }
 
-    /* Check marks and sliders -- border2 (bright accent) */
-    colors[ImGuiCol_CheckMark]          = C(pal->dialog_border2 | 0xFF);
+    /* Check marks and sliders.
+     * S306: `checkbox_checked` palette field (slot 9, previously dead) now
+     * drives the checkmark colour when non-zero. Falls back to border2 for
+     * compatibility with the 7 built-in palettes (which all leave slot 9
+     * equal to border2 or white — both read fine as a checkmark). */
+    {
+        unsigned int cm = pal->checkbox_checked
+            ? (pal->checkbox_checked | 0xFF)
+            : (pal->dialog_border2 | 0xFF);
+        colors[ImGuiCol_CheckMark]      = C(cm);
+    }
     colors[ImGuiCol_SliderGrab]         = C(pal->dialog_border1 | 0xFF);
     colors[ImGuiCol_SliderGrabActive]   = C(pal->dialog_border2 | 0xFF);
 
@@ -1100,10 +1129,68 @@ extern "C" int pdguiGetPalette(void)
 extern "C" void pdguiSetPaletteCustom(const unsigned int *colors15)
 {
     if (!colors15) return;
-    memcpy(&s_PaletteCustom, colors15, sizeof(s_PaletteCustom));
+    /* Copy the legacy 15 fields only — the S306 extension tail stays at
+     * whatever was last set via pdguiSetPaletteExtensions (or zero for
+     * derive-default). Prevents buffer over-read when callers pass a
+     * stack-allocated u32[15]. */
+    memcpy(&s_PaletteCustom, colors15, 15 * sizeof(unsigned int));
     s_ActivePalette = &s_PaletteCustom;
     s_UsingCustomPalette = true;
     pdguiApplyPdStyle();
+}
+
+/* S306: write the extension tail of the custom palette. Each argument is
+ * 0xRRGGBBAA; pass 0 to keep the derived default at apply time. Theme editor
+ * + theme loader call this whenever they pick up the new theme.json fields.
+ * Re-applies the ImGui style so live preview updates immediately. */
+extern "C" void pdguiSetPaletteExtensions(unsigned int toolbarTint,
+                                          unsigned int textPositive,
+                                          unsigned int textWarning,
+                                          unsigned int buttonHover,
+                                          unsigned int buttonActive)
+{
+    s_PaletteCustom.toolbar_tint  = toolbarTint;
+    s_PaletteCustom.text_positive = textPositive;
+    s_PaletteCustom.text_warning  = textWarning;
+    s_PaletteCustom.button_hover  = buttonHover;
+    s_PaletteCustom.button_active = buttonActive;
+    if (s_ActivePalette == &s_PaletteCustom) {
+        pdguiApplyPdStyle();
+    }
+}
+
+/* S306: derive-default helpers — readers that want a sensible color even
+ * when the theme doesn't specify one. Fallback rules:
+ *   toolbar_tint  -> darker border1 (70% alpha) over body bg
+ *   text_positive -> PD-canonical lime (#4cff80)
+ *   text_warning  -> PD-canonical amber (#ffd950)
+ * All return 0xRRGGBBAA. `asImVec4` variants return ImGui-ready floats. */
+extern "C" unsigned int pdguiGetToolbarTint(void)
+{
+    const struct pdgui_palette *pal = s_ActivePalette;
+    if (pal->toolbar_tint) return pal->toolbar_tint;
+    /* Derive: blend of dialog_border1 + bodybg at 70% alpha */
+    return (pal->dialog_border1 & 0xFFFFFF00u) | 0x70u;
+}
+
+extern "C" unsigned int pdguiGetTextPositive(void)
+{
+    const struct pdgui_palette *pal = s_ActivePalette;
+    if (pal->text_positive) return pal->text_positive;
+    return 0x4cff80ffu; /* lime */
+}
+
+extern "C" unsigned int pdguiGetTextWarning(void)
+{
+    const struct pdgui_palette *pal = s_ActivePalette;
+    if (pal->text_warning) return pal->text_warning;
+    return 0xffd950ffu; /* amber */
+}
+
+extern "C" unsigned int pdguiGetCheckmarkColor(void)
+{
+    const struct pdgui_palette *pal = s_ActivePalette;
+    return (pal->checkbox_checked ? pal->checkbox_checked : pal->dialog_border2) | 0xFFu;
 }
 
 extern "C" unsigned int pdguiGetPaletteColor(int index)

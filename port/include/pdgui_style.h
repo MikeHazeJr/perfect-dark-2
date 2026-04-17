@@ -98,6 +98,21 @@ const void *pdguiGetActivePaletteRaw(void);
  * Re-applies ImGui style automatically. */
 void pdguiSetPaletteCustom(const u32 *colors15);
 
+/* S306: write the extension tail (toolbar tint, positive/warning text,
+ * button hover/active). Pass 0 for any field to keep the derive-default
+ * (see pdguiGetToolbarTint / pdguiGetTextPositive / pdguiGetTextWarning
+ * for the fallback rules). No-op unless the custom palette is active. */
+void pdguiSetPaletteExtensions(u32 toolbarTint, u32 textPositive,
+                               u32 textWarning, u32 buttonHover,
+                               u32 buttonActive);
+
+/* S306: themable semantic color accessors. Return 0xRRGGBBAA. The first
+ * three fall back to PD-canonical defaults if the theme didn't specify. */
+u32 pdguiGetToolbarTint(void);
+u32 pdguiGetTextPositive(void);
+u32 pdguiGetTextWarning(void);
+u32 pdguiGetCheckmarkColor(void);
+
 /* Return a palette color by index (0-14) from the active palette.
  * Returns 0 if index is out of range. Format: 0xRRGGBBAA. */
 u32 pdguiGetPaletteColor(s32 index);

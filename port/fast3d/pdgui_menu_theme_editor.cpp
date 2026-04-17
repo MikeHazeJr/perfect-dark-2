@@ -40,12 +40,15 @@
 
 static bool s_Visible = false;
 
-/* Working palette: 15 u32 values in 0xRRGGBBAA format.
- * Modified live as the user edits colors. */
-static u32 s_WorkPalette[15];
+/* Working palette: 20 u32 values in 0xRRGGBBAA format.
+ * Indices 0-14 mirror struct menucolourpalette (legacy PD fields);
+ * indices 15-19 are S306 extensions (toolbar tint, positive / warning
+ * text, button hover / active). Zero in an extension slot means
+ * "derive default at apply time" — see pdguiApplyPdStyle. */
+static u32 s_WorkPalette[20];
 
 /* Snapshot of palette when editor was opened (for reset). */
-static u32 s_OrigPalette[15];
+static u32 s_OrigPalette[20];
 
 /* Save dialog state */
 static char s_SaveName[64] = "My Theme";
@@ -57,30 +60,73 @@ static bool s_SaveSuccess = false;
  * Palette field metadata for the UI
  * ========================================================================= */
 
+/* Per-field metadata — label, theme.json key, palette index, and an
+ * optional group marker so the editor can render section headings. The
+ * S306 pass renamed labels for clarity ("Border Primary" → "Main Accent",
+ * etc.) and flagged the three reserved legacy slots so they sit in their
+ * own "Reserved" group and can be hidden behind an Advanced toggle. */
+enum PalFieldGroup {
+    PFG_FRAME = 0,       /* window chrome — borders, title, body */
+    PFG_TEXT,            /* readable text colors */
+    PFG_INTERACT,        /* buttons, checkboxes, sliders, headers */
+    PFG_SEMANTIC,        /* S306 extensions — toolbar tint, positive/warning */
+    PFG_RESERVED,        /* legacy unused slots kept for compatibility */
+};
+
 struct PalFieldInfo {
-    const char *label;     /* display name */
-    const char *jsonKey;   /* JSON key for theme.json */
-    int         index;     /* palette array index (0-14) */
+    const char *label;     /* display name (S306: renamed for clarity) */
+    const char *jsonKey;   /* JSON key written to theme.json */
+    int         index;     /* palette array index (0-19) */
+    int         group;     /* PalFieldGroup */
+    const char *tooltip;   /* hover hint explaining where the color shows up */
 };
 
 static const PalFieldInfo k_Fields[] = {
-    { "Border Primary",     "dialog_border1",     0 },
-    { "Title Background",   "dialog_titlebg",     1 },
-    { "Border Accent",      "dialog_border2",     2 },
-    { "Title Text",         "dialog_titlefg",     3 },
-    { "Body Background",    "dialog_bodybg",      4 },
-    { "(Reserved)",         "unused14",           5 },
-    { "Item Text",          "item_unfocused",     6 },
-    { "Disabled Text",      "item_disabled",      7 },
-    { "Focused Text",       "item_focused_inner", 8 },
-    { "Checkbox",           "checkbox_checked",   9 },
-    { "Focus Background",   "item_focused_outer", 10 },
-    { "List Header BG",     "listgroup_headerbg", 11 },
-    { "List Header Text",   "listgroup_headerfg", 12 },
-    { "(Reserved 2)",       "unused34",           13 },
-    { "(Reserved 3)",       "unused38",           14 },
+    { "Main Accent",          "dialog_border1",     0, PFG_FRAME,
+        "Primary accent — window borders, tab highlight, hover tint." },
+    { "Title Bar Background", "dialog_titlebg",     1, PFG_FRAME,
+        "The strip behind the window title and the title shimmer." },
+    { "Highlight Accent",     "dialog_border2",     2, PFG_FRAME,
+        "Bright accent — right-edge border, focus ring, scrollbar grab." },
+    { "Title Text",           "dialog_titlefg",     3, PFG_FRAME,
+        "Window title text (e.g. 'Settings', 'Modding Hub')." },
+    { "Window Background",    "dialog_bodybg",      4, PFG_FRAME,
+        "Body fill behind all window contents." },
+    { "(Reserved 1)",         "unused14",           5, PFG_RESERVED,
+        "Unused legacy slot — kept for save compatibility." },
+    { "Body Text",            "item_unfocused",     6, PFG_TEXT,
+        "Default menu text — unselected buttons, labels, list rows." },
+    { "Disabled Text",        "item_disabled",      7, PFG_TEXT,
+        "Greyed-out text for disabled controls / locked options." },
+    { "Focused Text",         "item_focused_inner", 8, PFG_TEXT,
+        "Text color of the currently-hovered / keyboard-focused item." },
+    { "Checkbox Check",       "checkbox_checked",   9, PFG_INTERACT,
+        "Checkmark glyph inside checkboxes and radio buttons." },
+    { "Focus Highlight",      "item_focused_outer", 10, PFG_INTERACT,
+        "Background box drawn behind the focused menu row." },
+    { "List Header BG",       "listgroup_headerbg", 11, PFG_INTERACT,
+        "Header row background in sortable list groups." },
+    { "List Header Text",     "listgroup_headerfg", 12, PFG_INTERACT,
+        "Header row text in sortable list groups." },
+    { "(Reserved 2)",         "unused34",           13, PFG_RESERVED,
+        "Unused legacy slot — kept for save compatibility." },
+    { "(Reserved 3)",         "unused38",           14, PFG_RESERVED,
+        "Unused legacy slot — kept for save compatibility." },
+    /* S306 extension fields — new in 2026-04-16. Each one can be left at
+     * 0/empty in theme.json; the style code will fall back to a sensible
+     * derived default (see pdguiGetToolbarTint / ...TextPositive / ...). */
+    { "Toolbar Tint",         "toolbarTint",        15, PFG_SEMANTIC,
+        "The tint behind modding-hub tool rows and segmented toolbars." },
+    { "Positive Text (Lime)", "textPositive",       16, PFG_SEMANTIC,
+        "Success / validation-OK text (e.g. 'Saved to mods/')." },
+    { "Warning Text (Amber)", "textWarning",        17, PFG_SEMANTIC,
+        "Section-heading / warning text (e.g. Settings tab headers)." },
+    { "Button Hover",         "buttonHover",        18, PFG_SEMANTIC,
+        "Button background when the mouse hovers over it." },
+    { "Button Active",        "buttonActive",       19, PFG_SEMANTIC,
+        "Button background during a press / click." },
 };
-#define NUM_FIELDS 15
+#define NUM_FIELDS ((int)(sizeof(k_Fields) / sizeof(k_Fields[0])))
 
 /* =========================================================================
  * Color conversion helpers
@@ -189,12 +235,30 @@ static bool saveThemeAsMod(const char *name, const char *author)
     fprintf(f, "  \"version\": \"1.0\",\n");
     fprintf(f, "  \"palette\": {\n");
 
+    /* S306: palette block now includes both legacy 15 fields and the five
+     * extension fields. A field is emitted only when non-zero so older
+     * loaders that don't know about the extensions skip them quietly
+     * (parse_theme_json ignores unknown keys), and derived defaults
+     * kick in for any extension the user never touched. Comma placement
+     * is computed up-front from how many non-zero fields we'll emit. */
+    int nWrite = 0;
     for (int i = 0; i < NUM_FIELDS; i++) {
+        int idx = k_Fields[i].index;
+        if (idx < 15) { nWrite++; continue; }
+        if (s_WorkPalette[idx] != 0) nWrite++;
+    }
+
+    int written = 0;
+    for (int i = 0; i < NUM_FIELDS; i++) {
+        int idx = k_Fields[i].index;
+        /* Skip zero extensions so viewers see a tidy file */
+        if (idx >= 15 && s_WorkPalette[idx] == 0) continue;
         char hex[16];
-        palToHex(s_WorkPalette[k_Fields[i].index], hex, sizeof(hex));
+        palToHex(s_WorkPalette[idx], hex, sizeof(hex));
+        written++;
         fprintf(f, "    \"%s\": \"%s\"%s\n",
                 k_Fields[i].jsonKey, hex,
-                (i < NUM_FIELDS - 1) ? "," : "");
+                (written < nWrite) ? "," : "");
     }
 
     fprintf(f, "  },\n");
@@ -339,30 +403,101 @@ static void renderThemeEditor(s32 winW, s32 winH)
                       + ImGui::GetStyle().ItemSpacing.y * 2.0f
                       + 10.0f * scale;
 
-        /* ---- Color pickers ---- */
+        /* ---- Color pickers ----
+         *
+         * S306: group the 20 palette fields into labeled sections
+         * (Frame / Text / Interact / Semantic) so the editor reads as a
+         * guided catalog rather than a 15-row dump. The Reserved group
+         * is hidden behind an Advanced toggle for power users who want
+         * to fill the legacy slots for custom shaders. Each row has a
+         * hover tooltip explaining where the color shows up in-game. */
+        static bool s_ShowReserved = false;
         ImGui::BeginChild("PaletteScroll", ImVec2(0, -footerH), true);
 
+        static const struct { int group; const char *header; const char *blurb; } k_Groups[] = {
+            { PFG_FRAME,    "Window Frame",
+              "Borders, title bar, and body fill." },
+            { PFG_TEXT,     "Text Colors",
+              "Readable text — default, disabled, focused." },
+            { PFG_INTERACT, "Interactive Elements",
+              "Buttons, checkboxes, focus rings, list headers." },
+            { PFG_SEMANTIC, "Semantic Accents",
+              "Toolbars and colored status text (positive / warning)." },
+        };
+
         bool changed = false;
-        for (int i = 0; i < NUM_FIELDS; i++) {
-            int idx = k_Fields[i].index;
+        for (int g = 0; g < (int)(sizeof(k_Groups)/sizeof(k_Groups[0])); g++) {
+            const char *hdr = k_Groups[g].header;
+            int grp = k_Groups[g].group;
+            ImVec4 hdrCol = palToVec4((pdguiGetTextWarning()));
+            ImGui::TextColored(hdrCol, "%s", hdr);
+            ImGui::SameLine();
+            ImGui::TextDisabled("  %s", k_Groups[g].blurb);
+            ImGui::Separator();
 
-            /* Skip reserved fields from the main view */
-            if (idx == 5 || idx == 13 || idx == 14) continue;
+            for (int i = 0; i < NUM_FIELDS; i++) {
+                if (k_Fields[i].group != grp) continue;
+                int idx = k_Fields[i].index;
 
-            ImVec4 col = palToVec4(s_WorkPalette[idx]);
-            char pickerId[64];
-            snprintf(pickerId, sizeof(pickerId), "##pal_%d", idx);
+                ImVec4 col = palToVec4(s_WorkPalette[idx]);
+                char pickerId[64];
+                snprintf(pickerId, sizeof(pickerId), "##pal_%d", idx);
 
-            ImGui::Text("%s", k_Fields[i].label);
-            ImGui::SameLine(200.0f * scale);
+                ImGui::Text("%s", k_Fields[i].label);
+                if (ImGui::IsItemHovered() && k_Fields[i].tooltip) {
+                    ImGui::SetTooltip("%s", k_Fields[i].tooltip);
+                }
+                ImGui::SameLine(220.0f * scale);
 
-            ImGuiColorEditFlags cflags = ImGuiColorEditFlags_AlphaBar
-                                       | ImGuiColorEditFlags_AlphaPreviewHalf
-                                       | ImGuiColorEditFlags_NoInputs;
+                ImGuiColorEditFlags cflags = ImGuiColorEditFlags_AlphaBar
+                                           | ImGuiColorEditFlags_AlphaPreviewHalf
+                                           | ImGuiColorEditFlags_NoInputs;
 
-            if (ImGui::ColorEdit4(pickerId, &col.x, cflags)) {
-                s_WorkPalette[idx] = vec4ToPal(col);
-                changed = true;
+                if (ImGui::ColorEdit4(pickerId, &col.x, cflags)) {
+                    s_WorkPalette[idx] = vec4ToPal(col);
+                    changed = true;
+                }
+
+                /* Extension field "Reset" cheat — a small ghosted label
+                 * on the right reminds the user that zero means "use
+                 * derived default", and clicking it zeroes the slot. */
+                if (k_Fields[i].group == PFG_SEMANTIC) {
+                    ImGui::SameLine();
+                    char resetId[64];
+                    snprintf(resetId, sizeof(resetId), "auto##%d", idx);
+                    if (ImGui::SmallButton(resetId)) {
+                        s_WorkPalette[idx] = 0;
+                        changed = true;
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("Reset to derived default");
+                    }
+                }
+            }
+            ImGui::Spacing();
+        }
+
+        ImGui::Checkbox("Show Reserved (legacy unused slots)", &s_ShowReserved);
+        if (s_ShowReserved) {
+            ImVec4 hdrCol = palToVec4(pdguiGetTextWarning());
+            ImGui::TextColored(hdrCol, "Reserved Slots");
+            ImGui::TextDisabled("  Legacy N64 fields — kept for save compatibility. Not rendered by default.");
+            ImGui::Separator();
+            for (int i = 0; i < NUM_FIELDS; i++) {
+                if (k_Fields[i].group != PFG_RESERVED) continue;
+                int idx = k_Fields[i].index;
+                ImVec4 col = palToVec4(s_WorkPalette[idx]);
+                char pickerId[64];
+                snprintf(pickerId, sizeof(pickerId), "##pal_%d", idx);
+                ImGui::Text("%s", k_Fields[i].label);
+                ImGui::SameLine(220.0f * scale);
+                ImGuiColorEditFlags cflags = ImGuiColorEditFlags_AlphaBar
+                                           | ImGuiColorEditFlags_AlphaPreviewHalf
+                                           | ImGuiColorEditFlags_NoInputs;
+                if (ImGui::ColorEdit4(pickerId, &col.x, cflags)) {
+                    s_WorkPalette[idx] = vec4ToPal(col);
+                    changed = true;
+                }
             }
         }
 
@@ -371,6 +506,11 @@ static void renderThemeEditor(s32 winW, s32 winH)
         /* Apply changes live */
         if (changed) {
             pdguiSetPaletteCustom(s_WorkPalette);
+            /* S306: push the extension tail too so live preview reflects
+             * toolbar tint / positive / warning edits immediately. */
+            pdguiSetPaletteExtensions(s_WorkPalette[15], s_WorkPalette[16],
+                                      s_WorkPalette[17], s_WorkPalette[18],
+                                      s_WorkPalette[19]);
         }
 
         /* ---- Docked footer ---- */
