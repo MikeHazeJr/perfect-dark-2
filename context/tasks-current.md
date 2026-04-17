@@ -7,6 +7,32 @@
 
 ---
 
+## Done — 2026-04-17 (S339 — R-5 Server GUI Redesign, `thirsty-jemison-84f6ce`)
+
+**Build verified.** Clean 252/252 server, 521/521 game. Zero errors.
+`PerfectDark.exe` 52,773,095 / `PerfectDarkServer.exe` 22,905,738.
+
+Redesigned `port/fast3d/server_gui.cpp` and extended `port/src/server_bridge.c`.
+
+New layout:
+- **Status bar**: uptime HH:MM:SS, tick Hz, memory MB, player count, room count, connect code.
+- **Players tab**: 6-column table (Name/State/Ping/Team/Kick/Ban). New `netServerBanClient` bridge.
+- **Rooms tab**: hub state summary + 6-column room table (ID/Name/Players/State/Stage/Scenario).
+- **Operator tab**: match control (game mode, stage ID input, scenario, force start/end) + server control (shutdown, restart-on-update).
+- **Updates tab**: unchanged.
+- **Log panel** (bottom): filter row [All][NET][ERROR][WARN][CHAT][HUB] + auto-scroll toggle.
+
+Bridge additions: `netServerBanClient`, `serverGetMemoryMB`, `serverGetStageId/Set`, `serverGetScenario/Set`.
+`CMakeLists.txt`: `target_link_libraries(pd-server psapi)` for Windows memory query.
+
+**Playtest items:**
+- Launch PerfectDarkServer.exe — verify status bar shows uptime ticking, tick Hz ~60, memory MB.
+- Connect a client — verify Players tab shows name/state/ping/team.
+- Click a filter button in log panel — verify only matching lines shown.
+- Operator tab: change stage ID + Force Start — verify log shows new stage_id.
+
+---
+
 ## Done — 2026-04-17 (S337 — Dev Window v2 improvements)
 
 Three fixes to `devtools/dev-window-v2/dev-window-v2.ps1` (commit `4d117d67`, worktree `peaceful-williams-59ec2f`):

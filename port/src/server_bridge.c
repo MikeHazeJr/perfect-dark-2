@@ -18,6 +18,13 @@
 #include "net/netbuf.h"
 #include "net/netlobby.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#include <psapi.h>
+#endif
+
+extern struct mpsetup g_MpSetup;
+
 /* ========================================================================
  * Lobby state bridge functions
  * ======================================================================== */
@@ -102,4 +109,60 @@ void netServerKickClient(s32 clientId, const char *reason)
     sysLogPrintf(LOG_NOTE, "NET: kicking client %d (%s): %s",
                  clientId, cl->settings.name, reason ? reason : "no reason");
     enet_peer_disconnect(cl->peer, 0);
+}
+
+void netServerBanClient(s32 clientId, const char *reason)
+{
+    if (clientId < 0 || clientId > NET_MAX_CLIENTS) return;
+    if (g_NetMode != NETMODE_SERVER) return;
+
+    struct netclient *cl = &g_NetClients[clientId];
+    if (cl->state == CLSTATE_DISCONNECTED || !cl->peer) return;
+
+    sysLogPrintf(LOG_NOTE, "NET: banning client %d (%s): %s",
+                 clientId, cl->settings.name, reason ? reason : "no reason");
+    enet_peer_disconnect(cl->peer, 0);
+}
+
+/* ========================================================================
+ * Server runtime stats bridge functions
+ * ======================================================================== */
+
+s32 serverGetMemoryMB(void)
+{
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS pmc;
+    memset(&pmc, 0, sizeof(pmc));
+    pmc.cb = sizeof(pmc);
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) {
+        return (s32)(pmc.WorkingSetSize / (1024 * 1024));
+    }
+#endif
+    return 0;
+}
+
+/* ========================================================================
+ * Match setup bridge functions (server-side stage/mode control)
+ * ======================================================================== */
+
+const char *serverGetStageId(void)
+{
+    return g_MpSetup.stage_id;
+}
+
+void serverSetStageId(const char *stage_id)
+{
+    if (!stage_id) return;
+    strncpy(g_MpSetup.stage_id, stage_id, sizeof(g_MpSetup.stage_id) - 1);
+    g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
+}
+
+u8 serverGetScenario(void)
+{
+    return g_MpSetup.scenario;
+}
+
+void serverSetScenario(u8 scenario)
+{
+    g_MpSetup.scenario = scenario;
 }
