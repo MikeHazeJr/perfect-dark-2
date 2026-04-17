@@ -38,7 +38,7 @@ v0.1.0 target: **Stable single-player + local multiplayer + mod support + online
 | Item | Effort | Detail |
 |------|--------|--------|
 | **M3 — Online MP flow** | M | Lobby polish, room list UX, leader election, Quick Play. R-3 (room networking) done. L5 match lifecycle (co-op manifest, protocol v35, match_seed) DONE S241. |
-| **Prop sync event-driven** | S | Currently CRC polling. Should fire on pickup/door events. |
+| **Prop sync event-driven** | S | **DONE (S353)** — Dirty-flag bitset (`s_PropDirtyFlags[512]`, `s_PropDirtyCount`). Each SvcProp*Write marks the prop dirty. 120-tick PROP_SYNC heartbeat skips entirely when `s_PropDirtyCount == 0` (O(1) vs O(N_props)). CRC still scans all props so both sides compare the same hash. |
 | **B-78 chat rate limiting** | S | **DONE (2026-04-11)** — CHAT_MSG_MAX_LEN 255 + length check before rate-limit ring. |
 | **B-81 JSON recursion guard** | S | **DONE (2026-04-11)** — S_MAX_DEPTH 64 + 256KB file cap. |
 
@@ -47,7 +47,7 @@ v0.1.0 target: **Stable single-player + local multiplayer + mod support + online
 | Item | Effort | Detail |
 |------|--------|--------|
 | **D5 Phase 5 — Lobby scene** | L | Player portraits, connected player avatars, character preview. |
-| **Killfeed bot kills** | S | Bot kills not appearing in killfeed. |
+| **Killfeed bot kills** | S | **DONE (verified S353)** — `mpstatsRecordDeath` → `pdguiKillfeedPush` fires for all `ampchr && vmpchr` combinations regardless of bot/player. `func0f18d074` + `MPCHR` macro correctly resolve bot configs. Format is "[Attacker] killed [Victim]" uniformly. Matches prior code-trace result from archive. |
 | **B-97 Special Assignments separation** | S | **DONE (S242/S245 FIX-G)** — SeparatorText headers with completion counters for Campaign + SA sections. |
 
 ## Release Milestones (detailed)
