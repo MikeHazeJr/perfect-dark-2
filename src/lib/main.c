@@ -56,6 +56,7 @@
 #include "lib/dma.h"
 #include "lib/joy.h"
 #include "actionmap.h"
+#include "crashbreadcrumb.h"
 #include "lib/main.h"
 #include "lib/snd.h"
 #include "lib/memp.h"
@@ -1142,6 +1143,19 @@ void mainTick(void)
 
 	/* menuMgrTick() removed — P10 D5.7 OG Menu Removal */
 
+	/* S301: breadcrumb heartbeat. Logs every frame at microsecond
+	 * granularity so the VEH dump shows exactly which tick we were
+	 * in when a crash fired. Logging every frame is ~50 bytes of
+	 * static ring each tick — no allocations, no I/O. A full
+	 * textual sysLogPrintf heartbeat still runs every 30s in
+	 * lvTick (see below) for readability in the live log. */
+	{
+		extern s32 g_ChrLastTickedIndex;
+		crashBreadcrumbPush("HEARTBEAT frame=%d stage=0x%02x chrs=%d last_chr=%d pending=%d",
+			g_Vars.lvframe60, (u32)g_Vars.stagenum, g_MpNumChrs,
+			g_ChrLastTickedIndex, g_MainChangeToStageNum);
+	}
+
 	if (g_MainChangeToStageNum < 0 && g_MainNumGfxTasks < NUM_GFXTASKS) {
 		frametimeCalculate();
 		profile00009a98();
@@ -1295,6 +1309,12 @@ void mainChangeToStage(s32 stagenum)
 			"MAIN: replacing pending stage change 0x%02x -> 0x%02x",
 			(u32)g_MainChangeToStageNum, (u32)stagenum);
 	}
+
+	/* S301: breadcrumb stage transitions. Many silent crashes / freezes
+	 * happen at stage-change boundaries (mid-load, mid-unload); knowing
+	 * we were in the middle of a transition is a huge signal. */
+	crashBreadcrumbPush("STAGE.CHANGE current=0x%02x pending=0x%02x -> new=0x%02x",
+		(u32)g_Vars.stagenum, (u32)g_MainChangeToStageNum, (u32)stagenum);
 
 	g_MainChangeToStageNum = stagenum;
 }

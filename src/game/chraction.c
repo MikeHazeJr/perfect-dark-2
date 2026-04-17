@@ -58,6 +58,7 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "crashbreadcrumb.h"
 #include "net/net.h"
 #include "net/netmsg.h"
 
@@ -13826,6 +13827,12 @@ void chraTickBg(void)
 		g_Vars.autocutnum = -1;
 		g_Vars.autocutplaying = true;
 	}
+
+	/* S301: chraTickBg is the outer frame of the AI tick loop. One
+	 * breadcrumb here per frame is enough — individual chraTick
+	 * updates g_ChrLastTickedIndex which the VEH dump reads. */
+	crashBreadcrumbPush("CHRTICKBG frame=%d bg=%d slots=%d alive_on_screen=prev",
+		g_Vars.lvframe60, g_NumBgChrs, numchrs);
 
 	// Run BG scripts
 	for (i = 0; i < g_NumBgChrs; i++) {

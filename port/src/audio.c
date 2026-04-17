@@ -98,6 +98,24 @@ static u32 g_AudioHitchCount = 0;
 static u32 s_AudioLastEndTick = 0;           /* for hitch detection */
 static u32 s_AudioLastSummaryTick = 0;       /* for periodic summary */
 
+/* S301 B-141 DIAG expansion: track mixer-state & scheduling-gap signals
+ * that let us narrow "audio skips" into one of four buckets:
+ *   - render producer starved (nextBuf NULL when audioEndFrame fires)
+ *   - consumer stalled (buffered never drains even though producer is fine)
+ *   - large scheduling gap between audioEndFrame calls (OS jitter)
+ *   - mix buffer overrun (s_MixBuf capacity exceeded)
+ * All counters are monotonic; included in the 30s summary and the first
+ * DIAG log line of each summary window carries the min/max gap + peak
+ * buffered for more forensic info. */
+static u32 s_AudioDiagNullProducerCount = 0;  /* audioEndFrame with nextBuf==NULL */
+static u32 s_AudioDiagMixBufOverflowCount = 0;/* numSamples > mix buffer size */
+static u32 s_AudioDiagMaxGapMs = 0;           /* peak gap seen this window */
+static u32 s_AudioDiagMaxBufferedSamples = 0; /* peak queue depth this window */
+static u32 s_AudioDiagMinBufferedSamples = 0; /* floor queue depth this window */
+static u64 s_AudioDiagSumGapMs = 0;           /* for mean gap calc */
+static u32 s_AudioDiagSumGapCount = 0;        /* denominator for mean */
+static u32 s_AudioDiagFrameCount = 0;         /* audioEndFrame calls this window */
+
 s32 audioInit(void)
 {
 	if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
@@ -119,6 +137,22 @@ s32 audioInit(void)
 	if (dev == 0) {
 		sysLogPrintf(LOG_ERROR, "SDL_OpenAudio error: %s", SDL_GetError());
 		return -1;
+	}
+
+	/* S301 DIAG: log the audio device's actual spec (drivers may grant a
+	 * different config than we asked for — sample-rate mismatch has
+	 * historically caused the B-82 22020/22050 bug). */
+	sysLogPrintf(LOG_NOTE,
+		"AUDIO.DIAG: init dev=%u wanted(freq=%d fmt=0x%04x ch=%d samples=%d) "
+		"got(freq=%d fmt=0x%04x ch=%d samples=%d size=%u) queueLimit=%d",
+		(unsigned)dev, want.freq, want.format, want.channels, want.samples,
+		have.freq, have.format, have.channels, have.samples,
+		(unsigned)have.size, queueLimit);
+	if (have.freq != want.freq) {
+		sysLogPrintf(LOG_WARNING,
+			"AUDIO.DIAG: SAMPLE RATE MISMATCH wanted=%d got=%d — "
+			"expect pitch-shifted audio (B-82 class)",
+			want.freq, have.freq);
 	}
 
 	SDL_PauseAudioDevice(dev, 0);
@@ -158,10 +192,19 @@ void audioEndFrame(void)
 {
 	const u32 now = SDL_GetTicks();
 
+	s_AudioDiagFrameCount++;
+
 	/* B-141: hitch detection — gap between consecutive pushes exceeds
 	 * threshold. Main loop stalled; audio will underrun right after. */
 	if (s_AudioLastEndTick != 0) {
 		const u32 delta = now - s_AudioLastEndTick;
+		/* S301 DIAG: accumulate scheduler-gap stats regardless of
+		 * whether the gap is a "hitch" — peak + mean across the window
+		 * is useful even when no event fires. */
+		if (delta > s_AudioDiagMaxGapMs) s_AudioDiagMaxGapMs = delta;
+		s_AudioDiagSumGapMs += delta;
+		s_AudioDiagSumGapCount++;
+
 		if (delta > AUDIO_HITCH_THRESHOLD_MS) {
 			g_AudioHitchCount++;
 			if (g_AudioVerboseLog) {
@@ -173,6 +216,15 @@ void audioEndFrame(void)
 
 	if (nextBuf && nextSize) {
 		const s32 buffered = audioGetSamplesBuffered();
+
+		/* S301 DIAG: track peak/floor queue depth across the window. */
+		if ((u32)buffered > s_AudioDiagMaxBufferedSamples) {
+			s_AudioDiagMaxBufferedSamples = (u32)buffered;
+		}
+		if (s_AudioDiagMinBufferedSamples == 0
+				|| (u32)buffered < s_AudioDiagMinBufferedSamples) {
+			s_AudioDiagMinBufferedSamples = (u32)buffered;
+		}
 
 		/* B-141: underrun detection — consumer chewed through the queue. */
 		if (buffered < AUDIO_UNDERRUN_THRESHOLD_SAMPLES) {
@@ -189,6 +241,13 @@ void audioEndFrame(void)
 				u32 numFrames = numSamples / 2;
 
 				if (numSamples > sizeof(s_MixBuf) / sizeof(s16)) {
+					s_AudioDiagMixBufOverflowCount++;
+					if (g_AudioVerboseLog) {
+						sysLogPrintf(LOG_WARNING,
+							"AUDIO.DIAG: mix buffer OVERFLOW req=%u cap=%zu — truncating",
+							(unsigned)numSamples,
+							sizeof(s_MixBuf) / sizeof(s16));
+					}
 					numSamples = sizeof(s_MixBuf) / sizeof(s16);
 					numFrames = numSamples / 2;
 				}
@@ -210,17 +269,45 @@ void audioEndFrame(void)
 		}
 		nextBuf = NULL;
 		nextSize = 0;
+	} else {
+		/* S301 DIAG: audioEndFrame fired but no producer buffer was
+		 * queued this frame. Normal for paused states; excessive in a
+		 * running match means the RSP driver is not producing PCM
+		 * (musicTick / sndTick not firing). */
+		s_AudioDiagNullProducerCount++;
 	}
 
 	/* B-141: periodic 30s summary if anything happened in the window */
 	if (now - s_AudioLastSummaryTick > AUDIO_SUMMARY_INTERVAL_MS) {
 		s_AudioLastSummaryTick = now;
-		if (g_AudioDropCount || g_AudioUnderrunCount || g_AudioHitchCount) {
-			sysLogPrintf(LOG_NOTE, "AUDIO[B-141]: 30s summary drops=%u underruns=%u hitches=%u",
-			             (unsigned)g_AudioDropCount,
-			             (unsigned)g_AudioUnderrunCount,
-			             (unsigned)g_AudioHitchCount);
+		if (g_AudioDropCount || g_AudioUnderrunCount || g_AudioHitchCount
+				|| s_AudioDiagNullProducerCount || s_AudioDiagMixBufOverflowCount) {
+			const u32 meanGap = s_AudioDiagSumGapCount
+				? (u32)(s_AudioDiagSumGapMs / s_AudioDiagSumGapCount) : 0;
+			sysLogPrintf(LOG_NOTE,
+				"AUDIO[B-141]: 30s summary drops=%u underruns=%u hitches=%u "
+				"nullProducer=%u mixOverflow=%u frames=%u gap(ms) max=%u mean=%u "
+				"buffered(samples) min=%u max=%u",
+				(unsigned)g_AudioDropCount,
+				(unsigned)g_AudioUnderrunCount,
+				(unsigned)g_AudioHitchCount,
+				(unsigned)s_AudioDiagNullProducerCount,
+				(unsigned)s_AudioDiagMixBufOverflowCount,
+				(unsigned)s_AudioDiagFrameCount,
+				(unsigned)s_AudioDiagMaxGapMs,
+				(unsigned)meanGap,
+				(unsigned)s_AudioDiagMinBufferedSamples,
+				(unsigned)s_AudioDiagMaxBufferedSamples);
 		}
+		/* Reset per-window aggregates but keep monotonic counters. */
+		s_AudioDiagNullProducerCount = 0;
+		s_AudioDiagMixBufOverflowCount = 0;
+		s_AudioDiagMaxGapMs = 0;
+		s_AudioDiagMaxBufferedSamples = 0;
+		s_AudioDiagMinBufferedSamples = 0;
+		s_AudioDiagSumGapMs = 0;
+		s_AudioDiagSumGapCount = 0;
+		s_AudioDiagFrameCount = 0;
 	}
 }
 

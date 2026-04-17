@@ -529,6 +529,7 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/fs.c
   ${CMAKE_SOURCE_DIR}/port/src/utils.c
   ${CMAKE_SOURCE_DIR}/port/src/crash.c
+  ${CMAKE_SOURCE_DIR}/port/src/crashbreadcrumb.c
 
   # Server GUI (ImGui, SDL2, OpenGL -- self-contained)
   ${CMAKE_SOURCE_DIR}/port/fast3d/server_gui.cpp

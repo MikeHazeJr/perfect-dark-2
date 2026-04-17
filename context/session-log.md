@@ -1,7 +1,71 @@
 # Session Log (Active)
 
-> **S241–S299** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S301** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S301 — 2026-04-16 (Comprehensive instrumentation for Bug C / Bug D / Chicago crash / Airbase start / B-141 — confident-chaum worktree)
+
+**Scope**: "Do everything you can, and add logging we can use to determine how to do the rest" — no fixes are straightforward enough to land outright given the playtest-only repros; this session is purely a diagnostics drop so the next Mike playtest produces logs that tell us exactly what the remaining open bugs are doing. Covers the five tracks queued in `bugs.md` (Bug C, Bug D, Chicago silent crash, Airbase 0xc0000005, B-141 audio skips).
+
+**New files**:
+
+- `port/include/crashbreadcrumb.h` — public API for a crash-surviving breadcrumb ring. 256 slots × 112 bytes per slot, all-static storage; push sites are one-line `crashBreadcrumbPush(fmt, ...)` calls, dump is one-line `crashBreadcrumbDump(f, entries)`. Safe to call from any thread; index update uses `__atomic_fetch_add` for racy-but-benign writer coordination. A second entry-point `crashBreadcrumbLogRecent(count)` routes via `sysLogPrintf` for a developer "tail" without crashing.
+- `port/src/crashbreadcrumb.c` — implementation. `vsnprintf` into the claimed slot, timestamp via `sysGetMicroseconds`. Dump walks oldest-first and gates by sequence, so a slot overwritten between claim and publish is skipped rather than producing a half-written string.
+
+**Wiring — crash path**:
+
+1. `port/src/crash.c` — `crashInit()` calls `crashBreadcrumbInit()` before any handler is installed. VEH (`crashVectoredHandler`), full UEF (`crashHandler`), Windows SIGABRT (`crashSigabrtHandler`), and the Linux `sigaction` handler each append the breadcrumb ring to their log output via `crashBreadcrumbDump(FILE*, N)` — 64 entries from the VEH/SIGABRT paths (minimal stack budget), 128 from the UEF path. All dumps go to the same log file as the exception header, so a single post-crash log contains the PC/stack trace AND the execution trail leading to it.
+
+**Wiring — push sites** (every push is behind a function that's already called once per frame at most, so ring pressure is bounded):
+
+- `src/lib/main.c::mainTick` — frame heartbeat: `HEARTBEAT frame=… stage=… chrs=… last_chr=… pending=…`. One push per game tick.
+- `src/lib/main.c::mainChangeToStage` — `STAGE.CHANGE current=… pending=… -> new=…`. Captures mid-transition crashes.
+- `src/game/lv.c::lvTick` — `LVTICK frame=… stage=… update240=… paused=…`. Distinguishes outer-loop crashes from inside-stage crashes.
+- `src/game/chraction.c::chraTickBg` — `CHRTICKBG frame=… bg=… slots=…`.
+- `src/game/chr.c` (inside the chraTick dispatcher at line ~2495 where `g_ChrLastTickedIndex` is set) — `CHR.TICK slot=… chrnum=… action=… race=… model=…`. At 32 bots × 60 Hz that's ~1920 pushes/s, fills the ring in ~130 ms — exactly the horizon we want for "what was the last chr alive before the crash".
+- `src/game/bondwalk.c::bwalkTick` — `BWALK.TICK player=… pos=(…) room=… floorroom=…`. Separates player-collision crashes from AI.
+- `src/game/bot.c::botSpawn` — `BOT.SPAWN chrnum=… respawn=… model=… aibot=…`.
+- `src/game/botmgr.c::botmgrAllocateBot` — `BOT.ALLOC chrnum=… slot=… body=… head=…`.
+- `port/src/net/matchsetup.c::matchStart` — entry + pre-`mpStartMatch` + post.
+- `port/src/net/netmsg.c::netmsgSvcStageStartWrite` — `SVC_STAGE_START.write stage=… mode=… tick=…`.
+- `port/src/net/netmsg.c::netmsgSvcStageStartRead` — `SVC_STAGE_START.read srccl=… state=…`.
+- `port/src/net/net.c::netServerStageStart` — entry + post-send.
+
+**Wiring — standard log diag lines** (tagged for grep):
+
+- `ENDSCREEN.DIAG:` — `renderMpEndscreen` fresh-entry + geometry + body-child + rankings-count + awards-path + actions-section. Capped at 80 prints per match via `ENDSCREEN_DIAG_MAX_PRINTS` and `s_MpEndscreenDiagPrintCount` so an oscillating endscreen can't flood `pd.log`. Still surfaces the six Bug C hypotheses (empty rankings, clamped contentH, Begin=false, padding math, chrome inset collision, body-child cull) at the first frame of render so one repro pass is enough.
+- `CHR.DIAG:` — `botmgrAllocateBot`, `bodyAllocateModel`, `botSpawn` before/after. Logs catalog IDs alongside the integer ids; flags `model=NULL` + final `invisible=true` state at the end of spawn so Bug D (invisible bots on Chicago) leaves a fingerprint.
+- `MATCHSTART.DIAG:` — `matchStart` entry + `pre-mpStartMatch` + `post-mpStartMatch`; `netServerStageStart` entry + send-outcome; `netmsgSvcStageStart{Write,Read}` send/receive markers. Airbase 0xc0000005 / "manifest OK but no SVC_STAGE_START" repro will show which step returned early.
+- `AUDIO.DIAG:` — `audioInit` logs requested vs granted SDL spec (sample-rate mismatch = B-82 class warning). `audioEndFrame` tracks `nullProducer` (no PCM queued this frame), `mixBufOverflow` (s_MixBuf capacity exceeded), min/max/mean scheduler gap (ms), min/max queue depth (samples) — folded into the existing 30-second `AUDIO[B-141]:` summary.
+- `CRASH.DIAG:` — the header under which the VEH/UEF/SIGABRT handlers dump the breadcrumb ring alongside the exception context. Also used by `crashBreadcrumbLogRecent()` for developer-requested tails.
+
+**CMake**: `port/src/crashbreadcrumb.c` added to the pd-server `SRC_SERVER` list next to `crash.c` so both binaries link. The GLOB_RECURSE in pd picks it up automatically; the server target's explicit list had to be edited.
+
+**Design decisions**:
+
+- **Breadcrumb ring sits in static BSS, not heap.** A heap allocation would not survive stack-overflow crashes (the VEH runs on a fresh reserved stack page but can't trust the heap allocator state). 256 × 112 = ~28 KB static — trivial.
+- **No log-channel for the new DIAG tags.** The channel filter (`sysLogClassifyMessage`) maps prefixes like `AUDIO:` but my new tags (`AUDIO.DIAG:`, `ENDSCREEN.DIAG:`, etc.) intentionally don't match any channel. Result: they fall through to "untagged, always passes" — they'll appear in every playtest log regardless of `Debug.LogChannelMask`. This matches the brief ("DOES appear with standard log settings during a playtest"). Per-site rate-limiting (ENDSCREEN caps at 80; CHR.DIAG is one-shot per spawn; MATCHSTART is one-shot per match; AUDIO.DIAG is 30-second batched) handles the "doesn't spam normal play" requirement.
+- **DIAG counters vs new-bug fixes.** None of the five tracks had an obviously-straightforward root cause reachable without playtest evidence; the instrumentation is the work this session, and the next repro pass will tell us what, if anything, to fix outright. The one structural change I could justify — extending VEH dump to include breadcrumbs — is itself a diagnostic improvement and is included.
+- **Bug D side-effect fixes**. While wiring `CHR.DIAG` I noticed `bodyAllocateModel` had no NULL-return log; added a LOG_WARNING when the body model fails to allocate and when the head catalog entry is missing. These were actual silent failures previously, so they stay regardless of the diagnostic pass.
+
+**Build verify**: `source devtools/build-env.sh && ninja -C Build pd pd-server` — both targets link. `PerfectDark.exe` 51,541,351 bytes (up ~38 KB from baseline 51,502,778), `PerfectDarkServer.exe` 22,834,207 bytes. No new warnings; only the pre-existing `'/*' within comment` warnings in `updater.c` / `updater.h` / `savemigrate.c` / `server_gui.cpp` / `pdgui_theme_loader.h`, the `f32 near/far` member-name warnings in `types.h`, and the `gettime_offset` unused-fn warning in `enet.c`.
+
+**Not done in this session**:
+
+- No playtest verification — that's the point; the next Mike playtest produces the logs.
+- No per-chr visibility state-change tracking (ADR §6 — invisible-bot hysteresis). The `CHR.DIAG` at spawn is a snapshot; mid-match visibility toggles (e.g. room swap → rooms[0]=-1) would need a dedicated `propSetInvisible` hook that isn't justified without at least one repro showing spawn-time state as OK.
+- No audio voice-count or source-creation logging. The port's audio path is almost entirely RSP-driven; individual voice state lives inside `ultra/audio` and the PD engine's mixer, which this port doesn't extend. Would need an engine-side hook; out of scope for a logging-only session.
+- The `LOG_CH_*` classifier could be extended with a `LOG_CH_DIAG` channel keyed on the `.DIAG:` suffix so operators can silence all DIAG messages with one mask bit — deliberately deferred to keep this session's footprint small.
+
+**Next**: Mike replays the Chicago, Airbase, MP endscreen, and audio-skip repros; tail `pd.log` / `pd-client.log` / `pd-server.log` for the new tags. Expected signals (paraphrased from bugs.md):
+
+- **Bug C** — the endscreen render state is now fully captured. If body is still invisible, check `ENDSCREEN.DIAG: rankings built count=0` (empty-body hypothesis), `ENDSCREEN.DIAG: body child opened contentW=… contentH=…` vs actual screen size (clamped-height hypothesis), or `ENDSCREEN.DIAG: ENTRY (fresh)` without a matching `contentAvail` line (Begin=false hypothesis).
+- **Bug D** — `CHR.DIAG: WARNING chrnum=N is INVISIBLE after botSpawn` with the reason code (model NULL / CHRCFLAG_HIDDEN / VOID room) pinpoints which path failed.
+- **Chicago silent crash** — on the next crash, the last ~1 second of `CHR.TICK`, `BWALK.TICK`, `HEARTBEAT`, and `LVTICK` breadcrumbs will be in `pd.crash.log` / `pd-client.log` under `CRASH.DIAG: breadcrumb ring dump follows:`. Read oldest-to-newest — the final entry is the one active at death.
+- **Airbase no-SVC_STAGE_START** — grep `MATCHSTART.DIAG:` in both `pd-client.log` and `pd-server.log`. A server that logs `netServerStageStart stage=… clients=…` but no client logs `SVC_STAGE_START read` indicates the packet never reached the client (network layer). Server-side absence of `netServerStageStart` means the ready gate didn't fire — check for `BAILED reason=…` lines.
+- **B-141 audio** — existing 30-second summary now includes min/max/mean scheduler gap, min/max queue depth, and null-producer/mix-overflow counters alongside drops/underruns/hitches. First summary after a skip lands should tell us whether the bug is hitches (OS jitter), underruns (RSP stalled), drops (main loop racing audio), nullProducer (sndTick/musicTick stopped firing), or mixBufOverflow (mod music overran the 8192-sample mix buffer).
+
+---
 
 ## Session S299 — 2026-04-16 (Input Authority Phase 2 — menu pool single-instance discipline — trusting-banach worktree)
 

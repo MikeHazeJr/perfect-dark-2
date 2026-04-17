@@ -7,6 +7,41 @@
 
 ---
 
+## Open — 2026-04-16 (S301 — confident-chaum) — comprehensive instrumentation drop
+
+**What shipped**: `port/include/crashbreadcrumb.h` + `port/src/crashbreadcrumb.c` (256-slot static ring, dumped by VEH / UEF / SIGABRT / Linux `sigaction` handlers); push sites in `src/lib/main.c` (mainTick heartbeat + mainChangeToStage), `src/game/lv.c` (lvTick), `src/game/chr.c` (CHR.TICK around chraTick dispatcher), `src/game/chraction.c` (chraTickBg), `src/game/bondwalk.c` (bwalkTick), `src/game/bot.c` (botSpawn), `src/game/botmgr.c` (botmgrAllocateBot), `port/src/net/matchsetup.c` (matchStart), `port/src/net/netmsg.c` (SVC_STAGE_START send/receive), `port/src/net/net.c` (netServerStageStart); standard log-channel DIAG lines with prefixes `ENDSCREEN.DIAG:` / `CHR.DIAG:` / `MATCHSTART.DIAG:` / `AUDIO.DIAG:` / `CRASH.DIAG:` covering Bug C / Bug D / Chicago / Airbase / B-141 respectively.
+
+### Playtest: tail the log for the new DIAG tags
+
+On the next repro pass, before reporting, run:
+
+```bash
+grep -E "ENDSCREEN\.DIAG|CHR\.DIAG|MATCHSTART\.DIAG|AUDIO\.DIAG|CRASH\.DIAG|HEARTBEAT|LVTICK|BWALK\.TICK|CHR\.TICK|BOT\.SPAWN|STAGE\.CHANGE" pd-client.log
+```
+
+and for the server side:
+
+```bash
+grep -E "MATCHSTART\.DIAG|CHR\.DIAG|CRASH\.DIAG" pd-server.log
+```
+
+### What each tag tells you
+
+- **Bug C — MP endscreen body invisible** (`ENDSCREEN.DIAG:`). On fresh entry you get one `ENTRY (fresh)` line with `g_MpPlayerNum / g_NetMode / challengeResult / titleOverride`. Once Begin succeeds you get a geometry dump with `sf / menu / pad / win / contentAvail / scroll`. On the first frame you also get `body child opened contentW=… contentH=… innerCRA=…x…` and `rankings built count=N teamsMode=…`. If rankings count is 0, that explains the invisible body. If `contentH < minH` you see the pre-existing `ENDSCREEN: contentH clamped` warning. Capped at 80 prints per match.
+- **Bug D — invisible networked bots** (`CHR.DIAG:`). Bot allocation logs `botAlloc chrnum=… body=… body_id='…'`. If `bodyAllocateModel` returns NULL you see `WARNING bodyAllocateModel returned NULL`. If `chrAllocate` returns NULL you see `WARNING chrAllocate returned NULL`. At the end of `botSpawn`, final state is `botSpawn DONE chrnum=… model=… chrflags=…x… hidden=…x… invisible=0|1`. An `invisible=1` line names the exact reason (`model=NULL` / `HIDDEN` / `VOID(-1)`).
+- **Chicago silent crash ~9s** (`CRASH.DIAG:`). On the next silent death, open `pd-client.log` or `pd.crash.log` and find the `FATAL:` line. Directly below it is `CRASH.DIAG: breadcrumb ring dump follows:` followed by up to 128 entries in time order. Last entry = last subsystem alive. Expect sequences like `HEARTBEAT frame=N …` → `LVTICK frame=N …` → `CHRTICKBG …` → `CHR.TICK slot=17 chrnum=25 action=…` → (crash here). If the trail ends on `BWALK.TICK` or `STAGE.CHANGE`, the crash was NOT in chr AI.
+- **Airbase 0xc0000005 / Start-Match no-response** (`MATCHSTART.DIAG:`). Server log should show `matchStart entry …` → `pre-mpStartMatch …` → `post-mpStartMatch …` → `netServerStageStart stage=… clients=N` → `SVC_STAGE_START sent …`. Each missing step is a decision point that bailed. Client log should show `SVC_STAGE_START read begin srccl=… state=…` if the message arrived. Absence of that line on client + presence on server = packet drop in transit. Absence on both = server never sent.
+- **B-141 audio skips** (`AUDIO.DIAG:` / enhanced `AUDIO[B-141]:` summary). `audioInit` logs full SDL device spec — watch for `SAMPLE RATE MISMATCH` warning. Every 30 s a summary line now reports drops, underruns, hitches, nullProducer count, mixBufOverflow count, scheduler gap (max/mean ms), and queue depth (min/max samples). A skip during that window will light up exactly one bucket — that tells you whether the bug is OS jitter (hitches), RSP starvation (nullProducer), consumer stall (high max buffered), or mod mixer overflow (mixBufOverflow > 0).
+
+### Follow-up once any track clears
+
+- If Bug C resolves from a single ENDSCREEN.DIAG trace → promote the instrumentation's finding into a proper fix and then reduce `ENDSCREEN_DIAG_MAX_PRINTS` from 80 to 10 (keep a small safety log for regressions).
+- If Chicago crash identifies a specific subsystem → add more granular breadcrumbs inside that subsystem (e.g., inside collision.c per-probe if the last entry is always `BWALK.TICK`) and ship a second diagnostic drop.
+- If `AUDIO.DIAG: mixBufOverflow > 0` on the first repro → `s_MixBuf` needs to grow past 8192 samples, or `modMusicMixInto` needs to chunk. Easy fix.
+- If `CHR.DIAG: WARNING … invisible=1 … VOID(-1)` on every spawn → FIX-A.2 is the area, but we now have the fingerprint for an exact reproducer.
+
+---
+
 ## Open — 2026-04-16 (S299 — trusting-banach)
 
 ### Playtest verification of Input Authority Phase 2 (menu pool)

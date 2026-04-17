@@ -30,6 +30,7 @@
 #include "types.h"
 #include "net/net.h"
 #include "system.h"
+#include "crashbreadcrumb.h"
 #include "utils.h"
 
 extern s32 g_JumpLoggingEnabled;
@@ -2312,6 +2313,23 @@ void bwalk0f0c69b8(void)
 
 void bwalkTick(void)
 {
+	/* S301: breadcrumb each player collision/walk tick so the VEH dump
+	 * can distinguish "crashed in AI" from "crashed in player movement".
+	 * Includes the floorroom because void-room crashes (B-39 / B-149)
+	 * fall into this call chain. */
+	if (g_Vars.currentplayer) {
+		crashBreadcrumbPush("BWALK.TICK player=%d pos=(%.0f,%.0f,%.0f) room=%d floorroom=%d",
+			g_Vars.currentplayernum,
+			g_Vars.currentplayer->prop->pos.x,
+			g_Vars.currentplayer->prop->pos.y,
+			g_Vars.currentplayer->prop->pos.z,
+			(int)g_Vars.currentplayer->prop->rooms[0],
+			(int)g_Vars.currentplayer->floorroom);
+	} else {
+		crashBreadcrumbPush("BWALK.TICK player=%d (null currentplayer)",
+			g_Vars.currentplayernum);
+	}
+
 	bwalkUpdatePrevPos();
 	bwalkUpdateTheta();
 	bmoveUpdateVerta();

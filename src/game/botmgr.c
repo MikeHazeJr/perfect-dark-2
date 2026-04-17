@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "memsizes.h"
 #include "system.h"
+#include "crashbreadcrumb.h"
 #include "assetcatalog.h" /* SA-5d: catalogGetBodyIsMale */
 #include "game/botmgr.h"
 #include "game/chr.h"
@@ -45,11 +46,20 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
 	headnum = mpGetHeadId(g_BotConfigsArray[aibotnum].base.mpheadnum);
 	bodynum = mpGetBodyId(g_BotConfigsArray[aibotnum].base.mpbodynum);
 
-	sysLogPrintf(LOG_NOTE, "BOT_ALLOC: chrnum=%d slot=%d body=%d head=%d mpbody=%d mphead=%d name='%s'",
+	/* S301 Bug D diag: log catalog IDs + resolved filenums alongside
+	 * the integer ids. If integers are valid but body_id/head_id strings
+	 * are empty the catalog path is mis-wired. */
+	sysLogPrintf(LOG_NOTE,
+		"CHR.DIAG: botAlloc chrnum=%d slot=%d body=%d head=%d mpbody=%d mphead=%d "
+		"body_id='%s' head_id='%s' name='%s'",
 		chrnum, aibotnum, bodynum, headnum,
 		g_BotConfigsArray[aibotnum].base.mpbodynum,
 		g_BotConfigsArray[aibotnum].base.mpheadnum,
+		g_BotConfigsArray[aibotnum].base.body_id,
+		g_BotConfigsArray[aibotnum].base.head_id,
 		g_BotConfigsArray[aibotnum].base.name);
+	crashBreadcrumbPush("BOT.ALLOC chrnum=%d slot=%d body=%d head=%d",
+		chrnum, aibotnum, bodynum, headnum);
 
 	if (IS4MB()) {
 		headnum = HEAD_DDSHOCK;
@@ -58,8 +68,17 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
 
 	model = bodyAllocateModel(bodynum, headnum, 0);
 
-	sysLogPrintf(LOG_NOTE, "BOT_ALLOC: bodyAllocateModel returned %p for chrnum=%d slot=%d",
-		(void *)model, chrnum, aibotnum);
+	sysLogPrintf(LOG_NOTE,
+		"CHR.DIAG: botAlloc model=%p body=%d head=%d chrnum=%d slot=%d",
+		(void *)model, bodynum, headnum, chrnum, aibotnum);
+	if (model == NULL) {
+		sysLogPrintf(LOG_WARNING,
+			"CHR.DIAG: WARNING bodyAllocateModel returned NULL for chrnum=%d "
+			"slot=%d body=%d head=%d body_id='%s' head_id='%s' -- bot will be INVISIBLE",
+			chrnum, aibotnum, bodynum, headnum,
+			g_BotConfigsArray[aibotnum].base.body_id,
+			g_BotConfigsArray[aibotnum].base.head_id);
+	}
 
 	if (model != NULL) {
 		struct coord pos = {0.0f, 0.0f, 0.0f};
@@ -67,8 +86,15 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
 
 		prop = chrAllocate(model, &pos, rooms, 0.0f, ailistFindById(GAILIST_AIBOT_INIT));
 
-		sysLogPrintf(LOG_NOTE, "BOT_ALLOC: chrAllocate returned prop=%p for chrnum=%d slot=%d g_BotCount=%d g_MpNumChrs=%d",
-			(void *)prop, chrnum, aibotnum, g_BotCount, g_MpNumChrs);
+		sysLogPrintf(LOG_NOTE,
+			"CHR.DIAG: chrAllocate prop=%p chr=%p chrnum=%d slot=%d g_BotCount=%d g_MpNumChrs=%d",
+			(void *)prop, prop ? (void *)prop->chr : NULL,
+			chrnum, aibotnum, g_BotCount, g_MpNumChrs);
+		if (prop == NULL) {
+			sysLogPrintf(LOG_WARNING,
+				"CHR.DIAG: WARNING chrAllocate returned NULL for chrnum=%d slot=%d -- "
+				"chr pool likely exhausted, bot is INVISIBLE", chrnum, aibotnum);
+		}
 
 		if (prop != NULL) {
 			propActivate(prop);
