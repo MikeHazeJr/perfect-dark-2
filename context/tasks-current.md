@@ -7,6 +7,17 @@
 
 ---
 
+## Done — 2026-04-17 (S350 — Wave 3 Cross-Audit: S348 Discord, `vigorous-benz-f8cb68`)
+
+**Build verified.** Clean 775/775 objects, zero errors. Post-merge on dev.
+
+1 bug fixed in `port/src/discord.c`:
+- **JSON injection in SET_ACTIVITY payload**: `details`/`state` strings inserted raw via `%s` into JSON. A mod stage slug containing `"` or `\` would corrupt the pipe frame. Fix: added `disc_json_str()` escape helper — escapes `\` and `"` before both `_snprintf` branches in `disc_send_activity`.
+
+All other audit items confirmed clean: IPC protocol, PIPE_NOWAIT handling, fail-silent reconnect, thread safety, memory management, MinGW compatibility, dedicated server exclusion.
+
+---
+
 ## Done — 2026-04-17 (S349 — Cross-Audit S346+S347, `cool-poitras-b287e7`)
 
 **Build verified.** Clean 774/774 objects, zero errors.

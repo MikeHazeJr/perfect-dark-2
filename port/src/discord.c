@@ -273,10 +273,31 @@ static void disc_build_activity(disc_activity_t *a)
 
 /* ── SET_ACTIVITY send ───────────────────────────────────────────── */
 
+/* Copy src into dst as a JSON string value — escape \ and " so that mod
+ * stage slugs with unusual characters cannot corrupt the JSON frame. */
+static void disc_json_str(const char *src, char *dst, size_t dstsz)
+{
+    size_t di = 0;
+    if (!src) { dst[0] = '\0'; return; }
+    while (*src && di + 2 < dstsz) {
+        if (*src == '\\' || *src == '"') {
+            if (di + 3 > dstsz) break;
+            dst[di++] = '\\';
+        }
+        dst[di++] = (unsigned char)*src++;
+    }
+    dst[di] = '\0';
+}
+
 static s32 disc_send_activity(const disc_activity_t *a)
 {
     char buf[DISCORD_PAYLOAD_MAX];
+    char esc_details[128];
+    char esc_state[128];
     s32  len;
+
+    disc_json_str(a->details, esc_details, sizeof(esc_details));
+    disc_json_str(a->state,   esc_state,   sizeof(esc_state));
 
     s_Nonce++;
 
@@ -301,7 +322,7 @@ static s32 disc_send_activity(const disc_activity_t *a)
               "\"nonce\":\"%u\""
             "}",
             (unsigned long)GetCurrentProcessId(),
-            a->details, a->state,
+            esc_details, esc_state,
             (long long)s_ActivityStart,
             a->small_icon, a->small_text ? a->small_text : "",
             s_Nonce);
@@ -323,7 +344,7 @@ static s32 disc_send_activity(const disc_activity_t *a)
               "\"nonce\":\"%u\""
             "}",
             (unsigned long)GetCurrentProcessId(),
-            a->details,
+            esc_details,
             (long long)s_ActivityStart,
             s_Nonce);
     }

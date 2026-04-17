@@ -1,8 +1,30 @@
 
 # Session Log (Active)
 
-> **S281–S349** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S350** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S350 — 2026-04-17 (`vigorous-benz-f8cb68` worktree) — Wave 3 Cross-Audit: S348 D7 Discord Rich Presence
+
+**Scope**: Audit the S348 Discord Rich Presence implementation.
+
+**Audit findings**: Nine checklist items examined:
+
+1. **IPC protocol** ✅ — opcode framing, byte order, handshake `{"v":1,"client_id":"..."}`, SET_ACTIVITY format all match Discord spec.
+2. **PIPE_NOWAIT fix** ✅ — `CreateFileA` uses flags=0 (synchronous, non-OVERLAPPED), `SetNamedPipeHandleState` adds `PIPE_NOWAIT`; `ReadFile`/`WriteFile` use NULL lpOverlapped. Session noted the original draft had `FILE_FLAG_OVERLAPPED` — the fix is correct.
+3. **JSON injection** ❌ → **FIXED** — `disc_send_activity` inserted `details` and `state` into JSON via raw `%s`. A mod stage slug with `"` or `\` in its catalog ID would produce malformed JSON and corrupt the pipe frame. Added `disc_json_str()` helper that escapes `\` → `\\` and `"` → `\"` before insertion.
+4. **Fail-silent** ✅ — 30s reconnect backoff; `disc_try_connect` does up to 10 fast `CreateFileA` calls then returns; never tight-loops.
+5. **Thread safety** ✅ — `discordTick` called inside `mainTick`'s `g_MainChangeToStageNum < 0` block (single-threaded game tick).
+6. **Memory leaks** ✅ — no heap allocations; pipe handle closed in `disc_disconnect()` on error and shutdown.
+7. **Edge cases** ✅ — NULL `stage_id` guarded in `stage_id_to_name`; `s_ActivityStart` reset on state change; reconnect after drain-triggered disconnect tries once immediately then backs off via `s_LastConnect`.
+8. **MinGW/GCC** ✅ — `_snprintf`, Windows API, `(long long)time_t` with `%lld`, `(unsigned long)DWORD` with `%lu` all correct.
+9. **Server exclusion** ✅ — `discord.c` picked up by `GLOB_RECURSE SRC_PORT` (client only); server `SRC_SERVER` is an explicit list and excludes it; `server_main.c` never calls discord.
+
+**Fix**: `port/src/discord.c` — new `disc_json_str()` escape helper (+23 lines). Applied to `esc_details`/`esc_state` before both `_snprintf` branches in `disc_send_activity`.
+
+**Build**: Clean 775/775. `PerfectDark.exe` / `PerfectDarkServer.exe` (sizes recorded post-merge).
+
+---
 
 ## Session S349 — 2026-04-17 (`cool-poitras-b287e7` worktree) — Cross-Audit S346+S347
 
