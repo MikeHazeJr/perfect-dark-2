@@ -378,26 +378,17 @@ static void renderThemeEditor(s32 winW, s32 winH)
 
         bool wantClose = false;
 
-        /* Save section (row 1) */
+        /* Save section (row 1): Name + Author inputs only — Save button moved
+         * to the action row so all three action buttons (Save / Reset / Close)
+         * are docked together. Previously Save was inline after Author, which
+         * pushed it off to the side (partly clipped on narrow windows) and
+         * meant it was only reachable via Tab. S305 fix. */
         ImGui::Text("Save as Mod:");
         ImGui::PushItemWidth(200.0f * scale);
         ImGui::InputText("Name##save", s_SaveName, sizeof(s_SaveName));
         ImGui::SameLine();
         ImGui::InputText("Author##save", s_SaveAuthor, sizeof(s_SaveAuthor));
         ImGui::PopItemWidth();
-        ImGui::SameLine();
-        if (ImGui::Button("Save", ImVec2(btnW, btnH))) {
-            s_SaveSuccess = saveThemeAsMod(s_SaveName, s_SaveAuthor);
-            if (s_SaveSuccess) {
-                snprintf(s_SaveStatus, sizeof(s_SaveStatus),
-                         "Saved to mods/");
-                pdguiPlaySound(PDGUI_SND_SUCCESS);
-            } else {
-                snprintf(s_SaveStatus, sizeof(s_SaveStatus),
-                         "Save failed — check logs");
-                pdguiPlaySound(PDGUI_SND_ERROR);
-            }
-        }
 
         if (s_SaveStatus[0]) {
             ImVec4 statusCol = s_SaveSuccess
@@ -406,7 +397,27 @@ static void renderThemeEditor(s32 winW, s32 winH)
             ImGui::TextColored(statusCol, "%s", s_SaveStatus);
         }
 
-        /* Action row (row 2): Reset | Close */
+        /* Action row (row 2): [Save | Reset | Close] — all three docked together */
+        if (ImGui::Button("Save", ImVec2(btnW, btnH))) {
+            s_SaveSuccess = saveThemeAsMod(s_SaveName, s_SaveAuthor);
+            if (s_SaveSuccess) {
+                snprintf(s_SaveStatus, sizeof(s_SaveStatus),
+                         "Saved to mods/");
+                pdguiPlaySound(PDGUI_SND_SUCCESS);
+                /* S305: refresh theme registry so the newly-saved theme
+                 * appears in Settings → Debug → Themes list immediately
+                 * without requiring a restart or mod re-scan. Same pattern
+                 * as B-155/B-156 chrome mod auto-appear. */
+                pdguiThemeRescanMods();
+            } else {
+                snprintf(s_SaveStatus, sizeof(s_SaveStatus),
+                         "Save failed — check logs");
+                pdguiPlaySound(PDGUI_SND_ERROR);
+            }
+        }
+
+        ImGui::SameLine();
+
         if (ImGui::Button("Reset", ImVec2(btnW, btnH))) {
             memcpy(s_WorkPalette, s_OrigPalette, sizeof(s_WorkPalette));
             pdguiSetPaletteCustom(s_WorkPalette);
