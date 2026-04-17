@@ -22,6 +22,8 @@
 #include "system.h"
 #include "bss.h"
 #include "game/prop.h"
+#include "game/propobj.h"
+#include "constants.h"
 
 static s32 s_recursion_guard;
 
@@ -146,15 +148,27 @@ static void forgeLogicExecuteAction(forge_logic_node_t *a)
 	case FORGE_OP_OPEN_DOOR: {
 		forge_object_t *o = forgeObjectFindByUid(a->target_uid_a);
 		if (o && o->category == FORGE_CAT_INTERACTABLE) {
-			sysLogPrintf(LOG_NOTE, "GRID.LOGIC: open door uid=%u '%s'", o->uid, o->label);
-			o->props.door.locked = 0;
+			struct doorobj *door = forgeRuntimeFindDoorByUid(a->target_uid_a);
+			if (door) {
+				doorsRequestMode(door, DOORMODE_OPENING);
+				sysLogPrintf(LOG_NOTE, "GRID.LOGIC: open door uid=%u '%s'", o->uid, o->label);
+			} else {
+				o->props.door.locked = 0;
+				sysLogPrintf(LOG_NOTE, "GRID.LOGIC: open door uid=%u '%s' (no live doorobj, unlocked)", o->uid, o->label);
+			}
 		}
 		break;
 	}
 	case FORGE_OP_CLOSE_DOOR: {
 		forge_object_t *o = forgeObjectFindByUid(a->target_uid_a);
 		if (o && o->category == FORGE_CAT_INTERACTABLE) {
-			sysLogPrintf(LOG_NOTE, "GRID.LOGIC: close door uid=%u", o->uid);
+			struct doorobj *door = forgeRuntimeFindDoorByUid(a->target_uid_a);
+			if (door) {
+				doorsRequestMode(door, DOORMODE_CLOSING);
+				sysLogPrintf(LOG_NOTE, "GRID.LOGIC: close door uid=%u '%s'", o->uid, o->label);
+			} else {
+				sysLogPrintf(LOG_NOTE, "GRID.LOGIC: close door uid=%u (no live doorobj)", o->uid);
+			}
 		}
 		break;
 	}

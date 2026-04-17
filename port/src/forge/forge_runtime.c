@@ -29,6 +29,7 @@
 #include "forge/forge_core.h"
 
 #include <string.h>
+#include <math.h>
 
 #include "system.h"
 #include "assetcatalog.h"
@@ -64,6 +65,14 @@ static s32                 s_bots_spawned;   /* running forge-bot count */
 #define FORGE_PROP_POOL_SIZE 64
 static struct defaultobj *s_prop_pool;
 static s32                s_prop_count;
+
+/* Door pool: doorobj instances for forge-placed interactive doors.
+ * Allocated once from MEMPOOL_STAGE alongside the prop pool. */
+#define FORGE_DOOR_POOL_SIZE  16
+#define FORGE_DOOR_SLIDE_DIST 100.0f  /* world-units the door slides when fully open */
+
+static struct doorobj *s_door_pool;
+static s32             s_door_count;
 
 /* Zone runtime: per-zone state for player intersection checks. */
 #define FORGE_ZONE_RT_MAX 128
@@ -234,6 +243,185 @@ static void s_ensure_prop_pool(void)
                 "GRID.RUNTIME: failed to alloc prop pool (%d slots)",
                 FORGE_PROP_POOL_SIZE);
     }
+}
+
+static void s_ensure_door_pool(void)
+{
+    if (s_door_pool) return;
+    s_door_pool = (struct doorobj *)mempAlloc(
+            FORGE_DOOR_POOL_SIZE * sizeof(struct doorobj), MEMPOOL_STAGE);
+    if (!s_door_pool) {
+        sysLogPrintf(LOG_WARNING,
+                "GRID.RUNTIME: failed to alloc door pool (%d slots)",
+                FORGE_DOOR_POOL_SIZE);
+    }
+}
+
+/* Returns 1 if catalog_id identifies a forge interactive door. */
+static s32 s_is_forge_door(const char *catalog_id)
+{
+    return strstr(catalog_id, ":door_") != NULL;
+}
+
+/*
+ * Spawn a FORGE_CAT_INTERACTABLE door as a live doorobj.
+ * Allocates from s_door_pool, initialises physics defaults,
+ * calls objInitWithModelDef so the engine ticks the door via
+ * doorTick each frame.  OPEN/CLOSE logic actions call
+ * doorsRequestMode via forgeRuntimeFindDoorByUid.
+ */
+static void s_spawn_door(const forge_object_t *o)
+{
+    if (!s_door_pool) {
+        sysLogPrintf(LOG_WARNING,
+                "GRID.RUNTIME: door pool not available for uid=%u", o->uid);
+        return;
+    }
+    if (s_door_count >= FORGE_DOOR_POOL_SIZE) {
+        sysLogPrintf(LOG_WARNING,
+                "GRID.RUNTIME: door pool full -- uid=%u '%s' dropped",
+                o->uid, o->catalog_id);
+        return;
+    }
+
+    catalog_prop_result_t pr;
+    if (!catalogResolveProp(o->catalog_id, &pr) || pr.filenum <= 0) {
+        sysLogPrintf(LOG_WARNING,
+                "GRID.RUNTIME: door uid=%u -- cannot resolve '%s'",
+                o->uid, o->catalog_id);
+        return;
+    }
+
+    struct modeldef *modeldef = modeldefLoadToNew((u16)pr.filenum);
+    if (!modeldef) {
+        sysLogPrintf(LOG_WARNING,
+                "GRID.RUNTIME: door uid=%u -- modeldefLoadToNew(%d) failed",
+                o->uid, pr.filenum);
+        return;
+    }
+
+    struct doorobj *door = &s_door_pool[s_door_count];
+    memset(door, 0, sizeof(*door));
+
+    door->base.type       = OBJTYPE_DOOR;
+    door->base.maxdamage  = 1000;
+    door->base.extrascale = 256;
+    door->base.floorcol   = 0x0fff;
+
+    /* Standard physics (matches a typical CI Training sliding door) */
+    door->maxfrac       = 0.9f;
+    door->perimfrac     = 0.3f;
+    door->accel         = 0.003f;
+    door->decel         = 0.003f;
+    door->maxspeed      = 0.08f;
+    door->autoclosetime = 300;   /* 5 s at 60 Hz */
+    door->portalnum     = -1;    /* no portal -- forge doors are interior */
+    door->sibling       = NULL;
+    door->frac          = 0.0f;
+    door->fracspeed     = 0.0f;
+    door->mode          = DOORMODE_IDLE;
+    door->fadealpha     = 255;
+
+    /* Choose doortype and slide vector from the forge open_dir */
+    const forge_door_props_t *dp = &o->props.door;
+    switch ((forge_door_dir_t)dp->open_dir) {
+
+    case FORGE_DOOR_SLIDE_UP:
+        door->doortype = DOORTYPE_VERTICAL;
+        door->unk98.x  = 0.0f;
+        door->unk98.y  = FORGE_DOOR_SLIDE_DIST;
+        door->unk98.z  = 0.0f;
+        break;
+
+    case FORGE_DOOR_SLIDE_LEFT: {
+        f32 yaw = o->rot[1] * (3.14159265f / 180.0f);
+        door->doortype = DOORTYPE_SLIDING;
+        door->unk98.x  = -FORGE_DOOR_SLIDE_DIST * cosf(yaw);
+        door->unk98.y  = 0.0f;
+        door->unk98.z  = -FORGE_DOOR_SLIDE_DIST * sinf(yaw);
+        break;
+    }
+
+    case FORGE_DOOR_SLIDE_RIGHT: {
+        f32 yaw = o->rot[1] * (3.14159265f / 180.0f);
+        door->doortype = DOORTYPE_SLIDING;
+        door->unk98.x  = FORGE_DOOR_SLIDE_DIST * cosf(yaw);
+        door->unk98.y  = 0.0f;
+        door->unk98.z  = FORGE_DOOR_SLIDE_DIST * sinf(yaw);
+        break;
+    }
+
+    case FORGE_DOOR_SWING:
+    default:
+        /* Swing mode not yet supported -- treat as horizontal slide */
+        door->doortype = DOORTYPE_SLIDING;
+        door->unk98.x  = FORGE_DOOR_SLIDE_DIST;
+        door->unk98.y  = 0.0f;
+        door->unk98.z  = 0.0f;
+        break;
+    }
+
+    /* DOORFLAG_0080: sliding-family types use unk98 for the position offset */
+    switch (door->doortype) {
+    case DOORTYPE_SLIDING:
+    case DOORTYPE_VERTICAL:
+    case DOORTYPE_LASER:
+    case DOORTYPE_FALLAWAY:
+        door->doorflags |= DOORFLAG_0080;
+        break;
+    default:
+        break;
+    }
+
+    if (dp->auto_close) {
+        door->doorflags |= DOORFLAG_AUTOMATIC;
+    }
+
+    struct prop *prop = objInitWithModelDef(&door->base, modeldef);
+    if (!prop) {
+        sysLogPrintf(LOG_WARNING,
+                "GRID.RUNTIME: door uid=%u -- objInitWithModelDef failed", o->uid);
+        return;
+    }
+
+    ++s_door_count;
+
+    /* objInit sets prop->type = PROPTYPE_OBJ; promote to PROPTYPE_DOOR so
+     * the prop tick dispatcher calls doorTick each frame. */
+    prop->type      = PROPTYPE_DOOR;
+
+    prop->pos.x     = o->pos[0];
+    prop->pos.y     = o->pos[1];
+    prop->pos.z     = o->pos[2];
+
+    door->startpos.x = prop->pos.x;
+    door->startpos.y = prop->pos.y;
+    door->startpos.z = prop->pos.z;
+
+    /* Identity orientation -- forge doors are axis-aligned for now */
+    memset(door->base.realrot, 0, sizeof(door->base.realrot));
+    door->base.realrot[0][0] = 1.0f;
+    door->base.realrot[1][1] = 1.0f;
+    door->base.realrot[2][2] = 1.0f;
+
+    if (door->base.model) {
+        modelSetScale(door->base.model, 1.0f);
+    }
+
+    propActivate(prop);
+    propEnable(prop);
+    setup0f0923d4(&door->base);
+
+    forge_prop_handle_t *h = s_alloc(o->uid);
+    if (h) {
+        h->prop    = prop;
+        h->doorobj = door;
+    }
+
+    sysLogPrintf(LOG_NOTE,
+            "GRID.RUNTIME: spawned door uid=%u '%s' type=%d at (%.0f,%.0f,%.0f)",
+            o->uid, o->catalog_id, door->doortype,
+            o->pos[0], o->pos[1], o->pos[2]);
 }
 
 /*
@@ -451,10 +639,12 @@ void forgeRuntimeEnterPlay(void)
     s_spawn_injected = 0;
     s_bots_spawned   = 0;
     s_prop_count     = 0;
+    s_door_count     = 0;
     s_zone_count     = 0;
     s_active         = 1;
 
     s_ensure_prop_pool();
+    s_ensure_door_pool();
 
     s32 total = forgeObjectCount();
     if (total == 0) {
@@ -518,13 +708,18 @@ void forgeRuntimeEnterPlay(void)
             break;
 
         case FORGE_CAT_INTERACTABLE:
-            /* Visual presence via static prop; interaction logic deferred. */
-            s_spawn_prop(o);
             ++n_props;
-            ++n_deferred;
-            sysLogPrintf(LOG_NOTE,
-                    "GRID.RUNTIME: interactable '%s' uid=%u -- spawned visual; interaction deferred",
-                    o->catalog_id, o->uid);
+            if (s_is_forge_door(o->catalog_id)) {
+                s_spawn_door(o);
+            } else {
+                /* Non-door interactables: visual presence via static prop;
+                 * interaction logic (switches, terminals, lifts) deferred. */
+                s_spawn_prop(o);
+                ++n_deferred;
+                sysLogPrintf(LOG_NOTE,
+                        "GRID.RUNTIME: interactable '%s' uid=%u -- spawned visual; interaction deferred",
+                        o->catalog_id, o->uid);
+            }
             break;
 
         default:
@@ -583,13 +778,14 @@ void forgeRuntimeExitPlay(void)
     }
 
     sysLogPrintf(LOG_NOTE,
-            "GRID.RUNTIME: exitPlay -- freed=%d bots_removed=%d spawns_flushed=%d zones_cleared=%d",
-            freed, s_bots_spawned, s_spawn_injected, s_zone_count);
+            "GRID.RUNTIME: exitPlay -- freed=%d bots_removed=%d spawns_flushed=%d zones_cleared=%d doors_cleared=%d",
+            freed, s_bots_spawned, s_spawn_injected, s_zone_count, s_door_count);
 
     s_handle_count   = 0;
     s_spawn_injected = 0;
     s_bots_spawned   = 0;
     s_prop_count     = 0;
+    s_door_count     = 0;
     s_zone_count     = 0;
 }
 
@@ -724,6 +920,15 @@ struct prop *forgeRuntimeFindPropByUid(u32 uid)
     if (!uid) return NULL;
     for (s32 i = 0; i < s_handle_count; ++i) {
         if (s_handles[i].forge_uid == uid) return s_handles[i].prop;
+    }
+    return NULL;
+}
+
+struct doorobj *forgeRuntimeFindDoorByUid(u32 uid)
+{
+    if (!uid) return NULL;
+    for (s32 i = 0; i < s_handle_count; ++i) {
+        if (s_handles[i].forge_uid == uid) return s_handles[i].doorobj;
     }
     return NULL;
 }

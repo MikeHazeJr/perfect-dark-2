@@ -35,11 +35,12 @@ extern "C" {
 
 /* One record per forge_object that was materialised into the engine. */
 typedef struct forge_prop_handle {
-    u32          forge_uid;      /* forge_object.uid this was spawned from */
-    struct prop *prop;           /* live engine prop (NULL for spawn/bot-only) */
-    u8           is_spawn_point; /* 1 = injected into spawn pool, not a prop */
-    u8           is_bot;         /* 1 = spawned via botmgrAllocateBot */
-    u8           pad[2];
+    u32              forge_uid;      /* forge_object.uid this was spawned from */
+    struct prop     *prop;           /* live engine prop (NULL for spawn/bot-only) */
+    struct doorobj  *doorobj;        /* live doorobj when prop is a door (NULL otherwise) */
+    u8               is_spawn_point; /* 1 = injected into spawn pool, not a prop */
+    u8               is_bot;         /* 1 = spawned via botmgrAllocateBot */
+    u8               pad[2];
 } forge_prop_handle_t;
 
 /* ------------------------------------------------------------------
@@ -61,6 +62,9 @@ void forgeRuntimeTick(void);
 
 /* Return live engine prop for a forge uid, or NULL if not spawned as a prop. */
 struct prop *forgeRuntimeFindPropByUid(u32 uid);
+
+/* Return live doorobj for a forge uid, or NULL if not a door or not spawned. */
+struct doorobj *forgeRuntimeFindDoorByUid(u32 uid);
 
 /* Spawn a bot at the position of the forge AI object with uid. */
 void forgeRuntimeSpawnBotAt(u32 forge_uid);
