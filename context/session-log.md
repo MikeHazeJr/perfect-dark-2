@@ -4,6 +4,34 @@
 > **S281–S341** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S345 — 2026-04-17 (`pensive-bell-5597dd` worktree) — Wave 2 Audit
+
+**Scope**: Audit S341 (per-agent prefs + AP3) and S342 (forge runtime wire-in). Find bugs/gaps, fix, build-verify.
+
+### S341 audit — prefs_agent.c + AP3
+
+**Bug found and fixed (B-164)**: `serializeModPlaylist` at line 157 passed `(s32)outmax - off` as `size_t`. If `off >= (s32)outmax` (buffer full), the result is negative, wraps to huge `size_t`, and `snprintf` writes without bound — UB / buffer overflow. Fix: compute `s32 rem = (s32)outmax - off`, break if `rem <= 1`, cast to `(size_t)rem` for the call. **Commit**: `d0f7ee13`.
+
+**Everything else clean**:
+- `prefsAgentResetVisuals` restores all 8 baselines: HudCenter, SkipIntro, DisableMpDeathMusic, GEMuzzleFlashes, ScreenShakeIntensity, MenuMouseControl + ModPlaylist, ModShuffle ✓
+- `applyHudCenter` is safe unconditionally — all globals statically linked ✓
+- Buffer 4096 sufficient for worst-case sidecar ✓
+- AP3: all 12 `romProviderHandle` calls correct; `u16` filenums explicitly cast to `(s32)` ✓
+
+### S342 audit — forge_runtime.c
+
+**Gap confirmed**: Props, geometry, weapon pads, doors, zones, and interactables are all still DEFERRED (logged, not wired). Spawn points and AI bots are correctly wired. `forge_logic.c` has action handlers (ENABLE_OBJECT, OPEN_DOOR, TELEPORT_PLAYER, SPAWN_AI) but `forgeRuntimeFindPropByUid` returns NULL for non-bot objects since nothing is stored as a prop handle. This is expected for the current state — S342 wire-in for those categories is still pending.
+
+**Low-severity issue noted**: `forge_logic.c::forgeLogicFireChannelChange` resets `s_recursion_guard = 0` mid-traversal (reachable via FORGE_OP_SET_CHANNEL → forgeChannelSet → forgeLogicFireChannelChange). Depth cap effectively bypassed but `executed_this_frame` bounds total work. Flagged as spawn task.
+
+**Build**: clean 775/775. `PerfectDark.exe` 52,680,221 / `PerfectDarkServer.exe` 22,919,068.
+
+### Next
+
+Forge wire-in (props/zones/weapon pads) still deferred — needs a dedicated session when the catalog prop-load path is ready.
+
+---
+
 ## Session S341 — 2026-04-17 (`tender-borg-b2fc3b` worktree)
 
 **Scope**: Two-track session. Task A: per-agent gameplay prefs expansion. Task B: Asset Provider Phase 3 — fileLoadToNew migration.
