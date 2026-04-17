@@ -166,6 +166,10 @@ MenuItemHandlerResult menuhandlerChangeAgent(s32 operation, struct menuitem *ite
  * s32) blocks including it directly. */
 void prefsAgentSave(void);
 
+/* Font atlas rebuild — triggers at the start of the next frame so the
+ * new font is active immediately without requiring a restart. */
+extern "C" void pdguiRequestFontAtlasRebuild(void);
+
 /* Audio API — legacy (still used by original menus) */
 s32 optionsGetMusicVolume(void);
 void optionsSetMusicVolume(s32 vol);
@@ -1313,12 +1317,10 @@ static void renderSettingsInterface(float scale)
                 pdguiFontModSetActiveId(pdguiFontModGetId(fontIdx - 1));
             }
             configSave("pd.ini");
-            sysLogPrintf(LOG_NOTE,
-                "UI.FONT: selection changed to '%s' (requires restart to apply)",
+            pdguiRequestFontAtlasRebuild();
+            sysLogPrintf(LOG_NOTE, "UI.FONT: selection changed to '%s'",
                 fontOpts[fontIdx]);
         }
-        ImGui::SameLine();
-        ImGui::TextDisabled("(restart required)");
 
         ImGui::Spacing();
         if (ImGui::Button("Open Font Mod Tool...", ImVec2(btnW * 2.0f, btnH))) {

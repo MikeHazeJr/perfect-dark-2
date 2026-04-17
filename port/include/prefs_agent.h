@@ -15,8 +15,8 @@
  * matching setter on each subsystem, not via the global config registry,
  * so loading a profile doesn't smear its values onto pd.ini.
  *
- * Font changes still take effect on next restart (ImGui atlas is built
- * once per session — see pdgui_font_mod.h).  All other fields swap live.
+ * All visual fields (theme, chrome, font, scanlines) swap live via
+ * pdguiRequestFontAtlasRebuild() — no restart required.
  *
  * Global pd.ini remains the source of per-machine / hardware-level
  * defaults (resolution, fullscreen, video mode, gameplay bindings,
@@ -55,6 +55,13 @@ void prefsAgentSave(void);
 /** Convenience: call prefsAgentSave() only when the caller has already
  *  performed a prefsAgentSetActive(). */
 const char *prefsAgentGetActive(void);
+
+/** One-shot migration: if the display-name sidecar doesn't exist, look for
+ *  a legacy sidecar built from the raw N64 save bytes (pre-S313 naming).
+ *  If found, rename it to the new path and log the migration.
+ *  raw_name: file->name[] (16 raw save bytes, the old prefsAgentLoad arg).
+ *  display_name: human-readable agent name decoded by gamefileGetOverview. */
+void prefsAgentMigrateLegacySidecar(const char *raw_name, const char *display_name);
 
 #ifdef __cplusplus
 }

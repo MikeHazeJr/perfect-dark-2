@@ -134,6 +134,7 @@ extern "C" void* pdguiGetUiTexture(const char *id)
  * --------------------------------------------------------------------------- */
 
 static bool g_PdguiInitialized = false;
+static bool s_FontAtlasRebuildRequested = false;
 /* S295 F1: Removed g_PdguiActive mirror boolean.
  * The debug overlay's visibility is now derived solely from the input context
  * stack via inputCtxIsActive(&g_CtxDebugOverlay). The mirror boolean could
@@ -206,6 +207,58 @@ PdSafeArea pdguiGetSafeArea(void)
     return sa;
 }
 
+/* Build the font atlas from the current pdguiFontMod selection.
+ * Called at init time and on runtime font swap (pdguiRequestFontAtlasRebuild).
+ * Caller must have already called io.Fonts->Clear() before invoking this. */
+static void pdguiLoadFontsIntoAtlas(ImGuiIO &io)
+{
+    io.Fonts->TexGlyphPadding = 2;
+
+    ImFont *handelFont = nullptr;
+    {
+        void *fontCopy = ImGui::MemAlloc(g_HandelGothicFont_size);
+        memcpy(fontCopy, g_HandelGothicFont_data, g_HandelGothicFont_size);
+
+        ImFontConfig cfg;
+        cfg.FontDataOwnedByAtlas = true;
+        snprintf(cfg.Name, sizeof(cfg.Name), "Handel Gothic Regular");
+        cfg.OversampleV = 2;
+
+        handelFont = io.Fonts->AddFontFromMemoryTTF(
+            fontCopy, (int)g_HandelGothicFont_size, 24.0f, &cfg);
+
+        if (handelFont) {
+            io.FontDefault = handelFont;
+            sysLogPrintf(LOG_NOTE, "pdgui: loaded embedded Handel Gothic (%u bytes)",
+                         g_HandelGothicFont_size);
+        } else {
+            sysLogPrintf(LOG_WARNING, "pdgui: failed to load embedded Handel Gothic");
+        }
+    }
+
+    const char *userFontPath = pdguiFontModGetActivePath();
+    if (userFontPath && userFontPath[0]) {
+        ImFontConfig cfg;
+        cfg.OversampleV = 2;
+        snprintf(cfg.Name, sizeof(cfg.Name), "User font (%s)",
+                 pdguiFontModGetActiveId());
+
+        ImFont *userFont = io.Fonts->AddFontFromFileTTF(
+            userFontPath, 24.0f, &cfg);
+
+        if (userFont) {
+            io.FontDefault = userFont;
+            sysLogPrintf(LOG_NOTE,
+                "pdgui: loaded user font mod '%s' from '%s'",
+                pdguiFontModGetActiveId(), userFontPath);
+        } else {
+            sysLogPrintf(LOG_WARNING,
+                "pdgui: failed to load user font '%s' — keeping Handel Gothic",
+                userFontPath);
+        }
+    }
+}
+
 void pdguiInit(void *sdlWindow)
 {
     if (g_PdguiInitialized) {
@@ -236,63 +289,8 @@ void pdguiInit(void *sdlWindow)
      * default; Handel Gothic always loads too as a fallback. */
     pdguiFontModInit();
 
-    /* Extra atlas padding so descenders (q, y, p, g) aren't clipped
-     * at the glyph boundary in the texture. Default is 1. */
-    io.Fonts->TexGlyphPadding = 2;
-
-    /* Load Handel Gothic — PD's original menu font, embedded in the binary.
-     * Always added so the fallback path exists if the user's font mod
-     * points to a missing file. ImGui takes ownership of the copy. */
-    ImFont *handelFont = nullptr;
-    {
-        void *fontCopy = ImGui::MemAlloc(g_HandelGothicFont_size);
-        memcpy(fontCopy, g_HandelGothicFont_data, g_HandelGothicFont_size);
-
-        ImFontConfig cfg;
-        cfg.FontDataOwnedByAtlas = true;  /* ImGui will free fontCopy */
-        snprintf(cfg.Name, sizeof(cfg.Name), "Handel Gothic Regular");
-        cfg.OversampleV = 2;  /* Extra vertical rasterization quality */
-
-        /* Load at a higher base size (24pt) so the font atlas has enough
-         * detail for game-relative scaling at 1080p+. FontGlobalScale is
-         * set each frame (pdguiNewFrame) to scale proportionally with
-         * display height, keeping text within scaled button/row heights. */
-        handelFont = io.Fonts->AddFontFromMemoryTTF(
-            fontCopy, (int)g_HandelGothicFont_size, 24.0f, &cfg);
-
-        if (handelFont) {
-            io.FontDefault = handelFont;
-            sysLogPrintf(LOG_NOTE, "pdgui: Loaded embedded Handel Gothic (%u bytes)",
-                         g_HandelGothicFont_size);
-        } else {
-            sysLogPrintf(LOG_NOTE, "pdgui: Failed to load embedded Handel Gothic");
-        }
-    }
-
-    /* S305: load the user-selected font mod, if any, as the new default. */
-    {
-        const char *userFontPath = pdguiFontModGetActivePath();
-        if (userFontPath && userFontPath[0]) {
-            ImFontConfig cfg;
-            cfg.OversampleV = 2;
-            snprintf(cfg.Name, sizeof(cfg.Name), "User font (%s)",
-                     pdguiFontModGetActiveId());
-
-            ImFont *userFont = io.Fonts->AddFontFromFileTTF(
-                userFontPath, 24.0f, &cfg);
-
-            if (userFont) {
-                io.FontDefault = userFont;
-                sysLogPrintf(LOG_NOTE,
-                    "pdgui: loaded user font mod '%s' from '%s'",
-                    pdguiFontModGetActiveId(), userFontPath);
-            } else {
-                sysLogPrintf(LOG_WARNING,
-                    "pdgui: failed to load user font '%s' — keeping Handel Gothic",
-                    userFontPath);
-            }
-        }
-    }
+    /* Build the initial font atlas. */
+    pdguiLoadFontsIntoAtlas(io);
 
     /* Apply PD-authentic style (colors, sharp corners, compact metrics) */
     pdguiApplyPdStyle();
@@ -398,8 +396,27 @@ static void pdguiDriveImGuiNav(void)
     }
 }
 
+void pdguiRequestFontAtlasRebuild(void)
+{
+    s_FontAtlasRebuildRequested = true;
+}
+
 void pdguiNewFrame(void)
 {
+    /* Rebuild font atlas if requested (e.g., user changed font in Settings).
+     * Must run between frames — after the previous Render() and before the
+     * next NewFrame(). This placement (before early-return) guarantees that
+     * even when the overlay is not active this frame, the rebuild still fires. */
+    if (s_FontAtlasRebuildRequested && g_PdguiInitialized) {
+        s_FontAtlasRebuildRequested = false;
+        ImGuiIO &io = ImGui::GetIO();
+        io.Fonts->Clear();
+        pdguiLoadFontsIntoAtlas(io);
+        ImGui_ImplOpenGL3_DestroyFontsTexture();
+        ImGui_ImplOpenGL3_CreateFontsTexture();
+        sysLogPrintf(LOG_NOTE, "pdgui: font atlas rebuilt");
+    }
+
     /* H-3: actionmapEndFrame() removed from here — it is called once from gfx_sdl2.cpp.
      * Calling it twice caused edge signals to be cleared before game logic could read them. */
 

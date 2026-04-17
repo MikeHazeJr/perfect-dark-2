@@ -61,6 +61,11 @@ void pdguiMainMenuReset(void);
  *   LOG_ERROR + assert, no fallback. */
 void* pdguiGetUiTexture(const char *id);
 
+/* Request an immediate font atlas rebuild at the start of the next frame.
+ * Call after changing the active font (e.g., pdguiFontModSetActiveId).
+ * The rebuild happens between frames — safe to call from UI code. */
+void pdguiRequestFontAtlasRebuild(void);
+
 /* Null-safe langGet wrapper. Returns langGet(textid) or "" if NULL.
  * Use this everywhere a langGet result goes to ImGui to prevent 0xc0000005. */
 const char *langSafe(s32 textid);

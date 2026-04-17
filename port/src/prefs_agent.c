@@ -280,6 +280,47 @@ void prefsAgentLoad(const char *agent_name)
     sysLogPrintf(LOG_NOTE, "PREFS.AGENT: loaded %d key(s) from %s", applied, path);
 }
 
+void prefsAgentMigrateLegacySidecar(const char *raw_name, const char *display_name)
+{
+    if (!raw_name || !display_name || !display_name[0]) return;
+
+    /* Build new (display-name) path */
+    char new_path[PREFS_MAX_PATH];
+    prefsBuildPath(display_name, new_path, sizeof(new_path));
+
+    /* Build old path: sanitize raw bytes the same way prefsBuildPath does,
+     * which is what pre-S313 code did when it called prefsAgentLoad(file->name). */
+    char old_safe[PREFS_MAX_NAME];
+    sanitize(raw_name, old_safe, sizeof(old_safe));
+    if (!old_safe[0]) {
+        snprintf(old_safe, sizeof(old_safe), "default");
+    }
+    const char *dir = saveGetDir();
+    char old_path[PREFS_MAX_PATH];
+    snprintf(old_path, sizeof(old_path), "%s/prefs_%s.ini",
+             (dir && dir[0]) ? dir : ".", old_safe);
+
+    if (strcmp(old_path, new_path) == 0) return;
+
+    /* Skip if new path already exists — agent already has a current sidecar. */
+    FILE *f = fopen(new_path, "r");
+    if (f) { fclose(f); return; }
+
+    /* Skip if old path doesn't exist — nothing to migrate. */
+    f = fopen(old_path, "r");
+    if (!f) return;
+    fclose(f);
+
+    if (rename(old_path, new_path) == 0) {
+        sysLogPrintf(LOG_NOTE, "PREFS: migrated legacy sidecar '%s' -> '%s'",
+                     old_path, new_path);
+    } else {
+        sysLogPrintf(LOG_WARNING,
+                     "PREFS: failed to migrate legacy sidecar '%s' -> '%s' (errno %d)",
+                     old_path, new_path, errno);
+    }
+}
+
 void prefsAgentResetVisuals(void)
 {
     /* Reset all per-agent visual prefs to built-in defaults. Called when
