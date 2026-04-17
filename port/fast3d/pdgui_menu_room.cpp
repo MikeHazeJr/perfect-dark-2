@@ -1568,7 +1568,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                     break;
                 case CLSTATE_GAME:
                     stateStr  = "in game";
-                    stateColor = ImVec4(0.3f, 0.7f, 1.0f, 0.8f);
+                    stateColor = pdguiVec4TitleGlow();
                     break;
             }
             if (stateStr[0]) {
@@ -2442,7 +2442,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     ImGui::PushStyleColor(ImGuiCol_Tab,        ImVec4(0.10f, 0.15f, 0.30f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_TabHovered, ImVec4(0.20f, 0.30f, 0.55f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_TabSelected,ImVec4(0.15f, 0.25f, 0.65f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, ImVec4(0.3f, 0.6f, 1.0f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, pdguiVec4TitleGlow());
 
     if (ImGui::BeginTabBar("##room_tabs")) {
         for (int t = 0; t < s_NumTabs; t++) {
@@ -2920,7 +2920,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                     float textW = ImGui::CalcTextSize(bName).x;
                     ImGui::SetCursorPosX(ImGui::GetCursorPosX()
                                          + (previewSz - textW) * 0.5f);
-                    ImGui::TextColored(ImVec4(0.4f, 0.9f, 1.0f, 1.0f), "%s", bName);
+                    ImGui::TextColored(pdguiVec4TitleGlow(), "%s", bName);
                 }
             }
 

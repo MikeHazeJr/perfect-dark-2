@@ -290,7 +290,7 @@ static s32 renderChallenges(struct menudialog *dialog,
 
         /* Completion summary for selected challenge */
         if (numChallenges > 0 && s_SelectedSlot < numChallenges) {
-            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 0.85f), "Completion:");
+            ImGui::TextColored(pdguiVec4TitleGlow(), "Completion:");
             for (int np = 1; np <= 4; np++) {
                 bool done = challengeIsCompletedByChrWithNumPlayersBySlot(
                     g_MpPlayerNum, s_SelectedSlot, np) != 0;

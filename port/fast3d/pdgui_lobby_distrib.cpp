@@ -353,7 +353,7 @@ extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
                 snprintf(right, sizeof(right), "[%d/%d]",
                          st.received_count + 1, st.missing_count);
                 ImGui::SetCursorPos(ImVec2(padX, floorf(4.0f * scale)));
-                ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", left);
+                ImGui::TextColored(pdguiVec4TitleGlow(), "%s", left);
                 /* Right-align the counter */
                 float rw = ImGui::CalcTextSize(right).x;
                 ImGui::SameLine((float)winW - rw - padX * 2.0f);

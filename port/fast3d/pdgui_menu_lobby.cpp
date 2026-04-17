@@ -176,7 +176,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
     {
         s32 numPlayers = lobbyGetPlayerCount();
         s32 maxPlayers = netGetMaxClients();
-        ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f),
+        ImGui::TextColored(pdguiVec4TitleGlow(),
                            "Connected to dedicated server");
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.5f, 1.0f),
@@ -270,7 +270,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
                 break;
             case CLSTATE_GAME:
                 stateStr = "In Match";
-                stateColor = ImVec4(0.3f, 0.7f, 1.0f, 0.8f);
+                stateColor = pdguiVec4TitleGlow();
                 break;
         }
         if (stateStr[0]) {
@@ -328,7 +328,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
         switch (entry->state) {
             case ROOM_STATE_LOBBY:    stateColor = ImVec4(0.3f, 1.0f, 0.3f, 1.0f); break;
             case ROOM_STATE_LOADING:  stateColor = ImVec4(1.0f, 0.8f, 0.2f, 1.0f); break;
-            case ROOM_STATE_MATCH:    stateColor = ImVec4(0.3f, 0.7f, 1.0f, 1.0f); break;
+            case ROOM_STATE_MATCH:    stateColor = pdguiVec4TitleGlow();              break;
             case ROOM_STATE_POSTGAME: stateColor = ImVec4(0.8f, 0.5f, 1.0f, 1.0f); break;
             default:                  stateColor = ImVec4(0.4f, 0.4f, 0.4f, 0.6f); break;
         }
