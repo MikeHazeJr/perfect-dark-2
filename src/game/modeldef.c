@@ -209,6 +209,40 @@ struct modeldef *modeldefLoad(u16 fileid, u8 *dst, s32 size, struct texpool *arg
 	modelPromoteOffsetsToPointers(modeldef, 0x5000000, (uintptr_t) modeldef);
 	modeldef0f1a7560(modeldef, fileid, 0x5000000, modeldef, arg3, dst == NULL);
 
+	/* B-161 root-cause fix: validate the fully-promoted modeldef before
+	 * returning so torn data never reaches any cache (g_ModelStates[].modeldef,
+	 * g_HeadsAndBodies[].modeldef) or downstream code. A torn modeldef
+	 * (rootnode=NULL, numparts<=0 or >500) causes the bbox traversal chain
+	 * to AV deep inside the tick loop (see B-161 repro: Defection → Investigation
+	 * → doorGetBbox → modelFindBboxNode). The late-add manifest path (S312
+	 * diagnostic) also observed bodies landing with parts=0 after lazy-load
+	 * via modeldefLoadToNew.
+	 *
+	 * Reject only truly-structural corruption (rootnode/numparts). Scale<=0
+	 * is CLAMPED in modelcatalog.c::validateModeldef but not in the engine
+	 * path -- match that pattern here so AllInOneMods replacement scales
+	 * (700-2000) still pass. Callers already handle NULL as "missing asset"
+	 * (FIX-B.2 in setuputils.c, S308 defensive guards in body0f02ce8c, etc.)
+	 * so returning NULL converts the AV into a missing-prop log line. */
+	if (modeldef->rootnode == NULL
+			|| modeldef->numparts <= 0
+			|| modeldef->numparts > 500) {
+		sysLogPrintf(LOG_ERROR,
+				"MODELDEF: file %u loaded torn — parts=%d root=%p scale=%.3f -- rejecting",
+				(unsigned)fileid,
+				modeldef->numparts,
+				(void *)modeldef->rootnode,
+				modeldef->scale);
+		g_LoadType = LOADTYPE_NONE;
+		return NULL;
+	}
+	if (modeldef->scale <= 0.0f) {
+		sysLogPrintf(LOG_WARNING,
+				"MODELDEF: file %u loaded with degenerate scale %.3f — clamping to 1.0",
+				(unsigned)fileid, modeldef->scale);
+		modeldef->scale = 1.0f;
+	}
+
 	return modeldef;
 }
 
