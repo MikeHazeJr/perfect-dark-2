@@ -1,8 +1,70 @@
 
 # Session Log (Active)
 
-> **S281–S325** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S326** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S326 — 2026-04-17 (Asset Provider Phases 1 + 2 — `jolly-booth-fb5419` worktree)
+
+**Scope**: First two phases of the Direct File Access architecture (design doc: `context/designs/direct-file-access-design-2026-04-17.md`). Introduces the `IAssetProvider` vtable, `RomProvider` + `FileProvider` singletons, and the catalog-side `asset_source_t` descriptor so provider selection happens at catalog resolve time instead of inside `romdataFileLoad`.
+
+### What was done
+
+**Phase 1 — Provider interface (zero behavior change):**
+- `port/include/assetprovider.h` — new; `asset_data_handle_t` (provider pointer + 128-bit opaque payload) and `asset_provider_t` vtable (`resolve_size` / `load` / `unload` / `describe`). Built-in singletons: `romProvider()` / `fileProvider()` with handle constructors `romProviderHandle(filenum)` / `fileProviderHandle(path)`.
+- `port/include/assetload.h` — new; dispatcher API `assetLoad` / `assetLoadToNew` / `assetUnload` / `assetDescribe`.
+- `port/src/assetprovider_rom.c` — new; wraps `romdataFileLoad` / `romdataFileGetSize` / `romdataFileGetName`. `opaque[0]` = filenum.
+- `port/src/assetprovider_file.c` — new; wraps `fsFileLoad` / `fsFileSize`. Interning pool: `s_PathPool[32 KB]` + `s_PathOffsets[1024]` dedups paths so handles stay 128-bit regardless of path length. Pool-exhaustion logs a single warning and returns a null handle.
+- `port/src/assetload.c` — new; dispatcher. RomProvider fast-path delegates to `fileLoadRomToNew` (legacy body in file.c) so Phase 1 is byte-identical on the hot path. Generic fallback does `mempAlloc(MEMPOOL_STAGE) + provider.load` for FileProvider and future providers.
+- `src/include/game/file.h` — declared `fileLoadRomToNew` (internal dispatcher entry point).
+- `src/game/file.c` — split `fileLoadToNew` into the legacy body (renamed `fileLoadRomToNew`) + a one-line wrapper `fileLoadToNew(f,m,l) → assetLoadToNew(romProviderHandle(f), m, l)`. Every existing call site transparently routes through the provider dispatcher.
+- `port/src/server_stubs.c` — added stubs for the 6 provider entry points so the server (which doesn't compile the provider .c files) still links.
+
+**Phase 2 — Catalog source descriptor + provider-driven override:**
+- `port/include/assetcatalog.h` — added `asset_source_t { primary, override, flags }` and field `asset_entry_t::source`; API `catalogSetPrimary` / `catalogSetOverride` / `catalogClearOverride` / `catalogEffectiveHandle`.
+- `port/src/assetcatalog.c` — initializes `source` to zeroes in `assetCatalogRegister`; implements the four new functions.
+- `port/src/assetcatalog_base.c` — after setting `source_filenum` on base bodies/heads/sp entries, also calls `catalogSetPrimary(e, romProviderHandle(source_filenum))`.
+- `port/src/assetcatalog_base_extended.c` — same pattern for base prop models (`ASSET_MODEL`) when `g_ModelStates[i].fileid > 0`.
+- `port/src/assetcatalog_scanner.c` — mod characters with a non-empty `bodyfile` now bind `source.primary = fileProviderHandle(bodyfile)`.
+- `port/src/assetcatalog_load.c::entryGetFilePath` — consults `source.primary` first; if it holds a FileProvider handle, the interned path wins over `ext.character.bodyfile` / `ext.texture.file_path` / `ext.audio.file_path`. Legacy fallback preserved for entries with no populated source, so unchanged mod flows keep working.
+
+Net effect: the mod-override path that used to read type-specific `ext.*` fields inside `romdataFileLoad → catalogResolveFile → entryGetFilePath` now reads from a declarative `asset_source_t` handle owned by the catalog entry. The reverse-index still picks the winning entry, but the path it serves comes from the provider abstraction, not a type switch.
+
+### Build result
+
+Clean: 771/771 objects, zero errors. `PerfectDark.exe` (52.7 MB) and `PerfectDarkServer.exe` (22.8 MB) both linked. Only pre-existing warnings (comment style, `near`/`far` struct members on Windows MSYS2).
+
+### Files touched (17)
+
+New:
+- `port/include/assetprovider.h`
+- `port/include/assetload.h`
+- `port/src/assetprovider_rom.c`
+- `port/src/assetprovider_file.c`
+- `port/src/assetload.c`
+
+Modified:
+- `port/include/assetcatalog.h`
+- `port/src/assetcatalog.c`
+- `port/src/assetcatalog_base.c`
+- `port/src/assetcatalog_base_extended.c`
+- `port/src/assetcatalog_scanner.c`
+- `port/src/assetcatalog_load.c`
+- `port/src/server_stubs.c`
+- `src/game/file.c`
+- `src/include/game/file.h`
+- `context/tasks-current.md`
+- `context/session-log.md`
+- `context/infrastructure.md`
+
+### Next steps
+
+- Phase 3: migrate call sites from `fileLoadToNew(filenum, ...)` to `assetLoadToNew(handle, ...)` (body/head/setup/bg loaders, ~60 sites)
+- Phase 4: retire `filenum` integers from the public catalog API once Phase 3 lands
+- Extend FileProvider to handle rzipInflate + romdataFilePreprocess before the dispatcher goes live for non-ROM loads
+- Unit test: verify `assetDescribe()` on RomProvider/FileProvider handles logs the expected strings
+
+---
 
 ## Session S325 — 2026-04-17 (D6 stats wire-in + ImGui subtitles — `xenodochial-mendel-93fca2` worktree)
 

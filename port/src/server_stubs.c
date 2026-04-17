@@ -430,3 +430,26 @@ const char *audioGetModPlaylistEntry(s32 idx)               { (void)idx; return 
 const char *audioGetModTrackId(void)                        { return ""; }
 void        audioSetModTrackId(const char *id)              { (void)id; }
 void        audioNetworkMusicTick(void)                     { /* no-op on server */ }
+
+/* --- Asset Provider stubs (Direct File Access Phase 1) — server never
+ * loads asset bytes (no ROM, no file system for assets), but shared
+ * registration code (assetcatalog_base.c, assetcatalog_scanner.c) calls
+ * these to bind handles to entries. Returning null handles is harmless
+ * because the server never dispatches through the provider layer. --- */
+#include "assetprovider.h"
+const asset_provider_t *romProvider(void)                    { return NULL; }
+asset_data_handle_t romProviderHandle(s32 filenum)
+{
+    (void)filenum;
+    asset_data_handle_t h; h.provider = NULL; h.opaque[0] = 0; h.opaque[1] = 0;
+    return h;
+}
+s32 romProviderFilenum(asset_data_handle_t h)                { (void)h; return -1; }
+const asset_provider_t *fileProvider(void)                   { return NULL; }
+asset_data_handle_t fileProviderHandle(const char *path)
+{
+    (void)path;
+    asset_data_handle_t h; h.provider = NULL; h.opaque[0] = 0; h.opaque[1] = 0;
+    return h;
+}
+const char *fileProviderPath(asset_data_handle_t h)          { (void)h; return NULL; }

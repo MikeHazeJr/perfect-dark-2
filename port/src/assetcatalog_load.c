@@ -20,6 +20,7 @@
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
 #include "assetcatalog_deps.h"
+#include "assetprovider.h"
 #include "system.h"
 #include "fs.h"
 
@@ -129,6 +130,19 @@ static const char *entryGetFilePath(const asset_entry_t *e)
 {
     if (!e) {
         return NULL;
+    }
+
+    /* Direct File Access (Phase 2): the declarative source-of-truth for
+     * "which file backs this asset?" is `entry->source.primary` when it
+     * holds a FileProvider handle. Consult that first so the override
+     * path tracks the provider abstraction rather than the type-specific
+     * ext.* fields. The ext.* fallback below stays in place for entries
+     * that haven't been populated with an asset_source_t yet. */
+    if (e->source.primary.provider == fileProvider()) {
+        const char *p = fileProviderPath(e->source.primary);
+        if (p && p[0]) {
+            return p;
+        }
     }
 
     switch (e->type) {
