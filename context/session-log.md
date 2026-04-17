@@ -1,8 +1,43 @@
 
 # Session Log (Active)
 
-> **S241–S315** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S316** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S316 — 2026-04-17 (ROM hash cache path fix + crash investigation — `nostalgic-lichterman-3c1259` worktree)
+
+**Scope**: Urgent crash report — Mike's second PC crashes at startup (stage 0x26 CI Training bodiesReset) after removing `.sha256` files from the game folder.
+
+### Investigation findings
+
+1. **`.sha256` files are NOT read at runtime.** `PerfectDark.exe.sha256` / `PerfectDarkServer.exe.sha256` are release-only artifacts uploaded to GitHub for the updater's download-integrity verification. They are never opened during normal game operation. Removing them cannot cause any crash.
+
+2. **`catalogCacheVerifyRom` path bug (fixed).** The function was calling `sha256HashFile(romPath, ...)` with the bare filename `g_RomName = "pd.ntsc-final.z64"` instead of the full filesystem path. `sha256HashFile` calls `fopen(path, "rb")` directly without `fsFullPath`, so it fails whenever the CWD is not the data directory (i.e., always when launched from the game folder). This caused `WARNING: CATALOG: ROM hash cache: could not hash 'pd.ntsc-final.z64'` on every boot. Fix: added `fsFullPath(romPath)` call before `sha256HashFile`.
+
+3. **Actual crash (B-163 — open).** The AV at PC+0x161258 during CI Training setup could not be fully diagnosed — the crash log upload path was inaccessible and we have no binary for `addr2line`. The double-transition warning `MAIN: replacing pending stage change 0x30 -> 0x26` at boot is suspicious. The last catalog log `CATALOG: base:model_0194 (1879) → ROM` indicates the catalog resolve succeeded; crash is downstream in the model-load path. Most likely hypothesis: pre-S312 build (`aee52a8a`) without the modeldef defensive guards introduced in S312. Current HEAD should be safe — needs playtest verification on Mike's machine after update.
+
+### Commits
+
+| SHA | Scope |
+|-----|-------|
+| `(this commit)` | **fix(catalog): use fsFullPath in catalogCacheVerifyRom ROM hash path** — eliminates spurious "could not hash" WARNING on every boot when base dir has spaces or CWD ≠ data dir. |
+
+### Files touched
+
+- `port/src/assetcatalog_cache.c` — `sha256HashFile(romPath, ...)` → `sha256HashFile(fsFullPath(romPath), ...)`
+- `context/bugs.md` — added B-163 (startup AV in CI Training bodiesReset, needs crash log)
+- `context/session-log.md`, `context/tasks-current.md`, `context/README.md`
+
+### Build verify
+
+`ninja -C Build pd pd-server` — pending (to run before merge).
+
+### Deferred
+
+- **B-163 root cause** — need crash log from Mike's PC + `addr2line -e PerfectDark.exe 0x161258` on the `aee52a8a` binary. Verify whether crash reproduces on current HEAD.
+- **Double-transition 0x30 → 0x26** — investigate what triggers stage 0x30 at boot and whether it interacts with the CI Training redirect. Could be benign (fast boot redirect) or load-state corruption.
+
+---
 
 ## Session S315 — 2026-04-17 (Palette sweep completion — `pedantic-austin-4a93bc` worktree)
 

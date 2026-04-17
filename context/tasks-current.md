@@ -7,6 +7,20 @@
 
 ---
 
+## Open — 2026-04-17 (S316 — ROM hash path fix + crash triage)
+
+### B-163: Startup AV in CI Training bodiesReset — needs crash log from Mike's other PC
+
+Commit `fix(catalog): use fsFullPath in catalogCacheVerifyRom` landed (`nostalgic-lichterman-3c1259` worktree). Eliminates the spurious `WARNING: CATALOG: ROM hash cache: could not hash 'pd.ntsc-final.z64'` that fired every boot when base dir has spaces (or when CWD ≠ data dir).
+
+The actual AV (B-163) at PC+0x161258 during CI Training setup remains unresolved — crash log upload path was inaccessible; no binary for `addr2line`:
+
+- **Mike's action needed**: run `addr2line -e PerfectDark.exe 0x161258` (on the `aee52a8a` binary) and send the output + the pdclient.log from the crash.
+- **Most likely fix**: update to current HEAD — the S312 modeldef defensive guards (NULL rootnode reject + 10000-step walker cap) should prevent the model-load AV if it's the B-161 class.
+- The double-transition `MAIN: replacing pending stage change 0x30 -> 0x26` at boot is suspicious — investigate if current HEAD still fires this or if CI Training loads cleanly.
+
+---
+
 ## Open — 2026-04-17 (S315 — palette sweep completion, `pedantic-austin-4a93bc` worktree)
 
 ### Playtest verification
