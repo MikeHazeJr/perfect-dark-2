@@ -4,6 +4,43 @@
 > **S281–S323** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S323 — 2026-04-17 (Batch D+F — font atlas live rebuild + legacy sidecar migration — `mystifying-mirzakhani-e0e10a` worktree)
+
+**Scope**: Two focused runtime polish tasks. Task 1: font atlas live rebuild so font swaps take effect immediately without restart. Task 2: one-shot migration for pre-S313 agent sidecar files that were named from raw save bytes instead of display names.
+
+### What was done
+
+**Task 1 — Font atlas live rebuild (pdgui_backend.cpp, pdgui.h, pdgui_menu_mainmenu.cpp, prefs_agent.h):**
+- Extracted the pdguiInit font-loading block into `static void pdguiLoadFontsIntoAtlas(ImGuiIO &io)` — adds Handel Gothic always, then adds user font mod if selected
+- Added `static bool s_FontAtlasRebuildRequested` flag + `void pdguiRequestFontAtlasRebuild()` API (declared in pdgui.h)
+- In `pdguiNewFrame`, before the early-return check, check the flag: if set, `Fonts->Clear()` → `pdguiLoadFontsIntoAtlas` → `ImGui_ImplOpenGL3_DestroyFontsTexture()` → `ImGui_ImplOpenGL3_CreateFontsTexture()`; logs "pdgui: font atlas rebuilt"
+- Font dropdown commit in Settings (`pdgui_menu_mainmenu.cpp`) now calls `pdguiRequestFontAtlasRebuild()` after `pdguiFontModSetActiveId()`; removed "(restart required)" `TextDisabled` hint
+- Updated `prefs_agent.h` doc comment: all visual prefs now swap live (no restart needed)
+
+**Task 2 — Legacy sidecar migration (prefs_agent.c, prefs_agent.h, pdgui_menu_agentselect.cpp):**
+- Added `prefsAgentMigrateLegacySidecar(raw_name, display_name)`: builds old path via `sanitize(raw_name)` (how pre-S313 code built it from `file->name` bytes), builds new path via `prefsBuildPath(display_name)`; if old≠new, new missing, old present → `rename()` + log `"PREFS: migrated legacy sidecar '%s' -> '%s'"`
+- Declared in `prefs_agent.h` with explanatory comment
+- `prefsLoadForFile()` in `pdgui_menu_agentselect.cpp` calls `prefsAgentMigrateLegacySidecar(file->name, name)` before `prefsAgentLoad(name)` — one-shot, idempotent
+
+### Commit
+
+| SHA | Scope |
+|-----|-------|
+| `ae188997` | **feat(S323): Batch D+F — font atlas live rebuild + legacy sidecar migration** |
+
+6 files changed, 140 insertions(+), 63 deletions(−). Merged into dev.
+
+### Build result
+
+Clean: `pd` links with zero errors (only pre-existing `/* within comment` warnings). `pd-server` cached (changed files are pd-only).
+
+### Next steps
+
+- Playtest font swap: change font in Settings → Interface → Font dropdown; new font should apply immediately without restart
+- Playtest migration: create a test agent sidecar with legacy naming, confirm it migrates on first Agent Select load
+
+---
+
 ## Session S323 — 2026-04-17 (Batch A — IS4MB/IS8MB/STAGE_4MBMENU final cleanup — `admiring-mccarthy-38734a` worktree)
 
 **Scope**: Tier 3 remaining N64 dead code after S322. S322 stripped ~100 callsites and removed STAGE_4MBMENU from STAGE_IS_SYSTEM(), but five live STAGE_4MBMENU callsites and all macro definitions were left. This batch finishes the job so `grep -rn "IS4MB|IS8MB|fourmeg2player|STAGE_4MBMENU" src/ port/` returns zero hits.

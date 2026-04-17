@@ -7,6 +7,15 @@
 
 ---
 
+## Open — 2026-04-17 (S323 Batch D+F — font atlas rebuild + legacy sidecar migration)
+
+### Playtest verification
+
+- **Font live swap** — open Settings → Interface tab → Font dropdown. Change to any installed font mod. Font should update immediately in the current session (no restart required). Change back to Handel Gothic — should also update immediately.
+- **Legacy sidecar migration** — if any agents were created before S313, their old sidecar (named from raw N64 bytes, typically `prefs_default.ini` or a garbled name) should auto-migrate to `prefs_<display_name>.ini` on first Agent Select load. Log should show `PREFS: migrated legacy sidecar '...' -> '...'` if migration fires.
+
+---
+
 ## Done — 2026-04-17 (S323 Batch A — IS4MB/IS8MB/STAGE_4MBMENU final cleanup, `admiring-mccarthy-38734a` worktree)
 
 **Build verified.** `grep -rn "IS4MB|IS8MB|fourmeg2player|STAGE_4MBMENU" src/ port/` returns zero hits. Both `PerfectDark.exe` and `PerfectDarkServer.exe` link clean [770/770]. No playtest needed — pure dead-code removal with no runtime behavior change.
