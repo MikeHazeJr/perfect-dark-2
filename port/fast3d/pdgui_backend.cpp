@@ -610,6 +610,11 @@ void pdguiRender(void)
      * a forge session, but below the shimmer/scanline post-process. */
     pdguiForgeHudRender((s32)winW, (s32)winH);
 
+    /* The Grid editor overlay (F1-F8 tabbed UI: catalog, properties, zones,
+     * lighting, logic, gametype, mission, settings).  Gated on forge session
+     * active + FREEFLY so NORMAL playtest remains uncluttered. */
+    pdguiForgeEditorRender((s32)winW, (s32)winH);
+
 
     /* Add PD-style shimmer effects to all visible windows via foreground draw list.
      * This adds the animated border highlights that are PD's signature look. */

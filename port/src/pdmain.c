@@ -34,6 +34,7 @@
 #include "game/gfxmemory.h"
 #include "game/lang.h"
 #include "game/forgemode.h"
+#include "forge/forge_core.h"
 #include "game/lv.h"
 #include "game/timing.h"
 #include "game/music.h"
@@ -662,6 +663,11 @@ void mainTick(void)
 			 * gameplay loop so a freefly bondmovemode override is in place
 			 * before bmoveTick dispatches. */
 			forgeTick();
+
+			/* The Grid editor runtime (F1-F8): resets per-frame flags,
+			 * advances logic graph runtime, wave spawner, etc.  Cheap when
+			 * no objects exist (early-outs on empty pools). */
+			forgeCoreTick();
 
 			if (STAGE_IS_GAMEPLAY(g_StageNum)) {
 				for (i = 0; i < PLAYERCOUNT(); i++) {
