@@ -1391,7 +1391,7 @@ static void renderModManager(s32 winW, s32 winH)
 
     /* Draw PD-style frame around the inner dialog area */
     ImDrawList *dl = ImGui::GetForegroundDrawList();
-    ImU32 borderCol = IM_COL32(80, 140, 200, 220);
+    ImU32 borderCol = pdguiImU32TintInfo(220);
     dl->AddRect(ImVec2(dialogX, dialogY),
                 ImVec2(dialogX + dialogW, dialogY + dialogH),
                 borderCol, 4.0f, 0, 2.0f * scale);

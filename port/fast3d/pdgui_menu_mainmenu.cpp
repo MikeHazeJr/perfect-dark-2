@@ -1911,8 +1911,8 @@ static void renderBindTable(s32 filterCol, const char *tableId)
                 }
                 if (rowHovered || rowNavFocus) {
                     ImU32 hlColor = rowNavFocus
-                        ? IM_COL32(80, 120, 200, 80)
-                        : IM_COL32(200, 200, 255, 40);
+                        ? pdguiImU32TintInfo(80)
+                        : pdguiImU32TitleGlow(40);
                     ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, hlColor);
                 }
             }
