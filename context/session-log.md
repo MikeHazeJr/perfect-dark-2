@@ -1,7 +1,61 @@
 # Session Log (Active)
 
-> **S241–S299** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S300** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S300 — 2026-04-16 (Menu pool ctx migration + SP-14 + manifest audit — peaceful-aryabhata worktree)
+
+**Scope**: Three-task batch on one commit, merged to `dev`.
+
+1. **ADR §6.1b — ImGui renderers `s_*PushedCtx` → pool-owned ctx.** Completes Phase 2 of the input-authority ADR by migrating the ten ImGui renderer files off the per-file `s_FooPushedCtx` booleans and onto `menupoolAcquireDialog(def, &g_CtxImGuiMenu)` / `menupoolReleaseDialog(def)` through the pre-allocated pool shipped in S299. The pool now owns the input-context push/pop lifecycle for each slot.
+2. **SP-14 follow-up — `g_NetMatchRoomId` + `g_NetCounterOpClientId` defensive reset in `netDisconnect` and `netStartServer`.** Closes the last teardown gap not covered by the S295 `netmsgSvcStageEndRead` reset: if a server-mode host disconnects mid-match or re-hosts without a clean stage-end, the stale room id and counter-op client id no longer survive into the next session.
+3. **Manifest gap audit.** Confirmed `manifestBuildForMenu` + `manifestMenuTransition` are live in `netmanifest.c` and wired through `mainChangeToStage` in `pdmain.c:772`; confirmed `manifestSPRescanSetup` provides the post-load split of `manifestBuildMission`. Added per-category diagnostic logging so future regressions are diagnosable from `pd.log` alone.
+
+### Task 1 — ImGui renderers pool migration (ADR §6.1b)
+
+**Files touched** — ten ImGui renderers plus the pool library:
+
+- `port/include/menupool.h` — added three new `menu_type_t` values (`MENU_TYPE_MP_SOUNDTRACK`, `MENU_TYPE_MP_TUNES`, `MENU_TYPE_MP_TEAMNAMES`) so the four mpsettings sub-dialogs can legitimately stack (Soundtrack → SelectTunes). Added a C-side accessor `menupoolDialogDef(const struct menudialog *)` because C++ renderer callbacks can't include types.h (it redefines `bool`).
+- `port/src/menupool.c` — extended `menupoolAcquire` to **attach the ctx to an already-active slot** when the caller provides one and `slot->owned_ctx` is NULL. This is the key enabler for the migration: `menuPushDialog` already acquired the slot with `ctx=NULL`, so the renderer's IsWindowAppearing call attaches the ctx without mutating the dedup state. Registered `g_MpSoundtrackMenuDialog` / `g_MpSelectTunesMenuDialog` / `g_MpTeamNamesMenuDialog` against the new types. Added `g_MpSoundtrackMenuDialog` / `g_MpSelectTunesMenuDialog` / `g_MpTeamNamesMenuDialog` externs to `src/include/data.h`.
+- `port/fast3d/pdgui_menu_cheats.cpp` — removed `s_CheatsHubPushedCtx` bool; Begin()=false cull → `menupoolReleaseDialog`; IsWindowAppearing → `menupoolAcquireDialog(..., &g_CtxImGuiMenu)`; Back/Esc → `menuPopDialog()` (menuCloseDialog handles pool release).
+- `port/fast3d/pdgui_menu_mpsetup.cpp` — removed `s_MpSetupPushedCtx`; converted `mp_BeginStandardWindow` / `mp_CloseCurrentDialog` helpers to take `const struct menudialogdef *def`; updated all eight renderer entry points (`renderMpArena`, `renderMpScenario*`, `renderMpWeapons`, `renderMpSelectRandomWeapons`, `renderMpQuickTeamWeapons`, `renderMpLimits`, `renderMpScenarioOptions*`, `renderMpExtGameOptions`) to name the `dialog` param and pass its definition.
+- `port/fast3d/pdgui_menu_mppause.cpp` — removed `s_MpPausePushedCtx`; same helper + renderer conversion (6 renderers).
+- `port/fast3d/pdgui_menu_mpadvanced.cpp` — removed `s_MpAdvancedPushedCtx`; same helper + renderer conversion (9 renderers including the three `renderMpPlayerSetupHub*` wrappers and `renderMpStuff*`).
+- `port/fast3d/pdgui_menu_playerconfig.cpp` — removed `s_PlayerConfigPushedCtx`; same helper + renderer conversion (5 renderers: `renderMpCharacter`, `renderMpPlayerStats`, `renderMpLoadSettings`, `renderMpLoadPreset`, `renderMpLoadPlayer`).
+- `port/fast3d/pdgui_menu_botsetup.cpp` — removed `s_BotSetupPushedCtx`; same helper + renderer conversion (5 renderers: `renderMpSimulants`, `renderMpAddSimulant`, `renderMpChangeSimulant`, `renderMpEditSimulant`, `renderMpSimulantCharacter`).
+- `port/fast3d/pdgui_menu_agentselect.cpp` — removed `s_AgentSelectPushedCtx`; inline pattern (no helper), load/select transitions use `menupoolReleaseDialog` before handing off to the file manager path.
+- `port/fast3d/pdgui_menu_room.cpp` — removed `s_RoomPushedCtx`; Room is pure-ImGui (no dialogdef backing), so uses the type-based API `menupoolAcquire(MENU_TYPE_ROOM, NULL, &g_CtxImGuiMenu)` / `menupoolRelease(MENU_TYPE_ROOM)`. Solo mode remains in shared ctx mode (main menu owns the push) — pool records shared-mode and doesn't pop on release.
+- `port/fast3d/pdgui_menu_training.cpp` — removed `s_FrWeaponPushedCtx`; converted `renderFrWeaponList` to pool API. Only the FR entry point pushes ctx; sub-dialogs (difficulty, info) run under the shared ctx.
+- `port/fast3d/pdgui_menu_mpsettings.cpp` — removed per-caller bools (`s_TunesOwnsCtx`, `s_SoundtrackOwnsCtx`, `s_TeamNamesOwnsCtx`); converted `pdms_BeginStandardWindow` / `pdms_CloseCurrentDialog` helpers to take the dialogdef. Handicap (which never pushed ctx) simply calls `pdms_CloseCurrentDialog()` with no args. Each sub-dialog maps to its own pool slot so they can stack cleanly (Soundtrack→Tunes in shared-mode).
+
+**Key acquire semantics change**: `menupoolAcquire` now attaches ctx to an existing slot when called with a non-NULL ctx and `slot->owned_ctx == NULL`. Return code `0` still signals "slot was already active" so `menuPushDialog`'s dedup rejection still works. The internals now emit a distinct log line `MENUPOOL: attached ctx to active <type>` whenever the attach path fires (typically once per renderer's IsWindowAppearing after the menuPushDialog pre-acquire).
+
+### Task 2 — SP-14 defensive teardown
+
+- `port/src/net/net.c::netDisconnect` — after resetting `g_NetMode` to `NETMODE_NONE`, defensively resets `g_NetMatchRoomId = 0xFF` and `g_NetCounterOpClientId = NET_NULL_CLIENT`. Logs the prior values when either is non-sentinel, so we can diagnose any case where these leak across a disconnect (should be rare given the existing SVC_STAGE_END and netServerStageEnd resets; this is belt-and-braces).
+- `port/src/net/net.c::netStartServer` — same reset just before the server-mode announcement, covering the "previous server-mode session terminated without a clean netServerStageEnd, now re-hosting" case.
+
+### Task 3 — Manifest audit + diagnostics
+
+- Verified `manifestBuildForMenu` (netmanifest.c:605) builds from `assetCatalogIterateByType(ASSET_BODY / ASSET_HEAD, ...)` and is wired into the menu path via `manifestMenuTransition` (netmanifest.c:1615) called from `mainChangeToStage`'s `!STAGE_IS_GAMEPLAY` branch (pdmain.c:772). No code change needed to close the original gap.
+- Verified the SP pre/post-load manifest split is in place: `manifestSPTransition` fires from pdmain.c:768 (pre-load, `g_StageSetup.props` still NULL), `manifestSPRescanSetup` fires from lv.c:532 (post-load, setup files parsed). The post-load rescan uses `manifestBuildMission` to re-scan with the now-populated setup data and applies any newly-discovered entries as a diff.
+- **Diagnostics added**:
+  - `manifestBuildForMenu` now records per-category counters (bodies added, mod bodies, disabled; heads added, mod heads, disabled) and logs a structured summary so a zero mod count with enabled `user.<slug>.*` catalog entries is immediately obvious in `pd.log`.
+  - `manifestSPRescanSetup` now logs the diff shape (`newly-discovered=N kept=M unload=K`) after the post-load diff so it's easy to tell whether the rescan found cinematic / ailist spawns the pre-load scan missed (B-118 symptom was `newly-discovered=0`).
+
+**Build verify**: `source devtools/build-env.sh && ninja -C Build pd pd-server` — 530/530 targets link. `PerfectDark.exe` 51,534,311 bytes; `PerfectDarkServer.exe` 22,827,178 bytes. Only pre-existing `'/*' within comment` warnings and the `f32 near/far` typed-name macro warnings; no new ones.
+
+**Process**: single commit on the worktree branch, then worktree fast-forward merged into `dev` (line counts verified per CLAUDE.md §9). No push to origin.
+
+**Not done in this session** (deferred):
+
+- The shared-action leak (ADR §3.5 / menu-input-audit §6.2) still needs per-scope state arrays in the actionmap — separate architectural change not tied to pool migration.
+- No unit / integration tests for the pool (ADR §6.3).
+- Training dialog registration sub-dialogs (FrDifficulty, FrTrainingInfoPreGame etc.) all map to `MENU_TYPE_TRAINING`, which means menu.c's pool dedup would reject a sub-push if the parent slot is already active. This is a pre-S300 issue — if playtest reveals the training menu can't drill into its sub-dialogs, the fix is to move sub-dialogs out of MENU_TYPE_TRAINING and into their own types. Flagged but not addressed today.
+
+**Next**: playtest S300 — open each migrated menu (Cheats, MP Setup family, MP Pause family, MP Advanced family, Player Config, Bot Setup, Agent Select, Room, Training FR, MP Settings family) and confirm ctx transitions are clean on open, on Back/Esc, and on Begin()=false cull (simulate by triggering a modal overlay). Expected logs include `MENUPOOL: attached ctx to active <type>` per IsWindowAppearing and `MENUPOOL: released <type>` per close.
+
+---
 
 ## Session S299 — 2026-04-16 (Input Authority Phase 2 — menu pool single-instance discipline — trusting-banach worktree)
 

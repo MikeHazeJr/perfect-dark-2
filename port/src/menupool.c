@@ -53,6 +53,9 @@ static const char *const s_TypeNames[MENU_TYPE_COUNT] = {
     [MENU_TYPE_CHEATS]              = "cheats",
     [MENU_TYPE_MP_SETUP]            = "mp_setup",
     [MENU_TYPE_MP_SETTINGS]         = "mp_settings",
+    [MENU_TYPE_MP_SOUNDTRACK]       = "mp_soundtrack",
+    [MENU_TYPE_MP_TUNES]            = "mp_tunes",
+    [MENU_TYPE_MP_TEAMNAMES]        = "mp_teamnames",
     [MENU_TYPE_MP_ADVANCED]         = "mp_advanced",
     [MENU_TYPE_MP_PAUSE]            = "mp_pause",
     [MENU_TYPE_MP_PLAYER_CONFIG]    = "mp_player_config",
@@ -152,8 +155,28 @@ s32 menupoolAcquire(menu_type_t type, const struct menudialogdef *def, InputCont
     }
 
     menupool_slot_t *slot = &s_Pool[type];
+
+    /* S300: when the slot is already active (typical flow — menuPushDialog
+     * pre-acquired with ctx=NULL, renderer's IsWindowAppearing re-acquires
+     * with a real ctx), we MUST still honour the ctx argument. Previously
+     * this returned 0 without touching ctx, forcing each ImGui renderer
+     * to own its own `s_FooPushedCtx` bool. Now the pool itself attaches
+     * the ctx to the live slot if:
+     *   (a) the caller provided a ctx,
+     *   (b) the slot hasn't already attached one (owned_ctx == NULL),
+     *   (c) the ctx isn't already live on the stack (shared mode).
+     * Return 0 still signals "slot was already active" so menuPushDialog's
+     * dedup rejection still works. */
     if (slot->active) {
-        /* Structural dedup: second acquire is denied. */
+        if (ctx && !slot->owned_ctx && !inputCtxIsActive(ctx)) {
+            inputCtxPush(ctx);
+            slot->owned_ctx = ctx;
+            sysLogPrintf(LOG_NOTE,
+                "MENUPOOL: attached ctx to active %s gen=%u ctx=%s",
+                menupoolTypeName(type),
+                (unsigned)slot->generation,
+                ctx->name ? ctx->name : "?");
+        }
         return 0;
     }
 
@@ -268,6 +291,17 @@ s32 menupoolIsDialogActive(const struct menudialogdef *def)
     return menupoolIsActive(type);
 }
 
+const struct menudialogdef *menupoolDialogDef(const struct menudialog *dialog)
+{
+    /* This file is C and includes types.h, so struct menudialog is complete
+     * here. C++ renderers can't include types.h without breaking `bool`, so
+     * we expose this tiny accessor instead. */
+    if (!dialog) {
+        return NULL;
+    }
+    return dialog->definition;
+}
+
 s32 menupoolCountActive(void)
 {
     s32 n = 0;
@@ -377,8 +411,13 @@ void menupoolInit(void)
     REG(&g_HtmOptionsMenuDialog,         MENU_TYPE_MP_SETUP);
     REG(&g_PacOptionsMenuDialog,         MENU_TYPE_MP_SETUP);
 
-    /* ---- MP settings (handicap / tunes / teams) ---- */
+    /* ---- MP settings family (handicap / soundtrack / tunes / teamnames)
+     * each sub-dialog gets its own pool slot because soundtrack → tunes
+     * (and handicap → tunes) can legitimately stack. See S-3 audit. */
     REG(&g_MpHandicapsMenuDialog,        MENU_TYPE_MP_SETTINGS);
+    REG(&g_MpSoundtrackMenuDialog,       MENU_TYPE_MP_SOUNDTRACK);
+    REG(&g_MpSelectTunesMenuDialog,      MENU_TYPE_MP_TUNES);
+    REG(&g_MpTeamNamesMenuDialog,        MENU_TYPE_MP_TEAMNAMES);
 
     /* ---- MP advanced (quick-go / quick-team / advanced hub) ---- */
     REG(&g_MpAdvancedSetupMenuDialog,    MENU_TYPE_MP_ADVANCED);

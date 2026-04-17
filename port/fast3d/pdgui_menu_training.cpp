@@ -55,6 +55,7 @@
 #include "pdgui_charpreview.h"
 #include "system.h"
 #include "inputctx.h"
+#include "menupool.h"
 
 /* =========================================================================
  * Forward declarations — game symbols (extern "C" to avoid types.h)
@@ -1152,7 +1153,8 @@ static bool backPressed(void)
  * ========================================================================= */
 
 static s32 s_FrWeaponCursor = -1;
-static s32 s_FrWeaponPushedCtx = 0; /* F-0.2: track push so we pop on exit */
+/* S300: s_FrWeaponPushedCtx removed — menu pool owns the ctx for
+ * MENU_TYPE_TRAINING via menupoolAcquireDialog / menupoolReleaseDialog. */
 
 static void frDrawScoreStars(float x, float y, s32 tier)
 {
@@ -1186,23 +1188,18 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
 {
     if (!beginTrainingWindow("##fr_weapon_list", "Weapon", winW, winH)) {
         ImGui::End();
-        /* S295 F4 leak guard: release owned context if the window is culled. */
-        if (s_FrWeaponPushedCtx) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-            s_FrWeaponPushedCtx = 0;
-        }
+        /* S295 F4 leak guard — S300: pool owns ctx, release pops it. */
+        menupoolReleaseDialog(menupoolDialogDef(dialog));
         return 1;
     }
 
-    /* Push ImGui menu input context so gamepad d-pad and A/B route to ImGui
-     * instead of gameplay.  Required because this menu opens from CI gameplay
-     * (walking around Carrington Institute), not from another ImGui menu.
-     * F-0.2: track push via s_FrWeaponPushedCtx so we pop on exit. */
+    /* Push ImGui menu input context via the pool so gamepad d-pad and A/B
+     * route to ImGui instead of gameplay.  Required because this menu opens
+     * from CI gameplay (walking around Carrington Institute), not from
+     * another ImGui menu.  S300: pool attaches the ctx to MENU_TYPE_TRAINING. */
     if (ImGui::IsWindowAppearing()) {
-        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPush(&g_CtxImGuiMenu);
-            s_FrWeaponPushedCtx = 1;
-        }
+        menupoolAcquireDialog(menupoolDialogDef(dialog),
+                              &g_CtxImGuiMenu);
         ImGui::SetWindowFocus();
     }
 
@@ -1215,11 +1212,7 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
 
     if (backPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        /* F-0.2: pop the context we pushed on appear */
-        if (s_FrWeaponPushedCtx) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-            s_FrWeaponPushedCtx = 0;
-        }
+        /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
         menuPopDialog();
         ImGui::End();
         return 1;
@@ -1325,11 +1318,7 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
         ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
         if (PdButton("Back", ImVec2(btnW, btnH))) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            /* F-0.2: pop the context we pushed on appear */
-            if (s_FrWeaponPushedCtx) {
-                inputCtxPopDeferred(&g_CtxImGuiMenu);
-                s_FrWeaponPushedCtx = 0;
-            }
+            /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
             menuPopDialog();
         }
     }

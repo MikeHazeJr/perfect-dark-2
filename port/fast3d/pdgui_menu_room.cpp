@@ -36,6 +36,7 @@
 #include "pdgui_menu_botsetup.h" /* D5 P3 Batch 6: inline Simulant Profiles panel */
 #include "system.h"
 #include "inputctx.h"
+#include "menupool.h"
 #include "room.h"
 
 /* ========================================================================
@@ -542,9 +543,10 @@ static bool s_MatchConfigInited = false;
 /* R-5: set true whenever the leader changes settings; cleared after CLC_ROOM_SETTINGS_UPDATE send */
 static bool s_RoomSettingsDirty = false;
 
-/* B-124 pattern: true if this screen pushed g_CtxImGuiMenu itself.
- * Used to correctly match push/pop ownership — only pop if we pushed it. */
-static bool s_RoomPushedCtx = false;
+/* S300: s_RoomPushedCtx removed — menu pool owns the ctx for MENU_TYPE_ROOM
+ * via menupoolAcquireDialog / menupoolReleaseDialog. In solo mode the ctx
+ * was already pushed by the main menu (shared mode — pool won't pop on
+ * release); in network mode the pool acquires and owns the pop. */
 
 /* Campaign / Counter-Op settings */
 static int s_CampaignMission   = 0;
@@ -2330,30 +2332,22 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 
     if (!ImGui::Begin("##room_interior", nullptr, wflags)) {
         ImGui::End();
-        /* S295 F4 leak guard: release the context we own if the window is
-         * culled this frame, so the player isn't frozen with no menu visible. */
-        if (s_RoomPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-            s_RoomPushedCtx = false;
-        }
+        /* S295 F4 leak guard — S300: pool owns the ctx (if it acquired it),
+         * release pops it. If solo mode (main menu pushed ctx), the pool
+         * slot is in shared mode and release won't pop. */
+        menupoolRelease(MENU_TYPE_ROOM);
         return;
     }
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
-        /* B-124 pattern: push g_CtxImGuiMenu if not already active.
-         * In solo mode the main menu already pushed it; in network mode
-         * (direct room entry without main menu) we push it ourselves.
-         * This ensures mouse is absolute, pdguiIsActive() blocks gameplay
-         * input, and the 100ms grace period suppresses open-key double-fire. */
-        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPush(&g_CtxImGuiMenu);
-            s_RoomPushedCtx = true;
-        } else {
-            s_RoomPushedCtx = false;
-        }
-        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room OPEN (solo=%d, pushedCtx=%d)",
-                     s_IsSoloMode, s_RoomPushedCtx);
+        /* S300: pure-ImGui menu with no dialogdef backing — acquire by type.
+         * If ctx is already active (solo mode, main menu owns it), the pool
+         * records shared mode and won't pop on release. In network mode the
+         * pool pushes ctx and owns the pop. */
+        menupoolAcquire(MENU_TYPE_ROOM, NULL, &g_CtxImGuiMenu);
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room OPEN (solo=%d)",
+                     s_IsSoloMode);
     }
 
     /* Opaque backdrop */
@@ -2645,13 +2639,10 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_MatchConfigInited = false;  /* reset on next enter */
         s_CodeGenerated     = false;
-        /* B-124 pattern: only pop the context if we pushed it ourselves.
-         * In solo mode the main menu owns the context and handles the pop.
-         * In network mode (s_RoomPushedCtx) we must pop it here. */
-        if (s_RoomPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-            s_RoomPushedCtx = false;
-        }
+        /* S300: release MENU_TYPE_ROOM — pool pops ctx only if it owned the
+         * push (network mode). Solo mode pool was in shared mode, so the
+         * main-menu-owned push survives until the main menu closes. */
+        menupoolRelease(MENU_TYPE_ROOM);
         if (s_IsSoloMode) {
             pdguiSoloRoomClose();  /* return to main menu */
         } else {
@@ -3153,7 +3144,8 @@ extern "C" void pdguiRoomScreenSetSolo(s32 solo)
 extern "C" void pdguiRoomScreenReset(void)
 {
     s_MatchConfigInited = false;
-    s_RoomPushedCtx     = false;
+    /* S300: pool release handles ctx cleanup. */
+    menupoolRelease(MENU_TYPE_ROOM);
     free(s_Arenas);
     s_Arenas            = NULL;
     s_NumArenas         = 0;

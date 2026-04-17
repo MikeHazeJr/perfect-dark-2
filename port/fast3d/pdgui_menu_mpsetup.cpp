@@ -58,6 +58,7 @@
 #include "pdgui.h"        /* langSafe */
 #include "system.h"
 #include "inputctx.h"
+#include "menupool.h"
 
 extern "C" {
 #include "pdgui_menus.h"  /* for pdguiMenuMpSetupRegister declaration */
@@ -387,10 +388,14 @@ struct WindowFrame {
     ImVec2 pos;
 };
 
-static bool s_MpSetupPushedCtx = false;
+/* S300: s_MpSetupPushedCtx removed — menu pool owns the ctx for
+ * MENU_TYPE_MP_SETUP via menupoolAcquireDialog / menupoolReleaseDialog.
+ * Each renderer passes its live dialogdef so the pool lookup finds the
+ * right slot. */
 
 static WindowFrame mp_BeginStandardWindow(const char *imguiId, const char *title,
-                                          float widthFrac, float heightFrac)
+                                          float widthFrac, float heightFrac,
+                                          const struct menudialogdef *def)
 {
     pdguiPopupDarkenBehind(0.55f);
 
@@ -413,22 +418,15 @@ static WindowFrame mp_BeginStandardWindow(const char *imguiId, const char *title
         /* Defer End() to caller via a return-value convention:
          * wf.mw==0 signals "Begin returned false". */
         wf.mw = 0.0f;
-        /* S295 F4 leak guard: see pdgui_menu_agentselect.cpp for rationale. */
-        if (s_MpSetupPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-            s_MpSetupPushedCtx = false;
-        }
+        /* S300: pool owns the ctx; release pops it. */
+        menupoolReleaseDialog(def);
         return wf;
     }
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-        s_MpSetupPushedCtx = false;
-        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPush(&g_CtxImGuiMenu);
-            s_MpSetupPushedCtx = true;
-        }
+        menupoolAcquireDialog(def, &g_CtxImGuiMenu);
     }
 
     float titleH = pdguiScale(39.0f);
@@ -440,10 +438,7 @@ static WindowFrame mp_BeginStandardWindow(const char *imguiId, const char *title
 static void mp_CloseCurrentDialog(void)
 {
     pdguiPlaySound(PDGUI_SND_KBCANCEL);
-    if (s_MpSetupPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-        inputCtxPopDeferred(&g_CtxImGuiMenu);
-    }
-    s_MpSetupPushedCtx = false;
+    /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
     menuPopDialog();
 }
 
@@ -471,9 +466,10 @@ static bool mp_BackPressed(void)
  * (MENUDIALOGFLAG_CLOSEONSELECT in the legacy def).
  */
 
-static s32 renderMpArena(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpArena(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    WindowFrame wf = mp_BeginStandardWindow("##mp_arena", "Arena", 0.70f, 0.80f);
+    WindowFrame wf = mp_BeginStandardWindow("##mp_arena", "Arena", 0.70f, 0.80f,
+                                            menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (mp_BackPressed()) {
@@ -527,9 +523,10 @@ static s32 renderMpArena(struct menudialog *, struct menu *, s32, s32)
  * Legacy def has CLOSEONSELECT -- picking a scenario auto-pops.
  */
 
-static s32 renderMpScenarioImpl(u8 param, const char *imguiId, const char *title)
+static s32 renderMpScenarioImpl(u8 param, const char *imguiId, const char *title,
+                                 const struct menudialogdef *def)
 {
-    WindowFrame wf = mp_BeginStandardWindow(imguiId, title, 0.60f, 0.75f);
+    WindowFrame wf = mp_BeginStandardWindow(imguiId, title, 0.60f, 0.75f, def);
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (mp_BackPressed()) {
@@ -573,14 +570,16 @@ static s32 renderMpScenarioImpl(u8 param, const char *imguiId, const char *title
     return 1;
 }
 
-static s32 renderMpScenario(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpScenario(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    return renderMpScenarioImpl(0, "##mp_scen", "Scenario");
+    return renderMpScenarioImpl(0, "##mp_scen", "Scenario",
+                                 menupoolDialogDef(dialog));
 }
 
-static s32 renderMpQuickTeamScenario(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpQuickTeamScenario(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    return renderMpScenarioImpl(1, "##mp_scen_qt", "Scenario");
+    return renderMpScenarioImpl(1, "##mp_scen_qt", "Scenario",
+                                 menupoolDialogDef(dialog));
 }
 
 /* =========================================================================
@@ -628,9 +627,10 @@ static void renderHandlerDropdown(const char *label,
     }
 }
 
-static s32 renderMpWeapons(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpWeapons(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    WindowFrame wf = mp_BeginStandardWindow("##mp_weapons", "Weapons", 0.60f, 0.80f);
+    WindowFrame wf = mp_BeginStandardWindow("##mp_weapons", "Weapons", 0.60f, 0.80f,
+                                            menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (mp_BackPressed()) {
@@ -734,9 +734,10 @@ static void srw_ToggleRow(s32 idx)
     mpSelectRandomWeaponListHandler(MENUOP_SET, &it, &h);
 }
 
-static s32 renderMpSelectRandomWeapons(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpSelectRandomWeapons(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    WindowFrame wf = mp_BeginStandardWindow("##mp_srw", "Select Weapons", 0.55f, 0.85f);
+    WindowFrame wf = mp_BeginStandardWindow("##mp_srw", "Select Weapons", 0.55f, 0.85f,
+                                            menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (mp_BackPressed()) {
@@ -821,9 +822,10 @@ static const char *qtw_SlotName(s32 slot)
     return t ? t : "";
 }
 
-static s32 renderMpQuickTeamWeapons(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpQuickTeamWeapons(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    WindowFrame wf = mp_BeginStandardWindow("##mp_qtw", "Weapons", 0.55f, 0.75f);
+    WindowFrame wf = mp_BeginStandardWindow("##mp_qtw", "Weapons", 0.55f, 0.75f,
+                                            menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (mp_BackPressed()) {
@@ -903,9 +905,10 @@ static bool renderSliderRow(const char *label,
     return changed;
 }
 
-static s32 renderMpLimits(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpLimits(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    WindowFrame wf = mp_BeginStandardWindow("##mp_limits", "Limits", 0.55f, 0.65f);
+    WindowFrame wf = mp_BeginStandardWindow("##mp_limits", "Limits", 0.55f, 0.65f,
+                                            menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (mp_BackPressed()) {
@@ -1144,11 +1147,12 @@ static const ScenarioOptionsDesc k_ScenarioOptions[SC_OPT_COUNT] = {
     { "##mp_opt_pac",    "Pop a Cap Options", SC_OPT_PAC },
 };
 
-static s32 renderMpScenarioOptionsImpl(ScenarioOptionVariant variant)
+static s32 renderMpScenarioOptionsImpl(ScenarioOptionVariant variant,
+                                        const struct menudialogdef *def)
 {
     const ScenarioOptionsDesc &d = k_ScenarioOptions[variant];
 
-    WindowFrame wf = mp_BeginStandardWindow(d.imguiId, d.title, 0.60f, 0.80f);
+    WindowFrame wf = mp_BeginStandardWindow(d.imguiId, d.title, 0.60f, 0.80f, def);
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (mp_BackPressed()) {
@@ -1190,18 +1194,24 @@ static s32 renderMpScenarioOptionsImpl(ScenarioOptionVariant variant)
     return 1;
 }
 
-static s32 renderMpCombatOptions  (struct menudialog *, struct menu *, s32, s32)
-{ return renderMpScenarioOptionsImpl(SC_OPT_COMBAT); }
-static s32 renderMpCtcOptions     (struct menudialog *, struct menu *, s32, s32)
-{ return renderMpScenarioOptionsImpl(SC_OPT_CTC); }
-static s32 renderMpHtmOptions     (struct menudialog *, struct menu *, s32, s32)
-{ return renderMpScenarioOptionsImpl(SC_OPT_HTM); }
-static s32 renderMpHtbOptions     (struct menudialog *, struct menu *, s32, s32)
-{ return renderMpScenarioOptionsImpl(SC_OPT_HTB); }
-static s32 renderMpKohOptions     (struct menudialog *, struct menu *, s32, s32)
-{ return renderMpScenarioOptionsImpl(SC_OPT_KOH); }
-static s32 renderMpPacOptions     (struct menudialog *, struct menu *, s32, s32)
-{ return renderMpScenarioOptionsImpl(SC_OPT_PAC); }
+static s32 renderMpCombatOptions  (struct menudialog *dialog, struct menu *, s32, s32)
+{ return renderMpScenarioOptionsImpl(SC_OPT_COMBAT,
+                                      menupoolDialogDef(dialog)); }
+static s32 renderMpCtcOptions     (struct menudialog *dialog, struct menu *, s32, s32)
+{ return renderMpScenarioOptionsImpl(SC_OPT_CTC,
+                                      menupoolDialogDef(dialog)); }
+static s32 renderMpHtmOptions     (struct menudialog *dialog, struct menu *, s32, s32)
+{ return renderMpScenarioOptionsImpl(SC_OPT_HTM,
+                                      menupoolDialogDef(dialog)); }
+static s32 renderMpHtbOptions     (struct menudialog *dialog, struct menu *, s32, s32)
+{ return renderMpScenarioOptionsImpl(SC_OPT_HTB,
+                                      menupoolDialogDef(dialog)); }
+static s32 renderMpKohOptions     (struct menudialog *dialog, struct menu *, s32, s32)
+{ return renderMpScenarioOptionsImpl(SC_OPT_KOH,
+                                      menupoolDialogDef(dialog)); }
+static s32 renderMpPacOptions     (struct menudialog *dialog, struct menu *, s32, s32)
+{ return renderMpScenarioOptionsImpl(SC_OPT_PAC,
+                                      menupoolDialogDef(dialog)); }
 
 /* =========================================================================
  * Renderer: Extended Game Options (g_ExtGameOptionsMenuDialog)
@@ -1211,9 +1221,10 @@ static s32 renderMpPacOptions     (struct menudialog *, struct menu *, s32, s32)
  * menuhandlerMpDisplayTeam for Friendly Fire (CHECKDISABLED gates on teams).
  */
 
-static s32 renderMpExtGameOptions(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpExtGameOptions(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    WindowFrame wf = mp_BeginStandardWindow("##mp_extopt", "More Options", 0.55f, 0.65f);
+    WindowFrame wf = mp_BeginStandardWindow("##mp_extopt", "More Options", 0.55f, 0.65f,
+                                            menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (mp_BackPressed()) {

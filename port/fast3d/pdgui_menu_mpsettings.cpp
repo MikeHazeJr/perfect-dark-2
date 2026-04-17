@@ -61,6 +61,7 @@
 #include "pdgui.h"          /* langSafe */
 #include "system.h"
 #include "inputctx.h"
+#include "menupool.h"
 
 /* ========================================================================
  * Forward declarations (C boundary)
@@ -301,14 +302,15 @@ struct PdmsWindowFrame {
     ImVec2 pos;
 };
 
-/* S-3: Per-dialog ownership tracking. A single shared flag corrupted input-
- * context ownership when dialogs stacked (e.g., Soundtrack -> SelectTunes):
- * the nested dialog's IsWindowAppearing saw the ctx already active and
- * cleared the outer dialog's ownership bit. Each caller now owns its own
- * bool; pass NULL if the caller never pushes the menu context itself. */
+/* S-3 / S300: Per-dialog ownership is now authoritatively tracked by the
+ * menu pool. Each of the 4 sub-dialogs (Handicap, Soundtrack, SelectTunes,
+ * TeamNames) maps to its own MENU_TYPE_* slot so stacking (e.g., Soundtrack
+ * → SelectTunes) remains safe: only the first opener's pool slot actually
+ * pushes g_CtxImGuiMenu; subsequent openers enter shared mode and the pop
+ * stays with the outer slot. Release on cull or close is idempotent. */
 static PdmsWindowFrame pdms_BeginStandardWindow(const char *imguiId, const char *title,
                                                  float widthFrac, float heightFrac,
-                                                 bool *ownsCtx)
+                                                 const struct menudialogdef *def)
 {
     pdguiPopupDarkenBehind(0.55f);
 
@@ -329,25 +331,16 @@ static PdmsWindowFrame pdms_BeginStandardWindow(const char *imguiId, const char 
 
     if (!ImGui::Begin(imguiId, nullptr, flags)) {
         wf.mw = 0.0f;
-        /* S295 F4 leak guard: release the context this caller owned if the
-         * window is culled this frame. Each caller owns its own bool so we
-         * only release our own ownership here. */
-        if (ownsCtx && *ownsCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-            *ownsCtx = false;
-        }
+        /* S295 F4 leak guard — S300: pool owns the ctx; release pops it if
+         * and only if this slot owned the push. */
+        menupoolReleaseDialog(def);
         return wf;
     }
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPush(&g_CtxImGuiMenu);
-            if (ownsCtx) *ownsCtx = true;
-        } else if (ownsCtx) {
-            *ownsCtx = false;
-        }
+        menupoolAcquireDialog(def, &g_CtxImGuiMenu);
     }
 
     float titleH = pdguiScale(39.0f);
@@ -356,13 +349,10 @@ static PdmsWindowFrame pdms_BeginStandardWindow(const char *imguiId, const char 
     return wf;
 }
 
-static void pdms_CloseCurrentDialog(bool *ownsCtx)
+static void pdms_CloseCurrentDialog(void)
 {
     pdguiPlaySound(PDGUI_SND_KBCANCEL);
-    if (ownsCtx && *ownsCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-        inputCtxPopDeferred(&g_CtxImGuiMenu);
-        *ownsCtx = false;
-    }
+    /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
     menuPopDialog();
 }
 
@@ -523,8 +513,8 @@ static s32 renderHandicap(struct menudialog *dialog,
         || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
     {
         /* Handicap uses its own Begin path and never pushes g_CtxImGuiMenu,
-         * so no ownership flag needed. */
-        pdms_CloseCurrentDialog(nullptr);
+         * so no pool-owned ctx involved — plain menuPopDialog. */
+        pdms_CloseCurrentDialog();
     }
 
     ImGui::End();
@@ -611,13 +601,13 @@ static int modTrackCompare(const void *a, const void *b)
     return strcasecmp(na, nb);
 }
 
-static s32 renderSelectTunes(struct menudialog *, struct menu *, s32, s32)
+static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    static bool s_TunesOwnsCtx = false;
+    /* S300: s_TunesOwnsCtx removed — pool owns MENU_TYPE_MP_TUNES ctx. */
     PdmsWindowFrame wf = pdms_BeginStandardWindow("##pdms_tunes",
                                                     "Select Tunes",
                                                     0.70f, 0.82f,
-                                                    &s_TunesOwnsCtx);
+                                                    menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (ImGui::IsWindowAppearing()) {
@@ -626,7 +616,7 @@ static s32 renderSelectTunes(struct menudialog *, struct menu *, s32, s32)
 
     if (pdms_BackPressed()) {
         pdms_EndTunesPreview();
-        pdms_CloseCurrentDialog(&s_TunesOwnsCtx);
+        pdms_CloseCurrentDialog();
         ImGui::End();
         return 1;
     }
@@ -818,7 +808,7 @@ static s32 renderSelectTunes(struct menudialog *, struct menu *, s32, s32)
     if (pdguiBeginActionBar("##pdms_tunes_ab")) {
         if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
             pdms_EndTunesPreview();
-            pdms_CloseCurrentDialog(&s_TunesOwnsCtx);
+            pdms_CloseCurrentDialog();
         }
     }
     pdguiEndActionBar();
@@ -847,17 +837,17 @@ static s32 renderSelectTunes(struct menudialog *, struct menu *, s32, s32)
  * See scratch doc row 5.
  */
 
-static s32 renderSoundtrack(struct menudialog *, struct menu *, s32, s32)
+static s32 renderSoundtrack(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    static bool s_SoundtrackOwnsCtx = false;
+    /* S300: s_SoundtrackOwnsCtx removed — pool owns MENU_TYPE_MP_SOUNDTRACK. */
     PdmsWindowFrame wf = pdms_BeginStandardWindow("##pdms_soundtrack",
                                                     "Soundtrack",
                                                     0.50f, 0.58f,
-                                                    &s_SoundtrackOwnsCtx);
+                                                    menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (pdms_BackPressed()) {
-        pdms_CloseCurrentDialog(&s_SoundtrackOwnsCtx);
+        pdms_CloseCurrentDialog();
         ImGui::End();
         return 1;
     }
@@ -930,7 +920,7 @@ static s32 renderSoundtrack(struct menudialog *, struct menu *, s32, s32)
 
     if (pdguiBeginActionBar("##pdms_soundtrack_ab")) {
         if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
-            pdms_CloseCurrentDialog(&s_SoundtrackOwnsCtx);
+            pdms_CloseCurrentDialog();
         }
     }
     pdguiEndActionBar();
@@ -999,13 +989,13 @@ static void tn_CommitBuffer(u32 team)
     pdguiMpsTeamNameSet(team, s_TeamNameBuf[team]);
 }
 
-static s32 renderTeamNames(struct menudialog *, struct menu *, s32, s32)
+static s32 renderTeamNames(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    static bool s_TeamNamesOwnsCtx = false;
+    /* S300: s_TeamNamesOwnsCtx removed — pool owns MENU_TYPE_MP_TEAMNAMES. */
     PdmsWindowFrame wf = pdms_BeginStandardWindow("##pdms_teamnames",
                                                     "Team Names",
                                                     0.56f, 0.72f,
-                                                    &s_TeamNamesOwnsCtx);
+                                                    menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (ImGui::IsWindowAppearing()) {
@@ -1018,7 +1008,7 @@ static s32 renderTeamNames(struct menudialog *, struct menu *, s32, s32)
         for (u32 t = 0; t < PDMS_MAX_TEAMS; t++) {
             tn_CommitBuffer(t);
         }
-        pdms_CloseCurrentDialog(&s_TeamNamesOwnsCtx);
+        pdms_CloseCurrentDialog();
         ImGui::End();
         return 1;
     }
@@ -1086,7 +1076,7 @@ static s32 renderTeamNames(struct menudialog *, struct menu *, s32, s32)
             for (u32 t = 0; t < PDMS_MAX_TEAMS; t++) {
                 tn_CommitBuffer(t);
             }
-            pdms_CloseCurrentDialog(&s_TeamNamesOwnsCtx);
+            pdms_CloseCurrentDialog();
         }
     }
     pdguiEndActionBar();

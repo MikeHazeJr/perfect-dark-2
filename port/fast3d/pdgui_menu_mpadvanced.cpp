@@ -75,6 +75,7 @@
 #include "pdgui.h"        /* langSafe */
 #include "system.h"
 #include "inputctx.h"
+#include "menupool.h"
 
 extern "C" {
 #include "pdgui_menus.h"  /* for pdguiMenuMpAdvancedRegister declaration */
@@ -350,10 +351,12 @@ struct WindowFrame {
     ImVec2 pos;
 };
 
-static bool s_MpAdvancedPushedCtx = false;
+/* S300: s_MpAdvancedPushedCtx removed — menu pool owns the ctx for
+ * MENU_TYPE_MP_ADVANCED via menupoolAcquireDialog / menupoolReleaseDialog. */
 
 static WindowFrame ma_BeginStandardWindow(const char *imguiId, const char *title,
-                                          float widthFrac, float heightFrac)
+                                          float widthFrac, float heightFrac,
+                                          const struct menudialogdef *def)
 {
     pdguiPopupDarkenBehind(0.55f);
 
@@ -374,22 +377,15 @@ static WindowFrame ma_BeginStandardWindow(const char *imguiId, const char *title
 
     if (!ImGui::Begin(imguiId, nullptr, flags)) {
         wf.mw = 0.0f;
-        /* S295 F4 leak guard: see pdgui_menu_agentselect.cpp for rationale. */
-        if (s_MpAdvancedPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-            s_MpAdvancedPushedCtx = false;
-        }
+        /* S300: pool owns the ctx; release pops it. */
+        menupoolReleaseDialog(def);
         return wf;
     }
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-        s_MpAdvancedPushedCtx = false;
-        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPush(&g_CtxImGuiMenu);
-            s_MpAdvancedPushedCtx = true;
-        }
+        menupoolAcquireDialog(def, &g_CtxImGuiMenu);
     }
 
     float titleH = pdguiScale(39.0f);
@@ -401,10 +397,7 @@ static WindowFrame ma_BeginStandardWindow(const char *imguiId, const char *title
 static void ma_CloseCurrentDialog(void)
 {
     pdguiPlaySound(PDGUI_SND_KBCANCEL);
-    if (s_MpAdvancedPushedCtx && inputCtxIsActive(&g_CtxImGuiMenu)) {
-        inputCtxPopDeferred(&g_CtxImGuiMenu);
-    }
-    s_MpAdvancedPushedCtx = false;
+    /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
     menuPopDialog();
 }
 
@@ -505,10 +498,10 @@ static bool hubHandlerRow(const char *label,
  * in ImGui.
  */
 
-static s32 renderMpAdvancedSetupImpl(u8 variant)
+static s32 renderMpAdvancedSetupImpl(u8 variant, const struct menudialogdef *def)
 {
     const char *imguiId = (variant == 0) ? "##mp_adv" : "##mp_adv_c";
-    WindowFrame wf = ma_BeginStandardWindow(imguiId, "Game Setup", 0.55f, 0.85f);
+    WindowFrame wf = ma_BeginStandardWindow(imguiId, "Game Setup", 0.55f, 0.85f, def);
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (ma_BackPressed()) {
@@ -560,14 +553,14 @@ static s32 renderMpAdvancedSetupImpl(u8 variant)
     return 1;
 }
 
-static s32 renderMpAdvancedSetup(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpAdvancedSetup(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    return renderMpAdvancedSetupImpl(0);
+    return renderMpAdvancedSetupImpl(0, menupoolDialogDef(dialog));
 }
 
-static s32 renderMpAdvancedSetupViaChallenge(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpAdvancedSetupViaChallenge(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    return renderMpAdvancedSetupImpl(1);
+    return renderMpAdvancedSetupImpl(1, menupoolDialogDef(dialog));
 }
 
 /* =========================================================================
@@ -585,9 +578,10 @@ static s32 renderMpAdvancedSetupViaChallenge(struct menudialog *, struct menu *,
  * runtime because hot-swap only hooks RENDER.
  */
 
-static s32 renderMpQuickGo(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpQuickGo(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    WindowFrame wf = ma_BeginStandardWindow("##mp_qg", "Quick Go", 0.45f, 0.55f);
+    WindowFrame wf = ma_BeginStandardWindow("##mp_qg", "Quick Go", 0.45f, 0.55f,
+                                            menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (ma_BackPressed()) {
@@ -661,9 +655,10 @@ static void qtRootBigButton(const char *label, u8 param)
     ImGui::PopID();
 }
 
-static s32 renderMpQuickTeam(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpQuickTeam(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    WindowFrame wf = ma_BeginStandardWindow("##mp_qt_root", "Quick Team", 0.50f, 0.65f);
+    WindowFrame wf = ma_BeginStandardWindow("##mp_qt_root", "Quick Team", 0.50f, 0.65f,
+                                            menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (ma_BackPressed()) {
@@ -733,9 +728,10 @@ static s32 renderMpQuickTeam(struct menudialog *, struct menu *, s32, s32)
  * mpConfigureQuickTeamSimulants read during mpStartMatch.
  */
 
-static s32 renderMpQuickTeamGameSetup(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpQuickTeamGameSetup(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    WindowFrame wf = ma_BeginStandardWindow("##mp_qtgs", "Game Setup", 0.60f, 0.90f);
+    WindowFrame wf = ma_BeginStandardWindow("##mp_qtgs", "Game Setup", 0.60f, 0.90f,
+                                            menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (ma_BackPressed()) {
@@ -853,10 +849,10 @@ static s32 renderMpQuickTeamGameSetup(struct menudialog *, struct menu *, s32, s
  * only differs in the legacy def's nextsibling target.
  */
 
-static s32 renderMpStuffImpl(u8 variant)
+static s32 renderMpStuffImpl(u8 variant, const struct menudialogdef *def)
 {
     const char *imguiId = (variant == 0) ? "##mp_stuff" : "##mp_stuff_c";
-    WindowFrame wf = ma_BeginStandardWindow(imguiId, "Stuff", 0.50f, 0.80f);
+    WindowFrame wf = ma_BeginStandardWindow(imguiId, "Stuff", 0.50f, 0.80f, def);
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (ma_BackPressed()) {
@@ -908,14 +904,14 @@ static s32 renderMpStuffImpl(u8 variant)
     return 1;
 }
 
-static s32 renderMpStuff(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpStuff(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    return renderMpStuffImpl(0);
+    return renderMpStuffImpl(0, menupoolDialogDef(dialog));
 }
 
-static s32 renderMpStuffViaChallenge(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpStuffViaChallenge(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    return renderMpStuffImpl(1);
+    return renderMpStuffImpl(1, menupoolDialogDef(dialog));
 }
 
 /* =========================================================================
@@ -944,13 +940,13 @@ enum PlayerSetupHubVariant {
     PSH_VIA_QUICKGO = 2,
 };
 
-static s32 renderMpPlayerSetupHubImpl(u8 variant)
+static s32 renderMpPlayerSetupHubImpl(u8 variant, const struct menudialogdef *def)
 {
     const char *imguiId =
         (variant == PSH_VIA_ADV)      ? "##mp_psh_a"  :
         (variant == PSH_VIA_ADV_CHAL) ? "##mp_psh_ac" :
                                          "##mp_psh_qg";
-    WindowFrame wf = ma_BeginStandardWindow(imguiId, "Player Setup", 0.50f, 0.75f);
+    WindowFrame wf = ma_BeginStandardWindow(imguiId, "Player Setup", 0.50f, 0.75f, def);
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (ma_BackPressed()) {
@@ -1006,19 +1002,22 @@ static s32 renderMpPlayerSetupHubImpl(u8 variant)
     return 1;
 }
 
-static s32 renderMpPlayerSetupViaAdv(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpPlayerSetupViaAdv(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    return renderMpPlayerSetupHubImpl(PSH_VIA_ADV);
+    return renderMpPlayerSetupHubImpl(PSH_VIA_ADV,
+                                       menupoolDialogDef(dialog));
 }
 
-static s32 renderMpPlayerSetupViaAdvChallenge(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpPlayerSetupViaAdvChallenge(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    return renderMpPlayerSetupHubImpl(PSH_VIA_ADV_CHAL);
+    return renderMpPlayerSetupHubImpl(PSH_VIA_ADV_CHAL,
+                                       menupoolDialogDef(dialog));
 }
 
-static s32 renderMpPlayerSetupViaQuickGo(struct menudialog *, struct menu *, s32, s32)
+static s32 renderMpPlayerSetupViaQuickGo(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    return renderMpPlayerSetupHubImpl(PSH_VIA_QUICKGO);
+    return renderMpPlayerSetupHubImpl(PSH_VIA_QUICKGO,
+                                       menupoolDialogDef(dialog));
 }
 
 /* =========================================================================

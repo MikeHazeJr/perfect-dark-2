@@ -7,6 +7,29 @@
 
 ---
 
+## Open — 2026-04-16 (S300 — peaceful-aryabhata)
+
+### Playtest verification of the S300 batch
+
+Single commit on `dev` (fast-forwarded from `claude/peaceful-aryabhata-7abdc6`). Build: `PerfectDark.exe` 51,534,311 / `PerfectDarkServer.exe` 22,827,178 bytes.
+
+- **ADR §6.1b pool-owned ctx migration** — For each migrated renderer (Cheats, MP Setup family, MP Pause family, MP Advanced family, Player Config, Bot Setup, Agent Select, Room, Training FR, MP Settings family) confirm:
+  - Opening the menu emits `MENUPOOL: attached ctx to active <type>` (IsWindowAppearing attach) or `MENUPOOL: acquired <type>` (if `menuPushDialog` hadn't pre-acquired; rare but possible for pure-ImGui menus like Room).
+  - Closing via Back/Esc emits `MENUPOOL: released <type>` from `menuCloseDialog`.
+  - A Begin()=false cull (rapid open/close race) also releases cleanly — no trapped player input.
+  - Stacking Soundtrack → SelectTunes opens both without dedup-rejection warnings; backing out of Tunes keeps Soundtrack's ctx alive (shared mode).
+  - Room in solo mode keeps the main menu's ctx alive on close (shared mode); Room in network mode pops its own ctx.
+- **SP-14 defensive reset** — host a listen server, start a match, disconnect mid-match (hit the X / quit). Re-host. Tail `pd.log` across the disconnect for the `disconnect-time reset` line if a match was active. After re-host, `g_NetMatchRoomId` starts as `0xFF` (any subsequent ready-gate fire should set it fresh).
+- **Manifest diagnostics** — on title-screen load, expect a log line like `MANIFEST-MENU: built N entries — bodies=X(mod=Y,disabled=Z) heads=...`. If Skin Editor mod characters are enabled in Modding Hub and this shows `mod=0`, that's the old gap recurring. Play a stage with cinematic intro spawns (Deep Sea, Crash Site) and tail for `MANIFEST-SP: rescan diff — newly-discovered=N`; `N > 0` confirms the post-load scan is finding cinematic spawn assets.
+
+### Follow-up queued from S300
+
+- Training sub-dialog stacking: `g_FrDifficultyMenuDialog`, `g_FrTrainingInfoPreGameMenuDialog` etc. all map to `MENU_TYPE_TRAINING` in the pool registry. If playtest shows drilling from FR Weapon List → Difficulty → Info is rejected by pool dedup (warning `MENU: menuPushDialog rejected — pool slot [training] already active`), split each sub-dialog into its own type.
+- Shared-action leak (ADR §6.2) still open — per-scope state arrays in the actionmap.
+- Unit / integration tests for the pool (ADR §6.3).
+
+---
+
 ## Open — 2026-04-16 (S299 — trusting-banach)
 
 ### Playtest verification of Input Authority Phase 2 (menu pool)
@@ -21,7 +44,7 @@ Reference: `context/designs/input-authority-and-menu-pool-2026-04-13.md` §6, co
 
 ### Follow-up queued for future sessions
 
-- Migrate the 10 ImGui renderer `s_*PushedCtx` bools to pool-owned input-context (see ADR §6.1b). Per-file migration: `pdgui_menu_{cheats,mpsetup,mppause,mpadvanced,playerconfig,botsetup,agentselect,room,training}.cpp`. Replace `s_FooPushedCtx`/manual push/pop with `menupoolAcquireDialog(def, &g_CtxImGuiMenu)` on IsWindowAppearing + `menupoolReleaseDialog(def)` on Begin-false cull + `menuPopDialog()` on close.
+- ~~Migrate the 10 ImGui renderer `s_*PushedCtx` bools to pool-owned input-context (see ADR §6.1b).~~ DONE S300 — all ten files migrated to `menupoolAcquireDialog` / `menupoolReleaseDialog` pattern; pool attaches ctx to already-active slots; three new `MENU_TYPE_*` values added for mpsettings sub-dialogs that can stack.
 - Per-scope state arrays for the shared-action leak (ADR §6.2 follow-up). Still open.
 - Unit/integration tests for menu pool (ADR §6.3).
 
@@ -261,11 +284,11 @@ Mike to confirm each on next build. Bug/feature → commit on `dev`:
 | **Input authority Phase 2** | Menu pool single-instance discipline. ADR: `designs/input-authority-and-menu-pool-2026-04-13.md` §6. Scope: `src/game/menu.c`, `pdgui_backend.cpp`, possibly new `port/src/menupool.c`. Dedicated session. |
 | **B-141 audio skips — root cause** | Blocked on repro against telemetry. |
 | **FIX-B.1 deep manifest scanner** | `netmanifest.c`, `setup.c`. Cinematics + AI scripts spawn assets not in the setup list. FIX-B.2 dependency DONE. |
-| **Manifest gap follow-ups** | See `scratch/archive/2026-04-13/manifest-gap-report-2026-04-13.md`. (1) Title/menu stage has no manifest — Skin Editor mod chars silently missing; fix: `manifestBuildForMenu()`. (2) SP pre-scan timing — split `manifestBuildMission()` into pre/post-load phases (partially mitigated by `manifestSPRescanSetup`). (3) Cutscene cinema models never in manifest — safety net only. |
+| **Manifest gap follow-ups** — AUDIT S300 | (1) `manifestBuildForMenu()` + `manifestMenuTransition()` live at netmanifest.c:605/1615 and wired from pdmain.c:772; S300 added per-category counters (bodies/heads × mod/disabled) so `MANIFEST-MENU: built …` log line makes mod-miss obvious. (2) SP pre/post-load split IS in place (`manifestSPTransition` pre-load in mainChangeToStage, `manifestSPRescanSetup` post-load in `lvInit`); S300 added `rescan diff — newly-discovered=N` log so post-load cinematic/ailist discovery is measurable. (3) Safety-net still via `manifestEnsureLoaded` at spawn time. Remaining gap: none identified; any new regression will show up in the per-category diagnostic log. |
 
-### Audit follow-ups (S262 — open, not yet implemented)
+### Audit follow-ups (S262 — closed in S300)
 
-- **Room-scope teardown hygiene (SP-14 follow-up)** — `port/src/net/net.c`: review/reset lifecycle for `g_NetMatchRoomId` at stage end.
+- ~~**Room-scope teardown hygiene (SP-14 follow-up)**~~ — DONE S300 — `netDisconnect` + `netStartServer` reset `g_NetMatchRoomId = 0xFF` and `g_NetCounterOpClientId = NET_NULL_CLIENT` defensively. Stage-end path (`netServerStageEnd` / `netmsgSvcStageEndRead`) already handled the normal teardown; S300 closes the disconnect-mid-match gap.
 
 ### Audit follow-ups (S262 — closed in S298)
 

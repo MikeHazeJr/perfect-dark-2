@@ -578,34 +578,78 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
 
 typedef struct {
     match_manifest_t *manifest;
+    /* S300: per-category counters so we can audit the menu manifest without
+     * manifestLog()'ing the entire flat list. Mod counts split out so Skin
+     * Editor / Mod Pack user-visible categories are easy to verify. */
+    s32  bodies_added;
+    s32  bodies_skipped_disabled;
+    s32  bodies_mod;
+    s32  heads_added;
+    s32  heads_skipped_disabled;
+    s32  heads_mod;
 } s_MenuIterCtx;
+
+/* Returns 1 if the catalog entry belongs to a mod namespace (not "base:").
+ * Used purely for diagnostics — tells us whether mod bodies/heads are
+ * reaching the menu manifest pipeline. */
+static s32 s_entryIsMod(const asset_entry_t *entry)
+{
+    if (!entry || !entry->id[0]) {
+        return 0;
+    }
+    /* Catalog IDs are "namespace:readable_name". Anything not "base:" is
+     * a mod-registered asset (user.<slug>, custom.<slug>, etc.). */
+    return (strncmp(entry->id, "base:", 5) != 0);
+}
 
 static void s_menuBodyCallback(const asset_entry_t *entry, void *userdata)
 {
     s_MenuIterCtx *ctx = (s_MenuIterCtx *)userdata;
-    if (!entry || !entry->id[0] || !entry->enabled) {
+    if (!entry || !entry->id[0]) {
+        return;
+    }
+    if (!entry->enabled) {
+        ctx->bodies_skipped_disabled++;
         return;
     }
     manifestAddEntry(ctx->manifest, entry->id,
                      MANIFEST_TYPE_BODY, MANIFEST_SLOT_MATCH);
     s_manifestExpandDeps(ctx->manifest, entry->id, MANIFEST_SLOT_MATCH);
+    ctx->bodies_added++;
+    if (s_entryIsMod(entry)) {
+        ctx->bodies_mod++;
+    }
 }
 
 static void s_menuHeadCallback(const asset_entry_t *entry, void *userdata)
 {
     s_MenuIterCtx *ctx = (s_MenuIterCtx *)userdata;
-    if (!entry || !entry->id[0] || !entry->enabled) {
+    if (!entry || !entry->id[0]) {
+        return;
+    }
+    if (!entry->enabled) {
+        ctx->heads_skipped_disabled++;
         return;
     }
     manifestAddEntry(ctx->manifest, entry->id,
                      MANIFEST_TYPE_HEAD, MANIFEST_SLOT_MATCH);
     s_manifestExpandDeps(ctx->manifest, entry->id, MANIFEST_SLOT_MATCH);
+    ctx->heads_added++;
+    if (s_entryIsMod(entry)) {
+        ctx->heads_mod++;
+    }
 }
 
 void manifestBuildForMenu(match_manifest_t *out)
 {
     s_MenuIterCtx ctx;
-    ctx.manifest = out;
+    ctx.manifest               = out;
+    ctx.bodies_added           = 0;
+    ctx.bodies_skipped_disabled = 0;
+    ctx.bodies_mod             = 0;
+    ctx.heads_added            = 0;
+    ctx.heads_skipped_disabled = 0;
+    ctx.heads_mod              = 0;
 
     manifestClear(out);
 
@@ -619,9 +663,15 @@ void manifestBuildForMenu(match_manifest_t *out)
 
     manifestComputeHash(out);
 
+    /* S300: structured diagnostic — include mod counts so Mike can verify
+     * Skin Editor / Mod Pack assets are making it into the menu manifest.
+     * A zero mod count despite enabled user.<slug>.* catalog entries is the
+     * classic "Skin Editor mod characters silently missing" symptom. */
     sysLogPrintf(LOG_NOTE,
-                 "MANIFEST-MENU: built %d entries (all catalog bodies + heads)",
-                 (int)out->num_entries);
+                 "MANIFEST-MENU: built %d entries — bodies=%d(mod=%d,disabled=%d) heads=%d(mod=%d,disabled=%d)",
+                 (int)out->num_entries,
+                 ctx.bodies_added, ctx.bodies_mod, ctx.bodies_skipped_disabled,
+                 ctx.heads_added, ctx.heads_mod, ctx.heads_skipped_disabled);
 }
 
 /**
@@ -1607,6 +1657,17 @@ void manifestSPRescanSetup(s32 stagenum)
                  pre_count, post_count);
 
     manifestDiff(&g_CurrentLoadedManifest, &s_SpNeededManifest, &s_SpLastDiff);
+    /* S300: structured diagnostic — how many entries did the post-setup
+     * rescan actually DISCOVER (to_load) vs. keep (to_keep) vs. unload
+     * (to_unload, shouldn't happen during rescan — would indicate pre-scan
+     * overshot). A healthy rescan shows a non-zero to_load count when a
+     * stage uses cinematic intro / ailist spawns (B-118 symptom was that
+     * to_load was always 0 because g_StageSetup.props was NULL pre-load). */
+    sysLogPrintf(LOG_NOTE,
+                 "MANIFEST-SP: rescan diff — newly-discovered=%d kept=%d unload=%d",
+                 s_SpLastDiff.num_to_load,
+                 s_SpLastDiff.num_to_keep,
+                 s_SpLastDiff.num_to_unload);
     manifestValidate(&s_SpLastDiff);
     manifestApplyDiff(&s_SpNeededManifest, &s_SpLastDiff);
     manifestDiffFree(&s_SpLastDiff);
