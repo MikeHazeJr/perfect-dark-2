@@ -7,6 +7,15 @@
 
 ---
 
+## Done — 2026-04-17 (S353 — Prop Sync Event-Driven + Killfeed Verification, `pedantic-saha-8d7ff0`)
+
+**Build verified.** Clean 585/585 (dev). `PerfectDark.exe` 52,772,152 / `PerfectDarkServer.exe` 22,924,028.
+
+- **Prop sync dirty flags**: `s_PropDirtyFlags[512]` + `s_PropDirtyCount` in `netmsg.c`. Each SvcProp*Write marks dirty; 120-tick heartbeat skips entirely if nothing dirty (O(1) vs O(N_props)).
+- **Killfeed bot kills**: verified working — no code change needed. All `ampchr && vmpchr` combinations fire `pdguiKillfeedPush`; roadmap entries marked DONE.
+
+---
+
 ## Done — 2026-04-17 (S352 — D5 Phase 5: Lobby Player Portraits, `confident-brahmagupta-a3f5a3`)
 
 **Build verified.** Clean 774/774 (worktree) + 585/585 (dev post-merge), zero errors.

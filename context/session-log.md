@@ -1,8 +1,24 @@
 
 # Session Log (Active)
 
-> **S281–S352** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S353** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S353 — 2026-04-17 (`pedantic-saha-8d7ff0` worktree) — Prop Sync Event-Driven + Killfeed Bot Kill Verification
+
+**Scope**: Two tasks — replace CRC polling in prop sync with event-driven dirty flags; verify killfeed correctly shows bot kills.
+
+**Task 1 — Prop Sync Event-Driven:**
+
+Added dirty-flag bitset (`s_PropDirtyFlags[512]`, `s_PropDirtyCount`) in `port/src/net/netmsg.c`. Each SvcProp*Write function (`SvcPropMoveWrite`, `SvcPropDamageWrite`, `SvcPropPickupWrite`, `SvcPropUseWrite`, `SvcPropDoorWrite`, `SvcPropLiftWrite`) calls `netPropMarkDirty(prop->syncid)` before writing to the buffer. `netmsgSvcPropSyncWrite` skips entirely when `s_PropDirtyCount == 0` — O(1) instead of O(N_props) every 120 ticks (~2×/sec). CRC still scans all props so server/client produce identical hashes. No wire format change.
+
+**Task 2 — Killfeed Bot Kills (verified, no code change):**
+
+Code trace confirms all kill combinations show correctly: `mpstatsRecordDeath` → `pdguiKillfeedPush` fires for all `ampchr && vmpchr` via `func0f18d074` + `MPCHR` macro. Format is `[Attacker] killed [Victim]` uniformly. Roadmap entries marked DONE.
+
+**Build**: Clean 774/774 (worktree). Clean 585/585 (dev post-merge). `PerfectDark.exe` 52,772,152 / `PerfectDarkServer.exe` 22,924,028.
+
+---
 
 ## Session S352 — 2026-04-17 (`confident-brahmagupta-a3f5a3` worktree) — D5 Phase 5: Lobby Player Portraits
 
