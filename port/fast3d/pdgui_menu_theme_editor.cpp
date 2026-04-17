@@ -28,6 +28,7 @@
 #include "pdgui_style.h"
 #include "pdgui_theme.h"
 #include "pdgui_theme_loader.h"
+#include "pdgui_font_mod.h"      /* S306: Menu Style + Font bundle dropdowns */
 #include "assetcatalog.h"
 #include "config.h"
 #include "system.h"
@@ -55,6 +56,17 @@ static char s_SaveName[64] = "My Theme";
 static char s_SaveAuthor[64] = "";
 static char s_SaveStatus[128] = "";
 static bool s_SaveSuccess = false;
+
+/* S306: theme-bundle fields — Menu Style + Font dropdowns let the user
+ * author a bundled theme in one pass. Selected catalog ids are written to
+ * theme.json as "menuStyle" and "font" so one theme activation swaps the
+ * palette + chrome + font together (plumbing landed in S305 P4).
+ * Empty string = no bundle for that slot. THEME_CATALOG_ID_LEN mirrors
+ * the loader's internal constant (64) — local copy so we don't pull in
+ * the loader's private headers. */
+#define THEME_EDITOR_CATALOG_ID_LEN 64
+static char s_SaveBundleChromeId[THEME_EDITOR_CATALOG_ID_LEN] = "";
+static char s_SaveBundleFontId[THEME_EDITOR_CATALOG_ID_LEN]   = "";
 
 /* =========================================================================
  * Palette field metadata for the UI
@@ -262,6 +274,13 @@ static bool saveThemeAsMod(const char *name, const char *author)
     }
 
     fprintf(f, "  },\n");
+    /* S306: emit bundle fields when the user picked a Menu Style / Font. */
+    if (s_SaveBundleChromeId[0]) {
+        fprintf(f, "  \"menuStyle\": \"%s\",\n", s_SaveBundleChromeId);
+    }
+    if (s_SaveBundleFontId[0]) {
+        fprintf(f, "  \"font\": \"%s\",\n", s_SaveBundleFontId);
+    }
     fprintf(f, "  \"scanline\": { \"enabled\": true, \"alpha\": 0.8 },\n");
     fprintf(f, "  \"textGlow\": { \"enabled\": true, \"intensity\": 0.6, \"color\": \"0080ffff\" },\n");
     fprintf(f, "  \"soundPack\": \"default\"\n");
@@ -529,6 +548,86 @@ static void renderThemeEditor(s32 winW, s32 winH)
         ImGui::SameLine();
         ImGui::InputText("Author##save", s_SaveAuthor, sizeof(s_SaveAuthor));
         ImGui::PopItemWidth();
+
+        /* S306: theme-bundle dropdowns. Picking a Menu Style / Font here
+         * writes those ids into the theme.json `menuStyle` / `font` keys
+         * so one theme activation swaps the full visual identity (palette
+         * + chrome + font). Both fields are optional — leaving them on
+         * "(none)" emits no bundle key. THEME_CATALOG_ID_LEN mirrors the
+         * loader's value so the catalog-id string fits. */
+        ImGui::Spacing();
+        ImGui::TextDisabled("Bundle (optional) — ship the full look together:");
+        {
+            /* Menu Style combo — "(none)" + every registered chrome style. */
+            s32 styleCount = pdguiThemeGetChromeStyleCount();
+            const s32 maxStyles = 31;
+            const s32 usedStyles = styleCount < maxStyles ? styleCount : maxStyles;
+            const char *opts[1 + maxStyles];
+            opts[0] = "(none)";
+            for (s32 i = 0; i < usedStyles; i++) {
+                opts[i + 1] = pdguiThemeGetChromeStyleName(i);
+            }
+            int idx = 0;
+            if (s_SaveBundleChromeId[0]) {
+                for (s32 i = 0; i < usedStyles; i++) {
+                    const char *id = pdguiThemeGetChromeStyleId(i);
+                    if (id && strcmp(id, s_SaveBundleChromeId) == 0) {
+                        idx = (int)(i + 1); break;
+                    }
+                }
+            }
+            ImGui::SetNextItemWidth(260.0f * scale);
+            if (ImGui::BeginCombo("Menu Style##bundle", opts[idx])) {
+                for (int i = 0; i < 1 + usedStyles; i++) {
+                    bool sel = (i == idx);
+                    if (ImGui::Selectable(opts[i], sel)) {
+                        if (i == 0) s_SaveBundleChromeId[0] = '\0';
+                        else {
+                            snprintf(s_SaveBundleChromeId, sizeof(s_SaveBundleChromeId),
+                                     "%s", pdguiThemeGetChromeStyleId(i - 1));
+                        }
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        }
+        {
+            /* Font combo — "(none)" + every registered mod font. Hand-
+             * placed fonts are registered by pdgui_font_mod.c. */
+            s32 fontCount = pdguiFontModGetCount();
+            const s32 maxFonts = 32;
+            const char *opts[1 + maxFonts];
+            opts[0] = "(none)";
+            s32 cnt = 1;
+            for (s32 i = 0; i < fontCount && cnt < (s32)(sizeof(opts) / sizeof(opts[0])); i++) {
+                opts[cnt++] = pdguiFontModGetName(i);
+            }
+            int idx = 0;
+            if (s_SaveBundleFontId[0]) {
+                for (s32 i = 0; i < fontCount; i++) {
+                    const char *id = pdguiFontModGetId(i);
+                    if (id && strcmp(id, s_SaveBundleFontId) == 0) {
+                        idx = (int)(i + 1); break;
+                    }
+                }
+            }
+            ImGui::SetNextItemWidth(260.0f * scale);
+            if (ImGui::BeginCombo("Font##bundle", opts[idx])) {
+                for (int i = 0; i < cnt; i++) {
+                    bool sel = (i == idx);
+                    if (ImGui::Selectable(opts[i], sel)) {
+                        if (i == 0) s_SaveBundleFontId[0] = '\0';
+                        else {
+                            snprintf(s_SaveBundleFontId, sizeof(s_SaveBundleFontId),
+                                     "%s", pdguiFontModGetId(i - 1));
+                        }
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(applies on restart)");
+        }
 
         if (s_SaveStatus[0]) {
             ImVec4 statusCol = s_SaveSuccess
