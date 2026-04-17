@@ -7,6 +7,33 @@
 
 ---
 
+## Open — 2026-04-16 (S302 — quirky-mendeleev)
+
+### Playtest verification of spawn pool tiered selection
+
+Reference: `src/game/spawnpool.c`, `src/game/playerreset.c`, `src/game/player.c`. Build: `PerfectDark.exe` 51,533,440 / `PerfectDarkServer.exe` 22,824,057 bytes.
+
+- **Tier distribution (healthy signal)** — Stock 4-player FFA on Felicity / Warehouse / Temple:
+  - `pd.log` should show `SPAWN.TIER: T1_OPTIMAL initial MP spawn ...` for the 4 human spawns and for every respawn. No T2/T3/T4 on well-resourced stock maps.
+  - Grep: `grep 'SPAWN.TIER:' pd.log | awk '{print $2}' | sort | uniq -c` — expect near-100% T1_OPTIMAL.
+- **Burst reservation (32-bot Chicago)** — start a max-bot Combat Sim on Chicago:
+  - First tick should produce 1 local human + 32 bot placements in rapid succession. Every placement should get a distinct pool slot (no two `pool[N]` entries with the same N in the first 33 SPAWN.TIER lines).
+  - If the pool was built with >33 slots, expect all T1. If fewer, expect T2_CYCLED once the reservation bitset saturates mid-burst, then resume T1 on the cleared slots.
+  - Grep: `grep 'SPAWN.TIER:.*T2_CYCLED' pd.log` — count should be <= pool->count - slots (i.e. T2 only fires when burst exceeds pool capacity).
+- **Over-subscribed tiny arena** — pick a mod map with a very small pool (ring test smoke log says L4 layer, small count). Start a 16-bot match. Expect periodic `SPAWN.TIER: T3_REUSED — pool oversubscribed` lines during respawn waves. Players may briefly telefrag each other — that's the designed behaviour (no void spawns, no crashes).
+- **Solo map in Combat Sim (zero declared pads)** — load G5 Building / Chicago SP stage as a MP arena. Expect pool build log to show `max_layer=2` or higher (`L2 waypoints` / `L3 grid` / `L4 radial`). Spawn decisions should still log `SPAWN.TIER: T1_OPTIMAL` until the pool is oversubscribed; T2/T3 only when placements exceed pool capacity.
+- **Last-resort synthesised position** — engineered repro: load a map with zero intro spawns, zero waypoints, zero pads (e.g. a broken mod map). Pool build will fall all the way to L4 radial; if L4 also fails, `spawnPoolLastResort` should log `SPAWN.TIER: T4_LAST_RESORT — synthesised pos=...` and the player should spawn near the stage AABB centre (not at (0,0,0)). No crash.
+- **`spawn_needed` in netplay** — join a dedicated server match with 6 other human clients + 10 bots. On each client's `pd.log`, confirm pool build line reports `needed=%d` with %d = 18 (or higher with span bonus), not 11 (which would be PLAYERCOUNT()=1 + 10 bots).
+- **No regressions on S298 reservation bitset** — same-tick burst on Chicago should still produce unique pool indices; reservation auto-clear on `g_Vars.lvframenum` change still works (T2 explicitly clears it too).
+
+### Follow-up if tier distribution looks wrong
+
+- **Heavy T3/T4 on stock maps**: pool count came out too small. Check `pd.log` for `SPAWNPOOL: build complete -- %d points` and compare against `needed`. If produced << needed, the validator is too strict for that map — consider relaxing `SPAWNPOOL_BUDGET_THRESHOLD` or the capsule-radius reject for that specific geometry.
+- **T2_CYCLED fires every tick**: reservation bitset isn't auto-clearing — check `spawnPoolTickCheck` is seeing `g_Vars.lvframenum` advance.
+- **T4 synthesised at (0,0,0)**: `spawnPoolComputeAABB` returned `valid=false`. Check whether `g_Rooms` / `g_Vars.roomcount` are populated before playerReset runs on this stage.
+
+---
+
 ## Open — 2026-04-16 (S299 — trusting-banach)
 
 ### Playtest verification of Input Authority Phase 2 (menu pool)

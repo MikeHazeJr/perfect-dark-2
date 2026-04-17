@@ -1065,16 +1065,128 @@ void spawnPoolReset(void)
  *   team's sector is exhausted. Within the sector, apply farthest-first.
  * ======================================================================== */
 
-s32 spawnPoolSelect(const spawn_pool_t *pool, const struct coord *occupied,
-                    s32 num_occupied, s32 team, s32 num_teams,
-                    const struct coord *pool_center)
+/* Compute min squared distance from pool point i to any occupied position.
+ * Returns 1e30f when num_occupied == 0 (treat empty as infinitely far). */
+static f32 poolMinDistSq(const spawn_pool_t *pool, s32 i,
+                         const struct coord *occupied, s32 num_occupied)
+{
+	f32 min_dist = 1e30f;
+	s32 j;
+	for (j = 0; j < num_occupied; j++) {
+		f32 dx = pool->points[i].pos.x - occupied[j].x;
+		f32 dz = pool->points[i].pos.z - occupied[j].z;
+		f32 dist_sq = dx * dx + dz * dz;
+		if (dist_sq < min_dist) min_dist = dist_sq;
+	}
+	return min_dist;
+}
+
+/* Farthest-point-first pick over `pool`, skipping any index whose
+ * `skip[i]` bit is set.  Returns -1 if every slot was skipped.
+ * When pool_center + team params are active, tries the team sector
+ * first and falls through to full-pool FFA if the sector is empty. */
+static s32 poolPickFarthest(const spawn_pool_t *pool,
+                            const struct coord *occupied, s32 num_occupied,
+                            const bool *skip, s32 team, s32 num_teams,
+                            const struct coord *pool_center)
 {
 	s32 best_idx = -1;
 	f32 best_min_dist = -1.0f;
+	s32 i;
+
+	if (num_teams >= 2 && team >= 0 && team < num_teams && pool_center) {
+		f32 sector_size = (2.0f * 3.14159265f) / (f32)num_teams;
+		f32 sector_start = sector_size * (f32)team - 3.14159265f;
+		f32 sector_end = sector_start + sector_size;
+
+		for (i = 0; i < pool->count; i++) {
+			f32 dx, dz, angle, min_dist;
+
+			if (skip[i]) continue;
+
+			dx = pool->points[i].pos.x - pool_center->x;
+			dz = pool->points[i].pos.z - pool_center->z;
+			angle = atan2f(dz, dx);
+			if (angle < sector_start) angle += 2.0f * 3.14159265f;
+			if (angle < sector_start || angle >= sector_end) continue;
+
+			min_dist = poolMinDistSq(pool, i, occupied, num_occupied);
+			if (num_occupied == 0) {
+				min_dist = pool->points[i].budget_score;
+			}
+			if (min_dist > best_min_dist) {
+				best_min_dist = min_dist;
+				best_idx = i;
+			}
+		}
+
+		if (best_idx >= 0) {
+			return best_idx;
+		}
+		/* Sector empty — fall through to whole-pool FFA pass. */
+	}
+
+	for (i = 0; i < pool->count; i++) {
+		f32 min_dist;
+
+		if (skip[i]) continue;
+
+		min_dist = poolMinDistSq(pool, i, occupied, num_occupied);
+		if (num_occupied == 0) {
+			min_dist = pool->points[i].budget_score;
+		}
+		if (min_dist > best_min_dist) {
+			best_min_dist = min_dist;
+			best_idx = i;
+		}
+	}
+
+	return best_idx;
+}
+
+/* Mark pool entries within 10 units of any occupied position as
+ * `used` — those would telefrag an existing player. */
+static void poolMarkUsedFromOccupied(const spawn_pool_t *pool,
+                                     const struct coord *occupied,
+                                     s32 num_occupied, bool *used)
+{
 	s32 i, j;
-	/* Track which pool indices have already been assigned this match.
-	 * We use a simple O(N*M) approach since pool is small (<=40). */
+	for (i = 0; i < pool->count; i++) {
+		for (j = 0; j < num_occupied; j++) {
+			f32 dx = pool->points[i].pos.x - occupied[j].x;
+			f32 dz = pool->points[i].pos.z - occupied[j].z;
+			if (dx * dx + dz * dz < 100.0f) {
+				used[i] = true;
+				break;
+			}
+		}
+	}
+}
+
+const char *spawnPoolTierName(spawn_select_tier_t tier)
+{
+	switch (tier) {
+	case SPAWN_TIER_1_OPTIMAL:    return "T1_OPTIMAL";
+	case SPAWN_TIER_2_CYCLED:     return "T2_CYCLED";
+	case SPAWN_TIER_3_REUSED:     return "T3_REUSED";
+	case SPAWN_TIER_4_LASTRESORT: return "T4_LAST_RESORT";
+	case SPAWN_TIER_NONE:
+	default:                      return "T0_NONE";
+	}
+}
+
+s32 spawnPoolSelectTiered(const spawn_pool_t *pool,
+                          const struct coord *occupied, s32 num_occupied,
+                          s32 team, s32 num_teams,
+                          const struct coord *pool_center,
+                          spawn_select_tier_t *out_tier)
+{
 	bool used[SPAWNPOOL_MAX];
+	bool skip[SPAWNPOOL_MAX];
+	s32 pick;
+	s32 i;
+
+	if (out_tier) *out_tier = SPAWN_TIER_NONE;
 
 	if (!pool || pool->count <= 0) {
 		return -1;
@@ -1085,109 +1197,167 @@ s32 spawnPoolSelect(const spawn_pool_t *pool, const struct coord *occupied,
 	spawnPoolTickCheck();
 
 	memset(used, 0, sizeof(used));
+	poolMarkUsedFromOccupied(pool, occupied, num_occupied, used);
 
-	/* Mark pool entries that are already occupied (within 10 units of an
-	 * existing occupied position -- same point re-selected) */
-	for (i = 0; i < pool->count; i++) {
-		for (j = 0; j < num_occupied; j++) {
-			f32 dx = pool->points[i].pos.x - occupied[j].x;
-			f32 dz = pool->points[i].pos.z - occupied[j].z;
-			if (dx * dx + dz * dz < 100.0f) { /* 10 unit radius */
-				used[i] = true;
-				break;
-			}
-		}
-	}
-
-	/* S298: respect same-tick reservations.  When a caller orchestrates a
-	 * burst of selections (match-start bot placement), a peer may not yet
-	 * have its prop->pos written, so it won't show up in occupied[].  The
-	 * reservation bitset prevents two bursts from selecting the same slot. */
+	/* T1: farthest-point-first over unused + unreserved slots. */
+	memcpy(skip, used, sizeof(skip));
 	for (i = 0; i < pool->count && i < SPAWNPOOL_MAX; i++) {
-		if (s_SpawnReserved[i]) {
-			used[i] = true;
-		}
+		if (s_SpawnReserved[i]) skip[i] = true;
 	}
 
-	/* Team sector filtering */
-	if (num_teams >= 2 && team >= 0 && team < num_teams && pool_center) {
-		/* Phase 1: try points in this team's angular sector */
-		f32 sector_size = (2.0f * 3.14159265f) / (f32)num_teams;
-		f32 sector_start = sector_size * (f32)team - 3.14159265f;
-		f32 sector_end = sector_start + sector_size;
+	pick = poolPickFarthest(pool, occupied, num_occupied, skip,
+	                        team, num_teams, pool_center);
+	if (pick >= 0) {
+		if (pick < SPAWNPOOL_MAX) s_SpawnReserved[pick] = true;
+		if (out_tier) *out_tier = SPAWN_TIER_1_OPTIMAL;
+		return pick;
+	}
 
-		for (i = 0; i < pool->count; i++) {
-			f32 dx, dz, angle, min_dist;
+	/* T2: reservations ate the pool — unused slots still exist but every
+	 * one is reserved.  Clear the reservation bitset (those earlier
+	 * callers have committed their spawns by now) and retry. */
+	{
+		bool anyReserved = false;
+		for (i = 0; i < pool->count && i < SPAWNPOOL_MAX; i++) {
+			if (s_SpawnReserved[i]) { anyReserved = true; break; }
+		}
+		if (anyReserved) {
+			memset(s_SpawnReserved, 0, sizeof(s_SpawnReserved));
+			s_SpawnReservedFrame = g_Vars.lvframenum;
 
-			if (used[i]) continue;
-
-			dx = pool->points[i].pos.x - pool_center->x;
-			dz = pool->points[i].pos.z - pool_center->z;
-			angle = atan2f(dz, dx);
-
-			/* Check if angle falls within team sector (handle wrap) */
-			if (angle < sector_start) angle += 2.0f * 3.14159265f;
-			if (angle >= sector_start && angle < sector_end) {
-				/* Compute min distance to all occupied points */
-				min_dist = 1e30f;
-				for (j = 0; j < num_occupied; j++) {
-					f32 odx = pool->points[i].pos.x - occupied[j].x;
-					f32 odz = pool->points[i].pos.z - occupied[j].z;
-					f32 dist_sq = odx * odx + odz * odz;
-					if (dist_sq < min_dist) min_dist = dist_sq;
-				}
-				if (num_occupied == 0) min_dist = 1e30f;
-
-				if (min_dist > best_min_dist) {
-					best_min_dist = min_dist;
-					best_idx = i;
-				}
+			memcpy(skip, used, sizeof(skip));
+			pick = poolPickFarthest(pool, occupied, num_occupied, skip,
+			                        team, num_teams, pool_center);
+			if (pick >= 0) {
+				if (pick < SPAWNPOOL_MAX) s_SpawnReserved[pick] = true;
+				if (out_tier) *out_tier = SPAWN_TIER_2_CYCLED;
+				sysLogPrintf(LOG_WARNING,
+					"SPAWN.TIER: T2_CYCLED — reservations cleared (pool=%d occupied=%d), picked idx=%d",
+					pool->count, num_occupied, pick);
+				return pick;
 			}
 		}
+	}
 
-		/* If found a point in team sector, use it */
-		if (best_idx >= 0) {
-			/* S298: reserve before returning so the next same-tick caller
-			 * can't pick this slot again. */
-			if (best_idx < SPAWNPOOL_MAX) {
-				s_SpawnReserved[best_idx] = true;
+	/* T3: every slot collides with an occupied position OR failed
+	 * validation.  Map oversubscribed — pick the slot farthest from any
+	 * occupied pos, letting the engine resolve the overlap via the
+	 * standard telefrag / push.  Team sector still honoured if it has
+	 * any point at all. */
+	memset(skip, 0, sizeof(skip));
+	pick = poolPickFarthest(pool, occupied, num_occupied, skip,
+	                        team, num_teams, pool_center);
+	if (pick >= 0) {
+		if (pick < SPAWNPOOL_MAX) s_SpawnReserved[pick] = true;
+		if (out_tier) *out_tier = SPAWN_TIER_3_REUSED;
+		sysLogPrintf(LOG_WARNING,
+			"SPAWN.TIER: T3_REUSED — pool oversubscribed (pool=%d occupied=%d), reusing slot idx=%d",
+			pool->count, num_occupied, pick);
+		return pick;
+	}
+
+	/* Pool is entirely empty — caller must invoke last-resort. */
+	return -1;
+}
+
+/* Back-compat wrapper — legacy callers that don't care about the tier. */
+s32 spawnPoolSelect(const spawn_pool_t *pool, const struct coord *occupied,
+                    s32 num_occupied, s32 team, s32 num_teams,
+                    const struct coord *pool_center)
+{
+	return spawnPoolSelectTiered(pool, occupied, num_occupied,
+	                             team, num_teams, pool_center, NULL);
+}
+
+spawn_select_tier_t spawnPoolLastResort(const struct coord *occupied,
+                                        s32 num_occupied,
+                                        struct coord *out_pos,
+                                        RoomNum *out_room,
+                                        f32 *out_angle)
+{
+	if (!out_pos || !out_room) {
+		return SPAWN_TIER_NONE;
+	}
+
+	/* If the pool has ANY points, pick the farthest from occupied —
+	 * even ones that failed validation are better than the void. */
+	if (s_PoolReady && s_Pool.count > 0) {
+		bool skip[SPAWNPOOL_MAX];
+		s32 pick;
+
+		memset(skip, 0, sizeof(skip));
+		pick = poolPickFarthest(&s_Pool, occupied, num_occupied, skip,
+		                        -1, 0, NULL);
+		if (pick >= 0) {
+			*out_pos  = s_Pool.points[pick].pos;
+			*out_room = s_Pool.points[pick].room;
+			if (out_angle) *out_angle = s_Pool.points[pick].angle_rad;
+			sysLogPrintf(LOG_WARNING,
+				"SPAWN.TIER: T4_LAST_RESORT — pool-slot reuse idx=%d L%d pos=(%.0f,%.0f,%.0f) room=%d",
+				pick, (s32)s_Pool.points[pick].layer,
+				out_pos->x, out_pos->y, out_pos->z,
+				(s32)*out_room);
+			return SPAWN_TIER_4_LASTRESORT;
+		}
+	}
+
+	/* Pool is empty or unbuilt — synthesise a position at AABB centre
+	 * with a radial offset from the rng.  This matches the philosophy
+	 * of L4_RADIAL: never let a caller receive a void coordinate. */
+	{
+		spawn_aabb_t aabb;
+		struct coord center;
+		f32 radius;
+		f32 angle;
+		RoomNum inrooms[21];
+		RoomNum aboverooms[21];
+		RoomNum bestroom = -1;
+
+		spawnPoolComputeAABB(&aabb);
+		if (aabb.valid) {
+			center.x = (aabb.min.x + aabb.max.x) * 0.5f;
+			center.y = (aabb.min.y + aabb.max.y) * 0.5f;
+			center.z = (aabb.min.z + aabb.max.z) * 0.5f;
+			{
+				f32 dx = aabb.max.x - aabb.min.x;
+				f32 dz = aabb.max.z - aabb.min.z;
+				f32 diag = sqrtf(dx * dx + dz * dz);
+				radius = diag * 0.25f;
+				if (radius < 100.0f) radius = 100.0f;
+				if (radius > 800.0f) radius = 800.0f;
 			}
-			return best_idx;
+		} else {
+			center.x = 0.0f;
+			center.y = 100.0f;
+			center.z = 0.0f;
+			radius = 200.0f;
 		}
 
-		/* Phase 2: fall through to FFA if team sector is exhausted */
-	}
+		/* Stagger by num_occupied so consecutive last-resort calls in
+		 * the same burst don't land on identical points. */
+		angle = ((f32)(num_occupied & 7)) * (2.0f * 3.14159265f / 8.0f);
+		out_pos->x = center.x + cosf(angle) * radius;
+		out_pos->y = center.y;
+		out_pos->z = center.z + sinf(angle) * radius;
 
-	/* FFA / fallback: farthest-point-first over entire pool */
-	best_idx = -1;
-	best_min_dist = -1.0f;
-
-	for (i = 0; i < pool->count; i++) {
-		f32 min_dist;
-
-		if (used[i]) continue;
-
-		min_dist = 1e30f;
-		for (j = 0; j < num_occupied; j++) {
-			f32 dx = pool->points[i].pos.x - occupied[j].x;
-			f32 dz = pool->points[i].pos.z - occupied[j].z;
-			f32 dist_sq = dx * dx + dz * dz;
-			if (dist_sq < min_dist) min_dist = dist_sq;
+		inrooms[0] = -1;
+		bgFindRoomsByPos(out_pos, inrooms, aboverooms, 20, &bestroom);
+		if (inrooms[0] >= 0) {
+			*out_room = inrooms[0];
+		} else if (bestroom >= 0) {
+			*out_room = bestroom;
+		} else {
+			*out_room = -1;
 		}
-		if (num_occupied == 0) min_dist = pool->points[i].budget_score;
 
-		if (min_dist > best_min_dist) {
-			best_min_dist = min_dist;
-			best_idx = i;
-		}
-	}
+		if (out_angle) *out_angle = 0.0f;
 
-	/* S298: claim the chosen slot so concurrent same-tick selects won't
-	 * pick it again. */
-	if (best_idx >= 0 && best_idx < SPAWNPOOL_MAX) {
-		s_SpawnReserved[best_idx] = true;
+		sysLogPrintf(LOG_WARNING,
+			"SPAWN.TIER: T4_LAST_RESORT — synthesised pos=(%.0f,%.0f,%.0f) room=%d angle=%.2f radius=%.0f (pool empty, occupied=%d)",
+			out_pos->x, out_pos->y, out_pos->z, (s32)*out_room,
+			angle, radius, num_occupied);
+		return SPAWN_TIER_4_LASTRESORT;
 	}
-	return best_idx;
 }
 
 /* ========================================================================
