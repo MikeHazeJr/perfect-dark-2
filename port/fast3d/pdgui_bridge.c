@@ -441,12 +441,13 @@ s32 pdguiHudGetTimeLimitTicks(void)
  * Pause menu bridge functions (pdgui_menu_pausemenu.cpp)
  * ======================================================================== */
 
-u32 pdguiPauseGetChrSlots(void)
+u64 pdguiPauseGetChrSlots(void)
 {
-    /* B-12 Phase 3: the pause menu wants a 32-bit active-slot bitmap.
-     * Derive it from the participant pool. Slots 0..MAX_PLAYERS-1 = players,
-     * MAX_PLAYERS..MAX_MPCHRS-1 = bots. */
-    return (u32)(mpParticipantsEncodeActiveMask() & 0xFFFFFFFFull);
+    /* B-12 Phase 3: return a full 64-bit active-slot mask derived from the
+     * participant pool (slots 0..MAX_PLAYERS-1 = players,
+     * MAX_PLAYERS..MAX_MPCHRS-1 = bots).  MAX_MPCHRS is 40, so bits 32-39
+     * are valid and must NOT be truncated to u32. */
+    return mpParticipantsEncodeActiveMask();
 }
 
 u32 pdguiPauseGetOptions(void)

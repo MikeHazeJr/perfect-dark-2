@@ -415,7 +415,7 @@ static void s_manifestExpandDeps(match_manifest_t *m,
  *       Will be used in Phase E for client-side manifest building.
  *
  * Reads from global server state:
- *   g_MpSetup         -- stage, weapons, chrslots
+ *   g_MpSetup         -- stage, weapons (B-12: chrslots removed in v37)
  *   g_NetClients[]    -- player body/head (settings.body_id / settings.head_id)
  *   g_BotConfigsArray[] -- bot body/head (mpbodynum / mpheadnum)
  *   g_Lobby.settings.numSimulants -- bot count

@@ -2077,7 +2077,12 @@ void playerTickChrBody(void)
 				s32 wfn = catalogGetPropFilenumByIndex(weaponmodelnum); /* SA-5c */
 				weaponmodeldef = modeldefLoad(wfn, allocation + offset1, offset2 - offset1, &texpool);
 				fileGetLoadedSize(wfn);
-				modelAllocateRwData(weaponmodeldef);
+				if (weaponmodeldef == NULL) {
+					sysLogPrintf(LOG_WARNING, "PLAYER: weapon modeldef NULL for modelnum=%d filenum=0x%04x -- weapon will be hidden",
+						weaponmodelnum, wfn);
+				} else {
+					modelAllocateRwData(weaponmodeldef);
+				}
 			} else {
 				weaponobj = NULL;
 				weaponmodeldef = NULL;

@@ -142,7 +142,7 @@ void pdguiSetInRoom(s32 inRoom);
 
 /* Match setup access — bridge functions we declare in the bridge section below.
  * These avoid needing to include types.h for g_MpSetup. */
-u32 pdguiPauseGetChrSlots(void);
+u64 pdguiPauseGetChrSlots(void);
 u32 pdguiPauseGetOptions(void);
 u8 pdguiPauseGetScenario(void);
 u8 pdguiPauseGetStagenum(void);
@@ -562,10 +562,10 @@ static void renderSettingsTab(void)
     if (options & MPOPTION_FASTMOVEMENT)  ImGui::BulletText("Fast Movement");
 
     /* Count players and bots */
-    u32 chrslots = pdguiPauseGetChrSlots();
+    u64 activeMask = pdguiPauseGetChrSlots();
     s32 numPlayers = 0, numBots = 0;
     for (s32 i = 0; i < MAX_MPCHRS_PM; i++) {
-        if (chrslots & (1u << i)) {
+        if (activeMask & (1ull << i)) {
             if (i < MAX_PLAYERS_PM) numPlayers++;
             else numBots++;
         }
