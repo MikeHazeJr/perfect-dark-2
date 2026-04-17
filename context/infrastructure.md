@@ -176,14 +176,24 @@ stack retained only as plumbing.
 - **D5.8 HUD score panel dock-below-minimap**: ✅ DONE (S221) — see archived
   `_archive/designs/hud-score-panel.md`.
 
-### D6: Persistent Stats — 🔶 PARTIAL
+### D6: Persistent Stats — ✅ DONE (S325)
 
 - `port/src/playerstats.c` — string-keyed hash-table counters, JSON
   persistence to `$S/playerstats.json` (CODED S49).
 - Integrated with `fsFullPath("$S/...")`; works even when `saveInit()` is
   delayed.
-- `statIncrement()` accessor exported. Gameplay-site wire-in (`mpstats.c`,
-  `mplayer.c`) partial — several events already recorded, others planned.
+- `statIncrement()` accessor exported.
+- **Gameplay-site wire-in complete (S325)**:
+  - MP: `shots.*`, `kills.*` (+ per-weapon + per-mode), `deaths.*`
+    (suicide/by_bot/by_player + per-mode), `matches.played`,
+    `mp.matches_won`, `mp.matches_lost`, `mp.time_played_seconds`,
+    `mp.distance_units` (accumulated at match end via `mpCalculateAwards`)
+  - Solo: `solo.missions_completed`, `solo.mission_failures`,
+    `solo.time_played_seconds` (at `endscreenPrepare`, gated on non-cheat)
+  - Live: `distance_units` + `{mp,solo}.distance_units_sample` (flushed
+    per 10000 world units to avoid per-tick hash-table churn), `items.picked_up`
+    + `{keys,ammo_crates,weapons,shields}_picked_up`, `doors.opened`
+  - Save-on-event: `statsSave()` called at match end and solo mission end.
 - Achievements = future query layer on top.
 
 ### D7: Discord Rich Presence — 📋 PLANNED

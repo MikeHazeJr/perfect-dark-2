@@ -7,6 +7,38 @@
 
 ---
 
+## Done — 2026-04-17 (S325 — D6 stats wire-in + ImGui subtitles, `xenodochial-mendel-93fca2` worktree)
+
+**Build verified.** Clean link 769/769, zero errors. Two parallel tasks:
+
+**Task 1 — D6 Persistent Stats gameplay wire-in complete**:
+- MP matches: `mp.matches_won` / `mp.matches_lost` (in `mpCalculateAwards`, local players only)
+- Time: `mp.time_played_seconds`, `solo.time_played_seconds`
+- Solo missions: `solo.missions_completed`, `solo.mission_failures` (via `endscreenPrepare`, gated on !cheats !coop !anti !pdmode)
+- Distance: `distance_units` + `mp.distance_units_sample` / `solo.distance_units_sample` (flushed per 10000 world units to avoid per-tick churn)
+- Pickups: `items.picked_up` (always) + `items.keys_picked_up` / `ammo_crates` / `weapons_picked_up` / `shields_picked_up` (by object type)
+- Doors: `doors.opened` (via `doorsCheckAutomatic` — player-triggered auto-open path)
+- `statsSave()` called on match end and solo mission end
+- D6 marked **DONE** in infrastructure.md
+
+**Task 2 — Subtitle ImGui migration complete**:
+- New `port/include/pdgui_subtitles.h` + `port/fast3d/pdgui_subtitles.cpp`
+- New bridge `pdguiSubtitlesSnapshot` (pdgui_bridge.c) exposes active HUDMSGTYPE_INGAMESUBTITLE / HUDMSGTYPE_CUTSCENESUBTITLE entries as POD structs (no types.h exposure)
+- Renders bottom-center panel (46 px margin), 560 px wide (scales with `pdguiScale`), semi-transparent rounded backdrop, 1-px drop shadow on text, text centered + word-wrapped
+- Drawn on foreground drawlist so cutscene letterbox bars don't occlude
+- `hudmsgsRender` now skips both subtitle types (ImGui is sole renderer); tick lifecycle (fade, audio-channel opacity) still runs in `hudmsgsTick`
+- Hook point: `pdguiRender` in `pdgui_backend.cpp` after `pdguiHudRender`
+
+### Playtest verification
+
+- **Solo subtitle (in-game)** — start any SP mission that triggers an in-game subtitle (mission briefings, ambient dialogue). Text should appear at bottom-center with a dim rounded backdrop, NOT at the top.
+- **Cutscene subtitle** — play through any mission with a cutscene. Subtitles render at bottom-center and are not occluded by the letterbox bars.
+- **Font/theme sync** — change font or theme; subtitle panel should update immediately (uses active ImGui font + theme tint).
+- **Stats persistence** — play a match, check `saves/playerstats.json` for new keys: `mp.matches_won`, `mp.time_played_seconds`, `items.picked_up`, `doors.opened`, etc.
+- **Solo mission stats** — complete a solo mission, verify `solo.missions_completed` incremented; abort/die, verify `solo.mission_failures`.
+
+---
+
 ## Done — 2026-04-17 (S324 — D-MEM M2 + M4; infrastructure.md M3 marked done)
 
 **Build pending** — committed to `thirsty-ardinghelli-92bfca`, merge + build next. Changes:

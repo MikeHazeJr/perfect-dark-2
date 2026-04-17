@@ -77,6 +77,9 @@
 #include "data.h"
 #include "textures.h"
 #include "types.h"
+
+/* PC: persistent stats tracking */
+extern void statIncrement(const char *key, u64 amount);
 #include "string.h"
 #include "net/net.h"
 #include "net/netmsg.h"
@@ -17825,6 +17828,28 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 		netmsgSvcPlayerStatsWrite(&g_NetMsgRel, g_Vars.currentplayer->client);
 	}
 
+	/* PC: persistent pickup stat — fires once per successful pickup, gated on local player. */
+	if (result != TICKOP_NONE && g_Vars.currentplayernum < PLAYERCOUNT()) {
+		statIncrement("items.picked_up", 1);
+		switch (obj->type) {
+		case OBJTYPE_KEY:
+			statIncrement("items.keys_picked_up", 1);
+			break;
+		case OBJTYPE_AMMOCRATE:
+		case OBJTYPE_MULTIAMMOCRATE:
+			statIncrement("items.ammo_crates", 1);
+			break;
+		case OBJTYPE_WEAPON:
+			statIncrement("items.weapons_picked_up", 1);
+			break;
+		case OBJTYPE_SHIELD:
+			statIncrement("items.shields_picked_up", 1);
+			break;
+		default:
+			break;
+		}
+	}
+
 	if (result == TICKOP_FREE && (obj->hidden & OBJHFLAG_TAGGED) == 0) {
 		objFree(obj, false, obj->hidden2 & OBJH2FLAG_CANREGEN);
 		return TICKOP_FREE;
@@ -19494,6 +19519,12 @@ void doorsCheckAutomatic(void)
 
 				if (canopen) {
 					doorsRequestMode(door, DOORMODE_OPENING);
+					/* PC: persistent door stat — fires only when transitioning from
+					 * a closed/closing state (canopen gate above already filtered
+					 * the player-range + unlock checks).  Gated on local player. */
+					if (g_Vars.currentplayernum < PLAYERCOUNT()) {
+						statIncrement("doors.opened", 1);
+					}
 				}
 			}
 		}

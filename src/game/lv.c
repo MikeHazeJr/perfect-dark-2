@@ -110,6 +110,9 @@
 #include "assetcatalog_resolve.h"
 #include "assetcatalog_load.h"
 
+/* PC: persistent stats tracking */
+extern void statIncrement(const char *key, u64 amount);
+
 /* M0.2: helper — returns true if player has any button or stick input.
  * Replaces the old joyGetButtons(contpad, 0xffffffff) + stick deadzone checks.
  * Threshold 0.125 matches the legacy 10/80 stick deadzone. */
@@ -2603,6 +2606,26 @@ void lvTickPlayer(void)
 	zdiff = g_Vars.currentplayer->prop->pos.z - g_Vars.currentplayer->bondprevpos.z;
 
 	g_Vars.currentplayerstats->distance += sqrtf(xdiff * xdiff + zdiff * zdiff);
+
+	/* PC: persistent distance stat — flush in chunks of 10000 game units
+	 * to avoid hammering the hash-table on every tick.  g_Vars.playerstats
+	 * is 1:1 with local player slot; only track local players (playernum<PLAYERCOUNT()). */
+	if (g_Vars.currentplayernum < PLAYERCOUNT() && g_Vars.currentplayerstats) {
+		static f32 s_StatDistanceAccum[MAX_PLAYERS] = { 0.0f };
+		const f32 STAT_FLUSH_THRESHOLD = 10000.0f;
+		s32 pn = g_Vars.currentplayernum;
+		f32 step = sqrtf(xdiff * xdiff + zdiff * zdiff);
+		s_StatDistanceAccum[pn] += step;
+		while (s_StatDistanceAccum[pn] >= STAT_FLUSH_THRESHOLD) {
+			s_StatDistanceAccum[pn] -= STAT_FLUSH_THRESHOLD;
+			statIncrement("distance_units", 1);
+			if (g_Vars.normmplayerisrunning) {
+				statIncrement("mp.distance_units_sample", 1);
+			} else {
+				statIncrement("solo.distance_units_sample", 1);
+			}
+		}
+	}
 }
 
 void lvStop(void)
