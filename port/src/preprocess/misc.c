@@ -49,17 +49,10 @@ u8 *preprocessMpConfigs(u8* data, u32 size, u32* outSize)
 	for (u32 i = 0; i < count; ++i, ++cfg) {
 		PD_SWAP_VAL(cfg->setup.options);
 		PD_SWAP_VAL(cfg->setup.teamscorelimit);
-		PD_SWAP_VAL(cfg->setup.chrslots);
-#if MAX_PLAYERS > 4
-		/* Legacy N64 layout: bits 0-3 = 4 players, bits 4-11 = 8 bots.
-		 * PC layout: bits 0-7 = 8 players, bits 8-31 = bots.
-		 * Shift bot bits from N64 position (4) to PC position (MAX_PLAYERS=8). */
-		{
-			u32 players = cfg->setup.chrslots & 0x000fu;
-			u32 bots = (cfg->setup.chrslots >> 4) & 0x00ffu;
-			cfg->setup.chrslots = players | (bots << BOT_SLOT_OFFSET);
-		}
-#endif
+		/* B-12 Phase 3 (2026-04-17): chrslots field removed from struct mpsetup.
+		 * The DMA copy of the ROM block is overwritten by the compile-time
+		 * g_MpConfigs[] table before any reader consults it (see
+		 * challengeLoadConfig()), so no chrslots migration is needed here. */
 		// TODO: are these required or are they always 0?
 		PD_SWAP_VAL(cfg->setup.fileguid.deviceserial);
 		PD_SWAP_VAL(cfg->setup.fileguid.fileid);

@@ -1,13 +1,14 @@
 /**
  * participant.h — Dynamic Participant System (B-12)
  *
- * Replaces the fixed u32 chrslots bitmask with a dynamic, heap-allocated pool
- * of participant descriptors. Any slot can be a local player, remote player,
- * or bot. Default capacity 32, expandable at runtime via cheat.
+ * Authoritative pool of match participants. Each slot is either empty,
+ * a local human, a remote human, or a bot. Slot indices 0..MAX_PLAYERS-1
+ * are player slots; MAX_PLAYERS..MAX_MPCHRS-1 are bot slots. Default
+ * capacity MAX_MPCHRS; expandable at runtime via cheat.
  *
- * Phase 1: Runs parallel to chrslots. Both systems updated together.
- * Phase 2: Callsites migrated from chrslots to participant API.
- * Phase 3: chrslots removed.
+ * Phase 3 (2026-04-17) removed the legacy u64 chrslots bitmask from
+ * struct mpsetup and the wire format. This pool is now the sole source
+ * of participant identity.
  */
 
 #ifndef _IN_GAME_MPLAYER_PARTICIPANT_H
@@ -31,9 +32,8 @@ typedef enum {
 /**
  * Per-participant descriptor.
  *
- * This is a lightweight tracking struct — it does NOT replace mpchrconfig.
- * During Phase 1 it mirrors chrslots; during Phase 2+ it becomes the
- * authoritative source of match participant info.
+ * Lightweight tracking struct; does NOT replace mpchrconfig. Authoritative
+ * source of match participant identity (Phase 3).
  */
 typedef struct mpparticipant {
 	ParticipantType type;
@@ -55,15 +55,6 @@ typedef struct mpparticipant {
 	 *  1+ = remote client index
 	 */
 	s8 client_id;
-
-	/**
-	 * Legacy slot index in the old chrslots bitmask.
-	 * Players: 0-7 (maps to g_PlayerConfigsArray index)
-	 * Bots: 0-23 (maps to g_BotConfigsArray index, with BOT_SLOT_OFFSET in bitmask)
-	 *
-	 * Used during Phase 1 for compatibility. Removed in Phase 3.
-	 */
-	s32 legacy_slot;
 
 	/* Runtime pointers — set when the match starts, NULL in lobby */
 	struct mpchrconfig *config;
@@ -120,9 +111,9 @@ s32 mpAddParticipant(ParticipantType type, u8 team, s8 client_id, u8 localslot);
  * If the slot was NONE, increments the count.
  * Returns the slot index, or -1 if out of range.
  *
- * With a MAX_MPCHRS-capacity pool the slot index matches the chrslots bit
- * directly: players at 0-7, bots at BOT_SLOT_OFFSET .. MAX_MPCHRS-1.
- * This lets mpIsParticipantActive(i) replace chrslots & (1ull << i) exactly.
+ * With a MAX_MPCHRS-capacity pool the slot index has fixed semantics:
+ *   players  at 0 .. MAX_PLAYERS-1
+ *   bots     at MAX_PLAYERS .. MAX_MPCHRS-1
  */
 s32 mpAddParticipantAt(s32 slot, ParticipantType type, u8 team, s8 client_id, u8 localslot);
 
@@ -180,21 +171,22 @@ s32 mpParticipantFirstOfType(ParticipantType type);
 s32 mpParticipantNextOfType(s32 current, ParticipantType type);
 
 /* ========================================================================
- * Legacy Compatibility (Phase 1 only — removed in Phase 3)
+ * Wire Serialization Helpers (B-12 Phase 3)
  * ======================================================================== */
 
 /**
- * Generate a u32 chrslots bitmask from the current participant pool.
- * Used by code not yet migrated to the participant API.
- * Players occupy bits 0-7, bots occupy bits 8-39 (u64).
- * Participants beyond the 40-slot limit are silently excluded.
+ * Encode the pool as a 64-bit active-slot bitmap, where bit i is set iff
+ * slot i has a non-NONE participant. Used by SVC_STAGE_START serialization.
+ * Slots beyond 63 (none exist today) are silently clipped.
  */
-u64 mpParticipantsToLegacyChrslots(void);
+u64 mpParticipantsEncodeActiveMask(void);
 
 /**
- * Populate the participant pool from a legacy chrslots bitmask.
- * Used when loading saved setups.
+ * Rebuild the participant pool from an active-slot bitmap.
+ * Slots with bit set below MAX_PLAYERS are added as PARTICIPANT_REMOTE;
+ * slots at MAX_PLAYERS..MAX_MPCHRS-1 are added as PARTICIPANT_BOT.
+ * Called by the client when decoding SVC_STAGE_START.
  */
-void mpParticipantsFromLegacyChrslots(u64 chrslots);
+void mpParticipantsDecodeActiveMask(u64 mask);
 
 #endif /* _IN_GAME_MPLAYER_PARTICIPANT_H */

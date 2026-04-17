@@ -862,7 +862,7 @@ static s32 renderMpPausePlayerStats(struct menudialog *dialog, struct menu *, s3
 
         /* "Stats for" player dropdown -- reads from
          * mpStatsForPlayerDropdownHandler which iterates active chr
-         * slots via g_MpSetup.chrslots. */
+         * slots via mpIsParticipantActive() (B-12 Phase 3). */
         ImGui::PushItemWidth(pdguiScale(240.0f));
         renderHandlerDropdown("Stats For##mp_pstats_who",
                               mpStatsForPlayerDropdownHandler, 0, 0);

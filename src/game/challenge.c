@@ -78,7 +78,16 @@ bool challengeIsAvailableToPlayer(s32 chrnum, s32 challengeindex)
 
 bool challengeIsAvailableToAnyPlayer(s32 challengeindex)
 {
-	return (g_MpChallenges[challengeindex].availability & (((g_MpSetup.chrslots & 0x000F) << 1) | 1)) != 0;
+	/* Availability mask layout: bit 0 = "any player", bits 1..MAX_LOCAL_PLAYERS
+	 * = per-local-player flags. Build the per-player mask from the participant
+	 * pool's local-player slots (B-12 Phase 3). */
+	u32 mask = 1; /* "any player" bit always considered */
+	for (s32 i = 0; i < MAX_LOCAL_PLAYERS; i++) {
+		if (mpIsParticipantActive(i)) {
+			mask |= (1u << (i + 1));
+		}
+	}
+	return (g_MpChallenges[challengeindex].availability & mask) != 0;
 }
 
 void challengeDetermineUnlockedFeatures(void)
@@ -244,18 +253,15 @@ void challengePerformSanityChecks(void)
 
 		// Turn off all simulants (and players 5-8 if supported) and turn them on if enabled
 		// for this number of players
-		g_MpSetup.chrslots &= CHRSLOTS_PLAYER_MASK;
-
 		for (i = 0; i < MAX_BOTS; i++) {
-			mpRemoveParticipant(i + BOT_SLOT_OFFSET); /* B-12 Phase 2 */
+			mpRemoveParticipant(i + MAX_PLAYERS);
 		}
 
 		for (i = 0; i < MAX_BOTS; i++) {
 			g_BotConfigsArray[i].difficulty = g_MpSimulantDifficultiesPerNumPlayers[i][numplayers - 1];
 
 			if (g_BotConfigsArray[i].difficulty != BOTDIFF_DISABLED) {
-				g_MpSetup.chrslots |= 1ull << (i + BOT_SLOT_OFFSET); /* B-12 Phase 2: fixed 1u→1ull */
-				mpAddParticipantAt(i + BOT_SLOT_OFFSET, PARTICIPANT_BOT, 0, -1, 0xFF); /* B-12 Phase 2 */
+				mpAddParticipantAt(i + MAX_PLAYERS, PARTICIPANT_BOT, 0, -1, 0xFF);
 			}
 		}
 

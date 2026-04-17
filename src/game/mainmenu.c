@@ -17,6 +17,7 @@
 #include "game/menu.h"
 #include "game/mplayer/ingame.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/participant.h"
 #include "game/objectives.h"
 #include "game/options.h"
 #include "game/pdmode.h"
@@ -802,7 +803,15 @@ MenuItemHandlerResult menuhandlerAcceptMission(s32 operation, struct menuitem *i
 			g_Vars.coopplayernum = -1;
 
 			setNumPlayers(plrcount);
-			g_MpSetup.chrslots = contmask;
+			/* B-12 Phase 3: build the local-participant set from contmask. */
+			for (s32 _p = 0; _p < MAX_PLAYERS; _p++) {
+				mpRemoveParticipant(_p);
+			}
+			for (s32 _p = 0; _p < MAX_LOCAL_PLAYERS; _p++) {
+				if (contmask & (1u << _p)) {
+					mpAddParticipantAt(_p, PARTICIPANT_LOCAL, 0, 0, (u8)_p);
+				}
+			}
 		} else {
 			// Solo
 			g_Vars.bondplayernum = 0;
@@ -1650,7 +1659,7 @@ MenuItemHandlerResult menuhandlerAntiMainPlayer(s32 operation, struct menuitem *
 	// the main player is (pendingantiplayernum XOR 1)
 
 	// g_Vars.(bond|anti|coop)playernum is based on the n'th player slot, not the n'th controller;
-	// that is, it's not based on g_MpSetup.chrslots.
+	// that is, it's not based on the participant pool.
 	// Because of this, it's easier just to change the label.
 
 	u32 tmpmask = joyGetConnectedControllers();

@@ -43,16 +43,11 @@
 #define MAX_LOCAL_PLAYERS      4
 #define MAX_PLAYERS            8
 
-/* PC: Bot slot offset in chrslots bitmask (u64).
- * Bots occupy bits BOT_SLOT_OFFSET through (BOT_SLOT_OFFSET + MAX_BOTS - 1).
- * With MAX_PLAYERS=8 and MAX_BOTS=32 this means bits 8-39.
- * Total capacity: 8 players + 32 bots = 40 characters (one per bit).
- * CHRSLOTS_PLAYER_MASK selects only human player bits (0-7).
- * CHRSLOTS_BOT_MASK selects only bot/simulant bits (8-39).
- * chrslots field is u64 — use 1ull shifts for all chrslots bit operations. */
-#define BOT_SLOT_OFFSET        MAX_PLAYERS
-#define CHRSLOTS_PLAYER_MASK   ((1ull << MAX_PLAYERS) - 1ull)
-#define CHRSLOTS_BOT_MASK      (((1ull << MAX_BOTS) - 1ull) << BOT_SLOT_OFFSET)
+/* B-12 Phase 3 (2026-04-17): BOT_SLOT_OFFSET / CHRSLOTS_PLAYER_MASK /
+ * CHRSLOTS_BOT_MASK constants removed. The participant pool indexes slots
+ * directly: players 0..MAX_PLAYERS-1, bots MAX_PLAYERS..MAX_MPCHRS-1.
+ * Replace any BOT_SLOT_OFFSET usage with MAX_PLAYERS. Replace chrslots
+ * mask/bit tests with the mpIsParticipantActive/mpAdd/mpRemove API. */
 #define MAX_PROPSPERROOMCHUNK  7
 #define MAX_ROOMPROPLISTCHUNKS 256
 #define MAX_SQUADRONS          16

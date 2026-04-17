@@ -75,7 +75,7 @@ to PATH, `CCACHE_SLOPPINESS=pch_defines,time_macros`. Do not rediscover.
 | MSP | Match Startup Pipeline (A–F + SA-1–7 + Manifest Lifecycle 0–6 + L5) | ✅ **ALL DONE** | S115 / S241 |
 | D-MEM | Memory Modernization | 🔶 M0–M4 + MEM-1/2/3 DONE; M5–M6 remain | S324 |
 | D-STAGE | Stage Decoupling | ✅ **ALL 3 PHASES DONE** | S47c |
-| B-12 | Dynamic Participant System | 🔶 Phase 1–2 DONE; Phase 3 (remove chrslots) next | S47b |
+| B-12 | Dynamic Participant System | ✅ **ALL 3 PHASES DONE** — Phase 3 (2026-04-17, protocol v37) | S324 |
 | SPF | Server Platform Foundation | ✅ **ALL SHIPPED** — SPF-1 Hub/Room/Identity/Phonetic + SPF-2a Menu Mgr + SPF-3 Lobby + SPF-3 Connect Codes + R-1 through R-4 | S51 / S143 / S253 |
 | AP | Asset Provider (Direct File Access) | 🔶 **Phase 1 + 2 DONE** — provider vtable, RomProvider/FileProvider, asset_source_t on catalog entries; Phase 3 (call-site migration) + Phase 4 (retire filenum) remain | S326 (2026-04-17) |
 
@@ -319,15 +319,22 @@ Full plan in [memory-modernization.md](memory-modernization.md).
 
 See [constraints.md](constraints.md) → Index Domain Warning.
 
-### B-12: Dynamic Participant System — 🔶 PHASE 1–2 DONE (S47b)
+### B-12: Dynamic Participant System — ✅ **ALL 3 PHASES DONE** (S324, 2026-04-17)
 
 - **Phase 1 Parallel Pool**: ✅ DONE (S26). `participant.h/c`, heap-allocated
   pool (capacity `MAX_MPCHRS = 40`), parallel sync hooks.
 - **Phase 2 Callsite Migration**: ✅ DONE (S47b). 7 files, ~25 mplayer.c sites
   + setup.c + challenge.c + filemgr.c + matchsetup.c. `mpAddParticipantAt()`
   API.
-- **Phase 3 Remove chrslots**: 📋 NEXT. Delete `u64 chrslots` field, legacy
-  shims, `BOT_SLOT_OFFSET`. Protocol bump next v36. Target: v0.2.0 release.
+- **Phase 3 Remove chrslots**: ✅ **DONE (S324, 2026-04-17, protocol v37)**.
+  Deleted the `u64 chrslots` field from `struct mpsetup`,
+  `BOT_SLOT_OFFSET` / `CHRSLOTS_PLAYER_MASK` / `CHRSLOTS_BOT_MASK` constants,
+  `MpParticipant.legacy_slot`, and the `mpParticipantsTo/FromLegacyChrslots`
+  shims. Renamed the wire helpers to
+  `mpParticipantsEncodeActiveMask` / `mpParticipantsDecodeActiveMask`.
+  `NET_PROTOCOL_VER 36 → 37`. Server now links `participant.c` directly.
+  44 mpconfigs.c initializers + ROM preprocess + 60+ runtime callsites
+  migrated. Build clean [474/474]; playtest verification queued.
 
 ### Master Orchestration Plan (2026-04-13) — ✅ L0–L7 COMPLETE
 
@@ -364,7 +371,7 @@ DONE ── D1 (N64 strip) ── D3R (component mods) ── D3R-1..11
           │
           ├── D-STAGE (all 3 phases DONE)
           │
-          ├── B-12 Phase 1–2 DONE ─→ Phase 3 (remove chrslots, v0.2.0)
+          ├── B-12 ALL 3 PHASES DONE (Phase 3 shipped 2026-04-17, protocol v37)
           │
           ├── MSP all phases DONE (A–F + SA-1..7 + ML 0–6 + L5)
           │
@@ -392,7 +399,7 @@ DONE ── D1 (N64 strip) ── D3R (component mods) ── D3R-1..11
 
 PLANNED (by release target):
   v0.1.0 "Foundation"  ── D5 Phase 4 / 5 finish, B-141 audio root cause
-  v0.2.0 "Connected"   ── B-12 Phase 3, R-5 server GUI, stats wire-in
+  v0.2.0 "Connected"   ── R-5 server GUI, stats wire-in
   v0.3.0 "Community"   ── L-5 Campaign/Counter-Op setup, L-6 drop-in
   v0.4.0 "Federation"  ── D16 master server, mesh networking
   v0.5.0 "Studio"      ── D15 level editor (Forge)

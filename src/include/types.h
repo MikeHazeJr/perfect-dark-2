@@ -4108,13 +4108,11 @@ struct mpsetup {
 	/*0x800acb9b*/ u8 scorelimit;
 	/*0x800acb9c*/ u16 teamscorelimit;
 
-	/**
-	 * Each bit signifies that a player or sim is participating.
-	 * u64 bitmask: bits 0-7 = players, bits 8-39 = bots.
-	 * Supports up to 8 players + 32 bots = 40 characters.
-	 * Use 1ull shifts for all bit operations on this field.
-	 */
-	/*0x800acb9e*/ u64 chrslots;
+	/* B-12 Phase 3 (2026-04-17): u64 chrslots bitmask removed.
+	 * Participant pool (g_MpParticipants) is the sole source of slot
+	 * assignment. Use mpIsParticipantActive() / mpAddParticipantAt() /
+	 * mpGetActiveBotCount() / mpGetActiveParticipantCount() instead of
+	 * bit-twiddling over chrslots. Bot slots live at MAX_PLAYERS..MAX_MPCHRS-1. */
 	/*0x800acba0*/ u8 weapons[NUM_MPWEAPONSLOTS];
 	/*0x800acba6*/ u8 paused;
 	/*0x800acba8*/ struct fileguid fileguid;

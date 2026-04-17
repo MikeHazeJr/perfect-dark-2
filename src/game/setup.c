@@ -25,6 +25,7 @@
 #include "game/challenge.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/participant.h"
 #include "game/pad.h"
 #include "game/propobj.h"
 #include "bss.h"
@@ -1517,13 +1518,14 @@ void setupLoadFiles(s32 stagenum)
 		}
 
 		/* PC: Account for simulant bots in model slot allocation.
-		 * Same logic as the chrslots fix below - without this, numchrs=0
-		 * on MP maps with no map-embedded NPCs, causing g_MaxAnims to be
-		 * too small for 20+ bots (each bot needs an anim slot). */
+		 * Original N64 only had 8 total characters so the +10 buffer
+		 * in chrmgrConfigure was always enough. With up to 32 bots the
+		 * slot pool must be sized to fit all of them (B-12 Phase 3: read
+		 * from participant pool). */
 		if (g_Vars.normmplayerisrunning && mpHasSimulants()) {
 			s32 k;
 			for (k = 0; k < MAX_BOTS; k++) {
-				if (g_MpSetup.chrslots & (1ull << (k + MAX_PLAYERS))) {
+				if (mpIsParticipantActive(k + MAX_PLAYERS)) {
 					numchrs++;
 				}
 			}
@@ -1601,12 +1603,13 @@ void setupCreateProps(s32 stagenum)
 
 			/* PC: Account for simulant bots in chr slot allocation.
 			 * Original N64 only had 8 total characters so the +10 buffer
-			 * in chrmgrConfigure was always enough. With up to 24 bots
-			 * the slot pool must be sized to fit all of them. */
+			 * in chrmgrConfigure was always enough. With up to 32 bots
+			 * the slot pool must be sized to fit all of them (B-12 Phase 3:
+			 * read from participant pool). */
 			if (g_Vars.normmplayerisrunning && mpHasSimulants()) {
 				s32 k;
 				for (k = 0; k < MAX_BOTS; k++) {
-					if (g_MpSetup.chrslots & (1ull << (k + MAX_PLAYERS))) {
+					if (mpIsParticipantActive(k + MAX_PLAYERS)) {
 						numchrs++;
 					}
 				}
@@ -2197,8 +2200,8 @@ void setupCreateProps(s32 stagenum)
 
 				maxsimulants = MAX_BOTS; /* PC: all bot slots available */
 
-				sysLogPrintf(LOG_NOTE, "SIMULANT: spawning started chrslots=0x%08x maxsim=%d",
-					g_MpSetup.chrslots, maxsimulants);
+				sysLogPrintf(LOG_NOTE, "SIMULANT: spawning started activeBots=%d maxsim=%d",
+					mpGetActiveBotCount(), maxsimulants);
 
 				for (i = 0; i < MAX_BOTS; i++) {
 					slotsdone[i] = false;
@@ -2211,15 +2214,15 @@ void setupCreateProps(s32 stagenum)
 						slotnum = (slotnum + 1) % maxsimulants;
 					}
 
-					if ((g_MpSetup.chrslots & (1ull << (slotnum + MAX_PLAYERS)))
+					if (mpIsParticipantActive(slotnum + MAX_PLAYERS)
 							&& mpIsSimSlotEnabled(slotnum)) {
 						sysLogPrintf(LOG_NOTE, "SIMULANT: allocating chrnum=%d slot=%d", chrnum, slotnum);
 						botmgrAllocateBot(chrnum, slotnum);
 						chrnum++;
 					} else {
-						sysLogPrintf(LOG_NOTE, "SIMULANT: SKIP slot=%d chrslots_bit=%d isEnabled=%d",
+						sysLogPrintf(LOG_NOTE, "SIMULANT: SKIP slot=%d active=%d isEnabled=%d",
 							slotnum,
-							(g_MpSetup.chrslots & (1ull << (slotnum + MAX_PLAYERS))) ? 1 : 0,
+							mpIsParticipantActive(slotnum + MAX_PLAYERS) ? 1 : 0,
 							mpIsSimSlotEnabled(slotnum));
 					}
 
@@ -2228,8 +2231,8 @@ void setupCreateProps(s32 stagenum)
 
 				sysLogPrintf(LOG_NOTE, "SIMULANT: spawning done total=%d", chrnum);
 			} else {
-				sysLogPrintf(LOG_NOTE, "SIMULANT: NOT spawning normmplay=%d hasSimulants=%d chrslots=0x%08x",
-					g_Vars.normmplayerisrunning, mpHasSimulants(), g_MpSetup.chrslots);
+				sysLogPrintf(LOG_NOTE, "SIMULANT: NOT spawning normmplay=%d hasSimulants=%d activeBots=%d",
+					g_Vars.normmplayerisrunning, mpHasSimulants(), mpGetActiveBotCount());
 			}
 
 			if (g_Vars.normmplayerisrunning) {

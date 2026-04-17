@@ -44,6 +44,7 @@
 #include "game/zbuf.h"
 #include "game/game_1a78b0.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/participant.h"
 #include "game/pak.h"
 #include "game/splat.h"
 #include "game/utils.h"
@@ -546,24 +547,22 @@ void mainLoop(void)
 		}
 
 		if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
+			mpReset();
 			if (g_Vars.antiplayernum < 0) {
 				// Counter-Operative now uses a different approach which allows more than 2 players.
 				// Co-Operative, on the other hand, is currently limited to 2 players.
-				g_MpSetup.chrslots = 0x03;
+				mpAddParticipantAt(0, PARTICIPANT_LOCAL, 0, 0, 0);
+				mpAddParticipantAt(1, PARTICIPANT_LOCAL, 0, 0, 1);
 			}
-			mpReset();
 		} else if (g_Vars.perfectbuddynum) {
 			mpReset();
 		} else if (g_Vars.mplayerisrunning == 0
 				&& (numplayers >= 2 || g_Vars.lvmpbotlevel || argFindByPrefix(1, "-play"))) {
-			g_MpSetup.chrslots = 1;
-
-			for (s32 i = 1; i < numplayers; ++i) {
-				g_MpSetup.chrslots |= 1u << i;
-			}
-
 			g_MpSetup.stagenum = g_StageNum;
 			mpReset();
+			for (s32 i = 0; i < numplayers && i < MAX_LOCAL_PLAYERS; ++i) {
+				mpAddParticipantAt(i, PARTICIPANT_LOCAL, 0, 0, (u8)i);
+			}
 		}
 
 		gfxReset();

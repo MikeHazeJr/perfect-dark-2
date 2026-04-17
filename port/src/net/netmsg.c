@@ -785,7 +785,9 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 		netbufWriteU8(dst, g_MpSetup.scorelimit);
 		netbufWriteU8(dst, g_MpSetup.timelimit);
 		netbufWriteU16(dst, g_MpSetup.teamscorelimit);
-		netbufWriteU64(dst, g_MpSetup.chrslots);  /* u64 since protocol v21: 8 players + 32 bots */
+		/* v37: active-slot bitmap derived from the participant pool.
+		 * Bits 0..MAX_PLAYERS-1 = players, MAX_PLAYERS..MAX_MPCHRS-1 = bots. */
+		netbufWriteU64(dst, mpParticipantsEncodeActiveMask());
 		netbufWriteU32(dst, g_MpSetup.options);
 		/* SA-3: weapons as session IDs (NUM_MPWEAPONSLOTS u16 entries) */
 		{
@@ -869,7 +871,7 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 		}
 
 		for (s32 botidx = 0; botidx < MAX_BOTS; botidx++) {
-			if (!(g_MpSetup.chrslots & (1ull << (botidx + BOT_SLOT_OFFSET)))) {
+			if (!mpIsParticipantActive(botidx + MAX_PLAYERS)) {
 				continue;
 			}
 			struct mpbotconfig *bc = &g_BotConfigsArray[botidx];
@@ -1013,7 +1015,11 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		g_MpSetup.scorelimit = netbufReadU8(src);
 		g_MpSetup.timelimit = netbufReadU8(src);
 		g_MpSetup.teamscorelimit = netbufReadU16(src);
-		g_MpSetup.chrslots = netbufReadU64(src);  /* u64 since protocol v21 */
+		{
+			/* v37: active-slot bitmap → participant pool. */
+			u64 active_mask = netbufReadU64(src);
+			mpParticipantsDecodeActiveMask(active_mask);
+		}
 		g_MpSetup.options = netbufReadU32(src);
 		/* SA-3: weapons as session IDs */
 		{
@@ -1249,8 +1255,9 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		viBlack(true);
 #endif
 	} else {
-		sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE from server: going to stage 0x%02x with %u players chrslots=0x%llx",
-			g_MpSetup.stagenum, numplayers, (unsigned long long)g_MpSetup.chrslots);
+		sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE from server: going to stage 0x%02x with %u players activeMask=0x%llx",
+			g_MpSetup.stagenum, numplayers,
+			(unsigned long long)mpParticipantsEncodeActiveMask());
 
 #if !defined(PD_SERVER)
 		/* Apply catalog-validated body/head to player config arrays.
@@ -1297,7 +1304,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		 * The write side (netmsgSvcStageStartWrite) serialises name + body/head
 		 * session refs + difficulty/type for every active bot slot. */
 		for (s32 botidx = 0; botidx < MAX_BOTS; botidx++) {
-			if (!(g_MpSetup.chrslots & (1ull << (botidx + BOT_SLOT_OFFSET)))) {
+			if (!mpIsParticipantActive(botidx + MAX_PLAYERS)) {
 				continue;
 			}
 			/* Zero-init body/head each iteration so stale values never leak */
@@ -1349,12 +1356,11 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		}
 #endif /* !PD_SERVER */
 
-		/* Populate the participant pool from the server-supplied chrslots bitmask
-		 * before mpStartMatch() is called.  mpStartMatch rebuilds participants
-		 * for NETMODE_SERVER but does nothing for NETMODE_CLIENT, so the pool
-		 * would be empty and mpHasSimulants() would return false — bots would
+		/* Participant pool was already populated above (mpParticipantsDecodeActiveMask
+		 * on the active-slot bitmap read from the wire). mpStartMatch does NOT
+		 * rebuild participants for NETMODE_CLIENT, so the pool must be authoritative
+		 * on arrival — otherwise mpHasSimulants() would return false and bots would
 		 * never spawn on the client side. */
-		mpParticipantsFromLegacyChrslots(g_MpSetup.chrslots);
 
 		sysLogPrintf(LOG_WARNING, "MATCH-START: calling mainChangeToStage, stagenum=0x%x", (unsigned)g_MpSetup.stagenum);
 		mpStartMatch();
@@ -4570,10 +4576,9 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		/* Combat Simulator
 		 *
 		 * Configure g_MpSetup fully before netServerStageStart(), which
-		 * broadcasts SVC_STAGE_START containing g_MpSetup.chrslots and
-		 * each client's playernum.  Without this, clients receive a
-		 * zero chrslots and no slot assignments, so mpStartMatch() never
-		 * spawns anyone. */
+		 * broadcasts SVC_STAGE_START. The participant pool carries the slot
+		 * layout (v37). Without populating it here, clients receive a zero
+		 * active-slot mask and mpStartMatch() never spawns anyone. */
 		/* g_MpSetup.stagenum already set above from arena catalog ID resolution */
 		g_MpSetup.scenario        = scenario;
 		g_MpSetup.timelimit       = timelimit; /* 0..59 = minutes, >=60 = unlimited */
@@ -4582,15 +4587,15 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		g_MpSetup.options         = options;
 		/* g_MpSetup.weapons[] populated above by FIX-4 per-slot weapon catalog ID string resolution. */
 
-		/* Assign sequential playernums and build chrslots bitmask.
-		 * Bits 0..n-1 of chrslots represent the n connected players. */
-		g_MpSetup.chrslots = 0;
+		/* Assign sequential playernums and populate the participant pool.
+		 * Slots 0..n-1 represent the n connected players (B-12 Phase 3). */
+		mpParticipantPoolInit(MAX_MPCHRS);
 		s32 pnum = 0;
 		for (s32 ci = 0; ci < NET_MAX_CLIENTS && pnum < MAX_PLAYERS; ci++) {
 			struct netclient *ncl = &g_NetClients[ci];
 			if (ncl->state == CLSTATE_LOBBY || ncl->state == CLSTATE_GAME) {
-				ncl->playernum     = (u8)pnum;
-				g_MpSetup.chrslots |= (u64)1 << pnum;
+				ncl->playernum = (u8)pnum;
+				mpAddParticipantAt(pnum, PARTICIPANT_REMOTE, 0, (s8)ci, 0);
 				sysLogPrintf(LOG_NOTE, "NET: assigned playernum %d to client %d (%s)",
 				             pnum, ci, ncl->settings.name);
 				pnum++;
@@ -4603,13 +4608,12 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			memset(&g_MatchConfig.slots[gap], 0, sizeof(g_MatchConfig.slots[gap]));
 		}
 
-		/* Add simulant (bot) slots: bits 8..8+numSims-1 in chrslots.
-		 * MAX_BOTS = 32, MAX_PLAYERS = 8 so bots live in bits 8..39.
+		/* Add simulant (bot) slots at MAX_PLAYERS..MAX_PLAYERS+numSims-1.
 		 * numSims is clamped to MAX_BOTS to prevent overflow. */
 		u8 clampedSims = (numSims > MAX_BOTS) ? MAX_BOTS : numSims;
 		for (s32 bi = 0; bi < clampedSims; bi++) {
 			s32 slot = MAX_PLAYERS + bi;
-			g_MpSetup.chrslots |= (u64)1 << slot;
+			mpAddParticipantAt(slot, PARTICIPANT_BOT, 0, -1, 0xFF);
 			/* Catalog-ID-native: read body_id/head_id strings, resolve to
 			 * mpbodynum/mpheadnum here at the server read site — the ONLY
 			 * integer-domain conversion point for bot characters. */
@@ -4704,8 +4708,10 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			             botType, botDifficulty);
 		}
 		g_Lobby.settings.numSimulants = clampedSims;
-		sysLogPrintf(LOG_NOTE, "NET: Combat Sim setup: stage=0x%02x chrslots=0x%llx players=%d sims=%d type=%d",
-		             (unsigned)g_MpSetup.stagenum, (unsigned long long)g_MpSetup.chrslots, pnum, clampedSims, simType);
+		sysLogPrintf(LOG_NOTE, "NET: Combat Sim setup: stage=0x%02x activeMask=0x%llx players=%d sims=%d type=%d",
+		             (unsigned)g_MpSetup.stagenum,
+		             (unsigned long long)mpParticipantsEncodeActiveMask(),
+		             pnum, clampedSims, simType);
 
 		/* Phase D.3: receive host-built manifest from CLC_LOBBY_START payload,
 		 * then supplement with other connected players' body/head (which the

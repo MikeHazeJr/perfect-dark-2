@@ -23,6 +23,7 @@
 #include "data.h"
 #include "system.h"
 #include "lib/main.h"
+#include "game/mplayer/participant.h"
 #include "scenario_save.h"  /* struct matchconfig for g_MatchConfig stub */
 #include "net/netlobby.h"   /* g_Lobby for server lobby state */
 
@@ -226,14 +227,8 @@ void invRemoveItemByNum(s32 itemnum) { (void)itemnum; }
  */
 void mpStartMatch(void)
 {
-	/* Count bots from chrslots (bits BOT_SLOT_OFFSET..BOT_SLOT_OFFSET+MAX_BOTS-1).
-	 * More reliable than g_Lobby.settings.numSimulants which may not be in sync. */
-	s32 numBots = 0;
-	for (s32 b = 0; b < MAX_BOTS; b++) {
-		if (g_MpSetup.chrslots & ((u64)1 << (BOT_SLOT_OFFSET + b))) {
-			numBots++;
-		}
-	}
+	/* B-12 Phase 3: bot count comes straight from the participant pool. */
+	s32 numBots = mpGetActiveBotCount();
 
 	/* Free any stubs left over from a previous match */
 	for (s32 i = 0; i < MAX_BOTS; i++) {
@@ -399,10 +394,8 @@ struct asset_entry; /* forward decl for return type */
 const struct asset_entry *assetCatalogFindModMapByStagenum(s32 stagenum) { (void)stagenum; return NULL; }
 
 /* --- Participant system (B-12) --- */
-/* The server doesn't link participant.c (that's game-client code), but
- * netmsg.c calls mpParticipantsFromLegacyChrslots() in the SVC_STAGE_START
- * client path.  The server never enters that path, so an empty stub is fine. */
-void mpParticipantsFromLegacyChrslots(u64 chrslots) { (void)chrslots; }
+/* Since Phase 3 (2026-04-17) the server links participant.c directly — it
+ * needs the authoritative slot store for match assembly. No stubs required. */
 
 /* --- Console (excluded from server build) --- */
 void conInit(void) {}

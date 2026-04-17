@@ -20,6 +20,7 @@
 #include "game/training.h"
 #include "game/gamefile.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/participant.h"
 #include "bss.h"
 #include "lib/vi.h"
 #include "lib/joy.h"
@@ -255,7 +256,11 @@ void menuTick(void)
 				} else {
 				if (g_NetMode) {
 					g_Vars.mpsetupmenu = MPSETUPMENU_ADVSETUP;
-					g_MpSetup.chrslots = 1;
+					/* Single local slot in net mode (slot 0). */
+					for (s32 _p = 0; _p < MAX_PLAYERS; _p++) {
+						mpRemoveParticipant(_p);
+					}
+					mpAddParticipantAt(0, PARTICIPANT_LOCAL, 0, 0, 0);
 				} else
 				g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
 				}
@@ -264,7 +269,7 @@ void menuTick(void)
 				for (i = 0; i < maxplayers; i++) {
 					g_Vars.waitingtojoin[i] = false;
 
-					if (g_MpSetup.chrslots & (1u << i)) {
+					if (mpIsParticipantActive(i)) {
 						g_MpPlayerNum = i;
 
 						if (g_Vars.mpsetupmenu == MPSETUPMENU_ADVSETUP) {
@@ -288,7 +293,7 @@ void menuTick(void)
 
 				g_MpPlayerNum = 0;
 
-				if (g_MpSetup.chrslots & CHRSLOTS_PLAYER_MASK) {
+				if (mpGetActivePlayerCount() > 0) {
 					sndStart(var80095200, SFX_EXPLOSION_8098, 0, -1, -1, -1, -1, -1);
 
 					playerPause(MENUROOT_MPSETUP);
@@ -325,7 +330,10 @@ void menuTick(void)
 
 		if (g_MenuData.root == MENUROOT_MPSETUP || g_MenuData.root == MENUROOT_4MBMAINMENU) {
 			if (g_MenuData.prevmenuroot == -1) {
-				g_MpSetup.chrslots &= ~CHRSLOTS_PLAYER_MASK;
+				/* Clear existing player participants (slots 0..MAX_PLAYERS-1). */
+				for (s32 _p = 0; _p < MAX_PLAYERS; _p++) {
+					mpRemoveParticipant(_p);
+				}
 			}
 
 			g_MpNumJoined = 0;
@@ -335,7 +343,7 @@ void menuTick(void)
 					g_Menus[i].playernum = g_MpNumJoined++;
 
 					if (g_MenuData.prevmenuroot == -1) {
-						g_MpSetup.chrslots |= (1u << i);
+						mpAddParticipantAt(i, PARTICIPANT_LOCAL, 0, 0, (u8)i);
 					}
 				}
 			}
@@ -344,7 +352,7 @@ void menuTick(void)
 				s32 slot = 1;
 				for (i = 1; i < g_NetMaxClients; ++i) {
 					if (g_NetClients[i].state >= CLSTATE_LOBBY) {
-						g_MpSetup.chrslots |= (1u << slot);
+						mpAddParticipantAt(slot, PARTICIPANT_REMOTE, 0, (s8)i, 0);
 						++slot;
 					}
 				}
@@ -576,7 +584,7 @@ void menuTick(void)
 				}
 
 				for (i = 0; i < MAX_PLAYERS; i++) {
-					if (g_MpSetup.chrslots & (1u << i)) {
+					if (mpIsParticipantActive(i)) {
 						if (g_Vars.coopplayernum >= 0) {
 							if (g_Vars.stagenum == STAGE_DEEPSEA) {
 								g_MissionConfig.stageindex++;
