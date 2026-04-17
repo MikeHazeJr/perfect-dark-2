@@ -9,8 +9,6 @@
 #include "types.h"
 #include "game/player.h"
 
-extern u32 g_BgunGunMemBaseSize4Mb2P;
-
 void bgunReset(void)
 {
 	s32 i;
