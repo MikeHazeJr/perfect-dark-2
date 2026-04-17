@@ -602,6 +602,8 @@ static void drawTabPlayers(float panelW, float panelH)
                              (s32)pv.clientId, pv.name);
                 netServerBanClient((s32)pv.clientId, "Banned by server operator");
             }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Kick + log (IP block not yet implemented)");
             ImGui::PopStyleColor(2);
 
             ImGui::PopID();
@@ -757,7 +759,8 @@ static void drawTabOperator(float panelW, float panelH)
             strncpy(s_StageIdBuf, curStageId, sizeof(s_StageIdBuf) - 1);
             s_StageIdBuf[sizeof(s_StageIdBuf) - 1] = '\0';
         }
-        ImGui::SetNextItemWidth(-1);
+        /* Reserve space for the Apply button when editing; fill when idle */
+        ImGui::SetNextItemWidth(s_StageIdDirty ? -60.0f : -1.0f);
         if (ImGui::InputText("##stageid", s_StageIdBuf, sizeof(s_StageIdBuf))) {
             s_StageIdDirty = true;
         }
@@ -790,7 +793,7 @@ static void drawTabOperator(float panelW, float panelH)
         ImGui::Spacing();
 
         /* Start / End match */
-        bool hasPlayers = (g_NetNumClients > 0);
+        bool hasPlayers = (g_NetNumClients > 0) && (roomGetActiveCount() > 0);
         if (!hasPlayers) ImGui::BeginDisabled();
         if (ImGui::Button("Force Start Match", ImVec2(-1, 30))) {
             sysLogPrintf(LOG_NOTE, "SERVER GUI: force starting match");

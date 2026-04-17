@@ -396,7 +396,7 @@ static void renderLivePreview(float h, float scale)
     pdguiDrawTextGlow(pos.x + 8.0f * scale, pos.y + 4.0f * scale,
                       80.0f * scale, headerH - 8.0f * scale);
 
-    pdguiSetCursorBelowTitle(headerH); /* content-inset: clear of preview chrome border */
+    pdguiSetCursorBelowTitle(headerH + 6.0f * scale); /* content-inset: drawn dialog is headerH+6*scale tall */
 
     /* Sample content row */
     ImGui::TextDisabled("Sample widgets:");
