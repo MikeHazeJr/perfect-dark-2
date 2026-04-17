@@ -2588,11 +2588,29 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
     float pdTitleH = drawPdWindowFrame(dialogX, dialogY, dialogW, dialogH, windowTitle);
 
-    /* Offset content below the PD title bar */
-    ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
+    /* S305: content inset — keep menu items clear of the nineslice chrome
+     * border plus a small breathing-room buffer so the content doesn't feel
+     * cramped against the inner edge. Endscreen + pause menu use the same
+     * pattern (resolveEndscreenPadding / pdguiThemeGetContentInset). */
+    float insL = 0, insR = 0, insT = 0, insB = 0;
+    pdguiThemeGetContentInset(&insL, &insR, &insT, &insB);
+    float breathe = pdguiScale(8.0f);
+    float padX = pdguiScale(16.0f);
+    if (insL + breathe > padX) padX = insL + breathe;
+    float padR = pdguiScale(16.0f);
+    if (insR + breathe > padR) padR = insR + breathe;
+    float padB = pdguiScale(14.0f);
+    if (insB + breathe > padB) padB = insB + breathe;
+    float padT = pdTitleH + ImGui::GetStyle().WindowPadding.y + breathe;
+    if (insT + breathe + pdTitleH > padT) padT = insT + breathe + pdTitleH;
+
+    /* Offset content below the PD title bar and inside the border */
+    ImGui::SetCursorPos(ImVec2(padX, padT));
 
     float buttonH = 40.0f * scale;
-    float buttonW = -1.0f; /* full width */
+    float contentW = dialogW - padX - padR;
+    if (contentW < pdguiScale(32.0f)) contentW = pdguiScale(32.0f); /* sanity */
+    float buttonW = contentW;
     float spacing = 6.0f * scale;
 
     /* B button / Escape navigation:
@@ -2746,11 +2764,11 @@ static s32 renderMainMenu(struct menudialog *dialog,
             /* Width sized to fit the widest label ("Confirm Quit") so both states match */
             float quitBtnW = ImGui::CalcTextSize("Confirm Quit").x + ImGui::GetStyle().FramePadding.x * 2.0f;
             float quitBtnH = 28.0f * scale;
-            float margin = 4.0f * scale;
-            /* Cursor pos is relative to window origin; subtract padding + margin so
-               the button right edge sits margin pixels inside the content clip rect */
-            float cursorX = dialogW - ImGui::GetStyle().WindowPadding.x - quitBtnW - margin;
-            float cursorY = dialogH - ImGui::GetStyle().WindowPadding.y - quitBtnH - margin;
+            /* S305: honour content inset (padR/padB) so the Quit button clears
+             * the nineslice chrome border. Replaces the old WindowPadding + margin
+             * calculation that bled into the border when chrome corners were large. */
+            float cursorX = dialogW - padR - quitBtnW;
+            float cursorY = dialogH - padB - quitBtnH;
 
             ImGui::SetCursorPos(ImVec2(cursorX, cursorY));
 
@@ -2771,7 +2789,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
                 }
                 ImGui::PopStyleColor(2);
 
-                ImGui::SetCursorPos(ImVec2(cursorX - quitBtnW * 0.7f - 8.0f * scale, cursorY));
+                ImGui::SetCursorPos(ImVec2(cursorX - quitBtnW * 0.7f - pdguiScale(8.0f), cursorY));
                 if (ImGui::Button("Cancel", ImVec2(quitBtnW * 0.7f, quitBtnH))) {
                     s_QuitConfirm = false;
                 }
@@ -2816,8 +2834,11 @@ static s32 renderMainMenu(struct menudialog *dialog,
          * procedural body background (AddRectFilled in pdguiDrawPdDialog)
          * can overdraw on top of the settings widgets.
          * ================================================================ */
-        float contentH = dialogH - pdTitleH - 40.0f * scale;
-        if (ImGui::BeginChild("##main_settings_body", ImVec2(0.0f, contentH), false,
+        /* S305: honour content inset (padX/padT/padR/padB from above) so
+         * tab buttons and body don't bleed into the chrome border. */
+        float contentH = dialogH - padT - padB;
+        if (contentH < pdguiScale(80.0f)) contentH = pdguiScale(80.0f);
+        if (ImGui::BeginChild("##main_settings_body", ImVec2(contentW, contentH), false,
                               ImGuiWindowFlags_NoBackground)) {
             renderSettingsView(scale, contentH);
         }
@@ -3186,7 +3207,19 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
     /* PD title frame -- same look as the main menu. */
     f32 pdTitleH = drawPdWindowFrame(dialogX, dialogY, dialogW, dialogH,
                                       "Settings");
-    ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
+
+    /* S305: content inset — clear the nineslice chrome border + breathing room. */
+    float insLr = 0, insRr = 0, insTr = 0, insBr = 0;
+    pdguiThemeGetContentInset(&insLr, &insRr, &insTr, &insBr);
+    float breatheR = pdguiScale(8.0f);
+    float padXr = pdguiScale(16.0f);
+    if (insLr + breatheR > padXr) padXr = insLr + breatheR;
+    float padRr = pdguiScale(16.0f);
+    if (insRr + breatheR > padRr) padRr = insRr + breatheR;
+    float padTr = pdTitleH + ImGui::GetStyle().WindowPadding.y + breatheR;
+    if (insTr + breatheR + pdTitleH > padTr) padTr = insTr + breatheR + pdTitleH;
+
+    ImGui::SetCursorPos(ImVec2(padXr, padTr));
 
     /* Compute the scrollable body region, reserving the docked action bar
      * height per the S192 primitive.  contentH must match what renderMainMenu
@@ -3194,9 +3227,11 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
     f32 avail   = ImGui::GetContentRegionAvail().y;
     f32 bodyH   = pdguiBodyHeightForActionBar(avail);
     f32 contentH = bodyH;
+    float bodyW = dialogW - padXr - padRr;
+    if (bodyW < pdguiScale(80.0f)) bodyW = pdguiScale(80.0f);
 
     if (ImGui::BeginChild("##ci_settings_body",
-                           ImVec2(0.0f, bodyH), false,
+                           ImVec2(bodyW, bodyH), false,
                            ImGuiWindowFlags_NoBackground)) {
         renderSettingsView(scale, contentH);
     }
@@ -3386,7 +3421,18 @@ static s32 renderCinemaList(struct menudialog *dialog,
 
     f32 titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, "Cinema", 1);
-    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+
+    /* S305: content inset — clear the nineslice chrome border + breathing room. */
+    float insLc = 0, insRc = 0, insTc = 0, insBc = 0;
+    pdguiThemeGetContentInset(&insLc, &insRc, &insTc, &insBc);
+    float breatheC = pdguiScale(8.0f);
+    float padXc = pdguiScale(16.0f);
+    if (insLc + breatheC > padXc) padXc = insLc + breatheC;
+    float padRc = pdguiScale(16.0f);
+    if (insRc + breatheC > padRc) padRc = insRc + breatheC;
+    float padTc = titleH + ImGui::GetStyle().WindowPadding.y + breatheC;
+    if (insTc + breatheC + titleH > padTc) padTc = insTc + breatheC + titleH;
+    ImGui::SetCursorPos(ImVec2(padXc, padTc));
 
     /* B / Escape closes. */
     bool wantClose = false;
@@ -3422,8 +3468,11 @@ static s32 renderCinemaList(struct menudialog *dialog,
     /* ---- Body: scrollable cutscene list ---- */
     f32 avail = ImGui::GetContentRegionAvail().y;
     f32 bodyH = pdguiBodyHeightForActionBar(avail);
+    /* S305: body width respects the content inset */
+    float bodyWc = mw - padXc - padRc;
+    if (bodyWc < pdguiScale(80.0f)) bodyWc = pdguiScale(80.0f);
 
-    if (ImGui::BeginChild("##cinema_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##cinema_body", ImVec2(bodyWc, bodyH), false,
                           ImGuiWindowFlags_NoBackground
                           | ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
 
