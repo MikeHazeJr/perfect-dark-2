@@ -43,12 +43,26 @@
  *
  * Freeing individual allocations is not supported by memp. The only way to free
  * memp memory is to load a new stage which wipes the stage pool.
+ *
+ * M5 (S338): Pools now occupy separate, non-overlapping address regions.
+ *   PERMANENT and STAGE no longer share the same physical memory, eliminating
+ *   the class of corruption bugs where one pool would silently overwrite another.
+ *
+ * M6 (S338): Thread-safe via optional lock/unlock hooks registered by the port
+ *   layer (SDL_mutex). All mutation points acquire the lock.
  */
 
-// Size of the "expansion" portion of the heap, carved out before memp pool assignment.
-// Pools are assigned once at startup from a fixed heap and cannot be resized at runtime.
-// Bumped from N64 expansion pak size (8MB) to 64MB — no architectural reason to keep it low.
-#define MEMP_EXPANSION_POOL_SIZE (64 * 1024 * 1024)
+/* M5: dedicated region sizes carved from the flat heap at init time. */
+#define MEMP_PERMANENT_SIZE  (16u * 1024u * 1024u)  /* 16 MB — permanent session data */
+#define MEMP_STAGE_SIZE      (40u * 1024u * 1024u)  /* 40 MB — stage-lifetime data    */
+#define MEMP_POOL8_SIZE      ( 4u * 1024u * 1024u)  /*  4 MB — utils scratch (POOL_8) */
+
+/* M6: optional port-supplied lock/unlock pair (registered by pdmain.c). */
+static void (*s_mempLock)(void)   = NULL;
+static void (*s_mempUnlock)(void) = NULL;
+
+#define MEMP_LOCK()   do { if (s_mempLock)   s_mempLock();   } while (0)
+#define MEMP_UNLOCK() do { if (s_mempUnlock) s_mempUnlock(); } while (0)
 
 struct memorypool {
 	/*0x00*/ u8 *start;
@@ -67,75 +81,96 @@ void mempInit(void)
 }
 
 /**
- * Initialise memp by initialising the banks and pools.
+ * Register port-side lock/unlock functions for thread safety (M6).
+ * Call once before any mempAlloc, ideally immediately after mempSetHeap.
+ */
+void mempSetLockFns(void (*lockFn)(void), void (*unlockFn)(void))
+{
+	s_mempLock   = lockFn;
+	s_mempUnlock = unlockFn;
+}
+
+/* Initialise one pool descriptor for a dedicated address region. */
+static void mempInitRegion(struct memorypool *pool, u8 *start, u32 size)
+{
+	pool->start          = start;
+	pool->leftpos        = 0;       /* enabled by mempResetPool(), not here */
+	pool->rightpos       = start + size;
+	pool->end            = start + size;
+	pool->prevallocation = 0;
+}
+
+/**
+ * Initialise memp by carving the flat heap into dedicated, non-overlapping
+ * regions for each active pool (M5).
  *
- * The arguments passed are the onboard start and length that can be used.
- * If the expansion pak is present, the entire pak is used for the second bank.
+ * On N64, all pools shared the same address space (overlap was intentional to
+ * maximise the tiny RAM). On PC, we have gigabytes; giving each pool its own
+ * region eliminates the class of cross-pool corruption bugs.
+ *
+ * The heapstart/heaplen arguments are kept for API compatibility — the caller
+ * (pdmain.c / server_main.c) still performs the initial sysMemZeroAlloc.
  */
 void mempSetHeap(u8 *heapstart, u32 heaplen)
 {
 	s32 i;
-	u8 *extraend;
+	u8 *ptr       = heapstart;
+	u32 remaining = heaplen;
 
+	/* Zero all pool descriptors. */
 	for (i = 0; i < ARRAYCOUNT(g_MempOnboardPools); i++) {
 		g_MempOnboardPools[i].start = 0;
 		g_MempOnboardPools[i].leftpos = 0;
 		g_MempOnboardPools[i].rightpos = 0;
+		g_MempOnboardPools[i].end = 0;
 		g_MempOnboardPools[i].prevallocation = 0;
 
 		g_MempExpansionPools[i].start = 0;
 		g_MempExpansionPools[i].leftpos = 0;
 		g_MempExpansionPools[i].rightpos = 0;
+		g_MempExpansionPools[i].end = 0;
 		g_MempExpansionPools[i].prevallocation = 0;
 	}
 
-	// separate the heap space into onboard and expansion
-	u32 expansionlen = 0;
-	if (heaplen > MEMP_EXPANSION_POOL_SIZE) {
-		heaplen -= MEMP_EXPANSION_POOL_SIZE;
-		expansionlen = MEMP_EXPANSION_POOL_SIZE;
-	}
+#define CARVE(pool_idx, size)                                                  \
+	do {                                                                       \
+		u32 _sz = (remaining >= (size)) ? (size) : remaining;                 \
+		mempInitRegion(&g_MempOnboardPools[pool_idx], ptr, _sz);              \
+		ptr += _sz; remaining -= _sz;                                         \
+	} while (0)
 
-	g_MempOnboardPools[MEMPOOL_0].start = heapstart;
-	g_MempOnboardPools[MEMPOOL_0].rightpos = heapstart + heaplen;
-	g_MempOnboardPools[MEMPOOL_PERMANENT].start = heapstart;
-	g_MempOnboardPools[MEMPOOL_PERMANENT].rightpos = heapstart + heaplen;
-	g_MempOnboardPools[MEMPOOL_STAGE].start = heapstart;
-	g_MempOnboardPools[MEMPOOL_STAGE].rightpos = heapstart + heaplen;
+	CARVE(MEMPOOL_PERMANENT, MEMP_PERMANENT_SIZE);   /* [base + 0,    +16 MB) */
+	CARVE(MEMPOOL_STAGE,     MEMP_STAGE_SIZE);       /* [base + 16MB, +40 MB) */
+	CARVE(MEMPOOL_8,         MEMP_POOL8_SIZE);       /* [base + 56MB, + 4 MB) */
+	/* Remainder (~4 MB) is unassigned — reserved for future pools. */
 
-	if (expansionlen) {
-		g_MempExpansionPools[MEMPOOL_STAGE].start = heapstart + heaplen;
-		g_MempExpansionPools[MEMPOOL_STAGE].rightpos = heapstart + heaplen + expansionlen;
-	}
+#undef CARVE
 
-	for (i = 0; i < ARRAYCOUNT(g_MempOnboardPools); i++) {
-		g_MempOnboardPools[i].end = g_MempOnboardPools[i].rightpos;
-		g_MempExpansionPools[i].end = g_MempExpansionPools[i].rightpos;
-	}
+	sysLogPrintf(LOG_NOTE, "MEMP: PERMANENT [%p, +16 MB)",
+		g_MempOnboardPools[MEMPOOL_PERMANENT].start);
+	sysLogPrintf(LOG_NOTE, "MEMP: STAGE     [%p, +40 MB)",
+		g_MempOnboardPools[MEMPOOL_STAGE].start);
+	sysLogPrintf(LOG_NOTE, "MEMP: POOL_8    [%p, + 4 MB)",
+		g_MempOnboardPools[MEMPOOL_8].start);
 }
 
 /**
  * Return the amount of free space in the stage pool.
  *
- * If using the expansion pak, it's assumed that the onboard pool is full
- * so only the expansion pool is checked.
+ * M5: STAGE now lives in the onboard pool with its own dedicated region.
  */
 u32 mempGetStageFree(void)
 {
-	u32 free;
-
-	free = g_MempExpansionPools[MEMPOOL_STAGE].rightpos - g_MempExpansionPools[MEMPOOL_STAGE].leftpos;
-
-	return free;
+	return g_MempOnboardPools[MEMPOOL_STAGE].rightpos
+	     - g_MempOnboardPools[MEMPOOL_STAGE].leftpos;
 }
 
+/**
+ * M5: STAGE now lives in the onboard pool.
+ */
 void *mempGetNextStageAllocation(void)
 {
-	void *next;
-
-	next = g_MempExpansionPools[MEMPOOL_STAGE].leftpos;
-
-	return next;
+	return g_MempOnboardPools[MEMPOOL_STAGE].leftpos;
 }
 
 void *mempAllocFromBank(struct memorypool *pool, u32 size, u8 poolnum)
@@ -170,41 +205,40 @@ void *mempAllocFromBank(struct memorypool *pool, u32 size, u8 poolnum)
 
 void *mempAlloc(u32 len, u8 pool)
 {
-	void *allocation = mempAllocFromBank(g_MempOnboardPools, len, pool);
+	void *allocation;
 
-	if (allocation) {
-		return allocation;
+	MEMP_LOCK();
+	allocation = mempAllocFromBank(g_MempOnboardPools, len, pool);
+
+	if (!allocation) {
+		allocation = mempAllocFromBank(g_MempExpansionPools, len, pool);
 	}
+	MEMP_UNLOCK();
 
-	allocation = mempAllocFromBank(g_MempExpansionPools, len, pool);
-
-	if (allocation) {
-		return allocation;
-	}
-
+	if (!allocation && len) {
 #if VERSION < VERSION_NTSC_1_0
 #ifdef DEBUG
-	if (pool != MEMPOOL_8 && pool != MEMPOOL_7 && len) {
-		char buffer[80];
-		u32 stack;
-		u32 size;
-		u32 free;
+		if (pool != MEMPOOL_8 && pool != MEMPOOL_7) {
+			char buffer[80];
+			u32 free;
+			u32 sz;
 
-		if (pool == MEMPOOL_STAGE) {
-			free = mempGetPoolFree(MEMPOOL_STAGE, MEMBANK_ONBOARD);
-			size = mempGetPoolSize(MEMPOOL_STAGE, MEMBANK_ONBOARD);
-			snprintf(buffer, sizeof(buffer), "Out of mem - LEV: %d f %d s %d", len, free, size);
-		} else {
-			free = mempGetPoolFree(MEMPOOL_PERMANENT, MEMBANK_ONBOARD);
-			size = mempGetPoolSize(MEMPOOL_PERMANENT, MEMBANK_ONBOARD);
-			snprintf(buffer, sizeof(buffer), "Out of mem - ETR: %d f %d s %d", len, free, size);
+			if (pool == MEMPOOL_STAGE) {
+				free = mempGetPoolFree(MEMPOOL_STAGE, MEMBANK_ONBOARD);
+				sz   = mempGetPoolSize(MEMPOOL_STAGE, MEMBANK_ONBOARD);
+				snprintf(buffer, sizeof(buffer), "Out of mem - LEV: %d f %d s %d", len, free, sz);
+			} else {
+				free = mempGetPoolFree(MEMPOOL_PERMANENT, MEMBANK_ONBOARD);
+				sz   = mempGetPoolSize(MEMPOOL_PERMANENT, MEMBANK_ONBOARD);
+				snprintf(buffer, sizeof(buffer), "Out of mem - ETR: %d f %d s %d", len, free, sz);
+			}
+
+			crashSetMessage(buffer);
+			CRASH();
 		}
-
-		crashSetMessage(buffer);
-		CRASH();
+#endif
+#endif
 	}
-#endif
-#endif
 
 	return allocation;
 }
@@ -220,14 +254,19 @@ void *mempAlloc(u32 len, u8 pool)
  */
 s32 mempRealloc(void *allocation, s32 newsize, u8 poolnum)
 {
-	struct memorypool *pool = &g_MempOnboardPools[poolnum];
+	struct memorypool *pool;
 	s32 origsize;
 	s32 growsize;
+
+	MEMP_LOCK();
+
+	pool = &g_MempOnboardPools[poolnum];
 
 	if (pool->prevallocation != allocation) {
 		pool = &g_MempExpansionPools[poolnum];
 
 		if (pool->prevallocation != allocation) {
+			MEMP_UNLOCK();
 			return 2;
 		}
 	}
@@ -238,10 +277,12 @@ s32 mempRealloc(void *allocation, s32 newsize, u8 poolnum)
 	if (growsize <= 0) {
 		pool->leftpos += growsize;
 		pool->leftpos = (u8 *)ALIGN16((uintptr_t) pool->leftpos);
+		MEMP_UNLOCK();
 		return 1;
 	}
 
 	pool->leftpos += growsize;
+	MEMP_UNLOCK();
 	return 1;
 }
 
@@ -292,28 +333,27 @@ void *mempAllocFromPackedWord(u32 word)
  * Reset the pool's left side to its start address, effectively freeing the left
  * side of the pool.
  *
- * If resetting the stage pool, close off the permanent pool and place the stage
- * pool immediately after it.
- *
- * Note the right side is not reset here.
+ * M5: STAGE and PERMANENT now occupy separate address regions. On STAGE reset,
+ * we simply reset STAGE to its own start — no repositioning against PERMANENT
+ * is needed. PERMANENT's boundary is managed independently.
  */
 void mempResetPool(u8 pool)
 {
 	if (pool == MEMPOOL_STAGE) {
 		/* Validate persistent PC allocations before the stage pool is wiped.
 		 * If any persistent data (fonts, etc.) has been overwritten by a stray
-		 * stage-pool write, the canaries will catch it here and log the culprit. */
+		 * stage-pool write, the canaries will catch it here and log the culprit.
+		 * Called outside the lock — mempPCValidate only reads mempc list (stdlib). */
 		mempPCValidate("mempResetPool(STAGE)");
-
-		g_MempOnboardPools[MEMPOOL_STAGE].start = g_MempOnboardPools[MEMPOOL_PERMANENT].leftpos;
-		g_MempOnboardPools[MEMPOOL_PERMANENT].rightpos = g_MempOnboardPools[MEMPOOL_PERMANENT].leftpos;
-		g_MempOnboardPools[MEMPOOL_PERMANENT].end = g_MempOnboardPools[MEMPOOL_PERMANENT].leftpos;
 	}
 
+	MEMP_LOCK();
 	g_MempOnboardPools[pool].leftpos = g_MempOnboardPools[pool].start;
 	g_MempExpansionPools[pool].leftpos = g_MempExpansionPools[pool].start;
 	g_MempOnboardPools[pool].prevallocation = 0;
 	g_MempExpansionPools[pool].prevallocation = 0;
+
+	MEMP_UNLOCK();
 }
 
 /**
@@ -326,10 +366,12 @@ void mempResetPool(u8 pool)
  */
 void mempDisablePool(u8 pool)
 {
+	MEMP_LOCK();
 	g_MempOnboardPools[pool].leftpos = 0;
 	g_MempExpansionPools[pool].leftpos = 0;
 	g_MempOnboardPools[pool].rightpos = g_MempOnboardPools[pool].end;
 	g_MempExpansionPools[pool].rightpos = g_MempExpansionPools[pool].end;
+	MEMP_UNLOCK();
 }
 
 void *mempAllocFromBankRight(struct memorypool *pool, u32 size, u8 poolnum)
@@ -359,17 +401,15 @@ void *mempAllocFromBankRight(struct memorypool *pool, u32 size, u8 poolnum)
 
 void *mempAllocFromRight(u32 len, u8 pool)
 {
-	void *allocation = mempAllocFromBankRight(g_MempOnboardPools, len, pool);
+	void *allocation;
 
-	if (allocation) {
-		return allocation;
+	MEMP_LOCK();
+	allocation = mempAllocFromBankRight(g_MempOnboardPools, len, pool);
+
+	if (!allocation) {
+		allocation = mempAllocFromBankRight(g_MempExpansionPools, len, pool);
 	}
-
-	allocation = mempAllocFromBankRight(g_MempExpansionPools, len, pool);
-
-	if (allocation) {
-		return allocation;
-	}
+	MEMP_UNLOCK();
 
 	return allocation;
 }

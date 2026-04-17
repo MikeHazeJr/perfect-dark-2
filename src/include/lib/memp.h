@@ -6,6 +6,8 @@
 
 void mempInit(void);
 void mempSetHeap(u8 *heapstart, u32 heaplen);
+/* M6: register port-side lock/unlock pair for thread safety. Call once, before mempAlloc. */
+void mempSetLockFns(void (*lockFn)(void), void (*unlockFn)(void));
 u32 mempGetStageFree(void);
 void *mempGetNextStageAllocation(void);
 void *mempAlloc(u32 len, u8 pool);

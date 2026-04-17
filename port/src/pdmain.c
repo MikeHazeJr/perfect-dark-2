@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <SDL.h>
 
 #include <ultra64.h>
 #include <PR/ultrasched.h>
@@ -88,6 +89,11 @@
 
 extern u8 *g_MempHeap;
 extern u32 g_MempHeapSize;
+
+/* M6: SDL mutex backing the memp thread-safety hooks. */
+static SDL_mutex *s_MempMutex;
+static void mempLockImpl(void)   { SDL_LockMutex(s_MempMutex); }
+static void mempUnlockImpl(void) { SDL_UnlockMutex(s_MempMutex); }
 
 void rngSetSeed(u32 seed);
 
@@ -317,6 +323,10 @@ void mainInit(void)
 	}
 
 	mempSetHeap(g_MempHeap, g_MempHeapSize);
+
+	/* M6: register SDL mutex so mempAlloc/mempResetPool are thread-safe. */
+	s_MempMutex = SDL_CreateMutex();
+	mempSetLockFns(mempLockImpl, mempUnlockImpl);
 
 	/* NOTE: catalogValidateAll() was previously called here, but model
 	 * loading depends on subsystems initialized later in this function
