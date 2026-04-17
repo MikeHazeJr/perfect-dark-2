@@ -2033,11 +2033,16 @@ static void chromeToolRenderSidebarPreview(float sidebarW, float sidebarH, float
     float previewH = (sidebarH - ImGui::GetStyle().ItemSpacing.y * 3.0f) * 0.5f;
     if (previewH < 100.0f * scale) previewH = 100.0f * scale;
 
-    /* Output dims drive scaling so both previews match the current crop/scale. */
+    /* S305: fit the source preview to the sidebar preview area, scaling UP
+     * for small images so the preview always displays at a standard size
+     * matching the frame preview below. Previously small images (e.g. 64x64
+     * imports) displayed tiny in the top preview while the assembled frame
+     * filled the full sidebar, which felt inconsistent. Aspect ratio is
+     * preserved via min(sx, sy). */
     float sx = sidebarW / (float)s_ChromeOutW;
     float sy = previewH / (float)s_ChromeOutH;
     float imgScale = sx < sy ? sx : sy;
-    if (imgScale > 1.0f) imgScale = 1.0f;
+    if (imgScale <= 0.0f) imgScale = 1.0f;
     float drawW = s_ChromeOutW * imgScale;
     float drawH = s_ChromeOutH * imgScale;
 
@@ -2108,46 +2113,53 @@ static void chromeToolRenderSettings(float /*colW*/, float /*scale*/)
     editsChanged |= ImGui::SliderInt("Trim Right", &s_ChromeTrimR, 0, trimRMax > 0 ? trimRMax : 1);
     editsChanged |= ImGui::SliderInt("Trim Top", &s_ChromeTrimT, 0, trimTMax > 0 ? trimTMax : 1);
     editsChanged |= ImGui::SliderInt("Trim Bottom", &s_ChromeTrimB, 0, trimBMax > 0 ? trimBMax : 1);
-    editsChanged |= ImGui::SliderInt("Scale X", &s_ChromeScaleXPct, 10, 400, "%d%%");
-    editsChanged |= ImGui::SliderInt("Scale Y", &s_ChromeScaleYPct, 10, 400, "%d%%");
-    static const char *cutAxes[] = { "None", "Vertical (height)", "Horizontal (width)" };
-    editsChanged |= ImGui::Combo("Center Cut Axis", &s_ChromeCenterCutAxis, cutAxes, 3);
-    if (s_ChromeCenterCutAxis != 0) {
-        editsChanged |= ImGui::SliderInt("Center Cut %", &s_ChromeCenterCutPct, 0, 90, "%d%%");
-    } else {
-        s_ChromeCenterCutPct = 0;
-    }
 
-    bool desatChanged = ImGui::Checkbox("Desaturate for tint-friendly chrome", &s_ChromeDesaturate);
-    if (s_ChromeDesaturate) {
-        desatChanged |= ImGui::SliderInt("Desaturate %", &s_ChromeDesaturatePct, 0, 100, "%d%%");
-    }
-    editsChanged = editsChanged || desatChanged;
+    /* S305: advanced controls moved into a collapsed header to clean up the
+     * tool. Scale X/Y, Center Cut, Desaturate, and the per-cut Quick Presets
+     * are all power-user options most chrome mods never need — Border Scale
+     * + Trim + per-edge insets handle the 90% case. Collapsed by default. */
+    if (ImGui::CollapsingHeader("Advanced")) {
+        editsChanged |= ImGui::SliderInt("Scale X", &s_ChromeScaleXPct, 10, 400, "%d%%");
+        editsChanged |= ImGui::SliderInt("Scale Y", &s_ChromeScaleYPct, 10, 400, "%d%%");
+        static const char *cutAxes[] = { "None", "Vertical (height)", "Horizontal (width)" };
+        editsChanged |= ImGui::Combo("Center Cut Axis", &s_ChromeCenterCutAxis, cutAxes, 3);
+        if (s_ChromeCenterCutAxis != 0) {
+            editsChanged |= ImGui::SliderInt("Center Cut %", &s_ChromeCenterCutPct, 0, 90, "%d%%");
+        } else {
+            s_ChromeCenterCutPct = 0;
+        }
 
-    float scale2 = ImGui::GetIO().FontGlobalScale;
-    if (scale2 <= 0.0f) scale2 = 1.0f;
-    ImGui::TextDisabled("Quick Presets");
-    if (PdButton("Square Auto", ImVec2(110.0f * scale2, 0))) {
-        chromeToolApplySquarePreset();
-        editsChanged = true;
-    }
-    ImGui::SameLine();
-    if (PdButton("Cut 40% V", ImVec2(95.0f * scale2, 0))) {
-        s_ChromeCenterCutAxis = 1;
-        s_ChromeCenterCutPct = 40;
-        editsChanged = true;
-    }
-    ImGui::SameLine();
-    if (PdButton("Cut 40% H", ImVec2(95.0f * scale2, 0))) {
-        s_ChromeCenterCutAxis = 2;
-        s_ChromeCenterCutPct = 40;
-        editsChanged = true;
-    }
-    ImGui::SameLine();
-    if (PdButton("Tint Gray", ImVec2(90.0f * scale2, 0))) {
-        s_ChromeDesaturate = true;
-        s_ChromeDesaturatePct = 100;
-        editsChanged = true;
+        bool desatChanged = ImGui::Checkbox("Desaturate for tint-friendly chrome", &s_ChromeDesaturate);
+        if (s_ChromeDesaturate) {
+            desatChanged |= ImGui::SliderInt("Desaturate %", &s_ChromeDesaturatePct, 0, 100, "%d%%");
+        }
+        editsChanged = editsChanged || desatChanged;
+
+        float scale2 = ImGui::GetIO().FontGlobalScale;
+        if (scale2 <= 0.0f) scale2 = 1.0f;
+        ImGui::TextDisabled("Quick Presets");
+        if (PdButton("Square Auto", ImVec2(110.0f * scale2, 0))) {
+            chromeToolApplySquarePreset();
+            editsChanged = true;
+        }
+        ImGui::SameLine();
+        if (PdButton("Cut 40% V", ImVec2(95.0f * scale2, 0))) {
+            s_ChromeCenterCutAxis = 1;
+            s_ChromeCenterCutPct = 40;
+            editsChanged = true;
+        }
+        ImGui::SameLine();
+        if (PdButton("Cut 40% H", ImVec2(95.0f * scale2, 0))) {
+            s_ChromeCenterCutAxis = 2;
+            s_ChromeCenterCutPct = 40;
+            editsChanged = true;
+        }
+        ImGui::SameLine();
+        if (PdButton("Tint Gray", ImVec2(90.0f * scale2, 0))) {
+            s_ChromeDesaturate = true;
+            s_ChromeDesaturatePct = 100;
+            editsChanged = true;
+        }
     }
 
     if (editsChanged) {
