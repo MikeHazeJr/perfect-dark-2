@@ -2022,9 +2022,7 @@ void titleInitRareLogo(void)
 		musicQueueStopAllEvent();
 		joy00014810(false);
 
-		if (!g_IsTitleDemo && IS8MB()) {
-			g_IsTitleDemo = true;
-		}
+		/* IS8MB()=1 always on PC; N64 demo playback not implemented — never set g_IsTitleDemo */
 	}
 }
 

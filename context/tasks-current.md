@@ -7,7 +7,19 @@
 
 ---
 
+<<<<<<< HEAD
 ## Open — 2026-04-17 (S318 — B-161 class bbox/modeldef NULL sweep)
+=======
+## Open — 2026-04-17 (S319 — spurious boot transition fix)
+
+### Playtest verification
+
+- **Cold boot double-transition eliminated** — `titleInitRareLogo` no longer sets `g_IsTitleDemo = true`. Boot should no longer log `MAIN: replacing pending stage change 0x30 -> 0x26`. Verify the boot log shows a single `GAMELOOP.MANIFEST: SP transition to 0x26` on cold start.
+
+---
+
+## Open — 2026-04-17 (S316 — ROM hash path fix + crash triage)
+>>>>>>> claude/nostalgic-lichterman-3c1259
 
 ### Playtest verification
 
