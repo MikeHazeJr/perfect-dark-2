@@ -7,6 +7,27 @@
 
 ---
 
+## Done — 2026-04-17 (S349 — Cross-Audit S346+S347, `cool-poitras-b287e7`)
+
+**Build verified.** Clean 774/774 objects, zero errors.
+`PerfectDark.exe` 52,861,458 / `PerfectDarkServer.exe` 22,907,957.
+
+**S346 (AP Phase 4) audit — CLEAN:** `assetprovider_internal.h` included by exactly 5 allowed
+callers; no game code calls `romProviderHandle()`; stage handle fields populated with `fileid > 0`
+guard; `assetHandleIsNull()` used correctly in `assetLoadToNew`; `catalogGetBodyHandle` /
+`catalogGetHeadHandle` / `catalogGetPropHandle` all null-guard with `memset + CATALOG-FATAL + g_CatalogFailure`
+pattern; deprecated SA-5a bridge functions marked `[DEPRECATED]` + `[MIGRATION BRIDGE]`.
+
+**S347 (blue tint sweep) audit — 2 missed literals fixed:**
+- `pdgui_menu_moddinghub.cpp:2109` chrome-tool preview border `IM_COL32(90,120,170,220)` → `pdguiImU32TitleGlow(220)`
+- `pdgui_menu_agentcreate.cpp:324` body-name label `IM_COL32(140,160,200,180)` → `pdguiImU32TintInfo(180)`
+
+Special Agent badge `IM_COL32(80,160,255,255)` in `pdgui_menu_solomission.cpp` intentionally left
+(semantic difficulty color, not a PD accent).  Forge HUD blue/cyan literals are editor-mode colors,
+not candidates for theme theming.
+
+---
+
 ## Done — 2026-04-17 (S348 — D7 Discord Rich Presence, `ecstatic-cartwright-11459d`)
 
 **Build verified.** Clean 774/774 objects, zero errors.
