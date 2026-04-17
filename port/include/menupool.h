@@ -96,6 +96,7 @@ typedef enum {
     MENU_TYPE_CHALLENGES,
     MENU_TYPE_WARNING_MODAL,      /* danger/success/default type-fallback dialogs */
     MENU_TYPE_ROOM,
+    MENU_TYPE_CINEMA,             /* S311: cutscene list (renderCinemaList) */
 
     /* Pure-ImGui (no dialogdef backing). Acquired by type only. */
     MENU_TYPE_PAUSE_MENU,         /* g_CtxPauseMenu owner */

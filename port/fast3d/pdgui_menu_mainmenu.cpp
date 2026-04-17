@@ -3945,10 +3945,14 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
 
     if (!ImGui::Begin("##ci_settings_redirect", nullptr, wflags)) {
         ImGui::End();
+        /* S311: pool slot leak guard — if Begin fails mid-frame the
+         * menuCloseDialog cascade hasn't fired yet, so drop the slot
+         * defensively (idempotent). */
+        menupoolReleaseDialog(menupoolDialogDef(dialog));
         return 1;
     }
 
-    /* On first appearance: play open cue, force input context, select the
+    /* On first appearance: play open cue, acquire pool ctx, select the
      * pre-determined sub-tab for this CI dialog. */
     static struct menudialogdef *s_LastDialog = nullptr;
     if (ImGui::IsWindowAppearing() || s_LastDialog != def) {
@@ -3961,11 +3965,12 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
             (void *)def, (int)s_SettingsSubTab);
         s_LastDialog = def;
 
-        /* Safety: ensure the ImGui menu input context is active so mouse
-         * mode flips to visible and gameplay input is blocked. */
-        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPush(&g_CtxImGuiMenu);
-        }
+        /* S311: pool attaches ctx to the MENU_TYPE_CI_OPTIONS slot —
+         * menuPopDialog → menuCloseDialog → menupoolReleaseDialog cascade
+         * owns the release.  Replaces the raw inputCtxPush that produced
+         * the S306 boot-time ctx-leak class. */
+        menupoolAcquireDialog(menupoolDialogDef(dialog),
+                              &g_CtxImGuiMenu);
     }
 
     /* PD title frame -- same look as the main menu. */
@@ -4023,10 +4028,8 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
         sysLogPrintf(LOG_NOTE,
             "MENU_IMGUI: CI Options redirect CLOSE (dialog=%p)",
             (void *)def);
-        /* Pop the input context on close so gameplay mouse mode restores. */
-        if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-        }
+        /* S311: menuCloseDialog (invoked by menuPopDialog) releases the
+         * pool slot and pops the owned ctx; no explicit ctx pop here. */
         s_LastDialog = nullptr;
         menuPopDialog();
     }
@@ -4076,6 +4079,8 @@ static s32 renderCiDeadPlayer2(struct menudialog *dialog,
 
     if (!ImGui::Begin("##ci_dead_p2", nullptr, wflags)) {
         ImGui::End();
+        /* S311: pool slot leak guard. */
+        menupoolReleaseDialog(menupoolDialogDef(dialog));
         return 1;
     }
 
@@ -4083,6 +4088,10 @@ static s32 renderCiDeadPlayer2(struct menudialog *dialog,
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
         sysLogPrintf(LOG_NOTE,
             "MENU_IMGUI: CI Player-2 dialog (deprecated; no split-screen)");
+        /* S311: acquire the pool ctx so the OK close fires a proper
+         * release cascade — dead dialog path still needs clean lifecycle. */
+        menupoolAcquireDialog(menupoolDialogDef(dialog),
+                              &g_CtxImGuiMenu);
     }
 
     f32 pdTitleH = drawPdWindowFrame(dX, dY, dW, dH, "Not Available");
@@ -4171,6 +4180,8 @@ static s32 renderCinemaList(struct menudialog *dialog,
 
     if (!ImGui::Begin("##cinema_list", nullptr, wf)) {
         ImGui::End();
+        /* S311: pool slot leak guard. */
+        menupoolReleaseDialog(menupoolDialogDef(dialog));
         return 1;
     }
 
@@ -4178,9 +4189,10 @@ static s32 renderCinemaList(struct menudialog *dialog,
         ImGui::SetWindowFocus();
         s_CinemaSelectIdx = 0;
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPush(&g_CtxImGuiMenu);
-        }
+        /* S311: pool attaches MENU_TYPE_CINEMA ctx — menuCloseDialog
+         * release cascade owns the pop. */
+        menupoolAcquireDialog(menupoolDialogDef(dialog),
+                              &g_CtxImGuiMenu);
     }
 
     f32 titleH = pdguiScale(39.0f);
@@ -4291,13 +4303,11 @@ static s32 renderCinemaList(struct menudialog *dialog,
             if (clicked || kbConfirm) {
                 pdguiPlaySound(PDGUI_SND_SELECT);
                 /* Delegate to legacy handler -- it sets g_Vars.autocutgroupcur
-                 * and autocutgroupleft, then calls menuPopDialog + menuStop. */
+                 * and autocutgroupleft, then calls menuPopDialog + menuStop.
+                 * S311: the embedded menuPopDialog cascades through
+                 * menuCloseDialog → menupoolReleaseDialog so the pool slot +
+                 * owned ctx are released without an explicit pop here. */
                 cn_handlerQuery(MENUOP_SET, i);
-                /* menuhandlerCinema already popped + stopped the menu for us.
-                 * Clean up our input context on the way out. */
-                if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-                    inputCtxPopDeferred(&g_CtxImGuiMenu);
-                }
                 ImGui::PopID();
                 ImGui::EndChild();
                 ImGui::End();
@@ -4324,9 +4334,7 @@ static s32 renderCinemaList(struct menudialog *dialog,
     pdguiEndActionBar();
 
     if (wantClose) {
-        if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-        }
+        /* S311: menuCloseDialog cascade releases pool slot + ctx. */
         menuPopDialog();
     }
 

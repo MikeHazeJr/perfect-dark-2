@@ -16,6 +16,17 @@
 #include "inputctx.h"
 #include "system.h"
 
+/* S311: CI Options family + Cinema dialogdefs defined in mainmenu.c but
+ * NOT exported via data.h — duplicate the extern decls here so the
+ * registry table can address them by symbol. */
+extern struct menudialogdef g_CiOptionsViaPcMenuDialog;
+extern struct menudialogdef g_CiOptionsViaPauseMenuDialog;
+extern struct menudialogdef g_CiControlOptionsMenuDialog;
+extern struct menudialogdef g_CiDisplayMenuDialog;
+extern struct menudialogdef g_CiDisplayPlayer2MenuDialog;
+extern struct menudialogdef g_CiControlPlayer2MenuDialog;
+extern struct menudialogdef g_CinemaMenuDialog;
+
 /* Dialogdef→type registry. One entry per (def,type) pair. Capacity is
  * chosen to cover all ~70 data.h externs plus headroom for late-registered
  * mod dialogs. Linear scan is fine — registry is read-heavy but short. */
@@ -69,6 +80,7 @@ static const char *const s_TypeNames[MENU_TYPE_COUNT] = {
     [MENU_TYPE_CHALLENGES]          = "challenges",
     [MENU_TYPE_WARNING_MODAL]       = "warning_modal",
     [MENU_TYPE_ROOM]                = "room",
+    [MENU_TYPE_CINEMA]              = "cinema",
     [MENU_TYPE_PAUSE_MENU]          = "pause_menu",
     [MENU_TYPE_MODDING_HUB]         = "modding_hub",
     [MENU_TYPE_THEME_EDITOR]        = "theme_editor",
@@ -383,7 +395,21 @@ void menupoolInit(void)
     REG(&g_MainMenu4MbMenuDialog,        MENU_TYPE_MAIN_MENU);
 
     /* ---- CI Options subtree (nextsibling of main menu) ---- */
-    REG(&g_CiControlStyleMenuDialog,     MENU_TYPE_CI_OPTIONS);
+    /* S311: full CI Options family registered so renderCiSettingsRedirect
+     * can claim the pool slot + own ctx on push, matching cheats/mpsetup.
+     * P2 variants are dead but still registered so renderCiDeadPlayer2's
+     * menuPopDialog() cascade releases the slot cleanly. */
+    REG(&g_CiControlStyleMenuDialog,         MENU_TYPE_CI_OPTIONS);
+    REG(&g_CiOptionsViaPcMenuDialog,         MENU_TYPE_CI_OPTIONS);
+    REG(&g_CiOptionsViaPauseMenuDialog,      MENU_TYPE_CI_OPTIONS);
+    REG(&g_CiControlOptionsMenuDialog,       MENU_TYPE_CI_OPTIONS);
+    REG(&g_CiDisplayMenuDialog,              MENU_TYPE_CI_OPTIONS);
+    REG(&g_CiControlStylePlayer2MenuDialog,  MENU_TYPE_CI_OPTIONS);
+    REG(&g_CiDisplayPlayer2MenuDialog,       MENU_TYPE_CI_OPTIONS);
+    REG(&g_CiControlPlayer2MenuDialog,       MENU_TYPE_CI_OPTIONS);
+
+    /* ---- Cinema list (cutscene viewer) ---- */
+    REG(&g_CinemaMenuDialog,             MENU_TYPE_CINEMA);
 
     /* ---- Solo mission ---- */
     REG(&g_PreAndPostMissionBriefingMenuDialog, MENU_TYPE_SOLO_MISSION);
