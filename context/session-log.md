@@ -4,6 +4,42 @@
 > **S281–S323** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S324 — 2026-04-17 (D-MEM M2 + M4 — `thirsty-ardinghelli-92bfca` worktree)
+
+**Scope**: D-MEM phases M2 (stack-to-heap promotion) and M4 (ALIGN16 no-op). Also marked M3 as DONE in infrastructure.md — IS4MB ternary collapse was completed across S317/S320/S322/S323A.
+
+### What was done
+
+**M2 — Stack-to-heap promotion (5 buffers across 3 files):**
+- `src/game/pak.c::pak0f11d9c4`: `sp60[0x4000]` (16KB) → `malloc(0x4000)` / `free(sp60)` at function end. Added `<stdlib.h>` include. Function is GB pak image decode — infrequent, malloc/free appropriate.
+- `src/game/texdecompress.c::texInflateZlib`: `scratch2[0x800]` + `scratch[5120]` → `static`. Texture decompression — called at load time, static avoids per-call allocation without reentrancy risk.
+- `src/game/texdecompress.c::texInflateNonZlib`: `scratch[0x2000]` + `lookup[0x1000]` (12KB) → `static`. Same rationale.
+- `src/game/menuitem.c::menuitemScrollableRender`: `alltext[8000]`, `headingtext[8000]`, `bodytext[8000]` → `static`; added `alltext[0] = '\0'` (was zero-init via `= ""`  on stack). Per-frame render function — static avoids 24KB stack usage.
+- `src/game/menuitem.c::menuitemScrollableTick`: `wrapped[8000]` → `static`; added `wrapped[0] = '\0'`. Tick handler, conditional on layout change.
+
+**M4 — ALIGN16 no-op:**
+- `src/include/constants.h` line 84: `#define ALIGN16(val) ((((val) + 0xf) | 0xf) ^ 0xf)` → `#define ALIGN16(val) (val)`. One-line change eliminates N64 DMA padding from all 119 call sites. On PC, mempAlloc and malloc already return aligned memory; the rounding was pure waste.
+
+**M3 marked DONE in infrastructure.md** — IS4MB/IS8MB removed across S317/S320/S322/S323A sessions; the infrastructure tracker was not updated at the time.
+
+### Commit
+
+| SHA | Scope |
+|-----|-------|
+| `fe107e3e` | **refactor(D-MEM): M2 stack→heap promotion + M4 ALIGN16 no-op** |
+
+### Build result
+
+Pending — merge to dev and build required.
+
+### Next steps
+
+- Build to verify: `source devtools/build-env.sh && ninja -C Build pd pd-server`
+- No playtest needed — pure dead-code / allocation-source changes; behavior identical
+- Remaining: M5 (separate pool regions), M6 (heap sizing)
+
+---
+
 ## Session S323 — 2026-04-17 (Batch G — cross-audit gap fixes — `practical-wozniak-051afa` worktree)
 
 **Scope**: Six items flagged by cross-audit: one critical runtime bug (audio volumes never applied), four 4MB dead-code remnants, one stale tooltip.

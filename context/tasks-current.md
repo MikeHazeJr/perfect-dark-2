@@ -7,6 +7,15 @@
 
 ---
 
+## Done — 2026-04-17 (S324 — D-MEM M2 + M4; infrastructure.md M3 marked done)
+
+**Build pending** — committed to `thirsty-ardinghelli-92bfca`, merge + build next. Changes:
+- **M2 stack→heap** (3 files): `pak.c` `sp60[0x4000]` → malloc/free; `texdecompress.c` `texInflateZlib`+`texInflateNonZlib` scratch buffers → static; `menuitem.c` `alltext/headingtext/bodytext/wrapped[8000]` → static
+- **M4 ALIGN16 no-op**: `constants.h` ALIGN16 macro changed from 16-byte-round-up to `(val)` — removes N64 DMA padding from all 119 call sites
+- **M3 marked DONE** in infrastructure.md: IS4MB ternary collapse completed S317/S320/S322/S323A
+
+---
+
 ## Done — 2026-04-17 (S323 Batch G — cross-audit gap fixes)
 
 **Build verified.** Clean link 768/768, zero errors. 6 items fixed:
