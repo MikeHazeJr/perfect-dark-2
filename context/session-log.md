@@ -4,6 +4,80 @@
 > **S241–S313** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S312 batch 2 — 2026-04-17 (Font/UI scaling + controller tab-cycle + border enforcement audit — same worktree)
+
+Post-S311/S312/S313 merge-clean sync: audit the menu-renderer layer
+for gaps the three parallel sessions may have missed, now that the
+file-ownership split is over.
+
+### What landed
+
+1. **Font scaling audit** — single hardcoded `260.0f` Input Mapping
+   search-box width and `120` / `16` literals in Updates channel
+   combo + SameLine offsets were the only miss.  Migrated through
+   `pdguiScale()`.  Table cell/frame/item style vars at
+   `pdgui_menu_mainmenu.cpp:1828-1830` wrapped with pdguiScale so
+   the Input Mapping row density scales with DPI.  All
+   SetWindowFontScale callers (endscreen / countdown / mpingame /
+   lobby_distrib) already compose with pdguiScaleFactor correctly
+   via the `sf / bigScale / fontSize/GetFontSize()` patterns.
+2. **Controller-first UX audit** — Mod Manager tab bar
+   (`pdgui_menu_modmgr.cpp`) was the last tab bar still missing
+   LB/RB bumper cycling.  Added the same
+   `s_*PendingTab + ImGuiTabItemFlags_SetSelected` pattern that
+   Room / Settings / Cheats / Modding Hub / The Grid editor use.
+   UI-order-to-internal-order lookup table keeps the bumper cycling
+   in visual order (Installed / By Category / By Mod) even though
+   the internal encoding is (2, 0, 1).  Verified all three
+   right-click context menus (Color Theme picker, Mod row,
+   Room bot slot) already have `IsKeyPressed(GamepadFaceLeft)`
+   X-button parity.  All SetKeyboardFocusHere calls are gated on
+   `s_NeedsFocus` — no focus traps.
+3. **UI scaling pass** — swept BeginChild, SetCursorPos,
+   PushItemWidth, SetColumnWidth, Indent, SameLine, PushStyleVar
+   for hardcoded pixel values.  All existing callers use
+   `pdguiScale(...)` or a `* scale` multiplier (sourced from
+   `pdguiScaleFactor()`).  No additional fixes required beyond the
+   font-scaling batch.
+4. **Border enforcement verification** — per-file scan across all
+   23 menu renderers that call `pdguiDrawPdDialog`.  Two apparent
+   misses were false-positives:
+   `pdgui_menu_pausemenu.cpp` uses `pdguiThemeGetContentInset`
+   directly to compose custom padding (tab-button + bottom-pinned
+   Resume-button layout), and `pdgui_menu_theme_editor.cpp` renders
+   a mini-preview `pdguiDrawPdDialog` inside a BeginChild swatch
+   that intentionally doesn't need full content-inset handling.
+   The S305 + S309 sweeps covered the remaining 20 renderers
+   properly.
+
+### Files touched
+
+- `port/fast3d/pdgui_menu_mainmenu.cpp` — Input Mapping search-box
+  width + table cell/frame/item style var scaling
+- `port/fast3d/pdgui_menu_update.cpp` — Channel combo width +
+  SameLine offsets now scaled
+- `port/fast3d/pdgui_menu_modmgr.cpp` — LB/RB bumper tab cycling
+  (3-tab rotation with UI-order / internal-order mapping)
+
+### Build verify
+
+`source devtools/build-env.sh && ninja -C Build pd pd-server` — both
+targets link.  Only pre-existing warnings.
+
+### Follow-up queued
+
+- **Wire pdgui_glyphs into contextual prompts** (from S312 batch 1)
+  — pickup / door interact / forge HUD controls reminder.
+- **Font-atlas rebuild on runtime font swap** — S309's Font Mod
+  requires restart because atlas is built once at `pdguiInit`.
+  Future work: atlas hot-reload.
+- **Theme Editor mini-preview content-inset** — currently the
+  miniature `pdguiDrawPdDialog` at line 391 doesn't honor user
+  chrome insets; it uses a fixed headerH.  Cosmetic-only; the
+  preview is meant to be a compact swatch.
+
+---
+
 ## Session S313 — 2026-04-17 (The Grid polish + missing features — `great-robinson-15f409` worktree → merged to dev)
 
 **Scope**: S313 is the parallel Grid-owning session in the S311/S312/S313 three-way split. Picks up on top of S310's F1-F8 bulk drop to ship the remaining design-doc items plus targeted polish. File ownership per parallel prompt: **Grid code only** (`port/src/forge/*`, `src/game/forgemode.*`, `port/fast3d/pdgui_forge_*`, `port/include/pdgui_forge.h`). No menu / theme / gameplay-logic files touched.
