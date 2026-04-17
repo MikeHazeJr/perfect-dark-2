@@ -7,12 +7,22 @@
  *   - AI objects            -> allocated via botmgrAllocateBot() using
  *                              catalog-resolved body/head mp-indices.
  *   - Bot-tab requests      -> consumed per-tick in forgeRuntimeTick().
- *   - Props / weapons / zones -> logged; model / trigger wire deferred.
+ *   - WEAPON_PAD objects    -> spawned as live weaponobj via weaponCreate /
+ *                              func0f08ae0c + setup0f0923d4.
+ *   - PROP / GEOMETRY       -> spawned as live defaultobj via objInit +
+ *                              setup0f0923d4.  Collision is auto-generated
+ *                              from the model bbox by objInit.
+ *                              Note: full door lifecycle (open/close via
+ *                              doorobj pool) deferred; DOOR catalog entries
+ *                              spawn visually as static props.
+ *   - ZONE objects          -> registered in s_zone_rt[]; intersection
+ *                              checked per-tick for enter/exit events.
  *
  * On forgeRuntimeExitPlay (NORMAL -> FREEFLY):
  *   - Forge bots removed (botmgrRemoveAll).
  *   - Spawn pool rebuilt without forge-injected points.
  *   - Any directly-allocated props freed via propFree.
+ *   - Zone runtime cleared.
  */
 
 #include "forge/forge_runtime.h"
@@ -25,8 +35,13 @@
 
 #include "game/botmgr.h"
 #include "game/prop.h"
+#include "game/propobj.h"
+#include "game/modeldef.h"
+#include "game/setuputils.h"
 #include "game/spawnpool.h"
 #include "game/bg.h"
+#include "lib/model.h"
+#include "lib/memp.h"
 
 #include "bss.h"
 #include "data.h"
@@ -42,6 +57,34 @@ static s32                 s_handle_count;
 static s32                 s_active;
 static s32                 s_spawn_injected; /* number of points added to pool */
 static s32                 s_bots_spawned;   /* running forge-bot count */
+
+/* Prop pool: defaultobj instances for forge-placed props/geometry.
+ * Allocated once from MEMPOOL_STAGE (survives FREEFLY<->NORMAL toggles,
+ * wiped only when the stage unloads). */
+#define FORGE_PROP_POOL_SIZE 64
+static struct defaultobj *s_prop_pool;
+static s32                s_prop_count;
+
+/* Zone runtime: per-zone state for player intersection checks. */
+#define FORGE_ZONE_RT_MAX 128
+typedef struct {
+    u32  forge_uid;
+    u8   type;          /* forge_zone_type_t */
+    u8   shape;         /* forge_zone_shape_t */
+    u8   team_filter;
+    u8   enabled;
+    f32  pos[3];
+    f32  half[3];       /* box half-extents; half[0] = sphere radius for sphere */
+    u32  teleport_uid;
+    char channel_on_enter[FORGE_NAME_LEN];
+    char channel_on_exit[FORGE_NAME_LEN];
+    f32  damage_per_sec;
+    u8   was_inside;    /* edge-trigger state for this player */
+    u8   pad[3];
+} forge_zone_rt_t;
+
+static forge_zone_rt_t s_zone_rt[FORGE_ZONE_RT_MAX];
+static s32             s_zone_count;
 
 /* ================================================================
  * Handle registry helpers
@@ -174,6 +217,229 @@ static s32 s_spawnBot(const forge_object_t *o)
 }
 
 /* ================================================================
+ * Prop / weapon spawn helpers
+ * ================================================================ */
+
+/*
+ * Ensure the MEMPOOL_STAGE prop pool exists.  Called once per session;
+ * the allocation persists until the stage unloads.
+ */
+static void s_ensure_prop_pool(void)
+{
+    if (s_prop_pool) return;
+    s_prop_pool = (struct defaultobj *)mempAlloc(
+            FORGE_PROP_POOL_SIZE * sizeof(struct defaultobj), MEMPOOL_STAGE);
+    if (!s_prop_pool) {
+        sysLogPrintf(LOG_WARNING,
+                "GRID.RUNTIME: failed to alloc prop pool (%d slots)",
+                FORGE_PROP_POOL_SIZE);
+    }
+}
+
+/*
+ * Spawn a FORGE_CAT_WEAPON_PAD as a live weapon pickup.
+ * Resolves the weapon catalog ID, creates a weaponobj, positions it,
+ * and registers it with the room system.
+ */
+static void s_spawn_weapon_pad(const forge_object_t *o)
+{
+    if (!o->props.weapon.weapon_id[0]) {
+        sysLogPrintf(LOG_WARNING,
+                "GRID.RUNTIME: weapon pad uid=%u has no weapon_id", o->uid);
+        return;
+    }
+
+    catalog_weapon_result_t wr;
+    if (!catalogResolveWeapon(o->props.weapon.weapon_id, &wr)
+            || wr.weapon_num < 0
+            || wr.filenum <= 0) {
+        sysLogPrintf(LOG_WARNING,
+                "GRID.RUNTIME: weapon pad uid=%u -- cannot resolve '%s'",
+                o->uid, o->props.weapon.weapon_id);
+        return;
+    }
+
+    struct weaponobj *weapon = weaponCreate(0, 0, NULL);
+    if (!weapon) {
+        sysLogPrintf(LOG_WARNING,
+                "GRID.RUNTIME: weapon pad uid=%u -- no free weapon slot", o->uid);
+        return;
+    }
+
+    weapon->weaponnum = (s32)wr.weapon_num;
+
+    struct modeldef *modeldef = modeldefLoadToNew((u16)wr.filenum);
+    if (!modeldef) {
+        sysLogPrintf(LOG_WARNING,
+                "GRID.RUNTIME: weapon pad uid=%u -- modeldefLoadToNew(%d) failed",
+                o->uid, wr.filenum);
+        return;
+    }
+
+    struct prop *prop = func0f08ae0c(weapon, modeldef);
+    if (!prop) {
+        sysLogPrintf(LOG_WARNING,
+                "GRID.RUNTIME: weapon pad uid=%u -- func0f08ae0c failed", o->uid);
+        return;
+    }
+
+    /* func0f08ae0c uses g_ModelStates[0].scale which is 0 for
+     * dynamically-loaded models -- override to 1:1. */
+    if (weapon->base.model) {
+        modelSetScale(weapon->base.model, 1.0f);
+    }
+
+    prop->pos.x = o->pos[0];
+    prop->pos.y = o->pos[1];
+    prop->pos.z = o->pos[2];
+
+    /* Identity rotation (model-local to world). */
+    memset(weapon->base.realrot, 0, sizeof(weapon->base.realrot));
+    weapon->base.realrot[0][0] = 1.0f;
+    weapon->base.realrot[1][1] = 1.0f;
+    weapon->base.realrot[2][2] = 1.0f;
+
+    /* Ammo uses weapon-default values on pickup; custom ammo setting deferred. */
+
+    propActivate(prop);
+    propEnable(prop);
+    setup0f0923d4(&weapon->base);
+
+    forge_prop_handle_t *h = s_alloc(o->uid);
+    if (h) h->prop = prop;
+
+    sysLogPrintf(LOG_NOTE,
+            "GRID.RUNTIME: spawned weapon pad uid=%u '%s' wnum=%d at (%.0f,%.0f,%.0f)",
+            o->uid, o->props.weapon.weapon_id, wr.weapon_num,
+            o->pos[0], o->pos[1], o->pos[2]);
+}
+
+/*
+ * Spawn a FORGE_CAT_PROP or FORGE_CAT_GEOMETRY as a live static prop.
+ * Allocates a defaultobj from the stage pool, initializes it with the
+ * resolved model, positions it, and registers it with the room system.
+ * Collision is auto-generated from the model bbox by objInit.
+ *
+ * DOOR catalog entries also route here -- full door lifecycle (doorobj
+ * pool, open/close state) is deferred to a later session.
+ */
+static void s_spawn_prop(const forge_object_t *o)
+{
+    if (!s_prop_pool) {
+        sysLogPrintf(LOG_WARNING,
+                "GRID.RUNTIME: prop pool not available for uid=%u", o->uid);
+        return;
+    }
+    if (s_prop_count >= FORGE_PROP_POOL_SIZE) {
+        sysLogPrintf(LOG_WARNING,
+                "GRID.RUNTIME: prop pool full -- uid=%u '%s' dropped",
+                o->uid, o->catalog_id);
+        return;
+    }
+
+    catalog_prop_result_t pr;
+    if (!catalogResolveProp(o->catalog_id, &pr) || pr.filenum <= 0) {
+        sysLogPrintf(LOG_WARNING,
+                "GRID.RUNTIME: prop uid=%u -- cannot resolve '%s'",
+                o->uid, o->catalog_id);
+        return;
+    }
+
+    struct modeldef *modeldef = modeldefLoadToNew((u16)pr.filenum);
+    if (!modeldef) {
+        sysLogPrintf(LOG_WARNING,
+                "GRID.RUNTIME: prop uid=%u -- modeldefLoadToNew(%d) failed",
+                o->uid, pr.filenum);
+        return;
+    }
+
+    struct defaultobj *obj = &s_prop_pool[s_prop_count];
+    memset(obj, 0, sizeof(*obj));
+    obj->type       = OBJTYPE_BASIC;
+    obj->maxdamage  = 1000;
+    obj->floorcol   = 0x0fff;
+    obj->extrascale = 256;
+
+    struct prop *prop = objInit(obj, modeldef, NULL, NULL);
+    if (!prop) {
+        sysLogPrintf(LOG_WARNING,
+                "GRID.RUNTIME: prop uid=%u -- objInit failed", o->uid);
+        return;
+    }
+
+    ++s_prop_count;
+
+    /* objInit scales from g_ModelStates[obj->modelnum]; override for
+     * dynamically-loaded models where modelnum==0 may be unset. */
+    if (obj->model) {
+        modelSetScale(obj->model, 1.0f);
+    }
+
+    prop->pos.x = o->pos[0];
+    prop->pos.y = o->pos[1];
+    prop->pos.z = o->pos[2];
+
+    /* Identity rotation. */
+    memset(obj->realrot, 0, sizeof(obj->realrot));
+    obj->realrot[0][0] = 1.0f;
+    obj->realrot[1][1] = 1.0f;
+    obj->realrot[2][2] = 1.0f;
+
+    propActivate(prop);
+    propEnable(prop);
+    setup0f0923d4(obj);
+
+    forge_prop_handle_t *h = s_alloc(o->uid);
+    if (h) h->prop = prop;
+
+    sysLogPrintf(LOG_NOTE,
+            "GRID.RUNTIME: spawned prop uid=%u '%s' at (%.0f,%.0f,%.0f)",
+            o->uid, o->catalog_id, o->pos[0], o->pos[1], o->pos[2]);
+}
+
+/*
+ * Register a FORGE_CAT_ZONE into the zone runtime array for per-tick
+ * intersection checks.
+ */
+static void s_register_zone(const forge_object_t *o)
+{
+    if (s_zone_count >= FORGE_ZONE_RT_MAX) {
+        sysLogPrintf(LOG_WARNING,
+                "GRID.RUNTIME: zone pool full -- uid=%u dropped", o->uid);
+        return;
+    }
+
+    const forge_zone_props_t *zp = &o->props.zone;
+    forge_zone_rt_t *z = &s_zone_rt[s_zone_count++];
+    memset(z, 0, sizeof(*z));
+
+    z->forge_uid    = o->uid;
+    z->type         = zp->type;
+    z->shape        = zp->shape;
+    z->team_filter  = zp->team_filter;
+    z->enabled      = 1;
+    z->pos[0]       = o->pos[0];
+    z->pos[1]       = o->pos[1];
+    z->pos[2]       = o->pos[2];
+    z->half[0]      = zp->size[0];
+    z->half[1]      = zp->size[1];
+    z->half[2]      = zp->size[2];
+    z->teleport_uid = zp->teleport_target_uid;
+    z->damage_per_sec = zp->damage_per_sec;
+
+    strncpy(z->channel_on_enter, zp->channel_on_enter,
+            sizeof(z->channel_on_enter) - 1);
+    strncpy(z->channel_on_exit, zp->channel_on_exit,
+            sizeof(z->channel_on_exit) - 1);
+
+    sysLogPrintf(LOG_NOTE,
+            "GRID.RUNTIME: registered zone uid=%u type=%d shape=%d at (%.0f,%.0f,%.0f) half=(%.1f,%.1f,%.1f)",
+            o->uid, zp->type, zp->shape,
+            o->pos[0], o->pos[1], o->pos[2],
+            zp->size[0], zp->size[1], zp->size[2]);
+}
+
+/* ================================================================
  * Public API
  * ================================================================ */
 
@@ -181,10 +447,14 @@ void forgeRuntimeEnterPlay(void)
 {
     if (s_active) forgeRuntimeExitPlay();
 
-    s_handle_count  = 0;
+    s_handle_count   = 0;
     s_spawn_injected = 0;
     s_bots_spawned   = 0;
+    s_prop_count     = 0;
+    s_zone_count     = 0;
     s_active         = 1;
+
+    s_ensure_prop_pool();
 
     s32 total = forgeObjectCount();
     if (total == 0) {
@@ -196,22 +466,25 @@ void forgeRuntimeEnterPlay(void)
     /* Collect forge spawn points for bulk injection after the walk. */
     struct coord spawn_pos[SPAWNPOOL_MAX];
     f32          spawn_facing[SPAWNPOOL_MAX];
-    s32          n_spawns  = 0;
-    s32          n_bots    = 0;
-    s32          n_deferred = 0;
+    s32          n_spawns    = 0;
+    s32          n_bots      = 0;
+    s32          n_props     = 0;
+    s32          n_weapons   = 0;
+    s32          n_zones     = 0;
+    s32          n_deferred  = 0;
 
     for (s32 i = 0; i < FORGE_MAX_OBJECTS; ++i) {
         forge_object_t *o = forgeObjectGet(i);
         if (!o || !o->in_use) continue;
         if (!o->enabled) continue;
 
-        struct coord pos = { o->pos[0], o->pos[1], o->pos[2] };
-
         switch ((forge_category_t)o->category) {
 
         case FORGE_CAT_SPAWN_POINT:
             if (n_spawns < SPAWNPOOL_MAX) {
-                spawn_pos[n_spawns]    = pos;
+                spawn_pos[n_spawns].x  = o->pos[0];
+                spawn_pos[n_spawns].y  = o->pos[1];
+                spawn_pos[n_spawns].z  = o->pos[2];
                 spawn_facing[n_spawns] = o->props.spawn.facing_deg * 0.017453292519943f;
                 ++n_spawns;
 
@@ -228,34 +501,30 @@ void forgeRuntimeEnterPlay(void)
             n_bots += s_spawnBot(o);
             break;
 
-        /* Deferred categories: logged so the author knows what will be wired later. */
         case FORGE_CAT_WEAPON_PAD:
-            ++n_deferred;
-            sysLogPrintf(LOG_NOTE,
-                    "GRID.RUNTIME: weapon pad '%s' uid=%u at (%.0f,%.0f,%.0f) -- model wire deferred",
-                    o->catalog_id, o->uid, pos.x, pos.y, pos.z);
+            s_spawn_weapon_pad(o);
+            ++n_weapons;
             break;
 
         case FORGE_CAT_PROP:
         case FORGE_CAT_GEOMETRY:
-            ++n_deferred;
-            sysLogPrintf(LOG_NOTE,
-                    "GRID.RUNTIME: prop/geo '%s' uid=%u at (%.0f,%.0f,%.0f) -- model wire deferred",
-                    o->catalog_id, o->uid, pos.x, pos.y, pos.z);
+            s_spawn_prop(o);
+            ++n_props;
             break;
 
         case FORGE_CAT_ZONE:
-            ++n_deferred;
-            sysLogPrintf(LOG_NOTE,
-                    "GRID.RUNTIME: zone '%s' uid=%u at (%.0f,%.0f,%.0f) -- trigger wire deferred",
-                    o->catalog_id, o->uid, pos.x, pos.y, pos.z);
+            s_register_zone(o);
+            ++n_zones;
             break;
 
         case FORGE_CAT_INTERACTABLE:
+            /* Visual presence via static prop; interaction logic deferred. */
+            s_spawn_prop(o);
+            ++n_props;
             ++n_deferred;
             sysLogPrintf(LOG_NOTE,
-                    "GRID.RUNTIME: interactable '%s' uid=%u at (%.0f,%.0f,%.0f) -- engine wire deferred",
-                    o->catalog_id, o->uid, pos.x, pos.y, pos.z);
+                    "GRID.RUNTIME: interactable '%s' uid=%u -- spawned visual; interaction deferred",
+                    o->catalog_id, o->uid);
             break;
 
         default:
@@ -272,8 +541,8 @@ void forgeRuntimeEnterPlay(void)
     }
 
     sysLogPrintf(LOG_NOTE,
-            "GRID.RUNTIME: enterPlay -- spawns=%d bots=%d deferred=%d",
-            n_spawns, n_bots, n_deferred);
+            "GRID.RUNTIME: enterPlay -- spawns=%d bots=%d weapons=%d props=%d zones=%d deferred=%d",
+            n_spawns, n_bots, n_weapons, n_props, n_zones, n_deferred);
 }
 
 void forgeRuntimeExitPlay(void)
@@ -314,12 +583,14 @@ void forgeRuntimeExitPlay(void)
     }
 
     sysLogPrintf(LOG_NOTE,
-            "GRID.RUNTIME: exitPlay -- freed=%d bots_removed=%d spawns_flushed=%d",
-            freed, s_bots_spawned, s_spawn_injected);
+            "GRID.RUNTIME: exitPlay -- freed=%d bots_removed=%d spawns_flushed=%d zones_cleared=%d",
+            freed, s_bots_spawned, s_spawn_injected, s_zone_count);
 
     s_handle_count   = 0;
     s_spawn_injected = 0;
     s_bots_spawned   = 0;
+    s_prop_count     = 0;
+    s_zone_count     = 0;
 }
 
 void forgeRuntimeTick(void)
@@ -385,6 +656,66 @@ void forgeRuntimeTick(void)
         }
         bs->active_count = 0;
         bs->frozen_count = 0;
+    }
+
+    /* Zone intersection checks for the current player. */
+    if (s_zone_count > 0 && g_Vars.currentplayer && g_Vars.currentplayer->prop) {
+        struct coord *ppos = &g_Vars.currentplayer->prop->pos;
+
+        for (s32 zi = 0; zi < s_zone_count; ++zi) {
+            forge_zone_rt_t *z = &s_zone_rt[zi];
+            if (!z->enabled) continue;
+
+            s32 inside = 0;
+
+            if ((forge_zone_shape_t)z->shape == FORGE_ZONE_SHAPE_SPHERE) {
+                f32 dx = ppos->x - z->pos[0];
+                f32 dy = ppos->y - z->pos[1];
+                f32 dz = ppos->z - z->pos[2];
+                f32 r  = z->half[0];
+                inside = (dx*dx + dy*dy + dz*dz) < (r * r);
+            } else {
+                /* Box: half-extents in z->half[0/1/2]. */
+                inside = (ppos->x >= z->pos[0] - z->half[0]) &&
+                         (ppos->x <= z->pos[0] + z->half[0]) &&
+                         (ppos->y >= z->pos[1] - z->half[1]) &&
+                         (ppos->y <= z->pos[1] + z->half[1]) &&
+                         (ppos->z >= z->pos[2] - z->half[2]) &&
+                         (ppos->z <= z->pos[2] + z->half[2]);
+            }
+
+            /* Edge-triggered enter. */
+            if (inside && !z->was_inside) {
+                z->was_inside = 1;
+
+                if (z->channel_on_enter[0]) {
+                    forgeChannelSet(z->channel_on_enter, 1);
+                }
+
+                if ((forge_zone_type_t)z->type == FORGE_ZONE_TELEPORTER
+                        && z->teleport_uid) {
+                    forge_object_t *target = forgeObjectFindByUid(z->teleport_uid);
+                    if (target) {
+                        g_Vars.currentplayer->prop->pos.x = target->pos[0];
+                        g_Vars.currentplayer->prop->pos.y = target->pos[1];
+                        g_Vars.currentplayer->prop->pos.z = target->pos[2];
+                    }
+                }
+
+                forgeLogicFireEvent(FORGE_OP_ON_PLAYER_ENTER, z->forge_uid);
+            }
+
+            /* Edge-triggered exit. */
+            if (!inside && z->was_inside) {
+                z->was_inside = 0;
+
+                if (z->channel_on_exit[0]) {
+                    forgeChannelSet(z->channel_on_exit, 1);
+                }
+
+                forgeLogicFireEvent(FORGE_OP_ON_PLAYER_EXIT, z->forge_uid);
+            }
+        }
     }
 }
 

@@ -4,6 +4,35 @@
 > **S281–S351** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S354 — 2026-04-17 (`practical-varahamihira-3b5f5d` worktree) — Forge Runtime Wire-In: Props, Weapons, Geometry, Doors, Zones
+
+**Scope**: Wire remaining Forge (The Grid) object categories into the live engine. Spawn points + AI bots were already live (S314); everything else was log-only.
+
+**Implementation** (single file: `port/src/forge/forge_runtime.c`):
+
+- **WEAPON_PAD**: `s_spawn_weapon_pad()` — `catalogResolveWeapon` → `weaponCreate(0,0,NULL)` → `func0f08ae0c(weapon, modeldef)` → `modelSetScale(weapon->base.model, 1.0f)` (overrides g_ModelStates[0] for dynamically-loaded models) → set pos + identity realrot → `propActivate` + `propEnable` + `setup0f0923d4`. Ammo uses weapon default on pickup (custom ammo setting deferred — `weaponobj` has no direct clipammo field).
+
+- **PROP / GEOMETRY / INTERACTABLE**: `s_spawn_prop()` — `catalogResolveProp` → `objInit` from MEMPOOL_STAGE pool (`s_prop_pool[64]`) with `OBJTYPE_BASIC` + `extrascale=256` → `modelSetScale(1.0f)` → set pos + identity realrot → `propActivate` + `propEnable` + `setup0f0923d4`. Collision auto-generated from model bbox by `objInit`. INTERACTABLEs spawn visually; interaction logic deferred.
+
+- **ZONE**: `s_register_zone()` fills `s_zone_rt[128]` with type/shape/pos/half-extents/channel names/teleport_uid. `forgeRuntimeTick` runs per-tick box/sphere intersection for `g_Vars.currentplayer`. Edge-triggered: enter → `forgeChannelSet(channel_on_enter, 1)` + optional teleport + `forgeLogicFireEvent(ON_PLAYER_ENTER, uid)`; exit → channel_on_exit + `ON_PLAYER_EXIT`.
+
+- **DOOR**: Catalog entries route to `s_spawn_prop` for visual presence. Full `doorobj` pool lifecycle (open/close state machine, `doorInit`, `doorsActivate`) deferred — requires dedicated pool infrastructure.
+
+**Architecture decisions**:
+- `s_prop_pool` allocated once from MEMPOOL_STAGE — survives FREEFLY↔NORMAL toggles, freed on stage unload.
+- `modelSetScale(model, 1.0f)` required after `objInit`/`func0f08ae0c` for forge-placed objects because `obj->modelnum` defaults to 0 and `g_ModelStates[0].scale` may be unset.
+- `setup0f0923d4(obj)` chosen over `func0f06a580` — auto-computes rooms from bbox, no need to pre-build Mtxf or find rooms manually.
+- Zone tick only checks `g_Vars.currentplayer` (local player); multi-player zone tracking deferred.
+
+**New state**: `s_prop_pool` (MEMPOOL_STAGE pointer), `s_prop_count`, `s_zone_rt[FORGE_ZONE_RT_MAX=128]`, `s_zone_count`.
+**New includes**: `game/propobj.h`, `game/modeldef.h`, `game/setuputils.h`, `lib/model.h`, `lib/memp.h`.
+
+**Build**: Clean compile of `forge_runtime.c`; `PerfectDark.exe` + `PerfectDarkServer.exe` linked successfully.
+
+**Next**: Full door lifecycle (doorobj pool), multi-player zone tracking, custom weapon ammo on pad spawns.
+
+---
+
 ## Session S351 — 2026-04-17 (`dazzling-heisenberg-f84acc` worktree) — D5 Phase 4: UI Texture Mod Overrides
 
 **Scope**: D5 Phase 4 — implement runtime mod override of base-UI theme textures.

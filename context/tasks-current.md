@@ -7,6 +7,21 @@
 
 ---
 
+## Done — 2026-04-17 (S354 — Forge Runtime Wire-In: Props, Weapons, Geometry, Doors, Zones, `practical-varahamihira-3b5f5d`)
+
+**Build verified.** Single file change: `port/src/forge/forge_runtime.c` (+358/-27).
+
+Wired the remaining Forge (The Grid) object types into the live engine:
+- **WEAPON_PAD**: `s_spawn_weapon_pad()` — catalog resolve → `weaponCreate` → `func0f08ae0c` → `modelSetScale(1.0f)` → `setup0f0923d4`.
+- **PROP / GEOMETRY / INTERACTABLE**: `s_spawn_prop()` — catalog resolve → `objInit` from MEMPOOL_STAGE pool → `modelSetScale(1.0f)` → `setup0f0923d4`. Collision auto-generated from model bbox.
+- **ZONE**: `s_register_zone()` stores in `s_zone_rt[]`; per-tick edge-triggered enter/exit in `forgeRuntimeTick` fires `forgeChannelSet` + `forgeLogicFireEvent`. Teleporter type directly sets player position.
+- **DOOR**: Catalog entries spawn as static props (visual only). Full `doorobj` pool lifecycle deferred to separate session.
+
+New state: `s_prop_pool` (MEMPOOL_STAGE, 64 slots), `s_prop_count`, `s_zone_rt[128]`, `s_zone_count`.
+New includes: `game/propobj.h`, `game/modeldef.h`, `game/setuputils.h`, `lib/model.h`, `lib/memp.h`.
+
+---
+
 ## Done — 2026-04-17 (S351 — D5 Phase 4: UI Texture Mod Overrides, `dazzling-heisenberg-f84acc`)
 
 **Build verified.** Clean 585/585 objects, zero errors.
