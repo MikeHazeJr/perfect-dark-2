@@ -1,8 +1,46 @@
 
 # Session Log (Active)
 
-> **S281–S322** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S323** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S323 — 2026-04-17 (Batch A — IS4MB/IS8MB/STAGE_4MBMENU final cleanup — `admiring-mccarthy-38734a` worktree)
+
+**Scope**: Tier 3 remaining N64 dead code after S322. S322 stripped ~100 callsites and removed STAGE_4MBMENU from STAGE_IS_SYSTEM(), but five live STAGE_4MBMENU callsites and all macro definitions were left. This batch finishes the job so `grep -rn "IS4MB|IS8MB|fourmeg2player|STAGE_4MBMENU" src/ port/` returns zero hits.
+
+### What was done
+
+**Verified clean slate first** — confirmed zero fourmeg2player hits; confirmed IS4MB/IS8MB had no callsites, only stub definitions; confirmed audio files (sched.c, audiomgr.c, snd.c) clean.
+
+**Removed stub definitions:**
+- `src/include/constants.h` — `#define IS4MB() (0)`, `#define IS8MB() (1)`, `#define STAGE_4MBMENU 0x5d`
+- `src/include/memsizes.h` — unused `#define MENU_MODEL_BUF_4MB 0xb400`
+
+**Removed 5 live STAGE_4MBMENU callsites:**
+- `src/game/fmb.c::fmdHandleAbortGame` — removed if-STAGE_4MBMENU branch; PC always takes the else path
+- `src/game/menu.c` (×2) — removed dead `max=4` block; simplified music-stage check to CITRAINING only
+- `src/game/menutick.c` (×2) — removed `|| stagenum == STAGE_4MBMENU` from two CITRAINING condition checks
+- `src/game/lv.c` — removed STAGE_4MBMENU line from doc comment block
+
+**PAL guards audited** — remaining `#if PAL` / `#if VERSION >= VERSION_PAL_BETA` guards are original N64 version-variant code from the decompile (50Hz vs 60Hz timing, region-specific behavior). None wrap IS4MB blocks. Left intact.
+
+### Commit
+
+| SHA | Scope |
+|-----|-------|
+| `645a9c7c` | **feat(S323): Tier 3 N64 dead code — strip IS4MB/IS8MB/STAGE_4MBMENU fully** |
+
+6 files changed, 4 insertions(+), 18 deletions(-). Merged to dev as `c3cb274e`.
+
+### Build result
+
+Clean: `pd` + `pd-server` both link [770/770] zero errors. Post-merge full rebuild confirmed.
+
+### Verification
+
+`grep -rn "IS4MB|IS8MB|fourmeg2player|STAGE_4MBMENU" src/ port/` → exit code 1 (zero hits). Complete.
+
+---
 
 ## Session S323 — 2026-04-17 (Batch E — Audio channel routing audit + enforcement — `nice-allen-193a0c` worktree)
 
