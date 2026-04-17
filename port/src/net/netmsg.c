@@ -3029,8 +3029,12 @@ u32 netmsgSvcChrSyncRead(struct netbuf *src, struct netclient *srccl)
  * when they send state. The 120-tick PROP_SYNC heartbeat only CRCs dirty
  * props, then clears the flags. If nothing changed since the last heartbeat,
  * the scan and the message are skipped entirely (O(1) vs O(N_props)).
+ *
+ * Must match NET_PROP_MAP_SIZE: syncids are (prop - g_Vars.props + 1) so
+ * they can reach maxprops which is bounded by the 2048-slot sync ID map.
+ * A smaller value here silently drops dirty marks for high-index props.
  */
-#define NET_PROP_DIRTY_MAXSYNCID 512
+#define NET_PROP_DIRTY_MAXSYNCID NET_PROP_MAP_SIZE
 
 static u8  s_PropDirtyFlags[NET_PROP_DIRTY_MAXSYNCID];
 static s32 s_PropDirtyCount = 0;
