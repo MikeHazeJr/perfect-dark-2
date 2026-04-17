@@ -7,6 +7,23 @@
 
 ---
 
+## Open — 2026-04-17 (S315 — palette sweep completion, `pedantic-austin-4a93bc` worktree)
+
+### Playtest verification
+
+- **Theme-driven accents sweep verification** — install a custom theme with a wild `titleGlow` (e.g. pure magenta). Confirm the following now follow the theme accent instead of staying cyan:
+  - **Lobby screen** — "Connected to dedicated server" banner; "In Match" / "in game" client state labels; ROOM_STATE_MATCH server browser entry
+  - **Pause scoreboard** — "SCOREBOARD" header and local-player name row (cyan → theme accent)
+  - **Room** — "in game" client state label, tab bar selected-tab overline, bot name in character preview panel, TabSelectedOverline
+  - **Challenges** — "Completion:" section subheader
+  - **Download overlay** — "Downloading: <component>" label in the distrib progress banner
+- **Intentional non-theme colors remain** — verify these are still their original fixed colors, not theme-colored:
+  - Solo Mission difficulty ring: Agent=green, Special Agent=blue, Perfect Agent=gold
+  - Log viewer: `LOAD:` lines still blue (functional debug coloring)
+  - Agent Select initials: still light blue `IM_COL32(200, 220, 255, 255)`
+
+---
+
 ## Open — 2026-04-17 (S312 batch 2 — font/UI scaling + controller tab-cycle + border audit)
 
 ### Playtest verification
@@ -85,7 +102,7 @@ Commit `55c37fc2` + merge. Build: `PerfectDark.exe` 52,288,651 / `PerfectDarkSer
 - **Remaining non-blue literal sweep** — agentselect/agentcreate/solomission/modmgr/moddinghub still have PD-blue `IM_COL32` panel/border decorations plus red/yellow/green semantic literals that could fold into `tint_danger`/`text_warning`/`text_positive`.
 - **Dead `ImGuiKey_Gamepad*` checks** — ~130 redundant checks across menu files. Harmless (Enter/Escape parallels catch the edges via action-map→keyboard translation). Removing is a ~1h churn task.
 - **renderCiSettingsRedirect / renderCiDeadPlayer2 / renderCinemaList S300 pool-ctx migration** — still on raw `inputCtxPush/Pop`. Defensive leak-catch in mainmenu.cpp:3416 masks the symptom.
-- **pdgui_lobby.cpp / pdgui_lobby_distrib.cpp / server_gui.cpp / pdgui_skin_editor.cpp blue-tint sweep** — S311 only touched `pdgui_menu_*.cpp`; the other UI files have matching cyan `ImVec4(0.4f, 0.8f, 1.0f, 1.0f)` headers that can migrate.
+- ~~**pdgui_lobby.cpp / pdgui_lobby_distrib.cpp / server_gui.cpp / pdgui_skin_editor.cpp blue-tint sweep**~~ — **DONE (S311 pt2 + S315)**. `server_gui.cpp` intentionally skipped (pd-server doesn't link pdgui_style). All semantic cyan/blue accents across all non-server UI files now use `pdguiVec4TitleGlow()`. Remaining hardcoded blues are intentional: log-viewer LOAD category (debug), Solo Mission difficulty colors (PD identity), agentselect initials (artistic).
 
 ---
 

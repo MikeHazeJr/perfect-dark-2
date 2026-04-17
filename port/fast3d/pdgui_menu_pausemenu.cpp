@@ -815,7 +815,7 @@ void pdguiScorecardRender(s32 winW, s32 winH)
         char timebuf[32];
         formatTime(timebuf, lvGetStageTime60(), TIMEPRECISION_SECONDS);
 
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.7f, 1.0f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow());
         ImGui::Text("SCOREBOARD");
         ImGui::SameLine(boardW - pdguiScale(100.0f));
         ImGui::Text("%s", timebuf);
@@ -987,7 +987,7 @@ static void renderGameOverRankings(float contentW, s32 count,
         if (i == 0) {
             nameColor = ImVec4(1.0f, 0.85f, 0.2f, 1.0f);
         } else if (rows[i].isPlayer) {
-            nameColor = ImVec4(0.5f, 0.9f, 1.0f, 1.0f);
+            nameColor = pdguiVec4TitleGlow();
         } else {
             nameColor = ImVec4(0.85f, 0.85f, 0.85f, 1.0f);
         }
