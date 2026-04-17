@@ -3711,6 +3711,14 @@ void func0f0f8300(void)
 
 void menuPushRootDialog(struct menudialogdef *dialogdef, s32 root)
 {
+	/* S323: release any active pool slots before zeroing the stack.
+	 * Without this, any ctx-owning slot (e.g. MENU_TYPE_CI_OPTIONS pushed
+	 * at boot) becomes unreachable once numdialogs/depth hit 0, leaking
+	 * the ctx and causing the next menuPushDialog to be rejected by the
+	 * structural dedup.  The per-frame watchdog (menuPoolConsistencyCheck)
+	 * catches the symptom; this call removes the root cause. */
+	menupoolReleaseAll();
+
 	g_Menus[g_MpPlayerNum].numdialogs = 0;
 	g_Menus[g_MpPlayerNum].depth = 0;
 
