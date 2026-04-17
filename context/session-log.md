@@ -28,6 +28,38 @@
 
 ---
 
+## Session S317 addendum — 2026-04-17 (CI Training crash fix — dev direct)
+
+**Scope**: Crash confirmed reproducible on dev machine. addr2line on HEAD binary resolved the full crash site.
+
+### Root cause confirmed
+
+addr2line on `Build/PerfectDark.exe` (image base `0x140000000`):
+- `0x140161258` → `setupCreateDoor setup.c:1128`
+- `0x140162401` → `setupCreateProps setup.c:1654`
+- `0x1400c69df` → `lvReset lv.c:548`
+
+Call path: `lvReset → setupCreateProps → setupCreateDoor → AV`. The crash is `bbox->xmax` dereference at line 1128 where `bbox = modeldefFindBboxRodata(...)` returned NULL. S308 guarded the door-*tick* path (`doorGetBbox`) but missed the door-*creation* path.
+
+### Fix
+
+Two-layer guard in `setupCreateDoor` (`src/game/setup.c`):
+1. Early return with `LOG_WARNING` if `g_ModelStates[modelnum].modeldef == NULL` after `setupLoadModeldef` — prevents all downstream null deref (door can't be created without a model).
+2. Identity-scale fallback (`xscale=yscale=zscale=1`) if `bbox` is NULL — matches the existing zero-scale guard at lines 1148-1150; door renders at 1:1 instead of crashing.
+
+Root cause of WHY the model fails to load (catalog miss or model has no bbox node) is still unknown. The double-transition 0x30→0x26 remains an open investigative lead.
+
+### Build verify
+
+`ninja -C Build pd pd-server` clean. PerfectDark.exe 52,530,318 / PerfectDarkServer.exe 22,852,827.
+
+### Next steps
+
+- Playtest CI Training — confirm no AV; check log for door WARNING if any
+- Investigate 0x30→0x26 double-transition at boot
+
+---
+
 ## Session S316 — 2026-04-17 (solo mission select UX + session-log archive — `epic-mirzakhani-884cc2` worktree)
 
 **Scope**: Three ordered tasks: (1) session-log archive, (2) campaign mission select UX cleanup, (3) room screens audit.

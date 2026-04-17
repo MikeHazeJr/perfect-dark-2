@@ -1055,6 +1055,17 @@ void setupCreateDoor(struct doorobj *door, s32 cmdindex)
 
 	setupLoadModeldef(modelnum);
 
+	/* B-163: FIX-B.2 returns early when modeldefLoadToNew fails (catalog miss
+	 * or missing ROM file), leaving g_ModelStates[modelnum].modeldef NULL.
+	 * Without this guard every downstream dereference crashes — doorInit at
+	 * minimum.  Skip creation and log so the door shows up in diagnostics. */
+	if (g_ModelStates[modelnum].modeldef == NULL) {
+		sysLogPrintf(LOG_WARNING,
+			"SETUP: door modelnum %d modeldef NULL after load — door skipped",
+			modelnum);
+		return;
+	}
+
 	if (door->doorflags & DOORFLAG_ROTATEDPAD) {
 		padRotateForDoor(door->base.pad);
 	}
@@ -1125,11 +1136,22 @@ void setupCreateDoor(struct doorobj *door, s32 cmdindex)
 
 		padGetCentre(door->base.pad, &centre);
 
-		xscale = (pad.bbox.ymax - pad.bbox.ymin) / (bbox->xmax - bbox->xmin);
-		yscale = (pad.bbox.zmax - pad.bbox.zmin) / (bbox->ymax - bbox->ymin);
-		zscale = (pad.bbox.xmax - pad.bbox.xmin) / (bbox->zmax - bbox->zmin);
+		/* B-163: bbox can be NULL if the modeldef has no BBOX node (degenerate
+		 * or partially-loaded model).  Fall back to identity scale — the door
+		 * will render at 1:1 rather than crashing.  Matches the zero-scale
+		 * guard directly below. */
+		if (bbox != NULL) {
+			xscale = (pad.bbox.ymax - pad.bbox.ymin) / (bbox->xmax - bbox->xmin);
+			yscale = (pad.bbox.zmax - pad.bbox.zmin) / (bbox->ymax - bbox->ymin);
+			zscale = (pad.bbox.xmax - pad.bbox.xmin) / (bbox->zmax - bbox->zmin);
 
-		if (xscale <= 0.000001f || yscale <= 0.000001f || zscale <= 0.000001f) {
+			if (xscale <= 0.000001f || yscale <= 0.000001f || zscale <= 0.000001f) {
+				xscale = yscale = zscale = 1;
+			}
+		} else {
+			sysLogPrintf(LOG_WARNING,
+				"SETUP: door modelnum %d has no bbox node — using identity scale",
+				modelnum);
 			xscale = yscale = zscale = 1;
 		}
 
