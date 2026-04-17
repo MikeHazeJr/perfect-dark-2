@@ -1792,10 +1792,80 @@ void menuPopDialog(void)
 	/* F-3.2: Log underflow — helps diagnose push/pop mismatches. */
 	if (g_Menus[g_MpPlayerNum].depth == 0) {
 		sysLogPrintf(LOG_WARNING, "MENU: menuPopDialog called at depth 0 (underflow)");
+		/* S304: pool-slot recovery on underflow.
+		 *
+		 * Underflow means a caller thinks the legacy stack has a dialog to
+		 * pop but it doesn't. Any pool slot acquired earlier (menuPushDialog
+		 * calls menupoolAcquireDialog before pushing to the stack) is now
+		 * orphaned — menuCloseDialog will never see it again, so the slot
+		 * would stay active until inputCtxShutdown's nuclear release. That
+		 * class of leak causes the "menuPushDialog rejected — pool slot
+		 * already active" cascade seen in the S304 playtest log.
+		 *
+		 * Release every active slot. This is safe because:
+		 *   - Normal close paths release their own slot before underflow can
+		 *     occur (menuCloseDialog releases then decrements depth).
+		 *   - Force-close sites (endscreen bridge, matchStart, netmsg stage
+		 *     handlers, inputCtxShutdown) already call menupoolReleaseAll
+		 *     and never reach menuPopDialog with depth=0.
+		 *   - If a renderer calls menuPopDialog spuriously while another
+		 *     pool slot is legitimately active (e.g. a dialog whose opener
+		 *     is separate from whatever spuriously popped), that scenario
+		 *     is pathological and releasing all slots is the right recovery
+		 *     — the watchdog in menuTick will have already warned. */
+		s32 leaked = menupoolCountActive();
+		if (leaked > 0) {
+			sysLogPrintf(LOG_WARNING,
+				"MENU: underflow detected %d stale pool slot(s) — releasing (stack desync)",
+				leaked);
+			menupoolReleaseAll();
+		}
 		return;
 	}
 	menuCloseDialog();
 	menuUpdateCurFrame();
+}
+
+/* S304: Per-frame consistency watchdog between the legacy g_Menus[] stack
+ * and the menu pool.
+ *
+ * The invariant is: pool slots are active iff the legacy stack has at least
+ * one dialog. Whenever the legacy stack is wiped (menuPushRootDialog zeroes
+ * depth/numdialogs, menuClose zeroes them, stage transitions reset state)
+ * the pool MUST already be empty or a leak will survive.
+ *
+ * Historical context: the 2026-04-16 playtest (pre-S304) showed a sequence
+ * where menuPopDialog underflowed after the stack had already been zeroed
+ * but the pool still held MENU_TYPE_MAIN_MENU. Every subsequent
+ * menuPushDialog for the main menu was rejected by the pool's structural
+ * dedup, giving the user a darkened/dead main menu with no way to interact.
+ *
+ * This watchdog detects that class of leak every frame and auto-corrects
+ * with a WARNING, so the next menu open works instead of silently failing.
+ * Paired with the underflow handler above, it closes both the symptom and
+ * the root class of bugs that could produce it. */
+void menuPoolConsistencyCheck(void)
+{
+	s32 i;
+	s32 legacyHasDialog = 0;
+
+	for (i = 0; i < ARRAYCOUNT(g_Menus); i++) {
+		if (g_Menus[i].numdialogs > 0 || g_Menus[i].depth > 0) {
+			legacyHasDialog = 1;
+			break;
+		}
+	}
+
+	if (!legacyHasDialog) {
+		s32 poolActive = menupoolCountActive();
+		if (poolActive > 0) {
+			sysLogPrintf(LOG_WARNING,
+				"MENU: watchdog — legacy stack empty but %d pool slot(s) active; releasing leaked slot(s)",
+				poolActive);
+			menupoolDumpActive();
+			menupoolReleaseAll();
+		}
+	}
 }
 
 /* B-153 (2026-04-16): menuPushDialog auto-opens every `nextsibling` under

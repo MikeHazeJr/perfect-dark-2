@@ -59,6 +59,11 @@ void func0f0f3220(s32 arg0);
 void menuCloseDialog(void);
 void menuUpdateCurFrame(void);
 void menuPopDialog(void);
+/* S304: Per-frame sanity check that the menu pool matches the legacy
+ * g_Menus[] stack. If the legacy stack is empty but pool slots are still
+ * active, the slots are leaked — release them with a WARNING. Called from
+ * menuTick so the recovery fires every frame. */
+void menuPoolConsistencyCheck(void);
 /* Returns 1 iff the passed dialog pointer is the active g_Menus[p].curdialog
  * for its owning player slot. Menu renderers use this to skip rendering
  * themselves when invoked for a pre-loaded sibling (menuPushDialog auto-opens

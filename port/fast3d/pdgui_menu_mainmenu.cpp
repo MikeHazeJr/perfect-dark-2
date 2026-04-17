@@ -44,6 +44,7 @@
 extern "C" {
 #include "pdgui_nav.h"
 #include "actionmap.h"
+#include "menupool.h"
 }
 
 /* ========================================================================
@@ -2547,17 +2548,14 @@ static s32 renderMainMenu(struct menudialog *dialog,
         /* B-131: stamp the open time so the close handler can grace-guard
          * the first MAIN_MENU_CLOSE_GRACE_MS of this appearance. */
         s_MainMenuOpenedTick = SDL_GetTicks();
-        /* B-124 pattern: push g_CtxImGuiMenu so that:
-         *   (a) Mouse mode is set to absolute/visible (Bug 3)
-         *   (b) pdguiIsActive() returns 1, blocking gameplay input (Bug 4)
-         *   (c) push_tick is set, enabling inputCtxShouldSuppressKey 100ms
-         *       grace period to prevent the opening key from immediately
-         *       closing the menu (Bugs 1 & 2)
-         * S295 F7: Ownership tracking removed — the close handler pops
-         * unconditionally via inputCtxIsActive. */
-        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPush(&g_CtxImGuiMenu);
-        }
+        /* S304: acquire the menu pool slot with the input context attached.
+         * menuPushDialog pre-acquired this slot with ctx=NULL, so acquire
+         * here attaches the ctx to the live slot (S300 attach-to-active
+         * semantics). On close, menupoolReleaseDialog (fired by
+         * menuCloseDialog) pops the ctx atomically — the slot owns the
+         * pop. Replaces the raw inputCtxPush + manual inputCtxPopDeferred
+         * pair that leaked when menuPopDialog underflowed. */
+        menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
         /* B-131: clear the stale Escape / GamepadFaceRight edges that the
          * opening press queued into ImGui's input queue before this window
          * existed.  Without this, a gamepad B-button or keyboard Escape
@@ -2639,16 +2637,6 @@ static s32 renderMainMenu(struct menudialog *dialog,
             /* At top-level: close the menu, return to Carrington Institute */
             sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu CLOSE via ESC/B (top-level -> CI free-roam)");
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            /* Pop the input context unconditionally if active. The previous
-             * s_MainMenuPushedCtx ownership guard caused a leak: if
-             * IsWindowAppearing fired twice (legacy dialog re-push, ImGui
-             * visibility cycle), the second appearing saw the context already
-             * active and cleared the ownership bool, so the close handler
-             * skipped the pop. All other menus (solomission, endscreen,
-             * bridge) use the unconditional pattern. S295 F7: bool removed. */
-            if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-                inputCtxPopDeferred(&g_CtxImGuiMenu);
-            }
 
             /* Restore game control BEFORE menuPopDialog. The legacy
              * menutick bg-transition (func0f0fa6ac) never completes
@@ -2663,6 +2651,11 @@ static s32 renderMainMenu(struct menudialog *dialog,
             playerUnpause();
             g_PlayersWithControl[0] = true;
             sysLogPrintf(LOG_NOTE, "MENU_IMGUI: game state restored — lvIsPaused=%d", lvIsPaused());
+            /* S304: menuPopDialog → menuCloseDialog → menupoolReleaseDialog
+             * releases the pool slot AND pops the owned ctx. If the stack
+             * is somehow already at depth=0 (force-close race), the
+             * underflow handler in menuPopDialog catches it with
+             * menupoolReleaseAll. Either way, no manual ctx pop needed. */
             menuPopDialog();
         }
     }

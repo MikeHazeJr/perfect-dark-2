@@ -7,6 +7,54 @@
 
 ---
 
+## Open — 2026-04-16 (S304 — focused-roentgen)
+
+### Playtest verification of B-160 (menu pool slot leak + darkened/dead main menu)
+
+Build: `PerfectDark.exe` 51,563,427 / `PerfectDarkServer.exe` 22,837,840 bytes. Files touched: `src/game/menu.c`, `src/game/menutick.c`, `src/include/game/menu.h`, `port/fast3d/pdgui_menu_mainmenu.cpp`. Full write-up: `session-log.md` S304.
+
+**Primary repro — main menu reopen cycle (the user-reported bug)**:
+
+1. Launch client. In CI free-roam, open the main menu with whatever key / controller binding you normally use.
+2. Confirm log line: `MENUPOOL: acquired main_menu gen=1 def=<ptr> ctx=imgui_menu(owned)` (NOT `ctx=none(shared)` — after the migration the main menu now OWNS the ctx).
+3. Press Esc (or controller B) to close the menu. Confirm log line: `MENUPOOL: released main_menu gen=1 ctx=imgui_menu` (immediately, NOT at shutdown).
+4. Reopen the main menu. Confirm `MENUPOOL: acquired main_menu gen=2 ...` with a fresh generation number.
+5. Repeat 3-5× fast-open/fast-close cycles. Each cycle should be a clean `acquired` / `released` pair, generations should increment monotonically (2, 3, 4, 5).
+6. ABSENCE of these log lines is the health signal:
+    - `MENU: menuPopDialog called at depth 0 (underflow)` — underflow was the leak trigger; should not appear on normal close
+    - `MENU: menuPushDialog rejected — pool slot [main_menu] already active` — this was the user-visible symptom (menu stays darkened / can't reopen)
+    - `MENU: watchdog — legacy stack empty but N pool slot(s) active` — the per-frame consistency check; any occurrence means a close path we haven't yet wired is leaking slots (auto-recovered, but identifies the path for follow-up)
+
+**Stress test — force-close paths (the underflow fallback)**:
+
+- Open main menu → wait for CI free-roam timer to tick into a scripted transition (if any). Confirm no leak warning.
+- Open main menu → trigger a "Quit to Title" or "Quit to Main Menu" path if available. Confirm clean release in log.
+- Open main menu → click "Combat Simulator" → click "Start Match" (triggers `matchStart` → `menuStop` → stage transition). Expect a `MENUPOOL: released N slot(s) (bulk)` from the force-close site; NOT the watchdog warning.
+
+**Stress test — rapid reopen**:
+
+- Open / close / open / close the main menu as fast as possible (mash Esc + Menu-open key). No stuck state, no double-render, no darkened backdrop, no rejected pool warnings.
+
+**Switching around — the original user scenario**:
+
+- Open main menu → click Settings tab → back to main → click Modding tab → back to main → click Online Play → back to main → Esc to close → reopen. Cycle through each sub-view at least twice. Same health signal as primary repro.
+
+### Watchdog diagnostic interpretation
+
+If the watchdog DOES fire (`MENU: watchdog — legacy stack empty but N pool slot(s) active`), the immediately-following `MENUPOOL dump:` lines identify the leaked slot(s). Common expected scenarios:
+
+- `MENUPOOL dump: [main_menu] gen=N def=<ptr> ctx=<ctx>` — main menu close path bypassed `menuPopDialog` somehow. Trace the sequence of log lines in the ~10 frames before the watchdog fired.
+- `MENUPOOL dump: [ci_options] gen=N ...` — a CI Options sub-dialog close bypassed pool release (these are still on the raw ctx pattern, see "Not fixed in this session" in S304).
+- `MENUPOOL dump: [cheats]` or other migrated-renderer slot — S300 pattern regression. Should not happen after S300.
+
+### Follow-up queued from S304
+
+- **Migrate remaining mainmenu.cpp renderers to S300 pattern** — `renderCiSettingsRedirect` (line 3170+), `renderCiDeadPlayer2` (line 3249+), `renderCinemaList` (line 3358+) still use raw `inputCtxPush/Pop` around `menuPopDialog`. Same leak class as the main menu was; the S304 watchdog will catch any resulting leak, but proper migration removes the raw pattern.
+- **Audit `menuPushRootDialog` pool hygiene** — `src/game/menu.c:3733-3736` zeroes `g_Menus[].numdialogs = 0; depth = 0;` without consulting the pool. Any active pool slots survive the root push. The S304 watchdog auto-recovers, but a principled fix is `menupoolReleaseAll()` at the top of `menuPushRootDialog` (or, better, treat root push as a stage-transition-class reset and route it through the existing reset helpers).
+- **Underflow root-cause tracing** — the S304 fix treats underflow as a leak-recovery point, but doesn't identify WHICH caller triggered the underflow. A short-lived diagnostic patch could add a `sysLogCallerHint` line (file + function name of caller) to help pinpoint the origin in a future playtest.
+
+---
+
 ## Open — 2026-04-16 (S303 — reverent-chatelet)
 
 ### Playtest verification of S303 game-loop sweep

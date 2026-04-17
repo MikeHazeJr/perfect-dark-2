@@ -93,6 +93,14 @@ void menuTick(void)
 	g_ScaleX = g_ViRes == VIRES_HI ? 2 : 1;
 #endif
 
+	/* S304: detect stale pool slots once per frame. If the legacy stack is
+	 * empty but the pool still has active slots (leaked by a close path that
+	 * bypassed menuCloseDialog — underflowing menuPopDialog, a direct
+	 * menuClose, menuPushRootDialog's blanket reset, or a force-close site
+	 * that forgot menupoolReleaseAll), the slots are released with a WARNING
+	 * so the next menu open isn't rejected by pool dedup. */
+	menuPoolConsistencyCheck();
+
 	menuTickTimers();
 
 	if (g_MenuData.count) {
