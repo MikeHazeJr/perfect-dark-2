@@ -1,4 +1,5 @@
 #include "versions.h"
+#include <stdlib.h>
 #include <ultra64.h>
 #include "constants.h"
 #include "game/bossfile.h"
@@ -5259,7 +5260,7 @@ void pakConvertFromGbcImage(u8 *src, u8 *dst)
  */
 void pak0f11d9c4(s8 device, u8 *arg1, u8 *arg2, u32 arg3)
 {
-	u8 sp60[0x4000];
+	u8 *sp60 = malloc(0x4000);
 	u32 i;
 	u32 j;
 
@@ -5331,6 +5332,8 @@ void pak0f11d9c4(s8 device, u8 *arg1, u8 *arg2, u32 arg3)
 			}
 		}
 	}
+
+	free(sp60);
 }
 
 #if VERSION >= VERSION_NTSC_1_0

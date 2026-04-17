@@ -3015,9 +3015,10 @@ char *menuitemScrollableGetText(u32 type)
  */
 Gfx *menuitemScrollableRender(Gfx *gdl, struct menurendercontext *context)
 {
-	char alltext[8000] = "";
-	char headingtext[8000];
-	char bodytext[8000];
+	static char alltext[8000];
+	static char headingtext[8000];
+	static char bodytext[8000];
+	alltext[0] = '\0';
 	bool prevwaslinebreak;
 	char *streams[2];
 	char *inptr;
@@ -3130,7 +3131,8 @@ bool menuitemScrollableTick(struct menuitem *item, struct menudialog *dialog, st
 #else
 	if ((s16)dialog->height != data->scrollable.dialogheight) {
 #endif
-		char wrapped[8000] = "";
+		static char wrapped[8000];
+		wrapped[0] = '\0';
 		char *rawtext;
 		s32 width;
 		s32 height;

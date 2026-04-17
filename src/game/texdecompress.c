@@ -158,9 +158,9 @@ s32 texInflateZlib(u8 *src, u8 *dst, bool hasloddata, s32 numlods, struct texpoo
 	u8 *loddst;
 	u8 *lodsrc;
 	s32 lod;
-	u8 scratch2[0x800];
+	static u8 scratch2[0x800];
 	u16 palette[256];
-	u8 scratch[5120];
+	static u8 scratch[5120];
 
 	writetocache = false;
 	totalbytesout = 0;
@@ -674,8 +674,8 @@ s32 texFindClosestColourIndexIA(u16 *palette, s32 numcolours, s32 intensity, s32
  */
 s32 texInflateNonZlib(u8 *src, u8 *dst, bool hasloddata, s32 numlods, struct texpool *pool, bool unusedarg)
 {
-	u8 scratch[0x2000];
-	u8 lookup[0x1000];
+	static u8 scratch[0x2000];
+	static u8 lookup[0x1000];
 	u32 stack;
 	s32 i;
 	s32 numimages;

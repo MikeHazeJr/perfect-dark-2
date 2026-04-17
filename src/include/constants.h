@@ -81,7 +81,7 @@
 #define ALIGN2(val)         (((val) | 1) ^ 0x1)
 #define ALIGN4(val)         (((val) | 3) ^ 0x3)
 #define ALIGN8(val)         ((((val) + 0x7) | 0x7) ^ 0x7)
-#define ALIGN16(val)        ((((val) + 0xf) | 0xf) ^ 0xf)
+#define ALIGN16(val)        (val)
 #define ALIGN64(val)        (((((uintptr_t)(val)) + 0x3f) | 0x3f) ^ 0x3f)
 #define ARRAYCOUNT(a)       (s32)(sizeof(a) / sizeof(a[0]))
 #define CHRNAVSEED(chr)     ((g_Vars.lvframe60 >> 9) * 128 + chr->chrnum * 8)
