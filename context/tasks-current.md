@@ -7,6 +7,21 @@
 
 ---
 
+## Done — 2026-04-17 (S354 — Forge Runtime Wire-In: Props, Weapons, Geometry, Doors, Zones, `practical-varahamihira-3b5f5d`)
+
+**Build verified.** Single file change: `port/src/forge/forge_runtime.c` (+358/-27).
+
+Wired the remaining Forge (The Grid) object types into the live engine:
+- **WEAPON_PAD**: `s_spawn_weapon_pad()` — catalog resolve → `weaponCreate` → `func0f08ae0c` → `modelSetScale(1.0f)` → `setup0f0923d4`.
+- **PROP / GEOMETRY / INTERACTABLE**: `s_spawn_prop()` — catalog resolve → `objInit` from MEMPOOL_STAGE pool → `modelSetScale(1.0f)` → `setup0f0923d4`. Collision auto-generated from model bbox.
+- **ZONE**: `s_register_zone()` stores in `s_zone_rt[]`; per-tick edge-triggered enter/exit in `forgeRuntimeTick` fires `forgeChannelSet` + `forgeLogicFireEvent`. Teleporter type directly sets player position.
+- **DOOR**: Catalog entries spawn as static props (visual only). Full `doorobj` pool lifecycle deferred to separate session.
+
+New state: `s_prop_pool` (MEMPOOL_STAGE, 64 slots), `s_prop_count`, `s_zone_rt[128]`, `s_zone_count`.
+New includes: `game/propobj.h`, `game/modeldef.h`, `game/setuputils.h`, `lib/model.h`, `lib/memp.h`.
+
+---
+
 ## Done — 2026-04-17 (S353 — Prop Sync Event-Driven + Killfeed Verification, `pedantic-saha-8d7ff0`)
 
 **Build verified.** Clean 585/585 (dev). `PerfectDark.exe` 52,772,152 / `PerfectDarkServer.exe` 22,924,028.
@@ -28,6 +43,7 @@ D5 Phase 5 portrait system wired into `pdgui_menu_room.cpp` (+276 LOC / -43 LOC)
 - **Join fade-in**: `s_LobbyPortraitAlpha[]` ramps 0→1 over ~25 frames per slot.
 - **Lifecycle**: reset on every room open (`IsWindowAppearing`) and `pdguiRoomScreenReset`; portrait invalidated when player's body/head IDs change.
 - **Solo mode**: baking skipped; initials placeholder; instant alpha.
+
 ---
 
 ## Done — 2026-04-17 (S353 — Prop Sync Event-Driven + Killfeed Bot Kills, `quizzical-murdock-95eb09`)
@@ -36,6 +52,7 @@ D5 Phase 5 portrait system wired into `pdgui_menu_room.cpp` (+276 LOC / -43 LOC)
 
 - **Prop sync**: Replaced CRC polling (`netPropSyncChecksum` + `SVC_PROP_SYNC` write) with per-prop `{hidden, damage}` snapshot dirty detection. Server now only triggers `NET_RESYNC_FLAG_PROPS` when a prop actually diverged. `SVC_PROP_SYNC` read handler still consumes bytes for old-server compat.
 - **Killfeed bot kills**: Fixed gap where `mpstatsRecordDeath` never broadcast kill events to network clients. `netDistribSendKillFeed` now called from both suicide and normal kill paths (server only). `SVC_LOBBY_KILL_FEED` extended to reach `CLSTATE_GAME` clients. Client-side read handler now calls `pdguiKillfeedPush` with team lookup from `g_MpAllChrConfigPtrs[]`.
+
 ---
 
 ## Done — 2026-04-17 (S351 — D5 Phase 4: UI Texture Mod Overrides, `dazzling-heisenberg-f84acc`)
