@@ -57,6 +57,7 @@
 #include "utils.h"
 #if !defined(PD_SERVER)
 #include "pdgui.h"
+#include "pdgui_hud.h"
 #include "inputctx.h"
 #include "menupool.h"
 #endif
@@ -115,16 +116,97 @@ struct match_countdown_state g_MatchCountdownState;
  * "[Name] cancelled the match start". */
 struct match_cancelled_state g_MatchCancelledState;
 
-/* Desync tracking state (client-side) */
+/* Desync tracking state (client-side, CHR and NPC only) */
 static u32 g_NetChrDesyncCount = 0;
 static u32 g_NetChrResyncLastReq = 0;
-static u32 g_NetPropDesyncCount = 0;
-static u32 g_NetPropResyncLastReq = 0;
 static u32 g_NetNpcDesyncCount = 0;
 static u32 g_NetNpcResyncLastReq = 0;
 
 /* Server-side resync request tracking (set by CLC_RESYNC_REQ, consumed by netEndFrame in net.c) */
 u8 g_NetPendingResyncFlags = 0;
+
+/* ========================================================================
+ * Prop snapshot — event-driven dirty detection (server-side).
+ * Replaces SVC_PROP_SYNC CRC polling. The server records what hidden/damage
+ * state it last broadcast for each sync-prop and detects out-of-band
+ * changes via netPropDirtyCheck(). Cheaper than XOR CRC: one comparison
+ * per prop, no rolling hash, and only triggers SVC_PROP_RESYNC when
+ * something actually changed.
+ * ======================================================================== */
+
+#define PROP_SNAP_MAX 128
+
+typedef struct {
+	u32 syncid;
+	u32 hidden;
+	s16 damage;
+} PropStateSnap;
+
+static PropStateSnap s_PropSnaps[PROP_SNAP_MAX];
+static s32           s_PropSnapCount = 0;
+
+void netPropSnapReset(void)
+{
+	s_PropSnapCount = 0;
+}
+
+static void netPropSnapUpdate(struct prop *prop)
+{
+	if (!prop || !prop->syncid || !prop->obj) return;
+	for (s32 i = 0; i < s_PropSnapCount; i++) {
+		if (s_PropSnaps[i].syncid == prop->syncid) {
+			s_PropSnaps[i].hidden = prop->obj->hidden;
+			s_PropSnaps[i].damage = prop->obj->damage;
+			return;
+		}
+	}
+	if (s_PropSnapCount < PROP_SNAP_MAX) {
+		s_PropSnaps[s_PropSnapCount].syncid = prop->syncid;
+		s_PropSnaps[s_PropSnapCount].hidden = prop->obj->hidden;
+		s_PropSnaps[s_PropSnapCount].damage = prop->obj->damage;
+		s_PropSnapCount++;
+	}
+}
+
+int netPropDirtyCheck(void)
+{
+	int dirty = 0;
+	struct prop *prop = g_Vars.activeprops;
+	while (prop) {
+		if (prop->syncid && prop->type == PROPTYPE_OBJ && prop->obj) {
+			u8 objtype = prop->obj->type;
+			if (objtype == OBJTYPE_AUTOGUN || objtype == OBJTYPE_DOOR   ||
+			    objtype == OBJTYPE_LIFT    || objtype == OBJTYPE_HOVERPROP ||
+			    objtype == OBJTYPE_HOVERBIKE || objtype == OBJTYPE_HOVERCAR ||
+			    objtype == OBJTYPE_GLASS   || objtype == OBJTYPE_TINTEDGLASS) {
+				s32 found = 0;
+				for (s32 i = 0; i < s_PropSnapCount; i++) {
+					if (s_PropSnaps[i].syncid == prop->syncid) {
+						if (s_PropSnaps[i].hidden != prop->obj->hidden ||
+						    s_PropSnaps[i].damage != prop->obj->damage) {
+							sysLogPrintf(LOG_NOTE,
+							    "NET.PROP: syncid=%u dirty hidden %u→%u damage %d→%d",
+							    prop->syncid,
+							    s_PropSnaps[i].hidden, prop->obj->hidden,
+							    (s32)s_PropSnaps[i].damage, (s32)prop->obj->damage);
+							s_PropSnaps[i].hidden = prop->obj->hidden;
+							s_PropSnaps[i].damage = prop->obj->damage;
+							dirty = 1;
+						}
+						found = 1;
+						break;
+					}
+				}
+				if (!found) {
+					netPropSnapUpdate(prop);
+					dirty = 1;
+				}
+			}
+		}
+		prop = prop->next;
+	}
+	return dirty;
+}
 
 /* Prop syncid → prop* lookup map.
  * syncids are assigned as (prop - g_Vars.props + 1), so they're 1-indexed array offsets.
@@ -1790,6 +1872,7 @@ u32 netmsgSvcPropMoveWrite(struct netbuf *dst, struct prop *prop, struct coord *
 		}
 	}
 
+	netPropSnapUpdate(prop);
 	netbufWriteU8(dst, SVC_PROP_MOVE);
 	netbufWriteU8(dst, flags);
 	netbufWritePropPtr(dst, prop);
@@ -2223,6 +2306,7 @@ u32 netmsgSvcPropDamageWrite(struct netbuf *dst, struct prop *prop, f32 damage, 
 	if (!prop || !prop->obj) {
 		return dst->error;
 	}
+	netPropSnapUpdate(prop);
 	netbufWriteU8(dst, SVC_PROP_DAMAGE);
 	netbufWritePropPtr(dst, prop);
 	netbufWriteCoord(dst, pos);
@@ -2352,6 +2436,7 @@ u32 netmsgSvcPropDoorWrite(struct netbuf *dst, struct prop *prop, struct netclie
 
 	struct doorobj *door = prop->door;
 
+	netPropSnapUpdate(prop);
 	netbufWriteU8(dst, SVC_PROP_DOOR);
 	netbufWritePropPtr(dst, prop);
 	netbufWriteU8(dst, usercl ? usercl->id : NET_NULL_CLIENT);
@@ -2410,6 +2495,7 @@ u32 netmsgSvcPropLiftWrite(struct netbuf *dst, struct prop *prop)
 
 	struct liftobj *lift = (struct liftobj *)prop->obj;
 
+	netPropSnapUpdate(prop);
 	netbufWriteU8(dst, SVC_PROP_LIFT);
 	netbufWritePropPtr(dst, prop);
 	netbufWriteS8(dst, lift->levelcur);
@@ -2931,94 +3017,18 @@ u32 netmsgSvcChrSyncRead(struct netbuf *src, struct netclient *srccl)
 }
 
 /**
- * Compute a rolling checksum over active props that have syncids.
- * Covers autoguns, doors, lifts, and hover vehicles — the key dynamic
- * entity types whose state must agree between server and clients.
+ * SVC_PROP_SYNC (0x37) — legacy CRC-based prop desync detection.
+ * No longer sent by the server. Replaced by snapshot-based dirty detection
+ * (netPropDirtyCheck) which avoids the O(N) XOR-rotate CRC computation and
+ * only triggers SVC_PROP_RESYNC when prop hidden/damage state actually changes.
+ * Read handler retained for backward-compat with old server versions.
  */
-static u32 netPropSyncChecksum(u32 *out_count)
-{
-	u32 crc = 0;
-	u32 count = 0;
-
-	struct prop *prop = g_Vars.activeprops;
-	while (prop) {
-		if (prop->syncid && prop->type == PROPTYPE_OBJ && prop->obj) {
-			struct defaultobj *obj = prop->obj;
-			u8 objtype = obj->type;
-
-			// Only checksum the entity types we care about for sync
-			if (objtype == OBJTYPE_AUTOGUN || objtype == OBJTYPE_DOOR ||
-				objtype == OBJTYPE_LIFT || objtype == OBJTYPE_HOVERPROP ||
-				objtype == OBJTYPE_HOVERBIKE || objtype == OBJTYPE_HOVERCAR ||
-				objtype == OBJTYPE_GLASS || objtype == OBJTYPE_TINTEDGLASS) {
-
-				u32 px = *(u32 *)&prop->pos.x;
-				u32 py = *(u32 *)&prop->pos.y;
-				u32 pz = *(u32 *)&prop->pos.z;
-				u32 hf = obj->hidden;
-				u32 dm = (u32)obj->damage;
-
-				crc ^= px ^ (py << 5) ^ (pz << 11) ^ (hf << 17) ^ (dm << 23) ^ ((u32)objtype << 28);
-				crc = (crc << 7) | (crc >> 25);
-				++count;
-			}
-		}
-		prop = prop->next;
-	}
-
-	if (out_count) {
-		*out_count = count;
-	}
-	return crc;
-}
-
-u32 netmsgSvcPropSyncWrite(struct netbuf *dst)
-{
-	u32 propcount = 0;
-	u32 checksum = netPropSyncChecksum(&propcount);
-
-	netbufWriteU8(dst, SVC_PROP_SYNC);
-	netbufWriteU32(dst, g_NetTick);
-	netbufWriteU16(dst, (u16)propcount);
-	netbufWriteU32(dst, checksum);
-	return dst->error;
-}
-
 u32 netmsgSvcPropSyncRead(struct netbuf *src, struct netclient *srccl)
 {
-	const u32 tick = netbufReadU32(src);
-	const u16 serverCount = netbufReadU16(src);
-	const u32 serverCrc = netbufReadU32(src);
-
-	if (src->error || srccl->state < CLSTATE_GAME) {
-		return src->error;
-	}
-
-	u32 localCount = 0;
-	u32 localCrc = netPropSyncChecksum(&localCount);
-
-	if (serverCount != localCount) {
-		sysLogPrintf(LOG_WARNING, "NET: prop sync count mismatch at tick %u: server=%u local=%u",
-			tick, serverCount, localCount);
-		g_NetPropDesyncCount++;
-	} else if (localCrc != serverCrc) {
-		sysLogPrintf(LOG_WARNING, "NET: prop desync detected at tick %u: server=0x%08x local=0x%08x (%u props)",
-			tick, serverCrc, localCrc, localCount);
-		g_NetPropDesyncCount++;
-	} else {
-		g_NetPropDesyncCount = 0;
-	}
-
-	// After consecutive desyncs, request full resync from server.
-	// Same pending-flag pattern as chr sync above — direct write here would be dropped by netStartFrame.
-	if (g_NetPropDesyncCount >= NET_DESYNC_THRESHOLD &&
-		(g_NetTick - g_NetPropResyncLastReq) > NET_RESYNC_COOLDOWN) {
-		sysLogPrintf(LOG_WARNING, "NET: requesting prop resync after %u consecutive desyncs", g_NetPropDesyncCount);
-		g_NetPendingResyncReqFlags |= NET_RESYNC_FLAG_PROPS;
-		g_NetPropResyncLastReq = g_NetTick;
-		g_NetPropDesyncCount = 0;
-	}
-
+	(void)srccl;
+	netbufReadU32(src);  /* tick */
+	netbufReadU16(src);  /* propcount */
+	netbufReadU32(src);  /* legacy CRC — no longer compared */
 	return src->error;
 }
 
@@ -3381,11 +3391,7 @@ u32 netmsgSvcPropResyncRead(struct netbuf *src, struct netclient *srccl)
 
 	sysLogPrintf(LOG_NOTE, "NET: received prop resync at tick %u for %u props", tick, count);
 
-	/* FIX-PLAYTEST-2: If server sends 0 props (dedicated server has no stage
-	 * loaded), reset the desync counter to stop the 6-second resync spam loop.
-	 * Prop sync should be event-driven (pickup/door interactions), not polled. */
 	if (count == 0) {
-		g_NetPropDesyncCount = 0;
 		return src->error;
 	}
 
@@ -3465,9 +3471,6 @@ u32 netmsgSvcPropResyncRead(struct netbuf *src, struct netclient *srccl)
 			lift->levelaim = lift_levelaim;
 		}
 	}
-
-	// Reset desync counter — we just got a fresh full state
-	g_NetPropDesyncCount = 0;
 
 	return src->error;
 }
@@ -5289,11 +5292,35 @@ u32 netmsgSvcLobbyKillFeedRead(struct netbuf *src, struct netclient *srccl)
 
 	if (src->error) return src->error;
 
-	netDistribClientHandleKillFeed(
-		attacker ? attacker : "",
-		victim   ? victim   : "",
-		weapon   ? weapon   : "",
-		flags);
+	const char *aname = attacker ? attacker : "";
+	const char *vname = victim   ? victim   : "";
+
+	netDistribClientHandleKillFeed(aname, vname, weapon ? weapon : "", flags);
+
+#if !defined(PD_SERVER)
+	/* Also push to in-game HUD killfeed (displayed during CLSTATE_GAME).
+	 * Server-side kills now broadcast SVC_LOBBY_KILL_FEED to all clients
+	 * (spectators and players), so in-game clients see all kills including
+	 * bot-on-bot and bot-on-player. Look up team colours from local chr config. */
+	{
+		s32 isSuicide = (!aname[0] || strcmp(aname, vname) == 0);
+		u8 ateam = 0, vteam = 0;
+		for (s32 i = 0; i < g_MpNumChrs; i++) {
+			if (g_MpAllChrConfigPtrs[i]) {
+				if (!isSuicide && aname[0] &&
+				    strcmp(g_MpAllChrConfigPtrs[i]->name, aname) == 0) {
+					ateam = (u8)g_MpAllChrConfigPtrs[i]->team;
+				}
+				if (vname[0] &&
+				    strcmp(g_MpAllChrConfigPtrs[i]->name, vname) == 0) {
+					vteam = (u8)g_MpAllChrConfigPtrs[i]->team;
+				}
+			}
+		}
+		pdguiKillfeedPush(isSuicide ? NULL : aname, ateam, vname, vteam, isSuicide);
+	}
+#endif
+
 	return src->error;
 }
 

@@ -344,6 +344,13 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 		if (g_Vars.normmplayerisrunning && vmpchr) {
 			pdguiKillfeedPush(NULL, 0, vmpchr->name, vmpchr->team, 1);
 		}
+		{
+			extern s32 g_NetMode;
+			extern void netDistribSendKillFeed(const char *, const char *, const char *, u8);
+			if (g_NetMode == NETMODE_SERVER && vmpchr) {
+				netDistribSendKillFeed("", vmpchr->name, "", 0);
+			}
+		}
 
 		/* PC: track suicide in persistent stats */
 		if (vplayernum < PLAYERCOUNT()) {
@@ -398,6 +405,13 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 		if (g_Vars.normmplayerisrunning && ampchr && vmpchr) {
 			pdguiKillfeedPush(ampchr->name, ampchr->team,
 			                  vmpchr->name, vmpchr->team, 0);
+		}
+		{
+			extern s32 g_NetMode;
+			extern void netDistribSendKillFeed(const char *, const char *, const char *, u8);
+			if (g_NetMode == NETMODE_SERVER && ampchr && vmpchr) {
+				netDistribSendKillFeed(ampchr->name, vmpchr->name, "", 0);
+			}
 		}
 
 		if (aplayernum >= 0 && aplayernum < PLAYERCOUNT()) {

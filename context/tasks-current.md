@@ -7,6 +7,15 @@
 
 ---
 
+## Done — 2026-04-17 (S353 — Prop Sync Event-Driven + Killfeed Bot Kills, `quizzical-murdock-95eb09`)
+
+**Build verified.** Clean 774/774 objects, zero errors.
+
+- **Prop sync**: Replaced CRC polling (`netPropSyncChecksum` + `SVC_PROP_SYNC` write) with per-prop `{hidden, damage}` snapshot dirty detection. Server now only triggers `NET_RESYNC_FLAG_PROPS` when a prop actually diverged. `SVC_PROP_SYNC` read handler still consumes bytes for old-server compat.
+- **Killfeed bot kills**: Fixed gap where `mpstatsRecordDeath` never broadcast kill events to network clients. `netDistribSendKillFeed` now called from both suicide and normal kill paths (server only). `SVC_LOBBY_KILL_FEED` extended to reach `CLSTATE_GAME` clients. Client-side read handler now calls `pdguiKillfeedPush` with team lookup from `g_MpAllChrConfigPtrs[]`.
+
+---
+
 ## Done — 2026-04-17 (S351 — D5 Phase 4: UI Texture Mod Overrides, `dazzling-heisenberg-f84acc`)
 
 **Build verified.** Clean 585/585 objects, zero errors.
