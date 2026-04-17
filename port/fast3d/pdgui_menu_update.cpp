@@ -265,7 +265,7 @@ static void renderRestartPrompt(void)
 			quitEvent.type = SDL_QUIT;
 			SDL_PushEvent(&quitEvent);
 		}
-		ImGui::SameLine(0, 16);
+		ImGui::SameLine(0, pdguiScale(16.0f));
 		if (ImGui::Button("Later", ImVec2(btnWidth, 0))) {
 			s_RestartPrompt = false;
 		}
@@ -297,12 +297,12 @@ static void renderVersionPickerContent(float tableH, float changelogH)
 	}
 
 	ImGui::Text("Current version: %s", curstr);
-	ImGui::SameLine(0, 16);
+	ImGui::SameLine(0, pdguiScale(16.0f));
 
 	/* Channel selector */
 	update_channel_t channel = updaterGetChannel();
 	const char *channelLabels[] = { "Stable", "Dev / Test" };
-	ImGui::SetNextItemWidth(120);
+	ImGui::SetNextItemWidth(pdguiScale(120.0f));
 	int channelInt = (int)channel;
 	if (ImGui::Combo("Channel##upd", &channelInt, channelLabels, 2)) {
 		updaterSetChannel((update_channel_t)channelInt);

@@ -7,6 +7,38 @@
 
 ---
 
+## Open — 2026-04-17 (S312 batch 2 — font/UI scaling + controller tab-cycle + border audit)
+
+### Playtest verification
+
+Three renderers touched; no user-visible regression expected.  Verify:
+
+- **Input Mapping** (Settings → Controls → Keyboard & Mouse / Controller)
+  on 1440p + 4K — search box, group headers, and row cells should look
+  proportional; before the fix the box stayed at 260px regardless of
+  display resolution.  Row height/padding at high DPI should no longer
+  feel cramped (table cell/frame/item padding now scales).
+- **Updates tab** (Settings → Updates) on 1440p + 4K — "Channel" combo
+  width and horizontal spacing between the current-version text and the
+  combo should scale with DPI.  Restart prompt's "Restart Now / Later"
+  buttons should separate proportionally.
+- **Mod Manager tab cycling** (Modding Hub → Mod Manager) with a
+  controller connected — LB/RB should cycle Installed Mods → By Category
+  → By Mod and back.  The three-tab bumper cycle should be round-robin.
+
+### Follow-up queued from S312 batch 2
+
+- **Wire pdgui_glyphs into in-world prompts** (still open from batch 1):
+  pickup / door interact / forge HUD controls reminder.
+- **Font-atlas rebuild on runtime font swap** — atlas built once at
+  `pdguiInit`; runtime swap needs a rebuild or early-pick to take
+  effect without restart.
+- **Theme Editor mini-preview content-inset** — mini dialog in the
+  preview swatch doesn't use content-inset; it uses fixed headerH.
+  Cosmetic-only.
+
+---
+
 ## Open — 2026-04-17 (S313 marathon follow-up batch -- `great-robinson-15f409` worktree, merged to dev)
 
 Three commits on top of the S311/S312/S313 three-way merge:
