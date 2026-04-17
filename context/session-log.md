@@ -4,6 +4,36 @@
 > **S241–S316** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S319 — 2026-04-17 (Spurious STAGE_DEFECTION boot transition fix — `nostalgic-lichterman-3c1259` worktree)
+
+**Scope**: Root-cause the double-transition `STAGE_DEFECTION (0x30) → STAGE_CITRAINING (0x26)` logged on every cold boot. The crash guard added in S317 addendum was defense-in-depth; this session eliminates the bad transition at the source.
+
+### Root cause
+
+`titleInitRareLogo()` (`src/game/title.c:2025`) sets `g_IsTitleDemo = true` when `!g_IsTitleDemo && IS8MB()`. On PC, `IS8MB()` is compile-time `1` (see `constants.h:92`). This means **every cold boot** activates demo mode, which then routes through `titleInitSkip` with `g_TitleNextStage = STAGE_DEFECTION`, firing `mainChangeToStage(0x30)`. The `TITLEMODE_SKIP` tick immediately detects `g_IsTitleDemo` and overrides to CI Training, firing `mainChangeToStage(0x26)` — causing the "MAIN: replacing pending stage change 0x30 -> 0x26" warning and a brief double-load of the Defection stage manifest.
+
+On N64 the demo was a real pre-recorded playback only available with the 8MB expansion pak. On PC there is no demo recording system, so the IS8MB() branch was vestigial dead code causing the bad transition every boot.
+
+### Fix
+
+Removed the `if (!g_IsTitleDemo && IS8MB()) { g_IsTitleDemo = true; }` block from `titleInitRareLogo()`. `g_IsTitleDemo` is now never set to `true` during boot. `titleInitSkip` routes directly to `STAGE_CITRAINING` without the intermediate DEFECTION transition.
+
+### Commit
+
+| SHA | Scope |
+|-----|-------|
+| `(this commit)` | **fix(title): remove IS8MB demo-init — eliminates spurious STAGE_DEFECTION on every cold boot** |
+
+### Files touched
+
+- `src/game/title.c:2025-2027` — removed IS8MB demo-activation block; replaced with comment
+
+### Build verify
+
+`ninja -C Build pd` — clean. PerfectDark.exe 52,530,547 (only pre-existing warnings).
+
+---
+
 ## Session S316 — 2026-04-17 (ROM hash cache path fix + crash investigation — `nostalgic-lichterman-3c1259` worktree)
 
 **Scope**: Urgent crash report — Mike's second PC crashes at startup (stage 0x26 CI Training bodiesReset) after removing `.sha256` files from the game folder.
