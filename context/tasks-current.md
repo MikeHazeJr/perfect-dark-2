@@ -7,9 +7,6 @@
 
 ---
 
-<<<<<<< HEAD
-## Open — 2026-04-17 (S318 — B-161 class bbox/modeldef NULL sweep)
-=======
 ## Open — 2026-04-17 (S319 — spurious boot transition fix)
 
 ### Playtest verification
@@ -18,8 +15,7 @@
 
 ---
 
-## Open — 2026-04-17 (S316 — ROM hash path fix + crash triage)
->>>>>>> claude/nostalgic-lichterman-3c1259
+## Open — 2026-04-17 (S318 — B-161 class bbox/modeldef NULL sweep)
 
 ### Playtest verification
 
