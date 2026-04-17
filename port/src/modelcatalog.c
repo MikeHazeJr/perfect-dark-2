@@ -455,11 +455,15 @@ void catalogValidateAll(void)
 	}
 
 	/* Guard: model loading allocates via mempAlloc(MEMPOOL_STAGE), which
-	 * requires mempSetHeap() to have been called. If the stage pool has
-	 * zero free bytes, the pool system isn't initialized yet. */
-	if (mempGetStageFree() == 0) {
-		sysLogPrintf(LOG_ERROR, "CATALOG: catalogValidateAll() called before mempSetHeap() — "
-		             "model loading requires the pool allocator. Skipping validation.");
+	 * requires mempSetHeap() + mempResetPool(MEMPOOL_STAGE) to have been called.
+	 * mempGetNextStageAllocation() returns NULL when leftpos==0 (pool disabled),
+	 * which is correct both before mempSetHeap and between mempSetHeap and
+	 * mempResetPool(MEMPOOL_STAGE). getStageFree()==0 was the pre-M5 check;
+	 * with M5's dedicated regions, rightpos is non-zero even when leftpos is NULL,
+	 * so that check would silently pass too early. */
+	if (mempGetNextStageAllocation() == NULL) {
+		sysLogPrintf(LOG_ERROR, "CATALOG: catalogValidateAll() called before stage pool ready — "
+		             "model loading requires mempResetPool(MEMPOOL_STAGE). Skipping validation.");
 		return;
 	}
 

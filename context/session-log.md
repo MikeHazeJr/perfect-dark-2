@@ -4,6 +4,51 @@
 > **S281–S341** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S343 — 2026-04-17 (`bold-pascal-bc7b8c` worktree)
+
+**Scope**: Audit session. Wave 2 retrospective — S337 (dev-window-v2 fixes) and S338 (memory M5+M6). Find bugs, gaps, and missing improvements. Fix anything found. Build verify.
+
+### S337 Audit — Dev Window v2 (CLEAN)
+
+All four key concerns verified correct:
+
+1. **Prune button disabled during builds**: Double-protected — `BtnPruneWorktrees.IsEnabled = $false` set in `Start-Build` (line 1630) and Release flow (line 1704); also runtime guard in `Invoke-GitPruneWorktrees` checks `$script:IsBuilding -or $script:IsPushing` and shows a blocking message box. Re-enabled in `Stop-Build` and all early-exit paths.
+
+2. **StatusWorktrees on MainTimer**: `Update-StatusBar` (every 2s when not building) runs `git worktree list --porcelain` in a background runspace and updates `StatusWorktrees` label. Also called after prune completes. ✓
+
+3. **UpdateLayout before ProgressFill.Width**: Both `Start-Build` and Release flow: set `Width=0`, call `ProgressBack.UpdateLayout()`, read `ActualWidth`, then set `Width = Floor(actual * 0.12)`. Correct sequence. ✓
+
+4. **Progress bar stale state**: `ProgressBack.Visibility = Collapsed` in `Stop-Build`; `LblProgressText.Text = "0% - ..."` and `ProgressFill.Width = 0` reset in `Start-Build-Step`. No stale state path found. ✓
+
+No changes made to dev-window-v2.ps1.
+
+### S338 Audit — Memory M5+M6
+
+Correct items verified:
+
+- **Region math**: 16+40+4 = 60 MB of 64 MB heap. 4 MB remainder explicitly noted as unassigned.
+- **mempResetPool(STAGE) isolation**: With M5 dedicated regions, resetting STAGE only moves `STAGE.leftpos` back to `STAGE.start` — PERMANENT region unaffected.
+- **Lock balance**: All five mutation functions (mempAlloc, mempRealloc, mempResetPool, mempDisablePool, mempAllocFromRight) are correctly locked on every exit path.
+- **Server build**: Server has no `mempSetLockFns` call, so locks default to NULL (no-op); correct for single-threaded dedicated server. mempSetHeap is called via mainInit. Build clean.
+
+**BUG FIXED** — `port/src/modelcatalog.c:460`:
+
+The guard `mempGetStageFree() == 0` was written pre-M5 when uninitialized pools had `rightpos=0`, so `rightpos - leftpos = 0`. With M5 dedicated regions, `mempSetHeap` sets `rightpos = start + 40MB` immediately; `leftpos` stays 0 (pool disabled). So between `mempSetHeap()` and `mempResetPool(MEMPOOL_STAGE)`, `mempGetStageFree()` returns a huge value — not 0 — and the guard silently passes. If `catalogValidateAll()` were called in that window, model loading would AV with a null leftpos.
+
+Fix: changed to `mempGetNextStageAllocation() == NULL`. `mempGetNextStageAllocation()` returns `leftpos`, which is NULL whenever the pool is disabled (before `mempResetPool`), regardless of `rightpos`. This correctly guards both pre-mempSetHeap and post-mempSetHeap-pre-mempResetPool cases.
+
+In practice, `catalogValidateAll()` is only called lazily after the first stage load (which always follows `mempResetPool(MEMPOOL_STAGE)`), so no AV was observed — but the guard was wrong and latently unsafe.
+
+### Build
+
+Clean 773/773. PerfectDark.exe 52,785,163 / PerfectDarkServer.exe 22,904,202.
+
+### Next steps
+
+No follow-up issues identified. Both Wave 2 sessions were structurally sound except for the M5-stale guard in modelcatalog.c.
+
+---
+
 ## Session S341 — 2026-04-17 (`tender-borg-b2fc3b` worktree)
 
 **Scope**: Two-track session. Task A: per-agent gameplay prefs expansion. Task B: Asset Provider Phase 3 — fileLoadToNew migration.
