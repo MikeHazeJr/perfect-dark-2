@@ -2,6 +2,7 @@
 #include "lib/sched.h"
 #include "constants.h"
 #include "system.h"
+#include "crashbreadcrumb.h"
 #include "game/bondmove.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
@@ -2489,6 +2490,15 @@ s32 chrTick(struct prop *prop)
 				 * but we only track g_ChrSlots (bots/NPCs at runtime). */
 				g_ChrLastTickedIndex = (g_ChrSlots && chr >= g_ChrSlots)
 					? (s32)(chr - g_ChrSlots) : -1;
+				/* S301: breadcrumb each chrTick entry with slot + action so the
+				 * crash ring shows which chr/action was mid-tick at death.
+				 * At 32 bots * 60Hz = 1920 pushes/s, the ring holds ~130ms of
+				 * entries — exactly what we want for "what was the last chr
+				 * alive before the crash". */
+				crashBreadcrumbPush("CHR.TICK slot=%d chrnum=%d action=%d race=%d model=%p",
+					g_ChrLastTickedIndex, (int)chr->chrnum,
+					(int)chr->actiontype, (int)CHRRACE(chr),
+					(void *)chr->model);
 				chraTick(chr);
 				g_ChrLastTickedIndex = -1; /* clear: no longer in chraTick */
 

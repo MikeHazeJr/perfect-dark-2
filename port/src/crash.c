@@ -9,6 +9,7 @@
 #include <PR/ultratypes.h>
 #include "system.h"
 #include "platform.h"
+#include "crashbreadcrumb.h"
 
 #define CRASH_LOG_FNAME "pd.crash.log"
 #define CRASH_MAX_MSG 8192
@@ -196,6 +197,11 @@ static long __stdcall crashVectoredHandler(PEXCEPTION_POINTERS exinfo)
 			FILE *f = fopen(logpath, "ab");
 			if (f) {
 				fprintf(f, "%s", s_VehMsg);
+				/* S301: dump last ~64 breadcrumbs so the subsystem that
+				 * was executing at death is identifiable even without
+				 * symbols. All-static memory; safe on corrupt stack. */
+				fputs("CRASH.DIAG: breadcrumb ring dump follows:\n", f);
+				crashBreadcrumbDump(f, 64);
 				fclose(f);
 			}
 		}
@@ -236,7 +242,22 @@ static long __stdcall crashHandler(PEXCEPTION_POINTERS exinfo)
 		FILE *f = fopen(CRASH_LOG_FNAME, "wb");
 		if (f) {
 			fprintf(f, "Crash!\n\n%s", msg);
+			/* S301: append breadcrumbs to the standalone crash log */
+			fputs("\nCRASH.DIAG: breadcrumb ring dump follows:\n", f);
+			crashBreadcrumbDump(f, 128);
 			fclose(f);
+		}
+	} else {
+		/* S301: also append breadcrumbs to the main log file if it is
+		 * already open, so a single log contains exception + trail. */
+		const char *logpath = sysLogGetPath();
+		if (logpath && logpath[0]) {
+			FILE *f = fopen(logpath, "ab");
+			if (f) {
+				fputs("\nCRASH.DIAG: breadcrumb ring dump follows:\n", f);
+				crashBreadcrumbDump(f, 128);
+				fclose(f);
+			}
 		}
 	}
 
@@ -386,6 +407,20 @@ static void crashHandler(s32 sig, siginfo_t *siginfo, void *ctx)
 
 	crashStackTrace(msg, sig, pc);
 
+	/* S301: append breadcrumbs to the log so the subsystem trail
+	 * survives alongside the Linux stack trace. */
+	{
+		const char *logpath = sysLogGetPath();
+		if (logpath && logpath[0]) {
+			FILE *f = fopen(logpath, "ab");
+			if (f) {
+				fputs("\nCRASH.DIAG: breadcrumb ring dump follows:\n", f);
+				crashBreadcrumbDump(f, 128);
+				fclose(f);
+			}
+		}
+	}
+
 	sysFatalError("Crash!\n\n%s", msg);
 }
 
@@ -461,6 +496,10 @@ static void crashSigabrtHandler(int sig)
 		FILE *f = fopen(logpath, "ab");
 		if (f) {
 			fputs(s_AbrtMsg, f);
+			/* S301: dump last breadcrumbs so we see the execution trail
+			 * that led to the canary smash. */
+			fputs("CRASH.DIAG: breadcrumb ring dump follows:\n", f);
+			crashBreadcrumbDump(f, 64);
 			fclose(f);
 		}
 	}
@@ -478,6 +517,9 @@ static void crashSigabrtHandler(int sig)
 
 void crashInit(void)
 {
+	/* S301: initialise the breadcrumb ring before any push site can fire. */
+	crashBreadcrumbInit();
+
 #ifdef PLATFORM_WIN32
 	SetErrorMode(SEM_FAILCRITICALERRORS);
 	/* First-chance vectored handler: runs before the UEF, uses minimal stack.

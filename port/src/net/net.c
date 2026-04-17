@@ -39,6 +39,7 @@
 #include "lib/vi.h"
 #include "config.h"
 #include "system.h"
+#include "crashbreadcrumb.h"
 #include "console.h"
 #include "fs.h"
 #include "romdata.h"
@@ -651,7 +652,18 @@ s32 netStartServer(u16 port, s32 maxclients)
 
 void netServerStageStart(void)
 {
+	/* S301 Airbase diag: entry breadcrumb. If this fires but the
+	 * corresponding "netServerStageStart called" log does not appear
+	 * in pd-server.log, we bailed on the NETMODE_SERVER check (which
+	 * indicates we reached this path on a listen-client or dedicated
+	 * client — either wiring error). */
+	crashBreadcrumbPush("netServerStageStart entry mode=%d dedicated=%d",
+		(int)g_NetMode, (int)g_NetDedicated);
+
 	if (g_NetMode != NETMODE_SERVER) {
+		sysLogPrintf(LOG_WARNING,
+			"MATCHSTART.DIAG: netServerStageStart bailed — g_NetMode=%d (not SERVER=%d)",
+			(int)g_NetMode, (int)NETMODE_SERVER);
 		return;
 	}
 
@@ -677,8 +689,15 @@ void netServerStageStart(void)
 		}
 		sysLogPrintf(LOG_WARNING, "MATCH-START: netServerStageStart called, stage_id='%s', sending SVC_STAGE_START to %d clients",
 		             g_MpSetup.stage_id, clientCount);
+		/* S301 Airbase diag: same line under the MATCHSTART.DIAG: grep tag. */
+		sysLogPrintf(LOG_NOTE,
+			"MATCHSTART.DIAG: netServerStageStart stage='%s' clients=%d dedicated=%d room=0x%02x",
+			g_MpSetup.stage_id, clientCount, (int)g_NetDedicated,
+			(unsigned)g_NetMatchRoomId);
 		if (!g_MpSetup.stage_id[0]) {
 			sysLogPrintf(LOG_WARNING, "MATCH-START: WARNING stage_id is EMPTY at netServerStageStart");
+			sysLogPrintf(LOG_WARNING,
+				"MATCHSTART.DIAG: BAILED reason=empty_stage_id");
 		}
 	}
 
@@ -725,9 +744,16 @@ void netServerStageStart(void)
 	netmsgSvcStageStartWrite(&g_NetMsgRel);
 	if (g_NetMatchRoomId != 0xFF) {
 		netSendToRoom(g_NetMatchRoomId, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+		sysLogPrintf(LOG_NOTE,
+			"MATCHSTART.DIAG: SVC_STAGE_START sent to room 0x%02x (combat sim)",
+			(unsigned)g_NetMatchRoomId);
 	} else {
 		netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+		sysLogPrintf(LOG_NOTE,
+			"MATCHSTART.DIAG: SVC_STAGE_START broadcast to all clients (combat sim)");
 	}
+	crashBreadcrumbPush("SVC_STAGE_START sent mode=%d room=0x%02x",
+		(int)g_NetGameMode, (unsigned)g_NetMatchRoomId);
 
 	/* Dedicated server: allocate minimal bot stubs.  BOT_AUTHORITY is now deferred
 	 * until all clients confirm their stage is loaded via CLC_STAGE_READY, so that

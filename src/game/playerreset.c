@@ -419,7 +419,17 @@ void playerReset(void)
 	 * match_seed: use g_NetMatchSeed (distributed via SVC_STAGE_START) for
 	 * networked matches. For offline/solo, derive from stagenum. */
 	if (g_Vars.mplayerisrunning || g_NetMode != NETMODE_NONE) {
-		s32 spawn_needed = PLAYERCOUNT() + g_BotCount;
+		/* S302: size the pool for the worst-case participant count, not
+		 * just the local humans.  `PLAYERCOUNT()` is driven by
+		 * `g_Vars.players[]`, which in netplay is populated AFTER the
+		 * remote-join handshake — so during stage load it can be 1 even
+		 * when 8 clients are joining.  Use MAX_PLAYERS as the ceiling
+		 * for any netplay build and add a respawn headroom for local
+		 * Combat Sim. */
+		s32 humans = (g_NetMode != NETMODE_NONE)
+			? MAX_PLAYERS
+			: PLAYERCOUNT();
+		s32 spawn_needed = humans + g_BotCount + 4; /* +4 respawn buffer */
 		u32 match_seed = (g_NetMode != NETMODE_NONE && g_NetMatchSeed != 0)
 			? g_NetMatchSeed
 			: (u32)g_Vars.stagenum ^ (u32)g_Vars.lvframe60;
@@ -429,7 +439,9 @@ void playerReset(void)
 		f32 dominant_span;
 		s32 span_bonus = 0;
 
-		if (spawn_needed < 4) spawn_needed = 4; /* minimum for reasonable dispersal */
+		/* Floor: always build at least 16 slots so respawn cycling has
+		 * breathing room on tiny maps with only 1-2 humans. */
+		if (spawn_needed < 16) spawn_needed = 16;
 
 		/* Large maps need a deeper candidate pool to avoid repeated spawn reuse. */
 		spawnPoolComputeAABB(&aabb);
@@ -604,10 +616,12 @@ void playerReset(void)
 		} else if (g_Vars.antiplayernum >= 0) {
 			turnanglerad = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop);
 		} else if (g_Vars.mplayerisrunning && spawnPoolIsReady() && g_Vars.lvframe60 == 0) {
-			/* Initial MP spawn: use farthest-point-first from pool.
-			 * lvframe60 == 0 means this is the first spawn after stage
-			 * load, not a respawn. For respawns, fall through to the
-			 * existing enemy-aware scenarioChooseSpawnLocation. */
+			/* Initial MP spawn: use farthest-point-first from pool with
+			 * S302 tiered cascade.  lvframe60 == 0 means this is the
+			 * first spawn after stage load, not a respawn.  For
+			 * respawns, fall through to the existing enemy-aware
+			 * scenarioChooseSpawnLocation (which itself consults the
+			 * pool via playerTrySelectPoolSpawn). */
 			const spawn_pool_t *pool = spawnPoolGet();
 			s32 num_teams = (g_MpSetup.options & MPOPTION_TEAMSENABLED) ? 4 : 0;
 			s32 my_team = (num_teams > 0)
@@ -633,8 +647,10 @@ void playerReset(void)
 			center.z = (aabb.min.z + aabb.max.z) * 0.5f;
 
 			{
-				s32 sel = spawnPoolSelect(pool, occupied, num_occupied,
-				                          my_team, num_teams, &center);
+				spawn_select_tier_t tier = SPAWN_TIER_NONE;
+				s32 sel = spawnPoolSelectTiered(pool, occupied, num_occupied,
+				                                my_team, num_teams, &center,
+				                                &tier);
 				if (sel >= 0) {
 					pos = pool->points[sel].pos;
 					rooms[0] = pool->points[sel].room;
@@ -645,13 +661,27 @@ void playerReset(void)
 					 * nearby, which matches the legacy behaviour. */
 					turnanglerad = pool->points[sel].angle_rad;
 					sysLogPrintf(LOG_NOTE,
-						"SPAWN: initial MP spawn via pool[%d] L%d pos=(%.0f,%.0f,%.0f) room=%d team=%d angle=%.3f",
+						"SPAWN.TIER: %s initial MP spawn pool[%d] L%d pos=(%.0f,%.0f,%.0f) room=%d team=%d angle=%.3f",
+						spawnPoolTierName(tier),
 						sel, pool->points[sel].layer,
 						pos.x, pos.y, pos.z, (s32)rooms[0], my_team,
 						turnanglerad);
 				} else {
-					/* Pool empty/exhausted -- fall through to legacy */
-					turnanglerad = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop);
+					/* T4 last-resort — pool is empty / unbuilt.  Use
+					 * our synthesised fallback instead of falling
+					 * through to the legacy scenarioChooseSpawnLocation
+					 * (which may itself fail with no pads). */
+					struct coord lr_pos;
+					RoomNum lr_room = -1;
+					f32 lr_angle = 0.0f;
+					spawn_select_tier_t lr_tier =
+						spawnPoolLastResort(occupied, num_occupied,
+						                    &lr_pos, &lr_room, &lr_angle);
+					(void)lr_tier;
+					pos = lr_pos;
+					rooms[0] = lr_room;
+					rooms[1] = -1;
+					turnanglerad = lr_angle;
 				}
 			}
 		} else {

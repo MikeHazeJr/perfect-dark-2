@@ -30,6 +30,68 @@ Single commit on `dev` (fast-forwarded from `claude/peaceful-aryabhata-7abdc6`).
 
 ---
 
+## Open — 2026-04-16 (S302 — quirky-mendeleev)
+
+### Playtest verification of spawn pool tiered selection
+
+Reference: `src/game/spawnpool.c`, `src/game/playerreset.c`, `src/game/player.c`. Build: `PerfectDark.exe` 51,533,440 / `PerfectDarkServer.exe` 22,824,057 bytes.
+
+- **Tier distribution (healthy signal)** — Stock 4-player FFA on Felicity / Warehouse / Temple:
+  - `pd.log` should show `SPAWN.TIER: T1_OPTIMAL initial MP spawn ...` for the 4 human spawns and for every respawn. No T2/T3/T4 on well-resourced stock maps.
+  - Grep: `grep 'SPAWN.TIER:' pd.log | awk '{print $2}' | sort | uniq -c` — expect near-100% T1_OPTIMAL.
+- **Burst reservation (32-bot Chicago)** — start a max-bot Combat Sim on Chicago:
+  - First tick should produce 1 local human + 32 bot placements in rapid succession. Every placement should get a distinct pool slot (no two `pool[N]` entries with the same N in the first 33 SPAWN.TIER lines).
+  - If the pool was built with >33 slots, expect all T1. If fewer, expect T2_CYCLED once the reservation bitset saturates mid-burst, then resume T1 on the cleared slots.
+  - Grep: `grep 'SPAWN.TIER:.*T2_CYCLED' pd.log` — count should be <= pool->count - slots (i.e. T2 only fires when burst exceeds pool capacity).
+- **Over-subscribed tiny arena** — pick a mod map with a very small pool (ring test smoke log says L4 layer, small count). Start a 16-bot match. Expect periodic `SPAWN.TIER: T3_REUSED — pool oversubscribed` lines during respawn waves. Players may briefly telefrag each other — that's the designed behaviour (no void spawns, no crashes).
+- **Solo map in Combat Sim (zero declared pads)** — load G5 Building / Chicago SP stage as a MP arena. Expect pool build log to show `max_layer=2` or higher (`L2 waypoints` / `L3 grid` / `L4 radial`). Spawn decisions should still log `SPAWN.TIER: T1_OPTIMAL` until the pool is oversubscribed; T2/T3 only when placements exceed pool capacity.
+- **Last-resort synthesised position** — engineered repro: load a map with zero intro spawns, zero waypoints, zero pads (e.g. a broken mod map). Pool build will fall all the way to L4 radial; if L4 also fails, `spawnPoolLastResort` should log `SPAWN.TIER: T4_LAST_RESORT — synthesised pos=...` and the player should spawn near the stage AABB centre (not at (0,0,0)). No crash.
+- **`spawn_needed` in netplay** — join a dedicated server match with 6 other human clients + 10 bots. On each client's `pd.log`, confirm pool build line reports `needed=%d` with %d = 18 (or higher with span bonus), not 11 (which would be PLAYERCOUNT()=1 + 10 bots).
+- **No regressions on S298 reservation bitset** — same-tick burst on Chicago should still produce unique pool indices; reservation auto-clear on `g_Vars.lvframenum` change still works (T2 explicitly clears it too).
+
+### Follow-up if tier distribution looks wrong
+
+- **Heavy T3/T4 on stock maps**: pool count came out too small. Check `pd.log` for `SPAWNPOOL: build complete -- %d points` and compare against `needed`. If produced << needed, the validator is too strict for that map — consider relaxing `SPAWNPOOL_BUDGET_THRESHOLD` or the capsule-radius reject for that specific geometry.
+- **T2_CYCLED fires every tick**: reservation bitset isn't auto-clearing — check `spawnPoolTickCheck` is seeing `g_Vars.lvframenum` advance.
+- **T4 synthesised at (0,0,0)**: `spawnPoolComputeAABB` returned `valid=false`. Check whether `g_Rooms` / `g_Vars.roomcount` are populated before playerReset runs on this stage.
+
+---
+
+## Open — 2026-04-16 (S301 — confident-chaum) — comprehensive instrumentation drop
+
+**What shipped**: `port/include/crashbreadcrumb.h` + `port/src/crashbreadcrumb.c` (256-slot static ring, dumped by VEH / UEF / SIGABRT / Linux `sigaction` handlers); push sites in `src/lib/main.c` (mainTick heartbeat + mainChangeToStage), `src/game/lv.c` (lvTick), `src/game/chr.c` (CHR.TICK around chraTick dispatcher), `src/game/chraction.c` (chraTickBg), `src/game/bondwalk.c` (bwalkTick), `src/game/bot.c` (botSpawn), `src/game/botmgr.c` (botmgrAllocateBot), `port/src/net/matchsetup.c` (matchStart), `port/src/net/netmsg.c` (SVC_STAGE_START send/receive), `port/src/net/net.c` (netServerStageStart); standard log-channel DIAG lines with prefixes `ENDSCREEN.DIAG:` / `CHR.DIAG:` / `MATCHSTART.DIAG:` / `AUDIO.DIAG:` / `CRASH.DIAG:` covering Bug C / Bug D / Chicago / Airbase / B-141 respectively.
+
+### Playtest: tail the log for the new DIAG tags
+
+On the next repro pass, before reporting, run:
+
+```bash
+grep -E "ENDSCREEN\.DIAG|CHR\.DIAG|MATCHSTART\.DIAG|AUDIO\.DIAG|CRASH\.DIAG|HEARTBEAT|LVTICK|BWALK\.TICK|CHR\.TICK|BOT\.SPAWN|STAGE\.CHANGE" pd-client.log
+```
+
+and for the server side:
+
+```bash
+grep -E "MATCHSTART\.DIAG|CHR\.DIAG|CRASH\.DIAG" pd-server.log
+```
+
+### What each tag tells you
+
+- **Bug C — MP endscreen body invisible** (`ENDSCREEN.DIAG:`). On fresh entry you get one `ENTRY (fresh)` line with `g_MpPlayerNum / g_NetMode / challengeResult / titleOverride`. Once Begin succeeds you get a geometry dump with `sf / menu / pad / win / contentAvail / scroll`. On the first frame you also get `body child opened contentW=… contentH=… innerCRA=…x…` and `rankings built count=N teamsMode=…`. If rankings count is 0, that explains the invisible body. If `contentH < minH` you see the pre-existing `ENDSCREEN: contentH clamped` warning. Capped at 80 prints per match.
+- **Bug D — invisible networked bots** (`CHR.DIAG:`). Bot allocation logs `botAlloc chrnum=… body=… body_id='…'`. If `bodyAllocateModel` returns NULL you see `WARNING bodyAllocateModel returned NULL`. If `chrAllocate` returns NULL you see `WARNING chrAllocate returned NULL`. At the end of `botSpawn`, final state is `botSpawn DONE chrnum=… model=… chrflags=…x… hidden=…x… invisible=0|1`. An `invisible=1` line names the exact reason (`model=NULL` / `HIDDEN` / `VOID(-1)`).
+- **Chicago silent crash ~9s** (`CRASH.DIAG:`). On the next silent death, open `pd-client.log` or `pd.crash.log` and find the `FATAL:` line. Directly below it is `CRASH.DIAG: breadcrumb ring dump follows:` followed by up to 128 entries in time order. Last entry = last subsystem alive. Expect sequences like `HEARTBEAT frame=N …` → `LVTICK frame=N …` → `CHRTICKBG …` → `CHR.TICK slot=17 chrnum=25 action=…` → (crash here). If the trail ends on `BWALK.TICK` or `STAGE.CHANGE`, the crash was NOT in chr AI.
+- **Airbase 0xc0000005 / Start-Match no-response** (`MATCHSTART.DIAG:`). Server log should show `matchStart entry …` → `pre-mpStartMatch …` → `post-mpStartMatch …` → `netServerStageStart stage=… clients=N` → `SVC_STAGE_START sent …`. Each missing step is a decision point that bailed. Client log should show `SVC_STAGE_START read begin srccl=… state=…` if the message arrived. Absence of that line on client + presence on server = packet drop in transit. Absence on both = server never sent.
+- **B-141 audio skips** (`AUDIO.DIAG:` / enhanced `AUDIO[B-141]:` summary). `audioInit` logs full SDL device spec — watch for `SAMPLE RATE MISMATCH` warning. Every 30 s a summary line now reports drops, underruns, hitches, nullProducer count, mixBufOverflow count, scheduler gap (max/mean ms), and queue depth (min/max samples). A skip during that window will light up exactly one bucket — that tells you whether the bug is OS jitter (hitches), RSP starvation (nullProducer), consumer stall (high max buffered), or mod mixer overflow (mixBufOverflow > 0).
+
+### Follow-up once any track clears
+
+- If Bug C resolves from a single ENDSCREEN.DIAG trace → promote the instrumentation's finding into a proper fix and then reduce `ENDSCREEN_DIAG_MAX_PRINTS` from 80 to 10 (keep a small safety log for regressions).
+- If Chicago crash identifies a specific subsystem → add more granular breadcrumbs inside that subsystem (e.g., inside collision.c per-probe if the last entry is always `BWALK.TICK`) and ship a second diagnostic drop.
+- If `AUDIO.DIAG: mixBufOverflow > 0` on the first repro → `s_MixBuf` needs to grow past 8192 samples, or `modMusicMixInto` needs to chunk. Easy fix.
+- If `CHR.DIAG: WARNING … invisible=1 … VOID(-1)` on every spawn → FIX-A.2 is the area, but we now have the fingerprint for an exact reproducer.
+
+---
+
 ## Open — 2026-04-16 (S299 — trusting-banach)
 
 ### Playtest verification of Input Authority Phase 2 (menu pool)

@@ -341,10 +341,28 @@ struct model *bodyAllocateModel(s32 bodynum, s32 headnum, u32 spawnflags)
 	 * that bypass bodyAllocateChr.  manifestEnsureLoaded is a no-op in MP mode
 	 * or before the manifest is built, so this call is unconditionally safe. */
 	body_canon = catalogIdByRuntime(ASSET_BODY, bodynum);
+	head_canon = NULL;
 	if (body_canon) { manifestEnsureLoaded(body_canon, MANIFEST_TYPE_BODY); }
 	if (headnum >= 0 && headnum != HEAD_RANDOM_GENDER) {
 		head_canon = catalogIdByRuntime(ASSET_HEAD, headnum);
 		if (head_canon) { manifestEnsureLoaded(head_canon, MANIFEST_TYPE_HEAD); }
+	}
+
+	/* S301 Bug D diag: log at the catalog boundary. If body_canon or
+	 * head_canon is NULL but bodynum >= 0, the runtime_index is invalid
+	 * for the active catalog registration — a classic reason for
+	 * invisible chr (model load fails). */
+	if (!body_canon) {
+		sysLogPrintf(LOG_WARNING,
+			"CHR.DIAG: bodyAllocateModel body_canon=NULL for bodynum=%d "
+			"-- catalog not registered, body model will be missing",
+			bodynum);
+	}
+	if (headnum >= 0 && headnum != HEAD_RANDOM_GENDER && !head_canon) {
+		sysLogPrintf(LOG_WARNING,
+			"CHR.DIAG: bodyAllocateModel head_canon=NULL for headnum=%d "
+			"-- catalog not registered, head model will be missing",
+			headnum);
 	}
 
 	if (spawnflags & SPAWNFLAG_FORCESUNGLASSES) {
@@ -357,7 +375,17 @@ struct model *bodyAllocateModel(s32 bodynum, s32 headnum, u32 spawnflags)
 		varyheight = false;
 	}
 
-	return body0f02d338(bodynum, headnum, NULL, NULL, sunglasses, varyheight);
+	struct model *m = body0f02d338(bodynum, headnum, NULL, NULL, sunglasses, varyheight);
+	if (m == NULL) {
+		sysLogPrintf(LOG_WARNING,
+			"CHR.DIAG: body0f02d338 returned NULL bodynum=%d headnum=%d "
+			"body_id='%s' head_id='%s' flags=0x%x",
+			bodynum, headnum,
+			body_canon ? body_canon : "(unresolved)",
+			head_canon ? head_canon : "(unresolved)",
+			spawnflags);
+	}
+	return m;
 }
 
 s32 body0f02d3f8(void)
