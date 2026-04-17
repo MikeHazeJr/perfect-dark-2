@@ -1,7 +1,51 @@
+
 # Session Log (Active)
 
-> **S241–S308** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S310** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S310 — 2026-04-17 (The Grid level editor F1-F8 bulk drop + MP lift fix — `sharp-lovelace` worktree)
+
+**Scope**: Full F1 through F8 pass over the in-game level editor (now branded "The Grid" in user-facing UI -- internal code names stay `forge_*`). Parallel session on an isolated worktree; merges cleanly to `dev`. Also addresses the long-standing MP elevator dead-pad bug the design doc called out as an F6 blocker.
+
+### Commits on `claude/sharp-lovelace-a08d90`
+
+| SHA | Scope |
+|-----|-------|
+| `0732c806` | **F1-F5b+F7+F8 data model + editor UI**. New module `port/src/forge/forge_core.[ch]` with fixed-size pools sized to the design doc's budget caps (1024 objects, 128 zones, 64 lights, 256 logic nodes, 32 channels, 32 waves, 16 objectives, 64 prefabs, 256 undo entries). Static catalog with 100+ entries across 10 top-level categories (Geometry, Props, Weapons, Spawn Points, Pickups, Lighting, Effects, Zones, Interactables, Characters). New `pdgui_forge_editor.cpp` -- tabbed overlay (Catalog/Properties/Zones/Lighting/Logic/Game Type/Mission/Settings) drawn in FREEFLY only, so NORMAL playtest is uncluttered. Click-to-place commits an object at the camera's forward-400u position. Serializer writes `mods/Forge Maps/<slug>/{mod.json,map.json}` with a tolerant JSON reader round-tripping all metadata/settings/objects. Logic runtime fires events->conditions->actions with a cycle detector and a recursion guard (depth 128). Game Type runtime covers wave spawner + boss state + 5 role modes + 8 modifier flags. Mission tab wires objectives to logic OBJECTIVE_COMPLETE/OBJECTIVE_FAIL action nodes. F8 UI ships weather (rain/snow/sandstorm/storm) + ToD cycle enable + post-process color grades. |
+| `ac7be593` | **MP elevator fix + F6 AI helpers**. Root cause of dead lifts in CI arenas: `liftActivate()` (which registers the lift prop in `g_Lifts[liftnum-1]`) was only called from the AI-script command `aiActivateLift` (opcode `0x018d` in `chraicommands.c:8498`). CI arenas have no AI scripts, so lifts there were unregistered; `liftFindByPad()` returned NULL; stepping on the pad did nothing. Fix lives in `src/game/setup.c::OBJTYPE_LIFT` -- auto-registers at setup time by reading `liftnum` from one of the lift's own pads (`PADFIELD_LIFT`). SP is unaffected since the AI-script call overwrites the same pointer (idempotent). New `port/src/forge/forge_ai.c` with count/patrol-chain/navmesh-stub helpers (navmesh auto-gen is a placeholder; forge maps reuse the base stage's navmesh and rely on S302 tiered-spawn fallback if forge geometry blocks a waypoint). |
+
+### Phase coverage against the design doc
+
+- **F1 Catalog + placement**: 100+ catalog entries across all design §3.1 categories; search + category filter + budget bar; click-to-place with grid snap from the editor settings; 256-op undo/redo ring with barrier grouping.
+- **F2 Properties**: Per-category prop panels for weapon pad / spawn point / AI (including boss flag, name, scale, phase thresholds) / door (open dir, locked, key id) / elevator (stops, speed, wait, call button, loop) / switch (type, activation, channel out) / light (all 4 types w/ type-specific fields) / zone (all 13 types) / effect / pickup. Duplicate / Delete / Deselect actions.
+- **F3 Save/load**: Writes mod.json (reusable by mod loader w/ type="forge-map") + map.json with full schema coverage (metadata, settings, skylight, atmosphere, gametype+waves, objects, logic nodes+wires+channels). Tolerant reader re-loads the full map. Mod-slug derived from map name; re-derive button.
+- **F4 Zones + lighting**: 13 zone types (§6.1 full list); skylight yaw/pitch/color/intensity/shadow; atmosphere fog/ambient/exposure/bloom + color grade; placed lights point/spot/area/emissive with type-specific properties (cone angles, area dimensions, cookie textures).
+- **F5 Logic**: 12 events + 9 conditions + 23 actions covering design §7.2 in full, plus F5b-specific SPAWN_WAVE / TRIGGER_BOSS_PHASE and F7-specific OBJECTIVE_COMPLETE / OBJECTIVE_FAIL. Wire create/remove, channel create/toggle/delete, per-node Fire button for manual-trigger testing, cycle detection.
+- **F5b Game types**: 4 structures (single/best-of-N/wave-based/phase-based), 5 win conditions, 8 modifiers, 5 player roles (Infection, VIP, Juggernaut, Horde Defender, Gun-Game Hunter). Wave table with per-wave enemy_catalog_id / count / scale / hp_mult / speed_mult / spawn_delay / intermission / spawn_zone_uid / is_boss flag. Boss state with simulate-activation test button and damage-simulator.
+- **F6 Interactables + AI**: MP lift fix lands the biggest functional gap. Interactable properties (doors/elevators/switches) fully editable. AI props cover body/head/weapon/behavior/faction/alert_radius/health_mult/respawn plus F5b boss extension. Patrol-chain walker + navmesh stub in `forge_ai.c`.
+- **F7 Mission**: Is-Mission checkbox enables briefing / debrief / sequential-objective toggles; 3 objective kinds (primary/secondary/bonus); per-objective link to logic completion+failure nodes with Complete/Fail/X buttons.
+- **F8 Stretch**: Weather (5 kinds), ToD cycle, post-process color grades (Neutral/Warm/Cool/Noir/Alien). Terrain remains catalog-placeable as geometry prefabs (height-paint terrain is out of scope here).
+
+### Files touched (summary)
+
+- **New**: `port/include/forge/forge_core.h`, `port/src/forge/forge_core.c`, `port/src/forge/forge_undo.c`, `port/src/forge/forge_logic.c`, `port/src/forge/forge_gametype.c`, `port/src/forge/forge_serialize.c`, `port/src/forge/forge_ai.c`, `port/fast3d/pdgui_forge_editor.cpp`
+- **Modified**: `port/include/pdgui_forge.h` (editor entry points), `port/fast3d/pdgui_backend.cpp` (editor dispatch), `port/src/pdmain.c` (forgeCoreTick wiring), `src/game/setup.c` (lift auto-register)
+
+### Build verify
+
+`ninja -C Build pd pd-server` -- both targets link. PerfectDark.exe 52,176,729 / PerfectDarkServer.exe 22,839,025 (server unchanged; forge is client-only).
+
+### Not done in this session (deferred)
+
+- **3D gizmo handles** -- Properties tab edits transform numerically; drag-axis gizmos need freefly-camera raycast + in-world handle rendering.
+- **Ghost placement reticle** -- click-in-catalog commits at camera+400u. True ghost with green/red valid-tint lives in a follow-up polish pass.
+- **Runtime engine instantiation of placed objects** -- objects are serialised but not yet materialised as live engine props at match load. The F3 map-load path needs to walk the `forge_object_t` pool and call the appropriate `setupCreate*` functions. Logic OPEN_DOOR / TELEPORT / SPAWN_AI actions log-only until this lands.
+- **AI navmesh auto-gen** -- `forgeAiGenerateNavmesh` is a stub; forge maps inherit the base stage's navmesh.
+- **Boss HUD bar** -- data model tracks it; HUD drawing lands in `pdguiForgeHudRender` in a polish pass.
+- **Co-op Forge** (F8 stretch) -- out of scope for single-session bulk drop; requires new SVC/CLC msgs for placement sync.
+
+---
 
 ## Session S308 — 2026-04-17 (Door-tick bbox crash + pause menu hardening — dev direct)
 
