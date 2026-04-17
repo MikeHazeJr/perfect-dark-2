@@ -1435,6 +1435,16 @@ u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl)
 	sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_END read mode=%u path=%s", mode,
 		(mode == NETGAMEMODE_COOP || mode == NETGAMEMODE_ANTI) ? "co-op" : "mp");
 
+	/* S303 bookend: SVC_STAGE_END receive is the canonical end-of-match
+	 * teardown on the client side. Tag with mode so the log clearly marks
+	 * which endscreen path mainEndStage will enter below. */
+	sysLogPrintf(LOG_NOTE,
+		"GAMELOOP.%s: SVC_STAGE_END received — entering endscreen teardown (manifest=%d)",
+		(mode == NETGAMEMODE_COOP) ? "COOP"
+			: (mode == NETGAMEMODE_ANTI) ? "COUNTEROP"
+			: "CAMPAIGN",
+		g_ClientManifest.num_entries);
+
 	if (mode == NETGAMEMODE_COOP || mode == NETGAMEMODE_ANTI) {
 		// Co-op/anti: transition to endscreen with players intact.
 		// Disable further objective re-evaluation on client
@@ -4855,8 +4865,20 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 
 		/* Build manifest for co-op mission: stage + player bodies/heads + mods.
 		 * manifestBuild() reads g_MpSetup.stage_id, g_NetClients[], g_MatchConfig.slots[],
-		 * and modmgrGetCount/GetMod -- all already populated by CLC_LOBBY_START parsing. */
+		 * and modmgrGetCount/GetMod -- all already populated by CLC_LOBBY_START parsing.
+		 * S303 NOTE: unlike the Combat Sim branch above (which consumes the
+		 * host-provided CLC_LOBBY_START manifest payload), co-op/anti
+		 * deliberately rebuilds from the server's own g_NetClients view.
+		 * This means host-side mod entries present in the payload but not
+		 * yet reflected in server state would be silently dropped — log
+		 * the inputs so discrepancies are visible in pd-server.log. */
 		manifestBuild(&g_ServerManifest, NULL, NULL);
+		sysLogPrintf(LOG_NOTE,
+			"GAMELOOP.%s: server-side manifest built entries=%d hash=0x%08x stage='%s' clients=%u",
+			(gamemode == NETGAMEMODE_COOP) ? "COOP" : "COUNTEROP",
+			g_ServerManifest.num_entries, g_ServerManifest.manifest_hash,
+			g_MpSetup.stage_id[0] ? g_MpSetup.stage_id : "(empty)",
+			g_NetNumClients);
 		sysLogPrintf(LOG_NOTE, "NET: co-op manifest built: %d entries, hash=0x%08x",
 		             g_ServerManifest.num_entries, g_ServerManifest.manifest_hash);
 

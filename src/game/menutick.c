@@ -606,7 +606,14 @@ void menuTick(void)
 								 * mainChangeToStage, otherwise manifestMPTransition() diffs a
 								 * torn-down manifest against the loading stage and AVs. Mirrors
 								 * the patterns in pdguiEndscreenExitToMainMenu (F-0.4) and
-								 * netDisconnect (Bug A). See constraints.md. */
+								 * netDisconnect (Bug A). See constraints.md.
+								 * S303: generalized pattern also lives below in the
+								 * MPENDSCREEN/COOPCONTINUE exits; the explicit clear here
+								 * remains for belt-and-braces and historical-fix alignment. */
+								sysLogPrintf(LOG_NOTE,
+									"GAMELOOP.COOP: Deep Sea auto-advance → stageindex=%d stagenum=0x%02x manifest=%d",
+									g_MissionConfig.stageindex, (u32)g_MissionConfig.stagenum,
+									g_ClientManifest.num_entries);
 								manifestClear(&g_ClientManifest);
 								mainChangeToStage(g_MissionConfig.stagenum);
 							} else {
@@ -702,6 +709,23 @@ void menuTick(void)
 						&& ((!g_CheatsActiveBank0 && !g_CheatsActiveBank1) || isStageDifficultyUnlocked(g_MissionConfig.stageindex + 1, g_MissionConfig.difficulty))) {
 					endscreenPushSolo();
 				} else if (g_Vars.restartlevel) {
+					/* S303 generalize Deep-Sea manifestClear: any coop/anti
+					 * restart-level transition must clear the client manifest
+					 * before mainChangeToStage or manifestMPTransition diffs a
+					 * torn-down manifest against the reloading stage and AVs.
+					 * See constraints.md + menutick.c:610 Deep Sea pattern. */
+					if ((g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0)
+							&& g_ClientManifest.num_entries > 0) {
+						sysLogPrintf(LOG_NOTE,
+							"GAMELOOP.MANIFEST: restart-level clearing manifest (%d entries) before STAGE 0x%02x reload",
+							g_ClientManifest.num_entries, mainGetStageNum());
+						manifestClear(&g_ClientManifest);
+					}
+					sysLogPrintf(LOG_NOTE,
+						"GAMELOOP.%s: MPENDSCREEN restart-level → mainChangeToStage(0x%02x)",
+						g_Vars.coopplayernum >= 0 ? "COOP" :
+						g_Vars.antiplayernum >= 0 ? "COUNTEROP" : "CAMPAIGN",
+						mainGetStageNum());
 					mainChangeToStage(mainGetStageNum());
 				} else {
 					mpSetPaused(MPPAUSEMODE_UNPAUSED);
@@ -713,7 +737,24 @@ void menuTick(void)
 						g_BossFile.locktype = MPLOCKTYPE_NONE;
 					}
 
+					/* S303: same manifestClear requirement applies when
+					 * MPENDSCREEN → CITRAINING transition is the exit path.
+					 * CITRAINING is a gameplay stage so mainChangeToStage
+					 * would take the manifestMPTransition branch with a
+					 * stale match manifest.  Belt-and-braces with the
+					 * existing netmsgSvcStageEndRead clear (L1-1). */
+					if (g_ClientManifest.num_entries > 0) {
+						sysLogPrintf(LOG_NOTE,
+							"GAMELOOP.MANIFEST: MPENDSCREEN exit clearing manifest (%d entries) before CITRAINING",
+							g_ClientManifest.num_entries);
+						manifestClear(&g_ClientManifest);
+					}
+
 					if (IS8MB()) {
+						sysLogPrintf(LOG_NOTE,
+							"GAMELOOP.%s: MPENDSCREEN → CITRAINING lobby return",
+							g_Vars.coopplayernum >= 0 ? "COOP" :
+							g_Vars.antiplayernum >= 0 ? "COUNTEROP" : "CAMPAIGN");
 						titleSetNextStage(STAGE_CITRAINING);
 						setNumPlayers(1);
 						titleSetNextMode(TITLEMODE_SKIP);
@@ -734,6 +775,18 @@ void menuTick(void)
 					g_Vars.mplayerisrunning = false;
 					g_Vars.normmplayerisrunning = false;
 					g_Vars.lvmpbotlevel = 0;
+					/* S303: same manifestClear pattern for the COOPCONTINUE
+					 * exit path. CITRAINING is a gameplay stage so a stale
+					 * coop manifest would route the new transition through
+					 * manifestMPTransition with torn-down entries. */
+					if (g_ClientManifest.num_entries > 0) {
+						sysLogPrintf(LOG_NOTE,
+							"GAMELOOP.MANIFEST: COOPCONTINUE clearing manifest (%d entries) before CITRAINING",
+							g_ClientManifest.num_entries);
+						manifestClear(&g_ClientManifest);
+					}
+					sysLogPrintf(LOG_NOTE,
+						"GAMELOOP.COOP: COOPCONTINUE → CITRAINING lobby return");
 					titleSetNextStage(STAGE_CITRAINING);
 					setNumPlayers(1);
 					titleSetNextMode(TITLEMODE_SKIP);

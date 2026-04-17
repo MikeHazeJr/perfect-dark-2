@@ -807,8 +807,12 @@ void netServerCoopStageStart(u8 stagenum, u8 difficulty)
 	if (g_NetGameMode == NETGAMEMODE_COOP) {
 		g_Vars.coopplayernum = (g_NetNumClients > 1) ? 1 : -1;
 		g_Vars.antiplayernum = -1;
+		sysLogPrintf(LOG_NOTE,
+			"GAMELOOP.COOP: server start coop stage=0x%02x clients=%u coopplayernum=%d",
+			stagenum, g_NetNumClients, g_Vars.coopplayernum);
 	} else {
 		s32 antiPlayerNum = -1;
+		bool resolvedFromWire = false;
 		if (g_NetCounterOpClientId != NET_NULL_CLIENT) {
 			for (s32 i = 0; i < g_NetMaxClients; i++) {
 				struct netclient *ncl = &g_NetClients[i];
@@ -816,12 +820,28 @@ void netServerCoopStageStart(u8 stagenum, u8 difficulty)
 				if (ncl->state < CLSTATE_LOBBY) continue;
 				if (ncl->playernum < MAX_PLAYERS) {
 					antiPlayerNum = ncl->playernum;
+					resolvedFromWire = true;
 				}
 				break;
 			}
 		}
 		if (antiPlayerNum < 0) {
+			/* S303: log the silent fallback so playtest logs show when
+			 * anti-player identity routing degraded from explicit
+			 * CLC_LOBBY_START antiClientId down to "assume slot 1".
+			 * This path should be unreachable after v36 but belt-and-
+			 * braces covers stale state or future regressions. */
 			antiPlayerNum = (g_NetNumClients > 1) ? 1 : -1;
+			sysLogPrintf(LOG_WARNING,
+				"GAMELOOP.COUNTEROP: antiClientId unresolved (id=%u) — falling back to slot %d (clients=%u)",
+				(unsigned)g_NetCounterOpClientId,
+				antiPlayerNum, g_NetNumClients);
+		} else {
+			sysLogPrintf(LOG_NOTE,
+				"GAMELOOP.COUNTEROP: server start anti stage=0x%02x clients=%u antiClientId=%u antiplayernum=%d%s",
+				stagenum, g_NetNumClients,
+				(unsigned)g_NetCounterOpClientId, antiPlayerNum,
+				resolvedFromWire ? " (from wire)" : "");
 		}
 		g_Vars.coopplayernum = -1;
 		g_Vars.antiplayernum = antiPlayerNum;

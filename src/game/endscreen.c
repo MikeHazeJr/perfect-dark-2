@@ -32,6 +32,7 @@
 #include "types.h"
 #include "assetcatalog.h"
 #include "savefile.h"
+#include "system.h"
 
 /* M0.1a: catalog-first stage setter — catalog ID is primary identity.
  * Resolves stagenum from catalog at point of consumption. */
@@ -1530,6 +1531,15 @@ void endscreenPrepare(void)
 	u16 prevbest;
 	bool nowunlocked;
 
+	/* S303 bookend: solo endscreen preparation. This is the primary trigger
+	 * for SP/campaign endscreen flow (mainEndStage → endscreenPrepare when
+	 * neither coop nor anti nor normmp is active). */
+	sysLogPrintf(LOG_NOTE,
+		"GAMELOOP.CAMPAIGN: endscreenPrepare stage=0x%02x stageindex=%d diff=%d iscoop=%d isanti=%d",
+		g_Vars.stagenum, g_MissionConfig.stageindex,
+		g_MissionConfig.difficulty,
+		g_MissionConfig.iscoop, g_MissionConfig.isanti);
+
 #if VERSION >= VERSION_NTSC_1_0
 	g_Menus[g_MpPlayerNum].endscreen.stageindex = g_MissionConfig.stageindex;
 #endif
@@ -1792,11 +1802,26 @@ void endscreenPushCoop(void)
 
 	lvSetPaused(true);
 
+	/* S303 bookend: MP/coop endscreen push entry. Tag with mode + role so
+	 * the log shows exactly which endscreen variant fired (success vs
+	 * failed vs aborted) and on which client slot. */
+	sysLogPrintf(LOG_NOTE,
+		"GAMELOOP.COOP: endscreenPushCoop entry playernum=%d stats=%p stageindex=%d diff=%d",
+		g_Vars.currentplayernum, (void *)g_Vars.currentplayerstats,
+		g_MissionConfig.stageindex, g_MissionConfig.difficulty);
+
 	// Safety check for NULL currentplayerstats pointer (Fix 4)
-	if (!g_Vars.currentplayerstats) return;
+	if (!g_Vars.currentplayerstats) {
+		sysLogPrintf(LOG_WARNING,
+			"GAMELOOP.COOP: endscreenPushCoop aborted — NULL currentplayerstats");
+		return;
+	}
 
 	g_MpPlayerNum = g_Vars.currentplayerstats->mpindex;
 	if (g_MpPlayerNum < 0 || g_MpPlayerNum >= MAX_PLAYERS) {
+		sysLogPrintf(LOG_WARNING,
+			"GAMELOOP.COOP: endscreenPushCoop aborted — g_MpPlayerNum=%d out of [0,%d)",
+			g_MpPlayerNum, MAX_PLAYERS);
 		g_MpPlayerNum = prevplayernum;
 		return;
 	}
@@ -1863,6 +1888,14 @@ void endscreenPushSolo(void)
 {
 	u32 prevplayernum = g_MpPlayerNum;
 
+	/* S303 bookend: solo-mission continuation dialog (retry on failure,
+	 * next-mission on success).  NTSC flow delegates to endscreenContinue
+	 * which advances stageindex via endscreenAdvance. */
+	sysLogPrintf(LOG_NOTE,
+		"GAMELOOP.CAMPAIGN: endscreenPushSolo entry stageindex=%d diff=%d iscoop=%d",
+		g_MissionConfig.stageindex, g_MissionConfig.difficulty,
+		g_MissionConfig.iscoop);
+
 	g_MpPlayerNum = 0;
 	g_Menus[g_MpPlayerNum].playernum = 0;
 
@@ -1904,11 +1937,37 @@ void endscreenPushAnti(void)
 
 	lvSetPaused(true);
 
+	/* S303 bookend: Counter-Op endscreen push entry. Tag with role so the
+	 * log shows whether Bond or the anti-player view is being pushed. */
+	sysLogPrintf(LOG_NOTE,
+		"GAMELOOP.COUNTEROP: endscreenPushAnti entry playernum=%d stats=%p role=%s stageindex=%d",
+		g_Vars.currentplayernum, (void *)g_Vars.currentplayerstats,
+		g_Vars.currentplayer == g_Vars.bond ? "bond" : "anti",
+		g_MissionConfig.stageindex);
+
 	if (!g_Vars.currentplayerstats) {
+		sysLogPrintf(LOG_WARNING,
+			"GAMELOOP.COUNTEROP: endscreenPushAnti aborted — NULL currentplayerstats");
 		return;
 	}
 	g_MpPlayerNum = g_Vars.currentplayerstats->mpindex;
 	if (g_MpPlayerNum < 0 || g_MpPlayerNum >= MAX_PLAYERS) {
+		sysLogPrintf(LOG_WARNING,
+			"GAMELOOP.COUNTEROP: endscreenPushAnti aborted — g_MpPlayerNum=%d out of [0,%d)",
+			g_MpPlayerNum, MAX_PLAYERS);
+		g_MpPlayerNum = prevplayernum;
+		return;
+	}
+
+	/* S303 NULL-guard for counter-op bond access in the dialog decision
+	 * branch below. endscreenPushAnti is only called when antiplayernum>=0,
+	 * but if g_Vars.bond was never assigned (e.g., torn teardown, mid-init
+	 * crash recovery) the subsequent g_Vars.bond->isdead deref would AV.
+	 * Logging + early return is the conservative fix. */
+	if (!g_Vars.bond) {
+		sysLogPrintf(LOG_WARNING,
+			"GAMELOOP.COUNTEROP: endscreenPushAnti aborted — g_Vars.bond NULL (antiplayernum=%d)",
+			g_Vars.antiplayernum);
 		g_MpPlayerNum = prevplayernum;
 		return;
 	}
