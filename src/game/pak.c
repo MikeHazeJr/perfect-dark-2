@@ -5264,6 +5264,10 @@ void pak0f11d9c4(s8 device, u8 *arg1, u8 *arg2, u32 arg3)
 	u32 i;
 	u32 j;
 
+	if (!sp60) {
+		return;
+	}
+
 	switch (g_Paks[device].unk00c) {
 	case PAK00C_00:
 		if (arg2 != NULL) {
