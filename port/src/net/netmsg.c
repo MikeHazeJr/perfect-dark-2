@@ -1770,6 +1770,7 @@ u32 netmsgSvcPlayerStatsRead(struct netbuf *src, struct netclient *srccl)
 
 u32 netmsgSvcPropMoveWrite(struct netbuf *dst, struct prop *prop, struct coord *initrot)
 {
+	netPropMarkDirty(prop->syncid);
 	u8 flags = (prop->obj != NULL);
 
 	struct projectile *projectile = NULL;
@@ -2223,6 +2224,7 @@ u32 netmsgSvcPropDamageWrite(struct netbuf *dst, struct prop *prop, f32 damage, 
 	if (!prop || !prop->obj) {
 		return dst->error;
 	}
+	netPropMarkDirty(prop->syncid);
 	netbufWriteU8(dst, SVC_PROP_DAMAGE);
 	netbufWritePropPtr(dst, prop);
 	netbufWriteCoord(dst, pos);
@@ -2257,6 +2259,7 @@ u32 netmsgSvcPropDamageRead(struct netbuf *src, struct netclient *srccl)
 
 u32 netmsgSvcPropPickupWrite(struct netbuf *dst, struct netclient *actcl, struct prop *prop, const s32 tickop)
 {
+	netPropMarkDirty(prop->syncid);
 	netbufWriteU8(dst, SVC_PROP_PICKUP);
 	netbufWriteU8(dst, actcl->id);
 	netbufWriteS8(dst, tickop);
@@ -2293,6 +2296,7 @@ u32 netmsgSvcPropPickupRead(struct netbuf *src, struct netclient *srccl)
 
 u32 netmsgSvcPropUseWrite(struct netbuf *dst, struct prop *prop, struct netclient *usercl, const s32 tickop)
 {
+	netPropMarkDirty(prop->syncid);
 	netbufWriteU8(dst, SVC_PROP_USE);
 	netbufWritePropPtr(dst, prop);
 	netbufWriteU8(dst, usercl->id);
@@ -2350,6 +2354,7 @@ u32 netmsgSvcPropDoorWrite(struct netbuf *dst, struct prop *prop, struct netclie
 		return dst->error;
 	}
 
+	netPropMarkDirty(prop->syncid);
 	struct doorobj *door = prop->door;
 
 	netbufWriteU8(dst, SVC_PROP_DOOR);
@@ -2408,6 +2413,7 @@ u32 netmsgSvcPropLiftWrite(struct netbuf *dst, struct prop *prop)
 		return dst->error;
 	}
 
+	netPropMarkDirty(prop->syncid);
 	struct liftobj *lift = (struct liftobj *)prop->obj;
 
 	netbufWriteU8(dst, SVC_PROP_LIFT);
@@ -2930,10 +2936,45 @@ u32 netmsgSvcChrSyncRead(struct netbuf *src, struct netclient *srccl)
 	return src->error;
 }
 
+/*
+ * Event-driven dirty flag tracking for prop state sync.
+ *
+ * The write functions (SvcPropMove, SvcPropDoor, etc.) mark a prop dirty
+ * when they send state. The 120-tick PROP_SYNC heartbeat only CRCs dirty
+ * props, then clears the flags. If nothing changed since the last heartbeat,
+ * the scan and the message are skipped entirely (O(1) vs O(N_props)).
+ */
+#define NET_PROP_DIRTY_MAXSYNCID 512
+
+static u8  s_PropDirtyFlags[NET_PROP_DIRTY_MAXSYNCID];
+static s32 s_PropDirtyCount = 0;
+
+void netPropMarkDirty(u32 syncid)
+{
+	if (syncid > 0 && syncid < NET_PROP_DIRTY_MAXSYNCID) {
+		if (!s_PropDirtyFlags[syncid]) {
+			s_PropDirtyFlags[syncid] = 1;
+			s_PropDirtyCount++;
+		}
+	}
+}
+
+static void netPropDirtyBitsClear(void)
+{
+	if (s_PropDirtyCount > 0) {
+		memset(s_PropDirtyFlags, 0, sizeof(s_PropDirtyFlags));
+		s_PropDirtyCount = 0;
+	}
+}
+
 /**
  * Compute a rolling checksum over active props that have syncids.
  * Covers autoguns, doors, lifts, and hover vehicles — the key dynamic
  * entity types whose state must agree between server and clients.
+ *
+ * Both server and client call this with identical inputs so the CRC
+ * is comparable. Dirty flags only gate whether the server sends the
+ * message at all — not which props contribute to the hash.
  */
 static u32 netPropSyncChecksum(u32 *out_count)
 {
@@ -2974,8 +3015,18 @@ static u32 netPropSyncChecksum(u32 *out_count)
 
 u32 netmsgSvcPropSyncWrite(struct netbuf *dst)
 {
+	if (s_PropDirtyCount == 0) {
+		return 0;
+	}
+
 	u32 propcount = 0;
 	u32 checksum = netPropSyncChecksum(&propcount);
+
+	netPropDirtyBitsClear();
+
+	if (propcount == 0) {
+		return 0;
+	}
 
 	netbufWriteU8(dst, SVC_PROP_SYNC);
 	netbufWriteU32(dst, g_NetTick);
