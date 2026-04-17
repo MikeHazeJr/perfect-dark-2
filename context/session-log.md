@@ -40,7 +40,7 @@
 
 | SHA | Scope |
 |-----|-------|
-| *(pending merge)* | **fix(S323): Batch G — cross-audit gaps: audioNotifyEngineReady, 4MB remnants, stale tooltip** |
+| `7838d847` | **fix(S323): Batch G — cross-audit gaps: audioNotifyEngineReady, 4MB remnants, stale tooltip** |
 
 ### Build result
 
