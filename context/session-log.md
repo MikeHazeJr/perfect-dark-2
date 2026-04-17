@@ -1,8 +1,36 @@
 
 # Session Log (Active)
 
-> **S281–S348** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S349** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S349 — 2026-04-17 (`cool-poitras-b287e7` worktree) — Cross-Audit S346+S347
+
+**Scope**: Wave 3 cross-audit — review S346 (AP Phase 4: retire filenum from public catalog API) and S347 (blue tint sweep + gamepad audit) for bugs, gaps, and missed items. Fix anything found. Build-verify and merge.
+
+**S346 audit — CLEAN:**
+- `assetprovider_internal.h` included by exactly 5 allowed callers (`assetload.c`, `assetcatalog_api.c`, `assetcatalog_base.c`, `assetcatalog_base_extended.c`, `server_stubs.c`). `assetprovider_rom.c` is the *implementation* file — correctly includes only `assetprovider.h`, no violation.
+- No game code calls `romProviderHandle()` directly. Only mentions are documentation comments in `file.h` and `assetprovider.h`.
+- Stage handle fields (`bg_handle`, `pads_handle`, `setup_handle`, `mpsetup_handle`, `tile_handle`) populated with correct `fileid > 0` guard in `catalogGetStageResultByIndex`. Server build leaves handles zeroed (null).
+- `assetHandleIsNull()` checks `provider == NULL` — all call sites (`assetLoadToNew`, `assetLoad`, `assetUnload`, `assetDescribe`) null-guard before vtable dispatch.
+- `catalogGetBodyHandle` / `catalogGetHeadHandle` / `catalogGetPropHandle` all use `memset(&null_h, 0, sizeof(null_h))` + `CATALOG-FATAL` log + `g_CatalogFailure = 1` on miss. `catalogGetHeadHandle` correctly fast-paths `HEAD_RANDOM_GENDER → null_h`.
+- Deprecated SA-5a bridge functions (`catalogGetBodyFilenumByIndex`, `catalogGetHeadFilenumByIndex`, `catalogGetPropFilenumByIndex`) clearly marked `[DEPRECATED]` + `[MIGRATION BRIDGE]` in header.
+- `assetLoadRomToNew` declared in `assetload.h`, implemented in `assetload.c` as a one-liner delegate to `assetLoadToNew(romProviderHandle(filenum), ...)`.
+
+**S347 audit — 2 missed blue IM_COL32 literals fixed:**
+
+Both files were in S347's scope but 2 sites were not caught:
+- `pdgui_menu_moddinghub.cpp:2109`: `IM_COL32(90, 120, 170, 220)` (Nine-Slice chrome tool preview border) → `pdguiImU32TitleGlow(220)`
+- `pdgui_menu_agentcreate.cpp:324`: `IM_COL32(140, 160, 200, 180)` (body name label below agent portrait) → `pdguiImU32TintInfo(180)`
+
+**Intentionally left alone:**
+- `pdgui_menu_solomission.cpp:499`: `IM_COL32(80, 160, 255, 255)` — Special Agent difficulty badge (semantic game color, not PD palette accent)
+- Forge/Grid HUD blue/cyan literals — editor-mode UI colors with distinct design intent (cyan cursor, grid snap indicators)
+- `pdgui_countdown.cpp:168`: `IM_COL32(8, 8, 20, 235)` — near-black panel background with barely perceptible blue bias, below threshold for replacement
+
+**Build**: Clean 774/774 in worktree. Post-merge dev build clean (incremental). `PerfectDark.exe` 52,861,458 / `PerfectDarkServer.exe` 22,907,957.
+
+**Merge**: `claude/cool-poitras-b287e7` → `dev` via no-ff merge. Post-merge line count verified (agentcreate: 715 lines, moddinghub: 2833 lines — stable, no truncation).
 
 ## Session S348 — 2026-04-17 (`ecstatic-cartwright-11459d` worktree) — D7 Discord Rich Presence
 
