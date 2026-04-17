@@ -67,6 +67,14 @@ extern u16  g_MusicVolume;
  * uninitialized sequencer/sound channel data during early init. */
 static s32 g_AudioEngineReady = 0;
 
+/* pd.ini baseline: volumes captured at audioNotifyEngineReady before any
+ * per-agent sidecar overlays them.  audioResetToDefaults() restores these
+ * so that loading an agent with no [Audio] block reverts to pd.ini values. */
+static f32 g_AudioBaselineMaster   = 1.0f;
+static f32 g_AudioBaselineMusic    = 1.0f;
+static f32 g_AudioBaselineGameplay = 1.0f;
+static f32 g_AudioBaselineUi       = 1.0f;
+
 /* ========================================================================
  * B-141 telemetry — audio path diagnostic counters.
  *
@@ -343,7 +351,20 @@ f32 audioGetUiVolume(void)       { return g_AudioUiVolume; }
 void audioNotifyEngineReady(void)
 {
 	g_AudioEngineReady = 1;
+	/* Snapshot pd.ini values before any per-agent sidecar can overlay them. */
+	g_AudioBaselineMaster   = g_AudioMasterVolume;
+	g_AudioBaselineMusic    = g_AudioMusicVolume;
+	g_AudioBaselineGameplay = g_AudioGameplayVolume;
+	g_AudioBaselineUi       = g_AudioUiVolume;
 	audioApplyVolumes();
+}
+
+void audioResetToDefaults(void)
+{
+	audioSetMasterVolume(g_AudioBaselineMaster);
+	audioSetMusicVolume(g_AudioBaselineMusic);
+	audioSetGameplayVolume(g_AudioBaselineGameplay);
+	audioSetUiVolume(g_AudioBaselineUi);
 }
 
 void audioApplyVolumes(void)
@@ -474,7 +495,9 @@ s32 audioPlayFileSound(const char *path, u16 volume, u8 pan)
      *   rightScale = volScale * panPos        * 2  clamped to 1.0
      * At centre (pan=64): panPos≈0.504, left≈0.992, right≈1.0 — ~equal. */
     {
-        const f32 volScale  = (f32)volume / (f32)0x7fff;
+        /* Apply gameplay channel volume (master × gameplay) so mod WAV SFX
+         * respect the same volume layers as ROM sounds scaled by g_SfxVolume. */
+        const f32 volScale  = ((f32)volume / (f32)0x7fff) * g_AudioMasterVolume * g_AudioGameplayVolume;
         const f32 panPos    = (f32)pan / 127.0f;
         f32 leftScale  = volScale * (1.0f - panPos) * 2.0f;
         f32 rightScale = volScale * panPos * 2.0f;

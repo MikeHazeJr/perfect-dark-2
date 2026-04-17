@@ -37,6 +37,11 @@ s32 audioPlayFileSound(const char *path, u16 volume, u8 pan);
  * No-op if the engine sound system hasn't initialized yet. */
 void audioApplyVolumes(void);
 
+/* Reset all four volume layers to the pd.ini baseline captured at
+ * audioNotifyEngineReady time.  Call when clearing a per-agent overlay
+ * so that agents without an [Audio] block inherit the global defaults. */
+void audioResetToDefaults(void);
+
 /* Signal that the game engine's sound system (sndInit) has completed
  * and it's safe to call musicSetVolume / sndSetSfxVolume.
  * Applies persisted volume layers from pd.ini on first call. */

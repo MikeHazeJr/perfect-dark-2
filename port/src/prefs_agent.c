@@ -282,10 +282,10 @@ void prefsAgentLoad(const char *agent_name)
 
 void prefsAgentResetVisuals(void)
 {
-    /* Reset all per-agent visual prefs to built-in defaults. Called when
-     * Agent Select opens so the screen always shows the unmodified base
-     * appearance before any agent is signed in. Per-agent theme/chrome/font
-     * are applied later when the user actually selects an agent. */
+    /* Reset all per-agent prefs to built-in defaults. Called when Agent Select
+     * opens so the screen always shows the unmodified base appearance before
+     * any agent is signed in. Per-agent overrides are applied later when the
+     * user actually selects an agent. */
     pdguiThemeLoadFromCatalog("base:theme_blue");
     pdguiThemeSetUiChromeEnabled(1);
     pdguiChromeSetEnabled(1);
@@ -293,7 +293,10 @@ void prefsAgentResetVisuals(void)
     pdguiThemeSetTitleBarStyle(PDGUI_TITLEBAR_CLASSIC);
     pdguiFontModSetActiveId("");
     pdguiThemeSetScanlineEnabled(0);
-    sysLogPrintf(LOG_NOTE, "PREFS.AGENT: visuals reset to defaults (Agent Select open)");
+    /* Also restore audio layers to pd.ini baseline so agents without an
+     * [Audio] block don't inherit the previous agent's volume settings. */
+    audioResetToDefaults();
+    sysLogPrintf(LOG_NOTE, "PREFS.AGENT: prefs reset to defaults (Agent Select open)");
 }
 
 void prefsAgentSave(void)
