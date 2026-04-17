@@ -7,6 +7,21 @@
 
 ---
 
+## Done — 2026-04-17 (S352 — D5 Phase 5: Lobby Player Portraits, `confident-brahmagupta-a3f5a3`)
+
+**Build verified.** Clean 774/774 (worktree) + 585/585 (dev post-merge), zero errors.
+`PerfectDark.exe` 52,770,947 / `PerfectDarkServer.exe` 22,922,823.
+
+D5 Phase 5 portrait system wired into `pdgui_menu_room.cpp` (+276 LOC / -43 LOC):
+
+- **Per-slot portrait baking pipeline**: `LobbyPortrait` struct + `s_LobbyPortraits[8]` (baked GL textures via shared charpreview FBO, one per frame, bot-modal guarded).
+- **Human row overhaul**: row height 50px; portrait thumbnail (44px) left-aligned; baked texture with Y-flip UVs or initials circle fallback; state badge dot (yellow/green/blue/grey); name + role badge on line 1, body name + state text on line 2.
+- **Join fade-in**: `s_LobbyPortraitAlpha[]` ramps 0→1 over ~25 frames per slot.
+- **Lifecycle**: reset on every room open (`IsWindowAppearing`) and `pdguiRoomScreenReset`; portrait invalidated when player's body/head IDs change.
+- **Solo mode**: baking skipped; initials placeholder; instant alpha.
+
+---
+
 ## Done — 2026-04-17 (S351 — D5 Phase 4: UI Texture Mod Overrides, `dazzling-heisenberg-f84acc`)
 
 **Build verified.** Clean 585/585 objects, zero errors.
