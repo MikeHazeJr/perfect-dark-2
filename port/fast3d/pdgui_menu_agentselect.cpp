@@ -498,20 +498,20 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                                  ImVec2(0, 1), ImVec2(1, 0));
                     dl->AddRect(ImVec2(thumbX, thumbY),
                                 ImVec2(thumbX + thumbSize, thumbY + thumbSize),
-                                IM_COL32(80, 120, 200, 200), 3.0f * scale);
+                                pdguiImU32TintInfo(200), 3.0f * scale);
                 } else {
                     dl->AddRectFilled(ImVec2(thumbX, thumbY),
                                       ImVec2(thumbX + thumbSize, thumbY + thumbSize),
-                                      IM_COL32(40, 60, 100, 180), 3.0f * scale);
+                                      pdguiPalImU32(PDPAL_TITLEBG, 180), 3.0f * scale);
                     dl->AddRect(ImVec2(thumbX, thumbY),
                                 ImVec2(thumbX + thumbSize, thumbY + thumbSize),
-                                IM_COL32(80, 120, 200, 200), 3.0f * scale);
+                                pdguiImU32TintInfo(200), 3.0f * scale);
                     char initials[4] = {0};
                     if (name[0]) { initials[0] = name[0]; if (name[1]) initials[1] = name[1]; }
                     ImVec2 iSz = ImGui::CalcTextSize(initials);
                     dl->AddText(ImVec2(thumbX + (thumbSize - iSz.x) * 0.5f,
                                        thumbY + (thumbSize - iSz.y) * 0.5f),
-                                IM_COL32(200, 220, 255, 255), initials);
+                                pdguiImU32TitleGlow(255), initials);
                 }
 
                 float textX = thumbX + thumbSize + 10.0f * scale;

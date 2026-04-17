@@ -269,7 +269,7 @@ static void drawPortraitPreview(ImDrawList *dl, float x, float y,
     dl->AddRectFilled(ImVec2(x, y), ImVec2(x + size, y + size),
                       IM_COL32(10, 15, 30, 240), 4.0f * scale);
     dl->AddRect(ImVec2(x, y), ImVec2(x + size, y + size),
-                IM_COL32(60, 100, 180, 200), 4.0f * scale, 0, 2.0f * scale);
+                pdguiImU32TintInfo(200), 4.0f * scale, 0, 2.0f * scale);
 
     /* Try to display the 3D rendered preview */
     u32 texId = pdguiCharPreviewGetTextureId();
@@ -288,11 +288,11 @@ static void drawPortraitPreview(ImDrawList *dl, float x, float y,
         float headR = size * 0.15f;
 
         dl->AddCircleFilled(ImVec2(cx, cy), headR,
-                            IM_COL32(50, 80, 140, 200), 24);
+                            pdguiImU32TintInfo(200), 24);
         dl->AddRectFilled(
             ImVec2(cx - size * 0.3f, cy + headR * 0.8f),
             ImVec2(cx + size * 0.3f, cy + headR * 0.8f + size * 0.25f),
-            IM_COL32(50, 80, 140, 200), headR);
+            pdguiImU32TintInfo(200), headR);
 
         /* Initials */
         char initials[4] = {0};
@@ -314,7 +314,7 @@ static void drawPortraitPreview(ImDrawList *dl, float x, float y,
         ImVec2 textSize = ImGui::CalcTextSize(initials);
         float textY = y + size * 0.72f;
         dl->AddText(ImVec2(cx - textSize.x * 0.5f, textY),
-                    IM_COL32(180, 210, 255, 255), initials);
+                    pdguiImU32TitleGlow(255), initials);
     }
 
     /* Body name below portrait */

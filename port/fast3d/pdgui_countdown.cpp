@@ -171,7 +171,7 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH)
             /* PD-style accent border */
             dl->AddRect(ImVec2(boxX, boxY),
                         ImVec2(boxX + boxW, boxY + boxH),
-                        IM_COL32(80, 160, 255, 200),
+                        pdguiImU32TitleGlow(200),
                         pdguiScale(9.0f), 0,
                         pdguiScale(3.0f));
 

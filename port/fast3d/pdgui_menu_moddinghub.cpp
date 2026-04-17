@@ -1238,7 +1238,7 @@ static void renderModdingHub(s32 winW, s32 winH)
 
     /* PD-style border */
     ImDrawList *drawList = ImGui::GetForegroundDrawList();
-    ImU32 borderCol = IM_COL32(80, 140, 200, 220);
+    ImU32 borderCol = pdguiImU32TintInfo(220);
     drawList->AddRect(ImVec2(dialogX, dialogY),
                       ImVec2(dialogX + dialogW, dialogY + dialogH),
                       borderCol, 4.0f, 0, 2.0f * scale);
