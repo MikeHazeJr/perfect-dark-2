@@ -1259,8 +1259,8 @@ static void renderModdingHub(s32 winW, s32 winH)
     }
 
     /* ---- Hub header ---- */
+    pdguiSetCursorBelowTitle(0.0f); /* content-inset: protect left/top from chrome border */
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8.0f * scale);
     ImGui::Text("MODDING");
     ImGui::PopStyleColor();
     ImGui::Separator();

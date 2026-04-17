@@ -75,6 +75,9 @@ extern struct menudialogdef g_MpEndscreenSavePlayerMenuDialog;
 u32 pdguiPauseGetOptions(void);
 #define MPOPTION_TEAMSENABLED_KF  0x00000002
 
+/* Content-inset: cursor positioning clear of chrome border */
+void pdguiSetCursorBelowTitle(float title_h);
+
 } /* extern "C" */
 
 /* ============================================================================

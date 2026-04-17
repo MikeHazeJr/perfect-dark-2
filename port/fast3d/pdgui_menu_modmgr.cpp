@@ -89,6 +89,9 @@ s32 viGetHeight(void);
 /* Button edge glow */
 void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
 
+/* Content-inset: cursor positioning clear of chrome border */
+void pdguiSetCursorBelowTitle(float title_h);
+
 } /* extern "C" */
 
 /* ========================================================================
@@ -1112,8 +1115,8 @@ static void renderModDetails(float scale)
 static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 *outClose)
 {
     /* --- Header --- */
+    pdguiSetCursorBelowTitle(0.0f); /* content-inset: protect left/top from chrome border */
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8.0f * scale);
     ImGui::Text("MOD MANAGER");
     ImGui::PopStyleColor();
     ImGui::Separator();

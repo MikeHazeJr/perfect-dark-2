@@ -81,6 +81,9 @@ void        modmgrSaveConfig(void);
 s32         modmgrGetCount(void);
 const char *modmgrGetModId(s32 index);
 
+/* Content-inset: cursor positioning clear of chrome border */
+void pdguiSetCursorBelowTitle(float title_h);
+
 } /* extern "C" */
 
 /* ========================================================================
@@ -695,6 +698,8 @@ void pdguiAudioModRender(float contentW, float contentH, float scale)
 {
     float btnW = 80.0f * scale;
     float btnH = 28.0f * scale;
+
+    pdguiSetCursorBelowTitle(0.0f); /* content-inset: protect left edge from chrome border */
 
     /* ================================================================
      * TOP: Mod Creation Tools
