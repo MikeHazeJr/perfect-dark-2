@@ -73,7 +73,7 @@ to PATH, `CCACHE_SLOPPINESS=pch_defines,time_macros`. Do not rediscover.
 | D15 | Map Editor / Char Creator / Skins | 🔶 Partial — Skin Editor DONE (S-1 → S-9, 2026-04-12); Map Import Pipeline DONE (L3, S240+S244); Level Editor (Forge) planned (v1.0.0) | 2026-04-12 / 2026-04-13 |
 | D16 | Master Server | 📋 Planned (see [network-architecture.md](network-architecture.md) §7 for full design) | — |
 | MSP | Match Startup Pipeline (A–F + SA-1–7 + Manifest Lifecycle 0–6 + L5) | ✅ **ALL DONE** | S115 / S241 |
-| D-MEM | Memory Modernization | 🔶 M0–M4 + MEM-1/2/3 DONE; M5–M6 remain | S324 |
+| D-MEM | Memory Modernization | ✅ **ALL DONE** — M0–M6 + MEM-1/2/3 complete | S338 |
 | D-STAGE | Stage Decoupling | ✅ **ALL 3 PHASES DONE** | S47c |
 | B-12 | Dynamic Participant System | ✅ **ALL 3 PHASES DONE** — Phase 3 (2026-04-17, protocol v37) | S324 |
 | SPF | Server Platform Foundation | ✅ **ALL SHIPPED** — SPF-1 Hub/Room/Identity/Phonetic + SPF-2a Menu Mgr + SPF-3 Lobby + SPF-3 Connect Codes + R-1 through R-4 | S51 / S143 / S253 |
@@ -291,7 +291,7 @@ prepare.
   [designs/manifest-architecture.md](designs/manifest-architecture.md),
   [designs/session-catalog-and-modular-api.md](designs/session-catalog-and-modular-api.md).
 
-### D-MEM: Memory Modernization — 🔶 M0–M4 + MEM-1/2/3 DONE
+### D-MEM: Memory Modernization — ✅ ALL DONE (S338)
 
 - **M0**: Diagnostic log cleanup → LOG_VERBOSE. ✅
 - **M1**: `memsizes.h` created, 30+ named constants, 8 files converted. ✅
@@ -302,9 +302,13 @@ prepare.
 - **M2**: Stack→heap promotion (`pak.c` 16KB, `texdecompress.c` 12KB, `menuitem.c` 24KB). ✅ (S324)
 - **M3**: IS4MB ternary collapse (107 dead branches). ✅ (S317/S320/S322/S323A)
 - **M4**: ALIGN16 no-op macro (119 wrappers → `(val)` in constants.h). ✅ (S324)
-- **M5**: Separate pool regions (architectural — eliminates overlap risk).
-  📋 Not started.
-- **M6**: Thread safety (mutex on `mempAlloc` / `mempFree`). 📋 Not started.
+- **M5**: Separate pool regions — PERMANENT [+16 MB], STAGE [+40 MB], POOL_8
+  [+4 MB] each get dedicated address ranges. mempResetPool(STAGE) no longer
+  repositions STAGE based on PERMANENT. mempGetStageFree() fixed to read
+  onboard STAGE pool. ✅ (S338)
+- **M6**: Thread safety — SDL_mutex registered via mempSetLockFns() in
+  pdmain.c; mempAlloc, mempAllocFromRight, mempRealloc, mempResetPool,
+  mempDisablePool all guarded. Server build unaffected. ✅ (S338)
 
 Full plan in [memory-modernization.md](memory-modernization.md).
 
@@ -395,7 +399,7 @@ DONE ── D1 (N64 strip) ── D3R (component mods) ── D3R-1..11
           │     ├── Map Import Pipeline DONE (L3)
           │     └── Level Editor — PLANNED (v0.5.0 / v1.0.0)
           │
-          └── D-MEM: M0–M4 + MEM-1/2/3 DONE; M5–M6 not started
+          └── D-MEM: ALL DONE (M0–M6 + MEM-1/2/3, S338)
 
 PLANNED (by release target):
   v0.1.0 "Foundation"  ── D5 Phase 4 / 5 finish, B-141 audio root cause

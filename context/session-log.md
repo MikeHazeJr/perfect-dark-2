@@ -39,6 +39,45 @@ Clean: 252/252 server objects, 521/521 game objects. Zero errors, only pre-exist
 
 ---
 
+## Session S338 — 2026-04-17 (D-MEM M5 + M6 — Separate Pool Regions + Mutex, `ecstatic-bouman-5d30e4` worktree)
+
+**Scope**: Completed the final two Memory Modernization phases. Build clean 775/775, zero errors.
+
+### M5 — Separate Pool Regions
+
+`src/lib/memp.c::mempSetHeap()` now carves the flat 64 MB heap into dedicated, non-overlapping address regions:
+
+| Pool | Offset | Size |
+|------|--------|------|
+| `MEMPOOL_PERMANENT` | base + 0 | 16 MB |
+| `MEMPOOL_STAGE` | base + 16 MB | 40 MB |
+| `MEMPOOL_8` | base + 56 MB | 4 MB |
+| (unassigned) | base + 60 MB | 4 MB |
+
+Previously PERMANENT, STAGE, and POOL_0 all started at the same address. `mempResetPool(MEMPOOL_STAGE)` used to reposition STAGE's start to PERMANENT's current `leftpos` and clamp PERMANENT's `rightpos`/`end` — both operations are now removed since each pool has a fixed private region.
+
+**Bug fixed**: `mempGetStageFree()` and `mempGetNextStageAllocation()` were reading from `g_MempExpansionPools[MEMPOOL_STAGE]`, which was never set up with a ≤64 MB heap. Both functions returned 0/NULL always. Fixed to read from `g_MempOnboardPools[MEMPOOL_STAGE]`. This also fixes the `modelcatalog.c` guard that was logging a spurious ERROR on every boot.
+
+### M6 — Thread Safety
+
+Added `mempSetLockFns(lockFn, unlockFn)` to memp.h/memp.c — registers optional SDL_mutex-backed lock/unlock hooks. `port/src/pdmain.c` now creates an SDL_mutex immediately after `mempSetHeap()` and registers it. The following memp functions are now fully guarded: `mempAlloc`, `mempAllocFromRight`, `mempRealloc`, `mempResetPool`, `mempDisablePool`. Server build unaffected (does not compile memp.c).
+
+### Files changed
+
+- `src/lib/memp.c` — M5 region carving + M6 mutex hooks (415 lines)
+- `src/include/lib/memp.h` — added `mempSetLockFns` declaration
+- `port/src/pdmain.c` — SDL include + static mutex + mempSetLockFns registration
+
+### Build result
+
+Clean: 775/775, zero errors. `PerfectDark.exe` 52,677,661 bytes, `PerfectDarkServer.exe` 22,919,068 bytes. Merge commit on dev.
+
+### Next
+
+D-MEM is fully complete. No follow-up tasks. Playtest: stage transitions, multiplayer — verify no cross-pool corruption (no behavioral change expected; this was a silent correctness fix).
+
+---
+
 ## Session S337 — 2026-04-17 (Dev Window v2 — Prune Worktrees + Progress Bar + HUD)
 
 **Scope**: Three improvements to `devtools/dev-window-v2/dev-window-v2.ps1`. No game code touched.

@@ -1,7 +1,7 @@
 # Memory Modernization Gameplan (Phase D-MEM)
 
 **Created**: 2026-03-21, Session 14
-**Status**: IN PROGRESS — M0–M4 DONE (M0:S14, M1:S15, M3:S317/S320/S322/S323A, M2+M4:S324); M5–M6 remain
+**Status**: ✅ COMPLETE — M0–M6 all done (M0:S14, M1:S15, M3:S317/S320/S322/S323A, M2+M4:S324, M5+M6:S338)
 **Premise**: The N64's 4–8MB RAM constraint is gone. We have gigabytes. Stop reusing memory
 locations for different things, stop hardcoding N64-era buffer sizes, and make allocations
 self-documenting and crash-resistant.

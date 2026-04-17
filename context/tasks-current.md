@@ -33,6 +33,21 @@ Bridge additions: `netServerBanClient`, `serverGetMemoryMB`, `serverGetStageId/S
 
 ---
 
+## Done — 2026-04-17 (S338 — D-MEM M5+M6: separate pool regions + mutex, `ecstatic-bouman-5d30e4`)
+
+**Build verified.** Clean 775/775, zero errors. `PerfectDark.exe` 52,677,661 / `PerfectDarkServer.exe` 22,919,068.
+
+D-MEM now **fully complete** (M0–M6 + MEM-1/2/3). Changes:
+- `src/lib/memp.c` — M5: PERMANENT/STAGE/POOL_8 each get dedicated address regions; M6: MEMP_LOCK/UNLOCK guards on all mutation functions
+- `src/include/lib/memp.h` — `mempSetLockFns()` added
+- `port/src/pdmain.c` — SDL_mutex registered with mempSetLockFns after mempSetHeap
+
+Bug fix: `mempGetStageFree()` was reading expansion pool (never set up, always returned 0). Now reads onboard STAGE pool — fixes spurious modelcatalog ERROR on boot.
+
+**Playtest:** stage transitions + multiplayer — no behavioral change expected, verify no crashes.
+
+---
+
 ## Done — 2026-04-17 (S337 — Dev Window v2 improvements)
 
 Three fixes to `devtools/dev-window-v2/dev-window-v2.ps1` (commit `4d117d67`, worktree `peaceful-williams-59ec2f`):
