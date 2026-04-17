@@ -7,6 +7,16 @@
 
 ---
 
+## Done — 2026-04-17 (S355 — Wave 5 Cross-Audit: S352 + S353 + S354, `goofy-pike-572f8a`)
+
+**Build verified.** Clean 774/774 (worktree) + 4/4 incremental on dev post-merge. Zero errors.
+`PerfectDark.exe` 52,810,516 / `PerfectDarkServer.exe` 22,925,709.
+
+S352 and S354: CLEAN — no bugs found across all 10 audit items.
+S353 bug fixed: `NET_PROP_DIRTY_MAXSYNCID` raised from 512 → `NET_PROP_MAP_SIZE` (2048) in `port/src/net/netmsg.c`. Props at slots 512–2047 were silently skipping dirty marks, preventing the 120-tick heartbeat CRC from firing on large stages after events on those props. Static array grows 512→2048 bytes; no wire format change; no protocol bump.
+
+---
+
 ## Done — 2026-04-17 (S354 — Forge Runtime Wire-In: Props, Weapons, Geometry, Doors, Zones, `practical-varahamihira-3b5f5d`)
 
 **Build verified.** Single file change: `port/src/forge/forge_runtime.c` (+358/-27).

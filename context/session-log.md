@@ -1,8 +1,41 @@
 
 # Session Log (Active)
 
-> **S281–S354** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S355** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S355 — 2026-04-17 (`goofy-pike-572f8a` worktree) — Wave 5 Cross-Audit: S352 + S353 + S354
+
+**Scope**: Audit sessions S352 (D5 Phase 5 Lobby Portraits), S353 (Prop Sync Event-Driven + Killfeed), and S354 (Forge Runtime Wire-In) for bugs, gaps, and missed items. Fix any findings, build-verify, merge to dev.
+
+**Audit results — S352 (Lobby Portraits): CLEAN**
+All 5 checklist items pass:
+- FBO resource cleanup: `lobbyPortraitsReset()` called in both `IsWindowAppearing` and `pdguiRoomScreenReset()`. ✅
+- Portrait invalidation on character change: `lobbyPortraitsSync()` compares `head_id`/`body_id`; frees texture and requeues bake on mismatch. ✅
+- Thread safety: all GL ops on single-threaded render loop. ✅
+- Array bounds: `LOBBY_PORTRAIT_MAX = 8 = MAX_PLAYERS`, all loops bounds-checked. ✅
+- Alpha clamping: increments clamped to `[0, 1]` in sync; solo mode uses `1.0f` directly at render time (not from the ramp array). ✅
+
+**Audit results — S353 (Prop Sync + Killfeed): ONE BUG FIXED**
+
+`NET_PROP_DIRTY_MAXSYNCID = 512` was too small. Prop syncids are `prop − g_Vars.props + 1`, so they can reach `maxprops` (bounded by the 2048-slot sync ID map). Flags for props at slots 512–2047 were silently dropped by `netPropMarkDirty`, causing the 120-tick CRC heartbeat to be skipped on large stages even when those props had real events. No event messages were lost (SvcProp*Write still wrote to the wire buffer); only the CRC-heartbeat desync detector was affected.
+
+**Fix**: `port/src/net/netmsg.c` — changed `#define NET_PROP_DIRTY_MAXSYNCID 512` to `#define NET_PROP_DIRTY_MAXSYNCID NET_PROP_MAP_SIZE` (2048). Static array grows by 1536 bytes. No wire format change.
+
+Other S353 items verified clean: kill feed NULL safety (guarded at `g_MpAllChrConfigPtrs[i]`), kill feed truncation (uses `netbufWriteStr`), heartbeat timer (correct), race condition (none — single-threaded). ✅
+
+**Audit results — S354 (Forge Runtime): CLEAN**
+All 5 checklist items pass:
+- Zone performance: 128 simple float AABB/sphere comparisons per tick — negligible at 60 Hz. ✅
+- Prop pool exhaustion: logs `GRID.RUNTIME: prop pool full` + drops gracefully. ✅
+- Weapon catalog resolve failure: guarded at all three failure points (catalogResolveWeapon, weaponCreate, func0f08ae0c). ✅
+- Zone teleporter player-position bounds: target NULL-checked; author responsibility for valid world positions. ✅
+- Edge-trigger state reset: `s_register_zone()` memsets each `forge_zone_rt_t` to zero on registration; `forgeRuntimeEnterPlay` resets `s_zone_count = 0` before re-registering. ✅
+
+**Build**: Clean 774/774 (worktree). Clean 4/4 incremental (dev post-merge — only netmsg.c rebuilt + relink).
+`PerfectDark.exe` 52,810,516 / `PerfectDarkServer.exe` 22,925,709.
+
+---
 
 ## Session S354 — 2026-04-17 (`practical-varahamihira-3b5f5d` worktree) — Forge Runtime Wire-In: Props, Weapons, Geometry, Doors, Zones
 
