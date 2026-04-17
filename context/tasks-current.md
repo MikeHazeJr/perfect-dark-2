@@ -7,6 +7,18 @@
 
 ---
 
+## Open — 2026-04-17 (S318 — B-161 class bbox/modeldef NULL sweep)
+
+### Playtest verification
+
+- **Hoverbike dismount** — activate near a hoverbike; dismount should succeed normally. No regression.
+- **Glass destruction** — shoot AI Villa Bot glass objects; shard spray should fire. If bbox is missing, object removes silently (no crash, no shards — acceptable).
+- **Door interaction range** — approach and open doors in any SP/MP level normally; no input-eating regression.
+- **Hoverbike/hoverprop collision** — hoverbike/hoverprop geo block built correctly; collides with walls as expected.
+- **Chr bbox render** — no visual regression in character sorting / chr hitbox computation.
+
+---
+
 ## Open — 2026-04-17 (S317 addendum — CI Training crash fix, dev direct)
 
 ### B-163: Playtest verification

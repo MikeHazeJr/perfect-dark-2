@@ -1884,8 +1884,16 @@ void func0f069850(struct defaultobj *obj, struct coord *pos, f32 rot[3][3], stru
 	} else {
 		if (rodata19 != NULL) {
 			objCalculateGeoBlockFromNode19Data(rodata19, bbox, &mtx, (struct geoblock *)cyl);
-		} else {
+		} else if (bbox != NULL) {
 			objCalculateGeoBlockFromBboxAndMtx(bbox, &mtx, (struct geoblock *)cyl);
+		} else {
+			/* B-161 class: no bbox and no rodata19 — emit an empty block so
+			 * the caller's geo pointer stays valid with no collision extent. */
+			struct geoblock *block = (struct geoblock *)cyl;
+			block->header.numvertices = 0;
+			block->header.type = GEOTYPE_BLOCK;
+			block->ymin = 0.0f;
+			block->ymax = 0.0f;
 		}
 
 		if (obj->type == OBJTYPE_HOVERBIKE) {
@@ -15484,14 +15492,18 @@ void glassDestroy(struct defaultobj *obj)
 	wallhitsFreeByProp(prop, 0);
 	wallhitsFreeByProp(prop, 1);
 
-	if (obj->modelnum == MODEL_AIVILLABOT1
-			|| obj->modelnum == MODEL_AIVILLABOT2
-			|| obj->modelnum == MODEL_AIVILLABOT3) {
-		shardsCreate(&prop->pos, &obj->realrot[0][0], &obj->realrot[1][0], &obj->realrot[2][0],
-				bbox->xmin, bbox->xmax, bbox->ymin, bbox->ymax, SHARDTYPE_BOTTLE, prop);
-	} else {
-		shardsCreate(&prop->pos, &obj->realrot[0][0], &obj->realrot[1][0], &obj->realrot[2][0],
-				bbox->xmin, bbox->xmax, bbox->ymin, bbox->ymax, SHARDTYPE_GLASS, prop);
+	/* B-161 class: bbox can be NULL for a glass obj with no bbox node. Skip
+	 * shardsCreate — object is removed without spawning glass shards. */
+	if (bbox != NULL) {
+		if (obj->modelnum == MODEL_AIVILLABOT1
+				|| obj->modelnum == MODEL_AIVILLABOT2
+				|| obj->modelnum == MODEL_AIVILLABOT3) {
+			shardsCreate(&prop->pos, &obj->realrot[0][0], &obj->realrot[1][0], &obj->realrot[2][0],
+					bbox->xmin, bbox->xmax, bbox->ymin, bbox->ymax, SHARDTYPE_BOTTLE, prop);
+		} else {
+			shardsCreate(&prop->pos, &obj->realrot[0][0], &obj->realrot[1][0], &obj->realrot[2][0],
+					bbox->xmin, bbox->xmax, bbox->ymin, bbox->ymax, SHARDTYPE_GLASS, prop);
+		}
 	}
 
 #if PIRACYCHECKS
@@ -19331,6 +19343,12 @@ bool doorIsObjInRange(struct doorobj *door, struct defaultobj *obj, bool isbike)
 {
 	struct modelrodata_bbox *bbox = objFindBboxRodata(obj);
 	f32 scale = 0;
+
+	/* B-161 class: no bbox — treat the object as a point (scale=0) and
+	 * fall through to the position-only range check below. */
+	if (bbox == NULL) {
+		return doorIsPosInRange(door, &obj->prop->pos, 0, isbike);
+	}
 
 	if (scale < bbox->xmin) {
 		scale = bbox->xmin;

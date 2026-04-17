@@ -173,6 +173,12 @@ void bbikeHandleActivate(void)
 		struct hoverbikeobj *bike = (struct hoverbikeobj *)g_Vars.currentplayer->hoverbike->obj;
 		struct modelrodata_bbox *bbox = objFindBboxRodata(&bike->base);
 
+		/* B-161 class: bike model may have no bbox node; can't compute
+		 * dismount distances without it — skip activation safely. */
+		if (bbox == NULL) {
+			return;
+		}
+
 		f32 sidedist = bbox->xmax * bike->base.model->scale;
 		f32 frontdist = bbox->zmax * bike->base.model->scale;
 		f32 diagdist = sqrtf(sidedist * sidedist + frontdist * frontdist);

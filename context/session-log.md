@@ -4,6 +4,30 @@
 > **S281–S317** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S318 — 2026-04-17 (B-161 class bbox/modeldef NULL sweep — dev direct)
+
+**Scope**: Comprehensive audit of all bbox/modeldef NULL dereference sites in the codebase. Five unsafe sites found and fixed.
+
+### Audit methodology
+
+Searched all `modeldefFindBboxRodata`, `modelFindBboxRodata`, `objFindBboxRodata`, `setupLoadModeldef` callsites. Classified each as SAFE (already NULL-checked, or going through S308-patched `objGetLocal*`/`objGetRotatedLocal*` helpers) or UNSAFE (direct dereference without guard).
+
+### Five unsafe sites fixed
+
+| File | Function | Pattern | Fix |
+|------|----------|---------|-----|
+| `bondbike.c:174` | `bbikeHandleActivate` | `bbox->xmax` / `bbox->zmax` after `objFindBboxRodata` | Early return if NULL |
+| `chr.c:3050` | unnamed | `thing->bbox = *bbox` struct copy | Zero-init fallback |
+| `propobj.c:15482` | `glassDestroy` | `bbox->xmin/xmax/ymin/ymax` in `shardsCreate` | Skip shardsCreate if NULL |
+| `propobj.c:19332` | `doorIsObjInRange` | `bbox->xmin/xmax/ymin/ymax/zmin/zmax` | Point-check fallback (scale=0) |
+| `propobj.c:1888` | `func0f069850` | `objCalculateGeoBlockFromBboxAndMtx(bbox, ...)` | Empty block fallback if bbox + rodata19 both NULL |
+
+### Build verify
+
+`ninja -C Build pd pd-server` clean. PerfectDark.exe 52,531,342 / PerfectDarkServer.exe 22,852,827.
+
+---
+
 ## Session S317 — 2026-04-17 (ROM hash cache path fix + crash investigation — `nostalgic-lichterman-3c1259` worktree)
 
 **Scope**: Urgent crash report — Mike's second PC crashes at startup (stage 0x26 CI Training bodiesReset) after removing `.sha256` files from the game folder.

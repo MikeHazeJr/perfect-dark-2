@@ -3047,7 +3047,14 @@ bool chr0f024738(struct chrdata *chr)
 
 					if (!thing->unk00c) {
 						struct modelrodata_bbox *bbox = objFindBboxRodata(obj);
-						thing->bbox = *bbox;
+						/* B-161 class: struct copy of NULL crashes — zero-init
+						 * the bbox so downstream sort math uses empty extents. */
+						if (bbox != NULL) {
+							thing->bbox = *bbox;
+						} else {
+							static const struct modelrodata_bbox s_ZeroBbox = {0};
+							thing->bbox = s_ZeroBbox;
+						}
 
 						mtx3ToMtx4(obj->realrot, &thing->unk02c);
 						mtx4SetTranslation(&obj->prop->pos, &thing->unk02c);
