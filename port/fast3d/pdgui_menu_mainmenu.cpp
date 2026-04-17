@@ -697,7 +697,7 @@ static void renderSettingsVideo(float scale)
             }
         }
 
-        if (PdCombo("UI Chrome Style", &chromeIdx, chromeOpts, 1 + usedStyles)) {
+        if (PdCombo("Menu Style", &chromeIdx, chromeOpts, 1 + usedStyles)) {
             if (chromeIdx <= 0) {
                 pdguiThemeSetUiChromeEnabled(0);
                 pdguiChromeSetEnabled(0);

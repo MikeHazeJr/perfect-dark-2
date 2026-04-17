@@ -284,7 +284,7 @@ static const char *hubToolName(int tool)
         "Audio Mods",
         "Skin Editor",
         "Map Import",
-        "Nine-Slice Chrome",
+        "Menu Style",
     };
     if (tool < 0 || tool >= (int)(sizeof(kNames) / sizeof(kNames[0]))) {
         return "Unknown";
@@ -1272,7 +1272,7 @@ static void renderModdingHub(s32 winW, s32 winH)
 
         static const char *toolNames[] = {
             "Mod Manager", "INI Editor", "Scale Tool", "Mod Pack",
-            "Audio Mods", "Skin Editor", "Map Import", "Nine-Slice Chrome"
+            "Audio Mods", "Skin Editor", "Map Import", "Menu Style"
         };
 
         /* Bumper (LB/RB) tab cycling — PageUp/PageDown driven by pdguiDriveImGuiNav.
@@ -1894,7 +1894,7 @@ static bool chromeToolSaveMod(void)
         "  \"id\": \"user.%s.ui-chrome\",\n"
         "  \"name\": \"%s\",\n"
         "  \"version\": \"1.0.0\",\n"
-        "  \"description\": \"Created in-game with Nine-Slice Chrome tool.\",\n"
+        "  \"description\": \"Created in-game with Menu Style tool.\",\n"
         "  \"author\": \"Player\",\n"
         "  \"tags\": [\"chrome\", \"ui\", \"user\"],\n"
         "  \"enabled\": true,\n"
@@ -2243,7 +2243,7 @@ static void renderChromeTool(float w, float h, float scale)
     }
 
     /* --- Header (fixed) --- */
-    ImGui::TextDisabled("Nine-Slice Chrome -- import image, set rulers, save as mod");
+    ImGui::TextDisabled("Menu Style -- import image, set rulers, save as mod");
     ImGui::Spacing();
 
     ImGui::Text("Image:");
