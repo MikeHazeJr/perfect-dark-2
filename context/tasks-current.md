@@ -65,8 +65,28 @@ lift was completely dead in MP because it was never registered in
 `g_Lifts[]`. Solo missions are unaffected (AI script `aiActivateLift`
 still re-registers idempotently).
 
+### S310 R1-R4 addendum (Mike refinements landed commit `833c3a95`)
+
+- **R1 seamless swap**: F7 toggle confirmed non-stage-reloading.
+  Verify via log stream -- should see `FORGE: freefly body-swap`
+  / `FORGE: normal body-restore` pairs on each toggle.
+- **R2/R4 weapon source**: Settings tab > "Weapon Source" dropdown.
+  Pick MAP_DEFAULTS, save, reload, confirm round-trip.  When match
+  setup UI lands the hook point is `s->weapon_source` +
+  `s->allow_match_override`.
+- **R3 dependencies**: Settings tab > live "Mod Dependencies" section
+  shows bullet list; save a map that references a modded weapon,
+  then grep `mods/Forge Maps/<slug>/mod.json` for `"dependencies":`
+  array.  Distribution pipeline recursion lands with the mod-transfer
+  integration pass.
+
 ### Follow-up queued from S310
 
+- **Engine-level Dr. Carroll visual swap**: chr->bodynum + headnum
+  are now assigned correctly on entry/exit (so saves + MP sync carry
+  the right value), but the live mesh re-skin requires a
+  `bodyAllocateModel` call on the new pair + a model-tree rebuild.
+  Comes in a follow-up polish pass.
 - **3D gizmo handles** -- the Properties tab edits transform
   numerically; the design doc §4.2 calls for drag-axis gizmos. Needs
   freefly-camera raycast + in-world axis rendering. Data model supports

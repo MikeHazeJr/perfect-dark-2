@@ -346,6 +346,13 @@ s32 forgeSerializeSaveToMod(const char *mod_slug)
 	forgeSerializeBuildModDir(mod_slug, dir, sizeof(dir));
 	forgeSerializeMakeDirsRecursive(dir);
 
+	/* ---- Collect dependencies once (R3) ---- */
+	char deps[FORGE_MAX_DEPENDENCIES][FORGE_ID_LEN];
+	s32 num_deps = forgeCollectDependencies(deps, FORGE_MAX_DEPENDENCIES);
+	if (num_deps > 0) {
+		sysLogPrintf(LOG_NOTE, "FORGE.SERIALIZE: collected %d mod dependencies", num_deps);
+	}
+
 	/* ---- mod.json ---- */
 	{
 		char modjson_path[FS_MAXPATH];
@@ -365,6 +372,20 @@ s32 forgeSerializeSaveToMod(const char *mod_slug)
 		jwKvString(&w, "description", s->description);
 		jwKvString(&w, "type",        "forge-map");
 		jwKvInt(&w,    "format_version", 1);
+
+		/* R3 -- dependency array at the mod-manifest level, consumed by
+		 * the mod distribution pipeline.  Each entry is the catalog ID
+		 * of a non-base asset this map requires.  Distribution is
+		 * recursive: the resolver walks each dependency mod's own
+		 * manifest for its dependencies, etc. */
+		jwArrayBegin(&w, "dependencies");
+		for (s32 i = 0; i < num_deps; ++i) {
+			jwComma(&w);
+			jwIndent(&w);
+			jwStringEsc(w.f, deps[i]);
+		}
+		jwArrayEnd(&w);
+
 		--w.indent;
 		fputs("\n}\n", f);
 		fclose(f);
@@ -395,6 +416,16 @@ s32 forgeSerializeSaveToMod(const char *mod_slug)
 	jwKvString(&w, "base_stage", s->base_stage_id);
 	jwKvBool(&w,   "is_mission", s->is_mission);
 
+	/* R3 -- dependencies mirrored at the payload level so a map.json
+	 * pulled on its own (e.g. for preview) still reports its deps. */
+	jwArrayBegin(&w, "dependencies");
+	for (s32 i = 0; i < num_deps; ++i) {
+		jwComma(&w);
+		jwIndent(&w);
+		jwStringEsc(w.f, deps[i]);
+	}
+	jwArrayEnd(&w);
+
 	/* settings */
 	jwObjectBegin(&w, "settings");
 	jwKvUint(&w,  "gamemode_flags", s->gamemode_flags);
@@ -420,6 +451,9 @@ s32 forgeSerializeSaveToMod(const char *mod_slug)
 	jwKvFloat(&w, "rotation_snap_deg",s->rotation_snap_deg);
 	jwKvBool(&w,  "surface_snap",   s->surface_snap);
 	jwKvBool(&w,  "edge_snap",      s->edge_snap);
+	/* R2/R4 -- weapon source policy. */
+	jwKvInt(&w,   "weapon_source",  s->weapon_source);
+	jwKvBool(&w,  "allow_match_override", s->allow_match_override);
 	jwObjectEnd(&w);
 
 	/* mission */
@@ -765,6 +799,8 @@ static void forgeSerializeReadSettings(forge_jr_t *r)
 		else if (!strcmp(key, "rotation_snap_deg"))    jrReadFloat(r, &s->rotation_snap_deg);
 		else if (!strcmp(key, "surface_snap"))         { s32 v; if (jrReadBool(r,&v)) s->surface_snap = (u8)v; }
 		else if (!strcmp(key, "edge_snap"))            { s32 v; if (jrReadBool(r,&v)) s->edge_snap = (u8)v; }
+		else if (!strcmp(key, "weapon_source"))        { s32 v; if (jrReadInt(r,&v)) s->weapon_source = (u8)v; }
+		else if (!strcmp(key, "allow_match_override")) { s32 v; if (jrReadBool(r,&v)) s->allow_match_override = (u8)v; }
 		else jrSkipValue(r);
 	}
 }

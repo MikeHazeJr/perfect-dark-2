@@ -1012,6 +1012,20 @@ static void forgeDrawSettingsTab(void)
 	ImGui::SliderFloat("Respawn Delay (s)", &s->respawn_delay_sec, 0.0f, 10.0f);
 	ImGui::SliderFloat("Spawn Protection (s)", &s->spawn_protection_sec, 0.0f, 10.0f);
 
+	ImGui::SeparatorText("Weapon Source (R2/R4)");
+	const char *wsrc[] = {
+		"Map Defaults -- each pad spawns its author-chosen weapon",
+		"Match Override -- lobby weapon set overrides every pad",
+		"Prefer Map -- specific pads keep their weapon; generic pads use lobby"
+	};
+	int ws = s->weapon_source;
+	if (ImGui::Combo("Weapon Source", &ws, wsrc, 3)) s->weapon_source = (u8)ws;
+	bool amo = s->allow_match_override;
+	if (ImGui::Checkbox("Allow match to offer 'Use Map Defaults' checkbox", &amo))
+		s->allow_match_override = amo ? 1 : 0;
+	ImGui::TextDisabled("Modded weapons participate automatically; the map's "
+			"mod.json dependencies list ensures clients have them available.");
+
 	ImGui::SeparatorText("Default Rules");
 	ImGui::InputInt("Time Limit (s)", &s->default_time_limit_sec);
 	ImGui::InputInt("Score Limit",    &s->default_score_limit);
@@ -1060,6 +1074,26 @@ static void forgeDrawSettingsTab(void)
 	ImGui::Text("Logic    %d / %d soft / %d hard",  b.logic_nodes, b.logic_nodes_soft, b.logic_nodes_hard);
 	ImGui::Text("Effects  %d / %d soft / %d hard",  b.effects, b.effects_soft, b.effects_hard);
 	ImGui::Text("Audio    %d / %d soft / %d hard",  b.audio_emitters, b.audio_emitters_soft, b.audio_emitters_hard);
+
+	ImGui::SeparatorText("Mod Dependencies (R3)");
+	{
+		/* Collect dependencies live each frame so the preview stays
+		 * fresh while the author is editing.  Capped at FORGE_MAX_DEPENDENCIES. */
+		char deps[FORGE_MAX_DEPENDENCIES][FORGE_ID_LEN];
+		s32 nd = forgeCollectDependencies(deps, FORGE_MAX_DEPENDENCIES);
+		if (nd == 0) {
+			ImGui::TextDisabled("No mod dependencies.  This map only uses base-game assets.");
+		} else {
+			ImGui::Text("%d unique mod asset(s) referenced (auto-included with map on share):", nd);
+			ImGui::BeginChild("DepsList", ImVec2(-1, 120), true);
+			for (s32 i = 0; i < nd; ++i) {
+				ImGui::BulletText("%s", deps[i]);
+			}
+			ImGui::EndChild();
+		}
+		ImGui::TextDisabled("The mod distribution system recursively resolves these -- "
+				"e.g. a custom weapon mod's own texture-pack dep comes along too.");
+	}
 
 	ImGui::SeparatorText("Save / Load");
 	static char save_slug[FORGE_NAME_LEN] = "";

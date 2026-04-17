@@ -40,6 +40,7 @@ extern "C" {
 #define FORGE_MAX_PREFABS       64
 #define FORGE_MAX_UNDO          256
 #define FORGE_MAX_CATALOG       512
+#define FORGE_MAX_DEPENDENCIES  128    /* unique catalog IDs referenced by map */
 
 #define FORGE_ID_LEN            48
 #define FORGE_LABEL_LEN         32
@@ -248,6 +249,23 @@ typedef enum forge_spawn_type {
 	FORGE_SPAWN_RESPAWN,
 	FORGE_SPAWN_BOTH
 } forge_spawn_type_t;
+
+/* S310 R2/R4: Weapon source.  Maps declare weapon pads with a default
+ * weapon catalog ID per pad.  At match start this setting decides whose
+ * choice wins: the map author's per-pad default, the match lobby
+ * weapon set, or a hybrid where map defaults fill in any "Any Weapon"
+ * pads.  Modded weapons participate transparently -- the dependency
+ * track in map.json ensures the client has them available (see R3).
+ *
+ * The match setup screen also exposes a "Use Map Defaults" checkbox --
+ * when checked, `weapon_source` is forced to MAP_DEFAULTS for the
+ * duration of that match regardless of the lobby's normal weapon-set
+ * setting. */
+typedef enum forge_weapon_source {
+	FORGE_WEAPONS_MAP_DEFAULTS    = 0, /* each pad spawns its map-author-chosen default */
+	FORGE_WEAPONS_MATCH_OVERRIDE  = 1, /* lobby weapon set overrides every pad */
+	FORGE_WEAPONS_PREFER_MAP      = 2, /* pad defaults win for pads with a specific weapon; "Any" pads use lobby choice */
+} forge_weapon_source_t;
 
 /* ============================================================
  * Catalog entry (what can be placed)
@@ -659,6 +677,14 @@ typedef struct forge_map_settings {
 	u8 surface_snap;
 	u8 edge_snap;
 	u8 pad_snap[2];
+
+	/* S310 R2/R4 -- weapon pad source policy (see forge_weapon_source_t).
+	 * Default is MAP_DEFAULTS so author intent is honoured unless the
+	 * match explicitly overrides. */
+	u8 weapon_source;
+	u8 allow_match_override; /* 1 = match-setup UI shows "Use Map Defaults"
+	                          *     checkbox next to weapon-set picker */
+	u8 pad_weaponsrc[2];
 } forge_map_settings_t;
 
 /* ============================================================
@@ -853,6 +879,26 @@ s32  forgeBudgetOverHard(const forge_budget_stats_t *s);
 /* Serialize (F3) */
 s32  forgeSerializeSaveToMod(const char *mod_slug); /* writes mods/Forge Maps/<slug>/ */
 s32  forgeSerializeLoadFromMod(const char *mod_slug);
+
+/* ============================================================
+ * S310 R3: Mod dependency collection.
+ *
+ * Walks every piece of editor state -- placed objects' catalog IDs,
+ * AI body/head/weapon refs, weapon pad weapon_id, pickup item_id,
+ * effect asset_id, zone sound_loop_id, atmosphere sky_id, gametype
+ * starting_weapon, every wave's enemy_catalog_id, plus any
+ * material_id on any object -- and returns the unique list of
+ * **non-base** catalog IDs referenced.  "non-base" = any ID whose
+ * namespace prefix is not "base:".  Those are the mod assets the map
+ * depends on and that the distribution pipeline needs to recursively
+ * include (a modded weapon's own texture-pack dependency comes along
+ * too because each mod declares its own dependency list in its mod.json).
+ *
+ * The caller supplies a char[FORGE_ID_LEN] array of at least `max`
+ * entries; returns the count of unique IDs actually written (capped
+ * at `max`).  Base-game IDs are elided; NULL / empty IDs are elided.
+ * ============================================================ */
+s32  forgeCollectDependencies(char out[][FORGE_ID_LEN], s32 max);
 
 #ifdef __cplusplus
 } /* extern "C" */
