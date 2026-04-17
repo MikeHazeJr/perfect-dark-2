@@ -7,6 +7,27 @@
 
 ---
 
+## Done — 2026-04-17 (S323 Batch H — FIX-B.1 deep manifest scanner discovery logging, `zealous-saha-02c1f5` worktree)
+
+**Build verified.** Clean 768/768 link, both executables rebuilt. FIX-B.1 — the last open item of the Master Orchestration Plan — is now closed.
+
+**What changed** (`port/src/net/netmanifest.c` only):
+- `s_manifestAddBody/Head/Model` and new `s_manifestAddWeapon` helpers gained a `scan_source` parameter. Each helper pre-checks dedup via new `s_manifestHasEntry()`; when an entry is newly added, logs `MANIFEST-SP: <scan>-scan discovered <kind> '<id>' (<kind>num=N)`. Scan sources: `props` / `intro` / `ailist`.
+- Body/head WARNINGs when a scan references a bodynum/headnum that doesn't resolve in the catalog (non-sentinel values only). Makes mod-character gaps visible instead of surfacing only as `manifestEnsureLoaded` late-adds with torn modeldefs (the S312 fingerprint).
+- `manifestBuildMission` props loop migrated to the unified helpers; prop-object switch now calls `s_manifestAddModel(..., "props")` instead of inline `manifestAddEntry`. Removed unused `char id[64]` local.
+- Per-phase counter snapshots + single summary line at end of `manifestBuildMission`:
+  `MANIFEST-SP: scan stage=0x%02x joanna=N props+=M intro+=P ailist+=Q (total=T)`
+
+Scanners already mirrored `stageLoadAllAilistModels` exactly (S298), so no functional coverage extension was needed — the gap was observability, not coverage.
+
+### Playtest verification
+
+- **Solo Crash Site / Deep Sea / Villa (cinematic missions)** — tail `pd-client.log` during mission load. Expect a burst of `MANIFEST-SP: ailist-scan discovered body '...' (bodynum=...)` / `head '...' (headnum=...)` lines, followed by the summary `MANIFEST-SP: scan stage=0x<hex> joanna=2 props+=N intro+=P ailist+=Q (total=T)` with `ailist+=` non-zero.
+- **Mod-character mission** — if a mod body/head is referenced by ailists but not in the catalog, expect new WARNING `MANIFEST-SP: ailist-scan body bodynum=N not in catalog`. Any such warning identifies a catalog-registration gap.
+- **Late-add correlation** — any lingering `MANIFEST-SP: late-add '...' (missed by pre-scan)` lines should now also have a corresponding missing-discovery audit trail (either absent `<scan>-scan discovered` line for that asset, or a `bodynum not in catalog` WARNING).
+
+---
+
 ## Done — 2026-04-17 (S323 Batch G — cross-audit gap fixes)
 
 **Build verified.** Clean link 768/768, zero errors. 6 items fixed:

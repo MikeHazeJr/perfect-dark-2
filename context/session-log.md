@@ -4,6 +4,66 @@
 > **S281–S323** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S323 — 2026-04-17 (Batch H — FIX-B.1 deep manifest scanner discovery logging — `zealous-saha-02c1f5` worktree)
+
+**Scope**: Master Orchestration Plan FIX-B.1. Scanners for `g_StageSetup.intro` and `g_StageSetup.ailists` landed in S298 (see `port/src/server_stubs.c:327` for the symbol reference), but they silently added entries — impossible to audit in playtest logs whether a given mission's cinematic/AI-scripted spawns were actually captured. Users could still see `MANIFEST-SP: late-add ...` lines in logs without any way to trace which scan phase *missed* the asset. This batch closes the auditability gap.
+
+### What was done
+
+**`port/src/net/netmanifest.c`** — scanner helpers refactored to support per-discovery logging:
+
+- **New `s_manifestHasEntry(m, id)` helper** — O(n) existence check over the manifest by canonical id. Used by every add helper below so repeat references in intro/ailist commands dedup silently via `manifestAddEntry()` but only emit *one* `discovered` log line per unique asset.
+- **`s_manifestAddBody` / `s_manifestAddHead` / `s_manifestAddModel`** — added `const char *scan_source` parameter. Pre-check dedup; if the entry is *new*, log:
+  - `MANIFEST-SP: <scan>-scan discovered body '<catalog_id>' (bodynum=N)`
+  - `MANIFEST-SP: <scan>-scan discovered head '<catalog_id>' (headnum=N)`
+  - `MANIFEST-SP: <scan>-scan discovered model '<catalog_id>' (modelnum=N)`
+- **New `s_manifestAddWeapon(out, weaponnum, scan_source)`** — replaces inline `catalogIdByRuntime` + `assetCatalogResolve` + `manifestAddEntry` + `s_manifestExpandDeps` in both intro and ailist scanners. Logs: `MANIFEST-SP: <scan>-scan discovered weapon '<catalog_id>' (weaponnum=N)`.
+- **Body/head not-in-catalog WARNING** — `s_manifestAddBody` and `s_manifestAddHead` now emit `LOG_WARNING` when a scan references a bodynum/headnum that doesn't resolve (only for non-sentinel values; 255/<0 are skipped silently). This surfaces mod-character gaps that would otherwise only show up as runtime late-adds with torn modeldefs (S312 fingerprint).
+
+**`manifestBuildMission` call-site cleanup**:
+
+- Props scan — the manual `catalogIdByRuntime` + `manifestAddEntry` + `s_manifestExpandDeps` block for `OBJTYPE_CHR` body/head and the prop-object `switch` for `OBJTYPE_DOOR/BASIC/...` model registration all replaced with calls to the unified helpers, passing `scan_source="props"`. This shrinks the function substantially and yields consistent discovery logging across every scan phase.
+- Removed the unused `char id[64]` local variable.
+- **Per-phase counter block** — four `s32 count_after_{joanna,props,intro,ailist}` snapshots of `out->num_entries` between phases. At end of build, emit a single summary line:
+  - `MANIFEST-SP: scan stage=0x%02x joanna=N props+=M intro+=P ailist+=Q (total=T)`
+  - This line makes it trivial to tell in a playtest log whether any phase is a zero-contributor for a given stage (e.g., Crash Site cinematics should show `ailist+=non-zero`; if it shows 0, the scan has regressed or the stage wasn't loaded yet).
+
+**Scan coverage verified (no functional extension needed)**:
+
+- Ailist scanner already mirrors `stageLoadAllAilistModels` (`src/game/game_00b820.c:130`) exactly — all five AI commands that reference bodies / heads / models / weapons / hats (`AICMD_DROPITEM`, `AICMD_SPAWNCHRATPAD`, `AICMD_SPAWNCHRATCHR`, `AICMD_EQUIPWEAPON`, `AICMD_EQUIPHAT`) are handled. `grep` of `chraicommands.c` confirmed no other AI command mutates `bodynum`/`headnum` at runtime (only reads exist for conditional logic).
+- Intro scanner currently only emits WEAPON registration; no `INTROCMD_*` command spawns a character in PD (chrs come from props and ailists). `INTROCMD_OUTFIT` sets the player's `bondtype` but carries no catalog body/head reference.
+
+### Why this is enough to close FIX-B.1
+
+The intro + ailist scanners were already wired into `manifestBuildMission`, which is called by both `manifestSPTransition` (pre-load) and `manifestSPRescanSetup` (post-load Phase 2). The Phase 2 rescan walks the live `g_StageSetup.{props,intro,ailists}` after `setupLoadFiles()` populates them, and the diff-apply path loads the newly-discovered entries. The gap was *observability*: playtest logs couldn't distinguish "scan found everything" from "scan silently skipped X" — both looked the same in the aggregate `pre=X post=Y` line. With per-discovery + per-phase logging, the scan is now auditable end-to-end.
+
+### Build result
+
+Clean: 768/768 objects, zero errors. Both executables linked:
+- `Build/PerfectDark.exe` = 52,625,645 bytes
+- `Build/PerfectDarkServer.exe` = 22,838,584 bytes
+
+Pre-existing `-Wcomment` warnings in `updater.h`, `pdgui_theme.h`, `pdgui_bridge.c`, `pdgui_theme_loader.h` and `-Wunused-function gettime_offset` in vendored `enet.h` — none introduced by this change.
+
+### Playtest verification
+
+- **Solo Crash Site (cinematic-heavy)** — load the mission and tail `pd-client.log`. Expect a string of `MANIFEST-SP: ailist-scan discovered body 'base:...' (bodynum=...)` lines from the stage's cinematic actors, followed by `MANIFEST-SP: scan stage=0x<hex> joanna=2 props+=N intro+=P ailist+=Q (total=T)` with `ailist+=` non-zero.
+- **Solo Deep Sea** — same pattern; Deep Sea loads Skedar enemies via ailists, so the ailist+= contribution should be substantial.
+- **Any stage with mod characters** — if a mod body/head is referenced by the setup/ailist but not registered in the catalog, expect a new `MANIFEST-SP: ailist-scan body bodynum=N not in catalog` WARNING identifying the gap.
+- **Post-setup rescan log** — compare `MANIFEST-SP: rescan diff — newly-discovered=N kept=M unload=P` (existing S300 log) against the new summary: `newly-discovered` should equal `intro+= + ailist+= + props+= − (items already in pre-load manifest)`.
+
+### Files touched
+
+- `port/src/net/netmanifest.c` — scanner helpers, props loop cleanup, per-phase summary log
+
+### Commit
+
+| SHA | Scope |
+|-----|-------|
+| (pending) | **fix(S323): FIX-B.1 — per-discovery MANIFEST-SP logging on intro + ailist + props scans** |
+
+---
+
 ## Session S323 — 2026-04-17 (Batch G — cross-audit gap fixes — `practical-wozniak-051afa` worktree)
 
 **Scope**: Six items flagged by cross-audit: one critical runtime bug (audio volumes never applied), four 4MB dead-code remnants, one stale tooltip.
