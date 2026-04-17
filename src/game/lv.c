@@ -2445,33 +2445,6 @@ void lvTick(void)
 	bgunTickBoost();
 	hudmsgsTick();
 
-	/* M0.2: any-player input check for title demo skip */
-	if ((lvPlayerAnyButtonPressedThisFrame(0)
-				|| lvPlayerAnyButtonPressedThisFrame(1)
-				|| lvPlayerAnyButtonPressedThisFrame(2)
-				|| lvPlayerAnyButtonPressedThisFrame(3)) && g_IsTitleDemo) {
-		if (g_Vars.stagenum != STAGE_TITLE) {
-			titleSetNextMode(TITLEMODE_SKIP);
-			mainChangeToStage(STAGE_TITLE);
-		}
-
-		g_IsTitleDemo = false;
-	}
-
-	if (STAGE_IS_GAMEPLAY(g_Vars.stagenum) && !g_IsTitleDemo && !g_Vars.in_cutscene) {
-		/* M0.2: idle detection — no input from any player */
-		if (!lvPlayerHasAnyInput(0)
-				&& !lvPlayerHasAnyInput(1)
-				&& !lvPlayerHasAnyInput(2)
-				&& !lvPlayerHasAnyInput(3)) {
-			g_TitleIdleTime60 += g_Vars.diffframe60;
-		} else {
-			g_TitleIdleTime60 = 0;
-		}
-	} else {
-		g_TitleIdleTime60 = 0;
-	}
-
 	g_NumReasonsToEndMpMatch = 0;
 
 	// Handle MP match ending

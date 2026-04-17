@@ -7,6 +7,16 @@
 
 ---
 
+## Open — 2026-04-17 (S321 — N64 demo system stripped)
+
+### Playtest verification
+
+- **Cold boot** — boot log shows single `SP transition to 0x26`, no `0x30` reference anywhere. Boot path: logo sequence → CI Training, clean.
+- **Mission cutscenes** — play to a cutscene completion. Mission should end normally (`func0000e990` path, not title-redirect). Music should resume after cutscene (previously guarded by `!g_IsTitleDemo`).
+- **Defection mission** — playable normally via solo mission select. The STAGE_DEFECTION mission itself is unaffected.
+
+---
+
 ## Open — 2026-04-17 (S320 — Agent Select default theme)
 
 ### Playtest verification

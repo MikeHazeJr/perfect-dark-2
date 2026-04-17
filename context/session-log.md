@@ -4,6 +4,35 @@
 > **S281–S317** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S321 — 2026-04-17 (Strip N64 demo/attract mode system — dev direct)
+
+**Scope**: Remove the N64 demo/attract mode system entirely. The PC port has no demo recordings, no attract screen, no kiosk mode. S319 removed the init setter; S321 removes all consumers.
+
+### What was removed
+
+| Location | What |
+|----------|------|
+| `src/game/title.c` | `g_IsTitleDemo` global; `g_TitleIdleTime60` global; demo block in `titleInitSkip`; if/else in TITLEMODE_SKIP tick (collapsed to unconditional `titleSetNextMode(TITLEMODE_RARELOGO)`); tombstone comment |
+| `src/include/data.h` | `extern s32 g_IsTitleDemo`; `extern u32 g_TitleIdleTime60` |
+| `src/game/lv.c` | M0.2 demo-skip interrupt (any-button → STAGE_TITLE); idle-time accumulator (`g_TitleIdleTime60 +=`) — entire 26-line block |
+| `src/game/chraicommands.c` | `aiEndLevel`: removed `if (g_IsTitleDemo) mainChangeToStage(STAGE_TITLE)` arm; `else if` promoted to `if` |
+| `src/game/player.c` | `playerEndCutscene`: same promotion; `playerStartCutscene`: `!g_IsTitleDemo &&` condition stripped |
+| `src/game/music.c` | `musicEndCutscene`: `if (!g_IsTitleDemo)` guard removed — body now unconditional |
+
+`STAGE_DEFECTION` itself is untouched — Defection is a real playable mission. Only the one reference inside the removed `titleInitSkip` demo block is gone.
+
+### Commit
+
+| SHA | Scope |
+|-----|-------|
+| `(this commit)` | **chore(title): strip N64 demo/attract mode — g_IsTitleDemo + g_TitleIdleTime60 + all consumers** |
+
+### Build verify
+
+`ninja -C Build pd` — clean. `grep -rn g_IsTitleDemo` → zero results.
+
+---
+
 ## Session S320 — 2026-04-17 (Agent Select default theme — dev direct)
 
 **Scope**: Agent Select was showing whatever per-agent theme was previously applied (from a prior sign-in) instead of the base system defaults. Since Agent Select is pre-sign-in, no per-agent prefs should be active.

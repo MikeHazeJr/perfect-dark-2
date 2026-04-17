@@ -51,10 +51,8 @@ f32 var8009d358jf[4];
 #endif
 
 s16 g_TitleViewHeight = 480;
-s32 g_IsTitleDemo = false; /* M-5: explicit s32 to avoid C++ _Bool mismatch */
 bool g_TitleButtonPressed = false;
 bool g_TitleFastForward = false;
-u32 g_TitleIdleTime60 = 0;
 s32 g_TitleMode = -1;
 s32 g_TitleNextMode = -1;
 u32 g_TitleDelayedTimer = 2;
@@ -2021,8 +2019,6 @@ void titleInitRareLogo(void)
 
 		musicQueueStopAllEvent();
 		joy00014810(false);
-
-		/* IS8MB()=1 always on PC; N64 demo playback not implemented — never set g_IsTitleDemo */
 	}
 }
 
@@ -2281,12 +2277,6 @@ void titleInitSkip(void)
 	g_TitleNextStage = STAGE_CITRAINING;
 
 	setNumPlayers(1);
-
-	if (g_IsTitleDemo) {
-		g_TitleNextStage = STAGE_DEFECTION;
-		g_IsTitleDemo++;
-		sysLogPrintf(LOG_NOTE, "INTRO: titleInitSkip - demo mode, stage=DEFECTION");
-	}
 
 	if (IS4MB()) {
 		g_TitleNextStage = STAGE_4MBMENU;
@@ -2669,18 +2659,8 @@ void titleTick(void)
 #endif
 	case TITLEMODE_SKIP:
 		viSetUseZBuf(false);
-		if (g_IsTitleDemo) {
-			/* Demo ended — titleInitSkip already called mainChangeToStage(DEFECTION).
-			 * Don't loop back to RARELOGO or we get an infinite logo sequence.
-			 * Instead go to agent select (CI Training). */
-			sysLogPrintf(LOG_NOTE, "INTRO: TITLEMODE_SKIP tick (demo end) -> agent select");
-			g_IsTitleDemo = 0;
-			g_TitleNextStage = STAGE_CITRAINING;
-			mainChangeToStage(g_TitleNextStage);
-		} else {
-			sysLogPrintf(LOG_NOTE, "INTRO: TITLEMODE_SKIP tick -> RARELOGO");
-			titleSetNextMode(TITLEMODE_RARELOGO);
-		}
+		sysLogPrintf(LOG_NOTE, "INTRO: TITLEMODE_SKIP tick -> RARELOGO");
+		titleSetNextMode(TITLEMODE_RARELOGO);
 		break;
 	}
 }
