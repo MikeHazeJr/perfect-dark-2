@@ -565,7 +565,7 @@ static void renderIniEditor(float contentW, float contentH, float scale)
                 continue;
             }
             /* Key label (right-aligned in 130px column) */
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.8f, 0.8f, 0.4f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TextWarning(200));
             ImGui::Text("%-20s", kv.key);
             ImGui::PopStyleColor();
             ImGui::SameLine();
@@ -591,9 +591,9 @@ static void renderIniEditor(float contentW, float contentH, float scale)
 
     if (s_IniStatusMsg[0]) {
         if (s_IniStatusOk) {
-            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s", s_IniStatusMsg);
+            ImGui::TextColored(pdguiVec4TintSuccess(), "%s", s_IniStatusMsg);
         } else {
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", s_IniStatusMsg);
+            ImGui::TextColored(pdguiVec4TintDanger(), "%s", s_IniStatusMsg);
         }
     } else {
         ImGui::TextDisabled("INI Editor — edit mod manifests");
@@ -811,7 +811,7 @@ static void renderScaleTool(float contentW, float contentH, float scale)
         ImGui::Spacing();
 
         /* Scale slider */
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.9f, 0.5f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TextWarning(220));
         ImGui::Text("New scale:");
         ImGui::PopStyleColor();
         ImGui::SameLine();
@@ -862,9 +862,9 @@ static void renderScaleTool(float contentW, float contentH, float scale)
     ImGui::Separator();
     if (s_ScaleStatusMsg[0]) {
         if (s_ScaleStatusOk) {
-            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s", s_ScaleStatusMsg);
+            ImGui::TextColored(pdguiVec4TintSuccess(), "%s", s_ScaleStatusMsg);
         } else {
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", s_ScaleStatusMsg);
+            ImGui::TextColored(pdguiVec4TintDanger(), "%s", s_ScaleStatusMsg);
         }
     } else {
         ImGui::TextDisabled("Model Scale Tool — bake scale into model binary");
@@ -970,7 +970,7 @@ static void renderPackTool(float contentW, float contentH, float scale)
     /* ================================================================
      * EXPORT PANEL
      * ============================================================== */
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.9f, 0.4f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TextWarning());
     ImGui::TextUnformatted("EXPORT");
     ImGui::PopStyleColor();
     ImGui::Separator();
@@ -1083,7 +1083,7 @@ static void renderPackTool(float contentW, float contentH, float scale)
      * IMPORT PANEL
      * ============================================================== */
     ImGui::Spacing();
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.9f, 0.4f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TextWarning());
     ImGui::TextUnformatted("IMPORT");
     ImGui::PopStyleColor();
     ImGui::Separator();
@@ -1137,10 +1137,10 @@ static void renderPackTool(float contentW, float contentH, float scale)
             const modpack_component_info_t &ci = s_ImportManifest.components[i];
             s32 already = assetCatalogHasEntry(ci.id);
             if (already) {
-                ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.1f, 1.0f),
+                ImGui::TextColored(pdguiVec4TextWarning(220),
                                    "[installed]");
             } else {
-                ImGui::TextColored(ImVec4(0.35f, 1.0f, 0.35f, 1.0f),
+                ImGui::TextColored(pdguiVec4TintSuccess(),
                                    "[new]      ");
             }
             ImGui::SameLine();
@@ -1191,10 +1191,10 @@ static void renderPackTool(float contentW, float contentH, float scale)
     ImGui::Separator();
     if (s_PackStatusMsg[0]) {
         if (s_PackStatusOk) {
-            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
+            ImGui::TextColored(pdguiVec4TintSuccess(),
                                "%s", s_PackStatusMsg);
         } else {
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+            ImGui::TextColored(pdguiVec4TintDanger(),
                                "%s", s_PackStatusMsg);
         }
     } else {
@@ -1433,10 +1433,9 @@ static void renderModdingHub(s32 winW, s32 winH)
     float closeH = 28.0f * scale;
     ImGui::SameLine(dialogW - closeW - 8.0f * scale);
 
-    ImGui::PushStyleColor(ImGuiCol_Button,
-        ImVec4(0.35f, 0.05f, 0.05f, 0.50f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-        ImVec4(0.55f, 0.10f, 0.10f, 0.70f));
+    /* S311: Close button tracks theme danger tint. */
+    ImGui::PushStyleColor(ImGuiCol_Button, pdguiVec4TintDanger(128));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, pdguiVec4TintDanger(179));
     if (ImGui::Button("Close", ImVec2(closeW, closeH))) {
         moddingHubCloseFromUi("close-button");
     }

@@ -805,7 +805,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                         snprintf(chapHdr, sizeof(chapHdr), "-- Mission %d (%d/%d) --",
                                  chap, chapDone, chapTotal);
                     }
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.75f, 1.0f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo());
                     ImGui::TextUnformatted(chapHdr);
                     ImGui::PopStyleColor();
                     prevGroup = grp;
@@ -1123,14 +1123,14 @@ static s32 renderMissionSelect(struct menudialog *dialog,
 
                 if (locked) {
                     dl->AddText(ImVec2(tx + pdguiScale(165.0f), cy),
-                                IM_COL32(180, 60, 60, 200), "[Locked]");
+                                pdguiImU32TintDanger(200), "[Locked]");
                 } else {
                     char timeStr[32];
                     formatBestTime(timeStr, sizeof(timeStr),
                                    g_GameFile.besttimes[si][d]);
                     ImVec2 tSz = ImGui::CalcTextSize(timeStr);
                     dl->AddText(ImVec2(cp.x + rowW - tSz.x - pdguiScale(12.0f), cy),
-                                IM_COL32(160, 200, 140, 210), timeStr);
+                                pdguiImU32TintSuccess(210), timeStr);
                 }
             }
 
@@ -2471,7 +2471,7 @@ static s32 renderAcceptMission(struct menudialog *dialog,
                 ImVec2(cp.x + dotSz * 0.5f + pdguiScale(6.0f),
                        cp.y + ImGui::GetTextLineHeight() * 0.5f + pdguiScale(3.0f)),
                 dotSz * 0.5f,
-                IM_COL32(80, 160, 255, 220));
+                pdguiImU32TintInfo(220));
 
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + dotSz + pdguiScale(15.0f));
             ImGui::PushTextWrapPos(mw - pdguiScale(90.0f));
@@ -2506,7 +2506,7 @@ static s32 renderAcceptMission(struct menudialog *dialog,
         return clicked;
     };
 
-    if (drawBtn(0, langSafe(L_OPTIONS_274), IM_COL32(80, 160, 80, 255))) {
+    if (drawBtn(0, langSafe(L_OPTIONS_274), pdguiImU32TintSuccess(255))) {
         pdguiPlaySound(PDGUI_SND_SELECT);
         menuhandlerAcceptMission(MENUOP_SET, nullptr, nullptr);
         if (inputCtxIsActive(&g_CtxImGuiMenu)) {
@@ -2516,7 +2516,7 @@ static s32 renderAcceptMission(struct menudialog *dialog,
         return 1;
     }
     ImGui::SameLine(0.0f, pdguiScale(15.0f));
-    if (drawBtn(1, langSafe(L_OPTIONS_275), IM_COL32(160, 80, 80, 255))) {
+    if (drawBtn(1, langSafe(L_OPTIONS_275), pdguiImU32TintDanger(255))) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
         ImGui::End();
@@ -2686,7 +2686,7 @@ static s32 renderPauseMenu(struct menudialog *dialog,
             if (status == 1) {
                 /* COMPLETE — green circle with checkmark */
                 dl->AddCircleFilled(ImVec2(iconCx, iconCy), iconSz * 0.5f,
-                                    IM_COL32(50, 190, 70, 230));
+                                    pdguiImU32TintSuccess(230));
                 float r = iconSz * 0.26f;
                 dl->AddLine(ImVec2(iconCx - r, iconCy),
                             ImVec2(iconCx - r * 0.2f, iconCy + r),
@@ -2694,11 +2694,11 @@ static s32 renderPauseMenu(struct menudialog *dialog,
                 dl->AddLine(ImVec2(iconCx - r * 0.2f, iconCy + r),
                             ImVec2(iconCx + r, iconCy - r),
                             IM_COL32(255, 255, 255, 240), 1.5f);
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 1.0f, 0.55f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintSuccess());
             } else if (status == 2) {
                 /* FAILED — red circle with X */
                 dl->AddCircleFilled(ImVec2(iconCx, iconCy), iconSz * 0.5f,
-                                    IM_COL32(200, 40, 40, 220));
+                                    pdguiImU32TintDanger(220));
                 float r = iconSz * 0.24f;
                 dl->AddLine(ImVec2(iconCx - r, iconCy - r),
                             ImVec2(iconCx + r, iconCy + r),
@@ -2706,12 +2706,12 @@ static s32 renderPauseMenu(struct menudialog *dialog,
                 dl->AddLine(ImVec2(iconCx + r, iconCy - r),
                             ImVec2(iconCx - r, iconCy + r),
                             IM_COL32(255, 255, 255, 230), 1.5f);
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.5f, 0.5f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintDanger());
             } else {
                 /* INCOMPLETE — blue pending dot */
                 dl->AddCircleFilled(ImVec2(iconCx, iconCy), iconSz * 0.5f,
-                                    IM_COL32(80, 140, 220, 180));
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.90f, 1.0f, 1.0f));
+                                    pdguiImU32TintInfo(180));
+                ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo(230));
             }
 
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + iconSz + pdguiScale(15.0f));
@@ -2755,7 +2755,7 @@ static s32 renderPauseMenu(struct menudialog *dialog,
         if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, mw - pdguiScale(24.0f), btnH);
 
         /* Abort gets a red tint */
-        if (b == 4) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+        if (b == 4) ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintDanger());
 
         bool clicked = ImGui::Button(k_Btns[b].label,
                                      ImVec2(mw - pdguiScale(24.0f), btnH));
@@ -2880,7 +2880,7 @@ static s32 renderPauseMenu(struct menudialog *dialog,
                 bool isSel = (s_RestartSelectIdx == 1);
                 ImVec2 cp = ImGui::GetCursorScreenPos();
                 if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, rbtnW, rbtnH);
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.3f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TextWarning());
                 bool clicked = ImGui::Button("Restart##confirm", ImVec2(rbtnW, rbtnH));
                 ImGui::PopStyleColor();
                 if (ImGui::IsItemHovered()) s_RestartSelectIdx = 1;
@@ -3002,7 +3002,7 @@ static s32 renderAbortMission(struct menudialog *dialog,
         ImVec2 cp = ImGui::GetCursorScreenPos();
         if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, btnW, btnH);
 
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintDanger());
         bool clicked = ImGui::Button(langSafe(L_OPTIONS_177), ImVec2(btnW, btnH));
         ImGui::PopStyleColor();
 

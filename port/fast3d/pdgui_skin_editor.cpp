@@ -772,9 +772,9 @@ static void renderToolPanel(float panelW, float panelH, float scale)
 
     ImGui::Spacing();
 
-    /* S-4: Save as Mod */
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.05f, 0.35f, 0.15f, 0.8f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.1f, 0.5f, 0.2f, 0.9f));
+    /* S-4: Save as Mod (S311: success tint pair). */
+    ImGui::PushStyleColor(ImGuiCol_Button, pdguiVec4TintSuccess(200));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, pdguiVec4TintSuccess(240));
     if (PdButton("Save as Mod", ImVec2(actionW, 28.0f * scale))) {
         s_SaveDialogOpen = true;
         s_SaveStatus[0] = '\0';
@@ -787,11 +787,11 @@ static void renderToolPanel(float panelW, float panelH, float scale)
 
     /* Status messages from last save/export */
     if (s_SaveStatus[0]) {
-        ImGui::TextColored(s_SaveOk ? ImVec4(0,1,0,1) : ImVec4(1,0.3f,0.3f,1),
+        ImGui::TextColored(s_SaveOk ? pdguiVec4TintSuccess() : pdguiVec4TintDanger(),
                            "%s", s_SaveStatus);
     }
     if (s_ExportStatus[0]) {
-        ImGui::TextColored(s_ExportOk ? ImVec4(0,1,0,1) : ImVec4(1,0.3f,0.3f,1),
+        ImGui::TextColored(s_ExportOk ? pdguiVec4TintSuccess() : pdguiVec4TintDanger(),
                            "%s", s_ExportStatus);
     }
 
@@ -1195,7 +1195,7 @@ static void renderSaveDialog(float scale)
         }
 
         if (s_SaveStatus[0]) {
-            ImGui::TextColored(s_SaveOk ? ImVec4(0,1,0,1) : ImVec4(1,0.3f,0.3f,1),
+            ImGui::TextColored(s_SaveOk ? pdguiVec4TintSuccess() : pdguiVec4TintDanger(),
                                "%s", s_SaveStatus);
         }
 
@@ -1308,7 +1308,7 @@ static void renderImportDialog(float scale)
         if (s_ImportStatus[0]) {
             bool ok = (strncmp(s_ImportStatus, "Failed", 6) != 0 &&
                        strncmp(s_ImportStatus, "Max", 3) != 0);
-            ImGui::TextColored(ok ? ImVec4(0,1,0,1) : ImVec4(1,0.3f,0.3f,1),
+            ImGui::TextColored(ok ? pdguiVec4TintSuccess() : pdguiVec4TintDanger(),
                                "%s", s_ImportStatus);
         }
 
@@ -1566,7 +1566,7 @@ static void renderExportDialog(float scale)
 
         /* Character name display */
         if (s_SelectedChar >= 0 && s_SelectedChar < s_NumCharEntries) {
-            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
+            ImGui::TextColored(pdguiVec4TintInfo(),
                                "Character: %s", s_CharEntries[s_SelectedChar].name);
         }
         ImGui::Spacing();
@@ -1618,7 +1618,7 @@ static void renderExportDialog(float scale)
         }
 
         if (s_ExportStatus[0]) {
-            ImGui::TextColored(s_ExportOk ? ImVec4(0,1,0,1) : ImVec4(1,0.3f,0.3f,1),
+            ImGui::TextColored(s_ExportOk ? pdguiVec4TintSuccess() : pdguiVec4TintDanger(),
                                "%s", s_ExportStatus);
         }
 

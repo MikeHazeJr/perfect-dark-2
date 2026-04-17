@@ -520,11 +520,11 @@ static s32 renderAgentSelect(struct menudialog *dialog,
 
                 dl->AddText(ImVec2(textX, lineY), pdguiPalImU32(PDPAL_TITLEFG, 255), name);
 
-                /* Show [DEFAULT] tag if this agent is the default */
+                /* Show [DEFAULT] tag if this agent is the default — S311 theme success tint. */
                 if (file->fileid == s_DefaultAgentFileId) {
                     ImVec2 nameSize = ImGui::CalcTextSize(name);
                     dl->AddText(ImVec2(textX + nameSize.x + 8.0f * scale, lineY),
-                                IM_COL32(100, 255, 180, 200), "[DEFAULT]");
+                                pdguiImU32TintSuccess(200), "[DEFAULT]");
                 }
 
                 lineY += 18.0f * scale;

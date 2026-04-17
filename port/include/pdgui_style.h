@@ -205,6 +205,16 @@ static inline ImVec4 pdguiVec4TintInfo(int alpha = 255)
 {
     return ImGui::ColorConvertU32ToFloat4(pdguiImU32TintInfo(alpha));
 }
+/* S311 follow-up: ImVec4 companions for the S306 text accessors so every
+ * warning/positive status label can share a single theme-driven color. */
+static inline ImVec4 pdguiVec4TextWarning(int alpha = 255)
+{
+    return ImGui::ColorConvertU32ToFloat4(pdguiRgbaToImU32(pdguiGetTextWarning(), alpha));
+}
+static inline ImVec4 pdguiVec4TextPositive(int alpha = 255)
+{
+    return ImGui::ColorConvertU32ToFloat4(pdguiRgbaToImU32(pdguiGetTextPositive(), alpha));
+}
 #endif
 
 #endif /* _IN_PDGUI_STYLE_H */
