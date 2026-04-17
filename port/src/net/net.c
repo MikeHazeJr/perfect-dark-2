@@ -2262,17 +2262,21 @@ void netPollRecentServers(void)
 
 PD_CONSTRUCTOR static void netConfigInit(void)
 {
-	configRegisterUInt("Net.LerpTicks", &g_NetInterpTicks, 0, 600);
+	/* S313 batch: network tuning rates + server port are no longer
+	 * persisted to pd.ini.  Defaults in the g_Net*Rate variable
+	 * initializers at file scope are the source of truth.  The server
+	 * port can still be overridden at runtime via the `-port` CLI
+	 * argument (see netStartServer).  Users who truly need different
+	 * rates/interp ticks should adjust at build time rather than
+	 * fiddling pd.ini -- these are tuning knobs for engine work, not
+	 * user prefs.
+	 *
+	 * Retained here are per-machine state (LastJoinAddr) and history
+	 * (RecentServer.*) which genuinely vary session-to-session, plus
+	 * the ops-level AllowInfoQuery toggle for dedicated servers. */
 
 	configRegisterString("Net.Client.LastJoinAddr", g_NetLastJoinAddr, NET_MAX_ADDR);
-	configRegisterUInt("Net.Client.InRate", &g_NetClientInRate, 0, 10 * 1024 * 1024);
-	configRegisterUInt("Net.Client.OutRate", &g_NetClientOutRate, 0, 10 * 1024 * 1024);
-	configRegisterUInt("Net.Client.UpdateFrames", &g_NetClientUpdateRate, 0, 60);
 
-	configRegisterUInt("Net.Server.Port", &g_NetServerPort, 0, 0xFFFF);
-	configRegisterUInt("Net.Server.InRate", &g_NetServerInRate, 0, 10 * 1024 * 1024);
-	configRegisterUInt("Net.Server.OutRate", &g_NetServerOutRate, 0, 10 * 1024 * 1024);
-	configRegisterUInt("Net.Server.UpdateFrames", &g_NetServerUpdateRate, 0, 60);
 	configRegisterInt("Net.Server.AllowInfoQuery", &g_NetServerInfoQuery, 0, 1);
 
 	// register recent server fields for persistence
