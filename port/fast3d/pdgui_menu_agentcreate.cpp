@@ -321,7 +321,7 @@ static void drawPortraitPreview(ImDrawList *dl, float x, float y,
     const char *bodyName = getBodyDisplayName(s_SelectedBody);
     ImVec2 bodyNameSize = ImGui::CalcTextSize(bodyName);
     dl->AddText(ImVec2(cx - bodyNameSize.x * 0.5f, y + size + 4.0f * scale),
-                IM_COL32(140, 160, 200, 180), bodyName);
+                pdguiImU32TintInfo(180), bodyName);
 }
 
 /* ========================================================================

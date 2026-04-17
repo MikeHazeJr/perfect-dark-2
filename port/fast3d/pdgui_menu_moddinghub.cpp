@@ -2106,7 +2106,7 @@ static void chromeToolRenderSidebarPreview(float sidebarW, float sidebarH, float
     dl->AddRectFilled(framePos, ImVec2(framePos.x + frameW, framePos.y + frameH),
                       IM_COL32(18, 22, 28, 255), 3.0f);
     dl->AddRect(framePos, ImVec2(framePos.x + frameW, framePos.y + frameH),
-                IM_COL32(90, 120, 170, 220), 3.0f);
+                pdguiImU32TitleGlow(220), 3.0f);
 
     nineslice_def_t previewDef;
     chromeToolBuildDef(&previewDef);
