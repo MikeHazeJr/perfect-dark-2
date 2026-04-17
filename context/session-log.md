@@ -1,8 +1,43 @@
 
 # Session Log (Active)
 
-> **S281–S351** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S352** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S352 — 2026-04-17 (`confident-brahmagupta-a3f5a3` worktree) — D5 Phase 5: Lobby Player Portraits
+
+**Scope**: D5 Phase 5 — per-player character portrait thumbnails in the room screen player list.
+
+**Problem**: Human rows in `pdgui_menu_room.cpp` showed only text (name, body name, state label).
+No visual representation of each player's selected character (body/head).
+
+**New state** (`port/fast3d/pdgui_menu_room.cpp`):
+- `LobbyPortrait` struct with `glTex`, `head_id`, `body_id` fields
+- `s_LobbyPortraits[LOBBY_PORTRAIT_MAX=8]` — per-slot baked GL textures
+- `s_LobbyPortraitAlpha[8]` — per-slot join fade-in [0,1]
+- `s_LobbyPortraitPending` / `s_LobbyPortraitWaitReady` — bake pipeline state
+
+**New helpers**:
+- `lobbyPortraitsReset()` — free all baked textures, zero state
+- `lobbyPortraitsSync(humanCount)` — invalidate stale entries on ID change or player leave; advance fade-in alpha (+0.04/frame ≈ 25-frame ramp)
+- `lobbyPortraitsTick(humanCount)` — sequential baking pipeline: one FBO render per frame, bake to standalone GL texture on ready; guarded by `s_BotModalOpen` to avoid fighting the bot setup modal over the shared charpreview FBO
+
+**Human row changes**:
+- Row height increased from text-line-height to 50px (portrait thumbnail height + padding)
+- Portrait thumbnail (44px): baked GL texture with Y-flip UVs; fallback = initials circle (team-tinted background)
+- State badge: 5px colored dot in top-right corner of portrait (yellow=connecting, green=ready, blue=in-game)
+- Name + leader/you badge on line 1; body name + state label on line 2
+- All colors respect join fade-in alpha
+- Bot rows unchanged
+
+**Lifecycle**:
+- `lobbyPortraitsReset()` called in `IsWindowAppearing` (each room open) and in `pdguiRoomScreenReset()` (state teardown)
+- Solo mode: baking skipped; initials placeholder shown; alpha = 1.0
+
+**Build**: Clean 774/774 (worktree) + 585/585 (dev post-merge). Zero errors.
+`PerfectDark.exe` 52,770,947 / `PerfectDarkServer.exe` 22,922,823.
+
+---
 
 ## Session S351 — 2026-04-17 (`dazzling-heisenberg-f84acc` worktree) — D5 Phase 4: UI Texture Mod Overrides
 
