@@ -7,6 +7,12 @@
 
 ---
 
+## Done — 2026-04-17 (S323 Batch A — IS4MB/IS8MB/STAGE_4MBMENU final cleanup, `admiring-mccarthy-38734a` worktree)
+
+**Build verified.** `grep -rn "IS4MB|IS8MB|fourmeg2player|STAGE_4MBMENU" src/ port/` returns zero hits. Both `PerfectDark.exe` and `PerfectDarkServer.exe` link clean [770/770]. No playtest needed — pure dead-code removal with no runtime behavior change.
+
+---
+
 ## Open — 2026-04-17 (S323 — menuPushRootDialog pool hygiene, `naughty-buck-8ede1d` worktree)
 
 ### Playtest verification
@@ -14,6 +20,16 @@
 - **Cold boot into main menu** — open main menu, navigate to Settings, close.  Re-open main menu.  No "menuPushDialog rejected — pool slot already active" in log.  Menu is interactive on every open.
 - **CI redirect at boot** — if CI Options dialog is pushed at boot (Settings via CI path), close it, return to main menu.  Watchdog in `menuPoolConsistencyCheck` should log nothing (previously logged stale-slot warning on the frame after menuPushRootDialog wiped the stack).
 - **Pause → Main Menu transition** — pause in-game, return to main menu via "Exit to Main Menu".  Pool should be cleanly released before the root push.  No "pool slot already active" cascade on subsequent main menu opens.
+
+---
+
+## Open — 2026-04-17 (S323 — Audio channel routing enforcement)
+
+### Playtest verification
+
+- **Mod SFX override + GameplayVolume** — requires a mod with a sound override (`catalogResolveSound` returning `is_mod_override=true`).  Set GameplayVolume to 25%.  Trigger the overridden sound.  It should play at roughly 25% of full volume.  Without the fix it would play at 100% regardless.  Check `pd-client.log` for `CATALOG: sound %d → mod override` line confirming the WAV path was taken.
+- **Per-agent audio isolation** — load Agent A, set MasterVolume to 50% via Settings → Audio. Quit to Agent Select (do not sign out — just press Escape from main menu to reach Agent Select). Screen should open and audio volumes should revert to pd.ini defaults (`AUDIO.DIAG` in log shows `audioNotifyEngineReady` baseline). Select Agent B (no custom prefs). Audio should stay at baseline, NOT at Agent A's 50%.
+- **Agent A volumes reload on sign-in** — re-select Agent A.  MasterVolume should return to 50%.
 
 ---
 
