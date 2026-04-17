@@ -105,6 +105,7 @@
 #include "net/netmsg.h"
 #include "video.h"
 #include "system.h"
+#include "crashbreadcrumb.h"
 #include <string.h>
 #include "assetcatalog_resolve.h"
 #include "assetcatalog_load.h"
@@ -2290,6 +2291,16 @@ void lvTick(void)
 		sysLogPrintf(LOG_NOTE, "TICK: lvTick enter tick=%d stagenum=0x%02x g_MpNumChrs=%d", g_Vars.lvframe60, g_Vars.stagenum, g_MpNumChrs);
 		s_LvTickFirstRun = 0;
 	}
+
+	/* S301: per-frame lvTick breadcrumb. Distinct from the mainTick
+	 * heartbeat because lvTick runs only when the stage is loaded — a
+	 * crash between mainTick and lvTick will show the last mainTick
+	 * breadcrumb with no matching LVTICK, which tells us the death was
+	 * in the outer loop (sched / gfx / input). A pair means the death
+	 * was somewhere inside lvTick. */
+	crashBreadcrumbPush("LVTICK frame=%d stage=0x%02x update240=%d paused=%d",
+		g_Vars.lvframe60, (u32)g_Vars.stagenum,
+		g_Vars.lvupdate240, lvIsPaused());
 
 	/* B-126: Periodic heartbeat log (every 30s / 1800 frames) to help
 	 * diagnose silent crashes — last heartbeat before death pinpoints timing.

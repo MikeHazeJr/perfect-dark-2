@@ -18,6 +18,7 @@
 #include "data.h"
 #include "bss.h"
 #include "system.h"
+#include "crashbreadcrumb.h"
 #include "net/net.h"
 #include "net/netlobby.h"
 #include "game/menu.h"
@@ -564,6 +565,19 @@ s32 matchStart(void)
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: starting match — %d slots, scenario=%d stage='%s'",
 	             g_MatchConfig.numSlots, g_MatchConfig.scenario, g_MatchConfig.stage_id);
 
+	/* S301 Airbase diag: log full entry state so a failure to progress
+	 * past matchStart() has clear fingerprint. Airbase 0xc0000005 repro
+	 * showed manifest build OK but no SVC_STAGE_START — log the state
+	 * at each phase transition from here to that send. */
+	sysLogPrintf(LOG_NOTE,
+		"MATCHSTART.DIAG: entry stage_id='%s' scenario_id='%s' numSlots=%d "
+		"weaponSet=%d spawn_weapon='%s'",
+		g_MatchConfig.stage_id, g_MatchConfig.scenario_id,
+		g_MatchConfig.numSlots, g_MatchConfig.weaponSetIndex,
+		g_MatchConfig.spawn_weapon_id);
+	crashBreadcrumbPush("MATCHSTART entry stage='%s' slots=%d",
+		g_MatchConfig.stage_id, g_MatchConfig.numSlots);
+
 	/* --- Set up global vars like the old handler does --- */
 	g_Vars.bondplayernum = 0;
 	g_Vars.coopplayernum = -1;
@@ -765,6 +779,9 @@ s32 matchStart(void)
 
 	if (playerSlot == 0) {
 		sysLogPrintf(LOG_WARNING, "MATCHSETUP: no players configured — aborting");
+		sysLogPrintf(LOG_WARNING,
+			"MATCHSTART.DIAG: abort reason=no_players numSlots=%d",
+			g_MatchConfig.numSlots);
 		return -1;
 	}
 
@@ -772,9 +789,23 @@ s32 matchStart(void)
 	g_NotLoadMod = false;
 	romdataFileFreeForSolo();
 
+	/* S301 Airbase diag: confirm we reached mpStartMatch. This is the
+	 * engine-side entry to the real stage load. */
+	sysLogPrintf(LOG_NOTE,
+		"MATCHSTART.DIAG: pre-mpStartMatch stagenum=0x%02x chrslots=0x%llx "
+		"players=%d bots=%d",
+		(u32)g_MpSetup.stagenum, (unsigned long long)g_MpSetup.chrslots,
+		playerSlot, botSlot);
+	crashBreadcrumbPush("MATCHSTART pre-mpStartMatch stage=0x%02x players=%d bots=%d",
+		(u32)g_MpSetup.stagenum, playerSlot, botSlot);
+
 	/* Call mpStartMatch which handles weapon randomization,
 	 * quick team sims, random stage, etc. */
 	mpStartMatch();
+
+	sysLogPrintf(LOG_NOTE,
+		"MATCHSTART.DIAG: post-mpStartMatch returned, about to menuStop()");
+	crashBreadcrumbPush("MATCHSTART post-mpStartMatch");
 
 	/* Stop the menu system and let the game take over */
 	menuStop();

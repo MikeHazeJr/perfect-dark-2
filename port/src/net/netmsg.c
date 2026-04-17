@@ -30,6 +30,7 @@
 #include "game/hudmsg.h"
 #include "game/lang.h"
 #include "system.h"
+#include "crashbreadcrumb.h"
 #include "romdata.h"
 #include "lib/vi.h"
 #include "fs.h"
@@ -716,6 +717,18 @@ u32 netmsgSvcChatRead(struct netbuf *src, struct netclient *srccl)
 
 u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 {
+	/* S301 Airbase diag: capture every SVC_STAGE_START send with breadcrumb
+	 * so the Airbase "no SVC_STAGE_START" repro shows whether the send
+	 * even began. Tagged MATCHSTART.DIAG so it can be grepped separately
+	 * from the existing MATCH-START: warnings. */
+	sysLogPrintf(LOG_NOTE,
+		"MATCHSTART.DIAG: SVC_STAGE_START write begin tick=%u seed=0x%llx matchSeed=%u "
+		"stage_id='%s' mode=%d",
+		(unsigned)g_NetTick, (unsigned long long)g_RngSeed, (unsigned)g_NetMatchSeed,
+		g_MpSetup.stage_id, (int)g_NetGameMode);
+	crashBreadcrumbPush("SVC_STAGE_START.write stage='%s' mode=%d tick=%u",
+		g_MpSetup.stage_id, (int)g_NetGameMode, (unsigned)g_NetTick);
+
 	netbufWriteU8(dst, SVC_STAGE_START);
 
 	netbufWriteU32(dst, g_NetTick);
@@ -902,9 +915,22 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 
 u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 {
+	/* S301 Airbase diag: capture every SVC_STAGE_START receive. If the
+	 * Airbase repro is reproduced and this log is ABSENT from client
+	 * pd-client.log, the message never left the server. If it IS present
+	 * but the stage doesn't load, the failure is downstream (manifest
+	 * decode, catalog resolve, main change). */
+	sysLogPrintf(LOG_NOTE,
+		"MATCHSTART.DIAG: SVC_STAGE_START read begin srccl=%d state=%u",
+		srccl ? srccl->id : -1, srccl ? srccl->state : 0xFFu);
+	crashBreadcrumbPush("SVC_STAGE_START.read srccl=%d state=%u",
+		srccl ? srccl->id : -1, srccl ? srccl->state : 0xFFu);
+
 	if (srccl->state != CLSTATE_LOBBY && srccl->state != CLSTATE_GAME
 	    && srccl->state != CLSTATE_PREPARING) {
-		sysLogPrintf(LOG_WARNING, "NET: SVC_STAGE from server but we're in state %u", srccl->state);
+		sysLogPrintf(LOG_WARNING,
+			"MATCHSTART.DIAG: SVC_STAGE reject — client state=%u not in LOBBY/GAME/PREPARING",
+			srccl->state);
 		return 1;
 	}
 

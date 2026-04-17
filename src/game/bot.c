@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "memsizes.h"
 #include "system.h"
+#include "crashbreadcrumb.h"
 #include "assetcatalog.h" /* SA-5d/SA-5e: catalogGetBodyHeight, catalogGetMpWeaponNum */
 #include "game/chraction.h"
 #include "game/debug.h"
@@ -286,6 +287,20 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 	struct coord pos;
 	RoomNum rooms[8];
 
+	/* S301 Bug D diag: breadcrumb + full log on bot spawn so the
+	 * invisible-bot case can be traced from spawn to first render. */
+	crashBreadcrumbPush("BOT.SPAWN chrnum=%d respawn=%d model=%p aibot=%p",
+		chr ? (int)chr->chrnum : -1, (int)respawning,
+		chr ? (void *)chr->model : NULL, (void *)aibot);
+	if (chr) {
+		sysLogPrintf(LOG_NOTE,
+			"CHR.DIAG: botSpawn chrnum=%d respawn=%d body=%d head=%d "
+			"model=%p has_aibot=%d team=0x%x",
+			(int)chr->chrnum, (int)respawning,
+			(int)chr->bodynum, (int)chr->headnum,
+			(void *)chr->model, aibot != NULL, (unsigned)chr->team);
+	}
+
 	if (chr->prop) {
 		prop = chr->prop->child;
 
@@ -442,6 +457,30 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 			} else {
 				sysLogPrintf(LOG_NOTE, "SPAWN: bot chr=%p -- spawnwithweapon set but no valid weapon (spawnWeaponNum=%d weapons[0]=%d)",
 						(void *)chr, (s32)g_MatchConfig.spawnWeaponNum, (s32)g_MpSetup.weapons[0]);
+			}
+		}
+
+		/* S301 Bug D diag: final post-spawn state check. If model is NULL,
+		 * rooms is -1, or hidden has CHRHFLAG_HIDDEN, the chr will be
+		 * invisible at render time. */
+		if (chr && chr->prop) {
+			bool invisible = !chr->model
+				|| (chr->chrflags & CHRCFLAG_HIDDEN)
+				|| chr->prop->rooms[0] == -1;
+			sysLogPrintf(LOG_NOTE,
+				"CHR.DIAG: botSpawn DONE chrnum=%d pos=(%.0f,%.0f,%.0f) room=%d "
+				"model=%p chrflags=0x%x hidden=0x%x invisible=%d",
+				(int)chr->chrnum, chr->prop->pos.x, chr->prop->pos.y, chr->prop->pos.z,
+				(int)chr->prop->rooms[0], (void *)chr->model,
+				(unsigned)chr->chrflags, (unsigned)chr->hidden, (int)invisible);
+			if (invisible) {
+				sysLogPrintf(LOG_WARNING,
+					"CHR.DIAG: WARNING chrnum=%d is INVISIBLE after botSpawn "
+					"(model=%s hidden=%s rooms=%s)",
+					(int)chr->chrnum,
+					chr->model ? "ok" : "NULL",
+					(chr->chrflags & CHRCFLAG_HIDDEN) ? "HIDDEN" : "ok",
+					chr->prop->rooms[0] == -1 ? "VOID(-1)" : "ok");
 			}
 		}
 	}

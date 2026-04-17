@@ -752,6 +752,29 @@ static void renderSoloEndscreen(bool completed)
  * pause→End Game confirm / Alt combo cannot instantly dismiss or rematch. */
 static s32 s_MpEndscreenDebounce = 0;
 
+/* S301 Bug C diagnostic state. These counters survive a single match's
+ * endscreen lifetime and reset when a fresh entry is detected. The goal
+ * is to capture every signal needed to distinguish the six hypotheses
+ * in context/scratch/archive/2026-04-13/session-state-endgame-crash.md
+ * §4c without re-reading the file. */
+static s32 s_MpEndscreenDiagFramesRendered = 0;  /* count of Begin()=true frames */
+static s32 s_MpEndscreenDiagLastLoggedFrame = -1; /* rate-limit section logs */
+static s32 s_MpEndscreenDiagRankingsCount = 0;
+static s32 s_MpEndscreenDiagAwardsShown = 0;
+static u32 s_MpEndscreenDiagPrintCount = 0;       /* cap total DIAG output */
+
+#define ENDSCREEN_DIAG_MAX_PRINTS 80
+
+/* Gated log helper: per-match limited, avoids flooding pd.log when the
+ * endscreen oscillates. Messages tagged "ENDSCREEN.DIAG:" so existing
+ * LOG_CH_MENU filter + grep tooling picks them up. */
+#define ENDSCREEN_DIAG_LOG(...) do {                                \
+	if (s_MpEndscreenDiagPrintCount < ENDSCREEN_DIAG_MAX_PRINTS) {  \
+		sysLogPrintf(LOG_NOTE, __VA_ARGS__);                        \
+		s_MpEndscreenDiagPrintCount++;                              \
+	}                                                               \
+} while (0)
+
 /* S295 F5: Replace the previous every-frame re-push pattern with a one-shot
  * push on fresh entry. The previous code called inputCtxPush every frame that
  * the window rendered while !inputCtxIsActive — which papered over a
@@ -768,6 +791,30 @@ static s32 s_MpEndscreenLastFrame = -1;
 /* challengeResult: 0=normal, 1=completed, 2=failed, 3=cheated */
 static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
 {
+    /* S301 Bug C diag: log every entry so we can see the oscillation
+     * pattern (how many frames this renderer is called, and in what
+     * order relative to force-close sites). The first log line per
+     * match captures everything we need to reconstruct state. */
+    {
+        s32 curFrameForDiag = (s32)ImGui::GetFrameCount();
+        bool diagFresh = (s_MpEndscreenLastFrame < 0) ||
+                         ((curFrameForDiag - s_MpEndscreenLastFrame) > 1);
+        if (diagFresh) {
+            /* Reset per-match counters on fresh entry */
+            s_MpEndscreenDiagFramesRendered = 0;
+            s_MpEndscreenDiagLastLoggedFrame = -1;
+            s_MpEndscreenDiagRankingsCount = 0;
+            s_MpEndscreenDiagAwardsShown = 0;
+            s_MpEndscreenDiagPrintCount = 0;
+
+            ENDSCREEN_DIAG_LOG(
+                "ENDSCREEN.DIAG: ENTRY (fresh) frame=%d g_MpPlayerNum=%d g_NetMode=%d "
+                "challengeResult=%d title='%s'",
+                curFrameForDiag, g_MpPlayerNum, g_NetMode,
+                challengeResult, titleOverride ? titleOverride : "(null)");
+        }
+    }
+
     /* M-E1: ensure stats functions read the correct player in splitscreen */
     setCurrentPlayerNum(g_MpPlayerNum);
 
@@ -839,6 +886,29 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     }
     if (s_MpEndscreenDebounce > 0) {
         s_MpEndscreenDebounce--;
+    }
+
+    /* S301 Bug C: log geometry + ImGui state on fresh entry and every
+     * ~2 seconds thereafter (120 frames). Captures the "body invisible"
+     * symptom by dumping content region size, window pos, scroll, etc. */
+    s_MpEndscreenDiagFramesRendered++;
+    if (freshEntry || (curFrame - s_MpEndscreenDiagLastLoggedFrame) >= 120) {
+        s_MpEndscreenDiagLastLoggedFrame = curFrame;
+        ImVec2 winPos  = ImGui::GetWindowPos();
+        ImVec2 winSize = ImGui::GetWindowSize();
+        ImVec2 cra     = ImGui::GetContentRegionAvail();
+        float  scrollY = ImGui::GetScrollY();
+        float  scrollMax = ImGui::GetScrollMaxY();
+        ENDSCREEN_DIAG_LOG(
+            "ENDSCREEN.DIAG: frame=%d renderedFrames=%d freshEntry=%d "
+            "sf=%.3f menu=(x=%.1f y=%.1f w=%.1f h=%.1f) disp=(%.1fx%.1f) "
+            "pad=(x=%.1f y=%.1f r=%.1f b=%.1f) win=(pos=%.1f,%.1f size=%.1f,%.1f) "
+            "contentAvail=%.1fx%.1f scroll=%.1f/%.1f",
+            curFrame, s_MpEndscreenDiagFramesRendered, (s32)freshEntry,
+            sf, menuX, menuY, menuW, menuH, disp.x, disp.y,
+            padX, padY, padR, padB,
+            winPos.x, winPos.y, winSize.x, winSize.y,
+            cra.x, cra.y, scrollY, scrollMax);
     }
 
     pdguiDrawPdDialog(menuX, menuY, menuW, menuH, "Game Over", 1);
@@ -913,6 +983,22 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     /* Explicit body text color — style Text can match body BG on some palette/theme combos. */
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.88f, 0.84f, 0.78f, 1.0f));
 
+    /* S301 Bug C: we reached the body child. If the body is invisible but
+     * we log this, the BeginChild call succeeded — the problem is the
+     * content itself (empty rankings? zero text?) not the child being
+     * culled. Log content child geometry. */
+    {
+        ImVec2 bodyCRA = ImGui::GetContentRegionAvail();
+        if (s_MpEndscreenDiagFramesRendered == 1 ||
+            s_MpEndscreenDiagFramesRendered == 5 ||
+            s_MpEndscreenDiagFramesRendered == 30) {
+            ENDSCREEN_DIAG_LOG(
+                "ENDSCREEN.DIAG: body child opened contentW=%.1f contentH=%.1f "
+                "innerCRA=%.1fx%.1f",
+                contentW, contentH, bodyCRA.x, bodyCRA.y);
+        }
+    }
+
     /* Rankings table */
     u32 options     = pdguiPauseGetOptions();
     bool teamsMode  = (options & ES_MPOPTION_TEAMSENABLED) != 0;
@@ -921,6 +1007,20 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
 
     ESRankRow rows[ES_MAX_MPCHRS];
     s32 count = buildRankings(rows, ES_MAX_MPCHRS, teamsMode);
+    s_MpEndscreenDiagRankingsCount = count;
+
+    /* S301 Bug C: log how many rankings rows buildRankings returned.
+     * Empty rankings = empty body = looks invisible. */
+    if (s_MpEndscreenDiagFramesRendered == 1) {
+        ENDSCREEN_DIAG_LOG(
+            "ENDSCREEN.DIAG: rankings built count=%d teamsMode=%d options=0x%08x",
+            count, (s32)teamsMode, (unsigned)options);
+        if (count == 0) {
+            ENDSCREEN_DIAG_LOG(
+                "ENDSCREEN.DIAG: WARNING rankings count is 0 -- "
+                "body will appear empty (Bug C hypothesis 'empty table')");
+        }
+    }
 
     if (teamsMode) {
         sortRankingsByTeam(rows, count);
@@ -980,6 +1080,18 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     const char *award1 = pdguiEndscreenGetAward1();
     const char *award2 = pdguiEndscreenGetAward2();
     u32 medals         = pdguiEndscreenGetMedals();
+
+    /* S301 Bug C: log what awards path we took. */
+    if (s_MpEndscreenDiagFramesRendered == 1) {
+        bool hasAwards = (award1 && award1[0]) || (award2 && award2[0]) || medals;
+        s_MpEndscreenDiagAwardsShown = hasAwards ? 1 : 0;
+        ENDSCREEN_DIAG_LOG(
+            "ENDSCREEN.DIAG: awards path=%s award1='%s' award2='%s' medals=0x%x",
+            hasAwards ? "SHOW" : "SKIP",
+            award1 ? award1 : "(null)",
+            award2 ? award2 : "(null)",
+            (unsigned)medals);
+    }
 
     if ((award1 && award1[0]) || (award2 && award2[0]) || medals) {
         ImGui::Spacing();
@@ -1076,6 +1188,18 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     float btnY   = menuH - btnH - padB;
     bool networked = (g_NetMode != ES_NETMODE_NONE);
     const bool inputSuppressed = (s_MpEndscreenDebounce > 0);
+
+    /* S301 Bug C: confirm we reached the action-button section. If the
+     * body was invisible but this logs, the entire content child rendered
+     * and it's a CSS-style issue (text color = bg color, etc.). */
+    if (s_MpEndscreenDiagFramesRendered == 1 ||
+        s_MpEndscreenDiagFramesRendered == 30) {
+        ENDSCREEN_DIAG_LOG(
+            "ENDSCREEN.DIAG: actions section networked=%d btnY=%.1f btnH=%.1f "
+            "debounce=%d rankings=%d awards=%d",
+            (s32)networked, btnY, btnH, s_MpEndscreenDebounce,
+            s_MpEndscreenDiagRankingsCount, s_MpEndscreenDiagAwardsShown);
+    }
 
     if (networked) {
         /* Two buttons: Return to Room (blue) | Disconnect (red) */
