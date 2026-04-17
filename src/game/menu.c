@@ -4019,10 +4019,6 @@ void menuReset(void)
 			max = 4;
 		}
 
-		if (g_Vars.stagenum == STAGE_4MBMENU) {
-			max = 4;
-		}
-
 		for (i = 0; i < max; i++) {
 #ifdef PLATFORM_64BIT
 			menuResetModel(&g_Menus[i].menumodel, MENU_MODEL_BUF_8MB_64BIT, true);
@@ -5908,7 +5904,7 @@ u32 menuChooseMusic(void)
 		return MUSIC_COMBATSIM_COMPLETE;
 	}
 
-	if (g_Vars.stagenum == STAGE_CITRAINING || g_Vars.stagenum == STAGE_4MBMENU) {
+	if (g_Vars.stagenum == STAGE_CITRAINING) {
 		return MUSIC_MAINMENU;
 	}
 

@@ -60,7 +60,6 @@
  * previews. Sizes differ by pointer width because the model data contains
  * embedded pointer fields that are 4 bytes on N64/32-bit and 8 bytes on
  * PC/64-bit, expanding the total allocation proportionally. */
-#define MENU_MODEL_BUF_4MB             0xb400   /*  45KB — 4MB mode (IS4MB, dead path) */
 #define MENU_MODEL_BUF_8MB_64BIT       0x38400  /* 230KB — 8MB mode, 64-bit pointers */
 #define MENU_MODEL_BUF_8MB_32BIT       0x25800  /* 155KB — 8MB mode, 32-bit pointers */
 #define CREDITS_MODEL_BUF_SIZE         0x25800  /* 155KB — credits character model */
