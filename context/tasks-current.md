@@ -7,6 +7,24 @@
 
 ---
 
+## Done — 2026-04-17 (S353 — Prop Sync Event-Driven + Killfeed Verification, `pedantic-saha-8d7ff0`)
+
+**Build verified.** Clean 585/585 (dev). `PerfectDark.exe` 52,772,152 / `PerfectDarkServer.exe` 22,924,028.
+
+**Task 1 — Prop Sync Event-Driven:**
+- `s_PropDirtyFlags[512]` + `s_PropDirtyCount` in `port/src/net/netmsg.c`
+- `netPropMarkDirty(prop->syncid)` called in all 6 SvcProp*Write functions
+- 120-tick PROP_SYNC heartbeat skips when `s_PropDirtyCount == 0` (O(1) vs O(N_props))
+- CRC still scans all props — server/client produce identical hashes for comparison
+- No wire format change, no protocol bump
+
+**Task 2 — Killfeed Bot Kills (verified, no code change):**
+- Code trace confirms all kill combinations show correctly in killfeed
+- `mpstatsRecordDeath` → `pdguiKillfeedPush` fires for all `ampchr && vmpchr`
+- Format is "[Attacker] killed [Victim]" uniformly; roadmap entries marked DONE
+
+---
+
 ## Done — 2026-04-17 (S351 — D5 Phase 4: UI Texture Mod Overrides, `dazzling-heisenberg-f84acc`)
 
 **Build verified.** Clean 585/585 objects, zero errors.

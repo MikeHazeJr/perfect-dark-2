@@ -1,8 +1,37 @@
 
 # Session Log (Active)
 
-> **S281–S351** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S353** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S353 — 2026-04-17 (`pedantic-saha-8d7ff0` worktree) — Prop Sync Event-Driven + Killfeed Bot Kill Verification
+
+**Scope**: Two tasks — replace CRC polling in prop sync with event-driven dirty flags; verify killfeed correctly shows bot kills.
+
+**Task 1 — Prop Sync Event-Driven:**
+
+Added dirty-flag bitset (`s_PropDirtyFlags[512]`, `s_PropDirtyCount`) in `port/src/net/netmsg.c`.
+
+Each SvcProp*Write function (`SvcPropMoveWrite`, `SvcPropDamageWrite`, `SvcPropPickupWrite`, `SvcPropUseWrite`, `SvcPropDoorWrite`, `SvcPropLiftWrite`) calls `netPropMarkDirty(prop->syncid)` before writing to the buffer.
+
+`netmsgSvcPropSyncWrite` now skips the entire prop scan + message when `s_PropDirtyCount == 0` — O(1) instead of O(N_props) every 120 ticks (~2×/sec). When dirty props exist, the CRC still covers ALL relevant props (unchanged logic) so server and client produce identical hashes for comparison. No wire format change; no protocol bump needed.
+
+`netPropMarkDirty` declared in `port/include/net/netmsg.h` for any future direct callers.
+
+**Task 2 — Killfeed Bot Kills:**
+
+Full code trace confirms killfeed already shows all kill combinations (bot-bot, bot-player, player-bot, suicide):
+- `mpstatsRecordDeath` → `pdguiKillfeedPush` fires for all `ampchr && vmpchr` combinations
+- `func0f18d074(botPlayernum)` correctly resolves bot playernums via pointer scan of `g_BotConfigsArray`
+- `MPCHR(MAX_PLAYERS + bot_i)` returns valid `mpchrconfig` with name/team fields
+- Render format is `[Attacker Name] killed [Victim Name]` uniformly — no player/bot gate
+- `mpchrconfig.name[15]` fits in killfeed `attackerName[16]` buffer without truncation
+
+Roadmap entries for both items marked DONE. No code change needed for killfeed (matches earlier session audit from archive).
+
+**Build**: Clean 774/774 (worktree). Clean 585/585 (dev post-merge). `PerfectDark.exe` 52,772,152 / `PerfectDarkServer.exe` 22,924,028.
+
+---
 
 ## Session S351 — 2026-04-17 (`dazzling-heisenberg-f84acc` worktree) — D5 Phase 4: UI Texture Mod Overrides
 
