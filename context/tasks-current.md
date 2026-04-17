@@ -7,6 +7,22 @@
 
 ---
 
+## Done — 2026-04-17 (S335 — Wave 1 audit: S328 + S331, `quirky-mcnulty-60c44a` worktree)
+
+**Build verified.** Clean 773/773, zero errors. `PerfectDark.exe` 52,768,999 bytes, `PerfectDarkServer.exe` 22,887,046 bytes.
+
+Three fixes:
+1. `port/src/net/netmanifest.c` — `s_manifestAddWeapon` now emits `LOG_WARNING` when a weapon has a catalog ID (`wcan != NULL`) but the entry is missing, matching the body/head helper behavior.
+2. `port/src/main.c` — Added `statsShutdown()` to `cleanup()`; stats are now flushed to disk on normal game exit regardless of whether a match finished.
+3. `src/game/lv.c` — Distance stat keys renamed from `"distance_units"` + `"mp.distance_units_sample"` / `"solo.distance_units_sample"` to `"mp.distance_units"` / `"solo.distance_units"` — consistent with all other namespaced stats.
+
+### Playtest checklist
+- Solo mission: walk around, quit game via X → `playerstats.json` contains `solo.distance_units`, no `distance_units` or `_sample` keys.
+- Subtitle solo mission: panel appears bottom-center; cutscene subtitle not occluded by letterbox.
+- Manifest WARNING smoke test: load a stage with intro weapons → `pdclient.log` should NOT show `intro-scan weapon ... not in catalog` for base weapons; a modded-out weapon would.
+
+---
+
 ## Done — 2026-04-17 (S333 — Merge S329 + S332 into dev)
 
 **Build verified.** Clean 585/585, zero errors. `PerfectDark.exe` 52,660,473 bytes, `PerfectDarkServer.exe` 22,901,400 bytes.

@@ -1071,6 +1071,11 @@ static void s_manifestAddWeapon(match_manifest_t *out, s32 weaponnum,
     wcan = catalogIdByRuntime(ASSET_WEAPON, weaponnum);
     we   = wcan ? assetCatalogResolve(wcan) : NULL;
     if (!we) {
+        if (wcan && scan_source) {
+            sysLogPrintf(LOG_WARNING,
+                         "MANIFEST-SP: %s-scan weapon weaponnum=%d not in catalog",
+                         scan_source, (int)weaponnum);
+        }
         return;
     }
     was_present = s_manifestHasEntry(out, we->id);

@@ -123,6 +123,7 @@ static void cleanup(void)
 	modmgrShutdown();
 	actionmapSaveBinds();
 	configSave(CONFIG_PATH);
+	statsShutdown();
 	videoShutdown();
 	crashShutdown();
 
