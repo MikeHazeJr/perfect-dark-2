@@ -1054,6 +1054,55 @@ void spawnPoolReset(void)
 }
 
 /* ========================================================================
+ * Forge integration: append forge-placed spawn points to the live pool
+ * ======================================================================== */
+
+s32 spawnPoolAppendForgePoints(const struct coord *positions,
+                               const f32 *facing_rads,
+                               s32 count)
+{
+	s32 added = 0;
+	s32 i;
+
+	if (!positions || count <= 0) return 0;
+
+	for (i = 0; i < count && s_Pool.count < SPAWNPOOL_MAX; i++) {
+		RoomNum inrooms[21];
+		RoomNum aboverooms[21];
+		RoomNum bestroom = -1;
+		RoomNum room;
+		f32 budget;
+		spawn_point_t *pt;
+
+		bgFindRoomsByPos((struct coord *)&positions[i], inrooms, aboverooms,
+		                 20, &bestroom);
+		room = (inrooms[0] >= 0) ? inrooms[0] : bestroom;
+		if (room < 0) room = 0;
+
+		budget = spawnPoolRaycastBudget(&positions[i], room);
+		if (budget < 0.0f) budget = 0.0f;
+
+		pt               = &s_Pool.points[s_Pool.count];
+		pt->pos          = positions[i];
+		pt->room         = room;
+		pt->source_pad   = -1;
+		pt->layer        = SPAWNLAYER_DECLARED;
+		pt->budget_score = budget;
+		pt->angle_rad    = facing_rads ? facing_rads[i] : 0.0f;
+		s_Pool.count++;
+		added++;
+	}
+
+	if (added > 0) {
+		sysLogPrintf(LOG_NOTE,
+		        "SPAWNPOOL: appended %d/%d forge spawn points (pool now %d)",
+		        added, count, s_Pool.count);
+	}
+
+	return added;
+}
+
+/* ========================================================================
  * spawnPoolSelect -- farthest-point-first greedy spawn assignment
  *
  * For FFA (num_teams == 0 or team == -1):

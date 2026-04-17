@@ -13,12 +13,15 @@
  */
 
 #include "forge/forge_core.h"
+#include "forge/forge_runtime.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
 #include "system.h"
+#include "bss.h"
+#include "game/prop.h"
 
 static s32 s_recursion_guard;
 
@@ -167,12 +170,20 @@ static void forgeLogicExecuteAction(forge_logic_node_t *a)
 	}
 	case FORGE_OP_ENABLE_OBJECT: {
 		forge_object_t *o = forgeObjectFindByUid(a->target_uid_a);
-		if (o) o->enabled = 1;
+		if (o) {
+			o->enabled = 1;
+			struct prop *ep = forgeRuntimeFindPropByUid(o->uid);
+			if (ep) propEnable(ep);
+		}
 		break;
 	}
 	case FORGE_OP_DISABLE_OBJECT: {
 		forge_object_t *o = forgeObjectFindByUid(a->target_uid_a);
-		if (o) o->enabled = 0;
+		if (o) {
+			o->enabled = 0;
+			struct prop *dp = forgeRuntimeFindPropByUid(o->uid);
+			if (dp) propDisable(dp);
+		}
 		break;
 	}
 	case FORGE_OP_DESTROY_OBJECT: {
@@ -220,8 +231,13 @@ static void forgeLogicExecuteAction(forge_logic_node_t *a)
 		break;
 	case FORGE_OP_TELEPORT_PLAYER: {
 		forge_object_t *o = forgeObjectFindByUid(a->target_uid_a);
-		if (o) sysLogPrintf(LOG_NOTE, "GRID.LOGIC: teleport to uid=%u (%.0f,%.0f,%.0f)",
-				o->uid, o->pos[0], o->pos[1], o->pos[2]);
+		if (o && g_Vars.currentplayer && g_Vars.currentplayer->prop) {
+			g_Vars.currentplayer->prop->pos.x = o->pos[0];
+			g_Vars.currentplayer->prop->pos.y = o->pos[1];
+			g_Vars.currentplayer->prop->pos.z = o->pos[2];
+			sysLogPrintf(LOG_NOTE, "GRID.LOGIC: teleport player to uid=%u (%.0f,%.0f,%.0f)",
+					o->uid, o->pos[0], o->pos[1], o->pos[2]);
+		}
 		break;
 	}
 	case FORGE_OP_SPAWN_OBJECT: {
@@ -238,16 +254,7 @@ static void forgeLogicExecuteAction(forge_logic_node_t *a)
 		break;
 	}
 	case FORGE_OP_SPAWN_AI: {
-		forge_object_t *proto = forgeObjectFindByUid(a->target_uid_a);
-		if (proto) {
-			forge_object_t *n = forgeObjectAllocate(FORGE_CAT_AI, proto->catalog_id);
-			if (n) {
-				u32 uid = n->uid;
-				*n = *proto;
-				n->uid = uid;
-				n->in_use = 1;
-			}
-		}
+		forgeRuntimeSpawnBotAt(a->target_uid_a);
 		break;
 	}
 	case FORGE_OP_SET_TIMER:
