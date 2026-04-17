@@ -18,6 +18,7 @@
 #include "game/game_1531a0.h"
 #include "game/mplayer/setup.h"
 #include "game/mplayer/scenarios.h"
+#include "game/mplayer/participant.h"   /* B-12 Phase 3: mpIsParticipantActive() used in .inc files */
 #include "game/radar.h"
 #include "game/botcmd.h"
 #include "game/botinv.h"

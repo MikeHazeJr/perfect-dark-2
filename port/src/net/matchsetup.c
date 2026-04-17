@@ -2,9 +2,9 @@
  * matchsetup.c -- Clean match start function for the new lobby system.
  *
  * Bypasses the old menutick.c dialog-stack flow entirely.
- * Configures g_MpSetup, chrslots, player configs, and bot configs
- * directly from lobby state, then calls mpStartMatch() and triggers
- * stage load.
+ * Configures g_MpSetup, the participant pool, player configs, and bot
+ * configs directly from lobby state, then calls mpStartMatch() and
+ * triggers stage load.
  *
  * Also defines g_MatchSetupMenuDialog (stub dialog — legacy; ImGui room screen replaced it).
  *
@@ -674,9 +674,8 @@ s32 matchStart(void)
 	             g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "(random)",
 	             (s32)g_MatchConfig.spawnWeaponNum);
 
-	/* --- Build chrslots bitmask and configure player/bot arrays --- */
-	g_MpSetup.chrslots = 0;
-	mpClearAllParticipants(); /* B-12 Phase 2 */
+	/* --- Populate the participant pool (B-12 Phase 3) --- */
+	mpClearAllParticipants();
 	s32 playerSlot = 0;
 	s32 botSlot = 0;
 
@@ -684,8 +683,7 @@ s32 matchStart(void)
 		struct matchslot *ms = &g_MatchConfig.slots[i];
 
 		if (ms->type == SLOT_PLAYER && playerSlot < MAX_PLAYERS) {
-			g_MpSetup.chrslots |= (1ull << playerSlot);
-			mpAddParticipantAt(playerSlot, PARTICIPANT_LOCAL, ms->team, 0, (u8)playerSlot); /* B-12 Phase 2 */
+			mpAddParticipantAt(playerSlot, PARTICIPANT_LOCAL, ms->team, 0, (u8)playerSlot);
 
 			struct mpchrconfig *cfg = &g_PlayerConfigsArray[playerSlot].base;
 
@@ -727,8 +725,7 @@ s32 matchStart(void)
 			playerSlot++;
 
 		} else if (ms->type == SLOT_BOT && botSlot < MAX_BOTS) {
-			g_MpSetup.chrslots |= (1ull << (botSlot + BOT_SLOT_OFFSET));
-			mpAddParticipantAt(botSlot + BOT_SLOT_OFFSET, PARTICIPANT_BOT, ms->team, -1, 0xFF); /* B-12 Phase 2 */
+			mpAddParticipantAt(botSlot + MAX_PLAYERS, PARTICIPANT_BOT, ms->team, -1, 0xFF);
 
 			struct mpbotconfig *bot = &g_BotConfigsArray[botSlot];
 
@@ -774,8 +771,8 @@ s32 matchStart(void)
 		}
 	}
 
-	sysLogPrintf(LOG_NOTE, "MATCHSETUP: chrslots=0x%016llx (%d players, %d bots)",
-	             (unsigned long long)g_MpSetup.chrslots, playerSlot, botSlot);
+	sysLogPrintf(LOG_NOTE, "MATCHSETUP: activeMask=0x%016llx (%d players, %d bots)",
+	             (unsigned long long)mpParticipantsEncodeActiveMask(), playerSlot, botSlot);
 
 	if (playerSlot == 0) {
 		sysLogPrintf(LOG_WARNING, "MATCHSETUP: no players configured — aborting");
@@ -792,9 +789,10 @@ s32 matchStart(void)
 	/* S301 Airbase diag: confirm we reached mpStartMatch. This is the
 	 * engine-side entry to the real stage load. */
 	sysLogPrintf(LOG_NOTE,
-		"MATCHSTART.DIAG: pre-mpStartMatch stagenum=0x%02x chrslots=0x%llx "
+		"MATCHSTART.DIAG: pre-mpStartMatch stagenum=0x%02x activeMask=0x%llx "
 		"players=%d bots=%d",
-		(u32)g_MpSetup.stagenum, (unsigned long long)g_MpSetup.chrslots,
+		(u32)g_MpSetup.stagenum,
+		(unsigned long long)mpParticipantsEncodeActiveMask(),
 		playerSlot, botSlot);
 	crashBreadcrumbPush("MATCHSTART pre-mpStartMatch stage=0x%02x players=%d bots=%d",
 		(u32)g_MpSetup.stagenum, playerSlot, botSlot);

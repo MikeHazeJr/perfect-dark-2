@@ -34,6 +34,7 @@
 #include "game/gfxmemory.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/participant.h"
 #include "game/pak.h"
 #include "game/options.h"
 #include "game/propobj.h"
@@ -5670,7 +5671,8 @@ Gfx *menuRender(Gfx *gdl)
 
 			if (g_NetMode) {
 				if (g_NetMode == NETMODE_SERVER) {
-					snprintf(text, sizeof(text), "Server: %d/%d %04x", g_NetNumClients, g_NetMaxClients, g_MpSetup.chrslots);
+					snprintf(text, sizeof(text), "Server: %d/%d mask=0x%04llx", g_NetNumClients, g_NetMaxClients,
+						(unsigned long long)mpParticipantsEncodeActiveMask());
 				} else {
 					snprintf(text, sizeof(text), "Client: ID %u", g_NetLocalClient ? g_NetLocalClient->id : 0);
 				}
@@ -5717,7 +5719,9 @@ Gfx *menuRender(Gfx *gdl)
 
 					// Check which controllers are connected
 					// and update the alpha of the label
-					if (((g_MpSetup.chrslots | ~joyGetConnectedControllers()) & (1u << i)) == 0) {
+					/* B-12 Phase 3: consider the local slot "needing attention"
+					 * when it has no controller AND no participant in the pool. */
+					if (!mpIsParticipantActive(i) && (joyGetConnectedControllers() & (1u << i))) {
 #if VERSION >= VERSION_PAL_BETA
 						tmp1 = g_Vars.diffframe60freal * 3;
 #else
@@ -6262,7 +6266,7 @@ s32 menuPakNumToPlayerNum(s32 paknum)
 	u32 result = 0;
 
 	if (g_Vars.normmplayerisrunning) {
-		if (g_MpSetup.chrslots & (1u << paknum)) {
+		if (mpIsParticipantActive(paknum)) {
 			result = paknum;
 		}
 	} else {

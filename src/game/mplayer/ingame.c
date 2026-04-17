@@ -13,6 +13,7 @@
 #include "game/challenge.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/participant.h"
 #include "game/mplayer/setup.h"
 #include "game/options.h"
 #include "game/game_1531a0.h"
@@ -44,7 +45,7 @@ MenuItemHandlerResult mpStatsForPlayerDropdownHandler(s32 operation, struct menu
 		data->list.value = 0;
 
 		for (v0 = 0; v0 < MAX_MPCHRS; v0++) {
-			if (g_MpSetup.chrslots & (1u << v0)) {
+			if (mpIsParticipantActive(v0)) {
 				data->list.value++;
 			}
 		}
@@ -53,7 +54,7 @@ MenuItemHandlerResult mpStatsForPlayerDropdownHandler(s32 operation, struct menu
 		v0 = 0;
 
 		for (a1 = 0; a1 < MAX_MPCHRS; a1++) {
-			if (g_MpSetup.chrslots & (1u << a1)) {
+			if (mpIsParticipantActive(a1)) {
 				mpchr = MPCHR(a1);
 
 				if (v0 == data->list.value) {
@@ -69,7 +70,7 @@ MenuItemHandlerResult mpStatsForPlayerDropdownHandler(s32 operation, struct menu
 		v0 = 0;
 
 		for (a1 = 0; a1 < MAX_MPCHRS; a1++) {
-			if (g_MpSetup.chrslots & (1u << a1)) {
+			if (mpIsParticipantActive(a1)) {
 				if (v0);
 
 				if (data->list.value == v0) {
@@ -85,7 +86,7 @@ MenuItemHandlerResult mpStatsForPlayerDropdownHandler(s32 operation, struct menu
 		v0 = 0;
 
 		for (v1 = 0; v1 < MAX_MPCHRS; v1++) {
-			if (g_MpSetup.chrslots & (1u << v1)) {
+			if (mpIsParticipantActive(v1)) {
 				if (v0);
 
 				if (g_MpSelectedPlayersForStats[g_MpPlayerNum] == v1) {

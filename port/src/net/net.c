@@ -23,6 +23,7 @@
 #include "data.h"
 #include "bss.h"
 #include "game/hudmsg.h"
+#include "game/mplayer/participant.h"
 #include "game/player.h"
 #include "game/playermgr.h"
 #include "game/bot.h"
@@ -1078,7 +1079,9 @@ s32 netDisconnect(void)
 		mainEndStage();
 		// try to drop back to main menu with 1 player
 		mpSetPaused(MPPAUSEMODE_UNPAUSED);
-		g_MpSetup.chrslots = 1;
+		/* B-12 Phase 3: reset the participant pool to one local player. */
+		mpParticipantPoolInit(MAX_MPCHRS);
+		mpAddParticipantAt(0, PARTICIPANT_LOCAL, 0, 0, 0);
 		g_Vars.mplayerisrunning = false;
 		g_Vars.normmplayerisrunning = false;
 		g_Vars.lvmpbotlevel = 0;

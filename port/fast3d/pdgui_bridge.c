@@ -22,6 +22,7 @@
 #include "net/netlobby.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/participant.h"
 #include "game/cheats.h"
 #include "game/endscreen.h"
 #include "game/mainmenu.h"
@@ -442,7 +443,10 @@ s32 pdguiHudGetTimeLimitTicks(void)
 
 u32 pdguiPauseGetChrSlots(void)
 {
-    return g_MpSetup.chrslots;
+    /* B-12 Phase 3: the pause menu wants a 32-bit active-slot bitmap.
+     * Derive it from the participant pool. Slots 0..MAX_PLAYERS-1 = players,
+     * MAX_PLAYERS..MAX_MPCHRS-1 = bots. */
+    return (u32)(mpParticipantsEncodeActiveMask() & 0xFFFFFFFFull);
 }
 
 u32 pdguiPauseGetOptions(void)

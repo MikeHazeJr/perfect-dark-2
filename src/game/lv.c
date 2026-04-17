@@ -43,6 +43,7 @@
 #include "lib/meshcollision.h"
 #include "game/menu.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/participant.h"
 #include "game/mplayer/scenarios.h"
 #include "game/mplayer/setup.h"
 #include "game/music.h"
@@ -539,8 +540,9 @@ void lvReset(s32 stagenum)
 	chrmgrReset();
 	sysLogPrintf(LOG_NOTE, "LOAD: calling bodiesReset stagenum=0x%02x", stagenum);
 	bodiesReset(stagenum);
-	sysLogPrintf(LOG_NOTE, "LOAD: calling setupCreateProps stagenum=0x%02x normmplayerisrunning=%d chrslots=0x%04x g_MpNumChrs=%d",
-		stagenum, g_Vars.normmplayerisrunning, (u32)g_MpSetup.chrslots, g_MpNumChrs);
+	sysLogPrintf(LOG_NOTE, "LOAD: calling setupCreateProps stagenum=0x%02x normmplayerisrunning=%d activeMask=0x%04llx g_MpNumChrs=%d",
+		stagenum, g_Vars.normmplayerisrunning,
+		(unsigned long long)mpParticipantsEncodeActiveMask(), g_MpNumChrs);
 	setupCreateProps(stagenum);
 	sysLogPrintf(LOG_NOTE, "LOAD: setupCreateProps done, calling reset functions");
 	tagsReset();

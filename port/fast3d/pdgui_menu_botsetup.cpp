@@ -114,10 +114,11 @@ const char *catalogMpBodyId(s32 mpbodynum);
 #define MENUOP_CLOSE               101
 #define MENUOP_TICK                102
 
-/* ---- BOT_SLOT_OFFSET (mirrors constants.h:53 -- bits 0-7 are players, bots
- * start at MAX_PLAYERS).  We only use this for mpIsParticipantActive() calls
- * when deciding row label text; all chrslot mutation stays server-side. ---- */
-#define BOT_SLOT_OFFSET 8
+/* ---- Bot slots live at MAX_PLAYERS..MAX_MPCHRS-1 in the participant pool
+ * (B-12 Phase 3 — BOT_SLOT_OFFSET constant was retired). Local alias kept
+ * ABI-stable for the row-label predicates below; all state mutation still
+ * flows through the server. ---- */
+#define BOT_SLOT_OFFSET MAX_PLAYERS
 
 /* ---- s204 shadow menuitem / handlerdata
  * ABI-compatible with the real types in src/include/types.h:3337..3417.

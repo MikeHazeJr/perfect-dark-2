@@ -554,6 +554,10 @@ set(SRC_SERVER
 
   # Connect code (IP:port ↔ word-based codes)
   ${CMAKE_SOURCE_DIR}/port/src/connectcode.c
+
+  # B-12 Phase 3: participant pool (authoritative slot store). Server needs
+  # mpAddParticipantAt / mpIsParticipantActive / wire encode helpers.
+  ${CMAKE_SOURCE_DIR}/src/game/mplayer/participant.c
 )
 
 # ImGui sources for server GUI

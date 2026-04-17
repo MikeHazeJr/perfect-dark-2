@@ -206,16 +206,10 @@ void mpStartMatch(void)
 	s32 stagenum;
 
 	if (g_NetMode == NETMODE_SERVER) {
-		/* PC FIX: Was 0xff00 which cleared bits 0-7, wiping out
-		 * simulant slots 0-3 (bits 4-7).  Use ~CHRSLOTS_PLAYER_MASK to clear
-		 * only player bits (0-3) and preserve ALL simulant bits. */
-		g_MpSetup.chrslots &= ~CHRSLOTS_PLAYER_MASK;
-		/* B-12 Phase 2: Clear player participants (slots 0-7) */
-		{
-			s32 _j;
-			for (_j = 0; _j < MAX_PLAYERS; _j++) {
-				mpRemoveParticipant(_j);
-			}
+		/* Clear player participants (slots 0 .. MAX_PLAYERS-1); leave bot
+		 * participants untouched. */
+		for (s32 _j = 0; _j < MAX_PLAYERS; _j++) {
+			mpRemoveParticipant(_j);
 		}
 
 		s32 slot = 0;
@@ -225,7 +219,6 @@ void mpStartMatch(void)
 			/* Listen server: g_NetLocalClient occupies g_NetClients[0] (slot 0).
 			 * Add the server itself as participant slot 0 (PARTICIPANT_LOCAL),
 			 * then enumerate remote clients starting from index 1. */
-			g_MpSetup.chrslots |= 1;
 			mpAddParticipantAt(0, PARTICIPANT_LOCAL, 0, 0, 0);
 			slot = 1;
 			startIdx = 1;
@@ -236,14 +229,13 @@ void mpStartMatch(void)
 
 		for (s32 i = startIdx; i < g_NetMaxClients; ++i) {
 			if (g_NetClients[i].state >= CLSTATE_LOBBY) {
-				g_MpSetup.chrslots |= (1ull << slot);
 				mpAddParticipantAt(slot, PARTICIPANT_REMOTE, 0, (s8)i, 0);
 				++slot;
 			}
 		}
 
-		sysLogPrintf(LOG_NOTE, "NET: mpStartMatch server chrslots=0x%016llx players=%d (dedicated=%d)",
-			(unsigned long long)g_MpSetup.chrslots, slot, g_NetDedicated);
+		sysLogPrintf(LOG_NOTE, "NET: mpStartMatch server activeMask=0x%016llx players=%d (dedicated=%d)",
+			(unsigned long long)mpParticipantsEncodeActiveMask(), slot, g_NetDedicated);
 	}
 
 	if (g_NetMode != NETMODE_CLIENT) {
@@ -255,11 +247,11 @@ void mpStartMatch(void)
 		}
 	}
 
-	sysLogPrintf(LOG_NOTE, "MATCH: pre-quickteam chrslots=0x%016llx hasSim=%d netmode=%d",
-		(unsigned long long)g_MpSetup.chrslots, mpHasSimulants(), g_NetMode);
+	sysLogPrintf(LOG_NOTE, "MATCH: pre-quickteam activeMask=0x%016llx hasSim=%d netmode=%d",
+		(unsigned long long)mpParticipantsEncodeActiveMask(), mpHasSimulants(), g_NetMode);
 	mpConfigureQuickTeamSimulants();
-	sysLogPrintf(LOG_NOTE, "MATCH: post-quickteam chrslots=0x%016llx hasSim=%d",
-		(unsigned long long)g_MpSetup.chrslots, mpHasSimulants());
+	sysLogPrintf(LOG_NOTE, "MATCH: post-quickteam activeMask=0x%016llx hasSim=%d",
+		(unsigned long long)mpParticipantsEncodeActiveMask(), mpHasSimulants());
 
 	if (!challengeIsFeatureUnlocked(MPFEATURE_ONEHITKILLS)) {
 		g_MpSetup.options &= ~MPOPTION_ONEHITKILLS;
@@ -562,9 +554,9 @@ void mpReset(void)
 
 	g_Vars.normmplayerisrunning = true;
 
-	sysLogPrintf(LOG_NOTE, "MATCH: mpReset normmplay=%d mplay=%d chrslots=0x%016llx hasSim=%d netmode=%d",
+	sysLogPrintf(LOG_NOTE, "MATCH: mpReset normmplay=%d mplay=%d activeMask=0x%016llx hasSim=%d netmode=%d",
 		g_Vars.normmplayerisrunning, g_Vars.mplayerisrunning,
-		(unsigned long long)g_MpSetup.chrslots, mpHasSimulants(), g_NetMode);
+		(unsigned long long)mpParticipantsEncodeActiveMask(), mpHasSimulants(), g_NetMode);
 
 	g_Vars.perfectbuddynum = 0;
 
@@ -592,8 +584,8 @@ void mpReset(void)
 		}
 	}
 
-	sysLogPrintf(LOG_NOTE, "MATCH: mpReset player enum done: g_MpNumChrs=%d chrslots=0x%016llx",
-		g_MpNumChrs, (unsigned long long)g_MpSetup.chrslots);
+	sysLogPrintf(LOG_NOTE, "MATCH: mpReset player enum done: g_MpNumChrs=%d activeMask=0x%016llx",
+		g_MpNumChrs, (unsigned long long)mpParticipantsEncodeActiveMask());
 
 	for (i = 0; i < MAX_MPCHRS; i++) {
 		struct mpchrconfig *mpchr = MPCHR(i);
@@ -911,10 +903,8 @@ void mpInit(bool resetplayers)
 		}
 	}
 
-	g_MpSetup.chrslots = 0;
-
-	/* B-12 Phase 2: Initialize slot-indexed pool (capacity = MAX_MPCHRS so that
-	 * pool slot i == chrslots bit i: players 0-7, bots 8-39). */
+	/* B-12 Phase 3: participant pool is the sole slot store. Capacity =
+	 * MAX_MPCHRS (players at 0..MAX_PLAYERS-1, bots at MAX_PLAYERS..MAX_MPCHRS-1). */
 	mpParticipantPoolInit(MAX_MPCHRS);
 
 	for (i = 0; i < ARRAYCOUNT(g_Menus); i++) {
@@ -3536,8 +3526,7 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 		g_MpSimulantDifficultiesPerNumPlayers[botnum][i] = g_BotConfigsArray[botnum].difficulty;
 	}
 
-	g_MpSetup.chrslots |= 1ull << (botnum + BOT_SLOT_OFFSET);
-	mpAddParticipantAt(botnum + BOT_SLOT_OFFSET, PARTICIPANT_BOT, team, -1, 0xFF); /* B-12 Phase 2 */
+	mpAddParticipantAt(botnum + MAX_PLAYERS, PARTICIPANT_BOT, team, -1, 0xFF);
 	strncpy(g_BotConfigsArray[botnum].base.name, "Sim\n", 14); g_BotConfigsArray[botnum].base.name[14] = '\0';
 	g_BotConfigsArray[botnum].base.team = team;
 
@@ -3592,7 +3581,7 @@ s32 mpGetSlotForNewBot(void)
 {
 	s32 i = 0;
 
-	while (i < MAX_BOTS - 1 && mpIsParticipantActive(i + BOT_SLOT_OFFSET)) { /* B-12 Phase 2 */
+	while (i < MAX_BOTS - 1 && mpIsParticipantActive(i + MAX_PLAYERS)) {
 		i++;
 	}
 
@@ -3601,8 +3590,7 @@ s32 mpGetSlotForNewBot(void)
 
 void mpRemoveSimulant(s32 index)
 {
-	g_MpSetup.chrslots &= ~(1ull << (index + BOT_SLOT_OFFSET));
-	mpRemoveParticipant(index + BOT_SLOT_OFFSET); /* B-12 Phase 2 */
+	mpRemoveParticipant(index + MAX_PLAYERS);
 	g_BotConfigsArray[index].base.name[0] = '\0';
 	func0f1881d4(index);
 	mpGenerateBotNames();
@@ -3612,8 +3600,7 @@ void mpCopySimulant(s32 index)
 {
 	s32 dest = mpGetSlotForNewBot();
 
-	g_MpSetup.chrslots |= 1ull << (dest + BOT_SLOT_OFFSET);
-	mpAddParticipantAt(dest + BOT_SLOT_OFFSET, PARTICIPANT_BOT, 0, -1, 0xFF); /* B-12 Phase 2 */
+	mpAddParticipantAt(dest + MAX_PLAYERS, PARTICIPANT_BOT, 0, -1, 0xFF);
 	g_BotConfigsArray[dest].base.name[0] = g_BotConfigsArray[index].base.name[0];
 	g_BotConfigsArray[dest].base.mpheadnum = g_BotConfigsArray[index].base.mpheadnum;
 	g_BotConfigsArray[dest].base.mpbodynum = g_BotConfigsArray[index].base.mpbodynum;
@@ -3651,8 +3638,8 @@ bool mpIsSimSlotEnabled(s32 slot)
 {
 	s32 numfree = MAX_BOTS;
 
-	if (!mpIsParticipantActive(slot + BOT_SLOT_OFFSET)) { /* B-12 Phase 2 */
-		numfree -= mpGetActiveBotCount(); /* B-12 Phase 2 */
+	if (!mpIsParticipantActive(slot + MAX_PLAYERS)) {
+		numfree -= mpGetActiveBotCount();
 
 		if (numfree > 0) {
 			return true;
@@ -3696,8 +3683,8 @@ void mpGenerateBotNames(void)
 	s32 i;
 	char name[16];
 
-	sysLogPrintf(LOG_NOTE, "BOT_NAMES: generating, chrslots=0x%016llx BOT_OFFSET=%d MAX_MPCHRS=%d",
-		(unsigned long long)g_MpSetup.chrslots, BOT_SLOT_OFFSET, MAX_MPCHRS);
+	sysLogPrintf(LOG_NOTE, "BOT_NAMES: generating, activeMask=0x%016llx MAX_PLAYERS=%d MAX_MPCHRS=%d",
+		(unsigned long long)mpParticipantsEncodeActiveMask(), MAX_PLAYERS, MAX_MPCHRS);
 
 	for (i = 0; i < ARRAYCOUNT(g_BotProfiles); i++) {
 		counts[i] = 0;
@@ -3705,7 +3692,7 @@ void mpGenerateBotNames(void)
 
 	// Count the number of bots using each profile (MeatSim, TurtleSim etc)
 	for (i = mpParticipantFirstOfType(PARTICIPANT_BOT); i >= 0; i = mpParticipantNextOfType(i, PARTICIPANT_BOT)) { /* B-12 Phase 2 */
-		profilenum = mpFindBotProfile(g_BotConfigsArray[i - BOT_SLOT_OFFSET].type, g_BotConfigsArray[i - BOT_SLOT_OFFSET].difficulty);
+		profilenum = mpFindBotProfile(g_BotConfigsArray[i - MAX_PLAYERS].type, g_BotConfigsArray[i - MAX_PLAYERS].difficulty);
 
 		if (profilenum >= 0 && profilenum < ARRAYCOUNT(g_BotProfiles)) {
 			counts[profilenum]++;
@@ -3724,7 +3711,7 @@ void mpGenerateBotNames(void)
 	}
 
 	for (i = mpParticipantFirstOfType(PARTICIPANT_BOT); i >= 0; i = mpParticipantNextOfType(i, PARTICIPANT_BOT)) { /* B-12 Phase 2 */
-		profilenum = mpFindBotProfile(g_BotConfigsArray[i - BOT_SLOT_OFFSET].type, g_BotConfigsArray[i - BOT_SLOT_OFFSET].difficulty);
+		profilenum = mpFindBotProfile(g_BotConfigsArray[i - MAX_PLAYERS].type, g_BotConfigsArray[i - MAX_PLAYERS].difficulty);
 
 		if (profilenum >= 0 && profilenum < ARRAYCOUNT(g_BotProfiles)) {
 			// P2: Check for mod-provided bot name override
@@ -3735,11 +3722,11 @@ void mpGenerateBotNames(void)
 				// Multiple bots using this profile - append the number
 				counts[profilenum]++;
 				snprintf(name, sizeof(name), "%s:%d\n", baseName, counts[profilenum]);
-				strncpy(g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name, name, 14); g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name[14] = '\0';
+				strncpy(g_BotConfigsArray[i - MAX_PLAYERS].base.name, name, 14); g_BotConfigsArray[i - MAX_PLAYERS].base.name[14] = '\0';
 			} else {
 				// One bot using this profile - just use the profile name
 				snprintf(name, sizeof(name), "%s\n", baseName);
-				strncpy(g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name, name, 14); g_BotConfigsArray[i - BOT_SLOT_OFFSET].base.name[14] = '\0';
+				strncpy(g_BotConfigsArray[i - MAX_PLAYERS].base.name, name, 14); g_BotConfigsArray[i - MAX_PLAYERS].base.name[14] = '\0';
 			}
 		}
 	}
@@ -3790,7 +3777,7 @@ s32 func0f18d074(s32 index)
 
 	for (i = 0; i < MAX_BOTS; i++) {
 		if (&g_BotConfigsArray[i].base == g_MpAllChrConfigPtrs[index]) {
-			return i + BOT_SLOT_OFFSET;
+			return i + MAX_PLAYERS;
 		}
 	}
 
@@ -4230,21 +4217,15 @@ void mpApplyConfig(struct mpconfigfull *config)
 {
 	s32 i;
 	s32 j;
-	u64 chrslots;
 
 	g_MpSetup.scenario = config->config.setup.scenario;
 
-#if VERSION >= VERSION_PAL_FINAL
-	chrslots = g_MpSetup.chrslots;
-#endif
-
 	scenarioInit();
 
+	/* B-12 Phase 3: struct mpsetup no longer carries chrslots, so the
+	 * whole-struct assignment from the challenge template is safe — it
+	 * does not clobber participant state. */
 	g_MpSetup = config->config.setup;
-
-#if VERSION >= VERSION_PAL_FINAL
-	g_MpSetup.chrslots = chrslots;
-#endif
 
 	for (i = 0; i < MAX_BOTS; i++) {
 		g_BotConfigsArray[i].type = config->config.simulants[i].type;
@@ -4314,16 +4295,13 @@ void mp0f18dec4(s32 slot)
 	mpApplyConfig(config);
 
 #if VERSION >= VERSION_JPN_FINAL
-	g_MpSetup.chrslots &= CHRSLOTS_PLAYER_MASK;
-
 	for (i = 0; i < MAX_BOTS; i++) {
-		mpRemoveParticipant(i + BOT_SLOT_OFFSET); /* B-12 Phase 2 */
+		mpRemoveParticipant(i + MAX_PLAYERS);
 	}
 
 	for (i = 0; i < MAX_BOTS; i++) {
 		if (g_BotConfigsArray[i].difficulty != BOTDIFF_DISABLED) {
-			g_MpSetup.chrslots |= 1ull << (i + BOT_SLOT_OFFSET);
-			mpAddParticipantAt(i + BOT_SLOT_OFFSET, PARTICIPANT_BOT, 0, -1, 0xFF); /* B-12 Phase 2 */
+			mpAddParticipantAt(i + MAX_PLAYERS, PARTICIPANT_BOT, 0, -1, 0xFF);
 		}
 	}
 #endif
@@ -4377,10 +4355,8 @@ void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version)
 		g_MpSetup.options = savebufferReadBits(buffer, 21);
 	}
 
-	g_MpSetup.chrslots &= CHRSLOTS_PLAYER_MASK;
-
 	for (i = 0; i < MAX_BOTS; i++) {
-		mpRemoveParticipant(i + BOT_SLOT_OFFSET); /* B-12 Phase 2 */
+		mpRemoveParticipant(i + MAX_PLAYERS);
 	}
 
 	for (i = 0; i < MAX_BOTS; i++) {
@@ -4393,8 +4369,7 @@ void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version)
 		}
 
 		if (g_BotConfigsArray[i].difficulty != BOTDIFF_DISABLED) {
-			g_MpSetup.chrslots |= 1ull << (i + BOT_SLOT_OFFSET);
-			mpAddParticipantAt(i + BOT_SLOT_OFFSET, PARTICIPANT_BOT, 0, -1, 0xFF); /* B-12 Phase 2 */
+			mpAddParticipantAt(i + MAX_PLAYERS, PARTICIPANT_BOT, 0, -1, 0xFF);
 		}
 
 		g_BotConfigsArray[i].base.mpheadnum = savebufferReadBits(buffer, 7);
@@ -4455,7 +4430,7 @@ void mpsetupfileSaveWad(struct savebuffer *buffer)
 	for (i = 0; i < MAX_BOTS; i++) {
 		savebufferOr(buffer, g_BotConfigsArray[i].type, 5);
 
-		if (mpIsParticipantActive(i + BOT_SLOT_OFFSET)) { /* B-12 Phase 2 */
+		if (mpIsParticipantActive(i + MAX_PLAYERS)) {
 			savebufferOr(buffer, g_BotConfigsArray[i].difficulty, 3);
 		} else {
 			savebufferOr(buffer, BOTDIFF_DISABLED, 3);

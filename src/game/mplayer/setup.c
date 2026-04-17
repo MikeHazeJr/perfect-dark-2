@@ -3328,7 +3328,7 @@ MenuItemHandlerResult mpAddChangeSimulantMenuHandler(s32 operation, struct menui
 		if (botnum < 0) {
 			botnum = mpGetSlotForNewBot();
 			creating = 1;
-		} else if (!mpIsParticipantActive(botnum + BOT_SLOT_OFFSET)) { /* B-12 Phase 2 */
+		} else if (!mpIsParticipantActive(botnum + MAX_PLAYERS)) { /* B-12 Phase 2 */
 			creating = 1;
 		}
 
@@ -3590,7 +3590,7 @@ MenuItemHandlerResult menuhandlerMpSimulantSlot(s32 operation, struct menuitem *
 	case MENUOP_SET:
 		g_Menus[g_MpPlayerNum].mpsetup.slotindex = item->param;
 
-		if (!mpIsParticipantActive(item->param + BOT_SLOT_OFFSET)) { /* B-12 Phase 2 */
+		if (!mpIsParticipantActive(item->param + MAX_PLAYERS)) { /* B-12 Phase 2 */
 			menuPushDialog(&g_MpAddSimulantMenuDialog);
 		} else {
 			menuPushDialog(&g_MpEditSimulantMenuDialog);
@@ -3615,7 +3615,7 @@ char *mpMenuTextSimulantName(struct menuitem *item)
 {
 	s32 index = item->param;
 
-	if (g_BotConfigsArray[index].base.name[0] == '\0' || !mpIsParticipantActive(index + BOT_SLOT_OFFSET)) { /* B-12 Phase 2 */
+	if (g_BotConfigsArray[index].base.name[0] == '\0' || !mpIsParticipantActive(index + MAX_PLAYERS)) { /* B-12 Phase 2 */
 		return "";
 	}
 
@@ -3627,7 +3627,7 @@ char *func0f17d3dc(struct menuitem *item)
 	s32 index = item->param;
 
 	if (g_BotConfigsArray[index].base.name[0] == '\0'
-			|| !mpIsParticipantActive(index + BOT_SLOT_OFFSET)) { /* B-12 Phase 2 */
+			|| !mpIsParticipantActive(index + MAX_PLAYERS)) { /* B-12 Phase 2 */
 		return "";
 	}
 

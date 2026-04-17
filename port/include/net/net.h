@@ -9,7 +9,13 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 36  /* v36: Counter-Op leader-selected anti player identity on wire
+#define NET_PROTOCOL_VER 37  /* v37: B-12 Phase 3 — chrslots u64 bitmask removed from struct mpsetup
+                               * and from SVC_STAGE_START wire. Participant pool is the sole
+                               * source of slot assignment; wire carries a derived 64-bit active
+                               * mask over slots 0..MAX_MPCHRS-1 which the reader decodes into
+                               * participant-pool entries directly (no legacy chrslots storage).
+                               * BOT_SLOT_OFFSET constant removed; bot slots are MAX_PLAYERS..MAX_MPCHRS-1.
+                               * v36: Counter-Op leader-selected anti player identity on wire
                                * (CLC_LOBBY_START + SVC_STAGE_START), plus co-op/anti launch
                                * path de-dup to a single mainChangeToStage callsite.
                                * v35: co-op/anti manifest pipeline, CLC_STAGE_READY for co-op,

@@ -15,6 +15,7 @@
 #include "game/training.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/participant.h"
 #include "game/options.h"
 #include "bss.h"
 #include "lib/vi.h"
@@ -3951,7 +3952,7 @@ Gfx *menuitemPlayerStatsRender(Gfx *gdl, struct menurendercontext *context)
 		ypos -= data->scrolloffset;
 
 		for (i = 0; i < MAX_MPCHRS; i++) {
-			if (g_MpSetup.chrslots & (1u << i)) {
+			if (mpIsParticipantActive(i)) {
 				struct mpchrconfig *loopmpchr = MPCHR(i);
 
 				if (i != playernum) {

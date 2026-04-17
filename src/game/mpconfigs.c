@@ -12,7 +12,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_TEMPLE,
 			9, 100, 400,
-			0,
 			{
 				MPWEAPON_DEVASTATOR,
 				MPWEAPON_DEVASTATOR,
@@ -40,7 +39,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_AREA52,
 			60, 9, 400,
-			0,
 			{
 				MPWEAPON_FALCON2,
 				MPWEAPON_MAGSEC4,
@@ -68,7 +66,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_COMPLEX,
 			9, 19, 400,
-			0,
 			{
 				MPWEAPON_MAGSEC4,
 				MPWEAPON_CYCLONE,
@@ -96,7 +93,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_SKEDAR,
 			9, 9, 400,
-			0,
 			{
 				MPWEAPON_FALCON2,
 				MPWEAPON_CMP150,
@@ -124,7 +120,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_SKEDAR,
 			9, 9, 400,
-			0,
 			{
 				MPWEAPON_MAGSEC4,
 				MPWEAPON_SHOTGUN,
@@ -152,7 +147,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_SKEDAR,
 			9, 9, 400,
-			0,
 			{
 				MPWEAPON_MAULER,
 				MPWEAPON_GRENADE,
@@ -180,7 +174,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_SKEDAR,
 			4, 9, 400,
-			0,
 			{
 				MPWEAPON_MAGSEC4,
 				MPWEAPON_SHOTGUN,
@@ -208,7 +201,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_SKEDAR,
 			9, 9, 400,
-			0,
 			{
 				MPWEAPON_FALCON2,
 				MPWEAPON_MAGSEC4,
@@ -236,7 +228,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_HOLDTHEBRIEFCASE,
 			STAGE_MP_SKEDAR,
 			9, 100, 400,
-			0,
 			{
 				MPWEAPON_MAGSEC4,
 				MPWEAPON_K7AVENGER,
@@ -268,7 +259,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_KINGOFTHEHILL,
 			STAGE_MP_SKEDAR,
 			9, 100, 9,
-			0,
 			{
 				MPWEAPON_MAGSEC4,
 				MPWEAPON_DY357MAGNUM,
@@ -296,7 +286,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_CAPTURETHECASE,
 			STAGE_MP_AREA52,
 			9, 100, 400,
-			0,
 			{
 				MPWEAPON_FALCON2,
 				MPWEAPON_CYCLONE,
@@ -324,7 +313,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_SKEDAR,
 			9, 100, 400,
-			0x00f0,
 			{
 				MPWEAPON_FALCON2,
 				MPWEAPON_CMP150,
@@ -352,7 +340,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_PIPES,
 			9, 9, 400,
-			0,
 			{
 				MPWEAPON_CYCLONE,
 				MPWEAPON_CMP150,
@@ -380,7 +367,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_AREA52,
 			9, 9, 400,
-			0,
 			{
 				MPWEAPON_DY357MAGNUM,
 				MPWEAPON_SNIPERRIFLE,
@@ -408,7 +394,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_SKEDAR,
 			4, 100, 3,
-			0,
 			{
 				MPWEAPON_FALCON2,
 				MPWEAPON_CMP150,
@@ -436,7 +421,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_AREA52,
 			4, 100, 5,
-			0,
 			{
 				MPWEAPON_COMBATKNIFE,
 				MPWEAPON_FALCON2,
@@ -464,7 +448,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_PIPES,
 			4, 100, 7,
-			0,
 			{
 				MPWEAPON_MAGSEC4,
 				MPWEAPON_CMP150,
@@ -492,7 +475,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_KINGOFTHEHILL,
 			STAGE_MP_SKEDAR,
 			9, 100, 3,
-			0,
 			{
 				MPWEAPON_MAGSEC4,
 				MPWEAPON_CMP150,
@@ -520,7 +502,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_COMPLEX,
 			9, 100, 9,
-			0,
 			{
 				MPWEAPON_CYCLONE,
 				MPWEAPON_GRENADE,
@@ -548,7 +529,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_HOLDTHEBRIEFCASE,
 			STAGE_MP_AREA52,
 			9, 100, 5,
-			0,
 			{
 				MPWEAPON_CMP150,
 				MPWEAPON_DY357MAGNUM,
@@ -576,7 +556,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_KINGOFTHEHILL,
 			STAGE_MP_WAREHOUSE,
 			9, 100, 4,
-			0,
 			{
 				MPWEAPON_FALCON2_SILENCER,
 				MPWEAPON_MAGSEC4,
@@ -604,7 +583,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_CAPTURETHECASE,
 			STAGE_MP_SKEDAR,
 			9, 100, 8,
-			0,
 			{
 				MPWEAPON_MAGSEC4,
 				MPWEAPON_K7AVENGER,
@@ -632,7 +610,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_RAVINE,
 			9, 100, 9,
-			0,
 			{
 				MPWEAPON_FALCON2,
 				MPWEAPON_DY357MAGNUM,
@@ -660,7 +637,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_HACKERCENTRAL,
 			STAGE_MP_TEMPLE,
 			9, 100, 2,
-			0,
 			{
 				MPWEAPON_CMP150,
 				MPWEAPON_CYCLONE,
@@ -688,7 +664,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_KINGOFTHEHILL,
 			STAGE_MP_COMPLEX,
 			9, 100, 9,
-			0,
 			{
 				MPWEAPON_MAGSEC4,
 				MPWEAPON_TRANQUILIZER,
@@ -716,7 +691,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_SKEDAR,
 			9, 100, 2,
-			0,
 			{
 				MPWEAPON_FALCON2_SCOPE,
 				MPWEAPON_SNIPERRIFLE,
@@ -744,7 +718,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_G5BUILDING,
 			9, 100, 9,
-			0,
 			{
 				MPWEAPON_FALCON2_SILENCER,
 				MPWEAPON_TRANQUILIZER,
@@ -772,7 +745,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_CAPTURETHECASE,
 			STAGE_MP_AREA52,
 			9, 100, 9,
-			0,
 			{
 				MPWEAPON_CYCLONE,
 				MPWEAPON_SUPERDRAGON,
@@ -800,7 +772,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_HOLDTHEBRIEFCASE,
 			STAGE_MP_GRID,
 			9, 100, 9,
-			0,
 			{
 				MPWEAPON_MAGSEC4,
 				MPWEAPON_DRAGON,
@@ -828,7 +799,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_FELICITY,
 			9, 100, 9,
-			0,
 			{
 				MPWEAPON_FALCON2,
 				MPWEAPON_K7AVENGER,
@@ -856,7 +826,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_KINGOFTHEHILL,
 			STAGE_MP_TEMPLE,
 			9, 100, 9,
-			0,
 			{
 				MPWEAPON_DY357MAGNUM,
 				MPWEAPON_AR34,
@@ -884,7 +853,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_KINGOFTHEHILL,
 			STAGE_MP_VILLA,
 			9, 100, 9,
-			0,
 			{
 				MPWEAPON_FALCON2,
 				MPWEAPON_PHOENIX,
@@ -912,7 +880,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_G5BUILDING,
 			9, 100, 9,
-			0,
 			{
 				MPWEAPON_CMP150,
 				MPWEAPON_SHOTGUN,
@@ -940,7 +907,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_SEWERS,
 			9, 100, 9,
-			0,
 			{
 				MPWEAPON_MAULER,
 				MPWEAPON_FALCON2,
@@ -975,7 +941,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_HACKERCENTRAL,
 			STAGE_MP_GRID,
 			9, 100, 9,
-			0,
 			{
 				MPWEAPON_MAULER,
 				MPWEAPON_REAPER,
@@ -1003,7 +968,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_HOLDTHEBRIEFCASE,
 			STAGE_MP_BASE,
 			9, 100, 9,
-			0,
 			{
 				MPWEAPON_FALCON2,
 				MPWEAPON_SNIPERRIFLE,
@@ -1031,7 +995,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_COMPLEX,
 			9, 100, 1,
-			0,
 			{
 				MPWEAPON_MAGSEC4,
 				MPWEAPON_GRENADE,
@@ -1059,7 +1022,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_CAPTURETHECASE,
 			STAGE_MP_FORTRESS,
 			60, 100, 8,
-			0,
 			{
 				MPWEAPON_CMP150,
 				MPWEAPON_TRANQUILIZER,
@@ -1087,7 +1049,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_RAVINE,
 			2, 100, 9,
-			0,
 			{
 				MPWEAPON_MAULER,
 				MPWEAPON_NBOMB,
@@ -1115,7 +1076,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_KINGOFTHEHILL,
 			STAGE_MP_RUINS,
 			9, 100, 9,
-			0,
 			{
 				MPWEAPON_FALCON2,
 				MPWEAPON_MAULER,
@@ -1143,7 +1103,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_HACKERCENTRAL,
 			STAGE_MP_SEWERS,
 			9, 100, 9,
-			0,
 			{
 				MPWEAPON_FALCON2,
 				MPWEAPON_MAGSEC4,
@@ -1171,7 +1130,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_CAPTURETHECASE,
 			STAGE_MP_VILLA,
 			9, 100, 8,
-			0,
 			{
 				MPWEAPON_FALCON2,
 				MPWEAPON_FALCON2_SILENCER,
@@ -1199,7 +1157,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_COMBAT,
 			STAGE_MP_G5BUILDING,
 			9, 100, 9,
-			0,
 			{
 				MPWEAPON_FALCON2,
 				MPWEAPON_CYCLONE,
@@ -1227,7 +1184,6 @@ struct mpconfig g_MpConfigs[] = {
 			MPSCENARIO_KINGOFTHEHILL,
 			STAGE_MP_SKEDAR,
 			9, 100, 9,
-			0,
 			{
 				MPWEAPON_FALCON2,
 				MPWEAPON_FALCON2_SCOPE,

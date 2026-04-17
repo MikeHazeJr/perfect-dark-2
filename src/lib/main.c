@@ -41,6 +41,7 @@
 #include "game/zbuf.h"
 #include "game/game_1a78b0.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/participant.h"
 #include "game/pak.h"
 #include "game/splat.h"
 #include "game/utils.h"
@@ -986,28 +987,20 @@ void mainLoop(void)
 		}
 
 		if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
-			g_MpSetup.chrslots = 0x03;
+			/* Co-op / counter-op: two local players occupy slots 0 and 1. */
 			mpReset();
+			mpAddParticipantAt(0, PARTICIPANT_LOCAL, 0, 0, 0);
+			mpAddParticipantAt(1, PARTICIPANT_LOCAL, 0, 0, 1);
 		} else if (g_Vars.perfectbuddynum) {
 			mpReset();
 		} else if (g_Vars.mplayerisrunning == false
 				&& (numplayers >= 2 || g_Vars.lvmpbotlevel || argFindByPrefix(1, "-play"))) {
-			g_MpSetup.chrslots = 1;
-
-			if (numplayers >= 2) {
-				g_MpSetup.chrslots |= 1u << 1;
-			}
-
-			if (numplayers >= 3) {
-				g_MpSetup.chrslots |= 1u << 2;
-			}
-
-			if (numplayers >= 4) {
-				g_MpSetup.chrslots |= 1u << 3;
-			}
-
 			g_MpSetup.stagenum = g_StageNum;
 			mpReset();
+			/* Populate local player slots 0..numplayers-1 (B-12 Phase 3). */
+			for (s32 _p = 0; _p < numplayers && _p < MAX_LOCAL_PLAYERS; _p++) {
+				mpAddParticipantAt(_p, PARTICIPANT_LOCAL, 0, 0, (u8)_p);
+			}
 		}
 
 		gfxReset();

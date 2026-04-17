@@ -111,7 +111,6 @@ s32 mpAddParticipant(ParticipantType type, u8 team, s8 client_id, u8 localslot)
 	p->team = team;
 	p->localslot = localslot;
 	p->client_id = client_id;
-	p->legacy_slot = -1;
 	p->config = NULL;
 	p->chr = NULL;
 
@@ -136,7 +135,6 @@ s32 mpAddParticipantAt(s32 slot, ParticipantType type, u8 team, s8 client_id, u8
 	p->team       = team;
 	p->localslot  = localslot;
 	p->client_id  = client_id;
-	p->legacy_slot = -1;
 	p->config     = NULL;
 	p->chr        = NULL;
 
@@ -360,51 +358,43 @@ s32 mpParticipantNextOfType(s32 current, ParticipantType type)
 }
 
 /* ========================================================================
- * Legacy Compatibility (Phase 1 only — removed in Phase 3)
+ * Wire Serialization Helpers (B-12 Phase 3)
  * ======================================================================== */
 
-u64 mpParticipantsToLegacyChrslots(void)
+u64 mpParticipantsEncodeActiveMask(void)
 {
-	u64 chrslots = 0;
+	u64 mask = 0;
 
 	if (g_MpParticipants.slots == NULL) {
 		return 0;
 	}
 
-	/*
-	 * With a slot-indexed pool (capacity = MAX_MPCHRS, players at 0-7,
-	 * bots at BOT_SLOT_OFFSET..MAX_MPCHRS-1) the pool slot IS the bit index.
-	 */
 	for (s32 i = 0; i < g_MpParticipants.capacity && i < 64; i++) {
 		if (g_MpParticipants.slots[i].type != PARTICIPANT_NONE) {
-			chrslots |= (1ull << i);
+			mask |= (1ull << i);
 		}
 	}
 
-	return chrslots;
+	return mask;
 }
 
-void mpParticipantsFromLegacyChrslots(u64 chrslots)
+void mpParticipantsDecodeActiveMask(u64 mask)
 {
 	mpClearAllParticipants();
 
-	/*
-	 * Place each participant at the slot that matches the chrslots bit so
-	 * that mpIsParticipantActive(i) is a direct substitute for
-	 * (chrslots & (1ull << i)) once callsites are migrated.
-	 */
-
-	/* Players: bits 0 .. MAX_PLAYERS-1, pool slots 0 .. MAX_PLAYERS-1 */
+	/* Player slots 0..MAX_PLAYERS-1 — recorded as REMOTE here (the client
+	 * receiving SVC_STAGE_START doesn't know which slot belongs to which
+	 * machine's local split; later messages refine that). */
 	for (s32 i = 0; i < MAX_PLAYERS; i++) {
-		if (chrslots & (1ull << i)) {
-			mpAddParticipantAt(i, PARTICIPANT_LOCAL, 0, 0, (u8)i);
+		if (mask & (1ull << i)) {
+			mpAddParticipantAt(i, PARTICIPANT_REMOTE, 0, 0, (u8)i);
 		}
 	}
 
-	/* Bots: bits BOT_SLOT_OFFSET .. MAX_MPCHRS-1, same pool slots */
+	/* Bot slots MAX_PLAYERS..MAX_MPCHRS-1 */
 	for (s32 i = 0; i < MAX_BOTS; i++) {
-		if (chrslots & (1ull << (i + BOT_SLOT_OFFSET))) {
-			mpAddParticipantAt(i + BOT_SLOT_OFFSET, PARTICIPANT_BOT, 0, -1, 0xFF);
+		if (mask & (1ull << (i + MAX_PLAYERS))) {
+			mpAddParticipantAt(i + MAX_PLAYERS, PARTICIPANT_BOT, 0, -1, 0xFF);
 		}
 	}
 }
