@@ -1,8 +1,51 @@
 
 # Session Log (Active)
 
-> **S241–S312** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
+> **S241–S313** (rolling window). Older sessions **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). Ancient **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S313 — 2026-04-17 (The Grid polish + missing features — `great-robinson-15f409` worktree → merged to dev)
+
+**Scope**: S313 is the parallel Grid-owning session in the S311/S312/S313 three-way split. Picks up on top of S310's F1-F8 bulk drop to ship the remaining design-doc items plus targeted polish. File ownership per parallel prompt: **Grid code only** (`port/src/forge/*`, `src/game/forgemode.*`, `port/fast3d/pdgui_forge_*`, `port/include/pdgui_forge.h`). No menu / theme / gameplay-logic files touched.
+
+### Commits on `claude/great-robinson-15f409`
+
+| SHA | Scope |
+|-----|-------|
+| `da73273a` | **S313 The Grid polish + features (single commit)**. Six files, 727 insertions, 72 deletions. Rename `Forge → The Grid` in user-facing strings (HUD badge, editor window title, tab button labels); internal `forge_*` / `FORGE.*` log taxonomy retained. New `forge_bot_settings_t` + `forge_bot_spawn_mode_t` + Bots tab. Map variant editing (`forge_map_variant_mode_t` + `variant_source_slug` + `from_base` flag on objects + `forgeImportBaseStageObjects` / `forgeObjectResetToBase` / `forgeObjectRemoveFromBase` / `forgeCountBaseObjects` / `forgeCountDeltaObjects` API). Save-As-Mod confirmation modal listing mod dependencies before commit. Catalog click now *begins* a ghost placement; per-frame `pdguiForgeEditorTick` (now actually called from `mainTick`) updates ghost from freefly camera; HUD reticle with valid/invalid colour + `Place Here` / `Cancel (Esc)` banner in Catalog tab. Grid-snap visualization in HUD (top-center readout + 5x5 faint crosses). Controller navigation: keyboard nav idempotent, PageUp/PageDown + GamepadL1/R1 bumper-cycle tabs with persistent tab index; gamepad nav flag deliberately left off to avoid conflicting with freefly camera stick input. Tab bar `FittingPolicyScroll`. Case-insensitive catalog search. Weapon pad Properties pane: live `Preview:` showing which weapon-source wins for this pad at runtime + Respawn Effect combo. Expanded default editor size 560→620px. |
+| `16cb6f7e` | **Merge to dev** (`--no-ff`, main working copy).  Pre/post-merge line counts verified identical: 1528 / 238 / 979 / 1420 / 970 / 838 = 5973 total. |
+
+### Files touched (summary)
+
+- **Modified** (6): `port/fast3d/pdgui_forge_editor.cpp` (+~400 lines: Bots tab, variant UI, save modal, tab navigation, placement banner, weapon pad preview, case-insensitive search), `port/fast3d/pdgui_forge_hud.cpp` (+~60: ghost reticle, grid-snap indicator, controller hint footer, "THE GRID" rename), `port/include/forge/forge_core.h` (+~65: new enums + struct fields + API decls), `port/src/forge/forge_core.c` (+~130: bot settings impl + variant helpers + from_base defaults), `port/src/forge/forge_serialize.c` (+48: bot_testing block + variant metadata + from_base persistence), `port/src/pdmain.c` (+7: pdgui_forge.h include + `pdguiForgeEditorTick()` call in mainTick).
+
+### Phase coverage against the design doc
+
+- **§3.1 / §4.1 Catalog + placement**: ghost-preview now actually appears -- user clicks a catalog entry, the editor tick advances the ghost each frame from camera forward-400u, HUD draws the reticle with valid/invalid tint, and the author commits via Place Here / Enter or aborts via Cancel / Escape.  Closes the "immediate commit" usability gap from S310.
+- **§6 Live testing**: new Bots tab surfaces add/remove/freeze controls + Spawn Near Me (radius-bound) + Spawn Smart (aggression slider).  Runtime engine hook is queued; today captures intent + logs `FORGE.BOT:`.
+- **§10.2 base_stage**: Variant editing UI replaces the single Base Stage ID input with a Variant combo (New Empty / Edit Stage / Edit Map) + dependent fields.  Objects tagged `from_base` render with `[BASE]` badge in Properties and gain Reset-to-Base / Remove-Base-Object delta actions.
+- **Controller nav** (design hint throughout): keyboard PageUp/PageDown + gamepad L1/R1 cycle tabs with persistent state; controller hints in HUD + editor footer; gamepad nav intentionally off (would fight freefly sticks).
+- **§10.5 Network sharing**: Save As Mod now opens a modal listing exact mod dependencies before committing, so the author sees the bundle before it's written.
+
+### Build verify
+
+`ninja -C Build pd pd-server` on the worktree: clean.  `build-headless.ps1 -Target all` on main post-merge: clean.  `PerfectDark.exe` 52,217,169 / `PerfectDarkServer.exe` 22,854,403 (main, dev).  Only pre-existing warnings (collision `sum2`, modelasm dangling-pointer, `/*` within comment noise, snd strncpy truncation) -- no new warnings introduced.
+
+### Not done in this session (deferred to follow-up polish passes)
+
+- **Engine botmgr wire** -- `forgeBotAddRequest` / `forgeBotRemoveAll` / `forgeBotFreezeAll` today log intent + bump `pending_*` counters in `forge_bot_settings_t`.  A later session consumes those counters and calls `botmgrAllocateBot` / `botmgrRemoveAll` with the right aibotnum + chrnum + rooms args for the current stage.
+- **Base-stage -> forge_object_t auto-import** -- `forgeImportBaseStageObjects` today tags existing placed objects with `from_base=1`; the actual walk of the base stage's intro-commands / pads / spawnlist to materialise as forge objects is a follow-up rung once the F3 map-load instantiator lands.
+- **3D gizmo handles** -- Properties tab transforms are still numeric; drag-axis gizmos require freefly-camera raycast + in-world handle render.
+- **Real world-space ghost mesh** -- the HUD shows a reticle + catalog ID text.  Drawing the actual ghost mesh in 3D requires fast3d GBI integration and is a larger change.
+- **Actual grid lines in 3D** -- the HUD shows a 5x5 cross pattern + readout.  True world-space grid lines need GBI integration too.
+- **Controller tab cycling via dedicated binds** -- today relies on ImGui's built-in GamepadL1/R1 mapping which requires NavEnableGamepad, which was intentionally left off to preserve freefly camera.  A follow-up can route the game's `actionmap` layer to dispatch tab-cycle requests so controller-only users get bumper cycling without the camera-stick conflict.
+- **Controller nav for Place/Cancel** -- ghost placement Commit/Cancel buttons respond to mouse/keyboard; true gamepad-driven placement is tied to the above follow-up.
+
+### Parallel session coordination
+
+S311 (menus/theme/settings) and S312 (gameplay/input/net) were running in parallel worktrees when S313 committed.  S313 merged to dev at `16cb6f7e` on top of `8d2e7872`; S312 then merged on top at `85421a8a`; S311 was still in-flight at session end.
+
+---
 
 ## Session S312 — 2026-04-17 (Modeldef defensive guards + glyph system + net review — `amazing-mccarthy` worktree)
 
