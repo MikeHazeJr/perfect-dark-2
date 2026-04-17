@@ -40,6 +40,9 @@
 /* F12 debug menu */
 #include "pdgui_debugmenu.h"
 
+/* Forge level editor (F0+) */
+#include "pdgui_forge.h"
+
 /* F8 in-game menu hot-swap */
 #include "pdgui_hotswap.h"
 
@@ -600,6 +603,12 @@ void pdguiRender(void)
      * prevmenuroot.  pdguiGameOverRender is a no-op unless MPPAUSEMODE_GAMEOVER
      * is active, so it is safe to call every frame. */
     pdguiGameOverRender((s32)winW, (s32)winH);
+
+    /* Forge level editor HUD overlay (F0+).  Renders nothing unless a forge
+     * session is active; safe to call every frame.  Drawn above the gameplay
+     * HUD so the editor takes visual priority once the player toggles into
+     * a forge session, but below the shimmer/scanline post-process. */
+    pdguiForgeHudRender((s32)winW, (s32)winH);
 
 
     /* Add PD-style shimmer effects to all visible windows via foreground draw list.
