@@ -32,6 +32,7 @@
 #include "pdgui_nineslice.h"
 #include "pdgui_effects.h"
 #include "pdgui_fontmgr.h"
+#include "pdgui_font_mod.h"  /* S305: user font mod discovery + Video.FontId */
 
 /* D5.1 input ownership boundary */
 #include "pdmain.h"
@@ -218,9 +219,20 @@ void pdguiInit(void *sdlWindow)
     /* M0.2 Phase C: ImGui's built-in gamepad nav is disabled.
      * pdguiDriveImGuiNav() now injects nav events from actionmap each frame. */
 
+    /* S305: scan mods/Fonts/ for user-installed .ttf/.otf fonts BEFORE the
+     * atlas gets built. Registers Video.FontId config key — if the user has
+     * a font mod selected (e.g. "user.MyFont.font"), we load it as the
+     * default; Handel Gothic always loads too as a fallback. */
+    pdguiFontModInit();
+
+    /* Extra atlas padding so descenders (q, y, p, g) aren't clipped
+     * at the glyph boundary in the texture. Default is 1. */
+    io.Fonts->TexGlyphPadding = 2;
+
     /* Load Handel Gothic — PD's original menu font, embedded in the binary.
-     * ImGui takes ownership of the copy, so we must allocate + memcpy.
-     * AddFontFromMemoryTTF takes ownership and will free the buffer. */
+     * Always added so the fallback path exists if the user's font mod
+     * points to a missing file. ImGui takes ownership of the copy. */
+    ImFont *handelFont = nullptr;
     {
         void *fontCopy = ImGui::MemAlloc(g_HandelGothicFont_size);
         memcpy(fontCopy, g_HandelGothicFont_data, g_HandelGothicFont_size);
@@ -230,23 +242,44 @@ void pdguiInit(void *sdlWindow)
         snprintf(cfg.Name, sizeof(cfg.Name), "Handel Gothic Regular");
         cfg.OversampleV = 2;  /* Extra vertical rasterization quality */
 
-        /* Extra atlas padding so descenders (q, y, p, g) aren't clipped
-         * at the glyph boundary in the texture. Default is 1. */
-        io.Fonts->TexGlyphPadding = 2;
-
         /* Load at a higher base size (24pt) so the font atlas has enough
          * detail for game-relative scaling at 1080p+. FontGlobalScale is
          * set each frame (pdguiNewFrame) to scale proportionally with
          * display height, keeping text within scaled button/row heights. */
-        ImFont *font = io.Fonts->AddFontFromMemoryTTF(
+        handelFont = io.Fonts->AddFontFromMemoryTTF(
             fontCopy, (int)g_HandelGothicFont_size, 24.0f, &cfg);
 
-        if (font) {
-            io.FontDefault = font;
+        if (handelFont) {
+            io.FontDefault = handelFont;
             sysLogPrintf(LOG_NOTE, "pdgui: Loaded embedded Handel Gothic (%u bytes)",
                          g_HandelGothicFont_size);
         } else {
             sysLogPrintf(LOG_NOTE, "pdgui: Failed to load embedded Handel Gothic");
+        }
+    }
+
+    /* S305: load the user-selected font mod, if any, as the new default. */
+    {
+        const char *userFontPath = pdguiFontModGetActivePath();
+        if (userFontPath && userFontPath[0]) {
+            ImFontConfig cfg;
+            cfg.OversampleV = 2;
+            snprintf(cfg.Name, sizeof(cfg.Name), "User font (%s)",
+                     pdguiFontModGetActiveId());
+
+            ImFont *userFont = io.Fonts->AddFontFromFileTTF(
+                userFontPath, 24.0f, &cfg);
+
+            if (userFont) {
+                io.FontDefault = userFont;
+                sysLogPrintf(LOG_NOTE,
+                    "pdgui: loaded user font mod '%s' from '%s'",
+                    pdguiFontModGetActiveId(), userFontPath);
+            } else {
+                sysLogPrintf(LOG_WARNING,
+                    "pdgui: failed to load user font '%s' — keeping Handel Gothic",
+                    userFontPath);
+            }
         }
     }
 

@@ -31,6 +31,7 @@
 #include "pdgui_style.h"
 #include "pdgui_theme_loader.h"
 #include "pdgui_theme.h"
+#include "pdgui_font_mod.h"
 #include "pdgui_menu_stats.h"
 #include "pdgui_menu_theme_editor.h"
 #include "pdgui_scaling.h"
@@ -733,6 +734,45 @@ static void renderSettingsVideo(float scale)
                 "UI.TITLEBAR: style changed to '%s' (%d)",
                 pdguiThemeGetTitleBarStyleName(tbIdx), tbIdx);
         }
+    }
+
+    /* S305 P3: Font selector — picks between the built-in Handel Gothic
+     * and any .ttf/.otf dropped into mods/Fonts/<slug>/. Font changes apply
+     * on next app restart (ImGui atlas is built once at backend init). */
+    {
+        s32 fontCount = pdguiFontModGetCount();
+        const s32 maxFonts = 32;
+        const char *fontOpts[1 + maxFonts];
+        fontOpts[0] = "Handel Gothic (built-in)";
+        s32 fontOptCount = 1;
+        for (s32 i = 0; i < fontCount && fontOptCount < (s32)(sizeof(fontOpts) / sizeof(fontOpts[0])); i++) {
+            fontOpts[fontOptCount++] = pdguiFontModGetName(i);
+        }
+
+        /* Map the saved Video.FontId back to a combo index. */
+        int fontIdx = 0;
+        const char *activeFontId = pdguiFontModGetActiveId();
+        if (activeFontId && activeFontId[0]) {
+            for (s32 i = 0; i < fontCount; i++) {
+                const char *id = pdguiFontModGetId(i);
+                if (id && strcmp(activeFontId, id) == 0) { fontIdx = (int)(i + 1); break; }
+            }
+        }
+
+        if (PdCombo("Font", &fontIdx, fontOpts, fontOptCount)) {
+            if (fontIdx <= 0) {
+                pdguiFontModSetActiveId("");
+            } else {
+                pdguiFontModSetActiveId(pdguiFontModGetId(fontIdx - 1));
+            }
+            configSave("pd.ini");
+            sysLogPrintf(LOG_NOTE,
+                "UI.FONT: selection changed to '%s' (requires restart to apply)",
+                fontOpts[fontIdx]);
+        }
+
+        ImGui::SameLine();
+        ImGui::TextDisabled("(restart required)");
     }
 
     ImGui::Spacing();
