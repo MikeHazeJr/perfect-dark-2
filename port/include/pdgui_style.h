@@ -113,6 +113,13 @@ u32 pdguiGetTextPositive(void);
 u32 pdguiGetTextWarning(void);
 u32 pdguiGetCheckmarkColor(void);
 
+/* S306: direct-signal close channel driven by the title-bar X button.
+ * Returns 1 if the X button was clicked on this or the previous frame
+ * (and resets the flag). Callers use this in addition to IsKeyPressed(
+ * Escape) so the X click works even when ImGui's nav pops the Escape
+ * edge before the renderer sees it. See pdgui_style.cpp for rationale. */
+s32 pdguiConsumeTitleClose(void);
+
 /* Return a palette color by index (0-14) from the active palette.
  * Returns 0 if index is out of range. Format: 0xRRGGBBAA. */
 u32 pdguiGetPaletteColor(s32 index);

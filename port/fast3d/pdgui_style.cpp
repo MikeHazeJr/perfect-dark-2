@@ -177,6 +177,20 @@ static s32 s_CloseClickConsumedFrame = -1;
 static bool s_ChromeEnabled = false;
 static char s_ChromeNineSliceId[64] = "";
 
+/* S306: direct-signal close channel driven by the title-bar X button.
+ * `pdguiDrawPdDialog`'s X-click handler sets `s_TitleCloseFrame` to the
+ * current frame number. Renderers call `pdguiConsumeTitleClose()` inside
+ * their back/Esc path — it returns 1 if the close was requested on the
+ * current or previous frame, resets the flag, and the renderer runs the
+ * normal close flow. This replaces the prior-behaviour of injecting an
+ * ImGuiKey_Escape press/release pair via AddKeyEvent, which could be
+ * eaten by ImGui's own nav-stack-pop handling before the renderer's
+ * IsKeyPressed check saw it — surfacing as "X button does nothing the
+ * first time, works the second time" on nested dialog/tab layouts. The
+ * Escape fallback is kept so renderers that haven't been migrated still
+ * respond. */
+static s32  s_TitleCloseFrame = -1;
+
 extern "C" {
 
 void pdguiChromeSetEnabled(s32 enabled)
@@ -617,11 +631,18 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
                     ImVec2(bmax.x - inset, bmin.y + inset), xCol, 2.0f);
 
         /* S-4: only accept the click when this window is focused — prevents
-         * background dialogs from being dismissed through a modal popup. */
+         * background dialogs from being dismissed through a modal popup.
+         * S306: set the direct title-close flag alongside the Escape key
+         * injection. Renderers that call pdguiConsumeTitleClose() will
+         * act on the click immediately, even when ImGui's own nav pops
+         * the Escape edge before the renderer's IsKeyPressed runs. The
+         * Escape AddKeyEvent pair remains as a back-compat fallback for
+         * renderers that haven't been migrated to the new API. */
         if (hovered && ImGui::IsWindowFocused()
                 && ImGui::IsMouseClicked(ImGuiMouseButton_Left, false)) {
             s32 frame = ImGui::GetFrameCount();
             if (s_CloseClickConsumedFrame != frame) {
+                s_TitleCloseFrame = frame;
                 io.AddKeyEvent(ImGuiKey_Escape, true);
                 io.AddKeyEvent(ImGuiKey_Escape, false);
                 s_CloseClickConsumedFrame = frame;
@@ -1191,6 +1212,26 @@ extern "C" unsigned int pdguiGetCheckmarkColor(void)
 {
     const struct pdgui_palette *pal = s_ActivePalette;
     return (pal->checkbox_checked ? pal->checkbox_checked : pal->dialog_border2) | 0xFFu;
+}
+
+/* S306: direct title-close consumer. Returns 1 if the X button was clicked
+ * on the current or previous frame and resets the flag so the next poll
+ * returns 0. Two-frame tolerance covers the case where the X click is
+ * processed AFTER the caller's IsKeyPressed-style check fired this frame;
+ * the next frame's caller will still see the edge. */
+extern "C" s32 pdguiConsumeTitleClose(void)
+{
+    if (s_TitleCloseFrame < 0) return 0;
+    s32 cur = ImGui::GetFrameCount();
+    if (s_TitleCloseFrame >= cur - 1) {
+        s_TitleCloseFrame = -1;
+        return 1;
+    }
+    /* Stale — clear and return 0. Prevents a click that somehow got
+     * stranded (e.g. a renderer that didn't poll last frame) from
+     * triggering a later close. */
+    s_TitleCloseFrame = -1;
+    return 0;
 }
 
 extern "C" unsigned int pdguiGetPaletteColor(int index)

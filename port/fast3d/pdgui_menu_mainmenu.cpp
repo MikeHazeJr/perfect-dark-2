@@ -3326,12 +3326,21 @@ static s32 renderMainMenu(struct menudialog *dialog,
     u32 sinceOpen = nowTick - s_MainMenuOpenedTick;
     bool closeGracePending = (sinceOpen < MAIN_MENU_CLOSE_GRACE_MS);
 
+    /* S306 input-bug fix: include the direct title-close channel
+     * alongside the Escape / B-button edges. Fixes the reported bug
+     * where clicking the X on Settings needed two attempts — ImGui's
+     * own nav was eating the first Escape edge before the renderer's
+     * IsKeyPressed saw it. pdguiConsumeTitleClose returns 1 at most
+     * once per X click and resets the flag internally. */
+    bool titleClose = pdguiConsumeTitleClose() != 0;
     if (!ImGui::IsWindowAppearing() && !closeGracePending &&
-        (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
+        (titleClose ||
+         ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
          ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         if (s_MenuView != 0) {
             if (s_MenuView == 2) {
-                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — settings CLOSE (view 2->0)");
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — settings CLOSE (view 2->0)%s",
+                             titleClose ? " [via X]" : "");
             } else if (s_MenuView == 3) {
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — modding hub CLOSE (view 3->0)");
                 pdguiModdingHubHide();
@@ -3368,6 +3377,23 @@ static s32 renderMainMenu(struct menudialog *dialog,
              * underflow handler in menuPopDialog catches it with
              * menupoolReleaseAll. Either way, no manual ctx pop needed. */
             menuPopDialog();
+
+            /* S306: defensive ctx flush. If g_CtxImGuiMenu is still on
+             * the stack after menuPopDialog (e.g. because a sibling
+             * renderer like renderCiSettingsRedirect pushed it at boot
+             * and the pool-release chain only tears down the current
+             * main menu slot), input would continue to route to
+             * g_ImcMenu instead of gameplay — that's the "movement
+             * locked after menu closed" symptom in Mike's playtest
+             * report. Popping it here closes the leak without requiring
+             * the full renderCiSettingsRedirect S300 migration. The pop
+             * is idempotent (no-op when not active) so it's safe even
+             * when menuCloseDialog already cleaned up. */
+            if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+                sysLogPrintf(LOG_NOTE,
+                    "MENU_IMGUI: defensive inputCtxPopDeferred(g_CtxImGuiMenu) — leak class caught on top-level close");
+                inputCtxPopDeferred(&g_CtxImGuiMenu);
+            }
         }
     }
 
