@@ -54,7 +54,9 @@
 #include "assetcatalog.h"
 #include "fs.h"
 #include "config.h"
-extern "C" { #include "modmgr.h" }
+extern "C" {
+#include "modmgr.h"
+}
 
 /* =========================================================================
  * textureconfig bridge
