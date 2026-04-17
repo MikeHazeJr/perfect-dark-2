@@ -73,6 +73,14 @@ struct pdgui_palette {
     unsigned int text_warning;          /* 0x44 - section-heading / warning text (amber) */
     unsigned int button_hover;          /* 0x48 - ImGuiCol_ButtonHovered override */
     unsigned int button_active;         /* 0x4c - ImGuiCol_ButtonActive override */
+    /* ---- S309 extensions ----
+     * Window-state tints + title glow color so themes can author the full
+     * semantic identity. Zero = derive at apply time (see pdguiGet*).
+     * theme.json keys: titleGlow, tintSuccess, tintDanger, tintInfo. */
+    unsigned int title_glow;            /* 0x50 - title text glow color (was hardcoded blue) */
+    unsigned int tint_success;          /* 0x54 - success window tint (save OK, etc.) */
+    unsigned int tint_danger;           /* 0x58 - danger window tint (delete, abort, end-game) */
+    unsigned int tint_info;             /* 0x5c - info / other window tint (notices, prompts) */
 };
 
 /* ------- Built-in Palettes ------- */
@@ -1157,6 +1165,12 @@ extern "C" void pdguiSetPaletteCustom(const unsigned int *colors15)
     memcpy(&s_PaletteCustom, colors15, 15 * sizeof(unsigned int));
     s_ActivePalette = &s_PaletteCustom;
     s_UsingCustomPalette = true;
+    /* S309: title text glow derives from the palette's title_glow slot
+     * (see pdguiGetTitleGlow), which falls back to border2. Previously
+     * the textGlowColor was a separate s_Theme field that never updated
+     * when a custom palette loaded, so custom themes kept the default
+     * blue glow. pdguiDrawTextGlow now reads pdguiGetTitleGlow()
+     * directly so no manual sync is needed here. */
     pdguiApplyPdStyle();
 }
 
@@ -1175,6 +1189,22 @@ extern "C" void pdguiSetPaletteExtensions(unsigned int toolbarTint,
     s_PaletteCustom.text_warning  = textWarning;
     s_PaletteCustom.button_hover  = buttonHover;
     s_PaletteCustom.button_active = buttonActive;
+    if (s_ActivePalette == &s_PaletteCustom) {
+        pdguiApplyPdStyle();
+    }
+}
+
+/* S309: write the S309 tail (title glow + 3 window tints).
+ * Called by theme loader + theme editor. Zero = derive at apply time. */
+extern "C" void pdguiSetPaletteExtensions2(unsigned int titleGlow,
+                                           unsigned int tintSuccess,
+                                           unsigned int tintDanger,
+                                           unsigned int tintInfo)
+{
+    s_PaletteCustom.title_glow   = titleGlow;
+    s_PaletteCustom.tint_success = tintSuccess;
+    s_PaletteCustom.tint_danger  = tintDanger;
+    s_PaletteCustom.tint_info    = tintInfo;
     if (s_ActivePalette == &s_PaletteCustom) {
         pdguiApplyPdStyle();
     }
@@ -1212,6 +1242,41 @@ extern "C" unsigned int pdguiGetCheckmarkColor(void)
 {
     const struct pdgui_palette *pal = s_ActivePalette;
     return (pal->checkbox_checked ? pal->checkbox_checked : pal->dialog_border2) | 0xFFu;
+}
+
+/* S309 extensions: title glow + success/danger/info window tints.
+ * Zero in a slot means "derive from existing palette fields at call time",
+ * so an older theme.json that doesn't set these still gets a sensible look.
+ * Theme Editor exposes each slot with an "auto" reset to clear back to 0. */
+extern "C" unsigned int pdguiGetTitleGlow(void)
+{
+    const struct pdgui_palette *pal = s_ActivePalette;
+    if (pal->title_glow) return pal->title_glow;
+    /* Derive: bright border2 with full alpha so the title stays legible
+     * regardless of palette accent.  Keeps the original "palette follows
+     * title glow" behavior that pdguiThemeSetPalette used to enforce. */
+    return (pal->dialog_border2 & 0xFFFFFF00u) | 0xFFu;
+}
+
+extern "C" unsigned int pdguiGetTintSuccess(void)
+{
+    const struct pdgui_palette *pal = s_ActivePalette;
+    if (pal->tint_success) return pal->tint_success;
+    return 0x40c070ffu; /* muted green */
+}
+
+extern "C" unsigned int pdguiGetTintDanger(void)
+{
+    const struct pdgui_palette *pal = s_ActivePalette;
+    if (pal->tint_danger) return pal->tint_danger;
+    return 0xc04040ffu; /* muted red */
+}
+
+extern "C" unsigned int pdguiGetTintInfo(void)
+{
+    const struct pdgui_palette *pal = s_ActivePalette;
+    if (pal->tint_info) return pal->tint_info;
+    return (pal->dialog_border1 & 0xFFFFFF00u) | 0xFFu;
 }
 
 /* S306: direct title-close consumer. Returns 1 if the X button was clicked
@@ -1346,7 +1411,13 @@ extern "C" void pdguiDrawTextGlow(float x, float y, float textW, float textH)
     if (s_Theme.textGlowIntensity <= 0.0f) return;
 
     ImDrawList *dl = ImGui::GetWindowDrawList();
-    unsigned int gc = s_Theme.textGlowColor;
+    /* S309: pull the glow color from the palette's title_glow slot so
+     * custom themes can override or disable the blue tint.  Falls back
+     * to the s_Theme setter if nothing opted in at the palette level. */
+    unsigned int gc = pdguiGetTitleGlow();
+    if (!(gc & 0xFFFFFF00u)) {
+        gc = s_Theme.textGlowColor;
+    }
     unsigned char gr = (gc >> 24) & 0xFF;
     unsigned char gg = (gc >> 16) & 0xFF;
     unsigned char gb = (gc >>  8) & 0xFF;

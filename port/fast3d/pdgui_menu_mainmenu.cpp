@@ -160,6 +160,11 @@ u32 joyGetConnectedControllers(void);
 /* Change agent handler */
 MenuItemHandlerResult menuhandlerChangeAgent(s32 operation, struct menuitem *item, union handlerdata *data);
 
+/* S309: per-agent preferences sidecar. Declared here because
+ * prefs_agent.h lives in port/include/ and C++ ABI guard (#define bool
+ * s32) blocks including it directly. */
+void prefsAgentSave(void);
+
 /* Audio API — legacy (still used by original menus) */
 s32 optionsGetMusicVolume(void);
 void optionsSetMusicVolume(s32 vol);
@@ -323,6 +328,7 @@ s32  pdguiModdingHubIsVisible(void);
 #define MODHUB_TOOL_SKIN_EDITOR  5
 #define MODHUB_TOOL_MAP_IMPORT   6
 #define MODHUB_TOOL_MENU_STYLE   7
+#define MODHUB_TOOL_FONT_MOD     8
 
 /* Solo Room screen — open the Room screen in offline (NETMODE_NONE) mode */
 void pdguiSoloRoomOpen(void);
@@ -1316,6 +1322,14 @@ static void renderSettingsInterface(float scale)
         }
         ImGui::SameLine();
         ImGui::TextDisabled("(restart required)");
+
+        ImGui::Spacing();
+        if (ImGui::Button("Open Font Mod Tool...", ImVec2(btnW * 2.0f, btnH))) {
+            pdguiModdingHubShowTool(MODHUB_TOOL_FONT_MOD);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Import a .ttf/.otf file as a new font mod.");
+        }
     }
 
     /* BATCH 2 delete-theme confirm — rendered as an ImGui popup triggered
@@ -1323,6 +1337,12 @@ static void renderSettingsInterface(float scale)
      * the bottom of the Interface tab. */
     /* pdguiInterfaceRenderDeleteConfirm — declared at file scope */
     pdguiInterfaceRenderDeleteConfirm();
+
+    /* S309: mirror the current Interface selections into the active
+     * agent's prefs.ini sidecar.  If an agent is signed in, switching
+     * to them later restores the same look.  Debounced writes inside
+     * prefs_agent.c mean this is cheap per frame. */
+    prefsAgentSave();
 }
 
 static void renderSettingsAudio(float scale)
@@ -3481,10 +3501,13 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
         ImGui::Dummy(ImVec2(0, spacing));
 
-        /* Forge -- in-game level editor (F0+).  For F0 we hard-wire the
-         * base stage to CI Training; F3 will replace this with a base-stage
-         * browser sub-view. */
-        if (PdButton("Forge", ImVec2(buttonW, buttonH * 1.2f))) {
+        /* The Grid (internal code still named forge*) — in-game level
+         * editor (F0+).  For F0 we hard-wire the base stage to CI
+         * Training; F3 will replace this with a base-stage browser
+         * sub-view.  The user-facing rename from "Forge" → "The Grid"
+         * landed in S309; the catalog/module names stay forge* for
+         * compatibility with existing logs and scripts. */
+        if (PdButton("The Grid", ImVec2(buttonW, buttonH * 1.2f))) {
             if (pdguiForgeStartSession()) {
                 pdguiPlaySound(PDGUI_SND_OPENDIALOG);
             }
@@ -4054,7 +4077,7 @@ static s32 renderCiDeadPlayer2(struct menudialog *dialog,
     }
 
     f32 pdTitleH = drawPdWindowFrame(dX, dY, dW, dH, "Not Available");
-    ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(pdTitleH);
 
     ImGui::TextWrapped(
         "Split-screen is not supported in this PC port.  Player-2 "

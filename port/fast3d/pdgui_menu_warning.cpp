@@ -303,7 +303,8 @@ static s32 renderTypedDialog(struct menudialog *dialog,
     }
 
     /* Content below title */
-    ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y + 4.0f * scale);
+    pdguiSetCursorBelowTitle(pdTitleH);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f * scale);
 
     /* ---- Iterate menu items ---- */
     if (def->items) {
@@ -990,8 +991,8 @@ static s32 renderFilemgrPcPlaceholder(struct menudialog *dialog,
                     IM_COL32(100, 200, 255, 255), title);
     }
 
-    ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y +
-                          pdguiScale(6.0f));
+    pdguiSetCursorBelowTitle(pdTitleH);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + pdguiScale(6.0f));
 
     /* Body — PC messaging */
     float availW = ImGui::GetContentRegionAvail().x;

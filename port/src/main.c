@@ -32,6 +32,7 @@
 #include "actionmap.h"
 #include "savemigrate.h"
 #include "savefile.h"
+#include "prefs_agent.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
@@ -184,6 +185,9 @@ int main(int argc, const char **argv)
 	/* menuMgrInit() removed — P10 D5.7 OG Menu Removal */
 	statsInit();
 	achievementsInit();
+	/* S309: per-agent preferences sidecar.  prefsAgentLoad runs on agent
+	 * switch; this init just marks the subsystem live. */
+	prefsAgentInit();
 	inputInit();
 
 	/* Input context stack: must init after inputInit() (SDL event watch)

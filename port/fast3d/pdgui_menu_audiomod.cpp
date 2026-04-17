@@ -70,6 +70,17 @@ void assetCatalogIterateByType(asset_type_e type,
                                 void (*fn)(const asset_entry_t *, void *),
                                 void *userdata);
 
+/* modmgr.c — S309: register + enable newly-imported audio mods so they
+ * survive restart. Without these calls the import writes audio.ini + a
+ * transient catalog entry, but on next launch modmgrInit scans the
+ * registry with enabled=0 by default, never calls modmgrLoadMod, and
+ * the catalog entry never gets re-registered. */
+void        modmgrRescanDirectory(void);
+void        modmgrSetEnabled(s32 index, s32 enabled);
+void        modmgrSaveConfig(void);
+s32         modmgrGetCount(void);
+const char *modmgrGetModId(s32 index);
+
 } /* extern "C" */
 
 /* ========================================================================
@@ -381,6 +392,25 @@ static bool importAudioFile(const char *filePath, const char *displayName,
 
     sysLogPrintf(LOG_NOTE, "AUDIOMOD: imported '%s' -> %s (%s)",
                  filePath, catalogId, modDir);
+
+    /* S309: rescan the mod registry so the new mod.json/audio.ini shows
+     * up under Modding Hub > Mod Manager, then flip its enabled bit and
+     * persist to pd.ini so the catalog entry gets re-registered on the
+     * next launch (previously the mod defaulted to disabled and its
+     * audio.ini was never re-parsed, so custom songs vanished from the
+     * Combat Simulator Select Tunes screen after restart). */
+    modmgrRescanDirectory();
+    s32 regCount = modmgrGetCount();
+    for (s32 i = 0; i < regCount; i++) {
+        const char *id = modmgrGetModId(i);
+        if (id && strcmp(id, slug) == 0) {
+            modmgrSetEnabled(i, 1);
+            modmgrSaveConfig();
+            sysLogPrintf(LOG_NOTE,
+                "AUDIOMOD: auto-enabled mod '%s' so it survives restart", slug);
+            break;
+        }
+    }
 
     /* v34: If we're hosting a server, re-broadcast catalog so connected
      * clients learn about the new audio mod and can download it. */

@@ -41,15 +41,16 @@
 
 static bool s_Visible = false;
 
-/* Working palette: 20 u32 values in 0xRRGGBBAA format.
+/* Working palette: 24 u32 values in 0xRRGGBBAA format.
  * Indices 0-14 mirror struct menucolourpalette (legacy PD fields);
  * indices 15-19 are S306 extensions (toolbar tint, positive / warning
- * text, button hover / active). Zero in an extension slot means
- * "derive default at apply time" — see pdguiApplyPdStyle. */
-static u32 s_WorkPalette[20];
+ * text, button hover / active); indices 20-23 are S309 extensions
+ * (title glow, success/danger/info window tints). Zero in an extension
+ * slot means "derive default at apply time" — see pdguiApplyPdStyle. */
+static u32 s_WorkPalette[24];
 
 /* Snapshot of palette when editor was opened (for reset). */
-static u32 s_OrigPalette[20];
+static u32 s_OrigPalette[24];
 
 /* Save dialog state */
 static char s_SaveName[64] = "My Theme";
@@ -137,6 +138,17 @@ static const PalFieldInfo k_Fields[] = {
         "Button background when the mouse hovers over it." },
     { "Button Active",        "buttonActive",       19, PFG_SEMANTIC,
         "Button background during a press / click." },
+    /* S309: title glow + window tints. Defaults derive from border2 /
+     * muted red-green-border1 respectively so zero preserves a usable
+     * look on older themes. The "(auto)" reset button zeroes each slot. */
+    { "Title Glow",           "titleGlow",          20, PFG_SEMANTIC,
+        "Soft glow behind window titles. Was previously locked to blue." },
+    { "Success Tint",         "tintSuccess",        21, PFG_SEMANTIC,
+        "Window tint for save-OK / confirm-safe surfaces." },
+    { "Danger Tint",          "tintDanger",         22, PFG_SEMANTIC,
+        "Window tint for delete / abort / end-game confirms." },
+    { "Info Tint",            "tintInfo",           23, PFG_SEMANTIC,
+        "Window tint for notices, help dialogs, and other informational UI." },
 };
 #define NUM_FIELDS ((int)(sizeof(k_Fields) / sizeof(k_Fields[0])))
 
@@ -347,12 +359,98 @@ static bool saveThemeAsMod(const char *name, const char *author)
  * conventional way.
  * ========================================================================= */
 
+/* S309: mini-menu live preview — renders sample widgets inside a child
+ * panel so the user sees their palette edits applied to representative UI
+ * without leaving the editor. Uses only the standard ImGui widgets so the
+ * active PD style drives all colors. Reads semantic tints via
+ * pdguiGetTintSuccess / pdguiGetTintDanger / pdguiGetTintInfo for the
+ * three demo "window tint" buttons.
+ *
+ * No input side-effects — clicks inside preview do nothing. */
+static ImU32 themeEditorU32FromRgba(u32 rgba)
+{
+    u8 r = (u8)((rgba >> 24) & 0xFF);
+    u8 g = (u8)((rgba >> 16) & 0xFF);
+    u8 b = (u8)((rgba >>  8) & 0xFF);
+    u8 a = (u8)((rgba >>  0) & 0xFF);
+    return IM_COL32(r, g, b, a);
+}
+
+static void renderLivePreview(float h, float scale)
+{
+    ImGui::BeginChild("##theme_preview", ImVec2(0, h), true,
+                      ImGuiWindowFlags_NoScrollbar);
+
+    /* Mini header that mirrors the PD dialog title strip so the user can
+     * see title_glow + dialog_titlebg + dialog_border1 live. We use the
+     * real pdgui primitives so edits to the palette reach this panel
+     * through the same code path as a real dialog. */
+    ImVec2 pos = ImGui::GetCursorScreenPos();
+    float w = ImGui::GetContentRegionAvail().x;
+    float headerH = 28.0f * scale;
+    pdguiDrawPdDialog(pos.x, pos.y, w, headerH + 6.0f * scale,
+                      "Preview Window", 1);
+    /* Glow demo: simulate a title text glow using the current title glow
+     * color. Pairs with the title strip above so the user sees both
+     * surfaces update when they edit Title Glow. */
+    pdguiDrawTextGlow(pos.x + 8.0f * scale, pos.y + 4.0f * scale,
+                      80.0f * scale, headerH - 8.0f * scale);
+
+    ImGui::Dummy(ImVec2(0, headerH + 8.0f * scale));
+
+    /* Sample content row */
+    ImGui::TextDisabled("Sample widgets:");
+    ImGui::Button("Primary");
+    ImGui::SameLine();
+    static bool s_checked = true;
+    ImGui::Checkbox("Checkbox", &s_checked);
+
+    /* Section header using text_warning */
+    ImVec4 hdrCol = palToVec4(pdguiGetTextWarning());
+    ImGui::TextColored(hdrCol, "Section Heading");
+    ImGui::TextWrapped("Body text — this line mirrors a typical menu paragraph.");
+    ImVec4 okCol = palToVec4(pdguiGetTextPositive());
+    ImGui::TextColored(okCol, "OK: saved to mods/");
+
+    /* Window-tint demo row — 3 narrow buttons whose colored backgrounds
+     * show the three S309 semantic tints. The buttons themselves are
+     * disabled so clicking does nothing. */
+    ImGui::Separator();
+    ImGui::TextDisabled("Window tints:");
+    {
+        ImVec2 btnSize(110.0f * scale, 24.0f * scale);
+        auto drawTint = [&](const char *label, u32 rgba){
+            ImDrawList *dl = ImGui::GetWindowDrawList();
+            ImVec2 bpos = ImGui::GetCursorScreenPos();
+            dl->AddRectFilled(bpos, ImVec2(bpos.x + btnSize.x,
+                                           bpos.y + btnSize.y),
+                              themeEditorU32FromRgba(rgba), 2.0f);
+            ImGui::InvisibleButton(label, btnSize);
+            ImVec2 ts = ImGui::CalcTextSize(label);
+            dl->AddText(ImVec2(bpos.x + (btnSize.x - ts.x) * 0.5f,
+                               bpos.y + (btnSize.y - ts.y) * 0.5f),
+                        IM_COL32(0, 0, 0, 220), label);
+        };
+        drawTint("Success", pdguiGetTintSuccess());
+        ImGui::SameLine();
+        drawTint("Danger",  pdguiGetTintDanger());
+        ImGui::SameLine();
+        drawTint("Info",    pdguiGetTintInfo());
+    }
+
+    ImGui::EndChild();
+}
+
 static void renderThemeEditor(s32 winW, s32 winH)
 {
     float scale = (float)winH / 720.0f;
     if (scale < 0.5f) scale = 0.5f;
 
-    float editorW = 420.0f * scale;
+    /* S309: widened modal so the right half holds the live preview.
+     * Previous width (420) was tight for color-pickers + bundle dropdowns;
+     * 820 gives comfortable room for a 340px preview column alongside
+     * the existing content. */
+    float editorW = 820.0f * scale;
     float editorH = (float)winH * 0.85f;
 
     /* Open the modal on the first frame s_Visible becomes true.  Guarded by
@@ -431,7 +529,15 @@ static void renderThemeEditor(s32 winW, s32 winH)
          * to fill the legacy slots for custom shaders. Each row has a
          * hover tooltip explaining where the color shows up in-game. */
         static bool s_ShowReserved = false;
-        ImGui::BeginChild("PaletteScroll", ImVec2(0, -footerH), true);
+
+        /* S309: 2-column layout — color pickers on the left, live preview
+         * on the right. Uses a fixed 340px preview column so the left
+         * column adapts to the wider editor. */
+        float availW = ImGui::GetContentRegionAvail().x;
+        float previewW = 320.0f * scale;
+        if (previewW > availW * 0.5f) previewW = availW * 0.5f;
+        float pickerW = availW - previewW - 8.0f * scale;
+        ImGui::BeginChild("PaletteScroll", ImVec2(pickerW, -footerH), true);
 
         static const struct { int group; const char *header; const char *blurb; } k_Groups[] = {
             { PFG_FRAME,    "Window Frame",
@@ -522,6 +628,11 @@ static void renderThemeEditor(s32 winW, s32 winH)
 
         ImGui::EndChild();
 
+        /* S309: live preview beside the pickers — same top alignment,
+         * same scrollable footer budget. */
+        ImGui::SameLine();
+        renderLivePreview(-footerH, scale);
+
         /* Apply changes live */
         if (changed) {
             pdguiSetPaletteCustom(s_WorkPalette);
@@ -530,6 +641,9 @@ static void renderThemeEditor(s32 winW, s32 winH)
             pdguiSetPaletteExtensions(s_WorkPalette[15], s_WorkPalette[16],
                                       s_WorkPalette[17], s_WorkPalette[18],
                                       s_WorkPalette[19]);
+            /* S309: push extension-2 (title glow + window tints). */
+            pdguiSetPaletteExtensions2(s_WorkPalette[20], s_WorkPalette[21],
+                                       s_WorkPalette[22], s_WorkPalette[23]);
         }
 
         /* ---- Docked footer ---- */

@@ -61,6 +61,123 @@ Deferred: actual engine-level Dr. Carroll model hot-reload (currently logs the i
 
 ---
 
+## Session S309 — 2026-04-17 (Deferred UI drop + config cleanup — optimistic-feistel worktree)
+
+**Scope**: Mike's S309 punch list — 9 deferred UI items plus an S309 bug
+report about Combat Simulator music. Worked in parallel with S310 (Grid F1)
+on a separate worktree; touched menu renderers, theme system, config,
+and settings.
+
+### Items landed
+
+1. **Content-inset sweep (P0)** — 20 `pdgui_menu_*.cpp` renderers migrated
+   from `SetCursorPosY(titleH + WindowPadding.y)` to the new
+   `pdguiSetCursorBelowTitle(titleH)` helper that clamps against the
+   active chrome's nineslice insets + 8px breathe. New helpers live in
+   `port/fast3d/pdgui_theme.cpp` + declarations in `pdgui_style.h` /
+   `pdgui_theme.h`. Fixes content bleeding into nineslice borders on:
+   agentcreate, agentselect, botsetup, challenges, cheats,
+   controldiagram, lobby, mainmenu (Not-Available dialog), mpadvanced,
+   mppause, mpsettings, mpsetup, network, playerconfig, room,
+   solomission (11 dialogs), stats, teamsetup, training, warning.
+2. **Color theme live preview** (`pdgui_menu_theme_editor.cpp`) —
+   widened the modal to 820px × 85% and added a `renderLivePreview()`
+   panel beside the color pickers. Shows a PD title strip (reads
+   title_glow), sample buttons/checkbox, success/warning text labels
+   (text_positive / text_warning), and three colored buttons driven by
+   `pdguiGetTintSuccess/Danger/Info`. Reads happen every frame so edits
+   update live.
+3. **New S309 palette extensions (slots 20-23)** — added `title_glow`,
+   `tint_success`, `tint_danger`, `tint_info` to `struct pdgui_palette`,
+   theme.json (`titleGlow` / `tintSuccess` / `tintDanger` / `tintInfo`
+   camelCase aliases accepted), `k_PaletteFieldNames`, the theme
+   editor's `k_Fields` metadata (all marked `PFG_SEMANTIC` with "auto"
+   reset buttons), and new `pdguiSetPaletteExtensions2` /
+   `pdguiGetTitleGlow` / `pdguiGetTintSuccess/Danger/Info` accessors in
+   pdgui_style. Theme loader's `apply_theme_def` forwards both
+   extension tails.
+4. **Title bar "hardcoded blue" fix** — `pdguiDrawTextGlow` now reads
+   `pdguiGetTitleGlow()` instead of the static `s_Theme.textGlowColor`,
+   so a custom theme's palette drives the title glow. Default derivation
+   (border2 → glow) ensures built-in palettes keep their look without
+   authoring the new slot.
+5. **Font Mod creator tool** — new "Font Mod" tab in the Modding Hub
+   (`pdgui_menu_moddinghub.cpp`: `fontToolReset` + `renderFontTool`)
+   with file browser for `.ttf`/`.otf` + mod-name input + Save button.
+   Saves to `mods/Fonts/<slug>/<slug>.<ext>` plus a `font.json` +
+   `mod.json`, rescans the font mod registry and the mod manager so the
+   new entry appears in the Font dropdown without restart. Interface
+   tab (`renderSettingsInterface` in mainmenu.cpp) gained an "Open Font
+   Mod Tool..." button that routes via `pdguiModdingHubShowTool(8)`.
+6. **Resolution-aware scanlines** — `pdguiThemeDrawScanline` /
+   `pdguiThemeDrawScanlineFg` call the new
+   `pdguiResolveScanlineMetrics()` helper that scales line thickness +
+   stride with `pdguiScaleFactor()`. At 720p = 1px/2px, at 4K = 3px/6px.
+   Prevents the "almost invisible at high-DPI" look.
+7. **imgui.ini disabled** — `pdguiInit` sets `io.IniFilename = NULL` so
+   ImGui never writes imgui.ini. Window state is rebuilt each session
+   from `pdgui_style.cpp`.
+8. **Per-agent preferences (`prefs_agent.c` / `.h`)** — new sidecar at
+   `saves/prefs_<agent>.ini` with `[Theme]`, `[Video]`, `[Mods]`
+   sections. API: `prefsAgentInit` (called from main.c after
+   pdguiInit), `prefsAgentLoad` (called from every agent-select load
+   site in pdgui_menu_agentselect.cpp), `prefsAgentSave` (called at
+   end of `renderSettingsInterface`; debounced by content-hash compare
+   so the disk write only happens on actual value changes).
+9. **Forge → "The Grid" user-facing rename** — main menu button label
+   flipped to "The Grid"; all internal code (module names,
+   `pdguiForge*` entry points, `ACTION_FORGE_*` enums, `FORGE.DIAG`
+   log channel) retained for compatibility. S310 Grid F1 session owns
+   the HUD-side rename.
+10. **CS music picker fix** (`pdgui_menu_audiomod.cpp` +
+    `pdgui_menu_mpsettings.cpp`) — root cause: freshly imported audio
+    mods defaulted to `enabled=0` in modmgr, so on next launch
+    `modmgrLoadMod` never fired for them, their `assetCatalogRegister`
+    ran at import time only, and the catalog entry vanished on restart.
+    Fix: `importAudioFile` now calls `modmgrRescanDirectory()` +
+    `modmgrSetEnabled(slug, 1)` + `modmgrSaveConfig()` so newly
+    imported music survives a relaunch. Added `SELECTTUNES:` diagnostic
+    log lines in `collectModMusicTrack` + `renderSelectTunes` so future
+    "my songs aren't showing up" reports surface the filter path.
+
+### Files touched
+
+- New: `port/src/prefs_agent.c`, `port/include/prefs_agent.h`.
+- Modified (headers): `port/include/pdgui_style.h`,
+  `port/include/pdgui_theme.h`.
+- Modified (C++ renderers): 20 `port/fast3d/pdgui_menu_*.cpp` files
+  (see item 1), `pdgui_theme.cpp`, `pdgui_style.cpp`,
+  `pdgui_theme_loader.cpp`, `pdgui_backend.cpp`.
+- Modified (bootstrap): `port/src/main.c` (prefsAgentInit wire).
+
+### Build verify
+
+`source devtools/build-env.sh && ninja -C Build pd pd-server` — both
+targets link. `PerfectDark.exe` = 51,916,376 bytes. `PerfectDarkServer.exe`
+= 22,840,561 bytes. Only pre-existing warnings (naudio
+`sp44`/`sp20`/`frac` may-be-uninit, modelasm dangling-pointer,
+collision sum2 warning, `/*` within comment noise across multiple
+files).
+
+### Not done in this session (deferred)
+
+- **Full pd.ini elimination** (item 7 from the prompt). Visuals + mod
+  enablement moved to per-agent prefs; audio volumes, resolution,
+  fullscreen, bindings, gameplay toggles still live in pd.ini. The
+  design doc flagged those as per-machine; finishing the elimination
+  needs a scope decision ("per-agent input bindings?") that's not
+  obvious from the prompt. Partial landing is enough to validate the
+  per-agent load/save flow.
+- **Full hardcoded-blue audit**: warning.cpp, agentselect state text,
+  lobby state text still use `IM_COL32(100, 200, 255, ...)` directly.
+  Migrating them to `pdguiGetTitleGlow()` was out of scope — the
+  complaint was about the title bar, which this session addressed.
+- **Forge HUD rename**: S310 owns pdgui_forge_hud.cpp; that file still
+  says "FORGE" in the mode badge. This session only touched the
+  main-menu button label.
+
+---
+
 ## Session S308 — 2026-04-17 (Door-tick bbox crash + pause menu hardening — dev direct)
 
 **Scope**: Fatal crash during Mission 1 Obj 1 → Obj 2 transition playthrough (0xc0000005 in door bbox chain 38s into stage 0x33 / Investigation), plus pause-menu defensive audit. Worked directly on `dev` (no worktree).

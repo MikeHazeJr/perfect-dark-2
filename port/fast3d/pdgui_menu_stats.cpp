@@ -375,7 +375,7 @@ void pdguiMenuStatsRender(s32 winW, s32 winH)
     float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, "Player Statistics", 1);
 
-    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(titleH);
 
     /* Tab bar — bumper (LB/RB) cycling via PageUp/PageDown */
     const char *tabs[] = { "Overview", "Weapons", "Modes", "Achievements" };

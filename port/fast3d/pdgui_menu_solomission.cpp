@@ -676,7 +676,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
     }
 
     pdguiDrawPdDialog(mpos.x, mpos.y, mw, mh, "Mission Select", 1);
-    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().ItemSpacing.y);
+    pdguiSetCursorBelowTitle(titleH);
 
     /* Global escape */
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
@@ -1299,7 +1299,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
     float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langSafe(L_OPTIONS_248), 1);
 
-    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(titleH);
 
     /* Current stage name */
     s32 si = g_MissionConfig.stageindex;
@@ -1601,7 +1601,7 @@ static s32 renderCoopAntiDifficultyImpl(struct menudialog *dialog,
 
     float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langSafe(L_OPTIONS_248), 1);
-    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(titleH);
 
     /* Stage name + mode subheader */
     s32 si = g_MissionConfig.stageindex;
@@ -1899,7 +1899,7 @@ static s32 renderCoopAntiOptionsImpl(struct menudialog *dialog,
     const char *title = langSafe(titleLang);
     if (!title || !title[0]) title = fallbackTitle;
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, title, 1);
-    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(titleH);
 
     /* Item count: coop has 3 rows (radar, ff, buddy), anti has 2. */
     const s32 numRows      = isCoop ? 3 : 2;
@@ -2208,7 +2208,7 @@ static s32 renderBriefingImpl(struct menudialog *dialog,
     float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langSafe(L_OPTIONS_247), 1);
 
-    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(titleH);
     ImGui::Separator();
 
     /* Close with B / Escape */
@@ -2291,7 +2291,7 @@ static s32 renderInventory(struct menudialog *dialog,
     float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langSafe(L_OPTIONS_178), 1);
 
-    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(titleH);
     ImGui::Separator();
 
     /* Scrollable weapon/item list */
@@ -2393,7 +2393,7 @@ static s32 renderAcceptMission(struct menudialog *dialog,
 
     float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, title, 1);
-    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(titleH);
 
     /* Difficulty badge */
     {
@@ -2619,7 +2619,7 @@ static s32 renderPauseMenu(struct menudialog *dialog,
 
     float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, title, 1);
-    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(titleH);
 
     /* Difficulty badge */
     {
@@ -2828,7 +2828,7 @@ static s32 renderPauseMenu(struct menudialog *dialog,
         if (ImGui::Begin("##restart_confirm", nullptr, rcf)) {
             float rtitleH = pdguiScale(39.0f);
             pdguiDrawPdDialog(rcPos.x, rcPos.y, rcW, rcH, "Restart Mission?", 1);
-            ImGui::SetCursorPosY(rtitleH + ImGui::GetStyle().WindowPadding.y);
+            pdguiSetCursorBelowTitle(rtitleH);
 
             ImGui::Spacing();
             ImGui::PushTextWrapPos(rcW - pdguiScale(24.0f));
@@ -2941,7 +2941,7 @@ static s32 renderAbortMission(struct menudialog *dialog,
 
     float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langSafe(L_OPTIONS_174), 1);
-    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(titleH);
 
     /* Warning text */
     ImGui::Spacing();
@@ -3347,7 +3347,7 @@ static s32 renderOptions(struct menudialog *dialog,
 
     float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, "Options", 1);
-    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(titleH);
 
     /* ---- Tab bar ---- */
     static const char *k_TabNames[] = { "Audio", "Video", "Controls" };

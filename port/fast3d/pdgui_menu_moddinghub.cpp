@@ -32,6 +32,7 @@
 #include "pdgui_theme.h"
 #include "pdgui_nineslice.h"
 #include "pdgui_filebrowser.h"
+#include "pdgui_font_mod.h"
 #include "system.h"
 #include "assetcatalog.h"
 #include "pdgui_charpreview.h"
@@ -120,9 +121,11 @@ static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0,0))
  * ======================================================================== */
 
 static bool s_Visible    = false;
-static int  s_ActiveTool = 0;    /* 0=ModManager, 1=INI, 2=Scale, 3=Pack, 4=Audio, 5=SkinEditor, 6=MapImport, 7=NineSlice */
+static int  s_ActiveTool = 0;    /* 0=ModManager, 1=INI, 2=Scale, 3=Pack, 4=Audio, 5=SkinEditor, 6=MapImport, 7=NineSlice, 8=FontMod */
 static int  s_LastLoggedTool = -1;
 static void chromeToolReset(void);
+static void fontToolReset(void);
+static void renderFontTool(float w, float h, float scale);
 
 static void moddingHubClose(const char *reason)
 {
@@ -285,6 +288,7 @@ static const char *hubToolName(int tool)
         "Skin Editor",
         "Map Import",
         "Menu Style",
+        "Font Mod",
     };
     if (tool < 0 || tool >= (int)(sizeof(kNames) / sizeof(kNames[0]))) {
         return "Unknown";
@@ -1268,11 +1272,12 @@ static void renderModdingHub(s32 winW, s32 winH)
     {
         const float btnW = 120.0f * scale;
         const float btnH = 28.0f * scale;
-        static const int NUM_TOOLS = 8;
+        static const int NUM_TOOLS = 9;
 
         static const char *toolNames[] = {
             "Mod Manager", "INI Editor", "Scale Tool", "Mod Pack",
-            "Audio Mods", "Skin Editor", "Map Import", "Menu Style"
+            "Audio Mods", "Skin Editor", "Map Import", "Menu Style",
+            "Font Mod"
         };
 
         /* Bumper (LB/RB) tab cycling — PageUp/PageDown driven by pdguiDriveImGuiNav.
@@ -1290,6 +1295,7 @@ static void renderModdingHub(s32 winW, s32 winH)
             else if (next == 5) pdguiSkinEditorRefresh();
             else if (next == 6) importReset();
                     else if (next == 7) chromeToolReset();
+                    else if (next == 8) fontToolReset();
             pdguiPlaySound(PDGUI_SND_SWIPE);
         }
         if (allowHubTabCycle && ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
@@ -1303,6 +1309,7 @@ static void renderModdingHub(s32 winW, s32 winH)
             else if (next == 5) pdguiSkinEditorRefresh();
                     else if (next == 6) importReset();
                     else if (next == 7) chromeToolReset();
+                    else if (next == 8) fontToolReset();
             pdguiPlaySound(PDGUI_SND_SWIPE);
         }
 
@@ -1345,6 +1352,7 @@ static void renderModdingHub(s32 winW, s32 winH)
                     else if (i == 5) pdguiSkinEditorRefresh();
                     else if (i == 6) importReset();
                     else if (i == 7) chromeToolReset();
+                    else if (i == 8) fontToolReset();
                 }
             }
             if (active) ImGui::PopStyleColor(2);
@@ -1372,7 +1380,7 @@ static void renderModdingHub(s32 winW, s32 winH)
         const char *childIds[] = {
             "##modhub_modmgr", "##modhub_ini", "##modhub_scale",
             "##modhub_pack", "##modhub_audio", "##modhub_skin",
-            "##modhub_import", "##modhub_nineslice"
+            "##modhub_import", "##modhub_nineslice", "##modhub_fontmod"
         };
 
         if (ImGui::BeginChild(childIds[s_ActiveTool],
@@ -1395,6 +1403,8 @@ static void renderModdingHub(s32 winW, s32 winH)
                 renderMapImport(dialogW, contentH, scale);
             } else if (s_ActiveTool == 7) {
                 renderChromeTool(dialogW, contentH, scale);
+            } else if (s_ActiveTool == 8) {
+                renderFontTool(dialogW, contentH, scale);
             }
         }
         ImGui::EndChild();
@@ -1413,7 +1423,8 @@ static void renderModdingHub(s32 winW, s32 winH)
         "Browse, audition, and import audio mods",
         "Paint custom character skins",
         "Import PD-format map files as playable arenas",
-        "Create UI chrome nine-slice mods in-game"
+        "Create UI chrome nine-slice mods in-game",
+        "Import a .ttf/.otf font as a mod"
     };
     ImGui::TextDisabled("%s", toolDescs[s_ActiveTool]);
 
@@ -2503,6 +2514,244 @@ static void renderMapImport(float w, float h, float scale)
 }
 
 /* ========================================================================
+ * Font Mod Tool (Tab 8) — import a .ttf/.otf as a mods/Fonts/<slug>/ entry
+ *
+ * Mirrors the Menu Style tool's shape: file browser → mod name → Save.
+ * Saving copies the source .ttf/.otf into mods/Fonts/<slug>/ alongside a
+ * font.json with a human-readable display name, then rescans the font mod
+ * registry so the new font appears in the Settings → Interface Font
+ * dropdown without a restart. Activating the font itself still takes
+ * effect on next app start (ImGui atlas is built once per session).
+ * ======================================================================== */
+
+static char  s_FontImgPath[512]   = "";
+static char  s_FontModName[96]    = "";
+static char  s_FontStatus[256]    = "";
+static bool  s_FontStatusOk       = false;
+
+static void fontToolReset(void)
+{
+    s_FontImgPath[0] = '\0';
+    s_FontModName[0] = '\0';
+    s_FontStatus[0]  = '\0';
+    s_FontStatusOk   = false;
+}
+
+static void fontToolSlug(const char *src, char *dst, size_t dstmax)
+{
+    if (!src || !dst || dstmax == 0) { if (dst && dstmax) dst[0] = '\0'; return; }
+    size_t j = 0;
+    for (size_t i = 0; src[i] && j < dstmax - 1; i++) {
+        char c = src[i];
+        if (c == ' ') c = '-';
+        else if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+        else if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_')) continue;
+        dst[j++] = c;
+    }
+    dst[j] = '\0';
+}
+
+static bool fontToolCopyFile(const char *src, const char *dst)
+{
+    FILE *in = fopen(src, "rb");
+    if (!in) return false;
+    FILE *out = fsFileOpenWrite(dst);
+    if (!out) { fclose(in); return false; }
+    char buf[4096];
+    size_t got;
+    bool ok = true;
+    while ((got = fread(buf, 1, sizeof(buf), in)) > 0) {
+        if (fwrite(buf, 1, got, out) != got) { ok = false; break; }
+    }
+    if (ferror(in) || ferror(out)) ok = false;
+    fclose(in);
+    fclose(out);
+    return ok;
+}
+
+static bool fontToolSave(void)
+{
+    if (!s_FontImgPath[0]) {
+        snprintf(s_FontStatus, sizeof(s_FontStatus),
+                 "No source file — pick a .ttf/.otf first");
+        s_FontStatusOk = false;
+        return false;
+    }
+    if (!s_FontModName[0]) {
+        snprintf(s_FontStatus, sizeof(s_FontStatus),
+                 "Give the font mod a name");
+        s_FontStatusOk = false;
+        return false;
+    }
+
+    /* Confirm the source is actually a .ttf/.otf. */
+    size_t slen = strlen(s_FontImgPath);
+    bool okExt = false;
+    if (slen > 4) {
+        const char *tail = s_FontImgPath + (slen - 4);
+        if ((tail[0] == '.' || tail[0] == 0) &&
+            (strcasecmp(tail, ".ttf") == 0 || strcasecmp(tail, ".otf") == 0)) {
+            okExt = true;
+        }
+    }
+    if (!okExt) {
+        snprintf(s_FontStatus, sizeof(s_FontStatus),
+                 "Source must be a .ttf or .otf file");
+        s_FontStatusOk = false;
+        return false;
+    }
+
+    /* Derive slug + destination layout. */
+    char slug[64];
+    fontToolSlug(s_FontModName, slug, sizeof(slug));
+    if (!slug[0]) {
+        snprintf(s_FontStatus, sizeof(s_FontStatus),
+                 "Invalid mod name — use letters, digits, spaces, or dashes");
+        s_FontStatusOk = false;
+        return false;
+    }
+
+    if (fsCreateDir("mods") < 0 && errno != EEXIST) {
+        snprintf(s_FontStatus, sizeof(s_FontStatus), "Could not create mods/");
+        s_FontStatusOk = false;
+        return false;
+    }
+    if (fsCreateDir("mods/Fonts") < 0 && errno != EEXIST) {
+        snprintf(s_FontStatus, sizeof(s_FontStatus), "Could not create mods/Fonts/");
+        s_FontStatusOk = false;
+        return false;
+    }
+    char modDir[FS_MAXPATH];
+    snprintf(modDir, sizeof(modDir), "mods/Fonts/%s", slug);
+    if (fsCreateDir(modDir) < 0 && errno != EEXIST) {
+        snprintf(s_FontStatus, sizeof(s_FontStatus),
+                 "Could not create %s", modDir);
+        s_FontStatusOk = false;
+        return false;
+    }
+
+    /* Copy the .ttf/.otf.  Keep the original extension so readers know the
+     * format; the basename is normalized to "<slug>.<ext>" so the mod tree
+     * is consistent across imports. */
+    const char *srcTail = s_FontImgPath + slen;
+    while (srcTail > s_FontImgPath && srcTail[-1] != '.' ) srcTail--;
+    char extBuf[8];
+    snprintf(extBuf, sizeof(extBuf), "%s", srcTail[0] ? srcTail : "ttf");
+    for (int i = 0; extBuf[i]; i++) {
+        if (extBuf[i] >= 'A' && extBuf[i] <= 'Z') extBuf[i] = (char)(extBuf[i] + 32);
+    }
+
+    char dstFont[FS_MAXPATH];
+    snprintf(dstFont, sizeof(dstFont), "%s/%s.%s", modDir, slug, extBuf);
+    if (!fontToolCopyFile(s_FontImgPath, dstFont)) {
+        snprintf(s_FontStatus, sizeof(s_FontStatus),
+                 "Could not copy font file to %s", dstFont);
+        s_FontStatusOk = false;
+        return false;
+    }
+
+    /* font.json — gives the mod a display name. */
+    char jsonPath[FS_MAXPATH];
+    snprintf(jsonPath, sizeof(jsonPath), "%s/font.json", modDir);
+    FILE *jf = fsFileOpenWrite(jsonPath);
+    if (jf) {
+        fprintf(jf,
+                "{\n"
+                "  \"name\": \"%s\",\n"
+                "  \"author\": \"Player\"\n"
+                "}\n",
+                s_FontModName);
+        fclose(jf);
+    }
+
+    /* Minimal mod.json so the mod manager lists it. */
+    char modJson[FS_MAXPATH];
+    snprintf(modJson, sizeof(modJson), "%s/mod.json", modDir);
+    FILE *mf = fsFileOpenWrite(modJson);
+    if (mf) {
+        fprintf(mf,
+                "{\n"
+                "  \"id\": \"user.%s.font\",\n"
+                "  \"name\": \"%s\",\n"
+                "  \"version\": \"1.0.0\",\n"
+                "  \"description\": \"Font mod created with the Font Mod tool.\",\n"
+                "  \"author\": \"Player\",\n"
+                "  \"tags\": [\"font\", \"ui\", \"user\"],\n"
+                "  \"enabled\": true\n"
+                "}\n",
+                slug, s_FontModName);
+        fclose(mf);
+    }
+
+    /* Rescan so the font dropdown picks it up without restart. */
+    pdguiFontModRescan();
+    modmgrRescanDirectory();
+
+    snprintf(s_FontStatus, sizeof(s_FontStatus),
+             "Saved to %s (restart to activate)", modDir);
+    s_FontStatusOk = true;
+    sysLogPrintf(LOG_NOTE, "MODHUB: font mod saved — slug=%s src=%s",
+                 slug, s_FontImgPath);
+    return true;
+}
+
+static void renderFontTool(float w, float h, float scale)
+{
+    (void)w; (void)h;
+
+    if (pdguiFileBrowserIsOpen()) {
+        if (pdguiFileBrowserRender()) {
+            strncpy(s_FontImgPath, pdguiFileBrowserGetPath(),
+                    sizeof(s_FontImgPath) - 1);
+            s_FontImgPath[sizeof(s_FontImgPath) - 1] = '\0';
+            pdguiFileBrowserClose();
+        }
+        return;
+    }
+
+    ImGui::TextDisabled("Font Mod — import a .ttf/.otf file as a font mod");
+    ImGui::Spacing();
+
+    ImGui::Text("Source font:");
+    float browseW = 90.0f * scale;
+    ImGui::SetNextItemWidth(-browseW - ImGui::GetStyle().ItemSpacing.x);
+    ImGui::InputText("##font_src", s_FontImgPath, sizeof(s_FontImgPath));
+    ImGui::SameLine();
+    if (PdButton("Browse", ImVec2(browseW, 0))) {
+        pdguiFileBrowserOpen("Import Font", "mods", ".ttf;.otf");
+    }
+
+    ImGui::Spacing();
+    ImGui::Text("Mod name (display):");
+    ImGui::SetNextItemWidth(320.0f * scale);
+    ImGui::InputText("##font_name", s_FontModName, sizeof(s_FontModName));
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    bool canSave = s_FontImgPath[0] && s_FontModName[0];
+    if (!canSave) ImGui::BeginDisabled();
+    if (PdButton("Save as Font Mod", ImVec2(180.0f * scale, 0))) {
+        fontToolSave();
+    }
+    if (!canSave) ImGui::EndDisabled();
+
+    if (s_FontStatus[0]) {
+        ImGui::SameLine();
+        ImVec4 col = s_FontStatusOk
+            ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)
+            : ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
+        ImGui::TextColored(col, "%s", s_FontStatus);
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::TextDisabled("Saves to mods/Fonts/<slug>/ — appears in Settings > Interface > Font.");
+    ImGui::TextDisabled("Font atlas is built once per session, so activation takes effect on next restart.");
+}
+
+/* ========================================================================
  * Public C API
  * ======================================================================== */
 
@@ -2524,9 +2773,9 @@ void pdguiModdingHubShow(void)
  * without requiring the user to navigate through the hub manually. */
 void pdguiModdingHubShowTool(s32 tool)
 {
-    /* Clamp to the known tool range (0..7); out-of-range requests land
+    /* Clamp to the known tool range (0..8); out-of-range requests land
      * on Mod Manager rather than an undefined child render. */
-    if (tool < 0 || tool > 7) tool = 0;
+    if (tool < 0 || tool > 8) tool = 0;
     s_Visible    = 1;
     s_ActiveTool = tool;
     /* Refresh whichever tool we're about to show so its data is live. */
@@ -2539,6 +2788,7 @@ void pdguiModdingHubShowTool(s32 tool)
         case 5: pdguiSkinEditorRefresh();         break;
         case 6: importReset();                    break;
         case 7: chromeToolReset();                break;
+        case 8: fontToolReset();                  break;
     }
     sysLogPrintf(LOG_NOTE, "MODHUB: opened on tool %d", (int)tool);
 }

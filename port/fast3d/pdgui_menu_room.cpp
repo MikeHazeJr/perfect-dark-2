@@ -2385,8 +2385,8 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                     pdguiPalImU32(PDPAL_TITLEFG, 255), screenTitle);
     }
 
-    float curY = pdTitleH + ImGui::GetStyle().WindowPadding.y;
-    ImGui::SetCursorPosY(curY);
+    pdguiSetCursorBelowTitle(pdTitleH);
+    float curY = ImGui::GetCursorPosY();
 
     /* Connect code (server host) — hidden in solo mode */
     if (!s_IsSoloMode && netGetMode() == NETMODE_SERVER) {

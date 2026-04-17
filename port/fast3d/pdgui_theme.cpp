@@ -49,6 +49,7 @@
 #include "pdgui_theme.h"
 #include "pdgui_style.h"
 #include "pdgui_nineslice.h"
+#include "pdgui_scaling.h"
 #include "system.h"
 #include "assetcatalog.h"
 #include "fs.h"
@@ -1436,6 +1437,44 @@ void pdguiThemeApplyContentInset(float *x, float *y, float *w, float *h)
     if (*h < 0.0f) *h = 0.0f;
 }
 
+/* Resolve padding that clears the nineslice chrome border plus 8px breathe.
+ * Returns max(base, inset + breathe) on each edge; UI-scaled internally. */
+void pdguiThemeResolveContentPad(float title_h,
+                                 float base_l, float base_t,
+                                 float base_r, float base_b,
+                                 float *out_l, float *out_t,
+                                 float *out_r, float *out_b)
+{
+    float insL = 0.0f, insR = 0.0f, insT = 0.0f, insB = 0.0f;
+    pdguiThemeGetContentInset(&insL, &insR, &insT, &insB);
+    float breathe = pdguiScale(8.0f);
+    float padL = base_l;
+    float padT = title_h + base_t;
+    float padR = base_r;
+    float padB = base_b;
+    if (insL + breathe > padL) padL = insL + breathe;
+    if (title_h + insT + breathe > padT) padT = title_h + insT + breathe;
+    if (insR + breathe > padR) padR = insR + breathe;
+    if (insB + breathe > padB) padB = insB + breathe;
+    if (out_l) *out_l = padL;
+    if (out_t) *out_t = padT;
+    if (out_r) *out_r = padR;
+    if (out_b) *out_b = padB;
+}
+
+/* Shorthand: set ImGui cursor below title bar, clear of chrome border. */
+#include "imgui/imgui.h"
+void pdguiSetCursorBelowTitle(float title_h)
+{
+    float padL, padT, padR, padB;
+    float baseX = ImGui::GetStyle().WindowPadding.x;
+    float baseY = ImGui::GetStyle().WindowPadding.y;
+    pdguiThemeResolveContentPad(title_h, baseX, baseY, baseX, baseY,
+                                &padL, &padT, &padR, &padB);
+    (void)padR; (void)padB;
+    ImGui::SetCursorPos(ImVec2(padL, padT));
+}
+
 /* =========================================================================
  * Title-bar style (S297)
  *
@@ -1835,6 +1874,26 @@ void pdguiThemeDrawStars(float x, float y, s32 filled, s32 total)
  * alpha=1.0 → max darkening ~55% (140/255 per line).
  * ========================================================================= */
 
+/* S309: scanline overlay sizes itself against the display resolution so
+ * the gap-between-lines stays visually consistent from 720p to 4K.
+ * Reference is the same 720p baseline that pdguiScale() uses — at 720p
+ * we draw a 1px line every 2px; at 4K we draw a 3px line every 6px.
+ * Returns { line_thickness, line_stride } in UI pixels (both >= 1). */
+static void pdguiResolveScanlineMetrics(float *out_thick, float *out_stride)
+{
+    float scale = pdguiScaleFactor();
+    if (scale < 0.5f) scale = 0.5f;
+    if (scale > 8.0f) scale = 8.0f;
+
+    float thick  = scale;
+    float stride = scale * 2.0f;
+    if (thick  < 1.0f) thick  = 1.0f;
+    if (stride < thick + 1.0f) stride = thick + 1.0f;
+
+    if (out_thick)  *out_thick  = thick;
+    if (out_stride) *out_stride = stride;
+}
+
 void pdguiThemeDrawScanline(float x, float y, float w, float h, float alpha)
 {
     if (alpha <= 0.0f) {
@@ -1848,8 +1907,10 @@ void pdguiThemeDrawScanline(float x, float y, float w, float h, float alpha)
     uint8_t a   = (uint8_t)(alpha * 140.0f);
     ImU32   col = IM_COL32(0, 0, 0, a);
 
-    for (float ry = y; ry < y + h; ry += 2.0f) {
-        dl->AddLine(ImVec2(x, ry), ImVec2(x + w, ry), col, 1.0f);
+    float thick, stride;
+    pdguiResolveScanlineMetrics(&thick, &stride);
+    for (float ry = y; ry < y + h; ry += stride) {
+        dl->AddLine(ImVec2(x, ry), ImVec2(x + w, ry), col, thick);
     }
 }
 
@@ -1867,8 +1928,10 @@ void pdguiThemeDrawScanlineFg(float x, float y, float w, float h)
     uint8_t a = (uint8_t)(s_ScanlineAlpha * 140.0f);
     ImU32 col = IM_COL32(0, 0, 0, a);
 
-    for (float ry = y; ry < y + h; ry += 2.0f) {
-        fg->AddLine(ImVec2(x, ry), ImVec2(x + w, ry), col, 1.0f);
+    float thick, stride;
+    pdguiResolveScanlineMetrics(&thick, &stride);
+    for (float ry = y; ry < y + h; ry += stride) {
+        fg->AddLine(ImVec2(x, ry), ImVec2(x + w, ry), col, thick);
     }
 }
 

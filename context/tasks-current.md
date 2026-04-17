@@ -118,6 +118,74 @@ still re-registers idempotently).
 
 ---
 
+## Open — 2026-04-17 (S309 — optimistic-feistel worktree → merged to dev)
+
+### Playtest verification of the S309 deferred UI drop + config cleanup
+
+Full write-up: `session-log.md` S309. Build: `PerfectDark.exe` 51,916,376 /
+`PerfectDarkServer.exe` 22,840,561 bytes.
+
+- **Content-inset sweep** — open each of the 20 migrated menus (agentcreate,
+  agentselect, botsetup, challenges, cheats (3 dialogs), controldiagram,
+  lobby, mpadvanced, mppause, mpsettings (2), mpsetup, network,
+  playerconfig, room, solomission (11 dialogs), stats, teamsetup, training,
+  warning (3)) with a Menu Style mod that has thick borders. Content
+  (buttons, lists, labels) should clear the nineslice artwork by at least
+  8px of breathing room on each side.
+- **Theme Editor live preview** — open Theme Editor, observe the new
+  preview column to the right of the color pickers. Edit Main Accent,
+  Title Text, Title Glow (new S309 slot) — preview updates live. Edit
+  Success / Danger / Info tints — three colored buttons reflect the new
+  values.
+- **Title bar blue tint customizable** — with a custom theme active, edit
+  Title Glow (S309 slot). Click "auto" to return to derived-from-border2
+  default; confirm glow matches border2 color.
+- **Font Mod tool** — Modding Hub → Font Mod tab. Browse to a `.ttf`,
+  enter a mod name, click Save. Verify `mods/Fonts/<slug>/<slug>.ttf` +
+  `font.json` + `mod.json` exist. Settings → Interface → Font dropdown
+  should list the new font without restart. Activating requires restart
+  (ImGui atlas is session-once).
+- **Scanline scaling** — at 720p, 1080p, 1440p, 4K, the scanline pattern
+  should look visually consistent (1px/2px at 720p → 3px/6px at 4K).
+  Check Settings → Video → Scanlines toggle; alpha slider works across
+  all resolutions.
+- **No imgui.ini** — launch game, quit. No `imgui.ini` should appear in
+  the run directory.
+- **Per-agent prefs** — create two agents (A, B). Sign in as A, pick a
+  custom theme + menu style + title bar style. Quit, relaunch, sign in
+  as B, pick different theme. Switch back to A — the theme should
+  immediately revert to A's choice. Check `saves/prefs_<name>.ini` for
+  both agents.
+- **"The Grid" rename** — main menu should show "The Grid" button
+  (where the "Forge" button previously was).
+- **CS music picker fix** — import a `.mp3` or `.wav` via Audio Mods
+  tab, select "Music" category, click Import. Verify status line
+  confirms "Imported 'X' as <slug>:audio" + `AUDIOMOD: auto-enabled
+  mod 'X'` in pd-client.log. Restart client, open Combat Simulator →
+  MP Settings → Soundtrack → Select Tunes. Track should appear under
+  "Mod Tracks (N)" in the left panel. Click → moves to right "Selected"
+  panel. `SELECTTUNES: open — base_tracks=N mod_tracks=N` log line
+  helps triage any future regressions.
+
+### Follow-up queued from S309
+
+- **Full pd.ini elimination** — only visuals + mod enablement moved to
+  per-agent. Audio volumes, resolution, fullscreen, gameplay bindings
+  still live in pd.ini. Needs a scope decision on per-agent input
+  bindings.
+- **Remaining hardcoded blue tints** — warning.cpp title text,
+  agentselect state text, lobby state text, countdown overlay still
+  use `IM_COL32(100, 200, 255, ...)` directly. Migrate them to
+  `pdguiGetTitleGlow()`.
+- **Forge HUD rename** — S310's pdgui_forge_hud.cpp still says "FORGE"
+  in the mode badge. S310 owns that file.
+- **Agent-name handoff** — `prefsAgentLoad` currently builds the key
+  from `filelistfile::name[]` bytes, which may be encoded. Good enough
+  for the current save format but replace with `gamefileGetOverview`
+  so the filename matches what the user sees in Agent Select.
+
+---
+
 ## Open — 2026-04-17 (S308 — dev direct)
 
 ### Playtest verification of B-161 (door-tick crash) + B-162 (pause menu hardening)

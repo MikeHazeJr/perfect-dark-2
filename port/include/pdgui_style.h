@@ -30,6 +30,11 @@ void pdguiApplyPdStyle(void);
 void pdguiDrawPdDialog(float x, float y, float w, float h,
                         const char *title, s32 focused);
 
+/* Set ImGui cursor below the title bar at a chrome-safe content origin.
+ * Replaces `ImGui::SetCursorPosY(titleH + WindowPadding.y)`.
+ * Implementation lives in pdgui_theme.cpp next to pdguiThemeGetContentInset. */
+void pdguiSetCursorBelowTitle(float title_h);
+
 /* Draw PD-style focus highlight behind a menu item. */
 void pdguiDrawItemHighlight(float x, float y, float w, float h);
 
@@ -112,6 +117,15 @@ u32 pdguiGetToolbarTint(void);
 u32 pdguiGetTextPositive(void);
 u32 pdguiGetTextWarning(void);
 u32 pdguiGetCheckmarkColor(void);
+
+/* S309: extension-2 tail — title glow color + 3 window-state tints.
+ * Zero = derive at apply time. Read via matching pdguiGet*() accessors. */
+void pdguiSetPaletteExtensions2(u32 titleGlow, u32 tintSuccess,
+                                u32 tintDanger, u32 tintInfo);
+u32 pdguiGetTitleGlow(void);
+u32 pdguiGetTintSuccess(void);
+u32 pdguiGetTintDanger(void);
+u32 pdguiGetTintInfo(void);
 
 /* S306: direct-signal close channel driven by the title-bar X button.
  * Returns 1 if the X button was clicked on this or the previous frame

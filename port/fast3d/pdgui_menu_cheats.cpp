@@ -465,7 +465,7 @@ static s32 renderCheatsHub(struct menudialog *dialog,
     /* PD-style title frame */
     float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, "Cheats", 1);
-    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(titleH);
 
     /* B / Escape closes the hub entirely. */
     if (!ImGui::IsWindowAppearing() && !s_ConfirmUnlockModal &&
@@ -745,7 +745,7 @@ static s32 renderCheatsWarning(struct menudialog *dialog,
 
     float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, "Cheats", 1);
-    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(titleH);
 
     ImGui::TextWrapped(
         "If you activate any cheats, you will be unable to progress "
@@ -826,7 +826,7 @@ static s32 renderCheatsConfirmUnlock(struct menudialog *dialog,
     float titleH = pdguiScale(39.0f);
     /* Style 2 = DANGER (red) per pdguiDrawPdDialog palette */
     pdguiDrawPdDialog(pos.x, pos.y, mw, mh, "Warning", 2);
-    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(titleH);
 
     ImGui::TextWrapped("Are you sure?");
     ImGui::Spacing();

@@ -345,7 +345,7 @@ static PdmsWindowFrame pdms_BeginStandardWindow(const char *imguiId, const char 
 
     float titleH = pdguiScale(39.0f);
     pdguiDrawPdDialog(wf.pos.x, wf.pos.y, wf.mw, wf.mh, title, 1);
-    ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(titleH);
     return wf;
 }
 
@@ -434,7 +434,7 @@ static s32 renderHandicap(struct menudialog *dialog,
                     pdguiPalImU32(PDPAL_TITLEFG, 255), title);
     }
 
-    ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(pdTitleH);
 
     float footerH  = pdguiScale(75.0f);
     float contentH = diagH - pdTitleH - footerH;
@@ -581,7 +581,15 @@ static void collectModMusicTrack(const asset_entry_t *entry, void *userdata)
 {
     ModTrackCollector *col = (ModTrackCollector *)userdata;
     if (col->count >= MAX_MOD_TRACKS) return;
-    if (entry->ext.audio.category != 1 /* AUDIO_CAT_MUSIC */) return;
+    /* S309: log rejection cause so bug reports like "my songs aren't
+     * showing up" surface the filter that dropped them. Fires at most
+     * a handful of times per render — cheap. */
+    if (entry->ext.audio.category != 1 /* AUDIO_CAT_MUSIC */) {
+        sysLogPrintf(LOG_NOTE, "SELECTTUNES: skip '%s' (category=%d, want 1 MUSIC)",
+                     entry->id ? entry->id : "?",
+                     (int)entry->ext.audio.category);
+        return;
+    }
     if (entry->bundled) return;  /* skip base game tracks */
 
     ModTrackInfo *t = &col->tracks[col->count];
@@ -628,6 +636,14 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
     assetCatalogIterateByType(ASSET_AUDIO, collectModMusicTrack, &mc);
     if (mc.count > 1) {
         qsort(mc.tracks, mc.count, sizeof(ModTrackInfo), modTrackCompare);
+    }
+    /* S309: one-shot diagnostic when the screen opens so the log names
+     * the mod-track count. Pairs with the per-entry 'skip' lines emitted
+     * by collectModMusicTrack — helps triage "where did my songs go?". */
+    if (ImGui::IsWindowAppearing()) {
+        sysLogPrintf(LOG_NOTE,
+            "SELECTTUNES: open — base_tracks=%d mod_tracks=%d",
+            (int)numTracks, (int)mc.count);
     }
 
     /* Shuffle toggle */

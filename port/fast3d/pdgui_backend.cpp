@@ -222,6 +222,13 @@ void pdguiInit(void *sdlWindow)
     /* M0.2 Phase C: ImGui's built-in gamepad nav is disabled.
      * pdguiDriveImGuiNav() now injects nav events from actionmap each frame. */
 
+    /* S309: don't persist ImGui window state to imgui.ini — per-agent
+     * prefs own window visibility / selection, and imgui.ini has been a
+     * source of "why did the dev menu open at a weird size?" reports.
+     * Setting IniFilename = NULL disables the implicit save/load; the
+     * default state is rebuilt from pdgui_style.cpp each session. */
+    io.IniFilename = NULL;
+
     /* S305: scan mods/Fonts/ for user-installed .ttf/.otf fonts BEFORE the
      * atlas gets built. Registers Video.FontId config key — if the user has
      * a font mod selected (e.g. "user.MyFont.font"), we load it as the

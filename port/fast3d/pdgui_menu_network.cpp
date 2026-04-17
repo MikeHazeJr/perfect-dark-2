@@ -160,7 +160,7 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
                     pdguiPalImU32(PDPAL_TITLEFG, 255), titleBuf);
     }
 
-    ImGui::SetCursorPosY(pdTitleH + ImGui::GetStyle().WindowPadding.y);
+    pdguiSetCursorBelowTitle(pdTitleH);
 
     float itemW = dialogW - ImGui::GetStyle().WindowPadding.x * 4;
     float sectionH = dialogH - pdTitleH - 100.0f * scale;

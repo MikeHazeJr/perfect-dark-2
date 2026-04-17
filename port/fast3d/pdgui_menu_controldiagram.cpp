@@ -161,7 +161,7 @@ static bool beginPdWindow(const char *imguiId, const char *title)
         dl->AddText(ImVec2(pos.x + (diagW - ts.x) * 0.5f,
                            pos.y + (titleH - ts.y) * 0.5f),
                     pdguiPalImU32(PDPAL_TITLEFG, 255), title);
-        ImGui::SetCursorPosY(titleH + ImGui::GetStyle().WindowPadding.y);
+        pdguiSetCursorBelowTitle(titleH);
     }
 
     return true;
