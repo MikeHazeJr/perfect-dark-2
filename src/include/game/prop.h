@@ -33,6 +33,9 @@ void handTickAttack(s32 handnum);
 void handsTickAttack(void);
 void propExecuteTickOperation(struct prop *prop, s32 op);
 struct prop *propFindForInteract(bool eyespy);
+/* S311: short English label ("Pick up", "Open", "Access", "Use") for the
+ * currently-targeted interact prop, or NULL if none.  Read-only. */
+const char *propInteractPromptLabel(void);
 void propFindForUplink(void);
 bool currentPlayerInteract(bool eyespy);
 void propPause(struct prop *prop);

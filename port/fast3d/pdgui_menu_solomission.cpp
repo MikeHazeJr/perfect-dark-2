@@ -37,6 +37,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
+#include "pdgui_glyphs.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_nav.h"
@@ -3399,7 +3400,13 @@ static s32 renderOptions(struct menudialog *dialog,
         if (active) ImGui::PopStyleColor();
     }
 
-    ImGui::TextDisabled("LB / RB to switch tabs");
+    /* S311: glyph-driven bumper hint. */
+    {
+        char prevKey[24], nextKey[24];
+        pdguiGlyphGetActionLabel(ACTION_MENU_TAB_PREV, prevKey, (s32)sizeof(prevKey));
+        pdguiGlyphGetActionLabel(ACTION_MENU_TAB_NEXT, nextKey, (s32)sizeof(nextKey));
+        ImGui::TextDisabled("%s / %s to switch tabs", prevKey, nextKey);
+    }
     ImGui::Separator();
 
     /* ---- Scrollable tab content ---- */

@@ -1626,6 +1626,39 @@ struct prop *propFindForInteract(bool usingeyespy)
 }
 
 /**
+ * S311: classify the current interact target for the on-screen prompt.
+ * Returns a short English label ("Pick up", "Open", "Use", NULL) based on
+ * the prop currently in `g_InteractProp`.  Pure read-only helper.
+ */
+const char *propInteractPromptLabel(void)
+{
+	struct prop *prop = g_InteractProp;
+	if (prop == NULL || prop->obj == NULL) {
+		return NULL;
+	}
+
+	switch (prop->type) {
+	case PROPTYPE_WEAPON:
+		return "Pick up";
+	case PROPTYPE_DOOR:
+		return "Open";
+	case PROPTYPE_OBJ: {
+		struct defaultobj *obj = prop->obj;
+		/* Terminals / hackable interactables get a distinct verb. */
+		if (obj->flags3 & OBJFLAG3_HTMTERMINAL) {
+			return "Access";
+		}
+		if (obj->flags3 & OBJFLAG3_INTERACTABLE) {
+			return "Use";
+		}
+		return "Pick up";
+	}
+	default:
+		return "Use";
+	}
+}
+
+/**
  * While this function is called, it doesn't return anything and doesn't appear
  * to be useful. Uplinking still works when this function is empty.
  */

@@ -36,6 +36,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
+#include "pdgui_glyphs.h"
 #include "pdgui_theme_loader.h"
 #include "pdgui_theme.h"
 #include "pdgui_font_mod.h"
@@ -3188,8 +3189,13 @@ static void renderSettingsView(float scale, float contentH)
         ImGui::EndTabBar();
     }
 
-    /* Bumper hint at bottom */
-    ImGui::TextDisabled("LB / RB to switch tabs");
+    /* Bumper hint at bottom — S311: glyph-driven key labels track active device. */
+    {
+        char prevKey[24], nextKey[24];
+        pdguiGlyphGetActionLabel(ACTION_MENU_TAB_PREV, prevKey, (s32)sizeof(prevKey));
+        pdguiGlyphGetActionLabel(ACTION_MENU_TAB_NEXT, nextKey, (s32)sizeof(nextKey));
+        ImGui::TextDisabled("%s / %s to switch tabs", prevKey, nextKey);
+    }
 }
 
 /* B-131 ext: duplicate dialog guard — prevents overlapped instances when
