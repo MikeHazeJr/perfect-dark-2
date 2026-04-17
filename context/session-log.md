@@ -1,8 +1,48 @@
 
 # Session Log (Active)
 
-> **S281–S317** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S318** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S318 — 2026-04-17 (Direct file access design — `hopeful-rosalind-4f1033` worktree)
+
+**Scope**: Design-only session. Authored `context/designs/direct-file-access-design-2026-04-17.md` — comprehensive design for replacing ROM-offset-based asset loading with a typed Asset Provider abstraction.
+
+### What was produced
+
+New design doc (`context/designs/direct-file-access-design-2026-04-17.md`, ~680 lines):
+
+**§1 Current State** — ROM binary mmap'd at init, `fileSlots[]` populated from embedded big-endian offset table, `filenum` integers as direct array indices, `catalogResolveFile()` seam for mod overrides, `SRC_ROM / SRC_EXTERNAL` states already present. Gap: catalog knows *what* assets are but not *where* bytes come from; new mod assets (no ROM filenum) are unsupported.
+
+**§2 Target State** — Every catalog entry carries an `asset_source_t` with a typed `asset_data_handle_t`. The ROM becomes `RomProvider`; loose files become `FileProvider`; mod archives (future) become `ArchiveProvider`. `filenum` becomes a `RomProvider` internal detail never exposed at interface boundaries. Multi-ROM-version support is free (NTSC vs PAL use the same catalog IDs; their file tables differ only inside `RomProvider`).
+
+**§3 Asset Provider Interface** — C vtable: `asset_provider_t` with `resolve_size`, `load`, `unload`, `describe`. Handle type: `asset_data_handle_t` (opaque `u64[2]` + provider pointer). `assetLoad` / `assetLoadToNew` dispatchers. `fileLoadToNew` becomes a one-line wrapper for Phase 1 backward compat.
+
+**§4 Catalog Integration** — `asset_source_t source` field on `asset_entry_t`. `catalogSetPrimary` / `catalogSetOverride` / `catalogClearOverride` API. Priority (archive > mod file > base file > ROM) declared in catalog fields, not implicit in code order. New mod-only assets (Grid levels, custom stages) register with `FileProvider` primary — no filenum needed.
+
+**§5 Migration Strategy** — 5 phases, each independently reversible:
+- Phase 1: Define provider types, wrap `fileLoadToNew` — zero behavior change
+- Phase 2: Add `source` field to entries, move mod-override logic from `romdataFileLoad` to catalog
+- Phase 3: Migrate call sites from filenum to `assetLoadToNew` (parallels SA-5 in session-catalog plan)
+- Phase 4: Retire `filenum` as public currency — deprecated, internal only
+- Phase 5: Wire Grid/Forge saved levels as `FileProvider` catalog entries
+
+**§6–8** — Impact on manifest/net/Grid/mods/skin editor/audio (all minimal), performance (vtable dispatch is negligible; async load path designed in), risk table (8 items with mitigations, rollback strategy per phase).
+
+### Commit
+
+| SHA | Scope |
+|-----|-------|
+| `79714658` | **docs(context): S318 direct-file-access design — Asset Provider abstraction** |
+
+Merged to dev via `467b7682`.
+
+### Files changed
+
+- `context/designs/direct-file-access-design-2026-04-17.md` — new, ~680 lines
+- `context/README.md` — added design doc to Plan/Design Files table, updated Last Updated to S318
+
+---
 
 ## Session S321 — 2026-04-17 (Strip N64 demo/attract mode system — dev direct)
 
