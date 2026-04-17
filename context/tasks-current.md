@@ -7,6 +7,19 @@
 
 ---
 
+## Done — 2026-04-17 (S336 — Audit S329 B-12 + S332 Modeldef/Audio)
+
+Two bugs fixed, merged to dev (`e1081911`):
+
+1. **`pdguiPauseGetChrSlots` u32 truncation** — pause menu dropped bots 24-31 silently. Fixed: return `u64`, use `1ull<<i`.
+2. **weapon modeldef NULL crash** — `player.c::playerChrInitialise` called `modelAllocateRwData(NULL)` on torn weapon mod asset. Fixed: NULL guard + WARNING.
+
+Stale `chrslots` comment in `netmanifest.c` also cleaned up.
+
+**Playtest items:** (1) Pause menu with 32 bots — verify count shows all 32. (2) Torn weapon mod — verify WARNING not crash.
+
+---
+
 ## Done — 2026-04-17 (S334 — Audit S327 Asset Provider + S330 Memory)
 
 Fixed one bug: `pak.c:pak0f11d9c4` malloc null-check (`5773c465`). S327 and S330 otherwise clean.

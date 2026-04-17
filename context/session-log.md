@@ -1,8 +1,52 @@
 
 # Session Log (Active)
 
-> **S281–S333** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S336** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S336 — 2026-04-17 (Audit S329 B-12 Chrslots + S332 Modeldef/Audio)
+
+**Scope**: Wave 1 audit. Read all files touched by S329 (B-12 Phase 3 chrslots removal, protocol v37) and S332 (B-161 modeldef chokepoint + B-141 audio pacing). Found two real bugs; fixed both. Build clean in worktree, merged to dev.
+
+### S329 — B-12 Phase 3 Chrslots Removal
+
+**Bug fixed — u32 truncation in pause menu:** `pdgui_bridge.c::pdguiPauseGetChrSlots()` returned `(u32)(mask & 0xFFFFFFFFull)`, silently dropping bots in slots 32-39 (the last 8 of MAX_BOTS=32). Consumer in `pdgui_menu_pausemenu.cpp` iterated `1u << i` for i up to 39 — undefined behaviour for i ≥ 32. Fixed: return type → `u64`, consumer → `u64 activeMask` + `1ull << i`. Commit `a0a2d6bb`.
+
+**Stale comment fixed:** `netmanifest.c` doc still said "g_MpSetup — stage, weapons, chrslots"; updated to note chrslots was removed in v37.
+
+**Clean:**
+- `BOT_SLOT_OFFSET 8` in botsetup.cpp is a local alias with correct value (= MAX_PLAYERS) and a clear comment explaining why. Not a bug.
+- `propobj.c::numchrslots` uses `chrsGetNumSlots()` / `g_ChrSlots[]` — a different system entirely, not the B-12 chrslots bitmask.
+- Wire encode/decode: `mpParticipantsEncodeActiveMask()` iterates all 64 bits; `mpParticipantsDecodeActiveMask()` handles player (0..MAX_PLAYERS-1) and bot (MAX_PLAYERS..MAX_MPCHRS-1) ranges correctly.
+- Server CMakeLists: `participant.c` is in `SRC_SERVER` at line 560. ✓
+
+### S332 — B-161 Modeldef Chokepoint + B-141 Audio Pacing
+
+**Bug fixed — weapon modeldef NULL gap in player.c:** `playerChrInitialise` called `modelAllocateRwData(weaponmodeldef)` immediately after `modeldefLoad()` with no NULL check. A torn/missing weapon mod asset would crash instead of logging. Fixed: NULL guard + WARNING log; `weaponCreateForChr` already handles NULL at all other call sites. Commit `a0a2d6bb`.
+
+**modeldefLoad callers reviewed:**
+- `menu.c:2071` — NULL checked with full validation block. ✓
+- `menu.c:2096` — NULL checked inline. ✓
+- `player.c:1929` (body) — NULL checked + early return. ✓
+- `player.c:1941` (head) — NULL checked inline. ✓
+- `title.c` (logos) — No NULL check, but these load core ROM assets (Nintendo/Rare logos) that cannot be torn in practice. Accepted risk.
+- `assetcatalog_api.c`, `modelcatalog.c` — Store result; callers of `catalogGetBodyModeldef` check NULL. ✓
+- `setuputils.c` — NULL checked (FIX-B.2). ✓
+
+**numparts [1,500] bound:** 500 was established in S312. AllInOneMods replacement models pass. The lower bound `<= 0` catches uninitialized/corrupted structs. Correct.
+
+**Audio pacing:** Three-tier logic is sound. `osAiGetLength()/4` is the queue depth in samples. Brake at >3000, steady at 2500-3000, fast-fill at <2500 (NTSC only). `var8005cf94` is a 2-frame cooldown after brake. PAL path retains original 368+184=552 behavior. Thread-safe: `amgrFrame` runs on the main game tick thread only.
+
+### Build result
+
+Clean: 773/773 objects in worktree, zero errors. Merge commit `e1081911` on dev.
+
+### Playtest verification needed
+
+- **Pause menu with 32 bots**: verify player/bot count now shows full bot count (was silently capped at 24 before fix).
+- **Torn weapon mod asset**: if available, verify WARNING log appears instead of crash.
+
+---
 
 ## Session S334 — 2026-04-17 (Audit S327 Asset Provider + S330 Memory)
 
