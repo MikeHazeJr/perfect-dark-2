@@ -25,7 +25,7 @@
 
 | SHA | Scope |
 |-----|-------|
-| `(this commit)` | **chore(title): strip N64 demo/attract mode — g_IsTitleDemo + g_TitleIdleTime60 + all consumers** |
+| `9fe8291b` | **chore(title): strip N64 demo/attract mode — g_IsTitleDemo + g_TitleIdleTime60 + all consumers** |
 
 ### Build verify
 
