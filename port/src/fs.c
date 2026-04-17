@@ -282,6 +282,11 @@ s32 fsInit(void)
 	return 0;
 }
 
+const char *fsGetBaseDir(void)
+{
+	return baseDir[0] ? baseDir : NULL;
+}
+
 const char *fsGetModDir(void)
 {
 	// Check modmgr first — return first enabled mod's directory

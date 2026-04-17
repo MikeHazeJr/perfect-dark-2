@@ -298,13 +298,22 @@ static inline void romdataLoadRom(void)
 	g_RomFile = fsFileLoad(g_RomName, &g_RomFileSize);
 
 	if (!g_RomFile) {
-		/* Build the expected data path relative to the exe directory */
-		char exePath[FS_MAXPATH];
-		char exeDataDir[FS_MAXPATH];
-		sysGetExecutablePath(exePath, FS_MAXPATH);
-		snprintf(exeDataDir, FS_MAXPATH, "%s/data", exePath);
-		sysLogPrintf(LOG_ERROR, "ROM: Could not open %s in %s", g_RomName, exeDataDir);
-		romdataShowMissingRomDialog(g_RomName, exeDataDir);
+		/* Use the base directory that fsFileLoad actually searched so the
+		 * dialog and Explorer point at the right folder even when --basedir
+		 * or the home-directory fallback redirected the search away from
+		 * the exe's data/ subfolder. */
+		const char *dataDir = fsGetBaseDir();
+		if (!dataDir || !dataDir[0]) {
+			/* fsGetBaseDir can return NULL before fsInit completes; fall back
+			 * to the exe directory so the dialog is never completely wrong. */
+			static char exeDataDir[FS_MAXPATH];
+			char exePath[FS_MAXPATH];
+			sysGetExecutablePath(exePath, FS_MAXPATH);
+			snprintf(exeDataDir, FS_MAXPATH, "%s/data", exePath);
+			dataDir = exeDataDir;
+		}
+		sysLogPrintf(LOG_ERROR, "ROM: Could not open %s in %s", g_RomName, dataDir);
+		romdataShowMissingRomDialog(g_RomName, dataDir);
 	}
 
 	// zips are not guaranteed to start with PK, but might as well at least try
