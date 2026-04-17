@@ -89,14 +89,21 @@ extern "C" void prefsAgentLoad(const char *agent_name);
 static void prefsLoadForFile(struct filelistfile *file)
 {
     if (!file) return;
+    /* Use gamefileGetOverview to decode the display name exactly as Agent
+     * Select shows it -- the raw file->name[] bytes may be encoded as
+     * variable-length character codes and produce different text than
+     * the overview decoder yields.  Keeping the same decoder here means
+     * the sidecar path matches the visible agent name 1:1. */
     char name[32];
-    s32 j = 0;
-    for (s32 i = 0; i < (s32)sizeof(file->name) && j < 15; i++) {
-        char c = file->name[i];
-        if (!c) break;
-        name[j++] = c;
+    u8 stage = 0, diff = 0;
+    u32 ptime = 0;
+    memset(name, 0, sizeof(name));
+    gamefileGetOverview(file->name, name, &stage, &diff, &ptime);
+    /* Defensive: trim trailing spaces + ensure NUL terminator. */
+    name[sizeof(name) - 1] = '\0';
+    for (s32 i = (s32)strlen(name) - 1; i >= 0 && name[i] == ' '; --i) {
+        name[i] = '\0';
     }
-    name[j] = '\0';
     if (!name[0]) {
         snprintf(name, sizeof(name), "id%d", (int)file->fileid);
     }
