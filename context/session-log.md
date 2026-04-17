@@ -36,6 +36,14 @@
 - `activemenu.c`: restored orphaned `#endif` that closed `#if VERSION != VERSION_JPN_FINAL`
 - `menu.c`: removed orphaned `} else { ... }` (88 lines) + bare `{` left by IS8MB guard removal; restored missing `}` closing `if (modeltype == MENUMODELTYPE_HUDPIECE)` block; changed tentative forward decl to `extern` decl for `g_PakAttemptRepairMenuDialog`
 
+### Commit
+
+| SHA | Scope |
+|-----|-------|
+| `4a6382cf` | **feat(S322): N64 legacy audit Tier 1/2 — strip IS4MB/IS8MB/fourmeg2player/STAGE_4MBMENU** |
+
+61 files changed, 284 insertions(+), 900 deletions(−). Pushed to dev.
+
 ### Build result
 
 Clean: `pd` + `pd-server` both compile with zero errors.
