@@ -124,6 +124,8 @@ In **Cursor**, attach the project skill **[context-session-start](../.cursor/ski
 | [designs/implementation-plan-mods-and-d5.md](designs/implementation-plan-mods-and-d5.md) | P1-P6 dependency graph | Mod/UI roadmap |
 | [designs/input-authority-and-menu-pool-2026-04-13.md](designs/input-authority-and-menu-pool-2026-04-13.md) | ADR: input bleed-through + menu-pool discipline. Phase 1 shipped S250; Phase 2 queued. | Input/menu work |
 | [designs/spawn-system-architecture-2026-04-13.md](designs/spawn-system-architecture-2026-04-13.md) | L1-L4 spawn pool architecture + capsule-radius invariant | Spawn/MP-load work |
+| [designs/forge-level-editor-2026-04-16.md](designs/forge-level-editor-2026-04-16.md) | Forge → The Grid level editor design (freefly + catalog + placement + serialize; F0 shipped S307, polish S313) | Forge/Grid work |
+| [designs/theme-bundle-and-per-agent-settings-2026-04-16.md](designs/theme-bundle-and-per-agent-settings-2026-04-16.md) | Theme bundle plumbing (theme.json menuStyle/font keys) + per-agent prefs_agent.ini sidecar (S305 P4 + S313 `[Audio]` block) | Theme bundle / per-agent settings work |
 | [designs/hud-layer-order.md](designs/hud-layer-order.md) | HUD render ordering + context-aware gating | HUD work |
 | [designs/mod-enablement-policy.md](designs/mod-enablement-policy.md) | Mod loading policy | Mod system work |
 | [designs/studio-platform-design.md](designs/studio-platform-design.md) | v0.5.0 Studio feature set | Studio roadmap |

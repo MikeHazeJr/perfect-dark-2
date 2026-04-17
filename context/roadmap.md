@@ -1,10 +1,10 @@
 # Modernization Roadmap
 
-> Last updated: 2026-04-16 (S292 — Room max-bot/team hardening; Nine-Slice Chrome creator; Mod Apply UX; Skin Editor + dev pipeline stabilization)
+> Last updated: 2026-04-17 (daily maintenance audit — S311 follow-up merged; covers S293–S313 marathon wave: Grid level editor, per-agent audio, pd.ini audit, UI polish marathon, modeldef defensive guards, glyph system)
 
 ## Current State
 
-**Build**: v0.0.103 | **Protocol**: v36 | **Sessions**: 292+
+**Build**: v0.0.109 | **Protocol**: v36 | **Sessions**: 313+
 
 The project has crossed the threshold from "port with mods" to "platform with a modern engine shell." The core identity migration is complete, the input system is unified, the legacy menu system is dead, and 47 deep audit bugs have been fixed. What remains is feature completion toward v0.1.0.
 

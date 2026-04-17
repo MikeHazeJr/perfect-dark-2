@@ -12,7 +12,7 @@
 |------|------|---------|
 | 1 | [README.md](README.md) | Orientation, links, session history table |
 | 2 | [tasks-current.md](tasks-current.md) | What to do now |
-| 3 | [session-log.md](session-log.md) | Last sessions (**S241–S258**) |
+| 3 | [session-log.md](session-log.md) | Last sessions (**S241–S313**) |
 | 4 | [constraints.md](constraints.md) | Non-negotiable rules |
 | 5 | [CRITICAL-PROCEDURES.md](CRITICAL-PROCEDURES.md) | Build verify, git, worktrees |
 
@@ -24,7 +24,7 @@ Domain work: see README § “Domain Files” and § “Plan / Design Files”.
 
 | Range | Location |
 |-------|----------|
-| **S241–S258** (active, ~210 lines) | [session-log.md](session-log.md) |
+| **S241–S313** (active, rolling) | [session-log.md](session-log.md) |
 | **S240 → S157** (archived block) | [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md) |
 | **S1–S119** (chunked) | [_archive/sessions/](_archive/sessions/) |
 
