@@ -4,6 +4,39 @@
 > **S281–S313** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S316 — 2026-04-17 (solo mission select UX + session-log archive — `epic-mirzakhani-884cc2` worktree)
+
+**Scope**: Three ordered tasks: (1) session-log archive, (2) campaign mission select UX cleanup, (3) room screens audit.
+
+### Commits on `claude/epic-mirzakhani-884cc2`
+
+| SHA | Scope |
+|-----|-------|
+| `fc713f9a` | **feat(solo-mission): fix difficulty text regression + add Dark Agent row**.  `renderMissionSelect` right panel: `langSafe()` result now has fallback names so difficulty text is never blank when lang bank is not resident.  Dark Agent / PD Mode row added after Agent/SA/PA; shown only when Skedar Ruins beaten on PA (`pdModeVisible` gate).  `k_NumDetailItems` and `startFocusIdx` are now dynamic.  `DIFF_PD=3` defined module-scope; `k_DiffBadgeColor` extended to 4 entries (purple for Dark Agent).  Start Mission with DIFF_PD selected opens `g_PdModeSettingsMenuDialog` with PA as base difficulty instead of calling `menuhandlerAcceptMission` directly. |
+| `a046a99a` | **chore(context): archive session-log S241–S280**.  `session-log.md` trimmed to S281–S313 rolling window.  New `_archive/session-log-archive-S280-and-older.md` created.  INDEX.md + README.md updated to point to new tier. |
+
+### Files touched
+
+- `port/fast3d/pdgui_menu_solomission.cpp` — renderMissionSelect right panel: fallback names, Dark Agent row, dynamic nav counts, PD Mode launch path
+- `context/session-log.md`, `context/INDEX.md`, `context/README.md`, `context/_archive/session-log-archive-S280-and-older.md` (new)
+
+### Room screens audit (Task 3 — no changes needed)
+
+Audited `pdgui_menu_room.cpp`:
+- **Start Match / Leave Room docking**: manual `SetCursorPosY(dialogH - footerH)` pattern from S298 is correct; footer pre-allocated in `contentH`.
+- **Team sorting + color-coding**: fully implemented (S297) — bubble-sort by team then human-before-bot; `kTeamColors[8]` per-team tints; colored "-- Team N --" headers.
+- **Bot management**: `pdguiBotSetupDrawSimulantsBody` in CollapsibleHeader; matchslot bot UI with multi-select and reroll; all functional.
+- **Content within border bounds**: `pdguiSetCursorBelowTitle(pdTitleH)` called at line 2387.
+
+No room.cpp changes required.
+
+### Next steps
+
+- **Playtest**: launch solo mission select, verify difficulty names show without lang bank, verify Dark Agent row appears only after Skedar Ruins PA beaten.
+- Remaining non-blue literal sweep (S311 follow-up): agentselect/solomission/modmgr still have PD-blue `IM_COL32` decorations.
+
+---
+
 ## Session S313 marathon batch — 2026-04-17 (Grid rename completion + per-agent audio + pd.ini audit — `great-robinson-15f409` worktree, direct to dev)
 
 **Scope**: Continuation of the three-session marathon (S311 + S312 + S313 all merged).  S313 owns this batch of targeted follow-ups on top of the merged dev.  Worktree FF-ed to origin/dev; commits land on the same branch and merge via `--no-ff`.

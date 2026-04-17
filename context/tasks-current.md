@@ -7,6 +7,15 @@
 
 ---
 
+## Open — 2026-04-17 (S316 — solo mission select UX, `epic-mirzakhani-884cc2` worktree)
+
+### Playtest verification
+
+- **Difficulty text in mission select** — launch solo mission list, select any mission. All three difficulty rows (Agent / Special Agent / Perfect Agent) must show their names even before the lang bank loads (fallback strings hardcoded).
+- **Dark Agent row** — appears only after Skedar Ruins beaten on Perfect Agent. Selecting it and clicking Start Mission should open PD Mode settings dialog, not launch immediately.
+
+---
+
 ## Open — 2026-04-17 (S315 — palette sweep completion, `pedantic-austin-4a93bc` worktree)
 
 ### Playtest verification

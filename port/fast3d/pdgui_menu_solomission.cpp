@@ -247,6 +247,7 @@ extern struct sm_gamefile g_GameFile;
 #define DIFF_A  0
 #define DIFF_SA 1
 #define DIFF_PA 2
+#define DIFF_PD 3
 
 /* ---- Briefing (set by dialog handler before ImGui renderer runs) ---- */
 struct sm_briefing {
@@ -492,11 +493,12 @@ static void formatBestTime(char *buf, size_t bufsz, u16 t)
 
 
 
-/* Difficulty badge fill colors: Agent=green, SA=blue, PA=gold */
+/* Difficulty badge fill colors: Agent=green, SA=blue, PA=gold, PD=purple */
 static const ImU32 k_DiffBadgeColor[] = {
     IM_COL32( 60, 200,  80, 255),   /* Agent */
     IM_COL32( 80, 160, 255, 255),   /* Special Agent */
     IM_COL32(220, 190,  50, 255),   /* Perfect Agent */
+    IM_COL32(180,  80, 220, 255),   /* Dark Agent / PD Mode */
 };
 static const char *k_DiffShort[] = { "A", "S", "P" };
 
@@ -645,7 +647,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
     float rightW   = mw - leftW - panelGap;
 
     static const char *k_DiffFullNames[] = {
-        "Agent", "Special Agent", "Perfect Agent"
+        "Agent", "Special Agent", "Perfect Agent", "Dark Agent"
     };
 
     ImGui::SetNextWindowPos(mpos);
@@ -1024,8 +1026,11 @@ static s32 renderMissionSelect(struct menudialog *dialog,
         ImGui::Separator();
 
         /* ---- Difficulty Picker (B-96: inline in detail panel) ---- */
-        /* Detail panel navigation: 0–2 = difficulty, 3 = Start button */
-        static const s32 k_NumDetailItems = 4; /* 3 diffs + Start */
+        /* Detail panel navigation: 0–2 = diff, [3 = PD Mode], last = Start */
+        bool pdModeVisible = (g_GameFile.besttimes[SOLOSTAGEINDEX_SKEDARRUINS][DIFF_PA] != 0);
+        if (!pdModeVisible && s_DetailDiffIdx >= 3) s_DetailDiffIdx = 2;
+        s32 k_NumDetailItems = 3 + (pdModeVisible ? 1 : 0) + 1; /* diffs + [PD] + Start */
+        s32 startFocusIdx    = k_NumDetailItems - 1;
 
         if (s_DetailPanelFocus) {
             bool navDown = ImGui::IsKeyPressed(ImGuiKey_DownArrow, true);
@@ -1046,7 +1051,8 @@ static s32 renderMissionSelect(struct menudialog *dialog,
         }
 
         float diffRowH = pdguiScale(45.0f);
-        static const s32 k_DiffIds[] = { L_OPTIONS_251, L_OPTIONS_252, L_OPTIONS_253 };
+        static const s32  k_DiffIds[]          = { L_OPTIONS_251, L_OPTIONS_252, L_OPTIONS_253 };
+        static const char *k_DiffFallbackNames[] = { "Agent", "Special Agent", "Perfect Agent" };
 
         ImGui::TextDisabled("Difficulty:");
         ImGui::Spacing();
@@ -1110,7 +1116,9 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                 float tx = bx + dotR * 2.0f + pdguiScale(12.0f);
                 ImU32 nameCol = locked ? IM_COL32(100, 100, 120, 180)
                                        : IM_COL32(255, 255, 255, 255);
-                dl->AddText(ImVec2(tx, cy), nameCol, langSafe(k_DiffIds[d]));
+                const char *diffName = langSafe(k_DiffIds[d]);
+                if (!diffName || !diffName[0]) diffName = k_DiffFallbackNames[d];
+                dl->AddText(ImVec2(tx, cy), nameCol, diffName);
 
                 if (locked) {
                     dl->AddText(ImVec2(tx + pdguiScale(165.0f), cy),
@@ -1123,6 +1131,65 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                     dl->AddText(ImVec2(cp.x + rowW - tSz.x - pdguiScale(12.0f), cy),
                                 pdguiImU32TintSuccess(210), timeStr);
                 }
+            }
+
+            ImGui::PopID();
+        }
+
+        /* PD Mode row — only when Skedar Ruins beaten on Perfect Agent */
+        if (pdModeVisible) {
+            s32 pdFocusIdx = 3;
+            bool isPdSel   = (s_DetailDiffIdx == 3);
+            bool isPdFocus = s_DetailPanelFocus && (s_DetailFocusIdx == pdFocusIdx);
+
+            ImGui::PushID(0x303);
+            ImVec2 pdcp = ImGui::GetCursorScreenPos();
+            float  rowW = rightW - pdguiScale(12.0f);
+
+            if (isPdSel) {
+                ImDrawList *dl = ImGui::GetWindowDrawList();
+                dl->AddRectFilled(pdcp,
+                    ImVec2(pdcp.x + rowW, pdcp.y + diffRowH),
+                    IM_COL32(60, 20, 80, 120), pdguiScale(6.0f));
+                dl->AddRect(pdcp,
+                    ImVec2(pdcp.x + rowW, pdcp.y + diffRowH),
+                    k_DiffBadgeColor[3], pdguiScale(6.0f), 0, 1.5f);
+            }
+            if (isPdFocus) {
+                pdguiDrawItemHighlight(pdcp.x, pdcp.y, rowW, diffRowH);
+            }
+
+            bool pdClicked = ImGui::Selectable("##diff_pd", isPdSel,
+                                               ImGuiSelectableFlags_None,
+                                               ImVec2(rowW, diffRowH));
+            if (ImGui::IsItemHovered()) {
+                s_DetailFocusIdx = pdFocusIdx;
+                s_DetailPanelFocus = true;
+            }
+
+            bool pdConfirm = isPdFocus && ImGui::IsKeyPressed(ImGuiKey_Enter, false);
+            if (pdClicked || pdConfirm) {
+                s_DetailDiffIdx = 3;
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            }
+
+            /* Overlay: purple badge + label + best time */
+            {
+                ImDrawList *dl = ImGui::GetWindowDrawList();
+                float cy = pdcp.y + (diffRowH - ImGui::GetTextLineHeight()) * 0.5f;
+                float bx = pdcp.x + pdguiScale(9.0f);
+                float dotR = pdguiScale(6.0f);
+                dl->AddCircleFilled(ImVec2(bx + dotR, pdcp.y + diffRowH * 0.5f),
+                                    dotR, k_DiffBadgeColor[3]);
+                float tx = bx + dotR * 2.0f + pdguiScale(12.0f);
+                const char *pdLabel = langSafe(L_MPWEAPONS_221);
+                if (!pdLabel || !pdLabel[0]) pdLabel = "Dark Agent";
+                dl->AddText(ImVec2(tx, cy), IM_COL32(255, 255, 255, 255), pdLabel);
+                char timeStr[32];
+                formatBestTime(timeStr, sizeof(timeStr), g_GameFile.besttimes[si][DIFF_PD]);
+                ImVec2 tSz = ImGui::CalcTextSize(timeStr);
+                dl->AddText(ImVec2(pdcp.x + rowW - tSz.x - pdguiScale(12.0f), cy),
+                            pdguiImU32TintSuccess(210), timeStr);
             }
 
             ImGui::PopID();
@@ -1207,8 +1274,10 @@ static s32 renderMissionSelect(struct menudialog *dialog,
         ImGui::EndChild(); /* ms_detail_body */
 
         /* ---- Docked Action Bar: Start Mission (never scrolls) ---- */
-        bool startFocus = s_DetailPanelFocus && (s_DetailFocusIdx == 3);
-        bool diffLocked = !isStageDifficultyUnlocked(si, selDiff);
+        bool startFocus = s_DetailPanelFocus && (s_DetailFocusIdx == startFocusIdx);
+        /* PD Mode is gated by pdModeVisible row visibility, not isStageDifficultyUnlocked */
+        bool diffLocked = (selDiff == DIFF_PD) ? false
+                                               : !isStageDifficultyUnlocked(si, selDiff);
 
         if (pdguiBeginActionBar("##ms_action_bar")) {
             float barW = ImGui::GetContentRegionAvail().x;
@@ -1225,18 +1294,26 @@ static s32 renderMissionSelect(struct menudialog *dialog,
             ImGui::PopStyleColor();
 
             if (ImGui::IsItemHovered()) {
-                s_DetailFocusIdx = 3;
+                s_DetailFocusIdx = startFocusIdx;
                 s_DetailPanelFocus = true;
             }
 
             if (activated && !diffLocked) {
-                /* Set difficulty and launch mission */
-                SM_CLEAR_PDMODE(&g_MissionConfig);
-                SM_SET_DIFFICULTY(&g_MissionConfig, selDiff);
-                lvSetDifficulty(selDiff);
-                menuhandlerAcceptMission(MENUOP_SET, nullptr, nullptr);
-                if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-                    inputCtxPopDeferred(&g_CtxImGuiMenu);
+                if (selDiff == DIFF_PD) {
+                    /* PD Mode: set PA as base difficulty and open PD Mode settings */
+                    SM_CLEAR_PDMODE(&g_MissionConfig);
+                    SM_SET_DIFFICULTY(&g_MissionConfig, DIFF_PA);
+                    lvSetDifficulty(DIFF_PA);
+                    pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+                    menuPushDialog(&g_PdModeSettingsMenuDialog);
+                } else {
+                    SM_CLEAR_PDMODE(&g_MissionConfig);
+                    SM_SET_DIFFICULTY(&g_MissionConfig, selDiff);
+                    lvSetDifficulty(selDiff);
+                    menuhandlerAcceptMission(MENUOP_SET, nullptr, nullptr);
+                    if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+                        inputCtxPopDeferred(&g_CtxImGuiMenu);
+                    }
                 }
             } else if (activated && diffLocked) {
                 /* Action-bar button already played SND_SELECT; override
