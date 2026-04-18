@@ -49,23 +49,21 @@ Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 Add-Type -AssemblyName System.Windows.Forms
 
-if (-not ([System.Management.Automation.PSTypeName]'PD2V2.DpiUtil').Type) {
+# Perf: consolidated to a single Add-Type compile. Three separate Add-Type
+# -Language CSharp calls were costing ~2-4s extra on cold start (each runs the
+# C# compiler from scratch). Guard on the last type so the single compile only
+# runs on first launch.
+if (-not ([System.Management.Automation.PSTypeName]'PD2V2.AsyncLineReader').Type) {
     Add-Type -Language CSharp @"
+using System;
+using System.IO;
+using System.Threading;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 namespace PD2V2 {
     public static class DpiUtil {
         [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
     }
-}
-"@
-}
-try { [void][PD2V2.DpiUtil]::SetProcessDPIAware() } catch {}
-
-if (-not ([System.Management.Automation.PSTypeName]'PD2V2.ConsoleHider').Type) {
-    Add-Type -Language CSharp @"
-using System;
-using System.Runtime.InteropServices;
-namespace PD2V2 {
     public class ConsoleHider {
         [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
         [DllImport("user32.dll")]   public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
@@ -75,22 +73,6 @@ namespace PD2V2 {
             if (hwnd != IntPtr.Zero) ShowWindow(hwnd, SW_HIDE);
         }
     }
-}
-"@
-}
-[PD2V2.ConsoleHider]::Hide()
-
-# ============================================================================
-# Section 2: C# helpers (AsyncLineReader) -- guarded
-# ============================================================================
-
-if (-not ([System.Management.Automation.PSTypeName]'PD2V2.AsyncLineReader').Type) {
-    Add-Type -Language CSharp @"
-using System;
-using System.IO;
-using System.Threading;
-using System.Collections.Concurrent;
-namespace PD2V2 {
     public class AsyncLineReader {
         public static void StartReading(StreamReader reader, ConcurrentQueue<string> queue, string prefix) {
             var t = new Thread(() => {
@@ -106,6 +88,12 @@ namespace PD2V2 {
 }
 "@
 }
+try { [void][PD2V2.DpiUtil]::SetProcessDPIAware() } catch {}
+[PD2V2.ConsoleHider]::Hide()
+
+# ============================================================================
+# Section 2: (reserved -- C# helpers consolidated above)
+# ============================================================================
 
 # ============================================================================
 # Section 3: Configuration
@@ -172,6 +160,17 @@ $script:GhAuthHandle        = $null
 $script:GhAuthHadGhOnHost   = $false  # set before each probe; used if probe times out
 $script:LatestRelease       = $null
 $script:DevWindowDebugLogPath = Join-Path $script:ScriptDir "dev-window-v2-debug.log"
+
+# Perf: persistent background runspace pool. Used by Update-StatusBar (every
+# 2s tick), Populate-DocList, and on-demand git/bash actions. Without this,
+# each background task opens a fresh runspace — Runspace.Open() is ~100-500ms
+# on the UI thread, which is why the window felt stuttery every 2s.
+$script:BgPool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, 3)
+$script:BgPool.ApartmentState = [System.Threading.ApartmentState]::MTA
+$script:BgPool.ThreadOptions  = [System.Management.Automation.Runspaces.PSThreadOptions]::ReuseThread
+$script:BgPool.Open()
+$script:DocListLoadBusy     = $false
+$script:GitActionBusy       = $false
 
 # ============================================================================
 # Section 4: Settings persistence
@@ -1249,27 +1248,73 @@ $ui["TxtLogFilter"].Add_LostFocus({
 # ============================================================================
 
 function Populate-DocList {
+    # Perf: scan disk on the background pool, populate ListBox on UI thread in
+    # one pass. Old code did Get-ChildItem -Recurse over context/docs (hundreds
+    # of files) on the UI thread during Loaded, blocking window paint for
+    # 200-1000ms on cold disk.
     if ($null -eq $ui["DocList"]) { return }
-    $ui["DocList"].Items.Clear()
-    $script:DocFileMap = @{}
-    $folders = @("docs", "context")
-    foreach ($folder in $folders) {
-        $fp = Join-Path $script:ProjectRoot $folder
-        if (Test-Path $fp) {
-            Get-ChildItem -Path $fp -Include "*.md","*.txt" -Recurse | Sort-Object FullName | ForEach-Object {
-                $rel = $_.FullName.Substring($script:ProjectRoot.Length).TrimStart('\', '/')
-                [void]$ui["DocList"].Items.Add($rel)
-                $script:DocFileMap[$rel] = $_.FullName
+    if ($script:DocListLoadBusy) { return }
+    $script:DocListLoadBusy = $true
+
+    $root = $script:ProjectRoot
+    $ps = [System.Management.Automation.PowerShell]::Create()
+    $ps.RunspacePool = $script:BgPool
+    [void]$ps.AddScript({
+        param($root)
+        $results = New-Object System.Collections.ArrayList
+        $folders = @("docs", "context")
+        foreach ($folder in $folders) {
+            $fp = Join-Path $root $folder
+            if (Test-Path $fp) {
+                Get-ChildItem -Path $fp -Include "*.md","*.txt" -Recurse -File -ErrorAction SilentlyContinue |
+                    Sort-Object FullName | ForEach-Object {
+                    $rel = $_.FullName.Substring($root.Length).TrimStart('\', '/')
+                    [void]$results.Add([PSCustomObject]@{ Rel = $rel; Full = $_.FullName })
+                }
             }
         }
-    }
-    Get-ChildItem -Path $script:ProjectRoot -Filter "*.md" -File | Sort-Object Name | ForEach-Object {
-        $rel = $_.Name
-        if (-not $script:DocFileMap.ContainsKey($rel)) {
-            [void]$ui["DocList"].Items.Add($rel)
-            $script:DocFileMap[$rel] = $_.FullName
+        Get-ChildItem -Path $root -Filter "*.md" -File -ErrorAction SilentlyContinue |
+            Sort-Object Name | ForEach-Object {
+            [void]$results.Add([PSCustomObject]@{ Rel = $_.Name; Full = $_.FullName })
         }
-    }
+        return ,$results
+    })
+    [void]$ps.AddArgument($root)
+    $handle = $ps.BeginInvoke()
+
+    $pollTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $pollTimer.Interval = [TimeSpan]::FromMilliseconds(150)
+    $pollTimer.Add_Tick({
+        if (-not $handle.IsCompleted) { return }
+        $this.Stop()
+        try {
+            $results = $ps.EndInvoke($handle)
+            # EndInvoke wraps single returns in a collection. Unwrap carefully.
+            $items = @()
+            if ($null -ne $results) {
+                foreach ($r in @($results)) {
+                    if ($null -eq $r) { continue }
+                    if ($r -is [System.Collections.IEnumerable] -and -not ($r -is [string]) -and -not ($r -is [psobject])) {
+                        foreach ($x in $r) { if ($null -ne $x) { $items += $x } }
+                    } else {
+                        $items += $r
+                    }
+                }
+            }
+            $script:DocFileMap = @{}
+            $ui["DocList"].Items.Clear()
+            foreach ($item in $items) {
+                if ($null -eq $item -or $null -eq $item.Rel) { continue }
+                if (-not $script:DocFileMap.ContainsKey($item.Rel)) {
+                    [void]$ui["DocList"].Items.Add($item.Rel)
+                    $script:DocFileMap[$item.Rel] = $item.Full
+                }
+            }
+        } catch {}
+        try { $ps.Dispose() } catch {}
+        $script:DocListLoadBusy = $false
+    })
+    $pollTimer.Start()
 }
 
 $ui["DocList"].Add_SelectionChanged({
@@ -1419,36 +1464,86 @@ function Invoke-GitSyncBeforeBuild {
     return $true
 }
 
+# Runs a script block on BgPool; invokes $OnComplete on the UI thread with the
+# script's return value. Perf: keeps the UI thread responsive for on-demand
+# actions (pull/push/prune/check) that previously ran synchronously and could
+# block for seconds (or longer, on network hiccups).
+function Start-AsyncPoolAction {
+    param(
+        [Parameter(Mandatory=$true)][scriptblock]$Script,
+        [object[]]$Arguments,
+        [Parameter(Mandatory=$true)][scriptblock]$OnComplete
+    )
+    $ps = [System.Management.Automation.PowerShell]::Create()
+    $ps.RunspacePool = $script:BgPool
+    [void]$ps.AddScript($Script)
+    if ($Arguments) {
+        foreach ($a in $Arguments) { [void]$ps.AddArgument($a) }
+    }
+    $handle = $ps.BeginInvoke()
+    $t = New-Object System.Windows.Threading.DispatcherTimer
+    $t.Interval = [TimeSpan]::FromMilliseconds(150)
+    $t.Add_Tick({
+        if (-not $handle.IsCompleted) { return }
+        $this.Stop()
+        $result = $null
+        try { $result = $ps.EndInvoke($handle) } catch { $result = $null }
+        try { $ps.Dispose() } catch {}
+        try { & $OnComplete $result } catch {}
+    })
+    $t.Start()
+}
+
 function Invoke-GitPull {
     if ($script:IsBuilding -or $script:IsPushing) {
         [System.Windows.MessageBox]::Show("Wait for the current build or release to finish.", "Git Pull", "OK", "Information") | Out-Null
+        return
+    }
+    if ($script:GitActionBusy) {
+        [System.Windows.MessageBox]::Show("Another git action is in progress.", "Git Pull", "OK", "Information") | Out-Null
         return
     }
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
         [System.Windows.MessageBox]::Show("git was not found on PATH.", "Git Pull", "OK", "Warning") | Out-Null
         return
     }
+    $script:GitActionBusy = $true
+    $ui["BtnPull"].IsEnabled = $false
     $br = Get-GitCurrentBranch
     Add-LogLine ">>> git pull (branch: $br)" "#0090D0"
-    try {
-        $out = & git -C $script:ProjectRoot pull 2>&1
-        $code = $LASTEXITCODE
-        foreach ($line in $out) {
-            $t = "$line".TrimEnd("`r")
-            $cl = "#8C8C8C"
-            if ($code -ne 0) { $cl = "#DC3232" }
-            Add-LogLine $t $cl
+
+    Start-AsyncPoolAction `
+        -Script {
+            param($root)
+            try {
+                $out = & git -C $root pull 2>&1
+                [PSCustomObject]@{ Code = $LASTEXITCODE; Out = @($out | ForEach-Object { "$_" }) }
+            } catch {
+                [PSCustomObject]@{ Code = -1; Out = @($_.Exception.Message) }
+            }
+        } `
+        -Arguments @($script:ProjectRoot) `
+        -OnComplete {
+            param($result)
+            try {
+                $r = if ($result -and $result.Count -gt 0) { $result[0] } else { $result }
+                if ($null -ne $r) {
+                    $code = [int]$r.Code
+                    foreach ($line in $r.Out) {
+                        $cl = if ($code -ne 0) { "#DC3232" } else { "#8C8C8C" }
+                        Add-LogLine ("$line".TrimEnd("`r")) $cl
+                    }
+                    if ($code -eq 0) {
+                        [System.Windows.MessageBox]::Show("Pull completed successfully.", "Git Pull", "OK", "Information") | Out-Null
+                    } else {
+                        [System.Windows.MessageBox]::Show("Pull finished with exit code $code.`nSee Log tab for details.", "Git Pull", "OK", "Warning") | Out-Null
+                    }
+                }
+            } catch {}
+            $script:GitActionBusy = $false
+            $ui["BtnPull"].IsEnabled = $true
+            Update-StatusBar
         }
-        if ($code -eq 0) {
-            [System.Windows.MessageBox]::Show("Pull completed successfully.", "Git Pull", "OK", "Information") | Out-Null
-        } else {
-            [System.Windows.MessageBox]::Show("Pull finished with exit code $code.`nSee Log tab for details.", "Git Pull", "OK", "Warning") | Out-Null
-        }
-    } catch {
-        Add-LogLine $_.Exception.Message "#DC3232"
-        [System.Windows.MessageBox]::Show($_.Exception.Message, "Git Pull", "OK", "Error") | Out-Null
-    }
-    Update-StatusBar
 }
 
 function Invoke-GitPush {
@@ -1456,31 +1551,51 @@ function Invoke-GitPush {
         [System.Windows.MessageBox]::Show("Wait for the current build or release to finish.", "Git Push", "OK", "Information") | Out-Null
         return
     }
+    if ($script:GitActionBusy) {
+        [System.Windows.MessageBox]::Show("Another git action is in progress.", "Git Push", "OK", "Information") | Out-Null
+        return
+    }
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
         [System.Windows.MessageBox]::Show("git was not found on PATH.", "Git Push", "OK", "Warning") | Out-Null
         return
     }
+    $script:GitActionBusy = $true
+    $ui["BtnPush"].IsEnabled = $false
     $br = Get-GitCurrentBranch
     Add-LogLine ">>> git push (branch: $br)" "#0090D0"
-    try {
-        $out = & git -C $script:ProjectRoot push 2>&1
-        $code = $LASTEXITCODE
-        foreach ($line in $out) {
-            $t = "$line".TrimEnd("`r")
-            $cl = "#8C8C8C"
-            if ($code -ne 0) { $cl = "#DC3232" }
-            Add-LogLine $t $cl
+
+    Start-AsyncPoolAction `
+        -Script {
+            param($root)
+            try {
+                $out = & git -C $root push 2>&1
+                [PSCustomObject]@{ Code = $LASTEXITCODE; Out = @($out | ForEach-Object { "$_" }) }
+            } catch {
+                [PSCustomObject]@{ Code = -1; Out = @($_.Exception.Message) }
+            }
+        } `
+        -Arguments @($script:ProjectRoot) `
+        -OnComplete {
+            param($result)
+            try {
+                $r = if ($result -and $result.Count -gt 0) { $result[0] } else { $result }
+                if ($null -ne $r) {
+                    $code = [int]$r.Code
+                    foreach ($line in $r.Out) {
+                        $cl = if ($code -ne 0) { "#DC3232" } else { "#8C8C8C" }
+                        Add-LogLine ("$line".TrimEnd("`r")) $cl
+                    }
+                    if ($code -eq 0) {
+                        [System.Windows.MessageBox]::Show("Push completed successfully.", "Git Push", "OK", "Information") | Out-Null
+                    } else {
+                        [System.Windows.MessageBox]::Show("Push finished with exit code $code.`nSee Log tab for details.", "Git Push", "OK", "Warning") | Out-Null
+                    }
+                }
+            } catch {}
+            $script:GitActionBusy = $false
+            $ui["BtnPush"].IsEnabled = $true
+            Update-StatusBar
         }
-        if ($code -eq 0) {
-            [System.Windows.MessageBox]::Show("Push completed successfully.", "Git Push", "OK", "Information") | Out-Null
-        } else {
-            [System.Windows.MessageBox]::Show("Push finished with exit code $code.`nSee Log tab for details.", "Git Push", "OK", "Warning") | Out-Null
-        }
-    } catch {
-        Add-LogLine $_.Exception.Message "#DC3232"
-        [System.Windows.MessageBox]::Show($_.Exception.Message, "Git Push", "OK", "Error") | Out-Null
-    }
-    Update-StatusBar
 }
 
 function Invoke-GitPruneWorktrees {
@@ -1488,37 +1603,62 @@ function Invoke-GitPruneWorktrees {
         [System.Windows.MessageBox]::Show("Wait for the current build or release to finish.", "Prune Worktrees", "OK", "Information") | Out-Null
         return
     }
+    if ($script:GitActionBusy) {
+        [System.Windows.MessageBox]::Show("Another git action is in progress.", "Prune Worktrees", "OK", "Information") | Out-Null
+        return
+    }
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
         [System.Windows.MessageBox]::Show("git was not found on PATH.", "Prune Worktrees", "OK", "Warning") | Out-Null
         return
     }
-    try {
-        $gitExe = Resolve-GitExecutable
-        if (-not $gitExe) { $gitExe = "git" }
-        Add-LogSessionLine "" "#1A3050"
-        Add-LogSessionLine ">>> git worktree prune -v" "#0090D0"
-        Add-LogSessionLine "" "#1A3050"
-        $outFile = Join-Path $env:TEMP "pd2-wt-prune.txt"
-        $errFile = Join-Path $env:TEMP "pd2-wt-prune-err.txt"
-        $proc = Start-Process -FilePath $gitExe -ArgumentList @("-C", $script:ProjectRoot, "worktree", "prune", "-v") `
-            -Wait -PassThru -NoNewWindow `
-            -RedirectStandardOutput $outFile -RedirectStandardError $errFile
-        $out = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
-        $err = Get-Content $errFile -Raw -ErrorAction SilentlyContinue
-        if ($out) { foreach ($l in ($out -split "`n")) { if ($l.Trim()) { Add-LogLine $l "#6888A8" } } }
-        if ($err) { foreach ($l in ($err -split "`n")) { if ($l.Trim()) { Add-LogLine $l "#DC3232" } } }
-        $code = $proc.ExitCode
-        if ($code -eq 0) {
-            $pruned = if ($out -and $out.Trim()) { $out.Trim() } else { "(no stale worktrees found)" }
-            [System.Windows.MessageBox]::Show("Prune completed.`n`n" + $pruned, "Prune Worktrees", "OK", "Information") | Out-Null
-        } else {
-            [System.Windows.MessageBox]::Show("git worktree prune exited $code.`nSee Log tab for details.", "Prune Worktrees", "OK", "Warning") | Out-Null
+    $gitExe = Resolve-GitExecutable
+    if (-not $gitExe) { $gitExe = "git" }
+
+    $script:GitActionBusy = $true
+    $ui["BtnPruneWorktrees"].IsEnabled = $false
+    Add-LogSessionLine "" "#1A3050"
+    Add-LogSessionLine ">>> git worktree prune -v" "#0090D0"
+    Add-LogSessionLine "" "#1A3050"
+
+    Start-AsyncPoolAction `
+        -Script {
+            param($gitExe, $root)
+            $outFile = Join-Path $env:TEMP ("pd2-wt-prune-" + [guid]::NewGuid().ToString("N") + ".txt")
+            $errFile = $outFile + ".err"
+            try {
+                $proc = Start-Process -FilePath $gitExe -ArgumentList @("-C", $root, "worktree", "prune", "-v") `
+                    -Wait -PassThru -NoNewWindow `
+                    -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+                $out = Get-Content $outFile -Raw -ErrorAction SilentlyContinue
+                $err = Get-Content $errFile -Raw -ErrorAction SilentlyContinue
+                [PSCustomObject]@{ Code = $proc.ExitCode; Out = $out; Err = $err }
+            } catch {
+                [PSCustomObject]@{ Code = -1; Out = ""; Err = $_.Exception.Message }
+            } finally {
+                try { Remove-Item $outFile -Force -ErrorAction SilentlyContinue } catch {}
+                try { Remove-Item $errFile -Force -ErrorAction SilentlyContinue } catch {}
+            }
+        } `
+        -Arguments @($gitExe, $script:ProjectRoot) `
+        -OnComplete {
+            param($result)
+            try {
+                $r = if ($result -and $result.Count -gt 0) { $result[0] } else { $result }
+                if ($null -ne $r) {
+                    if ($r.Out) { foreach ($l in ($r.Out -split "`n")) { if ($l.Trim()) { Add-LogLine $l "#6888A8" } } }
+                    if ($r.Err) { foreach ($l in ($r.Err -split "`n")) { if ($l.Trim()) { Add-LogLine $l "#DC3232" } } }
+                    if ($r.Code -eq 0) {
+                        $pruned = if ($r.Out -and $r.Out.Trim()) { $r.Out.Trim() } else { "(no stale worktrees found)" }
+                        [System.Windows.MessageBox]::Show("Prune completed.`n`n" + $pruned, "Prune Worktrees", "OK", "Information") | Out-Null
+                    } else {
+                        [System.Windows.MessageBox]::Show("git worktree prune exited $($r.Code).`nSee Log tab for details.", "Prune Worktrees", "OK", "Warning") | Out-Null
+                    }
+                }
+            } catch {}
+            $script:GitActionBusy = $false
+            $ui["BtnPruneWorktrees"].IsEnabled = $true
+            Update-StatusBar
         }
-    } catch {
-        Add-LogLine $_.Exception.Message "#DC3232"
-        [System.Windows.MessageBox]::Show($_.Exception.Message, "Prune Worktrees", "OK", "Error") | Out-Null
-    }
-    Update-StatusBar
 }
 
 function Stop-Build {
@@ -1781,10 +1921,26 @@ function Toggle-Server {
         [System.Windows.MessageBox]::Show("Server executable not found. Build first.", "Run Error", "OK", "Warning") | Out-Null
         return
     }
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = $exe; $psi.UseShellExecute = $true
-    $script:ServerProcess = [System.Diagnostics.Process]::Start($psi)
-    $ui["BtnRunServer"].Content = "STOP SERVER"
+    # Perf: give the user immediate feedback. UseShellExecute=$false skips the
+    # Shell32 association lookup (a noticeable cold-start cost the first time
+    # in a session) and uses CreateProcess directly; for a direct path to
+    # .exe this is always safe. Button state flips before the exe starts
+    # initializing so the click feels instantaneous.
+    $ui["BtnRunServer"].Content = "STARTING..."
+    $ui["BtnRunServer"].UpdateLayout()
+    Add-LogLine (">>> Starting server: " + $exe) "#0090D0"
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $exe
+        $psi.WorkingDirectory = (Split-Path $exe -Parent)
+        $psi.UseShellExecute = $false
+        $script:ServerProcess = [System.Diagnostics.Process]::Start($psi)
+        $ui["BtnRunServer"].Content = "STOP SERVER"
+    } catch {
+        Add-LogLine ("Server launch failed: " + $_.Exception.Message) "#DC3232"
+        $ui["BtnRunServer"].Content = "RUN SERVER"
+        [System.Windows.MessageBox]::Show("Server launch failed: " + $_.Exception.Message, "Run Error", "OK", "Error") | Out-Null
+    }
 }
 
 function Toggle-Game {
@@ -1799,10 +1955,21 @@ function Toggle-Game {
         [System.Windows.MessageBox]::Show("Game executable not found. Build first.", "Run Error", "OK", "Warning") | Out-Null
         return
     }
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = $exe; $psi.UseShellExecute = $true
-    $script:GameProcess = [System.Diagnostics.Process]::Start($psi)
-    $ui["BtnRunGame"].Content = "STOP GAME"
+    $ui["BtnRunGame"].Content = "STARTING..."
+    $ui["BtnRunGame"].UpdateLayout()
+    Add-LogLine (">>> Starting game: " + $exe) "#0090D0"
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $exe
+        $psi.WorkingDirectory = (Split-Path $exe -Parent)
+        $psi.UseShellExecute = $false
+        $script:GameProcess = [System.Diagnostics.Process]::Start($psi)
+        $ui["BtnRunGame"].Content = "STOP GAME"
+    } catch {
+        Add-LogLine ("Game launch failed: " + $_.Exception.Message) "#DC3232"
+        $ui["BtnRunGame"].Content = "RUN GAME"
+        [System.Windows.MessageBox]::Show("Game launch failed: " + $_.Exception.Message, "Run Error", "OK", "Error") | Out-Null
+    }
 }
 
 function Update-RunButtons {
@@ -1840,27 +2007,62 @@ $ui["BtnCopyLog"].Add_Click({
 })
 
 $ui["BtnCheck"].Add_Click({
-    try {
-        $st = git -C $script:ProjectRoot status --porcelain 2>$null
-        $cnt = $(if ($st) { ($st | Measure-Object).Count } else { 0 })
-        $msg = ""
-        if ($cnt -eq 0) {
-            $msg = "Git state: CLEAN (no uncommitted changes)`n"
-        } else {
-            $msg = "Git state: DIRTY (" + $cnt + " uncommitted files)`n"
-        }
-        $snapshotScript = Join-Path $script:ProjectRoot "devtools\git-snapshot.sh"
-        if (Test-Path $snapshotScript) {
-            $msg = $msg + "`nRunning git-snapshot.sh...`n"
-            $snapOut = bash $snapshotScript 2>&1
-            $msg = $msg + ($snapOut -join "`n")
-        } else {
-            $msg = $msg + "git-snapshot.sh not found (optional)."
-        }
-        [System.Windows.MessageBox]::Show($msg, "Pre-Build Check", "OK", "Information") | Out-Null
-    } catch {
-        [System.Windows.MessageBox]::Show("Check failed: " + $_.Exception.Message, "Error", "OK", "Error") | Out-Null
+    # Perf: git + bash run on BgPool so the UI thread stays responsive while
+    # git-snapshot.sh runs (which can take seconds on a cold Git-for-Windows
+    # process).
+    if ($script:GitActionBusy) {
+        [System.Windows.MessageBox]::Show("Another git action is in progress.", "Pre-Build Check", "OK", "Information") | Out-Null
+        return
     }
+    $script:GitActionBusy = $true
+    $ui["BtnCheck"].IsEnabled = $false
+    Add-LogLine ">>> check: git status + git-snapshot.sh" "#0090D0"
+
+    Start-AsyncPoolAction `
+        -Script {
+            param($root)
+            try {
+                $st = git -C $root status --porcelain 2>$null
+                $cnt = if ($st) { @($st).Count } else { 0 }
+                $snap = Join-Path $root "devtools\git-snapshot.sh"
+                $snapOut = $null
+                if (Test-Path $snap) {
+                    try {
+                        $snapOut = (bash $snap 2>&1 | Out-String)
+                    } catch {
+                        $snapOut = "git-snapshot.sh failed: " + $_.Exception.Message
+                    }
+                }
+                [PSCustomObject]@{ Dirty = $cnt; SnapOut = $snapOut; HasSnap = (Test-Path $snap) }
+            } catch {
+                [PSCustomObject]@{ Dirty = -1; SnapOut = $_.Exception.Message; HasSnap = $false }
+            }
+        } `
+        -Arguments @($script:ProjectRoot) `
+        -OnComplete {
+            param($result)
+            try {
+                $r = if ($result -and $result.Count -gt 0) { $result[0] } else { $result }
+                $msg = ""
+                if ($null -ne $r) {
+                    if ($r.Dirty -lt 0) {
+                        $msg = "Check failed: " + $r.SnapOut
+                    } elseif ($r.Dirty -eq 0) {
+                        $msg = "Git state: CLEAN (no uncommitted changes)`n"
+                    } else {
+                        $msg = "Git state: DIRTY (" + $r.Dirty + " uncommitted files)`n"
+                    }
+                    if ($r.HasSnap) {
+                        $msg = $msg + "`ngit-snapshot.sh output:`n" + ($r.SnapOut -replace "`r", "")
+                    } else {
+                        $msg = $msg + "git-snapshot.sh not found (optional)."
+                    }
+                }
+                [System.Windows.MessageBox]::Show($msg, "Pre-Build Check", "OK", "Information") | Out-Null
+            } catch {}
+            $script:GitActionBusy = $false
+            $ui["BtnCheck"].IsEnabled = $true
+        }
 })
 
 $ui["BtnCleanBuild"].Add_Click({
@@ -2276,13 +2478,12 @@ function Update-StatusBar {
     if ($script:GitBusy) { return }
     $script:GitBusy = $true
 
-    # Run the three git queries on a background runspace so the UI thread never
-    # blocks.  Same pattern as the gh-auth check in Section 21.
+    # Perf: reuse the persistent BgPool instead of creating a fresh runspace per
+    # call. Old code opened a runspace here every 2s tick (~100-500ms on UI
+    # thread). Pool-backed PowerShell instances skip the Open() cost entirely.
     $root = $script:ProjectRoot
-    $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
-    $rs.Open()
     $ps = [System.Management.Automation.PowerShell]::Create()
-    $ps.Runspace = $rs
+    $ps.RunspacePool = $script:BgPool
     [void]$ps.AddScript({
         param($root)
         $b = try { $x = git -C $root branch --show-current 2>$null; if ($x) { $x.Trim() } else { 'unknown' } } catch { 'unknown' }
@@ -2295,7 +2496,7 @@ function Update-StatusBar {
     $handle = $ps.BeginInvoke()
 
     # Poll on the dispatcher (250 ms) until the background job finishes, then
-    # apply results on the UI thread.  GitBusy is cleared only after completion.
+    # apply results on the UI thread. GitBusy is cleared only after completion.
     $gitPollTimer = New-Object System.Windows.Threading.DispatcherTimer
     $gitPollTimer.Interval = [TimeSpan]::FromMilliseconds(250)
     $gitPollTimer.Add_Tick({
@@ -2323,7 +2524,6 @@ function Update-StatusBar {
                 Update-Auth-Labels
             }
             try { $ps.Dispose() } catch {}
-            try { $rs.Close(); $rs.Dispose() } catch {}
         } catch {}
         $script:GitBusy = $false
     })
@@ -2454,6 +2654,13 @@ $window.Add_Closing({
         $script:Settings.WindowLeft   = [int]$window.Left
         $script:Settings.WindowTop    = [int]$window.Top
         Save-Settings $script:Settings
+
+        # Dispose BgPool to release background threads.
+        if ($null -ne $script:BgPool) {
+            try { $script:BgPool.Close() } catch {}
+            try { $script:BgPool.Dispose() } catch {}
+            $script:BgPool = $null
+        }
     } catch {}
 })
 
