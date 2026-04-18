@@ -54,6 +54,7 @@
 #define DEFAULT_PROTECTED    "mods,data,extracted,saves"
 
 #define MAX_RELEASES         64
+#define WINDOW_CLIENT_H      572  /* client-area height to fit all controls + padding */
 #define MAX_URL_LEN          512
 #define MAX_TAG_LEN          64
 #define MAX_NAME_LEN         128
@@ -153,7 +154,9 @@ typedef struct {
 
 	/* Releases (owned by UI thread; worker writes into scratch, then
 	 * hands off via the completion message) */
-	release_t releases[MAX_RELEASES];
+	release_t allReleases[MAX_RELEASES]; /* full fetch — never re-filtered */
+	int allReleaseCount;
+	release_t releases[MAX_RELEASES];    /* view: filtered by showDevReleases */
 	int releaseCount;
 	int selectedIndex;
 
@@ -771,7 +774,8 @@ static unsigned __stdcall checkThread(void *arg)
 		return 1;
 	}
 
-	int count = parseReleasesJson(buf.data, g_App.scratchReleases, MAX_RELEASES, g_App.showDevReleases);
+	/* Always parse all non-draft releases; checkbox filtering happens in the UI */
+	int count = parseReleasesJson(buf.data, g_App.scratchReleases, MAX_RELEASES, 1);
 	free(buf.data);
 
 	if (count < 0) {
@@ -1211,6 +1215,15 @@ static void setStatus(const char *fmt, ...)
 	SetWindowTextA(g_App.hStatus, buf);
 }
 
+static void filterReleases(void)
+{
+	g_App.releaseCount = 0;
+	for (int i = 0; i < g_App.allReleaseCount; i++) {
+		if (!g_App.showDevReleases && g_App.allReleases[i].isPrerelease) continue;
+		g_App.releases[g_App.releaseCount++] = g_App.allReleases[i];
+	}
+}
+
 static void populateList(void)
 {
 	ListView_DeleteAllItems(g_App.hList);
@@ -1373,6 +1386,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 				LRESULT state = SendMessage(g_App.hShowDevReleases, BM_GETCHECK, 0, 0);
 				g_App.showDevReleases = (state == BST_CHECKED) ? 1 : 0;
 				settingsSave();
+				if (g_App.allReleaseCount > 0) {
+					filterReleases();
+					populateList();
+				}
 			}
 			break;
 		case IDC_BTN_CHECK:
@@ -1390,12 +1407,13 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 	case WM_APP_CHECK_DONE: {
 		int count = (int)wParam;
 		EnterCriticalSection(&g_App.cs);
-		memcpy(g_App.releases, g_App.scratchReleases, sizeof(release_t) * count);
-		g_App.releaseCount = count;
+		memcpy(g_App.allReleases, g_App.scratchReleases, sizeof(release_t) * count);
+		g_App.allReleaseCount = count;
 		LeaveCriticalSection(&g_App.cs);
+		filterReleases();
 		populateList();
 		EnableWindow(g_App.hBtnCheck, TRUE);
-		if (count == 0) {
+		if (g_App.releaseCount == 0) {
 			setStatus("No %s releases found.",
 				g_App.showDevReleases ? "stable or dev" : "stable");
 		} else {
@@ -1708,14 +1726,17 @@ static int runGui(HINSTANCE hInstance)
 	}
 
 	int winW = 720;
-	int winH = 580;
+	DWORD winStyle = (WS_OVERLAPPEDWINDOW & ~(WS_MAXIMIZEBOX | WS_THICKFRAME)) | WS_VISIBLE;
+	RECT adjRc = {0, 0, winW, WINDOW_CLIENT_H};
+	AdjustWindowRect(&adjRc, winStyle & ~WS_VISIBLE, FALSE);
+	int winH = adjRc.bottom - adjRc.top;
 	RECT workArea = {0};
 	SystemParametersInfo(SPI_GETWORKAREA, 0, &workArea, 0);
 	int winX = (workArea.right  - workArea.left - winW) / 2 + workArea.left;
 	int winY = (workArea.bottom - workArea.top  - winH) / 2 + workArea.top;
 
 	g_App.hMain = CreateWindowExA(0, APP_WINDOW_CLASS, APP_TITLE,
-		(WS_OVERLAPPEDWINDOW & ~(WS_MAXIMIZEBOX | WS_THICKFRAME)) | WS_VISIBLE,
+		winStyle,
 		winX, winY, winW, winH,
 		NULL, NULL, hInstance, NULL);
 
@@ -1725,7 +1746,9 @@ static int runGui(HINSTANCE hInstance)
 	}
 
 	createControls(g_App.hMain);
-	setStatus("Ready. Click 'Check for Updates' to pull the latest releases.");
+	setStatus("Checking for updates...");
+	PostMessage(g_App.hMain, WM_COMMAND, MAKEWPARAM(IDC_BTN_CHECK, BN_CLICKED),
+		(LPARAM)g_App.hBtnCheck);
 
 	MSG msg;
 	while (GetMessage(&msg, NULL, 0, 0) > 0) {
