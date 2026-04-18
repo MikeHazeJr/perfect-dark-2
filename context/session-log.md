@@ -1,8 +1,29 @@
 
 # Session Log (Active)
 
-> **S281–S361** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S362** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S362 — 2026-04-18 (worktree `claude/nervous-satoshi-763192`, merged to `dev` @ `4260a1fd`) — Release pipeline: local-testability, Updater.exe bundling, Dev-release prune
+
+**Scope**: Three fixes to `devtools/release.ps1` so the Dev Window Release button is self-contained and doesn't leave the build unusable when a later step fails.
+
+**Changes**:
+1. **ROM copy after client build.** Mirrors `dev-window-v2.ps1`'s `Copy-AddinFiles` inside `release.ps1` as `Copy-RomAddinIntoBuild`. Runs immediately after `pd` links (and at the top of the `-SkipBuild` path), so `Build/data/pd.{ROMID}.z64` lands before any subsequent step can fail. Mike can now launch `Build/PerfectDark.exe` locally even when the server/updater build or the GitHub publish blows up.
+2. **Updater.exe in the release bundle.** Added `pd-updater` as a third build target in the rebuild loop (marked optional — its failure warns, never blocks). `-SkipBuild` path does an incremental `cmake --build --target pd-updater` if `Updater.exe` is missing. Staged to `dist/v{X.Y.Z}/Updater.exe` + `.sha256`, shipped inside the zip and uploaded as individual GitHub release assets.
+3. **Rolling Dev-release prune.** New Step 6 runs after a successful prerelease publish: `gh release list --json` → filter `isPrerelease=true, isDraft!=true` → keep newest 10 → delete the rest with `gh release delete --cleanup-tag` (fallback to `gh api -X DELETE` for older gh). Stable releases are never touched. Skipped on DryRun, SkipPush, missing gh, or failed publish.
+
+Step numbering bumped to `/8` (new Step 6 = prune; old Step 6 = Step 7).
+
+**Files**: `devtools/release.ps1` (+197 / −20 LOC).
+
+**Build-verify**: `cmake --build Build --target pd-updater` from the parent project produced `Build/Updater.exe` (12.8 MB). PS7 parser confirms no syntax errors. Logic tested via `-DryRun` run (which surfaced the pre-existing quirk that `-SkipBuild` pre-release commit+push runs even under `-DryRun` — recorded as caveat).
+
+**Caveat**: `-DryRun` does NOT suppress the `-SkipBuild` pre-release commit+push in Step 0. This is pre-existing; kept as-is to match prior behavior but worth auditing later. This session hit it once and had to revert an accidental CMakeLists.txt v99.0.0 bump (commit `37aaf34c` on the worktree branch).
+
+**Next**: none queued from this task. Release pipeline changes are live on `dev`.
+
+---
 
 ## Session S361 — 2026-04-18 (dev direct, commit `7d6ec8fb`) — Dev Window v2 Async Runspace Pool
 

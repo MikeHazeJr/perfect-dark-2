@@ -7,6 +7,20 @@
 
 ---
 
+## Done — 2026-04-18 (S362 — Release pipeline local-testability + Updater.exe bundle + Dev-release prune, `claude/nervous-satoshi-763192` → dev `4260a1fd`)
+
+Three fixes to `devtools/release.ps1`:
+
+- **ROM copy after client build.** `Copy-RomAddinIntoBuild` mirrors `dev-window-v2.ps1::Copy-AddinFiles`; runs right after `pd` links (and at the top of the `-SkipBuild` path), so `Build/data/pd.{ROMID}.z64` is in place before server/updater/push/gh steps that might fail. Mike can launch `Build/PerfectDark.exe` locally even on a failed release.
+- **Updater.exe in the release bundle.** `pd-updater` added to the rebuild loop (optional — failure warns, doesn't block); `-SkipBuild` path builds incrementally if missing. Staged + zipped + uploaded as individual GitHub release asset with SHA-256 sidecar.
+- **Rolling Dev-release prune (Step 6).** After a successful prerelease publish, `gh release list --json` → filter `isPrerelease=true, isDraft!=true` → keep newest 10 → delete rest with `gh release delete --cleanup-tag` (fallback to `gh api -X DELETE`). Stable releases never touched.
+
+Step numbering bumped to `/8`. PS7 parser clean; `pd-updater` builds successfully from the parent project (`Build/Updater.exe`, 12.8 MB, zero-DLL static link).
+
+**Caveat**: `-DryRun` does not suppress the `-SkipBuild` pre-release commit+push step — pre-existing quirk, left in place. Worth auditing later if it bites someone.
+
+---
+
 ## Done — 2026-04-18 (S361 — Dev Window v2 async RunspacePool, dev direct `7d6ec8fb`)
 
 Dev-tool only — no game code change. Release pipeline produced v0.0.120.
