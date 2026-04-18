@@ -54,7 +54,7 @@ if ($filtered.Count -gt 0) {
 
 $env:MSYSTEM           = "MINGW64"
 $env:MINGW_PREFIX      = "/mingw64"
-$env:CCACHE_SLOPPINESS = "pch_defines,time_macros"
+$env:CCACHE_SLOPPINESS = "pch_defines,time_macros,include_file_mtime,include_file_ctime"
 
 # Dev Window / GUI tools set PD_BUILD_ENV_QUIET=1 before dot-sourcing to avoid
 # printing into a visible console during startup.

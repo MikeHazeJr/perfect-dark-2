@@ -12,6 +12,7 @@
 #include <SDL.h>
 #include <PR/ultratypes.h>
 #include "lib/rzip.h"
+#include "versioninfo.h"
 #include "romdata.h"
 #include "sha256.h"
 #include "assetcatalog.h"

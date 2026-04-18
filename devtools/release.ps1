@@ -689,6 +689,34 @@ Get-ChildItem "dist" -Directory -ErrorAction SilentlyContinue | Where-Object {
     Remove-Item $_.FullName -Recurse -Force
 }
 
+# Prune old release zips. dist/ accumulates from prior runs (e.g. -SkipPush or
+# early failures leave zips behind). Keep only the N most recent by mtime.
+$ReleaseZipKeep = 3
+$BackupZipKeep  = 5
+
+function Invoke-PruneOldZips {
+    param(
+        [string]$Directory,
+        [int]$Keep,
+        [string]$Label
+    )
+    if (-not (Test-Path $Directory)) { return }
+    $zips = @(Get-ChildItem -Path $Directory -Filter "PerfectDark-*.zip" -File -ErrorAction SilentlyContinue `
+        | Sort-Object LastWriteTime -Descending)
+    if ($zips.Count -le $Keep) { return }
+    $victims = $zips | Select-Object -Skip $Keep
+    $bytes = ($victims | Measure-Object -Property Length -Sum).Sum
+    $mb = [math]::Round($bytes / 1MB, 1)
+    Write-Host "  Pruning $Label zips: removing $($victims.Count) old file(s), $mb MB" -ForegroundColor Gray
+    foreach ($v in $victims) {
+        Write-Host "    - $($v.Name) ($([math]::Round($v.Length / 1MB, 1)) MB)" -ForegroundColor DarkGray
+        Remove-Item $v.FullName -Force -ErrorAction Continue
+    }
+}
+
+Invoke-PruneOldZips -Directory (Join-Path $ProjectRoot "dist")    -Keep $ReleaseZipKeep -Label "dist/"
+Invoke-PruneOldZips -Directory (Join-Path $ProjectRoot "backups") -Keep $BackupZipKeep  -Label "backups/"
+
 # ============================================================================
 # Summary
 # ============================================================================

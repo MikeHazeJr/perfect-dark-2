@@ -16,5 +16,5 @@ case ":$PATH:" in
   *) export PATH="/c/msys64/mingw64/bin:$PATH" ;;
 esac
 
-export CCACHE_SLOPPINESS="pch_defines,time_macros"
+export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime"
 echo "Build env: TEMP=$TEMP | mingw64 on PATH | ccache sloppy"
