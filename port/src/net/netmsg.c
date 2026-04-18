@@ -2211,6 +2211,14 @@ u32 netmsgSvcPropSpawnRead(struct netbuf *src, struct netclient *srccl)
 			}
 			struct chrdata *ownerchr = g_NetClients[clid].player->prop->chr;
 			struct autogunobj *obj = laptopDeploy(modelnum, NULL, ownerchr);
+			/* B-163: laptopDeploy can return NULL if the modeldef failed to load
+			 * (torn asset, catalog miss).  Skip spawn; server will resync. */
+			if (obj == NULL) {
+				sysLogPrintf(LOG_WARNING,
+					"NETMSG: laptopDeploy returned NULL for modelnum %d — spawn skipped",
+					modelnum);
+				return src->error ? src->error : 1;
+			}
 			obj->ammoquantity = ammocount;
 			obj->firecount = firecount;
 			obj->targetteam = targetteam;

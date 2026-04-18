@@ -415,6 +415,19 @@ void setupCreateObject(struct defaultobj *obj, s32 cmdindex)
 
 	modelnum = obj->modelnum;
 	setupLoadModeldef(modelnum);
+
+	/* B-163: FIX-B.2 returns early when modeldefLoadToNew fails (catalog miss,
+	 * missing ROM file, or torn load returning parts=0), leaving
+	 * g_ModelStates[modelnum].modeldef NULL.  Every downstream dereference of
+	 * obj->model->scale below would then AV.  Skip creation and log so the
+	 * prop shows up in diagnostics. */
+	if (g_ModelStates[modelnum].modeldef == NULL) {
+		sysLogPrintf(LOG_WARNING,
+			"SETUP: object modelnum %d modeldef NULL after load — prop skipped",
+			modelnum);
+		return;
+	}
+
 	scale = obj->extrascale * (1.0f / 256.0f);
 
 	if (g_Vars.normmplayerisrunning || g_Vars.lvmpbotlevel) {

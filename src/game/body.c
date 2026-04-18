@@ -237,7 +237,15 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 			if (node != NULL) {
 				if (headnum < 0) {
 					headmodeldef = func0f18e57c(-1 - headnum, &headnum);
-					bodymodeldef->rwdatalen += headmodeldef->rwdatalen;
+					/* B-163: func0f18e57c returns from var800acc28[] which can be
+					 * NULL if random-head slot was never populated. */
+					if (headmodeldef != NULL) {
+						bodymodeldef->rwdatalen += headmodeldef->rwdatalen;
+					} else {
+						sysLogPrintf(LOG_WARNING,
+							"body0f02ce8c: random headmodeldef NULL (bodynum %d) -- skipping head merge",
+							bodynum);
+					}
 				} else if (headnum > 0) {
 					/* SA-5f: bodyCalculateHeadOffset modifies the modeldef in-place
 					 * (not idempotent) — must only run on first load.  Capture the
@@ -250,7 +258,16 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 
 					modelAllocateRwData(headmodeldef);
 
-					bodymodeldef->rwdatalen += headmodeldef->rwdatalen;
+					/* B-163: catalogGetHeadModeldef may return NULL (out-of-range,
+					 * torn asset, or HEAD_RANDOM_GENDER).  Skip merging rwdatalen
+					 * rather than dereferencing NULL. */
+					if (headmodeldef != NULL) {
+						bodymodeldef->rwdatalen += headmodeldef->rwdatalen;
+					} else {
+						sysLogPrintf(LOG_WARNING,
+							"body0f02ce8c: headmodeldef NULL for headnum %d (bodynum %d) -- skipping head merge",
+							headnum, bodynum);
+					}
 
 					if (catalogGetBodyCanVaryHeight(bodynum) && varyheight) { /* SA-5d */
 						// Set height to between 95% and 115%

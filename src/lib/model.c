@@ -4079,6 +4079,14 @@ s32 modelCalculateRwDataIndexes(struct modelnode *basenode)
 
 void modelAllocateRwData(struct modeldef *modeldef)
 {
+	/* B-163 defensive: callers from chr/body paths (body.c, catalog head load)
+	 * may pass NULL when a modeldef failed to load (torn asset or catalog miss).
+	 * Early-out rather than dereferencing NULL.  rootnode NULL implies the
+	 * modeldef never finished loading. */
+	if (modeldef == NULL || modeldef->rootnode == NULL) {
+		return;
+	}
+
 	modeldef->rwdatalen = modelCalculateRwDataIndexes(modeldef->rootnode);
 }
 
