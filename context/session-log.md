@@ -4,6 +4,24 @@
 > **S281–S362** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S365 — 2026-04-18 (worktree `claude/hungry-heisenberg-f18ad5`, merged to `dev` @ `b998ec40`) — Memory floor check: sysFatalError on MemorySize too low
+
+**Scope**: Prevent ACCESS_VIOLATION crash (memcpy in title stage load) when stale pd.ini has MemorySize=16.
+
+**Root cause**: M5/M6 pool split requires 60 MB minimum (PERMANENT 16 + STAGE 40 + POOL_8 4). Default configRegisterInt min was still 4, so the config layer accepted stale 16 MB values. PERMANENT consumed the entire 16 MB heap; STAGE got 0 bytes via the CARVE macro silent clamp.
+
+**Changes**:
+1. `src/lib/memp.c::mempSetHeap`: Added early check — if `heaplen < MEMP_PERMANENT_SIZE + MEMP_STAGE_SIZE + MEMP_POOL8_SIZE`, calls `sysFatalError("MemorySize too low (%u MB). Minimum required: 64 MB.\nDelete pd.ini to reset to defaults.", heaplen / (1024*1024))`. Check fires before pool zeroing so there's no partial state.
+2. `port/src/main.c::gameConfigInit`: Raised `configRegisterInt("Game.MemorySize", ...)` minimum from `4` to `64`. Config layer now clamps stale values on next save.
+
+**Files**: `src/lib/memp.c` (+7 LOC), `port/src/main.c` (+0/-0, 1-char min value change).
+
+**Build**: Clean 780/780. `PerfectDark.exe`, `PerfectDarkServer.exe`, `Updater.exe` all linked.
+
+**Next**: None queued from this task.
+
+---
+
 ## Session S364 — 2026-04-18 (worktree `claude/exciting-swanson-90a81a`, merged to `dev` @ `052816bf`) — Release pipeline: remove .sha256 sidecar files
 
 **Scope**: Purge all `.sha256` file generation and upload from `devtools/release.ps1`.

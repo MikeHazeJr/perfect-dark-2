@@ -7,6 +7,14 @@
 
 ---
 
+## Done — 2026-04-18 (S364 — Memory floor check, `claude/hungry-heisenberg-f18ad5` → dev `b998ec40`)
+
+- `mempSetHeap`: `sysFatalError` if `heaplen < 60 MB` — fires before CARVE, shows clear "Delete pd.ini" message.
+- `configRegisterInt("Game.MemorySize")` min: 4 → 64 — clamps stale values on next config write.
+- Build clean 780/780.
+
+---
+
 ## Done — 2026-04-18 (S363 — Standalone updater UX fixes, `claude/crazy-varahamihira-82fe52` → dev `c957fb62`)
 
 Three fixes to `port/src/updater_standalone/updater_gui.c`:
