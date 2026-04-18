@@ -28,6 +28,33 @@
 
 ---
 
+## Session S356 — 2026-04-17 (worktree `dazzling-vaughan-204b7c`) — Forge Door Lifecycle + D5 Phase 5C+5D Portrait Polish
+
+**Scope**: Two parallel tasks — Forge door `doorobj` pool lifecycle (OPEN_DOOR/CLOSE_DOOR wired to live engine) + D5 Phase 5C (hover portrait preview) + Phase 5D (drop shadow, team-color border).
+
+**Forge door lifecycle:**
+- `forge_runtime.c`: `s_door_pool[16]` allocated from `MEMPOOL_STAGE`; `s_spawn_door()` builds `doorobj` from catalog modeldef via `objInitWithModelDef`, sets `doortype`, `unk98` slide vector (yaw-aware for left/right, vertical for up), `maxfrac/accel/decel`, `DOORFLAG_0080` for sliding family, `DOORFLAG_AUTOMATIC` if `dp->auto_close`. Calls `propActivate`, `propEnable`, `setup0f0923d4`. Stores `h->prop` + `h->doorobj`. `forgeRuntimeFindDoorByUid()` scans handles by forge UID.
+- `forge_runtime.h`: added `struct doorobj *doorobj` field to `forge_prop_handle_t`; added `forgeRuntimeFindDoorByUid()` declaration.
+- `forge_logic.c`: added `#include "game/propobj.h"` + `#include "constants.h"`; `FORGE_OP_OPEN_DOOR` now calls `doorsRequestMode(door, DOORMODE_OPENING)` if live doorobj found, else falls back to data-only `locked=0`; `FORGE_OP_CLOSE_DOOR` calls `doorsRequestMode(door, DOORMODE_CLOSING)`.
+
+**D5 Phase 5C — hover portrait preview:**
+- `s_HoverLobbyIdx` static tracks hovered lobby row index (-1 = none), reset each frame before the row loop.
+- Human row: `rowHovered = ImGui::IsItemHovered()` captured immediately after Selectable; sets `s_HoverLobbyIdx` when true.
+- Tooltip emitted when hovered + portrait data present: requests charpreview FBO, shows live texture if ready, falls back to baked 44px thumbnail, then player name.
+- `lobbyPortraitsTick` suppressed when `s_HoverLobbyIdx >= 0` (avoids FBO contention with baking pipeline).
+
+**D5 Phase 5D — portrait polish:**
+- Drop shadow: 3px offset dark rect drawn before the portrait background rect.
+- Team color border: portrait border uses `kTeamColors[r.team]` when teams are on; local player stays green; default remains info-cyan.
+
+**Build**: Clean 776/776 (full clean build on dev post-merge). Zero errors. Pre-existing warnings only.
+
+**Line counts (pre/post merge match):** forge_logic.c 356, pdgui_menu_room.cpp 3453, forge_runtime.h 76, forge_runtime.c 945.
+
+**Next steps**: 31-bot repro test for B-112 (FIX-A validation); D5 Phase 6 (scoreboard, game HUD elements); Forge logic playtest in Grid editor.
+
+---
+
 ## Session S355 — 2026-04-17 (`goofy-pike-572f8a` worktree) — Wave 5 Cross-Audit: S352 + S353 + S354
 
 **Scope**: Audit sessions S352 (D5 Phase 5 Lobby Portraits), S353 (Prop Sync Event-Driven + Killfeed), and S354 (Forge Runtime Wire-In) for bugs, gaps, and missed items. Fix any findings, build-verify, merge to dev.

@@ -7,6 +7,17 @@
 
 ---
 
+## Done — 2026-04-17 (S356 — Forge Door Lifecycle + D5 Phase 5C+5D, `dazzling-vaughan-204b7c`)
+
+**Build verified.** Clean 776/776 (full rebuild on dev). Zero errors.
+
+- **Forge doors**: `s_spawn_door()` in forge_runtime.c builds live `doorobj` from catalog modeldef — pool of 16 from MEMPOOL_STAGE, slide-vector computation (yaw-aware), DOORFLAG_0080/AUTOMATIC, propActivate/Enable. `forgeRuntimeFindDoorByUid()` in forge_runtime.h.
+- **OPEN_DOOR/CLOSE_DOOR**: forge_logic.c now calls `doorsRequestMode(door, DOORMODE_OPENING/CLOSING)` via `forgeRuntimeFindDoorByUid`; data-only fallback if no live doorobj.
+- **Phase 5C**: Hover on human lobby row → tooltip with live charpreview FBO; falls back to baked thumbnail or player name. FBO suppressed in baking pipeline while hover active.
+- **Phase 5D**: Drop shadow on portrait thumbnail; team-color tinting on portrait border when teams on.
+
+---
+
 ## Done — 2026-04-17 (S355 — Wave 5 Cross-Audit: S352 + S353 + S354, `goofy-pike-572f8a`)
 
 **Build verified.** Clean 774/774 (worktree) + 4/4 incremental on dev post-merge. Zero errors.
