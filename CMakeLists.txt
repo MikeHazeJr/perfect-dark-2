@@ -134,6 +134,44 @@ message(STATUS "Version: ${VERSION_ROMID}, v${VERSION_SEM_STRING}, hash ${VERSIO
 
 configure_file("${CMAKE_SOURCE_DIR}/port/include/versioninfo.h.in" "${CMAKE_BINARY_DIR}/port/include/versioninfo.h" @ONLY)
 
+# Embed Mozilla CA bundle for libcurl (D13 updater TLS).
+# Testers hit "SSL peer certificate or SSH remote key was not OK" because the
+# statically-linked libcurl.a in MSYS2 is built against OpenSSL WITHOUT the
+# winstore integration (SSL_CTX_load_verify_store is absent), so
+# CURLSSLOPT_NATIVE_CA is effectively a no-op for this backend and there is
+# no external CA file to fall back on. Embedding the Mozilla bundle as a
+# CURLOPT_CAINFO_BLOB makes verification self-contained, zero-DLL compliant,
+# and independent of whatever cert store exists on the tester's machine.
+set(_CACERT_SRC "${CMAKE_SOURCE_DIR}/port/src/cacert.pem")
+set(_CACERT_OUT "${CMAKE_BINARY_DIR}/port/include/cacert_blob.h")
+if(EXISTS "${_CACERT_SRC}")
+  file(READ "${_CACERT_SRC}" _cacert_hex HEX)
+  string(LENGTH "${_cacert_hex}" _cacert_hex_len)
+  math(EXPR _cacert_bytes "${_cacert_hex_len} / 2")
+  string(REGEX REPLACE "(..)" "0x\\1," _cacert_c_body "${_cacert_hex}")
+  file(WRITE "${_CACERT_OUT}"
+    "/* Auto-generated from port/src/cacert.pem by CMake. Do not edit. */\n"
+    "#ifndef CACERT_BLOB_H\n"
+    "#define CACERT_BLOB_H\n\n"
+    "#include <stddef.h>\n\n"
+    "static const unsigned char cacert_pem_data[] = {\n"
+    "${_cacert_c_body}\n"
+    "};\n\n"
+    "static const size_t cacert_pem_size = ${_cacert_bytes};\n\n"
+    "#endif /* CACERT_BLOB_H */\n"
+  )
+  message(STATUS "CACERT: Embedded Mozilla CA bundle (${_cacert_bytes} bytes)")
+else()
+  message(WARNING "CACERT: ${_CACERT_SRC} not found; updater TLS will fall back to system CA store")
+  file(WRITE "${_CACERT_OUT}"
+    "/* Auto-generated fallback (no cacert.pem present). */\n"
+    "#ifndef CACERT_BLOB_H\n#define CACERT_BLOB_H\n#include <stddef.h>\n"
+    "static const unsigned char cacert_pem_data[1] = { 0 };\n"
+    "static const size_t cacert_pem_size = 0;\n"
+    "#endif /* CACERT_BLOB_H */\n"
+  )
+endif()
+
 set(ASSET_DIR "src/assets/${ROMID}")
 set(GENERATED_DIR "src/generated/${ROMID}")
 
