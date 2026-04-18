@@ -117,6 +117,13 @@ void mempSetHeap(u8 *heapstart, u32 heaplen)
 	u8 *ptr       = heapstart;
 	u32 remaining = heaplen;
 
+	if (heaplen < MEMP_PERMANENT_SIZE + MEMP_STAGE_SIZE + MEMP_POOL8_SIZE) {
+		sysFatalError(
+			"MemorySize too low (%u MB). Minimum required: 64 MB.\n"
+			"Delete pd.ini to reset to defaults.",
+			heaplen / (1024u * 1024u));
+	}
+
 	/* Zero all pool descriptors. */
 	for (i = 0; i < ARRAYCOUNT(g_MempOnboardPools); i++) {
 		g_MempOnboardPools[i].start = 0;
