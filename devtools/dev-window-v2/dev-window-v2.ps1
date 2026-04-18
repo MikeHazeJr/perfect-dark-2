@@ -161,7 +161,6 @@ $script:GameProcess         = $null
 $script:ServerProcess       = $null
 $script:GitChangeCount      = 0
 $script:GitBusy             = $false
-$script:LastGitCheck        = [DateTime]::MinValue
 
 $script:GhAuthOk            = $false
 $script:GhCliAvailable      = $false
@@ -175,7 +174,6 @@ $script:GhAuthPS            = $null
 $script:GhAuthRS            = $null
 $script:GhAuthHandle        = $null
 $script:GhAuthHadGhOnHost   = $false  # set before each probe; used if probe times out
-$script:LatestRelease       = $null
 $script:DevWindowDebugLogPath = Join-Path $script:ScriptDir "dev-window-v2-debug.log"
 
 # Perf: persistent background runspace pool. Used by Update-StatusBar (every
@@ -325,191 +323,6 @@ function Get-MsysToolPath {
     return $null
 }
 
-function Convert-WindowsPathToMsysPosixPath {
-    param(
-        [string]$WindowsPath,
-        [string]$GitExe
-    )
-    if (-not $WindowsPath) { return $null }
-    $cygpathExe = Get-MsysToolPath -ToolName "cygpath" -GitExe $GitExe
-    if (-not $cygpathExe) { return $null }
-    try {
-        $posix = & $cygpathExe -au $WindowsPath 2>$null
-        if ($posix) { return $posix.Trim() }
-    } catch {}
-    return $null
-}
-
-function Convert-PosixPathToWindowsPath {
-    param([string]$PosixPath)
-    if (-not $PosixPath -or -not ($PosixPath -match '^/')) { return $null }
-
-    # WSL drvfs path: /mnt/c/path/to/file -> C:\path\to\file
-    if ($PosixPath -match '^/mnt/([A-Za-z])/(.+)$') {
-        $drive = $Matches[1].ToUpper()
-        $tail = ($Matches[2] -replace '/', '\')
-        return ($drive + ":\\" + $tail)
-    }
-
-    # MSYS/Git-for-Windows home path: /home/user/... -> C:\Users\user\...
-    if ($PosixPath -match '^/home/([^/]+)/(.+)$') {
-        $user = $Matches[1]
-        $tail = ($Matches[2] -replace '/', '\')
-        return (Join-Path (Join-Path "C:\Users" $user) $tail)
-    }
-
-    # Fallback: ask cygpath if available.
-    $cygCandidates = @("C:\msys64\usr\bin\cygpath.exe")
-    $gitExe = Resolve-GitExecutable
-    if ($gitExe) {
-        try {
-            $gitDir = Split-Path -Parent $gitExe
-            $msysRoot = Split-Path -Parent $gitDir
-            $cygCandidates += (Join-Path $msysRoot "usr\bin\cygpath.exe")
-        } catch {}
-    }
-    foreach ($cyg in ($cygCandidates | Select-Object -Unique)) {
-        try {
-            if (-not (Test-Path -LiteralPath $cyg)) { continue }
-            $out = & $cyg -aw $PosixPath 2>$null
-            if ($out) { return $out.Trim() }
-        } catch {}
-    }
-    return $null
-}
-
-# Delete stale index.lock. Explorer may show C:\...\.git with no lock while Git errors on
-# /home/.../.git/index.lock (WSL-native tree) or /mnt/c/... (same repo via wslpath) — not the same path string.
-# Builds assume the main dev tree (no separate worktree builds).
-function Remove-GitIndexLockFromGitStderr {
-    param(
-        [string]$Text,
-        [string]$GitExe
-    )
-    if (-not $Text) { return }
-    $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
-    $rmExe = Get-MsysToolPath -ToolName "rm" -GitExe $GitExe
-    foreach ($m in [regex]::Matches($Text, "Unable to create '([^']+)'")) {
-        $pth = $m.Groups[1].Value
-        if (-not $pth) { continue }
-        try {
-            if ($pth -match '^[A-Za-z]:\\' -or $pth -match '^\\\\') {
-                if (Test-Path -LiteralPath $pth) { Remove-Item -LiteralPath $pth -Force -ErrorAction SilentlyContinue }
-            } elseif ($pth -match '^/') {
-                $winFromPosix = Convert-PosixPathToWindowsPath $pth
-                if ($winFromPosix -and (Test-Path -LiteralPath $winFromPosix)) {
-                    Remove-Item -LiteralPath $winFromPosix -Force -ErrorAction SilentlyContinue
-                }
-                if ($null -ne $wsl) {
-                    [void](& wsl.exe -- rm -f -- $pth 2>&1)
-                }
-                if ($rmExe -and (Test-Path -LiteralPath $rmExe)) {
-                    [void](& $rmExe -f -- $pth 2>&1)
-                }
-            }
-        } catch {}
-    }
-}
-
-function Remove-GitIndexLockForRepo {
-    param(
-        [string]$RepoRoot,
-        [string]$GitExe
-    )
-    if (-not $RepoRoot) { return }
-    $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
-    $rmExe = Get-MsysToolPath -ToolName "rm" -GitExe $GitExe
-
-    # 1) Windows working copy (what Explorer shows under C:\...\ .git\)
-    $winLock = Join-Path $RepoRoot ".git\index.lock"
-    try {
-        if (Test-Path -LiteralPath $winLock) {
-            Remove-Item -LiteralPath $winLock -Force -ErrorAction SilentlyContinue
-        }
-    } catch {}
-
-    # 2) Same folder via WSL drvfs: /mnt/c/.../ .git/index.lock (lock may exist only on Linux side of 9p)
-    if ($null -ne $wsl) {
-        try {
-            $wslp = (& wsl.exe wslpath -a $RepoRoot 2>$null)
-            if ($wslp) {
-                $wslLock = ($wslp.Trim().TrimEnd('/') + '/.git/index.lock')
-                [void](& wsl.exe -- rm -f -- $wslLock 2>&1)
-            }
-        } catch {}
-    }
-
-    # 3) Same repo as seen by the active MSYS/Git runtime (can be /home/... with custom mounts).
-    if ($rmExe -and (Test-Path -LiteralPath $rmExe)) {
-        try {
-            $msysRepo = Convert-WindowsPathToMsysPosixPath -WindowsPath $RepoRoot -GitExe $GitExe
-            if ($msysRepo) {
-                $msysRepo = $msysRepo.Trim().TrimEnd('/')
-                if ($msysRepo) {
-                    [void](& $rmExe -f -- ($msysRepo + '/.git/index.lock') 2>&1)
-                }
-            }
-        } catch {}
-    }
-}
-
-function Force-DeleteGitIndexLockHard {
-    param(
-        [string]$RepoRoot,
-        [string]$GitExe
-    )
-    if (-not $RepoRoot) { return }
-    # Normal cleanup path first.
-    Remove-GitIndexLockForRepo -RepoRoot $RepoRoot -GitExe $GitExe
-
-    # Extra safety: force-delete common Linux path variants explicitly.
-    $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
-    if ($null -ne $wsl) {
-        try {
-            # 1) Repo as seen by current shell through WSL path translation.
-            $wslRepo = (& wsl.exe wslpath -a $RepoRoot 2>$null)
-            if ($wslRepo) {
-                $wslRepo = $wslRepo.Trim().TrimEnd('/')
-                if ($wslRepo) {
-                    [void](& wsl.exe -- rm -f -- ($wslRepo + '/.git/index.lock') 2>&1)
-                }
-            }
-            # 2) Also try MSYS rm against drvfs path for git-for-windows/msys callers.
-            $rmExe = Get-MsysToolPath -ToolName "rm" -GitExe $GitExe
-            if ($rmExe -and (Test-Path -LiteralPath $rmExe) -and $wslRepo) {
-                [void](& $rmExe -f -- ($wslRepo + '/.git/index.lock') 2>&1)
-            }
-        } catch {}
-    }
-
-    # 3) Force delete via the same MSYS runtime that owns the current git.exe path.
-    $rmExe = Get-MsysToolPath -ToolName "rm" -GitExe $GitExe
-    if ($rmExe -and (Test-Path -LiteralPath $rmExe)) {
-        try {
-            $msysRepo = Convert-WindowsPathToMsysPosixPath -WindowsPath $RepoRoot -GitExe $GitExe
-            if ($msysRepo) {
-                $msysRepo = $msysRepo.Trim().TrimEnd('/')
-                if ($msysRepo) {
-                    [void](& $rmExe -f -- ($msysRepo + '/.git/index.lock') 2>&1)
-                }
-            }
-        } catch {}
-    }
-}
-
-function Get-MsysExpectedLockPath {
-    param(
-        [string]$RepoRoot,
-        [string]$GitExe
-    )
-    if (-not $RepoRoot) { return $null }
-    $msysRepo = Convert-WindowsPathToMsysPosixPath -WindowsPath $RepoRoot -GitExe $GitExe
-    if (-not $msysRepo) { return $null }
-    $msysRepo = $msysRepo.Trim().TrimEnd('/')
-    if (-not $msysRepo) { return $null }
-    return ($msysRepo + '/.git/index.lock')
-}
-
 function Get-ChildProcessPathEnv {
     $segments = [System.Collections.ArrayList]::new()
     $gitExe = Resolve-GitExecutable
@@ -615,49 +428,6 @@ function Load-ReleaseCache {
 
 function Save-ReleaseCache($data) {
     try { $data | ConvertTo-Json -Depth 3 | Set-Content $script:ReleaseCachePath -Encoding UTF8 -ErrorAction Stop } catch {}
-}
-
-# ============================================================================
-# Section 8: Git operations
-# ============================================================================
-
-function Get-GitBranch {
-    try {
-        $b = git -C $script:ProjectRoot branch --show-current 2>$null
-        if ($b) { return $b.Trim() }
-    } catch {}
-    return "unknown"
-}
-
-function Get-GitShortHash {
-    try {
-        $h = git -C $script:ProjectRoot rev-parse --short HEAD 2>$null
-        if ($h) { return $h.Trim() }
-    } catch {}
-    return "------"
-}
-
-function Get-GitChangeCount {
-    try {
-        $st = git -C $script:ProjectRoot status --porcelain 2>$null
-        if ($st) { return ($st | Measure-Object).Count }
-    } catch {}
-    return 0
-}
-
-function Auto-Commit-Sync {
-    Force-DeleteGitIndexLockHard $script:ProjectRoot
-    $st = git -C $script:ProjectRoot status --porcelain 2>$null
-    if (-not $st) { return $true }
-    $ver = $(if ($null -ne $script:BuildVersion) { $script:BuildVersion } else { Get-ProjectVersion })
-    $msg = "Build v" + $ver.Major + "." + $ver.Minor + "." + $ver.Patch + " - auto-commit before build"
-    Remove-GitIndexLockForRepo $script:ProjectRoot
-    git -C $script:ProjectRoot add -A 2>$null | Out-Null
-    Remove-GitIndexLockForRepo $script:ProjectRoot
-    git -C $script:ProjectRoot commit -m $msg 2>$null | Out-Null
-    $commitOk = ($LASTEXITCODE -eq 0)
-    try { git -C $script:ProjectRoot push 2>$null | Out-Null } catch {}
-    return $commitOk
 }
 
 # ============================================================================
@@ -1420,39 +1190,55 @@ function Start-GitSyncBeforeBuild {
     $script:GitSyncBusy = $true
     $script:PendingGitSyncCallback = $OnComplete
 
-    # Pre-resolve tool paths on the UI thread: Resolve-*/Get-MsysToolPath/Convert-*  are defined
-    # in the main session and are not visible inside a pool runspace.
+    # UI-thread work is fast path-checks only. The slow external-process calls (wslpath
+    # cold-start in particular can be 10+ seconds) happen inside the runspace so the
+    # button-click-to-UI-update latency stays sub-second.
     $root = $script:ProjectRoot
     $winLock = Join-Path $root ".git\index.lock"
     $rmExe = Get-MsysToolPath -ToolName "rm" -GitExe $gitExe
     $cygpathExe = Get-MsysToolPath -ToolName "cygpath" -GitExe $gitExe
     $wslCmd = Get-Command wsl.exe -ErrorAction SilentlyContinue
     $wslExe = if ($null -ne $wslCmd) { $wslCmd.Source } else { $null }
-    $msysLock = Get-MsysExpectedLockPath -RepoRoot $root -GitExe $gitExe
-    $wslLock = $null
-    if ($wslExe) {
-        try {
-            $wslRepo = (& $wslExe wslpath -a $root 2>$null)
-            if ($wslRepo) {
-                $wslRepo = $wslRepo.Trim().TrimEnd('/')
-                if ($wslRepo) { $wslLock = $wslRepo + '/.git/index.lock' }
-            }
-        } catch {}
-    }
-    $br = Get-GitCurrentBranch -GitExe $gitExe
 
     Add-LogSessionLine "" "#1A3050"
-    Add-LogSessionLine ">>> git: sync before build (branch: $br)" "#0090D0"
-    Add-LogSessionLine "git exe: $gitExe" "#44586C"
-    Add-LogSessionLine "git expected lock: $winLock" "#44586C"
-    if ($wslLock) { Add-LogSessionLine "git expected lock (wsl): $wslLock" "#44586C" }
-    if ($msysLock) { Add-LogSessionLine "git expected lock (msys): $msysLock" "#44586C" }
+    Add-LogSessionLine ">>> git: sync before build" "#0090D0"
 
     Start-AsyncPoolAction `
         -Script {
-            param($root, $gitExe, $commitMessage, $branch, $winLock, $rmExe, $wslExe, $msysLock, $wslLock)
+            param($root, $gitExe, $commitMessage, $winLock, $rmExe, $cygpathExe, $wslExe)
 
             $logs = New-Object System.Collections.ArrayList
+
+            $branch = "HEAD"
+            try {
+                $b = & $gitExe -C $root rev-parse --abbrev-ref HEAD 2>$null
+                if ($b) { $branch = $b.Trim() }
+            } catch {}
+
+            $msysLock = $null
+            if ($cygpathExe) {
+                try {
+                    $p = & $cygpathExe -au $root 2>$null
+                    if ($p) {
+                        $p = $p.Trim().TrimEnd('/')
+                        if ($p) { $msysLock = $p + '/.git/index.lock' }
+                    }
+                } catch {}
+            }
+
+            $wslLock = $null
+            if ($wslExe) {
+                try {
+                    $w = & $wslExe wslpath -a $root 2>$null
+                    if ($w) {
+                        $w = $w.Trim().TrimEnd('/')
+                        if ($w) { $wslLock = $w + '/.git/index.lock' }
+                    }
+                } catch {}
+            }
+
+            [void]$logs.Add(@{ Text = "branch: $branch  |  git: $gitExe"; Color = "#44586C" })
+
             $cleanup = {
                 if (Test-Path -LiteralPath $winLock) {
                     try { Remove-Item -LiteralPath $winLock -Force -ErrorAction SilentlyContinue } catch {}
@@ -1535,7 +1321,7 @@ function Start-GitSyncBeforeBuild {
 
             return [PSCustomObject]@{ Ok = $true; Logs = $logs; ErrMsg = $null }
         } `
-        -Arguments @($root, $gitExe, $CommitMessage, $br, $winLock, $rmExe, $wslExe, $msysLock, $wslLock) `
+        -Arguments @($root, $gitExe, $CommitMessage, $winLock, $rmExe, $cygpathExe, $wslExe) `
         -OnComplete {
             # Plain scriptblock (NO GetNewClosure). It retains the main module's
             # $script: scope, so writes to $script:GitSyncBusy here actually clear the
@@ -1825,7 +1611,8 @@ function Start-Build-Step($step) {
     $psi.EnvironmentVariables["GIT_TERMINAL_PROMPT"]  = "0"
     $psi.EnvironmentVariables["TEMP"]                 = $env:TEMP
     $psi.EnvironmentVariables["TMP"]                  = $env:TMP
-    $psi.EnvironmentVariables["CCACHE_SLOPPINESS"]    = "pch_defines,time_macros"
+    $psi.EnvironmentVariables["CCACHE_SLOPPINESS"]    = "pch_defines,time_macros,include_file_mtime,include_file_ctime"
+    if ($env:CCACHE_BASEDIR) { $psi.EnvironmentVariables["CCACHE_BASEDIR"] = $env:CCACHE_BASEDIR }
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $psi
     try {
