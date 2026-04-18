@@ -7,6 +7,17 @@
 
 ---
 
+## Done — 2026-04-18 (S363 — Standalone updater UX fixes, `claude/crazy-varahamihira-82fe52` → dev `c957fb62`)
+
+Three fixes to `port/src/updater_standalone/updater_gui.c`:
+- **Auto-check on launch**: `PostMessage(IDC_BTN_CHECK)` from `runGui()` after `createControls` — release list populates without manual click.
+- **Filter without re-fetch**: Full list in `allReleases[]`; `filterReleases()` applies `showDevReleases` in the UI; checkbox toggle re-filters only, no network call.
+- **Button layout**: `AdjustWindowRect` from `WINDOW_CLIENT_H=572` replaces hardcoded 580 — Update/Close buttons no longer clipped.
+
+Build clean 13/13. `Updater.exe`, `PerfectDarkServer.exe`, `PerfectDark.exe` all linked.
+
+---
+
 ## Done — 2026-04-18 (S362 — Release pipeline local-testability + Updater.exe bundle + Dev-release prune, `claude/nervous-satoshi-763192` → dev `4260a1fd`)
 
 Three fixes to `devtools/release.ps1`:

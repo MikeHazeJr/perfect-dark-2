@@ -4,6 +4,23 @@
 > **S281–S362** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S363 — 2026-04-18 (worktree `claude/crazy-varahamihira-82fe52`, merged to `dev` @ `c957fb62`) — Standalone updater: auto-check, filter-in-view, button layout
+
+**Scope**: Three UX fixes to `port/src/updater_standalone/updater_gui.c`.
+
+**Changes**:
+1. **Auto-check on launch.** `PostMessage(IDC_BTN_CHECK)` posted from `runGui()` after `createControls` so the release list populates immediately without a manual click. Initial status set to "Checking for updates..." instead of idle prompt.
+2. **Filter without re-fetch.** Full release list (all non-draft) now stored in `app_state_t::allReleases[]` / `allReleaseCount`. New `filterReleases()` function applies the `showDevReleases` flag to build the displayed `releases[]` subset. Checkbox toggle calls `filterReleases()` + `populateList()` only; no network request. `checkThread` now always passes `showDev=1` to `parseReleasesJson`.
+3. **Button layout fix.** Window height computed via `AdjustWindowRect` from `WINDOW_CLIENT_H=572` (total client pixel height of all controls + padding) instead of a hardcoded 580 that left the Update/Close buttons clipped below the client area.
+
+**Files**: `port/src/updater_standalone/updater_gui.c` (+31 / −8 LOC).
+
+**Build**: Clean 13/13. `Updater.exe`, `PerfectDarkServer.exe`, `PerfectDark.exe` all linked.
+
+**Next**: none queued from this task.
+
+---
+
 ## Session S362 — 2026-04-18 (worktree `claude/nervous-satoshi-763192`, merged to `dev` @ `4260a1fd`) — Release pipeline: local-testability, Updater.exe bundling, Dev-release prune
 
 **Scope**: Three fixes to `devtools/release.ps1` so the Dev Window Release button is self-contained and doesn't leave the build unusable when a later step fails.
