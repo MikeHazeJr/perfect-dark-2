@@ -4,6 +4,23 @@
 > **S281–S362** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S364 — 2026-04-18 (worktree `claude/exciting-swanson-90a81a`, merged to `dev` @ `052816bf`) — Release pipeline: remove .sha256 sidecar files
+
+**Scope**: Purge all `.sha256` file generation and upload from `devtools/release.ps1`.
+
+**Changes**:
+- **Step 1**: Removed 3 `Get-FileHash` + `Out-File` calls writing `*.sha256` sidecars to `dist/`. Write-Host simplified; header comment updated.
+- **Step 5**: Removed 3 `.sha256` asset-upload lines; comment block updated.
+- **Header**: Removed "SHA-256 hashes for update system verification" from package contents description.
+
+**Files**: `devtools/release.ps1` (−13 net LOC).
+
+**Build**: `ninja -C Build pd pd-server pd-updater` → no work to do (no C/C++ touched).
+
+**Next**: none queued from this task.
+
+---
+
 ## Session S363 — 2026-04-18 (worktree `claude/crazy-varahamihira-82fe52`, merged to `dev` @ `c957fb62`) — Standalone updater: auto-check, filter-in-view, button layout
 
 **Scope**: Three UX fixes to `port/src/updater_standalone/updater_gui.c`.
