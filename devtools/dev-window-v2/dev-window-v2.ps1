@@ -190,6 +190,21 @@ $script:DocListLoadBusy     = $false
 $script:GitActionBusy       = $false
 $script:GitSyncBusy         = $false
 
+# Pending-state stash for async callbacks.
+# GetNewClosure() creates a scriptblock with a SEPARATE $script: scope (initially empty);
+# reads return $null and writes do not propagate to the main module. To avoid that trap we
+# pass plain (non-closure) scriptblocks as OnComplete callbacks and stash any locals that
+# would otherwise have been captured via GetNewClosure into $script: vars here. Safe because
+# only one build / one release / one git sync runs at a time (guarded by IsBuilding / IsPushing
+# / GitSyncBusy).
+$script:PendingGitSyncCallback = $null
+$script:CurrentBuildClean      = $false
+$script:PendingReleaseVer      = $null
+$script:PendingReleaseVs       = ""
+$script:PendingReleaseKind     = ""
+$script:PendingReleaseIsStable = $false
+$script:PendingReleaseScript   = ""
+
 # Live status streaming: drained by DispatcherTimer, written by async line readers.
 $script:ServerOutputQueue   = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
 $script:GameOutputQueue     = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
@@ -1285,66 +1300,59 @@ function Populate-DocList {
     if ($script:DocListLoadBusy) { return }
     $script:DocListLoadBusy = $true
 
-    $root = $script:ProjectRoot
-    $ps = [System.Management.Automation.PowerShell]::Create()
-    $ps.RunspacePool = $script:BgPool
-    [void]$ps.AddScript({
-        param($root)
-        $results = New-Object System.Collections.ArrayList
-        $folders = @("docs", "context")
-        foreach ($folder in $folders) {
-            $fp = Join-Path $root $folder
-            if (Test-Path $fp) {
-                Get-ChildItem -Path $fp -Include "*.md","*.txt" -Recurse -File -ErrorAction SilentlyContinue |
-                    Sort-Object FullName | ForEach-Object {
-                    $rel = $_.FullName.Substring($root.Length).TrimStart('\', '/')
-                    [void]$results.Add([PSCustomObject]@{ Rel = $rel; Full = $_.FullName })
-                }
-            }
-        }
-        Get-ChildItem -Path $root -Filter "*.md" -File -ErrorAction SilentlyContinue |
-            Sort-Object Name | ForEach-Object {
-            [void]$results.Add([PSCustomObject]@{ Rel = $_.Name; Full = $_.FullName })
-        }
-        return ,$results
-    })
-    [void]$ps.AddArgument($root)
-    $handle = $ps.BeginInvoke()
-
-    $pollTimer = New-Object System.Windows.Threading.DispatcherTimer
-    $pollTimer.Interval = [TimeSpan]::FromMilliseconds(150)
-    # GetNewClosure() so the tick handler sees $handle/$ps -- see Start-AsyncPoolAction comment.
-    $pollTimer.Add_Tick({
-        if (-not $handle.IsCompleted) { return }
-        $this.Stop()
-        try {
-            $results = $ps.EndInvoke($handle)
-            # EndInvoke wraps single returns in a collection. Unwrap carefully.
-            $items = @()
-            if ($null -ne $results) {
-                foreach ($r in @($results)) {
-                    if ($null -eq $r) { continue }
-                    if ($r -is [System.Collections.IEnumerable] -and -not ($r -is [string]) -and -not ($r -is [psobject])) {
-                        foreach ($x in $r) { if ($null -ne $x) { $items += $x } }
-                    } else {
-                        $items += $r
+    Start-AsyncPoolAction `
+        -Script {
+            param($root)
+            $results = New-Object System.Collections.ArrayList
+            $folders = @("docs", "context")
+            foreach ($folder in $folders) {
+                $fp = Join-Path $root $folder
+                if (Test-Path $fp) {
+                    Get-ChildItem -Path $fp -Include "*.md","*.txt" -Recurse -File -ErrorAction SilentlyContinue |
+                        Sort-Object FullName | ForEach-Object {
+                        $rel = $_.FullName.Substring($root.Length).TrimStart('\', '/')
+                        [void]$results.Add([PSCustomObject]@{ Rel = $rel; Full = $_.FullName })
                     }
                 }
             }
-            $script:DocFileMap = @{}
-            $ui["DocList"].Items.Clear()
-            foreach ($item in $items) {
-                if ($null -eq $item -or $null -eq $item.Rel) { continue }
-                if (-not $script:DocFileMap.ContainsKey($item.Rel)) {
-                    [void]$ui["DocList"].Items.Add($item.Rel)
-                    $script:DocFileMap[$item.Rel] = $item.Full
-                }
+            Get-ChildItem -Path $root -Filter "*.md" -File -ErrorAction SilentlyContinue |
+                Sort-Object Name | ForEach-Object {
+                [void]$results.Add([PSCustomObject]@{ Rel = $_.Name; Full = $_.FullName })
             }
-        } catch {}
-        try { $ps.Dispose() } catch {}
-        $script:DocListLoadBusy = $false
-    }.GetNewClosure())
-    $pollTimer.Start()
+            return ,$results
+        } `
+        -Arguments @($script:ProjectRoot) `
+        -OnComplete {
+            # Plain scriptblock (NO GetNewClosure) so $script: refs go to the main module.
+            # The earlier GetNewClosure'd tick handler had a SEPARATE $script: scope, so
+            # writes to $script:DocListLoadBusy never propagated -- the busy guard would
+            # latch true after the first call and the doc list would never refresh.
+            param($result)
+            try {
+                # EndInvoke wraps single returns in a collection. Unwrap carefully.
+                $items = @()
+                if ($null -ne $result) {
+                    foreach ($r in @($result)) {
+                        if ($null -eq $r) { continue }
+                        if ($r -is [System.Collections.IEnumerable] -and -not ($r -is [string]) -and -not ($r -is [psobject])) {
+                            foreach ($x in $r) { if ($null -ne $x) { $items += $x } }
+                        } else {
+                            $items += $r
+                        }
+                    }
+                }
+                $script:DocFileMap = @{}
+                $ui["DocList"].Items.Clear()
+                foreach ($item in $items) {
+                    if ($null -eq $item -or $null -eq $item.Rel) { continue }
+                    if (-not $script:DocFileMap.ContainsKey($item.Rel)) {
+                        [void]$ui["DocList"].Items.Add($item.Rel)
+                        $script:DocFileMap[$item.Rel] = $item.Full
+                    }
+                }
+            } catch {}
+            $script:DocListLoadBusy = $false
+        }
 }
 
 $ui["DocList"].Add_SelectionChanged({
@@ -1394,27 +1402,23 @@ function Start-GitSyncBeforeBuild {
         [string]$CommitMessage = "chore: auto-commit before build (dev window)",
         [Parameter(Mandatory=$true)][scriptblock]$OnComplete
     )
-    # IMPORTANT: copy the caller's callback to a *differently named* local var.
-    # PowerShell uses dynamic scope for unqualified variable lookups inside an
-    # invoked scriptblock; `$OnComplete` inside the nested -OnComplete block would
-    # otherwise resolve to Start-AsyncPoolAction's own `$OnComplete` parameter (the
-    # very scriptblock being executed) and cause infinite recursion. GetNewClosure()
-    # below bakes `$userCallback` into the nested scriptblock so it survives after
-    # Start-GitSyncBeforeBuild returns.
-    $userCallback = $OnComplete
-
+    # Stash the caller's callback in a $script: var instead of a local + GetNewClosure().
+    # GetNewClosure() would put the inner OnComplete scriptblock in a SEPARATE $script:
+    # scope, so its reads/writes of $script:GitSyncBusy etc. would not reach the main
+    # module. Guarded below by the GitSyncBusy flag so only one sync is pending at a time.
     $gitExe = Resolve-GitExecutable
     if (-not $gitExe) {
         [System.Windows.MessageBox]::Show("git was not found on PATH.", "Git", "OK", "Warning") | Out-Null
-        & $userCallback $false
+        & $OnComplete $false
         return
     }
     if ($script:GitSyncBusy) {
         Add-LogSessionLine "git sync already running; ignoring duplicate request." "#CDAA32"
-        & $userCallback $false
+        & $OnComplete $false
         return
     }
     $script:GitSyncBusy = $true
+    $script:PendingGitSyncCallback = $OnComplete
 
     # Pre-resolve tool paths on the UI thread: Resolve-*/Get-MsysToolPath/Convert-*  are defined
     # in the main session and are not visible inside a pool runspace.
@@ -1532,7 +1536,10 @@ function Start-GitSyncBeforeBuild {
             return [PSCustomObject]@{ Ok = $true; Logs = $logs; ErrMsg = $null }
         } `
         -Arguments @($root, $gitExe, $CommitMessage, $br, $winLock, $rmExe, $wslExe, $msysLock, $wslLock) `
-        -OnComplete ({
+        -OnComplete {
+            # Plain scriptblock (NO GetNewClosure). It retains the main module's
+            # $script: scope, so writes to $script:GitSyncBusy here actually clear the
+            # flag the next Start-GitSyncBeforeBuild call checks.
             param($result)
             $ok = $false
             try {
@@ -1551,8 +1558,14 @@ function Start-GitSyncBeforeBuild {
             } catch {}
             Add-LogSessionLine "" "#1A3050"
             $script:GitSyncBusy = $false
-            try { & $userCallback $ok } catch {}
-        }.GetNewClosure())
+            $cb = $script:PendingGitSyncCallback
+            $script:PendingGitSyncCallback = $null
+            if ($null -ne $cb) {
+                try { & $cb $ok } catch {
+                    try { Add-LogSessionLine ("git sync callback threw: " + $_.Exception.Message) "#DC3232" } catch {}
+                }
+            }
+        }
 }
 
 # Runs a script block on BgPool; invokes $OnComplete on the UI thread with the
@@ -1560,13 +1573,22 @@ function Start-GitSyncBeforeBuild {
 # actions (pull/push/prune/check) that previously ran synchronously and could
 # block for seconds (or longer, on network hiccups).
 #
-# CRITICAL: the DispatcherTimer Tick scriptblock MUST use GetNewClosure() to bind
+# CRITICAL #1: the DispatcherTimer Tick scriptblock MUST use GetNewClosure() to bind
 # $handle/$ps/$OnComplete. PowerShell 5.1 scriptblocks registered with .Add_Tick()
 # do NOT capture the enclosing function's local variables by default -- when the
 # tick fires, those variables are $null, so `-not $handle.IsCompleted` is `-not $null`
 # = `$true`, the handler returns early forever, and OnComplete is never invoked.
 # This was silently broken before -- async git/doc operations never completed,
 # leaving the UI in a permanent "busy" state (buttons stuck disabled).
+#
+# CRITICAL #2: GetNewClosure() ALSO creates a SEPARATE $script: scope for the closure.
+# Inside a GetNewClosure'd scriptblock, `$script:Foo` reads start as $null and writes
+# do NOT propagate to the main module. So this tick body is intentionally limited to
+# *local* variables ($handle, $ps, $OnComplete) -- it never touches $script: state.
+# All state mutation lives inside the caller-supplied $OnComplete, which is invoked
+# as a plain (non-closure) scriptblock, so its $script: refs resolve in the main
+# module as normal. NEVER add `$script:Foo = ...` writes inside this tick handler.
+# Pass plain scriptblocks (no .GetNewClosure()) when calling Start-AsyncPoolAction.
 function Start-AsyncPoolAction {
     param(
         [Parameter(Mandatory=$true)][scriptblock]$Script,
@@ -1898,11 +1920,15 @@ function Start-Build {
     $pw0 = $ui["ProgressBack"].ActualWidth
     if ($pw0 -gt 0) { $ui["ProgressFill"].Width = [math]::Floor($pw0 * 0.12) }
 
-    $clean = $script:ForceCleanBuild; $script:ForceCleanBuild = $false
+    # Stash clean-flag in a $script: var instead of capturing via GetNewClosure().
+    # GetNewClosure() would put the callback in a SEPARATE $script: scope, so reads of
+    # $script:IsBuilding inside would return $null -- the -not $script:IsBuilding guard
+    # below would always fire and the build would never start.
+    $script:CurrentBuildClean = $script:ForceCleanBuild
+    $script:ForceCleanBuild = $false
 
-    # GetNewClosure() binds $clean into the callback so it survives after Start-Build returns.
-    # Without this, dynamic-scope lookup for $clean would fail once our stack unwinds.
-    Start-GitSyncBeforeBuild -CommitMessage "chore: auto-commit before build (dev window)" -OnComplete ({
+    Start-GitSyncBeforeBuild -CommitMessage "chore: auto-commit before build (dev window)" -OnComplete {
+        # Plain scriptblock (NO GetNewClosure) so $script: refs go to the main module.
         param($ok)
         # If the user hit Stop or closed the window during git sync, bail.
         if (-not $script:IsBuilding) {
@@ -1915,7 +1941,7 @@ function Start-Build {
             return
         }
 
-        $buildMode = $(if ($clean) { "clean" } else { "incremental" })
+        $buildMode = $(if ($script:CurrentBuildClean) { "clean" } else { "incremental" })
         $ui["LblBuildActivity"].Text = "Starting " + $buildMode + " build..."
         $ui["LblProgressText"].Text = "0% - starting " + $buildMode + " build..."
         Add-LogSessionLine "" "#1A3050"
@@ -1925,11 +1951,11 @@ function Start-Build {
         $script:BuildVersion = Get-UiVersion
         $script:BuildProcess = $null
         $script:BuildStepQueue.Clear()
-        foreach ($s in (Get-BuildSteps $script:BuildVersion $clean)) { [void]$script:BuildStepQueue.Add($s) }
+        foreach ($s in (Get-BuildSteps $script:BuildVersion $script:CurrentBuildClean)) { [void]$script:BuildStepQueue.Add($s) }
         $script:BuildStepsTotal = $script:BuildStepQueue.Count
         $script:BuildStepsCompleted = 0
         $script:BuildTimer.Start()
-    }.GetNewClosure())
+    }
 }
 
 # ============================================================================
@@ -1983,9 +2009,17 @@ function Start-PushRelease {
     $script:HasBuildErrors = $false; $script:AllOutput.Clear()
     $script:ClientErrors.Clear(); $script:ServerErrors.Clear()
 
-    # GetNewClosure() binds $ver/$vs/$kind/$isStable/$releaseScript into the callback so
-    # they survive after Start-PushRelease returns.
-    Start-GitSyncBeforeBuild -CommitMessage "chore: auto-commit before release (dev window)" -OnComplete ({
+    # Stash release params in $script: vars instead of capturing via GetNewClosure().
+    # GetNewClosure() would put the callback in a SEPARATE $script: scope -- reads of
+    # $script:IsPushing would return $null and the release would never start.
+    $script:PendingReleaseVer      = $ver
+    $script:PendingReleaseVs       = $vs
+    $script:PendingReleaseKind     = $kind
+    $script:PendingReleaseIsStable = $isStable
+    $script:PendingReleaseScript   = $releaseScript
+
+    Start-GitSyncBeforeBuild -CommitMessage "chore: auto-commit before release (dev window)" -OnComplete {
+        # Plain scriptblock (NO GetNewClosure) so $script: refs go to the main module.
         param($ok)
         # If the user hit Stop or closed the window during git sync, bail.
         if (-not $script:IsPushing) {
@@ -1998,27 +2032,33 @@ function Start-PushRelease {
             return
         }
 
-        Set-ProjectVersion $ver.Major $ver.Minor $ver.Patch
-        $ui["LblBuildActivity"].Text = "Release v" + $vs + ": building..."
-        $ui["LblProgressText"].Text = "0% - release v" + $vs + " (starting steps...)"
+        $relVer      = $script:PendingReleaseVer
+        $relVs       = $script:PendingReleaseVs
+        $relKind     = $script:PendingReleaseKind
+        $relIsStable = $script:PendingReleaseIsStable
+        $relScript   = $script:PendingReleaseScript
+
+        Set-ProjectVersion $relVer.Major $relVer.Minor $relVer.Patch
+        $ui["LblBuildActivity"].Text = "Release v" + $relVs + ": building..."
+        $ui["LblProgressText"].Text = "0% - release v" + $relVs + " (starting steps...)"
 
         $script:ClientBuildResult = $null; $script:ServerBuildResult = $null
         $script:BuildStepQueue.Clear()
         $ui["LblClientStatus"].Text = "client: building..."
         $ui["BtnCopyLog"].Visibility = [System.Windows.Visibility]::Visible
 
-        $script:BuildVersion = $ver
+        $script:BuildVersion = $relVer
         Add-LogSessionLine "" "#1A3050"
-        Add-LogSessionLine (">>> RELEASE PIPELINE v" + $vs + " (" + $kind + ")") "#C8A000"
+        Add-LogSessionLine (">>> RELEASE PIPELINE v" + $relVs + " (" + $relKind + ")") "#C8A000"
         Add-LogSessionLine "    Version written to CMakeLists.txt; steps below run in order (build, then package/push)." "#44586C"
         Add-LogSessionLine "" "#1A3050"
 
         # Audit 2026-04-16: release builds now do a clean build to match v1 behavior.
         # Stale object files from a previous broken build can otherwise link into
         # the release binary.
-        foreach ($s in (Get-BuildSteps $ver $true)) { [void]$script:BuildStepQueue.Add($s) }
+        foreach ($s in (Get-BuildSteps $relVer $true)) { [void]$script:BuildStepQueue.Add($s) }
 
-        $prerelArg = $(if ($isStable) { "" } else { " -Prerelease" })
+        $prerelArg = $(if ($relIsStable) { "" } else { " -Prerelease" })
         $psExe = $(if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" })
         # Audit 2026-04-16: switched from -File to -Command to match v1. With -File,
         # switch parameters like `-SkipPush:$false` are parsed as a literal string
@@ -2026,7 +2066,7 @@ function Start-PushRelease {
         # -NonInteractive so a credential/auth prompt doesn't hang the subprocess.
         # -SkipBuild: dev-window-v2 already built both targets above; release.ps1 skips cmake step 0.
         # -SkipPush:$false: always push to GitHub (not skipped).
-        $relCmd = "& `"$releaseScript`" -Version `"$vs`"$prerelArg -SkipBuild -SkipPush:`$false"
+        $relCmd = "& `"$relScript`" -Version `"$relVs`"$prerelArg -SkipBuild -SkipPush:`$false"
         [void]$script:BuildStepQueue.Add(@{
             Name   = "Release: packaging + GitHub push"
             Exe    = $psExe
@@ -2036,7 +2076,7 @@ function Start-PushRelease {
         $script:BuildStepsTotal = $script:BuildStepQueue.Count
         $script:BuildStepsCompleted = 0
         $script:BuildTimer.Start()
-    }.GetNewClosure())
+    }
 }
 
 # ============================================================================
@@ -2747,54 +2787,45 @@ function Update-StatusBar {
     # Perf: reuse the persistent BgPool instead of creating a fresh runspace per
     # call. Old code opened a runspace here every 2s tick (~100-500ms on UI
     # thread). Pool-backed PowerShell instances skip the Open() cost entirely.
-    $root = $script:ProjectRoot
-    $ps = [System.Management.Automation.PowerShell]::Create()
-    $ps.RunspacePool = $script:BgPool
-    [void]$ps.AddScript({
-        param($root)
-        $b = try { $x = git -C $root branch --show-current 2>$null; if ($x) { $x.Trim() } else { 'unknown' } } catch { 'unknown' }
-        $h = try { $x = git -C $root rev-parse --short HEAD 2>$null; if ($x) { $x.Trim() } else { '------' } } catch { '------' }
-        $c = try { $st = git -C $root status --porcelain 2>$null; if ($st) { @($st).Count } else { 0 } } catch { 0 }
-        $w = try { $wt = git -C $root worktree list --porcelain 2>$null; if ($wt) { ([regex]::Matches($wt, '^worktree ', [System.Text.RegularExpressions.RegexOptions]::Multiline)).Count } else { 1 } } catch { 0 }
-        [PSCustomObject]@{ Branch = $b; Hash = $h; Count = $c; Worktrees = $w }
-    })
-    [void]$ps.AddArgument($root)
-    $handle = $ps.BeginInvoke()
-
-    # Poll on the dispatcher (250 ms) until the background job finishes, then
-    # apply results on the UI thread. GitBusy is cleared only after completion.
-    # GetNewClosure() required -- see Start-AsyncPoolAction comment.
-    $gitPollTimer = New-Object System.Windows.Threading.DispatcherTimer
-    $gitPollTimer.Interval = [TimeSpan]::FromMilliseconds(250)
-    $gitPollTimer.Add_Tick({
-        if (-not $handle.IsCompleted) { return }
-        $this.Stop()
-        try {
-            $results = $ps.EndInvoke($handle)
-            $r = if ($results -and $results.Count -gt 0) { $results[0] } else { $null }
-            if ($r) {
-                $script:GitChangeCount = $r.Count
-                $ui["StatusBranch"].Text = "branch: " + $r.Branch
-                $ui["StatusHash"].Text   = "HEAD: " + $r.Hash
-                if ($r.Count -eq 0) {
-                    $ui["StatusDirty"].Text = "clean"
-                    $ui["StatusDirty"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#00B400")))
-                } else {
-                    $ui["StatusDirty"].Text = [string]$r.Count + " uncommitted"
-                    $ui["StatusDirty"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#FF8C00")))
+    Start-AsyncPoolAction `
+        -Script {
+            param($root)
+            $b = try { $x = git -C $root branch --show-current 2>$null; if ($x) { $x.Trim() } else { 'unknown' } } catch { 'unknown' }
+            $h = try { $x = git -C $root rev-parse --short HEAD 2>$null; if ($x) { $x.Trim() } else { '------' } } catch { '------' }
+            $c = try { $st = git -C $root status --porcelain 2>$null; if ($st) { @($st).Count } else { 0 } } catch { 0 }
+            $w = try { $wt = git -C $root worktree list --porcelain 2>$null; if ($wt) { ([regex]::Matches($wt, '^worktree ', [System.Text.RegularExpressions.RegexOptions]::Multiline)).Count } else { 1 } } catch { 0 }
+            [PSCustomObject]@{ Branch = $b; Hash = $h; Count = $c; Worktrees = $w }
+        } `
+        -Arguments @($script:ProjectRoot) `
+        -OnComplete {
+            # Plain scriptblock (NO GetNewClosure) so $script: writes propagate.
+            # Earlier inlined GetNewClosure'd tick handler had a SEPARATE $script: scope --
+            # writes to $script:GitBusy never reached the main module, so the busy guard
+            # latched true after the first poll and the status bar froze on its first values.
+            param($result)
+            try {
+                $r = if ($result -and $result.Count -gt 0) { $result[0] } else { $result }
+                if ($r) {
+                    $script:GitChangeCount = $r.Count
+                    $ui["StatusBranch"].Text = "branch: " + $r.Branch
+                    $ui["StatusHash"].Text   = "HEAD: " + $r.Hash
+                    if ($r.Count -eq 0) {
+                        $ui["StatusDirty"].Text = "clean"
+                        $ui["StatusDirty"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#00B400")))
+                    } else {
+                        $ui["StatusDirty"].Text = [string]$r.Count + " uncommitted"
+                        $ui["StatusDirty"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#FF8C00")))
+                    }
+                    if ($r.Worktrees -gt 0) {
+                        $ui["StatusWorktrees"].Text = "worktrees: " + $r.Worktrees
+                        $wtColor = if ($r.Worktrees -gt 20) { "#FF8C00" } else { "#506070" }
+                        $ui["StatusWorktrees"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($wtColor)))
+                    }
+                    Update-Auth-Labels
                 }
-                if ($r.Worktrees -gt 0) {
-                    $ui["StatusWorktrees"].Text = "worktrees: " + $r.Worktrees
-                    $wtColor = if ($r.Worktrees -gt 20) { "#FF8C00" } else { "#506070" }
-                    $ui["StatusWorktrees"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($wtColor)))
-                }
-                Update-Auth-Labels
-            }
-            try { $ps.Dispose() } catch {}
-        } catch {}
-        $script:GitBusy = $false
-    }.GetNewClosure())
-    $gitPollTimer.Start()
+            } catch {}
+            $script:GitBusy = $false
+        }
 }
 
 # ============================================================================
