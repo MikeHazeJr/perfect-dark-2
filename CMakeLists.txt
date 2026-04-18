@@ -124,9 +124,9 @@ endif()
 # Semantic version (D13 Update System)
 # Version is Major.Minor.Revision. Channel (stable/dev) is determined by the
 # GitHub release prerelease flag, not by the version number itself.
-set(VERSION_SEM_MAJOR 0 CACHE STRING "Semantic version major")
+set(VERSION_SEM_MAJOR 99 CACHE STRING "Semantic version major")
 set(VERSION_SEM_MINOR 0 CACHE STRING "Semantic version minor")
-set(VERSION_SEM_PATCH 125 CACHE STRING "Semantic version revision")
+set(VERSION_SEM_PATCH 0 CACHE STRING "Semantic version revision")
 
 set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}")
 
