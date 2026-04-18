@@ -17,5 +17,5 @@ case ":$PATH:" in
 esac
 
 export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime"
-export CCACHE_BASEDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export CCACHE_BASEDIR="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)"
 echo "Build env: TEMP=$TEMP | mingw64 on PATH | ccache sloppy | CCACHE_BASEDIR=$CCACHE_BASEDIR"
