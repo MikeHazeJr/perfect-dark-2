@@ -578,94 +578,169 @@ void titleInitPdLogo(void)
 
 	{
 		struct coord coord = {0, 0, 0};
+		struct modeldef *modeldef;
 		s32 fid = catalogGetPropFilenumByIndex(MODEL_NLOGO); /* SA-5d */
-		g_ModelStates[MODEL_NLOGO].modeldef = modeldefLoad(fid, nextaddr, TITLE_ALLOCSIZE, 0);
+		modeldef = modeldefLoad(fid, nextaddr, TITLE_ALLOCSIZE, 0);
+		g_ModelStates[MODEL_NLOGO].modeldef = modeldef;
 		size = ALIGN64(fileGetLoadedSize(fid));
 		nextaddr += size;
 		remaining = TITLE_ALLOCSIZE - size;
-		modelAllocateRwData(g_ModelStates[MODEL_NLOGO].modeldef);
-
-		g_TitleModel = modelmgrInstantiateModelWithAnim(g_ModelStates[MODEL_NLOGO].modeldef);
-		modelSetScale(g_TitleModel, 1);
-		modelSetRootPosition(g_TitleModel, &coord);
+		g_TitleModel = NULL;
+		/* B-161 crash-proof: skip downstream calls on torn-load NULL. */
+		if (modeldef != NULL) {
+			modelAllocateRwData(modeldef);
+			g_TitleModel = modelmgrInstantiateModelWithAnim(modeldef);
+			if (g_TitleModel != NULL) {
+				modelSetScale(g_TitleModel, 1);
+				modelSetRootPosition(g_TitleModel, &coord);
+			}
+		} else {
+			sysLogPrintf(LOG_ERROR, "INTRO: NLOGO modeldef load failed -- rendering blank");
+		}
 	}
 
 	{
 		struct coord coord = {0, 0, 0};
+		struct modeldef *modeldef;
 		s32 fid = catalogGetPropFilenumByIndex(MODEL_NLOGO2); /* SA-5d */
-		g_ModelStates[MODEL_NLOGO2].modeldef = modeldefLoad(fid, nextaddr, remaining, 0);
+		modeldef = modeldefLoad(fid, nextaddr, remaining, 0);
+		g_ModelStates[MODEL_NLOGO2].modeldef = modeldef;
 		size = ALIGN64(fileGetLoadedSize(fid));
 		nextaddr += size;
 		remaining -= size;
-		modelAllocateRwData(g_ModelStates[MODEL_NLOGO2].modeldef);
-
-		g_TitleModelNLogo2 = modelmgrInstantiateModelWithAnim(g_ModelStates[MODEL_NLOGO2].modeldef);
-		modelSetScale(g_TitleModelNLogo2, 1);
-		modelSetRootPosition(g_TitleModelNLogo2, &coord);
+		g_TitleModelNLogo2 = NULL;
+		if (modeldef != NULL) {
+			modelAllocateRwData(modeldef);
+			g_TitleModelNLogo2 = modelmgrInstantiateModelWithAnim(modeldef);
+			if (g_TitleModelNLogo2 != NULL) {
+				modelSetScale(g_TitleModelNLogo2, 1);
+				modelSetRootPosition(g_TitleModelNLogo2, &coord);
+			}
+		} else {
+			sysLogPrintf(LOG_ERROR, "INTRO: NLOGO2 modeldef load failed -- rendering blank");
+		}
 	}
 
 	{
 		struct coord coord = {0, 0, 0};
+		struct modeldef *modeldef;
 		s32 fid = catalogGetPropFilenumByIndex(MODEL_PDTWO); /* SA-5d */
-		g_ModelStates[MODEL_PDTWO].modeldef = modeldefLoad(fid, nextaddr, remaining, 0);
+		modeldef = modeldefLoad(fid, nextaddr, remaining, 0);
+		g_ModelStates[MODEL_PDTWO].modeldef = modeldef;
 		size = ALIGN64(fileGetLoadedSize(fid));
 		nextaddr += size;
 		remaining -= size;
-		modelAllocateRwData(g_ModelStates[MODEL_PDTWO].modeldef);
-
-		g_TitleModelPdTwo = modelmgrInstantiateModelWithoutAnim(g_ModelStates[MODEL_PDTWO].modeldef);
-		modelSetScale(g_TitleModelPdTwo, 1);
-		modelSetRootPosition(g_TitleModelPdTwo, &coord);
+		g_TitleModelPdTwo = NULL;
+		if (modeldef != NULL) {
+			modelAllocateRwData(modeldef);
+			g_TitleModelPdTwo = modelmgrInstantiateModelWithoutAnim(modeldef);
+			if (g_TitleModelPdTwo != NULL) {
+				modelSetScale(g_TitleModelPdTwo, 1);
+				modelSetRootPosition(g_TitleModelPdTwo, &coord);
+			}
+		} else {
+			sysLogPrintf(LOG_ERROR, "INTRO: PDTWO modeldef load failed -- rendering blank");
+		}
 	}
 
 #if VERSION == VERSION_JPN_FINAL
 	{
 		struct coord coord = {0, 0, 0};
+		struct modeldef *modeldef;
 		s32 fid_jpnlogo = catalogGetPropFilenumByIndex(MODEL_JPNLOGO); /* SA-5d */
-		g_ModelStates[MODEL_JPNLOGO].modeldef = modeldefLoad(fid_jpnlogo, nextaddr, remaining, 0);
+		modeldef = modeldefLoad(fid_jpnlogo, nextaddr, remaining, 0);
+		g_ModelStates[MODEL_JPNLOGO].modeldef = modeldef;
 		size = ALIGN64(fileGetLoadedSize(fid_jpnlogo));
 		nextaddr += size;
 		remaining -= size;
-		modelAllocateRwData(g_ModelStates[MODEL_JPNLOGO].modeldef);
-
-		g_TitleModelJpnLogo1 = modelmgrInstantiateModelWithoutAnim(g_ModelStates[MODEL_JPNLOGO].modeldef);
-		g_TitleModelJpnLogo2 = modelmgrInstantiateModelWithoutAnim(g_ModelStates[MODEL_JPNLOGO].modeldef);
-		modelSetScale(g_TitleModelJpnLogo1, 1);
-		modelSetScale(g_TitleModelJpnLogo2, 1);
-		modelSetRootPosition(g_TitleModelJpnLogo1, &coord);
-		modelSetRootPosition(g_TitleModelJpnLogo2, &coord);
+		g_TitleModelJpnLogo1 = NULL;
+		g_TitleModelJpnLogo2 = NULL;
+		if (modeldef != NULL) {
+			modelAllocateRwData(modeldef);
+			g_TitleModelJpnLogo1 = modelmgrInstantiateModelWithoutAnim(modeldef);
+			g_TitleModelJpnLogo2 = modelmgrInstantiateModelWithoutAnim(modeldef);
+			if (g_TitleModelJpnLogo1 != NULL) {
+				modelSetScale(g_TitleModelJpnLogo1, 1);
+				modelSetRootPosition(g_TitleModelJpnLogo1, &coord);
+			}
+			if (g_TitleModelJpnLogo2 != NULL) {
+				modelSetScale(g_TitleModelJpnLogo2, 1);
+				modelSetRootPosition(g_TitleModelJpnLogo2, &coord);
+			}
+		} else {
+			sysLogPrintf(LOG_ERROR, "INTRO: JPNLOGO modeldef load failed -- rendering blank");
+		}
 
 		{
+			struct modeldef *jpnpd;
 			s32 fid_jpnpd = catalogGetPropFilenumByIndex(MODEL_JPNPD); /* SA-5d */
-			g_ModelStates[MODEL_JPNPD].modeldef = modeldefLoad(fid_jpnpd, nextaddr, remaining, 0);
+			jpnpd = modeldefLoad(fid_jpnpd, nextaddr, remaining, 0);
+			g_ModelStates[MODEL_JPNPD].modeldef = jpnpd;
 			size = ALIGN64(fileGetLoadedSize(fid_jpnpd));
+			nextaddr += size;
+			remaining -= size;
+			g_TitleModelJpnPd = NULL;
+			if (jpnpd != NULL) {
+				modelAllocateRwData(jpnpd);
+				g_TitleModelJpnPd = modelmgrInstantiateModelWithoutAnim(jpnpd);
+				if (g_TitleModelJpnPd != NULL) {
+					modelSetScale(g_TitleModelJpnPd, 1);
+					modelSetRootPosition(g_TitleModelJpnPd, &coord);
+				}
+			} else {
+				sysLogPrintf(LOG_ERROR, "INTRO: JPNPD modeldef load failed -- rendering blank");
+			}
 		}
-		nextaddr += size;
-		remaining -= size;
-		modelAllocateRwData(g_ModelStates[MODEL_JPNPD].modeldef);
-
-		g_TitleModelJpnPd = modelmgrInstantiateModelWithoutAnim(g_ModelStates[MODEL_JPNPD].modeldef);
-		modelSetScale(g_TitleModelJpnPd, 1);
-		modelSetRootPosition(g_TitleModelJpnPd, &coord);
 	}
 #endif
 
 	{
 		struct coord coord = {0, 0, 0};
+		struct modeldef *modeldef;
 		s32 fid = catalogGetPropFilenumByIndex(MODEL_PDTHREE); /* SA-5d */
-		g_ModelStates[MODEL_PDTHREE].modeldef = modeldefLoad(fid, nextaddr, remaining, 0);
+		modeldef = modeldefLoad(fid, nextaddr, remaining, 0);
+		g_ModelStates[MODEL_PDTHREE].modeldef = modeldef;
 		size = ALIGN64(fileGetLoadedSize(fid));
 		nextaddr += size;
 		remaining -= size;
-		modelAllocateRwData(g_ModelStates[MODEL_PDTHREE].modeldef);
-
-		g_TitleModelPdThree = modelmgrInstantiateModelWithoutAnim(g_ModelStates[MODEL_PDTHREE].modeldef);
-		modelSetScale(g_TitleModelPdThree, 1);
-		modelSetRootPosition(g_TitleModelPdThree, &coord);
+		g_TitleModelPdThree = NULL;
+		if (modeldef != NULL) {
+			modelAllocateRwData(modeldef);
+			g_TitleModelPdThree = modelmgrInstantiateModelWithoutAnim(modeldef);
+			if (g_TitleModelPdThree != NULL) {
+				modelSetScale(g_TitleModelPdThree, 1);
+				modelSetRootPosition(g_TitleModelPdThree, &coord);
+			}
+		} else {
+			sysLogPrintf(LOG_ERROR, "INTRO: PDTHREE modeldef load failed -- rendering blank");
+		}
 	}
 
 	{
-		struct modelrodata_dl *rodata = (struct modelrodata_dl *)modelGetPartRodata(g_ModelStates[MODEL_PDTWO].modeldef, MODELPART_LOGO_FRONTSIDE);
+		/* B-161: PDTWO is used as the template for vertex/colour buffer
+		 * sizing below. If the modeldef or its FRONTSIDE part is missing,
+		 * we cannot bake the intermediate buffers -- fall back to main
+		 * menu via TITLEMODE_SKIP, which also frees all models via
+		 * titleExitPdLogo's NULL-safe path. */
+		struct modelrodata_dl *rodata = g_ModelStates[MODEL_PDTWO].modeldef != NULL
+				? (struct modelrodata_dl *)modelGetPartRodata(g_ModelStates[MODEL_PDTWO].modeldef, MODELPART_LOGO_FRONTSIDE)
+				: NULL;
+
+		if (rodata == NULL) {
+			sysLogPrintf(LOG_ERROR,
+					"INTRO: PdLogo sequence cannot init (PDTWO missing or no FRONTSIDE part) -- skipping to main menu");
+			var800624f4 = 1;
+			joy00014810(false);
+			g_PdLogoIsFirstTick = true;
+			g_PdLogoTriggerExit = false;
+			g_PdLogoVertices[0] = NULL;
+			g_PdLogoVertices[1] = NULL;
+			g_PdLogoColours[0] = NULL;
+			g_PdLogoColours[1] = NULL;
+			g_PdLogoVtxColIndex = 0;
+			titleSetNextMode(TITLEMODE_SKIP);
+			return;
+		}
 
 		size = ALIGN8(rodata->numvertices * sizeof(Vtx));
 
@@ -701,15 +776,17 @@ void titleInitPdLogo(void)
 
 void titleExitPdLogo(void)
 {
-	modelmgrFreeModel(g_TitleModel);
-	modelmgrFreeModel(g_TitleModelNLogo2);
-	modelmgrFreeModel(g_TitleModelPdTwo);
-	modelmgrFreeModel(g_TitleModelPdThree);
+	/* B-161 crash-proof: any of these may be NULL if modeldefLoad rejected
+	 * the asset as torn in titleInitPdLogo. */
+	if (g_TitleModel != NULL) { modelmgrFreeModel(g_TitleModel); g_TitleModel = NULL; }
+	if (g_TitleModelNLogo2 != NULL) { modelmgrFreeModel(g_TitleModelNLogo2); g_TitleModelNLogo2 = NULL; }
+	if (g_TitleModelPdTwo != NULL) { modelmgrFreeModel(g_TitleModelPdTwo); g_TitleModelPdTwo = NULL; }
+	if (g_TitleModelPdThree != NULL) { modelmgrFreeModel(g_TitleModelPdThree); g_TitleModelPdThree = NULL; }
 
 #if VERSION == VERSION_JPN_FINAL
-	modelmgrFreeModel(g_TitleModelJpnLogo1);
-	modelmgrFreeModel(g_TitleModelJpnLogo2);
-	modelmgrFreeModel(g_TitleModelJpnPd);
+	if (g_TitleModelJpnLogo1 != NULL) { modelmgrFreeModel(g_TitleModelJpnLogo1); g_TitleModelJpnLogo1 = NULL; }
+	if (g_TitleModelJpnLogo2 != NULL) { modelmgrFreeModel(g_TitleModelJpnLogo2); g_TitleModelJpnLogo2 = NULL; }
+	if (g_TitleModelJpnPd != NULL) { modelmgrFreeModel(g_TitleModelJpnPd); g_TitleModelJpnPd = NULL; }
 #endif
 
 	joy00014810(true);
@@ -1432,7 +1509,9 @@ Gfx *titleRenderPdLogo(Gfx *gdl)
 	// Inject a SetLights command into the displaylists for each of the four logo sides.
 	// The front face gets a different light which makes it remain lit when the other sides go dark.
 #if VERSION == VERSION_JPN_FINAL
-	if (g_PdLogoTitleStep <= 0)
+	if (g_PdLogoTitleStep <= 0 && model != NULL)
+#else
+	if (model != NULL)
 #endif
 	{
 		s32 numvertices = 0;
@@ -1664,24 +1743,36 @@ Gfx *titleRenderPdLogo(Gfx *gdl)
 	mtx00015f04(0.308f, &sp230);
 
 	// Render the "PERFECT DARK" model
-	if (g_PdLogoTitleStep >= 0) {
+	/* B-161 crash-proof: skip when the target model didn't load or when the
+	 * shared Vtx/Col buffers couldn't be sized (see titleInitPdLogo). */
+	if (g_PdLogoTitleStep >= 0
+			&& g_PdLogoVertices[g_PdLogoVtxColIndex] != NULL
+			&& g_PdLogoColours[g_PdLogoVtxColIndex] != NULL) {
 		if (g_PdLogoTitleStep == 0) {
 			// empty
 		} else if (g_PdLogoTitleStep == 1) {
 			bool visible = g_PdLogoTitleStepFrac < 0.5f;
 			model = g_TitleModelPdThree;
-			gdl = titleRenderPdLogoModel(gdl, model, visible, g_PdLogoTitleStepFrac, 255, g_PdLogoTitleStepFrac, &sp230, g_PdLogoVertices[g_PdLogoVtxColIndex], g_PdLogoColours[g_PdLogoVtxColIndex]);
+			if (model != NULL) {
+				gdl = titleRenderPdLogoModel(gdl, model, visible, g_PdLogoTitleStepFrac, 255, g_PdLogoTitleStepFrac, &sp230, g_PdLogoVertices[g_PdLogoVtxColIndex], g_PdLogoColours[g_PdLogoVtxColIndex]);
+			}
 		} else if (g_PdLogoTitleStep == 2) {
 			bool visible = g_PdLogoTitleStepFrac < 0.5f;
 			model = g_TitleModelPdTwo;
-			gdl = titleRenderPdLogoModel(gdl, model, visible, 1.0f - g_PdLogoTitleStepFrac, 255, 1.0f, &sp230, g_PdLogoVertices[g_PdLogoVtxColIndex], g_PdLogoColours[g_PdLogoVtxColIndex]);
+			if (model != NULL) {
+				gdl = titleRenderPdLogoModel(gdl, model, visible, 1.0f - g_PdLogoTitleStepFrac, 255, 1.0f, &sp230, g_PdLogoVertices[g_PdLogoVtxColIndex], g_PdLogoColours[g_PdLogoVtxColIndex]);
+			}
 		} else if (g_PdLogoTitleStep == 3) {
 			bool visible = g_PdLogoTitleStepFrac < 0.5f;
 			model = g_TitleModelPdTwo;
-			gdl = titleRenderPdLogoModel(gdl, model, visible, g_PdLogoTitleStepFrac, 255, 1.0f, &sp230, g_PdLogoVertices[g_PdLogoVtxColIndex], g_PdLogoColours[g_PdLogoVtxColIndex]);
+			if (model != NULL) {
+				gdl = titleRenderPdLogoModel(gdl, model, visible, g_PdLogoTitleStepFrac, 255, 1.0f, &sp230, g_PdLogoVertices[g_PdLogoVtxColIndex], g_PdLogoColours[g_PdLogoVtxColIndex]);
+			}
 		} else {
 			model = g_TitleModelPdTwo;
-			gdl = titleRenderPdLogoModel(gdl, model, false, 1.0f, 255, 1.0f, &sp230, g_PdLogoVertices[g_PdLogoVtxColIndex], g_PdLogoColours[g_PdLogoVtxColIndex]);
+			if (model != NULL) {
+				gdl = titleRenderPdLogoModel(gdl, model, false, 1.0f, 255, 1.0f, &sp230, g_PdLogoVertices[g_PdLogoVtxColIndex], g_PdLogoColours[g_PdLogoVtxColIndex]);
+			}
 		}
 	}
 #endif
@@ -1841,13 +1932,32 @@ void titleInitNintendoLogo(void)
 
 	{
 		struct coord coord = {0, 0, 0};
+		struct modeldef *modeldef;
 
-		g_ModelStates[MODEL_NINTENDOLOGO].modeldef = modeldefLoad(catalogGetPropFilenumByIndex(MODEL_NINTENDOLOGO), nextaddr, TITLE_ALLOCSIZE, 0); /* SA-5d */
+		modeldef = modeldefLoad(catalogGetPropFilenumByIndex(MODEL_NINTENDOLOGO), nextaddr, TITLE_ALLOCSIZE, 0); /* SA-5d */
+		g_ModelStates[MODEL_NINTENDOLOGO].modeldef = modeldef;
 
-		modelAllocateRwData(g_ModelStates[MODEL_NINTENDOLOGO].modeldef);
-		g_TitleModel = modelmgrInstantiateModelWithoutAnim(g_ModelStates[MODEL_NINTENDOLOGO].modeldef);
-		modelSetScale(g_TitleModel, 1);
-		modelSetRootPosition(g_TitleModel, &coord);
+		/* B-161 crash-proof: modeldefLoad returns NULL when the modeldef is
+		 * structurally torn (parts=0 / NULL rootnode / absurd scale) -- see
+		 * the guard in modeldefLoad(). On torn loads, bail out of the rest
+		 * of init; the render/exit paths honour NULL g_TitleModel and the
+		 * tick function's timer still advances us to the next mode. */
+		if (modeldef == NULL) {
+			sysLogPrintf(LOG_ERROR,
+					"INTRO: Nintendo logo modeldef load failed -- skipping mode");
+			g_TitleModel = NULL;
+			var800624f4 = 1;
+			joy00014810(false);
+			titleSetNextMode(TITLEMODE_PDLOGO);
+			return;
+		}
+
+		modelAllocateRwData(modeldef);
+		g_TitleModel = modelmgrInstantiateModelWithoutAnim(modeldef);
+		if (g_TitleModel != NULL) {
+			modelSetScale(g_TitleModel, 1);
+			modelSetRootPosition(g_TitleModel, &coord);
+		}
 		var800624f4 = 1;
 		joy00014810(false);
 	}
@@ -1855,7 +1965,10 @@ void titleInitNintendoLogo(void)
 
 void titleExitNintendoLogo(void)
 {
-	modelmgrFreeModel(g_TitleModel);
+	if (g_TitleModel != NULL) {
+		modelmgrFreeModel(g_TitleModel);
+		g_TitleModel = NULL;
+	}
 	joy00014810(true);
 }
 
@@ -1916,6 +2029,13 @@ Gfx *titleRenderNintendoLogo(Gfx *gdl)
 	s32 v0;
 
 	gdl = titleClear(gdl);
+
+	/* B-161 crash-proof: modeldef load may have failed in titleInitNintendoLogo;
+	 * g_TitleModel is NULL in that case. Skip the 3D model rendering -- the
+	 * cleared frame is enough and tick will advance to the next mode. */
+	if (g_TitleModel == NULL) {
+		return gdl;
+	}
 
 	gSPSetLights1(gdl++, g_TitleLightNintendoRare);
 
@@ -2003,13 +2123,30 @@ void titleInitRareLogo(void)
 
 	{
 		struct coord coord = {0, 0, 0};
+		struct modeldef *modeldef;
 
-		g_ModelStates[MODEL_RARELOGO].modeldef = modeldefLoad(catalogGetPropFilenumByIndex(MODEL_RARELOGO), nextaddr, TITLE_ALLOCSIZE, 0); /* SA-5d */
+		modeldef = modeldefLoad(catalogGetPropFilenumByIndex(MODEL_RARELOGO), nextaddr, TITLE_ALLOCSIZE, 0); /* SA-5d */
+		g_ModelStates[MODEL_RARELOGO].modeldef = modeldef;
 
-		modelAllocateRwData(g_ModelStates[MODEL_RARELOGO].modeldef);
-		g_TitleModel = modelmgrInstantiateModelWithoutAnim(g_ModelStates[MODEL_RARELOGO].modeldef);
-		modelSetScale(g_TitleModel, 1);
-		modelSetRootPosition(g_TitleModel, &coord);
+		/* B-161 crash-proof: torn modeldef -> NULL. Advance to the next intro
+		 * step (Nintendo logo) instead of dereferencing NULL below. */
+		if (modeldef == NULL) {
+			sysLogPrintf(LOG_ERROR,
+					"INTRO: Rare logo modeldef load failed -- skipping mode");
+			g_TitleModel = NULL;
+			var800624f4 = 1;
+			musicQueueStopAllEvent();
+			joy00014810(false);
+			titleSetNextMode(TITLEMODE_NINTENDOLOGO);
+			return;
+		}
+
+		modelAllocateRwData(modeldef);
+		g_TitleModel = modelmgrInstantiateModelWithoutAnim(modeldef);
+		if (g_TitleModel != NULL) {
+			modelSetScale(g_TitleModel, 1);
+			modelSetRootPosition(g_TitleModel, &coord);
+		}
 
 		var800624f4 = 1;
 
@@ -2020,7 +2157,10 @@ void titleInitRareLogo(void)
 
 void titleExitRareLogo(void)
 {
-	modelmgrFreeModel(g_TitleModel);
+	if (g_TitleModel != NULL) {
+		modelmgrFreeModel(g_TitleModel);
+		g_TitleModel = NULL;
+	}
 	joy00014810(true);
 }
 
@@ -2097,6 +2237,12 @@ Gfx *titleRenderRareLogo(Gfx *gdl)
 	gdl = titleClear(gdl);
 
 	if (g_TitleTimer < 0) {
+		return gdl;
+	}
+
+	/* B-161 crash-proof: modeldef load may have failed in titleInitRareLogo;
+	 * g_TitleModel is NULL in that case. */
+	if (g_TitleModel == NULL) {
 		return gdl;
 	}
 
