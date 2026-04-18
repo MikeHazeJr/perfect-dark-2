@@ -5,7 +5,7 @@
  *   - Update notification banner (shown when a new version is available)
  *   - Version picker dialog (accessible from Settings → About/Update)
  *   - Download progress overlay
- *   - Release channel selector (Stable / Dev)
+ *   - "Show Dev Releases" toggle (include prereleases in the list)
  *
  * Renders as an ImGui overlay — not tied to the hotswap system.
  * Called from pdguiRender() every frame when update state is relevant.
@@ -301,15 +301,17 @@ static void renderVersionPickerContent(float tableH, float changelogH)
 	ImGui::Text("Current version: %s", curstr);
 	ImGui::SameLine(0, pdguiScale(16.0f));
 
-	/* Channel selector */
-	update_channel_t channel = updaterGetChannel();
-	const char *channelLabels[] = { "Stable", "Dev / Test" };
-	ImGui::SetNextItemWidth(pdguiScale(120.0f));
-	int channelInt = (int)channel;
-	if (ImGui::Combo("Channel##upd", &channelInt, channelLabels, 2)) {
-		updaterSetChannel((update_channel_t)channelInt);
-		/* Re-check with new channel */
+	/* Show Dev Releases toggle */
+	bool showDev = updaterGetShowDevReleases() != 0;
+	if (ImGui::Checkbox("Show Dev Releases##upd", &showDev)) {
+		updaterSetShowDevReleases(showDev ? 1 : 0);
+		/* Re-check so the list reflects the new filter */
 		updaterCheckAsync();
+	}
+	if (ImGui::IsItemHovered()) {
+		ImGui::SetTooltip(
+			"Off: show only stable releases\n"
+			"On: also show pre-release / dev builds");
 	}
 
 	ImGui::Separator();
@@ -604,8 +606,7 @@ static void renderVersionWatermark(void)
 	if (!verStr || !verStr[0]) return;
 
 	char label[96];
-	update_channel_t ch = updaterGetChannel();
-	if (ch == UPDATE_CHANNEL_DEV) {
+	if (updaterGetShowDevReleases()) {
 		snprintf(label, sizeof(label), "v%s (dev)", verStr);
 	} else {
 		snprintf(label, sizeof(label), "v%s", verStr);

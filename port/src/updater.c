@@ -34,8 +34,10 @@
  * apply the loaded value on startup)
  * ======================================================================== */
 
-/* s32 mirror of update_channel_t, registered with the config system */
-static s32 s_UpdateChannelCfg = UPDATE_CHANNEL_STABLE;
+/* Show Dev Releases — 0 = stable only (default), 1 = include prereleases.
+ * Registered with the config system so it persists to pd.ini. Per-agent
+ * sidecar (prefs_agent.c) can overlay this at sign-in. */
+static s32 s_ShowDevReleasesCfg = 0;
 
 /* Comma-separated list of folder/file names that the updater never deletes.
  * Persisted in pd.ini under [Update]. Read directly from pd.ini at apply
@@ -50,10 +52,9 @@ PD_CONSTRUCTOR static void updaterConfigInit(void)
 	 * UPDATER_DEFAULT_PROTECTED ("mods,data,extracted,saves") is the
 	 * canonical list; pd.ini itself is always protected regardless of
 	 * this value, so the default has been fit-for-purpose from day one.
-	 * UpdateChannel stays configurable (stable/beta switching is a real
-	 * user decision). */
-	configRegisterInt("Game.UpdateChannel", &s_UpdateChannelCfg,
-		UPDATE_CHANNEL_STABLE, UPDATE_CHANNEL_COUNT - 1);
+	 * Updates.ShowDevReleases stays configurable (opting in to dev/test
+	 * builds is a real user decision). */
+	configRegisterInt("Updates.ShowDevReleases", &s_ShowDevReleasesCfg, 0, 1);
 }
 
 /* ========================================================================
@@ -71,7 +72,7 @@ static struct {
 	char             errorMsg[256];
 
 	/* Configuration */
-	update_channel_t channel;
+	s32              showDevReleases; /* 0 = stable only, 1 = stable + dev/prerelease */
 	pdversion_t      currentVersion;
 	char             versionStr[64];
 	s32              isServer;
@@ -658,8 +659,9 @@ static s32 parseReleasesJson(const char *json)
 		if (t.type == JTOK_LBRACE) {
 			updater_release_t rel;
 			if (parseRelease(&p, &rel) == 0 && !rel.isDraft) {
-				/* Channel filter: if on stable, skip prereleases */
-				if (s_Updater.channel == UPDATE_CHANNEL_STABLE && rel.isPrerelease) {
+				/* Filter: hide prereleases unless the user opted in via
+				 * "Show Dev Releases". */
+				if (!s_Updater.showDevReleases && rel.isPrerelease) {
 					continue;
 				}
 				s_Updater.releases[count] = rel;
@@ -1034,12 +1036,8 @@ void updaterInit(void)
 	s_Updater.mutex = SDL_CreateMutex();
 	s_Updater.currentVersion = (pdversion_t)BUILD_VERSION_INIT;
 	versionFormat(&s_Updater.currentVersion, s_Updater.versionStr, sizeof(s_Updater.versionStr));
-	/* Apply channel from config (loaded before updaterInit via PD_CONSTRUCTOR) */
-	if (s_UpdateChannelCfg >= 0 && s_UpdateChannelCfg < UPDATE_CHANNEL_COUNT) {
-		s_Updater.channel = (update_channel_t)s_UpdateChannelCfg;
-	} else {
-		s_Updater.channel = UPDATE_CHANNEL_STABLE;
-	}
+	/* Apply Show Dev Releases from config (loaded before updaterInit via PD_CONSTRUCTOR) */
+	s_Updater.showDevReleases = s_ShowDevReleasesCfg ? 1 : 0;
 	s_Updater.latestIndex = -1;
 
 #ifdef PD_SERVER
@@ -1106,10 +1104,10 @@ void updaterInit(void)
 		s_Updater.curlInitialized = 1;
 	}
 
-	sysLogPrintf(LOG_NOTE, "UPDATER: Initialized — v%s (%s, %s channel)",
+	sysLogPrintf(LOG_NOTE, "UPDATER: Initialized — v%s (%s, show-dev=%s)",
 		s_Updater.versionStr,
 		s_Updater.isServer ? "server" : "client",
-		s_Updater.channel == UPDATE_CHANNEL_DEV ? "dev" : "stable");
+		s_Updater.showDevReleases ? "on" : "off");
 }
 
 void updaterShutdown(void)
@@ -1682,19 +1680,19 @@ void updaterCleanupOld(void)
 }
 
 /* ========================================================================
- * Public API — Channel management
+ * Public API — Prerelease visibility
  * ======================================================================== */
 
-update_channel_t updaterGetChannel(void)
+s32 updaterGetShowDevReleases(void)
 {
-	return s_Updater.channel;
+	return s_Updater.showDevReleases ? 1 : 0;
 }
 
-void updaterSetChannel(update_channel_t channel)
+void updaterSetShowDevReleases(s32 show)
 {
-	if (channel >= UPDATE_CHANNEL_COUNT) channel = UPDATE_CHANNEL_STABLE;
-	s_Updater.channel = channel;
-	s_UpdateChannelCfg = (s32)channel;
+	s32 v = show ? 1 : 0;
+	s_Updater.showDevReleases = v;
+	s_ShowDevReleasesCfg = v;
 	configSave("pd.ini");
 }
 

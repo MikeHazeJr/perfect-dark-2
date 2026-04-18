@@ -59,9 +59,6 @@
 #define MAX_NAME_LEN         128
 #define MAX_BODY_LEN         4096
 
-#define CHANNEL_STABLE       0
-#define CHANNEL_DEV          1
-
 #define COL_BG               RGB(0x12, 0x14, 0x18)  /* dark background */
 #define COL_BG_ALT           RGB(0x1C, 0x1E, 0x24)  /* slightly lighter card bg */
 #define COL_TEXT             RGB(0xF0, 0xF0, 0xF0)
@@ -75,8 +72,7 @@
 /* Control IDs */
 enum {
 	IDC_CURRENT_VERSION = 1001,
-	IDC_CHANNEL_STABLE,
-	IDC_CHANNEL_DEV,
+	IDC_SHOW_DEV_RELEASES,
 	IDC_BTN_CHECK,
 	IDC_LIST_RELEASES,
 	IDC_RELEASE_NOTES,
@@ -134,8 +130,7 @@ typedef struct {
 	HWND hProgress;
 	HWND hStatus;
 	HWND hCurrentVer;
-	HWND hChanStable;
-	HWND hChanDev;
+	HWND hShowDevReleases;
 
 	/* Theme */
 	HFONT hFontUI;
@@ -144,7 +139,7 @@ typedef struct {
 	HBRUSH hBrushBgAlt;
 
 	/* Settings */
-	int channel;
+	int showDevReleases;  /* 0 = stable only (default), 1 = stable + dev */
 	pdver_t currentVersion;
 	char versionStr[32];
 
@@ -608,7 +603,7 @@ static int parseReleaseObj(jparse_t *p, release_t *rel)
 	return 0;
 }
 
-static int parseReleasesJson(const char *json, release_t *out, int maxOut, int channel)
+static int parseReleasesJson(const char *json, release_t *out, int maxOut, int showDev)
 {
 	jparse_t p;
 	p.pos = json;
@@ -627,7 +622,7 @@ static int parseReleasesJson(const char *json, release_t *out, int maxOut, int c
 		if (t.type == JTOK_LBRACE) {
 			release_t rel;
 			if (parseReleaseObj(&p, &rel) == 0 && !rel.isDraft) {
-				if (channel == CHANNEL_STABLE && rel.isPrerelease) continue;
+				if (!showDev && rel.isPrerelease) continue;
 				out[count++] = rel;
 			}
 		}
@@ -647,7 +642,7 @@ static int parseReleasesJson(const char *json, release_t *out, int maxOut, int c
 }
 
 /* ========================================================================
- * Settings file (channel persistence)
+ * Settings file (Show Dev Releases persistence)
  * ======================================================================== */
 
 static void settingsLoad(void)
@@ -658,9 +653,8 @@ static void settingsLoad(void)
 	while (fgets(line, sizeof(line), fp)) {
 		char *nl = strpbrk(line, "\r\n");
 		if (nl) *nl = '\0';
-		if (strncmp(line, "channel=", 8) == 0) {
-			if (strcmp(line + 8, "dev") == 0) g_App.channel = CHANNEL_DEV;
-			else g_App.channel = CHANNEL_STABLE;
+		if (strncmp(line, "showDevReleases=", 16) == 0) {
+			g_App.showDevReleases = atoi(line + 16) ? 1 : 0;
 		}
 	}
 	fclose(fp);
@@ -670,33 +664,31 @@ static void settingsSave(void)
 {
 	FILE *fp = fopen(g_App.settingsPath, "w");
 	if (!fp) return;
-	fprintf(fp, "channel=%s\n", g_App.channel == CHANNEL_DEV ? "dev" : "stable");
+	fprintf(fp, "showDevReleases=%d\n", g_App.showDevReleases ? 1 : 0);
 	fclose(fp);
 }
 
-/* Try to pick up the channel from pd.ini if it exists and the standalone
+/* Try to pick up the preference from pd.ini if it exists and the standalone
  * settings file has not been written yet. That way launching Updater.exe on
- * an install that was using the Dev channel inside the game preserves that
- * choice. */
-static void channelFromPdIni(void)
+ * an install that already has "Show Dev Releases" on inside the game
+ * preserves that choice. */
+static void showDevReleasesFromPdIni(void)
 {
 	char iniPath[MAX_PATH];
 	snprintf(iniPath, sizeof(iniPath), "%s\\pd.ini", g_App.installDir);
 	FILE *fp = fopen(iniPath, "r");
 	if (!fp) return;
-	int inGame = 0;
+	int inUpdates = 0;
 	char line[512];
 	while (fgets(line, sizeof(line), fp)) {
 		char *nl = strpbrk(line, "\r\n");
 		if (nl) *nl = '\0';
 		if (line[0] == '[') {
-			inGame = (strcmp(line, "[Game]") == 0);
+			inUpdates = (strcmp(line, "[Updates]") == 0);
 			continue;
 		}
-		if (inGame && strncmp(line, "UpdateChannel=", 14) == 0) {
-			int v = atoi(line + 14);
-			if (v == CHANNEL_DEV) g_App.channel = CHANNEL_DEV;
-			else g_App.channel = CHANNEL_STABLE;
+		if (inUpdates && strncmp(line, "ShowDevReleases=", 16) == 0) {
+			g_App.showDevReleases = atoi(line + 16) ? 1 : 0;
 			break;
 		}
 	}
@@ -779,7 +771,7 @@ static unsigned __stdcall checkThread(void *arg)
 		return 1;
 	}
 
-	int count = parseReleasesJson(buf.data, g_App.scratchReleases, MAX_RELEASES, g_App.channel);
+	int count = parseReleasesJson(buf.data, g_App.scratchReleases, MAX_RELEASES, g_App.showDevReleases);
 	free(buf.data);
 
 	if (count < 0) {
@@ -1376,15 +1368,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 	case WM_COMMAND: {
 		int id = LOWORD(wParam);
 		switch (id) {
-		case IDC_CHANNEL_STABLE:
+		case IDC_SHOW_DEV_RELEASES:
 			if (!g_App.workerBusy) {
-				g_App.channel = CHANNEL_STABLE;
-				settingsSave();
-			}
-			break;
-		case IDC_CHANNEL_DEV:
-			if (!g_App.workerBusy) {
-				g_App.channel = CHANNEL_DEV;
+				LRESULT state = SendMessage(g_App.hShowDevReleases, BM_GETCHECK, 0, 0);
+				g_App.showDevReleases = (state == BST_CHECKED) ? 1 : 0;
 				settingsSave();
 			}
 			break;
@@ -1409,8 +1396,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 		populateList();
 		EnableWindow(g_App.hBtnCheck, TRUE);
 		if (count == 0) {
-			setStatus("No releases found on the %s channel.",
-				g_App.channel == CHANNEL_DEV ? "Dev" : "Stable");
+			setStatus("No %s releases found.",
+				g_App.showDevReleases ? "stable or dev" : "stable");
 		} else {
 			pdver_t newest = g_App.releases[0].version;
 			if (versionCmp(&newest, &g_App.currentVersion) > 0) {
@@ -1577,21 +1564,15 @@ static void createControls(HWND hwnd)
 		pad, y, 380, 20,
 		hwnd, (HMENU)(INT_PTR)IDC_CURRENT_VERSION, GetModuleHandle(NULL), NULL);
 
-	/* Channel radios (right side of header row) */
-	int chanX = winW - pad - 230;
-	CreateWindowA("STATIC", "Channel:",
-		WS_CHILD | WS_VISIBLE | SS_RIGHT,
-		chanX, y, 80, 20, hwnd, NULL, GetModuleHandle(NULL), NULL);
-	g_App.hChanStable = CreateWindowA("BUTTON", "Stable",
-		WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON | WS_GROUP,
-		chanX + 88, y, 70, 20,
-		hwnd, (HMENU)(INT_PTR)IDC_CHANNEL_STABLE, GetModuleHandle(NULL), NULL);
-	g_App.hChanDev = CreateWindowA("BUTTON", "Dev",
-		WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
-		chanX + 160, y, 60, 20,
-		hwnd, (HMENU)(INT_PTR)IDC_CHANNEL_DEV, GetModuleHandle(NULL), NULL);
-	SendMessage(g_App.channel == CHANNEL_DEV ? g_App.hChanDev : g_App.hChanStable,
-		BM_SETCHECK, BST_CHECKED, 0);
+	/* "Show Dev Releases" checkbox (right side of header row) */
+	int chkW = 200;
+	int chkX = winW - pad - chkW;
+	g_App.hShowDevReleases = CreateWindowA("BUTTON", "Show Dev Releases",
+		WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+		chkX, y, chkW, 20,
+		hwnd, (HMENU)(INT_PTR)IDC_SHOW_DEV_RELEASES, GetModuleHandle(NULL), NULL);
+	SendMessage(g_App.hShowDevReleases,
+		BM_SETCHECK, g_App.showDevReleases ? BST_CHECKED : BST_UNCHECKED, 0);
 
 	y += 30;
 
@@ -1629,7 +1610,7 @@ static void createControls(HWND hwnd)
 		col.iSubItem = 0;
 		SendMessageA(g_App.hList, LVM_INSERTCOLUMNA, 0, (LPARAM)&col);
 
-		col.pszText = (char *)"Channel";
+		col.pszText = (char *)"Type";
 		col.cx = 90;
 		col.iSubItem = 1;
 		SendMessageA(g_App.hList, LVM_INSERTCOLUMNA, 1, (LPARAM)&col);
@@ -1771,7 +1752,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInst, LPSTR cmdLine, int 
 	(void)hPrevInst; (void)cmdLine; (void)nShow;
 
 	memset(&g_App, 0, sizeof(g_App));
-	g_App.channel = CHANNEL_STABLE;
+	g_App.showDevReleases = 0;
 	g_App.selectedIndex = -1;
 	g_App.currentVersion.major = VERSION_MAJOR;
 	g_App.currentVersion.minor = VERSION_MINOR;
@@ -1779,7 +1760,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInst, LPSTR cmdLine, int 
 	versionFmt(&g_App.currentVersion, g_App.versionStr, sizeof(g_App.versionStr));
 
 	pathsDetect();
-	channelFromPdIni();
+	showDevReleasesFromPdIni();
 	settingsLoad();
 	cleanupSelfOld();
 
