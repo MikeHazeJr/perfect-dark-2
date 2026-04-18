@@ -472,6 +472,10 @@ list(FILTER SRC_PORT EXCLUDE REGEX ".*/server_stubs\\.c$")
 list(FILTER SRC_PORT EXCLUDE REGEX ".*/server_bridge\\.c$")
 list(FILTER SRC_PORT_CXX EXCLUDE REGEX ".*/server_gui\\.cpp$")
 
+# Exclude standalone updater-utility sources (they have their own WinMain
+# and link against a minimal subset of the project's libs — built as pd-updater)
+list(FILTER SRC_PORT EXCLUDE REGEX ".*/updater_standalone/.*")
+
 set(SRC
   ${SRC_GAME}
   ${SRC_PORT}
@@ -623,6 +627,92 @@ target_compile_definitions(pd-server PRIVATE PD_SERVER=1)
 add_executable(logview "${CMAKE_SOURCE_DIR}/tools/logview.c")
 target_include_directories(logview PRIVATE "${CMAKE_SOURCE_DIR}/port/include")
 set_target_properties(logview PROPERTIES OUTPUT_NAME "logview")
+
+# ---------------------------------------------------------------------------
+# pd-updater: standalone Updater.exe that ships next to PerfectDark.exe.
+# If a release breaks the main client/server executables, the end user can
+# still launch Updater.exe to pull and install a fixed build from GitHub
+# Releases. Self-contained Win32 GUI -- no MFC/WPF, no external deps beyond
+# libcurl (statically linked, same chain as the game).
+# ---------------------------------------------------------------------------
+if(WIN32)
+  set(SRC_PD_UPDATER
+    ${CMAKE_SOURCE_DIR}/port/src/updater_standalone/updater_gui.c
+    ${CMAKE_SOURCE_DIR}/port/src/sha256.c
+  )
+  # Embed the application manifest (Common Controls v6 + DPI awareness)
+  if(EXISTS "${CMAKE_SOURCE_DIR}/port/src/updater_standalone/updater_gui.rc")
+    list(APPEND SRC_PD_UPDATER
+      ${CMAKE_SOURCE_DIR}/port/src/updater_standalone/updater_gui.rc)
+  endif()
+
+  add_executable(pd-updater ${SRC_PD_UPDATER})
+  add_dependencies(pd-updater pd_headers)
+  set_target_properties(pd-updater PROPERTIES
+    OUTPUT_NAME "Updater"
+    WIN32_EXECUTABLE TRUE)
+
+  target_include_directories(pd-updater PRIVATE
+    "${CMAKE_SOURCE_DIR}/include"
+    "${CMAKE_SOURCE_DIR}/include/PR"
+    "${CMAKE_SOURCE_DIR}/port/include"
+    "${CMAKE_BINARY_DIR}/port/include")
+
+  target_compile_definitions(pd-updater PRIVATE
+    CURL_STATICLIB
+    _LANGUAGE_C=1)
+
+  # Reuse the same static libcurl + TLS + compression chain as the main
+  # client; this keeps the updater zero-DLL compliant.
+  set(_updater_libs "")
+  if(EXISTS "${_msys_lib}/libcurl.a")
+    list(APPEND _updater_libs "${_msys_lib}/libcurl.a")
+    foreach(_slib libssl.a libcrypto.a)
+      if(EXISTS "${_msys_lib}/${_slib}")
+        list(APPEND _updater_libs "${_msys_lib}/${_slib}")
+      endif()
+    endforeach()
+    foreach(_slib libbrotlidec.a libbrotlicommon.a)
+      if(EXISTS "${_msys_lib}/${_slib}")
+        list(APPEND _updater_libs "${_msys_lib}/${_slib}")
+      endif()
+    endforeach()
+    foreach(_slib libnghttp3.a libngtcp2_crypto_ossl.a libngtcp2.a libnghttp2.a)
+      if(EXISTS "${_msys_lib}/${_slib}")
+        list(APPEND _updater_libs "${_msys_lib}/${_slib}")
+      endif()
+    endforeach()
+    foreach(_slib libssh2.a libidn2.a libpsl.a libzstd.a libunistring.a libintl.a libiconv.a)
+      if(EXISTS "${_msys_lib}/${_slib}")
+        list(APPEND _updater_libs "${_msys_lib}/${_slib}")
+      endif()
+    endforeach()
+    if(EXISTS "${_msys_lib}/libz.a")
+      list(APPEND _updater_libs "${_msys_lib}/libz.a")
+    endif()
+  else()
+    find_package(CURL REQUIRED)
+    list(APPEND _updater_libs CURL::libcurl)
+  endif()
+
+  # --start-group / --end-group wraps the static libcurl dependency chain so
+  # ld resolves circular refs (libngtcp2_crypto_ossl depends on libssl quic
+  # symbols, which come from an earlier archive in the line). Without the
+  # group the link fails with undefined SSL_set_quic_tls_cbs.
+  target_link_libraries(pd-updater PRIVATE
+    -Wl,--start-group
+    ${_updater_libs}
+    -Wl,--end-group
+    # Common Controls (list view, progress bar)
+    comctl32
+    # Winsock + crypto + LDAP + secur32 for libcurl's static TLS chain
+    ws2_32 winmm crypt32 bcrypt wldap32 secur32 iphlpapi
+    # GUI + shell
+    gdi32 user32 shell32 ole32 uuid
+    # Statically link the C++/pthread runtime so there are no DLL deps
+    -static-libgcc -static-libstdc++
+    -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
+endif()
 
 # Additional commands for specific platforms.
 
