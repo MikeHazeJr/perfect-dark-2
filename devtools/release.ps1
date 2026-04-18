@@ -11,11 +11,16 @@
 # Package contents (game zip -- "PerfectDark-v{X.Y.Z}-win64.zip"):
 #   - PerfectDark.exe (game client, fully static -- no runtime DLLs required)
 #   - PerfectDarkServer.exe (dedicated server, fully static)
+#   - Updater.exe (standalone GUI updater; recovery path if client self-update breaks)
 #   - data/ folder (game data, EXCLUDING *.z64 ROM files)
 #   - mods/ folder (mod content)
 #   - SHA-256 hashes for update system verification
 #
 # Source code is NOT included -- GitHub auto-generates source archives.
+#
+# Post-release housekeeping:
+#   - Dev (prerelease) tags are pruned to the newest 10 after a successful push;
+#     stable releases are never touched.
 #
 # Prerequisites:
 #   - gh CLI installed and authenticated (gh auth login)
@@ -36,6 +41,11 @@ $ErrorActionPreference = "Stop"
 
 # Project root is one level up from devtools/
 $ProjectRoot = Split-Path $PSScriptRoot -Parent
+
+# Tracks whether Step 5 successfully published the release. Used by Step 6
+# (Dev-release prune) so a failed publish never triggers deletion of prior
+# prereleases. Initialized here so the Step 5 skip path leaves it falsy.
+$script:ReleasePublishOk = $false
 
 # Ensure CWD is the project root -- all relative paths (build/, dist/, CMakeLists.txt)
 # assume this. The dev window sets it explicitly, but this covers direct invocation too.
@@ -137,9 +147,37 @@ function Invoke-ReleaseCommit {
     return ($commitCode2 -eq 0)
 }
 
+# Mirror dev-window-v2's Copy-AddinFiles: copies post-batch-addin/data into
+# Build/data so the game can find pd.{ROMID}.z64 at $E/data/pd.*.z64. Runs
+# right after the client build succeeds, so Mike can test the built exe
+# locally even if a subsequent release step (server build, push, gh release)
+# fails. Safe to call multiple times; overwrite-on-copy.
+function Copy-RomAddinIntoBuild {
+    $addinData = Join-Path $ProjectRoot "..\post-batch-addin\data"
+    $buildData = Join-Path $BuildDir "data"
+    if (-not (Test-Path $addinData)) {
+        Write-Host "  [rom-copy] post-batch-addin/data not found -- skipping ROM copy." -ForegroundColor Yellow
+        return
+    }
+    try {
+        if (-not (Test-Path $buildData)) {
+            New-Item -ItemType Directory -Path $buildData -Force | Out-Null
+        }
+        Copy-Item -Path (Join-Path $addinData "*") -Destination $buildData -Recurse -Force -ErrorAction Stop
+        Write-Host "  [rom-copy] Copied post-batch-addin/data -> Build/data/ (ROM ready for local testing)." -ForegroundColor Green
+    } catch {
+        Write-Host "  [rom-copy] WARN: copy failed: $_" -ForegroundColor Yellow
+    }
+}
+
 Write-Host ""
 if ($SkipBuild) {
-    Write-Host "[0/7] Skipping rebuild (-SkipBuild set; using existing artifacts in Build/)." -ForegroundColor Gray
+    Write-Host "[0/8] Skipping rebuild (-SkipBuild set; using existing artifacts in Build/)." -ForegroundColor Gray
+
+    # Caller (e.g. dev-window-v2) already built the client. Drop the ROM into
+    # Build/data/ right away so Mike can launch Build/PerfectDark.exe even if a
+    # later step in this script fails.
+    Copy-RomAddinIntoBuild
 
     # Commit any pending changes so the release tag lands on a clean commit
     Write-Host "  [pre-release] Committing any pending changes..." -ForegroundColor Gray
@@ -165,8 +203,26 @@ if ($SkipBuild) {
     } else {
         Write-Host "  [pre-release] Pushed to remote." -ForegroundColor Green
     }
+
+    # Also build the standalone Updater if it's missing (dev-window-v2 builds
+    # only client+server). A missing Updater is a warning, not a release
+    # blocker — the zip will simply omit it.
+    $updaterExePath = Join-Path $BuildDir "Updater.exe"
+    if (-not (Test-Path $updaterExePath)) {
+        Write-Host "  [updater] Updater.exe missing -- building pd-updater incrementally..." -ForegroundColor Gray
+        $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        $bldOut  = & $CMakeExe --build $BuildDir --target pd-updater 2>&1
+        $bldExit = $LASTEXITCODE
+        $ErrorActionPreference = $savedEAP
+        if ($bldExit -ne 0) {
+            $bldOut | Select-Object -Last 20 | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
+            Write-Host "  [updater] WARN: build failed (exit $bldExit) -- release will proceed without Updater.exe." -ForegroundColor Yellow
+        } else {
+            Write-Host "  [updater] build OK." -ForegroundColor Green
+        }
+    }
 } else {
-    Write-Host "[0/7] Rebuilding from source (cmake reconfigure + compile)..." -ForegroundColor Yellow
+    Write-Host "[0/8] Rebuilding from source (cmake reconfigure + compile)..." -ForegroundColor Yellow
 
     $vFlags = "-DVERSION_SEM_MAJOR=$vMaj -DVERSION_SEM_MINOR=$vMin -DVERSION_SEM_PATCH=$vPat"
 
@@ -217,7 +273,15 @@ if ($SkipBuild) {
     }
 
     if ($buildOk) {
-        foreach ($t in @(@{ Name="client"; Target="pd" }, @{ Name="server"; Target="pd-server" })) {
+        # Client must be first so Copy-RomAddinIntoBuild (below) only runs once
+        # the client exe is known-good. Updater is optional — its failure only
+        # drops it from the release, not the whole pipeline.
+        $targets = @(
+            @{ Name="client";  Target="pd";         Optional=$false },
+            @{ Name="server";  Target="pd-server";  Optional=$false },
+            @{ Name="updater"; Target="pd-updater"; Optional=$true  }
+        )
+        foreach ($t in $targets) {
             Write-Host "  [$($t.Name)] cmake build ($($t.Target))..." -ForegroundColor Gray
             $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
             $bldOut  = & $CMakeExe --build $BuildDir --target $t.Target 2>&1
@@ -225,11 +289,22 @@ if ($SkipBuild) {
             $ErrorActionPreference = $savedEAP
 
             if ($bldExit -ne 0) {
-                $bldOut | Select-Object -Last 20 | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+                $bldOut | Select-Object -Last 20 | ForEach-Object { Write-Host "    $_" -ForegroundColor $(if ($t.Optional) { 'Yellow' } else { 'Red' }) }
+                if ($t.Optional) {
+                    Write-Host "  WARN: build failed for $($t.Name) (exit $bldExit) -- release will continue without it." -ForegroundColor Yellow
+                    continue
+                }
                 Write-Host "  ERROR: build failed for $($t.Name) (exit $bldExit)" -ForegroundColor Red
                 $buildOk = $false; break
             }
             Write-Host "  [$($t.Name)] build OK." -ForegroundColor Green
+
+            # Client is now on disk and known-good. Drop the ROM into Build/data/
+            # immediately so Mike can launch Build/PerfectDark.exe locally even
+            # if the server/updater build or any later release step fails.
+            if ($t.Name -eq "client") {
+                Copy-RomAddinIntoBuild
+            }
         }
     }
 
@@ -238,12 +313,13 @@ if ($SkipBuild) {
         Write-Host "  ERROR: Build failed. Fix errors before releasing." -ForegroundColor Red
         exit 1
     }
-    Write-Host "  All targets built successfully (v$Version)." -ForegroundColor Green
+    Write-Host "  All required targets built successfully (v$Version)." -ForegroundColor Green
 }
 
 # Build artifact paths -- unified Build/ directory
-$ClientExe = $(if (Test-Path (Join-Path $BuildDir "PerfectDark.exe"))       { Join-Path $BuildDir "PerfectDark.exe" }       else { "" })
-$ServerExe = $(if (Test-Path (Join-Path $BuildDir "PerfectDarkServer.exe")) { Join-Path $BuildDir "PerfectDarkServer.exe" } else { "" })
+$ClientExe  = $(if (Test-Path (Join-Path $BuildDir "PerfectDark.exe"))       { Join-Path $BuildDir "PerfectDark.exe" }       else { "" })
+$ServerExe  = $(if (Test-Path (Join-Path $BuildDir "PerfectDarkServer.exe")) { Join-Path $BuildDir "PerfectDarkServer.exe" } else { "" })
+$UpdaterExe = $(if (Test-Path (Join-Path $BuildDir "Updater.exe"))           { Join-Path $BuildDir "Updater.exe" }           else { "" })
 
 # Data and mods -- prefer Build/ copies, fall back to post-batch-addin
 $DataSource = $(if (Test-Path (Join-Path $BuildDir "data"))  { Join-Path $BuildDir "data" }
@@ -287,11 +363,12 @@ if (-not $ghCmd) {
     }
 }
 $hasGh = [bool]$ghCmd
-$hasClient = $ClientExe -ne ""
-$hasServer = $ServerExe -ne ""
-$hasData = $DataSource -ne ""
-$hasMods = $ModsSource -ne ""
-$hasNotes = Test-Path $ReleaseNotes
+$hasClient  = $ClientExe  -ne ""
+$hasServer  = $ServerExe  -ne ""
+$hasUpdater = $UpdaterExe -ne ""
+$hasData    = $DataSource -ne ""
+$hasMods    = $ModsSource -ne ""
+$hasNotes   = Test-Path $ReleaseNotes
 
 if ($hasGh) {
     $ghPath = $(if ($ghCmd -is [string]) { $ghCmd } else { $ghCmd.Source })
@@ -317,6 +394,9 @@ else            { Write-Host "  Client:      MISSING" -ForegroundColor Yellow }
 if ($hasServer) { Write-Host "  Server:      FOUND ($ServerExe)" -ForegroundColor Green }
 else            { Write-Host "  Server:      MISSING" -ForegroundColor Yellow }
 
+if ($hasUpdater) { Write-Host "  Updater:     FOUND ($UpdaterExe)" -ForegroundColor Green }
+else             { Write-Host "  Updater:     MISSING (release will omit Updater.exe)" -ForegroundColor Yellow }
+
 if ($hasData)   { Write-Host "  Data:        FOUND ($DataSource)" -ForegroundColor Green }
 else            { Write-Host "  Data:        MISSING" -ForegroundColor Yellow }
 
@@ -338,7 +418,7 @@ if (-not $hasClient -and -not $hasServer) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[1/7] Assembling distribution in $DistDir ..." -ForegroundColor Yellow
+Write-Host "[1/8] Assembling distribution in $DistDir ..." -ForegroundColor Yellow
 
 if (Test-Path $DistDir) {
     Remove-Item $DistDir -Recurse -Force
@@ -359,6 +439,13 @@ if ($hasServer) {
     $hash = (Get-FileHash $ServerExe -Algorithm SHA256).Hash.ToLower()
     "$hash  PerfectDarkServer.exe" | Out-File "$DistDir/PerfectDarkServer.exe.sha256" -Encoding ascii -NoNewline
     Write-Host "  PerfectDarkServer.exe  SHA-256: $($hash.Substring(0,16))..." -ForegroundColor Gray
+}
+
+if ($hasUpdater) {
+    Copy-Item $UpdaterExe "$DistDir/Updater.exe"
+    $hash = (Get-FileHash $UpdaterExe -Algorithm SHA256).Hash.ToLower()
+    "$hash  Updater.exe" | Out-File "$DistDir/Updater.exe.sha256" -Encoding ascii -NoNewline
+    Write-Host "  Updater.exe            SHA-256: $($hash.Substring(0,16))..." -ForegroundColor Gray
 }
 
 # --- Data folder (EXCLUDING *.z64 ROM files) ---
@@ -406,7 +493,7 @@ if ($hasMods) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[2/7] Creating zip archive..." -ForegroundColor Yellow
+Write-Host "[2/8] Creating zip archive..." -ForegroundColor Yellow
 
 $zipName = $(if ($Nightly) { "PerfectDark-nightly-$DateCode-win64.zip" } else { "PerfectDark-v$Version-win64.zip" })
 $zipPath = "dist/$zipName"
@@ -459,7 +546,7 @@ Write-Host "  [100%] $zipName ($zipSizeStr)" -ForegroundColor Green
 # ============================================================================
 
 Write-Host ""
-Write-Host "[3/7] Git tagging..." -ForegroundColor Yellow
+Write-Host "[3/8] Git tagging..." -ForegroundColor Yellow
 
 # Create unified release tag
 $existingTag = git tag -l $ReleaseTag 2>$null
@@ -477,7 +564,7 @@ if ($existingTag) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[4/7] Pushing to remote..." -ForegroundColor Yellow
+Write-Host "[4/8] Pushing to remote..." -ForegroundColor Yellow
 
 if ($SkipPush -or $DryRun) {
     Write-Host "  $(if ($DryRun) { '[DRY RUN] ' })Skipping push." -ForegroundColor $(if ($DryRun) { 'Magenta' } else { 'Yellow' })
@@ -569,7 +656,7 @@ if ($SkipPush -or $DryRun) {
 # ============================================================================
 
 Write-Host ""
-Write-Host "[5/7] Creating GitHub releases..." -ForegroundColor Yellow
+Write-Host "[5/8] Creating GitHub releases..." -ForegroundColor Yellow
 
 if ($SkipPush -or $DryRun -or -not $hasGh) {
     $reason = $(if ($DryRun) { "[DRY RUN]" } elseif (-not $hasGh) { "gh CLI not found" } else { "push skipped" })
@@ -622,12 +709,14 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
     }
 
     # --- Unified release (tag: v{M}.{m}.{p}) ---
-    # The zip is the full distribution for new users (client + server + data + mods).
+    # The zip is the full distribution for new users (client + server + updater + data + mods).
     # The bare exe files and their .sha256 sidecars are ALSO uploaded as individual
     # release assets so the in-game updater (updater.c) can find them by exact filename.
     # The updater looks for "PerfectDark.exe" and "PerfectDark.exe.sha256" -- if those
     # assets are absent it constructs a fallback URL that doesn't exist, downloads garbage,
     # and corrupts the install. Always upload the bare exes alongside the zip.
+    # Updater.exe ships alongside so users can fall back to the standalone recovery tool
+    # if a bad release breaks PerfectDark.exe's self-update path.
     # GitHub auto-generates source archives.
     Write-Host "  Creating release ($ReleaseTag) ..." -ForegroundColor Cyan
     $assets = @()
@@ -637,8 +726,12 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
     if (Test-Path "$DistDir/PerfectDark.exe.sha256")        { $assets += "$DistDir/PerfectDark.exe.sha256" }
     if (Test-Path "$DistDir/PerfectDarkServer.exe")         { $assets += "$DistDir/PerfectDarkServer.exe" }
     if (Test-Path "$DistDir/PerfectDarkServer.exe.sha256")  { $assets += "$DistDir/PerfectDarkServer.exe.sha256" }
+    # Standalone updater (recovery tool, zero-DLL)
+    if (Test-Path "$DistDir/Updater.exe")                   { $assets += "$DistDir/Updater.exe" }
+    if (Test-Path "$DistDir/Updater.exe.sha256")            { $assets += "$DistDir/Updater.exe.sha256" }
 
     $ghExit = Push-GhRelease $ReleaseTag $ReleaseTitle $assets $true
+    $script:ReleasePublishOk = ($ghExit -eq 0)
 
     if ($ghExit -eq 0) {
         Write-Host "  Release created:" -ForegroundColor Green
@@ -652,11 +745,95 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
 }
 
 # ============================================================================
-# Step 6: Local backup + cleanup
+# Step 6: Prune old Dev (prerelease) releases
+# Rolling window: keep the 10 newest prereleases, drop everything older.
+# Stable releases are NEVER touched (isPrerelease=false is skipped). Only
+# runs after a successful prerelease publish -- on stable releases or when
+# the push was skipped/failed we leave GitHub state alone.
 # ============================================================================
 
 Write-Host ""
-Write-Host "[6/7] Cleanup and backup..." -ForegroundColor Yellow
+Write-Host "[6/8] Pruning old Dev releases..." -ForegroundColor Yellow
+
+$DevReleaseKeep = 10
+$shouldPrune = $Prerelease -and -not $SkipPush -and -not $DryRun -and $hasGh -and ($script:ReleasePublishOk -eq $true)
+
+if (-not $shouldPrune) {
+    $reason = "skipped"
+    if     (-not $Prerelease)                              { $reason = "stable release -- pruning skipped" }
+    elseif ($DryRun)                                       { $reason = "[DRY RUN]" }
+    elseif ($SkipPush)                                     { $reason = "push skipped" }
+    elseif (-not $hasGh)                                   { $reason = "gh CLI not found" }
+    elseif (-not ($script:ReleasePublishOk -eq $true))     { $reason = "release publish failed -- leaving prior Dev releases alone" }
+    Write-Host "  Skipping prune ($reason)." -ForegroundColor Gray
+} else {
+    $savedEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    # `gh release list --json` gives us isPrerelease/isDraft/publishedAt so we
+    # can sort and filter safely. --limit 200 covers far more than we'd ever
+    # keep around (rolling window caps at 10).
+    $listJson = gh release list --limit 200 --json tagName,isPrerelease,isDraft,publishedAt 2>&1
+    $listExit = $LASTEXITCODE
+    $ErrorActionPreference = $savedEAP
+
+    if ($listExit -ne 0) {
+        Write-Host "  WARN: 'gh release list' failed (exit $listExit) -- cannot prune this run." -ForegroundColor Yellow
+        foreach ($line in $listJson) { Write-Host "    $($line.ToString())" -ForegroundColor DarkGray }
+    } else {
+        $releases = @()
+        try {
+            $releases = @(($listJson | Out-String) | ConvertFrom-Json)
+        } catch {
+            Write-Host "  WARN: Could not parse gh release list output -- pruning skipped." -ForegroundColor Yellow
+        }
+
+        $prereleases = @($releases |
+            Where-Object { $_.isPrerelease -eq $true -and $_.isDraft -ne $true } |
+            Sort-Object -Property { [DateTime]$_.publishedAt } -Descending)
+
+        Write-Host ("  Dev (prerelease) releases on GitHub: {0} (keeping newest {1})" -f $prereleases.Count, $DevReleaseKeep) -ForegroundColor Gray
+
+        if ($prereleases.Count -le $DevReleaseKeep) {
+            Write-Host "  No pruning needed." -ForegroundColor Gray
+        } else {
+            $victims = @($prereleases | Select-Object -Skip $DevReleaseKeep)
+            Write-Host ("  Deleting {0} old Dev release(s) + tag(s) ..." -f $victims.Count) -ForegroundColor Gray
+            foreach ($v in $victims) {
+                $tag = $v.tagName
+                Write-Host ("    - {0} (published {1})" -f $tag, $v.publishedAt) -ForegroundColor DarkGray
+
+                $ErrorActionPreference = "Continue"
+                # --cleanup-tag removes both the release and its git tag on the remote.
+                $delOut = gh release delete $tag --yes --cleanup-tag 2>&1
+                $delExit = $LASTEXITCODE
+                $ErrorActionPreference = $savedEAP
+                foreach ($line in $delOut) { Write-Host "      $($line.ToString())" -ForegroundColor DarkGray }
+
+                if ($delExit -ne 0) {
+                    # Fallback: delete release first, then tag via the git refs API.
+                    # Older gh versions lack --cleanup-tag.
+                    $ErrorActionPreference = "Continue"
+                    gh release delete $tag --yes 2>&1 | Out-Null
+                    gh api -X DELETE "repos/MikeHazeJr/perfect-dark-2/git/refs/tags/$tag" 2>&1 | Out-Null
+                    $ErrorActionPreference = $savedEAP
+                }
+
+                # Drop the local tag too so this worktree doesn't keep resurrecting it.
+                $ErrorActionPreference = "Continue"
+                git tag -d $tag 2>&1 | Out-Null
+                $ErrorActionPreference = $savedEAP
+            }
+            Write-Host "  Prune complete." -ForegroundColor Green
+        }
+    }
+}
+
+# ============================================================================
+# Step 7: Local backup + cleanup
+# ============================================================================
+
+Write-Host ""
+Write-Host "[7/8] Cleanup and backup..." -ForegroundColor Yellow
 
 # For STABLE releases, keep a local backup of the zip
 if (-not $Prerelease -and (Test-Path $zipPath)) {
