@@ -14,7 +14,6 @@
 #   - Updater.exe (standalone GUI updater; recovery path if client self-update breaks)
 #   - data/ folder (game data, EXCLUDING *.z64 ROM files)
 #   - mods/ folder (mod content)
-#   - SHA-256 hashes for update system verification
 #
 # Source code is NOT included -- GitHub auto-generates source archives.
 #
@@ -425,27 +424,21 @@ if (Test-Path $DistDir) {
 }
 New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
 
-# --- Executables + SHA-256 hashes ---
+# --- Executables ---
 
 if ($hasClient) {
     Copy-Item $ClientExe "$DistDir/PerfectDark.exe"
-    $hash = (Get-FileHash $ClientExe -Algorithm SHA256).Hash.ToLower()
-    "$hash  PerfectDark.exe" | Out-File "$DistDir/PerfectDark.exe.sha256" -Encoding ascii -NoNewline
-    Write-Host "  PerfectDark.exe         SHA-256: $($hash.Substring(0,16))..." -ForegroundColor Gray
+    Write-Host "  PerfectDark.exe" -ForegroundColor Gray
 }
 
 if ($hasServer) {
     Copy-Item $ServerExe "$DistDir/PerfectDarkServer.exe"
-    $hash = (Get-FileHash $ServerExe -Algorithm SHA256).Hash.ToLower()
-    "$hash  PerfectDarkServer.exe" | Out-File "$DistDir/PerfectDarkServer.exe.sha256" -Encoding ascii -NoNewline
-    Write-Host "  PerfectDarkServer.exe  SHA-256: $($hash.Substring(0,16))..." -ForegroundColor Gray
+    Write-Host "  PerfectDarkServer.exe" -ForegroundColor Gray
 }
 
 if ($hasUpdater) {
     Copy-Item $UpdaterExe "$DistDir/Updater.exe"
-    $hash = (Get-FileHash $UpdaterExe -Algorithm SHA256).Hash.ToLower()
-    "$hash  Updater.exe" | Out-File "$DistDir/Updater.exe.sha256" -Encoding ascii -NoNewline
-    Write-Host "  Updater.exe            SHA-256: $($hash.Substring(0,16))..." -ForegroundColor Gray
+    Write-Host "  Updater.exe" -ForegroundColor Gray
 }
 
 # --- Data folder (EXCLUDING *.z64 ROM files) ---
@@ -710,11 +703,8 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
 
     # --- Unified release (tag: v{M}.{m}.{p}) ---
     # The zip is the full distribution for new users (client + server + updater + data + mods).
-    # The bare exe files and their .sha256 sidecars are ALSO uploaded as individual
-    # release assets so the in-game updater (updater.c) can find them by exact filename.
-    # The updater looks for "PerfectDark.exe" and "PerfectDark.exe.sha256" -- if those
-    # assets are absent it constructs a fallback URL that doesn't exist, downloads garbage,
-    # and corrupts the install. Always upload the bare exes alongside the zip.
+    # Bare exe files are ALSO uploaded as individual release assets so the in-game updater
+    # (updater.c) can find them by exact filename.
     # Updater.exe ships alongside so users can fall back to the standalone recovery tool
     # if a bad release breaks PerfectDark.exe's self-update path.
     # GitHub auto-generates source archives.
@@ -723,12 +713,9 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
     if (Test-Path $zipPath) { $assets += $zipPath }
     # Bare executables for in-game updater
     if (Test-Path "$DistDir/PerfectDark.exe")               { $assets += "$DistDir/PerfectDark.exe" }
-    if (Test-Path "$DistDir/PerfectDark.exe.sha256")        { $assets += "$DistDir/PerfectDark.exe.sha256" }
     if (Test-Path "$DistDir/PerfectDarkServer.exe")         { $assets += "$DistDir/PerfectDarkServer.exe" }
-    if (Test-Path "$DistDir/PerfectDarkServer.exe.sha256")  { $assets += "$DistDir/PerfectDarkServer.exe.sha256" }
     # Standalone updater (recovery tool, zero-DLL)
     if (Test-Path "$DistDir/Updater.exe")                   { $assets += "$DistDir/Updater.exe" }
-    if (Test-Path "$DistDir/Updater.exe.sha256")            { $assets += "$DistDir/Updater.exe.sha256" }
 
     $ghExit = Push-GhRelease $ReleaseTag $ReleaseTitle $assets $true
     $script:ReleasePublishOk = ($ghExit -eq 0)
