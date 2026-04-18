@@ -182,12 +182,24 @@ $script:DevWindowDebugLogPath = Join-Path $script:ScriptDir "dev-window-v2-debug
 # 2s tick), Populate-DocList, and on-demand git/bash actions. Without this,
 # each background task opens a fresh runspace — Runspace.Open() is ~100-500ms
 # on the UI thread, which is why the window felt stuttery every 2s.
-$script:BgPool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, 3)
+$script:BgPool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, 4)
 $script:BgPool.ApartmentState = [System.Threading.ApartmentState]::MTA
 $script:BgPool.ThreadOptions  = [System.Management.Automation.Runspaces.PSThreadOptions]::ReuseThread
 $script:BgPool.Open()
 $script:DocListLoadBusy     = $false
 $script:GitActionBusy       = $false
+
+# Async overhaul state: throttled status polling + server/game stream capture.
+# The main timer ticks every 1s for activity updates; Update-StatusBar (git
+# status) only runs if this stamp is older than 2s, so we refresh the in-memory
+# activity label at 1Hz while keeping the git poll at 0.5Hz (cheap + cached).
+$script:LastStatusPollUtc   = [DateTime]::MinValue
+# Async process-output capture. AsyncLineReader drains server stdout/stderr
+# into this queue from a background thread; the main timer pumps lines to the
+# Log panel so a chatty pd-server never blocks the UI.
+$script:ServerOutputQueue   = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
+$script:BuildTotalSteps     = 0  # Ninja [N/total] - tracks the total for progress %
+$script:BuildCurrentStep    = 0
 
 # ============================================================================
 # Section 4: Settings persistence
@@ -826,18 +838,22 @@ function Auto-Commit-Sync {
                 <TextBlock x:Name="StatusAuth" Text="auth: ..." Foreground="#506070"
                            FontFamily="Consolas" FontSize="14"
                            DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0" DockPanel.Dock="Right"/>
+                <TextBlock x:Name="StatusWorktrees" Text="worktrees: --" Foreground="#506070"
+                           FontFamily="Consolas" FontSize="14"
+                           DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                <TextBlock x:Name="StatusActivity" Text="Idle" Foreground="#A0B4D0"
+                           FontFamily="Consolas" FontSize="14" FontWeight="SemiBold"
+                           VerticalAlignment="Center" Margin="0,0,12,0"/>
                 <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0"/>
                 <TextBlock x:Name="StatusBranch" Text="branch: --" Foreground="#0090D0"
-                           FontFamily="Consolas" FontSize="14" Margin="0,0,12,0"/>
+                           FontFamily="Consolas" FontSize="14" VerticalAlignment="Center" Margin="0,0,12,0"/>
                 <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0"/>
                 <TextBlock x:Name="StatusHash" Text="HEAD: ------" Foreground="#3A5070"
-                           FontFamily="Consolas" FontSize="14" Margin="0,0,12,0"/>
+                           FontFamily="Consolas" FontSize="14" VerticalAlignment="Center" Margin="0,0,12,0"/>
                 <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0"/>
                 <TextBlock x:Name="StatusDirty" Text="clean" Foreground="#00B400"
-                           FontFamily="Consolas" FontSize="14"/>
-                <Rectangle Width="1" Fill="#162030" Margin="12,0"/>
-                <TextBlock x:Name="StatusWorktrees" Text="worktrees: --" Foreground="#506070"
-                           FontFamily="Consolas" FontSize="14"/>
+                           FontFamily="Consolas" FontSize="14" VerticalAlignment="Center"/>
             </DockPanel>
         </Border>
 
@@ -1096,7 +1112,7 @@ $window = [Windows.Markup.XamlReader]::Load($reader)
 # Find named elements
 $ui = @{}
 $namedElements = @(
-    "StatusBranch","StatusHash","StatusDirty","StatusWorktrees","StatusAuth","StatusVersion",
+    "StatusActivity","StatusBranch","StatusHash","StatusDirty","StatusWorktrees","StatusAuth","StatusVersion",
     "BtnRunServer","BtnRunGame","TabControl",
     "BtnBuild","BtnRelease","TxtRelease","BtnStop","BtnCopyErrors","BtnCopyLog","BtnCheck",
     "LblClientStatus","LblServerStatus","LblBuildActivity",
@@ -1347,17 +1363,6 @@ $ui["DocList"].Add_SelectionChanged({
 # Section 14: Build pipeline
 # ============================================================================
 
-function Copy-AddinFiles {
-    $parentDir = Split-Path $script:ProjectRoot -Parent
-    $srcData = Join-Path $parentDir "post-batch-addin" | Join-Path -ChildPath "data"
-    $dstData = Join-Path $script:BuildDir "data"
-    if (-not (Test-Path $srcData)) { return }
-    try {
-        if (Test-Path $dstData) { Remove-Item $dstData -Recurse -Force -ErrorAction SilentlyContinue }
-        Copy-Item -Path $srcData -Destination $dstData -Recurse -Force -ErrorAction Stop
-    } catch {}
-}
-
 function Get-GitCurrentBranch {
     param([string]$GitExe)
     if (-not $GitExe) { $GitExe = Resolve-GitExecutable }
@@ -1367,118 +1372,6 @@ function Get-GitCurrentBranch {
         if ($b) { return $b.Trim() }
     } catch {}
     return "HEAD"
-}
-
-# Solo-dev workflow: commit + push any dirty tree before Build / Release so subprocesses (e.g.
-# release.ps1 git pull --rebase) never hit "index contains uncommitted changes".
-function Invoke-GitSyncBeforeBuild {
-    param([string]$CommitMessage = "chore: auto-commit before build (dev window)")
-    $gitExe = Resolve-GitExecutable
-    if (-not $gitExe) {
-        [System.Windows.MessageBox]::Show("git was not found on PATH.", "Git", "OK", "Warning") | Out-Null
-        return $false
-    }
-    Remove-GitIndexLockForRepo -RepoRoot $script:ProjectRoot -GitExe $gitExe
-    $br = Get-GitCurrentBranch -GitExe $gitExe
-    Add-LogSessionLine "" "#1A3050"
-    Add-LogSessionLine ">>> git: sync before build (branch: $br)" "#0090D0"
-    if ($gitExe) {
-        Add-LogSessionLine "git exe: $gitExe" "#44586C"
-        try {
-            $expectedWinLock = Join-Path $script:ProjectRoot ".git\index.lock"
-            Add-LogSessionLine "git expected lock: $expectedWinLock" "#44586C"
-            $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
-            if ($null -ne $wsl) {
-                $wslRepo = (& wsl.exe wslpath -a $script:ProjectRoot 2>$null)
-                if ($wslRepo) {
-                    $wslRepo = $wslRepo.Trim().TrimEnd('/')
-                    Add-LogSessionLine "git expected lock (wsl): $wslRepo/.git/index.lock" "#44586C"
-                }
-            }
-            $msysExpectedLock = Get-MsysExpectedLockPath -RepoRoot $script:ProjectRoot -GitExe $gitExe
-            if ($msysExpectedLock) {
-                Add-LogSessionLine "git expected lock (msys): $msysExpectedLock" "#44586C"
-            }
-        } catch {}
-    }
-    Push-Location $script:ProjectRoot
-    try {
-        Force-DeleteGitIndexLockHard -RepoRoot $script:ProjectRoot -GitExe $gitExe
-        $addOut = @()
-        $addCode = 1
-        for ($attempt = 1; $attempt -le 3; $attempt++) {
-            $addOut = @(& $gitExe add -A 2>&1)
-            $addCode = $LASTEXITCODE
-            if ($addCode -eq 0) { break }
-            $addText = ($addOut | Out-String)
-            if ($addText -match 'index\.lock|Unable to create') {
-                Add-LogSessionLine "git add: index.lock detected (attempt $attempt/3), forcing lock cleanup + retry..." "#CDAA32"
-                Write-DevWindowDebugLog ("git add lock retry attempt " + $attempt + " stderr: " + $addText.Replace("`r"," ").Replace("`n"," | ")) "WARN"
-                Remove-GitIndexLockFromGitStderr -Text $addText -GitExe $gitExe
-                Force-DeleteGitIndexLockHard -RepoRoot $script:ProjectRoot -GitExe $gitExe
-                Start-Sleep -Milliseconds 250
-                continue
-            }
-            break
-        }
-        if ($addCode -ne 0) {
-            foreach ($line in $addOut) { Add-LogSessionLine "$line" "#DC3232" }
-            Add-LogSessionLine "git add failed before build." "#DC3232"
-            [System.Windows.MessageBox]::Show(
-                "git add failed before build. Fix the repo, then retry.",
-                "Git",
-                "OK",
-                "Error") | Out-Null
-            return $false
-        }
-        & $gitExe diff --cached --quiet 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            Remove-GitIndexLockForRepo -RepoRoot $script:ProjectRoot -GitExe $gitExe
-            $co = @(& $gitExe commit -m $CommitMessage 2>&1)
-            $commitCode = $LASTEXITCODE
-            if ($commitCode -ne 0 -and (($co | ForEach-Object { "$_" }) -join "`n") -match 'index\.lock|Unable to create') {
-                $commitText = ($co | ForEach-Object { "$_" }) -join "`n"
-                Remove-GitIndexLockFromGitStderr -Text $commitText -GitExe $gitExe
-                Remove-GitIndexLockForRepo -RepoRoot $script:ProjectRoot -GitExe $gitExe
-                $co = @(& $gitExe commit -m $CommitMessage 2>&1)
-                $commitCode = $LASTEXITCODE
-            }
-            if ($commitCode -ne 0) {
-                Add-LogSessionLine "git commit failed; retrying with --no-verify (forced by outage-safe sync policy)." "#CDAA32"
-                $co = @(& $gitExe commit --no-verify -m $CommitMessage 2>&1)
-                $commitCode = $LASTEXITCODE
-            }
-            foreach ($line in $co) { Add-LogSessionLine "$line" $(if ($commitCode -ne 0) { "#DC3232" } else { "#8C8C8C" }) }
-            if ($commitCode -ne 0) {
-                Add-LogSessionLine "git commit failed (hooks, conflicts, or repo state)." "#DC3232"
-                [System.Windows.MessageBox]::Show(
-                    "git commit failed before build. Fix the repo, then retry.",
-                    "Git",
-                    "OK",
-                    "Error") | Out-Null
-                return $false
-            }
-            Add-LogSessionLine "Committed: $CommitMessage" "#508CDC"
-        } else {
-            Add-LogSessionLine "(working tree already clean - nothing to commit)" "#44586C"
-        }
-        $pu = @(& $gitExe push origin $br 2>&1)
-        $pushCode = $LASTEXITCODE
-        foreach ($line in $pu) { Add-LogSessionLine "$line" $(if ($pushCode -ne 0) { "#CDAA32" } else { "#8C8C8C" }) }
-        if ($pushCode -ne 0) {
-            # Audit 2026-04-16: push failure must NOT abort the build. v1 treats
-            # push as a best-effort step; v2 previously aborted, leaving the user
-            # unable to iterate locally when the network was flaky or credentials
-            # weren't cached. Log and continue.
-            Add-LogSessionLine "git push failed (exit $pushCode) - continuing build without pushing." "#CDAA32"
-        } else {
-            Add-LogSessionLine "git push: ok" "#508CDC"
-        }
-    } finally {
-        Pop-Location
-    }
-    Add-LogSessionLine "" "#1A3050"
-    return $true
 }
 
 # Runs a script block on BgPool; invokes $OnComplete on the UI thread with the
@@ -1509,6 +1402,303 @@ function Start-AsyncPoolAction {
         try { & $OnComplete $result } catch {}
     })
     $t.Start()
+}
+
+# ----------------------------------------------------------------------------
+# Async git sync before build / release
+#
+# Replaces the synchronous Invoke-GitSyncBeforeBuild, which blocked the UI
+# thread for the full duration of `git add` + `git commit` + `git push` (often
+# 1-6s, sometimes much longer on a slow network). That freeze was the biggest
+# source of "is it frozen?" reports. Now all subprocess work happens on the
+# BgPool, and the OnComplete callback resumes build scheduling on the UI
+# thread with the normal step queue + BuildTimer flow.
+#
+# Behavior parity with the sync version:
+#   - Cleans up .git/index.lock on Windows and MSYS paths (inline; WSL cleanup
+#     omitted from the hot path because it spawns wsl.exe which itself can
+#     block for hundreds of ms. Rare case; users can re-run the action.)
+#   - Retries `git add -A` up to 3x on lock conflicts
+#   - Falls back to `commit --no-verify` if hooks reject the commit
+#   - Treats `git push` failure as a warning (does NOT abort the build) - same
+#     policy as the sync version (see audit 2026-04-16).
+# ----------------------------------------------------------------------------
+function Start-GitSyncBeforeBuildAsync {
+    param(
+        [string]$CommitMessage = "chore: auto-commit before build (dev window)",
+        [Parameter(Mandatory=$true)][scriptblock]$OnComplete
+    )
+
+    $gitExe = Resolve-GitExecutable
+    if (-not $gitExe) {
+        Add-LogSessionLine "git was not found on PATH." "#DC3232"
+        [System.Windows.MessageBox]::Show("git was not found on PATH.", "Git", "OK", "Warning") | Out-Null
+        & $OnComplete $false
+        return
+    }
+
+    $root = $script:ProjectRoot
+
+    # Branch name is quick; grab it on the UI thread so banners are correct even
+    # if the async work is still scheduling.
+    $br = Get-GitCurrentBranch -GitExe $gitExe
+    Add-LogSessionLine "" "#1A3050"
+    Add-LogSessionLine ">>> git: sync before build (branch: $br)" "#0090D0"
+    Add-LogSessionLine "git exe: $gitExe" "#44586C"
+
+    Start-AsyncPoolAction `
+        -Script {
+            param($root, $gitExe, $commitMsg)
+            $log = New-Object System.Collections.ArrayList
+
+            $cleanupLock = {
+                # Windows working-copy lock (what Explorer shows at C:\...\.git\)
+                try {
+                    $lock = Join-Path $root ".git\index.lock"
+                    if (Test-Path -LiteralPath $lock) { Remove-Item -LiteralPath $lock -Force -ErrorAction SilentlyContinue }
+                } catch {}
+            }
+
+            & $cleanupLock
+
+            $addOut  = @()
+            $addCode = 1
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+                $addOut = @(& $gitExe -C $root add -A 2>&1)
+                $addCode = $LASTEXITCODE
+                if ($addCode -eq 0) { break }
+                $addText = ($addOut | Out-String)
+                if ($addText -match 'index\.lock|Unable to create') {
+                    [void]$log.Add([PSCustomObject]@{Text="git add: index.lock detected (attempt $attempt/3), cleaning lock + retry..."; Color="#CDAA32"})
+                    & $cleanupLock
+                    Start-Sleep -Milliseconds 250
+                    continue
+                }
+                break
+            }
+
+            if ($addCode -ne 0) {
+                foreach ($l in $addOut) { [void]$log.Add([PSCustomObject]@{Text="$l"; Color="#DC3232"}) }
+                [void]$log.Add([PSCustomObject]@{Text="git add failed before build."; Color="#DC3232"})
+                return [PSCustomObject]@{ Ok = $false; Log = $log; ErrMsg = "git add failed before build." }
+            }
+
+            & $gitExe -C $root diff --cached --quiet 2>$null
+            $diffCode = $LASTEXITCODE
+
+            if ($diffCode -ne 0) {
+                $commitOut  = @(& $gitExe -C $root commit -m $commitMsg 2>&1)
+                $commitCode = $LASTEXITCODE
+                if ($commitCode -ne 0 -and (($commitOut | Out-String) -match 'index\.lock|Unable to create')) {
+                    & $cleanupLock
+                    $commitOut  = @(& $gitExe -C $root commit -m $commitMsg 2>&1)
+                    $commitCode = $LASTEXITCODE
+                }
+                if ($commitCode -ne 0) {
+                    [void]$log.Add([PSCustomObject]@{Text="git commit failed; retrying with --no-verify (forced by outage-safe sync policy)."; Color="#CDAA32"})
+                    $commitOut  = @(& $gitExe -C $root commit --no-verify -m $commitMsg 2>&1)
+                    $commitCode = $LASTEXITCODE
+                }
+                foreach ($l in $commitOut) {
+                    $c = if ($commitCode -ne 0) { "#DC3232" } else { "#8C8C8C" }
+                    [void]$log.Add([PSCustomObject]@{Text="$l"; Color=$c})
+                }
+                if ($commitCode -ne 0) {
+                    [void]$log.Add([PSCustomObject]@{Text="git commit failed (hooks, conflicts, or repo state)."; Color="#DC3232"})
+                    return [PSCustomObject]@{ Ok = $false; Log = $log; ErrMsg = "git commit failed before build." }
+                }
+                [void]$log.Add([PSCustomObject]@{Text="Committed: $commitMsg"; Color="#508CDC"})
+            } else {
+                [void]$log.Add([PSCustomObject]@{Text="(working tree already clean - nothing to commit)"; Color="#44586C"})
+            }
+
+            $branch = & $gitExe -C $root rev-parse --abbrev-ref HEAD 2>$null
+            if ($branch) { $branch = $branch.Trim() } else { $branch = "HEAD" }
+
+            $pushOut  = @(& $gitExe -C $root push origin $branch 2>&1)
+            $pushCode = $LASTEXITCODE
+            foreach ($l in $pushOut) {
+                $c = if ($pushCode -ne 0) { "#CDAA32" } else { "#8C8C8C" }
+                [void]$log.Add([PSCustomObject]@{Text="$l"; Color=$c})
+            }
+            if ($pushCode -ne 0) {
+                [void]$log.Add([PSCustomObject]@{Text="git push failed (exit $pushCode) - continuing build without pushing."; Color="#CDAA32"})
+            } else {
+                [void]$log.Add([PSCustomObject]@{Text="git push: ok"; Color="#508CDC"})
+            }
+
+            return [PSCustomObject]@{ Ok = $true; Log = $log; ErrMsg = $null }
+        } `
+        -Arguments @($root, $gitExe, $CommitMessage) `
+        -OnComplete {
+            param($result)
+            $r = if ($result -and $result.Count -gt 0) { $result[0] } else { $result }
+            if ($null -ne $r -and $null -ne $r.Log) {
+                foreach ($item in $r.Log) {
+                    try { Add-LogSessionLine $item.Text $item.Color } catch {}
+                }
+            }
+            Add-LogSessionLine "" "#1A3050"
+
+            $ok = ($null -ne $r) -and ($r.Ok -eq $true)
+            if (-not $ok) {
+                $msg = if ($null -ne $r -and $r.ErrMsg) { $r.ErrMsg } else { "git sync failed" }
+                [System.Windows.MessageBox]::Show(
+                    "$msg`n`nFix the repo, then retry.",
+                    "Git",
+                    "OK",
+                    "Error") | Out-Null
+            }
+            & $OnComplete $ok
+        }
+}
+
+# Restore UI controls when a build aborts before the BuildTimer starts (e.g.
+# git sync failure). The BuildTimer's completion path handles the normal case.
+function Reset-BuildUI {
+    $script:IsBuilding = $false
+    $script:IsPushing  = $false
+    $ui["BtnBuild"].IsEnabled        = $true
+    $ui["BtnRelease"].IsEnabled      = $true
+    $ui["BtnCleanBuild"].IsEnabled   = $true
+    $ui["BtnPull"].IsEnabled         = $true
+    $ui["BtnPush"].IsEnabled         = $true
+    $ui["BtnPruneWorktrees"].IsEnabled = $true
+    $ui["BtnStop"].Visibility        = [System.Windows.Visibility]::Collapsed
+    $ui["ProgressBack"].Visibility   = [System.Windows.Visibility]::Collapsed
+    $ui["LblBuildActivity"].Text     = "Idle"
+    $ui["LblProgressText"].Text      = ""
+}
+
+# Copy post-batch-addin data into the Build dir. The directory copy is fast
+# (<100ms) in most cases but touches disk synchronously; in cold-cache cases
+# or with AV interference it has spiked to 500ms+ on the UI thread. Running
+# on BgPool keeps the build-complete animation smooth.
+function Start-CopyAddinFilesAsync {
+    $parentDir = Split-Path $script:ProjectRoot -Parent
+    $srcData = Join-Path (Join-Path $parentDir "post-batch-addin") "data"
+    $dstData = Join-Path $script:BuildDir "data"
+    if (-not (Test-Path $srcData)) { return }
+
+    Start-AsyncPoolAction `
+        -Script {
+            param($src, $dst)
+            try {
+                if (Test-Path $dst) { Remove-Item $dst -Recurse -Force -ErrorAction SilentlyContinue }
+                Copy-Item -Path $src -Destination $dst -Recurse -Force -ErrorAction Stop
+                return [PSCustomObject]@{ Ok = $true; Err = $null }
+            } catch {
+                return [PSCustomObject]@{ Ok = $false; Err = $_.Exception.Message }
+            }
+        } `
+        -Arguments @($srcData, $dstData) `
+        -OnComplete {
+            param($result)
+            $r = if ($result -and $result.Count -gt 0) { $result[0] } else { $result }
+            if ($null -ne $r -and -not $r.Ok -and $r.Err) {
+                try { Add-LogLine ("addin copy failed: " + $r.Err) "#CDAA32" } catch {}
+            }
+        }
+}
+
+# Save HEAD sha to build\.last-built-hash. git rev-parse is usually <50ms but
+# has hit the 200-500ms range on cold-cache Git-for-Windows launches, so route
+# it through BgPool to keep the build-complete transition instant.
+function Start-SaveHeadHashAsync {
+    Start-AsyncPoolAction `
+        -Script {
+            param($root, $buildDir)
+            try {
+                $head = (& git -C $root rev-parse HEAD 2>$null)
+                if ($head) {
+                    $hf = Join-Path $buildDir ".last-built-hash"
+                    Set-Content -Path $hf -Value $head.Trim() -NoNewline -Encoding UTF8 -ErrorAction SilentlyContinue
+                }
+                return $true
+            } catch {
+                return $false
+            }
+        } `
+        -Arguments @($script:ProjectRoot, (Join-Path $script:ProjectRoot "build")) `
+        -OnComplete {
+            param($result)
+            # No UI update needed; fire-and-forget
+        }
+}
+
+# Compute the live activity string for StatusActivity. Reads only in-memory
+# state (no subprocess calls), so it is safe to call from the 1Hz main timer
+# without throttling.
+function Update-ActivityLabel {
+    if ($null -eq $ui["StatusActivity"]) { return }
+    $text  = "Idle"
+    $color = "#A0B4D0"
+
+    if ($script:IsPushing) {
+        $color = "#C8A000"
+        if ($script:BuildPercent -gt 0) {
+            $text = "Release: $($script:BuildPercent)% " + $script:CurrentStepName
+        } elseif ($script:BuildCurrentStep -gt 0 -and $script:BuildTotalSteps -gt 0) {
+            $text = "Release: [$($script:BuildCurrentStep)/$($script:BuildTotalSteps)] " + $script:CurrentStepName
+        } elseif ($script:CurrentStepName) {
+            $text = "Release: " + $script:CurrentStepName
+        } else {
+            $text = "Release: starting..."
+        }
+    }
+    elseif ($script:IsBuilding) {
+        $color = "#0090D0"
+        if ($script:BuildPercent -gt 0) {
+            $text = "Building: $($script:BuildPercent)% " + $script:CurrentStepName
+        } elseif ($script:BuildCurrentStep -gt 0 -and $script:BuildTotalSteps -gt 0) {
+            $text = "Building: [$($script:BuildCurrentStep)/$($script:BuildTotalSteps)] " + $script:CurrentStepName
+        } elseif ($script:CurrentStepName) {
+            $text = "Building: " + $script:CurrentStepName
+        } else {
+            $text = "Building: starting..."
+        }
+    }
+    elseif ($script:GitActionBusy) {
+        $text  = "Git: busy"
+        $color = "#CDAA32"
+    }
+    else {
+        $parts = @()
+        if ($null -ne $script:ServerProcess -and -not $script:ServerProcess.HasExited) {
+            try { $parts += "Server (pid $($script:ServerProcess.Id))" } catch { $parts += "Server" }
+        }
+        if ($null -ne $script:GameProcess -and -not $script:GameProcess.HasExited) {
+            try { $parts += "Game (pid $($script:GameProcess.Id))" } catch { $parts += "Game" }
+        }
+        if ($parts.Count -gt 0) {
+            $text  = "Running: " + ($parts -join ", ")
+            $color = "#2D8B2D"
+        } elseif ($script:GitChangeCount -gt 0) {
+            $text  = "Idle ($($script:GitChangeCount) modified)"
+            $color = "#FF8C00"
+        }
+    }
+
+    try {
+        if ($ui["StatusActivity"].Text -ne $text) { $ui["StatusActivity"].Text = $text }
+        $ui["StatusActivity"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($color)))
+    } catch {}
+}
+
+# Drain any server stdout/stderr lines captured by AsyncLineReader into the
+# Log panel. Called from the main timer tick so server output stays live even
+# while a build is inactive.
+function Drain-ServerOutput {
+    if ($null -eq $script:ServerOutputQueue) { return }
+    $maxPer = 50
+    $count  = 0
+    $line   = $null
+    while ($count -lt $maxPer -and $script:ServerOutputQueue.TryDequeue([ref]$line)) {
+        $text = if ($line -and $line.Length -ge 4) { "[server] " + $line.Substring(4) } else { "[server] " + $line }
+        [void]$script:AllOutput.Add($text)
+        try { Add-LogLine $text (Get-ClassifiedLogColor (Classify-Line $text)) } catch {}
+        $count++
+    }
 }
 
 function Invoke-GitPull {
@@ -1683,6 +1873,10 @@ function Stop-Build {
     $script:BuildStepQueue.Clear()
     $script:BuildTimer.Stop()
     $script:IsBuilding = $false; $script:IsPushing = $false
+    $script:BuildPercent = 0
+    $script:BuildCurrentStep = 0
+    $script:BuildTotalSteps = 0
+    $script:CurrentStepName = ""
     $ui["BtnBuild"].IsEnabled = $true
     $ui["BtnRelease"].IsEnabled = $true
     $ui["BtnCleanBuild"].IsEnabled = $true
@@ -1693,6 +1887,7 @@ function Stop-Build {
     $ui["ProgressBack"].Visibility = [System.Windows.Visibility]::Collapsed
     $ui["LblBuildActivity"].Text = "Stopped."
     $ui["LblProgressText"].Text = ""
+    try { Update-ActivityLabel } catch {}
 }
 
 function Start-Build-Step($step) {
@@ -1773,11 +1968,21 @@ function Get-BuildSteps($ver, [bool]$forceClean = $false) {
 }
 
 function Start-Build {
-    if ($script:IsBuilding) { return }
+    # Reentrancy guard: IsBuilding / IsPushing are set *before* the async git
+    # sync starts, so a second click or keyboard shortcut while the sync is in
+    # flight bails here instead of double-scheduling the pipeline.
+    if ($script:IsBuilding -or $script:IsPushing) { return }
+
     $script:ClientErrors.Clear(); $script:ServerErrors.Clear(); $script:AllOutput.Clear()
     $script:ClientBuildResult = $null; $script:ServerBuildResult = $null
     $script:ClientBuildTime = 0; $script:ServerBuildTime = 0
     $script:HasBuildErrors = $false; $script:CurrentBuildTarget = "client"
+    $script:BuildTotalSteps = 0; $script:BuildCurrentStep = 0
+    $script:CurrentStepName = "git sync"
+
+    # Claim the build slot up front so re-entry is blocked while the async
+    # git sync (1-6s) is running.
+    $script:IsBuilding = $true
 
     $ui["LblClientStatus"].Text = "client: building..."; $ui["LblClientStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#508CDC")))
     $ui["LblServerStatus"].Text = "server: --"; $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#8C8C8C")))
@@ -1796,34 +2001,31 @@ function Start-Build {
     $ui["ProgressBack"].UpdateLayout()
     $pw0 = $ui["ProgressBack"].ActualWidth
     if ($pw0 -gt 0) { $ui["ProgressFill"].Width = [math]::Floor($pw0 * 0.12) }
+    try { Update-ActivityLabel } catch {}
 
-    if (-not (Invoke-GitSyncBeforeBuild "chore: auto-commit before build (dev window)")) {
-        $ui["BtnBuild"].IsEnabled = $true; $ui["BtnRelease"].IsEnabled = $true; $ui["BtnCleanBuild"].IsEnabled = $true
-        $ui["BtnPull"].IsEnabled = $true
-        $ui["BtnPush"].IsEnabled = $true
-        $ui["BtnPruneWorktrees"].IsEnabled = $true
-        $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Collapsed
-        $ui["ProgressBack"].Visibility = [System.Windows.Visibility]::Collapsed
-        $ui["LblBuildActivity"].Text = "Idle"
-        $ui["LblProgressText"].Text = ""
-        return
+    Start-GitSyncBeforeBuildAsync -CommitMessage "chore: auto-commit before build (dev window)" -OnComplete {
+        param($ok)
+        if (-not $ok) {
+            Reset-BuildUI
+            try { Update-ActivityLabel } catch {}
+            return
+        }
+
+        $clean = $script:ForceCleanBuild; $script:ForceCleanBuild = $false
+        $buildMode = $(if ($clean) { "clean" } else { "incremental" })
+        $ui["LblBuildActivity"].Text = "Starting " + $buildMode + " build..."
+        $ui["LblProgressText"].Text = "0% - starting " + $buildMode + " build..."
+        Add-LogSessionLine "" "#1A3050"
+        Add-LogSessionLine (">>> BUILD (" + $buildMode + ")") "#0090D0"
+        Add-LogSessionLine "" "#1A3050"
+
+        $script:BuildVersion = Get-UiVersion
+        $script:BuildProcess = $null
+        $script:BuildStepQueue.Clear()
+        foreach ($s in (Get-BuildSteps $script:BuildVersion $clean)) { [void]$script:BuildStepQueue.Add($s) }
+        $script:BuildTimer.Start()
+        try { Update-ActivityLabel } catch {}
     }
-
-    $script:IsBuilding = $true
-
-    $clean = $script:ForceCleanBuild; $script:ForceCleanBuild = $false
-    $buildMode = $(if ($clean) { "clean" } else { "incremental" })
-    $ui["LblBuildActivity"].Text = "Starting " + $buildMode + " build..."
-    $ui["LblProgressText"].Text = "0% - starting " + $buildMode + " build..."
-    Add-LogSessionLine "" "#1A3050"
-    Add-LogSessionLine (">>> BUILD (" + $buildMode + ")") "#0090D0"
-    Add-LogSessionLine "" "#1A3050"
-
-    $script:BuildVersion = Get-UiVersion
-    $script:BuildProcess = $null
-    $script:BuildStepQueue.Clear()
-    foreach ($s in (Get-BuildSteps $script:BuildVersion $clean)) { [void]$script:BuildStepQueue.Add($s) }
-    $script:BuildTimer.Start()
 }
 
 # ============================================================================
@@ -1855,6 +2057,12 @@ function Start-PushRelease {
     $ok = [System.Windows.MessageBox]::Show($msg, ($kind + " Release v" + $vs), "YesNo", "Warning")
     if ($ok -ne [System.Windows.MessageBoxResult]::Yes) { return }
 
+    # Claim the release slot up front so re-entry during the async git sync
+    # is blocked. Cleared by Reset-BuildUI or the BuildTimer completion path.
+    $script:IsPushing = $true
+    $script:BuildTotalSteps = 0; $script:BuildCurrentStep = 0
+    $script:CurrentStepName = "git sync"
+
     $ui["BtnBuild"].IsEnabled = $false; $ui["BtnRelease"].IsEnabled = $false; $ui["BtnCleanBuild"].IsEnabled = $false
     $ui["BtnPull"].IsEnabled = $false
     $ui["BtnPush"].IsEnabled = $false
@@ -1871,55 +2079,54 @@ function Start-PushRelease {
 
     $script:HasBuildErrors = $false; $script:AllOutput.Clear()
     $script:ClientErrors.Clear(); $script:ServerErrors.Clear()
-    if (-not (Invoke-GitSyncBeforeBuild "chore: auto-commit before release (dev window)")) {
-        $ui["BtnBuild"].IsEnabled = $true; $ui["BtnRelease"].IsEnabled = $true; $ui["BtnCleanBuild"].IsEnabled = $true
-        $ui["BtnPull"].IsEnabled = $true
-        $ui["BtnPush"].IsEnabled = $true
-        $ui["BtnPruneWorktrees"].IsEnabled = $true
-        $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Collapsed
-        $ui["ProgressBack"].Visibility = [System.Windows.Visibility]::Collapsed
-        $ui["LblBuildActivity"].Text = "Idle"
-        $ui["LblProgressText"].Text = ""
-        return
+    try { Update-ActivityLabel } catch {}
+
+    Start-GitSyncBeforeBuildAsync -CommitMessage "chore: auto-commit before release (dev window)" -OnComplete {
+        param($syncOk)
+        if (-not $syncOk) {
+            Reset-BuildUI
+            try { Update-ActivityLabel } catch {}
+            return
+        }
+
+        Set-ProjectVersion $ver.Major $ver.Minor $ver.Patch
+        $ui["LblBuildActivity"].Text = "Release v" + $vs + ": building..."
+        $ui["LblProgressText"].Text = "0% - release v" + $vs + " (starting steps...)"
+
+        $script:ClientBuildResult = $null; $script:ServerBuildResult = $null
+        $script:BuildStepQueue.Clear()
+        $ui["LblClientStatus"].Text = "client: building..."
+        $ui["BtnCopyLog"].Visibility = [System.Windows.Visibility]::Visible
+
+        $script:BuildVersion = $ver
+        Add-LogSessionLine "" "#1A3050"
+        Add-LogSessionLine (">>> RELEASE PIPELINE v" + $vs + " (" + $kind + ")") "#C8A000"
+        Add-LogSessionLine "    Version written to CMakeLists.txt; steps below run in order (build, then package/push)." "#44586C"
+        Add-LogSessionLine "" "#1A3050"
+
+        # Audit 2026-04-16: release builds now do a clean build to match v1 behavior.
+        # Stale object files from a previous broken build can otherwise link into
+        # the release binary.
+        foreach ($s in (Get-BuildSteps $ver $true)) { [void]$script:BuildStepQueue.Add($s) }
+
+        $prerelArg = $(if ($isStable) { "" } else { " -Prerelease" })
+        $psExe = $(if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" })
+        # Audit 2026-04-16: switched from -File to -Command to match v1. With -File,
+        # switch parameters like `-SkipPush:$false` are parsed as a literal string
+        # and can be misinterpreted; -Command evaluates the expression. Also adding
+        # -NonInteractive so a credential/auth prompt doesn't hang the subprocess.
+        # -SkipBuild: dev-window-v2 already built both targets above; release.ps1 skips cmake step 0.
+        # -SkipPush:$false: always push to GitHub (not skipped).
+        $relCmd = "& `"$releaseScript`" -Version `"$vs`"$prerelArg -SkipBuild -SkipPush:`$false"
+        [void]$script:BuildStepQueue.Add(@{
+            Name   = "Release: packaging + GitHub push"
+            Exe    = $psExe
+            Target = "client"
+            Args   = "-NonInteractive -ExecutionPolicy Bypass -Command `"$relCmd`""
+        })
+        $script:BuildTimer.Start()
+        try { Update-ActivityLabel } catch {}
     }
-
-    $script:IsPushing = $true
-    Set-ProjectVersion $ver.Major $ver.Minor $ver.Patch
-    $ui["LblBuildActivity"].Text = "Release v" + $vs + ": building..."
-    $ui["LblProgressText"].Text = "0% - release v" + $vs + " (starting steps...)"
-
-    $script:ClientBuildResult = $null; $script:ServerBuildResult = $null
-    $script:BuildStepQueue.Clear()
-    $ui["LblClientStatus"].Text = "client: building..."
-    $ui["BtnCopyLog"].Visibility = [System.Windows.Visibility]::Visible
-
-    $script:BuildVersion = $ver
-    Add-LogSessionLine "" "#1A3050"
-    Add-LogSessionLine (">>> RELEASE PIPELINE v" + $vs + " (" + $kind + ")") "#C8A000"
-    Add-LogSessionLine "    Version written to CMakeLists.txt; steps below run in order (build, then package/push)." "#44586C"
-    Add-LogSessionLine "" "#1A3050"
-
-    # Audit 2026-04-16: release builds now do a clean build to match v1 behavior.
-    # Stale object files from a previous broken build can otherwise link into
-    # the release binary.
-    foreach ($s in (Get-BuildSteps $ver $true)) { [void]$script:BuildStepQueue.Add($s) }
-
-    $prerelArg = $(if ($isStable) { "" } else { " -Prerelease" })
-    $psExe = $(if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" })
-    # Audit 2026-04-16: switched from -File to -Command to match v1. With -File,
-    # switch parameters like `-SkipPush:$false` are parsed as a literal string
-    # and can be misinterpreted; -Command evaluates the expression. Also adding
-    # -NonInteractive so a credential/auth prompt doesn't hang the subprocess.
-    # -SkipBuild: dev-window-v2 already built both targets above; release.ps1 skips cmake step 0.
-    # -SkipPush:$false: always push to GitHub (not skipped).
-    $relCmd = "& `"$releaseScript`" -Version `"$vs`"$prerelArg -SkipBuild -SkipPush:`$false"
-    [void]$script:BuildStepQueue.Add(@{
-        Name   = "Release: packaging + GitHub push"
-        Exe    = $psExe
-        Target = "client"
-        Args   = "-NonInteractive -ExecutionPolicy Bypass -Command `"$relCmd`""
-    })
-    $script:BuildTimer.Start()
 }
 
 # ============================================================================
@@ -1928,9 +2135,15 @@ function Start-PushRelease {
 
 function Toggle-Server {
     if ($null -ne $script:ServerProcess -and -not $script:ServerProcess.HasExited) {
+        # Disable button immediately so rapid clicks during the Kill() call
+        # cannot race a second Toggle-Server invocation into the Start path.
+        $ui["BtnRunServer"].IsEnabled = $false
+        $ui["BtnRunServer"].Content = "STOPPING..."
         try { $script:ServerProcess.Kill() } catch {}
         $script:ServerProcess = $null
         $ui["BtnRunServer"].Content = "RUN SERVER"
+        $ui["BtnRunServer"].IsEnabled = $true
+        try { Update-ActivityLabel } catch {}
         return
     }
     $exe = Get-ExePath $script:ServerExeName
@@ -1938,33 +2151,56 @@ function Toggle-Server {
         [System.Windows.MessageBox]::Show("Server executable not found. Build first.", "Run Error", "OK", "Warning") | Out-Null
         return
     }
-    # Perf: give the user immediate feedback. UseShellExecute=$false skips the
-    # Shell32 association lookup (a noticeable cold-start cost the first time
-    # in a session) and uses CreateProcess directly; for a direct path to
-    # .exe this is always safe. Button state flips before the exe starts
-    # initializing so the click feels instantaneous.
+    # Async stream capture: redirect stdout/stderr into a ConcurrentQueue via
+    # AsyncLineReader (background thread, no UI thread involvement). The main
+    # timer drains the queue to the Log panel each tick, so a chatty server
+    # (log spam, connect/disconnect events) cannot block the window.
+    #
+    # UseShellExecute=$false is required for stream redirection and avoids the
+    # Shell32 association lookup (~50-200ms cold cost). CreateNoWindow=$true
+    # hides the extra console that would otherwise pop when a console-subsystem
+    # .exe is launched from a GUI process.
+    $ui["BtnRunServer"].IsEnabled = $false
     $ui["BtnRunServer"].Content = "STARTING..."
     $ui["BtnRunServer"].UpdateLayout()
     Add-LogLine (">>> Starting server: " + $exe) "#0090D0"
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = $exe
-        $psi.WorkingDirectory = (Split-Path $exe -Parent)
-        $psi.UseShellExecute = $false
-        $script:ServerProcess = [System.Diagnostics.Process]::Start($psi)
+        $psi.FileName              = $exe
+        $psi.WorkingDirectory      = (Split-Path $exe -Parent)
+        $psi.UseShellExecute       = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError  = $true
+        $psi.CreateNoWindow        = $true
+        $proc = New-Object System.Diagnostics.Process
+        $proc.StartInfo = $psi
+        [void]$proc.Start()
+        $script:ServerProcess = $proc
+        # Fresh queue so stale output from a previous server run doesn't carry
+        # over. The queue is drained by Drain-ServerOutput on the main timer.
+        $script:ServerOutputQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
+        [PD2V2.AsyncLineReader]::StartReading($proc.StandardOutput, $script:ServerOutputQueue, "OUT:")
+        [PD2V2.AsyncLineReader]::StartReading($proc.StandardError,  $script:ServerOutputQueue, "ERR:")
         $ui["BtnRunServer"].Content = "STOP SERVER"
+        $ui["BtnRunServer"].IsEnabled = $true
+        try { Update-ActivityLabel } catch {}
     } catch {
         Add-LogLine ("Server launch failed: " + $_.Exception.Message) "#DC3232"
         $ui["BtnRunServer"].Content = "RUN SERVER"
+        $ui["BtnRunServer"].IsEnabled = $true
         [System.Windows.MessageBox]::Show("Server launch failed: " + $_.Exception.Message, "Run Error", "OK", "Error") | Out-Null
     }
 }
 
 function Toggle-Game {
     if ($null -ne $script:GameProcess -and -not $script:GameProcess.HasExited) {
+        $ui["BtnRunGame"].IsEnabled = $false
+        $ui["BtnRunGame"].Content = "STOPPING..."
         try { $script:GameProcess.Kill() } catch {}
         $script:GameProcess = $null
         $ui["BtnRunGame"].Content = "RUN GAME"
+        $ui["BtnRunGame"].IsEnabled = $true
+        try { Update-ActivityLabel } catch {}
         return
     }
     $exe = Get-ExePath $script:ClientExeName
@@ -1972,6 +2208,10 @@ function Toggle-Game {
         [System.Windows.MessageBox]::Show("Game executable not found. Build first.", "Run Error", "OK", "Warning") | Out-Null
         return
     }
+    # Disable button up-front to block double-click. Unlike the server, the
+    # game has its own window and doesn't need stream capture here - keeping
+    # the plain Process.Start path avoids redirecting stdin on a GUI app.
+    $ui["BtnRunGame"].IsEnabled = $false
     $ui["BtnRunGame"].Content = "STARTING..."
     $ui["BtnRunGame"].UpdateLayout()
     Add-LogLine (">>> Starting game: " + $exe) "#0090D0"
@@ -1982,9 +2222,12 @@ function Toggle-Game {
         $psi.UseShellExecute = $false
         $script:GameProcess = [System.Diagnostics.Process]::Start($psi)
         $ui["BtnRunGame"].Content = "STOP GAME"
+        $ui["BtnRunGame"].IsEnabled = $true
+        try { Update-ActivityLabel } catch {}
     } catch {
         Add-LogLine ("Game launch failed: " + $_.Exception.Message) "#DC3232"
         $ui["BtnRunGame"].Content = "RUN GAME"
+        $ui["BtnRunGame"].IsEnabled = $true
         [System.Windows.MessageBox]::Show("Game launch failed: " + $_.Exception.Message, "Run Error", "OK", "Error") | Out-Null
     }
 }
@@ -2150,7 +2393,28 @@ $script:BuildTimer.Add_Tick({
             }
             Add-LogLine $text (Get-ClassifiedLogColor $cls)
 
-            if ($text -match '^\[\s*(\d+)%\]') {
+            # Ninja prints [N/total] for each action; CMake's wrapper adds [N%]
+            # banners. Match both so the progress bar advances smoothly whether
+            # the output layer is CMake or raw Ninja.
+            if ($text -match '^\[\s*(\d+)/(\d+)\s*\]') {
+                $cur = [int]$Matches[1]
+                $tot = [int]$Matches[2]
+                if ($tot -gt 0) {
+                    $script:BuildCurrentStep = $cur
+                    $script:BuildTotalSteps  = $tot
+                    $pct = [int](($cur * 100.0) / $tot)
+                    if ($pct -ge $script:BuildPercent) {
+                        $script:BuildPercent = $pct
+                        $pw = $ui["ProgressBack"].ActualWidth
+                        if ($pw -gt 0) {
+                            $fw = [math]::Floor(($pct / 100.0) * $pw)
+                            $ui["ProgressFill"].Width = $fw
+                        }
+                        $ui["LblProgressText"].Text = "" + $pct + "% [$cur/$tot] - " + $script:CurrentStepName
+                    }
+                }
+            }
+            elseif ($text -match '^\[\s*(\d+)%\]') {
                 $pct = [int]$Matches[1]
                 if ($pct -ge $script:BuildPercent) {
                     $script:BuildPercent = $pct
@@ -2246,17 +2510,16 @@ $script:BuildTimer.Add_Tick({
             } else {
                 $anyErr = $script:HasBuildErrors -or ($script:ClientBuildResult -eq "FAILED") -or ($script:ServerBuildResult -eq "FAILED")
                 if (-not $anyErr) {
-                    Play-SuccessSound; Copy-AddinFiles
+                    Play-SuccessSound
+                    # Copy-Item of the addin data tree and git rev-parse are
+                    # both fast on warm cache but can spike to hundreds of ms
+                    # on cold cache or AV interference. Route both through
+                    # BgPool so the success transition remains instant.
+                    Start-CopyAddinFilesAsync
                     if ($null -ne $script:BuildVersion) {
                         Set-ProjectVersion $script:BuildVersion.Major $script:BuildVersion.Minor $script:BuildVersion.Patch
                     }
-                    try {
-                        $headHash = (git -C $script:ProjectRoot rev-parse HEAD 2>$null)
-                        if ($headHash) {
-                            $hf = Join-Path $script:ProjectRoot "build\.last-built-hash"
-                            Set-Content -Path $hf -Value $headHash.Trim() -NoNewline -Encoding UTF8
-                        }
-                    } catch {}
+                    Start-SaveHeadHashAsync
                 } else { Play-FailureSound }
                 $fillColor = $(if ($anyErr) { "#DC3232" } else { "#00B400" })
                 $ui["ProgressFill"].Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($fillColor)))
@@ -2278,19 +2541,35 @@ $script:BuildTimer.Add_Tick({
                 $ui["BtnPush"].IsEnabled = $true
                 $ui["BtnPruneWorktrees"].IsEnabled = $true
                 $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Collapsed
-                Refresh-VersionDisplay; Update-RunButtons; Update-StatusBar
+                $script:BuildPercent = 0
+                $script:BuildCurrentStep = 0
+                $script:BuildTotalSteps = 0
+                $script:CurrentStepName = ""
+                Refresh-VersionDisplay; Update-RunButtons; Update-StatusBar; Update-ActivityLabel
             }
         }
     } catch {}
 })
 
-# Main timer (2s) -- git status, process monitoring, status bar
+# Main timer (1s) -- activity label, server output drain, throttled git poll
+#
+# Fires at 1Hz for the live activity label update (reads in-memory state only,
+# so it's free to tick fast). Git status polling still spawns a background
+# PowerShell via Update-StatusBar; that is throttled to every 2s with
+# $script:LastStatusPollUtc so we don't hammer git with spawn+status calls.
 $script:MainTimer = New-Object System.Windows.Threading.DispatcherTimer
-$script:MainTimer.Interval = [TimeSpan]::FromSeconds(2)
+$script:MainTimer.Interval = [TimeSpan]::FromSeconds(1)
 $script:MainTimer.Add_Tick({
     try {
         Update-RunButtons
-        if (-not $script:IsBuilding -and -not $script:IsPushing) { Update-StatusBar }
+        Drain-ServerOutput
+        Update-ActivityLabel
+        if (-not $script:IsBuilding -and -not $script:IsPushing) {
+            if (([DateTime]::UtcNow - $script:LastStatusPollUtc).TotalSeconds -ge 2) {
+                $script:LastStatusPollUtc = [DateTime]::UtcNow
+                Update-StatusBar
+            }
+        }
         # Re-check gh auth if not signed in (do not require GhAuthChecked — if the first probe never
         # completes, GhAuthChecked stays false and we would never retry; activation/F5 cancel instead).
         if (-not $script:GhAuthOk -and -not $script:GhAuthRefreshBusy) {
