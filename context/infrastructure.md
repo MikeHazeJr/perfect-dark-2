@@ -5,8 +5,8 @@
 > (v0.1.0 → v1.0.0) live in roadmap.md under "Release Milestones".
 > Back to [index](README.md)
 
-> **Last updated**: 2026-04-14, S256 Dev Window v2 layout (DockPanel fill + VERSION grid). Wire protocol at
-> **v35** (v34 seamless audio-mod sync + v35 L5 match_seed + S253 additive
+> **Last updated**: 2026-04-18, S361 Dev Window v2 async RunspacePool. Wire protocol at
+> **v37** (v36 B-12 Phase 3 + v37 chrslots removal + v34 seamless audio-mod sync + v35 L5 match_seed + S253 additive
 > `SVC_ROOM_SETTINGS` / `SVC_ROOM_PLAYLIST` / CLC counterparts). D13 Update
 > System FIXED (S245 FIX-F). R-1 / R-2 / R-3 DONE; R-4 protocol-side DONE
 > (S143 + S253 additives); L-1 through L-4 DONE; R-5 server GUI redesign,
@@ -46,7 +46,7 @@ main working copy OR in session-created worktrees under `.claude/worktrees/`.
 
 **Build environment invariants** (see project `CLAUDE.md`):
 `TEMP=C:\Users\mikeh\AppData\Local\Temp`, `/c/msys64/mingw64/bin` prepended
-to PATH, `CCACHE_SLOPPINESS=pch_defines,time_macros`. Do not rediscover.
+to PATH, `CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime,include_file_ctime`, `CCACHE_BASEDIR` set. Do not rediscover.
 
 ---
 
