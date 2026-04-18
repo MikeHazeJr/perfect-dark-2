@@ -312,10 +312,9 @@ void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
 /* Update UI — from pdgui_menu_update.cpp */
 void pdguiUpdateRenderSettingsTab(void);
 
-/* Update channel — from updater.c */
-typedef enum { UPDATE_CHANNEL_STABLE = 0, UPDATE_CHANNEL_DEV, UPDATE_CHANNEL_COUNT } update_channel_t;
-update_channel_t updaterGetChannel(void);
-void updaterSetChannel(update_channel_t channel);
+/* Updater — from updater.c */
+s32  updaterGetShowDevReleases(void);
+void updaterSetShowDevReleases(s32 show);
 void updaterCheckAsync(void);
 
 /* Modding Hub UI — declared in pdgui_menu_moddinghub.cpp */
@@ -2230,18 +2229,17 @@ static void renderSettingsGame(float scale)
         }
     }
 
-    /* Update Channel */
+    /* Show Dev Releases */
     {
-        int ch = (int)updaterGetChannel();
-        const char *chOpts[] = { "Stable", "Dev / Test" };
-        if (PdCombo("Update Channel", &ch, chOpts, 2)) {
-            updaterSetChannel((update_channel_t)ch);
+        bool showDev = updaterGetShowDevReleases() != 0;
+        if (PdCheckbox("Show Dev Releases", &showDev)) {
+            updaterSetShowDevReleases(showDev ? 1 : 0);
             updaterCheckAsync();
         }
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip(
-                "Stable: only show stable releases in the update notification\n"
-                "Dev / Test: also show pre-release and dev builds");
+                "Off: only show stable releases in the update list\n"
+                "On: also show pre-release / dev builds");
         }
     }
 

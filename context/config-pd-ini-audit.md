@@ -36,7 +36,7 @@ for.  For truly invariant tuning numbers, use a `#define` or a
 | `Audio.ModPlaylist` / `ModShuffle` / `ModTrackId` | Music selection -- today per-machine, could migrate per-agent in a future pass. |
 | `Game.MemorySize` | Engine memory pool sizing -- hardware. |
 | `Game.CenterHUD` / `MenuMouseControl` / `ScreenShakeIntensity` / `TickRateDivisor` / `ExtraSleep` / `SkipIntro` / `DisableMpDeathMusic` / `GEMuzzleFlashes` | Gameplay prefs.  Candidates for future per-agent migration, but currently global. |
-| `Game.UpdateChannel` | stable vs beta; per-install. |
+| `Updates.ShowDevReleases` | Include prereleases in the updater list; also overlaid per-agent via prefs sidecar. |
 | `Agent.DefaultFileId` | The Agent profile to auto-load on boot.  Per-machine by design (you can't pick the agent you're loading *with* the agent's own prefs). |
 | `Debug.VerboseLogging` / `LogChannelMask` / `ManifestMaxEntries` / `JumpLogging` | Troubleshooting.  Per-machine. |
 | `UI.SafeAreaTop` / `SafeAreaBottom` / `SafeAreaLeft` / `SafeAreaRight` | Monitor bezel / overscan compensation.  Per-machine. |
@@ -53,6 +53,7 @@ for.  For truly invariant tuning numbers, use a `#define` or a
 | `[Theme]` | ActiveId | Theme catalog ID. |
 | `[Video]` | UiChromeStyleId, UiChromeEnabled, UiTitleBarStyle, FontId, Scanlines, ScanlineAlpha | Visual preferences.  Font change requires restart. |
 | `[Audio]` | MasterVolume, MusicVolume, GameplayVolume, UIVolume | **S313 batch.**  Applied on load via audioSet*Volume setters. |
+| `[Updates]` | ShowDevReleases | Include prereleases in the updater list; overlaid per-agent. |
 | `[Mods]` | Enabled = slug1,slug2,... | Agent's enabled-mods set. |
 
 Loading an Agent Select profile (prefsAgentLoad) applies these on top of

@@ -28,16 +28,6 @@ typedef struct pdversion {
 } pdversion_t;
 
 /* ========================================================================
- * Release channels
- * ======================================================================== */
-
-typedef enum {
-	UPDATE_CHANNEL_STABLE = 0,   /* production releases only */
-	UPDATE_CHANNEL_DEV    = 1,   /* includes prerelease/dev builds */
-	UPDATE_CHANNEL_COUNT,
-} update_channel_t;
-
-/* ========================================================================
  * Compile-time version (populated from versioninfo.h defines)
  * ======================================================================== */
 
@@ -55,8 +45,7 @@ typedef enum {
 /* Build the compile-time version struct */
 #define BUILD_VERSION_INIT { VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH }
 
-/* String form: "Major.Minor.Revision" (e.g., "0.0.4", "1.2.3").
- * Channel (stable/dev) is determined by GitHub prerelease flag, not version. */
+/* String form: "Major.Minor.Revision" (e.g., "0.0.4", "1.2.3"). */
 #define STRINGIFY_(x) #x
 #define STRINGIFY(x) STRINGIFY_(x)
 

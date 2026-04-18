@@ -30,6 +30,9 @@
  *     ScreenShakeIntensity = 1.000
  *     MenuMouseControl     = 1
  *
+ *     [Updates]
+ *     ShowDevReleases      = 0
+ *
  *     [Mods]
  *     Enabled = slug1,slug2,slug3
  *
@@ -60,6 +63,7 @@
 #include "pdgui_theme.h"
 #include "pdgui_font_mod.h"
 #include "audio.h"
+#include "updater.h"
 
 /* Forward declarations for C symbols that live in C++ TUs — mirrors
  * the pattern in savefile.c / main.c. */
@@ -120,6 +124,7 @@ static f32  s_BaseScreenShakeIntensity = 1.0f;
 static s32  s_BaseMenuMouseControl     = 1;
 static char s_BaseModPlaylist[PREFS_PLAYLIST_SIZE] = "";
 static s32  s_BaseModShuffle           = 1;
+static s32  s_BaseShowDevReleases      = 0;
 
 /* -----------------------------------------------------------------------
  * HUD centering — setting g_HudCenter also requires updating the render
@@ -329,6 +334,12 @@ static void applyKV(const char *section, const char *key, const char *val)
             return;
         }
     }
+    if (strcasecmp(section, "Updates") == 0) {
+        if (strcasecmp(key, "ShowDevReleases") == 0) {
+            updaterSetShowDevReleases((s32)atoi(val));
+            return;
+        }
+    }
     if (strcasecmp(section, "Mods") == 0) {
         if (strcasecmp(key, "Enabled") == 0) {
             /* First pass: disable everything.  Second pass: enable each
@@ -391,6 +402,7 @@ void prefsAgentInit(void)
     s_BaseMenuMouseControl     = g_MenuMouseControl;
     serializeModPlaylist(s_BaseModPlaylist, sizeof(s_BaseModPlaylist));
     s_BaseModShuffle           = audioGetModShuffle();
+    s_BaseShowDevReleases      = updaterGetShowDevReleases();
 
     sysLogPrintf(LOG_NOTE, "PREFS.AGENT: initialised (baselines captured)");
 }
@@ -527,6 +539,9 @@ void prefsAgentResetVisuals(void)
     g_ViShakeIntensityMult = s_BaseScreenShakeIntensity;
     g_MenuMouseControl     = s_BaseMenuMouseControl;
 
+    /* Restore updater prefs to pd.ini baseline. */
+    updaterSetShowDevReleases(s_BaseShowDevReleases);
+
     sysLogPrintf(LOG_NOTE, "PREFS.AGENT: prefs reset to defaults (Agent Select open)");
 }
 
@@ -599,6 +614,12 @@ void prefsAgentSave(void)
                     (int)g_BgunGeMuzzleFlashes,
                     (double)g_ViShakeIntensityMult,
                     (int)g_MenuMouseControl);
+
+    /* [Updates] -- per-agent updater preferences. */
+    off += snprintf(buf + off, sizeof(buf) - off,
+                    "[Updates]\n"
+                    "ShowDevReleases = %d\n\n",
+                    (int)updaterGetShowDevReleases());
 
     /* [Mods] */
     off += snprintf(buf + off, sizeof(buf) - off, "[Mods]\nEnabled = ");

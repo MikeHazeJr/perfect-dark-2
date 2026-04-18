@@ -5,7 +5,7 @@
  *   - Background update checking via GitHub Releases API
  *   - Download with SHA-256 verification
  *   - Rename-on-restart self-replacement
- *   - Release channel support (stable / dev)
+ *   - Optional visibility of prerelease/dev builds in the release list
  *   - Version picker for rollback/pinning
  *
  * The update system runs on background threads and never blocks the game loop.
@@ -94,7 +94,7 @@ typedef struct {
 
 /**
  * Initialize the update system. Call once at startup, after fsInit().
- * Sets up mutexes, reads channel preference from config.
+ * Sets up mutexes, reads the Show Dev Releases preference from config.
  */
 void updaterInit(void);
 
@@ -127,7 +127,8 @@ updater_status_t updaterGetStatus(void);
 
 /**
  * Get the number of available releases (valid after CHECK_DONE).
- * Filtered by current channel and tag prefix (client vs server).
+ * Filtered by current Show Dev Releases preference (stable only when off)
+ * and tag prefix (client vs server).
  */
 s32 updaterGetReleaseCount(void);
 
@@ -215,18 +216,20 @@ s32 updaterApplyPending(void);
 void updaterCleanupOld(void);
 
 /* ========================================================================
- * Channel management
+ * Prerelease visibility
  * ======================================================================== */
 
 /**
- * Get the current release channel.
+ * Whether prerelease/dev builds should appear in the release list.
+ * 0 = stable only (default), non-zero = stable + dev.
  */
-update_channel_t updaterGetChannel(void);
+s32 updaterGetShowDevReleases(void);
 
 /**
- * Set the release channel. Persisted to config on next save.
+ * Set the Show Dev Releases preference. Persisted to config on next save.
+ * Triggers a re-check so the list reflects the new filter immediately.
  */
-void updaterSetChannel(update_channel_t channel);
+void updaterSetShowDevReleases(s32 show);
 
 /* ========================================================================
  * Version info
@@ -238,8 +241,7 @@ void updaterSetChannel(update_channel_t channel);
 const pdversion_t *updaterGetCurrentVersion(void);
 
 /**
- * Get a human-readable version string for the current build.
- * Includes channel info, e.g., "1.2.3" or "1.2.3-dev.4".
+ * Get a human-readable version string for the current build ("Major.Minor.Revision").
  */
 const char *updaterGetVersionString(void);
 

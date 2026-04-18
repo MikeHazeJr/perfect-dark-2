@@ -289,13 +289,15 @@ static void drawTabUpdate(float panelW, float panelH)
         ImGui::Text("Server version: %s", curstr);
         ImGui::SameLine(0, 16);
 
-        update_channel_t channel = updaterGetChannel();
-        const char *channelLabels[] = { "Stable", "Dev / Test" };
-        ImGui::SetNextItemWidth(120);
-        int channelInt = (int)channel;
-        if (ImGui::Combo("Channel##srv_upd", &channelInt, channelLabels, 2)) {
-            updaterSetChannel((update_channel_t)channelInt);
+        bool showDev = updaterGetShowDevReleases() != 0;
+        if (ImGui::Checkbox("Show Dev Releases##srv_upd", &showDev)) {
+            updaterSetShowDevReleases(showDev ? 1 : 0);
             updaterCheckAsync();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "Off: only show stable releases\n"
+                "On: also show pre-release / dev builds");
         }
         ImGui::Separator();
 
