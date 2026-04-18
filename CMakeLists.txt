@@ -227,8 +227,10 @@ add_compile_options(
   -funsigned-char
   -fwrapv
   -fstack-protector-strong
-  -include "versioninfo.h"
 )
+# NOTE: versioninfo.h used to be force-included here via -include, which
+# invalidated every TU's ccache entry on every commit (VERSION_HASH changes).
+# Files that need VERSION_* macros must now #include "versioninfo.h" directly.
 
 # Common warning flags
 add_compile_options(
@@ -507,8 +509,6 @@ set_target_properties(pd PROPERTIES OUTPUT_NAME "${BIN_NAME}")
 # Precompiled header for the "core 4" game headers (C only -- C++ port files differ).
 # types.h, ultra64.h, data.h, constants.h are included by >50% of game TUs.
 # PCH saves parsing them ~350x per clean build (~5-8s on 24 cores).
-# Note: the -include "versioninfo.h" force-include coexists safely because
-# versioninfo.h is generated at configure time and has its own include guards.
 if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.16")
   target_precompile_headers(pd PRIVATE
     "$<$<COMPILE_LANGUAGE:C>:${CMAKE_SOURCE_DIR}/src/include/types.h>"

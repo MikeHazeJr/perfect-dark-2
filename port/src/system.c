@@ -15,6 +15,7 @@
 #include "config.h"
 #include "console.h"
 #include "system.h"
+#include "versioninfo.h"
 
 #ifdef PLATFORM_WIN32
 

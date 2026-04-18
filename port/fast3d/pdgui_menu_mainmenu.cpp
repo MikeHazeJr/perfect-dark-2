@@ -34,6 +34,7 @@
 #endif
 
 #include "imgui/imgui.h"
+#include "versioninfo.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
 #include "pdgui_glyphs.h"

@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "versioninfo.h"
 #include "game/title.h"
 #include "game/bondgun.h"
 #include "game/modelmgr.h"
