@@ -1,10 +1,10 @@
 # Modernization Roadmap
 
-> Last updated: 2026-04-17 (daily maintenance audit — S311 follow-up merged; covers S293–S313 marathon wave: Grid level editor, per-agent audio, pd.ini audit, UI polish marathon, modeldef defensive guards, glyph system)
+> Last updated: 2026-04-18 (daily maintenance audit — covers S293–S361 wave: Grid level editor, per-agent audio, pd.ini audit, UI polish marathon, modeldef defensive guards, glyph system, D7 Discord Rich Presence, Asset Provider Phases 1–4, D-MEM M2/M4/M5/M6, D5 Phase 4/5/5C/5D lobby portraits, Forge runtime wire-in, B-12 Phase 3 chrslots removal (protocol v37), B-161/B-163 crash-proofing finale, updater Mozilla CA bundle, dev-window-v2 async RunspacePool)
 
 ## Current State
 
-**Build**: v0.0.109 | **Protocol**: v36 | **Sessions**: 313+
+**Build**: v0.0.120 | **Protocol**: v37 | **Sessions**: 361+
 
 The project has crossed the threshold from "port with mods" to "platform with a modern engine shell." The core identity migration is complete, the input system is unified, the legacy menu system is dead, and 47 deep audit bugs have been fixed. What remains is feature completion toward v0.1.0.
 
@@ -29,7 +29,7 @@ v0.1.0 target: **Stable single-player + local multiplayer + mod support + online
 |------|--------|--------|
 | **D5 Phase 3 — Remaining menu screens** | L | 61/120 screens still need ImGui ports. Many are stubs/simple dialogs. |
 | **D5 Phase 4 — Theme System** | M | Auto-extract base-ui textures at runtime. Mod themes. Debug menu rebuild. |
-| **B-112 root cause** | M | Chr pointer corruption in 31-bot matches. S234 FIX-A MITIGATED (stack depth cap + generation tokens + hardened handler). Awaiting 31-bot repro test to confirm crash eliminated. |
+| **B-112 root cause** | M | Chr pointer corruption in 31-bot matches. S234 FIX-A MITIGATED (stack depth cap + generation tokens + hardened handler). **S357 investigation confirmed** no recursive AI, all array bounds correct, B-12 Phase 3 participant pool cleared. Awaiting 31-bot repro test to confirm FIX-A eliminates crashes in practice. |
 | **Build verification pass** | S | Clean build, all QC tests passing, no known crash bugs. |
 | **D13 — Update System parse diagnosis** | S | **DONE (S245 FIX-F)** — curlGet returns HTTP code; 403 rate-limit path + user message; fsFullPath fallback for empty installDir; 1MB min size check on extracted exe. B-99 closed. |
 
@@ -195,12 +195,4 @@ DONE ─── M0 (Catalog + Input) ─── M1 (Campaign) ─── M2 (Combat
 | D3R-1..11 | Component Mod Architecture (full) | S27-S80 |
 | D4 | Menu Migration (superseded by ImGui hotswap) | S22 |
 | D8 | NAT Traversal (STUN + hole punch) | S83 |
-| D9 | Dedicated Server | S47d |
-| MSP | Match Startup Pipeline (Phases A-F) | S84-S90 |
-| SA-1..7 | Session Catalog + Modular API | S91-S97 |
-| D-STAGE | Stage Decoupling (all 3 phases) | S47c |
-| Catalog Universality | Phases A-G, wire protocol v27-v32 | S119-S154 |
-| M0.1a-f | Catalog ID Migration (all asset types) | S167-S180 |
-| M0.2 | Input System Unification (action maps) | S181-S183 |
-| P10 D5.7 | OG Menu Removal (ImGui sole system) | S184 |
-| Deep Audit | 5C + 7H + 10M + 9L bug fixes | S185 |
+| D9 | Dedicated Server

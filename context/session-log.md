@@ -1,8 +1,78 @@
 
 # Session Log (Active)
 
-> **S281–S357** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S361** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S361 — 2026-04-18 (dev direct, commit `7d6ec8fb`) — Dev Window v2 Async Runspace Pool
+
+**Scope**: Convert blocking PowerShell/WPF operations in `devtools/dev-window-v2/dev-window-v2.ps1` to an async RunspacePool so the UI stays responsive during startup, status polling, git operations, and doc scans.
+
+**Changes**:
+- Three separate `Add-Type -Language CSharp` calls consolidated into a single block, guarded on the last class — avoids triple cold-compile (~2–4 s each) on startup.
+- Persistent `BgPool` RunspacePool added (1–3 threads, ReuseThread apartment). Opened once at startup, disposed on window close.
+- `Update-StatusBar` (fires every 2 s from `MainTimer`) now reuses `BgPool` instead of calling `[RunspaceFactory]::CreateRunspace` + `Open` on the UI thread (~100–500 ms per tick) — eliminates the ongoing periodic stutter.
+- `Populate-DocList` (scans `context/` + `docs/`, ~170 files recursive) now runs on `BgPool`; `Loaded` event no longer blocks the first paint.
+- New `Start-AsyncPoolAction` helper wraps `Invoke-GitPull` / `Invoke-GitPush` / `Invoke-PruneWorktrees` and the Check button so the UI stays live during `git` network ops and `bash devtools/git-snapshot.sh` runs.
+- `Toggle-Server` / `Toggle-Game` update button text + log line before spawning; `UseShellExecute=$false` skips Shell32 association lookup; errors now surface in a MessageBox instead of failing silently.
+
+**Files**: `devtools/dev-window-v2/dev-window-v2.ps1` (+489 / -? LOC).
+
+**Build**: No game code touched — dev-tool only. Release pipeline produced v0.0.120.
+
+---
+
+## Session S360 — 2026-04-17 (worktree `claude/blissful-curie-2387ee`, commits `23798916` → merge `3da8191c`) — Updater CA-Bundle SSL Fix
+
+**Scope**: Testers reported `SSL peer certificate or SSH remote key was not OK` on every update check. Root cause: MSYS2's statically-linked `libcurl.a` is built against OpenSSL **without** winstore integration (no `SSL_CTX_load_verify_store` symbol), so `CURLSSLOPT_NATIVE_CA` compiles but is a runtime no-op for this backend — and there is no external CA file shipped with the exe.
+
+**Fix**: Embed the Mozilla CA bundle as a `CURLOPT_CAINFO_BLOB`. Self-contained, zero-DLL compliant, independent of whatever cert store exists on the tester's machine. `CURLSSLOPT_NATIVE_CA` retained as a harmless secondary.
+
+- New `port/src/cacert.pem` (223,837 bytes, copied from mingw64 `ca-bundle.crt`).
+- `CMakeLists.txt` generates `${BINARY_DIR}/port/include/cacert_blob.h` via `file(READ ... HEX)` + `REGEX REPLACE` at configure time.
+- `updater.c`: new `curlSetupTLS()` helper replaces the two inline SSL blocks in `curlGet()` and the file-download path.
+
+**Files**: `CMakeLists.txt`, `port/src/cacert.pem` (new, +3,901 lines), `port/src/updater.c`.
+
+**Build**: Release pipeline produced v0.0.119.
+
+**Verify**: Launch updater on a machine with no user CA store — update check should succeed over HTTPS.
+
+---
+
+## Session S359 — 2026-04-17 (worktree `claude/determined-austin-d54582`, commit `5122a663`) — B-163 Secondary Crash Site Guards
+
+**Scope**: S317+S318 addressed the door-creation AV at PC+0x161258 during CI Training setup. Tester logs on build `acdf4062` (v0.0.118 pre-release) confirmed a **second** AV at PC+0x15f83a along the prop/chr-creation path during stage 0x26 — `setupCreateObject` had four unguarded `obj->model->scale` dereferences after `setupLoadModeldef` could return a torn modeldef that `objInit` gracefully resolved to `obj->model = NULL`.
+
+**Fixes** (mirror S317 FIX-B.2 pattern):
+- `src/game/setup.c::setupCreateObject` — early return with WARNING if `g_ModelStates[modelnum].modeldef == NULL` after `setupLoadModeldef`. Four downstream `obj->model->scale` derefs now safe.
+- `src/lib/model.c::modelAllocateRwData` — defensive NULL/rootnode guard. All callers inherit the crash-proofing.
+- `port/src/net/netmsg.c:2213` — guard `laptopDeploy` NULL return before dereferencing `obj` (torn modeldef path over the wire).
+- `src/game/body.c::bodyAllocateModel` (lines 238–276) — guard `headmodeldef` NULL in both the random-head path (`func0f18e57c` returning NULL slot) and specific-headnum path (`catalogGetHeadModeldef` returning NULL). Prevents `bodymodeldef->rwdatalen += headmodeldef->rwdatalen` AV.
+
+**Context update**: B-163 entry in `bugs.md` already captured this under the "S327 addendum (magical-zhukovsky)" label — verified the bug description matches `5122a663` exactly.
+
+**Build**: Clean 774/774. Release pipeline produced v0.0.118.
+
+**Verify**: Defection → Next Mission → CI Training (0x26). Any torn modeldef now produces `SETUP: object modelnum %d modeldef NULL after load` instead of an AV.
+
+---
+
+## Session S358 — 2026-04-17 (dev direct, commit `be0935da`) — B-161 Title/Intro Load NULL-Guards
+
+**Scope**: With `modeldefLoad` now rejecting torn modeldefs at load time (S323 root-cause fix), the title/intro screens needed matching NULL-handling so a rejected logo model could no longer AV on subsequent frames.
+
+**Fixes** (`src/game/title.c`, +215 / -69 LOC):
+- `titleInitNintendoLogo` / `titleInitRareLogo` / `titleInitPdLogo` — handle `modeldefLoad()` returning NULL (torn-load reject path). Cascade to next intro mode or SKIP on failure.
+- Exit/render paths guard against NULL `g_TitleModel*` so a failed intro model can no longer AV on subsequent frames.
+
+**Context update**: bugs.md B-161 entry amended to list title.c among the call-site guards. Completes the defensive sweep: `modeldefLoad` (root), `setupCreateDoor` / `setupCreateObject` / `modelAllocateRwData` / `body.c::bodyAllocateModel` / `netmsg.c::laptopDeploy` / `title.c::titleInit*Logo` — every AV path converts to a WARNING log line.
+
+**Build**: Release pipeline produced v0.0.117.
+
+**Verify**: Cold boot into title sequence on a system with a deliberately torn intro logo modeldef — no AV; log shows `TITLE: intro model load failed — skipping to next mode`.
+
+---
 
 ## Session S357 — 2026-04-17 (worktree `hopeful-payne-558fb2`) — B-112 Root Cause Investigation
 
@@ -2907,683 +2977,4 @@ Files touched:
 - `port/fast3d/pdgui_menu_moddinghub.cpp` — split `renderChromeTool` into sidebar/settings/footer; added `chromeToolRenderSidebarPreview` / `chromeToolRenderSettings` helpers.
 - `port/fast3d/pdgui_menu_room.cpp` — unified `RoomRow` iteration for team-grouped member list.
 
-**Build verify**: `source devtools/build-env.sh && ninja -C Build pd pd-server` — 750/750 targets; `PerfectDark.exe` 51,455,767 bytes, `PerfectDarkServer.exe` 22,818,090 bytes.  Only pre-existing `'/*' within comment` and `f32 near/far` macro-name warnings; no new ones.
-
-### Not done in this session (deferred, matching the user's "start with Chrome tool, then audit others")
-
-Other menus with action buttons that still need the child → child → footer restructure for identical robustness (current `SetCursorPosY` / `SameLine(w-…)` dock tricks work in practice but break under overflow):
-- Room screen `Start Match` / `Save as Scenario` / `Add Bot` — currently inline below a scrolling child; fine on 1080p+ but should migrate when the overall room layout is touched.
-- Theme Editor `Apply` / `Save` / `Close` — same pattern as Chrome tool's old layout; straightforward follow-up.
-- Bot Setup modal `OK` / `Cancel` — already docked correctly.
-- Training menu action buttons — already use `ImGui::Button(..., ImVec2(-1, btnH))` at bottom of a scrolling region; OK for now.
-
-Also deferred — hooking `pdguiThemeGetContentInset` through to the menus.  The API is available and wired into the config; each menu that draws custom content inside its dialog body still needs to opt in.  The Chrome tool's sidebar/settings children are already clipped by ImGui's child window, so they naturally avoid the border even without an explicit content-inset call.
-
-**Next**: playtest verification of all three improvements on the user's build.
-
----
-
-
-## Session S296 — 2026-04-16 (Menu-close bugs from 019d97ef playtest — vigilant-robinson worktree)
-
-**Scope**: Two bugs reported by Mike after the S295 collision + menu-desync drops landed, captured in `019d97ef-pdclient.log`:
-
-1. **Bug 1 — stuck WASD after main menu close.** "Back out of menu, apply input with WASD, pressed input does not unpress; re-opening and closing the menu resets it. Applies to all WAS or D."
-2. **Bug 2 — double / darkened main menu on rapid Esc reopen.** "Closing main menu and reopening with Esc (also with controller I think) seems to either open two copies overlaid or the new one has a darker background. Leaning towards two copies."
-
-**Log evidence**:
-- Log shows 7 open/close cycles in the main menu between 10:03 and 10:36. First close at 10:03.25 logged `lvIsPaused=0 g_PlayersWithControl[0]=1` (correctly unpaused pre-close). All subsequent closes logged `lvIsPaused=1 g_PlayersWithControl[0]=0` (paused at close-time — expected once the menu actually pauses the game). After the second rapid close (10:04.77), `AXIS_MOVE=0.000,1.000` was observed at 10:08.06 and held through 10:14.06 — the stuck-forward trace Mike described.
-- No `MENU: ACTION_PAUSE detected` lines in the log, which suggests the opens aren't reaching `bondmove.c:1064` via the standard `START_BUTTON` edge path, but the ImGui close handler *did* fire (7 `CLOSE via ESC/B` lines). That's consistent with the close-handler pattern being reliable; the bug is post-close.
-
-**Root causes identified**:
-
-- **B-152 (stuck WASD)**: `actionmapPollFrame()` WASD→AXIS_MOVE synthesis block (port/src/actionmap.cpp:890-910) only writes `s_State[0][ACTION_AXIS_MOVE_X/Y].value` while at least one WASD key is held. When no controller is enumerated on player 0, the controller-poll branch at line 803 is skipped — so nothing else resets `.value` each frame. On keyboard-only setups, press sets `.value=1.0`; release short-circuits the synthesis (`mx=my=0`) and leaves `.value` pegged. Next poll frame reads stale `.value=1.0`, computes `analogStickActive=true`, skips synthesis — lock-in. The menu-open branch at line 860 zeros AXIS_MOVE (which is why "reopen fixes it"), but that's a workaround, not a fix.
-- **B-153 (double menu)**: `menuPushDialog()` auto-opens every `dialogdef->nextsibling` at the same layer (`menu.c:1553-1576`). `g_CiMenuViaPauseMenuDialog`'s nextsibling is `g_CiOptionsViaPauseMenuDialog` — so pushing the main menu also pre-loads the CI Options sibling. `menuRenderDialogs` renders the "other" sibling alongside curdialog whenever `type != 0 || transitionfrac >= 0` (menu.c:3817); both dialogdefs hit `pdguiHotswapCheck` and queue their renderers (`renderMainMenu` + `renderCiSettingsRedirect`). The redirect renderer calls `pdguiPopupDarkenBehind(0.55f)` — when both fire in the same frame, the scrim compounds with the main menu frame and produces Mike's "darker background / two copies overlaid" visual. Normal state is `transitionfrac=-1` → sibling skipped, but under rapid close+reopen the transition state can land in the visible window.
-
-**Fixes shipped**:
-
-1. **B-152** (`port/src/actionmap.cpp`): added `p0CtrlDroveAxis` flag set only when the controller actually wrote AXIS_MOVE this frame. `analogStickActive` now gated on that flag + non-zero value, so a stale `.value` from a previous WASD synthesis can no longer suppress synthesis. Synthesis block now assigns `mx/my` unconditionally when `!analogStickActive` (including zero) — release clears the axis. Also sets `.held` from the computed `(mx != 0) / (my != 0)` instead of hardcoding `1`.
-2. **B-153** (`src/game/menu.c`, `src/include/game/menu.h`, `port/fast3d/pdgui_menu_mainmenu.cpp`): added `s32 menuDialogIsCurrent(const struct menudialog *dialog)` helper that scans `g_Menus[i].curdialog` across player slots. `renderMainMenu` and `renderCiSettingsRedirect` call it at the top and early-return `1` (consumed) when invoked for a sibling preload. In the ImGui-hotswap world there is no user-visible swipe between main menu and CiOptions, so this guard has no legitimate-path cost.
-
-**Build verify**: `ninja -C Build pd pd-server` — 750/750 targets; `PerfectDark.exe` 51,440,272 bytes, `PerfectDarkServer.exe` 22,818,602 bytes. Only pre-existing `'/*' within comment` warnings; no new ones.
-
-**Not done in this session**:
-- Did not re-investigate the S295 F1–F7 menu-desync fixes; they remain shipped as-is. The new fixes here are orthogonal (input-axis state, sibling render gating) and do not touch the input-context stack logic.
-- The B-153 fix is narrow — it guards the two renderers currently bound to shared dialogdefs. If future renderers are attached to `.nextsibling` chains, they'll need the same guard.
-
-**Next**: playtest pass to confirm B-152 on keyboard-only, B-153 on rapid Esc reopen from CI free-roam; tail `pd.log` for any `INPUTCTX watchdog:` warnings (still none expected from S295 F3).
-
----
-
-## Session S295 — 2026-04-16 (Collision + spawning ecosystem fixes)
-
-**Scope**: Implement the five fixes identified in `context/scratch/collision-spawning-investigation-2026-04-16.md`. No architectural migration work (mesh-ceiling wiring, per-prop mesh extraction); those stay scheduled as dedicated milestones.
-
-**Code changes** (committed worktree: `priceless-wozniak`):
-
-1. **Slope jump (B-145)** — `src/game/bondwalk.c`
-   - Relaxed the grounded heuristic from `(groundgap < 10.0f && bdeltapos.y < 2.0f)` to `(groundgap < 20.0f && bdeltapos.y < 6.0f)`. The 6.0f ceiling stays below `FIXED_JUMP_IMPULSE = 8.2f` so a mid-jump player still reads as airborne.
-
-2. **Pickup WALKTHROUGH (B-146)** — `src/game/propobj.c`, `src/include/props.h`
-   - `weaponCreateForChr` initializer (propobj.c:19010): `flags3 = OBJFLAG3_WALKTHROUGH`.
-   - `weapon()` and `ammocrate()` macros in `props.h`: OR `OBJFLAG3_WALKTHROUGH` into the caller's `flags3` so every setup-file pickup inherits it. Covers all setup*.c, scenarios, and `weaponCreateForChr` callers.
-
-3. **Ceiling clip (B-147)** — `src/game/bondwalk.c`
-   - Pre-move ceiling probe is now radius-aware: samples `cdFindCeilingRoomYColourFlagsAtPos` at center + 4 points at ±radius in X and Z and takes the min. This is the minimal fix from the investigation; the architectural mesh-ceiling migration stays scheduled.
-
-4. **Carrington table (B-148)** — `src/game/propobj.c`, `src/include/constants.h`
-   - Added `OBJH2FLAG_AUTOFLOOR = 0x20` to `obj->hidden2`.
-   - Tightened the auto-floor eligibility test in `objInit`: an existing `MODELPART_BASIC_0065` no longer unconditionally suppresses the auto-floor. The floor part must cover ≥ 50% of the bbox XZ extent; otherwise the full-bbox auto-floor is still emitted and flagged.
-   - `func0f069b4c` now updates the auto-floor vertices whenever `OBJH2FLAG_AUTOFLOOR` is set (previously keyed on `MODELPART_0065 == NULL`, which missed the new "0065 exists but non-covering" case).
-
-5. **Spawn ecosystem (B-149)** — `src/game/spawnpool.c`, `src/include/game/spawnpool.h`
-   - Ray set expanded from 14 → 18 rays: added 4 lower diagonals to catch overhangs below the candidate. `SPAWNPOOL_BUDGET_THRESHOLD` unchanged — the extra rays are safety nets, not harder gates.
-   - Downward rays (Y-component < −0.1) no longer trigger the capsule-radius reject (a close hit below = ground exists, not a trap). The `!isDownward` gate covers both the original -Y cardinal ray and the 4 new lower diagonals.
-   - `spawnPoolValidateCandidate` step 2 now rejects the `-100000` ground sentinel explicitly (`ground_y <= -99000.0f`).
-   - Step 3 (vertical clearance) switched from `CDTYPE_BG` to `CDTYPE_ALL` so props are seen — previously a spawn landing on top of a dropped weapon could validate clean.
-   - New `l4ValidateSafety()` helper (room valid + `bgTestPosInRoom` + ground sentinel + ground ≤ 500u below). Applied at both the per-dilation "all candidates passed" accept AND the last-resort highest-budget accept, so L4 never commits a point into no-room / below-sentinel even when no ring fully passes.
-
-**Cross-issue interaction**: B-146 (pickups walkthrough) + B-149 (CDTYPE_ALL in spawn validation) compound — spawning on top of a dropped rifle is now blocked from two directions (the rifle isn't a floor, AND the vertical-clearance check catches it if some future bug re-introduces the collision).
-
-**Build verify**: `source devtools/build-env.sh && ninja -C Build pd pd-server` — both `PerfectDark.exe` (51407282 bytes) and `PerfectDarkServer.exe` (22815986 bytes) linked clean. 750/750 targets.
-
-**Not done in this session** (explicit out-of-scope, still queued):
-- Issue 1-B (architectural): wire `meshFindCeiling` / `meshSweepCapsuleWorld` into `bondwalk.c`; fix `classifyTriFlags` to emit a real `GEOFLAG_CEILING`.
-- Issue 2-B: per-prop mesh extraction into the world grid.
-- Issue 5: same-tick reservation bitset, pool orientation (reuse of 8-direction wall-probe for pool spawns), neighbor-room ground check.
-
-**Next session**: playtest B-145/146/147/148/149 across Skedar Ruins (slopes), Carrington Institute (tables), Dark Combat (pickups), tight arenas (spawn validity).
-
----
-## Session S295 (menu track) — 2026-04-16 (Menu dead-input desync fixes — 7 items from the menu-system investigation)
-
-**Scope**: implement every fix listed in §7 of `context/scratch/menu-system-investigation-2026-04-16.md`. Target bug class: B-150 (formerly tracked as B-145 during investigation — renumbered after B-145..B-149 were claimed by the S295 collision drop; "menu up but player moves" / "no menu but player frozen").
-
-**Branch**: `claude/relaxed-ride` (worktree).
-
-**Fixes shipped**:
-- **F1 — Remove `g_PdguiActive` mirror boolean** (`port/fast3d/pdgui_backend.cpp`). The mirror duplicated `inputCtxIsActive(&g_CtxDebugOverlay)` and could drift. All reads replaced with the input-context query; all writers and the declaration deleted. F12 toggle and `pdguiToggle()` now derive state from the context stack alone.
-- **F2 — Delete dead `pdguiGameOverRender` body** (`port/fast3d/pdgui_menu_pausemenu.cpp`). The stub's `#if 0` block (~250 lines) contained a stray `inputCtxPush(&g_CtxImGuiMenu)` that distorted push/pop audits. Stub retained (still called from `pdgui_backend.cpp:569`); body removed.
-- **F3 — `inputCtxEndFrame` watchdog** (`port/src/inputctx.c`). Rate-limited warning (1 log/sec) when depth ≥ `INPUTCTX_WATCHDOG_DEEP_THRESHOLD` (5) or bottom ≠ gameplay. Force-reset (pop everything, re-seed with gameplay) at depth ≥ `INPUTCTX_MAX_STACK − 1` — catches unbounded-leak pathology before stack overflow.
-- **F4 — Begin()=false leak guard on 9 renderers** (`pdgui_menu_{agentselect,botsetup,cheats,mpadvanced,mppause,mpsettings,mpsetup,playerconfig,room,training}.cpp`). Each renderer whose `if (!ImGui::Begin(...)) { ... return; }` branch could skip the pop now releases the owned context on cull. Uses the per-renderer ownership flag so repeated transient culls don't double-pop.
-- **F5 — MpEndscreen one-shot push** (`pdgui_menu_endscreen.cpp`). Replaced the aggressive per-frame `inputCtxPush` pattern (which trapped the player in a resurrected context after any force-close pop) with a fresh-entry detector: track `s_MpEndscreenLastFrame = ImGui::GetFrameCount()`; push only when the frame number jumps by >1 (first render of a new instance). Preserves the original "first-frame miss" fix that motivated the aggressive version.
-- **F6 — Force-close contract comment** (`port/include/inputctx.h`). Documented next to `inputCtxPopDeferred`: allowed force-close sites (`pdgui_bridge.c`, `matchsetup.c`, `netmsg.c`, stage-change reset in `main.c`), required `inputCtxIsActive` guard, and rules for adding new ones.
-- **F7 — Remove dead `s_MainMenuPushedCtx`** (`pdgui_menu_mainmenu.cpp`). The main menu's close path had already moved to unconditional `inputCtxIsActive` + pop (the documented "safer pattern"). The bool writers were dead state; declaration + all writers deleted. Explanatory comments reference S295 F7.
-
-**Build verify**: `source devtools/build-env.sh && ninja -C Build pd pd-server` — both `PerfectDark.exe` and `PerfectDarkServer.exe` linked cleanly (pre-existing warnings only, no new ones).
-
-**Tracking**: `bugs.md` entry **B-150** (renumbered from the investigation's B-145) covering all 7 items. Playtest verification tasks added.
-
-**Next**: in-game playtest focusing on (a) F12 debug overlay toggle cycles, (b) main menu open/close from CI free-roam, (c) MP endscreen → Return-to-Lobby / Quit-to-Menu paths, (d) alt-tab / focus-lost boundary. Watch pd.log for `INPUTCTX watchdog:` warnings — any occurrence identifies a remaining leak site.
-
----
-
-## Session S295 (match-pipeline track) — 2026-04-16 (Match-pipeline fixes from 2026-04-16 investigation — festive-saha worktree)
-
-**Scope**: implement the HIGH/MEDIUM findings from `context/scratch/match-pipeline-investigation-2026-04-16.md`.
-
-**Code changes**:
-- `src/game/menutick.c` — GAP-1 / SP-13: Deep Sea co-op next-mission branch now calls `manifestClear(&g_ClientManifest)` before `mainChangeToStage()` (pattern-match to F-0.4 / L1-1 / netDisconnect / Bug A). Added `#include "net/netmanifest.h"`. Bug entry **B-151** in `bugs.md` (renumbered from the investigation's B-145 after B-145..B-150 were claimed by the collision + menu-desync drops).
-- `port/fast3d/pdgui_menu_challenges.cpp` — C-1: list-driven screen now grabs window focus on `IsWindowAppearing()`, and the auto-selected row calls `SetItemDefaultFocus()` once via a one-shot `s_FocusPending` flag. Controller-only user can now navigate the challenge list from first frame.
-- `port/fast3d/pdgui_menu_endscreen.cpp` — Bug C: instrumentation only (per report's "do not structural-change without log evidence" directive). `Begin=false` early-return at line ~755 logs `sf / menuW / menuH / disp`; `contentH` clamp at line ~829 logs `sf / menuH / padY / raw / min`. Next MP-endscreen repro should narrow the six hypotheses.
-- `port/fast3d/pdgui_menu_mpsettings.cpp` — C-6 (handicap): `SetWindowFocus()` on appear after Begin. Select Tunes + Team Names were already covered by `pdms_BeginStandardWindow` helper — no change needed there.
-- `port/fast3d/pdgui_menu_controldiagram.cpp` — C-4: `SetWindowFocus()` on appear in `beginPdWindow()`.
-- `port/fast3d/pdgui_menu_cheats.cpp` — C-5: `SetWindowFocus()` on appear on both `##cheats_warning` and `##cheats_unlock_confirm`.
-- `port/fast3d/pdgui_menu_teamsetup.cpp` — C-3: `SetWindowFocus()` on appear in `##team_setup` (also covers `##auto_team` which reuses the same render).
-- `port/fast3d/pdgui_menu_moddinghub.cpp` — C-8: `SetWindowFocus()` on appear on `##modhub`.
-- `port/fast3d/pdgui_menu_playerconfig.cpp` — C-7: verified the three load sub-dialogs already inherit focus via `pc_BeginStandardWindow` (no change needed; investigation report line numbers were out of date).
-- `port/fast3d/pdgui_menu_pausemenu.cpp` — GAP-3: online End-Game confirm now calls `mainEndStage()` for both NETMODE_CLIENT and offline paths so the player sees endscreen rankings/awards before disconnecting. Endscreen's Disconnect button drives network teardown.
-- `port/fast3d/pdgui_menu_solomission.cpp` — Gap 8: documented (not unified) the solo vs MP pause input-context asymmetry. Added a block comment to `renderPauseMenu` explaining why solo pushes `g_CtxImGuiMenu` (MENUROOT_MAINMENU legacy path) while MP pushes `g_CtxPauseMenu`, and flagged the planned unification as Phase 2 menu-pool work.
-- `port/src/net/netmsg.c` — GAP-4 / SP-14: `netmsgSvcStageEndRead` now resets `g_NetMatchRoomId = 0xFF` (symmetric with server-side reset at `net.c:876`). GAP-10: `netmsgSvcMatchCancelledRead` now calls `pdguiCountdownReset()` after the existing `memset`, matching the B-139 pattern.
-- `port/src/server_stubs.c` — added `void pdguiCountdownReset(void)` server-side no-op stub so `pd-server` links without the UI symbol.
-
-**Why**: the investigation was a four-agent deep audit of the match pipeline (entry → in-match → exit). The HIGH findings — missing manifestClear on Deep Sea co-op advance, Challenges menu unreachable by controller, MP endscreen invisible-body Bug C — were all either latent crashes or controller-dead-ends that block the v0.1.0 release pass. The MEDIUM batch (SetWindowFocus sweep, asymmetry fixes, defensive hygiene resets) ship together because they share the same change pattern and review surface.
-
-**Build-verified**: `ninja -C Build pd pd-server` — both binaries link clean. `menutick.c.obj`, `pdgui_menu_*.cpp.obj`, and `netmsg.c.obj` all recompiled.
-
-**Next**:
-- Playtest pass to verify B-151 (Deep Sea co-op advance, no crash) and C-1 (Challenges list navigable from controller first frame).
-- Repro MP endscreen invisible-body with new `ENDSCREEN:` log lines to distinguish the six hypotheses.
-- Gap 8 unification is scheduled for Phase 2 (menu-pool ADR).
-
----
-
-## Session S293 — 2026-04-16 (Nine-Slice Chrome redesign + mods/ category subfolder scanning)
-
-**Scope**:
-- Act on Mike's directive: Nine-Slice Chrome Save-as-Mod should emit a normalized output image with a uniform border concept applied, not the raw import.
-- Organize `mods/` into category subfolders (`UI Chrome/`, `Weapons/`, `MP Maps/`, etc.) without breaking existing flat-layout mods.
-- Land P0/P1 audit fixes from `scratch/audit-s255-s292-2026-04-16.md` for the Nine-Slice Chrome tool (C-1, C-2, C-4, C-5, S-7, S-9, S-10, S-11).
-
-**Code changes shipped in working tree**:
-- `port/fast3d/pdgui_menu_moddinghub.cpp` (Nine-Slice Chrome tool):
-  - Added `CHROME_MAX_IMG_DIM` / `CHROME_MAX_OUT_DIM` (4096 each) and enforced on both import and preview paths. (C-1, C-2)
-  - `chromeToolWriteTga` now uses `size_t` for its pixel counter and rejects dims >65535 up front. (C-1)
-  - Added `chromeToolJsonEscape()` helper; `chromeToolSaveMod` now writes an escaped display name so quotes/backslashes in mod names no longer corrupt mod.json. (C-4)
-  - `chromeToolUpdatePreviewTexture` computes new output dims into locals and commits `s_ChromeOutW/H` only after the allocation succeeds — prior code advanced dims before realloc, so a failed grow left dims ahead of the buffer. On realloc failure the function now surfaces a status message instead of silently returning. (C-5, S-7)
-  - Switched preview GL upload to `glTexSubImage2D` on same-size ticks; only a dim change triggers the full `glTexImage2D` reallocation. Tracks `s_ChromePreviewTexW/H`. (S-10)
-  - Retired `s_ChromeTex` (full-res source upload). Preview texture is always populated by the load path, and VRAM fallback paths now use `s_ChromePreviewTex` directly. (S-11)
-  - Cross-clamped Trim sliders: each slider's max = opposite-side value − 1, so L+R and T+B can never collapse the crop. (S-9)
-  - Added **Border Scale** slider (0.25x–4.0x) multiplying `dst_corner_px` relative to `src_inset` in both the live preview (`chromeToolBuildDef`) and saved `mod.json`.
-  - Added **Proportional Insets** toggle (default on). When on, inset sliders operate on `0–50%` of the current output dims; pixel values are resolved inside `chromeToolUpdatePreviewTexture` and at save time, so Scale X/Y changes keep the visual border proportion stable. A read-only line under the sliders shows the resolved pixel values. When off, the tool behaves as before (pixel sliders).
-  - Save path now creates `mods/UI Chrome/<slug>/` instead of `mods/<slug>/`. `mod.json` body records a new `"chrome_authoring"` block (`output_w/h`, `border_scale`, `proportional_insets`, `inset_pct`) alongside the existing `src_inset`/`dst_corner_px` so round-tripping retains authoring intent.
-  - `renderChromeTool` gate now checks `s_ChromePreviewTex` (not the retired `s_ChromeTex`) to avoid a no-image-visible false path.
-- `port/src/modmgr.c` (mod scanner):
-  - Extracted per-entry registration into `modmgrTryRegisterModEntry()` and added `modmgrScanCategoryFolder()` (depth-1 recursion).
-  - Primary-root pass: if an entry has no `mod.json`/`audio.ini`, the scanner descends one level and treats the entry as a category folder. Existing flat mods under `mods/` (base-ui, pd-modern-ui, bot-names) continue to register as before.
-  - Alt-root pass adopts the same pattern with dedup-by-id retained.
-- `port/fast3d/pdgui_theme.cpp`:
-  - `s_scanModChromeStyles` is now a thin wrapper around new `s_scanChromeStylesInDir()` helper which tries each top-level entry as a chrome mod; if registration fails, it recurses one level. This makes `mods/UI Chrome/<slug>/mod.json` visible to Settings → Video → UI Chrome Style without additional plumbing.
-- `port/fast3d/pdgui_theme_loader.cpp`:
-  - Added `dir_has_theme_or_mod()` and `scan_themes_in_root()` with the same depth-1 category-folder pattern. Theme mods in `mods/UI Themes/<slug>/` (future) will be discovered automatically.
-
-**Why** (Mike's directive + audit):
-- The old Save-as-Mod path wrote pixel-absolute insets that were tied to whatever resolution the user happened to import — leading to chromes that looked right on the author's screen but oversized or tiny on another resolution. The new pipeline still writes the processed preview buffer (which is Mike's "uniformed scale already applied"), but adds: a Border Scale multiplier so on-screen corner thickness is decoupled from the source slice location, and Proportional Insets so the inset-pair tracks Scale X/Y instead of drifting with resolution.
-- The audit flagged multiple safety issues in the chrome tool (integer overflow, unbounded input dims, JSON injection via mod name, realloc dim/buffer mismatch, missing trim cross-clamp, per-tick GL realloc, redundant full-res VRAM). All fixed in this drop.
-- The mods-folder organization makes the tree self-documenting and supports Mike's intended layout (`Weapons/`, `MP Maps/`, `UI Chrome/`, …) without a breaking migration — flat mods remain valid.
-
-**Scanner recursion bounds**:
-- Category-folder recursion is capped at exactly one level below each root. This matches how bundled mods live (`mods/<mod>/`) while admitting category containers (`mods/<category>/<mod>/`). Deeper nesting is intentionally not supported to avoid runaway walks on arbitrary user layouts.
-
-**Verification**:
-- `source devtools/build-env.sh && ninja -C Build pd pd-server` — clean link of `pd` (5/5 steps, `[5/5] Linking CXX executable PerfectDark.exe`). `pd-server` up-to-date (does not compile client-side mod scanner or theme files). Warnings were all pre-existing (`/*` within comment headers).
-- No code-path tests of the mods/ category scanner in this session — covered during next playtest.
-
-**Design decisions Mike should review**:
-- **Normalized output is "preview buffer as written today"** — the processed buffer from `chromeToolUpdatePreviewTexture` already has trim+cut+scale+desat baked in. I did NOT introduce an explicit "target size" combo (256/512/1024). If we want that, it's a ≤30-line addition in `chromeToolSaveMod` (resample preview → target before TGA write). Let me know if you want it.
-- **Proportional Insets is on by default.** This changes the default save contract: mods created after this drop will have `"chrome_authoring"` metadata and a percentage-based inset model. Existing chrome mods keep working — the scanner only reads `src_inset`/`dst_corner_px`.
-- **Border Scale defaults to 1.0** (identical to prior behavior). No existing mod is visually altered.
-- **Chrome mods now save under `mods/UI Chrome/`**. Pre-existing user-created chrome mods under `mods/<slug>/` remain scanned and work unchanged.
-
-**Follow-ups not done this session** (deferred, documented in tasks-current):
-- `matchConfigAddBot` hardcoded-human-count (audit C-6).
-- S-2 middle-click bridge vs Skin Editor canvas pan.
-- S-3 `s_PdmsOwnsMenuCtx` shared flag across MP settings dialogs.
-- S-4 Close-button hover clip.
-- S-5 Skin Editor downrez preview realloc.
-- S-6 Chrome style rescan GL texture leak.
-- S-11 (mods-apply) missing chrome style rescan in `modmgrApplyChanges` — **fixed in S294**.
-
----
-
-## Session S294 — 2026-04-16 (Mechanical audit sweep: bot cap callsites, input-ctx ownership, GL cache lifetimes, Dev Window v2 fixes)
-
-**Scope**:
-- Sweep mechanical fixes from `context/scratch/audit-s255-s292-2026-04-16.md`.
-  Parallel session (bold-boyd) owns Nine-Slice Chrome & mods folder —
-  this session must NOT touch `pdgui_menu_moddinghub.cpp`.
-
-**Code changes shipped in working tree**:
-- `port/src/net/matchsetup.c` + `port/include/net/matchsetup.h`
-  (**C-6 / S-15**):
-  - New `matchConfigCountHumans()` helper (counts `SLOT_PLAYER`, min 1).
-  - `matchConfigAddBot()` now calls `matchConfigMaxBotsForHumans(matchConfigCountHumans())`
-    instead of the hardcoded `matchConfigMaxBotsForHumans(1)`.
-  - `matchConfigChooseBotTeam()` promoted to public, now takes `numTeams`
-    parameter (2..MAX_TEAMS), supports full 8-team range.
-- `port/src/net/netmsg.c` (**C-6 / S-12 / S-13**):
-  - `SVC_ROOM_SETTINGS` client rebuild uses `matchConfigCountHumans()`
-    for the cap.
-  - Switched bot team assignment from positional `(i-1) & 1` to
-    `matchConfigChooseBotTeam(2)` — matches host strategy.
-  - Now zeros slot entries beyond the new `numSlots`, preventing
-    stale bot rows on bot-count decrease.
-- `port/fast3d/pdgui_backend.cpp` (**S-2**):
-  - Middle-click back bridge now suppresses mouse-back when a middle
-    drag is active (fixes Skin Editor middle-drag pan conflict).
-- `port/fast3d/pdgui_style.cpp` (**S-4**):
-  - Close-button hover detection clipped to window via
-    `IsMouseHoveringRect(..., true)` and gated on `IsWindowFocused`.
-- `port/fast3d/pdgui_menu_mpsettings.cpp` (**S-3**):
-  - Removed shared `s_PdmsOwnsMenuCtx`; each dialog (SelectTunes,
-    Soundtrack, TeamNames, Handicap) owns its own `ownsCtx` bool.
-    `pdms_BeginStandardWindow` / `pdms_CloseCurrentDialog` now take
-    `bool *ownsCtx` (nullptr allowed for dialogs that never push ctx).
-- `port/fast3d/pdgui_skin_editor.cpp` (**S-5**):
-  - `s_DownrezPreview` now tracks `s_DownrezPreviewW`/`H` and reallocs
-    when the target dimensions change — prevents stale buffer reuse
-    after character/quantization switch.
-- `port/fast3d/pdgui_theme.cpp` (**S-6**):
-  - New `s_chromeStylesFreeModTextures()` deletes mod-owned GL
-    textures from `s_ThemeTexCache` before `s_chromeStylesClear()`;
-    skips `"base:ui_chrome_frame"` (owned by `pdguiThemeLateInit`).
-    Called from `pdguiThemeRescanChromeStyles()`.
-- `port/src/modmgr.c` (**S-8**):
-  - `modmgrApplyChanges()` now calls `pdguiThemeRescanChromeStyles()`
-    after `pdguiThemeRescanMods()` (previously only theme.json was
-    rescanned, leaving nineslice chrome stale).
-- `devtools/dev-window-v2/dev-window-v2.ps1` (Dev Window v2):
-  - `Sync-UserMachinePath`: append Machine PATH instead of prepending
-    (fixes PATH pollution that overrode worktree tools).
-  - Git push failure now logs a warning and continues the build
-    instead of MessageBox-and-fail.
-  - Release invocation switched from `-File` to `-Command` + added
-    `-NonInteractive` (prevents interactive prompts blocking CI-style
-    release builds).
-  - Release build path passes `forceClean=$true` to `Get-BuildSteps`
-    (release must be clean, not incremental).
-
-**Context updates**:
-- `context/constraints.md` — new canonical-usage constraint:
-  `matchConfigMaxBotsForHumans(humanCount)` is single-source-of-truth
-  for bot cap; all callers must pass actual human count (never hardcode 1).
-- `context/bugs.md` — **B-144** entry documenting the
-  `matchConfigAddBot(1)` / `SVC_ROOM_SETTINGS(1)` hardcoding.
-- `context/systemic-bugs.md` — **SP-15** (GL texture size + cache
-  lifetime) documenting the S-5/S-6/S-8 pattern.
-
-**Ground rules honored**:
-- Did NOT touch `pdgui_menu_moddinghub.cpp` (bold-boyd session scope).
-- Working in angry-dijkstra worktree (main working copy), commits
-  target `dev` branch, no push.
-
-**Why**:
-- Audit surfaced a class of "hardcoded value where a helper exists"
-  bugs (C-6), three input-ctx ownership bugs (S-2/S-3), three GL/buffer
-  lifetime bugs (S-4/S-5/S-6/S-8), and two multiplayer-protocol
-  coherence bugs (S-12/S-13/S-15). All mechanical — pattern is clear,
-  fix is low-risk, touches well-scoped functions.
-
-**Verification**:
-- `ninja -C Build pd pd-server` — see commit for status.
-- Runtime verification pending (playtest dashboard).
-
----
-
-## Session S292 — 2026-04-16 (Room max-bot/team defaults hardening for Chicago bot-match regression)
-
-**Scope**:
-- Address report of Chicago max-bot match showing all entries on one team (`T1`), clustered spawns, and non-lethal/no-engagement behavior.
-
-**Code changes shipped in working tree**:
-- `port/src/net/matchsetup.c`:
-  - Added `matchConfigMaxBotsForHumans()` and reused it as the canonical cap helper (`min(MATCH_MAX_SLOTS-humans, MAX_BOTS)`).
-  - Added internal bot-count guard so `matchConfigAddBot()` cannot create more runtime bots than `MAX_BOTS`.
-  - Added balanced default bot team assignment when `MPOPTION_TEAMSENABLED` is active (auto-balance between team 0/1 instead of forcing all new bots to team 0).
-- `port/include/net/matchsetup.h`:
-  - Exported `matchConfigMaxBotsForHumans()` for UI/save/network callers.
-- `port/fast3d/pdgui_menu_room.cpp`:
-  - Room panel max-bot calculation now uses `matchConfigMaxBotsForHumans(humanCount)`.
-  - Combat start request now clamps `numBots` against that cap before send.
-- `port/src/scenario_save.c`:
-  - Scenario load bot cap now uses the same canonical helper (prevents over-limit bot restoration paths).
-- `port/src/net/netmsg.c`:
-  - `SVC_ROOM_SETTINGS` bot rebuild now clamps with the canonical helper and assigns alternating default team values when teams are enabled (keeps client shadow config coherent before full per-bot sync).
-
-**Why**:
-- Prior code mixed participant-slot limits (`MATCH_MAX_SLOTS`) with runtime bot limits (`MAX_BOTS`) and defaulted newly-added bots to a single team in team mode, which can create "all one team" matches that appear non-combative.
-
-**Verification**:
-- Build/runtime verification pending in this session (code-only pass complete).
-
-## Session S291 — 2026-04-15 (Select Tunes custom-song visibility + playlist add path hardening)
-
-**Scope**:
-- Investigate report that custom songs were missing from Match Soundtrack -> Select Tunes and could not be added to the playlist.
-
-**Code changes shipped in working tree**:
-- `port/src/modmgr.c`:
-  - In `modmgrRebuildCatalogFromCurrentSelection()`, reset all `mod->loaded` flags before re-registering enabled mods.
-  - Prevents in-place Mod Apply catalog rebuilds from skipping `audio.ini` re-registration after `assetCatalogClearMods()` removed non-bundled entries.
-- `port/src/assetcatalog_scanner.c`:
-  - Added `parseAudioCategoryValue()` for component INI audio parsing.
-  - `ASSET_AUDIO` category now accepts numeric (`0/1/2`) and text (`music`, `sfx`, `voice`, common aliases), matching `audio.ini` behavior.
-
-**Why**:
-- Two separate paths can feed Select Tunes:
-  - `audio.ini` package mods (via modmgr load/reload), and
-  - component-scanned audio assets (via `_components/audio/*.ini`).
-- Before this fix:
-  - Mod Apply rebuild could clear catalog audio entries then skip re-registering enabled package mods due stale loaded flags.
-  - Component INIs with textual categories defaulted to SFX, so they were filtered out of Mod Tracks.
-- Both conditions produce "song mods missing / cannot add" behavior in the soundtrack flow.
-
-**Verification**:
-- `devtools/build-headless.ps1 -Target all` still exits early at configure in this shell (existing script/runtime issue in this environment).
-- Compile verification passed via project toolchain path:
-  - `. .\devtools\_build-env-prelude.ps1`
-  - `cmake -G Ninja -S . -B Build -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++`
-  - `ninja -C Build pd pd-server`
-  - Result: both `PerfectDark.exe` and `PerfectDarkServer.exe` linked clean.
-
-## Session S290 — 2026-04-16 (Nine-Slice Chrome transforms + docked actions + Back parity)
-
-**Scope**:
-- Extend the Nine-Slice Chrome tool with image transformation controls requested for in-client authoring and tighten close/back UX parity.
-
-**Code changes shipped in working tree**:
-- `port/fast3d/pdgui_menu_moddinghub.cpp`:
-  - Added edit pipeline controls for imported chrome image:
-    - edge trim sliders (`Trim Left/Right/Top/Bottom`),
-    - non-uniform scaling sliders (`Scale X`, `Scale Y`),
-    - center-strip removal controls (`Center Cut Axis`, `Center Cut %`) that remove from image center and stitch remaining parts together.
-  - Reworked preview processing:
-    - `chromeToolUpdatePreviewTexture()` now applies trim + center-cut + scale + optional desaturation and produces transformed output buffer/texture dimensions.
-    - save path now writes transformed output dimensions/pixels to `ui_chrome_frame.tga` (not just source image dimensions).
-  - Nine-slice inset slider bounds/clamps now operate on transformed output dimensions (`s_ChromeOutW/s_ChromeOutH`) so ruler math stays valid after transforms.
-  - Docked action row (`Save as Mod`, `Reset`) to bottom of the tool panel.
-  - Added shared hub close helper `moddingHubCloseFromUi(...)` and made Back input (`Escape` / gamepad Back) call the same close path as footer `Close` button for parity.
-
-**Why**:
-- Full in-client mod creation requires non-destructive image shaping tools before save; users need to trim/reshape source art and crop from center for square-ready chrome assets.
-- Docked actions and unified Back/Close behavior reduce navigation ambiguity and align interaction model across windows.
-
-**Verification**:
-- Build verification passed:
-  - `. .\devtools\_build-env-prelude.ps1`
-  - `ninja -C Build pd pd-server`
-  - Result: `PerfectDark.exe` and `PerfectDarkServer.exe` linked clean.
-
-## Session S289 — 2026-04-16 (Nine-Slice Chrome: assembled frame preview + desaturation workflow)
-
-**Scope**:
-- Extend the new in-client Nine-Slice Chrome tool with:
-  - assembled frame preview (actual nine-slice render),
-  - desaturation option for tint/theme-friendly outputs.
-
-**Code changes shipped in working tree**:
-- `port/fast3d/pdgui_menu_moddinghub.cpp`:
-  - Added `pdgui_nineslice.h` integration and runtime preview helpers:
-    - `chromeToolBuildDef(...)` to construct `nineslice_def_t` from current ruler/mode settings.
-    - frame preview pane now renders assembled frame via `pdguiNinesliceDrawEx(...)`.
-  - Added desaturation controls/state:
-    - `Desaturate for tint-friendly chrome` checkbox,
-    - `Desaturate %` slider.
-  - Added processed preview texture path:
-    - `chromeToolUpdatePreviewTexture()` builds/uploads desaturated (or original) preview texture,
-    - source preview now reflects desaturation settings live.
-  - Save path now writes processed preview pixels to `ui_chrome_frame.tga`, so exported mod texture matches the chosen desaturation settings.
-  - Updated save status text to indicate when output is desaturated.
-  - Added cleanup for processed preview texture/buffer in tool reset/release paths.
-
-**Why**:
-- Ruler overlays alone are not enough to validate how corners/edges/center behave when assembled.
-- Desaturation is needed so theme/tint passes can recolor chrome assets more predictably.
-
-**Verification**:
-- Build verification passed:
-  - `. .\devtools\_build-env-prelude.ps1`
-  - `ninja -C Build pd pd-server`
-  - Result: `PerfectDark.exe` and `PerfectDarkServer.exe` linked clean.
-
-## Session S288 — 2026-04-16 (Nine-Slice Chrome creator added to Modding Hub)
-
-**Scope**:
-- Add an in-client tool so players can create UI chrome nine-slice mods directly in-game (import image, set rulers, save/activate mod).
-
-**Code changes shipped in working tree**:
-- `port/fast3d/pdgui_menu_moddinghub.cpp`:
-  - Added new tab/tool: **Nine-Slice Chrome** (tab index 7).
-  - Added tool state + lifecycle (`chromeToolReset`, texture/pixel ownership cleanup, status messaging).
-  - Added image import support using the shared file browser and `stb_image` decode:
-    - `Browse` + `Load` for `.png/.jpg/.bmp/.tga`.
-  - Added live preview with ruler overlays:
-    - visual guide lines for `Left/Right/Top/Bottom` slice positions over imported image.
-  - Added ruler controls:
-    - `Left`, `Right`, `Top`, `Bottom` sliders,
-    - `L/R symmetry` and `T/B symmetry` toggles.
-  - Added nineslice mode controls:
-    - `Center tile mode`,
-    - `Edge tile mode` (applies to top/bottom/left/right).
-  - Added `Save as Mod` flow:
-    - writes `mods/<slug>/ui_chrome_frame.tga`,
-    - writes `mods/<slug>/mod.json` with `tags:["chrome"]` and `components.textures + components.nineslice`,
-    - immediately registers + activates via `pdguiThemeRegisterChromeModDir(modDir, 1)` so style appears/applies without restart.
-  - Wired tab selector/nav/content/footer descriptions for 8 tools total.
-  - Hooked hub close to chrome tool reset/cleanup.
-
-**Why**:
-- Project requirement is fully in-client mod creation. This provides a first-class in-game authoring path for UI chrome nineslice mods instead of requiring external file editing.
-
-**Verification**:
-- Build verification passed (client + server):
-  - `. .\devtools\_build-env-prelude.ps1`
-  - `ninja -C Build pd pd-server`
-  - Result: `PerfectDark.exe` and `PerfectDarkServer.exe` linked clean.
-
-## Session S287 — 2026-04-15 (Release/build outage hardening: force-commit fallback + missing Build dir creation)
-
-**Scope**:
-- Address outage-recovery friction:
-  1) release/build sync failing on pre-pull commit hook rejection,
-  2) build flows failing when `Build/` was deleted.
-
-**Code changes shipped in working tree**:
-- `devtools/release.ps1`:
-  - Added switch `-ForceCommitNoVerify`.
-  - Added helper `Invoke-ReleaseCommit(...)`:
-    - normal `git commit` first,
-    - optional fallback retry with `git commit --no-verify` when `-ForceCommitNoVerify` is set.
-  - Wired helper into all release auto-commit paths:
-    - pre-release (`-SkipBuild` path),
-    - pre-build path,
-    - Step 4 pre-`pull --rebase` auto-commit.
-  - Added explicit creation of missing build directory before configure/build.
-- `devtools/dev-window-v2/dev-window-v2.ps1`:
-  - `Invoke-GitSyncBeforeBuild(...)` now retries failed commit with `--no-verify` before aborting.
-  - Added explicit `Ensure build dir` step in build queue before configure.
-- `devtools/build-headless.ps1`:
-  - Added explicit missing build-directory creation before configure/build phases.
-
-**Why**:
-- Power outage / interrupted sessions can leave repo state where hooks block auto-commit, and users may clear `Build/`. These changes keep the solo-dev pipeline resilient and recoverable without manual repair.
-
-**Verification**:
-- PowerShell parse checks passed for modified scripts:
-  - `devtools/release.ps1`
-  - `devtools/dev-window-v2/dev-window-v2.ps1`
-  - `devtools/build-headless.ps1`
-
-## Session S286 — 2026-04-15 (Mod Apply completion tint parity with updater success prompt)
-
-**Scope**:
-- Align Mod Apply completion visuals with the updater's success-state treatment.
-
-**Code changes shipped in working tree**:
-- `port/fast3d/pdgui_menu_modmgr.cpp`:
-  - Added success-state window background tint for the `Applying Changes` window when apply reaches completion state (`s_ApplyFlowState >= 3`):
-    - `ImGuiCol_WindowBg = ImVec4(0.08f, 0.25f, 0.08f, 0.95f)`
-  - Kept in-progress state neutral (no tint) so active work and completion are visually distinct.
-
-**Why**:
-- Improves consistency with updater UX while preserving clear phase signaling (working vs complete).
-
-**Verification**:
-- Build verification passed:
-  - `. .\devtools\_build-env-prelude.ps1`
-  - `ninja -C Build pd pd-server`
-  - Result: `PerfectDark.exe` and `PerfectDarkServer.exe` linked clean.
-
-## Session S285 — 2026-04-15 (Mod Apply popup visual parity with updater download window)
-
-**Scope**:
-- Make Mod Manager Apply UX match the existing updater download popup style.
-
-**Code changes shipped in working tree**:
-- `port/fast3d/pdgui_menu_modmgr.cpp`:
-  - Replaced `BeginPopupModal("Applying Changes")` flow with a centered updater-style window (`ImGui::Begin("Applying Changes", ...)`) using:
-    - fixed centered positioning and fixed size (`600x240` scaled),
-    - no resize/move/collapse/saved-settings flags,
-    - wide progress bar (`ImVec2(-1, 24)`),
-    - centered acknowledgment button (`OK` / `OK & Close`) on completion.
-  - Kept existing apply state machine behavior (paint first frame, run synchronous apply next frame, then completion state).
-
-**Why**:
-- User-requested UX consistency: Apply should present the same style pattern as the update download window while catalog rebuild/diff/apply runs.
-
-**Verification**:
-- Build verification passed:
-  - `. .\devtools\_build-env-prelude.ps1`
-  - `ninja -C Build pd pd-server`
-  - Result: `PerfectDark.exe` and `PerfectDarkServer.exe` linked clean.
-
-## Session S284 — 2026-04-15 (Mod Apply: in-place modal apply, no forced title restart)
-
-**Scope**:
-- Remove the forced stage transition from Mod Manager Apply and keep the user in the current menu flow while catalog rebuild/diff/apply runs.
-
-**Code changes shipped in working tree**:
-- `port/src/modmgr.c`:
-  - `modmgrApplyChanges()` now performs in-place apply only:
-    - save component state/config,
-    - rebuild catalog from current selection,
-    - invalidate catalog-backed caches,
-    - reset texture cache,
-    - rescan themes,
-    - clear dirty state.
-  - Removed the forced teardown/transition behavior from apply:
-    - no `menuStop()`,
-    - no `pdguiMainMenuReset()`,
-    - no `mainChangeToStage(MODMGR_STAGE_TITLE)`.
-  - Updated apply-complete logging to explicitly note no stage restart.
-- `port/fast3d/pdgui_menu_modmgr.cpp`:
-  - Added in-UI apply flow modal state machine:
-    - opens `Applying Changes` modal,
-    - runs synchronous `modmgrApplyChanges()` while modal is active,
-    - shows completion message (`Catalog changes are live. No restart required.`),
-    - supports `Apply` and `Apply & Close` paths.
-  - Refactored selection commit into helper (`applyPendingSelectionToCatalog()`).
-  - Updated empty-state copy to remove restart guidance.
-- `port/include/modmgr.h`:
-  - Updated `modmgrApplyChanges()` comment to document in-place apply semantics.
-
-**Why**:
-- Returning to title on every Apply is unnecessary for this architecture and creates avoidable UX churn/risk. In-place apply keeps users in context and aligns with hot-reload behavior already used elsewhere.
-
-**Verification**:
-- Build verification passed (client + server):
-  - `. .\devtools\_build-env-prelude.ps1`
-  - `ninja -C Build pd pd-server`
-  - Result: `PerfectDark.exe` and `PerfectDarkServer.exe` linked clean.
-
-## Session S283 — 2026-04-15 (UI Chrome Style: mod-discovered picker + persisted style ID)
-
-**Scope**:
-- Extend Settings -> Video -> UI Chrome Style from fixed Procedural/Classic toggle to a picker that includes discovered chrome mods and restores the exact chosen chrome style on restart.
-
-**Code changes shipped in working tree**:
-- `port/include/pdgui_theme.h`:
-  - Added UI chrome style APIs for persisted style id and runtime style enumeration:
-    - `pdguiThemeSetUiChromeStyleId` / `pdguiThemeGetUiChromeStyleId`
-    - `pdguiThemeGetChromeStyleCount` / `pdguiThemeGetChromeStyleId` / `pdguiThemeGetChromeStyleName`
-- `port/fast3d/pdgui_theme.cpp`:
-  - Added `Video.UiChromeStyleId` config registration/backing storage (default `base:ui_chrome_frame`).
-  - Added chrome style registry cache and manifest parser for `mod.json` entries using the extracted schema:
-    - `components.textures[]` (`id`, `file`)
-    - `components.nineslice[]` (`id`, `src_inset`, `dst_corner_px`, `*_mode`)
-  - Added mod scan over common mods roots and dynamic registration:
-    - load texture via existing `s_registerModTexture(...)`
-    - register nineslice via `pdguiNinesliceRegister(...)`
-    - expose style in runtime picker list
-  - Startup chrome apply now:
-    - resolves persisted `Video.UiChromeStyleId`,
-    - falls back to `base:ui_chrome_frame` if style is unavailable,
-    - applies the resolved style when chrome is enabled.
-- `port/fast3d/pdgui_menu_mainmenu.cpp`:
-  - Replaced static two-option UI Chrome combo with dynamic options:
-    - `Procedural` + discovered style names from theme API.
-  - Selection now persists both:
-    - `Video.UiChromeEnabled` (existing),
-    - `Video.UiChromeStyleId` (new),
-    and still calls `configSave("pd.ini")` immediately on change.
-- `port/include/pdgui_theme.h` + `port/fast3d/pdgui_theme.cpp`:
-  - Added runtime chrome registration hooks for importer/save flows:
-    - `pdguiThemeRegisterChromeModDir(mod_dir, activate_now)` to hot-register a newly written chrome mod directory and optionally auto-activate/persist it immediately.
-    - `pdguiThemeRescanChromeStyles()` to rebuild chrome style list from disk after bulk import operations.
-- `port/fast3d/pdgui_menu_moddinghub.cpp`:
-  - Mod Pack import success path now calls `pdguiThemeRescanChromeStyles()` so newly imported chrome mods appear in Settings -> Video style picker without restart.
-
-**Why**:
-- The previous picker could only target hardcoded `base:ui_chrome_frame`, which blocked users from selecting custom chrome mods created from the same manifest template format.
-
-**Verification**:
-- Build verification passed (client + server):
-  - `. .\devtools\_build-env-prelude.ps1`
-  - `ninja -C Build pd pd-server`
-  - Result: `PerfectDark.exe` and `PerfectDarkServer.exe` linked clean.
-
-## Session S282 — 2026-04-15 (UI Chrome Style: immediate persistence on change)
-
-**Scope**:
-- Ensure Settings -> Video -> UI Chrome Style saves immediately when changed, so toggling Procedural/Classic persists across restart without relying on later config writes.
-
-**Code changes shipped in working tree**:
-- `port/fast3d/pdgui_menu_mainmenu.cpp`:
-  - In `renderSettingsVideo()`, the `UI Chrome Style` combo change handler now calls `configSave("pd.ini")` immediately after applying `pdguiThemeSetUiChromeEnabled(...)` and the chrome runtime toggle.
-
-**Context note**:
-- Verified the external default template at `Downloads/Perfect Dark 2.0/data/mods/base-game/ui-chrome/mod.json` still uses embedded `components.nineslice` entries (`src_inset`/`dst_corner_px`) and no separate nineslice JSON file.
-
-**Verification**:
-- Build verification passed:
-  - `. .\devtools\_build-env-prelude.ps1`
-  - `ninja -C Build pd pd-server`
-  - Result: `PerfectDark.exe` and `PerfectDarkServer.exe` linked clean.
-
-## Session S281 — 2026-04-15 (Skin Editor preview: avoid drawing non-ready black texture)
-
-**Scope**:
-- Address Skin Editor report of pitch-black preview panel while character preview is still loading/not ready.
-
-**Code changes shipped in working tree**:
-- `port/fast3d/pdgui_skin_editor.cpp`:
-  - `renderPreviewPanel()` now requires both:
-    - non-zero texture id, and
-    - `pdguiCharPreviewIsReady() == true`
-    before drawing the preview image.
-  - When not ready, panel now shows explicit rendering status + selected body/head IDs instead of drawing a black texture.
-
-**Why**:
-- The previous path drew whenever texture id was non-zero, even if charpreview readiness had not been established yet, which could present as a black panel.
-
-**Verification**:
-- Build verification passed:
-  - `. .\devtools\_build-env-prelude.ps1`
-  - `ninja -C Build pd`
-  - Result: `PerfectDark.exe` linked clean.
-
-
-## Session S353 — 2026-04-17 (Prop Sync Event-Driven + Killfeed Bot Kills, `quizzical-murdock-95eb09`)
-
-**Scope**:
-- Task 1: Replace prop CRC polling (`SVC_PROP_SYNC` / `netPropSyncChecksum`) with snapshot-based dirty detection
-- Task 2: Ensure killfeed shows bot kills to all in-game clients (not just local host)
-
-**Code changes**:
-
-### Task 1 — Prop Sync Event-Driven (`port/src/net/netmsg.c`, `net.c`, `netmsg.h`)
-
-**Removed**:
-- `g_NetPropDesyncCount`, `g_NetPropResyncLastReq` globals
-- `netPropSyncChecksum()` — O(N) XOR-rotate CRC function
-- `netmsgSvcPropSyncWrite()` — server no longer sends CRC packet
-- CRC comparison logic from `netmsgSvcPropSyncRead` (now just consumes bytes for backward compat)
-
-**Added** (`netmsg.c`):
-- `PropStateSnap` struct with 128-entry static array `s_PropSnaps[]`
-- `netPropSnapReset()` — clears snapshot at stage start (called from net.c at both MP and co-op stage start)
-- `netPropSnapUpdate(prop)` — records `{syncid, hidden, damage}` snapshot when a prop event message is sent (move/damage/door/lift write paths)
-- `netPropDirtyCheck()` — scans active sync-relevant props, compares vs snapshot; returns 1 if any diverged and updates snapshot. Logs divergences at LOG_NOTE.
-
-**Changed** (`net.c`):
-- Server tick: replaced `netmsgSvcPropSyncWrite(&g_NetMsgRel)` every 120 frames with `netPropDirtyCheck()` → sets `NET_RESYNC_FLAG_PROPS` if dirty. Guard added: only runs when `g_Vars.mplayerisrunning`.
-
-**Protocol**: No change to wire format or version. `SVC_PROP_SYNC` (0x37) read handler still consumes 10 bytes so old servers remain compatible.
-
-### Task 2 — Killfeed Bot Kills (`netdistrib.c`, `netmsg.c`, `mpstats.c`)
-
-**Root cause**: `mpstatsRecordDeath` only called `pdguiKillfeedPush` locally. `netDistribSendKillFeed` was never called from this path, so networked clients never received kill events.
-
-**Fix 1** (`netdistrib.c` — `netDistribSendKillFeed`):
-- Extended recipient set from `CLSTATE_LOBBY` only → also `CLSTATE_GAME`. In-game clients now receive `SVC_LOBBY_KILL_FEED` (0x74).
-
-**Fix 2** (`netmsg.c` — `netmsgSvcLobbyKillFeedRead`):
-- Added `pdguiKillfeedPush` call (inside `#if !defined(PD_SERVER)`) to render the kill notification locally on clients. Team looked up from `g_MpAllChrConfigPtrs[]` by name match. Suicide detected via empty attacker string or attacker == victim.
-
-**Fix 3** (`mpstats.c` — `mpstatsRecordDeath`):
-- Suicide path: added `netDistribSendKillFeed("", vmpchr->name, "", 0)` (empty attacker = suicide signal)
-- Normal kill path: added `netDistribSendKillFeed(ampchr->name, vmpchr->name, "", 0)`
-- Both use `extern` pattern (matching existing score-sync pattern in same file). Guard: `g_NetMode == NETMODE_SERVER`.
-
-**Verification**:
-- Build: 774/774 objects clean, zero errors. `PerfectDark.exe` + `PerfectDarkServer.exe` both linked.
+**Build verify**: `source devtools/build-env.sh && ninja -C Build pd pd-server` — 750/750 targets; `PerfectDark.exe` 51,455,767 bytes, `PerfectDarkServer.exe` 22,818,090 bytes.  Only pre-existing `'/*' withi
