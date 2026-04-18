@@ -373,8 +373,10 @@ function Invoke-BuildStep {
 # ============================================================================
 # Smart clean-build detection
 # Heuristics: force clean when (a) CMakeCache.txt missing, (b) generator
-# changed, (c) compiler version changed, (d) branch changed, (e) -Clean flag.
+# changed, (c) compiler version changed, (d) -Clean flag.
 # State is persisted in Build/.last_build_state.json.
+# NOTE: branch changes intentionally do NOT trigger a clean — same compiler/
+# generator on a different branch is an incremental build, not a full wipe.
 # ============================================================================
 
 function Get-CurrentBranch {
@@ -428,13 +430,6 @@ function Test-NeedsCleanBuild {
     # (c) Compiler changed
     if ($state.compiler -ne $CC) {
         Write-Info "  [smart-clean] Compiler changed ($($state.compiler) -> $CC) -- forcing clean"
-        return $true
-    }
-
-    # (d) Branch changed
-    $currentBranch = Get-CurrentBranch
-    if ($currentBranch -and $state.branch -and $currentBranch -ne $state.branch) {
-        Write-Info "  [smart-clean] Branch changed ($($state.branch) -> $currentBranch) -- forcing clean"
         return $true
     }
 
