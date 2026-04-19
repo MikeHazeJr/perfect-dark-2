@@ -1,10 +1,10 @@
 
 # Session Log (Active)
 
-> **S281–S386** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S388** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
-## Session S386 — 2026-04-19 (worktree `claude/elegant-lamarr-7dbd97`) — Menu Stack Compliance Tier 1 batch: M-5, M-6 (destructive-action confirm modals)
+## Session S388 — 2026-04-19 (worktree `claude/elegant-lamarr-7dbd97`) — Menu Stack Compliance Tier 1 batch: M-5, M-6 (destructive-action confirm modals)
 
 **Scope**: Add missing `BeginPopupModal` confirms for three destructive actions identified in `context/designs/menu-stack-architecture.md` §8 Tier 1. All three use the canonical S385 pattern — `pdguiPopupDarkenBehind(0.65f)` scrim, 5-frame `SetKeyboardFocusHere(0)` force-focus on Cancel, 3-frame input debounce, red-styled confirm button, keyboard shortcuts (Enter/Space/A confirm; Esc/B cancel).
 
