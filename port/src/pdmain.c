@@ -712,7 +712,7 @@ void mainTick(void)
 				const struct room *pr = (g_Rooms && camRoom >= 0 && camRoom < g_Vars.roomcount)
 					? &g_Rooms[camRoom] : NULL;
 				sysLogPrintf(LOG_NOTE,
-					"LV.DIAG: first-render stage=0x%02x roomcount=%d player_prop=%p player_room=%d camera_room=%d pos=(%.0f,%.0f,%.0f) frame=%d bg_primary=%p cam_loaded240=%d cam_flags=0x%04x cam_gfxdata=%p load_cands=%d",
+					"LV.DIAG: first-render stage=0x%02x roomcount=%d player_prop=%p player_room=%d camera_room=%d pos=(%.0f,%.0f,%.0f) frame=%d bg_primary=%p cam_loaded240=%d cam_flags=0x%04x cam_gfxdata=%p load_cands=%d cam_pos=(%.0f,%.0f,%.0f) tickmode=%d",
 					(u32)g_StageNum,
 					g_Vars.roomcount,
 					(void *)pprop,
@@ -724,7 +724,11 @@ void mainTick(void)
 					pr ? (int)pr->loaded240 : -1,
 					pr ? (unsigned)pr->flags : 0,
 					(void *)(pr ? pr->gfxdata : NULL),
-					g_BgNumRoomLoadCandidates);
+					g_BgNumRoomLoadCandidates,
+					(double)g_Vars.currentplayer->cam_pos.x,
+					(double)g_Vars.currentplayer->cam_pos.y,
+					(double)g_Vars.currentplayer->cam_pos.z,
+					(int)g_Vars.tickmode);
 				/* Arm the settled snapshot — fires once ~0.5s later. */
 				s_B193FirstRenderDiagPending = 2;  /* 2 = waiting for frame 30 */
 				s_B193SettledFrameTarget = g_Vars.lvframe60 + 30;
@@ -786,7 +790,7 @@ void mainTick(void)
 					}
 				}
 				sysLogPrintf(LOG_NOTE,
-					"LV.DIAG: settled stage=0x%02x roomcount=%d player_room=%d camera_room=%d pos=(%.0f,%.0f,%.0f) frame=%d bg_primary=%p cam_loaded240=%d cam_flags=0x%04x cam_gfxdata=%p load_cands=%d loaded=%d onscreen=%d drawslots=%d onscreen_list=[%s] bg_commands=%p portals0_vtx=%u tests_disabled=%d force_onscreen=%d cam_pos=(%.0f,%.0f,%.0f)",
+					"LV.DIAG: settled stage=0x%02x roomcount=%d player_room=%d camera_room=%d pos=(%.0f,%.0f,%.0f) frame=%d bg_primary=%p cam_loaded240=%d cam_flags=0x%04x cam_gfxdata=%p load_cands=%d loaded=%d onscreen=%d drawslots=%d onscreen_list=[%s] bg_commands=%p portals0_vtx=%u tests_disabled=%d force_onscreen=%d cam_pos=(%.0f,%.0f,%.0f) tickmode=%d",
 					(u32)g_StageNum,
 					g_Vars.roomcount,
 					firstRoom,
@@ -808,7 +812,8 @@ void mainTick(void)
 					g_BgNumForceOnscreenRooms,
 					(double)g_Vars.currentplayer->cam_pos.x,
 					(double)g_Vars.currentplayer->cam_pos.y,
-					(double)g_Vars.currentplayer->cam_pos.z);
+					(double)g_Vars.currentplayer->cam_pos.z,
+					(int)g_Vars.tickmode);
 				s_B193FirstRenderDiagPending = 0;
 			}
 
