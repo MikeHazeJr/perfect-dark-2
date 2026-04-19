@@ -432,7 +432,7 @@ static void catalogValidateOne(s32 index)
 	/* Quick pre-check: if the file doesn't exist in ROM data, mark it
 	 * MISSING immediately. This avoids the overhead of VEH setup/teardown
 	 * and mempAlloc for every non-existent model file. The deeper fix in
-	 * fileLoadToNew also returns NULL for missing files, but catching it
+	 * fileLoadRomToNew also returns NULL for missing files, but catching it
 	 * here produces a cleaner log and skips unnecessary work entirely. */
 	if (romdataFileGetData(hb->filenum) == NULL) {
 		ce->status = MODELSTATUS_MISSING;

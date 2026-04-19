@@ -190,7 +190,7 @@ struct modeldef *modeldefLoad(u16 fileid, u8 *dst, s32 size, struct texpool *arg
 	g_LoadType = LOADTYPE_MODEL;
 
 	if (dst) {
-		modeldef = fileLoadToAddr(fileid, FILELOADMETHOD_EXTRAMEM, dst, size);
+		modeldef = assetLoadRomToAddr(fileid, FILELOADMETHOD_EXTRAMEM, dst, size);
 	} else {
 		modeldef = assetLoadRomToNew((s32)fileid, FILELOADMETHOD_EXTRAMEM, LOADTYPE_MODEL);
 	}

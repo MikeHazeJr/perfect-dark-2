@@ -11,10 +11,10 @@
  *   - FileProvider: opaque[0] = interned-path offset; wraps `fsFileLoad`.
  *   - (Future) ArchiveProvider: opaque = (archive_id, entry_index).
  *
- * Phase 1 (this header) introduces the types and singletons but does NOT
- * change any existing load behaviour — `fileLoadToNew(filenum,...)` delegates
- * to `assetLoadToNew(romProviderHandle(filenum),...)` which in turn delegates
- * to the same game-layer impl as before.
+ * Phase 1 (this header) introduces the types and singletons. Phase 3
+ * (2026-04-19) finished the call-site migration: game code calls
+ * `assetLoadRomToNew` / `assetLoadRomToAddr` (in assetload.h) directly.
+ * The legacy `fileLoadToNew` / `fileLoadToAddr` wrappers are gone.
  *
  * Design doc: context/designs/direct-file-access-design-2026-04-17.md
  */
@@ -92,7 +92,7 @@ typedef struct asset_provider_s {
  *
  * romProviderHandle() / romProviderFilenum() — INTERNAL to the catalog/provider
  * layer.  Declared in assetprovider_internal.h.  Game code must not call these;
- * use fileLoadToNew() or assetLoadRomToNew() instead. */
+ * use assetLoadRomToNew() / assetLoadRomToAddr() instead. */
 const asset_provider_t *romProvider(void);
 
 /* FileProvider — serves bytes from a loose file on disk via `fsFileLoad`.

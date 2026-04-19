@@ -1,22 +1,25 @@
 /**
  * assetload.c -- Provider-aware asset load dispatcher.
  *
- * `assetLoad` / `assetLoadToNew` / `assetUnload` / `assetDescribe` look up the
- * provider vtable on the handle and forward to the right impl.
+ * `assetLoad` / `assetLoadToNew` / `assetLoadToAddr` / `assetUnload` /
+ * `assetDescribe` look up the provider vtable on the handle and forward to
+ * the right impl.
  *
- * For RomProvider, `assetLoadToNew` delegates to `fileLoadRomToNew` which
- * owns the legacy ROM load pipeline (mempAlloc MEMPOOL_STAGE, rzipInflate,
- * romdataFilePreprocess). That function is exported by `src/game/file.c`
- * specifically so the provider dispatcher can reach it without introducing
- * a circular dependency with `fileLoadToNew` (which itself is now a wrapper
- * around `assetLoadToNew`).
+ * For RomProvider, `assetLoadToNew` and `assetLoadToAddr` delegate to
+ * `fileLoadRomToNew` / `fileLoadRomToAddr` (in `src/game/file.c`) which own
+ * the legacy ROM load pipeline (mempAlloc MEMPOOL_STAGE for the New variant,
+ * rzipInflate, romdataFilePreprocess, g_FileInfo[] tracking). Those workers
+ * are exported specifically so the dispatcher can reach them without
+ * recursing back through any public wrapper. Phase 3 (2026-04-19) deleted
+ * the previous public wrappers `fileLoadToNew` / `fileLoadToAddr` — game
+ * code now calls `assetLoadRomToNew` / `assetLoadRomToAddr` directly.
  *
  * For FileProvider, the dispatcher allocates a MEMPOOL_STAGE buffer sized
  * by `resolve_size` and asks the provider to fill it via its `load` fn.
  * Any file preprocessing (rzip inflate, endian swap, etc.) is not applied
- * because FileProvider assets are currently not exercised through this
- * path in Phase 1 — Phase 2 mods continue to load through the legacy
- * `romdataFileLoad` pipeline that does its own preprocessing.
+ * because FileProvider assets are not exercised through this path yet —
+ * Phase 2 mods continue to load through the legacy `romdataFileLoad`
+ * pipeline that does its own preprocessing.
  *
  * Design doc: context/designs/direct-file-access-design-2026-04-17.md
  */
@@ -126,4 +129,46 @@ const char *assetDescribe(asset_data_handle_t handle, char *buf, s32 buf_size)
 void *assetLoadRomToNew(s32 filenum, u32 method, u32 loadtype)
 {
     return assetLoadToNew(romProviderHandle(filenum), method, loadtype);
+}
+
+/* ========================================================================
+ * Caller-allocated-buffer dispatcher
+ * ======================================================================== */
+
+void *assetLoadToAddr(asset_data_handle_t handle, u32 method, void *buf, u32 size)
+{
+    if (assetHandleIsNull(handle) || !buf || size == 0) {
+        return NULL;
+    }
+
+    /* Fast path: RomProvider handles run through the legacy
+     * `fileLoad` pipeline (rzip inflate + romdataFilePreprocess +
+     * g_FileInfo[] tracking). Delegate verbatim so behaviour matches the
+     * pre-AP `fileLoadToAddr` path byte-for-byte. */
+    if (handle.provider == romProvider()) {
+        s32 filenum = romProviderFilenum(handle);
+        if (filenum < 0) {
+            return NULL;
+        }
+        return fileLoadRomToAddr(filenum, method, (u8 *)buf, size);
+    }
+
+    /* Generic path (unused in Phase 3 — no FileProvider game-code callers
+     * yet). Asks the provider to fill the buffer directly without inflate
+     * or preprocess. Providers needing those steps must wrap this call. */
+    s32 n = handle.provider->load
+        ? handle.provider->load(handle.provider, handle, buf, (s32)size)
+        : -1;
+    if (n <= 0) {
+        sysLogPrintf(LOG_WARNING, "assetLoadToAddr: %s load returned %d (size=%u)",
+            handle.provider->name ? handle.provider->name : "?", n, size);
+        return NULL;
+    }
+    (void)method;
+    return buf;
+}
+
+void *assetLoadRomToAddr(s32 filenum, u32 method, void *buf, u32 size)
+{
+    return assetLoadToAddr(romProviderHandle(filenum), method, buf, size);
 }

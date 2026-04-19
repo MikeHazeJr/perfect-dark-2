@@ -1,10 +1,18 @@
 /**
  * assetload.h -- Provider-aware asset load dispatcher.
  *
- * Entry points the catalog (and the legacy `fileLoadToNew` wrapper) use to
- * load asset bytes through the provider abstraction. The dispatcher reads
- * the provider vtable on the handle and forwards to the right impl —
- * callers never care which provider serves the bytes.
+ * Entry points game code uses to load asset bytes through the provider
+ * abstraction. The dispatcher reads the provider vtable on the handle and
+ * forwards to the right impl — callers never care which provider serves the
+ * bytes.
+ *
+ * AP Phase 3 (2026-04-19) finished the call-site migration: every game-code
+ * caller of the legacy `fileLoadToNew` / `fileLoadToAddr` / `fileLoadPartToAddr`
+ * wrappers was moved to `assetLoadRomToNew` / `assetLoadRomToAddr` (or, for
+ * bg.c partial reads, `romdataFileLoad` directly per the S374 B-185 fix).
+ * The legacy wrappers are gone; only the internal RomProvider workers
+ * `fileLoadRomToNew` / `fileLoadRomToAddr` remain (declared in game/file.h
+ * for the dispatcher's fast-path use only).
  *
  * Design doc: context/designs/direct-file-access-design-2026-04-17.md
  */
@@ -26,29 +34,44 @@ extern "C" {
 s32 assetLoad(asset_data_handle_t handle, void *buf, s32 buf_size);
 
 /**
- * Provider-aware replacement for `fileLoadToNew`. For a RomProvider handle
- * the behaviour is byte-identical to the pre-existing `fileLoadToNew` path
- * (mempAlloc MEMPOOL_STAGE, inflate, preprocess). For a FileProvider
- * handle the bytes are loaded from disk via `fsFileLoad` and copied into a
- * MEMPOOL_STAGE allocation. Returns the allocation on success, NULL on
- * error.
+ * Allocate-and-load: dispatcher allocates a MEMPOOL_STAGE buffer sized by the
+ * provider's `resolve_size` and asks the provider to fill it. RomProvider
+ * fast-paths to the legacy `fileLoad` pipeline (rzip inflate +
+ * romdataFilePreprocess + g_FileInfo[] tracking) so behaviour is
+ * byte-identical to the pre-AP load path. Returns the allocation on success,
+ * NULL on error (null handle, missing asset, zero load size).
  *
- * The `method` and `loadtype` arguments mirror the legacy
- * `fileLoadToNew(s32 filenum, u32 method, u32 loadtype)` contract so this
- * function can back the wrapper at src/game/file.c without rewriting any
- * call sites. See `FILELOADMETHOD_*` and `LOADTYPE_*` in the game headers.
+ * `method` and `loadtype` mirror the legacy contract — see `FILELOADMETHOD_*`
+ * and `LOADTYPE_*` in the game headers.
  */
 void *assetLoadToNew(asset_data_handle_t handle, u32 method, u32 loadtype);
 
 /**
- * Load a ROM asset by raw filenum through the provider dispatcher.
- * Equivalent to assetLoadToNew(romProviderHandle(filenum), method, loadtype)
- * but does not require the caller to know about the provider abstraction.
- * Game code that previously called fileLoadToNew() or
- * assetLoadToNew(romProviderHandle(filenum),...) should use this instead.
- * The implementation is in assetload.c (provider layer).
+ * Convenience wrapper for ROM filenums — equivalent to
+ * `assetLoadToNew(romProviderHandle(filenum), method, loadtype)` but does
+ * not require the caller to know about the provider abstraction. Game code
+ * uses this directly (Phase 3 replacement for the deleted `fileLoadToNew`
+ * wrapper).
  */
 void *assetLoadRomToNew(s32 filenum, u32 method, u32 loadtype);
+
+/**
+ * Provider-aware load into a caller-allocated buffer. Mirrors `assetLoadToNew`
+ * for fixed-size destinations: the provider fills `buf` (up to `size` bytes)
+ * with the inflated/preprocessed asset payload. RomProvider handles fast-path
+ * to the legacy `fileLoad` pipeline (rzip + preprocess) so behaviour is
+ * byte-identical to the pre-AP load path. Returns `buf` on success, NULL on
+ * failure (null handle, missing asset, zero load size).
+ */
+void *assetLoadToAddr(asset_data_handle_t handle, u32 method, void *buf, u32 size);
+
+/**
+ * Convenience wrapper for ROM filenums — equivalent to
+ * `assetLoadToAddr(romProviderHandle(filenum), method, buf, size)`. Game
+ * code uses this directly (Phase 3 replacement for the deleted
+ * `fileLoadToAddr` wrapper).
+ */
+void *assetLoadRomToAddr(s32 filenum, u32 method, void *buf, u32 size);
 
 /**
  * Provider-side cleanup when an asset is evicted. No-op for ROM; future
