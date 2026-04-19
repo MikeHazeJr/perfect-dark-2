@@ -7,6 +7,16 @@
 
 ---
 
+## Done — 2026-04-19 (S374 — B-185 bg silent-load failure fix, `claude/thirsty-torvalds-9c7e0f`)
+
+- **B-185** — Intermittent "invisible level" (scene with no bg geometry, only props/doors visible). Root cause: `bgLoadFile` used `fileLoadPartToAddr`, which silently returns without copying when `fileGetRomSizeByTableAddress` is 0 or `romdataFileGetData` is NULL. The destination buffer keeps whatever bytes were there (stack garbage in `bgReset`'s `headerbuffer`, prior-frame junk in `bgLoadRoom`'s scratch), `preprocessBgSection1Header` parses nonsense sizes, and the subsequent rzip inflate either outputs junk or zeros. `g_BgPrimaryData` ends up empty → `var800a4920 != 0` branch skipped → `g_BgRooms`/`g_BgPortals`/`g_BgCommands` all NULL → no bg render pass runs. Props/doors continue to render because they load through the Phase 4 catalog pipeline (`assetLoadToNew`), which has proper NULL handling. Any failure was therefore completely silent in the log.
+- Fix: rewrote `bgLoadFile` (`src/game/bg.c`, +29/−3 LOC) to call `romdataFileLoad(stage.bgfileid, &romsize)` directly, validate `bgfileid > 0`, NULL src, and `offset+len <= romsize` (overflow-safe: `offset > romsize || len > romsize - offset`); `sysLogPrintf(LOG_ERROR, ...)` on every failure path; `memset(memaddr, 0, len)` on failure so downstream sees deterministic zeros rather than stack garbage. Happy path uses `memcpy` (equivalent to the PC `dmaExec→bcopy` path without the silent-failure wrapper). `fileLoadPartToAddr` now has zero callers; the definition is left in `src/game/file.c` as dead code to keep the commit focused.
+- Did NOT migrate to Phase 4 `assetLoadToNew` handles because bg.c wants partial-slice reads at specific byte offsets inside the seg file (header, primary compressed block, section-2 header, section-2 compressed block, section-3 header, section-3 compressed block, per-room compressed block). `assetLoadToNew` inflates a whole file — different shape. The direct `romdataFileLoad + memcpy` path achieves the same mod-override / external-file / ROM-fallback routing for free (that routing lives inside `romdataFileLoad`, not `fileLoadPartToAddr`).
+- Build clean 776/776. `PerfectDark.exe` 52,973,749 / `PerfectDarkServer.exe` 23,143,410.
+- Playtest ask: cold-boot into CI Training / any solo mission 5× in a row — scene should render every time. If ANY cold boot still fails, `BG.LOAD:` lines in `pd-client.log` now pinpoint the failing partial read (bgfileid / stageidx / stagenum / offset / len / romsize) so the next repro is diagnosable instead of silent.
+
+---
+
 ## Done — 2026-04-19 (S373 — B-181 spawn-with-weapon fallback fix, `claude/interesting-nobel-184c6c`)
 
 - **B-181** — Chris saw weapons in match that weren't in his selected weapon set. Car Park has 10 weapon markers, but desiredPickups was 16 (PLAYERCOUNT + g_BotCount + span_bonus, capped), triggering the "too few pickups" fallback added in commit `0b62fc68`.
