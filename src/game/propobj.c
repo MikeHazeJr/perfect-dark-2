@@ -1291,13 +1291,14 @@ struct modelnode *modeldefFindBboxNode(struct modeldef *modeldef)
 	struct modelnode *node;
 	u32 steps = 0;
 
-	/* S312: reject torn modeldefs (NULL, numparts invalid, scale invalid).
-	 * A non-NULL modeldef with numparts=0 / negative / absurdly large /
-	 * zero-scale is a late-add / recycled-memory fingerprint (see S308).
-	 * Without this guard the rootnode walk can deref stale memory. */
+	/* B-167 (2026-04-18): reject truly-torn modeldefs, but DO NOT reject
+	 * numparts == 0 — simple non-skeletal models (title logos, doors,
+	 * barrels, static props) legitimately have no skeletal parts and must
+	 * still have their bbox node found. Matches the relaxation in
+	 * modeldefLoad (B-166). Body/head sanity (numparts > 0) lives in the
+	 * per-caller guards (body0f02ce8c, menuRenderModel, player setup). */
 	if (modeldef == NULL
 			|| modeldef->rootnode == NULL
-			|| modeldef->numparts <= 0
 			|| modeldef->numparts > 500
 			|| modeldef->scale <= 0.0f) {
 		return NULL;
@@ -1356,17 +1357,17 @@ struct modelnode *modelFindBboxNode(struct model *model)
 	u32 steps = 0;
 	struct modeldef *def;
 
-	/* S312: reject torn model/modeldef.  Matches the sibling guard in
-	 * modeldefFindBboxNode — if the owning modeldef is corrupt (numparts
-	 * zero/invalid, scale zero/negative, rootnode NULL), bail out before
-	 * the walker deref's stale memory. */
+	/* B-167 (2026-04-18): reject truly-torn model/modeldef, but DO NOT
+	 * reject numparts == 0 — simple non-skeletal models (doors, barrels,
+	 * static props) legitimately have no skeletal parts and must still
+	 * have their bbox node walkable. Matches the relaxation in
+	 * modeldefLoad (B-166) and modeldefFindBboxNode. */
 	if (model == NULL || model->definition == NULL) {
 		return NULL;
 	}
 
 	def = model->definition;
 	if (def->rootnode == NULL
-			|| def->numparts <= 0
 			|| def->numparts > 500
 			|| def->scale <= 0.0f) {
 		return NULL;

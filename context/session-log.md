@@ -4,6 +4,29 @@
 > **S281–S362** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S366 — 2026-04-18 (worktree `claude/cranky-lalande-73f6d2`) — B-167 propobj.c sibling `numparts<=0` guards: propagate B-166 relaxation to walker sites
+
+**Scope**: Post-B-166 playtest (build `211cce3e` / v0.0.129) showed CI Training (0x26) boots clean — no more `MODELDEF: loaded torn` — but every door + simple prop renders at identity scale with no collision. Many `WARNING: SETUP: door modelnum X has no bbox node — using identity scale` (modelnums 404, 380, 68, 333, 334, 156, 421, 174) and rate-limited `DOOR.DIAG: doorGetBbox — no bbox for modelnum=X` per door tick.
+
+**Root cause**: B-166 relaxed the over-aggressive `numparts <= 0` reject at the `modeldefLoad` chokepoint in `src/game/modeldef.c` (simple non-skeletal props legitimately have 0 parts). But S312 had added the *same* guard to two sibling walker functions in `src/game/propobj.c` — `modeldefFindBboxNode` (line 1289) and `modelFindBboxNode` (line 1353) — and B-166 did not propagate the relaxation. So non-skeletal props now *load* cleanly but `setupCreateDoor` → `modeldefFindBboxRodata` → `modeldefFindBboxNode` and `doorGetBbox` / `objFindBboxRodata` → `modelFindBboxNode` both reject them at bbox-lookup time and return NULL. S317 door identity-scale fallback then fires for every CI prop door, producing the visible symptom.
+
+**Fix**: dropped `|| numparts <= 0` from both walker guards in `src/game/propobj.c`. Retained `rootnode == NULL`, `numparts > 500` (decode garbage upper bound), `scale <= 0.0f`, and the 10000-step walker cap (cycle guard). Body/head `numparts > 0` invariant is intentionally retained in the *per-caller* guards (`body0f02ce8c` src/game/body.c:206, `menuRenderModel` src/game/menu.c:2076, player setup src/game/player.c:1986) — those are the correct location for it because skeletal merge requires parts.
+
+**Audit of other `numparts <= 0` sites (confirmed correct, unchanged)**:
+- `port/src/modelcatalog.c:206` (`validateModeldef`) — called only for `g_HeadsAndBodies` bodies/heads via `classifyEntry`; keep.
+- `port/src/net/netmanifest.c:1851` — logs only (no reject), gated on `MANIFEST_TYPE_BODY/HEAD`; keep.
+- `src/game/body.c:206`, `src/game/menu.c:2076`, `src/game/player.c:1986` — all body-merge / skeletal-body paths; keep.
+
+**Files**: `src/game/propobj.c` (net −2 LOC, comment updated).
+
+**Build**: Clean 774/774. `PerfectDark.exe 53,169,357` / `PerfectDarkServer.exe 23,139,296`.
+
+**Verification needed (playtest)**: Cold boot → CI Training (0x26). Doors render at correct pad-derived size (not tiny identity scale). Simple props visible with correct collision. The `SETUP: door modelnum %d has no bbox node` and `DOOR.DIAG: doorGetBbox — no bbox` WARNINGs should drop to zero for props that *do* have a bbox node in their tree. Props legitimately without a bbox node in their tree (if any) will still log once but were never going to render with collision anyway. Bodies/heads unchanged.
+
+**Next**: Mike playtests.
+
+---
+
 ## Session S365 — 2026-04-18 (worktree `claude/hungry-heisenberg-f18ad5`, merged to `dev` @ `b998ec40`) — Memory floor check: sysFatalError on MemorySize too low
 
 **Scope**: Prevent ACCESS_VIOLATION crash (memcpy in title stage load) when stale pd.ini has MemorySize=16.
