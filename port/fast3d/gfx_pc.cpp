@@ -1086,6 +1086,37 @@ static void gfx_matrix_mul(float res[4][4], const float a[4][4], const float b[4
 static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
     float matrix[4][4];
 
+    /* B-197: guard against garbage matrix pointers from corrupted BG
+     * display lists. `addr` comes from `seg_addr(cmd->words.w1)` — either
+     * a segmented translation or a direct pointer. If the source room's
+     * GDL was partially clamped by the B-195 bounds fix (or if the N64
+     * ROM data references a matrix via a cross-room offset that the PC
+     * port's per-room inflated buffer can't satisfy), the decoded pointer
+     * can be NULL or a wildly small non-mapped address. Dereferencing it
+     * is an AV in `gfx_sp_matrix` at `addr[i*2+j/2]` — confirmed via
+     * addr2line on a tester crash in CI (stage 0x26) post-menu-close.
+     * Identity matrix is the safest graceful fallback — GL render state
+     * stays consistent, just no transform is applied. The legit min
+     * user-space pointer on Win64 is 0x10000 (64 KB); any
+     * `(uintptr_t)addr < 0x10000` is a sure-sign of corruption. Log
+     * rate-limited to 1/sec. */
+    if ((uintptr_t)addr < 0x10000) {
+        /* Cap at a handful of warnings so a repeating corrupt DL doesn't
+         * spam the log every frame. First-N-only is good enough to
+         * surface the issue once per session. */
+        static int s_B197WarnCount = 0;
+        if (s_B197WarnCount < 5) {
+            s_B197WarnCount++;
+            sysLogPrintf(LOG_WARNING,
+                "B-197: gfx_sp_matrix addr=%p too low — skipping (corrupt BG display list? params=0x%02x, warn %d/5)",
+                (const void *)addr, (unsigned)parameters, s_B197WarnCount);
+        }
+        /* Identity — downstream matrix stack stays consistent. */
+        memset(matrix, 0, sizeof(matrix));
+        matrix[0][0] = matrix[1][1] = matrix[2][2] = matrix[3][3] = 1.0f;
+        goto skip_matrix_decode;
+    }
+
 #ifndef GBI_FLOATS
     // Original GBI where fixed point matrices are used
     for (int i = 0; i < 4; i++) {
@@ -1100,6 +1131,7 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
     // For a modified GBI where fixed point values are replaced with floats
     memcpy(matrix, addr, sizeof(matrix));
 #endif
+skip_matrix_decode:;
 
     if (parameters & G_MTX_PROJECTION) {
         if (parameters & G_MTX_LOAD) {
