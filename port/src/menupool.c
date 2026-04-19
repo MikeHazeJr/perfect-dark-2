@@ -47,6 +47,16 @@ extern struct menudialogdef g_MpEndscreenTeamGameOverMenuDialog;
 extern struct menudialogdef g_MpEndscreenChallengeCompletedMenuDialog;
 extern struct menudialogdef g_MpEndGameMenuDialog;
 
+/* M-22 (2026-04-19): Solo mission endscreens defined in src/game/endscreen.c
+ * and the Network menu dialog defined in port/src/net/netmenu.c are not
+ * exported via data.h. Register them in the pool so the renderer can route
+ * its ctx acquire through menupoolAcquireDialog(def, &g_CtxImGuiMenu) — the
+ * pool then owns the push/pop pair and menupoolReleaseAll() cleans them up
+ * on stage transition. */
+extern struct menudialogdef g_SoloMissionEndscreenCompletedMenuDialog;
+extern struct menudialogdef g_SoloMissionEndscreenFailedMenuDialog;
+extern struct menudialogdef g_NetMenuDialog;
+
 /* Dialogdef→type registry. One entry per (def,type) pair. Capacity is
  * chosen to cover all ~70 data.h externs plus headroom for late-registered
  * mod dialogs. Linear scan is fine — registry is read-heavy but short. */
@@ -489,6 +499,13 @@ void menupoolInit(void)
     REG(&g_MpEndscreenChallengeCheatedMenuDialog, MENU_TYPE_ENDSCREEN_MP);
     REG(&g_MpEndscreenChallengeFailedMenuDialog,  MENU_TYPE_ENDSCREEN_MP);
 
+    /* M-22: Solo endscreen roots share MENU_TYPE_ENDSCREEN_SOLO so the
+     * pool owns the ctx push/pop alongside the MP variants. Before this,
+     * renderSoloEndscreen took the unregistered fallback in
+     * menupoolAcquireDialog, leaving the ctx leak-prone on force-close. */
+    REG(&g_SoloMissionEndscreenCompletedMenuDialog, MENU_TYPE_ENDSCREEN_SOLO);
+    REG(&g_SoloMissionEndscreenFailedMenuDialog,    MENU_TYPE_ENDSCREEN_SOLO);
+
     /* ---- End Game confirm (DANGER popup) ----
      * B-End-Game-Input: routes through the shared WARNING_MODAL slot so
      * the confirm popup participates in structural dedup + ctx ownership.
@@ -585,6 +602,13 @@ void menupoolInit(void)
 
     /* Dedicated "ready" dialog used by MP match-start — share slot with setup. */
     REG(&g_MpReadyMenuDialog,            MENU_TYPE_MP_SETUP);
+
+    /* M-22: Multiplayer network menu (server browser + direct connect).
+     * Rendered by pdgui_menu_network.cpp; pushed from the main menu's
+     * "Network Game" item. Registering gives it structural dedup so the
+     * main menu item cannot open a second copy, and ties it to cascade
+     * close via menupoolReleaseAll() on stage transitions. */
+    REG(&g_NetMenuDialog,                MENU_TYPE_NETWORK);
 
     /* All remaining dialogs (PAK device errors, 2P splitscreen variants,
      * and whatever else lives in src/game/ .c files) pass through

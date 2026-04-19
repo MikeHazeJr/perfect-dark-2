@@ -31,6 +31,7 @@
 #include "pdgui_hotswap.h"
 #include "system.h"
 #include "inputctx.h"
+#include "menupool.h"
 #include "achievements.h"
 #include "pdgui_achievement_toast.h"
 
@@ -398,7 +399,7 @@ static void sortRankingsByTeam(ESRankRow *rows, s32 count)
  * immediately activate a menu button. */
 static s32 s_SoloEndscreenDebounce = 0;
 
-static void renderSoloEndscreen(bool completed)
+static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
 {
     /* ----- Palette ---------------------------------------------------- */
     /* E.3: Save and restore so this screen's palette doesn't bleed into
@@ -445,11 +446,12 @@ static void renderSoloEndscreen(bool completed)
 
     /* E.2: Push ImGuiMenu input context on first appear.
      * The context's on_push callback handles SDL mouse mode (absolute + visible).
-     * inputCtxSyncMouseMode() in endFrame ensures it stays correct. */
+     * inputCtxSyncMouseMode() in endFrame ensures it stays correct.
+     * M-22: Route the push through the pool. menuPushDialog's pre-acquire
+     * left the slot active with ctx=NULL; this call attaches ownership so
+     * menupoolReleaseAll() can cascade the ctx pop at stage-transition time. */
     if (ImGui::IsWindowAppearing()) {
-        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPush(&g_CtxImGuiMenu);
-        }
+        menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
         /* M2.3: Refresh achievements so newly unlocked ones show.
          * D6 P3: poll for newly-unlocked IDs and push toast notifications. */
         achievementsRefresh();
@@ -805,7 +807,7 @@ static u32 s_MpEndscreenDiagPrintCount = 0;       /* cap total DIAG output */
 static s32 s_MpEndscreenLastFrame = -1;
 
 /* challengeResult: 0=normal, 1=completed, 2=failed, 3=cheated */
-static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
+static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverride, s32 challengeResult)
 {
     /* S301 Bug C diag: log every entry so we can see the oscillation
      * pattern (how many frames this renderer is called, and in what
@@ -897,9 +899,12 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
                       ((curFrame - s_MpEndscreenLastFrame) > 1);
     s_MpEndscreenLastFrame = curFrame;
 
-    if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-        inputCtxPush(&g_CtxImGuiMenu);
-    }
+    /* M-22: migrated from direct inputCtxPush(&g_CtxImGuiMenu) to the pool.
+     * menupoolAcquireDialog honours an already-active slot by attaching the
+     * ctx via menupoolAcquire's already-active branch (S300 change), so this
+     * is idempotent across frames and matches the B-End-Game-Input semantics
+     * of pushing unconditionally whenever the ctx isn't live. */
+    menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
     if (ImGui::IsWindowAppearing() || freshEntry) {
         ImGui::SetWindowFocus();
         s_MpEndscreenDebounce = 5;
@@ -1295,14 +1300,14 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
 /* Solo — completed screen */
 static s32 soloCompletedRender(struct menudialog *dialog, struct menu *menu, s32 winW, s32 winH)
 {
-    renderSoloEndscreen(true);
+    renderSoloEndscreen(dialog, true);
     return 1;
 }
 
 /* Solo — failed screen */
 static s32 soloFailedRender(struct menudialog *dialog, struct menu *menu, s32 winW, s32 winH)
 {
-    renderSoloEndscreen(false);
+    renderSoloEndscreen(dialog, false);
     return 1;
 }
 
@@ -1316,35 +1321,35 @@ static s32 noopRender(struct menudialog *dialog, struct menu *menu, s32 winW, s3
 /* MP — individual game over */
 static s32 mpGameOverIndRender(struct menudialog *dialog, struct menu *menu, s32 winW, s32 winH)
 {
-    renderMpEndscreen(NULL, 0);
+    renderMpEndscreen(dialog, NULL, 0);
     return 1;
 }
 
 /* MP — team game over */
 static s32 mpGameOverTeamRender(struct menudialog *dialog, struct menu *menu, s32 winW, s32 winH)
 {
-    renderMpEndscreen(NULL, 0);
+    renderMpEndscreen(dialog, NULL, 0);
     return 1;
 }
 
 /* MP — challenge completed */
 static s32 mpChallengeCompletedRender(struct menudialog *dialog, struct menu *menu, s32 winW, s32 winH)
 {
-    renderMpEndscreen("CHALLENGE COMPLETED!", 1);
+    renderMpEndscreen(dialog, "CHALLENGE COMPLETED!", 1);
     return 1;
 }
 
 /* MP — challenge cheated */
 static s32 mpChallengeCheatedRender(struct menudialog *dialog, struct menu *menu, s32 winW, s32 winH)
 {
-    renderMpEndscreen("CHALLENGE CHEATED!", 3);
+    renderMpEndscreen(dialog, "CHALLENGE CHEATED!", 3);
     return 1;
 }
 
 /* MP — challenge failed */
 static s32 mpChallengeFailedRender(struct menudialog *dialog, struct menu *menu, s32 winW, s32 winH)
 {
-    renderMpEndscreen("CHALLENGE FAILED!", 2);
+    renderMpEndscreen(dialog, "CHALLENGE FAILED!", 2);
     return 1;
 }
 
