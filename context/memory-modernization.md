@@ -65,8 +65,20 @@ type field determines which member is active. These are fine to keep. The concer
 ### C. ALIGN16 Ceremony (119 instances, 39 files)
 
 On N64, DMA required 16-byte-aligned addresses. On PC, `dmaStart` is `bcopy` (memcpy).
-The 119 `ALIGN16()` wrappers waste 0–15 bytes per allocation and obscure actual sizes.
-Not harmful, but noisy. Low priority to strip — useful only for readability cleanup.
+
+**Do NOT collapse `ALIGN16(val)` to `(val)`**. The macro is also used for **pointer**
+alignment at ~30 sites where round-up is load-bearing (e.g. `gfxmemory.c:154`
+`g_GfxMemPos = ALIGN16((uintptr_t)g_GfxMemPos)` after a `Vtx`-sized advance;
+`bg.c:1516` / `1934` header-buffer stack-alignment). Session 324's "M4 no-op"
+experiment (commit `fe107e3e`, 2026-04-17) did exactly this and shipped two open
+bugs — B-184 (vertex-colour tints) and B-193 (intermittent invisible BG) —
+before S384 (2026-04-19, `elated-hugle-7ec221` → dev `90b448ce`) restored the
+formula. The 0–15-byte overhead across 119 sites is trivial on PC and not worth
+chasing.
+
+If readability cleanup ever revisits these, the safer direction is **replacing
+explicit call sites with a better primitive** (e.g. `alignUpTo<N>(ptr)` typed
+helpers) rather than neutering the macro.
 
 ### D. IS4MB/IS8MB Branches (compile-time eliminated)
 

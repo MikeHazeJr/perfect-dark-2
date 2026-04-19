@@ -4,6 +4,64 @@
 > **S281–S383** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S384 — 2026-04-19 (worktree `claude/elated-hugle-7ec221`, merged to `dev` @ `90b448ce`) — B-184 + B-193 ROOT CAUSE: ALIGN16 pointer-alignment regression
+
+**Scope**: Simultaneous root-cause identification for two open bugs — B-184 (per-object vertex-colour tints: yellow computer props, cyan elevator top, olive character faces in CI) and B-193 (intermittent invisible CI geometry on cold boot). Both traced to commit `fe107e3e` (2026-04-17, "M4 ALIGN16 no-op") collapsing `ALIGN16(val)` to `(val)` in `src/include/constants.h:79`.
+
+### Root cause
+
+`fe107e3e`'s rationale ("mempAlloc already returns aligned memory, so rounding the size argument is wasted 0–15-byte padding across 119 call sites") was correct for **size** arguments but silently broke **pointer** arguments at ~30 sites where the macro was applied to a `uintptr_t`. The pointer sites live in:
+
+- `src/game/gfxmemory.c:154` — `g_GfxMemPos = (u8 *)ALIGN16((uintptr_t)g_GfxMemPos)` after a `gfxAllocateVertices` advance. `Vtx` is 12 bytes; odd counts drift the pointer by 12 mod 16. The next `gfxAllocateColours` binds a misaligned `Col*` array as the `vcn` for the subsequent `G_COL` command. `gfx_sp_set_vertex_colors` reads the misaligned bytes, every draw gets consistent-but-wrong vertex colours → per-object tints on correct textures.
+- `src/game/bg.c:1516` / `bg.c:1934` — `header = (u8 *)ALIGN16((uintptr_t)headerbuffer)` for a `u8[0x50]` stack buffer. The no-op leaves `header` at whatever offset the stack gave. On 64-bit the stack is usually 16-aligned so it *often* works, which is why B-193 looked intermittent and "not reproducing on clean rebuild" in brave-bouman-13bd68's 5-launch streak — stack frame layouts shift between incremental and clean builds. Nothing guarantees alignment though, and any function above in the call tree with misaligned locals propagates into `headerbuffer`.
+- `src/game/bg.c:1537` — `scratch = ALIGN16(scratch + BG_INFLATE_SCRATCH_LARGE)` — inflate-buffer pointer arithmetic; primary BG data corruption when the offset crosses a 16-byte lane.
+- `src/game/bondgun.c:3850` — weapon memory buffer end.
+- `src/lib/snd.c` (18 sites) — ALEnvelope / ALKeyMap / ALADPCMBook / ALWaveTable stack-buffer alignment in the sound loader.
+- `src/lib/dma.c:118`, `src/lib/memp.c:286`, `src/game/propobj.c:15522`.
+
+### Fix
+
+Single-line revert in `src/include/constants.h:79`:
+
+```c
+-#define ALIGN16(val)        (val)
++#define ALIGN16(val)        ((((val) + 0xf) | 0xf) ^ 0xf)
+```
+
+Considered splitting into `ALIGN16` (pointer, real round-up) + `ALIGN16_SIZE` (no-op for sizes) but rejected: (a) the overhead from `fe107e3e`'s rationale is 0–15 bytes × <120 sites on a system with hundreds of MB of game memory — invisible on modern hardware. (b) size-vs-pointer isn't always obvious at the call site — e.g. `gfxAllocate`: `size = ALIGN16(size); g_GfxMemPos += size;` where size-rounding IS effectively pointer-rounding through the accumulator. Two macros would create a category error waiting to happen. One macro with the real formula is the right primitive.
+
+### Merge
+
+Base commit `d06be0f3`. Worktree branch tip `3869ba29`. Single merge into `dev`: `90b448ce`. Post-merge diff vs base: `src/include/constants.h | 2 +-` — exactly the one-line change, no collateral movement.
+
+### Build + verify
+
+`source devtools/build-env.sh && ninja -C Build pd pd-server` — clean 777/777. `PerfectDark.exe` 53,232,611. `PerfectDarkServer.exe` 23,154,674. Zero new warnings from this change (pre-existing comment-in-comment warnings in `updater.c` and a benign `VERSION_PATCH` redefinition are unrelated).
+
+### Files touched
+
+- `src/include/constants.h` (1 line)
+- `context/bugs.md` — B-184 entry rewritten with root cause + fix + prior-pass history summary; B-193 entry rewritten with root cause + fix + retained diag context
+- `context/session-log.md` — this entry
+
+### What this explains (connects to prior sessions)
+
+- **S382 fourth-pass static diff audit** (goofy-shaw-96c6c1) couldn't find rendering-state drift in the AP Phase sprint commits because there wasn't any — the regression was in a **separate** 2026-04-17 commit (`fe107e3e`, M4 optimisation, not part of AP). The audit was thorough and its rule-outs were correct; it was looking in the right sprint but the wrong commit.
+- **S381 effect_normal_tint mod folder rule-out** (goofy-shaw-96c6c1) was correct — the folder is inert, but it was a red herring from the beginning.
+- **S378–S382 "no-smoking-gun" verdicts** on B-184 were correct given the evidence available to them — the `GFX.DIAG: G_COL` instrumentation shipped in S382 is what gave me the "`vtx0` = drifted bytes, `lighting=0` mid-stream" fingerprint that pointed at a vertex-colour-data misread, and the fix verifies by making those same diag lines stable post-patch.
+- **brave-bouman-13bd68 (B-193 "not reproducing")** — the 5-launch streak on clean rebuild was legitimately low-probability, not a false negative. Stack-layout drift is why cold boots sometimes produced aligned `headerbuffer` and sometimes didn't; a clean rebuild likely shifted the layout into a 16-aligned pocket.
+
+### Residual diagnostic retention
+
+- `port/src/pdmain.c` LV.DIAG (cam_pos, tickmode on frame 0 + frame 30) — kept, will surface any future BG-alignment regressions immediately.
+- `port/fast3d/gfx_pc.cpp::gfx_sp_set_vertex_colors` `GFX.DIAG: G_COL` — kept, post-fix log should show stable `vtx0` bytes matching authored prop colours.
+
+### Next
+
+Playtest: cold-boot CI 5× → scene renders; character skins + clothing are authored colours (not olive-green); computer props not yellow/cyan; elevator top gray (not cyan). Other stages (Skedar Ruins, Complex, Felicity, Temple, Dam, Carrington Villa) 2–3× each for regression check.
+
+---
+
 ## Session S383 — 2026-04-19 (worktree `claude/frosty-banach-0e3fc1`, merged to `dev` @ `deac9a36` + diag merge `bb2b0e8e`) — B-195 Complex bg room preprocess overflow fix
 
 **Scope**: Hard crash `sysFatalError("overflow when trying to preprocess a bg room, size 1152 newsize 15528")` loading Complex (stagenum `0x1f`, room 7) in Combat Sim solo. Crash log `Build/pdclient-crash-complex-apr19.log`. Build `dev f32d1e51`.
