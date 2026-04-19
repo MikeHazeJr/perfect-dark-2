@@ -556,6 +556,14 @@ void matchConfigRerollBot(s32 idx)
 	}
 }
 
+void matchConfigRerollBotName(s32 idx)
+{
+	if (idx < 1 || idx >= g_MatchConfig.numSlots) return;
+	struct matchslot *sl = &g_MatchConfig.slots[idx];
+	if (sl->type != SLOT_BOT) return;
+	generateBotName(sl->name, MAX_PLAYER_NAME);
+}
+
 /* ========================================================================
  * Match start — the clean replacement for the old menutick flow
  * ======================================================================== */
