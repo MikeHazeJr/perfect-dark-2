@@ -1219,7 +1219,8 @@ static s32 renderMissionSelect(struct menudialog *dialog,
         float availH  = ImGui::GetContentRegionAvail().y;
         float scrollH = pdguiBodyHeightForActionBar(availH);
 
-        if (ImGui::BeginChild("##ms_detail_body", ImVec2(0, scrollH), false,
+        if (ImGui::BeginChild("##ms_detail_body", ImVec2(0, scrollH),
+                               ImGuiChildFlags_NavFlattened,
                                ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
 
             ImGui::TextDisabled("Objectives (%s):", k_DiffFullNames[selDiff]);
@@ -1989,7 +1990,8 @@ static s32 renderCoopAntiOptionsImpl(struct menudialog *dialog,
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##coopanti_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##coopanti_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
         float rowH = pdguiScale(48.0f);  /* gamepad-friendly min target */
 

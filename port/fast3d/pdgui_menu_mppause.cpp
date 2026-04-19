@@ -631,7 +631,8 @@ static s32 renderMpPauseControl(struct menudialog *dialog, struct menu *, s32, s
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##mp_pause_ctrl_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_pause_ctrl_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         /* Challenge name (hidden unless in challenge mode -- the legacy
@@ -760,7 +761,8 @@ static s32 renderMpPauseInventory(struct menudialog *dialog, struct menu *, s32,
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##mp_pause_inv_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_pause_inv_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         s32 n   = list_GetOptionCount(menuhandlerInventoryList, 0);
@@ -857,7 +859,8 @@ static s32 renderMpPausePlayerStats(struct menudialog *dialog, struct menu *, s3
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##mp_pause_pstats_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_pause_pstats_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         /* "Stats for" player dropdown -- reads from
@@ -980,7 +983,8 @@ static s32 renderMpPausePlayerRanking(struct menudialog *dialog, struct menu *, 
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##mp_pause_prank_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_pause_prank_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         struct ranking_mpp rankings[MP_MAX_MPCHRS];
@@ -1060,7 +1064,8 @@ static s32 renderMpPauseTeamRankings(struct menudialog *dialog, struct menu *, s
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##mp_pause_trank_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_pause_trank_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         struct ranking_mpp rankings[MP_MAX_MPCHRS];
@@ -1152,7 +1157,8 @@ static s32 renderMpPlayerOptions(struct menudialog *dialog, struct menu *, s32, 
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##mp_player_opts_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_player_opts_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         static const DisplayOptionRow rows[] = {

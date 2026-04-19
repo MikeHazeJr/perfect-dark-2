@@ -3606,7 +3606,8 @@ static s32 renderMainMenu(struct menudialog *dialog,
          * tab buttons and body don't bleed into the chrome border. */
         float contentH = dialogH - padT - padB;
         if (contentH < pdguiScale(80.0f)) contentH = pdguiScale(80.0f);
-        if (ImGui::BeginChild("##main_settings_body", ImVec2(contentW, contentH), false,
+        if (ImGui::BeginChild("##main_settings_body", ImVec2(contentW, contentH),
+                              ImGuiChildFlags_NavFlattened,
                               ImGuiWindowFlags_NoBackground)) {
             renderSettingsView(scale, contentH);
         }
@@ -4005,7 +4006,8 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
     if (bodyW < pdguiScale(80.0f)) bodyW = pdguiScale(80.0f);
 
     if (ImGui::BeginChild("##ci_settings_body",
-                           ImVec2(bodyW, bodyH), false,
+                           ImVec2(bodyW, bodyH),
+                           ImGuiChildFlags_NavFlattened,
                            ImGuiWindowFlags_NoBackground)) {
         renderSettingsView(scale, contentH);
     }
@@ -4254,7 +4256,8 @@ static s32 renderCinemaList(struct menudialog *dialog,
     float bodyWc = mw - padXc - padRc;
     if (bodyWc < pdguiScale(80.0f)) bodyWc = pdguiScale(80.0f);
 
-    if (ImGui::BeginChild("##cinema_body", ImVec2(bodyWc, bodyH), false,
+    if (ImGui::BeginChild("##cinema_body", ImVec2(bodyWc, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground
                           | ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
 

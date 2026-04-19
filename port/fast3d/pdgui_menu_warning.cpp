@@ -696,21 +696,25 @@ static s32 renderDefaultDialog(struct menudialog *dialog,
 }
 
 /* ========================================================================
- * MP End Game — custom modal confirmation (B-End-Game-UX)
+ * MP End Game — first-class modal popup (B-End-Game-UX / S368)
  *
- * Replaces the generic renderDangerDialog path for g_MpEndGameMenuDialog
- * with a first-class modal popup:
- *   - Centered "End Match?" panel with large "Are you sure?" body copy
- *   - Single Confirm / Cancel pair with visible keybinding hints
- *   - Keyboard:  Enter / Space → Confirm, Esc → Cancel
- *   - Gamepad:   A (FaceDown)  → Confirm, B (FaceRight) → Cancel
+ * S368 rewrite: replaces the Begin()-based split-button dialog with a real
+ * ImGui::BeginPopupModal.  The modal popup owns nav focus exclusively, so
+ * D-pad / stick navigation no longer drifts back to the MP Pause window
+ * sitting underneath; the Confirm / Cancel pair is always reachable.  The
+ * scrim + PD-authentic red danger frame are preserved; the keybinding hint
+ * row stays so keyboard + gamepad users both see the active shortcuts.
  *
- * The confirm path invokes the legacy menuhandlerMpEndGame via the dialog
- * item's handler pointer (same MENUOP_SET contract renderTypedDialog uses),
- * which on a client runs netDisconnect() — that in turn now clears
- * g_ClientManifest before mainChangeToStage() (B-End-Game-Crash fix in
- * port/src/net/net.c).
+ * The confirm path invokes the legacy SELECTABLE's menuhandlerMpEndGame
+ * via its item handler (same MENUOP_SET contract as renderTypedDialog),
+ * which on a client runs netDisconnect() → mainChangeToStage() with a
+ * cleared manifest (B-End-Game-Crash fix in port/src/net/net.c), and on
+ * the server calls mainEndStage() → SVC_STAGE_END.
  * ======================================================================== */
+
+/* One static slot is fine because only one End Game dialog is ever active
+ * at a time — the menu-pool / structural-dedup layer guarantees it. */
+static void *s_EndGameOpenedForDialog = nullptr;
 
 static s32 renderMpEndGameDialog(struct menudialog *dialog,
                                   struct menu * /*menu*/,
@@ -719,11 +723,10 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
     struct menudialogdef *def = *(struct menudialogdef **)((u8 *)dialog);
     if (!def) return 0;
 
-    /* Full-viewport scrim — focus the player on the dialog, not the match
-     * scene below.  Same primitive renderTypedDialog uses. */
+    /* Full-viewport scrim — dim the match scene behind the modal. */
     pdguiPopupDarkenBehind(0.60f);
 
-    /* Red/warning palette (matches the legacy DANGER dialog type). */
+    /* Red / warning palette for the frame and title. */
     s32 prevPalette = pdguiGetPalette();
     pdguiSetPalette(2);
 
@@ -731,13 +734,22 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
     float dialogW = pdguiScale(540.0f);
     float dialogH = pdguiScale(260.0f);
     ImVec2 dlgPos = pdguiCenterPos(dialogW, dialogH);
-    float dialogX = dlgPos.x;
-    float dialogY = dlgPos.y;
 
     float pdTitleH = pdguiScale(36.0f);
     if (pdTitleH < 18.0f) pdTitleH = 18.0f;
 
-    ImGui::SetNextWindowPos(ImVec2(dialogX, dialogY));
+    const char *popupId = "##mp_endgame_modal";
+
+    /* On the first frame this dialog is seen, kick the popup open.
+     * BeginPopupModal requires OpenPopup to have been called previously.
+     * Re-open if the dialog pointer changed (legacy pushed a fresh dialog). */
+    if (s_EndGameOpenedForDialog != (void *)dialog) {
+        ImGui::OpenPopup(popupId);
+        s_EndGameOpenedForDialog = (void *)dialog;
+        pdguiPlaySound(PDGUI_SND_ERROR);
+    }
+
+    ImGui::SetNextWindowPos(dlgPos);
     ImGui::SetNextWindowSize(ImVec2(dialogW, dialogH));
 
     ImGuiWindowFlags wflags = ImGuiWindowFlags_NoResize
@@ -748,22 +760,25 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
                             | ImGuiWindowFlags_NoBackground
                             | ImGuiWindowFlags_NoScrollbar;
 
-    char winId[64];
-    snprintf(winId, sizeof(winId), "##mp_endgame_dialog_%p", (void *)dialog);
-
-    if (!ImGui::Begin(winId, nullptr, wflags)) {
-        ImGui::End();
+    bool open = ImGui::BeginPopupModal(popupId, nullptr, wflags);
+    if (!open) {
+        /* Popup was dismissed externally (Esc routed by ImGui, or a hotswap
+         * shutdown).  Drop the dialog from the legacy stack so the pause
+         * menu returns cleanly.  Only fire once — guard by resetting the
+         * track pointer to null so re-entry opens a fresh popup. */
+        if (s_EndGameOpenedForDialog == (void *)dialog) {
+            s_EndGameOpenedForDialog = nullptr;
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            menuPopDialog();
+        }
         pdguiSetPalette(prevPalette);
         return 1;
     }
 
-    if (ImGui::IsWindowAppearing()) {
-        ImGui::SetWindowFocus();
-        pdguiPlaySound(PDGUI_SND_ERROR);
-    }
+    float dialogX = ImGui::GetWindowPos().x;
+    float dialogY = ImGui::GetWindowPos().y;
 
-    /* Opaque body behind the frame — the hotswap system may render this
-     * over a still-live pause menu, so the body must not be see-through. */
+    /* Opaque backdrop behind the PD-authentic frame. */
     {
         ImDrawList *dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(ImVec2(dialogX, dialogY),
@@ -771,7 +786,7 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
                           pdguiPalImU32(PDPAL_BODYBG, 255), 0.0f);
     }
 
-    /* PD-authentic frame + title text. */
+    /* PD-authentic frame + title. */
     const char *title = "End Match?";
     pdguiDrawPdDialog(dialogX, dialogY, dialogW, dialogH, title, 1);
     {
@@ -785,8 +800,6 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
     }
 
     /* ---- Body ---- */
-    /* S311: route through pdguiSetCursorBelowTitle so the nineslice content
-     * inset is honored; extra 8px breathe preserved beneath. */
     pdguiSetCursorBelowTitle(pdTitleH);
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8.0f * scale);
 
@@ -814,9 +827,7 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
     bool doConfirm = false;
     bool doCancel  = false;
 
-    /* Cancel first — safer default focus (Cancel is the non-destructive
-     * choice).  Keyboard/gamepad bindings below still route activations
-     * directly without needing focus. */
+    /* Cancel first — safer default focus. */
     if (ImGui::Button("Cancel##mpendgame", ImVec2(btnW, btnH))) {
         doCancel = true;
     }
@@ -826,8 +837,7 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
 
     ImGui::SameLine(0.0f, gap);
 
-    /* Red "End Match" confirm.  Styled with the danger palette so it reads
-     * as destructive even to a colour-blind player. */
+    /* Red "End Match" confirm. */
     ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.10f, 0.10f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.80f, 0.15f, 0.15f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(1.00f, 0.20f, 0.20f, 1.0f));
@@ -836,14 +846,11 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
     }
     ImGui::PopStyleColor(3);
 
-    /* ---- Keybinding hints (always visible at the bottom) ---- */
+    /* ---- Keybinding hints ---- */
     {
         const char *hintL = "[Enter/Space/(A)] Confirm";
         const char *hintR = "[Esc/(B)] Cancel";
 
-        /* Reserve a row at the bottom of the dialog for hint text.  Absolute
-         * Y position so it sits right above the frame's bottom edge even if
-         * the body wraps. */
         float hintY = dialogH - pdguiScale(22.0f);
         if (hintY < ImGui::GetCursorPosY() + 4.0f * scale) {
             hintY = ImGui::GetCursorPosY() + 4.0f * scale;
@@ -857,16 +864,15 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
         ImGui::TextDisabled("%s", hintR);
     }
 
-    /* ---- Global keyboard + gamepad bindings ---- */
+    /* ---- Keyboard + gamepad shortcuts (active while the popup is open).
+     * pdguiDriveImGuiNav maps ACTION_USE → Enter and ACTION_CANCEL_USE →
+     * Escape, so gamepad A/B fire these via the same paths keyboard does. */
     if (!ImGui::IsWindowAppearing()) {
-        /* ACTION_ACCEPT equivalents (per pdguiDriveImGuiNav convention) */
         if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
             ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
             ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
             doConfirm = true;
         }
-
-        /* ACTION_CANCEL_USE equivalents */
         if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
             doCancel = true;
         }
@@ -875,11 +881,7 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
     if (doConfirm) {
         pdguiPlaySound(PDGUI_SND_SELECT);
 
-        /* Invoke the legacy SELECTABLE that carries the real End Game
-         * handler (menuhandlerMpEndGame in src/game/mplayer/ingame.c).
-         * On a client this calls netDisconnect() → mainChangeToStage()
-         * with a cleared manifest (B-End-Game-Crash root-cause fix).
-         * On the server it calls mainEndStage() → SVC_STAGE_END. */
+        /* Invoke the legacy SELECTABLE that owns menuhandlerMpEndGame. */
         if (def->items) {
             for (struct menuitem *it = def->items;
                  it->type != MENUITEMTYPE_END;
@@ -888,17 +890,21 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
                     union handlerdata hd;
                     memset(&hd, 0, sizeof(hd));
                     it->handler(MENUOP_SET, it, &hd);
-                    break;  /* exactly one confirm handler per dialog */
+                    break;
                 }
             }
         }
+        ImGui::CloseCurrentPopup();
+        s_EndGameOpenedForDialog = nullptr;
         menuPopDialog();
     } else if (doCancel) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        ImGui::CloseCurrentPopup();
+        s_EndGameOpenedForDialog = nullptr;
         menuPopDialog();
     }
 
-    ImGui::End();
+    ImGui::EndPopup();
     pdguiSetPalette(prevPalette);
     return 1;
 }
@@ -996,7 +1002,8 @@ static s32 renderFilemgrPcPlaceholder(struct menudialog *dialog,
     /* Body — PC messaging */
     float availW = ImGui::GetContentRegionAvail().x;
     float bodyH  = pdguiBodyHeightForActionBar(ImGui::GetContentRegionAvail().y);
-    if (ImGui::BeginChild("##fm_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##fm_body", ImVec2(0, bodyH),
+                           ImGuiChildFlags_NavFlattened,
                            ImGuiWindowFlags_NoScrollbar)) {
         const char *msg =
             "This is a Nintendo 64 controller pak dialog.\n\n"
