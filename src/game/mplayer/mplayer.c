@@ -3374,10 +3374,16 @@ s32 mpChooseTrack(void)
 	s32 i;
 	s32 tracknum;
 
-	/* Playlist-aware mod track selection: if mod playlist has entries,
-	 * pick the next track (shuffle or sequential). Resolve via catalog
-	 * and start mod music playback. Return -2 to suppress the N64
-	 * sequencer — musicStartPrimary skips when track < 0. */
+	/* Playlist-aware track selection: if the playlist has entries, pick
+	 * the next track (shuffle or sequential) and resolve via catalog.
+	 *   - File-backed mod track:  modMusicPlay() + return -2 sentinel so
+	 *                             musicStartPrimary skips the N64 sequencer.
+	 *   - Base-game track (B-188): bundled catalog entry with no file_path;
+	 *                             return sound_id as the MUSIC_* enum so
+	 *                             the N64 sequencer plays it. Stop any
+	 *                             prior mod playback to avoid layered audio.
+	 *   - Catalog miss:           fall through to the legacy base-music
+	 *                             multi-tune / single-tune selection below. */
 	{
 		const char *modId = NULL;
 		if (audioGetModPlaylistCount() > 0) {
@@ -3388,9 +3394,29 @@ s32 mpChooseTrack(void)
 		}
 		if (modId && modId[0]) {
 			catalog_audio_result_t ar;
-			if (catalogResolveAudio(modId, &ar) && ar.file_path && ar.file_path[0]) {
-				modMusicPlay(ar.file_path);
-				return -2;
+			if (catalogResolveAudio(modId, &ar)) {
+				if (ar.file_path && ar.file_path[0]) {
+					modMusicPlay(ar.file_path);
+					return -2;
+				}
+				if (ar.entry && ar.entry->bundled && ar.sound_id > 0) {
+					if (modMusicIsPlaying()) {
+						modMusicStop();
+					}
+					/* Default track life mirrors music.c's static initializer
+					 * so the advance timer always has a sane value even if
+					 * g_MpTracks holds no matching entry (shouldn't happen
+					 * for a bundled catalog track, but defense-in-depth). */
+					g_MusicLife60 = TICKS(120);
+					for (tracknum = 0; tracknum != ARRAYCOUNT(g_MpTracks); tracknum++) {
+						if (g_MpTracks[tracknum].musicnum == ar.sound_id) {
+							g_MpLockInfo.unk04 = tracknum;
+							g_MusicLife60 = g_MpTracks[tracknum].duration * TICKS(60);
+							break;
+						}
+					}
+					return ar.sound_id;
+				}
 			}
 			/* Catalog entry missing/invalid — fall through to base music */
 		}

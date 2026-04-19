@@ -597,6 +597,57 @@ static void collectModMusicTrack(const asset_entry_t *entry, void *userdata)
     col->count++;
 }
 
+/* B-188: Base-game music catalog lookup — mirrors ModTrackCollector but
+ * holds bundled entries. We need the catalog_id of each base track so a
+ * click can call audioAddModPlaylistEntry() exactly like mod tracks. The
+ * musicnum field bridges the UI's mp-slot index space
+ * (mpGetTrackMusicNum) to the catalog sound_id. */
+#define MAX_BASE_TRACKS 128
+
+struct BaseTrackInfo {
+    s32         musicnum;       /* catalog ext.audio.sound_id (MUSIC_* enum) */
+    const char *catalog_id;
+    const char *display_name;
+};
+
+struct BaseTrackCollector {
+    BaseTrackInfo tracks[MAX_BASE_TRACKS];
+    int           count;
+};
+
+static void collectBaseMusicTrack(const asset_entry_t *entry, void *userdata)
+{
+    BaseTrackCollector *col = (BaseTrackCollector *)userdata;
+    if (col->count >= MAX_BASE_TRACKS) return;
+    if (entry->ext.audio.category != 1 /* AUDIO_CAT_MUSIC */) return;
+    if (!entry->bundled) return;
+
+    BaseTrackInfo *t = &col->tracks[col->count];
+    t->musicnum     = entry->ext.audio.sound_id;
+    t->catalog_id   = entry->id;
+    t->display_name = entry->ext.audio.name;
+    col->count++;
+}
+
+static const char *baseCatalogIdByMusicnum(const BaseTrackCollector *bc, s32 musicnum)
+{
+    for (int i = 0; i < bc->count; i++) {
+        if (bc->tracks[i].musicnum == musicnum) return bc->tracks[i].catalog_id;
+    }
+    return NULL;
+}
+
+static const char *baseDisplayNameByCatalogId(const BaseTrackCollector *bc, const char *cid)
+{
+    if (!cid) return NULL;
+    for (int i = 0; i < bc->count; i++) {
+        if (bc->tracks[i].catalog_id && strcmp(bc->tracks[i].catalog_id, cid) == 0) {
+            return bc->tracks[i].display_name;
+        }
+    }
+    return NULL;
+}
+
 /* F-2.1-songs: alpha comparator for mod track sort */
 static int modTrackCompare(const void *a, const void *b)
 {
@@ -635,13 +686,19 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
     if (mc.count > 1) {
         qsort(mc.tracks, mc.count, sizeof(ModTrackInfo), modTrackCompare);
     }
+
+    /* B-188: Collect base-game tracks so each UI row can resolve to its
+     * catalog_id and toggle the playlist just like mod tracks do. */
+    BaseTrackCollector bc{};
+    assetCatalogIterateByType(ASSET_AUDIO, collectBaseMusicTrack, &bc);
+
     /* S309: one-shot diagnostic when the screen opens so the log names
      * the mod-track count. Pairs with the per-entry 'skip' lines emitted
      * by collectModMusicTrack — helps triage "where did my songs go?". */
     if (ImGui::IsWindowAppearing()) {
         sysLogPrintf(LOG_NOTE,
-            "SELECTTUNES: open — base_tracks=%d mod_tracks=%d",
-            (int)numTracks, (int)mc.count);
+            "SELECTTUNES: open — base_tracks=%d mod_tracks=%d base_catalog=%d",
+            (int)numTracks, (int)mc.count, (int)bc.count);
     }
 
     /* Shuffle toggle */
@@ -677,7 +734,9 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
     if (ImGui::BeginChild("##tunes_lib", ImVec2(colW, bodyH), false,
                           ImGuiWindowFlags_NoBackground)) {
 
-        /* Base Game tracks -- hover-preview only; click = legacy single-tune select */
+        /* Base Game tracks -- click toggles the shared mod playlist (B-188).
+         * Mod and base tracks now coexist in audioModPlaylist; catalog_id
+         * is the key. Hover still drives preview via list_Focus. */
         if (numTracks > 0) {
             char baseHdr[48];
             snprintf(baseHdr, sizeof(baseHdr), "Base Game (%d)", numTracks);
@@ -685,11 +744,38 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
                 for (int i = 0; i < numTracks; i++) {
                     const char *name = mpGetTrackName(i);
                     if (!name || !name[0]) name = "???";
+                    const s32   musicnum = mpGetTrackMusicNum(i);
+                    const char *cid      = baseCatalogIdByMusicnum(&bc, musicnum);
+                    bool        inPl     = (cid != NULL) && audioIsInModPlaylist(cid) != 0;
+
                     ImGui::PushID(i);
-                    if (ImGui::Selectable(name, false, 0,
+                    if (ImGui::Selectable(name, inPl, 0,
                                           ImVec2(0, pdguiScale(22.0f)))) {
-                        list_SetClick(mpSelectTuneListHandler, 0, i);
-                        pdguiPlaySound(PDGUI_SND_SELECT);
+                        if (cid) {
+                            if (inPl) {
+                                audioRemoveModPlaylistEntry(cid);
+                                pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                            } else {
+                                audioAddModPlaylistEntry(cid);
+                                pdguiPlaySound(PDGUI_SND_SELECT);
+                            }
+                            audioResetPlaylistIndex();
+                            if (g_NetMode == MPSETTINGS_NETMODE_CLIENT
+                                && lobbyIsLocalLeader()) {
+                                netSendRoomPlaylistUpdate();
+                            }
+                        } else {
+                            /* Catalog miss (shouldn't happen — base music
+                             * registers at boot). Fall back to legacy
+                             * single-tune select so the click isn't a
+                             * no-op on a broken build. */
+                            list_SetClick(mpSelectTuneListHandler, 0, i);
+                            pdguiPlaySound(PDGUI_SND_SELECT);
+                            sysLogPrintf(LOG_WARNING,
+                                "SELECTTUNES: no catalog entry for base track "
+                                "slot=%d musicnum=%d — using legacy single-select",
+                                i, (int)musicnum);
+                        }
                     }
                     if (ImGui::IsItemHovered()) {
                         anyHover = true;
@@ -764,14 +850,15 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
         if (plCount == 0) {
             ImGui::TextDisabled("(empty)");
             ImGui::Spacing();
-            ImGui::TextDisabled("Click a Mod Track");
-            ImGui::TextDisabled("on the left to add.");
+            ImGui::TextDisabled("Click a track on");
+            ImGui::TextDisabled("the left to add.");
         } else {
             bool removed = false;
             for (s32 p = 0; p < plCount && !removed; p++) {
                 const char *cid = audioGetModPlaylistEntry(p);
                 if (!cid) continue;
-                /* Resolve display name from collected tracks */
+                /* Resolve display name from collected tracks — mod first,
+                 * then base (B-188: base-game tracks may appear here too). */
                 const char *disp = cid;
                 for (int m = 0; m < mc.count; m++) {
                     if (mc.tracks[m].catalog_id
@@ -779,6 +866,10 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
                         if (mc.tracks[m].display_name) disp = mc.tracks[m].display_name;
                         break;
                     }
+                }
+                if (disp == cid) {
+                    const char *baseDisp = baseDisplayNameByCatalogId(&bc, cid);
+                    if (baseDisp && baseDisp[0]) disp = baseDisp;
                 }
                 char label[128];
                 snprintf(label, sizeof(label), "%s##sel%d", disp, p);
