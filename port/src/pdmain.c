@@ -740,10 +740,36 @@ void mainTick(void)
 				extern u8 *g_BgPrimaryData;
 				extern struct room *g_Rooms;
 				extern s32 g_BgNumRoomLoadCandidates;
+				extern s32 g_BgNumDrawSlots;
 				const struct room *pr = (g_Rooms && camRoom >= 0 && camRoom < g_Vars.roomcount)
 					? &g_Rooms[camRoom] : NULL;
+				/* B-193 Phase 3: count loaded / onscreen rooms + list first 16
+				 * onscreen room numbers. Bad-boot hypothesis: portal walker
+				 * (bgTickPortals) doesn't expand beyond room 16 → only 1-2
+				 * rooms get ROOMFLAG_ONSCREEN → g_BgNumDrawSlots ≈ 1-2 → CI
+				 * renders as sky-with-a-few-pieces. Good boot would show
+				 * onscreen ~15-25 and drawslots ~15-30 for CI. */
+				s32 loaded_count = 0;
+				s32 onscreen_count = 0;
+				char onscreen_list[128] = {0};
+				s32 listpos = 0;
+				if (g_Rooms) {
+					for (s32 ri = 1; ri < g_Vars.roomcount; ri++) {
+						if (g_Rooms[ri].loaded240) loaded_count++;
+						if (g_Rooms[ri].flags & ROOMFLAG_ONSCREEN) {
+							onscreen_count++;
+							if (onscreen_count <= 16 && listpos < (s32)sizeof(onscreen_list) - 8) {
+								listpos += snprintf(onscreen_list + listpos,
+									sizeof(onscreen_list) - listpos,
+									"%s%d",
+									listpos ? "," : "",
+									ri);
+							}
+						}
+					}
+				}
 				sysLogPrintf(LOG_NOTE,
-					"LV.DIAG: settled stage=0x%02x roomcount=%d player_room=%d camera_room=%d pos=(%.0f,%.0f,%.0f) frame=%d bg_primary=%p cam_loaded240=%d cam_flags=0x%04x cam_gfxdata=%p load_cands=%d",
+					"LV.DIAG: settled stage=0x%02x roomcount=%d player_room=%d camera_room=%d pos=(%.0f,%.0f,%.0f) frame=%d bg_primary=%p cam_loaded240=%d cam_flags=0x%04x cam_gfxdata=%p load_cands=%d loaded=%d onscreen=%d drawslots=%d onscreen_list=[%s]",
 					(u32)g_StageNum,
 					g_Vars.roomcount,
 					firstRoom,
@@ -754,7 +780,11 @@ void mainTick(void)
 					pr ? (int)pr->loaded240 : -1,
 					pr ? (unsigned)pr->flags : 0,
 					(void *)(pr ? pr->gfxdata : NULL),
-					g_BgNumRoomLoadCandidates);
+					g_BgNumRoomLoadCandidates,
+					loaded_count,
+					onscreen_count,
+					g_BgNumDrawSlots,
+					onscreen_list);
 				s_B193FirstRenderDiagPending = 0;
 			}
 
