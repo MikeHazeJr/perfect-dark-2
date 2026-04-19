@@ -4,6 +4,32 @@
 > **S281–S362** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S367 — 2026-04-18 (worktree `claude/pensive-lovelace-832160`, merged to `dev`) — CI Room Team Setup back-nav + bot ctx Team submenu (B-168, B-169)
+
+**Scope**: Two Combat Simulator menu bugs reported by Mike.
+
+**Bug 1 (B-168)** — Team Setup close fell into Main Menu. Repro log (build `c9473d54`): Room OPEN (solo=1) → Team Setup acquired → Team Setup released → `MENU_IMGUI: main menu OPEN` fires; Main Menu draws on top of Room (still in background). Root cause: the "Combat Simulator" button in `pdgui_menu_mainmenu.cpp` calls `pdguiSoloRoomOpen()` without popping the Main Menu dialog — Main Menu sits under the Room overlay for the whole CI session. When a child dialog is pushed then popped, Main Menu's ImGui window goes hidden → visible, fires `IsWindowAppearing`, `SetWindowFocus()`es itself to the top of Z-order over the Room.
+
+**Fix (B-168)**: new `pdguiSoloRoomIsActive()` accessor in `pdgui_lobby.cpp` returning `s_SoloRoomActive ? 1 : 0`; `renderMainMenu` in `pdgui_menu_mainmenu.cpp` early-returns (after the existing `!menuDialogIsCurrent` sibling guard) while the solo Room is active so the Main Menu window never calls `Begin` and never `SetWindowFocus`es. When "Back to Menu" clears `s_SoloRoomActive`, the Main Menu reappears cleanly with a fresh `IsWindowAppearing`. Covers every child-dialog-of-main-menu path (Change Agent, Cheats, Settings, etc.), not just Team Setup.
+
+**Bug 2 (B-169)** — Bot right-click context menu had no way to assign bots to a team even when "Teams" was enabled. The room player list already renders team tints and the right-panel Options had a "Teams" toggle, but bot slot `.team` could only be changed via the separate Team Setup screen.
+
+**Fix (B-169)**: added a "Team" submenu to the bot context popup in `pdgui_menu_room.cpp` between "Character" and the Separator. Gated on `MPOPTION_TEAMSENABLED` + `isLeader`. Header label shows "Team: N" when all selected bots share a team, just "Team" otherwise. Eight `Team 1..8` entries colored with the `kTeamColors` palette already in scope via `ImGui::PushStyleColor(ImGuiCol_Text, ...)`. Selecting applies `.team` to every selected bot, plays `PDGUI_SND_SUBFOCUS`, and sets `s_RoomSettingsDirty = true` so the change broadcasts via `SVC_ROOM_SETTINGS 0x78` in network mode.
+
+**Files**: `port/fast3d/pdgui_lobby.cpp` (+13), `port/fast3d/pdgui_menu_mainmenu.cpp` (+12), `port/fast3d/pdgui_menu_room.cpp` (+42). Net +67 LOC across three files; zero deletions.
+
+**Build**: Clean 776/776. `PerfectDark.exe` 52,957,977 / `PerfectDarkServer.exe` 23,142,898.
+
+**Verification needed (playtest)**:
+- CI Room (solo): open Team Setup, press Back/B → returns to Room, not Main Menu. Log shows `MENUPOOL: released mp_team_setup` and NO `MENU_IMGUI: main menu OPEN` follow-up.
+- CI Room → add bots → enable Teams in right-panel Options → right-click a bot → "Team" submenu appears with colored entries. Pick Team 3; row tints green. Ctrl-click to multi-select; pick Team 1; all flip red.
+- Disable Teams → "Team" submenu disappears from ctx popup.
+- Network mode (as leader): team change via ctx syncs via SVC_ROOM_SETTINGS to other clients.
+
+**Next**: Mike playtests; promote to FIXED after.
+
+---
+
 ## Session S366 — 2026-04-18 (worktree `claude/cranky-lalande-73f6d2`) — B-167 propobj.c sibling `numparts<=0` guards: propagate B-166 relaxation to walker sites
 
 **Scope**: Post-B-166 playtest (build `211cce3e` / v0.0.129) showed CI Training (0x26) boots clean — no more `MODELDEF: loaded torn` — but every door + simple prop renders at identity scale with no collision. Many `WARNING: SETUP: door modelnum X has no bbox node — using identity scale` (modelnums 404, 380, 68, 333, 334, 156, 421, 174) and rate-limited `DOOR.DIAG: doorGetBbox — no bbox for modelnum=X` per door tick.
