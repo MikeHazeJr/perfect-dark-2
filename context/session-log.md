@@ -4,6 +4,32 @@
 > **S281–S362** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S370 — 2026-04-19 (worktree `claude/naughty-banach-638906`) — 5-bug playtest batch
+
+**Scope**: Five items from the 2026-04-18 playtest: B-175 (killfeed missing sim-on-sim kills), B-176 (match doesn't pause on MP endscreen), B-177 (time-limit slider off-by-one vs label), right-click paste in Direct Connect address field, and B-172 revisit (theme colors don't persist across restarts).
+
+### B-175 — Killfeed sim-on-sim kills
+Previous emit gate in `mpstatsRecordDeath` was `g_Vars.normmplayerisrunning && ampchr && vmpchr`. Two problems: (1) `normmplayerisrunning` is false in co-op / counter-op so those modes never got killfeed entries at all; (2) the combined non-null guard silently dropped kills whenever the attacker's mpchrconfig lookup failed (even though `vmpchr` was valid), which is exactly the shape of "sim kills sim but neither registers" if `func0f18d074 → MPCHR` ever returns NULL for the attacker bot slot. Relaxed the guard to `g_Vars.mplayerisrunning && vmpchr`, and when `ampchr` is NULL we now push with `attackerName=NULL` (the renderer already formats that as a suicide / anonymous "?" pill). Added a `LOG_NOTE: KILLFEED: push ...` line on every successful push and a `LOG_WARNING: KILLFEED: skipped ...` if the outer guard still rejects — so the next playtest log answers "did it fire?" directly.
+
+### B-176 — Match doesn't pause on endscreen
+`mpEndMatch()` set `MPPAUSEMODE_GAMEOVER` but never called `lvSetPaused(true)`. `mpIsPaused()` is one of two branches the lv.c tick gate checks (`lvIsPaused()` is the other); without the latter, `g_Vars.lvupdate240` only got zeroed if the gate fell into the mpIsPaused branch, which several upstream sites short-circuit. Solo endscreen always called `lvSetPaused(true)` in `endscreenPrepare` (see endscreen.c:1789) — MP endscreen just forgot. Mirror the pattern: `mpPushEndscreenDialog` now calls `lvSetPaused(true)` and re-asserts `mpSetPaused(MPPAUSEMODE_GAMEOVER)` defensively. All three endscreen exit paths — `pdguiEndscreenExitToMainMenu`, `pdguiEndscreenStartMission`, `pdguiEndscreenNextMission` — call `lvSetPaused(false)` before the stage transition so the next level doesn't boot paused.
+
+### B-177 — Time-limit slider off-by-one vs label
+`renderRoomScreen` (`pdgui_menu_room.cpp`) ran `SliderInt("Time (min)", &tl, 0, 60)` with the value stored 0-based (`timelimit = minutes - 1`), then the label printed `tl+1`. So slider-29 showed "30 min". Switched to the exact pattern already used by the Score slider a few lines below: slider 1..61 with `tl = (int)timelimit + 1` on read and `timelimit = tl - 1` on write; label reads `tl` so handle and text always match. "No limit" still fires when stored `timelimit >= 60`.
+
+### Right-click paste in server join / direct connect
+Added a right-click-anywhere-on-the-InputText handler in `pdgui_menu_network.cpp::renderMultiplayerMenu`. Uses `SDL_GetClipboardText()` (SDL is already included in the TU) and trims trailing whitespace / CR / LF so pastes from Discord / Slack / email don't carry a stray newline that would fail the `connectCodeDecode` pass. Logs a `MENU_IMGUI: network menu PASTE addr=...` note and plays `PDGUI_SND_SUBFOCUS` for audible feedback.
+
+### B-172 — Theme colors don't persist
+Root cause: `prefsAgentResetVisuals()` (called whenever Agent Select appears) hard-coded `base:theme_blue`, empty chrome style id, empty font id, `PDGUI_TITLEBAR_CLASSIC`, scanlines off. Any pre-sign-in theme change — the Main Menu → Settings → Interface flow that writes to pd.ini — was silently reverted on the next Agent Select visit, then the user's selected agent's stale `[Theme] ActiveId = ...` (or missing block) took over. Fix has two parts:
+- **Capture pd.ini baselines at `prefsAgentInit()`**: new `s_BaseThemeId` / `s_BaseUiChromeStyleId` / `s_BaseUiChromeEnabled` / `s_BaseTitleBarStyle` / `s_BaseFontId` / `s_BaseScanlineEnabled` / `s_BaseScanlineAlpha` static strings captured right after pdguiThemeLoaderInit has applied pd.ini. `prefsAgentResetVisuals()` now reverts to THESE instead of hard-coded values.
+- **New `prefsAgentRefreshVisualsBaseline()`**: call from the theme picker (`pdgui_menu_mainmenu.cpp::renderSettingsInterface` theme button) after `configSave("pd.ini")` so a mid-session pre-sign-in change refreshes the baseline. Without this, the user would change theme after boot, then the baseline captured at init is stale and the next Agent Select still reverts to the boot-time value.
+
+### Build verify + merge
+Commit `525ae073` → merged as `65d06679` into `dev` (fast-forward from `083db768 chore: auto-commit before build (dev window)`). Worktree line counts post-merge matched the source exactly: `pdgui_bridge.c 1718`, `pdgui_menu_mainmenu.cpp 4475`, `pdgui_menu_network.cpp 361`, `pdgui_menu_room.cpp 3499`, `prefs_agent.h 77`, `prefs_agent.c 724`, `ingame.c 1187`, `mpstats.c 502`. Build clean [253/253]: `PerfectDark.exe` 52,966,729 / `PerfectDarkServer.exe` 23,143,410.
+
+**Diagnostic hooks for next playtest**: `KILLFEED:` log lines in pdclient.log will now confirm whether sim-on-sim kills actually push into the ring buffer. If they do but still don't render, the next step is the renderer in `pdgui_menu_mpingame.cpp::pdguiMpIngameRender` (check the `pdguiPauseGetNormMplayerIsRunning` gate for co-op/counter-op specifically). If `KILLFEED: skipped` fires with NULL vmpchr, the problem is upstream — `aplayernum=-1` or `mpPlayerGetIndex(chr) == -1` for the victim bot.
+
 ## Session S369 — 2026-04-18 (worktree `claude/nice-jackson-62879e`) — Solo pause menu input context fix (B-171)
 
 **Scope**: Tester reported: "Quitting a mission opens the menu, my input doesn't work, or focus might actually stay on the pause menu in the background. If I hold RMB I can see my invisible mouse."
