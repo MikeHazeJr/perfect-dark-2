@@ -47,6 +47,16 @@ extern struct menudialogdef g_MpEndscreenTeamGameOverMenuDialog;
 extern struct menudialogdef g_MpEndscreenChallengeCompletedMenuDialog;
 extern struct menudialogdef g_MpEndGameMenuDialog;
 
+/* M-2 / M-3 (2026-04-19): destructive-action confirm popups registered as
+ * WARNING_MODAL so their BeginPopupModal-based renderers participate in
+ * structural dedup + ctx ownership. Mirrors the B-End-Game-Input change
+ * that registered g_MpEndGameMenuDialog above.
+ *   g_MissionAbortMenuDialog        — Abort Mission confirm (solo pause)
+ *   g_CheatsConfirmUnlockMenuDialog — Unlock Everything confirm (cheats hub)
+ * Both dialogdefs are defined in src/game/ but not exported via data.h. */
+extern struct menudialogdef g_MissionAbortMenuDialog;
+extern struct menudialogdef g_CheatsConfirmUnlockMenuDialog;
+
 /* Dialogdef→type registry. One entry per (def,type) pair. Capacity is
  * chosen to cover all ~70 data.h externs plus headroom for late-registered
  * mod dialogs. Linear scan is fine — registry is read-heavy but short. */
@@ -494,6 +504,12 @@ void menupoolInit(void)
      * the confirm popup participates in structural dedup + ctx ownership.
      * renderMpEndGameDialog uses BeginPopupModal under this acquire. */
     REG(&g_MpEndGameMenuDialog,                   MENU_TYPE_WARNING_MODAL);
+
+    /* ---- M-2 / M-3 destructive-action confirm popups ----
+     * Registered alongside End Game so their BeginPopupModal renderers
+     * behave consistently: one instance per type, pool owns ctx push/pop. */
+    REG(&g_MissionAbortMenuDialog,                MENU_TYPE_WARNING_MODAL);
+    REG(&g_CheatsConfirmUnlockMenuDialog,         MENU_TYPE_WARNING_MODAL);
 
     /* ---- Cheats ---- */
     REG(&g_CheatsMenuDialog,             MENU_TYPE_CHEATS);
