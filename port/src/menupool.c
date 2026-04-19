@@ -27,6 +27,12 @@ extern struct menudialogdef g_CiDisplayPlayer2MenuDialog;
 extern struct menudialogdef g_CiControlPlayer2MenuDialog;
 extern struct menudialogdef g_CinemaMenuDialog;
 
+/* B-194: g_FilemgrFileSelectMenuDialog is defined in src/game/filemgr.c
+ * but only the 4MB twin is externed in data.h. Declare it locally so the
+ * registry can register it. See B-194 comment at the REG(...) site below
+ * for rationale. */
+extern struct menudialogdef g_FilemgrFileSelectMenuDialog;
+
 /* Dialogdef→type registry. One entry per (def,type) pair. Capacity is
  * chosen to cover all ~70 data.h externs plus headroom for late-registered
  * mod dialogs. Linear scan is fine — registry is read-heavy but short. */
@@ -269,6 +275,15 @@ s32 menupoolIsActive(menu_type_t type)
     return s_Pool[type].active;
 }
 
+/* B-192 leak-class guard: track the last unregistered dialogdef that took
+ * ownership of a context push through the fallback path, so the mirror
+ * release can actually pop it instead of silently leaking. Single slot is
+ * sufficient — unregistered dialogs are diagnostic footguns, not a stacking
+ * use case. A WARNING fires on every unregistered acquire that pushes a
+ * ctx to surface the missing registration. */
+static const struct menudialogdef *s_UnregisteredOwnedDef = NULL;
+static InputContext *s_UnregisteredOwnedCtx = NULL;
+
 s32 menupoolAcquireDialog(const struct menudialogdef *def, InputContext *ctx)
 {
     menu_type_t type = lookupType(def);
@@ -279,6 +294,14 @@ s32 menupoolAcquireDialog(const struct menudialogdef *def, InputContext *ctx)
          * as registered paths. */
         if (ctx && !inputCtxIsActive(ctx)) {
             inputCtxPush(ctx);
+            /* B-192: remember the (def, ctx) pair so the release mirror can
+             * pop it. Without this, the push silently leaks. */
+            s_UnregisteredOwnedDef = def;
+            s_UnregisteredOwnedCtx = ctx;
+            sysLogPrintf(LOG_WARNING,
+                "MENUPOOL: unregistered dialogdef %p pushed ctx '%s' without pool dedup — add to menupoolInit to avoid ctx leak",
+                (const void *)def,
+                ctx->name ? ctx->name : "?");
         }
         return 1;
     }
@@ -289,6 +312,22 @@ s32 menupoolReleaseDialog(const struct menudialogdef *def)
 {
     menu_type_t type = lookupType(def);
     if (type == MENU_TYPE_NONE) {
+        /* B-192: if the matching acquire pushed a ctx through the
+         * unregistered fallback, pop it here so input returns to gameplay.
+         * Match on both def and the recorded ctx so a late release doesn't
+         * double-pop after another dialog has taken ownership. */
+        if (def != NULL && s_UnregisteredOwnedDef == def && s_UnregisteredOwnedCtx) {
+            InputContext *ctx = s_UnregisteredOwnedCtx;
+            s_UnregisteredOwnedDef = NULL;
+            s_UnregisteredOwnedCtx = NULL;
+            if (inputCtxIsActive(ctx)) {
+                inputCtxPopDeferred(ctx);
+                sysLogPrintf(LOG_NOTE,
+                    "MENUPOOL: popped unregistered ctx '%s' on release (def=%p)",
+                    ctx->name ? ctx->name : "?",
+                    (const void *)def);
+            }
+        }
         return 0;
     }
     return menupoolRelease(type);
@@ -496,7 +535,15 @@ void menupoolInit(void)
     /* ---- Combat simulator top-level (acts as the MP lobby entry point) ---- */
     REG(&g_CombatSimulatorMenuDialog,    MENU_TYPE_MP_ADVANCED);
 
-    /* ---- Filemgr / Pak (solo save flows — MP uses different paths) ---- */
+    /* ---- Filemgr / Pak (solo save flows — MP uses different paths) ----
+     * B-192 (2026-04-19): `g_FilemgrFileSelectMenuDialog` (the non-4MB
+     * Agent Select dialog pushed by `filemgrConsiderPushingFileSelectDialog`
+     * on modern PC builds) was missing — only its 4MB twin was registered.
+     * That routed every Agent Select open/close through the unregistered-
+     * fallback path in menupoolAcquireDialog, which silently pushed
+     * g_CtxImGuiMenu and the mirror release was a no-op — stranding input
+     * on the menu IMC after Agent Select closed. */
+    REG(&g_FilemgrFileSelectMenuDialog,  MENU_TYPE_AGENT_SELECT);
     REG(&g_FilemgrFileSelect4MbMenuDialog, MENU_TYPE_AGENT_SELECT);
     REG(&g_PakChoosePakMenuDialog,       MENU_TYPE_AGENT_SELECT);
     REG(&g_ChangeAgentMenuDialog,        MENU_TYPE_AGENT_SELECT);
