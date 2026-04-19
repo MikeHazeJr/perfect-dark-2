@@ -210,23 +210,26 @@ struct modeldef *modeldefLoad(u16 fileid, u8 *dst, s32 size, struct texpool *arg
 	modelPromoteOffsetsToPointers(modeldef, 0x5000000, (uintptr_t) modeldef);
 	modeldef0f1a7560(modeldef, fileid, 0x5000000, modeldef, arg3, dst == NULL);
 
-	/* B-161 root-cause fix: validate the fully-promoted modeldef before
-	 * returning so torn data never reaches any cache (g_ModelStates[].modeldef,
-	 * g_HeadsAndBodies[].modeldef) or downstream code. A torn modeldef
-	 * (rootnode=NULL, numparts<=0 or >500) causes the bbox traversal chain
-	 * to AV deep inside the tick loop (see B-161 repro: Defection → Investigation
-	 * → doorGetBbox → modelFindBboxNode). The late-add manifest path (S312
-	 * diagnostic) also observed bodies landing with parts=0 after lazy-load
-	 * via modeldefLoadToNew.
+	/* B-161 root-cause fix (updated 2026-04-18): validate the fully-promoted
+	 * modeldef before returning so torn data never reaches any cache
+	 * (g_ModelStates[].modeldef, g_HeadsAndBodies[].modeldef) or downstream
+	 * code. Reject ONLY truly-structural corruption:
+	 *   - rootnode == NULL  → cannot walk the node tree at all
+	 *   - numparts  > 500   → preposterous count, likely decode garbage
 	 *
-	 * Reject only truly-structural corruption (rootnode/numparts). Scale<=0
-	 * is CLAMPED in modelcatalog.c::validateModeldef but not in the engine
-	 * path -- match that pattern here so AllInOneMods replacement scales
-	 * (700-2000) still pass. Callers already handle NULL as "missing asset"
-	 * (FIX-B.2 in setuputils.c, S308 defensive guards in body0f02ce8c, etc.)
-	 * so returning NULL converts the AV into a missing-prop log line. */
+	 * Do NOT reject numparts == 0. Simple non-skeletal props -- title logos
+	 * (Nintendo, Rare, PD, MODEL_NINTENDOLOGO = file 221), doors, barrels,
+	 * static geometry -- legitimately have 0 parts. parts[] is the skeletal
+	 * part list; a model without skeletal animation has none. The prior
+	 * "reject numparts<=0 at chokepoint" caught both real torn bodies AND
+	 * legit simple props, wedging every stage 0x26 prop with scale!=0 and
+	 * parts=0 on a live rootnode.
+	 *
+	 * Body/head modeldefs still need the numparts>0 invariant because
+	 * body0f02ce8c (src/game/body.c:203) iterates parts to merge body+head
+	 * skeletons. That per-caller guard (already present) keeps the stricter
+	 * check where it's needed without poisoning prop loads. */
 	if (modeldef->rootnode == NULL
-			|| modeldef->numparts <= 0
 			|| modeldef->numparts > 500) {
 		sysLogPrintf(LOG_ERROR,
 				"MODELDEF: file %u loaded torn — parts=%d root=%p scale=%.3f -- rejecting",
