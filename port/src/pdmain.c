@@ -711,7 +711,7 @@ void mainTick(void)
 				extern s32 g_BgNumRoomLoadCandidates;
 				const struct room *pr = (g_Rooms && camRoom >= 0 && camRoom < g_Vars.roomcount)
 					? &g_Rooms[camRoom] : NULL;
-				sysLogPrintf(LOG_NOTE,
+				sysLogPrintf(LOG_VERBOSE,
 					"LV.DIAG: first-render stage=0x%02x roomcount=%d player_prop=%p player_room=%d camera_room=%d pos=(%.0f,%.0f,%.0f) frame=%d bg_primary=%p cam_loaded240=%d cam_flags=0x%04x cam_gfxdata=%p load_cands=%d cam_pos=(%.0f,%.0f,%.0f) tickmode=%d",
 					(u32)g_StageNum,
 					g_Vars.roomcount,
@@ -789,7 +789,7 @@ void mainTick(void)
 						}
 					}
 				}
-				sysLogPrintf(LOG_NOTE,
+				sysLogPrintf(LOG_VERBOSE,
 					"LV.DIAG: settled stage=0x%02x roomcount=%d player_room=%d camera_room=%d pos=(%.0f,%.0f,%.0f) frame=%d bg_primary=%p cam_loaded240=%d cam_flags=0x%04x cam_gfxdata=%p load_cands=%d loaded=%d onscreen=%d drawslots=%d onscreen_list=[%s] bg_commands=%p portals0_vtx=%u tests_disabled=%d force_onscreen=%d cam_pos=(%.0f,%.0f,%.0f) tickmode=%d",
 					(u32)g_StageNum,
 					g_Vars.roomcount,
