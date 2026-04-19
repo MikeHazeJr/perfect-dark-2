@@ -83,6 +83,7 @@ extern "C" void pdguiLogViewerRender(s32 winW, s32 winH);
 
 /* ImGui subtitle renderer — replaces legacy hudmsg subtitle path */
 #include "pdgui_subtitles.h"
+#include "pdgui_achievement_toast.h"
 
 /* MP In-Game overlays: kill ticker + endscreen suppression */
 extern "C" void pdguiMpIngameRender(s32 winW, s32 winH);
@@ -632,6 +633,11 @@ void pdguiRender(void)
      * No-op when no interact target is tracked.  Drawn above the HUD so the
      * player sees the prompt beside the reticle. */
     pdguiInteractPromptRender((s32)winW, (s32)winH);
+
+    /* D6 P3: achievement unlock toasts — slide in from the right edge.
+     * No-op when the toast queue is empty; polled at MP/solo endscreen
+     * entry via pdguiAchievementToastPollUnlocks. */
+    pdguiAchievementToastRender((s32)winW, (s32)winH);
 
     /* Kill/score ticker overlay: slide-in notifications for score events.
      * Active during normmplayerisrunning; auto-suppressed on game over. */

@@ -105,11 +105,27 @@ static const s32 s_NumModes = (s32)(sizeof(s_ModeDisplay) / sizeof(s_ModeDisplay
  * Tab renderers
  * ======================================================================== */
 
+/* Format seconds as "Hh Mm" or "Mm Ss" for compact display. */
+static void formatDuration(char *out, size_t outSz, u64 seconds)
+{
+    u64 h = seconds / 3600;
+    u64 m = (seconds % 3600) / 60;
+    u64 s = seconds % 60;
+    if (h > 0) {
+        snprintf(out, outSz, "%lluh %llum", (unsigned long long)h, (unsigned long long)m);
+    } else if (m > 0) {
+        snprintf(out, outSz, "%llum %llus", (unsigned long long)m, (unsigned long long)s);
+    } else {
+        snprintf(out, outSz, "%llus", (unsigned long long)s);
+    }
+}
+
 static void renderOverviewTab(float contentW)
 {
     u64 kills = statGet("kills.total");
     u64 deaths = statGet("deaths.total");
     u64 shots = statGet("shots.total");
+    u64 shots_hit = statGet("mp.shots_hit");
     u64 headshots = statGet("shots.headshot");
     u64 kills_bot = statGet("kills.vs_bot");
     u64 kills_player = statGet("kills.vs_player");
@@ -117,7 +133,24 @@ static void renderOverviewTab(float contentW)
     u64 deaths_player = statGet("deaths.by_player");
     u64 suicides = statGet("deaths.suicide");
 
-    float scale = pdguiScaleFactor();
+    u64 mp_matches = statGet("matches.played");
+    u64 mp_won = statGet("mp.matches_won");
+    u64 mp_lost = statGet("mp.matches_lost");
+    u64 mp_time = statGet("mp.time_played_seconds");
+    u64 mp_distance = statGet("mp.distance_units");
+    u64 mp_damage_dealt = statGet("mp.damage_dealt");
+    u64 mp_damage_received = statGet("mp.damage_received");
+
+    u64 solo_completed = statGet("solo.missions_completed");
+    u64 solo_failed = statGet("solo.mission_failures");
+    u64 solo_time = statGet("solo.time_played_seconds");
+
+    u64 items = statGet("items.picked_up");
+    u64 keys = statGet("keys_picked_up");
+    u64 ammo = statGet("ammo_crates_picked_up");
+    u64 shields = statGet("shields_picked_up");
+    u64 weapons_up = statGet("weapons_picked_up");
+    u64 doors = statGet("doors.opened");
 
     ImGui::TextDisabled("Combat");
     ImGui::Separator();
@@ -154,6 +187,17 @@ static void renderOverviewTab(float contentW)
     ImGui::Text("Total Shots");     ImGui::NextColumn();
     ImGui::Text("%llu", (unsigned long long)shots);  ImGui::NextColumn();
 
+    ImGui::Text("Shots Hit");       ImGui::NextColumn();
+    ImGui::Text("%llu", (unsigned long long)shots_hit); ImGui::NextColumn();
+
+    ImGui::Text("Hit %%");          ImGui::NextColumn();
+    if (shots > 0) {
+        ImGui::Text("%.1f%%", (double)shots_hit * 100.0 / (double)shots);
+    } else {
+        ImGui::Text("--");
+    }
+    ImGui::NextColumn();
+
     ImGui::Text("Headshots");       ImGui::NextColumn();
     ImGui::Text("%llu", (unsigned long long)headshots); ImGui::NextColumn();
 
@@ -182,6 +226,99 @@ static void renderOverviewTab(float contentW)
     ImGui::Text("%llu", (unsigned long long)deaths_bot);   ImGui::NextColumn();
     ImGui::Text("Deaths by Players");ImGui::NextColumn();
     ImGui::Text("%llu", (unsigned long long)deaths_player);ImGui::NextColumn();
+
+    ImGui::Columns(1);
+    ImGui::Spacing();
+
+    ImGui::TextDisabled("Combat Simulator");
+    ImGui::Separator();
+
+    ImGui::Columns(2, "##mp_stats", false);
+    ImGui::SetColumnWidth(0, contentW * 0.55f);
+
+    ImGui::Text("Matches Played");  ImGui::NextColumn();
+    ImGui::Text("%llu", (unsigned long long)mp_matches); ImGui::NextColumn();
+
+    ImGui::Text("Matches Won");     ImGui::NextColumn();
+    ImGui::Text("%llu", (unsigned long long)mp_won); ImGui::NextColumn();
+
+    ImGui::Text("Matches Lost");    ImGui::NextColumn();
+    ImGui::Text("%llu", (unsigned long long)mp_lost); ImGui::NextColumn();
+
+    ImGui::Text("Win Rate");        ImGui::NextColumn();
+    if (mp_won + mp_lost > 0) {
+        ImGui::Text("%.1f%%", (double)mp_won * 100.0 / (double)(mp_won + mp_lost));
+    } else {
+        ImGui::Text("--");
+    }
+    ImGui::NextColumn();
+
+    ImGui::Text("Time Played");     ImGui::NextColumn();
+    {
+        char buf[32];
+        formatDuration(buf, sizeof(buf), mp_time);
+        ImGui::TextUnformatted(buf);
+    }
+    ImGui::NextColumn();
+
+    ImGui::Text("Damage Dealt");    ImGui::NextColumn();
+    ImGui::Text("%llu", (unsigned long long)mp_damage_dealt); ImGui::NextColumn();
+
+    ImGui::Text("Damage Taken");    ImGui::NextColumn();
+    ImGui::Text("%llu", (unsigned long long)mp_damage_received); ImGui::NextColumn();
+
+    ImGui::Text("Distance");        ImGui::NextColumn();
+    ImGui::Text("%llu units", (unsigned long long)mp_distance); ImGui::NextColumn();
+
+    ImGui::Columns(1);
+    ImGui::Spacing();
+
+    ImGui::TextDisabled("Solo Missions");
+    ImGui::Separator();
+
+    ImGui::Columns(2, "##solo_stats", false);
+    ImGui::SetColumnWidth(0, contentW * 0.55f);
+
+    ImGui::Text("Missions Completed"); ImGui::NextColumn();
+    ImGui::Text("%llu", (unsigned long long)solo_completed); ImGui::NextColumn();
+
+    ImGui::Text("Missions Failed");    ImGui::NextColumn();
+    ImGui::Text("%llu", (unsigned long long)solo_failed); ImGui::NextColumn();
+
+    ImGui::Text("Time Played");        ImGui::NextColumn();
+    {
+        char buf[32];
+        formatDuration(buf, sizeof(buf), solo_time);
+        ImGui::TextUnformatted(buf);
+    }
+    ImGui::NextColumn();
+
+    ImGui::Columns(1);
+    ImGui::Spacing();
+
+    ImGui::TextDisabled("World Interaction");
+    ImGui::Separator();
+
+    ImGui::Columns(2, "##world_stats", false);
+    ImGui::SetColumnWidth(0, contentW * 0.55f);
+
+    ImGui::Text("Items Picked Up");    ImGui::NextColumn();
+    ImGui::Text("%llu", (unsigned long long)items); ImGui::NextColumn();
+
+    ImGui::Text("  Weapons");          ImGui::NextColumn();
+    ImGui::Text("%llu", (unsigned long long)weapons_up); ImGui::NextColumn();
+
+    ImGui::Text("  Ammo Crates");      ImGui::NextColumn();
+    ImGui::Text("%llu", (unsigned long long)ammo); ImGui::NextColumn();
+
+    ImGui::Text("  Shields");          ImGui::NextColumn();
+    ImGui::Text("%llu", (unsigned long long)shields); ImGui::NextColumn();
+
+    ImGui::Text("  Keys");             ImGui::NextColumn();
+    ImGui::Text("%llu", (unsigned long long)keys); ImGui::NextColumn();
+
+    ImGui::Text("Doors Opened");       ImGui::NextColumn();
+    ImGui::Text("%llu", (unsigned long long)doors); ImGui::NextColumn();
 
     ImGui::Columns(1);
 }

@@ -2480,10 +2480,17 @@ void mpCalculateAwards(void)
 			mpplayer->time += duration60 / 60;
 			mpplayer->distance += (u32)(g_Vars.playerstats[playernum].distance / 10000.0f);
 
-			/* PC: track per-match time/distance/headshots in persistent stats (local players only) */
+			/* PC: track per-match time/distance/damage/hits in persistent stats (local players only) */
 			if (playernum < PLAYERCOUNT()) {
 				statIncrement("mp.time_played_seconds", (u64)(duration60 / 60));
 				statIncrement("mp.distance_units", (u64)(g_Vars.playerstats[playernum].distance / 10000.0f));
+				statIncrement("mp.damage_dealt", (u64)(g_Vars.playerstats[playernum].damtransmitted / 0.1f));
+				statIncrement("mp.damage_received", (u64)(g_Vars.playerstats[playernum].damreceived / 0.1f));
+				if (metrics[i].numshots > 0) {
+					/* shots_hit = accuracy_fraction * shots_fired, rounded */
+					u64 hits = (u64)(metrics[i].accuracyfrac * (f32)metrics[i].numshots + 0.5f);
+					statIncrement("mp.shots_hit", hits);
+				}
 			}
 
 #if VERSION >= VERSION_NTSC_1_0

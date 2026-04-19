@@ -32,6 +32,7 @@
 #include "system.h"
 #include "inputctx.h"
 #include "achievements.h"
+#include "pdgui_achievement_toast.h"
 
 /* ========================================================================
  * Forward declarations (C boundary — cannot include types.h)
@@ -449,8 +450,10 @@ static void renderSoloEndscreen(bool completed)
         if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
             inputCtxPush(&g_CtxImGuiMenu);
         }
-        /* M2.3: Refresh achievements so newly unlocked ones show */
+        /* M2.3: Refresh achievements so newly unlocked ones show.
+         * D6 P3: poll for newly-unlocked IDs and push toast notifications. */
         achievementsRefresh();
+        pdguiAchievementToastPollUnlocks();
         /* Debounce: the A press that skipped the end-of-mission cutscene
          * must not pass through to the endscreen buttons. Suppress confirm
          * input for 3 frames so the player has to press A again. */
@@ -886,6 +889,9 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     if (ImGui::IsWindowAppearing() || freshEntry) {
         ImGui::SetWindowFocus();
         s_MpEndscreenDebounce = 5;
+        /* D6 P3: refresh + emit achievement toasts on fresh MP entry. */
+        achievementsRefresh();
+        pdguiAchievementToastPollUnlocks();
     }
     if (s_MpEndscreenDebounce > 0) {
         s_MpEndscreenDebounce--;
