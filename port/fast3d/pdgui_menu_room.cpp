@@ -501,6 +501,14 @@ static void buildSpawnWeaponList(void)
         sw->name[sizeof(sw->name) - 1] = '\0';
         s_NumSpawnWeapons++;
     }
+
+    /* B-187: alphabetize weapon entries to match Weapon Set dropdown (Random stays at index 0). */
+    if (s_NumSpawnWeapons > 2) {
+        std::sort(s_SpawnWeapons + 1, s_SpawnWeapons + s_NumSpawnWeapons,
+                  [](const spawnweapon_entry &a, const spawnweapon_entry &b) {
+                      return strcmp(a.name, b.name) < 0;
+                  });
+    }
 }
 
 /* ========================================================================
