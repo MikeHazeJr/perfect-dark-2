@@ -7,6 +7,66 @@
 
 ---
 
+## Open — 2026-04-19 (Menu Stack Compliance — from `context/designs/menu-stack-architecture.md`)
+
+Design doc codifies the strict tree-stack menu architecture: single-instance-per-type,
+linear-chain ancestry, cascade close on transitions, input authority at leaf, docked
+buttons / docked previews / nine-slice-interior-only / popup-modal confirms, progressive
+focus for mission-select-style flows. Full audit of 30 `pdgui_menu_*.cpp` files shows
+4 gold-standard references (mainmenu, warning, theme_editor, modmgr) and ~15 violations.
+
+See [menu-stack-architecture.md](designs/menu-stack-architecture.md) §8 for the full
+punch list. One fix per session, one file at a time — each fix is a small diff plus a
+playtest.
+
+### Tier 1 — destructive-action confirms (swap sibling-dialog push → `BeginPopupModal`)
+
+- **M-1**: `pdgui_menu_mppause.cpp` — `End Game` replaces legacy `g_MpEndGameMenuDialog` sibling push with `BeginPopupModal` + `pdguiPopupDarkenBehind(0.65f)`. Focus on Cancel.
+- **M-2**: `pdgui_menu_solomission.cpp` — `Abort Mission` replaces `g_MissionAbortMenuDialog` full-screen push with popup modal over pause menu. Red/danger palette inside the modal body.
+- **M-3**: `pdgui_menu_cheats.cpp` — `Confirm Unlock` replaces `g_CheatsConfirmUnlockMenuDialog` sibling push with popup modal.
+- **M-4**: `pdgui_menu_agentselect.cpp` — `Delete` / `Copy` replaces inline prompt with `BeginPopupModal`; default focus on Cancel.
+- **M-5**: `pdgui_menu_room.cpp` — audit `Leave Room` + scenario `Delete` paths; add missing confirm modals.
+- **M-6**: `pdgui_menu_pausemenu.cpp` — `Quit` in scorecard overlay — add confirm modal ("Quit to desktop?" / "Leave match?").
+
+### Tier 2 — docked-button migration (C1 — scroll-off risk)
+
+- **M-7**: `pdgui_menu_pausemenu.cpp` → `pdguiBeginActionBar` / `pdguiActionBarButton`.
+- **M-8**: `pdgui_menu_lobby.cpp` → action bar for `Disconnect` / `Create Room`.
+- **M-9**: `pdgui_menu_network.cpp` → action bar.
+- **M-10**: `pdgui_menu_moddinghub.cpp` → action bar; verify preview dock (C2).
+- **M-11**: `pdgui_menu_stats.cpp` → action bar.
+- **M-12**: `pdgui_menu_controldiagram.cpp` → action bar; verify diagram dock (C2).
+- **M-13**: `pdgui_menu_endscreen.cpp` → replace custom `PdEndButton` Y-offset layout with action bar.
+
+### Tier 3 — preview-in-scroll audits (C2)
+
+- **M-14**: `pdgui_menu_training.cpp` — Bio / Hangar sub-screens — extract 3D preview to docked sibling panel.
+- **M-15**: `pdgui_menu_moddinghub.cpp` — audit 22 `BeginChild` regions; dock model preview.
+- **M-16**: `pdgui_menu_room.cpp` — verify char preview is in sibling column, not inside player-list scroll.
+- **M-17**: `pdgui_menu_controldiagram.cpp` — verify diagram is outside any scroll region.
+
+### Tier 4 — progressive-focus adoption (§6)
+
+- **M-18**: `pdgui_menu_solomission.cpp` — formalize `s_FocusGroup` enum (`MISSION_LIST → DIFFICULTY → START`); B steps back one group; focus returns to invoker on pop.
+- **M-19**: `pdgui_menu_mpsetup.cpp` — arena → weapons/limits → confirm progressive focus.
+- **M-20**: `pdgui_menu_room.cpp` — scenario → ready progressive focus.
+- **M-21**: `pdgui_menu_training.cpp` — challenge → details → start progressive focus for FR / DT / HT.
+
+### Tier 5 — remaining standardization
+
+- **M-22**: migrate direct `inputCtxPush(&g_CtxImGuiMenu)` calls to `menupoolAcquire(type, def, &g_CtxImGuiMenu)` in: `pausemenu`, `endscreen`, `lobby`, `network`, `moddinghub`, `stats`, `update`. Standalone windows without dialogdef keep direct push but register their type in the pool.
+- **M-23**: verify every stage-transition / match-start / match-end / disconnect site calls `menupoolReleaseAll()`: `pdgui_bridge.c`, `matchsetup.c`, `netmsg.c`, `net.c`. Add missing sites (cascade-close invariant, §3.3).
+- **M-24**: evaluate adding `parent_type` assertion parameter to `menupoolAcquire` — hard-enforces I1/I3. Opt-in `MENUPOOL_STRICT_TREE` build flag. Defer until Tier 1-3 land.
+
+### Reference implementations (do not modify — use as templates)
+
+- `pdgui_menu_mainmenu.cpp` — Delete Agent uses `BeginPopupModal` correctly (canonical C4/C5).
+- `pdgui_menu_warning.cpp` — generic DANGER/SUCCESS type-based modal (canonical confirm renderer).
+- `pdgui_menu_theme_editor.cpp` — standalone window + modal root pattern.
+- `pdgui_menu_modmgr.cpp` — modal for Unsaved Changes / Large Mod / Validation.
+
+---
+
 ## Done — 2026-04-19 (S384 — B-184 + B-193 root cause: ALIGN16 pointer-alignment regression from `fe107e3e`, `claude/elated-hugle-7ec221` → `dev` @ `90b448ce`)
 
 - **B-184** (per-object vertex-colour tints: yellow computer props, cyan elevator top, olive character faces) and **B-193** (intermittent invisible CI geometry on cold boot) — same root cause. Commit `fe107e3e` (2026-04-17, M4 optimisation) collapsed `ALIGN16(val)` to `(val)` on the grounds that `mempAlloc` returns aligned memory. True for **size** args; broken for **pointer** args at ~30 sites.
