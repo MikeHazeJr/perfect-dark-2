@@ -7,6 +7,18 @@
 
 ---
 
+## Done — 2026-04-19 (S371 — B-179/B-180 head modeldef parts=0 fix, `claude/sweet-chandrasekhar-7d64da`)
+
+- **B-179** — 22/32 bots were defaulting to mphead=0 (Joanna Dark) in MP. Six heads load with parts=0 (head_dark_snow, head_ddshock, head_carrington, head_ddsniper, head_president, head_cassandra) but have valid rootnode+skel.
+- Root cause: `validateModeldef` in `port/src/modelcatalog.c` was the remaining `numparts <= 0 ⟹ INVALID` guard that B-166 (`modeldefLoad`) and B-167 (`propobj.c` walkers) didn't propagate to. Each `catalogValidateHeadId()` call (SVC_STAGE_START paths at `netmsg.c:1366/1421/4792`) hit `catalogGetSafeHead → CATALOG_FALLBACK_HEAD` and downgraded the head to dark_combat.
+- Fix: `validateModeldef` now only rejects `numparts <= 0` when `category == MODELCAT_BODY`. Heads are allowed through with parts=0 — rendering walks rootnode DL nodes (not parts[]), `modelAttachHead` only needs rootnode, `modelGetPart` already returns NULL on parts=0 and all callers tolerate that.
+- Bodies remain strict: body0f02ce8c iterates parts[] for skeletal body+head merge, and falling back to dark_combat is the correct UX for torn bodies.
+- **B-180** (missing necks) resolves as a cascade — the neck geometry is part of each head's own rootnode mesh. Fixing the head fallback restores the correct head, and therefore its neck, instead of putting Joanna Dark's head+neck on a mismatched body.
+- Build clean 774/774. `PerfectDark.exe` 53,202,559 / `PerfectDarkServer.exe` 23,141,856.
+- Merged to dev as `d6d3e01b`.
+
+---
+
 ## Done — 2026-04-18 (S369 — Solo pause menu input context fix, `claude/nice-jackson-62879e`)
 
 - **B-171** — tester log showed `MENUPOOL: acquired solo_mission_pause ctx=none(shared)` with NO matching `INPUTCTX: imgui_menu on_push`. Solo pause was drawing over live gameplay input: menu bindings inactive, mouse stuck in relative mode ("invisible mouse" unless holding RMB), child Abort-Mission confirm dialogs unresponsive.
