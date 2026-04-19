@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "memsizes.h"
 #include "assetcatalog.h" /* SA-5d: catalogGetBodyHandFilenum */
+#include "assetload.h"    /* AP Phase 3: assetLoadRomToAddr */
 #include "../lib/naudio/n_sndp.h"
 #include "game/bondmove.h"
 #include "game/cheats.h"
@@ -3829,7 +3830,7 @@ void bgunTickGunLoad(void)
 
 		osSyncPrintf("BriGun:  obLoadto at 0x%08x, size %d\n", ptr, loadsize);
 
-		modeldef = fileLoadToAddr(player->gunctrl.loadfilenum, FILELOADMETHOD_EXTRAMEM, (u8 *)ptr, loadsize);
+		modeldef = assetLoadRomToAddr(player->gunctrl.loadfilenum, FILELOADMETHOD_EXTRAMEM, (void *)ptr, loadsize);
 
 		// Reserve some space for textures
 		allocsize = fileGetLoadedSize(player->gunctrl.loadfilenum) + 0xe00;

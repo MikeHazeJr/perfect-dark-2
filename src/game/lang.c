@@ -12,6 +12,7 @@
 #include "platform.h"
 #include "video.h"
 #include "system.h"
+#include "assetload.h"
 
 /**
  * Officially, the NTSC versions are American English only, while the PAL
@@ -406,7 +407,7 @@ void langLoad(s32 bank)
 		s32 len2 = (uintptr_t)g_LangBuffer + g_LangBufferSize - (uintptr_t)g_LangBufferPos;
 		len2 = len2 / 32 * 32;
 		g_LoadType = LOADTYPE_LANG;
-		g_LangBanks[bank] = fileLoadToAddr(langGetFileId(bank), FILELOADMETHOD_DEFAULT, (u8 *)g_LangBufferPos, len2);
+		g_LangBanks[bank] = assetLoadRomToAddr(langGetFileId(bank), FILELOADMETHOD_DEFAULT, g_LangBufferPos, len2);
 		g_LangBufferPos = (u8 *)(align32((uintptr_t)g_LangBufferPos + len));
 	} else {
 		CRASH();
@@ -414,7 +415,7 @@ void langLoad(s32 bank)
 #else
 	s32 file_id = langGetFileId(bank);
 	g_LoadType = LOADTYPE_LANG;
-	g_LangBanks[bank] = fileLoadToNew(file_id, FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
+	g_LangBanks[bank] = assetLoadRomToNew(file_id, FILELOADMETHOD_DEFAULT, LOADTYPE_LANG);
 	if (!g_LangBanks[bank]) {
 		sysLogPrintf(LOG_WARNING, "LANG: failed to load bank=%d fileid=%d", bank, file_id);
 	}
@@ -425,7 +426,7 @@ void langLoadToAddr(s32 bank, u8 *dst, s32 size)
 {
 	s32 file_id = langGetFileId(bank);
 	g_LoadType = LOADTYPE_LANG;
-	g_LangBanks[bank] = fileLoadToAddr(file_id, FILELOADMETHOD_DEFAULT, dst, size);
+	g_LangBanks[bank] = assetLoadRomToAddr(file_id, FILELOADMETHOD_DEFAULT, dst, size);
 }
 
 void langClearBank(s32 bank)

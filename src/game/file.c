@@ -40,8 +40,9 @@
  * Most file types are compressed. This is abstracted away, so from the caller's
  * perspect they just call a load function and they receive an inflated file.
  * Exceptions to this are:
- * - BG files, which contain multiple compressed parts. The caller uses
- *   fileLoadPartToAddr which loads a slice of the file without inflation.
+ * - BG files, which contain multiple compressed parts. `bg.c::bgLoadFile`
+ *   calls `romdataFileLoad` directly to obtain the raw segment buffer and
+ *   memcpys the requested slice without inflation (B-185 fix, S374).
  * - MP3 files, which are not compressed. The caller retrieves the ROM start and
  *   end addresses from the file system, then gives that to the MP3 system which
  *   does its own DMA operations.
@@ -71,7 +72,8 @@ u32 var800aa570;
 //   2. Load-state sentinel: `g_FileTable[filenum] = 0` marks a slot as unloaded (fileReleaseSlot).
 // To remove this: convert all romaddrptr callsites to pass filenum directly, then remove
 // fileGetRomSizeByTableAddress (replace with fileGetRomSize) and the zero-sentinel pattern.
-// This is a non-trivial refactor touching fileLoad, fileLoadPartToAddr, and their callers.
+// This is a non-trivial refactor touching fileLoad and its callers (Phase 4 of the
+// Asset Provider migration retires `filenum` as a public-API identity entirely).
 uintptr_t g_FileTable[NUM_FILES + 1];
 
 romptr_t fileGetRomAddress(s32 filenum)
@@ -169,20 +171,6 @@ void filesInit(void)
 	if (j);
 }
 
-void fileLoadPartToAddr(u16 filenum, void *memaddr, s32 offset, u32 len)
-{
-	u32 stack[2];
-
-	if (fileGetRomSizeByTableAddress((uintptr_t*)&g_FileTable[filenum])) {
-		const u8 *src = romdataFileGetData(filenum);
-		if (src) {
-			dmaExec(memaddr, (uintptr_t) src + offset, len);
-		}
-		// this intentionally does not execute romdataFilePreprocess,
-		// because bg files are loaded and inflated in parts
-	}
-}
-
 u32 fileGetInflatedSize(s32 filenum, u32 loadtype)
 {
 	u8 *ptr;
@@ -225,11 +213,15 @@ u32 fileGetInflatedSize(s32 filenum, u32 loadtype)
 }
 
 /**
- * Asset Provider dispatcher entry point: serves ROM-backed assets.
+ * Internal RomProvider worker for the AP dispatcher.
+ *
  * Exported so `port/src/assetload.c::assetLoadToNew` can forward RomProvider
- * handles here without `fileLoadToNew` (a wrapper around the dispatcher)
- * recursing back into itself. Behavior-identical to the pre-provider
- * `fileLoadToNew` body.
+ * handles here directly. Game code MUST NOT call this — use
+ * `assetLoadRomToNew(filenum, ...)` from `assetload.h` instead, which goes
+ * through the dispatcher and picks up any future provider routing without
+ * code changes. Behaviour identical to the pre-provider `fileLoadToNew` body
+ * (mempAlloc MEMPOOL_STAGE, fileLoad → rzipInflate + romdataFilePreprocess,
+ * mempRealloc shrink to fit unless EXTRAMEM keeps the inflate scratch).
  */
 void *fileLoadRomToNew(s32 filenum, u32 method, u32 loadtype)
 {
@@ -282,23 +274,24 @@ void *fileLoadRomToNew(s32 filenum, u32 method, u32 loadtype)
 	return ptr;
 }
 
-/**
- * Public entry point. Routes through the Asset Provider dispatcher so call
- * sites transparently pick up any future provider (FileProvider, archives,
- * etc.) without code changes.
- */
-void *fileLoadToNew(s32 filenum, u32 method, u32 loadtype)
-{
-	return assetLoadRomToNew(filenum, method, loadtype);
-}
-
 void fileRemove(s32 filenum)
 {
 	g_FileTable[filenum] = 0;
 	romdataFileFree(filenum);
 }
 
-void *fileLoadToAddr(s32 filenum, s32 method, u8 *ptr, u32 size)
+/**
+ * Internal RomProvider worker for the AP dispatcher (caller-allocated buffer
+ * variant).
+ *
+ * Exported so `port/src/assetload.c::assetLoadToAddr` can forward RomProvider
+ * handles here directly. Game code MUST NOT call this — use
+ * `assetLoadRomToAddr(filenum, method, buf, size)` from `assetload.h`
+ * instead. Behaviour identical to the pre-provider `fileLoadToAddr` body:
+ * fileLoad inflates+preprocesses into the caller's buffer, returns NULL on
+ * load failure with a logged WARNING.
+ */
+void *fileLoadRomToAddr(s32 filenum, u32 method, u8 *ptr, u32 size)
 {
 	struct fileinfo *info = &g_FileInfo[filenum];
 
@@ -311,7 +304,7 @@ void *fileLoadToAddr(s32 filenum, s32 method, u8 *ptr, u32 size)
 		 * Return NULL so callers know the load failed instead of getting back
 		 * a pointer to garbage memory. */
 		if (info->loadedsize == 0 && size > 0) {
-			sysLogPrintf(LOG_WARNING, "fileLoadToAddr: file %d failed to load (size=%u), returning NULL", filenum, size);
+			sysLogPrintf(LOG_WARNING, "fileLoadRomToAddr: file %d failed to load (size=%u), returning NULL", filenum, size);
 			return NULL;
 		}
 	} else {

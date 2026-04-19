@@ -9,8 +9,8 @@
  * without exposing that ability to game code.
  *
  * Game code MUST NOT include this header.  To load a ROM file, call:
- *   - `fileLoadToNew(filenum, method, loadtype)`       -- game-level API
- *   - `assetLoadRomToNew(filenum, method, loadtype)`   -- provider dispatcher
+ *   - `assetLoadRomToNew(filenum, method, loadtype)`        -- inflate + alloc
+ *   - `assetLoadRomToAddr(filenum, method, buf, size)`      -- into buffer
  *
  * Files allowed to include this header:
  *   port/src/assetload.c
