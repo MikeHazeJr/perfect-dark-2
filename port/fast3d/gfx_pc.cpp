@@ -2369,40 +2369,47 @@ static void gfx_sp_set_vertex_colors(uint32_t count, const struct NormalColor *v
     // }
     rsp.vertex_colors = vcn;
 
-    /* B-184 DIAG (S382+): rate-limited per-unique-pointer dump of vertex-colour
-     * + ALL light slots at G_COL bind time. First pass (ambient only) showed
-     * ambient is always {00 00 00} across every draw — so the tint colour
-     * must be coming from directional light entries. This pass logs the full
-     * light stack (up to 4 entries) so we can match tint colour against
-     * which slot carries the non-zero RGB.
-     * Cap total diag lines at 200 per run; skip if same pointer seen recently. */
-    static const struct NormalColor *s_DiagLastVcn = NULL;
+    /* B-184 DIAG (S382.2): ring-dedup + full-light-stack + time-stamped dump.
+     * Prior cap of 200 + naive "same as last" dedup burned out during the
+     * title intro (7 cycling vcn pointers defeat that check). This pass uses
+     * a 128-entry pointer ring so each unique vcn logs at most once per
+     * ring wrap, and caps at 5000 total lines — enough to cover the intro
+     * plus a full stage's worth of distinct props. We don't gate on
+     * lvframenum: C++ visibility into `g_Vars` is fragile, and the ring
+     * dedup alone is sufficient to reach gameplay data once the intro's
+     * small set of pointers is already in the ring. */
     static int s_DiagCount = 0;
-    if (s_DiagCount < 200 && vcn != s_DiagLastVcn && vcn != NULL) {
-        s_DiagLastVcn = vcn;
-        s_DiagCount++;
-        const uint8_t *b = (const uint8_t *)vcn;
-        char lightbuf[128];
-        lightbuf[0] = '\0';
-        int off = 0;
-        int nLights = rsp.current_num_lights;
-        if (nLights > 4) nLights = 4;
-        for (int i = 0; i < nLights; i++) {
-            off += snprintf(lightbuf + off, sizeof(lightbuf) - off,
-                " L%d={%02x %02x %02x%s}", i,
-                rsp.current_lights[i].col[0],
-                rsp.current_lights[i].col[1],
-                rsp.current_lights[i].col[2],
-                (i == rsp.current_num_lights - 1) ? " AMB" : "");
-            if (off >= (int)sizeof(lightbuf)) break;
-        }
-        sysLogPrintf(LOG_NOTE,
-            "GFX.DIAG: G_COL #%d vcn=%p count=%u vtx0={%02x %02x %02x %02x} "
-            "lighting=%d numlights=%d%s",
-            s_DiagCount, vcn, count, b[0], b[1], b[2], b[3],
-            (rsp.geometry_mode & G_LIGHTING) ? 1 : 0,
-            rsp.current_num_lights, lightbuf);
+    static const struct NormalColor *s_DiagRing[128];
+    static int s_DiagRingIdx = 0;
+    if (s_DiagCount >= 5000 || vcn == NULL) return;
+    for (int i = 0; i < 128; i++) {
+        if (s_DiagRing[i] == vcn) return;
     }
+    s_DiagRing[s_DiagRingIdx] = vcn;
+    s_DiagRingIdx = (s_DiagRingIdx + 1) & 127;
+    s_DiagCount++;
+
+    const uint8_t *b = (const uint8_t *)vcn;
+    char lightbuf[128];
+    lightbuf[0] = '\0';
+    int off = 0;
+    int nLights = rsp.current_num_lights;
+    if (nLights > 4) nLights = 4;
+    for (int i = 0; i < nLights; i++) {
+        off += snprintf(lightbuf + off, sizeof(lightbuf) - off,
+            " L%d={%02x %02x %02x%s}", i,
+            rsp.current_lights[i].col[0],
+            rsp.current_lights[i].col[1],
+            rsp.current_lights[i].col[2],
+            (i == rsp.current_num_lights - 1) ? " AMB" : "");
+        if (off >= (int)sizeof(lightbuf)) break;
+    }
+    sysLogPrintf(LOG_NOTE,
+        "GFX.DIAG: G_COL #%d vcn=%p count=%u vtx0={%02x %02x %02x %02x} "
+        "lighting=%d numlights=%d%s",
+        s_DiagCount, vcn, count, b[0], b[1], b[2], b[3],
+        (rsp.geometry_mode & G_LIGHTING) ? 1 : 0,
+        rsp.current_num_lights, lightbuf);
 }
 
 static void gfx_dp_set_other_mode(uint32_t h, uint32_t l) {
