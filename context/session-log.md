@@ -1,8 +1,80 @@
 
 # Session Log (Active)
 
-> **S281–S385** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S386** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S386 — 2026-04-19 (worktree `claude/bold-nightingale-a10f3a`, merged to `dev` @ `66deedfa`) — Menu Stack Compliance Tier 1 batch: M-2 / M-3 / M-4 destructive-action confirm popups
+
+**Scope**: Finish the Tier 1 menu-stack-architecture punch list. M-1 (MP End Game modal) landed in S385; this session converts the remaining three sibling-push / inline-prompt confirm flows to the canonical `BeginPopupModal` pattern.
+
+**Files touched**:
+- `port/fast3d/pdgui_menu_solomission.cpp` — `renderAbortMission` (Solo pause Abort Mission confirm)
+- `port/fast3d/pdgui_menu_cheats.cpp` — `renderCheatsConfirmUnlock` (Cheats "Unlock Everything" confirm)
+- `port/fast3d/pdgui_menu_agentselect.cpp` — Delete / Copy inline prompt → `BeginPopupModal`
+- `port/src/menupool.c` — `g_MissionAbortMenuDialog` + `g_CheatsConfirmUnlockMenuDialog` → `MENU_TYPE_WARNING_MODAL`
+
+### Pattern (mirrors S385 / M-1 `renderMpEndGameDialog`)
+
+Each destructive confirm popup now follows:
+
+1. `ImGui::OpenPopup(id)` on the first frame the dialog is seen (tracked by a file-static `s_*OpenedForDialog` pointer).
+2. `pdguiPopupDarkenBehind(0.65f)` scrim over the full viewport.
+3. `BeginPopupModal` with `NoTitleBar | NoBackground | NoResize | NoMove | NoScrollbar`, PD-authentic frame drawn via `pdguiDrawPdDialog` + `pdguiDrawTextGlow`.
+4. Red palette (`pdguiSetPalette(2)`) for destructive variants; default palette for non-destructive (Agent Copy).
+5. **5-frame `SetKeyboardFocusHere(0)` latch** on the safe-default button so controller focus reliably lands there even if ImGui's popup NavInit hasn't settled on the first rendered frame.
+6. **3-frame input debounce** so the Enter / A press that triggered the popup cannot bleed through into Confirm.
+7. `SetItemDefaultFocus()` after the safe-default button as belt-and-braces once NavInit catches up.
+8. Red-tinted Confirm button for destructive actions; plain button for non-destructive.
+9. Keyboard + gamepad shortcuts (Enter / Space / A → Confirm, Esc / B → Cancel), gated by the same debounce.
+10. On dismissal: `ImGui::CloseCurrentPopup()` + state reset + `menuPopDialog()` to drop the legacy dialog from the stack.
+
+### Per-file highlights
+
+**M-2 — Abort Mission** (`pdgui_menu_solomission.cpp`):
+- Replaced the prior full-screen `ImGui::Begin("##abort_mission", ...)` layout (left/right Cancel/Abort buttons backed by `s_AbortSelectIdx`) with the modal popup.
+- Title pulled from `langSafe(L_OPTIONS_174)` ("Warning"), body from `L_OPTIONS_175` ("Do you want to abort the mission?"), Cancel label from `L_OPTIONS_176`, Confirm from `L_OPTIONS_177` — preserves existing localization.
+- `s_AbortSelectIdx` static + its reset in the module-wide state reset replaced by `s_AbortOpenedForDialog` / `s_AbortOpenFrame`.
+- Confirm fires `menuhandlerAbortMission(MENUOP_SET, nullptr, nullptr)` (same handler as the legacy path) then `menuPopDialog()` as belt-and-braces — the handler itself triggers a mission-end transition that usually unwinds the stack via `menupoolReleaseAll`.
+
+**M-3 — Cheats Confirm Unlock** (`pdgui_menu_cheats.cpp`):
+- Prior implementation already used `pdguiPopupDarkenBehind` + action bar but rendered as a standalone `ImGui::Begin` window, missing popup modal semantics + focus latch.
+- Added `s_CheatsUnlockOpenedForDialog` / `s_CheatsUnlockOpenFrame` statics.
+- "No" keeps default focus; red "Yes" confirms and calls `gamefileUnlockEverything()` (same function the legacy file-static `menuhandlerUnlockEverything` wrapped).
+
+**M-4 — Agent Select Delete / Copy** (`pdgui_menu_agentselect.cpp`):
+- Inline dimmed-overlay prompt (drew via `ImDrawList::AddRectFilled` + `AddText` inside the agent-select window body) replaced by a viewport-level `BeginPopupModal` rendered **after** `ImGui::End()` closes the agent-select window.
+- `s_ConfirmMode` / `s_ConfirmIdx` retained (triggers set mode on key press); new `s_ConfirmOpenFrame` tracks the open frame; `ImGui::OpenPopup(AGENTSEL_CONFIRM_POPUP_ID)` called at trigger time.
+- Delete variant uses red palette + red Confirm button + default focus on Cancel (destructive).
+- Copy variant uses default palette + default Confirm button + default focus on Confirm (non-destructive).
+- Agent-list hotkeys (Enter/C/Delete/D/Escape/Up/Down) gated with `!confirmActive` so the modal owns input while open.
+- Added `#include "pdgui_layout.h"` for `pdguiPopupDarkenBehind`.
+
+### Pool registrations
+
+`port/src/menupool.c` gets two new `REG(..., MENU_TYPE_WARNING_MODAL)` entries alongside the existing `g_MpEndGameMenuDialog` registration. Both defs live in `src/game/` and are not in `data.h`, so the locally-scoped extern pattern (the same one B-194 used for `g_FilemgrFileSelectMenuDialog`) is mirrored here.
+
+M-4 does NOT need a pool registration — the confirm popup is purely ImGui state (no legacy dialogdef push).
+
+### Build + merge
+
+- Worktree: committed as `37f61a1d feat(menu-stack): M-2/M-3/M-4 destructive-action confirm popups (BeginPopupModal)` on branch `claude/bold-nightingale-a10f3a`.
+- Merged into `dev` with `--no-ff` → `66deedfa`.
+- Pre-merge vs. post-merge line counts match exactly:
+  - `pdgui_menu_agentselect.cpp` 623 → 810 (+187)
+  - `pdgui_menu_cheats.cpp` 925 → 1048 (+123)
+  - `pdgui_menu_solomission.cpp` 3552 → 3665 (+113)
+  - `menupool.c` 601 → 617 (+16)
+- `ninja -C Build pd pd-server` → 777/777, `PerfectDark.exe` 53,154,815 bytes and `PerfectDarkServer.exe` 23,143,410 bytes linked clean. Existing pre-existing warnings (modelasm_c, model, collision, snd) unchanged — no new diagnostics.
+
+### Next steps (remaining Tier 1)
+
+- **M-5**: `pdgui_menu_room.cpp` — audit `Leave Room` + scenario `Delete` paths; add missing confirm modals.
+- **M-6**: `pdgui_menu_pausemenu.cpp` — `Quit` in scorecard overlay.
+
+After those two, Tier 1 is complete and we can move to Tier 2 (docked-button migration).
+
+---
 
 ## Session S385 — 2026-04-19 (worktree `claude/infallible-goldberg-71b379`) — B-End-Game-Input: CS pause End Game confirm focus + CS end-of-match input-death
 
