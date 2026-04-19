@@ -2368,6 +2368,31 @@ static void gfx_sp_set_vertex_colors(uint32_t count, const struct NormalColor *v
     //     rsp.vertex_colors[i] = vcn[i];
     // }
     rsp.vertex_colors = vcn;
+
+    /* B-184 DIAG (S382): rate-limited per-unique-pointer dump of vertex-colour
+     * + ambient-light state at G_COL bind time. Goal is to tell whether the
+     * per-object cyan/yellow/green tints Mike sees come from vertex bytes
+     * (wrong data at vcn) or from ambient light (lighting pipeline issue).
+     * Cap total diag lines at 200 per run; skip if same pointer seen recently. */
+    static const struct NormalColor *s_DiagLastVcn = NULL;
+    static int s_DiagCount = 0;
+    if (s_DiagCount < 200 && vcn != s_DiagLastVcn && vcn != NULL) {
+        s_DiagLastVcn = vcn;
+        s_DiagCount++;
+        const uint8_t *b = (const uint8_t *)vcn;
+        uint8_t ar = 0, ag = 0, ab = 0;
+        if (rsp.current_num_lights > 0) {
+            ar = rsp.current_lights[rsp.current_num_lights - 1].col[0];
+            ag = rsp.current_lights[rsp.current_num_lights - 1].col[1];
+            ab = rsp.current_lights[rsp.current_num_lights - 1].col[2];
+        }
+        sysLogPrintf(LOG_NOTE,
+            "GFX.DIAG: G_COL #%d vcn=%p count=%u vtx0={%02x %02x %02x %02x} "
+            "lighting=%d numlights=%d ambient={%02x %02x %02x}",
+            s_DiagCount, vcn, count, b[0], b[1], b[2], b[3],
+            (rsp.geometry_mode & G_LIGHTING) ? 1 : 0,
+            rsp.current_num_lights, ar, ag, ab);
+    }
 }
 
 static void gfx_dp_set_other_mode(uint32_t h, uint32_t l) {

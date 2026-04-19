@@ -1,8 +1,66 @@
 
 # Session Log (Active)
 
-> **S281–S381** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S382** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S382 — 2026-04-19 (worktree `claude/goofy-shaw-96c6c1`) — B-184 third-pass: visual evidence + diagnostic instrumentation
+
+**Scope**: Follow-up to S381. Mike provided two in-game screenshots plus the crucial clarification that *the textures themselves are correct — only a per-object tint is wrong*. Elevator top cyan, computer props yellow/cyan, doors slightly yellow, character body + face olive-green; no visual mods enabled. This rules out every prior hypothesis (normal-visualisation, wrong-texture-selection, UV corruption, the effect_normal_tint mod folder).
+
+### Analysis
+
+Per-object consistent-colour tints on the correct textures mean the tint is baked into per-object **vertex-colour** or **ambient-light** state at render time. Two candidate code paths in `gfx_pc.cpp`:
+
+1. **Ambient RGB leak** — lighting path `:1189-1208` seeds vertex colour `r/g/b` from `rsp.current_lights[n-1].col[0..2]` (the ambient light is the last entry). If ambient is being populated with non-white bytes for certain props/rooms, every lit surface in that draw gets a consistent tint of that colour. Different rooms / different propgens → different tints.
+
+2. **G_COL vertex-data misread** — `gfx_sp_set_vertex_colors` binds `rsp.vertex_colors = seg_addr(cmd->words.w1)` at `:2370`. If segment resolution for a model lands in the wrong bytes (e.g., a recent model-load offset regression), each prop's vertex colour array points at arbitrary memory — each prop reads a consistent-but-wrong colour.
+
+Both hypotheses produce the "per-object, per-texture-correct, differently-tinted" pattern Mike shows.
+
+### Rule-outs this pass
+
+- **AP Phase 3 (S377 `75240823`)**: pure function rename. `assetLoadRomToAddr` → `fileLoadRomToAddr` which is byte-for-byte the pre-rename `fileLoadToAddr` body. Diff inspection confirms no behaviour change. Signature change of `method` from `s32` → `u32` is benign for all FILELOADMETHOD_* values.
+- **AP Phase 4 (S346 `26d9eaca`)**: `romProviderHandle()` made internal. Dispatcher still calls the same worker. No semantic change to the rendered bytes.
+- **S374 B-185 `bgLoadFile` rewrite**: scoped to bg-segment geometry load, not model display list / vertex / texture data. Doesn't touch any path relevant here.
+
+### Unruled: S322 + S323 N64 audit
+
+`4a6382cf` (S322) + `645a9c7c` (S323) stripped ~100 IS4MB / IS8MB branches across `src/game/dlights.c`, `src/lib/model.c`, `src/game/bondgun.c`, and related files. `IS4MB()` is compile-time `0` — the branches were dead — but if any of those dead branches was wrapping a state-reset or a light-colour initialiser that the surrounding code still depended on, removing them would cause silent drift exactly like this.
+
+### Diagnostic shipped
+
+`port/fast3d/gfx_pc.cpp::gfx_sp_set_vertex_colors` now emits a rate-limited `LOG_NOTE` at every new unique `vcn` pointer binding:
+
+```
+GFX.DIAG: G_COL #42 vcn=0x7fff0042a10 count=64 vtx0={ff ff ff ff} lighting=1 numlights=2 ambient={20 80 80}
+```
+
+Cap: 200 lines per run (`s_DiagCount`) + dedup on pointer (`s_DiagLastVcn`). Gates: skip if vcn == NULL. No behaviour change — pure telemetry. The log tells us per-object: the first vertex's four colour/normal bytes, the G_LIGHTING flag at bind time, how many lights are active, and the ambient RGB. Match log entries against visible tints in the next playtest screenshot and the source localises in one pass:
+
+- If `vtx0` bytes == `ff ff ff ff` on every logged draw but `ambient` varies per-room → hypothesis 1 (lighting pipeline).
+- If `vtx0` bytes are arbitrary non-white per draw → hypothesis 2 (vertex data misread).
+- If both are white but the object is still tinted → we need to look at prim/env colour or combiner state.
+
+### Bisect recommendation (for Mike)
+
+If rebuilding from `4a6382cf^` (immediately before S322) produces clean tints, one of the N64 audit strip commits is the culprit — then narrow by bisecting S322 → current tip. If tints still appear on `4a6382cf^`, the regression is older and the AP migration rules it out. That tells us whether to focus the next pass on the N64 audit or earlier.
+
+### Files changed
+
+- `port/fast3d/gfx_pc.cpp` (+22): `GFX.DIAG: G_COL` rate-limited instrumentation in `gfx_sp_set_vertex_colors`. No behaviour change.
+- `context/bugs.md`: B-184 entry extended with third-pass analysis + diagnostic description + bisect recommendation.
+- `context/session-log.md`: this entry.
+
+### Secondary cleanup this session
+
+- Deleted `C:/Users/mikeh/Perfect-Dark-2/post-batch-addin/mods/effect_normal_tint/` — the template folder that the `build.bat` / `release.ps1` pipelines were re-shipping to every user's install on every update. Folder was inert runtime-wise (confirmed S381) but was re-generating in user installs on every release. Post-batch-addin/mods/ is now empty; next build / release won't re-seed it. Users with the folder still in their install can ignore it — still harmless.
+
+### Build + merge status
+
+- Changes NOT yet committed or merged (Mike building locally to verify diagnostic output). This session ends with the worktree in a clean-working-tree-after-diagnostic-edit state once the instrumentation patch is committed.
+
+---
 
 ## Session S381 — 2026-04-19 (worktree `claude/goofy-shaw-96c6c1`) — B-184 second-pass investigation: effect_normal_tint mod folder ruled out
 
