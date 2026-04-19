@@ -916,6 +916,21 @@ void mpInit(bool resetplayers)
 	}
 }
 
+/* Canonical default team names — indices MUST match g_TeamColours (radar.c)
+ * and every s_TeamColors/kTeamColors palette in port/fast3d/.  Reordered
+ * 2026-04-19 (B-186) from the PD-native Red/Yellow/Blue/Magenta scheme so
+ * Two Teams (Humans vs Sims) reads Red vs Blue everywhere. */
+static const char * const kDefaultTeamNames[] = {
+	"Red",    /* 0 */
+	"Blue",   /* 1 */
+	"Green",  /* 2 */
+	"Yellow", /* 3 */
+	"Orange", /* 4 */
+	"Purple", /* 5 */
+	"Grey",   /* 6 */
+	"White",  /* 7 */
+};
+
 #if VERSION >= VERSION_PAL_BETA
 void mpGetTeamsWithDefaultName(u8 *mask)
 {
@@ -924,7 +939,8 @@ void mpGetTeamsWithDefaultName(u8 *mask)
 	*mask = 0;
 
 	for (i = 0; i < ARRAYCOUNT(g_BossFile.teamnames); i++) {
-		if (strcmp(g_BossFile.teamnames[i], langGet(L_OPTIONS_008 + i)) == 0) {
+		if (i < (s32)ARRAYCOUNT(kDefaultTeamNames)
+				&& strcmp(g_BossFile.teamnames[i], kDefaultTeamNames[i]) == 0) {
 			*mask |= 1 << i;
 		}
 	}
@@ -937,8 +953,9 @@ void mpSetTeamNamesToDefault(u8 mask)
 	s32 i;
 
 	for (i = 0; i < ARRAYCOUNT(g_BossFile.teamnames); i++) {
-		if (mask & (1 << i)) {
-			strncpy(g_BossFile.teamnames[i], langGet(L_OPTIONS_008 + i), 11); g_BossFile.teamnames[i][11] = '\0';
+		if ((mask & (1 << i)) && i < (s32)ARRAYCOUNT(kDefaultTeamNames)) {
+			strncpy(g_BossFile.teamnames[i], kDefaultTeamNames[i], 11);
+			g_BossFile.teamnames[i][11] = '\0';
 		}
 	}
 }
@@ -955,8 +972,10 @@ void mpSetDefaultNamesIfEmpty(void)
 
 	// Team names
 	for (i = 0; i < ARRAYCOUNT(g_BossFile.teamnames); i++) {
-		if (g_BossFile.teamnames[i][0] == '\0') {
-			strncpy(g_BossFile.teamnames[i], langGet(L_OPTIONS_008 + i), 11); g_BossFile.teamnames[i][11] = '\0'; // "Red", "Yellow" etc
+		if (g_BossFile.teamnames[i][0] == '\0'
+				&& i < (s32)ARRAYCOUNT(kDefaultTeamNames)) {
+			strncpy(g_BossFile.teamnames[i], kDefaultTeamNames[i], 11);
+			g_BossFile.teamnames[i][11] = '\0';
 		}
 	}
 

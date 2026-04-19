@@ -1250,31 +1250,6 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
             d->color.b = vcn->b;
         }
 
-        /* SAVED EFFECT: "Normal Tint" -- tints rendered geometry by surface normal direction.
-         * Looks cool but classification doesn't match collision mesh normals (these are
-         * lighting normals, not collision normals). Saved for future use as a visual effect.
-         * To re-enable: change condition to check a shader effect toggle instead of mesh debug.
-        if (some_shader_effect_flag) {
-            float ny = vcn->y * rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1][1][0]
-                     + vcn->y * rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1][1][1]
-                     + vcn->z * rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1][1][2];
-            ny /= 127.0f;
-            if (ny > 0.5f) {
-                d->color.r = (uint8_t)(d->color.r * 0.3f);
-                d->color.g = (uint8_t)(d->color.g * 0.3f + 180);
-                d->color.b = (uint8_t)(d->color.b * 0.3f);
-            } else if (ny < -0.5f) {
-                d->color.r = (uint8_t)(d->color.r * 0.3f);
-                d->color.g = (uint8_t)(d->color.g * 0.3f);
-                d->color.b = (uint8_t)(d->color.b * 0.3f + 180);
-            } else {
-                d->color.r = (uint8_t)(d->color.r * 0.3f + 180);
-                d->color.g = (uint8_t)(d->color.g * 0.3f);
-                d->color.b = (uint8_t)(d->color.b * 0.3f);
-            }
-        }
-        */
-
         d->u = U;
         d->v = V;
 

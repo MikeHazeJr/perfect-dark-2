@@ -7,6 +7,15 @@
 
 ---
 
+## Done — 2026-04-19 (S372 — B-186 team-color alignment + B-184 dead-code cleanup, `claude/xenodochial-tereshkova-c14bad`)
+
+- **B-186** — Two Teams rendered enemies YELLOW instead of BLUE. Root cause: `src/game/radar.c::g_TeamColours[]` still used the PD-native order (0:Red, 1:Yellow, 2:Blue, ...) while every menu palette (`pdgui_menu_room.cpp`, `pdgui_bridge.c`, `pdgui_menu_pausemenu.cpp`, `pdgui_menu_endscreen.cpp`, `pdgui_menu_mpingame.cpp`) uses the modern 0:Red, 1:Blue, 2:Green, ... ordering. `applyTwoTeams` / `applyHumansVsSims` assign team=0 to humans and team=1 to sims — the room menu showed "Blue" but radar + chr tint + scenario coloring all read `g_TeamColours[1]` = Yellow.
+- Fix: reordered `g_TeamColours[]` and the mirror `teamcolours[]` in `src/game/activemenu.c` to Red/Blue/Green/Yellow/Orange/Purple/Grey/White. Replaced langbank `L_OPTIONS_008 + i` lookups in `mpSetDefaultNamesIfEmpty` / `mpSetTeamNamesToDefault` / `mpGetTeamsWithDefaultName` (`src/game/mplayer/mplayer.c`) with a new static `kDefaultTeamNames[]` so fresh boss files get the right names. Re-aligned `port/fast3d/pdgui_menu_teamsetup.cpp::s_TeamColors` + `s_TeamNames` (which had their own Red/Blue/Yellow/Green ordering — yet a third variant) to match. All seven palettes + names now agree.
+- **B-184** — investigated without finding an active rainbow-normal source. Confirmed the "SAVED EFFECT: Normal Tint" block in `gfx_pc.cpp` (lines 1253-1276) was fully commented out and the `meshDebug` system's `s_DebugMode` is never written (F9 toggle only logs). Removed the dead SAVED EFFECT block as cleanup. Moved bug to `INVESTIGATED-NO-SMOKING-GUN` with audit notes and the fingerprint questions the next playtest log needs to answer.
+- Build clean 774/774. `PerfectDark.exe` 53,214,883 / `PerfectDarkServer.exe` 23,142,880.
+
+---
+
 ## Done — 2026-04-19 (S371 — B-179/B-180 head modeldef parts=0 fix, `claude/sweet-chandrasekhar-7d64da`)
 
 - **B-179** — 22/32 bots were defaulting to mphead=0 (Joanna Dark) in MP. Six heads load with parts=0 (head_dark_snow, head_ddshock, head_carrington, head_ddsniper, head_president, head_cassandra) but have valid rootnode+skel.
