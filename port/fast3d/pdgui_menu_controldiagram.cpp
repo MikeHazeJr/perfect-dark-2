@@ -41,6 +41,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_layout.h"
 #include "system.h"
 
 /* =========================================================================
@@ -95,26 +96,6 @@ void pdguiCdSetAimControl(s32 mode);
  * Mission dialog (menuhandler001024dc calls menuhandlerControlStyleImpl
  * with mpindex=4 for the single-player seat). */
 #define CD_SOLO_MPINDEX 4
-
-/* =========================================================================
- * PdButton helper (same pattern as other Batch pdgui_menu_*.cpp files)
- * ========================================================================= */
-
-extern "C" void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
-
-static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0, 0))
-{
-    bool clicked = ImGui::Button(label, size);
-    if (clicked) pdguiPlaySound(PDGUI_SND_SELECT);
-    if (ImGui::IsItemHovered() || ImGui::IsItemActive() || ImGui::IsItemFocused()) {
-        ImVec2 rmin = ImGui::GetItemRectMin();
-        ImVec2 rmax = ImGui::GetItemRectMax();
-        pdguiDrawButtonEdgeGlow(rmin.x, rmin.y,
-                                rmax.x - rmin.x, rmax.y - rmin.y,
-                                ImGui::IsItemActive() ? 1 : 0);
-    }
-    return clicked;
-}
 
 /* =========================================================================
  * Window-frame helper (identical shape to pdms_BeginStandardWindow)
@@ -300,11 +281,13 @@ static s32 renderSoloMissionControlStyle(struct menudialog *dialog,
     }
 
     float diagW   = pdguiMenuWidth();
-    float diagH   = pdguiMenuHeight();
     float titleH  = pdguiScale(39.0f);
-    float footerH = pdguiScale(75.0f);
     float padY    = ImGui::GetStyle().WindowPadding.y;
-    float childH  = diagH - titleH - footerH - padY * 2.0f;
+    /* Reserve bottom for the docked action bar (C1); list + diagram panels
+     * (both sibling children, C2 docked) split the remaining height. */
+    float bodyAvail = ImGui::GetContentRegionAvail().y;
+    float childH    = pdguiBodyHeightForActionBar(bodyAvail);
+    (void)titleH; (void)padY;
 
     /* Resolve currently-active mode.  Legacy menuhandler001024dc uses
      * mpindex = 4 for the single-player seat. */
@@ -367,7 +350,16 @@ static s32 renderSoloMissionControlStyle(struct menudialog *dialog,
     ImGui::EndChild();
 
     ImGui::SameLine(0, pdguiScale(20.0f));
-    ImGui::BeginChild("##smc_info", ImVec2(diagramW, childH), true);
+    /* M-17 (C2 preview-dock invariant): the control-mode layout block
+     * ("Left stick: Look", "C buttons: Move / Strafe", etc.) is the PC-port
+     * stand-in for the legacy N64 MENUITEMTYPE_CONTROLLER texture overlay
+     * (a per-mode controller diagram). The block is static 7-8 line text
+     * per mode and must never scroll — it is the diagram for this screen.
+     * Force NoScrollbar | NoScrollWithMouse so the diagram panel is a
+     * fixed-layout sibling to the mode list, not a scrollable region. */
+    ImGui::BeginChild("##smc_info", ImVec2(diagramW, childH), true,
+                      ImGuiWindowFlags_NoScrollbar |
+                      ImGuiWindowFlags_NoScrollWithMouse);
     {
         if (s_SmcCursor >= 0 && s_SmcCursor < 9) {
             const ControlModeInfo *info = &g_ControlModes[s_SmcCursor];
@@ -382,19 +374,15 @@ static s32 renderSoloMissionControlStyle(struct menudialog *dialog,
     }
     ImGui::EndChild();
 
-    /* Footer */
-    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(12.0f));
-    ImGui::Separator();
-    ImGui::Spacing();
-    {
-        float btnW = pdguiScale(210.0f);
-        float btnH = pdguiScale(42.0f);
-        ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
-        if (PdButton("Back", ImVec2(btnW, btnH))) {
+    /* Docked action bar (C1): Back always reachable. */
+    if (pdguiBeginActionBar("##cd_smc_ab")) {
+        if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
             menuPopDialog();
         }
     }
+    pdguiEndActionBar();
+    (void)diagW;
 
     ImGui::End();
     return 1;
@@ -446,11 +434,12 @@ static s32 renderMpControl(struct menudialog *dialog,
     }
 
     float diagW   = pdguiMenuWidth();
-    float diagH   = pdguiMenuHeight();
     float titleH  = pdguiScale(39.0f);
-    float footerH = pdguiScale(75.0f);
     float padY    = ImGui::GetStyle().WindowPadding.y;
-    float childH  = diagH - titleH - footerH - padY * 2.0f;
+    /* Reserve bottom for the docked action bar (C1). */
+    float bodyAvail = ImGui::GetContentRegionAvail().y;
+    float childH    = pdguiBodyHeightForActionBar(bodyAvail);
+    (void)titleH; (void)padY;
 
     ImGui::BeginChild("##mp_ctrl_body",
                       ImVec2(diagW - pdguiScale(30.0f) * 2, childH),
@@ -533,19 +522,15 @@ static s32 renderMpControl(struct menudialog *dialog,
 
     ImGui::EndChild();
 
-    /* Footer */
-    ImGui::SetCursorPosY(diagH - footerH + pdguiScale(12.0f));
-    ImGui::Separator();
-    ImGui::Spacing();
-    {
-        float btnW = pdguiScale(210.0f);
-        float btnH = pdguiScale(42.0f);
-        ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
-        if (PdButton("Back", ImVec2(btnW, btnH))) {
+    /* Docked action bar (C1): Back always reachable. */
+    if (pdguiBeginActionBar("##cd_mpctrl_ab")) {
+        if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
             menuPopDialog();
         }
     }
+    pdguiEndActionBar();
+    (void)diagW;
 
     ImGui::End();
     return 1;

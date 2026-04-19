@@ -19,9 +19,10 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
-#include "pdgui_layout.h" /* M-6: pdguiPopupDarkenBehind */
+#include "pdgui_layout.h" /* M-6: pdguiPopupDarkenBehind; M-7: action bar */
 #include "system.h"
 #include "inputctx.h"
+#include "menupool.h"
 #include "actionmap.h"
 
 /* ========================================================================
@@ -241,8 +242,12 @@ void pdguiPauseMenuOpen(void)
     /* Push pause context — handles mouse release and game pause via on_push.
      * F-1.1: Removed direct SDL_WarpMouseInWindow call that pre-dated
      * inputCtxSyncMouseMode(). The context system's on_push callback for
-     * g_CtxPauseMenu now handles mouse mode transition exclusively. */
-    inputCtxPush(&g_CtxPauseMenu);
+     * g_CtxPauseMenu now handles mouse mode transition exclusively.
+     * M-22: Route through the menu pool so MENU_TYPE_PAUSE_MENU participates
+     * in structural dedup and cascade close via menupoolReleaseAll(). The
+     * pool's ref-counted push/pop mirrors inputCtxPush/PopDeferred when the
+     * slot was free; acquiring an already-active slot is a no-op. */
+    menupoolAcquire(MENU_TYPE_PAUSE_MENU, NULL, &g_CtxPauseMenu);
 
     s_PauseMenuOpen = true;
     s_PauseJustOpened = true;
@@ -266,10 +271,8 @@ void pdguiPauseMenuClose(void)
     s_EndGameConfirm = false;
     s_EndGameOpenFrame = -1;
 
-    /* Pop pause context — gameplay context's on_push restores mouse capture. */
-    if (inputCtxIsActive(&g_CtxPauseMenu)) {
-        inputCtxPopDeferred(&g_CtxPauseMenu);
-    }
+    /* M-22: release the pool slot; it pops the owned ctx via inputCtxPopDeferred. */
+    menupoolRelease(MENU_TYPE_PAUSE_MENU);
 
     s_pauseSetCooldown();
 
@@ -681,12 +684,12 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
         ImGui::Separator();
         ImGui::Spacing();
 
-        /* Tab content area (scrollable) */
-        float contentTop = ImGui::GetCursorPosY();
-        float resumeH = pdguiScale(36.0f);
-        float resumeSpacing = pdguiScale(14.0f);
-        float contentH = menuH - contentTop - resumeH - padB - resumeSpacing;
-        float contentW = menuW - padX - padR;
+        /* Tab content area (scrollable) — height reserves the docked action
+         * bar (C1) plus the chrome bottom inset so Resume can't scroll off. */
+        float contentTop   = ImGui::GetCursorPosY();
+        float availBelow   = menuH - contentTop - padB;
+        float contentH     = pdguiBodyHeightForActionBar(availBelow);
+        float contentW     = menuW - padX - padR;
 
         ImGui::BeginChild("##PauseTabContent", ImVec2(contentW, contentH), false);
 
@@ -697,12 +700,14 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
 
         ImGui::EndChild();
 
-        /* Resume button at bottom center */
-        float resumeW = pdguiScale(180.0f);
-        ImGui::SetCursorPos(ImVec2((menuW - resumeW) * 0.5f, menuH - resumeH - padB));
-        if (PdPauseButton("Resume##pm", ImVec2(resumeW, resumeH))) {
-            pdguiPauseMenuClose();
+        /* Docked action bar (C1): Resume always visible. */
+        if (pdguiBeginActionBar("##pm_ab")) {
+            if (pdguiActionBarButton("Resume", 1,
+                                     ImGui::GetContentRegionAvail().x)) {
+                pdguiPauseMenuClose();
+            }
         }
+        pdguiEndActionBar();
 
         /* M-6: End Game confirm modal — canonical S385 pattern. Click the
          * End Game tab button above to arm (sets s_EndGameConfirm); this

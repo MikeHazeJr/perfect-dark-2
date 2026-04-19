@@ -25,6 +25,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_layout.h"       /* pdguiPopupDarkenBehind (M-4 confirm modal) */
 #include "pdgui_charpreview.h"
 #include "screenmfst.h"
 #include "net/netmanifest.h"
@@ -163,12 +164,20 @@ static s32 s_DefaultAgentFileId = -1; /* file ID of the default agent (-1 = none
 static bool s_DefaultAgentConfigured = false;
 static bool s_AutoLoadTriggered = false;
 
-/* Confirmation prompt state — rendered inline, no nested windows */
+/* Confirmation prompt state — M-4 (2026-04-19): upgraded from inline dimmed
+ * overlay to BeginPopupModal. Delete defaults to Cancel focus (destructive),
+ * Copy defaults to Confirm focus (non-destructive). 5-frame force-focus +
+ * 3-frame input debounce mirrors M-1 pattern in pdgui_menu_warning.cpp so
+ * the triggering X/Delete press can't bleed through into Confirm. */
 #define CONFIRM_NONE   0
 #define CONFIRM_DELETE 1
 #define CONFIRM_COPY   2
 static s32 s_ConfirmMode = CONFIRM_NONE;
 static s32 s_ConfirmIdx = -1;
+static s32 s_ConfirmOpenFrame = -1;
+#define AGENTSEL_CONFIRM_FRAME_DEBOUNCE     3
+#define AGENTSEL_CONFIRM_FORCE_FOCUS_FRAMES 5
+#define AGENTSEL_CONFIRM_POPUP_ID "##agent_select_confirm_modal"
 
 /* S300: s_AgentSelectPushedCtx removed — menu pool owns the ctx for
  * MENU_TYPE_AGENT_SELECT via menupoolAcquireDialog / menupoolReleaseDialog. */
@@ -288,73 +297,18 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     ImGui::Separator();
 
     /* ================================================================
-     * Confirmation prompt — rendered INLINE (no nested ImGui::Begin).
-     * Draws via the draw list over the dialog body, reads input directly.
+     * M-4: Confirmation modal — when s_ConfirmMode is active, gate all
+     * agent-list key input so the modal is the only input sink. The
+     * BeginPopupModal rendering itself happens at the end of the function
+     * (after ImGui::End()) so the modal is a viewport-level overlay rather
+     * than nested inside the agent-select window.
      * ================================================================ */
-    if (s_ConfirmMode != CONFIRM_NONE && s_ConfirmIdx >= 0 && s_ConfirmIdx < fl->numfiles) {
-        struct filelistfile *cf = &fl->files[s_ConfirmIdx];
-        char cfName[12] = {0};
-        u8 cs = 0, cd = 0; u32 ct = 0;
-        gamefileGetOverview(cf->name, cfName, &cs, &cd, &ct);
+    bool confirmActive = (s_ConfirmMode != CONFIRM_NONE &&
+                          s_ConfirmIdx >= 0 && s_ConfirmIdx < fl->numfiles);
 
-        const char *actionWord = (s_ConfirmMode == CONFIRM_DELETE) ? "Delete" : "Copy";
-        /* S311: confirmation prompt color follows the theme palette. */
-        ImU32 promptColor = (s_ConfirmMode == CONFIRM_DELETE)
-            ? pdguiImU32TintDanger(255)
-            : pdguiImU32TitleGlow(255);
-
-        /* Draw a dimmed overlay behind the prompt */
-        ImDrawList *dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(ImVec2(dialogX, dialogY + pdTitleH),
-                          ImVec2(dialogX + dialogW, dialogY + dialogH),
-                          IM_COL32(0, 0, 0, 180));
-
-        /* Prompt text — centered in the dialog */
-        char promptLine1[128];
-        snprintf(promptLine1, sizeof(promptLine1), "%s agent \"%s\"?", actionWord, cfName);
-        const char *promptLine2 = "A/Enter to confirm, B/Esc to cancel";
-
-        ImVec2 sz1 = ImGui::CalcTextSize(promptLine1);
-        ImVec2 sz2 = ImGui::CalcTextSize(promptLine2);
-        float cx = dialogX + dialogW * 0.5f;
-        float cy = dialogY + dialogH * 0.45f;
-
-        dl->AddText(ImVec2(cx - sz1.x * 0.5f, cy - 12.0f * scale), promptColor, promptLine1);
-        dl->AddText(ImVec2(cx - sz2.x * 0.5f, cy + 12.0f * scale),
-                    IM_COL32(200, 200, 200, 220), promptLine2);
-
-        /* Handle input — A = confirm, B/Escape = cancel */
-        if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
-            if (s_ConfirmMode == CONFIRM_DELETE) {
-                pdguiPlaySound(PDGUI_SND_SELECT);
-                g_FilemgrFileToDelete.fileid = cf->fileid;
-                g_FilemgrFileToDelete.deviceserial = cf->deviceserial;
-                filemgrDeleteCurrentFile();
-                if (s_SelectedIdx >= fl->numfiles) s_SelectedIdx = fl->numfiles - 1;
-            } else if (s_ConfirmMode == CONFIRM_COPY) {
-                pdguiPlaySound(PDGUI_SND_SELECT);
-                g_GameFileGuid.fileid = cf->fileid;
-                g_GameFileGuid.deviceserial = cf->deviceserial;
-                filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0);
-                prefsLoadForFile(cf);
-                filemgrPushSelectLocationDialog(0, FILETYPE_GAME);
-            }
-            s_ConfirmMode = CONFIRM_NONE;
-            s_ConfirmIdx = -1;
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-            pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            s_ConfirmMode = CONFIRM_NONE;
-            s_ConfirmIdx = -1;
-        }
-
-        /* Skip list rendering and input while prompt is active */
-        ImGui::End();
-        return 1;
-    }
-
-    /* A / Enter = load/select */
-    if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+    /* A / Enter = load/select — disabled while confirm modal is open so
+     * the modal owns input. */
+    if (!confirmActive && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
         if (s_SelectedIdx == fl->numfiles) {
             pdguiPlaySound(PDGUI_SND_SELECT);
             /* B-124 / S300: pop owned ctx before transitioning away */
@@ -373,23 +327,27 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         }
     }
     /* X / C = copy (with confirmation) */
-    if (ImGui::IsKeyPressed(ImGuiKey_C, false)) {
+    if (!confirmActive && ImGui::IsKeyPressed(ImGuiKey_C, false)) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
             pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
             s_ConfirmMode = CONFIRM_COPY;
             s_ConfirmIdx = s_SelectedIdx;
+            s_ConfirmOpenFrame = (s32)ImGui::GetFrameCount();
+            ImGui::OpenPopup(AGENTSEL_CONFIRM_POPUP_ID);
         }
     }
     /* Y / Delete = delete (with confirmation) */
-    if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
+    if (!confirmActive && ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
             pdguiPlaySound(PDGUI_SND_ERROR);
             s_ConfirmMode = CONFIRM_DELETE;
             s_ConfirmIdx = s_SelectedIdx;
+            s_ConfirmOpenFrame = (s32)ImGui::GetFrameCount();
+            ImGui::OpenPopup(AGENTSEL_CONFIRM_POPUP_ID);
         }
     }
     /* D / RB = set as default agent */
-    if (ImGui::IsKeyPressed(ImGuiKey_D, false)) {
+    if (!confirmActive && ImGui::IsKeyPressed(ImGuiKey_D, false)) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
             struct filelistfile *file = &fl->files[s_SelectedIdx];
             if (s_DefaultAgentFileId == file->fileid) {
@@ -402,21 +360,23 @@ static s32 renderAgentSelect(struct menudialog *dialog,
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
     }
-    /* L-4: B / Escape = go back to previous menu */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    /* L-4: B / Escape = go back to previous menu — only when the confirm
+     * modal isn't open. When it is, Escape cancels the modal (handled in
+     * the BeginPopupModal block below). */
+    if (!confirmActive && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
         menuPopDialog();
         ImGui::End();
         return 1;
     }
-    /* Arrow key navigation for MKB */
-    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+    /* Arrow key navigation for MKB — frozen while modal is open. */
+    if (!confirmActive && ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
         s_SelectedIdx++;
         if (s_SelectedIdx >= totalEntries) s_SelectedIdx = 0;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+    if (!confirmActive && ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
         s_SelectedIdx--;
         if (s_SelectedIdx < 0) s_SelectedIdx = totalEntries - 1;
         pdguiPlaySound(PDGUI_SND_FOCUS);
@@ -566,6 +526,233 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     }
 
     ImGui::End();
+
+    /* ================================================================
+     * M-4: Delete / Copy confirmation modal (rendered as viewport-level
+     * popup after the agent-select window closes). Mirrors the M-1
+     * pattern in pdgui_menu_warning.cpp — 5-frame SetKeyboardFocusHere
+     * on Cancel (Delete) / Confirm (Copy), 3-frame input debounce so the
+     * X/Delete press that triggered the popup can't bleed through.
+     * ================================================================ */
+    if (s_ConfirmMode != CONFIRM_NONE &&
+            s_ConfirmIdx >= 0 && s_ConfirmIdx < fl->numfiles) {
+
+        pdguiPopupDarkenBehind(0.65f);
+
+        struct filelistfile *cf = &fl->files[s_ConfirmIdx];
+        char cfName[12] = {0};
+        u8 cs = 0, cd = 0; u32 ct = 0;
+        gamefileGetOverview(cf->name, cfName, &cs, &cd, &ct);
+
+        const bool isDelete = (s_ConfirmMode == CONFIRM_DELETE);
+
+        /* Red palette for Delete, blue for Copy. */
+        s32 prevPalette = pdguiGetPalette();
+        pdguiSetPalette(isDelete ? 2 : 1);
+
+        float modalW = pdguiScale(540.0f);
+        float modalH = pdguiScale(260.0f);
+        ImVec2 modalPos = pdguiCenterPos(modalW, modalH);
+
+        float pdTitleH = pdguiScale(36.0f);
+        if (pdTitleH < 18.0f) pdTitleH = 18.0f;
+
+        s32 curFrame = (s32)ImGui::GetFrameCount();
+
+        ImGui::SetNextWindowPos(modalPos);
+        ImGui::SetNextWindowSize(ImVec2(modalW, modalH));
+
+        ImGuiWindowFlags mflags = ImGuiWindowFlags_NoResize
+                                | ImGuiWindowFlags_NoMove
+                                | ImGuiWindowFlags_NoCollapse
+                                | ImGuiWindowFlags_NoSavedSettings
+                                | ImGuiWindowFlags_NoTitleBar
+                                | ImGuiWindowFlags_NoBackground
+                                | ImGuiWindowFlags_NoScrollbar;
+
+        bool open = ImGui::BeginPopupModal(AGENTSEL_CONFIRM_POPUP_ID, nullptr, mflags);
+        if (open) {
+            float modalX = ImGui::GetWindowPos().x;
+            float modalY = ImGui::GetWindowPos().y;
+
+            /* Opaque backdrop behind the PD-authentic frame. */
+            {
+                ImDrawList *dl = ImGui::GetWindowDrawList();
+                dl->AddRectFilled(ImVec2(modalX, modalY),
+                                  ImVec2(modalX + modalW, modalY + modalH),
+                                  pdguiPalImU32(PDPAL_BODYBG, 255), 0.0f);
+            }
+
+            /* PD-authentic frame + title. */
+            const char *title = isDelete ? "Delete Agent?" : "Copy Agent?";
+            pdguiDrawPdDialog(modalX, modalY, modalW, modalH, title, 1);
+            {
+                ImDrawList *dl = ImGui::GetWindowDrawList();
+                pdguiDrawTextGlow(modalX + 8.0f, modalY + 2.0f,
+                                  modalW - 16.0f, pdTitleH - 4.0f);
+                ImVec2 titleSize = ImGui::CalcTextSize(title);
+                ImU32 titleCol = isDelete
+                    ? IM_COL32(255, 255, 0, 255)
+                    : pdguiImU32TitleGlow(255);
+                dl->AddText(ImVec2(modalX + (modalW - titleSize.x) * 0.5f,
+                                   modalY + (pdTitleH - titleSize.y) * 0.5f),
+                            titleCol, title);
+            }
+
+            /* Body */
+            pdguiSetCursorBelowTitle(pdTitleH);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8.0f * scale);
+
+            char bodyMsg[160];
+            if (isDelete) {
+                snprintf(bodyMsg, sizeof(bodyMsg),
+                         "Delete agent \"%s\"?\nThis cannot be undone.", cfName);
+            } else {
+                snprintf(bodyMsg, sizeof(bodyMsg),
+                         "Copy agent \"%s\" to a new profile?", cfName);
+            }
+            {
+                float mAvailW = modalW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+                ImVec2 ts = ImGui::CalcTextSize(bodyMsg, nullptr, false, mAvailW);
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (mAvailW - ts.x) * 0.5f);
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + mAvailW);
+                if (isDelete) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.85f, 1.0f));
+                    ImGui::TextWrapped("%s", bodyMsg);
+                    ImGui::PopStyleColor();
+                } else {
+                    ImGui::TextWrapped("%s", bodyMsg);
+                }
+                ImGui::PopTextWrapPos();
+            }
+
+            ImGui::Spacing();
+            ImGui::Spacing();
+
+            /* Buttons */
+            float btnW = pdguiScale(160.0f);
+            float btnH = pdguiScale(32.0f);
+            float gap  = pdguiScale(16.0f);
+            float mAvailW = modalW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+            float totalW = btnW * 2.0f + gap;
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (mAvailW - totalW) * 0.5f);
+
+            bool doConfirm = false;
+            bool doCancel  = false;
+
+            s32 framesOpen = (s_ConfirmOpenFrame >= 0)
+                             ? (curFrame - s_ConfirmOpenFrame)
+                             : AGENTSEL_CONFIRM_FORCE_FOCUS_FRAMES + 1;
+            bool forceFocus = (framesOpen >= 0 &&
+                               framesOpen < AGENTSEL_CONFIRM_FORCE_FOCUS_FRAMES);
+            bool inputDebounced = (framesOpen >= 0 &&
+                                   framesOpen < AGENTSEL_CONFIRM_FRAME_DEBOUNCE);
+
+            if (isDelete) {
+                /* Delete: default focus on Cancel (safer for destructive). */
+                if (forceFocus) ImGui::SetKeyboardFocusHere(0);
+
+                if (ImGui::Button("Cancel##agent_delete_cancel", ImVec2(btnW, btnH))) {
+                    if (!inputDebounced) doCancel = true;
+                }
+                ImGui::SetItemDefaultFocus();
+                ImGui::SameLine(0.0f, gap);
+
+                ImGui::PushStyleColor(ImGuiCol_Button,
+                                      ImVec4(0.55f, 0.10f, 0.10f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                                      ImVec4(0.80f, 0.15f, 0.15f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                                      ImVec4(1.00f, 0.20f, 0.20f, 1.0f));
+                if (ImGui::Button("Delete##agent_delete_confirm",
+                                   ImVec2(btnW, btnH))) {
+                    if (!inputDebounced) doConfirm = true;
+                }
+                ImGui::PopStyleColor(3);
+            } else {
+                /* Copy: non-destructive, default focus on Confirm. */
+                if (ImGui::Button("Cancel##agent_copy_cancel", ImVec2(btnW, btnH))) {
+                    if (!inputDebounced) doCancel = true;
+                }
+                ImGui::SameLine(0.0f, gap);
+
+                if (forceFocus) ImGui::SetKeyboardFocusHere(0);
+                if (ImGui::Button("Copy##agent_copy_confirm", ImVec2(btnW, btnH))) {
+                    if (!inputDebounced) doConfirm = true;
+                }
+                ImGui::SetItemDefaultFocus();
+            }
+
+            /* Keybinding hints */
+            {
+                const char *hintL = "[Enter/Space/(A)] Confirm";
+                const char *hintR = "[Esc/(B)] Cancel";
+
+                float hintY = modalH - pdguiScale(22.0f);
+                if (hintY < ImGui::GetCursorPosY() + 4.0f * scale) {
+                    hintY = ImGui::GetCursorPosY() + 4.0f * scale;
+                }
+                ImGui::SetCursorPos(ImVec2(ImGui::GetStyle().WindowPadding.x, hintY));
+                ImGui::TextDisabled("%s", hintL);
+
+                ImVec2 rSize = ImGui::CalcTextSize(hintR);
+                ImGui::SetCursorPos(ImVec2(modalW - ImGui::GetStyle().WindowPadding.x - rSize.x,
+                                           hintY));
+                ImGui::TextDisabled("%s", hintR);
+            }
+
+            /* Keyboard + gamepad shortcuts — debounced for a few frames so
+             * the X/Delete press that opened the popup doesn't bleed through. */
+            if (!inputDebounced) {
+                if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                    ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
+                    ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+                    doConfirm = true;
+                }
+                if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+                    doCancel = true;
+                }
+            }
+
+            if (doConfirm) {
+                if (isDelete) {
+                    pdguiPlaySound(PDGUI_SND_SELECT);
+                    g_FilemgrFileToDelete.fileid = cf->fileid;
+                    g_FilemgrFileToDelete.deviceserial = cf->deviceserial;
+                    filemgrDeleteCurrentFile();
+                    if (s_SelectedIdx >= fl->numfiles) s_SelectedIdx = fl->numfiles - 1;
+                } else {
+                    pdguiPlaySound(PDGUI_SND_SELECT);
+                    g_GameFileGuid.fileid = cf->fileid;
+                    g_GameFileGuid.deviceserial = cf->deviceserial;
+                    filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0);
+                    prefsLoadForFile(cf);
+                    filemgrPushSelectLocationDialog(0, FILETYPE_GAME);
+                }
+                ImGui::CloseCurrentPopup();
+                s_ConfirmMode = CONFIRM_NONE;
+                s_ConfirmIdx = -1;
+                s_ConfirmOpenFrame = -1;
+            } else if (doCancel) {
+                pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                ImGui::CloseCurrentPopup();
+                s_ConfirmMode = CONFIRM_NONE;
+                s_ConfirmIdx = -1;
+                s_ConfirmOpenFrame = -1;
+            }
+
+            ImGui::EndPopup();
+        } else {
+            /* Popup was closed externally — clear state so we don't reopen
+             * it next frame. */
+            s_ConfirmMode = CONFIRM_NONE;
+            s_ConfirmIdx = -1;
+            s_ConfirmOpenFrame = -1;
+        }
+
+        pdguiSetPalette(prevPalette);
+    }
+
     return 1;
 }
 

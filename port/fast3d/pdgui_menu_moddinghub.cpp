@@ -29,6 +29,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_layout.h"
 #include "pdgui_theme.h"
 #include "pdgui_nineslice.h"
 #include "pdgui_filebrowser.h"
@@ -747,8 +748,18 @@ static void renderScaleTool(float contentW, float contentH, float scale)
     ImGui::EndChild();
     ImGui::SameLine();
 
-    /* ---- Right panel: preview + controls ---- */
-    ImGui::BeginChild("##scale_right", ImVec2(rightW, contentH - footerH), true);
+    /* ---- Right panel: preview + controls ----
+     * M-15 (C2 preview-dock invariant): this panel contains the rotating
+     * character preview (ImGui::Image) plus the scale slider / bake controls.
+     * The preview must not scroll with the controls — if the right column
+     * overflows on short viewports, scrolling would push the preview out of
+     * view. Force NoScrollbar | NoScrollWithMouse so this panel stays a
+     * fixed-layout sibling to the character list; the control stack below
+     * the preview is short enough to fit without scroll (scale slider +
+     * Bake + warning lines fit at every supported pdgui scale). */
+    ImGui::BeginChild("##scale_right", ImVec2(rightW, contentH - footerH), true,
+                      ImGuiWindowFlags_NoScrollbar |
+                      ImGuiWindowFlags_NoScrollWithMouse);
 
     if (s_ScaleSelected < 0) {
         ImGui::TextDisabled("Select a character from the list.");
@@ -1359,8 +1370,11 @@ static void renderModdingHub(s32 winW, s32 winH)
     ImGui::Separator();
 
     /* ---- Content area ---- */
-    /* Hub footer: Close button row */
-    const float hubFooterH = 38.0f * scale;
+    /* Hub footer: action bar (C1) — reserve its height + a one-line tool
+     * description row above it. */
+    const float hubDescH  = 22.0f * scale;
+    const float hubBarH   = pdguiActionBarHeight();
+    const float hubFooterH = hubDescH + hubBarH + 12.0f * scale;
 
     float contentY  = ImGui::GetCursorPosY();
     float contentH  = dialogH - contentY - hubFooterH
@@ -1407,11 +1421,7 @@ static void renderModdingHub(s32 winW, s32 winH)
         ImGui::EndChild();
     }
 
-    /* ---- Hub footer ---- */
-    ImGui::Separator();
-
-    ImGui::SetCursorPosY(dialogH - hubFooterH + ImGui::GetStyle().ItemSpacing.y);
-
+    /* ---- Hub footer: tool description row + docked action bar (C1) ---- */
     const char *toolDescs[] = {
         "Enable/disable mod components",
         "Edit mod .ini manifests",
@@ -1425,25 +1435,12 @@ static void renderModdingHub(s32 winW, s32 winH)
     };
     ImGui::TextDisabled("%s", toolDescs[s_ActiveTool]);
 
-    /* Close button (right-aligned) */
-    float closeW = 80.0f * scale;
-    float closeH = 28.0f * scale;
-    ImGui::SameLine(dialogW - closeW - 8.0f * scale);
-
-    /* S311: Close button tracks theme danger tint. */
-    ImGui::PushStyleColor(ImGuiCol_Button, pdguiVec4TintDanger(128));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, pdguiVec4TintDanger(179));
-    if (ImGui::Button("Close", ImVec2(closeW, closeH))) {
-        moddingHubCloseFromUi("close-button");
+    if (pdguiBeginActionBar("##modhub_ab")) {
+        if (pdguiActionBarButton("Close", 1, ImGui::GetContentRegionAvail().x)) {
+            moddingHubCloseFromUi("close-button");
+        }
     }
-    if (ImGui::IsItemHovered() || ImGui::IsItemActive() || ImGui::IsItemFocused()) {
-        ImVec2 rmin = ImGui::GetItemRectMin();
-        ImVec2 rmax = ImGui::GetItemRectMax();
-        pdguiDrawButtonEdgeGlow(rmin.x, rmin.y,
-                                rmax.x - rmin.x, rmax.y - rmin.y,
-                                ImGui::IsItemActive() ? 1 : 0);
-    }
-    ImGui::PopStyleColor(2);
+    pdguiEndActionBar();
 
     /* Back input mirrors footer Close behavior.  S311: title X button
      * also closes via pdguiConsumeTitleClose (first-click reliability). */

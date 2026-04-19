@@ -50,6 +50,8 @@
 #include "audio.h"
 #if !defined(PD_SERVER)
 #include "input.h"
+#include "inputctx.h"
+#include "menupool.h"
 #endif
 
 s32 g_NetMode = NETMODE_NONE;
@@ -1099,6 +1101,18 @@ s32 netDisconnect(void)
 		 * during the manifest apply.  Same fix pattern as F-0.4 in
 		 * pdguiEndscreenExitToMainMenu and L1-1 in netmsgSvcStageEndRead. */
 		manifestClear(&g_ClientManifest);
+#if !defined(PD_SERVER)
+		/* M-23: cascade-close the menu pool before the stage transition.
+		 * Disconnect paths don't go through menuPushRootDialog (it's a
+		 * direct mainChangeToStage), so without this any pool slot from the
+		 * lobby/room/mp-setup survives into CI training and blocks reopen
+		 * of the same type on return. Mirrors the netmsgSvcStageStartRead
+		 * cleanup (netmsg.c:1307/1461). Also pop the shared menu ctx.  */
+		menupoolReleaseAll();
+		if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+			inputCtxPopDeferred(&g_CtxImGuiMenu);
+		}
+#endif
 		mainChangeToStage(STAGE_CITRAINING);
 	}
 

@@ -29,8 +29,10 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_hotswap.h"
+#include "pdgui_layout.h"
 #include "system.h"
 #include "inputctx.h"
+#include "menupool.h"
 #include "achievements.h"
 #include "pdgui_achievement_toast.h"
 
@@ -278,22 +280,6 @@ static void resolveEndscreenPadding(float basePadX, float basePadY,
     if (outPadB) *outPadB = pb;
 }
 
-/* PD-styled button with audio + edge glow. */
-static bool PdEndButton(const char *label, const ImVec2 &size = ImVec2(0, 0))
-{
-    bool clicked = ImGui::Button(label, size);
-    if (clicked) pdguiPlaySound(PDGUI_SND_SELECT);
-
-    if (ImGui::IsItemHovered() || ImGui::IsItemActive() || ImGui::IsItemFocused()) {
-        ImVec2 rmin = ImGui::GetItemRectMin();
-        ImVec2 rmax = ImGui::GetItemRectMax();
-        pdguiDrawButtonEdgeGlow(rmin.x, rmin.y,
-                                rmax.x - rmin.x, rmax.y - rmin.y,
-                                ImGui::IsItemActive() ? 1 : 0);
-    }
-    return clicked;
-}
-
 /* Horizontal rule with a label. */
 static void SectionHeader(const char *label)
 {
@@ -398,7 +384,7 @@ static void sortRankingsByTeam(ESRankRow *rows, s32 count)
  * immediately activate a menu button. */
 static s32 s_SoloEndscreenDebounce = 0;
 
-static void renderSoloEndscreen(bool completed)
+static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
 {
     /* ----- Palette ---------------------------------------------------- */
     /* E.3: Save and restore so this screen's palette doesn't bleed into
@@ -445,11 +431,12 @@ static void renderSoloEndscreen(bool completed)
 
     /* E.2: Push ImGuiMenu input context on first appear.
      * The context's on_push callback handles SDL mouse mode (absolute + visible).
-     * inputCtxSyncMouseMode() in endFrame ensures it stays correct. */
+     * inputCtxSyncMouseMode() in endFrame ensures it stays correct.
+     * M-22: Route the push through the pool. menuPushDialog's pre-acquire
+     * left the slot active with ctx=NULL; this call attaches ownership so
+     * menupoolReleaseAll() can cascade the ctx pop at stage-transition time. */
     if (ImGui::IsWindowAppearing()) {
-        if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPush(&g_CtxImGuiMenu);
-        }
+        menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
         /* M2.3: Refresh achievements so newly unlocked ones show.
          * D6 P3: poll for newly-unlocked IDs and push toast notifications. */
         achievementsRefresh();
@@ -526,7 +513,12 @@ static void renderSoloEndscreen(bool completed)
     /* ----- Left column: stats  |  Right column: objectives ------------ */
     float colSplit = menuW * 0.47f;
     float contentW = menuW - padX - padR;
-    float contentH = menuH - padY - padB - pdguiScale(60.0f); /* leave room for buttons */
+    /* Reserve space for the docked action bar (C1) below; cursor is already
+     * past the big title + spacing, so measure what's left and subtract the
+     * bar height + a small gap + the chrome inset. */
+    float availY   = ImGui::GetContentRegionAvail().y;
+    float contentH = availY - pdguiActionBarHeight() - pdguiScale(12.0f) - padB;
+    if (contentH < pdguiScale(100.0f)) contentH = pdguiScale(100.0f);
 
     ImGui::BeginChild("##EsContent", ImVec2(contentW, contentH), false);
 
@@ -659,81 +651,59 @@ static void renderSoloEndscreen(bool completed)
 
     ImGui::EndChild();
 
-    /* ----- Action buttons at bottom ----------------------------------- */
-    float btnH   = pdguiScale(48.0f);
-    float btnGap = pdguiScale(18.0f);
-    /* Respect the bottom chrome inset so the action row never clips into
-     * the nineslice border. */
-    float btnY   = menuH - btnH - padB;
-
+    /* ----- Action buttons (docked action bar, C1) ---------------------- */
     /* During input debounce, suppress button activations so the A press
      * that skipped the cutscene doesn't immediately trigger a button. */
     bool inputSuppressed = (s_SoloEndscreenDebounce > 0);
 
-    if (completed) {
-        /* NEXT MISSION (default)  |  RETRY MISSION */
-        float totalBtnW = menuW * 0.7f;
-        float halfW     = (totalBtnW - btnGap) * 0.5f;
-        float startX    = (menuW - totalBtnW) * 0.5f;
+    if (pdguiBeginActionBar("##es_solo_ab")) {
+        float availW = ImGui::GetContentRegionAvail().x;
+        float halfW  = availW * 0.5f;
 
-        ImGui::SetCursorPos(ImVec2(startX, btnY));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
-                            ImVec2(btnGap, pdguiScale(6.0f)));
-
-        /* Continue/Next Mission is the default-focused button (left position) */
-        if (pdguiEndscreenHasNextMission()) {
-            if (PdEndButton("Next Mission", ImVec2(halfW, btnH)) && !inputSuppressed) {
-                pdguiEndscreenNextMission();
+        if (completed) {
+            /* NEXT MISSION (default)  |  RETRY MISSION / MAIN MENU */
+            if (pdguiEndscreenHasNextMission()) {
+                if (pdguiActionBarButton("Next Mission", 1, halfW) && !inputSuppressed) {
+                    pdguiEndscreenNextMission();
+                }
+                ImGui::SameLine();
+                if (pdguiActionBarButton("Retry Mission", 0,
+                                          ImGui::GetContentRegionAvail().x)
+                        && !inputSuppressed) {
+                    pdguiEndscreenStartMission();
+                }
+            } else {
+                if (pdguiActionBarButton("Retry Mission", 1, halfW) && !inputSuppressed) {
+                    pdguiEndscreenStartMission();
+                }
+                ImGui::SameLine();
+                if (pdguiActionBarButton("Main Menu", 0,
+                                          ImGui::GetContentRegionAvail().x)
+                        && !inputSuppressed) {
+                    pdguiEndscreenExitToMainMenu();
+                }
             }
-            ImGui::SetItemDefaultFocus();
         } else {
-            if (PdEndButton("Retry Mission", ImVec2(halfW, btnH)) && !inputSuppressed) {
+            /* RETRY MISSION (default)  |  MAIN MENU (danger) */
+            if (pdguiActionBarButton("Retry Mission", 1, halfW) && !inputSuppressed) {
                 pdguiEndscreenStartMission();
             }
-            ImGui::SetItemDefaultFocus();
-        }
-        ImGui::SameLine();
-
-        if (pdguiEndscreenHasNextMission()) {
-            if (PdEndButton("Retry Mission", ImVec2(halfW, btnH)) && !inputSuppressed) {
-                pdguiEndscreenStartMission();
-            }
-        } else {
-            if (PdEndButton("Main Menu", ImVec2(halfW, btnH)) && !inputSuppressed) {
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  ImVec4(0.3f, 0.1f, 0.1f, 0.9f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                                  ImVec4(0.55f, 0.15f, 0.15f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                                  ImVec4(0.75f, 0.2f, 0.2f, 1.0f));
+            if (pdguiActionBarButton("Main Menu", 0,
+                                      ImGui::GetContentRegionAvail().x)
+                    && !inputSuppressed) {
                 pdguiEndscreenExitToMainMenu();
             }
+            ImGui::PopStyleColor(3);
         }
-
-        ImGui::PopStyleVar();
-    } else {
-        /* RETRY MISSION (default)  |  MAIN MENU */
-        float totalBtnW = menuW * 0.7f;
-        float halfW     = (totalBtnW - btnGap) * 0.5f;
-        float startX    = (menuW - totalBtnW) * 0.5f;
-
-        ImGui::SetCursorPos(ImVec2(startX, btnY));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
-                            ImVec2(btnGap, pdguiScale(6.0f)));
-
-        if (PdEndButton("Retry Mission", ImVec2(halfW, btnH)) && !inputSuppressed) {
-            pdguiEndscreenStartMission();
-        }
-        ImGui::SetItemDefaultFocus();
-        ImGui::SameLine();
-
-        ImGui::PushStyleColor(ImGuiCol_Button,
-                              ImVec4(0.3f, 0.1f, 0.1f, 0.9f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-                              ImVec4(0.55f, 0.15f, 0.15f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive,
-                              ImVec4(0.75f, 0.2f, 0.2f, 1.0f));
-        if (PdEndButton("Main Menu", ImVec2(halfW, btnH)) && !inputSuppressed) {
-            pdguiEndscreenExitToMainMenu();
-        }
-        ImGui::PopStyleColor(3);
-
-        ImGui::PopStyleVar();
     }
+    pdguiEndActionBar();
 
     /* Keyboard navigation: Enter/Start or Escape/Back — also debounced.
      * S311: title X button also exits (first-click reliability). */
@@ -805,7 +775,7 @@ static u32 s_MpEndscreenDiagPrintCount = 0;       /* cap total DIAG output */
 static s32 s_MpEndscreenLastFrame = -1;
 
 /* challengeResult: 0=normal, 1=completed, 2=failed, 3=cheated */
-static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
+static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverride, s32 challengeResult)
 {
     /* S301 Bug C diag: log every entry so we can see the oscillation
      * pattern (how many frames this renderer is called, and in what
@@ -897,9 +867,12 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
                       ((curFrame - s_MpEndscreenLastFrame) > 1);
     s_MpEndscreenLastFrame = curFrame;
 
-    if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
-        inputCtxPush(&g_CtxImGuiMenu);
-    }
+    /* M-22: migrated from direct inputCtxPush(&g_CtxImGuiMenu) to the pool.
+     * menupoolAcquireDialog honours an already-active slot by attaching the
+     * ctx via menupoolAcquire's already-active branch (S300 change), so this
+     * is idempotent across frames and matches the B-End-Game-Input semantics
+     * of pushing unconditionally whenever the ctx isn't live. */
+    menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
     if (ImGui::IsWindowAppearing() || freshEntry) {
         ImGui::SetWindowFocus();
         s_MpEndscreenDebounce = 5;
@@ -984,9 +957,10 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     ImGui::Spacing();
 
     /* ----- Content area ----------------------------------------------- */
-    /* Reserve space for the action button row + bottom chrome inset. */
-    float buttonReserve = pdguiScale(96.0f) + padB;
-    float contentH = menuH - padY - buttonReserve;
+    /* Reserve space for the docked action bar (C1) below; cursor is past
+     * the title + placement headline, so measure what's left. */
+    float availY = ImGui::GetContentRegionAvail().y;
+    float contentH = availY - pdguiActionBarHeight() - pdguiScale(12.0f) - padB;
     {
         const float minH = pdguiScale(100.0f);
         if (contentH < minH) {
@@ -1204,11 +1178,7 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     ImGui::PopStyleColor(); /* ImGuiCol_Text for ##MpContent body */
     ImGui::EndChild();
 
-    /* ----- Action buttons ---------------------------------------------- */
-    float btnH   = pdguiScale(48.0f);
-    float btnGap = pdguiScale(18.0f);
-    /* S297: honour the chrome bottom inset so the action row never clips. */
-    float btnY   = menuH - btnH - padB;
+    /* ----- Action buttons (docked action bar, C1) --------------------- */
     bool networked = (g_NetMode != ES_NETMODE_NONE);
     const bool inputSuppressed = (s_MpEndscreenDebounce > 0);
 
@@ -1218,52 +1188,56 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
     if (s_MpEndscreenDiagFramesRendered == 1 ||
         s_MpEndscreenDiagFramesRendered == 30) {
         ENDSCREEN_DIAG_LOG(
-            "ENDSCREEN.DIAG: actions section networked=%d btnY=%.1f btnH=%.1f "
+            "ENDSCREEN.DIAG: actions section networked=%d barH=%.1f "
             "debounce=%d rankings=%d awards=%d",
-            (s32)networked, btnY, btnH, s_MpEndscreenDebounce,
+            (s32)networked, pdguiActionBarHeight(), s_MpEndscreenDebounce,
             s_MpEndscreenDiagRankingsCount, s_MpEndscreenDiagAwardsShown);
     }
 
-    if (networked) {
-        /* Two buttons: Return to Room (blue) | Disconnect (red) */
-        float halfW = (menuW - padX - padR - btnGap) * 0.5f;
+    if (pdguiBeginActionBar("##es_mp_ab")) {
+        float availW = ImGui::GetContentRegionAvail().x;
+        float halfW  = availW * 0.5f;
 
-        ImGui::SetCursorPos(ImVec2(padX, btnY));
-        if (PdEndButton("Return to Room", ImVec2(halfW, btnH)) && !inputSuppressed) {
-            pdguiEndscreenExitToMainMenu();
-            pdguiSetInRoom(1);
+        if (networked) {
+            if (pdguiActionBarButton("Return to Room", 1, halfW)
+                    && !inputSuppressed) {
+                pdguiEndscreenExitToMainMenu();
+                pdguiSetInRoom(1);
+            }
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,   ImVec4(0.5f, 0.1f, 0.1f, 1.0f));
+            if (pdguiActionBarButton("Disconnect", 0,
+                                      ImGui::GetContentRegionAvail().x)
+                    && !inputSuppressed) {
+                netDisconnect();
+                pdguiEndscreenExitToMainMenu();
+            }
+            ImGui::PopStyleColor(3);
+        } else {
+            if (pdguiActionBarButton("Play Again", 1, halfW)
+                    && !inputSuppressed) {
+                pdguiEndscreenExitToMainMenu();
+                pdguiSoloRoomReturn(); /* U-12: preserve config for rematch */
+            }
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,   ImVec4(0.5f, 0.1f, 0.1f, 1.0f));
+            if (pdguiActionBarButton("Quit", 0,
+                                      ImGui::GetContentRegionAvail().x)
+                    && !inputSuppressed) {
+                pdguiEndscreenExitToMainMenu();
+            }
+            ImGui::PopStyleColor(3);
         }
-
-        ImGui::SetCursorPos(ImVec2(padX + halfW + btnGap, btnY));
-        ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive,   ImVec4(0.5f, 0.1f, 0.1f, 1.0f));
-        if (PdEndButton("Disconnect", ImVec2(halfW, btnH)) && !inputSuppressed) {
-            netDisconnect();
-            pdguiEndscreenExitToMainMenu();
-        }
-        ImGui::PopStyleColor(3);
-    } else {
-        /* Solo: Play Again (blue) | Quit (red) */
-        float halfW = (menuW - padX - padR - btnGap) * 0.5f;
-
-        ImGui::SetCursorPos(ImVec2(padX, btnY));
-        if (PdEndButton("Play Again", ImVec2(halfW, btnH)) && !inputSuppressed) {
-            pdguiEndscreenExitToMainMenu();
-            pdguiSoloRoomReturn(); /* U-12: preserve config for rematch */
-        }
-
-        ImGui::SetCursorPos(ImVec2(padX + halfW + btnGap, btnY));
-        ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive,   ImVec4(0.5f, 0.1f, 0.1f, 1.0f));
-        if (PdEndButton("Quit", ImVec2(halfW, btnH)) && !inputSuppressed) {
-            pdguiEndscreenExitToMainMenu();
-        }
-        ImGui::PopStyleColor(3);
     }
+    pdguiEndActionBar();
 
-    /* Keyboard shortcuts.  S311: title X button mirrors Escape exit. */
+    /* Escape / title X close: still need explicit handling because the
+     * action bar's focused-button Enter path covers the primary action
+     * but not the cancel path.  S311: title X button mirrors Escape exit. */
     if (!inputSuppressed) {
         if (pdguiConsumeTitleClose() ||
             ImGui::IsKeyPressed(ImGuiKey_Escape)) {
@@ -1271,14 +1245,6 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
                 netDisconnect();
             }
             pdguiEndscreenExitToMainMenu();
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_Enter)) {
-            pdguiEndscreenExitToMainMenu();
-            if (networked) {
-                pdguiSetInRoom(1);
-            } else {
-                pdguiSoloRoomReturn(); /* U-12: preserve config for rematch */
-            }
         }
     }
 
@@ -1295,14 +1261,14 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
 /* Solo — completed screen */
 static s32 soloCompletedRender(struct menudialog *dialog, struct menu *menu, s32 winW, s32 winH)
 {
-    renderSoloEndscreen(true);
+    renderSoloEndscreen(dialog, true);
     return 1;
 }
 
 /* Solo — failed screen */
 static s32 soloFailedRender(struct menudialog *dialog, struct menu *menu, s32 winW, s32 winH)
 {
-    renderSoloEndscreen(false);
+    renderSoloEndscreen(dialog, false);
     return 1;
 }
 
@@ -1316,35 +1282,35 @@ static s32 noopRender(struct menudialog *dialog, struct menu *menu, s32 winW, s3
 /* MP — individual game over */
 static s32 mpGameOverIndRender(struct menudialog *dialog, struct menu *menu, s32 winW, s32 winH)
 {
-    renderMpEndscreen(NULL, 0);
+    renderMpEndscreen(dialog, NULL, 0);
     return 1;
 }
 
 /* MP — team game over */
 static s32 mpGameOverTeamRender(struct menudialog *dialog, struct menu *menu, s32 winW, s32 winH)
 {
-    renderMpEndscreen(NULL, 0);
+    renderMpEndscreen(dialog, NULL, 0);
     return 1;
 }
 
 /* MP — challenge completed */
 static s32 mpChallengeCompletedRender(struct menudialog *dialog, struct menu *menu, s32 winW, s32 winH)
 {
-    renderMpEndscreen("CHALLENGE COMPLETED!", 1);
+    renderMpEndscreen(dialog, "CHALLENGE COMPLETED!", 1);
     return 1;
 }
 
 /* MP — challenge cheated */
 static s32 mpChallengeCheatedRender(struct menudialog *dialog, struct menu *menu, s32 winW, s32 winH)
 {
-    renderMpEndscreen("CHALLENGE CHEATED!", 3);
+    renderMpEndscreen(dialog, "CHALLENGE CHEATED!", 3);
     return 1;
 }
 
 /* MP — challenge failed */
 static s32 mpChallengeFailedRender(struct menudialog *dialog, struct menu *menu, s32 winW, s32 winH)
 {
-    renderMpEndscreen("CHALLENGE FAILED!", 2);
+    renderMpEndscreen(dialog, "CHALLENGE FAILED!", 2);
     return 1;
 }
 

@@ -393,7 +393,25 @@ static bool s_Registered = false;
 static s32 s_MissionSelectIdx = 0;     /* Currently selected stage index (0–20) */
 static s32 s_DetailDiffIdx    = 0;     /* Difficulty selection in detail panel (0=A, 1=SA, 2=PA) */
 static s32 s_DetailFocusIdx   = 0;     /* Focus within detail panel: 0..2=diff, 3=Briefing, 4=Start */
-static bool s_DetailPanelFocus = false; /* true = right panel has focus, false = left */
+
+/* M-18 (menu-stack §6 progressive focus): the mission-select flow uses a
+ * three-tier focus model. The leaf menu is always MENU_TYPE_SOLO_MISSION;
+ * within the leaf, focus narrows A-press-by-A-press from the mission list
+ * to the difficulty rows to the Start button. B backs up one tier and
+ * restores focus to the invoker (the selected mission row / last diff
+ * row). Mouse click on any control jumps focus to that control directly
+ * without breaking the group semantics. */
+typedef enum {
+    FOCUS_MISSION_LIST = 0,   /* Left panel: mission list has focus */
+    FOCUS_DIFFICULTY   = 1,   /* Right panel: difficulty rows have focus */
+    FOCUS_START        = 2,   /* Right panel: Start Mission button has focus */
+} MissionFocusGroup;
+
+static MissionFocusGroup s_FocusGroup = FOCUS_MISSION_LIST;
+/* s_DetailPanelFocus is derived from s_FocusGroup; kept as a helper macro
+ * below so the dozens of existing "is right panel active" checks continue
+ * to work without a mass-rename. */
+#define s_DetailPanelFocus (s_FocusGroup != FOCUS_MISSION_LIST)
 static s32 s_PrevBriefingStage = -1;   /* Last stage we loaded briefing for (avoid reload) */
 static bool s_ShowLockedMissions = false; /* Debug: show all missions regardless of unlock */
 
@@ -413,8 +431,14 @@ static s32 s_PauseSelectIdx = 0;   /* 0 = close, 1 = Inventory, 2 = Options, 3 =
 static bool s_RestartConfirm = false;
 static s32  s_RestartSelectIdx = 0;   /* 0 = Cancel, 1 = Restart */
 
-/* Abort confirmation */
-static s32 s_AbortSelectIdx = 0;   /* 0 = Cancel, 1 = Abort */
+/* Abort confirmation — M-2 (2026-04-19): BeginPopupModal pattern with
+ * 5-frame SetKeyboardFocusHere(0) focus latch + 3-frame input debounce so
+ * the Enter press that opened the popup can't bleed through. Mirrors the
+ * M-1 renderMpEndGameDialog pattern in pdgui_menu_warning.cpp. */
+static void *s_AbortOpenedForDialog = nullptr;
+static s32   s_AbortOpenFrame = -1;
+#define ABORT_FRAME_DEBOUNCE       3
+#define ABORT_FORCE_FOCUS_FRAMES   5
 
 /* Options hub — now a tabbed panel */
 static s32 s_OptionsSelectIdx = 0;
@@ -668,7 +692,11 @@ static s32 renderMissionSelect(struct menudialog *dialog,
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
-        s_DetailPanelFocus = false;
+        /* M-18: reset to MISSION_LIST group on open. Focus returns to the
+         * invoker (mission list) via the parent menu pop in any case, but
+         * fresh opens always start at the list level regardless of what
+         * group last had focus before a previous close. */
+        s_FocusGroup = FOCUS_MISSION_LIST;
         s_PrevBriefingStage = -1;  /* force reload on reopen */
         /* Select first accessible mission */
         for (s32 i = 0; i < NUM_SOLOSTAGES; i++) {
@@ -682,33 +710,50 @@ static s32 renderMissionSelect(struct menudialog *dialog,
     pdguiDrawPdDialog(mpos.x, mpos.y, mw, mh, "Mission Select", 1);
     pdguiSetCursorBelowTitle(titleH);
 
-    /* Global escape */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    /* Escape at the list level pops the dialog (menu-stack root exit).
+     * Escape inside DIFFICULTY/START is consumed by the progressive-back
+     * handler below, so we gate this pop on MISSION_LIST only — otherwise
+     * a single Esc press would skip DIFFICULTY -> LIST -> dialog-pop in
+     * one keystroke, violating the "one tier per press" invariant. */
+    if (s_FocusGroup == FOCUS_MISSION_LIST &&
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
         ImGui::End();
         return 1;
     }
 
-    /* Panel focus switching: Left/Right D-pad or Tab */
+    /* M-18 progressive focus (menu-stack §6): Right/A narrows to the next
+     * group (LIST -> DIFFICULTY -> START), Left/B steps back one group.
+     * Left-arrow jumps directly back to the list (visual parity with the
+     * two-column layout), while Esc/B steps ONE tier so keyboard users
+     * can unwind START -> DIFFICULTY -> LIST one press at a time. */
     if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) {
-        if (!s_DetailPanelFocus) {
-            s_DetailPanelFocus = true;
+        if (s_FocusGroup == FOCUS_MISSION_LIST) {
+            s_FocusGroup = FOCUS_DIFFICULTY;
             s_DetailFocusIdx = 0;
             pdguiPlaySound(PDGUI_SND_FOCUS);
         }
     }
     if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) {
-        if (s_DetailPanelFocus) {
-            s_DetailPanelFocus = false;
+        if (s_FocusGroup != FOCUS_MISSION_LIST) {
+            s_FocusGroup = FOCUS_MISSION_LIST;
             pdguiPlaySound(PDGUI_SND_FOCUS);
         }
     }
-    /* B button in right panel = go back to left panel */
-    if (s_DetailPanelFocus &&
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-        s_DetailPanelFocus = false;
-        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+    /* B button / Esc: step back one focus tier. From START -> DIFFICULTY
+     * (restoring focus to the currently-selected diff row); from DIFFICULTY
+     * -> MISSION_LIST (restoring focus to the selected mission row). */
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        if (s_FocusGroup == FOCUS_START) {
+            s_FocusGroup = FOCUS_DIFFICULTY;
+            s_DetailFocusIdx = s_DetailDiffIdx; /* return focus to invoker diff */
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        } else if (s_FocusGroup == FOCUS_DIFFICULTY) {
+            s_FocusGroup = FOCUS_MISSION_LIST;
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        }
+        /* MISSION_LIST Esc is handled above (pops the dialog). */
     }
 
     float bodyH = mh - titleH - pdguiScale(18.0f);
@@ -741,9 +786,12 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                 }
             }
 
-            /* A button / Enter in left panel = move focus to right panel */
+            /* A button / Enter in left panel = narrow to DIFFICULTY group
+             * (M-18: MISSION_LIST -> DIFFICULTY). Focus lands on the first
+             * (Agent) difficulty row; the user then presses A again on the
+             * chosen diff to narrow to START. */
             if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
-                s_DetailPanelFocus = true;
+                s_FocusGroup = FOCUS_DIFFICULTY;
                 s_DetailFocusIdx = 0;
                 pdguiPlaySound(PDGUI_SND_FOCUS);
             }
@@ -881,7 +929,10 @@ static s32 renderMissionSelect(struct menudialog *dialog,
 
                 if (doSelect && accessible) {
                     missionSelectStage(i);
-                    s_DetailPanelFocus = true;
+                    /* M-18: clicking / A-pressing a mission row narrows
+                     * focus to DIFFICULTY (the mission is the "invoker"
+                     * remembered for B-back). */
+                    s_FocusGroup = FOCUS_DIFFICULTY;
                     s_DetailFocusIdx = 0;
                     pdguiPlaySound(PDGUI_SND_OPENDIALOG);
                 }
@@ -985,7 +1036,9 @@ static s32 renderMissionSelect(struct menudialog *dialog,
 
                 if (doSelect && accessible) {
                     missionSelectStage(j);
-                    s_DetailPanelFocus = true;
+                    /* M-18: Special Assignment row click/A narrows focus
+                     * to DIFFICULTY, same as the main chapter rows above. */
+                    s_FocusGroup = FOCUS_DIFFICULTY;
                     s_DetailFocusIdx = 0;
                     pdguiPlaySound(PDGUI_SND_OPENDIALOG);
                 }
@@ -1041,12 +1094,21 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                 s_DetailFocusIdx++;
                 if (s_DetailFocusIdx >= k_NumDetailItems)
                     s_DetailFocusIdx = 0;
+                /* M-18: keep s_FocusGroup in sync with the detail index so
+                 * B-back lands in the correct tier. When the cursor wraps
+                 * past the last diff onto Start, we're in FOCUS_START; any
+                 * other index within the right panel is FOCUS_DIFFICULTY. */
+                s_FocusGroup = (s_DetailFocusIdx == startFocusIdx)
+                             ? FOCUS_START : FOCUS_DIFFICULTY;
                 pdguiPlaySound(PDGUI_SND_FOCUS);
             }
             if (navUp) {
                 s_DetailFocusIdx--;
                 if (s_DetailFocusIdx < 0)
                     s_DetailFocusIdx = k_NumDetailItems - 1;
+                /* M-18 (see navDown): sync focus group with the detail index. */
+                s_FocusGroup = (s_DetailFocusIdx == startFocusIdx)
+                             ? FOCUS_START : FOCUS_DIFFICULTY;
                 pdguiPlaySound(PDGUI_SND_FOCUS);
             }
         }
@@ -1088,7 +1150,9 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                                               ImVec2(rowW, diffRowH));
             if (ImGui::IsItemHovered()) {
                 s_DetailFocusIdx = d;
-                s_DetailPanelFocus = true;
+                /* M-18: hovering a diff row promotes focus into DIFFICULTY
+                 * group (mouse stays additive with controller). */
+                s_FocusGroup = FOCUS_DIFFICULTY;
             }
 
             /* Confirm from keyboard/gamepad */
@@ -1098,6 +1162,14 @@ static s32 renderMissionSelect(struct menudialog *dialog,
             if ((clicked || doConfirm) && !locked) {
                 s_DetailDiffIdx = d;
                 pdguiPlaySound(PDGUI_SND_SELECT);
+                /* M-18: A on an unlocked difficulty narrows focus to the
+                 * START group so the next A press launches. Mouse clicks
+                 * also advance to START — the visual "Start Mission" CTA
+                 * is now highlighted waiting for confirm. We also move
+                 * s_DetailFocusIdx to the action-bar slot so the focus
+                 * ring + nav cursor land on the button, not the diff row. */
+                s_FocusGroup = FOCUS_START;
+                s_DetailFocusIdx = startFocusIdx;
             } else if ((clicked || doConfirm) && locked) {
                 pdguiPlaySound(PDGUI_SND_ERROR);
             }
@@ -1165,13 +1237,19 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                                                ImVec2(rowW, diffRowH));
             if (ImGui::IsItemHovered()) {
                 s_DetailFocusIdx = pdFocusIdx;
-                s_DetailPanelFocus = true;
+                /* M-18: PD Mode row hover promotes focus into DIFFICULTY. */
+                s_FocusGroup = FOCUS_DIFFICULTY;
             }
 
             bool pdConfirm = isPdFocus && ImGui::IsKeyPressed(ImGuiKey_Enter, false);
             if (pdClicked || pdConfirm) {
                 s_DetailDiffIdx = 3;
                 pdguiPlaySound(PDGUI_SND_SELECT);
+                /* M-18: A on PD Mode narrows focus to START, matching the
+                 * behaviour of the other difficulty rows. Move the focus
+                 * index too so the Start button gets the visual cursor. */
+                s_FocusGroup = FOCUS_START;
+                s_DetailFocusIdx = startFocusIdx;
             }
 
             /* Overlay: purple badge + label + best time */
@@ -1297,7 +1375,9 @@ static s32 renderMissionSelect(struct menudialog *dialog,
 
             if (ImGui::IsItemHovered()) {
                 s_DetailFocusIdx = startFocusIdx;
-                s_DetailPanelFocus = true;
+                /* M-18: Start button hover promotes focus into the
+                 * START group (mouse users jump straight to the leaf). */
+                s_FocusGroup = FOCUS_START;
             }
 
             if (activated && !diffLocked) {
@@ -2941,117 +3021,223 @@ static s32 renderPauseMenu(struct menudialog *dialog,
 }
 
 /* =========================================================================
- * Abort Mission (Danger dialog)
+ * Abort Mission (M-2: BeginPopupModal over pause menu)
+ *
+ * Mirrors the M-1 renderMpEndGameDialog pattern in pdgui_menu_warning.cpp:
+ *   - ImGui::OpenPopup + BeginPopupModal for popup-over-parent semantics so
+ *     the Solo pause is visually underneath the scrim.
+ *   - pdguiPopupDarkenBehind(0.65f) scrim darkens the viewport.
+ *   - Red/danger palette inside the modal body.
+ *   - 5-frame SetKeyboardFocusHere(0) on Cancel so controller focus lands
+ *     reliably even if ImGui popup NavInit hasn't settled.
+ *   - 3-frame input debounce so the Enter/A press that opened the popup
+ *     can't bleed through into Confirm.
  * ========================================================================= */
 
 static s32 renderAbortMission(struct menudialog *dialog,
-                               struct menu *menu,
-                               s32 winW, s32 winH)
+                               struct menu * /*menu*/,
+                               s32 /*winW*/, s32 /*winH*/)
 {
-    float mw  = pdguiMenuWidth() * 0.55f;
-    float mh  = pdguiMenuHeight() * 0.35f;
-    ImVec2 pos = pdguiCenterPos(mw, mh);
+    struct menudialogdef *def = (dialog != nullptr)
+        ? *(struct menudialogdef **)((u8 *)dialog)
+        : nullptr;
+    (void)def;
 
-    /* Switch to danger (red) palette for this dialog */
+    /* Full-viewport scrim — dim the pause menu / game scene behind the modal. */
+    pdguiPopupDarkenBehind(0.65f);
+
+    /* Red / warning palette for the frame and title. */
     s32 prevPalette = pdguiGetPalette();
     pdguiSetPalette(2);
 
-    ImGui::SetNextWindowPos(pos);
-    ImGui::SetNextWindowSize(ImVec2(mw, mh));
+    float scale = pdguiScaleFactor();
+    float dialogW = pdguiScale(540.0f);
+    float dialogH = pdguiScale(260.0f);
+    ImVec2 dlgPos = pdguiCenterPos(dialogW, dialogH);
 
-    ImGuiWindowFlags wf = ImGuiWindowFlags_NoResize
-                        | ImGuiWindowFlags_NoMove
-                        | ImGuiWindowFlags_NoCollapse
-                        | ImGuiWindowFlags_NoSavedSettings
-                        | ImGuiWindowFlags_NoTitleBar
-                        | ImGuiWindowFlags_NoBackground;
+    float pdTitleH = pdguiScale(36.0f);
+    if (pdTitleH < 18.0f) pdTitleH = 18.0f;
 
-    if (!ImGui::Begin("##abort_mission", nullptr, wf)) {
-        pdguiSetPalette(prevPalette);
-        ImGui::End();
-        return 1;
+    const char *popupId = "##mission_abort_modal";
+    s32 curFrame = (s32)ImGui::GetFrameCount();
+
+    /* Kick the popup open on first frame the dialog is seen. */
+    if (s_AbortOpenedForDialog != (void *)dialog) {
+        ImGui::OpenPopup(popupId);
+        s_AbortOpenedForDialog = (void *)dialog;
+        s_AbortOpenFrame = curFrame;
+        pdguiPlaySound(PDGUI_SND_ERROR);
     }
 
-    if (ImGui::IsWindowAppearing()) {
-        ImGui::SetWindowFocus();
-        s_AbortSelectIdx = 0;  /* default to Cancel (safer) */
-    }
+    ImGui::SetNextWindowPos(dlgPos);
+    ImGui::SetNextWindowSize(ImVec2(dialogW, dialogH));
 
-    float titleH = pdguiScale(39.0f);
-    pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langSafe(L_OPTIONS_174), 1);
-    pdguiSetCursorBelowTitle(titleH);
+    ImGuiWindowFlags wflags = ImGuiWindowFlags_NoResize
+                            | ImGuiWindowFlags_NoMove
+                            | ImGuiWindowFlags_NoCollapse
+                            | ImGuiWindowFlags_NoSavedSettings
+                            | ImGuiWindowFlags_NoTitleBar
+                            | ImGuiWindowFlags_NoBackground
+                            | ImGuiWindowFlags_NoScrollbar;
 
-    /* Warning text */
-    ImGui::Spacing();
-    ImGui::SetCursorPosX(ImGui::GetStyle().WindowPadding.x + pdguiScale(12.0f));
-    ImGui::PushTextWrapPos(mw - pdguiScale(24.0f));
-    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.85f, 1.0f), "%s", langSafe(L_OPTIONS_175));
-    ImGui::PopTextWrapPos();
-    ImGui::Spacing();
-    ImGui::Separator();
-
-    /* Navigation */
-    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true)        ||
-        ImGui::IsKeyPressed(ImGuiKey_RightArrow, true)) {
-        s_AbortSelectIdx = 1 - s_AbortSelectIdx;
-        pdguiPlaySound(PDGUI_SND_FOCUS);
-    }
-    /* B / Escape always cancels — safety default */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-        pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
-        pdguiSetPalette(prevPalette);
-        ImGui::End();
-        return 1;
-    }
-
-    bool doConfirm = ImGui::IsKeyPressed(ImGuiKey_Enter, false);
-
-    /* ---- Cancel / Abort buttons side by side ---- */
-    float btnH = pdguiScale(54.0f);
-    float btnW = (mw - ImGui::GetStyle().WindowPadding.x * 2.0f - pdguiScale(15.0f)) * 0.5f;
-
-    /* Cancel */
-    {
-        bool isSel = (s_AbortSelectIdx == 0);
-        ImVec2 cp = ImGui::GetCursorScreenPos();
-        if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, btnW, btnH);
-
-        bool clicked = ImGui::Button(langSafe(L_OPTIONS_176), ImVec2(btnW, btnH));
-        if (ImGui::IsItemHovered()) s_AbortSelectIdx = 0;
-        if (clicked || (isSel && doConfirm)) {
+    bool open = ImGui::BeginPopupModal(popupId, nullptr, wflags);
+    if (!open) {
+        /* Popup dismissed externally (hotswap teardown etc.) — drop the
+         * dialog from the legacy stack so the pause menu returns cleanly. */
+        if (s_AbortOpenedForDialog == (void *)dialog) {
+            s_AbortOpenedForDialog = nullptr;
+            s_AbortOpenFrame = -1;
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
             menuPopDialog();
-            pdguiSetPalette(prevPalette);
-            ImGui::End();
-            return 1;
         }
+        pdguiSetPalette(prevPalette);
+        return 1;
     }
 
-    ImGui::SameLine(0.0f, pdguiScale(15.0f));
+    float dialogX = ImGui::GetWindowPos().x;
+    float dialogY = ImGui::GetWindowPos().y;
 
-    /* Abort */
+    /* Opaque backdrop behind the PD-authentic frame. */
     {
-        bool isSel = (s_AbortSelectIdx == 1);
-        ImVec2 cp = ImGui::GetCursorScreenPos();
-        if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, btnW, btnH);
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(ImVec2(dialogX, dialogY),
+                          ImVec2(dialogX + dialogW, dialogY + dialogH),
+                          pdguiPalImU32(PDPAL_BODYBG, 255), 0.0f);
+    }
 
-        ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintDanger());
-        bool clicked = ImGui::Button(langSafe(L_OPTIONS_177), ImVec2(btnW, btnH));
+    /* PD-authentic frame + title. */
+    const char *title = langSafe(L_OPTIONS_174);
+    if (!title || !title[0]) title = "Warning";
+    pdguiDrawPdDialog(dialogX, dialogY, dialogW, dialogH, title, 1);
+    {
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        pdguiDrawTextGlow(dialogX + 8.0f, dialogY + 2.0f,
+                          dialogW - 16.0f, pdTitleH - 4.0f);
+        ImVec2 titleSize = ImGui::CalcTextSize(title);
+        dl->AddText(ImVec2(dialogX + (dialogW - titleSize.x) * 0.5f,
+                           dialogY + (pdTitleH - titleSize.y) * 0.5f),
+                    IM_COL32(255, 255, 0, 255), title);
+    }
+
+    /* Body */
+    pdguiSetCursorBelowTitle(pdTitleH);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8.0f * scale);
+
+    const char *bodyMsg = langSafe(L_OPTIONS_175);
+    if (!bodyMsg || !bodyMsg[0]) bodyMsg = "Do you want to abort the mission?";
+    {
+        float availW = dialogW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+        ImVec2 ts = ImGui::CalcTextSize(bodyMsg, nullptr, false, availW);
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availW - ts.x) * 0.5f);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + availW);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.85f, 1.0f));
+        ImGui::TextWrapped("%s", bodyMsg);
         ImGui::PopStyleColor();
+        ImGui::PopTextWrapPos();
+    }
 
-        if (ImGui::IsItemHovered()) s_AbortSelectIdx = 1;
-        if (clicked || (isSel && doConfirm)) {
-            pdguiPlaySound(PDGUI_SND_EXPLOSION);
-            menuhandlerAbortMission(MENUOP_SET, nullptr, nullptr);
-            pdguiSetPalette(prevPalette);
-            ImGui::End();
-            return 1;
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* Buttons */
+    float btnW = pdguiScale(160.0f);
+    float btnH = pdguiScale(32.0f);
+    float gap  = pdguiScale(16.0f);
+    float availW = dialogW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+    float totalW = btnW * 2.0f + gap;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availW - totalW) * 0.5f);
+
+    bool doConfirm = false;
+    bool doCancel  = false;
+
+    s32 framesOpen = (s_AbortOpenFrame >= 0)
+                     ? (curFrame - s_AbortOpenFrame)
+                     : ABORT_FORCE_FOCUS_FRAMES + 1;
+    bool forceFocus = (framesOpen >= 0 && framesOpen < ABORT_FORCE_FOCUS_FRAMES);
+    bool inputDebounced = (framesOpen >= 0 && framesOpen < ABORT_FRAME_DEBOUNCE);
+
+    if (forceFocus) {
+        ImGui::SetKeyboardFocusHere(0);
+    }
+
+    /* Cancel first — safer default focus for destructive confirm. */
+    const char *cancelLabel = langSafe(L_OPTIONS_176);
+    if (!cancelLabel || !cancelLabel[0]) cancelLabel = "Cancel";
+    char cancelBtnId[96];
+    snprintf(cancelBtnId, sizeof(cancelBtnId), "%s##mission_abort_cancel", cancelLabel);
+    if (ImGui::Button(cancelBtnId, ImVec2(btnW, btnH))) {
+        if (!inputDebounced) doCancel = true;
+    }
+    ImGui::SetItemDefaultFocus();
+
+    ImGui::SameLine(0.0f, gap);
+
+    /* Red "Abort" confirm. */
+    const char *abortLabel = langSafe(L_OPTIONS_177);
+    if (!abortLabel || !abortLabel[0]) abortLabel = "Abort";
+    char abortBtnId[96];
+    snprintf(abortBtnId, sizeof(abortBtnId), "%s##mission_abort_confirm", abortLabel);
+    ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.10f, 0.10f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.80f, 0.15f, 0.15f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(1.00f, 0.20f, 0.20f, 1.0f));
+    if (ImGui::Button(abortBtnId, ImVec2(btnW, btnH))) {
+        if (!inputDebounced) doConfirm = true;
+    }
+    ImGui::PopStyleColor(3);
+
+    /* Keybinding hints */
+    {
+        const char *hintL = "[Enter/Space/(A)] Confirm";
+        const char *hintR = "[Esc/(B)] Cancel";
+
+        float hintY = dialogH - pdguiScale(22.0f);
+        if (hintY < ImGui::GetCursorPosY() + 4.0f * scale) {
+            hintY = ImGui::GetCursorPosY() + 4.0f * scale;
+        }
+        ImGui::SetCursorPos(ImVec2(ImGui::GetStyle().WindowPadding.x, hintY));
+        ImGui::TextDisabled("%s", hintL);
+
+        ImVec2 rSize = ImGui::CalcTextSize(hintR);
+        ImGui::SetCursorPos(ImVec2(dialogW - ImGui::GetStyle().WindowPadding.x - rSize.x,
+                                   hintY));
+        ImGui::TextDisabled("%s", hintR);
+    }
+
+    /* Keyboard + gamepad shortcuts. Debounced for ABORT_FRAME_DEBOUNCE frames
+     * after open so the Enter press that activated the Abort row can't bleed
+     * through. */
+    if (!inputDebounced) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+            ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
+            ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+            doConfirm = true;
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            doCancel = true;
         }
     }
 
+    if (doConfirm) {
+        pdguiPlaySound(PDGUI_SND_EXPLOSION);
+        /* Abort handler kicks off mission-end transition which unwinds the
+         * menu stack via menupoolReleaseAll(). Pop the dialog explicitly as
+         * belt-and-braces so the legacy stack is clean even if the handler
+         * path changes. */
+        menuhandlerAbortMission(MENUOP_SET, nullptr, nullptr);
+        ImGui::CloseCurrentPopup();
+        s_AbortOpenedForDialog = nullptr;
+        s_AbortOpenFrame = -1;
+        menuPopDialog();
+    } else if (doCancel) {
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        ImGui::CloseCurrentPopup();
+        s_AbortOpenedForDialog = nullptr;
+        s_AbortOpenFrame = -1;
+        menuPopDialog();
+    }
+
+    ImGui::EndPopup();
     pdguiSetPalette(prevPalette);
-    ImGui::End();
     return 1;
 }
 
@@ -3467,7 +3653,7 @@ extern "C" void pdguiSoloMissionReset(void)
     s_MissionSelectIdx    = 0;
     s_DetailDiffIdx       = 0;
     s_DetailFocusIdx      = 0;
-    s_DetailPanelFocus    = false;
+    s_FocusGroup          = FOCUS_MISSION_LIST;   /* M-18 reset */
     s_PrevBriefingStage   = -1;
     s_ShowLockedMissions  = false;
     s_DiffSelectIdx       = 0;
@@ -3476,7 +3662,8 @@ extern "C" void pdguiSoloMissionReset(void)
     s_PauseSelectIdx      = 0;
     s_RestartConfirm      = false;
     s_RestartSelectIdx    = 0;
-    s_AbortSelectIdx      = 0;
+    s_AbortOpenedForDialog = nullptr;
+    s_AbortOpenFrame      = -1;
     s_OptionsSelectIdx    = 0;
     s_OptionsTabIdx       = 0;
     s_CoopAntiDiffSelectIdx = 0;
