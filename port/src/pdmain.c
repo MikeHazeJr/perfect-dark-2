@@ -696,7 +696,7 @@ void mainTick(void)
 			 * pending room-load candidates. Also fires a second snapshot at
 			 * frame=30 to separate "state correct on frame 0" from "state
 			 * correct but stays wrong after settle". */
-			if (s_B193FirstRenderDiagPending && STAGE_IS_GAMEPLAY(g_StageNum) && g_Vars.currentplayer) {
+			if (s_B193FirstRenderDiagPending == 1 && STAGE_IS_GAMEPLAY(g_StageNum) && g_Vars.currentplayer) {
 				struct prop *pprop = g_Vars.currentplayer->prop;
 				s32 firstRoom = (pprop && pprop->rooms[0] != (RoomNum)-1) ? pprop->rooms[0] : -1;
 				s32 camRoom = g_Vars.currentplayer->cam_room;
