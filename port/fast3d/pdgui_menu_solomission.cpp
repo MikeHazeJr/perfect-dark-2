@@ -45,6 +45,7 @@
 #include "actionmap.h"
 #include "system.h"
 #include "inputctx.h"
+#include "menupool.h"
 #include "assetcatalog.h"
 
 /* =========================================================================
@@ -2625,6 +2626,19 @@ static s32 renderPauseMenu(struct menudialog *dialog,
         s_PauseSelectIdx   = 0;
         s_RestartConfirm   = false;
         s_RestartSelectIdx = 0;
+        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+        /* S369: attach g_CtxImGuiMenu to the already-acquired pool slot so
+         * menu input routing works.  menuPushRootDialog → menuPushDialog
+         * pre-acquires the slot with ctx=NULL; this re-acquire with the
+         * live ctx pushes g_CtxImGuiMenu onto the input context stack, so
+         * mouse flips to absolute/visible mode and g_ImcMenu activates.
+         * Without this the pause draws over live gameplay input — the
+         * player's WASD / fire buttons still fire while the pause is
+         * visible, and child DANGER dialogs (Abort Mission confirm) stay
+         * unresponsive because no menu IMC is on top.  See log: solo
+         * pause was being acquired as `ctx=none(shared)` with no matching
+         * `INPUTCTX: imgui_menu on_push` line. */
+        menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
     }
 
     /* Title: "StageName: Status" */
