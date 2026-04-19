@@ -54,7 +54,8 @@
 #define DEFAULT_PROTECTED    "mods,data,extracted,saves"
 
 #define MAX_RELEASES         64
-#define WINDOW_CLIENT_H      572  /* client-area height to fit all controls + padding */
+#define WINDOW_CLIENT_W      720  /* default + minimum client-area width */
+#define WINDOW_CLIENT_H      620  /* default + minimum client-area height */
 #define MAX_URL_LEN          512
 #define MAX_TAG_LEN          64
 #define MAX_NAME_LEN         128
@@ -81,6 +82,9 @@ enum {
 	IDC_STATUS,
 	IDC_BTN_UPDATE,
 	IDC_BTN_CLOSE,
+	IDC_TITLE,
+	IDC_LBL_RELEASES,
+	IDC_LBL_NOTES,
 };
 
 /* Worker -> UI messages */
@@ -132,6 +136,9 @@ typedef struct {
 	HWND hStatus;
 	HWND hCurrentVer;
 	HWND hShowDevReleases;
+	HWND hTitle;
+	HWND hLblReleases;
+	HWND hLblNotes;
 
 	/* Theme */
 	HFONT hFontUI;
@@ -1279,6 +1286,7 @@ static void showProgress(int visible)
 static void onCheck(void);
 static void onUpdate(void);
 static void onClose(HWND hwnd);
+static void layoutControls(HWND hwnd);
 
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
@@ -1492,6 +1500,25 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 		setStatus("Install failed: %s", g_App.errorMsg);
 		MessageBoxA(hwnd, g_App.errorMsg, "Install failed", MB_ICONERROR | MB_OK);
 		break;
+	case WM_SIZE:
+		layoutControls(hwnd);
+		InvalidateRect(hwnd, NULL, TRUE);
+		break;
+	case WM_GETMINMAXINFO: {
+		/*
+		 * Enforce a minimum window size large enough to keep every control
+		 * (including the docked Update/Close buttons) visible. The values
+		 * include the non-client frame so they apply to the outer window
+		 * rect that WM_GETMINMAXINFO operates on.
+		 */
+		MINMAXINFO *mmi = (MINMAXINFO *)lParam;
+		RECT rc = {0, 0, WINDOW_CLIENT_W, WINDOW_CLIENT_H};
+		DWORD style = (DWORD)GetWindowLongPtr(hwnd, GWL_STYLE);
+		AdjustWindowRect(&rc, style, FALSE);
+		mmi->ptMinTrackSize.x = rc.right - rc.left;
+		mmi->ptMinTrackSize.y = rc.bottom - rc.top;
+		return 0;
+	}
 	case WM_CLOSE:
 		onClose(hwnd);
 		break;
@@ -1561,18 +1588,157 @@ static void onClose(HWND hwnd)
  * Window creation
  * ======================================================================== */
 
+/*
+ * Layout constants -- shared by createControls() (initial creation) and
+ * layoutControls() (WM_SIZE re-anchoring). Keep these in one place so the
+ * docked-footer pattern stays consistent across both code paths.
+ */
+#define UI_PAD          12
+#define UI_TITLE_H      28
+#define UI_ROW_H        20
+#define UI_BTN_W        110
+#define UI_BTN_H        32
+#define UI_CHECK_BTN_W  160
+#define UI_CHECK_BTN_H  30
+#define UI_CHK_W        200
+#define UI_LIST_H       160
+#define UI_PROG_H       18
+#define UI_STATUS_H     20
+#define UI_NOTES_MIN_H  60
+
+/*
+ * Re-anchor every child control based on the current client rect.
+ *
+ * Top-anchored: title, version + dev-releases checkbox, Check button,
+ *               "Available releases:" label, releases list view,
+ *               "Release notes:" label.
+ * Bottom-anchored: Update + Close action buttons, status text, progress bar.
+ * Stretch-fill: notes edit box absorbs all leftover vertical space.
+ *
+ * This is the docked-footer pattern: the action row is pinned to the bottom
+ * of the client area, so resizing or DPI variation can never clip it.
+ */
+static void layoutControls(HWND hwnd)
+{
+	if (!g_App.hMain) return;
+
+	RECT rc;
+	GetClientRect(hwnd, &rc);
+	const int clientW = rc.right - rc.left;
+	const int clientH = rc.bottom - rc.top;
+	const int contentW = clientW - 2 * UI_PAD;
+	if (contentW <= 0 || clientH <= 0) return;
+
+	HDWP hdwp = BeginDeferWindowPos(13);
+
+	/* --- Bottom-anchored row: action buttons (right-justified). --- */
+	int btnY    = clientH - UI_PAD - UI_BTN_H;
+	int closeX  = clientW - UI_PAD - UI_BTN_W;
+	int updateX = closeX - 8 - UI_BTN_W;
+	if (g_App.hBtnClose) {
+		hdwp = DeferWindowPos(hdwp, g_App.hBtnClose, NULL,
+			closeX, btnY, UI_BTN_W, UI_BTN_H, SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+	if (g_App.hBtnUpdate) {
+		hdwp = DeferWindowPos(hdwp, g_App.hBtnUpdate, NULL,
+			updateX, btnY, UI_BTN_W, UI_BTN_H, SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+
+	/* Status text just above the buttons (full width). */
+	int statusY = btnY - 8 - UI_STATUS_H;
+	if (g_App.hStatus) {
+		hdwp = DeferWindowPos(hdwp, g_App.hStatus, NULL,
+			UI_PAD, statusY, contentW, UI_STATUS_H, SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+
+	/* Progress bar just above status (full width). */
+	int progY = statusY - 4 - UI_PROG_H;
+	if (g_App.hProgress) {
+		hdwp = DeferWindowPos(hdwp, g_App.hProgress, NULL,
+			UI_PAD, progY, contentW, UI_PROG_H, SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+
+	/* --- Top-anchored. --- */
+	int y = UI_PAD;
+
+	if (g_App.hTitle) {
+		hdwp = DeferWindowPos(hdwp, g_App.hTitle, NULL,
+			UI_PAD, y, contentW, UI_TITLE_H, SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+	y += UI_TITLE_H + 6;
+
+	/* Version label (left) + Show Dev Releases checkbox (right). */
+	int chkX = clientW - UI_PAD - UI_CHK_W;
+	int verW = chkX - UI_PAD - 8;
+	if (verW < 100) verW = 100;
+	if (g_App.hCurrentVer) {
+		hdwp = DeferWindowPos(hdwp, g_App.hCurrentVer, NULL,
+			UI_PAD, y, verW, UI_ROW_H, SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+	if (g_App.hShowDevReleases) {
+		hdwp = DeferWindowPos(hdwp, g_App.hShowDevReleases, NULL,
+			chkX, y, UI_CHK_W, UI_ROW_H, SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+	y += 30;
+
+	if (g_App.hBtnCheck) {
+		hdwp = DeferWindowPos(hdwp, g_App.hBtnCheck, NULL,
+			UI_PAD, y, UI_CHECK_BTN_W, UI_CHECK_BTN_H, SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+	y += UI_CHECK_BTN_H + 8;
+
+	if (g_App.hLblReleases) {
+		hdwp = DeferWindowPos(hdwp, g_App.hLblReleases, NULL,
+			UI_PAD, y, contentW, 18, SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+	y += 20;
+
+	if (g_App.hList) {
+		hdwp = DeferWindowPos(hdwp, g_App.hList, NULL,
+			UI_PAD, y, contentW, UI_LIST_H, SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+	y += UI_LIST_H + 12;
+
+	if (g_App.hLblNotes) {
+		hdwp = DeferWindowPos(hdwp, g_App.hLblNotes, NULL,
+			UI_PAD, y, contentW, 18, SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+	y += 20;
+
+	/* Notes edit box stretches to fill the gap between top stack and progress bar. */
+	int notesTop = y;
+	int notesH   = progY - 12 - notesTop;
+	if (notesH < UI_NOTES_MIN_H) notesH = UI_NOTES_MIN_H;
+	if (g_App.hNotes) {
+		hdwp = DeferWindowPos(hdwp, g_App.hNotes, NULL,
+			UI_PAD, notesTop, contentW, notesH, SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+
+	if (hdwp) EndDeferWindowPos(hdwp);
+
+	/* Resize the list view's "Title" column to absorb the new client width. */
+	if (g_App.hList) {
+		LVCOLUMNA col = {0};
+		col.mask = LVCF_WIDTH;
+		col.cx = contentW - 110 - 90 - 24;
+		if (col.cx > 50) {
+			SendMessageA(g_App.hList, LVM_SETCOLUMNA, 2, (LPARAM)&col);
+		}
+	}
+}
+
 static void createControls(HWND hwnd)
 {
-	const int pad = 12;
-	const int winW = 720;
+	const int pad = UI_PAD;
+	const int winW = WINDOW_CLIENT_W;
 	int y = pad;
 
 	/* Header label */
-	HWND hTitle = CreateWindowA("STATIC", "Perfect Dark 2 Updater",
+	g_App.hTitle = CreateWindowA("STATIC", "Perfect Dark 2 Updater",
 		WS_CHILD | WS_VISIBLE | SS_LEFT,
 		pad, y, winW - 2 * pad, 28,
-		hwnd, NULL, GetModuleHandle(NULL), NULL);
-	SendMessage(hTitle, WM_SETFONT, (WPARAM)g_App.hFontTitle, TRUE);
+		hwnd, (HMENU)(INT_PTR)IDC_TITLE, GetModuleHandle(NULL), NULL);
+	SendMessage(g_App.hTitle, WM_SETFONT, (WPARAM)g_App.hFontTitle, TRUE);
 	y += 34;
 
 	char verLine[128];
@@ -1583,7 +1749,7 @@ static void createControls(HWND hwnd)
 		hwnd, (HMENU)(INT_PTR)IDC_CURRENT_VERSION, GetModuleHandle(NULL), NULL);
 
 	/* "Show Dev Releases" checkbox (right side of header row) */
-	int chkW = 200;
+	int chkW = UI_CHK_W;
 	int chkX = winW - pad - chkW;
 	g_App.hShowDevReleases = CreateWindowA("BUTTON", "Show Dev Releases",
 		WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
@@ -1597,18 +1763,18 @@ static void createControls(HWND hwnd)
 	/* Check for Updates button */
 	g_App.hBtnCheck = CreateWindowA("BUTTON", "Check for Updates",
 		WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-		pad, y, 160, 30,
+		pad, y, UI_CHECK_BTN_W, UI_CHECK_BTN_H,
 		hwnd, (HMENU)(INT_PTR)IDC_BTN_CHECK, GetModuleHandle(NULL), NULL);
-	y += 38;
+	y += UI_CHECK_BTN_H + 8;
 
 	/* Releases list */
-	CreateWindowA("STATIC", "Available releases:",
+	g_App.hLblReleases = CreateWindowA("STATIC", "Available releases:",
 		WS_CHILD | WS_VISIBLE | SS_LEFT,
 		pad, y, 200, 18,
-		hwnd, NULL, GetModuleHandle(NULL), NULL);
+		hwnd, (HMENU)(INT_PTR)IDC_LBL_RELEASES, GetModuleHandle(NULL), NULL);
 	y += 20;
 
-	int listH = 160;
+	int listH = UI_LIST_H;
 	g_App.hList = CreateWindowExA(WS_EX_CLIENTEDGE, WC_LISTVIEWA, "",
 		WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS,
 		pad, y, winW - 2 * pad, listH,
@@ -1642,58 +1808,65 @@ static void createControls(HWND hwnd)
 	y += listH + 12;
 
 	/* Release notes */
-	CreateWindowA("STATIC", "Release notes:",
+	g_App.hLblNotes = CreateWindowA("STATIC", "Release notes:",
 		WS_CHILD | WS_VISIBLE | SS_LEFT,
 		pad, y, 200, 18,
-		hwnd, NULL, GetModuleHandle(NULL), NULL);
+		hwnd, (HMENU)(INT_PTR)IDC_LBL_NOTES, GetModuleHandle(NULL), NULL);
 	y += 20;
 
+	/*
+	 * Initial notes height is recomputed by layoutControls() once we know the
+	 * real client rect; this seed value is just enough to give a sensible
+	 * appearance before the first WM_SIZE fires.
+	 */
 	int notesH = 140;
 	g_App.hNotes = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "",
 		WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | WS_VSCROLL,
 		pad, y, winW - 2 * pad, notesH,
 		hwnd, (HMENU)(INT_PTR)IDC_RELEASE_NOTES, GetModuleHandle(NULL), NULL);
 
-	y += notesH + 12;
-
-	/* Progress bar (hidden unless downloading/applying) */
+	/*
+	 * Progress / status / action buttons are docked to the bottom by
+	 * layoutControls(); their initial create-time positions are placeholders
+	 * that get replaced on the very first WM_SIZE.
+	 */
 	g_App.hProgress = CreateWindowA(PROGRESS_CLASSA, "",
 		WS_CHILD,
-		pad, y, winW - 2 * pad, 18,
+		pad, 0, winW - 2 * pad, UI_PROG_H,
 		hwnd, (HMENU)(INT_PTR)IDC_PROGRESS, GetModuleHandle(NULL), NULL);
 	SendMessage(g_App.hProgress, PBM_SETBARCOLOR, 0, (LPARAM)COL_ACCENT);
 	SendMessage(g_App.hProgress, PBM_SETBKCOLOR, 0, (LPARAM)COL_BG_ALT);
-	y += 22;
 
-	/* Status bar text */
 	g_App.hStatus = CreateWindowA("STATIC", "",
 		WS_CHILD | WS_VISIBLE | SS_LEFT | SS_ENDELLIPSIS,
-		pad, y, winW - 2 * pad, 20,
+		pad, 0, winW - 2 * pad, UI_STATUS_H,
 		hwnd, (HMENU)(INT_PTR)IDC_STATUS, GetModuleHandle(NULL), NULL);
 
-	y += 28;
-
-	/* Action buttons (bottom right) */
-	int btnW = 110, btnH = 32;
 	g_App.hBtnUpdate = CreateWindowA("BUTTON", "Update",
 		WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-		winW - pad - btnW - btnW - 8, y, btnW, btnH,
+		0, 0, UI_BTN_W, UI_BTN_H,
 		hwnd, (HMENU)(INT_PTR)IDC_BTN_UPDATE, GetModuleHandle(NULL), NULL);
 	EnableWindow(g_App.hBtnUpdate, FALSE);
 
 	g_App.hBtnClose = CreateWindowA("BUTTON", "Close",
 		WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-		winW - pad - btnW, y, btnW, btnH,
+		0, 0, UI_BTN_W, UI_BTN_H,
 		hwnd, (HMENU)(INT_PTR)IDC_BTN_CLOSE, GetModuleHandle(NULL), NULL);
 
 	/* Apply UI font everywhere except the header title (already styled) */
 	HWND child = GetWindow(hwnd, GW_CHILD);
 	while (child) {
-		if (child != hTitle) {
+		if (child != g_App.hTitle) {
 			SendMessage(child, WM_SETFONT, (WPARAM)g_App.hFontUI, TRUE);
 		}
 		child = GetWindow(child, GW_HWNDNEXT);
 	}
+
+	/*
+	 * Apply the docked layout immediately so controls are correctly placed
+	 * even before Windows delivers its first WM_SIZE.
+	 */
+	layoutControls(hwnd);
 }
 
 static int runGui(HINSTANCE hInstance)
@@ -1725,8 +1898,14 @@ static int runGui(HINSTANCE hInstance)
 		return 1;
 	}
 
-	int winW = 720;
-	DWORD winStyle = (WS_OVERLAPPEDWINDOW & ~(WS_MAXIMIZEBOX | WS_THICKFRAME)) | WS_VISIBLE;
+	int winW = WINDOW_CLIENT_W;
+	/*
+	 * Keep the window resizable (WS_THICKFRAME) so the docked layout can
+	 * absorb whatever size the user picks; WM_GETMINMAXINFO clamps the
+	 * floor so the bottom action row never disappears below the client
+	 * edge. Maximise stays disabled to keep the dialog at a sensible size.
+	 */
+	DWORD winStyle = (WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX) | WS_VISIBLE;
 	RECT adjRc = {0, 0, winW, WINDOW_CLIENT_H};
 	AdjustWindowRect(&adjRc, winStyle & ~WS_VISIBLE, FALSE);
 	int winH = adjRc.bottom - adjRc.top;
