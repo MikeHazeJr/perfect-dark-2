@@ -1,8 +1,58 @@
 
 # Session Log (Active)
 
-> **S281–S385** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S388** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S388 — 2026-04-19 (worktree `claude/bold-herschel-603edc`) — Menu Stack Compliance: Tier 3 preview-dock + Tier 4 progressive focus (M-14 through M-21)
+
+**Scope**: Eight-item batch implementing the remaining preview-docking invariants (C2) and the progressive-focus pattern (§6) from `context/designs/menu-stack-architecture.md` across six ImGui menu files. No gameplay behaviour change — these are UX/architecture invariants that make controller navigation deterministic and prevent a class of "preview scrolls off-screen on short viewport" bugs.
+
+### Tier 3 — preview-in-scroll (C2)
+
+- **M-14** `pdgui_menu_training.cpp::beginTrainingWindow` — added `ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse` to the outer training-window `ImGui::Begin` flags. Rationale: Bio Profile, DT/HT Training Details, and Hangar Vehicle Holograph all render their 3D previews via `pdguiModelPreviewDraw` / `drawFilenumPreview` at **absolute screen coords** computed from the window origin. Without the NoScroll guarantee, any future content overflow would add a scrollbar to the outer window and the absolute-coord previews would render in the wrong pixel position (they wouldn't scroll with the rest of the content). NoScroll pins the invariant permanently.
+- **M-15** `pdgui_menu_moddinghub.cpp` — audited all 22 `BeginChild` regions. Only `##scale_right` (Model Scale Tool) held a rotating character preview and lacked NoScroll. Added the flags. The Chrome Tool `##chrome_sidebar` was already properly flagged; all other tools have no 3D preview content.
+- **M-16** `pdgui_menu_room.cpp` — verified: row-hover char preview lives in `ImGui::BeginTooltip()` (separate floating window), bot-edit 3D preview lives in the edit modal's right-column `BeginGroup` (sibling to text controls). Both already outside `##room_players_list` scroll. Added an in-source comment above the BeginChild pinning the invariant for future editors.
+- **M-17** `pdgui_menu_controldiagram.cpp::##smc_info` — added `ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse`. The control-mode layout text (Left stick / C buttons / A button / etc.) is the PC-port stand-in for the legacy N64 MENUITEMTYPE_CONTROLLER diagram texture — static 7-8 line blocks per mode, must never scroll.
+
+### Tier 4 — progressive focus (§6)
+
+- **M-18** `pdgui_menu_solomission.cpp` — introduced `MissionFocusGroup { FOCUS_MISSION_LIST, FOCUS_DIFFICULTY, FOCUS_START }` + `s_FocusGroup` static. Replaced all 11 assignments to the legacy `s_DetailPanelFocus` bool with explicit enum transitions. Retained the bool as a read-only macro `(s_FocusGroup != FOCUS_MISSION_LIST)` so existing compare sites stay legible. Escape is now tier-aware: START → DIFFICULTY (restoring focus to the selected diff row), DIFFICULTY → MISSION_LIST, MISSION_LIST → popDialog. A on mission row → DIFFICULTY; A on unlocked diff → START (focus index also moves to the Start button). Up/Down arrow nav in the right panel syncs `s_FocusGroup` to match the detail index slot.
+- **M-19** `pdgui_menu_mpsetup.cpp` — since mpsetup is a hub-of-pickers (CLOSEONSELECT per picker), progressive focus is realised via push/pop rather than within-menu tier shifts. Added `mp_ArmFocusOnOpen` / `mp_ConsumePendingFocus` helpers + focus-on-open to Arena, Scenario (both variants, indexed by `param`), Weapons (first dropdown), Limits (first slider). Controller lands on the first interactive widget on each picker open.
+- **M-20** `pdgui_menu_room.cpp` — added `s_StartMatchFocusPending` flag. Scenario combo change sets the flag; Start Match button consumes with `ImGui::SetKeyboardFocusHere(0)` on the next frame — jumping keyboard/controller focus from "pick scenario" straight to "confirm/launch".
+- **M-21** `pdgui_menu_training.cpp` — five focus-on-open sites: (1) `renderFrDifficulty` Bronze button, (2) `renderFrWeaponList` selected weapon row, (3) `renderDtList` selected device row, (4) `renderHtList` selected holo-training row, (5) `renderTrainingDetailsImpl` (shared DT/HT) Ok/Resume button. Each uses `ImGui::SetKeyboardFocusHere(0)` gated on `IsWindowAppearing()` (list-level) or on the selected row (index-level). A-press now immediately advances into details/start without a preparatory nav press.
+
+### Files touched
+
+- `port/fast3d/pdgui_menu_training.cpp` — +51 LOC (M-14 NoScroll flags, M-21 focus-on-open ×5)
+- `port/fast3d/pdgui_menu_moddinghub.cpp` — +14 LOC (M-15 NoScroll on `##scale_right`)
+- `port/fast3d/pdgui_menu_room.cpp` — +33 LOC (M-16 invariant comment, M-20 `s_StartMatchFocusPending` + consumers)
+- `port/fast3d/pdgui_menu_controldiagram.cpp` — +11 LOC (M-17 NoScroll on `##smc_info`)
+- `port/fast3d/pdgui_menu_solomission.cpp` — +118 LOC (M-18 enum + 11 assignment rewrites + tier-aware Esc + nav sync)
+- `port/fast3d/pdgui_menu_mpsetup.cpp` — +61 LOC (M-19 helpers + 4 pickers)
+- `context/tasks-current.md` — marked M-14 through M-21 DONE with per-task summary
+- `context/session-log.md` — this entry
+
+Net +269/−35 across 6 source + 2 context files.
+
+### Build + verify
+
+`source devtools/build-env.sh && ninja -C Build pd pd-server` — clean **775/775**. `PerfectDark.exe` 53,340,770 / `PerfectDarkServer.exe` 23,139,296. Zero new warnings from this change. Pre-existing comment-in-comment warnings (updater.h, pdgui_theme_loader.h) and `VERSION_PATCH` redefinition are unrelated.
+
+### Playtest ask
+
+1. **Solo mission progressive focus (controller)**: Main Menu → Solo Mission. D-pad Right enters DIFFICULTY tier. D-pad Down through diffs. Press A on a diff → focus jumps to Start Mission. Press B → back to DIFFICULTY (focus on last-picked diff). Press B → back to MISSION_LIST (focus on selected mission row). Press B → dialog pops to Main Menu. Repeat with Enter/Space (keyboard) — identical behavior.
+2. **Mouse compatibility**: with mouse, clicking any diff row directly works (focus group promotes to START). Clicking a different mission row resets to MISSION_LIST visually but keyboard nav still works in each tier.
+3. **mpsetup pickers focus-on-open**: open Arena picker from Room → controller D-pad works immediately without first press. Same for Scenario, Weapons, Limits.
+4. **Room → Start Match flow**: as leader, change the Scenario combo → keyboard focus auto-lands on Start Match next frame. Pressing A/Enter immediately launches.
+5. **Training DT/HT**: open Device Training → list focus is on the last-selected device row (D-pad A enters details). Details opens with focus on Ok/Resume button — A immediately starts training.
+6. **Preview-docking regression**: Bio Profile / Hangar Holograph / Model Scale Tool / control-style diagram all render with previews in their expected pixel positions regardless of window size. No preview floats above/below its intended rect.
+
+### Next
+
+Tier 5 remaining: **M-22** (migrate remaining direct `inputCtxPush` to `menupoolAcquireDialog`), **M-23** (verify every stage-transition site calls `menupoolReleaseAll`), **M-24** (evaluate `MENUPOOL_STRICT_TREE` assertion flag). These are architectural hardening passes — lower user-visible impact than Tier 1-4 but required for the menu-stack design to be fully enforced.
+
+---
 
 ## Session S385 — 2026-04-19 (worktree `claude/infallible-goldberg-71b379`) — B-End-Game-Input: CS pause End Game confirm focus + CS end-of-match input-death
 

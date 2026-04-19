@@ -442,6 +442,41 @@ static void mp_CloseCurrentDialog(void)
     menuPopDialog();
 }
 
+/* M-19 (menu-stack §6 progressive focus helper):
+ *
+ * Each picker dialog in this file (Arena, Scenario, Weapons, Limits,
+ * Options, …) is a single-list selector pushed from the Match Setup hub
+ * with MENUDIALOGFLAG_CLOSEONSELECT — so picking a row auto-pops back to
+ * the hub, and the match-setup "A narrows / B backs up" progressive flow
+ * is realised by the push/pop of these pickers rather than by tier
+ * changes within one menu (like pdgui_menu_solomission.cpp).
+ *
+ * For controller UX parity with the solomission progressive-focus flow,
+ * each picker should:
+ *   1. Auto-focus the currently-selected row on open (so D-pad works
+ *      immediately without a preparatory press).
+ *   2. On a row selection, fire CLOSEONSELECT so the hub regains input
+ *      authority. Focus returns to the invoker row on the hub naturally
+ *      via ImGui's popup focus stack.
+ *
+ * Step (2) is already handled by the legacy dialog-def flag. Step (1) is
+ * what this helper provides: a per-picker "focus pending" flag driven by
+ * IsWindowAppearing and consumed on the row whose index matches the
+ * current selection. Place the `mp_ConsumePendingFocus` call immediately
+ * before the Selectable for that row. */
+static void mp_ArmFocusOnOpen(bool *pendingFlag)
+{
+    if (ImGui::IsWindowAppearing()) *pendingFlag = true;
+}
+
+static void mp_ConsumePendingFocus(bool *pendingFlag, bool isTargetRow)
+{
+    if (*pendingFlag && isTargetRow) {
+        ImGui::SetKeyboardFocusHere(0);
+        *pendingFlag = false;
+    }
+}
+
 /* True if this frame saw Escape or gamepad-B (the universal back button). */
 static bool mp_BackPressed(void)
 {
@@ -467,6 +502,8 @@ static bool mp_BackPressed(void)
 
 static s32 renderMpArena(struct menudialog *dialog, struct menu *, s32, s32)
 {
+    static bool s_ArenaFocusPending = false;   /* M-19 focus-on-open */
+
     WindowFrame wf = mp_BeginStandardWindow("##mp_arena", "Arena", 0.70f, 0.80f,
                                             menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
@@ -476,6 +513,8 @@ static s32 renderMpArena(struct menudialog *dialog, struct menu *, s32, s32)
         ImGui::End();
         return 1;
     }
+
+    mp_ArmFocusOnOpen(&s_ArenaFocusPending);
 
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
@@ -492,6 +531,7 @@ static s32 renderMpArena(struct menudialog *dialog, struct menu *, s32, s32)
 
             ImGui::PushID(i);
             bool isSelected = (i == selected);
+            mp_ConsumePendingFocus(&s_ArenaFocusPending, isSelected);
             if (ImGui::Selectable(text, isSelected, ImGuiSelectableFlags_None)) {
                 list_Set(mpArenaMenuHandler, 0, i);
                 pdguiPlaySound(PDGUI_SND_SELECT);
@@ -526,6 +566,10 @@ static s32 renderMpArena(struct menudialog *dialog, struct menu *, s32, s32)
 static s32 renderMpScenarioImpl(u8 param, const char *imguiId, const char *title,
                                  const struct menudialogdef *def)
 {
+    /* M-19: scenario + quickteam-scenario share one impl but track focus
+     * state independently via the param-indexed static array. */
+    static bool s_ScenFocusPending[2] = { false, false };
+
     WindowFrame wf = mp_BeginStandardWindow(imguiId, title, 0.60f, 0.75f, def);
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
@@ -534,6 +578,8 @@ static s32 renderMpScenarioImpl(u8 param, const char *imguiId, const char *title
         ImGui::End();
         return 1;
     }
+
+    mp_ArmFocusOnOpen(&s_ScenFocusPending[param & 1]);
 
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
@@ -550,6 +596,7 @@ static s32 renderMpScenarioImpl(u8 param, const char *imguiId, const char *title
 
             ImGui::PushID(i);
             bool isSelected = (i == selected);
+            mp_ConsumePendingFocus(&s_ScenFocusPending[param & 1], isSelected);
             if (ImGui::Selectable(text, isSelected)) {
                 list_Set(scenarioScenarioMenuHandler, param, i);
                 pdguiPlaySound(PDGUI_SND_SELECT);
@@ -648,6 +695,13 @@ static s32 renderMpWeapons(struct menudialog *dialog, struct menu *, s32, s32)
                           ImGuiWindowFlags_NoBackground)) {
 
         ImGui::PushItemWidth(pdguiScale(260.0f));
+
+        /* M-19 focus-on-open: the first dropdown ("Set") is the entry
+         * point for a controller user — land focus on it so D-pad / left-
+         * stick moves into the combo immediately. */
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere(0);
+        }
 
         renderHandlerDropdown("Set##mp_ws", menuhandlerMpWeaponSetDropdown, 1, 0);
 
@@ -929,6 +983,13 @@ static s32 renderMpLimits(struct menudialog *dialog, struct menu *, s32, s32)
                           ImGuiWindowFlags_NoBackground)) {
 
         ImGui::PushItemWidth(pdguiScale(260.0f));
+
+        /* M-19 focus-on-open: Time slider is the first interactive widget
+         * in the Limits flow — controller lands here on open so the user
+         * can adjust without a preparatory D-pad press. */
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere(0);
+        }
 
         renderSliderRow("Time",       menuhandlerMpTimeLimitSlider,      0, 0x3c, 60);
         ImGui::Dummy(ImVec2(0, pdguiScale(6.0f)));
