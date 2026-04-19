@@ -22,6 +22,7 @@
 #include "pdgui_layout.h"
 #include "system.h"
 #include "inputctx.h"
+#include "menupool.h"
 #include "actionmap.h"
 
 /* ========================================================================
@@ -232,8 +233,12 @@ void pdguiPauseMenuOpen(void)
     /* Push pause context — handles mouse release and game pause via on_push.
      * F-1.1: Removed direct SDL_WarpMouseInWindow call that pre-dated
      * inputCtxSyncMouseMode(). The context system's on_push callback for
-     * g_CtxPauseMenu now handles mouse mode transition exclusively. */
-    inputCtxPush(&g_CtxPauseMenu);
+     * g_CtxPauseMenu now handles mouse mode transition exclusively.
+     * M-22: Route through the menu pool so MENU_TYPE_PAUSE_MENU participates
+     * in structural dedup and cascade close via menupoolReleaseAll(). The
+     * pool's ref-counted push/pop mirrors inputCtxPush/PopDeferred when the
+     * slot was free; acquiring an already-active slot is a no-op. */
+    menupoolAcquire(MENU_TYPE_PAUSE_MENU, NULL, &g_CtxPauseMenu);
 
     s_PauseMenuOpen = true;
     s_PauseJustOpened = true;
@@ -255,10 +260,8 @@ void pdguiPauseMenuClose(void)
     s_PauseMenuOpen = false;
     s_EndGameConfirm = false;
 
-    /* Pop pause context — gameplay context's on_push restores mouse capture. */
-    if (inputCtxIsActive(&g_CtxPauseMenu)) {
-        inputCtxPopDeferred(&g_CtxPauseMenu);
-    }
+    /* M-22: release the pool slot; it pops the owned ctx via inputCtxPopDeferred. */
+    menupoolRelease(MENU_TYPE_PAUSE_MENU);
 
     s_pauseSetCooldown();
 
