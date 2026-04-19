@@ -7,6 +7,17 @@
 
 ---
 
+## Done — 2026-04-19 (S372 — B-181 spawn-with-weapon fallback fix, `claude/interesting-nobel-184c6c`)
+
+- **B-181** — Chris saw weapons in match that weren't in his selected weapon set. Car Park has 10 weapon markers, but desiredPickups was 16 (PLAYERCOUNT + g_BotCount + span_bonus, capped), triggering the "too few pickups" fallback added in commit `0b62fc68`.
+- Root cause: `setupCreateProps` fallback used `catalogIdByRuntime(ASSET_WEAPON, g_MpSetup.weapons[i])` to resolve an MPWEAPON_* index to a catalog ID. But the ASSET_WEAPON runtime cache is indexed by catalog *array position* (`e->runtime_index = i` in `assetcatalog_base_extended.c:414`), NOT by MPWEAPON value — s_BaseWeapons[0] is MPWEAPON_FALCON2=0x01 with runtime_index=0, so `catalogIdByRuntime(ASSET_WEAPON, 0x01)` returns "base:falcon2_silencer" (MPWEAPON_FALCON2_SILENCER=0x02, stored at array index 1). Off-by-one for every MPWEAPON except NONE.
+- Secondary bug: fallback only wrote `spawn_weapon_id` when it was empty, never re-derived `spawnWeaponNum`. So current-match spawn used whatever matchStart computed before the fallback ran, and the wrong ID propagated to the NEXT match when matchStart re-read `spawn_weapon_id`.
+- Fix (`src/game/setup.c`): replaced catalogIdByRuntime lookup with a catalog scan matching `ext.weapon.weapon_id == mpw` (same pattern as `savefile.c:816` / `buildSpawnWeaponList`). Skip MPWEAPON_NONE/SHIELD/DISABLED. Always override (not just if empty) so a stale out-of-set spawn weapon from a prior match gets corrected. Re-derive `spawnWeaponNum = catalogGetMpWeaponNum(mpw)` immediately so the current match respects the fallback.
+- Left the other known-broken `catalogIdByRuntime(ASSET_WEAPON, ...)` callsites (netmsg.c:882/1684/4183, matchsetup.c:835 `matchGetWeaponSlotCatalogId`, netmanifest.c:453/767/1096) alone — those are a separate systemic issue (same root cause: registration stores `runtime_index = i` rather than `weapon_id`) and fixing them requires careful audit of each callsite's expected semantics (MP weapon slots vs. solo intro WEAPON_* constants). Out of scope for B-181 specifically.
+- Build clean 774/774. `PerfectDark.exe` 53,195,903 / `PerfectDarkServer.exe` 23,140,832.
+
+---
+
 ## Done — 2026-04-19 (S371 — B-179/B-180 head modeldef parts=0 fix, `claude/sweet-chandrasekhar-7d64da`)
 
 - **B-179** — 22/32 bots were defaulting to mphead=0 (Joanna Dark) in MP. Six heads load with parts=0 (head_dark_snow, head_ddshock, head_carrington, head_ddsniper, head_president, head_cassandra) but have valid rootnode+skel.

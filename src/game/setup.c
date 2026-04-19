@@ -2466,19 +2466,56 @@ void setupCreateProps(s32 stagenum)
 
 			if (g_Vars.normmplayerisrunning
 					&& s_SetupMpCreatedWeaponCount < desiredPickups) {
-				/* Too few (or zero) world pickups for this map/participant count.
-				 * Force spawn-with-weapon to keep matches armed. */
+				/* B-181: Too few (or zero) world pickups for this map/participant
+				 * count.  Force spawn-with-weapon to keep matches armed — but the
+				 * spawn weapon MUST come from the configured weapon set, otherwise
+				 * players see weapons they never selected.
+				 *
+				 * DO NOT use catalogIdByRuntime(ASSET_WEAPON, mpw) here: that helper
+				 * indexes the runtime cache by catalog array position, not by
+				 * MPWEAPON_*, so MPWEAPON_FALCON2 (0x01) → "base:falcon2_silencer"
+				 * (off-by-one).  Scan the catalog for ext.weapon.weapon_id instead
+				 * (same pattern as savefile.c / buildSpawnWeaponList). */
 				g_MatchConfig.options |= MPOPTION_SPAWNWITHWEAPON;
 				g_MpSetup.options |= MPOPTION_SPAWNWITHWEAPON;
 
-				if (g_MatchConfig.spawn_weapon_id[0] == '\0') {
-					for (i = 0; i < 6; i++) {
-						const char *wid = catalogIdByRuntime(ASSET_WEAPON, g_MpSetup.weapons[i]);
-						if (wid && wid[0]) {
-							strncpy(g_MatchConfig.spawn_weapon_id, wid, sizeof(g_MatchConfig.spawn_weapon_id) - 1);
-							g_MatchConfig.spawn_weapon_id[sizeof(g_MatchConfig.spawn_weapon_id) - 1] = '\0';
+				{
+					s32 setSpawnMpw = -1;
+					const char *setSpawnId = NULL;
+					for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+						s32 mpw = (s32)g_MpSetup.weapons[i];
+						if (mpw == MPWEAPON_NONE
+								|| mpw == MPWEAPON_SHIELD
+								|| mpw == MPWEAPON_DISABLED) {
+							continue;
+						}
+						for (s32 wi = 0; ; wi++) {
+							const asset_entry_t *we = assetCatalogGetByIndex(wi);
+							if (!we) break;
+							if (we->type == ASSET_WEAPON
+									&& we->ext.weapon.weapon_id == mpw) {
+								setSpawnId = we->id;
+								break;
+							}
+						}
+						if (setSpawnId && setSpawnId[0]) {
+							setSpawnMpw = mpw;
 							break;
 						}
+					}
+
+					if (setSpawnId && setSpawnId[0]) {
+						/* Always override: if the existing spawn weapon is outside
+						 * the configured set, the fallback replaces it so the armed
+						 * players stay within the selection.  If it already was in
+						 * the set, we're a no-op effectively. */
+						strncpy(g_MatchConfig.spawn_weapon_id, setSpawnId,
+							sizeof(g_MatchConfig.spawn_weapon_id) - 1);
+						g_MatchConfig.spawn_weapon_id[sizeof(g_MatchConfig.spawn_weapon_id) - 1] = '\0';
+						/* matchStart() already derived spawnWeaponNum from the old
+						 * spawn_weapon_id.  Re-derive now so the CURRENT match's
+						 * player/bot spawn-with-weapon uses the in-set choice. */
+						g_MatchConfig.spawnWeaponNum = (u8)catalogGetMpWeaponNum(setSpawnMpw);
 					}
 				}
 
