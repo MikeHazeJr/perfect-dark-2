@@ -36,6 +36,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_layout.h"
 #include "system.h"
 #include "hub.h"
 #include "room.h"
@@ -214,10 +215,13 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
 
     ImGui::Separator();
 
-    /* Two-column layout */
+    /* Two-column layout — sized to leave bottom space for the docked
+     * action bar (C1) that hosts Create Room + Disconnect. */
     float pad = 8.0f * scale;
     float colW = (dialogW - pad * 3.0f) * 0.5f;
-    float contentH = dialogH - pdTitleH - 90.0f * scale;
+    float bodyAvail = ImGui::GetContentRegionAvail().y;
+    float contentH  = pdguiBodyHeightForActionBar(bodyAvail)
+                    - 60.0f * scale; /* reserve the footer chat-stub row */
 
     /* ================================================================
      * Left column — Connected Players
@@ -296,22 +300,9 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
     ImGui::Separator();
 
     float innerW = colW - ImGui::GetStyle().WindowPadding.x * 2 - 4.0f;
-    float btnH   = pdguiScale(42.0f);
-
-    /* Create Room — only shown to game clients, not the server operator */
-    if (!g_NetDedicated) {
-        ImGui::Spacing();
-        if (ImGui::Button("+ Create Room", ImVec2(innerW, btnH))) {
-            pdguiPlaySound(PDGUI_SND_SELECT);
-            sysLogPrintf(LOG_NOTE, "LOBBY: sending CLC_ROOM_CREATE to server");
-            netbufStartWrite(&g_NetMsgRel);
-            netmsgClcRoomCreateWrite(&g_NetMsgRel, "");
-            netSend(NULL, &g_NetMsgRel, 1, 0);
-        }
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-    }
+    (void)innerW;
+    /* Create Room button moved to the docked action bar (C1) so it never
+     * scrolls out of reach when the room list fills the column. */
 
     /* Room list — populated from SVC_ROOM_LIST cache */
     s32 roomsShown = 0;
@@ -374,19 +365,44 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
     ImGui::EndChild();
 
     /* ================================================================
-     * Footer — server chat stub + Disconnect
+     * Footer — server chat stub (above the docked action bar)
      * ================================================================ */
     ImGui::Separator();
-
-    /* Server chat stub (UI frame — protocol in a future session) */
     ImGui::TextColored(ImVec4(0.3f, 0.4f, 0.5f, 0.6f), "Server Chat  (coming soon)");
-    ImGui::Spacing();
 
-    /* Disconnect */
-    float discBtnW = 120.0f * scale;
-    ImGui::SetCursorPosX((dialogW - discBtnW) * 0.5f);
-    if (ImGui::Button("Disconnect", ImVec2(discBtnW, 26.0f * scale)) ||
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    /* ================================================================
+     * Docked action bar (C1) — Create Room (clients only) + Disconnect
+     * ================================================================ */
+    bool wantCreate = false;
+    bool wantDisconnect = false;
+
+    if (pdguiBeginActionBar("##lobby_ab")) {
+        float availW = ImGui::GetContentRegionAvail().x;
+        if (!g_NetDedicated) {
+            if (pdguiActionBarButton("+ Create Room", 0, availW * 0.5f)) {
+                wantCreate = true;
+            }
+            ImGui::SameLine();
+            if (pdguiActionBarButton("Disconnect", 1,
+                                     ImGui::GetContentRegionAvail().x)) {
+                wantDisconnect = true;
+            }
+        } else {
+            if (pdguiActionBarButton("Disconnect", 1, availW)) {
+                wantDisconnect = true;
+            }
+        }
+    }
+    pdguiEndActionBar();
+
+    if (wantCreate) {
+        sysLogPrintf(LOG_NOTE, "LOBBY: sending CLC_ROOM_CREATE to server");
+        netbufStartWrite(&g_NetMsgRel);
+        netmsgClcRoomCreateWrite(&g_NetMsgRel, "");
+        netSend(NULL, &g_NetMsgRel, 1, 0);
+    }
+
+    if (wantDisconnect || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: social lobby CLOSE/DISCONNECT via button/ESC");
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         netDisconnect();

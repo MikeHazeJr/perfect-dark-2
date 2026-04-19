@@ -19,6 +19,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_layout.h"
 #include "system.h"
 #include "inputctx.h"
 #include "actionmap.h"
@@ -690,12 +691,12 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
         ImGui::Separator();
         ImGui::Spacing();
 
-        /* Tab content area (scrollable) */
-        float contentTop = ImGui::GetCursorPosY();
-        float resumeH = pdguiScale(36.0f);
-        float resumeSpacing = pdguiScale(14.0f);
-        float contentH = menuH - contentTop - resumeH - padB - resumeSpacing;
-        float contentW = menuW - padX - padR;
+        /* Tab content area (scrollable) — height reserves the docked action
+         * bar (C1) plus the chrome bottom inset so Resume can't scroll off. */
+        float contentTop   = ImGui::GetCursorPosY();
+        float availBelow   = menuH - contentTop - padB;
+        float contentH     = pdguiBodyHeightForActionBar(availBelow);
+        float contentW     = menuW - padX - padR;
 
         ImGui::BeginChild("##PauseTabContent", ImVec2(contentW, contentH), false);
 
@@ -706,12 +707,14 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
 
         ImGui::EndChild();
 
-        /* Resume button at bottom center */
-        float resumeW = pdguiScale(180.0f);
-        ImGui::SetCursorPos(ImVec2((menuW - resumeW) * 0.5f, menuH - resumeH - padB));
-        if (PdPauseButton("Resume##pm", ImVec2(resumeW, resumeH))) {
-            pdguiPauseMenuClose();
+        /* Docked action bar (C1): Resume always visible. */
+        if (pdguiBeginActionBar("##pm_ab")) {
+            if (pdguiActionBarButton("Resume", 1,
+                                     ImGui::GetContentRegionAvail().x)) {
+                pdguiPauseMenuClose();
+            }
         }
+        pdguiEndActionBar();
 
         /* B-14 fix: On the frame the menu opens, the legacy path (bondmove→
          * mpPushPauseDialog→ingame.c) already opened us. ImGui also sees

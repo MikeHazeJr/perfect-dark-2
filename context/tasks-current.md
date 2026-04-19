@@ -30,13 +30,13 @@ playtest.
 
 ### Tier 2 — docked-button migration (C1 — scroll-off risk)
 
-- **M-7**: `pdgui_menu_pausemenu.cpp` → `pdguiBeginActionBar` / `pdguiActionBarButton`.
-- **M-8**: `pdgui_menu_lobby.cpp` → action bar for `Disconnect` / `Create Room`.
-- **M-9**: `pdgui_menu_network.cpp` → action bar.
-- **M-10**: `pdgui_menu_moddinghub.cpp` → action bar; verify preview dock (C2).
-- **M-11**: `pdgui_menu_stats.cpp` → action bar.
-- **M-12**: `pdgui_menu_controldiagram.cpp` → action bar; verify diagram dock (C2).
-- **M-13**: `pdgui_menu_endscreen.cpp` → replace custom `PdEndButton` Y-offset layout with action bar.
+- ~~**M-7**: `pdgui_menu_pausemenu.cpp` → `pdguiBeginActionBar` / `pdguiActionBarButton`.~~ **DONE 2026-04-19** (worktree `claude/naughty-shtern-e1dabb`) — Resume button now rendered in a docked action bar; tab content child height reserves `pdguiBodyHeightForActionBar(availBelow)`. End Game / confirm tab-header buttons still live in the tab strip (that's the tab selector, not a primary action — M-6 covers the confirm-modal migration separately).
+- ~~**M-8**: `pdgui_menu_lobby.cpp` → action bar for `Disconnect` / `Create Room`.~~ **DONE 2026-04-19** — `+ Create Room` pulled out of the scrollable `##social_rooms` column and both it + `Disconnect` now render in the docked action bar; body column height sized via `pdguiBodyHeightForActionBar - footerChatH`. Dedicated server sees Disconnect only.
+- ~~**M-9**: `pdgui_menu_network.cpp` → action bar.~~ **DONE 2026-04-19** — `Back` moved to docked action bar; body content (Server Browser list + Direct Connect form + inline Connect button) wrapped in `##mp_body` `BeginChild` sized via `pdguiBodyHeightForActionBar`. Connect stays adjacent to the address input (form-submit pattern, not a nav action).
+- ~~**M-10**: `pdgui_menu_moddinghub.cpp` → action bar; verify preview dock (C2).~~ **DONE 2026-04-19** — Hand-rolled `Close` button replaced with `pdguiActionBarButton` + `pdguiBeginActionBar`; tool description row still renders above the bar; `hubFooterH` now = `descH + pdguiActionBarHeight() + 12*scale`. Each tool content child already rendered inside a tab-specific `BeginChild` above the footer — C2 compliance confirmed (preview panels sit in the tool content area above the action bar, not inside a scroll).
+- ~~**M-11**: `pdgui_menu_stats.cpp` → action bar.~~ **DONE 2026-04-19** — Replaced keyboard-only `TextDisabled("B/Esc: Close")` with a `Close` docked action button; stats body child sized via `pdguiBodyHeightForActionBar(bodyAvail)`. Escape still closes for kb users.
+- ~~**M-12**: `pdgui_menu_controldiagram.cpp` → action bar; verify diagram dock (C2).~~ **DONE 2026-04-19** — Both renderers (`renderSoloMissionControlStyle`, `renderMpControl`) migrated from hand-rolled Back footer to docked action bar. C2 verified: the `##smc_info` diagram panel lives in a sibling column next to `##smc_list`, not inside any scroll. Local `PdButton` helper removed (now unused).
+- ~~**M-13**: `pdgui_menu_endscreen.cpp` → replace custom `PdEndButton` Y-offset layout with action bar.~~ **DONE 2026-04-19** — Both `renderSoloEndscreen` (Next Mission / Retry / Main Menu) and `renderMpEndscreen` (Return to Room / Disconnect, or Play Again / Quit) now render buttons via `pdguiBeginActionBar` / `pdguiActionBarButton`. Content children use `ImGui::GetContentRegionAvail().y - pdguiActionBarHeight() - gap - padB` to leave room. The explicit `ImGui::IsKeyPressed(Enter)` handler in MP was removed (the primary button's `isFocused=1` covers it via action-bar Enter activation). Red danger palette on destructive secondary actions (Quit, Disconnect, Main Menu after failure) preserved via `PushStyleColor` around the action-bar button. `inputSuppressed` debounce still gates activations. `PdEndButton` helper removed (now unused).
 
 ### Tier 3 — preview-in-scroll audits (C2)
 
