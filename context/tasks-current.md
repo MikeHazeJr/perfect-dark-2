@@ -7,6 +7,16 @@
 
 ---
 
+## Done — 2026-04-18 (S369 — Solo pause menu input context fix, `claude/nice-jackson-62879e`)
+
+- **B-171** — tester log showed `MENUPOOL: acquired solo_mission_pause ctx=none(shared)` with NO matching `INPUTCTX: imgui_menu on_push`. Solo pause was drawing over live gameplay input: menu bindings inactive, mouse stuck in relative mode ("invisible mouse" unless holding RMB), child Abort-Mission confirm dialogs unresponsive.
+- Root cause: `renderPauseMenu` in `pdgui_menu_solomission.cpp` was missed in the S300 pool-owned-ctx migration — never called the second `menupoolAcquireDialog(def, &g_CtxImGuiMenu)` on `IsWindowAppearing` to attach the ctx to the live pool slot. Every other ImGui renderer does this.
+- Fix: canonical two-line addition in IsWindowAppearing — `pdguiPlaySound(PDGUI_SND_OPENDIALOG)` + `menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu)`. Pool release on menuPopDialog cleans up automatically.
+- Also tester: CI "End Game" reported broken in a prior session. S368 BeginPopupModal rewrite should fix; if it still breaks, need a fresh log.
+- Build clean 2/2 incremental.
+
+---
+
 ## Done — 2026-04-18 (S368 — Controller navigation + scrollbar sweep, `claude/nice-jackson-62879e`)
 
 - **Cross-panel controller nav fix** — `pdguiBeginActionBar` now uses `ImGuiChildFlags_NavFlattened`; action bar buttons (Back / Save / Cancel) reachable from body via D-pad. Systemic across every dialog using the action bar primitive.

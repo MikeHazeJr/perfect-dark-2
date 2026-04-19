@@ -4,6 +4,41 @@
 > **S281–S362** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S369 — 2026-04-18 (worktree `claude/nice-jackson-62879e`) — Solo pause menu input context fix (B-171)
+
+**Scope**: Tester reported: "Quitting a mission opens the menu, my input doesn't work, or focus might actually stay on the pause menu in the background. If I hold RMB I can see my invisible mouse."
+
+**Evidence**: `Downloads/Perfect Dark 2.0/pd-client.log` — solo mission at `02:01.18 ACTION_PAUSE detected` → `02:01.20 MENUPOOL: acquired solo_mission_pause gen=1 def=... ctx=none(shared)` → NO subsequent `INPUTCTX: imgui_menu on_push` → several `WARNING: DIAG fireVk: vk=531 player=0 NO BINDING FOUND in 1 active IMCs` → `02:10.83 released solo_mission_pause`. Contrast with the working main-menu pattern at `00:34.53`: `acquired main_menu` → `INPUTCTX: imgui_menu on_push -- g_ImcMenu activated` → `MENUPOOL: attached ctx to active main_menu gen=2 ctx=imgui_menu` → `syncMouseMode -- restored absolute mode for 'imgui_menu'`.
+
+**Root cause**: `renderPauseMenu` in `pdgui_menu_solomission.cpp` did `ImGui::SetWindowFocus()` on `IsWindowAppearing` but never called `menupoolAcquireDialog(def, &g_CtxImGuiMenu)` to attach the input context to its already-acquired pool slot. `menuPushRootDialog → menuPushDialog` pre-acquires the slot with `ctx=NULL` (that's the structural dedup check); the renderer is then responsible for re-acquiring on first appearance with the real ctx so the pool attaches it to the input context stack. This is the S300 pattern every other ImGui renderer follows (mppause / mpadvanced / mpsetup / agentselect / etc.). Solo pause was missed in the S300 pool-owned-ctx migration, so it has been drawing over live gameplay input the whole time — the only reason it worked at all was that the legacy `menuPush*` path used to do its own `inputCtxPush` elsewhere, and that was removed during S299/S300.
+
+Consequence chain:
+- `g_CtxImGuiMenu` not on top → `g_ImcMenu` not active → no menu bindings match `vk=531` (right stick / gamepad button that should drive menu nav), "NO BINDING FOUND" warnings.
+- Gameplay mouse mode (relative, cursor hidden) stays active — the "invisible mouse" symptom. The user's "hold RMB to see it" is a side effect of SDL temporarily yielding relative mode for certain button events, not an intentional behavior.
+- Child DANGER dialogs pushed on top of solo pause (`g_MissionAbortMenuDialog` via menu.c pattern) inherit the same broken state — Cancel + Abort buttons unreachable.
+
+**Fix**: add the canonical S300 pattern to `renderPauseMenu`'s IsWindowAppearing block:
+```cpp
+pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
+```
+The pool slot is already active (acquired by `menuPushDialog` with NULL ctx); this re-acquire attaches the ctx, pushing `g_CtxImGuiMenu` onto the input context stack. Close paths unchanged — `menuPopDialog → menuCloseDialog → menupoolRelease` pops the owned ctx automatically (verified via `menupoolRelease` in `port/src/menupool.c:238+`). Includes `port/include/menupool.h` (was not previously needed).
+
+**Files**: `port/fast3d/pdgui_menu_solomission.cpp` (+14 / −0 LOC: include + 14-line IsWindowAppearing addition with rationale comment).
+
+**Build**: Clean 2/2 incremental — only the one cpp rebuild was needed. Client re-links with the new symbol reference.
+
+**Verify (playtest)**:
+- Play any solo mission → press Start to pause → pause menu appears → D-pad Up/Down navigates Resume / Restart / Inventory / Settings / Abort. Abort → confirm dialog → Cancel and Abort both navigable.
+- Mouse cursor is visible during the pause (absolute mode, no need to hold RMB).
+- Log should show `INPUTCTX: imgui_menu on_push -- g_ImcMenu activated` immediately after `MENUPOOL: acquired solo_mission_pause`, then `MENUPOOL: attached ctx to active solo_mission_pause gen=1 ctx=imgui_menu`, then `syncMouseMode -- restored absolute mode for 'imgui_menu'`. No more `DIAG fireVk: NO BINDING FOUND` warnings.
+
+**Combat Simulator End Game** (tester mentioned as separate symptom from a prior session): the S368 `renderMpEndGameDialog` rewrite already moved that dialog to `BeginPopupModal` which takes over input exclusively. With B-170 shipped, the CI "End Game" flow should now be reachable; if the next playtest still reports it broken we'll need a fresh log showing which dialog is being pushed.
+
+**Next**: Mike playtests both solo pause and CI End Game; promote B-170 + B-171 to FIXED on sign-off.
+
+---
+
 ## Session S368 — 2026-04-18 (worktree `claude/nice-jackson-62879e`) — Controller navigation + scrollbar sweep (B-170)
 
 **Scope**: High-context audit across ALL ImGui menus — controller navigation must reach every interactive element. Three-part systemic fix:
