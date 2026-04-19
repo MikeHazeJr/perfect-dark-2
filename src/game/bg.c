@@ -1241,13 +1241,39 @@ Gfx *bgRenderArtifacts(Gfx *gdl)
 void bgLoadFile(void *memaddr, u32 offset, u32 len)
 {
 	catalog_stage_result_t stage;
+	const u8 *src;
+	u32 romsize;
 
 	if (var8007fc04) {
 		bcopy(var8007fc08 + offset, memaddr, len);
-	} else {
-		catalogGetStageResultByIndex(g_StageIndex, &stage);
-		fileLoadPartToAddr(stage.bgfileid, memaddr, offset, len);
+		return;
 	}
+
+	catalogGetStageResultByIndex(g_StageIndex, &stage);
+
+	if (stage.bgfileid <= 0) {
+		sysLogPrintf(LOG_ERROR, "BG.LOAD: invalid bgfileid=%d (stageidx=%d stagenum=0x%02x) offset=%u len=%u — zeroing dest",
+			stage.bgfileid, g_StageIndex, stage.stagenum, offset, len);
+		memset(memaddr, 0, len);
+		return;
+	}
+
+	romsize = 0;
+	src = romdataFileLoad(stage.bgfileid, &romsize);
+	if (src == NULL) {
+		sysLogPrintf(LOG_ERROR, "BG.LOAD: romdataFileLoad returned NULL for bgfileid=%d (stageidx=%d stagenum=0x%02x) offset=%u len=%u — zeroing dest",
+			stage.bgfileid, g_StageIndex, stage.stagenum, offset, len);
+		memset(memaddr, 0, len);
+		return;
+	}
+	if (offset > romsize || len > romsize - offset) {
+		sysLogPrintf(LOG_ERROR, "BG.LOAD: out-of-bounds offset=%u len=%u romsize=%u (bgfileid=%d stageidx=%d) — zeroing dest",
+			offset, len, romsize, stage.bgfileid, g_StageIndex);
+		memset(memaddr, 0, len);
+		return;
+	}
+
+	memcpy(memaddr, src + offset, len);
 }
 
 s32 bgGetStageIndex(s32 stagenum)
