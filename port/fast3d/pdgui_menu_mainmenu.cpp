@@ -167,6 +167,9 @@ MenuItemHandlerResult menuhandlerChangeAgent(s32 operation, struct menuitem *ite
  * prefs_agent.h lives in port/include/ and C++ ABI guard (#define bool
  * s32) blocks including it directly. */
 void prefsAgentSave(void);
+/* B-172: refresh pd.ini baseline after a pre-sign-in visual change so
+ * the next Agent Select reset doesn't clobber the user's new theme. */
+void prefsAgentRefreshVisualsBaseline(void);
 
 /* Font atlas rebuild — triggers at the start of the next frame so the
  * new font is active immediately without requiring a restart. */
@@ -1112,6 +1115,9 @@ static void renderSettingsInterface(float scale)
             if (ImGui::Button(btnLabel, ImVec2(btnW, btnH))) {
                 pdguiThemeLoadFromCatalog(id);
                 configSave("pd.ini");
+                /* B-172: keep the pd.ini baseline in sync so Agent Select
+                 * reset doesn't revert this change on the next visit. */
+                prefsAgentRefreshVisualsBaseline();
             }
         }
 

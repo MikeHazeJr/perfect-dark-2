@@ -2180,20 +2180,24 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     /* --- Limits --- */
     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Limits");
 
-    /* Time limit: 0–59 = (val+1) mins; 60+ = no limit */
+    /* Time limit: slider shows 1–60 minutes directly; 61 = no limit.
+     * Stored as 0-based (timelimit = minutes - 1); storage value 60 = no limit.
+     * B-177: previously the slider ran 0..60 while the label added +1, so
+     * the number on the handle was always one less than the label text.
+     * Mirrors the Score slider pattern (1-based display, 0-based store). */
     {
         if (!leader) ImGui::BeginDisabled();
-        int tl = (int)g_MatchConfig.timelimit;
+        int tl = (int)g_MatchConfig.timelimit + 1;  /* 1-based for display */
         ImGui::SetNextItemWidth(comboW * 0.6f);
-        if (ImGui::SliderInt("Time (min)", &tl, 0, 60)) {
-            g_MatchConfig.timelimit = (u8)tl;
+        if (ImGui::SliderInt("Time (min)", &tl, 1, 61)) {
+            g_MatchConfig.timelimit = (u8)(tl - 1);  /* store 0-based */
             s_RoomSettingsDirty = true;
         }
         ImGui::SameLine();
         if (g_MatchConfig.timelimit >= 60) {
             ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.5f, 1.0f), "No limit");
         } else {
-            ImGui::Text("%d min", g_MatchConfig.timelimit + 1);
+            ImGui::Text("%d min", tl);
         }
         if (!leader) ImGui::EndDisabled();
     }

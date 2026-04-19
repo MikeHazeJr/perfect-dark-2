@@ -340,9 +340,15 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 			vmpchr->killcounts[vmpindex]++;
 		}
 
-		/* PC: ImGui killfeed — suicide */
-		if (g_Vars.normmplayerisrunning && vmpchr) {
+		/* PC: ImGui killfeed — suicide. Fire for any MP mode (normal,
+		 * co-op, counter-op). B-175: previously gated on
+		 * `normmplayerisrunning` which suppressed the killfeed in co-op
+		 * modes; `mplayerisrunning` covers all MP scenarios. */
+		if (g_Vars.mplayerisrunning && vmpchr) {
 			pdguiKillfeedPush(NULL, 0, vmpchr->name, vmpchr->team, 1);
+			sysLogPrintf(LOG_NOTE,
+				"KILLFEED: suicide vplayernum=%d v='%s'",
+				vplayernum, vmpchr->name);
 		}
 		{
 			extern s32 g_NetMode;
@@ -401,16 +407,34 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 			ampchr->killcounts[vmpindex]++;
 		}
 
-		/* PC: ImGui killfeed — normal kill */
-		if (g_Vars.normmplayerisrunning && ampchr && vmpchr) {
-			pdguiKillfeedPush(ampchr->name, ampchr->team,
-			                  vmpchr->name, vmpchr->team, 0);
+		/* PC: ImGui killfeed — normal kill. B-175: accept bot-on-bot
+		 * equally with human kills. Gate on `mplayerisrunning` (any MP
+		 * mode, incl co-op / counter-op) and require only `vmpchr`;
+		 * if attacker mpchrconfig lookup fails, pass NULL attacker so
+		 * the killfeed still emits with a "?" attacker pill rather than
+		 * being silently dropped. */
+		if (g_Vars.mplayerisrunning && vmpchr) {
+			const char *aname = (ampchr && ampchr->name[0]) ? ampchr->name : NULL;
+			u8 ateam = ampchr ? (u8)ampchr->team : (u8)0;
+			pdguiKillfeedPush(aname, ateam,
+			                  vmpchr->name, (u8)vmpchr->team,
+			                  aname ? 0 : 1);
+			sysLogPrintf(LOG_NOTE,
+				"KILLFEED: push aplayernum=%d vplayernum=%d a='%s' v='%s' ampchr=%p",
+				aplayernum, vplayernum,
+				aname ? aname : "(null)", vmpchr->name, (void *)ampchr);
+		} else if (g_Vars.mplayerisrunning) {
+			sysLogPrintf(LOG_WARNING,
+				"KILLFEED: skipped — mplay=%d aplayernum=%d vplayernum=%d ampchr=%p vmpchr=%p",
+				g_Vars.mplayerisrunning, aplayernum, vplayernum,
+				(void *)ampchr, (void *)vmpchr);
 		}
 		{
 			extern s32 g_NetMode;
 			extern void netDistribSendKillFeed(const char *, const char *, const char *, u8);
-			if (g_NetMode == NETMODE_SERVER && ampchr && vmpchr) {
-				netDistribSendKillFeed(ampchr->name, vmpchr->name, "", 0);
+			if (g_NetMode == NETMODE_SERVER && vmpchr) {
+				netDistribSendKillFeed(ampchr ? ampchr->name : "",
+				                       vmpchr->name, "", 0);
 			}
 		}
 

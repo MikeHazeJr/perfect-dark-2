@@ -29,6 +29,7 @@
 #include "game/menu.h"
 #include "game/options.h"
 #include "game/training.h"
+#include "game/lv.h"           /* B-176: lvSetPaused for endscreen unpause */
 #include "game/bondgun.h"
 #include "game/game_0b0fd0.h"
 #include "files.h"
@@ -788,6 +789,9 @@ void pdguiEndscreenStartMission(void)
             g_NetClients[i].config = NULL;
         }
     }
+    /* B-176: release pause set by endscreenPrepare / mpPushEndscreenDialog
+     * so the new stage doesn't boot paused. */
+    lvSetPaused(false);
     menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
     /* Phase 2: release every pool slot before we pop the shared menu
      * context. This ensures any slot that was passively relying on the
@@ -817,6 +821,8 @@ void pdguiEndscreenNextMission(void)
         "GAMELOOP.CAMPAIGN: endscreen NEXT_MISSION advanced to stageindex=%d stage=0x%02x stage_id='%s'",
         g_MissionConfig.stageindex, (u32)g_MissionConfig.stagenum,
         g_MissionConfig.stage_id[0] ? g_MissionConfig.stage_id : "(empty)");
+    /* B-176: release pause set by endscreenPrepare / mpPushEndscreenDialog. */
+    lvSetPaused(false);
     menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
     /* Phase 2: release all pool slots — see pdguiEndscreenStartMission. */
     menupoolReleaseAll();
@@ -842,6 +848,10 @@ void pdguiEndscreenExitToMainMenu(void)
             : (g_NetGameMode == NETGAMEMODE_ANTI) ? "COUNTEROP"
             : "CAMPAIGN",
         g_ClientManifest.num_entries, (int)g_NetMode);
+    /* B-176 counterpart: mpPushEndscreenDialog set lvSetPaused(true) so
+     * the match froze while results displayed. Release the pause before
+     * the stage transition so the next level doesn't boot paused. */
+    lvSetPaused(false);
     configSave("pd.ini");
     /* F-0.4: Clear client manifest before stage transition.
      * STAGE_CITRAINING is a gameplay stage, so mainChangeToStage() won't

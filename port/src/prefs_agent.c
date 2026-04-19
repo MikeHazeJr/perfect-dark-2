@@ -126,6 +126,19 @@ static char s_BaseModPlaylist[PREFS_PLAYLIST_SIZE] = "";
 static s32  s_BaseModShuffle           = 1;
 static s32  s_BaseShowDevReleases      = 0;
 
+/* B-172: visual baselines captured at prefsAgentInit (after pd.ini theme
+ * has been applied).  prefsAgentResetVisuals() uses these so pre-sign-in
+ * theme changes that saved to pd.ini aren't clobbered by the reset when
+ * Agent Select re-opens.  Previously the reset hard-coded
+ * "base:theme_blue" which forced the default back on every agent swap. */
+static char s_BaseThemeId[128]           = "";
+static char s_BaseUiChromeStyleId[128]   = "";
+static s32  s_BaseUiChromeEnabled        = 1;
+static s32  s_BaseTitleBarStyle          = 0;
+static char s_BaseFontId[128]            = "";
+static s32  s_BaseScanlineEnabled        = 0;
+static f32  s_BaseScanlineAlpha          = 0.0f;
+
 /* -----------------------------------------------------------------------
  * HUD centering — setting g_HudCenter also requires updating the render
  * alignment mode flags.  This helper mirrors the logic in optionsmenu.c
@@ -404,7 +417,30 @@ void prefsAgentInit(void)
     s_BaseModShuffle           = audioGetModShuffle();
     s_BaseShowDevReleases      = updaterGetShowDevReleases();
 
-    sysLogPrintf(LOG_NOTE, "PREFS.AGENT: initialised (baselines captured)");
+    /* B-172: visual baselines. pdguiThemeLoaderInit has already applied
+     * the pd.ini-saved theme (Theme.ActiveTheme) by this point, so the
+     * accessors return the machine-global preference. Capturing here
+     * means prefsAgentResetVisuals() reverts to *user's* defaults rather
+     * than the hard-coded blue/empty values. */
+    {
+        const char *themeId  = pdguiThemeGetActiveId();
+        const char *chromeId = pdguiThemeGetUiChromeStyleId();
+        const char *fontId   = pdguiFontModGetActiveId();
+        snprintf(s_BaseThemeId,         sizeof(s_BaseThemeId),
+                 "%s", themeId  ? themeId  : "base:theme_blue");
+        snprintf(s_BaseUiChromeStyleId, sizeof(s_BaseUiChromeStyleId),
+                 "%s", chromeId ? chromeId : "");
+        snprintf(s_BaseFontId,          sizeof(s_BaseFontId),
+                 "%s", fontId   ? fontId   : "");
+        s_BaseUiChromeEnabled  = pdguiThemeGetUiChromeEnabled();
+        s_BaseTitleBarStyle    = pdguiThemeGetTitleBarStyle();
+        s_BaseScanlineEnabled  = pdguiThemeGetScanlineEnabled();
+        s_BaseScanlineAlpha    = pdguiThemeGetScanlineAlpha();
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "PREFS.AGENT: initialised (baselines captured, theme='%s' chrome='%s' font='%s')",
+        s_BaseThemeId, s_BaseUiChromeStyleId, s_BaseFontId);
 }
 
 void prefsAgentSetActive(const char *agent_name)
@@ -509,19 +545,47 @@ void prefsAgentMigrateLegacySidecar(const char *raw_name, const char *display_na
     }
 }
 
+void prefsAgentRefreshVisualsBaseline(void)
+{
+    const char *themeId  = pdguiThemeGetActiveId();
+    const char *chromeId = pdguiThemeGetUiChromeStyleId();
+    const char *fontId   = pdguiFontModGetActiveId();
+    snprintf(s_BaseThemeId,         sizeof(s_BaseThemeId),
+             "%s", themeId  ? themeId  : "base:theme_blue");
+    snprintf(s_BaseUiChromeStyleId, sizeof(s_BaseUiChromeStyleId),
+             "%s", chromeId ? chromeId : "");
+    snprintf(s_BaseFontId,          sizeof(s_BaseFontId),
+             "%s", fontId   ? fontId   : "");
+    s_BaseUiChromeEnabled  = pdguiThemeGetUiChromeEnabled();
+    s_BaseTitleBarStyle    = pdguiThemeGetTitleBarStyle();
+    s_BaseScanlineEnabled  = pdguiThemeGetScanlineEnabled();
+    s_BaseScanlineAlpha    = pdguiThemeGetScanlineAlpha();
+}
+
 void prefsAgentResetVisuals(void)
 {
-    /* Reset all per-agent prefs to built-in defaults. Called when Agent Select
-     * opens so the screen always shows the unmodified base appearance before
-     * any agent is signed in. Per-agent overrides are applied later when the
-     * user actually selects an agent. */
-    pdguiThemeLoadFromCatalog("base:theme_blue");
-    pdguiThemeSetUiChromeEnabled(1);
-    pdguiChromeSetEnabled(1);
-    pdguiThemeSetUiChromeStyleId("");
-    pdguiThemeSetTitleBarStyle(PDGUI_TITLEBAR_CLASSIC);
-    pdguiFontModSetActiveId("");
-    pdguiThemeSetScanlineEnabled(0);
+    /* Reset all per-agent prefs to the pd.ini baseline captured at init.
+     * Called when Agent Select opens so the screen always shows the
+     * machine-default appearance before any agent is signed in.
+     *
+     * B-172: previously hard-coded "base:theme_blue" / empty chrome/font
+     * here.  That forced every theme/chrome/font change made outside a
+     * signed-in agent (the main-menu Settings → Interface flow) to
+     * revert on the next Agent Select open, breaking theme persistence.
+     * Routing through the baselines means pd.ini-saved preferences
+     * survive agent swaps; per-agent sidecars still overlay them when
+     * the user actually selects an agent below. */
+    pdguiThemeLoadFromCatalog(s_BaseThemeId[0] ? s_BaseThemeId : "base:theme_blue");
+    pdguiThemeSetUiChromeEnabled(s_BaseUiChromeEnabled);
+    pdguiChromeSetEnabled(s_BaseUiChromeEnabled);
+    pdguiThemeSetUiChromeStyleId(s_BaseUiChromeStyleId);
+    if (s_BaseUiChromeStyleId[0]) {
+        pdguiSetPanelNineSlice(s_BaseUiChromeStyleId);
+    }
+    pdguiThemeSetTitleBarStyle(s_BaseTitleBarStyle);
+    pdguiFontModSetActiveId(s_BaseFontId);
+    pdguiThemeSetScanlineEnabled(s_BaseScanlineEnabled);
+    pdguiThemeSetScanlineAlpha(s_BaseScanlineAlpha);
 
     /* Restore audio volume layers to pd.ini baseline so agents without an
      * [Audio] block don't inherit the previous agent's volume settings. */
