@@ -493,6 +493,65 @@ void botSpawnAll(void)
 	for (i = 0; i < g_BotCount; i++) {
 		botSpawn(g_MpBotChrPtrs[i], false);
 	}
+
+	/* B-174 diagnostic: post-spawn variance check.  Car Park playtest
+	 * reported "all bots spawn in the same spot"; if the spawn pipeline
+	 * has converged on a single pad (g_NumSpawnPoints == 1 with no pool
+	 * coverage, or the shortlist evaluation collapsed to one candidate),
+	 * every bot ends up at the same pos and the bug is invisible in the
+	 * summary log.  Walk the just-spawned bot set and emit a WARNING if
+	 * any two bots landed within SPAWN_VARIANCE_MIN_SQ (150 u) of each
+	 * other — plus always log the full pos table so the next playtest
+	 * capture pinpoints the stage that breaks spawn dispersal. */
+	if (g_BotCount > 0) {
+		f32 minSepSq = 1.0e30f;
+		s32 minA = -1;
+		s32 minB = -1;
+		const f32 THRESH_SQ = 150.0f * 150.0f;
+		s32 a;
+		s32 b;
+
+		sysLogPrintf(LOG_NOTE,
+			"SPAWN.DIAG: post-botSpawnAll stage=0x%02x bots=%d numpads=%d",
+			g_Vars.stagenum, g_BotCount, g_NumSpawnPoints);
+
+		for (a = 0; a < g_BotCount; a++) {
+			struct chrdata *ca = g_MpBotChrPtrs[a];
+			if (!ca || !ca->prop) continue;
+			sysLogPrintf(LOG_NOTE,
+				"SPAWN.DIAG: bot[%d] chrnum=%d pos=(%.0f,%.0f,%.0f) room=%d",
+				a, (s32)ca->chrnum,
+				ca->prop->pos.x, ca->prop->pos.y, ca->prop->pos.z,
+				(s32)ca->prop->rooms[0]);
+		}
+
+		for (a = 0; a < g_BotCount; a++) {
+			struct chrdata *ca = g_MpBotChrPtrs[a];
+			if (!ca || !ca->prop) continue;
+			for (b = a + 1; b < g_BotCount; b++) {
+				struct chrdata *cb = g_MpBotChrPtrs[b];
+				f32 dx;
+				f32 dz;
+				f32 sq;
+				if (!cb || !cb->prop) continue;
+				dx = ca->prop->pos.x - cb->prop->pos.x;
+				dz = ca->prop->pos.z - cb->prop->pos.z;
+				sq = dx * dx + dz * dz;
+				if (sq < minSepSq) {
+					minSepSq = sq;
+					minA = a;
+					minB = b;
+				}
+			}
+		}
+
+		if (g_BotCount >= 2 && minSepSq < THRESH_SQ) {
+			sysLogPrintf(LOG_WARNING,
+				"SPAWN.DIAG: bot collision — bot[%d] and bot[%d] spawned %.0fu apart (threshold=%.0f) on stage 0x%02x — spawn pipeline is collapsing to a single pad",
+				minA, minB, sqrtf(minSepSq), sqrtf(THRESH_SQ),
+				g_Vars.stagenum);
+		}
+	}
 }
 
 #if PIRACYCHECKS
