@@ -1,10 +1,10 @@
 
 # Session Log (Active)
 
-> **S281–S380** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S381** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
-## Session S380 — 2026-04-19 (worktree `claude/goofy-shaw-96c6c1`) — B-184 second-pass investigation: effect_normal_tint mod folder ruled out
+## Session S381 — 2026-04-19 (worktree `claude/goofy-shaw-96c6c1`) — B-184 second-pass investigation: effect_normal_tint mod folder ruled out
 
 **Scope**: Mike flagged a new CI-main-menu repro of B-184 (rainbow/normal-tinted props + characters), plus a critical-looking clue in `Build/pdclient-apr19-0236.log`: `modmgr: entering category folder 'effect_normal_tint'` appearing multiple times, with missing-`mod.json` ERRORs for the same folder. The brief suggested the mod folder might be injecting shader modifications even without a valid `mod.json`. Goal: either pin the folder as the root cause or rule it out and document the finding.
 
@@ -43,6 +43,39 @@ The `effect_normal_tint` mod folder is **inert** — it consumes zero runtime co
 ### Build + merge
 
 - No code changes this session; context documentation only. Worktree stays on `claude/goofy-shaw-96c6c1` until the user's next merge.
+
+---
+
+## Session S380 — 2026-04-19 (worktree `claude/admiring-chandrasekhar-ba2a52`) — B-191 Updater Install button clipping
+
+**Scope**: Single bug from Mike — standalone `Updater.exe` (`pd-updater` target) hid the Update / Install button until the user manually resized the window.
+
+### B-191 — Install button clipped below client area
+`createControls` in `port/src/updater_standalone/updater_gui.c` stacked every child at fixed Y coordinates from the top. The action row landed at `y≈528` of a `WINDOW_CLIENT_H=572` client (12 px of nominal margin). On systems where DPI scaling, system-caption metrics, or any other non-client overhead pushed the bottom edge a few pixels higher, the Update + Close buttons clipped below the client edge. The earlier `c957fb62` "fix button clipping" commit just bumped the constant — same brittle stacked-from-top pattern. Per Mike's standing rule: action buttons and visual previews must be **docked**, not scrolled.
+
+Refactor (single file, 209 + / 30 −):
+- New `layoutControls(hwnd)` reads the live client rect and re-anchors every child via `BeginDeferWindowPos` / `DeferWindowPos` / `EndDeferWindowPos` for atomic batched moves. **Bottom-anchored**: Update + Close action buttons (right-justified) + status text + progress bar. **Top-anchored**: title, version row + Show Dev Releases checkbox, Check button, "Available releases:" label, releases list view, "Release notes:" label. **Stretch-fill**: release-notes edit box absorbs all leftover vertical space (with `UI_NOTES_MIN_H=60` floor).
+- Static labels (title, "Available releases:", "Release notes:") gained `IDC_TITLE` / `IDC_LBL_RELEASES` / `IDC_LBL_NOTES` IDs and dedicated `g_App.hTitle` / `hLblReleases` / `hLblNotes` HWND fields so layout can move them.
+- Window made resizable: `WS_THICKFRAME` restored (was previously masked out alongside `WS_MAXIMIZEBOX`); maximise stays disabled. New `WM_GETMINMAXINFO` handler enforces a minimum of `WINDOW_CLIENT_W × WINDOW_CLIENT_H` (720 × 620) by feeding the desired client rect through `AdjustWindowRect` with the live window style — the floor is correct under any DWM frame style.
+- New `WM_SIZE` handler calls `layoutControls` + `InvalidateRect(hwnd, NULL, TRUE)` so the redraw is correct on every size change.
+- `createControls` calls `layoutControls(hwnd)` once at the end so the initial layout is correct even before Windows delivers the first `WM_SIZE`.
+- `WINDOW_CLIENT_H` bumped 572 → 620 for headroom; new `WINDOW_CLIENT_W` constant (720) replaces the inline literals so the min-size guard and the create-time width can't drift apart.
+- Hoisted layout constants (`UI_PAD`, `UI_TITLE_H`, `UI_BTN_W/H`, `UI_LIST_H`, `UI_PROG_H`, `UI_STATUS_H`, `UI_CHK_W`, `UI_CHECK_BTN_W/H`, `UI_NOTES_MIN_H`) so the create-time and resize-time code paths share one source of truth.
+- The list view's "Title" column width is recomputed in `layoutControls` so it absorbs horizontal resizes.
+
+### Files
+- `port/src/updater_standalone/updater_gui.c` (+209 / −30 against the dev-tip baseline 1794 lines → 1973 lines): everything above lives in this single standalone-updater translation unit. Other targets do not link `updater_gui.c`, so the change cannot affect `pd` / `pd-server`.
+
+### Build + merge
+- Worktree branch `claude/admiring-chandrasekhar-ba2a52` committed as `8f94d98a`, merged into `dev` at `05655228` via `git merge --no-ff`.
+- Pre/post-merge line counts on `port/src/updater_standalone/updater_gui.c`: 1794 → 1973, exactly matching the worktree diff (+209/−30). No silent shrinkage.
+- Build validated: `ninja -C Build pd-updater` after a smart-clean configure → `[195/195] Linking C executable Updater.exe`. `Updater.exe` 12,846,748 bytes. The pre-existing `sha256.c` `'/*' within comment` warning is unchanged and unrelated.
+
+### Verify (playtest)
+- Run `Updater.exe`. Window opens at 720×620. Update + Close buttons visible at the bottom-right (Update disabled until a release row is selected).
+- Drag the window edges to shrink/grow — buttons stay pinned to the bottom-right; release-notes box absorbs the vertical change. Window cannot be made smaller than 720×620 (client area) — `WM_GETMINMAXINFO` clamps the floor.
+- Resizing horizontally widens the version label, list view "Title" column, and notes box.
+- Click a release row → Update enables → click Update → confirm modal → progress bar appears between notes and status during download / install.
 
 ---
 
