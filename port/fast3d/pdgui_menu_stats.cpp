@@ -18,6 +18,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_layout.h"
 #include "system.h"
 
 extern "C" {
@@ -540,10 +541,10 @@ void pdguiMenuStatsRender(s32 winW, s32 winH)
 
     ImGui::Separator();
 
-    /* Content area */
-    float footerH = pdguiScale(48.0f);
-    float bodyH = mh - titleH - pdguiScale(90.0f) - footerH;
-    float contentW = mw - ImGui::GetStyle().WindowPadding.x * 2.0f;
+    /* Content area — reserve bottom space for the docked action bar (C1). */
+    float bodyAvail = ImGui::GetContentRegionAvail().y;
+    float bodyH     = pdguiBodyHeightForActionBar(bodyAvail);
+    float contentW  = mw - ImGui::GetStyle().WindowPadding.x * 2.0f;
 
     if (ImGui::BeginChild("##stats_body", ImVec2(0, bodyH), false, 0)) {
         switch (s_StatsTab) {
@@ -555,11 +556,16 @@ void pdguiMenuStatsRender(s32 winW, s32 winH)
     }
     ImGui::EndChild();
 
-    ImGui::Separator();
-    ImGui::TextDisabled("B/Esc: Close");
+    /* Docked action bar (C1): Close always reachable regardless of scroll. */
+    bool closeActivated = false;
+    if (pdguiBeginActionBar("##stats_ab")) {
+        if (pdguiActionBarButton("Close", 1, ImGui::GetContentRegionAvail().x)) {
+            closeActivated = true;
+        }
+    }
+    pdguiEndActionBar();
 
-    /* Escape = close */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (closeActivated || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_StatsOpen = false;
     }

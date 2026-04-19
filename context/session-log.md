@@ -4,6 +4,60 @@
 > **S281–S385** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S386 — 2026-04-19 (worktree `claude/naughty-shtern-e1dabb`) — Menu Stack Tier 2: docked-button migration M-7..M-13
+
+**Scope**: Batch migration of the seven remaining Tier-2 menus from `menu-stack-architecture.md` §8 to the docked-action-bar primitive (`pdguiBeginActionBar` / `pdguiActionBarButton` / `pdguiEndActionBar`). Design doc C1: primary action buttons (Start/Confirm/Back/Cancel/Apply/Leave) must render in a docked footer that never scrolls; hand-rolled footers and inside-scroll button placements are the bug class this design retires.
+
+### Files + per-file changes
+
+- **M-7 `port/fast3d/pdgui_menu_pausemenu.cpp`** — CS pause menu `Resume` button moved from `SetCursorPos(ImVec2((menuW - resumeW) * 0.5f, menuH - resumeH - padB))` hand-rolled layout to `pdguiBeginActionBar`/`pdguiActionBarButton`. Tab content `##PauseTabContent` child height now computed via `pdguiBodyHeightForActionBar(menuH - contentTop - padB)`. Tab selectors (Rankings / Settings / End Game) stay at top (they're tab-switchers, not primary actions — M-6 covers the End Game confirm modal). `PdPauseButton` local helper retained (used by tab buttons).
+- **M-8 `port/fast3d/pdgui_menu_lobby.cpp`** — `+ Create Room` extracted out of the scrollable `##social_rooms` column (C1 violation: button could scroll off when the room list filled the column) and paired with `Disconnect` in a docked action bar. Dedicated server view collapses to Disconnect-only. Body column height = `pdguiBodyHeightForActionBar(bodyAvail) - 60*scale` (reserving a row for the chat-stub footer text). Escape still disconnects.
+- **M-9 `port/fast3d/pdgui_menu_network.cpp`** — `Back` migrated to docked action bar. The Server Browser + Direct Connect sections now render inside a `##mp_body` `BeginChild` sized via `pdguiBodyHeightForActionBar`. `Connect` stays inline with the address InputText (form-submit pattern; Connect is not a nav action, it's a submit on a specific input field).
+- **M-10 `port/fast3d/pdgui_menu_moddinghub.cpp`** — Hand-rolled `Close` button (right-aligned, custom danger tint) replaced with `pdguiActionBarButton` in the docked action bar. Tool description `TextDisabled` row stays above the bar. New `hubFooterH = descH + pdguiActionBarHeight() + 12*scale` reserves the correct footprint. C2 verified: each tool's content renders in a per-tab `BeginChild` above the footer — preview panels (model previews in Skin Editor, image previews in Nine-Slice Chrome, etc.) sit in the tool content area, not inside any scroll region that could clip them.
+- **M-11 `port/fast3d/pdgui_menu_stats.cpp`** — Keyboard-only `B/Esc: Close` hint replaced with a docked `Close` action button. Stats body height = `pdguiBodyHeightForActionBar(bodyAvail)`. Escape still closes for kb users.
+- **M-12 `port/fast3d/pdgui_menu_controldiagram.cpp`** — Both renderers (`renderSoloMissionControlStyle`, `renderMpControl`) migrated from `SetCursorPosY(diagH - footerH + 12*scale)` hand-rolled `Back` footer to `pdguiBeginActionBar`. C2 verified: the `##smc_info` diagram panel lives in a sibling column next to the `##smc_list` scroll, not inside it. Local `PdButton` helper removed (now unused — was the last caller of `pdguiDrawButtonEdgeGlow` in this file).
+- **M-13 `port/fast3d/pdgui_menu_endscreen.cpp`** — Both `renderSoloEndscreen` and `renderMpEndscreen` migrated. Solo completed path: `Next Mission` (focused=1, left) | `Retry Mission` (focused=0, right), or `Retry Mission` | `Main Menu` when no next mission. Solo failed path: `Retry Mission` (focused=1) | `Main Menu` (focused=0, red danger palette). MP networked: `Return to Room` (focused=1) | `Disconnect` (focused=0, red). MP solo: `Play Again` (focused=1) | `Quit` (focused=0, red). Content child heights now compute `ImGui::GetContentRegionAvail().y - pdguiActionBarHeight() - 12*scale - padB`. The explicit `ImGui::IsKeyPressed(ImGuiKey_Enter)` handler in MP was removed — the action bar's `isFocused=1` + internal Enter-activation already routes Enter to the primary button. Escape handler retained for the cancel path (MP: `netDisconnect() + exitToMainMenu`; Solo: `exitToMainMenu`). `inputSuppressed` debounce from S385 still gates activations. `PdEndButton` helper removed (now unused).
+
+### Design-doc compliance notes
+
+All seven files now emit `ImGui::Separator()` + a fixed-height `BeginChild(NavFlattened)` footer containing the bar, via `pdguiBeginActionBar/EndActionBar`. `NavFlattened` means controller D-pad nav crosses from the body scroll into the action bar transparently. Focused button plays `PDGUI_SND_SELECT` on activation (replaces the per-file `PdButton` / `PdEndButton` / `PdPauseButton` wrappers). Red danger-palette secondary buttons keep their `PushStyleColor(ImGuiCol_Button, ...)` block around the `pdguiActionBarButton` call — the primitive inherits parent's button styling.
+
+### Build + verify
+
+Worktree has no pre-existing `Build/` (fresh configure needed). Configured `cmake -G Ninja -B Build -DCMAKE_BUILD_TYPE=Release -S .` then `ninja -C Build pd pd-server`. Clean build **775/775**. `PerfectDark.exe` 53,329,064 bytes. `PerfectDarkServer.exe` 23,139,808 bytes. Zero new warnings from this change; pre-existing noise unchanged (comment-in-comment in `updater.h`/`pdgui_theme_loader.h`, `near`/`far` anon-field warnings in `types.h`, `VERSION_PATCH` redefinition, enet `gettime_offset` unused-static).
+
+### Files touched + LOC delta (relative to HEAD `fe52a4f0`)
+
+Target files:
+- `port/fast3d/pdgui_menu_network.cpp` +14/−4
+- `port/fast3d/pdgui_menu_stats.cpp` +13/−4
+- `port/fast3d/pdgui_menu_controldiagram.cpp` +18/−48 (removed PdButton helper, two footer blocks)
+- `port/fast3d/pdgui_menu_lobby.cpp` +37/−19
+- `port/fast3d/pdgui_menu_moddinghub.cpp` +15/−25
+- `port/fast3d/pdgui_menu_pausemenu.cpp` +11/−7
+- `port/fast3d/pdgui_menu_endscreen.cpp` +51/−97 (removed PdEndButton, rewrote both action button blocks)
+
+Context:
+- `context/tasks-current.md` Tier 2 entries flipped to DONE
+- `context/session-log.md` this entry
+
+### Playtest ask
+
+1. **CS pause menu**: pause mid-match → scroll through a long Rankings table → Resume button stays pinned at bottom → clicks close the menu. D-pad from body into action bar should work (NavFlattened).
+2. **Social Lobby**: connect to a dedicated server as a client → room list grows → `+ Create Room` stays visible at the bottom (was inside the scrollable column before). Dedicated server operator sees Disconnect only.
+3. **Multiplayer menu**: Main Menu → Multiplayer → long server browser list scrolls; Back stays docked. Pressing a server row then Connect still works. Escape still exits.
+4. **Modding Hub**: Main Menu → Modding Hub → cycle through tabs (Mod Manager / INI Editor / Scale / Pack / Audio / Skin / Map Import / Menu Style / Font) → Close button at bottom stays visible regardless of tab content scroll.
+5. **Player Statistics**: Main Menu → Stats → scroll through Overview / Weapons / Modes / Achievements tabs → Close button always reachable. Escape still closes.
+6. **Control Diagram**: Training → Control Style → list/diagram split → Back at bottom. Same for MP Control.
+7. **Solo endscreen**: complete / fail a mission → Next Mission or Retry Mission focused by default → Enter activates focused button → D-pad Right reaches Retry/Main Menu → Escape exits to main menu.
+8. **MP endscreen**: finish a match (solo or networked) → Return to Room / Play Again focused → Enter activates → D-pad Right reaches Disconnect/Quit (red) → Escape disconnects (networked) or exits (solo).
+
+### Next
+
+Tier 3 (C2 preview-in-scroll audits) — `training.cpp` Bio/Hangar, `moddinghub.cpp` 22 BeginChild regions, `room.cpp` char preview column, `controldiagram.cpp` diagram dock. M-14..M-17.
+
+---
+
 ## Session S385 — 2026-04-19 (worktree `claude/infallible-goldberg-71b379`) — B-End-Game-Input: CS pause End Game confirm focus + CS end-of-match input-death
 
 **Scope**: Two related CS bugs Mike reported in one batch.
