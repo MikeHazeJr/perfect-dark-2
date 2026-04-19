@@ -2369,15 +2369,13 @@ static void gfx_sp_set_vertex_colors(uint32_t count, const struct NormalColor *v
     // }
     rsp.vertex_colors = vcn;
 
-    /* B-184 DIAG (S382.2): ring-dedup + full-light-stack + time-stamped dump.
-     * Prior cap of 200 + naive "same as last" dedup burned out during the
-     * title intro (7 cycling vcn pointers defeat that check). This pass uses
-     * a 128-entry pointer ring so each unique vcn logs at most once per
-     * ring wrap, and caps at 5000 total lines — enough to cover the intro
-     * plus a full stage's worth of distinct props. We don't gate on
-     * lvframenum: C++ visibility into `g_Vars` is fragile, and the ring
-     * dedup alone is sufficient to reach gameplay data once the intro's
-     * small set of pointers is already in the ring. */
+    /* B-184 DIAG (S382.3): ring-dedup + lights + RDP combiner/prim/env state.
+     * Third pass adds post-vertex-color GPU state so we can see whether the
+     * tint comes from the vertex data (already logged as vtx0) OR from
+     * downstream multiplicative state (combiner config + prim_color +
+     * env_color applied after the vertex shader output). If prim_color or
+     * env_color is non-neutral during a tinted draw, that's the source.
+     * Ring (128 entries) + 5000 line cap carried over from S382.2. */
     static int s_DiagCount = 0;
     static const struct NormalColor *s_DiagRing[128];
     static int s_DiagRingIdx = 0;
@@ -2404,12 +2402,51 @@ static void gfx_sp_set_vertex_colors(uint32_t count, const struct NormalColor *v
             (i == rsp.current_num_lights - 1) ? " AMB" : "");
         if (off >= (int)sizeof(lightbuf)) break;
     }
+    /* Predict d->color for vtx0 using the same math gfx_sp_vertex uses —
+     * lets us see computed lit RGB without instrumenting the per-vertex
+     * hot path. Coeffs aren't recomputed here; we use dot(vcn.xyz, light_dir)
+     * / 127 in identity view space as a rough preview. Accurate enough to
+     * tell white-output-gray-vertex-mystery cases apart from real tints. */
+    int predR = 0, predG = 0, predB = 0;
+    const bool lit = (rsp.geometry_mode & G_LIGHTING) != 0;
+    if (lit) {
+        if (rsp.current_num_lights > 0) {
+            predR = rsp.current_lights[rsp.current_num_lights - 1].col[0];
+            predG = rsp.current_lights[rsp.current_num_lights - 1].col[1];
+            predB = rsp.current_lights[rsp.current_num_lights - 1].col[2];
+        }
+        const int8_t *nxyz = (const int8_t *)vcn;
+        for (int i = 0; i < rsp.current_num_lights - 1; i++) {
+            float intensity = ((float)nxyz[0] * rsp.current_lights_coeffs[i][0]
+                             + (float)nxyz[1] * rsp.current_lights_coeffs[i][1]
+                             + (float)nxyz[2] * rsp.current_lights_coeffs[i][2]) / 127.0f;
+            if (intensity > 0.0f) {
+                predR += (int)(intensity * rsp.current_lights[i].col[0]);
+                predG += (int)(intensity * rsp.current_lights[i].col[1]);
+                predB += (int)(intensity * rsp.current_lights[i].col[2]);
+            }
+        }
+        if (predR > 255) predR = 255;
+        if (predG > 255) predG = 255;
+        if (predB > 255) predB = 255;
+    } else {
+        predR = b[0]; predG = b[1]; predB = b[2];
+    }
+
     sysLogPrintf(LOG_NOTE,
         "GFX.DIAG: G_COL #%d vcn=%p count=%u vtx0={%02x %02x %02x %02x} "
-        "lighting=%d numlights=%d%s",
+        "lighting=%d numlights=%d%s "
+        "vtx0_out={%02x %02x %02x} "
+        "combine=0x%016llx prim={%02x %02x %02x %02x} env={%02x %02x %02x %02x} "
+        "mode_h=0x%08x mode_l=0x%08x",
         s_DiagCount, vcn, count, b[0], b[1], b[2], b[3],
         (rsp.geometry_mode & G_LIGHTING) ? 1 : 0,
-        rsp.current_num_lights, lightbuf);
+        rsp.current_num_lights, lightbuf,
+        (uint8_t)predR, (uint8_t)predG, (uint8_t)predB,
+        (unsigned long long)rdp.combine_mode,
+        rdp.prim_color.r, rdp.prim_color.g, rdp.prim_color.b, rdp.prim_color.a,
+        rdp.env_color.r, rdp.env_color.g, rdp.env_color.b, rdp.env_color.a,
+        rdp.other_mode_h, rdp.other_mode_l);
 }
 
 static void gfx_dp_set_other_mode(uint32_t h, uint32_t l) {
