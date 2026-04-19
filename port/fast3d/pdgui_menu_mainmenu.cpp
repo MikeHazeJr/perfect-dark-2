@@ -56,6 +56,7 @@ extern "C" {
 #include "pdgui_nav.h"
 #include "actionmap.h"
 #include "menupool.h"
+#include "game/forgemode.h"
 }
 
 /* ========================================================================
@@ -3227,6 +3228,21 @@ static s32 renderMainMenu(struct menudialog *dialog,
      * Suppress the Main Menu render entirely while the Room owns the
      * screen; it comes back as soon as "Back to Menu" clears the flag. */
     if (pdguiSoloRoomIsActive()) {
+        return 1;
+    }
+    /* B-173: The Grid (Forge) session owns the screen while active.  The
+     * "The Grid" button calls pdguiForgeStartSession() which kicks off a
+     * stage transition to CI Training WITHOUT popping the main-menu
+     * dialog.  During the session the HUD + editor overlay own the
+     * screen, but the Main Menu dialog is still on the menu stack — its
+     * ImGui window keeps going hidden/visible across stage transitions,
+     * fires IsWindowAppearing, and SetWindowFocus()es itself back on
+     * top, producing the "menus were buggier" symptom once the user
+     * exits the forge session.  Mirror the solo-room fix above: while a
+     * forge session is active, consume the main-menu render entirely so
+     * the Grid HUD/editor owns focus, and let the main menu come back
+     * cleanly once forgeExitSession() clears the session flag. */
+    if (forgeSessionIsActive()) {
         return 1;
     }
     s_MainMenuIsRendering = true;
