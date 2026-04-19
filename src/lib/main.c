@@ -1210,6 +1210,11 @@ void mainTick(void)
 
 void mainEndStage(void)
 {
+	/* B-172: pulled in by extern so src/lib/main.c doesn't drag net.h.
+	 * NETMODE_NONE=0, SERVER=1, CLIENT=2 — any non-zero means we are in a
+	 * networked session (hosting or connected). */
+	extern s32 g_NetMode;
+
 	sndStopNosedive();
 
 	if (!g_MainIsEndscreen) {
@@ -1242,6 +1247,17 @@ void mainEndStage(void)
 			musicStartMenu();
 		} else if (g_Vars.normmplayerisrunning) {
 			mpEndMatch();
+		} else if (g_NetMode != 0) {
+			/* B-172: Networked match never entered gameplay (ready gate stalled,
+			 * match cancelled, or mid-countdown disconnect). Falling through to
+			 * `endscreenPrepare()` would fire the solo-campaign GAME OVER path
+			 * and load CI Training as if a mission ended, stranding the user.
+			 * Skip the endscreen entirely — the room/lobby UI (or SVC_MATCH_
+			 * CANCELLED → CLSTATE_LOBBY) drives the recovery state instead. */
+			sysLogPrintf(LOG_WARNING,
+				"GAMELOOP.CAMPAIGN: mainEndStage in networked lobby (stage=0x%02x netmode=%d) — skipping endscreen, routing back to lobby",
+				(u32)g_Vars.stagenum, (s32)g_NetMode);
+			musicStartMenu();
 		} else {
 			endscreenPrepare();
 			musicStartMenu();

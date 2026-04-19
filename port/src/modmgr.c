@@ -1999,6 +1999,12 @@ static s32  s_BotNameOverrideActive = 0;
 
 static void modmgrParseBotNames(modinfo_t *mod)
 {
+	/* B-172: skip silently for mods without mod.json (audio-only, etc.).
+	 * fsFileLoad logs LOG_ERROR on missing files; calling it blindly spams
+	 * the boot log with "could not find file: mods/<id>/mod.json" for every
+	 * audio-only mod. */
+	if (!mod->has_modjson) return;
+
 	char path[FS_MAXPATH + 1];
 	snprintf(path, sizeof(path), "%s/mod.json", mod->dirpath);
 
