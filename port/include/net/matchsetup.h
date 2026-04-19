@@ -91,6 +91,8 @@ s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
                       const char *head_id, const char *name);
 s32 matchConfigRemoveSlot(s32 idx);
 void matchConfigRerollBot(s32 idx);
+/* Re-roll the bot's name only (body/head untouched). */
+void matchConfigRerollBotName(s32 idx);
 s32 matchStart(void);
 /* Returns max bot slots allowed for the current human count, clamped against
  * both participant slots and MAX_BOTS runtime limits. */

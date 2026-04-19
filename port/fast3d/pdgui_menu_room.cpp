@@ -192,6 +192,7 @@ void pdguiSoloRoomClose(void);
 
 /* Bot randomization (matchsetup.c) */
 void matchConfigRerollBot(s32 idx);
+void matchConfigRerollBotName(s32 idx);
 
 /* R-3: Room networking — send leave to server */
 struct netbuf;
@@ -561,9 +562,35 @@ static int s_SelectedArena = 0;
 
 /* Bot management state — multi-select */
 static bool s_BotSelected[MATCH_MAX_SLOTS]; /* per-slot selection */
-static int  s_BotSelectCount  = 0;          /* cached count of selected bots */
-static bool s_BotModalOpen    = false;
-static int  s_EditBotSlotIdx  = -1;         /* slot index being edited in the modal */
+static int  s_BotSelectCount     = 0;       /* cached count of selected bots */
+static int  s_BotLastClickedSlot = -1;      /* anchor for Shift+Click range select */
+static bool s_BotModalOpen       = false;
+static int  s_EditBotSlotIdx     = -1;      /* slot index being edited in the modal */
+
+/* Team sort preset — drives the dropdown above the player list when teams are
+ * enabled. TEAMSORT_CUSTOM means "user has edited teams by hand"; switching to
+ * any other preset reassigns all slots via applyTeamSort(). */
+enum TeamSortMode {
+    TEAMSORT_CUSTOM = 0,
+    TEAMSORT_TWO_TEAMS,
+    TEAMSORT_THREE_TEAMS,
+    TEAMSORT_FOUR_TEAMS,
+    TEAMSORT_HUMANS_VS_SIMS,
+    TEAMSORT_HUMAN_SIM_PAIRS,
+    TEAMSORT_COUNT_
+};
+static const char *s_TeamSortNames[TEAMSORT_COUNT_] = {
+    "Custom",
+    "2 Teams",
+    "3 Teams",
+    "4 Teams",
+    "Humans vs Sims",
+    "Human-Sim Pairs",
+};
+static int s_TeamSortMode = TEAMSORT_CUSTOM;
+
+/* Name buffer for batch name edits in the bot context menu */
+static char s_BotCtxNameBuf[MAX_PLAYER_NAME] = {0};
 
 /* ========================================================================
  * D3R-8: Bot Customizer state (U-7b Step B — ported from matchsetup.cpp)
@@ -684,6 +711,66 @@ static int botSelectFirst(void) {
         if (s_BotSelected[i]) return i;
     }
     return -1;
+}
+
+/* Apply a team-sort preset by mode index. Mirrors the helpers in
+ * pdgui_menu_teamsetup.cpp (those are TU-local there, so the same logic is
+ * duplicated here to keep this screen self-contained). TEAMSORT_CUSTOM is a
+ * no-op — the user is managing teams manually. Caller is responsible for
+ * marking s_RoomSettingsDirty. */
+static void applyTeamSort(int mode) {
+    switch (mode) {
+        case TEAMSORT_TWO_TEAMS:
+            for (int i = 0; i < (int)g_MatchConfig.numSlots; i++) {
+                g_MatchConfig.slots[i].team = (u8)(i % 2);
+            }
+            break;
+        case TEAMSORT_THREE_TEAMS:
+            for (int i = 0; i < (int)g_MatchConfig.numSlots; i++) {
+                g_MatchConfig.slots[i].team = (u8)(i % 3);
+            }
+            break;
+        case TEAMSORT_FOUR_TEAMS:
+            for (int i = 0; i < (int)g_MatchConfig.numSlots; i++) {
+                g_MatchConfig.slots[i].team = (u8)(i % 4);
+            }
+            break;
+        case TEAMSORT_HUMANS_VS_SIMS:
+            for (int i = 0; i < (int)g_MatchConfig.numSlots; i++) {
+                g_MatchConfig.slots[i].team =
+                    (g_MatchConfig.slots[i].type == SLOT_PLAYER) ? 0 : 1;
+            }
+            break;
+        case TEAMSORT_HUMAN_SIM_PAIRS: {
+            /* Reset to an unassigned sentinel, then pair each human with the
+             * first available bot on the same team, cycling team index. */
+            for (int i = 0; i < (int)g_MatchConfig.numSlots; i++) {
+                g_MatchConfig.slots[i].team = 255;
+            }
+            int teamIdx = 0;
+            for (int i = 0; i < (int)g_MatchConfig.numSlots; i++) {
+                if (g_MatchConfig.slots[i].type != SLOT_PLAYER) continue;
+                g_MatchConfig.slots[i].team = (u8)teamIdx;
+                for (int j = i + 1; j < (int)g_MatchConfig.numSlots; j++) {
+                    if (g_MatchConfig.slots[j].type == SLOT_BOT
+                        && g_MatchConfig.slots[j].team == 255) {
+                        g_MatchConfig.slots[j].team = (u8)teamIdx;
+                        break;
+                    }
+                }
+                teamIdx = (teamIdx + 1) % 8;
+            }
+            for (int i = 0; i < (int)g_MatchConfig.numSlots; i++) {
+                if (g_MatchConfig.slots[i].team == 255) {
+                    g_MatchConfig.slots[i].team = 0;
+                }
+            }
+            break;
+        }
+        default:
+            /* TEAMSORT_CUSTOM — no-op */
+            break;
+    }
 }
 
 /* Spawn weapon picker — index into s_SpawnWeapons (0 = Random) */
@@ -1470,15 +1557,53 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
     /* Scrollable list */
     ImGui::BeginChild("##room_players_list", ImVec2(0, listH), false);
 
-    /* Header with player/bot count summary */
+    /* Teams state drives both the header dropdown and row sorting / tinting. */
+    bool teamsOn = (g_MatchConfig.options & MPOPTION_TEAMSENABLED) != 0;
+
+    /* Header with player/bot count summary. Reports the number of currently
+     * selected bots so multi-select operations have a visible reference. */
     {
         s32 numPlayers = s_IsSoloMode ? 1 : humanCount;
-        s32 numBots = s_BotSelectCount;
+        s32 numBots = curBots;
         ImGui::TextColored(pdguiVec4TitleGlow(),
-                           "Players in Room  (%d Player%s, %d Bot%s)",
+                           "Players in Room  (%d Player%s, %d Bot%s%s)",
                            numPlayers, numPlayers != 1 ? "s" : "",
-                           numBots,    numBots != 1    ? "s" : "");
+                           numBots,    numBots != 1    ? "s" : "",
+                           s_BotSelectCount > 0 ? ", multi-select" : "");
+        if (s_BotSelectCount > 0) {
+            ImGui::TextColored(pdguiVec4TitleGlow(),
+                               "  %d selected — Ctrl/Shift/Y to multi-select, X for menu",
+                               s_BotSelectCount);
+        }
     }
+
+    /* Team sort dropdown — only visible when teams are enabled. Leader-only
+     * mutation. Switching the mode immediately reassigns teams via
+     * applyTeamSort() and marks the room settings dirty so the change
+     * broadcasts to clients at end-of-frame. */
+    if (teamsOn) {
+        float comboW = ImGui::GetContentRegionAvail().x;
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Team Sort");
+        if (!isLeader) ImGui::BeginDisabled();
+        ImGui::SetNextItemWidth(comboW);
+        int curMode = (s_TeamSortMode >= 0 && s_TeamSortMode < TEAMSORT_COUNT_)
+                      ? s_TeamSortMode : TEAMSORT_CUSTOM;
+        if (ImGui::BeginCombo("##room_teamsort", s_TeamSortNames[curMode])) {
+            for (int i = 0; i < TEAMSORT_COUNT_; i++) {
+                bool sel = (i == curMode);
+                if (ImGui::Selectable(s_TeamSortNames[i], sel)) {
+                    s_TeamSortMode = i;
+                    applyTeamSort(i);
+                    pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    if (i != TEAMSORT_CUSTOM) s_RoomSettingsDirty = true;
+                }
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        if (!isLeader) ImGui::EndDisabled();
+    }
+
     ImGui::Separator();
 
     /* S297: Build a unified row list (humans + bots) that we can group by
@@ -1489,7 +1614,6 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
      * Row payload is intentionally small — heavy metadata (body name, state
      * string, context-menu actions) is re-derived at render time keyed on
      * `slotIdx` for bots / `lobbyIdx` for humans. */
-    bool teamsOn = (g_MatchConfig.options & MPOPTION_TEAMSENABLED) != 0;
 
     /* Team color palette (matches pdgui_bridge.c pdguiHudGetTeamColor and
      * pdgui_menu_pausemenu.cpp s_TeamColors — keep in sync). */
@@ -1642,8 +1766,43 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                                   ImGuiSelectableFlags_AllowDoubleClick,
                                   ImVec2(rowW, 0.0f))) {
                 bool ctrl = ImGui::GetIO().KeyCtrl;
-                if (ctrl) botSelectToggle(r.slotIdx);
-                else      botSelectSet(r.slotIdx);
+                bool shift = ImGui::GetIO().KeyShift;
+                /* Shift+Click: range select in visible (sorted) bot-row order
+                 * between the anchor slot and the current slot. */
+                if (shift && s_BotLastClickedSlot >= 0) {
+                    s32 anchorPos = -1, curPos = -1;
+                    s32 botPos = 0;
+                    for (s32 k = 0; k < rowCount; k++) {
+                        if (!rows[k].isBot) continue;
+                        if (rows[k].slotIdx == s_BotLastClickedSlot) anchorPos = botPos;
+                        if (rows[k].slotIdx == r.slotIdx)            curPos    = botPos;
+                        botPos++;
+                    }
+                    if (anchorPos >= 0 && curPos >= 0) {
+                        s32 lo = anchorPos < curPos ? anchorPos : curPos;
+                        s32 hi = anchorPos > curPos ? anchorPos : curPos;
+                        botSelectClear();
+                        botPos = 0;
+                        for (s32 k = 0; k < rowCount; k++) {
+                            if (!rows[k].isBot) continue;
+                            if (botPos >= lo && botPos <= hi) {
+                                s32 si = rows[k].slotIdx;
+                                if (si >= 0 && si < MATCH_MAX_SLOTS && !s_BotSelected[si]) {
+                                    s_BotSelected[si] = true;
+                                    s_BotSelectCount++;
+                                }
+                            }
+                            botPos++;
+                        }
+                    } else {
+                        botSelectSet(r.slotIdx);
+                    }
+                } else if (ctrl) {
+                    botSelectToggle(r.slotIdx);
+                } else {
+                    botSelectSet(r.slotIdx);
+                }
+                s_BotLastClickedSlot = r.slotIdx;
                 if (ImGui::IsMouseDoubleClicked(0) && isLeader) {
                     s_EditBotSlotIdx = r.slotIdx;
                     s_BotModalOpen   = true;
@@ -1652,8 +1811,28 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
             }
 
+            /* Controller: Y (GamepadFaceUp) toggles multi-select on the
+             * currently-focused row; X (GamepadFaceLeft) opens the context
+             * menu for the current selection. Controller A (GamepadFaceDown)
+             * activates the Selectable above via the standard ImGui nav path
+             * and falls through to the same single-select branch. */
+            if (ImGui::IsItemFocused()) {
+                if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceUp, false)) {
+                    botSelectToggle(r.slotIdx);
+                    s_BotLastClickedSlot = r.slotIdx;
+                    pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                }
+                if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft, false)) {
+                    if (!s_BotSelected[r.slotIdx]) botSelectSet(r.slotIdx);
+                    s_BotLastClickedSlot = r.slotIdx;
+                    ImGui::OpenPopup("##bot_ctx");
+                    pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                }
+            }
+
             if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
                 if (!s_BotSelected[r.slotIdx]) botSelectSet(r.slotIdx);
+                s_BotLastClickedSlot = r.slotIdx;
                 ImGui::OpenPopup("##bot_ctx");
             }
 
@@ -1867,14 +2046,56 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                                s_BotSelectCount);
             ImGui::Separator();
 
-            /* Rename (single bot only) */
-            if (s_BotSelectCount == 1 && isLeader) {
-                int si = botSelectFirst();
-                if (si >= 0 && si < g_MatchConfig.numSlots) {
-                    ImGui::Text("Name:");
-                    ImGui::SameLine();
-                    ImGui::SetNextItemWidth(pdguiScale(210.0f));
-                    ImGui::InputText("##ctx_name", g_MatchConfig.slots[si].name, MAX_PLAYER_NAME);
+            /* Manual name entry. When only one bot is selected the field is
+             * seeded with that bot's current name and edits flow straight back
+             * into the slot (unchanged behaviour). With multi-select, typing a
+             * name and pressing Enter (or defocusing) writes that name to
+             * EVERY selected bot — the per-bot name is replaced even if the
+             * names previously differed. Display placeholder shows the shared
+             * name (or "Multiple" when names differ) so the operator knows
+             * they're about to overwrite differing values. */
+            if (isLeader && s_BotSelectCount >= 1) {
+                int firstSel = botSelectFirst();
+                bool allSame = true;
+                if (firstSel >= 0) {
+                    const char *n0 = g_MatchConfig.slots[firstSel].name;
+                    for (int j = 1; j < g_MatchConfig.numSlots && allSame; j++) {
+                        if (!s_BotSelected[j] || g_MatchConfig.slots[j].type != SLOT_BOT) continue;
+                        if (strncmp(n0, g_MatchConfig.slots[j].name, MAX_PLAYER_NAME) != 0) allSame = false;
+                    }
+                }
+                /* Seed the buffer when the popup first opens so Backspace etc.
+                 * don't clear the current name the moment the menu appears. */
+                if (ImGui::IsWindowAppearing()) {
+                    if (s_BotSelectCount == 1 && firstSel >= 0) {
+                        strncpy(s_BotCtxNameBuf, g_MatchConfig.slots[firstSel].name, MAX_PLAYER_NAME);
+                        s_BotCtxNameBuf[MAX_PLAYER_NAME - 1] = '\0';
+                    } else {
+                        s_BotCtxNameBuf[0] = '\0';
+                    }
+                }
+                ImGui::Text("Name:");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(pdguiScale(210.0f));
+                const char *hint = NULL;
+                if (s_BotSelectCount > 1) {
+                    hint = allSame && firstSel >= 0
+                        ? g_MatchConfig.slots[firstSel].name
+                        : "(Multiple) — type to set all";
+                }
+                if (ImGui::InputTextWithHint("##ctx_name",
+                                              hint ? hint : "",
+                                              s_BotCtxNameBuf, MAX_PLAYER_NAME,
+                                              ImGuiInputTextFlags_EnterReturnsTrue)
+                    && s_BotCtxNameBuf[0])
+                {
+                    for (int j = 1; j < g_MatchConfig.numSlots; j++) {
+                        if (!s_BotSelected[j] || g_MatchConfig.slots[j].type != SLOT_BOT) continue;
+                        strncpy(g_MatchConfig.slots[j].name, s_BotCtxNameBuf, MAX_PLAYER_NAME);
+                        g_MatchConfig.slots[j].name[MAX_PLAYER_NAME - 1] = '\0';
+                    }
+                    pdguiPlaySound(PDGUI_SND_SELECT);
+                    s_RoomSettingsDirty = true;
                 }
             }
 
@@ -1897,8 +2118,9 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 }
             }
 
-            /* Bot AI (difficulty) — applies to all selected */
-            if (isLeader && ImGui::BeginMenu("Bot AI")) {
+            /* Set AI Type — simulant difficulty preset. Applies to every
+             * selected bot (MeatSim / EasySim / NormalSim / HardSim / ...). */
+            if (isLeader && ImGui::BeginMenu("Set AI Type")) {
                 for (int d = 0; d < s_NumSimDiffs; d++) {
                     if (ImGui::MenuItem(s_SimDiffNames[d], NULL, d == commonDiff)) {
                         for (int j = 1; j < g_MatchConfig.numSlots; j++) {
@@ -1906,13 +2128,15 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                                 g_MatchConfig.slots[j].botDifficulty = (u8)d;
                         }
                         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                        s_RoomSettingsDirty = true;
                     }
                 }
                 ImGui::EndMenu();
             }
 
-            /* Bot Type — applies to all selected */
-            if (isLeader && ImGui::BeginMenu("Bot Type")) {
+            /* Set Bot Type — personality archetype (Peace / Shield / Rocket /
+             * ...). Orthogonal to AI Type (difficulty). Applies to all. */
+            if (isLeader && ImGui::BeginMenu("Set Bot Type")) {
                 for (int t = 0; t < s_NumBotTypes; t++) {
                     if (ImGui::MenuItem(s_BotTypeNames[t], NULL, t == commonType)) {
                         for (int j = 1; j < g_MatchConfig.numSlots; j++) {
@@ -1920,13 +2144,14 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                                 g_MatchConfig.slots[j].botType = (u8)t;
                         }
                         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                        s_RoomSettingsDirty = true;
                     }
                 }
                 ImGui::EndMenu();
             }
 
-            /* Character — applies to all selected, sorted alphabetically */
-            if (isLeader && ImGui::BeginMenu("Character")) {
+            /* Set Character — body/head pair. Applies to all selected. */
+            if (isLeader && ImGui::BeginMenu("Set Character")) {
                 u32 numBodies = mpGetNumBodies();
 
                 /* Build sortable list of (displayName, mpIndex) pairs */
@@ -1980,8 +2205,9 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 ImGui::EndMenu();
             }
 
-            /* Team — applies to all selected, only visible when teams are
-             * enabled. Matches the colour palette of the player list. */
+            /* Set Team — applies to all selected. Manual team assignment
+             * switches the room-level Team Sort dropdown back to Custom,
+             * since the preset no longer matches reality. */
             if (isLeader && teamsOn) {
                 int commonTeam = -1;
                 {
@@ -1993,12 +2219,12 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                         else if (commonTeam != t) { commonTeam = -1; break; }
                     }
                 }
-                char teamMenuLabel[24];
+                char teamMenuLabel[32];
                 if (commonTeam >= 0 && commonTeam < 8) {
                     snprintf(teamMenuLabel, sizeof(teamMenuLabel),
-                             "Team: %d", commonTeam + 1);
+                             "Set Team: %d", commonTeam + 1);
                 } else {
-                    snprintf(teamMenuLabel, sizeof(teamMenuLabel), "Team");
+                    snprintf(teamMenuLabel, sizeof(teamMenuLabel), "Set Team");
                 }
                 if (ImGui::BeginMenu(teamMenuLabel)) {
                     for (int t = 0; t < 8; t++) {
@@ -2013,6 +2239,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                                     g_MatchConfig.slots[j].team = (u8)t;
                                 }
                             }
+                            s_TeamSortMode = TEAMSORT_CUSTOM;
                             pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                             s_RoomSettingsDirty = true;
                         }
@@ -2024,21 +2251,67 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
 
             ImGui::Separator();
 
-            /* Duplicate — copies selected bots */
-            if (isLeader && ImGui::MenuItem("Duplicate")) {
-                for (int j = g_MatchConfig.numSlots - 1; j >= 1; j--) {
-                    if (s_BotSelected[j] && g_MatchConfig.slots[j].type == SLOT_BOT) {
+            /* Duplicate All — copy every selected bot, stopping once the room's
+             * max-bots cap (matchConfigMaxBotsForHumans for the current human
+             * count) is hit. The cap is refreshed after each add since
+             * matchConfigAddBot increments numSlots. */
+            {
+                int dupLabelBots = 0;
+                for (int j = 1; j < g_MatchConfig.numSlots; j++) {
+                    if (s_BotSelected[j] && g_MatchConfig.slots[j].type == SLOT_BOT)
+                        dupLabelBots++;
+                }
+                char dupLabel[40];
+                if (dupLabelBots > 1) {
+                    snprintf(dupLabel, sizeof(dupLabel), "Duplicate All (%d)", dupLabelBots);
+                } else {
+                    snprintf(dupLabel, sizeof(dupLabel), "Duplicate");
+                }
+                int botLimit = matchConfigMaxBotsForHumans(humanCount);
+                int live     = countBots();
+                bool canDup  = isLeader && dupLabelBots > 0 && live < botLimit;
+                if (!canDup) ImGui::BeginDisabled();
+                if (ImGui::MenuItem(dupLabel)) {
+                    int added = 0;
+                    int skipped = 0;
+                    int snapshotSlots = g_MatchConfig.numSlots;
+                    /* Iterate original slots only (not slots we just appended)
+                     * so one Duplicate pass does not chain-duplicate copies. */
+                    for (int j = 1; j < snapshotSlots; j++) {
+                        if (!s_BotSelected[j] || g_MatchConfig.slots[j].type != SLOT_BOT) continue;
+                        if (countBots() >= botLimit) { skipped++; continue; }
                         struct matchslot *src = &g_MatchConfig.slots[j];
-                        matchConfigAddBot(src->botType, src->botDifficulty,
-                                          src->body_id, src->head_id, src->name);
+                        if (matchConfigAddBot(src->botType, src->botDifficulty,
+                                              src->body_id, src->head_id, NULL) >= 0) {
+                            added++;
+                        }
+                    }
+                    if (skipped > 0) {
+                        sysLogPrintf(LOG_NOTE,
+                            "ROOM: Duplicate All capped at %d bots (added=%d skipped=%d humans=%d)",
+                            botLimit, added, skipped, humanCount);
+                    }
+                    pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    s_RoomSettingsDirty = true;
+                }
+                if (!canDup) ImGui::EndDisabled();
+            }
+
+            /* Re-Roll Name — random name per bot, body/head untouched. Each
+             * bot rolls independently so a multi-select doesn't end up with a
+             * shared name. */
+            if (isLeader && ImGui::MenuItem("Re-Roll Name")) {
+                for (int j = 1; j < g_MatchConfig.numSlots; j++) {
+                    if (s_BotSelected[j] && g_MatchConfig.slots[j].type == SLOT_BOT) {
+                        matchConfigRerollBotName(j);
                     }
                 }
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                 s_RoomSettingsDirty = true;
             }
 
-            /* Re-roll — random name + character for all selected */
-            if (isLeader && ImGui::MenuItem("Re-roll")) {
+            /* Re-Roll All — random name + character (existing full re-roll). */
+            if (isLeader && ImGui::MenuItem("Re-Roll Name + Character")) {
                 for (int j = 1; j < g_MatchConfig.numSlots; j++) {
                     if (s_BotSelected[j] && g_MatchConfig.slots[j].type == SLOT_BOT) {
                         matchConfigRerollBot(j);
@@ -2048,15 +2321,17 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 s_RoomSettingsDirty = true;
             }
 
-            /* Remove — delete all selected */
-            if (isLeader && ImGui::MenuItem("Remove")) {
-                /* Remove in reverse to avoid index shifting */
+            /* Remove All — delete every selected bot in reverse to keep
+             * slot indices stable during the sweep. */
+            if (isLeader && ImGui::MenuItem(
+                    s_BotSelectCount > 1 ? "Remove All" : "Remove")) {
                 for (int j = g_MatchConfig.numSlots - 1; j >= 1; j--) {
                     if (s_BotSelected[j] && g_MatchConfig.slots[j].type == SLOT_BOT) {
                         matchConfigRemoveSlot(j);
                     }
                 }
                 botSelectClear();
+                s_BotLastClickedSlot = -1;
                 pdguiPlaySound(PDGUI_SND_KBCANCEL);
                 s_RoomSettingsDirty = true;
             }
@@ -2620,6 +2895,8 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         syncArenaFromConfig();
         syncSpawnWeaponFromConfig();
         botSelectClear();
+        s_BotLastClickedSlot = -1;
+        s_TeamSortMode       = TEAMSORT_CUSTOM;
         s_CodeGenerated   = false;
         s_MatchConfigInited = true;
     }
@@ -3485,6 +3762,9 @@ extern "C" void pdguiRoomScreenReset(void)
     s_CounterOpClientId = 0xFF;
     s_SelectedArena     = 0;
     botSelectClear();
+    s_BotLastClickedSlot   = -1;
+    s_TeamSortMode         = TEAMSORT_CUSTOM;
+    s_BotCtxNameBuf[0]     = '\0';
     s_BotModalOpen         = false;
     s_EditBotSlotIdx       = -1;
     s_BotModalShowAdvanced = false;
