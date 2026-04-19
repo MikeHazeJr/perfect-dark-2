@@ -33,6 +33,20 @@ extern struct menudialogdef g_CinemaMenuDialog;
  * for rationale. */
 extern struct menudialogdef g_FilemgrFileSelectMenuDialog;
 
+/* B-End-Game-Input (2026-04-19): MP endscreen + End Game dialogs defined
+ * in src/game/mplayer/ingame.c but not exported via data.h. Register them
+ * in the pool so menuPushRootDialog's menupoolReleaseAll + deferred-pop
+ * path doesn't leave g_CtxImGuiMenu in a mid-transition state when the
+ * endscreen opens — the renderer's fresh-entry ctx-push check raced with
+ * the deferred pop, stranding input after CS matches ended. Also registers
+ * g_MpEndGameMenuDialog as WARNING_MODAL so the confirm popup participates
+ * in pool lifecycle + gets proper ctx ownership instead of leaking through
+ * the unregistered fallback. */
+extern struct menudialogdef g_MpEndscreenIndGameOverMenuDialog;
+extern struct menudialogdef g_MpEndscreenTeamGameOverMenuDialog;
+extern struct menudialogdef g_MpEndscreenChallengeCompletedMenuDialog;
+extern struct menudialogdef g_MpEndGameMenuDialog;
+
 /* Dialogdef→type registry. One entry per (def,type) pair. Capacity is
  * chosen to cover all ~70 data.h externs plus headroom for late-registered
  * mod dialogs. Linear scan is fine — registry is read-heavy but short. */
@@ -455,10 +469,31 @@ void menupoolInit(void)
     REG(&g_SoloMissionPauseMenuDialog,   MENU_TYPE_SOLO_MISSION_PAUSE);
     REG(&g_SoloMissionControlStyleMenuDialog, MENU_TYPE_SOLO_OPTIONS);
 
-    /* ---- Endscreen (MP challenge variants only — Solo endscreens
-     * use different defs registered via hotswap type fallbacks) ---- */
+    /* ---- Endscreen (MP variants — Solo endscreens use different defs
+     * registered via hotswap type fallbacks).
+     *
+     * B-End-Game-Input (2026-04-19): the Ind / Team / ChallengeCompleted
+     * defs were previously unregistered, which routed their push through
+     * the unregistered fallback in menupoolAcquireDialog. Since
+     * menuPushRootDialog calls menupoolReleaseAll() before pushing, any
+     * ctx popped by that call was deferred to end-of-frame; on the
+     * renderer's first frame the ctx still appeared active so the fresh-
+     * entry ctx-push was skipped, and on the NEXT frame freshEntry was
+     * false — so the push never happened, and input to the endscreen
+     * died. Registering here puts the endscreen on the same ctx-owned
+     * acquire/release lifecycle as the Cheated/Failed variants, and the
+     * renderer can drop its timing-fragile fresh-entry probe. */
+    REG(&g_MpEndscreenIndGameOverMenuDialog,      MENU_TYPE_ENDSCREEN_MP);
+    REG(&g_MpEndscreenTeamGameOverMenuDialog,     MENU_TYPE_ENDSCREEN_MP);
+    REG(&g_MpEndscreenChallengeCompletedMenuDialog, MENU_TYPE_ENDSCREEN_MP);
     REG(&g_MpEndscreenChallengeCheatedMenuDialog, MENU_TYPE_ENDSCREEN_MP);
     REG(&g_MpEndscreenChallengeFailedMenuDialog,  MENU_TYPE_ENDSCREEN_MP);
+
+    /* ---- End Game confirm (DANGER popup) ----
+     * B-End-Game-Input: routes through the shared WARNING_MODAL slot so
+     * the confirm popup participates in structural dedup + ctx ownership.
+     * renderMpEndGameDialog uses BeginPopupModal under this acquire. */
+    REG(&g_MpEndGameMenuDialog,                   MENU_TYPE_WARNING_MODAL);
 
     /* ---- Cheats ---- */
     REG(&g_CheatsMenuDialog,             MENU_TYPE_CHEATS);

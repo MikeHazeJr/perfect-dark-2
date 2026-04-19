@@ -7,6 +7,18 @@
 
 ---
 
+## Done — 2026-04-19 (S385 — B-198: CS pause End Game confirm focus + CS end-of-match input-death, `claude/infallible-goldberg-71b379`)
+
+- **B-198** (CS pause → End Game: controller can select "End Game" but not reach Confirm; CS end-of-match: no input, no way back to main menu). Two bugs, one session, both fixed.
+- **End Game popup focus (Bug 1)**: `renderMpEndGameDialog` used `IsWindowAppearing()`-gated `SetItemDefaultFocus()` which raced with ImGui's popup NavInit on the OpenPopup + BeginPopupModal same-frame path. New approach: added `s_EndGameOpenFrame` + 5-frame `SetKeyboardFocusHere(0)` force-focus window on Cancel + 3-frame input debounce so the Enter/A press that activated the hub-row Selectable can't bleed into the popup's buttons.
+- **End-of-match input-death (Bug 2)**: root cause was a race between `menuPushRootDialog`'s `menupoolReleaseAll()` (deferred pops of owned_ctx slots to end-of-frame) and `renderMpEndscreen`'s fresh-entry ctx-push gate. On frame 1 the ctx appeared active (deferred pop pending), so push was skipped. End-of-frame the pop fired. On frame 2 freshEntry was false — push never happened, `g_ImcMenu` never activated. `ACTION_USE`/`ACTION_CANCEL_USE` → no ImGui Enter/Escape events → Enter/Esc/A/B all dead. Fix: push unconditionally whenever the ctx isn't active while this renderer runs (force-close sites also clear the dialog, so no resurrect-loop risk).
+- **Compounding fix**: registered missing endscreen dialogs + End Game dialog in `port/src/menupool.c` — `g_MpEndscreenIndGameOverMenuDialog` / `TeamGameOverMenuDialog` / `ChallengeCompletedMenuDialog` all as `MENU_TYPE_ENDSCREEN_MP`, plus `g_MpEndGameMenuDialog` as `MENU_TYPE_WARNING_MODAL`. Joins the Cheated/Failed variants that were already registered.
+- **Files**: `port/src/menupool.c` (+39/−1), `port/fast3d/pdgui_menu_endscreen.cpp` (+40/−20), `port/fast3d/pdgui_menu_warning.cpp` (+75/−28). Net +154/−49 across 3 files.
+- **Build**: clean 775/775. `PerfectDark.exe` 53,363,195 / `PerfectDarkServer.exe` 23,141,856.
+- **Playtest ask**: (1) CS pause → "End Game" with controller — popup opens, focus on Cancel, D-pad Right reaches End Match, A confirms, B cancels. (2) CS match to natural end — endscreen renders, Enter/Esc/A/B all responsive, Main Menu reachable. (3) Challenge mode (Completed / Failed / Cheated) — all still work post-registration.
+
+---
+
 ## Done — 2026-04-19 (S384 — B-184 + B-193 root cause: ALIGN16 pointer-alignment regression from `fe107e3e`, `claude/elated-hugle-7ec221` → `dev` @ `90b448ce`)
 
 - **B-184** (per-object vertex-colour tints: yellow computer props, cyan elevator top, olive character faces) and **B-193** (intermittent invisible CI geometry on cold boot) — same root cause. Commit `fe107e3e` (2026-04-17, M4 optimisation) collapsed `ALIGN16(val)` to `(val)` on the grounds that `mempAlloc` returns aligned memory. True for **size** args; broken for **pointer** args at ~30 sites.
