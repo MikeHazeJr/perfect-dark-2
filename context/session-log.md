@@ -1,8 +1,50 @@
 
 # Session Log (Active)
 
-> **S281–S380** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S381** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S381 — 2026-04-19 (worktree `claude/goofy-shaw-96c6c1`) — B-184 second-pass investigation: effect_normal_tint mod folder ruled out
+
+**Scope**: Mike flagged a new CI-main-menu repro of B-184 (rainbow/normal-tinted props + characters), plus a critical-looking clue in `Build/pdclient-apr19-0236.log`: `modmgr: entering category folder 'effect_normal_tint'` appearing multiple times, with missing-`mod.json` ERRORs for the same folder. The brief suggested the mod folder might be injecting shader modifications even without a valid `mod.json`. Goal: either pin the folder as the root cause or rule it out and document the finding.
+
+### Investigation
+
+- **effect_normal_tint mod folder contents**: `C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/dist/v$Version/mods/effect_normal_tint/` contains only `mod.ini` (legacy N64-era `modconfig.txt`-style format — removed by the 2026-03-24 constraint cleanup; parsing and loader were ripped out) and `README.txt` (describes the intent: green-floor / red-wall / blue-ceiling classification tint). **No shader code, no textures, no display-list patches, no subdirectories.**
+
+- **modmgr category-folder behaviour**: `modmgrScanCategoryFolder` in `port/src/modmgr.c:994` logs `entering category folder '%s'` and walks direct child directories (capped at one level by the 2026-04-16 S293 depth cap). Since effect_normal_tint has zero subdirs, the scan is a pure no-op. The `ERROR: fsFileLoad: could not find file: .../effect_normal_tint/mod.json` line is a secondary scanner's probe — same ERROR pattern is emitted for other legitimate category folders like `base-game`, `UI Chrome`, `Fonts`, `Custom Windows`. Harmless.
+
+- **ASSET_EFFECT consumer search**: grep for `ASSET_EFFECT` / `EFFECT_TYPE_TINT` / `normal_tint` across the entire `src/` + `port/` tree returns three hits: the enum declaration in `port/include/assetcatalog.h:100`, a constant definition block at `:126-141`, and a single UI string `"Effect"` at `pdgui_menu_mainmenu.cpp:2655`. **No code reads or applies ASSET_EFFECT.** The ext struct fields (`effect_type`, `shader_id[64]`, `intensity`, `param1..4`) are declared at `assetcatalog.h:285+` but no loader populates them and no renderer consumes them.
+
+- **Dead-block verification**: grep for the SAVED EFFECT signature (`vcn->y \* rsp\.modelview`, `color\.[rgb] \* 0\.3f \+ 180`, `180.*0\.3f`) returns zero hits in the current tree. The S372 removal (`3486d870`) stuck — the block is truly gone.
+
+- **meshDebug status**: `port/src/meshdebug.c:19` still has `static int s_DebugMode = 0`, `meshDebugToggle()` at `:26` only emits a `MESHCOL:` LOG_NOTE summary of the world mesh stats and never writes `s_DebugMode`. F9 is a no-op from a visual standpoint. `s_meshDebugModeCache` in `gfx_pc.cpp:144` is refreshed per-frame from `meshDebugGetMode()` and gates only the collision-mesh-only overlay (mode 2) and a suppression branch in `gfx_sp_tri1` — no tint path.
+
+- **gfx_opengl.cpp shader generator** (lines 236-560): standard N64 color-combiner emulation. Inputs come from vertex colour/normal + texture lookups. No normal-derived fragment-colour path, no "visualize normals" mode.
+
+- **G_LIGHTING manipulation sweep**: zero `gSP(Set|Clear)GeometryMode.*G_LIGHTING` calls in `src/game/chr.c`, `src/game/propobj.c`, or `src/lib/model.c` for character / prop DLs. Only shards/smoke/smokeinit clear G_LIGHTING, which is expected for those unlit effects. `dlights.c` uses uniform white lights for rooms (no per-axis RGB contribution).
+
+### Conclusion
+
+The `effect_normal_tint` mod folder is **inert** — it consumes zero runtime code paths. It has been sitting in Mike's install directory since 2026-03-26, predating the 2026-03-23 component-mod architecture switch that removed the legacy `modconfig.txt`/`mod.ini` parser. It is **not the source of the rainbow-tint bug**. The previous session's `INVESTIGATED-NO-SMOKING-GUN` verdict stands; this second pass adds explicit rule-out evidence for the mod folder and strengthens the audit trail.
+
+**Remaining hypothesis** (unchanged): rainbow visuals could come from a DL that clears `G_LIGHTING` where the vertex block carries authored normals, so the `else { d->color.r/g/b = vcn->r/g/b; }` branch at `gfx_pc.cpp:1247-1251` reinterprets signed-normal bytes as unsigned RGB. Static analysis can't localize this without fresh evidence.
+
+### Files changed
+
+- `context/bugs.md` — B-184 entry rewritten: S380 second-pass note, explicit effect_normal_tint rule-out, enumerated consumer-search results, recommendation for Mike to delete the stale folder.
+- `context/session-log.md` — this entry.
+
+### Recommendation for Mike
+
+1. Delete `C:/Users/mikeh/Downloads/Perfect Dark 2.0/data/mods/effect_normal_tint/` from your install directory. It does nothing and only clutters the boot log. (Also present under `dist/v$Version/mods/` and `post-batch-addin/mods/` — safe to delete from both.)
+2. Next time the rainbow tint appears: **take a screenshot** and note the exact map, which characters/props are affected, which mods are enabled, and whether F9 does anything visual. That evidence would pin the actual source — a screenshot alone can distinguish "normal-visualisation" (raw normal vector as RGB) from "surface-classification" (green floor / red wall / blue ceiling) from "something else entirely".
+
+### Build + merge
+
+- No code changes this session; context documentation only. Worktree stays on `claude/goofy-shaw-96c6c1` until the user's next merge.
+
+---
 
 ## Session S380 — 2026-04-19 (worktree `claude/admiring-chandrasekhar-ba2a52`) — B-191 Updater Install button clipping
 
