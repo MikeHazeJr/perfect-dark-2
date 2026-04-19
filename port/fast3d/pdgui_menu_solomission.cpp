@@ -431,8 +431,14 @@ static s32 s_PauseSelectIdx = 0;   /* 0 = close, 1 = Inventory, 2 = Options, 3 =
 static bool s_RestartConfirm = false;
 static s32  s_RestartSelectIdx = 0;   /* 0 = Cancel, 1 = Restart */
 
-/* Abort confirmation */
-static s32 s_AbortSelectIdx = 0;   /* 0 = Cancel, 1 = Abort */
+/* Abort confirmation — M-2 (2026-04-19): BeginPopupModal pattern with
+ * 5-frame SetKeyboardFocusHere(0) focus latch + 3-frame input debounce so
+ * the Enter press that opened the popup can't bleed through. Mirrors the
+ * M-1 renderMpEndGameDialog pattern in pdgui_menu_warning.cpp. */
+static void *s_AbortOpenedForDialog = nullptr;
+static s32   s_AbortOpenFrame = -1;
+#define ABORT_FRAME_DEBOUNCE       3
+#define ABORT_FORCE_FOCUS_FRAMES   5
 
 /* Options hub — now a tabbed panel */
 static s32 s_OptionsSelectIdx = 0;
@@ -3015,117 +3021,223 @@ static s32 renderPauseMenu(struct menudialog *dialog,
 }
 
 /* =========================================================================
- * Abort Mission (Danger dialog)
+ * Abort Mission (M-2: BeginPopupModal over pause menu)
+ *
+ * Mirrors the M-1 renderMpEndGameDialog pattern in pdgui_menu_warning.cpp:
+ *   - ImGui::OpenPopup + BeginPopupModal for popup-over-parent semantics so
+ *     the Solo pause is visually underneath the scrim.
+ *   - pdguiPopupDarkenBehind(0.65f) scrim darkens the viewport.
+ *   - Red/danger palette inside the modal body.
+ *   - 5-frame SetKeyboardFocusHere(0) on Cancel so controller focus lands
+ *     reliably even if ImGui popup NavInit hasn't settled.
+ *   - 3-frame input debounce so the Enter/A press that opened the popup
+ *     can't bleed through into Confirm.
  * ========================================================================= */
 
 static s32 renderAbortMission(struct menudialog *dialog,
-                               struct menu *menu,
-                               s32 winW, s32 winH)
+                               struct menu * /*menu*/,
+                               s32 /*winW*/, s32 /*winH*/)
 {
-    float mw  = pdguiMenuWidth() * 0.55f;
-    float mh  = pdguiMenuHeight() * 0.35f;
-    ImVec2 pos = pdguiCenterPos(mw, mh);
+    struct menudialogdef *def = (dialog != nullptr)
+        ? *(struct menudialogdef **)((u8 *)dialog)
+        : nullptr;
+    (void)def;
 
-    /* Switch to danger (red) palette for this dialog */
+    /* Full-viewport scrim — dim the pause menu / game scene behind the modal. */
+    pdguiPopupDarkenBehind(0.65f);
+
+    /* Red / warning palette for the frame and title. */
     s32 prevPalette = pdguiGetPalette();
     pdguiSetPalette(2);
 
-    ImGui::SetNextWindowPos(pos);
-    ImGui::SetNextWindowSize(ImVec2(mw, mh));
+    float scale = pdguiScaleFactor();
+    float dialogW = pdguiScale(540.0f);
+    float dialogH = pdguiScale(260.0f);
+    ImVec2 dlgPos = pdguiCenterPos(dialogW, dialogH);
 
-    ImGuiWindowFlags wf = ImGuiWindowFlags_NoResize
-                        | ImGuiWindowFlags_NoMove
-                        | ImGuiWindowFlags_NoCollapse
-                        | ImGuiWindowFlags_NoSavedSettings
-                        | ImGuiWindowFlags_NoTitleBar
-                        | ImGuiWindowFlags_NoBackground;
+    float pdTitleH = pdguiScale(36.0f);
+    if (pdTitleH < 18.0f) pdTitleH = 18.0f;
 
-    if (!ImGui::Begin("##abort_mission", nullptr, wf)) {
-        pdguiSetPalette(prevPalette);
-        ImGui::End();
-        return 1;
+    const char *popupId = "##mission_abort_modal";
+    s32 curFrame = (s32)ImGui::GetFrameCount();
+
+    /* Kick the popup open on first frame the dialog is seen. */
+    if (s_AbortOpenedForDialog != (void *)dialog) {
+        ImGui::OpenPopup(popupId);
+        s_AbortOpenedForDialog = (void *)dialog;
+        s_AbortOpenFrame = curFrame;
+        pdguiPlaySound(PDGUI_SND_ERROR);
     }
 
-    if (ImGui::IsWindowAppearing()) {
-        ImGui::SetWindowFocus();
-        s_AbortSelectIdx = 0;  /* default to Cancel (safer) */
-    }
+    ImGui::SetNextWindowPos(dlgPos);
+    ImGui::SetNextWindowSize(ImVec2(dialogW, dialogH));
 
-    float titleH = pdguiScale(39.0f);
-    pdguiDrawPdDialog(pos.x, pos.y, mw, mh, langSafe(L_OPTIONS_174), 1);
-    pdguiSetCursorBelowTitle(titleH);
+    ImGuiWindowFlags wflags = ImGuiWindowFlags_NoResize
+                            | ImGuiWindowFlags_NoMove
+                            | ImGuiWindowFlags_NoCollapse
+                            | ImGuiWindowFlags_NoSavedSettings
+                            | ImGuiWindowFlags_NoTitleBar
+                            | ImGuiWindowFlags_NoBackground
+                            | ImGuiWindowFlags_NoScrollbar;
 
-    /* Warning text */
-    ImGui::Spacing();
-    ImGui::SetCursorPosX(ImGui::GetStyle().WindowPadding.x + pdguiScale(12.0f));
-    ImGui::PushTextWrapPos(mw - pdguiScale(24.0f));
-    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.85f, 1.0f), "%s", langSafe(L_OPTIONS_175));
-    ImGui::PopTextWrapPos();
-    ImGui::Spacing();
-    ImGui::Separator();
-
-    /* Navigation */
-    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true)        ||
-        ImGui::IsKeyPressed(ImGuiKey_RightArrow, true)) {
-        s_AbortSelectIdx = 1 - s_AbortSelectIdx;
-        pdguiPlaySound(PDGUI_SND_FOCUS);
-    }
-    /* B / Escape always cancels — safety default */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-        pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
-        pdguiSetPalette(prevPalette);
-        ImGui::End();
-        return 1;
-    }
-
-    bool doConfirm = ImGui::IsKeyPressed(ImGuiKey_Enter, false);
-
-    /* ---- Cancel / Abort buttons side by side ---- */
-    float btnH = pdguiScale(54.0f);
-    float btnW = (mw - ImGui::GetStyle().WindowPadding.x * 2.0f - pdguiScale(15.0f)) * 0.5f;
-
-    /* Cancel */
-    {
-        bool isSel = (s_AbortSelectIdx == 0);
-        ImVec2 cp = ImGui::GetCursorScreenPos();
-        if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, btnW, btnH);
-
-        bool clicked = ImGui::Button(langSafe(L_OPTIONS_176), ImVec2(btnW, btnH));
-        if (ImGui::IsItemHovered()) s_AbortSelectIdx = 0;
-        if (clicked || (isSel && doConfirm)) {
+    bool open = ImGui::BeginPopupModal(popupId, nullptr, wflags);
+    if (!open) {
+        /* Popup dismissed externally (hotswap teardown etc.) — drop the
+         * dialog from the legacy stack so the pause menu returns cleanly. */
+        if (s_AbortOpenedForDialog == (void *)dialog) {
+            s_AbortOpenedForDialog = nullptr;
+            s_AbortOpenFrame = -1;
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
             menuPopDialog();
-            pdguiSetPalette(prevPalette);
-            ImGui::End();
-            return 1;
         }
+        pdguiSetPalette(prevPalette);
+        return 1;
     }
 
-    ImGui::SameLine(0.0f, pdguiScale(15.0f));
+    float dialogX = ImGui::GetWindowPos().x;
+    float dialogY = ImGui::GetWindowPos().y;
 
-    /* Abort */
+    /* Opaque backdrop behind the PD-authentic frame. */
     {
-        bool isSel = (s_AbortSelectIdx == 1);
-        ImVec2 cp = ImGui::GetCursorScreenPos();
-        if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, btnW, btnH);
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(ImVec2(dialogX, dialogY),
+                          ImVec2(dialogX + dialogW, dialogY + dialogH),
+                          pdguiPalImU32(PDPAL_BODYBG, 255), 0.0f);
+    }
 
-        ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintDanger());
-        bool clicked = ImGui::Button(langSafe(L_OPTIONS_177), ImVec2(btnW, btnH));
+    /* PD-authentic frame + title. */
+    const char *title = langSafe(L_OPTIONS_174);
+    if (!title || !title[0]) title = "Warning";
+    pdguiDrawPdDialog(dialogX, dialogY, dialogW, dialogH, title, 1);
+    {
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        pdguiDrawTextGlow(dialogX + 8.0f, dialogY + 2.0f,
+                          dialogW - 16.0f, pdTitleH - 4.0f);
+        ImVec2 titleSize = ImGui::CalcTextSize(title);
+        dl->AddText(ImVec2(dialogX + (dialogW - titleSize.x) * 0.5f,
+                           dialogY + (pdTitleH - titleSize.y) * 0.5f),
+                    IM_COL32(255, 255, 0, 255), title);
+    }
+
+    /* Body */
+    pdguiSetCursorBelowTitle(pdTitleH);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8.0f * scale);
+
+    const char *bodyMsg = langSafe(L_OPTIONS_175);
+    if (!bodyMsg || !bodyMsg[0]) bodyMsg = "Do you want to abort the mission?";
+    {
+        float availW = dialogW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+        ImVec2 ts = ImGui::CalcTextSize(bodyMsg, nullptr, false, availW);
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availW - ts.x) * 0.5f);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + availW);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.85f, 1.0f));
+        ImGui::TextWrapped("%s", bodyMsg);
         ImGui::PopStyleColor();
+        ImGui::PopTextWrapPos();
+    }
 
-        if (ImGui::IsItemHovered()) s_AbortSelectIdx = 1;
-        if (clicked || (isSel && doConfirm)) {
-            pdguiPlaySound(PDGUI_SND_EXPLOSION);
-            menuhandlerAbortMission(MENUOP_SET, nullptr, nullptr);
-            pdguiSetPalette(prevPalette);
-            ImGui::End();
-            return 1;
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* Buttons */
+    float btnW = pdguiScale(160.0f);
+    float btnH = pdguiScale(32.0f);
+    float gap  = pdguiScale(16.0f);
+    float availW = dialogW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+    float totalW = btnW * 2.0f + gap;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availW - totalW) * 0.5f);
+
+    bool doConfirm = false;
+    bool doCancel  = false;
+
+    s32 framesOpen = (s_AbortOpenFrame >= 0)
+                     ? (curFrame - s_AbortOpenFrame)
+                     : ABORT_FORCE_FOCUS_FRAMES + 1;
+    bool forceFocus = (framesOpen >= 0 && framesOpen < ABORT_FORCE_FOCUS_FRAMES);
+    bool inputDebounced = (framesOpen >= 0 && framesOpen < ABORT_FRAME_DEBOUNCE);
+
+    if (forceFocus) {
+        ImGui::SetKeyboardFocusHere(0);
+    }
+
+    /* Cancel first — safer default focus for destructive confirm. */
+    const char *cancelLabel = langSafe(L_OPTIONS_176);
+    if (!cancelLabel || !cancelLabel[0]) cancelLabel = "Cancel";
+    char cancelBtnId[96];
+    snprintf(cancelBtnId, sizeof(cancelBtnId), "%s##mission_abort_cancel", cancelLabel);
+    if (ImGui::Button(cancelBtnId, ImVec2(btnW, btnH))) {
+        if (!inputDebounced) doCancel = true;
+    }
+    ImGui::SetItemDefaultFocus();
+
+    ImGui::SameLine(0.0f, gap);
+
+    /* Red "Abort" confirm. */
+    const char *abortLabel = langSafe(L_OPTIONS_177);
+    if (!abortLabel || !abortLabel[0]) abortLabel = "Abort";
+    char abortBtnId[96];
+    snprintf(abortBtnId, sizeof(abortBtnId), "%s##mission_abort_confirm", abortLabel);
+    ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.10f, 0.10f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.80f, 0.15f, 0.15f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(1.00f, 0.20f, 0.20f, 1.0f));
+    if (ImGui::Button(abortBtnId, ImVec2(btnW, btnH))) {
+        if (!inputDebounced) doConfirm = true;
+    }
+    ImGui::PopStyleColor(3);
+
+    /* Keybinding hints */
+    {
+        const char *hintL = "[Enter/Space/(A)] Confirm";
+        const char *hintR = "[Esc/(B)] Cancel";
+
+        float hintY = dialogH - pdguiScale(22.0f);
+        if (hintY < ImGui::GetCursorPosY() + 4.0f * scale) {
+            hintY = ImGui::GetCursorPosY() + 4.0f * scale;
+        }
+        ImGui::SetCursorPos(ImVec2(ImGui::GetStyle().WindowPadding.x, hintY));
+        ImGui::TextDisabled("%s", hintL);
+
+        ImVec2 rSize = ImGui::CalcTextSize(hintR);
+        ImGui::SetCursorPos(ImVec2(dialogW - ImGui::GetStyle().WindowPadding.x - rSize.x,
+                                   hintY));
+        ImGui::TextDisabled("%s", hintR);
+    }
+
+    /* Keyboard + gamepad shortcuts. Debounced for ABORT_FRAME_DEBOUNCE frames
+     * after open so the Enter press that activated the Abort row can't bleed
+     * through. */
+    if (!inputDebounced) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+            ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
+            ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+            doConfirm = true;
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            doCancel = true;
         }
     }
 
+    if (doConfirm) {
+        pdguiPlaySound(PDGUI_SND_EXPLOSION);
+        /* Abort handler kicks off mission-end transition which unwinds the
+         * menu stack via menupoolReleaseAll(). Pop the dialog explicitly as
+         * belt-and-braces so the legacy stack is clean even if the handler
+         * path changes. */
+        menuhandlerAbortMission(MENUOP_SET, nullptr, nullptr);
+        ImGui::CloseCurrentPopup();
+        s_AbortOpenedForDialog = nullptr;
+        s_AbortOpenFrame = -1;
+        menuPopDialog();
+    } else if (doCancel) {
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        ImGui::CloseCurrentPopup();
+        s_AbortOpenedForDialog = nullptr;
+        s_AbortOpenFrame = -1;
+        menuPopDialog();
+    }
+
+    ImGui::EndPopup();
     pdguiSetPalette(prevPalette);
-    ImGui::End();
     return 1;
 }
 
@@ -3550,7 +3662,8 @@ extern "C" void pdguiSoloMissionReset(void)
     s_PauseSelectIdx      = 0;
     s_RestartConfirm      = false;
     s_RestartSelectIdx    = 0;
-    s_AbortSelectIdx      = 0;
+    s_AbortOpenedForDialog = nullptr;
+    s_AbortOpenFrame      = -1;
     s_OptionsSelectIdx    = 0;
     s_OptionsTabIdx       = 0;
     s_CoopAntiDiffSelectIdx = 0;

@@ -20,6 +20,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_layout.h"
 #include "screenmfst.h"
 #include "net/netmanifest.h"
 #include "system.h"
@@ -163,7 +164,14 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
     pdguiSetCursorBelowTitle(pdTitleH);
 
     float itemW = dialogW - ImGui::GetStyle().WindowPadding.x * 4;
-    float sectionH = dialogH - pdTitleH - 100.0f * scale;
+
+    /* Reserve bottom space for the docked action bar (C1) so scroll body +
+     * inline Connect row never push Back out of reach. */
+    float bodyAvail = ImGui::GetContentRegionAvail().y;
+    float bodyH     = pdguiBodyHeightForActionBar(bodyAvail);
+    float sectionH  = bodyH - 100.0f * scale;
+
+    ImGui::BeginChild("##mp_body", ImVec2(0, bodyH), false, 0);
 
     /* ---- Server Browser section ---- */
     ImGui::TextColored(pdguiVec4TitleGlow(), "Server Browser");
@@ -306,17 +314,18 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
 
     if (!canConnect) ImGui::EndDisabled();
 
-    /* ---- Footer ---- */
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
+    ImGui::EndChild(); /* ##mp_body */
 
-    float btnW = 120.0f * scale;
-    float btnH = 28.0f * scale;
-    ImGui::SetCursorPosX((dialogW - btnW) * 0.5f);
+    /* ---- Docked action bar (C1): Back always reachable ---- */
+    bool backActivated = false;
+    if (pdguiBeginActionBar("##mp_net_ab")) {
+        if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
+            backActivated = true;
+        }
+    }
+    pdguiEndActionBar();
 
-    if (ImGui::Button("Back", ImVec2(btnW, btnH)) ||
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (backActivated || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: network/join menu CLOSE via Back/ESC");
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
