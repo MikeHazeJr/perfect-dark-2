@@ -77,7 +77,7 @@ to PATH, `CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime,include_f
 | D-STAGE | Stage Decoupling | ✅ **ALL 3 PHASES DONE** | S47c |
 | B-12 | Dynamic Participant System | ✅ **ALL 3 PHASES DONE** — Phase 3 (2026-04-17, protocol v37) | S324 |
 | SPF | Server Platform Foundation | ✅ **ALL SHIPPED** — SPF-1 Hub/Room/Identity/Phonetic + SPF-2a Menu Mgr + SPF-3 Lobby + SPF-3 Connect Codes + R-1 through R-4 | S51 / S143 / S253 |
-| AP | Asset Provider (Direct File Access) | 🔶 **Phase 1 + 2 DONE** — provider vtable, RomProvider/FileProvider, asset_source_t on catalog entries; Phase 3 (call-site migration) + Phase 4 (retire filenum) remain | S326 (2026-04-17) |
+| AP | Asset Provider (Direct File Access) | 🔶 **Phase 1 + 2 + 3 DONE** — provider vtable + RomProvider/FileProvider + asset_source_t (S326); Phase 3 (call-site migration off `fileLoadToNew/Addr/PartToAddr` wrappers) shipped S377; Phase 4 (retire `filenum` as public identity) remains — handle accessors already exist (`catalogGetBodyHandle/HeadHandle/PropHandle`), needs 3 prerequisite API migrations (`assetGetSize`, handle-aware `modeldefLoad`, `MENUMODELPARAMS_SET_HANDLE`) before the 23+ filenum-using callers can be migrated. | S377 (2026-04-19) |
 
 ### Audio / Skin / Map-Import feature lines
 
@@ -181,25 +181,37 @@ stack retained only as plumbing.
 - **D5.8 HUD score panel dock-below-minimap**: ✅ DONE (S221) — see archived
   `_archive/designs/hud-score-panel.md`.
 
-### D6: Persistent Stats — ✅ DONE (S325)
+### D6: Persistent Stats — ✅ DONE (S325 + S376 Phase 3 finishing touches)
 
 - `port/src/playerstats.c` — string-keyed hash-table counters, JSON
   persistence to `$S/playerstats.json` (CODED S49).
 - Integrated with `fsFullPath("$S/...")`; works even when `saveInit()` is
   delayed.
 - `statIncrement()` accessor exported.
-- **Gameplay-site wire-in complete (S325)**:
+- **Gameplay-site wire-in complete (S325 + S376)**:
   - MP: `shots.*`, `kills.*` (+ per-weapon + per-mode), `deaths.*`
     (suicide/by_bot/by_player + per-mode), `matches.played`,
     `mp.matches_won`, `mp.matches_lost`, `mp.time_played_seconds`,
-    `mp.distance_units` (accumulated at match end via `mpCalculateAwards`)
+    `mp.distance_units`, **`mp.damage_dealt` / `mp.damage_received` /
+    `mp.shots_hit` (S376)** — all accumulated at match end via
+    `mpCalculateAwards` for local players only
   - Solo: `solo.missions_completed`, `solo.mission_failures`,
     `solo.time_played_seconds` (at `endscreenPrepare`, gated on non-cheat)
   - Live: `distance_units` + `{mp,solo}.distance_units_sample` (flushed
     per 10000 world units to avoid per-tick hash-table churn), `items.picked_up`
     + `{keys,ammo_crates,weapons,shields}_picked_up`, `doors.opened`
   - Save-on-event: `statsSave()` called at match end and solo mission end.
-- Achievements = future query layer on top.
+- **Stats Viewer UI (S376)** — `pdgui_menu_stats.cpp` Overview tab
+  surfaces every collected stat across Combat / Accuracy / Opponents /
+  Combat Simulator (matches played/won/lost + win rate + time + damage
+  dealt/received + distance) / Solo Missions (completed/failed/time) /
+  World Interaction (items + weapons/ammo/shields/keys breakdown + doors).
+  Accuracy section adds "Shots Hit" and "Hit %" columns beside the pre-
+  existing headshot stats.
+- **Achievement unlock toasts (S376)** — `port/fast3d/pdgui_achievement_toast.{h,cpp}`
+  renders slide-in notifications on the ImGui foreground drawlist.
+  Polled on solo + MP endscreen fresh entry; MP endscreen now also
+  calls `achievementsRefresh` (it was solo-only before S376).
 
 ### D7: Discord Rich Presence — ✅ DONE (S348)
 

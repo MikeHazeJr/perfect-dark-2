@@ -4,6 +4,73 @@
 > **S281–S362** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S377 — 2026-04-19 (worktree `claude/intelligent-pasteur-269b40`, merged to `dev` @ `ba7ed31e`) — AP Phase 3 — game-code call-site migration off legacy `fileLoad*` wrappers
+
+**Scope**: Asset Provider Phase 3 — finish the call-site migration for every remaining caller of the pre-AP `fileLoadToNew` / `fileLoadToAddr` / `fileLoadPartToAddr` wrappers, so game code uses the dispatcher (`assetLoadRomToNew` / `assetLoadRomToAddr`) directly. Also Phase 4 audit (filenum retirement scope assessment).
+
+**Background**: AP Phase 1+2 (S326, 2026-04-17) introduced the provider vtable, RomProvider/FileProvider singletons, asset_source_t on catalog entries, and the dispatcher. The Phase 1 wrappers `fileLoadToNew(filenum,...)` and `fileLoadToAddr(filenum,...)` in `src/game/file.c` were thin wrappers that game code kept calling — Phase 3 retires them in favour of the dispatcher API.
+
+**API additions**:
+- `assetLoadToAddr(asset_data_handle_t handle, u32 method, void *buf, u32 size)` — caller-allocated-buffer dispatcher (mirrors `assetLoadToNew`). RomProvider fast-path delegates to the legacy `fileLoad` pipeline (rzip + romdataFilePreprocess + g_FileInfo[] tracking) for byte-identical behaviour.
+- `assetLoadRomToAddr(s32 filenum, u32 method, void *buf, u32 size)` — convenience wrapper for ROM filenums; equivalent to `assetLoadToAddr(romProviderHandle(filenum), ...)`.
+
+**API renames**:
+- `fileLoadToAddr` → `fileLoadRomToAddr` in `src/game/file.c` (the legacy worker becomes an internal RomProvider impl, exported only so the dispatcher can fast-path through it without recursion). Game code MUST NOT call this directly any more — `port/include/assetload.h` is the new public surface.
+
+**Migrations** (12 game-code call sites across 5 files):
+- `src/game/langreset.c` — 6× `fileLoadToNew` → `assetLoadRomToNew` (one per LANGBANK)
+- `src/game/lang.c` — 1× `fileLoadToNew` → `assetLoadRomToNew`, 2× `fileLoadToAddr` → `assetLoadRomToAddr`
+- `src/game/setup.c` — 1× `fileLoadToAddr(setupfilenum, ...)` → `assetLoadRomToAddr`
+- `src/game/modeldef.c` — 1× `fileLoadToAddr(fileid, ...)` → `assetLoadRomToAddr`
+- `src/game/bondgun.c` — 1× `fileLoadToAddr` → `assetLoadRomToAddr` (with explicit `(void *)ptr` cast — `ptr` here is `uintptr_t`, the original code had `(u8 *)ptr`)
+
+**Cleanup deletes**:
+- `fileLoadPartToAddr` removed from `src/game/file.c` + `src/include/game/file.h` — zero callers since S374 (B-185 bg silent-load fix moved bg.c off this API to call `romdataFileLoad` directly).
+- Public `fileLoadToNew` wrapper removed from `src/game/file.c` + `src/include/game/file.h` — zero callers post-Phase-3 migration.
+- Public `fileLoadToAddr` declaration removed from `src/include/game/file.h` (the worker stays in file.c under the new name `fileLoadRomToAddr`).
+- File header docs + worker function preambles updated to reflect Phase 3 state. `port/include/assetprovider_internal.h`'s "game-level API" pointer list now references `assetLoadRomToNew` / `assetLoadRomToAddr` instead of the deleted wrappers.
+
+**Phase 4 audit (filenum retirement scope)** — out of scope for this session, documented for follow-up:
+- Handle-based catalog accessors **already exist**: `catalogGetBodyHandle` / `catalogGetHeadHandle` / `catalogGetPropHandle` (in `port/src/assetcatalog_api.c`, declared in `port/include/assetcatalog.h:917+`).
+- Deprecated filenum accessors `catalogGetBodyFilenumByIndex` / `catalogGetHeadFilenumByIndex` / `catalogGetPropFilenumByIndex` are still used by 23+ game-code callers across:
+  - `src/game/body.c` × 5 (diagnostic logs only — cosmetic migration)
+  - `src/game/player.c` × 5 (3 diag logs + 2 size precomputation via `fileGetInflatedSize` + `MENUMODELPARAMS_SET_FILENUM`)
+  - `src/game/menu.c` × 2 (`MENUMODELPARAMS_SET_FILENUM`)
+  - `src/game/mplayer/setup.c` × 2 (`MENUMODELPARAMS_SET_FILENUM`)
+  - `src/game/setuputils.c` × 1 (`fileGetInflatedSize`)
+  - `src/game/title.c` × 8 (`modeldefLoad(filenum, ...)`)
+- Phase 4 retirement requires three downstream API migrations as prerequisites:
+  - `assetGetSize(handle, loadtype)` to replace `fileGetInflatedSize(filenum, loadtype)`.
+  - Handle-aware `modeldefLoad` variant (or migrate the existing one to take a handle and use `assetLoadRomToAddr` internally).
+  - `MENUMODELPARAMS_SET_HANDLE(handle)` macro / menu model param storage migration.
+- Once those land, the game-code sites can move from filenum → handle in batches, and the `[DEPRECATED] catalogGetXFilenumByIndex` accessors can be deleted along with the SA-5a bridge functions.
+
+**Files**: 12 files modified, +155 / -91 LOC.
+- `port/include/assetload.h` (+23 LOC: new API decls + Phase 3 doc preamble)
+- `port/src/assetload.c` (+45 LOC: new dispatcher + convenience wrapper)
+- `port/include/assetprovider.h`, `port/include/assetprovider_internal.h` (-2 LOC each: doc edits)
+- `port/src/modelcatalog.c` (1-word comment update)
+- `src/game/file.c` (-7 LOC: deleted PartToAddr + ToNew wrapper; expanded worker preambles)
+- `src/include/game/file.h` (rewrote decl block: -3 public + 1 new worker)
+- `src/game/{bondgun,lang,langreset,modeldef,setup}.c` (call-site swaps + 3 includes)
+
+**Build**: clean from full configure (worktree's own Build/, since worktrees can't share the main repo's Build/). 774/774 targets, no new warnings on the touched files. `PerfectDark.exe` 53,054,294 / `PerfectDarkServer.exe` 23,119,328.
+
+**Merge**: worktree branch `claude/intelligent-pasteur-269b40` → commit `75240823` → merged into `dev` as `ba7ed31e` (`--no-ff` ort strategy, no conflicts). Post-merge line counts vs pre-merge: every file accounted for (`assetload.h` 70→93, `assetload.c` 129→174, `file.c` 359→352, `file.h` 26→26, `bondgun.c` +1, `lang.c` +1, `langreset.c` +1, others unchanged or one-word edits). Total +64 LOC matches diff stat exactly. No file shrank unexpectedly.
+
+**Verification needed (playtest)**: this is a refactor with byte-identical RomProvider semantics — every load goes through the same `fileLoad` pipeline as before. Expected behaviour: zero observable change. Smoke test path:
+- Cold-boot to title, intro plays normally (lang banks load via `assetLoadRomToNew`).
+- CI Training (0x26): bodies/heads/props/setup all load (bg.c handled by S374 fix; other paths use the new API).
+- Solo mission start: setup file loads via `assetLoadRomToAddr(setupfilenum, ...)`.
+- MP match start: char select preview models render correctly (bondgun gun model path uses `assetLoadRomToAddr`).
+- Mid-mission language switch (PAL+): `langLoad` triggers `assetLoadRomToAddr` into the lang scratch buffer.
+
+If any load fails, the existing `WARNING: fileLoadRomToAddr: file %d failed to load` (now in the renamed worker) and the `CATALOG_CRITICAL: filenum=%d not found in ROM data` lines pinpoint the failure exactly the same way as before.
+
+**Next**: Mike playtests; promote AP Phase 3 to verified after a clean smoke run. Phase 4 (filenum retirement) is a 3-step downstream-API + 23-site migration left for a future session.
+
+---
+
 ## Session S374 — 2026-04-19 (worktree `claude/thirsty-torvalds-9c7e0f`) — B-185 bg silent-load failure fix
 
 **Scope**: Fix intermittent "invisible level" symptom (B-185) — stage loads with zero bg room geometry visible, only props/doors render, game otherwise plays normally; a restart reliably fixes it.
