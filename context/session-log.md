@@ -4,6 +4,40 @@
 > **S281–S378** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S379 — 2026-04-19 (worktree `claude/friendly-kirch-688ea4`) — 3-bug playtest batch: B-189 interact prompt bleed, B-190 bot count scroll, B-146 Grid walkable pickups
+
+**Scope**: Three items from the 2026-04-19 playtest: (B-189) controller button hint overlays rendering over ImGui menus instead of the gameplay HUD layer, (B-190) CS Room header bot count display not appearing to update on Add/Remove, (B-146 regression) 2 ammo crates + 1 weapon on Grid still standable despite S295's WALKTHROUGH-flag fix.
+
+### B-189 — Interact prompt over menus
+`port/fast3d/pdgui_interact_prompt.cpp::pdguiInteractPromptRender` drew on the ImGui foreground drawlist every frame that `propInteractPromptLabel()` returned non-NULL. `g_InteractProp` is populated by the gameplay tick and persists across menu opens, so walking up to a pickup, door, or terminal and then pressing Escape / Pause / opening Forge left the `[KEY] Label` pill floating above the menu overlay. The interact prompt belongs to the gameplay HUD layer per `context/designs/hud-layer-order.md` §7 — it should never bleed through to any non-gameplay context. Fix: single `if (pdguiIsActive()) return;` gate at the top of the renderer, using the same authority predicate (`inputCtxGetTop() != &g_CtxGameplay`) as every other gameplay-HUD-only overlay (score panel, killfeed, HUD messages). Also added a `#include "pdgui.h"` for the `pdguiIsActive` prototype.
+
+### B-190 — Bot count scroll-off
+Root cause was UX, not state. `countBots()` (iterates `g_MatchConfig.slots[1..numSlots]` counting `SLOT_BOT` type) was recomputed every frame in `renderPlayerPanel`, and the header `TextColored(...)` re-rendered every frame. The header just lived INSIDE the `##room_players_list` scrollable child along with the team sort dropdown and all the player rows — so once ~8+ bots filled the viewport, the header scrolled off the top with them. The number WAS updating; it was scrolling away.
+
+Fix (`port/fast3d/pdgui_menu_room.cpp`): (1) moved the header + Team Sort dropdown OUTSIDE the scrollable `##room_players_list` child into the outer `##room_panel_outer` panel so they stay pinned at the top; `listH = GetContentRegionAvail().y - btnH - 2*ItemSpacing.y` is computed after the sticky header is laid out so the list fills remaining space. (2) Baked the live count/cap into the Add Bot button label itself — `Add Bot  (X / Y)` — so the primary interaction point always shows the current state next to the click, independent of scroll position. (3) Extended the header format from `%d Bot` → `%d/%d Bot` to show the cap alongside the count.
+
+### B-146 regression — Grid walkable pickups
+S295 fixed walkable pickups two ways: (a) ORed `OBJFLAG3_WALKTHROUGH` into the `weapon()` / `ammocrate()` / `ammocratemulti()` macro expansions in `src/include/props.h`, (b) set the flag explicitly in `weaponCreateForChr` (the network receive path). The PC auto-floor synthesizer in `propobj.c:2321` suppresses the `GEOTYPE_TILE_F` emission when WALKTHROUGH is set, so any pickup with the bit correctly becomes non-standable.
+
+Regression: the macro change only affects code RECOMPILED from C source. Base-game map setup files on stages like Grid, Car Park, Felicity, etc. are pre-compiled binary loaded from the ROM via `assetLoadToNew(setup_handle, ..., LOADTYPE_SETUP)`. The `flags3` byte in that binary predates our macro change and has no WALKTHROUGH bit. So on Grid, two ammo crates + one ground weapon continued to synthesize floor tiles. Forge-placed weapons/ammo were fine because they route through `weaponCreateForChr` (network-like) and the user-macro-path includes the fix.
+
+Fix: `src/game/setup.c::setupCreateObject` now ORs `OBJFLAG3_WALKTHROUGH` into `obj->flags3` at runtime when `obj->type` is `OBJTYPE_WEAPON` / `OBJTYPE_AMMOCRATE` / `OBJTYPE_MULTIAMMOCRATE`, placed immediately after the B-163 FIX-B.2 NULL modeldef guard. This matches the macro intent regardless of whether the setup data came from source build or ROM binary. The `propobj.c` auto-floor synthesizer check at 2321 is unchanged — it correctly suppresses the floor tile once WALKTHROUGH is set.
+
+### Files
+- `port/fast3d/pdgui_interact_prompt.cpp` (+10/−1): `pdguiIsActive()` gate + `pdgui.h` include + comment update.
+- `port/fast3d/pdgui_menu_room.cpp` (+27/−13): restructure renderPlayerPanel to pin header outside scrollable child + Add Bot button label.
+- `src/game/setup.c` (+16/−0): runtime WALKTHROUGH force for pickup types in setupCreateObject.
+
+### Build + merge
+- Clean 774/774 full CMake configure + ninja build from scratch (no prior Build/ dir). `PerfectDark.exe` 53,237,073 / `PerfectDarkServer.exe` 23,139,808. No new warnings on touched files.
+
+### Verify (playtest)
+- **B-189**: walk up to any pickup or door so the `[E] Pick up` / `[A] Open` pill appears at the reticle → open Escape menu / pause menu / Settings / Modding Hub / Forge editor → pill disappears on the same frame. Close menu → pill reappears if target still in range. Gameplay behaviour of the prompt (range tracking, target type) unchanged.
+- **B-190**: Solo CS Room → add 10+ bots via the Add Bot button. The "Players in Room (1 Player, N/32 Bots)" header stays pinned at the top of the right panel regardless of how many bot rows are present; the Add Bot button below the scrollable list shows `Add Bot  (N / 32)` and increments immediately on each click. Right-click a bot → Remove → counter ticks down on the same frame.
+- **B-146**: Load Grid via Combat Sim → walk into the side of every ground weapon and every ammo crate on the map. Capsule should slide past / through, never ride up onto the top of the pickup. Confirm specifically on the 2 ammo crates + 1 weapon Mike flagged. Also confirm Forge-placed pickups are still walkthrough (they were already correct).
+
+---
+
 ## Session S378 — 2026-04-19 (worktree `claude/friendly-mccarthy-a90db6`, merged to `dev` @ `3824d95f`) — D6 Phase 3 finishing touches: stats UI expansion + damage wire-in + achievement toasts
 
 **Scope**: User tasked three parallel tracks — D2 (character select), D5 Phase 5 (lobby scene), D6 (stats). Audit showed D2a char-select redesign was DONE at S15 (scrollable body list, live 3D preview, head detection; no concrete remaining quality gaps) and D5 Phase 5 portraits + polish shipped at S352 + S356 (per-player portrait baking, hover preview, drop shadow, team-color border). Only D6 had real work left: damage was tracked in `mpplayerconfig` but never promoted to `statIncrement`; the Stats Viewer Overview tab only surfaced ~9 of ~25 collected stat keys; `achievementGetNewlyUnlocked` was never called from anywhere — achievements silently flipped to unlocked with zero player feedback; `achievementsRefresh` was solo-endscreen-only.

@@ -428,6 +428,22 @@ void setupCreateObject(struct defaultobj *obj, s32 cmdindex)
 		return;
 	}
 
+	/* B-146 regression: pickup macros in props.h OR in OBJFLAG3_WALKTHROUGH
+	 * so the PC auto-floor synthesizer (propobj.c:2321) skips collision tile
+	 * emission on ground weapons and ammo crates.  That fix only affects
+	 * macros compiled from C source — base-game map setup files are loaded
+	 * as pre-compiled binary from ROM, where the flags3 byte predates the
+	 * macro change and the WALKTHROUGH bit is zero.  On Grid (and any other
+	 * base-game arena) ground weapons + ammo crates were still spawning with
+	 * auto-generated floor tiles, making them standable.  Force the bit here
+	 * at runtime for every pickup type so ROM-sourced setup data matches
+	 * macro-sourced / network-sourced pickups. */
+	if (obj->type == OBJTYPE_WEAPON
+			|| obj->type == OBJTYPE_AMMOCRATE
+			|| obj->type == OBJTYPE_MULTIAMMOCRATE) {
+		obj->flags3 |= OBJFLAG3_WALKTHROUGH;
+	}
+
 	scale = obj->extrascale * (1.0f / 256.0f);
 
 	if (g_Vars.normmplayerisrunning || g_Vars.lvmpbotlevel) {
