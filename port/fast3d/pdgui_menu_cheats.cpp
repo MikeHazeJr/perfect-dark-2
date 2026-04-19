@@ -482,7 +482,8 @@ static s32 renderCheatsHub(struct menudialog *dialog,
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##cheats_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##cheats_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         /* Bumper (LB/RB) tab cycling via PageUp/PageDown */

@@ -7,6 +7,17 @@
 
 ---
 
+## Done — 2026-04-18 (S368 — Controller navigation + scrollbar sweep, `claude/nice-jackson-62879e`)
+
+- **Cross-panel controller nav fix** — `pdguiBeginActionBar` now uses `ImGuiChildFlags_NavFlattened`; action bar buttons (Back / Save / Cancel) reachable from body via D-pad. Systemic across every dialog using the action bar primitive.
+- **NavFlattened on body containers** — ~25 `BeginChild("##xxx_body", ImVec2(0, bodyH), false, NoBackground)` calls across mppause / mpadvanced / mpsetup / botsetup / cheats / mpsettings / mainmenu / solomission / playerconfig / challenges / warning flagged. Nav crosses body → action bar freely.
+- **End Game modal popup** — `renderMpEndGameDialog` rewritten on `ImGui::BeginPopupModal`; the popup owns input exclusively so Cancel + End Match are always reachable on controller even while MP Pause Control sits behind. Scrim + PD-red danger frame + keybinding hint row preserved; `CloseCurrentPopup` + `menuPopDialog` fire together on dismiss.
+- **Scrollbar visibility (global theme change)** — `pdgui_style.cpp`: ScrollbarSize 12 → 18, GrabMinSize 10 → 14, ScrollbarBg alpha 0x87 → 0xCC, ScrollbarGrab/Hovered switched to accent `dialog_border2` at 0xE0 / 0xF5. All themes inherit.
+- Build clean 774/774. `PerfectDark.exe` 53,170,487 / `PerfectDarkServer.exe` 23,138,784.
+- Deferred: BeginPopupModal rewrite for other DANGER dialogs (`g_ExitGameMenuDialog`, cheat warning/confirm) — drop the pattern in when next controller-only audit flags them.
+
+---
+
 ## Done — 2026-04-18 (S364 — Memory floor check, `claude/hungry-heisenberg-f18ad5` → dev `b998ec40`)
 
 - `mempSetHeap`: `sysFatalError` if `heaplen < 60 MB` — fires before CARVE, shows clear "Delete pd.ini" message.

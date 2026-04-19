@@ -541,7 +541,8 @@ extern "C" void pdguiBotSetupDrawSimulantsBody(float bodyHeight)
         bodyHeight = ImGui::GetContentRegionAvail().y;
     }
 
-    if (ImGui::BeginChild("##bs_sim_body", ImVec2(0, bodyHeight), false,
+    if (ImGui::BeginChild("##bs_sim_body", ImVec2(0, bodyHeight),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         /* Add Simulant... */
@@ -689,7 +690,8 @@ static s32 renderMpAddChangeSimulantImpl(SimDialogVariant variant,
         groupStart[g] = list_GetGroupStartIndex(mpAddChangeSimulantMenuHandler, 0, g);
     }
 
-    if (ImGui::BeginChild("##bs_addsim_body", ImVec2(0, listH), false,
+    if (ImGui::BeginChild("##bs_addsim_body", ImVec2(0, listH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
         s32 curGroup = 0;
         for (s32 i = 0; i < count; i++) {
@@ -742,7 +744,8 @@ static s32 renderMpAddChangeSimulantImpl(SimDialogVariant variant,
     ImGui::EndChild();
 
     /* Description block (static wrapped text -- replaces legacy marquee). */
-    if (ImGui::BeginChild("##bs_addsim_desc", ImVec2(0, descH), false,
+    if (ImGui::BeginChild("##bs_addsim_desc", ImVec2(0, descH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
         ImGui::Separator();
         const char *desc = bot_GetProfileDescription();
@@ -807,7 +810,8 @@ static s32 renderMpEditSimulant(struct menudialog *dialog, struct menu *, s32, s
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##bs_editsim_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##bs_editsim_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         /* Difficulty dropdown */
@@ -930,7 +934,8 @@ static s32 renderMpSimulantCharacter(struct menudialog *dialog, struct menu *, s
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##bs_simchar_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##bs_simchar_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         /* Pull the current carousel selection once -- both columns use the

@@ -69,12 +69,20 @@ s32 pdguiBeginActionBar(const char *id)
      * NoMove/NoResize are inherited from the parent window flags.
      * We deliberately omit NoBackground: the parent window background is
      * transparent (NoBackground is set per-window by callers), so the bar
-     * inherits whatever the parent draws with pdguiDrawPdDialog(). */
+     * inherits whatever the parent draws with pdguiDrawPdDialog().
+     *
+     * S368: ImGuiChildFlags_NavFlattened -- merges this child's nav scope into
+     * the parent's so D-pad / stick navigation crosses from the scroll body
+     * into the action bar and back.  Without it the action bar lives in its
+     * own nav scope and buttons like "Back", "Save", "Confirm / Cancel"
+     * become unreachable by controller once focus is in the body. */
     ImGuiWindowFlags f = ImGuiWindowFlags_NoScrollbar
                        | ImGuiWindowFlags_NoScrollWithMouse;
 
     bool vis = ImGui::BeginChild(id ? id : "##pdgui_action_bar",
-                                  childSize, false, f);
+                                  childSize,
+                                  ImGuiChildFlags_NavFlattened,
+                                  f);
     return vis ? 1 : 0;
 }
 

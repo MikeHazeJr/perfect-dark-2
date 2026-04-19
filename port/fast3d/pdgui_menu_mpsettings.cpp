@@ -870,7 +870,8 @@ static s32 renderSoundtrack(struct menudialog *dialog, struct menu *, s32, s32)
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##pdms_soundtrack_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##pdms_soundtrack_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         /* "Current:" row — show playlist info or single track name */
@@ -1034,7 +1035,8 @@ static s32 renderTeamNames(struct menudialog *dialog, struct menu *, s32, s32)
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##pdms_teamnames_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##pdms_teamnames_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         float swatchW = pdguiScale(18.0f);

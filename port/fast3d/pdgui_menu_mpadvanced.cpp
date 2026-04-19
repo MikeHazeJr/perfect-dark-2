@@ -512,7 +512,8 @@ static s32 renderMpAdvancedSetupImpl(u8 variant, const struct menudialogdef *def
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##mp_adv_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_adv_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         /* Dynamic right-side text for Scenario / Arena rows: the legacy
@@ -592,7 +593,8 @@ static s32 renderMpQuickGo(struct menudialog *dialog, struct menu *, s32, s32)
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##mp_qg_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_qg_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
         hubPushRow("Start Game",       &g_MpReadyMenuDialog);
         hubPushRow("Load Player",      &g_MpLoadPlayerMenuDialog);
@@ -669,7 +671,8 @@ static s32 renderMpQuickTeam(struct menudialog *dialog, struct menu *, s32, s32)
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##mp_qt_root_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_qt_root_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         /* MPQUICKTEAM_PLAYERSONLY == 0, PLAYERSANDSIMS == 1,
@@ -742,7 +745,8 @@ static s32 renderMpQuickTeamGameSetup(struct menudialog *dialog, struct menu *, 
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##mp_qtgs_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_qtgs_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         const char *scenText  = mpMenuTextScenarioShortName(nullptr);
@@ -863,7 +867,8 @@ static s32 renderMpStuffImpl(u8 variant, const struct menudialogdef *def)
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##mp_stuff_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_stuff_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         hubPushRow("Soundtrack",  &g_MpSoundtrackMenuDialog);
@@ -957,7 +962,8 @@ static s32 renderMpPlayerSetupHubImpl(u8 variant, const struct menudialogdef *de
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##mp_psh_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_psh_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         /* Dynamic text: the legacy defs pass these function pointers as

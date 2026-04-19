@@ -4,6 +4,42 @@
 > **S281–S362** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S368 — 2026-04-18 (worktree `claude/nice-jackson-62879e`) — Controller navigation + scrollbar sweep (B-170)
+
+**Scope**: High-context audit across ALL ImGui menus — controller navigation must reach every interactive element. Three-part systemic fix:
+
+**Fix 1 — Cross-panel nav via `pdguiBeginActionBar` flatten.** `pdgui_layout.cpp::pdguiBeginActionBar` was calling `ImGui::BeginChild(id, size, /*border*/false, NoScrollbar|NoScrollWithMouse)` — no `ImGuiChildFlags_NavFlattened`. ImGui's keyboard/gamepad nav is per-window by default, so every docked action bar (Back / Save / Confirm / Cancel / etc.) sat in its own nav scope. Once focus was in the body child, D-pad Down could never cross into the bar — action bar buttons became unreachable on controller. Fix: pass `ImGuiChildFlags_NavFlattened` into the BeginChild. Covers every dialog that uses the action bar primitive (~20+ menus).
+
+**Fix 2 — NavFlattened on body containers.** Most menus use the pattern `ImGui::BeginChild("##xxx_body", ImVec2(0, bodyH), false, ImGuiWindowFlags_NoBackground)` for a layout-only body child. Without NavFlattened, widgets inside the body couldn't nav out to the (now-flattened) action bar. Added `ImGuiChildFlags_NavFlattened` to ~25 body BeginChild calls across `pdgui_menu_{mppause,mpadvanced,mpsetup,botsetup,cheats,mpsettings,mainmenu,solomission,playerconfig,challenges,warning}.cpp`. Scrolling lists (weapon inventory, bot profile picker, etc.) got the flag too — ImGui auto-scrolls to keep focused items visible inside a flattened scope, so nav can still walk through the list while remaining able to exit to action bar buttons.
+
+**Fix 3 — End Game modal popup.** `pdgui_menu_warning.cpp::renderMpEndGameDialog` rewritten on top of `ImGui::BeginPopupModal` instead of a parallel `Begin()`. The MP Pause Control window was sitting behind the End Game dialog; focus could drift back there on subsequent frames, making Cancel + End Match unreachable on controller. BeginPopupModal owns input exclusively — the modal intercepts all nav / mouse / keyboard, scrim + PD-red danger frame + keybinding hint row preserved. First-frame `OpenPopup` kick is guarded by a `s_EndGameOpenedForDialog` dialog-pointer track so repeated re-entries fire a fresh popup; `CloseCurrentPopup` + `menuPopDialog` happen together on confirm/cancel so the legacy stack stays consistent.
+
+**Fix 4 — Scrollbar visibility.** `pdgui_style.cpp::pdguiApplyPdStyle`:
+- `ScrollbarSize` 12 → 18 (bigger controller / mouse target; overflowing list reads as obviously scrollable)
+- `GrabMinSize` 10 → 14
+- `ScrollbarBg` alpha 0x87 → 0xCC (track more opaque — stands out against body fill)
+- `ScrollbarGrab` / `ScrollbarGrabHovered` switched from `dialog_border1` (dim) to `dialog_border2` (accent) at `0xE0` / `0xF5`
+- `ScrollbarGrabActive` already full `dialog_border2 | 0xFF`
+
+Theme-level change — every themed palette (Blue, Dark Agent, etc.) inherits the wider/bright grab automatically.
+
+**Files**: `port/fast3d/pdgui_layout.cpp` (+12/−4), `port/fast3d/pdgui_style.cpp` (+13/−6), `port/fast3d/pdgui_menu_warning.cpp` (+56/−57, End Game dialog), `port/fast3d/pdgui_menu_mppause.cpp` (+12/−6), `port/fast3d/pdgui_menu_mpadvanced.cpp` (+12/−6), `port/fast3d/pdgui_menu_mpsetup.cpp` (+16/−8), `port/fast3d/pdgui_menu_botsetup.cpp` (+10/−5), `port/fast3d/pdgui_menu_playerconfig.cpp` (+10/−5), `port/fast3d/pdgui_menu_cheats.cpp` (+2/−1), `port/fast3d/pdgui_menu_mpsettings.cpp` (+4/−2), `port/fast3d/pdgui_menu_mainmenu.cpp` (+6/−3), `port/fast3d/pdgui_menu_solomission.cpp` (+4/−2), `port/fast3d/pdgui_menu_challenges.cpp` (+2/−1).
+
+**Build**: Clean 774/774. `PerfectDark.exe 53,170,487` / `PerfectDarkServer.exe 23,138,784`.
+
+**Verification needed (playtest)**:
+- **MP Pause → End Game**: press D-pad Left/Right — focus cycles between Cancel and End Match. Press A on Cancel → pops cleanly, no orphaned focus. Press A on End Match → match ends via `menuhandlerMpEndGame`.
+- **Any dialog with a docked action bar** (Settings, MP Setup, Cheats, etc.): D-pad Down from the body's last widget should land on the action bar button (Back / Save / etc.).
+- **Any list that overflows** (Cinema tracks, Cheats list, MP Setup arena / scenario list): scrollbar visibly wider + more contrast, visible without hover, grab uses accent colour.
+- **Controller-only session**: end-to-end Main Menu → MP Setup → Start Match → Pause → End Game → Confirm. No dead-end dialogs.
+- **Unaffected**: mouse + keyboard navigation should feel identical (scrollbar is just more visible).
+
+**Deferred**: BeginPopupModal conversion for the other DANGER dialogs (`g_ExitGameMenuDialog`, `g_CheatsWarningMenuDialog`, `g_CheatsConfirmUnlockMenuDialog`). Those still use the `renderTypedDialog` path with an ImGui::Begin() window — if controller nav reports reach them, apply the same popup-modal rewrite pattern `renderMpEndGameDialog` now uses.
+
+**Next**: Mike playtests; promote to FIXED on next sign-off.
+
+---
+
 ## Session S367 — 2026-04-18 (worktree `claude/pensive-lovelace-832160`, merged to `dev`) — CI Room Team Setup back-nav + bot ctx Team submenu (B-168, B-169)
 
 **Scope**: Two Combat Simulator menu bugs reported by Mike.

@@ -482,7 +482,8 @@ static s32 renderMpArena(struct menudialog *dialog, struct menu *, s32, s32)
 
     s32 selected = list_GetSelectedIndex(mpArenaMenuHandler, 0);
 
-    if (ImGui::BeginChild("##mp_arena_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_arena_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
         s32 count = list_GetOptionCount(mpArenaMenuHandler, 0);
         for (s32 i = 0; i < count; i++) {
@@ -539,7 +540,8 @@ static s32 renderMpScenarioImpl(u8 param, const char *imguiId, const char *title
 
     s32 selected = list_GetSelectedIndex(scenarioScenarioMenuHandler, param);
 
-    if (ImGui::BeginChild("##mp_scen_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_scen_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
         s32 count = list_GetOptionCount(scenarioScenarioMenuHandler, param);
         for (s32 i = 0; i < count; i++) {
@@ -641,7 +643,8 @@ static s32 renderMpWeapons(struct menudialog *dialog, struct menu *, s32, s32)
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##mp_weapons_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_weapons_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         ImGui::PushItemWidth(pdguiScale(260.0f));
@@ -752,7 +755,8 @@ static s32 renderMpSelectRandomWeapons(struct menudialog *dialog, struct menu *,
     s32 numWeapons = total - 4;
     if (numWeapons < 0) numWeapons = 0;
 
-    if (ImGui::BeginChild("##mp_srw_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_srw_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         /* Per-weapon checkbox rows */
@@ -836,7 +840,8 @@ static s32 renderMpQuickTeamWeapons(struct menudialog *dialog, struct menu *, s3
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##mp_qtw_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_qtw_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         ImGui::PushItemWidth(pdguiScale(260.0f));
@@ -919,7 +924,8 @@ static s32 renderMpLimits(struct menudialog *dialog, struct menu *, s32, s32)
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##mp_limits_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_limits_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         ImGui::PushItemWidth(pdguiScale(260.0f));
@@ -1165,7 +1171,8 @@ static s32 renderMpScenarioOptionsImpl(ScenarioOptionVariant variant,
 
     bool wantExtOpts = false;
 
-    if (ImGui::BeginChild("##mp_opt_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_opt_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
         renderScenarioOptionsBody(variant);
     }
@@ -1235,7 +1242,8 @@ static s32 renderMpExtGameOptions(struct menudialog *dialog, struct menu *, s32,
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##mp_extopt_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##mp_extopt_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
         renderOptionCheckboxRow("Start Armed",       menuhandlerMpCheckboxOption, MPOPTION_SPAWNWITHWEAPON);
         renderOptionCheckboxRow("No Drug Blur",      menuhandlerMpCheckboxOption, MPOPTION_NODRUGBLUR);

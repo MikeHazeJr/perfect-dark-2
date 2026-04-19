@@ -976,10 +976,14 @@ extern "C" void pdguiApplyPdStyle(void)
     colors[ImGuiCol_TabHovered]         = C((pal->dialog_border1 & 0xFFFFFF00) | 0xCC);
     colors[ImGuiCol_TabActive]          = C((pal->dialog_border1 & 0xFFFFFF00) | 0xFF);
 
-    /* Scrollbar */
-    colors[ImGuiCol_ScrollbarBg]        = C((pal->dialog_bodybg & 0xFFFFFF00) | 0x87);
-    colors[ImGuiCol_ScrollbarGrab]      = C(pal->dialog_border1);
-    colors[ImGuiCol_ScrollbarGrabHovered] = C((pal->dialog_border1 & 0xFFFFFF00) | 0xB3);
+    /* Scrollbar -- S368: widened + high-contrast grab for controller/mouse
+     * visibility across every ImGui menu.  Track is mostly opaque so the
+     * scroll region stands out from the body, grab uses the accent color
+     * (dialog_border2) at full alpha instead of the dimmer border1, so an
+     * idle overflowing list is obviously scrollable without needing hover. */
+    colors[ImGuiCol_ScrollbarBg]        = C((pal->dialog_bodybg & 0xFFFFFF00) | 0xCC);
+    colors[ImGuiCol_ScrollbarGrab]      = C((pal->dialog_border2 & 0xFFFFFF00) | 0xE0);
+    colors[ImGuiCol_ScrollbarGrabHovered] = C((pal->dialog_border2 & 0xFFFFFF00) | 0xF5);
     colors[ImGuiCol_ScrollbarGrabActive]  = C(pal->dialog_border2 | 0xFF);
 
     /* Resize grip */
@@ -1011,8 +1015,11 @@ extern "C" void pdguiApplyPdStyle(void)
     style.FramePadding      = ImVec2(6.0f, 3.0f);
     style.ItemSpacing       = ImVec2(8.0f, 4.0f);
     style.ItemInnerSpacing  = ImVec2(4.0f, 4.0f);
-    style.ScrollbarSize     = 12.0f;
-    style.GrabMinSize       = 10.0f;
+    /* S368: ScrollbarSize bumped 12 → 18 so the grab is an easy controller /
+     * mouse target and an overflowing list is visibly scrollable without
+     * needing hover.  GrabMinSize 10 → 14 keeps the grab proportional. */
+    style.ScrollbarSize     = 18.0f;
+    style.GrabMinSize       = 14.0f;
 
     /* Left-aligned title, like PD */
     style.WindowTitleAlign  = ImVec2(0.02f, 0.50f);

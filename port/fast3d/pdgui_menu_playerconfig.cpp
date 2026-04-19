@@ -511,7 +511,8 @@ static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##pc_char_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##pc_char_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         /* Current committed selection (read via legacy handlers so we match
@@ -787,7 +788,8 @@ static s32 renderMpPlayerStats(struct menudialog *dialog, struct menu *, s32, s3
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##pc_stats_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##pc_stats_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         static const StatRow combatRows[] = {
@@ -1034,7 +1036,8 @@ static s32 renderMpLoadSettings(struct menudialog *dialog, struct menu *, s32, s
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##pc_load_settings_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##pc_load_settings_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         float listH = bodyH - pdguiScale(80.0f);
@@ -1129,7 +1132,8 @@ static s32 renderMpLoadPreset(struct menudialog *dialog, struct menu *, s32, s32
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##pc_load_preset_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##pc_load_preset_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         float listH = bodyH - pdguiScale(80.0f);
@@ -1220,7 +1224,8 @@ static s32 renderMpLoadPlayer(struct menudialog *dialog, struct menu *, s32, s32
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    if (ImGui::BeginChild("##pc_load_player_body", ImVec2(0, bodyH), false,
+    if (ImGui::BeginChild("##pc_load_player_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
         float listH = bodyH - pdguiScale(40.0f);

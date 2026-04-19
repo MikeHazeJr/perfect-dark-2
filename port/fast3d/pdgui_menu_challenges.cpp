@@ -274,7 +274,8 @@ static s32 renderChallenges(struct menudialog *dialog,
     float detailAvail = ImGui::GetContentRegionAvail().y;
     float detailBodyH = pdguiBodyHeightForActionBar(detailAvail);
 
-    if (ImGui::BeginChild("##chal_detail_body", ImVec2(0, detailBodyH), false,
+    if (ImGui::BeginChild("##chal_detail_body", ImVec2(0, detailBodyH),
+                           ImGuiChildFlags_NavFlattened,
                            ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
 
         /* Challenge name header */
