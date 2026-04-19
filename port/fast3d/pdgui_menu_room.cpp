@@ -33,6 +33,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_layout.h"       /* pdguiPopupDarkenBehind */
 #include "pdgui_menu_botsetup.h" /* D5 P3 Batch 6: inline Simulant Profiles panel */
 #include "system.h"
 #include "inputctx.h"
@@ -796,6 +797,23 @@ static char s_ScenarioFiles[SCENARIO_MAX_LIST][SCENARIO_PATH_MAX];
 static int  s_ScenarioCount     = 0;
 static int  s_ScenarioSelected  = -1;
 static char s_ScenarioStatusMsg[128] = "";
+
+/* M-5 (Menu Stack Compliance Tier 1) — destructive-action confirm modals.
+ * Canonical S385 pattern: 5-frame SetKeyboardFocusHere(0) on Cancel + 3-frame
+ * input debounce so the Enter/A press that opened the popup can't bleed
+ * through. See context/designs/menu-stack-architecture.md §C4/§C5. */
+#define ROOM_CONFIRM_FRAME_DEBOUNCE     3
+#define ROOM_CONFIRM_FORCE_FOCUS_FRAMES 5
+
+/* Leave Room / Back to Menu confirm — top-level popup in pdguiRoomScreenRender. */
+static bool s_ShowLeaveConfirm      = false;
+static s32  s_LeaveConfirmOpenFrame = -1;
+
+/* Scenario Delete confirm — nested popup inside Load Scenario modal. */
+static bool s_ShowScenarioDeleteConfirm      = false;
+static s32  s_ScenarioDeleteConfirmOpenFrame = -1;
+static char s_ScenarioDeletePath[SCENARIO_PATH_MAX] = "";
+static char s_ScenarioDeleteDisplay[SCENARIO_PATH_MAX] = "";
 
 /* M-20 progressive focus: set by the Scenario combo on a change; consumed
  * on the next frame by the Start Match button to jump keyboard/controller
@@ -3278,28 +3296,16 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     /* During the pre-match countdown, ESC/B should ONLY cancel the countdown
      * (handled by pdgui_countdown.cpp). Don't also leave the room. */
     bool countdownBlocks = (!s_IsSoloMode && pdguiCountdownIsActive());
+    /* M-5: arm the confirm modal rather than leaving immediately. C5
+     * destructive-action rule — Leave Room / Back to Menu tears down the
+     * lobby session (and potentially disconnects from the server), so the
+     * user must confirm. */
     if (ImGui::Button(leaveLabel, ImVec2(leaveW, btnH)) ||
         (!countdownBlocks &&
          ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
-        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room CLOSE via %s/ESC (solo=%d)",
-                     leaveLabel, s_IsSoloMode);
-        pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        s_MatchConfigInited = false;  /* reset on next enter */
-        s_CodeGenerated     = false;
-        /* S300: release MENU_TYPE_ROOM — pool pops ctx only if it owned the
-         * push (network mode). Solo mode pool was in shared mode, so the
-         * main-menu-owned push survives until the main menu closes. */
-        menupoolRelease(MENU_TYPE_ROOM);
-        if (s_IsSoloMode) {
-            pdguiSoloRoomClose();  /* return to main menu */
-        } else {
-            /* R-3: Tell server we're leaving the room */
-            if (g_NetMode == RM_NETMODE_CLIENT) {
-                netbufStartWrite(&g_NetMsgRel);
-                netmsgClcRoomLeaveWrite(&g_NetMsgRel);
-                netSend(NULL, &g_NetMsgRel, 1, 0);
-            }
-            pdguiSetInRoom(0);  /* return to social lobby, stay connected */
+        if (!s_ShowLeaveConfirm) {
+            s_ShowLeaveConfirm = true;
+            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
         }
     }
 
@@ -3739,17 +3745,25 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 
         if (!hasSelection) ImGui::BeginDisabled();
         if (ImGui::Button("Delete", ImVec2(fbw, 0.0f))) {
+            /* M-5: arm the confirm modal rather than deleting immediately.
+             * C5 destructive-action rule — scenario deletion is irreversible. */
             const char *fullPath = s_ScenarioFiles[s_ScenarioSelected];
-            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario DELETE \"%s\"", fullPath);
-            if (scenarioDelete(fullPath) == 0) {
-                /* Refresh list */
-                s_ScenarioCount = scenarioListFiles(s_ScenarioFiles, SCENARIO_MAX_LIST);
-                s_ScenarioSelected = -1;
-                snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg), "Deleted.");
-            } else {
-                snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg), "Delete failed.");
+            const char *slash = strrchr(fullPath, '/');
+            if (!slash) slash = strrchr(fullPath, '\\');
+            const char *fname = slash ? slash + 1 : fullPath;
+            strncpy(s_ScenarioDeletePath, fullPath,
+                    sizeof(s_ScenarioDeletePath) - 1);
+            s_ScenarioDeletePath[sizeof(s_ScenarioDeletePath) - 1] = '\0';
+            strncpy(s_ScenarioDeleteDisplay, fname,
+                    sizeof(s_ScenarioDeleteDisplay) - 1);
+            s_ScenarioDeleteDisplay[sizeof(s_ScenarioDeleteDisplay) - 1] = '\0';
+            size_t dlen3 = strlen(s_ScenarioDeleteDisplay);
+            if (dlen3 > 5 &&
+                strcmp(s_ScenarioDeleteDisplay + dlen3 - 5, ".json") == 0) {
+                s_ScenarioDeleteDisplay[dlen3 - 5] = '\0';
             }
-            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            s_ShowScenarioDeleteConfirm = true;
+            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
         }
         if (!hasSelection) ImGui::EndDisabled();
 
@@ -3759,7 +3773,214 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             ImGui::CloseCurrentPopup();
         }
 
+        /* M-5: nested confirm for scenario deletion. ImGui supports nested
+         * modals one level deep; this popup renders over the Load Scenario
+         * modal and over the room screen. Canonical S385 pattern. */
+        {
+            const char *delPopupId = "Delete Scenario?##scen_del_confirm";
+            if (s_ShowScenarioDeleteConfirm && !ImGui::IsPopupOpen(delPopupId)) {
+                ImGui::OpenPopup(delPopupId);
+                s_ScenarioDeleteConfirmOpenFrame = (s32)ImGui::GetFrameCount();
+            }
+
+            ImGui::SetNextWindowSize(ImVec2(pdguiScale(460.0f), 0.0f));
+            if (ImGui::BeginPopupModal(delPopupId, nullptr,
+                                        ImGuiWindowFlags_AlwaysAutoResize)) {
+                pdguiPopupDarkenBehind(0.65f);
+
+                s32 curFrame   = (s32)ImGui::GetFrameCount();
+                s32 framesOpen = (s_ScenarioDeleteConfirmOpenFrame >= 0)
+                                 ? (curFrame - s_ScenarioDeleteConfirmOpenFrame)
+                                 : ROOM_CONFIRM_FORCE_FOCUS_FRAMES + 1;
+                bool forceFocus     = (framesOpen >= 0 && framesOpen < ROOM_CONFIRM_FORCE_FOCUS_FRAMES);
+                bool inputDebounced = (framesOpen >= 0 && framesOpen < ROOM_CONFIRM_FRAME_DEBOUNCE);
+
+                ImGui::TextColored(pdguiVec4TitleGlow(), "Delete Scenario?");
+                ImGui::Separator();
+                ImGui::Spacing();
+                ImGui::TextWrapped("Permanently delete \"%s\"?",
+                                   s_ScenarioDeleteDisplay);
+                ImGui::TextDisabled("This cannot be undone.");
+                ImGui::Spacing();
+
+                float dbw = pdguiScale(150.0f);
+                bool  doConfirm = false;
+                bool  doCancel  = false;
+
+                if (forceFocus) ImGui::SetKeyboardFocusHere(0);
+                if (ImGui::Button("Cancel##scendel", ImVec2(dbw, 0.0f))) {
+                    if (!inputDebounced) doCancel = true;
+                }
+                ImGui::SetItemDefaultFocus();
+
+                ImGui::SameLine();
+
+                ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.10f, 0.10f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.80f, 0.15f, 0.15f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(1.00f, 0.20f, 0.20f, 1.0f));
+                if (ImGui::Button("Delete##scendel", ImVec2(dbw, 0.0f))) {
+                    if (!inputDebounced) doConfirm = true;
+                }
+                ImGui::PopStyleColor(3);
+
+                if (!inputDebounced) {
+                    if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                        ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
+                        ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+                        doConfirm = true;
+                    }
+                    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+                        doCancel = true;
+                    }
+                }
+
+                if (doConfirm) {
+                    sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario DELETE confirmed \"%s\"",
+                                 s_ScenarioDeletePath);
+                    if (scenarioDelete(s_ScenarioDeletePath) == 0) {
+                        /* Refresh list */
+                        s_ScenarioCount = scenarioListFiles(s_ScenarioFiles, SCENARIO_MAX_LIST);
+                        s_ScenarioSelected = -1;
+                        snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg),
+                                 "Deleted: %s", s_ScenarioDeleteDisplay);
+                    } else {
+                        snprintf(s_ScenarioStatusMsg, sizeof(s_ScenarioStatusMsg),
+                                 "Delete failed.");
+                    }
+                    pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                    s_ShowScenarioDeleteConfirm = false;
+                    s_ScenarioDeleteConfirmOpenFrame = -1;
+                    s_ScenarioDeletePath[0] = '\0';
+                    s_ScenarioDeleteDisplay[0] = '\0';
+                    ImGui::CloseCurrentPopup();
+                } else if (doCancel) {
+                    pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                    s_ShowScenarioDeleteConfirm = false;
+                    s_ScenarioDeleteConfirmOpenFrame = -1;
+                    s_ScenarioDeletePath[0] = '\0';
+                    s_ScenarioDeleteDisplay[0] = '\0';
+                    ImGui::CloseCurrentPopup();
+                }
+
+                ImGui::EndPopup();
+            } else if (s_ShowScenarioDeleteConfirm) {
+                s_ShowScenarioDeleteConfirm = false;
+                s_ScenarioDeleteConfirmOpenFrame = -1;
+            }
+        }
+
         ImGui::EndPopup();
+    }
+
+    /* ---- M-5: Leave Room / Back to Menu confirm modal ----
+     * Canonical S385 pattern: 5-frame SetKeyboardFocusHere(0) force-focus on
+     * Cancel + 3-frame input debounce so the Enter/A/Esc press that armed
+     * the modal can't auto-confirm or auto-cancel. */
+    {
+        const char *leavePopupId = s_IsSoloMode ? "Back to Menu?##leave_confirm"
+                                                 : "Leave Room?##leave_confirm";
+        if (s_ShowLeaveConfirm && !ImGui::IsPopupOpen(leavePopupId)) {
+            ImGui::OpenPopup(leavePopupId);
+            s_LeaveConfirmOpenFrame = (s32)ImGui::GetFrameCount();
+        }
+
+        ImGui::SetNextWindowSize(ImVec2(pdguiScale(440.0f), 0.0f));
+        if (ImGui::BeginPopupModal(leavePopupId, nullptr,
+                                    ImGuiWindowFlags_AlwaysAutoResize)) {
+            pdguiPopupDarkenBehind(0.65f);
+
+            s32 curFrame   = (s32)ImGui::GetFrameCount();
+            s32 framesOpen = (s_LeaveConfirmOpenFrame >= 0)
+                             ? (curFrame - s_LeaveConfirmOpenFrame)
+                             : ROOM_CONFIRM_FORCE_FOCUS_FRAMES + 1;
+            bool forceFocus     = (framesOpen >= 0 && framesOpen < ROOM_CONFIRM_FORCE_FOCUS_FRAMES);
+            bool inputDebounced = (framesOpen >= 0 && framesOpen < ROOM_CONFIRM_FRAME_DEBOUNCE);
+
+            ImGui::TextColored(pdguiVec4TitleGlow(),
+                               s_IsSoloMode ? "Back to Menu?" : "Leave Room?");
+            ImGui::Separator();
+            ImGui::Spacing();
+            if (s_IsSoloMode) {
+                ImGui::TextWrapped("Return to the main menu? "
+                                   "Any unsaved match setup will be lost.");
+            } else {
+                ImGui::TextWrapped("Leave this room and return to the lobby?");
+            }
+            ImGui::Spacing();
+
+            float bw  = pdguiScale(150.0f);
+            bool  doConfirm = false;
+            bool  doCancel  = false;
+
+            /* Cancel first — safer default focus. */
+            if (forceFocus) ImGui::SetKeyboardFocusHere(0);
+            if (ImGui::Button("Cancel##leaveconfirm", ImVec2(bw, 0.0f))) {
+                if (!inputDebounced) doCancel = true;
+            }
+            ImGui::SetItemDefaultFocus();
+
+            ImGui::SameLine();
+
+            /* Red confirm button. */
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.10f, 0.10f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.80f, 0.15f, 0.15f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(1.00f, 0.20f, 0.20f, 1.0f));
+            const char *confirmLabel = s_IsSoloMode ? "Back to Menu##leaveconfirm"
+                                                     : "Leave Room##leaveconfirm";
+            if (ImGui::Button(confirmLabel, ImVec2(bw, 0.0f))) {
+                if (!inputDebounced) doConfirm = true;
+            }
+            ImGui::PopStyleColor(3);
+
+            if (!inputDebounced) {
+                if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                    ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
+                    ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+                    doConfirm = true;
+                }
+                if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+                    doCancel = true;
+                }
+            }
+
+            if (doConfirm) {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room CLOSE confirmed via %s (solo=%d)",
+                             leaveLabel, s_IsSoloMode);
+                pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                s_MatchConfigInited = false;  /* reset on next enter */
+                s_CodeGenerated     = false;
+                s_ShowLeaveConfirm  = false;
+                s_LeaveConfirmOpenFrame = -1;
+                ImGui::CloseCurrentPopup();
+                /* S300: release MENU_TYPE_ROOM — pool pops ctx only if it
+                 * owned the push (network mode). Solo mode pool was in
+                 * shared mode, so the main-menu-owned push survives until
+                 * the main menu closes. */
+                menupoolRelease(MENU_TYPE_ROOM);
+                if (s_IsSoloMode) {
+                    pdguiSoloRoomClose();  /* return to main menu */
+                } else {
+                    /* R-3: Tell server we're leaving the room */
+                    if (g_NetMode == RM_NETMODE_CLIENT) {
+                        netbufStartWrite(&g_NetMsgRel);
+                        netmsgClcRoomLeaveWrite(&g_NetMsgRel);
+                        netSend(NULL, &g_NetMsgRel, 1, 0);
+                    }
+                    pdguiSetInRoom(0);  /* return to social lobby, stay connected */
+                }
+            } else if (doCancel) {
+                pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                s_ShowLeaveConfirm = false;
+                s_LeaveConfirmOpenFrame = -1;
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
+        } else if (s_ShowLeaveConfirm) {
+            /* Popup was closed externally (hotswap / stage transition). */
+            s_ShowLeaveConfirm = false;
+            s_LeaveConfirmOpenFrame = -1;
+        }
     }
 
     /* R-5: If leader changed settings this frame, broadcast to room members */
@@ -3829,4 +4050,11 @@ extern "C" void pdguiRoomScreenReset(void)
     s_SaveNameBuf[0]    = '\0';
     s_ScenarioCount     = 0;
     s_ScenarioStatusMsg[0] = '\0';
+    /* M-5 confirm-modal state */
+    s_ShowLeaveConfirm      = false;
+    s_LeaveConfirmOpenFrame = -1;
+    s_ShowScenarioDeleteConfirm      = false;
+    s_ScenarioDeleteConfirmOpenFrame = -1;
+    s_ScenarioDeletePath[0]    = '\0';
+    s_ScenarioDeleteDisplay[0] = '\0';
 }
