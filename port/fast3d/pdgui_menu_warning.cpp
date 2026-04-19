@@ -698,23 +698,39 @@ static s32 renderDefaultDialog(struct menudialog *dialog,
 /* ========================================================================
  * MP End Game — first-class modal popup (B-End-Game-UX / S368)
  *
- * S368 rewrite: replaces the Begin()-based split-button dialog with a real
- * ImGui::BeginPopupModal.  The modal popup owns nav focus exclusively, so
- * D-pad / stick navigation no longer drifts back to the MP Pause window
- * sitting underneath; the Confirm / Cancel pair is always reachable.  The
- * scrim + PD-authentic red danger frame are preserved; the keybinding hint
- * row stays so keyboard + gamepad users both see the active shortcuts.
+ * S368 introduced a BeginPopupModal but S385 (B-End-Game-Input,
+ * 2026-04-19) hit two remaining problems Mike reported:
+ *   (1) Controller nav couldn't reach the Confirm button — focus never
+ *       latched onto Cancel reliably on first frame because the ImGui
+ *       popup NavInit state hadn't settled when SetItemDefaultFocus
+ *       fired, so D-pad Right moved nothing.
+ *   (2) Enter/A press that opened the popup bled through into the first
+ *       rendered frame, occasionally firing a confirm or cancel before
+ *       the user saw the dialog.
  *
- * The confirm path invokes the legacy SELECTABLE's menuhandlerMpEndGame
- * via its item handler (same MENUOP_SET contract as renderTypedDialog),
- * which on a client runs netDisconnect() → mainChangeToStage() with a
- * cleared manifest (B-End-Game-Crash fix in port/src/net/net.c), and on
- * the server calls mainEndStage() → SVC_STAGE_END.
+ * S385 rewrite: open-frame counter (s_OpenFrame / FRAME_DEBOUNCE) swallows
+ * all key activation for a short window after OpenPopup, and
+ * SetKeyboardFocusHere(0) before the Cancel button forces focus onto it
+ * for the first few frames (not just the one IsWindowAppearing was true).
+ * Together they make controller nav land on Cancel and stay there until
+ * the user intentionally moves, and render the popup immune to key bleed
+ * from the hubPushRow selectable that opened it.
+ *
+ * Button wiring is unchanged: Confirm invokes the legacy SELECTABLE's
+ * menuhandlerMpEndGame via its item handler (same MENUOP_SET contract as
+ * renderTypedDialog) → on client: netDisconnect() + the cleared-manifest
+ * stage change (B-End-Game-Crash in port/src/net/net.c); on server:
+ * mainEndStage() → SVC_STAGE_END.
  * ======================================================================== */
 
 /* One static slot is fine because only one End Game dialog is ever active
  * at a time — the menu-pool / structural-dedup layer guarantees it. */
 static void *s_EndGameOpenedForDialog = nullptr;
+/* S385: ImGui frame number at which the popup was (re)opened. Used for
+ * input debounce + first-frame-focus latch. -1 = no popup active. */
+static s32   s_EndGameOpenFrame = -1;
+#define ENDGAME_FRAME_DEBOUNCE   3
+#define ENDGAME_FORCE_FOCUS_FRAMES 5
 
 static s32 renderMpEndGameDialog(struct menudialog *dialog,
                                   struct menu * /*menu*/,
@@ -739,6 +755,7 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
     if (pdTitleH < 18.0f) pdTitleH = 18.0f;
 
     const char *popupId = "##mp_endgame_modal";
+    s32 curFrame = (s32)ImGui::GetFrameCount();
 
     /* On the first frame this dialog is seen, kick the popup open.
      * BeginPopupModal requires OpenPopup to have been called previously.
@@ -746,6 +763,7 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
     if (s_EndGameOpenedForDialog != (void *)dialog) {
         ImGui::OpenPopup(popupId);
         s_EndGameOpenedForDialog = (void *)dialog;
+        s_EndGameOpenFrame = curFrame;
         pdguiPlaySound(PDGUI_SND_ERROR);
     }
 
@@ -768,6 +786,7 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
          * track pointer to null so re-entry opens a fresh popup. */
         if (s_EndGameOpenedForDialog == (void *)dialog) {
             s_EndGameOpenedForDialog = nullptr;
+            s_EndGameOpenFrame = -1;
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
             menuPopDialog();
         }
@@ -827,13 +846,28 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
     bool doConfirm = false;
     bool doCancel  = false;
 
+    /* S385: force keyboard focus onto Cancel for the first few frames
+     * after the popup opens, so controller D-pad Right reliably
+     * navigates to End Match afterward. SetItemDefaultFocus alone
+     * raced with ImGui's popup NavInit; SetKeyboardFocusHere(0) applied
+     * to the next-submitted item bypasses that race. */
+    s32 framesOpen = (s_EndGameOpenFrame >= 0)
+                     ? (curFrame - s_EndGameOpenFrame)
+                     : ENDGAME_FORCE_FOCUS_FRAMES + 1;
+    bool forceFocus = (framesOpen >= 0 && framesOpen < ENDGAME_FORCE_FOCUS_FRAMES);
+    bool inputDebounced = (framesOpen >= 0 && framesOpen < ENDGAME_FRAME_DEBOUNCE);
+
+    if (forceFocus) {
+        ImGui::SetKeyboardFocusHere(0);
+    }
+
     /* Cancel first — safer default focus. */
     if (ImGui::Button("Cancel##mpendgame", ImVec2(btnW, btnH))) {
-        doCancel = true;
+        if (!inputDebounced) doCancel = true;
     }
-    if (ImGui::IsWindowAppearing()) {
-        ImGui::SetItemDefaultFocus();
-    }
+    /* Belt-and-braces: default focus hint for the normal ImGui nav init
+     * path (works once popup NavInit settles; harmless otherwise). */
+    ImGui::SetItemDefaultFocus();
 
     ImGui::SameLine(0.0f, gap);
 
@@ -842,7 +876,7 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.80f, 0.15f, 0.15f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(1.00f, 0.20f, 0.20f, 1.0f));
     if (ImGui::Button("End Match##mpendgame", ImVec2(btnW, btnH))) {
-        doConfirm = true;
+        if (!inputDebounced) doConfirm = true;
     }
     ImGui::PopStyleColor(3);
 
@@ -866,8 +900,11 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
 
     /* ---- Keyboard + gamepad shortcuts (active while the popup is open).
      * pdguiDriveImGuiNav maps ACTION_USE → Enter and ACTION_CANCEL_USE →
-     * Escape, so gamepad A/B fire these via the same paths keyboard does. */
-    if (!ImGui::IsWindowAppearing()) {
+     * Escape, so gamepad A/B fire these via the same paths keyboard does.
+     * S385: debounced for ENDGAME_FRAME_DEBOUNCE frames after open so the
+     * Enter press that activated the hubPushRow Selectable can't bleed
+     * through into this frame. */
+    if (!inputDebounced) {
         if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
             ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
             ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
@@ -896,11 +933,13 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
         }
         ImGui::CloseCurrentPopup();
         s_EndGameOpenedForDialog = nullptr;
+        s_EndGameOpenFrame = -1;
         menuPopDialog();
     } else if (doCancel) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         ImGui::CloseCurrentPopup();
         s_EndGameOpenedForDialog = nullptr;
+        s_EndGameOpenFrame = -1;
         menuPopDialog();
     }
 

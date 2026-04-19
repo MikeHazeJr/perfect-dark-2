@@ -21,7 +21,7 @@ playtest.
 
 ### Tier 1 — destructive-action confirms (swap sibling-dialog push → `BeginPopupModal`)
 
-- **M-1**: `pdgui_menu_mppause.cpp` — `End Game` replaces legacy `g_MpEndGameMenuDialog` sibling push with `BeginPopupModal` + `pdguiPopupDarkenBehind(0.65f)`. Focus on Cancel.
+- ~~**M-1**: `pdgui_menu_mppause.cpp` — `End Game` replaces legacy `g_MpEndGameMenuDialog` sibling push with `BeginPopupModal` + `pdguiPopupDarkenBehind(0.65f)`. Focus on Cancel.~~ **DONE S385** (`claude/infallible-goldberg-71b379`) — popup modal was already in place from S368 but had a controller-focus race + no input debounce; S385 added 5-frame `SetKeyboardFocusHere(0)` on Cancel + 3-frame click debounce so controller D-pad reliably reaches the End Match confirm button and the opening Enter press can't bleed through. Dialog also registered as `MENU_TYPE_WARNING_MODAL` for pool lifecycle. See bugs.md B-198.
 - **M-2**: `pdgui_menu_solomission.cpp` — `Abort Mission` replaces `g_MissionAbortMenuDialog` full-screen push with popup modal over pause menu. Red/danger palette inside the modal body.
 - **M-3**: `pdgui_menu_cheats.cpp` — `Confirm Unlock` replaces `g_CheatsConfirmUnlockMenuDialog` sibling push with popup modal.
 - **M-4**: `pdgui_menu_agentselect.cpp` — `Delete` / `Copy` replaces inline prompt with `BeginPopupModal`; default focus on Cancel.
@@ -54,7 +54,7 @@ playtest.
 
 ### Tier 5 — remaining standardization
 
-- **M-22**: migrate direct `inputCtxPush(&g_CtxImGuiMenu)` calls to `menupoolAcquire(type, def, &g_CtxImGuiMenu)` in: `pausemenu`, `endscreen`, `lobby`, `network`, `moddinghub`, `stats`, `update`. Standalone windows without dialogdef keep direct push but register their type in the pool.
+- **M-22**: migrate direct `inputCtxPush(&g_CtxImGuiMenu)` calls to `menupoolAcquire(type, def, &g_CtxImGuiMenu)` in: `pausemenu`, `endscreen`, `lobby`, `network`, `moddinghub`, `stats`, `update`. Standalone windows without dialogdef keep direct push but register their type in the pool. **PARTIAL S385** — MP endscreen dialogs now registered in pool (structural dedup only; still pushes ctx directly from the renderer). Full migration to `menupoolAcquire(type, def, &g_CtxImGuiMenu)` still pending.
 - **M-23**: verify every stage-transition / match-start / match-end / disconnect site calls `menupoolReleaseAll()`: `pdgui_bridge.c`, `matchsetup.c`, `netmsg.c`, `net.c`. Add missing sites (cascade-close invariant, §3.3).
 - **M-24**: evaluate adding `parent_type` assertion parameter to `menupoolAcquire` — hard-enforces I1/I3. Opt-in `MENUPOOL_STRICT_TREE` build flag. Defer until Tier 1-3 land.
 
@@ -64,6 +64,18 @@ playtest.
 - `pdgui_menu_warning.cpp` — generic DANGER/SUCCESS type-based modal (canonical confirm renderer).
 - `pdgui_menu_theme_editor.cpp` — standalone window + modal root pattern.
 - `pdgui_menu_modmgr.cpp` — modal for Unsaved Changes / Large Mod / Validation.
+
+---
+
+## Done — 2026-04-19 (S385 — B-198: CS pause End Game confirm focus + CS end-of-match input-death, `claude/infallible-goldberg-71b379`)
+
+- **B-198** (CS pause → End Game: controller can select "End Game" but not reach Confirm; CS end-of-match: no input, no way back to main menu). Two bugs, one session, both fixed.
+- **End Game popup focus (Bug 1)**: `renderMpEndGameDialog` used `IsWindowAppearing()`-gated `SetItemDefaultFocus()` which raced with ImGui's popup NavInit on the OpenPopup + BeginPopupModal same-frame path. New approach: added `s_EndGameOpenFrame` + 5-frame `SetKeyboardFocusHere(0)` force-focus window on Cancel + 3-frame input debounce so the Enter/A press that activated the hub-row Selectable can't bleed into the popup's buttons.
+- **End-of-match input-death (Bug 2)**: root cause was a race between `menuPushRootDialog`'s `menupoolReleaseAll()` (deferred pops of owned_ctx slots to end-of-frame) and `renderMpEndscreen`'s fresh-entry ctx-push gate. On frame 1 the ctx appeared active (deferred pop pending), so push was skipped. End-of-frame the pop fired. On frame 2 freshEntry was false — push never happened, `g_ImcMenu` never activated. `ACTION_USE`/`ACTION_CANCEL_USE` → no ImGui Enter/Escape events → Enter/Esc/A/B all dead. Fix: push unconditionally whenever the ctx isn't active while this renderer runs (force-close sites also clear the dialog, so no resurrect-loop risk).
+- **Compounding fix**: registered missing endscreen dialogs + End Game dialog in `port/src/menupool.c` — `g_MpEndscreenIndGameOverMenuDialog` / `TeamGameOverMenuDialog` / `ChallengeCompletedMenuDialog` all as `MENU_TYPE_ENDSCREEN_MP`, plus `g_MpEndGameMenuDialog` as `MENU_TYPE_WARNING_MODAL`. Joins the Cheated/Failed variants that were already registered.
+- **Files**: `port/src/menupool.c` (+39/−1), `port/fast3d/pdgui_menu_endscreen.cpp` (+40/−20), `port/fast3d/pdgui_menu_warning.cpp` (+75/−28). Net +154/−49 across 3 files.
+- **Build**: clean 775/775. `PerfectDark.exe` 53,363,195 / `PerfectDarkServer.exe` 23,141,856.
+- **Playtest ask**: (1) CS pause → "End Game" with controller — popup opens, focus on Cancel, D-pad Right reaches End Match, A confirms, B cancels. (2) CS match to natural end — endscreen renders, Enter/Esc/A/B all responsive, Main Menu reachable. (3) Challenge mode (Completed / Failed / Cheated) — all still work post-registration.
 
 ---
 

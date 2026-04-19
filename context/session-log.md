@@ -1,8 +1,62 @@
 
 # Session Log (Active)
 
-> **S281–S383** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S385** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S385 — 2026-04-19 (worktree `claude/infallible-goldberg-71b379`) — B-End-Game-Input: CS pause End Game confirm focus + CS end-of-match input-death
+
+**Scope**: Two related CS bugs Mike reported in one batch.
+  (1) CS pause → End Game: controller could select the End Game row, but the confirm popup that followed didn't give controller nav a path to the Confirm button.
+  (2) CS end-of-match screen: after a match ended naturally, the endscreen opened in a state with no input — player couldn't hit Escape / A / Enter to return to the main menu.
+
+### Root causes
+
+**Bug (1) — End Game popup controller focus**. `renderMpEndGameDialog` (`port/fast3d/pdgui_menu_warning.cpp`, S368) uses `BeginPopupModal` correctly, but focus/default-item handling was fragile:
+  - `SetItemDefaultFocus()` was guarded by `IsWindowAppearing()`, which fires for one frame. ImGui's popup NavInit state hadn't always settled by that frame when `OpenPopup` + `BeginPopupModal` ran in the same frame — the default-focus hint raced with popup init and didn't latch onto the Cancel button.
+  - No input debounce after open. The Enter / A press that activated the `hubPushRow` Selectable in MP Pause could bleed into the popup's first rendered frame, occasionally firing a button click before the user saw the dialog.
+
+**Bug (2) — CS end-of-match input-death**. `renderMpEndscreen` (`port/fast3d/pdgui_menu_endscreen.cpp`) only pushed `g_CtxImGuiMenu` on "fresh entry" if `!inputCtxIsActive(&g_CtxImGuiMenu)`. That check raced with `menuPushRootDialog`'s `menupoolReleaseAll()`, which **schedules deferred pops** of any owned_ctx slots for end-of-frame. Timeline:
+  - Frame N: endscreen dialog pushed; any previously-owned ctx scheduled for deferred pop. renderMpEndscreen runs, sees `g_CtxImGuiMenu` still active → skips push. `s_MpEndscreenLastFrame = N`.
+  - End of frame N: deferred pop fires — `g_CtxImGuiMenu` deactivated, `g_ImcMenu` deactivated.
+  - Frame N+1: renderMpEndscreen runs, `inputCtxIsActive(&g_CtxImGuiMenu) == false` BUT `freshEntry = (N+1 - N) > 1 == false`. No push ever happens.
+  - Result: the endscreen runs for the rest of the match with zero menu IMC coverage; `ACTION_USE` / `ACTION_CANCEL_USE` fire no `ImGuiKey_Enter` / `ImGuiKey_Escape` events; buttons and keyboard shortcuts are dead.
+
+Compounding (2): the Ind / Team / ChallengeCompleted MP endscreen dialogdefs were **not registered** in `port/src/menupool.c` (only Cheated and Failed challenge variants were). Their push through `menuPushDialog → menupoolAcquireDialog` took the unregistered fallback with no pool-managed ctx, so there was nothing in the pool system guarding against the race either.
+
+### Fixes
+
+1. **`port/src/menupool.c`** — register `g_MpEndscreenIndGameOverMenuDialog`, `g_MpEndscreenTeamGameOverMenuDialog`, `g_MpEndscreenChallengeCompletedMenuDialog` as `MENU_TYPE_ENDSCREEN_MP` (joining the existing Cheated/Failed registrations). Register `g_MpEndGameMenuDialog` as `MENU_TYPE_WARNING_MODAL` so the confirm popup participates in structural dedup and the pool lifecycle. All four defs live in `src/game/mplayer/ingame.c` and are not in `data.h`, so the locally-scoped `extern struct menudialogdef` declarations pattern used for `g_FilemgrFileSelectMenuDialog` (B-194) is mirrored here.
+
+2. **`port/fast3d/pdgui_menu_endscreen.cpp`** — `renderMpEndscreen` now pushes `g_CtxImGuiMenu` unconditionally whenever it isn't active, not just on fresh entry. Rationale: every force-close site (`pdguiEndscreenExitToMainMenu` → `func0f0f8120`, `menupoolReleaseAll` from `menuPushRootDialog`, stage transitions) also clears the endscreen dialog from the legacy menu stack. Once the dialog is gone the hotswap dispatcher stops calling this renderer, so there's no resurrect loop to worry about (the historical S295 F5 concern). The `s_MpEndscreenLastFrame` frame gap is retained for fresh-entry DIAG logging + debounce reset only — it no longer gates the ctx push.
+
+3. **`port/fast3d/pdgui_menu_warning.cpp::renderMpEndGameDialog`** — added `s_EndGameOpenFrame` + `ENDGAME_FRAME_DEBOUNCE` (3 frames) + `ENDGAME_FORCE_FOCUS_FRAMES` (5 frames):
+  - `ImGui::SetKeyboardFocusHere(0)` before the Cancel button for the first 5 frames after open, which forces keyboard focus on the next-submitted item regardless of popup NavInit timing. `SetItemDefaultFocus` is still called as a belt-and-braces hint (harmless when NavInit has already run).
+  - Button clicks + keyboard shortcuts are gated on `!inputDebounced` for the first 3 frames so any bleed-through Enter / A press from the Selectable that opened the popup can't auto-confirm / auto-cancel.
+  - All popup-close paths (confirm / cancel / `!open` early-return) clear both `s_EndGameOpenedForDialog` and `s_EndGameOpenFrame` so re-entry from a new push gets a fresh debounce + focus window.
+
+### Files touched
+
+- `port/src/menupool.c` — +39 LOC (4 extern decls + 4 REG lines + expanded comment at the endscreen registration block).
+- `port/fast3d/pdgui_menu_endscreen.cpp` — +40/−20 LOC (unconditional ctx push + rewritten S295 F5 comment).
+- `port/fast3d/pdgui_menu_warning.cpp` — +75/−28 LOC (debounce state + force-focus loop + updated header comment for the S385 rewrite).
+
+### Build + verify
+
+`source devtools/build-env.sh && ninja -C Build pd pd-server` — clean **775/775**. `PerfectDark.exe` 53,363,195 / `PerfectDarkServer.exe` 23,141,856 (timestamped 13:54 2026-04-19). Pre-existing warnings unchanged (comment-in-comment in `updater.h` / `pdgui_theme_loader.h`, `VERSION_PATCH` redefinition, `near`/`far` identifier noise).
+
+### Playtest ask
+
+1. **CS pause → End Game (controller)**: during a match, press Start/ESC → MP pause opens → D-pad down to "End Game" → press A. Confirm popup appears centered over a scrim. Focus ring is on Cancel. D-pad Right → focus moves to the red "End Match" button. Press A → match ends, CS endscreen appears.
+2. **CS pause → End Game (keyboard)**: same flow, arrow-key Right moves focus, Enter confirms, Esc cancels. Space is also a confirm shortcut. A/Esc/Enter pressed in the first 3 frames after open should be ignored (bleed-through debounce).
+3. **CS match ends naturally**: play a full match to timer/score limit. Endscreen appears with rankings. **Enter → Play Again** works. **Esc → Main Menu (CI)** works. Controller A/B do the same via `pdguiDriveImGuiNav`. Previously these were dead — the endscreen rendered but had no menu IMC active.
+4. **Regression check — challenge mode**: start a Combat Challenge, complete or fail it. Challenge Completed / Failed / Cheated endscreens should still work (those were already registered in pool; the renderer fix applies to them too).
+
+### Next
+
+If controller nav still loses focus in the popup, the likely culprit is `pdguiDriveImGuiNav`'s use of `driveHeld` for arrow keys (it sends a continuous "held" state without edge repeat, so a single D-pad tap may not advance more than one item). That's a separate, longer-standing concern — document and defer unless it surfaces in playtest.
+
+---
 
 ## Session S384 — 2026-04-19 (worktree `claude/elated-hugle-7ec221`, merged to `dev` @ `90b448ce`) — B-184 + B-193 ROOT CAUSE: ALIGN16 pointer-alignment regression
 

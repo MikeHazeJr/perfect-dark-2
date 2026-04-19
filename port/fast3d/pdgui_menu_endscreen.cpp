@@ -781,17 +781,27 @@ static u32 s_MpEndscreenDiagPrintCount = 0;       /* cap total DIAG output */
 	}                                                               \
 } while (0)
 
-/* S295 F5: Replace the previous every-frame re-push pattern with a one-shot
- * push on fresh entry. The previous code called inputCtxPush every frame that
- * the window rendered while !inputCtxIsActive — which papered over a
- * first-frame miss but created a bad resurrect pattern: if a force-close site
- * popped the context, the very next frame this renderer would re-push it,
- * trapping the player in a menu that no longer had a meaningful owner.
+/* S295 F5 → B-End-Game-Input (2026-04-19): the fresh-entry-only ctx push
+ * has a race with menuPushRootDialog's menupoolReleaseAll: that call
+ * SCHEDULES a deferred pop of any previously-owned ctx, which fires at
+ * end-of-frame. On the endscreen renderer's first frame, the ctx appears
+ * active (deferred pop hasn't fired yet) so the push is skipped; on
+ * frame 2, freshEntry is false (s_MpEndscreenLastFrame was just set), so
+ * no re-push — and the endscreen runs with no owner for g_ImcMenu, which
+ * deactivates Enter / A / Escape / B at the action-map level. Mike's
+ * "CS end-of-match opens a menu where I have no input" symptom.
  *
- * New pattern: detect "fresh entry" by observing a gap in frame numbers
- * (i.e., this renderer wasn't called last frame). On fresh entry, push once
- * if no other context owns the menu. After that, force-close sites and
- * stage-transition reset handle cleanup. */
+ * The replacement: push g_CtxImGuiMenu whenever it isn't active while
+ * this renderer runs. This is safe against the historical "force-close
+ * site resurrects menu" concern from S295 F5 because every force-close
+ * site also clears the endscreen dialog from the legacy menu stack
+ * (pdguiEndscreenExitToMainMenu → func0f0f8120, menupoolReleaseAll from
+ * menuPushRootDialog, stage transitions). Once the dialog is gone the
+ * hotswap dispatcher stops calling this renderer, so the re-push loop
+ * doesn't fire.
+ *
+ * s_MpEndscreenLastFrame is retained for fresh-entry DIAG logging and
+ * debounce-frame reset — it no longer gates the ctx push. */
 static s32 s_MpEndscreenLastFrame = -1;
 
 /* challengeResult: 0=normal, 1=completed, 2=failed, 3=cheated */
@@ -876,14 +886,18 @@ static void renderMpEndscreen(const char *titleOverride, s32 challengeResult)
         return;
     }
 
-    /* S295 F5: One-shot push on fresh entry. See comment on
-     * s_MpEndscreenLastFrame for rationale. */
+    /* B-End-Game-Input (2026-04-19): unconditional ctx push while the
+     * endscreen is rendering. Fresh-entry gating has a first-frame race
+     * with menupoolReleaseAll's deferred pop; see s_MpEndscreenLastFrame
+     * comment for the full trace. The endscreen dialog is always force-
+     * closed before another menu can take over, so this cannot trap the
+     * player. */
     s32 curFrame = (s32)ImGui::GetFrameCount();
     bool freshEntry = (s_MpEndscreenLastFrame < 0) ||
                       ((curFrame - s_MpEndscreenLastFrame) > 1);
     s_MpEndscreenLastFrame = curFrame;
 
-    if (freshEntry && !inputCtxIsActive(&g_CtxImGuiMenu)) {
+    if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
         inputCtxPush(&g_CtxImGuiMenu);
     }
     if (ImGui::IsWindowAppearing() || freshEntry) {
