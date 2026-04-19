@@ -119,10 +119,14 @@ s32 g_MainChangeToStageNum = -1;
 s32 g_MainIsDebugMenuOpen = 0;
 
 /* B-193: armed by mainLoop's stage-change completion block, consumed by
- * mainTick's first render pass after the transition. Helps pin down the
- * intermittent "CI loads with only sky/void visible" class. See the
- * `LV.DIAG: first-render ...` log line emitted below. */
+ * mainTick's render pass. Two-shot diag:
+ *   1 = emit first-render snapshot (frame 0), then re-arm to 2
+ *   2 = waiting for frame s_B193SettledFrameTarget to emit settled snapshot
+ *   0 = idle
+ * Phase 1 ruled out room/camera registration (state identical bad vs good
+ * boot). Phase 2 extends coverage to the BG render path. */
 static s32 s_B193FirstRenderDiagPending = 0;
+static s32 s_B193SettledFrameTarget = 0;
 
 
 struct stageallocation g_StageAllocations8Mb[] = {
@@ -683,7 +687,15 @@ void mainTick(void)
 			 * once per transition. Dumps the state that matters for the "CI
 			 * invisible — sky only" class: roomcount, primary room from the
 			 * player prop, camera room, player pos, and whether the player
-			 * prop has been registered to any room yet. */
+			 * prop has been registered to any room yet.
+			 *
+			 * Phase 2: prior diagnostic found identical world state on bad
+			 * vs good boots (room 16, camera room 16, roomcount=141). Added
+			 * rendering-side state: BG primary data ptr, the current room's
+			 * loaded240 flag + gfxdata ptr + flags word, and number of
+			 * pending room-load candidates. Also fires a second snapshot at
+			 * frame=30 to separate "state correct on frame 0" from "state
+			 * correct but stays wrong after settle". */
 			if (s_B193FirstRenderDiagPending && STAGE_IS_GAMEPLAY(g_StageNum) && g_Vars.currentplayer) {
 				struct prop *pprop = g_Vars.currentplayer->prop;
 				s32 firstRoom = (pprop && pprop->rooms[0] != (RoomNum)-1) ? pprop->rooms[0] : -1;
@@ -691,15 +703,58 @@ void mainTick(void)
 				f32 px = pprop ? pprop->pos.x : 0.0f;
 				f32 py = pprop ? pprop->pos.y : 0.0f;
 				f32 pz = pprop ? pprop->pos.z : 0.0f;
+				/* Pull BG-render state so we can distinguish "room registered
+				 * but not loaded" vs "room loaded but no gfxdata" vs "BG data
+				 * pool never allocated" from the log. */
+				extern u8 *g_BgPrimaryData;
+				extern struct room *g_Rooms;
+				extern s32 g_BgNumRoomLoadCandidates;
+				const struct room *pr = (g_Rooms && camRoom >= 0 && camRoom < g_Vars.roomcount)
+					? &g_Rooms[camRoom] : NULL;
 				sysLogPrintf(LOG_NOTE,
-					"LV.DIAG: first-render stage=0x%02x roomcount=%d player_prop=%p player_room=%d camera_room=%d pos=(%.0f,%.0f,%.0f) frame=%d",
+					"LV.DIAG: first-render stage=0x%02x roomcount=%d player_prop=%p player_room=%d camera_room=%d pos=(%.0f,%.0f,%.0f) frame=%d bg_primary=%p cam_loaded240=%d cam_flags=0x%04x cam_gfxdata=%p load_cands=%d",
 					(u32)g_StageNum,
 					g_Vars.roomcount,
 					(void *)pprop,
 					firstRoom,
 					camRoom,
 					(double)px, (double)py, (double)pz,
-					g_Vars.lvframe60);
+					g_Vars.lvframe60,
+					(void *)g_BgPrimaryData,
+					pr ? (int)pr->loaded240 : -1,
+					pr ? (unsigned)pr->flags : 0,
+					(void *)(pr ? pr->gfxdata : NULL),
+					g_BgNumRoomLoadCandidates);
+				/* Arm the settled snapshot — fires once ~0.5s later. */
+				s_B193FirstRenderDiagPending = 2;  /* 2 = waiting for frame 30 */
+				s_B193SettledFrameTarget = g_Vars.lvframe60 + 30;
+			} else if (s_B193FirstRenderDiagPending == 2 &&
+					STAGE_IS_GAMEPLAY(g_StageNum) && g_Vars.currentplayer &&
+					g_Vars.lvframe60 >= s_B193SettledFrameTarget) {
+				struct prop *pprop = g_Vars.currentplayer->prop;
+				s32 firstRoom = (pprop && pprop->rooms[0] != (RoomNum)-1) ? pprop->rooms[0] : -1;
+				s32 camRoom = g_Vars.currentplayer->cam_room;
+				f32 px = pprop ? pprop->pos.x : 0.0f;
+				f32 py = pprop ? pprop->pos.y : 0.0f;
+				f32 pz = pprop ? pprop->pos.z : 0.0f;
+				extern u8 *g_BgPrimaryData;
+				extern struct room *g_Rooms;
+				extern s32 g_BgNumRoomLoadCandidates;
+				const struct room *pr = (g_Rooms && camRoom >= 0 && camRoom < g_Vars.roomcount)
+					? &g_Rooms[camRoom] : NULL;
+				sysLogPrintf(LOG_NOTE,
+					"LV.DIAG: settled stage=0x%02x roomcount=%d player_room=%d camera_room=%d pos=(%.0f,%.0f,%.0f) frame=%d bg_primary=%p cam_loaded240=%d cam_flags=0x%04x cam_gfxdata=%p load_cands=%d",
+					(u32)g_StageNum,
+					g_Vars.roomcount,
+					firstRoom,
+					camRoom,
+					(double)px, (double)py, (double)pz,
+					g_Vars.lvframe60,
+					(void *)g_BgPrimaryData,
+					pr ? (int)pr->loaded240 : -1,
+					pr ? (unsigned)pr->flags : 0,
+					(void *)(pr ? pr->gfxdata : NULL),
+					g_BgNumRoomLoadCandidates);
 				s_B193FirstRenderDiagPending = 0;
 			}
 
