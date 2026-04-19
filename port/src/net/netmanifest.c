@@ -523,11 +523,26 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
     }
 
     /* ---- Mod components (returns 0 on dedicated server stub) ---- */
+    /* B-172: only include mods that are fully valid and carry distributable
+     * game content (mod.json present and parsed cleanly). Audio-only mods
+     * (has_audioini, no mod.json) are represented via MANIFEST_TYPE_AUDIO
+     * playlist entries below -- including them as COMPONENT entries causes
+     * `DISTRIB: unknown catalog_id` warnings because their id is not
+     * registered in the server-side asset catalog. Invalid mods (failed
+     * mod.json parse) likewise can't be distributed and must not stall the
+     * ready gate. */
     {
         const s32 num_mods = modmgrGetCount();
         for (i = 0; i < num_mods; i++) {
             modinfo_t *mod = modmgrGetMod(i);
             if (!mod || !mod->enabled || mod->contenthash == 0) {
+                continue;
+            }
+            if (!mod->valid || !mod->has_modjson) {
+                sysLogPrintf(LOG_NOTE,
+                    "manifest: skipping mod '%s' (valid=%d has_modjson=%d has_audioini=%d)",
+                    mod->id, (int)mod->valid,
+                    (int)mod->has_modjson, (int)mod->has_audioini);
                 continue;
             }
             manifestAddModEntry(out, mod->id,
@@ -799,11 +814,21 @@ void manifestBuildForHost(match_manifest_t *out)
     }
 
     /* ---- Mod components with SHA-256 ---- */
+    /* B-172: mirror manifestBuild -- only distributable mods. Audio-only
+     * mods are carried via MANIFEST_TYPE_AUDIO below; invalid mods fail to
+     * stream and stall the ready gate. */
     {
         const s32 num_mods = modmgrGetCount();
         for (i = 0; i < num_mods; i++) {
             modinfo_t *mod = modmgrGetMod(i);
             if (!mod || !mod->enabled || mod->contenthash == 0) {
+                continue;
+            }
+            if (!mod->valid || !mod->has_modjson) {
+                sysLogPrintf(LOG_NOTE,
+                    "MANIFEST-HOST: skipping mod '%s' (valid=%d has_modjson=%d has_audioini=%d)",
+                    mod->id, (int)mod->valid,
+                    (int)mod->has_modjson, (int)mod->has_audioini);
                 continue;
             }
             manifestAddModEntry(out, mod->id,
