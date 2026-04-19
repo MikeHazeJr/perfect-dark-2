@@ -657,7 +657,7 @@ static u32 convertContent(u8 *dst, u8 *src, u32 src_file_len)
 					dst_vtx = (dst_rodata->ptr_vertices) & 0x00ffffff;
 				}
 
-				dstpos = gbiConvertGdl(dst, dstpos, src, marker->src_offset, 0);
+				dstpos = gbiConvertGdl(dst, dstpos, src, marker->src_offset, src_file_len, 0);
 				break;
 			}
 		case CT_RODATA_CHRINFO:
