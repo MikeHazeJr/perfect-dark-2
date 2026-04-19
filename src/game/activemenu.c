@@ -81,15 +81,17 @@ void amOpenPickTarget(void)
 
 MenuItemHandlerResult amPickTargetMenuList(s32 operation, struct menuitem *item, union handlerdata *data)
 {
+	/* Mirrors src/game/radar.c::g_TeamColours ordering (B-186).  The low byte
+	 * (alpha) is or'd with renderdata->colour's alpha at the call site. */
 	static u32 teamcolours[] = {
-		0xff666600,
-		0xffff0000,
-		0x4444ff00,
-		0xff00ff00,
-		0x00ffff00,
-		0xff885500,
-		0x8800ff00,
-		0x88445500,
+		0xff666600, // 0: Red  (softer shade for active-menu contrast)
+		0x4488ff00, // 1: Blue
+		0x44ff4400, // 2: Green
+		0xffff4400, // 3: Yellow
+		0xff885500, // 4: Orange
+		0xaa44ff00, // 5: Purple
+		0x99999900, // 6: Grey
+		0xffffff00, // 7: White
 	};
 
 	switch (operation) {
