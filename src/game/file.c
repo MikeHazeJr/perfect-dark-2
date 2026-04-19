@@ -254,7 +254,19 @@ void *fileLoadRomToNew(s32 filenum, u32 method, u32 loadtype)
 			return NULL;
 		}
 
-		if (info->loadedsize == 0) {
+		/* B-161/B-164 torn-models fix (2026-04-18):
+		 * Always recompute for EXTRAMEM because fileLoad() overwrites
+		 * info->loadedsize with the post-preprocess size on exit, stripping
+		 * the +0x8000 rzipInflate scratch buffer. On a second call (e.g.
+		 * catalogValidateAll() at startup pre-loaded every body/head, then
+		 * the CI manifest re-loads them) the cached size omits the scratch
+		 * region. fileLoad then places scratch inside dst, in-place inflate
+		 * corrupts the deflate stream, rzipInflate yields 0 → dst stays
+		 * zeroed → modeldef->numparts=0, rootnode=NULL → "loaded torn" for
+		 * every file in the manifest → AV deep in the tick loop.
+		 * DEFAULT path retains the loadedsize cache — those files (setup /
+		 * pads / tiles) don't hit the second-load pattern in practice. */
+		if (info->loadedsize == 0 || method == FILELOADMETHOD_EXTRAMEM) {
 			info->loadedsize = (fileGetInflatedSize(filenum, loadtype) + 0x20) & 0xfffffff0;
 
 			if (method == FILELOADMETHOD_EXTRAMEM) {
