@@ -1,8 +1,77 @@
 
 # Session Log (Active)
 
-> **S281–S387** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S388** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S388 — 2026-04-19 (worktree `claude/laughing-shockley-30c454`) — Menu Stack Compliance Tier 5: M-22 ctx push migration + M-23 cascade-close audit
+
+**Scope**: Tier 5 of the menu stack compliance batch from `context/designs/menu-stack-architecture.md`. Migrate direct `inputCtxPush` calls in the endscreen + pause menu renderers to route through the pool, register the solo endscreen and network dialogdefs, and plug the one missing `menupoolReleaseAll()` site in `netDisconnect`. **M-24 (parent_type assertion) intentionally NOT implemented** — deferred until Tier 1-3 land per design doc §8.
+
+### M-22 — pool-owned ctx push
+
+**`port/fast3d/pdgui_menu_pausemenu.cpp`**. `pdguiPauseMenuOpen` was pushing `g_CtxPauseMenu` directly via `inputCtxPush` and popping it inline in `pdguiPauseMenuClose`. Migrated to `menupoolAcquire(MENU_TYPE_PAUSE_MENU, NULL, &g_CtxPauseMenu)` on open, `menupoolRelease(MENU_TYPE_PAUSE_MENU)` on close. `MENU_TYPE_PAUSE_MENU` was already enumerated (`menupool.h:102`) so no enum change was needed. The pool's S300 "attach ctx on already-active slot" path handles re-entry semantics identically to the old guarded push.
+
+**`port/fast3d/pdgui_menu_endscreen.cpp`**. Two sites — the solo path at line 451 (`IsWindowAppearing()`-gated push) and the MP path at line 901 (unconditional push after `inputCtxIsActive` check from B-End-Game-Input / S385). Both swapped to `menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu)`. To thread the dialog pointer through, `renderSoloEndscreen` and `renderMpEndscreen` now take `struct menudialog *dialog` as their first param and all five hotswap callbacks were updated to pass it through. The pool's already-active branch honours the idempotent "push if not live" semantic the manual check did before.
+
+**`port/src/menupool.c`**. Registered the dialogdefs that the above renderers now resolve:
+
+```c
+REG(&g_SoloMissionEndscreenCompletedMenuDialog, MENU_TYPE_ENDSCREEN_SOLO);
+REG(&g_SoloMissionEndscreenFailedMenuDialog,    MENU_TYPE_ENDSCREEN_SOLO);
+REG(&g_NetMenuDialog,                           MENU_TYPE_NETWORK);
+```
+
+All three live outside `data.h` (solo endscreens in `src/game/endscreen.c`, net menu in `port/src/net/netmenu.c`), so local-scope `extern struct menudialogdef` declarations were added at the top of `menupool.c` alongside the B-End-Game-Input block (same pattern established for B-194's `g_FilemgrFileSelectMenuDialog`).
+
+**Deliberately skipped**: `lobby.cpp`, `moddinghub.cpp`, `stats.cpp`, `update.cpp` do not push any input context directly — they're rendered every frame from `pdguiRender` / `pdguiLobbyRender` and depend on the parent main-menu ctx for input. Registering them in the pool would add symbolic entries with no ctx lifecycle to own. Per the task prompt's "standalone windows without a dialogdef" clause, the correct treatment is "keep the direct push" — they have no push to keep or migrate. The `update` banner is explicitly documented as an overlay, not a menu (audit §7.1 VIOLATION C1 note).
+
+### M-23 — cascade-close site audit
+
+Current `menupoolReleaseAll()` call sites across the four M-23 target files:
+
+| File | Site | Status |
+|------|------|--------|
+| `pdgui_bridge.c` | `pdguiEndscreenStartMission` (800), `pdguiEndscreenNextMission` (828), `pdguiEndscreenExitToMainMenu` (880) | ✓ already present |
+| `matchsetup.c` | `matchStart` (823), `matchStartFromChallenge` (923) | ✓ already present |
+| `netmsg.c` | `netmsgSvcStageStartRead` co-op/anti branch (1307), combat branch (1461) | ✓ already present |
+| `net.c` | `netDisconnect` before `mainChangeToStage(STAGE_CITRAINING)` | ✗ **MISSING** — added |
+
+Added the missing site in `netDisconnect`: `menupoolReleaseAll()` + `inputCtxPopDeferred(&g_CtxImGuiMenu)` guarded by `#if !defined(PD_SERVER)`, placed after `manifestClear(&g_ClientManifest)` and before `mainChangeToStage(STAGE_CITRAINING)`. Matches the pattern in the netmsg.c stage-start handlers. Without this, a mid-match disconnect leaves lobby/room/mp-setup pool slots alive across the CI-training stage change, blocking reopen of those menus after returning to the main menu.
+
+Included `inputctx.h` + `menupool.h` in `port/src/net/net.c` behind the existing `#if !defined(PD_SERVER)` guard (the server doesn't link the pool/inputctx layers).
+
+`netmsgSvcStageEndRead` deliberately NOT instrumented. It calls `mainEndStage()`, which in turn calls `endscreenPushCoop` / `endscreenPushAnti` / `mpEndMatch` / `endscreenPrepare` — each pushes a root dialog via `menuPushRootDialog(MENUROOT_ENDSCREEN)`, which already calls `menupoolReleaseAll()` at its top (src/game/menu.c:3721). Adding a post-`mainEndStage` release would destroy the newly-acquired endscreen slot and re-create the S385 input-death class of bug.
+
+### Files touched
+
+- `port/src/menupool.c` — +18 LOC (3 new externs + 3 REG lines for solo endscreens and g_NetMenuDialog, with explanatory comment block).
+- `port/fast3d/pdgui_menu_pausemenu.cpp` — +10/−4 LOC (added `menupool.h` include; swapped push/pop pair to pool API with updated comment).
+- `port/fast3d/pdgui_menu_endscreen.cpp` — +20/−13 LOC (added `menupool.h` include; renderSoloEndscreen / renderMpEndscreen signatures now take `struct menudialog *dialog`; 5 hotswap callbacks pass `dialog` through; 2 ctx-push sites migrated to `menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu)`).
+- `port/src/net/net.c` — +11/−1 LOC (added `#include "inputctx.h"` + `#include "menupool.h"` inside existing PD_SERVER guard; 5-line release block before `mainChangeToStage(STAGE_CITRAINING)` in `netDisconnect`).
+
+### Build + verify
+
+`source devtools/build-env.sh && ninja -C Build pd pd-server` — clean **775/775** on the worktree branch (base `fe52a4f0`). `PerfectDark.exe` 53,367,092 / `PerfectDarkServer.exe` 23,140,832 (both 15:05 2026-04-19). Merge into `dev` (atop S387 / Tier 2 completion) re-verified post-merge.
+
+### Playtest ask
+
+Same as S385's regression sweep plus one disconnect-specific case:
+
+1. **Open + close pause menu** in a CS match (Esc / Start). Mouse cursor appears on open, re-captures on close. No soft-lock.
+2. **MP match natural end → endscreen** — Enter/Esc/A/B responsive (regression check for S385's fix now routing through pool-owned ctx).
+3. **Solo mission complete → endscreen** — Enter/Esc/A/B responsive (new pool registration; previously took the unregistered fallback).
+4. **Multiplayer "Network Game" menu** — open/close via main menu item; structural dedup now prevents double-open if user spam-clicks.
+5. **Mid-match disconnect** — connect as client, enter a room/match, force a server-side disconnect (server window close, network cable pull). Return to CI training. Then: re-enter Multiplayer, open any room sub-menu (arena / weapons / bots) — menu should open (previously the pool slot from the lost session could have survived the stage change and blocked reopen).
+
+### Next
+
+M-24 `parent_type` assertion deferred per task prompt. Remaining menu-stack work:
+- **Tier 1** — M-5 (`pdgui_menu_room.cpp` Leave Room / scenario Delete confirms) and M-6 (`pdgui_menu_pausemenu.cpp` Quit in scorecard overlay confirm).
+- **Tier 3** — M-14..M-17 preview-in-scroll audits (training Bio/Hangar, moddinghub 22 BeginChild regions, room char preview, controldiagram dock verification).
+- **Tier 4** — M-18..M-21 progressive-focus adoption.
+
+---
 
 ## Session S387 — 2026-04-19 (worktree `claude/naughty-shtern-e1dabb`) — Menu Stack Tier 2: docked-button migration M-7..M-13
 
