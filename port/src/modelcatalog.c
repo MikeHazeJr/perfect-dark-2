@@ -187,7 +187,7 @@ static struct modeldef *safeModeldefLoad(u16 filenum, s32 index)
  * Internal: validate a single modeldef
  * ======================================================================== */
 
-static u8 validateModeldef(struct modeldef *mdef, s32 index, u16 filenum, f32 *correctedScale)
+static u8 validateModeldef(struct modeldef *mdef, s32 index, u16 filenum, u8 category, f32 *correctedScale)
 {
 	if (mdef == NULL) {
 		sysLogPrintf(LOG_WARNING, "CATALOG: [%3d] file 0x%04x — modeldef is NULL (MISSING)", index, filenum);
@@ -203,8 +203,31 @@ static u8 validateModeldef(struct modeldef *mdef, s32 index, u16 filenum, f32 *c
 		sysLogPrintf(LOG_WARNING, "CATALOG: [%3d] file 0x%04x — rootnode is NULL (INVALID)", index, filenum);
 		return MODELSTATUS_INVALID;
 	}
-	if (mdef->numparts <= 0 || mdef->numparts > 500) {
+	/* B-179 (2026-04-19): heads do NOT require numparts>0 to render.
+	 * parts[] is the skeletal animation part list; head rendering walks
+	 * rootnode DL/geometry nodes and never dereferences parts[].
+	 * modelAttachHead (lib/model.c) only needs rootnode; modelGetPart
+	 * already returns NULL for numparts==0 and callers tolerate that
+	 * (sunglasses / hudpiece toggles skipped). Mirrors the B-166 relaxation
+	 * in modeldefLoad and the B-167 relaxation in propobj.c walkers.
+	 *
+	 * Six base:head_* modeldefs (head_dark_snow, head_ddshock,
+	 * head_carrington, head_ddsniper, head_president, head_cassandra) load
+	 * with parts=0 but valid rootnode+skel — rejecting them as INVALID
+	 * caused catalogGetSafeHead to fall back to head 0 (Joanna Dark),
+	 * downgrading ~22/32 bots to the same head.
+	 *
+	 * Bodies STILL need numparts>0 because body0f02ce8c (src/game/body.c)
+	 * iterates parts[] for skeletal body+head merge. A body with parts=0
+	 * skips through body0f02ce8c (returns NULL model → invisible chr), so
+	 * rejecting here and falling back to dark_combat is the correct UX. */
+	if (mdef->numparts > 500) {
 		sysLogPrintf(LOG_WARNING, "CATALOG: [%3d] file 0x%04x — numparts=%d out of range (INVALID)",
+		             index, filenum, mdef->numparts);
+		return MODELSTATUS_INVALID;
+	}
+	if (category == MODELCAT_BODY && mdef->numparts <= 0) {
+		sysLogPrintf(LOG_WARNING, "CATALOG: [%3d] file 0x%04x — body numparts=%d (INVALID, bodies require skeletal parts)",
 		             index, filenum, mdef->numparts);
 		return MODELSTATUS_INVALID;
 	}
@@ -426,7 +449,7 @@ static void catalogValidateOne(s32 index)
 	}
 
 	f32 corrected = hb->scale;
-	ce->status = validateModeldef(hb->modeldef, index, hb->filenum, &corrected);
+	ce->status = validateModeldef(hb->modeldef, index, hb->filenum, ce->category, &corrected);
 	ce->correctedScale = corrected;
 
 	/* Log each validation result at NOTE level for the summary,
