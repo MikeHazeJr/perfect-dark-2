@@ -856,6 +856,24 @@ s32 pdguiProcessEvent(void *sdlEvent)
         if (sym != SDLK_ESCAPE && sym != SDLK_RETURN && sym != SDLK_KP_ENTER) {
             imguiEatsKey = 1;
         }
+        /* B-195 leak-class diagnostic: if the input-ctx stack is at
+         * gameplay (no menus open) but ImGui still reports it wants the
+         * keyboard, some widget kept focus past its window's Begin/End
+         * teardown. Log the sym once per event so future instances of
+         * this class surface in the log instead of silently swallowing
+         * WASD. Fix path: imguiMenuOnPop clears focus + active-id; this
+         * warning catches any remaining leak. Rate-limited to 1 per sec
+         * since a stuck ImGui would otherwise spam. */
+        static u32 s_LastB195WarnMs = 0;
+        if (imguiEatsKey && !pdguiIsActive()) {
+            u32 now = SDL_GetTicks();
+            if (now - s_LastB195WarnMs > 1000) {
+                s_LastB195WarnMs = now;
+                sysLogPrintf(LOG_WARNING,
+                    "B-195: ImGui WantCaptureKeyboard=1 while top ctx is gameplay — swallowing sym=0x%04x (widget focus leaked past menu close?)",
+                    (unsigned)sym);
+            }
+        }
     }
 
     /* ---- M0.2 Phase A: Update action map state ---- */
@@ -910,6 +928,26 @@ void pdguiToggle(void)
     } else {
         inputCtxPopDeferred(&g_CtxDebugOverlay);
     }
+}
+
+void pdguiClearImGuiFocusAndNav(void)
+{
+    /* B-195: clear ImGui's nav/focus/active-id state so WantCaptureKeyboard
+     * drops back to false after the last menu closes. Declared in pdgui.h;
+     * called from imguiMenuOnPop in inputctx.c.
+     *
+     * We DON'T close popups here because the caller path (imguiMenuOnPop)
+     * fires *after* the menu's Begin/End pair has already been torn down —
+     * popups are already gone by this point. The lingering state is
+     * purely NavWindow/NavId/ActiveId pointing at the recently-closed
+     * window's widgets. Focusing NULL forces ImGui to drop NavWindow
+     * on the next frame; ClearActiveID releases whatever widget was
+     * holding the active id (typically a textbox or a drag-edit). */
+    if (!g_PdguiInitialized) {
+        return;
+    }
+    ImGui::FocusWindow(nullptr);
+    ImGui::ClearActiveID();
 }
 
 } /* extern "C" */
