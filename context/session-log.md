@@ -1,8 +1,64 @@
 
 # Session Log (Active)
 
-> **S281–S385** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S386** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S386 — 2026-04-19 (worktree `claude/elegant-lamarr-7dbd97`) — Menu Stack Compliance Tier 1 batch: M-5, M-6 (destructive-action confirm modals)
+
+**Scope**: Add missing `BeginPopupModal` confirms for three destructive actions identified in `context/designs/menu-stack-architecture.md` §8 Tier 1. All three use the canonical S385 pattern — `pdguiPopupDarkenBehind(0.65f)` scrim, 5-frame `SetKeyboardFocusHere(0)` force-focus on Cancel, 3-frame input debounce, red-styled confirm button, keyboard shortcuts (Enter/Space/A confirm; Esc/B cancel).
+
+### M-5 (`port/fast3d/pdgui_menu_room.cpp`)
+
+**(a) Leave Room / Back to Menu confirm** — the room screen's right-aligned exit button (bottom of `pdguiRoomScreenRender`, line ~3250) previously fired the disconnect path immediately on click / Escape press, with no confirm. Now arms a top-level `BeginPopupModal` with context-aware wording:
+- Network mode: "Leave Room?" / "Leave this room and return to the lobby?"
+- Solo mode: "Back to Menu?" / "Return to the main menu? Any unsaved match setup will be lost."
+
+On confirm the original disconnect path runs (menupool release, solo-close or CLC_ROOM_LEAVE + `pdguiSetInRoom(0)`). On cancel the popup dismisses with no side effect. Pre-match countdown still owns Escape — `countdownBlocks` check is preserved so Esc during countdown cancels the countdown, not leave.
+
+**(b) Scenario Delete confirm** — the Load Scenario popup's Delete button (line ~3710) previously ran `scenarioDelete(fullPath)` immediately, no confirm. Now arms a nested `BeginPopupModal` inside the Load Scenario popup that shows the filename and warns "This cannot be undone." On confirm runs the actual delete + refresh; on cancel dismisses cleanly. ImGui supports one level of nested modals per frame, which is what this needs.
+
+**File-static state added**:
+- `s_ShowLeaveConfirm` + `s_LeaveConfirmOpenFrame` (top-level)
+- `s_ShowScenarioDeleteConfirm` + `s_ScenarioDeleteConfirmOpenFrame` + `s_ScenarioDeletePath[]` + `s_ScenarioDeleteDisplay[]` (nested)
+- `ROOM_CONFIRM_FRAME_DEBOUNCE=3` / `ROOM_CONFIRM_FORCE_FOCUS_FRAMES=5`
+- All cleared in `pdguiRoomScreenReset()`.
+
+### M-6 (`port/fast3d/pdgui_menu_pausemenu.cpp`)
+
+The CS pause menu's End Game tab button (line ~653, inside `pdguiPauseMenuRender`) previously used an inline "Confirm?" / "Cancel" toggle (`s_EndGameConfirm` bool). This is a C4 violation per the menu-stack arch doc (confirms must be `BeginPopupModal`, not inline buttons). Note: design doc language refers to a "Quit button in scorecard overlay" but the scorecard overlay (`pdguiScorecardRender`) has `ImGuiWindowFlags_NoInputs` and zero interactive widgets; the End Game button is the sole destructive action in this file and the M-6 target.
+
+New behaviour: End Game button arms `s_EndGameConfirm`, which opens a proper `BeginPopupModal` "End Match?" rendered right after the Resume button (still inside the pause menu window scope). On confirm runs `pdguiPauseSetPlayerAborted()` + `mainEndStage()` + `pdguiPauseMenuClose()` (unchanged from inline path — GAP-3 lineage preserved in a comment). On cancel dismisses.
+
+**Escape propagation fix**: the parent pause menu's Escape handler (line ~716) previously would also fire when Escape dismissed the End Game popup in the same frame, double-consuming the key and closing the whole pause menu. Added `endgamePopupWasOpen` captured at frame start and gated the Escape/title-X handler on `!endgamePopupWasOpen`. The popup absorbs the first Esc; the pause menu processes subsequent ones normally next frame.
+
+**File-static state added**:
+- `s_EndGameOpenFrame` (existing `s_EndGameConfirm` kept, now means "popup armed/open")
+- `ENDGAME_PM_FRAME_DEBOUNCE=3` / `ENDGAME_PM_FORCE_FOCUS_FRAMES=5`
+- Cleared in both `pdguiPauseMenuOpen` and `pdguiPauseMenuClose`.
+
+### Files touched
+
+- `port/fast3d/pdgui_menu_room.cpp` — +pdgui_layout.h include, +20 LOC state/defines, +1 popup OpenPopup arming block at the Leave button (net −15/+5 on that site), +108 LOC Leave Room modal renderer, +120 LOC Scenario Delete modal renderer (inside Load Scenario popup), +6 LOC reset additions. Net ~+230/−15.
+- `port/fast3d/pdgui_menu_pausemenu.cpp` — +pdgui_layout.h include, +9 LOC state/defines, +2 LOC reset init (Open/Close), -33 LOC replacing inline toggle with single danger button, +105 LOC popup modal renderer + 1 LOC escape gate. Net ~+85/−33.
+
+### Build + verify
+
+`cmake -S . -B Build -G Ninja -DCMAKE_BUILD_TYPE=Release` (worktree fresh configure since Build/ did not exist). Then `ninja -C Build pd pd-server` — clean **775/775**. `PerfectDark.exe` 53,353,022 / `PerfectDarkServer.exe` 23,139,808 (timestamped 15:07 2026-04-19). Pre-existing warnings unchanged (comment-in-comment in `updater.h` / `pdgui_theme_loader.h`, `VERSION_PATCH` redefinition, `near`/`far` identifier noise).
+
+### Playtest ask
+
+1. **Room — Leave Room (network mode)**: Join a room, click "Leave Room" → popup "Leave Room?" appears over the room with scene dimmed. Focus on Cancel. D-pad Right → red "Leave Room" focused. A/Enter confirms, returns to lobby. Escape / B / Cancel button dismisses. Repeat with keyboard-only.
+2. **Room — Back to Menu (solo mode)**: Open CS solo room, click "Back to Menu" → popup "Back to Menu?" with solo-specific copy. Same focus/confirm/cancel behaviour. Pre-match countdown: during countdown, Esc must still cancel the countdown without opening the Leave modal.
+3. **Room — Scenario Delete**: Save a scenario, open Load Scenario, select a scenario, click Delete → nested popup "Delete Scenario?" shows the filename and "This cannot be undone." Focus on Cancel. Confirm deletes + refreshes list; Cancel leaves list intact. List / Close / Delete buttons on the parent Load Scenario popup all remain responsive after cancel.
+4. **Pause menu — End Game**: In a CS match (solo or network), press Start/Esc → pause menu opens. Click End Game tab → popup "End Match?" opens over pause menu, scene dimmed further. Focus on Cancel. Confirm runs `mainEndStage`, cancel dismisses. Press Esc with the popup open → dismisses popup (pause menu stays open). Press Esc without popup → pause menu closes normally.
+5. **Regression check — M-1 (S385) End Game popup in `pdgui_menu_warning.cpp`**: the legacy `g_MpEndGameMenuDialog` path (pushed from `pdgui_menu_mppause.cpp`) is untouched this session — verify it still works as S385 left it for any code path that still routes through the legacy stack.
+
+### Next
+
+Tier 1 now fully complete (M-1 thru M-6). Next natural batch: Tier 2 docked-button migration (M-7 `pausemenu` → action bar, M-8 `lobby`, M-9 `network`, M-10 `moddinghub`, M-11 `stats`, M-12 `controldiagram`, M-13 `endscreen`). Each is an independent file with a small diff.
+
+---
 
 ## Session S385 — 2026-04-19 (worktree `claude/infallible-goldberg-71b379`) — B-End-Game-Input: CS pause End Game confirm focus + CS end-of-match input-death
 

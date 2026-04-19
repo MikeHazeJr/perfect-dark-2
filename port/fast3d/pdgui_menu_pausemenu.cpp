@@ -19,6 +19,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_layout.h" /* M-6: pdguiPopupDarkenBehind */
 #include "system.h"
 #include "inputctx.h"
 #include "actionmap.h"
@@ -205,7 +206,16 @@ static bool s_PauseMenuOpen = false;
 static bool s_PauseJustOpened = false; /* B-14 fix: prevents same-frame open+close */
 static bool s_ScorecardVisible = false;
 static s32 s_PauseTab = 0;  /* 0=Rankings, 1=Stats, 2=Settings */
+/* M-6 (Menu Stack Compliance Tier 1): End Game confirm modal state. Replaces
+ * the prior inline "Confirm?"/"Cancel" toggle with a proper BeginPopupModal
+ * using the canonical S385 pattern (5-frame SetKeyboardFocusHere(0) on Cancel
+ * + 3-frame input debounce). s_EndGameConfirm now means "popup is armed";
+ * s_EndGameOpenFrame tracks the ImGui frame at which OpenPopup fired. See
+ * context/designs/menu-stack-architecture.md §C4/§C5. */
 static bool s_EndGameConfirm = false;
+static s32  s_EndGameOpenFrame = -1;
+#define ENDGAME_PM_FRAME_DEBOUNCE     3
+#define ENDGAME_PM_FORCE_FOCUS_FRAMES 5
 static s32 s_GameOverTab = 0;  /* 0=Rankings, 1=Personal */
 
 /* Simple SDL-based cooldown to prevent double-press (replaces menumgr) */
@@ -238,6 +248,7 @@ void pdguiPauseMenuOpen(void)
     s_PauseJustOpened = true;
     s_PauseTab = 0;
     s_EndGameConfirm = false;
+    s_EndGameOpenFrame = -1;
 
     s_pauseSetCooldown();
 
@@ -253,6 +264,7 @@ void pdguiPauseMenuClose(void)
 
     s_PauseMenuOpen = false;
     s_EndGameConfirm = false;
+    s_EndGameOpenFrame = -1;
 
     /* Pop pause context — gameplay context's on_push restores mouse capture. */
     if (inputCtxIsActive(&g_CtxPauseMenu)) {
@@ -650,39 +662,18 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
         if (PdPauseButton("Settings##pm", tabSize)) { s_PauseTab = 1; pdguiPlaySound(PDGUI_SND_FOCUS); }
         ImGui::SameLine();
 
-        /* End Game button — danger styled */
-        if (!s_EndGameConfirm) {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.1f, 0.1f, 0.9f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.15f, 0.15f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 0.2f, 0.2f, 1.0f));
-            if (PdPauseButton("End Game##pm", tabSize)) {
+        /* End Game button — danger styled. M-6: click arms a proper
+         * BeginPopupModal confirm (canonical C4/C5 pattern). The modal
+         * renders below near the Resume button, after the tab content. */
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.1f, 0.1f, 0.9f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.15f, 0.15f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 0.2f, 0.2f, 1.0f));
+        if (PdPauseButton("End Game##pm", tabSize)) {
+            if (!s_EndGameConfirm) {
                 s_EndGameConfirm = true;
             }
-            ImGui::PopStyleColor(3);
-        } else {
-            /* Confirmation state: show "Confirm?" / "Cancel" */
-            float halfTab = (tabW - 4.0f) * 0.5f;
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.05f, 0.05f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 0.1f, 0.1f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
-            if (PdPauseButton("Confirm?##pm", ImVec2(halfTab, 28.0f))) {
-                /* GAP-3: route BOTH offline and online through mainEndStage so
-                 * the player sees final rankings/awards before returning to
-                 * the main menu. Previously NETMODE_CLIENT called netDisconnect
-                 * directly, which tore down ENet and jumped straight to
-                 * CITRAINING — bypassing the endscreen entirely. The MP
-                 * endscreen's "Disconnect" button already calls netDisconnect
-                 * for the teardown once the player has seen results. */
-                pdguiPauseSetPlayerAborted();
-                mainEndStage();
-                pdguiPauseMenuClose();
-            }
-            ImGui::PopStyleColor(3);
-            ImGui::SameLine();
-            if (PdPauseButton("Cancel##pm", ImVec2(halfTab, 28.0f))) {
-                s_EndGameConfirm = false;
-            }
         }
+        ImGui::PopStyleColor(3);
 
         ImGui::PopStyleVar(); /* ItemSpacing */
 
@@ -713,13 +704,111 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
             pdguiPauseMenuClose();
         }
 
+        /* M-6: End Game confirm modal — canonical S385 pattern. Click the
+         * End Game tab button above to arm (sets s_EndGameConfirm); this
+         * modal then opens over the pause menu. pdguiPopupDarkenBehind
+         * scrims the whole scene, 5-frame SetKeyboardFocusHere(0) locks
+         * focus onto Cancel, 3-frame input debounce swallows any Enter/A
+         * press that bled through from the armed button. */
+        bool endgamePopupWasOpen = s_EndGameConfirm;
+        {
+            const char *endgamePopupId = "End Match?##pm_endgame_confirm";
+            if (s_EndGameConfirm && !ImGui::IsPopupOpen(endgamePopupId)) {
+                ImGui::OpenPopup(endgamePopupId);
+                s_EndGameOpenFrame = (s32)ImGui::GetFrameCount();
+            }
+
+            ImGui::SetNextWindowSize(ImVec2(pdguiScale(460.0f), 0.0f));
+            if (ImGui::BeginPopupModal(endgamePopupId, nullptr,
+                                        ImGuiWindowFlags_AlwaysAutoResize)) {
+                pdguiPopupDarkenBehind(0.65f);
+
+                s32 curFrame   = (s32)ImGui::GetFrameCount();
+                s32 framesOpen = (s_EndGameOpenFrame >= 0)
+                                 ? (curFrame - s_EndGameOpenFrame)
+                                 : ENDGAME_PM_FORCE_FOCUS_FRAMES + 1;
+                bool forceFocus     = (framesOpen >= 0 && framesOpen < ENDGAME_PM_FORCE_FOCUS_FRAMES);
+                bool inputDebounced = (framesOpen >= 0 && framesOpen < ENDGAME_PM_FRAME_DEBOUNCE);
+
+                ImGui::TextColored(pdguiVec4TitleGlow(), "End Match?");
+                ImGui::Separator();
+                ImGui::Spacing();
+                ImGui::TextWrapped("End the current match? "
+                                   "Final rankings will be shown.");
+                ImGui::Spacing();
+
+                float bw = pdguiScale(150.0f);
+                bool doConfirm = false;
+                bool doCancel  = false;
+
+                /* Cancel first — safer default focus. */
+                if (forceFocus) ImGui::SetKeyboardFocusHere(0);
+                if (ImGui::Button("Cancel##pmendgame", ImVec2(bw, 0.0f))) {
+                    if (!inputDebounced) doCancel = true;
+                }
+                ImGui::SetItemDefaultFocus();
+
+                ImGui::SameLine();
+
+                /* Red "End Match" confirm. */
+                ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.10f, 0.10f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.80f, 0.15f, 0.15f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(1.00f, 0.20f, 0.20f, 1.0f));
+                if (ImGui::Button("End Match##pmendgame", ImVec2(bw, 0.0f))) {
+                    if (!inputDebounced) doConfirm = true;
+                }
+                ImGui::PopStyleColor(3);
+
+                if (!inputDebounced) {
+                    if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                        ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
+                        ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+                        doConfirm = true;
+                    }
+                    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+                        doCancel = true;
+                    }
+                }
+
+                if (doConfirm) {
+                    /* GAP-3: route BOTH offline and online through mainEndStage
+                     * so the player sees final rankings/awards before returning
+                     * to the main menu. The MP endscreen's "Disconnect" button
+                     * already calls netDisconnect for the teardown once the
+                     * player has seen results. */
+                    pdguiPlaySound(PDGUI_SND_SELECT);
+                    pdguiPauseSetPlayerAborted();
+                    mainEndStage();
+                    s_EndGameConfirm = false;
+                    s_EndGameOpenFrame = -1;
+                    ImGui::CloseCurrentPopup();
+                    pdguiPauseMenuClose();
+                } else if (doCancel) {
+                    pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                    s_EndGameConfirm = false;
+                    s_EndGameOpenFrame = -1;
+                    ImGui::CloseCurrentPopup();
+                }
+
+                ImGui::EndPopup();
+            } else if (s_EndGameConfirm) {
+                /* Popup was closed externally (hotswap / stage transition). */
+                s_EndGameConfirm = false;
+                s_EndGameOpenFrame = -1;
+            }
+        }
+
         /* B-14 fix: On the frame the menu opens, the legacy path (bondmove→
          * mpPushPauseDialog→ingame.c) already opened us. ImGui also sees
          * the same START press via polling. Skip close checks this frame
-         * to prevent open+close in one tick. */
+         * to prevent open+close in one tick.
+         *
+         * M-6: also skip when the End Game confirm modal was open at frame
+         * start — the modal absorbs Escape, so the parent should not
+         * double-consume the same press and close the pause menu. */
         if (s_PauseJustOpened) {
             s_PauseJustOpened = false;
-        } else {
+        } else if (!endgamePopupWasOpen) {
             /* S311: title X button or Escape closes (X channel avoids
              * the one-frame-swallow class that needed two clicks). */
             if (pdguiConsumeTitleClose() ||
