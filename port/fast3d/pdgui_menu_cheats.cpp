@@ -786,95 +786,218 @@ static s32 renderCheatsWarning(struct menudialog *dialog,
 }
 
 /* =========================================================================
- * Unlock-everything confirmation (DANGER modal)
+ * Unlock-everything confirmation (M-3: BeginPopupModal)
+ *
+ * Mirrors the M-1 renderMpEndGameDialog pattern in pdgui_menu_warning.cpp:
+ *   - ImGui::OpenPopup + BeginPopupModal for popup-over-parent semantics.
+ *   - pdguiPopupDarkenBehind(0.65f) scrim.
+ *   - 5-frame SetKeyboardFocusHere(0) on Cancel (No) so controller focus
+ *     lands there by default (safer for destructive action).
+ *   - 3-frame input debounce so the Enter/A press that opened the popup
+ *     can't bleed through.
  * ========================================================================= */
 
+/* Frame tracking for M-3 modal — separate from any other popup state in
+ * this file.  One static is fine because only one Confirm Unlock dialog is
+ * ever active at a time (structural dedup via menu pool). */
+static void *s_CheatsUnlockOpenedForDialog = nullptr;
+static s32   s_CheatsUnlockOpenFrame = -1;
+#define CHEATS_UNLOCK_FRAME_DEBOUNCE     3
+#define CHEATS_UNLOCK_FORCE_FOCUS_FRAMES 5
+
 static s32 renderCheatsConfirmUnlock(struct menudialog *dialog,
-                                      struct menu *menu,
-                                      s32 winW, s32 winH)
+                                      struct menu * /*menu*/,
+                                      s32 /*winW*/, s32 /*winH*/)
 {
-    (void)dialog; (void)menu; (void)winW; (void)winH;
+    /* Full-viewport scrim — dim the Cheats hub behind the modal. */
+    pdguiPopupDarkenBehind(0.65f);
 
-    pdguiPopupDarkenBehind(0.70f);
+    /* Red / warning palette for the frame and title. */
+    s32 prevPalette = pdguiGetPalette();
+    pdguiSetPalette(2);
 
-    float mw = pdguiScale(620.0f);
-    float mh = pdguiScale(300.0f);
-    ImVec2 pos = pdguiCenterPos(mw, mh);
+    float scale = pdguiScaleFactor();
+    float dialogW = pdguiScale(620.0f);
+    float dialogH = pdguiScale(300.0f);
+    ImVec2 dlgPos = pdguiCenterPos(dialogW, dialogH);
 
-    ImGui::SetNextWindowPos(pos);
-    ImGui::SetNextWindowSize(ImVec2(mw, mh));
+    float pdTitleH = pdguiScale(36.0f);
+    if (pdTitleH < 18.0f) pdTitleH = 18.0f;
 
-    ImGuiWindowFlags wf = ImGuiWindowFlags_NoResize
-                        | ImGuiWindowFlags_NoMove
-                        | ImGuiWindowFlags_NoCollapse
-                        | ImGuiWindowFlags_NoSavedSettings
-                        | ImGuiWindowFlags_NoTitleBar
-                        | ImGuiWindowFlags_NoBackground;
+    const char *popupId = "##cheats_unlock_confirm_modal";
+    s32 curFrame = (s32)ImGui::GetFrameCount();
 
-    if (!ImGui::Begin("##cheats_unlock_confirm", nullptr, wf)) {
-        ImGui::End();
+    /* Kick the popup open on first frame the dialog is seen. */
+    if (s_CheatsUnlockOpenedForDialog != (void *)dialog) {
+        ImGui::OpenPopup(popupId);
+        s_CheatsUnlockOpenedForDialog = (void *)dialog;
+        s_CheatsUnlockOpenFrame = curFrame;
+        pdguiPlaySound(PDGUI_SND_ERROR);
+    }
+
+    ImGui::SetNextWindowPos(dlgPos);
+    ImGui::SetNextWindowSize(ImVec2(dialogW, dialogH));
+
+    ImGuiWindowFlags wflags = ImGuiWindowFlags_NoResize
+                            | ImGuiWindowFlags_NoMove
+                            | ImGuiWindowFlags_NoCollapse
+                            | ImGuiWindowFlags_NoSavedSettings
+                            | ImGuiWindowFlags_NoTitleBar
+                            | ImGuiWindowFlags_NoBackground
+                            | ImGuiWindowFlags_NoScrollbar;
+
+    bool open = ImGui::BeginPopupModal(popupId, nullptr, wflags);
+    if (!open) {
+        /* Popup dismissed externally — drop the dialog so the cheats hub
+         * regains focus cleanly. */
+        if (s_CheatsUnlockOpenedForDialog == (void *)dialog) {
+            s_CheatsUnlockOpenedForDialog = nullptr;
+            s_CheatsUnlockOpenFrame = -1;
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            menuPopDialog();
+        }
+        pdguiSetPalette(prevPalette);
         return 1;
     }
 
-    if (ImGui::IsWindowAppearing()) {
-        /* C-5: DANGER modal — grab focus so controller Cancel is reachable. */
-        ImGui::SetWindowFocus();
-        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+    float dialogX = ImGui::GetWindowPos().x;
+    float dialogY = ImGui::GetWindowPos().y;
+
+    /* Opaque backdrop behind the PD-authentic frame. */
+    {
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(ImVec2(dialogX, dialogY),
+                          ImVec2(dialogX + dialogW, dialogY + dialogH),
+                          pdguiPalImU32(PDPAL_BODYBG, 255), 0.0f);
     }
 
-    float titleH = pdguiScale(39.0f);
-    /* Style 2 = DANGER (red) per pdguiDrawPdDialog palette */
-    pdguiDrawPdDialog(pos.x, pos.y, mw, mh, "Warning", 2);
-    pdguiSetCursorBelowTitle(titleH);
+    /* PD-authentic frame + title. */
+    const char *title = "Warning";
+    pdguiDrawPdDialog(dialogX, dialogY, dialogW, dialogH, title, 1);
+    {
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        pdguiDrawTextGlow(dialogX + 8.0f, dialogY + 2.0f,
+                          dialogW - 16.0f, pdTitleH - 4.0f);
+        ImVec2 titleSize = ImGui::CalcTextSize(title);
+        dl->AddText(ImVec2(dialogX + (dialogW - titleSize.x) * 0.5f,
+                           dialogY + (pdTitleH - titleSize.y) * 0.5f),
+                    IM_COL32(255, 255, 0, 255), title);
+    }
 
-    ImGui::TextWrapped("Are you sure?");
-    ImGui::Spacing();
-    ImGui::TextWrapped(
-        "This will overwrite any progress saved to the current profile.");
-    ImGui::Spacing();
-    ImGui::TextWrapped(
-        "Unlocks all cheats, weapons, missions, challenges and combat "
-        "simulator items.");
+    /* Body */
+    pdguiSetCursorBelowTitle(pdTitleH);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8.0f * scale);
 
-    float avail = ImGui::GetContentRegionAvail().y;
-    float bodyH = pdguiBodyHeightForActionBar(avail);
-    ImGui::Dummy(ImVec2(0, bodyH - ImGui::GetStyle().ItemSpacing.y));
+    {
+        float availW = dialogW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+        ImGui::SetCursorPosX(ImGui::GetStyle().WindowPadding.x);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + availW);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.85f, 1.0f));
+        ImGui::TextWrapped("Are you sure?");
+        ImGui::PopStyleColor();
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "This will overwrite any progress saved to the current profile.");
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "Unlocks all cheats, weapons, missions, challenges and combat "
+            "simulator items.");
+        ImGui::PopTextWrapPos();
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* Buttons */
+    float btnW = pdguiScale(160.0f);
+    float btnH = pdguiScale(32.0f);
+    float gap  = pdguiScale(16.0f);
+    float availW = dialogW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+    float totalW = btnW * 2.0f + gap;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availW - totalW) * 0.5f);
 
     bool doYes = false;
     bool doNo  = false;
 
-    if (pdguiBeginActionBar("##cheats_unlock_ab")) {
-        float barW = ImGui::GetContentRegionAvail().x;
-        float half = barW * 0.5f;
-        if (pdguiActionBarButton("No", 1, half)) {
-            doNo = true;
+    s32 framesOpen = (s_CheatsUnlockOpenFrame >= 0)
+                     ? (curFrame - s_CheatsUnlockOpenFrame)
+                     : CHEATS_UNLOCK_FORCE_FOCUS_FRAMES + 1;
+    bool forceFocus = (framesOpen >= 0 && framesOpen < CHEATS_UNLOCK_FORCE_FOCUS_FRAMES);
+    bool inputDebounced = (framesOpen >= 0 && framesOpen < CHEATS_UNLOCK_FRAME_DEBOUNCE);
+
+    if (forceFocus) {
+        ImGui::SetKeyboardFocusHere(0);
+    }
+
+    /* No (Cancel) first — safer default focus for destructive confirm. */
+    if (ImGui::Button("No##cheats_unlock_cancel", ImVec2(btnW, btnH))) {
+        if (!inputDebounced) doNo = true;
+    }
+    ImGui::SetItemDefaultFocus();
+
+    ImGui::SameLine(0.0f, gap);
+
+    /* Red "Yes" confirm. */
+    ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.10f, 0.10f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.80f, 0.15f, 0.15f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(1.00f, 0.20f, 0.20f, 1.0f));
+    if (ImGui::Button("Yes##cheats_unlock_confirm", ImVec2(btnW, btnH))) {
+        if (!inputDebounced) doYes = true;
+    }
+    ImGui::PopStyleColor(3);
+
+    /* Keybinding hints */
+    {
+        const char *hintL = "[Enter/Space/(A)] Confirm";
+        const char *hintR = "[Esc/(B)] Cancel";
+
+        float hintY = dialogH - pdguiScale(22.0f);
+        if (hintY < ImGui::GetCursorPosY() + 4.0f * scale) {
+            hintY = ImGui::GetCursorPosY() + 4.0f * scale;
         }
-        ImGui::SameLine();
-        if (pdguiActionBarButton("Yes", 0, ImGui::GetContentRegionAvail().x)) {
+        ImGui::SetCursorPos(ImVec2(ImGui::GetStyle().WindowPadding.x, hintY));
+        ImGui::TextDisabled("%s", hintL);
+
+        ImVec2 rSize = ImGui::CalcTextSize(hintR);
+        ImGui::SetCursorPos(ImVec2(dialogW - ImGui::GetStyle().WindowPadding.x - rSize.x,
+                                   hintY));
+        ImGui::TextDisabled("%s", hintR);
+    }
+
+    /* Keyboard + gamepad shortcuts.  Debounced for CHEATS_UNLOCK_FRAME_DEBOUNCE
+     * frames so the Enter press that activated the Unlock All row can't bleed
+     * through. */
+    if (!inputDebounced) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+            ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
+            ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
             doYes = true;
         }
-    }
-    pdguiEndActionBar();
-
-    if (!ImGui::IsWindowAppearing() &&
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-        doNo = true;
-        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            doNo = true;
+        }
     }
 
     if (doYes) {
         /* Legacy menuhandlerUnlockEverything is file-static in cheats.c; it
-         * just calls gamefileUnlockEverything().  We call the same function
-         * directly and preserve zero-function-loss. */
+         * just calls gamefileUnlockEverything().  Zero-function-loss. */
         gamefileUnlockEverything();
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: Cheats -- Unlock Everything applied");
         pdguiPlaySound(PDGUI_SND_SELECT);
+        ImGui::CloseCurrentPopup();
+        s_CheatsUnlockOpenedForDialog = nullptr;
+        s_CheatsUnlockOpenFrame = -1;
         menuPopDialog();
     } else if (doNo) {
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        ImGui::CloseCurrentPopup();
+        s_CheatsUnlockOpenedForDialog = nullptr;
+        s_CheatsUnlockOpenFrame = -1;
         menuPopDialog();
     }
 
-    ImGui::End();
+    ImGui::EndPopup();
+    pdguiSetPalette(prevPalette);
     return 1;
 }
 
