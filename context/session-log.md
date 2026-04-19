@@ -4,6 +4,47 @@
 > **S281–S362** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S374 — 2026-04-19 (worktree `claude/thirsty-torvalds-9c7e0f`) — B-185 bg silent-load failure fix
+
+**Scope**: Fix intermittent "invisible level" symptom (B-185) — stage loads with zero bg room geometry visible, only props/doors render, game otherwise plays normally; a restart reliably fixes it.
+
+**Root cause**: `bgLoadFile` in `src/game/bg.c` routed every bg seg-file partial-slice read through `fileLoadPartToAddr` in `src/game/file.c`. That function is structured as:
+```c
+if (fileGetRomSizeByTableAddress((uintptr_t*)&g_FileTable[filenum])) {
+    const u8 *src = romdataFileGetData(filenum);
+    if (src) { dmaExec(memaddr, (uintptr_t) src + offset, len); }
+}
+```
+If either the size probe returns 0 OR `romdataFileGetData` returns NULL, the function silently returns without copying anything. The destination buffer — `headerbuffer[0x50]` on the stack in `bgReset`, heap allocations in `bgLoadRoom` — then still holds whatever bytes were there before the call. `preprocessBgSection1Header` parses that garbage, the downstream rzip inflate either outputs nonsense bytes or zero bytes, and `g_BgPrimaryData` ends up empty. The `var800a4920 != 0` guard at `bgReset:1600` then skips the entire `g_BgRooms` / `g_BgPortals` / `g_BgCommands` / `g_BgLightsFileData` / `g_BgStanThings` population, leaving bg render with no room table. Props and doors continue to render because they load through the completely separate Phase 4 catalog pipeline (`assetLoadToNew` via provider handles) which has proper NULL handling — that's why the game appears "half-alive" (props visible, rooms invisible) rather than crashing. Zero `BG.LOAD:` or `CATALOG:` log lines fired on failure because `fileLoadPartToAddr` never logged.
+
+The intermittence is explained by the `romdataFileLoad` cache state machine: `fileSlots[bgfileid]` can legitimately be in `SRC_UNLOADED` on first access after some teardown paths (stage transitions, mod rescans). On the UNLOADED branch, `romdataFileLoad` tries mod-override → external file → falls back to ROM-data. If any intermediate step touches `fileSlots[fileNum].data` without re-initialising it to the ROM offset (e.g., a prior `romdataFileFree` that freed an `SRC_EXTERNAL` slot leaving `data=NULL`, then a repeat load tries external again and fails before falling back to ROM), the final `out = fileSlots[fileNum].data` read is NULL. From the outside this looks like a race condition but is actually deterministic-state churn.
+
+**Fix**: rewrote `bgLoadFile` (+29/−3 LOC) to skip `fileLoadPartToAddr` entirely and call `romdataFileLoad(stage.bgfileid, &romsize)` directly:
+- Reject `stage.bgfileid <= 0` up front with `LOG_ERROR` (catches server-side callers / mod-broken catalogs where `bgfileid` is -1)
+- `sysLogPrintf(LOG_ERROR, "BG.LOAD: ... zeroing dest", ...)` on NULL src, out-of-range offset, or out-of-range len
+- Overflow-safe bounds check: `if (offset > romsize || len > romsize - offset)` (never computes `offset+len` which could wrap)
+- `memset(memaddr, 0, len)` on every failure path so callers see deterministic zeros — `preprocessBgSection1Header` on zero bytes yields a zero inflatedsize which triggers the existing `var800a4920 != 0` guard, failing cleanly instead of parsing garbage
+- Happy path uses `memcpy` (PC `dmaExec→bcopy` without the silent-failure wrapper)
+
+**Why not migrate to Phase 4 handles**: `assetLoadToNew` inflates a whole file in one allocation. bg.c specifically wants seven separate partial-slice reads at known byte offsets — section-1 header, primary compressed block, section-2 header, section-2 compressed block, section-3 header, section-3 compressed block, and per-room compressed block. A Phase 4 migration would require adding a new partial-slice API or loading the entire seg file and then indexing — different shape, much bigger surface. The `romdataFileLoad + memcpy` path picks up the mod-override / external-file / ROM-fallback routing for free (that routing lives inside `romdataFileLoad`, not in the deprecated `fileLoadPartToAddr` wrapper). Out-of-scope for this fix.
+
+**Files**: `src/game/bg.c` (+29/−3 LOC on `bgLoadFile`). `fileLoadPartToAddr` in `src/game/file.c` now has zero callers; the definition is left in place to keep this commit focused on the bg load path.
+
+**Build**: Clean 776/776 from a full rebuild. `PerfectDark.exe 52,973,749` / `PerfectDarkServer.exe 23,143,410`. No new warnings on bg.c.
+
+**Merge**: worktree branch `claude/thirsty-torvalds-9c7e0f` → commit `fbc276ce` → merged to `dev` as `4cb4c02e` (`--no-ff`). Post-merge line-count check: `wc -l src/game/bg.c` = 6327 (was 6301 pre-merge), delta +26 matches the +29/−3 patch within rounding.
+
+**Verify (playtest)**: cold-boot into CI Training (0x26) and any solo mission 5× in a row — scene should always render first time. If ANY cold boot reproduces the invisible-level symptom, `pd-client.log` will now contain exactly one of:
+- `BG.LOAD: invalid bgfileid=%d (stageidx=%d stagenum=0x%02x) offset=%u len=%u — zeroing dest` — catalog handed bg.c a bad fileid
+- `BG.LOAD: romdataFileLoad returned NULL for bgfileid=%d (stageidx=%d stagenum=0x%02x) offset=%u len=%u — zeroing dest` — romdata cache is torn for this filenum
+- `BG.LOAD: out-of-bounds offset=%u len=%u romsize=%u (bgfileid=%d stageidx=%d) — zeroing dest` — seg-file header corrupted or mod file shorter than expected
+
+so the next repro is diagnosable instead of silent. Props/doors should continue to render; the change is strictly additive on the happy path.
+
+**Next**: Mike playtests; promote to FIXED after 5+ clean cold boots with no `BG.LOAD:` errors in the log.
+
+---
+
 ## Session S370 — 2026-04-19 (worktree `claude/naughty-banach-638906`) — 5-bug playtest batch
 
 **Scope**: Five items from the 2026-04-18 playtest: B-175 (killfeed missing sim-on-sim kills), B-176 (match doesn't pause on MP endscreen), B-177 (time-limit slider off-by-one vs label), right-click paste in Direct Connect address field, and B-172 revisit (theme colors don't persist across restarts).
