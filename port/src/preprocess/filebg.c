@@ -265,11 +265,14 @@ static u32 convertRoomGfxData(u8 *dst, u8 *src, u32 src_size, u32 dst_size, u32 
 	dst_header->numvertices = PD_BE16(src_header->numvertices);
 	dst_header->numcolours = PD_BE16(src_header->numcolours);
 
-	intptr_t endpos = (uintptr_t)dst_header->vertices - src_ofs;
+	intptr_t endpos_raw = (uintptr_t)dst_header->vertices - src_ofs;
+	intptr_t endpos = endpos_raw;
 	// Clamp to src_size so a bogus ptr_vertices can't walk past the inflated
-	// room data (the offsets were valid in the original packed BG segment but
-	// each room now lives in its own independently-inflated buffer). See B-195.
+	// room data. In a well-formed per-room blob, every pointer lies within
+	// [0, src_size); anything outside points to adjacent heap memory (compressed
+	// data scratch, uninit bytes), not real geometry. See B-195.
 	if (endpos < 0 || (u32)endpos > src_size) {
+		sysLogPrintf(LOG_WARNING, "convertRoomGfxData: ptr_vertices yields endpos=%lld outside src_size=%u — clamping (roomblock loop cut)", (long long)endpos_raw, src_size);
 		endpos = src_size;
 	}
 	uintptr_t curpos_src = sizeof(struct n64_roomgfxdata);
@@ -335,8 +338,10 @@ static u32 convertRoomGfxData(u8 *dst, u8 *src, u32 src_size, u32 dst_size, u32 
 
 	ptrAdd(curpos_src + src_ofs, curpos_dst + dst_roomoffset);
 
-	uintptr_t vtx_end = (uintptr_t)dst_header->colours - src_ofs;
+	uintptr_t vtx_end_raw = (uintptr_t)dst_header->colours - src_ofs;
+	uintptr_t vtx_end = vtx_end_raw;
 	if (vtx_end > src_size) {
+		sysLogPrintf(LOG_WARNING, "convertRoomGfxData: ptr_colours yields vtx_end=%llu outside src_size=%u — clamping (vertex loop cut)", (unsigned long long)vtx_end_raw, src_size);
 		vtx_end = src_size;
 	}
 
@@ -370,8 +375,10 @@ static u32 convertRoomGfxData(u8 *dst, u8 *src, u32 src_size, u32 dst_size, u32 
 
 		ptrAdd(curpos_src + src_ofs, curpos_dst + dst_roomoffset);
 
-		uintptr_t col_end = (numgdls > 0) ? gdls_addr[0] : src_size;
+		uintptr_t col_end_raw = (numgdls > 0) ? gdls_addr[0] : src_size;
+		uintptr_t col_end = col_end_raw;
 		if (col_end > src_size) {
+			sysLogPrintf(LOG_WARNING, "convertRoomGfxData: gdls_addr[0] yields col_end=%llu outside src_size=%u — clamping (color memcpy cut)", (unsigned long long)col_end_raw, src_size);
 			col_end = src_size;
 		}
 		size_t col_len = (col_end > curpos_src) ? (col_end - curpos_src) : 0;
