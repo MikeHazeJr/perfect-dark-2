@@ -2369,10 +2369,12 @@ static void gfx_sp_set_vertex_colors(uint32_t count, const struct NormalColor *v
     // }
     rsp.vertex_colors = vcn;
 
-    /* B-184 DIAG (S382): rate-limited per-unique-pointer dump of vertex-colour
-     * + ambient-light state at G_COL bind time. Goal is to tell whether the
-     * per-object cyan/yellow/green tints Mike sees come from vertex bytes
-     * (wrong data at vcn) or from ambient light (lighting pipeline issue).
+    /* B-184 DIAG (S382+): rate-limited per-unique-pointer dump of vertex-colour
+     * + ALL light slots at G_COL bind time. First pass (ambient only) showed
+     * ambient is always {00 00 00} across every draw — so the tint colour
+     * must be coming from directional light entries. This pass logs the full
+     * light stack (up to 4 entries) so we can match tint colour against
+     * which slot carries the non-zero RGB.
      * Cap total diag lines at 200 per run; skip if same pointer seen recently. */
     static const struct NormalColor *s_DiagLastVcn = NULL;
     static int s_DiagCount = 0;
@@ -2380,18 +2382,26 @@ static void gfx_sp_set_vertex_colors(uint32_t count, const struct NormalColor *v
         s_DiagLastVcn = vcn;
         s_DiagCount++;
         const uint8_t *b = (const uint8_t *)vcn;
-        uint8_t ar = 0, ag = 0, ab = 0;
-        if (rsp.current_num_lights > 0) {
-            ar = rsp.current_lights[rsp.current_num_lights - 1].col[0];
-            ag = rsp.current_lights[rsp.current_num_lights - 1].col[1];
-            ab = rsp.current_lights[rsp.current_num_lights - 1].col[2];
+        char lightbuf[128];
+        lightbuf[0] = '\0';
+        int off = 0;
+        int nLights = rsp.current_num_lights;
+        if (nLights > 4) nLights = 4;
+        for (int i = 0; i < nLights; i++) {
+            off += snprintf(lightbuf + off, sizeof(lightbuf) - off,
+                " L%d={%02x %02x %02x%s}", i,
+                rsp.current_lights[i].col[0],
+                rsp.current_lights[i].col[1],
+                rsp.current_lights[i].col[2],
+                (i == rsp.current_num_lights - 1) ? " AMB" : "");
+            if (off >= (int)sizeof(lightbuf)) break;
         }
         sysLogPrintf(LOG_NOTE,
             "GFX.DIAG: G_COL #%d vcn=%p count=%u vtx0={%02x %02x %02x %02x} "
-            "lighting=%d numlights=%d ambient={%02x %02x %02x}",
+            "lighting=%d numlights=%d%s",
             s_DiagCount, vcn, count, b[0], b[1], b[2], b[3],
             (rsp.geometry_mode & G_LIGHTING) ? 1 : 0,
-            rsp.current_num_lights, ar, ag, ab);
+            rsp.current_num_lights, lightbuf);
     }
 }
 
