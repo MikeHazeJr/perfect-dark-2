@@ -23,7 +23,7 @@
 
 ---
 
-## Done — 2026-04-19 (S376 — D6 Phase 3 finishing touches, `claude/friendly-mccarthy-a90db6`)
+## Done — 2026-04-19 (S378 — D6 Phase 3 finishing touches, `claude/friendly-mccarthy-a90db6` → `dev` @ `3824d95f`)
 
 - **Task** — Close out the incomplete parts of D6 persistent stats:
   (1) expand the Stats Viewer UI to surface everything the gameplay
@@ -33,13 +33,13 @@
 - **Audit findings**:
   - D2 char select — redesign already DONE (S15 / S187); char preview
     works in agent-select, room lobby, and bot setup. No gaps worth
-    fixing in-session.
+    fixing in-session. Phase summary row in `infrastructure.md`
+    accurately reflects the partial-on-D2c-bot-jump-AI state.
   - D5 Phase 5 lobby scene — already DONE (S352 portraits + S356
     5C/5D polish: hover portrait preview, drop shadow, team-color
-    border). Infrastructure.md text was stale; still labelled "📋
-    Planned" — left untouched in this session to avoid conflict with
-    Mike's in-flight v0.1.0 release prep edits, but the DONE state
-    is accurate.
+    border). `infrastructure.md` summary row + detailed D5 section
+    both updated this session to reflect DONE state (was stuck on
+    "Phase 5 (lobby scene) planned").
   - D6 persistent stats — wire-in at gameplay sites was complete
     (S325) but three concrete gaps remained: damage dealt/received
     per-match was tracked in `mpplayerconfig` but never promoted to
@@ -87,7 +87,7 @@
   (CMake GLOB_RECURSE has to re-scan for the new .cpp) — 12/12 link clean; final `PerfectDark.exe`
   53,111,624 / `PerfectDarkServer.exe` 23,143,410. Merge `3824d95f` (`--no-ff`). Post-merge
   line counts verified: mplayer.c 4566, pdgui_backend.cpp 915, pdgui_menu_endscreen.cpp 1398,
-  pdgui_menu_stats.cpp 570 — all match the expected pre-merge + S376 deltas.
+  pdgui_menu_stats.cpp 570 — all match the expected pre-merge + S378 deltas.
 - **Playtest ask**: (1) Stats menu → Overview tab shows populated MP/Solo/World sections after
   a match / solo mission finishes. (2) Unlock any achievement (e.g. first kill → First Blood,
   100 kills → Centurion, 100 headshots → Sharpshooter) — toast slides in from the right edge

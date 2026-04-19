@@ -1,8 +1,58 @@
 
 # Session Log (Active)
 
-> **S281–S362** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S378** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S378 — 2026-04-19 (worktree `claude/friendly-mccarthy-a90db6`, merged to `dev` @ `3824d95f`) — D6 Phase 3 finishing touches: stats UI expansion + damage wire-in + achievement toasts
+
+**Scope**: User tasked three parallel tracks — D2 (character select), D5 Phase 5 (lobby scene), D6 (stats). Audit showed D2a char-select redesign was DONE at S15 (scrollable body list, live 3D preview, head detection; no concrete remaining quality gaps) and D5 Phase 5 portraits + polish shipped at S352 + S356 (per-player portrait baking, hover preview, drop shadow, team-color border). Only D6 had real work left: damage was tracked in `mpplayerconfig` but never promoted to `statIncrement`; the Stats Viewer Overview tab only surfaced ~9 of ~25 collected stat keys; `achievementGetNewlyUnlocked` was never called from anywhere — achievements silently flipped to unlocked with zero player feedback; `achievementsRefresh` was solo-endscreen-only.
+
+**Damage + hit tracking** (`src/game/mplayer/mplayer.c::mpCalculateAwards`): three new `statIncrement` calls alongside the existing MP time/distance block, guarded identically (`playernum < PLAYERCOUNT()` inside the `!g_CheatsActiveBank0 && !g_CheatsActiveBank1` gate).
+- `mp.damage_dealt` += `damtransmitted / 0.1f` (matches `mpplayer->damagedealt` scale)
+- `mp.damage_received` += `damreceived / 0.1f`
+- `mp.shots_hit` += `round(accuracyfrac * numshots)` — `accuracyfrac` already computed a few lines above from sum of HEAD/BODY/LIMB/GUN/HAT/OBJECT shot-region counters / total shots. Combined with `shots.total` (already tracked by `mpstatsIncrementPlayerShotCount`) this yields a real cumulative hit-accuracy %.
+
+**Stats Viewer UI expansion** (`port/fast3d/pdgui_menu_stats.cpp::renderOverviewTab`):
+- Accuracy section picks up two new rows: Shots Hit + Hit % (alongside the pre-existing Total Shots / Headshots / Headshot %).
+- Three new sections added to Overview: **Combat Simulator** (Matches Played / Won / Lost / Win Rate / Time Played / Damage Dealt / Damage Taken / Distance), **Solo Missions** (Completed / Failed / Time Played), **World Interaction** (Items Picked Up at top + 4-row indented breakdown Weapons / Ammo Crates / Shields / Keys, then Doors Opened).
+- New `formatDuration(char *out, size_t outSz, u64 seconds)` helper renders seconds as `Hh Mm` (≥ 1 hour), `Mm Ss` (≥ 1 minute), or `Ns` so MP/Solo time stays readable.
+- Removed the unused `float scale = pdguiScaleFactor();` at the top of `renderOverviewTab` (lint-quality cleanup).
+
+**New module — `port/fast3d/pdgui_achievement_toast.{h,cpp}`** (44 + 211 LOC):
+- `Toast` struct: `name[64]`, `description[128]`, `age` (frames since push), `active`.
+- Static ring of 4 toasts; overflow push drops silently. Each toast lives `TOAST_LIFETIME = 270` frames (4.5 s @ 60 Hz), with `TOAST_FADEIN = 20` + `TOAST_FADEOUT = 60` frames for alpha envelope.
+- `pdguiAchievementToastPush(name, description)` — copies strings into the next free slot, plays `PDGUI_SND_FOCUS`.
+- `pdguiAchievementToastPollUnlocks()` — calls `achievementGetNewlyUnlocked(ids, TOAST_MAX)` (which clears the "new" state so each unlock fires exactly one toast) and maps each returned id back to `achievement_def_t_cpp::name/description` via `achievementGetByIndex`, then pushes.
+- `pdguiAchievementToastRender(winW, winH)` — called every frame from `pdgui_backend.cpp::pdguiRender` right after `pdguiInteractPromptRender`. Top-right corner, stacked downward. Reaps expired toasts in-place before rendering so the visible stack compresses as earlier toasts time out. Rendered on `ImGui::GetForegroundDrawList()` so it overlays any menu. Each toast draws shadow + bg rect (`PDPAL_TITLEBG` @ 210 α) + border (`pdguiImU32TintSuccess` @ 240 α) + 4-px success-tint accent strip on the left edge + "ACHIEVEMENT UNLOCKED" tag row in success tint + name row in title-glow color + tail-clipped description row with `...` on overflow. Slide-in: during fade-in the toast starts `0.4*width` off the right edge and lerps inward.
+
+**Wire-in**:
+- `port/fast3d/pdgui_backend.cpp`: `#include "pdgui_achievement_toast.h"`; `pdguiAchievementToastRender((s32)winW, (s32)winH);` right after the interact prompt in the render loop.
+- `port/fast3d/pdgui_menu_endscreen.cpp`: `#include "pdgui_achievement_toast.h"`. Solo endscreen `IsWindowAppearing` block now calls `achievementsRefresh()` + `pdguiAchievementToastPollUnlocks()`; MP endscreen fresh-entry block now calls BOTH (previously it never refreshed achievements at all — solo-only).
+
+**Build**: Worktree fresh cmake configure + ninja — clean 775/775. `PerfectDark.exe` 53,337,398 / `PerfectDarkServer.exe` 23,140,832. After merge, main working copy needed `cmake --reconfigure` to pick up the new `pdgui_achievement_toast.cpp` (GLOB_RECURSE scans only on configure); incremental rebuild 12/12 linked clean. Final dev-side sizes `PerfectDark.exe` 53,111,624 / `PerfectDarkServer.exe` 23,143,410.
+
+**Merge**: commit `7f3be9d6` → merged to `dev` as `3824d95f` (`--no-ff`). Post-merge line-count verification: `src/game/mplayer/mplayer.c` 4566 (pre 4559, Δ+7), `port/fast3d/pdgui_backend.cpp` 915 (pre 909, Δ+6), `port/fast3d/pdgui_menu_endscreen.cpp` 1398 (pre 1392, Δ+6), `port/fast3d/pdgui_menu_stats.cpp` 570 (pre 433, Δ+137), `port/fast3d/pdgui_achievement_toast.cpp` 211 (new), `port/include/pdgui_achievement_toast.h` 44 (new). All match expected deltas — zero shrinkage.
+
+**Files**:
+- `src/game/mplayer/mplayer.c` — wire damage + shots-hit to stats
+- `port/fast3d/pdgui_menu_stats.cpp` — Overview tab expansion + `formatDuration` helper
+- `port/fast3d/pdgui_menu_endscreen.cpp` — solo + MP endscreen fresh-entry paths now refresh + poll toasts
+- `port/fast3d/pdgui_backend.cpp` — render-loop call site for `pdguiAchievementToastRender`
+- NEW `port/fast3d/pdgui_achievement_toast.cpp`
+- NEW `port/include/pdgui_achievement_toast.h`
+
+**Playtest ask**:
+1. Stats menu → Overview tab shows populated MP / Solo / World Interaction sections after any match or solo mission.
+2. Unlock any achievement (e.g. First Blood on first kill, Centurion at 100 kills, Sharpshooter at 100 headshots) — toast slides in from the right edge of the endscreen, stays ~4.5 s, fades out.
+3. `saves/playerstats.json` gains `mp.damage_dealt`, `mp.damage_received`, and `mp.shots_hit` keys after any MP match.
+
+**Next**:
+- Refine toast position / palette if it collides with other HUD elements in Mike's playtest.
+- Consider a dedicated achievement-unlock sfx (currently `PDGUI_SND_FOCUS` is a proxy).
+- Per-mission stats (`solo.missions.<catalog_id>.completed`) could be added later but don't block anything — low leverage.
+
+---
 
 ## Session S377 — 2026-04-19 (worktree `claude/intelligent-pasteur-269b40`, merged to `dev` @ `ba7ed31e`) — AP Phase 3 — game-code call-site migration off legacy `fileLoad*` wrappers
 
