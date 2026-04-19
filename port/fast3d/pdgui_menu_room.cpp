@@ -1555,28 +1555,28 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
     }
 
     float btnH   = pdguiScale(39.0f);
-    float listH  = panelH - btnH
-                   - ImGui::GetStyle().ItemSpacing.y * 3.0f
-                   - ImGui::GetStyle().WindowPadding.y * 2.0f;
 
     /* Outer panel (bordered) */
     ImGui::BeginChild("##room_panel_outer", ImVec2(panelW, panelH), true);
 
-    /* Scrollable list */
-    ImGui::BeginChild("##room_players_list", ImVec2(0, listH), false);
-
     /* Teams state drives both the header dropdown and row sorting / tinting. */
     bool teamsOn = (g_MatchConfig.options & MPOPTION_TEAMSENABLED) != 0;
 
-    /* Header with player/bot count summary. Reports the number of currently
-     * selected bots so multi-select operations have a visible reference. */
+    /* B-190: Player / bot count header lives OUTSIDE the scrollable list so
+     * it stays pinned to the top of the player panel even when the row list
+     * grows past its viewport.  Before, the header sat inside the scrollable
+     * child — adding enough bots to scroll would push the count off-screen,
+     * giving the impression that the number wasn't updating.  The count +
+     * cap is also repeated on the Add Bot button below for at-a-glance
+     * feedback next to the interaction point. */
     {
         s32 numPlayers = s_IsSoloMode ? 1 : humanCount;
-        s32 numBots = curBots;
+        s32 numBots    = curBots;
         ImGui::TextColored(pdguiVec4TitleGlow(),
-                           "Players in Room  (%d Player%s, %d Bot%s%s)",
+                           "Players in Room  (%d Player%s, %d/%d Bot%s%s)",
                            numPlayers, numPlayers != 1 ? "s" : "",
-                           numBots,    numBots != 1    ? "s" : "",
+                           numBots, maxBots,
+                           numBots != 1 ? "s" : "",
                            s_BotSelectCount > 0 ? ", multi-select" : "");
         if (s_BotSelectCount > 0) {
             ImGui::TextColored(pdguiVec4TitleGlow(),
@@ -1613,6 +1613,15 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
     }
 
     ImGui::Separator();
+
+    /* Scrollable list — height is whatever remains after the sticky header
+     * above and the Add Bot button below.  Leaves room for the button row
+     * + item spacing so the button never collides with the list content. */
+    float listH = ImGui::GetContentRegionAvail().y
+                  - btnH
+                  - ImGui::GetStyle().ItemSpacing.y * 2.0f;
+    if (listH < pdguiScale(40.0f)) listH = pdguiScale(40.0f);
+    ImGui::BeginChild("##room_players_list", ImVec2(0, listH), false);
 
     /* S297: Build a unified row list (humans + bots) that we can group by
      * team and sort humans-before-bots within each team.  Rendering is then
@@ -2355,12 +2364,17 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
 
     ImGui::Separator();
 
-    /* Add Bot button + slot count */
+    /* Add Bot button + slot count (B-190: count baked into the label so the
+     * visible number updates on every click, immediately adjacent to the
+     * interaction, independent of whether the scrollable player list has
+     * scrolled past the sticky header above). */
     bool canAdd = isLeader
                   && (curBots < maxBots)
                   && (g_MatchConfig.numSlots < MATCH_MAX_SLOTS);
+    char addBotLabel[48];
+    snprintf(addBotLabel, sizeof(addBotLabel), "Add Bot  (%d / %d)", curBots, maxBots);
     if (!canAdd) ImGui::BeginDisabled();
-    if (ImGui::Button("Add Bot", ImVec2(-1.0f, btnH))) {
+    if (ImGui::Button(addBotLabel, ImVec2(-1.0f, btnH))) {
         /* Random bot — no explicit body/head/name triggers generators */
         matchConfigAddBot(0 /*BOTTYPE_NORMAL*/, 2 /*NormalSim*/, nullptr, nullptr, nullptr);
         pdguiPlaySound(PDGUI_SND_SUBFOCUS);

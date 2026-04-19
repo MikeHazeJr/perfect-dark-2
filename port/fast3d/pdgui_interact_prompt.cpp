@@ -26,6 +26,7 @@
 #include <stdio.h>
 
 #include "imgui/imgui.h"
+#include "pdgui.h"
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_glyphs.h"
@@ -44,10 +45,17 @@ const char *propInteractPromptLabel(void);
  * Render the prompt.  Called from pdguiRender's gameplay HUD path in
  * pdgui_backend.cpp AFTER the reticle so the pill floats just beneath it.
  *
- * No-op if no interact target is currently tracked (label == NULL).
+ * No-op if no interact target is currently tracked (label == NULL), or if
+ * any non-gameplay input context is on top (menus, pause, debug overlay) —
+ * B-189: the prompt belongs to the gameplay HUD layer and must not bleed
+ * through to ImGui menu overlays.  pdguiIsActive() returns non-zero whenever
+ * inputCtxGetTop() != &g_CtxGameplay, which is the same authority predicate
+ * used by the gameplay HUD layer.
  */
 extern "C" void pdguiInteractPromptRender(s32 winW, s32 winH)
 {
+	if (pdguiIsActive()) return;
+
 	const char *label = propInteractPromptLabel();
 	if (!label) return;
 
