@@ -741,14 +741,31 @@ void mainTick(void)
 				extern struct room *g_Rooms;
 				extern s32 g_BgNumRoomLoadCandidates;
 				extern s32 g_BgNumDrawSlots;
+				/* B-193 Phase 4: portal-walker branch state. */
+				extern struct bgcmd *g_BgCommands;
+				extern struct bgportal *g_BgPortals;
+				extern bool g_BgRoomTestsDisabled;
+				extern s32 g_BgNumForceOnscreenRooms;
 				const struct room *pr = (g_Rooms && camRoom >= 0 && camRoom < g_Vars.roomcount)
 					? &g_Rooms[camRoom] : NULL;
 				/* B-193 Phase 3: count loaded / onscreen rooms + list first 16
-				 * onscreen room numbers. Bad-boot hypothesis: portal walker
-				 * (bgTickPortals) doesn't expand beyond room 16 → only 1-2
-				 * rooms get ROOMFLAG_ONSCREEN → g_BgNumDrawSlots ≈ 1-2 → CI
-				 * renders as sky-with-a-few-pieces. Good boot would show
-				 * onscreen ~15-25 and drawslots ~15-30 for CI. */
+				 * onscreen room numbers. Confirmed hypothesis A on earlier
+				 * bad-boot log: `loaded=3 onscreen=3 drawslots=3
+				 * onscreen_list=[13,15,16]`. Only 3 of 141 rooms reach
+				 * ROOMFLAG_ONSCREEN, which explains CI rendering as sky
+				 * with a few pieces. Phase 4 adds the branch-state needed
+				 * to pin WHY the walker bails:
+				 *   bg_commands      = g_BgCommands ptr (NULL → no bg cmds)
+				 *   portals0_vtx     = g_BgPortals[0].verticesoffset
+				 *                      (0 → fallback enumerate-all path,
+                                          else → snake-walk from g_CamRoom)
+				 *   tests_disabled   = g_BgRoomTestsDisabled after
+				 *                      bgCmdExecute (1 → fallback skipped)
+				 *   force_onscreen   = g_BgNumForceOnscreenRooms (how
+				 *                      many rooms BGCMD_IFRESULT_SHOWROOM
+				 *                      marked onscreen; if 3 with tests
+				 *                      disabled, the cmd script shows
+				 *                      only 3 and skips the snake) */
 				s32 loaded_count = 0;
 				s32 onscreen_count = 0;
 				char onscreen_list[128] = {0};
@@ -769,7 +786,7 @@ void mainTick(void)
 					}
 				}
 				sysLogPrintf(LOG_NOTE,
-					"LV.DIAG: settled stage=0x%02x roomcount=%d player_room=%d camera_room=%d pos=(%.0f,%.0f,%.0f) frame=%d bg_primary=%p cam_loaded240=%d cam_flags=0x%04x cam_gfxdata=%p load_cands=%d loaded=%d onscreen=%d drawslots=%d onscreen_list=[%s]",
+					"LV.DIAG: settled stage=0x%02x roomcount=%d player_room=%d camera_room=%d pos=(%.0f,%.0f,%.0f) frame=%d bg_primary=%p cam_loaded240=%d cam_flags=0x%04x cam_gfxdata=%p load_cands=%d loaded=%d onscreen=%d drawslots=%d onscreen_list=[%s] bg_commands=%p portals0_vtx=%u tests_disabled=%d force_onscreen=%d cam_pos=(%.0f,%.0f,%.0f)",
 					(u32)g_StageNum,
 					g_Vars.roomcount,
 					firstRoom,
@@ -784,7 +801,14 @@ void mainTick(void)
 					loaded_count,
 					onscreen_count,
 					g_BgNumDrawSlots,
-					onscreen_list);
+					onscreen_list,
+					(void *)g_BgCommands,
+					(unsigned)(g_BgPortals ? g_BgPortals[0].verticesoffset : 0xFFFFFFFFu),
+					(int)g_BgRoomTestsDisabled,
+					g_BgNumForceOnscreenRooms,
+					(double)g_Vars.currentplayer->cam_pos.x,
+					(double)g_Vars.currentplayer->cam_pos.y,
+					(double)g_Vars.currentplayer->cam_pos.z);
 				s_B193FirstRenderDiagPending = 0;
 			}
 
