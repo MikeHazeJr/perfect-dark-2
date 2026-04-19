@@ -118,6 +118,12 @@ u32 var8005dd50 = 0x00000000;
 s32 g_MainChangeToStageNum = -1;
 s32 g_MainIsDebugMenuOpen = 0;
 
+/* B-193: armed by mainLoop's stage-change completion block, consumed by
+ * mainTick's first render pass after the transition. Helps pin down the
+ * intermittent "CI loads with only sky/void visible" class. See the
+ * `LV.DIAG: first-render ...` log line emitted below. */
+static s32 s_B193FirstRenderDiagPending = 0;
+
 
 struct stageallocation g_StageAllocations8Mb[] = {
 	{ STAGE_CITRAINING,    "-ml0 -me0 -mgfx120 -mvtx98 -ma400"             },
@@ -608,6 +614,12 @@ void mainLoop(void)
 
 		g_StageNum = g_MainChangeToStageNum;
 		g_MainChangeToStageNum = -1;
+
+		/* B-193: arm first-render state dump. Consumed in mainTick before
+		 * the first lvRender after this transition. Absent LV.DIAG line on
+		 * a repro = stage-change didn't reach the render pass; a line with
+		 * roomcount=0, player_room=-1, or camera_room=0 pins the hypothesis. */
+		s_B193FirstRenderDiagPending = 1;
 	}
 }
 
@@ -664,6 +676,31 @@ void mainTick(void)
 
 					lvTickPlayer();
 				}
+			}
+
+			/* B-193 diagnostic: first-render snapshot after a stage change.
+			 * Armed by mainLoop's transition block; cleared here so it fires
+			 * once per transition. Dumps the state that matters for the "CI
+			 * invisible — sky only" class: roomcount, primary room from the
+			 * player prop, camera room, player pos, and whether the player
+			 * prop has been registered to any room yet. */
+			if (s_B193FirstRenderDiagPending && STAGE_IS_GAMEPLAY(g_StageNum) && g_Vars.currentplayer) {
+				struct prop *pprop = g_Vars.currentplayer->prop;
+				s32 firstRoom = (pprop && pprop->rooms[0] != (RoomNum)-1) ? pprop->rooms[0] : -1;
+				s32 camRoom = g_Vars.currentplayer->cam_room;
+				f32 px = pprop ? pprop->pos.x : 0.0f;
+				f32 py = pprop ? pprop->pos.y : 0.0f;
+				f32 pz = pprop ? pprop->pos.z : 0.0f;
+				sysLogPrintf(LOG_NOTE,
+					"LV.DIAG: first-render stage=0x%02x roomcount=%d player_prop=%p player_room=%d camera_room=%d pos=(%.0f,%.0f,%.0f) frame=%d",
+					(u32)g_StageNum,
+					g_Vars.roomcount,
+					(void *)pprop,
+					firstRoom,
+					camRoom,
+					(double)px, (double)py, (double)pz,
+					g_Vars.lvframe60);
+				s_B193FirstRenderDiagPending = 0;
 			}
 
 			gdl = lvRender(gdl);

@@ -798,11 +798,6 @@ u32 var8005dd48 = 0x00000000;
 u32 var8005dd4c = 0x00000000;
 u32 var8005dd50 = 0x00000000;
 s32 g_MainChangeToStageNum = -1;
-
-/* B-191: armed by mainLoop's stage-change completion block, consumed by
- * mainTick's first render pass after the transition. See the `LV.DIAG:
- * first-render ...` log line for the hypothesis-pinning state dump. */
-s32 g_B191FirstRenderDiagPending = 0;
 bool g_MainIsDebugMenuOpen = false;
 
 #if VERSION < VERSION_NTSC_1_0
@@ -1072,14 +1067,6 @@ void mainLoop(void)
 		g_StageNum = g_MainChangeToStageNum;
 		g_MainChangeToStageNum = -1;
 
-		/* B-191 diagnostic: arm first-render state dump for the next frame
-		 * where the game is in gameplay mode. Helps pin down the intermittent
-		 * "CI loads with only sky/void visible" class — we need to see on the
-		 * bad boot whether roomcount is zero, the player prop has no rooms
-		 * assigned yet, or the camera room is invalid. */
-		extern s32 g_B191FirstRenderDiagPending;
-		g_B191FirstRenderDiagPending = 1;
-
 		/* Lifecycle audit guard: scene changes should normally happen with
 		 * gameplay as top context. Keep this warning to catch menu/input
 		 * ownership gaps before they become soft-locks. */
@@ -1167,32 +1154,6 @@ void mainTick(void)
 
 					lvTickPlayer();
 				}
-			}
-
-			/* B-191 diagnostic: first-render snapshot after a stage change.
-			 * Set by the mainChangeToStage completion block; cleared here so
-			 * it fires once per transition. Dumps the state that matters for
-			 * the "CI invisible — sky only" class: roomcount, primary room
-			 * from the player prop, camera room, player position, and
-			 * whether the player prop has been registered to any room yet.
-			 * Absent lines = stage change didn't reach the render pass. */
-			if (g_B191FirstRenderDiagPending && STAGE_IS_GAMEPLAY(g_StageNum) && g_Vars.currentplayer) {
-				struct prop *pprop = g_Vars.currentplayer->prop;
-				s32 firstRoom = (pprop && pprop->rooms[0] != (RoomNum)-1) ? pprop->rooms[0] : -1;
-				s32 camRoom = g_Vars.currentplayer->cam_room;
-				f32 px = pprop ? pprop->pos.x : 0.0f;
-				f32 py = pprop ? pprop->pos.y : 0.0f;
-				f32 pz = pprop ? pprop->pos.z : 0.0f;
-				sysLogPrintf(LOG_NOTE,
-					"LV.DIAG: first-render stage=0x%02x roomcount=%d player_prop=%p player_room=%d camera_room=%d pos=(%.0f,%.0f,%.0f) frame=%d",
-					(u32)g_StageNum,
-					g_Vars.roomcount,
-					(void *)pprop,
-					firstRoom,
-					camRoom,
-					(double)px, (double)py, (double)pz,
-					g_Vars.lvframe60);
-				g_B191FirstRenderDiagPending = 0;
 			}
 
 			gdl = lvRender(gdl);
