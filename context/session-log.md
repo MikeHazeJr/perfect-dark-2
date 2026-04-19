@@ -1,8 +1,50 @@
 
 # Session Log (Active)
 
-> **S281–S382** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S383** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S383 — 2026-04-19 (worktree `claude/frosty-banach-0e3fc1`, merged to `dev` @ `deac9a36` + diag merge `bb2b0e8e`) — B-195 Complex bg room preprocess overflow fix
+
+**Scope**: Hard crash `sysFatalError("overflow when trying to preprocess a bg room, size 1152 newsize 15528")` loading Complex (stagenum `0x1f`, room 7) in Combat Sim solo. Crash log `Build/pdclient-crash-complex-apr19.log`. Build `dev f32d1e51`.
+
+### Root cause
+
+Complex room 7's inflated gfx data was 576 bytes; PC-port preprocess produced 15528 bytes (~27×). Expected max is ~2× (4→8 byte pointer expansion plus GDL 8→16 byte cmd expansion). Runaway came from `gbiConvertGdl` (`port/src/preprocess/gbi.c`) reading past the per-room inflated buffer searching for `G_ENDDL` (0xB8): on N64 the whole BG segment was one contiguous blob so `roomblock.ptr_gdl` / `ptr_vertices` / `ptr_colours` could reference segment offsets; in the PC port each room is inflated into its own independent buffer by `bgInflate`, so any offset past this room's data walks into adjacent heap scratch (compressed-data right-side or uninit bytes). Reading those as N64 cmds and writing 2× host output until a stray `0xB8` byte matched gave the 485-cmd / 7764-src / 15528-dst blowup.
+
+### Fix (three layers)
+
+1. `gbiConvertGdl` takes explicit `src_size`; synthesizes ENDDL when a read would cross the boundary. Logs `WARNING: gbiConvertGdl: source overrun at srcpos=… src_size=…`.
+2. `convertRoomGfxData` clamps `endpos` / `vtx_end` / `col_end` to `src_size` (each now logs `WARNING: convertRoomGfxData: … yields … outside src_size=…` when clamped); skips any `ptr_gdl` outside the buffer with `WARNING: convertRoomGfxData: gdl[i] src_offset=… outside src_size=… — skipping`.
+3. `preprocessBgRoom` scratch dst 2× → 8× (4 KB floor); `sysFatalError` → `LOG_ERROR` + `return 0` so a malformed room degrades gracefully. `src/game/bg.c` caller allocation 2× → 8× (16 KB floor) so the back-memcpy can't overflow; `if (inflatedlen == 0)` skip guard added.
+4. `filemodel.c:660` gbiConvertGdl call updated to pass `src_file_len`.
+
+### Merge
+
+Base commit `f32d1e51`. Branch tip `e82a3cda` (fix + diag). Two merges into `dev`:
+- `deac9a36` — main B-195 fix (6 files, +85 / -16)
+- `bb2b0e8e` — diag follow-up adding WARNING logs for the three silent clamps (1 file, +12 / -5)
+
+Post-merge line counts all grew or stayed equal (`filebg.c` 530 → 564 → 571, `gbi.c` 208 → 227, `bg.c` 6327 → 6342, etc.). No unexpected truncation.
+
+### Build + playtest
+
+Build clean 777/777. `PerfectDark.exe` 53,124,176 / `PerfectDarkServer.exe` 23,143,410 (timestamped 03:54 + 03:50).
+
+Mike playtested immediately: `Build/pd-client.log` shows Complex loads cleanly (stagenum `0x1f`, roomcount 45, player room 7 at `(-3817,159,349)`), renders, and runs until user-initiated shutdown at `[00:58.59]`. **Zero** `convertRoomGfxData` / `gbiConvertGdl` / `preprocessBgRoom` / `ptr_vertices yields` / `ptr_colours yields` / `gdls_addr[0] yields` WARNINGs — all five bounds-check paths were no-ops for every room loaded, meaning the preprocess output is byte-identical to pre-fix for well-formed data. The original crash fires only when `gbiConvertGdl` runs off the per-room buffer; for this playtest no GDL did. The fix is a pure safety net that activates exclusively on pathological data.
+
+### Unrelated crash during playtest
+
+Separate ACCESS_VIOLATION at PC+0x21ef4a (~`gfx_sp_matrix` at `port/fast3d/gfx_pc.cpp:1093`) fired 1.5 s after main-menu close at `[00:22.99]` in stage `0x26` (CI), post-B-196 imgui focus clear. **Not related to B-195**: zero preprocess warnings, different stage, crash is in runtime chr-tick matrix-stack consumption not BG/model preprocessing. Handed off to the session that owns B-196 / chr rendering.
+
+### Files touched
+
+- `port/include/preprocess/gbi.h` — `gbiConvertGdl` signature adds `src_size`
+- `port/src/preprocess/gbi.c` — bounds check + synthesized ENDDL + `system.h` include for `sysLogPrintf`
+- `port/src/preprocess/filebg.c` — `convertRoomGfxData` gains `src_size` / `dst_size` params, clamps + WARNINGs, GDL skip; `preprocessBgRoom` uses `PREPROCESS_BG_ROOM_MULT_LOCAL=8` + 4 KB floor, soft-fail path
+- `port/src/preprocess/filemodel.c` — passes `src_file_len` to gbiConvertGdl at the one call site (line 660)
+- `src/game/bg.c` — alloclen `* 2` → `* 8` + 16 KB floor; `inflatedlen == 0` early-return guard
+- `context/bugs.md` — B-195 entry added
 
 ## Session S382 — 2026-04-19 (worktree `claude/goofy-shaw-96c6c1`) — B-184 third-pass: visual evidence + diagnostic instrumentation
 
