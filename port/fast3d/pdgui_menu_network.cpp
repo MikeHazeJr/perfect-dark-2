@@ -237,6 +237,32 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
     ImGuiInputTextFlags inputFlags = ImGuiInputTextFlags_EnterReturnsTrue;
     bool enterPressed = ImGui::InputText("##address", s_JoinAddress,
                                           sizeof(s_JoinAddress), inputFlags);
+
+    /* Right-click the address field to paste the system clipboard. Connect
+     * codes are short 4-word sentences users share via Discord/Slack — the
+     * classic paste affordance matters here. SDL owns the clipboard even
+     * though ImGui has its own textbox. Strip trailing whitespace/newlines
+     * so pastes from chat clients don't carry a stray '\n' that would
+     * reject the decode. */
+    if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+        char *clip = SDL_GetClipboardText();
+        if (clip) {
+            strncpy(s_JoinAddress, clip, sizeof(s_JoinAddress) - 1);
+            s_JoinAddress[sizeof(s_JoinAddress) - 1] = '\0';
+            for (s32 i = (s32)strlen(s_JoinAddress) - 1; i >= 0; i--) {
+                char c = s_JoinAddress[i];
+                if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+                    s_JoinAddress[i] = '\0';
+                } else {
+                    break;
+                }
+            }
+            SDL_free(clip);
+            sysLogPrintf(LOG_NOTE,
+                "MENU_IMGUI: network menu PASTE addr=\"%s\"", s_JoinAddress);
+            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+        }
+    }
     ImGui::PopItemWidth();
 
     ImGui::SameLine();

@@ -48,6 +48,13 @@ void prefsAgentLoad(const char *agent_name);
  *  shows the unmodified base appearance before any agent is signed in. */
 void prefsAgentResetVisuals(void);
 
+/** B-172: re-capture the *current* visual state (theme, chrome, font,
+ *  title bar style, scanlines) as the pd.ini baseline.  Call from the
+ *  theme / chrome / font picker after a pre-sign-in change saves to
+ *  pd.ini so a subsequent prefsAgentResetVisuals() reverts to the newly
+ *  saved preference instead of the boot-time snapshot. */
+void prefsAgentRefreshVisualsBaseline(void);
+
 /** Write the current in-memory values for every per-agent key to the
  *  active agent's sidecar.  No-op if no active agent is set. */
 void prefsAgentSave(void);

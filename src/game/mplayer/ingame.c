@@ -910,6 +910,16 @@ void mpPushEndscreenDialog(u32 arg0, u32 playernum)
 		return;
 	}
 
+	/* B-176: freeze the match simulation while the endscreen shows.
+	 * mpEndMatch() already set MPPAUSEMODE_GAMEOVER, but that alone
+	 * does not stop lvTick (`mpIsPaused` is one branch of the lv.c
+	 * gate). lvSetPaused(true) sets the authoritative `var80084014`
+	 * flag that lv.c checks first, so bots / projectiles / hit tests
+	 * all freeze. Unpaused by pdguiEndscreenExitToMainMenu() or the
+	 * next stage load. */
+	lvSetPaused(true);
+	mpSetPaused(MPPAUSEMODE_GAMEOVER);
+
 	sysLogPrintf(LOG_NOTE, "ENDSCREEN_DIAG: mpPushEndscreenDialog player=%d slot=%d "
 		"g_FontHandelGothicSm=%p g_CharsHandelGothicSm=%p "
 		"g_FontHandelGothicXs=%p g_CharsHandelGothicXs=%p",
