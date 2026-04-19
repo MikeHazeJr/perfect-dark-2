@@ -27,6 +27,12 @@ extern struct menudialogdef g_CiDisplayPlayer2MenuDialog;
 extern struct menudialogdef g_CiControlPlayer2MenuDialog;
 extern struct menudialogdef g_CinemaMenuDialog;
 
+/* B-194: g_FilemgrFileSelectMenuDialog is defined in src/game/filemgr.c
+ * but only the 4MB twin is externed in data.h. Declare it locally so the
+ * registry can register it. See B-194 comment at the REG(...) site below
+ * for rationale. */
+extern struct menudialogdef g_FilemgrFileSelectMenuDialog;
+
 /* Dialogdef→type registry. One entry per (def,type) pair. Capacity is
  * chosen to cover all ~70 data.h externs plus headroom for late-registered
  * mod dialogs. Linear scan is fine — registry is read-heavy but short. */
