@@ -350,7 +350,16 @@ static s32 renderSoloMissionControlStyle(struct menudialog *dialog,
     ImGui::EndChild();
 
     ImGui::SameLine(0, pdguiScale(20.0f));
-    ImGui::BeginChild("##smc_info", ImVec2(diagramW, childH), true);
+    /* M-17 (C2 preview-dock invariant): the control-mode layout block
+     * ("Left stick: Look", "C buttons: Move / Strafe", etc.) is the PC-port
+     * stand-in for the legacy N64 MENUITEMTYPE_CONTROLLER texture overlay
+     * (a per-mode controller diagram). The block is static 7-8 line text
+     * per mode and must never scroll — it is the diagram for this screen.
+     * Force NoScrollbar | NoScrollWithMouse so the diagram panel is a
+     * fixed-layout sibling to the mode list, not a scrollable region. */
+    ImGui::BeginChild("##smc_info", ImVec2(diagramW, childH), true,
+                      ImGuiWindowFlags_NoScrollbar |
+                      ImGuiWindowFlags_NoScrollWithMouse);
     {
         if (s_SmcCursor >= 0 && s_SmcCursor < 9) {
             const ControlModeInfo *info = &g_ControlModes[s_SmcCursor];

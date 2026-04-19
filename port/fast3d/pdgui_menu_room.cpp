@@ -797,6 +797,12 @@ static int  s_ScenarioCount     = 0;
 static int  s_ScenarioSelected  = -1;
 static char s_ScenarioStatusMsg[128] = "";
 
+/* M-20 progressive focus: set by the Scenario combo on a change; consumed
+ * on the next frame by the Start Match button to jump keyboard/controller
+ * focus straight from "pick scenario" to "confirm/launch" — the
+ * menu-stack §6.4 pattern for Room's selection flow. */
+static bool s_StartMatchFocusPending = false;
+
 /* ========================================================================
  * Level Editor — state, data tables, and catalog helpers (tab 3)
  * ======================================================================== */
@@ -1616,7 +1622,18 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
 
     /* Scrollable list — height is whatever remains after the sticky header
      * above and the Add Bot button below.  Leaves room for the button row
-     * + item spacing so the button never collides with the list content. */
+     * + item spacing so the button never collides with the list content.
+     *
+     * M-16 (C2 preview-dock invariant): the character preview surfaces
+     * associated with this panel are NOT rendered inline with this scroll
+     * region. The row-hover preview lives in ImGui::BeginTooltip() (floats
+     * above the list in its own ImGui window), and the bot-edit 3D preview
+     * lives inside the bot edit popup modal's right-hand BeginGroup column
+     * (sibling to the text controls, not a child of this scrollable list).
+     * Keep it that way — any future "show preview next to selected row"
+     * treatment must dock the preview OUTSIDE this ##room_players_list
+     * BeginChild (e.g. as a sibling column on the player panel), never as
+     * an inline row inside the scroll. */
     float listH = ImGui::GetContentRegionAvail().y
                   - btnH
                   - ImGui::GetStyle().ItemSpacing.y * 2.0f;
@@ -2427,6 +2444,12 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
                 }
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                 s_RoomSettingsDirty = true;
+                /* M-20 progressive focus (menu-stack §6.4): after the
+                 * leader picks a scenario, keyboard/controller focus jumps
+                 * to the Start Match ("Ready") button so the next A press
+                 * launches. The combo auto-closes on Selectable so the
+                 * focus hand-off lands on the button on the next frame. */
+                s_StartMatchFocusPending = true;
             }
             if (sel) ImGui::SetItemDefaultFocus();
         }
@@ -3138,6 +3161,14 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         }
     } else if (isLeader) {
         float startW = pdguiScale(210.0f);
+        /* M-20: consume progressive-focus-pending request from the
+         * Scenario combo (see s_StartMatchFocusPending). Placed before the
+         * Button so SetKeyboardFocusHere(0) targets the Start Match
+         * widget specifically. */
+        if (s_StartMatchFocusPending) {
+            ImGui::SetKeyboardFocusHere(0);
+            s_StartMatchFocusPending = false;
+        }
         if (ImGui::Button("Start Match", ImVec2(startW, btnH))) {
             pdguiPlaySound(PDGUI_SND_SELECT);
 

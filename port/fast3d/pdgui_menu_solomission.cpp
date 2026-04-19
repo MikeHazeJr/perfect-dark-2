@@ -393,7 +393,25 @@ static bool s_Registered = false;
 static s32 s_MissionSelectIdx = 0;     /* Currently selected stage index (0–20) */
 static s32 s_DetailDiffIdx    = 0;     /* Difficulty selection in detail panel (0=A, 1=SA, 2=PA) */
 static s32 s_DetailFocusIdx   = 0;     /* Focus within detail panel: 0..2=diff, 3=Briefing, 4=Start */
-static bool s_DetailPanelFocus = false; /* true = right panel has focus, false = left */
+
+/* M-18 (menu-stack §6 progressive focus): the mission-select flow uses a
+ * three-tier focus model. The leaf menu is always MENU_TYPE_SOLO_MISSION;
+ * within the leaf, focus narrows A-press-by-A-press from the mission list
+ * to the difficulty rows to the Start button. B backs up one tier and
+ * restores focus to the invoker (the selected mission row / last diff
+ * row). Mouse click on any control jumps focus to that control directly
+ * without breaking the group semantics. */
+typedef enum {
+    FOCUS_MISSION_LIST = 0,   /* Left panel: mission list has focus */
+    FOCUS_DIFFICULTY   = 1,   /* Right panel: difficulty rows have focus */
+    FOCUS_START        = 2,   /* Right panel: Start Mission button has focus */
+} MissionFocusGroup;
+
+static MissionFocusGroup s_FocusGroup = FOCUS_MISSION_LIST;
+/* s_DetailPanelFocus is derived from s_FocusGroup; kept as a helper macro
+ * below so the dozens of existing "is right panel active" checks continue
+ * to work without a mass-rename. */
+#define s_DetailPanelFocus (s_FocusGroup != FOCUS_MISSION_LIST)
 static s32 s_PrevBriefingStage = -1;   /* Last stage we loaded briefing for (avoid reload) */
 static bool s_ShowLockedMissions = false; /* Debug: show all missions regardless of unlock */
 
@@ -674,7 +692,11 @@ static s32 renderMissionSelect(struct menudialog *dialog,
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
-        s_DetailPanelFocus = false;
+        /* M-18: reset to MISSION_LIST group on open. Focus returns to the
+         * invoker (mission list) via the parent menu pop in any case, but
+         * fresh opens always start at the list level regardless of what
+         * group last had focus before a previous close. */
+        s_FocusGroup = FOCUS_MISSION_LIST;
         s_PrevBriefingStage = -1;  /* force reload on reopen */
         /* Select first accessible mission */
         for (s32 i = 0; i < NUM_SOLOSTAGES; i++) {
@@ -688,33 +710,50 @@ static s32 renderMissionSelect(struct menudialog *dialog,
     pdguiDrawPdDialog(mpos.x, mpos.y, mw, mh, "Mission Select", 1);
     pdguiSetCursorBelowTitle(titleH);
 
-    /* Global escape */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    /* Escape at the list level pops the dialog (menu-stack root exit).
+     * Escape inside DIFFICULTY/START is consumed by the progressive-back
+     * handler below, so we gate this pop on MISSION_LIST only — otherwise
+     * a single Esc press would skip DIFFICULTY -> LIST -> dialog-pop in
+     * one keystroke, violating the "one tier per press" invariant. */
+    if (s_FocusGroup == FOCUS_MISSION_LIST &&
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
         ImGui::End();
         return 1;
     }
 
-    /* Panel focus switching: Left/Right D-pad or Tab */
+    /* M-18 progressive focus (menu-stack §6): Right/A narrows to the next
+     * group (LIST -> DIFFICULTY -> START), Left/B steps back one group.
+     * Left-arrow jumps directly back to the list (visual parity with the
+     * two-column layout), while Esc/B steps ONE tier so keyboard users
+     * can unwind START -> DIFFICULTY -> LIST one press at a time. */
     if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) {
-        if (!s_DetailPanelFocus) {
-            s_DetailPanelFocus = true;
+        if (s_FocusGroup == FOCUS_MISSION_LIST) {
+            s_FocusGroup = FOCUS_DIFFICULTY;
             s_DetailFocusIdx = 0;
             pdguiPlaySound(PDGUI_SND_FOCUS);
         }
     }
     if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) {
-        if (s_DetailPanelFocus) {
-            s_DetailPanelFocus = false;
+        if (s_FocusGroup != FOCUS_MISSION_LIST) {
+            s_FocusGroup = FOCUS_MISSION_LIST;
             pdguiPlaySound(PDGUI_SND_FOCUS);
         }
     }
-    /* B button in right panel = go back to left panel */
-    if (s_DetailPanelFocus &&
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-        s_DetailPanelFocus = false;
-        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+    /* B button / Esc: step back one focus tier. From START -> DIFFICULTY
+     * (restoring focus to the currently-selected diff row); from DIFFICULTY
+     * -> MISSION_LIST (restoring focus to the selected mission row). */
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        if (s_FocusGroup == FOCUS_START) {
+            s_FocusGroup = FOCUS_DIFFICULTY;
+            s_DetailFocusIdx = s_DetailDiffIdx; /* return focus to invoker diff */
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        } else if (s_FocusGroup == FOCUS_DIFFICULTY) {
+            s_FocusGroup = FOCUS_MISSION_LIST;
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        }
+        /* MISSION_LIST Esc is handled above (pops the dialog). */
     }
 
     float bodyH = mh - titleH - pdguiScale(18.0f);
@@ -747,9 +786,12 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                 }
             }
 
-            /* A button / Enter in left panel = move focus to right panel */
+            /* A button / Enter in left panel = narrow to DIFFICULTY group
+             * (M-18: MISSION_LIST -> DIFFICULTY). Focus lands on the first
+             * (Agent) difficulty row; the user then presses A again on the
+             * chosen diff to narrow to START. */
             if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
-                s_DetailPanelFocus = true;
+                s_FocusGroup = FOCUS_DIFFICULTY;
                 s_DetailFocusIdx = 0;
                 pdguiPlaySound(PDGUI_SND_FOCUS);
             }
@@ -887,7 +929,10 @@ static s32 renderMissionSelect(struct menudialog *dialog,
 
                 if (doSelect && accessible) {
                     missionSelectStage(i);
-                    s_DetailPanelFocus = true;
+                    /* M-18: clicking / A-pressing a mission row narrows
+                     * focus to DIFFICULTY (the mission is the "invoker"
+                     * remembered for B-back). */
+                    s_FocusGroup = FOCUS_DIFFICULTY;
                     s_DetailFocusIdx = 0;
                     pdguiPlaySound(PDGUI_SND_OPENDIALOG);
                 }
@@ -991,7 +1036,9 @@ static s32 renderMissionSelect(struct menudialog *dialog,
 
                 if (doSelect && accessible) {
                     missionSelectStage(j);
-                    s_DetailPanelFocus = true;
+                    /* M-18: Special Assignment row click/A narrows focus
+                     * to DIFFICULTY, same as the main chapter rows above. */
+                    s_FocusGroup = FOCUS_DIFFICULTY;
                     s_DetailFocusIdx = 0;
                     pdguiPlaySound(PDGUI_SND_OPENDIALOG);
                 }
@@ -1047,12 +1094,21 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                 s_DetailFocusIdx++;
                 if (s_DetailFocusIdx >= k_NumDetailItems)
                     s_DetailFocusIdx = 0;
+                /* M-18: keep s_FocusGroup in sync with the detail index so
+                 * B-back lands in the correct tier. When the cursor wraps
+                 * past the last diff onto Start, we're in FOCUS_START; any
+                 * other index within the right panel is FOCUS_DIFFICULTY. */
+                s_FocusGroup = (s_DetailFocusIdx == startFocusIdx)
+                             ? FOCUS_START : FOCUS_DIFFICULTY;
                 pdguiPlaySound(PDGUI_SND_FOCUS);
             }
             if (navUp) {
                 s_DetailFocusIdx--;
                 if (s_DetailFocusIdx < 0)
                     s_DetailFocusIdx = k_NumDetailItems - 1;
+                /* M-18 (see navDown): sync focus group with the detail index. */
+                s_FocusGroup = (s_DetailFocusIdx == startFocusIdx)
+                             ? FOCUS_START : FOCUS_DIFFICULTY;
                 pdguiPlaySound(PDGUI_SND_FOCUS);
             }
         }
@@ -1094,7 +1150,9 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                                               ImVec2(rowW, diffRowH));
             if (ImGui::IsItemHovered()) {
                 s_DetailFocusIdx = d;
-                s_DetailPanelFocus = true;
+                /* M-18: hovering a diff row promotes focus into DIFFICULTY
+                 * group (mouse stays additive with controller). */
+                s_FocusGroup = FOCUS_DIFFICULTY;
             }
 
             /* Confirm from keyboard/gamepad */
@@ -1104,6 +1162,14 @@ static s32 renderMissionSelect(struct menudialog *dialog,
             if ((clicked || doConfirm) && !locked) {
                 s_DetailDiffIdx = d;
                 pdguiPlaySound(PDGUI_SND_SELECT);
+                /* M-18: A on an unlocked difficulty narrows focus to the
+                 * START group so the next A press launches. Mouse clicks
+                 * also advance to START — the visual "Start Mission" CTA
+                 * is now highlighted waiting for confirm. We also move
+                 * s_DetailFocusIdx to the action-bar slot so the focus
+                 * ring + nav cursor land on the button, not the diff row. */
+                s_FocusGroup = FOCUS_START;
+                s_DetailFocusIdx = startFocusIdx;
             } else if ((clicked || doConfirm) && locked) {
                 pdguiPlaySound(PDGUI_SND_ERROR);
             }
@@ -1171,13 +1237,19 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                                                ImVec2(rowW, diffRowH));
             if (ImGui::IsItemHovered()) {
                 s_DetailFocusIdx = pdFocusIdx;
-                s_DetailPanelFocus = true;
+                /* M-18: PD Mode row hover promotes focus into DIFFICULTY. */
+                s_FocusGroup = FOCUS_DIFFICULTY;
             }
 
             bool pdConfirm = isPdFocus && ImGui::IsKeyPressed(ImGuiKey_Enter, false);
             if (pdClicked || pdConfirm) {
                 s_DetailDiffIdx = 3;
                 pdguiPlaySound(PDGUI_SND_SELECT);
+                /* M-18: A on PD Mode narrows focus to START, matching the
+                 * behaviour of the other difficulty rows. Move the focus
+                 * index too so the Start button gets the visual cursor. */
+                s_FocusGroup = FOCUS_START;
+                s_DetailFocusIdx = startFocusIdx;
             }
 
             /* Overlay: purple badge + label + best time */
@@ -1303,7 +1375,9 @@ static s32 renderMissionSelect(struct menudialog *dialog,
 
             if (ImGui::IsItemHovered()) {
                 s_DetailFocusIdx = startFocusIdx;
-                s_DetailPanelFocus = true;
+                /* M-18: Start button hover promotes focus into the
+                 * START group (mouse users jump straight to the leaf). */
+                s_FocusGroup = FOCUS_START;
             }
 
             if (activated && !diffLocked) {
@@ -3579,7 +3653,7 @@ extern "C" void pdguiSoloMissionReset(void)
     s_MissionSelectIdx    = 0;
     s_DetailDiffIdx       = 0;
     s_DetailFocusIdx      = 0;
-    s_DetailPanelFocus    = false;
+    s_FocusGroup          = FOCUS_MISSION_LIST;   /* M-18 reset */
     s_PrevBriefingStage   = -1;
     s_ShowLockedMissions  = false;
     s_DiffSelectIdx       = 0;

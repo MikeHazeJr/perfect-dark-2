@@ -748,8 +748,18 @@ static void renderScaleTool(float contentW, float contentH, float scale)
     ImGui::EndChild();
     ImGui::SameLine();
 
-    /* ---- Right panel: preview + controls ---- */
-    ImGui::BeginChild("##scale_right", ImVec2(rightW, contentH - footerH), true);
+    /* ---- Right panel: preview + controls ----
+     * M-15 (C2 preview-dock invariant): this panel contains the rotating
+     * character preview (ImGui::Image) plus the scale slider / bake controls.
+     * The preview must not scroll with the controls — if the right column
+     * overflows on short viewports, scrolling would push the preview out of
+     * view. Force NoScrollbar | NoScrollWithMouse so this panel stays a
+     * fixed-layout sibling to the character list; the control stack below
+     * the preview is short enough to fit without scroll (scale slider +
+     * Bake + warning lines fit at every supported pdgui scale). */
+    ImGui::BeginChild("##scale_right", ImVec2(rightW, contentH - footerH), true,
+                      ImGuiWindowFlags_NoScrollbar |
+                      ImGuiWindowFlags_NoScrollWithMouse);
 
     if (s_ScaleSelected < 0) {
         ImGui::TextDisabled("Select a character from the list.");

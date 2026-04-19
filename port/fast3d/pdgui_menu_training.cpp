@@ -254,12 +254,22 @@ static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0, 0))
 static bool beginTrainingWindow(const char *id, const char *title,
                                 s32 winW, s32 winH)
 {
+    /* M-14 (C2 preview-dock invariant): Bio Profile, Training Details
+     * (DT/HT weapon preview), and Hangar Holograph all render their 3D
+     * previews via pdguiModelPreviewDraw/drawFilenumPreview at absolute
+     * screen coords computed from the window origin. If this outer window
+     * ever gained a scrollbar, those absolute-coord previews would not
+     * scroll with the content beneath them — visually broken. Force the
+     * outer frame to be strictly non-scrolling so the preview overlays are
+     * always pinned to the correct pixel position. */
     ImGuiWindowFlags wflags = ImGuiWindowFlags_NoResize
                             | ImGuiWindowFlags_NoMove
                             | ImGuiWindowFlags_NoCollapse
                             | ImGuiWindowFlags_NoSavedSettings
                             | ImGuiWindowFlags_NoTitleBar
-                            | ImGuiWindowFlags_NoBackground;
+                            | ImGuiWindowFlags_NoBackground
+                            | ImGuiWindowFlags_NoScrollbar
+                            | ImGuiWindowFlags_NoScrollWithMouse;
 
     float diagW = pdguiMenuWidth();
     float diagH = pdguiMenuHeight();
@@ -353,6 +363,14 @@ static s32 renderFrDifficulty(struct menudialog *dialog,
     }
 
     ImGui::SetCursorPos(ImVec2(startX, startY));
+
+    /* M-21 progressive focus: landing on Bronze (always available) gives
+     * controller users a valid D-pad target on the first frame. The
+     * subsequent PdButton calls — Silver / Gold — pick up focus via
+     * normal nav once focus is anchored somewhere in this window. */
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetKeyboardFocusHere(0);
+    }
 
     /* Bronze — always available */
     active = (frGetDifficulty() == FRDIFFICULTY_BRONZE);
@@ -796,6 +814,11 @@ static s32 renderHtList(struct menudialog *dialog,
         ImGui::TextDisabled("No holo-training programmes unlocked.");
     }
 
+    /* M-21 progressive focus: on first frame, land focus on the selected
+     * row so D-pad/Enter advances into Details without a preparatory
+     * button press. */
+    bool htFocusOnAppear = ImGui::IsWindowAppearing();
+
     for (i = 0; i < numHt; i++) {
         bool   isSelected = (i == s_HtSelectedSlot);
         int    index      = htGetIndexBySlot(i);
@@ -803,6 +826,9 @@ static s32 renderHtList(struct menudialog *dialog,
 
         ImGui::PushID(i);
 
+        if (htFocusOnAppear && isSelected) {
+            ImGui::SetKeyboardFocusHere(0);
+        }
         if (ImGui::Selectable(name ? name : "---", isSelected,
                               ImGuiSelectableFlags_None)) {
             s_HtSelectedSlot = i;
@@ -1241,6 +1267,10 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
     ImGui::BeginChild("##fr_wl_body",
                       ImVec2(diagW - ImGui::GetStyle().WindowPadding.x * 2.0f,
                              childH), false);
+    /* M-21 progressive focus: on first frame focus lands on the currently
+     * selected weapon row so A immediately advances into difficulty/pre-
+     * game without the user having to D-pad to re-anchor. */
+    bool frWlFocusOnAppear = ImGui::IsWindowAppearing();
     for (s32 i = 0; i < count; i++) {
         u32 weaponnum = pdguiTrFrWeaponBySlot(i);
         const char *raw = pdguiTrFrWeaponName(weaponnum);
@@ -1251,6 +1281,9 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
         ImGui::PushID(i);
         bool sel = (i == s_FrWeaponCursor);
         const float rowH = pdguiScale(24.0f);
+        if (frWlFocusOnAppear && sel) {
+            ImGui::SetKeyboardFocusHere(0);
+        }
         if (ImGui::Selectable("##fr_wl_row", sel, 0, ImVec2(0, rowH))) {
             s_FrWeaponCursor = i;
             /* Match legacy frWeaponListMenuHandler MENUOP_SET behavior:
@@ -1564,6 +1597,9 @@ static s32 renderDtList(struct menudialog *dialog,
     ImGui::BeginChild("##dt_body",
                       ImVec2(diagW - ImGui::GetStyle().WindowPadding.x * 2.0f,
                              childH), false);
+    /* M-21 progressive focus: land focus on the currently-selected device
+     * on first frame so D-pad / Enter immediately advances to details. */
+    bool dtFocusOnAppear = ImGui::IsWindowAppearing();
     for (s32 i = 0; i < count; i++) {
         const char *name = pdguiTrDtDeviceName(i);
         char buf[96];
@@ -1571,6 +1607,9 @@ static s32 renderDtList(struct menudialog *dialog,
         stripNewline(buf);
         ImGui::PushID(i);
         bool sel = (i == s_DtCursor);
+        if (dtFocusOnAppear && sel) {
+            ImGui::SetKeyboardFocusHere(0);
+        }
         if (ImGui::Selectable(buf, sel, 0, ImVec2(0, pdguiScale(22.0f)))) {
             s_DtCursor = i;
             pdguiTrDtSetSlot(i);
@@ -1685,6 +1724,16 @@ static s32 renderTrainingDetailsImpl(const char *imguiId,
 
         const char *okLabel     = isInTraining ? "Resume" : "Ok";
         const char *cancelLabel = isInTraining ? "Abort"  : "Cancel";
+
+        /* M-21 progressive focus (menu-stack §6.4): this Details dialog is
+         * the leaf of the "challenge -> details -> start" flow for FR/DT/
+         * HT. When it appears, controller/keyboard focus lands on the
+         * Ok/Resume button so the next A press launches training — the
+         * user already chose the item on the prior screen, so the details
+         * dialog exists to confirm, not re-browse. */
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere(0);
+        }
 
         if (PdButton(okLabel, ImVec2(btnW, btnH))) {
             if (onBegin) onBegin();
