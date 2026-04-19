@@ -7,7 +7,7 @@
 
 ---
 
-## Done — 2026-04-19 (S376 — 3-bug playtest batch: interact prompt over menus, bot count scroll, Grid walkable pickups, `claude/friendly-kirch-688ea4`)
+## Done — 2026-04-19 (S379 — 3-bug playtest batch: interact prompt over menus, bot count scroll, Grid walkable pickups, `claude/friendly-kirch-688ea4`)
 
 - **B-189** — Interact prompt pill ("[E] Pick up" / "[A] Open" / etc.) was rendering over ImGui menus. `pdguiInteractPromptRender` drew on the foreground drawlist every frame the game had an interact target, with no menu gate. When you walked up to a pickup and then opened Settings / Pause / Forge, the pill stayed floating above the menu. Fix: one-line `if (pdguiIsActive()) return;` gate at the top — same authority predicate (`inputCtxGetTop() != &g_CtxGameplay`) every other gameplay-HUD-only overlay uses. Restores the documented HUD layer policy in `context/designs/hud-layer-order.md` §7.
 - **B-190** — "Players in Room (X Player, Y Bot)" header in the CS Room didn't appear to update on Add Bot / Remove. Not a state bug: `countBots()` + the header TextColored both re-ran every frame. The header lived INSIDE the `##room_players_list` scrollable child, so once the row list filled its viewport, the header scrolled off the top with it. Fix (`pdgui_menu_room.cpp::renderPlayerPanel`): moved the header and the Team Sort dropdown OUTSIDE the scrollable child into the outer bordered panel; `listH = GetContentRegionAvail().y - btnH - 2*ItemSpacing.y` is computed after the sticky header is laid out. Also baked the count/cap into the Add Bot button label itself — `Add Bot  (X / Y)` — so the primary interaction point always shows live state next to the click. Header format extended from `%d Bot` → `%d/%d Bot` to show the cap.
@@ -15,6 +15,96 @@
 - **Files**: `port/fast3d/pdgui_interact_prompt.cpp` (+10/−1), `port/fast3d/pdgui_menu_room.cpp` (+27/−13), `src/game/setup.c` (+16/−0). Net +52/−14 across 3 files.
 - **Build**: clean 774/774. `PerfectDark.exe` 53,237,073 / `PerfectDarkServer.exe` 23,139,808.
 - **Playtest**: (1) walk up to any pickup / door so the `[E] Pick up` pill appears → open Escape menu / pause / Forge editor → pill disappears immediately; close menu → pill returns if target still in range. (2) Solo CS Room → add 10+ bots → header stays pinned + Add Bot button shows live `N / max`. (3) Load Grid via Combat Sim → walk into every ground weapon and ammo crate on the map → capsule slides past / through, never climbs on top.
+
+---
+
+
+## Done — 2026-04-19 (S377 — AP Phase 3 game-code call-site migration, `claude/intelligent-pasteur-269b40` → `dev` @ `ba7ed31e`)
+
+- **AP Phase 3 done.** Every remaining game-code caller of the legacy pre-AP wrappers `fileLoadToNew` / `fileLoadToAddr` / `fileLoadPartToAddr` is now on the dispatcher API (`assetLoadRomToNew` / `assetLoadRomToAddr` from `port/include/assetload.h`). 12 call sites across 5 files: `langreset.c` (6), `lang.c` (3), `setup.c` (1), `modeldef.c` (1), `bondgun.c` (1).
+- **New API**: `assetLoadToAddr(handle, method, buf, size)` dispatcher (mirrors `assetLoadToNew` for caller-allocated buffers — RomProvider fast-path uses the legacy `fileLoad` pipeline) + `assetLoadRomToAddr(filenum, ...)` convenience wrapper.
+- **Renames**: `fileLoadToAddr` → `fileLoadRomToAddr` in `src/game/file.c` (the legacy worker becomes a dispatcher-internal RomProvider impl, exported only so the AP fast-path can reach it). Game code MUST NOT call this directly any more.
+- **Deletes**: dead public `fileLoadPartToAddr` (zero callers since S374 moved bg.c to `romdataFileLoad` direct), dead public `fileLoadToNew` wrapper (zero callers post-Phase-3), public `fileLoadToAddr` declaration. All from `src/game/file.c` + `src/include/game/file.h`. File header docs + worker preambles updated.
+- **Build**: clean 774/774 from full configure on the worktree's own `Build/` (worktree path detected by `build-headless.ps1` redirects to main, so I configured `cmake -G Ninja` directly). `PerfectDark.exe` 53,054,294 / `PerfectDarkServer.exe` 23,119,328.
+- **Merge**: `--no-ff` ort strategy, no conflicts. Pre/post-merge line counts verified: total +64 LOC matches `git diff --stat` exactly (`+155 -91`). No file shrank unexpectedly.
+- **Phase 4 audit (filenum retirement)** — out of scope for this session, scope documented:
+  - Handle accessors `catalogGetBodyHandle` / `HeadHandle` / `PropHandle` already exist (in `assetcatalog_api.c`, decl in `assetcatalog.h:917+`).
+  - 23+ game callers of the `[DEPRECATED] catalogGetXFilenumByIndex` accessors remain across `body.c` (5), `player.c` (5), `menu.c` (2), `mplayer/setup.c` (2), `setuputils.c` (1), `title.c` (8).
+  - Phase 4 needs three downstream API migrations as prerequisites: (1) `assetGetSize(handle, loadtype)` to replace `fileGetInflatedSize`; (2) handle-aware `modeldefLoad` variant; (3) `MENUMODELPARAMS_SET_HANDLE` macro / menu model param storage migration. Then the 23 game-code sites can move filenum→handle in batches and the deprecated accessors can be deleted along with the SA-5a bridges.
+- **Playtest ask**: zero observable change is the success criterion (RomProvider fast-path is byte-identical to the pre-AP load pipeline). Smoke path: title → CI Training → solo mission → MP match start → mid-mission lang switch. Any load failure now logs `WARNING: fileLoadRomToAddr: file %d failed to load (size=%u), returning NULL` (renamed from the prior `fileLoadToAddr` log) so triage is identical.
+
+---
+
+## Done — 2026-04-19 (S378 — D6 Phase 3 finishing touches, `claude/friendly-mccarthy-a90db6` → `dev` @ `3824d95f`)
+
+- **Task** — Close out the incomplete parts of D6 persistent stats:
+  (1) expand the Stats Viewer UI to surface everything the gameplay
+  wire-in collects; (2) add damage tracking at MP match end; (3) emit
+  achievement-unlock toast notifications so players actually see when
+  they unlock.
+- **Audit findings**:
+  - D2 char select — redesign already DONE (S15 / S187); char preview
+    works in agent-select, room lobby, and bot setup. No gaps worth
+    fixing in-session. Phase summary row in `infrastructure.md`
+    accurately reflects the partial-on-D2c-bot-jump-AI state.
+  - D5 Phase 5 lobby scene — already DONE (S352 portraits + S356
+    5C/5D polish: hover portrait preview, drop shadow, team-color
+    border). `infrastructure.md` summary row + detailed D5 section
+    both updated this session to reflect DONE state (was stuck on
+    "Phase 5 (lobby scene) planned").
+  - D6 persistent stats — wire-in at gameplay sites was complete
+    (S325) but three concrete gaps remained: damage dealt/received
+    per-match was tracked in `mpplayerconfig` but never promoted to
+    `statIncrement`; the Stats UI Overview tab only surfaced a
+    fraction of what was collected; `achievementGetNewlyUnlocked`
+    existed but was never called — achievements silently unlocked
+    with zero player feedback.
+- **Damage + hit tracking (`src/game/mplayer/mplayer.c::mpCalculateAwards`)** —
+  the existing local-player block now increments `mp.damage_dealt`,
+  `mp.damage_received`, and `mp.shots_hit` alongside the pre-existing
+  time/distance accumulators. `mp.shots_hit` is computed as
+  `round(accuracyfrac * numshots)`; combined with `shots.total`
+  already tracked by `mpstatsIncrementPlayerShotCount` this gives a
+  real hit-accuracy %. All guards match the existing block
+  (`playernum < PLAYERCOUNT()` + `!g_CheatsActiveBank*`).
+- **Stats Viewer UI (`port/fast3d/pdgui_menu_stats.cpp::renderOverviewTab`)** —
+  three new sections: **Combat Simulator** (Matches Played / Won /
+  Lost / Win Rate / Time Played / Damage Dealt / Damage Taken /
+  Distance), **Solo Missions** (Completed / Failed / Time Played),
+  **World Interaction** (Items Picked Up with breakdown for Weapons
+  / Ammo Crates / Shields / Keys + Doors Opened). Accuracy section
+  picks up Shots Hit + Hit % rows. New `formatDuration` helper
+  renders seconds as `Hh Mm` / `Mm Ss` / `Ns` so time stats stay
+  compact.
+- **Achievement toasts — new `port/fast3d/pdgui_achievement_toast.{h,cpp}` +
+  wire-in** — slide-in cards on the ImGui foreground drawlist in the
+  top-right corner. Queue holds up to 4 concurrent toasts; each
+  lives 270 frames (4.5 s) with 20-frame fade-in + 60-frame
+  fade-out and a 0.4*width right-edge slide during the fade-in.
+  Drawn via `AddRectFilled` + `AddRect` + `AddText` on the
+  foreground drawlist so the toast overlays any menu. Plays
+  `PDGUI_SND_FOCUS` on push. `pdguiAchievementToastPollUnlocks()`
+  reads `achievementGetNewlyUnlocked` and maps each returned id
+  back to its display name + description via `achievementGetByIndex`.
+  Called on solo endscreen `IsWindowAppearing` and on MP endscreen
+  fresh entry; MP endscreen also gains `achievementsRefresh()`
+  (was previously solo-only). `pdguiAchievementToastRender`
+  invoked from `pdgui_backend.cpp::pdguiRender` right after the
+  interact prompt.
+- **Files**: `src/game/mplayer/mplayer.c` (+7 LOC), `port/fast3d/pdgui_backend.cpp` (+6 LOC),
+  `port/fast3d/pdgui_menu_endscreen.cpp` (+6 LOC), `port/fast3d/pdgui_menu_stats.cpp` (+139/−2 LOC),
+  NEW `port/fast3d/pdgui_achievement_toast.cpp` (211 LOC), NEW `port/include/pdgui_achievement_toast.h` (44 LOC).
+- **Build**: clean 775/775 (worktree fresh configure + full build). `PerfectDark.exe` 53,337,398
+  / `PerfectDarkServer.exe` 23,140,832. Incremental dev rebuild after `cmake --reconfigure`
+  (CMake GLOB_RECURSE has to re-scan for the new .cpp) — 12/12 link clean; final `PerfectDark.exe`
+  53,111,624 / `PerfectDarkServer.exe` 23,143,410. Merge `3824d95f` (`--no-ff`). Post-merge
+  line counts verified: mplayer.c 4566, pdgui_backend.cpp 915, pdgui_menu_endscreen.cpp 1398,
+  pdgui_menu_stats.cpp 570 — all match the expected pre-merge + S378 deltas.
+- **Playtest ask**: (1) Stats menu → Overview tab shows populated MP/Solo/World sections after
+  a match / solo mission finishes. (2) Unlock any achievement (e.g. first kill → First Blood,
+  100 kills → Centurion, 100 headshots → Sharpshooter) — toast slides in from the right edge
+  of the endscreen. (3) `saves/playerstats.json` now contains `mp.damage_dealt`,
+  `mp.damage_received`, and `mp.shots_hit` keys after an MP match.
 
 ---
 

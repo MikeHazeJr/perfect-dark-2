@@ -59,8 +59,8 @@ to PATH, `CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime,include_f
 | D3 | Mod Manager (legacy) | ♻️ Redesigned → D3R | S24 |
 | D3R | Component Mod Architecture | ✅ **ALL DONE** (D3R-1–11, S46a, S46b) | S80 |
 | D4 | Menu Migration | ♻️ Superseded by ImGui hotswap | S22 |
-| D5 | Settings / Graphics / QoL | 🔶 Phase 3 DONE; Phase 4 (themes) UI texture overrides DONE (S351); Phase 5 (lobby scene) planned | S351 |
-| D6 | Persistent Stats | 🔶 Partial — `playerstats.c` coded (S49), gameplay-site wire-in partial | S49 |
+| D5 | Settings / Graphics / QoL | ✅ **ALL PHASES DONE** — Phase 3 (menu replacement), Phase 4 (themes + UI texture overrides S351), Phase 5 (lobby scene: portraits S352 + hover preview / drop shadow / team border S356) | S356 |
+| D6 | Persistent Stats | ✅ **DONE** — `playerstats.c` (S49) + gameplay-site wire-in (S325) + damage tracking + UI expansion + achievement toasts (S378) | S378 |
 | D7 | Discord Rich Presence | ✅ **DONE** (S348) | S348 |
 | D8 | NAT Traversal / LAN | ✅ **DONE** | S83 |
 | D9 | Dedicated Server | ✅ **MOSTLY DONE** — R-1 / R-2 / R-3 / R-4 shipped; R-5 server GUI redesign planned | S253 |
@@ -77,7 +77,7 @@ to PATH, `CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime,include_f
 | D-STAGE | Stage Decoupling | ✅ **ALL 3 PHASES DONE** | S47c |
 | B-12 | Dynamic Participant System | ✅ **ALL 3 PHASES DONE** — Phase 3 (2026-04-17, protocol v37) | S324 |
 | SPF | Server Platform Foundation | ✅ **ALL SHIPPED** — SPF-1 Hub/Room/Identity/Phonetic + SPF-2a Menu Mgr + SPF-3 Lobby + SPF-3 Connect Codes + R-1 through R-4 | S51 / S143 / S253 |
-| AP | Asset Provider (Direct File Access) | 🔶 **Phase 1 + 2 DONE** — provider vtable, RomProvider/FileProvider, asset_source_t on catalog entries; Phase 3 (call-site migration) + Phase 4 (retire filenum) remain | S326 (2026-04-17) |
+| AP | Asset Provider (Direct File Access) | 🔶 **Phase 1 + 2 + 3 DONE** — provider vtable + RomProvider/FileProvider + asset_source_t (S326); Phase 3 (call-site migration off `fileLoadToNew/Addr/PartToAddr` wrappers) shipped S377; Phase 4 (retire `filenum` as public identity) remains — handle accessors already exist (`catalogGetBodyHandle/HeadHandle/PropHandle`), needs 3 prerequisite API migrations (`assetGetSize`, handle-aware `modeldefLoad`, `MENUMODELPARAMS_SET_HANDLE`) before the 23+ filenum-using callers can be migrated. | S377 (2026-04-19) |
 
 ### Audio / Skin / Map-Import feature lines
 
@@ -158,20 +158,25 @@ F11 storyboard plan superseded by direct ImGui hotswap. ImGui menus
 10 / 11 / 12 (S192 – S209, 2026-04-11). Legacy `menuPush`/`menuPop` dialog
 stack retained only as plumbing.
 
-### D5: Settings / Graphics / QoL — 🔶 PHASE 3 DONE
+### D5: Settings / Graphics / QoL — ✅ ALL PHASES DONE
 
 - **Phase 0–2**: DONE pre-S191. UI Scaling (S97), controller bindings, radial
   menu.
 - **Phase 3 (menu replacement)**: ✅ **COMPLETE 2026-04-11**. All 254 dialogs
   ported to ImGui — 13 batches S192 – S209.
-- **Phase 4 (themes)**: 🔶 Mostly done. Theme loader + base-game template mod
+- **Phase 4 (themes)**: ✅ DONE. Theme loader + base-game template mod
   (S196). Theme editor shipped (B-130 rewrite S208 — native `BeginPopupModal`).
   Mod themes auto-rescan on mod apply (Issue 2/8 S253). Nineslice pipeline
   infrastructure shipped. **UI texture mod overrides** ✅ DONE (S351) —
   `pdguiThemeScanModUiTextures` / `pdguiThemeApplyEnabledModUiTextures` allow
   enabled mods to override `"type": "ui"` catalog textures at runtime.
-- **Phase 5 (lobby scene)**: 📋 Planned — player portraits, connected player
-  avatars, character preview.
+- **Phase 5 (lobby scene)**: ✅ DONE. Per-player portrait thumbnails in
+  the Room / lobby player list (S352) — `LobbyPortrait` struct +
+  `s_LobbyPortraits[8]`, baked GL textures via shared charpreview FBO,
+  per-slot state badge dots, join fade-in alpha ramp, initials-circle
+  fallback. Phase 5C (hover portrait preview with tooltip, live
+  charpreview FBO) + Phase 5D (drop shadow on portrait thumbnail,
+  team-color border) shipped S356.
 - **D5.1 Input ownership boundary**: ✅ DONE (S136).
 - **D5.3 Pause menu**: ✅ DONE — ImGui pause + scorecard + Return to Lobby +
   Quit to Menu (S139 / S144).
@@ -181,25 +186,37 @@ stack retained only as plumbing.
 - **D5.8 HUD score panel dock-below-minimap**: ✅ DONE (S221) — see archived
   `_archive/designs/hud-score-panel.md`.
 
-### D6: Persistent Stats — ✅ DONE (S325)
+### D6: Persistent Stats — ✅ DONE (S325 + S378 Phase 3 finishing touches)
 
 - `port/src/playerstats.c` — string-keyed hash-table counters, JSON
   persistence to `$S/playerstats.json` (CODED S49).
 - Integrated with `fsFullPath("$S/...")`; works even when `saveInit()` is
   delayed.
 - `statIncrement()` accessor exported.
-- **Gameplay-site wire-in complete (S325)**:
+- **Gameplay-site wire-in complete (S325 + S378)**:
   - MP: `shots.*`, `kills.*` (+ per-weapon + per-mode), `deaths.*`
     (suicide/by_bot/by_player + per-mode), `matches.played`,
     `mp.matches_won`, `mp.matches_lost`, `mp.time_played_seconds`,
-    `mp.distance_units` (accumulated at match end via `mpCalculateAwards`)
+    `mp.distance_units`, **`mp.damage_dealt` / `mp.damage_received` /
+    `mp.shots_hit` (S378)** — all accumulated at match end via
+    `mpCalculateAwards` for local players only
   - Solo: `solo.missions_completed`, `solo.mission_failures`,
     `solo.time_played_seconds` (at `endscreenPrepare`, gated on non-cheat)
   - Live: `distance_units` + `{mp,solo}.distance_units_sample` (flushed
     per 10000 world units to avoid per-tick hash-table churn), `items.picked_up`
     + `{keys,ammo_crates,weapons,shields}_picked_up`, `doors.opened`
   - Save-on-event: `statsSave()` called at match end and solo mission end.
-- Achievements = future query layer on top.
+- **Stats Viewer UI (S378)** — `pdgui_menu_stats.cpp` Overview tab
+  surfaces every collected stat across Combat / Accuracy / Opponents /
+  Combat Simulator (matches played/won/lost + win rate + time + damage
+  dealt/received + distance) / Solo Missions (completed/failed/time) /
+  World Interaction (items + weapons/ammo/shields/keys breakdown + doors).
+  Accuracy section adds "Shots Hit" and "Hit %" columns beside the pre-
+  existing headshot stats.
+- **Achievement unlock toasts (S378)** — `port/fast3d/pdgui_achievement_toast.{h,cpp}`
+  renders slide-in notifications on the ImGui foreground drawlist.
+  Polled on solo + MP endscreen fresh entry; MP endscreen now also
+  calls `achievementsRefresh` (it was solo-only before S378).
 
 ### D7: Discord Rich Presence — ✅ DONE (S348)
 

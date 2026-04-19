@@ -9,14 +9,14 @@
 romptr_t fileGetRomAddress(s32 filenum);
 s32 fileGetRomSize(s32 filenum);
 void filesInit(void);
-void fileLoadPartToAddr(u16 filenum, void *memaddr, s32 offset, u32 len);
 u32 fileGetInflatedSize(s32 filenum, u32 loadtype);
-void *fileLoadToNew(s32 filenum, u32 method, u32 loadtype);
-/* Internal ROM-load entry point used by the Asset Provider dispatcher
- * (port/src/assetload.c) to avoid recursion when `fileLoadToNew` is a
- * wrapper around `assetLoadToNew(romProviderHandle(filenum), ...)`. */
+/* Internal ROM-load entry points used by the Asset Provider dispatcher
+ * (port/src/assetload.c). Game code calls assetLoadRomToNew() /
+ * assetLoadRomToAddr() in port/include/assetload.h instead — these workers
+ * exist so the dispatcher's RomProvider fast-path doesn't recurse through
+ * its own public wrappers. */
 void *fileLoadRomToNew(s32 filenum, u32 method, u32 loadtype);
-void *fileLoadToAddr(s32 filenum, s32 method, u8 *ptr, u32 size);
+void *fileLoadRomToAddr(s32 filenum, u32 method, u8 *ptr, u32 size);
 u32 fileGetLoadedSize(s32 filenum);
 u32 fileGetAllocationSize(s32 filenum);
 void fileSetSize(s32 filenum, void *ptr, u32 size, bool reallocate);

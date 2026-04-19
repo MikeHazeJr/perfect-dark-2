@@ -1296,7 +1296,7 @@ void setupLoadBriefing(s32 stagenum, u8 *buffer, s32 bufferlen, struct briefing 
 		setupfilenum = (u16)stage.setupfileid;
 		g_LoadType = LOADTYPE_SETUP;
 
-		fileLoadToAddr(setupfilenum, FILELOADMETHOD_DEFAULT, buffer, bufferlen);
+		assetLoadRomToAddr(setupfilenum, FILELOADMETHOD_DEFAULT, buffer, bufferlen);
 
 		setup = (struct stagesetup *)buffer;
 		setupfilesize = fileGetLoadedSize(setupfilenum);
