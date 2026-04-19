@@ -7,7 +7,7 @@
 
 ---
 
-## Done — 2026-04-19 (S372 — B-181 spawn-with-weapon fallback fix, `claude/interesting-nobel-184c6c`)
+## Done — 2026-04-19 (S373 — B-181 spawn-with-weapon fallback fix, `claude/interesting-nobel-184c6c`)
 
 - **B-181** — Chris saw weapons in match that weren't in his selected weapon set. Car Park has 10 weapon markers, but desiredPickups was 16 (PLAYERCOUNT + g_BotCount + span_bonus, capped), triggering the "too few pickups" fallback added in commit `0b62fc68`.
 - Root cause: `setupCreateProps` fallback used `catalogIdByRuntime(ASSET_WEAPON, g_MpSetup.weapons[i])` to resolve an MPWEAPON_* index to a catalog ID. But the ASSET_WEAPON runtime cache is indexed by catalog *array position* (`e->runtime_index = i` in `assetcatalog_base_extended.c:414`), NOT by MPWEAPON value — s_BaseWeapons[0] is MPWEAPON_FALCON2=0x01 with runtime_index=0, so `catalogIdByRuntime(ASSET_WEAPON, 0x01)` returns "base:falcon2_silencer" (MPWEAPON_FALCON2_SILENCER=0x02, stored at array index 1). Off-by-one for every MPWEAPON except NONE.
@@ -15,6 +15,15 @@
 - Fix (`src/game/setup.c`): replaced catalogIdByRuntime lookup with a catalog scan matching `ext.weapon.weapon_id == mpw` (same pattern as `savefile.c:816` / `buildSpawnWeaponList`). Skip MPWEAPON_NONE/SHIELD/DISABLED. Always override (not just if empty) so a stale out-of-set spawn weapon from a prior match gets corrected. Re-derive `spawnWeaponNum = catalogGetMpWeaponNum(mpw)` immediately so the current match respects the fallback.
 - Left the other known-broken `catalogIdByRuntime(ASSET_WEAPON, ...)` callsites (netmsg.c:882/1684/4183, matchsetup.c:835 `matchGetWeaponSlotCatalogId`, netmanifest.c:453/767/1096) alone — those are a separate systemic issue (same root cause: registration stores `runtime_index = i` rather than `weapon_id`) and fixing them requires careful audit of each callsite's expected semantics (MP weapon slots vs. solo intro WEAPON_* constants). Out of scope for B-181 specifically.
 - Build clean 774/774. `PerfectDark.exe` 53,195,903 / `PerfectDarkServer.exe` 23,140,832.
+
+---
+
+## Done — 2026-04-19 (S372 — B-186 team-color alignment + B-184 dead-code cleanup, `claude/xenodochial-tereshkova-c14bad`)
+
+- **B-186** — Two Teams rendered enemies YELLOW instead of BLUE. Root cause: `src/game/radar.c::g_TeamColours[]` still used the PD-native order (0:Red, 1:Yellow, 2:Blue, ...) while every menu palette (`pdgui_menu_room.cpp`, `pdgui_bridge.c`, `pdgui_menu_pausemenu.cpp`, `pdgui_menu_endscreen.cpp`, `pdgui_menu_mpingame.cpp`) uses the modern 0:Red, 1:Blue, 2:Green, ... ordering. `applyTwoTeams` / `applyHumansVsSims` assign team=0 to humans and team=1 to sims — the room menu showed "Blue" but radar + chr tint + scenario coloring all read `g_TeamColours[1]` = Yellow.
+- Fix: reordered `g_TeamColours[]` and the mirror `teamcolours[]` in `src/game/activemenu.c` to Red/Blue/Green/Yellow/Orange/Purple/Grey/White. Replaced langbank `L_OPTIONS_008 + i` lookups in `mpSetDefaultNamesIfEmpty` / `mpSetTeamNamesToDefault` / `mpGetTeamsWithDefaultName` (`src/game/mplayer/mplayer.c`) with a new static `kDefaultTeamNames[]` so fresh boss files get the right names. Re-aligned `port/fast3d/pdgui_menu_teamsetup.cpp::s_TeamColors` + `s_TeamNames` (which had their own Red/Blue/Yellow/Green ordering — yet a third variant) to match. All seven palettes + names now agree.
+- **B-184** — investigated without finding an active rainbow-normal source. Confirmed the "SAVED EFFECT: Normal Tint" block in `gfx_pc.cpp` (lines 1253-1276) was fully commented out and the `meshDebug` system's `s_DebugMode` is never written (F9 toggle only logs). Removed the dead SAVED EFFECT block as cleanup. Moved bug to `INVESTIGATED-NO-SMOKING-GUN` with audit notes and the fingerprint questions the next playtest log needs to answer.
+- Build clean 774/774. `PerfectDark.exe` 53,214,883 / `PerfectDarkServer.exe` 23,142,880.
 
 ---
 

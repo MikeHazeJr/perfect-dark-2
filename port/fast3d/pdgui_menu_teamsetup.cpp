@@ -45,22 +45,25 @@ void menuPopDialog(void);
 } /* extern "C" */
 
 /* ========================================================================
- * Team colors (must match pdgui_menu_matchsetup.cpp's table)
+ * Team colors — MUST match src/game/radar.c::g_TeamColours and every other
+ * team palette in port/fast3d/ (Room, Pause, Endscreen, Killfeed, HUD).
+ * Reordered 2026-04-19 for B-186 so Two Teams / Humans vs Sims reads
+ * Red (0) vs Blue (1) consistently in menu and engine.
  * ======================================================================== */
 
 static const ImVec4 s_TeamColors[] = {
-    ImVec4(0.8f, 0.2f, 0.2f, 1.0f),   /* 0: Red    */
-    ImVec4(0.2f, 0.5f, 1.0f, 1.0f),   /* 1: Blue   */
-    ImVec4(1.0f, 0.85f, 0.1f, 1.0f),  /* 2: Yellow */
-    ImVec4(0.2f, 0.8f, 0.2f, 1.0f),   /* 3: Green  */
-    ImVec4(0.8f, 0.4f, 0.1f, 1.0f),   /* 4: Orange */
-    ImVec4(0.7f, 0.2f, 0.8f, 1.0f),   /* 5: Purple */
-    ImVec4(0.1f, 0.8f, 0.8f, 1.0f),   /* 6: Cyan   */
-    ImVec4(0.9f, 0.5f, 0.7f, 1.0f),   /* 7: Pink   */
+    ImVec4(1.0f, 0.3f, 0.3f, 1.0f),  /* 0: Red    */
+    ImVec4(0.3f, 0.5f, 1.0f, 1.0f),  /* 1: Blue   */
+    ImVec4(0.3f, 1.0f, 0.3f, 1.0f),  /* 2: Green  */
+    ImVec4(1.0f, 1.0f, 0.3f, 1.0f),  /* 3: Yellow */
+    ImVec4(1.0f, 0.5f, 0.0f, 1.0f),  /* 4: Orange */
+    ImVec4(0.8f, 0.3f, 1.0f, 1.0f),  /* 5: Purple */
+    ImVec4(0.6f, 0.6f, 0.6f, 1.0f),  /* 6: Grey   */
+    ImVec4(1.0f, 1.0f, 1.0f, 1.0f),  /* 7: White  */
 };
 
 static const char *s_TeamNames[] = {
-    "Red", "Blue", "Yellow", "Green", "Orange", "Purple", "Cyan", "Pink"
+    "Red", "Blue", "Green", "Yellow", "Orange", "Purple", "Grey", "White"
 };
 
 /* ========================================================================

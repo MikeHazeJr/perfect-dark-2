@@ -22,15 +22,22 @@ u32 g_RadarY;
 
 bool g_RadarYIndicatorsEnabled = true;
 
+/* Team palette — indices MUST match the UI palette in
+ * port/fast3d/pdgui_menu_room.cpp (kTeamColors), pdgui_menu_pausemenu.cpp /
+ * pdgui_menu_endscreen.cpp / pdgui_menu_mpingame.cpp (s_TeamColors/s_KfTeamColors)
+ * and port/fast3d/pdgui_bridge.c (pdguiHudGetTeamColor). Reordered 2026-04-19
+ * for B-186 — Two Teams (humans=0, sims=1) now shows Red vs Blue in-game to
+ * match what the room/team-setup menus display. Alpha byte is 0 on purpose;
+ * radarDrawDot overwrites it with the fade factor before gDPSetPrimColor. */
 u32 g_TeamColours[] = {
-	0xff000000, // Red
-	0xffff0000, // Yellow
-	0x0000ff00, // Blue
-	0xff00ff00, // Magenta
-	0x00ffff00, // Cyan
-	0xff885500, // Orange
-	0x8800ff00, // Pink
-	0x88445500, // Brown
+	0xff000000, // 0: Red
+	0x0055ff00, // 1: Blue
+	0x00ff0000, // 2: Green
+	0xffff0000, // 3: Yellow
+	0xff880000, // 4: Orange
+	0xaa44ff00, // 5: Purple
+	0x80808000, // 6: Grey
+	0xffffff00, // 7: White
 };
 
 u32 var80087ce4[] = {
