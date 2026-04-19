@@ -582,6 +582,15 @@ static void imguiMenuOnPop(InputContext *self)
 {
     (void)self;
     imcDeactivate(&g_ImcMenu);
+    /* B-195: clear ImGui's nav / focus / active-id state so
+     * WantCaptureKeyboard drops back to false. Without this, NavWindow and
+     * ActiveId references from the just-closed menu keep ImGui claiming
+     * keyboard input, and pdguiProcessEvent's WantCaptureKeyboard gate in
+     * pdgui_backend.cpp:851 eats WASD / gameplay keys. Escape and Enter
+     * are explicitly whitelisted through (line 856), which is why pause /
+     * menu toggle still works while movement is dead. */
+    extern void pdguiClearImGuiFocusAndNav(void);
+    pdguiClearImGuiFocusAndNav();
     sysLogPrintf(LOG_NOTE, "INPUTCTX: imgui_menu on_pop -- g_ImcMenu deactivated");
 }
 

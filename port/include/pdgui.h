@@ -53,6 +53,17 @@ void pdguiToggle(void);
  * Call on disconnect so the menu re-opens at the root, not "Online Play". */
 void pdguiMainMenuReset(void);
 
+/* B-195: Clear ImGui's nav/focus/active-id state. Call when the last imgui
+ * menu closes so ImGui's WantCaptureKeyboard drops back to false. Without
+ * this, NavWindow / ActiveId references from the just-closed menu can
+ * stick until the next menu opens, and pdguiProcessEvent's
+ * WantCaptureKeyboard gate (pdgui_backend.cpp:851) keeps routing WASD /
+ * gameplay keys into ImGui instead of the action map. Symptom: after
+ * closing a menu, WASD / Space are dead while Escape still works (that
+ * key is explicitly whitelisted), and the menu "doubles up" when the
+ * user tries to re-open it. */
+void pdguiClearImGuiFocusAndNav(void);
+
 /* D5.0: Return an ImTextureID (GLuint cast to void*) for a named UI texture.
  * Delegates to pdguiThemeGetTexture() in pdgui_theme.cpp.
  * Textures are decoded from ROM (N64 RGBA16/IA16/IA8/CI4/CI8 → RGBA32 → GL)
