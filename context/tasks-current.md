@@ -7,6 +7,20 @@
 
 ---
 
+## Done — 2026-04-19 (S384 — B-184 + B-193 root cause: ALIGN16 pointer-alignment regression from `fe107e3e`, `claude/elated-hugle-7ec221` → `dev` @ `90b448ce`)
+
+- **B-184** (per-object vertex-colour tints: yellow computer props, cyan elevator top, olive character faces) and **B-193** (intermittent invisible CI geometry on cold boot) — same root cause. Commit `fe107e3e` (2026-04-17, M4 optimisation) collapsed `ALIGN16(val)` to `(val)` on the grounds that `mempAlloc` returns aligned memory. True for **size** args; broken for **pointer** args at ~30 sites.
+- **B-184 mechanism**: `gfxmemory.c:154` — `g_GfxMemPos = (u8 *)ALIGN16((uintptr_t)g_GfxMemPos)` after `gfxAllocateVertices`. `Vtx` is 12 bytes; odd count drifts pointer by 12 mod 16. Next `gfxAllocateColours` binds a misaligned `Col*` as the `vcn` for the subsequent `G_COL`. Every lit draw reads the wrong vertex-colour bytes → consistent per-object tints on correct textures.
+- **B-193 mechanism**: `bg.c:1516 / 1934` — `header = (u8 *)ALIGN16((uintptr_t)headerbuffer)` for a `u8[0x50]` stack buffer. No-op macro leaves `header` wherever the stack put `headerbuffer`. Often 16-aligned by luck on 64-bit; occasional misalignment feeds garbage into `preprocessBgSection1Header` and the inflate, leaving `g_BgPrimaryData` unparseable (invisible geometry). Explains the intermittent / "won't reproduce on clean rebuild" pattern — stack-frame layouts shift between builds.
+- **Fix**: single-line revert in `src/include/constants.h:79` — `#define ALIGN16(val)        ((((val) + 0xf) | 0xf) ^ 0xf)`. 0–15-byte overhead per alloc is trivial on PC (<120 call sites, hundreds of MB of game memory). Considered splitting into pointer / size macros but rejected: pointer-vs-size isn't always obvious at the call site (e.g. `gfxAllocate` accumulator), single-macro-with-correct-semantics is the safer primitive.
+- **Files**: `src/include/constants.h` (+1/−1), `context/bugs.md` (B-184 + B-193 rewritten), `context/session-log.md` (S384 entry).
+- **Build**: clean 777/777. `PerfectDark.exe` 53,232,611 / `PerfectDarkServer.exe` 23,154,674.
+- **Merge**: base `d06be0f3`, worktree tip `3869ba29`, dev tip `90b448ce`. `git diff d06be0f3..90b448ce --stat`: `src/include/constants.h | 2 +-` — exact one-line change, no collateral movement.
+- **Playtest**: (1) cold-boot CI 5× → scene renders every time (no sky-only). (2) In-game: character skin + clothing are authored colours (not olive-green); computer props not yellow/cyan; elevator top gray (not cyan); doors authored colour (not yellow). (3) Other stages (Skedar Ruins, Complex, Felicity, Temple, Dam, Carrington Villa) 2–3× each for regression.
+- **What this explains**: S382's fourth-pass static diff audit through the AP Phase sprint (goofy-shaw-96c6c1) was thorough and its rule-outs were correct — the regression was in a **separate** 2026-04-17 commit (`fe107e3e`, M4 optimisation, not part of AP). brave-bouman-13bd68's "B-193 not reproducing on 5-launch streak" was legitimately low-probability, not a false negative.
+
+---
+
 ## Done — 2026-04-19 (S379 — 3-bug playtest batch: interact prompt over menus, bot count scroll, Grid walkable pickups, `claude/friendly-kirch-688ea4`)
 
 - **B-189** — Interact prompt pill ("[E] Pick up" / "[A] Open" / etc.) was rendering over ImGui menus. `pdguiInteractPromptRender` drew on the foreground drawlist every frame the game had an interact target, with no menu gate. When you walked up to a pickup and then opened Settings / Pause / Forge, the pill stayed floating above the menu. Fix: one-line `if (pdguiIsActive()) return;` gate at the top — same authority predicate (`inputCtxGetTop() != &g_CtxGameplay`) every other gameplay-HUD-only overlay uses. Restores the documented HUD layer policy in `context/designs/hud-layer-order.md` §7.
