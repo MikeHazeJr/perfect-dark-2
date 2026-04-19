@@ -2819,10 +2819,17 @@ void bgLoadRoom(s32 roomnum)
 
 #ifdef PLATFORM_64BIT
 	// preprocessBgRoom converts 32-bit ROM offsets/GBI commands to 64-bit in-place.
-	// The output can expand up to 2x (4-byte → 8-byte pointer-bearing commands).
-	// The compressed data (readlen) fits in the right half since readlen <= gfxdatalen < 2*gfxdatalen.
-	// Total required: 2 * gfxdatalen (preprocessed output) + readlen (already fits in left half after inflate).
-	alloclen = alloclen * 2;
+	// Output can expand well beyond 2x when a room's packed-segment pointers
+	// (ptr_vertices / ptr_colours / ptr_gdl) reference offsets that were valid
+	// in the ROM's contiguous BG segment but now land outside this room's
+	// independently-inflated buffer. preprocessBgRoom bounds-checks those reads
+	// but still needs scratch for pointer-expanded GDL commands + struct fields.
+	// Must match PREPROCESS_BG_ROOM_MULT_LOCAL in port/src/preprocess/filebg.c.
+	// See B-195 (Complex room 7 overflow at 576 → 15528).
+	alloclen = alloclen * 8;
+	if (alloclen < 16384) {
+		alloclen = 16384;
+	}
 #endif
 
 
@@ -2856,6 +2863,14 @@ void bgLoadRoom(s32 roomnum)
 		// Inflate the data to the left side of the allocation
 		inflatedlen = bgInflate(memaddr, allocation, g_BgRooms[roomnum + 1].unk00 - g_BgRooms[roomnum].unk00);
 		inflatedlen = preprocessBgRoom(allocation, inflatedlen, g_BgRooms[roomnum].unk00);
+
+		// preprocessBgRoom returns 0 if the room's gfx data was malformed and
+		// had to be dropped (B-195 overflow fallback). Skip this room's load
+		// rather than letting NULL pointers propagate into the render path.
+		if (inflatedlen == 0) {
+			dyntexSetCurrentRoom(-1);
+			return;
+		}
 
 		g_Rooms[roomnum].gfxdata = (struct roomgfxdata *)allocation;
 

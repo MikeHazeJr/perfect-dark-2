@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <limits.h>
 
+#include "system.h"
 #include "preprocess/common.h"
 #include "preprocess/gbi.h"
 
@@ -172,15 +173,32 @@ void gbiGdlRewriteAddrs(u8 *dst, u32 offset)
 	} while (!CMD_IS_ENDDL(cmd));
 }
 
-u32 gbiConvertGdl(u8 *dst, u32 dstpos, u8 *src, u32 srcpos, int segment_cmds)
+u32 gbiConvertGdl(u8 *dst, u32 dstpos, u8 *src, u32 srcpos, u32 src_size, int segment_cmds)
 {
 	dstpos = ALIGN8(dstpos);
 
 	u64 *n64_cmd = (u64*)&src[srcpos];
 	u64 *host_cmd = (u64*)&dst[dstpos];
 	u64 cmd;
+	u32 cur = srcpos;
 
+	// Bound reads to src_size; synthesize ENDDL if the GDL runs off the source
+	// buffer. This prevents garbage reads when ptr_gdl in a room block points to
+	// an offset that is valid in the original ROM segment but outside this
+	// room's independently-inflated buffer. See B-195.
 	do {
+		if (src_size && cur + sizeof(u64) > src_size) {
+			sysLogPrintf(LOG_WARNING, "gbiConvertGdl: source overrun at srcpos=%u src_size=%u — synthesizing ENDDL", cur, src_size);
+#if HOST_DWORDS_PER_CMD == 2
+			host_cmd[0] = 0xb8000000ull;
+			host_cmd[1] = 0;
+#else
+			host_cmd[0] = 0x00000000b8000000ull;
+#endif
+			dstpos += sizeof(*host_cmd) * HOST_DWORDS_PER_CMD;
+			break;
+		}
+
 		cmd = PD_BE64(*n64_cmd);
 
 #if HOST_DWORDS_PER_CMD == 2
@@ -202,6 +220,7 @@ u32 gbiConvertGdl(u8 *dst, u32 dstpos, u8 *src, u32 srcpos, int segment_cmds)
 		dstpos += sizeof(*host_cmd) * HOST_DWORDS_PER_CMD;
 		host_cmd += HOST_DWORDS_PER_CMD;
 		n64_cmd++;
+		cur += sizeof(u64);
 	} while (!CMD_IS_ENDDL(cmd));
 
 	return dstpos;
