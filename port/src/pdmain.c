@@ -744,7 +744,7 @@ void mainTick(void)
 				/* B-193 Phase 4: portal-walker branch state. */
 				extern struct bgcmd *g_BgCommands;
 				extern struct bgportal *g_BgPortals;
-				extern bool g_BgRoomTestsDisabled;
+				extern u32 g_BgRoomTestsDisabled;
 				extern s32 g_BgNumForceOnscreenRooms;
 				const struct room *pr = (g_Rooms && camRoom >= 0 && camRoom < g_Vars.roomcount)
 					? &g_Rooms[camRoom] : NULL;
