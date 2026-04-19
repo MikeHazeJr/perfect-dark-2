@@ -243,7 +243,7 @@ void relinkPtr(uintptr_t* ptr)
 	*ptr = marker->ptr_host;
 }
 
-static u32 convertRoomGfxData(u8 *dst, u8 *src, u32 infsize, u32 src_ofs)
+static u32 convertRoomGfxData(u8 *dst, u8 *src, u32 src_size, u32 dst_size, u32 src_ofs)
 {
 	ptrReset();
 	gbiReset();
@@ -265,7 +265,16 @@ static u32 convertRoomGfxData(u8 *dst, u8 *src, u32 infsize, u32 src_ofs)
 	dst_header->numvertices = PD_BE16(src_header->numvertices);
 	dst_header->numcolours = PD_BE16(src_header->numcolours);
 
-	intptr_t endpos = (uintptr_t)dst_header->vertices - src_ofs;
+	intptr_t endpos_raw = (uintptr_t)dst_header->vertices - src_ofs;
+	intptr_t endpos = endpos_raw;
+	// Clamp to src_size so a bogus ptr_vertices can't walk past the inflated
+	// room data. In a well-formed per-room blob, every pointer lies within
+	// [0, src_size); anything outside points to adjacent heap memory (compressed
+	// data scratch, uninit bytes), not real geometry. See B-195.
+	if (endpos < 0 || (u32)endpos > src_size) {
+		sysLogPrintf(LOG_WARNING, "convertRoomGfxData: ptr_vertices yields endpos=%lld outside src_size=%u — clamping (roomblock loop cut)", (long long)endpos_raw, src_size);
+		endpos = src_size;
+	}
 	uintptr_t curpos_src = sizeof(struct n64_roomgfxdata);
 	uintptr_t curpos_dst = sizeof(struct roomgfxdata) - sizeof(struct roomblock); // compensate for the [1]
 
@@ -329,7 +338,12 @@ static u32 convertRoomGfxData(u8 *dst, u8 *src, u32 infsize, u32 src_ofs)
 
 	ptrAdd(curpos_src + src_ofs, curpos_dst + dst_roomoffset);
 
-	uintptr_t vtx_end = (uintptr_t)dst_header->colours - src_ofs;
+	uintptr_t vtx_end_raw = (uintptr_t)dst_header->colours - src_ofs;
+	uintptr_t vtx_end = vtx_end_raw;
+	if (vtx_end > src_size) {
+		sysLogPrintf(LOG_WARNING, "convertRoomGfxData: ptr_colours yields vtx_end=%llu outside src_size=%u — clamping (vertex loop cut)", (unsigned long long)vtx_end_raw, src_size);
+		vtx_end = src_size;
+	}
 
 	while (dst_header->colours && curpos_src < vtx_end) {
 		struct vtx *src_vtx = (struct vtx*)(src + curpos_src); 
@@ -361,8 +375,13 @@ static u32 convertRoomGfxData(u8 *dst, u8 *src, u32 infsize, u32 src_ofs)
 
 		ptrAdd(curpos_src + src_ofs, curpos_dst + dst_roomoffset);
 
-		uintptr_t col_end = (numgdls > 0) ? gdls_addr[0] : infsize;
-		size_t col_len = col_end - curpos_src;
+		uintptr_t col_end_raw = (numgdls > 0) ? gdls_addr[0] : src_size;
+		uintptr_t col_end = col_end_raw;
+		if (col_end > src_size) {
+			sysLogPrintf(LOG_WARNING, "convertRoomGfxData: gdls_addr[0] yields col_end=%llu outside src_size=%u — clamping (color memcpy cut)", (unsigned long long)col_end_raw, src_size);
+			col_end = src_size;
+		}
+		size_t col_len = (col_end > curpos_src) ? (col_end - curpos_src) : 0;
 
 		memcpy(dst + curpos_dst, src + curpos_src, col_len);
 		curpos_src += col_len;
@@ -375,8 +394,15 @@ static u32 convertRoomGfxData(u8 *dst, u8 *src, u32 infsize, u32 src_ofs)
 
 	uintptr_t gdlstart = curpos_dst;
 	for (size_t i = 0; i < numgdls; i++) {
+		// Skip GDLs whose source offset is outside this room's inflated buffer.
+		// Such a ptr_gdl was valid in the packed ROM segment (where all rooms
+		// lived contiguously) but has no meaning now. See B-195.
+		if (gdls_addr[i] >= src_size) {
+			sysLogPrintf(LOG_WARNING, "convertRoomGfxData: gdl[%u] src_offset=%u outside src_size=%u — skipping", (u32)i, (u32)gdls_addr[i], src_size);
+			continue;
+		}
 		ptrAdd(gdls_addr[i] + src_ofs, curpos_dst + dst_roomoffset);
-		curpos_dst = gbiConvertGdl(dst, curpos_dst, src, gdls_addr[i], 1);
+		curpos_dst = gbiConvertGdl(dst, curpos_dst, src, gdls_addr[i], src_size, 1);
 	}
 
 	// relink ptrs: roomblocks
@@ -462,14 +488,29 @@ void preprocessBgSection1(u8 *data, u32 size, u32 ofs)
 	sysMemFree(dst);
 }
 
+/* Upper bound on how much preprocessBgRoom's output can grow past the inflated
+ * source data. GDL commands and pointer-bearing struct fields each roughly
+ * double in size on 64-bit; plus alignment overhead. The caller (bg.c) MUST
+ * allocate its data buffer with at least the same multiplier so the memcpy
+ * below doesn't overflow. See PREPROCESS_BG_ROOM_MULT in preprocess.h. */
+#define PREPROCESS_BG_ROOM_MULT_LOCAL 8u
+
 u32 preprocessBgRoom(u8 *data, u32 size, u32 room_ofs)
 {
-	size *= 2;
-	u8 *dst = sysMemZeroAlloc(size);
-	u32 newSize = convertRoomGfxData(dst, data, size, room_ofs);
+	u32 src_size = size;
+	u32 dst_size = src_size * PREPROCESS_BG_ROOM_MULT_LOCAL;
+	if (dst_size < 4096) {
+		dst_size = 4096;
+	}
+	u8 *dst = sysMemZeroAlloc(dst_size);
+	u32 newSize = convertRoomGfxData(dst, data, src_size, dst_size, room_ofs);
 
-	if (newSize > size) {
-		sysFatalError("overflow when trying to preprocess a bg room, size %d newsize %d", size, newSize);
+	if (newSize > dst_size) {
+		// Should be unreachable with bounds-checked convertRoomGfxData + gbiConvertGdl.
+		// Fail soft: drop the room's gfx data rather than crashing the game.
+		sysLogPrintf(LOG_ERROR, "preprocessBgRoom: overflow src_size=%u dst_size=%u newSize=%u — dropping room", src_size, dst_size, newSize);
+		sysMemFree(dst);
+		return 0;
 	}
 
 	memcpy(data, dst, newSize);
