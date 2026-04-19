@@ -337,6 +337,7 @@ s32  pdguiModdingHubIsVisible(void);
 
 /* Solo Room screen — open the Room screen in offline (NETMODE_NONE) mode */
 void pdguiSoloRoomOpen(void);
+s32  pdguiSoloRoomIsActive(void);
 void pdguiSoloMissionReset(void); /* F-1.2 */
 
 /* Connect codes (connectcode.c) */
@@ -3216,6 +3217,17 @@ static s32 renderMainMenu(struct menudialog *dialog,
      * alongside curdialog during a swipe. */
     if (!menuDialogIsCurrent(dialog)) {
         return 1; /* consumed — sibling, not the active dialog */
+    }
+    /* Bug 1 fix: Combat Simulator solo Room is a pure-ImGui overlay that
+     * leaves the Main Menu dialog on the menu stack (CI button calls
+     * pdguiSoloRoomOpen() without popping). When a child dialog (Team
+     * Setup, Change Agent, ...) is pushed then popped while the Room is
+     * up, Main Menu's ImGui window goes hidden→visible, fires
+     * IsWindowAppearing, SetWindowFocus()es itself on top of the Room.
+     * Suppress the Main Menu render entirely while the Room owns the
+     * screen; it comes back as soon as "Back to Menu" clears the flag. */
+    if (pdguiSoloRoomIsActive()) {
+        return 1;
     }
     s_MainMenuIsRendering = true;
     /* E.3: Enforce the user's saved theme — prevents tint bleed from post-mission

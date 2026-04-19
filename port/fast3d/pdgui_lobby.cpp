@@ -193,6 +193,19 @@ extern "C" void pdguiSoloRoomClose(void)
     pdguiRoomScreenSetSolo(0);
 }
 
+/**
+ * Query whether the solo Combat Simulator Room overlay is active.
+ * The Room is a pure-ImGui overlay -- not a menudialog -- so renderers
+ * that sit under it on the dialog stack (notably the Main Menu) need
+ * to suppress themselves to avoid stealing Z-order / focus when a
+ * child dialog (Team Setup, Change Agent, ...) opened from the
+ * lingering Main Menu dialog pops.
+ */
+extern "C" s32 pdguiSoloRoomIsActive(void)
+{
+    return s_SoloRoomActive ? 1 : 0;
+}
+
 /* ========================================================================
  * Public API
  * ======================================================================== */

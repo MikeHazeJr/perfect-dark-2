@@ -1980,6 +1980,48 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 ImGui::EndMenu();
             }
 
+            /* Team — applies to all selected, only visible when teams are
+             * enabled. Matches the colour palette of the player list. */
+            if (isLeader && teamsOn) {
+                int commonTeam = -1;
+                {
+                    bool first = true;
+                    for (int j = 1; j < g_MatchConfig.numSlots; j++) {
+                        if (!s_BotSelected[j] || g_MatchConfig.slots[j].type != SLOT_BOT) continue;
+                        int t = (int)g_MatchConfig.slots[j].team;
+                        if (first) { commonTeam = t; first = false; }
+                        else if (commonTeam != t) { commonTeam = -1; break; }
+                    }
+                }
+                char teamMenuLabel[24];
+                if (commonTeam >= 0 && commonTeam < 8) {
+                    snprintf(teamMenuLabel, sizeof(teamMenuLabel),
+                             "Team: %d", commonTeam + 1);
+                } else {
+                    snprintf(teamMenuLabel, sizeof(teamMenuLabel), "Team");
+                }
+                if (ImGui::BeginMenu(teamMenuLabel)) {
+                    for (int t = 0; t < 8; t++) {
+                        char teamLabel[16];
+                        snprintf(teamLabel, sizeof(teamLabel), "Team %d", t + 1);
+                        ImGui::PushStyleColor(
+                            ImGuiCol_Text,
+                            ImGui::ColorConvertFloat4ToU32(kTeamColors[t]));
+                        if (ImGui::MenuItem(teamLabel, NULL, t == commonTeam)) {
+                            for (int j = 1; j < g_MatchConfig.numSlots; j++) {
+                                if (s_BotSelected[j] && g_MatchConfig.slots[j].type == SLOT_BOT) {
+                                    g_MatchConfig.slots[j].team = (u8)t;
+                                }
+                            }
+                            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                            s_RoomSettingsDirty = true;
+                        }
+                        ImGui::PopStyleColor();
+                    }
+                    ImGui::EndMenu();
+                }
+            }
+
             ImGui::Separator();
 
             /* Duplicate — copies selected bots */
