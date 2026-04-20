@@ -73,6 +73,12 @@ cmake-build-debug
 # Git recovery artifacts
 .git.broken/
 
+# SEC-6: Developer-owned Ed25519 signing keys. Private key MUST never be
+# committed. Public key is embedded in port/include/updater_pubkey.h.
+dev-keys/
+release-keys/
+*.sig
+
 # Flatpak
 .flatpak-builder
 
