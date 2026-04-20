@@ -1201,10 +1201,21 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
 
         x = gfx_adjust_x_for_aspect_ratio(x, w);
 
-        short U = v->s * rsp.texture_scaling_factor.s >> 16;
-        short V = v->t * rsp.texture_scaling_factor.t >> 16;
+        s32 U = (s32)v->s * (s32)rsp.texture_scaling_factor.s >> 16;
+        s32 V = (s32)v->t * (s32)rsp.texture_scaling_factor.t >> 16;
 
-        const struct NormalColor *vcn = &rsp.vertex_colors[v->colour >> 2];
+        static const struct NormalColor s_vcn_white = {255, 255, 255, 255};
+        const struct NormalColor *vcn;
+        if (!rsp.vertex_colors) {
+            static int s_vcn_warn_count = 0;
+            if (s_vcn_warn_count < 5) {
+                fprintf(stderr, "WARN: gfx_pc: vertex_colors NULL at vertex load\n");
+                ++s_vcn_warn_count;
+            }
+            vcn = &s_vcn_white;
+        } else {
+            vcn = &rsp.vertex_colors[v->colour >> 2];
+        }
 
         if (rsp.geometry_mode & G_LIGHTING) {
             if (rsp.lights_changed) {

@@ -1058,7 +1058,7 @@ static int gfx_opengl_create_framebuffer() {
     GLuint clrbuf;
     glGenTextures(1, &clrbuf);
     glBindTexture(GL_TEXTURE_2D, clrbuf);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, 1, 1, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -1081,6 +1081,9 @@ static int gfx_opengl_create_framebuffer() {
 
     GLuint fbo;
     glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, clrbuf, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
     framebuffers[i].fbo = fbo;
 
     return i;
@@ -1101,12 +1104,12 @@ static void gfx_opengl_update_framebuffer_parameters(int fb_id, uint32_t width, 
             if (fb.width != width || fb.height != height || fb.msaa_level != msaa_level) {
                 if (msaa_level <= 1) {
                     glBindTexture(GL_TEXTURE_2D, fb.clrbuf);
-                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
                     glBindTexture(GL_TEXTURE_2D, 0);
                     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fb.clrbuf, 0);
                 } else {
                     glBindRenderbuffer(GL_RENDERBUFFER, fb.clrbuf_msaa);
-                    glRenderbufferStorageMultisample(GL_RENDERBUFFER, msaa_level, GL_RGB8, width, height);
+                    glRenderbufferStorageMultisample(GL_RENDERBUFFER, msaa_level, GL_RGBA8, width, height);
                     glBindRenderbuffer(GL_RENDERBUFFER, 0);
                     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, fb.clrbuf_msaa);
                 }
@@ -1258,7 +1261,9 @@ void gfx_opengl_copy_framebuffer(int fb_dst, int fb_src, int left, int top, bool
 }
 
 void gfx_opengl_set_texture_filter(FilteringMode mode) {
+    if (current_filter_mode == mode) return;
     current_filter_mode = mode;
+    gfx_opengl_clear_shaders();
 }
 
 FilteringMode gfx_opengl_get_texture_filter(void) {
