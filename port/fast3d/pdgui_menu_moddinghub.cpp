@@ -70,6 +70,7 @@ void pdguiAudioModRender(float contentW, float contentH, float scale);
 void pdguiSkinEditorRefresh(void);
 void pdguiSkinEditorRender(float contentW, float contentH, float scale);
 void pdguiSkinEditorDismissTransientUi(void);
+s32  pdguiSkinEditorTryConsumeHubEscape(void);
 
 /* Map Import Pipeline (L3 — port/src/mapimport.c) */
 s32 mapImportExists(const char *map_name);
@@ -1478,7 +1479,10 @@ static void renderModdingHub(s32 winW, s32 winH)
         } else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             if (s_ModHubOpenFrame < 0
                 || (ImGui::GetFrameCount() - s_ModHubOpenFrame) >= 5) {
-                moddingHubCloseFromUi("escape-or-b-button");
+                /* B-213: Escape leaves paint session first; second Escape closes hub. */
+                if (!(s_ActiveTool == 5 && pdguiSkinEditorTryConsumeHubEscape())) {
+                    moddingHubCloseFromUi("escape-or-b-button");
+                }
             }
         }
     }

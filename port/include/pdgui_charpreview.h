@@ -81,6 +81,11 @@ u32 pdguiCharPreviewGetTextureId(void);
 /* Returns non-zero if the preview texture has valid content. */
 s32 pdguiCharPreviewIsReady(void);
 
+/* Non-zero if menuRenderModel must run for the preview/capture pipeline this
+ * frame even when g_MenuData.unk5d5_01 would normally skip (no legacy dialog
+ * open). Used from menu.c — B-213 standalone ImGui + Skin Editor. */
+s32 pdguiCharPreviewNeedsMenuModel(void);
+
 /* Get preview dimensions. */
 void pdguiCharPreviewGetSize(s32 *w, s32 *h);
 

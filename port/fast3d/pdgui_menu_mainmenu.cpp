@@ -3642,10 +3642,27 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
     } else if (s_MenuView == 3) {
         /* ================================================================
-         * MODDING HUB
+         * MODDING — Modding Hub renders in pdguiModdingHubRender (overlay).
+         * B-213: when the hub closes, stay on this view with a clear re-entry
+         * point instead of forcing s_MenuView=0 (which felt like "Back to
+         * Main Menu" after leaving Skin Editor or closing the hub).
          * ================================================================ */
         if (!pdguiModdingHubIsVisible()) {
-            s_MenuView = 0;
+            ImGui::Dummy(ImVec2(0, 8.0f * scale));
+            ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.9f, 1.0f), "Modding");
+            ImGui::Separator();
+            ImGui::Dummy(ImVec2(0, 6.0f * scale));
+            ImGui::TextDisabled("Modding tools are closed.");
+            ImGui::Dummy(ImVec2(0, 8.0f * scale));
+            if (PdButton("Open Modding Hub", ImVec2(buttonW, buttonH * 1.15f))) {
+                pdguiModdingHubShow();
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            }
+            ImGui::Dummy(ImVec2(0, 6.0f * scale));
+            if (PdButton("Back", ImVec2(buttonW * 0.65f, buttonH))) {
+                s_MenuView = 0;
+                pdguiPlaySound(PDGUI_SND_SWIPE);
+            }
         }
 
     } else if (s_MenuView == 4) {

@@ -1,8 +1,17 @@
 
 # Session Log (Active)
 
-> **S283–S398** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S283–S399** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S399 — 2026-04-20 — B-207 manifest heads + B-213 Skin Editor charpreview
+
+- **B-207** (`port/src/net/netmanifest.c`): Late-add diagnostic no longer treats `numparts==0` as torn for **MANIFEST_TYPE_HEAD** (aligned with `modelcatalog.c` B-179); bodies still WARN on parts=0.
+- **B-213**: `menuRenderModel` skipped when `unk5d5_01` with no legacy dialog — standalone ImGui charpreview never drew (`menu.c` + `pdguiCharPreviewNeedsMenuModel()`). Preview requests set `menumodel.zoom=185`. Main menu view 3 keeps Modding entry after hub close (Open Modding Hub + Back). Hub Escape exits skin paint session first (`pdguiSkinEditorTryConsumeHubEscape`).
+
+**Next**: Playtest Mods → Skin Editor preview / New Skin / Escape; grep logs for MANIFEST-SP late-add heads.
+
+---
 
 ## Session S398 — 2026-04-20 — Apr20 plan batch: B-204/205/206/202/208/210/214/215/216
 

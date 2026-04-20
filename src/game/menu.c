@@ -1981,7 +1981,8 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 	s32 headnum;
 
 	if (g_Vars.stagenum != STAGE_CITRAINING && g_Vars.stagenum != STAGE_CREDITS) {
-		if (g_MenuData.unk5d5_01 && modeltype != MENUMODELTYPE_HUDPIECE && modeltype < MENUMODELTYPE_3) {
+		if (g_MenuData.unk5d5_01 && modeltype != MENUMODELTYPE_HUDPIECE && modeltype < MENUMODELTYPE_3
+				&& !pdguiCharPreviewNeedsMenuModel()) {
 			return gdl;
 		}
 

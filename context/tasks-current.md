@@ -9,6 +9,8 @@
 
 ## Open — 2026-04-20 (Super Audit 2026-04-20 — Wave 3A hardening + carry-overs)
 
+**Done this session (S399):** B-207 manifest late-add head `parts=0` logging (not false torn); B-213 Skin Editor — `unk5d5_01` bypass for charpreview, preview zoom, Modding view 3 hub close UX, hub Escape exits paint session first. See `context/session-log.md` S399.
+
 **Done this session (S398):** Apr20 implementation-plan batch — B-204/205 `lvupdate240` catch-up cap, B-206 spawn AABB valid fallback, B-202 weapon-wheel focused highlight, B-208 Select Tunes cache, B-210 Modding Hub open debounce, B-214 `modmgrSyncCatalogToRegistry` after mod delete, B-215 Scale tool `ASSET_BODY` paths, B-216 Grid skip redundant CI transition. See `context/session-log.md` S398.
 
 Report: [`context/audits/2026-04-20-full.md`](audits/2026-04-20-full.md).

@@ -1644,6 +1644,25 @@ void pdguiSkinEditorDismissTransientUi(void)
     sysLogPrintf(LOG_NOTE, "skin_editor: transient popups/dialogs dismissed");
 }
 
+s32 pdguiSkinEditorTryConsumeHubEscape(void)
+{
+    if (!s_EditorActive) {
+        return 0;
+    }
+    pdguiCharPreviewClearSkinOverride();
+    pdguiCharPreviewSkinCaptureConsume();
+    s_CaptureRequested = false;
+    s_CaptureLoaded    = false;
+    skinUvClear();
+    skinCanvasDestroy();
+    s_EditorActive = false;
+    s_SaveStatus[0]   = '\0';
+    s_ExportStatus[0] = '\0';
+    skinEditorDismissTransientUi();
+    sysLogPrintf(LOG_NOTE, "skin_editor: hub Escape — exited paint session to character select");
+    return 1;
+}
+
 void pdguiSkinEditorRender(float contentW, float contentH, float scale)
 {
     if (s_LastRenderEditorActive != (s_EditorActive ? 1 : 0)) {

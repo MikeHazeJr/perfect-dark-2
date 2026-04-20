@@ -151,6 +151,10 @@ void pdguiSkinEditorRefresh(void);
  *  Called each frame from the Modding Hub when the Skin Editor tab is active. */
 void pdguiSkinEditorRender(float contentW, float contentH, float scale);
 
+/** Hub-level Escape: if the paint session is active, exit to character select
+ *  and return non-zero so the hub does not close. B-213. */
+s32 pdguiSkinEditorTryConsumeHubEscape(void);
+
 #ifdef __cplusplus
 }
 #endif

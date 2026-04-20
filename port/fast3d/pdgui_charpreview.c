@@ -126,6 +126,13 @@ static void charPreviewSubmitParams(u32 params, s32 type)
     g_Menus[playernum].menumodel.newparams = params;
     g_Menus[playernum].menumodel.newroty  = s_PreviewRotY;
     g_Menus[playernum].menumodel.curroty  = s_PreviewRotY;
+    /* B-213: default menumodel zoom was -1 (no auto-framing). Positive zoom
+     * matches character-select style framing so the preview is not glued to
+     * the camera. */
+    if (type == PDGUI_PREVIEW_CHARACTER || type == PDGUI_PREVIEW_VEHICLE
+            || type == PDGUI_PREVIEW_PROP) {
+        g_Menus[playernum].menumodel.zoom = 185.0f;
+    }
 }
 
 /**
@@ -465,6 +472,18 @@ void pdguiCharPreviewSkinCaptureConsume(void)
     s_SkinCaptureSrcH = 0;
     s_SkinCaptureState = SKIN_CAPTURE_IDLE;
     gfxSkinCaptureClear();
+}
+
+s32 pdguiCharPreviewNeedsMenuModel(void)
+{
+    if (s_PreviewRequested) {
+        return 1;
+    }
+    if (s_SkinCaptureState == SKIN_CAPTURE_WAITING
+            || s_SkinCaptureState == SKIN_CAPTURE_RENDERING) {
+        return 1;
+    }
+    return 0;
 }
 
 /* ========================================================================

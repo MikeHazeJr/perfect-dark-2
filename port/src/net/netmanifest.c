@@ -1888,16 +1888,32 @@ s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
                              "MANIFEST-SP: late-add '%s' type=%d runtime=%d -- "
                              "post-load modeldef is NULL (catalog miss after late-add)",
                              catalog_id, asset_type, runtime_idx);
-            } else if (md->numparts <= 0
-                       || md->numparts > 500
+            } else if (md->numparts > 500
                        || md->rootnode == NULL
                        || md->scale <= 0.0f) {
                 sysLogPrintf(LOG_WARNING,
                              "MANIFEST-SP: late-add '%s' type=%d runtime=%d -- "
                              "post-load modeldef torn: parts=%d root=%p scale=%.3f "
+                             "(invalid structure / scale)",
+                             catalog_id, asset_type, runtime_idx,
+                             md->numparts, (void *)md->rootnode,
+                             md->scale);
+            } else if (asset_type == MANIFEST_TYPE_BODY && md->numparts <= 0) {
+                /* Bodies require skeletal parts[] — same class as sp_body_108. */
+                sysLogPrintf(LOG_WARNING,
+                             "MANIFEST-SP: late-add '%s' type=%d runtime=%d -- "
+                             "post-load body modeldef torn: parts=%d root=%p scale=%.3f "
                              "(root cause class: sp_body_108 parts=0 / S308)",
                              catalog_id, asset_type, runtime_idx,
                              md->numparts, (void *)md->rootnode,
+                             md->scale);
+            } else if (asset_type == MANIFEST_TYPE_HEAD && md->numparts <= 0) {
+                /* B-207: heads may legitimately have numparts==0 with valid
+                 * rootnode+skel (modelcatalog validateModeldef / B-179). */
+                sysLogPrintf(LOG_NOTE,
+                             "MANIFEST-SP: late-add '%s' type=%d runtime=%d -- "
+                             "post-load head modeldef OK (parts=0 valid for heads) scale=%.3f",
+                             catalog_id, asset_type, runtime_idx,
                              md->scale);
             } else {
                 sysLogPrintf(LOG_NOTE,
