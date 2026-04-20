@@ -67,6 +67,12 @@ playtest.
 
 ---
 
+## Done — 2026-04-19 (S391 — MASTER-C1: netbufReadStr NUL termination, `claude/cranky-haslett-e312ba` → `dev` @ `f3e10caa`)
+
+- **MASTER-C1** (Super Audit 2026-04-19): `netbufReadStr` now force-NUL-terminates the receive buffer at `rp+len-1` before returning; return type changed to `const char *`. Protects all 40+ callsites across netmsg.c, net.c, netmanifest.c, sessioncatalog.c at once. Protocol-compatible (no wire change). Callsite sweep confirmed all read-only. Build clean.
+
+---
+
 ## Done — 2026-04-19 (S385 — B-198: CS pause End Game confirm focus + CS end-of-match input-death, `claude/infallible-goldberg-71b379`)
 
 - **B-198** (CS pause → End Game: controller can select "End Game" but not reach Confirm; CS end-of-match: no input, no way back to main menu). Two bugs, one session, both fixed.

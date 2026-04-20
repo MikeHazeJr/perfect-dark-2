@@ -1,8 +1,28 @@
 
 # Session Log (Active)
 
-> **S281–S390** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S391** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S391 — 2026-04-19 (worktree `claude/cranky-haslett-e312ba`) — MASTER-C1: netbufReadStr NUL termination + const return type
+
+**Scope**: Security fix for MASTER-C1 from the 2026-04-19 Super Audit. `netbufReadStr` returned a pointer into the packet buffer without enforcing NUL termination. A malformed peer could send a u16-length-prefixed string with no trailing NUL byte, causing 40+ downstream string consumers (`strlen`, `strcmp`, `strncpy`, `printf %s`) to read past the packet buffer — OOB heap reads, crash-on-join DoS, kill-feed/name spoofing via crafted packets.
+
+### Fix (`port/src/net/netbuf.c:120-132`)
+
+After the `canRead` check, added: `if (len > 0 && buf->data[rp + len - 1] != '\0') buf->data[rp + len - 1] = '\0'`. Mutating the receive buffer during dispatch is safe — netbuf owns it exclusively. Return type changed from `char *` to `const char *` (audit S-L1) to block future writes through the pointer. Updated all 20 non-const callsites across `netmsg.c`, `net.c`, `sessioncatalog.c` (`char *` → `const char *`).
+
+### Callsite audit result
+
+All 40+ callsites verified read-only: `strncpy` source argument, `strcmp`/`strncmp` argument, `sysLogPrintf %s`, `assetCatalogResolve`. No callsite writes through the returned pointer. No callsite signatures changed.
+
+### Result
+
+Both `pd` and `pd-server` link clean. Committed to `dev` @ `f3e10caa` (5 files, 26 ins / 23 del). Protocol-compatible — no wire format change.
+
+**Next**: Remaining Super Audit findings: H-1 (preserved-player token), H-2 (ASSET_NONE hot-register), H-3 (u64 slot mask), H-4 (SHA-256 integrity gap), M-1 (unaligned writer).
+
+---
 
 ## Session S390 — 2026-04-19 (worktree `claude/elegant-lamarr-7dbd97`) — Menu Stack Compliance Tier 1 batch: M-5, M-6 (destructive-action confirm modals)
 
