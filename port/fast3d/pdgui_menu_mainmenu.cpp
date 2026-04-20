@@ -3475,9 +3475,11 @@ static s32 renderMainMenu(struct menudialog *dialog,
     if (s_MenuView == 0) {
         /* ================================================================
          * TOP LEVEL: Solo Play / Online Play / Change Agent / Settings
-         * Quit Game docked to bottom-right with confirmation.
+         * Quit Game docked to bottom-right, opens canonical S385 confirm
+         * modal (M-Q-A 2026-04-19 — replaces the old inline
+         * button-toggle-between-Quit-Game-and-Confirm-Quit pattern).
          * ================================================================ */
-        static bool s_QuitConfirm = false;
+        static s32 s_QuitOpenFrame = -1;
 
         ImGui::Dummy(ImVec2(0, 8.0f * scale));
 
@@ -3549,40 +3551,41 @@ static s32 renderMainMenu(struct menudialog *dialog,
             }
         }
 
-        /* Quit Game -- docked to bottom-right with confirmation */
+        /* Quit Game -- docked to bottom-right; M-Q-A opens a canonical
+         * S385 confirm modal instead of the previous inline toggle. */
         {
-            /* Width sized to fit the widest label ("Confirm Quit") so both states match */
-            float quitBtnW = ImGui::CalcTextSize("Confirm Quit").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+            float quitBtnW = ImGui::CalcTextSize("Quit Game").x
+                           + ImGui::GetStyle().FramePadding.x * 2.0f
+                           + pdguiScale(16.0f);
             float quitBtnH = 28.0f * scale;
             /* S305: honour content inset (padR/padB) so the Quit button clears
-             * the nineslice chrome border. Replaces the old WindowPadding + margin
-             * calculation that bled into the border when chrome corners were large. */
+             * the nineslice chrome border. */
             float cursorX = dialogW - padR - quitBtnW;
             float cursorY = dialogH - padB - quitBtnH;
 
             ImGui::SetCursorPos(ImVec2(cursorX, cursorY));
 
-            if (!s_QuitConfirm) {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.3f, 0.1f, 0.1f, 0.8f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.5f, 0.15f, 0.15f, 0.9f));
-                if (ImGui::Button("Quit Game", ImVec2(quitBtnW, quitBtnH))) {
-                    s_QuitConfirm = true;
-                }
-                ImGui::PopStyleColor(2);
-            } else {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.1f, 0.1f, 1.0f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.15f, 0.15f, 1.0f));
-                if (ImGui::Button("Confirm Quit", ImVec2(quitBtnW, quitBtnH))) {
-                    SDL_Event quitEvent;
-                    quitEvent.type = SDL_QUIT;
-                    SDL_PushEvent(&quitEvent);
-                }
-                ImGui::PopStyleColor(2);
+            const char *quitPopupId = "Quit Game?##mainmenu_quit";
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.3f, 0.1f, 0.1f, 0.8f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.5f, 0.15f, 0.15f, 0.9f));
+            if (ImGui::Button("Quit Game", ImVec2(quitBtnW, quitBtnH))
+                    && !ImGui::IsPopupOpen(quitPopupId)) {
+                ImGui::OpenPopup(quitPopupId);
+                s_QuitOpenFrame = (s32)ImGui::GetFrameCount();
+                pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+            }
+            ImGui::PopStyleColor(2);
 
-                ImGui::SetCursorPos(ImVec2(cursorX - quitBtnW * 0.7f - pdguiScale(8.0f), cursorY));
-                if (ImGui::Button("Cancel", ImVec2(quitBtnW * 0.7f, quitBtnH))) {
-                    s_QuitConfirm = false;
-                }
+            s32 quitRes = pdguiRenderConfirmModal(
+                quitPopupId,
+                "Quit Game?",
+                "Quit Perfect Dark? Any unsaved settings will be lost.",
+                "Quit",
+                &s_QuitOpenFrame);
+            if (quitRes == PDGUI_CONFIRM_OK) {
+                SDL_Event quitEvent;
+                quitEvent.type = SDL_QUIT;
+                SDL_PushEvent(&quitEvent);
             }
         }
 
