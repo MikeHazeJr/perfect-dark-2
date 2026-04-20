@@ -137,12 +137,17 @@ void pdguiMpsTeamNameSet(u32 team, const char *text);
 /* ---- Language helpers ---- */
 char *langGet(s32 textid);
 
-/* ---- B-140 Issue B: network sync for mod playlist (room leader → room members) ---- */
+/* ---- B-140 Issue B: network sync for mod playlist (room leader -> room members) ---- */
 extern s32 g_NetMode;
 #define MPSETTINGS_NETMODE_CLIENT 2
 s32  lobbyIsLocalLeader(void);
 void netSendRoomPlaylistUpdate(void);
-void musicRestoreInterval(void);  /* restore background music after hover-preview */
+void musicRestoreInterval(void);  /* restore background music after preview */
+
+/* ---- Preview playback (Issue D: click-to-play) ----
+ * menuChooseMusic is declared in src/include/game/menu.h, but we can't include
+ * that header from C++ (pulls types.h). Declare locally at the C boundary. */
+u32 menuChooseMusic(void);
 
 /* ---- MENUOP_* opcodes (declared locally per the Batch 4 gotcha; values
  * must match src/include/constants.h exactly) ---- */
@@ -550,14 +555,59 @@ static s32 renderHandicap(struct menudialog *dialog,
  * music on match start.  See scratch doc rows 1-4.
  */
 
-static s32 s_TunesHoverIdx  = -1;  /* -1 = nothing hovered */
+/* Issue D: click-to-play preview state. s_TunesPreviewIdx is a unified row
+ * index into the virtual [base tracks | mod tracks] list (base rows take the
+ * 0..numTracks-1 range; mod rows occupy numTracks..numTracks+mc.count-1).
+ * -1 means nothing is currently being previewed. */
+static s32 s_TunesPreviewIdx = -1;
 
+/* Stop the preview (if any) and fall back to normal background music as if
+ * the BG had been playing the whole time. Safe to call when no preview is
+ * active (acts as a no-op). */
 static void pdms_EndTunesPreview(void)
 {
-    if (s_TunesHoverIdx >= 0) {
-        s_TunesHoverIdx = -1;
-        musicRestoreInterval();
+    if (s_TunesPreviewIdx < 0) {
+        return;
     }
+
+    /* Stop any mod PCM stream and clear the mod track id so the server path
+     * doesn't pick it up on the next match. */
+    modMusicStop();
+    audioSetModTrackId("");
+
+    /* Snap back to the normal menu background music. musicStartTrackAsMenu
+     * is idempotent when the target tracknum equals g_MenuTrack. */
+    musicStartTrackAsMenu((s32)menuChooseMusic());
+
+    s_TunesPreviewIdx = -1;
+    musicRestoreInterval();
+}
+
+/* Start previewing a base-game track (slot index in the mp track table). */
+static void pdms_PreviewBaseTrack(s32 slotIdx)
+{
+    /* Kill any mod stream that was previewing so base music isn't muted. */
+    modMusicStop();
+    audioSetModTrackId("");
+
+    s32 mnum = mpGetTrackMusicNum(slotIdx);
+    if (mnum >= 0) {
+        musicStartTrackAsMenu(mnum);
+    }
+    s_TunesPreviewIdx = slotIdx;
+}
+
+/* Start previewing a mod track (catalog id + file path). */
+static void pdms_PreviewModTrack(s32 rowIdx, const char *cid, const char *file_path)
+{
+    if (!file_path || !file_path[0]) {
+        return;
+    }
+    modMusicPlay(file_path);
+    if (cid) {
+        audioSetModTrackId(cid);
+    }
+    s_TunesPreviewIdx = rowIdx;
 }
 
 /* ---- Batch A-4: Mod music tracks from catalog ---- */
@@ -668,7 +718,8 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
     if (ImGui::IsWindowAppearing()) {
-        s_TunesHoverIdx = -1;
+        /* Entering the dialog fresh: no preview is playing yet. */
+        s_TunesPreviewIdx = -1;
     }
 
     if (pdms_BackPressed()) {
@@ -724,7 +775,10 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
     float bodyH    = pdguiBodyHeightForActionBar(avail);
     float gap      = pdguiScale(10.0f);
     float colW     = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
-    bool  anyHover = false;
+    /* Issue D: width reserved for the per-row play/stop button. Laid out
+     * inline at the start of each row with SameLine so the name selectable
+     * still fills the remaining width. */
+    float playBtnW = pdguiScale(40.0f);
 
     /* ---- LEFT: Library ---- */
     ImGui::BeginGroup();
@@ -734,9 +788,12 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
     if (ImGui::BeginChild("##tunes_lib", ImVec2(colW, bodyH), false,
                           ImGuiWindowFlags_NoBackground)) {
 
-        /* Base Game tracks -- click toggles the shared mod playlist (B-188).
-         * Mod and base tracks now coexist in audioModPlaylist; catalog_id
-         * is the key. Hover still drives preview via list_Focus. */
+        /* Base Game tracks -- play button previews; name selectable toggles
+         * the shared mod playlist (B-188). Mod and base tracks coexist in
+         * audioModPlaylist; catalog_id is the key.
+         *
+         * Issue D: preview is click-to-play (mouse play button or gamepad X
+         * on the focused row). Hover no longer triggers preview. */
         if (numTracks > 0) {
             char baseHdr[48];
             snprintf(baseHdr, sizeof(baseHdr), "Base Game (%d)", numTracks);
@@ -747,8 +804,24 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
                     const s32   musicnum = mpGetTrackMusicNum(i);
                     const char *cid      = baseCatalogIdByMusicnum(&bc, musicnum);
                     bool        inPl     = (cid != NULL) && audioIsInModPlaylist(cid) != 0;
+                    bool        isPrev   = (s_TunesPreviewIdx == i);
 
                     ImGui::PushID(i);
+
+                    /* Play/stop button (mouse preview trigger) */
+                    const char *playLabel = isPrev ? "[]" : ">";
+                    if (ImGui::Button(playLabel,
+                                      ImVec2(playBtnW, pdguiScale(22.0f)))) {
+                        if (isPrev) {
+                            pdms_EndTunesPreview();
+                            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                        } else {
+                            pdms_PreviewBaseTrack(i);
+                            pdguiPlaySound(PDGUI_SND_SELECT);
+                        }
+                    }
+                    ImGui::SameLine();
+
                     if (ImGui::Selectable(name, inPl, 0,
                                           ImVec2(0, pdguiScale(22.0f)))) {
                         if (cid) {
@@ -765,7 +838,7 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
                                 netSendRoomPlaylistUpdate();
                             }
                         } else {
-                            /* Catalog miss (shouldn't happen — base music
+                            /* Catalog miss (shouldn't happen -- base music
                              * registers at boot). Fall back to legacy
                              * single-tune select so the click isn't a
                              * no-op on a broken build. */
@@ -773,15 +846,20 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
                             pdguiPlaySound(PDGUI_SND_SELECT);
                             sysLogPrintf(LOG_WARNING,
                                 "SELECTTUNES: no catalog entry for base track "
-                                "slot=%d musicnum=%d — using legacy single-select",
+                                "slot=%d musicnum=%d -- using legacy single-select",
                                 i, (int)musicnum);
                         }
                     }
-                    if (ImGui::IsItemHovered()) {
-                        anyHover = true;
-                        if (s_TunesHoverIdx != i) {
-                            s_TunesHoverIdx = i;
-                            list_Focus(mpSelectTuneListHandler, 0, i);
+                    /* Gamepad X (ImGui::GamepadFaceLeft = Xbox X / PS Square)
+                     * while this row is focused -> toggle preview. */
+                    if (ImGui::IsItemFocused()
+                        && ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft, false)) {
+                        if (isPrev) {
+                            pdms_EndTunesPreview();
+                            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                        } else {
+                            pdms_PreviewBaseTrack(i);
+                            pdguiPlaySound(PDGUI_SND_SELECT);
                         }
                     }
                     ImGui::PopID();
@@ -790,7 +868,8 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
             }
         }
 
-        /* Mod Tracks -- click = add to Selected Tracks; hover = preview */
+        /* Mod Tracks -- play button previews; name selectable adds/removes
+         * from Selected Tracks. Issue D: no hover-preview. */
         if (mc.count > 0) {
             ImGui::Dummy(ImVec2(0, pdguiScale(4.0f)));
             char modHdr[48];
@@ -798,9 +877,27 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
             if (ImGui::TreeNodeEx(modHdr, ImGuiTreeNodeFlags_DefaultOpen)) {
                 for (int m = 0; m < mc.count; m++) {
                     const ModTrackInfo *t = &mc.tracks[m];
-                    ImGui::PushID(numTracks + m);
+                    const s32 rowIdx = numTracks + m;
+                    const bool isPrev = (s_TunesPreviewIdx == rowIdx);
+                    ImGui::PushID(rowIdx);
                     bool inPl = audioIsInModPlaylist(t->catalog_id) != 0;
                     const char *disp = t->display_name ? t->display_name : t->catalog_id;
+
+                    /* Play/stop button */
+                    const char *playLabel = isPrev ? "[]" : ">";
+                    if (ImGui::Button(playLabel,
+                                      ImVec2(playBtnW, pdguiScale(22.0f)))) {
+                        if (isPrev) {
+                            pdms_EndTunesPreview();
+                            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                        } else {
+                            pdms_PreviewModTrack(rowIdx, t->catalog_id,
+                                                 t->file_path);
+                            pdguiPlaySound(PDGUI_SND_SELECT);
+                        }
+                    }
+                    ImGui::SameLine();
+
                     /* Highlight in library if already in playlist */
                     if (ImGui::Selectable(disp, inPl, 0,
                                           ImVec2(0, pdguiScale(22.0f)))) {
@@ -817,11 +914,16 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
                             netSendRoomPlaylistUpdate();
                         }
                     }
-                    if (ImGui::IsItemHovered()) {
-                        anyHover = true;
-                        if (s_TunesHoverIdx != numTracks + m) {
-                            s_TunesHoverIdx = numTracks + m;
-                            audioSetModTrackId(t->catalog_id);
+                    /* Gamepad X preview toggle while row is focused */
+                    if (ImGui::IsItemFocused()
+                        && ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft, false)) {
+                        if (isPrev) {
+                            pdms_EndTunesPreview();
+                            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                        } else {
+                            pdms_PreviewModTrack(rowIdx, t->catalog_id,
+                                                 t->file_path);
+                            pdguiPlaySound(PDGUI_SND_SELECT);
                         }
                     }
                     ImGui::PopID();
@@ -906,10 +1008,10 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
     ImGui::EndChild();
     ImGui::EndGroup();
 
-    /* Hover-off resume: when nothing hovered this frame, restore background music */
-    if (!anyHover && s_TunesHoverIdx >= 0) {
-        pdms_EndTunesPreview();
-    }
+    /* Issue D: preview persists until the user explicitly stops it or closes
+     * the dialog -- no hover-off resume. pdms_EndTunesPreview fires on
+     * Back/Escape (pdms_BackPressed branch above) and on the action-bar
+     * Back button below. */
 
     if (pdguiBeginActionBar("##pdms_tunes_ab")) {
         if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {

@@ -1477,9 +1477,12 @@ void modmgrInit(void)
 	// Apply config (enable/disable based on saved preferences)
 	modmgrLoadConfig();
 
-	// Load all enabled mods
+	// Load all enabled mods + all audio-only mods.
+	// Audio mods (audio.ini) are non-gameplay-affecting; their tracks must be
+	// browseable in the music menu regardless of the "enabled" flag, which
+	// gates gameplay mods (skins, arenas, mod.json packs) only.
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		if (g_ModRegistry[i].enabled) {
+		if (g_ModRegistry[i].enabled || g_ModRegistry[i].has_audioini) {
 			modmgrLoadMod(&g_ModRegistry[i]);
 		}
 	}
@@ -1601,12 +1604,13 @@ static void modmgrRebuildCatalogFromCurrentSelection(void)
 		g_ModRegistry[i].loaded = false;
 	}
 
-	// Re-register enabled manifest/audio mods so theme/audio content is present
-	// in the catalog for the next reverse-index build.
+	// Re-register enabled manifest mods + all audio-only mods so theme/audio
+	// content is present in the catalog for the next reverse-index build.
+	// Audio mods always re-register (see modmgrInit rationale).
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		if (g_ModRegistry[i].enabled) {
+		if (g_ModRegistry[i].enabled || g_ModRegistry[i].has_audioini) {
 			modmgrLoadMod(&g_ModRegistry[i]);
-			enabledCount++;
+			if (g_ModRegistry[i].enabled) enabledCount++;
 		}
 	}
 
