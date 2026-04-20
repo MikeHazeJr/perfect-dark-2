@@ -109,6 +109,9 @@ extern "C" s32 inputMouseIsLocked(void);
 /* Forward declaration only — game/lang.h includes data.h which #define bool s32 */
 extern "C" char *langGet(s32 textid);
 
+/* S311: src/game/prop.c — full prop.h pulls types.h (breaks C++). */
+extern "C" const char *propInteractPromptLabel(void);
+
 /* ---------------------------------------------------------------------------
  * Exported utilities
  * --------------------------------------------------------------------------- */
@@ -433,9 +436,13 @@ void pdguiNewFrame(void)
     bool hubActive = (pdguiModdingHubIsVisible() != 0);
 
     bool debugOverlayActive = (inputCtxIsActive(&g_CtxDebugOverlay) != 0);
+    /* S311: When walking near a door/weapon/etc., propInteractPromptLabel() is
+     * non-NULL — we must run ImGui this frame. The default path skips NewFrame
+     * during "clean" solo gameplay (no menus/network), which hid the prompt. */
+    bool interactPrompt = (propInteractPromptLabel() != NULL);
     if (!g_PdguiInitialized ||
         (!debugOverlayActive && !pdguiHotswapHasQueued() && !pdguiHotswapWasActive() &&
-         !networkActive && !pauseActive && !hubActive)) {
+         !networkActive && !pauseActive && !hubActive && !interactPrompt)) {
         return;
     }
 
@@ -527,9 +534,10 @@ void pdguiRender(void)
 
     /* D13: Also render when update UI is visible (notification banner, version picker) */
     bool debugOverlayActive = (inputCtxIsActive(&g_CtxDebugOverlay) != 0);
+    bool interactPrompt = (propInteractPromptLabel() != NULL);
     if (!g_PdguiInitialized ||
         (!debugOverlayActive && !s_ConsoleVisible && !hotswapQueued && !hotswapWasActive &&
-         !networkActive && !updateActive && !pauseActive && !hubActive)) {
+         !networkActive && !updateActive && !pauseActive && !hubActive && !interactPrompt)) {
         return;
     }
 

@@ -52,9 +52,8 @@
 
 /* Hold/tap discriminator threshold for ACTION_USE (X gamepad / F kbd).
  * Hold longer than this ms = INTERACT (A_BUTTON), shorter = RELOAD (X_BUTTON).
- * 250 ms is the sweet spot: long enough to avoid accidental hold during a
- * panic reload, short enough that intentional interact feels instant. */
-#define BMOVE_USE_HOLD_THRESHOLD_MS  250
+ * 300 ms matches Xbox default spec (door / vehicle / use). */
+#define BMOVE_USE_HOLD_THRESHOLD_MS  300
 
 static void bgunProcessQuickDetonate(struct movedata *data, u32 c1buttons, u32 c1buttonsthisframe, u32 buttons1, u32 buttons2) {
 	if ((((c1buttons & (buttons1)) && (c1buttonsthisframe & (buttons2)))
@@ -966,6 +965,12 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	 * are for movement suppression (e.g., during menu overlays), not aiming. */
 	c2stickx = (s8)(actionValue(actionPlayer, ACTION_AXIS_AIM_X) * 127.0f);
 	c2sticky = (s8)(actionValue(actionPlayer, ACTION_AXIS_AIM_Y) * 127.0f);
+	/* Weapon radial reads AIM axes directly in activemenutick.c; suppress aim
+	 * here so walk/camera/gun don't track RS while the radial is open (B-202). */
+	if (g_Vars.currentplayer->activemenumode != AMMODE_CLOSED) {
+		c2stickx = 0;
+		c2sticky = 0;
+	}
 
 	/* M0.2: synthesize button bitmask from action queries for downstream mask logic.
 	 *
@@ -1031,6 +1036,13 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 				c1buttons          |= X_BUTTON;
 				c1buttonsthisframe |= X_BUTTON;
 			}
+			/* Interact-first: long-press release with no interact prompt — reload.
+			 * Avoids "eating" X when nothing was usable (doors/vehicles/props). */
+			if (actionReleased(pi, ACTION_USE) && actionHoldConsumed(pi, ACTION_USE)
+					&& propInteractPromptLabel() == NULL) {
+				c1buttons |= X_BUTTON;
+				c1buttonsthisframe |= X_BUTTON;
+			}
 		}
 	}
 
@@ -1046,6 +1058,15 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	}
 
 	numsamples = joyGetNumSamples();
+	/* B-209: PC buttons/sticks come from the action map, but downstream logic still
+	 * scales by numsamples = joyGetNumSamples(). When the joy ring has no span
+	 * (curstart == curlast), numsamples is 0 and every numsamples-scaled loop is
+	 * skipped — including reload (alt1tapcount) and use (btapcount) even when
+	 * c1buttons from the hold/tap discriminator is valid. One logical sample
+	 * matches the per-frame action-map snapshot. */
+	if (controlmode == CONTROLMODE_PC && numsamples < 1) {
+		numsamples = 1;
+	}
 	bmoveResetMoveData(&movedata);
 
 	if (c1stickx < -5) {

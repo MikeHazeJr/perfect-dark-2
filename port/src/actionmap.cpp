@@ -1544,20 +1544,17 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_FIRE_PRIMARY,   JOY_BTN(0, JOFS_RTRIG));
         addBind(imc, ACTION_FIRE_SECONDARY, VK_MOUSE_RIGHT);
         addBind(imc, ACTION_FIRE_SECONDARY, JOY_BTN(0, JOFS_LTRIG));
-        addBind(imc, ACTION_FIRE_MODE,      VKL_C);            /* fire mode cycle — kbd */
-        addBind(imc, ACTION_FIRE_MODE,      JOY_BTN(0, JBTN_DPAD_RIGHT)); /* fire mode — D-Right */
+        addBind(imc, ACTION_FIRE_MODE,      VKL_C);            /* alt secondary fire mode — kbd */
+        addBind(imc, ACTION_FIRE_MODE,      JOY_BTN(0, JBTN_DPAD_RIGHT)); /* D-pad right — Xbox default */
         addBind(imc, ACTION_RELOAD,         VKL_R);
-        /* X (gamepad) and F (kbd) bind to ACTION_USE only; bondmove.c
-         * discriminates tap-vs-hold to fire RELOAD or INTERACT respectively
-         * (hold > 250 ms = INTERACT, short tap = RELOAD).  R remains a
-         * dedicated immediate-reload key. */
+        /* X (gamepad) and F (kbd) -> ACTION_USE; bondmove.c hold/tap (300 ms) + interact fallback. */
         addBind(imc, ACTION_USE,            VKL_F);
         addBind(imc, ACTION_USE,            JOY_BTN(0, JBTN_X));
-        addBind(imc, ACTION_WEAPON_NEXT,    JOY_BTN(0, JBTN_Y)); /* Y_BUTTON: cycle weapon */
+        addBind(imc, ACTION_WEAPON_NEXT,    JOY_BTN(0, JBTN_Y)); /* next weapon */
         addBind(imc, ACTION_CANCEL_USE,     VK_MOUSE_MIDDLE);
-        addBind(imc, ACTION_CANCEL_USE,     JOY_BTN(0, JBTN_B)); /* B_BUTTON / menu cancel, FarSight exit */
+        addBind(imc, ACTION_CANCEL_USE,     JOY_BTN(0, JBTN_RSTICK)); /* R3 — cancel/drop/FarSight (B is crouch) */
         addBind(imc, ACTION_CROUCH,         VK_LCTRL);
-        addBind(imc, ACTION_CROUCH,         JOY_BTN(0, JBTN_B)); /* B_BUTTON / crouch (dual-bind with CANCEL_USE) */
+        addBind(imc, ACTION_CROUCH,         JOY_BTN(0, JBTN_B)); /* crouch — Xbox B */
         addBind(imc, ACTION_JUMP,           VK_SPACE);
         addBind(imc, ACTION_JUMP,           JOY_BTN(0, JBTN_A)); /* A_BUTTON / jump */
         addBind(imc, ACTION_SPRINT,         VK_LSHIFT);
@@ -1573,7 +1570,7 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_WEAPON_4,       VKL_4);
         addBind(imc, ACTION_WEAPON_5,       VKL_5);
         addBind(imc, ACTION_WEAPON_6,       VKL_6);
-        /* Analog aim: right stick directions */
+        /* Look: right stick (+ swap sticks / invert Y in Controls). */
         addBind(imc, ACTION_AIM_UP,         VKL_UP);
         addBind(imc, ACTION_AIM_UP,         JOY_BTN(0, JOFS_RSTICK_UP));
         addBind(imc, ACTION_AIM_DOWN,       VKL_DOWN);
@@ -1582,19 +1579,10 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_AIM_LEFT,       JOY_BTN(0, JOFS_RSTICK_LEFT));
         addBind(imc, ACTION_AIM_RIGHT,      VKL_RIGHT);
         addBind(imc, ACTION_AIM_RIGHT,      JOY_BTN(0, JOFS_RSTICK_RIGHT));
-        /* C-button bindings: map to right stick directions.
-         * C-Left intentionally maps to RSTICK_RIGHT (per game director). */
-        addBind(imc, ACTION_CBUTTON_LEFT,   JOY_BTN(0, JOFS_RSTICK_RIGHT));
-        addBind(imc, ACTION_CBUTTON_RIGHT,  JOY_BTN(0, JOFS_RSTICK_RIGHT));
-        addBind(imc, ACTION_CBUTTON_UP,     JOY_BTN(0, JOFS_RSTICK_UP));
-        addBind(imc, ACTION_CBUTTON_DOWN,   JOY_BTN(0, JOFS_RSTICK_DOWN));
-        /* D-pad bindings:
-         * Left  = radial/weapon gear menu
-         * Up    = D-pad up
-         * Right = Fire Mode (bound above) */
-        addBind(imc, ACTION_DPAD_DOWN,      JOY_BTN(0, JBTN_DPAD_LEFT));  /* D-Left opens radial menu */
+        /* N64 C-button bits are optional; default Xbox layout uses LS/RS axes only. */
+        /* D-pad: physical LEFT -> ACTION_DPAD_DOWN (D_JPAD) for radial hold-open. */
+        addBind(imc, ACTION_DPAD_DOWN,      JOY_BTN(0, JBTN_DPAD_LEFT));
         addBind(imc, ACTION_DPAD_UP,        JOY_BTN(0, JBTN_DPAD_UP));
-        addBind(imc, ACTION_DPAD_RIGHT,     JOY_BTN(0, JBTN_DPAD_RIGHT));
         addBind(imc, ACTION_PAUSE,          VK_ESCAPE);
         addBind(imc, ACTION_PAUSE,          JOY_BTN(0, JBTN_START));
         addBind(imc, ACTION_SCREENSHOT,     VKL_F5);
@@ -1633,7 +1621,7 @@ static void setupVehicleDefaults(s32 player)
     addBind(imc, ACTION_VEHICLE_STEER_RIGHT, VKL_D);
     addBind(imc, ACTION_VEHICLE_STEER_RIGHT, JOY_BTN(0, JOFS_LSTICK_RIGHT));
     addBind(imc, ACTION_VEHICLE_EXIT,        VKL_F);
-    addBind(imc, ACTION_VEHICLE_EXIT,        JOY_BTN(0, JBTN_A));
+    addBind(imc, ACTION_VEHICLE_EXIT,        JOY_BTN(0, JBTN_X)); /* align with on-foot USE / exit */
     addBind(imc, ACTION_PAUSE,               VK_ESCAPE);
     addBind(imc, ACTION_PAUSE,               JOY_BTN(0, JBTN_START));
 }

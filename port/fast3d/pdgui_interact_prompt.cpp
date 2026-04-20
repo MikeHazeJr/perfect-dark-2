@@ -14,6 +14,8 @@
  * Rendered near the HUD reticle; hidden automatically whenever:
  *   - no interact prop is currently tracked
  *   - the player is dead, in a cutscene, or the gameplay HUD is suppressed
+ *   - pdguiNewFrame/pdguiRender skipped the ImGui overlay (see pdgui_backend:
+ *     solo gameplay used to hit the "no menus open" early-return before S397)
  *
  * IMPORTANT: C++ TU -- do NOT include types.h (#define bool s32 breaks C++).
  * Game-side accessors declared extern "C" in their respective headers.

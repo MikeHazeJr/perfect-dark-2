@@ -1,8 +1,157 @@
 
 # Session Log (Active)
 
-> **S281–S394** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S283–S397** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S397 — 2026-04-20 — S311 interact prompt missing in solo (ImGui overlay early-exit)
+
+**Symptom**: No `[E] Pick up` / glyph prompt during gameplay (after B-189 menu gate
+and prior prompt refresh work). **Cause**: `pdguiNewFrame()` and `pdguiRender()` return
+early when no debug/hotswap/network/pause/hub/update/console UI is active — so in
+plain solo play the entire ImGui path was skipped and `pdguiInteractPromptRender`
+never ran. **Fix** (`port/fast3d/pdgui_backend.cpp`): treat
+`propInteractPromptLabel() != NULL` (game has a tracked interact target) as a reason
+to run the overlay, same as an open menu. Forward-declare `propInteractPromptLabel`
+to avoid including `game/prop.h` → `types.h` in C++.
+
+**Next**: Playtest solo near doors/weapons; confirm no regression when no target.
+
+---
+
+## Session S396 — 2026-04-20 — Implementation plan Priority 1: B-209 + B-203
+
+Roadmap: `PD2_Implementation_Plan_Apr20.docx` (Priority 1 stability). **B-209**
+(`src/game/bondmove.c`): On `CONTROLMODE_PC`, `joyGetNumSamples()` can be **0**
+when the joy ring has no span, so every `for (i < numsamples)` block was skipped
+including **reload** (`alt1tapcount`) and **interact** (`btapcount`) even when
+hold/tap synthesis had already filled `c1buttons`. Fix: clamp `numsamples` to
+at least **1** for PC after `joyGetNumSamples()`. **B-203** (`port/src/actionmap.cpp`):
+`ACTION_FIRE_MODE` on D-pad right was shadowed by a second bind of
+`ACTION_DPAD_RIGHT` to the same VK (`fireVk` picks lower enum index first); removed
+the duplicate. Physical **D-pad down** (log vk=531) had no gameplay bind — added
+default `ACTION_FIRE_MODE` there. Build verified: MSYS `source devtools/build-env.sh &&
+ninja -C Build pd pd-server` (784/784).
+
+**Next**: Playtest tap vs hold on X/F and fire mode on D-pad; then remaining
+Priority 1 items (B-204, B-206, B-202).
+
+---
+
+## Session S395 — 2026-04-20 (scheduled weekly super-audit, no worktree) — Delta audit on Waves 1–3
+
+Focus: Weekly automated super-audit (scheduler task "weekly-super-audit"). Full-scope
+findings-only report; no code changes per scheduler instruction. Report written to
+[`context/audits/2026-04-20-full.md`](audits/2026-04-20-full.md).
+
+**Methodology note**: Planned to run four parallel Explore sub-agents (netplay /
+server-security / menus-input / layout-scaling-lineage) but all four failed with
+`API Error 400: "This model does not support the effort parameter"` — a harness/config
+issue, not a code issue. Audit proceeded directly via Read/Grep on the main
+thread; every finding below has file+line evidence.
+
+### Delta from 2026-04-19 master audit
+
+Prior totals: **6 C / 26 H / 35 M / 25 L**.  19 of the 26 High-or-above findings
+closed in the intervening day across Waves 1–3 + S394:
+
+- **C1 / MASTER-C1** — `netbufReadStr` NUL term ✓ (S391)
+- **C2 → C2a/b/c/d** — admin token + CLC_ADMIN dispatch + persistent `$S/bans.ini` ✓ (S393)
+- **C3 / MASTER-C3** — 16-byte identity cookie (SHA-256 rolling) ✓ (S393)
+- **C6 / MASTER-C6** — `pdguiCharPreviewRenderDirect()` exists in `pdgui_charpreview.c:631` ✓
+- **H2 / MASTER-H2** — zero-SHA COMPONENT entries dropped at deserialize (`netmanifest.c:945-951`) ✓
+- **SEC-6** — Ed25519 signed updater (OpenSSL EVP_DigestVerify, RFC 8032 self-test at init) ✓ (Wave 3C)
+- **SEC-7** — query reflection mitigation ✓ (Wave 2A per v38 protocol-bump note)
+- **SEC-12** — server-side `CLC_ROOM_SETTINGS_UPDATE` validation (numBots/timelimit/scorelimit/scenario/weaponset/stage_id all bound-checked) ✓
+- **SEC-13** — room mutation rate limit (1 s/client for CREATE/JOIN/LEAVE; `netmsgRoomRateAllow`) ✓
+- **SEC-14** — room password wire (salt `"pd2-room-password-v1\n"`) ✓ (S393)
+- **LAYOUT-1** — gset field-wise wire (4× `netbufWriteU8`, not memcpy) ✓ (S392)
+- **H-2 / X-4** — typed registrars for wire-delivered mods (`iniFilenameToAssetType` + `populateExtFromIni`) ✓ (S392)
+- **F-IP-Browser** — connect-code encoding in network menu ✓
+- **F-Hardcoded-Player-Caps** — `pdgui_constants.h` + `pdgui_constants_check.c` _Static_assert ✓ (S392)
+- **F-StaleStructComments** — offset comments removed from `mpchrconfig`/`mpplayerconfig`/`mpbotconfig` ✓ (S392)
+- **M-23 cascade** — `menupoolReleaseAll` on `netDisconnect` (`net.c:1102`) ✓ (S388)
+- **Menu Stack M-1..M-21** — all Tiers 1–4 ✓ (S385–S390)
+
+### New findings this audit — 1 Critical · 4 High · 4 Medium · 5 Low
+
+**AUDIT-C1 (Critical, carried from MASTER-C5 — policy decision)**: dedicated-server
+pillar still unmet. `port/src/server_stubs.c` (449 L) contains hardcoded PD2
+`g_MpArenas[]` table + hundreds of PD2-specific globals. Recommend retiring the
+"game-agnostic dedicated server" pillar for v0.1.0 in `pillars.md` (30 min)
+rather than committing to a 4–8 week plugin-boundary refactor.
+
+**AUDIT-H1**: `CLC_ADMIN_AUTH` has no per-peer rate limit. Online brute-force
+bounded only by RTT. Add `s_AdminAuthRate[]` parallel to `s_RoomMutationLast`
+/ `s_ChatRate`. 2–3 h.
+
+**AUDIT-H2**: `netServerIssueCookie` (`net.c:1301-1336`) is explicitly not a
+CSPRNG — mixes `SDL_GetPerformanceCounter` + `time(NULL)` + rolling SHA-256.
+Replace entropy source with `BCryptGenRandom` (Win) / `getrandom` (POSIX).
+30–60 min.
+
+**AUDIT-H3**: `server_bans.c` save path uses `remove()` + `rename()` — not
+atomic on Windows, no fsync. Replace with `MoveFileExA(…,
+MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)`. 1 h.
+
+**AUDIT-H4**: `banAddrEq` does string-level compare with no IPv6
+canonicalization — `::1` vs `0:0:0:0:0:0:0:1` vs `::0001` all evade each
+other. Canonicalize via `inet_pton`/`inet_ntop` before compare. 2–4 h.
+
+**AUDIT-M1**: admin token 8-char minimum too low given no rate limit —
+bump to 16 + entropy warning at boot. 15 min.
+**AUDIT-M2**: `ADMIN_SUB_STATUS` / `LIST` replies silently truncate at
+`ADMIN_PAYLOAD_MAX` (~2 KiB) — 256-entry ban list drops ~90% of rows. 1–2 h.
+**AUDIT-M3**: `netServerIssueCookie` static `s_Ctx` not thread-safe (not
+currently a live bug). 15 min comment / 1 h mutex.
+**AUDIT-M4**: no compile-time tripwire on `MAX_PLAYERS + MAX_BOTS <= 64`.
+5-minute `_Static_assert` next to `mpParticipantsEncodeActiveMask`.
+
+**AUDIT-L1**: CLC_ADMIN failure log doesn't record token-length / class.
+**AUDIT-L2**: hold-vs-tap `ACTION_USE` adds 250 ms latency to reload;
+snap-on-release for sub-threshold taps. 30–60 min.
+**AUDIT-L3**: `server_admin.c` early-return paths don't scrub `chosen`
+plaintext from stack before return.
+**AUDIT-L4**: low project-wide `_Static_assert` / `offsetof` coverage on
+serialized structs (carries X-6 from 2026-04-19).
+**AUDIT-L5**: `CLC_ADMIN BAN` address extraction walks the string output
+of `netFormatClientAddr` — fragile across future format changes; prefer
+pulling the raw `ENetAddress` off `tgt->peer->address` and `inet_ntop` it.
+
+### Still-open from prior audit
+
+- **MASTER-C5** (Critical, design) — see AUDIT-C1
+- **MASTER-H3 / H-3** (High) — u64 slot mask not currently exploitable
+  (`MAX_PLAYERS + MAX_BOTS = 40 < 64`) but latent
+- **SEC-8 / SEC-9** (High) — PVS / interest management unshipped
+- **SAVE-1** (High) — MP stat integrity trusts client
+- **LAYOUT-2** (Medium) — `pd.ini` `LastJoinAddr` not validated on reuse
+- **M-1** (Medium) — unaligned writer path
+- **M-24** (Low) — menupool `parent_type` assertion (deferred)
+
+### Scorecard
+
+| Dimension | 2026-04-19 | 2026-04-20 | Change |
+|---|---|---|---|
+| Design / gameplay fit | 7 | 7 | – |
+| Code quality | 7 | 7 | – |
+| Security & trust | **5** | **7** | **+2** |
+| Architectural discipline | 7 | 7 | – |
+
+Security moved 5 → 7 because of the Wave 3A/B/C landings. The four new Highs
+(AUDIT-H1..H4) are quick-fix hardening on code that shipped yesterday, not
+regressions; applying them would lift the security posture to ~8.5.
+
+### Must-fix for next minor release
+
+AUDIT-H1..H4 + AUDIT-M4 + AUDIT-L2 = **half a day to a full day of engineering**.
+No code changes this session.
+
+**Next**: await Mike's decision on MASTER-C5 pillar direction, then either
+retire the pillar in `pillars.md` or batch AUDIT-H1..H4 into a single
+"Wave 3A Hardening" worktree.
+
+---
 
 ## Session S394 — 2026-04-19 (worktree `claude/keen-lalande-b65139`) — Auto-keygen on build (SEC-6 follow-up)
 

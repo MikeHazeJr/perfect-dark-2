@@ -7,6 +7,94 @@
 
 ---
 
+## Open — 2026-04-20 (Super Audit 2026-04-20 — Wave 3A hardening + carry-overs)
+
+Report: [`context/audits/2026-04-20-full.md`](audits/2026-04-20-full.md).
+Totals this audit: **1 C / 4 H / 4 M / 5 L** (delta only).  19 of 26 prior
+C/H findings were closed by Waves 1–3 + S394; see session log for the full
+fix list.
+
+### Decision pending — AUDIT-C1 / MASTER-C5 (policy, 30 min OR 4–8 wk)
+
+Dedicated-server pillar ("game-agnostic") unmet: `port/src/server_stubs.c`
+still holds 449 lines of PD2-specific globals + hardcoded `g_MpArenas[]`
+table. Two paths:
+
+- **(a) Retire pillar for v0.1.0** — 30-min edit to `pillars.md` +
+  `README.md` server section. **Recommended.**
+- **(b) Commit to plugin boundary** — 4–8 weeks design + refactor; no
+  concrete second game to host currently justifies it.
+
+Awaiting Mike's call before touching `pillars.md`.
+
+### Wave 3A Hardening — batch candidate (½ d – 1 d)
+
+- **AUDIT-H1** (2–3 h): `CLC_ADMIN_AUTH` brute-force rate limit.
+  `port/src/net/netmsg.c:6943-6983`. Add `s_AdminAuthRate[NET_MAX_CLIENTS+1]`
+  modeled on `s_RoomMutationLast` / `s_ChatRate`. 3 fails in 60 s → lockout;
+  8 fails → disconnect with `DISCONNECT_BANNED` + IP temp-ban.
+- **AUDIT-H2** (30–60 min): `netServerIssueCookie` CSPRNG.
+  `port/src/net/net.c:1301-1336`. Replace `SDL_GetPerformanceCounter` +
+  `time(NULL)` seed with `BCryptGenRandom(NULL, out, 16,
+  BCRYPT_USE_SYSTEM_PREFERRED_RNG)` (Win) / `getrandom(out, 16, 0)` (POSIX).
+  Or: seed the rolling digest once at boot with 32 bytes of real entropy.
+- **AUDIT-H3** (1 h): Ban save atomicity.
+  `port/src/server_bans.c:156-167`. Replace `remove()` + `rename()` with
+  `MoveFileExA(tmp, final, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)`.
+  Add `fflush(f); _commit(_fileno(f));` on Windows before fclose.
+- **AUDIT-H4** (2–4 h): Ban IPv6 canonicalization.
+  `port/src/server_bans.c:30-38` (`banAddrEq`). Canonicalize both stored
+  and incoming addresses via `inet_pton(AF_INET6)` → `inet_ntop`. Compare
+  `in6_addr` bytes directly. Fall back to string compare only on
+  `inet_pton` failure.
+
+### Medium — mostly quick wins
+
+- **AUDIT-M1** (15 min): admin token min length 8 → 16, add
+  low-entropy warning at server boot.
+- **AUDIT-M2** (1–2 h): `ADMIN_SUB_STATUS` / `LIST` continuation flag
+  to avoid silent truncation at `ADMIN_PAYLOAD_MAX`.
+- **AUDIT-M3** (15 min): document single-threaded invariant on
+  `netServerIssueCookie` `s_Ctx` — comment block + (optional) mutex.
+- **AUDIT-M4** (5 min): compile-time tripwire —
+  `_Static_assert(MAX_PLAYERS + MAX_BOTS <= 64, "participant active-mask
+  wire format caps at 64 slots")` in `pdgui_constants_check.c` or
+  `participant.c`.
+
+### Low — polish + docs
+
+- **AUDIT-L1** (15 min): log token length + character class bucket on
+  failed CLC_ADMIN_AUTH.
+- **AUDIT-L2** (30 min – 1 h): hold-vs-tap `ACTION_USE` — synthesize
+  reload on release if hold time < threshold (removes 250 ms UX delay
+  for the common case). Or expose threshold as an input-settings value.
+- **AUDIT-L3** (10 min): zero-scrub `chosen` plaintext in
+  `serverAdminInit` early-return paths.
+- **AUDIT-L4** (1–2 h, spread): add `_Static_assert(sizeof(struct X) == N)`
+  + `offsetof(…) == M` to the top-10 wire-serialized structs. Cross-cutting
+  concern X-6 from 2026-04-19.
+- **AUDIT-L5** (30 min): replace string-walk IP extraction in
+  `CLC_ADMIN BAN` (`netmsg.c:7031-7059`) with direct
+  `ENetAddress` → `inet_ntop`.
+
+### Carry-overs — still open from 2026-04-19 master audit
+
+- **MASTER-H3 / H-3** (High, latent): u64 active-mask caps 64 slots; not
+  currently exploitable (MAX_PLAYERS + MAX_BOTS = 40). AUDIT-M4 tripwire
+  converts this into a compile-time error if MAX_BOTS is ever raised.
+- **SEC-8 / SEC-9** (High): PVS / interest management — broadcasts still
+  O(clients) at `net.c:1043`, `netmsg.c:638/4525/5576`,
+  `netdistrib.c:560`. 3–5 d effort; needs a design doc first.
+- **SAVE-1** (High): MP stat integrity still trusts client. 1 d.
+- **LAYOUT-2** (Medium): `pd.ini` `LastJoinAddr` reused without
+  validation. `connectCodeDecode` or IP-parser gate at load. 30 min.
+- **M-1** (Medium): unaligned writer path flagged in prior audit but no
+  concrete repro yet. Carry.
+- **M-24** (Low): menupool `parent_type` assertion (strict tree flag).
+  Deferred.
+
+---
+
 ## Open — 2026-04-19 (Menu Stack Compliance — from `context/designs/menu-stack-architecture.md`)
 
 Design doc codifies the strict tree-stack menu architecture: single-instance-per-type,
