@@ -1,23 +1,24 @@
 # keygen.ps1 -- Ed25519 keypair generator for the signed updater (SEC-6).
 #
 # Generates a fresh Ed25519 keypair using OpenSSL, writes the private key to
-# dev-keys/ or release-keys/ (BOTH gitignored), and patches the embedded
-# public key into port/include/updater_pubkey.h.
+# dev-keys/ (gitignored), and patches the embedded public key into
+# port/include/updater_pubkey.h.
+#
+# Called automatically at build time by build-env.sh and build-headless.ps1
+# when dev-keys/ed25519-private.pem does not exist.
 #
 # Usage:
-#   .\devtools\keygen.ps1                 # Development keypair (default)
-#   .\devtools\keygen.ps1 -Production     # Production keypair (stored in release-keys/)
+#   .\devtools\keygen.ps1          # Generate keypair (auto-called by build)
+#   .\devtools\keygen.ps1 -Force   # Rotate: overwrite existing key
 #
 # IMPORTANT:
-#   - The private key MUST NEVER be checked into git or copied to a build
-#     server. It is the root of trust for the entire update channel.
-#   - The production private key should live only on air-gapped storage.
-#   - Re-running this script ROTATES the key. Clients still running older
+#   - The private key MUST NEVER be checked into git. It is the root of
+#     trust for the entire update channel.
+#   - Re-running with -Force ROTATES the key. Clients still running older
 #     builds with the previous embedded public key will refuse subsequent
 #     releases signed with the new key.
 
 param(
-    [switch]$Production,
     [switch]$Force   # Overwrite existing key files without prompting
 )
 
@@ -46,8 +47,8 @@ if (-not $openssl) {
 # --------------------------------------------------------------------------
 # Key directory
 # --------------------------------------------------------------------------
-$keyDir  = if ($Production) { "release-keys" } else { "dev-keys" }
-$keyKind = if ($Production) { "PRODUCTION" } else { "DEVELOPMENT" }
+$keyDir  = "dev-keys"
+$keyKind = "DEVELOPMENT"
 
 if (-not (Test-Path $keyDir)) {
     New-Item -ItemType Directory -Path $keyDir | Out-Null
@@ -122,7 +123,7 @@ $keyBody = $lines -join "`n"
 $todayIso = (Get-Date).ToString("yyyy-MM-dd")
 $block = @"
 /* BEGIN UPDATER_PUBKEY (do not edit by hand -- regenerate via devtools/keygen) */
-/* Type: $keyKind$(if (-not $Production) { ' (not for production release)' }) */
+/* Type: $keyKind */
 /* Generated: $todayIso */
 static const u8 UPDATER_PUBKEY[UPDATER_PUBKEY_SIZE] = {
 $keyBody
@@ -152,6 +153,3 @@ Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
 Write-Host "  1. Rebuild PerfectDark.exe + Updater.exe (the embedded public key is compiled in)." -ForegroundColor Gray
 Write-Host "  2. Sign releases with: .\devtools\sign-release.ps1 -ZipPath <zip> -Tag <tag>" -ForegroundColor Gray
-if ($Production) {
-    Write-Host "  3. Move $privatePath to air-gapped storage and delete the working copy." -ForegroundColor Red
-}
