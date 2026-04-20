@@ -87,6 +87,16 @@ const char *mpPlayerConfigGetName(s32 playernum);
 static bool s_Registered = false;
 static char s_JoinAddress[NET_MAX_ADDR + 1] = {0};
 
+/* F-IP-Browser: Convert a raw "A.B.C.D" or "A.B.C.D:port" address string to a
+ * connect code for display. sscanf stops at ':' so port is harmlessly ignored. */
+static bool addrStringToConnectCode(const char *addrStr, char *buf, s32 bufsize)
+{
+    unsigned a = 0, b = 0, c = 0, d = 0;
+    if (sscanf(addrStr, "%u.%u.%u.%u", &a, &b, &c, &d) != 4) return false;
+    u32 ip = (u32)a | ((u32)b << 8) | ((u32)c << 16) | ((u32)d << 24);
+    return connectCodeEncode(ip, buf, bufsize) >= 0;
+}
+
 /* ========================================================================
  * Multiplayer Menu — Server Browser + Direct IP
  * ======================================================================== */
@@ -124,7 +134,12 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
         /* Restore last used address */
         extern char g_NetLastJoinAddr[];
         if (s_JoinAddress[0] == '\0') {
-            strncpy(s_JoinAddress, g_NetLastJoinAddr, NET_MAX_ADDR);
+            char code[CONNECT_CODE_MAX];
+            if (addrStringToConnectCode(g_NetLastJoinAddr, code, sizeof(code))) {
+                strncpy(s_JoinAddress, code, NET_MAX_ADDR);
+            } else {
+                strncpy(s_JoinAddress, g_NetLastJoinAddr, NET_MAX_ADDR);
+            }
             s_JoinAddress[NET_MAX_ADDR] = '\0';
         }
         /* Query servers on open */
@@ -213,13 +228,19 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
                 }
             }
 
-            /* Server row: clickable to select address */
+            /* Server row: clickable to select address. Display as connect code
+             * to avoid exposing raw IP in the UI. */
+            char addrCode[CONNECT_CODE_MAX];
+            if (!addrStringToConnectCode(addr, addrCode, sizeof(addrCode))) {
+                strncpy(addrCode, addr, sizeof(addrCode) - 1);
+                addrCode[sizeof(addrCode) - 1] = '\0';
+            }
             char label[128];
-            snprintf(label, sizeof(label), "%-30s", addr);
+            snprintf(label, sizeof(label), "%-30s", addrCode);
 
             if (ImGui::Selectable(label, false)) {
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-                strncpy(s_JoinAddress, addr, NET_MAX_ADDR);
+                strncpy(s_JoinAddress, addrCode, NET_MAX_ADDR);
                 s_JoinAddress[NET_MAX_ADDR] = '\0';
             }
 

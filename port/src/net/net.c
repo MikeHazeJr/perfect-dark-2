@@ -232,6 +232,7 @@ static inline void netClientReset(struct netclient *cl)
 	cl->id = cl - g_NetClients;
 	cl->settings.team = 0xff;
 	cl->room_id = 0xFF;
+	netmsgChatRateReset((u32)cl->id);
 }
 
 static inline void netClientResetAll(void)
@@ -1072,6 +1073,17 @@ s32 netDisconnect(void)
 
 	sysLogPrintf(LOG_CHAT, "NET: disconnected");
 
+#if !defined(PD_SERVER)
+	/* M-23-A: cascade-close the menu pool on every disconnect (lobby or in-game).
+	 * Disconnect paths don't go through menuPushRootDialog, so pool slots from
+	 * lobby/room/mp-setup would survive and block reopen of the same type on
+	 * return. menupoolReleaseAll is idempotent. */
+	menupoolReleaseAll();
+	if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+		inputCtxPopDeferred(&g_CtxImGuiMenu);
+	}
+#endif
+
 	if (wasingame && !g_AppQuitting) {
 		// skip the "want to save" dialog for all players
 		for (s32 i = 0; i < MAX_PLAYERS; ++i) {
@@ -1101,18 +1113,6 @@ s32 netDisconnect(void)
 		 * during the manifest apply.  Same fix pattern as F-0.4 in
 		 * pdguiEndscreenExitToMainMenu and L1-1 in netmsgSvcStageEndRead. */
 		manifestClear(&g_ClientManifest);
-#if !defined(PD_SERVER)
-		/* M-23: cascade-close the menu pool before the stage transition.
-		 * Disconnect paths don't go through menuPushRootDialog (it's a
-		 * direct mainChangeToStage), so without this any pool slot from the
-		 * lobby/room/mp-setup survives into CI training and blocks reopen
-		 * of the same type on return. Mirrors the netmsgSvcStageStartRead
-		 * cleanup (netmsg.c:1307/1461). Also pop the shared menu ctx.  */
-		menupoolReleaseAll();
-		if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-			inputCtxPopDeferred(&g_CtxImGuiMenu);
-		}
-#endif
 		mainChangeToStage(STAGE_CITRAINING);
 	}
 

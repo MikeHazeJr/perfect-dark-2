@@ -92,7 +92,7 @@ const char *lobbyGetPlayerHeadId(s32 idx)
 
 u32 netGetClientPing(s32 clientId)
 {
-    if (clientId < 0 || clientId > NET_MAX_CLIENTS) return 0;
+    if (clientId < 0 || clientId >= NET_MAX_CLIENTS) return 0;
     struct netclient *cl = &g_NetClients[clientId];
     if (cl->state == CLSTATE_DISCONNECTED || !cl->peer) return 0;
     return cl->peer->roundTripTime;
@@ -100,7 +100,7 @@ u32 netGetClientPing(s32 clientId)
 
 void netServerKickClient(s32 clientId, const char *reason)
 {
-    if (clientId < 0 || clientId > NET_MAX_CLIENTS) return;
+    if (clientId < 0 || clientId >= NET_MAX_CLIENTS) return;
     if (g_NetMode != NETMODE_SERVER) return;
 
     struct netclient *cl = &g_NetClients[clientId];
@@ -113,7 +113,7 @@ void netServerKickClient(s32 clientId, const char *reason)
 
 void netServerBanClient(s32 clientId, const char *reason)
 {
-    if (clientId < 0 || clientId > NET_MAX_CLIENTS) return;
+    if (clientId < 0 || clientId >= NET_MAX_CLIENTS) return;
     if (g_NetMode != NETMODE_SERVER) return;
 
     struct netclient *cl = &g_NetClients[clientId];
