@@ -1266,10 +1266,26 @@ void bgLoadFile(void *memaddr, u32 offset, u32 len)
 		memset(memaddr, 0, len);
 		return;
 	}
-	if (offset > romsize || len > romsize - offset) {
-		sysLogPrintf(LOG_ERROR, "BG.LOAD: out-of-bounds offset=%u len=%u romsize=%u (bgfileid=%d stageidx=%d) — zeroing dest",
+	if (offset >= romsize) {
+		// Entirely past EOF: zero the whole buffer (no valid data to copy).
+		sysLogPrintf(LOG_ERROR, "BG.LOAD: offset past EOF offset=%u len=%u romsize=%u (bgfileid=%d stageidx=%d) — zeroing dest",
 			offset, len, romsize, stage.bgfileid, g_StageIndex);
 		memset(memaddr, 0, len);
+		return;
+	}
+
+	if (len > romsize - offset) {
+		// Partial over-read: callers round the length up to a 16-byte alignment,
+		// so the last bg section in a file is usually a few bytes short. Copy
+		// what is available, zero the padding — do NOT destroy the valid bytes.
+		u32 available = romsize - offset;
+		memcpy(memaddr, src + offset, available);
+		memset((u8 *)memaddr + available, 0, len - available);
+		if (len - available > 16) {
+			// Gap larger than alignment padding indicates real corruption.
+			sysLogPrintf(LOG_ERROR, "BG.LOAD: partial over-read offset=%u len=%u romsize=%u (bgfileid=%d stageidx=%d) copied=%u",
+				offset, len, romsize, stage.bgfileid, g_StageIndex, available);
+		}
 		return;
 	}
 
