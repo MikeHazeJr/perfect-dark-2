@@ -48,6 +48,7 @@
 #include "room.h"
 #include "assetcatalog.h"
 #include "audio.h"
+#include "sha256.h"
 #if !defined(PD_SERVER)
 #include "input.h"
 #include "inputctx.h"
@@ -233,6 +234,7 @@ static inline void netClientReset(struct netclient *cl)
 	cl->settings.team = 0xff;
 	cl->room_id = 0xFF;
 	netmsgChatRateReset((u32)cl->id);
+	netmsgRoomMutationRateReset((u32)cl->id);
 }
 
 static inline void netClientResetAll(void)
@@ -422,6 +424,147 @@ static inline const char *netGetDisconnectReason(const u32 reason)
 	return msgs[0];
 }
 
+/* ============================================================================
+ * SEC-7 — DDoS query reflection mitigation
+ *
+ * The PDQM info query is a small (5 byte) UDP request with a fat (~256-512
+ * byte) reply, giving an attacker ~50-100x amplification — a classic
+ * reflection vector. We split the path into two stages:
+ *
+ *   Stage 1: client sends 5-byte query → server returns a 17-byte challenge
+ *            (magic + 0xFFFFFFFF marker + 8-byte HMAC token bound to source
+ *             address and a 30s time slot).
+ *   Stage 2: client re-sends 13-byte query (magic + token) → server verifies
+ *            and replies with the full info packet.
+ *
+ * The 8-byte token = SHA256(secret || addr || time_slot)[0..8]. The server
+ * secret is generated once per process and never leaves memory. Tokens
+ * commit the responder to one path-validated peer per 30s window. An
+ * attacker spoofing the victim's IP gets the challenge sent to the victim
+ * (who never asked) and cannot echo back from a different IP.
+ *
+ * Per-/24 rate limit (1 reply per second) is layered on top to cap server
+ * cost under sustained probing from real (non-spoofed) IPs.
+ * ============================================================================ */
+
+static u8  s_QuerySecret[32];
+static s32 s_QuerySecretInit = 0;
+static struct {
+	u32 subnet24;
+	u32 last_ms;
+} s_QueryRateTable[NET_QUERY_RATE_SLOTS];
+
+static void netServerEnsureQuerySecret(void)
+{
+	if (s_QuerySecretInit) return;
+	/* Mix several entropy sources through SHA-256.  None individually is
+	 * cryptographically strong, but the truncated digest is what an
+	 * attacker observes — no shortcut to recover the secret without
+	 * solving SHA-256 preimages. */
+	u32 seeds[8];
+	seeds[0] = (u32)time(NULL);
+	seeds[1] = (u32)enet_time_get();
+	seeds[2] = (u32)(uintptr_t)&s_QuerySecret;
+	seeds[3] = (u32)(uintptr_t)netServerEnsureQuerySecret;
+	seeds[4] = (u32)rand();
+	seeds[5] = (u32)rand();
+	seeds[6] = (u32)rand();
+	seeds[7] = (u32)clock();
+	sha256Hash(seeds, sizeof(seeds), s_QuerySecret);
+	s_QuerySecretInit = 1;
+}
+
+static u32 netServerAddrSubnet24(const ENetAddress *addr)
+{
+	/* IPv4-mapped: ipv4.ffff == 0xFFFF and ipv4.ip is the 4-byte v4 addr. */
+	if (addr->ipv4.ffff == 0xFFFF) {
+		u32 ip;
+		memcpy(&ip, &addr->ipv4.ip, 4);
+		return ip & 0xFFFFFF00u;
+	}
+	/* Pure IPv6: fold first 8 bytes (~/64) into a u32 stand-in. */
+	u32 a = 0, b = 0;
+	memcpy(&a, ((const u8 *)&addr->ipv6) + 0, 4);
+	memcpy(&b, ((const u8 *)&addr->ipv6) + 4, 4);
+	return a ^ b;
+}
+
+static void netServerComputeQueryToken(const ENetAddress *addr, u64 slot,
+                                        u8 token[NET_QUERY_TOKEN_LEN])
+{
+	sha256_ctx ctx;
+	u8 digest[SHA256_DIGEST_SIZE];
+	sha256Init(&ctx);
+	sha256Update(&ctx, s_QuerySecret, sizeof(s_QuerySecret));
+	sha256Update(&ctx, &addr->ipv6, sizeof(addr->ipv6));
+	sha256Update(&ctx, &addr->port, sizeof(addr->port));
+	sha256Update(&ctx, &slot, sizeof(slot));
+	sha256Final(&ctx, digest);
+	memcpy(token, digest, NET_QUERY_TOKEN_LEN);
+}
+
+static s32 netServerVerifyQueryToken(const ENetAddress *addr,
+                                      const u8 token[NET_QUERY_TOKEN_LEN])
+{
+	netServerEnsureQuerySecret();
+	const u64 now_slot = (u64)time(NULL) / (NET_QUERY_TIME_SLOT_MS / 1000u);
+	u8 expected[NET_QUERY_TOKEN_LEN];
+	netServerComputeQueryToken(addr, now_slot, expected);
+	if (memcmp(token, expected, NET_QUERY_TOKEN_LEN) == 0) return 1;
+	netServerComputeQueryToken(addr, now_slot - 1, expected);
+	if (memcmp(token, expected, NET_QUERY_TOKEN_LEN) == 0) return 1;
+	return 0;
+}
+
+static s32 netServerQueryRateAllow(const ENetAddress *addr)
+{
+	const u32 subnet = netServerAddrSubnet24(addr);
+	const u32 now    = (u32)enet_time_get();
+	/* Mix subnet to a slot index. Collisions are tolerated — a clashing
+	 * subnet just shares the quota for one window. */
+	u32 h = subnet;
+	h ^= h >> 16; h *= 0x7feb352du;
+	h ^= h >> 15; h *= 0x846ca68bu;
+	h ^= h >> 16;
+	const u32 slot = h & (NET_QUERY_RATE_SLOTS - 1u);
+	if (s_QueryRateTable[slot].subnet24 == subnet) {
+		if ((now - s_QueryRateTable[slot].last_ms) < NET_QUERY_RATE_WINDOW_MS) {
+			return 0;
+		}
+		s_QueryRateTable[slot].last_ms = now;
+		return 1;
+	}
+	/* Different subnet in the slot: claim if the existing entry is aged out
+	 * or empty.  Otherwise pass through without updating (don't penalise
+	 * the unrelated peer for a hash collision). */
+	if (s_QueryRateTable[slot].subnet24 == 0
+	    || (now - s_QueryRateTable[slot].last_ms) >= NET_QUERY_RATE_WINDOW_MS) {
+		s_QueryRateTable[slot].subnet24 = subnet;
+		s_QueryRateTable[slot].last_ms  = now;
+	}
+	return 1;
+}
+
+static void netServerSendQueryChallenge(ENetAddress *address)
+{
+	netServerEnsureQuerySecret();
+	const u64 slot = (u64)time(NULL) / (NET_QUERY_TIME_SLOT_MS / 1000u);
+	u8 token[NET_QUERY_TOKEN_LEN];
+	netServerComputeQueryToken(address, slot, token);
+
+	const u32 magic_len = (u32)(sizeof(NET_QUERY_MAGIC) - 1);
+	u8 buf[16 + NET_QUERY_TOKEN_LEN];
+	memcpy(buf, NET_QUERY_MAGIC, magic_len);
+	const u32 marker = NET_QUERY_CHALLENGE_MARKER;
+	memcpy(buf + magic_len, &marker, sizeof(marker));
+	memcpy(buf + magic_len + sizeof(marker), token, NET_QUERY_TOKEN_LEN);
+
+	ENetBuffer ebuf;
+	ebuf.data       = buf;
+	ebuf.dataLength = magic_len + sizeof(marker) + NET_QUERY_TOKEN_LEN;
+	enet_socket_send(g_NetHost->socket, address, &ebuf, 1);
+}
+
 static void netServerQueryResponse(ENetAddress *address)
 {
 	static u8 data[512]; /* increased from 256 to fit external address field */
@@ -499,10 +642,34 @@ static void netServerQueryResponse(ENetAddress *address)
 static s32 netServerConnectionlessPacket(ENetEvent *event, ENetAddress *address, u8 *rxdata, s32 rxlen)
 {
 	if (rxdata && rxlen >= PUNCH_MAGIC_LEN) {
-		if (!memcmp(rxdata, NET_QUERY_MAGIC, sizeof(NET_QUERY_MAGIC) - 1)) {
-			// this is a query packet, respond with server status
-			sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: query request from %s, responding", netFormatAddr(address));
-			netServerQueryResponse(address);
+		const s32 magic_len = (s32)(sizeof(NET_QUERY_MAGIC) - 1);
+		if (rxlen >= magic_len && !memcmp(rxdata, NET_QUERY_MAGIC, magic_len)) {
+			/* SEC-7: per-/24 rate limit applies to both stages.  Drop
+			 * silently when the budget is exceeded — anything we send
+			 * here, including an error, would itself be amplification. */
+			if (!netServerQueryRateAllow(address)) {
+				return 1;
+			}
+			if (rxlen == magic_len) {
+				/* Stage 1: bare query → issue a small challenge. */
+				netServerSendQueryChallenge(address);
+				return 1;
+			}
+			if (rxlen == magic_len + (s32)NET_QUERY_TOKEN_LEN) {
+				/* Stage 2: token-echo → verify and send full response. */
+				if (!netServerVerifyQueryToken(address, rxdata + magic_len)) {
+					sysLogPrintf(LOG_WARNING | LOGFLAG_NOCON,
+					    "NET: query from %s — bad/expired challenge token, ignoring",
+					    netFormatAddr(address));
+					return 1;
+				}
+				sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON,
+				    "NET: query (authenticated) from %s, responding",
+				    netFormatAddr(address));
+				netServerQueryResponse(address);
+				return 1;
+			}
+			/* Malformed query length — drop silently. */
 			return 1;
 		}
 		if (!memcmp(rxdata, PUNCH_REQ_MAGIC, PUNCH_MAGIC_LEN)) {
@@ -1773,6 +1940,10 @@ void netEndFrame(void)
 			}
 			g_NetPendingResyncFlags = 0;
 		}
+
+		/* SEC-13: flush any pending SVC_ROOM_LIST broadcast (coalesces bursty
+		 * CLC_ROOM_CREATE/JOIN/LEAVE into one broadcast per frame). */
+		netRoomListFlushIfDirty();
 	}
 
 	/* Bot authority: relay bot positions to server even when local player is respawning.
@@ -2076,6 +2247,30 @@ Gfx *netDebugRender(Gfx *gdl)
 	return gdl;
 }
 
+/* SEC-7 (client side): detect a 17-byte challenge response and re-send the
+ * query with the token appended. Returns 1 if the packet was a challenge
+ * (handled here), 0 if it should fall through to the normal info parser. */
+static s32 netClientHandleQueryChallenge(ENetSocket sock, const ENetAddress *addr,
+                                          const u8 *data, s32 len)
+{
+	const s32 magic_len = (s32)(sizeof(NET_QUERY_MAGIC) - 1);
+	if (len != magic_len + 4 + (s32)NET_QUERY_TOKEN_LEN) return 0;
+	if (memcmp(data, NET_QUERY_MAGIC, magic_len) != 0) return 0;
+	u32 marker;
+	memcpy(&marker, data + magic_len, sizeof(marker));
+	if (marker != NET_QUERY_CHALLENGE_MARKER) return 0;
+
+	u8 buf[16 + NET_QUERY_TOKEN_LEN];
+	memcpy(buf, NET_QUERY_MAGIC, magic_len);
+	memcpy(buf + magic_len, data + magic_len + 4, NET_QUERY_TOKEN_LEN);
+
+	ENetBuffer ebuf;
+	ebuf.data       = buf;
+	ebuf.dataLength = magic_len + NET_QUERY_TOKEN_LEN;
+	enet_socket_send(sock, (ENetAddress *)addr, &ebuf, 1);
+	return 1;
+}
+
 void netRecentServerAdd(const char *addr)
 {
 	if (!addr || !addr[0]) {
@@ -2184,8 +2379,11 @@ void netQueryRecentServers(void)
 		}
 	}
 
-	// try to receive responses (blocking up to 200ms per attempt)
-	for (s32 attempt = 0; attempt < g_NetNumRecentServers; ++attempt) {
+	/* try to receive responses (blocking up to 200ms per attempt).
+	 * SEC-7: each server now answers in two packets — a small challenge,
+	 * followed by the full info reply once we echo the token.  Allow up to
+	 * 2x the server count so we don't drop full responses behind challenges. */
+	for (s32 attempt = 0; attempt < (g_NetNumRecentServers * 2); ++attempt) {
 		u8 rxdata[512];
 		ENetBuffer rxbuf;
 		ENetAddress rxaddr;
@@ -2193,6 +2391,10 @@ void netQueryRecentServers(void)
 		rxbuf.dataLength = sizeof(rxdata);
 		s32 rxlen = enet_socket_receive(sock, &rxaddr, &rxbuf, 1);
 		if (rxlen > 0) {
+			/* SEC-7: handle two-stage handshake transparently. */
+			if (netClientHandleQueryChallenge(sock, &rxaddr, rxdata, rxlen)) {
+				continue;
+			}
 			const char *addrstr = netFormatAddr(&rxaddr);
 			if (addrstr) {
 				netRecentServerUpdate(addrstr, rxdata, rxlen);
@@ -2265,6 +2467,10 @@ void netPollRecentServers(void)
 		s32 rxlen = enet_socket_receive(g_NetQuerySocket, &rxaddr, &rxbuf, 1);
 		if (rxlen <= 0) {
 			break;
+		}
+		/* SEC-7: handle two-stage handshake transparently. */
+		if (netClientHandleQueryChallenge(g_NetQuerySocket, &rxaddr, rxdata, rxlen)) {
+			continue;
 		}
 		const char *addrstr = netFormatAddr(&rxaddr);
 		if (addrstr) {

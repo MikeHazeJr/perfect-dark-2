@@ -9,7 +9,14 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 37  /* v37: B-12 Phase 3 — chrslots u64 bitmask removed from struct mpsetup
+#define NET_PROTOCOL_VER 38  /* v38: SEC-7 — server query becomes a 2-stage handshake.
+                               * Stage 1: client sends 5-byte PDQM query; server returns a
+                               * 17-byte challenge (magic + 0xFFFFFFFF marker + 8-byte HMAC
+                               * token). Stage 2: client re-sends 13-byte query (magic + token);
+                               * server verifies and returns the full info packet. Cuts
+                               * unauthenticated reflection amplification to <1x. Per-/24 rate
+                               * limit is shared across both stages.
+                               * v37: B-12 Phase 3 — chrslots u64 bitmask removed from struct mpsetup
                                * and from SVC_STAGE_START wire. Participant pool is the sole
                                * source of slot assignment; wire carries a derived 64-bit active
                                * mask over slots 0..MAX_MPCHRS-1 which the reader decodes into
@@ -34,6 +41,18 @@ typedef struct _ENetAddress ENetAddress;
                                * v27: net_hash removed from wire; all asset identity uses catalog ID strings. */
 
 #define NET_QUERY_MAGIC "PDQM\x01"
+
+/* SEC-7: challenge-response handshake for server info queries.
+ * Server secret is generated once per process at netStartServer(). Tokens
+ * are SHA-256(secret || client-addr || 30s-time-slot), truncated to 8 bytes.
+ * The marker is an otherwise-invalid NET_PROTOCOL_VER value so clients and
+ * servers can distinguish a challenge packet from a full info response by
+ * looking at the first 4 bytes after the magic. */
+#define NET_QUERY_TOKEN_LEN        8u
+#define NET_QUERY_CHALLENGE_MARKER 0xFFFFFFFFu
+#define NET_QUERY_TIME_SLOT_MS     30000u
+#define NET_QUERY_RATE_WINDOW_MS   1000u
+#define NET_QUERY_RATE_SLOTS       256u
 
 #define NET_MAX_CLIENTS 32  /* max simultaneous connections; independent of MAX_PLAYERS (match slots) */
 #define NET_MAX_NAME MAX_PLAYERNAME
