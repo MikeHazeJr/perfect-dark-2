@@ -12,6 +12,7 @@
  */
 
 #include <PR/ultratypes.h>
+#include <stdio.h>
 
 #include "imgui/imgui.h"
 #include "pdgui_layout.h"
@@ -151,6 +152,205 @@ void pdguiPopupDarkenBehind(f32 alpha)
      * game 3D scene.  Single rect spanning the whole viewport. */
     ImGui::GetBackgroundDrawList()->AddRectFilled(
         ImVec2(0.0f, 0.0f), disp, dimCol);
+}
+
+/* ========================================================================
+ * Destructive-action confirm modal (S391 M-5/6/Q batch)
+ *
+ * Canonical S385 pattern: scrim + PD red frame + 5-frame force-focus on
+ * Cancel + 3-frame input debounce + red confirm button + footer hint.
+ * Callers maintain the s_*OpenFrame tracker and call ImGui::OpenPopup /
+ * set the tracker to GetFrameCount() at the site where the destructive
+ * action is triggered (button click, Esc on screen, etc.).
+ * ======================================================================== */
+
+#define PDGUI_CONFIRM_FRAME_DEBOUNCE       3
+#define PDGUI_CONFIRM_FORCE_FOCUS_FRAMES   5
+
+s32 pdguiRenderConfirmModal(const char *popupId,
+                            const char *title,
+                            const char *body,
+                            const char *confirmLabel,
+                            s32 *openFrame)
+{
+    if (!popupId || !title || !body || !confirmLabel || !openFrame) {
+        return PDGUI_CONFIRM_PENDING;
+    }
+
+    /* No popup requested — keep tracker in -1 and return PENDING so the
+     * caller can cheaply call us every frame without branching. */
+    if (!ImGui::IsPopupOpen(popupId)) {
+        *openFrame = -1;
+        return PDGUI_CONFIRM_PENDING;
+    }
+
+    /* Scrim behind every ImGui window, over the game 3D scene. */
+    pdguiPopupDarkenBehind(0.65f);
+
+    s32 prevPalette = pdguiGetPalette();
+
+    f32 modalW = pdguiScale(560.0f);
+    f32 modalH = pdguiScale(240.0f);
+    ImVec2 mPos = pdguiCenterPos(modalW, modalH);
+
+    ImGui::SetNextWindowPos(mPos);
+    ImGui::SetNextWindowSize(ImVec2(modalW, modalH));
+
+    ImGuiWindowFlags mflags = ImGuiWindowFlags_NoResize
+                             | ImGuiWindowFlags_NoMove
+                             | ImGuiWindowFlags_NoCollapse
+                             | ImGuiWindowFlags_NoSavedSettings
+                             | ImGuiWindowFlags_NoTitleBar
+                             | ImGuiWindowFlags_NoBackground
+                             | ImGuiWindowFlags_NoScrollbar;
+
+    if (!ImGui::BeginPopupModal(popupId, nullptr, mflags)) {
+        /* Popup was dismissed externally (hotswap, stage change, etc.). */
+        *openFrame = -1;
+        return PDGUI_CONFIRM_PENDING;
+    }
+
+    /* Red / warning palette for the PD frame + title. */
+    pdguiSetPalette(2);
+
+    f32 mx = ImGui::GetWindowPos().x;
+    f32 my = ImGui::GetWindowPos().y;
+    f32 titleH = pdguiScale(36.0f);
+    if (titleH < 18.0f) titleH = 18.0f;
+
+    s32 curFrame = (s32)ImGui::GetFrameCount();
+    s32 framesOpen = (*openFrame >= 0)
+                     ? (curFrame - *openFrame)
+                     : PDGUI_CONFIRM_FORCE_FOCUS_FRAMES + 1;
+    bool forceFocus = (framesOpen >= 0 &&
+                        framesOpen < PDGUI_CONFIRM_FORCE_FOCUS_FRAMES);
+    bool inputDebounced = (framesOpen >= 0 &&
+                            framesOpen < PDGUI_CONFIRM_FRAME_DEBOUNCE);
+
+    /* Opaque PD-authentic backdrop + frame + title text. */
+    {
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(ImVec2(mx, my),
+                          ImVec2(mx + modalW, my + modalH),
+                          pdguiPalImU32(PDPAL_BODYBG, 255));
+    }
+    pdguiDrawPdDialog(mx, my, modalW, modalH, title, 1);
+    {
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        pdguiDrawTextGlow(mx + 8.0f, my + 2.0f,
+                          modalW - 16.0f, titleH - 4.0f);
+        ImVec2 ts = ImGui::CalcTextSize(title);
+        dl->AddText(ImVec2(mx + (modalW - ts.x) * 0.5f,
+                           my + (titleH - ts.y) * 0.5f),
+                    IM_COL32(255, 255, 0, 255), title);
+    }
+
+    pdguiSetCursorBelowTitle(titleH);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + pdguiScale(8.0f));
+
+    f32 availW = modalW - ImGui::GetStyle().WindowPadding.x * 2.0f;
+
+    /* Body text — centered, wrapped, warning-tinted. */
+    {
+        ImVec2 bts = ImGui::CalcTextSize(body, nullptr, false, availW);
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availW - bts.x) * 0.5f);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + availW);
+        ImGui::PushStyleColor(ImGuiCol_Text,
+                              ImVec4(1.0f, 0.85f, 0.85f, 1.0f));
+        ImGui::TextWrapped("%s", body);
+        ImGui::PopStyleColor();
+        ImGui::PopTextWrapPos();
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* Buttons. */
+    f32 btnW = pdguiScale(160.0f);
+    f32 btnH = pdguiScale(32.0f);
+    f32 gap  = pdguiScale(16.0f);
+    f32 totalW = btnW * 2.0f + gap;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availW - totalW) * 0.5f);
+
+    bool doConfirm = false;
+    bool doCancel  = false;
+
+    /* 5-frame force-focus latch on Cancel so controller D-pad starts on
+     * the safe default.  SetItemDefaultFocus alone races with popup
+     * NavInit; SetKeyboardFocusHere(0) before the next-submitted item
+     * bypasses that race. */
+    if (forceFocus) {
+        ImGui::SetKeyboardFocusHere(0);
+    }
+
+    if (ImGui::Button("Cancel##pdgui_confirm_cancel", ImVec2(btnW, btnH))) {
+        if (!inputDebounced) doCancel = true;
+    }
+    ImGui::SetItemDefaultFocus();
+
+    ImGui::SameLine(0.0f, gap);
+
+    ImGui::PushStyleColor(ImGuiCol_Button,
+                          ImVec4(0.55f, 0.10f, 0.10f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                          ImVec4(0.80f, 0.15f, 0.15f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                          ImVec4(1.00f, 0.20f, 0.20f, 1.0f));
+    char confirmId[128];
+    snprintf(confirmId, sizeof(confirmId), "%s##pdgui_confirm_ok",
+             confirmLabel);
+    if (ImGui::Button(confirmId, ImVec2(btnW, btnH))) {
+        if (!inputDebounced) doConfirm = true;
+    }
+    ImGui::PopStyleColor(3);
+
+    /* Footer hints. */
+    {
+        const char *hintL = "[Enter/Space/(A)] Confirm";
+        const char *hintR = "[Esc/(B)] Cancel";
+        f32 hintY = modalH - pdguiScale(22.0f);
+        if (hintY < ImGui::GetCursorPosY() + pdguiScale(4.0f)) {
+            hintY = ImGui::GetCursorPosY() + pdguiScale(4.0f);
+        }
+        ImGui::SetCursorPos(ImVec2(ImGui::GetStyle().WindowPadding.x,
+                                    hintY));
+        ImGui::TextDisabled("%s", hintL);
+        ImVec2 rSize = ImGui::CalcTextSize(hintR);
+        ImGui::SetCursorPos(ImVec2(modalW - ImGui::GetStyle().WindowPadding.x
+                                       - rSize.x,
+                                    hintY));
+        ImGui::TextDisabled("%s", hintR);
+    }
+
+    /* Keyboard / gamepad shortcuts.  Debounced for FRAME_DEBOUNCE frames
+     * so the Enter press that opened the popup cannot bleed through. */
+    if (!inputDebounced) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+            ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
+            ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+            doConfirm = true;
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            doCancel = true;
+        }
+    }
+
+    s32 result = PDGUI_CONFIRM_PENDING;
+    if (doConfirm) {
+        pdguiPlaySound(PDGUI_SND_SELECT);
+        ImGui::CloseCurrentPopup();
+        *openFrame = -1;
+        result = PDGUI_CONFIRM_OK;
+    } else if (doCancel) {
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        ImGui::CloseCurrentPopup();
+        *openFrame = -1;
+        result = PDGUI_CONFIRM_CANCEL;
+    }
+
+    pdguiSetPalette(prevPalette);
+    ImGui::EndPopup();
+    return result;
 }
 
 } /* extern "C" */

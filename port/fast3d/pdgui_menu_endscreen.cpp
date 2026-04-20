@@ -384,6 +384,12 @@ static void sortRankingsByTeam(ESRankRow *rows, s32 count)
  * immediately activate a menu button. */
 static s32 s_SoloEndscreenDebounce = 0;
 
+/* M-6-B (2026-04-19): S385 destructive-action confirm modal tracker for
+ * the solo failed-mission "Main Menu" button.  pdguiRenderConfirmModal()
+ * reads/clears this; set to GetFrameCount() at the site that opens the
+ * popup.  The MP trackers live further down near the MP statics. */
+static s32 s_SoloFailedMainMenuOpenFrame = -1;
+
 static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
 {
     /* ----- Palette ---------------------------------------------------- */
@@ -684,7 +690,10 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
                 }
             }
         } else {
-            /* RETRY MISSION (default)  |  MAIN MENU (danger) */
+            /* RETRY MISSION (default)  |  MAIN MENU (danger)
+             * M-6-B: Main Menu on a failed mission is destructive (discards
+             * any unsaved progress), so route through the canonical S385
+             * confirm modal. */
             if (pdguiActionBarButton("Retry Mission", 1, halfW) && !inputSuppressed) {
                 pdguiEndscreenStartMission();
             }
@@ -695,10 +704,14 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
                                   ImVec4(0.55f, 0.15f, 0.15f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,
                                   ImVec4(0.75f, 0.2f, 0.2f, 1.0f));
+            const char *sfmmPopupId = "Return to Main Menu?##es_solo_mm";
             if (pdguiActionBarButton("Main Menu", 0,
                                       ImGui::GetContentRegionAvail().x)
-                    && !inputSuppressed) {
-                pdguiEndscreenExitToMainMenu();
+                    && !inputSuppressed
+                    && !ImGui::IsPopupOpen(sfmmPopupId)) {
+                ImGui::OpenPopup(sfmmPopupId);
+                s_SoloFailedMainMenuOpenFrame = (s32)ImGui::GetFrameCount();
+                pdguiPlaySound(PDGUI_SND_OPENDIALOG);
             }
             ImGui::PopStyleColor(3);
         }
@@ -706,15 +719,41 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
     pdguiEndActionBar();
 
     /* Keyboard navigation: Enter/Start or Escape/Back — also debounced.
-     * S311: title X button also exits (first-click reliability). */
+     * S311: title X button also exits (first-click reliability).
+     * M-6-B: when the failed-mission main-menu confirm is open, suppress
+     * Esc here so it routes to the modal only; completed runs still have
+     * Esc as the quick exit (non-destructive in that branch). */
     if (!inputSuppressed) {
-        if (pdguiConsumeTitleClose() ||
-            ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-            pdguiEndscreenExitToMainMenu();
+        const char *sfmmPopupId = "Return to Main Menu?##es_solo_mm";
+        bool confirmOpen = ImGui::IsPopupOpen(sfmmPopupId);
+        if (!confirmOpen &&
+            (pdguiConsumeTitleClose() ||
+             ImGui::IsKeyPressed(ImGuiKey_Escape))) {
+            if (!completed) {
+                ImGui::OpenPopup(sfmmPopupId);
+                s_SoloFailedMainMenuOpenFrame = (s32)ImGui::GetFrameCount();
+                pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+            } else {
+                pdguiEndscreenExitToMainMenu();
+            }
         }
     }
 
+    /* M-6-B: Solo failed-mission Main Menu confirm (destructive = discards
+     * unsaved progress).  Rendered before End() so the popup parents to
+     * this window. */
+    s32 sfmmRes = pdguiRenderConfirmModal(
+        "Return to Main Menu?##es_solo_mm",
+        "Return to Main Menu?",
+        "Return to the main menu? Any unsaved progress will be lost.",
+        "Main Menu",
+        &s_SoloFailedMainMenuOpenFrame);
+
     ImGui::End();
+
+    if (sfmmRes == PDGUI_CONFIRM_OK) {
+        pdguiEndscreenExitToMainMenu();
+    }
 
     /* E.3: Restore palette so the next renderer (main menu, etc.) is clean. */
     pdguiSetPalette(prevPalette);
@@ -727,6 +766,14 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
 /* Suppress A/Enter for a few frames after the endscreen appears so the
  * pause→End Game confirm / Alt combo cannot instantly dismiss or rematch. */
 static s32 s_MpEndscreenDebounce = 0;
+
+/* M-6-B (2026-04-19): S385 destructive-action confirm modal trackers for
+ * the MP endscreen.  pdguiRenderConfirmModal() uses these to drive the
+ * 5-frame force-focus and 3-frame input debounce, and clears them to -1
+ * on dismiss.  Solo-failed tracker (s_SoloFailedMainMenuOpenFrame) is
+ * declared above the solo renderer. */
+static s32 s_MpDisconnectOpenFrame = -1;  /* MP networked: Disconnect */
+static s32 s_MpQuitOpenFrame       = -1;  /* solo-MP: Quit */
 
 /* S301 Bug C diagnostic state. These counters survive a single match's
  * endscreen lifetime and reset when a fresh entry is detected. The goal
@@ -1194,6 +1241,9 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
             s_MpEndscreenDiagRankingsCount, s_MpEndscreenDiagAwardsShown);
     }
 
+    const char *mpDisconnectPopupId = "Disconnect?##es_mp_disc";
+    const char *mpQuitPopupId       = "Quit Game?##es_mp_quit";
+
     if (pdguiBeginActionBar("##es_mp_ab")) {
         float availW = ImGui::GetContentRegionAvail().x;
         float halfW  = availW * 0.5f;
@@ -1208,11 +1258,14 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,   ImVec4(0.5f, 0.1f, 0.1f, 1.0f));
+            /* M-6-B: route Disconnect through canonical S385 confirm. */
             if (pdguiActionBarButton("Disconnect", 0,
                                       ImGui::GetContentRegionAvail().x)
-                    && !inputSuppressed) {
-                netDisconnect();
-                pdguiEndscreenExitToMainMenu();
+                    && !inputSuppressed
+                    && !ImGui::IsPopupOpen(mpDisconnectPopupId)) {
+                ImGui::OpenPopup(mpDisconnectPopupId);
+                s_MpDisconnectOpenFrame = (s32)ImGui::GetFrameCount();
+                pdguiPlaySound(PDGUI_SND_OPENDIALOG);
             }
             ImGui::PopStyleColor(3);
         } else {
@@ -1225,10 +1278,14 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive,   ImVec4(0.5f, 0.1f, 0.1f, 1.0f));
+            /* M-6-B: route Quit through canonical S385 confirm. */
             if (pdguiActionBarButton("Quit", 0,
                                       ImGui::GetContentRegionAvail().x)
-                    && !inputSuppressed) {
-                pdguiEndscreenExitToMainMenu();
+                    && !inputSuppressed
+                    && !ImGui::IsPopupOpen(mpQuitPopupId)) {
+                ImGui::OpenPopup(mpQuitPopupId);
+                s_MpQuitOpenFrame = (s32)ImGui::GetFrameCount();
+                pdguiPlaySound(PDGUI_SND_OPENDIALOG);
             }
             ImGui::PopStyleColor(3);
         }
@@ -1237,18 +1294,49 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
 
     /* Escape / title X close: still need explicit handling because the
      * action bar's focused-button Enter path covers the primary action
-     * but not the cancel path.  S311: title X button mirrors Escape exit. */
+     * but not the cancel path.  S311: title X button mirrors Escape exit.
+     * M-6-B: route Esc/title-X through the destructive-action confirm
+     * (networked = Disconnect, solo-MP = Quit). */
     if (!inputSuppressed) {
-        if (pdguiConsumeTitleClose() ||
-            ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        bool anyConfirmOpen = ImGui::IsPopupOpen(mpDisconnectPopupId)
+                           || ImGui::IsPopupOpen(mpQuitPopupId);
+        if (!anyConfirmOpen &&
+            (pdguiConsumeTitleClose() ||
+             ImGui::IsKeyPressed(ImGuiKey_Escape))) {
             if (networked) {
-                netDisconnect();
+                ImGui::OpenPopup(mpDisconnectPopupId);
+                s_MpDisconnectOpenFrame = (s32)ImGui::GetFrameCount();
+            } else {
+                ImGui::OpenPopup(mpQuitPopupId);
+                s_MpQuitOpenFrame = (s32)ImGui::GetFrameCount();
             }
-            pdguiEndscreenExitToMainMenu();
+            pdguiPlaySound(PDGUI_SND_OPENDIALOG);
         }
     }
 
+    /* M-6-B: render both confirm modals — only one can be open at a time. */
+    s32 discRes = pdguiRenderConfirmModal(
+        mpDisconnectPopupId,
+        "Disconnect?",
+        "Disconnect from the server and return to the main menu?",
+        "Disconnect",
+        &s_MpDisconnectOpenFrame);
+
+    s32 quitRes = pdguiRenderConfirmModal(
+        mpQuitPopupId,
+        "Quit Game?",
+        "Quit and return to the main menu? The current match will end.",
+        "Quit",
+        &s_MpQuitOpenFrame);
+
     ImGui::End();
+
+    if (discRes == PDGUI_CONFIRM_OK) {
+        netDisconnect();
+        pdguiEndscreenExitToMainMenu();
+    } else if (quitRes == PDGUI_CONFIRM_OK) {
+        pdguiEndscreenExitToMainMenu();
+    }
 
     /* E.3: Restore palette so the next renderer (main menu, etc.) is clean. */
     pdguiSetPalette(prevPalette);

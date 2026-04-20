@@ -111,6 +111,12 @@ void netbufStartWrite(struct netbuf *buf);
 
 } /* extern "C" */
 
+/* S391 M-5-A: Disconnect-from-server confirm modal tracker.
+ * Initialized to -1; set to ImGui::GetFrameCount() when the popup opens.
+ * pdguiRenderConfirmModal consults it for the 5-frame force-focus latch
+ * and 3-frame input debounce, and clears it back to -1 on dismiss. */
+static s32 s_LobbyDisconnectOpenFrame = -1;
+
 /* ========================================================================
  * Render — Social Lobby
  * Called when client is in CLSTATE_LOBBY and has not yet entered a room.
@@ -402,10 +408,32 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
         netSend(NULL, &g_NetMsgRel, 1, 0);
     }
 
-    if (wantDisconnect || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: social lobby CLOSE/DISCONNECT via button/ESC");
-        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+    /* S391 M-5-A: route Disconnect button + Esc through a confirm modal
+     * (canonical S385 pattern) instead of tearing down the session on a
+     * single click / stray keystroke.  The modal fires netDisconnect()
+     * only when the user confirms. */
+    const char *discPopupId = "Disconnect from Server?##lobby_disconnect";
+    if ((wantDisconnect || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) &&
+            !ImGui::IsPopupOpen(discPopupId)) {
+        sysLogPrintf(LOG_NOTE,
+            "MENU_IMGUI: social lobby DISCONNECT confirm OPEN via button/ESC");
+        ImGui::OpenPopup(discPopupId);
+        s_LobbyDisconnectOpenFrame = (s32)ImGui::GetFrameCount();
+        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+    }
+
+    s32 discRes = pdguiRenderConfirmModal(
+        discPopupId,
+        "Disconnect from Server?",
+        "Disconnect from the server and return to the main menu?",
+        "Disconnect",
+        &s_LobbyDisconnectOpenFrame);
+    if (discRes == PDGUI_CONFIRM_OK) {
+        sysLogPrintf(LOG_NOTE,
+            "MENU_IMGUI: social lobby DISCONNECT confirmed");
+        ImGui::End();
         netDisconnect();
+        return;
     }
 
     ImGui::End();

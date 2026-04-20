@@ -427,9 +427,11 @@ static s32 s_AcceptSelectIdx = 0;  /* 0 = Accept, 1 = Decline */
 /* Pause */
 static s32 s_PauseSelectIdx = 0;   /* 0 = close, 1 = Inventory, 2 = Options, 3 = Abort */
 
-/* P8: Restart confirmation state */
-static bool s_RestartConfirm = false;
-static s32  s_RestartSelectIdx = 0;   /* 0 = Cancel, 1 = Restart */
+/* P8: Restart confirmation state.
+ * M-6-A (2026-04-19): Replaced s_RestartConfirm + s_RestartSelectIdx with
+ * canonical S385 popup modal via pdguiRenderConfirmModal().  openFrame is
+ * the caller-owned tracker that the helper reads/clears. */
+static s32 s_RestartOpenFrame = -1;
 
 /* Abort confirmation — M-2 (2026-04-19): BeginPopupModal pattern with
  * 5-frame SetKeyboardFocusHere(0) focus latch + 3-frame input debounce so
@@ -2702,10 +2704,11 @@ static s32 renderPauseMenu(struct menudialog *dialog,
         ImGui::SetWindowFocus();
         /* S308: reset ALL pause-state statics on every fresh open so the
          * Restart-Confirm overlay and selection cursor can't leak between
-         * mission opens (prior impl only reset s_PauseSelectIdx). */
-        s_PauseSelectIdx   = 0;
-        s_RestartConfirm   = false;
-        s_RestartSelectIdx = 0;
+         * mission opens (prior impl only reset s_PauseSelectIdx).
+         * M-6-A: replaced s_RestartConfirm/s_RestartSelectIdx with
+         * s_RestartOpenFrame tracker (popup modal path). */
+        s_PauseSelectIdx    = 0;
+        s_RestartOpenFrame  = -1;
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
         /* S369: attach g_CtxImGuiMenu to the already-acquired pool slot so
          * menu input routing works.  menuPushRootDialog → menuPushDialog
@@ -2892,10 +2895,10 @@ static s32 renderPauseMenu(struct menudialog *dialog,
                 pdguiPlaySound(PDGUI_SND_KBCANCEL);
                 menuPopDialog();
                 break;
-            case 1: /* Restart Mission — P8: show confirmation before restarting */
+            case 1: /* Restart Mission — M-6-A: open canonical S385 confirm modal */
+                ImGui::OpenPopup("Restart Mission?##restart");
+                s_RestartOpenFrame = (s32)ImGui::GetFrameCount();
                 pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-                s_RestartConfirm = true;
-                s_RestartSelectIdx = 0; /* default to Cancel (safe) */
                 break;
             case 2: /* Inventory (ImGui weapon list — M1.2) */
                 pdguiPlaySound(PDGUI_SND_OPENDIALOG);
@@ -2918,8 +2921,10 @@ static s32 renderPauseMenu(struct menudialog *dialog,
         ImGui::PopID();
     }
 
-    /* B button / Escape = Resume (unless restart confirm is showing) */
-    if (!s_RestartConfirm &&
+    /* B button / Escape = Resume (unless restart confirm is showing).
+     * M-6-A: restart confirm is now a popup modal — suppress the pause-level
+     * cancel while the popup is open so Esc routes to the modal only. */
+    if (!ImGui::IsPopupOpen("Restart Mission?##restart") &&
         (actionPressed(0, ACTION_CANCEL_USE) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
@@ -2928,93 +2933,25 @@ static s32 renderPauseMenu(struct menudialog *dialog,
     }
     pdguiNavTickWrap();
 
+    /* M-6-A: Restart-Mission confirmation modal — canonical S385 pattern
+     * via pdguiRenderConfirmModal().  Rendered before End() so the popup
+     * is parented to the pause window. */
+    s32 restartRes = pdguiRenderConfirmModal(
+        "Restart Mission?##restart",
+        "Restart Mission?",
+        "Restart the current mission from the beginning? All progress will be lost.",
+        "Restart",
+        &s_RestartOpenFrame);
+
     ImGui::End();
 
-    /* P8: Restart confirmation overlay — drawn after main pause window
-     * as a centered popup over the pause menu. */
-    if (s_RestartConfirm) {
-        float rcW = pdguiMenuWidth() * 0.50f;
-        float rcH = pdguiMenuHeight() * 0.30f;
-        ImVec2 rcPos = pdguiCenterPos(rcW, rcH);
-
-        ImGui::SetNextWindowPos(rcPos);
-        ImGui::SetNextWindowSize(ImVec2(rcW, rcH));
-
-        ImGuiWindowFlags rcf = ImGuiWindowFlags_NoResize
-                             | ImGuiWindowFlags_NoMove
-                             | ImGuiWindowFlags_NoCollapse
-                             | ImGuiWindowFlags_NoSavedSettings
-                             | ImGuiWindowFlags_NoTitleBar
-                             | ImGuiWindowFlags_NoBackground;
-
-        if (ImGui::Begin("##restart_confirm", nullptr, rcf)) {
-            float rtitleH = pdguiScale(39.0f);
-            pdguiDrawPdDialog(rcPos.x, rcPos.y, rcW, rcH, "Restart Mission?", 1);
-            pdguiSetCursorBelowTitle(rtitleH);
-
-            ImGui::Spacing();
-            ImGui::PushTextWrapPos(rcW - pdguiScale(24.0f));
-            ImGui::Text("Restart the current mission from the beginning?");
-            ImGui::Text("All progress will be lost.");
-            ImGui::PopTextWrapPos();
-            ImGui::Spacing();
-            ImGui::Separator();
-
-            /* Nav: left/right toggle, B/Escape = cancel */
-            if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true)        ||
-                ImGui::IsKeyPressed(ImGuiKey_RightArrow, true)) {
-                s_RestartSelectIdx = 1 - s_RestartSelectIdx;
-                pdguiPlaySound(PDGUI_SND_FOCUS);
-            }
-            if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-                s_RestartConfirm = false;
-                pdguiPlaySound(PDGUI_SND_KBCANCEL);
-                ImGui::End();
-                return 1;
-            }
-
-            bool rcConfirm = ImGui::IsKeyPressed(ImGuiKey_Enter, false);
-
-            float rbtnH = pdguiScale(54.0f);
-            float rbtnW = (rcW - ImGui::GetStyle().WindowPadding.x * 2.0f - pdguiScale(15.0f)) * 0.5f;
-
-            /* Cancel button */
-            {
-                bool isSel = (s_RestartSelectIdx == 0);
-                ImVec2 cp = ImGui::GetCursorScreenPos();
-                if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, rbtnW, rbtnH);
-                bool clicked = ImGui::Button("Cancel##restart", ImVec2(rbtnW, rbtnH));
-                if (ImGui::IsItemHovered()) s_RestartSelectIdx = 0;
-                if (clicked || (isSel && rcConfirm)) {
-                    s_RestartConfirm = false;
-                    pdguiPlaySound(PDGUI_SND_KBCANCEL);
-                }
-            }
-
-            ImGui::SameLine(0.0f, pdguiScale(15.0f));
-
-            /* Restart button */
-            {
-                bool isSel = (s_RestartSelectIdx == 1);
-                ImVec2 cp = ImGui::GetCursorScreenPos();
-                if (isSel) pdguiDrawItemHighlight(cp.x, cp.y, rbtnW, rbtnH);
-                ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TextWarning());
-                bool clicked = ImGui::Button("Restart##confirm", ImVec2(rbtnW, rbtnH));
-                ImGui::PopStyleColor();
-                if (ImGui::IsItemHovered()) s_RestartSelectIdx = 1;
-                if (clicked || (isSel && rcConfirm)) {
-                    s_RestartConfirm = false;
-                    pdguiPlaySound(PDGUI_SND_SELECT);
-                    s32 rsn = (s32)(u8)g_MissionConfig.stagenum;
-                    if (g_MissionConfig.stage_id[0] != '\0') {
-                        catalog_stage_result_t sr;
-                        if (catalogResolveStage(g_MissionConfig.stage_id, &sr)) rsn = sr.stagenum;
-                    }
-                    mainChangeToStage(rsn);
-                }
-            }
+    if (restartRes == PDGUI_CONFIRM_OK) {
+        s32 rsn = (s32)(u8)g_MissionConfig.stagenum;
+        if (g_MissionConfig.stage_id[0] != '\0') {
+            catalog_stage_result_t sr;
+            if (catalogResolveStage(g_MissionConfig.stage_id, &sr)) rsn = sr.stagenum;
         }
-        ImGui::End();
+        mainChangeToStage(rsn);
     }
 
     return 1;
@@ -3660,8 +3597,7 @@ extern "C" void pdguiSoloMissionReset(void)
     s_BriefingScroll      = 0.0f;
     s_AcceptSelectIdx     = 0;
     s_PauseSelectIdx      = 0;
-    s_RestartConfirm      = false;
-    s_RestartSelectIdx    = 0;
+    s_RestartOpenFrame    = -1;
     s_AbortOpenedForDialog = nullptr;
     s_AbortOpenFrame      = -1;
     s_OptionsSelectIdx    = 0;
