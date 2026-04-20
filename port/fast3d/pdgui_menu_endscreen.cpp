@@ -71,10 +71,10 @@ struct menu;
 #define ES_DIFFBIT_PA 0x04u
 #define ES_DIFFBIT_PD 0x08u
 
-/* MP layout constants (must match MAX_PLAYERS/MAX_BOTS in constants.h) */
-#define ES_MAX_PLAYERS     8
-#define ES_MAX_BOTS       32
-#define ES_MAX_MPCHRS     (ES_MAX_PLAYERS + ES_MAX_BOTS)
+/* MP layout constants — pulled from the C++-safe mirror header.
+ * See pdgui_constants.h for why direct constants.h inclusion doesn't work
+ * from C++ and how drift is caught at build time. */
+#include "pdgui_constants.h"
 
 /* MP option flags */
 #define ES_MPOPTION_TEAMSENABLED 0x00000002u
@@ -136,7 +136,7 @@ struct mpchrconfig_es {
     s8 placement;
     u8 _pad1;
     s32 rankablescore;
-    s16 killcounts[ES_MAX_MPCHRS];
+    s16 killcounts[MAX_MPCHRS];
     s16 numdeaths;
     s16 numpoints;
     s16 unk40;
@@ -322,7 +322,7 @@ struct ESRankRow {
 
 static s32 buildRankings(ESRankRow *rows, s32 maxRows, bool teams)
 {
-    struct ranking_es raw[ES_MAX_MPCHRS];
+    struct ranking_es raw[MAX_MPCHRS];
     (void)teams;
     /* Always build from per-player rankings; team mode is represented by
      * ordering/grouping, not by mpGetTeamRankings() aggregate rows. */
@@ -348,10 +348,10 @@ static s32 buildRankings(ESRankRow *rows, s32 maxRows, bool teams)
         rows[i].score         = raw[i].score;
         rows[i].deaths        = (s32)cfg->numdeaths;
         rows[i].team          = cfg->team;
-        rows[i].isLocalPlayer = (raw[i].chrnum < (u32)ES_MAX_PLAYERS);
+        rows[i].isLocalPlayer = (raw[i].chrnum < (u32)MAX_PLAYERS);
 
         s32 kills = 0;
-        for (s32 k = 0; k < ES_MAX_MPCHRS; k++) {
+        for (s32 k = 0; k < MAX_MPCHRS; k++) {
             if ((u32)k != raw[i].chrnum)
                 kills += (s32)cfg->killcounts[k];
         }
@@ -1002,8 +1002,8 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
 
     SectionHeader("FINAL RANKINGS");
 
-    ESRankRow rows[ES_MAX_MPCHRS];
-    s32 count = buildRankings(rows, ES_MAX_MPCHRS, teamsMode);
+    ESRankRow rows[MAX_MPCHRS];
+    s32 count = buildRankings(rows, MAX_MPCHRS, teamsMode);
     s_MpEndscreenDiagRankingsCount = count;
 
     /* S301 Bug C: log how many rankings rows buildRankings returned.

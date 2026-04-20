@@ -293,13 +293,19 @@ static inline u32 netbufReadRooms(struct netbuf *buf, s16 *rooms, const s32 num)
 
 static inline u32 netbufWriteGset(struct netbuf *buf, const struct gset *gset)
 {
-	netbufWriteData(buf, gset, sizeof(*gset));
+	netbufWriteU8(buf, gset->weaponnum);
+	netbufWriteU8(buf, gset->unk0639);
+	netbufWriteU8(buf, gset->unk063a);
+	netbufWriteU8(buf, gset->weaponfunc);
 	return buf->error;
 }
 
 static inline u32 netbufReadGset(struct netbuf *buf, struct gset *gset)
 {
-	netbufReadData(buf, gset, sizeof(*gset));
+	gset->weaponnum = netbufReadU8(buf);
+	gset->unk0639 = netbufReadU8(buf);
+	gset->unk063a = netbufReadU8(buf);
+	gset->weaponfunc = netbufReadU8(buf);
 	return buf->error;
 }
 

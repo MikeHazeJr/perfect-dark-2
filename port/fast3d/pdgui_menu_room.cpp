@@ -102,9 +102,10 @@ s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
 #define GAMEMODE_COOP 1
 #define GAMEMODE_ANTI 2
 
-/* Max human players — must match MAX_PLAYERS in src/include/constants.h.
- * Cannot include constants.h here (types.h bool conflict with C++). */
-#define MAX_PLAYERS 8
+/* Player/team capacity constants — pulled from the C++-safe mirror header.
+ * See pdgui_constants.h for why this indirection exists and how drift is
+ * caught at build time. */
+#include "pdgui_constants.h"
 
 /* Bridge: send CLC_LOBBY_START.
  * stage_id: catalog ID string ("base:mp_complex", "base:defection", etc.) */

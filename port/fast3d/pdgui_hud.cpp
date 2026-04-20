@@ -41,10 +41,9 @@ s32 pdguiPauseGetNormMplayerIsRunning(void);
  * extra gate to avoid drawing the score panel / timer behind the backdrop. */
 extern s32 g_MainIsEndscreen;
 
-/* Score / ranking access.
- * MAX_MPCHRS = MAX_PLAYERS + MAX_BOTS = 8 + 32 = 40 (constants.h) */
-#define MAX_MPCHRS_HUD    40
-#define MAX_TEAMS_HUD     8
+/* Score / ranking access — pull capacities from the C++-safe mirror header.
+ * See pdgui_constants.h for the why and how values stay in sync. */
+#include "pdgui_constants.h"
 
 /* Minimal ABI-compatible struct mirrors -- only access name[15] at offset 0. */
 struct mpchrconfig_hud {
@@ -129,7 +128,7 @@ static s32 buildScoreRows(HudScoreRow *out, s32 maxOut, s32 *outScoreLimit)
 
     if (isTeams) {
         /* Team mode: top 2 teams sorted by score */
-        struct ranking_hud rankings[MAX_TEAMS_HUD];
+        struct ranking_hud rankings[MAX_TEAMS];
         s32 count = mpGetTeamRankings(rankings);
         if (count > maxOut) count = maxOut;
 
@@ -147,7 +146,7 @@ static s32 buildScoreRows(HudScoreRow *out, s32 maxOut, s32 *outScoreLimit)
         return count;
     } else {
         /* FFA: top 2 players sorted by score */
-        struct ranking_hud rankings[MAX_MPCHRS_HUD];
+        struct ranking_hud rankings[MAX_MPCHRS];
         s32 count = mpGetPlayerRankings(rankings);
         if (count > maxOut) count = maxOut;
 

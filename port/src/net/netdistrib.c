@@ -893,6 +893,68 @@ void netDistribClientHandleChunk(const char *catalog_id, u16 chunk_idx,
     (void)compression;  /* stored in slot for future use; we detect below from END */
 }
 
+/* H-2: Map an INI filename ("map.ini", "character.ini", ...) to the asset_type_e
+ * that the scanner would register locally. Keeps wire-delivered mods type-resolvable
+ * on arrival so the typed catalog resolvers work before the next refresh tick. */
+static asset_type_e iniFilenameToAssetType(const char *ini_name)
+{
+    if (!ini_name) return ASSET_NONE;
+    if (strcmp(ini_name, "map.ini") == 0)       return ASSET_MAP;
+    if (strcmp(ini_name, "character.ini") == 0) return ASSET_CHARACTER;
+    if (strcmp(ini_name, "bot.ini") == 0)       return ASSET_BOT_VARIANT;
+    if (strcmp(ini_name, "textures.ini") == 0)  return ASSET_TEXTURES;
+    if (strcmp(ini_name, "skin.ini") == 0)      return ASSET_SKIN;
+    if (strcmp(ini_name, "weapon.ini") == 0)    return ASSET_WEAPON;
+    if (strcmp(ini_name, "sfx.ini") == 0)       return ASSET_SFX;
+    if (strcmp(ini_name, "music.ini") == 0)     return ASSET_MUSIC;
+    return ASSET_NONE;
+}
+
+/* Populate the asset_entry_t ext union from the parsed INI, mirroring the
+ * field-for-field behavior of assetcatalog_scanner.c's registerComponent().
+ * Keeps registration parity between local-scan and wire-delivery paths. */
+static void populateExtFromIni(asset_entry_t *e, asset_type_e type,
+                                const ini_section_t *ini)
+{
+    switch (type) {
+    case ASSET_MAP:
+        e->ext.map.stagenum = iniGetInt(ini, "stagenum", -1);
+        e->ext.map.mode = (u8)iniGetInt(ini, "mode", 0);
+        {
+            const char *mf = iniGet(ini, "music_file", "");
+            if (mf[0]) {
+                strncpy(e->ext.map.music_file, mf, FS_MAXPATH - 1);
+            }
+        }
+        break;
+    case ASSET_CHARACTER:
+        strncpy(e->ext.character.bodyfile, iniGet(ini, "bodyfile", ""), FS_MAXPATH - 1);
+        strncpy(e->ext.character.headfile, iniGet(ini, "headfile", ""), FS_MAXPATH - 1);
+        break;
+    case ASSET_SKIN:
+        strncpy(e->ext.skin.target_id, iniGet(ini, "target", ""), CATALOG_ID_LEN - 1);
+        break;
+    case ASSET_BOT_VARIANT:
+        strncpy(e->ext.bot_variant.base_type, iniGet(ini, "base_type", "NormalSim"), 31);
+        e->ext.bot_variant.accuracy      = iniGetFloat(ini, "accuracy", 0.5f);
+        e->ext.bot_variant.reaction_time = iniGetFloat(ini, "reaction_time", 0.5f);
+        e->ext.bot_variant.aggression    = iniGetFloat(ini, "aggression", 0.5f);
+        break;
+    case ASSET_WEAPON:
+        e->ext.weapon.weapon_id = iniGetInt(ini, "weapon_id", -1);
+        strncpy(e->ext.weapon.name, iniGet(ini, "name", ""), sizeof(e->ext.weapon.name) - 1);
+        strncpy(e->ext.weapon.model_file, iniGet(ini, "model_file", ""), sizeof(e->ext.weapon.model_file) - 1);
+        e->ext.weapon.damage         = iniGetFloat(ini, "damage", 0.0f);
+        e->ext.weapon.fire_rate      = iniGetFloat(ini, "fire_rate", 0.0f);
+        e->ext.weapon.ammo_type      = iniGetInt(ini, "ammo_type", 0);
+        e->ext.weapon.dual_wieldable = iniGetInt(ini, "dual_wieldable", 0);
+        break;
+    default:
+        /* ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC: no extra ext fields. */
+        break;
+    }
+}
+
 void netDistribClientHandleEnd(const char *catalog_id, u8 success)
 {
     if (!s_Initialized) return;
@@ -1024,7 +1086,18 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                         registered = 1;
                     }
                 } else {
-                    asset_entry_t *e = assetCatalogRegister(slot->id, ASSET_NONE);
+                    /* H-2: Resolve asset type from INI filename so the entry is
+                     * type-queryable immediately. ASSET_NONE hides the entry from
+                     * typed resolvers until the next catalog refresh. */
+                    asset_type_e type = iniFilenameToAssetType(ini_names[k]);
+                    if (type == ASSET_NONE) {
+                        sysLogPrintf(LOG_WARNING,
+                            "DISTRIB: no typed registrar for '%s' (id='%s') — "
+                            "falling back to ASSET_NONE; entry will not be "
+                            "type-resolvable until next catalog refresh",
+                            ini_names[k], slot->id);
+                    }
+                    asset_entry_t *e = assetCatalogRegister(slot->id, type);
                     if (e) {
                         strncpy(e->id, slot->id, sizeof(e->id) - 1);
                         strncpy(e->category, slot->category, sizeof(e->category) - 1);
@@ -1033,7 +1106,9 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                         e->temporary = slot->temporary;
                         e->bundled = 0;
                         e->model_scale = iniGetFloat(&ini, "model_scale", 1.0f);
-                        sysLogPrintf(LOG_NOTE, "DISTRIB: hot-registered '%s' from %s", slot->id, destdir);
+                        populateExtFromIni(e, type, &ini);
+                        sysLogPrintf(LOG_NOTE, "DISTRIB: hot-registered '%s' (type=%d) from %s",
+                                     slot->id, (int)type, destdir);
                         registered = 1;
                     }
                 }

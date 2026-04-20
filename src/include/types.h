@@ -4014,63 +4014,67 @@ struct gamefile {
 	/*0xb5*/ u8 weaponsfound[6];
 };
 
+/* Offset annotations removed: head_id[64] and body_id[64] were inserted
+ * after name[15], shifting every field. The structs are PC-only in-memory
+ * layouts now (not binary-serialised — save format is JSON), so offsets
+ * are purely advisory and were causing more confusion than clarity. */
 struct mpchrconfig {
-	/*0x00*/ char name[15];
+	char name[15];
 	/* PRIMARY: catalog ID strings — sole asset identity. Always set first.
 	 * e.g. "base:head_dark_combat", "base:dark_combat" */
 	char head_id[64];
 	char body_id[64];
-	/*0x0f*/ u8 mpheadnum; /* DEPRECATED: integer index into g_MpHeads[]. Use head_id instead. Kept temporarily for unmigrated consumers. */
-	/*0x10*/ u8 mpbodynum; /* DEPRECATED: integer index into g_MpBodies[]. Use body_id instead. Kept temporarily for unmigrated consumers. */
-	/*0x11*/ u8 team;
-	/*0x14*/ u32 displayoptions;
-	/*0x18*/ u16 unk18;
-	/*0x1a*/ u16 unk1a;
-	/*0x1c*/ u16 unk1c;
-	/*0x1e*/ s8 placement; // 0 = winner, 1 = second place etc
-	/*0x20*/ s32 rankablescore;
-	/*0x24*/ s16 killcounts[MAX_MPCHRS]; // per player - each index is a chrslot
-	/*0x3c*/ s16 numdeaths;
-	/*0x3e*/ s16 numpoints;
-	/*0x40*/ s16 unk40;
+	u8 mpheadnum; /* DEPRECATED: integer index into g_MpHeads[]. Use head_id instead. Kept temporarily for unmigrated consumers. */
+	u8 mpbodynum; /* DEPRECATED: integer index into g_MpBodies[]. Use body_id instead. Kept temporarily for unmigrated consumers. */
+	u8 team;
+	u32 displayoptions;
+	u16 unk18;
+	u16 unk1a;
+	u16 unk1c;
+	s8 placement; // 0 = winner, 1 = second place etc
+	s32 rankablescore;
+	s16 killcounts[MAX_MPCHRS]; // per player - each index is a chrslot
+	s16 numdeaths;
+	s16 numpoints;
+	s16 unk40;
 };
 
 struct mpplayerconfig {
-	/*0x00*/ struct mpchrconfig base;
-	/*0x44*/ u8 controlmode;
-	/*0x45*/ s8 contpad1;
-	/*0x46*/ s8 contpad2;
-	/*0x48*/ u16 options;
-	/*0x4c*/ struct fileguid fileguid;
-	/*0x54*/ u32 kills;
-	/*0x58*/ u32 deaths;
-	/*0x5c*/ u32 gamesplayed;
-	/*0x60*/ u32 gameswon;
-	/*0x64*/ u32 gameslost;
-	/*0x68*/ u32 time;
-	/*0x6c*/ u32 distance; // 1 unit = 100 metres
-	/*0x70*/ u32 accuracy;
-	/*0x74*/ u32 damagedealt;
-	/*0x78*/ u32 painreceived;
-	/*0x7c*/ u32 headshots;
-	/*0x80*/ u32 ammoused;
-	/*0x84*/ u32 accuracymedals;
-	/*0x88*/ u32 headshotmedals;
-	/*0x8c*/ u32 killmastermedals;
-	/*0x90*/ u32 survivormedals;
-	/*0x94*/ u8 medals;
-	/*0x95*/ u8 title;
-	/*0x96*/ u8 newtitle;
-	/*0x97*/ u8 gunfuncs[6];
-	/*0x9d*/ u8 handicap;
-	/*0x9e*/ struct netclient *client;
+	struct mpchrconfig base;
+	u8 controlmode;
+	s8 contpad1;
+	s8 contpad2;
+	u16 options;
+	struct fileguid fileguid;
+	u32 kills;
+	u32 deaths;
+	u32 gamesplayed;
+	u32 gameswon;
+	u32 gameslost;
+	u32 time;
+	u32 distance; // 1 unit = 100 metres
+	u32 accuracy;
+	u32 damagedealt;
+	u32 painreceived;
+	u32 headshots;
+	u32 ammoused;
+	u32 accuracymedals;
+	u32 headshotmedals;
+	u32 killmastermedals;
+	u32 survivormedals;
+	u8 medals;
+	u8 title;
+	u8 newtitle;
+	u8 gunfuncs[6];
+	u8 handicap;
+	struct netclient *client;
 };
 
 struct mpbotconfig {
-	/*0x00*/ struct mpchrconfig base;
-	/*0x44*/ u8 unk44[3];
-	/*0x47*/ u8 type;
-	/*0x48*/ u8 difficulty;
+	struct mpchrconfig base;
+	u8 unk44[3];
+	u8 type;
+	u8 difficulty;
 };
 
 struct missionconfig {

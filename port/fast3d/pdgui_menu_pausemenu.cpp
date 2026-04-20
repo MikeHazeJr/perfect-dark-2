@@ -84,11 +84,10 @@ const char *pdguiEndscreenGetAward2(void);
 u32         pdguiEndscreenGetMedals(void);
 s32         pdguiEndscreenGetChallengeStatus(void);  /* 0=none 1=complete 2=failed 3=cheated */
 
-/* Ranking system — must match MAX_PLAYERS, MAX_BOTS, MAX_MPCHRS in src/include/constants.h.
- * Cannot include constants.h here (types.h bool conflict with C++). */
-#define MAX_PLAYERS_PM     8   /* = MAX_PLAYERS */
-#define MAX_BOTS_PM       32   /* = MAX_BOTS = PARTICIPANT_DEFAULT_CAPACITY (raised from 24 in S45) */
-#define MAX_MPCHRS_PM     (MAX_PLAYERS_PM + MAX_BOTS_PM)  /* = 40 = MAX_MPCHRS */
+/* Ranking system — capacities come from the C++-safe mirror header.
+ * See pdgui_constants.h for why direct constants.h inclusion doesn't work
+ * from C++ and how drift is caught at build time. */
+#include "pdgui_constants.h"
 
 /* We need to call mpGetPlayerRankings, but it uses struct ranking
  * which we can't include from types.h. Define a compatible layout. */
@@ -109,7 +108,7 @@ struct mpchrconfig_pm {
     /*0x1e*/ s8 placement;
     /*0x1f*/ u8 _pad1;            /* alignment padding to 0x20 */
     /*0x20*/ s32 rankablescore;
-    /*0x24*/ s16 killcounts[MAX_MPCHRS_PM];  /* 0x24 + MAX_MPCHRS*2 bytes */
+    /*0x24*/ s16 killcounts[MAX_MPCHRS];  /* 0x24 + MAX_MPCHRS*2 bytes */
     /*0x74*/ s16 numdeaths;       /* 0x24 + 40*2 = 0x74 with MAX_MPCHRS=40 */
     /*0x76*/ s16 numpoints;
     /*0x78*/ s16 unk40;
@@ -317,7 +316,7 @@ struct ScorecardRow {
 
 static s32 buildScorecardData(ScorecardRow *rows, s32 maxRows)
 {
-    struct ranking_pm rankings[MAX_MPCHRS_PM];
+    struct ranking_pm rankings[MAX_MPCHRS];
     s32 count = mpGetPlayerRankings(rankings);
 
     if (count > maxRows) count = maxRows;
@@ -345,11 +344,11 @@ static s32 buildScorecardData(ScorecardRow *rows, s32 maxRows)
         rows[i].score = rankings[i].score;
         rows[i].deaths = mpchr->numdeaths;
         rows[i].team = mpchr->team;
-        rows[i].isPlayer = (rankings[i].chrnum < (u32)MAX_PLAYERS_PM);
+        rows[i].isPlayer = (rankings[i].chrnum < (u32)MAX_PLAYERS);
 
         /* Calculate kills: sum of killcounts[] excluding self (suicides) */
         s32 kills = 0;
-        for (s32 k = 0; k < MAX_MPCHRS_PM; k++) {
+        for (s32 k = 0; k < MAX_MPCHRS; k++) {
             if ((u32)k != rankings[i].chrnum) {
                 kills += mpchr->killcounts[k];
             }
@@ -443,8 +442,8 @@ static ImVec4 teamRowBg(u8 team, bool isPlayer)
 
 static void renderRankingsTab(float contentW)
 {
-    ScorecardRow rows[MAX_MPCHRS_PM];
-    s32 count = buildScorecardData(rows, MAX_MPCHRS_PM);
+    ScorecardRow rows[MAX_MPCHRS];
+    s32 count = buildScorecardData(rows, MAX_MPCHRS);
 
     u32 options = pdguiPauseGetOptions();
     bool teamsEnabled = (options & MPOPTION_TEAMSENABLED) != 0;
@@ -579,9 +578,9 @@ static void renderSettingsTab(void)
     /* Count players and bots */
     u64 activeMask = pdguiPauseGetChrSlots();
     s32 numPlayers = 0, numBots = 0;
-    for (s32 i = 0; i < MAX_MPCHRS_PM; i++) {
+    for (s32 i = 0; i < MAX_MPCHRS; i++) {
         if (activeMask & (1ull << i)) {
-            if (i < MAX_PLAYERS_PM) numPlayers++;
+            if (i < MAX_PLAYERS) numPlayers++;
             else numBots++;
         }
     }
@@ -867,8 +866,8 @@ void pdguiScorecardRender(s32 winW, s32 winH)
     if (!s_ScorecardVisible) return;
     if (s_PauseMenuOpen) return; /* Don't show over pause menu */
 
-    ScorecardRow rows[MAX_MPCHRS_PM];
-    s32 count = buildScorecardData(rows, MAX_MPCHRS_PM);
+    ScorecardRow rows[MAX_MPCHRS];
+    s32 count = buildScorecardData(rows, MAX_MPCHRS);
     if (count <= 0) return;
 
     u32 options = pdguiPauseGetOptions();

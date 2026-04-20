@@ -47,10 +47,7 @@ s32 pdguiPauseGetNormMplayerIsRunning(void);
 s32 pdguiPauseGetPaused(void);
 #define MPPAUSEMODE_GAMEOVER_TICKER  2  /* matches MPPAUSEMODE_GAMEOVER in types.h */
 
-/* Score / ranking access — mirrors the minimal struct from pdgui_hud.cpp.
- * MAX_MPCHRS = MAX_PLAYERS + MAX_BOTS = 8 + 32 = 40 */
-#define MAX_MPCHRS_TICKER  40
-
+/* Score / ranking access — mirrors the minimal struct from pdgui_hud.cpp. */
 struct mpchrconfig_ticker {
     char name[15];   /* offset 0x00 — always first field, layout-safe */
 };
