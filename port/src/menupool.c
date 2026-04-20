@@ -67,6 +67,12 @@ extern struct menudialogdef g_SoloMissionEndscreenCompletedMenuDialog;
 extern struct menudialogdef g_SoloMissionEndscreenFailedMenuDialog;
 extern struct menudialogdef g_NetMenuDialog;
 
+/* Firing Range difficulty picker -- defined in src/game/trainingmenus.c
+ * but not exported via data.h.  Registered locally so the FR flow
+ * (Weapon List -> Difficulty -> Pre-Game Info) gets proper pool dedup
+ * on its own slot instead of colliding with MENU_TYPE_TRAINING. */
+extern struct menudialogdef g_FrDifficultyMenuDialog;
+
 /* Dialogdef→type registry. One entry per (def,type) pair. Capacity is
  * chosen to cover all ~70 data.h externs plus headroom for late-registered
  * mod dialogs. Linear scan is fine — registry is read-heavy but short. */
@@ -114,6 +120,10 @@ static const char *const s_TypeNames[MENU_TYPE_COUNT] = {
     [MENU_TYPE_MP_TEAM_SETUP]       = "mp_team_setup",
     [MENU_TYPE_CONTROL_DIAGRAM]     = "control_diagram",
     [MENU_TYPE_TRAINING]            = "training",
+    [MENU_TYPE_FR_WEAPON_LIST]      = "fr_weapon_list",
+    [MENU_TYPE_FR_DIFFICULTY]       = "fr_difficulty",
+    [MENU_TYPE_FR_INFO]             = "fr_info",
+    [MENU_TYPE_FR_RESULT]           = "fr_result",
     [MENU_TYPE_AGENT_SELECT]        = "agent_select",
     [MENU_TYPE_AGENT_CREATE]        = "agent_create",
     [MENU_TYPE_NETWORK]             = "network",
@@ -582,13 +592,21 @@ void menupoolInit(void)
     /* ---- MP team setup ---- */
     REG(&g_MpTeamsMenuDialog,            MENU_TYPE_MP_TEAM_SETUP);
 
-    /* ---- Training (FR / DT / HT / Bio / Hangar) ---- */
-    REG(&g_FrWeaponListMenuDialog,       MENU_TYPE_TRAINING);
-    REG(&g_FrWeaponsAvailableMenuDialog, MENU_TYPE_TRAINING);
-    REG(&g_FrTrainingInfoInGameMenuDialog, MENU_TYPE_TRAINING);
-    REG(&g_FrTrainingInfoPreGameMenuDialog, MENU_TYPE_TRAINING);
-    REG(&g_FrCompletedMenuDialog,        MENU_TYPE_TRAINING);
-    REG(&g_FrFailedMenuDialog,           MENU_TYPE_TRAINING);
+    /* ---- Training (FR / DT / HT / Bio / Hangar) ----
+     *
+     * FR sub-dialogs use dedicated pool types because the flow legitimately
+     * stacks three dialogs (Weapon List -> Difficulty -> Pre-Game Info).
+     * Sharing MENU_TYPE_TRAINING caused the second push to be rejected by
+     * pool dedup ("pool slot [training] already active"), silently breaking
+     * weapon selection.  g_FrWeaponsAvailableMenuDialog is a separate
+     * in-mission dialog (tag 0x1b) and stays under MENU_TYPE_TRAINING. */
+    REG(&g_FrWeaponListMenuDialog,          MENU_TYPE_FR_WEAPON_LIST);
+    REG(&g_FrDifficultyMenuDialog,          MENU_TYPE_FR_DIFFICULTY);
+    REG(&g_FrTrainingInfoPreGameMenuDialog, MENU_TYPE_FR_INFO);
+    REG(&g_FrTrainingInfoInGameMenuDialog,  MENU_TYPE_FR_INFO);
+    REG(&g_FrCompletedMenuDialog,           MENU_TYPE_FR_RESULT);
+    REG(&g_FrFailedMenuDialog,              MENU_TYPE_FR_RESULT);
+    REG(&g_FrWeaponsAvailableMenuDialog,    MENU_TYPE_TRAINING);
     REG(&g_BioListMenuDialog,            MENU_TYPE_TRAINING);
     REG(&g_DtListMenuDialog,             MENU_TYPE_TRAINING);
     REG(&g_DtDetailsMenuDialog,          MENU_TYPE_TRAINING);
