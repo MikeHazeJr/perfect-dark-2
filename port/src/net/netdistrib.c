@@ -1016,28 +1016,41 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         goto done;
     }
 
-    /* C-2: SHA-256 verification — compare compressed data hash against manifest entry.
-     * This prevents a malicious or corrupted transfer from being installed. */
+    /* C-2 / SEC-5 / MASTER-H2: SHA-256 verification — mandatory for COMPONENT
+     * (mod) entries. Find the matching manifest entry; if it is COMPONENT-typed
+     * the manifest must carry a non-zero hash and the archive must match it.
+     * Without this enforcement a hostile server can push arbitrary PDCA archives
+     * by simply omitting the hash from the manifest entry. */
     {
         static const u8 s_zero32[32] = {0};
+        const match_manifest_entry_t *match_entry = NULL;
         for (u16 mi = 0; mi < g_ClientManifest.num_entries; mi++) {
             const match_manifest_entry_t *me = &g_ClientManifest.entries[mi];
-            if (me->id[0] && strncmp(me->id, slot->id, sizeof(me->id)) == 0 &&
-                memcmp(me->sha256, s_zero32, sizeof(me->sha256)) != 0) {
-                u8 actual[SHA256_DIGEST_SIZE];
-                sha256Hash(slot->compressed_buf, slot->compressed_len, actual);
-                if (memcmp(actual, me->sha256, SHA256_DIGEST_SIZE) != 0) {
-                    char expect_hex[SHA256_HEX_SIZE], actual_hex[SHA256_HEX_SIZE];
-                    sha256ToHex(me->sha256, expect_hex);
-                    sha256ToHex(actual, actual_hex);
-                    sysLogPrintf(LOG_ERROR, "DISTRIB: SHA-256 mismatch for '%s': expected %s, got %s",
-                                 slot->id, expect_hex, actual_hex);
-                    free(raw);
-                    goto done;
-                }
-                sysLogPrintf(LOG_NOTE, "DISTRIB: SHA-256 verified for '%s'", slot->id);
+            if (me->id[0] && strncmp(me->id, slot->id, sizeof(me->id)) == 0) {
+                match_entry = me;
                 break;
             }
+        }
+        if (match_entry && match_entry->type == MANIFEST_TYPE_COMPONENT) {
+            if (memcmp(match_entry->sha256, s_zero32, sizeof(match_entry->sha256)) == 0) {
+                sysLogPrintf(LOG_ERROR,
+                             "DISTRIB: '%s' has zero SHA-256 in manifest — refusing install (no integrity)",
+                             slot->id);
+                free(raw);
+                goto done;
+            }
+            u8 actual[SHA256_DIGEST_SIZE];
+            sha256Hash(slot->compressed_buf, slot->compressed_len, actual);
+            if (memcmp(actual, match_entry->sha256, SHA256_DIGEST_SIZE) != 0) {
+                char expect_hex[SHA256_HEX_SIZE], actual_hex[SHA256_HEX_SIZE];
+                sha256ToHex(match_entry->sha256, expect_hex);
+                sha256ToHex(actual, actual_hex);
+                sysLogPrintf(LOG_ERROR, "DISTRIB: SHA-256 mismatch for '%s': expected %s, got %s",
+                             slot->id, expect_hex, actual_hex);
+                free(raw);
+                goto done;
+            }
+            sysLogPrintf(LOG_NOTE, "DISTRIB: SHA-256 verified for '%s'", slot->id);
         }
     }
 

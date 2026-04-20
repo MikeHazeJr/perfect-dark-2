@@ -319,6 +319,14 @@ void netBroadcastRoomList(void);
 /* SEC-C4: Reset per-client chat rate limiter state on disconnect. */
 void netmsgChatRateReset(u32 idx);
 
+/* SEC-13: Reset per-client room-mutation rate limiter on disconnect. */
+void netmsgRoomMutationRateReset(u32 idx);
+
+/* SEC-13: Mark the SVC_ROOM_LIST broadcast dirty; flush once at end of frame.
+ * Coalesces bursty CLC_ROOM_CREATE/JOIN/LEAVE traffic into a single broadcast. */
+void netRoomListMarkDirty(void);
+void netRoomListFlushIfDirty(void);
+
 /* Phase F: Drive the server-side launch countdown.
  * Called each server tick from netEndFrame().  No-op until readyGateCheck() arms it. */
 void readyGateTickCountdown(void);

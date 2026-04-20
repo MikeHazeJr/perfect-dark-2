@@ -935,6 +935,21 @@ s32 manifestDeserialize(struct netbuf *src, match_manifest_t *out)
             if (src->error) {
                 return 1;
             }
+            /* SEC-5 / MASTER-H2: reject COMPONENT entries with all-zero SHA-256.
+             * A non-zero hash is the integrity root for mod distribution; an
+             * adversary server that supplies a zero hash is asking the client
+             * to install an archive without verification. Drop the entry so
+             * the install path will not find a manifest match and refuse the
+             * transfer. */
+            {
+                static const u8 s_zero32[32] = {0};
+                if (memcmp(sha256, s_zero32, sizeof(sha256)) == 0) {
+                    sysLogPrintf(LOG_ERROR,
+                                 "MANIFEST: dropping COMPONENT entry '%s' — zero SHA-256 (no integrity)",
+                                 (id && id[0]) ? id : "?");
+                    continue;
+                }
+            }
             manifestAddModEntry(out, id, slot_index, sha256);
         } else {
             manifestAddEntry(out, id, type, slot_index);

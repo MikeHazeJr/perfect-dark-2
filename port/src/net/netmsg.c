@@ -91,6 +91,50 @@ void netmsgChatRateReset(u32 idx)
 	}
 }
 
+/* SEC-13: Room mutation rate limiter.
+ * One CLC_ROOM_CREATE/JOIN/LEAVE per client per second. Without this a single
+ * malicious client can churn join/leave to force the server to walk every
+ * room slot and re-broadcast SVC_ROOM_LIST on every other client. */
+#define ROOM_RATE_INTERVAL_MS  1000u
+static u32 s_RoomMutationLast[NET_MAX_CLIENTS + 1];
+
+static int netmsgRoomRateAllow(struct netclient *cl)
+{
+	u32 idx = (u32)(cl - g_NetClients);
+	if (idx > (u32)NET_MAX_CLIENTS) return 0;
+	u32 now = SDL_GetTicks();
+	if (s_RoomMutationLast[idx] != 0 && (now - s_RoomMutationLast[idx]) < ROOM_RATE_INTERVAL_MS) {
+		return 0;
+	}
+	s_RoomMutationLast[idx] = now;
+	return 1;
+}
+
+void netmsgRoomMutationRateReset(u32 idx)
+{
+	if (idx <= (u32)NET_MAX_CLIENTS) {
+		s_RoomMutationLast[idx] = 0;
+	}
+}
+
+/* SEC-13: Room list broadcast coalescing.
+ * Mark dirty here, flush once at end of frame. Stops a burst of room
+ * mutations from generating one full SVC_ROOM_LIST per mutation. */
+static u8 s_RoomListDirty = 0;
+
+void netRoomListMarkDirty(void)
+{
+	s_RoomListDirty = 1;
+}
+
+void netRoomListFlushIfDirty(void)
+{
+	if (g_NetMode == NETMODE_SERVER && s_RoomListDirty) {
+		s_RoomListDirty = 0;
+		netBroadcastRoomList();
+	}
+}
+
 /* Phase E/F: Server-side per-client readiness tracker.
  * Active while the room is in ROOM_STATE_PREPARING.
  * Bit i in each mask corresponds to g_NetClients[i]. */
@@ -6083,6 +6127,12 @@ u32 netmsgClcRoomCreateRead(struct netbuf *src, struct netclient *srccl)
 
 	if (g_NetMode != NETMODE_SERVER) return src->error;
 
+	/* SEC-13: rate-limit room mutations (1/sec/client). */
+	if (!netmsgRoomRateAllow(srccl)) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_CREATE rate-limited for client %u", srccl->id);
+		return src->error;
+	}
+
 	/* Leave current room first if in one */
 	if (srccl->room_id != 0xFF) {
 		hub_room_t *old = roomGetById(srccl->room_id);
@@ -6116,8 +6166,8 @@ u32 netmsgClcRoomCreateRead(struct netbuf *src, struct netclient *srccl)
 	netmsgSvcRoomAssignWrite(&assignBuf, room->id);
 	netSend(srccl, &assignBuf, true, NETCHAN_DEFAULT);
 
-	/* Broadcast updated room list to everyone */
-	netBroadcastRoomList();
+	/* SEC-13: coalesce room-list broadcast into end-of-frame flush. */
+	netRoomListMarkDirty();
 
 	return src->error;
 }
@@ -6135,6 +6185,12 @@ u32 netmsgClcRoomJoinRead(struct netbuf *src, struct netclient *srccl)
 	if (src->error) return src->error;
 
 	if (g_NetMode != NETMODE_SERVER) return src->error;
+
+	/* SEC-13: rate-limit room mutations (1/sec/client). */
+	if (!netmsgRoomRateAllow(srccl)) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_JOIN rate-limited for client %u", srccl->id);
+		return src->error;
+	}
 
 	hub_room_t *room = roomGetById(room_id);
 	if (!room) {
@@ -6175,8 +6231,8 @@ u32 netmsgClcRoomJoinRead(struct netbuf *src, struct netclient *srccl)
 	netmsgSvcRoomAssignWrite(&assignBuf, room->id);
 	netSend(srccl, &assignBuf, true, NETCHAN_DEFAULT);
 
-	/* Broadcast updated room list */
-	netBroadcastRoomList();
+	/* SEC-13: coalesce room-list broadcast into end-of-frame flush. */
+	netRoomListMarkDirty();
 
 	return src->error;
 }
@@ -6194,6 +6250,12 @@ u32 netmsgClcRoomLeaveRead(struct netbuf *src, struct netclient *srccl)
 	if (g_NetMode != NETMODE_SERVER) return src->error;
 
 	if (srccl->room_id == 0xFF) return src->error;
+
+	/* SEC-13: rate-limit room mutations (1/sec/client). */
+	if (!netmsgRoomRateAllow(srccl)) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_LEAVE rate-limited for client %u", srccl->id);
+		return src->error;
+	}
 
 	hub_room_t *room = roomGetById(srccl->room_id);
 	if (room) {
@@ -6213,8 +6275,8 @@ u32 netmsgClcRoomLeaveRead(struct netbuf *src, struct netclient *srccl)
 	netmsgSvcRoomAssignWrite(&assignBuf, 0xFF);
 	netSend(srccl, &assignBuf, true, NETCHAN_DEFAULT);
 
-	/* Broadcast updated room list */
-	netBroadcastRoomList();
+	/* SEC-13: coalesce room-list broadcast into end-of-frame flush. */
+	netRoomListMarkDirty();
 
 	return src->error;
 }
@@ -6486,6 +6548,55 @@ u32 netmsgClcRoomSettingsUpdateRead(struct netbuf *src, struct netclient *srccl)
 		sysLogPrintf(LOG_NOTE,
 		    "NET: CLC_ROOM_SETTINGS_UPDATE from non-leader %u — ignored", srccl->id);
 		return src->error;
+	}
+
+	/* SEC-12: Validate fields server-side before rebroadcast.
+	 * A malicious leader can otherwise crash other clients with crafted values
+	 * (out-of-bounds array indices, runaway timers, unknown stage IDs, etc.). */
+	if (numBots > MAX_BOTS) {
+		sysLogPrintf(LOG_WARNING,
+		    "NET: CLC_ROOM_SETTINGS_UPDATE from %u rejected — numBots=%u > MAX_BOTS=%u",
+		    srccl->id, numBots, (unsigned)MAX_BOTS);
+		return src->error;
+	}
+	if (timelimit > 240) {
+		sysLogPrintf(LOG_WARNING,
+		    "NET: CLC_ROOM_SETTINGS_UPDATE from %u rejected — timelimit=%u > 240",
+		    srccl->id, timelimit);
+		return src->error;
+	}
+	if (scorelimit > 200) {
+		sysLogPrintf(LOG_WARNING,
+		    "NET: CLC_ROOM_SETTINGS_UPDATE from %u rejected — scorelimit=%u > 200",
+		    srccl->id, scorelimit);
+		return src->error;
+	}
+	if (teamscorelimit > 9999) {
+		sysLogPrintf(LOG_WARNING,
+		    "NET: CLC_ROOM_SETTINGS_UPDATE from %u rejected — teamscorelimit=%u > 9999",
+		    srccl->id, teamscorelimit);
+		return src->error;
+	}
+	if (scenario >= 16) {
+		sysLogPrintf(LOG_WARNING,
+		    "NET: CLC_ROOM_SETTINGS_UPDATE from %u rejected — scenario=%u >= 16",
+		    srccl->id, scenario);
+		return src->error;
+	}
+	if (weaponSetIndex != 0xFF && weaponSetIndex > WEAPONSET_CUSTOM) {
+		sysLogPrintf(LOG_WARNING,
+		    "NET: CLC_ROOM_SETTINGS_UPDATE from %u rejected — weaponSetIndex=0x%02x out of range",
+		    srccl->id, weaponSetIndex);
+		return src->error;
+	}
+	if (stage_id && stage_id[0]) {
+		const asset_entry_t *st = assetCatalogResolve(stage_id);
+		if (!st || (st->type != ASSET_ARENA && st->type != ASSET_MAP)) {
+			sysLogPrintf(LOG_WARNING,
+			    "NET: CLC_ROOM_SETTINGS_UPDATE from %u rejected — stage_id '%s' not a valid arena/map",
+			    srccl->id, stage_id);
+			return src->error;
+		}
 	}
 
 	sysLogPrintf(LOG_NOTE,
