@@ -322,7 +322,10 @@ extern "C" s32 pdguiGlyphGetActionLabel(InputAction action, char *out, s32 outle
  * Draw helpers
  * ============================================================ */
 
-static f32 drawPromptInternal(InputAction action, f32 x, f32 y, const char *label)
+/* Shared draw routine.  hold_progress in [0..1+] adds a charge bar under
+ * the pill; values <= 0 suppress the bar entirely (legacy behaviour). */
+static f32 drawPromptInternal(InputAction action, f32 x, f32 y, const char *label,
+		f32 hold_progress)
 {
 	ImDrawList *fg = ImGui::GetForegroundDrawList();
 	if (!fg) return 0.0f;
@@ -358,12 +361,41 @@ static f32 drawPromptInternal(InputAction action, f32 x, f32 y, const char *labe
 		width += gap + lts.x;
 	}
 
+	/* Hold charge indicator: a 2.5 px tall bar 1 px under the pill.  Spans
+	 * the whole prompt width (key + label) so the player sees the fill
+	 * "consume" the whole prompt as it nears the threshold.  Clamped at 1
+	 * (over-shoot from caller is harmless), and recoloured at >= 1 so the
+	 * "ready to fire" moment is visually distinct from the in-progress
+	 * ramp. */
+	if (hold_progress > 0.0f) {
+		float p = hold_progress;
+		if (p > 1.0f) p = 1.0f;
+
+		const float barH = 2.5f * scale;
+		const float barY0 = y + pillH + 1.0f * scale;
+		const float barY1 = barY0 + barH;
+		const float barX0 = x;
+		const float barX1 = x + width * p;
+		const float trackX1 = x + width;
+		const float trackR = 1.0f * scale;
+
+		const ImU32 trackCol = IM_COL32(20, 28, 44, 200);
+		const ImU32 fillCol  = (p >= 1.0f)
+			? IM_COL32(180, 240, 255, 255)
+			: borderCol;
+
+		fg->AddRectFilled(ImVec2(barX0, barY0), ImVec2(trackX1, barY1), trackCol, trackR);
+		if (barX1 > barX0) {
+			fg->AddRectFilled(ImVec2(barX0, barY0), ImVec2(barX1, barY1), fillCol, trackR);
+		}
+	}
+
 	return width;
 }
 
 extern "C" f32 pdguiDrawActionPrompt(InputAction action, f32 x, f32 y, const char *label)
 {
-	return drawPromptInternal(action, x, y, label);
+	return drawPromptInternal(action, x, y, label, 0.0f);
 }
 
 extern "C" f32 pdguiDrawActionPromptCentered(InputAction action, f32 cx, f32 y, const char *label)
@@ -381,5 +413,23 @@ extern "C" f32 pdguiDrawActionPromptCentered(InputAction action, f32 cx, f32 y, 
 		total += 6.0f * scale + lts.x;
 	}
 
-	return drawPromptInternal(action, cx - total * 0.5f, y, label);
+	return drawPromptInternal(action, cx - total * 0.5f, y, label, 0.0f);
+}
+
+extern "C" f32 pdguiDrawActionPromptCenteredWithHold(InputAction action, f32 cx, f32 y,
+		const char *label, f32 hold_progress)
+{
+	char keyText[24];
+	pdguiGlyphGetActionLabel(action, keyText, (s32)sizeof(keyText));
+
+	const float scale = pdguiScale(1.0f);
+	const ImVec2 ts = ImGui::CalcTextSize(keyText);
+	const float pillW = ts.x + 16.0f * scale;
+	float total = pillW;
+	if (label && label[0]) {
+		const ImVec2 lts = ImGui::CalcTextSize(label);
+		total += 6.0f * scale + lts.x;
+	}
+
+	return drawPromptInternal(action, cx - total * 0.5f, y, label, hold_progress);
 }

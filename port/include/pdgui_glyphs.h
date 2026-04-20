@@ -69,6 +69,23 @@ f32 pdguiDrawActionPrompt(InputAction action, f32 x, f32 y, const char *label);
  */
 f32 pdguiDrawActionPromptCentered(InputAction action, f32 cx, f32 y, const char *label);
 
+/**
+ * Same as pdguiDrawActionPromptCentered, but also draws a fill / charge
+ * indicator beneath the pill driven by `hold_progress` (0.0 -> 1.0).
+ *
+ *   hold_progress == 0  -> identical to the non-hold variant.
+ *   0 < hold_progress < 1 -> a horizontal bar grows under the pill from
+ *                            left to right, colour ramps toward accent.
+ *   hold_progress >= 1  -> bar is fully drawn in a brighter "ready"
+ *                          colour to signal the hold action will fire.
+ *
+ * Used by the interact prompt to telegraph "hold to interact" while the
+ * tap meaning (reload) remains the short-press action.  Returns drawn
+ * width (matches the non-hold variant so callers can stack prompts).
+ */
+f32 pdguiDrawActionPromptCenteredWithHold(InputAction action, f32 cx, f32 y,
+		const char *label, f32 hold_progress);
+
 #ifdef __cplusplus
 }
 #endif

@@ -50,6 +50,12 @@
 
 #define BUTTON_JUMP CONT_4000
 
+/* Hold/tap discriminator threshold for ACTION_USE (X gamepad / F kbd).
+ * Hold longer than this ms = INTERACT (A_BUTTON), shorter = RELOAD (X_BUTTON).
+ * 250 ms is the sweet spot: long enough to avoid accidental hold during a
+ * panic reload, short enough that intentional interact feels instant. */
+#define BMOVE_USE_HOLD_THRESHOLD_MS  250
+
 static void bgunProcessQuickDetonate(struct movedata *data, u32 c1buttons, u32 c1buttonsthisframe, u32 buttons1, u32 buttons2) {
 	if ((((c1buttons & (buttons1)) && (c1buttonsthisframe & (buttons2)))
 			|| ((c1buttons & (buttons2)) && (c1buttonsthisframe & (buttons1))))
@@ -961,7 +967,13 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	c2stickx = (s8)(actionValue(actionPlayer, ACTION_AXIS_AIM_X) * 127.0f);
 	c2sticky = (s8)(actionValue(actionPlayer, ACTION_AXIS_AIM_Y) * 127.0f);
 
-	/* M0.2: synthesize button bitmask from action queries for downstream mask logic */
+	/* M0.2: synthesize button bitmask from action queries for downstream mask logic.
+	 *
+	 * Hold/tap discriminator on ACTION_USE (X gamepad / F kbd):
+	 *   - Hold > BMOVE_USE_HOLD_THRESHOLD_MS  -> A_BUTTON   (interact / mount vehicle)
+	 *   - Tap  < BMOVE_USE_HOLD_THRESHOLD_MS  -> X_BUTTON   (reload)
+	 *
+	 * ACTION_RELOAD (R kbd) is treated as a dedicated immediate-reload key. */
 	{
 		s32 pi = actionPlayer;
 		c1buttons = 0;
@@ -970,9 +982,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 			if (actionHeld(pi, ACTION_FIRE_PRIMARY))   c1buttons |= Z_TRIG;
 			if (actionHeld(pi, ACTION_FIRE_SECONDARY)) c1buttons |= R_TRIG;
 			if (actionHeld(pi, ACTION_FIRE_MODE))      c1buttons |= L_TRIG;
-			if (actionHeld(pi, ACTION_USE))            c1buttons |= A_BUTTON;
 			if (actionHeld(pi, ACTION_CANCEL_USE))     c1buttons |= B_BUTTON;
-			if (actionHeld(pi, ACTION_RELOAD))         c1buttons |= X_BUTTON;
 			if (actionHeld(pi, ACTION_WEAPON_NEXT))    c1buttons |= Y_BUTTON;
 			if (actionHeld(pi, ACTION_PAUSE))          c1buttons |= START_BUTTON;
 			if (actionHeld(pi, ACTION_CBUTTON_UP))     c1buttons |= U_CBUTTONS;
@@ -985,13 +995,13 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 			if (actionHeld(pi, ACTION_DPAD_RIGHT))     c1buttons |= R_JPAD;
 			if (actionHeld(pi, ACTION_CROUCH))         c1buttons |= BUTTON_HALF_CROUCH;
 			if (actionHeld(pi, ACTION_JUMP))           c1buttons |= BUTTON_JUMP;
+			/* R kbd: dedicated reload */
+			if (actionHeld(pi, ACTION_RELOAD))         c1buttons |= X_BUTTON;
 
 			if (actionPressed(pi, ACTION_FIRE_PRIMARY))   c1buttonsthisframe |= Z_TRIG;
 			if (actionPressed(pi, ACTION_FIRE_SECONDARY)) c1buttonsthisframe |= R_TRIG;
 			if (actionPressed(pi, ACTION_FIRE_MODE))      c1buttonsthisframe |= L_TRIG;
-			if (actionPressed(pi, ACTION_USE))            c1buttonsthisframe |= A_BUTTON;
 			if (actionPressed(pi, ACTION_CANCEL_USE))     c1buttonsthisframe |= B_BUTTON;
-			if (actionPressed(pi, ACTION_RELOAD))         c1buttonsthisframe |= X_BUTTON;
 			if (actionPressed(pi, ACTION_WEAPON_NEXT))    c1buttonsthisframe |= Y_BUTTON;
 			if (actionPressed(pi, ACTION_PAUSE))          c1buttonsthisframe |= START_BUTTON;
 			if (actionPressed(pi, ACTION_CBUTTON_UP))     c1buttonsthisframe |= U_CBUTTONS;
@@ -1004,6 +1014,23 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 			if (actionPressed(pi, ACTION_DPAD_RIGHT))     c1buttonsthisframe |= R_JPAD;
 			if (actionPressed(pi, ACTION_CROUCH))         c1buttonsthisframe |= BUTTON_HALF_CROUCH;
 			if (actionPressed(pi, ACTION_JUMP))           c1buttonsthisframe |= BUTTON_JUMP;
+			if (actionPressed(pi, ACTION_RELOAD))         c1buttonsthisframe |= X_BUTTON;
+
+			/* ACTION_USE hold/tap discriminator.  hold_consumed bridges this
+			 * to the btapcount dispatch below: when consumed is set, the
+			 * dispatch only emits ACTIVATE (never RELOAD) and bumps
+			 * activatetimelast = lvframe60 so currentPlayerTryMountHoverbike
+			 * and bbikeHandleActivate accept the action as a single-press
+			 * mount/dismount. */
+			if (actionHeldForMs(pi, ACTION_USE, BMOVE_USE_HOLD_THRESHOLD_MS)
+					&& !actionHoldConsumed(pi, ACTION_USE)) {
+				c1buttons          |= A_BUTTON;
+				c1buttonsthisframe |= A_BUTTON;
+				actionConsumeHold(pi, ACTION_USE);
+			} else if (actionWasTap(pi, ACTION_USE, BMOVE_USE_HOLD_THRESHOLD_MS)) {
+				c1buttons          |= X_BUTTON;
+				c1buttonsthisframe |= X_BUTTON;
+			}
 		}
 	}
 
@@ -2166,34 +2193,27 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	s32 usereloads = (controlmode != CONTROLMODE_PC);
 	usereloads = usereloads || PLAYER_EXTCFG().usereloads;
 	if (controlmode == CONTROLMODE_PC && movedata.alt1tapcount) {
-		/* PC: X/Reload is context-dependent with double-tap cooldown.
-		 *
-		 * First tap: set ACTIVATE + RELOAD — interact takes priority in lv.c;
-		 *   if interact succeeds, RELOAD is cancelled; if nothing is nearby,
-		 *   RELOAD fires.
-		 *
-		 * Double-tap within 30 ticks (~500ms at 60Hz): skip ACTIVATE and
-		 *   only RELOAD.  This lets a player double-tap X to first interact
-		 *   (open door) and then immediately reload without having to wait
-		 *   for the interact cooldown to expire. */
-		s32 sinceLast = g_Vars.lvframe60 - g_Vars.currentplayer->activatetimethis;
-		if (sinceLast >= 0 && sinceLast < TICKS(30)) {
-			/* Recent interact — double-tap: reload only */
-			g_Vars.currentplayer->bondactivateorreload = g_Vars.currentplayer->bondactivateorreload | JO_ACTION_RELOAD;
-		} else {
-			/* First tap or cooldown expired: try interact + reload fallback */
-			g_Vars.currentplayer->bondactivateorreload = g_Vars.currentplayer->bondactivateorreload | JO_ACTION_RELOAD | JO_ACTION_ACTIVATE;
-			g_Vars.currentplayer->activatetimethis = g_Vars.lvframe60;
-		}
+		/* PC X/F: hold-vs-tap is discriminated at the synthesis layer above.
+		 * Reaching here means a tap (X_BUTTON synthesized for one frame), so
+		 * RELOAD only -- do NOT also fire ACTIVATE.  The hold case fires
+		 * A_BUTTON instead and is handled by the btapcount branch below. */
+		g_Vars.currentplayer->bondactivateorreload |= JO_ACTION_RELOAD;
 	}
 	if (movedata.btapcount) {
 		g_Vars.currentplayer->activatetimelast = g_Vars.currentplayer->activatetimethis;
 		g_Vars.currentplayer->activatetimethis = g_Vars.lvframe60;
-		if (!usereloads) {
-			g_Vars.currentplayer->bondactivateorreload = g_Vars.currentplayer->bondactivateorreload | JO_ACTION_ACTIVATE;
+		/* PC: if btapcount fired because the hold/tap discriminator emitted
+		 * A_BUTTON (hold > BMOVE_USE_HOLD_THRESHOLD_MS on ACTION_USE), only
+		 * fire ACTIVATE -- never RELOAD -- regardless of usereloads.  This
+		 * keeps a long-press cleanly "interact only".  Hold consumption stays
+		 * set on ACTION_USE until the next press, which means it is reliably
+		 * observable for one or more frames after the synthesized A_BUTTON. */
+		s32 holdFire = (controlmode == CONTROLMODE_PC) &&
+			actionHoldConsumed(actionPlayer, ACTION_USE);
+		if (holdFire || !usereloads) {
+			g_Vars.currentplayer->bondactivateorreload |= JO_ACTION_ACTIVATE;
 		} else {
-			g_Vars.currentplayer->bondactivateorreload = movedata.btapcount ?
-				(g_Vars.currentplayer->bondactivateorreload | JO_ACTION_ACTIVATE | JO_ACTION_RELOAD) : 0;
+			g_Vars.currentplayer->bondactivateorreload |= JO_ACTION_ACTIVATE | JO_ACTION_RELOAD;
 		}
 
 		bmoveHandleActivate();

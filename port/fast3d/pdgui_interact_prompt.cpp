@@ -52,6 +52,12 @@ const char *propInteractPromptLabel(void);
  * inputCtxGetTop() != &g_CtxGameplay, which is the same authority predicate
  * used by the gameplay HUD layer.
  */
+/* Hold-vs-tap discriminator threshold for ACTION_USE.  Must stay in
+ * lockstep with BMOVE_USE_HOLD_THRESHOLD_MS in src/game/bondmove.c -- if
+ * one moves the other has to follow or the prompt fill will desync from
+ * the moment the interact actually fires. */
+#define INTERACT_HOLD_THRESHOLD_MS 250
+
 extern "C" void pdguiInteractPromptRender(s32 winW, s32 winH)
 {
 	if (pdguiIsActive()) return;
@@ -65,5 +71,13 @@ extern "C" void pdguiInteractPromptRender(s32 winW, s32 winH)
 	float cx = (float)winW * 0.5f;
 	float cy = (float)winH * 0.5f + pdguiScale(28.0f);
 
-	pdguiDrawActionPromptCentered(ACTION_USE, cx, cy, label);
+	/* While ACTION_USE is held but the hold has not yet fired, surface a
+	 * fill bar so the player understands "hold to interact" vs "tap to
+	 * reload".  Once the hold has fired (consumed) we keep the bar at 1.0
+	 * for the brief moment the button stays down so the prompt does not
+	 * flicker back to empty mid-hold. */
+	f32 progress = actionHoldProgress(0, ACTION_USE, INTERACT_HOLD_THRESHOLD_MS);
+	if (actionHoldConsumed(0, ACTION_USE)) progress = 1.0f;
+
+	pdguiDrawActionPromptCenteredWithHold(ACTION_USE, cx, cy, label, progress);
 }

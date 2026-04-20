@@ -175,12 +175,19 @@ typedef struct InputMappingContext {
  *
  * pressed/released are one-frame edge signals cleared by actionmapEndFrame().
  * value is in [0..1] for digital actions, [-1..1] for signed axis actions.
+ *
+ * Hold timing: down_time_ms / up_time_ms are SDL_GetTicks() snapshots at the
+ * last rising/falling edge.  hold_consumed lets a consumer mark a hold as
+ * already handled so the matching release does not fire a tap action too.
  */
 typedef struct {
-    s32  held;      /* currently held */
-    s32  pressed;   /* rising edge this frame */
-    s32  released;  /* falling edge this frame */
-    f32  value;     /* magnitude */
+    s32  held;          /* currently held */
+    s32  pressed;       /* rising edge this frame */
+    s32  released;      /* falling edge this frame */
+    f32  value;         /* magnitude */
+    u32  down_time_ms;  /* SDL_GetTicks at last press; 0 = never pressed */
+    u32  up_time_ms;    /* SDL_GetTicks at last release */
+    s32  hold_consumed; /* 1 = a hold-action has already fired this hold cycle */
 } ActionState;
 
 /* ============================================================
@@ -252,6 +259,43 @@ f32 actionValue(s32 player, InputAction action);
  *  - ACTION_AXIS_AIM_X/Y   → right stick X and Y (or mouse)
  *  - Any other action      → (actionValue(p,a), 0.0f) */
 void actionAxis(s32 player, InputAction action, f32 *out_x, f32 *out_y);
+
+/* ============================================================
+ * Hold/tap discrimination helpers
+ *
+ * A "tap" = released this frame after being held for less than max_hold_ms.
+ * A "hold" = currently held for at least threshold_ms continuous time.
+ *
+ * hold_consumed lets a consumer flag a hold as already handled, so the
+ * matching release does NOT also fire as a tap.  Pattern:
+ *
+ *   if (actionHeldForMs(p, A, 250) && !actionHoldConsumed(p, A)) {
+ *       fireInteract();
+ *       actionConsumeHold(p, A);
+ *   }
+ *   if (actionWasTap(p, A, 250)) {
+ *       fireReload();
+ *   }
+ *
+ * actionHoldProgress returns 0..1 fill while held; reaches 1 at threshold_ms.
+ * Returns 0 when not held.
+ * ============================================================ */
+
+/** Currently held for at least `threshold_ms` continuous time. */
+s32 actionHeldForMs(s32 player, InputAction action, s32 threshold_ms);
+
+/** Released this frame after being held for less than `max_hold_ms`,
+ *  AND the hold was not consumed (so a hold-then-release does not double-fire). */
+s32 actionWasTap(s32 player, InputAction action, s32 max_hold_ms);
+
+/** Mark the current hold as consumed (set during a long-press handler). */
+void actionConsumeHold(s32 player, InputAction action);
+
+/** Returns 1 if the current hold has already been consumed. */
+s32 actionHoldConsumed(s32 player, InputAction action);
+
+/** Hold fill in [0..1] toward `threshold_ms`.  0 when not held. */
+f32 actionHoldProgress(s32 player, InputAction action, s32 threshold_ms);
 
 /* ============================================================
  * Last-device detection
