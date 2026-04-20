@@ -1,8 +1,26 @@
 
 # Session Log (Active)
 
-> **S281–S393** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S394** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S394 — 2026-04-19 (worktree `claude/keen-lalande-b65139`) — Auto-keygen on build (SEC-6 follow-up)
+
+Focus: Eliminate the manual `keygen.ps1` step for Ed25519 keypair generation. Commits `a1eab7b9` + `282b84b3` + `ab107684`.
+
+**What was done:**
+- New `devtools/ensure-keypair.sh`: checks for `dev-keys/ed25519-private.pem`; if absent, calls `keygen.ps1` via `powershell.exe`. Idempotent.
+- `devtools/build-env.sh`: calls `ensure-keypair.sh` at end (sourced before every bash build).
+- `devtools/build-headless.ps1`: calls `keygen.ps1` if key missing, before CMake configure.
+- `devtools/release.ps1`: removed production/dev key distinction — always uses `dev-keys/`, auto-generates if missing.
+- `devtools/keygen.ps1`: removed `-Production` flag; all paths made absolute via `$MyInvocation.MyCommand.Path` (PS5-safe); em-dashes replaced with hyphens (UTF-8 `0x94` read as Windows-1252 RIGHT DOUBLE QUOTATION MARK prematurely closes double-quoted strings in PS5); `$derBytes[-32..-1]` replaced with `[System.Array]::Copy` (PS5 typed-array slice compat).
+- `port/include/updater_pubkey.h`: updated comment to reflect single-key model; re-patched with fresh consistent keypair.
+
+**Root-cause found during debugging:** PS5 reads UTF-8 files without BOM as Windows-1252. The em-dash `—` (UTF-8 `E2 80 94`) has `0x94` = Windows-1252 RIGHT DOUBLE QUOTATION MARK, which terminates a double-quoted PS string mid-expression — silently corrupting the `if ($derLen -lt 32)` block and jumping to wrong code.
+
+**Build**: clean [4/4] post-merge. Auto-generation verified: delete key → `source devtools/build-env.sh` → generates cleanly. Idempotent: re-source → silent skip.
+
+**Next**: Continue with Menu Stack Compliance Tier 5 (M-24) or other active tasks.
 
 ## Session S393 — 2026-04-19 (worktree `claude/mystifying-booth-c637a7`) — Super Audit Wave 3 Batch A: server auth + identity cookie + persistent bans + room passwords
 
