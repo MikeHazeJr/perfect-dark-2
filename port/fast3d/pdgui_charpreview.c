@@ -538,6 +538,16 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
 
     /* Model is loaded — render to the preview FBO */
 
+    /* REND-M1: Clear preview FBO before rendering to prevent ghost geometry */
+    {
+        struct GfxRenderingAPI *rapi = gfx_get_current_rendering_api();
+        if (rapi && rapi->start_draw_to_framebuffer && rapi->clear_framebuffer) {
+            rapi->start_draw_to_framebuffer(s_PreviewFb, 0.0f);
+            rapi->clear_framebuffer(true, true);
+            rapi->start_draw_to_framebuffer(0, 0.0f);
+        }
+    }
+
     /* Switch render target to our preview FBO */
     gDPSetFramebufferTargetEXT(gdl++, 0, 0, 0, s_PreviewFb);
 
