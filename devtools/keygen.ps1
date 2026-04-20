@@ -24,12 +24,18 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$ProjectRoot = Split-Path $PSScriptRoot -Parent
+# Derive project root robustly. $PSScriptRoot is relative when invoked via
+# `powershell.exe -File devtools/keygen.ps1` (relative path from bash), which
+# makes Split-Path return "". Use $MyInvocation.MyCommand.Path  - always absolute.
+$ScriptPath  = $MyInvocation.MyCommand.Path
+if (-not $ScriptPath) { $ScriptPath = $PSCommandPath }
+$ScriptDir   = Split-Path $ScriptPath -Parent
+$ProjectRoot = Split-Path $ScriptDir  -Parent
 Set-Location $ProjectRoot
 
 # Pick up MSYS2 mingw64 OpenSSL. build-env.sh already does this for bash;
 # the prelude equivalent is _build-env-prelude.ps1.
-$preludePath = Join-Path $PSScriptRoot "_build-env-prelude.ps1"
+$preludePath = Join-Path $ScriptDir "_build-env-prelude.ps1"
 if (Test-Path $preludePath) { . $preludePath }
 
 # --------------------------------------------------------------------------
@@ -45,17 +51,17 @@ if (-not $openssl) {
 }
 
 # --------------------------------------------------------------------------
-# Key directory
+# Key directory (always absolute so paths work regardless of CWD)
 # --------------------------------------------------------------------------
-$keyDir  = "dev-keys"
-$keyKind = "DEVELOPMENT"
+$keyDirAbs = Join-Path $ProjectRoot "dev-keys"
+$keyKind   = "DEVELOPMENT"
 
-if (-not (Test-Path $keyDir)) {
-    New-Item -ItemType Directory -Path $keyDir | Out-Null
+if (-not (Test-Path $keyDirAbs)) {
+    New-Item -ItemType Directory -Path $keyDirAbs | Out-Null
 }
 
-$privatePath = Join-Path $keyDir "ed25519-private.pem"
-$publicPath  = Join-Path $keyDir "ed25519-public.pem"
+$privatePath = Join-Path $keyDirAbs "ed25519-private.pem"
+$publicPath  = Join-Path $keyDirAbs "ed25519-public.pem"
 
 if ((Test-Path $privatePath) -and -not $Force) {
     Write-Host "ERROR: $privatePath already exists. Re-run with -Force to rotate the key." -ForegroundColor Red
@@ -66,7 +72,7 @@ if ((Test-Path $privatePath) -and -not $Force) {
 # --------------------------------------------------------------------------
 # Generate
 # --------------------------------------------------------------------------
-Write-Host "Generating $keyKind Ed25519 keypair at $keyDir/" -ForegroundColor Cyan
+Write-Host "Generating $keyKind Ed25519 keypair at $keyDirAbs\" -ForegroundColor Cyan
 & $openssl genpkey -algorithm ED25519 -out $privatePath
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: openssl genpkey failed." -ForegroundColor Red; exit 1 }
 
@@ -74,7 +80,7 @@ if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: openssl genpkey failed." -Foregrou
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: openssl pkey (public export) failed." -ForegroundColor Red; exit 1 }
 
 # Lock down the private key permissions on Windows (deny inheritance, grant
-# only the current user). Best-effort — if icacls is unavailable we warn.
+# only the current user). Best-effort  - if icacls is unavailable we warn.
 try {
     icacls $privatePath /inheritance:r /grant:r "$env:USERNAME:(R)" 2>&1 | Out-Null
 } catch {
@@ -86,29 +92,34 @@ try {
 #   DER structure: SubjectPublicKeyInfo { SEQUENCE, AlgoId (Ed25519 OID), BIT STRING }
 #   The raw Ed25519 public key is always the last 32 bytes.
 # --------------------------------------------------------------------------
-$tmpDer = Join-Path $keyDir "ed25519-public.der"
+$tmpDer = Join-Path $keyDirAbs "ed25519-public.der"
 & $openssl pkey -in $publicPath -pubin -outform DER -out $tmpDer
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: could not export DER public key." -ForegroundColor Red; exit 1 }
 
 $derBytes = [System.IO.File]::ReadAllBytes($tmpDer)
-Remove-Item $tmpDer -Force
+$derLen   = $derBytes.Length
+Remove-Item $tmpDer -Force -ErrorAction SilentlyContinue
 
-if ($derBytes.Length -lt 32) {
-    Write-Host "ERROR: DER output was only $($derBytes.Length) bytes — expected 44." -ForegroundColor Red
+if ($derLen -lt 32) {
+    Write-Host "ERROR: DER output was only $derLen bytes (expected 44)." -ForegroundColor Red
     exit 1
 }
-$rawKey = $derBytes[-32..-1]
+# Extract last 32 bytes (raw Ed25519 public key) using Array.Copy to avoid
+# typed-array negative-index issues in PowerShell 5.x
+$rawKeyArr = [System.Byte[]]::new(32)
+[System.Array]::Copy($derBytes, $derLen - 32, $rawKeyArr, 0, 32)
+$rawKey = $rawKeyArr
 
 # --------------------------------------------------------------------------
 # Patch port/include/updater_pubkey.h
 # --------------------------------------------------------------------------
-$headerPath = "port/include/updater_pubkey.h"
-if (-not (Test-Path $headerPath)) {
-    Write-Host "ERROR: $headerPath not found — cannot patch." -ForegroundColor Red
+$headerPath = [System.IO.Path]::Combine($ProjectRoot, "port", "include", "updater_pubkey.h")
+if (-not (Test-Path -LiteralPath $headerPath)) {
+    Write-Host "ERROR: $headerPath not found." -ForegroundColor Red
     exit 1
 }
 
-$header = Get-Content $headerPath -Raw
+$header = Get-Content -LiteralPath $headerPath -Raw
 
 $lines = @()
 for ($i = 0; $i -lt 32; $i += 8) {
@@ -136,13 +147,13 @@ if ($header -notmatch $pattern) {
     Write-Host "ERROR: BEGIN/END UPDATER_PUBKEY block not found in $headerPath." -ForegroundColor Red
     exit 1
 }
-# Use MatchEvaluator so the replacement string is treated as literal text —
+# Use MatchEvaluator so the replacement string is treated as literal text  -
 # avoids regex-substitution corruption if $block ever contained a '$' group.
 $evaluator = [System.Text.RegularExpressions.MatchEvaluator] { param($m) $block }
 $regex     = [System.Text.RegularExpressions.Regex]::new(
     $pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
 $header = $regex.Replace($header, $evaluator, 1)
-Set-Content -Path $headerPath -Value $header -NoNewline -Encoding UTF8
+Set-Content -LiteralPath $headerPath -Value $header -NoNewline -Encoding UTF8
 
 Write-Host ""
 Write-Host "SUCCESS." -ForegroundColor Green

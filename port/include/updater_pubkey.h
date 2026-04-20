@@ -1,4 +1,4 @@
-/**
+﻿/**
  * updater_pubkey.h -- Embedded Ed25519 public key for the signed updater (SEC-6).
  *
  * This public key is the root of trust for auto-updates. Every release ZIP
@@ -10,7 +10,7 @@
  * Trust properties:
  *   - The public key does NOT rotate with the distribution channel (GitHub
  *     Releases). Compromising the GitHub account cannot forge a valid
- *     signature — only compromise of the private key can.
+ *     signature â€” only compromise of the private key can.
  *   - SHA-256 verification is independent (SEC-5). This binds the signature
  *     to the exact bytes of the ZIP.
  *   - The tag string is part of the signed message, so an attacker cannot
@@ -38,14 +38,14 @@ extern "C" {
 
 #define UPDATER_PUBKEY_SIZE 32
 
-/* BEGIN UPDATER_PUBKEY (do not edit by hand — regenerate via devtools/keygen) */
+/* BEGIN UPDATER_PUBKEY (do not edit by hand -- regenerate via devtools/keygen) */
 /* Type: DEVELOPMENT */
 /* Generated: 2026-04-19 */
 static const u8 UPDATER_PUBKEY[UPDATER_PUBKEY_SIZE] = {
-	0x8d, 0xe2, 0xd8, 0x5b, 0x07, 0xf7, 0xb0, 0x19,
-	0xc8, 0x82, 0xd2, 0x5a, 0x3a, 0x85, 0x31, 0x73,
-	0xcd, 0xeb, 0x83, 0x01, 0x0b, 0x7e, 0xd2, 0x20,
-	0x01, 0x5b, 0x81, 0x6b, 0x60, 0xf8, 0xdc, 0x12,
+	0xb7, 0x57, 0x2e, 0xdf, 0xe8, 0xbb, 0x0c, 0xa4,
+	0x38, 0x39, 0xa4, 0x16, 0x88, 0xee, 0x1a, 0x75,
+	0x64, 0xb8, 0x7c, 0x05, 0xd8, 0xca, 0xed, 0x04,
+	0x6e, 0x53, 0xf4, 0x30, 0x30, 0x67, 0x55, 0xac,
 };
 /* END UPDATER_PUBKEY */
 
