@@ -117,11 +117,14 @@ f32 netbufReadF32(struct netbuf *buf)
 	return hack.f;
 }
 
-char *netbufReadStr(struct netbuf *buf)
+const char *netbufReadStr(struct netbuf *buf)
 {
 	const u16 len = netbufReadU16(buf);
 	if (netbufCanRead(buf, len)) {
-		char *ret = (char *)&buf->data[buf->rp];
+		if (len > 0 && buf->data[buf->rp + len - 1] != '\0') {
+			buf->data[buf->rp + len - 1] = '\0';
+		}
+		const char *ret = (const char *)&buf->data[buf->rp];
 		buf->rp += len;
 		return ret;
 	}

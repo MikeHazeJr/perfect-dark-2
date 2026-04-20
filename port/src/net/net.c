@@ -2142,7 +2142,7 @@ void netRecentServerUpdate(const char *addr, const u8 *data, s32 len)
 					srv->scenario = 0;
 				}
 			}
-			char *hostname = netbufReadStr(&buf);
+			const char *hostname = netbufReadStr(&buf);
 			if (hostname) {
 				strncpy(srv->hostname, hostname, NET_MAX_NAME - 1);
 				srv->hostname[NET_MAX_NAME - 1] = '\0';

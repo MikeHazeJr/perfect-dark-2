@@ -426,7 +426,7 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 		return 1;
 	}
 
-	char *name = netbufReadStr(src);
+	const char *name = netbufReadStr(src);
 	const u32 romCrc = netbufReadU32(src); // CRC32 of client's g_RomName
 	const char *modDir = netbufReadStr(src);
 	const u8 players = netbufReadU8(src);
@@ -676,7 +676,7 @@ u32 netmsgClcSettingsRead(struct netbuf *src, struct netclient *srccl)
 	const u8 team = netbufReadU8(src);
 	const f32 fovy = netbufReadF32(src);
 	const f32 fovzoommult = netbufReadF32(src);
-	char *name = netbufReadStr(src);
+	const char *name = netbufReadStr(src);
 
 	if (src->error) {
 		sysLogPrintf(LOG_WARNING, "NET: malformed CLC_SETTINGS from client %u", srccl->id);
@@ -1218,7 +1218,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			ncl->settings.fovy = netbufReadF32(src);
 			ncl->settings.fovzoommult = netbufReadF32(src);
 			{
-				char *name = netbufReadStr(src);
+				const char *name = netbufReadStr(src);
 				if (name) {
 					strncpy(ncl->settings.name, name, sizeof(ncl->settings.name) - 1);
 					ncl->settings.name[sizeof(ncl->settings.name) - 1] = '\0';
@@ -4509,7 +4509,7 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 	 * No fallback — if the string doesn't resolve, stagenum=0 and an error is logged.
 	 * stage_id is also stored in g_MatchConfig for server-side reference. */
 	{
-		char *stage_id_str = netbufReadStr(src);
+		const char *stage_id_str = netbufReadStr(src);
 		const char *stage_id = stage_id_str ? stage_id_str : "";
 		const asset_entry_t *stage_entry = stage_id[0] ? assetCatalogResolve(stage_id) : NULL;
 		if (stage_id[0] && !stage_entry) {
@@ -4562,7 +4562,7 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 	{
 		s32 wi;
 		for (wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
-			char *wid_str = netbufReadStr(src);
+			const char *wid_str = netbufReadStr(src);
 			const char *wid = wid_str ? wid_str : "";
 			if (wid[0]) {
 				const asset_entry_t *we = assetCatalogResolve(wid);
@@ -4583,7 +4583,7 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 	/* B-125: read spawn_weapon_id catalog string and resolve to spawnWeaponNum.
 	 * Mirrors matchStart() resolution logic for the network path. */
 	{
-		char *swid_str = netbufReadStr(src);
+		const char *swid_str = netbufReadStr(src);
 		const char *swid = swid_str ? swid_str : "";
 		if (swid[0]) {
 			strncpy(g_MatchConfig.spawn_weapon_id, swid, sizeof(g_MatchConfig.spawn_weapon_id) - 1);
@@ -5223,8 +5223,8 @@ u32 netmsgSvcCatalogInfoRead(struct netbuf *src, struct netclient *srccl)
 	char cats[CATALOG_COLLECT_MAX][64];
 
 	for (u16 i = 0; i < count; i++) {
-		char *id  = netbufReadStr(src);
-		char *cat = netbufReadStr(src);
+		const char *id  = netbufReadStr(src);
+		const char *cat = netbufReadStr(src);
 		strncpy(ids[i],  id  ? id  : "", 63);  ids[i][63]  = '\0';
 		strncpy(cats[i], cat ? cat : "", 63);  cats[i][63] = '\0';
 	}
@@ -5264,7 +5264,7 @@ u32 netmsgClcCatalogDiffRead(struct netbuf *src, struct netclient *srccl)
 	/* v27: catalog ID strings only — no u32 net_hash on wire. */
 	char missing_ids[256][CATALOG_ID_LEN];
 	for (u16 i = 0; i < count; i++) {
-		char *id = netbufReadStr(src);
+		const char *id = netbufReadStr(src);
 		strncpy(missing_ids[i], id ? id : "", CATALOG_ID_LEN - 1);
 		missing_ids[i][CATALOG_ID_LEN - 1] = '\0';
 	}
@@ -5293,8 +5293,8 @@ u32 netmsgSvcDistribBeginRead(struct netbuf *src, struct netclient *srccl)
 {
 	(void)srccl;
 	/* v27: catalog ID string only — no u32 net_hash. */
-	char *catalog_id  = netbufReadStr(src);
-	char *category    = netbufReadStr(src);
+	const char *catalog_id  = netbufReadStr(src);
+	const char *category    = netbufReadStr(src);
 	u32  total_chunks = netbufReadU32(src);
 	u32  archive_bytes = netbufReadU32(src);
 
@@ -5336,7 +5336,7 @@ u32 netmsgSvcDistribChunkRead(struct netbuf *src, struct netclient *srccl)
 {
 	(void)srccl;
 	/* v27: catalog ID string only — no u32 net_hash. */
-	char *catalog_id = netbufReadStr(src);
+	const char *catalog_id = netbufReadStr(src);
 	u16  chunk_idx   = netbufReadU16(src);
 	u8   compression = netbufReadU8(src);
 	u16  data_len    = netbufReadU16(src);
@@ -5377,7 +5377,7 @@ u32 netmsgSvcDistribEndRead(struct netbuf *src, struct netclient *srccl)
 {
 	(void)srccl;
 	/* v27: catalog ID string only — no u32 net_hash. */
-	char *catalog_id = netbufReadStr(src);
+	const char *catalog_id = netbufReadStr(src);
 	u8    success    = netbufReadU8(src);
 
 	if (src->error) return src->error;
@@ -5407,9 +5407,9 @@ u32 netmsgSvcLobbyKillFeedWrite(struct netbuf *dst, const char *attacker,
 u32 netmsgSvcLobbyKillFeedRead(struct netbuf *src, struct netclient *srccl)
 {
 	(void)srccl;
-	char *attacker = netbufReadStr(src);
-	char *victim   = netbufReadStr(src);
-	char *weapon   = netbufReadStr(src);
+	const char *attacker = netbufReadStr(src);
+	const char *victim   = netbufReadStr(src);
+	const char *weapon   = netbufReadStr(src);
 	u8    flags    = netbufReadU8(src);
 
 	if (src->error) return src->error;
@@ -5547,7 +5547,7 @@ u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl)
 	char missing_ids[256][CATALOG_ID_LEN];
 	u8   missing_count = 0;
 	for (s32 mi = 0; mi < (s32)num_missing; mi++) {
-		char *id = netbufReadStr(src);
+		const char *id = netbufReadStr(src);
 		if (src->error) {
 			sysLogPrintf(LOG_WARNING, "NET: CLC_MANIFEST_STATUS malformed at missing[%d]", mi);
 			return 1;
@@ -5686,7 +5686,7 @@ u32 netmsgSvcMatchCancelledWrite(struct netbuf *dst, const char *canceller_name)
 
 u32 netmsgSvcMatchCancelledRead(struct netbuf *src, struct netclient *srccl)
 {
-	char *name;
+	const char *name;
 
 	(void)srccl;
 

@@ -24,7 +24,7 @@ s16 netbufReadS16(struct netbuf *buf);
 s32 netbufReadS32(struct netbuf *buf);
 s64 netbufReadS64(struct netbuf *buf);
 f32 netbufReadF32(struct netbuf *buf);
-char *netbufReadStr(struct netbuf *buf);
+const char *netbufReadStr(struct netbuf *buf);
 u32 netbufReadCoord(struct netbuf *buf, struct coord *out);
 u32 netbufReadMtxf(struct netbuf *buf, Mtxf *out);
 u32 netbufReadSkip(struct netbuf *buf, u32 count);

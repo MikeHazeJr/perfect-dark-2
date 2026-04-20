@@ -119,7 +119,7 @@ u32 sessionCatalogReceive(struct netbuf *src)
     u16 wire_count;
     u16 wire_id;
     u8  asset_type;
-    char *id;
+    const char *id;
     session_catalog_entry_t *e;
     session_translation_t *t;
     const asset_entry_t *local;
