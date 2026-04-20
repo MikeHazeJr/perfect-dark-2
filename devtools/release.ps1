@@ -555,24 +555,18 @@ if ($DryRun) {
     Write-Host "  ERROR: $signScript not found." -ForegroundColor Red
     exit 1
 } else {
-    # Prefer release-keys/ if present (production), fall back to dev-keys/.
-    $prodKey = Join-Path $ProjectRoot "release-keys\ed25519-private.pem"
-    $devKey  = Join-Path $ProjectRoot "dev-keys\ed25519-private.pem"
-    if (Test-Path $prodKey) {
-        $signKey = $prodKey
-        Write-Host "  Using PRODUCTION key: $signKey" -ForegroundColor Cyan
-    } elseif (Test-Path $devKey) {
-        $signKey = $devKey
-        Write-Host "  Using development key: $signKey" -ForegroundColor Yellow
-        if (-not $Prerelease) {
-            Write-Host "  WARNING: signing a STABLE release with a development key." -ForegroundColor Yellow
-            Write-Host "  Generate a production key via '.\devtools\keygen.ps1 -Production' before shipping." -ForegroundColor Yellow
+    # Always use dev-keys/ -- Mike is sole developer, one key is sufficient.
+    $devKey = Join-Path $ProjectRoot "dev-keys\ed25519-private.pem"
+    if (-not (Test-Path $devKey)) {
+        Write-Host "  No signing key found -- auto-generating..." -ForegroundColor Yellow
+        & (Join-Path $PSScriptRoot "keygen.ps1")
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  ERROR: Keypair generation failed." -ForegroundColor Red
+            exit 1
         }
-    } else {
-        Write-Host "  ERROR: No signing key found (checked $prodKey and $devKey)." -ForegroundColor Red
-        Write-Host "         Run '.\devtools\keygen.ps1' to generate one." -ForegroundColor Red
-        exit 1
     }
+    $signKey = $devKey
+    Write-Host "  Signing key: $signKey" -ForegroundColor Cyan
 
     & $signScript -ZipPath $zipPath -Tag $ReleaseTag -KeyPath $signKey
     if ($LASTEXITCODE -ne 0) {

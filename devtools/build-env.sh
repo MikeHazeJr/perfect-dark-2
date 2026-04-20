@@ -19,3 +19,6 @@ esac
 export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime"
 export CCACHE_BASEDIR="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)"
 echo "Build env: TEMP=$TEMP | mingw64 on PATH | ccache sloppy | CCACHE_BASEDIR=$CCACHE_BASEDIR"
+
+# Auto-generate Ed25519 keypair if not present (idempotent — exits immediately if key exists)
+"${BASH_SOURCE[0]%/*}/ensure-keypair.sh" || true

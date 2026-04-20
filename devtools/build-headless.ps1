@@ -573,6 +573,24 @@ if (-not (Test-Path $BuildDir)) {
 }
 
 # ============================================================================
+# Auto-generate Ed25519 keypair if not present (idempotent)
+# ============================================================================
+
+$devKeyPath = Join-Path $ProjectDir "dev-keys\ed25519-private.pem"
+if (-not (Test-Path $devKeyPath)) {
+    Write-Header "Generating Ed25519 keypair (first build)"
+    $keygenScript = Join-Path $ScriptDir "keygen.ps1"
+    if (Test-Path $keygenScript) {
+        & $keygenScript
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "  Keypair generation failed -- build continues but releases won't be signable."
+        }
+    } else {
+        Write-Warn "  $keygenScript not found -- skipping key generation."
+    }
+}
+
+# ============================================================================
 # CMake Configure (unified Build/ dir for both pd and pd-server)
 # ============================================================================
 
