@@ -1510,6 +1510,19 @@ Gfx *lvRender(Gfx *gdl)
 					}
 				}
 
+				// S311 per-frame interact-prompt refresh. `g_InteractProp`
+				// is read every frame by the HUD overlay (pdguiInteractPromptRender
+				// in port/fast3d/pdgui_interact_prompt.cpp) so the "[E] Pick up"
+				// style pill can show/hide based on proximity + LOS to an
+				// interactable prop. Before this call was moved here, the global
+				// was only refreshed inside `currentPlayerInteract` -- i.e. on
+				// the frame the activate button was pressed -- which meant the
+				// prompt never appeared when walking up to a prop and never
+				// disappeared when walking away. `propFindForInteract` itself
+				// always starts by nulling `g_InteractProp`, so a per-frame call
+				// is self-resetting (no stale pointer between ticks).
+				propFindForInteract(false);
+
 				// Handle opening doors and reloading
 				if (g_Vars.currentplayer->bondactivateorreload & JO_ACTION_ACTIVATE) {
 					if (!currentPlayerInteract(false)) {
