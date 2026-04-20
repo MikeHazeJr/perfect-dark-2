@@ -17,6 +17,7 @@
 #include "net/net.h"
 #include "net/netbuf.h"
 #include "net/netlobby.h"
+#include "server_bans.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -92,6 +93,8 @@ const char *lobbyGetPlayerHeadId(s32 idx)
 
 u32 netGetClientPing(s32 clientId)
 {
+    /* Bounds: valid peer indices are [0, NET_MAX_CLIENTS).  Index NET_MAX_CLIENTS
+     * is the reserved local/temporary slot and must never be operated on. */
     if (clientId < 0 || clientId >= NET_MAX_CLIENTS) return 0;
     struct netclient *cl = &g_NetClients[clientId];
     if (cl->state == CLSTATE_DISCONNECTED || !cl->peer) return 0;
@@ -108,7 +111,7 @@ void netServerKickClient(s32 clientId, const char *reason)
 
     sysLogPrintf(LOG_NOTE, "NET: kicking client %d (%s): %s",
                  clientId, cl->settings.name, reason ? reason : "no reason");
-    enet_peer_disconnect(cl->peer, 0);
+    enet_peer_disconnect(cl->peer, DISCONNECT_KICKED);
 }
 
 void netServerBanClient(s32 clientId, const char *reason)
@@ -119,9 +122,29 @@ void netServerBanClient(s32 clientId, const char *reason)
     struct netclient *cl = &g_NetClients[clientId];
     if (cl->state == CLSTATE_DISCONNECTED || !cl->peer) return;
 
-    sysLogPrintf(LOG_NOTE, "NET: banning client %d (%s): %s",
-                 clientId, cl->settings.name, reason ? reason : "no reason");
-    enet_peer_disconnect(cl->peer, 0);
+    /* MASTER-C2c: persist to bans.ini so the kick is sticky across reconnects
+     * and across server restarts.  Strip port from "ip:port" for matching. */
+    char addrBuf[SERVER_BANS_ADDR_LEN];
+    addrBuf[0] = '\0';
+    char ipBuf[SERVER_BANS_ADDR_LEN];
+    ipBuf[0] = '\0';
+    if (enet_address_get_ip(&cl->peer->address, ipBuf, sizeof(ipBuf) - 1) == 0) {
+        strncpy(addrBuf, ipBuf, sizeof(addrBuf) - 1);
+        addrBuf[sizeof(addrBuf) - 1] = '\0';
+    }
+
+    if (addrBuf[0]) {
+        serverBansAdd(addrBuf, cl->settings.name, reason);
+    } else {
+        sysLogPrintf(LOG_WARNING,
+            "NET: banClient %d: could not resolve address; kicking without persisting",
+            clientId);
+    }
+
+    sysLogPrintf(LOG_NOTE, "NET: banning client %d (%s @ %s): %s",
+                 clientId, cl->settings.name, addrBuf[0] ? addrBuf : "?",
+                 reason ? reason : "no reason");
+    enet_peer_disconnect(cl->peer, DISCONNECT_BANNED);
 }
 
 /* ========================================================================

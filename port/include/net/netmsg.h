@@ -67,6 +67,9 @@
 #define SVC_ROOM_SETTINGS  0x78 // server→room: match settings changed by leader (numBots, timelimit, etc.)
 #define SVC_ROOM_PLAYLIST  0x79 // server→room: mod music playlist changed by leader (serialized string)
 
+/* MASTER-C2b: Admin RCON reply (protocol v38). */
+#define SVC_ADMIN          0x68 // server→operator-client: response to CLC_ADMIN
+
 #define CLC_BAD      0x00 // trash
 #define CLC_NOP      0x01 // does nothing
 #define CLC_AUTH     0x02 // auth request, sent immediately after connecting
@@ -95,6 +98,9 @@
 /* R-5: Room settings sync (protocol v35 additive) */
 #define CLC_ROOM_SETTINGS_UPDATE  0x13 // leader→server: push current match settings for broadcast
 #define CLC_ROOM_PLAYLIST_UPDATE  0x14 // leader→server: push mod playlist string for broadcast
+
+/* MASTER-C2b: Admin RCON request (protocol v38). */
+#define CLC_ADMIN                 0x15 // operator-client→server: admin auth / kick / ban / unban / list / status
 
 /* Phase A: Match Startup Pipeline (protocol v24) */
 #define CLC_MANIFEST_STATUS 0x0E // client→server: manifest check result (READY / NEED_ASSETS / DECLINE)
@@ -307,12 +313,23 @@ void netSendRoomSettingsUpdate(void);
 /* Convenience: pack current mod playlist into CLC_ROOM_PLAYLIST_UPDATE and send. */
 void netSendRoomPlaylistUpdate(void);
 
-u32 netmsgClcRoomCreateWrite(struct netbuf *dst, const char *name);
+/* SEC-14: CLC_ROOM_CREATE now carries access mode + password + max_players.
+ *   access      — 0=OPEN, 1=PASSWORD, 2=INVITE (see room_access_t)
+ *   password    — plaintext (server hashes), empty string for non-password rooms
+ *   maxPlayers  — 1..HUB_MAX_CLIENTS; clamped on server side */
+u32 netmsgClcRoomCreateWrite(struct netbuf *dst, const char *name, u8 access,
+                              const char *password, u8 maxPlayers);
 u32 netmsgClcRoomCreateRead(struct netbuf *src, struct netclient *srccl);
-u32 netmsgClcRoomJoinWrite(struct netbuf *dst, u8 room_id);
+/* SEC-14: CLC_ROOM_JOIN now carries an optional password (empty for open rooms). */
+u32 netmsgClcRoomJoinWrite(struct netbuf *dst, u8 room_id, const char *password);
 u32 netmsgClcRoomJoinRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgClcRoomLeaveWrite(struct netbuf *dst);
 u32 netmsgClcRoomLeaveRead(struct netbuf *src, struct netclient *srccl);
+
+/* MASTER-C2b: Admin RCON messages. */
+u32 netmsgClcAdminRead(struct netbuf *src, struct netclient *srccl);
+/* SVC_ADMIN is written by the server helper below; no client-side Write wrapper
+ * is exposed because the client never sends it. */
 
 void netBroadcastRoomList(void);
 

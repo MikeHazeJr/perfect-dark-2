@@ -1,8 +1,57 @@
 
 # Session Log (Active)
 
-> **S281–S392** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S393** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S393 — 2026-04-19 (worktree `claude/mystifying-booth-c637a7`) — Super Audit Wave 3 Batch A: server auth + identity cookie + persistent bans + room passwords
+
+**Scope**: Three Critical/High findings from the 2026-04-19 server-security audit. All changes ride on `NET_PROTOCOL_VER 38` (already bumped for SEC-7 in Wave 2A) — the v38 doc comment is extended to record the additive wire changes below.
+
+### MASTER-C2 (Critical) — dedicated-server admin RCON + persistent bans
+
+**Admin token (MASTER-C2a)** — `port/src/server_admin.{c,h}` + `port/src/server_main.c`.
+- `--admin-token TOK` CLI flag (TOK ≥ 8 chars) OR `[Admin] Token = …` in `$S/server.ini`.  CLI wins.
+- `serverAdminInit(cliToken, iniToken)` hashes with a domain-separated SHA-256 (salt `"pd2-server-admin-token-v1\n"`) so the stored hash cannot be confused with a bare SHA-256 oracle.  Plaintext token is scrubbed from argv and stack memory after hashing.
+- `serverAdminVerifyToken(plaintext)` does constant-time compare against the stored digest.
+
+**RCON dispatch (MASTER-C2b)** — new `CLC_ADMIN` (0x15) + `SVC_ADMIN` (0x68); handlers in `port/src/net/netmsg.c`.  Subcommands: `ADMIN_SUB_AUTH`, `KICK`, `BAN`, `UNBAN`, `LIST`, `STATUS`.  `ADMIN_AUTH` sets `cl->is_admin` for the peer lifetime; all other subs require that flag, otherwise `SVC_ADMIN [NOT_AUTH]` is returned.  `STATUS` dumps player count + per-slot name/state/room/address; `LIST` dumps the ban list; `BAN` calls `serverBansAdd` and disconnects the peer.
+
+**Persistent bans (MASTER-C2c/C2d)** — `port/src/server_bans.{c,h}`.
+- `$S/bans.ini` tab-separated (`addr \t name \t timestamp \t reason`).  Up to 256 entries.  Atomic save via temp-file + rename.
+- `serverBansInit()` called once from `server_main.c` after `hubInit()`.
+- `netServerEvConnect` now consults `serverBansIsBanned(ip)` before any client-slot allocation; banned peers receive `DISCONNECT_BANNED` immediately.
+- `netServerBanClient` (server_bridge.c) now persists via `serverBansAdd` and disconnects with `DISCONNECT_BANNED` (was generic code 0).
+
+### MASTER-C3 (Critical) — preserved-player identity cookie
+
+Was: reconnecting peer could reclaim the preserved slot by name alone — any attacker knowing a player's name could steal their score on disconnect (audit SEC-3).
+
+Now: `struct netpreservedplayer` gains `u8 cookie[NET_AUTH_COOKIE_LEN]` (16 bytes).  On first CLC_AUTH, server issues a fresh cookie via `netServerIssueCookie` (rolling SHA-256 seeded from `SDL_GetPerformanceCounter` + `time(NULL)` + ASLR-salted function address; CSPRNG-adequate for identity separation).  Cookie ships back in SVC_AUTH; client caches it module-static in `netmsg.c`.  Reconnect: client presents cookie in CLC_AUTH; server calls `netServerFindPreservedByCookie(name, cookie)` which requires BOTH name and a constant-time cookie match.  All-zero supplied cookie during mid-game join is rejected outright (matches the pre-existing "no late join without preserved slot" policy).  Cookie mismatch against a known preserved name is logged as `LOG_WARNING` with "possible hijack attempt".
+
+Client clears the cookie on `netDisconnect` so reconnecting to a different server always starts fresh.
+
+### SEC-14 (High) — room password transport
+
+Was: `ROOM_ACCESS_PASSWORD` was declared in `port/include/room.h` but `CLC_ROOM_CREATE` hardcoded `ROOM_ACCESS_OPEN` + `max_players = 32`.  Every room was discoverable and joinable.
+
+Now: `CLC_ROOM_CREATE` wire gains `u8 access` + `str password` + `u8 max_players` (handler in `port/src/net/netmsg.c`).  `CLC_ROOM_JOIN` gains `str password`.  Room struct replaces `char password[32]` with `u8 password_hash[32]` (SHA-256 via domain-separated salt `"pd2-room-password-v1\n"`).  Server calls `roomCheckPassword(room, plaintext)` (constant-time) before `roomJoin`.  Max-players now authoritative — `roomJoin` gates on `room->max_players` as well as `HUB_MAX_CLIENTS`.  Invite-only rooms only admit the creator (placeholder — the full invite flow is future work).
+
+Client callers in `port/fast3d/pdgui_menu_lobby.cpp` updated to pass defaults (open room, empty password, default max_players); a follow-up UI pass should expose access-mode + password fields in the create/join dialogs.
+
+### SEC-15 (Medium, bonus) — server_bridge bounds off-by-one
+
+`netGetClientPing` / `netServerKickClient` / `netServerBanClient` all now use `>= NET_MAX_CLIENTS` (was `> NET_MAX_CLIENTS`).  Prevents operation on the reserved local-client sentinel slot.  Kick disconnect reason upgraded from `0` to `DISCONNECT_KICKED`.
+
+### Build + files
+
+- New: `port/include/server_admin.h`, `port/include/server_bans.h`, `port/src/server_admin.c`, `port/src/server_bans.c`.
+- Modified: `port/include/net/net.h`, `port/include/net/netmsg.h`, `port/include/room.h`, `port/src/room.c`, `port/src/net/net.c`, `port/src/net/netmsg.c`, `port/src/server_bridge.c`, `port/src/server_main.c`, `port/fast3d/pdgui_menu_lobby.cpp`, `CMakeLists.txt`.
+- `ninja pd pd-server` links clean.  `PerfectDark.exe 53,480,860` · `PerfectDarkServer.exe 23,216,655`.
+
+**Next**: Remaining Wave 3 findings — SEC-5 (mandatory mod SHA-256), SEC-6 (signed updater), SEC-8/9 (interest management / PVS culling), SEC-12 (server-side CLC_ROOM_SETTINGS_UPDATE validation), SEC-13 (room-mutation rate limiting — already partially landed), SAVE-1 (MP stat integrity), LAYOUT-2 (pd.ini LastJoinAddr validation).
+
+---
 
 ## Session S392 — 2026-04-19 (worktree `claude/vigilant-wiles-ed5537`) — Super Audit Wave 2 Batch C: wire format + data integrity
 

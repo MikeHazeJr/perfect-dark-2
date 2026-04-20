@@ -55,6 +55,8 @@
 #endif
 #include "identity.h"
 #include "utils.h"
+#include "server_admin.h"
+#include "server_bans.h"
 #if !defined(PD_SERVER)
 #include "pdgui.h"
 #include "pdgui_hud.h"
@@ -446,6 +448,24 @@ static inline s32 propRoomsEqual(const RoomNum *ra, const RoomNum *rb)
 
 /* client -> server */
 
+/* MASTER-C3: Client-side identity cookie storage.
+ * Cleared on disconnect (netDisconnect calls netmsgClcAuthClearCookie).
+ * The server hands us this value in SVC_AUTH; we echo it back on reconnect
+ * inside the same process.  All-zero means "fresh join, no preserve intent". */
+#if !defined(PD_SERVER)
+static u8 s_AuthCookie[NET_AUTH_COOKIE_LEN];
+
+void netmsgClcAuthClearCookie(void)
+{
+	memset(s_AuthCookie, 0, sizeof(s_AuthCookie));
+}
+
+void netmsgClcAuthStoreCookie(const u8 cookie[NET_AUTH_COOKIE_LEN])
+{
+	memcpy(s_AuthCookie, cookie, sizeof(s_AuthCookie));
+}
+#endif
+
 u32 netmsgClcAuthWrite(struct netbuf *dst)
 {
 	const char *modDir = fsGetModDir();
@@ -466,6 +486,18 @@ u32 netmsgClcAuthWrite(struct netbuf *dst)
 	netbufWriteStr(dst, modDir);
 	netbufWriteU8(dst, (u8)PLAYERCOUNT()); // number of local (splitscreen) players on this client
 
+	/* MASTER-C3: include the previously-issued cookie (zeros on first join).
+	 * Server uses it to disambiguate reconnect vs fresh join, defeating the
+	 * name-spoof preserved-slot hijack described in SEC-3. */
+#if !defined(PD_SERVER)
+	netbufWriteData(dst, s_AuthCookie, NET_AUTH_COOKIE_LEN);
+#else
+	/* Server code path — should never be taken (server doesn't write CLC_AUTH). */
+	u8 zeros[NET_AUTH_COOKIE_LEN];
+	memset(zeros, 0, sizeof(zeros));
+	netbufWriteData(dst, zeros, NET_AUTH_COOKIE_LEN);
+#endif
+
 	return dst->error;
 }
 
@@ -480,6 +512,10 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 	const u32 romCrc = netbufReadU32(src); // CRC32 of client's g_RomName
 	const char *modDir = netbufReadStr(src);
 	const u8 players = netbufReadU8(src);
+
+	/* MASTER-C3: client-supplied reconnect cookie (zeros = fresh join). */
+	u8 suppliedCookie[NET_AUTH_COOKIE_LEN];
+	netbufReadData(src, suppliedCookie, NET_AUTH_COOKIE_LEN);
 
 	if (src->error) {
 		sysLogPrintf(LOG_WARNING, "NET: malformed CLC_AUTH from client %u", srccl->id);
@@ -521,14 +557,42 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 
 	sysLogPrintf(LOG_NOTE, "NET: CLC_AUTH from client %u (%s), responding", srccl->id, srccl->settings.name);
 
+	/* MASTER-C3: issue a fresh cookie for this peer BEFORE checking the preserved
+	 * table.  If the client is reconnecting it will present the previously-issued
+	 * cookie in suppliedCookie; if we accept the restore, the NEW cookie replaces
+	 * the old one in the preserved record (one-time use for defence-in-depth). */
+	netServerIssueCookie(srccl->auth_cookie);
+
 	// check if this is a mid-game reconnection
 	struct netpreservedplayer *pp = NULL;
 	const bool ingame = (g_NetLocalClient && g_NetLocalClient->state >= CLSTATE_GAME);
 	if (ingame) {
-		pp = netServerFindPreserved(name);
-		if (!pp) {
-			// no preserved slot found — reject late join
-			sysLogPrintf(LOG_NOTE, "NET: %s rejected: no preserved slot for mid-game join", name);
+		/* Check for all-zero cookie (fresh join with preserved-name collision). */
+		bool cookieZero = true;
+		for (s32 ci = 0; ci < NET_AUTH_COOKIE_LEN; ci++) {
+			if (suppliedCookie[ci]) { cookieZero = false; break; }
+		}
+
+		if (!cookieZero) {
+			/* MASTER-C3: reconnect requires both name AND cookie match. */
+			pp = netServerFindPreservedByCookie(name, suppliedCookie);
+			if (!pp) {
+				/* Name may exist in preserved table but cookie doesn't match — that's
+				 * exactly the hijack attempt SEC-3 warns about.  Log it and reject. */
+				struct netpreservedplayer *nameOnly = netServerFindPreserved(name);
+				if (nameOnly) {
+					sysLogPrintf(LOG_WARNING,
+						"NET: CLC_AUTH cookie mismatch for preserved name '%s' — possible hijack attempt from client %u",
+						name, srccl->id);
+				}
+				netServerKick(srccl, DISCONNECT_LATE);
+				return src->error;
+			}
+		} else {
+			/* Fresh-join cookie during an in-progress match: legacy path rejects late
+			 * joins, so deny regardless of whether a preserved slot exists.  Only
+			 * cookie-bearing reconnects are allowed. */
+			sysLogPrintf(LOG_NOTE, "NET: %s rejected: mid-game join without cookie", name);
 			netServerKick(srccl, DISCONNECT_LATE);
 			return src->error;
 		}
@@ -788,6 +852,10 @@ u32 netmsgSvcAuthWrite(struct netbuf *dst, struct netclient *authcl)
 	netbufWriteU8(dst, authcl - g_NetClients);
 	netbufWriteU8(dst, g_NetMaxClients);
 	netbufWriteU32(dst, g_NetTick);
+	/* MASTER-C3: ship the server-issued identity cookie to the client.  The
+	 * client echoes this back on any subsequent reconnect to reclaim its
+	 * preserved slot. */
+	netbufWriteData(dst, authcl->auth_cookie, NET_AUTH_COOKIE_LEN);
 	return dst->error;
 }
 
@@ -801,11 +869,20 @@ u32 netmsgSvcAuthRead(struct netbuf *src, struct netclient *srccl)
 	const u8 id = netbufReadU8(src);
 	const u8 maxclients = netbufReadU8(src);
 	g_NetTick = netbufReadU32(src);
+	/* MASTER-C3: server-issued identity cookie.  Stored locally for reconnect. */
+	u8 cookie[NET_AUTH_COOKIE_LEN];
+	netbufReadData(src, cookie, NET_AUTH_COOKIE_LEN);
 	if (g_NetLocalClient->in.error || id == NET_NULL_CLIENT || id >= NET_MAX_CLIENTS
 			|| maxclients == 0 || maxclients > NET_MAX_CLIENTS) {
 		sysLogPrintf(LOG_WARNING, "NET: malformed SVC_AUTH from server (id=%u maxclients=%u)", id, maxclients);
 		return 1;
 	}
+
+#if !defined(PD_SERVER)
+	/* Persist the cookie so the next CLC_AUTH (on reconnect) can present it. */
+	extern void netmsgClcAuthStoreCookie(const u8 cookie[NET_AUTH_COOKIE_LEN]);
+	netmsgClcAuthStoreCookie(cookie);
+#endif
 
 	sysLogPrintf(LOG_NOTE, "NET: SVC_AUTH from server, our ID is %u", id);
 
@@ -6113,16 +6190,40 @@ void netMusicBroadcastAdvance(const char *track_id, u8 room_id)
 	             track_id, (unsigned)room_id);
 }
 
-u32 netmsgClcRoomCreateWrite(struct netbuf *dst, const char *name)
+u32 netmsgClcRoomCreateWrite(struct netbuf *dst, const char *name, u8 access,
+                              const char *password, u8 maxPlayers)
 {
 	netbufWriteU8(dst, CLC_ROOM_CREATE);
 	netbufWriteStr(dst, name ? name : "");
+	/* SEC-14: access + password + max_players on the wire. */
+	netbufWriteU8(dst, access);
+	netbufWriteStr(dst, password ? password : "");
+	netbufWriteU8(dst, maxPlayers);
 	return dst->error;
 }
 
 u32 netmsgClcRoomCreateRead(struct netbuf *src, struct netclient *srccl)
 {
 	const char *name = netbufReadStr(src);
+	/* Copy name into a local buffer immediately — netbufReadStr returns a
+	 * pointer into the shared netbuf, and subsequent reads can overwrite it. */
+	char nameBuf[ROOM_NAME_MAX];
+	if (name) {
+		strncpy(nameBuf, name, sizeof(nameBuf) - 1);
+		nameBuf[sizeof(nameBuf) - 1] = '\0';
+	} else {
+		nameBuf[0] = '\0';
+	}
+	const u8 accessRaw   = netbufReadU8(src);
+	const char *password = netbufReadStr(src);
+	char passwordBuf[32];
+	if (password) {
+		strncpy(passwordBuf, password, sizeof(passwordBuf) - 1);
+		passwordBuf[sizeof(passwordBuf) - 1] = '\0';
+	} else {
+		passwordBuf[0] = '\0';
+	}
+	const u8 maxPlayers  = netbufReadU8(src);
 	if (src->error) return src->error;
 
 	if (g_NetMode != NETMODE_SERVER) return src->error;
@@ -6141,12 +6242,36 @@ u32 netmsgClcRoomCreateRead(struct netbuf *src, struct netclient *srccl)
 
 	/* Generate name if not provided */
 	char genName[ROOM_NAME_MAX];
-	if (!name || name[0] == '\0') {
+	const char *finalName = nameBuf;
+	if (!finalName[0]) {
 		roomGenerateName(genName, sizeof(genName));
-		name = genName;
+		finalName = genName;
 	}
 
-	hub_room_t *room = roomCreateConfigured(name, 32, ROOM_ACCESS_OPEN, NULL, srccl->id);
+	/* SEC-14: validate access mode.  Invite-only is declared but not yet
+	 * implemented — treat as OPEN server-side so clients that try it don't
+	 * get silently locked out. */
+	room_access_t access = ROOM_ACCESS_OPEN;
+	if (accessRaw == ROOM_ACCESS_PASSWORD) {
+		/* Require a non-empty password for password rooms. */
+		if (!passwordBuf[0]) {
+			sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_CREATE from client %u: password room with empty password — downgrading to OPEN", srccl->id);
+			access = ROOM_ACCESS_OPEN;
+		} else {
+			access = ROOM_ACCESS_PASSWORD;
+		}
+	} else if (accessRaw == ROOM_ACCESS_INVITE) {
+		access = ROOM_ACCESS_INVITE;
+	}
+
+	/* Clamp max_players to [1, HUB_MAX_CLIENTS].  0 = use default. */
+	u8 maxp = maxPlayers;
+	if (maxp == 0) maxp = HUB_MAX_CLIENTS;
+	if (maxp > HUB_MAX_CLIENTS) maxp = HUB_MAX_CLIENTS;
+
+	hub_room_t *room = roomCreateConfigured(finalName, maxp, access,
+	                                         passwordBuf[0] ? passwordBuf : NULL,
+	                                         srccl->id);
 	if (!room) {
 		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_CREATE failed — no free slots");
 		return src->error;
@@ -6172,16 +6297,27 @@ u32 netmsgClcRoomCreateRead(struct netbuf *src, struct netclient *srccl)
 	return src->error;
 }
 
-u32 netmsgClcRoomJoinWrite(struct netbuf *dst, u8 room_id)
+u32 netmsgClcRoomJoinWrite(struct netbuf *dst, u8 room_id, const char *password)
 {
 	netbufWriteU8(dst, CLC_ROOM_JOIN);
 	netbufWriteU8(dst, room_id);
+	/* SEC-14: optional password (empty string for open rooms). */
+	netbufWriteStr(dst, password ? password : "");
 	return dst->error;
 }
 
 u32 netmsgClcRoomJoinRead(struct netbuf *src, struct netclient *srccl)
 {
 	u8 room_id = netbufReadU8(src);
+	const char *password = netbufReadStr(src);
+	/* Copy before downstream operations can clobber the netbuf read pointer. */
+	char passwordBuf[32];
+	if (password) {
+		strncpy(passwordBuf, password, sizeof(passwordBuf) - 1);
+		passwordBuf[sizeof(passwordBuf) - 1] = '\0';
+	} else {
+		passwordBuf[0] = '\0';
+	}
 	if (src->error) return src->error;
 
 	if (g_NetMode != NETMODE_SERVER) return src->error;
@@ -6201,6 +6337,20 @@ u32 netmsgClcRoomJoinRead(struct netbuf *src, struct netclient *srccl)
 
 	if (room->state != ROOM_STATE_LOBBY) {
 		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_JOIN from client %u — room %u not in lobby state",
+		             srccl->id, (unsigned)room_id);
+		return src->error;
+	}
+
+	/* SEC-14: enforce password before modifying any state. */
+	if (!roomCheckPassword(room, passwordBuf)) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_JOIN from client %u — wrong password for room %u",
+		             srccl->id, (unsigned)room_id);
+		return src->error;
+	}
+
+	/* SEC-14: invite-only rooms can only be joined by the creator (for now). */
+	if (room->access == ROOM_ACCESS_INVITE && srccl->id != room->creator_client_id) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_JOIN from client %u — invite-only room %u rejected",
 		             srccl->id, (unsigned)room_id);
 		return src->error;
 	}
@@ -6733,4 +6883,246 @@ void netSendRoomPlaylistUpdate(void)
 	netbufStartWrite(&g_NetLocalClient->out);
 	netmsgClcRoomPlaylistUpdateWrite(&g_NetLocalClient->out, pl);
 	netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
+}
+
+/* ============================================================================
+ * MASTER-C2b: CLC_ADMIN dispatch + SVC_ADMIN reply.
+ *
+ * Wire format:
+ *   CLC_ADMIN : u8 msgid, u8 subcode, str token, <subcode-specific args>
+ *   SVC_ADMIN : u8 msgid, u8 response_code, str message
+ *
+ * Authentication model:
+ *   - ADMIN_AUTH sub compares the supplied token against the configured
+ *     hash via serverAdminVerifyToken().  On success, cl->is_admin is set
+ *     for the lifetime of the peer connection.  Subsequent messages from
+ *     that peer bypass the token check (but the token field is still
+ *     parsed so the wire shape is uniform).
+ *   - All other subs require cl->is_admin; otherwise reply BAD_TOKEN.
+ *
+ * Declared forward here to avoid pulling server_bridge internals into the
+ * client build.  Both binaries link a local implementation (server_bridge.c
+ * on the server, pdgui_bridge.c on the client listen host). */
+extern void netServerKickClient(s32 clientId, const char *reason);
+extern void netServerBanClient(s32 clientId, const char *reason);
+
+/* Helper: send an SVC_ADMIN reply with the given code and message. */
+static void netmsgSvcAdminReply(struct netclient *cl, u8 code, const char *message)
+{
+	if (!cl || !cl->peer) return;
+	netbufStartWrite(&cl->out);
+	netbufWriteU8(&cl->out, SVC_ADMIN);
+	netbufWriteU8(&cl->out, code);
+	netbufWriteStr(&cl->out, message ? message : "");
+	netSend(cl, NULL, true, NETCHAN_CONTROL);
+}
+
+u32 netmsgClcAdminRead(struct netbuf *src, struct netclient *srccl)
+{
+	if (g_NetMode != NETMODE_SERVER) {
+		/* Silently ignore on clients — shouldn't happen under normal use. */
+		/* Still need to drain the buffer to keep the decoder in sync, so
+		 * read and discard each field by calling into the fast-path parser. */
+	}
+
+	const u8 subcode = netbufReadU8(src);
+	const char *tokenStr = netbufReadStr(src);
+
+	/* Copy token immediately — further reads on src may clobber the buffer. */
+	char token[128];
+	if (tokenStr) {
+		strncpy(token, tokenStr, sizeof(token) - 1);
+		token[sizeof(token) - 1] = '\0';
+	} else {
+		token[0] = '\0';
+	}
+
+	if (src->error) {
+		sysLogPrintf(LOG_WARNING, "NET: malformed CLC_ADMIN from client %u", srccl->id);
+		return 1;
+	}
+
+	if (g_NetMode != NETMODE_SERVER) {
+		return 0;
+	}
+
+	/* ADMIN_AUTH: promote the peer to admin if the token hashes correctly. */
+	if (subcode == ADMIN_SUB_AUTH) {
+		if (!serverAdminEnabled()) {
+			sysLogPrintf(LOG_WARNING, "NET: CLC_ADMIN from %u: RCON not configured", srccl->id);
+			netmsgSvcAdminReply(srccl, ADMIN_RESP_BAD_TOKEN, "Admin RCON is not enabled on this server.");
+			return 0;
+		}
+		if (!serverAdminVerifyToken(token)) {
+			sysLogPrintf(LOG_WARNING, "NET: CLC_ADMIN auth failed from client %u (%s)",
+			             srccl->id, srccl->settings.name);
+			srccl->is_admin = false;
+			netmsgSvcAdminReply(srccl, ADMIN_RESP_BAD_TOKEN, "Invalid admin token.");
+			return 0;
+		}
+		srccl->is_admin = true;
+		sysLogPrintf(LOG_NOTE, "NET: admin authenticated client %u (%s)",
+		             srccl->id, srccl->settings.name);
+		netmsgSvcAdminReply(srccl, ADMIN_RESP_OK, "Admin authenticated.");
+		return 0;
+	}
+
+	/* All other subcommands require prior authentication. */
+	if (!srccl->is_admin) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_ADMIN sub=0x%02x from %u rejected: not authenticated",
+		             (unsigned)subcode, srccl->id);
+		netmsgSvcAdminReply(srccl, ADMIN_RESP_NOT_AUTH,
+		                    "Not authenticated.  Send ADMIN_AUTH with a valid token first.");
+		return 0;
+	}
+
+	switch (subcode) {
+
+	case ADMIN_SUB_KICK: {
+		const u8 targetId = netbufReadU8(src);
+		const char *reason = netbufReadStr(src);
+		if (src->error) return 1;
+		if (targetId >= NET_MAX_CLIENTS || !g_NetClients[targetId].peer) {
+			netmsgSvcAdminReply(srccl, ADMIN_RESP_NOT_FOUND, "No such client.");
+			return 0;
+		}
+		struct netclient *tgt = &g_NetClients[targetId];
+		sysLogPrintf(LOG_NOTE, "ADMIN: client %u kicked by admin %u — reason: %s",
+		             (unsigned)targetId, (unsigned)srccl->id,
+		             reason && reason[0] ? reason : "(none)");
+		netServerKickClient((s32)targetId, reason && reason[0] ? reason : "kicked by admin");
+		(void)tgt;
+		netmsgSvcAdminReply(srccl, ADMIN_RESP_OK, "Kicked.");
+		return 0;
+	}
+
+	case ADMIN_SUB_BAN: {
+		const u8 targetId = netbufReadU8(src);
+		const char *reason = netbufReadStr(src);
+		char reasonBuf[SERVER_BANS_REASON_LEN];
+		if (reason) {
+			strncpy(reasonBuf, reason, sizeof(reasonBuf) - 1);
+			reasonBuf[sizeof(reasonBuf) - 1] = '\0';
+		} else {
+			reasonBuf[0] = '\0';
+		}
+		if (src->error) return 1;
+		if (targetId >= NET_MAX_CLIENTS || !g_NetClients[targetId].peer) {
+			netmsgSvcAdminReply(srccl, ADMIN_RESP_NOT_FOUND, "No such client.");
+			return 0;
+		}
+		struct netclient *tgt = &g_NetClients[targetId];
+
+		/* Extract IP address from ENet peer and persist the ban. */
+		char addrBuf[SERVER_BANS_ADDR_LEN];
+		addrBuf[0] = '\0';
+		if (tgt->peer) {
+			const char *fmt = netFormatClientAddr(tgt);
+			if (fmt) {
+				/* fmt is "ip:port" — strip the port for ban matching. */
+				const char *colon = strrchr(fmt, ':');
+				const char *lbracket = strchr(fmt, '[');
+				if (lbracket && colon > lbracket) {
+					/* IPv6 form [addr]:port — keep the bracketed addr. */
+					const char *rbracket = strchr(fmt, ']');
+					if (rbracket && rbracket > lbracket + 1) {
+						size_t n = (size_t)(rbracket - (lbracket + 1));
+						if (n >= sizeof(addrBuf)) n = sizeof(addrBuf) - 1;
+						memcpy(addrBuf, lbracket + 1, n);
+						addrBuf[n] = '\0';
+					}
+				} else if (colon) {
+					size_t n = (size_t)(colon - fmt);
+					if (n >= sizeof(addrBuf)) n = sizeof(addrBuf) - 1;
+					memcpy(addrBuf, fmt, n);
+					addrBuf[n] = '\0';
+				} else {
+					strncpy(addrBuf, fmt, sizeof(addrBuf) - 1);
+					addrBuf[sizeof(addrBuf) - 1] = '\0';
+				}
+			}
+		}
+
+		if (addrBuf[0]) {
+			serverBansAdd(addrBuf, tgt->settings.name, reasonBuf);
+		} else {
+			sysLogPrintf(LOG_WARNING, "ADMIN: ban %u — could not resolve address; kicking without persisting ban",
+			             (unsigned)targetId);
+		}
+
+		sysLogPrintf(LOG_NOTE, "ADMIN: client %u (%s @ %s) banned by admin %u — reason: %s",
+		             (unsigned)targetId, tgt->settings.name,
+		             addrBuf[0] ? addrBuf : "?", (unsigned)srccl->id,
+		             reasonBuf[0] ? reasonBuf : "(none)");
+		netServerKickClient((s32)targetId, reasonBuf[0] ? reasonBuf : "banned by admin");
+		netmsgSvcAdminReply(srccl, ADMIN_RESP_OK, "Banned.");
+		return 0;
+	}
+
+	case ADMIN_SUB_UNBAN: {
+		const char *addr = netbufReadStr(src);
+		if (src->error) return 1;
+		if (!addr || !addr[0]) {
+			netmsgSvcAdminReply(srccl, ADMIN_RESP_BAD_ARG, "Missing address.");
+			return 0;
+		}
+		if (serverBansRemove(addr)) {
+			sysLogPrintf(LOG_NOTE, "ADMIN: %s unbanned by admin %u", addr, (unsigned)srccl->id);
+			netmsgSvcAdminReply(srccl, ADMIN_RESP_OK, "Unbanned.");
+		} else {
+			netmsgSvcAdminReply(srccl, ADMIN_RESP_NOT_FOUND, "Address not in ban list.");
+		}
+		return 0;
+	}
+
+	case ADMIN_SUB_LIST: {
+		char payload[ADMIN_PAYLOAD_MAX];
+		payload[0] = '\0';
+		serverBansList(payload, sizeof(payload));
+		if (!payload[0]) {
+			strncpy(payload, "(no bans)\n", sizeof(payload) - 1);
+			payload[sizeof(payload) - 1] = '\0';
+		}
+		netbufStartWrite(&srccl->out);
+		netbufWriteU8(&srccl->out, SVC_ADMIN);
+		netbufWriteU8(&srccl->out, ADMIN_RESP_LIST);
+		netbufWriteStr(&srccl->out, payload);
+		netSend(srccl, NULL, true, NETCHAN_CONTROL);
+		return 0;
+	}
+
+	case ADMIN_SUB_STATUS: {
+		char payload[ADMIN_PAYLOAD_MAX];
+		int off = 0;
+		off += snprintf(payload + off, sizeof(payload) - off,
+		                "Players: %d / %d  Tick: %u  Mode: %d\n",
+		                g_NetNumClients, g_NetMaxClients,
+		                (unsigned)g_NetTick, (int)g_NetGameMode);
+		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+			struct netclient *ncl = &g_NetClients[ci];
+			if (ncl->state == CLSTATE_DISCONNECTED) continue;
+			if (off >= (int)sizeof(payload) - 64) break;
+			const char *addr = ncl->peer ? netFormatClientAddr(ncl) : "<local>";
+			off += snprintf(payload + off, sizeof(payload) - off,
+			                "  [%d] %s  state=%u  room=%u  addr=%s\n",
+			                (int)ci,
+			                ncl->settings.name[0] ? ncl->settings.name : "?",
+			                (unsigned)ncl->state,
+			                (unsigned)ncl->room_id,
+			                addr ? addr : "?");
+		}
+		netbufStartWrite(&srccl->out);
+		netbufWriteU8(&srccl->out, SVC_ADMIN);
+		netbufWriteU8(&srccl->out, ADMIN_RESP_STATUS);
+		netbufWriteStr(&srccl->out, payload);
+		netSend(srccl, NULL, true, NETCHAN_CONTROL);
+		return 0;
+	}
+
+	default:
+		sysLogPrintf(LOG_WARNING, "NET: CLC_ADMIN unknown subcode 0x%02x from %u",
+		             (unsigned)subcode, (unsigned)srccl->id);
+		netmsgSvcAdminReply(srccl, ADMIN_RESP_BAD_ARG, "Unknown admin subcode.");
+		return 0;
+	}
 }
