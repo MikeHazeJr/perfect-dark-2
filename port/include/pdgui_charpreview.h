@@ -115,6 +115,21 @@ u32  pdguiCharPreviewGetSkinOverrideTexId(void);
 struct menu;
 Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu);
 
+/* Direct entry point that does NOT depend on menuRenderDialog (MASTER-C6).
+ *
+ * Call once per frame from a point in the main GBI display list that is
+ * guaranteed to execute for every stage and menu state — typically the tail
+ * of lvRender.  Binds the render hook to player 0's menu struct.
+ *
+ * Standalone ImGui screens (modding hub, pause menu, skin editor, scorecard
+ * overlay) never reach menuRenderDialog, so without this direct path their
+ * preview FBO stays black.  pdguiCharPreviewRenderGBI is idempotent within a
+ * frame, so adding this call does not double-render when the legacy dialog
+ * path also fires.
+ *
+ * Returns the updated display list pointer. */
+Gfx *pdguiCharPreviewRenderDirect(Gfx *gdl);
+
 /* ---- Skin Texture Capture (Batch S-9) ----
  * One-shot capture of the original body texture from the GBI pipeline.
  * Flow: request -> wait for model load -> render without override ->

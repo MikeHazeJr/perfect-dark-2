@@ -1960,6 +1960,15 @@ Gfx *lvRender(Gfx *gdl)
 		}
 	}
 
+	/* MASTER-C6 / REND-C1: Charpreview direct entry point.
+	 * Fires the preview render hook once per frame from a stage-agnostic
+	 * location, so standalone ImGui screens (modding hub on the title,
+	 * pause/scorecard overlay during gameplay, skin editor) see a live 3D
+	 * model preview instead of a permanent black FBO.  Idempotent — if the
+	 * legacy menuRenderDialog path or the gameplay-no-menu branch above
+	 * already fired the hook this frame, this call is a no-op. */
+	gdl = pdguiCharPreviewRenderDirect(gdl);
+
 	gDPSetScissor(gdl++, G_SC_NON_INTERLACE, 0, 0, viGetWidth(), viGetHeight());
 
 	if (videoGetDisplayFPS()) {

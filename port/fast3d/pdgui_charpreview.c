@@ -607,6 +607,33 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
 }
 
 /**
+ * Direct entry point: fires the charpreview render hook independent of the
+ * legacy menuRenderDialog path (MASTER-C6 / REND-C1).
+ *
+ * The legacy entry point pdguiCharPreviewRenderGBI is only reachable through
+ * menuRenderDialog (fires when a legacy dialog is being rendered) and through
+ * lv.c's "gameplay with no menu active" branch.  Standalone ImGui screens
+ * (modding hub on the title screen, skin editor, pause/scorecard overlays)
+ * never pass through either path, so their preview FBO stays black.
+ *
+ * This wrapper binds the render hook to player 0's menu struct (the preview
+ * system is inherently single-panel per frame) and can be called from anywhere
+ * in the main GBI display list — typically once per frame from the tail of
+ * lvRender, which runs for every stage and every menu state.
+ *
+ * The underlying pdguiCharPreviewRenderGBI is idempotent: once s_PreviewRequested
+ * is cleared, subsequent calls (from menuRenderDialog or lv.c gameplay branch
+ * in the same frame) return immediately without emitting any GBI commands.
+ * Multiple call sites therefore coexist safely — the first one wins.
+ *
+ * Returns the updated display list pointer.
+ */
+Gfx *pdguiCharPreviewRenderDirect(Gfx *gdl)
+{
+    return pdguiCharPreviewRenderGBI(gdl, &g_Menus[0]);
+}
+
+/**
  * Poll the skin capture state machine. Must be called during the ImGui
  * phase (after gfx_run has processed GBI commands), when gfx_pc has had a
  * chance to observe the preview model import path.
