@@ -1544,7 +1544,8 @@ Single commit on `dev` (fast-forwarded from `claude/peaceful-aryabhata-7abdc6`).
 
 ### Follow-up queued from S300
 
-- Training sub-dialog stacking: `g_FrDifficultyMenuDialog`, `g_FrTrainingInfoPreGameMenuDialog` etc. all map to `MENU_TYPE_TRAINING` in the pool registry. If playtest shows drilling from FR Weapon List → Difficulty → Info is rejected by pool dedup (warning `MENU: menuPushDialog rejected — pool slot [training] already active`), split each sub-dialog into its own type.
+- ~~Training sub-dialog stacking: `g_FrDifficultyMenuDialog`, `g_FrTrainingInfoPreGameMenuDialog` etc. all map to `MENU_TYPE_TRAINING` in the pool registry.~~ **DONE 2026-04-19 (B-200)** -- playtest confirmed FR was non-functional (weapon click silently dropped). Split FR into `MENU_TYPE_FR_WEAPON_LIST`, `MENU_TYPE_FR_DIFFICULTY`, `MENU_TYPE_FR_INFO` (pre-game + in-game share), `MENU_TYPE_FR_RESULT` (completed + failed share). Registered the previously-unregistered `g_FrDifficultyMenuDialog`. See `context/bugs.md` B-200.
+- ~~**Follow-up (same class)**: DT (`g_DtListMenuDialog` + `g_DtDetailsMenuDialog`) and HT (`g_HtListMenuDialog` + `g_HtDetailsMenuDialog`) share `MENU_TYPE_TRAINING` and legitimately stack List -> Details.~~ **DONE 2026-04-19 (B-201)** -- split into `MENU_TYPE_DT_LIST` / `MENU_TYPE_DT_DETAILS` / `MENU_TYPE_DT_RESULT` and `MENU_TYPE_HT_LIST` / `MENU_TYPE_HT_DETAILS` / `MENU_TYPE_HT_RESULT`, mirroring the FR split (B-200). Completed + Failed share the RESULT slot because training flow pushes exactly one. Bio / Hangar stay on `MENU_TYPE_TRAINING` (no stacked Details dialog at this time). See `context/bugs.md` B-201.
 - Shared-action leak (ADR §6.2) still open — per-scope state arrays in the actionmap.
 - Unit / integration tests for the pool (ADR §6.3).
 

@@ -89,7 +89,7 @@ typedef enum {
     MENU_TYPE_MP_BOT_SETUP,
     MENU_TYPE_MP_TEAM_SETUP,
     MENU_TYPE_CONTROL_DIAGRAM,
-    MENU_TYPE_TRAINING,           /* Bio / DT / HT / Hangar entry points */
+    MENU_TYPE_TRAINING,           /* Bio / Hangar entry points (Dt/Ht/Fr split out) */
     /* Firing Range sub-dialogs -- split from MENU_TYPE_TRAINING because the
      * FR flow legitimately stacks three dialogs (Weapon List -> Difficulty
      * -> Pre-Game Info).  Sharing one slot caused pool dedup to reject the
@@ -98,6 +98,18 @@ typedef enum {
     MENU_TYPE_FR_DIFFICULTY,      /* g_FrDifficultyMenuDialog */
     MENU_TYPE_FR_INFO,            /* PreGame + InGame info (mutually exclusive) */
     MENU_TYPE_FR_RESULT,          /* Completed + Failed (mutually exclusive) */
+    /* Device Training (DT) sub-dialogs -- split from MENU_TYPE_TRAINING for
+     * the same reason as FR above.  DT flow stacks List -> Details via
+     * menuPushDialog; sharing one slot made pool dedup reject the second
+     * push and the Details screen would never appear. */
+    MENU_TYPE_DT_LIST,            /* g_DtListMenuDialog (root) */
+    MENU_TYPE_DT_DETAILS,         /* g_DtDetailsMenuDialog (stacks over list) */
+    MENU_TYPE_DT_RESULT,          /* Completed + Failed (mutually exclusive) */
+    /* Holo Training (HT) sub-dialogs -- mirrors the DT split.  HT flow
+     * stacks List -> Details via menuPushDialog. */
+    MENU_TYPE_HT_LIST,            /* g_HtListMenuDialog (root) */
+    MENU_TYPE_HT_DETAILS,         /* g_HtDetailsMenuDialog (stacks over list) */
+    MENU_TYPE_HT_RESULT,          /* Completed + Failed (mutually exclusive) */
     MENU_TYPE_AGENT_SELECT,
     MENU_TYPE_AGENT_CREATE,
     MENU_TYPE_NETWORK,

@@ -124,6 +124,12 @@ static const char *const s_TypeNames[MENU_TYPE_COUNT] = {
     [MENU_TYPE_FR_DIFFICULTY]       = "fr_difficulty",
     [MENU_TYPE_FR_INFO]             = "fr_info",
     [MENU_TYPE_FR_RESULT]           = "fr_result",
+    [MENU_TYPE_DT_LIST]             = "dt_list",
+    [MENU_TYPE_DT_DETAILS]          = "dt_details",
+    [MENU_TYPE_DT_RESULT]           = "dt_result",
+    [MENU_TYPE_HT_LIST]             = "ht_list",
+    [MENU_TYPE_HT_DETAILS]          = "ht_details",
+    [MENU_TYPE_HT_RESULT]           = "ht_result",
     [MENU_TYPE_AGENT_SELECT]        = "agent_select",
     [MENU_TYPE_AGENT_CREATE]        = "agent_create",
     [MENU_TYPE_NETWORK]             = "network",
@@ -594,12 +600,16 @@ void menupoolInit(void)
 
     /* ---- Training (FR / DT / HT / Bio / Hangar) ----
      *
-     * FR sub-dialogs use dedicated pool types because the flow legitimately
-     * stacks three dialogs (Weapon List -> Difficulty -> Pre-Game Info).
-     * Sharing MENU_TYPE_TRAINING caused the second push to be rejected by
-     * pool dedup ("pool slot [training] already active"), silently breaking
-     * weapon selection.  g_FrWeaponsAvailableMenuDialog is a separate
-     * in-mission dialog (tag 0x1b) and stays under MENU_TYPE_TRAINING. */
+     * FR / DT / HT sub-dialogs use dedicated pool types because each flow
+     * legitimately stacks (List -> Details, or Weapon List -> Difficulty
+     * -> Pre-Game Info for FR).  Sharing MENU_TYPE_TRAINING caused the
+     * second push to be rejected by pool dedup ("pool slot [training]
+     * already active"), silently breaking the drill-in.  See B-200 for
+     * the FR case and the DT/HT follow-up note in tasks-current.md.
+     *
+     * g_FrWeaponsAvailableMenuDialog is a separate in-mission dialog
+     * (tag 0x1b) and stays under MENU_TYPE_TRAINING.  Bio / Hangar have
+     * no stacked Details dialog at this time. */
     REG(&g_FrWeaponListMenuDialog,          MENU_TYPE_FR_WEAPON_LIST);
     REG(&g_FrDifficultyMenuDialog,          MENU_TYPE_FR_DIFFICULTY);
     REG(&g_FrTrainingInfoPreGameMenuDialog, MENU_TYPE_FR_INFO);
@@ -607,16 +617,16 @@ void menupoolInit(void)
     REG(&g_FrCompletedMenuDialog,           MENU_TYPE_FR_RESULT);
     REG(&g_FrFailedMenuDialog,              MENU_TYPE_FR_RESULT);
     REG(&g_FrWeaponsAvailableMenuDialog,    MENU_TYPE_TRAINING);
-    REG(&g_BioListMenuDialog,            MENU_TYPE_TRAINING);
-    REG(&g_DtListMenuDialog,             MENU_TYPE_TRAINING);
-    REG(&g_DtDetailsMenuDialog,          MENU_TYPE_TRAINING);
-    REG(&g_DtFailedMenuDialog,           MENU_TYPE_TRAINING);
-    REG(&g_DtCompletedMenuDialog,        MENU_TYPE_TRAINING);
-    REG(&g_HtListMenuDialog,             MENU_TYPE_TRAINING);
-    REG(&g_HtDetailsMenuDialog,          MENU_TYPE_TRAINING);
-    REG(&g_HtFailedMenuDialog,           MENU_TYPE_TRAINING);
-    REG(&g_HtCompletedMenuDialog,        MENU_TYPE_TRAINING);
-    REG(&g_HangarListMenuDialog,         MENU_TYPE_TRAINING);
+    REG(&g_DtListMenuDialog,                MENU_TYPE_DT_LIST);
+    REG(&g_DtDetailsMenuDialog,             MENU_TYPE_DT_DETAILS);
+    REG(&g_DtCompletedMenuDialog,           MENU_TYPE_DT_RESULT);
+    REG(&g_DtFailedMenuDialog,              MENU_TYPE_DT_RESULT);
+    REG(&g_HtListMenuDialog,                MENU_TYPE_HT_LIST);
+    REG(&g_HtDetailsMenuDialog,             MENU_TYPE_HT_DETAILS);
+    REG(&g_HtCompletedMenuDialog,           MENU_TYPE_HT_RESULT);
+    REG(&g_HtFailedMenuDialog,              MENU_TYPE_HT_RESULT);
+    REG(&g_BioListMenuDialog,               MENU_TYPE_TRAINING);
+    REG(&g_HangarListMenuDialog,            MENU_TYPE_TRAINING);
 
     /* ---- Combat simulator top-level (acts as the MP lobby entry point) ---- */
     REG(&g_CombatSimulatorMenuDialog,    MENU_TYPE_MP_ADVANCED);
