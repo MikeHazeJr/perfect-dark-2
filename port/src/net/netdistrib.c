@@ -758,6 +758,23 @@ void netDistribClientHandleBegin(const char *catalog_id, const char *category,
         return;
     }
 
+    /* SEC-25: enforce the aggregate per-session cap across all components.
+     * session_bytes_total is only incremented on chunk receipt, so comparing
+     * against the *incoming* archive_bytes here is the right moment: a hostile
+     * server that stacks many medium-size components can no longer exceed the
+     * declared NET_DISTRIB_MAX_SESSION budget. */
+    {
+        u64 projected = (u64)s_ClientStatus.session_bytes_total + (u64)archive_bytes;
+        if (projected > (u64)NET_DISTRIB_MAX_SESSION) {
+            sysLogPrintf(LOG_ERROR,
+                         "DISTRIB: rejecting BEGIN '%s' — session cap exceeded "
+                         "(have=%u, incoming=%u, max=%u)",
+                         catalog_id, s_ClientStatus.session_bytes_total,
+                         archive_bytes, (u32)NET_DISTRIB_MAX_SESSION);
+            return;
+        }
+    }
+
     /* Find a free receive slot */
     distrib_recv_slot_t *slot = NULL;
     for (s32 i = 0; i < RECV_SLOTS; i++) {

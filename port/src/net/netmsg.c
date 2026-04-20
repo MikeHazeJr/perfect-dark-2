@@ -4504,7 +4504,17 @@ s32 netReadyGateCancelByServer(void)
 
 u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 {
-	const u8 gamemode        = netbufReadU8(src);
+	u8 gamemode              = netbufReadU8(src);
+	/* SEC-26: clamp untrusted wire value to declared enum range.
+	 * Out-of-range bytes would silently index g_NetGameMode beyond its
+	 * intended states; warn and fall back to standard MP. */
+	if (gamemode != NETGAMEMODE_MP && gamemode != NETGAMEMODE_COOP &&
+	    gamemode != NETGAMEMODE_ANTI) {
+		sysLogPrintf(LOG_WARNING,
+		    "NET: CLC_LOBBY_START from client %u: invalid gamemode=%u — defaulting to MP",
+		    srccl->id, (unsigned)gamemode);
+		gamemode = NETGAMEMODE_MP;
+	}
 	/* C-2: read arena as catalog ID string (v27+), resolve via assetCatalogResolve().
 	 * No fallback — if the string doesn't resolve, stagenum=0 and an error is logged.
 	 * stage_id is also stored in g_MatchConfig for server-side reference. */
@@ -6407,10 +6417,20 @@ u32 netmsgSvcRoomPlaylistRead(struct netbuf *src, struct netclient *srccl)
 		/* pl is semicolon-delimited: "mod:track1;mod:track2;..." */
 		char buf[AUDIO_MAX_PLAYLIST * 65];
 		snprintf(buf, sizeof(buf), "%s", pl);
-		char *tok = strtok(buf, ";");
+		/* SEC-21: strtok_r avoids the shared-static-state hazard of strtok. */
+		char *saveptr = NULL;
+#if defined(_WIN32)
+		char *tok = strtok_s(buf, ";", &saveptr);
+#else
+		char *tok = strtok_r(buf, ";", &saveptr);
+#endif
 		while (tok) {
 			audioAddModPlaylistEntry(tok);
-			tok = strtok(NULL, ";");
+#if defined(_WIN32)
+			tok = strtok_s(NULL, ";", &saveptr);
+#else
+			tok = strtok_r(NULL, ";", &saveptr);
+#endif
 		}
 	}
 	sysLogPrintf(LOG_NOTE, "NET: SVC_ROOM_PLAYLIST: %d tracks loaded",
@@ -6507,6 +6527,27 @@ u32 netmsgClcRoomPlaylistUpdateRead(struct netbuf *src, struct netclient *srccl)
 	hub_room_t *room = roomGetById(srccl->room_id);
 	if (!room || room->creator_client_id != srccl->id) return src->error;
 
+	/* SEC-22: clamp client-supplied playlist to the rebroadcast buffer capacity
+	 * before echoing it. netbufReadStr returns a pointer into the inbound
+	 * packet — a hostile client can send a string right up to the receive
+	 * cap, which could exceed our AUDIO_MAX_PLAYLIST*65 rebroadcast budget
+	 * (and overflow the netbufWriteStr target on receivers). Capping here
+	 * limits every server-rebroadcast payload to a known budget. */
+	char clamped[AUDIO_MAX_PLAYLIST * 65 - 8];
+	if (pl) {
+		size_t n = strlen(pl);
+		if (n >= sizeof(clamped)) {
+			sysLogPrintf(LOG_WARNING,
+			    "NET: CLC_ROOM_PLAYLIST_UPDATE from %u: oversized playlist (%zu bytes) — truncating to %zu",
+			    srccl->id, n, sizeof(clamped) - 1);
+			n = sizeof(clamped) - 1;
+		}
+		memcpy(clamped, pl, n);
+		clamped[n] = '\0';
+	} else {
+		clamped[0] = '\0';
+	}
+
 	sysLogPrintf(LOG_NOTE,
 	    "NET: CLC_ROOM_PLAYLIST_UPDATE from leader %u — rebroadcasting", srccl->id);
 
@@ -6515,7 +6556,7 @@ u32 netmsgClcRoomPlaylistUpdateRead(struct netbuf *src, struct netclient *srccl)
 	bcast.data = bcastData;
 	bcast.size = sizeof(bcastData);
 	netbufStartWrite(&bcast);
-	netmsgSvcRoomPlaylistWrite(&bcast, pl);
+	netmsgSvcRoomPlaylistWrite(&bcast, clamped);
 
 	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
 		struct netclient *ncl = &g_NetClients[ci];

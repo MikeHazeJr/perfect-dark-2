@@ -220,6 +220,29 @@ static void writeJsonString(FILE *fp, const char *key, const char *value)
 	fprintf(fp, "\"");
 }
 
+/* LAYOUT-4: dispatch on the save's version field.
+ * Returns 0 to continue loading, -1 to reject.
+ *   - version > SAVE_VERSION → reject (refuse partial load of newer format)
+ *   - version < SAVE_VERSION → log; loader's unknown-key skip is the
+ *     forward-compat path for older saves. saveMigrateFile is the hook
+ *     for future schema-bump migrations (savemigrate.c).
+ *   - version == SAVE_VERSION → normal load. */
+static s32 saveCheckFileVersion(s32 fileVersion, const char *kind, const char *path)
+{
+	if (fileVersion > SAVE_VERSION) {
+		sysLogPrintf(LOG_WARNING,
+			"SAVE: refusing to load %s '%s' — file version %d is NEWER than current SAVE_VERSION %d",
+			kind, path, fileVersion, SAVE_VERSION);
+		return -1;
+	}
+	if (fileVersion > 0 && fileVersion < SAVE_VERSION) {
+		sysLogPrintf(LOG_NOTE,
+			"SAVE: %s '%s' is v%d (current v%d) — loading with forward-compat fallthrough",
+			kind, path, fileVersion, SAVE_VERSION);
+	}
+	return 0;
+}
+
 static void buildSavePath(char *out, s32 maxlen, const char *prefix, const char *name, const char *ext)
 {
 	/* Sanitize name: replace non-alphanumeric chars with underscore */
@@ -372,7 +395,15 @@ s32 saveLoadAgent(const char *name)
 		s_tok_str(&tok, key, sizeof(key));
 		s_next(&p); /* colon */
 
-		if (strcmp(key, "name") == 0) {
+		if (strcmp(key, "version") == 0) {
+			tok = s_next(&p);
+			s32 fv = s_tok_int(&tok);
+			if (saveCheckFileVersion(fv, "agent", path) != 0) {
+				free(data);
+				memset(&g_GameFile, 0, sizeof(g_GameFile));
+				return -1;
+			}
+		} else if (strcmp(key, "name") == 0) {
 			tok = s_next(&p);
 			s_tok_str(&tok, g_GameFile.name, 11); /* engine limit */
 		} else if (strcmp(key, "totaltime") == 0) {
@@ -556,7 +587,14 @@ s32 saveLoadSystem(void)
 		s_tok_str(&tok, key, sizeof(key));
 		s_next(&p); /* colon */
 
-		if (strcmp(key, "language") == 0) {
+		if (strcmp(key, "version") == 0) {
+			tok = s_next(&p);
+			s32 fv = s_tok_int(&tok);
+			if (saveCheckFileVersion(fv, "system", path) != 0) {
+				free(data);
+				return -1;
+			}
+		} else if (strcmp(key, "language") == 0) {
 			tok = s_next(&p);
 #if VERSION >= VERSION_PAL_BETA
 			g_LanguageId = s_tok_int(&tok);
@@ -678,7 +716,14 @@ s32 saveLoadMpPlayer(const char *name, s32 playernum)
 		s_tok_str(&tok, key, sizeof(key));
 		s_next(&p); /* colon */
 
-		if (strcmp(key, "name") == 0) {
+		if (strcmp(key, "version") == 0) {
+			tok = s_next(&p);
+			s32 fv = s_tok_int(&tok);
+			if (saveCheckFileVersion(fv, "player", path) != 0) {
+				free(data);
+				return -1;
+			}
+		} else if (strcmp(key, "name") == 0) {
 			tok = s_next(&p);
 			s_tok_str(&tok, pc->base.name, 15);
 		} else if (strcmp(key, "head_id") == 0) {
@@ -849,7 +894,14 @@ s32 saveLoadMpSetup(const char *name)
 		s_tok_str(&tok, key, sizeof(key));
 		s_next(&p);
 
-		if (strcmp(key, "scenario_id") == 0) {
+		if (strcmp(key, "version") == 0) {
+			tok = s_next(&p);
+			s32 fv = s_tok_int(&tok);
+			if (saveCheckFileVersion(fv, "mpsetup", path) != 0) {
+				free(data);
+				return -1;
+			}
+		} else if (strcmp(key, "scenario_id") == 0) {
 			/* M0.1d: PRIMARY catalog ID for scenario — resolve to integer. */
 			char scid_buf[64];
 			tok = s_next(&p);

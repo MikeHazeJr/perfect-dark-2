@@ -65,7 +65,9 @@ static struct {
 	/* Threading */
 	SDL_mutex   *mutex;
 	SDL_Thread  *thread;
-	s32          cancelFlag;
+	/* SEC-23: SDL_atomic_t for lock-free reads from the curl callbacks,
+	 * which can fire on the download thread without holding s_Updater.mutex. */
+	SDL_atomic_t cancelFlag;
 
 	/* Status */
 	updater_status_t status;
@@ -301,13 +303,13 @@ static size_t curlWriteCallback(void *contents, size_t size, size_t nmemb, void 
 typedef struct {
 	FILE *fp;
 	s64   written;
-	s32  *cancelFlag;
+	SDL_atomic_t *cancelFlag;
 } curl_file_ctx_t;
 
 static size_t curlFileWriteCallback(void *contents, size_t size, size_t nmemb, void *userp)
 {
 	curl_file_ctx_t *ctx = (curl_file_ctx_t *)userp;
-	if (ctx->cancelFlag && *ctx->cancelFlag) return 0; /* abort */
+	if (ctx->cancelFlag && SDL_AtomicGet(ctx->cancelFlag)) return 0; /* abort */
 	size_t total = size * nmemb;
 	size_t written = fwrite(contents, 1, total, ctx->fp);
 	ctx->written += (s64)written;
@@ -332,11 +334,10 @@ static int curlProgressCallback(void *clientp, curl_off_t dltotal, curl_off_t dl
 	if (dltotal > 0) {
 		s_Updater.progress.bytesTotal = (s64)dltotal;
 	}
-	if (s_Updater.cancelFlag) {
-		SDL_UnlockMutex(s_Updater.mutex);
+	SDL_UnlockMutex(s_Updater.mutex);
+	if (SDL_AtomicGet(&s_Updater.cancelFlag)) {
 		return 1; /* abort */
 	}
-	SDL_UnlockMutex(s_Updater.mutex);
 	return 0;
 }
 
@@ -860,7 +861,7 @@ static int SDLCALL downloadThread(void *data)
 
 	SDL_LockMutex(s_Updater.mutex);
 
-	if (s_Updater.cancelFlag) {
+	if (SDL_AtomicGet(&s_Updater.cancelFlag)) {
 		remove(s_Updater.updatePath);
 		snprintf(s_Updater.errorMsg, sizeof(s_Updater.errorMsg), "Download cancelled");
 		s_Updater.status = UPDATER_IDLE;
@@ -1114,9 +1115,7 @@ void updaterShutdown(void)
 {
 	/* Signal cancel and wait for thread */
 	if (s_Updater.thread) {
-		SDL_LockMutex(s_Updater.mutex);
-		s_Updater.cancelFlag = 1;
-		SDL_UnlockMutex(s_Updater.mutex);
+		SDL_AtomicSet(&s_Updater.cancelFlag, 1);
 		SDL_WaitThread(s_Updater.thread, NULL);
 		s_Updater.thread = NULL;
 	}
@@ -1152,7 +1151,7 @@ void updaterCheckAsync(void)
 	}
 
 	s_Updater.status = UPDATER_CHECKING;
-	s_Updater.cancelFlag = 0;
+	SDL_AtomicSet(&s_Updater.cancelFlag, 0);
 	s_Updater.releaseCount = 0;
 	s_Updater.latestIndex = -1;
 	s_Updater.errorMsg[0] = '\0';
@@ -1229,7 +1228,7 @@ void updaterDownloadAsync(const updater_release_t *release)
 	}
 
 	s_Updater.status = UPDATER_DOWNLOADING;
-	s_Updater.cancelFlag = 0;
+	SDL_AtomicSet(&s_Updater.cancelFlag, 0);
 	s_Updater.errorMsg[0] = '\0';
 	s_Updater.downloadTarget = release;
 	memset(&s_Updater.progress, 0, sizeof(s_Updater.progress));
@@ -1247,9 +1246,7 @@ void updaterDownloadAsync(const updater_release_t *release)
 
 void updaterDownloadCancel(void)
 {
-	SDL_LockMutex(s_Updater.mutex);
-	s_Updater.cancelFlag = 1;
-	SDL_UnlockMutex(s_Updater.mutex);
+	SDL_AtomicSet(&s_Updater.cancelFlag, 1);
 }
 
 updater_progress_t updaterGetProgress(void)

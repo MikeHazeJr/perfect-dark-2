@@ -710,17 +710,32 @@ static s32 renderCheatsSubRedirect(struct menudialog *dialog,
  * Legacy items: LABEL + OK + Cancel.  Our replacement draws the same text
  * directly with a docked OK / Cancel action bar. */
 
+/* F-Cheats-Warning: educational popup — acknowledgment, not confirmation.
+ * Migrated from a standalone ImGui::Begin to BeginPopupModal (C4) with a
+ * single "OK" button. The legacy renderer exposed both OK and Cancel, but
+ * both branches fired the same wantClose — "Cancel" was purely misleading.
+ * Cancel has been removed; Enter/Escape/OK all dismiss identically. */
+static void *s_CheatsWarnOpenedForDialog = nullptr;
+
 static s32 renderCheatsWarning(struct menudialog *dialog,
                                 struct menu *menu,
                                 s32 winW, s32 winH)
 {
-    (void)dialog; (void)menu; (void)winW; (void)winH;
+    (void)menu; (void)winW; (void)winH;
 
     pdguiPopupDarkenBehind(0.55f);
 
     float mw = pdguiScale(640.0f);
     float mh = pdguiScale(260.0f);
     ImVec2 pos = pdguiCenterPos(mw, mh);
+
+    const char *popupId = "##cheats_warning_modal";
+
+    if (s_CheatsWarnOpenedForDialog != (void *)dialog) {
+        ImGui::OpenPopup(popupId);
+        s_CheatsWarnOpenedForDialog = (void *)dialog;
+        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+    }
 
     ImGui::SetNextWindowPos(pos);
     ImGui::SetNextWindowSize(ImVec2(mw, mh));
@@ -732,15 +747,14 @@ static s32 renderCheatsWarning(struct menudialog *dialog,
                         | ImGuiWindowFlags_NoTitleBar
                         | ImGuiWindowFlags_NoBackground;
 
-    if (!ImGui::Begin("##cheats_warning", nullptr, wf)) {
-        ImGui::End();
+    if (!ImGui::BeginPopupModal(popupId, nullptr, wf)) {
+        /* Popup dismissed externally (e.g., stack pop) — drop tracking so
+         * a subsequent dialog push re-opens cleanly. */
+        if (s_CheatsWarnOpenedForDialog == (void *)dialog) {
+            s_CheatsWarnOpenedForDialog = nullptr;
+            menuPopDialog();
+        }
         return 1;
-    }
-
-    if (ImGui::IsWindowAppearing()) {
-        /* C-5: controller user needs keyboard focus to reach OK/Cancel. */
-        ImGui::SetWindowFocus();
-        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
     }
 
     float titleH = pdguiScale(39.0f);
@@ -759,29 +773,27 @@ static s32 renderCheatsWarning(struct menudialog *dialog,
 
     if (pdguiBeginActionBar("##cheats_warn_ab")) {
         float barW = ImGui::GetContentRegionAvail().x;
-        float half = barW * 0.5f;
-        if (pdguiActionBarButton("OK", 1, half)) {
+        if (pdguiActionBarButton("OK", 1, barW)) {
             wantClose = true;
         }
-        ImGui::SameLine();
-        if (pdguiActionBarButton("Cancel", 0, ImGui::GetContentRegionAvail().x)) {
-            wantClose = true;
-        }
+        ImGui::SetItemDefaultFocus();
     }
     pdguiEndActionBar();
 
-    if (!ImGui::IsWindowAppearing() &&
-        (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
-         ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+        ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false)) {
         wantClose = true;
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
     }
 
     if (wantClose) {
+        ImGui::CloseCurrentPopup();
+        s_CheatsWarnOpenedForDialog = nullptr;
         menuPopDialog();
     }
 
-    ImGui::End();
+    ImGui::EndPopup();
     return 1;
 }
 
