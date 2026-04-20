@@ -468,9 +468,11 @@ static void fireVk(u32 vk, s32 is_down)
 
                 if (is_down) {
                     if (!st->held) {
-                        st->held    = 1;
-                        st->pressed = 1;
-                        st->value   = 1.0f;
+                        st->held          = 1;
+                        st->pressed       = 1;
+                        st->value         = 1.0f;
+                        st->down_time_ms  = SDL_GetTicks();
+                        st->hold_consumed = 0;
                         /* Record non-axis actions in cheat buffer */
                         if (a != ACTION_AXIS_MOVE_X && a != ACTION_AXIS_MOVE_Y &&
                             a != ACTION_AXIS_AIM_X  && a != ACTION_AXIS_AIM_Y) {
@@ -479,9 +481,10 @@ static void fireVk(u32 vk, s32 is_down)
                     }
                 } else {
                     if (st->held) {
-                        st->held     = 0;
-                        st->released = 1;
-                        st->value    = 0.0f;
+                        st->held        = 0;
+                        st->released    = 1;
+                        st->value       = 0.0f;
+                        st->up_time_ms  = SDL_GetTicks();
                     }
                 }
                 /* First IMC+action match wins — stop searching */
@@ -1062,10 +1065,14 @@ void actionmapFlushGameplayState(void)
             }
             ActionState *st = &s_State[p][a];
             s32 wasHeld = st->held;
-            st->held     = 0;
-            st->pressed  = 0;
-            st->released = wasHeld ? 1 : st->released;
-            st->value    = 0.0f;
+            st->held          = 0;
+            st->pressed       = 0;
+            st->released      = wasHeld ? 1 : st->released;
+            st->value         = 0.0f;
+            if (wasHeld) {
+                st->up_time_ms = SDL_GetTicks();
+            }
+            st->hold_consumed = 0;
         }
         /* Stick threshold bookkeeping: clear latched digital-from-axis state so
          * that when gameplay resumes, a subsequent axis below threshold does
@@ -1139,6 +1146,64 @@ void actionAxis(s32 player, InputAction action, f32 *out_x, f32 *out_y)
         *out_x = s_State[player][action].value;
         *out_y = 0.0f;
     }
+}
+
+/* ============================================================
+ * Public: hold/tap discrimination helpers
+ * ============================================================ */
+
+s32 actionHeldForMs(s32 player, InputAction action, s32 threshold_ms)
+{
+    if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
+    if (action < 0 || action >= ACTION_COUNT) return 0;
+    if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0;
+    const ActionState *st = &s_State[player][action];
+    if (!st->held || st->down_time_ms == 0) return 0;
+    if (threshold_ms <= 0) return 1;
+    u32 now = SDL_GetTicks();
+    return (s32)(now - st->down_time_ms) >= threshold_ms;
+}
+
+s32 actionWasTap(s32 player, InputAction action, s32 max_hold_ms)
+{
+    if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
+    if (action < 0 || action >= ACTION_COUNT) return 0;
+    if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0;
+    const ActionState *st = &s_State[player][action];
+    if (!st->released) return 0;
+    if (st->hold_consumed) return 0;
+    if (st->down_time_ms == 0) return 0;
+    s32 elapsed = (s32)(st->up_time_ms - st->down_time_ms);
+    return (elapsed >= 0 && elapsed < max_hold_ms);
+}
+
+void actionConsumeHold(s32 player, InputAction action)
+{
+    if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return;
+    if (action < 0 || action >= ACTION_COUNT) return;
+    s_State[player][action].hold_consumed = 1;
+}
+
+s32 actionHoldConsumed(s32 player, InputAction action)
+{
+    if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
+    if (action < 0 || action >= ACTION_COUNT) return 0;
+    return s_State[player][action].hold_consumed;
+}
+
+f32 actionHoldProgress(s32 player, InputAction action, s32 threshold_ms)
+{
+    if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0.0f;
+    if (action < 0 || action >= ACTION_COUNT) return 0.0f;
+    if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0.0f;
+    if (threshold_ms <= 0) return 0.0f;
+    const ActionState *st = &s_State[player][action];
+    if (!st->held || st->down_time_ms == 0) return 0.0f;
+    u32 now = SDL_GetTicks();
+    s32 elapsed = (s32)(now - st->down_time_ms);
+    if (elapsed <= 0) return 0.0f;
+    if (elapsed >= threshold_ms) return 1.0f;
+    return (f32)elapsed / (f32)threshold_ms;
 }
 
 /* ============================================================
@@ -1482,9 +1547,12 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_FIRE_MODE,      VKL_C);            /* fire mode cycle — kbd */
         addBind(imc, ACTION_FIRE_MODE,      JOY_BTN(0, JBTN_DPAD_RIGHT)); /* fire mode — D-Right */
         addBind(imc, ACTION_RELOAD,         VKL_R);
-        addBind(imc, ACTION_RELOAD,         JOY_BTN(0, JBTN_X)); /* X_BUTTON: reload */
+        /* X (gamepad) and F (kbd) bind to ACTION_USE only; bondmove.c
+         * discriminates tap-vs-hold to fire RELOAD or INTERACT respectively
+         * (hold > 250 ms = INTERACT, short tap = RELOAD).  R remains a
+         * dedicated immediate-reload key. */
         addBind(imc, ACTION_USE,            VKL_F);
-        addBind(imc, ACTION_USE,            JOY_BTN(0, JBTN_X)); /* X_BUTTON: interact (dual-bind w/ reload, context-dependent) */
+        addBind(imc, ACTION_USE,            JOY_BTN(0, JBTN_X));
         addBind(imc, ACTION_WEAPON_NEXT,    JOY_BTN(0, JBTN_Y)); /* Y_BUTTON: cycle weapon */
         addBind(imc, ACTION_CANCEL_USE,     VK_MOUSE_MIDDLE);
         addBind(imc, ACTION_CANCEL_USE,     JOY_BTN(0, JBTN_B)); /* B_BUTTON / menu cancel, FarSight exit */
