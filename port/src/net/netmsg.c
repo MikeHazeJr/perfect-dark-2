@@ -84,6 +84,13 @@ struct chatrate {
 };
 static struct chatrate s_ChatRate[NET_MAX_CLIENTS + 1];
 
+void netmsgChatRateReset(u32 idx)
+{
+	if (idx <= (u32)NET_MAX_CLIENTS) {
+		memset(&s_ChatRate[idx], 0, sizeof(s_ChatRate[idx]));
+	}
+}
+
 /* Phase E/F: Server-side per-client readiness tracker.
  * Active while the room is in ROOM_STATE_PREPARING.
  * Bit i in each mask corresponds to g_NetClients[i]. */

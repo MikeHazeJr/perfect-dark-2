@@ -316,6 +316,9 @@ u32 netmsgClcRoomLeaveRead(struct netbuf *src, struct netclient *srccl);
 
 void netBroadcastRoomList(void);
 
+/* SEC-C4: Reset per-client chat rate limiter state on disconnect. */
+void netmsgChatRateReset(u32 idx);
+
 /* Phase F: Drive the server-side launch countdown.
  * Called each server tick from netEndFrame().  No-op until readyGateCheck() arms it. */
 void readyGateTickCountdown(void);
