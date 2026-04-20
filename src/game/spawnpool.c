@@ -175,6 +175,9 @@ void spawnPoolComputeAABB(spawn_aabb_t *aabb)
 	if (!g_Rooms || !g_BgRooms || g_Vars.roomcount <= 0) {
 		aabb->min.x = aabb->min.y = aabb->min.z = 0.0f;
 		aabb->max.x = aabb->max.y = aabb->max.z = 1000.0f;
+		/* B-206: mark valid so L3/L4 use the fallback volume instead of the
+		 * (0,100,0) sentinel in spawnPoolL4Radial / last-resort synthesis. */
+		aabb->valid = true;
 		return;
 	}
 
@@ -206,9 +209,11 @@ void spawnPoolComputeAABB(spawn_aabb_t *aabb)
 	}
 
 	if (first) {
-		/* No valid rooms at all */
+		/* No valid rooms at all — still use a finite search volume so L4
+		 * does not fall back to the world sentinel (B-206 / Area 52 class). */
 		aabb->min.x = aabb->min.y = aabb->min.z = 0.0f;
 		aabb->max.x = aabb->max.y = aabb->max.z = 1000.0f;
+		aabb->valid = true;
 	} else {
 		aabb->valid = true;
 	}

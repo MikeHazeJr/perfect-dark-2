@@ -1142,7 +1142,10 @@ Gfx *amRenderSlot(Gfx *gdl, char *text, s16 x, s16 y, s32 mode, s32 flags)
 	colour = (u32)(g_AmMenus[g_AmIndex].alphafrac * (ibcol & 0xff)) | (ibcol & 0xffffff00);
 
 	if (mode == AMSLOTMODE_FOCUSED) {
-		colour &= 0x000000ff;
+		/* B-202: FOCUSED previously reduced to alpha-only (near-invisible).
+		 * Use a warm semi-opaque fill so the wheel selection reads clearly. */
+		u32 hi = 0xff804060;
+		colour = (u32)(g_AmMenus[g_AmIndex].alphafrac * (hi & 0xff)) | (hi & 0xffffff00);
 	}
 
 	if (mode == AMSLOTMODE_CURRENT || (flags & AMSLOTFLAG_CURRENT)) {

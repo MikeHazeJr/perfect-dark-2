@@ -1620,6 +1620,15 @@ static void modmgrRebuildCatalogFromCurrentSelection(void)
 	             assetCatalogGetCount(), enabledCount);
 }
 
+void modmgrSyncCatalogToRegistry(void)
+{
+	/* B-214: after disk deletes / rescans, rebuild mod catalog entries +
+	 * C-4 intercepts so UI and loaders drop removed packages immediately. */
+	modmgrRebuildCatalogFromCurrentSelection();
+	modmgrCatalogChanged();
+	videoResetTextureCache();
+}
+
 // ---------------------------------------------------------------------------
 // Public API: Registry queries
 // ---------------------------------------------------------------------------

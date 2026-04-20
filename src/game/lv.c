@@ -40,6 +40,12 @@
 #include "game/inv.h"
 #include "game/lang.h"
 #include "game/lv.h"
+
+/* B-204/B-205: cap catch-up simulation ticks after tab-out / long frames so
+ * CHR/bot work cannot spiral unbounded in one mainTick (stability + audio). */
+#ifndef LV_UPDATE240_CATCHUP_CAP
+#define LV_UPDATE240_CATCHUP_CAP TICKS(8)
+#endif
 #include "lib/meshcollision.h"
 #include "game/menu.h"
 #include "game/mplayer/mplayer.h"
@@ -2405,6 +2411,11 @@ void lvTick(void)
 				}
 			}
 		}
+	}
+
+	/* B-204/B-205: global catch-up cap (normal + slowmo paths above). */
+	if (g_Vars.lvupdate240 > LV_UPDATE240_CATCHUP_CAP) {
+		g_Vars.lvupdate240 = LV_UPDATE240_CATCHUP_CAP;
 	}
 
 	g_Vars.lvupdate60 = g_Vars.lvupdate240 + g_Vars.lvupdate240rem;

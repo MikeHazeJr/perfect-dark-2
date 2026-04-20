@@ -36,6 +36,7 @@
 #include "pdgui_font_mod.h"
 #include "system.h"
 #include "assetcatalog.h"
+#include "assetcatalog_load.h"
 #include "pdgui_charpreview.h"
 #include "fs.h"
 #include "modpack.h"
@@ -124,6 +125,7 @@ static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0,0))
 static bool s_Visible    = false;
 static int  s_ActiveTool = 0;    /* 0=ModManager, 1=INI, 2=Scale, 3=Pack, 4=Audio, 5=SkinEditor, 6=MapImport, 7=NineSlice, 8=FontMod */
 static int  s_LastLoggedTool = -1;
+static int  s_ModHubOpenFrame = -1; /* B-210: frame stamp for open-input debounce */
 static void chromeToolReset(void);
 static void fontToolReset(void);
 static void renderFontTool(float w, float h, float scale);
@@ -699,10 +701,28 @@ static void scaleCollectCallback(const asset_entry_t *e, void *ud)
     se.bundled       = e->bundled;
 }
 
+static void scaleCollectBodyCallback(const asset_entry_t *e, void *ud)
+{
+    int *n = (int *)ud;
+    if (*n >= HUB_MAX_ENTRIES) return;
+    if (!e || e->type != ASSET_BODY) return;
+    if (e->source_filenum < 0) return;
+    CatalogResolveResult r = catalogResolveFile(e->source_filenum);
+    if (!r.path || !r.path[0]) return;
+    ScaleEntry &se = s_ScaleEntries[(*n)++];
+    strncpy(se.id, e->id, CATALOG_ID_LEN - 1);
+    se.id[CATALOG_ID_LEN - 1] = '\0';
+    strncpy(se.bodyfile, r.path, FS_MAXPATH - 1);
+    se.bodyfile[FS_MAXPATH - 1] = '\0';
+    se.runtime_index = e->runtime_index;
+    se.bundled       = e->bundled;
+}
+
 static void scaleRefreshEntries(void)
 {
     s_ScaleNumEntries = 0;
     assetCatalogIterateByType(ASSET_CHARACTER, scaleCollectCallback, &s_ScaleNumEntries);
+    assetCatalogIterateByType(ASSET_BODY, scaleCollectBodyCallback, &s_ScaleNumEntries);
     s_ScaleSelected   = -1;
     s_ScaleValue      = 1.0f;
     s_ScaleOriginal   = 1.0f;
@@ -742,7 +762,7 @@ static void renderScaleTool(float contentW, float contentH, float scale)
         }
     }
     if (s_ScaleNumEntries == 0) {
-        ImGui::TextDisabled("No ASSET_CHARACTER entries found.");
+        ImGui::TextDisabled("No character or body model files found (need loose file path).");
     }
 
     ImGui::EndChild();
@@ -1235,9 +1255,17 @@ static void renderModdingHub(s32 winW, s32 winH)
         return;
     }
 
-    /* C-8: focus on appear so controller nav reaches the tool selector. */
+    /* C-8: focus on appear so controller nav reaches the tool selector.
+     * B-210: clear the A/Enter/Space edges that opened the hub so they are
+     * not read as hub Close / tool activation on the first frame (same
+     * class as B-131 main-menu debounce). */
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
+        ImGuiIO &nio = ImGui::GetIO();
+        nio.AddKeyEvent(ImGuiKey_GamepadFaceDown, false);
+        nio.AddKeyEvent(ImGuiKey_Enter, false);
+        nio.AddKeyEvent(ImGuiKey_Space, false);
+        s_ModHubOpenFrame = ImGui::GetFrameCount();
     }
 
     /* Viewport-relative dialog area — ultrawide-clamped via pdguiMenuWidth() */
@@ -1448,7 +1476,10 @@ static void renderModdingHub(s32 winW, s32 winH)
         if (pdguiConsumeTitleClose()) {
             moddingHubCloseFromUi("title-x-button");
         } else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-            moddingHubCloseFromUi("escape-or-b-button");
+            if (s_ModHubOpenFrame < 0
+                || (ImGui::GetFrameCount() - s_ModHubOpenFrame) >= 5) {
+                moddingHubCloseFromUi("escape-or-b-button");
+            }
         }
     }
 

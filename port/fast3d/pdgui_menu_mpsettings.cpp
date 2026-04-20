@@ -731,17 +731,23 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
 
     const int numTracks = mpGetNumUnlockedTracks();
 
-    /* Collect mod tracks, alpha-sort (F-2.1-songs) */
-    ModTrackCollector mc{};
-    assetCatalogIterateByType(ASSET_AUDIO, collectModMusicTrack, &mc);
-    if (mc.count > 1) {
-        qsort(mc.tracks, mc.count, sizeof(ModTrackInfo), modTrackCompare);
+    /* B-208: cache catalog scans — full audio iteration per frame was hot. */
+    static ModTrackCollector s_TunesMc;
+    static BaseTrackCollector s_TunesBc;
+    static u32 s_TunesCatGen = 0xffffffffu;
+    u32 catgen = assetCatalogGetGeneration();
+    if (ImGui::IsWindowAppearing() || catgen != s_TunesCatGen) {
+        s_TunesCatGen = catgen;
+        memset(&s_TunesMc, 0, sizeof(s_TunesMc));
+        memset(&s_TunesBc, 0, sizeof(s_TunesBc));
+        assetCatalogIterateByType(ASSET_AUDIO, collectModMusicTrack, &s_TunesMc);
+        if (s_TunesMc.count > 1) {
+            qsort(s_TunesMc.tracks, s_TunesMc.count, sizeof(ModTrackInfo), modTrackCompare);
+        }
+        assetCatalogIterateByType(ASSET_AUDIO, collectBaseMusicTrack, &s_TunesBc);
     }
-
-    /* B-188: Collect base-game tracks so each UI row can resolve to its
-     * catalog_id and toggle the playlist just like mod tracks do. */
-    BaseTrackCollector bc{};
-    assetCatalogIterateByType(ASSET_AUDIO, collectBaseMusicTrack, &bc);
+    ModTrackCollector &mc = s_TunesMc;
+    BaseTrackCollector &bc = s_TunesBc;
 
     /* S309: one-shot diagnostic when the screen opens so the log names
      * the mod-track count. Pairs with the per-entry 'skip' lines emitted

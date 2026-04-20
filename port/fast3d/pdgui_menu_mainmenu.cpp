@@ -970,8 +970,10 @@ extern "C" void pdguiInterfaceRenderDeleteConfirm(void)
                 pdguiThemeRescanMods();
                 if (s_InterfaceDeleteKind == IFACE_DEL_MOD) {
                     extern void modmgrRescanDirectory(void);
+                    extern void modmgrSyncCatalogToRegistry(void);
                     extern void pdguiModManagerRefreshSnapshot(void);
                     modmgrRescanDirectory();
+                    modmgrSyncCatalogToRegistry();
                     pdguiModManagerRefreshSnapshot();
                 }
             } else {

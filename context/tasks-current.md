@@ -9,6 +9,8 @@
 
 ## Open — 2026-04-20 (Super Audit 2026-04-20 — Wave 3A hardening + carry-overs)
 
+**Done this session (S398):** Apr20 implementation-plan batch — B-204/205 `lvupdate240` catch-up cap, B-206 spawn AABB valid fallback, B-202 weapon-wheel focused highlight, B-208 Select Tunes cache, B-210 Modding Hub open debounce, B-214 `modmgrSyncCatalogToRegistry` after mod delete, B-215 Scale tool `ASSET_BODY` paths, B-216 Grid skip redundant CI transition. See `context/session-log.md` S398.
+
 Report: [`context/audits/2026-04-20-full.md`](audits/2026-04-20-full.md).
 Totals this audit: **1 C / 4 H / 4 M / 5 L** (delta only).  19 of 26 prior
 C/H findings were closed by Waves 1–3 + S394; see session log for the full

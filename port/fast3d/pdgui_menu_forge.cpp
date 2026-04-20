@@ -16,6 +16,7 @@ extern "C" {
 
 void mainChangeToStage(s32 stagenum);
 extern s32 g_MainChangeToStageNum;
+extern s32 g_StageNum;
 }
 
 s32 pdguiForgeStartSession(void)
@@ -31,6 +32,11 @@ s32 pdguiForgeStartSession(void)
 			(u32)STAGE_CITRAINING);
 
 	forgeRequestEnterSession();
-	mainChangeToStage(STAGE_CITRAINING);
+	/* B-216: re-entering CI while already in CI used to queue a full stage
+	 * transition (inputCtxShutdown + reload), breaking menus. Skip redundant
+	 * mainChangeToStage — forgemode activates on the next tick. */
+	if (g_StageNum != STAGE_CITRAINING) {
+		mainChangeToStage(STAGE_CITRAINING);
+	}
 	return 1;
 }

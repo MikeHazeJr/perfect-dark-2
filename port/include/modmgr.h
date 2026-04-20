@@ -96,6 +96,9 @@ void modmgrReload(void);
 // a newly-discovered mod to persist as enabled.
 void modmgrRescanDirectory(void);
 
+// Rebuild asset catalog + load gates from the current registry (after rescan).
+void modmgrSyncCatalogToRegistry(void);
+
 // ---- Registry queries ----
 
 s32         modmgrGetCount(void);

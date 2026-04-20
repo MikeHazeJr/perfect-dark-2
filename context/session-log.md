@@ -1,8 +1,25 @@
 
 # Session Log (Active)
 
-> **S283–S397** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S283–S398** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S398 — 2026-04-20 — Apr20 plan batch: B-204/205/206/202/208/210/214/215/216
+
+Roadmap: `PD2_Implementation_Plan_Apr20.docx` remaining Priority 1 items.
+
+- **B-204 / B-205** (`src/game/lv.c`): After slow-motion / unpause logic, cap `g_Vars.lvupdate240` to `LV_UPDATE240_CATCHUP_CAP` (`TICKS(8)`) so tab-out catch-up cannot run unlimited CHR/bot work in one tick (mitigates audio starvation and stress crashes).
+- **B-206** (`src/game/spawnpool.c`): `spawnPoolComputeAABB()` left `aabb->valid=false` for “no room data” / all-degenerate-room fallbacks while still assigning a 0..1000 volume — L4 radial and last-resort synthesis used the (0,100,0) sentinel. Mark those fallbacks **valid** so the real AABB center drives candidates.
+- **B-202** (`src/game/activemenu.c`): `AMSLOTMODE_FOCUSED` previously reduced slot fill to alpha-only (invisible). Replaced with a visible warm-tint fill (weapon wheel selection reads clearly). Camera lock while radial open was already addressed in bondmove (prior session).
+- **B-208** (`port/fast3d/pdgui_menu_mpsettings.cpp`): Cache mod/base track collectors across frames; rebuild on `IsWindowAppearing` or `assetCatalogGetGeneration()` change.
+- **B-210** (`port/fast3d/pdgui_menu_moddinghub.cpp`): On hub window appear, clear Enter/Space/FaceDown edges; 5-frame grace on Escape close (B-198 class).
+- **B-214** (`port/src/modmgr.c`, `port/include/modmgr.h`, `port/fast3d/pdgui_menu_mainmenu.cpp`): New `modmgrSyncCatalogToRegistry()` — full catalog rebuild + `catalogLoadInit` path after delete/rescan so removed mods drop out of intercepts immediately; called after successful mod folder delete.
+- **B-215** (`port/fast3d/pdgui_menu_moddinghub.cpp`): Scale tool now also lists **ASSET_BODY** entries whose `catalogResolveFile` returns a loose model path (catalog was character-centric).
+- **B-216** (`port/fast3d/pdgui_menu_forge.cpp`): If already on `STAGE_CITRAINING`, skip `mainChangeToStage(STAGE_CITRAINING)` — only `forgeRequestEnterSession()` (avoids full reload + menu stack corruption when re-entering Grid from CI).
+
+**Next**: MSYS `ninja -C Build pd pd-server`; playtest Grid from CI, Mods hub controller open, mod delete list, Area 52 bots, Select Tunes scroll.
+
+---
 
 ## Session S397 — 2026-04-20 — S311 interact prompt missing in solo (ImGui overlay early-exit)
 
