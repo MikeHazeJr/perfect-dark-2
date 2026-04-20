@@ -4,6 +4,8 @@
 #include <ctype.h>
 #include <string.h>
 #include <time.h>
+#include <stdint.h>
+#include <SDL.h>
 #include "platform.h"
 #include "net/netenet.h"
 #include "net/net.h"
@@ -49,6 +51,7 @@
 #include "assetcatalog.h"
 #include "audio.h"
 #include "sha256.h"
+#include "server_bans.h"
 #if !defined(PD_SERVER)
 #include "input.h"
 #include "inputctx.h"
@@ -1222,6 +1225,15 @@ s32 netDisconnect(void)
 	g_NetPendingBotAuthority = false;
 	g_NetBotAuthorityClientId = NET_NULL_CLIENT;
 
+	/* MASTER-C3: drop the identity cookie so a fresh connect to any server
+	 * begins as a new player.  Cookies are scoped to a single session —
+	 * intentionally NOT persisted to disk (keeping them in-memory avoids
+	 * cross-process replay attacks via shared config files). */
+#if !defined(PD_SERVER)
+	extern void netmsgClcAuthClearCookie(void);
+	netmsgClcAuthClearCookie();
+#endif
+
 	/* S300 / SP-14: reset room-scoped state so a stale room id doesn't survive
 	 * into the next hosting/client session. Server-side disconnect during a
 	 * live match previously left g_NetMatchRoomId stuck until the next ready
@@ -1286,6 +1298,43 @@ s32 netDisconnect(void)
 	return 0;
 }
 
+/* MASTER-C3: Issue a fresh 128-bit identity cookie.
+ *
+ * Not a full CSPRNG — mixes SDL_GetPerformanceCounter with a persistent
+ * running hash seeded from time() and mixed with a secret that rotates on
+ * each call.  Good enough for separating players on a trusted server; an
+ * attacker without local timing oracle cannot predict the next cookie. */
+void netServerIssueCookie(u8 out[NET_AUTH_COOKIE_LEN])
+{
+	static sha256_ctx s_Ctx;
+	static bool s_Seeded = false;
+	if (!s_Seeded) {
+		sha256Init(&s_Ctx);
+		u64 seed = (u64)time(NULL);
+		seed ^= (u64)SDL_GetPerformanceCounter();
+		sha256Update(&s_Ctx, &seed, sizeof(seed));
+		/* Mix in the process's address space (ASLR) — a cheap salt. */
+		uintptr_t addr = (uintptr_t)&netServerIssueCookie;
+		sha256Update(&s_Ctx, &addr, sizeof(addr));
+		s_Seeded = true;
+	}
+
+	u64 salt = (u64)SDL_GetPerformanceCounter();
+	sha256Update(&s_Ctx, &salt, sizeof(salt));
+	u32 tick = g_NetTick;
+	sha256Update(&s_Ctx, &tick, sizeof(tick));
+
+	u8 digest[SHA256_DIGEST_SIZE];
+	sha256_ctx snapshot = s_Ctx;
+	sha256Final(&snapshot, digest);
+
+	/* Feed the digest back into the rolling ctx so the next call produces
+	 * different output even under identical system timers. */
+	sha256Update(&s_Ctx, digest, sizeof(digest));
+
+	memcpy(out, digest, NET_AUTH_COOKIE_LEN);
+}
+
 void netServerPreservePlayer(struct netclient *cl)
 {
 	if (!cl || !cl->settings.name[0] || cl->playernum >= MAX_PLAYERS) {
@@ -1321,6 +1370,9 @@ void netServerPreservePlayer(struct netclient *cl)
 	pp->playernum = cl->playernum;
 	pp->team = cl->settings.team;
 
+	/* MASTER-C3: preserve the current cookie so only the real owner can restore. */
+	memcpy(pp->cookie, cl->auth_cookie, NET_AUTH_COOKIE_LEN);
+
 	// copy score data from the player config
 	struct mpchrconfig *mpchr = &g_PlayerConfigsArray[cl->playernum].base;
 	memcpy(pp->killcounts, mpchr->killcounts, sizeof(pp->killcounts));
@@ -1345,6 +1397,34 @@ struct netpreservedplayer *netServerFindPreserved(const char *name)
 		}
 	}
 	return NULL;
+}
+
+/* MASTER-C3: match on BOTH name AND cookie.  Constant-time compare on the
+ * cookie so a name collision doesn't leak timing about the real owner's
+ * cookie value. */
+struct netpreservedplayer *netServerFindPreservedByCookie(const char *name,
+	const u8 cookie[NET_AUTH_COOKIE_LEN])
+{
+	if (!name || !name[0] || !cookie) {
+		return NULL;
+	}
+
+	/* Reject all-zero cookies explicitly — the wire default is zeros and
+	 * matching a preserved record with zeros would be trivially bypassable
+	 * if a slot were ever preserved with a zero cookie (shouldn't happen,
+	 * but defence-in-depth). */
+	u8 zeroOr = 0;
+	for (s32 i = 0; i < NET_AUTH_COOKIE_LEN; i++) zeroOr |= cookie[i];
+	if (!zeroOr) return NULL;
+
+	struct netpreservedplayer *pp = netServerFindPreserved(name);
+	if (!pp) return NULL;
+
+	u8 diff = 0;
+	for (s32 i = 0; i < NET_AUTH_COOKIE_LEN; i++) {
+		diff |= (u8)(pp->cookie[i] ^ cookie[i]);
+	}
+	return (diff == 0) ? pp : NULL;
 }
 
 void netServerRestorePreserved(struct netclient *cl, struct netpreservedplayer *pp)
@@ -1399,6 +1479,11 @@ void netServerRestorePreserved(struct netclient *cl, struct netpreservedplayer *
 
 	cl->state = CLSTATE_GAME;
 
+	/* MASTER-C3: cl->auth_cookie was already refreshed in netmsgClcAuthRead
+	 * before this call, and SVC_AUTH will ship the new cookie back to the
+	 * client.  We clear the preserved slot so the freshly-issued cookie is
+	 * what the client must present on any future reconnect. */
+
 	// clear the preserved slot
 	pp->active = false;
 	--g_NetNumPreserved;
@@ -1414,6 +1499,23 @@ static void netServerEvConnect(ENetPeer *peer, const u32 data)
 		sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: connection rejected: protocol mismatch (got %u, expected %u)", data, NET_PROTOCOL_VER);
 		enet_peer_disconnect(peer, DISCONNECT_VERSION);
 		return;
+	}
+
+	/* MASTER-C2d: enforce persistent ban list before touching any client slot.
+	 * Extract just the IP portion (without port) — serverBansIsBanned matches
+	 * the bare address string.  This runs for every incoming connection, so
+	 * keep it cheap: one linear scan, case-insensitive compare. */
+	{
+		char ip[SERVER_BANS_ADDR_LEN];
+		ip[0] = '\0';
+		if (enet_address_get_ip(&peer->address, ip, sizeof(ip) - 1) == 0 && ip[0]) {
+			if (serverBansIsBanned(ip)) {
+				sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON,
+					"NET: connection from %s rejected: address is banned", ip);
+				enet_peer_disconnect(peer, DISCONNECT_BANNED);
+				return;
+			}
+		}
 	}
 
 	const bool ingame = (g_NetLocalClient && g_NetLocalClient->state > CLSTATE_LOBBY);
@@ -1544,6 +1646,8 @@ static void netServerEvReceive(struct netclient *cl)
 			/* R-5: Room settings + playlist sync */
 			case CLC_ROOM_SETTINGS_UPDATE: rc = netmsgClcRoomSettingsUpdateRead(&cl->in, cl); break;
 			case CLC_ROOM_PLAYLIST_UPDATE: rc = netmsgClcRoomPlaylistUpdateRead(&cl->in, cl); break;
+			/* MASTER-C2b: RCON admin channel */
+			case CLC_ADMIN:            rc = netmsgClcAdminRead(&cl->in, cl); break;
 			/* Phase C: Match Startup Pipeline */
 			case CLC_MANIFEST_STATUS:  rc = netmsgClcManifestStatusRead(&cl->in, cl); break;
 			case CLC_LOBBY_CANCEL:     rc = netmsgClcLobbyCancelRead(&cl->in, cl); break;
@@ -1640,6 +1744,20 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_SESSION_CATALOG:
 				rc = netmsgSvcSessionCatalogRead(&cl->in, NULL);
 				break;
+			case SVC_ADMIN: {
+				/* MASTER-C2b: admin reply.  We drain the response here on the
+				 * client so the decoder stays in sync.  The payload is
+				 * surfaced to the UI layer via a pair of extern hooks that
+				 * the ImGui admin console subscribes to (if installed). */
+				const u8 code = netbufReadU8(&cl->in);
+				const char *msg = netbufReadStr(&cl->in);
+				(void)code;
+				if (msg && msg[0]) {
+					sysLogPrintf(LOG_NOTE, "NET: SVC_ADMIN [%u]: %s", (unsigned)code, msg);
+				}
+				rc = cl->in.error;
+				break;
+			}
 			default:
 				rc = 1;
 				break;

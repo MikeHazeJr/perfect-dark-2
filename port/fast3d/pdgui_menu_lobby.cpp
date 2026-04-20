@@ -100,10 +100,13 @@ const char *mpPlayerConfigGetName(s32 playernum);
 /* Routing: transition into room interior (pdgui_lobby.cpp) */
 void pdguiSetInRoom(s32 inRoom);
 
-/* R-3: Room networking — send create/join/leave to server */
+/* R-3: Room networking — send create/join/leave to server.
+ * SEC-14 (v38): CLC_ROOM_CREATE now carries access mode + password + max_players;
+ * CLC_ROOM_JOIN carries an optional password. */
 struct netbuf;
-u32 netmsgClcRoomCreateWrite(struct netbuf *dst, const char *name);
-u32 netmsgClcRoomJoinWrite(struct netbuf *dst, u8 room_id);
+u32 netmsgClcRoomCreateWrite(struct netbuf *dst, const char *name, u8 access,
+                              const char *password, u8 maxPlayers);
+u32 netmsgClcRoomJoinWrite(struct netbuf *dst, u8 room_id, const char *password);
 u32 netmsgClcRoomLeaveWrite(struct netbuf *dst);
 u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, const s32 chan);
 extern struct netbuf g_NetMsgRel;
@@ -350,8 +353,12 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
             if (ImGui::Button(joinId, ImVec2(joinW, 0))) {
                 pdguiPlaySound(PDGUI_SND_SELECT);
                 sysLogPrintf(LOG_NOTE, "LOBBY: sending CLC_ROOM_JOIN for room %u", (unsigned)entry->id);
+                /* SEC-14: the UI does not yet expose a password prompt — join
+                 * attempts on password-protected rooms will be rejected
+                 * server-side.  A follow-up UI pass should prompt for the
+                 * password here (open a confirm modal with a text input). */
                 netbufStartWrite(&g_NetMsgRel);
-                netmsgClcRoomJoinWrite(&g_NetMsgRel, entry->id);
+                netmsgClcRoomJoinWrite(&g_NetMsgRel, entry->id, "");
                 netSend(NULL, &g_NetMsgRel, 1, 0);
             }
         }
@@ -403,8 +410,12 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
 
     if (wantCreate) {
         sysLogPrintf(LOG_NOTE, "LOBBY: sending CLC_ROOM_CREATE to server");
+        /* SEC-14: default create goes out as an open room with the hub-wide
+         * max_players.  A follow-up UI pass should expose access mode +
+         * password + max_players fields in the "Create Room" dialog. */
         netbufStartWrite(&g_NetMsgRel);
-        netmsgClcRoomCreateWrite(&g_NetMsgRel, "");
+        netmsgClcRoomCreateWrite(&g_NetMsgRel, "", /*access=*/0,
+                                  /*password=*/"", /*maxPlayers=*/0);
         netSend(NULL, &g_NetMsgRel, 1, 0);
     }
 

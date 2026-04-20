@@ -594,6 +594,10 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/identity.c
   ${CMAKE_SOURCE_DIR}/port/src/phonetic.c
 
+  # Wave 3 Batch A: server admin + persistent bans (MASTER-C2)
+  ${CMAKE_SOURCE_DIR}/port/src/server_admin.c
+  ${CMAKE_SOURCE_DIR}/port/src/server_bans.c
+
   # Connect code (IP:port ↔ word-based codes)
   ${CMAKE_SOURCE_DIR}/port/src/connectcode.c
 

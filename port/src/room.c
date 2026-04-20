@@ -12,6 +12,7 @@
 
 #include "room.h"
 #include "system.h"
+#include "sha256.h"
 
 /* Bug B forward decls — avoid pulling all of netmsg.h into room.c. */
 extern void netReadyGateOnClientLeft(u8 clientId);
@@ -20,6 +21,19 @@ extern void netReadyGateAbortForRoom(u8 room_id, const char *reason);
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+
+/* SEC-14: Hash a room password into the 32-byte slot.  Mirrors the admin
+ * token pattern — domain-separated SHA-256 so the hash can't be confused
+ * with an unrelated SHA-256 oracle. */
+static void roomHashPassword(const char *plaintext, u8 out[ROOM_PASSWORD_HASH_LEN])
+{
+    sha256_ctx ctx;
+    sha256Init(&ctx);
+    static const char kSalt[] = "pd2-room-password-v1\n";
+    sha256Update(&ctx, kSalt, sizeof(kSalt) - 1);
+    sha256Update(&ctx, plaintext, strlen(plaintext));
+    sha256Final(&ctx, out);
+}
 
 /* -------------------------------------------------------------------------
  * Module state
@@ -100,21 +114,51 @@ hub_room_t *roomCreateConfigured(const char *name, u8 maxPlayers,
     hub_room_t *r = roomCreate(name);
     if (!r) return NULL;
 
-    r->max_players       = maxPlayers ? maxPlayers : 32;
+    /* Clamp max_players to the hub-wide ceiling.  0 is treated as "use default". */
+    if (maxPlayers == 0) maxPlayers = HUB_MAX_CLIENTS;
+    if (maxPlayers > HUB_MAX_CLIENTS) maxPlayers = HUB_MAX_CLIENTS;
+    r->max_players       = maxPlayers;
     r->access            = access;
     r->creator_client_id = creatorClientId;
 
-    if (password && access == ROOM_ACCESS_PASSWORD) {
-        strncpy(r->password, password, sizeof(r->password) - 1);
-        r->password[sizeof(r->password) - 1] = '\0';
+    /* SEC-14: hash the plaintext password; never store it. */
+    memset(r->password_hash, 0, sizeof(r->password_hash));
+    if (password && password[0] && access == ROOM_ACCESS_PASSWORD) {
+        roomHashPassword(password, r->password_hash);
     }
 
     /* Auto-join the creator */
     roomJoin(r, creatorClientId);
 
-    sysLogPrintf(LOG_NOTE, "HUB ROOM: room %u configured by client %u",
-                 (unsigned)r->id, (unsigned)creatorClientId);
+    sysLogPrintf(LOG_NOTE, "HUB ROOM: room %u configured by client %u (access=%u max=%u)",
+                 (unsigned)r->id, (unsigned)creatorClientId,
+                 (unsigned)r->access, (unsigned)r->max_players);
     return r;
+}
+
+s32 roomCheckPassword(const hub_room_t *room, const char *plaintext)
+{
+    if (!room) return 0;
+    if (room->access != ROOM_ACCESS_PASSWORD) return 1; /* no password required */
+
+    /* All-zero stored hash means "password room but no password set" —
+     * defensive: reject the join so a mis-created room can't be trivially entered. */
+    int allZero = 1;
+    for (s32 i = 0; i < ROOM_PASSWORD_HASH_LEN; i++) {
+        if (room->password_hash[i]) { allZero = 0; break; }
+    }
+    if (allZero) return 0;
+
+    if (!plaintext || !plaintext[0]) return 0;
+
+    u8 supplied[ROOM_PASSWORD_HASH_LEN];
+    roomHashPassword(plaintext, supplied);
+
+    u8 diff = 0;
+    for (s32 i = 0; i < ROOM_PASSWORD_HASH_LEN; i++) {
+        diff |= (u8)(supplied[i] ^ room->password_hash[i]);
+    }
+    return (diff == 0) ? 1 : 0;
 }
 
 s32 roomJoin(hub_room_t *room, u8 clientId)
@@ -126,7 +170,11 @@ s32 roomJoin(hub_room_t *room, u8 clientId)
         if (room->clients[i] == clientId) return 0;
     }
 
-    if (room->client_count >= HUB_MAX_CLIENTS) return 0;
+    /* SEC-14: room max_players is now authoritative (was previously a display-only
+     * field).  Hard cap at HUB_MAX_CLIENTS regardless. */
+    const u8 cap = (room->max_players && room->max_players <= HUB_MAX_CLIENTS)
+                    ? room->max_players : HUB_MAX_CLIENTS;
+    if (room->client_count >= cap) return 0;
 
     room->clients[room->client_count++] = clientId;
     sysLogPrintf(LOG_NOTE, "HUB ROOM: client %u joined room %u \"%s\" (%u/%u)",

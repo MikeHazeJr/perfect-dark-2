@@ -37,6 +37,8 @@
 #include "versioninfo.h"
 #include "updater.h"
 #include "updateversion.h"
+#include "server_admin.h"
+#include "server_bans.h"
 
 /* Functions stubbed in server_stubs.c */
 extern void conInit(void);
@@ -111,12 +113,18 @@ static void serverPrintUsage(const char *argv0)
     printf("  --maxclients N     Max players 1-%d (default: %d)\n", NET_MAX_CLIENTS, NET_MAX_CLIENTS);
     printf("  --gamemode MODE    Initial mode: mp, coop, anti (default: mp)\n");
     printf("  --headless         Run without GUI window\n");
+    printf("  --admin-token TOK  Enable admin RCON; TOK must be >= 8 chars\n");
     printf("  --check-update     Check for server updates and exit\n");
     printf("  --no-update-check  Skip automatic update check on startup\n");
     printf("  --help             Show this help\n");
 }
 
 static s32 s_Headless = 0;
+
+/* MASTER-C2a: admin token sources.  The CLI flag wins over server.ini if both
+ * are present.  Stored as plaintext briefly on the stack of main(); hashed
+ * and cleared by serverAdminInit() before we enter the main loop. */
+static char s_CliAdminToken[256] = {0};
 
 static s32 serverParseArgs(s32 argc, char **argv)
 {
@@ -151,6 +159,13 @@ static s32 serverParseArgs(s32 argc, char **argv)
             }
         } else if (strcmp(argv[i], "--headless") == 0) {
             s_Headless = 1;
+        } else if (strcmp(argv[i], "--admin-token") == 0 && i + 1 < argc) {
+            i++;
+            strncpy(s_CliAdminToken, argv[i], sizeof(s_CliAdminToken) - 1);
+            s_CliAdminToken[sizeof(s_CliAdminToken) - 1] = '\0';
+            /* Overwrite the argv entry so `ps` output doesn't reveal the token.
+             * This is best-effort — some OSes snapshot argv at fork time. */
+            memset(argv[i], '*', strlen(argv[i]));
         } else if (strcmp(argv[i], "--check-update") == 0) {
             return 2; /* signal: check update and exit */
         } else if (strcmp(argv[i], "--no-update-check") == 0) {
@@ -161,6 +176,58 @@ static s32 serverParseArgs(s32 argc, char **argv)
         }
     }
     return 0;
+}
+
+/* MASTER-C2a: read an [Admin] Token=... line from $S/server.ini.
+ * Simple parser — no full INI machinery needed for one key.  Returns the
+ * token in out; empty string if not present or file missing. */
+static void serverReadIniAdminToken(char *out, size_t outsize)
+{
+    out[0] = '\0';
+    const char *path = fsFullPath("$S/server.ini");
+    if (!path) return;
+
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+
+    int inAdminSection = 0;
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        /* Strip trailing newline / whitespace. */
+        size_t n = strlen(line);
+        while (n > 0 && (line[n-1] == '\n' || line[n-1] == '\r' ||
+                         line[n-1] == '\t' || line[n-1] == ' ')) {
+            line[--n] = '\0';
+        }
+        if (line[0] == '\0' || line[0] == ';' || line[0] == '#') continue;
+
+        if (line[0] == '[') {
+            /* Section header — case-insensitive "Admin" match. */
+            inAdminSection = (strncasecmp(line, "[Admin]", 7) == 0);
+            continue;
+        }
+
+        if (!inAdminSection) continue;
+
+        /* Look for "Token = <value>" (spaces optional). */
+        const char *eq = strchr(line, '=');
+        if (!eq) continue;
+        /* Trim key (left of =) and see if it is "Token". */
+        const char *key = line;
+        while (*key == ' ' || *key == '\t') key++;
+        const char *keyEnd = eq;
+        while (keyEnd > key && (keyEnd[-1] == ' ' || keyEnd[-1] == '\t')) keyEnd--;
+        size_t keyLen = (size_t)(keyEnd - key);
+        if (keyLen != 5 || strncasecmp(key, "Token", 5) != 0) continue;
+
+        const char *val = eq + 1;
+        while (*val == ' ' || *val == '\t') val++;
+
+        strncpy(out, val, outsize - 1);
+        out[outsize - 1] = '\0';
+        break;
+    }
+    fclose(f);
 }
 
 /* ========================================================================
@@ -244,6 +311,21 @@ int main(int argc, char **argv)
     netInit();
     lobbyInit();
     hubInit();
+
+    /* MASTER-C2c: load persistent ban list from $S/bans.ini.  Consulted in
+     * netServerEvConnect to reject banned addresses before slot allocation. */
+    serverBansInit();
+
+    /* MASTER-C2a: initialise admin RCON.  CLI flag wins over INI entry. */
+    {
+        char iniToken[256] = {0};
+        serverReadIniAdminToken(iniToken, sizeof(iniToken));
+        serverAdminInit(s_CliAdminToken, iniToken);
+        /* Scrub plaintext tokens from our own memory ASAP.  serverAdminInit
+         * has already hashed whatever it used. */
+        memset(s_CliAdminToken, 0, sizeof(s_CliAdminToken));
+        memset(iniToken, 0, sizeof(iniToken));
+    }
 
     /* Minimal memory setup */
     g_OsMemSize = 64 * 1024 * 1024;

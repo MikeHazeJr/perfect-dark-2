@@ -9,7 +9,18 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 38  /* v38: SEC-7 — server query becomes a 2-stage handshake.
+#define NET_PROTOCOL_VER 38  /* v38: Multiple additive changes on one protocol bump.
+                               *   (a) MASTER-C3 identity cookie — CLC_AUTH now carries a
+                               *       16-byte reconnect cookie (zeros on first join); SVC_AUTH
+                               *       returns the server-issued cookie.  Reconnect requires
+                               *       both name AND cookie to match the preserved slot.
+                               *   (b) SEC-14 room passwords — CLC_ROOM_CREATE gains access
+                               *       mode + password string + max_players; CLC_ROOM_JOIN
+                               *       gains a password string.  Server hashes + compares.
+                               *   (c) CLC_ADMIN / SVC_ADMIN (0x15 / 0x68) RCON channel for
+                               *       headless server operators (auth / kick / ban / unban /
+                               *       list / status).
+                               *   (d) SEC-7 (prior) — server query 2-stage handshake.
                                * Stage 1: client sends 5-byte PDQM query; server returns a
                                * 17-byte challenge (magic + 0xFFFFFFFF marker + 8-byte HMAC
                                * token). Stage 2: client re-sends 13-byte query (magic + token);
@@ -80,6 +91,11 @@ extern u8 g_NetPendingResyncReqFlags; /* client: resync types to request from se
 #define NET_MAX_RECENT_SERVERS 8
 #define NET_PRESERVE_TIMEOUT_FRAMES (60 * 60 * 5) // 5 minutes at 60 fps
 
+/* MASTER-C3: Identity cookie length.  16 bytes (128 bits) of server-supplied
+ * random bits.  Sent on every CLC_AUTH; zero-bytes = first-time join (no
+ * reconnect intent). */
+#define NET_AUTH_COOKIE_LEN 16
+
 // co-op session modes
 #define NETGAMEMODE_MP    0 // combat simulator (standard multiplayer)
 #define NETGAMEMODE_COOP  1 // cooperative campaign
@@ -87,6 +103,7 @@ extern u8 g_NetPendingResyncReqFlags; /* client: resync types to request from se
 
 struct netpreservedplayer {
 	char name[NET_MAX_NAME];
+	u8 cookie[NET_AUTH_COOKIE_LEN]; /* MASTER-C3: server-issued identity cookie */
 	u8 playernum;
 	u8 team;
 	s16 killcounts[MAX_MPCHRS];
@@ -211,6 +228,8 @@ struct netclient {
 
 	u8 room_id;    // hub room assignment (0xFF = in lounge, not in a room)
 	bool stage_ready; // server: true once this client sent CLC_STAGE_READY after stage load
+	bool is_admin;    // MASTER-C2b: set after successful CLC_ADMIN ADMIN_AUTH on this peer
+	u8 auth_cookie[NET_AUTH_COOKIE_LEN]; // MASTER-C3: server-issued identity cookie for this peer
 
 	struct netbuf out; // outbound messages are written here, except broadcasts
 	struct netbuf in; // incoming packets are fed here
@@ -313,8 +332,21 @@ void netPlayersAllocate(void);
 void netSyncIdsAllocate(void);
 
 void netServerPreservePlayer(struct netclient *cl);
+/* MASTER-C3: Find a preserved player by name.  Advisory lookup — the caller
+ * MUST additionally compare cookie bytes before restoring.  Returns NULL if
+ * the preserved table has no matching name. */
 struct netpreservedplayer *netServerFindPreserved(const char *name);
+/* MASTER-C3: Find by BOTH name and cookie.  Used on reconnect — if either
+ * check fails this returns NULL and the caller should treat the peer as a
+ * fresh player (or reject if mid-game). */
+struct netpreservedplayer *netServerFindPreservedByCookie(const char *name,
+	const u8 cookie[NET_AUTH_COOKIE_LEN]);
 void netServerRestorePreserved(struct netclient *cl, struct netpreservedplayer *pp);
+
+/* MASTER-C3: Populate out with NET_AUTH_COOKIE_LEN cryptographically-unique
+ * bytes drawn from SDL_GetPerformanceCounter mixed with a running hash.
+ * Good enough for identity separation (not a KDF). */
+void netServerIssueCookie(u8 out[NET_AUTH_COOKIE_LEN]);
 void netRecentServerAdd(const char *addr);
 void netRecentServerUpdate(const char *addr, const u8 *data, s32 len);
 void netQueryRecentServers(void);

@@ -65,6 +65,9 @@ typedef enum {
     ROOM_ACCESS_INVITE   = 2, /**< Invite-only, creator selects from player list. */
 } room_access_t;
 
+/** SEC-14: Password hash length (SHA-256 output) stored on the server. */
+#define ROOM_PASSWORD_HASH_LEN 32
+
 /** One room in the hub. */
 typedef struct hub_room_s {
     u8           id;                          /**< Unique room index (0-3). */
@@ -80,7 +83,7 @@ typedef struct hub_room_s {
     u32          rng_seed;
 
     room_access_t access;                     /**< Open, password, or invite-only. */
-    char         password[32];                /**< Password if access == PASSWORD. */
+    u8           password_hash[ROOM_PASSWORD_HASH_LEN]; /**< SEC-14: SHA-256 hash of password, or all-zero for open rooms. */
     u8           creator_client_id;           /**< Client who created this room. */
 
     u32          created_tick;                /**< g_NetTick when created.  */
@@ -166,6 +169,11 @@ static inline const char *roomStateName(room_state_t state)
         default:                   return "?";
     }
 }
+
+/** SEC-14: Verify a plaintext password against the room's stored hash.
+ *  Returns 1 on match or when the room is open / invite-only (no password
+ *  check needed), 0 on mismatch. */
+s32 roomCheckPassword(const hub_room_t *room, const char *plaintext);
 
 /** Add a client to a room. Returns 1 on success, 0 if full or already in room. */
 s32 roomJoin(hub_room_t *room, u8 clientId);
