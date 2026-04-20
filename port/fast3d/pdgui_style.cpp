@@ -961,8 +961,17 @@ extern "C" void pdguiApplyPdStyle(void)
     colors[ImGuiCol_SliderGrab]         = C(pal->dialog_border1 | 0xFF);
     colors[ImGuiCol_SliderGrabActive]   = C(pal->dialog_border2 | 0xFF);
 
-    /* Headers (collapsing headers, selectable rows) */
-    colors[ImGuiCol_Header]             = C((pal->dialog_bodybg & 0xFFFFFF00) | 0x99);
+    /* Headers (collapsing headers, selectable rows).
+     * Issue G: the persistent "selected" tint used to be dialog_bodybg with
+     * 60% alpha, which rendered near-invisible on top of the dialog body
+     * (it's the body colour itself).  Bot rows, weapon-set rows, and custom
+     * weapon-slot combos all rely on Selectable(..., isSel) which draws
+     * ImGuiCol_Header when selected -- so the user saw no highlight at all.
+     * Switching to dialog_border1 (the accent / border colour) at 40% alpha
+     * produces a clearly visible tint that is still dimmer than
+     * HeaderHovered (border1 @ 80%) and HeaderActive (border1 @ 100%),
+     * preserving the hover/active visual hierarchy. */
+    colors[ImGuiCol_Header]             = C((pal->dialog_border1 & 0xFFFFFF00) | 0x66);
     colors[ImGuiCol_HeaderHovered]      = C((pal->dialog_border1 & 0xFFFFFF00) | 0xCC);
     colors[ImGuiCol_HeaderActive]       = C(pal->dialog_border1 | 0xFF);
 

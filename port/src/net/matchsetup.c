@@ -391,8 +391,13 @@ static void pickRandomBodyHead(char *body_id, s32 bodyLen, char *head_id, s32 he
 s32 matchConfigMaxBotsForHumans(s32 humanCount)
 {
 	s32 humans = humanCount > 0 ? humanCount : 1;
-	s32 byslots = MATCH_MAX_SLOTS - humans;
-	s32 maxbots = byslots < MAX_BOTS ? byslots : MAX_BOTS;
+	/* Issue E: the total (humans + bots) must stay within
+	 * MATCH_PARTICIPANT_CAP or CHR.TICK faults on the extra slot.  The
+	 * previous formula used MATCH_MAX_SLOTS (the array size, 40) and let
+	 * the combined count reach 33+, which crashed.  Still clamp against
+	 * MAX_BOTS so we never exceed g_BotConfigsArray[]. */
+	s32 bycap = MATCH_PARTICIPANT_CAP - humans;
+	s32 maxbots = bycap < MAX_BOTS ? bycap : MAX_BOTS;
 
 	return maxbots > 0 ? maxbots : 0;
 }

@@ -3297,12 +3297,20 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     /* During the pre-match countdown, ESC/B should ONLY cancel the countdown
      * (handled by pdgui_countdown.cpp). Don't also leave the room. */
     bool countdownBlocks = (!s_IsSoloMode && pdguiCountdownIsActive());
+    /* Issue F: when a hotswap child dialog was active this frame (e.g.
+     * Select Tunes / weapon picker / bot setup), its own Back/Escape
+     * handler already consumed the keypress to pop one level.  The room
+     * screen also sees the same Escape in the same frame via ImGui's input
+     * queue — without this guard it would simultaneously arm the Leave
+     * Room confirm (which on accept disconnects from the server).  The
+     * Leave button click path is unaffected. */
+    bool hotswapBlocks = (pdguiHotswapWasActive() != 0);
     /* M-5: arm the confirm modal rather than leaving immediately. C5
      * destructive-action rule — Leave Room / Back to Menu tears down the
      * lobby session (and potentially disconnects from the server), so the
      * user must confirm. */
     if (ImGui::Button(leaveLabel, ImVec2(leaveW, btnH)) ||
-        (!countdownBlocks &&
+        (!countdownBlocks && !hotswapBlocks &&
          ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
         if (!s_ShowLeaveConfirm) {
             s_ShowLeaveConfirm = true;

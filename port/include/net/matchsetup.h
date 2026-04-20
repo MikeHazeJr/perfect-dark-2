@@ -26,6 +26,16 @@
 #define MATCH_MAX_SLOTS 40
 #endif
 
+/* Issue E: Combined participant cap (humans + bots).  The engine's CHR.TICK
+ * path starts to fault past 32 total participants (observed crash at
+ * slot=32 chrnum=5033 with 1 player + 32 bots).  MATCH_MAX_SLOTS is the
+ * storage-array size; MATCH_PARTICIPANT_CAP is the run-time ceiling that
+ * matchConfigMaxBotsForHumans() and the CLC_LOBBY_START clamp enforce so
+ * the total active count never exceeds what CHR.TICK can handle. */
+#ifndef MATCH_PARTICIPANT_CAP
+#define MATCH_PARTICIPANT_CAP 32
+#endif
+
 /* Weapon slots per match (must match constants.h NUM_MPWEAPONSLOTS) */
 #ifndef NUM_MPWEAPONSLOTS
 #define NUM_MPWEAPONSLOTS 6

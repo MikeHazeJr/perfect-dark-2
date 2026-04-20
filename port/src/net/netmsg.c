@@ -4871,8 +4871,23 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		}
 
 		/* Add simulant (bot) slots at MAX_PLAYERS..MAX_PLAYERS+numSims-1.
-		 * numSims is clamped to MAX_BOTS to prevent overflow. */
-		u8 clampedSims = (numSims > MAX_BOTS) ? MAX_BOTS : numSims;
+		 * Issue E: clamp against BOTH MAX_BOTS (g_BotConfigsArray cap) AND
+		 * MATCH_PARTICIPANT_CAP - pnum (CHR.TICK combined-count ceiling).
+		 * A malicious/stale client could send numSims=32 with 1 connected
+		 * player, which used to produce 33 total participants and crash the
+		 * engine at slot=32 chrnum=5033.  The combined clamp mirrors
+		 * matchConfigMaxBotsForHumans() on the client. */
+		s32 bycap = (s32)MATCH_PARTICIPANT_CAP - pnum;
+		if (bycap < 0) bycap = 0;
+		s32 maxSims = bycap < MAX_BOTS ? bycap : MAX_BOTS;
+		u8 clampedSims = (numSims > (u8)maxSims) ? (u8)maxSims : numSims;
+		if (clampedSims != numSims) {
+			sysLogPrintf(LOG_NOTE,
+			             "NET: CLC_LOBBY_START sims clamped %u -> %u "
+			             "(humans=%d, cap=%d, MAX_BOTS=%d)",
+			             (unsigned)numSims, (unsigned)clampedSims,
+			             pnum, (int)MATCH_PARTICIPANT_CAP, (int)MAX_BOTS);
+		}
 		for (s32 bi = 0; bi < clampedSims; bi++) {
 			s32 slot = MAX_PLAYERS + bi;
 			mpAddParticipantAt(slot, PARTICIPANT_BOT, 0, -1, 0xFF);
