@@ -1,8 +1,49 @@
 
 # Session Log (Active)
 
-> **S281–S391** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S281–S392** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S392 — 2026-04-19 (worktree `claude/vigilant-wiles-ed5537`) — Super Audit Wave 2 Batch C: wire format + data integrity
+
+**Scope**: Four findings from Super Audit Wave 2 — Batch C.
+
+### LAYOUT-1 (High) — field-wise `gset` serialization (`port/src/net/netmsg.c:294-310`)
+
+`netbufWriteGset`/`netbufReadGset` previously used raw memcpy over `sizeof(struct gset)`, leaking struct padding/ordering to the wire and locking the layout across any future field reorder. Replaced with four `netbufWriteU8`/`netbufReadU8` calls over `weaponnum`, `unk0639`, `unk063a`, `weaponfunc` — matching the `netbufWriteCoord`/`netbufWritePlayerMove` pattern. Protocol bytes on wire unchanged (same 4 u8 values in same order) so no bump required.
+
+### H-2 (High) — typed registrars for wire-delivered mods (`port/src/net/netdistrib.c:899-936`, `:1092-1113`)
+
+`netDistribClientHandleEnd()` was calling `assetCatalogRegister(slot->id, ASSET_NONE)` for all wire-delivered mods, so typed resolvers couldn't find the entries until the next catalog refresh tick (and some never found them at all). Added:
+- `iniFilenameToAssetType(const char *)` — maps `"map.ini"`→`ASSET_MAP`, `"character.ini"`→`ASSET_CHARACTER`, `"bot.ini"`→`ASSET_BOT_VARIANT`, `"skin.ini"`→`ASSET_SKIN`, `"weapon.ini"`→`ASSET_WEAPON`, `"textures.ini"`→`ASSET_TEXTURES`, `"sfx.ini"`→`ASSET_SFX`, `"music.ini"`→`ASSET_MUSIC`, else `ASSET_NONE`.
+- `populateExtFromIni(asset_entry_t *, asset_type_e, const ini_section_t *)` — mirrors `assetcatalog_scanner.c`'s `registerComponent()` ext-field population for MAP/CHARACTER/SKIN/BOT_VARIANT/WEAPON so wire-delivery and local-scan produce identical catalog entries.
+
+Fallback ASSET_NONE emits `LOG_WARNING` so unresolved INI types are visible in the log.
+
+### F-Hardcoded-Player-Caps (Low/systemic) — `port/include/pdgui_constants.h` + drift check
+
+Five C++ files were re-defining local copies of `MAX_PLAYERS`/`MAX_BOTS`/`MAX_MPCHRS`/`MAX_TEAMS` under disambiguated names (`MAX_PLAYERS_PM`, `ES_MAX_BOTS`, `MAX_MPCHRS_HUD`, etc) because `src/include/types.h` `#define bool s32` plus `src/include/constants.h` `#define false 0` / `#define true 1` collide with C++ keywords. These duplicates can silently drift from the canonical constants.
+
+New `port/include/pdgui_constants.h` — C++-safe mirror of MAX_PLAYERS=8, MAX_LOCAL_PLAYERS=4, MAX_BOTS=32, MAX_MPCHRS=40, MAX_TEAMS=8. New `port/src/pdgui_constants_check.c` (C, not C++) includes both headers and `_Static_assert`s each value matches. Picked up by `CMakeLists.txt` `GLOB_RECURSE port/*.c` auto-discovery.
+
+Consumers updated to include the new header and use the canonical names:
+- `pdgui_hud.cpp` — `MAX_MPCHRS_HUD`/`MAX_TEAMS_HUD` → `MAX_MPCHRS`/`MAX_TEAMS`
+- `pdgui_menu_endscreen.cpp` — `ES_MAX_PLAYERS`/`ES_MAX_BOTS`/`ES_MAX_MPCHRS` → `MAX_PLAYERS`/`MAX_BOTS`/`MAX_MPCHRS`
+- `pdgui_menu_pausemenu.cpp` — `MAX_PLAYERS_PM`/`MAX_BOTS_PM`/`MAX_MPCHRS_PM` → `MAX_PLAYERS`/`MAX_BOTS`/`MAX_MPCHRS`
+- `pdgui_menu_room.cpp` — local `#define MAX_PLAYERS 8` removed (now from header)
+- `pdgui_menu_mpingame.cpp` — dead `#define MAX_MPCHRS_TICKER 40` removed (was defined, never used)
+
+### F-StaleStructComments (Low) — `src/include/types.h`
+
+Removed stale `/*0xXX*/` byte-offset comments from `struct mpchrconfig`, `struct mpplayerconfig`, `struct mpbotconfig` — offsets were invalidated when `head_id[64]`/`body_id[64]` fields were added. Verified by grep that none of these structs are binary-serialized anywhere (no `sizeof(mpchrconfig)` / `memcpy((*)mpchrconfig)` usage) — they're PC-only in-memory state; save format is JSON. Added header note documenting this so the offsets stay removed.
+
+### Build + merge
+
+`ninja pd pd-server` links clean — PerfectDark.exe (53.4 MB) and PerfectDarkServer.exe (23.1 MB) produced. Committed in worktree @ `9a50e683` (10 files, 234 ins / 88 del; 2 new files). Merged to `dev` @ `8c5c4a71` via `--no-ff`. Auto-merge resolved `netmsg.c` and `netdistrib.c` cleanly against Batch D merge (`167b7fce`). Post-merge line counts verified — all pre-existing files match worktree or grew via clean integration with Batch D (netdistrib.c 1462→1479, netmsg.c 6584→6625); no shrinkage.
+
+**Next**: Remaining Super Audit findings: H-1 (preserved-player token), H-3 (u64 slot mask), H-4 (SHA-256 integrity gap), M-1 (unaligned writer).
+
+---
 
 ## Session S391 — 2026-04-19 (worktree `claude/cranky-haslett-e312ba`) — MASTER-C1: netbufReadStr NUL termination + const return type
 

@@ -67,6 +67,17 @@ playtest.
 
 ---
 
+## Done — 2026-04-19 (S392 — Super Audit Wave 2 Batch C: wire format + data integrity, `claude/vigilant-wiles-ed5537` → `dev` @ `8c5c4a71`)
+
+- **LAYOUT-1** (High): `netbufWriteGset`/`netbufReadGset` in `port/src/net/netmsg.c:294-310` now serialize `struct gset` field-wise (4× `netbufWriteU8`/`ReadU8` over weaponnum/unk0639/unk063a/weaponfunc) instead of raw memcpy. Removes implicit layout/padding dependency; matches `netbufWriteCoord`/`netbufWritePlayerMove` pattern. Wire format bytes unchanged — protocol-compatible.
+- **H-2** (High): `port/src/net/netdistrib.c` wire-delivered mods now register via typed `assetCatalogRegister(slot->id, type)` using new `iniFilenameToAssetType()` helper (map/character/bot/skin/weapon/textures/sfx/music ini → ASSET_* type). Ext fields populated via new `populateExtFromIni()` mirroring `assetcatalog_scanner.c::registerComponent()`. ASSET_NONE fallback emits LOG_WARNING. Entries are type-resolvable immediately on arrival (no next-refresh wait).
+- **F-Hardcoded-Player-Caps** (Low/systemic): New `port/include/pdgui_constants.h` — C++-safe mirror of MAX_PLAYERS=8, MAX_LOCAL_PLAYERS=4, MAX_BOTS=32, MAX_MPCHRS=40, MAX_TEAMS=8 (types.h `#define bool s32` + constants.h `#define false 0/true 1` collide with C++). New `port/src/pdgui_constants_check.c` `_Static_asserts` drift against canonical values. Removed 5 local `#define` duplicates (`MAX_PLAYERS_PM`, `ES_MAX_*`, `MAX_MPCHRS_HUD`, etc) in `pdgui_hud/menu_endscreen/menu_mpingame/menu_pausemenu/menu_room.cpp`; renamed all usages back to canonical names. Dropped dead `MAX_MPCHRS_TICKER`.
+- **F-StaleStructComments** (Low): Removed invalid `/*0xXX*/` byte-offset comments from `mpchrconfig`/`mpplayerconfig`/`mpbotconfig` in `src/include/types.h` (invalidated by `head_id[64]`/`body_id[64]` additions). Verified no binary serialization of these structs anywhere. Added header note documenting PC-only in-memory use.
+- **Files**: 10 changed (234 ins / 88 del; 2 new). **Build**: clean. `PerfectDark.exe` 53.4 MB, `PerfectDarkServer.exe` 23.1 MB. **Merge**: worktree `9a50e683` → dev `8c5c4a71` via `--no-ff`; auto-merge with Batch D (`167b7fce`) on `netmsg.c` and `netdistrib.c` resolved cleanly. Post-merge line counts verified — no unexpected shrinkage.
+- **Remaining Super Audit findings**: H-1 (preserved-player token), H-3 (u64 slot mask), H-4 (SHA-256 integrity gap), M-1 (unaligned writer).
+
+---
+
 ## Done — 2026-04-19 (S391 — MASTER-C1: netbufReadStr NUL termination, `claude/cranky-haslett-e312ba` → `dev` @ `f3e10caa`)
 
 - **MASTER-C1** (Super Audit 2026-04-19): `netbufReadStr` now force-NUL-terminates the receive buffer at `rp+len-1` before returning; return type changed to `const char *`. Protects all 40+ callsites across netmsg.c, net.c, netmanifest.c, sessioncatalog.c at once. Protocol-compatible (no wire change). Callsite sweep confirmed all read-only. Build clean.
