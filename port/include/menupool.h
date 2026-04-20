@@ -89,7 +89,15 @@ typedef enum {
     MENU_TYPE_MP_BOT_SETUP,
     MENU_TYPE_MP_TEAM_SETUP,
     MENU_TYPE_CONTROL_DIAGRAM,
-    MENU_TYPE_TRAINING,
+    MENU_TYPE_TRAINING,           /* Bio / DT / HT / Hangar entry points */
+    /* Firing Range sub-dialogs -- split from MENU_TYPE_TRAINING because the
+     * FR flow legitimately stacks three dialogs (Weapon List -> Difficulty
+     * -> Pre-Game Info).  Sharing one slot caused pool dedup to reject the
+     * second and third push, making the menu appear non-functional. */
+    MENU_TYPE_FR_WEAPON_LIST,     /* g_FrWeaponListMenuDialog (root) */
+    MENU_TYPE_FR_DIFFICULTY,      /* g_FrDifficultyMenuDialog */
+    MENU_TYPE_FR_INFO,            /* PreGame + InGame info (mutually exclusive) */
+    MENU_TYPE_FR_RESULT,          /* Completed + Failed (mutually exclusive) */
     MENU_TYPE_AGENT_SELECT,
     MENU_TYPE_AGENT_CREATE,
     MENU_TYPE_NETWORK,
