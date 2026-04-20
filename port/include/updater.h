@@ -54,8 +54,9 @@ typedef struct {
 	char        tag[UPDATER_MAX_TAG_LEN];           /* e.g., "client-v1.2.0" */
 	char        name[UPDATER_MAX_NAME_LEN];         /* release title */
 	char        body[UPDATER_MAX_BODY_LEN];         /* changelog/description */
-	char        assetUrl[UPDATER_MAX_URL_LEN];      /* download URL for exe */
-	char        hashUrl[UPDATER_MAX_URL_LEN];       /* download URL for .sha256 */
+	char        assetUrl[UPDATER_MAX_URL_LEN];      /* download URL for ZIP */
+	char        hashUrl[UPDATER_MAX_URL_LEN];       /* download URL for .sha256 (MANDATORY, SEC-5) */
+	char        sigUrl[UPDATER_MAX_URL_LEN];        /* download URL for .sig   (MANDATORY, SEC-6) */
 	s64         assetSize;                           /* bytes, 0 if unknown */
 	s32         isPrerelease;                        /* 1 if dev/test channel */
 	s32         isDraft;                             /* 1 if draft (skip) */

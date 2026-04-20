@@ -586,6 +586,7 @@ set(SRC_SERVER
   # Update system (D13) -- server has its own update path + --check-update CLI
   ${CMAKE_SOURCE_DIR}/port/src/updater.c
   ${CMAKE_SOURCE_DIR}/port/src/sha256.c
+  ${CMAKE_SOURCE_DIR}/port/src/ed25519.c
   ${CMAKE_SOURCE_DIR}/port/src/savemigrate.c
 
   # SPF-1: Server Platform Foundation (hub lifecycle, room system, identity, phonetic)
@@ -639,6 +640,7 @@ if(WIN32)
   set(SRC_PD_UPDATER
     ${CMAKE_SOURCE_DIR}/port/src/updater_standalone/updater_gui.c
     ${CMAKE_SOURCE_DIR}/port/src/sha256.c
+    ${CMAKE_SOURCE_DIR}/port/src/ed25519.c
   )
   # Embed the application manifest (Common Controls v6 + DPI awareness)
   if(EXISTS "${CMAKE_SOURCE_DIR}/port/src/updater_standalone/updater_gui.rc")

@@ -25,6 +25,8 @@
 #include "versioninfo.h"
 #include "updateversion.h"
 #include "sha256.h"
+#include "ed25519.h"
+#include "updater_pubkey.h"
 #include "config.h"
 #include "platform.h"
 #include "cacert_blob.h"
@@ -581,19 +583,26 @@ static s32 parseRelease(jparse_t *p, updater_release_t *rel)
 							}
 						}
 
-						/* Match the win64 ZIP asset (e.g. PerfectDark-v0.0.19-win64.zip) */
-						if (str_ends_with(aname, UPDATER_ASSET_ZIP_SUFFIX)) {
+						/* Match the ZIP asset and its sidecars. Check the more specific
+						 * ".zip.sha256" / ".zip.sig" suffixes first so a filename like
+						 * PerfectDark-v0.0.19-win64.zip.sig does not get misrouted to
+						 * assetUrl by the plain ".zip" check. */
+						char zipSha[16];
+						char zipSig[16];
+						snprintf(zipSha, sizeof(zipSha), "%s.sha256", UPDATER_ASSET_ZIP_SUFFIX);
+						snprintf(zipSig, sizeof(zipSig), "%s.sig",    UPDATER_ASSET_ZIP_SUFFIX);
+
+						if (str_ends_with(aname, zipSha)) {
+							strncpy(rel->hashUrl, aurl, UPDATER_MAX_URL_LEN - 1);
+							rel->hashUrl[UPDATER_MAX_URL_LEN - 1] = '\0';
+						} else if (str_ends_with(aname, zipSig)) {
+							/* SEC-6: Ed25519 signature sidecar ("*.zip.sig"). */
+							strncpy(rel->sigUrl, aurl, UPDATER_MAX_URL_LEN - 1);
+							rel->sigUrl[UPDATER_MAX_URL_LEN - 1] = '\0';
+						} else if (str_ends_with(aname, UPDATER_ASSET_ZIP_SUFFIX)) {
 							strncpy(rel->assetUrl, aurl, UPDATER_MAX_URL_LEN - 1);
 							rel->assetUrl[UPDATER_MAX_URL_LEN - 1] = '\0';
 							rel->assetSize = asize;
-						} else {
-							/* Check for .sha256 sidecar of the ZIP */
-							char zipSha[16];
-							snprintf(zipSha, sizeof(zipSha), "%s.sha256", UPDATER_ASSET_ZIP_SUFFIX);
-							if (str_ends_with(aname, zipSha)) {
-								strncpy(rel->hashUrl, aurl, UPDATER_MAX_URL_LEN - 1);
-								rel->hashUrl[UPDATER_MAX_URL_LEN - 1] = '\0';
-							}
 						}
 					}
 				}
@@ -624,6 +633,23 @@ static s32 parseRelease(jparse_t *p, updater_release_t *rel)
 			UPDATER_GITHUB_OWNER, UPDATER_GITHUB_REPO, rel->tag,
 			rel->tag, UPDATER_ASSET_ZIP_SUFFIX);
 		rel->assetUrl[UPDATER_MAX_URL_LEN - 1] = '\0';
+	}
+	/* Mirror the same convention for the .sha256 (SEC-5) and .sig (SEC-6)
+	 * sidecars so older releases published before explicit asset listing
+	 * still verify via the conventional URLs. */
+	if (!rel->hashUrl[0] && rel->tag[0]) {
+		snprintf(rel->hashUrl, UPDATER_MAX_URL_LEN - 1,
+			"https://github.com/%s/%s/releases/download/%s/PerfectDark-%s%s.sha256",
+			UPDATER_GITHUB_OWNER, UPDATER_GITHUB_REPO, rel->tag,
+			rel->tag, UPDATER_ASSET_ZIP_SUFFIX);
+		rel->hashUrl[UPDATER_MAX_URL_LEN - 1] = '\0';
+	}
+	if (!rel->sigUrl[0] && rel->tag[0]) {
+		snprintf(rel->sigUrl, UPDATER_MAX_URL_LEN - 1,
+			"https://github.com/%s/%s/releases/download/%s/PerfectDark-%s%s.sig",
+			UPDATER_GITHUB_OWNER, UPDATER_GITHUB_REPO, rel->tag,
+			rel->tag, UPDATER_ASSET_ZIP_SUFFIX);
+		rel->sigUrl[UPDATER_MAX_URL_LEN - 1] = '\0';
 	}
 
 	return 0;
@@ -789,7 +815,8 @@ static int SDLCALL downloadThread(void *data)
 	sysLogPrintf(LOG_NOTE, "UPDATER: Downloading ZIP for %s (%lld bytes)",
 		rel->tag, (long long)rel->assetSize);
 
-	/* Download the .sha256 sidecar first (if available) */
+	/* SEC-5: SHA-256 sidecar is MANDATORY. Fetch it first so a missing hash
+	 * file short-circuits the whole download. */
 	char expectedHash[SHA256_HEX_SIZE] = {0};
 	s32 hasHash = 0;
 
@@ -806,6 +833,49 @@ static int SDLCALL downloadThread(void *data)
 			if (i == 64) hasHash = 1;
 			free(hashBuf.data);
 		}
+	}
+
+	if (!hasHash) {
+		SDL_LockMutex(s_Updater.mutex);
+		snprintf(s_Updater.errorMsg, sizeof(s_Updater.errorMsg),
+			"Update rejected: release is missing the .sha256 sidecar required "
+			"for integrity verification. Update the game manually.");
+		s_Updater.status = UPDATER_DOWNLOAD_FAILED;
+		sysLogPrintf(LOG_ERROR,
+			"UPDATER: refusing to install %s — no .sha256 sidecar available (SEC-5)",
+			rel->tag);
+		SDL_UnlockMutex(s_Updater.mutex);
+		return 1;
+	}
+
+	/* SEC-6: Ed25519 signature sidecar is MANDATORY. Fetch into memory for
+	 * verification after the ZIP finishes downloading. */
+	u8 sigBytes[ED25519_SIGNATURE_SIZE];
+	s32 hasSig = 0;
+
+	if (rel->sigUrl[0]) {
+		curl_buffer_t sigBuf;
+		CURLcode sres = curlGet(rel->sigUrl, &sigBuf, NULL);
+		if (sres == CURLE_OK && sigBuf.data && sigBuf.size >= ED25519_SIGNATURE_SIZE) {
+			/* Take the first 64 bytes. The signing flow writes raw 64-byte
+			 * signatures; a trailing newline from upload tools is tolerated. */
+			memcpy(sigBytes, sigBuf.data, ED25519_SIGNATURE_SIZE);
+			hasSig = 1;
+		}
+		if (sigBuf.data) free(sigBuf.data);
+	}
+
+	if (!hasSig) {
+		SDL_LockMutex(s_Updater.mutex);
+		snprintf(s_Updater.errorMsg, sizeof(s_Updater.errorMsg),
+			"Update rejected: release is missing the .sig sidecar required "
+			"for cryptographic signature verification. Update the game manually.");
+		s_Updater.status = UPDATER_DOWNLOAD_FAILED;
+		sysLogPrintf(LOG_ERROR,
+			"UPDATER: refusing to install %s — no .sig sidecar available (SEC-6)",
+			rel->tag);
+		SDL_UnlockMutex(s_Updater.mutex);
+		return 1;
 	}
 
 	/* Download the binary */
@@ -903,28 +973,81 @@ static int SDLCALL downloadThread(void *data)
 		}
 	}
 
-	/* SHA-256 verification */
-	if (hasHash) {
-		SDL_UnlockMutex(s_Updater.mutex);  /* hash check can take a moment */
+	/* SHA-256 verification (SEC-5: mandatory). Hash is checked BEFORE the
+	 * Ed25519 signature so that a corrupted download fails fast without
+	 * burning cycles on the curve math. Also captures the 32-byte digest
+	 * so it can be re-used as the signature message below. */
+	u8 zipDigest[SHA256_DIGEST_SIZE];
+	SDL_UnlockMutex(s_Updater.mutex);
+	s32 hashOk = sha256HashFile(s_Updater.updatePath, zipDigest);
+	SDL_LockMutex(s_Updater.mutex);
 
-		s32 verified = sha256VerifyFile(s_Updater.updatePath, expectedHash);
+	if (hashOk != 0) {
+		remove(s_Updater.updatePath);
+		snprintf(s_Updater.errorMsg, sizeof(s_Updater.errorMsg),
+			"SHA-256 verification failed — could not read downloaded ZIP");
+		s_Updater.status = UPDATER_DOWNLOAD_FAILED;
+		sysLogPrintf(LOG_ERROR, "UPDATER: SHA-256 I/O error for %s", rel->tag);
+		SDL_UnlockMutex(s_Updater.mutex);
+		return 1;
+	}
 
-		SDL_LockMutex(s_Updater.mutex);
-
-		if (verified != 1) {
+	{
+		char actualHex[SHA256_HEX_SIZE];
+		sha256ToHex(zipDigest, actualHex);
+		/* Compare ASCII-case-insensitively (published sidecars are lowercase
+		 * by convention but tolerate uppercase for manual uploads). */
+		s32 match = 1;
+		for (s32 i = 0; i < 64; i++) {
+			char a = actualHex[i];
+			char b = expectedHash[i];
+			if (a >= 'A' && a <= 'Z') a = (char)(a - 'A' + 'a');
+			if (b >= 'A' && b <= 'Z') b = (char)(b - 'A' + 'a');
+			if (a != b) { match = 0; break; }
+		}
+		if (!match) {
 			remove(s_Updater.updatePath);
 			snprintf(s_Updater.errorMsg, sizeof(s_Updater.errorMsg),
 				"SHA-256 verification failed — download may be corrupted");
 			s_Updater.status = UPDATER_DOWNLOAD_FAILED;
-			sysLogPrintf(LOG_ERROR, "UPDATER: SHA-256 mismatch for %s", rel->tag);
+			sysLogPrintf(LOG_ERROR,
+				"UPDATER: SHA-256 mismatch for %s (expected %s, got %s)",
+				rel->tag, expectedHash, actualHex);
 			SDL_UnlockMutex(s_Updater.mutex);
 			return 1;
 		}
-
-		sysLogPrintf(LOG_NOTE, "UPDATER: SHA-256 verified OK");
-	} else {
-		sysLogPrintf(LOG_WARNING, "UPDATER: No SHA-256 sidecar — download not verified");
 	}
+	sysLogPrintf(LOG_NOTE, "UPDATER: SHA-256 verified OK");
+
+	/* SEC-6: Ed25519 signature verification (mandatory). The signed message
+	 * is sha256(zip) || tag so the signature is bound both to the content
+	 * and to the specific version — an attacker with access to the release
+	 * channel cannot re-use an older signature on a new tag. */
+	{
+		u8 msg[SHA256_DIGEST_SIZE + UPDATER_MAX_TAG_LEN];
+		size_t tagLen = strlen(rel->tag);
+		if (tagLen >= UPDATER_MAX_TAG_LEN) tagLen = UPDATER_MAX_TAG_LEN - 1;
+		memcpy(msg, zipDigest, SHA256_DIGEST_SIZE);
+		memcpy(msg + SHA256_DIGEST_SIZE, rel->tag, tagLen);
+
+		SDL_UnlockMutex(s_Updater.mutex);
+		s32 sigOk = ed25519Verify(sigBytes, msg, SHA256_DIGEST_SIZE + tagLen, UPDATER_PUBKEY);
+		SDL_LockMutex(s_Updater.mutex);
+
+		if (sigOk != 1) {
+			remove(s_Updater.updatePath);
+			snprintf(s_Updater.errorMsg, sizeof(s_Updater.errorMsg),
+				"Ed25519 signature verification failed — update rejected. "
+				"The release has not been signed by the trusted developer key.");
+			s_Updater.status = UPDATER_DOWNLOAD_FAILED;
+			sysLogPrintf(LOG_ERROR,
+				"UPDATER: Ed25519 verify returned %d for %s — rejecting update (SEC-6)",
+				(int)sigOk, rel->tag);
+			SDL_UnlockMutex(s_Updater.mutex);
+			return 1;
+		}
+	}
+	sysLogPrintf(LOG_NOTE, "UPDATER: Ed25519 signature verified OK");
 
 	/* Write version sidecar so the staged version survives across sessions.
 	 * Do the file I/O outside the mutex to avoid blocking the main thread. */
@@ -1103,6 +1226,18 @@ void updaterInit(void)
 	if (!s_Updater.curlInitialized) {
 		curl_global_init(CURL_GLOBAL_DEFAULT);
 		s_Updater.curlInitialized = 1;
+	}
+
+	/* SEC-6: Ed25519 self-test against RFC 8032 test vector 1. If OpenSSL's
+	 * Ed25519 support is broken or the linker pulled in a stub, we want to
+	 * know now (and refuse auto-updates) rather than silently failing closed
+	 * on every real release signature. */
+	if (ed25519SelfTest() != 1) {
+		sysLogPrintf(LOG_ERROR,
+			"UPDATER: Ed25519 self-test FAILED — auto-updates disabled. "
+			"This build cannot safely verify release signatures (SEC-6).");
+	} else {
+		sysLogPrintf(LOG_NOTE, "UPDATER: Ed25519 self-test passed");
 	}
 
 	sysLogPrintf(LOG_NOTE, "UPDATER: Initialized — v%s (%s, show-dev=%s)",

@@ -492,6 +492,10 @@ $zipName = $(if ($Nightly) { "PerfectDark-nightly-$DateCode-win64.zip" } else { 
 $zipPath = "dist/$zipName"
 
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+# Stale sidecars from a previous run would otherwise be re-uploaded against
+# a freshly-built ZIP they no longer match.
+if (Test-Path "$zipPath.sha256") { Remove-Item "$zipPath.sha256" -Force }
+if (Test-Path "$zipPath.sig")    { Remove-Item "$zipPath.sig" -Force }
 
 # Use .NET ZipFile for progress reporting (Compress-Archive gives no feedback)
 Add-Type -AssemblyName System.IO.Compression
@@ -533,6 +537,49 @@ $zipStream.Dispose()
 $zipSize = (Get-Item $zipFullPath).Length
 $zipSizeStr = $(if ($zipSize -gt 1MB) { "{0:N1} MB" -f ($zipSize / 1MB) } else { "{0:N0} KB" -f ($zipSize / 1KB) })
 Write-Host "  [100%] $zipName ($zipSizeStr)" -ForegroundColor Green
+
+# ============================================================================
+# Step 2b: Sign the ZIP (SEC-5 + SEC-6)
+# Writes <zip>.sha256 and <zip>.sig next to the ZIP. The updater refuses any
+# release that is missing either sidecar, so this step is now required for
+# auto-updates to work at all.
+# ============================================================================
+
+Write-Host ""
+Write-Host "[2b/8] Signing release ..." -ForegroundColor Yellow
+
+$signScript = Join-Path $PSScriptRoot "sign-release.ps1"
+if ($DryRun) {
+    Write-Host "  [DRY RUN] Would sign $zipPath with tag $ReleaseTag" -ForegroundColor Magenta
+} elseif (-not (Test-Path $signScript)) {
+    Write-Host "  ERROR: $signScript not found." -ForegroundColor Red
+    exit 1
+} else {
+    # Prefer release-keys/ if present (production), fall back to dev-keys/.
+    $prodKey = Join-Path $ProjectRoot "release-keys\ed25519-private.pem"
+    $devKey  = Join-Path $ProjectRoot "dev-keys\ed25519-private.pem"
+    if (Test-Path $prodKey) {
+        $signKey = $prodKey
+        Write-Host "  Using PRODUCTION key: $signKey" -ForegroundColor Cyan
+    } elseif (Test-Path $devKey) {
+        $signKey = $devKey
+        Write-Host "  Using development key: $signKey" -ForegroundColor Yellow
+        if (-not $Prerelease) {
+            Write-Host "  WARNING: signing a STABLE release with a development key." -ForegroundColor Yellow
+            Write-Host "  Generate a production key via '.\devtools\keygen.ps1 -Production' before shipping." -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "  ERROR: No signing key found (checked $prodKey and $devKey)." -ForegroundColor Red
+        Write-Host "         Run '.\devtools\keygen.ps1' to generate one." -ForegroundColor Red
+        exit 1
+    }
+
+    & $signScript -ZipPath $zipPath -Tag $ReleaseTag -KeyPath $signKey
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  ERROR: sign-release.ps1 failed (exit $LASTEXITCODE)." -ForegroundColor Red
+        exit 1
+    }
+}
 
 # ============================================================================
 # Step 3: Git tag
@@ -711,6 +758,10 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
     Write-Host "  Creating release ($ReleaseTag) ..." -ForegroundColor Cyan
     $assets = @()
     if (Test-Path $zipPath) { $assets += $zipPath }
+    # SEC-5 / SEC-6: sidecars MUST ship with the ZIP. The in-game updater
+    # rejects any release that's missing either one.
+    if (Test-Path "$zipPath.sha256") { $assets += "$zipPath.sha256" }
+    if (Test-Path "$zipPath.sig")    { $assets += "$zipPath.sig" }
     # Bare executables for in-game updater
     if (Test-Path "$DistDir/PerfectDark.exe")               { $assets += "$DistDir/PerfectDark.exe" }
     if (Test-Path "$DistDir/PerfectDarkServer.exe")         { $assets += "$DistDir/PerfectDarkServer.exe" }
@@ -843,6 +894,12 @@ if (Test-Path $DistDir) {
 if (-not $DryRun -and -not $SkipPush -and (Test-Path $zipPath)) {
     Remove-Item $zipPath -Force
     Write-Host "  Cleaned zip: $zipPath" -ForegroundColor Gray
+}
+# Clean sidecars along with the zip — keeping them on disk with no matching
+# zip just litters dist/ and confuses the next release run's staleness check.
+if (-not $DryRun -and -not $SkipPush) {
+    if (Test-Path "$zipPath.sha256") { Remove-Item "$zipPath.sha256" -Force }
+    if (Test-Path "$zipPath.sig")    { Remove-Item "$zipPath.sig" -Force }
 }
 
 # Clean up any old dist/{tag} staging folders left from previous releases

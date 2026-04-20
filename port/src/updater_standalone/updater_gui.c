@@ -26,6 +26,8 @@
 #include <curl/curl.h>
 
 #include "sha256.h"
+#include "ed25519.h"
+#include "updater_pubkey.h"
 #include "versioninfo.h"
 #include "cacert_blob.h"
 
@@ -117,6 +119,7 @@ typedef struct {
 	char    body[MAX_BODY_LEN];
 	char    assetUrl[MAX_URL_LEN];
 	char    hashUrl[MAX_URL_LEN];
+	char    sigUrl[MAX_URL_LEN];  /* SEC-6: Ed25519 .sig sidecar */
 	long long assetSize;
 	int     isPrerelease;
 	int     isDraft;
@@ -579,13 +582,18 @@ static int parseReleaseObj(jparse_t *p, release_t *rel)
 							}
 						}
 
-						if (str_ends_with(aname, ASSET_ZIP_SUFFIX)) {
+						/* Check longer suffixes first so ".zip.sha256" / ".zip.sig"
+						 * don't get swallowed by the plain ".zip" branch. */
+						if (str_ends_with(aname, ".zip.sha256")) {
+							strncpy(rel->hashUrl, aurl, MAX_URL_LEN - 1);
+							rel->hashUrl[MAX_URL_LEN - 1] = '\0';
+						} else if (str_ends_with(aname, ".zip.sig")) {
+							strncpy(rel->sigUrl, aurl, MAX_URL_LEN - 1);
+							rel->sigUrl[MAX_URL_LEN - 1] = '\0';
+						} else if (str_ends_with(aname, ASSET_ZIP_SUFFIX)) {
 							strncpy(rel->assetUrl, aurl, MAX_URL_LEN - 1);
 							rel->assetUrl[MAX_URL_LEN - 1] = '\0';
 							rel->assetSize = asize;
-						} else if (str_ends_with(aname, ".zip.sha256")) {
-							strncpy(rel->hashUrl, aurl, MAX_URL_LEN - 1);
-							rel->hashUrl[MAX_URL_LEN - 1] = '\0';
 						}
 					}
 				}
@@ -608,6 +616,19 @@ static int parseReleaseObj(jparse_t *p, release_t *rel)
 			"https://github.com/%s/%s/releases/download/%s/PerfectDark-%s%s",
 			GITHUB_OWNER, GITHUB_REPO, rel->tag, rel->tag, ASSET_ZIP_SUFFIX);
 		rel->assetUrl[MAX_URL_LEN - 1] = '\0';
+	}
+	/* SEC-5 / SEC-6: same fallback for the sidecars. */
+	if (!rel->hashUrl[0] && rel->tag[0]) {
+		snprintf(rel->hashUrl, MAX_URL_LEN - 1,
+			"https://github.com/%s/%s/releases/download/%s/PerfectDark-%s%s.sha256",
+			GITHUB_OWNER, GITHUB_REPO, rel->tag, rel->tag, ASSET_ZIP_SUFFIX);
+		rel->hashUrl[MAX_URL_LEN - 1] = '\0';
+	}
+	if (!rel->sigUrl[0] && rel->tag[0]) {
+		snprintf(rel->sigUrl, MAX_URL_LEN - 1,
+			"https://github.com/%s/%s/releases/download/%s/PerfectDark-%s%s.sig",
+			GITHUB_OWNER, GITHUB_REPO, rel->tag, rel->tag, ASSET_ZIP_SUFFIX);
+		rel->sigUrl[MAX_URL_LEN - 1] = '\0';
 	}
 
 	return 0;
@@ -808,7 +829,7 @@ static unsigned __stdcall downloadThread(void *arg)
 	InterlockedExchange64(&g_App.bytesTotal, rel->assetSize);
 	PostMessage(g_App.hMain, WM_APP_DOWNLOAD_BEGIN, 0, 0);
 
-	/* Grab SHA-256 sidecar if available */
+	/* SEC-5: SHA-256 sidecar is MANDATORY. */
 	char expectedHash[SHA256_HEX_SIZE] = {0};
 	int hasHash = 0;
 	if (rel->hashUrl[0]) {
@@ -823,6 +844,33 @@ static unsigned __stdcall downloadThread(void *arg)
 			if (i == 64) hasHash = 1;
 			free(hashBuf.data);
 		}
+	}
+
+	if (!hasHash) {
+		setError("Update rejected: missing .sha256 sidecar (SEC-5). Update manually.");
+		PostMessage(g_App.hMain, WM_APP_DOWNLOAD_FAIL, 0, 0);
+		InterlockedExchange(&g_App.workerBusy, 0);
+		return 1;
+	}
+
+	/* SEC-6: Ed25519 signature sidecar is MANDATORY. */
+	unsigned char sigBytes[ED25519_SIGNATURE_SIZE];
+	int hasSig = 0;
+	if (rel->sigUrl[0]) {
+		curl_buffer_t sigBuf;
+		CURLcode sres = curlGet(rel->sigUrl, &sigBuf, NULL);
+		if (sres == CURLE_OK && sigBuf.data && sigBuf.size >= ED25519_SIGNATURE_SIZE) {
+			memcpy(sigBytes, sigBuf.data, ED25519_SIGNATURE_SIZE);
+			hasSig = 1;
+		}
+		if (sigBuf.data) free(sigBuf.data);
+	}
+
+	if (!hasSig) {
+		setError("Update rejected: missing .sig sidecar (SEC-6). Update manually.");
+		PostMessage(g_App.hMain, WM_APP_DOWNLOAD_FAIL, 0, 0);
+		InterlockedExchange(&g_App.workerBusy, 0);
+		return 1;
 	}
 
 	FILE *fp = fopen(g_App.updateZipPath, "wb");
@@ -900,10 +948,48 @@ static unsigned __stdcall downloadThread(void *arg)
 		}
 	}
 
-	if (hasHash) {
-		if (sha256VerifyFile(g_App.updateZipPath, expectedHash) != 1) {
+	/* SEC-5: Mandatory SHA-256 verification. Also captures the digest for
+	 * the signature message below. */
+	unsigned char zipDigest[SHA256_DIGEST_SIZE];
+	if (sha256HashFile(g_App.updateZipPath, zipDigest) != 0) {
+		DeleteFileA(g_App.updateZipPath);
+		setError("SHA-256 verification failed -- could not read downloaded ZIP.");
+		PostMessage(g_App.hMain, WM_APP_DOWNLOAD_FAIL, 0, 0);
+		InterlockedExchange(&g_App.workerBusy, 0);
+		return 1;
+	}
+	{
+		char actualHex[SHA256_HEX_SIZE];
+		sha256ToHex(zipDigest, actualHex);
+		int match = 1;
+		for (int i = 0; i < 64; i++) {
+			char a = actualHex[i];
+			char b = expectedHash[i];
+			if (a >= 'A' && a <= 'Z') a = (char)(a - 'A' + 'a');
+			if (b >= 'A' && b <= 'Z') b = (char)(b - 'A' + 'a');
+			if (a != b) { match = 0; break; }
+		}
+		if (!match) {
 			DeleteFileA(g_App.updateZipPath);
 			setError("SHA-256 verification failed -- download may be corrupted.");
+			PostMessage(g_App.hMain, WM_APP_DOWNLOAD_FAIL, 0, 0);
+			InterlockedExchange(&g_App.workerBusy, 0);
+			return 1;
+		}
+	}
+
+	/* SEC-6: Mandatory Ed25519 signature over sha256(zip) || tag. */
+	{
+		unsigned char msg[SHA256_DIGEST_SIZE + MAX_TAG_LEN];
+		size_t tagLen = strlen(rel->tag);
+		if (tagLen >= MAX_TAG_LEN) tagLen = MAX_TAG_LEN - 1;
+		memcpy(msg, zipDigest, SHA256_DIGEST_SIZE);
+		memcpy(msg + SHA256_DIGEST_SIZE, rel->tag, tagLen);
+
+		if (ed25519Verify(sigBytes, msg, SHA256_DIGEST_SIZE + tagLen, UPDATER_PUBKEY) != 1) {
+			DeleteFileA(g_App.updateZipPath);
+			setError("Ed25519 signature verification failed -- release not signed by "
+				"trusted developer key.");
 			PostMessage(g_App.hMain, WM_APP_DOWNLOAD_FAIL, 0, 0);
 			InterlockedExchange(&g_App.workerBusy, 0);
 			return 1;
@@ -1965,6 +2051,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInst, LPSTR cmdLine, int 
 	showDevReleasesFromPdIni();
 	settingsLoad();
 	cleanupSelfOld();
+
+	/* SEC-6: refuse to run if Ed25519 verify is broken — better to tell the
+	 * user up front than to fail closed on every release. */
+	if (ed25519SelfTest() != 1) {
+		MessageBoxA(NULL,
+			"Ed25519 self-test failed in this Updater.exe build.\n\n"
+			"Release signature verification cannot be trusted. Please update\n"
+			"Perfect Dark 2 manually from the official releases page:\n\n"
+			"https://github.com/MikeHazeJr/perfect-dark-2/releases",
+			APP_TITLE, MB_ICONERROR | MB_OK);
+		return 1;
+	}
 
 	curl_global_init(CURL_GLOBAL_DEFAULT);
 	int rc = runGui(hInstance);
