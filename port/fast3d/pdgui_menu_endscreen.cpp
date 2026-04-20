@@ -435,14 +435,24 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
         return;
     }
 
-    /* E.2: Push ImGuiMenu input context on first appear.
-     * The context's on_push callback handles SDL mouse mode (absolute + visible).
-     * inputCtxSyncMouseMode() in endFrame ensures it stays correct.
-     * M-22: Route the push through the pool. menuPushDialog's pre-acquire
-     * left the slot active with ctx=NULL; this call attaches ownership so
-     * menupoolReleaseAll() can cascade the ctx pop at stage-transition time. */
+    /* B-RMB-Endscreen fix: Acquire the ImGuiMenu context unconditionally each
+     * frame. The previous IsWindowAppearing gating had the same failure mode as
+     * B-171 (solo pause): if the first-frame push raced with menupoolReleaseAll's
+     * deferred pop, the ctx never attached and the endscreen was stuck in
+     * gameplay input mode (RMB-only navigation, invisible cursor). Unconditional
+     * re-acquire is idempotent -- menupoolAcquire's S300 branch returns early if
+     * the slot is already active with the ctx attached. */
+    menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
+
+    /* Defensive force-push: if the top context is still gameplay when the
+     * endscreen is rendering, the acquire path failed to attach (stale
+     * owned_ctx, marked_for_removal race, etc.). Push directly so the
+     * endscreen always has input authority for keyboard + gamepad + mouse. */
+    if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+        inputCtxPush(&g_CtxImGuiMenu);
+    }
+
     if (ImGui::IsWindowAppearing()) {
-        menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
         /* M2.3: Refresh achievements so newly unlocked ones show.
          * D6 P3: poll for newly-unlocked IDs and push toast notifications. */
         achievementsRefresh();
@@ -920,6 +930,16 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
      * is idempotent across frames and matches the B-End-Game-Input semantics
      * of pushing unconditionally whenever the ctx isn't live. */
     menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
+
+    /* B-RMB-Endscreen fix: defensive force-push. If gameplay is still on top
+     * when we reach this point, the acquire path failed to attach the ctx
+     * (stale owned_ctx, marked_for_removal resurrect race, etc.). Push the
+     * menu ctx directly so the endscreen always has input authority for
+     * keyboard + gamepad + mouse without requiring the player to hold RMB. */
+    if (!inputCtxIsActive(&g_CtxImGuiMenu)) {
+        inputCtxPush(&g_CtxImGuiMenu);
+    }
+
     if (ImGui::IsWindowAppearing() || freshEntry) {
         ImGui::SetWindowFocus();
         s_MpEndscreenDebounce = 5;
