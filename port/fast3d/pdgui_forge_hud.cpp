@@ -23,6 +23,7 @@
 #include <utility>
 
 #include "imgui/imgui.h"
+#include "pdgui.h"
 #include "pdgui_forge.h"
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
@@ -84,6 +85,8 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 	if (!forgeSessionIsActive()) {
 		return;
 	}
+	/* Suppress reticle and ghost preview while any menu is open. */
+	if (pdguiIsActive()) return;
 
 	const forge_session_state_t state = forgeGetSessionState();
 	const float scale = pdguiScale(1.0f);

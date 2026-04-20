@@ -1238,9 +1238,8 @@ void pdguiMenuWarningRegister(void)
     pdguiHotswapRegister(&g_CheatsWarningMenuDialog,
                           renderDangerDialog,
                           "Cheats Warning (Batch 4)");
-    pdguiHotswapRegister(&g_CheatsConfirmUnlockMenuDialog,
-                          renderDangerDialog,
-                          "Cheats Confirm Unlock (Batch 4)");
+    /* NOTE: g_CheatsConfirmUnlockMenuDialog is registered in
+     * pdgui_menu_cheats.cpp — do not register it here. */
 
     /* S195 Batch 8 — MP Pause & In-Game dialogs.
      *

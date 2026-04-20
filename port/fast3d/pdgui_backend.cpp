@@ -877,6 +877,14 @@ s32 pdguiProcessEvent(void *sdlEvent)
     }
 
     /* ---- M0.2 Phase A: Update action map state ---- */
+    /* NOTE (Q-Backend-Event-Order): WantCaptureKeyboard above is from the
+     * PRIOR frame. On the first frame a textbox gains focus it is still false,
+     * so a key that focuses the widget can leak into actionmapDispatch before
+     * ImGui processes it. Fix requires either (a) moving
+     * ImGui_ImplSDL2_ProcessEvent first and re-reading WantCaptureKeyboard
+     * after (risky — WantCaptureKeyboard is frame-based so the gain-focus frame
+     * still leaks), or (b) inspecting ImGui's active-widget ID directly. Left
+     * as a known one-frame leak; the B-154 Esc/Enter pass-through is unaffected. */
     if (!imguiEatsKey) {
         actionmapDispatch(ev);
     }

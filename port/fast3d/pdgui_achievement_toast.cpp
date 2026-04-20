@@ -16,6 +16,7 @@
 #include <cstring>
 
 #include "imgui/imgui.h"
+#include "pdgui.h"
 #include "pdgui_achievement_toast.h"
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
@@ -110,6 +111,8 @@ extern "C" void pdguiAchievementToastPollUnlocks(void)
 extern "C" void pdguiAchievementToastRender(s32 winW, s32 winH)
 {
     if (s_NumToasts == 0) return;
+    /* Suppress toasts while any menu is open — they bleed through otherwise. */
+    if (pdguiIsActive()) return;
 
     float scale = pdguiScaleFactor();
     float toastW = 340.0f * scale;

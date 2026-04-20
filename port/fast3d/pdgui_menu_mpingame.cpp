@@ -29,6 +29,7 @@
 #include <math.h>
 
 #include "imgui/imgui.h"
+#include "pdgui.h"
 #include "pdgui_scaling.h"
 #include "pdgui_style.h"
 #include "pdgui_hotswap.h"
@@ -172,6 +173,10 @@ extern "C" void pdguiMpIngameRender(s32 winW, s32 winH)
     if (pdguiPauseGetPaused() >= MPPAUSEMODE_GAMEOVER_TICKER) {
         return; /* Keep entries but stop rendering — they'll expire naturally */
     }
+    /* Suppress killfeed while any menu is open (B-189 class: gameplay HUD
+     * must not bleed through the menu overlay). Events still queue via
+     * pdguiKillfeedPush; only rendering is suppressed. */
+    if (pdguiIsActive()) return;
 
     bool teamsEnabled = (pdguiPauseGetOptions() & MPOPTION_TEAMSENABLED_KF) != 0;
     float now = kfNow();
