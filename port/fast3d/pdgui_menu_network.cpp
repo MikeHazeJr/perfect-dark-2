@@ -23,13 +23,15 @@
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
 #include "screenmfst.h"
-#include "net/netmanifest.h"
-#include "net/netupnp.h"
-#include "net/netstun.h"
 #include "system.h"
 #include "connectcode.h"
 
 extern "C" {
+/* C headers with function decls must be inside extern "C" or C++ will mangle
+ * names and fail to link netupnp.c / netstun.c (see stunGetStatus, netUpnpGetStatus). */
+#include "net/netmanifest.h"
+#include "net/netupnp.h"
+#include "net/netstun.h"
 
 /* Dialog we replace */
 extern struct menudialogdef g_NetMenuDialog;
