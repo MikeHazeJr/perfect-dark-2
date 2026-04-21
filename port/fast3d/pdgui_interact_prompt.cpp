@@ -33,6 +33,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_glyphs.h"
 #include "pdgui_interact_prompt.h"
+#include "pdmain.h"
 
 extern "C" {
 #include "actionmap.h"
@@ -41,6 +42,7 @@ extern "C" {
  * that header pulls in types.h which breaks C++ compilation.  The signatures
  * here match the game side exactly. */
 const char *propInteractPromptLabel(void);
+s32 propInteractPromptHoldThresholdMs(void);
 }
 
 /**
@@ -54,12 +56,6 @@ const char *propInteractPromptLabel(void);
  * inputCtxGetTop() != &g_CtxGameplay, which is the same authority predicate
  * used by the gameplay HUD layer.
  */
-/* Hold-vs-tap discriminator threshold for ACTION_USE.  Must stay in
- * lockstep with BMOVE_USE_HOLD_THRESHOLD_MS in src/game/bondmove.c -- if
- * one moves the other has to follow or the prompt fill will desync from
- * the moment the interact actually fires. */
-#define INTERACT_HOLD_THRESHOLD_MS 250
-
 extern "C" void pdguiInteractPromptRender(s32 winW, s32 winH)
 {
 	if (pdguiIsActive()) return;
@@ -67,19 +63,23 @@ extern "C" void pdguiInteractPromptRender(s32 winW, s32 winH)
 	const char *label = propInteractPromptLabel();
 	if (!label) return;
 
+	const s32 actionPlayer = pdmainGetInteractPromptActionPlayer();
+
 	/* Float just below the centred reticle so the player's eye picks it up
 	 * without leaving the crosshair.  offsetY tuned to clear the reticle
 	 * pips + a few px of breathe. */
 	float cx = (float)winW * 0.5f;
 	float cy = (float)winH * 0.5f + pdguiScale(28.0f);
 
-	/* While ACTION_USE is held but the hold has not yet fired, surface a
-	 * fill bar so the player understands "hold to interact" vs "tap to
-	 * reload".  Once the hold has fired (consumed) we keep the bar at 1.0
-	 * for the brief moment the button stays down so the prompt does not
-	 * flicker back to empty mid-hold. */
-	f32 progress = actionHoldProgress(0, ACTION_USE, INTERACT_HOLD_THRESHOLD_MS);
-	if (actionHoldConsumed(0, ACTION_USE)) progress = 1.0f;
+	/* Radial fill: player slot + per-target hold ms (settings + propInteract*
+	 * extras) match bondmove propGetActionUseHoldThresholdMs().
+	 * Only pin to 1.0 while the key is still held after consumeHold; once
+	 * released, actionHoldProgress returns 0 so the ring clears. */
+	const s32 holdMs = propInteractPromptHoldThresholdMs();
+	f32 progress = actionHoldProgress(actionPlayer, ACTION_USE, holdMs);
+	if (actionHeld(actionPlayer, ACTION_USE) && actionHoldConsumed(actionPlayer, ACTION_USE)) {
+		progress = 1.0f;
+	}
 
 	pdguiDrawActionPromptCenteredWithHold(ACTION_USE, cx, cy, label, progress);
 }

@@ -42,6 +42,7 @@
 #include "types.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "actionmap.h"
 
 s16 *g_RoomPropListChunkIndexes;
 struct roomproplistchunk *g_RoomPropListChunks;
@@ -1657,6 +1658,57 @@ const char *propInteractPromptLabel(void)
 		return "Use";
 	}
 }
+
+/* Per-target extras: see context/designs/pdgui-hold-ring.md */
+s32 propInteractPromptHoldThresholdMs(void)
+{
+	s32 base = actionmapGetEffectiveHoldMs(ACTION_USE);
+	if (base < 1) {
+		base = ACTION_USE_HOLD_THRESHOLD_MS;
+	}
+	struct prop *prop = g_InteractProp;
+	if (prop == NULL || prop->obj == NULL) {
+		return base;
+	}
+	/* Extra ms on top of Settings → Controller (variable length per target). */
+	s32 extra = 0;
+	switch (prop->type) {
+	case PROPTYPE_WEAPON:
+		break;
+	case PROPTYPE_DOOR:
+		break;
+	case PROPTYPE_OBJ: {
+		struct defaultobj *obj = prop->obj;
+		if (obj->flags3 & OBJFLAG3_HTMTERMINAL) {
+			/* Hackable terminals: default longer hold than doors/weapons; tune here. */
+			extra = 0;
+		}
+		break;
+	}
+	default:
+		break;
+	}
+	s32 t = base + extra;
+	if (t < 1) {
+		t = 1;
+	}
+	return t;
+}
+
+s32 propGetActionUseHoldThresholdMs(void)
+{
+	if (g_InteractProp != NULL && propInteractPromptLabel() != NULL) {
+		return propInteractPromptHoldThresholdMs();
+	}
+	s32 t = actionmapGetEffectiveHoldMs(ACTION_USE);
+
+	if (t < 1) {
+		t = ACTION_USE_HOLD_THRESHOLD_MS;
+	}
+	return t;
+}
+
+
 
 /**
  * While this function is called, it doesn't return anything and doesn't appear

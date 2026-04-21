@@ -2827,6 +2827,8 @@ struct player {
 	/*0x1c8c*/ struct netclient *client;
 	bool wantsjump;
 	bool jumpconsumed;  /* Prevents held-button re-triggering after a jump attempt */
+	/* PC twin-stick: 1 = ACTION_USE tap/short press (mount vehicle), 2 = long-hold (pickup). Cleared each frame in bondmove. */
+	u8 pcinteractusekind;
 };
 
 struct ailist {

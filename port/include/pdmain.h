@@ -12,6 +12,13 @@ extern "C" {
  */
 s32 pdmainGetLvFrame60(void);
 
+/**
+ * Controller slot for the current player (optionsGetContpadNum1), used when
+ * reading ACTION_* state for HUD overlays. C++ callers should use this
+ * instead of hard-coding player 0.
+ */
+s32 pdmainGetInteractPromptActionPlayer(void);
+
 #ifdef __cplusplus
 }
 #endif

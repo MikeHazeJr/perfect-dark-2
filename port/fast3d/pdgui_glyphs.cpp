@@ -19,6 +19,7 @@
 
 #include "imgui/imgui.h"
 #include "pdgui_glyphs.h"
+#include "pdgui_hold_ring.h"
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "actionmap.h"
@@ -322,10 +323,8 @@ extern "C" s32 pdguiGlyphGetActionLabel(InputAction action, char *out, s32 outle
  * Draw helpers
  * ============================================================ */
 
-/* Shared draw routine.  hold_progress in [0..1+] adds a charge bar under
- * the pill; values <= 0 suppress the bar entirely (legacy behaviour). */
-static f32 drawPromptInternal(InputAction action, f32 x, f32 y, const char *label,
-		f32 hold_progress)
+/* Shared draw routine: key pill + optional label (no hold indicator). */
+static f32 drawPromptInternal(InputAction action, f32 x, f32 y, const char *label)
 {
 	ImDrawList *fg = ImGui::GetForegroundDrawList();
 	if (!fg) return 0.0f;
@@ -361,41 +360,12 @@ static f32 drawPromptInternal(InputAction action, f32 x, f32 y, const char *labe
 		width += gap + lts.x;
 	}
 
-	/* Hold charge indicator: a 2.5 px tall bar 1 px under the pill.  Spans
-	 * the whole prompt width (key + label) so the player sees the fill
-	 * "consume" the whole prompt as it nears the threshold.  Clamped at 1
-	 * (over-shoot from caller is harmless), and recoloured at >= 1 so the
-	 * "ready to fire" moment is visually distinct from the in-progress
-	 * ramp. */
-	if (hold_progress > 0.0f) {
-		float p = hold_progress;
-		if (p > 1.0f) p = 1.0f;
-
-		const float barH = 2.5f * scale;
-		const float barY0 = y + pillH + 1.0f * scale;
-		const float barY1 = barY0 + barH;
-		const float barX0 = x;
-		const float barX1 = x + width * p;
-		const float trackX1 = x + width;
-		const float trackR = 1.0f * scale;
-
-		const ImU32 trackCol = IM_COL32(20, 28, 44, 200);
-		const ImU32 fillCol  = (p >= 1.0f)
-			? IM_COL32(180, 240, 255, 255)
-			: borderCol;
-
-		fg->AddRectFilled(ImVec2(barX0, barY0), ImVec2(trackX1, barY1), trackCol, trackR);
-		if (barX1 > barX0) {
-			fg->AddRectFilled(ImVec2(barX0, barY0), ImVec2(barX1, barY1), fillCol, trackR);
-		}
-	}
-
 	return width;
 }
 
 extern "C" f32 pdguiDrawActionPrompt(InputAction action, f32 x, f32 y, const char *label)
 {
-	return drawPromptInternal(action, x, y, label, 0.0f);
+	return drawPromptInternal(action, x, y, label);
 }
 
 extern "C" f32 pdguiDrawActionPromptCentered(InputAction action, f32 cx, f32 y, const char *label)
@@ -413,23 +383,58 @@ extern "C" f32 pdguiDrawActionPromptCentered(InputAction action, f32 cx, f32 y, 
 		total += 6.0f * scale + lts.x;
 	}
 
-	return drawPromptInternal(action, cx - total * 0.5f, y, label, 0.0f);
+	return drawPromptInternal(action, cx - total * 0.5f, y, label);
 }
 
 extern "C" f32 pdguiDrawActionPromptCenteredWithHold(InputAction action, f32 cx, f32 y,
-		const char *label, f32 hold_progress)
+		const char *verb, f32 hold_progress)
 {
+	ImDrawList *fg = ImGui::GetForegroundDrawList();
+	if (!fg) return 0.0f;
+
+	const float scale = pdguiScale(1.0f);
+
 	char keyText[24];
 	pdguiGlyphGetActionLabel(action, keyText, (s32)sizeof(keyText));
 
-	const float scale = pdguiScale(1.0f);
-	const ImVec2 ts = ImGui::CalcTextSize(keyText);
-	const float pillW = ts.x + 16.0f * scale;
-	float total = pillW;
-	if (label && label[0]) {
-		const ImVec2 lts = ImGui::CalcTextSize(label);
-		total += 6.0f * scale + lts.x;
+	const char *holdPrefix = "Hold ";
+	const float gap = 6.0f * scale;
+	const ImVec2 holdSz = ImGui::CalcTextSize(holdPrefix);
+	const ImVec2 keyTs = ImGui::CalcTextSize(keyText);
+	const float padX = 8.0f * scale;
+	const float padY = 4.0f * scale;
+	const float pillW = keyTs.x + padX * 2.0f;
+	const float pillH = keyTs.y + padY * 2.0f;
+	const float rounding = 3.0f * scale;
+
+	ImVec2 verbSz(0.0f, 0.0f);
+	if (verb && verb[0]) {
+		verbSz = ImGui::CalcTextSize(verb);
 	}
 
-	return drawPromptInternal(action, cx - total * 0.5f, y, label, hold_progress);
+	const float totalW = holdSz.x + gap + pillW + gap + verbSz.x;
+	const float x0 = cx - totalW * 0.5f;
+
+	const ImU32 bgCol   = IM_COL32(8, 14, 24, 230);
+	const ImU32 borderCol = pdguiGetTitleGlow();
+	const ImU32 keyFg   = IM_COL32(235, 245, 255, 240);
+	const ImU32 labelFg = IM_COL32(210, 225, 240, 230);
+
+	fg->AddText(ImVec2(x0, y + padY), labelFg, holdPrefix);
+
+	const float pillX = x0 + holdSz.x + gap;
+	fg->AddRectFilled(ImVec2(pillX, y), ImVec2(pillX + pillW, y + pillH), bgCol, rounding);
+	fg->AddRect(ImVec2(pillX, y), ImVec2(pillX + pillW, y + pillH), borderCol, rounding, 0, 1.2f * scale);
+	fg->AddText(ImVec2(pillX + padX, y + padY), keyFg, keyText);
+
+	if (verb && verb[0]) {
+		fg->AddText(ImVec2(pillX + pillW + gap, y + padY), labelFg, verb);
+	}
+
+	float p = hold_progress;
+	if (p > 1.0f) p = 1.0f;
+	if (p < 0.0f) p = 0.0f;
+	pdguiDrawHoldProgressRingAroundBox(fg, pillX, y, pillW, pillH, p);
+
+	return totalW;
 }

@@ -2,7 +2,7 @@
 
 > **Status**: DESIGN (2026-04-19). Codifies invariants for the ImGui menu system.
 > **Supersedes informal rules in**: `input-authority-and-menu-pool-2026-04-13.md` §6, `d5-full-menu-overhaul.md` Phase 1, `d5-ui-polish-plan.md` D5.1.
-> **Related**: [menu-inventory.md](menu-inventory.md) (roster), [input-authority-and-menu-pool-2026-04-13.md](input-authority-and-menu-pool-2026-04-13.md) (Phase 1 input gating + Phase 2 pool layer — already landed), [hud-layer-order.md](hud-layer-order.md) (render-layer ordering).
+> **Related**: [menu-inventory.md](menu-inventory.md) (roster), [menu-controller-input-constraints.md](menu-controller-input-constraints.md) (gamepad + mouse progressive focus, modals, pointer sync), [input-authority-and-menu-pool-2026-04-13.md](input-authority-and-menu-pool-2026-04-13.md) (Phase 1 input gating + Phase 2 pool layer — already landed), [hud-layer-order.md](hud-layer-order.md) (render-layer ordering).
 > **Do not implement from this doc** — it defines the target. Implementation tasks are in `tasks-current.md` under *Menu Stack Compliance*.
 
 ---

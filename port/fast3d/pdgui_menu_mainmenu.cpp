@@ -1782,11 +1782,173 @@ static void handleCaptureInput(void)
     }
 }
 
+/* Controller diagram: SDL gamepad button indices match port/src/actionmap.cpp (JBTN_*). */
+#define PD_JOY0_BTN(off) ((u32)PD_VK_JOY_BEGIN + (u32)(off))
+
+struct CtrlPadZone {
+    const char *id;
+    const char *shortLabel;
+    u32 vk;
+    float relX, relY, relW, relH;
+};
+
+static void appendActionNamesForCtrlVk(u32 vk, u32 hideGroupMask, char *out, size_t outSz)
+{
+    out[0] = '\0';
+    size_t len = 0;
+    for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
+        if (hideGroupMask & (1u << s_BindableActions[row].group)) {
+            continue;
+        }
+        u32 mkbVKs[2], ctrlVKs[2];
+        s32 mkbSlots[2], ctrlSlots[2];
+        s32 mkbCount, ctrlCount;
+        getBindsByType(s_BindableActions[row].action, mkbVKs, mkbSlots, &mkbCount,
+                       ctrlVKs, ctrlSlots, &ctrlCount);
+        if (ctrlVKs[0] != vk && ctrlVKs[1] != vk) {
+            continue;
+        }
+        const char *nm = s_BindableActions[row].name;
+        if (len > 0) {
+            strncat(out, ", ", outSz - len - 1);
+            len = strlen(out);
+        }
+        strncat(out, nm, outSz - len - 1);
+        len = strlen(out);
+        if (len >= outSz - 8) {
+            strncat(out, "...", outSz - len - 1);
+            break;
+        }
+    }
+    if (out[0] == '\0') {
+        strncpy(out, "(empty)", outSz - 1);
+        out[outSz - 1] = '\0';
+    }
+}
+
+/* Drag sources + drop targets on a stylized gamepad. hideGroupMask matches renderBindTable. */
+static void renderControllerVisualMapper(float scale, u32 hideGroupMask)
+{
+    (void)scale;
+    const float padW = pdguiScale(400.0f);
+    const float padH = pdguiScale(190.0f);
+    const float rowH = padH + pdguiScale(8.0f);
+
+    ImGui::TextWrapped(
+        "Drag an action onto a control to set its primary controller binding (same as Bind 1 in the table). "
+        "Multiple actions may share one button (for example Use and Reload on X): hold uses interact first; "
+        "release before the hold threshold counts as a tap (reload). Sticks are configured above.");
+    ImGui::Spacing();
+
+    static const CtrlPadZone kZones[] = {
+        { "lt", "LT", PD_JOY0_BTN(30), 0.07f, 0.032f, 0.13f, 0.074f },
+        { "rt", "RT", PD_JOY0_BTN(31), 0.80f, 0.032f, 0.13f, 0.074f },
+        { "lb", "LB", PD_JOY0_BTN(9), 0.12f, 0.137f, 0.14f, 0.116f },
+        { "rb", "RB", PD_JOY0_BTN(10), 0.74f, 0.137f, 0.14f, 0.116f },
+        { "bk", "Back", PD_JOY0_BTN(4), 0.295f, 0.253f, 0.13f, 0.105f },
+        { "st", "Start", PD_JOY0_BTN(6), 0.575f, 0.253f, 0.13f, 0.105f },
+        { "dup", "D-Up", PD_JOY0_BTN(11), 0.155f, 0.379f, 0.07f, 0.116f },
+        { "ddn", "D-Down", PD_JOY0_BTN(12), 0.155f, 0.653f, 0.07f, 0.116f },
+        { "dlt", "D-Left", PD_JOY0_BTN(13), 0.085f, 0.516f, 0.07f, 0.116f },
+        { "drt", "D-Right", PD_JOY0_BTN(14), 0.225f, 0.516f, 0.07f, 0.116f },
+        { "y", "Y", PD_JOY0_BTN(3), 0.77f, 0.305f, 0.085f, 0.147f },
+        { "x", "X", PD_JOY0_BTN(2), 0.67f, 0.484f, 0.085f, 0.147f },
+        { "b", "B", PD_JOY0_BTN(1), 0.87f, 0.484f, 0.085f, 0.147f },
+        { "a", "A", PD_JOY0_BTN(0), 0.77f, 0.663f, 0.085f, 0.147f },
+        { "l3", "L3", PD_JOY0_BTN(7), 0.18f, 0.789f, 0.13f, 0.211f },
+        { "r3", "R3", PD_JOY0_BTN(8), 0.69f, 0.789f, 0.13f, 0.211f },
+    };
+
+    ImGui::BeginChild("##mapper_row", ImVec2(0.0f, rowH), false, ImGuiWindowFlags_NoScrollbar);
+
+    ImGui::BeginChild("##mapper_left", ImVec2(pdguiScale(232.0f), rowH), true);
+    ImGui::TextDisabled("Actions (drag)");
+    ImGui::Separator();
+    ImGui::BeginChild("##mapper_draglist", ImVec2(0.0f, 0.0f), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
+    for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
+        if (hideGroupMask & (1u << s_BindableActions[row].group)) {
+            continue;
+        }
+        if (!stringIContains(s_BindableActions[row].name, s_BindSearch)) {
+            continue;
+        }
+        InputAction act = s_BindableActions[row].action;
+        const char *nm = s_BindableActions[row].name;
+        ImGui::PushID((int)act);
+        ImGui::Selectable(nm, false, 0, ImVec2(-1.0f, 0.0f));
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+            ImGui::SetDragDropPayload("PD_INPUT_ACTION", &act, sizeof(InputAction));
+            ImGui::TextUnformatted(nm);
+            ImGui::EndDragDropSource();
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    ImGui::BeginChild("##mapper_right", ImVec2(0.0f, rowH), true, ImGuiWindowFlags_NoScrollbar);
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    ImVec2 win0 = ImGui::GetCursorScreenPos();
+    dl->AddRectFilled(win0, ImVec2(win0.x + padW, win0.y + padH), IM_COL32(28, 28, 36, 255),
+                      pdguiScale(6.0f));
+    dl->AddRect(win0, ImVec2(win0.x + padW, win0.y + padH), IM_COL32(90, 95, 115, 255),
+                pdguiScale(6.0f), 0, 1.5f);
+
+    ImGui::SetCursorScreenPos(win0);
+
+    for (int zi = 0; zi < (int)(sizeof(kZones) / sizeof(kZones[0])); zi++) {
+        const CtrlPadZone *z = &kZones[zi];
+        ImGui::SetCursorPos(ImVec2(z->relX * padW, z->relY * padH));
+        ImVec2 zsz(z->relW * padW, z->relH * padH);
+        char zid[48];
+        snprintf(zid, sizeof(zid), "%s##cz", z->id);
+        ImGui::InvisibleButton(zid, zsz);
+        bool hov = ImGui::IsItemHovered();
+        bool nav = ImGui::IsItemFocused();
+        ImVec2 rmin = ImGui::GetItemRectMin();
+        ImVec2 rmax = ImGui::GetItemRectMax();
+        ImU32 fill = hov ? IM_COL32(65, 85, 115, 230) : IM_COL32(48, 52, 68, 220);
+        if (nav) {
+            fill = IM_COL32(75, 95, 130, 240);
+        }
+        dl->AddRectFilled(rmin, rmax, fill, pdguiScale(3.0f));
+        dl->AddRect(rmin, rmax, IM_COL32(130, 140, 175, 255), pdguiScale(3.0f), 0, 1.25f);
+
+        char buf[160];
+        appendActionNamesForCtrlVk(z->vk, hideGroupMask, buf, sizeof(buf));
+        dl->AddText(ImVec2(rmin.x + pdguiScale(3.0f), rmin.y + pdguiScale(2.0f)),
+                    IM_COL32(230, 230, 240, 255), z->shortLabel);
+        float line2y = rmin.y + ImGui::GetTextLineHeight() + pdguiScale(3.0f);
+        ImVec2 tp = ImVec2(rmin.x + pdguiScale(3.0f), line2y);
+        ImGui::PushClipRect(rmin, rmax, true);
+        dl->AddText(ImGui::GetFont(), ImGui::GetFontSize() * 0.78f, tp, IM_COL32(170, 200, 255, 255), buf);
+        ImGui::PopClipRect();
+
+        if (ImGui::BeginDragDropTarget()) {
+            const ImGuiPayload *pl = ImGui::AcceptDragDropPayload("PD_INPUT_ACTION");
+            if (pl && pl->DataSize == (int)sizeof(InputAction) && pl->Data != NULL) {
+                InputAction dropped = *(const InputAction *)pl->Data;
+                actionmapBind(&g_ImcGameplay, 0, dropped, 0, z->vk);
+                actionmapSaveBinds();
+                configSave("pd.ini");
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            }
+            ImGui::EndDragDropTarget();
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::EndChild();
+}
+
 /* Render the grouped bind list for one device type (MKB or Controller).
  * filterCol: 0 = MKB, 1 = Controller. S306 rewrite replaces the old flat
  * 3-column table with per-group collapsing sections, a live search field,
  * and red-border conflict highlighting. */
-static void renderBindTable(s32 filterCol, const char *tableId)
+/* hideGroupMask: bit (1<<BindableGroup) skips that group (e.g. C-Buttons on controller). */
+static void renderBindTable(s32 filterCol, const char *tableId, u32 hideGroupMask)
 {
     /* Capture banner — sticky at the top of the list so the user doesn't
      * scroll away from it. */
@@ -1840,6 +2002,9 @@ static void renderBindTable(s32 filterCol, const char *tableId)
      * layout per group (all groups currently use the same 3-col layout
      * but future groups, e.g. toggle-on-release, can extend). */
     for (int g = 0; g < BG_COUNT; g++) {
+        if (hideGroupMask & (1u << g)) {
+            continue;
+        }
         /* Pre-count how many rows in this group pass the search filter
          * so we can hide empty groups. */
         int hits = 0;
@@ -2029,7 +2194,7 @@ static void renderSettingsControls(float scale)
             ImGui::TextDisabled("Key Bindings");
             ImGui::Separator();
 
-            renderBindTable(0, "##mkb_binds");
+            renderBindTable(0, "##mkb_binds", 0);
 
             ImGui::Spacing();
             if (PdButton("Reset Keyboard & Mouse to Defaults")) {
@@ -2067,41 +2232,76 @@ static void renderSettingsControls(float scale)
 
             ImGui::Spacing();
 
-            /* ---- Controller Settings ---- */
-            ImGui::TextDisabled("Controller");
+            /* ---- Sticks & analog ---- */
+            ImGui::TextDisabled("Sticks & analog");
             ImGui::Separator();
 
+            ImGui::TextWrapped(
+                "Deadzone uses a circular gate; analog output outside the deadzone is normalized so the "
+                "remaining physical travel still maps to the full 0.0-1.0 range before sensitivity is applied.");
+            ImGui::Spacing();
+
             {
-                f32 sens = actionmapGetStickSensitivity();
-                if (PdSliderFloat("Stick Sensitivity", &sens, 0.1f, 3.0f, "%.2f")) {
-                    actionmapSetStickSensitivity(sens);
+                int moveStick = actionmapGetMoveStickPhysicalLeft() ? 0 : 1;
+                const char *stickOpts[] = { "Left stick", "Right stick" };
+                if (PdCombo("Move", &moveStick, stickOpts, 2)) {
+                    actionmapSetMoveStickPhysicalLeft(moveStick == 0 ? 1 : 0);
+                    inputControllerSetSticksSwapped(0, moveStick == 0 ? 0 : 1);
                     configSave("pd.ini");
                 }
             }
 
             {
-                f32 dz = actionmapGetStickDeadzone();
-                if (PdSliderFloat("Stick Deadzone", &dz, 0.0f, 0.5f, "%.2f")) {
-                    actionmapSetStickDeadzone(dz);
+                ImGui::BeginDisabled();
+                if (actionmapGetMoveStickPhysicalLeft()) {
+                    ImGui::TextUnformatted("Look / aim: Right stick");
+                } else {
+                    ImGui::TextUnformatted("Look / aim: Left stick");
+                }
+                ImGui::EndDisabled();
+            }
+
+            {
+                f32 sensM = actionmapGetStickSensitivityMove();
+                if (PdSliderFloat("Move sensitivity", &sensM, 0.1f, 3.0f, "%.2f")) {
+                    actionmapSetStickSensitivityMove(sensM);
+                    configSave("pd.ini");
+                }
+            }
+            {
+                f32 dzM = actionmapGetStickDeadzoneMove();
+                if (PdSliderFloat("Move deadzone", &dzM, 0.0f, 0.5f, "%.2f")) {
+                    actionmapSetStickDeadzoneMove(dzM);
+                    configSave("pd.ini");
+                }
+            }
+            {
+                f32 sensA = actionmapGetStickSensitivityAim();
+                if (PdSliderFloat("Look sensitivity", &sensA, 0.1f, 3.0f, "%.2f")) {
+                    actionmapSetStickSensitivityAim(sensA);
+                    configSave("pd.ini");
+                }
+            }
+            {
+                f32 dzA = actionmapGetStickDeadzoneAim();
+                if (PdSliderFloat("Look deadzone", &dzA, 0.0f, 0.5f, "%.2f")) {
+                    actionmapSetStickDeadzoneAim(dzA);
                     configSave("pd.ini");
                 }
             }
 
             {
                 bool invertY = actionmapGetStickInvertY() != 0;
-                if (PdCheckbox("Invert Y (Stick)", &invertY)) {
+                if (PdCheckbox("Invert look (Y axis)", &invertY)) {
                     actionmapSetStickInvertY(invertY ? 1 : 0);
                     configSave("pd.ini");
                 }
             }
 
             {
-                s32 swapped = actionmapGetSwapSticks();
-                bool swap = (swapped != 0);
-                if (PdCheckbox("Swap Sticks", &swap)) {
-                    actionmapSetSwapSticks(swap ? 1 : 0);
-                    /* Keep legacy input.c in sync for stickCButtons */
-                    inputControllerSetSticksSwapped(0, swap ? 1 : 0);
+                s32 holdMs = actionmapGetUseHoldThresholdMs();
+                if (PdSliderInt("Use hold (interact vs reload)", &holdMs, 50, 2000, "%d ms")) {
+                    actionmapSetUseHoldThresholdMs(holdMs);
                     configSave("pd.ini");
                 }
             }
@@ -2109,11 +2309,19 @@ static void renderSettingsControls(float scale)
             ImGui::Spacing();
             ImGui::Spacing();
 
-            /* ---- Controller Bindings ---- */
-            ImGui::TextDisabled("Button Bindings");
+            /* ---- Visual controller map ---- */
+            ImGui::TextDisabled("Controller map");
+            ImGui::Separator();
+            renderControllerVisualMapper(scale, (1u << BG_CBUTTONS));
+
+            ImGui::Spacing();
+            ImGui::Spacing();
+
+            /* ---- Controller Bindings (C-Buttons hidden; use stick aim + modern layout) ---- */
+            ImGui::TextDisabled("Button bindings (table)");
             ImGui::Separator();
 
-            renderBindTable(1, "##ctrl_binds");
+            renderBindTable(1, "##ctrl_binds", (1u << BG_CBUTTONS));
 
             ImGui::Spacing();
             if (PdButton("Reset Controller to Defaults")) {

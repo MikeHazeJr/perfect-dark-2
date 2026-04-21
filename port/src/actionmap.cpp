@@ -27,6 +27,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
+#include <string.h> /* strtok */
 #include <PR/ultratypes.h>
 
 #include "actionmap.h"
@@ -112,8 +113,23 @@
  * Tuned for 1080p at 60Hz; the real sensitivity lives in the input system. */
 #define MOUSE_AIM_SCALE 0.003f
 
-/* Swap sticks: 0 = normal (L=move, R=aim), 1 = swapped */
+/* Swap sticks: 0 = normal (L=move, R=aim), 1 = swapped — kept for pd.ini + input.c */
 static s32 s_SwapSticks      = 0;
+
+/* Per-stick tuning (radial deadzone + sensitivity on analog output). */
+static f32 s_StickSensMove   = 1.0f;
+static f32 s_StickSensAim    = 1.0f;
+static f32 s_StickDzMove     = 0.15f;
+static f32 s_StickDzAim      = 0.15f;
+
+/* Hold/tap threshold for ACTION_USE (interact vs reload on same bind). */
+static s32 s_UseHoldThresholdMs = ACTION_USE_HOLD_THRESHOLD_MS;
+
+/* Optional per-action hold duration (ms). -1 = unset (USE falls back to s_UseHoldThresholdMs). */
+#define ACTIONMAP_HOLD_MS_MAX 2000
+#define HOLD_OVERRIDES_STR_MAX 512
+static char s_HoldOverridesIniStr[HOLD_OVERRIDES_STR_MAX];
+static s32 s_ActionHoldMsOverride[ACTION_COUNT];
 
 /* ============================================================
  * Self-contained VK ↔ name table for pd.ini serialisation.
@@ -356,9 +372,6 @@ static s32 s_CheatCount = 0;  /* how many entries are valid */
 #define BIND_STR_MAX 128
 static char s_BindStr[ACTIONMAP_MAX_PLAYERS][ACTION_COUNT][BIND_STR_MAX];
 
-/* Controller stick tuning — exposed to Controls menu via getter/setter API */
-static f32 s_StickSensitivity = 1.0f;   /* multiplier on stick axes (0.1 .. 3.0) */
-static f32 s_StickDeadzone    = 0.15f;  /* radial deadzone (0.0 .. 0.5) */
 static s32 s_StickInvertY     = 0;      /* 1 = negate AIM_Y for controller sticks */
 
 /* ============================================================
@@ -387,6 +400,29 @@ static inline f32 applyDeadzone(f32 raw, f32 dz)
         if (raw < dz) return 0.0f;
         return (raw - dz) / (1.0f - dz);
     }
+}
+
+/** 2D stick: circular deadzone in normalized space; outside dz, magnitude is
+ *  remapped so the rim of the deadzone is 0 and full deflection is |v|<=1
+ *  (before sensitivity). nx, ny in [-1,1]. */
+static void applyRadialStick2D(f32 nx, f32 ny, f32 dz, f32 sens, f32 *ox, f32 *oy)
+{
+    *ox = 0.0f;
+    *oy = 0.0f;
+    f32 m = sqrtf(nx * nx + ny * ny);
+    if (m < 1e-5f) {
+        return;
+    }
+    if (m <= dz) {
+        return;
+    }
+    f32 newMag = (m - dz) / (1.0f - dz);
+    if (newMag < 0.0f) {
+        return;
+    }
+    f32 scale = (newMag / m) * sens;
+    *ox = clampf(nx * scale, -1.0f, 1.0f);
+    *oy = clampf(ny * scale, -1.0f, 1.0f);
 }
 
 static inline f32 clampf(f32 v, f32 lo, f32 hi)
@@ -831,30 +867,34 @@ void actionmapPollFrame(void)
             s16 rx = SDL_GameControllerGetAxis(ctrl, rxAxis);
             s16 ry = SDL_GameControllerGetAxis(ctrl, ryAxis);
 
-            f32 flx = applyDeadzone(lx / 32767.0f, s_StickDeadzone) * s_StickSensitivity;
-            f32 fly = applyDeadzone(ly / 32767.0f, s_StickDeadzone) * s_StickSensitivity;
-            f32 frx = applyDeadzone(rx / 32767.0f, s_StickDeadzone) * s_StickSensitivity;
-            f32 fry = applyDeadzone(ry / 32767.0f, s_StickDeadzone) * s_StickSensitivity;
+            f32 nlx = lx / 32767.0f;
+            f32 nly = ly / 32767.0f;
+            f32 nrx = rx / 32767.0f;
+            f32 nry = ry / 32767.0f;
 
-            /* Negate Y: SDL Y+ = down, game expects Y+ = forward/up (N64 convention) */
-            fly = -fly;
-            fry = -fry;
+            /* Negate Y before radial processing: SDL Y+ = down, game Y+ = forward/up */
+            nly = -nly;
+            nry = -nry;
 
-            /* Optional controller Y-invert for aim axis */
+            f32 mvx, mvy, avx, avy;
+            applyRadialStick2D(nlx, nly, s_StickDzMove, s_StickSensMove, &mvx, &mvy);
+            applyRadialStick2D(nrx, nry, s_StickDzAim, s_StickSensAim, &avx, &avy);
+
+            /* Optional controller Y-invert for aim axis only */
             if (s_StickInvertY) {
-                fry = -fry;
+                avy = -avy;
             }
 
-            s_State[p][ACTION_AXIS_MOVE_X].value = clampf(flx, -1.0f, 1.0f);
-            s_State[p][ACTION_AXIS_MOVE_Y].value = clampf(fly, -1.0f, 1.0f);
-            s_State[p][ACTION_AXIS_AIM_X].value  = clampf(frx, -1.0f, 1.0f);
-            s_State[p][ACTION_AXIS_AIM_Y].value  = clampf(fry, -1.0f, 1.0f);
+            s_State[p][ACTION_AXIS_MOVE_X].value = clampf(mvx, -1.0f, 1.0f);
+            s_State[p][ACTION_AXIS_MOVE_Y].value = clampf(mvy, -1.0f, 1.0f);
+            s_State[p][ACTION_AXIS_AIM_X].value  = clampf(avx, -1.0f, 1.0f);
+            s_State[p][ACTION_AXIS_AIM_Y].value  = clampf(avy, -1.0f, 1.0f);
 
             /* Mark as held if axis is significantly deflected (sign-agnostic) */
-            s_State[p][ACTION_AXIS_MOVE_X].held = (flx != 0.0f) ? 1 : 0;
-            s_State[p][ACTION_AXIS_MOVE_Y].held = (fly != 0.0f) ? 1 : 0;
-            s_State[p][ACTION_AXIS_AIM_X].held  = (frx != 0.0f) ? 1 : 0;
-            s_State[p][ACTION_AXIS_AIM_Y].held  = (fry != 0.0f) ? 1 : 0;
+            s_State[p][ACTION_AXIS_MOVE_X].held = (mvx != 0.0f) ? 1 : 0;
+            s_State[p][ACTION_AXIS_MOVE_Y].held = (mvy != 0.0f) ? 1 : 0;
+            s_State[p][ACTION_AXIS_AIM_X].held  = (avx != 0.0f) ? 1 : 0;
+            s_State[p][ACTION_AXIS_AIM_Y].held  = (avy != 0.0f) ? 1 : 0;
 
             if (p == 0) {
                 p0CtrlDroveAxis = 1;
@@ -863,8 +903,8 @@ void actionmapPollFrame(void)
             /* DIAG: Log raw and processed axis values every ~120 frames (verbose-only). */
             if (sysLogGetVerbose() && (s_DiagFrameCount % 120) == 1 && p == 0 &&
                 (lx != 0 || ly != 0 || rx != 0 || ry != 0)) {
-                sysLogPrintf(LOG_NOTE, "DIAG axes p%d: raw lx=%d ly=%d rx=%d ry=%d -> flx=%.3f fly=%.3f frx=%.3f fry=%.3f",
-                             p, (int)lx, (int)ly, (int)rx, (int)ry, flx, fly, frx, fry);
+                sysLogPrintf(LOG_NOTE, "DIAG axes p%d: raw lx=%d ly=%d rx=%d ry=%d -> mv=%.3f,%.3f av=%.3f,%.3f",
+                             p, (int)lx, (int)ly, (int)rx, (int)ry, mvx, mvy, avx, avy);
             }
         } else if (ctrl && menuActive) {
             /* Menu is open: zero gameplay axes to prevent camera/movement behind menu */
@@ -1201,7 +1241,9 @@ f32 actionHoldProgress(s32 player, InputAction action, s32 threshold_ms)
     if (!st->held || st->down_time_ms == 0) return 0.0f;
     u32 now = SDL_GetTicks();
     s32 elapsed = (s32)(now - st->down_time_ms);
-    if (elapsed <= 0) return 0.0f;
+    /* Only reject clock skew; allow elapsed==0 to show a sliver of fill on
+     * the first frame so the hold ring does not stay empty until a full ms. */
+    if (elapsed < 0) return 0.0f;
     if (elapsed >= threshold_ms) return 1.0f;
     return (f32)elapsed / (f32)threshold_ms;
 }
@@ -1343,8 +1385,61 @@ void actionmapBind(InputMappingContext *imc, s32 player,
     }
 }
 
+static void actionmapSerializeHoldOverridesToIniStr(void)
+{
+    char *p = s_HoldOverridesIniStr;
+    char *end = s_HoldOverridesIniStr + HOLD_OVERRIDES_STR_MAX - 1;
+    *p = '\0';
+    for (s32 a = 0; a < ACTION_COUNT; a++) {
+        if (s_ActionHoldMsOverride[a] < 0) {
+            continue;
+        }
+        size_t room = (size_t)(end - p + 1);
+        if (room < 8) {
+            break;
+        }
+        int w = snprintf(p, room, "%s%d:%d",
+                         p > s_HoldOverridesIniStr ? "," : "", (int)a,
+                         (int)s_ActionHoldMsOverride[a]);
+        if (w < 0 || (size_t)w >= room) {
+            break;
+        }
+        p += w;
+    }
+    if (p <= end) {
+        *p = '\0';
+    } else {
+        s_HoldOverridesIniStr[HOLD_OVERRIDES_STR_MAX - 1] = '\0';
+    }
+}
+
+static void actionmapParseHoldOverridesFromIniStr(void)
+{
+    for (s32 a = 0; a < ACTION_COUNT; a++) {
+        s_ActionHoldMsOverride[a] = -1;
+    }
+    if (s_HoldOverridesIniStr[0] == '\0') {
+        return;
+    }
+    char work[HOLD_OVERRIDES_STR_MAX];
+    strncpy(work, s_HoldOverridesIniStr, sizeof(work) - 1);
+    work[sizeof(work) - 1] = '\0';
+    char *tok = strtok(work, ",");
+    while (tok) {
+        int aid = -1;
+        int ms = -1;
+        if (sscanf(tok, "%d : %d", &aid, &ms) >= 2 || sscanf(tok, "%d:%d", &aid, &ms) >= 2) {
+            if (aid >= 0 && aid < (int)ACTION_COUNT && ms >= 0 && ms <= ACTIONMAP_HOLD_MS_MAX) {
+                s_ActionHoldMsOverride[aid] = ms;
+            }
+        }
+        tok = strtok(NULL, ",");
+    }
+}
+
 void actionmapSaveBinds(void)
 {
+    actionmapSerializeHoldOverridesToIniStr();
     for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
         for (s32 a = 0; a < ACTION_COUNT; a++) {
             buildBindStr(p, (InputAction)a,
@@ -1430,6 +1525,8 @@ void actionmapLoadBinds(void)
             }
         }
     }
+
+    actionmapParseHoldOverridesFromIniStr();
 }
 
 /* ============================================================
@@ -1461,11 +1558,82 @@ void actionmapClearCheat(void)
  * Stick tuning getter/setter API
  * ============================================================ */
 
-f32  actionmapGetStickSensitivity(void) { return s_StickSensitivity; }
-void actionmapSetStickSensitivity(f32 v) { s_StickSensitivity = clampf(v, 0.1f, 3.0f); }
+f32  actionmapGetStickSensitivity(void) { return s_StickSensMove; }
+void actionmapSetStickSensitivity(f32 v)
+{
+    f32 c = clampf(v, 0.1f, 3.0f);
+    s_StickSensMove = c;
+    s_StickSensAim  = c;
+}
 
-f32  actionmapGetStickDeadzone(void) { return s_StickDeadzone; }
-void actionmapSetStickDeadzone(f32 v) { s_StickDeadzone = clampf(v, 0.0f, 0.5f); }
+f32  actionmapGetStickDeadzone(void) { return s_StickDzMove; }
+void actionmapSetStickDeadzone(f32 v)
+{
+    f32 c = clampf(v, 0.0f, 0.5f);
+    s_StickDzMove = c;
+    s_StickDzAim  = c;
+}
+
+f32  actionmapGetStickSensitivityMove(void) { return s_StickSensMove; }
+void actionmapSetStickSensitivityMove(f32 v) { s_StickSensMove = clampf(v, 0.1f, 3.0f); }
+f32  actionmapGetStickSensitivityAim(void) { return s_StickSensAim; }
+void actionmapSetStickSensitivityAim(f32 v) { s_StickSensAim = clampf(v, 0.1f, 3.0f); }
+f32  actionmapGetStickDeadzoneMove(void) { return s_StickDzMove; }
+void actionmapSetStickDeadzoneMove(f32 v) { s_StickDzMove = clampf(v, 0.0f, 0.5f); }
+f32  actionmapGetStickDeadzoneAim(void) { return s_StickDzAim; }
+void actionmapSetStickDeadzoneAim(f32 v) { s_StickDzAim = clampf(v, 0.0f, 0.5f); }
+
+s32  actionmapGetUseHoldThresholdMs(void) { return s_UseHoldThresholdMs; }
+void actionmapSetUseHoldThresholdMs(s32 ms)
+{
+    if (ms < 50) ms = 50;
+    if (ms > ACTIONMAP_HOLD_MS_MAX) ms = ACTIONMAP_HOLD_MS_MAX;
+    s_UseHoldThresholdMs = ms;
+}
+
+s32 actionmapGetActionHoldMsOverride(InputAction action)
+{
+    if (action < 0 || action >= ACTION_COUNT) return -1;
+    return s_ActionHoldMsOverride[action];
+}
+
+void actionmapSetActionHoldMsOverride(InputAction action, s32 ms)
+{
+    if (action < 0 || action >= ACTION_COUNT) return;
+    if (ms < 0) {
+        s_ActionHoldMsOverride[action] = -1;
+        return;
+    }
+    if (ms < 50) {
+        ms = 50;
+    }
+    if (ms > ACTIONMAP_HOLD_MS_MAX) {
+        ms = ACTIONMAP_HOLD_MS_MAX;
+    }
+    s_ActionHoldMsOverride[action] = ms;
+}
+
+s32 actionmapGetEffectiveHoldMs(InputAction action)
+{
+    if (action < 0 || action >= ACTION_COUNT) return 0;
+    if (s_ActionHoldMsOverride[action] >= 0) {
+        return s_ActionHoldMsOverride[action];
+    }
+    if (action == ACTION_USE) {
+        return s_UseHoldThresholdMs;
+    }
+    return 0;
+}
+
+void actionmapSetMoveStickPhysicalLeft(s32 useLeft)
+{
+    s_SwapSticks = useLeft ? 0 : 1;
+}
+
+s32 actionmapGetMoveStickPhysicalLeft(void)
+{
+    return s_SwapSticks ? 0 : 1;
+}
 
 s32  actionmapGetStickInvertY(void) { return s_StickInvertY; }
 void actionmapSetStickInvertY(s32 v) { s_StickInvertY = v ? 1 : 0; }
@@ -1808,11 +1976,23 @@ void actionmapInit(void)
         }
     }
 
-    /* Register stick tuning variables with config system */
-    configRegisterFloat("ActionMap.StickSensitivity", &s_StickSensitivity, 0.1f, 3.0f);
-    configRegisterFloat("ActionMap.StickDeadzone",    &s_StickDeadzone,    0.0f, 0.5f);
+    /* Register stick tuning variables with config system.
+     * StickSensitivity/StickDeadzone = move stick (legacy key names). */
+    configRegisterFloat("ActionMap.StickSensitivity",     &s_StickSensMove, 0.1f, 3.0f);
+    configRegisterFloat("ActionMap.StickDeadzone",      &s_StickDzMove,   0.0f, 0.5f);
+    configRegisterFloat("ActionMap.StickSensitivityAim",  &s_StickSensAim,  0.1f, 3.0f);
+    configRegisterFloat("ActionMap.StickDeadzoneAim",     &s_StickDzAim,    0.0f, 0.5f);
     configRegisterInt("ActionMap.StickInvertY",       &s_StickInvertY,     0, 1);
     configRegisterInt("ActionMap.SwapSticks",          &s_SwapSticks,      0, 1);
+    configRegisterInt("ActionMap.UseHoldThresholdMs",  &s_UseHoldThresholdMs, 50,
+                        ACTIONMAP_HOLD_MS_MAX);
+
+    for (s32 a = 0; a < ACTION_COUNT; a++) {
+        s_ActionHoldMsOverride[a] = -1;
+    }
+    s_HoldOverridesIniStr[0] = '\0';
+    configRegisterString("ActionMap.HoldMsOverrides", s_HoldOverridesIniStr,
+                         HOLD_OVERRIDES_STR_MAX);
 
     /* Activate only the gameplay context by default.
      * Menu IMC is activated/deactivated by the input context push/pop system

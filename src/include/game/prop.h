@@ -36,6 +36,18 @@ struct prop *propFindForInteract(bool eyespy);
 /* S311: short English label ("Pick up", "Open", "Access", "Use") for the
  * currently-targeted interact prop, or NULL if none.  Read-only. */
 const char *propInteractPromptLabel(void);
+/**
+ * Effective hold duration (ms) for the current g_InteractProp interact prompt:
+ * actionmapGetEffectiveHoldMs(ACTION_USE) (global and/or per-action override in
+ * ActionMap.HoldMsOverrides) plus optional per-category extra time — keeps HUD
+ * ring and bondmove hold/tap in sync.
+ */
+s32 propInteractPromptHoldThresholdMs(void);
+/**
+ * ACTION_USE hold/tap threshold for bondmove: full prompt path when targeted,
+ * otherwise actionmapGetEffectiveHoldMs(ACTION_USE).
+ */
+s32 propGetActionUseHoldThresholdMs(void);
 void propFindForUplink(void);
 bool currentPlayerInteract(bool eyespy);
 void propPause(struct prop *prop);

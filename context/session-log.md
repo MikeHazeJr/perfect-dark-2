@@ -1,8 +1,79 @@
 
 # Session Log (Active)
 
-> **S283–S399** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S283–S406** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S398 — 2026-04-21 — Hold ring module + context doc
+
+Shared **`pdguiDrawHoldProgressRingAroundBox`** in `port/include/pdgui_hold_ring.h` +
+`port/fast3d/pdgui_hold_ring.cpp`; `pdgui_glyphs.cpp` delegates to it. Design:
+[context/designs/pdgui-hold-ring.md](designs/pdgui-hold-ring.md) (per-target `propInteractPromptHoldThresholdMs` tuning,
+bondmove sync, reuse guidance). README designs table + `prop.c` doc pointer.
+
+---
+
+## Session S399 — 2026-04-21 — Clarify weapon radial vs hold ring (context)
+
+Weapon/gadget wheel is **active menu** (`amRender` / `activemenu.c`, GBI), not `pdgui_hold_ring`.
+New [context/designs/activemenu-radial-architecture.md](designs/activemenu-radial-architecture.md); cross-link from
+pdgui-hold-ring.md + README. **ImGui replacement** of the wheel is a separate, larger task (shared data + input
+with `activemenutick.c`).
+
+---
+
+## Session S406 — 2026-04-20 — PC USE: tap mount hoverbike, hold pickup
+
+- **Cause**: Twin-stick `ACTION_USE` tap synthesized **X** (reload); only **long** USE synthesized **A** (activate). `propobjInteract` runs **TryMount** then **Grab** — long-press often failed mount angle → **pickup** worked, **tap never activated**.
+- **`src/include/types.h`**: `player.pcinteractusekind` (PC: 1=tap mount, 2=hold grab).
+- **`src/game/bondmove.c`**: Short **hold** of USE maps to **A_BUTTON** (not tap→X); long hold unchanged; each frame clear `pcinteractusekind`; on `btapcount` set kind from `actionHoldConsumed(ACTION_USE)`; PC **always** `ACTIVATE` only (no tap+reload combo). **`src/game/propobj.c`**: For **OBJTYPE_HOVERBIKE** + **CONTROLMODE_PC**, tap → `currentPlayerTryMountHoverbike` only; hold → `bmoveGrabProp` only; else legacy mount-then-grab.
+- **Reload**: `ACTION_RELOAD` (R) or long-USE release with no prompt (unchanged).
+- **Build**: Not verified in this environment (ccache CreateProcess); verify on dev MSYS.
+
+---
+
+## Session S405 — 2026-04-20 — Menu input doc: clarify modal close vs controller X
+
+- **`context/designs/menu-controller-input-constraints.md`**: §2.3 / §6.2 / §6.10 — Modal dismiss + focus restore: **Back** = `ACTION_CANCEL_USE` (B / Esc defaults); **title-bar close** on **window chrome** only. Explicitly **not** controller face **X** or keyboard **X** (unless rebound to Cancel). Bot row glyph: **context-menu** action (e.g. face X) disambiguated from window close.
+
+---
+
+## Session S404 — 2026-04-20 — Match setup UX spec: panel order, teams, music, countdown
+
+- **`context/designs/menu-controller-input-constraints.md`**: §2.3 extended — modal close via **X**/back restores focus to **invoker** on parent. §3.6 **Should** — **smooth scrolling** for menu scrollbars. §6 — left panel order **Arena → Scenario → Weapon Set → Options**; Weapon Set **dropdown**, **alphabetized**, smooth scroll; **Teams** on → default **2 teams** + **Players Together** vs **Players Split** (bot distribution rules for 3 teams / 2 players); **color** team names; free manual team edits override auto; **Select Tunes**: catalog + **enabled** mods (persistent/default-on for new mods), row/A = **playlist only**, play button = **bounded preview**, **stop on pop**; **Start Match** solo + online **countdown parity** (3-2-1 + UX audio), fix longer/buggy online timer. **§6** scope includes `pdgui_menu_mpsettings.cpp`.
+
+---
+
+## Session S403 — 2026-04-20 — Menu input doc: Combat Simulator reference + cross-panel nav
+
+- **`context/designs/menu-controller-input-constraints.md`**: §2.8 **Must** — multi-column layouts: panels are containers; **Left/Right** crosses columns without focusing panel chrome. §3.5 **Should** — contextual **glyph hints** (e.g. lower-right) for rows with extra actions. New **§6 Combat Simulator**: seamless L/R nav; bot row glyphs (multi-select vs context menu); **A** opens full bot settings, **X** context menu; **“Random name”** copy; character list **dedupe** + fix placeholder labels (Skedar/Dr. Carroll); **Joanna**/faction **grouping**; explicit **Player handicaps** copy; **Swat/Hardcore** (health-only, no shield) in match config + **server authoritative** + protocol bump note. Prior **§6 Applying** renumbered to **§7**.
+
+---
+
+## Session S402 — 2026-04-20 — Mission Select design: tabs, gold Challenges, modded filters
+
+- **`context/designs/menu-controller-input-constraints.md`**: §2 **Must** adds locked missions **filtered only** (no grey rows). §5 — **Tabs**: Campaign / **Challenges** / **Modded missions**; **Challenges** uses new semantic **theme Gold** (palette + loader + accessors, not ad-hoc ImU32); **default tab** on open = Challenges (gold) unless code documents an override. **Modded** tab: sort/filter by **mod pack** and/or **creator** before listing. Locked missions never appear in any tab list.
+
+---
+
+## Session S401 — 2026-04-20 — Menu controller input design doc (Mission Select reference)
+
+- **New** `context/designs/menu-controller-input-constraints.md`: reusable **Must/Should/Must not** for progressive focus, modal drill-down, cancel restores parent selection, pointer sync on programmatic focus, save-backed defaults, list visibility (completed + next mission). **§5** normative **Mission Select** example: horizontal mission tiles, modal with top info + difficulties in one row, default = highest beaten, staged Submit for controller, two-step mouse path, B closes modal with highlight preserved.
+- **Link**: [menu-stack-architecture.md](designs/menu-stack-architecture.md) Related list points to the new doc.
+
+**Next**: Add more §5 reference flows as they are agreed; implement Mission Select against §5 in `pdgui_menu_solomission.cpp` (or dedicated renderer).
+
+---
+
+## Session S400 — 2026-04-20 — Settings Controller tab: sticks, visual map, hide C-buttons
+
+- **`port/fast3d/pdgui_menu_mainmenu.cpp`**: Controller tab now uses per-stick move/look sensitivity and deadzone (`actionmapGet/SetStick*Move/Aim`), Move combo + implied look stick, invert look (Y), **Use hold (interact vs reload)** ms slider (`actionmapGet/SetUseHoldThresholdMs`), deadzone normalization explained in UI. **Controller map**: draggable action list + stylized pad with drop targets (primary bind = slot 0); C-Buttons group hidden from controller bind table (`renderBindTable(..., (1u << BG_CBUTTONS))`). Engine radial deadzone + remap was already in `actionmap.cpp` from prior work.
+- **Variable hold length (`port/src/actionmap.cpp`, `prop.c`)**: `actionmapGetEffectiveHoldMs` / `actionmapGet/SetActionHoldMsOverride` — optional per-`InputAction` hold duration (ms), persisted as `ActionMap.HoldMsOverrides` (`24:450` style comma list). Global **Use** hold and overrides clamp to **50–2000 ms** (2 s max). Interact prompt / bondmove path uses effective ms for ACTION_USE.
+- **Build**: Local `ninja` failed in this environment (`ccache` CreateProcess — toolchain path); verify with MSYS `ninja -C Build pd` on dev machine.
+
+**Next**: Playtest controller nav in Settings, drag-drop binds, interact/reload timing vs hold slider.
+
+---
 
 ## Session S399 — 2026-04-20 — B-207 manifest heads + B-213 Skin Editor charpreview
 

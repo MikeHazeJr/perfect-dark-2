@@ -38,6 +38,7 @@
 #include "forge/forge_core.h"
 #include "pdgui_forge.h"
 #include "game/lv.h"
+#include "game/options.h"
 #include "game/timing.h"
 #include "game/music.h"
 #include "game/stubs/game_175f50.h"
@@ -299,6 +300,14 @@ s32 g_MainIsBooting = 1;
 s32 pdmainGetLvFrame60(void)
 {
 	return (s32)g_Vars.lvframe60;
+}
+
+s32 pdmainGetInteractPromptActionPlayer(void)
+{
+	if (!g_Vars.currentplayerstats) {
+		return 0;
+	}
+	return (s32)optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
 }
 
 void mainInit(void)

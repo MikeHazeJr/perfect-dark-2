@@ -26,6 +26,14 @@ extern "C" {
 #endif
 
 /* ============================================================
+ * Gameplay thresholds (shared: bondmove hold/tap + UI)
+ * ============================================================ */
+
+/** Default hold/tap split for ACTION_USE (interact vs reload). Runtime value from
+ *  actionmapGetUseHoldThresholdMs() / Settings → Controller. */
+#define ACTION_USE_HOLD_THRESHOLD_MS 300
+
+/* ============================================================
  * Capacities
  * ============================================================ */
 
@@ -353,6 +361,34 @@ void actionmapSetStickInvertY(s32 v);
 
 void actionmapSetSwapSticks(s32 swapped);
 s32  actionmapGetSwapSticks(void);
+
+/** 1 = physical left stick drives movement; 0 = physical right stick drives movement
+ *  (look uses the other stick). Same information as swap-sticks, explicit for UI. */
+void actionmapSetMoveStickPhysicalLeft(s32 useLeft);
+s32  actionmapGetMoveStickPhysicalLeft(void);
+
+f32  actionmapGetStickSensitivityMove(void);
+void actionmapSetStickSensitivityMove(f32 v);
+f32  actionmapGetStickSensitivityAim(void);
+void actionmapSetStickSensitivityAim(f32 v);
+f32  actionmapGetStickDeadzoneMove(void);
+void actionmapSetStickDeadzoneMove(f32 v);
+f32  actionmapGetStickDeadzoneAim(void);
+void actionmapSetStickDeadzoneAim(f32 v);
+
+s32  actionmapGetUseHoldThresholdMs(void);
+void actionmapSetUseHoldThresholdMs(s32 ms);
+
+/** Per-action hold length (ms) when gameplay treats an action as hold-to-complete.
+ *  -1 = no override (ACTION_USE uses ActionMap.UseHoldThresholdMs; others: see
+ *  actionmapGetEffectiveHoldMs). Non-negative values persist in pd.ini as
+ *  ActionMap.HoldMsOverrides (comma-separated "action_id:ms"). Values are clamped
+ *  to at most 2000 ms (2 s). */
+s32 actionmapGetActionHoldMsOverride(InputAction action);
+void actionmapSetActionHoldMsOverride(InputAction action, s32 ms);
+
+/** Resolved hold window (ms): override if set, else global default for ACTION_USE, else 0. */
+s32 actionmapGetEffectiveHoldMs(InputAction action);
 
 /* ============================================================
  * Default IMC singletons

@@ -16591,6 +16591,29 @@ bool propobjInteract(struct prop *prop)
 		} else {
 			result = propPickupByPlayer(prop, 1);
 		}
+	} else if (obj->type == OBJTYPE_HOVERBIKE
+			&& optionsGetControlMode(g_Vars.currentplayerstats->mpindex) == CONTROLMODE_PC) {
+		/* PC: tap USE = mount only; long-hold USE = pickup only (see bondmove ACTION_USE synthesis). */
+		if (g_Vars.currentplayer->pcinteractusekind == 2) {
+			if ((obj->flags3 & OBJFLAG3_GRABBABLE)
+					&& g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK
+					&& bmoveGetCrouchPos() == CROUCHPOS_STAND
+					&& g_Vars.currentplayer->crouchoffset == 0
+					&& g_Vars.currentplayer->onladder == false) {
+				bmoveGrabProp(prop);
+			}
+		} else if (g_Vars.currentplayer->pcinteractusekind == 1) {
+			currentPlayerTryMountHoverbike(prop);
+		} else {
+			if (currentPlayerTryMountHoverbike(prop) == false
+					&& (obj->flags3 & OBJFLAG3_GRABBABLE)
+					&& g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK
+					&& bmoveGetCrouchPos() == CROUCHPOS_STAND
+					&& g_Vars.currentplayer->crouchoffset == 0
+					&& g_Vars.currentplayer->onladder == false) {
+				bmoveGrabProp(prop);
+			}
+		}
 	} else if (currentPlayerTryMountHoverbike(prop) == false
 			&& (obj->flags3 & OBJFLAG3_GRABBABLE)
 			&& g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK
