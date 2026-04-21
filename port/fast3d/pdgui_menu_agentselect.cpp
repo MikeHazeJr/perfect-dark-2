@@ -248,15 +248,12 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         return 1;
     }
 
+    menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
+
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
         s_ConfirmMode = CONFIRM_NONE;
         s_ConfirmIdx = -1;
-
-        /* S300: pool attaches ctx to the MENU_TYPE_AGENT_SELECT slot
-         * (already acquired by menuPushDialog). */
-        menupoolAcquireDialog(menupoolDialogDef(dialog),
-                              &g_CtxImGuiMenu);
 
         /* Agent Select is pre-sign-in: reset to base defaults so the
          * screen never shows a previous agent's custom theme/chrome/font.

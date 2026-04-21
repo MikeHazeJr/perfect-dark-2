@@ -594,6 +594,8 @@ void lvReset(s32 stagenum)
 		utilsReset();
 		casingsReset();
 
+		/* B-219: first pass loads intro weapons via playerReset (INTROCMD_*); second
+		 * pass below calls playerSpawn (MP spawn-with-weapon). Keep those in sync. */
 		for (i = 0; i < PLAYERCOUNT(); i++) {
 			if (!g_Vars.players[i]) continue;
 			setCurrentPlayerNum(i);

@@ -2983,13 +2983,12 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         return;
     }
 
+    /* S300: attach ctx every frame (ImGui can reuse ##room_interior without
+     * IsWindowAppearing after stage transitions — same class as main menu). */
+    menupoolAcquire(MENU_TYPE_ROOM, NULL, &g_CtxImGuiMenu);
+
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
-        /* S300: pure-ImGui menu with no dialogdef backing — acquire by type.
-         * If ctx is already active (solo mode, main menu owns it), the pool
-         * records shared mode and won't pop on release. In network mode the
-         * pool pushes ctx and owns the pop. */
-        menupoolAcquire(MENU_TYPE_ROOM, NULL, &g_CtxImGuiMenu);
         /* S352: reset portrait cache on every room open */
         lobbyPortraitsReset();
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room OPEN (solo=%d)",

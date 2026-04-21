@@ -2221,18 +2221,6 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 
 	g_Vars.currentplayer->bondactivateorreload = 0;
 
-	if (controlmode == CONTROLMODE_PC && g_Vars.currentplayer) {
-		s32 pi = actionPlayer;
-		/* B-221.3: classify short USE as tap on release, then mount/grab hoverbike. */
-		if (actionReleased(pi, ACTION_USE) && !actionHoldConsumed(pi, ACTION_USE)) {
-			s32 useThresh = propGetActionUseHoldThresholdMs();
-
-			if (actionLastGestureHoldMs(pi, ACTION_USE) < useThresh) {
-				propobjPcHoverbikeTapMountOnUseRelease(pi);
-			}
-		}
-	}
-
 	g_Vars.currentplayer->pcinteractusekind = 0;
 
 	s32 usereloads = (controlmode != CONTROLMODE_PC);
@@ -2247,16 +2235,40 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 		s32 holdFire = (controlmode == CONTROLMODE_PC) &&
 			actionHoldConsumed(actionPlayer, ACTION_USE);
 		if (controlmode == CONTROLMODE_PC) {
-			/* 1 = tap/short USE (mount), 2 = long-hold USE (pickup) — propobjInteract + hoverbike */
+			/* B-221.3 (CoWork): btapcount fires on frame 0 of USE (~16ms), so
+			 * pcinteractusekind would always start as tap and lv.c would dispatch
+			 * JO_ACTION_ACTIVATE before the hold threshold. Defer ACTIVATE until
+			 * hold consumes (here) or USE release (block after this). */
 			g_Vars.currentplayer->pcinteractusekind = holdFire ? 2 : 1;
-			g_Vars.currentplayer->bondactivateorreload |= JO_ACTION_ACTIVATE;
+			if (holdFire) {
+				g_Vars.currentplayer->bondactivateorreload |= JO_ACTION_ACTIVATE;
+				bmoveHandleActivate();
+			}
 		} else if (holdFire || !usereloads) {
 			g_Vars.currentplayer->bondactivateorreload |= JO_ACTION_ACTIVATE;
 		} else {
 			g_Vars.currentplayer->bondactivateorreload |= JO_ACTION_ACTIVATE | JO_ACTION_RELOAD;
 		}
 
-		bmoveHandleActivate();
+		if (controlmode != CONTROLMODE_PC) {
+			bmoveHandleActivate();
+		}
+	}
+
+	if (controlmode == CONTROLMODE_PC && g_Vars.currentplayer) {
+		s32 pi = actionPlayer;
+		/* B-221.3: short USE — dispatch activate after release so doors/taps and
+		 * hoverbike (propobjPcHoverbikeTapMountOnUseRelease) align with gesture. */
+		if (actionReleased(pi, ACTION_USE) && !actionHoldConsumed(pi, ACTION_USE)) {
+			s32 useThresh = propGetActionUseHoldThresholdMs();
+
+			if (actionLastGestureHoldMs(pi, ACTION_USE) < useThresh) {
+				propobjPcHoverbikeTapMountOnUseRelease(pi);
+				g_Vars.currentplayer->pcinteractusekind = 1;
+				g_Vars.currentplayer->bondactivateorreload |= JO_ACTION_ACTIVATE;
+				bmoveHandleActivate();
+			}
+		}
 	}
 
 	if (!movedata.invertpitch) {

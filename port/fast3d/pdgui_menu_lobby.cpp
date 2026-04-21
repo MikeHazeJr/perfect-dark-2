@@ -40,6 +40,8 @@
 #include "system.h"
 #include "hub.h"
 #include "room.h"
+#include "inputctx.h"
+#include "menupool.h"
 
 extern "C" {
 
@@ -149,9 +151,12 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
                             | ImGuiWindowFlags_NoBackground;
 
     if (!ImGui::Begin("##social_lobby", nullptr, wflags)) {
+        menupoolRelease(MENU_TYPE_SOCIAL_LOBBY);
         ImGui::End();
         return;
     }
+
+    menupoolAcquire(MENU_TYPE_SOCIAL_LOBBY, NULL, &g_CtxImGuiMenu);
 
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();

@@ -4,15 +4,34 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S437 — 2026-04-21 — B-221.4 / B-221.5 + pool (social lobby, team setup)
+
+- **B-221.4 (`pdgui_menu_mainmenu.cpp`):** Controller visual mapper zones called `ImGui::SetCursorPos` with fractions of `padW`/`padH` while the pad art was anchored at `GetCursorScreenPos()` — hit boxes lived at the wrong place in the child window, so drag-drop and right-click clear felt broken. `renderOneCtrlPadZoneSplit` now takes `padOrigin` (screen space) and uses **`SetCursorScreenPos`**.
+- **B-221.5 (`actionmap.cpp` `fireVk`):** When several actions in the **same** active IMC share one VK, the winner is the mapping with the **lowest trigger index** (Bind 1 before Bind 2), then lower `InputAction` enum as tie-break (replaces “first `ACTION_*` scan order wins”).
+- **Menu pool:** `MENU_TYPE_SOCIAL_LOBBY` in `menupool.h` / `menupool.c`; `pdgui_menu_lobby.cpp` calls `menupoolAcquire` after `Begin` succeeds and `menupoolRelease` when `Begin` is false. `pdgui_menu_teamsetup.cpp`: `menupoolAcquireDialog` / `menupoolReleaseDialog` on cull path (same S300 pattern as MP setup). `menupoolInit`: register **`g_MpAutoTeamMenuDialog`** as `MENU_TYPE_MP_TEAM_SETUP` beside `g_MpTeamsMenuDialog` so pool + `menuCloseDialog` resolve the auto-team entry point.
+- **Build:** verify on MSYS2 (`devtools/build-headless.ps1` or local `ninja -C Build pd`); agent shell may still fail on `ccache` CreateProcess.
+
+## Session S436 — 2026-04-21 — PD2_FixPlan_420Bugs.docx propagation (menus + B-222 scrim)
+
+- **Source:** `context/PD2_FixPlan_420Bugs.docx` (extracted `word/document.xml` for text). B-217–B-220 and core B-221/B-222 gameplay fixes were already on branch; this pass completes **doc propagation** items.
+- **`menupoolAcquire*` every frame after `Begin` (not only `IsWindowAppearing`):** `pdgui_menu_mppause.cpp`, `mpsetup.cpp`, `mpadvanced.cpp`, `mpsettings.cpp`, `playerconfig.cpp`, `botsetup.cpp`, `agentselect.cpp`, `cheats.cpp`, `solomission.cpp` (solo pause), `training.cpp` (FR weapon list), `mainmenu.cpp` (CI settings redirect, dead P2, cinema), `room.cpp` (`MENU_TYPE_ROOM`). Prevents `g_CtxImGuiMenu` staying unbound when ImGui reuses a window after transitions (`pdguiIsActive` false → interact prompt / gameplay HUD bleed).
+- **B-222 pause dim:** `pdgui_menu_pausemenu.cpp` — scrim only when networked **or** solo `pdguiPauseGetPaused()` is PAUSED/GAMEOVER (per fix plan; avoids unconditional dim if pause flag desyncs).
+
+## Session S435 — 2026-04-21 — CI main menu vs interact prompt
+
+- **`port/fast3d/pdgui_menu_mainmenu.cpp`:** Call `menupoolAcquireDialog(..., &g_CtxImGuiMenu)` every frame after `ImGui::Begin("##main_menu")` succeeds, not only inside `IsWindowAppearing`. Fixes Hold X / interact HUD drawing over the main menu when ImGui reuses the window after a CI stage load without a new Appearing frame (input stack top stayed gameplay).
+
 ## Session S434 — 2026-04-21 — 4/20 stability batch (B-217 through B-222)
 
-- **B-219** (`playerreset.c`): skip `INTROCMD_WEAPON` when norm MP + `MPOPTION_SPAWNWITHWEAPON` so spawn fallback owns loadout (no HUD vs FP weapon split).
+- **B-219** (`playerreset.c`, `lv.c` comment): CoWork init trace — `lv.c` loop 1 `playerReset` / `INTROCMD_WEAPON` vs loop 2 `playerSpawn` + queued `bgunEquipWeapon2` / `bgunTickSwitch2` timing; skip intro weapon when norm MP + `MPOPTION_SPAWNWITHWEAPON`.
 - **B-218** (`mpspawn_orchestrate.c`, `bot.c`): relax iters 20, min_sep floor 50, duplicate pool assignments invalidate bot cache + ERROR log; proximity discard of stale orchestration index.
-- **B-221.1 through B-221.3, B-221.6** (`propobj.c`, `bondmove.c`, `actionmap.cpp`, `pdgui_interact_prompt.cpp`): PC single-tap hoverbike mount; tap mount on USE release; hold ring grace or pin plus smoothed UI; `ACTION_SCORECARD` not gameplay-only.
-- **B-222** (`pdgui_backend.cpp`, `pdgui_menu_mpingame.cpp`): ImGui NewFrame and Render during live MP; killfeed gated on `pdguiActiveMenuIsOpen` only; lower-left layout.
+- **B-221.1 through B-221.3, B-221.6** (`propobj.c`, `bondmove.c`, `actionmap.cpp`, `pdgui_interact_prompt.cpp`): PC single-tap hoverbike mount; B-221.3 — defer PC `JO_ACTION_ACTIVATE`/`bmoveHandleActivate` until hold consumed or USE release (not press-frame `btapcount`); hold ring grace or pin plus smoothed UI; `ACTION_SCORECARD` not gameplay-only.
+- **B-222** (`pdgui_backend.cpp`, `pdgui_menu_mpingame.cpp`): norm MP drives ImGui NewFrame/Render (killfeed context); comments note full-window dim may be other `AddRectFilled` paths, not F6 in the standard overlay gate; killfeed gated on `pdguiActiveMenuIsOpen` only; lower-left layout.
 - **B-220** (`modmgr.c`): `fsFileSize` before `fsFileLoad` for mod.json paths.
 - **B-217** (`bot.c`): F6 freeze skips `chrTick` entirely.
 - **Build:** `ninja -C Build pd` and `pd-server` succeeded on MSYS2.
+- **CoWork audit (PD2_FixPlan_420Bugs_Audited):** `bugs.md` + `lv.c` / `pdgui_backend.cpp` comments aligned with their B-219 / B-222 / B-221.3 file-line narrative (killfeed = norm MP NewFrame; weapon race = two `lv` loops + deferred `bgunTickSwitch2`; tap/hold = defer activate on PC).
+- **Agent build (Cursor shell):** `ninja -C Build pd` hit `ccache … CreateProcess failed` (toolchain path); not treated as a compile error in source.
 
 ## Session S433 — 2026-04-21 — ImGui active-menu radial: layout + non-inverted stick
 

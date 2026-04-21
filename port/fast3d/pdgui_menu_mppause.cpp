@@ -488,10 +488,13 @@ static WindowFrame mpp_BeginStandardWindow(const char *imguiId, const char *titl
         return wf;
     }
 
+    /* B-222 / menu stack: attach ctx every frame the window is open — not only
+     * IsWindowAppearing (ImGui can reuse the window after stage transitions). */
+    menupoolAcquireDialog(def, &g_CtxImGuiMenu);
+
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-        menupoolAcquireDialog(def, &g_CtxImGuiMenu);
     }
 
     float titleH = pdguiScale(39.0f);

@@ -113,6 +113,8 @@ typedef enum {
     MENU_TYPE_AGENT_SELECT,
     MENU_TYPE_AGENT_CREATE,
     MENU_TYPE_NETWORK,
+    /* Dedicated-server social lobby (pdgui_menu_lobby) — pure ImGui, no dialogdef. */
+    MENU_TYPE_SOCIAL_LOBBY,
     MENU_TYPE_CHALLENGES,
     MENU_TYPE_WARNING_MODAL,      /* danger/success/default type-fallback dialogs */
     MENU_TYPE_ROOM,

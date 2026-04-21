@@ -214,9 +214,14 @@ void playerReset(void)
 				cmd = (struct cmd32 *)((uintptr_t)cmd + 8);
 				break;
 			case INTROCMD_WEAPON:
-				/* B-219: MP spawn-with-weapon fallback must own loadout; INTROCMD_WEAPON
-				 * would grant mission intro weapons after setup chose a spawn weapon,
-				 * desyncing inventory vs bgun equip (invisible FP model). */
+				/* B-219: MP spawn-with-weapon fallback must own loadout.
+				 * Init order (lv.c ~597-628): loop 1 calls playerReset() which runs
+				 * INTROCMD_WEAPON (inventory + default weapon); loop 2 calls
+				 * playerSpawn() which applies spawn-with-weapon and bgunEquipWeapon2
+				 * (queues switch via switchtoweaponnum; bgunTickSwitch2 runs later in
+				 * the main loop). Both paths then apply — two weapons, conflicting
+				 * equip state vs HUD. Skip intro weapons in norm MP when the spawn
+				 * fallback option is active. */
 				if (g_Vars.normmplayerisrunning
 						&& (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON)) {
 					sysLogPrintf(LOG_NOTE,

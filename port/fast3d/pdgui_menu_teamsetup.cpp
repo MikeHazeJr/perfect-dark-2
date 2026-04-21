@@ -24,6 +24,8 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "system.h"
+#include "inputctx.h"
+#include "menupool.h"
 
 /* ========================================================================
  * Forward declarations (C boundary)
@@ -203,9 +205,13 @@ static s32 renderTeamSetup(struct menudialog *dialog,
     ImGui::SetNextWindowSize(ImVec2(diagW, diagH));
 
     if (!ImGui::Begin("##team_setup", nullptr, wflags)) {
+        /* S300: pool owns ctx; release when ImGui culls the window. */
+        menupoolReleaseDialog(menupoolDialogDef(dialog));
         ImGui::End();
         return 1;
     }
+
+    menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
 
     /* C-3: focus on appear so controller can nav team slots. */
     if (ImGui::IsWindowAppearing()) {

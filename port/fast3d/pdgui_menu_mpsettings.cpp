@@ -344,10 +344,11 @@ static PdmsWindowFrame pdms_BeginStandardWindow(const char *imguiId, const char 
         return wf;
     }
 
+    menupoolAcquireDialog(def, &g_CtxImGuiMenu);
+
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-        menupoolAcquireDialog(def, &g_CtxImGuiMenu);
     }
 
     float titleH = pdguiScale(39.0f);

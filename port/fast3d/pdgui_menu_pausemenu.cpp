@@ -619,9 +619,22 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
     float menuY = (disp.y - menuH) * 0.5f;
     float scale = pdguiScaleFactor();
 
-    /* Dim the background */
-    ImGui::GetBackgroundDrawList()->AddRectFilled(
-        ImVec2(0, 0), disp, IM_COL32(0, 0, 0, 140));
+    /* B-222: full-viewport dim only when a real pause/game-over warrants it.
+     * Solo: pdguiPauseMenuOpen sets MPPAUSEMODE_PAUSED. Network: pause menu can
+     * be open while g_MpSetup.paused was never flipped here, so keep scrim.
+     * Avoids implying pause scrim when solo menu state desyncs from mp pause. */
+    {
+        bool drawPauseScrim = (g_NetMode != NETMODE_NONE);
+        if (!drawPauseScrim) {
+            u8 mpPause = pdguiPauseGetPaused();
+            drawPauseScrim = (mpPause == MPPAUSEMODE_PAUSED
+                    || mpPause == MPPAUSEMODE_GAMEOVER);
+        }
+        if (drawPauseScrim) {
+            ImGui::GetBackgroundDrawList()->AddRectFilled(
+                ImVec2(0, 0), disp, IM_COL32(0, 0, 0, 140));
+        }
+    }
 
     ImGui::SetNextWindowPos(ImVec2(menuX, menuY), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(menuW, menuH), ImGuiCond_Always);

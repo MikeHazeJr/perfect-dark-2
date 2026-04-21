@@ -33,6 +33,9 @@ extern struct menudialogdef g_CinemaMenuDialog;
  * for rationale. */
 extern struct menudialogdef g_FilemgrFileSelectMenuDialog;
 
+/* MP auto-team dialogdef lives in src/game/mplayer/setup.c; not in data.h. */
+extern struct menudialogdef g_MpAutoTeamMenuDialog;
+
 /* B-End-Game-Input (2026-04-19): MP endscreen + End Game dialogs defined
  * in src/game/mplayer/ingame.c but not exported via data.h. Register them
  * in the pool so menuPushRootDialog's menupoolReleaseAll + deferred-pop
@@ -133,6 +136,7 @@ static const char *const s_TypeNames[MENU_TYPE_COUNT] = {
     [MENU_TYPE_AGENT_SELECT]        = "agent_select",
     [MENU_TYPE_AGENT_CREATE]        = "agent_create",
     [MENU_TYPE_NETWORK]             = "network",
+    [MENU_TYPE_SOCIAL_LOBBY]        = "social_lobby",
     [MENU_TYPE_CHALLENGES]          = "challenges",
     [MENU_TYPE_WARNING_MODAL]       = "warning_modal",
     [MENU_TYPE_ROOM]                = "room",
@@ -622,6 +626,7 @@ void menupoolInit(void)
 
     /* ---- MP team setup ---- */
     REG(&g_MpTeamsMenuDialog,            MENU_TYPE_MP_TEAM_SETUP);
+    REG(&g_MpAutoTeamMenuDialog,         MENU_TYPE_MP_TEAM_SETUP);
 
     /* ---- Training (FR / DT / HT / Bio / Hangar) ----
      *

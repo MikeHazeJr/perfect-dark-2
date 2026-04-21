@@ -1984,11 +1984,14 @@ static void drawControllerSilhouette(ImDrawList *dl, ImVec2 p0, float padW, floa
         IM_COL32(55, 62, 82, 80), 1.0f);
 }
 
-/* One physical control: left half = Bind 1 column, right half = Bind 2 (matches bind table). */
-static void renderOneCtrlPadZoneSplit(ImDrawList *dl, const CtrlPadZone *z, float padW, float padH,
-                                       u32 hideGroupMask)
+/* One physical control: left half = Bind 1 column, right half = Bind 2 (matches bind table).
+ * padOrigin must be the screen-space top-left of the pad diagram (same as GetCursorScreenPos
+ * before zones); using SetCursorPos(rel) was wrong — it anchored to the child window origin,
+ * not the diagram, so hit targets and drag-drop missed the drawn zones (B-221.4). */
+static void renderOneCtrlPadZoneSplit(ImDrawList *dl, const ImVec2 &padOrigin, const CtrlPadZone *z,
+                                       float padW, float padH, u32 hideGroupMask)
 {
-    ImGui::SetCursorPos(ImVec2(z->relX * padW, z->relY * padH));
+    ImGui::SetCursorScreenPos(ImVec2(padOrigin.x + z->relX * padW, padOrigin.y + z->relY * padH));
     ImVec2 zsz(z->relW * padW, z->relH * padH);
     float halfW = zsz.x * 0.5f;
 
@@ -2138,7 +2141,8 @@ static void renderControllerVisualMapper(float scale, u32 hideGroupMask)
     ImGui::TextWrapped(
         "Drag an action onto the left or right half of a zone: left sets Bind 1, right sets Bind 2 (same "
         "columns as the table). LS/RS arrows are synthetic stick directions (JOY1_LSTICK_* / JOY1_RSTICK_*). "
-        "Right-click a half to clear that bind column. Same-button priority is unchanged; gameplay still uses "
+        "Right-click a half to clear that bind column. When one button is bound to multiple actions, "
+        "the lower bind slot (Bind 1 before Bind 2) wins for the digital edge; gameplay still uses "
         "the Use hold slider with bondmove. Sticks / swap are configured above.");
     ImGui::Spacing();
 
@@ -2215,7 +2219,7 @@ static void renderControllerVisualMapper(float scale, u32 hideGroupMask)
     ImGui::SetCursorScreenPos(win0);
 
     for (int zi = 0; zi < (int)(sizeof(kZones) / sizeof(kZones[0])); zi++) {
-        renderOneCtrlPadZoneSplit(dl, &kZones[zi], padW, padH, hideGroupMask);
+        renderOneCtrlPadZoneSplit(dl, win0, &kZones[zi], padW, padH, hideGroupMask);
     }
     ImGui::EndChild();
 
@@ -3952,6 +3956,16 @@ static s32 renderMainMenu(struct menudialog *dialog,
         return 1;
     }
 
+    /* S304 / CI load: attach g_CtxImGuiMenu whenever this window is open, not
+     * only on IsWindowAppearing. After a stage transition into CI, ImGui may
+     * keep "##main_menu" without a fresh Appearing frame while menupool still
+     * has the slot live from menuPushDialog (ctx=NULL). Gameplay stayed the
+     * input stack top so pdguiIsActive() was false and the interact prompt
+     * drew over the main menu (Hold X facing the hub PC). menupoolAcquireDialog
+     * is idempotent; S300 attaches the ctx on active slots when owned_ctx was
+     * never bound. */
+    menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
+
     /* Auto-possess: give this window nav focus ONLY on first appearance.
      * Must be AFTER Begin(). Using SetWindowFocus() instead of
      * SetNextWindowFocus() to avoid stealing focus from child popups. */
@@ -3962,14 +3976,6 @@ static s32 renderMainMenu(struct menudialog *dialog,
         /* B-131: stamp the open time so the close handler can grace-guard
          * the first MAIN_MENU_CLOSE_GRACE_MS of this appearance. */
         s_MainMenuOpenedTick = SDL_GetTicks();
-        /* S304: acquire the menu pool slot with the input context attached.
-         * menuPushDialog pre-acquired this slot with ctx=NULL, so acquire
-         * here attaches the ctx to the live slot (S300 attach-to-active
-         * semantics). On close, menupoolReleaseDialog (fired by
-         * menuCloseDialog) pops the ctx atomically — the slot owns the
-         * pop. Replaces the raw inputCtxPush + manual inputCtxPopDeferred
-         * pair that leaked when menuPopDialog underflowed. */
-        menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
         /* B-131: clear the stale Escape / GamepadFaceRight edges that the
          * opening press queued into ImGui's input queue before this window
          * existed.  Without this, a gamepad B-button or keyboard Escape
@@ -4663,8 +4669,9 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
         return 1;
     }
 
-    /* On first appearance: play open cue, acquire pool ctx, select the
-     * pre-determined sub-tab for this CI dialog. */
+    menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
+
+    /* On first appearance or dialog switch: play open cue, select sub-tab. */
     static struct menudialogdef *s_LastDialog = nullptr;
     if (ImGui::IsWindowAppearing() || s_LastDialog != def) {
         ImGui::SetWindowFocus();
@@ -4675,13 +4682,6 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
             "MENU_IMGUI: CI Options redirect OPEN (dialog=%p subtab=%d)",
             (void *)def, (int)s_SettingsSubTab);
         s_LastDialog = def;
-
-        /* S311: pool attaches ctx to the MENU_TYPE_CI_OPTIONS slot —
-         * menuPopDialog → menuCloseDialog → menupoolReleaseDialog cascade
-         * owns the release.  Replaces the raw inputCtxPush that produced
-         * the S306 boot-time ctx-leak class. */
-        menupoolAcquireDialog(menupoolDialogDef(dialog),
-                              &g_CtxImGuiMenu);
     }
 
     /* PD title frame -- same look as the main menu. */
@@ -4798,14 +4798,12 @@ static s32 renderCiDeadPlayer2(struct menudialog *dialog,
         return 1;
     }
 
+    menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
+
     if (ImGui::IsWindowAppearing()) {
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
         sysLogPrintf(LOG_NOTE,
             "MENU_IMGUI: CI Player-2 dialog (deprecated; no split-screen)");
-        /* S311: acquire the pool ctx so the OK close fires a proper
-         * release cascade — dead dialog path still needs clean lifecycle. */
-        menupoolAcquireDialog(menupoolDialogDef(dialog),
-                              &g_CtxImGuiMenu);
     }
 
     f32 pdTitleH = drawPdWindowFrame(dX, dY, dW, dH, "Not Available");
@@ -4900,14 +4898,12 @@ static s32 renderCinemaList(struct menudialog *dialog,
         return 1;
     }
 
+    menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
+
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
         s_CinemaSelectIdx = 0;
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-        /* S311: pool attaches MENU_TYPE_CINEMA ctx — menuCloseDialog
-         * release cascade owns the pop. */
-        menupoolAcquireDialog(menupoolDialogDef(dialog),
-                              &g_CtxImGuiMenu);
     }
 
     f32 titleH = pdguiScale(39.0f);

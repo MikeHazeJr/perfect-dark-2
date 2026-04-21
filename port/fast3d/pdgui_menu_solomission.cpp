@@ -2700,6 +2700,10 @@ static s32 renderPauseMenu(struct menudialog *dialog,
         return 1;
     }
 
+    /* S369 + CI-load class: ctx every frame the pause window is open, not only
+     * IsWindowAppearing (same menupool S300 attach semantics as main menu). */
+    menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
+
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
         /* S308: reset ALL pause-state statics on every fresh open so the
@@ -2710,18 +2714,6 @@ static s32 renderPauseMenu(struct menudialog *dialog,
         s_PauseSelectIdx    = 0;
         s_RestartOpenFrame  = -1;
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-        /* S369: attach g_CtxImGuiMenu to the already-acquired pool slot so
-         * menu input routing works.  menuPushRootDialog → menuPushDialog
-         * pre-acquires the slot with ctx=NULL; this re-acquire with the
-         * live ctx pushes g_CtxImGuiMenu onto the input context stack, so
-         * mouse flips to absolute/visible mode and g_ImcMenu activates.
-         * Without this the pause draws over live gameplay input — the
-         * player's WASD / fire buttons still fire while the pause is
-         * visible, and child DANGER dialogs (Abort Mission confirm) stay
-         * unresponsive because no menu IMC is on top.  See log: solo
-         * pause was being acquired as `ctx=none(shared)` with no matching
-         * `INPUTCTX: imgui_menu on_push` line. */
-        menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
     }
 
     /* Title: "StageName: Status" */

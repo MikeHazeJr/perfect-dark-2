@@ -493,8 +493,11 @@ void pdguiNewFrame(void)
 #else
     bool devGameplayHud = false;
 #endif
-    /* B-222: keep ImGui alive during live MP so killfeed / HUD overlays always
-     * have a frame, even when no menu, dev HUD, or interact prompt is active. */
+    /* B-222: norm MP (`g_Vars.normmplayerisrunning` via pdguiPauseGetNormMplayerIsRunning)
+     * must drive ImGui NewFrame even with no other overlay — otherwise killfeed
+     * has no draw context. (Full-window dim during dev HUD is a separate issue:
+     * other AddRectFilled paths exist, e.g. countdown / radial dim — not gated
+     * solely on the F6/F7 dev banner booleans passed into pdguiAnyStandardOverlayReason.) */
     bool mpLiveMatchHud = (pdguiPauseGetNormMplayerIsRunning() != 0)
         && (pdguiPauseGetPaused() < 2);
     if (!g_PdguiInitialized) {

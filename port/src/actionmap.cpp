@@ -490,6 +490,12 @@ static void fireVk(u32 vk, s32 is_down)
             continue;
         }
 
+        /* B-221.5: one VK can map to several actions in the same IMC (e.g. two reload paths).
+         * Pick a single winner per context: lowest trigger slot first (Bind 1 / primary edge),
+         * then lower InputAction id as a deterministic tie-break. */
+        s32 best_a = ACTION_COUNT;
+        s32 best_ti = ACTIONMAP_MAX_TRIGGERS + 1;
+
         for (s32 a = 0; a < ACTION_COUNT; a++) {
             if (!ctx->has_mapping[a]) {
                 continue;
@@ -499,46 +505,52 @@ static void fireVk(u32 vk, s32 is_down)
                 if (m->triggers[ti].vk != vk) {
                     continue;
                 }
-
-                ActionState *st = &s_State[player][a];
-
-                /* DIAG: Log which IMC wins the VK→action mapping for gamepad VKs.
-                 * S197a: gated behind sysLogGetVerbose() — was spamming the log
-                 * at ~60 Hz × N buttons per player. Enable with --verbose. */
-                if (sysLogGetVerbose() && vk >= (u32)VK_JOY1_BEGIN && is_down) {
-                    sysLogPrintf(LOG_NOTE, "DIAG fireVk: vk=%u player=%d -> IMC '%s' action=%d(%s) DOWN",
-                                 vk, player,
-                                 ctx->name ? ctx->name : "?",
-                                 a, (a < ACTION_COUNT) ? s_ActionNames[a] : "?");
+                if (ti < best_ti || (ti == best_ti && a < best_a)) {
+                    best_ti = ti;
+                    best_a = a;
                 }
-
-                if (is_down) {
-                    if (!st->held) {
-                        st->held          = 1;
-                        st->pressed       = 1;
-                        st->value         = 1.0f;
-                        st->down_time_ms  = SDL_GetTicks();
-                        st->hold_consumed = 0;
-                        st->hold_vis_grace_until_ms = 0;
-                        st->hold_pin_full_until_ms = 0;
-                        /* Record non-axis actions in cheat buffer */
-                        if (a != ACTION_AXIS_MOVE_X && a != ACTION_AXIS_MOVE_Y &&
-                            a != ACTION_AXIS_AIM_X  && a != ACTION_AXIS_AIM_Y) {
-                            cheatRecord((InputAction)a);
-                        }
-                    }
-                } else {
-                    if (st->held) {
-                        st->held        = 0;
-                        st->released    = 1;
-                        st->value       = 0.0f;
-                        st->up_time_ms  = SDL_GetTicks();
-                        st->hold_vis_grace_until_ms = SDL_GetTicks() + 100;
-                    }
-                }
-                /* First IMC+action match wins — stop searching */
-                goto next_player;
             }
+        }
+
+        if (best_a < ACTION_COUNT) {
+            ActionState *st = &s_State[player][best_a];
+
+            /* DIAG: Log which IMC wins the VK→action mapping for gamepad VKs.
+             * S197a: gated behind sysLogGetVerbose() — was spamming the log
+             * at ~60 Hz × N buttons per player. Enable with --verbose. */
+            if (sysLogGetVerbose() && vk >= (u32)VK_JOY1_BEGIN && is_down) {
+                sysLogPrintf(LOG_NOTE, "DIAG fireVk: vk=%u player=%d -> IMC '%s' action=%d(%s) DOWN",
+                             vk, player,
+                             ctx->name ? ctx->name : "?",
+                             best_a, (best_a < ACTION_COUNT) ? s_ActionNames[best_a] : "?");
+            }
+
+            if (is_down) {
+                if (!st->held) {
+                    st->held          = 1;
+                    st->pressed       = 1;
+                    st->value         = 1.0f;
+                    st->down_time_ms  = SDL_GetTicks();
+                    st->hold_consumed = 0;
+                    st->hold_vis_grace_until_ms = 0;
+                    st->hold_pin_full_until_ms = 0;
+                    /* Record non-axis actions in cheat buffer */
+                    if (best_a != ACTION_AXIS_MOVE_X && best_a != ACTION_AXIS_MOVE_Y &&
+                        best_a != ACTION_AXIS_AIM_X  && best_a != ACTION_AXIS_AIM_Y) {
+                        cheatRecord((InputAction)best_a);
+                    }
+                }
+            } else {
+                if (st->held) {
+                    st->held        = 0;
+                    st->released    = 1;
+                    st->value       = 0.0f;
+                    st->up_time_ms  = SDL_GetTicks();
+                    st->hold_vis_grace_until_ms = SDL_GetTicks() + 100;
+                }
+            }
+            /* Matched this IMC — do not fall through to lower-priority contexts */
+            goto next_player;
         }
     }
     /* DIAG: Log when a gamepad VK has no binding in any active IMC.

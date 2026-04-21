@@ -1205,13 +1205,10 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
         return 1;
     }
 
-    /* Push ImGui menu input context via the pool so gamepad d-pad and A/B
-     * route to ImGui instead of gameplay.  Required because this menu opens
-     * from CI gameplay (walking around Carrington Institute), not from
-     * another ImGui menu.  S300: pool attaches the ctx to MENU_TYPE_TRAINING. */
+    /* S300: pool attaches MENU_TYPE_TRAINING ctx every frame (CI window reuse). */
+    menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
+
     if (ImGui::IsWindowAppearing()) {
-        menupoolAcquireDialog(menupoolDialogDef(dialog),
-                              &g_CtxImGuiMenu);
         ImGui::SetWindowFocus();
     }
 

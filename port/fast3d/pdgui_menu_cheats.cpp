@@ -451,15 +451,13 @@ static s32 renderCheatsHub(struct menudialog *dialog,
         return 1;
     }
 
+    menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
+
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: Cheats hub OPEN (tab=%d)",
                      (int)s_CheatsTab);
-        /* S300: pool attaches ctx to the MENU_TYPE_CHEATS slot (already
-         * acquired by menuPushDialog). */
-        menupoolAcquireDialog(menupoolDialogDef(dialog),
-                              &g_CtxImGuiMenu);
     }
 
     /* PD-style title frame */
