@@ -12,7 +12,7 @@
 
 #include <PR/ultratypes.h>
 
-#include "imgui/imgui.h"
+#include "imgui.h"
 
 /**
  * Draw a dim full-circle track + clockwise progress arc around the bounding

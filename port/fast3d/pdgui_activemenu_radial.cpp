@@ -10,6 +10,7 @@
 #include <PR/ultratypes.h>
 
 #include "imgui/imgui.h"
+#include "imgui/imgui_internal.h"
 #include "pdgui_activemenu_radial.h"
 #include "pdgui_scaling.h"
 #include "pdgui_style.h"
