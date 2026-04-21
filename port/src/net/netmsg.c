@@ -36,6 +36,7 @@
 #include "fs.h"
 #include "console.h"
 #include "net/net.h"
+#include "net/netenet.h"
 #include "net/netbuf.h"
 #include "net/netmsg.h"
 #include "net/netlobby.h"
@@ -64,6 +65,7 @@
 #include "menupool.h"
 #endif
 #include <SDL.h>
+#include <stdarg.h>
 
 /* Desync detection and resync constants */
 #define NET_DESYNC_THRESHOLD   3   // consecutive desyncs before requesting resync
@@ -117,6 +119,152 @@ void netmsgRoomMutationRateReset(u32 idx)
 	if (idx <= (u32)NET_MAX_CLIENTS) {
 		s_RoomMutationLast[idx] = 0;
 	}
+}
+
+/* S-1 / SEC: ADMIN_SUB_AUTH brute-force mitigation — per-client + hashed-IP
+ * buckets (same sliding window as tasks-current: 3 failed auths / 60 s →
+ * ADMIN_RESP_RATE_LIMIT + disconnect).  Logs for bad-token spam are capped
+ * (one WARNING / 10 s per client).  Optional temp IP ban is intentionally not
+ * enabled by default (NAT / shared-IP false positives). */
+#define ADMIN_AUTH_FAIL_MAX_ATTEMPTS 3
+#define ADMIN_AUTH_FAIL_WINDOW_MS    60000u
+#define ADMIN_AUTH_IP_BUCKETS        16
+#define ADMIN_AUTH_FAIL_LOG_INTERVAL_MS 10000u
+
+struct adminauthfail {
+	u32 t[8];
+};
+
+static struct adminauthfail s_AdminAuthFailClient[NET_MAX_CLIENTS + 1];
+static struct adminauthfail s_AdminAuthIp[ADMIN_AUTH_IP_BUCKETS];
+static u32 s_AdminAuthIpHash[ADMIN_AUTH_IP_BUCKETS];
+static u32 s_AdminAuthFailLastLogMs[NET_MAX_CLIENTS + 1];
+
+static u32 adminauth_ip_hash_str(const char *ip)
+{
+	u32 h = 2166136261u;
+	if (!ip) {
+		return h;
+	}
+	for (; *ip; ip++) {
+		h ^= (u32)(u8)*ip;
+		h *= 16777619u;
+	}
+	return h;
+}
+
+static struct adminauthfail *adminauth_ip_bucket(u32 hash)
+{
+	u32 i = hash % ADMIN_AUTH_IP_BUCKETS;
+	for (u32 probe = 0; probe < ADMIN_AUTH_IP_BUCKETS; probe++) {
+		u32 slot = (i + probe) % ADMIN_AUTH_IP_BUCKETS;
+		if (s_AdminAuthIpHash[slot] == 0 || s_AdminAuthIpHash[slot] == hash) {
+			s_AdminAuthIpHash[slot] = hash;
+			return &s_AdminAuthIp[slot];
+		}
+	}
+	u32 slot = hash % ADMIN_AUTH_IP_BUCKETS;
+	s_AdminAuthIpHash[slot] = hash;
+	return &s_AdminAuthIp[slot];
+}
+
+/* Returns 1 if this failure triggers lockout (too many attempts in window). */
+static int adminauthfail_on_failure(struct adminauthfail *f, u32 now)
+{
+	u32 keep[8];
+	u32 k = 0;
+	for (u32 i = 0; i < 8; i++) {
+		if (f->t[i] && now - f->t[i] < ADMIN_AUTH_FAIL_WINDOW_MS) {
+			keep[k++] = f->t[i];
+		}
+	}
+	if (k < 8) {
+		keep[k++] = now;
+	} else {
+		keep[7] = now;
+	}
+	memset(f->t, 0, sizeof(f->t));
+	memcpy(f->t, keep, k * sizeof(u32));
+	return (k >= ADMIN_AUTH_FAIL_MAX_ATTEMPTS) ? 1 : 0;
+}
+
+void netmsgAdminAuthRateReset(u32 idx)
+{
+	if (idx <= (u32)NET_MAX_CLIENTS) {
+		memset(&s_AdminAuthFailClient[idx], 0, sizeof(s_AdminAuthFailClient[idx]));
+		s_AdminAuthFailLastLogMs[idx] = 0;
+	}
+}
+
+/* Extract host IP (no brackets) from netFormatClientAddr for rate limiting. */
+/* Append vsnprintf output to payload; sets *trunc if the line did not fully fit. */
+static void netmsgAdminPayloadVfmt(char *payload, size_t cap, int *off, int *trunc,
+                                    const char *fmt, ...)
+{
+	if (*trunc) {
+		return;
+	}
+	if (*off < 0 || (size_t)*off >= cap) {
+		*trunc = 1;
+		return;
+	}
+	size_t rem = cap - (size_t)*off;
+	if (rem <= 1) {
+		*trunc = 1;
+		return;
+	}
+	va_list ap;
+	va_start(ap, fmt);
+	int n = vsnprintf(payload + *off, rem, fmt, ap);
+	va_end(ap);
+	if (n < 0) {
+		*trunc = 1;
+		return;
+	}
+	if ((size_t)n >= rem) {
+		*trunc = 1;
+		*off = (int)cap - 1;
+		payload[*off] = '\0';
+		return;
+	}
+	*off += n;
+}
+
+static void netmsgAdminExtractPeerIp(struct netclient *cl, char *out, size_t outsz)
+{
+	out[0] = '\0';
+	if (!cl || !cl->peer || outsz == 0) {
+		return;
+	}
+	const char *fmt = netFormatClientAddr(cl);
+	if (!fmt) {
+		return;
+	}
+	const char *colon = strrchr(fmt, ':');
+	const char *lbracket = strchr(fmt, '[');
+	if (lbracket && colon > lbracket) {
+		const char *rbracket = strchr(fmt, ']');
+		if (rbracket && rbracket > lbracket + 1) {
+			size_t n = (size_t)(rbracket - (lbracket + 1));
+			if (n >= outsz) {
+				n = outsz - 1;
+			}
+			memcpy(out, lbracket + 1, n);
+			out[n] = '\0';
+			return;
+		}
+	}
+	if (colon) {
+		size_t n = (size_t)(colon - fmt);
+		if (n >= outsz) {
+			n = outsz - 1;
+		}
+		memcpy(out, fmt, n);
+		out[n] = '\0';
+		return;
+	}
+	strncpy(out, fmt, outsz - 1);
+	out[outsz - 1] = '\0';
 }
 
 /* SEC-13: Room list broadcast coalescing.
@@ -6906,6 +7054,7 @@ void netSendRoomPlaylistUpdate(void)
  * Wire format:
  *   CLC_ADMIN : u8 msgid, u8 subcode, str token, <subcode-specific args>
  *   SVC_ADMIN : u8 msgid, u8 response_code, str message
+ *   (v39+: response_code may be ADMIN_RESP_RATE_LIMIT after repeated bad ADMIN_AUTH.)
  *
  * Authentication model:
  *   - ADMIN_AUTH sub compares the supplied token against the configured
@@ -6963,18 +7112,56 @@ u32 netmsgClcAdminRead(struct netbuf *src, struct netclient *srccl)
 
 	/* ADMIN_AUTH: promote the peer to admin if the token hashes correctly. */
 	if (subcode == ADMIN_SUB_AUTH) {
-		if (!serverAdminEnabled()) {
-			sysLogPrintf(LOG_WARNING, "NET: CLC_ADMIN from %u: RCON not configured", srccl->id);
-			netmsgSvcAdminReply(srccl, ADMIN_RESP_BAD_TOKEN, "Admin RCON is not enabled on this server.");
-			return 0;
+		u32 cidx = (u32)(srccl - g_NetClients);
+		if (cidx > (u32)NET_MAX_CLIENTS) {
+			return 1;
 		}
-		if (!serverAdminVerifyToken(token)) {
-			sysLogPrintf(LOG_WARNING, "NET: CLC_ADMIN auth failed from client %u (%s)",
-			             srccl->id, srccl->settings.name);
+		u32 now = SDL_GetTicks();
+		char ipBuf[SERVER_BANS_ADDR_LEN];
+		netmsgAdminExtractPeerIp(srccl, ipBuf, sizeof(ipBuf));
+
+		int auth_ok = 0;
+		if (serverAdminEnabled() && serverAdminVerifyToken(token)) {
+			auth_ok = 1;
+		}
+
+		if (!auth_ok) {
+			int limC = adminauthfail_on_failure(&s_AdminAuthFailClient[cidx], now);
+			int limI = 0;
+			if (ipBuf[0]) {
+				u32 h = adminauth_ip_hash_str(ipBuf);
+				limI = adminauthfail_on_failure(adminauth_ip_bucket(h), now);
+			}
+			if (limC || limI) {
+				netmsgSvcAdminReply(srccl, ADMIN_RESP_RATE_LIMIT,
+				                    "Too many failed admin authentication attempts.");
+				if (srccl->peer) {
+					enet_peer_disconnect(srccl->peer, DISCONNECT_ADMIN_AUTH);
+				}
+				sysLogPrintf(LOG_NOTE,
+				             "NET: ADMIN_SUB_AUTH rate limit — disconnect client %u (peer IP %s)",
+				             (unsigned)srccl->id, ipBuf[0] ? ipBuf : "?");
+				return 0;
+			}
+			u32 *lastLog = &s_AdminAuthFailLastLogMs[cidx];
+			if (*lastLog == 0 || now - *lastLog >= ADMIN_AUTH_FAIL_LOG_INTERVAL_MS) {
+				*lastLog = now;
+				if (!serverAdminEnabled()) {
+					sysLogPrintf(LOG_WARNING, "NET: CLC_ADMIN from %u: RCON not configured",
+					             srccl->id);
+				} else {
+					sysLogPrintf(LOG_WARNING, "NET: CLC_ADMIN auth failed from client %u (%s)",
+					             srccl->id, srccl->settings.name);
+				}
+			}
 			srccl->is_admin = false;
-			netmsgSvcAdminReply(srccl, ADMIN_RESP_BAD_TOKEN, "Invalid admin token.");
+			netmsgSvcAdminReply(srccl, ADMIN_RESP_BAD_TOKEN,
+			                    serverAdminEnabled() ? "Invalid admin token."
+			                                         : "Admin RCON is not enabled on this server.");
 			return 0;
 		}
+
+		netmsgAdminAuthRateReset(cidx);
 		srccl->is_admin = true;
 		sysLogPrintf(LOG_NOTE, "NET: admin authenticated client %u (%s)",
 		             srccl->id, srccl->settings.name);
@@ -7092,11 +7279,26 @@ u32 netmsgClcAdminRead(struct netbuf *src, struct netclient *srccl)
 
 	case ADMIN_SUB_LIST: {
 		char payload[ADMIN_PAYLOAD_MAX];
-		payload[0] = '\0';
-		serverBansList(payload, sizeof(payload));
-		if (!payload[0]) {
-			strncpy(payload, "(no bans)\n", sizeof(payload) - 1);
-			payload[sizeof(payload) - 1] = '\0';
+		int off = 0;
+		int trunc = 0;
+		s32 nban = serverBansGetCount();
+		if (nban <= 0) {
+			netmsgAdminPayloadVfmt(payload, sizeof(payload), &off, &trunc, "%s", "(no bans)\n");
+		} else {
+			for (s32 bi = 0; bi < nban && !trunc; bi++) {
+				const server_ban_entry_t *e = serverBansGetEntry(bi);
+				if (!e) {
+					break;
+				}
+				netmsgAdminPayloadVfmt(payload, sizeof(payload), &off, &trunc,
+				                       "%s  %s  %s\n",
+				                       e->addr,
+				                       e->name[0] ? e->name : "?",
+				                       e->reason[0] ? e->reason : "no reason");
+			}
+		}
+		if (trunc && off >= 0 && (size_t)off < sizeof(payload)) {
+			snprintf(payload + off, sizeof(payload) - (size_t)off, "\n(truncated)\n");
 		}
 		netbufStartWrite(&srccl->out);
 		netbufWriteU8(&srccl->out, SVC_ADMIN);
@@ -7109,22 +7311,27 @@ u32 netmsgClcAdminRead(struct netbuf *src, struct netclient *srccl)
 	case ADMIN_SUB_STATUS: {
 		char payload[ADMIN_PAYLOAD_MAX];
 		int off = 0;
-		off += snprintf(payload + off, sizeof(payload) - off,
-		                "Players: %d / %d  Tick: %u  Mode: %d\n",
-		                g_NetNumClients, g_NetMaxClients,
-		                (unsigned)g_NetTick, (int)g_NetGameMode);
-		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+		int trunc = 0;
+		netmsgAdminPayloadVfmt(payload, sizeof(payload), &off, &trunc,
+		                       "Players: %d / %d  Tick: %u  Mode: %d\n",
+		                       g_NetNumClients, g_NetMaxClients,
+		                       (unsigned)g_NetTick, (int)g_NetGameMode);
+		for (s32 ci = 0; ci < NET_MAX_CLIENTS && !trunc; ci++) {
 			struct netclient *ncl = &g_NetClients[ci];
-			if (ncl->state == CLSTATE_DISCONNECTED) continue;
-			if (off >= (int)sizeof(payload) - 64) break;
+			if (ncl->state == CLSTATE_DISCONNECTED) {
+				continue;
+			}
 			const char *addr = ncl->peer ? netFormatClientAddr(ncl) : "<local>";
-			off += snprintf(payload + off, sizeof(payload) - off,
-			                "  [%d] %s  state=%u  room=%u  addr=%s\n",
-			                (int)ci,
-			                ncl->settings.name[0] ? ncl->settings.name : "?",
-			                (unsigned)ncl->state,
-			                (unsigned)ncl->room_id,
-			                addr ? addr : "?");
+			netmsgAdminPayloadVfmt(payload, sizeof(payload), &off, &trunc,
+			                       "  [%d] %s  state=%u  room=%u  addr=%s\n",
+			                       (int)ci,
+			                       ncl->settings.name[0] ? ncl->settings.name : "?",
+			                       (unsigned)ncl->state,
+			                       (unsigned)ncl->room_id,
+			                       addr ? addr : "?");
+		}
+		if (trunc && off >= 0 && (size_t)off < sizeof(payload)) {
+			snprintf(payload + off, sizeof(payload) - (size_t)off, "\n(truncated)\n");
 		}
 		netbufStartWrite(&srccl->out);
 		netbufWriteU8(&srccl->out, SVC_ADMIN);

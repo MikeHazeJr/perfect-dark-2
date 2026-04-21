@@ -42,19 +42,21 @@ extern "C" {
 #define ADMIN_RESP_BAD_ARG     0x03
 #define ADMIN_RESP_NOT_FOUND   0x04
 #define ADMIN_RESP_SERVER_ERR  0x05
+#define ADMIN_RESP_RATE_LIMIT  0x06  /* too many failed ADMIN_AUTH attempts; v39+ */
 #define ADMIN_RESP_LIST        0x10  /* payload is a multi-line ban listing */
 #define ADMIN_RESP_STATUS      0x11  /* payload is a multi-line status dump */
 
-/* Maximum admin-reply payload length on the wire.  Must fit in
- * NET_CLIENT_BUFSIZE (16KB) with plenty of slack. */
+/* Maximum UTF-8 payload bytes for SVC_ADMIN str field (LIST/STATUS dumps).
+ * Replies that do not fit MUST append a "(truncated)" footer when possible
+ * (see netmsg.c SVC_ADMIN LIST/STATUS). */
 #define ADMIN_PAYLOAD_MAX 4096u
 
 /* Load admin configuration.
  *   cliToken — plaintext token passed via --admin-token (or NULL).
  *   iniToken — plaintext token from server.ini (or NULL).
- * The first non-NULL, non-empty token wins.  If both are NULL, the admin
- * subsystem is disabled and all CLC_ADMIN messages are refused with
- * ADMIN_RESP_BAD_TOKEN. */
+ * The first non-NULL, non-empty token wins.  Tokens shorter than 16 characters
+ * are rejected.  If both are NULL, the admin subsystem is disabled and all
+ * CLC_ADMIN messages are refused with ADMIN_RESP_BAD_TOKEN. */
 void serverAdminInit(const char *cliToken, const char *iniToken);
 
 /* Return 1 if an admin token is configured, 0 otherwise.  Used by the

@@ -322,7 +322,7 @@ static void gfx_sdl_handle_events(void) {
                 if (event.key.keysym.sym == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT)) {
                     // alt-enter received, switch fullscreen state
                     set_fullscreen(!fullscreen_state, true);
-                } else if (event.key.keysym.sym == SDLK_F9) {
+                } else if (event.key.keysym.sym == SDLK_F10) {
                     meshDebugToggle();
                 } else if (event.key.keysym.sym == SDLK_BACKQUOTE) {
                     pdguiConsoleToggle();

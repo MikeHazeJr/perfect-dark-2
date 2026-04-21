@@ -11,6 +11,12 @@
 #include <string.h>
 #include <time.h>
 #include <ctype.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#if defined(_WIN32)
+#include <io.h>
+#include <windows.h>
+#endif
 #include <PR/ultratypes.h>
 
 #include "fs.h"
@@ -24,12 +30,34 @@ static server_ban_entry_t s_Bans[SERVER_BANS_MAX];
 static s32 s_BanCount = 0;
 static s32 s_Initialized = 0;
 
-/* Case-insensitive comparison of two IP strings.  Both IPv4 dotted-decimal
- * and IPv6 hex digits are compared case-insensitively — the only case
- * difference in practice is lowercase-vs-uppercase hex. */
+/* Parse IPv4 or IPv6 text into a canonical 128-bit form.  IPv4 addresses are
+ * stored as IPv4-mapped IPv6 (::ffff:a.b.c.d) so they match the same address
+ * written in either v4 or mapped-v6 form (e.g. 203.0.113.1 vs ::ffff:cb00:7101). */
+static int banAddrParseNormalized(const char *s, struct in6_addr *out6)
+{
+    if (!s || !s[0]) return 0;
+    if (inet_pton(AF_INET6, s, out6) == 1) {
+        return 1;
+    }
+    struct in_addr v4;
+    if (inet_pton(AF_INET, s, &v4) == 1) {
+        memset(out6, 0, 10);
+        out6->s6_addr[10] = 0xff;
+        out6->s6_addr[11] = 0xff;
+        memcpy(out6->s6_addr + 12, &v4.s_addr, 4);
+        return 1;
+    }
+    return 0;
+}
+
 static int banAddrEq(const char *a, const char *b)
 {
     if (!a || !b) return 0;
+    struct in6_addr a6, b6;
+    if (banAddrParseNormalized(a, &a6) && banAddrParseNormalized(b, &b6)) {
+        return memcmp(&a6, &b6, sizeof(a6)) == 0;
+    }
+    /* Hostnames or non-INET strings: legacy case-insensitive equality */
     while (*a && *b) {
         if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) return 0;
         a++; b++;
@@ -153,16 +181,29 @@ s32 serverBansSave(void)
                 (unsigned long long)e->timestamp,
                 e->reason);
     }
+    fflush(f);
+#if defined(_WIN32)
+    if (_commit(_fileno(f)) != 0) {
+        fclose(f);
+        sysLogPrintf(LOG_WARNING, "BANS: _commit failed for %s", tmpPath);
+        return 0;
+    }
+#endif
     fclose(f);
 
-    /* Atomic replace.  rename() on POSIX + Windows (with MinGW) is atomic
-     * enough for our purposes; if the process dies between unlink and rename
-     * we lose one ban at worst. */
-    remove(finalPath);
+#if defined(_WIN32)
+    if (!MoveFileExA(tmpPath, finalPath, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        sysLogPrintf(LOG_WARNING, "BANS: MoveFileExA %s -> %s failed (err %lu)",
+                     tmpPath, finalPath, (unsigned long)GetLastError());
+        return 0;
+    }
+#else
+    /* Atomic replace on the same filesystem (POSIX). */
     if (rename(tmpPath, finalPath) != 0) {
         sysLogPrintf(LOG_WARNING, "BANS: rename %s -> %s failed", tmpPath, finalPath);
         return 0;
     }
+#endif
     sysLogPrintf(LOG_NOTE, "BANS: wrote %d entries to %s", s_BanCount, finalPath);
     return 1;
 }

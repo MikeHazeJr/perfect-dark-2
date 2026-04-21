@@ -9,7 +9,8 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 38  /* v38: Multiple additive changes on one protocol bump.
+#define NET_PROTOCOL_VER 39  /* v39: ADMIN_RESP_RATE_LIMIT (0x06) for failed ADMIN_AUTH
+                               * rate-limit / lockout (SVC_ADMIN wire). v38: Multiple additive changes on one protocol bump.
                                *   (a) MASTER-C3 identity cookie — CLC_AUTH now carries a
                                *       16-byte reconnect cookie (zeros on first join); SVC_AUTH
                                *       returns the server-issued cookie.  Reconnect requires
@@ -157,6 +158,7 @@ extern u8 g_NetBotAuthorityClientId; /* NET_NULL_CLIENT when no authority delega
 #define DISCONNECT_LATE 7
 #define DISCONNECT_FILES 8
 #define DISCONNECT_LEAVE 9
+#define DISCONNECT_ADMIN_AUTH 10  /* too many failed admin token attempts */
 
 #define CLSTATE_DISCONNECTED 0
 #define CLSTATE_CONNECTING 1

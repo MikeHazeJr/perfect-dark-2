@@ -1,8 +1,93 @@
 
 # Session Log (Active)
 
-> **S283–S406** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S283–S410** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S417 — 2026-04-20 — Interact hold config + Controls input sanity (continuation)
+
+- **`ActionMap.InteractHoldExtraTerminalMs`**: `actionmapGet/SetInteractHoldExtraTerminalMs()`, `configRegisterInt` default **200**, **`prop.c`** uses getter for `OBJFLAG3_HTMTERMINAL` extra. Settings → Controls: **Hackable terminal extra hold** slider; **`pdgui-hold-ring.md`** updated.
+- **Sanity**: [menu-controller-input-constraints.md](designs/menu-controller-input-constraints.md) §**2.1** — table for Settings → Controls (no SDL mouse mode in tab path; `pdguiDriveImGuiNav` + PageUp/PageDown; `NavFlattened`). **[INDEX.md](INDEX.md)** links that doc.
+- **Build**: This agent run still invokes **`ccache`** from CMake rules; **`CCACHE_DISABLE=1`** did not strip the launcher. Verify with **`ninja -C Build pd`** on a host where ccache works, or reconfigure with ccache disabled.
+
+## Session S418 — 2026-04-20 — PC USE release reload when no prompt (short hold)
+
+- **`bondmove.c`**: USE release with **`propInteractPromptLabel() == NULL`** now synthesizes **reload (X_BUTTON)** when either **long-hold consumed** or **hold duration >= 80 ms** (so releases before the use-hold threshold still reload if nothing was interactable; very short taps avoid pairing reload with door activate).
+- **`actionmap`**: **`actionLastGestureHoldMs()`** for release-frame gesture length.
+
+## Session S416 — 2026-04-20 — Tier 1 server security (P1-A–D)
+
+- **P1-A (S-1)**: `netmsg.c` — per-client + hashed-IP sliding window (**3 failed `ADMIN_SUB_AUTH` / 60 s**) → `ADMIN_RESP_RATE_LIMIT` + `enet_peer_disconnect(..., DISCONNECT_ADMIN_AUTH)`; bad-token **LOG_WARNING** throttled (**10 s**/client); `netmsgAdminAuthRateReset` on `netClientReset`. **`NET_PROTOCOL_VER` 39** — new `ADMIN_RESP_RATE_LIMIT 0x06`. **`server_admin.c`**: minimum token length **16**; boot **WARNING** if `< 32` chars.
+- **P1-B (S-2)**: `net.c` — `netServerIssueCookie` uses **BCryptGenRandom** (Windows) / **getrandom** (Linux) / **getentropy** (macOS) / `/dev/urandom` fallback; SHA-256 path only if OS RNG fails; **CMake** links **bcrypt** on Windows.
+- **P1-C (S-3)**: `server_bans.c` — Windows **`fflush` + `_commit`**, **`MoveFileExA`** replace; POSIX **`rename`** without prior **`remove`**. **`banAddrEq`**: **`inet_pton`** → canonical **`in6_addr`** (IPv4-mapped for dotted-quad).
+- **P1-D (AUDIT-M2)**: `ADMIN_SUB_LIST` / `ADMIN_SUB_STATUS` — `vsnprintf` truncation detection + **`(truncated)`** footer; `ADMIN_PAYLOAD_MAX` documented in **`server_admin.h`**.
+- **`constraints.md`**: protocol **v39** + admin-token constraint text.
+- **Build**: not completed in this agent environment (PowerShell `build-headless` runspace error; `ninja` hit ccache/`CreateProcess`); verify **`devtools/build-headless.ps1`** locally.
+
+## Session S415 — 2026-04-21 — P0 wire-mask tripwire + net_hash documentation
+
+- **`src/game/mplayer/participant.c`**: `_Static_assert(MAX_PLAYERS + MAX_BOTS <= 64, ...)` immediately before `mpParticipantsEncodeActiveMask` / `mpParticipantsDecodeActiveMask`, message documents **SVC_STAGE_START** `active_mask` as **u64** (one bit per slot; players then bots).
+- **`port/src/assetcatalog.c`**, **`port/include/assetcatalog.h`**, **`port/include/assetcatalog_deps.h`**: short comments that **net_hash** is an internal catalog cache/dedup key only, not wire/save/public API identity (per **constraints.md** catalog-ID rules).
+- **Build**: `devtools/build-headless.ps1` exits early in this agent environment during Configure (exit 5; investigate locally). **MSYS bash** `cmake` + `ninja -C Build pd` fails on existing **`imgui/imgui.h`** vs **`-I .../port/fast3d/imgui`** mismatch (**pdgui_hold_ring.h** et al.); unrelated to this diff. Verify full headless build on a machine where the ImGui include path already matches the tree.
+
+## Session S414 — 2026-04-20 — Controller hold housekeeping (USE slider, prop extras, C-buttons policy)
+
+- **`actionmap.h` / `bondmove.c` / `prop.c`**: Documented **`ACTION_USE_HOLD_THRESHOLD_MS`** as actionmap seed + corrupt-config fallback only; gameplay uses **`actionmapGetEffectiveHoldMs(ACTION_USE)`** via **`propGetActionUseHoldThresholdMs()`** / **`propInteractPromptHoldThresholdMs()`**. **`propInteractPromptHoldThresholdMs`**: terminal extra ms via **`actionmapGetInteractHoldExtraTerminalMs()`** (`ActionMap.InteractHoldExtraTerminalMs`); weapons/doors/generic unchanged. **`pdgui-hold-ring.md`** updated (see also S417).
+- **`pdgui_menu_mainmenu.cpp`**: When **`actionmapGetActionHoldMsOverride(ACTION_USE) >= 0`**, show **effective ms**, **disable** global Use-hold slider with explanation; advanced hold-overrides blurb notes the interaction.
+- **`constraints.md`**: **C-button** row — actions remain; Controller tab **hides C-button group** in mapper/table only (UI clutter).
+- **Input**: Controller tab uses ImGui only (no new `SDL_*` mouse APIs in this path); verified by review.
+- **Build**: Verify with `devtools/build-headless.ps1` locally if agent env cannot configure CMake.
+
+## Session S413 — 2026-04-20 — F9 menu / input diagnostics overlay
+
+- **F9** toggles read-only **Menu / input diagnostics** (`pdgui_menu_stack_debug.cpp`): input-context stack, `inputCtxDebugSnapshotAuthority` (no `gameplayInputSuppressed()` side effects), menupool actives, legacy `g_Menus` text via `pdguiDebugFormatLegacyMenuInfo` in `pdgui_bridge.c`. Window uses **NoInputs | NoNav | NoBringToFrontOnFocus** so it does not capture input or push contexts.
+- **`pdgui_backend.cpp`**: global hotkeys **F9** / **F10** (`meshDebugToggle`); `pdguiNewFrame` / `pdguiRender` early-return gates include `pdguiMenuStackOverlayGetOpen()`; `pdguiMenuStackOverlayRender` immediately before `ImGui::Render()`.
+- **`gfx_sdl2.cpp`**: mesh debug moved from **F9** to **F10** for the fallback path when `pdguiProcessEvent` does not run.
+- **`pdgui_bridge.c`**: `#include <stdio.h>` for `pdguiDebugFormatLegacyMenuInfo`.
+- **Build**: Not verified in this agent environment (CMake configure needs MinGW toolchain args from `devtools/build-headless.ps1`); verify locally.
+
+## Session S412 — 2026-04-21 — Full Super Audit (standalone, not delta)
+
+- Ran **full** Super Audit per `.claude/skills/super-audit/audit-prompt.md` — new report **`context/audits/2026-04-21-full.md`** (sections 1–7, Phase 2.5 notes, scorecard).
+- **Design note captured:** game-agnostic dedicated server (committed) vs in-client **listen host / “go online”** — engine already has `netStartServer` + `!g_NetDedicated` slot-0 host; UI/docs currently **dedicated-first / no client host** (`pdgui_menu_network.cpp`, `netmenu.c`). Not inherently ad-hoc; main cost is dual test surface + UX.
+- **Findings-only** per skill (no code changes).
+
+## Session S411 — 2026-04-20 — Super Audit skill: manual verification pass
+
+- Ran **`.claude/skills/super-audit/SKILL.md`** (read `audit-prompt.md`, reconciled with `context/audits/2026-04-20-full.md`).
+- Spot-verified open items against current sources: `netbufReadStr` NUL fix (`netbuf.c`), `netServerIssueCookie` non-CSPRNG comment (`net.c`), `ADMIN_SUB_AUTH` without rate limit (`netmsg.c`), no `MAX_PLAYERS+MAX_BOTS<=64` static assert yet — **same conclusions as 2026-04-20 report**.
+- Appended **Verification pass** section to `context/audits/2026-04-20-full.md`. Documented skill path quirk: prompt is `audit-prompt.md` at skill root, not `references/audit-prompt.md`.
+
+## Session S410 — 2026-04-20 — Controller map: Bind 2 drop + stick cardinal zones
+
+- **`port/fast3d/pdgui_menu_mainmenu.cpp`**: Visual mapper zones split **left = Bind 1 / right = Bind 2** with `pickSlotForControllerBindColumn` (matches bind table), drag-drop to either half, **right-click** clears that column via `clearControllerVkAtBindColumn`. Added **LS/RS cardinal** zones (`JOY1_LSTICK_*` / `JOY1_RSTICK_*` offsets 22-29). Zone order: cardinals + face controls first, **L3/R3 last** so stick-click stays on top where overlapping. Taller pad (`240` scaled), updated help text.
+- **Build**: Not verified in agent env.
+
+## Session S407 — 2026-04-20 — ImGui active menu (weapon / function / orders) wheel
+
+- **Goal**: PC ImGui radial/diamond for the in-game active menu using existing **`amGetSlotDetails`** / **`amCalculateSlotPosition`** (no new catalog wire IDs); theme colors via **`pdguiGetActivePaletteRaw`** / **`pdguiGetTextWarning`**; skip duplicate GBI wheel when ImGui draws.
+- **`src/game/activemenu.c`**: `amInitActiveMenuSelectionCoords()` so **`selx`/`dstx` anim** still run when legacy wheel is skipped; **`amSyncCommandingAibotForActiveMenu()`** mirrors **`amRenderAibotInfo`** side effect so bot HP bar + **`commandingaibot`** stay correct; **`amGetSlotVisualMode()`** factors slot highlight logic for legacy + bridge; legacy wheel body gated on **`pdguiActiveMenuShouldSkipLegacyWheel()`** (from **`pdgui_bridge.c`**).
+- **`port/fast3d/pdgui_bridge.c`**: slot query, framebuffer→window mapping, diamond outer corners, selection pulse RGBA, **`LOCALPLAYERCOUNT`** helper.
+- **`port/fast3d/pdgui_activemenu_radial.cpp`** + **`port/include/pdgui_activemenu_radial.h`**: foreground draw list overlay (diamond fill, slots, pulsing selection frame).
+- **`port/fast3d/pdgui_backend.cpp`**: **`pdguiActiveMenuRadialRender`** after HUD.
+- **Build**: Not verified here (ccache `CreateProcess` in agent env); verify on MSYS MinGW per project scripts.
+
+---
+
+## Session S407 — 2026-04-20 — Controller map silhouette + B1/B2 on pad
+
+- **`port/fast3d/pdgui_menu_mainmenu.cpp`**: Settings → Controls → Controller visual mapper gains a vector-style gamepad silhouette (body, LT/RT caps, D-pad cross, stick rings, face-button hints) under the interactive drop zones; slightly larger pad area. Zones now list **B1** / **B2** per action (matches table Bind 1/2 via `getBindsByType`), with hover tooltip and extra line when both **Use / Interact** and **Reload** share a button (hold threshold + bondmove). Drag-and-drop still sets **Bind 1** (slot 0) only — unchanged.
+- **Build**: Not verified here (PowerShell `build-headless.ps1` runspace failure in agent env); verify locally via MSYS headless build.
+
+---
+
+## Session S409 — 2026-04-20 — Per-action hold overrides UI + Controls nav polish
+
+- **`port/fast3d/pdgui_menu_mainmenu.cpp`**: Controller tab — collapsible **Per-action hold overrides (advanced)** with filterable table: Default vs Custom (50-2000 ms), Effective column (Use / Interact shows global when Default), `actionmapSaveBinds` + `configSave` on change. Helper text under global **Use hold** slider. **Controller map** child windows use `ImGuiChildFlags_NavFlattened` so gamepad/keyboard nav crosses the action list, scroll region, and drop zones; `TextDisabled` note that rebinding with a gamepad uses the table (drag-drop is mouse). Controls sub-tab bar uses `ImGuiTabBarFlags_FittingPolicyScroll`.
+- **`port/include/actionmap.h`**: Comment points Settings UI for global Use hold vs overrides.
+- **Build**: Not verified in agent env.
+
+---
 
 ## Session S398 — 2026-04-21 — Hold ring module + context doc
 

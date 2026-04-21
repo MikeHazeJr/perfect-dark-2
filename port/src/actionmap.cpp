@@ -125,6 +125,9 @@ static f32 s_StickDzAim      = 0.15f;
 /* Hold/tap threshold for ACTION_USE (interact vs reload on same bind). */
 static s32 s_UseHoldThresholdMs = ACTION_USE_HOLD_THRESHOLD_MS;
 
+/* Extra hold (ms) for hackable-terminal prompts — layered in propInteractPromptHoldThresholdMs. */
+static s32 s_InteractHoldExtraTerminalMs = 200;
+
 /* Optional per-action hold duration (ms). -1 = unset (USE falls back to s_UseHoldThresholdMs). */
 #define ACTIONMAP_HOLD_MS_MAX 2000
 #define HOLD_OVERRIDES_STR_MAX 512
@@ -1217,6 +1220,18 @@ s32 actionWasTap(s32 player, InputAction action, s32 max_hold_ms)
     return (elapsed >= 0 && elapsed < max_hold_ms);
 }
 
+s32 actionLastGestureHoldMs(s32 player, InputAction action)
+{
+    if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
+    if (action < 0 || action >= ACTION_COUNT) return 0;
+    if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0;
+    const ActionState *st = &s_State[player][action];
+    if (!st->released) return 0;
+    if (st->down_time_ms == 0) return 0;
+    s32 elapsed = (s32)(st->up_time_ms - st->down_time_ms);
+    return (elapsed >= 0) ? elapsed : 0;
+}
+
 void actionConsumeHold(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return;
@@ -1625,6 +1640,22 @@ s32 actionmapGetEffectiveHoldMs(InputAction action)
     return 0;
 }
 
+s32 actionmapGetInteractHoldExtraTerminalMs(void)
+{
+    return s_InteractHoldExtraTerminalMs;
+}
+
+void actionmapSetInteractHoldExtraTerminalMs(s32 ms)
+{
+    if (ms < 0) {
+        ms = 0;
+    }
+    if (ms > ACTIONMAP_HOLD_MS_MAX) {
+        ms = ACTIONMAP_HOLD_MS_MAX;
+    }
+    s_InteractHoldExtraTerminalMs = ms;
+}
+
 void actionmapSetMoveStickPhysicalLeft(s32 useLeft)
 {
     s_SwapSticks = useLeft ? 0 : 1;
@@ -1986,6 +2017,8 @@ void actionmapInit(void)
     configRegisterInt("ActionMap.SwapSticks",          &s_SwapSticks,      0, 1);
     configRegisterInt("ActionMap.UseHoldThresholdMs",  &s_UseHoldThresholdMs, 50,
                         ACTIONMAP_HOLD_MS_MAX);
+    configRegisterInt("ActionMap.InteractHoldExtraTerminalMs", &s_InteractHoldExtraTerminalMs, 0,
+                      ACTIONMAP_HOLD_MS_MAX);
 
     for (s32 a = 0; a < ACTION_COUNT; a++) {
         s_ActionHoldMsOverride[a] = -1;

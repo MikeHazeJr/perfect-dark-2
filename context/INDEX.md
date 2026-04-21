@@ -18,6 +18,8 @@
 
 Domain work: see README § “Domain Files” and § “Plan / Design Files”.
 
+**Menu input UX (controller + mouse):** [designs/menu-controller-input-constraints.md](designs/menu-controller-input-constraints.md) (includes Settings → Controls sanity notes).
+
 ---
 
 ## Where session history lives

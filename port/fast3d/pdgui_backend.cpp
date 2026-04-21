@@ -47,6 +47,9 @@
 /* F8 in-game menu hot-swap */
 #include "pdgui_hotswap.h"
 
+/* F9 menu / input-context diagnostics (read-only overlay) */
+#include "pdgui_menu_stack_debug.h"
+
 /* D5.1: Input context stack — routes events between game and ImGui */
 #include "inputctx.h"
 #include "pdgui_menus.h"
@@ -85,6 +88,9 @@ extern "C" void pdguiLogViewerRender(s32 winW, s32 winH);
 #include "pdgui_subtitles.h"
 #include "pdgui_achievement_toast.h"
 
+/* Mesh collision debug (F10) — declared in gfx_sdl2.cpp */
+extern "C" void meshDebugToggle(void);
+
 /* MP In-Game overlays: kill ticker + endscreen suppression */
 extern "C" void pdguiMpIngameRender(s32 winW, s32 winH);
 
@@ -102,6 +108,7 @@ extern "C" s32 inputMouseIsLocked(void);
 
 /* Resolution-independent scaling helpers */
 #include "pdgui_scaling.h"
+#include "pdgui_activemenu_radial.h"
 
 /* Logging */
 #include "system.h"
@@ -436,12 +443,13 @@ void pdguiNewFrame(void)
     bool hubActive = (pdguiModdingHubIsVisible() != 0);
 
     bool debugOverlayActive = (inputCtxIsActive(&g_CtxDebugOverlay) != 0);
+    bool menuStackDiag = (pdguiMenuStackOverlayGetOpen() != 0);
     /* S311: When walking near a door/weapon/etc., propInteractPromptLabel() is
      * non-NULL — we must run ImGui this frame. The default path skips NewFrame
      * during "clean" solo gameplay (no menus/network), which hid the prompt. */
     bool interactPrompt = (propInteractPromptLabel() != NULL);
     if (!g_PdguiInitialized ||
-        (!debugOverlayActive && !pdguiHotswapHasQueued() && !pdguiHotswapWasActive() &&
+        (!debugOverlayActive && !menuStackDiag && !pdguiHotswapHasQueued() && !pdguiHotswapWasActive() &&
          !networkActive && !pauseActive && !hubActive && !interactPrompt)) {
         return;
     }
@@ -534,9 +542,10 @@ void pdguiRender(void)
 
     /* D13: Also render when update UI is visible (notification banner, version picker) */
     bool debugOverlayActive = (inputCtxIsActive(&g_CtxDebugOverlay) != 0);
+    bool menuStackDiag = (pdguiMenuStackOverlayGetOpen() != 0);
     bool interactPrompt = (propInteractPromptLabel() != NULL);
     if (!g_PdguiInitialized ||
-        (!debugOverlayActive && !s_ConsoleVisible && !hotswapQueued && !hotswapWasActive &&
+        (!debugOverlayActive && !menuStackDiag && !s_ConsoleVisible && !hotswapQueued && !hotswapWasActive &&
          !networkActive && !updateActive && !pauseActive && !hubActive && !interactPrompt)) {
         return;
     }
@@ -630,6 +639,9 @@ void pdguiRender(void)
      * Only visible during normmplayerisrunning (combat sim active). */
     pdguiHudRender((s32)winW, (s32)winH);
 
+    /* In-game active menu (weapon / function / orders) -- ImGui replaces legacy GBI wheel. */
+    pdguiActiveMenuRadialRender((s32)winW, (s32)winH);
+
     /* Subtitle overlay: bottom-center panel for HUDMSGTYPE_INGAMESUBTITLE
      * and HUDMSGTYPE_CUTSCENESUBTITLE — replaces the legacy hudmsg path
      * for these two types.  hudmsgsRender skips them so ImGui is the sole
@@ -680,6 +692,9 @@ void pdguiRender(void)
     if (pdguiThemeGetScanlineEnabled()) {
         pdguiThemeDrawScanlineFg(0, 0, (float)winW, (float)winH);
     }
+
+    /* F9: read-only menu stack + input-context snapshot (NoInputs — does not steal focus). */
+    pdguiMenuStackOverlayRender((s32)winW, (s32)winH);
 
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -834,6 +849,17 @@ s32 pdguiProcessEvent(void *sdlEvent)
         } else {
             inputCtxPopDeferred(&g_CtxDebugOverlay);
         }
+        return 1;
+    }
+
+    /* F9: toggle read-only menu/input diagnostics (no input-context push). */
+    if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F9) {
+        pdguiMenuStackOverlayToggle();
+        return 1;
+    }
+    /* F10: mesh collision debug (was F9 before F9 was reserved for menu diagnostics). */
+    if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F10) {
+        meshDebugToggle();
         return 1;
     }
 

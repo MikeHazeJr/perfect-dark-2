@@ -50,7 +50,9 @@
 
 #define BUTTON_JUMP CONT_4000
 
-/* Hold/tap threshold: propGetActionUseHoldThresholdMs() (settings + per-interact extras). */
+/* Use hold duration: propGetActionUseHoldThresholdMs() — when an interact prompt is active,
+ * equals propInteractPromptHoldThresholdMs() (effective ms + per-target extras in prop.c);
+ * otherwise actionmapGetEffectiveHoldMs(ACTION_USE). See actionmap.h / pdgui-hold-ring.md. */
 
 static void bgunProcessQuickDetonate(struct movedata *data, u32 c1buttons, u32 c1buttonsthisframe, u32 buttons1, u32 buttons2) {
 	if ((((c1buttons & (buttons1)) && (c1buttonsthisframe & (buttons2)))
@@ -974,7 +976,8 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	 * PC ACTION_USE (X face / Use key) — twin-stick:
 	 *   - Short press / tap -> A_BUTTON (activate: mount vehicle, doors, …)
 	 *   - Hold > use-hold-ms -> A_BUTTON + consume (pickup grabbables e.g. hoverbike)
-	 * Reload uses ACTION_RELOAD (R) or long-USE release with no prompt (below).
+	 * Reload uses ACTION_RELOAD (R) or USE release with no prompt (below) — including
+	 * release before the long-hold threshold when nothing is interactable.
 	 *
 	 * ACTION_RELOAD (R kbd) is treated as a dedicated immediate-reload key. */
 	{
@@ -1035,12 +1038,17 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					}
 				}
 			}
-			/* Interact-first: long-press release with no interact prompt — reload.
-			 * Avoids "eating" X when nothing was usable (doors/vehicles/props). */
-			if (actionReleased(pi, ACTION_USE) && actionHoldConsumed(pi, ACTION_USE)
-					&& propInteractPromptLabel() == NULL) {
-				c1buttons |= X_BUTTON;
-				c1buttonsthisframe |= X_BUTTON;
+			/* Interact-first: USE release with no interact prompt — synthesize reload (X_BUTTON),
+			 * same as ACTION_RELOAD tap. Long-hold (consumed) always qualifies; shorter holds
+			 * need a minimum duration so a crisp tap-activate (doors) does not pair with reload
+			 * if the prompt clears on the same frame. */
+			if (actionReleased(pi, ACTION_USE) && propInteractPromptLabel() == NULL) {
+				const s32 minMs = 80;
+				if (actionHoldConsumed(pi, ACTION_USE)
+						|| actionLastGestureHoldMs(pi, ACTION_USE) >= minMs) {
+					c1buttons |= X_BUTTON;
+					c1buttonsthisframe |= X_BUTTON;
+				}
 			}
 		}
 	}

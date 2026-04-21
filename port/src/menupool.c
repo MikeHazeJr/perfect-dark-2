@@ -414,6 +414,31 @@ s32 menupoolCountActive(void)
     return n;
 }
 
+s32 menupoolDebugCopyActive(MenupoolDebugEntry *out, s32 maxEntries)
+{
+    if (!out || maxEntries <= 0) {
+        return 0;
+    }
+    s32 w = 0;
+    for (s32 i = MENU_TYPE_NONE + 1; i < MENU_TYPE_COUNT && w < maxEntries; i++) {
+        const menupool_slot_t *slot = &s_Pool[i];
+        if (!slot->active) {
+            continue;
+        }
+        out[w].type = (menu_type_t)i;
+        out[w].type_name = menupoolTypeName((menu_type_t)i);
+        out[w].generation = slot->generation;
+        out[w].def_ptr = slot->def;
+        if (slot->owned_ctx) {
+            out[w].owned_ctx_name = slot->owned_ctx->name ? slot->owned_ctx->name : "?";
+        } else {
+            out[w].owned_ctx_name = "shared/none";
+        }
+        w++;
+    }
+    return w;
+}
+
 void menupoolReleaseAll(void)
 {
     s32 released = 0;

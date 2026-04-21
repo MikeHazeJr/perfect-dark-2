@@ -1,3 +1,6 @@
+#if defined(__linux__)
+#define _GNU_SOURCE 1
+#endif
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -52,6 +55,19 @@
 #include "audio.h"
 #include "sha256.h"
 #include "server_bans.h"
+#if defined(_WIN32)
+#include <windows.h>
+#include <bcrypt.h>
+#elif defined(__linux__)
+#include <errno.h>
+#include <sys/random.h>
+#elif defined(__APPLE__)
+#include <unistd.h>
+#else
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 #if !defined(PD_SERVER)
 #include "input.h"
 #include "inputctx.h"
@@ -238,6 +254,7 @@ static inline void netClientReset(struct netclient *cl)
 	cl->room_id = 0xFF;
 	netmsgChatRateReset((u32)cl->id);
 	netmsgRoomMutationRateReset((u32)cl->id);
+	netmsgAdminAuthRateReset((u32)cl->id);
 }
 
 static inline void netClientResetAll(void)
@@ -419,7 +436,8 @@ static inline const char *netGetDisconnectReason(const u32 reason)
 		"Server is full",
 		"The game is already in progress",
 		"Your files differ from the server's",
-		"Player left the game"
+		"Player left the game",
+		"Too many failed admin authentication attempts"
 	};
 	if (reason < (u32)ARRAYCOUNT(msgs)) {
 		return msgs[reason];
@@ -1298,41 +1316,86 @@ s32 netDisconnect(void)
 	return 0;
 }
 
-/* MASTER-C3: Issue a fresh 128-bit identity cookie.
- *
- * Not a full CSPRNG — mixes SDL_GetPerformanceCounter with a persistent
- * running hash seeded from time() and mixed with a secret that rotates on
- * each call.  Good enough for separating players on a trusted server; an
- * attacker without local timing oracle cannot predict the next cookie. */
+/* Fill buf with len bytes from the OS CSPRNG (BCryptGenRandom / getrandom /
+ * getentropy / /dev/urandom).  Called from the network thread / main loop only
+ * (AUDIT-M3: no mutex — single-threaded net tick contract).  Returns 0 on success. */
+static int netOsRandomBytes(u8 *buf, size_t len)
+{
+#if defined(_WIN32)
+	NTSTATUS st = BCryptGenRandom(NULL, buf, (ULONG)len, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+	return BCRYPT_SUCCESS(st) ? 0 : -1;
+#elif defined(__linux__)
+	size_t off = 0;
+	while (off < len) {
+		ssize_t r = getrandom(buf + off, len - off, 0);
+		if (r < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			return -1;
+		}
+		off += (size_t)r;
+	}
+	return 0;
+#elif defined(__APPLE__)
+	if (len > 256u) {
+		return -1;
+	}
+	if (getentropy(buf, len) != 0) {
+		return -1;
+	}
+	return 0;
+#else
+	int fd = open("/dev/urandom", O_RDONLY);
+	if (fd < 0) {
+		return -1;
+	}
+	size_t off = 0;
+	while (off < len) {
+		ssize_t r = read(fd, buf + off, len - off);
+		if (r < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			close(fd);
+			return -1;
+		}
+		if (r == 0) {
+			close(fd);
+			return -1;
+		}
+		off += (size_t)r;
+	}
+	close(fd);
+	return 0;
+#endif
+}
+
+/* MASTER-C3: Issue a fresh 128-bit identity cookie from the OS RNG. */
 void netServerIssueCookie(u8 out[NET_AUTH_COOKIE_LEN])
 {
-	static sha256_ctx s_Ctx;
-	static bool s_Seeded = false;
-	if (!s_Seeded) {
-		sha256Init(&s_Ctx);
-		u64 seed = (u64)time(NULL);
-		seed ^= (u64)SDL_GetPerformanceCounter();
-		sha256Update(&s_Ctx, &seed, sizeof(seed));
-		/* Mix in the process's address space (ASLR) — a cheap salt. */
-		uintptr_t addr = (uintptr_t)&netServerIssueCookie;
-		sha256Update(&s_Ctx, &addr, sizeof(addr));
-		s_Seeded = true;
+	if (netOsRandomBytes(out, NET_AUTH_COOKIE_LEN) != 0) {
+		sysLogPrintf(LOG_WARNING, "NET: netOsRandomBytes failed; mixing SHA-256 fallback");
+		static sha256_ctx s_Ctx;
+		static bool s_Seeded = false;
+		if (!s_Seeded) {
+			sha256Init(&s_Ctx);
+			u64 seed = (u64)time(NULL) ^ (u64)SDL_GetPerformanceCounter();
+			sha256Update(&s_Ctx, &seed, sizeof(seed));
+			uintptr_t addr = (uintptr_t)&netServerIssueCookie;
+			sha256Update(&s_Ctx, &addr, sizeof(addr));
+			s_Seeded = true;
+		}
+		u64 salt = (u64)SDL_GetPerformanceCounter();
+		sha256Update(&s_Ctx, &salt, sizeof(salt));
+		u32 tick = g_NetTick;
+		sha256Update(&s_Ctx, &tick, sizeof(tick));
+		u8 digest[SHA256_DIGEST_SIZE];
+		sha256_ctx snapshot = s_Ctx;
+		sha256Final(&snapshot, digest);
+		sha256Update(&s_Ctx, digest, sizeof(digest));
+		memcpy(out, digest, NET_AUTH_COOKIE_LEN);
 	}
-
-	u64 salt = (u64)SDL_GetPerformanceCounter();
-	sha256Update(&s_Ctx, &salt, sizeof(salt));
-	u32 tick = g_NetTick;
-	sha256Update(&s_Ctx, &tick, sizeof(tick));
-
-	u8 digest[SHA256_DIGEST_SIZE];
-	sha256_ctx snapshot = s_Ctx;
-	sha256Final(&snapshot, digest);
-
-	/* Feed the digest back into the rolling ctx so the next call produces
-	 * different output even under identical system timers. */
-	sha256Update(&s_Ctx, digest, sizeof(digest));
-
-	memcpy(out, digest, NET_AUTH_COOKIE_LEN);
 }
 
 void netServerPreservePlayer(struct netclient *cl)

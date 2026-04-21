@@ -528,6 +528,14 @@ static bool PdSliderFloat(const char *label, float *v, float v_min, float v_max,
     return ImGui::SliderFloat(label, v, v_min, v_max, format);
 }
 
+/* Controller tab: 0 = movement on physical left stick, 1 = movement on physical right stick.
+ * Look / aim always uses the other stick; keeps actionmap swap flag and SDL axis map aligned. */
+static void pdguiApplyMoveStickLayout(int moveStickUiIdx)
+{
+    actionmapSetMoveStickPhysicalLeft(moveStickUiIdx == 0 ? 1 : 0);
+    inputControllerSetSticksSwapped(0, moveStickUiIdx == 0 ? 0 : 1);
+}
+
 /* ========================================================================
  * Settings Sub-Tab Renderers
  * ======================================================================== */
@@ -1590,6 +1598,62 @@ static s32 findFreeTriggerSlot(InputAction action)
     return 0;
 }
 
+/* Trigger slot index for controller Bind 1 / Bind 2 columns (matches renderBindTable). */
+static s32 pickSlotForControllerBindColumn(InputAction action, s32 wantCol)
+{
+    u32 mkbVKs[2], ctrlVKs[2];
+    s32 mkbSlots[2], ctrlSlots[2];
+    s32 mkbCount, ctrlCount;
+    getBindsByType(action, mkbVKs, mkbSlots, &mkbCount, ctrlVKs, ctrlSlots, &ctrlCount);
+    if (wantCol == 0) {
+        if (ctrlSlots[0] >= 0) {
+            return ctrlSlots[0];
+        }
+        return findFreeTriggerSlot(action);
+    }
+    if (ctrlSlots[1] >= 0) {
+        return ctrlSlots[1];
+    }
+    s32 other = (ctrlSlots[0] >= 0) ? ctrlSlots[0] : -1;
+    s32 useSlot = findFreeTriggerSlot(action);
+    if (other >= 0 && useSlot == other) {
+        InputMapping *m = &g_ImcGameplay.mappings[action];
+        useSlot = -1;
+        for (s32 i = 0; i < ACTIONMAP_MAX_TRIGGERS; i++) {
+            if (i != other && m->triggers[i].vk == 0) {
+                useSlot = i;
+                break;
+            }
+        }
+        if (useSlot < 0) {
+            useSlot = (other == 0) ? 1 : 0;
+        }
+    }
+    return useSlot;
+}
+
+/* Clear controller bind at vk for Bind 1 (0) or Bind 2 (1) column — all actions using that slot. */
+static void clearControllerVkAtBindColumn(u32 vk, s32 bindCol, u32 hideGroupMask)
+{
+    for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
+        if (hideGroupMask & (1u << s_BindableActions[row].group)) {
+            continue;
+        }
+        InputAction act = s_BindableActions[row].action;
+        u32 mkbVKs[2], ctrlVKs[2];
+        s32 mkbSlots[2], ctrlSlots[2];
+        s32 mkbCount, ctrlCount;
+        getBindsByType(act, mkbVKs, mkbSlots, &mkbCount, ctrlVKs, ctrlSlots, &ctrlCount);
+        if (bindCol == 0 && ctrlVKs[0] == vk && ctrlSlots[0] >= 0) {
+            actionmapBind(&g_ImcGameplay, 0, act, ctrlSlots[0], 0);
+        } else if (bindCol == 1 && ctrlVKs[1] == vk && ctrlSlots[1] >= 0) {
+            actionmapBind(&g_ImcGameplay, 0, act, ctrlSlots[1], 0);
+        }
+    }
+    actionmapSaveBinds();
+    configSave("pd.ini");
+}
+
 /* Conflict map — computed once per frame, per filter column. Keys are the
  * u32 VK values. When a VK shows up in more than one bindable action's
  * triggers we raise a flag so the row's button can render with a red
@@ -1738,6 +1802,8 @@ static bool s_ControlsNeedsInit = true;
 /* S306: optional search filter. Empty means "show all". Case-insensitive
  * substring match on the display name. */
 static char s_BindSearch[64] = "";
+/* Controls -> Controller -> per-action hold overrides table */
+static char s_HoldOvFilter[64] = "";
 
 static bool stringIContains(const char *hay, const char *needle)
 {
@@ -1792,55 +1858,290 @@ struct CtrlPadZone {
     float relX, relY, relW, relH;
 };
 
-static void appendActionNamesForCtrlVk(u32 vk, u32 hideGroupMask, char *out, size_t outSz)
+/* Entries for one physical controller button on the visual map (Bind 1 vs Bind 2
+ * matches the table columns; order is B1 then B2, then name). */
+struct CtrlZoneEntry {
+    InputAction action;
+    const char *name;
+    u8 bindIdx; /* 0 = Bind 1, 1 = Bind 2 */
+};
+
+#define CTRL_ZONE_MAX_ENTRIES 10
+
+static int collectCtrlZoneEntries(u32 vk, u32 hideGroupMask, CtrlZoneEntry *out, int maxOut)
 {
-    out[0] = '\0';
-    size_t len = 0;
+    int n = 0;
     for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
         if (hideGroupMask & (1u << s_BindableActions[row].group)) {
             continue;
         }
+        InputAction act = s_BindableActions[row].action;
         u32 mkbVKs[2], ctrlVKs[2];
         s32 mkbSlots[2], ctrlSlots[2];
         s32 mkbCount, ctrlCount;
-        getBindsByType(s_BindableActions[row].action, mkbVKs, mkbSlots, &mkbCount,
-                       ctrlVKs, ctrlSlots, &ctrlCount);
-        if (ctrlVKs[0] != vk && ctrlVKs[1] != vk) {
-            continue;
-        }
-        const char *nm = s_BindableActions[row].name;
-        if (len > 0) {
-            strncat(out, ", ", outSz - len - 1);
-            len = strlen(out);
-        }
-        strncat(out, nm, outSz - len - 1);
-        len = strlen(out);
-        if (len >= outSz - 8) {
-            strncat(out, "...", outSz - len - 1);
-            break;
+        getBindsByType(act, mkbVKs, mkbSlots, &mkbCount, ctrlVKs, ctrlSlots, &ctrlCount);
+        for (int bi = 0; bi < 2; bi++) {
+            if (ctrlVKs[bi] == vk && n < maxOut) {
+                out[n].action = act;
+                out[n].name = s_BindableActions[row].name;
+                out[n].bindIdx = (u8)bi;
+                n++;
+            }
         }
     }
-    if (out[0] == '\0') {
-        strncpy(out, "(empty)", outSz - 1);
-        out[outSz - 1] = '\0';
+    /* Sort: Bind 1 before Bind 2, then label A-Z */
+    for (int i = 0; i < n - 1; i++) {
+        for (int j = i + 1; j < n; j++) {
+            int db = (int)out[i].bindIdx - (int)out[j].bindIdx;
+            if (db > 0 || (db == 0 && strcmp(out[i].name, out[j].name) > 0)) {
+                CtrlZoneEntry t = out[i];
+                out[i] = out[j];
+                out[j] = t;
+            }
+        }
+    }
+    return n;
+}
+
+/* Vector-style Xbox-like silhouette: drawn under drop zones; zones stay interactive on top. */
+static void drawControllerSilhouette(ImDrawList *dl, ImVec2 p0, float padW, float padH)
+{
+    const float px = padW;
+    const float py = padH;
+    const ImU32 bodyFill = IM_COL32(32, 34, 46, 255);
+    const ImU32 bodyEdge = IM_COL32(55, 60, 78, 255);
+    const ImU32 deco = IM_COL32(72, 80, 105, 110);
+    const ImU32 shoulderFill = IM_COL32(26, 28, 38, 255);
+    const float bodyRound = pdguiScale(14.0f);
+
+    ImVec2 bmin(p0.x + 0.016f * px, p0.y + 0.058f * py);
+    ImVec2 bmax(p0.x + 0.984f * px, p0.y + 0.978f * py);
+    dl->AddRectFilled(bmin, bmax, bodyFill, bodyRound);
+    dl->AddRect(bmin, bmax, bodyEdge, bodyRound, 0, 1.25f);
+
+    /* LT / RT caps */
+    float shTop = p0.y + 0.038f * py;
+    float shBot = p0.y + 0.098f * py;
+    dl->AddRectFilled(
+        ImVec2(p0.x + 0.065f * px, shTop),
+        ImVec2(p0.x + 0.205f * px, shBot),
+        shoulderFill, pdguiScale(5.0f));
+    dl->AddRectFilled(
+        ImVec2(p0.x + 0.795f * px, shTop),
+        ImVec2(p0.x + 0.935f * px, shBot),
+        shoulderFill, pdguiScale(5.0f));
+    dl->AddRect(
+        ImVec2(p0.x + 0.065f * px, shTop),
+        ImVec2(p0.x + 0.205f * px, shBot),
+        IM_COL32(48, 54, 72, 255), pdguiScale(5.0f), 0, 1.0f);
+    dl->AddRect(
+        ImVec2(p0.x + 0.795f * px, shTop),
+        ImVec2(p0.x + 0.935f * px, shBot),
+        IM_COL32(48, 54, 72, 255), pdguiScale(5.0f), 0, 1.0f);
+
+    /* D-pad cross (decorative) */
+    float dcx = p0.x + 0.19f * px;
+    float dcy = p0.y + 0.52f * py;
+    float arm = pdguiScale(16.0f);
+    float thick = pdguiScale(11.0f);
+    dl->AddRectFilled(
+        ImVec2(dcx - arm, dcy - thick * 0.5f),
+        ImVec2(dcx + arm, dcy + thick * 0.5f),
+        deco, pdguiScale(2.5f));
+    dl->AddRectFilled(
+        ImVec2(dcx - thick * 0.5f, dcy - arm),
+        ImVec2(dcx + thick * 0.5f, dcy + arm),
+        deco, pdguiScale(2.5f));
+
+    /* Analog sticks (hollow rings, aligned with L3/R3 zones) */
+    float srad = pdguiScale(27.0f);
+    ImVec2 lStick(p0.x + 0.245f * px, p0.y + 0.8945f * py);
+    ImVec2 rStick(p0.x + 0.755f * px, p0.y + 0.8945f * py);
+    dl->AddCircle(lStick, srad, deco, 40, 1.35f);
+    dl->AddCircle(rStick, srad, deco, 40, 1.35f);
+
+    /* Face button hints (small circles in diamond layout) */
+    float br = pdguiScale(7.5f);
+    dl->AddCircle(ImVec2(p0.x + 0.8125f * px, p0.y + 0.3785f * py), br, deco, 20, 1.0f);
+    dl->AddCircle(ImVec2(p0.x + 0.7125f * px, p0.y + 0.5575f * py), br, deco, 20, 1.0f);
+    dl->AddCircle(ImVec2(p0.x + 0.9125f * px, p0.y + 0.5575f * py), br, deco, 20, 1.0f);
+    dl->AddCircle(ImVec2(p0.x + 0.8125f * px, p0.y + 0.7365f * py), br, deco, 20, 1.0f);
+
+    /* Center guide line (Start / Back) */
+    dl->AddLine(
+        ImVec2(p0.x + 0.36f * px, p0.y + 0.30f * py),
+        ImVec2(p0.x + 0.64f * px, p0.y + 0.30f * py),
+        IM_COL32(55, 62, 82, 80), 1.0f);
+}
+
+/* One physical control: left half = Bind 1 column, right half = Bind 2 (matches bind table). */
+static void renderOneCtrlPadZoneSplit(ImDrawList *dl, const CtrlPadZone *z, float padW, float padH,
+                                       u32 hideGroupMask)
+{
+    ImGui::SetCursorPos(ImVec2(z->relX * padW, z->relY * padH));
+    ImVec2 zsz(z->relW * padW, z->relH * padH);
+    float halfW = zsz.x * 0.5f;
+
+    char id0[56], id1[56];
+    snprintf(id0, sizeof(id0), "%s_b0##cz", z->id);
+    snprintf(id1, sizeof(id1), "%s_b1##cz", z->id);
+
+    ImGui::PushID(z->id);
+    ImGui::InvisibleButton(id0, ImVec2(halfW, zsz.y));
+    bool hov0 = ImGui::IsItemHovered();
+    bool nav0 = ImGui::IsItemFocused();
+    ImVec2 rmin0 = ImGui::GetItemRectMin();
+    ImVec2 rmax0 = ImGui::GetItemRectMax();
+    if (ImGui::BeginDragDropTarget()) {
+        const ImGuiPayload *pl = ImGui::AcceptDragDropPayload("PD_INPUT_ACTION");
+        if (pl && pl->DataSize == (int)sizeof(InputAction) && pl->Data != NULL) {
+            InputAction dropped = *(const InputAction *)pl->Data;
+            s32 sl = pickSlotForControllerBindColumn(dropped, 0);
+            if (sl >= 0) {
+                actionmapBind(&g_ImcGameplay, 0, dropped, sl, z->vk);
+                actionmapSaveBinds();
+                configSave("pd.ini");
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+        clearControllerVkAtBindColumn(z->vk, 0, hideGroupMask);
+        pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
+    }
+
+    ImGui::SameLine(0.0f, 0.0f);
+    ImGui::InvisibleButton(id1, ImVec2(halfW, zsz.y));
+    bool hov1 = ImGui::IsItemHovered();
+    bool nav1 = ImGui::IsItemFocused();
+    ImVec2 rmin1 = ImGui::GetItemRectMin();
+    ImVec2 rmax1 = ImGui::GetItemRectMax();
+    if (ImGui::BeginDragDropTarget()) {
+        const ImGuiPayload *pl = ImGui::AcceptDragDropPayload("PD_INPUT_ACTION");
+        if (pl && pl->DataSize == (int)sizeof(InputAction) && pl->Data != NULL) {
+            InputAction dropped = *(const InputAction *)pl->Data;
+            s32 sl = pickSlotForControllerBindColumn(dropped, 1);
+            if (sl >= 0) {
+                actionmapBind(&g_ImcGameplay, 0, dropped, sl, z->vk);
+                actionmapSaveBinds();
+                configSave("pd.ini");
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+        clearControllerVkAtBindColumn(z->vk, 1, hideGroupMask);
+        pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
+    }
+    ImGui::PopID();
+
+    ImVec2 rmin(rmin0.x, rmin0.y);
+    ImVec2 rmax(rmax1.x, rmax1.y);
+
+    ImU32 fill0 = hov0 ? IM_COL32(65, 85, 115, 230) : IM_COL32(48, 52, 68, 220);
+    ImU32 fill1 = hov1 ? IM_COL32(65, 85, 115, 230) : IM_COL32(48, 52, 68, 220);
+    if (nav0) {
+        fill0 = IM_COL32(75, 95, 130, 240);
+    }
+    if (nav1) {
+        fill1 = IM_COL32(75, 95, 130, 240);
+    }
+    float zr = pdguiScale(3.0f);
+    dl->AddRectFilled(rmin0, rmax0, fill0, zr, ImDrawFlags_RoundCornersLeft);
+    dl->AddRectFilled(ImVec2(rmin0.x + halfW, rmin0.y), rmax1, fill1, zr, ImDrawFlags_RoundCornersRight);
+    dl->AddRect(rmin, rmax, IM_COL32(130, 140, 175, 255), zr, 0, 1.25f);
+    dl->AddLine(ImVec2(rmin0.x + halfW, rmin.y), ImVec2(rmin0.x + halfW, rmax.y),
+                IM_COL32(90, 95, 120, 200), 1.0f);
+
+    dl->AddText(ImVec2(rmin.x + pdguiScale(4.0f), rmin.y + pdguiScale(2.0f)), IM_COL32(170, 190, 220, 255),
+                "1");
+    dl->AddText(ImVec2(rmin.x + halfW + pdguiScale(4.0f), rmin.y + pdguiScale(2.0f)),
+                IM_COL32(170, 190, 220, 255), "2");
+    dl->AddText(ImVec2(rmin.x + pdguiScale(22.0f), rmin.y + pdguiScale(2.0f)), IM_COL32(240, 242, 250, 255),
+                z->shortLabel);
+
+    CtrlZoneEntry zent[CTRL_ZONE_MAX_ENTRIES];
+    int zn = collectCtrlZoneEntries(z->vk, hideGroupMask, zent, CTRL_ZONE_MAX_ENTRIES);
+    const ImU32 colB1 = IM_COL32(215, 235, 255, 255);
+    const ImU32 colB2 = IM_COL32(165, 200, 240, 245);
+    const ImU32 colEmpty = IM_COL32(130, 135, 155, 220);
+
+    float lineY = rmin.y + ImGui::GetTextLineHeight() + pdguiScale(3.0f);
+    const float bindFont = ImGui::GetFontSize() * 0.72f;
+    ImGui::PushClipRect(rmin, rmax, true);
+    if (zn == 0) {
+        dl->AddText(ImGui::GetFont(), bindFont, ImVec2(rmin.x + pdguiScale(3.0f), lineY), colEmpty, "(empty)");
+    } else {
+        for (int zi2 = 0; zi2 < zn; zi2++) {
+            char line[96];
+            snprintf(line, sizeof(line), "B%u %s", (unsigned)(zent[zi2].bindIdx + 1), zent[zi2].name);
+            ImU32 col = (zent[zi2].bindIdx == 0) ? colB1 : colB2;
+            dl->AddText(ImGui::GetFont(), bindFont, ImVec2(rmin.x + pdguiScale(3.0f), lineY), col, line);
+            lineY += bindFont * 1.05f;
+            if (lineY > rmax.y - bindFont * 0.5f) {
+                dl->AddText(ImGui::GetFont(), bindFont * 0.9f, ImVec2(rmin.x + pdguiScale(3.0f), lineY),
+                            colEmpty, "+more");
+                break;
+            }
+        }
+    }
+    ImGui::PopClipRect();
+
+    bool hov = hov0 || hov1;
+    if (hov && zn > 0) {
+        char tip[560];
+        size_t tl = 0;
+        tip[0] = '\0';
+        bool haveUse = false;
+        bool haveReload = false;
+        for (int zi2 = 0; zi2 < zn && tl < sizeof(tip) - 160; zi2++) {
+            int n = snprintf(tip + tl, sizeof(tip) - tl, "Bind %u: %s\n",
+                             (unsigned)(zent[zi2].bindIdx + 1), zent[zi2].name);
+            if (n > 0) tl += (size_t)n;
+            if (zent[zi2].action == ACTION_USE) haveUse = true;
+            if (zent[zi2].action == ACTION_RELOAD) haveReload = true;
+        }
+        strncat(tip, "Drop left: Bind 1. Drop right: Bind 2. Right-click a side to clear that column.\n",
+                sizeof(tip) - tl - 1);
+        tl = strlen(tip);
+        if (haveUse && haveReload) {
+            strncat(tip,
+                    "\nSame button: hold Use / Interact uses the threshold above; short press / release "
+                    "pairs with bondmove for reload when no prompt (see Combat bindings).",
+                    sizeof(tip) - tl - 1);
+        }
+        ImGui::SetTooltip("%s", tip);
     }
 }
 
-/* Drag sources + drop targets on a stylized gamepad. hideGroupMask matches renderBindTable. */
+/* Drag sources + drop targets on a stylized gamepad. hideGroupMask matches renderBindTable.
+ * Zones are ordered so stick click (L3/R3) wins hit-testing over stick cardinals on overlap. */
 static void renderControllerVisualMapper(float scale, u32 hideGroupMask)
 {
     (void)scale;
-    const float padW = pdguiScale(400.0f);
-    const float padH = pdguiScale(190.0f);
-    const float rowH = padH + pdguiScale(8.0f);
+    const float padW = pdguiScale(420.0f);
+    const float padH = pdguiScale(240.0f);
+    const float rowH = padH + pdguiScale(10.0f);
 
     ImGui::TextWrapped(
-        "Drag an action onto a control to set its primary controller binding (same as Bind 1 in the table). "
-        "Multiple actions may share one button (for example Use and Reload on X): hold uses interact first; "
-        "release before the hold threshold counts as a tap (reload). Sticks are configured above.");
+        "Drag an action onto the left or right half of a zone: left sets Bind 1, right sets Bind 2 (same "
+        "columns as the table). LS/RS arrows are synthetic stick directions (JOY1_LSTICK_* / JOY1_RSTICK_*). "
+        "Right-click a half to clear that bind column. Same-button priority is unchanged; gameplay still uses "
+        "the Use hold slider with bondmove. Sticks / swap are configured above.");
     ImGui::Spacing();
 
     static const CtrlPadZone kZones[] = {
+        /* Stick cardinals — JOFS_* in port/src/actionmap.cpp (must match VK_JOY1_BEGIN + offset). */
+        { "lsu", "LS-Up", PD_JOY0_BTN(24), 0.212f, 0.752f, 0.066f, 0.058f },
+        { "lsd", "LS-Dn", PD_JOY0_BTN(25), 0.212f, 0.925f, 0.066f, 0.055f },
+        { "lsl", "LS-Lt", PD_JOY0_BTN(22), 0.098f, 0.862f, 0.058f, 0.068f },
+        { "lsr", "LS-Rt", PD_JOY0_BTN(23), 0.328f, 0.862f, 0.058f, 0.068f },
+        { "rsu", "RS-Up", PD_JOY0_BTN(28), 0.722f, 0.752f, 0.066f, 0.058f },
+        { "rsd", "RS-Dn", PD_JOY0_BTN(29), 0.722f, 0.925f, 0.066f, 0.055f },
+        { "rsl", "RS-Lt", PD_JOY0_BTN(26), 0.608f, 0.862f, 0.058f, 0.068f },
+        { "rsr", "RS-Rt", PD_JOY0_BTN(27), 0.838f, 0.862f, 0.058f, 0.068f },
         { "lt", "LT", PD_JOY0_BTN(30), 0.07f, 0.032f, 0.13f, 0.074f },
         { "rt", "RT", PD_JOY0_BTN(31), 0.80f, 0.032f, 0.13f, 0.074f },
         { "lb", "LB", PD_JOY0_BTN(9), 0.12f, 0.137f, 0.14f, 0.116f },
@@ -1859,12 +2160,15 @@ static void renderControllerVisualMapper(float scale, u32 hideGroupMask)
         { "r3", "R3", PD_JOY0_BTN(8), 0.69f, 0.789f, 0.13f, 0.211f },
     };
 
-    ImGui::BeginChild("##mapper_row", ImVec2(0.0f, rowH), false, ImGuiWindowFlags_NoScrollbar);
+    ImGui::BeginChild("##mapper_row", ImVec2(0.0f, rowH), ImGuiChildFlags_NavFlattened,
+                      ImGuiWindowFlags_NoScrollbar);
 
-    ImGui::BeginChild("##mapper_left", ImVec2(pdguiScale(232.0f), rowH), true);
+    ImGui::BeginChild("##mapper_left", ImVec2(pdguiScale(232.0f), rowH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
     ImGui::TextDisabled("Actions (drag)");
     ImGui::Separator();
-    ImGui::BeginChild("##mapper_draglist", ImVec2(0.0f, 0.0f), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
+    ImGui::BeginChild("##mapper_draglist", ImVec2(0.0f, 0.0f), ImGuiChildFlags_NavFlattened,
+                      ImGuiWindowFlags_AlwaysVerticalScrollbar);
     for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
         if (hideGroupMask & (1u << s_BindableActions[row].group)) {
             continue;
@@ -1888,55 +2192,20 @@ static void renderControllerVisualMapper(float scale, u32 hideGroupMask)
 
     ImGui::SameLine();
 
-    ImGui::BeginChild("##mapper_right", ImVec2(0.0f, rowH), true, ImGuiWindowFlags_NoScrollbar);
+    ImGui::BeginChild("##mapper_right", ImVec2(0.0f, rowH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened, ImGuiWindowFlags_NoScrollbar);
     ImDrawList *dl = ImGui::GetWindowDrawList();
     ImVec2 win0 = ImGui::GetCursorScreenPos();
-    dl->AddRectFilled(win0, ImVec2(win0.x + padW, win0.y + padH), IM_COL32(28, 28, 36, 255),
+    dl->AddRectFilled(win0, ImVec2(win0.x + padW, win0.y + padH), IM_COL32(24, 26, 34, 255),
                       pdguiScale(6.0f));
     dl->AddRect(win0, ImVec2(win0.x + padW, win0.y + padH), IM_COL32(90, 95, 115, 255),
                 pdguiScale(6.0f), 0, 1.5f);
+    drawControllerSilhouette(dl, win0, padW, padH);
 
     ImGui::SetCursorScreenPos(win0);
 
     for (int zi = 0; zi < (int)(sizeof(kZones) / sizeof(kZones[0])); zi++) {
-        const CtrlPadZone *z = &kZones[zi];
-        ImGui::SetCursorPos(ImVec2(z->relX * padW, z->relY * padH));
-        ImVec2 zsz(z->relW * padW, z->relH * padH);
-        char zid[48];
-        snprintf(zid, sizeof(zid), "%s##cz", z->id);
-        ImGui::InvisibleButton(zid, zsz);
-        bool hov = ImGui::IsItemHovered();
-        bool nav = ImGui::IsItemFocused();
-        ImVec2 rmin = ImGui::GetItemRectMin();
-        ImVec2 rmax = ImGui::GetItemRectMax();
-        ImU32 fill = hov ? IM_COL32(65, 85, 115, 230) : IM_COL32(48, 52, 68, 220);
-        if (nav) {
-            fill = IM_COL32(75, 95, 130, 240);
-        }
-        dl->AddRectFilled(rmin, rmax, fill, pdguiScale(3.0f));
-        dl->AddRect(rmin, rmax, IM_COL32(130, 140, 175, 255), pdguiScale(3.0f), 0, 1.25f);
-
-        char buf[160];
-        appendActionNamesForCtrlVk(z->vk, hideGroupMask, buf, sizeof(buf));
-        dl->AddText(ImVec2(rmin.x + pdguiScale(3.0f), rmin.y + pdguiScale(2.0f)),
-                    IM_COL32(230, 230, 240, 255), z->shortLabel);
-        float line2y = rmin.y + ImGui::GetTextLineHeight() + pdguiScale(3.0f);
-        ImVec2 tp = ImVec2(rmin.x + pdguiScale(3.0f), line2y);
-        ImGui::PushClipRect(rmin, rmax, true);
-        dl->AddText(ImGui::GetFont(), ImGui::GetFontSize() * 0.78f, tp, IM_COL32(170, 200, 255, 255), buf);
-        ImGui::PopClipRect();
-
-        if (ImGui::BeginDragDropTarget()) {
-            const ImGuiPayload *pl = ImGui::AcceptDragDropPayload("PD_INPUT_ACTION");
-            if (pl && pl->DataSize == (int)sizeof(InputAction) && pl->Data != NULL) {
-                InputAction dropped = *(const InputAction *)pl->Data;
-                actionmapBind(&g_ImcGameplay, 0, dropped, 0, z->vk);
-                actionmapSaveBinds();
-                configSave("pd.ini");
-                pdguiPlaySound(PDGUI_SND_SELECT);
-            }
-            ImGui::EndDragDropTarget();
-        }
+        renderOneCtrlPadZoneSplit(dl, &kZones[zi], padW, padH, hideGroupMask);
     }
     ImGui::EndChild();
 
@@ -2103,6 +2372,109 @@ static void renderBindTable(s32 filterCol, const char *tableId, u32 hideGroupMas
     ImGui::TextDisabled("A red-bordered bind means the same key is used for another action in this group.");
 }
 
+/* ActionMap.HoldMsOverrides — per-action hold ms; serialized by actionmapSaveBinds(). */
+static void renderActionHoldOverridesSection(void)
+{
+    if (!ImGui::CollapsingHeader("Per-action hold overrides (advanced)")) {
+        return;
+    }
+    ImGui::TextWrapped(
+        "Optional hold window per action (50-2000 ms), saved with binds as ActionMap.HoldMsOverrides. "
+        "For Use / Interact, Default follows the global \"Use hold\" slider above; Custom replaces it for "
+        "prompts and bondmove (actionmapGetEffectiveHoldMs). While Use / Interact is Custom, the global "
+        "slider is disabled above (effective ms is shown there). Other actions: Default means 0 ms "
+        "effective unless you choose Custom.");
+    ImGui::Spacing();
+
+    ImGui::SetNextItemWidth(pdguiScale(260.0f));
+    ImGui::InputTextWithHint("Filter##holdov", "filter by action name", s_HoldOvFilter,
+                             sizeof(s_HoldOvFilter));
+    if (s_HoldOvFilter[0]) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Clear##holdovclr")) {
+            s_HoldOvFilter[0] = '\0';
+        }
+    }
+
+    ImGui::BeginChild("##hold_ov_scroll", ImVec2(0.0f, pdguiScale(200.0f)), ImGuiChildFlags_NavFlattened,
+                      ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
+    ImGuiTableFlags tf = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg
+                        | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX;
+    if (ImGui::BeginTable("##hold_ov_tbl", 3, tf)) {
+        ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch, 1.4f);
+        ImGui::TableSetupColumn("Override", ImGuiTableColumnFlags_WidthStretch, 1.4f);
+        ImGui::TableSetupColumn("Effective", ImGuiTableColumnFlags_WidthStretch, 0.8f);
+        ImGui::TableHeadersRow();
+
+        for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
+            if (!stringIContains(s_BindableActions[row].name, s_HoldOvFilter)) {
+                continue;
+            }
+            InputAction act = s_BindableActions[row].action;
+            const char *nm = s_BindableActions[row].name;
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextUnformatted(nm);
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::PushID((int)act);
+            s32 ovRaw = actionmapGetActionHoldMsOverride(act);
+            int mode = (ovRaw >= 0) ? 1 : 0;
+            const char *modes[] = { "Default", "Custom" };
+            ImGui::SetNextItemWidth(pdguiScale(118.0f));
+            if (ImGui::Combo("##homode", &mode, modes, 2)) {
+                if (mode == 0) {
+                    actionmapSetActionHoldMsOverride(act, -1);
+                } else {
+                    s32 seed = (act == ACTION_USE) ? actionmapGetUseHoldThresholdMs() : 500;
+                    if (seed < 50) {
+                        seed = 50;
+                    }
+                    if (seed > 2000) {
+                        seed = 2000;
+                    }
+                    actionmapSetActionHoldMsOverride(act, seed);
+                }
+                actionmapSaveBinds();
+                configSave("pd.ini");
+            }
+            if (mode == 1) {
+                s32 ms = actionmapGetActionHoldMsOverride(act);
+                if (ms < 0) {
+                    ms = 500;
+                }
+                if (ms < 50) {
+                    ms = 50;
+                }
+                if (ms > 2000) {
+                    ms = 2000;
+                }
+                if (PdSliderInt("##hms", &ms, 50, 2000, "%d ms")) {
+                    actionmapSetActionHoldMsOverride(act, ms);
+                    actionmapSaveBinds();
+                    configSave("pd.ini");
+                }
+            }
+            ImGui::PopID();
+
+            ImGui::TableSetColumnIndex(2);
+            {
+                s32 eff = actionmapGetEffectiveHoldMs(act);
+                s32 curOv = actionmapGetActionHoldMsOverride(act);
+                if (act == ACTION_USE && curOv < 0) {
+                    ImGui::TextDisabled("%d ms (global)", (int)eff);
+                } else {
+                    ImGui::Text("%d ms", (int)eff);
+                }
+            }
+        }
+        ImGui::EndTable();
+    }
+    ImGui::EndChild();
+}
+
 static void renderSettingsControls(float scale)
 {
     /* Load binds from pd.ini when entering the Controls tab so the UI
@@ -2115,7 +2487,7 @@ static void renderSettingsControls(float scale)
     /* Process any active key capture regardless of which sub-tab is showing */
     handleCaptureInput();
 
-    if (ImGui::BeginTabBar("##controls_tabs")) {
+    if (ImGui::BeginTabBar("##controls_tabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
 
         /* ======== Tab 1: Keyboard & Mouse ======== */
         if (ImGui::BeginTabItem("Keyboard & Mouse")) {
@@ -2242,23 +2614,28 @@ static void renderSettingsControls(float scale)
             ImGui::Spacing();
 
             {
-                int moveStick = actionmapGetMoveStickPhysicalLeft() ? 0 : 1;
+                int moveIdx = actionmapGetMoveStickPhysicalLeft() ? 0 : 1;
+                s32 wantSwapped = moveIdx == 0 ? 0 : 1;
+                if (inputControllerGetSticksSwapped(0) != wantSwapped) {
+                    inputControllerSetSticksSwapped(0, wantSwapped);
+                }
+
+                int lookIdx = 1 - moveIdx;
                 const char *stickOpts[] = { "Left stick", "Right stick" };
-                if (PdCombo("Move", &moveStick, stickOpts, 2)) {
-                    actionmapSetMoveStickPhysicalLeft(moveStick == 0 ? 1 : 0);
-                    inputControllerSetSticksSwapped(0, moveStick == 0 ? 0 : 1);
+                bool sticksChanged = false;
+                if (PdCombo("Move stick", &moveIdx, stickOpts, 2)) {
+                    pdguiApplyMoveStickLayout(moveIdx);
+                    sticksChanged = true;
+                }
+                lookIdx = 1 - moveIdx;
+                if (PdCombo("Look stick", &lookIdx, stickOpts, 2)) {
+                    /* Aim on chosen physical stick -> movement uses the other */
+                    pdguiApplyMoveStickLayout(1 - lookIdx);
+                    sticksChanged = true;
+                }
+                if (sticksChanged) {
                     configSave("pd.ini");
                 }
-            }
-
-            {
-                ImGui::BeginDisabled();
-                if (actionmapGetMoveStickPhysicalLeft()) {
-                    ImGui::TextUnformatted("Look / aim: Right stick");
-                } else {
-                    ImGui::TextUnformatted("Look / aim: Left stick");
-                }
-                ImGui::EndDisabled();
             }
 
             {
@@ -2299,12 +2676,42 @@ static void renderSettingsControls(float scale)
             }
 
             {
-                s32 holdMs = actionmapGetUseHoldThresholdMs();
-                if (PdSliderInt("Use hold (interact vs reload)", &holdMs, 50, 2000, "%d ms")) {
-                    actionmapSetUseHoldThresholdMs(holdMs);
-                    configSave("pd.ini");
+                s32 useHoldOv = actionmapGetActionHoldMsOverride(ACTION_USE);
+                s32 effUseMs = actionmapGetEffectiveHoldMs(ACTION_USE);
+                if (useHoldOv >= 0) {
+                    ImGui::Text("Effective Use / Interact hold: %d ms", (int)effUseMs);
+                    ImGui::BeginDisabled();
+                    s32 holdMs = actionmapGetUseHoldThresholdMs();
+                    PdSliderInt("Use hold (interact vs reload)", &holdMs, 50, 2000, "%d ms");
+                    ImGui::EndDisabled();
+                    ImGui::TextDisabled(
+                        "Per-action override is on for Use / Interact (see \"Per-action hold overrides\" "
+                        "below). The slider value above is the stored global default if you clear that "
+                        "override; it does not apply while Custom is set.");
+                } else {
+                    s32 holdMs = actionmapGetUseHoldThresholdMs();
+                    if (PdSliderInt("Use hold (interact vs reload)", &holdMs, 50, 2000, "%d ms")) {
+                        actionmapSetUseHoldThresholdMs(holdMs);
+                        configSave("pd.ini");
+                    }
+                    ImGui::TextDisabled(
+                        "Global default for Use / Interact when no per-action override is set (see advanced "
+                        "section below).");
                 }
             }
+
+            {
+                s32 termExtra = actionmapGetInteractHoldExtraTerminalMs();
+                if (PdSliderInt("Hackable terminal extra hold", &termExtra, 0, 2000, "%d ms")) {
+                    actionmapSetInteractHoldExtraTerminalMs(termExtra);
+                    configSave("pd.ini");
+                }
+                ImGui::TextDisabled(
+                    "Layered on effective Use hold for hackable-terminal prompts (gameplay + HUD ring). "
+                    "Saved as ActionMap.InteractHoldExtraTerminalMs.");
+            }
+
+            renderActionHoldOverridesSection();
 
             ImGui::Spacing();
             ImGui::Spacing();
@@ -2312,12 +2719,16 @@ static void renderSettingsControls(float scale)
             /* ---- Visual controller map ---- */
             ImGui::TextDisabled("Controller map");
             ImGui::Separator();
+            ImGui::TextDisabled(
+                "Gamepad: use the binding table below to rebind with the controller; drag-and-drop on the "
+                "map needs a mouse.");
+            ImGui::Spacing();
             renderControllerVisualMapper(scale, (1u << BG_CBUTTONS));
 
             ImGui::Spacing();
             ImGui::Spacing();
 
-            /* ---- Controller Bindings (C-Buttons hidden; use stick aim + modern layout) ---- */
+            /* ---- Controller bindings (C-button group hidden in table/mapper only; see constraints.md) ---- */
             ImGui::TextDisabled("Button bindings (table)");
             ImGui::Separator();
 

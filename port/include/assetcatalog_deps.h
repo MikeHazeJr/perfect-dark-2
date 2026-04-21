@@ -20,8 +20,8 @@
  *     catalogDepForEach() after each BODY/HEAD addition and add the
  *     resolved dep entries as MANIFEST_TYPE_ANIM / MANIFEST_TYPE_TEXTURE.
  *   - manifestApplyDiff() is unchanged -- deps appear as ordinary entries.
- *   - manifestAddEntry() already deduplicates by net_hash, so a dep shared
- *     between two characters is added only once but both owners reference it.
+ *   - manifestAddEntry() already deduplicates by net_hash (internal cache key),
+ *     so a dep shared between two characters is added only once but both owners reference it.
  *
  * Lifecycle:
  *   - assetCatalogClear()      calls catalogDepClear().

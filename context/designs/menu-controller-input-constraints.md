@@ -32,6 +32,15 @@ This document defines how **controller** and **mouse** should behave together so
 
 6. **Input context discipline** — Menus adjust mouse mode only through the **input context stack**; no `SDL_ShowCursor` / `SDL_SetRelativeMouseMode` in menu code.
 
+### 2.1 Sanity audit: Settings → Controls (`pdgui_menu_mainmenu.cpp`, 2026-04-20)
+
+| Check | Result |
+|-------|--------|
+| **Raw SDL mouse APIs** | **None** on the Controls tab path. File uses `SDL_GetTicks` / `SDL_PushEvent(QUIT)` elsewhere only (timing, quit). Drag/drop rebinding uses ImGui hit-testing, not `SDL_WarpMouse` / `SDL_CaptureMouse`. |
+| **Gamepad → menu nav** | Settings sub-tabs: **LB/RB** are translated by **`pdguiDriveImGuiNav()`** to **PageUp/PageDown**; `renderSettingsView` polls **`ImGuiKey_PageUp` / `PageDown`** (not raw `ImGuiKey_Gamepad*`, because `NavEnableGamepad` is off by design). |
+| **Focus / children** | Controller tab uses **`ImGuiChildFlags_NavFlattened`** on scroll children and hold-override table so keyboard/gamepad nav crosses panels per prior work. |
+| **Mouse mode** | Unchanged: **`inputCtxSyncMouseMode`** at frame end owns cursor/relative mode; menu code does not call SDL mouse mode APIs. |
+
 7. **Locked missions stay out of lists** — Mission (and challenge) pickers **must** **filter out** locked entries entirely. Do not render locked items as visible grey/disabled rows; the player only sees missions they can launch, subject to each tab’s rules (see §5).
 
 8. **Multi-column nav without panel stops** — On split layouts (e.g. Combat Simulator: options column + players/bots column), **child windows / panels are layout containers only**. Horizontal nav (**Left** / **Right**) **must** move focus between the **last/next real control** in the adjacent column. The player **must not** need to focus an empty panel or group header just to cross from left to right.

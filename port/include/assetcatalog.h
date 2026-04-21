@@ -174,7 +174,7 @@ typedef struct asset_entry {
     /* Identity */
     char id[CATALOG_ID_LEN];           /* "gf64_bond", "base:joanna_dark" */
     u32  id_hash;                      /* FNV-1a of id (hash table slot) */
-    u32  net_hash;                     /* CRC32 of id (network identity) */
+    u32  net_hash;                     /* CRC32 of id; internal cache/dedup key only (not wire/save/API identity) */
 
     /* Classification */
     asset_type_e type;                 /* ASSET_MAP, ASSET_CHARACTER, etc. */
@@ -402,7 +402,8 @@ asset_entry_t *assetCatalogGetMutable(const char *id);
 
 /**
  * Register a single asset with minimal fields.
- * Computes both id_hash (FNV-1a) and net_hash (CRC32).
+ * Computes id_hash (FNV-1a) and net_hash (CRC32); net_hash is for internal
+ * catalog use only — never treat it as wire/save/public API identity.
  * If ID already exists (by string match), overwrites it (last-write-wins).
  * Returns pointer to entry, or NULL on allocation failure.
  * Caller should set type-specific union fields via the entry pointer.
@@ -583,8 +584,8 @@ s32 assetCatalogResolveBodyIndex(const char *id);
 s32 assetCatalogResolveStageIndex(const char *id);
 
 /**
- * Resolve an asset by CRC32 network hash.
- * Linear scan of entry pool (infrequent, connection-time only).
+ * Resolve an asset by internal CRC32 net_hash (catalog cache key).
+ * Linear scan of entry pool (infrequent, connection-time / manifest checks only).
  * Returns const pointer to first entry with matching net_hash, or NULL.
  */
 const asset_entry_t *assetCatalogResolveByNetHash(u32 net_hash);
@@ -723,7 +724,7 @@ typedef struct {
     s32                  filenum;      /**< runtime filenum for model load calls */
     f32                  model_scale;  /**< from catalog entry (default 1.0) */
     const char          *display_name; /**< points to entry->id */
-    u32                  net_hash;     /**< CRC32 for manifest checks */
+    u32                  net_hash;     /**< internal CRC32; not wire/save identity */
     u16                  session_id;   /**< session wire ID (0 = not in session) */
 } catalog_body_result_t;
 
@@ -751,7 +752,7 @@ typedef struct {
     s32                  mpsetupfileid; /**< multiplayer setup file id (-1 if not applicable) */
     s32                  tilefileid;    /**< tile file id (-1 if not applicable) */
     s32                  stagenum;    /**< logical stage ID (e.g. 0x5e) */
-    u32                  net_hash;
+    u32                  net_hash;      /**< internal CRC32; not wire/save identity */
     u16                  session_id;
     /* Phase 4: provider handles — use these instead of romProviderHandle(fileid). */
     asset_data_handle_t  bg_handle;
@@ -766,7 +767,7 @@ typedef struct {
     const asset_entry_t *entry;
     s32                  filenum;     /**< weapon model file (source_filenum, -1 for base) */
     s32                  weapon_num;  /**< runtime WEAPON_* enum value */
-    u32                  net_hash;
+    u32                  net_hash;    /**< internal CRC32; not wire/save identity */
     u16                  session_id;
 } catalog_weapon_result_t;
 
@@ -775,7 +776,7 @@ typedef struct {
     const asset_entry_t *entry;
     s32                  filenum;    /**< prop model file (source_filenum, -1 for base) */
     s32                  prop_type;  /**< runtime PROPTYPE_* value */
-    u32                  net_hash;
+    u32                  net_hash;   /**< internal CRC32; not wire/save identity */
     u16                  session_id;
 } catalog_prop_result_t;
 
@@ -824,12 +825,13 @@ s32 catalogResolveWeaponBySession(u16 session_id, catalog_weapon_result_t *out);
 /** Resolve a prop asset by session wire ID. Returns 1 on success, 0 on failure. */
 s32 catalogResolvePropBySession(u16 session_id, catalog_prop_result_t *out);
 
-/* ── SA-2: Resolution by CRC32 net_hash ────────────────────────────────── */
+/* ── SA-2: Resolution by internal CRC32 net_hash (cache key, not public ID) ─ */
 
 /**
- * Resolve an asset entry by CRC32 net_hash.
+ * Resolve an asset entry by internal net_hash (CRC32 of catalog id string).
  * Thin wrapper around assetCatalogResolveByNetHash() -- O(n) linear scan.
- * Use sparingly (manifest checks, connection-time only).
+ * Use sparingly (manifest checks, connection-time only). Do not expose net_hash
+ * as wire/save/public API identity; catalog IDs belong at those boundaries.
  */
 const asset_entry_t *catalogResolveByNetHash(u32 net_hash);
 

@@ -29,8 +29,11 @@ extern "C" {
  * Gameplay thresholds (shared: bondmove hold/tap + UI)
  * ============================================================ */
 
-/** Default hold/tap split for ACTION_USE (interact vs reload). Runtime value from
- *  actionmapGetUseHoldThresholdMs() / Settings → Controller. */
+/** Default hold/tap split for ACTION_USE (interact vs reload), in ms.
+ *  - Seeds `actionmap` internal `s_UseHoldThresholdMs` (see `actionmapGetUseHoldThresholdMs()`).
+ *  - Last-resort fallback in `prop.c` when `actionmapGetEffectiveHoldMs(ACTION_USE)` is invalid
+ *    (< 1 ms), e.g. corrupt save — keeps bondmove/UI from dividing by zero.
+ *  Normal gameplay uses `actionmapGetEffectiveHoldMs(ACTION_USE)` / per-action overrides, not this macro. */
 #define ACTION_USE_HOLD_THRESHOLD_MS 300
 
 /* ============================================================
@@ -296,6 +299,9 @@ s32 actionHeldForMs(s32 player, InputAction action, s32 threshold_ms);
  *  AND the hold was not consumed (so a hold-then-release does not double-fire). */
 s32 actionWasTap(s32 player, InputAction action, s32 max_hold_ms);
 
+/** Milliseconds held for the gesture that ended this frame (valid when `actionReleased` is true). */
+s32 actionLastGestureHoldMs(s32 player, InputAction action);
+
 /** Mark the current hold as consumed (set during a long-press handler). */
 void actionConsumeHold(s32 player, InputAction action);
 
@@ -380,15 +386,20 @@ s32  actionmapGetUseHoldThresholdMs(void);
 void actionmapSetUseHoldThresholdMs(s32 ms);
 
 /** Per-action hold length (ms) when gameplay treats an action as hold-to-complete.
- *  -1 = no override (ACTION_USE uses ActionMap.UseHoldThresholdMs; others: see
- *  actionmapGetEffectiveHoldMs). Non-negative values persist in pd.ini as
- *  ActionMap.HoldMsOverrides (comma-separated "action_id:ms"). Values are clamped
- *  to at most 2000 ms (2 s). */
+ *  -1 = no override (ACTION_USE uses ActionMap.UseHoldThresholdMs from Settings
+ *  -> Controls -> Controller; others: see actionmapGetEffectiveHoldMs). Non-negative
+ *  values persist in pd.ini as ActionMap.HoldMsOverrides (comma-separated
+ *  "action_id:ms"). Values are clamped to at most 2000 ms (2 s). */
 s32 actionmapGetActionHoldMsOverride(InputAction action);
 void actionmapSetActionHoldMsOverride(InputAction action, s32 ms);
 
 /** Resolved hold window (ms): override if set, else global default for ACTION_USE, else 0. */
 s32 actionmapGetEffectiveHoldMs(InputAction action);
+
+/** Extra ms added for hackable-terminal interact prompts (`OBJFLAG3_HTMTERMINAL` in prop.c).
+ *  Saved as ActionMap.InteractHoldExtraTerminalMs in pd.ini (default 200). */
+s32 actionmapGetInteractHoldExtraTerminalMs(void);
+void actionmapSetInteractHoldExtraTerminalMs(s32 ms);
 
 /* ============================================================
  * Default IMC singletons

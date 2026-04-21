@@ -491,6 +491,61 @@ s32 inputCtxIsFocusLost(void)
     return s_WindowFocusLost;
 }
 
+s32 inputCtxDebugCopyStack(InputCtxDebugEntry *out, s32 maxEntries)
+{
+    if (!out || maxEntries <= 0) {
+        return 0;
+    }
+    s32 n = s_Depth;
+    if (n > maxEntries) {
+        n = maxEntries;
+    }
+    for (s32 i = 0; i < n; i++) {
+        InputContext *ctx = s_Stack[i];
+        if (ctx) {
+            out[i].name = ctx->name;
+            out[i].marked_for_removal = ctx->marked_for_removal;
+            out[i].push_tick_ms = ctx->push_tick;
+            out[i].ctx_ptr = (void *)ctx;
+        } else {
+            out[i].name = "(null)";
+            out[i].marked_for_removal = 0;
+            out[i].push_tick_ms = 0;
+            out[i].ctx_ptr = NULL;
+        }
+    }
+    return n;
+}
+
+void inputCtxDebugSnapshotAuthority(InputCtxDebugAuthority *out)
+{
+    if (!out) {
+        return;
+    }
+    out->stack_depth = s_Depth;
+    InputContext *top = inputCtxGetTop();
+    out->effective_top_name = inputCtxGetTopName();
+    out->effective_top_is_gameplay = (top == &g_CtxGameplay) ? 1 : 0;
+    out->window_focus_lost = s_WindowFocusLost;
+    out->focus_settle_remaining_ms = 0;
+    if (s_FocusRegainTick != 0) {
+        u32 now = SDL_GetTicks();
+        u32 elapsed = now - s_FocusRegainTick;
+        if (elapsed < INPUTCTX_FOCUS_SETTLE_MS) {
+            out->focus_settle_remaining_ms = INPUTCTX_FOCUS_SETTLE_MS - elapsed;
+        }
+    }
+    /* Mirror gameplayInputSuppressed() without clearing s_FocusRegainTick */
+    out->gameplay_would_suppress = 0;
+    if (top && top != &g_CtxGameplay) {
+        out->gameplay_would_suppress = 1;
+    } else if (s_WindowFocusLost) {
+        out->gameplay_would_suppress = 1;
+    } else if (out->focus_settle_remaining_ms > 0) {
+        out->gameplay_would_suppress = 1;
+    }
+}
+
 s32 gameplayInputSuppressed(void)
 {
     /* (a) non-gameplay context on top */

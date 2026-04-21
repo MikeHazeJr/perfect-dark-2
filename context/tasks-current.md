@@ -9,6 +9,14 @@
 
 ## Open — 2026-04-20 (Super Audit 2026-04-20 — Wave 3A hardening + carry-overs)
 
+**Done 2026-04-20 (controller + hold housekeeping):** USE hold **Settings UX** when per-action override is set (effective ms + disabled global slider); **C-button policy** in `constraints.md` (UI-only hide on Controller tab); **bondmove** / **actionmap.h** comments; **terminal extra hold** tunable via **`ActionMap.InteractHoldExtraTerminalMs`** + Settings slider; **menu-controller-input-constraints.md** §2.1 sanity table; **INDEX.md** link. Follow-up only if needed: stage-specific hold beyond actionmap + `prop.c` categories.
+
+**Done this session (S410):** Settings → Controls → Controller map — **split zones** (Bind 1 left / Bind 2 right), **right-click clear** per column, **LS/RS cardinal** synthetic VK drop targets; `pickSlotForControllerBindColumn` matches table. See `context/session-log.md` S410.
+
+**Done this session (S409):** Settings → Controls — per-action **hold** overrides UI (HoldMsOverrides); Controller map **NavFlattened** + gamepad/table hint. See `context/session-log.md` S409.
+
+**Done this session (S407):** Settings → Controls → Controller map — gamepad silhouette + per-zone **B1/B2** labels and tooltips (shared-button clarity); bind logic unchanged. See `context/session-log.md` S407.
+
 **Done this session (S400):** Settings → Controls → Controller: per-stick tuning, use-hold ms, visual drag-drop pad map, C-buttons hidden on controller list. See `context/session-log.md` S400.
 
 **Done this session (S399):** B-207 manifest late-add head `parts=0` logging (not false torn); B-213 Skin Editor — `unk5d5_01` bypass for charpreview, preview zoom, Modding view 3 hub close UX, hub Escape exits paint session first. See `context/session-log.md` S399.
@@ -19,6 +27,8 @@ Report: [`context/audits/2026-04-20-full.md`](audits/2026-04-20-full.md).
 Totals this audit: **1 C / 4 H / 4 M / 5 L** (delta only).  19 of 26 prior
 C/H findings were closed by Waves 1–3 + S394; see session log for the full
 fix list.
+
+**Full Super Audit (standalone, 2026-04-21):** [`context/audits/2026-04-21-full.md`](audits/2026-04-21-full.md) — complete pass per `audit-prompt.md` (not delta vs 2026-04-20); scorecard **1 C / 6 H / 3 M / 1 L**; covers game-agnostic server programme + in-client listen-host vs product UI.
 
 ### Decision pending — AUDIT-C1 / MASTER-C5 (policy, 30 min OR 4–8 wk)
 
@@ -35,33 +45,16 @@ Awaiting Mike's call before touching `pillars.md`.
 
 ### Wave 3A Hardening — batch candidate (½ d – 1 d)
 
-- **AUDIT-H1** (2–3 h): `CLC_ADMIN_AUTH` brute-force rate limit.
-  `port/src/net/netmsg.c:6943-6983`. Add `s_AdminAuthRate[NET_MAX_CLIENTS+1]`
-  modeled on `s_RoomMutationLast` / `s_ChatRate`. 3 fails in 60 s → lockout;
-  8 fails → disconnect with `DISCONNECT_BANNED` + IP temp-ban.
-- **AUDIT-H2** (30–60 min): `netServerIssueCookie` CSPRNG.
-  `port/src/net/net.c:1301-1336`. Replace `SDL_GetPerformanceCounter` +
-  `time(NULL)` seed with `BCryptGenRandom(NULL, out, 16,
-  BCRYPT_USE_SYSTEM_PREFERRED_RNG)` (Win) / `getrandom(out, 16, 0)` (POSIX).
-  Or: seed the rolling digest once at boot with 32 bytes of real entropy.
-- **AUDIT-H3** (1 h): Ban save atomicity.
-  `port/src/server_bans.c:156-167`. Replace `remove()` + `rename()` with
-  `MoveFileExA(tmp, final, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)`.
-  Add `fflush(f); _commit(_fileno(f));` on Windows before fclose.
-- **AUDIT-H4** (2–4 h): Ban IPv6 canonicalization.
-  `port/src/server_bans.c:30-38` (`banAddrEq`). Canonicalize both stored
-  and incoming addresses via `inet_pton(AF_INET6)` → `inet_ntop`. Compare
-  `in6_addr` bytes directly. Fall back to string compare only on
-  `inet_pton` failure.
+- **AUDIT-H1** — **Done (S416, P1-A)**: `netmsg.c` admin auth rate limit + `ADMIN_RESP_RATE_LIMIT` / `DISCONNECT_ADMIN_AUTH`; optional IP buckets (no auto-ban by default).
+- **AUDIT-H2** — **Done (S416, P1-B)**: `net.c` OS RNG for cookies + emergency SHA fallback.
+- **AUDIT-H3** — **Done (S416, P1-C)**: `server_bans.c` Windows `MoveFileExA` + `_commit`.
+- **AUDIT-H4** — **Done (S416, P1-C)**: `banAddrEq` `in6_addr` compare (IPv4-mapped).
 
 ### Medium — mostly quick wins
 
-- **AUDIT-M1** (15 min): admin token min length 8 → 16, add
-  low-entropy warning at server boot.
-- **AUDIT-M2** (1–2 h): `ADMIN_SUB_STATUS` / `LIST` continuation flag
-  to avoid silent truncation at `ADMIN_PAYLOAD_MAX`.
-- **AUDIT-M3** (15 min): document single-threaded invariant on
-  `netServerIssueCookie` `s_Ctx` — comment block + (optional) mutex.
+- **AUDIT-M1** — **Done (S416)**: min token 16 + `< 32` warning (`server_admin.c`).
+- **AUDIT-M2** — **Done (S416, P1-D)**: explicit `(truncated)` footer (not a follow-up bit on wire).
+- **AUDIT-M3** — **Done (S416, P1-B)**: single-threaded contract on `netOsRandomBytes` / `netServerIssueCookie` (no mutex — OS APIs thread-safe).
 - **AUDIT-M4** (5 min): compile-time tripwire —
   `_Static_assert(MAX_PLAYERS + MAX_BOTS <= 64, "participant active-mask
   wire format caps at 64 slots")` in `pdgui_constants_check.c` or

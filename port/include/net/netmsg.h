@@ -67,7 +67,7 @@
 #define SVC_ROOM_SETTINGS  0x78 // server→room: match settings changed by leader (numBots, timelimit, etc.)
 #define SVC_ROOM_PLAYLIST  0x79 // server→room: mod music playlist changed by leader (serialized string)
 
-/* MASTER-C2b: Admin RCON reply (protocol v38). */
+/* MASTER-C2b: Admin RCON reply (protocol v38+; ADMIN_RESP_RATE_LIMIT added v39). */
 #define SVC_ADMIN          0x68 // server→operator-client: response to CLC_ADMIN
 
 #define CLC_BAD      0x00 // trash
@@ -99,7 +99,7 @@
 #define CLC_ROOM_SETTINGS_UPDATE  0x13 // leader→server: push current match settings for broadcast
 #define CLC_ROOM_PLAYLIST_UPDATE  0x14 // leader→server: push mod playlist string for broadcast
 
-/* MASTER-C2b: Admin RCON request (protocol v38). */
+/* MASTER-C2b: Admin RCON request (protocol v38+). */
 #define CLC_ADMIN                 0x15 // operator-client→server: admin auth / kick / ban / unban / list / status
 
 /* Phase A: Match Startup Pipeline (protocol v24) */
@@ -335,6 +335,7 @@ void netBroadcastRoomList(void);
 
 /* SEC-C4: Reset per-client chat rate limiter state on disconnect. */
 void netmsgChatRateReset(u32 idx);
+void netmsgAdminAuthRateReset(u32 idx);
 
 /* SEC-13: Reset per-client room-mutation rate limiter on disconnect. */
 void netmsgRoomMutationRateReset(u32 idx);

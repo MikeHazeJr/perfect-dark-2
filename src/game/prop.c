@@ -1664,24 +1664,27 @@ s32 propInteractPromptHoldThresholdMs(void)
 {
 	s32 base = actionmapGetEffectiveHoldMs(ACTION_USE);
 	if (base < 1) {
+		/* Corrupt config guard; matches actionmap default seed (ACTION_USE_HOLD_THRESHOLD_MS). */
 		base = ACTION_USE_HOLD_THRESHOLD_MS;
 	}
 	struct prop *prop = g_InteractProp;
 	if (prop == NULL || prop->obj == NULL) {
 		return base;
 	}
-	/* Extra ms on top of Settings → Controller (variable length per target). */
+	/* Extra ms on top of actionmap effective hold (variable length per target type). */
 	s32 extra = 0;
 	switch (prop->type) {
 	case PROPTYPE_WEAPON:
+		/* Pickups: no extra — tap/hold feel comes from global/per-action USE ms only. */
 		break;
 	case PROPTYPE_DOOR:
+		/* Doors: no extra by default; add here if a map needs a longer commit. */
 		break;
 	case PROPTYPE_OBJ: {
 		struct defaultobj *obj = prop->obj;
 		if (obj->flags3 & OBJFLAG3_HTMTERMINAL) {
-			/* Hackable terminals: default longer hold than doors/weapons; tune here. */
-			extra = 0;
+			/* Hackable terminals: extra ms from ActionMap.InteractHoldExtraTerminalMs (pd.ini). */
+			extra = actionmapGetInteractHoldExtraTerminalMs();
 		}
 		break;
 	}
@@ -1703,7 +1706,7 @@ s32 propGetActionUseHoldThresholdMs(void)
 	s32 t = actionmapGetEffectiveHoldMs(ACTION_USE);
 
 	if (t < 1) {
-		t = ACTION_USE_HOLD_THRESHOLD_MS;
+		t = ACTION_USE_HOLD_THRESHOLD_MS; /* same corrupt-config guard as propInteractPromptHoldThresholdMs */
 	}
 	return t;
 }

@@ -4,7 +4,7 @@
  * String-keyed hash table for asset resolution. Implements:
  * - Open addressing with linear probing for read-heavy lookup
  * - FNV-1a hash for table slot distribution
- * - CRC32 for network identity
+ * - CRC32 (net_hash) as an internal catalog cache/dedup key only
  * - Dynamic growth of both hash table and entry pool
  * - Type-specific registration and resolution
  *
@@ -404,7 +404,8 @@ asset_entry_t *assetCatalogRegister(const char *id, asset_type_e type)
         return NULL;
     }
 
-    /* Compute both hashes */
+    /* Compute both hashes. net_hash is an internal cache key (CRC32 of id);
+     * not wire/save/public API identity — use catalog ID strings at boundaries. */
     u32 id_hash = fnv1a(id);
     u32 net_hash = crc32(id);
 

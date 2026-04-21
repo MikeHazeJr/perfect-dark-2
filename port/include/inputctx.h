@@ -138,6 +138,30 @@ void inputCtxNotifyFocus(s32 gained);
 /* Returns 1 if the SDL window currently does not have OS focus. */
 s32 inputCtxIsFocusLost(void);
 
+/* ---- Read-only diagnostics (do not mutate stack or focus state) ---- */
+
+typedef struct InputCtxDebugEntry {
+    const char *name;
+    s32 marked_for_removal;
+    u32 push_tick_ms;
+    void *ctx_ptr; /* InputContext* for correlation; opaque in C headers */
+} InputCtxDebugEntry;
+
+/** Copies up to maxEntries stack slots (index 0 = bottom). Returns count written. */
+s32 inputCtxDebugCopyStack(InputCtxDebugEntry *out, s32 maxEntries);
+
+typedef struct InputCtxDebugAuthority {
+    s32 stack_depth;               /* physical count including marked-for-removal */
+    const char *effective_top_name; /* inputCtxGetTop() — skips marked */
+    s32 effective_top_is_gameplay;
+    s32 gameplay_would_suppress; /* same predicate as gameplayInputSuppressed without side effects */
+    s32 window_focus_lost;
+    u32 focus_settle_remaining_ms; /* 0 if not in regain settle window */
+} InputCtxDebugAuthority;
+
+/** Pure read — does NOT call gameplayInputSuppressed() (which may clear focus timers). */
+void inputCtxDebugSnapshotAuthority(InputCtxDebugAuthority *out);
+
 /* ---- Built-in contexts ---- */
 
 /* Gameplay context: game owns all input. Mouse captured (relative mode).

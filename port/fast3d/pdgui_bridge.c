@@ -10,6 +10,7 @@
  */
 
 #include <PR/ultratypes.h>
+#include <stdio.h>
 #include <string.h>
 #include "net/netenet.h"  /* must precede types.h — enet.h #undef's bool */
 #include "types.h"
@@ -40,6 +41,8 @@
 #include "menupool.h"
 #include "config.h"
 #include "lib/vi.h"
+#include "game/activemenu.h"
+#include <math.h>
 #include "net/netmanifest.h"  /* F-0.4: manifestClear */
 
 /* F-1.2: Forward declaration — defined in pdgui_menu_solomission.cpp */
@@ -1714,5 +1717,196 @@ s32 pdguiSubtitlesSnapshot(struct pdguiSubtitleEntry *out, s32 maxOut)
         count++;
     }
     return count;
+}
+
+/* ---------------------------------------------------------------------------
+ * Active menu (weapon / function / orders) -- ImGui radial replaces legacy GBI
+ * wheel while keeping game-side amTick + slot logic authoritative.
+ * --------------------------------------------------------------------------- */
+
+s32 pdguiActiveMenuShouldSkipLegacyWheel(void)
+{
+    if (!g_Vars.currentplayer) {
+        return 0;
+    }
+    if (g_Vars.currentplayer->activemenumode == AMMODE_CLOSED) {
+        return 0;
+    }
+    return 1;
+}
+
+void pdguiActiveMenuRadialMapGameToScreen(s16 gx, s16 gy, s32 winW, s32 winH, float *sx, float *sy)
+{
+    s32 fw = viGetWidth();
+    s32 fh = viGetHeight();
+
+    if (fw <= 0) {
+        fw = 320;
+    }
+    if (fh <= 0) {
+        fh = 240;
+    }
+
+    *sx = (float)gx * (float)winW / (float)fw;
+    *sy = (float)gy * (float)winH / (float)fh;
+}
+
+void pdguiActiveMenuRadialQuerySlot(s32 slot, s32 winW, s32 winH,
+        float *out_cx, float *out_cy, u32 *flags, char *label, s32 *mode)
+{
+    s16 col = (s16)(slot % 3);
+    s16 row = (s16)(slot / 3);
+    s16 gx;
+    s16 gy;
+    s32 mpchrnum = 0;
+
+    g_AmIndex = g_Vars.currentplayernum;
+
+    if (g_Vars.normmplayerisrunning && g_AmMenus[g_AmIndex].screenindex >= 2) {
+        mpchrnum = g_Vars.currentplayer->aibuddynums[g_AmMenus[g_AmIndex].screenindex - 2];
+    }
+
+    amCalculateSlotPosition(col, row, &gx, &gy);
+    pdguiActiveMenuRadialMapGameToScreen(gx, gy, winW, winH, out_cx, out_cy);
+
+    *flags = 0;
+    amGetSlotDetails(slot, flags, label);
+    *mode = amGetSlotVisualMode(col, row, mpchrnum);
+}
+
+f32 pdguiActiveMenuRadialGetAlphaFrac(void)
+{
+    g_AmIndex = g_Vars.currentplayernum;
+    return g_AmMenus[g_AmIndex].alphafrac;
+}
+
+s32 pdguiActiveMenuRadialGetSlotWidthPx(s32 winW)
+{
+    s32 fw = viGetWidth();
+
+    if (fw <= 0) {
+        fw = 320;
+    }
+    g_AmIndex = g_Vars.currentplayernum;
+    return (s32)((f32)g_AmMenus[g_AmIndex].slotwidth * (f32)winW / (f32)fw);
+}
+
+s32 pdguiActiveMenuRadialIsEditMode(void)
+{
+    if (!g_Vars.currentplayer) {
+        return 0;
+    }
+    return g_Vars.currentplayer->activemenumode == AMMODE_EDIT ? 1 : 0;
+}
+
+s32 pdguiActiveMenuRadialIsCramped(void)
+{
+    return amIsCramped() ? 1 : 0;
+}
+
+void pdguiActiveMenuRadialGetSelectionPulseRGBA(u8 *r, u8 *g, u8 *b, u8 *a)
+{
+    u32 colour;
+    s32 c;
+
+    g_AmIndex = g_Vars.currentplayernum;
+    c = (s32)((sinf(g_AmMenus[g_AmIndex].selpulse) + 1.0f) * 127.0f);
+    colour = 0xff0000ff | (c << 8) | (c << 16);
+
+    if (pdguiActiveMenuRadialIsEditMode()) {
+        colour = 0x4f4f4f7f;
+    }
+
+    *r = (u8)((colour >> 24) & 0xff);
+    *g = (u8)((colour >> 16) & 0xff);
+    *b = (u8)((colour >> 8) & 0xff);
+    *a = (u8)(colour & 0xff);
+}
+
+void pdguiActiveMenuRadialGetOuterDiamondScreen(float *out_x, float *out_y, s32 winW, s32 winH)
+{
+    s16 sx;
+    s16 sy;
+
+    g_AmIndex = g_Vars.currentplayernum;
+
+    amCalculateSlotPosition(1, 0, &sx, &sy);
+    pdguiActiveMenuRadialMapGameToScreen(sx, sy, winW, winH, &out_x[0], &out_y[0]);
+
+    amCalculateSlotPosition(2, 1, &sx, &sy);
+    pdguiActiveMenuRadialMapGameToScreen(sx, sy, winW, winH, &out_x[1], &out_y[1]);
+
+    amCalculateSlotPosition(1, 2, &sx, &sy);
+    pdguiActiveMenuRadialMapGameToScreen(sx, sy, winW, winH, &out_x[2], &out_y[2]);
+
+    amCalculateSlotPosition(0, 1, &sx, &sy);
+    pdguiActiveMenuRadialMapGameToScreen(sx, sy, winW, winH, &out_x[3], &out_y[3]);
+}
+
+void pdguiActiveMenuRadialGetSelectionCenterScreen(float *sx, float *sy, s32 winW, s32 winH)
+{
+    g_AmIndex = g_Vars.currentplayernum;
+    pdguiActiveMenuRadialMapGameToScreen(g_AmMenus[g_AmIndex].selx, g_AmMenus[g_AmIndex].sely, winW, winH, sx, sy);
+}
+
+s32 pdguiActiveMenuRadialGetSlotNum(void)
+{
+    g_AmIndex = g_Vars.currentplayernum;
+    return g_AmMenus[g_AmIndex].slotnum;
+}
+
+s32 pdguiActiveMenuRadialGetLocalPlayerCount(void)
+{
+    return LOCALPLAYERCOUNT();
+}
+
+/**
+ * Read-only legacy menu stack dump for F9 diagnostics (does not touch input ctx).
+ */
+void pdguiDebugFormatLegacyMenuInfo(char *buf, size_t bufSz)
+{
+    if (!buf || bufSz < 32) {
+        return;
+    }
+    buf[0] = '\0';
+    s32 p = g_MpPlayerNum;
+    if (p < 0 || p >= MAX_PLAYERS) {
+        p = 0;
+    }
+    struct menu *m = &g_Menus[p];
+    snprintf(buf, bufSz, "Player %d: numdialogs=%d depth=%d curdialog=%p\n",
+             (int)p, (int)m->numdialogs, (int)m->depth, (void *)m->curdialog);
+    if (m->curdialog && m->curdialog->definition) {
+        char *t = menuResolveDialogTitle(m->curdialog->definition);
+        size_t len = strlen(buf);
+        if (t && len + 2 < bufSz) {
+            snprintf(buf + len, bufSz - len, "Current title: %s\n", t);
+        }
+    }
+    size_t len = strlen(buf);
+    for (s32 L = 0; L < 6; L++) {
+        struct menulayer *lay = &m->layers[L];
+        if (lay->numsiblings <= 0) {
+            continue;
+        }
+        if (len + 96 >= bufSz) {
+            break;
+        }
+        snprintf(buf + len, bufSz - len, "Layer[%d]: numsiblings=%d cursibling=%d\n",
+                 (int)L, (int)lay->numsiblings, (int)lay->cursibling);
+        len = strlen(buf);
+        for (s32 s = 0; s < lay->numsiblings && s < 5; s++) {
+            struct menudialog *d = lay->siblings[s];
+            if (!d || !d->definition) {
+                continue;
+            }
+            if (len + 160 >= bufSz) {
+                break;
+            }
+            char *tt = menuResolveDialogTitle(d->definition);
+            snprintf(buf + len, bufSz - len, "  sibling[%d]: %s\n", (int)s, tt ? tt : "?");
+            len = strlen(buf);
+        }
+    }
 }
 

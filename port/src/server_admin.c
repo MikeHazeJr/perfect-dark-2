@@ -51,9 +51,19 @@ void serverAdminInit(const char *cliToken, const char *iniToken)
         return;
     }
 
-    if (strlen(chosen) < 8) {
-        sysLogPrintf(LOG_WARNING, "ADMIN: token from %s is shorter than 8 chars — rejected", src);
+    size_t tlen = strlen(chosen);
+    if (tlen < 16u) {
+        sysLogPrintf(LOG_WARNING,
+                     "ADMIN: token from %s is shorter than 16 characters — rejected (use a long random secret)",
+                     src);
         return;
+    }
+
+    if (tlen < 32u) {
+        sysLogPrintf(LOG_WARNING,
+                     "ADMIN: SECURITY — token from %s is only %zu characters; prefer 32+ random bytes "
+                     "(e.g. password manager or `openssl rand -base64 32`)",
+                     src, tlen);
     }
 
     adminHashToken(chosen, s_AdminTokenHash);

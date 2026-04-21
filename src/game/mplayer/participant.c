@@ -361,6 +361,12 @@ s32 mpParticipantNextOfType(s32 current, ParticipantType type)
  * Wire Serialization Helpers (B-12 Phase 3)
  * ======================================================================== */
 
+_Static_assert(MAX_PLAYERS + MAX_BOTS <= 64,
+    "SVC_STAGE_START carries active_mask as u64 (netbuf U64): bit i set iff "
+    "participant slot i is occupied. Player slots use bits 0..MAX_PLAYERS-1; "
+    "bot slots use bits MAX_PLAYERS..MAX_PLAYERS+MAX_BOTS-1. If "
+    "MAX_PLAYERS+MAX_BOTS exceeds 64, encode/decode cannot represent every slot.");
+
 u64 mpParticipantsEncodeActiveMask(void)
 {
 	u64 mask = 0;

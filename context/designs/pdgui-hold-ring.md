@@ -12,7 +12,7 @@
 **Yes.** Long-press duration for **use / interact** is intentionally layered:
 
 1. **Global / per-action** — `actionmapGetEffectiveHoldMs(ACTION_USE)` (controller settings + optional per-action overrides in the actionmap layer, `pd.ini`).
-2. **Per-interactable** — `propInteractPromptHoldThresholdMs()` in `src/game/prop.c`: starts from (1), then adds **`extra`** ms per `g_InteractProp` category (weapon / door / obj / terminal, etc.). All extras default to **0** until a feature needs a longer or shorter hold; adjust **only** in that function (or add data-driven fields later) so **bondmove** and UI stay aligned.
+2. **Per-interactable** — `propInteractPromptHoldThresholdMs()` in `src/game/prop.c`: starts from (1), then adds **`extra`** ms per `g_InteractProp` category. **Hackable terminals** (`OBJFLAG3_HTMTERMINAL`): extra ms comes from **`actionmapGetInteractHoldExtraTerminalMs()`** — Settings → Controls → **Hackable terminal extra hold**, persisted as **`ActionMap.InteractHoldExtraTerminalMs`** in `pd.ini` (default **200**). Weapons, doors, and other OBJ types: **0** extra unless extended here later.
 
 **Bondmove / UI sync** — `propGetActionUseHoldThresholdMs()` returns the per-target value when `g_InteractProp` and `propInteractPromptLabel()` are both active; otherwise the global effective ms only. The interact HUD (`pdgui_interact_prompt.cpp`) uses `propInteractPromptHoldThresholdMs()` for the same numbers.
 

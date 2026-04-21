@@ -27,6 +27,8 @@
 #include "data.h"
 #include "types.h"
 
+extern s32 pdguiActiveMenuShouldSkipLegacyWheel(void);
+
 struct activemenu g_AmMenus[MAX_PLAYERS];
 struct fontchar *g_AmFont1;
 struct font *g_AmFont2;
@@ -1101,6 +1103,57 @@ const char var7f1b2c34[] = "FAV: Added gun %d to slot %d\n";
 
 u8 var800719a0[][3] = { {0, 1, 2}, {3, 4, 5}, {6, 7, 8} };
 
+s32 amGetSlotVisualMode(s16 column, s16 row, s32 mpchrnum)
+{
+	s32 mode = AMSLOTMODE_DEFAULT;
+	s32 buddynum;
+
+	if (column + row * 3 == g_AmMenus[g_AmIndex].slotnum) {
+		mode = AMSLOTMODE_FOCUSED;
+	}
+
+	if (g_MissionConfig.iscoop && (buddynum = amGetFirstBuddyIndex(), buddynum >= 0)) {
+		if (mode == AMSLOTMODE_DEFAULT && g_AmMenus[g_AmIndex].screenindex >= 2) {
+			struct chrdata *chr = g_Vars.aibuddies[buddynum]->chr;
+
+#if VERSION >= VERSION_NTSC_1_0
+			if (var800719a0[row][column] == 7) {
+				if (chr->hidden & CHRHFLAG_PASSIVE) {
+					mode = AMSLOTMODE_CURRENT;
+				}
+			} else if (var800719a0[row][column] == 1) {
+				if ((chr->hidden & CHRHFLAG_PASSIVE) == 0) {
+					mode = AMSLOTMODE_CURRENT;
+				}
+			}
+#else
+			if (chr->hidden & CHRHFLAG_PASSIVE) {
+				if (var800719a0[row][column] == 7) {
+					mode = AMSLOTMODE_CURRENT;
+				}
+			} else {
+				if (var800719a0[row][column] == 1) {
+					mode = AMSLOTMODE_CURRENT;
+				}
+			}
+#endif
+		}
+	} else {
+		if (g_Vars.normmplayerisrunning
+				&& mode == AMSLOTMODE_DEFAULT
+				&& g_AmMenus[g_AmIndex].screenindex >= 2) {
+			s32 slotcmd = g_AmBotCommands[var800719a0[row][column]];
+			s32 botcmd = g_MpAllChrPtrs[mpchrnum]->aibot->command;
+
+			if (slotcmd == botcmd) {
+				mode = AMSLOTMODE_CURRENT;
+			}
+		}
+	}
+
+	return mode;
+}
+
 Gfx *amRenderSlot(Gfx *gdl, char *text, s16 x, s16 y, s32 mode, s32 flags)
 {
 	static u32 obcol = 0xff00004f; // outer border
@@ -1241,6 +1294,52 @@ Gfx *amRenderSlot(Gfx *gdl, char *text, s16 x, s16 y, s32 mode, s32 flags)
 	return gdl;
 }
 
+static void amInitActiveMenuSelectionCoords(void)
+{
+	if (g_AmMenus[g_AmIndex].dstx == -123) {
+		amCalculateSlotPosition(
+				g_AmMenus[g_AmIndex].slotnum % 3,
+				g_AmMenus[g_AmIndex].slotnum / 3,
+				&g_AmMenus[g_AmIndex].selx,
+				&g_AmMenus[g_AmIndex].sely);
+		g_AmMenus[g_AmIndex].dstx = g_AmMenus[g_AmIndex].selx;
+		g_AmMenus[g_AmIndex].dsty = g_AmMenus[g_AmIndex].sely;
+	} else {
+		amCalculateSlotPosition(
+				g_AmMenus[g_AmIndex].slotnum % 3,
+				g_AmMenus[g_AmIndex].slotnum / 3,
+				&g_AmMenus[g_AmIndex].dstx,
+				&g_AmMenus[g_AmIndex].dsty);
+	}
+}
+
+static void amSyncCommandingAibotForActiveMenu(void)
+{
+#if VERSION >= VERSION_JPN_FINAL
+	if (!(g_MissionConfig.iscoop && amGetFirstBuddyIndex() >= 0)
+			&& g_Vars.normmplayerisrunning
+			&& g_AmMenus[g_AmIndex].screenindex >= 2) {
+		s32 buddynum = g_AmMenus[g_AmIndex].screenindex - 2;
+
+		if (!g_AmMenus[g_AmIndex].allbots) {
+			buddynum = g_Vars.currentplayer->aibuddynums[buddynum];
+			g_Vars.currentplayer->commandingaibot = g_MpAllChrPtrs[buddynum];
+		}
+	}
+#else
+	if (!(g_MissionConfig.iscoop && amGetFirstBuddyIndex() >= 0)
+			&& g_Vars.normmplayerisrunning
+			&& g_AmMenus[g_AmIndex].screenindex >= 2) {
+		s32 buddynum = g_AmMenus[g_AmIndex].screenindex - 2;
+
+		if (!g_AmMenus[g_AmIndex].allbots) {
+			buddynum = g_Vars.currentplayer->aibuddynums[buddynum];
+			g_Vars.currentplayer->commandingaibot = g_MpAllChrPtrs[buddynum];
+		}
+	}
+#endif
+}
+
 Gfx *amRender(Gfx *gdl)
 {
 	struct chrdata *chr;
@@ -1271,28 +1370,18 @@ Gfx *amRender(Gfx *gdl)
 	g_Vars.currentplayer->commandingaibot = NULL;
 
 	if (g_Vars.currentplayer->activemenumode != AMMODE_CLOSED) {
+		amInitActiveMenuSelectionCoords();
+
+		if (pdguiActiveMenuShouldSkipLegacyWheel()) {
+			amSyncCommandingAibotForActiveMenu();
+		} else {
 		// Draw diamond
 		gdl = text0f153628(gdl);
 
+		mpchrnum = 0;
 		if (g_Vars.normmplayerisrunning
 				&& g_AmMenus[g_AmIndex].screenindex >= 2) {
 			mpchrnum = g_Vars.currentplayer->aibuddynums[g_AmMenus[g_AmIndex].screenindex - 2];
-		}
-
-		if (g_AmMenus[g_AmIndex].dstx == -123) {
-			amCalculateSlotPosition(
-					g_AmMenus[g_AmIndex].slotnum % 3,
-					g_AmMenus[g_AmIndex].slotnum / 3,
-					&g_AmMenus[g_AmIndex].selx,
-					&g_AmMenus[g_AmIndex].sely);
-			g_AmMenus[g_AmIndex].dstx = g_AmMenus[g_AmIndex].selx;
-			g_AmMenus[g_AmIndex].dsty = g_AmMenus[g_AmIndex].sely;
-		} else {
-			amCalculateSlotPosition(
-					g_AmMenus[g_AmIndex].slotnum % 3,
-					g_AmMenus[g_AmIndex].slotnum / 3,
-					&g_AmMenus[g_AmIndex].dstx,
-					&g_AmMenus[g_AmIndex].dsty);
 		}
 
 		gdl = func0f0d479c(gdl);
@@ -1384,54 +1473,10 @@ Gfx *amRender(Gfx *gdl)
 				s16 sloty;
 				u32 mode;
 				char text[32];
-				s32 buddynum;
 
-				mode = AMSLOTMODE_DEFAULT;
 				amCalculateSlotPosition(column, row, &slotx, &sloty);
 				flags = 0;
-
-				if (column + row * 3 == g_AmMenus[g_AmIndex].slotnum) {
-					mode = AMSLOTMODE_FOCUSED;
-				}
-
-				if (g_MissionConfig.iscoop && (buddynum = amGetFirstBuddyIndex(), buddynum >= 0)) {
-					if (mode == AMSLOTMODE_DEFAULT && g_AmMenus[g_AmIndex].screenindex >= 2) {
-						struct chrdata *chr = g_Vars.aibuddies[buddynum]->chr;
-
-#if VERSION >= VERSION_NTSC_1_0
-						if (var800719a0[row][column] == 7) {
-							if (chr->hidden & CHRHFLAG_PASSIVE) {
-								mode = AMSLOTMODE_CURRENT;
-							}
-						} else if (var800719a0[row][column] == 1) {
-							if ((chr->hidden & CHRHFLAG_PASSIVE) == 0) {
-								mode = AMSLOTMODE_CURRENT;
-							}
-						}
-#else
-						if (chr->hidden & CHRHFLAG_PASSIVE) {
-							if (var800719a0[row][column] == 7) {
-								mode = AMSLOTMODE_CURRENT;
-							}
-						} else {
-							if (var800719a0[row][column] == 1) {
-								mode = AMSLOTMODE_CURRENT;
-							}
-						}
-#endif
-					}
-				} else {
-					if (g_Vars.normmplayerisrunning
-							&& mode == AMSLOTMODE_DEFAULT
-							&& g_AmMenus[g_AmIndex].screenindex >= 2) {
-						s32 slotcmd = g_AmBotCommands[var800719a0[row][column]];
-						s32 botcmd = g_MpAllChrPtrs[mpchrnum]->aibot->command;
-
-						if (slotcmd == botcmd) {
-							mode = AMSLOTMODE_CURRENT;
-						}
-					}
-				}
+				mode = amGetSlotVisualMode(column, row, mpchrnum);
 
 				colour = 0xffffffff;
 
@@ -1559,6 +1604,7 @@ Gfx *amRender(Gfx *gdl)
 		}
 
 		gdl = text0f153780(gdl);
+		}
 	}
 
 #if VERSION != VERSION_JPN_FINAL

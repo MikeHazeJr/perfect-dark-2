@@ -237,6 +237,18 @@ const char *menupoolTypeName(menu_type_t type);
 /* Returns the number of currently active slots. O(N) in MENU_TYPE_COUNT. */
 s32 menupoolCountActive(void);
 
+/* Read-only snapshot of active pool slots for diagnostics (no mutations). */
+typedef struct MenupoolDebugEntry {
+    menu_type_t type;
+    const char *type_name;
+    u32 generation;
+    const struct menudialogdef *def_ptr;
+    const char *owned_ctx_name; /* or "shared" / "" */
+} MenupoolDebugEntry;
+
+/** Copies active slots in arbitrary order. Returns count written (<= maxEntries). */
+s32 menupoolDebugCopyActive(MenupoolDebugEntry *out, s32 maxEntries);
+
 #ifdef __cplusplus
 }
 #endif
