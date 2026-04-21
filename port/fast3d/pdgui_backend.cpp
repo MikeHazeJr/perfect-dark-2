@@ -113,6 +113,14 @@ extern "C" s32 inputMouseIsLocked(void);
 /* Logging */
 #include "system.h"
 
+/* F6: freeze MP bot AI (game/bot.c) — banner + NewFrame gating */
+extern "C" s32 botGetUpdatesDisabled(void);
+extern "C" void botToggleUpdatesDisabled(void);
+
+/* F7: dev invincibility toggle (game/player.c) */
+extern "C" void playerToggleDevInvincibility(void);
+extern "C" s32 playerDevInvincibilityHudActive(void);
+
 namespace {
 /**
  * Shared predicate for pdguiNewFrame / pdguiRender early-exit: must stay in sync
@@ -124,9 +132,11 @@ static bool pdguiAnyStandardOverlayReason(
     bool networkActive,
     bool pauseActive,
     bool hubActive,
-    bool interactPrompt)
+    bool interactPrompt,
+    bool devGameplayHud)
 {
-    if (debugOverlayActive || menuStackDiag || networkActive || pauseActive || hubActive || interactPrompt) {
+    if (debugOverlayActive || menuStackDiag || networkActive || pauseActive || hubActive || interactPrompt
+            || devGameplayHud) {
         return true;
     }
     return pdguiActiveMenuIsOpen() != 0;
@@ -464,12 +474,22 @@ void pdguiNewFrame(void)
     bool pauseActive = (pdguiIsPauseMenuOpen() || pdguiIsScorecardVisible());
     bool hubActive = (pdguiModdingHubIsVisible() != 0);
 
+#if defined(PD_DEV_BUILD)
     bool debugOverlayActive = (inputCtxIsActive(&g_CtxDebugOverlay) != 0);
+#else
+    bool debugOverlayActive = false;
+#endif
     bool menuStackDiag = (pdguiMenuStackOverlayGetOpen() != 0);
     /* S311: When walking near a door/weapon/etc., propInteractPromptLabel() is
      * non-NULL — we must run ImGui this frame. The default path skips NewFrame
      * during "clean" solo gameplay (no menus/network), which hid the prompt. */
     bool interactPrompt = (propInteractPromptLabel() != NULL);
+#if defined(PD_DEV_BUILD)
+    bool devGameplayHud =
+            (botGetUpdatesDisabled() != 0) || (playerDevInvincibilityHudActive() != 0);
+#else
+    bool devGameplayHud = false;
+#endif
     if (!g_PdguiInitialized) {
         /* Invariant: gameplay cannot open the active menu before pdguiInit(). */
         if (pdguiActiveMenuIsOpen() && !s_LoggedActiveMenuBeforeInit) {
@@ -480,7 +500,8 @@ void pdguiNewFrame(void)
         return;
     }
     if (!pdguiAnyStandardOverlayReason(
-             debugOverlayActive, menuStackDiag, networkActive, pauseActive, hubActive, interactPrompt)
+             debugOverlayActive, menuStackDiag, networkActive, pauseActive, hubActive, interactPrompt,
+             devGameplayHud)
         && !pdguiHotswapHasQueued() && !pdguiHotswapWasActive()) {
         return;
     }
@@ -572,9 +593,19 @@ void pdguiRender(void)
     bool hubActive = (pdguiModdingHubIsVisible() != 0);
 
     /* D13: Also render when update UI is visible (notification banner, version picker) */
+#if defined(PD_DEV_BUILD)
     bool debugOverlayActive = (inputCtxIsActive(&g_CtxDebugOverlay) != 0);
+#else
+    bool debugOverlayActive = false;
+#endif
     bool menuStackDiag = (pdguiMenuStackOverlayGetOpen() != 0);
     bool interactPrompt = (propInteractPromptLabel() != NULL);
+#if defined(PD_DEV_BUILD)
+    bool devGameplayHud =
+            (botGetUpdatesDisabled() != 0) || (playerDevInvincibilityHudActive() != 0);
+#else
+    bool devGameplayHud = false;
+#endif
     if (!g_PdguiInitialized) {
         if (pdguiActiveMenuIsOpen() && !s_LoggedActiveMenuBeforeInit) {
             sysLogPrintf(LOG_ERROR,
@@ -584,7 +615,8 @@ void pdguiRender(void)
         return;
     }
     if (!pdguiAnyStandardOverlayReason(
-             debugOverlayActive, menuStackDiag, networkActive, pauseActive, hubActive, interactPrompt)
+             debugOverlayActive, menuStackDiag, networkActive, pauseActive, hubActive, interactPrompt,
+             devGameplayHud)
         && !s_ConsoleVisible && !hotswapQueued && !hotswapWasActive && !updateActive) {
         return;
     }
@@ -601,12 +633,14 @@ void pdguiRender(void)
         winH = 480;
     }
 
+#if defined(PD_DEV_BUILD)
     /* F12 debug menu — PD-styled, game-relative scaling */
     if (debugOverlayActive) {
         pdguiDebugMenuRender((s32)winW, (s32)winH);
         /* Log Viewer Dev Window — shown alongside the debug menu */
         pdguiLogViewerRender((s32)winW, (s32)winH);
     }
+#endif
 
     /* F8 hot-swap: render any ImGui menu replacements that were queued
      * during the GBI phase by pdguiHotswapCheck() in menuRenderDialog().
@@ -677,6 +711,36 @@ void pdguiRender(void)
     /* In-match HUD: top 2 scorers + remaining time.
      * Only visible during normmplayerisrunning (combat sim active). */
     pdguiHudRender((s32)winW, (s32)winH);
+
+#if defined(PD_DEV_BUILD)
+    /* F6: bot AI frozen — top-center banner (NoInputs so gameplay mouse/look unchanged) */
+    const float kDevHudF6Stack = 58.0f; /* vertical space for two-line F6 banner */
+    float invincBannerY = 22.0f;
+    if (botGetUpdatesDisabled()) {
+        ImGui::SetNextWindowPos(ImVec2((float)winW * 0.5f, 22.0f), ImGuiCond_Always, ImVec2(0.5f, 0.0f));
+        ImGui::SetNextWindowBgAlpha(0.75f);
+        ImGui::Begin("##botupdates_off", NULL,
+                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize
+                | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove
+                | ImGuiWindowFlags_NoSavedSettings);
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.2f, 1.0f), "Bot Update: DISABLED");
+        ImGui::TextDisabled("Press F6 to resume bot AI");
+        ImGui::End();
+        invincBannerY = 22.0f + kDevHudF6Stack;
+    }
+    /* F7: player invincibility — stack below F6 banner when both active */
+    if (playerDevInvincibilityHudActive()) {
+        ImGui::SetNextWindowPos(ImVec2((float)winW * 0.5f, invincBannerY), ImGuiCond_Always, ImVec2(0.5f, 0.0f));
+        ImGui::SetNextWindowBgAlpha(0.75f);
+        ImGui::Begin("##dev_invincible", NULL,
+                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize
+                | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove
+                | ImGuiWindowFlags_NoSavedSettings);
+        ImGui::TextColored(ImVec4(0.35f, 1.0f, 0.45f, 1.0f), "Player: INVINCIBLE");
+        ImGui::TextDisabled("Press F7 to disable");
+        ImGui::End();
+    }
+#endif
 
     /* In-game active menu (weapon / function / orders) -- ImGui replaces legacy GBI wheel. */
     pdguiActiveMenuRadialRender((s32)winW, (s32)winH);
@@ -869,6 +933,20 @@ s32 pdguiProcessEvent(void *sdlEvent)
 
     /* ---- Global hotkeys: always consumed regardless of context ---- */
 
+#if defined(PD_DEV_BUILD)
+    /* F6: toggle MP bot AI/movement freeze (spawn layout inspection) */
+    if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F6) {
+        botToggleUpdatesDisabled();
+        return 1;
+    }
+
+    /* F7: toggle player invincibility (solo/MP debug) */
+    if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F7) {
+        playerToggleDevInvincibility();
+        return 1;
+    }
+#endif
+
     /* F8 / RS-click: hot-swap toggle (flip rendering mode for ImGui menus) */
     if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F8) {
         pdguiHotswapToggle();
@@ -880,6 +958,7 @@ s32 pdguiProcessEvent(void *sdlEvent)
         return 1;
     }
 
+#if defined(PD_DEV_BUILD)
     /* F12: toggle debug overlay via context stack push/pop.
      * S295 F1: Authoritative state is the input context stack — no mirror bool. */
     if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F12) {
@@ -890,6 +969,7 @@ s32 pdguiProcessEvent(void *sdlEvent)
         }
         return 1;
     }
+#endif
 
     /* F9: toggle read-only menu/input diagnostics (no input-context push). */
     if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F9) {
@@ -998,12 +1078,14 @@ s32 pdguiIsActive(void)
 
 void pdguiToggle(void)
 {
+#if defined(PD_DEV_BUILD)
     /* S295 F1: Authoritative state is the input context stack — no mirror bool. */
     if (!inputCtxIsActive(&g_CtxDebugOverlay)) {
         inputCtxPush(&g_CtxDebugOverlay);
     } else {
         inputCtxPopDeferred(&g_CtxDebugOverlay);
     }
+#endif
 }
 
 void pdguiClearImGuiFocusAndNav(void)

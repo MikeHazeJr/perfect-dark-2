@@ -50,6 +50,21 @@ struct chrdata *g_MpBotChrPtrs[MAX_BOTS];
 
 u8 g_BotCount = 0;
 
+/* F6 (pdgui): freeze bot AI/movement to inspect spawn layout and team grouping */
+s32 g_BotUpdatesDisabled;
+
+void botToggleUpdatesDisabled(void)
+{
+	g_BotUpdatesDisabled = g_BotUpdatesDisabled ? 0 : 1;
+	sysLogPrintf(LOG_NOTE, "BOT: updates %s",
+			g_BotUpdatesDisabled ? "DISABLED (F6 to resume)" : "enabled");
+}
+
+s32 botGetUpdatesDisabled(void)
+{
+	return g_BotUpdatesDisabled;
+}
+
 /* F.5: Stuck detection — periodic position snapshot per bot slot.
  * Every STUCK_CHECK_FRAMES, each bot's position is compared to its last
  * snapshot. If it hasn't moved more than STUCK_EPSILON and has active
@@ -1284,6 +1299,11 @@ s32 botTick(struct prop *prop)
 					(s32)aibot->aibotnum, prop->pos.x, prop->pos.y, prop->pos.z);
 				botSpawn(chr, false);
 			}
+		}
+
+		if (g_BotUpdatesDisabled) {
+			result = chrTick(prop);
+			return result;
 		}
 
 		if (updateable && g_Vars.lvframe60 >= 145) {

@@ -226,8 +226,6 @@ if ($SkipBuild) {
 } else {
     Write-Host "[0/8] Rebuilding from source (cmake reconfigure + compile)..." -ForegroundColor Yellow
 
-    $vFlags = "-DVERSION_SEM_MAJOR=$vMaj -DVERSION_SEM_MINOR=$vMin -DVERSION_SEM_PATCH=$vPat"
-
     # ---- Pre-build: commit + push so the release tag lands on a clean commit ----
     Write-Host "  [pre-build] Committing any pending changes before release build..." -ForegroundColor Gray
     $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
@@ -262,9 +260,11 @@ if ($SkipBuild) {
 
     Write-Host "  [cmake] configure (Ninja + ccache)..." -ForegroundColor Gray
     $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    $stableArg = @()
+    if (-not $Prerelease) { $stableArg = @("-DPD_STABLE_RELEASE=ON") }
     $cfgOut  = & $CMakeExe -G Ninja "-DCMAKE_C_COMPILER=$CCExe" `
         "-DCMAKE_C_COMPILER_LAUNCHER=ccache" "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache" `
-        "-B" $BuildDir "-S" $ProjectRoot "-DVERSION_SEM_MAJOR=$vMaj" "-DVERSION_SEM_MINOR=$vMin" "-DVERSION_SEM_PATCH=$vPat" 2>&1
+        "-B" $BuildDir "-S" $ProjectRoot "-DVERSION_SEM_MAJOR=$vMaj" "-DVERSION_SEM_MINOR=$vMin" "-DVERSION_SEM_PATCH=$vPat" @stableArg 2>&1
     $cfgExit = $LASTEXITCODE
     $ErrorActionPreference = $savedEAP
 

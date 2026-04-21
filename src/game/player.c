@@ -196,6 +196,19 @@ bool g_PlayersWithControl[] = {
 };
 
 bool g_PlayerInvincible = false;
+
+void playerToggleDevInvincibility(void)
+{
+	g_PlayerInvincible = !g_PlayerInvincible;
+	sysLogPrintf(LOG_NOTE, "PLAYER: invincibility %s (F7)",
+			g_PlayerInvincible ? "ON" : "OFF");
+}
+
+s32 playerDevInvincibilityHudActive(void)
+{
+	return g_PlayerInvincible ? 1 : 0;
+}
+
 s32 g_InCutscene = 0x00000000;
 
 s16 g_DeathAnimations[] = {

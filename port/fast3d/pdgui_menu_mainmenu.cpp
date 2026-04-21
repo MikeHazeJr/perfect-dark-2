@@ -471,7 +471,7 @@ static bool s_RegisteredPc = false;
 static bool s_RegisteredPause = false;
 /* S306: Interface tab inserted between Video and Audio.
  * 0=Video, 1=Interface, 2=Audio, 3=Controls, 4=Game, 5=Updates,
- * 6=Debug, 7=Catalog. */
+ * 6=Debug (PD_DEV_BUILD only), 6/7=Catalog. */
 static s32 s_SettingsSubTab = 0;
 static s32 s_PrevView = -1;     /* Previous menu view, for sound on switch */
 static s32 s_PrevSubTab = -1;
@@ -3245,6 +3245,8 @@ static void renderSettingsDebug(float scale)
     /* ------ Keyboard Shortcuts Reminder ------ */
     ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.8f), "Shortcuts");
     ImGui::Separator();
+    ImGui::TextDisabled("F6   Freeze MP bot AI");
+    ImGui::TextDisabled("F7   Player invincibility");
     ImGui::TextDisabled("F12  Debug Overlay");
 
     ImGui::Spacing();
@@ -3703,19 +3705,28 @@ static void renderSettingsView(float scale, float contentH)
      * tab's list instead of switching tabs. */
     static s32 s_BumperPendingTab = -1; /* -1 = no pending switch */
 
-    /* S306: tab count is now 8 — inserted Interface between Video and
-     * Audio. Order: 0=Video 1=Interface 2=Audio 3=Controls 4=Game
-     * 5=Updates 6=Debug 7=Catalog. */
+#if defined(PD_DEV_BUILD)
+    const s32 settingsTabLast = 7;
+#else
+    const s32 settingsTabLast = 6;
+    if (s_SettingsSubTab > settingsTabLast) {
+        s_SettingsSubTab = settingsTabLast;
+    }
+#endif
+
+    /* S306: 8 tabs with PD_DEV_BUILD (Debug present); 7 tabs on stable (no Debug).
+     * Order: 0=Video 1=Interface 2=Audio 3=Controls 4=Game 5=Updates
+     * [6=Debug] 6/7=Catalog. */
     if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
         s_SettingsSubTab--;
-        if (s_SettingsSubTab < 0) s_SettingsSubTab = 7;
+        if (s_SettingsSubTab < 0) s_SettingsSubTab = settingsTabLast;
         s_BumperPendingTab = s_SettingsSubTab;
         s_NeedsFocus = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
     if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
         s_SettingsSubTab++;
-        if (s_SettingsSubTab > 7) s_SettingsSubTab = 0;
+        if (s_SettingsSubTab > settingsTabLast) s_SettingsSubTab = 0;
         s_BumperPendingTab = s_SettingsSubTab;
         s_NeedsFocus = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
@@ -3735,7 +3746,9 @@ static void renderSettingsView(float scale, float contentH)
         ImGuiTabItemFlags selFlag4 = (s_BumperPendingTab == 4) ? ImGuiTabItemFlags_SetSelected : 0;
         ImGuiTabItemFlags selFlag5 = (s_BumperPendingTab == 5) ? ImGuiTabItemFlags_SetSelected : 0;
         ImGuiTabItemFlags selFlag6 = (s_BumperPendingTab == 6) ? ImGuiTabItemFlags_SetSelected : 0;
+#if defined(PD_DEV_BUILD)
         ImGuiTabItemFlags selFlag7 = (s_BumperPendingTab == 7) ? ImGuiTabItemFlags_SetSelected : 0;
+#endif
         s_BumperPendingTab = -1; /* Clear after consuming */
 
         if (ImGui::BeginTabItem("Video", nullptr, selFlag0)) {
@@ -3804,6 +3817,7 @@ static void renderSettingsView(float scale, float contentH)
             ImGui::EndTabItem();
         }
 
+#if defined(PD_DEV_BUILD)
         if (ImGui::BeginTabItem("Debug", nullptr, selFlag6)) {
             s_SettingsSubTab = 6;
             ImGui::BeginChild("##settings_scroll_d", ImVec2(0, 0),
@@ -3814,9 +3828,20 @@ static void renderSettingsView(float scale, float contentH)
             ImGui::EndChild();
             ImGui::EndTabItem();
         }
+#endif
 
-        if (ImGui::BeginTabItem("Catalog", nullptr, selFlag7)) {
+        if (ImGui::BeginTabItem("Catalog", nullptr,
+#if defined(PD_DEV_BUILD)
+                selFlag7
+#else
+                selFlag6
+#endif
+                )) {
+#if defined(PD_DEV_BUILD)
             s_SettingsSubTab = 7;
+#else
+            s_SettingsSubTab = 6;
+#endif
             ImGui::BeginChild("##settings_scroll_cat", ImVec2(0, 0),
                               ImGuiChildFlags_NavFlattened);
             if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);

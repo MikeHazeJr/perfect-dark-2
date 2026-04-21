@@ -4,6 +4,19 @@
 > **S283–S410** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S430 — 2026-04-20 — PD_DEV_BUILD, F7 invincibility + HUD, stable gating
+
+- **CMake:** `PD_STABLE_RELEASE` option; **`pd`** defines **`PD_DEV_BUILD=1`** when not stable. **`release.ps1`:** stable (non-prerelease) configures with **`PD_STABLE_RELEASE=ON`** (removed unused duplicate `$vFlags` block; configure uses **`@stableArg`**).
+- **`player.c` / `player.h`:** **`playerToggleDevInvincibility()`** (toggles **`g_PlayerInvincible`**), **`playerDevInvincibilityHudActive()`** for ImGui gating.
+- **`pdgui_backend.cpp`:** Dev-only **F6 / F7 / F12**; **`pdguiAnyStandardOverlayReason`** takes **`devGameplayHud`** (bot freeze + F7 invinc); stacked top-center banners for F6 and F7; debug overlay render gated. **Stable:** **`debugOverlayActive`** forced false so F12 overlay never drives ImGui overlay path.
+- **`pdgui_menu_mainmenu.cpp`:** Settings **Debug** tab and shortcuts list only with **`PD_DEV_BUILD`**; stable uses 7 tabs (Catalog index 6). Build scripts: SYNC comment for **`PD_STABLE_RELEASE`**.
+- **Context:** **`tasks-current.md`** done line; **`CRITICAL-PROCEDURES.md` §3** optional **`PD_STABLE_RELEASE`** note.
+
+## Session S429 — 2026-04-21 — F6 toggle: freeze MP bot AI + on-screen banner
+
+- **`bot.c` / `bot.h`:** `g_BotUpdatesDisabled`, `botToggleUpdatesDisabled()`, `botGetUpdatesDisabled()`. In **`botTick`**, when set: **`chrTick` only** (skip AI, stuck, movement, scenario/pickups for that bot).
+- **`pdgui_backend.cpp`:** **F6** toggles; **`pdguiNewFrame` / `pdguiRender`** treat bot-freeze like other overlays so ImGui runs; top-center **ImGui** banner `"Bot Update: DISABLED"` + `NoInputs` so look/move still work.
+
 ## Session S428 — 2026-04-21 — MP spawn: Hungarian solver, anchors, lv before playerSpawn
 
 - **`mpspawn_hungarian.c` / `mpspawn_hungarian.h`:** Min-cost square assignment (`mpHungarianMinSquare`); pads participants to `pool->count` with zero dummy rows.

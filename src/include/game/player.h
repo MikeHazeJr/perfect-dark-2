@@ -115,6 +115,10 @@ void playerSetCamPropertiesWithoutRoom(struct coord *pos, struct coord *up, stru
 void playerSetCamProperties(struct coord *pos, struct coord *up, struct coord *look, s32 room);
 void playerClearMemCamRoom(void);
 
+/** Dev (PD_DEV_BUILD): F7 toggles g_PlayerInvincible; HUD banner when active. */
+void playerToggleDevInvincibility(void);
+s32 playerDevInvincibilityHudActive(void);
+
 struct sndstate *playerSndStart(s32 arg0, s16 sound, struct sndstate **handle, s32 playernum, f32 pitch, s32 fxbus, s32 fxmix);
 #if MAX_PLAYERS > 4
 s32 playerGetCount(void);

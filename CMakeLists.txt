@@ -126,7 +126,7 @@ endif()
 # GitHub release prerelease flag, not by the version number itself.
 set(VERSION_SEM_MAJOR 0 CACHE STRING "Semantic version major")
 set(VERSION_SEM_MINOR 0 CACHE STRING "Semantic version minor")
-set(VERSION_SEM_PATCH 146 CACHE STRING "Semantic version revision")
+set(VERSION_SEM_PATCH 147 CACHE STRING "Semantic version revision")
 
 set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}")
 
@@ -509,6 +509,13 @@ add_executable(pd ${SRC})
 add_dependencies(pd pd_headers)
 target_link_libraries(pd ${LIBS})
 set_target_properties(pd PROPERTIES OUTPUT_NAME "${BIN_NAME}")
+
+# Stable release builds omit dev-only debug hotkeys (F6/F7/F12), dev HUD banners,
+# and the Settings Debug tab. Prerelease/dev/local builds leave this OFF.
+option(PD_STABLE_RELEASE "Stable channel: disable PD_DEV_BUILD features" OFF)
+if(NOT PD_STABLE_RELEASE)
+  target_compile_definitions(pd PRIVATE PD_DEV_BUILD=1)
+endif()
 
 # Precompiled header for the "core 4" game headers (C only -- C++ port files differ).
 # types.h, ultra64.h, data.h, constants.h are included by >50% of game TUs.

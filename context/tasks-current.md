@@ -9,6 +9,8 @@
 
 ## Open — 2026-04-20 (Super Audit 2026-04-20 — Wave 3A hardening + carry-overs)
 
+**Done 2026-04-20 (PD_DEV_BUILD / F7 invincibility + stable gating — S430):** CMake `PD_STABLE_RELEASE` → `PD_DEV_BUILD` on `pd`; dev-only F6/F7/F12, Settings Debug tab, stacked HUD banners; `release.ps1` stable configure adds `PD_STABLE_RELEASE=ON`. See `session-log.md` S430.
+
 **Done 2026-04-20 (PC ADS + controller sensitivity UI — S425):** Twin-stick LT ADS on PC (RS aim, LS move); `SensMoveUi` / `SensAimUi` / `SensAdsUi` 1–10 (0.5) in `pd.ini` + Settings; ADS move slowdown + zoom mul + crosshair from RS. See `session-log.md` S425.
 
 **Done 2026-04-20 (H-1 P3-A/P3-B — in-client host / go online):** `pdgui_menu_network` listen host + `pdgui_lobby` route for `NETMODE_SERVER && !g_NetDedicated`; `netSendRoom*` + `netListenHostRoomLeave` for leader/leave; `Net.Server.Port` + README PD2 fork pointer. See `session-log.md` S421.

@@ -15,6 +15,7 @@
 #include "constants.h"
 #include "types.h"
 #include "data.h"
+#include "bss.h"
 #include "game/spawnpool.h"
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/mpspawn_orchestrate.h"
@@ -177,6 +178,7 @@ static void orch_compute_team_anchors(const spawn_pool_t *pool,
 	f32 dx;
 	f32 dz;
 	s32 best_pi;
+	f32 d;
 
 	if (k_anchors <= 0 || !pool || pool->count <= 0) {
 		return;
@@ -191,8 +193,6 @@ static void orch_compute_team_anchors(const spawn_pool_t *pool,
 	best = -1.0f;
 	best_pi = 0;
 	for (pi = 0; pi < pool->count; pi++) {
-		f32 d;
-
 		d = orch_dist2_xz(&pool->points[pi].pos, center);
 		if (d > best) {
 			best = d;

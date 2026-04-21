@@ -1731,6 +1731,7 @@ function Start-Build-Step($step) {
 function Get-BuildSteps($ver, [bool]$forceClean = $false) {
     # SYNC RULE: cmake configure args MUST match build-headless.ps1 exactly.
     $cores = $(if ($env:NUMBER_OF_PROCESSORS) { $env:NUMBER_OF_PROCESSORS } else { "4" })
+    # SYNC: optional -DPD_STABLE_RELEASE=ON matches CMakeLists.txt / build-headless.ps1
     $vFlags = " -DVERSION_SEM_MAJOR=" + $ver.Major + " -DVERSION_SEM_MINOR=" + $ver.Minor + " -DVERSION_SEM_PATCH=" + $ver.Patch
     $steps = [System.Collections.ArrayList]::new()
 

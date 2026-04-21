@@ -50,6 +50,7 @@ cmake -G "Unix Makefiles"
       -S "<projectRoot>"
       -DVERSION_SEM_MAJOR=X -DVERSION_SEM_MINOR=Y -DVERSION_SEM_PATCH=Z
 ```
+Optional stable channel (same scripts / `CMakeLists.txt`): append `-DPD_STABLE_RELEASE=ON` to omit `PD_DEV_BUILD` (dev hotkeys, Settings Debug tab). Default is dev/local with `PD_DEV_BUILD` enabled.
 
 **Rules:**
 - `build-headless.ps1` mirrors `Get-BuildSteps` from `dev-window.ps1` exactly

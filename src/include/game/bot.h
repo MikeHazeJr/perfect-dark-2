@@ -10,6 +10,8 @@ bool botIsDizzy(struct chrdata *chr);
 void botReset(struct chrdata *chr, u8 respawning);
 void botSpawn(struct chrdata *chr, u8 full);
 void botSpawnAll(void);
+void botToggleUpdatesDisabled(void);
+s32 botGetUpdatesDisabled(void);
 u32 add87654321(u32 value);
 u32 botPickupProp(struct prop *prop, struct chrdata *chr);
 bool botTestPropForPickup(struct prop *prop, struct chrdata *chr);

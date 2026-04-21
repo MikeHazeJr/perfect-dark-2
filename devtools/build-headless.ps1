@@ -163,6 +163,7 @@ if ($Version -ne "") {
     }
 }
 
+# SYNC: optional -DPD_STABLE_RELEASE=ON matches CMakeLists.txt (stable channel; omits PD_DEV_BUILD).
 $vFlags = " -DVERSION_SEM_MAJOR=$VerMajor -DVERSION_SEM_MINOR=$VerMinor -DVERSION_SEM_PATCH=$VerPatch"
 
 # ============================================================================
