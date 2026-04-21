@@ -100,6 +100,9 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH);
 /* Network mode query — declared in pdgui_bridge.c */
 extern "C" s32 netGetMode(void);
 
+extern "C" s32 pdguiPauseGetNormMplayerIsRunning(void);
+extern "C" u8 pdguiPauseGetPaused(void);
+
 /* Input system -- for deferred SDL mouse-lock flush (B-92 solo mission path) */
 extern "C" s32 inputMouseIsLocked(void);
 
@@ -490,6 +493,10 @@ void pdguiNewFrame(void)
 #else
     bool devGameplayHud = false;
 #endif
+    /* B-222: keep ImGui alive during live MP so killfeed / HUD overlays always
+     * have a frame, even when no menu, dev HUD, or interact prompt is active. */
+    bool mpLiveMatchHud = (pdguiPauseGetNormMplayerIsRunning() != 0)
+        && (pdguiPauseGetPaused() < 2);
     if (!g_PdguiInitialized) {
         /* Invariant: gameplay cannot open the active menu before pdguiInit(). */
         if (pdguiActiveMenuIsOpen() && !s_LoggedActiveMenuBeforeInit) {
@@ -502,6 +509,7 @@ void pdguiNewFrame(void)
     if (!pdguiAnyStandardOverlayReason(
              debugOverlayActive, menuStackDiag, networkActive, pauseActive, hubActive, interactPrompt,
              devGameplayHud)
+        && !mpLiveMatchHud
         && !pdguiHotswapHasQueued() && !pdguiHotswapWasActive()) {
         return;
     }
@@ -606,6 +614,8 @@ void pdguiRender(void)
 #else
     bool devGameplayHud = false;
 #endif
+    bool mpLiveMatchHud = (pdguiPauseGetNormMplayerIsRunning() != 0)
+        && (pdguiPauseGetPaused() < 2);
     if (!g_PdguiInitialized) {
         if (pdguiActiveMenuIsOpen() && !s_LoggedActiveMenuBeforeInit) {
             sysLogPrintf(LOG_ERROR,
@@ -617,6 +627,7 @@ void pdguiRender(void)
     if (!pdguiAnyStandardOverlayReason(
              debugOverlayActive, menuStackDiag, networkActive, pauseActive, hubActive, interactPrompt,
              devGameplayHud)
+        && !mpLiveMatchHud
         && !s_ConsoleVisible && !hotswapQueued && !hotswapWasActive && !updateActive) {
         return;
     }

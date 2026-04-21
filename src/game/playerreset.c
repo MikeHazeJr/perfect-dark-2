@@ -214,6 +214,17 @@ void playerReset(void)
 				cmd = (struct cmd32 *)((uintptr_t)cmd + 8);
 				break;
 			case INTROCMD_WEAPON:
+				/* B-219: MP spawn-with-weapon fallback must own loadout; INTROCMD_WEAPON
+				 * would grant mission intro weapons after setup chose a spawn weapon,
+				 * desyncing inventory vs bgun equip (invisible FP model). */
+				if (g_Vars.normmplayerisrunning
+						&& (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON)) {
+					sysLogPrintf(LOG_NOTE,
+						"GAMELOOP.WEAPON: playernum=%d mission=0x%02x INTRO skipped (spawn-with-weapon owns MP loadout)",
+						g_Vars.currentplayernum, g_Vars.stagenum);
+					cmd = (struct cmd32 *)((uintptr_t)cmd + 16);
+					break;
+				}
 				if (cmd->param3 == 0 && PLAYER_IS_NOT_ANTI(g_Vars.currentplayer)) {
 
 					modelmgrLoadProjectileModeldefs(cmd->param1);

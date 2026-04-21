@@ -55,6 +55,7 @@
 #include "game/mplayer/mplayer.h"
 #include "game/pad.h"
 #include "game/options.h"
+#include "actionmap.h"
 #include "game/propobj.h"
 #include "game/wallhit.h"
 #include "game/shards.h"
@@ -16449,7 +16450,8 @@ bool currentPlayerTryMountHoverbike(struct prop *prop)
 	u32 stack[2];
 
 	if (obj->type == OBJTYPE_HOVERBIKE
-			&& g_Vars.lvframe60 - g_Vars.currentplayer->activatetimelast < TICKS(30)
+			&& (optionsGetControlMode(g_Vars.currentplayerstats->mpindex) == CONTROLMODE_PC
+				|| g_Vars.lvframe60 - g_Vars.currentplayer->activatetimelast < TICKS(30))
 			&& (obj->hidden & OBJHFLAG_MOUNTED) == 0) {
 		if (obj->hidden & OBJHFLAG_GRABBED) {
 			if (bmoveGetGrabbedProp() == prop) {
@@ -16489,6 +16491,47 @@ bool currentPlayerTryMountHoverbike(struct prop *prop)
 	}
 
 	return false;
+}
+
+/**
+ * B-221.3: PC tap-mount for hoverbike is evaluated on USE release so a press
+ * that becomes a long-hold (pickup) never mounts on the first frame.
+ */
+void propobjPcHoverbikeTapMountOnUseRelease(s32 pi)
+{
+	struct prop *prop;
+	struct defaultobj *obj;
+
+	if (!g_Vars.currentplayer || !g_Vars.currentplayerstats) {
+		return;
+	}
+	if (optionsGetControlMode(g_Vars.currentplayerstats->mpindex) != CONTROLMODE_PC) {
+		return;
+	}
+	if (actionHoldConsumed(pi, ACTION_USE)) {
+		return;
+	}
+	prop = g_InteractProp;
+	if (!prop || prop->type != PROPTYPE_OBJ) {
+		return;
+	}
+	obj = prop->obj;
+	if (!obj || obj->type != OBJTYPE_HOVERBIKE) {
+		return;
+	}
+	if (g_Vars.currentplayer->pcinteractusekind == 2) {
+		return;
+	}
+	if (currentPlayerTryMountHoverbike(prop)) {
+		return;
+	}
+	if ((obj->flags3 & OBJFLAG3_GRABBABLE)
+			&& g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK
+			&& bmoveGetCrouchPos() == CROUCHPOS_STAND
+			&& g_Vars.currentplayer->crouchoffset == 0
+			&& g_Vars.currentplayer->onladder == false) {
+		bmoveGrabProp(prop);
+	}
 }
 
 bool propobjInteract(struct prop *prop)
@@ -16603,16 +16646,9 @@ bool propobjInteract(struct prop *prop)
 				bmoveGrabProp(prop);
 			}
 		} else if (g_Vars.currentplayer->pcinteractusekind == 1) {
-			currentPlayerTryMountHoverbike(prop);
+			/* B-221.3: tap mount runs from bondmove on USE release, not here. */
 		} else {
-			if (currentPlayerTryMountHoverbike(prop) == false
-					&& (obj->flags3 & OBJFLAG3_GRABBABLE)
-					&& g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK
-					&& bmoveGetCrouchPos() == CROUCHPOS_STAND
-					&& g_Vars.currentplayer->crouchoffset == 0
-					&& g_Vars.currentplayer->onladder == false) {
-				bmoveGrabProp(prop);
-			}
+			/* Pending / unknown: do not mount or grab on press (avoids hold races). */
 		}
 	} else if (currentPlayerTryMountHoverbike(prop) == false
 			&& (obj->flags3 & OBJFLAG3_GRABBABLE)

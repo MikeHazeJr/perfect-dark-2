@@ -279,6 +279,11 @@ static bool modmgrParseModJson(modinfo_t *mod)
 	char path[FS_MAXPATH + 1];
 	snprintf(path, sizeof(path), "%s/mod.json", mod->dirpath);
 
+	/* B-220: avoid fsFileLoad ERROR spam when the file vanished after scan */
+	if (fsFileSize(path) <= 0) {
+		return false;
+	}
+
 	u32 filesize = 0;
 	char *data = (char *)fsFileLoad(path, &filesize);
 	if (!data || filesize == 0) {
@@ -652,6 +657,10 @@ static void modmgrRegisterModJsonContent(modinfo_t *mod)
 
 	char path[FS_MAXPATH + 1];
 	snprintf(path, sizeof(path), "%s/mod.json", mod->dirpath);
+
+	if (fsFileSize(path) <= 0) {
+		return;
+	}
 
 	u32 filesize = 0;
 	char *data = (char *)fsFileLoad(path, &filesize);
@@ -2020,6 +2029,10 @@ static void modmgrParseBotNames(modinfo_t *mod)
 
 	char path[FS_MAXPATH + 1];
 	snprintf(path, sizeof(path), "%s/mod.json", mod->dirpath);
+
+	if (fsFileSize(path) <= 0) {
+		return;
+	}
 
 	u32 filesize = 0;
 	char *data = (char *)fsFileLoad(path, &filesize);

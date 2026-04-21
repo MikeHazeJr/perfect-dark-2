@@ -33,6 +33,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_style.h"
 #include "pdgui_hotswap.h"
+#include "pdgui_activemenu_radial.h"
 
 /* ============================================================================
  * C boundary declarations
@@ -170,10 +171,10 @@ extern "C" void pdguiMpIngameRender(s32 winW, s32 winH)
     if (pdguiPauseGetPaused() >= MPPAUSEMODE_GAMEOVER_TICKER) {
         return; /* Keep entries but stop rendering — they'll expire naturally */
     }
-    /* Suppress killfeed while any menu is open (B-189 class: gameplay HUD
-     * must not bleed through the menu overlay). Events still queue via
-     * pdguiKillfeedPush; only rendering is suppressed. */
-    if (pdguiIsActive()) return;
+    /* Suppress killfeed while the weapon/function radial (or other active menu)
+     * is open — B-189. B-222: do not tie to pdguiIsActive() (dev HUD / ImGui-only
+     * paths would hide killfeed during normal gameplay). */
+    if (pdguiActiveMenuIsOpen()) return;
 
     bool teamsEnabled = (pdguiPauseGetOptions() & MPOPTION_TEAMSENABLED_KF) != 0;
     float now = kfNow();
@@ -185,10 +186,6 @@ extern "C" void pdguiMpIngameRender(s32 winW, s32 winH)
     float padX   = pdguiScale(8.0f);
     float padY   = pdguiScale(3.0f);
     float gapY   = pdguiScale(2.0f);
-
-    /* Position: top-right, below the HUD scorebox */
-    float baseX = (float)winW - pillW - pdguiScale(14.0f);
-    float baseY = pdguiScale(110.0f);
 
     /* Collect and sort active entries by birth time (newest first at top) */
     struct SortEntry { int idx; float birth; };
@@ -216,6 +213,13 @@ extern "C" void pdguiMpIngameRender(s32 winW, s32 winH)
         sorted[j + 1] = tmp;
     }
 
+    /* Position: lower-left, clear of radar — stack grows upward from bottom margin */
+    float stackH = activeCount > 0
+        ? (activeCount * (pillH + gapY) - gapY)
+        : pillH;
+    float baseX = padX;
+    float baseY = (float)winH - pdguiScale(28.0f) - stackH;
+
     /* Apply a small global font scale for the killfeed */
     ImGui::PushFont(nullptr); /* use default font */
 
@@ -233,12 +237,12 @@ extern "C" void pdguiMpIngameRender(s32 winW, s32 winH)
         if (alpha < 0.0f) alpha = 0.0f;
         if (alpha > 1.0f) alpha = 1.0f;
 
-        /* Slide: enter from the right */
+        /* Slide: enter from the left */
         float slideProgress = (age < KILLFEED_FADEIN_S)
             ? (age / KILLFEED_FADEIN_S) : 1.0f;
         float slideOffset = pdguiScale(KILLFEED_SLIDE_PX) * (1.0f - slideProgress);
 
-        float x = baseX + slideOffset;
+        float x = baseX - slideOffset;
         float y = baseY + si * (pillH + gapY);
 
         char wname[32];

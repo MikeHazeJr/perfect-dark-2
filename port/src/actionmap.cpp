@@ -519,6 +519,8 @@ static void fireVk(u32 vk, s32 is_down)
                         st->value         = 1.0f;
                         st->down_time_ms  = SDL_GetTicks();
                         st->hold_consumed = 0;
+                        st->hold_vis_grace_until_ms = 0;
+                        st->hold_pin_full_until_ms = 0;
                         /* Record non-axis actions in cheat buffer */
                         if (a != ACTION_AXIS_MOVE_X && a != ACTION_AXIS_MOVE_Y &&
                             a != ACTION_AXIS_AIM_X  && a != ACTION_AXIS_AIM_Y) {
@@ -531,6 +533,7 @@ static void fireVk(u32 vk, s32 is_down)
                         st->released    = 1;
                         st->value       = 0.0f;
                         st->up_time_ms  = SDL_GetTicks();
+                        st->hold_vis_grace_until_ms = SDL_GetTicks() + 100;
                     }
                 }
                 /* First IMC+action match wins — stop searching */
@@ -1093,6 +1096,7 @@ s32 actionIsGameplayOnly(InputAction a)
     case ACTION_USE:
     case ACTION_CANCEL_USE:
     case ACTION_PAUSE:
+    case ACTION_SCORECARD:
     case ACTION_SCREENSHOT:
     case ACTION_CONSOLE_TOGGLE:
     case ACTION_DEBUG_TOGGLE:
@@ -1123,6 +1127,9 @@ void actionmapFlushGameplayState(void)
                 st->up_time_ms = SDL_GetTicks();
             }
             st->hold_consumed = 0;
+            st->hold_pin_full_until_ms = 0;
+            st->hold_vis_grace_until_ms = 0;
+            st->hold_vis_last_down_progress = 0.0f;
         }
         /* Stick threshold bookkeeping: clear latched digital-from-axis state so
          * that when gameplay resumes, a subsequent axis below threshold does
@@ -1243,7 +1250,12 @@ void actionConsumeHold(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return;
     if (action < 0 || action >= ACTION_COUNT) return;
-    s_State[player][action].hold_consumed = 1;
+    {
+        ActionState *st = &s_State[player][action];
+        st->hold_consumed = 1;
+        /* B-221.2: hold ring at 1.0 briefly after long-hold fires (matches UI expectation). */
+        st->hold_pin_full_until_ms = SDL_GetTicks() + 200;
+    }
 }
 
 s32 actionHoldConsumed(s32 player, InputAction action)
@@ -1259,15 +1271,37 @@ f32 actionHoldProgress(s32 player, InputAction action, s32 threshold_ms)
     if (action < 0 || action >= ACTION_COUNT) return 0.0f;
     if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0.0f;
     if (threshold_ms <= 0) return 0.0f;
-    const ActionState *st = &s_State[player][action];
-    if (!st->held || st->down_time_ms == 0) return 0.0f;
+    ActionState *st = &s_State[player][action];
     u32 now = SDL_GetTicks();
-    s32 elapsed = (s32)(now - st->down_time_ms);
-    /* Only reject clock skew; allow elapsed==0 to show a sliver of fill on
-     * the first frame so the hold ring does not stay empty until a full ms. */
-    if (elapsed < 0) return 0.0f;
-    if (elapsed >= threshold_ms) return 1.0f;
-    return (f32)elapsed / (f32)threshold_ms;
+
+    if (st->hold_pin_full_until_ms && now < st->hold_pin_full_until_ms) {
+        return 1.0f;
+    }
+    if (st->hold_pin_full_until_ms && now >= st->hold_pin_full_until_ms) {
+        st->hold_pin_full_until_ms = 0;
+    }
+    if (!st->held || st->down_time_ms == 0) {
+        if (st->hold_vis_grace_until_ms && now < st->hold_vis_grace_until_ms) {
+            return st->hold_vis_last_down_progress;
+        }
+        return 0.0f;
+    }
+    {
+        s32 elapsed = (s32)(now - st->down_time_ms);
+        f32 raw;
+        /* Only reject clock skew; allow elapsed==0 to show a sliver of fill on
+         * the first frame so the hold ring does not stay empty until a full ms. */
+        if (elapsed < 0) {
+            return 0.0f;
+        }
+		if (elapsed >= threshold_ms) {
+			raw = 1.0f;
+		} else {
+			raw = (f32)elapsed / (f32)threshold_ms;
+		}
+        st->hold_vis_last_down_progress = raw;
+        return raw;
+    }
 }
 
 /* ============================================================

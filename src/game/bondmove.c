@@ -2220,6 +2220,19 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	}
 
 	g_Vars.currentplayer->bondactivateorreload = 0;
+
+	if (controlmode == CONTROLMODE_PC && g_Vars.currentplayer) {
+		s32 pi = actionPlayer;
+		/* B-221.3: classify short USE as tap on release, then mount/grab hoverbike. */
+		if (actionReleased(pi, ACTION_USE) && !actionHoldConsumed(pi, ACTION_USE)) {
+			s32 useThresh = propGetActionUseHoldThresholdMs();
+
+			if (actionLastGestureHoldMs(pi, ACTION_USE) < useThresh) {
+				propobjPcHoverbikeTapMountOnUseRelease(pi);
+			}
+		}
+	}
+
 	g_Vars.currentplayer->pcinteractusekind = 0;
 
 	s32 usereloads = (controlmode != CONTROLMODE_PC);

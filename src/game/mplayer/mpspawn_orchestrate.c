@@ -33,7 +33,7 @@ s32 g_MpOrchestrateBotPoolIdx[MAX_BOTS];
 #define ORCH_MAX_PART MAX_MPCHRS
 #define ORCH_ORIGIN_TOL_START 85.0f
 #define ORCH_MIN_SEP_START 145.0f
-#define ORCH_RELAX_ITERS 10
+#define ORCH_RELAX_ITERS 20
 /* Soft Voronoi mismatch penalty (s64 cost); must dominate typical XZ dist^2 */
 #define ORCH_VORONOI_PENALTY ((int64_t)1000000000LL)
 #define ORCH_ORIGIN_COST ((int64_t)500000000LL)
@@ -536,8 +536,8 @@ void mpOrchestrateMatchStartSpawns(void)
 
 		origin_tol = ORCH_ORIGIN_TOL_START + (f32)relax_iter * 45.0f;
 		min_sep = ORCH_MIN_SEP_START * (1.0f - (f32)relax_iter * 0.07f);
-		if (min_sep < 35.0f) {
-			min_sep = 35.0f;
+		if (min_sep < 50.0f) {
+			min_sep = 50.0f;
 		}
 
 		for (p = 0; p < s_PartCount; p++) {
@@ -658,18 +658,49 @@ void mpOrchestrateMatchStartSpawns(void)
 		}
 	}
 
+	/* B-218: if relaxation left two participants on the same pool point, do not
+	 * cache that index for bots — they fall back to live tier spawn in botSpawn. */
+	{
+		s32 dup_assignments = 0;
+		for (p = 0; p < s_PartCount; p++) {
+			s32 ai = s_AssignedPool[p];
+
+			if (ai < 0) {
+				continue;
+			}
+			for (i = p + 1; i < s_PartCount; i++) {
+				if (s_AssignedPool[i] == ai) {
+					dup_assignments++;
+				}
+			}
+		}
+		if (dup_assignments > 0) {
+			sysLogPrintf(LOG_ERROR,
+				"SPAWN.ORCH: %d unresolved duplicate pool assignments after relaxation — bots use live spawn fallback",
+				dup_assignments);
+		}
+	}
+
 	spawnPoolClearReservations();
 
 	for (p = 0; p < s_PartCount; p++) {
 		s32 ai = s_AssignedPool[p];
+		s32 is_dup = 0;
+		s32 q;
 
 		if (ai < 0) {
 			continue;
 		}
+		for (q = 0; q < s_PartCount; q++) {
+			if (q != p && s_AssignedPool[q] == ai) {
+				is_dup = 1;
+				break;
+			}
+		}
 		if (s_Parts[p].playernum >= 0) {
 			playerApplyOrchestratedSpawnFromPool(s_Parts[p].playernum, ai);
 		} else if (s_Parts[p].aibotnum >= 0 && s_Parts[p].aibotnum < MAX_BOTS) {
-			g_MpOrchestrateBotPoolIdx[s_Parts[p].aibotnum] = ai;
+			g_MpOrchestrateBotPoolIdx[s_Parts[p].aibotnum] = is_dup ? -1 : ai;
 		}
 	}
 

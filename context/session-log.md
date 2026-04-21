@@ -4,6 +4,16 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S434 — 2026-04-21 — 4/20 stability batch (B-217 through B-222)
+
+- **B-219** (`playerreset.c`): skip `INTROCMD_WEAPON` when norm MP + `MPOPTION_SPAWNWITHWEAPON` so spawn fallback owns loadout (no HUD vs FP weapon split).
+- **B-218** (`mpspawn_orchestrate.c`, `bot.c`): relax iters 20, min_sep floor 50, duplicate pool assignments invalidate bot cache + ERROR log; proximity discard of stale orchestration index.
+- **B-221.1 through B-221.3, B-221.6** (`propobj.c`, `bondmove.c`, `actionmap.cpp`, `pdgui_interact_prompt.cpp`): PC single-tap hoverbike mount; tap mount on USE release; hold ring grace or pin plus smoothed UI; `ACTION_SCORECARD` not gameplay-only.
+- **B-222** (`pdgui_backend.cpp`, `pdgui_menu_mpingame.cpp`): ImGui NewFrame and Render during live MP; killfeed gated on `pdguiActiveMenuIsOpen` only; lower-left layout.
+- **B-220** (`modmgr.c`): `fsFileSize` before `fsFileLoad` for mod.json paths.
+- **B-217** (`bot.c`): F6 freeze skips `chrTick` entirely.
+- **Build:** `ninja -C Build pd` and `pd-server` succeeded on MSYS2.
+
 ## Session S433 — 2026-04-21 — ImGui active-menu radial: layout + non-inverted stick
 
 - **`port/fast3d/pdgui_activemenu_radial.cpp`**: Slot pills use **44%** of legacy mapped half-width with a **scaled cap** (~172 px total width at 1080p baseline before UI mult) so buttons sit closer to the diamond center; labels drawn at **`pdguiScale(22)`** via `ImFont::CalcTextSizeA` / `AddText(font, size, …)`; vertical padding tied to label size; selection pulse uses the same reduced half-width.

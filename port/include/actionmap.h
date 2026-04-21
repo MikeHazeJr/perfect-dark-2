@@ -199,6 +199,9 @@ typedef struct {
     u32  down_time_ms;  /* SDL_GetTicks at last press; 0 = never pressed */
     u32  up_time_ms;    /* SDL_GetTicks at last release */
     s32  hold_consumed; /* 1 = a hold-action has already fired this hold cycle */
+    u32  hold_pin_full_until_ms; /* B-221.2: show full ring briefly after consume */
+    u32  hold_vis_grace_until_ms; /* B-221.2: after release, keep last progress ~100ms */
+    f32  hold_vis_last_down_progress; /* last in-hold progress for UI grace */
 } ActionState;
 
 /* ============================================================

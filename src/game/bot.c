@@ -352,6 +352,40 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 					"SPAWN.ORCH: bot slot=%d pool=%d pos=(%.0f,%.0f,%.0f) room=%d",
 					(s32)aibot->aibotnum, pidx,
 					pos.x, pos.y, pos.z, (s32)rooms[0]);
+				/* B-218: if orchestration cached a duplicate pad, earlier bots may already
+				 * occupy this XZ — discard the cache and use live tier selection. */
+				{
+					s32 myidx = -1;
+					s32 j;
+					const f32 kOrchProxSq = 150.0f * 150.0f;
+
+					for (j = 0; j < g_BotCount; j++) {
+						if (g_MpBotChrPtrs[j] == chr) {
+							myidx = j;
+							break;
+						}
+					}
+					if (myidx >= 0) {
+						for (j = 0; j < myidx; j++) {
+							struct chrdata *ochr = g_MpBotChrPtrs[j];
+							f32 dx;
+							f32 dz;
+
+							if (!ochr || !ochr->prop) {
+								continue;
+							}
+							dx = pos.x - ochr->prop->pos.x;
+							dz = pos.z - ochr->prop->pos.z;
+							if (dx * dx + dz * dz < kOrchProxSq) {
+								sysLogPrintf(LOG_WARNING,
+									"SPAWN.ORCH: bot slot=%d discarding cached pool=%d (another bot within 150u) — live spawn",
+									(s32)aibot->aibotnum, pidx);
+								thing = scenarioChooseSpawnLocation(chr->radius, &pos, rooms, chr->prop);
+								break;
+							}
+						}
+					}
+				}
 			} else {
 				thing = scenarioChooseSpawnLocation(chr->radius, &pos, rooms, chr->prop);
 			}
@@ -1302,8 +1336,8 @@ s32 botTick(struct prop *prop)
 		}
 
 		if (g_BotUpdatesDisabled) {
-			result = chrTick(prop);
-			return result;
+			/* B-217: skip chrTick so walk/run animations cannot advance locomotion. */
+			return TICKOP_NONE;
 		}
 
 		if (updateable && g_Vars.lvframe60 >= 145) {

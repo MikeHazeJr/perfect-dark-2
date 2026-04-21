@@ -73,13 +73,25 @@ extern "C" void pdguiInteractPromptRender(s32 winW, s32 winH)
 
 	/* Radial fill: player slot + per-target hold ms (settings + propInteract*
 	 * extras) match bondmove propGetActionUseHoldThresholdMs().
-	 * Only pin to 1.0 while the key is still held after consumeHold; once
-	 * released, actionHoldProgress returns 0 so the ring clears. */
+	 * B-221.2: smooth toward target so release does not snap the ring off;
+	 * actionHoldProgress adds a short post-release grace + post-consume pin. */
 	const s32 holdMs = propInteractPromptHoldThresholdMs();
-	f32 progress = actionHoldProgress(actionPlayer, ACTION_USE, holdMs);
+	f32 target = actionHoldProgress(actionPlayer, ACTION_USE, holdMs);
 	if (actionHeld(actionPlayer, ACTION_USE) && actionHoldConsumed(actionPlayer, ACTION_USE)) {
-		progress = 1.0f;
+		target = 1.0f;
+	}
+	static float s_IpHoldRingSmoothed = 0.0f;
+	float dt = ImGui::GetIO().DeltaTime;
+	if (dt <= 0.0f || dt > 0.1f) {
+		dt = 0.016f;
+	}
+	float tau = (target > s_IpHoldRingSmoothed) ? 14.0f : 5.0f;
+	s_IpHoldRingSmoothed += (target - s_IpHoldRingSmoothed) * (dt * tau);
+	if (s_IpHoldRingSmoothed < 0.001f) {
+		s_IpHoldRingSmoothed = 0.0f;
+	} else if (s_IpHoldRingSmoothed > 0.999f && target >= 0.999f) {
+		s_IpHoldRingSmoothed = 1.0f;
 	}
 
-	pdguiDrawActionPromptCenteredWithHold(ACTION_USE, cx, cy, label, progress);
+	pdguiDrawActionPromptCenteredWithHold(ACTION_USE, cx, cy, label, s_IpHoldRingSmoothed);
 }
