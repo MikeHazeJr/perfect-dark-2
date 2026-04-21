@@ -43,7 +43,7 @@ s32 serverBansInit(void);
 /* Persist the in-memory ban list back to $S/bans.ini.  Atomic via temp-file swap. */
 s32 serverBansSave(void);
 
-/ * Return 1 if the IP is banned, 0 otherwise.  Addresses are compared after
+/* Return 1 if the IP is banned, 0 otherwise.  Addresses are compared after
  * inet_pton normalization (IPv4 vs IPv4-mapped IPv6 canonicalize to the same
  * 16-byte form). */
 s32 serverBansIsBanned(const char *addr);

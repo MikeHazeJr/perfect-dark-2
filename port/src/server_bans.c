@@ -11,11 +11,17 @@
 #include <string.h>
 #include <time.h>
 #include <ctype.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
 #if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <io.h>
 #include <windows.h>
+#else
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #endif
 #include <PR/ultratypes.h>
 
