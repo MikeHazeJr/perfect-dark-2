@@ -405,6 +405,11 @@ static inline f32 applyDeadzone(f32 raw, f32 dz)
     }
 }
 
+static inline f32 clampf(f32 v, f32 lo, f32 hi)
+{
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
 /** 2D stick: circular deadzone in normalized space; outside dz, magnitude is
  *  remapped so the rim of the deadzone is 0 and full deflection is |v|<=1
  *  (before sensitivity). nx, ny in [-1,1]. */
@@ -426,11 +431,6 @@ static void applyRadialStick2D(f32 nx, f32 ny, f32 dz, f32 sens, f32 *ox, f32 *o
     f32 scale = (newMag / m) * sens;
     *ox = clampf(nx * scale, -1.0f, 1.0f);
     *oy = clampf(ny * scale, -1.0f, 1.0f);
-}
-
-static inline f32 clampf(f32 v, f32 lo, f32 hi)
-{
-    return v < lo ? lo : (v > hi ? hi : v);
 }
 
 /* Diagnostic: frame counter for throttled logging */
