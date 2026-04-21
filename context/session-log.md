@@ -1,8 +1,61 @@
 
 # Session Log (Active)
 
-> **S283–S410** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S433 — 2026-04-21 — ImGui active-menu radial: layout + non-inverted stick
+
+- **`port/fast3d/pdgui_activemenu_radial.cpp`**: Slot pills use **44%** of legacy mapped half-width with a **scaled cap** (~172 px total width at 1080p baseline before UI mult) so buttons sit closer to the diamond center; labels drawn at **`pdguiScale(22)`** via `ImFont::CalcTextSizeA` / `AddText(font, size, …)`; vertical padding tied to label size; selection pulse uses the same reduced half-width.
+- **`src/game/activemenutick.c`**: After `actionAxis(ACTION_AXIS_AIM_*)`, **negate Y again when `actionmapGetStickInvertY()`** so the radial uses screen-space stick direction (up selects up) independent of look inversion — applied to both the main path and dual-controller (21–24) block.
+- **Build:** Agent `ninja pd` failed here (`ccache` CreateProcess / toolchain path); verify on a normal MSYS2 dev shell.
+
+## Session S432 — 2026-04-21 — Input / overlay / HUD issues (**logged only**, fixes deferred)
+
+User report — capture for a later implementation pass; no code changes in this note.
+
+- **Vehicle enter (hoverbike / mount):** Expectation **single tap**; behavior matches **OG double-tap** window. Code anchor: `currentPlayerTryMountHoverbike` (`propobj.c`) gates on `lvframe60 - activatetimelast < TICKS(30)` — pairs with **second** activate within ~0.5s, not lone tap. PC path `pcinteractusekind` in `propobjInteract` + `bondmove.c` synthesis.
+- **Hold interact radial / ring:** Does not **update live** while holding; suspected interaction with **press vs hold** threshold logic. On **release**, fill should reset to **0**; instead it **stays filled** until the next press/hold. Anchors: `pdgui_interact_prompt.cpp` (`actionHoldProgress`, `actionHoldConsumed` branch), `actionmap.cpp` `actionHoldProgress`.
+- **Tap X vs hold X for interact:** **Tap** already completes interact in situations where design calls for **hold** (door / long interact) — policy mismatch vs prompt text.
+- **Visual input mapper:** Reported **broken**; user wants to **re-approach later** (no spec here).
+- **One key → multiple actions:** Request **resolution priority** (or ordering) when several gameplay actions share the same binding.
+- **Overlay tint:** When **F6/F7 dev banners**, **invincible**, and/or **“Hold X …”** interact affordance are active, user sees a **semi-opaque black tint over the whole game window** — should not dim unrelated gameplay.
+- **Killfeed:** Appears **only when** that overlay / ImGui path is active; should be visible during **normal** gameplay. Layout: currently reads as **over the minimap**; desired **lower-left** (or at least clear of radar).
+  - Likely causes to verify later: `pdguiMpIngameRender` / `pdguiRender` early-return when `pdguiAnyStandardOverlayReason` is false (no `pdguiNewFrame` → no killfeed draw); killfeed `baseX`/`baseY` in `pdgui_menu_mpingame.cpp` (top-right vs design).
+- **Scorecard:** **Holding Back** (controller) does **not** open scorecard while held; `pdgui_menu_pausemenu.cpp` `scorecardTickButtonState` uses `actionHeld(0, ACTION_SCORECARD)` — investigate bind overlap, `gameplayInputSuppressed`, or IMC so Back reaches gameplay.
+
+**Tracker:** **B-221** (input batch), **B-222** (overlay/HUD batch) in `bugs.md`; consolidated: [`4-20-CRITICAL-STABILITY-BUGS.md`](4-20-CRITICAL-STABILITY-BUGS.md).
+
+## Session S431 — 2026-04-21 — Playtest notes logged (F6, Chicago spawns, FP weapon)
+
+- **Source:** User playtest + `Downloads/Perfect Dark 2.0/pd-client.log` (Chicago CS, ~32 participants, F6/F7 used for debugging).
+- **F6:** Confirmed useful; residual bot motion is expected with current implementation — `botTick` takes `chrTick` only when `g_BotUpdatesDisabled`, so movement/animation can continue (not only `botTickUnpaused`). Tracked as **B-217**.
+- **F7 invincibility:** Works as intended (log `PLAYER: invincibility ON/OFF`).
+- **Chicago initial bot pile-up:** Screenshot + log; respawns dispersed. Log fingerprints: `SPAWN.ORCH: RELAX … duplicate`, `SETUP: world pickups 0 below target 16`, `SPAWNPOOL: build complete -- 37 points`. Tracked as **B-218** (overlap with S423 / B-174 class).
+- **First-person weapon invisible / unusable:** Same log shows `GAMELOOP.WEAPON … R=36` vs `SPAWN: … weapon 2 (Falcon 2)` — mismatch worth fixing first. **B-219**.
+- **Context:** `context/bugs.md` rows **B-217–B-220**; `tasks-current.md` pointer line under Open. Consolidated snapshot: [`4-20-CRITICAL-STABILITY-BUGS.md`](4-20-CRITICAL-STABILITY-BUGS.md).
+
+### Ephemeral log digest — `pd-client.log` (full scrape; file will not be retained)
+
+Captured from `C:/Users/mikeh/Downloads/Perfect Dark 2.0/pd-client.log` — **only** these structured issues (no `FATAL` / no non-fs `ERROR` in this file).
+
+**ERROR (~100 lines, all the same class):** `fsFileLoad: could not find file: …/data/mods/<dir>/mod.json`. Unique directory roots seen: `of-wolf-and-man`, `memory-remains`, `base-game`, `base-ui` (+ `textures`), `Custom Windows` (+ `Pokemon 1..3`), `effect_normal_tint`, `Fonts` (+ `pokemon-gen-12`), `pk3`, `the-memory-remains`, `UI Chrome`, `wolf-man`. Same set repeats in **two bursts** (~`00:00.69`–`00:00.79` and ~`00:06.68`–`00:06.70`) — likely duplicate mod-registry scan / bot-name parse passes. **B-220** (see also **B-172**).
+
+**WARNING (exactly 5 in entire log):**
+
+| Time | Tag | Notes |
+|------|-----|--------|
+| `00:09.72` | `DIAG fireVk: vk=531 player=0 NO BINDING FOUND in 1 active IMCs` | D-pad down — **B-203** default bind |
+| `06:59.94` | `SETUP: world pickups 0 below target 16 (markers=0); forcing spawn-with-weapon fallback id='base:falcon2'` | Chicago has no world weapon markers → fallback |
+| `06:59.94` | `SPAWNPOOL: L1 declared pad 9 failed validation (budget=-1, room=33) -- falling through to L2` | One declared pad rejected; pool still built |
+| `06:59.94` | `SPAWN.ORCH: RELAX iter=0 kind=duplicate old_pool=29 new_pool=25 …` | Orchestrator had to relax duplicate pool assignment |
+| `07:50.69` | `SPAWN: bot … underground — pos.y=-634 floor=-17 diff=617, clamping to floor` | One bot spawn depth-clamped (legacy Chicago pad / pool interaction) |
+
+**Other notable lines (not WARNING/ERROR):**
+
+- `GAMELOOP.WEAPON: playernum=0 mission=0x1d INTRO gave R=36 L=-1 default=1` — pairs with **B-219** (`R=36` vs spawn Falcon).
+- `AUDIO[B-141]: 30s summary` — idle/title: `underruns=1`, `nullProducer=1` once; after Chicago match load (`~07:00+`): `underruns` rises to **3–4**, `hitches` **2→16**, `gap(ms) max` up to **227** (heavy combat window), `buffered(samples) min` down to **248** — main-thread load under 32-bot stress; cross-check **B-141** / **B-204**–**B-205**.
+- `MEMPC: font cache hit … (stage reload skipped)` at Chicago transition — informational.
 
 ## Session S430 — 2026-04-20 — PD_DEV_BUILD, F7 invincibility + HUD, stable gating
 

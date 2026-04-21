@@ -9,6 +9,10 @@
 
 ## Open — 2026-04-20 (Super Audit 2026-04-20 — Wave 3A hardening + carry-overs)
 
+**Logged 2026-04-21 (Chicago CS playtest — follow-ups):** F6 residual bot motion (**B-217**), Chicago initial bot stack vs OK respawns (**B-218**), FP weapon invisible / `GAMELOOP.WEAPON` vs `SPAWN` weapon mismatch (**B-219**), mod-registry `mod.json` missing-file spam (**B-220**). Full **pd-client.log** scrape (WARNING/ERROR/audio) in `session-log.md` **S431** § Ephemeral log digest (source file not retained).
+
+**Logged 2026-04-21 (input / overlay — fixes deferred):** vehicle double-tap vs tap, hold-ring live + release reset, tap-vs-hold interact, visual mapper, multi-bind priority, overlay black tint, killfeed visibility + position, scorecard Back hold — **`session-log.md` S432**; **`bugs.md` B-221, B-222**.
+
 **Done 2026-04-20 (PD_DEV_BUILD / F7 invincibility + stable gating — S430):** CMake `PD_STABLE_RELEASE` → `PD_DEV_BUILD` on `pd`; dev-only F6/F7/F12, Settings Debug tab, stacked HUD banners; `release.ps1` stable configure adds `PD_STABLE_RELEASE=ON`. See `session-log.md` S430.
 
 **Done 2026-04-20 (PC ADS + controller sensitivity UI — S425):** Twin-stick LT ADS on PC (RS aim, LS move); `SensMoveUi` / `SensAimUi` / `SensAdsUi` 1–10 (0.5) in `pd.ini` + Settings; ADS move slowdown + zoom mul + crosshair from RS. See `session-log.md` S425.

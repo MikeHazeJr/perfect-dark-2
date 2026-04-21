@@ -5,6 +5,7 @@
  * Uses palette colors from pdgui_style / theme (same as other PD UI).
  */
 
+#include <float.h>
 #include <string.h>
 
 #include <PR/ultratypes.h>
@@ -54,6 +55,12 @@ extern "C" void pdguiActiveMenuRadialRender(s32 winW, s32 winH)
 
 	ImDrawList *dl = ImGui::GetForegroundDrawList();
 	const float sw = pdguiScale(1.0f);
+	ImFont *font = ImGui::GetFont();
+	/* N64 slotwidth maps to very wide pills at HD resolutions; tighten toward
+	 * the diamond center and cap width. Text uses menu-tier size vs default. */
+	const float radialLabelPx = pdguiScale(22.0f);
+	const float kPillHalfFrac = 0.44f;
+	const float maxPillHalf = pdguiScale(86.0f);
 
 	float ox[4];
 	float oy[4];
@@ -88,9 +95,11 @@ extern "C" void pdguiActiveMenuRadialRender(s32 winW, s32 winH)
 	}
 
 	const s32 slotHalfW = pdguiActiveMenuRadialGetSlotWidthPx(winW) / 2;
+	const float pillHalfW = ImMin((float)slotHalfW * kPillHalfFrac, maxPillHalf);
 	const s32 playercount = pdguiActiveMenuRadialGetLocalPlayerCount();
-	const float padTop = 6.0f * sw;
-	const float padBot = (playercount >= 2) ? (3.0f * sw) : (6.0f * sw);
+	const float padTop = ImMax(5.0f * sw, radialLabelPx * 0.42f);
+	const float padBot = (playercount >= 2) ? ImMax(3.0f * sw, radialLabelPx * 0.32f)
+						: ImMax(5.0f * sw, radialLabelPx * 0.42f);
 
 	for (s32 slot = 0; slot < 9; slot++) {
 		float cx;
@@ -110,7 +119,7 @@ extern "C" void pdguiActiveMenuRadialRender(s32 winW, s32 winH)
 			continue;
 		}
 
-		const float halfw = (float)slotHalfW;
+		const float halfw = pillHalfW;
 		const ImVec2 rmin(cx - halfw + sw, cy - padTop + sw);
 		const ImVec2 rmax(cx + halfw - sw, cy + padBot - sw);
 
@@ -149,8 +158,8 @@ extern "C" void pdguiActiveMenuRadialRender(s32 winW, s32 winH)
 			textCol = IM_COL32(255, 175, 143, (int)(255 * alphaFrac));
 		}
 
-		ImVec2 ts = ImGui::CalcTextSize(label);
-		dl->AddText(ImVec2(cx - ts.x * 0.5f, cy - ts.y * 0.5f), textCol, label);
+		ImVec2 ts = font->CalcTextSizeA(radialLabelPx, FLT_MAX, 0.0f, label, NULL);
+		dl->AddText(font, radialLabelPx, ImVec2(cx - ts.x * 0.5f, cy - ts.y * 0.5f), textCol, label);
 	}
 
 	{
@@ -158,7 +167,7 @@ extern "C" void pdguiActiveMenuRadialRender(s32 winW, s32 winH)
 		float scy;
 		pdguiActiveMenuRadialGetSelectionCenterScreen(&scx, &scy, winW, winH);
 
-		s32 halfwidth = slotHalfW;
+		s32 halfwidth = (s32)(pillHalfW + 0.5f);
 		s32 above = (playercount >= 2) ? 5 : 6;
 		s32 below = (playercount >= 2) ? 3 : 6;
 

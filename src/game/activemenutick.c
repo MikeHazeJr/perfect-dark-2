@@ -51,6 +51,11 @@ void amTick(void)
 				 * left thumb to keep the radial open while selecting with right thumb. */
 				f32 ax_x, ax_y;
 				actionAxis(playernum, ACTION_AXIS_AIM_X, &ax_x, &ax_y);
+				/* Radial selection is screen-space: undo aim Y invert so stick-up
+				 * always selects the top row regardless of look inversion. */
+				if (actionmapGetStickInvertY()) {
+					ax_y = -ax_y;
+				}
 				s8 cstickx = (s8)(ax_x * 80.0f);
 				s8 csticky = (s8)(ax_y * 80.0f);
 
@@ -225,6 +230,9 @@ void amTick(void)
 					f32 aim_x, aim_y;
 					s8 cstickx2, csticky2;
 					actionAxis(playernum, ACTION_AXIS_AIM_X, &aim_x, &aim_y);
+					if (actionmapGetStickInvertY()) {
+						aim_y = -aim_y;
+					}
 					cstickx2 = (s8)(aim_x * 80.0f);
 					csticky2 = (s8)(aim_y * 80.0f);
 
