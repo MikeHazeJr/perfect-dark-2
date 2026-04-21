@@ -69,6 +69,10 @@ void amOpenPickTarget(void)
 	u32 prevplayernum = g_MpPlayerNum;
 
 	if (!mpIsPaused()) {
+		/* SP-1: g_AmMenus[MAX_PLAYERS] — g_AmIndex must stay in range. */
+		if (g_AmIndex < 0 || g_AmIndex >= (s32)ARRAYCOUNT(g_AmMenus)) {
+			return;
+		}
 		g_AmMenus[g_AmIndex].prevallbots = g_AmMenus[g_AmIndex].allbots;
 		g_Vars.currentplayer->activemenumode = AMMODE_CLOSED;
 		g_MpPlayerNum = g_Vars.currentplayerstats->mpindex;
@@ -742,7 +746,12 @@ void amAssignWeaponSlots(void)
 void amOpen(void)
 {
 	if (g_Vars.currentplayer->gunctrl.passivemode == false) {
-		g_AmIndex = g_Vars.currentplayernum;
+		s32 ampi = g_Vars.currentplayernum;
+		/* SP-1: g_AmMenus[MAX_PLAYERS] — skip open if slot is not a menu owner. */
+		if (ampi < 0 || ampi >= (s32)ARRAYCOUNT(g_AmMenus)) {
+			return;
+		}
+		g_AmIndex = ampi;
 		g_Vars.currentplayer->activemenumode = AMMODE_VIEW;
 		g_PlayersWithControl[g_Vars.currentplayernum] = false;
 		g_AmMenus[g_AmIndex].screenindex = 0;
@@ -1367,6 +1376,10 @@ Gfx *amRender(Gfx *gdl)
 	}
 
 	g_AmIndex = g_Vars.currentplayernum;
+	/* SP-1: g_AmMenus[MAX_PLAYERS] — invalid playernum must not OOB g_AmMenus. */
+	if (g_AmIndex < 0 || g_AmIndex >= (s32)ARRAYCOUNT(g_AmMenus)) {
+		return gdl;
+	}
 	g_Vars.currentplayer->commandingaibot = NULL;
 
 	if (g_Vars.currentplayer->activemenumode != AMMODE_CLOSED) {

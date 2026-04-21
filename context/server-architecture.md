@@ -1,5 +1,7 @@
 # Server Architecture — Decoupled from N64 Game Code
 
+**See also:** [Hosting modes (listen vs dedicated): threat model](designs/hosting-modes-listen-vs-dedicated.md) — ROM/mod checks (`g_NetDedicated` in `netmsg.c`), NAT/UPnP/STUN, admin RCON, connect codes vs raw IP. **Tier 4 C-1:** [pd-server-plugin-abi ADR](designs/pd-server-plugin-abi-adr.md) — **manifest broker** (host manifest, catalog IDs, hashes), per-client dynamic catalogs, no game content in the server binary, Trust/Confirm First readiness; optional policy module; stub migration (P4-B onward).
+
 ## Vision
 
 The dedicated server and game client communicate through a **protocol interface** — a clean boundary of callbacks and data structures. Neither side directly accesses the other's internals.

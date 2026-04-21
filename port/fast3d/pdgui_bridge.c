@@ -1724,7 +1724,7 @@ s32 pdguiSubtitlesSnapshot(struct pdguiSubtitleEntry *out, s32 maxOut)
  * wheel while keeping game-side amTick + slot logic authoritative.
  * --------------------------------------------------------------------------- */
 
-s32 pdguiActiveMenuShouldSkipLegacyWheel(void)
+s32 pdguiActiveMenuIsOpen(void)
 {
     if (!g_Vars.currentplayer) {
         return 0;
@@ -1733,6 +1733,11 @@ s32 pdguiActiveMenuShouldSkipLegacyWheel(void)
         return 0;
     }
     return 1;
+}
+
+s32 pdguiActiveMenuShouldSkipLegacyWheel(void)
+{
+    return pdguiActiveMenuIsOpen();
 }
 
 void pdguiActiveMenuRadialMapGameToScreen(s16 gx, s16 gy, s32 winW, s32 winH, float *sx, float *sy)

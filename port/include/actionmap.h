@@ -377,6 +377,20 @@ f32  actionmapGetStickSensitivityMove(void);
 void actionmapSetStickSensitivityMove(f32 v);
 f32  actionmapGetStickSensitivityAim(void);
 void actionmapSetStickSensitivityAim(f32 v);
+
+/** Settings UI scale 1.0-10.0 (0.5 steps). Maps to internal aim/move mult 0.1-3.0. */
+f32  actionmapSensUiToMult(f32 ui);
+f32  actionmapMultToSensUi(f32 mult);
+f32  actionmapSnapSensUi(f32 ui);
+f32  actionmapGetSensMoveUi(void);
+void actionmapSetSensMoveUi(f32 ui);
+f32  actionmapGetSensAimUi(void);
+void actionmapSetSensAimUi(f32 ui);
+f32  actionmapGetSensAdsUi(void);
+void actionmapSetSensAdsUi(f32 ui);
+void actionmapRefreshStickMultFromUi(void);
+/** PC ADS: multiply gun zoom FOV (smaller = more zoom). Depends on ADS sensitivity UI. */
+f32  actionmapGetPcAdsZoomFovMul(void);
 f32  actionmapGetStickDeadzoneMove(void);
 void actionmapSetStickDeadzoneMove(f32 v);
 f32  actionmapGetStickDeadzoneAim(void);

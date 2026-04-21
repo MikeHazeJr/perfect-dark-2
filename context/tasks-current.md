@@ -9,6 +9,10 @@
 
 ## Open — 2026-04-20 (Super Audit 2026-04-20 — Wave 3A hardening + carry-overs)
 
+**Done 2026-04-20 (PC ADS + controller sensitivity UI — S425):** Twin-stick LT ADS on PC (RS aim, LS move); `SensMoveUi` / `SensAimUi` / `SensAdsUi` 1–10 (0.5) in `pd.ini` + Settings; ADS move slowdown + zoom mul + crosshair from RS. See `session-log.md` S425.
+
+**Done 2026-04-20 (H-1 P3-A/P3-B — in-client host / go online):** `pdgui_menu_network` listen host + `pdgui_lobby` route for `NETMODE_SERVER && !g_NetDedicated`; `netSendRoom*` + `netListenHostRoomLeave` for leader/leave; `Net.Server.Port` + README PD2 fork pointer. See `session-log.md` S421.
+
 **Done 2026-04-20 (controller + hold housekeeping):** USE hold **Settings UX** when per-action override is set (effective ms + disabled global slider); **C-button policy** in `constraints.md` (UI-only hide on Controller tab); **bondmove** / **actionmap.h** comments; **terminal extra hold** tunable via **`ActionMap.InteractHoldExtraTerminalMs`** + Settings slider; **menu-controller-input-constraints.md** §2.1 sanity table; **INDEX.md** link. Follow-up only if needed: stage-specific hold beyond actionmap + `prop.c` categories.
 
 **Done this session (S410):** Settings → Controls → Controller map — **split zones** (Bind 1 left / Bind 2 right), **right-click clear** per column, **LS/RS cardinal** synthetic VK drop targets; `pickSlotForControllerBindColumn` matches table. See `context/session-log.md` S410.
@@ -30,18 +34,13 @@ fix list.
 
 **Full Super Audit (standalone, 2026-04-21):** [`context/audits/2026-04-21-full.md`](audits/2026-04-21-full.md) — complete pass per `audit-prompt.md` (not delta vs 2026-04-20); scorecard **1 C / 6 H / 3 M / 1 L**; covers game-agnostic server programme + in-client listen-host vs product UI.
 
-### Decision pending — AUDIT-C1 / MASTER-C5 (policy, 30 min OR 4–8 wk)
+### Tier 4 C-1 — game-agnostic dedicated server (P4-A / P4-B / P4-C)
 
-Dedicated-server pillar ("game-agnostic") unmet: `port/src/server_stubs.c`
-still holds 449 lines of PD2-specific globals + hardcoded `g_MpArenas[]`
-table. Two paths:
+- **P4-A (doc-only) — DONE 2026-04-21 (revised S423):** ADR [`context/designs/pd-server-plugin-abi-adr.md`](designs/pd-server-plugin-abi-adr.md) — **primary:** host **manifest broker**, **catalog ID** identity, per-client **dynamic catalogs**, **hashes** / manifest revision, **no game content** in server exe; **Trust / Confirm First** (per-player readiness); optional **policy module** only where data cannot express rules; versioning + CMake direction. Audit prompts: [`context/audits/2026-04-21-resolution-prompts.md`](audits/2026-04-21-resolution-prompts.md) Tier 4.
+- **P4-B — pending approval:** smallest **broker-aligned** slice — host manifest **received/stored**, **fan-out**, per-player **readiness** for manifest accept/hash (**Confirm First** must not block whole lobby); deliberate **`NET_PROTOCOL_VER`** bump if wire changes; **no** new baked PD2 tables as the fix.
+- **P4-C — follows P4-B:** shrink `server_stubs.c` **baked authority** as manifest path replaces it; track line count + CMake link surfaces; align **`netmsg`** with broker checks (IDs + hashes + readiness) before PD2-only branches.
 
-- **(a) Retire pillar for v0.1.0** — 30-min edit to `pillars.md` +
-  `README.md` server section. **Recommended.**
-- **(b) Commit to plugin boundary** — 4–8 weeks design + refactor; no
-  concrete second game to host currently justifies it.
-
-Awaiting Mike's call before touching `pillars.md`.
+**Prior decision fork (AUDIT-C1 / MASTER-C5):** pillar still formally unmet until P4-B+ lands; alternative was retire pillar in `pillars.md` for v0.1.0 — superseded if Mike commits to Tier 4 track above.
 
 ### Wave 3A Hardening — batch candidate (½ d – 1 d)
 
@@ -81,9 +80,7 @@ Awaiting Mike's call before touching `pillars.md`.
 - **MASTER-H3 / H-3** (High, latent): u64 active-mask caps 64 slots; not
   currently exploitable (MAX_PLAYERS + MAX_BOTS = 40). AUDIT-M4 tripwire
   converts this into a compile-time error if MAX_BOTS is ever raised.
-- **SEC-8 / SEC-9** (High): PVS / interest management — broadcasts still
-  O(clients) at `net.c:1043`, `netmsg.c:638/4525/5576`,
-  `netdistrib.c:560`. 3–5 d effort; needs a design doc first.
+- **SEC-8 / SEC-9** (High): PVS / interest management — **design draft:** [`designs/interest-management-replication.md`](designs/interest-management-replication.md) (2026-04-21). Implementation still open; baseline fan-out in `port/src/net/net.c` `netEndFrame` + `enet_host_broadcast` (prior audit line refs may drift).
 - **SAVE-1** (High): MP stat integrity still trusts client. 1 d.
 - **LAYOUT-2** (Medium): `pd.ini` `LastJoinAddr` reused without
   validation. `connectCodeDecode` or IP-parser gate at load. 30 min.

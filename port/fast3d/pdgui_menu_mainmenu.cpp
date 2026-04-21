@@ -528,6 +528,16 @@ static bool PdSliderFloat(const char *label, float *v, float v_min, float v_max,
     return ImGui::SliderFloat(label, v, v_min, v_max, format);
 }
 
+/* Controller sensitivity UI: 1-10 in 0.5 steps (snapped on edit). */
+static bool PdSliderSensUi(const char *label, float *v)
+{
+    bool ch = ImGui::SliderFloat(label, v, 1.0f, 10.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+    if (ch) {
+        *v = actionmapSnapSensUi(*v);
+    }
+    return ch;
+}
+
 /* Controller tab: 0 = movement on physical left stick, 1 = movement on physical right stick.
  * Look / aim always uses the other stick; keeps actionmap swap flag and SDL axis map aligned. */
 static void pdguiApplyMoveStickLayout(int moveStickUiIdx)
@@ -2639,9 +2649,9 @@ static void renderSettingsControls(float scale)
             }
 
             {
-                f32 sensM = actionmapGetStickSensitivityMove();
-                if (PdSliderFloat("Move sensitivity", &sensM, 0.1f, 3.0f, "%.2f")) {
-                    actionmapSetStickSensitivityMove(sensM);
+                f32 sensM = actionmapGetSensMoveUi();
+                if (PdSliderSensUi("Move sensitivity (1-10)", &sensM)) {
+                    actionmapSetSensMoveUi(sensM);
                     configSave("pd.ini");
                 }
             }
@@ -2653,9 +2663,16 @@ static void renderSettingsControls(float scale)
                 }
             }
             {
-                f32 sensA = actionmapGetStickSensitivityAim();
-                if (PdSliderFloat("Look sensitivity", &sensA, 0.1f, 3.0f, "%.2f")) {
-                    actionmapSetStickSensitivityAim(sensA);
+                f32 sensA = actionmapGetSensAimUi();
+                if (PdSliderSensUi("Look sensitivity (1-10)", &sensA)) {
+                    actionmapSetSensAimUi(sensA);
+                    configSave("pd.ini");
+                }
+            }
+            {
+                f32 sensAds = actionmapGetSensAdsUi();
+                if (PdSliderSensUi("Aim-down-sights sensitivity (1-10)", &sensAds)) {
+                    actionmapSetSensAdsUi(sensAds);
                     configSave("pd.ini");
                 }
             }

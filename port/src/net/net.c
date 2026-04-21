@@ -2684,6 +2684,9 @@ PD_CONSTRUCTOR static void netConfigInit(void)
 
 	configRegisterString("Net.Client.LastJoinAddr", g_NetLastJoinAddr, NET_MAX_ADDR);
 
+	/* Listen-server default port (game client “Host / Go online”). CLI `--port` still overrides in netInit(). */
+	configRegisterUInt("Net.Server.Port", &g_NetServerPort, 1, 65535);
+
 	configRegisterInt("Net.Server.AllowInfoQuery", &g_NetServerInfoQuery, 0, 1);
 
 	// register recent server fields for persistence

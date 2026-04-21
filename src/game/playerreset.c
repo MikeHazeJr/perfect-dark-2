@@ -671,74 +671,30 @@ void playerReset(void)
 		} else if (g_Vars.antiplayernum >= 0) {
 			turnanglerad = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop);
 		} else if (g_Vars.mplayerisrunning && spawnPoolIsReady() && g_Vars.lvframe60 == 0) {
-			/* Initial MP spawn: use farthest-point-first from pool with
-			 * S302 tiered cascade.  lvframe60 == 0 means this is the
-			 * first spawn after stage load, not a respawn.  For
-			 * respawns, fall through to the existing enemy-aware
-			 * scenarioChooseSpawnLocation (which itself consults the
-			 * pool via playerTrySelectPoolSpawn). */
+			/* Initial MP placement is owned by mpOrchestrateMatchStartSpawns()
+			 * (Hungarian + team anchors + relax).  Use a stable temp point
+			 * until lv.c runs the orchestrator before playerSpawn(). */
 			const spawn_pool_t *pool = spawnPoolGet();
-			s32 num_teams = (g_MpSetup.options & MPOPTION_TEAMSENABLED) ? 4 : 0;
-			s32 my_team = (num_teams > 0)
-				? g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base.team
-				: -1;
-			spawn_aabb_t aabb;
-			struct coord center;
-			/* Collect already-occupied positions from other players */
-			struct coord occupied[MAX_MPCHRS];
-			s32 num_occupied = 0;
-			s32 pi;
-			for (pi = 0; pi < MAX_PLAYERS; pi++) {
-				if (g_Vars.players[pi] && g_Vars.players[pi]->prop
-						&& g_Vars.players[pi]->prop != g_Vars.currentplayer->prop
-						&& g_Vars.players[pi]->prop->rooms[0] >= 0) {
-					occupied[num_occupied++] = g_Vars.players[pi]->prop->pos;
-				}
-			}
 
-			spawnPoolComputeAABB(&aabb);
-			center.x = (aabb.min.x + aabb.max.x) * 0.5f;
-			center.y = (aabb.min.y + aabb.max.y) * 0.5f;
-			center.z = (aabb.min.z + aabb.max.z) * 0.5f;
-
-			{
-				spawn_select_tier_t tier = SPAWN_TIER_NONE;
-				s32 sel = spawnPoolSelectTiered(pool, occupied, num_occupied,
-				                                my_team, num_teams, &center,
-				                                &tier);
-				if (sel >= 0) {
-					pos = pool->points[sel].pos;
-					rooms[0] = pool->points[sel].room;
-					rooms[1] = -1;
-					/* S298: use the wall-probe facing angle computed at
-					 * pool build time so we don't spawn staring into a
-					 * wall.  Falls back to 0 (face +Z) if no walls were
-					 * nearby, which matches the legacy behaviour. */
-					turnanglerad = pool->points[sel].angle_rad;
-					sysLogPrintf(LOG_NOTE,
-						"SPAWN.TIER: %s initial MP spawn pool[%d] L%d pos=(%.0f,%.0f,%.0f) room=%d team=%d angle=%.3f",
-						spawnPoolTierName(tier),
-						sel, pool->points[sel].layer,
-						pos.x, pos.y, pos.z, (s32)rooms[0], my_team,
-						turnanglerad);
-				} else {
-					/* T4 last-resort — pool is empty / unbuilt.  Use
-					 * our synthesised fallback instead of falling
-					 * through to the legacy scenarioChooseSpawnLocation
-					 * (which may itself fail with no pads). */
-					struct coord lr_pos;
-					RoomNum lr_room = -1;
-					f32 lr_angle = 0.0f;
-					spawn_select_tier_t lr_tier =
-						spawnPoolLastResort(occupied, num_occupied,
-						                    &lr_pos, &lr_room, &lr_angle);
-					(void)lr_tier;
-					pos = lr_pos;
-					rooms[0] = lr_room;
-					rooms[1] = -1;
-					turnanglerad = lr_angle;
-				}
+			if (pool && pool->count > 0) {
+				pos = pool->points[0].pos;
+				rooms[0] = pool->points[0].room;
+				rooms[1] = -1;
+				turnanglerad = pool->points[0].angle_rad;
+			} else {
+				struct coord lr_pos;
+				RoomNum lr_room = -1;
+				f32 lr_angle = 0.0f;
+				spawn_select_tier_t lr_tier =
+					spawnPoolLastResort(NULL, 0, &lr_pos, &lr_room, &lr_angle);
+				(void)lr_tier;
+				pos = lr_pos;
+				rooms[0] = lr_room;
+				rooms[1] = -1;
+				turnanglerad = lr_angle;
 			}
+			sysLogPrintf(LOG_NOTE,
+				"SPAWN: MP initial placement deferred to orchestrator (temp)");
 		} else {
 			if (g_Vars.mplayerisrunning == 0) {
 				g_NumSpawnPoints = 1;

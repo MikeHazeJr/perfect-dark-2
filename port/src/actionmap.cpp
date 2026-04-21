@@ -42,6 +42,8 @@
 #include "input.h"      /* virtkey enum, inputGetKeyName, inputGetKeyByName,
                            inputMouseGetRawDelta, INPUT_MAX_CONTROLLER_BUTTONS */
 
+void actionmapRefreshStickMultFromUi(void);
+
 /* ============================================================
  * SDL scancode aliases for letters/keys not in the virtkey enum
  * ============================================================ */
@@ -116,9 +118,14 @@
 /* Swap sticks: 0 = normal (L=move, R=aim), 1 = swapped — kept for pd.ini + input.c */
 static s32 s_SwapSticks      = 0;
 
-/* Per-stick tuning (radial deadzone + sensitivity on analog output). */
-static f32 s_StickSensMove   = 1.0f;
-static f32 s_StickSensAim    = 1.0f;
+/* Per-stick tuning (radial deadzone + sensitivity on analog output).
+ * s_Sens*Ui: 1-10 (0.5 steps) in settings UI; maps to 0.1-3.0 internal mult. */
+#define ACTIONMAP_SENS_UI_DEFAULT 4.0f /* ~1.0x legacy stick mult */
+static f32 s_SensMoveUi      = ACTIONMAP_SENS_UI_DEFAULT;
+static f32 s_SensAimUi       = ACTIONMAP_SENS_UI_DEFAULT;
+static f32 s_SensAdsUi       = ACTIONMAP_SENS_UI_DEFAULT;
+static f32 s_StickSensMove   = (0.1f + 3.f * (2.9f / 9.f));
+static f32 s_StickSensAim    = (0.1f + 3.f * (2.9f / 9.f));
 static f32 s_StickDzMove     = 0.15f;
 static f32 s_StickDzAim      = 0.15f;
 
@@ -1465,6 +1472,8 @@ void actionmapSaveBinds(void)
 
 void actionmapLoadBinds(void)
 {
+    actionmapRefreshStickMultFromUi();
+
     /* Parse the (possibly file-overridden) bind strings into the FIRST IMC
      * whose has_mapping[] marks the action as its own.
      *
@@ -1579,6 +1588,8 @@ void actionmapSetStickSensitivity(f32 v)
     f32 c = clampf(v, 0.1f, 3.0f);
     s_StickSensMove = c;
     s_StickSensAim  = c;
+    s_SensMoveUi = actionmapSnapSensUi(actionmapMultToSensUi(c));
+    s_SensAimUi  = s_SensMoveUi;
 }
 
 f32  actionmapGetStickDeadzone(void) { return s_StickDzMove; }
@@ -1590,9 +1601,77 @@ void actionmapSetStickDeadzone(f32 v)
 }
 
 f32  actionmapGetStickSensitivityMove(void) { return s_StickSensMove; }
-void actionmapSetStickSensitivityMove(f32 v) { s_StickSensMove = clampf(v, 0.1f, 3.0f); }
+void actionmapSetStickSensitivityMove(f32 v)
+{
+    s_StickSensMove = clampf(v, 0.1f, 3.0f);
+    s_SensMoveUi = actionmapSnapSensUi(actionmapMultToSensUi(s_StickSensMove));
+}
 f32  actionmapGetStickSensitivityAim(void) { return s_StickSensAim; }
-void actionmapSetStickSensitivityAim(f32 v) { s_StickSensAim = clampf(v, 0.1f, 3.0f); }
+void actionmapSetStickSensitivityAim(f32 v)
+{
+    s_StickSensAim = clampf(v, 0.1f, 3.0f);
+    s_SensAimUi = actionmapSnapSensUi(actionmapMultToSensUi(s_StickSensAim));
+}
+
+f32 actionmapSnapSensUi(f32 ui)
+{
+    if (ui < 1.f) {
+        ui = 1.f;
+    }
+    if (ui > 10.f) {
+        ui = 10.f;
+    }
+    return roundf(ui * 2.f) * 0.5f;
+}
+
+f32 actionmapSensUiToMult(f32 ui)
+{
+    ui = actionmapSnapSensUi(ui);
+    return 0.1f + (ui - 1.f) * (2.9f / 9.f);
+}
+
+f32 actionmapMultToSensUi(f32 mult)
+{
+    mult = clampf(mult, 0.1f, 3.0f);
+    f32 ui = 1.f + (mult - 0.1f) * (9.f / 2.9f);
+    return actionmapSnapSensUi(ui);
+}
+
+void actionmapRefreshStickMultFromUi(void)
+{
+    s_SensMoveUi = actionmapSnapSensUi(s_SensMoveUi);
+    s_SensAimUi = actionmapSnapSensUi(s_SensAimUi);
+    s_SensAdsUi = actionmapSnapSensUi(s_SensAdsUi);
+    s_StickSensMove = actionmapSensUiToMult(s_SensMoveUi);
+    s_StickSensAim = actionmapSensUiToMult(s_SensAimUi);
+}
+
+f32 actionmapGetSensMoveUi(void) { return s_SensMoveUi; }
+void actionmapSetSensMoveUi(f32 ui)
+{
+    s_SensMoveUi = actionmapSnapSensUi(ui);
+    s_StickSensMove = actionmapSensUiToMult(s_SensMoveUi);
+}
+
+f32 actionmapGetSensAimUi(void) { return s_SensAimUi; }
+void actionmapSetSensAimUi(f32 ui)
+{
+    s_SensAimUi = actionmapSnapSensUi(ui);
+    s_StickSensAim = actionmapSensUiToMult(s_SensAimUi);
+}
+
+f32 actionmapGetSensAdsUi(void) { return s_SensAdsUi; }
+void actionmapSetSensAdsUi(f32 ui)
+{
+    s_SensAdsUi = actionmapSnapSensUi(ui);
+}
+
+f32 actionmapGetPcAdsZoomFovMul(void)
+{
+    f32 u = actionmapSnapSensUi(s_SensAdsUi);
+    f32 t = (u - 1.f) / 9.f;
+    return 0.93f - t * 0.06f;
+}
 f32  actionmapGetStickDeadzoneMove(void) { return s_StickDzMove; }
 void actionmapSetStickDeadzoneMove(f32 v) { s_StickDzMove = clampf(v, 0.0f, 0.5f); }
 f32  actionmapGetStickDeadzoneAim(void) { return s_StickDzAim; }
@@ -2008,11 +2087,12 @@ void actionmapInit(void)
     }
 
     /* Register stick tuning variables with config system.
-     * StickSensitivity/StickDeadzone = move stick (legacy key names). */
-    configRegisterFloat("ActionMap.StickSensitivity",     &s_StickSensMove, 0.1f, 3.0f);
-    configRegisterFloat("ActionMap.StickDeadzone",      &s_StickDzMove,   0.0f, 0.5f);
-    configRegisterFloat("ActionMap.StickSensitivityAim",  &s_StickSensAim,  0.1f, 3.0f);
-    configRegisterFloat("ActionMap.StickDeadzoneAim",     &s_StickDzAim,    0.0f, 0.5f);
+     * Sens*Ui: 1-10 (0.5 steps) in UI; internal mult 0.1-3.0 derived via actionmapRefreshStickMultFromUi. */
+    configRegisterFloat("ActionMap.SensMoveUi", &s_SensMoveUi, 1.0f, 10.0f);
+    configRegisterFloat("ActionMap.SensAimUi", &s_SensAimUi, 1.0f, 10.0f);
+    configRegisterFloat("ActionMap.SensAdsUi", &s_SensAdsUi, 1.0f, 10.0f);
+    configRegisterFloat("ActionMap.StickDeadzone", &s_StickDzMove, 0.0f, 0.5f);
+    configRegisterFloat("ActionMap.StickDeadzoneAim", &s_StickDzAim, 0.0f, 0.5f);
     configRegisterInt("ActionMap.StickInvertY",       &s_StickInvertY,     0, 1);
     configRegisterInt("ActionMap.SwapSticks",          &s_SwapSticks,      0, 1);
     configRegisterInt("ActionMap.UseHoldThresholdMs",  &s_UseHoldThresholdMs, 50,
@@ -2034,6 +2114,8 @@ void actionmapInit(void)
      * priority) — A/B/LB/RB/D-pad/stick all fired MENU actions instead of
      * gameplay actions during gameplay. */
     imcActivate(&g_ImcGameplay);
+
+    actionmapRefreshStickMultFromUi();
 
     sysLogPrintf(LOG_NOTE, "ACTIONMAP: initialized — %d actions, %d players, %d IMCs",
                  (s32)ACTION_COUNT, ACTIONMAP_MAX_PLAYERS, s_NumActive);

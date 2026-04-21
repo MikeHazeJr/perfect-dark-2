@@ -230,6 +230,168 @@ s32 g_NumDeathAnimations = 0;
  * so the same spawn can't repeat back-to-back. */
 static s16 s_LastSpawnPad = -1;
 
+static void playerMpResolveTeamSpawnParams(struct prop *selfprop, s32 *team, s32 *num_teams)
+{
+	s32 i;
+	u32 active_teams = 0;
+
+	*team = -1;
+	*num_teams = 0;
+
+	if (!(g_MpSetup.options & MPOPTION_TEAMSENABLED)) {
+		return;
+	}
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (!g_Vars.players[i] || !g_Vars.players[i]->prop || !g_Vars.players[i]->prop->chr) {
+			continue;
+		}
+		active_teams |= (u32)g_Vars.players[i]->prop->chr->team;
+	}
+
+	for (i = 0; i < g_BotCount; i++) {
+		if (!g_MpBotChrPtrs[i] || !g_MpBotChrPtrs[i]->prop) {
+			continue;
+		}
+		active_teams |= (u32)g_MpBotChrPtrs[i]->team;
+	}
+
+	for (i = 0; i < 4; i++) {
+		if (active_teams & (1u << i)) {
+			(*num_teams)++;
+		}
+	}
+
+	if (selfprop && selfprop->chr) {
+		for (i = 0; i < 4; i++) {
+			if (selfprop->chr->team & (1u << i)) {
+				*team = i;
+				break;
+			}
+		}
+	}
+
+	if (*num_teams < 2) {
+		*num_teams = 0;
+		*team = -1;
+	}
+}
+
+s32 playerCollectMpTeammatePositions(struct prop *selfprop, struct coord *out, s32 max_out)
+{
+	s32 n = 0;
+	s32 i;
+
+	if (!selfprop || !selfprop->chr || !out || max_out <= 0) {
+		return 0;
+	}
+
+	if (!(g_MpSetup.options & MPOPTION_TEAMSENABLED)) {
+		return 0;
+	}
+
+	for (i = 0; i < MAX_PLAYERS && n < max_out; i++) {
+		if (!g_Vars.players[i] || !g_Vars.players[i]->prop || !g_Vars.players[i]->prop->chr) {
+			continue;
+		}
+		if (g_Vars.players[i]->prop == selfprop) {
+			continue;
+		}
+		if (g_Vars.players[i]->prop->rooms[0] < 0) {
+			continue;
+		}
+		if ((g_Vars.players[i]->prop->chr->team & selfprop->chr->team) == 0) {
+			continue;
+		}
+		out[n++] = g_Vars.players[i]->prop->pos;
+	}
+
+	for (i = 0; i < g_BotCount && n < max_out; i++) {
+		if (!g_MpBotChrPtrs[i] || !g_MpBotChrPtrs[i]->prop) {
+			continue;
+		}
+		if (g_MpBotChrPtrs[i]->prop == selfprop) {
+			continue;
+		}
+		if (g_MpBotChrPtrs[i]->prop->rooms[0] < 0) {
+			continue;
+		}
+		if ((g_MpBotChrPtrs[i]->team & selfprop->chr->team) == 0) {
+			continue;
+		}
+		out[n++] = g_MpBotChrPtrs[i]->prop->pos;
+	}
+
+	return n;
+}
+
+void playerApplyOrchestratedSpawnFromPool(s32 playernum, s32 pool_idx)
+{
+	const spawn_pool_t *pool;
+	struct coord pos;
+	RoomNum rooms[8];
+	f32 turnanglerad;
+	f32 groundy;
+	s32 i;
+
+	if (!g_Vars.mplayerisrunning || !spawnPoolIsReady() || pool_idx < 0) {
+		return;
+	}
+	pool = spawnPoolGet();
+	if (!pool || pool_idx >= pool->count) {
+		return;
+	}
+	if (!g_Vars.players[playernum] || !g_Vars.players[playernum]->prop) {
+		return;
+	}
+
+	setCurrentPlayerNum(playernum);
+	pos = pool->points[pool_idx].pos;
+	rooms[0] = pool->points[pool_idx].room;
+	rooms[1] = -1;
+	turnanglerad = pool->points[pool_idx].angle_rad;
+	for (i = 1; i < 8; i++) {
+		rooms[i] = -1;
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"SPAWN.ORCH: apply player %d pool=%d pos=(%.0f,%.0f,%.0f) room=%d",
+		playernum, pool_idx, pos.x, pos.y, pos.z, (s32)rooms[0]);
+
+	groundy = cdFindGroundInfoAtCyl(&pos, 30, rooms,
+			&g_Vars.currentplayer->floorcol,
+			&g_Vars.currentplayer->floortype,
+			&g_Vars.currentplayer->floorflags,
+			&g_Vars.currentplayer->floorroom,
+			0, 0);
+
+	pos.y = g_Vars.currentplayer->vv_eyeheight + groundy;
+	g_Vars.currentplayer->vv_manground = groundy;
+	g_Vars.currentplayer->vv_ground = groundy;
+	g_Vars.currentplayer->vv_theta = (turnanglerad * 360.0f) / M_BADTAU;
+
+	playerResetBond(&g_Vars.currentplayer->bond2, &pos);
+
+	g_Vars.currentplayer->bond2.unk00.x = -sinf(turnanglerad);
+	g_Vars.currentplayer->bond2.unk00.y = 0;
+	g_Vars.currentplayer->bond2.unk00.z = cosf(turnanglerad);
+
+	g_Vars.currentplayer->prop->pos.f[0] = g_Vars.currentplayer->bondprevpos.f[0] = pos.f[0];
+	g_Vars.currentplayer->prop->pos.f[1] = g_Vars.currentplayer->bondprevpos.f[1] = pos.f[1];
+	g_Vars.currentplayer->prop->pos.f[2] = g_Vars.currentplayer->bondprevpos.f[2] = pos.f[2];
+
+	propDeregisterRooms(g_Vars.currentplayer->prop);
+
+	g_Vars.currentplayer->prop->rooms[0] = rooms[0];
+	g_Vars.currentplayer->prop->rooms[1] = -1;
+
+	playerSetCamPropertiesWithRoom(&pos,
+			&g_Vars.currentplayer->bond2.unk28,
+			&g_Vars.currentplayer->bond2.unk1c, rooms[0]);
+
+	bmoveUpdateRooms(g_Vars.currentplayer);
+}
+
 static bool playerTrySelectPoolSpawn(struct coord *dstpos, RoomNum *dstrooms, struct prop *selfprop)
 {
 	const spawn_pool_t *pool;
@@ -265,8 +427,17 @@ static bool playerTrySelectPoolSpawn(struct coord *dstpos, RoomNum *dstrooms, st
 	 * telefrag because the legacy shortlist doesn't reserve slots.
 	 * Require a 1.5x safety margin so ties (e.g. 8 pads for 8 players)
 	 * route through the pool and pick up burst reservation + farthest-
-	 * point dispersal. */
-	if (g_NumSpawnPoints > 0 && g_NumSpawnPoints >= needed + (needed / 2)) {
+	 * point dispersal.
+	 *
+	 * Also cap bypass to small participant counts: the legacy path only
+	 * ever picks from a four-pad shortlist per call. When `needed` is
+	 * large (e.g. 32 humans+bots) but the stage lists many INTROCMD_SPAWN
+	 * pads, the old test (pads >= needed + needed/2) stayed true and every
+	 * bot skipped the tiered pool — initial spawns piled onto a few pads
+	 * (Chicago + max simulants) while the real player used the pool in
+	 * playerreset.c. */
+	if (g_NumSpawnPoints > 0 && g_NumSpawnPoints >= needed + (needed / 2)
+			&& needed <= 8) {
 		return false;
 	}
 
@@ -302,43 +473,7 @@ static bool playerTrySelectPoolSpawn(struct coord *dstpos, RoomNum *dstrooms, st
 		occupied[num_occupied++] = g_MpBotChrPtrs[i]->prop->pos;
 	}
 
-	if (g_MpSetup.options & MPOPTION_TEAMSENABLED) {
-		u32 active_teams = 0;
-
-		for (i = 0; i < MAX_PLAYERS; i++) {
-			if (!g_Vars.players[i] || !g_Vars.players[i]->prop || !g_Vars.players[i]->prop->chr) {
-				continue;
-			}
-			active_teams |= (u32)g_Vars.players[i]->prop->chr->team;
-		}
-
-		for (i = 0; i < g_BotCount; i++) {
-			if (!g_MpBotChrPtrs[i] || !g_MpBotChrPtrs[i]->prop) {
-				continue;
-			}
-			active_teams |= (u32)g_MpBotChrPtrs[i]->team;
-		}
-
-		for (i = 0; i < 4; i++) {
-			if (active_teams & (1u << i)) {
-				num_teams++;
-			}
-		}
-
-		if (selfprop && selfprop->chr) {
-			for (i = 0; i < 4; i++) {
-				if (selfprop->chr->team & (1u << i)) {
-					team = i;
-					break;
-				}
-			}
-		}
-
-		if (num_teams < 2) {
-			num_teams = 0;
-			team = -1;
-		}
-	}
+	playerMpResolveTeamSpawnParams(selfprop, &team, &num_teams);
 
 	spawnPoolComputeAABB(&aabb);
 	if (aabb.valid) {
@@ -347,8 +482,14 @@ static bool playerTrySelectPoolSpawn(struct coord *dstpos, RoomNum *dstrooms, st
 		center.z = (aabb.min.z + aabb.max.z) * 0.5f;
 	}
 
-	i = spawnPoolSelectTiered(pool, occupied, num_occupied,
-	                          team, num_teams, &center, &tier);
+	{
+		struct coord teammates[MAX_MPCHRS];
+		s32 num_teammates = playerCollectMpTeammatePositions(selfprop, teammates, MAX_MPCHRS);
+
+		i = spawnPoolSelectTiered(pool, occupied, num_occupied,
+		                          team, num_teams, &center,
+		                          teammates, num_teammates, &tier);
+	}
 	if (i < 0) {
 		/* T4: pool entirely exhausted.  Synthesise a fallback rather
 		 * than returning false — the caller's legacy path would hit the
@@ -433,8 +574,18 @@ f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstr
 				center.z = (aabb.min.z + aabb.max.z) * 0.5f;
 			}
 
-			sel = spawnPoolSelectTiered(pool, occupied, num_occupied,
-			                            -1, 0, &center, &tier);
+			{
+				s32 z_team = -1;
+				s32 z_num_teams = 0;
+				struct coord teammates[MAX_MPCHRS];
+				s32 num_teammates;
+
+				playerMpResolveTeamSpawnParams(prop, &z_team, &z_num_teams);
+				num_teammates = playerCollectMpTeammatePositions(prop, teammates, MAX_MPCHRS);
+				sel = spawnPoolSelectTiered(pool, occupied, num_occupied,
+				                            z_team, z_num_teams, &center,
+				                            teammates, num_teammates, &tier);
+			}
 			if (sel >= 0) {
 				dstpos->x = pool->points[sel].pos.x;
 				dstpos->y = pool->points[sel].pos.y;

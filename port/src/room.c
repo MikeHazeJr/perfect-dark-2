@@ -8,6 +8,15 @@
  * All rooms share a fixed pool of HUB_MAX_ROOMS slots.  A slot is in use
  * when state != ROOM_STATE_CLOSED.  Room 0 resets to LOBBY on roomDestroy
  * rather than closing, preserving the primary slot permanently.
+ *
+ * ---------------------------------------------------------------------------
+ * ADR note (P6-B, Tier 6): Room 0 and g_Lobby.inGame
+ * ---------------------------------------------------------------------------
+ * roomsInit() always opens slot 0 as ROOM_STATE_LOBBY ("Lounge"). hubTick()
+ * (hub.c) syncs that room's lifecycle with g_Lobby.inGame for backward
+ * compatibility with the pre-multi-room stack. Extra rooms use findFreeSlot()
+ * and start CLOSED; room 0 is never destroyed, only reset — see roomDestroy.
+ * ---------------------------------------------------------------------------
  */
 
 #include "room.h"

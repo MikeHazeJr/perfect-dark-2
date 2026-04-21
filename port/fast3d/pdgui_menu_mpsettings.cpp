@@ -139,6 +139,8 @@ char *langGet(s32 textid);
 
 /* ---- B-140 Issue B: network sync for mod playlist (room leader -> room members) ---- */
 extern s32 g_NetMode;
+extern s32 g_NetDedicated;
+#define MPSETTINGS_NETMODE_SERVER 1
 #define MPSETTINGS_NETMODE_CLIENT 2
 s32  lobbyIsLocalLeader(void);
 void netSendRoomPlaylistUpdate(void);
@@ -839,8 +841,9 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
                                 pdguiPlaySound(PDGUI_SND_SELECT);
                             }
                             audioResetPlaylistIndex();
-                            if (g_NetMode == MPSETTINGS_NETMODE_CLIENT
-                                && lobbyIsLocalLeader()) {
+                            if (lobbyIsLocalLeader()
+                                && (g_NetMode == MPSETTINGS_NETMODE_CLIENT
+                                    || (g_NetMode == MPSETTINGS_NETMODE_SERVER && !g_NetDedicated))) {
                                 netSendRoomPlaylistUpdate();
                             }
                         } else {
@@ -915,8 +918,9 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
                             pdguiPlaySound(PDGUI_SND_SELECT);
                         }
                         audioResetPlaylistIndex();
-                        if (g_NetMode == MPSETTINGS_NETMODE_CLIENT
-                            && lobbyIsLocalLeader()) {
+                        if (lobbyIsLocalLeader()
+                            && (g_NetMode == MPSETTINGS_NETMODE_CLIENT
+                                || (g_NetMode == MPSETTINGS_NETMODE_SERVER && !g_NetDedicated))) {
                             netSendRoomPlaylistUpdate();
                         }
                     }
@@ -986,8 +990,9 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
                                       ImVec2(0, pdguiScale(22.0f)))) {
                     audioRemoveModPlaylistEntry(cid);
                     audioResetPlaylistIndex();
-                    if (g_NetMode == MPSETTINGS_NETMODE_CLIENT
-                        && lobbyIsLocalLeader()) {
+                    if (lobbyIsLocalLeader()
+                        && (g_NetMode == MPSETTINGS_NETMODE_CLIENT
+                            || (g_NetMode == MPSETTINGS_NETMODE_SERVER && !g_NetDedicated))) {
                         netSendRoomPlaylistUpdate();
                     }
                     pdguiPlaySound(PDGUI_SND_KBCANCEL);
@@ -1002,8 +1007,9 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
                 if (ImGui::Selectable("Clear All##tunes_clr", false, 0,
                                       ImVec2(0, pdguiScale(22.0f)))) {
                     audioClearModPlaylist();
-                    if (g_NetMode == MPSETTINGS_NETMODE_CLIENT
-                        && lobbyIsLocalLeader()) {
+                    if (lobbyIsLocalLeader()
+                        && (g_NetMode == MPSETTINGS_NETMODE_CLIENT
+                            || (g_NetMode == MPSETTINGS_NETMODE_SERVER && !g_NetDedicated))) {
                         netSendRoomPlaylistUpdate();
                     }
                     pdguiPlaySound(PDGUI_SND_KBCANCEL);

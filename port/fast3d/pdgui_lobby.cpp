@@ -11,9 +11,12 @@
  *    showing "Connected: X players" with a compact player list. This is
  *    the only time the sidebar is visible for game clients.
  *
- * 3. DEDICATED SERVER (g_NetDedicated): Always shows the server info
- *    overlay (IP, port, player count, log). Only the dedicated server
- *    process should ever be in NETMODE_SERVER — game clients never are.
+ * 3. DEDICATED SERVER (g_NetDedicated && NETMODE_SERVER): server info overlay
+ *    + lobby screen + log (PerfectDarkServer.exe only).
+ *
+ * 4. IN-CLIENT LISTEN HOST (!g_NetDedicated && NETMODE_SERVER): same lobby/room
+ *    UX as a joining client — slot 0 is the local host (`netStartServer` in
+ *    `net.c`). Small host banner + connect code (no raw IP in UI).
  *
  * Called from pdguiRender() in the ImGui overlay phase.
  *
@@ -310,6 +313,61 @@ static void renderDedicatedServerOverlay(s32 winW, s32 winH, s32 clientCount)
 }
 
 /**
+ * Compact banner for in-process listen hosting (game client, NETMODE_SERVER && !dedicated).
+ * Reuses connect-code encoding — never displays raw IP (product constraint).
+ */
+static void renderListenHostOverlay(s32 winW, s32 winH, s32 clientCount)
+{
+    (void)winW;
+    float scale = (float)winH / 480.0f;
+
+    float infoW = 280.0f * scale;
+    float infoH = 72.0f * scale;
+
+    ImGui::SetNextWindowPos(ImVec2(10.0f * scale, 10.0f * scale));
+    ImGui::SetNextWindowSize(ImVec2(infoW, infoH));
+    ImGui::SetNextWindowBgAlpha(0.85f);
+
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize
+                           | ImGuiWindowFlags_NoMove
+                           | ImGuiWindowFlags_NoCollapse
+                           | ImGuiWindowFlags_NoSavedSettings
+                           | ImGuiWindowFlags_NoFocusOnAppearing
+                           | ImGuiWindowFlags_NoNav
+                           | ImGuiWindowFlags_NoTitleBar;
+
+    if (ImGui::Begin("##listen_host_info", nullptr, flags)) {
+        ImGui::TextColored(pdguiVec4TintInfo(), "HOSTING (THIS PC)");
+        ImGui::Separator();
+
+        u32 port = netGetServerPort();
+        const char *publicIP = netGetPublicIP();
+
+        if (publicIP && publicIP[0]) {
+            char connectCode[256];
+            u32 ipAddr = 0;
+            {
+                u32 a, b, c, d;
+                if (sscanf(publicIP, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
+                    ipAddr = (a) | (b << 8) | (c << 16) | (d << 24);
+                }
+            }
+            connectCodeEncode(ipAddr, connectCode, sizeof(connectCode));
+            ImGui::TextColored(pdguiVec4TintSuccess(), "%s", connectCode);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy##listenhost")) {
+                SDL_SetClipboardText(connectCode);
+            }
+        } else {
+            ImGui::Text("Port %u (discovering WAN…)", port);
+        }
+
+        ImGui::Text("Players: %d / %d", clientCount, netGetMaxClients());
+    }
+    ImGui::End();
+}
+
+/**
  * Render the in-game sidebar — minimal player list overlay.
  * Only shown during CLSTATE_GAME when the full lobby screen is NOT visible.
  */
@@ -405,7 +463,7 @@ static void renderInGameSidebar(s32 winW, s32 winH)
  *
  * Rendering logic:
  * - Dedicated server process: server info overlay + lobby screen (always)
- * - Client in CLSTATE_LOBBY: full lobby screen only (no sidebar)
+ * - Client OR in-client listen host in CLSTATE_LOBBY: lobby / room + distrib overlays
  * - Client in CLSTATE_GAME: minimal in-game sidebar only
  * - Client in other states: nothing (connecting/auth handled by join dialog)
  */
@@ -437,9 +495,12 @@ void pdguiLobbyRender(s32 winW, s32 winH)
         return;
     }
 
-    /* === Game client === */
-    if (mode == NETMODE_CLIENT) {
+    /* === Game client OR in-client listen host (NETMODE_SERVER && !g_NetDedicated) === */
+    if (mode == NETMODE_CLIENT || (mode == NETMODE_SERVER && !g_NetDedicated)) {
         if (netLocalClientInLobby()) {
+            if (mode == NETMODE_SERVER && !g_NetDedicated) {
+                renderListenHostOverlay(winW, winH, clientCount);
+            }
             if (s_InRoom) {
                 /* Inside a room: show room interior (tab-based game setup UX) */
                 pdguiRoomScreenRender(winW, winH);
@@ -464,14 +525,6 @@ void pdguiLobbyRender(s32 winW, s32 winH)
             pdguiKillFeedRender(winW, winH);
         }
         return;
-    }
-
-    /* NETMODE_SERVER without g_NetDedicated = debug local server.
-     * Show a minimal sidebar so the developer knows it's active.
-     * S221: Same context gate — suppress during active combat sim. */
-    if (mode == NETMODE_SERVER && clientCount > 0 &&
-        !pdguiPauseGetNormMplayerIsRunning()) {
-        renderInGameSidebar(winW, winH);
     }
 }
 

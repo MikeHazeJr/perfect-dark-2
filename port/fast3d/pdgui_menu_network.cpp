@@ -1,9 +1,10 @@
 /**
  * pdgui_menu_network.cpp -- ImGui replacement for the Multiplayer menu.
  *
- * Replaces g_NetMenuDialog with a clean dedicated-server-only join screen.
- * Players connect to a dedicated server via Server Browser or Direct IP.
- * No host capability in the client.
+ * Replaces g_NetMenuDialog with: (1) **Host game** — in-process listen server
+ * (`netStartServer`, `g_NetDedicated == false`, same slot-0 model as `--host`); and
+ * (2) **Join** — Server Browser + connect-code direct connect to a dedicated or listen host.
+ * Connect codes are the only player-facing address format (see context/constraints.md).
  *
  * IMPORTANT: C++ file — must NOT include types.h (#define bool s32 breaks C++).
  *
@@ -23,6 +24,8 @@
 #include "pdgui_layout.h"
 #include "screenmfst.h"
 #include "net/netmanifest.h"
+#include "net/netupnp.h"
+#include "net/netstun.h"
 #include "system.h"
 #include "connectcode.h"
 
@@ -34,10 +37,19 @@ extern struct menudialogdef g_NetMenuDialog;
 /* Network functions */
 s32 netStartClient(const char *addr);
 s32 netStartClientWithHolePunch(const char *addr);
+s32 netStartServer(u16 port, s32 maxclients);
+s32 netDisconnect(void);
 
 /* Net menu state — shared with netmenu.c */
 extern char g_NetJoinAddr[];
 extern s32 g_NetServerPort;
+extern s32 g_NetMenuPort;
+extern s32 g_NetMode;
+extern s32 g_NetDedicated;
+
+#define NETMODE_NONE   0
+#define NETMODE_SERVER 1
+#define NETMODE_CLIENT 2
 
 #define NET_MAX_ADDR 256
 #define NET_DEFAULT_PORT 27100
@@ -87,6 +99,33 @@ const char *mpPlayerConfigGetName(s32 playernum);
 static bool s_Registered = false;
 static char s_JoinAddress[NET_MAX_ADDR + 1] = {0};
 
+/* Listen-host UI (P3-A): port/max persist for the session; initialized from g_NetServerPort on open. */
+static int  s_HostPort       = (int)NET_DEFAULT_PORT;
+static int  s_HostMaxRemotes = 7; /* +1 local host slot -> netStartServer second arg */
+static char s_HostErr[160]   = {0};
+
+static const char *fmtUpnpStatus(s32 st)
+{
+	switch (st) {
+	case UPNP_STATUS_IDLE:    return "Idle";
+	case UPNP_STATUS_WORKING: return "Working…";
+	case UPNP_STATUS_SUCCESS: return "OK";
+	case UPNP_STATUS_FAILED:  return "Failed";
+	default:                  return "?";
+	}
+}
+
+static const char *fmtStunStatus(s32 st)
+{
+	switch (st) {
+	case STUN_STATUS_IDLE:    return "Idle";
+	case STUN_STATUS_WORKING: return "Working…";
+	case STUN_STATUS_SUCCESS: return "OK";
+	case STUN_STATUS_FAILED:  return "Failed";
+	default:                  return "?";
+	}
+}
+
 /* F-IP-Browser: Convert a raw "A.B.C.D" or "A.B.C.D:port" address string to a
  * connect code for display. sscanf stops at ':' so port is harmlessly ignored. */
 static bool addrStringToConnectCode(const char *addrStr, char *buf, s32 bufsize)
@@ -131,6 +170,11 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: network/join menu OPEN");
+        s_HostPort = (int)g_NetServerPort;
+        if (s_HostPort < 1 || s_HostPort > 65535) {
+            s_HostPort = (int)NET_DEFAULT_PORT;
+        }
+        s_HostErr[0] = '\0';
         /* Restore last used address */
         extern char g_NetLastJoinAddr[];
         if (s_JoinAddress[0] == '\0') {
@@ -186,7 +230,74 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
     float bodyH     = pdguiBodyHeightForActionBar(bodyAvail);
     float sectionH  = bodyH - 100.0f * scale;
 
-    ImGui::BeginChild("##mp_body", ImVec2(0, bodyH), false, 0);
+    ImGui::BeginChild("##mp_body", ImVec2(0, bodyH), true);
+
+    /* ---- Host game (listen server, same process as --host / g_NetHostLatch) ---- */
+    ImGui::TextColored(pdguiVec4TitleGlow(), "Host game (this PC)");
+    ImGui::Separator();
+
+    if (g_NetMode == NETMODE_SERVER && !g_NetDedicated) {
+        ImGui::TextColored(pdguiVec4TintSuccess(), "You are hosting.");
+        ImGui::TextDisabled("UPnP: %s  |  STUN: %s",
+            fmtUpnpStatus(netUpnpGetStatus()),
+            fmtStunStatus(stunGetStatus()));
+        if (ImGui::Button("Stop hosting")) {
+            pdguiPlaySound(PDGUI_SND_SELECT);
+            netDisconnect();
+            s_HostErr[0] = '\0';
+        }
+    } else {
+        ImGui::TextWrapped(
+            "Start a listen server: you stay in slot 0; friends join with your connect code "
+            "(shown in the lobby overlay). Default UDP port is stored in pd.ini as Net.Server.Port.");
+        ImGui::PushItemWidth(140.0f * scale);
+        ImGui::InputInt("Port##host", &s_HostPort);
+        ImGui::PopItemWidth();
+        if (s_HostPort < 1) {
+            s_HostPort = 1;
+        }
+        if (s_HostPort > 65535) {
+            s_HostPort = 65535;
+        }
+        ImGui::SliderInt("Max remote players##hostmax", &s_HostMaxRemotes, 1, NET_MAX_CLIENTS - 1);
+        ImGui::TextDisabled(
+            "NAT discovery runs after the server binds (UPnP %s, STUN %s).",
+            fmtUpnpStatus(netUpnpGetStatus()),
+            fmtStunStatus(stunGetStatus()));
+        if (s_HostErr[0]) {
+            ImGui::TextColored(pdguiVec4TintDanger(), "%s", s_HostErr);
+        }
+
+        if (ImGui::Button("Host game / Go online", ImVec2(-1.0f, 0.0f))) {
+            s_HostErr[0] = '\0';
+            pdguiPlaySound(PDGUI_SND_SELECT);
+            if (g_NetMode == NETMODE_CLIENT) {
+                netDisconnect();
+            }
+            g_NetServerPort = (u32)s_HostPort;
+            g_NetMenuPort   = s_HostPort;
+            /* Second arg is total player slots (listen host in slot 0 + remotes). */
+            s32 rc = netStartServer((u16)s_HostPort, s_HostMaxRemotes + 1);
+            if (rc == 0) {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: listen host started port=%d maxclients=%d",
+                    s_HostPort, s_HostMaxRemotes + 1);
+                menuPopDialog();
+            } else if (rc == -1) {
+                snprintf(s_HostErr, sizeof(s_HostErr), "Already in a network session.");
+            } else if (rc == -2) {
+                snprintf(s_HostErr, sizeof(s_HostErr), "Could not listen on that port (in use or denied).");
+            } else {
+                snprintf(s_HostErr, sizeof(s_HostErr), "Host failed (error %d).", rc);
+            }
+        }
+        if (g_NetMode == NETMODE_CLIENT) {
+            ImGui::TextDisabled("Joining: the Host button disconnects you first, then starts hosting.");
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
 
     /* ---- Server Browser section ---- */
     ImGui::TextColored(pdguiVec4TitleGlow(), "Server Browser");

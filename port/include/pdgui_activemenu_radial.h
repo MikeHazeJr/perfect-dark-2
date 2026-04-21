@@ -14,6 +14,9 @@
 extern "C" {
 #endif
 
+/* Game state: current player has the active menu (weapon wheel) open. */
+s32 pdguiActiveMenuIsOpen(void);
+/* Skip legacy GBI wheel — same predicate as ImGui path (single source of truth). */
 s32 pdguiActiveMenuShouldSkipLegacyWheel(void);
 void pdguiActiveMenuRadialRender(s32 winW, s32 winH);
 

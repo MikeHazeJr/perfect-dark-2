@@ -11,6 +11,17 @@
  *      single-match path remains backward compatible without any changes to
  *      net.c or netlobby.c.
  *   2. Derives the hub state from the aggregate of all room states.
+ *
+ * ---------------------------------------------------------------------------
+ * ADR note (P6-B, Tier 6): Room 0 vs g_Lobby.inGame (multi-room roadmap)
+ * ---------------------------------------------------------------------------
+ * Room id 0 is the backward-compatible primary match slot. hubTick() mirrors
+ * the legacy single-match flag g_Lobby.inGame into room 0's hub_room_t.state
+ * so older net.c / netlobby.c call sites keep working alongside R-3 multi-room.
+ * When HUB_MAX_ROOMS > 1, additional rooms are created via roomCreate(); room 0
+ * stays the lounge that tracks g_Lobby.inGame until match lifecycle moves fully
+ * under room_* APIs.
+ * ---------------------------------------------------------------------------
  */
 
 #include <SDL.h>

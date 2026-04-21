@@ -20,6 +20,7 @@
 #include "types.h"
 #include "bss.h"
 #include "game/spawnpool.h"
+#include "game/mplayer/mpspawn_orchestrate.h"
 #include "game/bg.h"
 #include "game/pad.h"
 #include "game/atan2f.h"
@@ -32,6 +33,11 @@
 #include <string.h>
 #include <time.h>
 #include "assetcatalog.h"
+
+/* Team modes: scales mean teammate alignment [0,1] to min_dist_sq space */
+#define SPAWN_TEAM_DOT_WEIGHT 100000.0f
+/* ~20%: skip team dot bias for this pick (spawn-loop / oscillation escape) */
+#define SPAWN_TEAM_RELAX_BIAS_PCT 20
 
 /* Externs for spawn data (declared in player.c) */
 extern s16 g_SpawnPoints[];
@@ -1041,6 +1047,7 @@ void spawnPoolBuildGlobal(const char *stage_id, u32 match_seed, s32 needed)
 {
 	clock_t t0 = clock();
 	s_PoolReady = false;
+	mpOrchestrateReset();
 	spawnPoolBuild(&s_Pool, stage_id, match_seed, needed);
 	{
 		u32 ms = (u32)(((clock() - t0) * 1000u) / (u32)CLOCKS_PER_SEC);
@@ -1054,6 +1061,7 @@ void spawnPoolReset(void)
 {
 	s_PoolReady = false;
 	memset(&s_Pool, 0, sizeof(s_Pool));
+	mpOrchestrateReset();
 	/* S298: stage change invalidates reservations. */
 	spawnPoolClearReservations();
 }
@@ -1113,10 +1121,12 @@ s32 spawnPoolAppendForgePoints(const struct coord *positions,
  * For FFA (num_teams == 0 or team == -1):
  *   Pick the pool point that maximizes min-distance-to-occupied.
  *
- * For team modes (num_teams >= 2, team >= 0):
- *   Partition pool into angular sectors around pool_center. Prefer the
- *   sector assigned to this team. Fall back to other sectors if the
- *   team's sector is exhausted. Within the sector, apply farthest-first.
+ * For team modes (num_teams >= 2, team >= 0) with live teammates:
+ *   Score = min_dist_sq + W * mean_i dot(u_spawn, u_teammate_i) mapped to
+ *   [0,1] (XZ plane, directions from pool_center).
+ *
+ * For team modes with no teammates placed yet:
+ *   Partition pool into angular sectors around pool_center (legacy).
  * ======================================================================== */
 
 /* Compute min squared distance from pool point i to any occupied position.
@@ -1135,24 +1145,117 @@ static f32 poolMinDistSq(const spawn_pool_t *pool, s32 i,
 	return min_dist;
 }
 
+/* Mean over teammates of dot(spawn_dir, teammate_dir) in XZ from pool_center,
+ * mapped from [-1,1] to [0,1]. */
+static f32 poolTeamWeightedDotTerm(s32 idx, const spawn_pool_t *pool,
+                                   const struct coord *pool_center,
+                                   const struct coord *teammate_positions,
+                                   s32 num_teammates)
+{
+	f32 cx;
+	f32 cz;
+	f32 sx;
+	f32 sz;
+	f32 slen_sq;
+	f32 slen;
+	f32 sum_dot = 0.0f;
+	s32 m;
+	s32 counted = 0;
+
+	if (!pool_center || num_teammates <= 0) {
+		return 0.5f;
+	}
+
+	cx = pool_center->x;
+	cz = pool_center->z;
+	sx = pool->points[idx].pos.x - cx;
+	sz = pool->points[idx].pos.z - cz;
+	slen_sq = sx * sx + sz * sz;
+	slen = sqrtf(slen_sq);
+	if (slen < 1.0f) {
+		return 0.5f;
+	}
+	sx /= slen;
+	sz /= slen;
+
+	for (m = 0; m < num_teammates; m++) {
+		f32 tx = teammate_positions[m].x - cx;
+		f32 tz = teammate_positions[m].z - cz;
+		f32 tlen_sq = tx * tx + tz * tz;
+		f32 tlen;
+		f32 dot;
+
+		if (tlen_sq < 1.0f) {
+			continue;
+		}
+		tlen = sqrtf(tlen_sq);
+		tx /= tlen;
+		tz /= tlen;
+		dot = sx * tx + sz * tz;
+		sum_dot += dot;
+		counted++;
+	}
+
+	if (counted == 0) {
+		return 0.5f;
+	}
+	sum_dot /= (f32)counted;
+	return (sum_dot + 1.0f) * 0.5f;
+}
+
 /* Farthest-point-first pick over `pool`, skipping any index whose
  * `skip[i]` bit is set.  Returns -1 if every slot was skipped.
- * When pool_center + team params are active, tries the team sector
- * first and falls through to full-pool FFA if the sector is empty. */
+ * relaxed_team_bias: ignore team dot + sector pulls (pure FFA). */
 static s32 poolPickFarthest(const spawn_pool_t *pool,
                             const struct coord *occupied, s32 num_occupied,
                             const bool *skip, s32 team, s32 num_teams,
-                            const struct coord *pool_center)
+                            const struct coord *pool_center,
+                            const struct coord *teammate_positions, s32 num_teammates,
+                            bool relaxed_team_bias)
 {
 	s32 best_idx = -1;
-	f32 best_min_dist = -1.0f;
+	f32 best_score = -1.0e30f;
 	s32 i;
+
+	if (relaxed_team_bias) {
+		goto ffa_only;
+	}
+
+	/* Team games with at least one teammate on the field: separation +
+	 * weighted mean dot(spawn_dir, teammate_dir) from map center (XZ). */
+	if (num_teams >= 2 && team >= 0 && num_teammates > 0 && pool_center) {
+		for (i = 0; i < pool->count; i++) {
+			f32 min_dist;
+			f32 dot_term;
+			f32 combined;
+
+			if (skip[i]) {
+				continue;
+			}
+
+			min_dist = poolMinDistSq(pool, i, occupied, num_occupied);
+			if (num_occupied == 0) {
+				min_dist = pool->points[i].budget_score;
+			}
+			dot_term = poolTeamWeightedDotTerm(i, pool, pool_center,
+			                                     teammate_positions, num_teammates);
+			combined = min_dist + SPAWN_TEAM_DOT_WEIGHT * dot_term;
+			if (combined > best_score) {
+				best_score = combined;
+				best_idx = i;
+			}
+		}
+		if (best_idx >= 0) {
+			return best_idx;
+		}
+	}
 
 	if (num_teams >= 2 && team >= 0 && team < num_teams && pool_center) {
 		f32 sector_size = (2.0f * 3.14159265f) / (f32)num_teams;
 		f32 sector_start = sector_size * (f32)team - 3.14159265f;
 		f32 sector_end = sector_start + sector_size;
 
+		best_score = -1.0f;
 		for (i = 0; i < pool->count; i++) {
 			f32 dx, dz, angle, min_dist;
 
@@ -1168,8 +1271,8 @@ static s32 poolPickFarthest(const spawn_pool_t *pool,
 			if (num_occupied == 0) {
 				min_dist = pool->points[i].budget_score;
 			}
-			if (min_dist > best_min_dist) {
-				best_min_dist = min_dist;
+			if (min_dist > best_score) {
+				best_score = min_dist;
 				best_idx = i;
 			}
 		}
@@ -1180,6 +1283,9 @@ static s32 poolPickFarthest(const spawn_pool_t *pool,
 		/* Sector empty — fall through to whole-pool FFA pass. */
 	}
 
+ffa_only:
+	best_score = -1.0f;
+	best_idx = -1;
 	for (i = 0; i < pool->count; i++) {
 		f32 min_dist;
 
@@ -1189,8 +1295,8 @@ static s32 poolPickFarthest(const spawn_pool_t *pool,
 		if (num_occupied == 0) {
 			min_dist = pool->points[i].budget_score;
 		}
-		if (min_dist > best_min_dist) {
-			best_min_dist = min_dist;
+		if (min_dist > best_score) {
+			best_score = min_dist;
 			best_idx = i;
 		}
 	}
@@ -1233,17 +1339,28 @@ s32 spawnPoolSelectTiered(const spawn_pool_t *pool,
                           const struct coord *occupied, s32 num_occupied,
                           s32 team, s32 num_teams,
                           const struct coord *pool_center,
+                          const struct coord *teammate_positions, s32 num_teammates,
                           spawn_select_tier_t *out_tier)
 {
 	bool used[SPAWNPOOL_MAX];
 	bool skip[SPAWNPOOL_MAX];
 	s32 pick;
 	s32 i;
+	bool relaxed_team = false;
 
 	if (out_tier) *out_tier = SPAWN_TIER_NONE;
 
 	if (!pool || pool->count <= 0) {
 		return -1;
+	}
+
+	if (num_teams >= 2 && team >= 0 && num_teammates > 0) {
+		relaxed_team = (rngRandom() % 100) < SPAWN_TEAM_RELAX_BIAS_PCT;
+		if (relaxed_team) {
+			sysLogPrintf(LOG_NOTE,
+				"SPAWN.TEAM: relaxed bias roll — teammates=%d team=%d (spawn-loop escape)",
+				num_teammates, team);
+		}
 	}
 
 	/* S298: auto-clear reservations at tick boundary so this bitset only
@@ -1260,7 +1377,8 @@ s32 spawnPoolSelectTiered(const spawn_pool_t *pool,
 	}
 
 	pick = poolPickFarthest(pool, occupied, num_occupied, skip,
-	                        team, num_teams, pool_center);
+	                        team, num_teams, pool_center,
+	                        teammate_positions, num_teammates, relaxed_team);
 	if (pick >= 0) {
 		if (pick < SPAWNPOOL_MAX) s_SpawnReserved[pick] = true;
 		if (out_tier) *out_tier = SPAWN_TIER_1_OPTIMAL;
@@ -1281,7 +1399,8 @@ s32 spawnPoolSelectTiered(const spawn_pool_t *pool,
 
 			memcpy(skip, used, sizeof(skip));
 			pick = poolPickFarthest(pool, occupied, num_occupied, skip,
-			                        team, num_teams, pool_center);
+			                        team, num_teams, pool_center,
+			                        teammate_positions, num_teammates, relaxed_team);
 			if (pick >= 0) {
 				if (pick < SPAWNPOOL_MAX) s_SpawnReserved[pick] = true;
 				if (out_tier) *out_tier = SPAWN_TIER_2_CYCLED;
@@ -1300,7 +1419,8 @@ s32 spawnPoolSelectTiered(const spawn_pool_t *pool,
 	 * any point at all. */
 	memset(skip, 0, sizeof(skip));
 	pick = poolPickFarthest(pool, occupied, num_occupied, skip,
-	                        team, num_teams, pool_center);
+	                        team, num_teams, pool_center,
+	                        teammate_positions, num_teammates, relaxed_team);
 	if (pick >= 0) {
 		if (pick < SPAWNPOOL_MAX) s_SpawnReserved[pick] = true;
 		if (out_tier) *out_tier = SPAWN_TIER_3_REUSED;
@@ -1320,7 +1440,7 @@ s32 spawnPoolSelect(const spawn_pool_t *pool, const struct coord *occupied,
                     const struct coord *pool_center)
 {
 	return spawnPoolSelectTiered(pool, occupied, num_occupied,
-	                             team, num_teams, pool_center, NULL);
+	                             team, num_teams, pool_center, NULL, 0, NULL);
 }
 
 spawn_select_tier_t spawnPoolLastResort(const struct coord *occupied,
@@ -1341,7 +1461,7 @@ spawn_select_tier_t spawnPoolLastResort(const struct coord *occupied,
 
 		memset(skip, 0, sizeof(skip));
 		pick = poolPickFarthest(&s_Pool, occupied, num_occupied, skip,
-		                        -1, 0, NULL);
+		                        -1, 0, NULL, NULL, 0, false);
 		if (pick >= 0) {
 			*out_pos  = s_Pool.points[pick].pos;
 			*out_room = s_Pool.points[pick].room;

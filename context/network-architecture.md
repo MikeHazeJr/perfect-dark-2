@@ -8,7 +8,8 @@
 > Companion docs (kept separate): [networking.md](networking.md) — protocol
 > reference and message-type cheatsheet; [network-system-audit.md](network-system-audit.md)
 > — the 2026-04-02 definitive audit (39 SVC + 10 CLC + lifecycle + tick model);
-> [nat-traversal-architecture.md](designs/nat-traversal-architecture.md) — STUN / hole-punch design (D8, DONE S83).
+> [nat-traversal-architecture.md](designs/nat-traversal-architecture.md) — STUN / hole-punch design (D8, DONE S83);
+> [hosting-modes-listen-vs-dedicated.md](designs/hosting-modes-listen-vs-dedicated.md) — threat model for listen host vs `PerfectDarkServer` (ROM/mod gates, RCON, connect codes).
 >
 > **Last consolidated**: 2026-04-14. Status markers reflect state as of dev `ec8384ed`.
 > Back to [index](README.md).

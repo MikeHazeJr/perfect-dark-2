@@ -4,6 +4,14 @@
 #include "data.h"
 #include "types.h"
 
+struct prop;
+
+/** MP team spawns: fill `out` with same-team chr positions (excl. self). Returns count. */
+s32 playerCollectMpTeammatePositions(struct prop *selfprop, struct coord *out, s32 max_out);
+
+/** MP match-start orchestrator: teleport player to validated pool slot. */
+void playerApplyOrchestratedSpawnFromPool(s32 playernum, s32 pool_idx);
+
 f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstrooms, struct prop *prop, s16 *spawnpads, s32 numspawnpads);
 f32 playerChooseGeneralSpawnLocation(f32 chrradius, struct coord *pos, RoomNum *rooms, struct prop *prop);
 void playerStartNewLife(void);

@@ -6594,6 +6594,32 @@ u32 netmsgClcRoomLeaveRead(struct netbuf *src, struct netclient *srccl)
 	return src->error;
 }
 
+void netListenHostRoomLeave(void)
+{
+#if defined(PD_SERVER)
+	return;
+#else
+	if (g_NetMode != NETMODE_SERVER || g_NetDedicated || !g_NetLocalClient) {
+		return;
+	}
+	struct netclient *lc = g_NetLocalClient;
+	if (lc->room_id == 0xFF) {
+		return;
+	}
+
+	hub_room_t *room = roomGetById(lc->room_id);
+	if (room) {
+		roomLeave(room, lc->id);
+	}
+	lc->room_id = 0xFF;
+	g_LocalRoomId = 0xFF;
+	extern void pdguiSetInRoom(s32 inRoom);
+	pdguiSetInRoom(0);
+	sysLogPrintf(LOG_NOTE, "NET: listen host left room — lounge (local path)");
+	netRoomListMarkDirty();
+#endif
+}
+
 void netBroadcastRoomList(void)
 {
 	if (g_NetMode != NETMODE_SERVER) return;
@@ -7003,7 +7029,7 @@ u32 netmsgClcRoomPlaylistUpdateRead(struct netbuf *src, struct netclient *srccl)
 
 void netSendRoomSettingsUpdate(void)
 {
-	if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient) return;
+	if (!g_NetLocalClient) return;
 
 	u8 numBots = 0;
 	for (s32 i = 1; i < g_MatchConfig.numSlots; i++) {
@@ -7018,12 +7044,24 @@ void netSendRoomSettingsUpdate(void)
 	    g_MatchConfig.timelimit, g_MatchConfig.scorelimit,
 	    g_MatchConfig.teamscorelimit, g_MatchConfig.options,
 	    g_MatchConfig.scenario, wpnIdx, g_MatchConfig.stage_id);
-	netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
+
+	if (g_NetMode == NETMODE_CLIENT) {
+		netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
+		return;
+	}
+
+	/* In-client listen host: run the same server handler as CLC without ENet. */
+	if (g_NetMode == NETMODE_SERVER && !g_NetDedicated) {
+		struct netbuf rb;
+		netbufStartReadData(&rb, g_NetLocalClient->out.data, g_NetLocalClient->out.wp);
+		netmsgClcRoomSettingsUpdateRead(&rb, g_NetLocalClient);
+		netbufStartWrite(&g_NetLocalClient->out);
+	}
 }
 
 void netSendRoomPlaylistUpdate(void)
 {
-	if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient) return;
+	if (!g_NetLocalClient) return;
 
 	/* Serialize current playlist to semicolon-delimited string. */
 	char pl[AUDIO_MAX_PLAYLIST * 65];
@@ -7045,7 +7083,18 @@ void netSendRoomPlaylistUpdate(void)
 
 	netbufStartWrite(&g_NetLocalClient->out);
 	netmsgClcRoomPlaylistUpdateWrite(&g_NetLocalClient->out, pl);
-	netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
+
+	if (g_NetMode == NETMODE_CLIENT) {
+		netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
+		return;
+	}
+
+	if (g_NetMode == NETMODE_SERVER && !g_NetDedicated) {
+		struct netbuf rb;
+		netbufStartReadData(&rb, g_NetLocalClient->out.data, g_NetLocalClient->out.wp);
+		netmsgClcRoomPlaylistUpdateRead(&rb, g_NetLocalClient);
+		netbufStartWrite(&g_NetLocalClient->out);
+	}
 }
 
 /* ============================================================================

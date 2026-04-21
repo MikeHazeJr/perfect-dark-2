@@ -1,14 +1,16 @@
 /**
  * netmenu.c -- Network multiplayer menus (PD native menu system).
  *
- * Architecture: Dedicated-server-only model.
- * - Clients NEVER host. All multiplayer goes through a dedicated server.
- * - Local play (splitscreen, solo) uses NETMODE_NONE and is unaffected.
- * - The "Multiplayer" menu provides: Server Browser, Direct IP, Recent Servers.
- * - Once connected, the lobby (pdgui_menu_lobby.cpp) handles game setup.
+ * Architecture: Dedicated server for operators + optional in-client listen host.
+ * - The game client (`PerfectDark.exe`) can **join** a dedicated server or **host**
+ *   a listen session (`netStartServer` with `g_NetDedicated == 0`) via ImGui
+ *   (`pdgui_menu_network.cpp`). The host occupies slot 0; ROM/mod checks apply.
+ * - `PerfectDarkServer.exe` is dedicated-only (`g_NetDedicated == 1`); no local player.
+ * - Local play (offline Combat Simulator) uses NETMODE_NONE and is unaffected.
+ * - The Multiplayer menu provides: Host (listen), Server Browser, connect-code join.
+ * - Once connected, the lobby (`pdgui_menu_lobby.cpp` / `pdgui_menu_room.cpp`) handles setup.
  *
- * Legacy host menus have been removed. The co-op configuration dialog is
- * retained for use by the lobby leader (runs on client, sends to server).
+ * Co-op configuration dialogs are retained for the lobby leader (sends to server).
  */
 
 #include <stdlib.h>

@@ -1771,33 +1771,36 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 						}
 					}
 
-					// Handle looking up/down while aiming
-					if (g_Vars.currentplayer->insightaimmode && movedata.c1stickyraw > 60) {
-						movedata.speedvertadown = (movedata.c1stickyraw - 60) / 10.0f;
+					/* PC twin-stick: RS aims in ADS; do not map LS to aim turn / edge speeds. */
+					if (controlmode != CONTROLMODE_PC) {
+						// Handle looking up/down while aiming
+						if (g_Vars.currentplayer->insightaimmode && movedata.c1stickyraw > 60) {
+							movedata.speedvertadown = (movedata.c1stickyraw - 60) / 10.0f;
 
-						if (movedata.speedvertadown > 1) {
-							movedata.speedvertadown = 1;
+							if (movedata.speedvertadown > 1) {
+								movedata.speedvertadown = 1;
+							}
+						} else if (g_Vars.currentplayer->insightaimmode && movedata.c1stickyraw < -60) {
+							movedata.speedvertaup = (-60 - movedata.c1stickyraw) / 10.0f;
+
+							if (movedata.speedvertaup > 1) {
+								movedata.speedvertaup = 1;
+							}
 						}
-					} else if (g_Vars.currentplayer->insightaimmode && movedata.c1stickyraw < -60) {
-						movedata.speedvertaup = (-60 - movedata.c1stickyraw) / 10.0f;
 
-						if (movedata.speedvertaup > 1) {
-							movedata.speedvertaup = 1;
-						}
-					}
+						// Handle looking left/right while aiming
+						if (g_Vars.currentplayer->insightaimmode && movedata.c1stickxraw < -60) {
+							movedata.aimturnleftspeed = (-60 - movedata.c1stickxraw) / 10.0f;
 
-					// Handle looking left/right while aiming
-					if (g_Vars.currentplayer->insightaimmode && movedata.c1stickxraw < -60) {
-						movedata.aimturnleftspeed = (-60 - movedata.c1stickxraw) / 10.0f;
+							if (movedata.aimturnleftspeed > 1) {
+								movedata.aimturnleftspeed = 1;
+							}
+						} else if (g_Vars.currentplayer->insightaimmode && movedata.c1stickxraw > 60) {
+							movedata.aimturnrightspeed = (movedata.c1stickxraw - 60) / 10.0f;
 
-						if (movedata.aimturnleftspeed > 1) {
-							movedata.aimturnleftspeed = 1;
-						}
-					} else if (g_Vars.currentplayer->insightaimmode && movedata.c1stickxraw > 60) {
-						movedata.aimturnrightspeed = (movedata.c1stickxraw - 60) / 10.0f;
-
-						if (movedata.aimturnrightspeed > 1) {
-							movedata.aimturnrightspeed = 1;
+							if (movedata.aimturnrightspeed > 1) {
+								movedata.aimturnrightspeed = 1;
+							}
 						}
 					}
 
@@ -2251,6 +2254,49 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 		movedata.speedvertaup = savedverta;
 	}
 
+	/* PC: ADS uses separate sensitivity (SensAdsUi) vs hip look; slight movement slowdown. */
+	if (controlmode == CONTROLMODE_PC && g_Vars.currentplayer->insightaimmode) {
+		f32 hip = actionmapGetStickSensitivityAim();
+		f32 ads = actionmapSensUiToMult(actionmapGetSensAdsUi());
+		if (hip > 0.0001f) {
+			f32 ratio = ads / hip;
+			s32 nt = (s32)((f32)movedata.analogturn * ratio + (ratio >= 0.f ? 0.5f : -0.5f));
+			s32 np = (s32)((f32)movedata.analogpitch * ratio + (ratio >= 0.f ? 0.5f : -0.5f));
+			if (nt < -127) {
+				nt = -127;
+			}
+			if (nt > 127) {
+				nt = 127;
+			}
+			if (np < -127) {
+				np = -127;
+			}
+			if (np > 127) {
+				np = 127;
+			}
+			movedata.analogturn = nt;
+			movedata.analogpitch = np;
+		}
+		{
+			s32 ns = (s32)((f32)movedata.analogstrafe * 0.88f + (movedata.analogstrafe >= 0 ? 0.5f : -0.5f));
+			s32 nw = (s32)((f32)movedata.analogwalk * 0.88f + (movedata.analogwalk >= 0 ? 0.5f : -0.5f));
+			if (ns < -127) {
+				ns = -127;
+			}
+			if (ns > 127) {
+				ns = 127;
+			}
+			if (nw < -127) {
+				nw = -127;
+			}
+			if (nw > 127) {
+				nw = 127;
+			}
+			movedata.analogstrafe = ns;
+			movedata.analogwalk = nw;
+		}
+	}
+
 	bgunTickGameplay(movedata.triggeron);
 
 	if (g_Vars.bondvisible && (bgunIsFiring(HAND_RIGHT) || bgunIsFiring(HAND_LEFT))) {
@@ -2316,6 +2362,9 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 
 		if (movedata.zooming) {
 			zoomfov = currentPlayerGetGunZoomFov();
+			if (controlmode == CONTROLMODE_PC) {
+				zoomfov *= actionmapGetPcAdsZoomFovMul();
+			}
 		}
 
 		if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_AR34
@@ -2622,7 +2671,11 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 			bgunSwivelWithDamp(x, y, 0.01f);
 			return;
 		}
-		bgunSwivelWithoutDamp((movedata.c1stickxraw * 0.65f) / 80.0f, (movedata.c1stickyraw * 0.65f) / 80.0f);
+		if (controlmode == CONTROLMODE_PC) {
+			bgunSwivelWithoutDamp((movedata.analogturn * 0.65f) / 80.0f, (movedata.analogpitch * 0.65f) / 80.0f);
+		} else {
+			bgunSwivelWithoutDamp((movedata.c1stickxraw * 0.65f) / 80.0f, (movedata.c1stickyraw * 0.65f) / 80.0f);
+		}
 	}
 }
 

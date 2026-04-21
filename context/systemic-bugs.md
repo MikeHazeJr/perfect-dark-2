@@ -21,7 +21,8 @@
 **Fix strategy**: Bounds-check and SKIP for bots — never alias via modulo.
 
 **Files fixed (S15)**: ingame.c, mplayer.c, bondview.c, menutick.c
-**Files still needing audit**: activemenu.c:71, player.c:5094, endscreen.c:1704/1806, menu.c:5590/5972/6280
+**Files fixed (P6-A / Tier 6)**: menu.c (`currentPlayerIsMenuOpenInSoloOrMp`, `func0f0f8120`), activemenu.c (`amOpen`, `amOpenPickTarget`, `amRender`)
+**Files still needing audit**: player.c:5094 (and any remaining `g_Menus[` / `g_AmMenus[` index sites per grep)
 
 **Search command**: `grep -rn 'g_MpPlayerNum\|% MAX_PLAYERS\|AVOID_UB' src/`
 

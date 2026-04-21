@@ -25,6 +25,8 @@
 #include "game/challenge.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/mpspawn_orchestrate.h"
+#include "game/spawnpool.h"
 #include "game/pad.h"
 #include "game/padhalllv.h"
 #include "game/propobj.h"
@@ -318,7 +320,29 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 	if (aibot) {
 		botReset(chr, respawning);
 		splatResetChr(chr);
-		thing = scenarioChooseSpawnLocation(chr->radius, &pos, rooms, chr->prop);
+		if (!respawning && g_MpOrchestrateInitialSpawnDone
+				&& aibot->aibotnum >= 0 && aibot->aibotnum < MAX_BOTS
+				&& g_MpOrchestrateBotPoolIdx[aibot->aibotnum] >= 0) {
+			const spawn_pool_t *spool = spawnPoolGet();
+			s32 pidx = g_MpOrchestrateBotPoolIdx[aibot->aibotnum];
+
+			g_MpOrchestrateBotPoolIdx[aibot->aibotnum] = -1;
+			if (spawnPoolIsReady() && spool && pidx >= 0 && pidx < spool->count) {
+				pos = spool->points[pidx].pos;
+				rooms[0] = spool->points[pidx].room;
+				rooms[1] = -1;
+				/* chrMoveToPos / chrSetLookAngle use (M_BADTAU - angle_rad) convention */
+				thing = M_BADTAU - spool->points[pidx].angle_rad;
+				sysLogPrintf(LOG_NOTE,
+					"SPAWN.ORCH: bot slot=%d pool=%d pos=(%.0f,%.0f,%.0f) room=%d",
+					(s32)aibot->aibotnum, pidx,
+					pos.x, pos.y, pos.z, (s32)rooms[0]);
+			} else {
+				thing = scenarioChooseSpawnLocation(chr->radius, &pos, rooms, chr->prop);
+			}
+		} else {
+			thing = scenarioChooseSpawnLocation(chr->radius, &pos, rooms, chr->prop);
+		}
 		chr->hidden |= CHRHFLAG_WARPONSCREEN;
 		chrMoveToPos(chr, &pos, rooms, thing, true);
 		/* Room recovery after spawn: if chrMoveToPos left rooms[0]==-1 the

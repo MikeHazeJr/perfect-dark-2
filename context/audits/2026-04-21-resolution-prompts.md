@@ -124,29 +124,49 @@ interaction with menupool skill patterns.
 
 **Depends on:** explicit design before large refactors. **No dependency** on Tier 3 (orthogonal).
 
-### P4-A — Plugin boundary design (doc-only)
+**Direction (locked 2026-04-21):** The dedicated server is a **manifest broker**, not a copy of the game. **Catalog ID strings** (`namespace:name`) are the asset identity at protocol boundaries (`context/constraints.md`). Each client has a **private dynamic catalog**; **loading and memory** for a match follow the **host manifest**, validated by **hashes** (and/or host revision) for netplay. The server binary should **not** embed game content (ROM, stages, art) — only transport, room/hub state, manifest storage/distribution, readiness/trust gating, admin. Optional **loadable policy code** is secondary to **data-first** rules. Full ADR: [`context/designs/pd-server-plugin-abi-adr.md`](../designs/pd-server-plugin-abi-adr.md).
+
+### P4-A — Broker + catalog-ID architecture (doc-only) — **DONE**
 
 ```
-Draft an ADR: game-agnostic pd-server plugin ABI — what lives in core vs PD2 DLL:
-message dispatch, lobby/match config shapes, stub replacement strategy for
-server_stubs.c, CMake targets, versioning. Reference port/src/server_main.c,
-server_bridge.c, server_stubs.c. No implementation yet — design only.
+Delivered: context/designs/pd-server-plugin-abi-adr.md (updated 2026-04-21) —
+manifest broker as primary model; optional PD2 policy module; P4-B/C migration
+notes; versioning (NET_PROTOCOL_VER vs manifest revision vs optional
+PD_SERVER_PLUGIN_ABI_VERSION). **Link:** `context/server-architecture.md` see-also
+line points at this ADR (Tier 4 C-1). **Optional follow-up:** wire-level sketch
+for manifest revision + per-player readiness (Trust Everyone / Friends /
+Confirm First) without stalling the whole lobby — add to ADR appendix or small
+`context/designs/` note when implementing P4-B.
 ```
 
 ### P4-B — Implementation spike (after P4-A approved)
 
 ```
-Implement the smallest vertical slice of P4-A: e.g. extract one PD2-specific
-table (g_MpArenas or equivalent) behind a function pointer loaded from a PD2
-registration module; keep PerfectDarkServer.exe behavior byte-identical. Single
-PR scope — no full plugin load yet unless ADR says otherwise.
+Smallest vertical slice aligned with the ADR — NOT "move g_MpArenas behind a
+function pointer" as the primary story. Prefer instead:
+- Host (or host client) path submits a manifest to the server; server stores it
+  and fans it out to peers; manifest entries use catalog IDs + expected hashes
+  (or host baseline revision) per constraints.md.
+- Per-player readiness bits for "accepted manifest rev / hash" so Confirm First
+  can exist without blocking other players or the host (server must not freeze
+  the lobby for everyone when one player is in a modal).
+- Deliberate NET_PROTOCOL_VER bump if new fields are required; do not claim
+  byte-identical wire if the protocol changes.
+
+Single PR scope. Optional loadable DLL/static policy module only if the spike
+requires a hook the manifest cannot express — keep game payloads out of the
+server binary.
 ```
 
-### P4-C — Stubs reduction (follows P4-B iterations)
+### P4-C — Stubs reduction + broker completion (follows P4-B iterations)
 
 ```
-Continue migrating globals from port/src/server_stubs.c behind the plugin/core
-split per ADR. Track line-count and link symbols explicitly in CMake.
+Continue removing reliance on port/src/server_stubs.c baked PD2 tables where the
+manifest + catalog-ID path replaces server-side authority. Remaining link glue
+may move to an optional policy target or stay minimal in core. Track stub
+line-count and explicit link surfaces in CMake / session-log so shrinkage is
+visible. Align netmsg paths with "broker compares IDs + hashes + readiness"
+before PD2-specific branches.
 ```
 
 ---
@@ -155,33 +175,41 @@ split per ADR. Track line-count and link symbols explicitly in CMake.
 
 **Depends on:** product decision to raise caps or fix LAN party perf — not required for Tier 3.
 
-### P5-A — Interest management / broadcast narrowing (**SEC-8/9** class from prior audits)
+### P5-A — Interest management / broadcast narrowing (**SEC-8/9** class from prior audits) — **design doc DONE**
 
 ```
-Audit port/src/net/netmsg.c and netdistrib.c for O(clients²) or full-mesh fan-out;
-draft a design for stage-scoped or PVS-based replication for player props — even
-a "good enough" radius filter. Protocol impact may require NET_PROTOCOL_VER bump
-per constraints.
+Delivered: context/designs/interest-management-replication.md (2026-04-21) —
+audit of net.c netEndFrame + shared buffers + enet_host_broadcast; netdistrib.c
+called out as orthogonal (per-client mod transfer); phased plan (room relevance,
+radius/cell, PVS long-term, cadence throttling); protocol / NET_PROTOCOL_VER notes;
+references prior SEC-8/9 write-up in context/audits/2026-04-19-server-security-scaling.md.
+
+Implementation remains future work (instrumentation → prototype behind flags → wire
+change only when needed).
 ```
 
 ---
 
 ## Tier 6 — Systemic / game code hygiene (parallel OK; no net dependency)
 
-### P6-A — SP-1 remaining sites (**M-3**)
+### P6-A — SP-1 remaining sites (**M-3**) — **DONE**
 
 ```
-Per context/systemic-bugs.md SP-1: grep remaining g_AmMenus[MAX_PLAYERS] / bot
-mpindex risks (activemenu.c, endscreen.c, menu.c sites listed in systemic-bugs).
-Fix with bounds-check + skip — never modulo-alias bots onto player slots.
+Landed: menu.c — currentPlayerIsMenuOpenInSoloOrMp() rejects mpindex outside
+[0, MAX_PLAYERS) before the >=4 fold (fixes 12→8 OOB). func0f0f8120() removes
+AVOID_UB % MAX_LOCAL_PLAYERS alias; bounds-check g_MpPlayerNum then index g_Menus[].
+
+activemenu.c — amOpen() / amOpenPickTarget() / amRender() guard g_AmIndex /
+ARRAYCOUNT(g_AmMenus). endscreen.c already had mpindex guards on coop/counter-op push.
+
+context/systemic-bugs.md SP-1 table updated.
 ```
 
-### P6-B — Hub room 0 legacy note (**M-2**)
+### P6-B — Hub room 0 legacy note (**M-2**) — **DONE**
 
 ```
-Add an ADR comment block to hub.c / room.c documenting room 0 backward-compat
-sync with g_Lobby.inGame and the multi-room roadmap — no behavior change unless
-you find a real bug while reading.
+port/src/hub.c and port/src/room.c: ADR-style comment blocks (P6-B) on room 0,
+g_Lobby.inGame sync, HUB_MAX_ROOMS / multi-room roadmap — no behavior change.
 ```
 
 ---
@@ -194,9 +222,11 @@ you find a real bug while reading.
 | 2 | **1** | Lock down exposed-server abuse before advertising listen host |
 | 3 | **2** | Doc threat model while behavior is fresh |
 | 4 | **3** | Ship Host / go-online UX on hardened base |
-| 5 | **4** | Long-running plugin programme in parallel with features |
+| 5 | **4** | Long-running **manifest broker** programme (catalog IDs, no game content in server exe) in parallel with features |
 | 6 | **5–6** | As capacity work and cleanup sprints allow |
 
 ---
 
 *Generated for audit [`2026-04-21-full.md`](2026-04-21-full.md). Adjust if priorities shift.*
+
+**Tier 4 note (2026-04-21):** Tier 4 revised to match [`../designs/pd-server-plugin-abi-adr.md`](../designs/pd-server-plugin-abi-adr.md) — manifest broker + catalog IDs first; remaining prompts assume that direction.

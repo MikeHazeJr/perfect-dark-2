@@ -8,6 +8,10 @@ This branch of the port contains an **extremely** early and experimental impleme
 
 See [this file](https://github.com/fgsfdsfgs/perfect_dark/blob/port-net/docs/netplay.md) for more information on how this works.
 
+## Perfect Dark 2 (Mike fork) — note
+
+This repository may include the **PD2** PC port workstream on top of upstream `port-net`. For **multiplayer hosting** (listen-in-client vs `PerfectDarkServer`, connect codes, ROM/mod checks, NAT/RCON), see the design note in this tree: `context/designs/hosting-modes-listen-vs-dedicated.md`. Developer entry points: `CLAUDE.md` (§ Server and hosting), `context/server-architecture.md`.
+
 ## Original description
 
 This repository contains a work-in-progress port of the [Perfect Dark decompilation](https://github.com/n64decomp/perfect_dark) to modern platforms.

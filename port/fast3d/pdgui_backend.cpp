@@ -113,6 +113,28 @@ extern "C" s32 inputMouseIsLocked(void);
 /* Logging */
 #include "system.h"
 
+namespace {
+/**
+ * Shared predicate for pdguiNewFrame / pdguiRender early-exit: must stay in sync
+ * with whether we skip the legacy active-menu GBI path (pdguiActiveMenuIsOpen).
+ */
+static bool pdguiAnyStandardOverlayReason(
+    bool debugOverlayActive,
+    bool menuStackDiag,
+    bool networkActive,
+    bool pauseActive,
+    bool hubActive,
+    bool interactPrompt)
+{
+    if (debugOverlayActive || menuStackDiag || networkActive || pauseActive || hubActive || interactPrompt) {
+        return true;
+    }
+    return pdguiActiveMenuIsOpen() != 0;
+}
+
+static bool s_LoggedActiveMenuBeforeInit;
+} // namespace
+
 /* Forward declaration only — game/lang.h includes data.h which #define bool s32 */
 extern "C" char *langGet(s32 textid);
 
@@ -448,9 +470,18 @@ void pdguiNewFrame(void)
      * non-NULL — we must run ImGui this frame. The default path skips NewFrame
      * during "clean" solo gameplay (no menus/network), which hid the prompt. */
     bool interactPrompt = (propInteractPromptLabel() != NULL);
-    if (!g_PdguiInitialized ||
-        (!debugOverlayActive && !menuStackDiag && !pdguiHotswapHasQueued() && !pdguiHotswapWasActive() &&
-         !networkActive && !pauseActive && !hubActive && !interactPrompt)) {
+    if (!g_PdguiInitialized) {
+        /* Invariant: gameplay cannot open the active menu before pdguiInit(). */
+        if (pdguiActiveMenuIsOpen() && !s_LoggedActiveMenuBeforeInit) {
+            sysLogPrintf(LOG_ERROR,
+                "pdgui: active menu open while ImGui not initialized (init ordering bug)");
+            s_LoggedActiveMenuBeforeInit = true;
+        }
+        return;
+    }
+    if (!pdguiAnyStandardOverlayReason(
+             debugOverlayActive, menuStackDiag, networkActive, pauseActive, hubActive, interactPrompt)
+        && !pdguiHotswapHasQueued() && !pdguiHotswapWasActive()) {
         return;
     }
 
@@ -544,9 +575,17 @@ void pdguiRender(void)
     bool debugOverlayActive = (inputCtxIsActive(&g_CtxDebugOverlay) != 0);
     bool menuStackDiag = (pdguiMenuStackOverlayGetOpen() != 0);
     bool interactPrompt = (propInteractPromptLabel() != NULL);
-    if (!g_PdguiInitialized ||
-        (!debugOverlayActive && !menuStackDiag && !s_ConsoleVisible && !hotswapQueued && !hotswapWasActive &&
-         !networkActive && !updateActive && !pauseActive && !hubActive && !interactPrompt)) {
+    if (!g_PdguiInitialized) {
+        if (pdguiActiveMenuIsOpen() && !s_LoggedActiveMenuBeforeInit) {
+            sysLogPrintf(LOG_ERROR,
+                "pdgui: active menu open while ImGui not initialized (init ordering bug)");
+            s_LoggedActiveMenuBeforeInit = true;
+        }
+        return;
+    }
+    if (!pdguiAnyStandardOverlayReason(
+             debugOverlayActive, menuStackDiag, networkActive, pauseActive, hubActive, interactPrompt)
+        && !s_ConsoleVisible && !hotswapQueued && !hotswapWasActive && !updateActive) {
         return;
     }
 

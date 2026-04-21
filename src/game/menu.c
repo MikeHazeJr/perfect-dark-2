@@ -263,6 +263,10 @@ bool currentPlayerIsMenuOpenInSoloOrMp(void)
 	s32 mpindex = g_Vars.currentplayerstats->mpindex;
 
 	if (menuIsSoloMissionOrMp()) {
+		/* SP-1: g_Menus[MAX_PLAYERS] — never index with bot mpindex (8+). */
+		if (mpindex < 0 || mpindex >= MAX_PLAYERS) {
+			return false;
+		}
 		if (mpindex >= 4) {
 			mpindex -= 4;
 		}
@@ -3631,14 +3635,15 @@ void menuClose(void)
 
 void func0f0f8120(void)
 {
-#ifdef AVOID_UB
-	u32 mpindex = g_MpPlayerNum % MAX_LOCAL_PLAYERS;
-	struct menudialog *prev = g_Menus[mpindex].curdialog;
+	struct menudialog *prev;
 	s32 i;
-#else
-	struct menudialog *prev = g_Menus[g_MpPlayerNum].curdialog;
-	s32 i;
-#endif
+
+	/* SP-1 / SP-2: g_Menus[MAX_PLAYERS] — bounds-check; never % MAX_LOCAL_PLAYERS
+	 * alias (bots onto wrong player slots). */
+	if (g_MpPlayerNum < 0 || g_MpPlayerNum >= MAX_PLAYERS) {
+		return;
+	}
+	prev = g_Menus[g_MpPlayerNum].curdialog;
 
 	if (g_MenuData.unk66e > 0) {
 		for (i = g_MenuData.unk66e; i >= 0; i--) {
@@ -3646,19 +3651,11 @@ void func0f0f8120(void)
 		}
 	}
 
-#ifdef AVOID_UB
-	if (g_Menus[mpindex].curdialog == prev) {
-		while (g_Menus[mpindex].depth > 0) {
-			menuPopDialog();
-		}
-	}
-#else
 	if (g_Menus[g_MpPlayerNum].curdialog == prev) {
 		while (g_Menus[g_MpPlayerNum].depth > 0) {
 			menuPopDialog();
 		}
 	}
-#endif
 }
 
 void func0f0f820c(struct menudialogdef *dialogdef, s32 root)

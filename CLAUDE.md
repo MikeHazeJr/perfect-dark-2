@@ -151,3 +151,9 @@ The goal: if context is cleared right now, the next session picks up in under a 
 - `src/lib/` — Engine libraries: collision, capsule physics, model loading
 - `port/fast3d/` — Rendering: GBI translator, ImGui backend, PD-authentic styling
 - `port/src/net/` — Networking: ENet integration, message handlers
+
+## Server and hosting
+
+Build targets include **`pd`** (game client) and **`pd-server`** (`PerfectDarkServer.exe`). **Listen** mode runs the server inside the game client (`g_NetDedicated == 0`); **dedicated** is headless or server-GUI only (`g_NetDedicated == 1`, `g_NetLocalClient == NULL`). Dedicated servers skip ROM/mod checks at `CLC_AUTH` because no ROM is loaded; connect codes hide raw IPs in UI per `context/constraints.md`.
+
+Threat model and operational notes: **`context/designs/hosting-modes-listen-vs-dedicated.md`**. Dedicated layout and GUI: **`context/server-architecture.md`**.

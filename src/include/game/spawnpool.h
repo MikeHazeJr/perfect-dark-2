@@ -175,6 +175,13 @@ s32 spawnPoolSelect(const spawn_pool_t *pool, const struct coord *occupied,
  * responsibility).  out_tier receives the tier that produced the
  * returned index (SPAWN_TIER_NONE on -1).
  *
+ * teammate_positions / num_teammates: when teams are enabled and
+ * num_teammates > 0, each candidate is scored with min-distance-to-
+ * occupied plus a weighted mean (1/N) of XZ dot products from pool_center
+ * toward each teammate — preferring spawns on the same side of the map
+ * as the group.  ~20% of calls ignore this term (relax) to reduce spawn
+ * oscillation.  Pass NULL / 0 when unused.
+ *
  * Guarantees at least one valid selection when pool->count > 0, unless
  * every slot has `used` flagged by occupied[] AND the pool has fewer
  * slots than occupied (physically impossible to avoid overlap).  Even
@@ -185,6 +192,7 @@ s32 spawnPoolSelectTiered(const spawn_pool_t *pool,
                           const struct coord *occupied, s32 num_occupied,
                           s32 team, s32 num_teams,
                           const struct coord *pool_center,
+                          const struct coord *teammate_positions, s32 num_teammates,
                           spawn_select_tier_t *out_tier);
 
 /*

@@ -325,6 +325,8 @@ u32 netmsgClcRoomJoinWrite(struct netbuf *dst, u8 room_id, const char *password)
 u32 netmsgClcRoomJoinRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgClcRoomLeaveWrite(struct netbuf *dst);
 u32 netmsgClcRoomLeaveRead(struct netbuf *src, struct netclient *srccl);
+/* In-client listen host: leave room without sending CLC (no ENet peer to self). */
+void netListenHostRoomLeave(void);
 
 /* MASTER-C2b: Admin RCON messages. */
 u32 netmsgClcAdminRead(struct netbuf *src, struct netclient *srccl);

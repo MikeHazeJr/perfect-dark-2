@@ -198,6 +198,7 @@ void matchConfigRerollBotName(s32 idx);
 /* R-3: Room networking — send leave to server */
 struct netbuf;
 u32 netmsgClcRoomLeaveWrite(struct netbuf *dst);
+void netListenHostRoomLeave(void);
 u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, const s32 chan);
 extern struct netbuf g_NetMsgRel;
 void netbufStartWrite(struct netbuf *buf);
@@ -3954,15 +3955,18 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 menupoolRelease(MENU_TYPE_ROOM);
                 if (s_IsSoloMode) {
                     pdguiSoloRoomClose();  /* return to main menu */
-                } else {
-                    /* R-3: Tell server we're leaving the room */
-                    if (g_NetMode == RM_NETMODE_CLIENT) {
-                        netbufStartWrite(&g_NetMsgRel);
-                        netmsgClcRoomLeaveWrite(&g_NetMsgRel);
-                        netSend(NULL, &g_NetMsgRel, 1, 0);
+                    } else {
+                        /* R-3: Tell server we're leaving the room */
+                        if (g_NetMode == RM_NETMODE_CLIENT) {
+                            netbufStartWrite(&g_NetMsgRel);
+                            netmsgClcRoomLeaveWrite(&g_NetMsgRel);
+                            netSend(NULL, &g_NetMsgRel, 1, 0);
+                        } else if (g_NetMode == NETMODE_SERVER && !g_NetDedicated) {
+                            /* Listen host has no ENet peer to self — local server path. */
+                            netListenHostRoomLeave();
+                        }
+                        pdguiSetInRoom(0);  /* return to social lobby, stay connected */
                     }
-                    pdguiSetInRoom(0);  /* return to social lobby, stay connected */
-                }
             } else if (doCancel) {
                 pdguiPlaySound(PDGUI_SND_KBCANCEL);
                 s_ShowLeaveConfirm = false;
@@ -3979,7 +3983,9 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     }
 
     /* R-5: If leader changed settings this frame, broadcast to room members */
-    if (s_RoomSettingsDirty && g_NetMode == NETMODE_CLIENT && lobbyIsLocalLeader()) {
+    if (s_RoomSettingsDirty && lobbyIsLocalLeader()
+        && (g_NetMode == NETMODE_CLIENT
+            || (g_NetMode == NETMODE_SERVER && !g_NetDedicated))) {
         netSendRoomSettingsUpdate();
         s_RoomSettingsDirty = false;
     }

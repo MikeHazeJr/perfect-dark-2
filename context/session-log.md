@@ -4,6 +4,89 @@
 > **S283–S410** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S428 — 2026-04-21 — MP spawn: Hungarian solver, anchors, lv before playerSpawn
+
+- **`mpspawn_hungarian.c` / `mpspawn_hungarian.h`:** Min-cost square assignment (`mpHungarianMinSquare`); pads participants to `pool->count` with zero dummy rows.
+- **`mpspawn_orchestrate.c`:** Team **anchors** (farthest-from-center first pool point, then max-min XZ spread), **Voronoi** soft costs, **int64** Hungarian + **bottleneck swap** refinement, **qsort** participants for lockstep; guard **`g_Vars.mplayerisrunning`**. RELAX **team_zone** logs use **`s_Anchors[team]`**.
+- **`playerreset.c`:** Initial MP uses temp **`pool[0]`** + deferred log; real placement from orchestrator.
+- **`lv.c`:** All **`playerReset`**, **`mpOrchestrateMatchStartSpawns()`**, then all **`playerSpawn`**. **`bot.c`:** orchestrator **removed** from `botSpawnAll` (single site: `lv.c`).
+- **`player.c`:** **`playerApplyOrchestratedSpawnFromPool`** uses **`mplayerisrunning`** guard.
+- **Net:** Same roster + **`g_NetMatchSeed`** + stage id + pool build as host yields identical assignment without extra spawn-index messages.
+- **Build:** verify `devtools/build-headless.ps1 -Target client` locally.
+
+## Session S427 — 2026-04-20 — Active menu: single ImGui gate (no init fallback)
+
+- **`pdgui_bridge.c`**: **`pdguiActiveMenuIsOpen()`** — pure game state (`currentplayer` + `activemenumode != AMMODE_CLOSED`). **`pdguiActiveMenuShouldSkipLegacyWheel()`** delegates to it (removed **`pdguiIsInitialized()`** branch). Dropped **`#include "pdgui.h"`** here.
+- **`pdgui.h` / `pdgui_backend.cpp`**: Removed **`pdguiIsInitialized()`**.
+- **`pdgui_backend.cpp`**: **`pdguiAnyStandardOverlayReason()`** centralizes the same overlay predicate for **`pdguiNewFrame`** and **`pdguiRender`** (active menu via **`pdguiActiveMenuIsOpen`**). When **`!g_PdguiInitialized`**, log once if the active menu is open (ordering bug), then return.
+- **`pdgui_activemenu_radial.h`**: Documents **`pdguiActiveMenuIsOpen`**.
+- **Intent**: No “skip GBI only when ImGui is ready” fallback — **GBI skip tracks game open state**; **ImGui frame/render** tracks the shared overlay predicate so the two cannot drift. Relies on **`pdguiInit()`** before normal gameplay.
+- **Build**: Not verified in this agent environment; use **`devtools/build-headless.ps1`** locally.
+
+## Session S426 — 2026-04-20 — MP match-start spawn orchestration (wired)
+
+- **`mpspawn_orchestrate.c`:** Early exit if `g_MpOrchestrateInitialSpawnDone` (no double-orchestrate on second `botSpawnAll`). Relax pass skips the relocated participant index in min-distance (`orch_min_dist_sq_to_placed` / `orch_pick_any_unused`); duplicate fix targets `viol_b`; RELAX log uses full `count_on_pool_idx` + `teams_mask_on_point`. ASCII hyphen in no-slot warning.
+- **`spawnpool.c`:** `spawnPoolBuildGlobal` + `spawnPoolReset` call `mpOrchestrateReset()` so pool rebuild clears orchestrator state.
+- **`bot.c`:** `botSpawnAll()` calls `mpOrchestrateMatchStartSpawns()` before the bot loop; orchestrated path uses `thing = M_BADTAU - angle_rad` for `chrMoveToPos`.
+- **`player.c`:** `playerApplyOrchestratedSpawnFromPool()` implemented (pool ground + bond + camera + `bmoveUpdateRooms`).
+- **`mpspawn_orchestrate.h`:** `#include "constants.h"` for `MAX_BOTS`.
+- **Build:** verify locally (`devtools/build-headless.ps1 -Target client`); agent CMake here may lack arch env.
+
+## Session S425 — 2026-04-20 — PC ADS: twin-stick, SensAdsUi, UI 1–10 (0.5)
+
+- **`actionmap` / `pd.ini`:** Replaced `ActionMap.StickSensitivity` / `StickSensitivityAim` with **`ActionMap.SensMoveUi`**, **`SensAimUi`**, **`SensAdsUi`** (1–10, 0.5 steps; internal mult 0.1–3.0 via `actionmapSensUiToMult` / `actionmapRefreshStickMultFromUi`). **`actionmapGetPcAdsZoomFovMul`** scales ADS gun FOV slightly with ADS sensitivity. Legacy stick-sensitivity keys are no longer registered (orphaned lines in old `pd.ini` are ignored).
+- **`bondmove.c`:** PC + ADS: no left-stick edge aim speeds; RS look uses **ADS vs hip** ratio and **0.88** strafe/walk scale; **zoom FOV** extra mul on PC when `movedata.zooming`; **manual aim** crosshair uses `analogturn`/`analogpitch` (RS) for PC instead of `c1stick*raw`.
+- **`pdgui_menu_mainmenu.cpp`:** Controller tab — move / look / **Aim-down-sights** sliders **1–10**, `PdSliderSensUi` + `ImGuiSliderFlags_AlwaysClamp`.
+- **Build:** not verified in agent env (ninja/ccache `CreateProcess`); verify `devtools/build-headless.ps1 -Target client` locally.
+
+## Session S424 — 2026-04-21 — MP team spawns: weighted teammate dot + 20% relax
+
+- **`spawnpool.c`:** When `num_teammates > 0` and teams are active, `poolPickFarthest` maximizes `min_dist_sq + SPAWN_TEAM_DOT_WEIGHT * mean_i dot(u_spawn,u_tm)` (XZ, directions from `pool_center`). `spawnPoolSelectTiered` rolls **20%** `SPAWN_TEAM_RELAX_BIAS_PCT` to use pure FFA farthest-first (`SPAWN.TEAM: relaxed bias roll` log). No teammates yet keeps angular-sector behaviour.
+- **`player.c` / `playerreset.c`:** `playerCollectMpTeammatePositions()` + `playerMpResolveTeamSpawnParams()` (static); tiered select wired with teammate arrays for respawn, zero-pad, and initial MP spawn.
+- **Build:** verify locally if agent env cannot run ninja.
+
+## Session S423 — 2026-04-21 — MP initial bot spawn: legacy shortlist bypass vs tiered pool
+
+- **Issue:** Chicago + max simulants: bots appeared to stack (often near one point / origin-adjacent) on **initial** spawn; humans already used the tiered pool in `playerreset.c` (`lvframe60 == 0`).
+- **Cause:** `playerTrySelectPoolSpawn` (S302) returned false when `g_NumSpawnPoints >= needed + needed/2`, sending bots through the **legacy four-pad shortlist** even when the map listed dozens of spawns. For 32 participants the threshold is 48 pads; pad-rich arenas bypassed the pool while `needed` was still huge, so initial bot placement repeated the same few pads.
+- **Fix:** `player.c` — only allow that legacy bypass when `needed <= 8` (small matches where the shortlist is still viable). High bot counts always use `spawnPoolSelectTiered` + reservations when the pool is ready.
+- **Build:** not verified here (ninja/ccache `CreateProcess` failure in agent env); verify `devtools/build-headless.ps1 -Target client` locally.
+
+## Session S425 — 2026-04-21 — P6-A/P6-B Tier 6 (SP-1 + hub/room ADR notes)
+
+- **P6-A (SP-1):** `menu.c` — `currentPlayerIsMenuOpenInSoloOrMp` bounds-check `mpindex` before `g_Menus[]`; `func0f0f8120` removed `% MAX_LOCAL_PLAYERS` path, `g_MpPlayerNum` guard only. `activemenu.c` — `amOpen`, `amOpenPickTarget`, `amRender` guard `g_AmIndex` vs `ARRAYCOUNT(g_AmMenus)`.
+- **P6-B:** `port/src/hub.c`, `port/src/room.c` — ADR note blocks (room 0, `g_Lobby.inGame`, multi-room roadmap).
+- **Docs:** `context/systemic-bugs.md` SP-1 fixes list; `context/audits/2026-04-21-resolution-prompts.md` Tier 6 marked done.
+
+## Session S424 — 2026-04-21 — P5-A interest management design (SEC-8/9)
+
+- **New:** `context/designs/interest-management-replication.md` — audit of `net.c` `netEndFrame` shared-buffer + `enet_host_broadcast` pattern; `netdistrib.c` scoped as orthogonal; phased options (room relevance, radius/cell, cadence, PVS later); `NET_PROTOCOL_VER` notes.
+- **Updated:** `context/audits/2026-04-21-resolution-prompts.md` (P5-A marked design done), `context/README.md` design index, `context/tasks-current.md` SEC-8/9 pointer.
+
+## Session S423 — 2026-04-21 — Tier 4 ADR + audit prompts: manifest broker, catalog IDs
+
+- **`context/designs/pd-server-plugin-abi-adr.md`:** **Revised primary model** — dedicated server as **host-manifest broker** (catalog ID strings + hashes / revision; per-client private dynamic catalogs; **no game content** in server binary); **Trust** / **Confirm First** called out (per-player readiness, no whole-lobby stall); optional **loadable policy module** secondary to data-first rules; **P4-B** / **P4-C** realigned (broker spike + stub shrink toward manifest authority, not `g_MpArenas` + function-pointer as headline).
+- **`context/audits/2026-04-21-resolution-prompts.md`:** Tier 4 section updated — **P4-A marked done**, **P4-B** / **P4-C** prompts match manifest-first direction; execution-order note for Tier 4.
+- **Next:** Approve broker ADR, then **P4-B** wire + server state slice (manifest in, fan-out, readiness bits).
+
+## Session S422 — 2026-04-21 — P4-A ADR: game-agnostic pd-server plugin ABI (Tier 4 C-1)
+
+- **New:** `context/designs/pd-server-plugin-abi-adr.md` — ADR for **`pd-server-core`** vs **PD2 plugin**: wire codec stays in core; game decision points as versioned callbacks (`pd_server_plugin_reg` / `pd_server_game_ops` naming TBD); `server_stubs.c` split + migration phases (P4-B spike, P4-C line-count tracking); CMake targets (`pd-server-core`, `pd2_server_plugin`, `PerfectDarkServer`); **`PD_SERVER_PLUGIN_ABI_VERSION`** vs **`NET_PROTOCOL_VER`**; references `port/src/server_main.c`, `server_bridge.c`, `server_stubs.c`, `CMakeLists.txt`. **Doc-only** — no code in P4-A. *(Superseded emphasis — see S423.)*
+- **Links:** `context/README.md` design index, `context/server-architecture.md` (see-also).
+- **Next:** Mike approves ADR, then **P4-B** smallest vertical slice (e.g. `g_MpArenas` behind registration / static link first). *(Superseded — see S423.)*
+
+## Session S421 — 2026-04-20 — README PD2 fork + H-1 listen host UI (P3-A/P3-B)
+
+- **README.md**: “Perfect Dark 2 (Mike fork)” note linking `context/designs/hosting-modes-listen-vs-dedicated.md`, `CLAUDE.md`, `context/server-architecture.md`.
+- **P3-A**: `pdgui_menu_network.cpp` — “Host game / Go online” calls `netStartServer` (disconnects first if `NETMODE_CLIENT`); port from UI + `Net.Server.Port` in `net.c` `configRegisterUInt`; UPnP/STUN status labels; `netmenu.c` / file headers updated (clients can host listen).
+- **P3-B**: `pdgui_lobby.cpp` — `NETMODE_SERVER && !g_NetDedicated` uses same lobby/room/distrib path as clients + compact **HOSTING (THIS PC)** connect-code banner. `netmsg.c` — `netSendRoomSettingsUpdate` / `netSendRoomPlaylistUpdate` re-encode CLC for listen host via `netbufStartReadData` + read handlers; `netListenHostRoomLeave()` for leave-room without CLC. `pdgui_menu_room.cpp` / `pdgui_menu_mpsettings.cpp` — leader/playlist gates include listen host.
+- **Build**: not verified in this agent environment (ccache/CreateProcess path); verify `devtools/build-headless.ps1 -Target client` locally.
+
+## Session S420 — 2026-04-20 — P2-A hosting modes ADR (H-3 Tier 2)
+
+- **New:** `context/designs/hosting-modes-listen-vs-dedicated.md` — ADR for listen-in-client vs `PerfectDarkServer`: ROM/mod enforcement (`!g_NetDedicated` in `netmsgClcAuthRead`), dedicated bot-authority boundary, NAT/UPnP/STUN (pointer to `nat-traversal-architecture.md`), admin RCON token handling, connect codes vs raw IP per constraints.
+- **Links:** `context/server-architecture.md` (see-also), `context/README.md` design index, `CLAUDE.md` § Server and hosting.
+
 ## Session S419 — 2026-04-20 — Dev Window v2 release pipeline abort on failure
 
 - **`devtools/dev-window-v2/dev-window-v2.ps1`**: On a non-zero build-step exit code, **clear the entire step queue** instead of retaining only steps whose `Target` differs from the failed step. The old behavior could run **`Build (server: pd-server)`** after a failed client-side step (e.g. configure) while **`Build/`** had no **`CMakeCache.txt`**, producing **`Error: not a CMake build directory`**.
@@ -68,6 +151,20 @@
 
 - **`port/fast3d/pdgui_menu_mainmenu.cpp`**: Visual mapper zones split **left = Bind 1 / right = Bind 2** with `pickSlotForControllerBindColumn` (matches bind table), drag-drop to either half, **right-click** clears that column via `clearControllerVkAtBindColumn`. Added **LS/RS cardinal** zones (`JOY1_LSTICK_*` / `JOY1_RSTICK_*` offsets 22-29). Zone order: cardinals + face controls first, **L3/R3 last** so stick-click stays on top where overlapping. Taller pad (`240` scaled), updated help text.
 - **Build**: Not verified in agent env.
+
+## Session S409 — 2026-04-20 — Active menu: explain no-fire + harden skip
+
+- **Symptom chain** (pre-S408): **`amOpen()`** sets **`g_PlayersWithControl = false`** (player **`bmoveTick(0,0,0,1)`** — no fire / no weapon button path). **`pdguiActiveMenuShouldSkipLegacyWheel`** skipped the GBI wheel, but **`pdguiRender`** still early-returned → **no ImGui wheel**. Inventory/HUD can still show selected weapons while **hands/sights** follow “menu open” / control-off behavior — matches “UI says equipped, can’t shoot, no fists visible, can’t see radial”.
+- **Hardening (superseded by S427)**: ~~init-based fallback~~ — replaced by **`pdguiActiveMenuIsOpen`** + shared **`pdguiAnyStandardOverlayReason`** in **`pdgui_backend.cpp`**; **`pdguiIsInitialized`** removed.
+
+---
+
+## Session S408 — 2026-04-20 — Active menu: run ImGui when wheel open (S407 follow-up)
+
+- **Bug**: **`pdguiNewFrame` / `pdguiRender`** early-returned during “clean” solo gameplay (same gate as pre-S311 interact prompt). Active menu open set **`pdguiActiveMenuShouldSkipLegacyWheel`** → **`amRender`** skipped the GBI wheel, but ImGui never ran → **no radial** and confusing weapon UX.
+- **Fix**: **`port/fast3d/pdgui_backend.cpp`** — treat **`pdguiActiveMenuShouldSkipLegacyWheel()`** like the interact prompt: include **`activeMenuWheel`** in both NewFrame and Render guard conditions.
+
+---
 
 ## Session S407 — 2026-04-20 — ImGui active menu (weapon / function / orders) wheel
 

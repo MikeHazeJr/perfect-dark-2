@@ -49,6 +49,7 @@
 #include "lib/meshcollision.h"
 #include "game/menu.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/mpspawn_orchestrate.h"
 #include "game/mplayer/participant.h"
 #include "game/mplayer/scenarios.h"
 #include "game/mplayer/setup.h"
@@ -61,6 +62,7 @@
 #include "game/pdmode.h"
 #include "game/player.h"
 #include "game/playermgr.h"
+#include "game/spawnpool.h"
 #include "game/playerreset.h"
 #include "game/prop.h"
 #include "game/propobj.h"
@@ -605,7 +607,17 @@ void lvReset(s32 stagenum)
 			playerLoadDefaults();
 			sysLogPrintf(LOG_NOTE, "LOAD: playerLoadDefaults done for player %d, calling playerReset", i);
 			playerReset();
-			sysLogPrintf(LOG_NOTE, "LOAD: playerReset done for player %d, calling playerSpawn", i);
+			sysLogPrintf(LOG_NOTE, "LOAD: playerReset done for player %d", i);
+		}
+
+		if (g_Vars.mplayerisrunning && spawnPoolIsReady()) {
+			mpOrchestrateMatchStartSpawns();
+		}
+
+		for (i = 0; i < PLAYERCOUNT(); i++) {
+			if (!g_Vars.players[i]) continue;
+			setCurrentPlayerNum(i);
+			sysLogPrintf(LOG_NOTE, "LOAD: calling playerSpawn for player %d", i);
 			playerSpawn();
 			sysLogPrintf(LOG_NOTE, "LOAD: playerSpawn done for player %d, calling bheadReset", i);
 			bheadReset();
