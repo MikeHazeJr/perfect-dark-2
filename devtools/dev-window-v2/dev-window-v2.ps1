@@ -2226,11 +2226,10 @@ $script:BuildTimer.Add_Tick({
                     $ui["LblServerStatus"].Text = "server: FAILED (" + (Format-ElapsedTime $elapsed) + ")"
                     $ui["LblServerStatus"].Foreground = $redBrush
                 }
-                # Skip remaining steps for same target
-                $keep = [System.Collections.ArrayList]::new()
-                foreach ($s in $script:BuildStepQueue) { if ($s.Target -ne $script:CurrentBuildTarget) { [void]$keep.Add($s) } }
+                # Abort the rest of the pipeline. Client configure/build and server build share one
+                # Ninja build dir; keeping only "server" Target steps after a "client" failure ran
+                # cmake --build on an unconfigured Build/ (missing CMakeCache.txt).
                 $script:BuildStepQueue.Clear()
-                foreach ($s in $keep) { [void]$script:BuildStepQueue.Add($s) }
             } else {
                 if ($script:CurrentStepName -match 'Build') {
                     if ($script:CurrentBuildTarget -eq "client") {

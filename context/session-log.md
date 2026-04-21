@@ -4,6 +4,10 @@
 > **S283–S410** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S419 — 2026-04-20 — Dev Window v2 release pipeline abort on failure
+
+- **`devtools/dev-window-v2/dev-window-v2.ps1`**: On a non-zero build-step exit code, **clear the entire step queue** instead of retaining only steps whose `Target` differs from the failed step. The old behavior could run **`Build (server: pd-server)`** after a failed client-side step (e.g. configure) while **`Build/`** had no **`CMakeCache.txt`**, producing **`Error: not a CMake build directory`**.
+
 ## Session S417 — 2026-04-20 — Interact hold config + Controls input sanity (continuation)
 
 - **`ActionMap.InteractHoldExtraTerminalMs`**: `actionmapGet/SetInteractHoldExtraTerminalMs()`, `configRegisterInt` default **200**, **`prop.c`** uses getter for `OBJFLAG3_HTMTERMINAL` extra. Settings → Controls: **Hackable terminal extra hold** slider; **`pdgui-hold-ring.md`** updated.
