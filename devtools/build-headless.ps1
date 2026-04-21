@@ -477,7 +477,10 @@ foreach ($tool in @($NinjaExe, "C:\msys64\mingw64\bin\cc.exe")) {
 if ($AutoCommit) {
     Write-Header "Auto-Commit + Push"
     $lockFile = Join-Path $ProjectDir ".git\index.lock"
-    if (Test-Path $lockFile) { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $lockFile) {
+        try { & cmd.exe /c "attrib -R `"$lockFile`"" 2>$null | Out-Null } catch {}
+        Remove-Item -LiteralPath $lockFile -Force -ErrorAction SilentlyContinue
+    }
     # dev.lock -- left behind by interrupted fetch/push or code sessions; delete silently
     foreach ($devLock in @(
         (Join-Path $ProjectDir ".git\refs\remotes\origin\dev.lock"),

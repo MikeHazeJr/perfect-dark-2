@@ -283,15 +283,21 @@ function Format-ElapsedTime($seconds) {
 # cmd.exe build steps do not always inherit the same PATH as this PowerShell host; resolve git and
 # prepend tool dirs so "git" and CMake/MinGW binaries are found.
 function Resolve-GitExecutable {
+    # Prefer MinGW64 or Git-for-Windows over MSYS2 usr\bin\git.exe. The latter is Cygwin-style
+    # (errors show /c/Users/...), competes badly with IDE git (Cursor/VS Code) for index.lock, and
+    # matches the project rule to pin mingw64 for CMake/tooling consistency.
+    $preferred = @("C:\msys64\mingw64\bin\git.exe")
+    if ($env:ProgramFiles) { $preferred += (Join-Path $env:ProgramFiles "Git\cmd\git.exe") }
+    if (${env:ProgramFiles(x86)}) { $preferred += (Join-Path ${env:ProgramFiles(x86)} "Git\cmd\git.exe") }
+    foreach ($p in $preferred) {
+        if ($p -and (Test-Path -LiteralPath $p)) { return $p }
+    }
     $cmd = Get-Command git -ErrorAction SilentlyContinue
     if ($null -ne $cmd) {
         if ($cmd.Path) { return $cmd.Path }
         if ($cmd.Source) { return $cmd.Source }
     }
-    $candidates = @("C:\msys64\usr\bin\git.exe", "C:\msys64\mingw64\bin\git.exe")
-    if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles "Git\cmd\git.exe") }
-    if (${env:ProgramFiles(x86)}) { $candidates += (Join-Path ${env:ProgramFiles(x86)} "Git\cmd\git.exe") }
-    foreach ($candidate in $candidates) {
+    foreach ($candidate in @("C:\msys64\usr\bin\git.exe")) {
         if ($candidate -and (Test-Path -LiteralPath $candidate)) { return $candidate }
     }
     return $null
@@ -321,6 +327,60 @@ function Get-MsysToolPath {
     $fallback = Join-Path "C:\msys64\usr\bin" ($ToolName + ".exe")
     if (Test-Path -LiteralPath $fallback) { return $fallback }
     return $null
+}
+
+# Remove stale .git/index.lock (crash/interrupt leaves it; sometimes read-only). Safe before git add/commit
+# when no other git process is actively using the repo (solo-dev Dev Window assumption).
+function Clear-StaleGitIndexLock {
+    param([Parameter(Mandatory=$true)][string]$Root)
+    if (-not $Root) { return }
+    try { $Root = [System.IO.Path]::GetFullPath($Root) } catch { return }
+
+    $winLock = Join-Path $Root ".git\index.lock"
+    if (Test-Path -LiteralPath $winLock) {
+        try { & cmd.exe /c "attrib -R `"$winLock`"" 2>$null | Out-Null } catch {}
+        try { Remove-Item -LiteralPath $winLock -Force -ErrorAction SilentlyContinue } catch {}
+        try { & cmd.exe /c "del /f /q `"$winLock`"" 2>$null | Out-Null } catch {}
+    }
+    # Another git (IDE, terminal) may hold the lock briefly; wait for release without deleting.
+    if (Test-Path -LiteralPath $winLock) {
+        $until = [DateTime]::UtcNow.AddMilliseconds(2800)
+        while ((Test-Path -LiteralPath $winLock) -and [DateTime]::UtcNow -lt $until) {
+            Start-Sleep -Milliseconds 200
+        }
+    }
+
+    $gitExe = Resolve-GitExecutable
+    $rmExe = Get-MsysToolPath -ToolName "rm" -GitExe $gitExe
+    $cygpathExe = Get-MsysToolPath -ToolName "cygpath" -GitExe $gitExe
+    if ($cygpathExe -and $rmExe) {
+        try {
+            $p = & $cygpathExe -au $Root 2>$null
+            if ($p) {
+                $p = $p.Trim().TrimEnd('/')
+                if ($p) {
+                    $msysLock = $p + '/.git/index.lock'
+                    try { [void](& $rmExe -f -- $msysLock 2>&1) } catch {}
+                }
+            }
+        } catch {}
+    }
+
+    $wslCmd = Get-Command wsl.exe -ErrorAction SilentlyContinue
+    if ($wslCmd) {
+        $wslExe = $wslCmd.Source
+        try {
+            $w = & $wslExe wslpath -a $Root 2>$null
+            if ($w) {
+                $w = $w.Trim().TrimEnd('/')
+                if ($w) {
+                    $wslLock = $w + '/.git/index.lock'
+                    try { [void](& $wslExe -- rm -f -- $wslLock 2>&1) } catch {}
+                    if ($rmExe) { try { [void](& $rmExe -f -- $wslLock 2>&1) } catch {} }
+                }
+            }
+        } catch {}
+    }
 }
 
 function Get-ChildProcessPathEnv {
@@ -1189,6 +1249,7 @@ function Start-GitSyncBeforeBuild {
     }
     $script:GitSyncBusy = $true
     $script:PendingGitSyncCallback = $OnComplete
+    Clear-StaleGitIndexLock $script:ProjectRoot
 
     # UI-thread work is fast path-checks only. The slow external-process calls (wslpath
     # cold-start in particular can be 10+ seconds) happen inside the runspace so the
@@ -1241,7 +1302,9 @@ function Start-GitSyncBeforeBuild {
 
             $cleanup = {
                 if (Test-Path -LiteralPath $winLock) {
+                    try { & cmd.exe /c "attrib -R `"$winLock`"" 2>$null | Out-Null } catch {}
                     try { Remove-Item -LiteralPath $winLock -Force -ErrorAction SilentlyContinue } catch {}
+                    try { & cmd.exe /c "del /f /q `"$winLock`"" 2>$null | Out-Null } catch {}
                 }
                 if ($rmExe -and $msysLock) {
                     try { [void](& $rmExe -f -- $msysLock 2>&1) } catch {}
@@ -1255,17 +1318,26 @@ function Start-GitSyncBeforeBuild {
             }
 
             & $cleanup
+            # Brief pause so IDE git (Cursor/VS Code) can finish an in-flight index lock.
+            Start-Sleep -Milliseconds 400
 
+            $addBackoffMs = @(300, 700, 1200, 2000, 2800, 3500)
             $addOut = @(); $addCode = 1
-            for ($attempt = 1; $attempt -le 3; $attempt++) {
+            for ($attempt = 1; $attempt -le $addBackoffMs.Count; $attempt++) {
                 $addOut = @(& $gitExe -C $root add -A 2>&1)
                 $addCode = $LASTEXITCODE
                 if ($addCode -eq 0) { break }
                 $addText = ($addOut | Out-String)
-                if ($addText -match 'index\.lock|Unable to create') {
-                    [void]$logs.Add(@{ Text = "git add: index.lock detected (attempt $attempt/3), forcing lock cleanup + retry..."; Color = "#CDAA32" })
+                if ($addText -match 'index\.lock|Unable to create|Another git process') {
+                    [void]$logs.Add(@{ Text = "git add: index.lock / concurrent git (attempt $attempt/$($addBackoffMs.Count)), cleanup + backoff..."; Color = "#CDAA32" })
                     & $cleanup
-                    Start-Sleep -Milliseconds 250
+                    if (Test-Path -LiteralPath $winLock) {
+                        $wUntil = [DateTime]::UtcNow.AddMilliseconds(2200)
+                        while ((Test-Path -LiteralPath $winLock) -and [DateTime]::UtcNow -lt $wUntil) {
+                            Start-Sleep -Milliseconds 200
+                        }
+                    }
+                    Start-Sleep -Milliseconds $addBackoffMs[$attempt - 1]
                     continue
                 }
                 break
@@ -1273,7 +1345,8 @@ function Start-GitSyncBeforeBuild {
             if ($addCode -ne 0) {
                 foreach ($line in $addOut) { [void]$logs.Add(@{ Text = "$line"; Color = "#DC3232" }) }
                 [void]$logs.Add(@{ Text = "git add failed before build."; Color = "#DC3232" })
-                return [PSCustomObject]@{ Ok = $false; Logs = $logs; ErrMsg = "git add failed before build. Fix the repo, then retry." }
+                $hint = "git add failed (index.lock). Close other git users of this repo: Cursor/VS Code Source Control, terminals, then retry. Prefer MSYS2 MinGW git (C:\msys64\mingw64\bin\git.exe) over usr\bin\git.exe."
+                return [PSCustomObject]@{ Ok = $false; Logs = $logs; ErrMsg = $hint }
             }
 
             & $gitExe -C $root diff --cached --quiet 2>$null
@@ -1305,8 +1378,25 @@ function Start-GitSyncBeforeBuild {
                 [void]$logs.Add(@{ Text = "(working tree already clean - nothing to commit)"; Color = "#44586C" })
             }
 
-            $pu = @(& $gitExe -C $root push origin $branch 2>&1)
-            $pushCode = $LASTEXITCODE
+            $pushBackoffMs = @(400, 900, 1800, 2800)
+            $maxPushAttempts = 5
+            $pu = @(); $pushCode = 1
+            for ($pAttempt = 1; $pAttempt -le $maxPushAttempts; $pAttempt++) {
+                $pu = @(& $gitExe -C $root push origin $branch 2>&1)
+                $pushCode = $LASTEXITCODE
+                if ($pushCode -eq 0) { break }
+                $pushText = ($pu | Out-String)
+                if ($pushText -match 'index\.lock|Unable to create|Another git process') {
+                    [void]$logs.Add(@{ Text = "git push: index.lock / concurrent git (attempt $pAttempt/$maxPushAttempts), cleanup + backoff..."; Color = "#CDAA32" })
+                    & $cleanup
+                    if ($pAttempt -lt $maxPushAttempts) {
+                        $si = [math]::Min($pAttempt - 1, $pushBackoffMs.Count - 1)
+                        Start-Sleep -Milliseconds $pushBackoffMs[$si]
+                    }
+                    continue
+                }
+                break
+            }
             foreach ($line in $pu) {
                 $cl = if ($pushCode -ne 0) { "#CDAA32" } else { "#8C8C8C" }
                 [void]$logs.Add(@{ Text = "$line"; Color = $cl })
@@ -1418,6 +1508,7 @@ function Invoke-GitPull {
     $ui["BtnPull"].IsEnabled = $false
     $br = Get-GitCurrentBranch
     Add-LogLine ">>> git pull (branch: $br)" "#0090D0"
+    Clear-StaleGitIndexLock $script:ProjectRoot
 
     Start-AsyncPoolAction `
         -Script {
@@ -1470,6 +1561,7 @@ function Invoke-GitPush {
     $ui["BtnPush"].IsEnabled = $false
     $br = Get-GitCurrentBranch
     Add-LogLine ">>> git push (branch: $br)" "#0090D0"
+    Clear-StaleGitIndexLock $script:ProjectRoot
 
     Start-AsyncPoolAction `
         -Script {
@@ -1586,6 +1678,9 @@ function Stop-Build {
 }
 
 function Start-Build-Step($step) {
+    if ($step.Name -eq "Auto-commit + push") {
+        Clear-StaleGitIndexLock $script:ProjectRoot
+    }
     $script:CurrentStepName   = $step.Name
     $script:CurrentBuildTarget = $step.Target
     $script:OutputQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()

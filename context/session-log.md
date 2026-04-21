@@ -7,6 +7,8 @@
 ## Session S419 — 2026-04-20 — Dev Window v2 release pipeline abort on failure
 
 - **`devtools/dev-window-v2/dev-window-v2.ps1`**: On a non-zero build-step exit code, **clear the entire step queue** instead of retaining only steps whose `Target` differs from the failed step. The old behavior could run **`Build (server: pd-server)`** after a failed client-side step (e.g. configure) while **`Build/`** had no **`CMakeCache.txt`**, producing **`Error: not a CMake build directory`**.
+- **Stale `.git/index.lock`**: New **`Clear-StaleGitIndexLock`** (Windows attrib + MSYS/WSL paths) runs before **git sync**, before queued **Auto-commit + push**, and before **Pull/Push**; runspace lock cleanup clears **read-only** locks; **git push** retries with cleanup on lock errors. **`devtools/release.ps1`** and **`devtools/build-headless.ps1`** strip read-only before deleting **`index.lock`**.
+- **Follow-up (concurrent / MSYS git)**: **`Resolve-GitExecutable`** now prefers **`C:\msys64\mingw64\bin\git.exe`** (then Git-for-Windows) **over** **`usr\bin\git.exe`** so sync does not use Cygwin-style git that races IDE index locks. Sync runspace: **`cmd del`**, **400 ms** pre-add pause, **6** `git add` retries with **backoff + wait-if-lock-present**, **`Another git process`** matched; push retries aligned.
 
 ## Session S417 — 2026-04-20 — Interact hold config + Controls input sanity (continuation)
 

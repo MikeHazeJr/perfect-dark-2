@@ -113,7 +113,10 @@ $BuildDir  = Join-Path $ProjectRoot "Build"
 . (Join-Path $PSScriptRoot "_build-env-prelude.ps1")
 $env:GIT_TERMINAL_PROMPT = "0"                          # prevent git from hanging on credential prompts
 $gitIndexLock = Join-Path $ProjectRoot ".git\index.lock"
-if (Test-Path $gitIndexLock) { Remove-Item $gitIndexLock -Force -ErrorAction SilentlyContinue }
+if (Test-Path -LiteralPath $gitIndexLock) {
+    try { & cmd.exe /c "attrib -R `"$gitIndexLock`"" 2>$null | Out-Null } catch {}
+    Remove-Item -LiteralPath $gitIndexLock -Force -ErrorAction SilentlyContinue
+}
 
 # Version parts for cmake -D flags (resolved above from CMakeLists.txt or -Version param)
 $vParts = $Version -split '\.'
