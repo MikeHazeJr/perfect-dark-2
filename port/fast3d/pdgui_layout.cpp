@@ -39,6 +39,12 @@
 #define PDGUI_AB_BODY_GAP_PX      12.0f
 #define PDGUI_AB_BODY_MIN_PX      90.0f
 
+/* Per-frame accumulation: multiple modal paths may call pdguiPopupDarkenBehind
+ * in one frame (e.g. main menu + CI settings sibling preloaded). Drawing each
+ * full-viewport rect stacks alpha and reads as "double dim". We take the max
+ * requested alpha and draw a single rect at flush time (before ImGui::Render). */
+static f32 s_PopupDarkenMaxAlpha = -1.0f;
+
 extern "C" {
 
 f32 pdguiActionBarHeight(void)
@@ -136,10 +142,29 @@ s32 pdguiActionBarButton(const char *label, s32 isFocused, f32 width)
     return 0;
 }
 
+void pdguiPopupDarkenBeginFrame(void)
+{
+    s_PopupDarkenMaxAlpha = -1.0f;
+}
+
 void pdguiPopupDarkenBehind(f32 alpha)
 {
     if (alpha < 0.0f) alpha = 0.0f;
     if (alpha > 1.0f) alpha = 1.0f;
+
+    if (s_PopupDarkenMaxAlpha < 0.0f || alpha > s_PopupDarkenMaxAlpha) {
+        s_PopupDarkenMaxAlpha = alpha;
+    }
+}
+
+void pdguiPopupDarkenFlush(void)
+{
+    if (s_PopupDarkenMaxAlpha < 0.0f) {
+        return;
+    }
+
+    f32 alpha = s_PopupDarkenMaxAlpha;
+    s_PopupDarkenMaxAlpha = -1.0f;
 
     ImVec2 disp = ImGui::GetIO().DisplaySize;
     int ai = (int)(alpha * 255.0f);

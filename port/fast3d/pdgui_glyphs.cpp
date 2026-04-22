@@ -397,7 +397,9 @@ extern "C" f32 pdguiDrawActionPromptCenteredWithHold(InputAction action, f32 cx,
 	char keyText[24];
 	pdguiGlyphGetActionLabel(action, keyText, (s32)sizeof(keyText));
 
-	const char *holdPrefix = "Hold ";
+	/* hold_progress < 0: tap / "Press" prompts (vehicles) — no hold ring. */
+	const bool pressMode = (hold_progress < 0.0f);
+	const char *holdPrefix = pressMode ? "Press " : "Hold ";
 	const float gap = 6.0f * scale;
 	const ImVec2 holdSz = ImGui::CalcTextSize(holdPrefix);
 	const ImVec2 keyTs = ImGui::CalcTextSize(keyText);
@@ -431,10 +433,16 @@ extern "C" f32 pdguiDrawActionPromptCenteredWithHold(InputAction action, f32 cx,
 		fg->AddText(ImVec2(pillX + pillW + gap, y + padY), labelFg, verb);
 	}
 
-	float p = hold_progress;
-	if (p > 1.0f) p = 1.0f;
-	if (p < 0.0f) p = 0.0f;
-	pdguiDrawHoldProgressRingAroundBox(fg, pillX, y, pillW, pillH, p);
+	if (!pressMode) {
+		float p = hold_progress;
+		if (p > 1.0f) {
+			p = 1.0f;
+		}
+		if (p < 0.0f) {
+			p = 0.0f;
+		}
+		pdguiDrawHoldProgressRingAroundBox(fg, pillX, y, pillW, pillH, p);
+	}
 
 	return totalW;
 }

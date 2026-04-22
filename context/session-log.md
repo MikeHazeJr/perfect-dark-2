@@ -4,6 +4,41 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S442 — 2026-04-21 — Tracker: B-221 / B-222 / B-223 + playtest queue
+
+- **`context/bugs.md`:** **B-222** reframed as **FIXED-PENDING-PLAYTEST (modal + overlay class)** with explicit **out-of-scope** note: non-`pdguiPopupDarkenBehind` full-frame tints → new **B-223** (LOW, deferred) so B-222 can close after scoped playtest without owning countdown/endscreen/radial dims.
+- **B-221:** Renamed from **PARTIAL** to **FIXED-PENDING-PLAYTEST (implementation complete)** — all six sub-items are treated as shipped; **PARTIAL** was only missing consolidated verify. Verify column lists CI door/dialog, listen host lobby/team, mapper, scorecard Back hold.
+- **`context/tasks-current.md`:** Added **Playtest queue** for CI death, door/NPC dialog, main menu stack, listen host; points to **B-223** only if double-dark repros outside modal coalescing.
+- Playtest itself **not executed** in this environment (no stable local `ninja` / client run here).
+
+## Session S441 — 2026-04-21 — System sweep: invalid stagenum + HUDMSG player slots
+
+- **`src/game/pdmode.c` + `pdmode.h`:** Added **`stageSanitizeLoadStagenum()`** (coerces **`0x00`** → **`STAGE_CITRAINING`**) as the single definition used by **`titleSetNextStage`** and **`lvReset`**.
+- **`port/src/pdmain.c`:** **`mainChangeToStage`** sanitizes before manifest / **`g_MainChangeToStageNum`** (PC client choke point; **`src/lib/main.c`** is not linked on PC but was updated too for parity).
+- **`port/src/server_stubs.c`:** Dedicated server stub applies the same **`0x00` → CI** rule without linking **`pdmode.c`**.
+- **`src/game/hudmsg.c`:** **`hudmsgCalculatePosition`** no longer dereferences **`g_Vars.players[msg->playernum]`** when the slot is out of range or NULL — falls back to **`g_Vars.currentplayer`** or full VI view bounds (**SP-6**).
+- **`port/fast3d/pdgui_bridge.c`:** **`pdguiSubtitlesSnapshot`** skips impossible **`playernum`** indices before any owner filtering.
+- **Build:** agent **`ninja`** still hit **`ccache` CreateProcess** on this host; verify locally via **`devtools/build-headless.ps1 -Target client`**.
+
+## Session S440 — 2026-04-21 — CI hub death respawn, subtitle ownership, modal scrim coalescing
+
+- **`src/game/player.c`:** Solo death on **`STAGE_CITRAINING`** no longer calls **`mainEndStage()`** (avoids full stage reload / endscreen path). After death fade, **`canrestart`** is forced true on CI so **`playerStartNewLife`** runs via existing **`dostartnewlife`** / **`lvTick`** — respawn at scenario spawn without **`mainChangeToStage`**.
+- **`src/game/hudmsg.c`:** **`HUDMSGSTATE_QUEUED`** gate now NULL-checks **`g_Vars.players[msg->playernum]`** before **`->isdead`** so invalid playernum cannot block subtitle dequeue or crash.
+- **`port/fast3d/pdgui_bridge.c`:** **`pdguiSubtitlesSnapshot`** — when **`g_NetMode == NETMODE_NONE`** and **`PLAYERCOUNT() == 1`**, do not filter subtitles by **`currentplayernum`** so NPC **`aiSpeak`** lines still reach ImGui if **`playernum`** diverged during script tick.
+- **`port/fast3d/pdgui_layout.cpp` + `pdgui_layout.h`:** **`pdguiPopupDarkenBehind`** accumulates **max alpha** per frame; **`pdguiPopupDarkenFlush`** draws one full-viewport rect; **`pdguiPopupDarkenBeginFrame`** resets accum (**`pdguiNewFrame`**, dedicated server / **`server_gui`** paths). Fixes stacked **`pdguiPopupDarkenBehind`** (e.g. CI main menu + settings redirect) compounding darkness.
+- **`port/fast3d/pdgui_backend.cpp`:** Wire BeginFrame / Flush around client ImGui frame.
+- **Follow-up (same thread):** `prop.c` — hoverbike interact label is **`Enter <title>`** from **`invGetTextOverrideForObj` → `inventorytext`** (title segment before `|`) or else **`L_MISC_306`** / **`FILE_PHOVBIKE`** via `g_ModelStates[modelnum].fileid` (replaces fixed `"Enter Hoverbike"`).
+- **Audit follow-up:** `pdgui_bridge.c` — subtitle **`playernum`** relax now **`NETMODE_CLIENT` only strict** + **`PLAYERCOUNT()==1`** (fixes solo **listen host** still filtering NPC lines); skip **whitespace-only** `msg->text`.
+
+## Session S439 — 2026-04-21 — CI death load + subtitles + interact UX (playtest follow-up)
+
+- **`src/game/lv.c`:** `lvReset(0)` now coerces to `STAGE_CITRAINING` (same invalid-stage class as `titleSetNextStage(0)`). Fixes crash after hub death when load still ran with `stagenum=0x00` (log: `BODIES: enter stagenum=0x00` then `ACCESS_VIOLATION`).
+- **`port/fast3d/pdgui_bridge.c`:** `pdguiSubtitlesSnapshot` skips subtitle HUD slots with empty `msg->text` so ImGui does not draw a dim empty panel.
+- **`pdguiCiIntroBlocksInteractPrompt`:** hides interact prompt during CI opening fly-in (`var80087260` / `STAGE_CITRAINING`).
+- **Hoverbike prompt:** `prop.c` — label `Enter Hoverbike`; `pdgui_glyphs.cpp` — `hold_progress < 0` uses **Press** prefix and skips hold ring; `pdgui_interact_prompt.cpp` routes hoverbike there.
+- **Hold ring fill:** `actionHoldPressStartMs` + fallback elapsed/holdMs when `actionHoldProgress` stayed at 0 while USE is held (PC bondmove synthesis).
+- **Build:** verify on MSYS2; agent `ninja` may still fail on `ccache` CreateProcess.
+
 ## Session S437 — 2026-04-21 — B-221.4 / B-221.5 + pool (social lobby, team setup)
 
 - **B-221.4 (`pdgui_menu_mainmenu.cpp`):** Controller visual mapper zones called `ImGui::SetCursorPos` with fractions of `padW`/`padH` while the pad art was anchored at `GetCursorScreenPos()` — hit boxes lived at the wrong place in the child window, so drag-drop and right-click clear felt broken. `renderOneCtrlPadZoneSplit` now takes `padOrigin` (screen space) and uses **`SetCursorScreenPos`**.

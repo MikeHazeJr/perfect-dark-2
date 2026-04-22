@@ -43,6 +43,7 @@ extern "C" {
  * here match the game side exactly. */
 const char *propInteractPromptLabel(void);
 s32 propInteractPromptHoldThresholdMs(void);
+s32 propInteractPromptPreferPressStyle(void);
 }
 
 /**
@@ -60,6 +61,10 @@ extern "C" void pdguiInteractPromptRender(s32 winW, s32 winH)
 {
 	if (pdguiIsActive()) return;
 
+	if (pdguiCiIntroBlocksInteractPrompt()) {
+		return;
+	}
+
 	const char *label = propInteractPromptLabel();
 	if (!label) return;
 
@@ -71,12 +76,33 @@ extern "C" void pdguiInteractPromptRender(s32 winW, s32 winH)
 	float cx = (float)winW * 0.5f;
 	float cy = (float)winH * 0.5f + pdguiScale(28.0f);
 
+	if (propInteractPromptPreferPressStyle()) {
+		pdguiDrawActionPromptCenteredWithHold(ACTION_USE, cx, cy, label, -1.0f);
+		return;
+	}
+
 	/* Radial fill: player slot + per-target hold ms (settings + propInteract*
 	 * extras) match bondmove propGetActionUseHoldThresholdMs().
 	 * B-221.2: smooth toward target so release does not snap the ring off;
 	 * actionHoldProgress adds a short post-release grace + post-consume pin. */
 	const s32 holdMs = propInteractPromptHoldThresholdMs();
 	f32 target = actionHoldProgress(actionPlayer, ACTION_USE, holdMs);
+	/* PC: bondmove can synthesize A while USE is physically held before consume;
+	 * actionHoldProgress sometimes stayed at 0 — drive the ring from raw down time. */
+	if (target <= 0.0f && actionHeld(actionPlayer, ACTION_USE)
+			&& !actionHoldConsumed(actionPlayer, ACTION_USE)) {
+		u32 t0 = actionHoldPressStartMs(actionPlayer, ACTION_USE);
+		if (t0 != 0) {
+			s32 elapsed = (s32)(SDL_GetTicks() - t0);
+			if (elapsed < 0) {
+				elapsed = 0;
+			}
+			target = (f32)elapsed / (f32)holdMs;
+			if (target > 1.0f) {
+				target = 1.0f;
+			}
+		}
+	}
 	if (actionHeld(actionPlayer, ACTION_USE) && actionHoldConsumed(actionPlayer, ACTION_USE)) {
 		target = 1.0f;
 	}

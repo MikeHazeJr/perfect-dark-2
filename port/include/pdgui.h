@@ -77,6 +77,9 @@ void* pdguiGetUiTexture(const char *id);
  * The rebuild happens between frames — safe to call from UI code. */
 void pdguiRequestFontAtlasRebuild(void);
 
+/* Carrington Institute opening fly-in: suppress gameplay-only overlays. */
+s32 pdguiCiIntroBlocksInteractPrompt(void);
+
 /* Null-safe langGet wrapper. Returns langGet(textid) or "" if NULL.
  * Use this everywhere a langGet result goes to ImGui to prevent 0xc0000005. */
 const char *langSafe(s32 textid);

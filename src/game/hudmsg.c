@@ -832,11 +832,36 @@ void hudmsgCalculatePosition(struct hudmessage *msg)
 {
 	s32 x;
 	s32 y;
-	s32 viewleft = g_Vars.players[msg->playernum]->viewleft / g_ScaleX;
-	s32 viewtop = g_Vars.players[msg->playernum]->viewtop;
-	s32 viewwidth = g_Vars.players[msg->playernum]->viewwidth / g_ScaleX;
-	s32 viewheight = g_Vars.players[msg->playernum]->viewheight;
+	s32 viewleft;
+	s32 viewtop;
+	s32 viewwidth;
+	s32 viewheight;
 	s32 v0;
+	struct player *pl;
+
+	if (msg->playernum < 0 || msg->playernum >= MAX_PLAYERS
+			|| g_Vars.players[msg->playernum] == NULL) {
+		/* SP-6: bad playernum or NULL slot (dedicated / teardown / script).
+		 * Prefer current viewport; else full VI view so subtitles still layout. */
+		if (g_Vars.currentplayer != NULL) {
+			pl = g_Vars.currentplayer;
+			viewleft = pl->viewleft / g_ScaleX;
+			viewtop = pl->viewtop;
+			viewwidth = pl->viewwidth / g_ScaleX;
+			viewheight = pl->viewheight;
+		} else {
+			viewleft = viGetViewLeft() / g_ScaleX;
+			viewtop = viGetViewTop();
+			viewwidth = viGetViewWidth() / g_ScaleX;
+			viewheight = viGetViewHeight();
+		}
+	} else {
+		pl = g_Vars.players[msg->playernum];
+		viewleft = pl->viewleft / g_ScaleX;
+		viewtop = pl->viewtop;
+		viewwidth = pl->viewwidth / g_ScaleX;
+		viewheight = pl->viewheight;
+	}
 
 #if VERSION >= VERSION_NTSC_1_0
 	s32 offset = (msg->alignh == HUDMSGALIGN_XMIDDLE) ? 10 : 0;
@@ -1190,7 +1215,10 @@ void hudmsgsTick(void)
 			{
 				show = true;
 
-				if (g_Vars.players[msg->playernum]->isdead) {
+				if (msg->playernum < 0 || msg->playernum >= MAX_PLAYERS
+						|| !g_Vars.players[msg->playernum]) {
+					show = false;
+				} else if (g_Vars.players[msg->playernum]->isdead) {
 					show = false;
 				}
 

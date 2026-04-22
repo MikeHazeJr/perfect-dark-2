@@ -11,7 +11,9 @@
 
 **Logged 2026-04-21 (Chicago CS playtest — follow-ups):** F6 residual bot motion (**B-217**), Chicago initial bot stack vs OK respawns (**B-218**), FP weapon invisible / `GAMELOOP.WEAPON` vs `SPAWN` weapon mismatch (**B-219**), mod-registry `mod.json` missing-file spam (**B-220**). Full **pd-client.log** scrape (WARNING/ERROR/audio) in `session-log.md` **S431** § Ephemeral log digest (source file not retained).
 
-**Logged 2026-04-21 (input / overlay — fixes deferred):** vehicle double-tap vs tap, hold-ring live + release reset, tap-vs-hold interact, visual mapper, multi-bind priority, overlay black tint, killfeed visibility + position, scorecard Back hold — **`session-log.md` S432**; **`bugs.md` B-221, B-222**.
+**Playtest queue (agent cannot run client — Mike):** **Solo CI** — death → fade → respawn without full hub reload (**S440**); **door + NPC line** — subtitles + interact (no crash / empty panel; **listen host** if possible: NPC line still reaches host HUD); **main menu** — CI → nested options/settings, modal scrim should match single-modal darkness (**B-222**); **listen host** — lobby + room, no gameplay HUD / killfeed / interact bleed (**B-222**, **B-221** pool). **B-223** only if modal + pause/countdown/endscreen still feels too dark. Log notes → close **B-222** / **B-221** or narrow **B-223**.
+
+**Logged 2026-04-21 (input / overlay — fixes deferred):** vehicle double-tap vs tap, hold-ring live + release reset, tap-vs-hold interact, visual mapper, multi-bind priority, overlay black tint, killfeed visibility + position, scorecard Back hold — **`session-log.md` S432**; **`bugs.md` B-221, B-222**, follow-up dim sweep **B-223**.
 
 **Done 2026-04-20 (PD_DEV_BUILD / F7 invincibility + stable gating — S430):** CMake `PD_STABLE_RELEASE` → `PD_DEV_BUILD` on `pd`; dev-only F6/F7/F12, Settings Debug tab, stacked HUD banners; `release.ps1` stable configure adds `PD_STABLE_RELEASE=ON`. See `session-log.md` S430.
 

@@ -37,6 +37,9 @@
 /* D5.1 input ownership boundary */
 #include "pdmain.h"
 
+/* Modal scrim coalescing (pdguiPopupDarken*) */
+#include "pdgui_layout.h"
+
 /* F12 debug menu */
 #include "pdgui_debugmenu.h"
 
@@ -527,6 +530,7 @@ void pdguiNewFrame(void)
      * to pdguiScaleFactor() — NOT 1.0f — so subsequent renderers stay correct. */
     ImGui::GetIO().FontGlobalScale = pdguiScaleFactor();
 
+    pdguiPopupDarkenBeginFrame();
     ImGui::NewFrame();
 }
 
@@ -813,6 +817,7 @@ void pdguiRender(void)
     /* F9: read-only menu stack + input-context snapshot (NoInputs — does not steal focus). */
     pdguiMenuStackOverlayRender((s32)winW, (s32)winH);
 
+    pdguiPopupDarkenFlush();
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
@@ -887,6 +892,7 @@ void pdguiServerFrame(void)
     /* ImGui frame */
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL2_NewFrame();
+    pdguiPopupDarkenBeginFrame();
     ImGui::NewFrame();
 
     /* Server GUI: render a simple test panel to confirm ImGui works,
@@ -911,6 +917,7 @@ void pdguiServerFrame(void)
     pdguiRenderAllWindowShimmers();
 
     /* Finalize and draw */
+    pdguiPopupDarkenFlush();
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 

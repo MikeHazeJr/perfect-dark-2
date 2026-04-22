@@ -11,4 +11,11 @@ f32 pdmodeGetEnemyAccuracy(void);
 void func0f01b148(u32 arg0);
 void titleSetNextStage(s32 stagenum);
 
+/**
+ * Coerce invalid load-time stagenum values (notably 0x00) to a safe default.
+ * Used at every boundary that feeds stage load (title queue, lvReset,
+ * pending mainChangeToStage) so bad script/death paths cannot crash bg/setup.
+ */
+s32 stageSanitizeLoadStagenum(s32 stagenum);
+
 #endif

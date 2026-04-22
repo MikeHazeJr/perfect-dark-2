@@ -1276,6 +1276,10 @@ void mainChangeToStage(s32 stagenum)
 	pak0f11c6d0();
 #endif
 
+	/* Single choke point: any caller may pass a corrupted stagenum (e.g. hub
+	 * death / script bug). Coerce before g_MainChangeToStageNum is consumed. */
+	stagenum = stageSanitizeLoadStagenum(stagenum);
+
 	if (g_MainChangeToStageNum >= 0 && g_MainChangeToStageNum != stagenum) {
 		sysLogPrintf(LOG_WARNING,
 			"MAIN: replacing pending stage change 0x%02x -> 0x%02x",

@@ -43,6 +43,8 @@ const char *propInteractPromptLabel(void);
  * ring and bondmove hold/tap in sync.
  */
 s32 propInteractPromptHoldThresholdMs(void);
+/** 1 when UI should read "Press [key] ..." with no hold ring (tap-to-enter). */
+s32 propInteractPromptPreferPressStyle(void);
 /**
  * ACTION_USE hold/tap threshold for bondmove: full prompt path when targeted,
  * otherwise actionmapGetEffectiveHoldMs(ACTION_USE).

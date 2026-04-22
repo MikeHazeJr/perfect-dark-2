@@ -48,18 +48,21 @@ void func0f01b148(u32 arg0)
 	var800624e0 = arg0;
 }
 
+s32 stageSanitizeLoadStagenum(s32 stagenum)
+{
+	if (stagenum == 0) {
+		sysLogPrintf(LOG_WARNING,
+			"STAGE: invalid stagenum 0x00 — coercing to STAGE_CITRAINING (0x26)");
+		return STAGE_CITRAINING;
+	}
+
+	return stagenum;
+}
+
 void titleSetNextStage(s32 stagenum)
 {
+	stagenum = stageSanitizeLoadStagenum(stagenum);
 	sysLogPrintf(LOG_NOTE, "STAGE: titleSetNextStage(0x%02x)", stagenum);
-
-	/* FIX-PLAYTEST-3: Guard against invalid stagenum 0x00.
-	 * Death-in-hub (e.g. falling through CI geometry) can trigger a stage
-	 * transition with stagenum=0 which is not a valid stage — bgGetStageIndex
-	 * returns -1 and the loader crashes on garbage data.  Redirect to CI. */
-	if (stagenum == 0) {
-		sysLogPrintf(LOG_WARNING, "STAGE: titleSetNextStage(0x00) is invalid — redirecting to CI (0x26)");
-		stagenum = STAGE_CITRAINING;
-	}
 
 	g_TitleNextStage = stagenum;
 }

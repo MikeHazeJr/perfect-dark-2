@@ -280,6 +280,10 @@ void mpStartMatch(void)
 }
 void mpSetPaused(s32 mode) { (void)mode; }
 void mainChangeToStage(s32 stagenum) {
+    /* Match game client / title: 0x00 is not a valid stage (no pdmode.c on server). */
+    if (stagenum == 0) {
+        stagenum = STAGE_CITRAINING;
+    }
     sysLogPrintf(LOG_NOTE, "STUB: mainChangeToStage(0x%02x)", stagenum);
     /* netmsgSvcStageStartWrite reads g_MainChangeToStageNum to determine the
      * effective stage (falls back to g_StageNum when -1). On the game client

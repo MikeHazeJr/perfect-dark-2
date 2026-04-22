@@ -901,6 +901,8 @@ void mainChangeToStage(s32 stagenum)
 {
 	pak0f11c6d0();
 
+	stagenum = stageSanitizeLoadStagenum(stagenum);
+
 	/* Phase 1: diff-based asset lifecycle — build/diff/apply before the
 	 * stage is committed.
 	 *

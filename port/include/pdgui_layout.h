@@ -154,8 +154,15 @@ s32 pdguiActionBarButton(const char *label, s32 isFocused, f32 width);
  * Replaces ad-hoc "GetBackgroundDrawList()->AddRectFilled" calls that
  * were scattered across endscreen, pausemenu, solomission, training,
  * and agentcreate.  Central primitive = single place to tune.
+ *
+ * Multiple calls in one ImGui frame accumulate the maximum alpha; the
+ * viewport rect is drawn once from pdguiPopupDarkenFlush() (see
+ * pdgui_backend.cpp before ImGui::Render). Call pdguiPopupDarkenBeginFrame()
+ * once per frame from pdguiNewFrame after the early-return gate.
  */
+void pdguiPopupDarkenBeginFrame(void);
 void pdguiPopupDarkenBehind(f32 alpha);
+void pdguiPopupDarkenFlush(void);
 
 /* ========================================================================
  * Destructive-action confirm modal (S391 M-5/6/Q batch)

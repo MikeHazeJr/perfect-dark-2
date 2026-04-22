@@ -4949,6 +4949,12 @@ void playerTick(bool arg0)
 
 		if (g_Vars.currentplayer->redbloodfinished && g_Vars.currentplayer->deathanimfinished) {
 			if (g_Vars.mplayerisrunning == false) {
+				/* CI hub: death should fade and respawn at entry spawn via
+				 * playerStartNewLife (lvTick), not mainEndStage (full reload /
+				 * endscreen path). Solo missions still end on death. */
+				if (g_Vars.stagenum == STAGE_CITRAINING) {
+					/* no mainEndStage */
+				} else
 				// In network co-op, only the server triggers mission end.
 				// Client waits for SVC_STAGE_END from server.
 				if (g_NetMode == NETMODE_CLIENT
@@ -5565,6 +5571,12 @@ Gfx *playerRenderHud(Gfx *gdl)
 						struct chrdata *chr = g_Vars.currentplayer->prop->chr;
 						s32 numdeaths = 0;
 						s32 i;
+
+						/* CI solo hub: after death fade, respawn without requiring
+						 * the MP-style hold-to-restart input. */
+						if (!g_Vars.mplayerisrunning && g_Vars.stagenum == STAGE_CITRAINING) {
+							canrestart = true;
+						}
 
 						if (chr) {
 							chr->chrflags |= CHRCFLAG_HIDDEN;

@@ -1316,6 +1316,24 @@ f32 actionHoldProgress(s32 player, InputAction action, s32 threshold_ms)
     }
 }
 
+u32 actionHoldPressStartMs(s32 player, InputAction action)
+{
+    if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) {
+        return 0;
+    }
+    if (action < 0 || action >= ACTION_COUNT) {
+        return 0;
+    }
+    if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) {
+        return 0;
+    }
+    const ActionState *st = &s_State[player][action];
+    if (!st->held || st->down_time_ms == 0) {
+        return 0;
+    }
+    return st->down_time_ms;
+}
+
 /* ============================================================
  * Public: last-device detection
  * ============================================================ */

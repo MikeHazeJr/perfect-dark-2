@@ -1702,9 +1702,36 @@ s32 pdguiSubtitlesSnapshot(struct pdguiSubtitleEntry *out, s32 maxOut)
                 && g_Vars.tickmode != TICKMODE_CUTSCENE) {
             continue;
         }
-        /* Only render subtitles owned by the current local player */
-        if (msg->playernum != g_Vars.currentplayernum) {
+        /* SP-6: never snapshot entries tied to an impossible slot index. */
+        if (msg->playernum < 0 || msg->playernum >= MAX_PLAYERS) {
             continue;
+        }
+        /* Only render subtitles owned by the current local player.  When there
+         * is exactly one local human and we are not a net *client* (offline or
+         * listen host alone), accept any playernum so NPC aiSpeak lines still
+         * reach the HUD if msg->playernum diverged during script tick.  Net
+         * clients must stay strict so the wrong player's lines never bleed. */
+        if (msg->playernum != g_Vars.currentplayernum) {
+            if (g_NetMode == NETMODE_CLIENT) {
+                continue;
+            }
+            if (PLAYERCOUNT() != 1) {
+                continue;
+            }
+        }
+        /* Empty or whitespace-only lines still had opacity>0 in the wild, which
+         * produced a dim subtitle panel with no visible text (ImGui path). */
+        if (!msg->text || msg->text[0] == '\0') {
+            continue;
+        }
+        {
+            const char *p = msg->text;
+            while (*p == ' ' || *p == '\t') {
+                p++;
+            }
+            if (*p == '\0') {
+                continue;
+            }
         }
 
         out[count].text = msg->text;
@@ -1723,6 +1750,17 @@ s32 pdguiSubtitlesSnapshot(struct pdguiSubtitleEntry *out, s32 maxOut)
  * Active menu (weapon / function / orders) -- ImGui radial replaces legacy GBI
  * wheel while keeping game-side amTick + slot logic authoritative.
  * --------------------------------------------------------------------------- */
+
+/* CI free-roam: opening camera / intro blocks gameplay prompts (S432 follow-up). */
+s32 pdguiCiIntroBlocksInteractPrompt(void)
+{
+    extern s32 var80087260;
+
+    if (g_Vars.stagenum != STAGE_CITRAINING) {
+        return 0;
+    }
+    return var80087260 > 0;
+}
 
 s32 pdguiActiveMenuIsOpen(void)
 {

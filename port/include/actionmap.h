@@ -314,6 +314,9 @@ s32 actionHoldConsumed(s32 player, InputAction action);
 /** Hold fill in [0..1] toward `threshold_ms`.  0 when not held. */
 f32 actionHoldProgress(s32 player, InputAction action, s32 threshold_ms);
 
+/** SDL_GetTicks() at the start of the current hold, or 0 if not held. */
+u32 actionHoldPressStartMs(s32 player, InputAction action);
+
 /* ============================================================
  * Last-device detection
  * ============================================================ */

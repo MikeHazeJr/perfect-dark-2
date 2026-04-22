@@ -27,6 +27,9 @@
 #include "game/pad.h"
 #include "game/propobj.h"
 #include "game/splat.h"
+#include "game/lang.h"
+#include "game/inv.h"
+#include "files.h"
 #include "game/wallhit.h"
 #include "game/mpstats.h"
 #include "bss.h"
@@ -1626,6 +1629,90 @@ struct prop *propFindForInteract(bool usingeyespy)
 	return g_InteractProp;
 }
 
+/* One frame of UI: propInteractPromptLabel may be called multiple times per tick. */
+static char s_EnterVehicleInteractLabel[128];
+
+/* Training / hangar bios use "Title\\0|subtitle" in lang strings — take the title. */
+static void propLangCopyTitleSegment(char *dst, s32 dstmax, s32 textid)
+{
+	char *raw;
+	s32 i;
+
+	if (!dst || dstmax < 2) {
+		return;
+	}
+
+	dst[0] = '\0';
+	raw = langGet(textid);
+	if (!raw) {
+		return;
+	}
+
+	for (i = 0; i < dstmax - 1; i++) {
+		u8 c = (u8)raw[i];
+
+		if (c == '\0' || c == '|' || c == '\n' || c == '\r') {
+			break;
+		}
+
+		dst[i] = (char)c;
+	}
+
+	dst[i] = '\0';
+}
+
+/* Default mountable hoverbike name from lang (matches training FR / hangar bio). */
+static s32 propDefaultVehicleTitleLangId(const struct defaultobj *obj)
+{
+	s16 m;
+
+	if (!obj) {
+		return L_MISC_306;
+	}
+
+	m = obj->modelnum;
+	if (m >= 0 && m < NUM_MODELS && g_ModelStates[m].fileid == FILE_PHOVBIKE) {
+		return L_MISC_306;
+	}
+
+	if (m == MODEL_HOVBIKE) {
+		return L_MISC_306;
+	}
+
+	return L_MISC_306;
+}
+
+static const char *propBuildEnterVehicleInteractLabel(struct defaultobj *obj)
+{
+	char namebuf[72];
+	struct textoverride *ov;
+
+	if (!obj || obj->type != OBJTYPE_HOVERBIKE) {
+		return NULL;
+	}
+
+	namebuf[0] = '\0';
+	ov = invGetTextOverrideForObj(obj);
+
+	if (ov && ov->inventorytext) {
+		propLangCopyTitleSegment(namebuf, (s32)sizeof(namebuf), (s32)ov->inventorytext);
+	}
+
+	if (namebuf[0] == '\0') {
+		propLangCopyTitleSegment(namebuf, (s32)sizeof(namebuf), propDefaultVehicleTitleLangId(obj));
+	}
+
+	/* If misc bank is not loaded yet, langGet can yield an empty string. */
+	if (namebuf[0] == '\0') {
+		strncpy(namebuf, "Hoverbike", sizeof(namebuf) - 1);
+		namebuf[sizeof(namebuf) - 1] = '\0';
+	}
+
+	snprintf(s_EnterVehicleInteractLabel, sizeof(s_EnterVehicleInteractLabel), "Enter %s", namebuf);
+	s_EnterVehicleInteractLabel[sizeof(s_EnterVehicleInteractLabel) - 1] = '\0';
+	return s_EnterVehicleInteractLabel;
+}
+
 /**
  * S311: classify the current interact target for the on-screen prompt.
  * Returns a short English label ("Pick up", "Open", "Use", NULL) based on
@@ -1645,6 +1732,9 @@ const char *propInteractPromptLabel(void)
 		return "Open";
 	case PROPTYPE_OBJ: {
 		struct defaultobj *obj = prop->obj;
+		if (obj->type == OBJTYPE_HOVERBIKE) {
+			return propBuildEnterVehicleInteractLabel(obj);
+		}
 		/* Terminals / hackable interactables get a distinct verb. */
 		if (obj->flags3 & OBJFLAG3_HTMTERMINAL) {
 			return "Access";
@@ -1696,6 +1786,21 @@ s32 propInteractPromptHoldThresholdMs(void)
 		t = 1;
 	}
 	return t;
+}
+
+s32 propInteractPromptPreferPressStyle(void)
+{
+	struct prop *prop = g_InteractProp;
+	if (prop == NULL || prop->obj == NULL) {
+		return 0;
+	}
+	if (prop->type == PROPTYPE_OBJ) {
+		struct defaultobj *obj = prop->obj;
+		if (obj->type == OBJTYPE_HOVERBIKE) {
+			return 1;
+		}
+	}
+	return 0;
 }
 
 s32 propGetActionUseHoldThresholdMs(void)

@@ -297,6 +297,9 @@ void lvUpdateMiscSfx(void)
 
 void lvReset(s32 stagenum)
 {
+	/* Invalid stagenum (e.g. 0x00) must never reach bg/setup/catalog paths. */
+	stagenum = stageSanitizeLoadStagenum(stagenum);
+
 	lvFadeReset();
 
 	var80084014 = false;
