@@ -4,6 +4,10 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S443 — 2026-04-21 — pd-server: no client modal scrim API (game-agnostic)
+
+- **`port/fast3d/server_gui.cpp`:** Removed **`pdgui_layout.h`** and **`pdguiPopupDarkenBeginFrame`** / **`Flush`** from the dedicated-server ImGui frame (S440 client pairing does not apply here). Avoids linking or stubbing **`pdgui_layout.cpp`** — keeps **`pd-server`** free of game-client menu layout / modal scrim contracts.
+
 ## Session S442 — 2026-04-21 — Tracker: B-221 / B-222 / B-223 + playtest queue
 
 - **`context/bugs.md`:** **B-222** reframed as **FIXED-PENDING-PLAYTEST (modal + overlay class)** with explicit **out-of-scope** note: non-`pdguiPopupDarkenBehind` full-frame tints → new **B-223** (LOW, deferred) so B-222 can close after scoped playtest without owning countdown/endscreen/radial dims.

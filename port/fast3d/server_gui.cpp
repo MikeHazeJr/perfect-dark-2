@@ -25,7 +25,6 @@
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_sdl2.h"
 #include "imgui/imgui_impl_opengl3.h"
-#include "pdgui_layout.h"
 
 extern "C" {
 
@@ -1031,7 +1030,7 @@ extern "C" void serverGuiFrame(SDL_Window *window)
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL2_NewFrame();
-    pdguiPopupDarkenBeginFrame();
+    /* Dedicated server: no pdgui_layout / modal scrim pipeline (game-agnostic). */
     ImGui::NewFrame();
 
     updaterTick();
@@ -1132,7 +1131,6 @@ extern "C" void serverGuiFrame(SDL_Window *window)
     ImGui::End();
 
     /* Finalize */
-    pdguiPopupDarkenFlush();
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     SDL_GL_SwapWindow(window);
