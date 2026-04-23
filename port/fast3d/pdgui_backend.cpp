@@ -487,22 +487,27 @@ void pdguiNewFrame(void)
 #endif
     bool menuStackDiag = (pdguiMenuStackOverlayGetOpen() != 0);
     /* S311: When walking near a door/weapon/etc., propInteractPromptLabel() is
-     * non-NULL — we must run ImGui this frame. The default path skips NewFrame
+     * non-NULL - we must run ImGui this frame. The default path skips NewFrame
      * during "clean" solo gameplay (no menus/network), which hid the prompt.
      *
-     * 2026-04-23: AND with !pdguiIsActive() so the prompt is NOT treated as a
-     * reason to run ImGui when any non-gameplay ctx (main menu, pause, etc.)
-     * is already on top. This fixes two bugs:
-     *   (a) the prompt label leaks from gameplay into the CI main-menu screen
-     *       because g_InteractProp is still tracked while the menu is up;
-     *   (b) when the prompt flips the ImGui overlay on during a menu frame,
-     *       menus that already run pdguiPopupDarkenBehind compound with the
-     *       prompt's frame and produce an unexpected dim over gameplay.
-     * pdguiInteractPromptRender already returns early on pdguiIsActive, so
-     * gating the activation boolean here is the matching half of that
-     * contract. CI intro fly-in stays covered by pdguiCiIntroBlocksInteract-
-     * Prompt inside the renderer. */
-    bool interactPrompt = (propInteractPromptLabel() != NULL) && !pdguiIsActive();
+     * 2026-04-23: AND with !pdguiIsActive() AND !pdguiCiIntroBlocksInteract-
+     * Prompt() so the prompt is NOT treated as a reason to run ImGui when a
+     * non-gameplay ctx is already on top (main menu, pause, hub) OR the
+     * gameplay is transitioning (pausemode != UNPAUSED, CI camera fly-in,
+     * cutscene tickmode). Fixes three symptoms seen in playtest:
+     *   (a) prompt leaks from gameplay into the CI main-menu screen because
+     *       g_InteractProp is still tracked while the menu is up;
+     *   (b) menu renderers that call pdguiPopupDarkenBehind compound with
+     *       the prompt's frame and produce an unexpected dim over gameplay;
+     *   (c) after pressing Start near a prompt target in CI free-roam, the
+     *       prompt renders for 1-2 frames before the menu ctx pushes,
+     *       producing a brief flash.
+     * pdguiInteractPromptRender already early-returns on both predicates,
+     * so gating the activation boolean here is the matching half of that
+     * contract. */
+    bool interactPrompt = (propInteractPromptLabel() != NULL)
+        && !pdguiIsActive()
+        && !pdguiCiIntroBlocksInteractPrompt();
 #if defined(PD_DEV_BUILD)
     bool devGameplayHud =
             (botGetUpdatesDisabled() != 0) || (playerDevInvincibilityHudActive() != 0);
@@ -627,10 +632,12 @@ void pdguiRender(void)
     bool debugOverlayActive = false;
 #endif
     bool menuStackDiag = (pdguiMenuStackOverlayGetOpen() != 0);
-    /* 2026-04-23: mirror the NewFrame gate — do not let the interact prompt
-     * keep ImGui rendering when a menu is on top, otherwise menu darken
-     * paths compound with the prompt frame. */
-    bool interactPrompt = (propInteractPromptLabel() != NULL) && !pdguiIsActive();
+    /* 2026-04-23: mirror the NewFrame gate exactly - do not let the interact
+     * prompt keep ImGui rendering when a menu is on top or during any pause
+     * transition (see rationale at the NewFrame site). */
+    bool interactPrompt = (propInteractPromptLabel() != NULL)
+        && !pdguiIsActive()
+        && !pdguiCiIntroBlocksInteractPrompt();
 #if defined(PD_DEV_BUILD)
     bool devGameplayHud =
             (botGetUpdatesDisabled() != 0) || (playerDevInvincibilityHudActive() != 0);

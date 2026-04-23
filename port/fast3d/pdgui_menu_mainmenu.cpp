@@ -4055,14 +4055,34 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
     /* S306 input-bug fix: include the direct title-close channel
      * alongside the Escape / B-button edges. Fixes the reported bug
-     * where clicking the X on Settings needed two attempts — ImGui's
+     * where clicking the X on Settings needed two attempts - ImGui's
      * own nav was eating the first Escape edge before the renderer's
      * IsKeyPressed saw it. pdguiConsumeTitleClose returns 1 at most
-     * once per X click and resets the flag internally. */
+     * once per X click and resets the flag internally.
+     *
+     * 2026-04-23 B-230 fix: controller B needs two presses to close.
+     * Same root cause as the S306 X-button fix: ImGui's internal nav
+     * was eating the first Escape edge that pdguiDriveImGuiNav injected
+     * from actionPressed(ACTION_CANCEL_USE). Add a third close channel
+     * reading actionPressed directly, which is the hardware-level edge
+     * (untouchable by ImGui's nav consumption). The IsKeyPressed path
+     * stays in as a fallback for the pure-keyboard Escape case (where
+     * no ACTION_CANCEL_USE binding exists or differs from the key).
+     * The closeGracePending guard only applies to the IsKeyPressed
+     * path - the actionPressed edge is precise at the hardware layer
+     * and doesn't need a timestamp grace (IsWindowAppearing alone is
+     * enough to skip the appearing frame itself). */
     bool titleClose = pdguiConsumeTitleClose() != 0;
-    if (!ImGui::IsWindowAppearing() && !closeGracePending &&
-        (titleClose ||
-         ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
+    bool actionCancelEdge = actionPressed(0, ACTION_CANCEL_USE) != 0;
+    bool keyboardEscape = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+    /* titleClose and actionCancelEdge bypass the closeGracePending grace: they
+     * are precise signals (X-button click flag / hardware actionmap edge) that
+     * cannot be spoofed by a queued opening press. keyboardEscape keeps the
+     * grace because ImGui's key queue can carry an opening Escape edge into
+     * the first few frames of the new window (B-131 rationale). */
+    if (!ImGui::IsWindowAppearing()
+        && (titleClose || actionCancelEdge
+            || (!closeGracePending && keyboardEscape))) {
         if (s_MenuView != 0) {
             if (s_MenuView == 2) {
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — settings CLOSE (view 2->0)%s",

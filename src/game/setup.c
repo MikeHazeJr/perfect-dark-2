@@ -2482,20 +2482,38 @@ void setupCreateProps(s32 stagenum)
 
 			if (g_Vars.normmplayerisrunning
 					&& s_SetupMpCreatedWeaponCount < desiredPickups) {
-				/* B-181: Too few (or zero) world pickups for this map/participant
-				 * count.  Force spawn-with-weapon to keep matches armed — but the
-				 * spawn weapon MUST come from the configured weapon set, otherwise
-				 * players see weapons they never selected.
+				/* B-181 (v2 2026-04-23): Too few (or zero) world pickups for this
+				 * map/participant count. Force spawn-with-weapon to keep matches
+				 * armed.
 				 *
-				 * DO NOT use catalogIdByRuntime(ASSET_WEAPON, mpw) here: that helper
-				 * indexes the runtime cache by catalog array position, not by
-				 * MPWEAPON_*, so MPWEAPON_FALCON2 (0x01) → "base:falcon2_silencer"
-				 * (off-by-one).  Scan the catalog for ext.weapon.weapon_id instead
-				 * (same pattern as savefile.c / buildSpawnWeaponList). */
+				 * REVISED: DO NOT override an explicit user choice. If the user
+				 * picked a specific spawn weapon (e.g. remote mine) it must be
+				 * respected even when markers are low. Playtest 2026-04-23: user
+				 * selected `base:remotemine` but saw Falcon (Silenced) at spawn,
+				 * because the old "always override" branch replaced the choice
+				 * with the first valid weapon in the set. Gate the override on
+				 * `spawnWeaponNum == 0xFF` (random) or `== 0` (unset) so the
+				 * override only fires when the user has no explicit preference.
+				 *
+				 * Historic concern was "otherwise players see weapons they
+				 * never selected" - that concern is real for the random case
+				 * (player didn't explicitly select anything, so fall back to
+				 * the set). It does NOT apply when the user did select one.
+				 *
+				 * DO NOT use catalogIdByRuntime(ASSET_WEAPON, mpw) in the
+				 * fallback scan: that helper indexes the runtime cache by
+				 * catalog array position, not by MPWEAPON_*, so
+				 * MPWEAPON_FALCON2 (0x01) maps to "base:falcon2_silencer"
+				 * (off-by-one). Scan `ext.weapon.weapon_id` directly (same
+				 * pattern as savefile.c / buildSpawnWeaponList). */
 				g_MatchConfig.options |= MPOPTION_SPAWNWITHWEAPON;
 				g_MpSetup.options |= MPOPTION_SPAWNWITHWEAPON;
 
-				{
+				const bool userPickedSpawnWeapon =
+					(g_MatchConfig.spawnWeaponNum != 0xFF
+						&& g_MatchConfig.spawnWeaponNum != 0);
+
+				if (!userPickedSpawnWeapon) {
 					s32 setSpawnMpw = -1;
 					const char *setSpawnId = NULL;
 					for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
@@ -2521,18 +2539,22 @@ void setupCreateProps(s32 stagenum)
 					}
 
 					if (setSpawnId && setSpawnId[0]) {
-						/* Always override: if the existing spawn weapon is outside
-						 * the configured set, the fallback replaces it so the armed
-						 * players stay within the selection.  If it already was in
-						 * the set, we're a no-op effectively. */
+						/* Random / unset only: fill spawn weapon from first
+						 * valid weapon in the configured set so random-armed
+						 * players still see a weapon from the selection. */
 						strncpy(g_MatchConfig.spawn_weapon_id, setSpawnId,
 							sizeof(g_MatchConfig.spawn_weapon_id) - 1);
 						g_MatchConfig.spawn_weapon_id[sizeof(g_MatchConfig.spawn_weapon_id) - 1] = '\0';
-						/* matchStart() already derived spawnWeaponNum from the old
-						 * spawn_weapon_id.  Re-derive now so the CURRENT match's
-						 * player/bot spawn-with-weapon uses the in-set choice. */
 						g_MatchConfig.spawnWeaponNum = (u8)catalogGetMpWeaponNum(setSpawnMpw);
+						sysLogPrintf(LOG_NOTE,
+							"SETUP: random spawn weapon resolved from set: id='%s' num=%d",
+							setSpawnId, (s32)g_MatchConfig.spawnWeaponNum);
 					}
+				} else {
+					sysLogPrintf(LOG_NOTE,
+						"SETUP: user-picked spawn weapon '%s' num=%d preserved (markers low but choice respected)",
+						g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "(unnamed)",
+						(s32)g_MatchConfig.spawnWeaponNum);
 				}
 
 				mpSpawnFallbackApplied = true;

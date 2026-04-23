@@ -1766,6 +1766,22 @@ s32 pdguiCiIntroBlocksInteractPrompt(void)
 {
     extern s32 var80087260;
 
+    /* 2026-04-23 (third broadening): also block during any pause transition,
+     * not just on CI. When the user presses ACTION_PAUSE / Start in CI free-
+     * roam, playerPause() flips pausemode UNPAUSED -> PAUSING immediately,
+     * but the ImGui main-menu ctx is not pushed until the menu's first
+     * IsWindowAppearing frame (1-2 frames later). During that gap both
+     * pdguiIsActive() and the CI-specific gates below are false, so the
+     * prompt renders for one frame before the menu takes over. Gating on
+     * pausemode covers that window cleanly, and also catches any other
+     * pause-initiating path (eyespy, script, etc.). This broadens the
+     * function beyond "CI intro only" - kept the name to avoid churn,
+     * but the semantic is now "interact prompt should be suppressed". */
+    if (g_Vars.currentplayer
+            && g_Vars.currentplayer->pausemode != PAUSEMODE_UNPAUSED) {
+        return 1;
+    }
+
     if (g_Vars.stagenum != STAGE_CITRAINING) {
         return 0;
     }
