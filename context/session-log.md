@@ -4,6 +4,17 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S444 - 2026-04-23 - Playtest regressions from 4-20 / 4-21 Cursor batch
+
+Triggered by Mike's 4-23 playtest on the 4-21 tree (CS + CI, pd-client.log uploaded). Three symptom classes, all from the Cursor + Claude co-authored stability batch; static-read fixes in this session.
+
+- **B-217 v2 (`src/game/bot.c` around line 1338):** Cursor's 4-21 change to `return TICKOP_NONE` under `g_BotUpdatesDisabled` made bots invisible on F6. `chrTick` is what maintains the per-frame render / transform state (bot.c header comment at line 92 even says "movement, physics, and rendering still run every frame via chrTick"). New behaviour: zero `aibot->speedmultforwards` and `->speedmultsideways` then call `chrTick(prop)` so bots stay on screen. Minor anim drift is accepted (matches S431 "residual bot motion is expected"). Visibility for spawn verification trumps zero-drift.
+- **B-221 dismount parity (`src/game/bondbike.c::bbikeHandleActivate`):** Mount was single-tap on PC after B-221.1, but EXIT still had the `TICKS(25)` double-tap window. Mirrored the `currentPlayerTryMountHoverbike` PC bypass: added `optionsGetControlMode(...) == CONTROLMODE_PC` disjunct to the activation gate. Controller paths unchanged.
+- **B-224 new (`port/fast3d/pdgui_backend.cpp` NewFrame + Render gates):** Interact prompt label was a "reason to activate ImGui overlay" even when a menu was already on top. That let main-menu `pdguiPopupDarkenBehind` calls compound with the prompt frame (reported as: full-screen dim whenever "Hold X to use computer" pill appears) and also let the prompt pill leak onto the CI title screen / main menu after spawn. Fix: AND `interactPrompt` with `!pdguiIsActive()` at both gate sites. Camera fly-in stays covered by `pdguiCiIntroBlocksInteractPrompt` inside the renderer. Orthogonal to B-222 and B-223 dim classes.
+- **Context:** `bugs.md` B-217 rewritten as v2, B-221 extended with (7) dismount note, new row B-224. No protocol version change; no wire changes; no constraint changes.
+- **Build:** Not run here (Linux sandbox cannot drive MSYS2 / MinGW). Mike to verify locally via `devtools/build-headless.ps1 -Target client`.
+- **Files touched:** `src/game/bot.c`, `src/game/bondbike.c`, `port/fast3d/pdgui_backend.cpp`, `context/bugs.md`, `context/session-log.md`.
+
 ## Session S443 — 2026-04-21 — pd-server: no client modal scrim API (game-agnostic)
 
 - **`port/fast3d/server_gui.cpp`:** Removed **`pdgui_layout.h`** and **`pdguiPopupDarkenBeginFrame`** / **`Flush`** from the dedicated-server ImGui frame (S440 client pairing does not apply here). Avoids linking or stubbing **`pdgui_layout.cpp`** — keeps **`pd-server`** free of game-client menu layout / modal scrim contracts.

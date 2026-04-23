@@ -168,8 +168,15 @@ void bbikeTryDismountAngle(f32 relativeangle, f32 distance)
 
 void bbikeHandleActivate(void)
 {
+	/* B-221 follow-up (2026-04-23): on PC, dismount is a single tap (mirrors the
+	 * mount-side PC bypass in currentPlayerTryMountHoverbike in propobj.c).
+	 * Classic double-tap window preserved for controller / N64-style inputs. */
+	s32 _bbContrMode = (g_Vars.currentplayerstats != NULL)
+		? optionsGetControlMode(g_Vars.currentplayerstats->mpindex)
+		: -1;
 	if (g_Vars.currentplayer->bondvehiclemode == VEHICLEMODE_RUNNING
-			&& g_Vars.lvframe60 - g_Vars.currentplayer->activatetimelast < TICKS(25)) {
+			&& (_bbContrMode == CONTROLMODE_PC
+				|| g_Vars.lvframe60 - g_Vars.currentplayer->activatetimelast < TICKS(25))) {
 		struct hoverbikeobj *bike = (struct hoverbikeobj *)g_Vars.currentplayer->hoverbike->obj;
 		struct modelrodata_bbox *bbox = objFindBboxRodata(&bike->base);
 

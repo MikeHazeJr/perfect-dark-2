@@ -1336,8 +1336,19 @@ s32 botTick(struct prop *prop)
 		}
 
 		if (g_BotUpdatesDisabled) {
-			/* B-217: skip chrTick so walk/run animations cannot advance locomotion. */
-			return TICKOP_NONE;
+			/* B-217 v2 (2026-04-23): prior fix (return TICKOP_NONE) made bots
+			 * invisible because chrTick is what maintains the model's per-frame
+			 * render/transform state. Call chrTick so bots stay visible, but
+			 * zero the aibot speed multipliers first so botApplyMovement (if
+			 * it ran this frame) would have applied no velocity. Minor anim
+			 * drift from chraTick's action state is acceptable during spawn
+			 * verification (matches the S431 "residual bot motion is
+			 * expected" note). */
+			if (aibot) {
+				aibot->speedmultforwards = 0;
+				aibot->speedmultsideways = 0;
+			}
+			return chrTick(prop);
 		}
 
 		if (updateable && g_Vars.lvframe60 >= 145) {
