@@ -2549,6 +2549,49 @@ void setupCreateProps(s32 stagenum)
 			g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "(random)");
 	}
 
+	/* 2026-04-23 B-219 v3 / B-229 architectural fix: manifest-driven MP weapon
+	 * FP model loading. Until now, modelmgrLoadProjectileModeldefs was invoked
+	 * only from setupPlaceWeapon at each map pickup marker, so pickup-less
+	 * arenas (Chicago CS: markers=0) and random-spawn / random-set matches had
+	 * un-loaded first-person models the moment spawn-with-weapon tried to
+	 * equip them (player log: "spawned with weapon 2 (Falcon 2)" but empty
+	 * hands, no fire). Intent per the manifest contract: the match manifest
+	 * already registers every non-empty entry in g_MpSetup.weapons[] (see
+	 * port/src/net/netmanifest.c:446-463) and the user-selected spawn weapon
+	 * is part of the match config. Load models for every entry here, end of
+	 * stage setup, so the FP pipeline is armed regardless of map placement.
+	 * Random selection is covered because the full set iterates; a specific
+	 * spawn weapon outside the set is covered by the explicit spawnWeaponNum
+	 * load at the bottom. Cheap (O(NUM_MPWEAPONSLOTS)) and idempotent:
+	 * modelmgrLoadProjectileModeldefs no-ops if the def is already resident. */
+	if (g_Vars.normmplayerisrunning || g_Vars.lvmpbotlevel) {
+		s32 slot;
+		for (slot = 0; slot < NUM_MPWEAPONSLOTS; slot++) {
+			s32 mpw = (s32)g_MpSetup.weapons[slot];
+			s32 wnum;
+			if (mpw == MPWEAPON_NONE
+					|| mpw == MPWEAPON_SHIELD
+					|| mpw == MPWEAPON_DISABLED) {
+				continue;
+			}
+			wnum = catalogGetMpWeaponNum(mpw);
+			if (wnum > 0) {
+				modelmgrLoadProjectileModeldefs(wnum);
+			}
+		}
+		/* spawn_weapon_id can be outside the active set (user's explicit pick
+		 * or the B-181 fallback override). 0xFF means random from the set,
+		 * which the loop above already covered. */
+		if (g_MatchConfig.spawnWeaponNum != 0xFF
+				&& g_MatchConfig.spawnWeaponNum != 0) {
+			modelmgrLoadProjectileModeldefs((s32)g_MatchConfig.spawnWeaponNum);
+		}
+		sysLogPrintf(LOG_NOTE,
+			"SETUP: MP weapon models preloaded from match config (spawnWeapon=%d random=%d)",
+			(s32)g_MatchConfig.spawnWeaponNum,
+			g_MatchConfig.spawnWeaponNum == 0xFF ? 1 : 0);
+	}
+
 	sysLogPrintf(LOG_NOTE, "SETUP: calling stageAllocateBgChrs");
 	stageAllocateBgChrs();
 	sysLogPrintf(LOG_NOTE, "SETUP: setupLoadStage complete");

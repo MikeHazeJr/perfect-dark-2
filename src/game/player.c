@@ -78,6 +78,7 @@
 #include "net/net.h"
 #include "net/netmsg.h"
 #include "net/matchsetup.h"
+#include "game/playerreset.h" /* 2026-04-23 B-219 v2: modelmgrLoadProjectileModeldefs */
 #include "assetcatalog.h"
 #include "actionmap.h"
 #include "game/spawnpool.h"
@@ -1725,6 +1726,18 @@ void playerSpawn(void)
 					resolvedWeaponNum = catalogGetMpWeaponNum(spawnWeaponIdx); /* SA-5e */
 				}
 				if (resolvedWeaponNum > 0) {
+					/* B-219 v2 (2026-04-23): load the weapon's projectile / first-person
+					 * modeldef before inventory + equip. The 4-21 B-219 fix skipped
+					 * playerReset's INTROCMD_WEAPON branch when spawn-with-weapon owned
+					 * the loadout, which also skipped modelmgrLoadProjectileModeldefs
+					 * and left the FP model unloaded. Playtest log (4-23) showed
+					 * "spawned with weapon 2 (Falcon 2) -- auto-equipped" yet the
+					 * player saw empty hands and couldn't fire because the Falcon
+					 * modeldef was never loaded into modelmgr. Load it here so the
+					 * subsequent bgunTickSwitch2 has a real model to bind.
+					 * Same fix applies to the no-fallback path where setup.c's map
+					 * pickups would have loaded models but Chicago CS has markers=0. */
+					modelmgrLoadProjectileModeldefs(resolvedWeaponNum);
 					invGiveSingleWeapon(resolvedWeaponNum);
 					if (spawnWeaponIdx >= 0) {
 						const s32 ammotype = (spawnWeaponIdx == MPWEAPON_COMBATBOOST)

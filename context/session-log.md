@@ -4,6 +4,34 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S446 - 2026-04-23 - B-219 v3: manifest-driven MP weapon model preload (architectural fix, Mike's direction)
+
+Mike flagged the right architecture after the v2 fix landed:
+> "setup.c should have the spawn-in weapon from the match manifest, right, regardless of map spawns? And if weapon set or spawn weapon are set to random, all weapons should be in the manifest."
+
+He is correct on both counts. The match manifest `manifestBuild` in `netmanifest.c:446-463` already registers every non-empty `g_MpSetup.weapons[]` slot as `MANIFEST_TYPE_WEAPON`, so the network distribution path is manifest-driven. But `modelmgrLoadProjectileModeldefs` was invoked exclusively from `setupPlaceWeapon` in `setup.c`, which is driven by map pickup markers. Pickup-less arenas like Chicago CS (markers=0) therefore never loaded FP models for the configured weapon set, even though every one of those weapons is in the manifest.
+
+v3 moves the load to the right layer. At the end of `setupLoadStage` (after the B-181 fallback-applied log), `setup.c` now iterates `g_MpSetup.weapons[]` and `g_MatchConfig.spawnWeaponNum` and calls `modelmgrLoadProjectileModeldefs` for each valid entry. Random spawn (`spawnWeaponNum == 0xFF`) is covered by the set iteration; specific spawn outside the set is covered by the explicit `spawnWeaponNum` load. Idempotent (`modelmgrLoadProjectileModeldefs` already fires many times per stage from `setupPlaceWeapon` without issue). The v2 `player.c` spawn-time load is kept as a backstop.
+
+- **Files touched:** `src/game/setup.c` (end of `setupLoadStage`), `context/bugs.md` (B-219 v3 note), `context/session-log.md`.
+- **No protocol, no wire, no constraint change.** Manifest layout unchanged; this fix just consumes it on the local stage-load side.
+- **Build:** Not run here; Mike to verify with `devtools/build-headless.ps1 -Target client`.
+
+## Session S445 - 2026-04-23 - Second playtest pass: B-219 v2, B-224 v2, 4 new bugs logged
+
+Mike uploaded `pd-client-0efa2c04.log` (Chicago CS + CI boot). Two code fixes this pass; four new bugs logged for follow-up sessions.
+
+- **B-219 v2 FP weapon invisible (`src/game/player.c` spawn-with-weapon branch, line 1707 area).** Log evidence: line 16756 `SETUP: world pickups 0 below target 16 (markers=0); forcing spawn-with-weapon fallback id='base:falcon2'`, 16771 `GAMELOOP.WEAPON: INTRO skipped (spawn-with-weapon owns MP loadout)`, 16802 `SPAWN: player 0 spawned with weapon 2 (Falcon 2) -- auto-equipped to right hand`. The 4-21 B-219 fix skipped `INTROCMD_WEAPON` which also skipped `modelmgrLoadProjectileModeldefs(param1)`; that loader is what puts the weapon's first-person / projectile modeldef into modelmgr. Chicago has 0 weapon pickup markers so `setup.c` never loads Falcon 2 either. Result: inventory + switch queue were right, but `bgunTickSwitch2` had no model to bind, so the player saw empty hands and could not fire. Fix: call `modelmgrLoadProjectileModeldefs(resolvedWeaponNum)` before `invGiveSingleWeapon` in the SPAWNWITHWEAPON branch of `player.c`. Added `#include "game/playerreset.h"` for the prototype. Bot parallel path in `bot.c:491` not touched this pass (bot 3rd-person weapon models have not been reported broken; defer until evidence).
+- **B-224 v2 CI camera fly-in still leaks interact prompt (`port/fast3d/pdgui_bridge.c::pdguiCiIntroBlocksInteractPrompt`).** 4-23 v1 ANDed the activation boolean with `!pdguiIsActive()` in `pdgui_backend.cpp` (closed the main-menu-dim compound path). Mike reports the prompt still showing during the initial-boot CI fly-in, because `var80087260` is only set on the return-from-MP-endscreen re-entry (`menutick.c:703`), not during first-boot. Extended the gate to also return 1 when `g_Vars.tickmode == TICKMODE_CUTSCENE` or `g_Vars.lvframenum <= 30`. Mirrors the inverse condition `menutick.c:315` already uses to decide "CI is ready for interaction".
+- **Four new bugs logged (no code this session):**
+  - **B-225 (LOW) stale base-catalog Bonus arenas** (`base:arena_stage_24` "Kakariko Village (Stormy)", `base:arena_mp_grid7` "Dark Noon Valley", etc). AllInOne lang names still present while underlying stage data is not. Needs a sweep of base catalog Bonus block + lang files.
+  - **B-226 (LOW) wrong character names in bot Character Select.** Label lookup path appears to still pull from a legacy parallel table rather than `catalogGetBodyDisplayName`.
+  - **B-227 (MED) Dr Carroll + Skedar not appearing in Character Select.** Catalog has them (log shows `bodies=69 heads=83` after rebuild) but Select UI omits them. Likely unlock-filter or legacy `g_MpBodies[]` iteration.
+  - **B-228 (MED) SP maps in MP missing elevators / fire-escape stairs, should also sync in MP.** CI lifts are auto-registered by `setup.c::OBJTYPE_LIFT` via S310, but MP setup filter or sync path may not handle them. Should behave like Grid (server-authoritative lift sync).
+- **Context:** `bugs.md` B-219 rewritten as v2, B-224 extended to v2, added rows B-225, B-226, B-227, B-228. No protocol or constraint changes.
+- **Build:** Not run here; Mike to verify locally via `devtools/build-headless.ps1 -Target client`.
+- **Files touched:** `src/game/player.c`, `port/fast3d/pdgui_bridge.c`, `context/bugs.md`, `context/session-log.md`.
+
 ## Session S444 - 2026-04-23 - Playtest regressions from 4-20 / 4-21 Cursor batch
 
 Triggered by Mike's 4-23 playtest on the 4-21 tree (CS + CI, pd-client.log uploaded). Three symptom classes, all from the Cursor + Claude co-authored stability batch; static-read fixes in this session.

@@ -1751,7 +1751,17 @@ s32 pdguiSubtitlesSnapshot(struct pdguiSubtitleEntry *out, s32 maxOut)
  * wheel while keeping game-side amTick + slot logic authoritative.
  * --------------------------------------------------------------------------- */
 
-/* CI free-roam: opening camera / intro blocks gameplay prompts (S432 follow-up). */
+/* CI free-roam: opening camera / intro blocks gameplay prompts.
+ * Original S432 check (var80087260 > 0) only fires on the return-from-MP-
+ * endscreen CI re-entry path (see menutick.c:703 where the flag is set). It
+ * did NOT fire during the first-boot CI camera fly-in, so the interact pill
+ * for the computer in front of the player leaked onto the initial load.
+ * 2026-04-23 broadens coverage to also block prompts when:
+ *   - tickmode == TICKMODE_CUTSCENE (camera animation phase; menutick.c uses
+ *     the inverse condition at line 315 to gate "CI ready for interaction");
+ *   - lvframenum <= 30 (matches the file-select gate's early-boot window),
+ *     so the first second of CI is treated as "not ready for prompts" even
+ *     if tickmode has already flipped off cutscene. */
 s32 pdguiCiIntroBlocksInteractPrompt(void)
 {
     extern s32 var80087260;
@@ -1759,7 +1769,16 @@ s32 pdguiCiIntroBlocksInteractPrompt(void)
     if (g_Vars.stagenum != STAGE_CITRAINING) {
         return 0;
     }
-    return var80087260 > 0;
+    if (var80087260 > 0) {
+        return 1;
+    }
+    if (g_Vars.tickmode == TICKMODE_CUTSCENE) {
+        return 1;
+    }
+    if (g_Vars.lvframenum <= 30) {
+        return 1;
+    }
+    return 0;
 }
 
 s32 pdguiActiveMenuIsOpen(void)
