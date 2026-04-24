@@ -199,6 +199,33 @@ s32 mpGetNumStages(void)
 	return modmgrGetTotalArenas();
 }
 
+/*
+ * B-225 (2026-04-23): stale-arena filter. Some legacy g_MpArenas[] slots carry
+ * valid-looking data (non-zero stagenum, non-empty langbank name, unlocked
+ * feature) but their underlying bgdata never shipped in the PD2 base build.
+ * Listing them in Combat Sim leads to "start match -> stage load fails" with
+ * no safe recovery. Filter them out by stagenum here. Mirror list lives in
+ * port/src/assetcatalog_base.c (s_ArenaNames NULLs).
+ *
+ * Structural note: the authoring contract is split across three tables
+ * (g_MpArenas, s_ArenaNames, langbank) that must agree. Any divergence leaks
+ * orphan entries into the UI. A future pass should consolidate playability
+ * into a data-driven probe (e.g. at mpInit: walk g_MpArenas, probe each
+ * stage's required files via catalogResolveFile, cache a per-arena
+ * .available bit) so the three tables cannot drift.
+ */
+static bool stagenumIsPlayableInMp(s16 stagenum)
+{
+	switch (stagenum) {
+	case STAGE_24:        /* Kakariko Village (Stormy) - AllInOne shell */
+	case STAGE_TEST_MP7:  /* Dark Noon Valley - AllInOne shell */
+	case STAGE_EXTRA25:   /* Paradox - removed */
+		return false;
+	default:
+		return true;
+	}
+}
+
 static bool mpArenaIndexIsUsable(s32 index)
 {
 	struct mparena *arena = modmgrGetArena(index);
@@ -209,6 +236,10 @@ static bool mpArenaIndexIsUsable(s32 index)
 	}
 
 	if (arena->stagenum <= 0) {
+		return false;
+	}
+
+	if (!stagenumIsPlayableInMp(arena->stagenum)) {
 		return false;
 	}
 

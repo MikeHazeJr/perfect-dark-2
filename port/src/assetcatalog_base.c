@@ -572,7 +572,15 @@ s32 assetCatalogRegisterBaseGame(void)
 		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
 		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
 		/* Bonus arenas (55-70) */
-		"stage_24",     "mp_grid7",     "test_arch",    "test_dest",
+		/* B-225 (2026-04-23): indices 55/56 are stale AllInOne-lineage shells.
+		 * STAGE_24 (Kakariko Stormy) and STAGE_TEST_MP7 (Dark Noon Valley) have
+		 * valid langbank names (L_MPMENU_319 / L_MPMENU_321) but their bg data
+		 * (FILE_BG_SEVX_* / FILE_BG_MP7_*) did not ship with the PD2 base build.
+		 * Keep the slots NULL so the catalog hides them. UI-side filter also
+		 * exists in mpArenaIndexIsUsable (setup.c) to match. */
+		NULL,           /* index 55: stage_24 (Kakariko Stormy), data absent */
+		NULL,           /* index 56: mp_grid7 (Dark Noon Valley), data absent */
+		"test_arch",    "test_dest",
 		"extra16",      "extra17",      "extra18",      "extra19",
 		"extra20",      "extra21",      "extra22",      "extra23",
 		"extra24",      "extra26",      "test_lam",     /* index 69 */
