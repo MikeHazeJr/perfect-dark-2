@@ -34,9 +34,9 @@
 #include "net/sessioncatalog.h"
 #include "net/netbuf.h"
 #include "modmgr.h"
-#include "lib/rng.h"  /* P3: rngRandom for catalogPickRandomHeadIdForBody */
 #if !defined(PD_SERVER)
 #include "game/modeldef.h"
+#include "lib/rng.h"  /* P3: rngRandom for catalogPickRandomHeadIdForBody (client-only) */
 #endif
 
 /* -------------------------------------------------------------------------
@@ -561,6 +561,11 @@ const char *const *catalogGetBodyValidHeadIds(const char *body_id,
     return ctx.count > 0 ? s_ValidHeadBuf : NULL;
 }
 
+#if !defined(PD_SERVER)
+/* Client-only: the server has no rngRandom symbol (rng_c.c is not linked
+ * into pd-server).  Server callers that need a head-for-body picker can
+ * call catalogGetBodyValidHeadIds(...) directly and pick element 0, or
+ * thread a seeded RNG through from their own state. */
 const char *catalogPickRandomHeadIdForBody(const char *body_id)
 {
     int count = 0;
@@ -571,6 +576,7 @@ const char *catalogPickRandomHeadIdForBody(const char *body_id)
     u32 pick = rngRandom() % (u32)count;
     return ids[(s32)pick];
 }
+#endif
 
 /* Body -> default head mpheadnum.  Uses cached mp_index on the head entry.
  * Returns -1 if the body is not found, has no default head, or the sentinel
