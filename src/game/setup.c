@@ -1675,6 +1675,50 @@ void setupCreateProps(s32 stagenum)
 				}
 			}
 
+			/* P5 (2026-04-24): SP-stages-in-MP loader gate.  CI Training,
+			 * Chicago, Villa and similar SP-class stages ship with setup
+			 * blobs that flag lift / escalator props for exclusion in one
+			 * or more difficulty or player-count bands (the original author
+			 * intent was "skip in MP for perf").  When one of these stages
+			 * is hosted as an MP arena we want the transport props to load
+			 * so the level is traversable.  `mplift_diffflag` masks the
+			 * per-player-count exclusion bits AND the per-difficulty bit
+			 * for the identified stages; LIFT/ESCASTEP cases below consult
+			 * this masked value instead of the base diffflag.  All other
+			 * object types keep the standard filter so SP-only clutter
+			 * (desks, decorative chrs, etc.) still stays out.
+			 *
+			 * Added stages: CITRAINING, CHICAGO, VILLA, INFILTRATION,
+			 * G5BUILDING, PELAGIC.  These are the SP missions commonly
+			 * hosted as CS arenas today and reported in B-228.  Add more
+			 * as the SP-in-MP readiness audit flags them.
+			 *
+			 * Why this is protocol-safe.  pd-server doesn't run setupLoadStage
+			 * (server_stubs.c covers it); each client runs this code locally
+			 * with identical stagenum + identical setup blob, so all clients
+			 * end up with the same live lift set.  The existing server-auth
+			 * lift replication path (liftTick + prop sync) handles position
+			 * updates over the wire.  No new messages, no new fields. */
+			u32 mptransport_diffflag = diffflag;
+			if (g_Vars.mplayerisrunning) {
+				switch (g_Vars.stagenum) {
+				case STAGE_CITRAINING:
+				case STAGE_CHICAGO:
+				case STAGE_VILLA:
+				case STAGE_INFILTRATION:
+				case STAGE_G5BUILDING:
+				case STAGE_PELAGIC:
+					mptransport_diffflag = 0;
+					sysLogPrintf(LOG_NOTE,
+							"SETUP.LIFT: SP-in-MP stagenum=0x%02x -- "
+							"relaxing LIFT/ESCASTEP exclude filter (diffflag 0x%x -> 0)",
+							(u32)g_Vars.stagenum, diffflag);
+					break;
+				default:
+					break;
+				}
+			}
+
 			botmgrRemoveAll();
 			index = 0;
 
@@ -1776,7 +1820,11 @@ void setupCreateProps(s32 stagenum)
 					}
 					break;
 				case OBJTYPE_LIFT:
-					if (withobjs && (obj->flags2 & diffflag) == 0) {
+					/* P5 (2026-04-24): use the SP-in-MP relaxed filter so
+					 * CI / Chicago / Villa lifts load when the stage is
+					 * hosted as an MP arena.  For every other stage this
+					 * behaves identically to the old `diffflag` path. */
+					if (withobjs && (obj->flags2 & mptransport_diffflag) == 0) {
 						struct liftobj *lift = (struct liftobj *)obj;
 						struct modelstate *modelstate;
 						s32 modelnum = obj->modelnum;
@@ -1911,7 +1959,9 @@ void setupCreateProps(s32 stagenum)
 					}
 					break;
 				case OBJTYPE_ESCASTEP:
-					if (withobjs && (obj->flags2 & diffflag) == 0) {
+					/* P5 (2026-04-24): same SP-in-MP relax as OBJTYPE_LIFT so
+					 * escalator / fire-escape-step props survive MP host. */
+					if (withobjs && (obj->flags2 & mptransport_diffflag) == 0) {
 						struct escalatorobj *step = (struct escalatorobj *)obj;
 						struct prop *prop;
 

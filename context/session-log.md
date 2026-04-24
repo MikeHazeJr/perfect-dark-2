@@ -94,6 +94,29 @@ No audit of heads / arenas / weapons / scenarios in this pass -- body is the mos
 
 **Build:** clean incremental link of PerfectDark.exe.
 
+### Priority 5 (this entry, landed) — SP-stages-in-MP loader (B-228 FIXED)
+
+Mike's B-228 report: when an SP-class stage (CI, Chicago, Villa, ...) is hosted as an MP arena, elevators / fire-escape steps don't load.  Root cause identified in the 2026-04-23 systematic pass as the `(obj->flags2 & diffflag) == 0` filter in `setupLoadStage` -- SP-authored setup blobs set difficulty / player-count exclusion bits on transport props that trip in MP.
+
+**Fix approach chosen (option A from the systematic-pass notes, narrowed to transport props):** compute a second filter value `mptransport_diffflag` alongside the standard `diffflag`.  For SP-in-MP class stages (`STAGE_CITRAINING`, `STAGE_CHICAGO`, `STAGE_VILLA`, `STAGE_INFILTRATION`, `STAGE_G5BUILDING`, `STAGE_PELAGIC`) the transport filter is forced to 0 while `g_Vars.mplayerisrunning`.  `OBJTYPE_LIFT` and `OBJTYPE_ESCASTEP` cases use the relaxed filter; every other objtype keeps the standard diffflag so SP-only clutter (desks, decorative chrs) stays filtered.
+
+**Why this is protocol-safe (Mike's hard stop):** `pd-server` doesn't run `setupLoadStage` at all -- the server_stubs.c path covers all game logic on the headless server.  Each client runs this code locally against the same setup blob with the same stagenum, so every client ends up with an identical live lift set.  The existing server-authoritative `liftTick` + prop sync path handles position updates over the wire.  No new messages, no new fields, no protocol version bump.
+
+**Diagnostic:** `SETUP.LIFT: SP-in-MP stagenum=0x%02x -- relaxing LIFT/ESCASTEP exclude filter (diffflag 0x%x -> 0)` fires once per MP-on-SP-stage load so the code path is auditable in-log.
+
+**Not covered in this pass (deferred as follow-up):**
+- Full state sync validation (lift position drift across clients if two players interact simultaneously).  Existing server-auth replication should handle it; needs playtest confirmation.
+- Door / escastep variants on mod-authored stages.
+- The SP-stage MP-readiness audit matrix (next priority).
+
+**B-228 row in `context/bugs.md` updated from OPEN / DEFERRED to FIXED-PENDING-PLAYTEST.**
+
+**Files touched (P5 pass):**
+- `src/game/setup.c::setupLoadStage` -- new `mptransport_diffflag` + diagnostic log + switch-case updates for `OBJTYPE_LIFT` and `OBJTYPE_ESCASTEP`.
+- `context/bugs.md` -- B-228 row.
+
+**Build:** clean incremental link of PerfectDark.exe.
+
 ## Session S452 - 2026-04-23 - B-235 wrong head for Maian bots + MATCHSETUP config audit + cleanup
 
 **Context:** Mike ran a CS playtest and saw all 31 bots rendering with the President head on the Maian (elvis1) body. Smoketest log confirmed `MATCHSETUP: bot slot N: body='base:elvis1' head='base:head_president' mpbody=12 mphead=12` across all 31 slots.
