@@ -75,3 +75,27 @@ Tracks judgement calls made while Mike is away. Each decision is reviewable and 
 - Rollback: drop the `g_BotUpdatesDisabled = bs->all_frozen ? 1 : 0;` line.
 - Timestamp: ~01:02
 
+## Decision: filter SP heads out of valid-head set by `category`, not `mp_index` (Issue 1)
+- Context: Mike's post-sprint playtest showed bots with human bodies picking `base:sp_head_*` heads that resolved to mphead=0 (Joanna fallback).  Root cause is P3's `catalogGetBodyValidHeadIds` not gating on MP-vs-SP-only.  Two candidate gates: `he->mp_index >= 0` or `he->category != "sp"`.
+- Data quirk that forced the choice: `s_BaseHeads[]` names only 75 of 76 MP slots.  The unnamed slot's engine head gets a fallback catalog ID at MP registration, but the SP-loop then registers the same engine head as `base:sp_head_<idx>` and that second registration wins the `s_RuntimeCache[ASSET_HEAD]` slot.  Pass 3 of `catalogBuildRuntimeCaches` assigns `mp_index = 75` onto the SP entry -- so an `mp_index >= 0` filter still lets that SP entry through.
+- Options considered:
+  A. Gate on `mp_index >= 0`.
+  B. Gate on `category != "sp"` (exact match).
+  C. Gate on catalog ID prefix `strncmp("base:sp_", ...) == 0`.
+  D. Fix the double-registration in `assetcatalog_base.c` so SP heads never overwrite the MP runtime cache slot.
+- Choice: B.
+- Rationale: category is set at registration time and is stable across the runtime-cache rebuild.  It also aligns with the documented authoring contract ("SP heads are category=sp, MP heads are category=base, mod heads are their own category").  Option A alone would miss the double-registration case.  Option C is a string-prefix match that ships fragile assumptions about naming.  Option D is the "right" fix but is out of scope for a post-playtest surgical pass -- it would re-order registration loops, potentially breaking the coverage mask, and would require a second playtest for the bigger rebuild.
+- Rollback: delete the `if (he->category[0] == 's' && ...)` block in `collectValidHead`.  One-line revert.
+- Timestamp: ~morning
+
+## Decision: Issue 4 music scope -- ship local respawn-lock only; defer speed-lerp (Issue 4)
+- Context: Mike's Issue 4 has two parts.  (a) custom-music track resets on the local player's death (pure local bug).  (b) cross-client drift-correction via a speed-lerp curve anchored to a match-clock offset.
+- Options for (b):
+  A. Ship both (a) + (b) tonight.  (b) needs either a new wire packet or reuse of an existing match-clock timestamp; either way it's protocol-adjacent territory.
+  B. Ship (a) surgically; document (b) as a follow-up and flag the net-protocol decision.
+- Choice: B.
+- Rationale: per Mike's hard-stop rule "no net-protocol changes" tonight.  (a) is protocol-safe (strictly local -- prevents re-pick on respawn).  (b) requires a design pass on timing source + packet layout, which Mike wants to approve before shipping.
+- Rollback: delete the `if (g_Vars.normmplayerisrunning && g_TemporaryPrimaryTrack < 0)` block in `musicStartPrimary`.  One-block revert.
+- Follow-up for (b): the existing `SVC_MUSIC_ADVANCE` (v34) handles discrete track advancement between clients.  Speed-lerp sync would ride on top, polling a match-clock offset on each client and adjusting playback rate in a [0.97..1.03] range to ease back toward the authoritative timeline.  No hard seeks.
+- Timestamp: ~morning
+

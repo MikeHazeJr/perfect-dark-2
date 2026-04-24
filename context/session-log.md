@@ -200,7 +200,93 @@ State handoff for Mike in the morning:
 - P9 / P10 untouched.
 - Open escalations: (a) Grid Blank Map stage pointer; (b) B-228 Option E implementation approval.
 
-## Session S452 - 2026-04-23 - B-235 wrong head for Maian bots + MATCHSETUP config audit + cleanup
+## Session S454 - 2026-04-24 - Post-sprint playtest fixes (Issue 1..4)
+
+Mike played the post-foundation-pass build (dev at `052f540b`) and filed four issues.  Working through them in the order he specified: Issue 1 (head filter) -> Issue 3 (pause menu) -> Issue 4 (music sync) -> Issue 2 re-verify.
+
+### Issue 1 - Wrong heads slipping through valid-head filter (LANDED)
+
+**Symptom.**  MATCHSETUP log rows for bots with human bodies showed SP-only head IDs like `head='base:sp_head_52'` which resolved to `mphead=0` (Joanna fallback).  dd_guard + sp_head_52 = stewardess-with-Joanna's-head visual.
+
+**Root cause.**  P3's `catalogGetBodyValidHeadIds` iterated every `ASSET_HEAD` entry and included any HEADBODYTYPE-compatible one.  ASSET_HEAD includes both MP-registered heads ("base:head_elvis", category="base") and SP-only heads registered by the coverage-mask pass ("base:sp_head_52", category="sp").  SP heads are not meant to flow through MP selection; letting them into the valid-set broke the rig mapping.
+
+**Additional data quirk found while investigating.**  `s_BaseHeads[]` only names 75 of the 76 MP head slots.  The missing slot's head (index 75) gets a fallback catalog ID `base:head_75` at MP registration, but the SP-loop later registers the same engine head as `base:sp_head_<engine_idx>` and overwrites the runtime cache slot, so pass 3 of `catalogBuildRuntimeCaches` assigns `mp_index = 75` to the SP entry.  Filtering by `mp_index < 0` alone would miss this case.  The correct gate is the `category` field: "sp" rejected, "base" / mod categories accepted.
+
+**Fix.**  `port/src/assetcatalog_api.c::collectValidHead` now rejects entries with `category == "sp"` before the HEADBODYTYPE compatibility test.  Detailed comment block explains the double-registration quirk so the gate isn't simplified back to `mp_index`.
+
+**Effect on valid-set sizes:**
+- Human male (DEFAULT): ~43 heads (g_MpMaleHeads pool).
+- Human female (FEMALE + FEMALEGUARD): 7 heads (g_MpFemaleHeads pool).
+- Maian: 2 (head_elvis, head_maian_s).
+- Cass: 1 (head_cassandra).
+- Mr Blonde: 1 (head_mrblonde).
+
+Maian variety is limited by the MP head list, not by the filter.  To add more Maian heads to the pool, someone would have to promote an SP Maian head (head_theking, head_grey) into `s_BaseHeads` with a spare `g_MpHeads[]` mp-index.  That's a data-authoring change, not code.
+
+**Follow-up coverage.**  Mike's "missing necks" Issue 2 is likely the same root cause: a head from the wrong rig family was fitting a body's skeleton incorrectly.  With SP heads filtered out, the rig mismatches should go away.  Verify after rebuild + playtest.
+
+**Files touched (Issue 1):**
+- `port/src/assetcatalog_api.c` -- one-block edit inside `collectValidHead`.
+
+**Build:** clean incremental link of PerfectDark.exe + PerfectDarkServer.exe.
+
+### Issue 3 - Pause menu input regression (INVESTIGATED, cannot reproduce from code review)
+
+Mike reports pause menu input doesn't work in a match.  Hypothesis: a sprint change interfered with input routing under `GAMESTATE_PAUSED` (the same seam as B-224 / B-231 which the systematic pass touched).
+
+**Sprint diff on pause menu path (b73b8835..36d73eb1): 0 lines.**  None of P1-P8 or Issue 1 touched `pdgui_menu_pausemenu.cpp`, `pdgui_backend.cpp`, `inputctx.c`, or the pause ctx `g_CtxPauseMenu`.  The pause-open path (`src/game/mplayer/ingame.c:894` calling `pdguiPauseMenuOpen`) is also unchanged; its caller path goes through `actionPressed(pi, ACTION_PAUSE)` and my actionmap change only added `JBTN_BACK` on `ACTION_FORGE_TOGGLE` (a separate physical button from `JBTN_START` which is `ACTION_PAUSE`).
+
+Indirect risks reviewed:
+- Forge HUD keybinds (P7): gated on `forgeSessionIsActive() && !pdguiIsActive()`.  During a regular match the session is inactive so the HUD and its keybinds don't run.  During a Grid match with pause menu open, `pdguiIsActive()` is true so the HUD also doesn't run.  Not the culprit.
+- Forge runtime tick (P7): `if (!s_active) return;` at the top.  `s_active` only flips on inside `forgeRuntimeEnterPlay`, which fires on the first FREEFLY -> NORMAL transition.  Not the culprit outside Grid.
+- `g_BotUpdatesDisabled` mirror (P7): only runs inside `forgeRuntimeTick` which only runs when `s_active`.  Clean outside Grid.
+- Main menu renderer (P1): `renderMainMenu` in `pdgui_menu_mainmenu.cpp` serves `g_CiMenuViaPcMenuDialog` and `g_CiMenuViaPauseMenuDialog` (CI hub pause).  The in-match Combat Sim pause menu uses a DIFFERENT renderer (`pdguiPauseMenuRender` in `pdgui_menu_pausemenu.cpp`) which my code didn't touch.
+
+**Potential state-leak follow-up identified (not the reported issue):** `g_BotUpdatesDisabled` is mirrored from `bs->all_frozen` inside `forgeRuntimeTick`, but never reset on session exit.  If a user toggles Freeze All during a Grid session, then exits without toggling off, `g_BotUpdatesDisabled` stays at 1 and the next match will have frozen bots.  Separate from Mike's pause-menu issue; flagged as a defensive follow-up.
+
+**Verdict:** cannot reproduce from code review.  Needs Mike's playtest log to diagnose further.  Questions that would narrow it: does the menu appear but buttons don't respond, or does the menu not appear at all?  Does the mouse release?  Does it reproduce on a fresh launch, or only after a prior Grid session?  Log lines `INPUTCTX: pause_menu on_push ...` and `INPUTCTX: pause_menu on_pop ...` would show whether the ctx push fired.
+
+Parked.  Moving to Issue 4.
+
+### Issue 4 - Custom music resets on death (LANDED local fix; cross-client speed-lerp deferred)
+
+**Symptom.**  Mike picks custom music for a match; playing with other clients.  On his own death + respawn, a NEW random track plays instead of the one already going.  Expected: track is a property of the MATCH, survives death.
+
+**Trace.**
+1. `src/game/player.c:5477` fires `musicStartMpDeath()` when the player dies.
+2. `musicStartMpDeath` pauses `TRACKTYPE_PRIMARY` and plays the death sting.
+3. After the death timer elapses, `musicEndDeath` calls `musicStartPrimary(2)` (`src/game/music.c:558-569`).
+4. `musicStartPrimary` evaluates `PRIMARYTRACK()` -> `stageGetPrimaryTrack(g_MusicStageNum)`.
+5. In MP mode `stageGetPrimaryTrack` calls `mpChooseTrack` (`src/game/mplayer/mplayer.c:3390`).
+6. `mpChooseTrack` runs the playlist / shuffle / multi-tune logic and picks a *fresh* track every call.  Bug surface.
+
+**Fix.**  Lock the chosen track for the duration of the match using the existing `g_TemporaryPrimaryTrack` field.  Inside `musicStartPrimary`, after a successful queue-start, if `g_Vars.normmplayerisrunning && g_TemporaryPrimaryTrack < 0`, cache the picked MUSIC_* value into `g_TemporaryPrimaryTrack`.  Subsequent musicStartPrimary calls (respawn-post-death included) see the cached value and skip re-picking.
+
+`musicReset` already clears `g_TemporaryPrimaryTrack = -1` on stage transitions, so the lock auto-releases when the match ends.  Solo missions are unaffected -- `stageGetPrimaryTrack` returns deterministic `g_StageTracks[]` entries for solo, so the lock is a no-op there.  Title-screen / AF1-NRG paths use `musicStartTemporaryPrimary` which explicitly sets the field first and doesn't run during MP matches.
+
+**Cross-client scope (what was NOT shipped).**  Mike's Issue 4 brief also described a speed-lerp drift-correction layer ("sync ... with a bit of an anti-skip speed lerp curve").  That is a larger feature: ride client playback against a match-clock offset so two humans listening to the same track stay in sync over time.  The existing `SVC_MUSIC_ADVANCE` (v34) already handles host-authoritative track advancement between clients; what's missing is a per-client timing correction.  Scope-check: clean implementation would need a match-clock offset in a sync packet (new field or reuse of existing timestamp).  Deferred as a follow-up pass so we don't ship half-done protocol.  Per Mike's rule: no net-protocol changes without approval.
+
+**No wire-protocol change in this fix.**  The lock is strictly local ("don't re-pick on my own respawn").
+
+**Files touched (Issue 4):**
+- `src/game/music.c` -- one block added inside `musicStartPrimary`.
+
+**Build:** clean incremental link of PerfectDark.exe.
+
+**Playtest after rebuild:**
+1. Start a Combat Sim match.
+2. Settings -> pick a specific custom track (or enable multi-tune with several selected).
+3. Log line at match start: `MUSIC: match track locked = <N> (cleared on stage change)`.
+4. Die in-match.  Respawn.  Track CONTINUES on the same song (no re-pick).
+5. End match -> return to lobby -> start new match -> fresh pick (lock auto-released).
+
+### Issue 2 re-verify (pending rebuild + playtest)
+
+Issue 1's SP-head filter should resolve most "missing necks" cases.  After Mike rebuilds and re-plays:
+- If missing necks persist on specific body/head combos, that's a real skin-weight bug per those combos.  File bug and scope separately.
+- If missing necks are gone entirely, Issue 2 closes as a consequence of Issue 1.
+
+## Session S453 - 2026-04-23/24 - Foundation pass: The Grid menu flow (P1)
 
 **Context:** Mike ran a CS playtest and saw all 31 bots rendering with the President head on the Maian (elvis1) body. Smoketest log confirmed `MATCHSETUP: bot slot N: body='base:elvis1' head='base:head_president' mpbody=12 mphead=12` across all 31 slots.
 

@@ -506,6 +506,45 @@ static void collectValidHead(const asset_entry_t *he, void *userdata)
     if (!he || he->type != ASSET_HEAD) return;
     if (ctx->count >= ctx->capacity) return;
 
+    /* Issue 1 fix (2026-04-24): exclude SP-only heads from every
+     * body's valid set.  ASSET_HEAD entries registered as
+     * "base:sp_head_<engine_idx>" by assetCatalogRegisterBaseGame are
+     * tagged with `category == "sp"`; real MP-selectable heads use
+     * `category == "base"`.  Letting SP heads into a valid-set meant
+     * Mike's playtest saw bots with bodies like `dd_guard` (human)
+     * getting `sp_head_52` -> mphead=0 (Joanna fallback), producing
+     * the "stewardess has Joanna's head" symptom.
+     *
+     * Using the `category` field rather than `mp_index >= 0` is the
+     * right gate because of a data quirk: s_BaseHeads[] only maps
+     * 75 of the 76 MP slots to names; the MP registration pass
+     * registers the 76th as `base:head_<mpidx>` but the SP loop
+     * ALSO registers the same engine head as `base:sp_head_<idx>`,
+     * and the SP registration wins the `s_RuntimeCache[ASSET_HEAD]`
+     * slot.  Pass 3 of the runtime-cache builder (see
+     * `catalogBuildRuntimeCaches`) then copies `mp_index = 75`
+     * onto the SP-registered entry -- so `sp_head_21` ends up with
+     * a non-negative mp_index despite being an SP entry.  The
+     * category field avoids that ambiguity.
+     *
+     * Consequence: a body's valid set is now exactly the
+     * HEADBODYTYPE-compatible heads registered as "base" category.
+     * For Maian bodies that means head_elvis + head_maian_s (two);
+     * for human male bodies the full g_MpMaleHeads pool (~43); for
+     * human female bodies the g_MpFemaleHeads pool (7).  If Mike
+     * wants more Maian variety, the fix is to promote an SP Maian
+     * head into the MP list (add an entry to `s_BaseHeads` with a
+     * spare `g_MpHeads[]` mpidx); that is a data-authoring change,
+     * not a code change.
+     *
+     * Mod heads are unaffected -- mod scanners register with their
+     * own category string ("mod" or similar), and their valid-set
+     * inclusion rides on the same HEADBODYTYPE rules.  Only the
+     * literal "sp" category is rejected. */
+    if (he->category[0] == 's' && he->category[1] == 'p' && he->category[2] == '\0') {
+        return;
+    }
+
     s32 headnum = (s32)he->ext.head.headnum;
     s32 headType = catalogGetHeadType(headnum);
 
