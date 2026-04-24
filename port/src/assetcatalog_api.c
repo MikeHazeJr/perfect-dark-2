@@ -34,6 +34,7 @@
 #include "net/sessioncatalog.h"
 #include "net/netbuf.h"
 #include "modmgr.h"
+#include "lib/rng.h"  /* P3: rngRandom for catalogPickRandomHeadIdForBody */
 #if !defined(PD_SERVER)
 #include "game/modeldef.h"
 #endif
@@ -473,6 +474,102 @@ const char *catalogGetBodyDisplayName(s32 mpbodynum)
     if (!e || e->type != ASSET_BODY) return NULL;
     if (!e->ext.body.display_name[0]) return NULL;
     return e->ext.body.display_name;
+}
+
+/* -------------------------------------------------------------------------
+ * P3 (2026-04-24): per-body valid-head set.
+ *
+ * Enumerate every head whose HEADBODYTYPE_* is compatible with the body's
+ * type.  Compatibility rules mirror modelcatalog.c::catalogIsHeadBodyCompatible
+ * (same type, or DEFAULT+DEFAULT, or FEMALE/FEMALEGUARD cross-pair).  FEMALE
+ * and DEFAULT are distinct types in the catalog, so type match alone already
+ * avoids cross-gender pairs.
+ *
+ * Internal static buffer for the returned array of catalog ID pointers.
+ * Sized generously so every head in the catalog fits -- bumped from 128 to
+ * 256 to absorb future mod-authored heads without a rebuild.  Non-thread-safe
+ * by design (the game is single-threaded; all catalog accessors assume the
+ * same contract). */
+#define VALID_HEAD_BUF_CAP 256
+static const char *s_ValidHeadBuf[VALID_HEAD_BUF_CAP];
+
+typedef struct {
+    s32         bodyType;
+    s32         count;
+    s32         capacity;
+    const char **out;
+} valid_head_ctx_t;
+
+static void collectValidHead(const asset_entry_t *he, void *userdata)
+{
+    valid_head_ctx_t *ctx = (valid_head_ctx_t *)userdata;
+    if (!he || he->type != ASSET_HEAD) return;
+    if (ctx->count >= ctx->capacity) return;
+
+    s32 headnum = (s32)he->ext.head.headnum;
+    s32 headType = catalogGetHeadType(headnum);
+
+    s32 compatible = 0;
+    if (headType == ctx->bodyType) {
+        compatible = 1;
+    } else if (headType == HEADBODYTYPE_DEFAULT && ctx->bodyType == HEADBODYTYPE_DEFAULT) {
+        compatible = 1;
+    } else if ((headType == HEADBODYTYPE_FEMALE || headType == HEADBODYTYPE_FEMALEGUARD)
+            && (ctx->bodyType == HEADBODYTYPE_FEMALE || ctx->bodyType == HEADBODYTYPE_FEMALEGUARD)) {
+        compatible = 1;
+    }
+
+    if (compatible && he->id && he->id[0]) {
+        ctx->out[ctx->count++] = he->id;
+    }
+}
+
+const char *const *catalogGetBodyValidHeadIds(const char *body_id,
+                                              int *out_count)
+{
+    if (out_count) *out_count = 0;
+    if (!body_id || !body_id[0]) return NULL;
+
+    const asset_entry_t *be = assetCatalogResolve(body_id);
+    if (!be || be->type != ASSET_BODY) return NULL;
+
+    valid_head_ctx_t ctx;
+    ctx.bodyType = catalogGetBodyType((s32)be->ext.body.bodynum);
+    ctx.count    = 0;
+    ctx.capacity = VALID_HEAD_BUF_CAP;
+    ctx.out      = s_ValidHeadBuf;
+
+    assetCatalogIterateByType(ASSET_HEAD, collectValidHead, &ctx);
+
+    if (ctx.count == 0) {
+        /* Defensive fallback: deterministic body without a matching type
+         * (should not happen in well-authored catalogs; surface loudly if
+         * it does, then fall back to the body's declared default head so
+         * the caller gets *something*). */
+        sysLogPrintf(LOG_WARNING,
+                "CATALOG: body '%s' (type=%d) has no type-compatible heads; "
+                "falling back to catalogGetBodyDefaultHead",
+                body_id, (s32)ctx.bodyType);
+        const char *fallback = catalogGetBodyDefaultHead(body_id);
+        if (fallback) {
+            s_ValidHeadBuf[0] = fallback;
+            ctx.count = 1;
+        }
+    }
+
+    if (out_count) *out_count = ctx.count;
+    return ctx.count > 0 ? s_ValidHeadBuf : NULL;
+}
+
+const char *catalogPickRandomHeadIdForBody(const char *body_id)
+{
+    int count = 0;
+    const char *const *ids = catalogGetBodyValidHeadIds(body_id, &count);
+    if (!ids || count <= 0) return NULL;
+    /* rngRandom returns a u32; modulo by count picks one entry.  For
+     * deterministic bodies (count == 1) this always returns the same ID. */
+    u32 pick = rngRandom() % (u32)count;
+    return ids[(s32)pick];
 }
 
 /* Body -> default head mpheadnum.  Uses cached mp_index on the head entry.

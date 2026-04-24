@@ -342,17 +342,18 @@ static void generateBotName(char *dst, s32 maxLen)
  * callers to hardcode "base:head_dark_combat" as fallback - so Connery/Moore/
  * Dalton/Brosnan bots all landed on dark_combat head instead of a random male
  * head. mpDefaultHeadForBody (mplayer.c) already handles the gender pool; wrap
- * it here and convert the head mp_index back to a catalog ID string. */
+ * it here and convert the head mp_index back to a catalog ID string.
+ *
+ * P3 (2026-04-24): promoted to catalogPickRandomHeadIdForBody.  The new
+ * accessor enumerates every head whose HEADBODYTYPE_* is compatible with
+ * the body and returns a fresh random pick per call.  For a specific-pair
+ * body (exactly one valid head) the result is deterministic; for Maian /
+ * Skedar / human-male / human-female bodies with multiple heads in the
+ * pool, each call yields a varied head so e.g. 31 Maian bots spawn with
+ * 31 different Maian heads instead of all sharing one face. */
 static const char *pickHeadIdForBody(const char *body_id)
 {
-	if (!body_id || !body_id[0]) return NULL;
-	const asset_entry_t *be = assetCatalogResolve(body_id);
-	if (!be || be->type != ASSET_BODY || be->mp_index < 0) {
-		return NULL;
-	}
-	s32 headIdx = mpDefaultHeadForBody((s32)be->mp_index);
-	if (headIdx < 0) return NULL;
-	return catalogMpHeadId(headIdx);
+	return catalogPickRandomHeadIdForBody(body_id);
 }
 
 static void pickRandomBodyHead(char *body_id, s32 bodyLen, char *head_id, s32 headLen)

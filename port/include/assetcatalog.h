@@ -1045,6 +1045,40 @@ s32 catalogGetHeadIsMale(s32 headnum);
 /** Integer: character type constant (HEADBODYTYPE_*) for a head. */
 s32 catalogGetHeadType(s32 headnum);
 
+/**
+ * P3 (2026-04-24): return every catalog head ID that is valid for the given
+ * body_id.  Valid-pair rules follow modelcatalog.c::catalogIsHeadBodyCompatible:
+ *
+ *   - same HEADBODYTYPE_*                           -> valid
+ *   - DEFAULT head with DEFAULT body                -> valid
+ *   - FEMALE / FEMALEGUARD head with FEMALE /
+ *     FEMALEGUARD body                              -> valid
+ *
+ * Gender filtering is baked into the HEADBODYTYPE_* values (FEMALE heads are
+ * separate from DEFAULT heads), so the type match is sufficient to avoid
+ * cross-gender pairs.
+ *
+ * Returns a pointer to an internal static array of const char* catalog IDs.
+ * *out_count is set to the number of valid head IDs.  Returns NULL / 0 if the
+ * body_id is unknown, wrong type, or the valid set is empty.  The returned
+ * array's pointers are stable (catalog IDs never move); the array itself is
+ * re-populated on every call, so callers must copy or iterate immediately.
+ *
+ * Deterministic-pair bodies (e.g. a unique character) will return a
+ * single-element array.  Mod-authored bodies that declare the same
+ * HEADBODYTYPE_* as an existing pool inherit the full pool automatically.
+ */
+const char *const *catalogGetBodyValidHeadIds(const char *body_id,
+                                              int *out_count);
+
+/**
+ * Convenience: pick a random head ID from the valid set for body_id.
+ * Uses rngRandom() so repeated calls yield different heads for a body that
+ * has more than one valid head.  Deterministic-pair bodies always return the
+ * same head.  Returns NULL if the body has no valid heads.
+ */
+const char *catalogPickRandomHeadIdForBody(const char *body_id);
+
 /** Integer: height field for a head (matches catalogGetBodyHeight contract). */
 s32 catalogGetHeadHeight(s32 headnum);
 

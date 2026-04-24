@@ -2246,26 +2246,22 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                     u32 b = sorted[si].idx;
                     const char *bid = catalogMpBodyId(b);
                     if (ImGui::MenuItem(sorted[si].name, NULL, (int)b == commonBody)) {
-                        /* B-235 follow-up (2026-04-23): PER-BOT random head roll.
-                         * Previous code picked one deterministic default head
-                         * and applied it to every selected bot, so multi-select
-                         * Set Character = Maian gave all 31 bots the same head.
-                         * Mike's expectation: "keep heads randomized from heads
-                         * valid for the body type or character". mpDefaultHeadForBody
-                         * handles both cases: deterministic paired head (Maian ->
-                         * Maian head; non-random data), and HEAD_RANDOM_GENDER
-                         * bodies (Connery/Moore/Dalton/Brosnan, many SP NPCs)
-                         * which return a fresh random gender-pool pick on each
-                         * call. Moving the call INTO the per-bot loop is the
-                         * whole fix. */
+                        /* B-235 follow-up + P3 (2026-04-24): PER-BOT random head
+                         * roll, this time driven by the catalog's full valid-head
+                         * set for the picked body.  catalogPickRandomHeadIdForBody
+                         * enumerates every head whose HEADBODYTYPE_* is compatible
+                         * (Maian body -> all Maian heads; human male body -> all
+                         * male heads; unique character -> that one head) and
+                         * returns a fresh random pick per call.  Called once per
+                         * selected slot so 31 Maian bots get 31 varied Maian
+                         * heads instead of sharing one face. */
                         for (int j = 1; j < g_MatchConfig.numSlots; j++) {
                             if (!s_BotSelected[j] || g_MatchConfig.slots[j].type != SLOT_BOT) continue;
                             if (bid) {
                                 strncpy(g_MatchConfig.slots[j].body_id, bid, sizeof(g_MatchConfig.slots[j].body_id) - 1);
                                 g_MatchConfig.slots[j].body_id[sizeof(g_MatchConfig.slots[j].body_id) - 1] = '\0';
                             }
-                            s32 defHead = mpDefaultHeadForBody((s32)b);
-                            const char *hid = (defHead >= 0) ? catalogMpHeadId(defHead) : NULL;
+                            const char *hid = catalogPickRandomHeadIdForBody(bid);
                             if (hid) {
                                 strncpy(g_MatchConfig.slots[j].head_id, hid, sizeof(g_MatchConfig.slots[j].head_id) - 1);
                                 g_MatchConfig.slots[j].head_id[sizeof(g_MatchConfig.slots[j].head_id) - 1] = '\0';
@@ -3401,11 +3397,12 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                             strncpy(sl->body_id, bid, sizeof(sl->body_id) - 1);
                             sl->body_id[sizeof(sl->body_id) - 1] = '\0';
                         }
-                        /* B-235 follow-up: use mpDefaultHeadForBody so
-                         * HEAD_RANDOM_GENDER bodies get a fresh random head
-                         * instead of NULL (which would leave head_id stale). */
-                        s32 defHead2 = mpDefaultHeadForBody((s32)b);
-                        const char *hid = (defHead2 >= 0) ? catalogMpHeadId(defHead2) : NULL;
+                        /* P3 (2026-04-24): single-bot edit modal also uses the
+                         * full valid-head set for the picked body.  For a
+                         * specific-pair body this is deterministic; for pooled
+                         * bodies (Maian, human male, human female) the user
+                         * gets a fresh random head on each body pick. */
+                        const char *hid = catalogPickRandomHeadIdForBody(bid);
                         if (hid) {
                             strncpy(sl->head_id, hid, sizeof(sl->head_id) - 1);
                             sl->head_id[sizeof(sl->head_id) - 1] = '\0';

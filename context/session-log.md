@@ -48,6 +48,35 @@ Playtest mode in this pass shows only the mode badge from `pdguiForgeHudRender`;
 
 **Build:** clean incremental link on main working copy.
 
+### Priority 3 (this entry, landed) — Per-body valid-head set + randomization
+
+Today's B-235 follow-up fix used `mpDefaultHeadForBody` which gives HEAD_RANDOM_GENDER bodies a random pick but still yields deterministic pairs for specific-pair bodies like Maian -> Maian head.  Mike's expectation is that 31 Maian bots get 31 *varied* Maian heads (not all the same face), driven by the full catalog set of heads whose HEADBODYTYPE_* is compatible with the body.
+
+**New catalog accessor** at `port/include/assetcatalog.h` + `port/src/assetcatalog_api.c`:
+
+- `catalogGetBodyValidHeadIds(body_id, *out_count) -> const char *const *` enumerates every head whose HEADBODYTYPE_* is compatible with the body's type (same type, or DEFAULT+DEFAULT, or FEMALE <-> FEMALEGUARD cross-pair).  Returns pointers into the catalog's stable ID strings via a module-static buffer.  Falls back to `catalogGetBodyDefaultHead` with a loud `LOG_WARNING` if no type-compatible heads exist (defensive; should not happen in a well-authored catalog).
+- `catalogPickRandomHeadIdForBody(body_id) -> const char *` calls the list accessor, then `rngRandom() %% count` to pick one.  Deterministic-pair bodies always return the same ID; pooled bodies yield variety per call.
+
+**Callers updated:**
+
+- `port/src/net/matchsetup.c::pickHeadIdForBody` is now a thin wrapper over `catalogPickRandomHeadIdForBody`.  All bot creation paths (`matchConfigAddBot`, `pickRandomBodyHead`) automatically pick up the broader valid set.
+- `port/fast3d/pdgui_menu_room.cpp` Set Character multi-select site (~line 2267) and individual-bot edit modal (~line 3404): replaced `mpDefaultHeadForBody(b) -> catalogMpHeadId` with `catalogPickRandomHeadIdForBody(bid)` inside the per-bot loop.  Multi-select Maian now yields varied Maian heads; single-select Maian yields a fresh random Maian head per click.
+
+**Edge cases handled:**
+
+- Body with exactly one valid head -> deterministic (modulo-1 picks the only element).
+- Body with zero valid heads -> `LOG_WARNING` + fall back to `catalogGetBodyDefaultHead` so the caller still gets a non-NULL string.
+- Catalog-ID rule: the accessor returns IDs, not integer indices; no persisted-state change.  `g_MatchConfig.slots[].head_id` stays the catalog ID.
+
+**Files touched (P3 pass):**
+
+- `port/include/assetcatalog.h` -- two new declarations.
+- `port/src/assetcatalog_api.c` -- `catalogGetBodyValidHeadIds` + `catalogPickRandomHeadIdForBody` + `#include "lib/rng.h"`.
+- `port/src/net/matchsetup.c` -- `pickHeadIdForBody` reduced to a one-line wrapper.
+- `port/fast3d/pdgui_menu_room.cpp` -- two Set Character sites swapped.
+
+**Build:** clean link on main working copy, PerfectDark.exe rebuilt.
+
 ## Session S452 - 2026-04-23 - B-235 wrong head for Maian bots + MATCHSETUP config audit + cleanup
 
 **Context:** Mike ran a CS playtest and saw all 31 bots rendering with the President head on the Maian (elvis1) body. Smoketest log confirmed `MATCHSETUP: bot slot N: body='base:elvis1' head='base:head_president' mpbody=12 mphead=12` across all 31 slots.
