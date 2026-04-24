@@ -33,6 +33,9 @@
 #include "system.h"
 
 #include "actionmap.h"
+#include "game/env.h"
+#include "game/music.h"
+#include "game/sky.h"
 
 /* ============================================================
  * Tunables
@@ -526,4 +529,122 @@ void forgeTick(void)
 	if (s_forge.state == FORGE_SESSION_FREEFLY) {
 		forgeUpdateFreefly();
 	}
+}
+
+/* ============================================================
+ * Level-tab accessors (Issue 9 execution, 2026-04-24)
+ *
+ * C wrappers for the forge editor's Level tab.  The editor is in a C++
+ * TU that cannot include types.h (bool/s32 conflict), so reading or
+ * writing struct environment fields goes through these opaque getters /
+ * setters.  All writes take effect on the live env -- the skybox and
+ * lighting update on the next tick, music starts immediately.
+ * ============================================================ */
+
+void forgeLevelGetSkyColor(u8 *out_r, u8 *out_g, u8 *out_b)
+{
+	struct environment *e = envGetCurrent();
+	if (!e || !out_r || !out_g || !out_b) {
+		return;
+	}
+	*out_r = e->sky_r;
+	*out_g = e->sky_g;
+	*out_b = e->sky_b;
+}
+
+void forgeLevelSetSkyColor(u8 r, u8 g, u8 b)
+{
+	struct environment *e = envGetCurrent();
+	if (!e) {
+		return;
+	}
+	e->sky_r = r;
+	e->sky_g = g;
+	e->sky_b = b;
+}
+
+void forgeLevelGetFog(s32 *out_fogmin, s32 *out_fogmax)
+{
+	struct environment *e = envGetCurrent();
+	if (!e || !out_fogmin || !out_fogmax) {
+		return;
+	}
+	*out_fogmin = e->fogmin;
+	*out_fogmax = e->fogmax;
+}
+
+void forgeLevelSetFog(s32 fogmin, s32 fogmax)
+{
+	struct environment *e = envGetCurrent();
+	if (!e) {
+		return;
+	}
+	if (fogmin < 0) fogmin = 0;
+	if (fogmax < fogmin) fogmax = fogmin + 1;
+	e->fogmin = fogmin;
+	e->fogmax = fogmax;
+}
+
+s32 forgeLevelGetCloudsEnabled(void)
+{
+	struct environment *e = envGetCurrent();
+	return (e && e->clouds_enabled) ? 1 : 0;
+}
+
+void forgeLevelSetCloudsEnabled(s32 enabled)
+{
+	struct environment *e = envGetCurrent();
+	if (!e) {
+		return;
+	}
+	e->clouds_enabled = enabled ? 1 : 0;
+}
+
+void forgeLevelGetCloudColor(f32 *out_r, f32 *out_g, f32 *out_b)
+{
+	struct environment *e = envGetCurrent();
+	if (!e || !out_r || !out_g || !out_b) {
+		return;
+	}
+	*out_r = e->clouds_r;
+	*out_g = e->clouds_g;
+	*out_b = e->clouds_b;
+}
+
+void forgeLevelSetCloudColor(f32 r, f32 g, f32 b)
+{
+	struct environment *e = envGetCurrent();
+	if (!e) {
+		return;
+	}
+	e->clouds_r = r;
+	e->clouds_g = g;
+	e->clouds_b = b;
+}
+
+/* Swap the skybox to a different stage's sky.  The env pipeline resolves
+ * this on the next envTick via envChooseAndApply; we also re-run
+ * skyReset to refresh sun/artifact state immediately. */
+void forgeLevelSetSkyStage(s32 stagenum)
+{
+	if (stagenum <= 0) {
+		return;
+	}
+	envChooseAndApply(stagenum, false);
+	skyReset((u32)stagenum);
+}
+
+/* Start a different primary music track immediately.  Non-destructive:
+ * the original stage theme resumes on the next musicReset. */
+void forgeLevelPlayMusic(s32 tracknum)
+{
+	if (tracknum <= 0) {
+		return;
+	}
+	musicStartTemporaryPrimary(tracknum);
+}
+
+void forgeLevelStopMusic(void)
+{
+	musicStop();
 }

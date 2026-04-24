@@ -1406,40 +1406,204 @@ static const char *forgeTabLabel(int idx)
 	}
 }
 
-/* Issue 9 placeholder: Level-tab "skybox / skylight / background music"
- * controls.  Scaffolded so authors see the surface now; each control
- * fires a TODO log line to make the wiring path obvious when the
- * handlers land. */
-static void forgeDrawLevelExtrasPlaceholder(void)
+/* Priority C (2026-04-24): Level tab ambience controls -- real.
+ *
+ * Skybox: a "sky stage" picker that swaps the live environment (sky
+ * colour, sun position, cloud preset, fog distances) to another stage's
+ * sky via forgeLevelSetSkyStage. Cheap, non-destructive -- restoring the
+ * original sky is one more combo pick or a scene transition.
+ *
+ * Skylight: direct editors on the live environment fields.  Sky colour
+ * is an ImGui colour picker; fog / clouds are straightforward knobs.
+ * Changes apply immediately (no Apply button).
+ *
+ * Background music: a curated list of MUSIC_* tracks that map
+ * 1:1 to forgeLevelPlayMusic.  Includes a Stop row for silence. */
+
+extern "C" {
+	void forgeLevelGetSkyColor(u8 *r, u8 *g, u8 *b);
+	void forgeLevelSetSkyColor(u8 r, u8 g, u8 b);
+	void forgeLevelGetFog(s32 *fogmin, s32 *fogmax);
+	void forgeLevelSetFog(s32 fogmin, s32 fogmax);
+	s32  forgeLevelGetCloudsEnabled(void);
+	void forgeLevelSetCloudsEnabled(s32 enabled);
+	void forgeLevelGetCloudColor(f32 *r, f32 *g, f32 *b);
+	void forgeLevelSetCloudColor(f32 r, f32 g, f32 b);
+	void forgeLevelSetSkyStage(s32 stagenum);
+	void forgeLevelPlayMusic(s32 tracknum);
+	void forgeLevelStopMusic(void);
+}
+
+namespace {
+
+struct SkyStageOption {
+	const char *label;
+	s32         stagenum;
+};
+
+/* Curated list of stages with distinct, recognisable skies.  Numeric
+ * values mirror src/include/constants.h STAGE_* defines; the labels are
+ * English for editor legibility. */
+static const SkyStageOption s_SkyStageOptions[] = {
+	{ "CI Training (default)", 0x59 /* STAGE_CITRAINING */ },
+	{ "Villa (overcast)",      0x27 /* STAGE_VILLA */ },
+	{ "Chicago (night)",       0x28 /* STAGE_CHICAGO */ },
+	{ "G5 Building",           0x29 /* STAGE_G5BUILDING */ },
+	{ "Airbase (clear)",       0x30 /* STAGE_AIRBASE */ },
+	{ "Crash Site (alien)",    0x37 /* STAGE_CRASHSITE */ },
+	{ "Skedar Ruins",          0x47 /* STAGE_SKEDARRUINS */ },
+	{ "Attack Ship",           0x44 /* STAGE_ATTACKSHIP */ },
+	{ "MP: Skedar Ruins",      0x1c /* STAGE_MP_SKEDAR */ },
+	{ "MP: Temple",            0x1a /* STAGE_MP_TEMPLE */ },
+	{ "MP: Complex",           0x1b /* STAGE_MP_COMPLEX */ },
+	{ "MP: Warehouse",         0x5b /* STAGE_MP_WAREHOUSE -- approximate */ },
+};
+static const int s_SkyStageCount = (int)(sizeof(s_SkyStageOptions) /
+                                          sizeof(s_SkyStageOptions[0]));
+
+struct MusicOption {
+	const char *label;
+	s32         tracknum;
+};
+
+/* Curated music picker -- common MP and cinematic tracks.  The
+ * MUSIC_* enum is generated (Build/src/generated/ntsc-final/sequences.h)
+ * so using literal values here avoids the fragile include chain for
+ * the C++ editor TU.  Values match the generated enum ordering. */
+static const MusicOption s_MusicOptions[] = {
+	{ "Silence (stop)",       -1 },
+	{ "Villa",                 12 /* MUSIC_VILLA */ },
+	{ "CI",                    13 /* MUSIC_CI */ },
+	{ "Chicago",               14 /* MUSIC_CHICAGO */ },
+	{ "G5",                    15 /* MUSIC_G5 */ },
+	{ "Investigation",         18 /* MUSIC_INVESTIGATION */ },
+	{ "Infiltration",          20 /* MUSIC_INFILTRATION */ },
+	{ "Airbase",               23 /* MUSIC_AIRBASE */ },
+	{ "Air Force One",         24 /* MUSIC_AIRFORCEONE */ },
+	{ "Pelagic",               28 /* MUSIC_PELAGIC */ },
+	{ "Crash Site",            29 /* MUSIC_CRASHSITE */ },
+	{ "Attack Ship",           31 /* MUSIC_ATTACKSHIP */ },
+	{ "Skedar Ruins",          33 /* MUSIC_SKEDARRUINS */ },
+	{ "Dark Combat (MP)",      58 /* MUSIC_DARK_COMBAT */ },
+	{ "Alien Conflict",        62 /* MUSIC_ALIEN_CONFLICT */ },
+	{ "Defence",                4 /* MUSIC_DEFENSE */ },
+	{ "Rescue",                22 /* MUSIC_RESCUE */ },
+	{ "Escape",                 6 /* MUSIC_ESCAPE */ },
+	{ "Deep Sea",               7 /* MUSIC_DEEPSEA */ },
+};
+static const int s_MusicCount = (int)(sizeof(s_MusicOptions) /
+                                       sizeof(s_MusicOptions[0]));
+
+static int s_SelectedSkyStageIdx = 0;
+static int s_SelectedMusicIdx    = 0;
+
+} /* namespace */
+
+static void forgeDrawLevelExtras(void)
 {
-	ImGui::SeparatorText("Skybox / Skylight / Background Music  (scaffold)");
+	/* -------------------------------------------------------------
+	 * Skybox / sky stage
+	 * ------------------------------------------------------------- */
+	ImGui::SeparatorText("Skybox");
 	ImGui::TextWrapped(
-		"Level-ambience controls will live here.  Skybox selection, "
-		"skylight direction + colour, and match background music pick "
-		"currently fire TODO-marked log lines; handlers land in a "
-		"later iteration.");
-	ImGui::Spacing();
-	if (ImGui::Button("Pick Skybox... [TODO]", ImVec2(-1, 0))) {
-		sysLogPrintf(LOG_NOTE, "GRID.LEVEL: TODO skybox picker clicked");
+		"Swap the live sky environment to another stage's sky. "
+		"Changes the sun position, cloud preset, and fog distances "
+		"immediately; use the scene transition to restore the original.");
+	if (ImGui::BeginCombo("Sky stage", s_SkyStageOptions[s_SelectedSkyStageIdx].label)) {
+		for (int i = 0; i < s_SkyStageCount; i++) {
+			bool sel = (i == s_SelectedSkyStageIdx);
+			if (ImGui::Selectable(s_SkyStageOptions[i].label, sel)) {
+				s_SelectedSkyStageIdx = i;
+				forgeLevelSetSkyStage(s_SkyStageOptions[i].stagenum);
+			}
+			if (sel) ImGui::SetItemDefaultFocus();
+		}
+		ImGui::EndCombo();
 	}
-	if (ImGui::Button("Edit Skylight... [TODO]", ImVec2(-1, 0))) {
-		sysLogPrintf(LOG_NOTE, "GRID.LEVEL: TODO skylight editor clicked");
+
+	/* -------------------------------------------------------------
+	 * Skylight / atmosphere
+	 * ------------------------------------------------------------- */
+	ImGui::SeparatorText("Skylight / Atmosphere");
+
+	/* Sky colour (top-of-sky gradient seed). */
+	{
+		u8 r = 0, g = 0, b = 0;
+		forgeLevelGetSkyColor(&r, &g, &b);
+		float col[3] = { r / 255.0f, g / 255.0f, b / 255.0f };
+		if (ImGui::ColorEdit3("Sky colour", col)) {
+			forgeLevelSetSkyColor(
+				(u8)(col[0] * 255.0f + 0.5f),
+				(u8)(col[1] * 255.0f + 0.5f),
+				(u8)(col[2] * 255.0f + 0.5f));
+		}
 	}
-	if (ImGui::Button("Pick Background Music... [TODO]", ImVec2(-1, 0))) {
-		sysLogPrintf(LOG_NOTE, "GRID.LEVEL: TODO background music picker clicked");
+
+	/* Fog range. */
+	{
+		s32 fogmin = 0, fogmax = 0;
+		forgeLevelGetFog(&fogmin, &fogmax);
+		int fmin = (int)fogmin;
+		int fmax = (int)fogmax;
+		bool dirty = false;
+		if (ImGui::SliderInt("Fog near", &fmin, 0, 20000, "%d units")) dirty = true;
+		if (ImGui::SliderInt("Fog far",  &fmax, 0, 60000, "%d units")) dirty = true;
+		if (dirty) {
+			if (fmax < fmin) fmax = fmin + 1;
+			forgeLevelSetFog((s32)fmin, (s32)fmax);
+		}
 	}
+
+	/* Clouds. */
+	{
+		bool enabled = (forgeLevelGetCloudsEnabled() != 0);
+		if (ImGui::Checkbox("Clouds visible", &enabled)) {
+			forgeLevelSetCloudsEnabled(enabled ? 1 : 0);
+		}
+		if (enabled) {
+			f32 cr = 1.0f, cg = 1.0f, cb = 1.0f;
+			forgeLevelGetCloudColor(&cr, &cg, &cb);
+			float col[3] = { cr, cg, cb };
+			if (ImGui::ColorEdit3("Cloud tint", col)) {
+				forgeLevelSetCloudColor(col[0], col[1], col[2]);
+			}
+		}
+	}
+
+	/* -------------------------------------------------------------
+	 * Background music
+	 * ------------------------------------------------------------- */
+	ImGui::SeparatorText("Background Music");
+	if (ImGui::BeginCombo("Track", s_MusicOptions[s_SelectedMusicIdx].label)) {
+		for (int i = 0; i < s_MusicCount; i++) {
+			bool sel = (i == s_SelectedMusicIdx);
+			if (ImGui::Selectable(s_MusicOptions[i].label, sel)) {
+				s_SelectedMusicIdx = i;
+				if (s_MusicOptions[i].tracknum < 0) {
+					forgeLevelStopMusic();
+				} else {
+					forgeLevelPlayMusic(s_MusicOptions[i].tracknum);
+				}
+			}
+			if (sel) ImGui::SetItemDefaultFocus();
+		}
+		ImGui::EndCombo();
+	}
+	ImGui::TextDisabled(
+		"Changes are session-local -- the original stage track resumes "
+		"on the next scene transition.");
 }
 
 static void forgeDrawActiveTab(int idx)
 {
 	switch (idx) {
 	case FGT_LEVEL:
-		/* Level = Lighting + Mission + skybox/music placeholder. */
+		/* Level = Lighting + Mission + ambience (skybox / skylight / music). */
 		forgeDrawLightingTab();
 		ImGui::Separator();
 		forgeDrawMissionTab();
 		ImGui::Separator();
-		forgeDrawLevelExtrasPlaceholder();
+		forgeDrawLevelExtras();
 		break;
 	case FGT_OBJECTS:
 		/* Objects = Catalog + Properties. */

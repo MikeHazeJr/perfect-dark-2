@@ -110,6 +110,39 @@ forge_session_state_t forgeGetPlayerSessionState(s32 playerNum);
  *  players during FREEFLY. */
 void forgeTogglePlayerMode(s32 playerNum);
 
+/* ============================================================
+ * Level-tab accessors (Issue 9 / Priority C, 2026-04-24)
+ *
+ * C-opaque read / write for the forge editor's Level tab ambience
+ * controls.  The editor is in a C++ TU that cannot include types.h
+ * (bool/s32 conflict), so all reads and writes to struct environment
+ * go through these wrappers.  Changes take effect immediately (sky
+ * color / fog / clouds / skybox repaint on next tick; music starts
+ * on the next audio tick).
+ * ============================================================ */
+
+void forgeLevelGetSkyColor(u8 *out_r, u8 *out_g, u8 *out_b);
+void forgeLevelSetSkyColor(u8 r, u8 g, u8 b);
+
+void forgeLevelGetFog(s32 *out_fogmin, s32 *out_fogmax);
+void forgeLevelSetFog(s32 fogmin, s32 fogmax);
+
+s32  forgeLevelGetCloudsEnabled(void);
+void forgeLevelSetCloudsEnabled(s32 enabled);
+
+void forgeLevelGetCloudColor(f32 *out_r, f32 *out_g, f32 *out_b);
+void forgeLevelSetCloudColor(f32 r, f32 g, f32 b);
+
+/** Swap the live environment + skybox to another stage's sky.  No-op for
+ *  non-positive stagenums.  Use to preview how a forge map looks under
+ *  Villa's sky, Skedar Ruins' alien sun, etc. */
+void forgeLevelSetSkyStage(s32 stagenum);
+
+/** Start a different primary music track immediately.  Stops on
+ *  forgeLevelStopMusic or on next musicReset (scene transition). */
+void forgeLevelPlayMusic(s32 tracknum);
+void forgeLevelStopMusic(void);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
