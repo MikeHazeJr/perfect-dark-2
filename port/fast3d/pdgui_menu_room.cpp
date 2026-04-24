@@ -2213,7 +2213,11 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
             if (isLeader && ImGui::BeginMenu("Set Character")) {
                 u32 numBodies = mpGetNumBodies();
 
-                /* Build sortable list of (displayName, mpIndex) pairs */
+                /* Build sortable list of (displayName, mpIndex) pairs.
+                 * P4 (2026-04-24): trust the catalog display_name for every
+                 * registered body. An empty name = catalog registration bug,
+                 * not a soft "defensive skip" -- log and skip so the real
+                 * source gets fixed. */
                 static const u32 MAX_BODY_ENTRIES = 256;
                 struct BodyEntry { const char *name; u32 idx; };
                 BodyEntry sorted[MAX_BODY_ENTRIES];
@@ -2221,12 +2225,13 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 u32 sortedCount = 0;
                 for (u32 b = 0; b < numBodies; b++) {
                     char *bodyName = mpGetBodyName((u8)b);
-                    /* Fallback for bodies with empty display names */
                     if (!bodyName || !bodyName[0]) {
                         const char *bid = catalogMpBodyId(b);
-                        if (bid && strcmp(bid, "base:drcaroll") == 0) bodyName = (char *)"Dr. Caroll";
-                        else if (bid && strcmp(bid, "base:skedar") == 0) bodyName = (char *)"Skedar";
-                        else continue;
+                        sysLogPrintf(LOG_ERROR,
+                            "ROOM.CharSet: body mpidx=%u id=\"%s\" has empty "
+                            "display_name -- catalog registration bug",
+                            b, bid ? bid : "?");
+                        continue;
                     }
                     sorted[sortedCount++] = { bodyName, b };
                 }
@@ -3387,7 +3392,14 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             if (ImGui::BeginCombo("##botmodalchar", curBody)) {
                 for (u32 b = 0; b < numBodies; b++) {
                     char *bodyName = mpGetBodyName((u8)b);
-                    if (!bodyName || !bodyName[0]) continue;
+                    if (!bodyName || !bodyName[0]) {
+                        const char *bidErr = catalogMpBodyId(b);
+                        sysLogPrintf(LOG_ERROR,
+                            "ROOM.BotModal: body mpidx=%u id=\"%s\" has empty "
+                            "display_name -- catalog registration bug",
+                            b, bidErr ? bidErr : "?");
+                        continue;
+                    }
                     const char *bid = catalogMpBodyId(b);
                     bool sel = bid && sl->body_id[0] && strcmp(bid, sl->body_id) == 0;
                     char bLabel[64];

@@ -613,10 +613,21 @@ s32 assetCatalogRegisterBaseGame(void)
 		 * exists in mpArenaIndexIsUsable (setup.c) to match. */
 		NULL,           /* index 55: stage_24 (Kakariko Stormy), data absent */
 		NULL,           /* index 56: mp_grid7 (Dark Noon Valley), data absent */
-		"test_arch",    "test_dest",
-		"extra16",      "extra17",      "extra18",      "extra19",
-		"extra20",      "extra21",      "extra22",      "extra23",
-		"extra24",      "extra26",      "test_lam",     /* index 69 */
+		/* 2026-04-24 source-cleanup pass: indices 57-64 and 69 are dev / test
+		 * shells that ship with empty or placeholder geometry ("test_arch",
+		 * "test_dest", extra16..21, "test_lam"). Keeping them out of the
+		 * catalog is cheaper and safer than filtering them at every picker. */
+		NULL,           /* index 57: test_arch */
+		NULL,           /* index 58: test_dest */
+		NULL,           /* index 59: extra16 */
+		NULL,           /* index 60: extra17 */
+		NULL,           /* index 61: extra18 */
+		NULL,           /* index 62: extra19 */
+		NULL,           /* index 63: extra20 */
+		NULL,           /* index 64: extra21 */
+		"extra22",      "extra23",
+		"extra24",      "extra26",
+		NULL,           /* index 69: test_lam (dev shell) */
 		NULL,           /* index 70: extra25=Paradox, removed */
 		/* Random (71-72) */
 		"mp_random_multi", "mp_random_solo",
@@ -646,12 +657,9 @@ s32 assetCatalogRegisterBaseGame(void)
 				continue;
 			}
 
-			/* Paradox (STAGE_EXTRA25): map data removed from game, skip */
-			if (g_MpArenas[idx].stagenum == STAGE_EXTRA25) {
-				continue;
-			}
-
-			/* Skip any arena whose name entry is NULL (GEX slots, missing entries) */
+			/* Skip any arena whose name entry is NULL. The NULL slots are the
+			 * canonical "not in catalog" marker — see s_ArenaNames[] above
+			 * for which indices are excluded and why. */
 			if (!s_ArenaNames[idx]) {
 				continue;
 			}

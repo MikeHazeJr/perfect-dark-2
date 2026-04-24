@@ -19,12 +19,12 @@ extern s32 g_MainChangeToStageNum;
 extern s32 g_StageNum;
 }
 
-/* Issue 5 (2026-04-24): third line of defense against the "Grid loads a
- * system stage and crashes" bug.  The picker filter + gridCommitEnter
- * validate the stagenum at the submenu layer; this entry point ALSO
- * validates because it is called from other code paths (F0-era callers,
- * future mod entry points) that may not share the picker's guarantees.
- * Any system / title / bootpak / credits stage is rejected outright. */
+/* Gateway sanity check. The caller (Grid picker commit, future mod
+ * entry points) is the authority on which stage to launch; this check
+ * only catches real data bugs where an ineligible stagenum reached the
+ * gateway. No silent fallbacks -- LOG_ERROR and refuse so the caller
+ * sees the bug and the user doesn't end up in a "why am I in CI Training"
+ * situation. */
 extern "C" s32 stageGetIndex(s32 stagenum);
 
 static s32 forgeStageIsGridEligible(s32 stagenum)
@@ -47,21 +47,19 @@ s32 pdguiForgeStartSessionOn(s32 stagenum)
 		return 0;
 	}
 
-	/* Default to CI Training only when the caller passed 0 / negative.
-	 * Any non-default stagenum must survive the eligibility check. */
+	/* Default to CI Training only when the caller passed 0 / negative --
+	 * the "no stage in mind" path. Any explicit stagenum must be
+	 * eligible; otherwise refuse loudly rather than silently rewriting
+	 * the caller's intent. */
 	s32 target = (stagenum > 0) ? stagenum : (s32)STAGE_CITRAINING;
 
 	if (!forgeStageIsGridEligible(target)) {
-		sysLogPrintf(LOG_WARNING,
-				"GRID: start rejected -- stagenum 0x%02x is not Grid-eligible "
-				"(system stage or unregistered); falling back to CI Training",
+		sysLogPrintf(LOG_ERROR,
+				"GRID: start ABORT -- stagenum 0x%02x is not Grid-eligible "
+				"(system stage or unregistered). Caller supplied a bad stagenum; "
+				"fix the data source rather than silently rewriting the target.",
 				(u32)target);
-		target = (s32)STAGE_CITRAINING;
-		if (!forgeStageIsGridEligible(target)) {
-			sysLogPrintf(LOG_WARNING,
-					"GRID: fallback CI Training also not eligible -- abort");
-			return 0;
-		}
+		return 0;
 	}
 
 	sysLogPrintf(LOG_NOTE, "GRID: launching session (base stage 0x%02x)",

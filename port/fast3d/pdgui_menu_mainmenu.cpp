@@ -312,11 +312,21 @@ char *langSafe(s32 textid);
 /* Feature / challenge unlock gate -- used by Grid submenu arena filter. */
 s32 challengeIsFeatureUnlocked(u32 feature);
 
-/* Stage table lookup -- used by Grid submenu to reject arenas whose
- * stagenum isn't in the registered stage table (defends against the
- * Issue 5 crash where a catalog entry pointed at stagenum 0x5a == TITLE).
- * Defined in src/game/stagetable.c. */
+/* Stage table lookup -- used by Grid submenu assertion at commit time. */
 s32 stageGetIndex(s32 stagenum);
+
+/* Random-meta resolution. Grid picker surfaces the "Random Multi" / "Random
+ * Solo" meta-arenas as selectable rows; commit resolves them to a concrete
+ * stagenum via these helpers. Defined in src/game/mplayer/setup.c. */
+s16 mpChooseRandomMultiStage(void);
+s16 mpChooseRandomSoloStage(void);
+
+/* Meta-arena stagenum sentinels (mirror of constants.h to avoid pulling
+ * the full chain into this C++ TU). */
+#ifndef GRID_STAGE_MP_RANDOM_MULTI
+#define GRID_STAGE_MP_RANDOM_MULTI 0x02
+#define GRID_STAGE_MP_RANDOM_SOLO  0x03
+#endif
 
 /* STAGE_IS_* mirror (values locked in src/include/constants.h:4091+).
  * Defined locally so the C++ Main Menu TU can reject system / title
@@ -3931,15 +3941,16 @@ static void renderSettingsView(float scale, float contentH)
  * pdgui_menu_grid.h for rationale).
  * ======================================================================== */
 
-/* Grid arena category tags (Issue 7).  The catalog category strings are
+/* Grid arena category tags. The catalog category strings are
  * "Dark" / "Solo Missions" / "Classic" / "Bonus" / "Random"; the picker
- * displays the user-facing abbreviation on each row.  Bonus + Random are
- * hidden behind s_GridShowBonus. */
+ * displays the user-facing abbreviation on each row. Category is a
+ * display tag only -- not a validity filter (the catalog is authoritative
+ * on which arenas are playable; if it's registered, it ships). */
 enum GridArenaCategory {
     GRID_CAT_MP     = 0, /* "Dark" -- native MP arenas */
     GRID_CAT_SP     = 1, /* "Solo Missions" -- SP-class stages usable in MP */
     GRID_CAT_CLASSIC= 2, /* "Classic" -- Temple / Complex / Felicity / etc. */
-    GRID_CAT_BONUS  = 3, /* "Bonus" -- mod lineage, mostly unverified */
+    GRID_CAT_BONUS  = 3, /* "Bonus" -- extra / test stages */
     GRID_CAT_RANDOM = 4, /* "Random" -- meta arenas (mp_random_*) */
     GRID_CAT_UNKNOWN = 5,
 };
@@ -3957,13 +3968,6 @@ static int             s_GridArenaCount = 0;
 static int             s_GridArenaCapacity = 0;
 static bool            s_GridArenasBuilt = false;
 static int             s_GridSelectedArena = 0;
-
-/* Issue 7: default-hide Bonus + Random arenas (mod lineage + meta-arenas
- * whose stage data is often incomplete).  Toggle via a "Show debug /
- * bonus arenas" checkbox in the Grid submenu.  Changing the toggle
- * invalidates the built list so the next render rebuilds with the new
- * filter. */
-static bool s_GridShowBonus = false;
 
 static GridArenaCategory gridClassifyCategory(const char *cat)
 {
@@ -4020,59 +4024,27 @@ static void gridArenaCollect(const asset_entry_t *e, void *userdata)
     (void)userdata;
     if (!e) return;
 
-    /* Issue 5 + Issue 7 filter cascade (2026-04-24).  Runs BEFORE allocating
-     * a slot so we don't grow the buffer with rejected entries. */
+    /* Source-cleanup pass (2026-04-24): the catalog registration is now
+     * authoritative on which arenas are valid. assetcatalog_base.c NULLs
+     * the slots for test / placeholder stages so they never reach here.
+     * The only runtime gate the picker enforces is the feature-unlock
+     * gate (legitimate gameplay feature, not a data-validity check). */
 
-    const s32 stagenum = (s32)e->ext.arena.stagenum;
-
-    /* (a) Reject invalid or system stagenums.  Mike's crash report
-     * (2026-04-24) showed Grid loading stagenum=0x5a which is STAGE_TITLE;
-     * the session transitioned INACTIVE immediately, the INTRO path took
-     * over, and the tick loop crashed on chr_slot=-1.  The fix is to never
-     * let a system / title stage or stagenum=0 reach
-     * pdguiForgeStartSessionOn in the first place. */
-    if (stagenum <= 0 || !GRID_STAGE_IS_GAMEPLAY(stagenum)) {
-        return;
-    }
-
-    /* (b) Reject stagenums that aren't in the live stage table.  mod stages
-     * that failed to register (shipped data missing) end up here.  Mirrors
-     * the blacklist in src/game/mplayer/setup.c::stagenumIsPlayableInMp. */
-    if (stageGetIndex(stagenum) < 0) {
-        return;
-    }
-
-    /* (c) Category filter.  Random meta-arenas (mp_random_multi / solo /
-     * GEX) are never a valid Grid target.  Bonus entries (mod lineage +
-     * test stages) hide behind the s_GridShowBonus toggle. */
-    GridArenaCategory cat = gridClassifyCategory(e->category);
-    if (cat == GRID_CAT_RANDOM) {
-        return;
-    }
-    if (cat == GRID_CAT_BONUS && !s_GridShowBonus) {
-        return;
-    }
-    if (cat == GRID_CAT_UNKNOWN && !s_GridShowBonus) {
-        /* Unknown-category arenas are treated like Bonus for the default
-         * view -- safer than defaulting them visible. */
-        return;
-    }
-
-    /* (d) Require a usable display name. */
-    char *langText = langSafe((s32)e->ext.arena.name_langid);
-    if (!langText || !langText[0]) {
-        sysLogPrintf(LOG_WARNING,
-            "GRID.MENU: arena stagenum=0x%02x langid=0x%04x has no name; skipping",
-            stagenum, e->ext.arena.name_langid);
-        return;
-    }
-
-    /* (e) Respect challenge-feature gates. */
     if (!challengeIsFeatureUnlocked((u8)e->ext.arena.requirefeature)) {
         return;
     }
 
-    /* All filters passed -- grow the buffer and write the entry. */
+    char *langText = langSafe((s32)e->ext.arena.name_langid);
+    if (!langText || !langText[0]) {
+        /* Catalog registration contract: every registered arena must have
+         * a resolvable langbank name. Hit = data bug, not a soft reject. */
+        sysLogPrintf(LOG_ERROR,
+            "GRID.MENU: arena id=\"%s\" stagenum=0x%02x langid=0x%04x has no "
+            "langbank name -- catalog registration bug, entry skipped",
+            e->id, e->ext.arena.stagenum, e->ext.arena.name_langid);
+        return;
+    }
+
     if (s_GridArenaCount >= s_GridArenaCapacity) {
         int newCap = (s_GridArenaCapacity == 0) ? 32 : s_GridArenaCapacity * 2;
         GridArenaEntry *newBuf = (GridArenaEntry *)realloc(
@@ -4091,8 +4063,8 @@ static void gridArenaCollect(const asset_entry_t *e, void *userdata)
     a->name[sizeof(a->name) - 1] = '\0';
     strncpy(a->id, e->id, sizeof(a->id) - 1);
     a->id[sizeof(a->id) - 1] = '\0';
-    a->stagenum = stagenum;
-    a->category = cat;
+    a->stagenum = (s32)e->ext.arena.stagenum;
+    a->category = gridClassifyCategory(e->category);
     a->is_blank = false;
 
     s_GridArenaCount++;
@@ -4159,18 +4131,32 @@ static bool gridCommitEnter(void)
 
     const GridArenaEntry *a = &s_GridArenas[s_GridSelectedArena];
 
-    /* Issue 5 defense-in-depth (2026-04-24): even though `gridArenaCollect`
-     * already rejected non-gameplay and unregistered stagenums, validate
-     * once more before handing off to the stage-load pipeline.  A stale
-     * entry surviving through the picker (mod reload race, catalog
-     * invalidation) would otherwise propagate all the way to
-     * `mainChangeToStage(STAGE_TITLE)` -- the crash Mike hit. */
+    /* Resolve meta-arenas (Random Multi / Random Solo) to a concrete
+     * stagenum at commit time. The user sees "Random Multi" as a row in
+     * the picker; Enter rolls the dice and lands on a real stage. */
+    s32 commit_stagenum = a->stagenum;
+    const char *commit_id = a->id;
     if (!a->is_blank) {
-        if (a->stagenum <= 0 || !GRID_STAGE_IS_GAMEPLAY(a->stagenum)
-                || stageGetIndex(a->stagenum) < 0) {
-            sysLogPrintf(LOG_WARNING,
-                "GRID.MENU: commit rejected -- stagenum 0x%02x invalid for Grid "
-                "(non-gameplay or unregistered)", (u32)a->stagenum);
+        if (commit_stagenum == GRID_STAGE_MP_RANDOM_MULTI) {
+            commit_stagenum = (s32)mpChooseRandomMultiStage();
+            commit_id = "";   /* resolved stagenum wins; clear catalog id */
+        } else if (commit_stagenum == GRID_STAGE_MP_RANDOM_SOLO) {
+            commit_stagenum = (s32)mpChooseRandomSoloStage();
+            commit_id = "";
+        }
+    }
+
+    /* One loud sanity assertion before handing off to the stage-load
+     * pipeline. Catches any remaining registration or random-resolver bug
+     * -- a hit here means real data corruption, not a soft reject. */
+    if (!a->is_blank) {
+        if (commit_stagenum <= 0
+                || !GRID_STAGE_IS_GAMEPLAY(commit_stagenum)
+                || stageGetIndex(commit_stagenum) < 0) {
+            sysLogPrintf(LOG_ERROR,
+                "GRID.MENU: commit ABORT -- resolved stagenum 0x%02x for arena "
+                "\"%s\" is not a loadable gameplay stage (data bug)",
+                (u32)commit_stagenum, a->name);
             return false;
         }
     }
@@ -4179,14 +4165,14 @@ static bool gridCommitEnter(void)
      * overwrite the variant-shaped fields from the submenu. */
     matchConfigInit();
 
-    if (a->is_blank) {
+    if (a->is_blank || !commit_id[0]) {
         g_MatchConfig.stage_id[0] = '\0';
     } else {
-        strncpy(g_MatchConfig.stage_id, a->id,
+        strncpy(g_MatchConfig.stage_id, commit_id,
                 sizeof(g_MatchConfig.stage_id) - 1);
         g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
     }
-    g_MatchConfig.stagenum = (u8)a->stagenum;
+    g_MatchConfig.stagenum = (u8)commit_stagenum;
 
     if (s_GridScenarioIdx < 0 || s_GridScenarioIdx >= s_GridScenarioCount) {
         s_GridScenarioIdx = 0;
@@ -4237,24 +4223,9 @@ static void renderGridSubmenu(float scale, float buttonW, float buttonH,
     ImGui::Spacing();
 
     /* ----------------------------------------------------------------
-     * Map picker (Issue 7: category tag per row + Bonus toggle)
+     * Map picker (category tag per row)
      * ---------------------------------------------------------------- */
     ImGui::SeparatorText("Base Map");
-
-    /* "Show bonus / debug arenas" toggle.  Flipping it invalidates the
-     * built list so the next render rebuilds with the new filter.  Kept
-     * off by default -- Bonus-category entries are mod lineage with
-     * unverified stage data (Mike's Issue 5 crash involved an entry in
-     * this range). */
-    {
-        bool prev = s_GridShowBonus;
-        ImGui::Checkbox("Show bonus / debug arenas", &s_GridShowBonus);
-        if (prev != s_GridShowBonus) {
-            s_GridArenasBuilt = false;
-            s_GridSelectedArena = 0;
-            gridArenaListBuild();
-        }
-    }
 
     if (s_GridArenaCount <= 0) {
         ImGui::TextDisabled("No playable arenas registered in the catalog.");
