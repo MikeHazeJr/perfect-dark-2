@@ -514,6 +514,11 @@ static s32 s_ChromeStyleCount = 0;
 /* Scanline config */
 static bool  s_ScanlineEnabled = true;
 static float s_ScanlineAlpha   = 0.5f;
+/* 2026-04-23: adjustable vertical scale for the scanline stride. 1.0 = the
+ * display-relative default (thick=scale, stride=scale*2). Range 0.25..4.0 so
+ * users can tighten the line spacing for a denser CRT feel or loosen it for
+ * a subtler pattern. Saved to pd.ini alongside the other Video.Scanline*. */
+static float s_ScanlineVerticalScale = 1.0f;
 
 /**
  * Load a .tga file (uncompressed RGBA32) from the filesystem, upload to GL.
@@ -1436,6 +1441,7 @@ void pdguiThemeInit(void)
     /* Register scanline config in pd.ini */
     configRegisterInt("Video.Scanlines", &s_CfgScanlineEnabled, 0, 1);
     configRegisterFloat("Video.ScanlineAlpha", &s_ScanlineAlpha, 0.0f, 1.0f);
+    configRegisterFloat("Video.ScanlineVerticalScale", &s_ScanlineVerticalScale, 0.25f, 4.0f);
     s_ScanlineEnabled = (s_CfgScanlineEnabled != 0);
 
     /* Register UI chrome config.  The actual toggle applies later, after
@@ -1853,6 +1859,18 @@ f32 pdguiThemeGetScanlineAlpha(void)
     return s_ScanlineAlpha;
 }
 
+void pdguiThemeSetScanlineVerticalScale(f32 scale)
+{
+    if (scale < 0.25f) scale = 0.25f;
+    if (scale > 4.0f)  scale = 4.0f;
+    s_ScanlineVerticalScale = scale;
+}
+
+f32 pdguiThemeGetScanlineVerticalScale(void)
+{
+    return s_ScanlineVerticalScale;
+}
+
 /* Return palette colors as a flat array of 15 u32s for theme draw functions */
 const u32 *pdguiThemeGetActivePaletteColors(void)
 {
@@ -2052,7 +2070,13 @@ static void pdguiResolveScanlineMetrics(float *out_thick, float *out_stride)
     if (scale > 8.0f) scale = 8.0f;
 
     float thick  = scale;
-    float stride = scale * 2.0f;
+    /* 2026-04-23: user-tunable vertical stride multiplier. Default 1.0 keeps
+     * the legacy 2x-scale stride; 0.25..4.0 lets users make the pattern
+     * denser (tighter lines) or looser (more space between lines). */
+    float vscale = s_ScanlineVerticalScale;
+    if (vscale < 0.25f) vscale = 0.25f;
+    if (vscale > 4.0f)  vscale = 4.0f;
+    float stride = scale * 2.0f * vscale;
     if (thick  < 1.0f) thick  = 1.0f;
     if (stride < thick + 1.0f) stride = thick + 1.0f;
 

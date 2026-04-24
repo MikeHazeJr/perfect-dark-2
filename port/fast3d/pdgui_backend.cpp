@@ -145,6 +145,14 @@ static bool pdguiAnyStandardOverlayReason(
             || devGameplayHud) {
         return true;
     }
+    /* 2026-04-23 B-232 v2: CRT scanlines are a global post-process that must
+     * render every frame while enabled (gameplay + menus). Treat the toggle
+     * itself as a reason to run pdguiRender so the foreground-drawlist pass
+     * in pdguiRender line 843-ish can paint scanlines regardless of whether
+     * any other overlay is active. Zero cost when the toggle is off. */
+    if (pdguiThemeGetScanlineEnabled()) {
+        return true;
+    }
     return pdguiActiveMenuIsOpen() != 0;
 }
 
@@ -830,9 +838,15 @@ void pdguiRender(void)
      * This adds the animated border highlights that are PD's signature look. */
     pdguiRenderAllWindowShimmers();
 
-    /* D5.0: CRT scanline overlay — subtle horizontal lines on all menu content.
-     * Renders on the foreground draw list so it's on top of everything.
-     * Enabled by default; toggle via Graphics settings or pdguiThemeSetScanlineEnabled(). */
+    /* D5.0: CRT scanline overlay - horizontal lines painted at configured
+     * alpha across the full viewport. Per Mike (2026-04-23): this should
+     * render ALWAYS while enabled, gameplay and menus alike. The earlier
+     * B-232 gate on `pdguiIsActive()` was wrong; reverted. Apparent
+     * "darken only when prompt visible" was an artifact of `pdguiRender`
+     * only running when an overlay reason was true. The proper fix is to
+     * treat `pdguiThemeGetScanlineEnabled()` itself as a reason to run
+     * pdguiRender (see pdguiAnyStandardOverlayReason + call sites below),
+     * so scanlines paint every frame while the option is on. */
     if (pdguiThemeGetScanlineEnabled()) {
         pdguiThemeDrawScanlineFg(0, 0, (float)winW, (float)winH);
     }

@@ -43,8 +43,42 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
 
 	rooms[0] = -1;
 
-	headnum = mpGetHeadId(g_BotConfigsArray[aibotnum].base.mpheadnum);
-	bodynum = mpGetBodyId(g_BotConfigsArray[aibotnum].base.mpbodynum);
+	/* 2026-04-23 B-234: prefer the catalog ID string (head_id / body_id) over
+	 * the legacy MP index (mpheadnum / mpbodynum). Alien heads and other
+	 * non-MP catalog entries have mp_index == -1, so mpchrSetHeadById wrote
+	 * head_id correctly but had to store mpheadnum=0 for legacy compat.
+	 * If we resolve via mpheadnum here we get HEAD_DARK_COMBAT (Joanna)
+	 * for every Maian/Skedar bot; resolving via head_id reads the real
+	 * runtime headnum from the catalog entry's ext.head.headnum. Falls back
+	 * to the MP-index path when the catalog string is empty or unresolvable
+	 * (matches the pre-B-234 behaviour for rows that lived purely in the
+	 * legacy config). */
+	headnum = -1;
+	bodynum = -1;
+	{
+		const char *hid = g_BotConfigsArray[aibotnum].base.head_id;
+		if (hid && hid[0]) {
+			const asset_entry_t *he = assetCatalogResolve(hid);
+			if (he && he->type == ASSET_HEAD) {
+				headnum = (s32)he->ext.head.headnum;
+			}
+		}
+		if (headnum < 0) {
+			headnum = mpGetHeadId(g_BotConfigsArray[aibotnum].base.mpheadnum);
+		}
+	}
+	{
+		const char *bid = g_BotConfigsArray[aibotnum].base.body_id;
+		if (bid && bid[0]) {
+			const asset_entry_t *be = assetCatalogResolve(bid);
+			if (be && be->type == ASSET_BODY) {
+				bodynum = (s32)be->ext.body.bodynum;
+			}
+		}
+		if (bodynum < 0) {
+			bodynum = mpGetBodyId(g_BotConfigsArray[aibotnum].base.mpbodynum);
+		}
+	}
 
 	/* S301 Bug D diag: log catalog IDs + resolved filenums alongside
 	 * the integer ids. If integers are valid but body_id/head_id strings

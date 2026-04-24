@@ -4,6 +4,32 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S450 - 2026-04-23 - Scanline policy revision + B-234 non-MP-head resolution (catalog-ID path)
+
+Mike reported three things plus clarifications:
+
+- **Scanline policy correction.** B-232 round 1 gated scanlines on `pdguiIsActive()` so they drew only when a menu was up. Mike's correction: scanlines should be visible **always** when enabled, gameplay and menus alike. Round 2: reverted the gate. Added `pdguiThemeGetScanlineEnabled()` as a reason inside `pdguiAnyStandardOverlayReason` so `pdguiRender` runs every frame the toggle is on, so the fullscreen scanline pass paints continuously. Also added a **user-tunable vertical scale** per Mike's explicit ask: new `Video.ScanlineVerticalScale` in pd.ini (range 0.25..4.0, default 1.0), applied as a multiplier on the stride in `pdguiResolveScanlineMetrics`, exposed via `pdguiThemeSet/GetScanlineVerticalScale` with a new "CRT Line Spacing" slider in Settings -> Video.
+- **B-234 bot head mismatch (Maian body + human head).** Two-layer fix:
+  - Layer 1 (character-select handlers in `src/game/mplayer/setup.c`): three sites (bot body handler + two player body handlers) auto-selected the default head via `catalogGetBodyDefaultMpHeadIdx` which returns the head's `mp_index`. Alien heads have `mp_index = -1`, so the caller fallback `dh >= 0 ? dh : 0` substituted head 0 (`base:head_dark_combat` = Joanna) for every non-MP-registered head. Fixed by switching to the catalog-ID path: `catalogMpBodyId(idx)` -> `catalogGetBodyDefaultHead(body_id)` -> `mpchrSetHeadById(cfg, default_head_id)`.
+  - Layer 2 (bot render path in `src/game/botmgr.c::botmgrAllocateBot`): still read `mpheadnum` / `mpbodynum` via `mpGetHeadId` / `mpGetBodyId` to pick the legacy engine index for `bodyAllocateModel`. With `mpheadnum = 0` (the legacy compat value `mpchrSetHeadById` writes when `mp_index < 0`), it resolved to `HEAD_DARK_COMBAT`. Fix: resolve `head_id` / `body_id` via `assetCatalogResolve` first; read `ext.head.headnum` / `ext.body.bodynum` directly; fall back to the MP-index path only when the catalog string is empty.
+  - Per Mike: "it shouldn't be using an index, but the manifest should be using catalog id's". The manifest (`netmanifest.c`) already uses catalog IDs for slot `body_id`/`head_id`; this fix brings the local spawn path in line.
+- **CS match-end transition stuck** - Mike: "not new, just annoying". Logged as pre-existing; not addressed this session.
+- **Player weapons still not usable / not picked up** - the build (`b6336adf`) is missing today's B-219 v2/v3 + B-229 fixes. Expected to resolve after rebuild; if not, we trace further next session.
+
+- **Files touched:** `port/fast3d/pdgui_backend.cpp` (scanline revert + reason), `port/fast3d/pdgui_theme.cpp` (scale state + API + stride math), `port/include/pdgui_theme.h` (API), `port/fast3d/pdgui_menu_mainmenu.cpp` (CRT Line Spacing slider), `src/game/mplayer/setup.c` (three B-234 layer-1 sites), `src/game/botmgr.c` (B-234 layer-2 render resolution), `context/bugs.md`, `context/session-log.md`.
+- **Build:** Not run here; Mike to rebuild. Rebuild is required for EVERY today's fix to take effect in-game.
+
+## Session S449 - 2026-04-23 - Two more playtest fixes: B-232 scanline-on-prompt, B-233 CI solo death respawn
+
+Mike reported two more symptoms after more playtesting.
+
+- **B-232 (LOW) interact prompt "darkens" the whole screen when visible.** Root cause is not the prompt widget (it uses `GetForegroundDrawList` and draws only a small pill). It's the CRT scanline overlay `pdguiThemeDrawScanlineFg` called from `pdgui_backend.cpp` line 837. That overlay paints semi-opaque (alpha up to 140) horizontal lines across the full viewport. It runs whenever `pdguiRender` runs; today's B-224 fix made `interactPrompt` a valid reason for `pdguiRender` to run during gameplay, so scanlines now paint over the 3D scene whenever a "Hold X" prompt is visible. Scanlines are a menu-UI aesthetic, not a gameplay HUD effect. Fix: AND the scanline draw call with `pdguiIsActive()` so scanlines only paint when a non-gameplay input ctx is on top.
+- **B-233 (MED) solo CI death doesn't respawn.** Mike jumped OOB on the CI Main Menu mission; died, fade completed, never respawned. S440 claimed to handle this by skipping `mainEndStage` and forcing `canrestart = true` on CI, but the actual guard at `player.c:5590` sat INSIDE the else-branch of `if (g_Vars.mplayerisrunning)`, making `!mplayerisrunning` unreachable - dead code. Solo CI death dropped through with `canrestart=false`, `dostartnewlife` never flipped, player stuck dead. Fix: add a real `else` branch to `if (g_Vars.mplayerisrunning)` at the `playerIsFadeComplete()` site; when `stagenum == STAGE_CITRAINING`, hide the chr and force `dostartnewlife = true`. Removed the unreachable legacy check with a breadcrumb comment.
+
+- **Context:** `bugs.md` two new rows B-232 (LOW) and B-233 (MED). No protocol / wire / constraint changes.
+- **Build:** Not run here; Mike to verify with `devtools/build-headless.ps1 -Target client`.
+- **Files touched:** `port/fast3d/pdgui_backend.cpp` (B-232), `src/game/player.c` (B-233, both the new else branch and the dead-code cleanup).
+
 ## Session S448 - 2026-04-23 - Debug skill + B-218 v2 (initial bot pile-up root cause)
 
 Mike uploaded another playtest log and asked for the `/debug` skill. Two reported symptoms:

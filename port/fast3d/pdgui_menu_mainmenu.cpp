@@ -726,6 +726,12 @@ static void renderSettingsVideo(float scale)
         if (PdSliderInt("CRT Strength", &crtPct, 0, 100, "%d%%")) {
             pdguiThemeSetScanlineAlpha((float)crtPct / 100.0f);
         }
+        /* 2026-04-23: vertical spacing slider. 0.50x = denser lines,
+         * 2.00x = wider spacing, 1.00x = default. */
+        float crtV = pdguiThemeGetScanlineVerticalScale();
+        if (PdSliderFloat("CRT Line Spacing", &crtV, 0.25f, 4.0f, "%.2fx")) {
+            pdguiThemeSetScanlineVerticalScale(crtV);
+        }
     }
 
     /* S306: Menu Style / Title Bar Style / Font dropdowns moved to the new

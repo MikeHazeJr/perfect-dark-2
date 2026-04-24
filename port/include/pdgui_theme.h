@@ -73,6 +73,12 @@ s32  pdguiThemeGetScanlineEnabled(void);
 void pdguiThemeSetScanlineAlpha(f32 alpha);
 f32  pdguiThemeGetScanlineAlpha(void);
 
+/** Scanline vertical stride multiplier. 1.0 = default pattern. Range 0.25..4.0.
+ * Lower = denser lines, higher = wider spacing. Saved to pd.ini as
+ * Video.ScanlineVerticalScale. 2026-04-23. */
+void pdguiThemeSetScanlineVerticalScale(f32 scale);
+f32  pdguiThemeGetScanlineVerticalScale(void);
+
 /* -----------------------------------------------------------------------
  * Palette bridge (theme → style layer)
  * --------------------------------------------------------------------- */

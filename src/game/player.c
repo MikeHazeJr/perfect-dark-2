@@ -5585,11 +5585,12 @@ Gfx *playerRenderHud(Gfx *gdl)
 						s32 numdeaths = 0;
 						s32 i;
 
-						/* CI solo hub: after death fade, respawn without requiring
-						 * the MP-style hold-to-restart input. */
-						if (!g_Vars.mplayerisrunning && g_Vars.stagenum == STAGE_CITRAINING) {
-							canrestart = true;
-						}
+						/* 2026-04-23 B-233: former CI-solo-hub canrestart check
+						 * removed from here. It tested `!g_Vars.mplayerisrunning`
+						 * inside a branch already gated by `mplayerisrunning`,
+						 * so it never fired. The working solo CI respawn now
+						 * lives in the new `else` branch of `if (mplayerisrunning)`
+						 * below (search for "Solo (non-MP) fade-complete path"). */
 
 						if (chr) {
 							chr->chrflags |= CHRCFLAG_HIDDEN;
@@ -5632,6 +5633,32 @@ Gfx *playerRenderHud(Gfx *gdl)
 						if (canrestart) {
 							g_Vars.currentplayer->dostartnewlife = true;
 						}
+					}
+				} else {
+					/* Solo (non-MP) fade-complete path.
+					 *
+					 * 2026-04-23 B-233 fix: the previous S440 CI-respawn guard
+					 * lived inside the `if (g_Vars.mplayerisrunning)` else-
+					 * branch (around line 5590), where `!mplayerisrunning` is
+					 * unreachable by definition. Solo CI death (e.g. jumping
+					 * out of bounds and hitting a kill plane) never flipped
+					 * `dostartnewlife = true`, so the player stayed in the
+					 * dead state forever with no respawn.
+					 *
+					 * Mission-exit-on-death for normal solo missions runs
+					 * earlier in this function (around line 4978
+					 * `mainEndStage()`), so reaching this point in solo mode
+					 * specifically means we're on STAGE_CITRAINING where
+					 * S440 intentionally skipped `mainEndStage` to keep the
+					 * hub loaded. Handle the respawn here. */
+					if (g_Vars.stagenum == STAGE_CITRAINING) {
+						struct chrdata *chr = g_Vars.currentplayer->prop
+							? g_Vars.currentplayer->prop->chr
+							: NULL;
+						if (chr) {
+							chr->chrflags |= CHRCFLAG_HIDDEN;
+						}
+						g_Vars.currentplayer->dostartnewlife = true;
 					}
 				}
 			}

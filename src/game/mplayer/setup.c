@@ -914,8 +914,17 @@ MenuItemHandlerResult menuhandlerMpCharacterBody(s32 operation, struct menuitem 
 			if (!data->carousel.unk04)
 #endif
 			{
-				s32 dh = catalogGetBodyDefaultMpHeadIdx(data->carousel.value);
+				/* 2026-04-23 B-234: use catalog-ID path so non-MP heads
+				 * (Maian, Skedar, etc.) resolve correctly. See bot handler
+				 * rationale at menuhandlerMpSimulantBody. */
+				const char *body_id = catalogMpBodyId(data->carousel.value);
+				const char *default_head_id = body_id ? catalogGetBodyDefaultHead(body_id) : NULL;
+				if (default_head_id && default_head_id[0]) {
+					mpchrSetHeadById(&g_PlayerConfigsArray[g_MpPlayerNum].base, default_head_id);
+				} else {
+					s32 dh = catalogGetBodyDefaultMpHeadIdx(data->carousel.value);
 					mpchrSetHeadByIndex(&g_PlayerConfigsArray[g_MpPlayerNum].base, dh >= 0 ? dh : 0);
+				}
 			}
 		}
 		mpchrSetBodyByIndex(&g_PlayerConfigsArray[g_MpPlayerNum].base, data->carousel.value);
@@ -2901,7 +2910,17 @@ MenuItemHandlerResult mpCharacterBodyListHandler(s32 operation, struct menuitem 
 	case MENUOP_SET:
 		// Commit on A press — lock in the selection
 		mpchrSetBodyByIndex(&g_PlayerConfigsArray[g_MpPlayerNum].base, data->list.value);
-		{ s32 dh = catalogGetBodyDefaultMpHeadIdx(data->list.value); mpchrSetHeadByIndex(&g_PlayerConfigsArray[g_MpPlayerNum].base, dh >= 0 ? dh : 0); }
+		/* 2026-04-23 B-234: catalog-ID path for non-MP-index heads. */
+		{
+			const char *body_id = catalogMpBodyId(data->list.value);
+			const char *default_head_id = body_id ? catalogGetBodyDefaultHead(body_id) : NULL;
+			if (default_head_id && default_head_id[0]) {
+				mpchrSetHeadById(&g_PlayerConfigsArray[g_MpPlayerNum].base, default_head_id);
+			} else {
+				s32 dh = catalogGetBodyDefaultMpHeadIdx(data->list.value);
+				mpchrSetHeadByIndex(&g_PlayerConfigsArray[g_MpPlayerNum].base, dh >= 0 ? dh : 0);
+			}
+		}
 		s_PreviewBodyNum = data->list.value;
 		s_PreviewHeadNum = g_PlayerConfigsArray[g_MpPlayerNum].base.mpheadnum;
 		func0f17b8f0();
@@ -3427,8 +3446,21 @@ MenuItemHandlerResult menuhandlerMpSimulantBody(s32 operation, struct menuitem *
 {
 	if (operation == MENUOP_SET) {
 		struct mpchrconfig *cfg = &g_BotConfigsArray[g_Menus[g_MpPlayerNum].mpsetup.slotindex].base;
-		/* Auto-select the default head for this body (same as player handler) */
-		if (cfg->mpheadnum < mpGetNumHeads()) {
+		/* 2026-04-23 B-234 fix: non-MP heads (Maian, Skedar, Dr Carroll, etc.)
+		 * have `mp_index < 0` by design - they live in the catalog but are not
+		 * registered in the MP head array. The old path went
+		 * `catalogGetBodyDefaultMpHeadIdx` -> -1 -> fallback to head index 0
+		 * (Joanna's dark_combat human head), producing "Maian body with human
+		 * head" on bots. Prefer the catalog-ID string path via
+		 * `catalogGetBodyDefaultHead(body_id)` + `mpchrSetHeadById`, which
+		 * preserves the correct `head_id` even when mp_index is invalid.
+		 * Only fall back to the integer path when the body has no declared
+		 * default head at all. */
+		const char *body_id = catalogMpBodyId(data->carousel.value);
+		const char *default_head_id = body_id ? catalogGetBodyDefaultHead(body_id) : NULL;
+		if (default_head_id && default_head_id[0]) {
+			mpchrSetHeadById(cfg, default_head_id);
+		} else if (cfg->mpheadnum < mpGetNumHeads()) {
 			s32 dh = catalogGetBodyDefaultMpHeadIdx(data->carousel.value);
 			mpchrSetHeadByIndex(cfg, dh >= 0 ? dh : 0);
 		}
