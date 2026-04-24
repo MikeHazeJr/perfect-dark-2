@@ -1,6 +1,42 @@
 # SP-stage MP-readiness audit - 2026-04-24
 
-Session S453 (Priority 6 of the foundation pass).  Walks every arena registered in the catalog and classifies MP-readiness.  Produced as the static-analysis companion to the P5 SP-in-MP loader fix (B-228).
+Session S453 (Priority 6 of the foundation pass; extended in P8).  Walks every arena registered in the catalog and classifies MP-readiness.
+
+## P8 static-analysis update (2026-04-24 post-P7)
+
+Counting `lift(` / `lift_door(` / `escastep(` macro invocations in each stage's SP and MP setup C files gives the actual prop inventory per mode.  Results surfaced a diagnosis correction:
+
+**MP setup files for SP-class stages are EMPTY of lifts / escastep.**  `src/setups/mp_setupdish.c` (CI), `mp_setuppete.c` (Chicago), `mp_setupeld.c` (Villa), `mp_setuplue.c` (Infiltration), `mp_setupdepo.c` (G5), `mp_setupdam.c` (Pelagic) all have `lift()=0, lift_door()=0, escastep()=0`.  The SP variants (`setupdish.c`, `setuplue.c`, etc.) DO contain those macros -- CI SP has 2 lifts + 8 lift_doors, Infiltration SP has 4 lifts + 8 lift_doors, Airbase SP has 5 lifts + 16 lift_doors + 40 escasteps, etc.
+
+This means P5's `mptransport_diffflag` relax is a **NOOP on the current codebase**: there are no lifts in the MP setup for the filter to reject in the first place.  The real fix for B-228 requires augmenting the MP setup at load time with the SP setup's transport props ("Option E" in the P5 analysis).  Keeping P5 is still correct as structural insurance -- if a future mod or a shipped fix adds lifts to an MP setup with difficulty / player-count exclusion bits, the relax applies -- but alone it doesn't close B-228.
+
+**B-228 row in `context/bugs.md` reopened with the corrected diagnosis.**  Option E design is sketched in the bug's row and deferred as a follow-up scope pass (loads a second setup blob per stage, filters to LIFT / ESCASTEP, runs them through the existing OBJTYPE switch).
+
+## SP-setup transport-prop inventory (authoritative count)
+
+Numbers are direct macro counts in `src/setups/setup<SLUG>.c`.  They identify which stages have lifts to augment if / when Option E lands.
+
+| Stage                | SP setup file    | lift() | lift_door() | escastep() |
+|----------------------|------------------|-------:|------------:|-----------:|
+| CITRAINING           | setupdish.c      | 2      | 8           | 0          |
+| CHICAGO              | setuppete.c      | 0      | 0           | 0          |
+| VILLA                | setupeld.c       | 0      | 0           | 0          |
+| INFILTRATION         | setuplue.c       | 4      | 8           | 0          |
+| G5BUILDING           | setupdepo.c      | 0      | 0           | 0          |
+| PELAGIC              | setupdam.c       | 0      | 0           | 0          |
+| DEFECTION            | setupame.c       | 2      | 8           | 0          |
+| INVESTIGATION        | setupear.c       | 1      | 0           | 0          |
+| AIRBASE              | setupcave.c      | 5      | 16          | 40         |
+| AIRFORCEONE          | setuprit.c       | 4      | 1           | 0          |
+| CRASHSITE            | setupazt.c       | 0      | 0           | 0          |
+| DEEPSEA              | setuppam.c       | 1      | 0           | 0          |
+| DEFENSE              | setupimp.c       | 2      | 8           | 0          |
+| ATTACKSHIP           | setuplee.c       | 6      | 16          | 0          |
+| SKEDARRUINS          | setupsho.c       | 1      | 0           | 0          |
+
+Airbase is the fattest lift target (5 + 16 + 40).  Chicago, Villa, G5Building, Pelagic, and Crashsite have zero lifts in their SP setup either -- B-228 as originally reported ("fire-escape stairs on Chicago") is actually about static bg geometry, not lift / escastep props.  Chicago's fire-escape stairs are bg_pete tiles, not animated objects; they always load.
+
+**Conclusion**: the stages that would benefit from Option E (SP-setup transport-prop augmentation) are, in descending impact order: Airbase, Attackship, AirForceOne, Infiltration, CITraining, Defection, Defense, Investigation, Deepsea, SkedarRuins.  Chicago / Villa / G5Building / Pelagic / CrashSite don't have lifts to augment.
 
 ## Rubric
 

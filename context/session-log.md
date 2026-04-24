@@ -164,6 +164,42 @@ The Forge-mode Bots tab (`forgeDrawBotsTab` in `pdgui_forge_editor.cpp`) stays a
 4. Press `End` -> Freeze ON; bots stop moving but stay visible.  Press `End` again -> bots resume.
 5. Press `Delete` -> all bots removed; active_count / frozen_count display resets.
 
+### Priority 8 (this entry, landed as documentation; code follow-up deferred) — SP-stage MP-readiness re-audit
+
+P6 shipped a readiness matrix based on the assumption that P5's `mptransport_diffflag` relax fixed B-228 for the 6 SP-in-MP class stages.  P8 is the promised follow-up: walk the remaining 9 PENDING-TEST stages and decide which need to join the relax list.  The static audit surfaced a significant diagnosis correction.
+
+**Finding.**  Counting `lift(` / `lift_door(` / `escastep(` macro invocations across every SP and MP setup file:
+
+- MP setup files for SP-class stages are EMPTY of those macros.  `mp_setupdish.c` (CI), `mp_setuppete.c` (Chicago), `mp_setupeld.c` (Villa), `mp_setuplue.c` (Infiltration), `mp_setupdepo.c` (G5), `mp_setupdam.c` (Pelagic) all register zero lifts.
+- SP setup files DO contain those macros.  CI SP has 2 lifts + 8 lift_doors; Infiltration has 4 + 8; Airbase has 5 + 16 + 40 escasteps; Attackship has 6 + 16.
+
+**Conclusion.**  P5 is a no-op on the current codebase.  The EXCLUDE filter rejects nothing because the MP setup never loads lifts to begin with.  P5 is kept as structural insurance (a future MP setup with lift + exclude bits would benefit) but alone it doesn't close B-228.  The real fix is Option E from the P5 analysis: load the SP setup alongside the MP setup for SP-in-MP stages, iterate it, and run ONLY `OBJTYPE_LIFT` + `OBJTYPE_ESCASTEP` through the existing switch.  Per the hard stops ("no net-protocol changes", "no irreversible moves", soft-stop on late-night scope expansion), Option E is deferred as a scoped follow-up, not implemented tonight.
+
+**B-228 row in `context/bugs.md` flipped from FIXED-PENDING-PLAYTEST to REOPENED with the corrected diagnosis + Option E sketch.**
+
+**Readiness matrix at `context/audits/sp-stage-mp-readiness-2026-04-24.md` updated with:**
+- A "P8 static-analysis update" section explaining the diagnosis correction.
+- A "SP-setup transport-prop inventory" table listing the exact lift / lift_door / escastep count for each of the 15 stages (6 P5-listed + 9 pending-test).
+- Impact ranking for Option E: Airbase > Attackship > AirForceOne > Infiltration > CITraining > Defection > Defense > Investigation > Deepsea > SkedarRuins.  Chicago / Villa / G5Building / Pelagic / CrashSite have zero SP lifts and would not benefit.
+
+**Files touched (P8 pass):**
+- `context/bugs.md` -- B-228 row corrected.
+- `context/audits/sp-stage-mp-readiness-2026-04-24.md` -- static-analysis update.
+
+**No code change this entry.**  Build unchanged.
+
+### Soft-stop marker (P9 / P10 deferred)
+
+The P8 audit surfaced an architecturally significant finding and it is late.  Per the soft-stop rule ("commit what's green, stop rather than pushing into P9 or P10 tired"), stopping here.  P9 (non-body catalog consolidation) and P10 (langbank drift audit) are doc- and refactor-heavy -- clear-headed morning work.
+
+State handoff for Mike in the morning:
+- 8 commits on dev since the systematic-pass merge (P1..P8 landed green + one server-build fix + one P7 evening polish).  `24a97db8` final.
+- P1 (menu flow) / P2 (Halo toggle) / P3 (valid-head set) / P4 (catalog display_name) / P7 (Playtest bot HUD) are ready for playtest.
+- P5 (SP-in-MP relax filter) is NOOP on current codebase -- kept as insurance, but B-228 is REOPENED with the Option E plan.
+- P6 / P8 are doc deliverables (readiness matrix).
+- P9 / P10 untouched.
+- Open escalations: (a) Grid Blank Map stage pointer; (b) B-228 Option E implementation approval.
+
 ## Session S452 - 2026-04-23 - B-235 wrong head for Maian bots + MATCHSETUP config audit + cleanup
 
 **Context:** Mike ran a CS playtest and saw all 31 bots rendering with the President head on the Maian (elvis1) body. Smoketest log confirmed `MATCHSETUP: bot slot N: body='base:elvis1' head='base:head_president' mpbody=12 mphead=12` across all 31 slots.

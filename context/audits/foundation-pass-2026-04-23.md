@@ -134,3 +134,57 @@ In rough order of user-visible impact:
 All commits are green against the main working copy's `Build/` (PerfectDark.exe clean link).  Warnings are pre-existing (`/*` inside comments).  No new warnings introduced.
 
 A final clean build from `ninja -C Build pd` after the P6 commit is the close-out verification for this pass.
+
+---
+
+## Evening batch 2 - P7 + P8 (post-foundation-pass extension)
+
+### P7 - Playtest bot HUD + runtime wire-up (COMMITTED `e560424a`)
+
+Closes the gap left by P2's deferred bot-HUD polish.  The Forge-mode Bots tab's Add / Remove / Freeze / spawn-mode controls were log-only at runtime; now they do what the labels promise, and a new Playtest HUD surfaces the same controls via keybinds inside Playtest mode.
+
+- `s_spawnBot` now returns the aibotnum (slot) so callers can reach `g_MpBotChrPtrs[slot]` right after `botmgrAllocateBot`.
+- New `s_teleportBotNearPlayer(slot, radius)` writes the live bot's `prop->pos` to `player.pos + forward*radius` using `vv_theta` + `sinf/cosf`.  Clamped to 100..5000u.  Facing polish deferred (bot AI reorients on first tick).
+- `forgeRuntimeTick` mirrors `bs->all_frozen` into `g_BotUpdatesDisabled` every tick (reuses the F6 freeze machinery; B-217 v2 semantics).  Spawn loops capture the slot, bump active_count / frozen_count, and teleport on `spawn_mode == FORGE_BOT_SPAWN_NEAR_ME`.
+- `pdguiForgeHudRender` adds a NORMAL-mode panel top-right with BOTS / Freeze / Mode state + key legend, rendered via `GetForegroundDrawList` (read-only, no mouse capture conflict).
+- Keybinds (Insert / Delete / End / Home) polled via `ImGui::IsKeyPressed`.  Keys chosen outside the gameplay actionmap.
+
+### P8 - SP-stage MP-readiness re-audit (documentation + B-228 reopen)
+
+Followed up on the P6 matrix with the promised per-stage audit.  Counted `lift(` / `lift_door(` / `escastep(` macros in every SP and MP setup C file.  Found:
+
+- MP setups for SP-class stages are EMPTY of those macros.  CI, Chicago, Villa, Infiltration, G5, Pelagic, and all 9 PENDING-TEST stages register zero lifts / escasteps in MP mode.
+- SP setups DO contain them.  Airbase SP has 5 lifts + 16 doors + 40 escasteps; Attackship SP has 6 + 16; Infiltration SP has 4 + 8.
+
+**Consequence for P5.**  `mptransport_diffflag` is a NOOP on the current codebase -- the filter rejects nothing because nothing loads.  P5 is kept as structural insurance (a mod could ship an MP setup with lift + exclude bits, in which case the relax applies) but alone does not close B-228.
+
+**B-228 reopened** with the corrected diagnosis + Option E sketch.  Option E: for SP-in-MP stages, additionally load the SP setup via `assetLoadToNew(stage.setup_handle, ...)`, iterate it, and run ONLY `OBJTYPE_LIFT` + `OBJTYPE_ESCASTEP` through the existing switch.  Pad references are stage-bound (same `padsfileid`) so they resolve cleanly.  No wire protocol change, no `pd-server` impact.  Deferred as a scoped follow-up; not implemented tonight.
+
+**Readiness matrix at `context/audits/sp-stage-mp-readiness-2026-04-24.md`** extended with the SP-setup transport-prop inventory table and Option E impact ranking.
+
+### P9 / P10 - deferred
+
+Per the soft-stop rule, P9 (non-body catalog consolidation) and P10 (langbank drift audit) left for a fresh session.  Both are doc / refactor work that benefits from clear-headed morning review of the P8 diagnosis before committing to more catalog-layer moves.
+
+### Extended commit ledger
+
+| SHA         | Scope                          |
+|-------------|--------------------------------|
+| `6cb59cb8`  | P1 Grid submenu                |
+| `c1825e9c`  | P2 Halo-style toggle           |
+| `336096bd`  | P3 valid-head set              |
+| `a2b0fcf9`  | P4 catalog display_name        |
+| `216fd27f`  | P5 SP-in-MP loader (NOOP per P8; kept as insurance) |
+| `b9e3dca3`  | P6 readiness audit             |
+| `24a97db8`  | server-build fix + summary     |
+| `e560424a`  | P7 Playtest bot HUD            |
+| (this)      | P8 audit update + B-228 reopen |
+
+### Updated playtest priorities (what Mike can verify in the morning)
+
+1. **The Grid submenu flow** (P1) -- map picker + variant + Enter.
+2. **Halo-style toggle** (P2) -- F7 / controller Back swaps Forge <-> Playtest in-place.
+3. **Playtest bot HUD** (P7) -- Insert spawns, Delete clears, End freezes, Home cycles mode; Spawn Near Me places bot at player forward + radius.
+4. **Maian head variety** (P3) -- 31 Maian bots should have 31 varied Maian heads.
+5. **Body names** (P4) -- Character Select shows sensible English names.
+6. **B-228 REOPENED** -- do not expect CI / Chicago elevators to work yet; P5 is a noop on the current codebase per P8's audit.  Option E implementation is the next step once approved.
