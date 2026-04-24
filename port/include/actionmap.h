@@ -252,6 +252,14 @@ void actionmapFlushGameplayState(void);
  */
 s32 actionIsGameplayOnly(InputAction a);
 
+/** Priority D (2026-04-24): classify an action as blocked while the
+ *  Forge session is in FREEFLY (observer mode). Returns 1 for combat /
+ *  weapon / vehicle / interact actions that shouldn't fire on the
+ *  frozen player-chr; returns 0 for movement / aim / forge-editor
+ *  actions that the freefly camera relies on.
+ */
+s32 actionIsBlockedInFreefly(InputAction a);
+
 /* ============================================================
  * Query API (5 functions)
  * ============================================================ */

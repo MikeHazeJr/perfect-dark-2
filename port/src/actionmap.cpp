@@ -35,6 +35,10 @@
 #include "system.h"     /* sysLogPrintf, LOG_NOTE, LOG_WARNING */
 #include "inputctx.h"   /* inputCtxGetTop, g_CtxGameplay — for menu axis suppression */
 
+/* Priority D (2026-04-24): FREEFLY observer suppression. Single extern
+ * decl keeps forgemode.h (and its types.h dependency) out of this TU. */
+extern "C" s32 forgeIsFreefly(void);
+
 /* os_thread.h must precede input.h / os_cont.h.
  * os_message.h (included by os_cont.h) uses OSThread without including
  * os_thread.h itself, so we must pre-include it here. */
@@ -1119,6 +1123,64 @@ s32 actionIsGameplayOnly(InputAction a)
     }
 }
 
+/* Priority D (2026-04-24): FREEFLY observer suppression.
+ *
+ * When the Forge session is in FREEFLY, the player-chr is frozen and
+ * re-skinned as Dr. Carroll. Combat actions (fire, reload, weapon
+ * swap, radial menu, interact-as-gameplay) must NOT fire -- they'd
+ * shoot an invisible weapon from the observer camera or pick up
+ * objects Dr. Carroll isn't really touching.
+ *
+ * Freefly-specific actions (the camera axes + forge toggle + ascend /
+ * descend / boost / precision) DO stay live so the observer can fly
+ * and exit. Movement axes also stay live so the freefly camera can
+ * reuse them for translation. */
+s32 actionIsBlockedInFreefly(InputAction a)
+{
+    if (a < 0 || a >= ACTION_COUNT) {
+        return 0;
+    }
+
+    switch (a) {
+    /* Combat: block */
+    case ACTION_FIRE_PRIMARY:
+    case ACTION_FIRE_SECONDARY:
+    case ACTION_FIRE_MODE:
+    case ACTION_RELOAD:
+    case ACTION_THROW_WEAPON:
+    case ACTION_ZOOM_IN:
+    case ACTION_ZOOM_OUT:
+    /* Weapon selection / radial: block */
+    case ACTION_WEAPON_PREV:
+    case ACTION_WEAPON_NEXT:
+    case ACTION_WEAPON_1:
+    case ACTION_WEAPON_2:
+    case ACTION_WEAPON_3:
+    case ACTION_WEAPON_4:
+    case ACTION_WEAPON_5:
+    case ACTION_WEAPON_6:
+    /* Vehicle interaction: block (observer is not in a vehicle) */
+    case ACTION_VEHICLE_ACCELERATE:
+    case ACTION_VEHICLE_BRAKE:
+    case ACTION_VEHICLE_STEER_LEFT:
+    case ACTION_VEHICLE_STEER_RIGHT:
+    case ACTION_VEHICLE_EXIT:
+    /* Crouch / jump / sprint on the frozen player-chr: block */
+    case ACTION_CROUCH:
+    case ACTION_JUMP:
+    case ACTION_SPRINT:
+    /* Interact-as-gameplay: block. FREEFLY has its own observer
+     * interaction model (placement reticle) that bypasses the chr. */
+    case ACTION_USE:
+    case ACTION_CANCEL_USE:
+        return 1;
+    default:
+        /* Everything else (movement, aim axes, forge editor actions,
+         * menu nav, system) passes through. */
+        return 0;
+    }
+}
+
 void actionmapFlushGameplayState(void)
 {
     /* Zero every gameplay-only action's state across all players. Issues a
@@ -1165,6 +1227,8 @@ s32 actionPressed(s32 player, InputAction action)
      * while gameplay is not authoritative (menu on top, focus lost, or
      * focus-regain settle window). */
     if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0;
+    /* Priority D (2026-04-24): FREEFLY observer suppression. */
+    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     return s_State[player][action].pressed;
 }
 
@@ -1173,6 +1237,7 @@ s32 actionHeld(s32 player, InputAction action)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
     if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0;
+    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     return s_State[player][action].held;
 }
 
@@ -1181,6 +1246,7 @@ s32 actionReleased(s32 player, InputAction action)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
     if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0;
+    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     return s_State[player][action].released;
 }
 
@@ -1189,6 +1255,7 @@ f32 actionValue(s32 player, InputAction action)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0.0f;
     if (action < 0 || action >= ACTION_COUNT) return 0.0f;
     if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0.0f;
+    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0.0f;
     return s_State[player][action].value;
 }
 
@@ -1226,6 +1293,7 @@ s32 actionHeldForMs(s32 player, InputAction action, s32 threshold_ms)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
     if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0;
+    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     const ActionState *st = &s_State[player][action];
     if (!st->held || st->down_time_ms == 0) return 0;
     if (threshold_ms <= 0) return 1;
@@ -1238,6 +1306,7 @@ s32 actionWasTap(s32 player, InputAction action, s32 max_hold_ms)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
     if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0;
+    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     const ActionState *st = &s_State[player][action];
     if (!st->released) return 0;
     if (st->hold_consumed) return 0;
@@ -1251,6 +1320,7 @@ s32 actionLastGestureHoldMs(s32 player, InputAction action)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
     if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0;
+    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     const ActionState *st = &s_State[player][action];
     if (!st->released) return 0;
     if (st->down_time_ms == 0) return 0;
@@ -1282,6 +1352,7 @@ f32 actionHoldProgress(s32 player, InputAction action, s32 threshold_ms)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0.0f;
     if (action < 0 || action >= ACTION_COUNT) return 0.0f;
     if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0.0f;
+    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0.0f;
     if (threshold_ms <= 0) return 0.0f;
     ActionState *st = &s_State[player][action];
     u32 now = SDL_GetTicks();

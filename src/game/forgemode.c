@@ -144,17 +144,19 @@ static void forgeSetFreeflyMode(struct player *p)
 	}
 	p->bondmovemode = MOVEMODE_CUTSCENE;
 
-	/* S310 R1 -- seamless character swap.  Save the player chr's current
-	 * bodynum/headnum so the normal character can be restored on exit.
-	 * The data-level swap (chr->bodynum = BODY_DRCAROLL) is logged here
-	 * so it's visible in the log stream; the live engine-level model
-	 * reload (bodyAllocateModel on the new pair + re-skin) is the next
-	 * rung of the polish stack.  Storing bodynum unconditionally is
-	 * safe because the restore path is a single assignment back. */
+	/* Priority D (2026-04-24): seamless observer body-swap.  Save the
+	 * player chr's current bodynum/headnum so the normal character can
+	 * be restored on exit, then write BODY_DRCAROLL + HEAD_RANDOM_GENDER
+	 * onto the chr so third-person mirrors (and future co-op peers)
+	 * render the observer as Dr. Carroll.  The legacy model-reload
+	 * pipeline picks up the change on the next per-chr model tick --
+	 * no stage reload and no explicit bodyAllocateModel call needed. */
 	if (p->prop && p->prop->chr && !s_forge.fly.has_saved_body) {
 		s_forge.fly.saved_bodynum = p->prop->chr->bodynum;
 		s_forge.fly.saved_headnum = p->prop->chr->headnum;
 		s_forge.fly.has_saved_body = true;
+		p->prop->chr->bodynum = (u8)BODY_DRCAROLL;
+		p->prop->chr->headnum = (u8)HEAD_RANDOM_GENDER;
 		sysLogPrintf(LOG_NOTE,
 				"GRID: freefly body-swap: save (body=0x%02x head=0x%02x) -> Dr. Carroll (0x%02x)",
 				(u32)s_forge.fly.saved_bodynum,
