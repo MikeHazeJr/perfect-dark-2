@@ -4,7 +4,95 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
-## Session S453 - 2026-04-23/24 - Foundation pass: The Grid menu flow (P1)
+## Session S455 - 2026-04-24 - Grid playtest batch: crash fix + FREEFLY observer gating
+
+Mike's first real Grid playtest surfaced 4 issues + 3 design directions.  Commit `1925f8a5` lands the crash-blocking work (Issues 5, 6, 7) as one unit because the logical pieces overlapped.
+
+**Reported signals from the log:**
+
+```
+LOAD: calling bodiesReset stagenum=0x5a
+LOAD: calling setupCreateProps stagenum=0x5a normmplayerisrunning=0
+INTRO: Applying mode transition: -1 -> 0
+INTRO: -> titleInitLegal
+GRID: -> INACTIVE (stage left gameplay)
+FATAL: ACCESS_VIOLATION PC=... chr_slot=-1 stack_watermark=2192
+```
+
+stagenum 0x5a == `STAGE_TITLE`.  The submenu was feeding a system stagenum into the stage-load pipeline.  `forgeTick` immediately transitioned INACTIVE (non-gameplay), INTRO took over, tick loop dereferenced chr_slot=-1.
+
+### Issue 5a: arena picker filter + stagenum validation (LANDED)
+
+Three defense lines:
+
+1. `gridArenaCollect` (`pdgui_menu_mainmenu.cpp`) rejects entries whose
+   - stagenum is <= 0
+   - !STAGE_IS_GAMEPLAY (mirror `GRID_STAGE_IS_SYSTEM` defined locally to avoid constants.h pull-in)
+   - !stageGetIndex (not in live stage table)
+   - category == "Random" (meta arenas)
+   - category in {"Bonus", ""} unless `s_GridShowBonus` toggle is on
+2. `gridCommitEnter` re-validates stagenum at commit.
+3. `pdguiForgeStartSessionOn` validates its arg via new `forgeStageIsGridEligible` helper; bad stagenum falls back to STAGE_CITRAINING with a LOG_WARNING.
+
+Net effect: no path reaches `mainChangeToStage(STAGE_TITLE)` from the Grid submenu.  The crash is structurally impossible now, not just "filtered at the UI layer."
+
+### Issue 7: arena picker category tags + bonus toggle (LANDED same commit)
+
+Each arena row displays its category: MP / SP / Classic / Bonus / Random.  "Show bonus / debug arenas" checkbox toggles the hidden Bonus and unknown-category entries (off by default).  Flipping the toggle invalidates the built list and rebuilds with the new filter.
+
+### Issue 5b: FREEFLY observer-controller gating (LANDED same commit)
+
+Per Mike's design note: flying as Dr Carroll in Grid is a separate controller -- weapon cheats, interact probes, radial menus have nothing meaningful to apply to.  Minimum viable gates shipped:
+
+- **F7 invincibility**: SDL hook in `pdgui_backend.cpp` returns 1 without calling `playerToggleDevInvincibility` when `forgeIsFreefly()`.
+- **Interact prompt**: `interactPrompt` boolean gains `&& !forgeIsFreefly()` in both NewFrame and Render gate sites.  "Hold X to use X" pill doesn't render while flying.
+
+Weapon / arm rendering and radial wheel suppression deferred to a proper observer-controller pass.  Documented as follow-up in bugs.md.
+
+### Issue 6: DISSOLVED by Issue 5b design
+
+F7 binding conflict between `ACTION_FORGE_TOGGLE` (my P2 addition) and the dev invincibility cheat dissolves naturally.  In FREEFLY the cheat hook short-circuits, so F7 fires only the mode toggle via the actionmap.  On exit to Playtest (NORMAL state), F7 re-engages the cheat normally.  No F7 rebind needed.
+
+### Cleanup: `g_BotUpdatesDisabled` reset on Grid exit (same commit)
+
+Issue surfaced during last batch's Issue 3 investigation: `forgeRuntimeTick` mirrors `bs->all_frozen` into `g_BotUpdatesDisabled` every tick, but never resets on session exit.  If a user had Freeze All on and exited Grid, the next non-Grid match inherited frozen bots.  Cleared in `forgeTransitionToInactive`.
+
+### Issue 2 re-verify note (from prior batch)
+
+With Issue 5b's FREEFLY observer gating, the "stewardess has Joanna's head" class of issues Mike reported is expected to resolve as a combined outcome of:
+- Last batch's `category == "sp"` filter on the valid-head set (`45bd3bdd`).
+- This batch's FREEFLY body-swap semantics (Dr Carroll avatar planned for Issue 10).
+
+Confirmation depends on Mike's next playtest.
+
+### Issue 10 (scoped, NOT implemented): rigging-aware body<->head linkage
+
+Mike's design direction: replace the current category-based filter (and the mp_index heuristic that preceded it) with an explicit `rig_class` per body and per head.  Valid-head set becomes a query over rig_class compatibility ("human_male_neck_standard" matches DEFAULT male bodies and any head that bolts onto that neck socket).  SP heads and bodies become first-class citizens -- the filter is purely physical compatibility, not category.  Retires both the sp_head_* filtering and the "missing necks" symptom in one stroke.  Substantial audit + data-entry work across every head and body; logged here so the direction is captured when we pick it up.
+
+### Issue 3 pause menu (still parked, no new info)
+
+No playtest log for the pause-menu issue in this batch.  Previous diagnosis stands: no sprint code touched the pause menu path, cannot reproduce from code review.  Issue 11 (next commit) will add a debug overlay that shows the live menu stack + input context owner, which should let Mike capture the exact failure state next time it repros.
+
+### Files touched (Issues 5, 6, 7 commit `1925f8a5`)
+
+- `port/fast3d/pdgui_menu_mainmenu.cpp` -- GridArenaCategory enum + helpers, filter cascade, category tag + Bonus toggle in render, defense-in-depth in gridCommitEnter.
+- `port/fast3d/pdgui_menu_forge.cpp` -- forgeStageIsGridEligible helper + validation in pdguiForgeStartSessionOn.
+- `port/fast3d/pdgui_backend.cpp` -- extern decl for forgeIsFreefly, F7 gate, interactPrompt gate.
+- `src/game/forgemode.c` -- g_BotUpdatesDisabled reset in forgeTransitionToInactive.
+
+**Build:** clean incremental link of PerfectDark.exe.
+
+### Playtest after rebuild
+
+1. Main Menu -> The Grid -> arena list shows only gameplay arenas with MP / SP / Classic tags.  No system stages selectable, no unregistered stagenums.
+2. Toggle "Show bonus / debug arenas" -> Bonus + test entries appear; toggle off -> they disappear.
+3. Pick any arena -> Enter The Grid -> no crash.  Session starts in FREEFLY.
+4. In FREEFLY: F7 does NOT flip invincibility banner.  Interact prompt pill never appears.
+5. Press F7 (or controller Back) -> toggles to NORMAL / Playtest.  F7 re-engages invincibility cheat normally.
+6. Back to FREEFLY -> F7 becomes inert again.
+7. Inside Grid: toggle Freeze All (End key) on.  Exit Grid session (return to CI).  Bots in the next Combat Sim match are NOT stuck frozen (cleanup verified).
+
+## Session S454 - 2026-04-24 - Post-sprint playtest fixes (Issue 1..4)
 
 Mike flagged the Main Menu "The Grid" button as broken: pressing it dropped the user straight into a Forge session on CI Training, skipping every step of map / variant selection.  Expected flow is submenu -> map picker -> variant editor -> Enter The Grid.  "The Grid" is the unified facility; Forge (edit) and Playtest (inhabit) are modes inside it.
 
