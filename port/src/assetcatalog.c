@@ -589,8 +589,25 @@ asset_entry_t *assetCatalogRegisterBody(const char *id, s16 bodynum,
     entry->ext.body.name_langid = name_langid;
     entry->ext.body.headnum = headnum;
     entry->ext.body.requirefeature = requirefeature;
+    /* B-226: display_name defaults to empty (langbank-backed); callers that
+     * know the correct string call catalogSetBodyDisplayName() after registration. */
+    entry->ext.body.display_name[0] = '\0';
 
     return entry;
+}
+
+void catalogSetBodyDisplayName(asset_entry_t *entry, const char *display_name)
+{
+    if (!entry || entry->type != ASSET_BODY) {
+        return;
+    }
+    if (display_name && display_name[0]) {
+        strncpy(entry->ext.body.display_name, display_name,
+                sizeof(entry->ext.body.display_name) - 1);
+        entry->ext.body.display_name[sizeof(entry->ext.body.display_name) - 1] = '\0';
+    } else {
+        entry->ext.body.display_name[0] = '\0';
+    }
 }
 
 asset_entry_t *assetCatalogRegisterHead(const char *id, s16 headnum,

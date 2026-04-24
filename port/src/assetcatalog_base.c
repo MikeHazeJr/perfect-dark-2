@@ -291,12 +291,21 @@ static const struct {
 	{ 54, "president_clone2", "President Clone" },
 	{ 55, "pelagic_guard",    "Pelagic Guard" },
 	{ 56, "maian_soldier",    "Maian Soldier" },
-	{ 57, "connery",          "Bond (Classic)" },
-	{ 58, "moore",            "Bond (Classic)" },
-	{ 59, "dalton",           "Bond (Classic)" },
-	{ 60, "djbond",           "Bond (Classic)" },
+	/* B-226 (2026-04-23): disambiguate the Bond-actor bodies. In g_MpBodies[]
+	 * (decompiled data), CONNERY/MOORE/DALTON/DJBOND all share
+	 * L_OPTIONS_070 "Dinner Jacket" as their display name, which rendered
+	 * four identical "Dinner Jacket" rows in Character Select. The catalog
+	 * display_name overrides langbank for these bodies. */
+	{ 57, "connery",          "Bond (Connery)" },
+	{ 58, "moore",            "Bond (Moore)" },
+	{ 59, "dalton",           "Bond (Dalton)" },
+	{ 60, "djbond",           "Bond (Brosnan)" },
+	/* B-226 / B-227: SKEDAR langid points to L_OPTIONS_356 "Choose a head
+	 * to load over:" and DRCAROLL langid points to L_OPTIONS_355 "Need
+	 * Space For Head" - both junk UI strings. Catalog display_name is the
+	 * authoritative label. */
 	{ 61, "skedar",           "Skedar" },
-	{ 62, "drcaroll",         "Dr. Carroll" },
+	{ 62, "drcaroll",         "Dr. Caroll" },
 };
 
 #define NUM_BASE_BODIES (sizeof(s_BaseBodies) / sizeof(s_BaseBodies[0]))
@@ -483,6 +492,17 @@ s32 assetCatalogRegisterBaseGame(void)
 		e->source_filenum = (s32)g_HeadsAndBodies[g_MpBodies[idx].bodynum].filenum;
 		/* Asset Provider: base bodies are served by RomProvider. */
 		catalogSetPrimary(e, romProviderHandle(e->source_filenum));
+		/* B-226: override langbank-backed display name ONLY for bodies whose
+		 * g_MpBodies[].name langid is known to be junk or shared. Most bodies
+		 * have correct i18n-aware langbank strings; preserving those keeps
+		 * locale support. Affected indices:
+		 *   57-60: CONNERY/MOORE/DALTON/DJBOND all share L_OPTIONS_070
+		 *          "Dinner Jacket" - need unique Bond-actor names.
+		 *   61: SKEDAR uses L_OPTIONS_356 "Choose a head to load over:".
+		 *   62: DRCAROLL uses L_OPTIONS_355 "Need Space For Head". */
+		if (idx >= 57 && idx <= 62) {
+			catalogSetBodyDisplayName(e, s_BaseBodies[i].desc);
+		}
 		body_count++;
 	}
 

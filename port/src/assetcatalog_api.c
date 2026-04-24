@@ -460,7 +460,22 @@ const char *catalogGetBodyDefaultHead(const char *body_id)
     return catalogIdByRuntime(ASSET_HEAD, (s32)e->ext.body.headnum);
 }
 
-/* Body → default head mpheadnum.  Uses cached mp_index on the head entry.
+/* B-226: Body mp_index -> catalog display_name. Returns NULL if no override
+ * was set at registration (caller should fall back to langbank). */
+const char *catalogGetBodyDisplayName(s32 mpbodynum)
+{
+    const char *bid;
+    const asset_entry_t *e;
+    if (mpbodynum < 0 || mpbodynum >= MP_BODY_COUNT) return NULL;
+    bid = s_MpBodyIdCache[mpbodynum];
+    if (!bid) return NULL;
+    e = assetCatalogResolve(bid);
+    if (!e || e->type != ASSET_BODY) return NULL;
+    if (!e->ext.body.display_name[0]) return NULL;
+    return e->ext.body.display_name;
+}
+
+/* Body -> default head mpheadnum.  Uses cached mp_index on the head entry.
  * Returns -1 if the body is not found, has no default head, or the sentinel
  * value 1000 (random-gender head) is stored. */
 s32 catalogGetBodyDefaultMpHeadIdx(s32 mpbodynum)
