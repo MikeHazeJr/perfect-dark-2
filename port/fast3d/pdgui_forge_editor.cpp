@@ -1673,13 +1673,37 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 	ImGui::SameLine();
 	ImGui::TextDisabled(" | Tab: %s", forgeTabLabel(s_forge_active_tab));
 
-	/* S313 -- Controller/keyboard bumper navigation: PageUp/PageDown on
-	 * keyboard, Gamepad L1/R1 on controller cycle between tabs.  Only
-	 * acts when the editor window is focused so it doesn't fight with
-	 * game input in NORMAL mode. */
+	/* Priority E (2026-04-24): full editor control scheme.
+	 *
+	 * The project's actionmap already routes ACTION_MENU_UP / DOWN /
+	 * LEFT / RIGHT / TAB_PREV / TAB_NEXT and ACTION_USE / CANCEL_USE
+	 * through pdguiDriveImGuiNav (see port/fast3d/pdgui_backend.cpp) --
+	 * those actions land as ImGuiKey_{Up,Down,Left,Right,PageUp,PageDown,
+	 * Enter,Escape} keyboard events. Gamepad L1/R1 and D-pad rides on
+	 * whatever bindings the user has assigned to those actions.
+	 *
+	 *   Keyboard / Gamepad (via actionmap):
+	 *     LB/RB or PageUp/PageDown   cycle tabs (through MENU_TAB_*)
+	 *     D-pad Up/Down or arrows    focus nav within tab (ImGui built-in)
+	 *     D-pad Left/Right or arrows focus nav / slider adjust (ImGui built-in)
+	 *     A / X or Enter             activate focused widget
+	 *     B / Y or Esc               close / cancel
+	 *   Keyboard-only extras:
+	 *     Ctrl+Tab / Ctrl+Shift+Tab  IDE-style tab cycling
+	 *
+	 * Arrow keys intentionally do NOT cycle tabs -- they belong to the
+	 * widget focus nav path so lists, sliders, and multi-row panels
+	 * respond naturally. Explicit tab-cycle bindings (PageUp / PageDown,
+	 * MENU_TAB_PREV / NEXT on gamepad, Ctrl+Tab on keyboard) keep that
+	 * concern separate. */
 	if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
-		bool prev = ImGui::IsKeyPressed(ImGuiKey_PageUp, false);
-		bool next = ImGui::IsKeyPressed(ImGuiKey_PageDown, false);
+		bool ctrlTab = ImGui::GetIO().KeyCtrl
+				&& ImGui::IsKeyPressed(ImGuiKey_Tab, false);
+		bool ctrlShiftTab = ctrlTab && ImGui::GetIO().KeyShift;
+		bool prev = ImGui::IsKeyPressed(ImGuiKey_PageUp, false)
+				|| ctrlShiftTab;
+		bool next = ImGui::IsKeyPressed(ImGuiKey_PageDown, false)
+				|| (ctrlTab && !ctrlShiftTab);
 		if (prev) {
 			s_forge_active_tab = (s_forge_active_tab + FGT_COUNT - 1) % FGT_COUNT;
 			s_forge_tab_set_request = s_forge_active_tab;
@@ -1715,7 +1739,10 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 	/* Controller / keyboard hint footer so authors know which buttons
 	 * drive the editor.  Always on so it's visible from any tab. */
 	ImGui::Separator();
-	ImGui::TextDisabled("PgUp/PgDn or LB/RB cycle tabs  -  Enter/A select  -  Esc/B cancel  -  Tab focus next");
+	ImGui::TextDisabled(
+		"Tabs: PgUp/PgDn | LB/RB | Ctrl+Tab   -   "
+		"Focus: arrows | D-pad   -   "
+		"Activate: Enter/A   Cancel: Esc/B");
 
 	ImGui::End();
 }
