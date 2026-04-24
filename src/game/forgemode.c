@@ -339,6 +339,19 @@ static void forgeTransitionToInactive(const char *reason)
 	}
 	s_forge.state = FORGE_SESSION_INACTIVE;
 	s_forge.request_enter_session = false;
+
+	/* Cleanup (2026-04-24): the Playtest HUD's Freeze All toggle mirrors
+	 * bs->all_frozen into g_BotUpdatesDisabled every forgeRuntimeTick.
+	 * When the session ends (stage left gameplay, explicit exit, etc.)
+	 * forgeRuntimeTick early-returns on !s_active, which leaves the flag
+	 * at its last value.  If the user had Freeze All on and exited, the
+	 * next non-Grid match inherits frozen bots.  Clear the flag on
+	 * session exit so the next match starts clean.  Extern declared
+	 * locally since there's no public header for g_BotUpdatesDisabled. */
+	{
+		extern s32 g_BotUpdatesDisabled;
+		g_BotUpdatesDisabled = 0;
+	}
 }
 
 /* ============================================================

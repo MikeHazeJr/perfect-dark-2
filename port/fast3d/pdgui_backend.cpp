@@ -127,6 +127,15 @@ extern "C" void botToggleUpdatesDisabled(void);
 extern "C" void playerToggleDevInvincibility(void);
 extern "C" s32 playerDevInvincibilityHudActive(void);
 
+/* Issue 5b (2026-04-24): Grid FREEFLY observer-controller suppression.
+ * When the user flies as Dr Carroll in The Grid's edit mode, their chr
+ * is a camera avatar, not a combat participant.  Gameplay paths (F7
+ * invincibility cheat, interact prompt, etc.) that assume a normal
+ * playing chr must short-circuit.  forgeIsFreefly() is defined in
+ * src/game/forgemode.c and returns 1 while the player is in the free-
+ * fly editor state. */
+extern "C" s32 forgeIsFreefly(void);
+
 namespace {
 /**
  * Shared predicate for pdguiNewFrame / pdguiRender early-exit: must stay in sync
@@ -513,9 +522,15 @@ void pdguiNewFrame(void)
      * pdguiInteractPromptRender already early-returns on both predicates,
      * so gating the activation boolean here is the matching half of that
      * contract. */
+    /* Issue 5b (2026-04-24): suppress interact prompt during Grid
+     * FREEFLY.  The Dr Carroll observer chr shouldn't display "Hold X
+     * to use <thing>" pill labels -- it's not a gameplay participant
+     * and the underlying interact probe would target prop collisions
+     * meant for the real player. */
     bool interactPrompt = (propInteractPromptLabel() != NULL)
         && !pdguiIsActive()
-        && !pdguiCiIntroBlocksInteractPrompt();
+        && !pdguiCiIntroBlocksInteractPrompt()
+        && !forgeIsFreefly();
 #if defined(PD_DEV_BUILD)
     bool devGameplayHud =
             (botGetUpdatesDisabled() != 0) || (playerDevInvincibilityHudActive() != 0);
@@ -643,9 +658,15 @@ void pdguiRender(void)
     /* 2026-04-23: mirror the NewFrame gate exactly - do not let the interact
      * prompt keep ImGui rendering when a menu is on top or during any pause
      * transition (see rationale at the NewFrame site). */
+    /* Issue 5b (2026-04-24): suppress interact prompt during Grid
+     * FREEFLY.  The Dr Carroll observer chr shouldn't display "Hold X
+     * to use <thing>" pill labels -- it's not a gameplay participant
+     * and the underlying interact probe would target prop collisions
+     * meant for the real player. */
     bool interactPrompt = (propInteractPromptLabel() != NULL)
         && !pdguiIsActive()
-        && !pdguiCiIntroBlocksInteractPrompt();
+        && !pdguiCiIntroBlocksInteractPrompt()
+        && !forgeIsFreefly();
 #if defined(PD_DEV_BUILD)
     bool devGameplayHud =
             (botGetUpdatesDisabled() != 0) || (playerDevInvincibilityHudActive() != 0);
@@ -998,8 +1019,20 @@ s32 pdguiProcessEvent(void *sdlEvent)
         return 1;
     }
 
-    /* F7: toggle player invincibility (solo/MP debug) */
+    /* F7: toggle player invincibility (solo/MP debug).
+     * Issue 5b (2026-04-24): in Grid FREEFLY the player chr is an
+     * observer / camera avatar, not a combat participant.  The
+     * cheat has nothing meaningful to apply to (no damage path is
+     * active on a freefly body), and the same physical key also
+     * fires ACTION_FORGE_TOGGLE via the actionmap -- running both
+     * in parallel creates the "F7 conflicts with Change Mode"
+     * confusion Mike reported as Issue 6.  Consume the press to
+     * block the cheat; let the actionmap's ACTION_FORGE_TOGGLE
+     * handle the mode toggle.  On exit from FREEFLY (back to
+     * NORMAL playtest mode) the cheat becomes available again
+     * automatically. */
     if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F7) {
+        if (forgeIsFreefly()) return 1;
         playerToggleDevInvincibility();
         return 1;
     }
