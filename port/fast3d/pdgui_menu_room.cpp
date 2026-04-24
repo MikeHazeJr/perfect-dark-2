@@ -2240,7 +2240,8 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                     u32 b = sorted[si].idx;
                     const char *bid = catalogMpBodyId(b);
                     if (ImGui::MenuItem(sorted[si].name, NULL, (int)b == commonBody)) {
-                        const char *hid = catalogMpHeadId(b);
+                        s32 defHead = catalogGetBodyDefaultMpHeadIdx((s32)b);
+                        const char *hid = (defHead >= 0) ? catalogMpHeadId(defHead) : NULL;
                         for (int j = 1; j < g_MatchConfig.numSlots; j++) {
                             if (!s_BotSelected[j] || g_MatchConfig.slots[j].type != SLOT_BOT) continue;
                             if (bid) {
@@ -3382,7 +3383,8 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                             strncpy(sl->body_id, bid, sizeof(sl->body_id) - 1);
                             sl->body_id[sizeof(sl->body_id) - 1] = '\0';
                         }
-                        const char *hid = catalogMpHeadId(b);
+                        s32 defHead2 = catalogGetBodyDefaultMpHeadIdx((s32)b);
+                        const char *hid = (defHead2 >= 0) ? catalogMpHeadId(defHead2) : NULL;
                         if (hid) {
                             strncpy(sl->head_id, hid, sizeof(sl->head_id) - 1);
                             sl->head_id[sizeof(sl->head_id) - 1] = '\0';

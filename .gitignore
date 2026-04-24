@@ -63,6 +63,12 @@ build/game_output.log
 # Claude Code local settings (machine-specific, not committed)
 .claude/settings.local.json
 
+# Editor artifacts (Word/Excel lock files, temp files)
+~$*
+*.tmp
+*~
+.DS_Store
+
 # IDE / editor
 /.vs
 /.vscode
