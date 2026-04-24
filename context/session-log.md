@@ -4,6 +4,52 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S456 - 2026-04-24 - Source-cleanup + Issue 10 execution + Level/Observer/8b polish
+
+Mike's standing rules for this batch:
+
+1. **Data should be clean at the source.** "There should be no bad arguments for Arenas (or anything else) if we instantiate with only valid data, it isn't a hard-coded list."
+2. **No stubs, gaps, or TODOs.** "Don't strip the features, implement them."
+
+Landed five commits, one per priority, each build-verified on pd + pd-server where applicable.
+
+### Priority A -- `7ff165b0` refactor(catalog): clean arena / body data at source
+
+- `port/src/assetcatalog_base.c`: NULL `s_ArenaNames[57..64]` (test_arch, test_dest, extra16..21) and `s_ArenaNames[69]` (test_lam). Removed the hardcoded `STAGE_EXTRA25` skip; NULL slot at index 70 is now the canonical marker.
+- `port/fast3d/pdgui_menu_mainmenu.cpp` `gridArenaCollect`: stripped the filter cascade (stagenum>0, IS_GAMEPLAY, stageGetIndex, category-reject, `s_GridShowBonus` gate). Catalog registration is authoritative. Kept the feature-unlock gate + a LOG_ERROR for registered-but-unresolvable name_langid.
+- `gridCommitEnter`: stripped the defense-in-depth revalidation, added resolution of Random-Multi / Random-Solo meta-arenas via `mpChooseRandomMultiStage` / `SoloStage`. One loud sanity assertion before stage-load.
+- Removed the "Show bonus / debug arenas" toggle UI.
+- `port/fast3d/pdgui_menu_forge.cpp` `pdguiForgeStartSessionOn`: removed silent fallback-to-CI-Training. LOG_ERROR and refuse on ineligible stagenum.
+- `port/fast3d/pdgui_menu_room.cpp` Character Select + bot modal: stripped the hardcoded "Dr. Caroll" / "Skedar" fallback for bodies with empty `display_name`. Catalog is authoritative post-P4; empty names now log as registration bugs.
+
+### Priority B -- `38b8c8b1` feat(catalog): rig_class authoritative for body<->head (Issue 10)
+
+- Schema: `ext.body.rig_class[32]` + `ext.head.rig_class[32]` with canonical slugs `human_male_neck_standard`, `human_female_neck_standard` (FEMALE + FEMALEGUARD merged), `maian_tall_neck`, `cass_neck`, `mrblonde_neck`.
+- Setters: `catalogSetBodyRigClass` / `catalogSetHeadRigClass`.
+- Helper `rigClassForHeadBodyType(u8 type)` maps HEADBODYTYPE_* to slug; populated at every base body / base head / SP body / SP head registration.
+- `catalogGetBodyValidHeadIds` rewritten: string equality on `rig_class` is the sole compat rule. HEADBODYTYPE fallback chains and the `category == "sp"` reject (Issue 1 stopgap) removed.
+
+### Priority C -- `44fb0922` feat(grid): Level tab real skybox / skylight / music controls
+
+- New C accessors in `src/game/forgemode.c`: `forgeLevelGet/SetSkyColor`, `Get/SetFog`, `Get/SetCloudsEnabled`, `Get/SetCloudColor`, `SetSkyStage`, `PlayMusic`, `StopMusic`. Needed because `pdgui_forge_editor.cpp` is C++ and can't include `types.h`.
+- `forgeDrawLevelExtras` (renamed from Placeholder): 12-stage Skybox combo, ImGui ColorEdit3 for sky colour, fog near/far sliders, clouds on/off + tint, 18-track Background Music combo with Silence. All dispatches real -- no TODO log lines.
+
+### Priority D -- `dec88dc0` feat(grid): observer controller full scaffold
+
+- `src/game/forgemode.c::forgeSavePlayerMode`: now actually writes `chr->bodynum = BODY_DRCAROLL` and `chr->headnum = HEAD_RANDOM_GENDER` on FREEFLY entry (previously logged intent but never swapped).
+- `port/src/actionmap.cpp`: new `actionIsBlockedInFreefly(a)` predicate flags combat, weapon selection (radial), vehicle, chr pose, and interact-as-gameplay. Every action-read API gets a second gate: `if (forgeIsFreefly() && actionIsBlockedInFreefly(a)) return 0`. Movement / aim axes / `ACTION_FORGE_*` pass through.
+
+### Priority E -- `c48d21bd` feat(grid): editor control scheme (Issue 8b)
+
+- Tab-cycle hotkeys: PageUp/PageDown + Ctrl+Tab / Ctrl+Shift+Tab (IDE-style). LB/RB via the existing `ACTION_MENU_TAB_PREV/NEXT` -> PageUp/PageDown translation.
+- Arrow keys + D-pad stay reserved for ImGui focus-nav (not conflated with tab cycling).
+- Footer hint rewritten to match the real mapping.
+
+### What did NOT land
+
+- Subdivision of `rig_class` (splitting DEFAULT when neck drift shows) -- design-doc future work, lands as data-only edits.
+- A "sidebar" toggle in the Forge editor (Issue 8b hint: X = sidebar). No concrete sidebar surface designed yet; deferred.
+
 ## Session S455 - 2026-04-24 - Grid playtest batch: crash fix + FREEFLY observer gating
 
 Mike's first real Grid playtest surfaced 4 issues + 3 design directions.  Commit `1925f8a5` lands the crash-blocking work (Issues 5, 6, 7) as one unit because the logical pieces overlapped.
