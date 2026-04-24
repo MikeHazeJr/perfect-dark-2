@@ -1,0 +1,21 @@
+Build env: TEMP=C:\Users\mikeh\AppData\Local\Temp | mingw64 on PATH | ccache sloppy
+
+  Perfect Dark PC Port  -  Headless Build
+  Target:     client
+  Version:    0.0.156
+  Next ver:   False (-UseNextVersion)
+  Clean:      False
+  AutoCommit: False (-AutoCommit / -CommitPush)
+  Verbose:    False
+  Cores:      24
+  Generator:  Ninja
+  BuildDir:   C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\Build
+  ProjectDir: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike
+
+  Auto-commit disabled (pass -AutoCommit to enable).
+  Build dir does not exist -- fresh build (smart-clean heuristic (see above))
+  Created build dir: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\Build
+
+------------------------------------------------------------
+  Configure (CMake - Ninja + ccache)
+------------------------------------------------------------
