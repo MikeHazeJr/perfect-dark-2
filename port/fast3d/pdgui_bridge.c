@@ -358,27 +358,29 @@ s32 lobbyGetPlayerInfo(s32 idx, void *out)
     struct lobbyplayer *lp = &g_Lobby.players[idx];
     if (!lp->active) return 0;
 
-    /* Write fields matching lobbyplayer_view layout */
+    /* Write fields matching lobbyplayer_view layout.
+     * 2026-04-23: struct shrank by 2 bytes (deprecated headnum/bodynum
+     * fields removed - see pdgui_lobby.cpp lobbyplayer_view). Offsets
+     * for name / isLocal / state / clientId shifted accordingly. Keep in
+     * sync with the view struct and with server_bridge.c's mirror. */
     u8 *p = (u8 *)out;
     p[0] = lp->active;
     p[1] = lp->isLeader;
     p[2] = lp->isReady;
-    p[3] = lp->headnum;
-    p[4] = lp->bodynum;
-    p[5] = lp->team;
-    strncpy((char *)(p + 6), lp->name, 31);
-    p[37] = '\0';
+    p[3] = lp->team;
+    strncpy((char *)(p + 4), lp->name, 31);
+    p[35] = '\0';
 
-    /* isLocal (s32 at offset 40, aligned after name[32]) */
+    /* isLocal (s32 at offset 36, aligned after name[32]) */
     s32 isLocal = (&g_NetClients[lp->clientId] == g_NetLocalClient) ? 1 : 0;
-    memcpy(p + 40, &isLocal, sizeof(s32));
+    memcpy(p + 36, &isLocal, sizeof(s32));
 
-    /* state (s32 at offset 44) */
+    /* state (s32 at offset 40) */
     s32 state = g_NetClients[lp->clientId].state;
-    memcpy(p + 44, &state, sizeof(s32));
+    memcpy(p + 40, &state, sizeof(s32));
 
-	/* clientId (u8 at offset 48) */
-	p[48] = lp->clientId;
+    /* clientId (u8 at offset 44) */
+    p[44] = lp->clientId;
 
     return 1;
 }

@@ -4,6 +4,39 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S451 - 2026-04-23 - B-234 deep-dive sweep + lobbyplayer junk-data removal
+
+Mike: "Do a deep dive, ensure nothing uses the legacy integer index (not just in multiplayer, everywhere)." Then: "Why would we leave it even if it is junk data, we don't want junk data."
+
+Explore agent swept `src/` and `port/` for reads of `mpheadnum`/`mpbodynum`/`chr->headnum`/`chr->bodynum` and classified by category (LEAK / LEGACY-BACKCOMPAT / FINAL-MILE / DEAD). Four LEAK sites identified beyond yesterday's B-234 fix; three patched this pass, one deferred behind B-227 (agent-create UI only lists MP heads, aliens aren't even selectable there).
+
+**Fixes this pass:**
+
+- **`src/game/player.c::playerChooseBodyAndHead`** - two sites (normal MP branch + net coop branch) read `mpheadnum`/`mpbodynum` as primary and resolved aliens to Joanna (same class as the botmgr layer-2 bug). Introduced a local `B234_RESOLVE_CHARCONFIG` macro that prefers `head_id`/`body_id` via `assetCatalogResolve` -> `ext.head.headnum`/`ext.body.bodynum`, falls back to `mpGetHeadId`/`mpGetBodyId` only when the strings are empty. Same resolution pattern as the botmgr.c fix.
+- **`struct lobbyplayer` / `struct lobbyplayer_view` - removed deprecated `u8 headnum` / `u8 bodynum`**. netlobby.c was deriving them from catalog via `runtime_index`, but no consumer (pdgui_lobby.cpp, server_gui.cpp) actually read them. Per Mike "we don't want junk data" - removed the fields entirely from netlobby.h, from both view struct copies (pdgui_lobby.cpp, server_gui.cpp), and from the byte-copy writers in pdgui_bridge.c and server_bridge.c. Shrunk view struct by 2 bytes; name offset 6 -> 4, isLocal 40 -> 36, state 44 -> 40, clientId 48 -> 44. Consumers that need an integer should `assetCatalogResolve` at use-site.
+
+**Verified OK (no change needed):**
+- `src/game/menu.c::menuRenderModel` line 2030-2040 has a `MENUMODELPARAMS_GET_MP_HEADNUM/BODYNUM` legacy fallback, but the B-234 path flows through `MENUMODELPARAMS_SET_FILENUM` via catalogGetHeadFilenumByIndex, so the catalog-ID path skips that fallback entirely.
+- `port/src/forge/forge_runtime.c:157,170` writes `mpheadnum`/`mpbodynum` only when `mp_index >= 0`; catalog `body_id`/`head_id` strings are set first in the same block. With B-234 layer 2 in botmgr.c, the render path reads the string even when the integer wasn't written. Parallel-path design intact.
+- All `bodyAllocateModel(bodynum, headnum, ...)` call sites are FINAL-MILE (last-step handoff to the N64 engine API); the caller is always a resolver that already picked the right integer from the catalog.
+
+**Deferred:**
+- `port/fast3d/pdgui_menu_agentcreate.cpp::autoSelectHead` uses `catalogGetBodyDefaultMpHeadIdx` but the agent-create head picker only enumerates MP-registered heads (B-227 - aliens aren't selectable via this UI at all). Queued behind B-227.
+- `src/game/mplayer/setup.c::mpCharacterHeadMenuHandler(operation, ..., s32 mpheadnum, bool arg4)` - the handler signature takes an MP integer. Renaming the parameter to a catalog ID is a broader signature refactor; deferred with B-227.
+
+**Files touched:**
+- `src/game/player.c` (playerChooseBodyAndHead macro + both branches)
+- `port/include/net/netlobby.h` (struct shrink + doc block)
+- `port/src/net/netlobby.c` (removed junk derivation writes)
+- `port/fast3d/pdgui_lobby.cpp` (view struct shrink)
+- `port/fast3d/server_gui.cpp` (view struct shrink)
+- `port/fast3d/pdgui_bridge.c` (byte-offset resync)
+- `port/src/server_bridge.c` (byte-offset resync)
+- `context/bugs.md` (B-234 v2 entry rewrite)
+- `context/session-log.md`
+
+**Build:** not run here; Mike to rebuild.
+
 ## Session S450 - 2026-04-23 - Scanline policy revision + B-234 non-MP-head resolution (catalog-ID path)
 
 Mike reported three things plus clarifications:

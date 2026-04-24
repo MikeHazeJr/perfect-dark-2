@@ -106,13 +106,15 @@ void pdguiDistribOverlayRender(s32 winW, s32 winH);
 void pdguiHostDistribOverlayRender(s32 winW, s32 winH);
 void pdguiKillFeedRender(s32 winW, s32 winH);
 
-/* Lobby player data (from netlobby.h, simplified for C++) */
+/* Lobby player data (from netlobby.h, simplified for C++).
+ * 2026-04-23: removed deprecated u8 headnum / bodynum (never consumed by the
+ * UI; catalog IDs live in the real struct and portrait/charpreview reads
+ * those). lobbyGetPlayerInfo in pdgui_bridge.c writes this layout; keep
+ * the padding / offsets in sync there. */
 struct lobbyplayer_view {
     u8 active;
     u8 isLeader;
     u8 isReady;
-    u8 headnum;
-    u8 bodynum;
     u8 team;
     char name[32];  /* matches LOBBY_NAME_LEN */
     s32 isLocal;

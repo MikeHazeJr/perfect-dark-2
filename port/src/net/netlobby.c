@@ -73,16 +73,16 @@ void lobbyUpdate(void)
         lp->active = 1;
         lp->clientId = (u8)i;
         {
-            /* PRIMARY: copy catalog ID strings from client settings */
+            /* Catalog ID strings are the sole identity. 2026-04-23: the legacy
+             * integer derivations (lp->bodynum / lp->headnum) were removed
+             * because (a) no consumer was reading them, and (b) the integer
+             * path is inherently wrong for non-MP heads (Maian / Skedar /
+             * Dr Carroll have mp_index=-1 per constraints.md). Anyone who
+             * needs an integer should assetCatalogResolve() at use-site. */
             strncpy(lp->body_id, cl->settings.body_id, sizeof(lp->body_id) - 1);
             lp->body_id[sizeof(lp->body_id) - 1] = '\0';
             strncpy(lp->head_id, cl->settings.head_id, sizeof(lp->head_id) - 1);
             lp->head_id[sizeof(lp->head_id) - 1] = '\0';
-            /* DERIVED: integer indices for legacy consumers */
-            const asset_entry_t *be = assetCatalogResolve(cl->settings.body_id);
-            const asset_entry_t *he = assetCatalogResolve(cl->settings.head_id);
-            lp->bodynum = be ? (u8)be->runtime_index : 0;
-            lp->headnum = he ? (u8)he->runtime_index : 0;
         }
         lp->team = cl->settings.team;
 

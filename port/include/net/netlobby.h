@@ -20,11 +20,15 @@ struct lobbyplayer {
     u8 clientId;            /* netclient index */
     u8 isLeader;            /* 1 if this player is the lobby leader */
     u8 isReady;             /* 1 if player has readied up */
-    /* PRIMARY: catalog ID strings — sole asset identity */
+    /* PRIMARY: catalog ID strings - sole asset identity */
     char head_id[64];       /* e.g. "base:head_dark_combat" */
     char body_id[64];       /* e.g. "base:dark_combat" */
-    u8 headnum;             /* DEPRECATED: integer g_MpHeads[] index. Use head_id instead. */
-    u8 bodynum;             /* DEPRECATED: integer g_MpBodies[] index. Use body_id instead. */
+    /* 2026-04-23: removed deprecated u8 headnum / bodynum. They were never
+     * consumed by the lobby UI (pdgui_lobby.cpp reads head_id / body_id and
+     * renders via the portrait/charpreview path) and their integer-only
+     * nature was a B-234 alien-head hazard (non-MP heads have mp_index=-1).
+     * Consumers that still want an integer should resolve from the catalog
+     * ID string via assetCatalogResolve at use-site. */
     u8 team;                /* team assignment */
     char name[LOBBY_NAME_LEN];
 };

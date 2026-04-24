@@ -1828,18 +1828,53 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 		return;
 	}
 
+	/* 2026-04-23 B-234 deep-dive: catalog-ID path for player body/head
+	 * resolution. Prior code read mpheadnum/mpbodynum directly; non-MP heads
+	 * (Maian, Skedar, Dr Carroll) have mpheadnum=0 (legacy compat write from
+	 * mpchrSetHeadById when mp_index<0), so this path resolved to
+	 * HEAD_DARK_COMBAT for aliens just like the bot alloc path used to. Now:
+	 * resolve head_id / body_id strings via catalog first, read runtime
+	 * indices from ext.head.headnum / ext.body.bodynum; fall back to the
+	 * legacy mpheadnum path only when the catalog strings are empty. Shared
+	 * helper by the normmp and net-coop branches below. */
+	#define B234_RESOLVE_CHARCONFIG(cfg_, headout_, bodyout_, arg2flag_) do { \
+		const char *_hid = (cfg_).head_id; \
+		const char *_bid = (cfg_).body_id; \
+		s32 _resolved_head = -1; \
+		s32 _resolved_body = -1; \
+		if (_hid && _hid[0]) { \
+			const asset_entry_t *_he = assetCatalogResolve(_hid); \
+			if (_he && _he->type == ASSET_HEAD) { \
+				_resolved_head = (s32)_he->ext.head.headnum; \
+			} \
+		} \
+		if (_bid && _bid[0]) { \
+			const asset_entry_t *_be = assetCatalogResolve(_bid); \
+			if (_be && _be->type == ASSET_BODY) { \
+				_resolved_body = (s32)_be->ext.body.bodynum; \
+			} \
+		} \
+		if (_resolved_head >= 0) { \
+			*(headout_) = _resolved_head; \
+		} else if ((cfg_).mpheadnum < mpGetNumHeads2()) { \
+			*(headout_) = mpGetHeadId((cfg_).mpheadnum); \
+		} else { \
+			*(headout_) = (cfg_).mpheadnum - mpGetNumHeads2(); \
+			if (arg2flag_) { \
+				*(arg2flag_) = true; \
+			} \
+		} \
+		if (_resolved_body >= 0) { \
+			*(bodyout_) = _resolved_body; \
+		} else { \
+			*(bodyout_) = mpGetBodyId((cfg_).mpbodynum); \
+		} \
+	} while (0)
+
 	if (g_Vars.normmplayerisrunning) {
-		if (g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base.mpheadnum < mpGetNumHeads2()) {
-			*headnum = mpGetHeadId(g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base.mpheadnum);
-		} else {
-			*headnum = g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base.mpheadnum - mpGetNumHeads2();
-
-			if (arg2) {
-				*arg2 = true;
-			}
-		}
-
-		*bodynum = mpGetBodyId(g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base.mpbodynum);
+		B234_RESOLVE_CHARCONFIG(
+			g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base,
+			headnum, bodynum, arg2);
 		return;
 	}
 
@@ -1850,24 +1885,25 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 	if (g_NetMode != NETMODE_NONE
 			&& (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0)
 			&& g_Vars.currentplayerstats) {
-		u8 mpbody = g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base.mpbodynum;
-		u8 mphead = g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base.mpheadnum;
-		if (mpbody > 0 || mphead > 0) {
-			if (mphead < mpGetNumHeads2()) {
-				*headnum = mpGetHeadId(mphead);
-			} else {
-				*headnum = mphead - mpGetNumHeads2();
-				if (arg2) {
-					*arg2 = true;
-				}
-			}
-			*bodynum = mpGetBodyId(mpbody);
-			sysLogPrintf(LOG_NOTE, "NET: co-op player %d using custom character body=%d head=%d (mpbody=%u mphead=%u)",
-				g_Vars.currentplayerstats->mpindex, *bodynum, *headnum, mpbody, mphead);
+		const struct mpchrconfig *cfg =
+			&g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base;
+		bool hasCustomCharacter =
+			(cfg->head_id[0] != '\0' || cfg->body_id[0] != '\0'
+				|| cfg->mpbodynum > 0 || cfg->mpheadnum > 0);
+		if (hasCustomCharacter) {
+			B234_RESOLVE_CHARCONFIG(*cfg, headnum, bodynum, arg2);
+			sysLogPrintf(LOG_NOTE,
+				"NET: co-op player %d using custom character body=%d head=%d "
+				"(body_id='%s' head_id='%s' mpbody=%u mphead=%u)",
+				g_Vars.currentplayerstats->mpindex, *bodynum, *headnum,
+				cfg->body_id[0] ? cfg->body_id : "(empty)",
+				cfg->head_id[0] ? cfg->head_id : "(empty)",
+				cfg->mpbodynum, cfg->mpheadnum);
 			return;
 		}
-		// mpbody == 0 && mphead == 0: fall through to default mission outfit
+		// empty body_id and head_id and zero MP indices: fall through to default
 	}
+	#undef B234_RESOLVE_CHARCONFIG
 
 	outfit = g_Vars.currentplayer->bondtype;
 	solo = !(g_Vars.coopplayernum >= 0) || (g_Vars.currentplayer != g_Vars.coop);

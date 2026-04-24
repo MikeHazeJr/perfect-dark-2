@@ -93,18 +93,18 @@ extern s32         serverGetMemoryMB(void);
 #define STUN_STATUS_SUCCESS 2
 #define STUN_STATUS_FAILED  3
 
-/* Lobby player view — layout must match server_bridge.c lobbyGetPlayerInfo writes */
+/* Lobby player view - layout must match server_bridge.c lobbyGetPlayerInfo writes.
+ * 2026-04-23: struct shrank 2 bytes (deprecated headnum/bodynum removed - see
+ * netlobby.h and pdgui_lobby.cpp comments). Keep in sync with pdgui_bridge.c. */
 struct lobbyplayer_view {
     u8   active;     /* offset 0 */
     u8   isLeader;   /* offset 1 */
     u8   isReady;    /* offset 2 */
-    u8   headnum;    /* offset 3 */
-    u8   bodynum;    /* offset 4 */
-    u8   team;       /* offset 5 */
-    char name[32];   /* offset 6, matches LOBBY_NAME_LEN */
-    s32  isLocal;    /* offset 40 (aligned) */
-    s32  state;      /* offset 44 */
-    u8   clientId;   /* offset 48 */
+    u8   team;       /* offset 3 */
+    char name[32];   /* offset 4, matches LOBBY_NAME_LEN */
+    s32  isLocal;    /* offset 36 (aligned) */
+    s32  state;      /* offset 40 */
+    u8   clientId;   /* offset 44 */
 };
 
 extern s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
