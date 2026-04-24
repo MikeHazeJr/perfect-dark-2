@@ -4,6 +4,29 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S448 - 2026-04-23 - Debug skill + B-218 v2 (initial bot pile-up root cause)
+
+Mike uploaded another playtest log and asked for the `/debug` skill. Two reported symptoms:
+1. Remote mine is NAMED at spawn but FP model is invisible + unfireable (secondary fire mode toggles but nothing works).
+2. Bots all spawn at one point on initial match frame; respawns are dispersed.
+
+**Build staleness diagnosis.** The log embeds `version: dev b6336adf` (auto-commit at 2026-04-23 17:40:23). `git show b6336adf:` against today's edits: has the bondbike PC dismount fix (S444), does NOT have B-217 v2, B-219 v2/v3, B-229, B-230, or B-231. Mike's binary is from before those landed in the working tree. Rebuild required before those fixes can be playtest-verified.
+
+**Issue 1 (weapon invisible) is the same B-219 class already addressed in v2/v3, pending rebuild.** With the B-229 preservation fix, user's remote mine pick stays as spawn weapon; with B-219 v3 manifest-driven preload in `setupLoadStage`, the remote mine FP model loads regardless of map pickup markers. No new code change needed for issue 1 - this is a rebuild issue.
+
+**Issue 2 (bot initial pile-up) IS a new root cause that Cursor's 4-21 fix did not address.** Traced:
+- `mpOrchestrateMatchStartSpawns` is called from `lv.c:619` between playerReset and playerSpawn loops.
+- At that point bots are allocated but `g_MpBotChrPtrs[i]->prop` is still empty, so the orchestrator participant iteration (mpspawn_orchestrate.c:408-420) skips every bot.
+- Orchestrator places only players, sets `g_MpOrchestrateInitialSpawnDone = true`, and leaves every `g_MpOrchestrateBotPoolIdx[]` entry at -1.
+- Later `botSpawnAll` fires via `aiMpInitSimulants` opcode 0x0185. Every bot fails the `g_MpOrchestrateBotPoolIdx[aibotnum] >= 0` check and falls through to `scenarioChooseSpawnLocation` at bot.c:393.
+- That function returns the same first-valid pad for 32 bots in the same tick -> pile-up.
+- Respawns use `spawnPoolSelectTiered` (different path) and are correctly dispersed.
+
+**B-218 v2 fix:** At the top of `botSpawnAll`, detect "bots allocated but no pool idx assigned" and re-run `mpOrchestrateReset + mpOrchestrateMatchStartSpawns` now that props exist. Player positions stay stable because the orchestrator is deterministic on same seed + roster + stage + pool build. Added a `SPAWN.ORCH: botSpawnAll re-running orchestrator ...` diag so the log will show when this path fires.
+
+- **Files touched:** `src/game/bot.c::botSpawnAll`, `context/bugs.md` (B-218 v2), `context/session-log.md`.
+- **Not run here** (Linux sandbox). Mike rebuilds, re-playtests Chicago CS with max bots, confirms the log line appears and bots disperse on initial frame.
+
 ## Session S447 - 2026-04-23 - Three playtest fixes: B-229 weapon override, B-230 controller B, B-231 prompt flash
 
 Mike's third playtest pass this day. Three distinct symptoms, all fixed in code this session.

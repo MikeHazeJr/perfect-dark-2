@@ -563,6 +563,55 @@ void botSpawnAll(void)
 {
 	s32 i;
 
+	/* B-218 v2 (2026-04-23): initial bot pile-up root cause.
+	 * `mpOrchestrateMatchStartSpawns` is called from `lv.c` between the
+	 * playerReset loop and the playerSpawn loop (so player match-start
+	 * positions can apply before `playerSpawn` runs). At THAT point bots
+	 * are allocated as chrs but the orchestrator's participant iteration
+	 * sees empty `g_MpBotChrPtrs[i]->prop` and skips every bot. The
+	 * orchestrator places only the players, sets
+	 * `g_MpOrchestrateInitialSpawnDone = true`, and leaves every entry of
+	 * `g_MpOrchestrateBotPoolIdx[]` at -1.
+	 *
+	 * Later, when `botSpawnAll` actually fires (from the AI-script
+	 * `aiMpInitSimulants` opcode 0x0185), every bot hits the orchestrator
+	 * branch in `botSpawn` at ~line 338, fails the
+	 * `g_MpOrchestrateBotPoolIdx[aibotnum] >= 0` check, and falls through
+	 * to `scenarioChooseSpawnLocation(chr->radius, ...)` at line 393.
+	 * Called in rapid succession across 32 bots in the same tick,
+	 * scenarioChooseSpawnLocation repeatedly returns the same first-valid
+	 * pad - "all bots at one point" on the initial spawn. Respawns use
+	 * the tiered spawn pool and are unaffected, matching Mike's
+	 * observation "after their initial spawn were spawning fine".
+	 *
+	 * Fix: if we reach botSpawnAll with bots allocated but no bot has an
+	 * orchestrated pool index, re-run the orchestrator now that props
+	 * exist. `mpOrchestrateReset()` clears only `g_MpOrchestrateBotPoolIdx`
+	 * and the done flag (players already applied their positions from
+	 * the first run; the Hungarian is deterministic on same seed + roster
+	 * + stage, so re-application is stable). */
+	if (g_Vars.mplayerisrunning && spawnPoolIsReady() && g_BotCount > 0) {
+		bool anyBotHasPoolIdx = false;
+		for (i = 0; i < g_BotCount; i++) {
+			struct chrdata *bc = g_MpBotChrPtrs[i];
+			if (bc && bc->aibot
+					&& (s32)bc->aibot->aibotnum >= 0
+					&& (s32)bc->aibot->aibotnum < MAX_BOTS
+					&& g_MpOrchestrateBotPoolIdx[bc->aibot->aibotnum] >= 0) {
+				anyBotHasPoolIdx = true;
+				break;
+			}
+		}
+		if (!anyBotHasPoolIdx) {
+			sysLogPrintf(LOG_NOTE,
+				"SPAWN.ORCH: botSpawnAll re-running orchestrator "
+				"(bots missed initial pass, g_BotCount=%d, initDone=%d)",
+				(s32)g_BotCount, (s32)g_MpOrchestrateInitialSpawnDone);
+			mpOrchestrateReset();
+			mpOrchestrateMatchStartSpawns();
+		}
+	}
+
 	for (i = 0; i < g_BotCount; i++) {
 		botSpawn(g_MpBotChrPtrs[i], false);
 	}
