@@ -592,6 +592,9 @@ asset_entry_t *assetCatalogRegisterBody(const char *id, s16 bodynum,
     /* B-226: display_name defaults to empty (langbank-backed); callers that
      * know the correct string call catalogSetBodyDisplayName() after registration. */
     entry->ext.body.display_name[0] = '\0';
+    /* Issue 10: rig_class defaults to empty; caller sets it via
+     * catalogSetBodyRigClass(). Empty = incompatible with every head. */
+    entry->ext.body.rig_class[0] = '\0';
 
     return entry;
 }
@@ -610,6 +613,20 @@ void catalogSetBodyDisplayName(asset_entry_t *entry, const char *display_name)
     }
 }
 
+void catalogSetBodyRigClass(asset_entry_t *entry, const char *rig_class)
+{
+    if (!entry || entry->type != ASSET_BODY) {
+        return;
+    }
+    if (rig_class && rig_class[0]) {
+        strncpy(entry->ext.body.rig_class, rig_class,
+                sizeof(entry->ext.body.rig_class) - 1);
+        entry->ext.body.rig_class[sizeof(entry->ext.body.rig_class) - 1] = '\0';
+    } else {
+        entry->ext.body.rig_class[0] = '\0';
+    }
+}
+
 asset_entry_t *assetCatalogRegisterHead(const char *id, s16 headnum,
                                          u8 requirefeature)
 {
@@ -620,8 +637,23 @@ asset_entry_t *assetCatalogRegisterHead(const char *id, s16 headnum,
 
     entry->ext.head.headnum = headnum;
     entry->ext.head.requirefeature = requirefeature;
+    entry->ext.head.rig_class[0] = '\0';
 
     return entry;
+}
+
+void catalogSetHeadRigClass(asset_entry_t *entry, const char *rig_class)
+{
+    if (!entry || entry->type != ASSET_HEAD) {
+        return;
+    }
+    if (rig_class && rig_class[0]) {
+        strncpy(entry->ext.head.rig_class, rig_class,
+                sizeof(entry->ext.head.rig_class) - 1);
+        entry->ext.head.rig_class[sizeof(entry->ext.head.rig_class) - 1] = '\0';
+    } else {
+        entry->ext.head.rig_class[0] = '\0';
+    }
 }
 
 asset_entry_t *assetCatalogRegisterTextures(const char *id)

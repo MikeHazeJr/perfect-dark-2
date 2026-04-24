@@ -232,10 +232,28 @@ typedef struct asset_entry {
              * the langid resolves to junk (some legacy bodies share langids
              * or point to unrelated UI strings). */
             char display_name[64];
+            /* Issue 10 (2026-04-24): rig_class is the authoritative physical
+             * compatibility key for body <-> head pairing. Two entries with
+             * the same rig_class share a neck socket geometry and can be
+             * bolted together without visual gaps. Empty string means "no
+             * rig_class set" -- treated as incompatible with every head so
+             * mis-authored data surfaces loudly. Canonical strings:
+             *   "human_male_neck_standard"    -- most DEFAULT male bodies
+             *   "human_female_neck_standard"  -- FEMALE + FEMALEGUARD merged
+             *   "maian_tall_neck"             -- MAIAN-type bodies
+             *   "cass_neck"                   -- Cassandra-specific rig
+             *   "mrblonde_neck"               -- Mr Blonde-specific rig
+             * Future subdivisions (e.g. splitting DEFAULT into neck-variant
+             * sub-buckets) land as data edits here; no code changes needed. */
+            char rig_class[32];
         } body;
         struct {
             s16 headnum;               /* global head ID in g_HeadsAndBodies[] */
             u8  requirefeature;        /* unlock check (0 = always available) */
+            /* Issue 10 (2026-04-24): see body.rig_class above. Same semantics
+             * -- equality match with a body's rig_class = physically
+             * compatible pair. */
+            char rig_class[32];
         } head;
         struct {
             s32 weapon_id;             /* MPWEAPON_* constant */
@@ -477,12 +495,27 @@ asset_entry_t *assetCatalogRegisterBody(const char *id, s16 bodynum,
 void catalogSetBodyDisplayName(asset_entry_t *entry, const char *display_name);
 
 /**
+ * Issue 10 (2026-04-24): set the rig_class for a body entry. rig_class is
+ * the authoritative physical compatibility key used by
+ * catalogGetBodyValidHeadIds -- a head and body are compatible iff their
+ * rig_class strings match exactly. Empty string clears it (body will have
+ * no compatible heads). See ext.body.rig_class for canonical values.
+ */
+void catalogSetBodyRigClass(asset_entry_t *entry, const char *rig_class);
+
+/**
  * Register a head asset.
  * Convenience wrapper that sets ext.head fields.
  * A head is an MP-selectable character head with an optional unlock requirement.
  */
 asset_entry_t *assetCatalogRegisterHead(const char *id, s16 headnum,
                                          u8 requirefeature);
+
+/**
+ * Issue 10 (2026-04-24): set the rig_class for a head entry. See
+ * catalogSetBodyRigClass above for semantics.
+ */
+void catalogSetHeadRigClass(asset_entry_t *entry, const char *rig_class);
 
 /**
  * Register a weapon asset.

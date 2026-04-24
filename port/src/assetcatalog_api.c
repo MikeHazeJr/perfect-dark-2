@@ -477,24 +477,23 @@ const char *catalogGetBodyDisplayName(s32 mpbodynum)
 }
 
 /* -------------------------------------------------------------------------
- * P3 (2026-04-24): per-body valid-head set.
+ * Issue 10 (2026-04-24): per-body valid-head set, rig_class-driven.
  *
- * Enumerate every head whose HEADBODYTYPE_* is compatible with the body's
- * type.  Compatibility rules mirror modelcatalog.c::catalogIsHeadBodyCompatible
- * (same type, or DEFAULT+DEFAULT, or FEMALE/FEMALEGUARD cross-pair).  FEMALE
- * and DEFAULT are distinct types in the catalog, so type match alone already
- * avoids cross-gender pairs.
+ * Compatibility is now a single rule: body.rig_class == head.rig_class
+ * (exact string equality). The catalog data populates rig_class for every
+ * registered body and head so the query does not need HEADBODYTYPE fallback
+ * logic or category filters -- if the catalog says two entries share a rig
+ * class, they pair; otherwise they don't. SP-category entries participate
+ * normally, retiring the 2026-04-24 Issue 1 stopgap filter.
  *
  * Internal static buffer for the returned array of catalog ID pointers.
- * Sized generously so every head in the catalog fits -- bumped from 128 to
- * 256 to absorb future mod-authored heads without a rebuild.  Non-thread-safe
- * by design (the game is single-threaded; all catalog accessors assume the
- * same contract). */
+ * Sized so every head in the catalog fits. Non-thread-safe by design (the
+ * game is single-threaded; all catalog accessors assume that contract). */
 #define VALID_HEAD_BUF_CAP 256
 static const char *s_ValidHeadBuf[VALID_HEAD_BUF_CAP];
 
 typedef struct {
-    s32         bodyType;
+    const char *bodyRigClass;
     s32         count;
     s32         capacity;
     const char **out;
@@ -505,62 +504,16 @@ static void collectValidHead(const asset_entry_t *he, void *userdata)
     valid_head_ctx_t *ctx = (valid_head_ctx_t *)userdata;
     if (!he || he->type != ASSET_HEAD) return;
     if (ctx->count >= ctx->capacity) return;
+    if (!he->id || !he->id[0]) return;
 
-    /* Issue 1 fix (2026-04-24): exclude SP-only heads from every
-     * body's valid set.  ASSET_HEAD entries registered as
-     * "base:sp_head_<engine_idx>" by assetCatalogRegisterBaseGame are
-     * tagged with `category == "sp"`; real MP-selectable heads use
-     * `category == "base"`.  Letting SP heads into a valid-set meant
-     * Mike's playtest saw bots with bodies like `dd_guard` (human)
-     * getting `sp_head_52` -> mphead=0 (Joanna fallback), producing
-     * the "stewardess has Joanna's head" symptom.
-     *
-     * Using the `category` field rather than `mp_index >= 0` is the
-     * right gate because of a data quirk: s_BaseHeads[] only maps
-     * 75 of the 76 MP slots to names; the MP registration pass
-     * registers the 76th as `base:head_<mpidx>` but the SP loop
-     * ALSO registers the same engine head as `base:sp_head_<idx>`,
-     * and the SP registration wins the `s_RuntimeCache[ASSET_HEAD]`
-     * slot.  Pass 3 of the runtime-cache builder (see
-     * `catalogBuildRuntimeCaches`) then copies `mp_index = 75`
-     * onto the SP-registered entry -- so `sp_head_21` ends up with
-     * a non-negative mp_index despite being an SP entry.  The
-     * category field avoids that ambiguity.
-     *
-     * Consequence: a body's valid set is now exactly the
-     * HEADBODYTYPE-compatible heads registered as "base" category.
-     * For Maian bodies that means head_elvis + head_maian_s (two);
-     * for human male bodies the full g_MpMaleHeads pool (~43); for
-     * human female bodies the g_MpFemaleHeads pool (7).  If Mike
-     * wants more Maian variety, the fix is to promote an SP Maian
-     * head into the MP list (add an entry to `s_BaseHeads` with a
-     * spare `g_MpHeads[]` mpidx); that is a data-authoring change,
-     * not a code change.
-     *
-     * Mod heads are unaffected -- mod scanners register with their
-     * own category string ("mod" or similar), and their valid-set
-     * inclusion rides on the same HEADBODYTYPE rules.  Only the
-     * literal "sp" category is rejected. */
-    if (he->category[0] == 's' && he->category[1] == 'p' && he->category[2] == '\0') {
-        return;
-    }
+    /* rig_class equality is the sole compatibility gate. An empty
+     * rig_class on either side = incompatible (surfacing mis-authored
+     * data rather than papering it over with a permissive default). */
+    const char *headRig = he->ext.head.rig_class;
+    if (!headRig[0] || !ctx->bodyRigClass || !ctx->bodyRigClass[0]) return;
+    if (strcmp(headRig, ctx->bodyRigClass) != 0) return;
 
-    s32 headnum = (s32)he->ext.head.headnum;
-    s32 headType = catalogGetHeadType(headnum);
-
-    s32 compatible = 0;
-    if (headType == ctx->bodyType) {
-        compatible = 1;
-    } else if (headType == HEADBODYTYPE_DEFAULT && ctx->bodyType == HEADBODYTYPE_DEFAULT) {
-        compatible = 1;
-    } else if ((headType == HEADBODYTYPE_FEMALE || headType == HEADBODYTYPE_FEMALEGUARD)
-            && (ctx->bodyType == HEADBODYTYPE_FEMALE || ctx->bodyType == HEADBODYTYPE_FEMALEGUARD)) {
-        compatible = 1;
-    }
-
-    if (compatible && he->id && he->id[0]) {
-        ctx->out[ctx->count++] = he->id;
-    }
+    ctx->out[ctx->count++] = he->id;
 }
 
 const char *const *catalogGetBodyValidHeadIds(const char *body_id,
@@ -573,7 +526,7 @@ const char *const *catalogGetBodyValidHeadIds(const char *body_id,
     if (!be || be->type != ASSET_BODY) return NULL;
 
     valid_head_ctx_t ctx;
-    ctx.bodyType = catalogGetBodyType((s32)be->ext.body.bodynum);
+    ctx.bodyRigClass = be->ext.body.rig_class;
     ctx.count    = 0;
     ctx.capacity = VALID_HEAD_BUF_CAP;
     ctx.out      = s_ValidHeadBuf;
@@ -581,14 +534,16 @@ const char *const *catalogGetBodyValidHeadIds(const char *body_id,
     assetCatalogIterateByType(ASSET_HEAD, collectValidHead, &ctx);
 
     if (ctx.count == 0) {
-        /* Defensive fallback: deterministic body without a matching type
-         * (should not happen in well-authored catalogs; surface loudly if
-         * it does, then fall back to the body's declared default head so
-         * the caller gets *something*). */
+        /* A body with zero rig-compatible heads is either (a) missing its
+         * rig_class, or (b) on a rig that no head in the catalog matches.
+         * Fall back to the body's declared default head so the caller gets
+         * *something* playable, but log loudly -- this is a data bug, not
+         * a soft situation we want to swallow. */
         sysLogPrintf(LOG_WARNING,
-                "CATALOG: body '%s' (type=%d) has no type-compatible heads; "
-                "falling back to catalogGetBodyDefaultHead",
-                body_id, (s32)ctx.bodyType);
+                "CATALOG: body '%s' (rig_class=\"%s\") has no rig-compatible "
+                "heads; falling back to catalogGetBodyDefaultHead",
+                body_id,
+                ctx.bodyRigClass ? ctx.bodyRigClass : "");
         const char *fallback = catalogGetBodyDefaultHead(body_id);
         if (fallback) {
             s_ValidHeadBuf[0] = fallback;

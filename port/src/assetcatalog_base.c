@@ -412,6 +412,28 @@ extern struct mphead g_MpHeads[];
 extern struct mparena g_MpArenas[];
 extern struct headorbody g_HeadsAndBodies[];
 
+/* Issue 10 (2026-04-24): map a HEADBODYTYPE_* value to the canonical
+ * rig_class slug used for body <-> head compatibility. FEMALE and
+ * FEMALEGUARD are merged into "human_female_neck_standard" -- they share
+ * a neck socket, so pairing any FEMALE head with any FEMALEGUARD body
+ * (and vice versa) is physically correct.
+ *
+ * Unknown / out-of-range types return "" which means "not riggable";
+ * the valid-head query will refuse to pair such an entry with anything.
+ */
+static const char *rigClassForHeadBodyType(u8 type)
+{
+	switch (type) {
+	case HEADBODYTYPE_DEFAULT:     return "human_male_neck_standard";
+	case HEADBODYTYPE_FEMALE:      return "human_female_neck_standard";
+	case HEADBODYTYPE_FEMALEGUARD: return "human_female_neck_standard";
+	case HEADBODYTYPE_MAIAN:       return "maian_tall_neck";
+	case HEADBODYTYPE_CASS:        return "cass_neck";
+	case HEADBODYTYPE_MRBLONDE:    return "mrblonde_neck";
+	default:                       return "";
+	}
+}
+
 s32 assetCatalogRegisterBaseGame(void)
 {
 	s32 count = 0;
@@ -492,6 +514,14 @@ s32 assetCatalogRegisterBaseGame(void)
 		e->source_filenum = (s32)g_HeadsAndBodies[g_MpBodies[idx].bodynum].filenum;
 		/* Asset Provider: base bodies are served by RomProvider. */
 		catalogSetPrimary(e, romProviderHandle(e->source_filenum));
+		/* Issue 10 (2026-04-24): rig_class from HEADBODYTYPE -- authoritative
+		 * compatibility key for body <-> head pairing. Base mapping is 1:1
+		 * with the engine's HEADBODYTYPE buckets (FEMALE + FEMALEGUARD merged).
+		 * Subdivisions (e.g. splitting DEFAULT into neck-variant sub-buckets
+		 * when audit reveals drift) land as data edits here -- no code
+		 * changes needed. */
+		catalogSetBodyRigClass(e, rigClassForHeadBodyType(
+			g_HeadsAndBodies[g_MpBodies[idx].bodynum].type));
 		/* P4 (2026-04-24): promote the catalog display_name to authoritative
 		 * for every base body.  B-226 fixed only indices 57-62 (bodies with
 		 * junk/shared langids); generalising retires the whole "langid drift
@@ -570,6 +600,9 @@ s32 assetCatalogRegisterBaseGame(void)
 		e->source_filenum = (s32)g_HeadsAndBodies[g_MpHeads[mpidx].headnum].filenum;
 		/* Asset Provider: base heads are served by RomProvider. */
 		catalogSetPrimary(e, romProviderHandle(e->source_filenum));
+		/* Issue 10: rig_class for this head from HEADBODYTYPE bucket. */
+		catalogSetHeadRigClass(e, rigClassForHeadBodyType(
+			g_HeadsAndBodies[g_MpHeads[mpidx].headnum].type));
 		head_count++;
 	}
 
@@ -758,6 +791,13 @@ s32 assetCatalogRegisterBaseGame(void)
 					e->ref_count = ASSET_REF_BUNDLED;
 					e->source_filenum = (s32)g_HeadsAndBodies[i].filenum;
 					catalogSetPrimary(e, romProviderHandle(e->source_filenum));
+					/* Issue 10: SP heads pick rig_class from the same
+					 * HEADBODYTYPE bucket as MP heads. An SP head and MP
+					 * body (or vice versa) with matching rig_class is a
+					 * valid pairing -- SP status is a category tag, not
+					 * a compatibility gate. */
+					catalogSetHeadRigClass(e, rigClassForHeadBodyType(
+						g_HeadsAndBodies[i].type));
 					sp_head_count++;
 				}
 			} else {
@@ -773,6 +813,10 @@ s32 assetCatalogRegisterBaseGame(void)
 					e->ref_count = ASSET_REF_BUNDLED;
 					e->source_filenum = (s32)g_HeadsAndBodies[i].filenum;
 					catalogSetPrimary(e, romProviderHandle(e->source_filenum));
+					/* Issue 10: SP bodies participate in the rig_class
+					 * compatibility system the same way MP bodies do. */
+					catalogSetBodyRigClass(e, rigClassForHeadBodyType(
+						g_HeadsAndBodies[i].type));
 					sp_body_count++;
 				}
 			}
