@@ -293,6 +293,42 @@ void musicStartPrimary(f32 arg0)
 	sysLogPrintf(LOG_NOTE, "MUSIC: musicStartPrimary track=%d qlen=%d", track, g_MusicEventQueueLength);
 	if (track >= 0) {
 		musicQueueStartEvent(TRACKTYPE_PRIMARY, track, arg0, musicGetVolume());
+
+		/* Issue 4 (2026-04-24): match-scoped track persistence.
+		 *
+		 * Mike playtest: "custom music randomly starts a new track upon
+		 * my death."  Root cause: musicEndDeath calls musicStartPrimary(2)
+		 * after the death sting fades, which re-runs PRIMARYTRACK ->
+		 * stageGetPrimaryTrack -> mpChooseTrack.  For an MP match with a
+		 * multi-tune playlist (or shuffle), mpChooseTrack picks a fresh
+		 * track every call, so respawn rolls the dice again.  Track is
+		 * logically a property of the match, not the player's life.
+		 *
+		 * Fix: on the first successful primary-track pick inside an MP
+		 * match, cache the chosen MUSIC_* value into g_TemporaryPrimaryTrack
+		 * so the PRIMARYTRACK macro returns the same track on every
+		 * subsequent musicStartPrimary call.  musicReset already clears
+		 * g_TemporaryPrimaryTrack on stage transitions, so the lock
+		 * auto-releases when the match ends -- no explicit unlock needed.
+		 *
+		 * Solo missions are unaffected: `stageGetPrimaryTrack` returns a
+		 * deterministic value from `g_StageTracks[]` for solo, so locking
+		 * is a no-op there.  Title-screen / AF1-NRG paths use
+		 * musicStartTemporaryPrimary which explicitly sets the track
+		 * first and doesn't run during MP matches, so no conflict.
+		 *
+		 * No wire-protocol change: SVC_MUSIC_ADVANCE (v34) already
+		 * handles host-authoritative track advancement between clients;
+		 * this is strictly local "don't re-pick on my own respawn."
+		 * Cross-client speed-lerp drift correction (Mike's design note
+		 * in the Issue 4 brief) is a separate pass that rides on top of
+		 * this. */
+		if (g_Vars.normmplayerisrunning && g_TemporaryPrimaryTrack < 0) {
+			g_TemporaryPrimaryTrack = track;
+			sysLogPrintf(LOG_NOTE,
+					"MUSIC: match track locked = %d (cleared on stage change)",
+					track);
+		}
 	}
 }
 
