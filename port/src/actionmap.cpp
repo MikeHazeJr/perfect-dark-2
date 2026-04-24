@@ -350,6 +350,13 @@ static const char * const s_ActionNames[ACTION_COUNT] = {
     "ForgeDescend",
     "ForgeBoost",
     "ForgePrecision",
+    /* 62-67: forge sidebar + tab navigation (Issue 8b) */
+    "ForgeSidebarToggle",
+    "ForgeSidebarUp",
+    "ForgeSidebarDown",
+    "ForgeSidebarActivate",
+    "ForgeTabPrev",
+    "ForgeTabNext",
 };
 
 /* ============================================================
@@ -1422,6 +1429,7 @@ s32 actionmapGetLastDevice(void)
 static InputMappingContext * const s_AllImcs[] = {
     &g_ImcGameplay,
     &g_ImcVehicle,
+    &g_ImcForge,
     &g_ImcMenu,
     &g_ImcPauseMenu,
     &g_ImcDebugOverlay,
@@ -1899,6 +1907,18 @@ InputMappingContext g_ImcVehicle = {
     .active   = 0,
 };
 
+/* Issue 8b (2026-04-24): Forge editor IMC. Priority 7 sits above
+ * gameplay + vehicle so sidebar / tab bindings shadow their gameplay
+ * counterparts (X vs USE, LB/RB vs WEAPON_PREV/NEXT, DPad vs DPad
+ * cardinal) while FREEFLY is active. Priority stays below menu (10)
+ * so the pause menu still wins if it opens over a forge session.
+ * Activated in forgeTransitionToFreefly, deactivated on exit. */
+InputMappingContext g_ImcForge = {
+    .name     = "forge",
+    .priority = 7,
+    .active   = 0,
+};
+
 InputMappingContext g_ImcMenu = {
     .name     = "menu",
     .priority = 10,
@@ -2054,6 +2074,44 @@ static void setupVehicleDefaults(s32 player)
     addBind(imc, ACTION_PAUSE,               JOY_BTN(0, JBTN_START));
 }
 
+/* Issue 8b (2026-04-24): Forge editor IMC default bindings.
+ *
+ * Scoped entirely to g_ImcForge (priority 7).  Activated by forgemode
+ * when a forge session enters FREEFLY, deactivated on exit.  Binding
+ * them here means X / LB / RB / D-pad capture shadows the gameplay
+ * actions that share those buttons (USE, WEAPON_PREV, WEAPON_NEXT,
+ * FIRE_MODE etc.) only while FREEFLY is on -- normal gameplay is
+ * unaffected.
+ *
+ * Keyboard defaults land here too so the same actions drive both
+ * input devices: Tab toggles sidebar, PageUp / PageDown cycle tabs.
+ * Ctrl+Tab / Ctrl+Shift+Tab IDE-style binding is handled directly in
+ * the editor render loop (chord detection lives with ImGui, not in
+ * the scalar VK actionmap). */
+static void setupForgeDefaults(s32 player)
+{
+    InputMappingContext *imc = &g_ImcForge;
+    if (player != 0) return; /* Player 0 only -- single-seat forge authoring. */
+
+    /* ---- Gamepad ---- */
+    addBind(imc, ACTION_FORGE_SIDEBAR_TOGGLE,   JOY_BTN(0, JBTN_X));
+    addBind(imc, ACTION_FORGE_TAB_PREV,         JOY_BTN(0, JBTN_LB));
+    addBind(imc, ACTION_FORGE_TAB_NEXT,         JOY_BTN(0, JBTN_RB));
+    addBind(imc, ACTION_FORGE_SIDEBAR_UP,       JOY_BTN(0, JBTN_DPAD_UP));
+    addBind(imc, ACTION_FORGE_SIDEBAR_DOWN,     JOY_BTN(0, JBTN_DPAD_DOWN));
+    addBind(imc, ACTION_FORGE_SIDEBAR_ACTIVATE, JOY_BTN(0, JBTN_DPAD_RIGHT));
+
+    /* ---- Keyboard ---- */
+    /* Scancodes follow the SDL_SCANCODE_* enum mirrored in s_VkNames
+     * above: TAB=43, PAGEUP=75, PAGEDOWN=78, RIGHT=79, DOWN=81, UP=82. */
+    addBind(imc, ACTION_FORGE_SIDEBAR_TOGGLE,   43);  /* TAB */
+    addBind(imc, ACTION_FORGE_TAB_PREV,         75);  /* PAGEUP */
+    addBind(imc, ACTION_FORGE_TAB_NEXT,         78);  /* PAGEDOWN */
+    addBind(imc, ACTION_FORGE_SIDEBAR_UP,       82);  /* UP */
+    addBind(imc, ACTION_FORGE_SIDEBAR_DOWN,     81);  /* DOWN */
+    addBind(imc, ACTION_FORGE_SIDEBAR_ACTIVATE, 79);  /* RIGHT */
+}
+
 static void setupMenuDefaults(void)
 {
     /* Menu IMC: Player 0 only.
@@ -2168,6 +2226,8 @@ void actionmapSetDefaults(InputMappingContext *imc, s32 player)
         setupGameplayDefaults(player);
     } else if (imc == &g_ImcVehicle) {
         setupVehicleDefaults(player);
+    } else if (imc == &g_ImcForge) {
+        setupForgeDefaults(player);
     } else if (imc == &g_ImcMenu) {
         setupMenuDefaults();
     } else if (imc == &g_ImcPauseMenu) {
@@ -2202,6 +2262,7 @@ void actionmapInit(void)
     /* Zero all IMC mapping slots */
     memset(&g_ImcGameplay,     0, sizeof(g_ImcGameplay));
     memset(&g_ImcVehicle,      0, sizeof(g_ImcVehicle));
+    memset(&g_ImcForge,        0, sizeof(g_ImcForge));
     memset(&g_ImcMenu,         0, sizeof(g_ImcMenu));
     memset(&g_ImcPauseMenu,    0, sizeof(g_ImcPauseMenu));
     memset(&g_ImcDebugOverlay, 0, sizeof(g_ImcDebugOverlay));
@@ -2210,6 +2271,7 @@ void actionmapInit(void)
     /* Restore names and priorities (memset wiped them) */
     g_ImcGameplay.name     = "gameplay";      g_ImcGameplay.priority     = 0;
     g_ImcVehicle.name      = "vehicle";       g_ImcVehicle.priority      = 5;
+    g_ImcForge.name        = "forge";         g_ImcForge.priority        = 7;
     g_ImcMenu.name         = "menu";          g_ImcMenu.priority         = 10;
     g_ImcPauseMenu.name    = "pause_menu";    g_ImcPauseMenu.priority    = 11;
     g_ImcDebugOverlay.name = "debug_overlay"; g_ImcDebugOverlay.priority = 20;
@@ -2218,6 +2280,7 @@ void actionmapInit(void)
     /* Populate default bindings — Player 0 only. No local MP in this port. */
     setupGameplayDefaults(0);
     setupVehicleDefaults(0);
+    setupForgeDefaults(0);
     setupMenuDefaults();
     setupPauseMenuDefaults();
     setupDebugOverlayDefaults();

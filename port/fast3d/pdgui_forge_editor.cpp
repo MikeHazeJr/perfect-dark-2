@@ -33,7 +33,31 @@
 extern "C" {
 #include "game/forgemode.h"
 #include "forge/forge_core.h"
+/* Issue 8b (2026-04-24): direct actionmap reads for the editor's
+ * sidebar / tab-cycle actions. The enum and query API are extern "C"
+ * in actionmap.h; including it here is safe (no types.h drag). */
+#include "actionmap.h"
 }
+
+/* Issue 8b (2026-04-24): tab ids moved here from their later declaration
+ * so the forward-declared sidebar helper can accept one, and the tab
+ * draw functions (which register scroll anchors) can name them. The
+ * values match the original enum -- ordering is load-bearing because
+ * forgeTabLabel switches on them. */
+enum {
+	FGT_LEVEL = 0,
+	FGT_OBJECTS,
+	FGT_CONTROL,
+	FGT_GAMEPLAY,
+	FGT_SETUP,
+	FGT_COUNT
+};
+
+/* Forward decl: used by the tab draw functions (defined much later in
+ * this file) to register scroll-to-section anchors that the sidebar
+ * activates. Keeping the helper near the sidebar data for readability;
+ * this declaration makes it visible at the earlier call sites. */
+static void forgeScrollAnchorMaybe(int tab, int anchor_id);
 
 /* ============================================================
  * Helpers
@@ -711,6 +735,7 @@ static void forgeDrawLightingTab(void)
 
 static void forgeDrawLogicTab(void)
 {
+	forgeScrollAnchorMaybe(FGT_CONTROL, 3);   /* sidebar "Channels" */
 	ImGui::SeparatorText("Channels (global booleans)");
 	static char new_channel[FORGE_NAME_LEN] = "";
 	ImGui::InputText("Name##newch", new_channel, FORGE_NAME_LEN);
@@ -739,6 +764,7 @@ static void forgeDrawLogicTab(void)
 		ImGui::EndTable();
 	}
 
+	forgeScrollAnchorMaybe(FGT_CONTROL, 0);   /* sidebar "Logic Nodes" */
 	ImGui::SeparatorText("Nodes");
 	static int add_kind = FORGE_LOGIC_EVENT;
 	static int add_op = FORGE_OP_ON_ROUND_START;
@@ -842,6 +868,7 @@ static void forgeDrawLogicTab(void)
 		ImGui::EndTable();
 	}
 
+	forgeScrollAnchorMaybe(FGT_CONTROL, 1);   /* sidebar "Wires" */
 	ImGui::SeparatorText("Wires");
 	static u32 wire_src = 0, wire_dst = 0;
 	int src = (int)wire_src, dst = (int)wire_dst;
@@ -898,12 +925,14 @@ static void forgeDrawGameTypeTab(void)
 	ImGui::InputInt("Score Limit", &gt->score_limit);
 	ImGui::InputInt("Time Limit (sec)", &gt->time_limit_sec);
 
+	forgeScrollAnchorMaybe(FGT_GAMEPLAY, 1);   /* sidebar "Scoring" */
 	ImGui::SeparatorText("Scoring");
 	ImGui::InputInt("Per Kill",      &gt->score_per_kill);
 	ImGui::InputInt("Per Headshot",  &gt->score_per_headshot);
 	ImGui::InputInt("Per Objective", &gt->score_per_objective);
 	ImGui::InputInt("Per Survive Sec",&gt->score_per_survive_sec);
 
+	forgeScrollAnchorMaybe(FGT_GAMEPLAY, 2);   /* sidebar "Players" */
 	ImGui::SeparatorText("Player Setup");
 	ImGui::InputText("Starting Weapon", gt->starting_weapon, FORGE_ID_LEN);
 	ImGui::SliderFloat("Health x", &gt->health_mult, 0.25f, 8.0f);
@@ -911,6 +940,7 @@ static void forgeDrawGameTypeTab(void)
 	int rm = gt->role_mode;
 	if (ImGui::Combo("Role Mode", &rm, roles, 6)) gt->role_mode = (u8)rm;
 
+	forgeScrollAnchorMaybe(FGT_GAMEPLAY, 3);   /* sidebar "Modifiers" */
 	ImGui::SeparatorText("Modifiers");
 	u32 mflags = gt->modifier_flags;
 	bool mlow = (mflags & FORGE_MOD_LOW_GRAVITY)   != 0;
@@ -935,6 +965,7 @@ static void forgeDrawGameTypeTab(void)
 	if (ImGui::Checkbox("Team Shuffle",   &mts))  mflags = mts  ? (mflags | FORGE_MOD_TEAM_SHUFFLE) : (mflags & ~FORGE_MOD_TEAM_SHUFFLE);
 	gt->modifier_flags = mflags;
 
+	forgeScrollAnchorMaybe(FGT_GAMEPLAY, 4);   /* sidebar "HUD" */
 	ImGui::SeparatorText("HUD");
 	bool hw = gt->show_wave_counter; if (ImGui::Checkbox("Wave Counter",  &hw)) gt->show_wave_counter = hw;
 	ImGui::SameLine();
@@ -943,6 +974,7 @@ static void forgeDrawGameTypeTab(void)
 	ImGui::SameLine();
 	bool hs = gt->show_survival_timer;if (ImGui::Checkbox("Survival Timer",&hs)) gt->show_survival_timer = hs;
 
+	forgeScrollAnchorMaybe(FGT_GAMEPLAY, 5);   /* sidebar "Waves" */
 	ImGui::SeparatorText("Waves (F5b Wave Spawner)");
 	if (ImGui::Button("Add Wave")) {
 		if (gt->num_waves < FORGE_MAX_WAVES) {
@@ -1160,11 +1192,13 @@ static void forgeDrawSettingsTab(void)
 	forge_editor_state_t *ed = forgeGetEditor();
 	forge_budget_stats_t b; forgeBudgetCompute(&b);
 
+	forgeScrollAnchorMaybe(FGT_SETUP, 0);   /* sidebar "Map Metadata" */
 	ImGui::SeparatorText("Map Metadata");
 	ImGui::InputText("Map Name",    s->map_name, FORGE_NAME_LEN);
 	ImGui::InputText("Author",      s->author,   FORGE_NAME_LEN);
 	ImGui::InputTextMultiline("Description", s->description, FORGE_DESC_LEN, ImVec2(-1, 60));
 
+	forgeScrollAnchorMaybe(FGT_SETUP, 1);   /* sidebar "Variant" */
 	ImGui::SeparatorText("Variant Mode (S313)");
 	const char *variant_labels[] = {
 		"New Empty Map -- blank canvas, author-placed objects only",
@@ -1197,6 +1231,7 @@ static void forgeDrawSettingsTab(void)
 				forgeCountBaseObjects(), forgeCountDeltaObjects());
 	}
 
+	forgeScrollAnchorMaybe(FGT_SETUP, 2);   /* sidebar "Players" */
 	ImGui::SeparatorText("Players & Spawn");
 	int mp = s->max_players;
 	if (ImGui::SliderInt("Max Players", &mp, 2, 32)) s->max_players = (u8)mp;
@@ -1379,17 +1414,11 @@ static void forgeDrawSettingsTab(void)
  *
  * Each top-level tab draws one or more existing section bodies in
  * sequence with ImGui::SeparatorText between them.  Skybox / skylight /
- * background-music placeholders live inline in the Level tab draw and
- * emit TODO-marked log lines when their control widgets fire so the
- * handlers can be filled in iteratively without a big-bang rewrite. */
-enum {
-	FGT_LEVEL = 0,
-	FGT_OBJECTS,
-	FGT_CONTROL,
-	FGT_GAMEPLAY,
-	FGT_SETUP,
-	FGT_COUNT
-};
+ * background-music controls live inline in the Level tab draw.
+ *
+ * The FGT_* enum is declared near the top of the file (see the
+ * forward-decl block after the includes) so the earlier tab draw
+ * functions can reference tab ids when registering scroll anchors. */
 
 static int s_forge_active_tab = FGT_OBJECTS;
 static int s_forge_tab_set_request = -1; /* -1 = free, else force-set to this tab this frame */
@@ -1404,6 +1433,147 @@ static const char *forgeTabLabel(int idx)
 	case FGT_SETUP:    return "Setup";
 	default:           return "?";
 	}
+}
+
+/* ============================================================
+ * Issue 8b (2026-04-24): sidebar state + data
+ * ============================================================ */
+
+/* Each sidebar row carries a label and an integer payload. For the
+ * Objects tab the payload is a forge_category_t (FORGE_CAT_*) applied
+ * directly to the editor's catalog filter. For every other tab the
+ * payload is an anchor id -- sending a "scroll-to-anchor" request that
+ * forgeScrollAnchorMaybe consumes when it's drawn mid-tab. */
+struct ForgeSidebarEntry {
+	const char *label;
+	int         payload;
+};
+
+static const ForgeSidebarEntry s_SbLevel[] = {
+	{ "Lighting",          0 },
+	{ "Mission",           1 },
+	{ "Skybox",            2 },
+	{ "Skylight",          3 },
+	{ "Background Music",  4 },
+};
+
+/* Objects sidebar: payload is forge_category_t, or FORGE_CAT_COUNT to
+ * unset the filter (show all). */
+static const ForgeSidebarEntry s_SbObjects[] = {
+	{ "All",         FORGE_CAT_COUNT },
+	{ "Geometry",    FORGE_CAT_GEOMETRY },
+	{ "Props",       FORGE_CAT_PROP },
+	{ "Weapon Pads", FORGE_CAT_WEAPON_PAD },
+	{ "Spawns",      FORGE_CAT_SPAWN_POINT },
+	{ "Pickups",     FORGE_CAT_PICKUP },
+	{ "Lights",      FORGE_CAT_LIGHT },
+	{ "Effects",     FORGE_CAT_EFFECT },
+	{ "Zones",       FORGE_CAT_ZONE },
+	{ "Interact",    FORGE_CAT_INTERACTABLE },
+	{ "AI / NPCs",   FORGE_CAT_AI },
+	{ "Logic",       FORGE_CAT_LOGIC },
+	{ "Prefabs",     FORGE_CAT_PREFAB },
+};
+
+static const ForgeSidebarEntry s_SbControl[] = {
+	{ "Logic Nodes", 0 },
+	{ "Wires",       1 },
+	{ "Zones",       2 },
+	{ "Channels",    3 },
+};
+
+static const ForgeSidebarEntry s_SbGameplay[] = {
+	{ "Game Type",   0 },
+	{ "Scoring",     1 },
+	{ "Players",     2 },
+	{ "Modifiers",   3 },
+	{ "HUD",         4 },
+	{ "Waves",       5 },
+	{ "Bots",        7 },
+};
+
+static const ForgeSidebarEntry s_SbSetup[] = {
+	{ "Map Metadata", 0 },
+	{ "Variant",      1 },
+	{ "Players",      2 },
+};
+
+struct ForgeSidebarList {
+	const ForgeSidebarEntry *items;
+	int                      count;
+};
+
+static ForgeSidebarList forgeSidebarForTab(int tab)
+{
+	ForgeSidebarList out;
+	switch (tab) {
+	case FGT_LEVEL:
+		out.items = s_SbLevel;
+		out.count = (int)(sizeof(s_SbLevel) / sizeof(s_SbLevel[0]));
+		break;
+	case FGT_OBJECTS:
+		out.items = s_SbObjects;
+		out.count = (int)(sizeof(s_SbObjects) / sizeof(s_SbObjects[0]));
+		break;
+	case FGT_CONTROL:
+		out.items = s_SbControl;
+		out.count = (int)(sizeof(s_SbControl) / sizeof(s_SbControl[0]));
+		break;
+	case FGT_GAMEPLAY:
+		out.items = s_SbGameplay;
+		out.count = (int)(sizeof(s_SbGameplay) / sizeof(s_SbGameplay[0]));
+		break;
+	case FGT_SETUP:
+		out.items = s_SbSetup;
+		out.count = (int)(sizeof(s_SbSetup) / sizeof(s_SbSetup[0]));
+		break;
+	default:
+		out.items = nullptr;
+		out.count = 0;
+		break;
+	}
+	return out;
+}
+
+/* Per-session state. All defaults chosen so the editor opens in a
+ * sensible spot: sidebar visible, first row focused on each tab,
+ * no pending scroll-anchor request. */
+static bool s_SidebarVisible            = true;
+static int  s_SidebarSelection[FGT_COUNT] = { 0, 0, 0, 0, 0 };
+static int  s_SidebarScrollRequest[FGT_COUNT] = { -1, -1, -1, -1, -1 };
+
+/* Draw-time helper: if the current tab has a pending scroll-to-anchor
+ * request that matches `anchor_id`, scroll here and clear the request.
+ * Otherwise no-op. Drop a call to this right before each meaningful
+ * section header inside a tab's draw function to make the section a
+ * valid sidebar scroll target. */
+static void forgeScrollAnchorMaybe(int tab, int anchor_id)
+{
+	if (tab < 0 || tab >= FGT_COUNT) return;
+	if (s_SidebarScrollRequest[tab] != anchor_id) return;
+	ImGui::SetScrollHereY(0.0f);
+	s_SidebarScrollRequest[tab] = -1;
+}
+
+/* Apply the payload of the currently selected sidebar row to the
+ * editor state. Objects tab sets the catalog category filter directly;
+ * every other tab posts a scroll-to-anchor request that the tab's
+ * draw function consumes via forgeScrollAnchorMaybe on the next frame. */
+static void forgeSidebarActivate(int tab, int sel)
+{
+	ForgeSidebarList lst = forgeSidebarForTab(tab);
+	if (!lst.items || sel < 0 || sel >= lst.count) return;
+	int payload = lst.items[sel].payload;
+
+	if (tab == FGT_OBJECTS) {
+		forge_editor_state_t *ed = forgeGetEditor();
+		if (ed) {
+			ed->category_filter = (u8)payload;
+		}
+		return;
+	}
+
+	s_SidebarScrollRequest[tab] = payload;
 }
 
 /* Priority C (2026-04-24): Level tab ambience controls -- real.
@@ -1504,6 +1674,7 @@ static void forgeDrawLevelExtras(void)
 	/* -------------------------------------------------------------
 	 * Skybox / sky stage
 	 * ------------------------------------------------------------- */
+	forgeScrollAnchorMaybe(FGT_LEVEL, 2);   /* sidebar "Skybox" */
 	ImGui::SeparatorText("Skybox");
 	ImGui::TextWrapped(
 		"Swap the live sky environment to another stage's sky. "
@@ -1524,6 +1695,7 @@ static void forgeDrawLevelExtras(void)
 	/* -------------------------------------------------------------
 	 * Skylight / atmosphere
 	 * ------------------------------------------------------------- */
+	forgeScrollAnchorMaybe(FGT_LEVEL, 3);   /* sidebar "Skylight" */
 	ImGui::SeparatorText("Skylight / Atmosphere");
 
 	/* Sky colour (top-of-sky gradient seed). */
@@ -1573,6 +1745,7 @@ static void forgeDrawLevelExtras(void)
 	/* -------------------------------------------------------------
 	 * Background music
 	 * ------------------------------------------------------------- */
+	forgeScrollAnchorMaybe(FGT_LEVEL, 4);   /* sidebar "Background Music" */
 	ImGui::SeparatorText("Background Music");
 	if (ImGui::BeginCombo("Track", s_MusicOptions[s_SelectedMusicIdx].label)) {
 		for (int i = 0; i < s_MusicCount; i++) {
@@ -1598,38 +1771,134 @@ static void forgeDrawActiveTab(int idx)
 {
 	switch (idx) {
 	case FGT_LEVEL:
-		/* Level = Lighting + Mission + ambience (skybox / skylight / music). */
+		/* Level = Lighting + Mission + ambience (skybox / skylight / music).
+		 * Sidebar anchors: 0 = Lighting sub-tab start, 1 = Mission sub-tab
+		 * start. Anchors 2-4 (Skybox / Skylight / Background Music) live
+		 * inside forgeDrawLevelExtras at their respective section headers. */
+		forgeScrollAnchorMaybe(FGT_LEVEL, 0);
 		forgeDrawLightingTab();
 		ImGui::Separator();
+		forgeScrollAnchorMaybe(FGT_LEVEL, 1);
 		forgeDrawMissionTab();
 		ImGui::Separator();
 		forgeDrawLevelExtras();
 		break;
 	case FGT_OBJECTS:
-		/* Objects = Catalog + Properties. */
+		/* Objects = Catalog + Properties. The Objects sidebar's payload
+		 * is the catalog category filter and is applied via
+		 * forgeSidebarActivate, not a scroll-to anchor. */
 		forgeDrawCatalogTab();
 		ImGui::Separator();
 		forgeDrawPropertiesTab();
 		break;
 	case FGT_CONTROL:
-		/* Control = Logic + Zones. */
+		/* Control = Logic + Zones. Anchors: 0 = Logic start, 1 = Wires,
+		 * 2 = Zones start, 3 = Channels (inside Logic). */
+		forgeScrollAnchorMaybe(FGT_CONTROL, 0);
 		forgeDrawLogicTab();
 		ImGui::Separator();
+		forgeScrollAnchorMaybe(FGT_CONTROL, 2);
 		forgeDrawZonesTab();
 		break;
 	case FGT_GAMEPLAY:
-		/* Gameplay = Game Type + Bots. */
+		/* Gameplay = Game Type + Bots. Anchor 0 = Game Type start,
+		 * anchor 7 = Bots start. Other anchors (1-6) live inside
+		 * forgeDrawGameTypeTab next to their section headers. */
+		forgeScrollAnchorMaybe(FGT_GAMEPLAY, 0);
 		forgeDrawGameTypeTab();
 		ImGui::Separator();
+		forgeScrollAnchorMaybe(FGT_GAMEPLAY, 7);
 		forgeDrawBotsTab();
 		break;
 	case FGT_SETUP:
-		/* Setup = Settings (map metadata). */
+		/* Setup = Settings. Anchors live inside forgeDrawSettingsTab
+		 * at the Map Metadata / Variant / Players section headers. */
 		forgeDrawSettingsTab();
 		break;
 	default:
 		break;
 	}
+}
+
+/* Issue 8b (2026-04-24): sidebar + tab input handling.
+ *
+ * Runs unconditionally whenever the editor render fires (FREEFLY, forge
+ * session active). Reads the six ACTION_FORGE_* actions from the
+ * actionmap directly -- their bindings live in g_ImcForge which is
+ * pushed in forgeTransitionToFreefly, so these reads only fire while
+ * FREEFLY is active. Sidebar selection wraps via modulo so D-pad
+ * navigation on a short list is seamless. */
+static void forgeSidebarHandleInput(void)
+{
+	if (actionPressed(0, ACTION_FORGE_SIDEBAR_TOGGLE)) {
+		s_SidebarVisible = !s_SidebarVisible;
+	}
+	if (actionPressed(0, ACTION_FORGE_TAB_PREV)) {
+		s_forge_active_tab = (s_forge_active_tab + FGT_COUNT - 1) % FGT_COUNT;
+		s_forge_tab_set_request = s_forge_active_tab;
+	}
+	if (actionPressed(0, ACTION_FORGE_TAB_NEXT)) {
+		s_forge_active_tab = (s_forge_active_tab + 1) % FGT_COUNT;
+		s_forge_tab_set_request = s_forge_active_tab;
+	}
+	/* Per-tab row selection only when the sidebar is on-screen. */
+	if (s_SidebarVisible) {
+		ForgeSidebarList lst = forgeSidebarForTab(s_forge_active_tab);
+		if (lst.count > 0) {
+			int *sel = &s_SidebarSelection[s_forge_active_tab];
+			if (*sel < 0 || *sel >= lst.count) *sel = 0;
+			if (actionPressed(0, ACTION_FORGE_SIDEBAR_UP)) {
+				*sel = (*sel + lst.count - 1) % lst.count;
+			}
+			if (actionPressed(0, ACTION_FORGE_SIDEBAR_DOWN)) {
+				*sel = (*sel + 1) % lst.count;
+			}
+			if (actionPressed(0, ACTION_FORGE_SIDEBAR_ACTIVATE)) {
+				forgeSidebarActivate(s_forge_active_tab, *sel);
+			}
+		}
+	}
+}
+
+/* Draw the sidebar as a left-anchored BeginChild inside the editor
+ * window. Uses a fixed width; the tab area fills the remaining space. */
+static void forgeSidebarDraw(void)
+{
+	if (!s_SidebarVisible) return;
+
+	ForgeSidebarList lst = forgeSidebarForTab(s_forge_active_tab);
+	int sel = s_SidebarSelection[s_forge_active_tab];
+
+	const float scale = pdguiScale(1.0f);
+	const float sidebarW = 180.0f * scale;
+
+	ImGui::BeginChild("##GridSidebar", ImVec2(sidebarW, 0),
+			ImGuiChildFlags_Borders, ImGuiWindowFlags_None);
+
+	ImGui::TextDisabled("%s", forgeTabLabel(s_forge_active_tab));
+	ImGui::Separator();
+
+	if (!lst.items || lst.count <= 0) {
+		ImGui::TextDisabled("(no sections)");
+	}
+	for (int i = 0; i < lst.count; i++) {
+		ImGui::PushID(i);
+		char lbl[128];
+		snprintf(lbl, sizeof(lbl), "%s##sb", lst.items[i].label);
+		if (ImGui::Selectable(lbl, i == sel)) {
+			s_SidebarSelection[s_forge_active_tab] = i;
+			forgeSidebarActivate(s_forge_active_tab, i);
+		}
+		ImGui::PopID();
+	}
+
+	ImGui::Separator();
+	ImGui::TextDisabled("X / Tab: close");
+	ImGui::TextDisabled("D-pad ^v: move");
+	ImGui::TextDisabled("D-pad >: apply");
+
+	ImGui::EndChild();
+	ImGui::SameLine();
 }
 
 void pdguiForgeEditorRender(s32 winW, s32 winH)
@@ -1652,6 +1921,12 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 	}
 
+	/* Issue 8b (2026-04-24): consume the six ACTION_FORGE_* sidebar /
+	 * tab-cycle actions before the ImGui window renders. Bindings live
+	 * in g_ImcForge (priority 7, active only in FREEFLY) so these reads
+	 * cannot fire outside the editor. */
+	forgeSidebarHandleInput();
+
 	const float scale = pdguiScale(1.0f);
 	ImGui::SetNextWindowSize(ImVec2(620.0f * scale, 620.0f * scale), ImGuiCond_FirstUseEver);
 	ImGui::SetNextWindowPos(ImVec2((float)winW - 640.0f * scale, 70.0f * scale), ImGuiCond_FirstUseEver);
@@ -1673,47 +1948,46 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 	ImGui::SameLine();
 	ImGui::TextDisabled(" | Tab: %s", forgeTabLabel(s_forge_active_tab));
 
-	/* Priority E (2026-04-24): full editor control scheme.
+	/* Priority E + Issue 8b (2026-04-24): chord-based tab cycling.
 	 *
-	 * The project's actionmap already routes ACTION_MENU_UP / DOWN /
-	 * LEFT / RIGHT / TAB_PREV / TAB_NEXT and ACTION_USE / CANCEL_USE
-	 * through pdguiDriveImGuiNav (see port/fast3d/pdgui_backend.cpp) --
-	 * those actions land as ImGuiKey_{Up,Down,Left,Right,PageUp,PageDown,
-	 * Enter,Escape} keyboard events. Gamepad L1/R1 and D-pad rides on
-	 * whatever bindings the user has assigned to those actions.
+	 * PageUp / PageDown and the LB / RB gamepad buttons are bound to
+	 * ACTION_FORGE_TAB_PREV / NEXT in g_ImcForge and consumed in
+	 * forgeSidebarHandleInput() above. Firing them again here would
+	 * double-advance the tab.
 	 *
-	 *   Keyboard / Gamepad (via actionmap):
-	 *     LB/RB or PageUp/PageDown   cycle tabs (through MENU_TAB_*)
-	 *     D-pad Up/Down or arrows    focus nav within tab (ImGui built-in)
-	 *     D-pad Left/Right or arrows focus nav / slider adjust (ImGui built-in)
-	 *     A / X or Enter             activate focused widget
-	 *     B / Y or Esc               close / cancel
-	 *   Keyboard-only extras:
-	 *     Ctrl+Tab / Ctrl+Shift+Tab  IDE-style tab cycling
-	 *
-	 * Arrow keys intentionally do NOT cycle tabs -- they belong to the
-	 * widget focus nav path so lists, sliders, and multi-row panels
-	 * respond naturally. Explicit tab-cycle bindings (PageUp / PageDown,
-	 * MENU_TAB_PREV / NEXT on gamepad, Ctrl+Tab on keyboard) keep that
-	 * concern separate. */
+	 * Keep only the Ctrl+Tab / Ctrl+Shift+Tab IDE-style chord, which
+	 * actionmap cannot express (single-VK bindings only). Chord
+	 * detection rides on ImGui's own keyboard state. */
 	if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
 		bool ctrlTab = ImGui::GetIO().KeyCtrl
 				&& ImGui::IsKeyPressed(ImGuiKey_Tab, false);
 		bool ctrlShiftTab = ctrlTab && ImGui::GetIO().KeyShift;
-		bool prev = ImGui::IsKeyPressed(ImGuiKey_PageUp, false)
-				|| ctrlShiftTab;
-		bool next = ImGui::IsKeyPressed(ImGuiKey_PageDown, false)
-				|| (ctrlTab && !ctrlShiftTab);
-		if (prev) {
+		if (ctrlShiftTab) {
 			s_forge_active_tab = (s_forge_active_tab + FGT_COUNT - 1) % FGT_COUNT;
 			s_forge_tab_set_request = s_forge_active_tab;
-		} else if (next) {
+		} else if (ctrlTab) {
 			s_forge_active_tab = (s_forge_active_tab + 1) % FGT_COUNT;
 			s_forge_tab_set_request = s_forge_active_tab;
 		}
 	}
 
 	ImGui::Separator();
+
+	/* Issue 8b (2026-04-24): reserve space for the footer hint so the
+	 * sidebar / tab-area BeginChild blocks below don't overlap it. */
+	const float footerReserve = ImGui::GetTextLineHeightWithSpacing()
+			+ ImGui::GetStyle().FramePadding.y * 2.0f
+			+ ImGui::GetStyle().ItemSpacing.y + 4.0f;
+
+	/* Issue 8b: sidebar + tab area sit side-by-side as sibling child
+	 * regions. The sidebar takes a fixed width when visible; the tab
+	 * area fills the rest. Both reserve footerReserve on the bottom
+	 * so the footer stays pinned to the window frame. */
+	forgeSidebarDraw();   /* ends with SameLine() if visible, so the
+	                         tab area lands to its right */
+
+	ImGui::BeginChild("##GridTabArea", ImVec2(0, -footerReserve),
+			ImGuiChildFlags_None, ImGuiWindowFlags_None);
 
 	/* S313 -- Use resizable tab-bar policy so labels fit on smaller
 	 * editor windows without truncating; scroll if they overflow. */
@@ -1736,13 +2010,14 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 	}
 	s_forge_tab_set_request = -1;
 
+	ImGui::EndChild();
+
 	/* Controller / keyboard hint footer so authors know which buttons
 	 * drive the editor.  Always on so it's visible from any tab. */
 	ImGui::Separator();
 	ImGui::TextDisabled(
-		"Tabs: PgUp/PgDn | LB/RB | Ctrl+Tab   -   "
-		"Focus: arrows | D-pad   -   "
-		"Activate: Enter/A   Cancel: Esc/B");
+		"Sidebar: X / Tab   Tabs: LB/RB or PgUp/PgDn or Ctrl+Tab   "
+		"D-pad: sidebar nav   Sticks: fly   LT/RT: raise/lower");
 
 	ImGui::End();
 }

@@ -206,6 +206,23 @@ static void forgeReadFreeflyInput(f32 *out_move_x, f32 *out_move_y,
 	f32 vert = 0.0f;
 	f32 scale = 1.0f;
 
+	/* Issue 8b invariant (2026-04-24): the freefly camera reads raw
+	 * stick axes every tick regardless of sidebar visibility or Forge
+	 * IMC state.
+	 *
+	 * Stick axes live on a path that bypasses IMC priority entirely --
+	 * actionmapPollFrame in port/src/actionmap.cpp calls
+	 * SDL_GameControllerGetAxis directly and writes to
+	 * s_State[ACTION_AXIS_*].value.  actionAxis() returns those values
+	 * gated only on gameplayInputSuppressed() (menu on top / focus lost
+	 * / focus-settle window) -- not on forgeIsFreefly() and not on
+	 * actionIsBlockedInFreefly().  ImGui never steals them either
+	 * because ImGuiConfigFlags_NavEnableGamepad stays off
+	 * (pdgui_backend.cpp B-124 fix).
+	 *
+	 * Net effect: toggling the editor sidebar with X, navigating it
+	 * with D-pad, or cycling tabs with LB/RB does not consume stick
+	 * input. The observer keeps full analog fly control at all times. */
 	actionAxis(0, ACTION_AXIS_MOVE_X, &mx, &my);
 	actionAxis(0, ACTION_AXIS_AIM_X, &ax, &ay);
 
@@ -311,6 +328,12 @@ static void forgeTransitionToNormal(const char *reason)
 		forgeRuntimeEnterPlay();
 	}
 	s_forge.state = FORGE_SESSION_NORMAL;
+
+	/* Issue 8b (2026-04-24): deactivate the Forge IMC when leaving
+	 * FREEFLY so X / LB / RB / D-pad revert to their gameplay actions
+	 * (USE / WEAPON_PREV / WEAPON_NEXT / FIRE_MODE). Safe to call when
+	 * already inactive -- imcDeactivate no-ops in that case. */
+	imcDeactivate(&g_ImcForge);
 }
 
 static void forgeTransitionToFreefly(const char *reason)
@@ -330,6 +353,15 @@ static void forgeTransitionToFreefly(const char *reason)
 		forgeRuntimeExitPlay();
 	}
 	s_forge.state = FORGE_SESSION_FREEFLY;
+
+	/* Issue 8b (2026-04-24): activate the Forge IMC. Priority 7 is
+	 * above gameplay (0) and vehicle (5), so the forge bindings win
+	 * over any conflicting gameplay binding on the same VK for the
+	 * duration of FREEFLY. Stick axes are unaffected -- they write
+	 * directly to s_State via actionmapPollFrame, bypassing IMC
+	 * priority entirely, so the freefly camera keeps full stick
+	 * control even with the Forge IMC active. */
+	imcActivate(&g_ImcForge);
 }
 
 static void forgeTransitionToInactive(const char *reason)
@@ -344,6 +376,11 @@ static void forgeTransitionToInactive(const char *reason)
 	}
 	s_forge.state = FORGE_SESSION_INACTIVE;
 	s_forge.request_enter_session = false;
+
+	/* Issue 8b: ensure the Forge IMC is not left active if a session
+	 * ends via a path other than the NORMAL transition (stage-left-
+	 * gameplay watchdog, explicit exit). */
+	imcDeactivate(&g_ImcForge);
 
 	/* Cleanup (2026-04-24): the Playtest HUD's Freeze All toggle mirrors
 	 * bs->all_frozen into g_BotUpdatesDisabled every forgeRuntimeTick.

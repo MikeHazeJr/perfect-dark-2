@@ -132,12 +132,26 @@ typedef enum InputAction {
 
     /* ---- Forge level editor (F0+) ---- */
     ACTION_FORGE_TOGGLE,        /* = 57 toggle Normal <-> Freefly within a forge session */
-    ACTION_FORGE_ASCEND,        /* = 58 freefly +Y (E by default) */
-    ACTION_FORGE_DESCEND,       /* = 59 freefly -Y (Q by default) */
+    ACTION_FORGE_ASCEND,        /* = 58 freefly +Y (E key / RT trigger) */
+    ACTION_FORGE_DESCEND,       /* = 59 freefly -Y (Q key / LT trigger) */
     ACTION_FORGE_BOOST,         /* = 60 hold for 3x freefly speed (LSHIFT) */
     ACTION_FORGE_PRECISION,     /* = 61 hold for 0.25x freefly speed (LCTRL) */
 
-    ACTION_COUNT                /* = 62, sentinel — keep last */
+    /* ---- Forge editor sidebar + tab navigation (Issue 8b, 2026-04-24) ----
+     * All six actions fire in every context (they live on the gameplay IMC)
+     * but the forge editor only consumes them when a forge session is
+     * active AND in FREEFLY.  Combat actions sharing the same default
+     * buttons (X = USE, LB/RB = WEAPON_PREV/NEXT) are suppressed during
+     * FREEFLY via actionIsBlockedInFreefly, so the bindings do not
+     * conflict in practice. */
+    ACTION_FORGE_SIDEBAR_TOGGLE, /* = 62 show / hide the editor sidebar (X on pad, Tab on key) */
+    ACTION_FORGE_SIDEBAR_UP,     /* = 63 sidebar selection -1 (D-pad up) */
+    ACTION_FORGE_SIDEBAR_DOWN,   /* = 64 sidebar selection +1 (D-pad down) */
+    ACTION_FORGE_SIDEBAR_ACTIVATE,/* = 65 activate focused sidebar row (D-pad right) */
+    ACTION_FORGE_TAB_PREV,       /* = 66 previous editor tab (LB on pad, PageUp / Ctrl+Shift+Tab on key) */
+    ACTION_FORGE_TAB_NEXT,       /* = 67 next editor tab (RB on pad, PageDown / Ctrl+Tab on key) */
+
+    ACTION_COUNT                /* = 68, sentinel — keep last */
 } InputAction;
 
 /* Backward-compat aliases */
@@ -435,6 +449,7 @@ void actionmapSetInteractHoldExtraTerminalMs(s32 ms);
 
 extern InputMappingContext g_ImcGameplay;      /* priority  0 — WASD + mouse + JOY1 */
 extern InputMappingContext g_ImcVehicle;       /* priority  5 — vehicle controls     */
+extern InputMappingContext g_ImcForge;         /* priority  7 — Forge editor overlay */
 extern InputMappingContext g_ImcMenu;          /* priority 10 — ImGui menu nav        */
 extern InputMappingContext g_ImcPauseMenu;     /* priority 11 — in-game pause         */
 extern InputMappingContext g_ImcDebugOverlay;  /* priority 20 — F12 debug window      */
