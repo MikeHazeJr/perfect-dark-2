@@ -115,6 +115,95 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 	}
 
 	if (state != FORGE_SESSION_FREEFLY) {
+		/* ============================================================
+		 * P7 (2026-04-24): Playtest-mode bot HUD + keybinds.
+		 *
+		 * "Spawn Near Me" semantically belongs in Playtest where there
+		 * is a real *me* to anchor on, so the bot controls surface here
+		 * alongside the mode badge.  The Forge-mode Bots tab remains as
+		 * a secondary surface (convenient from the editor seat); this
+		 * HUD is the primary for authors who stay in first-person.
+		 *
+		 * Controls (unobtrusive -- no mouse capture release, no modal):
+		 *   Insert     -> Add Bot (active, hostile)
+		 *   Delete     -> Remove All bots
+		 *   End        -> Toggle Freeze All
+		 *   Home       -> Cycle Spawn Mode (Any -> Near Me -> Smart -> ...)
+		 *
+		 * The keys are outside the standard action map to keep the
+		 * regular gameplay bindings untouched -- Insert / Delete /
+		 * Home / End are normally unbound during combat.  The HUD is
+		 * read-only text; all state mutations are keybind-driven.
+		 * ============================================================ */
+		forge_bot_settings_t *bs = forgeBotSettings();
+		if (bs) {
+			/* Keybinds.  ImGui::IsKeyPressed polls the SDL backend's
+			 * key queue, which fires even without a focused ImGui
+			 * window (background overlay pattern).  false = no repeat. */
+			if (ImGui::IsKeyPressed(ImGuiKey_Insert, false)) {
+				forgeBotAddRequest(1);
+			}
+			if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
+				forgeBotRemoveAll();
+			}
+			if (ImGui::IsKeyPressed(ImGuiKey_End, false)) {
+				forgeBotFreezeAll(bs->all_frozen ? 0 : 1);
+			}
+			if (ImGui::IsKeyPressed(ImGuiKey_Home, false)) {
+				s32 next = (s32)bs->spawn_mode + 1;
+				if (next > FORGE_BOT_SPAWN_SMART) next = FORGE_BOT_SPAWN_ANY;
+				bs->spawn_mode = (u8)next;
+			}
+
+			/* Top-right info panel. */
+			const char *modeLabel =
+				(bs->spawn_mode == FORGE_BOT_SPAWN_NEAR_ME) ? "Near Me" :
+				(bs->spawn_mode == FORGE_BOT_SPAWN_SMART)   ? "Smart"   :
+				                                              "Any";
+
+			char lines[6][96];
+			snprintf(lines[0], sizeof(lines[0]),
+					"BOTS  active %d  frozen %d", (int)bs->active_count,
+					(int)bs->frozen_count);
+			snprintf(lines[1], sizeof(lines[1]),
+					"Freeze  %s      Mode  %s",
+					bs->all_frozen ? "ON" : "off", modeLabel);
+			snprintf(lines[2], sizeof(lines[2]),
+					"[Ins] add bot   [Del] remove all");
+			snprintf(lines[3], sizeof(lines[3]),
+					"[End] freeze    [Home] cycle mode");
+			const int nLines = 4;
+
+			float maxW = 0.0f;
+			for (int i = 0; i < nLines; i++) {
+				float w = ImGui::CalcTextSize(lines[i]).x;
+				if (w > maxW) maxW = w;
+			}
+
+			const float pad = 14.0f * scale;
+			const float rowH = ImGui::GetTextLineHeight() + 3.0f * scale;
+			const float boxW = maxW + 16.0f * scale;
+			const float boxH = rowH * (float)nLines + 10.0f * scale;
+			const float x = (float)winW - boxW - pad;
+			const float y = pad;
+
+			fg->AddRectFilled(ImVec2(x, y), ImVec2(x + boxW, y + boxH),
+					IM_COL32(8, 14, 24, 180), 4.0f * scale);
+			fg->AddRect(ImVec2(x, y), ImVec2(x + boxW, y + boxH),
+					IM_COL32(120, 220, 255, 170), 4.0f * scale, 0, 1.0f * scale);
+
+			const ImU32 col_title = IM_COL32(220, 240, 255, 235);
+			const ImU32 col_body  = IM_COL32(180, 210, 240, 220);
+			const ImU32 col_hint  = IM_COL32(150, 180, 210, 180);
+			fg->AddText(ImVec2(x + 8.0f * scale, y + 5.0f * scale),
+					col_title, lines[0]);
+			fg->AddText(ImVec2(x + 8.0f * scale, y + 5.0f * scale + rowH),
+					col_body, lines[1]);
+			fg->AddText(ImVec2(x + 8.0f * scale, y + 5.0f * scale + rowH * 2.0f),
+					col_hint, lines[2]);
+			fg->AddText(ImVec2(x + 8.0f * scale, y + 5.0f * scale + rowH * 3.0f),
+					col_hint, lines[3]);
+		}
 		return;
 	}
 

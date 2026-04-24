@@ -117,6 +117,53 @@ Mike's B-228 report: when an SP-class stage (CI, Chicago, Villa, ...) is hosted 
 
 **Build:** clean incremental link of PerfectDark.exe.
 
+### Priority 7 (this entry, landed) — Playtest bot HUD + runtime wire-up
+
+Continuation of the evening batch.  P2 shipped the Forge<->Playtest toggle but deferred the bot-HUD-in-Playtest polish.  P7 closes that gap and wires the spawn-mode logic that was log-only before.
+
+**Semantics now wired in `port/src/forge/forge_runtime.c`:**
+
+- `s_spawnBot` returns the `aibotnum` (slot) instead of a 0/1 success flag, so callers can reach the live `g_MpBotChrPtrs[slot]` right after `botmgrAllocateBot`.
+- New `s_teleportBotNearPlayer(slot, radius)` helper writes `g_MpBotChrPtrs[slot]->prop->pos` to `player.pos + forward*radius` on the XZ plane.  Uses `player->vv_theta` + `sinf/cosf` for the forward vector.  Clamps radius to 100..5000u (HUD slider range).  Facing-direction polish deferred; the bot's AI tick re-orients on first frame.
+- `forgeRuntimeTick` now:
+  1. Mirrors `bs->all_frozen` into `g_BotUpdatesDisabled` every tick.  This reuses the F6 freeze machinery (bot.c zeros `speedmultforwards/sideways` while keeping `chrTick` so models stay visible, matching B-217 v2).
+  2. Captures the slot returned by `s_spawnBot`, bumps `bs->active_count` / `bs->frozen_count`, and when `spawn_mode == FORGE_BOT_SPAWN_NEAR_ME` teleports the bot via `s_teleportBotNearPlayer`.
+  3. `FORGE_BOT_SPAWN_ANY` leaves the bot at the scenario-picked pad.  `FORGE_BOT_SPAWN_SMART` left as-is for now (difficulty is already HARD for hostile bots via `s_fillBotSlot`; fine-grained aggression from `bs->smart_aggression` is a future pass).
+
+**Playtest HUD panel in `port/fast3d/pdgui_forge_hud.cpp`:**
+
+Renders in the NORMAL (Playtest) branch of `pdguiForgeHudRender` instead of the early-return.  Top-right pill with:
+
+- Line 1: `BOTS  active N  frozen F`
+- Line 2: `Freeze  ON/off      Mode  Any/Near Me/Smart`
+- Line 3-4: key legend `[Ins] add bot   [Del] remove all` / `[End] freeze    [Home] cycle mode`
+
+**Keybinds (keyboard only, intentionally outside the actionmap):**
+
+- `Insert`  -> `forgeBotAddRequest(1)` (spawns one active bot next tick).
+- `Delete`  -> `forgeBotRemoveAll()`.
+- `End`     -> toggles `bs->all_frozen` via `forgeBotFreezeAll`.
+- `Home`    -> cycles `bs->spawn_mode` through Any / Near Me / Smart.
+
+Rationale for keybind-only (no clickable buttons): Playtest mode runs with mouse-captured first-person input.  A clickable ImGui window would require releasing mouse capture, which conflicts with combat aim.  Keybinds live on keys that are not bound to gameplay.  `ImGui::IsKeyPressed` polls the SDL backend's key queue so it fires without requiring an ImGui window focus.  Decision logged in `context/audits/evening-decisions-2026-04-23.md`.
+
+The Forge-mode Bots tab (`forgeDrawBotsTab` in `pdgui_forge_editor.cpp`) stays as the secondary convenience surface; both surfaces write to the same `forge_bot_settings_t` so they stay in lockstep.
+
+**Files touched (P7 pass):**
+
+- `port/src/forge/forge_runtime.c` -- extern `g_BotUpdatesDisabled`, s_spawnBot return value, new `s_teleportBotNearPlayer`, forgeRuntimeTick sync + per-spawn teleport.
+- `port/fast3d/pdgui_forge_hud.cpp` -- NORMAL-mode HUD panel + keybind polling.
+
+**Build:** clean incremental link of PerfectDark.exe.
+
+**Playtest after rebuild:**
+
+1. Enter The Grid -> session starts in FREEFLY.  Press F7 / controller Back -> NORMAL (Playtest).  HUD pill appears top-right.
+2. Press `Insert` -> Bot appears at scenario spawn (Mode == Any).
+3. Press `Home` to cycle Mode to "Near Me" -> press `Insert` -> bot spawns at player forward + radius (log line `GRID.RUNTIME: Spawn Near Me -- teleported ...`).
+4. Press `End` -> Freeze ON; bots stop moving but stay visible.  Press `End` again -> bots resume.
+5. Press `Delete` -> all bots removed; active_count / frozen_count display resets.
+
 ## Session S452 - 2026-04-23 - B-235 wrong head for Maian bots + MATCHSETUP config audit + cleanup
 
 **Context:** Mike ran a CS playtest and saw all 31 bots rendering with the President head on the Maian (elvis1) body. Smoketest log confirmed `MATCHSETUP: bot slot N: body='base:elvis1' head='base:head_president' mpbody=12 mphead=12` across all 31 slots.

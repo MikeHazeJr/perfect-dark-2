@@ -49,6 +49,15 @@
 #include "types.h"
 #include "constants.h"
 
+/* P7 (2026-04-24): Grid Playtest HUD bot-runtime wire-up.
+ *
+ * g_BotUpdatesDisabled is defined in src/game/bot.c and has no public header
+ * today; forward-declare locally so forgeRuntimeTick can mirror the Playtest
+ * HUD's Freeze All toggle into the existing F6 freeze machinery.  When the
+ * toggle is on, bot.c's botTick zeros speedmultforwards/sideways each frame
+ * AND keeps chrTick running so models stay rendered (B-217 v2 fix). */
+extern s32 g_BotUpdatesDisabled;
+
 /* ================================================================
  * Module state
  * ================================================================ */
@@ -192,7 +201,12 @@ static void s_fillBotSlot(s32 slot, const forge_object_t *o)
 
 /*
  * Attempt to allocate one AI forge object as a live bot.
- * Returns 1 on success (bot registered), 0 on failure.
+ * Returns the aibotnum (slot) on success, -1 on failure.
+ *
+ * P7 (2026-04-24): return the slot so callers (e.g. the Playtest HUD bot
+ * spawner) can teleport the newly live bot to a specific world position
+ * via s_teleportBotNearPlayer().  Previously returned 0/1 for
+ * success/failure which discarded that identity.
  */
 static s32 s_spawnBot(const forge_object_t *o)
 {
@@ -201,7 +215,7 @@ static s32 s_spawnBot(const forge_object_t *o)
         sysLogPrintf(LOG_WARNING,
                 "GRID.RUNTIME: no free bot config slot for AI uid=%u '%s'",
                 o->uid, o->catalog_id);
-        return 0;
+        return -1;
     }
 
     s_fillBotSlot(slot, o);
@@ -222,6 +236,56 @@ static s32 s_spawnBot(const forge_object_t *o)
     if (h) h->is_bot = 1;
 
     ++s_bots_spawned;
+    return slot;
+}
+
+/*
+ * P7 (2026-04-24): teleport a just-spawned bot to the player's current
+ * position offset by `radius` units along the player's forward vector.
+ * Safe to call any time after botmgrAllocateBot populates g_MpBotChrPtrs
+ * for that slot.  Returns 1 on success, 0 on miss (bot not live yet /
+ * no player / pointer issue).
+ *
+ * Math mirrors forgemode.c::forgeUpdateFreefly: PD yaw 0 points down +Z
+ * and increases CW from above, so forward = (sin(yaw), 0, cos(yaw)).
+ * We only offset on the XZ plane so the bot lands at the player's eye
+ * height; gravity + collision resolve from there.
+ */
+static s32 s_teleportBotNearPlayer(s32 aibotnum, f32 radius)
+{
+    if (aibotnum < 0 || aibotnum >= MAX_BOTS) return 0;
+    if (!g_Vars.currentplayer || !g_Vars.currentplayer->prop) return 0;
+
+    struct chrdata *bchr = g_MpBotChrPtrs[aibotnum];
+    if (!bchr || !bchr->prop) return 0;
+
+    const struct player *p = g_Vars.currentplayer;
+    const f32 yaw_rad = p->vv_theta * 0.017453292519943f;
+    const f32 fwd_x   = sinf(yaw_rad);
+    const f32 fwd_z   = cosf(yaw_rad);
+
+    /* Clamp radius so a misconfigured slider can't park the bot at the
+     * bottom of the skybox.  100..5000u mirrors the HUD slider range. */
+    if (radius < 100.0f)  radius = 100.0f;
+    if (radius > 5000.0f) radius = 5000.0f;
+
+    bchr->prop->pos.x = p->prop->pos.x + fwd_x * radius;
+    bchr->prop->pos.y = p->prop->pos.y;
+    bchr->prop->pos.z = p->prop->pos.z + fwd_z * radius;
+
+    /* Facing direction polish deferred: chr->yvisang is a u8 (256 steps
+     * over 360deg) with a specific PD convention; the bot's own AI tick
+     * will reorient on its next frame once it sees the player anyway.
+     * Position matters more than orientation for Spawn Near Me -- the
+     * bot walks toward whichever enemy is nearest, which is the player
+     * by construction. */
+
+    sysLogPrintf(LOG_NOTE,
+            "GRID.RUNTIME: Spawn Near Me -- teleported aibotnum=%d to "
+            "(%.0f,%.0f,%.0f) (radius=%.0f from player yaw=%.0fdeg)",
+            aibotnum,
+            bchr->prop->pos.x, bchr->prop->pos.y, bchr->prop->pos.z,
+            radius, p->vv_theta);
     return 1;
 }
 
@@ -795,7 +859,18 @@ void forgeRuntimeTick(void)
 
     forge_bot_settings_t *bs = forgeBotSettings();
 
-    /* Consume pending add-active (fighting) bot requests from the Bots tab. */
+    /* P7: mirror Freeze All into the existing F6 bot-updates-disabled flag.
+     * g_BotUpdatesDisabled is the established mechanism (src/game/bot.c);
+     * setting it per-frame from the HUD toggle means bots keep rendering
+     * via chrTick but movement intent is zeroed (B-217 v2 semantics).
+     * Kept as an unconditional sync so the HUD remains authoritative;
+     * the dev F6 keybind and the HUD share the same underlying state. */
+    g_BotUpdatesDisabled = bs->all_frozen ? 1 : 0;
+
+    /* Consume pending add-active (fighting) bot requests from the HUD /
+     * Bots-tab.  P7: after each spawn, apply the current spawn_mode to
+     * the newly live bot (Spawn Near Me -> teleport to player forward;
+     * Any / Smart -> leave at the scenario-picked pad). */
     while (bs->pending_add_active > 0) {
         --bs->pending_add_active;
 
@@ -812,10 +887,24 @@ void forgeRuntimeTick(void)
                 FORGE_ID_LEN - 1);
         strncpy(tmp.props.ai.head_id, "base:head_dd_guard", FORGE_ID_LEN - 1);
         tmp.props.ai.faction = 1; /* hostile */
-        s_spawnBot(&tmp);
+        s32 slot = s_spawnBot(&tmp);
+        if (slot >= 0) {
+            bs->active_count++;
+            if (bs->spawn_mode == FORGE_BOT_SPAWN_NEAR_ME) {
+                s_teleportBotNearPlayer(slot, bs->near_me_radius);
+            }
+            /* FORGE_BOT_SPAWN_SMART: the difficulty selection inside
+             * s_fillBotSlot already biases to HARD on hostile bots;
+             * s_fillBotSlot reads bs->smart_aggression as a future
+             * hook.  Any = no post-spawn tweak. */
+        }
     }
 
-    /* Consume pending add-frozen bot requests. */
+    /* Consume pending add-frozen bot requests.  Frozen bots are meant to
+     * hold their spawn spot for placement validation, so the freeze flag
+     * is set per-bot via faction=2 (neutral) today; combined with the
+     * global Freeze All toggle, users can stand up a quiet group of
+     * targets to stress-test cover / LoS. */
     while (bs->pending_add_frozen > 0) {
         --bs->pending_add_frozen;
         forge_object_t tmp;
@@ -828,7 +917,13 @@ void forgeRuntimeTick(void)
                 FORGE_ID_LEN - 1);
         strncpy(tmp.props.ai.head_id, "base:head_dd_guard", FORGE_ID_LEN - 1);
         tmp.props.ai.faction = 2; /* neutral */
-        s_spawnBot(&tmp);
+        s32 slot = s_spawnBot(&tmp);
+        if (slot >= 0) {
+            bs->frozen_count++;
+            if (bs->spawn_mode == FORGE_BOT_SPAWN_NEAR_ME) {
+                s_teleportBotNearPlayer(slot, bs->near_me_radius);
+            }
+        }
     }
 
     /* Consume remove-all request. */

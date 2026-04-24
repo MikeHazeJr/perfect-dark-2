@@ -43,3 +43,35 @@ Tracks judgement calls made while Mike is away. Each decision is reviewable and 
 - Follow-up: add a compact `pdguiForgeBotsQuickPanel` rendered only in NORMAL state, or extend `pdgui_forge_hud.cpp` with a small always-on bot-control strip.
 - Timestamp: ~00:20
 
+## Decision: Playtest HUD control surface (P7)
+- Context: P7 brief asked for "the bot-testing overlay as an unobtrusive HUD" in Playtest mode.  Playtest mode runs with mouse-captured first-person input; a clickable ImGui window would require releasing mouse capture mid-combat, which conflicts with aim.
+- Options considered:
+  A. Full ImGui window with buttons.  Requires pushing a menu-like input context while visible; mouse capture toggles on/off as the HUD opens / closes.
+  B. Keybind-driven read-only text panel drawn via `ImGui::GetForegroundDrawList`.  No mouse capture impact.
+  C. Reuse the Forge-mode Bots tab alone (no Playtest surface).
+- Choice: B.
+- Rationale: keybinds are frictionless during combat, the HUD is read-only, and the Forge-mode Bots tab (option C) is still available via the F7 / Back mode toggle.  The keybinds live on Insert / Delete / Home / End -- four keys that are normally unbound in gameplay and easy to find.  ImGui::IsKeyPressed polls the SDL backend's key queue without needing a focused window.
+- Rollback: the HUD block is one `if (state != FORGE_SESSION_FREEFLY) { ... return; }` body in `pdguiForgeHudRender`; delete to revert to the old early-return behaviour.
+- Timestamp: ~00:55
+
+## Decision: Spawn Near Me mechanism (P7)
+- Context: The existing runtime kept `tmp.pos[]` at (0,0,0) via memset and never fed a world position into the spawn pipeline; scenario spawn pads decided where bots ended up regardless of `spawn_mode`.  Need a path to place a bot at the player's forward + radius without refactoring the scenario spawn path.
+- Options considered:
+  A. Thread `spawn_mode` / override-pos through `scenarioChooseSpawnLocation`.  Touches the shared SP + MP spawn code.
+  B. Post-spawn teleport: after `botmgrAllocateBot` populates `g_MpBotChrPtrs[slot]`, write `prop->pos` directly.
+  C. Expose a new bot-spawn-at-pos API from botmgr.c.
+- Choice: B.
+- Rationale: narrowest change, entirely inside `forge_runtime.c`.  No scenario-path touch, no new botmgr API.  The bot's AI retargets on its first tick so a post-allocate teleport behaves correctly.  Option A would bleed the HUD concept into shared spawn infrastructure; option C creates a second allocation entry point that would need to be kept in sync with the existing one.
+- Rollback: remove `s_teleportBotNearPlayer` + the `if (bs->spawn_mode == FORGE_BOT_SPAWN_NEAR_ME)` block in the per-spawn loop.
+- Timestamp: ~01:00
+
+## Decision: Freeze All reuses g_BotUpdatesDisabled (P7)
+- Context: P7 asks for Freeze All to actually halt bots.  The project already has F6 freeze via `g_BotUpdatesDisabled` (bot.c zeros speedmult each tick while keeping chrTick running; B-217 v2 semantics).
+- Options considered:
+  A. Second freeze flag scoped to Grid sessions only.
+  B. Mirror `bs->all_frozen` into the existing `g_BotUpdatesDisabled`.
+- Choice: B.
+- Rationale: zero duplication, identical on-screen behaviour to F6.  The HUD becomes a UX veneer over a mechanism that already exists and is verified.  F6 and the End-key toggle can drift in state if both are pressed, but `forgeRuntimeTick` resynchronises from the HUD every tick so the HUD is authoritative when a session is active.
+- Rollback: drop the `g_BotUpdatesDisabled = bs->all_frozen ? 1 : 0;` line.
+- Timestamp: ~01:02
+
