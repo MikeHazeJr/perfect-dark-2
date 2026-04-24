@@ -19,7 +19,7 @@ extern s32 g_MainChangeToStageNum;
 extern s32 g_StageNum;
 }
 
-s32 pdguiForgeStartSession(void)
+s32 pdguiForgeStartSessionOn(s32 stagenum)
 {
 	if (g_MainChangeToStageNum >= 0) {
 		sysLogPrintf(LOG_WARNING,
@@ -28,15 +28,22 @@ s32 pdguiForgeStartSession(void)
 		return 0;
 	}
 
-	sysLogPrintf(LOG_NOTE, "GRID: launching session (base stage = CITRAINING 0x%02x)",
-			(u32)STAGE_CITRAINING);
+	const s32 target = (stagenum > 0) ? stagenum : (s32)STAGE_CITRAINING;
+
+	sysLogPrintf(LOG_NOTE, "GRID: launching session (base stage 0x%02x)",
+			(u32)target);
 
 	forgeRequestEnterSession();
-	/* B-216: re-entering CI while already in CI used to queue a full stage
-	 * transition (inputCtxShutdown + reload), breaking menus. Skip redundant
+	/* B-216: re-entering the same stage used to queue a full stage transition
+	 * (inputCtxShutdown + reload), breaking menus. Skip redundant
 	 * mainChangeToStage — forgemode activates on the next tick. */
-	if (g_StageNum != STAGE_CITRAINING) {
-		mainChangeToStage(STAGE_CITRAINING);
+	if (g_StageNum != target) {
+		mainChangeToStage(target);
 	}
 	return 1;
+}
+
+s32 pdguiForgeStartSession(void)
+{
+	return pdguiForgeStartSessionOn((s32)STAGE_CITRAINING);
 }

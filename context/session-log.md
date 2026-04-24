@@ -4,6 +4,33 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S453 - 2026-04-23/24 - Foundation pass: The Grid menu flow (P1)
+
+Mike flagged the Main Menu "The Grid" button as broken: pressing it dropped the user straight into a Forge session on CI Training, skipping every step of map / variant selection.  Expected flow is submenu -> map picker -> variant editor -> Enter The Grid.  "The Grid" is the unified facility; Forge (edit) and Playtest (inhabit) are modes inside it.
+
+**Priority 1 (this entry, landed)**: Main Menu "The Grid" button now opens a Grid submenu (`s_MenuView == 6` branch in `pdgui_menu_mainmenu.cpp`).  Submenu has:
+
+- Arena picker (ListBox) — built on demand from `assetCatalogIterateByType(ASSET_ARENA)`, filtered by `challengeIsFeatureUnlocked`.  Sorted alphabetically (Blank Map first when enabled).
+- Variant editor — gametype combo (6 base scenarios from `s_BaseGameModes`), time-limit slider (0-60 min), score-limit slider (0-100), teams / one-hit / slow-mo checkboxes.
+- "Enter The Grid" button — calls `matchConfigInit()` to reset, writes `stage_id / scenario_id / timelimit / scorelimit / options` (MPOPTION bits) into `g_MatchConfig`, then hands off to `pdguiForgeStartSessionOn(stagenum)`.
+
+Supporting changes:
+- `port/fast3d/pdgui_menu_forge.cpp`: added `pdguiForgeStartSessionOn(stagenum)` implementation (was declared in header but never defined).  Old `pdguiForgeStartSession()` becomes a thin wrapper that calls `...On(STAGE_CITRAINING)` so any other caller keeps working.
+- `port/include/pdgui_menu_grid.h`: new header.  `GRID_BLANK_STAGE` is deliberately left undefined — see the evening decision log; the Blank Map row is suppressed until Mike points at the right stagenum.
+- Main Menu window title gains "The Grid" at `s_MenuView == 6`.  ESC handler case logs the close.
+
+Blank Map is ESCALATED.  Mike asked for "the invalid-map fallback plane"; exhaustive grep turned up no bare-plane stage in the codebase (the only invalid-stagenum coercer is `stageSanitizeLoadStagenum(0x00) -> STAGE_CITRAINING`, which Mike explicitly rejected as a substitute).  Submenu ships without the Blank Map entry to avoid a broken placeholder.  See `context/audits/evening-decisions-2026-04-23.md` for the full search surface.
+
+**Build:** Clean build on main working copy (`ninja -C Build pd`) finished green.  `PerfectDark.exe` (54 MB) linked.  Only warnings are pre-existing (`/*` in comments, unrelated).
+
+**Files touched (this pass):**
+- `port/fast3d/pdgui_menu_mainmenu.cpp` — button repointed; renderGridSubmenu() added; matchsetup.h pulled in under extern "C".
+- `port/fast3d/pdgui_menu_forge.cpp` — `pdguiForgeStartSessionOn(stagenum)` implementation.
+- `port/include/pdgui_menu_grid.h` — new header (GRID_BLANK_STAGE intentionally undefined).
+- `context/audits/evening-decisions-2026-04-23.md` — decision log.
+
+**Next:** Priority 2 — Forge ↔ Playtest mode toggle (Halo-style in-place swap, same stagenum / bots / variant).  Then P3-P5 per the foundation pass.
+
 ## Session S452 - 2026-04-23 - B-235 wrong head for Maian bots + MATCHSETUP config audit + cleanup
 
 **Context:** Mike ran a CS playtest and saw all 31 bots rendering with the President head on the Maian (elvis1) body. Smoketest log confirmed `MATCHSETUP: bot slot N: body='base:elvis1' head='base:head_president' mpbody=12 mphead=12` across all 31 slots.

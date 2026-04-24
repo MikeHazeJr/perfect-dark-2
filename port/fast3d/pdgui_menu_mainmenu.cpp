@@ -44,6 +44,7 @@
 #include "pdgui_menu_stats.h"
 #include "pdgui_menu_theme_editor.h"
 #include "pdgui_forge.h"
+#include "pdgui_menu_grid.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
@@ -57,6 +58,10 @@ extern "C" {
 #include "actionmap.h"
 #include "menupool.h"
 #include "game/forgemode.h"
+/* net/matchsetup.h has no extern "C" wrap of its own; pull it in
+ * under the C linkage block so matchConfigInit() etc. resolve to the
+ * unmangled C definitions in port/src/net/matchsetup.c. */
+#include "net/matchsetup.h"
 }
 
 /* ========================================================================
@@ -96,8 +101,9 @@ extern struct menudialogdef g_CheatsMenuDialog;
 /* D5 P3 Batch 4 -- Cinema dialog (cutscene viewer). */
 extern struct menudialogdef g_CinemaMenuDialog;
 
-/* Match setup init (from matchsetup.c) */
-void matchConfigInit(void);
+/* Match setup init (from matchsetup.c) -- now provided via
+ * port/include/net/matchsetup.h (included above); keeping the comment
+ * as a breadcrumb. */
 
 /* Extended options (port-added) */
 extern struct menudialogdef g_ExtendedMenuDialog;
@@ -301,6 +307,23 @@ s32 viGetHeight(void);
 
 /* Language strings */
 char *langGet(s32 textid);
+char *langSafe(s32 textid);
+
+/* Feature / challenge unlock gate -- used by Grid submenu arena filter. */
+s32 challengeIsFeatureUnlocked(u32 feature);
+
+/* MPOPTION_* bit mirrors (values locked in src/include/constants.h).
+ * Grouped here so the C++ Main Menu TU does not need to include the
+ * full constants.h (which pulls the project's bool=s32 typedef). */
+#ifndef MPOPTION_ONEHITKILLS
+#define MPOPTION_ONEHITKILLS    0x00000001u
+#endif
+#ifndef MPOPTION_TEAMSENABLED
+#define MPOPTION_TEAMSENABLED   0x00000002u
+#endif
+#ifndef MPOPTION_SLOWMOTION_ON
+#define MPOPTION_SLOWMOTION_ON  0x00000040u
+#endif
 
 /* g_MpPlayerNum */
 extern s32 g_MpPlayerNum;
@@ -3873,6 +3896,320 @@ static void renderSettingsView(float scale, float contentH)
     }
 }
 
+/* ========================================================================
+ * The Grid submenu (Priority 1, 2026-04-23)
+ *
+ * Map picker + variant config + Enter flow.  "The Grid" button on the
+ * Main Menu routes here (s_MenuView=6); Enter writes the variant into
+ * g_MatchConfig and calls pdguiForgeStartSessionOn(stagenum) to hand
+ * off to the session.
+ *
+ * Arena list is built on-demand from the catalog (ASSET_ARENA) so the
+ * submenu stays in lockstep with whatever mods registered.  A Blank Map
+ * entry is conditional on GRID_BLANK_STAGE (undefined by default -- see
+ * pdgui_menu_grid.h for rationale).
+ * ======================================================================== */
+
+struct GridArenaEntry {
+    char name[64];
+    char id[64];
+    s32  stagenum;
+    bool is_blank;   /* true for the synthetic Blank Map row */
+};
+
+static GridArenaEntry *s_GridArenas = NULL;
+static int             s_GridArenaCount = 0;
+static int             s_GridArenaCapacity = 0;
+static bool            s_GridArenasBuilt = false;
+static int             s_GridSelectedArena = 0;
+
+/* Variant state.  Simple local mirror until the user commits via Enter. */
+static int   s_GridScenarioIdx = 0;     /* index into s_GridScenarios[] */
+static int   s_GridTimeLimit   = 10;    /* minutes, 0 = unlimited */
+static int   s_GridScoreLimit  = 10;    /* kills/points, 0 = unlimited */
+static bool  s_GridTeamsOn     = false;
+static bool  s_GridOneHitKills = false;
+static bool  s_GridSlowMotion  = false;
+
+struct GridScenarioEntry {
+    const char *id;    /* catalog ID (NULL sentinel) */
+    const char *label;
+    bool        teams; /* team-based default */
+};
+
+/* Base Combat Simulator scenarios.  Matches
+ * port/src/assetcatalog_base_extended.c::s_BaseGameModes. */
+static const GridScenarioEntry s_GridScenarios[] = {
+    { "base:combat",             "Combat",              false },
+    { "base:hold_the_briefcase", "Hold the Briefcase",  false },
+    { "base:hacker_central",     "Hacker Central",      false },
+    { "base:pop_a_cap",          "Pop a Cap",           false },
+    { "base:king_of_the_hill",   "King of the Hill",    true  },
+    { "base:capture_the_case",   "Capture the Case",    true  },
+};
+static const int s_GridScenarioCount =
+    (int)(sizeof(s_GridScenarios) / sizeof(s_GridScenarios[0]));
+
+static void gridArenaCollect(const asset_entry_t *e, void *userdata)
+{
+    (void)userdata;
+    if (!e) return;
+
+    if (s_GridArenaCount >= s_GridArenaCapacity) {
+        int newCap = (s_GridArenaCapacity == 0) ? 32 : s_GridArenaCapacity * 2;
+        GridArenaEntry *newBuf = (GridArenaEntry *)realloc(
+                s_GridArenas, (size_t)newCap * sizeof(GridArenaEntry));
+        if (!newBuf) {
+            sysLogPrintf(LOG_WARNING, "GRID.MENU: arena list realloc failed at %d",
+                         s_GridArenaCount);
+            return;
+        }
+        s_GridArenas = newBuf;
+        s_GridArenaCapacity = newCap;
+    }
+
+    /* arenaGetName (pdgui_menu_room.cpp) is not exposed; use langSafe. */
+    char *langText = langSafe((s32)e->ext.arena.name_langid);
+    if (!langText || !langText[0]) {
+        sysLogPrintf(LOG_WARNING,
+            "GRID.MENU: arena stagenum=0x%02x langid=0x%04x has no name; skipping",
+            e->ext.arena.stagenum, e->ext.arena.name_langid);
+        return;
+    }
+
+    if (!challengeIsFeatureUnlocked((u8)e->ext.arena.requirefeature)) {
+        return;
+    }
+
+    GridArenaEntry *a = &s_GridArenas[s_GridArenaCount];
+    strncpy(a->name, langText, sizeof(a->name) - 1);
+    a->name[sizeof(a->name) - 1] = '\0';
+    strncpy(a->id, e->id, sizeof(a->id) - 1);
+    a->id[sizeof(a->id) - 1] = '\0';
+    a->stagenum = e->ext.arena.stagenum;
+    a->is_blank = false;
+
+    s_GridArenaCount++;
+}
+
+static int gridArenaCompare(const void *a, const void *b)
+{
+    const GridArenaEntry *ea = (const GridArenaEntry *)a;
+    const GridArenaEntry *eb = (const GridArenaEntry *)b;
+    /* Blank Map always first, then alphabetical. */
+    if (ea->is_blank != eb->is_blank) return ea->is_blank ? -1 : 1;
+    return strcasecmp(ea->name, eb->name);
+}
+
+static void gridArenaListBuild(void)
+{
+    free(s_GridArenas);
+    s_GridArenas = NULL;
+    s_GridArenaCount = 0;
+    s_GridArenaCapacity = 0;
+
+#ifdef GRID_BLANK_STAGE
+    /* Reserve the Blank Map slot at the top of the list. */
+    s_GridArenaCapacity = 32;
+    s_GridArenas = (GridArenaEntry *)malloc(
+            (size_t)s_GridArenaCapacity * sizeof(GridArenaEntry));
+    if (s_GridArenas) {
+        GridArenaEntry *a = &s_GridArenas[0];
+        strncpy(a->name, "Blank Map", sizeof(a->name) - 1);
+        a->name[sizeof(a->name) - 1] = '\0';
+        a->id[0] = '\0';
+        a->stagenum = (s32)GRID_BLANK_STAGE;
+        a->is_blank = true;
+        s_GridArenaCount = 1;
+    }
+#endif
+
+    assetCatalogIterateByType(ASSET_ARENA, gridArenaCollect, NULL);
+
+    if (s_GridArenaCount > 1) {
+        qsort(s_GridArenas, (size_t)s_GridArenaCount, sizeof(GridArenaEntry),
+              gridArenaCompare);
+    }
+
+    sysLogPrintf(LOG_NOTE, "GRID.MENU: arena list built (%d entries)",
+                 s_GridArenaCount);
+    if (s_GridSelectedArena >= s_GridArenaCount) s_GridSelectedArena = 0;
+    s_GridArenasBuilt = true;
+}
+
+/* Apply the submenu state to g_MatchConfig and call
+ * pdguiForgeStartSessionOn(stagenum).  Returns true on success. */
+static bool gridCommitEnter(void)
+{
+    if (s_GridArenaCount <= 0) {
+        sysLogPrintf(LOG_WARNING, "GRID.MENU: commit rejected -- arena list empty");
+        return false;
+    }
+    if (s_GridSelectedArena < 0 || s_GridSelectedArena >= s_GridArenaCount) {
+        sysLogPrintf(LOG_WARNING, "GRID.MENU: commit rejected -- selected=%d of %d",
+                     s_GridSelectedArena, s_GridArenaCount);
+        return false;
+    }
+
+    const GridArenaEntry *a = &s_GridArenas[s_GridSelectedArena];
+
+    /* Establish a clean match config (resets slots, defaults, options) then
+     * overwrite the variant-shaped fields from the submenu. */
+    matchConfigInit();
+
+    if (a->is_blank) {
+        g_MatchConfig.stage_id[0] = '\0';
+    } else {
+        strncpy(g_MatchConfig.stage_id, a->id,
+                sizeof(g_MatchConfig.stage_id) - 1);
+        g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+    }
+    g_MatchConfig.stagenum = (u8)a->stagenum;
+
+    if (s_GridScenarioIdx < 0 || s_GridScenarioIdx >= s_GridScenarioCount) {
+        s_GridScenarioIdx = 0;
+    }
+    const GridScenarioEntry *sc = &s_GridScenarios[s_GridScenarioIdx];
+    strncpy(g_MatchConfig.scenario_id, sc->id,
+            sizeof(g_MatchConfig.scenario_id) - 1);
+    g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
+
+    g_MatchConfig.timelimit       = (u8)(s_GridTimeLimit & 0xff);
+    g_MatchConfig.scorelimit      = (u8)(s_GridScoreLimit & 0xff);
+    g_MatchConfig.teamscorelimit  = (u16)s_GridScoreLimit;
+
+    u32 opts = g_MatchConfig.options;
+    if (s_GridTeamsOn)     opts |=  (u32)MPOPTION_TEAMSENABLED;
+    else                   opts &= ~(u32)MPOPTION_TEAMSENABLED;
+    if (s_GridOneHitKills) opts |=  (u32)MPOPTION_ONEHITKILLS;
+    else                   opts &= ~(u32)MPOPTION_ONEHITKILLS;
+    if (s_GridSlowMotion)  opts |=  (u32)MPOPTION_SLOWMOTION_ON;
+    else                   opts &= ~(u32)MPOPTION_SLOWMOTION_ON;
+    g_MatchConfig.options = opts;
+
+    sysLogPrintf(LOG_NOTE,
+            "GRID.MENU: enter map='%s' stagenum=0x%02x scenario='%s' "
+            "tl=%d sl=%d teams=%d ohk=%d slo=%d",
+            a->is_blank ? "(blank)" : a->name, (u32)a->stagenum,
+            sc->id, s_GridTimeLimit, s_GridScoreLimit,
+            (int)s_GridTeamsOn, (int)s_GridOneHitKills, (int)s_GridSlowMotion);
+
+    /* Hand off.  pdguiForgeStartSessionOn calls mainChangeToStage when the
+     * current stage differs; forgemode activates on next tick. */
+    return pdguiForgeStartSessionOn(a->stagenum) != 0;
+}
+
+static void renderGridSubmenu(float scale, float buttonW, float buttonH,
+                              float spacing)
+{
+    ImGui::Dummy(ImVec2(0, 4.0f * scale));
+
+    if (!s_GridArenasBuilt) {
+        gridArenaListBuild();
+    }
+
+    ImGui::TextWrapped(
+        "The Grid is a live-bot-test and edit facility.  Pick a base map, "
+        "configure the variant (gametype + rules), then Enter The Grid to "
+        "spin up the session.");
+    ImGui::Spacing();
+
+    /* ----------------------------------------------------------------
+     * Map picker
+     * ---------------------------------------------------------------- */
+    ImGui::SeparatorText("Base Map");
+
+    if (s_GridArenaCount <= 0) {
+        ImGui::TextDisabled("No playable arenas registered in the catalog.");
+    } else {
+        float listH = buttonH * 5.5f;
+        if (listH < 120.0f) listH = 120.0f;
+        if (ImGui::BeginListBox("##grid_arena_list",
+                                ImVec2(buttonW, listH))) {
+            for (int i = 0; i < s_GridArenaCount; i++) {
+                const GridArenaEntry *a = &s_GridArenas[i];
+                char label[96];
+                if (a->is_blank) {
+                    snprintf(label, sizeof(label),
+                             "%s  (stagenum 0x%02x)", a->name, (u32)a->stagenum);
+                } else {
+                    snprintf(label, sizeof(label), "%s", a->name);
+                }
+                const bool sel = (i == s_GridSelectedArena);
+                ImGui::PushID(i);
+                if (ImGui::Selectable(label, sel)) {
+                    s_GridSelectedArena = i;
+                }
+                if (sel && ImGui::IsWindowAppearing()) {
+                    ImGui::SetScrollHereY(0.25f);
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndListBox();
+        }
+    }
+
+    /* ----------------------------------------------------------------
+     * Variant: gametype + rules
+     * ---------------------------------------------------------------- */
+    ImGui::SeparatorText("Variant");
+
+    if (s_GridScenarioIdx < 0 || s_GridScenarioIdx >= s_GridScenarioCount) {
+        s_GridScenarioIdx = 0;
+    }
+    const char *preview = s_GridScenarios[s_GridScenarioIdx].label;
+    ImGui::SetNextItemWidth(buttonW);
+    if (ImGui::BeginCombo("Gametype", preview)) {
+        for (int i = 0; i < s_GridScenarioCount; i++) {
+            const bool sel = (i == s_GridScenarioIdx);
+            if (ImGui::Selectable(s_GridScenarios[i].label, sel)) {
+                s_GridScenarioIdx = i;
+                /* Auto-flip teams on when picking a team-based mode. */
+                if (s_GridScenarios[i].teams) s_GridTeamsOn = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::SetNextItemWidth(buttonW);
+    ImGui::SliderInt("Time Limit (min, 0 = unlimited)",
+                     &s_GridTimeLimit, 0, 60);
+    ImGui::SetNextItemWidth(buttonW);
+    ImGui::SliderInt("Score Limit (0 = unlimited)",
+                     &s_GridScoreLimit, 0, 100);
+
+    ImGui::Checkbox("Teams enabled", &s_GridTeamsOn);
+    ImGui::SameLine();
+    ImGui::Checkbox("One-hit kills", &s_GridOneHitKills);
+    ImGui::SameLine();
+    ImGui::Checkbox("Slow motion", &s_GridSlowMotion);
+
+    /* ----------------------------------------------------------------
+     * Enter The Grid
+     * ---------------------------------------------------------------- */
+    ImGui::Dummy(ImVec2(0, spacing));
+
+    const bool canEnter = (s_GridArenaCount > 0);
+    if (!canEnter) ImGui::BeginDisabled();
+    if (PdButton("Enter The Grid", ImVec2(buttonW, buttonH * 1.2f))) {
+        if (gridCommitEnter()) {
+            pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+            s_MenuView = 0;
+        } else {
+            /* Stay on the submenu; gridCommitEnter already logged why. */
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        }
+    }
+    if (!canEnter) ImGui::EndDisabled();
+
+    ImGui::Dummy(ImVec2(0, spacing));
+
+    if (PdButton("Back", ImVec2(buttonW, buttonH))) {
+        s_MenuView = 0;
+        pdguiPlaySound(PDGUI_SND_SWIPE);
+    }
+}
+
 /* B-131 ext: duplicate dialog guard — prevents overlapped instances when
  * Start/Pause pushes the dialog while it's already rendering. */
 static bool s_MainMenuIsRendering = false;
@@ -4011,6 +4348,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
     else if (s_MenuView == 3) windowTitle = "Modding";
     else if (s_MenuView == 4) windowTitle = "Online Play";
     else if (s_MenuView == 5) windowTitle = "Player Statistics";
+    else if (s_MenuView == 6) windowTitle = "The Grid";
 
     float pdTitleH = drawPdWindowFrame(dialogX, dialogY, dialogW, dialogH, windowTitle);
 
@@ -4100,6 +4438,8 @@ static s32 renderMainMenu(struct menudialog *dialog,
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — online play CLOSE (view 4->0)");
             } else if (s_MenuView == 5) {
                 pdguiMenuStatsHide();
+            } else if (s_MenuView == 6) {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC -- Grid submenu CLOSE (view 6->0)");
             } else {
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — sub-view %d -> 0", s_MenuView);
             }
@@ -4234,16 +4574,20 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
         ImGui::Dummy(ImVec2(0, spacing));
 
-        /* The Grid (internal code still named forge*) — in-game level
-         * editor (F0+).  For F0 we hard-wire the base stage to CI
-         * Training; F3 will replace this with a base-stage browser
-         * sub-view.  The user-facing rename from "Forge" → "The Grid"
-         * landed in S309; the catalog/module names stay forge* for
-         * compatibility with existing logs and scripts. */
+        /* The Grid -- live-bot-test + edit facility.  Opens a submenu
+         * (s_MenuView=6) where the user picks the base map and
+         * configures the variant (gametype + rules) before entering
+         * the session.  The previous "launch Forge on CI Training"
+         * shortcut is preserved as pdguiForgeStartSession() for other
+         * callers, but the Main Menu button no longer uses it.
+         *
+         * Internal module names stay forge* for code continuity;
+         * "The Grid" is the unified user-facing facility (Forge and
+         * Playtest are modes inside it).  Priority 2 will wire the
+         * in-session Halo-Back-style mode toggle. */
         if (PdButton("The Grid", ImVec2(buttonW, buttonH * 1.2f))) {
-            if (pdguiForgeStartSession()) {
-                pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-            }
+            s_MenuView = 6;
+            sysLogPrintf(LOG_NOTE, "MENU_STACK: Grid submenu OPEN (s_MenuView=6)");
         }
 
         /* Quit Game -- docked to bottom-right; M-Q-A opens a canonical
@@ -4546,6 +4890,22 @@ static s32 renderMainMenu(struct menudialog *dialog,
         if (!pdguiMenuStatsIsVisible()) {
             s_MenuView = 0;
         }
+
+    } else if (s_MenuView == 6) {
+        /* ================================================================
+         * THE GRID SUBMENU (Priority 1, 2026-04-23)
+         *
+         * Map picker + variant config + Enter button.  Committing Enter
+         * applies the variant into g_MatchConfig (scenario, stage, rules)
+         * and hands off to pdguiForgeStartSessionOn(stagenum).  The
+         * session launches and the user enters The Grid session -- Forge
+         * (edit) mode by default; Playtest mode toggle lands in P2.
+         *
+         * Blank Map: surfaced only when GRID_BLANK_STAGE is defined.
+         * See pdgui_menu_grid.h and the evening-decisions-2026-04-23
+         * audit entry for why the entry is currently suppressed.
+         * ================================================================ */
+        renderGridSubmenu(scale, buttonW, buttonH, spacing);
     }
 
     /* Sound on view switches + auto-focus flag */
