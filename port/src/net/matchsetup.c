@@ -485,10 +485,14 @@ s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
 	if (body_id && body_id[0]) {
 		strncpy(slot->body_id, body_id, sizeof(slot->body_id) - 1);
 		slot->body_id[sizeof(slot->body_id) - 1] = '\0';
-		strncpy(slot->head_id,
-		        (head_id && head_id[0]) ? head_id : "base:head_dark_combat",
-		        sizeof(slot->head_id) - 1);
-		slot->head_id[sizeof(slot->head_id) - 1] = '\0';
+		{
+			const char *h = (head_id && head_id[0])
+			              ? head_id
+			              : catalogGetBodyDefaultHead(body_id);
+			if (!h || !h[0]) h = "base:head_dark_combat";
+			strncpy(slot->head_id, h, sizeof(slot->head_id) - 1);
+			slot->head_id[sizeof(slot->head_id) - 1] = '\0';
+		}
 	} else {
 		pickRandomBodyHead(slot->body_id, sizeof(slot->body_id),
 		                   slot->head_id, sizeof(slot->head_id));

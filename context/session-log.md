@@ -4,6 +4,31 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S452 - 2026-04-23 - B-235 wrong head for Maian bots + MATCHSETUP config audit + cleanup
+
+**Context:** Mike ran a CS playtest and saw all 31 bots rendering with the President head on the Maian (elvis1) body. Smoketest log confirmed `MATCHSETUP: bot slot N: body='base:elvis1' head='base:head_president' mpbody=12 mphead=12` across all 31 slots.
+
+**Root cause found (B-235):** Index domain confusion in `pdgui_menu_room.cpp` (commit `3a055323`, Claude-authored). Two sites called `catalogMpHeadId(b)` where `b` is the **body** mp_index, not a head mp_index. `MPBODY_ELVIS1 = 12` and `MPHEAD_PRESIDENT = 12` share the integer 12, so picking the Maian body silently wired the President head.
+
+**Fixes:**
+- `port/fast3d/pdgui_menu_room.cpp:~2243` (Set Character context menu, multi-select): replaced `catalogMpHeadId(b)` with `catalogGetBodyDefaultMpHeadIdx(b)` + `catalogMpHeadId(defHead)`.
+- `port/fast3d/pdgui_menu_room.cpp:~3385` (individual bot edit modal): same fix.
+- `port/src/net/matchsetup.c:matchConfigAddBot` fallback: when body_id provided but head_id NULL, now calls `catalogGetBodyDefaultHead(body_id)` instead of hardcoding `"base:head_dark_combat"`.
+- `CMakeLists.txt`: stripped UTF-8 BOM (AUDIT-23-M1 from prior audit).
+- `.gitignore`: added `~$*`, `*.tmp`, `*~`, `.DS_Store` (AUDIT-23-M2 from prior audit).
+
+**B-234 worktree status:** Confirmed B-234 patches from session S451 are already merged into dev (B234_RESOLVE_CHARCONFIG macro in player.c, lobbyplayer struct shrink in netlobby.h). No separate worktree merge needed.
+
+**Architecture audit for Mike (mpbody/mphead state vs. computed):** The MATCHSETUP log `mpbody`/`mphead` values are computed at matchStart time (inside matchsetup.c), not persistent state. The deprecated `bodynum`/`headnum` integer fields on `matchslot` ARE state duplication (M0.1 carry-over, benign since matchStart re-derives from PRIMARY strings). See `context/scratch/matchsetup-config-audit-2026-04-23.md`.
+
+**B-217..B-222 sanity check (per task):** Static read of Cursor's `d3247e7e` batch confirms the fixes look correct: B-217 F6 returns TICKOP_NONE without chrTick; B-218 XZ-proximity clamp bounds by g_BotCount; B-220 fsFileSize guard present; actionmap.cpp hold-ring state machine has clean semantics. No regressions found. Still FIXED-PENDING-PLAYTEST until live run.
+
+**Build:** Clean link of both `PerfectDark.exe` and `PerfectDarkServer.exe`. Warnings are pre-existing (`/*` in comment strings, unrelated to this session).
+
+**Files touched:** `port/fast3d/pdgui_menu_room.cpp`, `port/src/net/matchsetup.c`, `CMakeLists.txt`, `.gitignore`, `context/bugs.md` (B-235 entry), `context/session-log.md`, `context/scratch/matchsetup-config-audit-2026-04-23.md`.
+
+**Next:** Rebuild and playtest the B-235 fix — pick Maian body in CS room, confirm head auto-selects Elvis, not President. B-217..B-222 playtest batch still open.
+
 ## Session S451 - 2026-04-23 - B-234 deep-dive sweep + lobbyplayer junk-data removal
 
 Mike: "Do a deep dive, ensure nothing uses the legacy integer index (not just in multiplayer, everywhere)." Then: "Why would we leave it even if it is junk data, we don't want junk data."
