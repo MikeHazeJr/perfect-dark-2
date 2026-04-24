@@ -90,6 +90,30 @@ void pdguiMenuStackOverlayRender(s32 winW, s32 winH)
         ImGui::TextUnformatted(leg[0] ? leg : "(no data)");
         ImGui::PopTextWrapPos();
 
+        /* Issue 11 (2026-04-24): push / pop history ring.  Last 8 ctx
+         * transitions so quick push-then-pop (a class of input-routing
+         * bugs like Mike's Issue 3 "pause menu input doesn't work") is
+         * visible in real time.  Events:
+         *   P -- push new ctx
+         *   X -- resurrect (push on marked-for-removal entry)
+         *   M -- mark for deferred pop (endFrame will collapse)
+         *   R -- real pop (immediate or deferred cleanup) */
+        ImGui::Separator();
+        ImGui::Text("Ctx push/pop history (last 8, oldest first)");
+        InputCtxDebugHistoryEntry hist[INPUTCTX_DEBUG_HISTORY_MAX];
+        s32 hn = inputCtxDebugCopyHistory(hist, 8);
+        if (hn <= 0) {
+            ImGui::TextDisabled("(no transitions recorded yet)");
+        } else {
+            for (s32 i = 0; i < hn; i++) {
+                ImGui::BulletText("t=%u  %c  %s  depth=%d",
+                                  (unsigned)hist[i].timestamp_ms,
+                                  hist[i].event,
+                                  hist[i].name ? hist[i].name : "?",
+                                  (int)hist[i].depth_after);
+            }
+        }
+
         ImGui::Separator();
         ImGui::TextDisabled("F9 close  |  F10 mesh debug  |  See input-authority ADR in context/designs/");
     }

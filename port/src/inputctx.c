@@ -42,6 +42,47 @@ static s32 s_GamePaused = 0;
 static s32 s_WindowFocusLost = 0;
 static u32 s_FocusRegainTick = 0;
 
+/* ---- Issue 11 (2026-04-24): push / pop history ring ----
+ *
+ * Small circular buffer recording the last N ctx transitions with
+ * timestamps so the F9 debug overlay can show them.  Helps triage
+ * input-routing bugs like Mike's Issue 3 ("pause menu input doesn't
+ * work") where a ctx push might fire and immediately get popped
+ * (or another ctx pushes on top) -- invisible from the live stack
+ * snapshot alone.
+ *
+ * Oldest-first read order: callers pass a destination array of
+ * at most INPUTCTX_HISTORY_SIZE slots; the copy helper writes the
+ * N most-recent events in chronological order and returns N.
+ * Names are pointers into InputContext.name strings which are
+ * static-lifetime in this codebase, so the ring holds stable
+ * pointers -- no snapshot copy needed. */
+#define INPUTCTX_HISTORY_SIZE 16
+
+typedef struct {
+    u32         timestamp_ms;
+    const char *name;
+    s32         depth_after;
+    char        event; /* 'P' push, 'M' marked-for-removal, 'R' real-pop, 'X' resurrect */
+} InputCtxHistoryEntry;
+
+static InputCtxHistoryEntry s_History[INPUTCTX_HISTORY_SIZE];
+static s32                  s_HistoryHead  = 0;   /* next write slot */
+static s32                  s_HistoryCount = 0;   /* valid entries, capped at SIZE */
+
+static void s_historyRecord(char event, const InputContext *ctx, s32 depth_after)
+{
+    InputCtxHistoryEntry *e = &s_History[s_HistoryHead];
+    e->timestamp_ms = SDL_GetTicks();
+    e->name         = (ctx && ctx->name) ? ctx->name : "?";
+    e->depth_after  = depth_after;
+    e->event        = event;
+    s_HistoryHead = (s_HistoryHead + 1) % INPUTCTX_HISTORY_SIZE;
+    if (s_HistoryCount < INPUTCTX_HISTORY_SIZE) {
+        s_HistoryCount++;
+    }
+}
+
 /* ---- Stack API ---- */
 
 void inputCtxInit(void)
@@ -130,6 +171,7 @@ void inputCtxPush(InputContext *ctx)
                 sysLogPrintf(LOG_NOTE,
                     "INPUTCTX: push on marked '%s' at depth %d — un-marked for removal (resurrect)",
                     ctx->name ? ctx->name : "?", i);
+                s_historyRecord('X', ctx, s_Depth);
                 return;
             }
             sysLogPrintf(LOG_WARNING, "INPUTCTX: '%s' already on stack at depth %d, ignoring push",
@@ -159,6 +201,7 @@ void inputCtxPush(InputContext *ctx)
 
     sysLogPrintf(LOG_NOTE, "INPUTCTX: pushed '%s' (depth now %d)",
                  ctx->name ? ctx->name : "?", s_Depth);
+    s_historyRecord('P', ctx, s_Depth);
 }
 
 void inputCtxPopDeferred(InputContext *ctx)
@@ -172,6 +215,7 @@ void inputCtxPopDeferred(InputContext *ctx)
             ctx->marked_for_removal = 1;
             sysLogPrintf(LOG_NOTE, "INPUTCTX: '%s' marked for deferred removal",
                          ctx->name ? ctx->name : "?");
+            s_historyRecord('M', ctx, s_Depth);
 
             /* Immediately sync mouse mode so the cursor/capture state reflects
              * the new effective top context THIS frame, not next frame.
@@ -209,6 +253,7 @@ void inputCtxPopImmediate(void)
 
         sysLogPrintf(LOG_NOTE, "INPUTCTX: immediately popped '%s' (depth now %d)",
                      ctx->name ? ctx->name : "?", s_Depth);
+        s_historyRecord('R', ctx, s_Depth);
     }
 
     /* Sync mouse mode to reflect the new top context immediately. */
@@ -305,6 +350,7 @@ void inputCtxEndFrame(void)
             ctx->marked_for_removal = 0;
             sysLogPrintf(LOG_NOTE, "INPUTCTX: deferred pop of '%s'",
                          ctx->name ? ctx->name : "?");
+            s_historyRecord('R', ctx, write);
         } else {
             s_Stack[write] = ctx;
             write++;
@@ -544,6 +590,32 @@ void inputCtxDebugSnapshotAuthority(InputCtxDebugAuthority *out)
     } else if (out->focus_settle_remaining_ms > 0) {
         out->gameplay_would_suppress = 1;
     }
+}
+
+/* Issue 11 (2026-04-24): copy the push/pop history ring out for the F9
+ * debug overlay.  Writes the last N entries oldest-first into dst;
+ * returns the count.  max_entries is the caller's array capacity.  If
+ * the ring holds more events than max_entries, the oldest entries are
+ * dropped and the newest N are written. */
+s32 inputCtxDebugCopyHistory(InputCtxDebugHistoryEntry *dst, s32 max_entries)
+{
+    if (!dst || max_entries <= 0) return 0;
+    s32 n = s_HistoryCount;
+    if (n > max_entries) n = max_entries;
+    s32 start = (s_HistoryHead - s_HistoryCount + INPUTCTX_HISTORY_SIZE)
+                % INPUTCTX_HISTORY_SIZE;
+    if (s_HistoryCount > max_entries) {
+        start = (start + (s_HistoryCount - max_entries)) % INPUTCTX_HISTORY_SIZE;
+    }
+    for (s32 i = 0; i < n; i++) {
+        const InputCtxHistoryEntry *src =
+            &s_History[(start + i) % INPUTCTX_HISTORY_SIZE];
+        dst[i].timestamp_ms = src->timestamp_ms;
+        dst[i].name         = src->name;
+        dst[i].depth_after  = src->depth_after;
+        dst[i].event        = src->event;
+    }
+    return n;
 }
 
 s32 gameplayInputSuppressed(void)

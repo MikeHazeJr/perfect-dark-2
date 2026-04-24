@@ -162,6 +162,25 @@ typedef struct InputCtxDebugAuthority {
 /** Pure read — does NOT call gameplayInputSuppressed() (which may clear focus timers). */
 void inputCtxDebugSnapshotAuthority(InputCtxDebugAuthority *out);
 
+/* Issue 11 (2026-04-24): push / pop history ring snapshot.
+ *
+ * The input-context layer records the last 16 ctx transitions (push,
+ * deferred-pop mark, real pop, resurrect).  Callers copy the ring out
+ * into their own buffer (oldest-first) to render a debug timeline.  If
+ * the ring holds more events than `max_entries`, the oldest events are
+ * dropped and the newest N are returned.  Returns the number of entries
+ * written. */
+typedef struct {
+    u32         timestamp_ms;
+    const char *name;         /* ctx name (static lifetime) */
+    s32         depth_after;  /* stack depth immediately after the event */
+    char        event;        /* 'P' push, 'M' marked-for-defer-pop, 'R' real pop, 'X' resurrect */
+} InputCtxDebugHistoryEntry;
+
+#define INPUTCTX_DEBUG_HISTORY_MAX 16
+
+s32 inputCtxDebugCopyHistory(InputCtxDebugHistoryEntry *dst, s32 max_entries);
+
 /* ---- Built-in contexts ---- */
 
 /* Gameplay context: game owns all input. Mouse captured (relative mode).
