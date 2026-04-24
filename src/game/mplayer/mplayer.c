@@ -2961,6 +2961,17 @@ char *mpGetBodyName(u8 mpbodynum)
 		mpbodynum = 0;
 	}
 
+	/* B-226 (2026-04-23): prefer the catalog-backed display name for bodies
+	 * whose langid is stale or shared. CONNERY/MOORE/DALTON/DJBOND all
+	 * share L_OPTIONS_070 ("Dinner Jacket"); SKEDAR/DRCAROLL langids point
+	 * to unrelated UI strings ("Choose a head to load over:", "Need Space
+	 * For Head"). The catalog entry's display_name field (populated from
+	 * s_BaseBodies[].desc) is authoritative when non-empty. */
+	const char *override = catalogGetBodyDisplayName((s32)mpbodynum);
+	if (override && override[0]) {
+		return (char *)override;
+	}
+
 	return langGet(modmgrGetBody(mpbodynum)->name);
 }
 

@@ -225,6 +225,13 @@ typedef struct asset_entry {
             s16 name_langid;           /* language string ID for display name */
             s16 headnum;               /* default head ID for this body */
             u8  requirefeature;        /* unlock check (0 = always available) */
+            /* B-226 (2026-04-23): human-readable display name. Populated from
+             * s_BaseBodies[].desc for bundled base bodies, or from mod body
+             * manifest display_name for mod bodies. Empty string means "fall
+             * back to langbank via name_langid". Used by mpGetBodyName when
+             * the langid resolves to junk (some legacy bodies share langids
+             * or point to unrelated UI strings). */
+            char display_name[64];
         } body;
         struct {
             s16 headnum;               /* global head ID in g_HeadsAndBodies[] */
@@ -461,6 +468,13 @@ asset_entry_t *assetCatalogRegisterArena(const char *id, s32 stagenum,
 asset_entry_t *assetCatalogRegisterBody(const char *id, s16 bodynum,
                                          s16 name_langid, s16 headnum,
                                          u8 requirefeature);
+
+/**
+ * B-226: set a catalog-backed display name for a body entry. Overrides the
+ * langbank-backed name from mpGetBodyName() when the langid resolves to
+ * junk (shared or unrelated UI strings). Empty string clears the override.
+ */
+void catalogSetBodyDisplayName(asset_entry_t *entry, const char *display_name);
 
 /**
  * Register a head asset.
@@ -877,12 +891,23 @@ const char *catalogIdByRuntime(asset_type_e type, s32 runtime_index);
 const char *catalogGetBodyDefaultHead(const char *body_id);
 
 /**
- * Body → default head mpheadnum (g_MpHeads[] position).
+ * Body -> default head mpheadnum (g_MpHeads[] position).
  * Convenience wrapper for UI carousels that work in mpheadnum space.
  * Returns -1 if the body is not found, has no default head, or the sentinel
- * value 1000 (random-gender head) is stored — caller should keep existing head.
+ * value 1000 (random-gender head) is stored - caller should keep existing head.
  */
 s32 catalogGetBodyDefaultMpHeadIdx(s32 mpbodynum);
+
+/**
+ * B-226: Body mp_index -> catalog-stored display name.
+ * Returns a pointer into the catalog entry's internal buffer (stable until
+ * catalog reload). Returns NULL if no display_name was set at registration
+ * (caller should fall back to langGet(body->name)). Use this to override
+ * stale / junk langbank entries for e.g. the 4 Bond-actor bodies that all
+ * share L_OPTIONS_070 ("Dinner Jacket") and the SKEDAR/DRCAROLL bodies
+ * whose langids point to unrelated UI strings.
+ */
+const char *catalogGetBodyDisplayName(s32 mpbodynum);
 
 /* ── SA-5 failure state ─────────────────────────────────────────────────── */
 

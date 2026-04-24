@@ -118,6 +118,12 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficult
 /* Character data */
 char *mpGetBodyName(u8 mpbodynum);
 u32 mpGetNumBodies(void);
+/* B-235 follow-up: returns an mp head index suitable for the given body.
+ * For bodies with a specific paired head, returns that head (deterministic).
+ * For bodies with HEAD_RANDOM_GENDER, returns a fresh random pick from the
+ * gender-specific pool on EACH call. Used by multi-select Set Character so
+ * each bot gets an independent head roll. */
+s32 mpDefaultHeadForBody(s32 mpbodynum);
 /* Body/head data accessed via catalog accessors */
 /* Phase 5: catalog ID accessors for lobby players */
 const char *lobbyGetPlayerBodyId(s32 idx);
@@ -2240,14 +2246,26 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                     u32 b = sorted[si].idx;
                     const char *bid = catalogMpBodyId(b);
                     if (ImGui::MenuItem(sorted[si].name, NULL, (int)b == commonBody)) {
-                        s32 defHead = catalogGetBodyDefaultMpHeadIdx((s32)b);
-                        const char *hid = (defHead >= 0) ? catalogMpHeadId(defHead) : NULL;
+                        /* B-235 follow-up (2026-04-23): PER-BOT random head roll.
+                         * Previous code picked one deterministic default head
+                         * and applied it to every selected bot, so multi-select
+                         * Set Character = Maian gave all 31 bots the same head.
+                         * Mike's expectation: "keep heads randomized from heads
+                         * valid for the body type or character". mpDefaultHeadForBody
+                         * handles both cases: deterministic paired head (Maian ->
+                         * Maian head; non-random data), and HEAD_RANDOM_GENDER
+                         * bodies (Connery/Moore/Dalton/Brosnan, many SP NPCs)
+                         * which return a fresh random gender-pool pick on each
+                         * call. Moving the call INTO the per-bot loop is the
+                         * whole fix. */
                         for (int j = 1; j < g_MatchConfig.numSlots; j++) {
                             if (!s_BotSelected[j] || g_MatchConfig.slots[j].type != SLOT_BOT) continue;
                             if (bid) {
                                 strncpy(g_MatchConfig.slots[j].body_id, bid, sizeof(g_MatchConfig.slots[j].body_id) - 1);
                                 g_MatchConfig.slots[j].body_id[sizeof(g_MatchConfig.slots[j].body_id) - 1] = '\0';
                             }
+                            s32 defHead = mpDefaultHeadForBody((s32)b);
+                            const char *hid = (defHead >= 0) ? catalogMpHeadId(defHead) : NULL;
                             if (hid) {
                                 strncpy(g_MatchConfig.slots[j].head_id, hid, sizeof(g_MatchConfig.slots[j].head_id) - 1);
                                 g_MatchConfig.slots[j].head_id[sizeof(g_MatchConfig.slots[j].head_id) - 1] = '\0';
@@ -3383,7 +3401,10 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                             strncpy(sl->body_id, bid, sizeof(sl->body_id) - 1);
                             sl->body_id[sizeof(sl->body_id) - 1] = '\0';
                         }
-                        s32 defHead2 = catalogGetBodyDefaultMpHeadIdx((s32)b);
+                        /* B-235 follow-up: use mpDefaultHeadForBody so
+                         * HEAD_RANDOM_GENDER bodies get a fresh random head
+                         * instead of NULL (which would leave head_id stale). */
+                        s32 defHead2 = mpDefaultHeadForBody((s32)b);
                         const char *hid = (defHead2 >= 0) ? catalogMpHeadId(defHead2) : NULL;
                         if (hid) {
                             strncpy(sl->head_id, hid, sizeof(sl->head_id) - 1);

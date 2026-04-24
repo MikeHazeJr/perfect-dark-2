@@ -336,6 +336,25 @@ static void generateBotName(char *dst, s32 maxLen)
 	snprintf(dst, maxLen, "%s %s", s_AdjPool[ai], s_NounPool[ni]);
 }
 
+/* B-235 follow-up (2026-04-23): resolve the "head id for a given body" in a
+ * way that respects HEAD_RANDOM_GENDER. catalogGetBodyDefaultHead returns NULL
+ * for bodies with the random-gender sentinel (headnum=1000), which was forcing
+ * callers to hardcode "base:head_dark_combat" as fallback - so Connery/Moore/
+ * Dalton/Brosnan bots all landed on dark_combat head instead of a random male
+ * head. mpDefaultHeadForBody (mplayer.c) already handles the gender pool; wrap
+ * it here and convert the head mp_index back to a catalog ID string. */
+static const char *pickHeadIdForBody(const char *body_id)
+{
+	if (!body_id || !body_id[0]) return NULL;
+	const asset_entry_t *be = assetCatalogResolve(body_id);
+	if (!be || be->type != ASSET_BODY || be->mp_index < 0) {
+		return NULL;
+	}
+	s32 headIdx = mpDefaultHeadForBody((s32)be->mp_index);
+	if (headIdx < 0) return NULL;
+	return catalogMpHeadId(headIdx);
+}
+
 static void pickRandomBodyHead(char *body_id, s32 bodyLen, char *head_id, s32 headLen)
 {
 	u32 numBodies = mpGetNumBodies();
@@ -374,8 +393,9 @@ static void pickRandomBodyHead(char *body_id, s32 bodyLen, char *head_id, s32 he
 	strncpy(body_id, picked_body, bodyLen - 1);
 	body_id[bodyLen - 1] = '\0';
 
-	/* Pair with default head for this body */
-	const char *paired_head = catalogGetBodyDefaultHead(picked_body);
+	/* B-235: use pickHeadIdForBody so HEAD_RANDOM_GENDER bodies get a
+	 * gender-pool random head instead of the dark_combat fallback. */
+	const char *paired_head = pickHeadIdForBody(picked_body);
 	if (paired_head && paired_head[0]) {
 		strncpy(head_id, paired_head, headLen - 1);
 	} else {
@@ -486,9 +506,14 @@ s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
 		strncpy(slot->body_id, body_id, sizeof(slot->body_id) - 1);
 		slot->body_id[sizeof(slot->body_id) - 1] = '\0';
 		{
+			/* B-235: pickHeadIdForBody handles HEAD_RANDOM_GENDER bodies
+			 * (returns a gender-pool random head); catalogGetBodyDefaultHead
+			 * would have returned NULL for those and forced the dark_combat
+			 * fallback, so Bond-actor / generic NPC bodies landed on the
+			 * same head regardless of body. */
 			const char *h = (head_id && head_id[0])
 			              ? head_id
-			              : catalogGetBodyDefaultHead(body_id);
+			              : pickHeadIdForBody(body_id);
 			if (!h || !h[0]) h = "base:head_dark_combat";
 			strncpy(slot->head_id, h, sizeof(slot->head_id) - 1);
 			slot->head_id[sizeof(slot->head_id) - 1] = '\0';
