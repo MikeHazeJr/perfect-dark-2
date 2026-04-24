@@ -492,15 +492,28 @@ s32 assetCatalogRegisterBaseGame(void)
 		e->source_filenum = (s32)g_HeadsAndBodies[g_MpBodies[idx].bodynum].filenum;
 		/* Asset Provider: base bodies are served by RomProvider. */
 		catalogSetPrimary(e, romProviderHandle(e->source_filenum));
-		/* B-226: override langbank-backed display name ONLY for bodies whose
-		 * g_MpBodies[].name langid is known to be junk or shared. Most bodies
-		 * have correct i18n-aware langbank strings; preserving those keeps
-		 * locale support. Affected indices:
-		 *   57-60: CONNERY/MOORE/DALTON/DJBOND all share L_OPTIONS_070
-		 *          "Dinner Jacket" - need unique Bond-actor names.
-		 *   61: SKEDAR uses L_OPTIONS_356 "Choose a head to load over:".
-		 *   62: DRCAROLL uses L_OPTIONS_355 "Need Space For Head". */
-		if (idx >= 57 && idx <= 62) {
+		/* P4 (2026-04-24): promote the catalog display_name to authoritative
+		 * for every base body.  B-226 fixed only indices 57-62 (bodies with
+		 * junk/shared langids); generalising retires the whole "langid drift
+		 * on a body" bug class.
+		 *
+		 * Why catalog-first.  Before this change, most bodies used their
+		 * g_MpBodies[].name langid via langbank.  mpGetBodyName already
+		 * preferred the catalog override when set, so indices 57-62 had two
+		 * display-name sources and only the catalog one was honoured.  Now
+		 * every body has a single source of truth: `s_BaseBodies[].desc`,
+		 * populated into `ext.body.display_name` at registration time.
+		 * Langbank remains reachable for bodies that leave display_name empty
+		 * (mod-authored bodies that opt in to i18n) via the legacy
+		 * `modmgrGetBody(mpbodynum)->name` path inside mpGetBodyName().
+		 *
+		 * Trade-off: non-English locales lose the per-body langbank
+		 * translation for these English strings.  That risk was flagged in
+		 * the 2026-04-23 systematic pass audit; Mike accepted the English
+		 * canonical direction.  If a locale regression surfaces, the fix is
+		 * to leave `display_name` empty for the affected bodies and restore
+		 * their langbank lookup -- one-line revert per body. */
+		if (s_BaseBodies[i].desc && s_BaseBodies[i].desc[0]) {
 			catalogSetBodyDisplayName(e, s_BaseBodies[i].desc);
 		}
 		body_count++;

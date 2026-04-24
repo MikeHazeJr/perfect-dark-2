@@ -77,6 +77,23 @@ Today's B-235 follow-up fix used `mpDefaultHeadForBody` which gives HEAD_RANDOM_
 
 **Build:** clean link on main working copy, PerfectDark.exe rebuilt.
 
+### Priority 4 (this entry, landed) — Catalog display-name becomes authoritative for all bodies
+
+Today's B-226 fix populated `ext.body.display_name` only for body indices 57-62 (Bond actors with shared L_OPTIONS_070 "Dinner Jacket" and Skedar / Dr. Caroll with unrelated UI-string langids).  Mike's P4 directive: make the catalog display_name the PRIMARY identity for every body, with langbank only reachable as a fallback when a catalog entry leaves display_name empty.
+
+Structural note: `mpGetBodyName` already prefers the catalog override when set (B-226 wiring).  The only change required was removing the `if (idx >= 57 && idx <= 62)` gate around `catalogSetBodyDisplayName(e, s_BaseBodies[i].desc)` in `assetcatalog_base.c`.  All 63 base bodies now have their `s_BaseBodies[].desc` populated into `ext.body.display_name` at registration time.  Langbank (`modmgrGetBody(mpbodynum)->name -> langGet`) remains as the fallback inside `mpGetBodyName` for bodies that leave display_name empty (mod bodies that opt in to i18n).
+
+Bug-class retirement: this retires the "langid drift on a body" class (generalises B-226).  Future bodies added with a valid desc never need a per-body catalog override.
+
+Trade-off: non-English locales lose langbank translation for the 63 English canonical names.  Risk was flagged in the 2026-04-23 systematic-pass audit; Mike accepted the English canonical direction.  Per-body revert is one line (leave `desc` empty in `s_BaseBodies[]` for any body that needs its langbank translation back).
+
+No audit of heads / arenas / weapons / scenarios in this pass -- body is the most load-bearing surface and the one surfaced in the playtest that exposed B-226.  Following the same pattern elsewhere is a future polish ticket.
+
+**Files touched (P4 pass):**
+- `port/src/assetcatalog_base.c` -- removed the indices-57-62 gate.
+
+**Build:** clean incremental link of PerfectDark.exe.
+
 ## Session S452 - 2026-04-23 - B-235 wrong head for Maian bots + MATCHSETUP config audit + cleanup
 
 **Context:** Mike ran a CS playtest and saw all 31 bots rendering with the President head on the Maian (elvis1) body. Smoketest log confirmed `MATCHSETUP: bot slot N: body='base:elvis1' head='base:head_president' mpbody=12 mphead=12` across all 31 slots.
