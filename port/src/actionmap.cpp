@@ -1933,12 +1933,19 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_SCORECARD,      43); /* 43 = SDL_SCANCODE_TAB */
         addBind(imc, ACTION_SCORECARD,      JOY_BTN(0, JBTN_BACK));
 
-        /* Forge level editor (F0+).  Toggle is single-tap; dual-bind to LSHIFT/
-         * LCTRL is intentional (sprint/crouch share the keys but freefly reads
-         * the dedicated FORGE actions, no conflict).  Controller toggle is left
-         * unbound -- user rebinds in the UI; the design's hold-LB+RB chord is
-         * a later pass. */
+        /* The Grid mode toggle (Forge <-> Playtest).  Single-tap swap.
+         * Keyboard: F7 (legacy, kept for habit).  Gamepad: Back button
+         * (Halo-style Forge/Playtest swap, 2026-04-24).  Back also fires
+         * ACTION_SCORECARD; both actions edge-trigger on the same press,
+         * which is fine because scorecard in a solo Grid session is a
+         * no-op popup and the mode toggle is only consumed by forgeTick
+         * when a session is active.  LSHIFT/LCTRL for boost/precision
+         * are intentionally shared with sprint/crouch (no conflict --
+         * forgeReadFreeflyInput only reads them in FREEFLY, where the
+         * player movemode is MOVEMODE_CUTSCENE and bwalk is dormant).
+         * The design's hold-LB+RB chord is a later pass. */
         addBind(imc, ACTION_FORGE_TOGGLE,    (u32)VKL_F7);
+        addBind(imc, ACTION_FORGE_TOGGLE,    JOY_BTN(0, JBTN_BACK));
         addBind(imc, ACTION_FORGE_ASCEND,    VKL_E);
         addBind(imc, ACTION_FORGE_DESCEND,   VKL_Q);
         addBind(imc, ACTION_FORGE_BOOST,     VK_LSHIFT);

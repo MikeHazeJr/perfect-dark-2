@@ -477,13 +477,23 @@ void forgeTick(void)
 	}
 
 	/* Pending session-enter request: activate as soon as we're on a
-	 * gameplay stage with a current player wired up. */
+	 * gameplay stage with a current player wired up.
+	 *
+	 * P2 (2026-04-24): start the session in FREEFLY (Forge / edit) mode
+	 * so the user lands in the editor by default.  The previous
+	 * behaviour was to start in NORMAL (Playtest / inhabit) and require
+	 * a manual F7 toggle.  The Halo-style Back-button swap still drops
+	 * between Forge and Playtest in-place; this change just flips the
+	 * default entry mode.  forgeTransitionToFreefly snaps the camera to
+	 * the player's current pos / yaw / pitch, so there is no visual
+	 * jump on the first frame. */
 	if (s_forge.request_enter_session && stage_is_gameplay) {
 		struct player *p = forgeCurrentPlayer();
 		if (p) {
 			s_forge.request_enter_session = false;
-			forgeTransitionToNormal("session start (request)");
-			sysLogPrintf(LOG_NOTE, "GRID: session active stage=0x%02x", g_StageNum);
+			forgeTransitionToFreefly("session start (request)");
+			sysLogPrintf(LOG_NOTE, "GRID: session active stage=0x%02x (starting in FREEFLY)",
+					g_StageNum);
 		}
 	}
 

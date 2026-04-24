@@ -17,3 +17,29 @@ Tracks judgement calls made while Mike is away. Each decision is reviewable and 
 - Follow-up required from Mike: point at the specific stagenum he has in mind, or confirm that no bare-plane stage exists and one needs to be authored.
 - Timestamp: start of evening batch (revised before any commit)
 
+## Decision: Grid session default entry mode (Priority 2)
+- Context: Mike asked that "Enter The Grid" drops the user into Forge (edit) mode by default so they can customize the map before playtesting. Existing `forgeTick` transitioned sessions to NORMAL (Playtest) on start; the user had to press F7 to enter FREEFLY.
+- Choice: changed `forgeTick` to call `forgeTransitionToFreefly` on `request_enter_session` instead of `forgeTransitionToNormal`. Grid sessions now start in Forge mode.
+- Rationale: matches Mike's directive; `forgeTransitionToFreefly` calls `forgeSnapFreeflyToPlayer` so the camera snaps to the player's spawn position with zero visual jump.
+- Rollback: one-line revert in `src/game/forgemode.c::forgeTick` (change the `forgeTransitionTo...` call back to `Normal`).
+- Timestamp: ~00:10
+
+## Decision: Halo-style mode-toggle binding
+- Context: Mike asked for a Halo-style Back-button swap between Forge and Playtest. Project already binds gamepad Back to `ACTION_SCORECARD` (scoreboard overlay).
+- Options considered:
+  A. Remap `ACTION_SCORECARD` off Back entirely, dedicate Back to the Grid toggle.
+  B. Add a new `ACTION_GRID_MODE_TOGGLE` action, bind to Back; arbitrate between the two actions at tick time (skip scorecard when Grid is active).
+  C. Share the physical Back button: bind it to BOTH `ACTION_FORGE_TOGGLE` and `ACTION_SCORECARD` via the existing actionmap layer. Both edge-fire on the same press; `forgeTick` consumes the toggle only when a session is active, so non-Grid matches still get scorecard.
+- Choice: C.
+- Rationale: lowest-change path. Adds one line to `setupGameplayDefaults` (`addBind(imc, ACTION_FORGE_TOGGLE, JOY_BTN(0, JBTN_BACK))`). No new action, no arbitration code. Overlap is benign: a scorecard popup appearing briefly during a Grid toggle is not breaking, and in a solo Grid session with no match, the scorecard is a no-op.
+- Rollback: remove the single `addBind` line.
+- Timestamp: ~00:15
+
+## Decision: Playtest bot-HUD polish deferred
+- Context: Mike described a Playtest HUD exposing bot Add/Remove/Spawn/Freeze controls as an unobtrusive overlay so the author can spawn bots without toggling back to Forge.
+- Choice: defer. Playtest mode today shows only the mode badge (via `pdguiForgeHudRender`); the full editor overlay hides via the existing `forgeIsFreefly()` gate in `pdgui_forge_editor.cpp:1418`. The Bots tab is still reachable by toggling to Forge.
+- Rationale: the toggle semantics are the core of Priority 2; adding a Playtest bot HUD is a separate polish ticket that can go after P3-P5 foundation work lands, or based on Mike's playtest feedback. Per his "refactor gently" direction this is acceptable.
+- Rollback: n/a (nothing shipped; just deferred).
+- Follow-up: add a compact `pdguiForgeBotsQuickPanel` rendered only in NORMAL state, or extend `pdgui_forge_hud.cpp` with a small always-on bot-control strip.
+- Timestamp: ~00:20
+

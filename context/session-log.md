@@ -31,6 +31,23 @@ Blank Map is ESCALATED.  Mike asked for "the invalid-map fallback plane"; exhaus
 
 **Next:** Priority 2 — Forge ↔ Playtest mode toggle (Halo-style in-place swap, same stagenum / bots / variant).  Then P3-P5 per the foundation pass.
 
+### Priority 2 (this entry, landed) — Halo-style Forge <-> Playtest toggle
+
+Grid sessions now default to FREEFLY (Forge / edit) on entry, so "Enter The Grid" drops the user into the editor where they can customize the map before playtesting.  In-place mode toggle uses the existing `ACTION_FORGE_TOGGLE`; keyboard stays on F7 and a new gamepad binding on `JBTN_BACK` matches Halo's Back-button convention.
+
+Existing `forgemode.c` transitions already preserve position / orientation across swaps (FREEFLY writes the camera pos and yaw / pitch to the player prop every tick, so going FREEFLY -> NORMAL leaves the player body at the last freefly spot; going NORMAL -> FREEFLY snaps the camera to the player's current pos via `forgeSnapFreeflyToPlayer`).  Same stagenum, same bot roster, same variant — only the camera and input rig swap, as per the directive.
+
+Back button also fires `ACTION_SCORECARD` (existing binding).  During a Grid session the toggle fires and the scorecard pop-up is a benign no-op on a solo offline session.  See the evening decision log for why that overlap is acceptable.
+
+Playtest mode in this pass shows only the mode badge from `pdguiForgeHudRender`; the full editor overlay hides via the existing `forgeIsFreefly()` gate at `pdgui_forge_editor.cpp:1418`.  The compact in-Playtest bot-control HUD is deferred (decision-log entry "Playtest bot-HUD polish deferred") — the Bots tab is still reachable by toggling back to Forge.
+
+**Files touched (P2 pass):**
+- `src/game/forgemode.c` — `forgeTick::request_enter_session` branch now calls `forgeTransitionToFreefly` instead of `forgeTransitionToNormal`.
+- `port/src/actionmap.cpp` — added `JOY_BTN(0, JBTN_BACK)` binding on `ACTION_FORGE_TOGGLE`; rewrote the comment to document the swap.
+- `context/audits/evening-decisions-2026-04-23.md` — three new entries: default entry mode, Halo toggle binding, Playtest bot-HUD deferred.
+
+**Build:** clean incremental link on main working copy.
+
 ## Session S452 - 2026-04-23 - B-235 wrong head for Maian bots + MATCHSETUP config audit + cleanup
 
 **Context:** Mike ran a CS playtest and saw all 31 bots rendering with the President head on the Maian (elvis1) body. Smoketest log confirmed `MATCHSETUP: bot slot N: body='base:elvis1' head='base:head_president' mpbody=12 mphead=12` across all 31 slots.
