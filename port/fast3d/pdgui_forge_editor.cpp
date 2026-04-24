@@ -28,6 +28,7 @@
 #include "pdgui_forge.h"
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
+#include "system.h"  /* Issue 9 placeholder TODO log lines */
 
 extern "C" {
 #include "game/forgemode.h"
@@ -1364,51 +1365,106 @@ static void forgeDrawSettingsTab(void)
 /* S313 -- Persistent tab index so bumper navigation (LB/RB on gamepad,
  * keyboard PageUp/PageDown) can cycle through tabs without relying on
  * ImGui's tab-bar click state. */
+/* Issue 9 (2026-04-24): four-tab skeleton per Mike's spec.
+ *
+ * The editor's 9 original tabs are kept as draw functions but grouped
+ * into 4 top-level tabs for navigation:
+ *   Level    -> Lighting + Mission + (future) skybox / skylight / music
+ *   Objects  -> Catalog + Properties
+ *   Control  -> Logic + Zones
+ *   Gameplay -> Game Type + Bots
+ *   Setup    -> Settings (map metadata -- stays as a 5th tab rather
+ *               than folding under another category; accessed via
+ *               the tab-bar gear position).
+ *
+ * Each top-level tab draws one or more existing section bodies in
+ * sequence with ImGui::SeparatorText between them.  Skybox / skylight /
+ * background-music placeholders live inline in the Level tab draw and
+ * emit TODO-marked log lines when their control widgets fire so the
+ * handlers can be filled in iteratively without a big-bang rewrite. */
 enum {
-	FGT_CATALOG = 0,
-	FGT_PROPS,
-	FGT_ZONES,
-	FGT_LIGHTING,
-	FGT_LOGIC,
-	FGT_GAMETYPE,
-	FGT_MISSION,
-	FGT_BOTS,
-	FGT_SETTINGS,
+	FGT_LEVEL = 0,
+	FGT_OBJECTS,
+	FGT_CONTROL,
+	FGT_GAMEPLAY,
+	FGT_SETUP,
 	FGT_COUNT
 };
 
-static int s_forge_active_tab = FGT_CATALOG;
+static int s_forge_active_tab = FGT_OBJECTS;
 static int s_forge_tab_set_request = -1; /* -1 = free, else force-set to this tab this frame */
 
 static const char *forgeTabLabel(int idx)
 {
 	switch (idx) {
-	case FGT_CATALOG:  return "Catalog";
-	case FGT_PROPS:    return "Properties";
-	case FGT_ZONES:    return "Zones";
-	case FGT_LIGHTING: return "Lighting";
-	case FGT_LOGIC:    return "Logic";
-	case FGT_GAMETYPE: return "Game Type";
-	case FGT_MISSION:  return "Mission";
-	case FGT_BOTS:     return "Bots";
-	case FGT_SETTINGS: return "Settings";
+	case FGT_LEVEL:    return "Level";
+	case FGT_OBJECTS:  return "Objects";
+	case FGT_CONTROL:  return "Control";
+	case FGT_GAMEPLAY: return "Gameplay";
+	case FGT_SETUP:    return "Setup";
 	default:           return "?";
+	}
+}
+
+/* Issue 9 placeholder: Level-tab "skybox / skylight / background music"
+ * controls.  Scaffolded so authors see the surface now; each control
+ * fires a TODO log line to make the wiring path obvious when the
+ * handlers land. */
+static void forgeDrawLevelExtrasPlaceholder(void)
+{
+	ImGui::SeparatorText("Skybox / Skylight / Background Music  (scaffold)");
+	ImGui::TextWrapped(
+		"Level-ambience controls will live here.  Skybox selection, "
+		"skylight direction + colour, and match background music pick "
+		"currently fire TODO-marked log lines; handlers land in a "
+		"later iteration.");
+	ImGui::Spacing();
+	if (ImGui::Button("Pick Skybox... [TODO]", ImVec2(-1, 0))) {
+		sysLogPrintf(LOG_NOTE, "GRID.LEVEL: TODO skybox picker clicked");
+	}
+	if (ImGui::Button("Edit Skylight... [TODO]", ImVec2(-1, 0))) {
+		sysLogPrintf(LOG_NOTE, "GRID.LEVEL: TODO skylight editor clicked");
+	}
+	if (ImGui::Button("Pick Background Music... [TODO]", ImVec2(-1, 0))) {
+		sysLogPrintf(LOG_NOTE, "GRID.LEVEL: TODO background music picker clicked");
 	}
 }
 
 static void forgeDrawActiveTab(int idx)
 {
 	switch (idx) {
-	case FGT_CATALOG:  forgeDrawCatalogTab();    break;
-	case FGT_PROPS:    forgeDrawPropertiesTab(); break;
-	case FGT_ZONES:    forgeDrawZonesTab();      break;
-	case FGT_LIGHTING: forgeDrawLightingTab();   break;
-	case FGT_LOGIC:    forgeDrawLogicTab();      break;
-	case FGT_GAMETYPE: forgeDrawGameTypeTab();   break;
-	case FGT_MISSION:  forgeDrawMissionTab();    break;
-	case FGT_BOTS:     forgeDrawBotsTab();       break;
-	case FGT_SETTINGS: forgeDrawSettingsTab();   break;
-	default: break;
+	case FGT_LEVEL:
+		/* Level = Lighting + Mission + skybox/music placeholder. */
+		forgeDrawLightingTab();
+		ImGui::Separator();
+		forgeDrawMissionTab();
+		ImGui::Separator();
+		forgeDrawLevelExtrasPlaceholder();
+		break;
+	case FGT_OBJECTS:
+		/* Objects = Catalog + Properties. */
+		forgeDrawCatalogTab();
+		ImGui::Separator();
+		forgeDrawPropertiesTab();
+		break;
+	case FGT_CONTROL:
+		/* Control = Logic + Zones. */
+		forgeDrawLogicTab();
+		ImGui::Separator();
+		forgeDrawZonesTab();
+		break;
+	case FGT_GAMEPLAY:
+		/* Gameplay = Game Type + Bots. */
+		forgeDrawGameTypeTab();
+		ImGui::Separator();
+		forgeDrawBotsTab();
+		break;
+	case FGT_SETUP:
+		/* Setup = Settings (map metadata). */
+		forgeDrawSettingsTab();
+		break;
+	default:
+		break;
 	}
 }
 

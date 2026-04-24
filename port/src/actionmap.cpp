@@ -1948,6 +1948,14 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_FORGE_TOGGLE,    JOY_BTN(0, JBTN_BACK));
         addBind(imc, ACTION_FORGE_ASCEND,    VKL_E);
         addBind(imc, ACTION_FORGE_DESCEND,   VKL_Q);
+        /* Issue 8 (2026-04-24): LT / RT on the gamepad raise and lower
+         * the freefly camera.  forgeReadFreeflyInput reads these actions
+         * held each tick while in FREEFLY; they never trigger bwalk
+         * movement because the player movemode is MOVEMODE_CUTSCENE.
+         * In a regular match they fire nothing because
+         * forgeSessionIsActive() is false. */
+        addBind(imc, ACTION_FORGE_ASCEND,    JOY_BTN(0, JOFS_RTRIG));
+        addBind(imc, ACTION_FORGE_DESCEND,   JOY_BTN(0, JOFS_LTRIG));
         addBind(imc, ACTION_FORGE_BOOST,     VK_LSHIFT);
         addBind(imc, ACTION_FORGE_PRECISION, VK_LCTRL);
     }
