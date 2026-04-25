@@ -8,6 +8,7 @@
 #include "game/atan2f.h"
 #include "game/modelmgr.h"
 #include "game/lv.h"
+#include "game/forgemode.h"
 #include "game/modeldef.h"
 #include "game/mplayer/mplayer.h"
 #include "game/pad.h"
@@ -453,6 +454,20 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 	s32 index;
 	const char *body_canon;
 	const char *head_canon;
+
+	/* B-254 (2026-04-25): canvas-mode chr-spawn gate at the function-API
+	 * level (defense in depth).  setupCreateProps already short-circuits
+	 * the OBJTYPE_CHR case when forgeIsCanvasMode() is true, but any
+	 * future path that calls bodyAllocateChr from outside the setup loop
+	 * (e.g. AI-script-driven dynamic spawns, mod content) will hit this
+	 * guard.  In canvas mode we suppress NPC creation regardless of the
+	 * caller. */
+	if (forgeIsCanvasMode()) {
+		sysLogPrintf(LOG_NOTE,
+			"GRID.CANVAS: bodyAllocateChr(stagenum=0x%02x cmdindex=%d) suppressed",
+			stagenum, cmdindex);
+		return;
+	}
 
 	padUnpack(packed->padnum, PADFIELD_POS | PADFIELD_LOOK | PADFIELD_ROOM, &pad);
 

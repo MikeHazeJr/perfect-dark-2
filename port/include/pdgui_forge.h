@@ -25,6 +25,13 @@ extern "C" {
 s32 pdguiForgeStartSession(void);
 s32 pdguiForgeStartSessionOn(s32 stagenum);
 
+/** B-254 (2026-04-25): begin a forge session on a SP campaign stage as a
+ *  build canvas. Setup-time chr / AI / script paths suppress mission
+ *  state via forgeIsCanvasMode().  Entry pre-conditions match
+ *  pdguiForgeStartSessionOn (no pending stage transition; stagenum is
+ *  Grid-eligible).  Returns 1 on success, 0 on rejection. */
+s32 pdguiForgeStartSessionOnCanvas(s32 stagenum);
+
 /** HUD overlay (F0 shell + F1+ live readouts). */
 void pdguiForgeHudRender(s32 winW, s32 winH);
 

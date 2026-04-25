@@ -166,6 +166,11 @@ typedef enum {
 /** Sentinel ref_count for bundled assets: never evicted from memory. */
 #define ASSET_REF_BUNDLED 0x7FFFFFFF
 
+/* B-254 (2026-04-25): Grid arena load mode.  Stored in
+ * asset_entry.ext.arena.load_mode.  See the comment on that field. */
+#define ARENA_LOADMODE_PLAYABLE 0
+#define ARENA_LOADMODE_CANVAS   1
+
 /* ========================================================================
  * Asset Entry Structure
  * ======================================================================== */
@@ -219,6 +224,17 @@ typedef struct asset_entry {
             s32 stagenum;              /* logical stage ID this arena loads */
             u8  requirefeature;        /* unlock check (0 = always available) */
             s32 name_langid;           /* language string ID for display name */
+            /* B-254 (2026-04-25): how a Grid arena entry loads its stage.
+             *   ARENA_LOADMODE_PLAYABLE (0) -- normal MP arena: scripts /
+             *      AI / NPCs / cutscenes run as authored. Default.
+             *   ARENA_LOADMODE_CANVAS (1) -- SP campaign mission used as
+             *      a build canvas: geometry + lighting + physical doors
+             *      load, but mission scripts / chr spawns / cutscene
+             *      intros / objective markers are suppressed. Set on
+             *      campaign-class stagenums when registered as Grid
+             *      arenas so the user can fly around without anything
+             *      triggering / dying / cutscenes playing. */
+            u8  load_mode;
         } arena;
         struct {
             s16 bodynum;               /* global body ID in g_HeadsAndBodies[] */

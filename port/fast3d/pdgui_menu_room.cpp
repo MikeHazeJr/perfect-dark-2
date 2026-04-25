@@ -2707,16 +2707,56 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
 
     ImGui::Spacing();
 
-    /* Sub-screen buttons: Handicaps (U-2) and Team Setup (U-3) */
+    /* Priority L (2026-04-25, finish-menus pass): Handicaps now renders
+     * INLINE as a CollapsingHeader inside Match Settings rather than
+     * pushing a separate modal dialog.  Per Mike's flat-menu rule 6,
+     * settings panels that aren't confirmations should be inline rows.
+     * The slider grid is small enough to fit comfortably here.  Teams
+     * and Music keep their modal pushes under the methodology rule 6
+     * "own focus model" exception (multi-team color/name editor with
+     * per-slot reassignment / large library + playlist editor).  See
+     * context/audits/flat-menu-navigation-audit-2026-04-25.md and
+     * context/designs/flat-menu-navigation.md. */
     {
         float subBtnW = comboW;
         float subBtnH = pdguiScale(36.0f);
 
         if (!leader) ImGui::BeginDisabled();
-        if (ImGui::Button("Player Handicaps...", ImVec2(subBtnW, subBtnH))) {
-            menuPushDialog(&g_MpHandicapsMenuDialog);
-            pdguiPlaySound(PDGUI_SND_SELECT);
+
+        /* Player Handicaps -- inline as CollapsingHeader. */
+        if (ImGui::CollapsingHeader("Player Handicaps")) {
+            ImGui::Indent();
+            int playerSlot = 0;
+            bool anyPlayerSlot = false;
+            for (int i = 0; i < (int)g_MatchConfig.numSlots; i++) {
+                if (g_MatchConfig.slots[i].type != SLOT_PLAYER) continue;
+                anyPlayerSlot = true;
+                ImGui::PushID(playerSlot);
+                const char *pname = g_MatchConfig.slots[i].name;
+                if (!pname || !pname[0]) pname = "Player";
+                u8 h = matchGetPlayerHandicap(playerSlot);
+                int pct = ((int)h * 100) / 128;
+                char rowLabel[64];
+                snprintf(rowLabel, sizeof(rowLabel), "P%d: %s",
+                         playerSlot + 1, pname);
+                if (pdguiSliderInt(rowLabel, &pct, 0, 200, "%d%%")) {
+                    u8 raw = (u8)(((int)pct * 128) / 100);
+                    if (pct > 0 && raw == 0) raw = 1;
+                    matchSetPlayerHandicap(playerSlot, raw);
+                    s_RoomSettingsDirty = true;
+                }
+                ImGui::PopID();
+                playerSlot++;
+            }
+            if (!anyPlayerSlot) {
+                ImGui::TextDisabled("No human player slots in this match.");
+            }
+            ImGui::Unindent();
         }
+
+        /* Team Setup keeps modal -- multi-team naming + per-slot
+         * reassignment grid has its own focus model per the methodology
+         * rule 6 exception. */
         if (ImGui::Button("Team Setup...", ImVec2(subBtnW, subBtnH))) {
             menuPushDialog(&g_MpTeamsMenuDialog);
             pdguiPlaySound(PDGUI_SND_SELECT);

@@ -96,6 +96,17 @@ typedef struct forge_module {
 	 * (e.g. Mission Failed -> CI hub, script-driven mainChangeToStage, etc.)
 	 * and tear down cleanly. -1 = no session active. */
 	s32 session_stagenum;
+	/* B-254 (2026-04-25): canvas mode flag.  When true, the active session
+	 * was launched on a SP campaign stage as a build canvas; setup-time
+	 * chr / AI / script paths consult forgeIsCanvasMode() and short-circuit
+	 * to keep the stage's authored mission state from running.  Cleared
+	 * when the session transitions to INACTIVE. */
+	bool canvas_mode;
+	/* B-254 (2026-04-25): mirror of canvas_mode at request time, before the
+	 * session has activated (request_enter_session is true but state is
+	 * still INACTIVE).  Latched into canvas_mode at activation in
+	 * forgeTick. */
+	bool request_canvas_mode;
 } forge_module_t;
 
 static forge_module_t s_forge;
@@ -486,6 +497,8 @@ static void forgeTransitionToInactive(const char *reason)
 	s_forge.state = FORGE_SESSION_INACTIVE;
 	s_forge.request_enter_session = false;
 	s_forge.session_stagenum = -1;  /* B-245: clear so next session captures fresh stagenum */
+	s_forge.canvas_mode = false;        /* B-254: clear canvas latch on session end */
+	s_forge.request_canvas_mode = false;
 
 	/* Issue 8b + AUDIT-24-H2/H3: ensure both Forge IMCs are released
 	 * when the session ends through any path (stage-left-gameplay
@@ -522,6 +535,8 @@ void forgeInit(void)
 	s_forge.state = FORGE_SESSION_INACTIVE;
 	s_forge.request_enter_session = false;
 	s_forge.session_stagenum = -1;  /* B-245: no session active at init */
+	s_forge.canvas_mode = false;          /* B-254: canvas inactive at init */
+	s_forge.request_canvas_mode = false;
 	s_forge.fly.pos.x = 0.0f;
 	s_forge.fly.pos.y = 0.0f;
 	s_forge.fly.pos.z = 0.0f;
@@ -543,7 +558,15 @@ void forgeInit(void)
 void forgeRequestEnterSession(void)
 {
 	s_forge.request_enter_session = true;
+	s_forge.request_canvas_mode = false;
 	sysLogPrintf(LOG_NOTE, "GRID: enter requested (will activate on gameplay stage load)");
+}
+
+void forgeRequestEnterSessionCanvas(void)
+{
+	s_forge.request_enter_session = true;
+	s_forge.request_canvas_mode = true;
+	sysLogPrintf(LOG_NOTE, "GRID: enter requested in CANVAS mode (will activate on gameplay stage load)");
 }
 
 void forgeExitSession(void)
@@ -568,6 +591,11 @@ s32 forgeSessionIsActive(void)
 s32 forgeIsFreefly(void)
 {
 	return (s_forge.state == FORGE_SESSION_FREEFLY) ? 1 : 0;
+}
+
+s32 forgeIsCanvasMode(void)
+{
+	return (s_forge.state != FORGE_SESSION_INACTIVE && s_forge.canvas_mode) ? 1 : 0;
 }
 
 void forgeGetCameraPos(struct coord *out_pos)
@@ -646,6 +674,19 @@ void forgeTick(void)
 		return;
 	}
 
+	/* B-244 (2026-04-25): tear down on endscreen. Mission Failed / mainEndStage
+	 * sets g_MainIsEndscreen = 1 BEFORE the actual stage transition fires
+	 * (mainChangeToStage runs later, after endscreen dismiss). During that
+	 * window the stagenum watchdog below cannot fire because g_StageNum is
+	 * still the session stage, but the user is at the Mission Failed screen
+	 * and trying to use Abort / Restart. If we leave the forge IMCs active,
+	 * they intercept gamepad input intended for the endscreen menu and
+	 * Abort / Restart go nowhere. Tear down as soon as endscreen flips on. */
+	if (s_forge.state != FORGE_SESSION_INACTIVE && g_MainIsEndscreen) {
+		forgeTransitionToInactive("endscreen active");
+		return;
+	}
+
 	/* B-245 (2026-04-25): Mission-Failed -> CI Restart and other unexpected
 	 * stage transitions can move the player to a *different* gameplay stage
 	 * than the one the Grid session was started on. STAGE_CITRAINING is a
@@ -684,6 +725,14 @@ void forgeTick(void)
 		struct player *p = forgeCurrentPlayer();
 		if (p) {
 			s_forge.request_enter_session = false;
+			/* B-254 (2026-04-25): latch canvas-mode request now that the
+			 * session is going active. Cleared in forgeTransitionToInactive. */
+			s_forge.canvas_mode = s_forge.request_canvas_mode;
+			s_forge.request_canvas_mode = false;
+			if (s_forge.canvas_mode) {
+				sysLogPrintf(LOG_NOTE, "GRID: session activating in CANVAS mode (stage=0x%02x)",
+						(u32)g_StageNum);
+			}
 			/* AUDIT-24-H2: activate the whole-session IMC BEFORE the
 			 * FREEFLY transition. This puts JBTN_BACK -> FORGE_TOGGLE
 			 * on the wire as soon as the session is live, so the

@@ -349,6 +349,27 @@ void pdguiInit(void *sdlWindow)
     /* M0.2 Phase C: ImGui's built-in gamepad nav is disabled.
      * pdguiDriveImGuiNav() now injects nav events from actionmap each frame. */
 
+    /* Priority K-c (2026-04-25): make inputCtxSyncMouseMode the SOLE
+     * SDL_ShowCursor authority.  ImGui_ImplSDL2_UpdateMouseCursor reads
+     * io.MouseDrawCursor + the active ImGui cursor every NewFrame and
+     * calls SDL_ShowCursor independently; that fought inputCtxSyncMouseMode
+     * which runs at end-of-frame off the input-context stack top.  In
+     * gameplay both authorities pointed at "hide cursor" via different
+     * paths and happened to agree (relative-mouse mode hid the cursor
+     * regardless), but at gameplay->menu transitions they disagreed for
+     * one frame producing the Issue 3 cursor flicker / pause-menu RMB-
+     * only navigation symptom.
+     *
+     * NoMouseCursorChange short-circuits the SDL backend's cursor
+     * visibility logic at imgui_impl_sdl2.cpp:631-632, leaving the OS
+     * cursor visibility decision entirely to inputCtxSyncMouseMode in
+     * port/src/inputctx.c.  We lose ImGui's cursor-shape switching
+     * (resize handles etc.) which we don't surface anyway.
+     *
+     * See context/audits/input-authority-discipline-2026-04-25.md
+     * section G + context/designs/input-authority-methodology.md. */
+    io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+
     /* S309: don't persist ImGui window state to imgui.ini — per-agent
      * prefs own window visibility / selection, and imgui.ini has been a
      * source of "why did the dev menu open at a weird size?" reports.
@@ -465,6 +486,47 @@ static void pdguiDriveImGuiNav(void)
         if (mouseBackHeld != s_MouseBackHeld) {
             io.AddKeyEvent(ImGuiKey_Escape, mouseBackHeld);
             s_MouseBackHeld = mouseBackHeld;
+        }
+    }
+
+    /* Priority L Rule 7 (2026-04-25): right-stick Y smoothly scrolls the
+     * focused (NavWindow) scrollable region in any menu.  Reads the
+     * analog right-stick Y axis via the actionmap, applies deadzone +
+     * non-linear response, and writes directly to the NavWindow's
+     * Scroll.y via the ImGui internal API.
+     *
+     * - Smooth: scroll delta is proportional to deflection (analog) and
+     *   to the frame's lvupdate60 (frame-rate independent).
+     * - System-wide: applies to any menu with a scrollable region as
+     *   long as ImGui's nav has settled on that window.
+     * - Stick X-axis: not consumed here (left for menu-specific
+     *   horizontal nav, otherwise no-op).
+     *
+     * Suppressed when gameplay is the input authority (no menu open) so
+     * we don't fight the gameplay aim path. */
+    if (gameplayInputSuppressed()) {
+        f32 axX = 0.0f, axY = 0.0f;
+        actionAxis(0, ACTION_AXIS_AIM_X, &axX, &axY);
+        /* Deadzone matches the actionmap stick deadzone roughly; values
+         * inside [-0.18, 0.18] are noise. */
+        const f32 deadzone = 0.18f;
+        f32 mag = (axY < 0.0f) ? -axY : axY;
+        if (mag > deadzone) {
+            f32 dir = (axY < 0.0f) ? -1.0f : 1.0f;
+            /* Non-linear response: square the past-deadzone fraction so
+             * small deflections scroll slowly and full deflection feels
+             * fast. Speed unit is "pixels per frame at 60 Hz". */
+            f32 t = (mag - deadzone) / (1.0f - deadzone);
+            const f32 maxPxPerFrame = 28.0f;
+            f32 deltaY = dir * t * t * maxPxPerFrame;
+            ImGuiContext *ctx = ImGui::GetCurrentContext();
+            if (ctx && ctx->NavWindow && ctx->NavWindow->ScrollMax.y > 0.0f) {
+                ImGuiWindow *w = ctx->NavWindow;
+                f32 newY = w->Scroll.y + deltaY;
+                if (newY < 0.0f) newY = 0.0f;
+                if (newY > w->ScrollMax.y) newY = w->ScrollMax.y;
+                ImGui::SetScrollY(w, newY);
+            }
         }
     }
 }

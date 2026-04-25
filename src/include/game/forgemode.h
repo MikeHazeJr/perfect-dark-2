@@ -59,6 +59,16 @@ void forgeTick(void);
  *  forgeTick consumes the request once g_StageNum becomes a gameplay stage. */
 void forgeRequestEnterSession(void);
 
+/** B-254 (2026-04-25): mark "enter forge session in CANVAS mode".  Same as
+ *  forgeRequestEnterSession but additionally sets the canvas-mode flag so
+ *  setup-time chr/AI/script creation paths suppress NPC spawns, mission
+ *  triggers, scripted door behaviors, cutscene intros, and objective
+ *  markers.  Geometry, lighting, doors-as-physical-objects, and vehicles-
+ *  as-static-props still load.  Used when a SP campaign mission is picked
+ *  as a Grid build canvas (catalog entry has
+ *  ext.arena.load_mode == ARENA_LOADMODE_CANVAS). */
+void forgeRequestEnterSessionCanvas(void);
+
 /** Force-exit the session immediately.  Restores the player's prior
  *  bondmovemode if FREEFLY was active.  Safe to call from any context.
  *  Called automatically from forgeTick when leaving gameplay. */
@@ -75,6 +85,13 @@ forge_session_state_t forgeGetSessionState(void);
  *  native bool with a different size). */
 s32 forgeSessionIsActive(void);  /* state != INACTIVE */
 s32 forgeIsFreefly(void);        /* state == FREEFLY  */
+
+/** B-254 (2026-04-25): true when the active session is in CANVAS mode.
+ *  Setup-time and per-tick callers query this to suppress mission-side
+ *  effects (chr spawns, scripts, cutscenes, objective markers) while
+ *  preserving geometry / lighting / doors / static vehicles.  Returns
+ *  0 outside a canvas session. */
+s32 forgeIsCanvasMode(void);
 
 /* ============================================================
  * Free-fly camera state (read-only access for HUD / debug)

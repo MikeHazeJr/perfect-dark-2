@@ -4268,6 +4268,9 @@ struct GridArenaEntry {
     s32               stagenum;
     GridArenaCategory category;
     bool              is_blank;   /* true for the synthetic Blank Map row */
+    /* B-254 (2026-04-25): mirror of asset_entry.ext.arena.load_mode.
+     * 0 = ARENA_LOADMODE_PLAYABLE, 1 = ARENA_LOADMODE_CANVAS. */
+    u8                load_mode;
 };
 
 static GridArenaEntry *s_GridArenas = NULL;
@@ -4276,14 +4279,32 @@ static int             s_GridArenaCapacity = 0;
 static bool            s_GridArenasBuilt = false;
 static int             s_GridSelectedArena = 0;
 
+/* AUDIT-24-M6 (2026-04-25): scenarios are catalog-driven; the built
+ * flag and dynamic storage are co-located with the arena counterparts
+ * so `pdguiGridArenasInvalidate` (declared next) can reset both. */
+struct GridScenarioEntry {
+    char id[64];
+    char label[80];
+    bool teams; /* team-based default */
+};
+static GridScenarioEntry *s_GridScenarios = NULL;
+static int                s_GridScenarioCount = 0;
+static int                s_GridScenarioCapacity = 0;
+static bool               s_GridScenariosBuilt = false;
+
 /* AUDIT-24-M7 (2026-04-25): clear the built-flag so the next render
  * rebuilds the Grid arena list from the current catalog state.  Called
  * from `modmgrCatalogChanged()` whenever a mod is enabled / disabled /
  * scanned, so mod-authored arenas appear in the picker without a
- * process restart. */
+ * process restart.
+ *
+ * AUDIT-24-M6 (2026-04-25): scenarios share the same invalidation hook
+ * because they're both catalog-driven; mod-authored game modes also
+ * become visible without a restart. */
 extern "C" void pdguiGridArenasInvalidate(void)
 {
     s_GridArenasBuilt = false;
+    s_GridScenariosBuilt = false;
 }
 
 static GridArenaCategory gridClassifyCategory(const char *cat)
@@ -4317,24 +4338,15 @@ static bool  s_GridTeamsOn     = false;
 static bool  s_GridOneHitKills = false;
 static bool  s_GridSlowMotion  = false;
 
-struct GridScenarioEntry {
-    const char *id;    /* catalog ID (NULL sentinel) */
-    const char *label;
-    bool        teams; /* team-based default */
-};
-
-/* Base Combat Simulator scenarios.  Matches
- * port/src/assetcatalog_base_extended.c::s_BaseGameModes. */
-static const GridScenarioEntry s_GridScenarios[] = {
-    { "base:combat",             "Combat",              false },
-    { "base:hold_the_briefcase", "Hold the Briefcase",  false },
-    { "base:hacker_central",     "Hacker Central",      false },
-    { "base:pop_a_cap",          "Pop a Cap",           false },
-    { "base:king_of_the_hill",   "King of the Hill",    true  },
-    { "base:capture_the_case",   "Capture the Case",    true  },
-};
-static const int s_GridScenarioCount =
-    (int)(sizeof(s_GridScenarios) / sizeof(s_GridScenarios[0]));
+/* AUDIT-24-M6 (2026-04-25): Grid scenarios are now sourced from the
+ * catalog via assetCatalogIterateByType(ASSET_GAMEMODE, ...).  The
+ * prior hardcoded `s_GridScenarios[]` was a parallel table to
+ * `s_BaseGameModes` in port/src/assetcatalog_base_extended.c -- mod-
+ * authored scenarios never appeared in the picker.  The dynamic
+ * collector + invalidation hook (modmgrCatalogChanged) makes the
+ * picker reflect the current catalog state.
+ * Storage declared further up (alongside arenas) so the invalidate
+ * function can reset both with a single forward declaration. */
 
 static void gridArenaCollect(const asset_entry_t *e, void *userdata)
 {
@@ -4383,6 +4395,7 @@ static void gridArenaCollect(const asset_entry_t *e, void *userdata)
     a->stagenum = (s32)e->ext.arena.stagenum;
     a->category = gridClassifyCategory(e->category);
     a->is_blank = false;
+    a->load_mode = e->ext.arena.load_mode;
 
     s_GridArenaCount++;
 }
@@ -4430,6 +4443,82 @@ static void gridArenaListBuild(void)
                  s_GridArenaCount);
     if (s_GridSelectedArena >= s_GridArenaCount) s_GridSelectedArena = 0;
     s_GridArenasBuilt = true;
+}
+
+/* AUDIT-24-M6 (2026-04-25): catalog-driven scenarios collector.
+ * Replaces the static `s_GridScenarios[]` table that was a parallel
+ * to assetcatalog_base_extended.c::s_BaseGameModes; mod-authored
+ * gametype entries are now picked up automatically. */
+static void gridScenarioCollect(const asset_entry_t *e, void *userdata)
+{
+    (void)userdata;
+    if (!e || e->type != ASSET_GAMEMODE) return;
+
+    if (s_GridScenarioCount >= s_GridScenarioCapacity) {
+        int newCap = (s_GridScenarioCapacity == 0) ? 8 : s_GridScenarioCapacity * 2;
+        GridScenarioEntry *newBuf = (GridScenarioEntry *)realloc(
+                s_GridScenarios, (size_t)newCap * sizeof(GridScenarioEntry));
+        if (!newBuf) {
+            sysLogPrintf(LOG_WARNING, "GRID.MENU: scenario list realloc failed at %d",
+                         s_GridScenarioCount);
+            return;
+        }
+        s_GridScenarios = newBuf;
+        s_GridScenarioCapacity = newCap;
+    }
+
+    GridScenarioEntry *sc = &s_GridScenarios[s_GridScenarioCount];
+    /* Catalog ID is the wire-stable identity; label is the user-facing
+     * display name from the catalog's `name` field with a sensible fall
+     * back for entries the catalog author left blank. */
+    strncpy(sc->id, e->id, sizeof(sc->id) - 1);
+    sc->id[sizeof(sc->id) - 1] = '\0';
+    const char *lbl = e->ext.gamemode.name[0] ? e->ext.gamemode.name : e->id;
+    strncpy(sc->label, lbl, sizeof(sc->label) - 1);
+    sc->label[sizeof(sc->label) - 1] = '\0';
+    sc->teams = (e->ext.gamemode.team_based != 0);
+
+    s_GridScenarioCount++;
+}
+
+static int gridScenarioCompare(const void *a, const void *b)
+{
+    /* "Combat" first if present (the canonical default), otherwise
+     * alphabetical by display label.  Stable order so the picker doesn't
+     * jump on each rebuild. */
+    const GridScenarioEntry *ea = (const GridScenarioEntry *)a;
+    const GridScenarioEntry *eb = (const GridScenarioEntry *)b;
+    bool aIsCombat = (strcmp(ea->id, "base:combat") == 0);
+    bool bIsCombat = (strcmp(eb->id, "base:combat") == 0);
+    if (aIsCombat != bIsCombat) return aIsCombat ? -1 : 1;
+    return strcasecmp(ea->label, eb->label);
+}
+
+static void gridScenarioListBuild(void)
+{
+    free(s_GridScenarios);
+    s_GridScenarios = NULL;
+    s_GridScenarioCount = 0;
+    s_GridScenarioCapacity = 0;
+
+    assetCatalogIterateByType(ASSET_GAMEMODE, gridScenarioCollect, NULL);
+
+    if (s_GridScenarioCount > 1) {
+        qsort(s_GridScenarios, (size_t)s_GridScenarioCount, sizeof(GridScenarioEntry),
+              gridScenarioCompare);
+    }
+
+    sysLogPrintf(LOG_NOTE, "GRID.MENU: scenario list built (%d entries)",
+                 s_GridScenarioCount);
+    if (s_GridScenarioIdx >= s_GridScenarioCount) s_GridScenarioIdx = 0;
+    s_GridScenariosBuilt = true;
+}
+
+static void gridScenarioListEnsure(void)
+{
+    if (!s_GridScenariosBuilt) {
+        gridScenarioListBuild();
+    }
 }
 
 /* Apply the submenu state to g_MatchConfig and call
@@ -4491,13 +4580,24 @@ static bool gridCommitEnter(void)
     }
     g_MatchConfig.stagenum = (u8)commit_stagenum;
 
-    if (s_GridScenarioIdx < 0 || s_GridScenarioIdx >= s_GridScenarioCount) {
-        s_GridScenarioIdx = 0;
+    /* AUDIT-24-M6: scenarios are now catalog-driven; ensure the list is
+     * built before reading from it. */
+    gridScenarioListEnsure();
+    if (s_GridScenarioCount <= 0) {
+        sysLogPrintf(LOG_WARNING,
+            "GRID.MENU: no scenarios registered in catalog; defaulting to base:combat");
+        strncpy(g_MatchConfig.scenario_id, "base:combat",
+                sizeof(g_MatchConfig.scenario_id) - 1);
+        g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
+    } else {
+        if (s_GridScenarioIdx < 0 || s_GridScenarioIdx >= s_GridScenarioCount) {
+            s_GridScenarioIdx = 0;
+        }
+        const GridScenarioEntry *sc = &s_GridScenarios[s_GridScenarioIdx];
+        strncpy(g_MatchConfig.scenario_id, sc->id,
+                sizeof(g_MatchConfig.scenario_id) - 1);
+        g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
     }
-    const GridScenarioEntry *sc = &s_GridScenarios[s_GridScenarioIdx];
-    strncpy(g_MatchConfig.scenario_id, sc->id,
-            sizeof(g_MatchConfig.scenario_id) - 1);
-    g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
 
     g_MatchConfig.timelimit       = (u8)(s_GridTimeLimit & 0xff);
     g_MatchConfig.scorelimit      = (u8)(s_GridScoreLimit & 0xff);
@@ -4516,11 +4616,19 @@ static bool gridCommitEnter(void)
             "GRID.MENU: enter map='%s' stagenum=0x%02x scenario='%s' "
             "tl=%d sl=%d teams=%d ohk=%d slo=%d",
             a->is_blank ? "(blank)" : a->name, (u32)a->stagenum,
-            sc->id, s_GridTimeLimit, s_GridScoreLimit,
+            g_MatchConfig.scenario_id, s_GridTimeLimit, s_GridScoreLimit,
             (int)s_GridTeamsOn, (int)s_GridOneHitKills, (int)s_GridSlowMotion);
 
     /* Hand off.  pdguiForgeStartSessionOn calls mainChangeToStage when the
-     * current stage differs; forgemode activates on next tick. */
+     * current stage differs; forgemode activates on next tick.
+     *
+     * B-254 (2026-04-25): catalog-keyed dispatch.  Arenas registered with
+     * load_mode == ARENA_LOADMODE_CANVAS route to the canvas variant so
+     * setup-time chr / AI / script paths suppress mission state.
+     * Default (PLAYABLE) is unchanged. */
+    if (a->load_mode == ARENA_LOADMODE_CANVAS) {
+        return pdguiForgeStartSessionOnCanvas(a->stagenum) != 0;
+    }
     return pdguiForgeStartSessionOn(a->stagenum) != 0;
 }
 
@@ -4581,21 +4689,27 @@ static void renderGridSubmenu(float scale, float buttonW, float buttonH,
      * ---------------------------------------------------------------- */
     ImGui::SeparatorText("Variant");
 
-    if (s_GridScenarioIdx < 0 || s_GridScenarioIdx >= s_GridScenarioCount) {
-        s_GridScenarioIdx = 0;
-    }
-    const char *preview = s_GridScenarios[s_GridScenarioIdx].label;
-    ImGui::SetNextItemWidth(buttonW);
-    if (ImGui::BeginCombo("Gametype", preview)) {
-        for (int i = 0; i < s_GridScenarioCount; i++) {
-            const bool sel = (i == s_GridScenarioIdx);
-            if (ImGui::Selectable(s_GridScenarios[i].label, sel)) {
-                s_GridScenarioIdx = i;
-                /* Auto-flip teams on when picking a team-based mode. */
-                if (s_GridScenarios[i].teams) s_GridTeamsOn = true;
-            }
+    /* AUDIT-24-M6: scenarios are catalog-driven; ensure built. */
+    gridScenarioListEnsure();
+    if (s_GridScenarioCount <= 0) {
+        ImGui::TextDisabled("(no scenarios registered in catalog)");
+    } else {
+        if (s_GridScenarioIdx < 0 || s_GridScenarioIdx >= s_GridScenarioCount) {
+            s_GridScenarioIdx = 0;
         }
-        ImGui::EndCombo();
+        const char *preview = s_GridScenarios[s_GridScenarioIdx].label;
+        ImGui::SetNextItemWidth(buttonW);
+        if (ImGui::BeginCombo("Gametype", preview)) {
+            for (int i = 0; i < s_GridScenarioCount; i++) {
+                const bool sel = (i == s_GridScenarioIdx);
+                if (ImGui::Selectable(s_GridScenarios[i].label, sel)) {
+                    s_GridScenarioIdx = i;
+                    /* Auto-flip teams on when picking a team-based mode. */
+                    if (s_GridScenarios[i].teams) s_GridTeamsOn = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
     }
 
     ImGui::SetNextItemWidth(buttonW);
@@ -5349,6 +5463,29 @@ static s32 renderMainMenu(struct menudialog *dialog,
          * or by the leave-side flag below. */
         if (s_PrevView == 2 && s_MenuView != 2) {
             s_ControlsNeedsInit = true;
+        }
+
+        /* AUDIT-24-M5 (2026-04-25): track Grid submenu pool slot.
+         *
+         * The Grid submenu renders inline as `s_MenuView == 6` rather
+         * than as a separate `menuPushDialog`-pushed surface.  Without
+         * a corresponding menupool slot, K's input-authority assertion
+         * has no anchor for the Grid screen and any future code that
+         * checks "is the Grid submenu active?" has to twiddle
+         * `s_MenuView` directly.  Acquire the slot when the view
+         * transitions INTO 6 and release when it transitions OUT.  The
+         * acquire passes ctx=NULL because the Grid submenu shares the
+         * parent main menu's input context (it's an inline tab-state,
+         * not an independent dialog), so the pool slot is identity-
+         * tracking only -- the inputctx is owned by MAIN_MENU. */
+        if (s_PrevView != 6 && s_MenuView == 6) {
+            menupoolAcquire(MENU_TYPE_GRID_SUBMENU, NULL, NULL);
+            sysLogPrintf(LOG_NOTE,
+                "MENUPOOL: acquired grid_submenu (s_MenuView entered 6)");
+        } else if (s_PrevView == 6 && s_MenuView != 6) {
+            menupoolRelease(MENU_TYPE_GRID_SUBMENU);
+            sysLogPrintf(LOG_NOTE,
+                "MENUPOOL: released grid_submenu (s_MenuView left 6)");
         }
     }
     s_PrevView = s_MenuView;

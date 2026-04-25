@@ -721,9 +721,27 @@ s32 assetCatalogRegisterBaseGame(void)
 			e->runtime_index = idx;
 			e->load_state = ASSET_STATE_LOADED;
 			e->ref_count = ASSET_REF_BUNDLED;
-			sysLogPrintf(LOG_NOTE, "assetcatalog: arena[%d] id=\"%s\" stagenum=0x%02x langid=0x%04x cat=\"%s\"",
+			/* B-254 (2026-04-25): SP campaign stages (Solo Missions group at
+			 * idx 13-26) carry NPCs / mission scripts / cutscene intros in
+			 * their authored stage data.  When entered via Grid (which
+			 * always launches in Forge / observer mode) the user wants the
+			 * geometry as a build canvas, not a playable mission.  Mark the
+			 * Solo Missions group with ARENA_LOADMODE_CANVAS so Grid's
+			 * arena commit dispatches through pdguiForgeStartSessionOnCanvas,
+			 * which sets the runtime canvas-mode flag that setup-time chr /
+			 * AI / script paths consult to short-circuit.
+			 *
+			 * MP-class groups ("Dark", "Classic", "Bonus", "Random") keep
+			 * the default ARENA_LOADMODE_PLAYABLE set in
+			 * assetCatalogRegisterArena -- their authored MP setup is
+			 * already free of mission state, no canvas suppression needed. */
+			if (idx >= 13 && idx <= 26) {
+				e->ext.arena.load_mode = ARENA_LOADMODE_CANVAS;
+			}
+			sysLogPrintf(LOG_NOTE, "assetcatalog: arena[%d] id=\"%s\" stagenum=0x%02x langid=0x%04x cat=\"%s\" loadmode=%s",
 				idx, idbuf, g_MpArenas[idx].stagenum, (s32)g_MpArenas[idx].name,
-				s_ArenaGroupMap[g].category);
+				s_ArenaGroupMap[g].category,
+				e->ext.arena.load_mode == ARENA_LOADMODE_CANVAS ? "canvas" : "playable");
 			arena_count++;
 		}
 	}

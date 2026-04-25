@@ -79,3 +79,34 @@ s32 pdguiForgeStartSession(void)
 {
 	return pdguiForgeStartSessionOn((s32)STAGE_CITRAINING);
 }
+
+/* B-254 (2026-04-25): start a Grid session on a SP campaign stage as a
+ * build canvas. Same as pdguiForgeStartSessionOn but routes through
+ * forgeRequestEnterSessionCanvas so setup-time chr / AI / script paths
+ * suppress mission state. Caller is the Grid arena picker; canvas-mode
+ * dispatch is keyed on the catalog entry's ext.arena.load_mode field. */
+s32 pdguiForgeStartSessionOnCanvas(s32 stagenum)
+{
+	if (g_MainChangeToStageNum >= 0) {
+		sysLogPrintf(LOG_WARNING,
+				"GRID: canvas start rejected -- stage transition already pending (%d)",
+				g_MainChangeToStageNum);
+		return 0;
+	}
+
+	if (stagenum <= 0 || !forgeStageIsGridEligible(stagenum)) {
+		sysLogPrintf(LOG_ERROR,
+				"GRID: canvas start ABORT -- stagenum 0x%02x is not Grid-eligible.",
+				(u32)stagenum);
+		return 0;
+	}
+
+	sysLogPrintf(LOG_NOTE, "GRID: launching CANVAS session (base stage 0x%02x)",
+			(u32)stagenum);
+
+	forgeRequestEnterSessionCanvas();
+	if (g_StageNum != stagenum) {
+		mainChangeToStage(stagenum);
+	}
+	return 1;
+}

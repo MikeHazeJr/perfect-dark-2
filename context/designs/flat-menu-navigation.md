@@ -50,6 +50,12 @@ ImGui's default widget rendering paints the label to the right of `Checkbox` / `
 
 The reference helpers in `pdgui_menu_mainmenu.cpp` (`PdCheckbox` / `PdCombo` / `PdSliderInt` / `PdSliderFloat`) implement the left-aligned variant. Settings sub-tabs route every widget through these helpers; per-file pickup elsewhere is queued L-fix-6.
 
+### Rule 7 -- Right stick Y-axis smoothly scrolls scrollable content in any menu
+
+When a menu's content area has a scrollbar (lists, long config panels, file rosters, etc.), pushing right stick up/down scrolls the visible region.  Smooth -- accumulator-based, not snap-per-tick.  Speed proportional to stick deflection (analog response).  Right stick X-axis behavior follows the menu's nav semantics (could be horizontal scroll if 2D scrollable, otherwise no-op).
+
+Implementation lives in `port/fast3d/pdgui_backend.cpp::pdguiDriveImGuiNav`.  Reads `ACTION_AXIS_AIM_X` (right stick) via the actionmap, applies a deadzone + non-linear response, and writes directly to the focused window's `Scroll.y` via the ImGui internal API (`ImGui::SetScrollY` on `ImGui::GetCurrentContext()->NavWindow`).  System-wide -- applies to every menu that has a scrollable region as long as ImGui's nav has settled on that window.  Suppressed when gameplay is the input authority so it doesn't fight the gameplay aim path.
+
 ### Rule 6 -- Modals only where genuinely modal
 
 A modal is appropriate when:
