@@ -126,6 +126,16 @@ typedef enum {
     MENU_TYPE_THEME_EDITOR,
     MENU_TYPE_STATS_PANEL,
     MENU_TYPE_DEBUG_OVERLAY,      /* g_CtxDebugOverlay owner */
+    /* AUDIT-24-M5 (2026-04-25): Grid submenu (`s_MenuView == 6` inside
+     * the main menu) -- the prior pattern bypassed the pool entirely
+     * because the Grid submenu was rendered inline as a tab-state of
+     * the parent main menu.  Acquiring a separate pool slot when the
+     * Grid sub-view becomes active gives K's input-authority assertion
+     * a structural anchor for the Grid screen, lets future entry points
+     * call `menupoolAcquire(MENU_TYPE_GRID_SUBMENU, ...)` instead of
+     * twiddling `s_MenuView`, and keeps the existing inline-render so
+     * the main menu's chrome continues around it. */
+    MENU_TYPE_GRID_SUBMENU,
 
     MENU_TYPE_COUNT
 } menu_type_t;
