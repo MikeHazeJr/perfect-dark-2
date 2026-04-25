@@ -478,6 +478,24 @@ s32 inputCtxShouldSuppressKey(const SDL_Event *ev)
 
 /* ---- Mouse mode sync ---- */
 
+/* B-259 (2026-04-25): single authoritative cursor-visibility writer.
+ * See inputctx.h for the design. Reconciles caller intent with the
+ * input-context stack: menu contexts force-show; gameplay honours
+ * caller preference. Direct SDL_ShowCursor calls outside this helper
+ * (and the inputCtxSyncMouseMode body below) are forbidden -- they
+ * would race the timer logic in input.c and the gfx/hotswap callers. */
+void inputCtxApplyCursorVisibility(s32 want_show)
+{
+    InputContext *top = inputCtxGetTop();
+    s32 effective = want_show;
+    if (top && top != &g_CtxGameplay) {
+        /* Menu/overlay/textinput context owns visibility. Force-show
+         * regardless of what the caller asked for. */
+        effective = 1;
+    }
+    SDL_ShowCursor(effective ? SDL_ENABLE : SDL_DISABLE);
+}
+
 void inputCtxSyncMouseMode(void)
 {
     InputContext *top = inputCtxGetTop();
@@ -486,20 +504,28 @@ void inputCtxSyncMouseMode(void)
     }
 
     if (top == &g_CtxGameplay) {
-        /* Gameplay: relative mouse, cursor hidden */
+        /* Gameplay: relative mouse, cursor hidden. */
         if (!SDL_GetRelativeMouseMode()) {
             SDL_SetRelativeMouseMode(SDL_TRUE);
-            SDL_ShowCursor(SDL_DISABLE);
             sysLogPrintf(LOG_NOTE, "INPUTCTX: syncMouseMode -- restored relative mode for gameplay");
         }
+        /* B-259: re-assert cursor-hide unconditionally via the authority
+         * helper. Even if relative mode was already SDL_TRUE, an external
+         * caller (input.c MLOCK_AUTO timer, gfx-API, hotswap close) could
+         * have toggled cursor visibility since the last sync. Going
+         * through the helper makes the next SDL state match ctx intent. */
+        inputCtxApplyCursorVisibility(0);
     } else {
-        /* Any menu/overlay context: absolute mouse, cursor visible */
+        /* Any menu/overlay context: absolute mouse, cursor visible. */
         if (SDL_GetRelativeMouseMode()) {
             SDL_SetRelativeMouseMode(SDL_FALSE);
-            SDL_ShowCursor(SDL_ENABLE);
             sysLogPrintf(LOG_NOTE, "INPUTCTX: syncMouseMode -- restored absolute mode for '%s'",
                          top->name ? top->name : "?");
         }
+        /* B-259: re-assert cursor-show unconditionally. Same rationale
+         * as the gameplay branch above -- external callers can drift the
+         * SDL flag away from ctx intent between sync events. */
+        inputCtxApplyCursorVisibility(1);
     }
 }
 

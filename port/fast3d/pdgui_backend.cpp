@@ -349,21 +349,34 @@ void pdguiInit(void *sdlWindow)
     /* M0.2 Phase C: ImGui's built-in gamepad nav is disabled.
      * pdguiDriveImGuiNav() now injects nav events from actionmap each frame. */
 
-    /* Priority K-c (2026-04-25): make inputCtxSyncMouseMode the SOLE
-     * SDL_ShowCursor authority.  ImGui_ImplSDL2_UpdateMouseCursor reads
-     * io.MouseDrawCursor + the active ImGui cursor every NewFrame and
-     * calls SDL_ShowCursor independently; that fought inputCtxSyncMouseMode
-     * which runs at end-of-frame off the input-context stack top.  In
-     * gameplay both authorities pointed at "hide cursor" via different
-     * paths and happened to agree (relative-mouse mode hid the cursor
-     * regardless), but at gameplay->menu transitions they disagreed for
-     * one frame producing the Issue 3 cursor flicker / pause-menu RMB-
-     * only navigation symptom.
+    /* Priority K-c (2026-04-25) + B-259 (2026-04-25):
      *
-     * NoMouseCursorChange short-circuits the SDL backend's cursor
-     * visibility logic at imgui_impl_sdl2.cpp:631-632, leaving the OS
-     * cursor visibility decision entirely to inputCtxSyncMouseMode in
-     * port/src/inputctx.c.  We lose ImGui's cursor-shape switching
+     * Cursor visibility flows through ONE authority --
+     * inputCtxApplyCursorVisibility(s32 want_show) in port/src/inputctx.c.
+     * The helper reconciles the caller's preference with the input-context
+     * stack: in gameplay the caller's intent is honoured; in any
+     * non-gameplay context (menu / pause / debug / textinput) the cursor
+     * is force-shown regardless of caller. Direct SDL_ShowCursor calls
+     * are forbidden anywhere in the engine.
+     *
+     * Pre-fix authorities (now collapsed):
+     *   - inputCtxSyncMouseMode (port/src/inputctx.c) -- runs at ctx
+     *     push/pop.  The original "sole authority" (K-c).
+     *   - inputMouseShowCursor (port/src/input.c) -- MLOCK_AUTO 3-second
+     *     auto-hide timer fired SDL_ShowCursor(0) every tick once idle,
+     *     hiding the cursor while a menu was still consuming clicks
+     *     (Mike's playtest 21010fbd: "mouse usable but not visible").
+     *     Now routes through the helper, which refuses to hide when ctx
+     *     top != gameplay.
+     *   - gfx_sdl_set_cursor_visibility (port/fast3d/gfx_sdl2.cpp) -- the
+     *     engine gfx-API surface.  Now routes through the helper.
+     *   - hotswap close (this file, B-92 deferred-mouse-capture flush) --
+     *     fires on hotswap-close transitions back to gameplay.  Now
+     *     routes through the helper.
+     *
+     * NoMouseCursorChange short-circuits ImGui_ImplSDL2_UpdateMouseCursor
+     * at imgui_impl_sdl2.cpp:631-632 so the SDL backend never calls
+     * SDL_ShowCursor on its own.  We lose ImGui's cursor-shape switching
      * (resize handles etc.) which we don't surface anyway.
      *
      * See context/audits/input-authority-discipline-2026-04-25.md
@@ -819,7 +832,14 @@ void pdguiRender(void)
                 !pdguiIsActive() &&
                 pdmainGetLvFrame60() > 4) {
             if (inputMouseIsLocked()) {
-                SDL_ShowCursor(SDL_DISABLE);
+                /* B-259 (2026-04-25): route through the input-ctx
+                 * authority. At this point the hotswap menu has just
+                 * closed, so the ctx top should already be back on
+                 * gameplay; the helper agrees and applies hide. If
+                 * for any reason the ctx is still on a menu (race
+                 * with deferred pop), the helper keeps cursor visible
+                 * which is the safer default. */
+                inputCtxApplyCursorVisibility(0);
                 SDL_SetRelativeMouseMode(SDL_TRUE);
                 sysLogPrintf(LOG_NOTE,
                     "pdgui: hotswap closed, flushed deferred mouse capture (B-92 solo) lvframe=%d",
