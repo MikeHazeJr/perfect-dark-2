@@ -87,6 +87,7 @@
 #include "net/group_session.h"
 #include "presence.h"
 #include "chat.h"
+#include "file_transfer.h"
 #include "modelcatalog.h"
 #include "pdmain.h"
 #include "pdgui_theme.h"
@@ -656,6 +657,7 @@ void mainTick(void)
 	presenceTick();
 	groupSessionTick();
 	chatTick();
+	fileTransferTick();
 
 	if (g_MainChangeToStageNum < 0) {
 		frametimeCalculate();

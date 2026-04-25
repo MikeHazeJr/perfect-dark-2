@@ -40,6 +40,7 @@
 #include "social.h"
 #include "presence.h"
 #include "chat.h"
+#include "file_transfer.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
@@ -197,6 +198,7 @@ int main(int argc, const char **argv)
 	presenceInit();
 	groupSessionInit();
 	chatInit();
+	fileTransferInit();
 
 	/* D13: Start background update check (non-blocking) */
 	if (!sysArgCheck("--no-update-check")) {

@@ -31,6 +31,7 @@ extern "C" {
 #include "presence.h"
 #include "social.h"
 #include "chat.h"
+#include "file_transfer.h"
 #include "net/p2p.h"
 #include "net/group_session.h"
 }
@@ -49,6 +50,17 @@ static char s_AddFriendStatus[128];
 /* Per-friend chat panel state. One panel can be open at a time. */
 static u32  s_ChatPanelFriendHandle = 0;
 static char s_ChatComposeBuf[CHAT_TEXT_MAX];
+static char s_ChatAttachPath[400];
+
+/* Convert-to-mod modal state. Source path lives in s_ConvertSourcePath; the
+ * modal is open while s_ConvertSourcePath[0] is non-zero. */
+static char s_ConvertSourcePath[400];
+static char s_ConvertNameBuf[64];
+static char s_ConvertDescBuf[256];
+static char s_ConvertCreatorBuf[32];
+static char s_ConvertTagsBuf[64];
+static char s_ConvertVersionBuf[16];
+static char s_ConvertStatus[160];
 
 extern "C" void pdguiFriendsSidebarOpen(void)   { s_SidebarOpen = true; }
 extern "C" void pdguiFriendsSidebarClose(void)  { s_SidebarOpen = false; }
@@ -424,12 +436,7 @@ static void renderChatPanel(s32 winW, s32 winH)
 			}
 			if (m->attachment_kind != 0) {
 				ImGui::Indent(20.0f);
-				const char *kind_name =
-					(m->attachment_kind == 1) ? "mod" :
-					(m->attachment_kind == 2) ? "music" :
-					(m->attachment_kind == 3) ? "image" :
-					(m->attachment_kind == 4) ? "save" :
-					(m->attachment_kind == 5) ? "replay" : "file";
+				const char *kind_name = fileTransferKindName((s32)m->attachment_kind);
 				ImGui::Text("[%s] %s (%llu bytes)",
 				             kind_name,
 				             m->attachment_name[0] ? m->attachment_name : "(unnamed)",
@@ -437,14 +444,55 @@ static void renderChatPanel(s32 winW, s32 winH)
 				if (m->attachment_path[0]) {
 					if (ImGui::SmallButton("Open file location")) {
 #ifdef _WIN32
-						char cmd[400];
-						snprintf(cmd, sizeof(cmd), "explorer.exe /select,\"%s\"", m->attachment_path);
+						char cmd[600];
+						snprintf(cmd, sizeof(cmd),
+						          "explorer.exe /select,\"%s\"", m->attachment_path);
+						(void)system(cmd);
+#elif defined(__APPLE__)
+						char cmd[600];
+						snprintf(cmd, sizeof(cmd), "open -R \"%s\"", m->attachment_path);
+						(void)system(cmd);
+#else
+						/* xdg-open against the directory; not all file
+						 * managers highlight, but it opens the folder. */
+						char cmd[600];
+						char dir[400];
+						strncpy(dir, m->attachment_path, sizeof(dir) - 1);
+						dir[sizeof(dir) - 1] = '\0';
+						char *slash = strrchr(dir, '/');
+						if (slash) *slash = '\0';
+						snprintf(cmd, sizeof(cmd), "xdg-open \"%s\"", dir);
 						(void)system(cmd);
 #endif
 					}
 					ImGui::SameLine();
 					if (ImGui::SmallButton("Copy path")) {
 						SDL_SetClipboardText(m->attachment_path);
+					}
+					/* Type-aware actions per Q18 amendment. */
+					if (m->attachment_kind == FT_KIND_MUSIC) {
+						ImGui::SameLine();
+						if (ImGui::SmallButton("Convert to mod...")) {
+							strncpy(s_ConvertSourcePath, m->attachment_path,
+							        sizeof(s_ConvertSourcePath) - 1);
+							s_ConvertSourcePath[sizeof(s_ConvertSourcePath) - 1] = '\0';
+							strncpy(s_ConvertNameBuf,
+							        m->attachment_name[0] ? m->attachment_name : "Untitled",
+							        sizeof(s_ConvertNameBuf) - 1);
+							s_ConvertNameBuf[sizeof(s_ConvertNameBuf) - 1] = '\0';
+							/* Strip extension from default name. */
+							char *dot = strrchr(s_ConvertNameBuf, '.');
+							if (dot) *dot = '\0';
+							s_ConvertDescBuf[0] = '\0';
+							strncpy(s_ConvertCreatorBuf, socialMyAgentName(),
+							        sizeof(s_ConvertCreatorBuf) - 1);
+							s_ConvertCreatorBuf[sizeof(s_ConvertCreatorBuf) - 1] = '\0';
+							strncpy(s_ConvertTagsBuf, "music,user-converted",
+							        sizeof(s_ConvertTagsBuf) - 1);
+							strncpy(s_ConvertVersionBuf, "1.0.0",
+							        sizeof(s_ConvertVersionBuf) - 1);
+							s_ConvertStatus[0] = '\0';
+						}
 					}
 				}
 				ImGui::Unindent(20.0f);
@@ -471,6 +519,29 @@ static void renderChatPanel(s32 winW, s32 winH)
 				}
 			}
 		}
+
+		ImGui::SetNextItemWidth(-180.0f);
+		ImGui::InputTextWithHint("##pd2_chat_attach", "absolute path to attach...",
+		                          s_ChatAttachPath, sizeof(s_ChatAttachPath));
+		ImGui::SameLine();
+		if (ImGui::Button("Send file", ImVec2(120, 0))) {
+			if (s_ChatAttachPath[0] != '\0') {
+				s32 rc = fileTransferSendFile(f->handle, s_ChatAttachPath);
+				if (rc == 0) {
+					s_ChatAttachPath[0] = '\0';
+				}
+			}
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Paste path", ImVec2(120, 0))) {
+			char *clip = SDL_GetClipboardText();
+			if (clip) {
+				strncpy(s_ChatAttachPath, clip, sizeof(s_ChatAttachPath) - 1);
+				s_ChatAttachPath[sizeof(s_ChatAttachPath) - 1] = '\0';
+				SDL_free(clip);
+			}
+		}
+
 		if (peer && peer->state == PRESENCE_OFFLINE) {
 			ImGui::TextDisabled("Offline -- message will not be delivered until "
 			                      "%s is online again.", f->agent_name);
@@ -484,6 +555,81 @@ static void renderChatPanel(s32 winW, s32 winH)
 	}
 
 	(void)winW;
+}
+
+/* Section 8.5.3 -- Convert-to-mod modal. Drives
+ * fileTransferConvertMusicToMod and surfaces a confirmation toast on
+ * success. */
+static void renderConvertToModModal(void)
+{
+	if (s_ConvertSourcePath[0] == '\0') return;
+	ImGui::OpenPopup("Convert to Mod");
+	if (ImGui::BeginPopupModal("Convert to Mod", nullptr,
+	                            ImGuiWindowFlags_AlwaysAutoResize |
+	                            ImGuiWindowFlags_NoSavedSettings)) {
+		ImGui::Text("Source file: %s", s_ConvertSourcePath);
+		ImGui::Text("Type:        Music mod");
+		ImGui::Separator();
+
+		ImGui::SetNextItemWidth(380.0f);
+		ImGui::InputText("Name", s_ConvertNameBuf, sizeof(s_ConvertNameBuf));
+
+		ImGui::SetNextItemWidth(380.0f);
+		ImGui::InputTextMultiline("Description",
+		                            s_ConvertDescBuf, sizeof(s_ConvertDescBuf),
+		                            ImVec2(380.0f, 60.0f));
+
+		ImGui::SetNextItemWidth(220.0f);
+		ImGui::InputText("Creator", s_ConvertCreatorBuf, sizeof(s_ConvertCreatorBuf));
+
+		ImGui::SetNextItemWidth(380.0f);
+		ImGui::InputText("Tags", s_ConvertTagsBuf, sizeof(s_ConvertTagsBuf));
+
+		ImGui::SetNextItemWidth(140.0f);
+		ImGui::InputText("Version", s_ConvertVersionBuf, sizeof(s_ConvertVersionBuf));
+
+		const bool valid = (s_ConvertNameBuf[0] != '\0') &&
+		                    (s_ConvertCreatorBuf[0] != '\0');
+		if (s_ConvertStatus[0]) {
+			ImGui::Spacing();
+			ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo(255));
+			ImGui::TextWrapped("%s", s_ConvertStatus);
+			ImGui::PopStyleColor();
+		}
+
+		ImGui::Spacing();
+		if (!valid) ImGui::BeginDisabled();
+		if (ImGui::Button("Convert", ImVec2(140, 0))) {
+			char outpath[512];
+			s32 rc = fileTransferConvertMusicToMod(
+			            s_ConvertSourcePath,
+			            s_ConvertNameBuf,
+			            s_ConvertDescBuf,
+			            s_ConvertCreatorBuf,
+			            s_ConvertTagsBuf,
+			            s_ConvertVersionBuf,
+			            outpath, sizeof(outpath));
+			if (rc == 0) {
+				snprintf(s_ConvertStatus, sizeof(s_ConvertStatus),
+				          "Converted to mod at %s", outpath);
+				/* Reset source so the user can close the modal without
+				 * re-confirming -- the success message will linger one frame. */
+				s_ConvertSourcePath[0] = '\0';
+				ImGui::CloseCurrentPopup();
+			} else {
+				snprintf(s_ConvertStatus, sizeof(s_ConvertStatus),
+				          "Conversion failed (check name + creator are non-empty).");
+			}
+		}
+		if (!valid) ImGui::EndDisabled();
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel", ImVec2(140, 0))) {
+			s_ConvertSourcePath[0] = '\0';
+			s_ConvertStatus[0] = '\0';
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
 }
 
 extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
@@ -691,6 +837,7 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 
 	pdguiNatDiagnosticsRender(winW, winH);
 	renderChatPanel(winW, winH);
+	renderConvertToModModal();
 
 	if (s_AddFriendOpen) {
 		ImGui::OpenPopup("Add Friend");
