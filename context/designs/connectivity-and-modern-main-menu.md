@@ -712,6 +712,24 @@ The "Convert to mod" context-menu action (Section 8.5.2) opens a **modal dialog*
 
 Click / direct-D-pad to indicator: quick toggle for visibility (Public / Friends Only / Appear Offline) and pause notifications.
 
+### Per-match Character Select (feature request, 2026-04-24)
+
+Mike's request post-Issue 1 investigation: Character Select should be available **per-match**, not only via the persistent Agent profile.
+
+**Current state.** The Agent profile is the single source of truth for the player's chosen body / head; selecting a character writes it to `g_PlayerConfigsArray[mpindex].base.body_id / head_id` and persists across all matches until changed in the Agent screen. Players who want to play a different character for a single match must navigate to the Agent screen (separate menu surface from the match setup), change the character, start the match, then remember to revert afterwards.
+
+**Desired behaviour.** The match-setup flow exposes a "Character" affordance directly (next to Stage / Scenario / Bots / Weapons selectors). Selecting a character there overrides the Agent profile body / head **for this match only**; the match starts with the override applied; on match end, the player's Agent profile body / head is restored to its persistent value. Any changes made via the per-match override do NOT write through to the Agent profile.
+
+**Implementation sketch.**
+- Match config gains optional `override_body_id` / `override_head_id` fields (default empty -> use Agent profile).
+- The match-init copy from Agent profile -> `g_PlayerConfigsArray[playernum]` checks the override first; if set, uses the override values for that match's `body_id` / `head_id` / `mpbodynum` / `mpheadnum`.
+- After match end, the snapshot of the Agent profile (captured at match start) is restored to `g_PlayerConfigsArray[playernum]`. No persistence side effect.
+- UI surface: Combat Sim setup screen + Solo mission select gain a "Character: <name>" row with the same character-picker UI used by the Agent screen (refactor the picker into a reusable widget).
+
+**Net mode behaviour.** In netmode, the per-match override propagates via the existing `CLC_SETTINGS` -> `SVC_STAGE_START` character sync (B-234's `body_id` / `head_id` strings). Other clients see the player as the override character for that match, then the Agent profile name when the player returns to the lobby. No new packets needed.
+
+**Phase placement.** Phase 1 of this design doc focuses on connectivity / presence / chat. The per-match Character Select feature does NOT block Phase 1 -- it can ride alongside the modern main menu UI rebuild (Phase 1's Section 8 work) since the same character-picker widget is being refactored anyway. Suggested addition to Phase 1 deliverable: "match setup screens expose a Character row that overrides Agent profile for the match without persisting." Cost: small (UI refactor + match-config field + restore-on-end hook).
+
 ---
 
 ## 9. Wire protocol additions

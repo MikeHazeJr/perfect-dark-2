@@ -130,7 +130,29 @@ static void forgeSnapFreeflyToPlayer(void)
 		return;
 	}
 
-	s_forge.fly.pos = p->prop->pos;
+	/* B-247 (2026-04-24): validate p->prop->pos before copying. Mike's Grid
+	 * log captured `pos=(0,-4294967040,0)` -- the Y component was the bit
+	 * pattern 0xFFFFFF00 reinterpreted as float, a clear uninitialized-memory
+	 * signature. The corrupt Y propagates through the rest of the freefly
+	 * pipeline and the player falls through the level. Sane stage coords are
+	 * O(thousands) of game units; anything beyond +-100000 is corrupt. Use
+	 * a deterministic fallback (0,100,0) so the observer at least spawns at
+	 * world origin above ground rather than at the bit-pattern coord. */
+	const f32 SANITY_BOUND = 100000.0f;
+	const struct coord src = p->prop->pos;
+	bool x_ok = (src.x >= -SANITY_BOUND && src.x <= SANITY_BOUND);
+	bool y_ok = (src.y >= -SANITY_BOUND && src.y <= SANITY_BOUND);
+	bool z_ok = (src.z >= -SANITY_BOUND && src.z <= SANITY_BOUND);
+	if (!x_ok || !y_ok || !z_ok) {
+		sysLogPrintf(LOG_WARNING,
+			"GRID: forgeSnapFreeflyToPlayer: invalid player pos=(%.0f,%.0f,%.0f) -- using fallback (0,100,0)",
+			src.x, src.y, src.z);
+		s_forge.fly.pos.x = 0.0f;
+		s_forge.fly.pos.y = 100.0f;
+		s_forge.fly.pos.z = 0.0f;
+	} else {
+		s_forge.fly.pos = src;
+	}
 	s_forge.fly.yaw_deg = p->vv_theta;
 	s_forge.fly.pitch_deg = p->vv_verta;
 	s_forge.fly.current_speed_scale = 1.0f;
