@@ -30,6 +30,7 @@
 extern "C" {
 #include "presence.h"
 #include "social.h"
+#include "chat.h"
 #include "net/p2p.h"
 #include "net/group_session.h"
 }
@@ -45,6 +46,10 @@ static char s_AddFriendCodeBuf[128];
 static char s_AddFriendNickBuf[64];
 static char s_AddFriendStatus[128];
 
+/* Per-friend chat panel state. One panel can be open at a time. */
+static u32  s_ChatPanelFriendHandle = 0;
+static char s_ChatComposeBuf[CHAT_TEXT_MAX];
+
 extern "C" void pdguiFriendsSidebarOpen(void)   { s_SidebarOpen = true; }
 extern "C" void pdguiFriendsSidebarClose(void)  { s_SidebarOpen = false; }
 extern "C" void pdguiFriendsSidebarToggle(void) { s_SidebarOpen = !s_SidebarOpen; }
@@ -53,6 +58,14 @@ extern "C" s32  pdguiFriendsSidebarIsOpen(void) { return s_SidebarOpen ? 1 : 0; 
 extern "C" void pdguiFriendsSocialOpen(void)   { s_SocialOpen = true; s_SidebarOpen = false; }
 extern "C" void pdguiFriendsSocialClose(void)  { s_SocialOpen = false; }
 extern "C" s32  pdguiFriendsSocialIsOpen(void) { return s_SocialOpen ? 1 : 0; }
+
+extern "C" void pdguiFriendsChatOpen(u32 friend_handle) {
+	s_ChatPanelFriendHandle = friend_handle;
+	s_ChatComposeBuf[0] = '\0';
+}
+extern "C" void pdguiFriendsChatClose(void) { s_ChatPanelFriendHandle = 0; }
+extern "C" s32  pdguiFriendsChatIsOpen(void) { return s_ChatPanelFriendHandle != 0 ? 1 : 0; }
+extern "C" u32  pdguiFriendsChatTargetHandle(void) { return s_ChatPanelFriendHandle; }
 
 /* -------------------------------------------------------------------------
  * Helpers
@@ -328,6 +341,11 @@ static void renderFriendRow(s32 idx, const social_friend_t *f)
 		ImGui::SameLine();
 	}
 
+	if (ImGui::SmallButton("Message")) {
+		s_ChatPanelFriendHandle = f->handle;
+		s_ChatComposeBuf[0] = '\0';
+	}
+	ImGui::SameLine();
 	if (ImGui::SmallButton(f->muted ? "Unmute" : "Mute")) {
 		socialFriendSetMuted(f->connect_code, f->muted ? 0 : 1);
 	}
@@ -343,6 +361,129 @@ static void renderFriendRow(s32 idx, const social_friend_t *f)
 	ImGui::PopID();
 
 	ImGui::Unindent(20.0f);
+}
+
+/* -------------------------------------------------------------------------
+ * Per-friend chat panel (Phase 2 -- private 1:1 chat surface).
+ * ------------------------------------------------------------------------- */
+
+static void renderChatPanel(s32 winW, s32 winH)
+{
+	if (s_ChatPanelFriendHandle == 0) return;
+
+	const social_friend_t *f = socialFriendByHandle(s_ChatPanelFriendHandle);
+	if (!f) {
+		s_ChatPanelFriendHandle = 0;
+		return;
+	}
+
+	const float w = 480.0f;
+	const float h = (float)winH * 0.72f;
+	ImGui::SetNextWindowPos(ImVec2(40.0f, (float)winH * 0.14f), ImGuiCond_Appearing);
+	ImGui::SetNextWindowSize(ImVec2(w, h), ImGuiCond_Appearing);
+
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.04f, 0.06f, 0.12f, 0.95f));
+	bool open = true;
+	if (ImGui::Begin("##pd2_chat_panel",
+	                 &open,
+	                 ImGuiWindowFlags_NoCollapse |
+	                 ImGuiWindowFlags_NoSavedSettings)) {
+
+		char title[128];
+		socialFormatDisplay(f, title, sizeof(title));
+		ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+		ImGui::Text("Chat with %s", title);
+		ImGui::PopStyleColor();
+
+		const presence_peer_t *peer = presencePeerByHandle(f->handle);
+		const char *state_label = peer ? stateLabel(peer->state) : "Offline";
+		ImGui::TextDisabled("[%s]", state_label);
+		ImGui::Separator();
+
+		const float footer_h = 84.0f;
+		ImGui::BeginChild("##pd2_chat_history", ImVec2(0, -footer_h), false);
+		const s32 nm = chatHistoryCount(f->handle);
+		for (s32 i = 0; i < nm; i++) {
+			const chat_message_t *m = chatHistoryAt(f->handle, i);
+			if (!m) continue;
+			ImGui::PushID(11000 + i);
+			if (m->direction == CHAT_DIR_SYS) {
+				ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo(255));
+				ImGui::TextWrapped("-- %s --", m->text);
+				ImGui::PopStyleColor();
+			} else if (m->direction == CHAT_DIR_OUT) {
+				ImGui::Text("you:");
+				ImGui::SameLine();
+				ImGui::TextWrapped("%s", m->text);
+			} else {
+				ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+				ImGui::Text("%s:", f->agent_name[0] ? f->agent_name : "friend");
+				ImGui::PopStyleColor();
+				ImGui::SameLine();
+				ImGui::TextWrapped("%s", m->text);
+			}
+			if (m->attachment_kind != 0) {
+				ImGui::Indent(20.0f);
+				const char *kind_name =
+					(m->attachment_kind == 1) ? "mod" :
+					(m->attachment_kind == 2) ? "music" :
+					(m->attachment_kind == 3) ? "image" :
+					(m->attachment_kind == 4) ? "save" :
+					(m->attachment_kind == 5) ? "replay" : "file";
+				ImGui::Text("[%s] %s (%llu bytes)",
+				             kind_name,
+				             m->attachment_name[0] ? m->attachment_name : "(unnamed)",
+				             (unsigned long long)m->attachment_size);
+				if (m->attachment_path[0]) {
+					if (ImGui::SmallButton("Open file location")) {
+#ifdef _WIN32
+						char cmd[400];
+						snprintf(cmd, sizeof(cmd), "explorer.exe /select,\"%s\"", m->attachment_path);
+						(void)system(cmd);
+#endif
+					}
+					ImGui::SameLine();
+					if (ImGui::SmallButton("Copy path")) {
+						SDL_SetClipboardText(m->attachment_path);
+					}
+				}
+				ImGui::Unindent(20.0f);
+			}
+			ImGui::PopID();
+		}
+		/* Auto-scroll if user is near the bottom. */
+		if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 40.0f) {
+			ImGui::SetScrollHereY(1.0f);
+		}
+		ImGui::EndChild();
+
+		ImGui::Separator();
+		ImGui::SetNextItemWidth(-100.0f);
+		bool submitted = ImGui::InputText("##pd2_chat_compose",
+		                                    s_ChatComposeBuf,
+		                                    sizeof(s_ChatComposeBuf),
+		                                    ImGuiInputTextFlags_EnterReturnsTrue);
+		ImGui::SameLine();
+		if (ImGui::Button("Send", ImVec2(80, 0)) || submitted) {
+			if (s_ChatComposeBuf[0] != '\0') {
+				if (chatSendText(f->handle, s_ChatComposeBuf) == 0) {
+					s_ChatComposeBuf[0] = '\0';
+				}
+			}
+		}
+		if (peer && peer->state == PRESENCE_OFFLINE) {
+			ImGui::TextDisabled("Offline -- message will not be delivered until "
+			                      "%s is online again.", f->agent_name);
+		}
+	}
+	ImGui::End();
+	ImGui::PopStyleColor();
+
+	if (!open) {
+		s_ChatPanelFriendHandle = 0;
+	}
+
+	(void)winW;
 }
 
 extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
@@ -549,6 +690,7 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 	}
 
 	pdguiNatDiagnosticsRender(winW, winH);
+	renderChatPanel(winW, winH);
 
 	if (s_AddFriendOpen) {
 		ImGui::OpenPopup("Add Friend");

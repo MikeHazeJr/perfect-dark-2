@@ -86,6 +86,7 @@
 #include "net/p2p.h"
 #include "net/group_session.h"
 #include "presence.h"
+#include "chat.h"
 #include "modelcatalog.h"
 #include "pdmain.h"
 #include "pdgui_theme.h"
@@ -654,6 +655,7 @@ void mainTick(void)
 	p2pTick();
 	presenceTick();
 	groupSessionTick();
+	chatTick();
 
 	if (g_MainChangeToStageNum < 0) {
 		frametimeCalculate();

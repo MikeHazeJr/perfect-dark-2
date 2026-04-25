@@ -651,6 +651,7 @@ void pdguiRender(void)
     bool hubActive = (pdguiModdingHubIsVisible() != 0);
     bool friendsActive = (pdguiFriendsSidebarIsOpen() != 0) ||
                           (pdguiFriendsSocialIsOpen() != 0) ||
+                          (pdguiFriendsChatIsOpen() != 0) ||
                           (pdguiNatDiagnosticsIsOpen() != 0);
 
     /* D13: Also render when update UI is visible (notification banner, version picker) */
