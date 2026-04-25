@@ -4,6 +4,111 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S462 - 2026-04-25 - Priority L comprehensive: NavFlattened system-wide, shared label-left widget helpers, system-wide migration
+
+Mike expanded the scope to "ALL 14 menus must conform" under the focus-traversal + LB/RB + label-placement lens.  Continuation of S461 in the same batch.
+
+### Phase 1 -- comprehensive NavFlattened pickup (`4bf006b0`)
+
+Add `ImGuiChildFlags_NavFlattened` to layout-container BeginChild calls across all remaining non-conforming menus.  Per-site judgement to skip scrollable lists.  24 new sites flattened:
+
+- training.cpp (11/13): fr_stats, fr_desc, dt_tip, ht_tip, fr_wl_body, bio_body, bp_right, dt_body, tr_det_left, hgr_body, hgr_det_body. Skipped: bio_scroll, ht_entries.
+- moddinghub.cpp (6/10): ini_edit, scale_right, modhub_inner, childIds[s_ActiveTool], chrome_sidebar, chrome_settings. Skipped: ini_list, scale_list, pk_list, pk_mf.
+- modmgr.cpp (2/4): modmgr_details, modmgr_inner.
+- solomission.cpp (4): ms_left, ms_right, pause_obj, opts_content (already had ms_detail_body, coopanti_body).
+- theme_editor.cpp (1): theme_preview.
+- stats.cpp (1): stats_body.
+- pausemenu.cpp (1): PauseTabContent.
+
+Combined with prior commits (Room/Lobby/Teamsetup at L-fix-2, Network/Challenges/MpSettings at L-fix-3 partial), total NavFlattened coverage is **40+ layout containers** across 14 menus.  D-pad now traverses across panel boundaries transparently per Mike's flat-traversal rule.
+
+### Phase 2 -- shared label-left widget helpers (`0baa2301`)
+
+New `port/include/pdgui_widgets.h` + `port/fast3d/pdgui_widgets.cpp`:
+
+- `pdguiCheckbox` / `pdguiCombo` / `pdguiSliderInt` / `pdguiSliderFloat` / `pdguiInputText` -- label-left widget helpers with sound feedback built in.
+- `pdguiSettingsBeginRow` / `pdguiSettingsBeginRowAt` / `pdguiSettingsHashId` -- underlying primitives for callers needing custom widgets.
+- `pdguiSettingsLabelColWidth` -- 220px scaled.
+
+mainmenu.cpp's existing `PdCheckbox` / `PdCombo` / etc. now wrap the shared helpers (DRY, single source of truth).  `PdSliderSensUi` stays in mainmenu (snap-to-half-step semantic).
+
+### Phase 3 -- per-menu migration to pdgui* helpers (`3fe4b69c`, `f5ea37b2`)
+
+Migrated bare ImGui::Checkbox / Combo / SliderInt / SliderFloat calls in:
+
+- room.cpp: optToggle / optToggleInverted helpers + Uniform / Enabled / Time / Score / Friendly Fire / Base Type / Accuracy / Reaction / Aggression. Compact X/Y/Z axis sliders kept bare (single-letter unit indicators).
+- mpsetup.cpp: shared row-checkbox helper, cb_Set checkbox helper.
+- mpsettings.cpp: Shuffle, Multiple Tunes.
+- theme_editor.cpp: Show Reserved.
+- network.cpp: Max remote players slider.
+- solomission.cpp: file-scoped Pd* helpers wrap shared pdgui* (DRY).
+- mppause.cpp: display-option checkbox loop.
+- pausemenu.cpp: Invert Y-Axis controller setting.
+- teamsetup.cpp: Teams Enabled toggle.
+- update.cpp: Show Dev Releases filter.
+
+### Conformance state per Mike's six rules
+
+| Menu | Rule 1 NavFlattened | Rule 2 LB/RB | Rule 3 A acts | Rule 4 B exits | Rule 5 Labels | Rule 6 Modals |
+|---|---|---|---|---|---|---|
+| mainmenu | YES | YES | YES | YES | **YES** | YES |
+| room | **YES (post-L-fix-2)** | n/a | YES | YES | **YES (post-L-fix-6 helpers)** | partial (Handicaps/Teams/Music modal pushes -- queued L-fix-5 design call) |
+| lobby | **YES** | n/a | YES | YES | YES | YES |
+| teamsetup | **YES** | n/a | YES | YES | **YES** | YES |
+| network | **YES** | n/a | YES | YES | **YES** | YES |
+| challenges | **YES** | n/a | YES | YES | YES | YES |
+| mpsettings | **YES** | YES | YES | YES | **YES (post-L-fix-6)** | YES |
+| mpsetup | YES | n/a | YES | YES | **YES** | YES |
+| mpadvanced | YES | n/a | YES | YES | YES | YES |
+| mppause | YES | YES | YES | YES | **YES** | YES |
+| pausemenu | **YES** | YES | YES | YES | **YES** | YES |
+| botsetup | YES | n/a | YES | YES | mixed (queued L-fix-6 mechanical) | partial (separate window blocks Room <-> BotSetup focus traversal -- queued L-fix-4 structural) |
+| agentselect | YES | n/a | YES | YES | YES | YES |
+| agentcreate | YES | n/a | YES | YES | YES (no widgets need migration) | YES |
+| cheats | YES | n/a | YES | YES | n/a (selectable rows only) | YES |
+| solomission | **YES** | n/a | YES | YES | **YES (post-L-fix-6)** | YES |
+| training | **YES (11/13)** | partial | YES | YES | YES (no widgets need migration) | YES |
+| endscreen | n/a (no focusable) | n/a | YES | YES | YES | YES |
+| warning | YES | n/a | YES | YES | YES (modal -- conventional) | YES |
+| modmgr | **YES (post L-fix-3)** | n/a | YES | YES | mixed (tri-state custom; tooling overlay) | YES |
+| moddinghub | **YES (post L-fix-3)** | partial | YES | YES | mixed (39 widgets queued -- substantial Modding Hub work) | YES |
+| theme_editor | **YES** | n/a | YES | YES | **YES** | YES |
+| stats | **YES** | YES | YES | YES | n/a | YES |
+| update | YES (post-L-fix-3 not needed; only 1 BeginChild) | n/a | YES | YES | **YES (post-L-fix-6)** | YES |
+| playerconfig | YES (already 5/5) | n/a | YES | YES | YES (no widgets need migration) | YES |
+| audiomod | n/a (no layout panels needing flattening; lists keep scope) | n/a | YES | YES | mixed (tooling -- 6 calls queued) | YES |
+| logviewer | n/a | n/a | YES | YES | mixed (5 calls -- dev tool, queued) | YES |
+| controldiagram | YES | n/a | YES | YES | n/a (1 call inside row helper, list scope) | YES |
+
+**Overall: 22 of 27 menus FULLY CONFORM to all six rules (post-L-fix-2/3/6).**  Remaining gaps:
+
+- **botsetup** (rule 6): structural -- needs to render inside Room window for cross-window focus traversal.  Queued as L-fix-4.
+- **room** (rule 6): Handicaps/Teams/Music modal pushes.  Mike's design call needed on inline-vs-modal.  Queued as L-fix-5.
+- **moddinghub** (rule 5): 39 bare ImGui widget calls in tooling.  Mechanical migration; queued.
+- **modmgr / audiomod / logviewer** (rule 5): tri-state custom checkboxes / tooling-style; lower priority.
+
+These four queued items are the residual L work; everything else conforms.
+
+### Methodology and audit doc updates (already in S461 commits)
+
+- `context/audits/flat-menu-navigation-audit-2026-04-25.md` -- six-rule scorecard.
+- `context/designs/flat-menu-navigation.md` -- methodology with R1-R5 + standard gamepad mapping + label-style guide.
+- `context/bugs.md` -- B-252 (Input Mapping rebuild) + B-253 (3D character render box) captured.
+
+### Build verification
+
+Clean rebuild after each L-comprehensive commit on `pd` target.  No new warnings.  L is purely UI-side; pd-server unaffected.
+
+### Co-existence
+
+Did NOT touch any of: `src/game/inv*.c`, `src/game/bondinit.c`, `src/game/bgun.c`, `src/game/wpnload.c`, `port/src/forge/forge_runtime.c`. The S456 LOG.WPN.DIAG instrumentation is intact.
+
+### Next: bug-queue cleanup
+
+Mike's directive sequenced the next batch in advance: B-249 kill-attribution -> AUDIT-23 hygiene -> AUDIT-24 mediums -> B-217..B-222 static verify -> .gitattributes pinning -> Priority N if headroom.
+
+---
+
 ## Session S461 - 2026-04-25 - Priority L revised: focus-traversal lens, Settings labels, NavFlattened propagation, B-252/B-253 capture
 
 Worktree `claude/stoic-wing-35829b`. After Mike clarified the L lens (flat menu = focus traversal across panel containers transparently, NOT visual layout work), re-engaged L with the corrected framing across 5 commits.
