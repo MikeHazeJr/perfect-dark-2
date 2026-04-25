@@ -257,14 +257,33 @@ The Theme tool already exists and is the simplest case (small mod surface, well-
 - Skin editor.
 - Audio mod packager (a reasonable companion to the chat Convert-to-mod flow from Q18).
 
-Each tool's save code centralises through a single helper:
+Each tool's save code centralises through `port/src/modpack_pdmod.c` (header `port/include/modpack_pdmod.h`). Two entry points cover every author flow:
 
 ```c
-// Pseudocode -- shared mod-saver helper.
-int modPackSave(const ModBuildCtx *ctx, const char *out_path);
+/* Recursively pack a folder mod into a .pdmod. Used by the M-4.1 first-run
+ * auto-migration. */
+s32 modpackPdmodFromFolder(const char *src_folder, const char *out_path);
+
+/* Compose a .pdmod from an in-memory manifest plus an explicit entry list.
+ * Used by mod-authoring tools (Theme editor M-3.2, future skin / forge /
+ * bot tools) that build a mod without an intermediate folder layout. */
+s32 modpackPdmodWriteSingle(const char *out_path,
+                             const char *manifest_json, u32 manifest_len,
+                             const modpack_entry_t *entries, s32 entry_count);
 ```
 
-`out_path` ends with `.pdmod`. The helper takes the `mod.json` payload, the asset list, and a destination, and writes the archive atomically (write to `<out>.tmp`, then rename, so a crash mid-save doesn't corrupt an existing mod).
+Both helpers stream to `<out_path>.tmp` and rename atomically on success (via `port/src/modarchive.c`), so a crash mid-save cannot corrupt an existing `.pdmod`. They also compute the M-2.3 zip-comment mirror automatically from the manifest's headline fields.
+
+### Migration recipe for a new tool
+
+To add a new tool that authors a `.pdmod`:
+
+1. Build the `mod.json` payload in memory (or place it as the root of a folder you wish to pack).
+2. Collect the additional entries -- each is a forward-slash path relative to the archive root + a memory buffer.
+3. Call `modpackPdmodWriteSingle("mods/<id>.pdmod", manifest, manifest_len, entries, n)` (or `modpackPdmodFromFolder("mods/<id>/", "mods/<id>.pdmod")` for the folder shape).
+4. The loader's next `modmgrRescanDirectory` (or restart) picks up the new file. UI rescan helpers like `pdguiThemeRescanMods()` exist where in-session refresh matters.
+
+The Theme editor (`port/fast3d/pdgui_menu_theme_editor.cpp::saveThemeAsPdmod`) is the canonical worked example; it composes its mod.json + theme.json into in-memory buffers and hands them to `modpackPdmodWriteSingle`. Subsequent tools follow the same shape.
 
 ### 5.1 Tool migration order
 
