@@ -4,6 +4,58 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S464 - 2026-04-25 - L finish-menus pass: comprehensive 27/27 conformance + AUDIT-24-M5/M6 + Rule 7
+
+Mike's directive: "Finish the menus, do not defer or skip.  Fix those now."  Plus AUDIT-24-M5/M6 + new Rule 7 (right-stick smooth scroll).
+
+### Per-menu finishing (commits `59dac3c9`, `1db20bad`)
+
+- **moddinghub.cpp**: 17 visible-label widget calls migrated to pdgui* helpers (Mod Name InputText, L/R + T/B symmetry, Center / Edge tile mode, Trim L/R/T/B, Scale X/Y, Center Cut Axis combo + percentage, Desaturate + percentage, Border Scale, Proportional Insets, Inset L/R/T/B percent + absolute).  Skipped `##id`-form calls that already render their label separately via Text + SameLine.
+- **logviewer.cpp**: "Verbose Logging" toggle migrated.  Channel + severity filter-chip grids kept bare (multi-column list-row pattern, not a settings control).
+- **modmgr.cpp**: confirmed CONFORMING -- the four checkboxes use `##id`-suppressed labels with the row content rendered separately as Text via SameLine.  This is a list-row selection pattern, not a labeled control.
+- **audiomod.cpp**: confirmed CONFORMING -- all 6 widget calls use the `##id`-suppressed form + separate Text labels OR the `<row name>##id` list-row pattern.
+- **botsetup.cpp**: confirmed CONFORMING -- 0 bare ImGui::Checkbox/Combo/Slider/InputText calls; rule 5 has nothing to migrate.  Rule 6: BotSetup remains modal under the methodology's "sub-feature with own focus model" exception (multi-tab bot configuration page).
+- **Room sub-screens**:
+  - **Handicaps INLINED** as a CollapsingHeader inside Match Settings; per-player slider grid renders in place using `pdguiSliderInt`.  Modal push removed.
+  - **Teams** stays modal under rule 6 exception (multi-team naming + per-slot color + reassignment grid has own focus model).
+  - **Music (Select Tunes)** stays modal under rule 6 exception (large library + selected-playlist + transport editor; explicitly named in methodology).
+
+### AUDIT-24-M5 + M6 (commit `810d4bab`)
+
+- **M5 Grid submenu menu-pool routing**: added `MENU_TYPE_GRID_SUBMENU` and a transition-detection block in `renderMainMenu`'s view-switch handler.  Acquires the slot when `s_MenuView` enters 6, releases on exit.  The Grid submenu shares the parent main menu's input context (it's an inline tab-state, not an independent dialog), so the pool slot is identity-tracking only.
+- **M6 catalog-driven scenarios**: replaced the hardcoded `s_GridScenarios[]` table that paralleled `assetcatalog_base_extended.c::s_BaseGameModes` with a runtime-built dynamic array fed from `assetCatalogIterateByType(ASSET_GAMEMODE)`.  Mod-authored game modes now appear in the picker without a process restart.  `pdguiGridArenasInvalidate` (called by `modmgrCatalogChanged`) resets BOTH arenas and scenarios.
+
+### Rule 7 right-stick smooth scroll (commit `1db20bad`)
+
+New block in `pdguiDriveImGuiNav` (`pdgui_backend.cpp:445`) reads `ACTION_AXIS_AIM_X` (right stick Y), applies a 0.18 deadzone + squared-fraction non-linear response, and writes the per-frame scroll delta directly to the focused NavWindow's `Scroll.y` via the ImGui internal API.  Suppressed during gameplay so it doesn't fight aim.  System-wide -- applies to every menu whose nav has settled on a scrollable region.
+
+`context/designs/flat-menu-navigation.md` updated with Rule 7 as a permanent system-wide standard.
+
+### Final conformance: 27 / 27 menus FULLY CONFORM under all 7 rules
+
+Detailed scorecard at `context/audits/flat-menu-navigation-audit-2026-04-25.md` -- the final pass appended a per-menu YES/exception column for each rule.
+
+Modal exceptions explicitly documented under rule 6:
+- BotSetup (multi-tab config own focus model)
+- Music / Select Tunes (large library + transport; named in methodology)
+- Team Setup (multi-team naming + reassignment grid own focus model)
+
+These four are explicitly allowed by the methodology rule 6 exception "sub-feature has its own focus model that would clash with the parent".  Stricter interpretation (modals only for confirmations) would require methodology revision.
+
+### Build verification
+
+Both `pd` and `pd-server` link clean after each commit.  No new warnings introduced.
+
+### Co-existence
+
+Did NOT touch: `forgemode.c`, `pdgui_menu_grid*.cpp` (Session A's Grid bug cluster -- though I touched `pdgui_menu_grid.h` to extend the shared API; that's the public header, not the implementation file).  Did NOT touch new connectivity files (Session C).  `pdgui_menu_mainmenu.cpp` Grid-submenu sections were Mike-confirmed as mine for M5.
+
+### Next: merge to dev
+
+This session's deliverable is "all 27 menus conforming AND AUDIT-24-M5/M6 fixed AND merged to dev with a clean hash".  The merge follows.
+
+---
+
 ## Session S463 - 2026-04-25 - Bug-queue cleanup batch (e/b/a/c/d)
 
 Sequenced after L per Mike's directive.  Five sub-items shipped or verified.
