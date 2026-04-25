@@ -37,6 +37,7 @@
 #include "game/forgemode.h"
 #include "forge/forge_core.h"
 #include "pdgui_forge.h"
+#include "actionmap.h"
 #include "game/lv.h"
 #include "game/options.h"
 #include "game/timing.h"
@@ -606,6 +607,26 @@ void mainLoop(void)
 		frametimeCalculate();
 		profileReset();
 
+		/* Priority J (2026-04-25): activate the scene-scope IMC for the
+		 * new stage. Mission XOR CombatSim, mutually exclusive at this
+		 * gate. lvReset / mpReset above have already set the
+		 * g_Vars.{normmplayerisrunning,coopplayernum,antiplayernum}
+		 * fields the dispatch reads.  System stages (title, intro)
+		 * leave both inactive so menu IMCs own the surface.
+		 *
+		 * See context/designs/contextual-input-schemes.md. */
+		if (STAGE_IS_SYSTEM(g_StageNum)) {
+			imcSceneClearGameplay();
+		} else if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
+			/* Co-op + anti-counter-op run the Mission scheme. */
+			imcSceneSetMission();
+		} else if (g_Vars.normmplayerisrunning) {
+			imcSceneSetCombatSim();
+		} else {
+			/* Solo mission / generic gameplay. */
+			imcSceneSetMission();
+		}
+
 		while (g_MainChangeToStageNum < 0) {
 			const s32 cycles = osGetCount() - g_Vars.thisframestartt;
 			if (!g_Vars.mininc60 || (cycles >= g_Vars.mininc60 * CYCLES_PER_FRAME - CYCLES_PER_FRAME / 2)) {
@@ -617,6 +638,11 @@ void mainLoop(void)
 				sysSleep(EXTRA_SLEEP_TIME);
 			}
 		}
+
+		/* Priority J (2026-04-25): scene unloading -- drop both
+		 * gameplay-scope IMCs (and Vehicle, defensively) before the next
+		 * stage's load activates the right one. */
+		imcSceneClearGameplay();
 
 		lvStop();
 		mempDisablePool(MEMPOOL_STAGE);
