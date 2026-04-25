@@ -2985,6 +2985,35 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 	if (hand->stateminor == HANDSTATEMINOR_CHANGEGUN_LOAD) {
 		hand->animmode = HANDANIMMODE_IDLE;
 
+		/* B-246 round-4 instrumentation: log the LOAD/HANDMODE_6 -> HANDMODE_7
+		 * decision so the next playtest reveals whether `bgun0f09bf44`
+		 * returns false in this codepath and which of its 5 conditions
+		 * trips. Player 0, hand 0 only, every ~120 frames while wedged. */
+		if (g_Vars.currentplayernum == 0 && handnum == HAND_RIGHT
+				&& (g_Vars.lvframenum % 120) == 13) {
+			s32 cond_loaded = bgunIsLoaded() ? 1 : 0;
+			s32 cond_switchto_neg = (g_Vars.currentplayer->gunctrl.switchtoweaponnum == -1) ? 1 : 0;
+			s32 cond_gunmemnew_neg = (g_Vars.currentplayer->gunctrl.gunmemnew < 0) ? 1 : 0;
+			s32 cond_other_not_reload = (g_Vars.currentplayer->hands[1 - handnum].state != HANDSTATE_RELOAD) ? 1 : 0;
+			s32 res = bgun0f09bf44(handnum);
+			sysLogPrintf(LOG_NOTE,
+				"LOG.WPN.DIAG: LOAD-mode6 player=0 hand=R frame=%d "
+				"hand_mode=%d sm=%d state=%d "
+				"cond_loaded=%d cond_switchto_neg=%d cond_gunmemnew_neg=%d cond_other_not_reload=%d "
+				"bgun0f09bf44=%d "
+				"L_state=%d L_sm=%d L_inuse=%d L_mode=%d "
+				"pausechange=%d pausetime60=%d count60=%d",
+				g_Vars.lvframenum,
+				(s32)hand->mode, (s32)hand->stateminor, (s32)hand->state,
+				cond_loaded, cond_switchto_neg, cond_gunmemnew_neg, cond_other_not_reload,
+				res,
+				(s32)g_Vars.currentplayer->hands[HAND_LEFT].state,
+				(s32)g_Vars.currentplayer->hands[HAND_LEFT].stateminor,
+				(s32)g_Vars.currentplayer->hands[HAND_LEFT].inuse,
+				(s32)g_Vars.currentplayer->hands[HAND_LEFT].mode,
+				(s32)hand->pausechange, (s32)hand->pausetime60, (s32)hand->count60);
+		}
+
 		if (hand->pausechange == 0 || hand->pausetime60 <= hand->count60) {
 			if (hand->mode == HANDMODE_6) {
 				if (bgun0f09bf44(handnum)) {
