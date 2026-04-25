@@ -252,7 +252,9 @@ static s32 renderTeamSetup(struct menudialog *dialog,
 
     /* ---- LEFT: Teams Enabled + per-slot assignment ---- */
     ImGui::BeginGroup();
-    ImGui::BeginChild("##team_slots", ImVec2(leftW, contentH), true);
+    /* Priority L (2026-04-25): NavFlattened so D-pad traverses across columns. */
+    ImGui::BeginChild("##team_slots", ImVec2(leftW, contentH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
 
     /* Teams enabled toggle */
     {
@@ -335,7 +337,9 @@ static s32 renderTeamSetup(struct menudialog *dialog,
 
     /* ---- RIGHT: Auto-team presets ---- */
     ImGui::BeginGroup();
-    ImGui::BeginChild("##team_presets", ImVec2(rightW, contentH), true);
+    /* Priority L (2026-04-25): NavFlattened so D-pad traverses across columns. */
+    ImGui::BeginChild("##team_presets", ImVec2(rightW, contentH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
 
     ImGui::TextColored(pdguiVec4TitleGlow(), "Auto Team Presets");
     ImGui::Separator();

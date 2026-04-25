@@ -939,7 +939,8 @@ static void renderLevelEditorTab(float panelW, float panelH)
     float listH;
     float usedY;
 
-    ImGui::BeginChild("##le_left", ImVec2(panelW, panelH), false);
+    /* Priority L (2026-04-25): NavFlattened so D-pad traverses across columns. */
+    ImGui::BeginChild("##le_left", ImVec2(panelW, panelH), ImGuiChildFlags_NavFlattened);
 
     ImGui::TextColored(pdguiVec4TitleGlow(), "Level Editor");
     ImGui::TextDisabled("Spawn catalog assets into an empty level and explore freely.");
@@ -1094,7 +1095,9 @@ static void renderLevelEditorObjectPanel(float panelW, float panelH)
     float btnH   = pdguiScale(36.0f);
     float fieldW = 0.0f;
 
-    ImGui::BeginChild("##le_right_outer", ImVec2(panelW, panelH), true);
+    /* Priority L (2026-04-25): NavFlattened so D-pad traverses across columns. */
+    ImGui::BeginChild("##le_right_outer", ImVec2(panelW, panelH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
 
     /* ---- Spawned objects list ---- */
     ImGui::TextColored(pdguiVec4TitleGlow(),
@@ -1588,7 +1591,10 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
     float btnH   = pdguiScale(39.0f);
 
     /* Outer panel (bordered) */
-    ImGui::BeginChild("##room_panel_outer", ImVec2(panelW, panelH), true);
+    /* Priority L (2026-04-25): NavFlattened so D-pad traverses across columns
+     * (Players column to/from Match Settings column to/from Options column). */
+    ImGui::BeginChild("##room_panel_outer", ImVec2(panelW, panelH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
 
     /* Teams state drives both the header dropdown and row sorting / tinting. */
     bool teamsOn = (g_MatchConfig.options & MPOPTION_TEAMSENABLED) != 0;
@@ -2447,7 +2453,9 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
 
 static void renderCombatSimTab(float panelW, float panelH, bool leader)
 {
-    ImGui::BeginChild("##room_cs_settings", ImVec2(panelW, panelH), false);
+    /* Priority L (2026-04-25): NavFlattened so D-pad traverses across columns. */
+    ImGui::BeginChild("##room_cs_settings", ImVec2(panelW, panelH),
+                      ImGuiChildFlags_NavFlattened);
 
     float scale = pdguiScaleFactor();
     float comboW = panelW - ImGui::GetStyle().WindowPadding.x * 2;
@@ -2783,7 +2791,9 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
 
 static void renderCampaignTab(float panelW, float panelH, bool leader)
 {
-    ImGui::BeginChild("##room_coop_settings", ImVec2(panelW, panelH), false);
+    /* Priority L (2026-04-25): NavFlattened so D-pad traverses across columns. */
+    ImGui::BeginChild("##room_coop_settings", ImVec2(panelW, panelH),
+                      ImGuiChildFlags_NavFlattened);
 
     float comboW = panelW - ImGui::GetStyle().WindowPadding.x * 2;
 
@@ -2851,7 +2861,9 @@ static void renderCampaignTab(float panelW, float panelH, bool leader)
 
 static void renderCounterOpTab(float panelW, float panelH, bool leader)
 {
-    ImGui::BeginChild("##room_anti_settings", ImVec2(panelW, panelH), false);
+    /* Priority L (2026-04-25): NavFlattened so D-pad traverses across columns. */
+    ImGui::BeginChild("##room_anti_settings", ImVec2(panelW, panelH),
+                      ImGuiChildFlags_NavFlattened);
 
     float comboW = panelW - ImGui::GetStyle().WindowPadding.x * 2;
 

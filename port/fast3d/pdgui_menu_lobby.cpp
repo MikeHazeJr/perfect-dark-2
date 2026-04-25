@@ -240,7 +240,9 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
     /* ================================================================
      * Left column — Connected Players
      * ================================================================ */
-    ImGui::BeginChild("##social_players", ImVec2(colW, contentH), true);
+    /* Priority L (2026-04-25): NavFlattened so D-pad traverses across columns. */
+    ImGui::BeginChild("##social_players", ImVec2(colW, contentH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
     ImGui::TextColored(pdguiVec4TitleGlow(), "Connected Players");
     ImGui::Separator();
 
@@ -309,7 +311,9 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
     /* ================================================================
      * Right column — Active Rooms
      * ================================================================ */
-    ImGui::BeginChild("##social_rooms", ImVec2(colW, contentH), true);
+    /* Priority L (2026-04-25): NavFlattened so D-pad traverses across columns. */
+    ImGui::BeginChild("##social_rooms", ImVec2(colW, contentH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
     ImGui::TextColored(pdguiVec4TitleGlow(), "Active Rooms");
     ImGui::Separator();
 
