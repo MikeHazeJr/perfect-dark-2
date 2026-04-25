@@ -646,6 +646,19 @@ void forgeTick(void)
 		return;
 	}
 
+	/* B-244 (2026-04-25): tear down on endscreen. Mission Failed / mainEndStage
+	 * sets g_MainIsEndscreen = 1 BEFORE the actual stage transition fires
+	 * (mainChangeToStage runs later, after endscreen dismiss). During that
+	 * window the stagenum watchdog below cannot fire because g_StageNum is
+	 * still the session stage, but the user is at the Mission Failed screen
+	 * and trying to use Abort / Restart. If we leave the forge IMCs active,
+	 * they intercept gamepad input intended for the endscreen menu and
+	 * Abort / Restart go nowhere. Tear down as soon as endscreen flips on. */
+	if (s_forge.state != FORGE_SESSION_INACTIVE && g_MainIsEndscreen) {
+		forgeTransitionToInactive("endscreen active");
+		return;
+	}
+
 	/* B-245 (2026-04-25): Mission-Failed -> CI Restart and other unexpected
 	 * stage transitions can move the player to a *different* gameplay stage
 	 * than the one the Grid session was started on. STAGE_CITRAINING is a
