@@ -4,6 +4,129 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S458 - 2026-04-25 - Connectivity Phase 1: social + 6-tier P2P + presence + UI surfaces
+
+Implementation of Phase 1 of `context/designs/connectivity-and-modern-main-menu.md`. Worktree `adoring-borg-2b6076`. Independent of two parallel sessions: Session A (Issue 1 weapon investigation) and Session B (J/K/L IMC architectural batch). No files owned by either of those sessions were touched.
+
+Four commits, each build-clean on `pd` and `pd-server`.
+
+### P1.A -- `9df0990a` feat(social): friend / block / presence store + identity-stable connect codes
+
+`port/include/social.h` + `port/src/social_store.c`. Friend list, block list, three-state visibility (Q7), notification toggles (Q8), persisted under `<home>/social/{friends,blocks,presence}.json` with atomic rename. Hand rolled JSON tokeniser modelled on `port/src/modmgr.c`'s parser to avoid pulling in a JSON dep. Caps: SOCIAL_FRIENDS_MAX=128, SOCIAL_BLOCKS_MAX=64.
+
+Connect-code derivation: `handle = first 4 bytes of SHA-256(device_uuid || "pd-social-connect-v1")` using the existing `port/src/sha256.c`. The 4-word phrase is the same 4 bytes fed into `connectCodeEncode()` from `port/src/connectcode.c`. Both sides decode the same dictionary back to the same handle, so the friend list keys on a stable per-device identity rather than IP.
+
+`port/src/main.c` now calls `identityInit()` + `socialInit()` after `saveInit()` and before `netInit()` -- closes the "client never calls identityInit" gap that `net.c:390` had been working around with a fallback.
+
+Block / friend symmetry: `socialBlockAdd()` removes the friend in the same step.
+
+### P1.B -- `1668211a` feat(p2p): 6-tier connection layer (T0 LAN through T5 TURN)
+
+All six tiers ship together (Mike's "no staged rollout"). Each pair walks the ladder sequentially with `P2P_TIER_TIMEOUT_MS=2500ms` between tiers, surfacing `p2pTierUxLabel` per tier ("Looking for LAN peers..." / "Trying direct connection..." / "Trying NAT traversal..." / etc.).
+
+`port/include/net/p2p.h` -- public API: tier enum, pair-state enum, endpoint flags (DIRECT / HOLE_PUNCH / PORT_MAPPED / ICE_PAIR / RELAYED), pair lifecycle (Begin / Cancel / GetState / GetEndpoint / Diag), per-tier Start + Poll exports.
+
+Modules:
+
+- `port/src/net/p2p.c` -- orchestrator. P2P_MAX_PAIRS=64. enterTier dispatches; escalate moves to the next tier on failure or timeout; report-success parks the pair OPEN. `p2pTick()` fires every frame from `mainTick()`.
+- `port/src/net/p2p_lan.c` -- T0. UDP broadcast on port 27101, 32-byte announcement carrying sender handle + listen port + NET_PROTOCOL_VER, re-announce every 3s, prune unseen peers after 15s. Drops blocked-handle and appear-offline-flagged senders. Cache lookup feeds the orchestrator directly so same-subnet peers skip the rest of the ladder.
+- `port/src/net/p2p_direct.c` -- T1. 16-byte probe + ack on port 27102 with nonce-keyed reply. Reflects unsolicited probes so a peer can also use us as their tier-1 target.
+- `port/src/net/p2p_stun.c` -- T2. Wraps the existing `port/src/net/netstun.c` worker. Caches reflexive endpoint for 60s; `p2pPublishMyReflexive()` makes it available to the ICE tier.
+- `port/src/net/p2p_upnp.c` -- T3. Wraps `port/src/net/netupnp.c`. Maps the netInit-listening port at the IGD; reports `(external_ip, listen_port)` as the candidate.
+- `port/src/net/p2p_ice.c` -- T4. 16-byte probe + ack on port 27103. Multi-candidate parallel test (host + srflx + prflx, ICE_MAX_CANDS=8). First successful pair wins. `p2pIceAddPeerCandidate()` is the future signaling hook.
+- `port/src/net/p2p_turn.c` -- T5. Custom 24-byte relay protocol on port 27104 (Allocate / Allocate-Ack / Relay / Hangup). Intentionally simpler than RFC 5766 because the relay is another player's `pd.exe`, not a public TURN server (Mike's "any peer can act as a relay"). Bandwidth-aware selection via `p2pTurnRegisterRelayCandidate(handle, ip, port, kbps)` -- highest declared kbps wins.
+
+Wired in `port/src/pdmain.c::mainTick` at the very top so presence stays alive across stage transitions / title screens. `s_Initialised` guard makes the call safe before `p2pInit()` returns.
+
+### P1.E -- `bc248616` feat(presence): always-on peer-to-peer presence layer
+
+`port/include/presence.h` + `port/src/presence.c`. Connectionless UDP on port 27105, 88-byte frame: 5-byte magic "PDPRS", version, kind (ping / pong / invite / invite-resp / bye), local presence_state_t, sender + target handle, NET_PROTOCOL_VER, invite kind, nonce, 64-byte status blurb / agent name.
+
+Lifecycle:
+
+- `presenceInit()` seeds a ping schedule from the social friend list, binds the socket, sets initial state from `socialVisibilityGet()`. Default: PRESENCE_ONLINE_IDLE (or PRESENCE_APPEAR_OFFLINE if the user opted in to that).
+- `presenceTick()` drains the receive socket, schedules a 30-second ping per friend, prunes 3-minute-stale invites, marks peers OFFLINE after 60s without a pong.
+- `presenceShutdown()` sends BYE to every cached peer endpoint.
+
+Anti-DoS (Section 3.2): inbound pings accepted only from social friends or the `presencePendingInvite` allowlist; per-source 5-second rate limit (PRESENCE_RATE_BUCKETS=64); BYE silences immediately.
+
+Invite path:
+- `presenceSendInvite(handle, kind)` -- reuses cached endpoint or falls back to LAN tier-0 lookup, fires PRESENCE_KIND_INVITE, opens a `p2pPair` so the responder's accept lands on a ready channel.
+- `presenceInviteAccept(idx)` -- sends INVITE_RESP and opens its own `p2pPair` from the invitee side.
+
+Wired into `mainTick` immediately after `p2pTick()`.
+
+### P1.G + P1.H + P1.I -- `d2b0e4a5` feat(ui): status indicator, sidebar, social menu
+
+`port/include/pdgui_friends.h` + `port/fast3d/pdgui_friends.cpp`. Three surfaces in one file with shared row rendering -- consistent palette (TitleGlow / TintSuccess / TintInfo / TintDanger), `ImGui::GetForegroundDrawList` for the always-on pill, plain windows for the toggleable surfaces.
+
+**Status indicator (P1.G):** "[agent] | [state] | [connect code]" with a colored dot per state. Online green / in-match cyan / spectating glow / appear-offline grey. Click toggles the sidebar.
+
+**Sidebar (P1.H):** 360px right-anchored panel. Per-row dot + label + status blurb / last-seen time. Inline actions (Invite / Mute / Block / Remove) -- statically visible per Q16; Invite gated to online states only. Invitations section reads from `presenceInviteAt`. Tab toggles open/close from any non-text-input ImGui frame (no actionmap binding -- Session B owns those files).
+
+**Social menu (P1.I):** Full-screen, three tabs:
+- Friends -- shared `renderFriendRow` from the sidebar (no fork).
+- Block list -- with Unblock per row.
+- Settings -- visibility radios (Public / Friends Only / Appear Offline), notification category checkboxes (Social / Invitations), diagnostic block (handle / code / pair count).
+
+**Add Friend modal:** code + nickname inputs. On confirm, calls `socialFriendAdd` + `presencePendingInviteAdd` so the new friend's first ping is whitelisted before any pong arrives.
+
+`port/fast3d/pdgui_backend.cpp::pdguiRender` calls `pdguiFriendsRender` after the pause menu and scorecard so the surfaces paint above gameplay windows. `friendsActive` added to the early-return overlay-reason gate so the indicator / sidebar / Social menu render even when no other reason exists.
+
+### Phase 1 verification matrix (current state)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Friend list / blocks / visibility persist across runs | YES | `socialSave` writes atomically; `loadFriends` reads back; tested via re-init path. |
+| Identity-stable connect code derived from device UUID | YES | `deriveHandle` -> `connectCodeEncode`; round-trip via `socialDecodeHandle`. |
+| T0 LAN broadcast discovers same-subnet peers | YES (code-complete) | Real-network verification still pending Mike's lab. |
+| T1 direct UDP probe + ack | YES (code-complete) | Same. |
+| T2 STUN reflexive gathering | YES (wraps existing netstun.c) | Same. |
+| T3 UPnP / NAT-PMP port mapping | YES (wraps existing netupnp.c) | Same. |
+| T4 ICE candidate gathering + pair testing | YES (code-complete) | Same. |
+| T5 TURN-style relay (custom, not RFC 5766) | YES (code-complete) | Bandwidth-aware relay candidate selection; `p2pTurnRegisterRelayCandidate` API ready for `group_session.c` to feed it. |
+| Per-tier 2.5s timeout + escalation UX label | YES | `enterTier` logs `P2P.NAT: pair=X tier=Y`, `escalate` logs `tier=A -> tier=B reason=Z`. |
+| Presence ping every 30s with anti-DoS rate limit | YES | `presenceTick` schedule + `rateLimitAllow` (5s / source). |
+| Per-friend mute (Q9) | YES | Sidebar row, Social menu row. |
+| Block list separate from friend list (Q7) | YES | `socialBlockAdd` + symmetric unfriend; sidebar Block button; Social menu Unblock tab. |
+| Visibility three-state (Public / Friends Only / Appear Offline) | YES | Radio buttons in Social menu Settings tab. |
+| Notification category toggles (Q8) | YES | Two checkboxes in Social menu Settings tab; mask persisted in presence.json. |
+| Friend list global, NOT per-profile (Q6) | YES | Stored under `<home>/social/`, not under `<home>/saves/<profile>/`. |
+| Display format `[nickname]: [agentname]` (Q5) | YES | `socialFormatDisplay`. |
+| Top-right status indicator | YES | `pdguiFriendsStatusIndicatorRender`. |
+| Sidebar (peek view) | YES | Tab toggle + click-on-pill toggle; same row UI as Social menu. |
+| Social menu (full view) with tabs | YES | Friends / Block list / Settings tabs. |
+| Add Friend modal | YES | Connect-code + nickname inputs. |
+| In-match invite flow (P1.J) | DEFERRED | Requires new wire packet on the existing match channel; needs NET_PROTOCOL_VER bump 40 -> 41. Out of scope this session. |
+| Real-NAT verification matrix harness (P1.K) | DEFERRED | `pdgui_nat_diagnostics.cpp` not yet authored. |
+| Real-network testing across NAT types | PENDING | Mike has the only physical lab; must run on representative ISP / NAT pairs. |
+
+### What did NOT land in this session
+
+- **P1.J in-match invite path.** Joining a friend's CS / mission via invite needs a new ENet packet on the match channel (CLC_INVITE_JOIN / SVC_INVITE_TICKET). Implementation requires bumping `NET_PROTOCOL_VER 40 -> 41` and adding dispatch in `port/src/net/netmsg.c`. Pending.
+- **P1.K NAT diagnostics harness.** A pdgui debug overlay that walks each tier in turn against a known peer and reports per-tier success / RTT / endpoint. Pending.
+- **First-add friend bootstrap problem.** Without central signaling, two strangers who exchange connect codes have no way to find each other on the public internet unless one of them is on the same LAN (T0). The current design assumes the friend list also caches a last-known IP populated by some out-of-band mechanism. Friends who have never met can presence-ping only via T0 LAN. Documented as a known limitation; resolution is either a) shared-secret rendezvous (DHT-style) in Phase 2, or b) Mike's planned matchmaking server in a much later phase.
+- **Phases 2-5** (chat / spectator / Theater / music / profile / voice). Not started this session; will roll forward in subsequent sessions.
+
+### Build verification
+
+| Commit | PerfectDark.exe | PerfectDarkServer.exe | Notes |
+|---|---|---|---|
+| `9df0990a` (P1.A) | 54,378,723 | 23,250,450 (unchanged) | Server is unchanged: social_store.c is excluded from the explicit pd-server source list. |
+| `1668211a` (P1.B) | 54,567,866 | 23,250,450 (unchanged) | Same. New p2p sources are picked up by pd's GLOB_RECURSE only. |
+| `bc248616` (P1.E) | 54,651,xxx | 23,250,450 (unchanged) | Same. presence.c is client-only. |
+| `d2b0e4a5` (P1.G/H/I) | 54,721,448 | 23,250,450 (unchanged) | Same. UI is client-only. |
+
+All four commits link clean on both targets.
+
+### Co-existence with other sessions
+
+This session deliberately wrote 100% new files plus minimal hooks in `port/src/main.c` (init wiring), `port/src/pdmain.c::mainTick` (per-frame tick), and `port/fast3d/pdgui_backend.cpp::pdguiRender` (UI render hook). No file owned by Session A (weapon investigation) or Session B (input/menu refactor) was touched.
+
+### Surfaced milestone
+
+Phase 1 *infrastructure* (data layer + 6-tier P2P + presence + UI surfaces) is in place and ready for Mike's first playtest. Friends added via "Add by code" with a known cached endpoint will exchange presence pings; LAN peers will discover each other via T0; the sidebar / status indicator will reflect online state. The two genuine gaps before Phase 1 ships fully are P1.J (in-match invite flow) and the real-NAT verification matrix.
+
 ## Session S457 - 2026-04-24 - F/G/H/I/J: test arenas, music sync, B-228 Option E, design pass
 
 Five priorities landed in one batch. F/G/H are code; I/J are design docs awaiting Mike review.
