@@ -21,6 +21,7 @@
 #include "fs.h"
 #include "modmgr.h"
 #include "modarchive.h"
+#include "modvfs.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
@@ -1715,8 +1716,11 @@ static void modmgrLoadMod(modinfo_t *mod)
 			free(mfstBuf);
 		}
 
-		/* M-1.3 will register the open handle with the VFS here. For now
-		 * the handle is kept open so the unload path closes it correctly. */
+		/* Priority M / B-238 (M-1.3): register the open archive with the
+		 * VFS layer so fsFileLoad / fsFileSize can resolve asset paths
+		 * inside it. The handle stays owned by modmgr; unload path will
+		 * call modVfsUnmount + modArchiveClose in modmgrUnloadAllMods. */
+		modVfsMount(mod->id, mod->archive_handle);
 
 		mod->loaded = true;
 		return;
@@ -1741,13 +1745,15 @@ static void modmgrLoadMod(modinfo_t *mod)
 
 static void modmgrUnloadAllMods(void)
 {
+	/* Priority M / B-238: drop every VFS mount in one shot before closing
+	 * archive handles. modVfsUnmountAll iterates internally and frees per-
+	 * mount cache entries; doing this BEFORE modArchiveClose avoids any
+	 * brief window where a cached entry's mount has a dangling archive. */
+	modVfsUnmountAll();
+
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
 		modinfo_t *mod = &g_ModRegistry[i];
 		mod->loaded = false;
-		/* Priority M: archive handle is owned by the loaded state. Close on
-		 * unload so we do not leak FILE handles across reloads. The M-1.3
-		 * VFS layer will hook in here to drop the mount + flush the per-mod
-		 * asset cache before we close the handle. */
 		if (mod->archive_handle) {
 			modArchiveClose(mod->archive_handle);
 			mod->archive_handle = NULL;
@@ -1775,10 +1781,16 @@ static int modmgrCompare(const void *a, const void *b)
 // Public API: Lifecycle
 // ---------------------------------------------------------------------------
 
+/* Priority M / B-238: cache cap for the in-memory VFS asset cache, in MiB.
+ * Zero is allowed (effectively disables the cache, every read decompresses
+ * fresh). 256 MiB is the design 4.4 default. */
+static s32 g_ModAssetCacheMB = 256;
+
 PD_CONSTRUCTOR static void modmgrConfigInit(void)
 {
 	configRegisterString("Mods.EnabledMods", g_ModEnabledList, sizeof(g_ModEnabledList));
 	configRegisterInt("Mods.SizeThresholdMB", &g_ModSizeThresholdMB, 0, 10000);
+	configRegisterInt("Mods.AssetCacheMB", &g_ModAssetCacheMB, 0, 16384);
 }
 
 void modmgrInit(void)
@@ -1786,6 +1798,12 @@ void modmgrInit(void)
 	if (g_ModManagerInitialized) return;
 
 	sysLogPrintf(LOG_NOTE, "modmgr: initializing...");
+
+	/* Priority M / B-238: bring up the VFS layer + apply the configured
+	 * asset cache cap. Idempotent so repeated init calls (e.g. during
+	 * tests) are safe. */
+	modVfsInit();
+	modVfsSetCacheCapMB(g_ModAssetCacheMB);
 
 	// Scan for mods
 	modmgrScanDirectory();
