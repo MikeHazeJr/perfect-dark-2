@@ -370,6 +370,25 @@ static void forgeTransitionToInactive(const char *reason)
 	if (p) {
 		forgeRestorePlayerMode(p);
 	}
+
+	/* Defensive hardening (2026-04-24): forgeRestorePlayerMode is guarded
+	 * on currentplayer being non-NULL AND p->prop && p->prop->chr being
+	 * non-NULL. If the inactive transition fires while the player chr is
+	 * already torn down (typical when stage transitions to TITLE / main
+	 * menu), one or both of those guards skips the restore and the
+	 * has_saved_* flags stay true with stale saved values. The chr being
+	 * gone means the dangling state never lands on a live chr, but a
+	 * future code path that reads saved_bodynum / saved_headnum without
+	 * also re-checking validity would observe stale data.
+	 *
+	 * Belt-and-braces: unconditionally clear both has_saved_* flags so
+	 * the inactive transition is idempotent regardless of currentplayer
+	 * state. The integer saved_* fields are irrelevant once the flags
+	 * are false (every consumer guards on the flag); leaving their
+	 * last-known values keeps the diff minimal. */
+	s_forge.fly.has_saved_movemode = false;
+	s_forge.fly.has_saved_body     = false;
+
 	if (s_forge.state != FORGE_SESSION_INACTIVE) {
 		sysLogPrintf(LOG_NOTE, "GRID: -> INACTIVE (%s)", reason ? reason : "");
 		forgeRuntimeExitPlay();
