@@ -33,6 +33,7 @@ extern "C" {
 #define SOCIAL_CONNECTCODE_MAX 96  /* "fat vampire running to the park" + null */
 #define SOCIAL_FRIENDS_MAX    128
 #define SOCIAL_BLOCKS_MAX      64
+#define SOCIAL_PUBKEY_LEN      32  /* Ed25519 raw public key, TOFU-bound */
 
 /* -------------------------------------------------------------------------
  * Visibility (Q7) -- three-state.
@@ -68,8 +69,21 @@ typedef struct social_friend_s {
 	char nickname[SOCIAL_NICKNAME_MAX];
 	u32  handle;            /* 32-bit identity hash; matches connect_code */
 	u8   muted;             /* per-friend mute (Q9) */
-	u8   _pad[3];
+	u8   has_pubkey;        /* 1 once TOFU bind has cached pubkey */
+	u8   _pad[2];
 	u64  last_seen_unix;    /* unix seconds */
+	/* TOFU-bound Ed25519 public key for the friend's identity. Populated
+	 * on first verified presence ping; subsequent pings must carry the
+	 * matching key or are rejected. The connect-code handle is bound to
+	 * this key by SHA256(pubkey || domain)[:4]. */
+	u8   pubkey[SOCIAL_PUBKEY_LEN];
+	/* Cached endpoint (Section 3 endpoint resolution flow). 0 / 0 / 0
+	 * means cold; ttl_unix is the wall-clock second after which the
+	 * cache is stale. */
+	u32  endpoint_ipv4;     /* host order */
+	u16  endpoint_port;     /* host order */
+	u16  _pad2;
+	u64  endpoint_ttl_unix;
 } social_friend_t;
 
 typedef struct social_block_s {
@@ -144,6 +158,37 @@ s32 socialFriendUpdateAgentName(const char *connect_code, const char *agent_name
 
 /** Stamp last_seen_unix to now. Returns 1 if friend existed, 0 otherwise. */
 s32 socialFriendTouchSeen(const char *connect_code);
+
+/**
+ * Bind the friend's Ed25519 pubkey on first verified contact (TOFU).
+ *
+ * @return  1 on bind, 0 if friend not found, -1 if a pubkey is already
+ *          cached and differs from the supplied bytes (caller should
+ *          treat that as an identity-changed event).
+ */
+s32 socialFriendBindPubkey(u32 handle, const u8 pubkey[SOCIAL_PUBKEY_LEN]);
+
+/**
+ * Update the cached endpoint for a friend after a successful verified
+ * pong. ttl_seconds is added to the wall clock to compute the new
+ * expiry. Pass 0 to clear the cache.
+ */
+s32 socialFriendUpdateEndpoint(u32 handle, u32 ipv4, u16 port, u32 ttl_seconds);
+
+/**
+ * Returns 1 + writes endpoint to the out-pointers if the cached endpoint
+ * is non-zero AND the TTL has not expired (against current wall clock).
+ * Returns 0 otherwise.
+ */
+s32 socialFriendGetEndpoint(u32 handle, u32 *out_ipv4, u16 *out_port);
+
+/**
+ * Verify that SHA256(pubkey || "pd-social-connect-v1")[:4] equals the
+ * supplied 32-bit handle. Returns 1 if bound, 0 otherwise. Used by the
+ * presence layer to refuse spoofed (handle, pubkey) combinations before
+ * even verifying the signature.
+ */
+s32 socialHandleBindsPubkey(u32 handle, const u8 pubkey[SOCIAL_PUBKEY_LEN]);
 
 /* -------------------------------------------------------------------------
  * Block list.

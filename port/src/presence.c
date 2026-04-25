@@ -2,12 +2,12 @@
  * presence.c -- Always-on peer-to-peer presence ping/pong + invite queue.
  *
  * Phase 1 of the connectivity rollout. Single connectionless UDP socket
- * on port 27105. Frame format:
+ * on port 27105. Frame format (signed; 184 bytes total):
  *
  *   off len  field
  *   ----------------------------
  *    0  5    magic "PDPRS"
- *    5  1    version (1)
+ *    5  1    version (2 -- bumped at Mike's 2026-04-25 identity rework)
  *    6  1    kind  (0=ping, 1=pong, 2=invite, 3=invite-resp, 4=bye)
  *    7  1    state (presence_state_t)
  *    8  4    sender handle
@@ -16,11 +16,19 @@
  *   18  2    invite_kind / invite_response (0/1)
  *   20  4    nonce
  *   24 64    status blurb / agent name (utf-8, null-padded)
- *   88
+ *   88 32    sender Ed25519 pubkey (matches handle via SHA256(pubkey||domain)[:4])
+ *  120 64    Ed25519 signature over bytes[0..120) + the domain string
+ *  184
+ *
+ * Signature domain separator: "pd-presence-v2".
+ *
+ * The 184-byte frame is well within the 1500-byte unfragmented UDP MTU.
  */
 
 #include "presence.h"
 #include "social.h"
+#include "identity.h"
+#include "ed25519.h"
 #include "net/p2p.h"
 #include "net/net.h"
 #include "system.h"
@@ -44,12 +52,20 @@
   #define INVALID_SOCKET (-1)
 #endif
 
-#define PRESENCE_PORT          27105
-#define PRESENCE_MAGIC         "PDPRS"
-#define PRESENCE_MAGIC_LEN     5
-#define PRESENCE_VERSION       1
-#define PRESENCE_FRAME_LEN     88
-#define PRESENCE_BLURB_LEN     64
+#define PRESENCE_PORT             27105
+#define PRESENCE_MAGIC            "PDPRS"
+#define PRESENCE_MAGIC_LEN        5
+#define PRESENCE_VERSION          2  /* v2 (2026-04-25): pubkey + signature appended */
+#define PRESENCE_BODY_LEN         120 /* bytes that the signature covers (0..120) */
+#define PRESENCE_PUBKEY_OFFSET    88
+#define PRESENCE_PUBKEY_LEN       32
+#define PRESENCE_SIG_OFFSET       120
+#define PRESENCE_SIG_LEN          64
+#define PRESENCE_FRAME_LEN        184
+#define PRESENCE_BLURB_LEN        64
+#define PRESENCE_SIG_DOMAIN       "pd-presence-v2"
+#define PRESENCE_SIG_DOMAIN_LEN   14
+#define PRESENCE_ENDPOINT_TTL_S   300 /* 5 minutes -- decision: connectivity-phase1-decisions.md */
 
 #define PRESENCE_KIND_PING        0
 #define PRESENCE_KIND_PONG        1
@@ -225,10 +241,35 @@ static s32 rateLimitAllow(u32 handle)
 	return 1;
 }
 
+/* Sign a frame body (the first PRESENCE_BODY_LEN bytes) plus the domain
+ * separator. The domain prevents signature reuse across protocols that
+ * happen to share the same byte prefix. */
+static s32 signFrame(const u8 *body, u8 *outSig)
+{
+	if (!body || !outSig) return 0;
+	if (!identityGetPubkey()) return 0;
+	u8 buf[PRESENCE_BODY_LEN + PRESENCE_SIG_DOMAIN_LEN];
+	memcpy(buf, body, PRESENCE_BODY_LEN);
+	memcpy(buf + PRESENCE_BODY_LEN, PRESENCE_SIG_DOMAIN, PRESENCE_SIG_DOMAIN_LEN);
+	return identitySign(buf, sizeof(buf), outSig);
+}
+
+static s32 verifyFrame(const u8 *body, const u8 *sig, const u8 *pubkey)
+{
+	if (!body || !sig || !pubkey) return 0;
+	u8 buf[PRESENCE_BODY_LEN + PRESENCE_SIG_DOMAIN_LEN];
+	memcpy(buf, body, PRESENCE_BODY_LEN);
+	memcpy(buf + PRESENCE_BODY_LEN, PRESENCE_SIG_DOMAIN, PRESENCE_SIG_DOMAIN_LEN);
+	return ed25519Verify(sig, buf, sizeof(buf), pubkey) == 1 ? 1 : 0;
+}
+
 static void sendFrame(u32 ipv4, u16 port, u8 kind, u32 target_handle,
                        u32 nonce, u8 invite_kind, const char *blurb_or_agent)
 {
 	if (!s_SocketReady) return;
+	const u8 *mypub = identityGetPubkey();
+	if (!mypub) return; /* no keypair = nothing to sign */
+
 	u8 packet[PRESENCE_FRAME_LEN];
 	memset(packet, 0, sizeof(packet));
 	u8 *w = packet;
@@ -245,6 +286,12 @@ static void sendFrame(u32 ipv4, u16 port, u8 kind, u32 target_handle,
 		size_t n = strlen(blurb_or_agent);
 		if (n > PRESENCE_BLURB_LEN - 1) n = PRESENCE_BLURB_LEN - 1;
 		memcpy(packet + 24, blurb_or_agent, n);
+	}
+	memcpy(packet + PRESENCE_PUBKEY_OFFSET, mypub, PRESENCE_PUBKEY_LEN);
+
+	if (!signFrame(packet, packet + PRESENCE_SIG_OFFSET)) {
+		sysLogPrintf(LOG_WARNING, "PRESENCE: failed to sign outbound frame");
+		return;
 	}
 
 	struct sockaddr_in dst;
@@ -347,8 +394,15 @@ static void recordPong(u32 handle, u8 state, u16 proto, u32 src_ipv4, u16 src_po
 		strncpy(p->status_blurb, blurb, sizeof(p->status_blurb) - 1);
 		p->status_blurb[sizeof(p->status_blurb) - 1] = '\0';
 	}
-	socialFriendTouchSeen(socialFriendByHandle(handle) ?
-	                      socialFriendByHandle(handle)->connect_code : "");
+	const social_friend_t *f = socialFriendByHandle(handle);
+	if (f) {
+		socialFriendTouchSeen(f->connect_code);
+		/* Refresh the persistent endpoint cache (Section 3 endpoint
+		 * resolution flow). TTL is 5 minutes; design decision logged in
+		 * connectivity-phase1-decisions.md. */
+		socialFriendUpdateEndpoint(handle, src_ipv4, src_port,
+		                           PRESENCE_ENDPOINT_TTL_S);
+	}
 }
 
 static void enqueueInvite(u32 from_handle, u8 kind, const char *agent)
@@ -381,7 +435,7 @@ static void enqueueInvite(u32 from_handle, u8 kind, const char *agent)
 static void drainReceive(void)
 {
 	for (;;) {
-		u8 packet[256];
+		u8 packet[512];
 		struct sockaddr_in src;
 		socklen_t srclen = sizeof(src);
 		int n = recvfrom(s_Sock, (char *)packet, sizeof(packet), 0,
@@ -405,6 +459,35 @@ static void drainReceive(void)
 		if (ver != PRESENCE_VERSION) continue;
 		if (!acceptFromHandle(from_handle)) continue;
 		if (!rateLimitAllow(from_handle)) continue;
+
+		const u8 *sender_pub = packet + PRESENCE_PUBKEY_OFFSET;
+		const u8 *sender_sig = packet + PRESENCE_SIG_OFFSET;
+
+		/* Step 1: handle / key bind (cheap, drops obvious spoofs first). */
+		if (!socialHandleBindsPubkey(from_handle, sender_pub)) {
+			sysLogPrintf(LOG_WARNING,
+			             "PRESENCE: drop -- handle 0x%08x does not bind sender pubkey",
+			             (unsigned)from_handle);
+			continue;
+		}
+
+		/* Step 2: signature verify against sender pubkey. */
+		if (!verifyFrame(packet, sender_sig, sender_pub)) {
+			sysLogPrintf(LOG_WARNING,
+			             "PRESENCE: drop -- bad signature from handle 0x%08x",
+			             (unsigned)from_handle);
+			continue;
+		}
+
+		/* Step 3: TOFU pubkey lock against the friend record. */
+		s32 bind = socialFriendBindPubkey(from_handle, sender_pub);
+		if (bind < 0) {
+			sysLogPrintf(LOG_WARNING,
+			             "PRESENCE: drop -- handle 0x%08x pubkey changed from cached "
+			             "(possible identity rotation, ignoring until user re-adds)",
+			             (unsigned)from_handle);
+			continue;
+		}
 
 		const u32 src_ipv4 = ntohl(src.sin_addr.s_addr);
 		const u16 src_port = ntohs(src.sin_port);
@@ -472,24 +555,40 @@ static void scheduleSync(void)
 	}
 }
 
+/* Resolve the best known endpoint for a friend handle, in this order:
+ *   1. Persistent social store cache, if non-zero AND TTL not expired.
+ *   2. In-memory presence peer cache (within same session).
+ *   3. T0 LAN broadcast cache (same subnet only).
+ * Returns 1 + writes ipv4/port if found, 0 otherwise. Implements the
+ * endpoint-resolution flow documented in design Section 2.3. */
+static s32 resolveEndpoint(u32 handle, u32 *out_ipv4, u16 *out_port)
+{
+	if (socialFriendGetEndpoint(handle, out_ipv4, out_port) == 1) {
+		if (*out_port == 0) *out_port = PRESENCE_PORT;
+		return 1;
+	}
+	const presence_peer_t *p = presencePeerByHandle(handle);
+	if (p && p->cached_ipv4 != 0) {
+		*out_ipv4 = p->cached_ipv4;
+		*out_port = p->cached_port ? p->cached_port : PRESENCE_PORT;
+		return 1;
+	}
+	u32 lan_ipv4 = 0; u16 lan_port = 0;
+	if (p2pLanLookup(handle, &lan_ipv4, &lan_port)) {
+		*out_ipv4 = lan_ipv4;
+		*out_port = lan_port ? lan_port : PRESENCE_PORT;
+		return 1;
+	}
+	return 0;
+}
+
 static void sendPingTo(u32 handle)
 {
-	const presence_peer_t *p = presencePeerByHandle(handle);
 	const social_friend_t *f = socialFriendByHandle(handle);
 	if (!f) return;
 
-	u32 ipv4 = 0;
-	u16 port = 0;
-	if (p && p->cached_ipv4 != 0) {
-		ipv4 = p->cached_ipv4;
-		port = p->cached_port ? p->cached_port : PRESENCE_PORT;
-	} else {
-		/* No cached endpoint -- try LAN tier first. */
-		(void)p2pLanLookup(handle, &ipv4, &port);
-		if (port == 0) port = PRESENCE_PORT;
-	}
-
-	if (ipv4 == 0) return; /* nothing to ping yet */
+	u32 ipv4 = 0; u16 port = 0;
+	if (!resolveEndpoint(handle, &ipv4, &port)) return;
 
 	const u32 nonce = (u32)SDL_GetTicks() ^ handle;
 	sendFrame(ipv4, port, PRESENCE_KIND_PING, handle, nonce, 0, s_LocalBlurb);
@@ -608,17 +707,8 @@ s32 presenceSendInvite(u32 friend_handle, u8 kind)
 	const social_friend_t *f = socialFriendByHandle(friend_handle);
 	if (!f) return -1;
 
-	const presence_peer_t *p = findPeer(friend_handle);
 	u32 ipv4 = 0; u16 port = 0;
-	if (p && p->cached_ipv4 != 0) {
-		ipv4 = p->cached_ipv4;
-		port = p->cached_port ? p->cached_port : PRESENCE_PORT;
-	} else {
-		(void)p2pLanLookup(friend_handle, &ipv4, &port);
-		if (port == 0) port = PRESENCE_PORT;
-	}
-
-	if (ipv4 == 0) return -1;
+	if (!resolveEndpoint(friend_handle, &ipv4, &port)) return -1;
 
 	const u32 nonce = (u32)SDL_GetTicks() ^ friend_handle;
 	sendFrame(ipv4, port, PRESENCE_KIND_INVITE, friend_handle, nonce, kind,
@@ -651,13 +741,9 @@ s32 presenceInviteAccept(s32 idx)
 {
 	if (idx < 0 || idx >= s_NumInbox) return -1;
 	const presence_invite_t *e = &s_Inbox[idx];
-	const presence_peer_t *p = findPeer(e->from_handle);
 
 	u32 ipv4 = 0; u16 port = 0;
-	if (p && p->cached_ipv4 != 0) {
-		ipv4 = p->cached_ipv4;
-		port = p->cached_port ? p->cached_port : PRESENCE_PORT;
-	}
+	(void)resolveEndpoint(e->from_handle, &ipv4, &port);
 
 	const u32 nonce = (u32)SDL_GetTicks() ^ e->from_handle;
 	if (ipv4 != 0) {
@@ -680,12 +766,11 @@ s32 presenceInviteDecline(s32 idx)
 {
 	if (idx < 0 || idx >= s_NumInbox) return -1;
 	const presence_invite_t *e = &s_Inbox[idx];
-	const presence_peer_t *p = findPeer(e->from_handle);
 
-	if (p && p->cached_ipv4 != 0) {
+	u32 ipv4 = 0; u16 port = 0;
+	if (resolveEndpoint(e->from_handle, &ipv4, &port)) {
 		const u32 nonce = (u32)SDL_GetTicks() ^ e->from_handle;
-		sendFrame(p->cached_ipv4, p->cached_port ? p->cached_port : PRESENCE_PORT,
-		          PRESENCE_KIND_INVITE_RESP, e->from_handle, nonce, 0,
+		sendFrame(ipv4, port, PRESENCE_KIND_INVITE_RESP, e->from_handle, nonce, 0,
 		          socialMyAgentName());
 	}
 

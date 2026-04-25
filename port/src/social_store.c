@@ -102,18 +102,36 @@ static void socialPath(const char *file, char *out, u32 outlen)
  * this exe produce the same handle for the same UUID.
  * ------------------------------------------------------------------------- */
 
-static u32 deriveHandle(const u8 uuid[IDENTITY_UUID_LEN])
+/**
+ * Per Mike's 2026-04-25 clarification: the connect-code handle is bound to
+ * the local Ed25519 *public key*, not the device UUID. This makes the
+ * handle stable across reinstalls (the keypair is persisted in
+ * pd-identity.dat) and gives every signed presence ping a verifiable
+ * identity check that does not depend on any IP-based identifier.
+ *
+ * The legacy UUID path remains as a fallback when a keypair is not yet
+ * available (very early init or OpenSSL keygen failure) so the pill / UI
+ * is never broken; once ensureKeypair() runs the handle re-derives off
+ * the pubkey and the social store is re-saved.
+ */
+static u32 deriveHandleFromBytes(const u8 *bytes, u32 len)
 {
 	sha256_ctx ctx;
 	u8         digest[SHA256_DIGEST_SIZE];
 	sha256Init(&ctx);
-	sha256Update(&ctx, uuid, IDENTITY_UUID_LEN);
+	sha256Update(&ctx, bytes, len);
 	sha256Update(&ctx, SOCIAL_DOMAIN, sizeof(SOCIAL_DOMAIN) - 1);
 	sha256Final(&ctx, digest);
 	return ((u32)digest[0])
 	     | ((u32)digest[1] << 8)
 	     | ((u32)digest[2] << 16)
 	     | ((u32)digest[3] << 24);
+}
+
+s32 socialHandleBindsPubkey(u32 handle, const u8 pubkey[SOCIAL_PUBKEY_LEN])
+{
+	if (!pubkey) return 0;
+	return deriveHandleFromBytes(pubkey, SOCIAL_PUBKEY_LEN) == handle ? 1 : 0;
 }
 
 s32 socialEncodeHandle(u32 handle, char *out, u32 outsize)
@@ -304,6 +322,39 @@ static void appendFmt(char *dst, size_t dstsize, size_t *plen, const char *fmt, 
 	*plen += (size_t)n < (dstsize - *plen) ? (size_t)n : (dstsize - *plen - 1);
 }
 
+/* Encode binary bytes as a lowercase hex string. dst must hold 2*len + 1. */
+static void hexEncode(const u8 *src, u32 len, char *dst)
+{
+	static const char *hex = "0123456789abcdef";
+	for (u32 i = 0; i < len; i++) {
+		dst[i * 2 + 0] = hex[(src[i] >> 4) & 0xF];
+		dst[i * 2 + 1] = hex[src[i] & 0xF];
+	}
+	dst[len * 2] = '\0';
+}
+
+static s32 hexNibble(char c)
+{
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+	return -1;
+}
+
+/* Decode a hex string into dst. Returns 1 on success, 0 on parse failure
+ * or if the hex is shorter than 2*expected_len. */
+static s32 hexDecode(const char *src, u8 *dst, u32 expected_len)
+{
+	if (!src || !dst) return 0;
+	for (u32 i = 0; i < expected_len; i++) {
+		s32 hi = hexNibble(src[i * 2 + 0]);
+		s32 lo = hexNibble(src[i * 2 + 1]);
+		if (hi < 0 || lo < 0) return 0;
+		dst[i] = (u8)((hi << 4) | lo);
+	}
+	return 1;
+}
+
 /* -------------------------------------------------------------------------
  * Save
  * ------------------------------------------------------------------------- */
@@ -324,10 +375,24 @@ static void saveFriends(void)
 		appendStr(buf, sizeof(buf), &len, ", \"nick\": ");
 		appendJsonString(buf, sizeof(buf), &len, f->nickname);
 		appendFmt(buf, sizeof(buf), &len,
-		          ", \"handle\": %u, \"muted\": %s, \"lastSeen\": %llu }",
+		          ", \"handle\": %u, \"muted\": %s, \"lastSeen\": %llu",
 		          (unsigned)f->handle,
 		          f->muted ? "true" : "false",
 		          (unsigned long long)f->last_seen_unix);
+		if (f->has_pubkey) {
+			char hex[SOCIAL_PUBKEY_LEN * 2 + 1];
+			hexEncode(f->pubkey, SOCIAL_PUBKEY_LEN, hex);
+			appendStr(buf, sizeof(buf), &len, ", \"pubkey\": ");
+			appendJsonString(buf, sizeof(buf), &len, hex);
+		}
+		if (f->endpoint_ipv4 && f->endpoint_port) {
+			appendFmt(buf, sizeof(buf), &len,
+			          ", \"endpoint\": { \"ipv4\": %u, \"port\": %u, \"ttl\": %llu }",
+			          (unsigned)f->endpoint_ipv4,
+			          (unsigned)f->endpoint_port,
+			          (unsigned long long)f->endpoint_ttl_unix);
+		}
+		appendStr(buf, sizeof(buf), &len, " }");
 	}
 
 	appendStr(buf, sizeof(buf), &len, "\n  ]\n}\n");
@@ -465,6 +530,34 @@ static void loadFriends(void)
 						s32 v = 0; jReadBool(&j, &v); f.muted = (u8)v;
 					} else if (!strcmp(k2, "lastSeen")) {
 						s64 v = 0; jReadInt64(&j, &v); f.last_seen_unix = (u64)v;
+					} else if (!strcmp(k2, "pubkey")) {
+						char hex[SOCIAL_PUBKEY_LEN * 2 + 4];
+						jReadString(&j, hex, sizeof(hex));
+						if (hexDecode(hex, f.pubkey, SOCIAL_PUBKEY_LEN)) {
+							f.has_pubkey = 1;
+						}
+					} else if (!strcmp(k2, "endpoint")) {
+						/* { "ipv4": N, "port": N, "ttl": N } */
+						if (jExpect(&j, '{')) {
+							while (*j.p) {
+								jSkipWs(&j);
+								if (*j.p == '}') { j.p++; break; }
+								if (*j.p == ',') { j.p++; continue; }
+								char k3[12];
+								if (!jReadString(&j, k3, sizeof(k3))) break;
+								if (!jExpect(&j, ':')) break;
+								s64 v = 0;
+								if (!strcmp(k3, "ipv4")) {
+									jReadInt64(&j, &v); f.endpoint_ipv4 = (u32)v;
+								} else if (!strcmp(k3, "port")) {
+									jReadInt64(&j, &v); f.endpoint_port = (u16)v;
+								} else if (!strcmp(k3, "ttl")) {
+									jReadInt64(&j, &v); f.endpoint_ttl_unix = (u64)v;
+								} else {
+									jSkipValue(&j);
+								}
+							}
+						}
 					} else {
 						jSkipValue(&j);
 					}
@@ -616,9 +709,16 @@ void socialInit(void)
 	s_Visibility = SOCIAL_VIS_FRIENDS_ONLY;
 	s_NotifMask = SOCIAL_NOTIF_DEFAULT;
 
+	/* Prefer the Ed25519 pubkey (Mike clarification 2026-04-25): the
+	 * handle is now bound to the persistent identity key, not the device
+	 * UUID. Falls back to UUID-derived if the keypair has not been
+	 * generated yet (very early init / OpenSSL keygen failure). */
 	pd_identity_t *ident = identityGet();
-	if (ident) {
-		s_MyHandle = deriveHandle(ident->device_uuid);
+	const u8 *pub = identityGetPubkey();
+	if (pub) {
+		s_MyHandle = deriveHandleFromBytes(pub, SOCIAL_PUBKEY_LEN);
+	} else if (ident) {
+		s_MyHandle = deriveHandleFromBytes(ident->device_uuid, IDENTITY_UUID_LEN);
 	} else {
 		s_MyHandle = 0;
 	}
@@ -796,6 +896,59 @@ s32 socialFriendTouchSeen(const char *connect_code)
 	if (i < 0) return 0;
 	s_Friends[i].last_seen_unix = (u64)time(NULL);
 	/* Don't save on every pong -- caller decides cadence. */
+	return 1;
+}
+
+s32 socialFriendBindPubkey(u32 handle, const u8 pubkey[SOCIAL_PUBKEY_LEN])
+{
+	if (!s_Ready || !pubkey) return 0;
+	s32 i = friendIndexByHandle(handle);
+	if (i < 0) return 0;
+
+	if (s_Friends[i].has_pubkey) {
+		if (memcmp(s_Friends[i].pubkey, pubkey, SOCIAL_PUBKEY_LEN) == 0) {
+			return 1; /* identical, no-op */
+		}
+		/* Identity changed -- caller must surface to UI. The handle stays
+		 * valid (the connect code is the user-visible address book entry),
+		 * but the new pubkey must be re-confirmed before we accept pings. */
+		return -1;
+	}
+
+	memcpy(s_Friends[i].pubkey, pubkey, SOCIAL_PUBKEY_LEN);
+	s_Friends[i].has_pubkey = 1;
+	socialSave();
+	sysLogPrintf(LOG_NOTE,
+	             "SOCIAL: TOFU bind pubkey for handle=0x%08x agent=\"%s\"",
+	             (unsigned)handle, s_Friends[i].agent_name);
+	return 1;
+}
+
+s32 socialFriendUpdateEndpoint(u32 handle, u32 ipv4, u16 port, u32 ttl_seconds)
+{
+	if (!s_Ready) return 0;
+	s32 i = friendIndexByHandle(handle);
+	if (i < 0) return 0;
+	s_Friends[i].endpoint_ipv4 = ipv4;
+	s_Friends[i].endpoint_port = port;
+	if (ipv4 == 0 || port == 0 || ttl_seconds == 0) {
+		s_Friends[i].endpoint_ttl_unix = 0;
+	} else {
+		s_Friends[i].endpoint_ttl_unix = (u64)time(NULL) + (u64)ttl_seconds;
+	}
+	/* Don't save on every endpoint update -- caller decides cadence. */
+	return 1;
+}
+
+s32 socialFriendGetEndpoint(u32 handle, u32 *out_ipv4, u16 *out_port)
+{
+	if (!s_Ready) return 0;
+	s32 i = friendIndexByHandle(handle);
+	if (i < 0) return 0;
+	if (s_Friends[i].endpoint_ipv4 == 0 || s_Friends[i].endpoint_port == 0) return 0;
+	if ((u64)time(NULL) >= s_Friends[i].endpoint_ttl_unix) return 0;
+	if (out_ipv4) *out_ipv4 = s_Friends[i].endpoint_ipv4;
+	if (out_port) *out_port = s_Friends[i].endpoint_port;
 	return 1;
 }
 
