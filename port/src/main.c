@@ -34,6 +34,8 @@
 #include "savefile.h"
 #include "prefs_agent.h"
 #include "discord.h"
+#include "identity.h"
+#include "social.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
@@ -178,6 +180,15 @@ int main(int argc, const char **argv)
 	updaterInit();
 	saveMigrateInit();
 	saveInit(); /* B-129: wire save dir into savefile.c — must follow fsInit() */
+
+	/* Phase 1 connectivity: identity + social storage. Identity gives us a
+	 * stable device UUID; the social store derives a 4-word connect code
+	 * from that UUID and loads friends/blocks/visibility from disk. Must run
+	 * before netInit() so any presence-aware net code can read the local
+	 * identity. The dedicated server initialises identity through hubInit()
+	 * instead, and does not load social state. */
+	identityInit();
+	socialInit();
 
 	/* D13: Start background update check (non-blocking) */
 	if (!sysArgCheck("--no-update-check")) {
