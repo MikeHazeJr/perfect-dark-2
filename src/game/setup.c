@@ -2502,6 +2502,175 @@ void setupCreateProps(s32 stagenum)
 			}
 			sysLogPrintf(LOG_NOTE, "SETUP: prop iteration done (%d objects)", index);
 
+			/* B-228 Option E (2026-04-24): SP-in-MP transport-prop overlay.
+			 *
+			 * For SP-class stages hosted as MP arenas, the MP setup blob
+			 * ships with no LIFT or ESCASTEP entries (audited in
+			 * context/audits/sp-stage-mp-readiness-2026-04-24.md). The P5
+			 * mptransport_diffflag relax (commit 216fd27f) is therefore a
+			 * no-op on the current codebase -- nothing to filter relaxed.
+			 *
+			 * This pass additionally loads the SP setup blob for the same
+			 * stage and walks ONLY OBJTYPE_LIFT + OBJTYPE_ESCASTEP from
+			 * it, running the same creation logic the main switch uses.
+			 * The SP blob stays alive in MEMPOOL_STAGE so that the lift's
+			 * doors[i] pointers (resolved against SP-blob doorobj structs
+			 * by setupGetCmdByIndex during the overlay pass) remain valid
+			 * for the stage lifetime. We do NOT load the SP doors as live
+			 * props -- only the doorobj structs in the SP blob. The lift
+			 * moves and players ride; door coupling is reduced to the
+			 * struct-data fields the lift reads (door coords for tile
+			 * extents). The B-228 audit's residual crash class (AI lift-
+			 * handle resolution / pathfinding waypoint missing-prop) is
+			 * tracked separately as B-228b.
+			 *
+			 * Stage list: the SP-in-MP class identified by P5 + the 4-23
+			 * readiness audit. Add more as future audits flag them. */
+			if (g_Vars.mplayerisrunning && (
+					stagenum == STAGE_CITRAINING ||
+					stagenum == STAGE_CHICAGO ||
+					stagenum == STAGE_VILLA ||
+					stagenum == STAGE_INFILTRATION ||
+					stagenum == STAGE_G5BUILDING ||
+					stagenum == STAGE_PELAGIC)) {
+				catalog_stage_result_t spStage;
+				if (catalogGetStageResultByIndex(g_StageIndex, &spStage) > 0
+						&& !assetHandleIsNull(spStage.setup_handle)) {
+					struct stagesetup *spSetupHdr = (struct stagesetup *)assetLoadToNew(
+							spStage.setup_handle, FILELOADMETHOD_DEFAULT, LOADTYPE_SETUP);
+					if (spSetupHdr) {
+						u32 *spProps = (u32 *)((uintptr_t)spSetupHdr + (uintptr_t)spSetupHdr->props);
+						u32 *savedMpProps = g_StageSetup.props;
+						/* Repoint g_StageSetup.props to the SP blob so that
+						 * setupGetCmdByIndex (used by the lift door-link
+						 * logic) resolves SP-internal cross-references
+						 * correctly. Restored at end of this block. */
+						g_StageSetup.props = spProps;
+
+						s32 spIndex = 0;
+						s32 spLifts = 0;
+						s32 spEscaSteps = 0;
+						obj = (struct defaultobj *)spProps;
+
+						while (obj->type != OBJTYPE_END) {
+							if (obj->type == OBJTYPE_LIFT && withobjs) {
+								/* SP authors did not set OBJFLAG2_EXCLUDE_*
+								 * bits for MP, so the diffflag filter is a
+								 * no-op here -- include unconditionally. */
+								struct liftobj *lift = (struct liftobj *)obj;
+								struct modelstate *modelstate;
+								s32 modelnum = obj->modelnum;
+								struct prop *prop;
+								s32 i;
+
+								lift->accel    = PALUPF(*(s32 *)&lift->accel) / 65536.0f;
+								lift->maxspeed = PALUPF(*(s32 *)&lift->maxspeed) / 65536.0f;
+								lift->dist     = 0;
+								lift->speed    = 0;
+								lift->levelcur = 0;
+								lift->levelaim = 0;
+
+								for (i = 0; i < (s32)ARRAYCOUNT(lift->doors); i++) {
+									if (lift->doors[i]) {
+										lift->doors[i] = (struct doorobj *)setupGetCmdByIndex(
+												spIndex + *(s32*)&lift->doors[i]);
+									}
+								}
+
+								obj->geocount = 1;
+								setupLoadModeldef(modelnum);
+								modelstate = &g_ModelStates[modelnum];
+								if (modelstate->modeldef) {
+									if (modelGetPartRodata(modelstate->modeldef, MODELPART_LIFT_WALL1))       obj->geocount++;
+									if (modelGetPartRodata(modelstate->modeldef, MODELPART_LIFT_WALL2))       obj->geocount++;
+									if (modelGetPartRodata(modelstate->modeldef, MODELPART_LIFT_WALL3))       obj->geocount++;
+									if (modelGetPartRodata(modelstate->modeldef, MODELPART_LIFT_DOORBLOCK))   obj->geocount++;
+									if (modelGetPartRodata(modelstate->modeldef, MODELPART_LIFT_FLOORNONRECT2)) obj->geocount++;
+								}
+
+								obj->flags &= ~OBJFLAG_00000100;
+								setupCreateObject(obj, spIndex);
+
+								prop = obj->prop;
+								if (prop) {
+									lift->prevpos.x = prop->pos.x;
+									lift->prevpos.y = prop->pos.y;
+									lift->prevpos.z = prop->pos.z;
+									liftUpdateTiles(lift, true);
+
+									/* Auto-register against g_Lifts[] -- same
+									 * rationale as the MP path: SP-authored
+									 * lifts had aiActivateLift opcodes in the
+									 * SP AI script, but we are not loading
+									 * the SP AI list (out of scope). */
+									{
+										s32 pi;
+										for (pi = 0; pi < (s32)ARRAYCOUNT(lift->pads); pi++) {
+											if (lift->pads[pi] < 0) continue;
+											struct pad padinfo;
+											padUnpack(lift->pads[pi], PADFIELD_LIFT, &padinfo);
+											if (padinfo.liftnum > 0 &&
+													(u32)padinfo.liftnum <= ARRAYCOUNT(g_Lifts)) {
+												liftActivate(prop, padinfo.liftnum);
+												break;
+											}
+										}
+									}
+								}
+								spLifts++;
+							} else if (obj->type == OBJTYPE_ESCASTEP && withobjs) {
+								struct escalatorobj *step = (struct escalatorobj *)obj;
+								struct prop *prop;
+#ifdef AVOID_UB
+								Mtxf sp1a8;
+#else
+								f32 sp1a8[12];
+#endif
+								f32 sp184[3][3];
+
+								setupCreateObject(obj, spIndex);
+								prop = obj->prop;
+								if (prop) {
+									step->prevpos.x = prop->pos.x;
+									step->prevpos.y = prop->pos.y;
+									step->prevpos.z = prop->pos.z;
+								}
+								if (obj->flags & OBJFLAG_ESCSTEP_ZALIGNED) {
+									step->frame = escstepy;
+									escstepy += 40;
+									mtx4LoadYRotation(4.7116389274597f, (Mtxf *)&sp1a8);
+									mtx4ToMtx3((Mtxf *)&sp1a8, sp184);
+									mtx00016110(sp184, obj->realrot);
+								} else {
+									step->frame = escstepx;
+									escstepx += 40;
+									mtx4LoadYRotation(M_BADPI, (Mtxf *)&sp1a8);
+									mtx4ToMtx3((Mtxf *)&sp1a8, sp184);
+									mtx00016110(sp184, obj->realrot);
+								}
+								spEscaSteps++;
+							}
+							obj = (struct defaultobj *)((u32 *)obj + setupGetCmdLength((u32 *)obj));
+							spIndex++;
+						}
+
+						/* Restore the MP props pointer for the rest of
+						 * setupCreateProps (spawn-pool computation,
+						 * gunmem block, weapon model preload). The SP
+						 * blob lives in MEMPOOL_STAGE; not freed here. */
+						g_StageSetup.props = savedMpProps;
+
+						sysLogPrintf(LOG_NOTE,
+							"SETUP.LIFT: SP-in-MP stagenum=0x%02x lifts=%d escasteps=%d",
+							(u32)stagenum, spLifts, spEscaSteps);
+					} else {
+						sysLogPrintf(LOG_WARNING,
+							"SETUP.LIFT: SP-in-MP stagenum=0x%02x -- failed to load SP setup blob",
+							(u32)stagenum);
+					}
+				}
+			}
+
 			if (g_Vars.normmplayerisrunning) {
 				spawn_aabb_t aabb;
 				f32 span_x = 0;
