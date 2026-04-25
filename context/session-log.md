@@ -214,6 +214,71 @@ Build-verify clean across all six Phase 1 commits: PerfectDark.exe 54,815,601 / 
 | `b00014f0` | session log identity-rework note |
 | `6e08123b` | P1.J + P1.K group session + UX + NAT diagnostics |
 
+## Session S459 - 2026-04-25 - Connectivity Phase 2: chat + file transfer + toasts + protocol bump
+
+Mike approved rolling forward through Phases 2-5 sequentially with incremental merges to dev between phases. This entry logs Phase 2.
+
+Mike's three debugging principles applied throughout:
+1. *Verify exit criteria.* Each sub-phase's design-doc obligation re-checked before claiming done (table below).
+2. *Single-writer hygiene.* Each new module owns its in-memory + persisted state; cross-module signals go through one explicit hook each.
+3. *Up + down the stack.* Every receive pipeline logs `CHAT:` / `FT:` / `TOAST:` with cause; the dispatch order is documented inline.
+
+### P2.A -- `37d61b72` feat(chat): 1:1 private chat over signed UDP
+
+Friends exchange text on a dedicated signed UDP socket (port 27106). 320-byte frame: 8-byte msg_id, multi-fragment chunk_seq/chunk_total for messages over 192 bytes (CHAT_TEXT_MAX = 512). Frame body signed via identitySign over body[0..224) || "pd-chat-v1"; receiver re-checks signature + handle/key bind + TOFU lock. Per-friend rolling history (CHAT_HISTORY_MAX = 128) persisted at `<home>/social/chat/<hex>.json` with atomic rename. Receive pipeline: rate-limit -> friend allowlist -> handle/key bind -> ed25519 verify -> TOFU lock -> reassembly -> append + save. UI surface in `pdgui_friends.cpp`: per-row "Message" button opens a 480x72%-of-screen panel with header / scrollable history / compose + Send / offline-warning text.
+
+### P2.B/C/D -- `ba039ea5` feat(file-transfer): chunked sha256-verified pipe + chat attachments + convert-to-mod
+
+`port/include/file_transfer.h` + `port/src/file_transfer.c` (~700 LOC). Dedicated signed UDP socket (port 27107), 1280-byte frame with 1024-byte payload, kinds: init / chunk / end / ack / reject. Reliable user-space (per-chunk ack + 250 ms / 12-retry retransmit). FT_KIND_* taxonomy with per-type caps (mods 250 MB, music 50 MB, images 25 MB, saves 5 MB, replays 100 MB, other 50 MB) per Q18 amendment. Receiver buffers chunks in memory + sha256-verifies before writing. Inbox layout `<home>/social/inbox/<kind>/<friend_agent>/<file>` plus a `.meta.json` sidecar (sender / received_at / sha256 / size / kind). Filename sanitisation strips path components + bad chars.
+
+Chat attachment surface: compose-bar second row with absolute-path field + Send file / Paste path. Per-attachment context actions: Open file location (Windows `explorer.exe /select`, macOS `open -R`, Linux `xdg-open` on parent dir), Copy path. Music attachments expose a "Convert to mod..." action wired to the modal below.
+
+Convert-to-mod (P2.D): `fileTransferConvertMusicToMod` creates `<home>/mods/installed/<id>/` with `mod.json` + `audio/<safe>.ext`. Manifest schema includes the design's required fields plus a `_converted_from` diagnostic block. Folder layout intentionally matches the M-1 dual-support phase of `pdmod-unified-mod-format.md`; auto-archives when M lands.
+
+### P2.E -- `8cf51ad4` feat(toast): status popup notification system
+
+`port/include/pdgui_toast.h` + `port/fast3d/pdgui_toast.cpp` (~190 LOC). Bottom-right transient stack, TOAST_MAX = 16, TOAST_MAX_VISIBLE = 4, 200 ms fade in / 5 s hold / 400 ms fade out. Per-category gating: TOAST_CATEGORY_SOCIAL / INVITES match SOCIAL_NOTIF_* bits and check socialNotifMaskGet; SYSTEM is always shown. Per-friend mute via `socialFriend.muted`; block list dropped at the same point. Hooks: `presence.c::recordPong` fires "X came online" SOCIAL toast on offline-to-online transition (single-writer hygiene -- `prev_state` snapshotted before mutation); `presence.c::enqueueInvite` fires "X invited you" INVITES toast keyed to the kind.
+
+### P2.F -- `e552e3a2` feat(net): NET_PROTOCOL_VER 40 -> 41 + SVC_ACHIEVEMENT_TOAST
+
+Bumps the ENet wire protocol because Phase 2 adds an authoritative match-host -> client toast broadcast on the existing match channel. Chat / file-transfer / presence Phase 2 work runs on dedicated UDP sockets and does NOT participate in the ENet wire, so the bump is gated specifically on this packet. New `SVC_ACHIEVEMENT_TOAST = 0x69` carrying `u32 actor_handle` + utf-8 string up to ACHIEVEMENT_TOAST_MAX = 96 bytes. Read path looks up the actor's social friend record to format the title (falls back to handle hex on unknowns) and routes into `pdguiToastEnqueue(TOAST_CATEGORY_SOCIAL)` so the settings checkbox + per-friend mute apply uniformly. `netSendAchievementToast` convenience for hosts. Dispatch added to `netClientEvReceive` under `SVC_MUSIC_ADVANCE` (single switch; single writer per case). `constraints.md` updated with the v41 entry.
+
+### Phase 2 exit criteria (re-verified per principle 1)
+
+| Criterion (design doc + Phase 2 brief) | Status | Evidence |
+|---|---|---|
+| Text chat 1:1 private with persistent local cache | YES | chat.c full lifecycle; `<home>/social/chat/<hex>.json` round-trip |
+| Wire to presence channel for delivery | YES | dedicated signed UDP socket; framing + sig + TOFU re-check on receive |
+| File attachment in chat (any extension) | YES | file_transfer.c FT_KIND_* + chunked sha256 pipe |
+| Per-type inbox folders with size limits | YES | `inboxRoot()/<kind>/<friend>/<file>` + `sizeLimitForKind` enforcement |
+| Sidecar `.meta.json` (sender + ts + sha256 + name) | YES | `writeSidecar` after sha256 verify |
+| Context menu: Open file location / Copy path / Reveal | YES | per-attachment row in chat panel; Windows + macOS + Linux variants |
+| Type-aware actions (mod / cache / convertible) | PARTIAL | Convert-to-mod for music shipped; per-type "Install" / "Reject" / "Save permanently" cache actions deferred to P3+ since the chat panel only exposes the inbox, not a separate "received" viewer. Documented as a Phase 2.5 follow-up if Mike wants it before Phase 3. |
+| Convert-to-mod modal (mp3/ogg/wav, manifest fields) | YES | `fileTransferConvertMusicToMod` + modal in pdgui_friends.cpp |
+| Status popups (online / invite / achievement) | YES | pdgui_toast.cpp + 3 hook sites (recordPong online, enqueueInvite, SVC_ACHIEVEMENT_TOAST broadcast receiver) |
+| Per-category notification toggles | YES | `socialNotifMaskGet` checked in `pdguiToastEnqueue` |
+| Per-friend mute via sidebar context menu | YES | `socialFriend.muted` checked at toast enqueue time + sidebar Mute / Unmute button |
+| Wire-protocol additions, NET_PROTOCOL_VER bump | YES | v40 -> v41 with rationale comment in net.h + constraints.md |
+
+### Phase 2 commits (chronological)
+
+| Commit | Scope |
+|---|---|
+| `37d61b72` | P2.A chat module + chat panel UI |
+| `ba039ea5` | P2.B/C/D file transfer + chat attachments + convert-to-mod |
+| `8cf51ad4` | P2.E toast notification system |
+| `e552e3a2` | P2.F NET_PROTOCOL_VER 40 -> 41 + SVC_ACHIEVEMENT_TOAST |
+
+### Phase 2 deferred-to-follow-up items (honest)
+
+- *Per-type inbox viewer with full context menu* (Install / Install and enable / Save permanently / Delete from cache / Reject mod). The chat panel exposes the inbox files via attachments; a dedicated "Received files" tab with the full Q18 action surface is a Phase 2.5 add. The sidecar metadata + folder layout already support it -- the missing piece is the UI tab.
+- *Drag-and-drop file send.* The compose bar accepts an absolute path + Paste; OS drag-into-window is deferred (would require SDL_DROPFILE handling we don't want to drag into Session B's input scope).
+- *Achievement broadcast producer.* `netSendAchievementToast` is the host-side API; the actual achievement-event source (e.g. on-kill thresholds, mission-complete) wires in as part of the achievements-system Phase 4 work and is intentionally not hooked here.
+
+### Build verification
+
+PerfectDark.exe + PerfectDarkServer.exe link clean across all four Phase 2 commits.
+
 ## Session S457 - 2026-04-24 - F/G/H/I/J: test arenas, music sync, B-228 Option E, design pass
 
 Five priorities landed in one batch. F/G/H are code; I/J are design docs awaiting Mike review.
