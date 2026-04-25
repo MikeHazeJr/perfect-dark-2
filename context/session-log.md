@@ -4,6 +4,39 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S458 (`peaceful-banach-7a2c66`) - 2026-04-25 - Priority Q: 3D render box (B-253)
+
+Independent worktree session running in parallel with sessions A (Issue 1 weapon), B (Priority L + bug queue), C (Connectivity Phase 1-5), D (Priority M `.pdmod`). Scope confined to the 3D-render-pane component and the Agent Creator + MP Character Select layouts -- no input/menu state-machine or focus-traversal contracts touched. Build clean: PerfectDark.exe 54,350,243 / PerfectDarkServer.exe 23,251,474.
+
+### Root cause -- charpreview FBO viewport mismatch
+
+System-level diagnosis (per Mike's debugging-methodology reminder: "what state-of-affairs would produce a visible 3D render in a UI panel?", enumerated layers, ruled in/out). Mike's logs showed `pdguiCharPreviewRequest` firing in Agent Creator but the visible preview never appeared. Lobby portraits (S352) accidentally worked because the room-dialog screen rect overlapped the (0..256, 0..256) FBO drawable region -- not by design.
+
+**Failure point**: `menuRenderModel` (src/game/menu.c) emits `gSPViewport(viGetCurrentPlayerViewport())` via `func0f0d49c8`, plus `gDPSetScissor` from `g_MenuScissor*` via `menuApplyScissor`. Both inherit the screen-relative dialog rect from the LAST legacy-menu-rendered dialog. With the FBO bound but viewport + scissor in screen coordinates, the model lands at screen pixel coords. The 256x256 FBO captures only the intersection with whatever screen rect was current. For Agent Creator that intersection was empty -> black FBO -> `pdgui_model_preview` fell back to the silhouette placeholder.
+
+### Fix -- `port/fast3d/pdgui_charpreview.c::pdguiCharPreviewRenderGBI`
+
+Save global view state (`g_MenuScissor*`, `g_Vars.currentplayer->viewport[g_ViBackIndex]`, vi back-data view dims + fov + aspect). Override to FBO-local: scissor (0,0,W,H), player viewport overwritten in-place to FBO viewport, view dims = FBO size, aspect = 1.0. Render. Restore CPU state. Emit GBI restoration commands using restored values. Also locked the render path to `g_Menus[0].menumodel` so request submit and render reader always agree (PC has MAX_LOCAL_PLAYERS=1, so g_MpPlayerNum=0 always). Bumped FBO from 256x256 to 512x512 so a 1/2-screen render box stays sharp.
+
+### Layout -- Agent Creator + MP Character Select
+
+Per Mike's brief: LEFT = control rows, RIGHT = large square 3D render pane. Both screens reorganized:
+- **Agent Creator** (`pdgui_menu_agentcreate.cpp`) -- LEFT: Agent Name input + Body carousel + Head carousel (with Auto-match indicator); RIGHT: square 3D pane filling remaining width. Action bar at bottom: Create + Cancel.
+- **MP Character Select** (`pdgui_menu_playerconfig.cpp::renderMpCharacter`) -- LEFT: scrollable Body list + Head carousel; RIGHT: square 3D pane. Window widened from 0.68 to 0.78 width and 0.70 to 0.80 height. Action bar: Back.
+
+3D pane: fixed 3/4-turn pose (`pdguiCharPreviewSetRotY(-0.45f)`), idle rotation off, palette-derived border, body name label below.
+
+### Catalog source-of-truth at every layer
+
+Verified: ImGui menu reads `s_SelectedBody`/`s_SelectedHead` -> `catalogMpBodyId(...)` / `catalogMpHeadId(...)` returns full catalog ID strings (`"base:dark_combat"`, `"base:head_dark_combat"`). `pdguiModelPreviewDraw` -> `pdguiCharPreviewRequest(headId, bodyId)` -> `pdguiCharPreviewRequestEx(PDGUI_PREVIEW_CHARACTER, ...)` -> `assetCatalogResolve(...)` -> catalog `mp_index` -> encoded into menumodel newparams. `menuRenderModel` decodes mp_index -> `mpGetBodyId(mpbodynum)` (catalog-backed via `modmgrGetBody`) -> `catalogGetBodyFilenumByIndex(bodynum)` -> last-mile to legacy `modeldefLoad`. No bypass at any layer.
+
+### Files touched
+- `port/fast3d/pdgui_charpreview.c` (FBO viewport fix + g_Menus[0] lock + 256->512 bump)
+- `port/fast3d/pdgui_menu_agentcreate.cpp` (left-controls + right-3D-pane layout)
+- `port/fast3d/pdgui_menu_playerconfig.cpp::renderMpCharacter` (flipped layout + larger pane)
+- `context/bugs.md` (B-253 entry)
+- `context/session-log.md` (this entry)
+
 ## Session S457 - 2026-04-24 - F/G/H/I/J: test arenas, music sync, B-228 Option E, design pass
 
 Five priorities landed in one batch. F/G/H are code; I/J are design docs awaiting Mike review.
