@@ -1098,6 +1098,100 @@ static int modmgrIsReservedTopLevel(const char *name)
 	return 0;
 }
 
+/* Defense-in-depth trust check: for an archive at `archivePath`, verify
+ * its parent directory (the directory immediately containing the archive
+ * file) is NOT a reserved trust-gate name AT TOP LEVEL of the mods root.
+ * The scan walker already skips reserved top-levels; this fires as a
+ * second-line assertion against any future code path that might bypass
+ * the walker. Returns 1 if trusted, 0 if reserved.
+ *
+ * Note: only top-level reserved subdirectories trigger refusal. A user
+ * who organises a category folder named e.g. mods/UI Chrome/shared/ is
+ * still trusted -- only mods/shared/ at the very top level is the inbox. */
+static int modmgrArchivePathIsTrusted(const char *archivePath, const char *modsRoot)
+{
+	if (!archivePath || !modsRoot || !modsRoot[0]) {
+		return 1;  /* No root to compare against -- skip the check. */
+	}
+	size_t rootLen = strlen(modsRoot);
+	if (strncmp(archivePath, modsRoot, rootLen) != 0) {
+		return 1;  /* Not under the scanned root; outside scope. */
+	}
+	const char *rel = archivePath + rootLen;
+	while (*rel == '/' || *rel == '\\') rel++;
+
+	/* Pull the first path segment. */
+	char first[MODMGR_ID_LEN];
+	s32 n = 0;
+	while (rel[n] && rel[n] != '/' && rel[n] != '\\' && n < (s32)sizeof(first) - 1) {
+		first[n] = rel[n];
+		n++;
+	}
+	first[n] = '\0';
+	/* If the next character is NUL, this is the archive file itself at the
+	 * top level (e.g. mods/foo.pdmod). Trust it. The reserved check applies
+	 * only to subdirectories. */
+	if (rel[n] == '\0') return 1;
+
+	return !modmgrIsReservedTopLevel(first);
+}
+
+/* Hex-encode the first `nBytes` of a sha256 digest into a static buffer.
+ * For sysLogPrintf interpolation only -- not thread-safe. */
+static const char *modmgrShortSha256(const u8 digest[SHA256_DIGEST_SIZE], s32 nBytes)
+{
+	static char hex[SHA256_HEX_SIZE];
+	if (nBytes < 1) nBytes = 1;
+	if (nBytes > SHA256_DIGEST_SIZE) nBytes = SHA256_DIGEST_SIZE;
+	for (s32 i = 0; i < nBytes; i++) {
+		static const char *const lut = "0123456789abcdef";
+		hex[i * 2 + 0] = lut[(digest[i] >> 4) & 0xF];
+		hex[i * 2 + 1] = lut[digest[i] & 0xF];
+	}
+	hex[nBytes * 2] = '\0';
+	return hex;
+}
+
+/* Informational one-shot: enumerate `mods/shared/` if it exists and log
+ * the per-friend file count. The inbox is read-only-for-browsing and the
+ * loader never auto-mounts from it; this is a defensive surface so the
+ * operator can confirm the inbox is bounded and visible. */
+static void modmgrLogSharedInbox(const char *modsRoot)
+{
+	if (!modsRoot || !modsRoot[0]) return;
+	char inboxPath[FS_MAXPATH + 1];
+	snprintf(inboxPath, sizeof(inboxPath), "%s/shared", modsRoot);
+	DIR *d = opendir(inboxPath);
+	if (!d) return;
+
+	s32 friendCount = 0;
+	s32 totalFiles  = 0;
+	struct dirent *ent;
+	while ((ent = readdir(d)) != NULL) {
+		if (ent->d_name[0] == '.') continue;
+		char friendPath[FS_MAXPATH + 1];
+		snprintf(friendPath, sizeof(friendPath), "%s/%s", inboxPath, ent->d_name);
+		struct stat st;
+		if (stat(friendPath, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+		friendCount++;
+		DIR *fd = opendir(friendPath);
+		if (!fd) continue;
+		struct dirent *fe;
+		while ((fe = readdir(fd)) != NULL) {
+			if (fe->d_name[0] == '.') continue;
+			if (modmgrHasArchiveExtension(fe->d_name)) totalFiles++;
+		}
+		closedir(fd);
+	}
+	closedir(d);
+
+	if (friendCount > 0 || totalFiles > 0) {
+		sysLogPrintf(LOG_NOTE,
+			"modmgr: shared inbox present -- %d friend folder(s), %d archive(s) (browse-only, never auto-mounted)",
+			friendCount, totalFiles);
+	}
+}
+
 /* Returns 1 if `name` ends in .pdmod or .zip (case-insensitive). */
 static int modmgrHasArchiveExtension(const char *name)
 {
@@ -1138,6 +1232,18 @@ static s32 modmgrTryRegisterArchive(const char *archivePath, const char *display
 {
 	if (g_ModRegistryCount >= MODMGR_MAX_MODS) return 0;
 	if (!archivePath || !archivePath[0]) return 0;
+
+	/* Defense-in-depth trust gate (M-1.6): refuse to register an archive
+	 * whose path lives under a reserved top-level subdirectory of the
+	 * scanned mods root (e.g. mods/shared/, mods/inbox/). The scan walker
+	 * already skips these names; this is the second line so any future
+	 * code path that calls this function directly cannot bypass the rule. */
+	if (g_ModsDirPath[0] && !modmgrArchivePathIsTrusted(archivePath, g_ModsDirPath)) {
+		sysLogPrintf(LOG_ERROR,
+			"modmgr: REFUSING to register archive '%s' -- under reserved trust-gate directory; manual install required",
+			archivePath);
+		return 0;
+	}
 
 	mod_archive_t *arc = modArchiveOpen(archivePath);
 	if (!arc) {
@@ -1219,14 +1325,20 @@ static s32 modmgrTryRegisterArchive(const char *archivePath, const char *display
 	mod->enabled = 0;
 
 	g_ModRegistryCount++;
+
+	/* sha256 prefix is the integrity fingerprint of the bytes we just
+	 * scanned. Echoing it makes mount events traceable from the log alone
+	 * (defense-in-depth for the M-1.6 trust model). */
+	const char *sha8 = modmgrShortSha256(mod->sha256, 8);
+
 	if (source_tag) {
 		sysLogPrintf(LOG_NOTE,
-			"modmgr: discovered mod [%d] '%s' (%s) [.pdmod] from '%s' file=%s",
-			g_ModRegistryCount - 1, mod->id, mod->name, source_tag, archivePath);
+			"modmgr: discovered mod [%d] '%s' (%s) [.pdmod] from '%s' file=%s sha256=%s..",
+			g_ModRegistryCount - 1, mod->id, mod->name, source_tag, archivePath, sha8);
 	} else {
 		sysLogPrintf(LOG_NOTE,
-			"modmgr: discovered mod [%d] '%s' (%s) [.pdmod] file=%s",
-			g_ModRegistryCount - 1, mod->id, mod->name, archivePath);
+			"modmgr: discovered mod [%d] '%s' (%s) [.pdmod] file=%s sha256=%s..",
+			g_ModRegistryCount - 1, mod->id, mod->name, archivePath, sha8);
 	}
 	return 1;
 }
@@ -1412,6 +1524,10 @@ static void modmgrScanDirectory(void)
 	}
 
 	sysLogPrintf(LOG_NOTE, "modmgr: scan complete -- %d mods found", g_ModRegistryCount);
+
+	/* M-1.6: surface any browsed-but-not-mounted shared inbox so the
+	 * operator sees the trust gate is doing its job. Cheap one-shot. */
+	modmgrLogSharedInbox(g_ModsDirPath);
 }
 
 // ---------------------------------------------------------------------------
@@ -1693,8 +1809,9 @@ static void modmgrLoadMod(modinfo_t *mod)
 		 * once into a buffer that drives both content registration and bot
 		 * name parsing. The handle stays open so the M-1.3 VFS layer can
 		 * resolve asset path requests against this mount. */
-		sysLogPrintf(LOG_NOTE, "modmgr: loading mod '%s' from archive '%s'",
-			mod->id, mod->archive_path);
+		sysLogPrintf(LOG_NOTE, "modmgr: loading mod '%s' from archive '%s' sha256=%s..",
+			mod->id, mod->archive_path,
+			modmgrShortSha256(mod->sha256, 8));
 
 		if (mod->archive_handle) {
 			modArchiveClose(mod->archive_handle);

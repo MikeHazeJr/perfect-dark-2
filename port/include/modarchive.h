@@ -70,6 +70,9 @@ void modArchiveClose(mod_archive_t *arc);
 /** Last-error code from the most recent open / read call (per thread). */
 s32 modArchiveLastError(void);
 
+/** On-disk path the archive was opened from. Returns "" if NULL. */
+const char *modArchiveGetPath(const mod_archive_t *arc);
+
 /** Number of entries indexed in the central directory. */
 s32 modArchiveGetEntryCount(const mod_archive_t *arc);
 

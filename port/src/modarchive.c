@@ -84,6 +84,11 @@ s32 modArchiveLastError(void)
 	return s_lastError;
 }
 
+const char *modArchiveGetPath(const mod_archive_t *arc)
+{
+	return arc ? arc->path : "";
+}
+
 static void setError(s32 code)
 {
 	s_lastError = code;
