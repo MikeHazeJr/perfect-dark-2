@@ -9,7 +9,18 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 40  /* v40: Issue 4b music speed-lerp -- SVC_MUSIC_ADVANCE
+#define NET_PROTOCOL_VER 41  /* v41 (2026-04-25): Phase 2 connectivity additive --
+                              * SVC_ACHIEVEMENT_TOAST (0x69). Authoritative match
+                              * host -> all clients in the match room. Carries
+                              * an actor_handle (u32) plus a short utf-8
+                              * achievement string (up to ACHIEVEMENT_TOAST_MAX
+                              * bytes). Clients enqueue a TOAST_CATEGORY_SOCIAL
+                              * popup gated by socialNotifMaskGet so the
+                              * settings checkbox actually mutes them. Chat /
+                              * file-transfer / presence Phase 2 work runs on
+                              * dedicated UDP sockets and does NOT participate
+                              * in the ENet wire (signed via Ed25519 there).
+                              * v40: Issue 4b music speed-lerp -- SVC_MUSIC_ADVANCE
                               * gains a u32 match_clock_offset_ms field after the
                               * track_id string. Authoritative host computes the
                               * elapsed milliseconds since track-start and

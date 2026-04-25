@@ -70,6 +70,12 @@
 /* MASTER-C2b: Admin RCON reply (protocol v38+; ADMIN_RESP_RATE_LIMIT added v39). */
 #define SVC_ADMIN          0x68 // server→operator-client: response to CLC_ADMIN
 
+/* Phase 2 connectivity (protocol v41): authoritative host -> all match
+ * clients. Carries an actor handle + a short achievement string. Clients
+ * route into pdguiToastEnqueue with TOAST_CATEGORY_SOCIAL. */
+#define SVC_ACHIEVEMENT_TOAST 0x69
+#define ACHIEVEMENT_TOAST_MAX 96
+
 #define CLC_BAD      0x00 // trash
 #define CLC_NOP      0x01 // does nothing
 #define CLC_AUTH     0x02 // auth request, sent immediately after connecting
@@ -334,6 +340,14 @@ void netListenHostRoomLeave(void);
 
 /* MASTER-C2b: Admin RCON messages. */
 u32 netmsgClcAdminRead(struct netbuf *src, struct netclient *srccl);
+
+/* Phase 2: SVC_ACHIEVEMENT_TOAST (protocol v41). */
+u32 netmsgSvcAchievementToastWrite(struct netbuf *dst, u32 actor_handle,
+                                    const char *achievement_text);
+u32 netmsgSvcAchievementToastRead(struct netbuf *src, struct netclient *srccl);
+/* Convenience: server / authoritative host enqueues a broadcast for the
+ * current match room. */
+void netSendAchievementToast(u32 actor_handle, const char *achievement_text);
 /* SVC_ADMIN is written by the server helper below; no client-side Write wrapper
  * is exposed because the client never sends it. */
 

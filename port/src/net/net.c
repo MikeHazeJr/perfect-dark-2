@@ -1797,6 +1797,7 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_ROOM_LIST:        rc = netmsgSvcRoomListRead(&cl->in, cl); break;
 			case SVC_ROOM_ASSIGN:      rc = netmsgSvcRoomAssignRead(&cl->in, cl); break;
 			case SVC_MUSIC_ADVANCE:    rc = netmsgSvcMusicAdvanceRead(&cl->in, cl); break;
+			case SVC_ACHIEVEMENT_TOAST: rc = netmsgSvcAchievementToastRead(&cl->in, cl); break;
 			/* R-5: Room settings + playlist sync */
 			case SVC_ROOM_SETTINGS:    rc = netmsgSvcRoomSettingsRead(&cl->in, cl); break;
 			case SVC_ROOM_PLAYLIST:    rc = netmsgSvcRoomPlaylistRead(&cl->in, cl); break;
