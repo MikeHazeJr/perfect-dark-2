@@ -752,7 +752,18 @@ void forgeRuntimeEnterPlay(void)
             break;
 
         case FORGE_CAT_AI:
-            n_bots += s_spawnBot(o);
+            {
+                /* AUDIT-24-M8 (2026-04-25): s_spawnBot returns -1 on failure
+                 * (no free bot slot) and the slot index (>= 0) on success.
+                 * `n_bots += slot` would silently subtract on failure AND on
+                 * a success returning slot=0, doubly wrong as a counter.
+                 * Increment by 1 only on success, log on failure (s_spawnBot
+                 * already logs the warning internally so don't double-log). */
+                s32 slot = s_spawnBot(o);
+                if (slot >= 0) {
+                    ++n_bots;
+                }
+            }
             break;
 
         case FORGE_CAT_WEAPON_PAD:

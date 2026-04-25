@@ -621,6 +621,16 @@ u32 netmsgClcAuthWrite(struct netbuf *dst)
 		modDir = "";
 	}
 
+	/* AUDIT-24-L4 (2026-04-25): defensive NULL guard. The function is
+	 * compiled into both pd and pd-server but is unreachable on the server
+	 * (only client-side `netClientEvConnect` registers it). A future
+	 * dispatch refactor that exposes it on the server build would crash
+	 * here without this guard, since `g_NetLocalClient == NULL` on
+	 * dedicated servers (server-is-not-a-player invariant). */
+	if (!g_NetLocalClient) {
+		return 0;
+	}
+
 	// Use identity profile name (authoritative for PC); fall back to settings name
 	const char *name = g_NetLocalClient->settings.name;
 	identity_profile_t *profile = identityGetActiveProfile();

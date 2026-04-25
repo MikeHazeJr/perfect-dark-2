@@ -1,0 +1,62 @@
+# Git attributes -- minimal binary pinning only.
+#
+# This file intentionally does NOT set `* text=auto eol=lf`. The repo's
+# tracked files are currently mixed-eol (mostly CRLF on Windows-touched
+# files, LF elsewhere); enabling text=auto would force a one-time
+# renormalization that touches thousands of files and produces a giant
+# auto-commit -- exactly the "symmetric ins/del" churn the hygiene pass
+# was meant to prevent.
+#
+# To actually pin EOL to LF across the tree, do it in a dedicated commit:
+#   1) extend this file with `* text=auto eol=lf` plus per-extension rules
+#      (PowerShell / batch keep CRLF, shell scripts and source pin LF).
+#   2) Run `git add --renormalize .` to re-stage every text file with
+#      the new normalization.
+#   3) Commit the result as a stand-alone "Apply LF normalization" change
+#      so reviewers can see it isolated from real edits.
+# Until then, the binary rules below stop git from accidentally trying to
+# diff or auto-normalize the file types that should never be touched.
+
+# Binary file types -- never line-ending normalized, never diffed.
+*.exe      binary
+*.dll      binary
+*.lib      binary
+*.a        binary
+*.o        binary
+*.obj      binary
+*.so       binary
+*.dylib    binary
+*.pdb      binary
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary
+*.bmp      binary
+*.ico      binary
+*.icns     binary
+*.tga      binary
+*.dds      binary
+*.wav      binary
+*.mp3      binary
+*.ogg      binary
+*.ttf      binary
+*.otf      binary
+*.woff     binary
+*.woff2    binary
+*.bin      binary
+*.dat      binary
+*.z64      binary
+*.n64      binary
+*.v64      binary
+*.seg      binary
+*.ctl      binary
+*.tbl      binary
+*.docx     binary
+*.xlsx     binary
+*.pptx     binary
+*.pdf      binary
+*.zip      binary
+*.7z       binary
+*.tar      binary
+*.gz       binary
+*.bz2      binary

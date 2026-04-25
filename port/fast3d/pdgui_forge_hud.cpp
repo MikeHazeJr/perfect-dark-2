@@ -137,19 +137,27 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 		 * ============================================================ */
 		forge_bot_settings_t *bs = forgeBotSettings();
 		if (bs) {
+			/* AUDIT-24-L1 (2026-04-25): consult WantCaptureKeyboard before
+			 * polling. Matches the B-154 fix pattern. The pdguiIsActive()
+			 * gate at line 89 already covers any standard menu, but a
+			 * non-menu ImGui widget (in-game console, future text-input
+			 * overlay) that wants keyboard would still see double-fire
+			 * without this guard. */
+			ImGuiIO &io = ImGui::GetIO();
+			const bool kb_free = !io.WantCaptureKeyboard;
 			/* Keybinds.  ImGui::IsKeyPressed polls the SDL backend's
 			 * key queue, which fires even without a focused ImGui
 			 * window (background overlay pattern).  false = no repeat. */
-			if (ImGui::IsKeyPressed(ImGuiKey_Insert, false)) {
+			if (kb_free && ImGui::IsKeyPressed(ImGuiKey_Insert, false)) {
 				forgeBotAddRequest(1);
 			}
-			if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
+			if (kb_free && ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
 				forgeBotRemoveAll();
 			}
-			if (ImGui::IsKeyPressed(ImGuiKey_End, false)) {
+			if (kb_free && ImGui::IsKeyPressed(ImGuiKey_End, false)) {
 				forgeBotFreezeAll(bs->all_frozen ? 0 : 1);
 			}
-			if (ImGui::IsKeyPressed(ImGuiKey_Home, false)) {
+			if (kb_free && ImGui::IsKeyPressed(ImGuiKey_Home, false)) {
 				s32 next = (s32)bs->spawn_mode + 1;
 				if (next > FORGE_BOT_SPAWN_SMART) next = FORGE_BOT_SPAWN_ANY;
 				bs->spawn_mode = (u8)next;

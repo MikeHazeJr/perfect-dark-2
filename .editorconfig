@@ -3,10 +3,19 @@
 # Top-most EditorConfig file
 root = true
 
-# Unix-style newlines with a newline ending every file
+# Unix-style newlines with a newline ending every file.
+# charset = utf-8 explicitly excludes the byte-order mark (BOM); use
+# utf-8-bom only when a tool requires it (none in this project do).
 [*]
 end_of_line = lf
 insert_final_newline = true
+charset = utf-8
+
+# CMake build files: no BOM, LF endings, 2-space indent.
+[{CMakeLists.txt,*.cmake}]
+indent_style = space
+indent_size = 2
+charset = utf-8
 
 # Matches all C source files
 [*.c]

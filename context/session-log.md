@@ -38,9 +38,28 @@ Logs:
 
 First build attempt failed: used `chr->prop->model` (no such field on `struct prop`); fixed to `chr->model` (the chr's body model is owned directly by chr). Build then clean (pd + pd-server) in worktree.
 
-### Next: AUDIT-23 + AUDIT-24 hygiene cluster
+### AUDIT-23 + AUDIT-24 hygiene cluster
 
-UTF-8 BOM on CMakeLists.txt, `.gitignore` `~$*`, `.gitattributes` CRLF pinning, `.editorconfig`, plus AUDIT-24-M2..M8 and L1..L4. Sequential within session.
+Resolution log written into both audit docs (`context/audits/2026-04-23-full.md` and `2026-04-24-full.md`) with item-by-item status. Summary:
+
+- **AUDIT-23-M1** RESOLVED: stripped UTF-8 BOM from `CMakeLists.txt:1`. `.editorconfig` now sets `charset = utf-8` on the wildcard section + a `[CMakeLists.txt, *.cmake]` block to prevent re-introduction.
+- **AUDIT-23-M2** already RESOLVED prior to this pass (`.gitignore` had `~$*` at line 67).
+- **AUDIT-23-L1** PARTIAL: `.gitignore` now excludes `context/_docx_extract/`. Existing tracked files in that path remain; full untrack (`git rm -r --cached`) deferred to Mike's call.
+- **AUDIT-24-M2** RESOLVED (doc-fix): `catalogPickRandomHeadIdForBody` and the public header now carry an explicit DESYNC HAZARD warning about leader-only context.
+- **AUDIT-24-M3** RESOLVED (doc-fix): `s_ValidHeadBuf[256]` comment expanded to call out non-reentrancy-within-single-thread.
+- **AUDIT-24-M5/M6/M7** DEFERRED to Session B (all in `pdgui_menu_mainmenu.cpp` menu state machine territory, per Mike's coordination guidance).
+- **AUDIT-24-M8** RESOLVED: `forge_runtime.c::FORGE_CAT_AI` now does `s32 slot = s_spawnBot(o); if (slot >= 0) ++n_bots;` instead of `n_bots += s_spawnBot(o)` (the prior pattern silently subtracted on the `-1` failure return).
+- **AUDIT-24-L1** RESOLVED: `pdgui_forge_hud.cpp` bot HUD keybinds (Insert/Delete/End/Home) now consult `WantCaptureKeyboard` before polling.
+- **AUDIT-24-L2** NOT FIXED (audit-recognized acceptable transitional shim).
+- **AUDIT-24-L3** NOT FIXED (audit-recognized benign process-shutdown leak).
+- **AUDIT-24-L4** RESOLVED: `netmsgClcAuthWrite` now early-returns 0 if `g_NetLocalClient == NULL` (defensive guard against latent future dispatch refactor).
+
+**`.gitattributes` CRLF pinning -- PARTIAL.** A minimal `.gitattributes` was added with binary-only pinning (`*.exe binary`, `*.png binary`, etc.) so git stops trying to diff or normalize those file types. Full `* text=auto eol=lf` normalization was DEFERRED: applying it in this commit would touch ~12k lines across 6 files we already had open and produce the exact "symmetric ins/del" churn the hygiene pass was meant to prevent. The new `.gitattributes` header documents the renormalize procedure (extend the file with text rules + `git add --renormalize .` in a stand-alone commit).
+
+Build clean (pd + pd-server) in worktree across all three commits. Verification:
+- N: requires Mike's in-game playtest of 16+ bot match for actual frame-time smoothing.
+- O: requires Mike's in-game playtest of tight-corridor arenas + Skedar body player respawn loop.
+- Hygiene cluster: build-only verification suffices for the doc-fix and binary-only-pinning items.
 
 ## Session S457 - 2026-04-24 - F/G/H/I/J: test arenas, music sync, B-228 Option E, design pass
 

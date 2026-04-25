@@ -1109,6 +1109,15 @@ const char *const *catalogGetBodyValidHeadIds(const char *body_id,
  * Uses rngRandom() so repeated calls yield different heads for a body that
  * has more than one valid head.  Deterministic-pair bodies always return the
  * same head.  Returns NULL if the body has no valid heads.
+ *
+ * AUDIT-24-M2 (2026-04-25) DESYNC HAZARD: this consumes from the shared
+ * g_RngState; in MP only the leader (lobby leader for pre-match picks,
+ * server for in-match picks) may call it. Calling it on every peer drifts
+ * the RNG sequence across clients. For deterministic per-peer picks,
+ * prefer catalogGetBodyValidHeadIds(...) and index with a value derived
+ * from match_seed or chrnum, not rngRandom(). Also note the returned
+ * string is a borrow from the shared s_ValidHeadBuf which is overwritten
+ * by the next catalogGetBodyValidHeadIds call -- copy out before nesting.
  */
 const char *catalogPickRandomHeadIdForBody(const char *body_id);
 
