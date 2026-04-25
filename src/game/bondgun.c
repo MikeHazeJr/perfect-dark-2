@@ -12268,6 +12268,33 @@ void bgunTickGameplay(bool triggeron)
 	bgunSetTriggerOn(HAND_LEFT, gunsfiring[1]);
 
 	if (g_Vars.tickmode == TICKMODE_NORMAL && g_Vars.lvupdate240 > 0) {
+		/* B-246 root cause (2026-04-25): tick the master gun-memory loader
+		 * here (move-side) in addition to the legacy render-side call in
+		 * `bgunTickGameplay2`.  Mike's playtest log of `21010fbd` confirmed
+		 * the FP weapon never appears in MP because the render-side path
+		 * (playerRenderHud -> bgunTickGameplay2 -> bgunTickLoad) is being
+		 * skipped for player 0 in some MP path -- the `LOG.WPN.DIAG:
+		 * bgunRender enter` and `LOG.WPN.DIAG: visibility-gate-fail` diags
+		 * (added in commits 6a9a23d8 / 568930c9) are SILENT across the
+		 * entire 47 MB log, while the move-side `bgunTickGameplay enter`
+		 * diag fires every frame.  The state machine wedges in
+		 * CHANGEGUN/LOAD/MODE_6 because `bgun0f09bf44` returns false
+		 * (`cond_loaded=0` and `cond_gunmemnew_neg=0`), which means
+		 * `gunmemnew >= 0` -- a load is pending -- but the master loader
+		 * is never ticked to clear it.
+		 *
+		 * Driving the master loader from the move-side guarantees one
+		 * tick per frame whenever `tickmode == TICKMODE_NORMAL`, regardless
+		 * of which render-side gates suppress `playerRenderHud`.  When the
+		 * render-side path DOES run (SP, normal stages with no menu overlay)
+		 * the loader gets a second tick per frame -- harmless because
+		 * `bgunTickMasterLoad` is idempotent on its state-machine
+		 * transitions and just advances slightly faster.  `loadall` gates
+		 * the call exactly as the render-side does. */
+		if (!g_Vars.currentplayer->gunctrl.loadall) {
+			bgunTickLoad();
+		}
+
 		bgunTickHand(HAND_RIGHT);
 		bgunTickHand(HAND_LEFT);
 		bgunTickSwitch();
