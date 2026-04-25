@@ -83,6 +83,7 @@
 #include "net/net.h"
 #include "net/netmsg.h"
 #include "net/netmanifest.h"
+#include "net/p2p.h"
 #include "modelcatalog.h"
 #include "pdmain.h"
 #include "pdgui_theme.h"
@@ -642,6 +643,13 @@ void mainTick(void)
 	Gfx *gdlstart = NULL;
 	OSScMsg msg = {OS_SC_DONE_MSG};
 	s32 i;
+
+	/* Phase 1 connectivity layer: drives LAN broadcast, direct UDP probes,
+	 * STUN/UPnP/ICE/TURN tier polling, and pair-state escalation. Runs
+	 * every frame regardless of stage state so presence stays alive across
+	 * stage transitions and title screens. Internal guard returns early
+	 * before p2pInit() completes. */
+	p2pTick();
 
 	if (g_MainChangeToStageNum < 0) {
 		frametimeCalculate();

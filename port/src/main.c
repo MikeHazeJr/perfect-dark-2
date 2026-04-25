@@ -28,6 +28,7 @@
 #include "console.h"
 #include "utils.h"
 #include "net/net.h"
+#include "net/p2p.h"
 #include "updater.h"
 #include "actionmap.h"
 #include "savemigrate.h"
@@ -189,6 +190,7 @@ int main(int argc, const char **argv)
 	 * instead, and does not load social state. */
 	identityInit();
 	socialInit();
+	p2pInit();
 
 	/* D13: Start background update check (non-blocking) */
 	if (!sysArgCheck("--no-update-check")) {
