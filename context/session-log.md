@@ -35,6 +35,31 @@ IMC architecture formalization per Mike's "multiple input schemes ... applied co
 - Mike's connectivity-questions Q&A list -- handled out-of-band by Mike directly.
 - AUDIT-23/24 carry-overs not in this batch's scope (BOM, `~$*` gitignore, docx dedup, M2/M3/M5/M6/M7/M8 + L1-L4 from 4-24).
 
+### Update post-batch -- Mike answered all 18 connectivity questions
+
+Mike answered Q1-Q18 on `context/designs/connectivity-and-modern-main-menu.md` plus a refinement to Q3 (NAT traversal) mid-update. Doc rewritten to:
+
+- Section 0 records the dedicated-server-removed-now / matchmaking-only-later framing (Q4); C-1 / MASTER-C5 audit-pole resolved by removal for friend-play.
+- Section 2 records mesh + per-match authority by upload speed (Q1), connect codes with `[nickname]: [agentname]` display (Q5), no-central-infra signaling with friend-list-as-address-book (Q2), and a 5-tier NAT escalation (direct UDP / STUN punch / UPnP-NAT-PMP / ICE / TURN-as-last-resort, Q3 refined). **All 5 tiers ship in Phase 1** (Mike-confirmed second time 2026-04-24); no staged rollout. Phase 1 estimate revised up to ~5500 LOC. Phase 1 exit criteria add an explicit real-NAT matrix (open / full-cone / restricted-cone / port-restricted / symmetric / carrier-grade / corporate firewall + mixed pairs).
+- Section 3 lands the three-state visibility (Public / Friends Only / Appear Offline, Q7), block list separate from friends (Q7), notification categories (Q8), per-friend mute (Q9), and global-not-per-profile persistence (Q6).
+- Section 4 documents the listening-room precedence rule (match wins, Q10).
+- Section 5 is the spectator + Theater unified subsystem (Q12).
+- Section 6 routes listening-room tracks through the existing mod distribution system (Q10).
+- Section 7 is new: Player Profile + Public Mods Page (Q11, Halo 3 File Share lineage, hash-checked transfer, trust-by-distribution).
+- Section 8 elevates the no-drill-in/drill-out rule to a TOP-LEVEL UX PRINCIPLE (Q16) and lays out the three social surfaces (sidebar / Social menu / private chat, Q17) plus the visual-style anchor (Q15). New subsections 8.5.1 and 8.5.2 capture Mike's Q18 amendment: per-type file storage layout (`mods/shared/`, `music/saved/`, `screenshots/received/`) and per-attachment context menu (Y button on controller) including "Open file location" via `explorer.exe /select,"<path>"` plus type-appropriate actions.
+- Section 9 includes the version-mismatch UX exact string format (Q14) and the file-transfer plumbing convergence (Q10/Q11/Q18).
+- Section 10 phasing spans 6 phases (added Theater as Phase 6 separate from Spectator Phase 5; Q12 unified-architecture rule means the camera/UI is written ONCE). Phase 1 acceptance + completion-before-pivot discipline note (Q13). Phase 2 reoriented post-tier-update to be **chat + file transfer + status popups + achievements broadcast** (was originally going to absorb NAT tiers 4-5; now obsolete because Phase 1 ships the full 5-tier stack).
+- Section 11 transformed from OPEN QUESTIONS into DECISIONS table covering Q1-Q18.
+
+Commits: `2f219fd5` originally landed both connectivity + IMC docs; the connectivity rewrite lands separately with this update.
+
+### Queued for future batches (after Mike's reviews)
+
+- **Priority K:** input-authority discipline audit + methodology + drift-site fixes. Hypothesis: codebase has TWO parallel stacks (visual menu + input context) that drift; collapse into ONE so menuPush/Pop are the SOLE input-authority mechanism. Should resolve Issue 3 (pause-menu input) as a consequence.
+- **Priority L:** flat menu navigation system-wide. Mike's expansion of Q16 from connectivity-only to ALL game menus. Concrete pain: Combat Simulator's Bots section requires drill-in via A, and B exits the whole menu instead of popping a level. The fix is the flat-panel model: D-pad navigates everything, A acts only on focused element, B exits only at top. Affects Main Menu, Combat Simulator, Settings, Pause, MP Setup, etc. Document in `context/designs/flat-menu-navigation.md`. K and L are complementary (K = authority; L = structure); land K first or together.
+- Phase 1 of the connectivity design (after final read by Mike).
+- Phase J-1 of the IMC architecture (gameplay -> mission + combat sim split).
+
 ### Build verification
 
 Both `PerfectDark.exe` and `PerfectDarkServer.exe` link clean after each of F, G, H. I and J are documentation-only.
