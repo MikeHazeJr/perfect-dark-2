@@ -35,6 +35,7 @@ extern "C" {
 #include "spectator.h"
 #include "theater.h"
 #include "listening_room.h"
+#include "social_share.h"
 #include "voice.h"
 #include "net/p2p.h"
 #include "net/group_session.h"
@@ -639,8 +640,14 @@ static void renderProfileModal(void)
 		ImGui::TextUnformatted("Stats");
 		ImGui::PopStyleColor();
 		ImGui::Indent(12.0f);
-		ImGui::TextDisabled("(playerstats.h totals -- shipped per-friend once the "
-		                    "presence stats broadcast lands in a follow-up.)");
+		const share_profile_t *prof = shareProfileFor(f->handle);
+		if (prof) {
+			ImGui::Text("Kills:    %u", (unsigned)prof->kills);
+			ImGui::Text("Deaths:   %u", (unsigned)prof->deaths);
+			ImGui::Text("Missions: %u", (unsigned)prof->missions_completed);
+		} else {
+			ImGui::TextDisabled("(Friend has not broadcast stats yet -- arrives within ~60s of contact.)");
+		}
 		ImGui::Unindent(12.0f);
 
 		ImGui::Spacing();
@@ -648,8 +655,25 @@ static void renderProfileModal(void)
 		ImGui::TextUnformatted("Public mods");
 		ImGui::PopStyleColor();
 		ImGui::Indent(12.0f);
-		ImGui::TextDisabled("(Mod list shipped once the manifest broadcast wire ride "
-		                    "lands; click-to-download routes through file_transfer.c.)");
+		const s32 ntot = shareAggregateModCount();
+		s32 own_count = 0;
+		for (s32 i = 0; i < ntot; i++) {
+			const share_mod_entry_t *e = shareAggregateModAt(i);
+			if (!e || e->owner_handle != f->handle) continue;
+			ImGui::PushID(18000 + i);
+			ImGui::Text("%s v%s",
+			             e->display_name[0] ? e->display_name : e->mod_id,
+			             e->version[0] ? e->version : "?");
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Download")) {
+				shareSendModRequest(f->handle, e->mod_id);
+			}
+			ImGui::PopID();
+			own_count++;
+		}
+		if (own_count == 0) {
+			ImGui::TextDisabled("(No public mods received yet.)");
+		}
 		ImGui::Unindent(12.0f);
 
 		ImGui::Spacing();
@@ -1095,23 +1119,97 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 					ImGui::PopStyleColor();
 					ImGui::Separator();
 					ImGui::TextWrapped(
-					        "Mods you have flagged Public are visible on your profile and "
-					        "in this list. Friends can browse + download via the same "
-					        "trust pipeline as chat attachments (sha256 + friend graph + "
-					        "manual install).");
+					        "Mods listed here are visible on your profile and broadcast "
+					        "to friends every minute. Trust pipeline: sha256 + friend "
+					        "graph + manual install (Q11). The toggle lives in the social "
+					        "layer (mod-public.json) so the mod loader stays untouched.");
+
+					/* Local public mods list with Remove button. */
 					ImGui::Spacing();
-					ImGui::TextDisabled("(Per-mod public toggle is owned by the mod manager from "
-					                    "Priority M; this tab will populate once the manifest "
-					                    "broadcast wire ride lands as a follow-up commit.)");
+					const s32 npub = shareModPublicCount();
+					if (npub == 0) {
+						ImGui::TextDisabled("None registered. Use the form below to flag a mod public.");
+					}
+					for (s32 i = 0; i < npub; i++) {
+						const char *id = shareModPublicIdAt(i);
+						const char *nm = shareModPublicNameAt(i);
+						if (!id) continue;
+						ImGui::PushID(16000 + i);
+						ImGui::Text("%s -- %s", nm && *nm ? nm : id, id);
+						ImGui::SameLine();
+						if (ImGui::SmallButton("Remove")) {
+							shareModPublicRemove(id);
+							ImGui::PopID();
+							break;
+						}
+						ImGui::PopID();
+					}
+
+					/* Inline add form. The mod_id is the internal id from
+					 * Priority M's mod registry; the user types it (no
+					 * dropdown to avoid pulling the mod loader's public
+					 * surface into this layer). */
+					static char s_AddPublicId[64];
+					static char s_AddPublicName[64];
+					static char s_AddPublicVer[16] = "1.0.0";
+					ImGui::Spacing();
+					ImGui::SetNextItemWidth(220.0f);
+					ImGui::InputTextWithHint("mod id", "creator.modname",
+					                          s_AddPublicId, sizeof(s_AddPublicId));
+					ImGui::SameLine();
+					ImGui::SetNextItemWidth(180.0f);
+					ImGui::InputTextWithHint("display name", "Display name",
+					                          s_AddPublicName, sizeof(s_AddPublicName));
+					ImGui::SameLine();
+					ImGui::SetNextItemWidth(80.0f);
+					ImGui::InputTextWithHint("ver", "1.0.0",
+					                          s_AddPublicVer, sizeof(s_AddPublicVer));
+					ImGui::SameLine();
+					if (ImGui::Button("Add##pubmodadd")) {
+						if (s_AddPublicId[0]) {
+							if (shareModPublicAdd(s_AddPublicId, s_AddPublicName,
+							                       s_AddPublicVer, 0) >= 0) {
+								s_AddPublicId[0] = '\0';
+								s_AddPublicName[0] = '\0';
+							}
+						}
+					}
+
 					ImGui::Spacing();
 					ImGui::Separator();
 					ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
 					ImGui::TextUnformatted("Public mods from peers in this session");
 					ImGui::PopStyleColor();
 					ImGui::Separator();
-					ImGui::TextDisabled("(Empty until peers broadcast their manifests in a follow-up commit. "
-					                    "Each row will show: mod name + version + creator (friend agent) + "
-					                    "size + Download button. Downloads route through file_transfer.c.)");
+
+					const s32 nag = shareAggregateModCount();
+					if (nag == 0) {
+						ImGui::TextDisabled("Empty -- friends broadcast their public mods "
+						                    "every minute. Wait or refresh by re-entering the tab.");
+					}
+					for (s32 i = 0; i < nag; i++) {
+						const share_mod_entry_t *e = shareAggregateModAt(i);
+						if (!e) continue;
+						const social_friend_t *of = socialFriendByHandle(e->owner_handle);
+						const char *owner = of && of->agent_name[0] ? of->agent_name : "friend";
+						ImGui::PushID(17000 + i);
+						ImGui::Text("%s v%s by %s (%u KB)",
+						             e->display_name[0] ? e->display_name : e->mod_id,
+						             e->version[0] ? e->version : "?",
+						             owner,
+						             (unsigned)(e->size_bytes / 1024));
+						ImGui::SameLine();
+						if (ImGui::SmallButton("Download")) {
+							if (shareSendModRequest(e->owner_handle, e->mod_id) == 0) {
+								/* Send succeeded; the file_transfer pipe takes over
+								 * on the responder side. The receiver will see the
+								 * download appear in the chat panel's attachment
+								 * row (file_transfer's existing UX). */
+							}
+						}
+						ImGui::PopID();
+					}
+
 					ImGui::EndChild();
 					ImGui::EndTabItem();
 				}

@@ -92,6 +92,7 @@
 #include "spectator.h"
 #include "theater.h"
 #include "listening_room.h"
+#include "social_share.h"
 #include "voice.h"
 #include "modelcatalog.h"
 #include "pdmain.h"
@@ -667,6 +668,7 @@ void mainTick(void)
 	spectatorTick();
 	theaterTick();
 	listeningRoomTick();
+	shareTick();
 	voiceTick();
 
 	if (g_MainChangeToStageNum < 0) {

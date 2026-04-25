@@ -45,6 +45,7 @@
 #include "spectator.h"
 #include "theater.h"
 #include "listening_room.h"
+#include "social_share.h"
 #include "voice.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
@@ -208,6 +209,7 @@ int main(int argc, const char **argv)
 	spectatorInit();
 	theaterInit();
 	listeningRoomInit();
+	shareInit();
 	voiceInit();
 
 	/* D13: Start background update check (non-blocking) */
