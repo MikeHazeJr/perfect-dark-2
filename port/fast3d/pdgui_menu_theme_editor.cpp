@@ -34,6 +34,7 @@
 #include "system.h"
 #include "fs.h"
 #include "pdgui_audio.h"
+#include "modpack_pdmod.h"   /* Priority M / B-238 / M-3.2 */
 
 /* =========================================================================
  * State
@@ -313,6 +314,144 @@ static bool saveThemeAsMod(const char *name, const char *author)
      * no-op.  See pdgui_theme_loader.cpp. */
     pdguiThemeRegisterModDir(dirName, themeJsonPath);
 
+    return true;
+}
+
+/* =========================================================================
+ * M-3.2: Save theme as a .pdmod archive (canonical mod format per B-238).
+ *
+ * Builds the same mod.json + theme.json content the folder save produces,
+ * then hands them to modpackPdmodWriteSingle. Writes to mods/<slug>.pdmod.
+ * The shared helper computes the M-2.3 zip-comment mirror automatically
+ * from the manifest's headline fields.
+ * ========================================================================= */
+
+/* Compose theme.json into a fresh malloc'd, NUL-terminated buffer.
+ * Returns NULL on allocation failure. *outLen is the byte length excluding
+ * the trailing NUL. */
+static char *buildThemeJsonBuffer(const char *name, const char *author, u32 *outLen)
+{
+    /* Worst-case: 32 fields x 60 chars + bundle/scanline/glow/sound = ~3 KiB.
+     * 8 KiB buffer is plenty headroom. */
+    const u32 cap = 8192;
+    char *buf = (char *)malloc(cap);
+    if (!buf) return NULL;
+
+    int written = 0;
+    int n;
+#define APPEND(...) do {                                          \
+        n = snprintf(buf + written, cap - written, __VA_ARGS__);   \
+        if (n < 0 || (u32)written + n >= cap) { free(buf); return NULL; } \
+        written += n;                                              \
+    } while (0)
+
+    APPEND("{\n");
+    APPEND("  \"name\": \"%s\",\n", name);
+    APPEND("  \"author\": \"%s\",\n", author && author[0] ? author : "User");
+    APPEND("  \"version\": \"1.0\",\n");
+    APPEND("  \"palette\": {\n");
+
+    int nWrite = 0;
+    for (int i = 0; i < NUM_FIELDS; i++) {
+        int idx = k_Fields[i].index;
+        if (idx < 15) { nWrite++; continue; }
+        if (s_WorkPalette[idx] != 0) nWrite++;
+    }
+
+    int wcount = 0;
+    for (int i = 0; i < NUM_FIELDS; i++) {
+        int idx = k_Fields[i].index;
+        if (idx >= 15 && s_WorkPalette[idx] == 0) continue;
+        char hex[16];
+        palToHex(s_WorkPalette[idx], hex, sizeof(hex));
+        wcount++;
+        APPEND("    \"%s\": \"%s\"%s\n",
+               k_Fields[i].jsonKey, hex,
+               (wcount < nWrite) ? "," : "");
+    }
+
+    APPEND("  },\n");
+    if (s_SaveBundleChromeId[0]) APPEND("  \"menuStyle\": \"%s\",\n", s_SaveBundleChromeId);
+    if (s_SaveBundleFontId[0])   APPEND("  \"font\": \"%s\",\n", s_SaveBundleFontId);
+    APPEND("  \"scanline\": { \"enabled\": true, \"alpha\": 0.8 },\n");
+    APPEND("  \"textGlow\": { \"enabled\": true, \"intensity\": 0.6, \"color\": \"0080ffff\" },\n");
+    APPEND("  \"soundPack\": \"default\"\n");
+    APPEND("}\n");
+
+#undef APPEND
+
+    if (outLen) *outLen = (u32)written;
+    return buf;
+}
+
+/* Compose mod.json for the .pdmod from `name` + `dirName` slug. */
+static char *buildModJsonBuffer(const char *name, const char *dirName, const char *author, u32 *outLen)
+{
+    const u32 cap = 1024;
+    char *buf = (char *)malloc(cap);
+    if (!buf) return NULL;
+    int n = snprintf(buf, cap,
+        "{\n"
+        "  \"id\": \"%s\",\n"
+        "  \"name\": \"%s\",\n"
+        "  \"version\": \"1.0\",\n"
+        "  \"author\": \"%s\",\n"
+        "  \"description\": \"Custom theme created with Theme Editor\",\n"
+        "  \"base_fallback\": \"base:theme_blue\"\n"
+        "}\n",
+        dirName, name, author && author[0] ? author : "User");
+    if (n < 0 || (u32)n >= cap) { free(buf); return NULL; }
+    if (outLen) *outLen = (u32)n;
+    return buf;
+}
+
+static bool saveThemeAsPdmod(const char *name, const char *author)
+{
+    if (!name || !name[0]) return false;
+
+    /* Same slug rules as the folder save so users see consistent ids. */
+    char dirName[64];
+    int len = 0;
+    for (int i = 0; name[i] && len < 62; i++) {
+        char c = name[i];
+        if (c == ' ') c = '-';
+        else if (c >= 'A' && c <= 'Z') c = c + 32;
+        else if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_'))
+            continue;
+        dirName[len++] = c;
+    }
+    dirName[len] = '\0';
+    if (!len) return false;
+
+    if (fsCreateDir("mods") < 0 && errno != EEXIST) {
+        sysLogPrintf(LOG_WARNING, "Theme editor: cannot create 'mods/' directory (errno %d)", errno);
+        return false;
+    }
+
+    char outPath[256];
+    snprintf(outPath, sizeof(outPath), "mods/%s.pdmod", dirName);
+
+    u32 mfstLen = 0, themeLen = 0;
+    char *mfst  = buildModJsonBuffer(name, dirName, author, &mfstLen);
+    char *theme = buildThemeJsonBuffer(name, author, &themeLen);
+    if (!mfst || !theme) {
+        free(mfst);
+        free(theme);
+        sysLogPrintf(LOG_WARNING, "Theme editor: out-of-memory composing .pdmod");
+        return false;
+    }
+
+    modpack_entry_t entry = { "theme.json", theme, themeLen };
+    s32 r = modpackPdmodWriteSingle(outPath, mfst, mfstLen, &entry, 1);
+    free(mfst);
+    free(theme);
+
+    if (r != MODPACK_PDMOD_OK) {
+        sysLogPrintf(LOG_WARNING, "Theme editor: modpackPdmodWriteSingle failed (err=%d) for '%s'", r, outPath);
+        return false;
+    }
+
+    sysLogPrintf(LOG_NOTE, "Theme editor: saved theme '%s' as %s", name, outPath);
     return true;
 }
 
@@ -750,7 +889,7 @@ static void renderThemeEditor(s32 winW, s32 winH)
             ImGui::TextColored(statusCol, "%s", s_SaveStatus);
         }
 
-        /* Action row (row 2): [Save | Reset | Close] — all three docked together */
+        /* Action row (row 2): [Save | Save as .pdmod | Reset | Close] */
         if (ImGui::Button("Save", ImVec2(btnW, btnH))) {
             s_SaveSuccess = saveThemeAsMod(s_SaveName, s_SaveAuthor);
             if (s_SaveSuccess) {
@@ -765,6 +904,27 @@ static void renderThemeEditor(s32 winW, s32 winH)
             } else {
                 snprintf(s_SaveStatus, sizeof(s_SaveStatus),
                          "Save failed — check logs");
+                pdguiPlaySound(PDGUI_SND_ERROR);
+            }
+        }
+
+        ImGui::SameLine();
+
+        /* Priority M / B-238 / M-3.2: write the same theme as a single
+         * .pdmod archive (one file in mods/<slug>.pdmod). The folder save
+         * above is kept during the migration window per design Section 5. */
+        if (ImGui::Button("Save as .pdmod", ImVec2(btnW * 1.4f, btnH))) {
+            s_SaveSuccess = saveThemeAsPdmod(s_SaveName, s_SaveAuthor);
+            if (s_SaveSuccess) {
+                snprintf(s_SaveStatus, sizeof(s_SaveStatus),
+                         "Saved as .pdmod");
+                pdguiPlaySound(PDGUI_SND_SUCCESS);
+                /* The loader picks up the new .pdmod on next mod scan;
+                 * trigger a rescan so it appears in this session. */
+                pdguiThemeRescanMods();
+            } else {
+                snprintf(s_SaveStatus, sizeof(s_SaveStatus),
+                         ".pdmod save failed — check logs");
                 pdguiPlaySound(PDGUI_SND_ERROR);
             }
         }
