@@ -160,9 +160,36 @@ static void drawDot(ImDrawList *dl, ImVec2 p, float r, ImU32 col)
  * Click-through opens the sidebar.
  * ------------------------------------------------------------------------- */
 
+extern "C" s32 pdguiPauseGetNormMplayerIsRunning(void);
+extern "C" u8  pdguiPauseGetPaused(void);
+
 extern "C" void pdguiFriendsStatusIndicatorRender(s32 winW, s32 winH)
 {
 	if (!socialIsReady()) return;
+
+	/* Mike playtest 2026-04-25 (db905396 build): suppress the status pill
+	 * during live MP gameplay -- it was painting to GetForegroundDrawList
+	 * over the minimap + gameplay HUD, and the dual render-pass path
+	 * (hot-swap + main render) caused per-frame scale flicker. The pill
+	 * only matters when the user is in a menu surface; during active
+	 * combat the dot+code+state info is not actionable.
+	 *
+	 * Bad-value triage matrix applied:
+	 *   - Setting bug: status pill rendered unconditionally (no in-match
+	 *     gate). Root cause -- fixed here.
+	 *   - Multi-source flicker: two render passes (hot-swap + final)
+	 *     paint the pill at different ImGui font scales. Suppression
+	 *     during MP eliminates both passes for the in-match case.
+	 *   - Z-order: GetForegroundDrawList sits above gameplay HUD. The
+	 *     fix is suppression rather than re-layering, since the pill is
+	 *     non-actionable during active play.
+	 *
+	 * The pill still shows on the title screen, main menu, pause menu,
+	 * scorecard, and dedicated social surfaces -- everywhere it has a
+	 * useful click-target. */
+	if (pdguiPauseGetNormMplayerIsRunning() && pdguiPauseGetPaused() < 2) {
+		return;
+	}
 
 	const presence_state_t pstate = presenceGetLocalState();
 	const social_visibility_t vis = socialVisibilityGet();

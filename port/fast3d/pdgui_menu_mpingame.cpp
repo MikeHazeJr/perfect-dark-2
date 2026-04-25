@@ -179,15 +179,35 @@ extern "C" void pdguiMpIngameRender(s32 winW, s32 winH)
     bool teamsEnabled = (pdguiPauseGetOptions() & MPOPTION_TEAMSENABLED_KF) != 0;
     float now = kfNow();
 
-    /* Layout — smaller pills for a compact killfeed */
-    float fontSize = pdguiScale(13.0f); /* smaller than default HUD text */
-    float pillH  = pdguiScale(22.0f);
-    float pillW  = pdguiScale(320.0f);
-    float padX   = pdguiScale(8.0f);
-    float padY   = pdguiScale(3.0f);
-    float gapY   = pdguiScale(2.0f);
+    /* Mike playtest 2026-04-25 (db905396): the per-entry pill-window
+     * model is replaced with a single scrolling-textbox window. Mike's
+     * exact framing: "really it should work more like a scrolling
+     * textbox than a stack of boxes". Old layout opened one ImGui
+     * window per active entry, which (a) competed for the same screen
+     * region under HiDPI scale flips and (b) appeared as discrete pills
+     * rather than a unified ticker. The new layout draws all entries
+     * inside one ImGui window, position-locked at lower-left, with
+     * newest-on-top + per-line alpha fade.
+     *
+     * Bad-value triage matrix:
+     *   - Setting bug: separate-window-per-entry layout choice. Fixed
+     *     here.
+     *   - Multi-source: window-bg style state could leak across entries
+     *     via PushStyleVar/Color count miscount. Fixed by scoping all
+     *     style pushes to the single Begin/End block.
+     *   - Ordering: newest-first sort retained; rendered top-to-bottom
+     *     inside the textbox so the most recent kill is at the top of
+     *     the column. */
 
-    /* Collect and sort active entries by birth time (newest first at top) */
+    /* Layout */
+    const float fontSize  = pdguiScale(13.0f);
+    const float padX      = pdguiScale(10.0f);
+    const float padY      = pdguiScale(6.0f);
+    const float lineH     = pdguiScale(18.0f);
+    const float boxW      = pdguiScale(340.0f);
+    const float bottomGap = pdguiScale(28.0f);
+
+    /* Collect + sort active entries newest-first. */
     struct SortEntry { int idx; float birth; };
     SortEntry sorted[KILLFEED_MAX];
     int activeCount = 0;
@@ -201,8 +221,6 @@ extern "C" void pdguiMpIngameRender(s32 winW, s32 winH)
         sorted[activeCount].birth = e.birthTime;
         activeCount++;
     }
-
-    /* Sort newest-first */
     for (int i = 1; i < activeCount; i++) {
         SortEntry tmp = sorted[i];
         int j = i - 1;
@@ -212,117 +230,93 @@ extern "C" void pdguiMpIngameRender(s32 winW, s32 winH)
         }
         sorted[j + 1] = tmp;
     }
+    if (activeCount == 0) return;
 
-    /* Position: lower-left, clear of radar — stack grows upward from bottom margin */
-    float stackH = activeCount > 0
-        ? (activeCount * (pillH + gapY) - gapY)
-        : pillH;
-    float baseX = padX;
-    float baseY = (float)winH - pdguiScale(28.0f) - stackH;
+    const float boxH = padY * 2.0f + lineH * (float)activeCount;
+    const float baseX = padX;
+    const float baseY = (float)winH - bottomGap - boxH;
 
-    /* Apply a small global font scale for the killfeed */
-    ImGui::PushFont(nullptr); /* use default font */
+    ImGui::SetNextWindowPos(ImVec2(baseX, baseY), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(boxW, boxH), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.55f);
 
-    for (int si = 0; si < activeCount; si++) {
-        KillfeedEntry &e = s_Killfeed[sorted[si].idx];
-        float age = now - e.birthTime;
+    ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoDecoration    |
+        ImGuiWindowFlags_NoInputs        |
+        ImGuiWindowFlags_NoNav           |
+        ImGuiWindowFlags_NoMove          |
+        ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoBringToFrontOnFocus |
+        ImGuiWindowFlags_NoFocusOnAppearing;
 
-        /* Alpha: fade in, hold, fade out */
-        float alpha = 1.0f;
-        if (age < KILLFEED_FADEIN_S) {
-            alpha = age / KILLFEED_FADEIN_S;
-        } else if (age > KILLFEED_LIFE_S - KILLFEED_FADEOUT_S) {
-            alpha = (KILLFEED_LIFE_S - age) / KILLFEED_FADEOUT_S;
-        }
-        if (alpha < 0.0f) alpha = 0.0f;
-        if (alpha > 1.0f) alpha = 1.0f;
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.05f, 0.05f, 0.08f, 0.85f));
+    ImGui::PushStyleColor(ImGuiCol_Border,   ImVec4(0.30f, 0.30f, 0.40f, 0.35f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,  ImVec2(padX, padY));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.5f);
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
 
-        /* Slide: enter from the left */
-        float slideProgress = (age < KILLFEED_FADEIN_S)
-            ? (age / KILLFEED_FADEIN_S) : 1.0f;
-        float slideOffset = pdguiScale(KILLFEED_SLIDE_PX) * (1.0f - slideProgress);
-
-        float x = baseX - slideOffset;
-        float y = baseY + si * (pillH + gapY);
-
-        char wname[32];
-        snprintf(wname, sizeof(wname), "##kf%d", sorted[si].idx);
-
-        ImGui::SetNextWindowPos(ImVec2(x, y), ImGuiCond_Always);
-        ImGui::SetNextWindowSize(ImVec2(pillW, pillH + padY * 2.0f), ImGuiCond_Always);
-        ImGui::SetNextWindowBgAlpha(0.65f * alpha);
-
-        ImGuiWindowFlags flags =
-            ImGuiWindowFlags_NoDecoration    |
-            ImGuiWindowFlags_NoInputs        |
-            ImGuiWindowFlags_NoNav           |
-            ImGuiWindowFlags_NoMove          |
-            ImGuiWindowFlags_NoSavedSettings |
-            ImGuiWindowFlags_NoBringToFrontOnFocus |
-            ImGuiWindowFlags_NoFocusOnAppearing;
-
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.05f, 0.05f, 0.08f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_Border,   ImVec4(0.30f, 0.30f, 0.40f, alpha * 0.4f));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,  ImVec2(padX, padY));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.5f);
-
-        float fontScale = fontSize / ImGui::GetFontSize();
+    if (ImGui::Begin("##killfeed_textbox", nullptr, flags)) {
+        const float fontScale = fontSize / ImGui::GetFontSize();
         ImGui::SetWindowFontScale(fontScale);
 
-        if (ImGui::Begin(wname, nullptr, flags)) {
-            ImGui::SetWindowFontScale(fontScale);
+        for (int si = 0; si < activeCount; si++) {
+            KillfeedEntry &e = s_Killfeed[sorted[si].idx];
+            const float age = now - e.birthTime;
+
+            /* Per-line alpha: fade in, hold, fade out. Same envelope as
+             * before, applied as a per-line tint instead of a per-window
+             * BgAlpha. */
+            float alpha = 1.0f;
+            if (age < KILLFEED_FADEIN_S) {
+                alpha = age / KILLFEED_FADEIN_S;
+            } else if (age > KILLFEED_LIFE_S - KILLFEED_FADEOUT_S) {
+                alpha = (KILLFEED_LIFE_S - age) / KILLFEED_FADEOUT_S;
+            }
+            if (alpha < 0.0f) alpha = 0.0f;
+            if (alpha > 1.0f) alpha = 1.0f;
+
+            const u8 at = e.attackerTeam < 8 ? e.attackerTeam : 7;
+            const u8 vt = e.victimTeam   < 8 ? e.victimTeam   : 7;
+            ImVec4 ac = teamsEnabled ? s_KfTeamColors[at]
+                                     : ImVec4(1.0f, 1.0f, 1.0f, alpha);
+            ImVec4 vc = teamsEnabled ? s_KfTeamColors[vt]
+                                     : ImVec4(0.7f, 0.7f, 0.7f, alpha);
+            ac.w = alpha;
+            vc.w = alpha;
 
             if (e.isSuicide) {
-                /* Suicide: "Player suicided" */
-                u8 vt = e.victimTeam < 8 ? e.victimTeam : 7;
-                ImVec4 vc = teamsEnabled ? s_KfTeamColors[vt]
+                ImVec4 sc = teamsEnabled ? s_KfTeamColors[vt]
                                          : ImVec4(0.9f, 0.9f, 0.9f, alpha);
-                vc.w = alpha;
-
-                ImGui::PushStyleColor(ImGuiCol_Text, vc);
+                sc.w = alpha;
+                ImGui::PushStyleColor(ImGuiCol_Text, sc);
                 ImGui::TextUnformatted(e.victimName);
                 ImGui::PopStyleColor();
-
                 ImGui::SameLine(0.0f, pdguiScale(4.0f));
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, alpha));
                 ImGui::TextUnformatted("suicided");
                 ImGui::PopStyleColor();
             } else {
-                /* Kill: "Attacker killed Victim" */
-                u8 at = e.attackerTeam < 8 ? e.attackerTeam : 7;
-                u8 vt = e.victimTeam < 8   ? e.victimTeam   : 7;
-                ImVec4 ac = teamsEnabled ? s_KfTeamColors[at]
-                                         : ImVec4(1.0f, 1.0f, 1.0f, alpha);
-                ImVec4 vc = teamsEnabled ? s_KfTeamColors[vt]
-                                         : ImVec4(0.7f, 0.7f, 0.7f, alpha);
-                ac.w = alpha;
-                vc.w = alpha;
-
                 ImGui::PushStyleColor(ImGuiCol_Text, ac);
                 ImGui::TextUnformatted(e.attackerName);
                 ImGui::PopStyleColor();
-
                 ImGui::SameLine(0.0f, pdguiScale(4.0f));
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, alpha));
                 ImGui::TextUnformatted("killed");
                 ImGui::PopStyleColor();
-
                 ImGui::SameLine(0.0f, pdguiScale(4.0f));
                 ImGui::PushStyleColor(ImGuiCol_Text, vc);
                 ImGui::TextUnformatted(e.victimName);
                 ImGui::PopStyleColor();
             }
-
-            ImGui::SetWindowFontScale(1.0f);
         }
-        ImGui::End();
 
-        ImGui::PopStyleVar(3);
-        ImGui::PopStyleColor(2);
+        ImGui::SetWindowFontScale(1.0f);
     }
+    ImGui::End();
 
-    ImGui::PopFont();
+    ImGui::PopStyleVar(4);
+    ImGui::PopStyleColor(2);
 }
 
 /* ============================================================================
