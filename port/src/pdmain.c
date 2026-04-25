@@ -87,6 +87,12 @@
 #include "net/p2p.h"
 #include "net/group_session.h"
 #include "presence.h"
+#include "chat.h"
+#include "file_transfer.h"
+#include "pdgui_toast.h"
+#include "spectator.h"
+#include "listening_room.h"
+#include "voice.h"
 #include "modelcatalog.h"
 #include "pdmain.h"
 #include "pdgui_theme.h"
@@ -680,6 +686,12 @@ void mainTick(void)
 	p2pTick();
 	presenceTick();
 	groupSessionTick();
+	chatTick();
+	fileTransferTick();
+	pdguiToastTick();
+	spectatorTick();
+	listeningRoomTick();
+	voiceTick();
 
 	if (g_MainChangeToStageNum < 0) {
 		frametimeCalculate();

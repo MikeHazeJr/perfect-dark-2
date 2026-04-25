@@ -40,6 +40,12 @@ void pdguiFriendsSocialOpen(void);
 void pdguiFriendsSocialClose(void);
 s32  pdguiFriendsSocialIsOpen(void);
 
+/* Per-friend 1:1 chat panel (Phase 2). */
+void pdguiFriendsChatOpen(u32 friend_handle);
+void pdguiFriendsChatClose(void);
+s32  pdguiFriendsChatIsOpen(void);
+u32  pdguiFriendsChatTargetHandle(void);
+
 /* Render the Phase 1 social surfaces. Call from pdguiRender after the
  * standard overlays so the sidebar / social menu paint above gameplay
  * windows. */

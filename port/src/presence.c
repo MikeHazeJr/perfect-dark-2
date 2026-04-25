@@ -29,6 +29,8 @@
 #include "social.h"
 #include "identity.h"
 #include "ed25519.h"
+#include "chat.h"
+#include "pdgui_toast.h"
 #include "net/p2p.h"
 #include "net/net.h"
 #include "net/group_session.h"
@@ -386,6 +388,9 @@ static void recordPong(u32 handle, u8 state, u16 proto, u32 src_ipv4, u16 src_po
 {
 	presence_peer_t *p = touchPeer(handle);
 	if (!p) return;
+	const presence_state_t prev_state = p->state;
+	const u32              prev_pong  = p->last_pong_ms;
+
 	p->last_pong_ms = SDL_GetTicks();
 	p->state = (presence_state_t)state;
 	p->proto_version = proto;
@@ -403,6 +408,31 @@ static void recordPong(u32 handle, u8 state, u16 proto, u32 src_ipv4, u16 src_po
 		 * connectivity-phase1-decisions.md. */
 		socialFriendUpdateEndpoint(handle, src_ipv4, src_port,
 		                           PRESENCE_ENDPOINT_TTL_S);
+
+		/* Toast on offline->online transition (SOCIAL category, Q8).
+		 * "Offline" here means we either have no prior pong record or
+		 * the last record was the explicit OFFLINE state. */
+		const presence_state_t cur = (presence_state_t)state;
+		const bool was_offline = (prev_pong == 0) ||
+		                          (prev_state == PRESENCE_OFFLINE) ||
+		                          (prev_state == PRESENCE_APPEAR_OFFLINE);
+		const bool now_online = (cur == PRESENCE_ONLINE_IDLE) ||
+		                         (cur == PRESENCE_IN_MATCH) ||
+		                         (cur == PRESENCE_IN_MISSION) ||
+		                         (cur == PRESENCE_SPECTATING);
+		if (was_offline && now_online) {
+			char title[96];
+			char body[160];
+			snprintf(title, sizeof(title), "%s came online",
+			          f->agent_name[0] ? f->agent_name : "A friend");
+			snprintf(body, sizeof(body), "%s",
+			          presenceStateName(cur));
+			(void)pdguiToastEnqueue(handle, TOAST_CATEGORY_SOCIAL, title, body);
+			char syslog[128];
+			snprintf(syslog, sizeof(syslog), "%s came online",
+			          f->agent_name[0] ? f->agent_name : "friend");
+			(void)chatHistoryAppendSystem(handle, syslog);
+		}
 	}
 }
 
@@ -415,6 +445,23 @@ static void enqueueInvite(u32 from_handle, u8 kind, const char *agent)
 			return;
 		}
 	}
+
+	/* Toast (INVITES category, Q8). Per-friend mute is checked inside
+	 * pdguiToastEnqueue. */
+	{
+		const social_friend_t *f = socialFriendByHandle(from_handle);
+		const char *display_agent = (f && f->agent_name[0]) ? f->agent_name :
+		                              (agent && *agent ? agent : "Someone");
+		const char *kind_text = (kind == PRESENCE_INVITE_KIND_MATCH) ? "to play"
+		                       : (kind == PRESENCE_INVITE_KIND_GROUP) ? "to a group"
+		                       : "to a listening room";
+		char title[96], body[160];
+		snprintf(title, sizeof(title), "%s invited you", display_agent);
+		snprintf(body, sizeof(body), "Tap the sidebar to Accept or Decline (%s)",
+		          kind_text);
+		(void)pdguiToastEnqueue(from_handle, TOAST_CATEGORY_INVITES, title, body);
+	}
+
 	if (s_NumInbox >= PRESENCE_INVITE_CAP) {
 		/* Drop oldest. */
 		memmove(&s_Inbox[0], &s_Inbox[1],
