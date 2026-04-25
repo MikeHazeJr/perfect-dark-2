@@ -431,6 +431,51 @@ static void forgeUpdateFreefly(void)
  * State transitions
  * ============================================================ */
 
+/* B-253 follow-up: auto-toggle the renderer's debug wireframe overlay
+ * when entering Grid (any non-INACTIVE state) and restore on exit.
+ * Per Mike: in The Grid the freefly camera flies through walls; an
+ * editor-style wireframe view helps see geometry edges of distant
+ * rooms.  Cull mode is left at the user's setting (default none).
+ *
+ * Save/restore is idempotent: if no save is pending we save current
+ * state on first entry; subsequent entries (NORMAL <-> FREEFLY hops)
+ * leave the saved state alone.  Exit restores once and clears.
+ *
+ * The renderer-debug API is in port/fast3d/gfx_opengl.cpp; declared
+ * here as plain externs to avoid pulling that header into game code. */
+extern int  gfxDebugCullModeGet(void);
+extern void gfxDebugCullModeSet(int mode);
+extern int  gfxDebugWireframeGet(void);
+extern void gfxDebugWireframeSet(int on);
+
+static int s_GridSavedCullMode  = -1;  /* -1 = no save pending */
+static int s_GridSavedWireframe = -1;
+
+static void forgeApplyDebugRenderEntry(void)
+{
+	if (s_GridSavedCullMode >= 0) {
+		return;  /* already saved on a prior entry; skip */
+	}
+	s_GridSavedCullMode  = gfxDebugCullModeGet();
+	s_GridSavedWireframe = gfxDebugWireframeGet();
+
+	/* Auto-enable wireframe overlay so geometry edges read clearly
+	 * while the freefly camera is positioned outside rooms. User can
+	 * still override mid-session with Shift+F2. */
+	gfxDebugWireframeSet(1);
+}
+
+static void forgeApplyDebugRenderExit(void)
+{
+	if (s_GridSavedCullMode < 0) {
+		return;  /* no save pending */
+	}
+	gfxDebugCullModeSet(s_GridSavedCullMode);
+	gfxDebugWireframeSet(s_GridSavedWireframe);
+	s_GridSavedCullMode  = -1;
+	s_GridSavedWireframe = -1;
+}
+
 static void forgeTransitionToNormal(const char *reason)
 {
 	struct player *p = forgeCurrentPlayer();
@@ -442,6 +487,7 @@ static void forgeTransitionToNormal(const char *reason)
 		forgeRuntimeEnterPlay();
 	}
 	s_forge.state = FORGE_SESSION_NORMAL;
+	forgeApplyDebugRenderEntry();
 	/* B-245: capture session stagenum on first activation. */
 	if (s_forge.session_stagenum < 0) {
 		s_forge.session_stagenum = (s32)g_StageNum;
@@ -471,6 +517,7 @@ static void forgeTransitionToFreefly(const char *reason)
 		forgeRuntimeExitPlay();
 	}
 	s_forge.state = FORGE_SESSION_FREEFLY;
+	forgeApplyDebugRenderEntry();
 	/* B-245: capture session stagenum on first activation. */
 	if (s_forge.session_stagenum < 0) {
 		s_forge.session_stagenum = (s32)g_StageNum;
@@ -516,6 +563,7 @@ static void forgeTransitionToInactive(const char *reason)
 		forgeRuntimeExitPlay();
 	}
 	s_forge.state = FORGE_SESSION_INACTIVE;
+	forgeApplyDebugRenderExit();
 	s_forge.request_enter_session = false;
 	s_forge.session_stagenum = -1;  /* B-245: clear so next session captures fresh stagenum */
 	s_forge.canvas_mode = false;        /* B-254: clear canvas latch on session end */

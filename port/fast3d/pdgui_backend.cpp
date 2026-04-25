@@ -984,6 +984,44 @@ void pdguiRender(void)
     /* F9: read-only menu stack + input-context snapshot (NoInputs — does not steal focus). */
     pdguiMenuStackOverlayRender((s32)winW, (s32)winH);
 
+    /* B-253 follow-up: top-right indicator(s) when the debug cull mode
+     * or wireframe toggle is active.  Tells Mike at a glance that the
+     * world render is in a non-default state, so he doesn't hunt a
+     * phantom graphics bug after toggling and forgetting. */
+    {
+        extern int gfxDebugCullModeGet(void);
+        extern const char *gfxDebugCullModeName(void);
+        extern int gfxDebugWireframeGet(void);
+        int cullMode = gfxDebugCullModeGet();
+        int wire     = gfxDebugWireframeGet();
+        if (cullMode != 0 || wire != 0) {
+            ImDrawList *fg = ImGui::GetForegroundDrawList();
+            char line[128];
+            if (cullMode != 0 && wire != 0) {
+                snprintf(line, sizeof(line),
+                         "[Shift+F1] %s   [Shift+F2] Wireframe",
+                         gfxDebugCullModeName());
+            } else if (cullMode != 0) {
+                snprintf(line, sizeof(line), "[Shift+F1] %s",
+                         gfxDebugCullModeName());
+            } else {
+                snprintf(line, sizeof(line), "[Shift+F2] Wireframe");
+            }
+            ImVec2 sz = ImGui::CalcTextSize(line);
+            float pad = 8.0f;
+            float bx = winW - sz.x - pad * 2.0f;
+            float by = pad;
+            fg->AddRectFilled(ImVec2(bx, by),
+                              ImVec2(bx + sz.x + pad * 2.0f, by + sz.y + pad),
+                              IM_COL32(20, 20, 20, 220), 4.0f);
+            fg->AddRect(ImVec2(bx, by),
+                        ImVec2(bx + sz.x + pad * 2.0f, by + sz.y + pad),
+                        IM_COL32(255, 200, 80, 255), 4.0f, 0, 1.5f);
+            fg->AddText(ImVec2(bx + pad, by + pad * 0.5f),
+                        IM_COL32(255, 220, 120, 255), line);
+        }
+    }
+
     pdguiPopupDarkenFlush();
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -1170,6 +1208,33 @@ s32 pdguiProcessEvent(void *sdlEvent)
         return 1;
     }
 #endif
+
+    /* B-253 follow-up: Shift+F1 cycles the renderer's debug backface-cull
+     * mode for the world render (none -> back -> front -> none).
+     * Diagnostic — useful in The Grid for seeing back-faces of walls when
+     * the freefly camera is outside a room, and for confirming whether a
+     * body's triangle winding is inverted (per-asset data issue). */
+    if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F1 &&
+            (ev->key.keysym.mod & KMOD_SHIFT)) {
+        extern void gfxDebugCullModeCycle(void);
+        extern const char *gfxDebugCullModeName(void);
+        gfxDebugCullModeCycle();
+        sysLogPrintf(LOG_NOTE, "DEBUG.CULL: mode -> %s", gfxDebugCullModeName());
+        return 1;
+    }
+
+    /* B-253 follow-up: Shift+F2 toggles wireframe overlay on the world
+     * render (glPolygonMode lines).  Useful in The Grid for an
+     * editor-style "see geometry edges" view. */
+    if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F2 &&
+            (ev->key.keysym.mod & KMOD_SHIFT)) {
+        extern void gfxDebugWireframeToggle(void);
+        extern int  gfxDebugWireframeGet(void);
+        gfxDebugWireframeToggle();
+        sysLogPrintf(LOG_NOTE, "DEBUG.WIREFRAME: %s",
+                     gfxDebugWireframeGet() ? "on" : "off");
+        return 1;
+    }
 
     /* F9: toggle read-only menu/input diagnostics (no input-context push). */
     if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F9) {

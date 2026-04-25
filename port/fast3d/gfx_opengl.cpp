@@ -789,8 +789,78 @@ static void gfx_opengl_set_use_alpha(bool use_alpha, bool modulate) {
     }
 }
 
+/* B-253 follow-up: diagnostic toggles for the world render path.
+ *
+ * Two independent toggles, both applied per-draw on the MAIN framebuffer
+ * only.  When `current_framebuffer != 0` (e.g., the character-preview FBO
+ * or any post-process pass), state is forced back to PD's legacy-default
+ * (cull-none + fill) so the toggles never bleed into the preview render
+ * Mike's character creator depends on.
+ *
+ * Cull mode (Shift+F1 cycles):
+ *   0 = none     (glDisable(GL_CULL_FACE))             [default]
+ *   1 = back     (glEnable + glCullFace(GL_BACK))      normal "real" backface
+ *   2 = front    (glEnable + glCullFace(GL_FRONT))     shows ONLY backfaces
+ *
+ * Wireframe (Shift+F2 toggles):
+ *   0 = filled triangles (default)
+ *   1 = glPolygonMode(GL_LINE) — geometry edges only
+ *
+ * Defaults preserve PD's legacy "cull none, fill" behaviour so this commit
+ * introduces no rendering regression.  The modes are diagnostic; useful in
+ * The Grid where the freefly camera flies outside rooms and Mike wants to
+ * see edge structure or back-side surfaces. */
+static int s_DebugCullMode  = 0;  /* 0=none (default), 1=back, 2=front */
+static int s_DebugWireframe = 0;  /* 0=fill (default), 1=lines */
+
+extern "C" int  gfxDebugCullModeGet(void)        { return s_DebugCullMode; }
+extern "C" void gfxDebugCullModeSet(int mode) {
+    if (mode < 0 || mode > 2) mode = 0;
+    s_DebugCullMode = mode;
+}
+extern "C" void gfxDebugCullModeCycle(void) {
+    s_DebugCullMode = (s_DebugCullMode + 1) % 3;
+}
+extern "C" const char *gfxDebugCullModeName(void) {
+    switch (s_DebugCullMode) {
+        case 1:  return "Cull Back (default winding)";
+        case 2:  return "Cull Front (show backfaces)";
+        default: return "Cull None";
+    }
+}
+
+extern "C" int  gfxDebugWireframeGet(void)       { return s_DebugWireframe; }
+extern "C" void gfxDebugWireframeSet(int on)     { s_DebugWireframe = on ? 1 : 0; }
+extern "C" void gfxDebugWireframeToggle(void)    { s_DebugWireframe = !s_DebugWireframe; }
+
+static void gfx_opengl_apply_debug_state(void) {
+    /* FBO render (e.g., character preview): never apply user toggles —
+     * keep PD's legacy state so the preview Mike depends on is stable. */
+    if (current_framebuffer != 0) {
+        glDisable(GL_CULL_FACE);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        return;
+    }
+    /* Main framebuffer (world render): apply user toggles. */
+    switch (s_DebugCullMode) {
+        case 1:
+            glEnable(GL_CULL_FACE);
+            glCullFace(GL_BACK);
+            break;
+        case 2:
+            glEnable(GL_CULL_FACE);
+            glCullFace(GL_FRONT);
+            break;
+        default:
+            glDisable(GL_CULL_FACE);
+            break;
+    }
+    glPolygonMode(GL_FRONT_AND_BACK, s_DebugWireframe ? GL_LINE : GL_FILL);
+}
+
 static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
     // printf("flushing %d tris\n", buf_vbo_num_tris);
+    gfx_opengl_apply_debug_state();
     glBufferData(GL_ARRAY_BUFFER, sizeof(float) * buf_vbo_len, buf_vbo, GL_STREAM_DRAW);
     glDrawArrays(GL_TRIANGLES, 0, 3 * buf_vbo_num_tris);
 }

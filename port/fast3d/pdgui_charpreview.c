@@ -87,6 +87,7 @@ static s32 s_PreviewType    = PDGUI_PREVIEW_CHARACTER; /* Current model type */
 static u32 s_PreviewTexId = 0;       /* GL texture ID of the rendered preview */
 static s32 s_PreviewReady = 0;       /* Non-zero if texture has valid content */
 static f32 s_PreviewRotY = 0.0f;     /* Y rotation in radians (set by caller) */
+static f32 s_PreviewAspect = 1.0f;   /* Projection aspect for FBO render (B-253 follow-up) */
 static Vp  s_PreviewVp;              /* Viewport for FBO render (must NOT be inline in display list) */
 
 /* ========================================================================
@@ -325,6 +326,13 @@ void pdguiCharPreviewRequestFilenum(PdguiPreviewType type, u32 filenum)
 void pdguiCharPreviewSetRotY(f32 rotY)
 {
     s_PreviewRotY = rotY;
+}
+
+void pdguiCharPreviewSetAspect(f32 aspect)
+{
+    if (aspect <= 0.05f) aspect = 1.0f;  /* clamp degenerate values */
+    if (aspect >  20.0f) aspect = 1.0f;
+    s_PreviewAspect = aspect;
 }
 
 /**
@@ -633,6 +641,30 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
         return gdl;
     }
 
+    /* B-253 follow-up: pin the chr-skel zoom oscillator to its FAR end so
+     * the preview shows a comfortable full-body framing instead of a
+     * face-fills-frame close-up.
+     *
+     * Background: menuRenderModel's chr-skel branch dynamically rewrites
+     * menumodel->zoom from a 480-tick triangle-wave oscillator (range
+     * 100..370) and ignores the value the caller wrote.  We never set
+     * zoomtimer60 before the previous fix, so it sat at 0 forever -> the
+     * oscillator output frac=0 -> zoom=370 (the CLOSE end), giving the
+     * "really zoomed in" / "2D texture" look Mike reported.
+     *
+     * menuGetLinearOscPauseFrac is a triangle wave with pauses:
+     *   t in [0..0.25] -> ramp 0..1   -> zoom 370..100
+     *   t in [0.25..0.5] -> hold 1    -> zoom 100 (paused at FAR)
+     *   t in [0.5..0.75] -> ramp 1..0 -> zoom 100..370
+     *   t in [0.75..1.0] -> hold 0    -> zoom 370 (paused at CLOSE)
+     *
+     * zoomtimer60 / TICKS(480) is the t input.  Setting zoomtimer60 to
+     * TICKS(240) places us in the [0.25..0.5] hold-at-1 window -> zoom
+     * pinned at 100 (the FAR end).  This is the legacy character select's
+     * tuned "fully pulled back" framing — we want exactly that for our
+     * static preview. */
+    mm->zoomtimer60 = TICKS(240);
+
     /* Model is loaded — render to the preview FBO */
 
     /* REND-M1: Clear preview FBO before rendering to prevent ghost geometry */
@@ -711,9 +743,13 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
         playerVp->vp.vtrans[3] = 0;
     }
 
-    /* Override view dims so projection aspect matches the square FBO. */
+    /* Override view dims so projection aspect matches the displayed pane.
+     * The FBO is square (CHARPREVIEW_WIDTH x CHARPREVIEW_HEIGHT) but we
+     * render with the consumer's display aspect so when ImGui stretches
+     * the FBO texture into a non-square pane, the model returns to its
+     * correct on-screen proportions. */
     viSetViewPosition(0, 0);
-    viSetFovAspectAndSize(savedFovy, 1.0f,
+    viSetFovAspectAndSize(savedFovy, s_PreviewAspect,
                           (s16)CHARPREVIEW_WIDTH, (s16)CHARPREVIEW_HEIGHT);
 
     /* Switch render target to our preview FBO */

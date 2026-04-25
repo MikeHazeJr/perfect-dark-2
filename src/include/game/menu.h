@@ -75,6 +75,15 @@ void func0f0f3704(struct menudialogdef *dialogdef);
 void menuConfigureModel(struct menumodel *menumodel, f32 x, f32 y, f32 z, f32 rotx, f32 roty, f32 rotz, f32 scale, u8 flags);
 void menuUnsetModel(struct menumodel *menumodel);
 Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype);
+
+/* B-253 follow-up: bypass switch for the chr-skel oscillating-zoom path.
+ * Set true before menuRenderModel + clear after.  When true, the chr-skel
+ * branch is skipped so the bbox-driven dodefaultzoom path runs with the
+ * caller-supplied zoom (which the chr-skel branch would otherwise rewrite
+ * via a 100..370 oscillator).  Used by pdgui_charpreview to get static
+ * preview framing — and the only way to specify zoom values below 100. */
+extern bool g_MenuPreviewBypassChrZoom;
+
 void menuGetTeamTitlebarColours(u32 *top, u32 *middle, u32 *bottom);
 Gfx *menuApplyScissor(Gfx *gdl);
 Gfx *dialogRender(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool lightweight);

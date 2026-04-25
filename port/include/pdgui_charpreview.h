@@ -74,6 +74,13 @@ void pdguiCharPreviewRequestFilenum(PdguiPreviewType type, u32 filenum);
  * Call each frame before pdguiCharPreviewRequest to animate rotation. */
 void pdguiCharPreviewSetRotY(f32 rotY);
 
+/* B-253 follow-up: set the projection aspect ratio used when rendering the
+ * model into the (square) FBO.  When the displayed pane is non-square, set
+ * aspect = pane_w / pane_h so the model is rendered "squished" in the FBO
+ * and unstretches back to correct proportions when ImGui::Image stretches
+ * the FBO texture to fill the pane.  Default 1.0 (square pane). */
+void pdguiCharPreviewSetAspect(f32 aspect);
+
 /* Get the GL texture ID of the rendered preview (0 if not ready).
  * Cast to ImTextureID for use with ImGui::Image. */
 u32 pdguiCharPreviewGetTextureId(void);

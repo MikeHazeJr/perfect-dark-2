@@ -4,6 +4,52 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S470 (`peaceful-banach-7a2c66`) - 2026-04-25 (PM) - B-253 follow-up: framing + missing-renders + Grid debug toggles
+
+Mike's playtest of `21010fbd` (the S458 build) showed three new symptoms; this session addresses all three plus a Grid-mode auto-wireframe feature Mike requested partway through.
+
+### Root cause 1 — chr-skel oscillator at frac=0
+`menuRenderModel`'s chr-skel branch dynamically rewrites `menumodel->zoom` from a 480-tick triangle-wave oscillator (range 100..370). We never set `zoomtimer60`, so it stayed at 0 forever → oscillator output frac=0 → `zoom = 100 + (1-0)*270 = 370` (the CLOSE end). Result: face-fills-frame zoom forever.
+
+**Fix**: in `pdguiCharPreviewRenderGBI`, before each `menuRenderModel` call, set `mm->zoomtimer60 = TICKS(240)`. Per `menuGetLinearOscPauseFrac`, t=0.5 lands in the [0.25..0.5] hold-at-1 window → zoom pinned at 100 (the legacy-tuned FAR end).
+
+### Root cause 2 — uninitialized stack reads in `menuRenderModel`
+The function declares `f32 rotx, roty, rotz, posx, posy, posz, scale` without init. Only the `MENUMODELTYPE_HUDPIECE` branch writes them; the `MENUMODELTYPE_DEFAULT` path (used by all character previews) READS them uninitialized at lines 2293, 2299–2301, 2362. Pure UB. For some bodies the stack happened to contain 0 → `mtx00015f04(scale=0)` → invisible model. For others it contained huge values → model overflowed the FBO. Variability across bodies wasn't body-specific — it was just whatever code path ran beforehand.
+
+**Fix**: initialize all seven to safe defaults at function entry (`0` for pos/rot, `1.0f` for scale). HUDPIECE branch is unaffected (overrides). DEFAULT case is now deterministic.
+
+### Diagnostic toggles + Grid auto-wireframe (Mike-requested mid-session)
+Two new world-render diagnostic toggles in `port/fast3d/gfx_opengl.cpp`:
+- **Shift+F1**: cycle cull mode (`none → back → front → none`). Default `none`.
+- **Shift+F2**: toggle wireframe overlay (`glPolygonMode GL_LINE`). Default off.
+
+Per-draw apply gated on `current_framebuffer == 0` — toggles affect ONLY the main framebuffer (world render), never bleed into the character-preview FBO. Defaults preserve PD's legacy state. Combined amber-pill top-right indicator when either toggle is non-default.
+
+**Grid auto-wireframe**: `forgeTransitionToNormal` and `forgeTransitionToFreefly` save the user's current cull/wireframe state and auto-enable wireframe (Mike's "in The Grid the freefly camera flies through walls; show wireframe so I can see geometry edges of distant rooms"). `forgeTransitionToInactive` restores. Save/restore idempotent; NORMAL ↔ FREEFLY hops don't clobber the saved pre-Grid state. User can override mid-Grid via Shift+F1/F2.
+
+### Layout per Mike's "fill remaining space" feedback
+- Left panel: content-sized — `pdguiScale(320)` (Agent Creator) / `pdguiScale(360)` (Character Select), capped at 50% width.
+- Right pane: fills the FULL remaining rectangle (no longer forced square).
+- Aspect-aware projection: new `pdguiCharPreviewSetAspect()` API lets `pdgui_model_preview` pass `pane_w / pane_h` to the FBO renderer. Square 512×512 FBO + matching projection cancel cleanly into the displayed rect.
+
+### Files touched
+- `src/game/menu.c::menuRenderModel` (init + bypass flag)
+- `src/include/game/menu.h` (extern decl)
+- `port/fast3d/pdgui_charpreview.c` (zoomtimer60 pin + aspect setter)
+- `port/include/pdgui_charpreview.h` (aspect API)
+- `port/fast3d/pdgui_model_preview.cpp` (compute + push aspect)
+- `port/fast3d/pdgui_menu_agentcreate.cpp` (content-sized left + fill-remaining right)
+- `port/fast3d/pdgui_menu_playerconfig.cpp` (same)
+- `port/fast3d/gfx_opengl.cpp` (cull + wireframe state + per-draw apply gated on current_framebuffer)
+- `port/fast3d/pdgui_backend.cpp` (Shift+F1/F2 handlers + combined indicator)
+- `src/game/forgemode.c` (Grid auto-wireframe save/restore via forge transitions)
+- `context/bugs.md`, `context/session-log.md` (this entry)
+
+### Merge
+Note: Mike's earlier `925c1e2a "pre-release commit v0.0.162"` performed a global EOL normalization across 2596 files. The first attempt to merge `claude/peaceful-banach-7a2c66` into dev produced spurious conflicts on every file the worktree touched. After verifying the merge would silently lose dev-side changes (B-241 rig_class gate + B-259 cursor authority + Connectivity work), aborted and re-applied B-253b changes manually onto dev tip `b7c8ccf6` as a single commit on dev. No content loss — verified by spot-checking the dev-side fixes survive.
+
+Build clean: PerfectDark.exe 55,941,756 / PerfectDarkServer.exe 23,273,149.
+
 ## Session S469 - 2026-04-25 - HUD playtest fixes: in-match social pill suppression + scrolling-textbox killfeed
 
 Playtest report from Mike on the `db905396` build:

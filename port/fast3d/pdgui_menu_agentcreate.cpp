@@ -340,9 +340,17 @@ static s32 renderAgentCreate(struct menudialog *dialog,
                           ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
+        /* B-253 follow-up: layout is content-sized on the left, fills-rest
+         * on the right.  Mike's brief: "left panel sized to its content
+         * (~280-320px), right panel fills the rest of the window".  The
+         * left holds 3 control rows (Name input + Body carousel + Head
+         * carousel + auto-match line) + ~16px row gaps.  At pdguiScale
+         * 1.0 (1080p baseline) ~320px is comfortable; we scale so the
+         * value tracks viewport size. */
         float contentW = ImGui::GetContentRegionAvail().x;
         float colGap   = pdguiScale(20.0f);
-        float leftW    = (contentW - colGap) * 0.5f;
+        float leftW    = pdguiScale(320.0f);
+        if (leftW > contentW * 0.5f) leftW = contentW * 0.5f;  /* sanity cap */
         float rightW   = contentW - colGap - leftW;
 
         ImVec2 colsOrigin = ImGui::GetCursorScreenPos();
@@ -471,12 +479,16 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         ImGui::SameLine(0.0f, colGap);
 
         {
+            /* B-253 follow-up: pane fills the full remaining rectangle.
+             * pdgui_model_preview computes the aspect ratio from these
+             * dimensions and passes it to the FBO renderer, so the model
+             * appears with correct proportions even though the FBO itself
+             * is square (square FBO + matching projection aspect cancel
+             * out into the displayed rect cleanly). */
             float paneW = rightW;
             float paneH = bodyH - pdguiScale(8.0f);
-            /* Keep the render box square; cap at the smaller dimension. */
-            float side = (paneW < paneH) ? paneW : paneH;
-            float px = colsOrigin.x + leftW + colGap + (paneW - side) * 0.5f;
-            float py = colsOrigin.y + (paneH - side) * 0.5f;
+            float px = colsOrigin.x + leftW + colGap;
+            float py = colsOrigin.y;
 
             const char *hid = catalogMpHeadId(s_SortedHeadIndices[s_SelectedHead]);
             const char *bid = catalogMpBodyId(s_SelectedBody);
@@ -493,7 +505,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
             opts.idleRotation = 0;
             opts.cornerRadius = pdguiScale(6.0f);
 
-            pdguiModelPreviewDraw(hid, bid, px, py, side, side, &opts);
+            pdguiModelPreviewDraw(hid, bid, px, py, paneW, paneH, &opts);
 
             /* Reserve cursor space so the layout child reports a sane size. */
             ImGui::Dummy(ImVec2(rightW, paneH));

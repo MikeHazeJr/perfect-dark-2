@@ -1967,15 +1967,31 @@ Lights1 var80071468 = gdSPDefLights1(0x96, 0x96, 0x96, 0xff, 0xff, 0xff, 0xb2, 0
 /**
  * Render the hudpiece as well as any models within dialogs.
  */
+/* B-253 follow-up: bypass switch for the chr-skel oscillating zoom path.
+ * pdgui_charpreview sets this to true before menuRenderModel and clears
+ * after.  When true, the chr-skel branch (which dynamically rewrites
+ * menumodel->zoom from a 100..370 oscillator and ignores the caller's
+ * zoom value) is skipped, so the bbox-driven dodefaultzoom path runs
+ * with the caller-supplied zoom.  Critical for static / non-oscillating
+ * preview framing, and the only way to get a zoom value below 100. */
+bool g_MenuPreviewBypassChrZoom = false;
+
 Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 {
-	f32 rotx;
-	f32 roty;
-	f32 rotz;
-	f32 posx;
-	f32 posy;
-	f32 posz;
-	f32 scale;
+	/* B-253 follow-up: defensive init.  Legacy code only sets these in the
+	 * MENUMODELTYPE_HUDPIECE branch, leaving the DEFAULT case to read
+	 * uninitialized stack values.  This is undefined behavior — for some
+	 * bodies it happened to render, for others it produced an invisible
+	 * model (scale=0 from stack garbage) or a viewport-overflowing one
+	 * (scale=huge).  Initializing to safe defaults makes the DEFAULT
+	 * case deterministic and HUDPIECE unaffected (it overwrites them). */
+	f32 rotx = 0.0f;
+	f32 roty = 0.0f;
+	f32 rotz = 0.0f;
+	f32 posx = 0.0f;
+	f32 posy = 0.0f;
+	f32 posz = 0.0f;
+	f32 scale = 1.0f;
 	s32 totalfilelen;
 	struct texpool texpool;
 	s32 bodyfilelen2;
@@ -2199,7 +2215,14 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 		if (menumodel->zoom > 0.0f) {
 			dodefaultzoom = true;
 
-			if (menumodel->bodymodeldef->skel == &g_SkelChr) {
+			/* B-253 follow-up: pdgui_charpreview sets this to bypass the
+			 * chr-skel dynamic-zoom oscillator and route to the bbox path
+			 * instead.  See pdgui_charpreview.c for rationale (the
+			 * oscillator clamps zoom to 100..370 and ignores the caller's
+			 * value, which produces an over-zoomed face shot rather than
+			 * a comfortable full-body framing). */
+			if (!g_MenuPreviewBypassChrZoom &&
+					menumodel->bodymodeldef->skel == &g_SkelChr) {
 				struct modelnode *node = modelGetPart(menumodel->bodymodeldef, MODELPART_CHR_0006);
 
 				if (node) {

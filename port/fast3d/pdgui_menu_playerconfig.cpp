@@ -540,12 +540,13 @@ static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
 
         float contentW = ImGui::GetContentRegionAvail().x;
         float colGap   = pdguiScale(20.0f);
-        /* B-253: Layout flipped per Mike's brief — controls (body list +
-         * head carousel) on LEFT, 3D render box on RIGHT.  Left column
-         * gets ~45% so the body list (which scrolls) has room; right
-         * column gets the remainder, capped square against the body
-         * height so the render box is a true square. */
-        float leftW    = (contentW - colGap) * 0.45f;
+        /* B-253 follow-up: left panel is content-sized (~360px scaled —
+         * a bit wider than Agent Creator because the body list is the
+         * main control and benefits from longer rows), right panel
+         * fills the rest.  The 3D pane fills its rect; aspect-aware
+         * projection in pdgui_model_preview keeps proportions correct. */
+        float leftW    = pdguiScale(360.0f);
+        if (leftW > contentW * 0.5f) leftW = contentW * 0.5f;  /* sanity cap */
         float rightW   = contentW - colGap - leftW;
 
         ImVec2 colsOrigin = ImGui::GetCursorScreenPos();
@@ -646,11 +647,11 @@ static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
         ImGui::SameLine(0.0f, colGap);
 
         {
+            /* B-253 follow-up: 3D pane fills the full remaining rectangle. */
             float paneW = rightW;
             float paneH = bodyH - pdguiScale(8.0f);
-            float side = (paneW < paneH) ? paneW : paneH;
-            float px = colsOrigin.x + leftW + colGap + (paneW - side) * 0.5f;
-            float py = colsOrigin.y + (paneH - side) * 0.5f;
+            float px = colsOrigin.x + leftW + colGap;
+            float py = colsOrigin.y;
 
             const char *headId = catalogMpHeadId(curHead);
             const char *bodyId = catalogMpBodyId(curBody);
@@ -665,7 +666,7 @@ static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
             opts.idleRotation = 0;
             opts.cornerRadius = pdguiScale(6.0f);
 
-            pdguiModelPreviewDraw(headId, bodyId, px, py, side, side, &opts);
+            pdguiModelPreviewDraw(headId, bodyId, px, py, paneW, paneH, &opts);
 
             /* Reserve cursor space so the BeginChild reports correct height. */
             ImGui::Dummy(ImVec2(rightW, paneH));

@@ -156,6 +156,23 @@ static void drawPanelImpl(ModelPreviewKind kind,
     if (!id1 && s_LastId1[0]) selChanged = true;
     if (!id2 && s_LastId2[0]) selChanged = true;
 
+    /* B-253 follow-up: pass the panel's display aspect to the FBO renderer
+     * BEFORE any request fires this frame, so the projection matches the
+     * pane and the model un-stretches correctly when ImGui scales the
+     * (square) FBO texture into a non-square display rect.  The aspect
+     * uses the model-content area only (height minus label rows), which
+     * is what ImGui::Image actually fills. */
+    {
+        float labelHForAspect = 0.0f;
+        if (o.showBodyName) labelHForAspect += 16.0f;
+        if (o.showHeadName) labelHForAspect += 14.0f;
+        float pad   = 2.0f;
+        float aspW  = w - pad * 2.0f;
+        float aspH  = h - pad * 2.0f - labelHForAspect;
+        float aspect = (aspH > 0.5f) ? (aspW / aspH) : 1.0f;
+        pdguiCharPreviewSetAspect(aspect);
+    }
+
     if (selChanged) {
         s_LastKind = (s32)kind;
         if (id1) snprintf(s_LastId1, PREV_ID_LEN, "%s", id1);
