@@ -23,6 +23,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
@@ -259,7 +260,8 @@ static s32 renderTeamSetup(struct menudialog *dialog,
     /* Teams enabled toggle */
     {
         bool teamsOn = (g_MatchConfig.options & MPOPTION_TEAMSENABLED) != 0;
-        if (ImGui::Checkbox("Teams Enabled", &teamsOn)) {
+        /* Priority L (2026-04-25): label LEFT via pdguiCheckbox. */
+        if (pdguiCheckbox("Teams Enabled", &teamsOn)) {
             if (teamsOn) g_MatchConfig.options |= MPOPTION_TEAMSENABLED;
             else         g_MatchConfig.options &= ~MPOPTION_TEAMSENABLED;
             pdguiPlaySound(PDGUI_SND_SUBFOCUS);

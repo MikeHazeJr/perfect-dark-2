@@ -20,6 +20,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h" /* M-6: pdguiPopupDarkenBehind; M-7: action bar */
+#include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
@@ -594,7 +595,8 @@ static void renderSettingsTab(void)
     ImGui::TextDisabled("Controls");
 
     bool invertRStick = inputControllerGetInvertRStickY(0) != 0;
-    if (ImGui::Checkbox("Invert Y-Axis", &invertRStick)) {
+    /* Priority L (2026-04-25): label LEFT via pdguiCheckbox. */
+    if (pdguiCheckbox("Invert Y-Axis", &invertRStick)) {
         inputControllerSetInvertRStickY(0, invertRStick ? 1 : 0);
         configSave("pd.ini");
     }
