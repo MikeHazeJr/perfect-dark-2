@@ -188,26 +188,72 @@ void pdguiCharPreviewRequestEx(PdguiPreviewType type,
         /* Resolve catalog IDs → mpheadnum / mpbodynum for the render pipeline */
         u8 headnum = 0;
         u8 bodynum = 0;
+        const asset_entry_t *be = NULL;
+        const asset_entry_t *he = NULL;
 
         if (id2 && id2[0]) {
-            const asset_entry_t *be = assetCatalogResolve(id2);
+            be = assetCatalogResolve(id2);
             if (be && be->type == ASSET_BODY && be->mp_index >= 0) {
                 bodynum = (u8)be->mp_index;
             } else {
                 sysLogPrintf(LOG_WARNING,
                              "pdgui_charpreview: body resolve failed id='%s' (entry=%p type=%d mp_index=%d)",
                              id2, be, be ? (int)be->type : -1, be ? (int)be->mp_index : -1);
+                be = NULL;
             }
         }
 
         if (id1 && id1[0]) {
-            const asset_entry_t *he = assetCatalogResolve(id1);
+            he = assetCatalogResolve(id1);
             if (he && he->type == ASSET_HEAD && he->mp_index >= 0) {
                 headnum = (u8)he->mp_index;
             } else {
                 sysLogPrintf(LOG_WARNING,
                              "pdgui_charpreview: head resolve failed id='%s' (entry=%p type=%d mp_index=%d)",
                              id1, he, he ? (int)he->type : -1, he ? (int)he->mp_index : -1);
+                he = NULL;
+            }
+        }
+
+        /* B-241 (2026-04-25): rig_class compatibility gate. The render
+         * pipeline blindly applies the head's skeletal data to the body's
+         * skeleton; if the rigs are mismatched (e.g. head_davec on
+         * skedar body), bone indices alias into uninitialised memory and
+         * the renderer access-violates. Issue 10's `rig_class` is the
+         * authoritative compatibility key: equal strings = compatible,
+         * different strings = swap to the body's default head. Bodies
+         * that declare `complete` (integrated head per
+         * `catalogGetBodyIsComplete`) skip the separate head load entirely
+         * by clearing headnum -- the body's own head geometry covers it. */
+        if (be && bodynum != 0) {
+            if (catalogGetBodyIsComplete(bodynum)) {
+                /* Integrated-head body (Skedar, Dr Carroll). The body
+                 * model carries its own head -- drop the requested head
+                 * so the render path uses the integrated geometry. */
+                headnum = 0;
+            } else if (he && headnum != 0) {
+                const char *bodyRig = be->ext.body.rig_class;
+                const char *headRig = he->ext.head.rig_class;
+                if (!bodyRig[0] || !headRig[0] || strcmp(bodyRig, headRig) != 0) {
+                    /* Mismatched rig: swap to the body's default head. */
+                    const char *fallback = catalogGetBodyDefaultHead(id2);
+                    sysLogPrintf(LOG_WARNING,
+                                 "pdgui_charpreview: rig mismatch body='%s' (rig='%s') vs "
+                                 "head='%s' (rig='%s'); falling back to body default head '%s'",
+                                 id2, bodyRig[0] ? bodyRig : "(empty)",
+                                 id1, headRig[0] ? headRig : "(empty)",
+                                 fallback ? fallback : "(none)");
+                    if (fallback && fallback[0]) {
+                        const asset_entry_t *fhe = assetCatalogResolve(fallback);
+                        if (fhe && fhe->type == ASSET_HEAD && fhe->mp_index >= 0) {
+                            headnum = (u8)fhe->mp_index;
+                        } else {
+                            headnum = 0;
+                        }
+                    } else {
+                        headnum = 0;
+                    }
+                }
             }
         }
 
