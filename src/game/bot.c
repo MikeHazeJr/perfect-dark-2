@@ -106,22 +106,25 @@ static inline bool botShouldTickAI(struct chrdata *chr)
 		return true; /* original behavior for small matches */
 	}
 
+	/* Slot lookup uses aibot->aibotnum (set at allocation time, stable for
+	 * the bot's lifetime) for O(1) bucket assignment -- no g_MpBotChrPtrs
+	 * scan per call. Synthesised from Priority N's two parallel
+	 * implementations (stoic-wing adaptive groups + hardcore-feynman O(1)
+	 * aibotnum lookup) at the merge step 3 of dev integration. */
+	struct aibot *aibot = chr->aibot;
+	if (!aibot) {
+		return true; /* safety: no bot data; defensive */
+	}
+
 	/* Determine group count based on active bot count.  Priority N
 	 * extension: the 25-32 tier adds a 4-group split (15 Hz per bot). */
 	s32 groups = (g_BotCount <= 16) ? 2
 	           : (g_BotCount <= 24) ? 3
 	           : 4;
 
-	/* Use the chr's slot index for deterministic distribution */
-	s32 slot = -1;
-	for (s32 i = 0; i < MAX_BOTS; i++) {
-		if (g_MpBotChrPtrs[i] == chr) {
-			slot = i;
-			break;
-		}
-	}
+	s32 slot = (s32)aibot->aibotnum;
 	if (slot < 0) {
-		return true; /* safety: tick if not found in array */
+		return true; /* safety: unassigned slot, fall through */
 	}
 
 	return (slot % groups) == (g_Vars.lvframe60 % groups);

@@ -487,8 +487,23 @@ const char *catalogGetBodyDisplayName(s32 mpbodynum)
  * normally, retiring the 2026-04-24 Issue 1 stopgap filter.
  *
  * Internal static buffer for the returned array of catalog ID pointers.
- * Sized so every head in the catalog fits. Non-thread-safe by design (the
- * game is single-threaded; all catalog accessors assume that contract). */
+ * Sized so every head in the catalog fits.
+ *
+ * AUDIT-24-M3 (2026-04-25): the buffer is shared module-static state, so:
+ *   1. NOT thread-safe -- the game is single-threaded; all catalog accessors
+ *      assume that contract.
+ *   2. NOT reentrant even within a single thread -- the returned pointer is
+ *      a view onto s_ValidHeadBuf, which is overwritten by the next call.
+ *      Callers MUST consume the array (e.g. copy IDs out, pick an index)
+ *      before invoking catalogGetBodyValidHeadIds again, directly or
+ *      indirectly. catalogPickRandomHeadIdForBody is one such indirect
+ *      caller; nesting catalogGetBodyValidHeadIds(...) calls or calling
+ *      it during iteration of a previous result will corrupt the prior
+ *      view.
+ *   3. The pointers inside are owned by the catalog (asset_entry_t::id),
+ *      so they remain valid across the next assetCatalog* mutation only
+ *      if the entry itself is not removed; treat them as borrowed.
+ */
 #define VALID_HEAD_BUF_CAP 256
 static const char *s_ValidHeadBuf[VALID_HEAD_BUF_CAP];
 
@@ -559,7 +574,27 @@ const char *const *catalogGetBodyValidHeadIds(const char *body_id,
 /* Client-only: the server has no rngRandom symbol (rng_c.c is not linked
  * into pd-server).  Server callers that need a head-for-body picker can
  * call catalogGetBodyValidHeadIds(...) directly and pick element 0, or
- * thread a seeded RNG through from their own state. */
+ * thread a seeded RNG through from their own state.
+ *
+ * AUDIT-24-M2 (2026-04-25): DESYNC HAZARD outside leader-only context.
+ * This function consumes from the shared g_RngState via rngRandom(); each
+ * call advances the global RNG. In MP, only the leader (lobby leader for
+ * pre-match picks; server for in-match picks) may call this, otherwise
+ * different clients pick different heads from the same body and the
+ * pre-game / mid-match RNG sequence drifts (downstream rngRandom() callers
+ * see different values across peers).
+ *
+ * Safe call sites: lobby room screen "Set Character" path (leader only),
+ * matchsetup.c::pickHeadIdForBody invoked during host-side bot config
+ * generation. Unsafe: any per-client tick that runs on every peer.
+ *
+ * If you need a deterministic head pick on every peer (e.g. mid-match
+ * resync), call catalogGetBodyValidHeadIds(...) and index it with a
+ * value derived from the matchSeed or chrnum, not from rngRandom().
+ *
+ * Also see s_ValidHeadBuf reentrancy note above: the returned `ids`
+ * pointer is invalidated by the next catalogGetBodyValidHeadIds call
+ * (direct or indirect), so do not nest this function. */
 const char *catalogPickRandomHeadIdForBody(const char *body_id)
 {
     int count = 0;

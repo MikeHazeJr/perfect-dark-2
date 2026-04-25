@@ -783,6 +783,23 @@ void playerReset(void)
 	sysLogPrintf(LOG_NOTE, "SPAWN: pre-ground pos=(%.1f,%.1f,%.1f) room=%d angle=%.3f",
 		pos.x, pos.y, pos.z, rooms[0], turnanglerad);
 
+	/* B-242 (Priority O): post-pick capsule clip check + radial sweep
+	 * for the player's initial spawn. Skip the deferred MP-orchestrator
+	 * placeholder case (the orchestrator overwrites pos via
+	 * playerApplyOrchestratedSpawnFromPool, where the same check runs).
+	 * For SP, coop, anti, and the non-deferred MP path: ensure the
+	 * picked position has clearance for the chr's full bounding capsule;
+	 * sweep radially if needed. */
+	if (!(g_Vars.mplayerisrunning && spawnPoolIsReady() && g_Vars.lvframe60 == 0
+			&& g_Vars.coopplayernum < 0 && g_Vars.antiplayernum < 0)) {
+		struct chrdata *playerchr = g_Vars.currentplayer->prop
+			? g_Vars.currentplayer->prop->chr : NULL;
+		f32 chr_height = spawnPoolGetChrCapsuleHeight(playerchr);
+		f32 chr_radius = (playerchr && playerchr->radius > 0.0f)
+			? playerchr->radius : 30.0f;
+		(void)spawnPoolFindClearPosition(&pos, rooms, chr_radius, chr_height);
+	}
+
 	groundy = cdFindGroundInfoAtCyl(&pos, 30, rooms,
 			&g_Vars.currentplayer->floorcol,
 			&g_Vars.currentplayer->floortype,

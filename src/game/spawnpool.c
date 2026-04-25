@@ -24,6 +24,7 @@
 #include "game/bg.h"
 #include "game/pad.h"
 #include "game/atan2f.h"
+#include "game/propobj.h"   /* B-242: modelFindBboxRodata for chr-height capsule */
 #include "lib/collision.h"
 #include "lib/rng.h"
 #include "system.h"
@@ -420,6 +421,176 @@ f32 spawnPoolValidateCandidate(const struct coord *pos, RoomNum room,
 
 	/* 6. Raycast budget */
 	return spawnPoolRaycastBudget(pos, room);
+}
+
+/* ========================================================================
+ * B-242 (Priority O): Post-pick capsule clip check + radial sweep
+ *
+ * The pool-build validation above is best-effort, but a chosen spawn pad
+ * can still place a chr inside or against a wall: pool candidates are
+ * tested with a fixed 30-unit cylinder and 180-unit vertical clearance,
+ * but a tall body (Skedar ~220) exceeds that, and the run-time pos
+ * applied at spawn may be offset slightly from the pad anchor by
+ * scenario-specific logic.
+ *
+ * spawnPoolFindClearPosition runs after the spawn point is chosen but
+ * before the chr is moved.  It tests the cylinder for wall overlap with
+ * the actual character bounding height, and if overlap is detected,
+ * sweeps radially outward through 5 concentric rings (30..200 units),
+ * 8 directions per ring, until a clean position is found.
+ *
+ * If the bound is exhausted without finding clearance, the function
+ * returns false and the caller can re-pick a different pad.  The
+ * canonical retry pattern is `for (attempt < N) { pick; if (clear) break; }`
+ * (see botSpawn / playerStartNewLife).
+ * ======================================================================== */
+
+#define SPAWN_CLEAR_RING_COUNT 5
+#define SPAWN_CLEAR_DIR_COUNT  8
+#define SPAWN_CLEAR_HEIGHT_FALLBACK 185.0f
+#define SPAWN_CLEAR_RADIUS_FALLBACK 30.0f
+
+static const f32 s_SpawnClearRingRadii[SPAWN_CLEAR_RING_COUNT] = {
+	30.0f, 60.0f, 100.0f, 150.0f, 200.0f
+};
+
+/* Compute the chr's full bounding height for the test capsule.
+ *
+ * Bodies vary: Skedar ~220, default human ~185, Maian ~165, Carroll ~140.
+ * chr->height tracks the current pose (185 standing / 135 ducked / 90
+ * crouched), not the body type, so we read the body model bbox when
+ * available and fall back to chr->height (or a constant) when not. */
+f32 spawnPoolGetChrCapsuleHeight(struct chrdata *chr)
+{
+	f32 height = SPAWN_CLEAR_HEIGHT_FALLBACK;
+
+	if (!chr) {
+		return height;
+	}
+
+	if (chr->height > 0.0f) {
+		height = chr->height;
+	}
+
+	if (chr->model) {
+		struct modelrodata_bbox *bbox = modelFindBboxRodata(chr->model);
+		if (bbox) {
+			f32 bbox_height = bbox->ymax - bbox->ymin;
+			/* Sanity-clamp: a degenerate or huge bbox would cause the
+			 * vertical clearance test to reach absurd ceilings. */
+			if (bbox_height > height && bbox_height < 1000.0f) {
+				height = bbox_height;
+			}
+		}
+	}
+
+	return height;
+}
+
+static bool spawnTestCapsuleClear(const struct coord *pos, RoomNum *rooms,
+                                  f32 radius, f32 height)
+{
+	/* cdTestVolume returns 1 = clear, 0 = wall collision detected. */
+	return cdTestVolume((struct coord *)pos, radius, rooms,
+	                    CDTYPE_BG, true,
+	                    pos->y + height, pos->y) == 1;
+}
+
+bool spawnPoolFindClearPosition(struct coord *pos, RoomNum *rooms,
+                                f32 radius, f32 height)
+{
+	struct coord origin;
+	s32 ring;
+	s32 iter = 0;
+	RoomNum localrooms[8];
+
+	if (!pos || !rooms) {
+		return false;
+	}
+
+	if (height <= 0.0f) {
+		height = SPAWN_CLEAR_HEIGHT_FALLBACK;
+	}
+	if (radius <= 0.0f) {
+		radius = SPAWN_CLEAR_RADIUS_FALLBACK;
+	}
+
+	/* If the input rooms[0] is invalid, resolve from pos before the
+	 * first cdTestVolume call (cdCollectGeoForCyl iterates only the
+	 * supplied rooms; an empty list silently misses all wall geo). */
+	if (rooms[0] < 0) {
+		RoomNum inrooms[21];
+		RoomNum aboverooms[21];
+		RoomNum best = -1;
+		bgFindRoomsByPos(pos, inrooms, aboverooms, 20, &best);
+		if (inrooms[0] >= 0) {
+			rooms[0] = inrooms[0];
+			rooms[1] = -1;
+		} else if (best >= 0) {
+			rooms[0] = best;
+			rooms[1] = -1;
+		} else {
+			/* Position is in pure void; cannot test or correct. */
+			return false;
+		}
+	}
+
+	/* Fast path: original position has clearance for the full chr height. */
+	if (spawnTestCapsuleClear(pos, rooms, radius, height)) {
+		return true;
+	}
+
+	origin = *pos;
+
+	for (ring = 0; ring < SPAWN_CLEAR_RING_COUNT; ring++) {
+		f32 r = s_SpawnClearRingRadii[ring];
+		s32 d;
+		for (d = 0; d < SPAWN_CLEAR_DIR_COUNT; d++) {
+			f32 angle = (f32)d * (2.0f * (f32)M_PI / (f32)SPAWN_CLEAR_DIR_COUNT);
+			struct coord candidate;
+			RoomNum inrooms[21];
+			RoomNum aboverooms[21];
+			RoomNum best = -1;
+
+			iter++;
+			candidate.x = origin.x + r * cosf(angle);
+			candidate.y = origin.y;
+			candidate.z = origin.z + r * sinf(angle);
+
+			/* Resolve the candidate's room (offset position may have
+			 * crossed a portal seam into a neighbour room). */
+			bgFindRoomsByPos(&candidate, inrooms, aboverooms, 20, &best);
+			if (inrooms[0] >= 0) {
+				localrooms[0] = inrooms[0];
+			} else if (best >= 0) {
+				localrooms[0] = best;
+			} else {
+				continue;
+			}
+			localrooms[1] = -1;
+
+			if (spawnTestCapsuleClear(&candidate, localrooms, radius, height)) {
+				sysLogPrintf(LOG_NOTE,
+					"SPAWN.CLIP: original=(%.0f,%.0f,%.0f) clipped, "
+					"swept iter=%d ring=%.0f deg=%.0f -> placed=(%.0f,%.0f,%.0f) "
+					"room=%d r=%.0f h=%.0f",
+					origin.x, origin.y, origin.z, iter, r,
+					angle * 180.0f / (f32)M_PI,
+					candidate.x, candidate.y, candidate.z,
+					(s32)localrooms[0], radius, height);
+				*pos = candidate;
+				rooms[0] = localrooms[0];
+				rooms[1] = -1;
+				return true;
+			}
+		}
+	}
+
+	sysLogPrintf(LOG_WARNING,
+		"SPAWN.CLIP: original=(%.0f,%.0f,%.0f) clipped, sweep_failed "
+		"(iter=%d r=%.0f h=%.0f) -- caller should pick a different pad",
+		origin.x, origin.y, origin.z, iter, radius, height);
+	return false;
 }
 
 /* ========================================================================
