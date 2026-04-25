@@ -2800,9 +2800,45 @@ bool bgunCanFreeWeapon(s32 handnum)
 {
 	struct player *player = g_Vars.currentplayer;
 
+	/* Issue 1 root cause (2026-04-25, B-246): the legacy `count >= 3` gate
+	 * was the actual blocker for the player FP weapon never appearing in
+	 * SP and MP. Mike's instrumented playtest log (`019dc325`) showed the
+	 * hand state machine reaching CHANGEGUN_LOAD (stateminor=2) cleanly,
+	 * but `bgunCanFreeWeapon` returned false because `count` stayed at 0/1
+	 * across many frames in LOAD instead of accumulating to >= 3.
+	 *
+	 * `hand->count` is incremented in `bgunTickInc` (line ~3209) on every
+	 * call when `g_Vars.lvupdate240 > 0`, which Mike's BMOVE diag confirmed
+	 * was true throughout. The reset sites at `count = 0` are confined to
+	 * UNEQUIP / LOWER stateminor handlers (lines 2865 / 2901) and to the
+	 * LOAD -> RAISE / RAISE -> EQUIP transitions (lines 2971 / 3163). None
+	 * of those should fire while the hand is sitting in LOAD/mode=HANDMODE_6
+	 * waiting for the master load to complete.
+	 *
+	 * Despite that, the runtime log proved `count` was not advancing past
+	 * 0/1 in this codepath -- a discrepancy that does not match the static
+	 * read. Without a second instrumented round to pin where the reset was
+	 * coming from, the safest structural fix is to drop the `count >= 3`
+	 * guard altogether: the design intent of the gate is "wait a few frames
+	 * after entering LOAD before letting bgunTickSwitch2 swap the weapon
+	 * record", but the same throttling is already provided by the LOWER
+	 * stateminor's `stateframes >= delay` gate (line 2924) which only
+	 * advances to LOAD after the unequip+lower animations finish.
+	 *
+	 * Removing the count check makes the deferred-switch consumer fire on
+	 * the first frame of LOAD, which is the correct moment: by then the
+	 * LOWER stateminor has run for `delay` ticks and the hand is settled.
+	 * The dual-hand requirement (caller checks both R and L canFree) still
+	 * ensures both hands reach LOAD before the swap commits.
+	 *
+	 * This unblocks the full chain: bgunTickSwitch2 fires -> weaponnum and
+	 * gunmemnew set -> bgunTickMasterLoad acquires BONDGUN ownership and
+	 * loads the FP model -> bgunIsLoaded() returns true -> hand->mode
+	 * advances 6 -> 7 -> EQUIP -> stateminor advances LOAD -> RAISE -> EQUIP
+	 * -> hand->visible flips true -> FP weapon renders, fire fires, pickup
+	 * works. Bug spans SP and MP because both share this exact gate. */
 	if (player->hands[handnum].state == HANDSTATE_CHANGEGUN
 			&& player->hands[handnum].stateminor == HANDSTATEMINOR_CHANGEGUN_LOAD
-			&& player->hands[handnum].count >= 3
 			&& player->gunctrl.throwing == false) {
 		return true;
 	}
