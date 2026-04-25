@@ -212,7 +212,35 @@ static void forgeRestorePlayerMode(struct player *p)
 static void forgeApplyFreeflyToPlayer(struct player *p)
 {
 	/* Hijack the player chr each tick so the existing camera matrix path
-	 * (player.c -> camSetLookAt) renders from the freefly position+angle. */
+	 * (player.c -> camSetLookAt) renders from the freefly position+angle.
+	 *
+	 * B-247 (2026-04-25): write-side validation. forgeSnapFreeflyToPlayer
+	 * already validates the read side at FREEFLY entry, but s_forge.fly.pos
+	 * could still drift to NaN / excessive bounds via forgeUpdateFreefly
+	 * accumulation (e.g. unbounded velocity from a stuck axis). Validate
+	 * before writing to the player chr so a single bad frame doesn't corrupt
+	 * the chr position permanently. Also reset s_forge.fly.pos to the
+	 * fallback so subsequent ticks don't keep writing junk.
+	 *
+	 * B-248 (2026-04-25): gravity is naturally disabled for the observer
+	 * because forgeSetFreeflyMode sets `bondmovemode = MOVEMODE_CUTSCENE`,
+	 * which dispatches to bcutsceneTick (empty function). The chr's vertical
+	 * position is therefore untouched by bondmove between forgeApplyFreeflyToPlayer
+	 * calls. This unconditional write also acts as a per-tick "force-altitude"
+	 * guard: if any path outside bondmove modifies pos.y (e.g. a setup-side
+	 * physics tick), this overwrite snaps it back to the observer's intended
+	 * altitude every frame. */
+	const f32 SANITY_BOUND = 100000.0f;
+	if (s_forge.fly.pos.x < -SANITY_BOUND || s_forge.fly.pos.x > SANITY_BOUND
+			|| s_forge.fly.pos.y < -SANITY_BOUND || s_forge.fly.pos.y > SANITY_BOUND
+			|| s_forge.fly.pos.z < -SANITY_BOUND || s_forge.fly.pos.z > SANITY_BOUND) {
+		sysLogPrintf(LOG_WARNING,
+			"GRID: forgeApplyFreeflyToPlayer: s_forge.fly.pos drifted out of bounds (%.0f,%.0f,%.0f) -- snapping to (0,100,0)",
+			s_forge.fly.pos.x, s_forge.fly.pos.y, s_forge.fly.pos.z);
+		s_forge.fly.pos.x = 0.0f;
+		s_forge.fly.pos.y = 100.0f;
+		s_forge.fly.pos.z = 0.0f;
+	}
 	p->prop->pos.x = s_forge.fly.pos.x;
 	p->prop->pos.y = s_forge.fly.pos.y;
 	p->prop->pos.z = s_forge.fly.pos.z;
