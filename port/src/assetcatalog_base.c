@@ -646,21 +646,25 @@ s32 assetCatalogRegisterBaseGame(void)
 		 * exists in mpArenaIndexIsUsable (setup.c) to match. */
 		NULL,           /* index 55: stage_24 (Kakariko Stormy), data absent */
 		NULL,           /* index 56: mp_grid7 (Dark Noon Valley), data absent */
-		/* 2026-04-24 source-cleanup pass: indices 57-64 and 69 are dev / test
-		 * shells that ship with empty or placeholder geometry ("test_arch",
-		 * "test_dest", extra16..21, "test_lam"). Keeping them out of the
-		 * catalog is cheaper and safer than filtering them at every picker. */
-		NULL,           /* index 57: test_arch */
-		NULL,           /* index 58: test_dest */
-		NULL,           /* index 59: extra16 */
-		NULL,           /* index 60: extra17 */
-		NULL,           /* index 61: extra18 */
-		NULL,           /* index 62: extra19 */
-		NULL,           /* index 63: extra20 */
-		NULL,           /* index 64: extra21 */
+		/* Priority F (2026-04-24): the "test" arenas are real bonus stages
+		 * with proper langbank names ("Suburb", "Training Day", "Runway",
+		 * etc.). Mike re-enabled them because they ARE valid Grid arenas;
+		 * the data is shipped, the geometry exists, the names show in the
+		 * picker. The earlier hide-by-default (Priority A 7ff165b0) was
+		 * over-eager. STAGE_TEST_DEST (index 58 / "Training Day") is also
+		 * the Blank Map target -- see GRID_BLANK_STAGE in
+		 * port/include/pdgui_menu_grid.h. */
+		"test_arch",                       /* index 57: STAGE_TEST_ARCH "Suburb" */
+		"test_dest",                       /* index 58: STAGE_TEST_DEST "Training Day" / Blank Map */
+		"extra16",                         /* index 59: STAGE_EXTRA16  "Runway" */
+		"extra17",                         /* index 60: STAGE_EXTRA17  "Control" */
+		"extra18",                         /* index 61: STAGE_EXTRA18  "Tawfret Ruins" */
+		"extra19",                         /* index 62: STAGE_EXTRA19  "Targitzan's Temple" */
+		"extra20",                         /* index 63: STAGE_EXTRA20  "Junkyard" */
+		"extra21",                         /* index 64: STAGE_EXTRA21  "Steel Mill" */
 		"extra22",      "extra23",
 		"extra24",      "extra26",
-		NULL,           /* index 69: test_lam (dev shell) */
+		"test_lam",                        /* index 69: STAGE_TEST_LAM "Grand Library" */
 		NULL,           /* index 70: extra25=Paradox, removed */
 		/* Random (71-72) */
 		"mp_random_multi", "mp_random_solo",

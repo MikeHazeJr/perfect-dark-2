@@ -13,14 +13,16 @@
  * Halo-style Back button with in-place camera/player swap).
  *
  * Blank Map stage:
- *   GRID_BLANK_STAGE is intentionally NOT defined here.  Mike asked
- *   for the engine's "invalid map fallback plane" as the blank
- *   template; an exhaustive search turned up no bare-plane stage in
- *   this codebase, and Mike's direction was firm that CI Training is
- *   NOT the substitute.  The Grid submenu omits the Blank Map entry
- *   until the correct stagenum is identified.  Define this macro in
- *   a single place when we know the target -- the submenu will then
- *   surface the Blank Map row automatically.
+ *   Priority F (2026-04-24) -- GRID_BLANK_STAGE = STAGE_TEST_DEST (0x1a).
+ *   Selected from the test-arena set after Mike re-enabled them in the
+ *   picker. STAGE_TEST_DEST ships under the langbank name "Training
+ *   Day" with the smallest geometry budget of the candidates
+ *   (-mgfx120 -mvtx98, see src/lib/main.c) and a clean sky + ground
+ *   environment (clouds_enabled=1, water_enabled=1, see env.c). It is
+ *   the closest the shipped data gets to a featureless arena -- a
+ *   plain test plane Mike can drop Forge objects onto without competing
+ *   geometry. The Grid submenu surfaces a "Blank Map" row that loads
+ *   this stagenum.
  *   See context/audits/evening-decisions-2026-04-23.md.
  */
 
@@ -33,10 +35,12 @@
 extern "C" {
 #endif
 
-/* When GRID_BLANK_STAGE is defined (by a build flag or a future edit
- * to this header), the Grid submenu shows a Blank Map entry that
- * loads the given stagenum.  Until then, the entry is omitted. */
-/* #define GRID_BLANK_STAGE <stagenum> */
+/* Priority F (2026-04-24): Blank Map = STAGE_TEST_DEST = 0x1a. The
+ * Grid submenu surfaces a "Blank Map" row that loads this stagenum.
+ * Mirrored as a literal here rather than including constants.h because
+ * port/fast3d/pdgui_menu_mainmenu.cpp pulls this header from a C++ TU
+ * that cannot drag in the project's bool=s32 typedef. */
+#define GRID_BLANK_STAGE 0x1a
 
 #ifdef __cplusplus
 } /* extern "C" */
