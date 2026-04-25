@@ -249,6 +249,17 @@ s32 menupoolAcquire(menu_type_t type, const struct menudialogdef *def, InputCont
                 (unsigned)slot->generation,
                 ctx->name ? ctx->name : "?");
         }
+        /* Priority K-d (2026-04-25): post-acquire drift assertion.
+         * If a ctx was requested it MUST be live on the input-context
+         * stack by the time this function returns -- otherwise the menu
+         * is visible (slot active) but input authority is somewhere else,
+         * which is the textbook two-stack drift symptom Issue 2 names. */
+        if (ctx && !inputCtxIsActive(ctx)) {
+            sysLogPrintf(LOG_WARNING,
+                "MENUPOOL: drift -- already-active %s requested ctx '%s' but ctx is not live on stack",
+                menupoolTypeName(type),
+                ctx->name ? ctx->name : "?");
+        }
         return 0;
     }
 
@@ -279,6 +290,15 @@ s32 menupoolAcquire(menu_type_t type, const struct menudialogdef *def, InputCont
         (const void *)def,
         ctx ? (ctx->name ? ctx->name : "?") : "none",
         slot->owned_ctx ? "owned" : "shared");
+
+    /* Priority K-d (2026-04-25): post-acquire drift assertion (fresh-acquire
+     * path).  Same invariant as above. */
+    if (ctx && !inputCtxIsActive(ctx)) {
+        sysLogPrintf(LOG_WARNING,
+            "MENUPOOL: drift -- fresh-acquire %s pushed ctx '%s' but ctx is not live on stack",
+            menupoolTypeName(type),
+            ctx->name ? ctx->name : "?");
+    }
 
     return 1;
 }
@@ -453,6 +473,28 @@ void menupoolReleaseAll(void)
             }
         }
     }
+
+    /* Priority K-b1 (2026-04-25): also pop the unregistered-fallback ctx if
+     * one is recorded.  Before this, the unregistered tracking state was
+     * outside menupoolReleaseAll's reach, so callers that hit a stage
+     * transition with an unregistered dialog active needed a paired
+     * inputCtxPopDeferred(&g_CtxImGuiMenu) directly after the bulk release.
+     * Folding the unregistered pop into the bulk release lets every force-
+     * close site call menupoolReleaseAll alone without a parallel ctx
+     * scrub. See context/audits/input-authority-discipline-2026-04-25.md
+     * sections D and E. */
+    if (s_UnregisteredOwnedCtx) {
+        InputContext *ctx = s_UnregisteredOwnedCtx;
+        s_UnregisteredOwnedDef = NULL;
+        s_UnregisteredOwnedCtx = NULL;
+        if (inputCtxIsActive(ctx)) {
+            inputCtxPopDeferred(ctx);
+            sysLogPrintf(LOG_NOTE,
+                "MENUPOOL: bulk release also popped unregistered ctx '%s'",
+                ctx->name ? ctx->name : "?");
+        }
+    }
+
     if (released > 0) {
         sysLogPrintf(LOG_NOTE, "MENUPOOL: released %d slot(s) (bulk)", released);
     }

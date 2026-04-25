@@ -55,6 +55,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "pdgui.h"        /* langSafe */
 #include "system.h"
 #include "inputctx.h"
@@ -822,10 +823,12 @@ static s32 renderMpSelectRandomWeapons(struct menudialog *dialog, struct menu *,
             bool checked = srw_GetRowChecked(i);
             ImGui::PushID(i);
             bool before = checked;
-            if (ImGui::Checkbox(text, &checked)) {
+            /* Priority L (2026-04-25): label LEFT via pdguiCheckbox.
+             * pdguiCheckbox plays its own toggle sound, so we drop the
+             * legacy explicit pdguiPlaySound. */
+            if (pdguiCheckbox(text, &checked)) {
                 if (before != checked) {
                     srw_ToggleRow(i);
-                    pdguiPlaySound(checked ? PDGUI_SND_TOGGLEON : PDGUI_SND_TOGGLEOFF);
                 }
             }
             ImGui::PopID();
@@ -1101,10 +1104,10 @@ static void renderOptionCheckboxRow(const char *label,
     ImGui::PushID(label);
     if (disabled) ImGui::BeginDisabled();
     bool before = v;
-    if (ImGui::Checkbox(label, &v)) {
+    /* Priority L (2026-04-25): label LEFT via pdguiCheckbox. */
+    if (pdguiCheckbox(label, &v)) {
         if (before != v) {
             cb_Set(fn, 0, (intptr_t)bitFlag, v);
-            pdguiPlaySound(v ? PDGUI_SND_TOGGLEON : PDGUI_SND_TOGGLEOFF);
         }
     }
     if (disabled) ImGui::EndDisabled();

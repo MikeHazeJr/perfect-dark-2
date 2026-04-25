@@ -71,6 +71,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "pdgui.h"        /* langSafe */
 #include "system.h"
 #include "inputctx.h"
@@ -1174,9 +1175,10 @@ static s32 renderMpPlayerOptions(struct menudialog *dialog, struct menu *, s32, 
         for (s32 i = 0; i < (s32)(sizeof(rows) / sizeof(rows[0])); i++) {
             bool v = cb_Get(menuhandlerMpDisplayOptionCheckbox, 0, rows[i].mask);
             ImGui::PushID(i);
-            if (ImGui::Checkbox(rows[i].label, &v)) {
+            /* Priority L (2026-04-25): label LEFT via pdguiCheckbox.
+             * pdguiCheckbox plays its own toggle sound. */
+            if (pdguiCheckbox(rows[i].label, &v)) {
                 cb_Set(menuhandlerMpDisplayOptionCheckbox, 0, rows[i].mask, v);
-                pdguiPlaySound(PDGUI_SND_SELECT);
             }
             ImGui::PopID();
         }

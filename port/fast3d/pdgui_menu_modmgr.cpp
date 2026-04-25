@@ -34,6 +34,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "system.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
@@ -1183,7 +1184,9 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
     ImGui::SameLine();
 
     /* Right panel: details */
-    ImGui::BeginChild("##modmgr_details", ImVec2(rightW, panelH), true);
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
+    ImGui::BeginChild("##modmgr_details", ImVec2(rightW, panelH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
     if (s_Tab == 2) {
         renderModDetails(scale);
     } else {
@@ -1405,7 +1408,9 @@ static void renderModManager(s32 winW, s32 winH)
         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_NoTitleBar;
 
-    if (ImGui::BeginChild("##modmgr_inner", ImVec2(dialogW, dialogH), false, innerFlags)) {
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
+    if (ImGui::BeginChild("##modmgr_inner", ImVec2(dialogW, dialogH),
+                          ImGuiChildFlags_NavFlattened, innerFlags)) {
         s32 outClose = 0;
         renderModManagerBody(dialogW, dialogH, scale, &outClose);
         if (outClose) s_Visible = false;

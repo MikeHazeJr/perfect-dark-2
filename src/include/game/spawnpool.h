@@ -264,4 +264,45 @@ s32 spawnPoolAppendForgePoints(const struct coord *positions,
                                const f32 *facing_rads,
                                s32 count);
 
+struct chrdata;
+
+/*
+ * B-242 (Priority O): Compute the chr's full bounding height for the
+ * post-pick capsule clip test.
+ *
+ * Reads the body model bbox via modelFindBboxRodata when available
+ * (so a tall Skedar gets ~220 and a short Carroll ~140).  Falls back
+ * to chr->height (current pose: 185 standing / 135 ducked / 90
+ * crouched) and finally to a 185 default if no chr is supplied.
+ */
+f32 spawnPoolGetChrCapsuleHeight(struct chrdata *chr);
+
+/*
+ * B-242 (Priority O): Verify the chosen spawn position has clearance
+ * for a chr's full bounding capsule, and sweep radially outward if not.
+ *
+ * Tests static cylinder overlap with wall geometry at *pos using the
+ * supplied radius and height.  If the capsule overlaps a wall, sweeps
+ * 5 concentric rings (30..200 game units) at 8 directions per ring and
+ * returns the first clean candidate.
+ *
+ * radius: cylinder radius (chr->radius -- e.g. 30 default, 42 Skedar,
+ *         26 Carroll).
+ * height: cylinder height in game units measured from pos.y (top =
+ *         pos.y + height, bottom = pos.y).  Use spawnPoolGetChrCapsuleHeight
+ *         for the body-aware value.
+ *
+ * On success, *pos and rooms[] are mutated in-place to the cleared
+ * position and the function returns true.  On failure (sweep exhausted
+ * without clearance), *pos and rooms[] are unchanged and the function
+ * returns false; the caller should re-pick a different spawn pad and
+ * try again.
+ *
+ * Logs:
+ *   SPAWN.CLIP: original=(...) clipped, swept iter=N ring=R deg=D -> placed=(...)
+ *   SPAWN.CLIP: original=(...) clipped, sweep_failed (iter=N) -- caller should pick a different pad
+ */
+bool spawnPoolFindClearPosition(struct coord *pos, RoomNum *rooms,
+                                f32 radius, f32 height);
+
 #endif /* IN_GAME_SPAWNPOOL_H */

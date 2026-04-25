@@ -23,6 +23,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
@@ -252,12 +253,15 @@ static s32 renderTeamSetup(struct menudialog *dialog,
 
     /* ---- LEFT: Teams Enabled + per-slot assignment ---- */
     ImGui::BeginGroup();
-    ImGui::BeginChild("##team_slots", ImVec2(leftW, contentH), true);
+    /* Priority L (2026-04-25): NavFlattened so D-pad traverses across columns. */
+    ImGui::BeginChild("##team_slots", ImVec2(leftW, contentH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
 
     /* Teams enabled toggle */
     {
         bool teamsOn = (g_MatchConfig.options & MPOPTION_TEAMSENABLED) != 0;
-        if (ImGui::Checkbox("Teams Enabled", &teamsOn)) {
+        /* Priority L (2026-04-25): label LEFT via pdguiCheckbox. */
+        if (pdguiCheckbox("Teams Enabled", &teamsOn)) {
             if (teamsOn) g_MatchConfig.options |= MPOPTION_TEAMSENABLED;
             else         g_MatchConfig.options &= ~MPOPTION_TEAMSENABLED;
             pdguiPlaySound(PDGUI_SND_SUBFOCUS);
@@ -335,7 +339,9 @@ static s32 renderTeamSetup(struct menudialog *dialog,
 
     /* ---- RIGHT: Auto-team presets ---- */
     ImGui::BeginGroup();
-    ImGui::BeginChild("##team_presets", ImVec2(rightW, contentH), true);
+    /* Priority L (2026-04-25): NavFlattened so D-pad traverses across columns. */
+    ImGui::BeginChild("##team_presets", ImVec2(rightW, contentH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
 
     ImGui::TextColored(pdguiVec4TitleGlow(), "Auto Team Presets");
     ImGui::Separator();

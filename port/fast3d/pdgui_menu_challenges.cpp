@@ -268,7 +268,10 @@ static s32 renderChallenges(struct menudialog *dialog,
      * button lives in a docked action bar that is always visible at the
      * bottom of the right panel. */
     ImGui::BeginGroup();
-    ImGui::BeginChild("##chal_detail", ImVec2(rightW, contentH), true);
+    /* Priority L (2026-04-25): NavFlattened so D-pad traverses across
+     * the challenge list (left) and detail panel (right) transparently. */
+    ImGui::BeginChild("##chal_detail", ImVec2(rightW, contentH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
 
     /* Reserve action-bar space so the description body knows its max size */
     float detailAvail = ImGui::GetContentRegionAvail().y;

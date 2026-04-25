@@ -372,12 +372,44 @@ void playerApplyOrchestratedSpawnFromPool(s32 playernum, s32 pool_idx)
 		"SPAWN.ORCH: apply player %d pool=%d pos=(%.0f,%.0f,%.0f) room=%d",
 		playernum, pool_idx, pos.x, pos.y, pos.z, (s32)rooms[0]);
 
+	/* B-242 (Priority O): post-pick capsule clip check + radial sweep.
+	 * The pool point passed validation with fixed 30u radius / 180u
+	 * height; a tall body (Skedar ~220) or a near-wall pad can still
+	 * leave the capsule clipping. Sweep radially if needed. No retry
+	 * here -- orchestrator owns the assignment, so on sweep failure
+	 * accept the original position (warning logged inside the helper). */
+	{
+		struct chrdata *playerchr = g_Vars.currentplayer->prop->chr;
+		f32 chr_height = spawnPoolGetChrCapsuleHeight(playerchr);
+		f32 chr_radius = (playerchr && playerchr->radius > 0.0f)
+			? playerchr->radius : 30.0f;
+		(void)spawnPoolFindClearPosition(&pos, rooms, chr_radius, chr_height);
+	}
+
 	groundy = cdFindGroundInfoAtCyl(&pos, 30, rooms,
 			&g_Vars.currentplayer->floorcol,
 			&g_Vars.currentplayer->floortype,
 			&g_Vars.currentplayer->floorflags,
 			&g_Vars.currentplayer->floorroom,
 			0, 0);
+
+	/* B-247 (2026-04-25): cdFindGroundFromList returns -2^32 sentinel
+	 * (-4294967296) when no ground geo intersects the search cylinder
+	 * (collision.c:1819 `curground` init). Adding eyeheight to that gives
+	 * ~-4.29e9, which propagated to prop->pos and the player fell through
+	 * the level (Mike's Grid log `019dc2f6-pdclient.log` showed exactly
+	 * this signature: pos=(0,-4294967040,0) where -4294967040 = -2^32+256).
+	 * Validate groundy and fall back to the spawn pad's authored Y so the
+	 * pad's altitude wins when ground lookup fails. */
+	{
+		const f32 GROUNDY_BOUND = 100000.0f;
+		if (groundy < -GROUNDY_BOUND || groundy > GROUNDY_BOUND) {
+			sysLogPrintf(LOG_WARNING,
+				"SPAWN.ORCH: cdFindGroundInfoAtCyl sentinel groundy=%g at pad pos=(%.0f,%.0f,%.0f) -- using pad Y",
+				groundy, pos.x, pos.y, pos.z);
+			groundy = pos.y;
+		}
+	}
 
 	pos.y = g_Vars.currentplayer->vv_eyeheight + groundy;
 	g_Vars.currentplayer->vv_manground = groundy;
@@ -1112,12 +1144,45 @@ void playerStartNewLife(void)
 
 	angle = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop); // var7f1ad534
 
+	/* B-242 (Priority O): post-pick capsule clip check + radial sweep
+	 * before consuming pos. If the picked spawn pad puts the player
+	 * capsule into a wall, sweep radially; if the sweep fails, re-pick
+	 * a different pad and try again (up to 3 attempts). */
+	{
+		struct chrdata *playerchr = g_Vars.currentplayer->prop->chr;
+		f32 chr_height = spawnPoolGetChrCapsuleHeight(playerchr);
+		f32 chr_radius = (playerchr && playerchr->radius > 0.0f)
+			? playerchr->radius : 30.0f;
+		s32 attempt;
+		for (attempt = 0; attempt < 3; attempt++) {
+			if (spawnPoolFindClearPosition(&pos, rooms, chr_radius, chr_height)) {
+				break;
+			}
+			angle = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms,
+				g_Vars.currentplayer->prop);
+		}
+	}
+
 	groundy = cdFindGroundInfoAtCyl(&pos, 30, rooms,
 			&g_Vars.currentplayer->floorcol,
 			&g_Vars.currentplayer->floortype,
 			&g_Vars.currentplayer->floorflags,
 			&g_Vars.currentplayer->floorroom,
 			NULL, NULL);
+
+	/* B-247 (2026-04-25): same sentinel guard as the orchestrator path
+	 * above. cdFindGroundFromList returns -2^32 when no ground intersects
+	 * the search cylinder; the resulting pos.y propagates as junk to
+	 * prop->pos. Fall back to the spawn pad's authored Y. */
+	{
+		const f32 GROUNDY_BOUND = 100000.0f;
+		if (groundy < -GROUNDY_BOUND || groundy > GROUNDY_BOUND) {
+			sysLogPrintf(LOG_WARNING,
+				"SPAWN.NEWLIFE: cdFindGroundInfoAtCyl sentinel groundy=%g at pad pos=(%.0f,%.0f,%.0f) -- using pad Y",
+				groundy, pos.x, pos.y, pos.z);
+			groundy = pos.y;
+		}
+	}
 
 	pos.y = groundy + g_Vars.currentplayer->vv_eyeheight;
 
@@ -5833,8 +5898,18 @@ void playerDie(bool force)
 		return;
 	}
 
-	if (chr->lastshooter >= 0 && chr->timeshooter > 0) {
-		shooter = chr->lastshooter;
+	/* B-256 (2026-04-25): `lastshooter` / `timeshooter` were never wired up
+	 * on the damage side, so this branch never fired and player deaths
+	 * always defaulted to suicide credit (currentplayernum). The live
+	 * attacker field is `lastattacker` (set in chraction.c on every damage
+	 * hit). Resolve it to a player index; if it can't be resolved (attacker
+	 * chr removed, or no attacker tracked), fall back to suicide. Pairs
+	 * with the symmetric fix in chr.c for bot pit-deaths. */
+	if (chr->lastattacker) {
+		shooter = mpPlayerGetIndex(chr->lastattacker);
+		if (shooter < 0) {
+			shooter = g_Vars.currentplayernum;
+		}
 	} else {
 		shooter = g_Vars.currentplayernum;
 	}

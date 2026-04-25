@@ -91,6 +91,11 @@ typedef struct forge_module {
 	bool initialized;
 	bool request_enter_session;
 	forge_freefly_state_t fly;
+	/* B-245 (2026-04-25): track the stagenum the session was started on so
+	 * forgeTick can detect any unexpected stage transition away from it
+	 * (e.g. Mission Failed -> CI hub, script-driven mainChangeToStage, etc.)
+	 * and tear down cleanly. -1 = no session active. */
+	s32 session_stagenum;
 } forge_module_t;
 
 static forge_module_t s_forge;
@@ -185,6 +190,21 @@ static void forgeSetFreeflyMode(struct player *p)
 				(u32)s_forge.fly.saved_headnum,
 				(u32)BODY_DRCAROLL);
 	}
+
+	/* B-247 (2026-04-25): explicit pos init at the body-swap control point.
+	 * forgeSnapFreeflyToPlayer (called immediately before this) already
+	 * validated p->prop->pos and stored a known-good value in s_forge.fly.pos
+	 * (falling back to (0,100,0) when the read was junk). Mirror that value
+	 * back to p->prop->pos NOW so the chr is never at junk coords for even
+	 * one tick -- without this, forgeApplyFreeflyToPlayer's first per-tick
+	 * write happens on the next frame, leaving a 1-tick window where the
+	 * observer chr could be at the original junk position. Belt-and-braces
+	 * with the read-side guard in snap. */
+	if (p->prop) {
+		p->prop->pos.x = s_forge.fly.pos.x;
+		p->prop->pos.y = s_forge.fly.pos.y;
+		p->prop->pos.z = s_forge.fly.pos.z;
+	}
 }
 
 static void forgeRestorePlayerMode(struct player *p)
@@ -212,12 +232,52 @@ static void forgeRestorePlayerMode(struct player *p)
 static void forgeApplyFreeflyToPlayer(struct player *p)
 {
 	/* Hijack the player chr each tick so the existing camera matrix path
-	 * (player.c -> camSetLookAt) renders from the freefly position+angle. */
+	 * (player.c -> camSetLookAt) renders from the freefly position+angle.
+	 *
+	 * B-247 (2026-04-25): write-side validation. forgeSnapFreeflyToPlayer
+	 * already validates the read side at FREEFLY entry, but s_forge.fly.pos
+	 * could still drift to NaN / excessive bounds via forgeUpdateFreefly
+	 * accumulation (e.g. unbounded velocity from a stuck axis). Validate
+	 * before writing to the player chr so a single bad frame doesn't corrupt
+	 * the chr position permanently. Also reset s_forge.fly.pos to the
+	 * fallback so subsequent ticks don't keep writing junk.
+	 *
+	 * B-248 (2026-04-25): gravity is naturally disabled for the observer
+	 * because forgeSetFreeflyMode sets `bondmovemode = MOVEMODE_CUTSCENE`,
+	 * which dispatches to bcutsceneTick (empty function). The chr's vertical
+	 * position is therefore untouched by bondmove between forgeApplyFreeflyToPlayer
+	 * calls. This unconditional write also acts as a per-tick "force-altitude"
+	 * guard: if any path outside bondmove modifies pos.y (e.g. a setup-side
+	 * physics tick), this overwrite snaps it back to the observer's intended
+	 * altitude every frame. */
+	const f32 SANITY_BOUND = 100000.0f;
+	if (s_forge.fly.pos.x < -SANITY_BOUND || s_forge.fly.pos.x > SANITY_BOUND
+			|| s_forge.fly.pos.y < -SANITY_BOUND || s_forge.fly.pos.y > SANITY_BOUND
+			|| s_forge.fly.pos.z < -SANITY_BOUND || s_forge.fly.pos.z > SANITY_BOUND) {
+		sysLogPrintf(LOG_WARNING,
+			"GRID: forgeApplyFreeflyToPlayer: s_forge.fly.pos drifted out of bounds (%.0f,%.0f,%.0f) -- snapping to (0,100,0)",
+			s_forge.fly.pos.x, s_forge.fly.pos.y, s_forge.fly.pos.z);
+		s_forge.fly.pos.x = 0.0f;
+		s_forge.fly.pos.y = 100.0f;
+		s_forge.fly.pos.z = 0.0f;
+	}
 	p->prop->pos.x = s_forge.fly.pos.x;
 	p->prop->pos.y = s_forge.fly.pos.y;
 	p->prop->pos.z = s_forge.fly.pos.z;
 	p->vv_theta = s_forge.fly.yaw_deg;
 	p->vv_verta = s_forge.fly.pitch_deg;
+
+	/* B-248 (2026-04-25): explicit gravity gate at the observer-control
+	 * point. Natural disable via MOVEMODE_CUTSCENE -> bcutsceneTick (empty)
+	 * is already in place, but zero the chr's fallspeed here so any
+	 * chrTick path that would otherwise accumulate gravity for a frame
+	 * cannot do so. Belt-and-braces with the bondmovemode override and
+	 * the per-tick prop->pos overwrite above. */
+	if (p->prop->chr) {
+		p->prop->chr->fallspeed.x = 0.0f;
+		p->prop->chr->fallspeed.y = 0.0f;
+		p->prop->chr->fallspeed.z = 0.0f;
+	}
 }
 
 static void forgeReadFreeflyInput(f32 *out_move_x, f32 *out_move_y,
@@ -350,6 +410,10 @@ static void forgeTransitionToNormal(const char *reason)
 		forgeRuntimeEnterPlay();
 	}
 	s_forge.state = FORGE_SESSION_NORMAL;
+	/* B-245: capture session stagenum on first activation. */
+	if (s_forge.session_stagenum < 0) {
+		s_forge.session_stagenum = (s32)g_StageNum;
+	}
 
 	/* Issue 8b (2026-04-24): deactivate the Forge IMC when leaving
 	 * FREEFLY so X / LB / RB / D-pad revert to their gameplay actions
@@ -375,6 +439,10 @@ static void forgeTransitionToFreefly(const char *reason)
 		forgeRuntimeExitPlay();
 	}
 	s_forge.state = FORGE_SESSION_FREEFLY;
+	/* B-245: capture session stagenum on first activation. */
+	if (s_forge.session_stagenum < 0) {
+		s_forge.session_stagenum = (s32)g_StageNum;
+	}
 
 	/* Issue 8b (2026-04-24): activate the Forge IMC. Priority 7 is
 	 * above gameplay (0) and vehicle (5), so the forge bindings win
@@ -417,6 +485,7 @@ static void forgeTransitionToInactive(const char *reason)
 	}
 	s_forge.state = FORGE_SESSION_INACTIVE;
 	s_forge.request_enter_session = false;
+	s_forge.session_stagenum = -1;  /* B-245: clear so next session captures fresh stagenum */
 
 	/* Issue 8b + AUDIT-24-H2/H3: ensure both Forge IMCs are released
 	 * when the session ends through any path (stage-left-gameplay
@@ -452,6 +521,7 @@ void forgeInit(void)
 	}
 	s_forge.state = FORGE_SESSION_INACTIVE;
 	s_forge.request_enter_session = false;
+	s_forge.session_stagenum = -1;  /* B-245: no session active at init */
 	s_forge.fly.pos.x = 0.0f;
 	s_forge.fly.pos.y = 0.0f;
 	s_forge.fly.pos.z = 0.0f;
@@ -573,6 +643,29 @@ void forgeTick(void)
 	 * pak menu, 4MB) drops us out cleanly. */
 	if (s_forge.state != FORGE_SESSION_INACTIVE && !stage_is_gameplay) {
 		forgeTransitionToInactive("stage left gameplay");
+		return;
+	}
+
+	/* B-245 (2026-04-25): Mission-Failed -> CI Restart and other unexpected
+	 * stage transitions can move the player to a *different* gameplay stage
+	 * than the one the Grid session was started on. STAGE_CITRAINING is a
+	 * gameplay stage per `STAGE_IS_GAMEPLAY` (it is not in the system-stage
+	 * trio of TITLE/BOOTPAKMENU/CREDITS), so the watchdog above does not
+	 * fire and Grid session state survives the transition -- which leaves
+	 * the Grid UI accessible from CI hub and breaks subsequent gameplay.
+	 *
+	 * Capture the session-launch stagenum on first transition out of
+	 * INACTIVE (forgeTransitionToNormal / forgeTransitionToFreefly), and
+	 * fire transitionToInactive whenever g_StageNum diverges from it. The
+	 * Halo-style Forge<->Playtest in-place toggle keeps stagenum constant
+	 * by design, so this watchdog only fires on actual stage transitions. */
+	if (s_forge.state != FORGE_SESSION_INACTIVE
+			&& s_forge.session_stagenum >= 0
+			&& s_forge.session_stagenum != (s32)g_StageNum) {
+		sysLogPrintf(LOG_NOTE,
+			"GRID: stagenum diverged %d -> %d, tearing down session",
+			(s32)s_forge.session_stagenum, (s32)g_StageNum);
+		forgeTransitionToInactive("session stagenum diverged");
 		return;
 	}
 

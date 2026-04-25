@@ -42,6 +42,14 @@ extern "C" {
  * that cannot drag in the project's bool=s32 typedef. */
 #define GRID_BLANK_STAGE 0x1a
 
+/* AUDIT-24-M7 (2026-04-25): invalidate the cached Grid arenas list so
+ * the next render rebuilds it.  Called by modmgrCatalogChanged() so
+ * mid-session mod load / unload makes new arenas visible without a
+ * process restart.  Implementation lives in
+ * port/fast3d/pdgui_menu_mainmenu.cpp where `s_GridArenasBuilt` is
+ * defined. */
+void pdguiGridArenasInvalidate(void);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

@@ -42,6 +42,14 @@
 extern s16 viGetWidth(void);
 extern s16 viGetHeight(void);
 extern Vp *viGetCurrentPlayerViewport(void);
+extern s16 viGetViewLeft(void);
+extern s16 viGetViewTop(void);
+extern s16 viGetViewWidth(void);
+extern s16 viGetViewHeight(void);
+extern f32 viGetFovY(void);
+extern f32 viGetAspect(void);
+extern void viSetViewPosition(s16 left, s16 top);
+extern void viSetFovAspectAndSize(f32 fovy, f32 aspect, s16 width, s16 height);
 
 /* Forward declarations for gun memory functions (bondgun.c) — needed
  * to allocate model memory when the standalone charpreview path runs
@@ -50,12 +58,25 @@ extern bool bgunChangeGunMem(s32 newowner);
 extern u8 *bgunGetGunMem(void);
 extern u32 bgunCalculateGunMemCapacity(void);
 
+/* B-253: g_MenuScissor* are the dialog rect that menuRenderModel reads
+ * to compute the model's render rect (camera position + projection aspect)
+ * and to call menuApplyScissor.  We override these to FBO bounds so the
+ * model lands inside the FBO instead of in screen-relative coordinates
+ * that may not intersect the FBO at all. */
+extern s32 g_MenuScissorX1;
+extern s32 g_MenuScissorX2;
+extern s32 g_MenuScissorY1;
+extern s32 g_MenuScissorY2;
+
 /* ========================================================================
  * State
  * ======================================================================== */
 
-#define CHARPREVIEW_WIDTH  256
-#define CHARPREVIEW_HEIGHT 256
+/* B-253: bumped 256→512 so a 1/2-screen render box stays sharp.
+ * The legacy menu code reads CHARPREVIEW_* via the *_HALF macros below
+ * to derive the model render rect; doubling the FBO doubles the rect. */
+#define CHARPREVIEW_WIDTH  512
+#define CHARPREVIEW_HEIGHT 512
 
 static s32 s_PreviewFb = -1;         /* Framebuffer ID, -1 = not created */
 static s32 s_PreviewRequested = 0;   /* Non-zero if preview render needed */
@@ -167,26 +188,72 @@ void pdguiCharPreviewRequestEx(PdguiPreviewType type,
         /* Resolve catalog IDs → mpheadnum / mpbodynum for the render pipeline */
         u8 headnum = 0;
         u8 bodynum = 0;
+        const asset_entry_t *be = NULL;
+        const asset_entry_t *he = NULL;
 
         if (id2 && id2[0]) {
-            const asset_entry_t *be = assetCatalogResolve(id2);
+            be = assetCatalogResolve(id2);
             if (be && be->type == ASSET_BODY && be->mp_index >= 0) {
                 bodynum = (u8)be->mp_index;
             } else {
                 sysLogPrintf(LOG_WARNING,
                              "pdgui_charpreview: body resolve failed id='%s' (entry=%p type=%d mp_index=%d)",
                              id2, be, be ? (int)be->type : -1, be ? (int)be->mp_index : -1);
+                be = NULL;
             }
         }
 
         if (id1 && id1[0]) {
-            const asset_entry_t *he = assetCatalogResolve(id1);
+            he = assetCatalogResolve(id1);
             if (he && he->type == ASSET_HEAD && he->mp_index >= 0) {
                 headnum = (u8)he->mp_index;
             } else {
                 sysLogPrintf(LOG_WARNING,
                              "pdgui_charpreview: head resolve failed id='%s' (entry=%p type=%d mp_index=%d)",
                              id1, he, he ? (int)he->type : -1, he ? (int)he->mp_index : -1);
+                he = NULL;
+            }
+        }
+
+        /* B-241 (2026-04-25): rig_class compatibility gate. The render
+         * pipeline blindly applies the head's skeletal data to the body's
+         * skeleton; if the rigs are mismatched (e.g. head_davec on
+         * skedar body), bone indices alias into uninitialised memory and
+         * the renderer access-violates. Issue 10's `rig_class` is the
+         * authoritative compatibility key: equal strings = compatible,
+         * different strings = swap to the body's default head. Bodies
+         * that declare `complete` (integrated head per
+         * `catalogGetBodyIsComplete`) skip the separate head load entirely
+         * by clearing headnum -- the body's own head geometry covers it. */
+        if (be && bodynum != 0) {
+            if (catalogGetBodyIsComplete(bodynum)) {
+                /* Integrated-head body (Skedar, Dr Carroll). The body
+                 * model carries its own head -- drop the requested head
+                 * so the render path uses the integrated geometry. */
+                headnum = 0;
+            } else if (he && headnum != 0) {
+                const char *bodyRig = be->ext.body.rig_class;
+                const char *headRig = he->ext.head.rig_class;
+                if (!bodyRig[0] || !headRig[0] || strcmp(bodyRig, headRig) != 0) {
+                    /* Mismatched rig: swap to the body's default head. */
+                    const char *fallback = catalogGetBodyDefaultHead(id2);
+                    sysLogPrintf(LOG_WARNING,
+                                 "pdgui_charpreview: rig mismatch body='%s' (rig='%s') vs "
+                                 "head='%s' (rig='%s'); falling back to body default head '%s'",
+                                 id2, bodyRig[0] ? bodyRig : "(empty)",
+                                 id1, headRig[0] ? headRig : "(empty)",
+                                 fallback ? fallback : "(none)");
+                    if (fallback && fallback[0]) {
+                        const asset_entry_t *fhe = assetCatalogResolve(fallback);
+                        if (fhe && fhe->type == ASSET_HEAD && fhe->mp_index >= 0) {
+                            headnum = (u8)fhe->mp_index;
+                        } else {
+                            headnum = 0;
+                        }
+                    } else {
+                        headnum = 0;
+                    }
+                }
             }
         }
 
@@ -503,9 +570,20 @@ s32 pdguiCharPreviewNeedsMenuModel(void)
  */
 Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
 {
+    /* B-253: `menu` parameter is retained for API compatibility, but
+     * the render path always operates on g_Menus[0]'s menumodel so the
+     * request submit (which writes to g_Menus[g_MpPlayerNum] — always 0
+     * on PC) and the render reader stay in agreement.  The legacy
+     * menuRenderDialog hook used to pass the dialog's owning menu, which
+     * could differ from the request target in edge cases.  Locking on
+     * g_Menus[0] removes that class of mismatch. */
+    (void)menu;
+
     if (!s_PreviewRequested || s_PreviewFb < 0) {
         return gdl;
     }
+
+    struct menumodel *mm = &g_Menus[0].menumodel;
 
     /* Ensure model memory is available.  The standalone charpreview path
      * (called from lv.c when no legacy menu is active) bypasses the legacy
@@ -513,10 +591,10 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
      * immediately when allocstart is NULL, so the FBO stays black.
      * Acquire the gun memory here — same call menuRenderModel makes for
      * non-CI stages, but unconditional so it works on all stages. */
-    if (menu->menumodel.allocstart == NULL) {
+    if (mm->allocstart == NULL) {
         if (bgunChangeGunMem(GUNMEMOWNER_INVMENU)) {
-            menu->menumodel.allocstart = bgunGetGunMem();
-            menu->menumodel.alloclen = bgunCalculateGunMemCapacity();
+            mm->allocstart = bgunGetGunMem();
+            mm->alloclen = bgunCalculateGunMemCapacity();
         }
     }
 
@@ -548,10 +626,10 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
         renderModelType = MENUMODELTYPE_HUDPIECE;
     }
 
-    if (menu->menumodel.curparams == 0) {
+    if (mm->curparams == 0) {
         /* Model not loaded yet — let menuRenderModel run the loading path
          * without FBO setup. Keep s_PreviewRequested alive for next frame. */
-        gdl = menuRenderModel(gdl, &menu->menumodel, renderModelType);
+        gdl = menuRenderModel(gdl, mm, renderModelType);
         return gdl;
     }
 
@@ -567,13 +645,89 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
         }
     }
 
+    /* B-253: Save the global view state that menuRenderModel touches so we
+     * can override it to FBO-local values, then restore afterward.
+     *
+     * Why this matters — root cause of the "request fires but nothing
+     * renders" symptom in Agent Creator and Character Select:
+     *
+     *   menuRenderModel reads g_MenuScissorX1/X2/Y1/Y2 (set by the legacy
+     *   dialog renderer to the dialog's screen-relative rect) to compute
+     *   (a) the projection aspect, (b) the view position, and (c) the
+     *   GBI scissor (via menuApplyScissor).  It also calls func0f0d49c8
+     *   which emits gSPViewport(viGetCurrentPlayerViewport()) — the
+     *   player's full-screen viewport.
+     *
+     *   Result before this fix: even with the FBO bound, the model lands
+     *   in screen-relative pixel coordinates (e.g., x=400..900, y=200..600
+     *   for a centered dialog on a 1920x1080 screen).  The FBO is only
+     *   512x512, so anything outside that rect is clipped to nothing.
+     *   For dialogs whose screen rect happens to overlap (0..512, 0..512)
+     *   you get a partial render (lobby portraits — accidentally working).
+     *   For dialogs whose rect doesn't overlap, you get a black FBO
+     *   (Agent Creator + MP Character Select).
+     *
+     * Fix: temporarily set both the scissor rect AND the player viewport
+     * to FBO-local bounds (0,0)-(W,H), with a 1:1 aspect ratio so the
+     * projection matches a square FBO.  Restore on return so gameplay /
+     * legacy menus see no permanent state mutation. */
+    s32 savedSx1 = g_MenuScissorX1;
+    s32 savedSx2 = g_MenuScissorX2;
+    s32 savedSy1 = g_MenuScissorY1;
+    s32 savedSy2 = g_MenuScissorY2;
+
+    Vp *playerVp = viGetCurrentPlayerViewport();
+    Vp savedPlayerVp;
+    bool playerVpValid = (playerVp != NULL);
+    if (playerVpValid) {
+        savedPlayerVp = *playerVp;
+    }
+
+    s16 savedVl    = viGetViewLeft();
+    s16 savedVt    = viGetViewTop();
+    s16 savedVw    = viGetViewWidth();
+    s16 savedVh    = viGetViewHeight();
+    f32 savedFovy  = viGetFovY();
+    f32 savedAspct = viGetAspect();
+
+    /* Override scissor to FBO bounds — menuRenderModel reads these for both
+     * its DEFAULT-branch viewport calc and its menuApplyScissor emit. */
+    g_MenuScissorX1 = 0;
+    g_MenuScissorX2 = CHARPREVIEW_WIDTH;
+    g_MenuScissorY1 = 0;
+    g_MenuScissorY2 = CHARPREVIEW_HEIGHT;
+
+    /* Override player viewport in-place: func0f0d49c8 emits
+     * gSPViewport(viGetCurrentPlayerViewport()), which we want to land on
+     * the FBO viewport, not the screen viewport. */
+    if (playerVpValid) {
+        playerVp->vp.vscale[0] = CHARPREVIEW_WIDTH * 2;
+        playerVp->vp.vscale[1] = CHARPREVIEW_HEIGHT * 2;
+        playerVp->vp.vscale[2] = G_MAXZ / 2;
+        playerVp->vp.vscale[3] = 0;
+        playerVp->vp.vtrans[0] = CHARPREVIEW_WIDTH * 2;
+        playerVp->vp.vtrans[1] = CHARPREVIEW_HEIGHT * 2;
+        playerVp->vp.vtrans[2] = G_MAXZ / 2;
+        playerVp->vp.vtrans[3] = 0;
+    }
+
+    /* Override view dims so projection aspect matches the square FBO. */
+    viSetViewPosition(0, 0);
+    viSetFovAspectAndSize(savedFovy, 1.0f,
+                          (s16)CHARPREVIEW_WIDTH, (s16)CHARPREVIEW_HEIGHT);
+
     /* Switch render target to our preview FBO */
     gDPSetFramebufferTargetEXT(gdl++, 0, 0, 0, s_PreviewFb);
 
-    /* Set up viewport for the small FBO.
+    /* Set up viewport for the FBO.
      * IMPORTANT: The Vp must NOT be inline in the display list — the GBI
      * interpreter walks the list sequentially and would try to execute
-     * the Vp data as a command (B-132: opcode 0x02 = vscale[0] bytes). */
+     * the Vp data as a command (B-132: opcode 0x02 = vscale[0] bytes).
+     *
+     * Note: menuRenderModel will re-emit gSPViewport via func0f0d49c8,
+     * but with the player viewport overridden above, that emit also lands
+     * on the FBO viewport.  Setting it here too is belt-and-braces for
+     * any code path inside menuRenderModel that doesn't re-emit. */
     s_PreviewVp.vp.vscale[0] = CHARPREVIEW_WIDTH * 2;
     s_PreviewVp.vp.vscale[1] = CHARPREVIEW_HEIGHT * 2;
     s_PreviewVp.vp.vscale[2] = G_MAXZ / 2;
@@ -593,13 +747,25 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
     gSPSetGeometryMode(gdl++, G_ZBUFFER);
 
     /* Render the loaded model */
-    gdl = menuRenderModel(gdl, &menu->menumodel, renderModelType);
+    gdl = menuRenderModel(gdl, mm, renderModelType);
 
     /* Disable Z-buffer */
     gSPClearGeometryMode(gdl++, G_ZBUFFER);
 
     /* Switch back to the main framebuffer */
     gDPSetFramebufferTargetEXT(gdl++, 0, 0, 0, 0);
+
+    /* Restore CPU-side state BEFORE emitting the GBI restoration commands
+     * so those commands pick up the original viewport / camera values. */
+    g_MenuScissorX1 = savedSx1;
+    g_MenuScissorX2 = savedSx2;
+    g_MenuScissorY1 = savedSy1;
+    g_MenuScissorY2 = savedSy2;
+    if (playerVpValid) {
+        *playerVp = savedPlayerVp;
+    }
+    viSetViewPosition(savedVl, savedVt);
+    viSetFovAspectAndSize(savedFovy, savedAspct, savedVw, savedVh);
 
     /* B-135: Restore scissor to full screen after FBO render.
      * The FBO pass set scissor to CHARPREVIEW_WIDTH x CHARPREVIEW_HEIGHT.
@@ -612,9 +778,11 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
     /* B-136: Restore viewport to the current player's full-screen viewport.
      * The FBO pass set viewport to CHARPREVIEW_WIDTH x CHARPREVIEW_HEIGHT.
      * Without restoring, subsequent GBI commands (menu model renders, etc.)
-     * draw into a 256x256 region at the top-left of the main framebuffer,
-     * producing a visible black rectangle. */
-    gSPViewport(gdl++, viGetCurrentPlayerViewport());
+     * draw into the FBO's region of the main framebuffer, producing a
+     * visible black rectangle. */
+    if (playerVpValid) {
+        gSPViewport(gdl++, viGetCurrentPlayerViewport());
+    }
 
     /* Mark preview as ready. The texture ID was cached at init time.
      * The GBI commands above will be processed by gfx_run_dl before

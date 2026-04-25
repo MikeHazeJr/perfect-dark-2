@@ -29,6 +29,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "system.h"
 
 extern "C" {
@@ -303,7 +304,8 @@ static void renderVersionPickerContent(float tableH, float changelogH)
 
 	/* Show Dev Releases toggle */
 	bool showDev = updaterGetShowDevReleases() != 0;
-	if (ImGui::Checkbox("Show Dev Releases##upd", &showDev)) {
+	/* Priority L (2026-04-25): label LEFT via pdguiCheckbox. */
+	if (pdguiCheckbox("Show Dev Releases", &showDev)) {
 		updaterSetShowDevReleases(showDev ? 1 : 0);
 		/* Re-check so the list reflects the new filter */
 		updaterCheckAsync();

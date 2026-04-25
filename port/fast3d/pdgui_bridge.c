@@ -798,14 +798,12 @@ void pdguiEndscreenStartMission(void)
      * so the new stage doesn't boot paused. */
     lvSetPaused(false);
     menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
-    /* Phase 2: release every pool slot before we pop the shared menu
-     * context. This ensures any slot that was passively relying on the
-     * ctx staying active (main menu, endscreen sub-dialogs) isn't left
-     * thinking it's still open during stage transition. */
+    /* Phase 2 / Priority K-b3: release every pool slot.
+     * menupoolReleaseAll itself pops every owned ctx (including the
+     * unregistered-fallback ctx after K-b1).  No paired direct ctx pop
+     * needed -- the prior defensive inputCtxPopDeferred(&g_CtxImGuiMenu)
+     * here is now redundant. */
     menupoolReleaseAll();
-    if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-        inputCtxPopDeferred(&g_CtxImGuiMenu);
-    }
 }
 
 /**
@@ -829,11 +827,9 @@ void pdguiEndscreenNextMission(void)
     /* B-176: release pause set by endscreenPrepare / mpPushEndscreenDialog. */
     lvSetPaused(false);
     menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
-    /* Phase 2: release all pool slots — see pdguiEndscreenStartMission. */
+    /* Phase 2 / Priority K-b3: see pdguiEndscreenStartMission for the
+     * rationale on dropping the paired ctx pop. */
     menupoolReleaseAll();
-    if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-        inputCtxPopDeferred(&g_CtxImGuiMenu);
-    }
 }
 
 /**
@@ -878,14 +874,11 @@ void pdguiEndscreenExitToMainMenu(void)
     }
     /* F-1.2: Reset solo mission menu state so re-entry starts clean. */
     pdguiSoloMissionReset();
-    /* Phase 2: release all pool slots — the exit-to-main-menu path
-     * changes stage, and any residual slot would be stale at the next
-     * menu open. menupoolReleaseAll is idempotent and safe during the
-     * transition. */
+    /* Phase 2 / Priority K-b3: release all pool slots.  menupoolReleaseAll
+     * pops every owned ctx (including unregistered-fallback after K-b1),
+     * so the legacy paired inputCtxPopDeferred(&g_CtxImGuiMenu) here is
+     * redundant. */
     menupoolReleaseAll();
-    if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-        inputCtxPopDeferred(&g_CtxImGuiMenu);
-    }
     func0f0f8120();
 }
 

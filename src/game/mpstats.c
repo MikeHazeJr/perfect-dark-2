@@ -439,6 +439,49 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 		}
 
 		if (aplayernum >= 0 && aplayernum < PLAYERCOUNT()) {
+			/* B-249 (2026-04-25) diagnostic instrumentation -- bot-vs-bot
+			 * kills attributed to player 0.
+			 *
+			 * Mike's report: "during one of my earlier test matches, bot
+			 * deaths were counting as kills for me, despite me never even
+			 * having use of a weapon or fists."  The scorecard read for
+			 * player 0 incremented when player 0 didn't fire.
+			 *
+			 * The static-altitude analysis ruled out the obvious paths
+			 * (mpPlayerGetIndex returns -1 for not-found; func0f18d074
+			 * returns -1 for not-found; suicide path is gated on
+			 * aplayernum == vplayernum).  The remaining hypothesis is
+			 * that `aplayernum` is being resolved as 0 for an attacker
+			 * whose chr is actually a BOT -- this would mean either:
+			 *   (a) g_MpAllChrPtrs[0] holds a bot chr instead of player 0
+			 *       (slot-assignment collision at match setup), or
+			 *   (b) a separate aplayernum=0 default-fallthrough exists
+			 *       that we haven't located in the static read.
+			 *
+			 * This LOG_WARNING fires the moment the attribution credits
+			 * player 0 BUT the resolved attacker chr is a bot (aibot != NULL).
+			 * Catches the symptom in logs so the next playtest pinpoints
+			 * which call site set aplayernum=0.  Also dumps the relevant
+			 * slot pointers so a follow-up audit can verify slot integrity.
+			 *
+			 * No behaviour change otherwise -- diagnostic only. */
+			{
+				struct chrdata *att_chr = (aplayernum >= 0 && aplayernum < g_MpNumChrs)
+				                          ? g_MpAllChrPtrs[aplayernum] : NULL;
+				if (att_chr && att_chr->aibot != NULL) {
+					sysLogPrintf(LOG_WARNING,
+						"B-249.DIAG: kill credited to player slot %d but attacker "
+						"chr at that slot is a BOT (aibot != NULL).  ampchr='%s' "
+						"vplayernum=%d att_chr=%p plr0_chr=%p numchrs=%d",
+						aplayernum,
+						ampchr ? ampchr->name : "(null)",
+						vplayernum,
+						(void *)att_chr,
+						g_Vars.players[0] ? (void *)g_Vars.players[0]->prop->chr : NULL,
+						g_MpNumChrs);
+				}
+			}
+
 			// Attacker was a player -- record kill in persistent stats
 			statIncrement("kills.total", 1);
 			statIncrementMode("kills");

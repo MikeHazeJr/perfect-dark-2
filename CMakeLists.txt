@@ -126,7 +126,7 @@ endif()
 # GitHub release prerelease flag, not by the version number itself.
 set(VERSION_SEM_MAJOR 0 CACHE STRING "Semantic version major")
 set(VERSION_SEM_MINOR 0 CACHE STRING "Semantic version minor")
-set(VERSION_SEM_PATCH 160 CACHE STRING "Semantic version revision")
+set(VERSION_SEM_PATCH 162 CACHE STRING "Semantic version revision")
 
 set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}")
 
@@ -743,3 +743,8 @@ endif()
 # The only runtime dependency on Windows is opengl32.dll, which is a system DLL
 # present on every Windows installation and must NOT be statically linked.
 # See context/designs/static-link-dll-elimination-2026-04-13.md for the full audit.
+
+# Priority M / B-238 / M-2.1: Windows Shell property handler for .pdmod.
+# Built when targeting Windows; emits Build/PD2ModPropHandler.dll. The
+# subdirectory's CMakeLists.txt no-ops on non-Windows.
+add_subdirectory("${CMAKE_SOURCE_DIR}/tools/pdmod_prophandler")

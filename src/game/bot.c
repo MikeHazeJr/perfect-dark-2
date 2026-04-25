@@ -89,7 +89,16 @@ static struct botstuckstate s_BotStuck[MAX_BOTS];
  *   <=8 bots: tick all every frame (original behavior)
  *   9-16 bots: 2 groups, each ticked every other frame (30 Hz AI)
  *   17-24 bots: 3 groups, each ticked every 3rd frame (20 Hz AI)
+ *   25-32 bots: 4 groups, each ticked every 4th frame (15 Hz AI)
  * Movement, physics, and rendering still run every frame via chrTick.
+ *
+ * Priority N / B-240 (2026-04-25): added the 25-32 group tier so the
+ * full-roster (MAX_BOTS=32) match continues to scale.  At 32 bots the
+ * prior 3-group cap still ran ~11 bots' AI every frame; the 4-group
+ * tier drops that to 8.  Tuning is conservative -- ATI/aim quality
+ * differences between 20 Hz and 15 Hz are within human-perceptible
+ * range only at long range / high movement, both of which dampen the
+ * effect of the lower update rate.
  */
 static inline bool botShouldTickAI(struct chrdata *chr)
 {
@@ -97,19 +106,25 @@ static inline bool botShouldTickAI(struct chrdata *chr)
 		return true; /* original behavior for small matches */
 	}
 
-	/* Determine group count based on active bot count */
-	s32 groups = (g_BotCount <= 16) ? 2 : 3;
-
-	/* Use the chr's slot index for deterministic distribution */
-	s32 slot = -1;
-	for (s32 i = 0; i < MAX_BOTS; i++) {
-		if (g_MpBotChrPtrs[i] == chr) {
-			slot = i;
-			break;
-		}
+	/* Slot lookup uses aibot->aibotnum (set at allocation time, stable for
+	 * the bot's lifetime) for O(1) bucket assignment -- no g_MpBotChrPtrs
+	 * scan per call. Synthesised from Priority N's two parallel
+	 * implementations (stoic-wing adaptive groups + hardcore-feynman O(1)
+	 * aibotnum lookup) at the merge step 3 of dev integration. */
+	struct aibot *aibot = chr->aibot;
+	if (!aibot) {
+		return true; /* safety: no bot data; defensive */
 	}
+
+	/* Determine group count based on active bot count.  Priority N
+	 * extension: the 25-32 tier adds a 4-group split (15 Hz per bot). */
+	s32 groups = (g_BotCount <= 16) ? 2
+	           : (g_BotCount <= 24) ? 3
+	           : 4;
+
+	s32 slot = (s32)aibot->aibotnum;
 	if (slot < 0) {
-		return true; /* safety: tick if not found in array */
+		return true; /* safety: unassigned slot, fall through */
 	}
 
 	return (slot % groups) == (g_Vars.lvframe60 % groups);

@@ -533,7 +533,9 @@ static void renderIniEditor(float contentW, float contentH, float scale)
     ImGui::SameLine();
 
     /* ---- Right panel: editor ---- */
-    ImGui::BeginChild("##ini_edit", ImVec2(editW, contentH - footerH), true);
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
+    ImGui::BeginChild("##ini_edit", ImVec2(editW, contentH - footerH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
 
     if (s_IniSelected < 0) {
         ImGui::TextDisabled("Select a mod entry from the list.");
@@ -778,7 +780,9 @@ static void renderScaleTool(float contentW, float contentH, float scale)
      * fixed-layout sibling to the character list; the control stack below
      * the preview is short enough to fit without scroll (scale slider +
      * Bake + warning lines fit at every supported pdgui scale). */
-    ImGui::BeginChild("##scale_right", ImVec2(rightW, contentH - footerH), true,
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
+    ImGui::BeginChild("##scale_right", ImVec2(rightW, contentH - footerH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened,
                       ImGuiWindowFlags_NoScrollbar |
                       ImGuiWindowFlags_NoScrollWithMouse);
 
@@ -1292,7 +1296,9 @@ static void renderModdingHub(s32 winW, s32 winH)
         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_NoTitleBar;
 
-    if (!ImGui::BeginChild("##modhub_inner", ImVec2(dialogW, dialogH), false, innerFlags)) {
+    /* Priority L (2026-04-25): NavFlattened outer dialog body. */
+    if (!ImGui::BeginChild("##modhub_inner", ImVec2(dialogW, dialogH),
+                           ImGuiChildFlags_NavFlattened, innerFlags)) {
         ImGui::EndChild();
         ImGui::End();
         return;
@@ -1423,8 +1429,10 @@ static void renderModdingHub(s32 winW, s32 winH)
             "##modhub_import", "##modhub_nineslice", "##modhub_fontmod"
         };
 
+        /* Priority L (2026-04-25): NavFlattened tool body. */
         if (ImGui::BeginChild(childIds[s_ActiveTool],
-                              ImVec2(dialogW, contentH), false, cfFlags)) {
+                              ImVec2(dialogW, contentH),
+                              ImGuiChildFlags_NavFlattened, cfFlags)) {
             if (s_ActiveTool == 0) {
                 s32 wantsClose = 0;
                 pdguiModManagerRenderContent(dialogW, contentH, scale, &wantsClose);
@@ -2360,7 +2368,9 @@ static void renderChromeTool(float w, float h, float scale)
     float settingsW = w - sidebarW - ImGui::GetStyle().ItemSpacing.x * 2.0f;
 
     /* Left sidebar (no scroll — previews are fixed layout). */
-    if (ImGui::BeginChild("##chrome_sidebar", ImVec2(sidebarW, bodyH), true,
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
+    if (ImGui::BeginChild("##chrome_sidebar", ImVec2(sidebarW, bodyH),
+                          ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoScrollbar |
                           ImGuiWindowFlags_NoScrollWithMouse)) {
         float innerW = ImGui::GetContentRegionAvail().x;
@@ -2372,7 +2382,9 @@ static void renderChromeTool(float w, float h, float scale)
     ImGui::SameLine();
 
     /* Right settings column (scrolls). */
-    if (ImGui::BeginChild("##chrome_settings", ImVec2(settingsW, bodyH), true)) {
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
+    if (ImGui::BeginChild("##chrome_settings", ImVec2(settingsW, bodyH),
+                          ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened)) {
         chromeToolRenderSettings(ImGui::GetContentRegionAvail().x, scale);
     }
     ImGui::EndChild();

@@ -1,8 +1,7 @@
 # Contextual Input Schemes -- IMC Architecture Formalization
 
-**Status:** DESIGN PROPOSAL, no implementation. Mike reviews before any code lands.
-**Author:** AI session 2026-04-24 (S456) on Mike's verbatim spec.
-**Implementation queue:** Priority J (this design) is read-only this batch. Phase 1 implementation lands as Priority J-impl in a future batch after Mike's review.
+**Status (2026-04-25):** J-1 / J-1d (scene wiring) / J-2 (vehicle lifecycle) / J-3 (scoreboard hold) **LANDED** on `claude/stoic-wing-35829b` (commits `acb1baa4`, `5dc362c2`, `1ee6efb6`, `71807b6e`). J-4 partial -- the mutual-exclusion assertion lives inside `imcSceneSetMission` / `imcSceneSetCombatSim` (LOG_WARNING tripwire); the standalone methodology doc bundles with Priority K's `input-authority-methodology.md`.
+**Author:** AI session 2026-04-24 (S456) on Mike's verbatim spec; J impl on 2026-04-25 (S458).
 
 ---
 
@@ -289,3 +288,31 @@ Sequential, each phase build-verifies and commits independently.
 - The connectivity / friend-play presence channels (Priority I, separate design doc).
 - Adding new scene kinds beyond Mission / CS (Forge has its own IMCs already; no other scenes pending).
 - Per-player IMCs for split-screen MP. PD2 is single-seat.
+
+---
+
+## 12. Implementation note (2026-04-25, S458)
+
+The phase 1 ship pragmatically chose the **inheritance model (7.2)** rather than the doc's recommended duplicate model (7.1). Reasoning: every existing rebind UI / `optionsmenu.c` / `pd.ini` save/load path reads and writes `g_ImcGameplay` directly. Section 7.1's "rebind UI re-renders both IMCs side-by-side" is not what the codebase does; switching to that model would have churned ~16 callsites in `pdgui_menu_mainmenu.cpp` / `optionsmenu.c` to mirror writes.
+
+What landed instead:
+
+- `g_ImcGameplay` (priority 0) stays the always-active **shared baseline**: movement, combat, weapons, interact, transient scorecard peek (Tab), debug hotkeys. Never deactivated.
+- `g_ImcMission` (priority 1) is currently **empty** -- it's a marker IMC for scene identity and the mutual-exclusion invariant. Future Mission-only bindings have a home.
+- `g_ImcCombatSim` (priority 1) holds **only `ACTION_SCORECARD_HOLD` -> JBTN_BACK**. The CS scoreboard widget reads `actionHeldForMs(0, ACTION_SCORECARD_HOLD, 400)`. Mission's lack of any Back binding means Back falls through to gameplay's Back -> SCORECARD (transient peek), which is the existing behaviour.
+
+The Mission XOR CombatSim invariant is still enforced (only one of `g_ImcMission` / `g_ImcCombatSim` is active at any time). Activation is dispatched in `pdmain.c::main` after `lvReset` settles `g_Vars.normmplayerisrunning` / `coopplayernum` / `antiplayernum`. Co-op and anti-counter-op route to Mission per the design's "campaign scheme" rule.
+
+If the divergence list grows past 3-4 unique CS bindings (or Mission gains its first unique binding), revisit and consider promoting the gameplay baseline to a `g_ImcGameplayBase` and duplicating into the scene IMCs per Section 7.1.
+
+### Vehicle IMC
+
+`bbikeInit` calls `imcVehicleMount`; `bbikeExit` calls `imcVehicleDismount`. Vehicle bindings (priority 5) shadow the gameplay baseline while mounted. `imcSceneClearGameplay` defensively drops Vehicle too so a stage transition mid-mount cannot leak the IMC into the next scene.
+
+### Open questions answered by phase 1 ship
+
+- **Q1**: Option 6.2 (parallel `ACTION_SCORECARD_HOLD` action). Confirmed.
+- **Q2**: 7.2 inheritance, not 7.1 duplicate. See note above.
+- **Q3**: Co-op + anti-counter-op run Mission scheme. Confirmed and wired in `pdmain.c`.
+- **Q4**: Vehicle binds and Grid forge IMCs cannot collide today (no in-Grid hoverbike), priority order harmless either way. Status quo retained.
+- **Q5**: `g_ImcGameplay` does NOT remove cleanly. Kept as the always-active baseline (the renaming-to-`g_ImcGameplayBase` deferred per the inheritance model decision).

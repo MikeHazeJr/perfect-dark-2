@@ -155,3 +155,71 @@ If there is headroom and Mike wants speculative defensive hardening, the candida
 - **Force `gunmemowner = GUNMEMOWNER_BONDGUN` at end of `bgunReset` for MP matches.** Removes the CHRBODY → BONDGUN transition cost. Risk: chr-body weapon-attach for the player's third-person mirror might lose its modeldef pool. Defer until evidence shows the transition is the bug.
 
 **Neither speculative fix is recommended without the runtime log.** The instrumentation is the right next step.
+
+## Update 2026-04-25 -- runtime data from `019dc313` (MP) and `019dc318` (SP)
+
+Round-2 instrumented build (`8381635a`) playtested. Two logs reveal the same pattern in both MP and SP:
+
+```
+fire handler enter player=0 triggeron=1 gunctrl_wpn=N switchto=-1 passive=0 tickmode=1 bondmovemode=0 ctrl=1
+fire handler hands player=0 R(wpn=N inuse=1 visible=0 state=5) L(wpn=N inuse=0 visible=0 state=5)
+```
+
+Same broken state in MP (weapon=22 / FARSIGHT) and SP (weapon=3 / FALCON2_SILENCER). Confirms the bug is in a shared SP+MP code path, not MP-specific.
+
+### Tickmode constant table (current codebase, `src/include/constants.h:4272-4278`)
+
+```c
+TICKMODE_GE_FADEIN  = 0
+TICKMODE_NORMAL     = 1
+TICKMODE_WARP       = 3
+TICKMODE_MPSWIRL    = 4
+TICKMODE_GE_FADEOUT = 5
+TICKMODE_CUTSCENE   = 6
+TICKMODE_AUTOWALK   = 7
+```
+
+So a `tickmode=1` log entry means TICKMODE_NORMAL (the gameplay tick). The log shows `tickmode=1` at fire moment, so the `bgunTickGameplay` inner gate (`tickmode == TICKMODE_NORMAL && lvupdate240 > 0`) is passing; `bgunTickHand` and `bgunTickSwitch` should both run.
+
+### Smoking gun: state=5 (HANDSTATE_CHANGEGUN), inuse=1, visible=0
+
+`HANDSTATE_CHANGEGUN = 5` is the OUTER state, not stateminor. Hand is stuck mid-change. `inuse=1` means `bgunTickSwitch2` ran and committed the swap (line 5539-5540 sets inuse=true). But the hand never advanced from CHANGEGUN to a non-CHANGEGUN state.
+
+The CHANGEGUN handler advances stateminor through 0 (UNEQUIP) -> 1 (LOWER) -> 2 (LOAD) -> 3 (RAISE) -> 4 (EQUIP) -> back to IDLE. Stuck at LOAD/mode=6 or LOAD/mode=7 means the visibility gate forces `visible=false` (line 7703-7711):
+
+```c
+if (... || hand->mode == HANDMODE_6 || hand->mode == HANDMODE_7
+        || !bgunIsLoaded() || hand->inuse == false
+        || bgunGetGunMemType() == 0) {
+    hand->visible = false;
+}
+```
+
+LOAD/mode=6 advances to LOAD/mode=7 only when `bgun0f09bf44` returns true (requires `bgunIsLoaded()` and `gunmemnew < 0` and `switchtoweaponnum == -1`). LOAD/mode=7 advances to RAISE/mode=EQUIP only when `bgunIsLoaded()` returns true.
+
+Both depend on **master load completing** (`masterloadstate == LOADED`, `gunmemowner == BONDGUN`).
+
+### Round-3 instrumentation (just landed)
+
+Added a probe at the visibility gate (line 7711+) that, when visible-fail fires, logs which specific gate(s) tripped. Player 0 only, every ~120 frames while the gate is firing. Output identifies:
+
+- noFlag40 / flag80: weapon-flag-driven blocks
+- mode6 / mode7: state-machine wedge
+- notLoaded: bgunIsLoaded() returning false
+- notInuse: hand->inuse false (shouldn't fire per Mike's data)
+- memType0: gunmemtype still 0 (master load never set the loaded weapon)
+
+Plus raw `hand_mode / gunmemowner / gunmemtype / gunmemnew / masterloadstate`. The next playtest log will pinpoint which sub-gate is failing.
+
+### Hypothesis (to verify with round-3 log)
+
+Master load is not progressing past MASTERLOADSTATE_FLUX. The likely root cause is that the master load gate at `bondgun.c:4020`:
+
+```c
+if ((player->gunctrl.gunmemowner == GUNMEMOWNER_BONDGUN
+     || bgunChangeGunMem(GUNMEMOWNER_BONDGUN))
+    && player->gunctrl.gunmemnew >= 0) {
+```
+
+needs `bgunChangeGunMem(BONDGUN)` to succeed in switching ownership from CHRBODY (the post-bgunReset default). The unlock conditions in the CHRBODY case (line 3733-3746) require `mplayerisrunning` OR `!haschrbody` OR `newowner==INVMENU`. For SP without those, unlock fails. For MP it should succeed via mplayerisrunning, but the log evidence suggests otherwise -- maybe `haschrbody` isn't being cleared by `playerRemoveChrBody` in the NORMAL tick path quickly enough, or some other interaction. Round-3 raw fields (`gunmemowner`, `masterloadstate`) will tell us directly.
+

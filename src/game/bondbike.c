@@ -24,6 +24,7 @@
 #include "lib/joy.h"
 #include "data.h"
 #include "types.h"
+#include "actionmap.h" /* Priority J (2026-04-25): vehicle IMC mount/dismount */
 
 void bbikeInit(void)
 {
@@ -67,6 +68,10 @@ void bbikeInit(void)
 	objFreeEmbedmentOrProjectile(g_Vars.currentplayer->hoverbike);
 
 	hoverbike->base.hidden |= OBJHFLAG_MOUNTED;
+
+	/* Priority J (2026-04-25): activate vehicle IMC so steering / throttle
+	 * / brake / exit bindings shadow the gameplay baseline while mounted. */
+	imcVehicleMount();
 }
 
 void bbikeExit(void)
@@ -90,6 +95,10 @@ void bbikeExit(void)
 			-1, 0, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
 
 	obj->flags |= OBJFLAG_HOVERBIKE_MOVINGWHILEEMPTY;
+
+	/* Priority J (2026-04-25): drop vehicle IMC so the gameplay baseline
+	 * resumes ownership of W / A / S / D / triggers / X for on-foot. */
+	imcVehicleDismount();
 }
 
 void bbikeUpdateVehicleOffset(void)
