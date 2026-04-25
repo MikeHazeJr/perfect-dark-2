@@ -232,7 +232,10 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
     float bodyH     = pdguiBodyHeightForActionBar(bodyAvail);
     float sectionH  = bodyH - 100.0f * scale;
 
-    ImGui::BeginChild("##mp_body", ImVec2(0, bodyH), true);
+    /* Priority L (2026-04-25): NavFlattened so D-pad traverses the
+     * Direct-Connect form + Server-Browser list as one focus surface. */
+    ImGui::BeginChild("##mp_body", ImVec2(0, bodyH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
 
     /* ---- Host game (listen server, same process as --host / g_NetHostLatch) ---- */
     ImGui::TextColored(pdguiVec4TitleGlow(), "Host game (this PC)");

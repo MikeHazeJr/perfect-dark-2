@@ -447,7 +447,10 @@ static s32 renderHandicap(struct menudialog *dialog,
     float contentH = diagH - pdTitleH - footerH;
     float sliderW  = diagW * 0.55f;
 
-    ImGui::BeginChild("##handicap_content", ImVec2(0, contentH), false);
+    /* Priority L (2026-04-25): NavFlattened so D-pad traverses across
+     * the per-player handicap rows transparently. */
+    ImGui::BeginChild("##handicap_content", ImVec2(0, contentH),
+                      ImGuiChildFlags_NavFlattened);
 
     ImGui::TextDisabled("Adjust per-player damage received. 100%% = default.");
     ImGui::Spacing();
