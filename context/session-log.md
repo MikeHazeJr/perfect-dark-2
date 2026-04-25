@@ -127,6 +127,34 @@ This session deliberately wrote 100% new files plus minimal hooks in `port/src/m
 
 Phase 1 *infrastructure* (data layer + 6-tier P2P + presence + UI surfaces) is in place and ready for Mike's first playtest. Friends added via "Add by code" with a known cached endpoint will exchange presence pings; LAN peers will discover each other via T0; the sidebar / status indicator will reflect online state. The two genuine gaps before Phase 1 ships fully are P1.J (in-match invite flow) and the real-NAT verification matrix.
 
+### Mike clarification + identity rework -- `44dd9f8d` feat(connectivity): network-agnostic Ed25519 identity
+
+Mike, mid-session: "It seems we need a way to try to ping one another more than just a name. We have the server phrase dictionary we generated using our IP in the dedicated server, but we need to find another way of doing this..."
+
+The pre-existing `deriveHandle(device_uuid)` was network-agnostic in spirit but vulnerable to identity rotation on reinstall. This commit rewires the identity foundation to be `pubkey`-bound:
+
+- pd-identity.dat bumps to v3, persisting an Ed25519 keypair generated once on first launch (loader migrates v1/v2 in place).
+- New `ed25519GenerateKeypair` / `ed25519Sign` / `ed25519DerivePubkey` (all via OpenSSL EVP_PKEY_keygen / EVP_DigestSign -- same statically linked OpenSSL the verify path already uses).
+- `socialMyHandle` now derives from `identityGetPubkey()` (falls back to UUID only when keygen fails).
+- `social_friend_t` gains `pubkey[32]` + `has_pubkey` (TOFU bind on first verified ping) and a persistent `endpoint_ipv4 / endpoint_port / endpoint_ttl_unix` cache.
+- friends.json schema extended with optional `pubkey` (hex) and `endpoint` (ipv4/port/ttl) fields. Hex helpers added; existing files load without the new fields.
+- Presence wire bumps to v2: 88 -> 184 bytes, adding `pubkey[32]` at offset 88 and `signature[64]` at offset 120 over `body[0..120) || "pd-presence-v2"`.
+- `drainReceive` runs the new pipeline: `socialHandleBindsPubkey` (cheap) -> `verifyFrame` (Ed25519 against embedded pub) -> `socialFriendBindPubkey` (TOFU; mismatch rejects). All three logged on failure.
+- New `resolveEndpoint` is the canonical resolution flow: persistent TTL-checked cache -> in-memory peer cache -> T0 LAN. Used by `sendPingTo`, `presenceSendInvite`, `presenceInviteAccept`, `presenceInviteDecline`.
+- `recordPong` refreshes the persistent endpoint cache via `socialFriendUpdateEndpoint(... 300s)` so the friend stays reachable across restarts on the same network.
+
+Decisions captured in `context/audits/connectivity-phase1-decisions.md`:
+- pubkey-bound handle (rationale: network roaming, reinstall portability)
+- TOFU pubkey lock (rationale: aligns with Q11 "trust by friend graph")
+- 5-minute endpoint TTL (rationale: spans typical idle, drops stale NATs)
+- DHT/rendezvous deferred (rationale: Phase 1 scope; documented future options)
+- NET_PROTOCOL_VER NOT bumped (rationale: no ENet wire change yet)
+- P1.J / P1.K deferred
+
+System-level framing per Mike's methodology reminder: "what does identity mean if my network changes?" -- the answer is that identity IS the keypair, address is volatile, authentication proves possession of the private key, and trust is bootstrapped on first verified contact. The implementation now matches that frame end-to-end.
+
+Build-verify clean: PerfectDark.exe 54,739,286 / PerfectDarkServer.exe 23,257,513 (server now changes because identity.c is in SRC_SERVER and was extended for the keypair fields + ensureKeypair lifecycle).
+
 ## Session S457 - 2026-04-24 - F/G/H/I/J: test arenas, music sync, B-228 Option E, design pass
 
 Five priorities landed in one batch. F/G/H are code; I/J are design docs awaiting Mike review.
