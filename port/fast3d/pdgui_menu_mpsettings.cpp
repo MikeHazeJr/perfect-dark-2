@@ -58,6 +58,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "pdgui.h"          /* langSafe */
 #include "system.h"
 #include "inputctx.h"
@@ -767,7 +768,8 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
     /* Shuffle toggle */
     {
         bool shuffle = audioGetModShuffle() != 0;
-        if (ImGui::Checkbox("Shuffle", &shuffle)) {
+        /* Priority L (2026-04-25): label LEFT via pdguiCheckbox. */
+        if (pdguiCheckbox("Shuffle", &shuffle)) {
             audioSetModShuffle(shuffle ? 1 : 0);
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
@@ -1134,7 +1136,8 @@ static s32 renderSoundtrack(struct menudialog *dialog, struct menu *, s32, s32)
         /* "Multiple Tunes" checkbox routed through the legacy handler. */
         bool multi = checkbox_Get(menuhandlerMpMultipleTunes, 0) != 0;
         bool newMulti = multi;
-        if (ImGui::Checkbox("Multiple Tunes", &newMulti)) {
+        /* Priority L (2026-04-25): label LEFT via pdguiCheckbox. */
+        if (pdguiCheckbox("Multiple Tunes", &newMulti)) {
             checkbox_Set(menuhandlerMpMultipleTunes, 0, newMulti ? 1 : 0);
             pdguiPlaySound(PDGUI_SND_SELECT);
         }

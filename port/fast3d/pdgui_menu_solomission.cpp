@@ -42,6 +42,7 @@
 #include "pdgui_audio.h"
 #include "pdgui_nav.h"
 #include "pdgui_layout.h"
+#include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "actionmap.h"
 #include "system.h"
 #include "inputctx.h"
@@ -466,28 +467,28 @@ static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0, 0))
     return clicked;
 }
 
+/* Priority L (2026-04-25): solomission's Pd* helpers now wrap the shared
+ * `pdgui*` widgets defined in `port/fast3d/pdgui_widgets.cpp` so the
+ * label-left layout pattern is single-source-of-truth across menus. */
+
 static bool PdCheckbox(const char *label, bool *v)
 {
-    bool changed = ImGui::Checkbox(label, v);
-    if (changed) pdguiPlaySound(*v ? PDGUI_SND_TOGGLEON : PDGUI_SND_TOGGLEOFF);
-    return changed;
+    return pdguiCheckbox(label, v);
 }
 
 static bool PdCombo(const char *label, int *current_item, const char *const items[], int items_count)
 {
-    bool changed = ImGui::Combo(label, current_item, items, items_count);
-    if (changed) pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-    return changed;
+    return pdguiCombo(label, current_item, items, items_count);
 }
 
 static bool PdSliderFloat(const char *label, float *v, float v_min, float v_max, const char *format = "%.3f")
 {
-    return ImGui::SliderFloat(label, v, v_min, v_max, format);
+    return pdguiSliderFloat(label, v, v_min, v_max, format);
 }
 
 static bool PdSliderInt(const char *label, int *v, int v_min, int v_max, const char *format = "%d")
 {
-    return ImGui::SliderInt(label, v, v_min, v_max, format);
+    return pdguiSliderInt(label, v, v_min, v_max, format);
 }
 
 /* =========================================================================

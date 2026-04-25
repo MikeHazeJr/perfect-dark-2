@@ -22,6 +22,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "screenmfst.h"
 #include "system.h"
 #include "connectcode.h"
@@ -264,7 +265,8 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
         if (s_HostPort > 65535) {
             s_HostPort = 65535;
         }
-        ImGui::SliderInt("Max remote players##hostmax", &s_HostMaxRemotes, 1, NET_MAX_CLIENTS - 1);
+        /* Priority L (2026-04-25): label LEFT via pdguiSliderInt. */
+        pdguiSliderInt("Max remote players", &s_HostMaxRemotes, 1, NET_MAX_CLIENTS - 1);
         ImGui::TextDisabled(
             "NAT discovery runs after the server binds (UPnP %s, STUN %s).",
             fmtUpnpStatus(netUpnpGetStatus()),

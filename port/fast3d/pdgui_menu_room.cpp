@@ -34,6 +34,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"       /* pdguiPopupDarkenBehind */
+#include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
@@ -1168,7 +1169,8 @@ static void renderLevelEditorObjectPanel(float panelW, float panelH)
 
         /* Scale */
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Scale");
-        ImGui::Checkbox("Uniform##le_uni", &obj->uniform_scale);
+        /* Priority L (2026-04-25): label LEFT via pdguiCheckbox. */
+        pdguiCheckbox("Uniform", &obj->uniform_scale);
         if (obj->uniform_scale) {
             ImGui::SetNextItemWidth(fieldW);
             if (ImGui::SliderFloat("##le_scaleU", &obj->scale[0],
@@ -1189,7 +1191,8 @@ static void renderLevelEditorObjectPanel(float panelW, float panelH)
 
         /* Collision */
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Collision");
-        ImGui::Checkbox("Enabled##le_col", &obj->collision);
+        /* Priority L (2026-04-25): label LEFT via pdguiCheckbox. */
+        pdguiCheckbox("Enabled", &obj->collision);
 
         ImGui::Spacing();
 
@@ -1444,10 +1447,12 @@ static void optToggle(const char *label, u32 flag, bool leader)
 {
     bool on = (g_MatchConfig.options & flag) != 0;
     if (!leader) ImGui::BeginDisabled();
-    if (ImGui::Checkbox(label, &on)) {
+    /* Priority L (2026-04-25): pdguiCheckbox places the label on the LEFT
+     * and plays its own TOGGLE sound; we replace the SUBFOCUS sound the
+     * legacy optToggle used. */
+    if (pdguiCheckbox(label, &on)) {
         if (on) g_MatchConfig.options |= flag;
         else    g_MatchConfig.options &= ~flag;
-        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
         s_RoomSettingsDirty = true;
     }
     if (!leader) ImGui::EndDisabled();
@@ -1458,10 +1463,10 @@ static void optToggleInverted(const char *label, u32 flag, bool leader)
 {
     bool on = (g_MatchConfig.options & flag) == 0; /* true when feature is enabled */
     if (!leader) ImGui::BeginDisabled();
-    if (ImGui::Checkbox(label, &on)) {
+    /* Priority L (2026-04-25): pdguiCheckbox places the label on the LEFT. */
+    if (pdguiCheckbox(label, &on)) {
         if (on) g_MatchConfig.options &= ~flag;
         else    g_MatchConfig.options |= flag;
-        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
         s_RoomSettingsDirty = true;
     }
     if (!leader) ImGui::EndDisabled();
@@ -2543,7 +2548,8 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
         if (!leader) ImGui::BeginDisabled();
         int tl = (int)g_MatchConfig.timelimit + 1;  /* 1-based for display */
         ImGui::SetNextItemWidth(comboW * 0.6f);
-        if (ImGui::SliderInt("Time (min)", &tl, 1, 61)) {
+        /* Priority L (2026-04-25): label LEFT via pdguiSliderInt. */
+        if (pdguiSliderInt("Time (min)", &tl, 1, 61)) {
             g_MatchConfig.timelimit = (u8)(tl - 1);  /* store 0-based */
             s_RoomSettingsDirty = true;
         }
@@ -2562,7 +2568,8 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
         if (!leader) ImGui::BeginDisabled();
         int sl = (int)g_MatchConfig.scorelimit + 1;  /* convert to 1-based for display */
         ImGui::SetNextItemWidth(comboW * 0.6f);
-        if (ImGui::SliderInt("Score", &sl, 1, 100)) {
+        /* Priority L (2026-04-25): label LEFT via pdguiSliderInt. */
+        if (pdguiSliderInt("Score", &sl, 1, 100)) {
             g_MatchConfig.scorelimit = (u8)(sl - 1);  /* store 0-based */
             s_RoomSettingsDirty = true;
         }
@@ -2841,7 +2848,8 @@ static void renderCampaignTab(float panelW, float panelH, bool leader)
     {
         bool ff = (g_NetCoopFriendlyFire != 0);
         if (!leader) ImGui::BeginDisabled();
-        if (ImGui::Checkbox("Friendly Fire", &ff)) {
+        /* Priority L (2026-04-25): label LEFT via pdguiCheckbox. */
+        if (pdguiCheckbox("Friendly Fire", &ff)) {
             g_NetCoopFriendlyFire = ff ? 1 : 0;
             pdguiPlaySound(PDGUI_SND_SUBFOCUS);
         }
@@ -3506,8 +3514,9 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                             break;
                         }
                     }
-                    if (ImGui::Combo("Base Type", &curIdx,
-                                     s_BaseTypeNames, s_NumBaseTypes)) {
+                    /* Priority L (2026-04-25): label LEFT via pdguiCombo. */
+                    if (pdguiCombo("Base Type", &curIdx,
+                                   s_BaseTypeNames, s_NumBaseTypes)) {
                         strncpy(traits->baseType, s_BaseTypeNames[curIdx],
                                 sizeof(traits->baseType) - 1);
                         traits->baseType[sizeof(traits->baseType) - 1] = '\0';
@@ -3516,9 +3525,10 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 }
 
                 /* Trait sliders */
-                ImGui::SliderFloat("Accuracy",   &traits->accuracy,     0.0f, 1.0f, "%.2f");
-                ImGui::SliderFloat("Reaction",   &traits->reactionTime,  0.0f, 1.0f, "%.2f");
-                ImGui::SliderFloat("Aggression", &traits->aggression,    0.0f, 1.0f, "%.2f");
+                /* Priority L (2026-04-25): labels LEFT via pdguiSliderFloat. */
+                pdguiSliderFloat("Accuracy",   &traits->accuracy,     0.0f, 1.0f, "%.2f");
+                pdguiSliderFloat("Reaction",   &traits->reactionTime,  0.0f, 1.0f, "%.2f");
+                pdguiSliderFloat("Aggression", &traits->aggression,    0.0f, 1.0f, "%.2f");
 
                 ImGui::Spacing();
 
