@@ -1374,10 +1374,31 @@ static void s_scanChromeStylesInDir(const char *dir_path, int allow_recurse)
     DIR *d = opendir(dir_path);
     if (!d) return;
 
+    /* B-238 follow-up trust-gate alignment: at the root level, skip reserved
+     * trust-gate folders (shared/, inbox/, untrusted/) and any .legacy_backup
+     * residue from the M-4.1 migration. allow_recurse is set on the top-level
+     * call only; nested category folders are still walked normally. */
+    static const char *const k_reserved[MODMGR_RESERVED_NAMES_COUNT] = MODMGR_RESERVED_NAMES_LIST;
+    static const char k_legacy_suffix[] = ".legacy_backup";
+    const size_t k_legacy_suffix_len = sizeof(k_legacy_suffix) - 1;
+
     struct dirent *ent;
     while ((ent = readdir(d)) != nullptr) {
         if (!ent->d_name || ent->d_name[0] == '.') continue;
         if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
+
+        if (allow_recurse) {
+            bool reserved_hit = false;
+            for (s32 ri = 0; ri < MODMGR_RESERVED_NAMES_COUNT; ri++) {
+                if (strcmp(ent->d_name, k_reserved[ri]) == 0) { reserved_hit = true; break; }
+            }
+            if (reserved_hit) continue;
+            size_t nlen = strlen(ent->d_name);
+            if (nlen > k_legacy_suffix_len &&
+                strcmp(ent->d_name + nlen - k_legacy_suffix_len, k_legacy_suffix) == 0) {
+                continue;
+            }
+        }
 
         char child[FS_MAXPATH];
         snprintf(child, sizeof(child), "%s/%s", dir_path, ent->d_name);
