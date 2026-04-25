@@ -32,6 +32,7 @@
  */
 
 #include "identity.h"
+#include "ed25519.h"
 #include "assetcatalog.h"
 #include "system.h"
 #include "fs.h"
@@ -50,7 +51,8 @@
  * Internal file structure (packed, written verbatim)
  * ------------------------------------------------------------------------- */
 
-#define IDENTITY_FILE_VERSION  2   /* SA-4: string IDs replace raw integers */
+#define IDENTITY_FILE_VERSION    3 /* Phase 1 connectivity: Ed25519 keypair appended (2026-04-25) */
+#define IDENTITY_FILE_VERSION_V2 2 /* SA-4: string IDs replace raw integers */
 #define IDENTITY_FILE_VERSION_V1 1 /* legacy: headnum/bodynum as u8 */
 
 /* Total header size before profiles. */
@@ -174,7 +176,9 @@ static int tryLoad(void)
     /* Read version. */
     uint8_t ver = 0;
     if (fread(&ver, 1, 1, f) != 1 ||
-        (ver != IDENTITY_FILE_VERSION && ver != IDENTITY_FILE_VERSION_V1)) {
+        (ver != IDENTITY_FILE_VERSION &&
+         ver != IDENTITY_FILE_VERSION_V2 &&
+         ver != IDENTITY_FILE_VERSION_V1)) {
         fclose(f);
         return 0;
     }
@@ -259,15 +263,71 @@ static int tryLoad(void)
         }
     }
 
+    /* Read the Ed25519 keypair appended at v3. Older files have nothing
+     * after the profile array; the keypair will be generated lazily and
+     * the file re-saved at v3 below. */
+    if (ver >= IDENTITY_FILE_VERSION) {
+        if (fread(s_Identity.ed25519_priv, IDENTITY_PRIVKEY_LEN, 1, f) == 1 &&
+            fread(s_Identity.ed25519_pub,  IDENTITY_PUBKEY_LEN,  1, f) == 1) {
+            s_Identity.has_ed25519 = 1;
+        } else {
+            s_Identity.has_ed25519 = 0;
+        }
+    } else {
+        s_Identity.has_ed25519 = 0;
+        need_resave = 1;
+    }
+
     fclose(f);
 
-    /* Re-save in v2 format if we migrated from v1. */
+    /* Re-save in latest format if we migrated from v1 or v2. */
     if (need_resave) {
         identitySave();
-        sysLogPrintf(LOG_NOTE, "IDENTITY: migration complete — file re-saved in v2 format");
+        sysLogPrintf(LOG_NOTE,
+                     "IDENTITY: migration complete — file re-saved in v%d format",
+                     (int)IDENTITY_FILE_VERSION);
     }
 
     return 1;
+}
+
+/* -------------------------------------------------------------------------
+ * Ed25519 keypair lifecycle
+ * ------------------------------------------------------------------------- */
+
+static void ensureKeypair(void)
+{
+    if (s_Identity.has_ed25519) {
+        /* Defence in depth: derive the pubkey from the stored seed and
+         * compare. If the file was tampered or the seed is corrupt, we
+         * regenerate rather than ship a broken keypair on the wire. */
+        u8 derived[IDENTITY_PUBKEY_LEN];
+        if (ed25519DerivePubkey(s_Identity.ed25519_priv, derived) == 1 &&
+            memcmp(derived, s_Identity.ed25519_pub, IDENTITY_PUBKEY_LEN) == 0) {
+            return;
+        }
+        sysLogPrintf(LOG_WARNING,
+                     "IDENTITY: stored ed25519 pub/priv mismatch -- regenerating");
+        s_Identity.has_ed25519 = 0;
+    }
+
+    if (ed25519GenerateKeypair(s_Identity.ed25519_priv,
+                                s_Identity.ed25519_pub) != 1) {
+        sysLogPrintf(LOG_ERROR,
+                     "IDENTITY: ed25519 keypair generation failed; presence "
+                     "will run unsigned (signed pings will not verify)");
+        memset(s_Identity.ed25519_priv, 0, IDENTITY_PRIVKEY_LEN);
+        memset(s_Identity.ed25519_pub,  0, IDENTITY_PUBKEY_LEN);
+        s_Identity.has_ed25519 = 0;
+        return;
+    }
+
+    s_Identity.has_ed25519 = 1;
+    sysLogPrintf(LOG_NOTE,
+                 "IDENTITY: generated new Ed25519 keypair (Phase 1 connectivity)");
+    /* Persist immediately so a crash before next save does not lose the
+     * key (which would silently rotate identity on next launch). */
+    identitySave();
 }
 
 /* -------------------------------------------------------------------------
@@ -290,6 +350,12 @@ void identityInit(void)
                      (unsigned)s_Identity.profile_count,
                      (unsigned)s_Identity.active_profile);
     }
+
+    /* Phase 1 connectivity: ensure an Ed25519 keypair exists. Generates
+     * one on first run after upgrade; verifies pub/priv consistency
+     * thereafter. ensureKeypair persists the file if it generated a new
+     * key, so callers do not need to invoke identitySave themselves. */
+    ensureKeypair();
 
     s_Loaded = 1;
 }
@@ -339,10 +405,37 @@ void identitySave(void)
         ok &= (fwrite(buf, IDENTITY_PROFILE_SIZE, 1, f) == 1);
     }
 
+    /* v3: Ed25519 keypair (priv seed + pub). Always written even if not
+     * yet generated -- writing zeros makes the on-disk schema stable, and
+     * tryLoad detects the all-zero pub/priv as "missing" and asks
+     * ensureKeypair() to fill it. */
+    ok &= (fwrite(s_Identity.ed25519_priv, IDENTITY_PRIVKEY_LEN, 1, f) == 1);
+    ok &= (fwrite(s_Identity.ed25519_pub,  IDENTITY_PUBKEY_LEN,  1, f) == 1);
+
     fclose(f);
     if (!ok) {
         sysLogPrintf(LOG_WARNING, "IDENTITY: write error saving %s", path);
     }
+}
+
+/* -------------------------------------------------------------------------
+ * Ed25519 accessors + signing
+ * ------------------------------------------------------------------------- */
+
+const u8 *identityGetPubkey(void)
+{
+    return s_Identity.has_ed25519 ? s_Identity.ed25519_pub : NULL;
+}
+
+const u8 *identityGetPrivkey(void)
+{
+    return s_Identity.has_ed25519 ? s_Identity.ed25519_priv : NULL;
+}
+
+s32 identitySign(const void *msg, u32 msgLen, u8 *outSig)
+{
+    if (!s_Identity.has_ed25519 || !outSig) return 0;
+    return ed25519Sign(s_Identity.ed25519_priv, msg, msgLen, outSig);
 }
 
 pd_identity_t *identityGet(void)

@@ -28,12 +28,17 @@
 #include "console.h"
 #include "utils.h"
 #include "net/net.h"
+#include "net/p2p.h"
+#include "net/group_session.h"
 #include "updater.h"
 #include "actionmap.h"
 #include "savemigrate.h"
 #include "savefile.h"
 #include "prefs_agent.h"
 #include "discord.h"
+#include "identity.h"
+#include "social.h"
+#include "presence.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
@@ -168,6 +173,13 @@ int main(int argc, const char **argv)
 	conInit();
 	sysInit();
 	fsInit();
+	/* Priority M / B-238 / M-1.7: optional perf harness for the .pdmod
+	 * archive layer. Runs when --bench-pdmod is passed; exits cleanly when
+	 * done. No effect otherwise. */
+	{
+		extern void modArchiveRunBenchmark(void);
+		modArchiveRunBenchmark();
+	}
 	/* M0.2 Phase B: register pd.ini keys BEFORE configLoad (called inside configInit) */
 	actionmapInit();
 	configInit();
@@ -178,6 +190,18 @@ int main(int argc, const char **argv)
 	updaterInit();
 	saveMigrateInit();
 	saveInit(); /* B-129: wire save dir into savefile.c — must follow fsInit() */
+
+	/* Phase 1 connectivity: identity + social storage. Identity gives us a
+	 * stable device UUID; the social store derives a 4-word connect code
+	 * from that UUID and loads friends/blocks/visibility from disk. Must run
+	 * before netInit() so any presence-aware net code can read the local
+	 * identity. The dedicated server initialises identity through hubInit()
+	 * instead, and does not load social state. */
+	identityInit();
+	socialInit();
+	p2pInit();
+	presenceInit();
+	groupSessionInit();
 
 	/* D13: Start background update check (non-blocking) */
 	if (!sysArgCheck("--no-update-check")) {

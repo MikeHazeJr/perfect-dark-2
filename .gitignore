@@ -75,6 +75,15 @@ build/game_output.log
 *~
 .DS_Store
 
+# Word document extract trees -- regenerated on demand from the .docx;
+# .md in context/ is the canonical knowledge base. AUDIT-23-L1 fix:
+# stop tracking new extracts. Existing tracked files in
+# context/_docx_extract/ remain in git history but should not be
+# re-committed; if you need to untrack them entirely, run
+#   git rm -r --cached context/_docx_extract/
+# in a dedicated commit.
+context/_docx_extract/
+
 # IDE / editor
 /.vs
 /.vscode

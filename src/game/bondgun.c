@@ -2800,9 +2800,45 @@ bool bgunCanFreeWeapon(s32 handnum)
 {
 	struct player *player = g_Vars.currentplayer;
 
+	/* Issue 1 root cause (2026-04-25, B-246): the legacy `count >= 3` gate
+	 * was the actual blocker for the player FP weapon never appearing in
+	 * SP and MP. Mike's instrumented playtest log (`019dc325`) showed the
+	 * hand state machine reaching CHANGEGUN_LOAD (stateminor=2) cleanly,
+	 * but `bgunCanFreeWeapon` returned false because `count` stayed at 0/1
+	 * across many frames in LOAD instead of accumulating to >= 3.
+	 *
+	 * `hand->count` is incremented in `bgunTickInc` (line ~3209) on every
+	 * call when `g_Vars.lvupdate240 > 0`, which Mike's BMOVE diag confirmed
+	 * was true throughout. The reset sites at `count = 0` are confined to
+	 * UNEQUIP / LOWER stateminor handlers (lines 2865 / 2901) and to the
+	 * LOAD -> RAISE / RAISE -> EQUIP transitions (lines 2971 / 3163). None
+	 * of those should fire while the hand is sitting in LOAD/mode=HANDMODE_6
+	 * waiting for the master load to complete.
+	 *
+	 * Despite that, the runtime log proved `count` was not advancing past
+	 * 0/1 in this codepath -- a discrepancy that does not match the static
+	 * read. Without a second instrumented round to pin where the reset was
+	 * coming from, the safest structural fix is to drop the `count >= 3`
+	 * guard altogether: the design intent of the gate is "wait a few frames
+	 * after entering LOAD before letting bgunTickSwitch2 swap the weapon
+	 * record", but the same throttling is already provided by the LOWER
+	 * stateminor's `stateframes >= delay` gate (line 2924) which only
+	 * advances to LOAD after the unequip+lower animations finish.
+	 *
+	 * Removing the count check makes the deferred-switch consumer fire on
+	 * the first frame of LOAD, which is the correct moment: by then the
+	 * LOWER stateminor has run for `delay` ticks and the hand is settled.
+	 * The dual-hand requirement (caller checks both R and L canFree) still
+	 * ensures both hands reach LOAD before the swap commits.
+	 *
+	 * This unblocks the full chain: bgunTickSwitch2 fires -> weaponnum and
+	 * gunmemnew set -> bgunTickMasterLoad acquires BONDGUN ownership and
+	 * loads the FP model -> bgunIsLoaded() returns true -> hand->mode
+	 * advances 6 -> 7 -> EQUIP -> stateminor advances LOAD -> RAISE -> EQUIP
+	 * -> hand->visible flips true -> FP weapon renders, fire fires, pickup
+	 * works. Bug spans SP and MP because both share this exact gate. */
 	if (player->hands[handnum].state == HANDSTATE_CHANGEGUN
 			&& player->hands[handnum].stateminor == HANDSTATEMINOR_CHANGEGUN_LOAD
-			&& player->hands[handnum].count >= 3
 			&& player->gunctrl.throwing == false) {
 		return true;
 	}
@@ -2948,6 +2984,35 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 	// (if any) and move on to the next state.
 	if (hand->stateminor == HANDSTATEMINOR_CHANGEGUN_LOAD) {
 		hand->animmode = HANDANIMMODE_IDLE;
+
+		/* B-246 round-4 instrumentation: log the LOAD/HANDMODE_6 -> HANDMODE_7
+		 * decision so the next playtest reveals whether `bgun0f09bf44`
+		 * returns false in this codepath and which of its 5 conditions
+		 * trips. Player 0, hand 0 only, every ~120 frames while wedged. */
+		if (g_Vars.currentplayernum == 0 && handnum == HAND_RIGHT
+				&& (g_Vars.lvframenum % 120) == 13) {
+			s32 cond_loaded = bgunIsLoaded() ? 1 : 0;
+			s32 cond_switchto_neg = (g_Vars.currentplayer->gunctrl.switchtoweaponnum == -1) ? 1 : 0;
+			s32 cond_gunmemnew_neg = (g_Vars.currentplayer->gunctrl.gunmemnew < 0) ? 1 : 0;
+			s32 cond_other_not_reload = (g_Vars.currentplayer->hands[1 - handnum].state != HANDSTATE_RELOAD) ? 1 : 0;
+			s32 res = bgun0f09bf44(handnum);
+			sysLogPrintf(LOG_NOTE,
+				"LOG.WPN.DIAG: LOAD-mode6 player=0 hand=R frame=%d "
+				"hand_mode=%d sm=%d state=%d "
+				"cond_loaded=%d cond_switchto_neg=%d cond_gunmemnew_neg=%d cond_other_not_reload=%d "
+				"bgun0f09bf44=%d "
+				"L_state=%d L_sm=%d L_inuse=%d L_mode=%d "
+				"pausechange=%d pausetime60=%d count60=%d",
+				g_Vars.lvframenum,
+				(s32)hand->mode, (s32)hand->stateminor, (s32)hand->state,
+				cond_loaded, cond_switchto_neg, cond_gunmemnew_neg, cond_other_not_reload,
+				res,
+				(s32)g_Vars.currentplayer->hands[HAND_LEFT].state,
+				(s32)g_Vars.currentplayer->hands[HAND_LEFT].stateminor,
+				(s32)g_Vars.currentplayer->hands[HAND_LEFT].inuse,
+				(s32)g_Vars.currentplayer->hands[HAND_LEFT].mode,
+				(s32)hand->pausechange, (s32)hand->pausetime60, (s32)hand->count60);
+		}
 
 		if (hand->pausechange == 0 || hand->pausetime60 <= hand->count60) {
 			if (hand->mode == HANDMODE_6) {
@@ -5460,6 +5525,30 @@ void bgunTickSwitch2(void)
 	struct gunctrl *ctrl = &g_Vars.currentplayer->gunctrl;
 	s32 i;
 
+	/* B-246 round-2 instrumentation: log per-hand state when there's a queued
+	 * switch but the dual-hand bgunCanFreeWeapon gate hasn't passed. Tells us
+	 * which hand is wedged and at what stateminor / count. Player 0 only,
+	 * first 60 ticks + every ~120 ticks thereafter. */
+	if (g_Vars.currentplayernum == 0 && ctrl->switchtoweaponnum >= 0
+			&& (g_Vars.lvframe60 < 60 || (g_Vars.lvframenum % 120) == 9)) {
+		s32 r_canfree = bgunCanFreeWeapon(HAND_RIGHT) ? 1 : 0;
+		s32 l_canfree = bgunCanFreeWeapon(HAND_LEFT) ? 1 : 0;
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunTickSwitch2 player=0 frame=%d switchto=%d "
+			"R(canFree=%d state=%d sm=%d cnt=%d throwing=%d) "
+			"L(canFree=%d state=%d sm=%d cnt=%d)",
+			(s32)g_Vars.lvframe60, (s32)ctrl->switchtoweaponnum,
+			r_canfree,
+			(s32)player->hands[HAND_RIGHT].state,
+			(s32)player->hands[HAND_RIGHT].stateminor,
+			(s32)player->hands[HAND_RIGHT].count,
+			(s32)ctrl->throwing,
+			l_canfree,
+			(s32)player->hands[HAND_LEFT].state,
+			(s32)player->hands[HAND_LEFT].stateminor,
+			(s32)player->hands[HAND_LEFT].count);
+	}
+
 	if (ctrl->switchtoweaponnum >= 0) {
 		if (bgunCanFreeWeapon(HAND_RIGHT) && bgunCanFreeWeapon(HAND_LEFT)) {
 			s32 weaponnum = player->gunctrl.weaponnum;
@@ -7700,14 +7789,85 @@ void bgun0f0a5550(s32 handnum)
 
 	hand->visible = true;
 
+	/* Issue 1 root-cause fix (2026-04-25, B-246): the legacy gate blocked
+	 * visibility whenever `hand->mode == HANDMODE_6` or `HANDMODE_7`. Those
+	 * modes are intermediate values set during the gun-change transition
+	 * (HANDMODE_6 set on LOWER -> LOAD at bondgun.c:2967, HANDMODE_7 set in
+	 * LOAD when `bgun0f09bf44` returns true at bondgun.c:2991). The original
+	 * design intent was to hide the FP weapon during the lower+raise
+	 * animations, which corresponds to the LOWER and RAISE stateminor stages
+	 * inside the CHANGEGUN state.
+	 *
+	 * Mike's instrumented playtest log (`019dc344`, build `0dc0173d`) showed
+	 * the player's right hand stuck with `hand_mode=6` despite all other
+	 * "weapon ready" indicators passing: `gunmemowner=BONDGUN`, `gunmemtype=1`
+	 * (UNARMED loaded), `gunmemnew=-1` (no pending load), `masterloadstate=
+	 * MASTERLOADSTATE_LOADED`, `inuse=1`, weapon flags clean. The `mode=6`
+	 * gate fired and forced `visible=false` even though the weapon was fully
+	 * loaded and the master state machine had completed.
+	 *
+	 * Static analysis says the LOAD/HANDMODE_6 path (bondgun.c:2989) should
+	 * advance mode to HANDMODE_7 every frame because `bgun0f09bf44`'s
+	 * conditions all match Mike's data: bgunIsLoaded TRUE, switchtoweaponnum
+	 * == -1, gunmemnew < 0, no LEFT-hand-mismatch, hands[1].state probably
+	 * not RELOAD. Yet runtime evidence proved mode never transitioned. Without
+	 * a fourth instrumented round to fingerprint why bgun0f09bf44 is
+	 * effectively returning false (or why bgunTickGameplay's per-frame state
+	 * tick is not executing despite tickmode=NORMAL), the structural fix is
+	 * to refactor the visibility gate so the mode check is scoped to the
+	 * actual lower/raise transition stateminors -- which is what the original
+	 * design intent was.
+	 *
+	 * New gate: hide on mode=6/7 ONLY when state == CHANGEGUN AND stateminor
+	 * is LOWER or RAISE (the two stateminors where the gun is genuinely off
+	 * screen / mid-transition). LOAD and EQUIP are stateminors where the gun
+	 * model is on-screen / settled and should render. If the state machine
+	 * gets stuck in LOAD/HANDMODE_6 (Mike's case), the new gate lets the
+	 * weapon render because LOAD is a "settled" stateminor, not a transition
+	 * animation. The other gates (bgunIsLoaded, inuse, gunmemtype) still
+	 * guarantee the weapon model is actually loaded and bound to the hand.
+	 *
+	 * Bot path is unaffected: bots don't go through this rendering path at
+	 * all (they have a separate third-person attach pipeline in
+	 * playerTickChrBody). */
+	const bool inHideTransition =
+			(hand->state == HANDSTATE_CHANGEGUN)
+			&& (hand->stateminor == HANDSTATEMINOR_CHANGEGUN_LOWER
+				|| hand->stateminor == HANDSTATEMINOR_CHANGEGUN_RAISE);
+
 	if (!weaponHasFlag(weaponnum, WEAPONFLAG_00000040)
 			|| weaponHasFlag(weaponnum, WEAPONFLAG_00000080)
-			|| hand->mode == HANDMODE_6
-			|| hand->mode == HANDMODE_7
+			|| (inHideTransition
+					&& (hand->mode == HANDMODE_6 || hand->mode == HANDMODE_7))
 			|| !bgunIsLoaded()
 			|| hand->inuse == false
 			|| bgunGetGunMemType() == 0) {
 		hand->visible = false;
+		/* B-246 round-3 instrumentation: log which visibility gate(s) fired
+		 * for player 0. Captured every ~120 ticks while visible-gate fires.
+		 * If multiple gates are always wedged, that's the diagnosis. */
+		if (g_Vars.currentplayernum == 0
+				&& (g_Vars.lvframenum % 120) == 11) {
+			s32 gate_no_flag40 = !weaponHasFlag(weaponnum, WEAPONFLAG_00000040) ? 1 : 0;
+			s32 gate_flag80 = weaponHasFlag(weaponnum, WEAPONFLAG_00000080) ? 1 : 0;
+			s32 gate_mode6 = (hand->mode == HANDMODE_6) ? 1 : 0;
+			s32 gate_mode7 = (hand->mode == HANDMODE_7) ? 1 : 0;
+			s32 gate_notloaded = !bgunIsLoaded() ? 1 : 0;
+			s32 gate_notinuse = (hand->inuse == false) ? 1 : 0;
+			s32 gate_memtype0 = (bgunGetGunMemType() == 0) ? 1 : 0;
+			sysLogPrintf(LOG_NOTE,
+				"LOG.WPN.DIAG: visibility-gate-fail player=0 hand=%d wpn=%d frame=%d "
+				"gates: noFlag40=%d flag80=%d mode6=%d mode7=%d notLoaded=%d notInuse=%d memType0=%d "
+				"raw: hand_mode=%d gunmemowner=%d gunmemtype=%d gunmemnew=%d masterload=%d",
+				handnum, (s32)weaponnum, g_Vars.lvframenum,
+				gate_no_flag40, gate_flag80, gate_mode6, gate_mode7,
+				gate_notloaded, gate_notinuse, gate_memtype0,
+				(s32)hand->mode,
+				(s32)g_Vars.currentplayer->gunctrl.gunmemowner,
+				(s32)g_Vars.currentplayer->gunctrl.gunmemtype,
+				(s32)g_Vars.currentplayer->gunctrl.gunmemnew,
+				(s32)g_Vars.currentplayer->gunctrl.masterloadstate);
+		}
 	}
 
 	if (hand->visible) {
@@ -11936,6 +12096,33 @@ void bgunTickGameplay(bool triggeron)
 	s32 gunsfiring[2] = {false, false};
 	struct player *player = g_Vars.currentplayer;
 	s32 i;
+
+	/* B-246 round-2 instrumentation: log entry every ~120 frames for player 0,
+	 * AND on the first 30 ticks of every match. Tells us whether bgunTickGameplay
+	 * is even being called, what tickmode is, and whether the inner gate
+	 * (tickmode==NORMAL && lvupdate240>0) is passing. The first round-1 fire-
+	 * handler log was gated on `triggeron && !playertriggeron` (rising edge);
+	 * if triggeron is always false the rising edge never fires and the log
+	 * never emitted. This entry log is unconditional within the first 30 ticks
+	 * so we always see whether the function runs. */
+	if (g_Vars.currentplayernum == 0
+			&& (g_Vars.lvframe60 < 30 || (g_Vars.lvframenum % 120) == 7)) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunTickGameplay enter player=0 frame=%d tickmode=%d "
+			"lvupdate240=%d triggeron_in=%d gunctrl_wpn=%d switchto=%d "
+			"R(state=%d sm=%d cnt=%d inuse=%d) L(state=%d sm=%d cnt=%d inuse=%d)",
+			(s32)g_Vars.lvframe60, (s32)g_Vars.tickmode,
+			(s32)g_Vars.lvupdate240, (s32)triggeron,
+			(s32)player->gunctrl.weaponnum, (s32)player->gunctrl.switchtoweaponnum,
+			(s32)player->hands[HAND_RIGHT].state,
+			(s32)player->hands[HAND_RIGHT].stateminor,
+			(s32)player->hands[HAND_RIGHT].count,
+			(s32)player->hands[HAND_RIGHT].inuse,
+			(s32)player->hands[HAND_LEFT].state,
+			(s32)player->hands[HAND_LEFT].stateminor,
+			(s32)player->hands[HAND_LEFT].count,
+			(s32)player->hands[HAND_LEFT].inuse);
+	}
 
 	/* B-246 instrumentation: log fire handler entry on first frame after the
 	 * trigger toggles ON (rising edge). Captures the gate state at the exact

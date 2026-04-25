@@ -7,6 +7,25 @@
 
 ---
 
+## Open — 2026-04-25 (Priority M / B-238 -- unified `.pdmod` end-to-end)
+
+**Status: RESOLVED-PENDING-PLAYTEST.** Branch `claude/sharp-almeida-aeeb1f`, 13 commits (`77c622a2` -> `c55d96ce`). All M-1 / M-2 / M-3 / M-4 phases landed and build-verified.
+
+- Verification matrix: `context/audits/pdmod-verification-matrix-2026-04-25.md`.
+- Migration audit: `context/audits/pdmod-migration-2026-04-25.md`.
+- Design doc updated with measured benchmark numbers + cross-platform note + mod-tool migration recipe: `context/designs/pdmod-unified-mod-format.md`.
+
+**Operator-side verifications still owed (Mike's hand on a real install):**
+1. First-boot migration log fires + `mods/.pdmod-migration-done` sentinel appears + each former `mods/<name>/` becomes `<name>.pdmod` + `<name>.legacy_backup/`.
+2. Build + register the Property Handler (`ninja -C Build PD2ModPropHandler` then run `tools/pdmod_prophandler/install/register.ps1` as Admin); right-click any `.pdmod` and confirm Properties -> Details populates Title / Authors / Comment / Version.
+3. In-game mod manager hot-toggle: disable an enabled archive mod, apply, confirm assets unload; re-enable, apply, confirm reload.
+4. Trust gate: `mkdir mods/shared/test_friend && cp some.pdmod mods/shared/test_friend/`. Launch. Confirm log says "skipping reserved top-level 'shared'..." and the inbox archive is NEVER mounted.
+5. Theme editor "Save as .pdmod" button: edit a theme, click the new button, confirm `mods/<slug>.pdmod` lands and the theme appears in Settings -> Theme selector after rescan.
+
+After Mike validates the above, B-238 closes fully (RESOLVED -> CLOSED) and the M phase is shippable.
+
+---
+
 ## Open — 2026-04-20 (Super Audit 2026-04-20 — Wave 3A hardening + carry-overs)
 
 **Logged 2026-04-21 (Chicago CS playtest — follow-ups):** F6 residual bot motion (**B-217**), Chicago initial bot stack vs OK respawns (**B-218**), FP weapon invisible / `GAMELOOP.WEAPON` vs `SPAWN` weapon mismatch (**B-219**), mod-registry `mod.json` missing-file spam (**B-220**). Full **pd-client.log** scrape (WARNING/ERROR/audio) in `session-log.md` **S431** § Ephemeral log digest (source file not retained).

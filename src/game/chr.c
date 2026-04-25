@@ -946,8 +946,29 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 							if (chr->aibot) {
 								s32 shooter;
 
-								if (chr->lastshooter >= 0 && chr->timeshooter > 0) {
-									shooter = chr->lastshooter;
+								/* B-256 (2026-04-25): the original
+								 * `lastshooter` / `timeshooter` field pair
+								 * was never wired up on the damage side --
+								 * `lastshooter` was only ever assigned -1
+								 * at chr init (chr.c:1319) so this branch
+								 * never fired and bot pit-deaths always
+								 * defaulted to suicide credit. The live
+								 * field that DOES track the attacker is
+								 * `lastattacker` (struct chrdata*, set in
+								 * chraction.c:4896 and :5058 on every
+								 * damage hit). Resolve it to a player
+								 * index via mpPlayerGetIndex; if the
+								 * attacker chr is no longer in the chr
+								 * pool (already removed) fall back to
+								 * suicide credit. Closes the long-standing
+								 * "splash credit on pit death" gap that
+								 * was meant to be implemented here. Pairs
+								 * with the symmetric fix in player.c. */
+								if (chr->lastattacker) {
+									shooter = mpPlayerGetIndex(chr->lastattacker);
+									if (shooter < 0) {
+										shooter = mpPlayerGetIndex(chr);
+									}
 								} else {
 									shooter = mpPlayerGetIndex(chr);
 								}
