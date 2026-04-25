@@ -48,6 +48,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_widgets.h"   /* Priority L: shared label-left widget helpers */
 #include "system.h"
 #include "inputctx.h"
 #include "assetcatalog.h"
@@ -553,94 +554,37 @@ static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0,0))
     return clicked;
 }
 
-/* Priority L (2026-04-25): Settings label-placement helpers.
- *
- * Mike's flat-menu spec requires labels ABOVE or to the LEFT of controls,
- * never on the right.  ImGui's default `Checkbox(label, ...)` /
- * `Combo(label, ...)` / `SliderInt(label, ...)` / `SliderFloat(label, ...)`
- * paints the label to the right of the widget.  These helpers route every
- * Settings widget through a single point so the layout is consistent:
- *
- *   1. Render the label as `Text` first (left-aligned, frame-padded).
- *   2. SameLine to a fixed label-column width so the widgets align.
- *   3. Render the widget with `##` ID so ImGui suppresses the right-side
- *      label and the widget extends to fill the remaining width.
- *
- * Single-point fix: every existing call site (Settings -> Video / Audio
- * / Controls / Game / Updates / Debug / Catalog / Interface) inherits
- * left-aligned labels with no per-call-site change required. */
+/* Priority L (2026-04-25): mainmenu's Pd* helpers now wrap the shared
+ * `pdgui*` widgets defined in `port/fast3d/pdgui_widgets.cpp` so the
+ * label-left layout pattern is single-source-of-truth across menus.
+ * Existing call sites in this file keep the `PdCheckbox` / `PdCombo`
+ * / etc. names; new code (and other menus' refactored call sites)
+ * call `pdguiCheckbox` / `pdguiCombo` / etc. directly via
+ * `pdgui_widgets.h`. */
 
-static float pdguiSettingsLabelColW(void)
-{
-    /* Tuned so the longest Settings label (~"Mouse Sensitivity (X)") fits
-     * comfortably with one space of padding. Scale with the menu fonts. */
-    return pdguiScale(220.0f);
-}
-
-static void pdguiSettingsBeginRow(const char *label)
-{
-    ImGui::AlignTextToFramePadding();
-    if (label && label[0]) {
-        ImGui::TextUnformatted(label);
-    } else {
-        ImGui::TextUnformatted(" ");
-    }
-    ImGui::SameLine(pdguiSettingsLabelColW());
-    /* Stretch the widget across the remaining row width. */
-    float remaining = ImGui::GetContentRegionAvail().x;
-    if (remaining < pdguiScale(80.0f)) remaining = pdguiScale(80.0f);
-    ImGui::SetNextItemWidth(remaining);
-}
-
-static const char *pdguiSettingsHashId(const char *label, char *buf, size_t cap)
-{
-    /* ImGui uses everything after `##` as the widget ID; everything before
-     * it is rendered as the label.  We want NO label on the widget itself
-     * so the ID begins with `##` directly. */
-    snprintf(buf, cap, "##%s", label ? label : "");
-    return buf;
-}
-
-/* Checkbox with label on the LEFT and sound on change. */
 static bool PdCheckbox(const char *label, bool *v)
 {
-    pdguiSettingsBeginRow(label);
-    char id[160];
-    bool changed = ImGui::Checkbox(pdguiSettingsHashId(label, id, sizeof(id)), v);
-    if (changed) pdguiPlaySound(*v ? PDGUI_SND_TOGGLEON : PDGUI_SND_TOGGLEOFF);
-    return changed;
+    return pdguiCheckbox(label, v);
 }
 
-/* Combo with label on the LEFT and sound on change. */
 static bool PdCombo(const char *label, int *current_item, const char *const items[], int items_count)
 {
-    pdguiSettingsBeginRow(label);
-    char id[160];
-    bool changed = ImGui::Combo(pdguiSettingsHashId(label, id, sizeof(id)),
-                                current_item, items, items_count);
-    if (changed) pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-    return changed;
+    return pdguiCombo(label, current_item, items, items_count);
 }
 
-/* SliderInt with label on the LEFT (continuous; no sound spam). */
 static bool PdSliderInt(const char *label, int *v, int v_min, int v_max, const char *format = "%d")
 {
-    pdguiSettingsBeginRow(label);
-    char id[160];
-    return ImGui::SliderInt(pdguiSettingsHashId(label, id, sizeof(id)),
-                            v, v_min, v_max, format);
+    return pdguiSliderInt(label, v, v_min, v_max, format);
 }
 
-/* SliderFloat with label on the LEFT. */
 static bool PdSliderFloat(const char *label, float *v, float v_min, float v_max, const char *format = "%.3f")
 {
-    pdguiSettingsBeginRow(label);
-    char id[160];
-    return ImGui::SliderFloat(pdguiSettingsHashId(label, id, sizeof(id)),
-                              v, v_min, v_max, format);
+    return pdguiSliderFloat(label, v, v_min, v_max, format);
 }
 
-/* Controller sensitivity UI: 1-10 in 0.5 steps (snapped on edit), label LEFT. */
+/* Controller sensitivity UI: 1-10 in 0.5 steps (snapped on edit), label LEFT.
+ * Stays in mainmenu because of the snap-to-half-step semantic that the
+ * generic helper doesn't carry. */
 static bool PdSliderSensUi(const char *label, float *v)
 {
     pdguiSettingsBeginRow(label);
