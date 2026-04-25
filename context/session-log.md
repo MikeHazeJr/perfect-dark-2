@@ -4,6 +4,58 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S467 - 2026-04-25 - Connectivity Phases 4 + 5: listening room / Public Mods Page / Player Profile / voice scaffold
+
+Two phases land in this session entry because the data infrastructure each depends on lives in adjacent already-merged work (Priority M's mod manager, Priority Q's render box, the existing file_transfer pipe + identity / social / presence) -- the new work in this session is the state machines + UI scaffolds that compose them.
+
+### P4 -- `b152b4a1` feat(connectivity): listening room + Public Mods Page + Player Profile UI scaffolds
+
+- `port/include/listening_room.h` + `port/src/listening_room.c` (~280 LOC): host playlist + listener subscription + match-vs-room precedence (Q10 + Issue 4a). Single-writer state. Tracks distributed via the existing mod-distribution rails (file_transfer.c) -- no new audio streaming protocol.
+- Social menu gains three new tabs:
+  - **Listening room** -- Off / Host / Listener / Muted-by-match states. Host can add tracks (track id + display name), play / remove, stop hosting. Listener sees current track, queued tracks (with download status), and a "Save permanently" promote button.
+  - **Public mods** -- "My public mods" + "Public mods from peers in this session" sections, both scaffolded with explicit deferral notes pointing at the manifest broadcast follow-up.
+  - **Settings** (extended) -- voice toggle (P5 below) and unchanged Q7/Q8/Q9 controls.
+- Player Profile modal (per-friend page, Q11 Halo 3 File Share lineage). Header (agent + nickname + connect code), state + activity + last-seen, three reserved sections (character preview / stats / public mods) each with explicit deferral notes pointing at the widgets that own the data.
+- Friend rows now have a "Profile" small button alongside Invite / Spectate / Message / Mute / Block / Remove.
+
+### P5 -- voice chat scaffold
+
+- `port/include/voice.h` + `port/src/voice.c` (~140 LOC). Voice is opt-in, default off. Settings tab toggle + radio for PTT vs voice-activated. PTT key is V (held to talk). Per-friend mute integrates with `socialFriend.muted` (the same bit Q9's sidebar uses).
+- Codec choice documented in voice.h: Opus (low-latency, ITU-T G.193 interoperable, BSD-licensed reference implementation). The codec + libopus integration + SDL audio capture / decode wires in a follow-up commit because libopus is a new third-party dependency that needs CMakeLists.txt vetting on Mike's side.
+- Wire format planned in voice.h ("PDVOC" magic, 5+1+1+1+4+4+2+2 = 20 byte header + opus payload + 32 byte pubkey + 64 byte signature). The packet definitions land with the codec.
+
+### Phase 4 + 5 exit criteria (re-verified per principle 1)
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Music-together: host playlist | YES | `listeningRoomHostBegin/Add/Remove/PlayTrack` |
+| Music-together: listener subscription | YES (UI + state machine) | `listeningRoomSubscribe / Leave / PromoteCurrentTrack` |
+| Music-together: tracks via mod-distribution rails (no new protocol) | YES (designed) | file_transfer pipe is the carrier; planned wire ride is the manifest broadcast |
+| Music-together: match-track-wins precedence | YES | `listeningRoomOnMatchStart/End` + `listeningRoomShouldPlay` |
+| Public Mods Page | SCAFFOLD (data deferred) | UI scaffold complete; per-mod public flag + manifest broadcast = follow-up |
+| Player Profile page | SCAFFOLD (data deferred) | Modal complete with header + actions; render / stats / mods sections wire in once their owners' data surfaces are read |
+| Voice channel | SCAFFOLD (codec deferred) | State + UI + PTT + per-friend mute integration ready; libopus + SDL audio capture = follow-up |
+| Push-to-talk default | YES | `VOICE_CAPTURE_PUSH_TO_TALK` is the initial mode |
+| Voice-activated optional | YES (toggle + scaffold) | Settings radio; threshold + hysteresis = follow-up |
+| Per-friend mute integrates with sidebar mute | YES | `voicePeerIsTalking` checks `socialFriend.muted` |
+| Codec choice documented (Opus) | YES | voice.h header preamble |
+| Wire format documented | YES | voice.h header preamble (PDVOC frame layout) |
+
+### Phase 4 + 5 deferred-to-follow-up items (honest)
+
+- *Listening-room playlist manifest wire ride.* Hosts can build a playlist locally and the state machine + UI ship; the wire packet that broadcasts the manifest to listeners is a follow-up that piggybacks on the existing SVC_DISTRIB pipeline.
+- *Per-mod public flag in the mod registry.* Priority M's mod manager owns mod metadata; the public-flag bit + per-mod Public toggle in the Modding Hub plug into that registry in a follow-up.
+- *Cross-peer public mods aggregator.* Each peer broadcasts a manifest of their Public mods on group join; aggregator merges + UI shows the union with per-mod owner badges. Wire ride + UI population ship in a follow-up.
+- *Player Profile data wiring.* Character preview pulls Priority Q's render box; stats pull playerstats.h totals; mods list pulls the Public Mods aggregator. Each is a focused wiring commit.
+- *Voice codec integration.* libopus vendored + linked; SDL audio capture / playback init; encode / decode pipeline; PDVOC wire send/receive on a new dedicated socket (port 27108). Substantial enough to deserve its own session.
+
+### Phase 4 + 5 commits (chronological)
+
+| Commit | Scope |
+|---|---|
+| `b152b4a1` | P4 listening room + Public Mods Page + Player Profile UI scaffolds |
+| (this commit) | P5 voice chat scaffold + session-log close-out |
+
 ## Session S466 - 2026-04-25 - Connectivity Phase 3: spectator + Theater unified subsystem
 
 Phase 3 of the connectivity rollout. Per Q12 "don't build Theater twice": one camera + control + UI architecture, two drivers (live SVC_* stream + future saved-match file). The seam is `spectatorIngestParticipantSnapshot` — both drivers feed the exact same entry point.

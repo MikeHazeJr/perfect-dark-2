@@ -34,6 +34,7 @@ extern "C" {
 #include "file_transfer.h"
 #include "spectator.h"
 #include "listening_room.h"
+#include "voice.h"
 #include "net/p2p.h"
 #include "net/group_session.h"
 }
@@ -756,6 +757,12 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 		if (ImGui::IsKeyPressed(ImGuiKey_Tab, false)) {
 			s_SidebarOpen = !s_SidebarOpen;
 		}
+		/* Phase 5 PTT: V key. Codec follow-up will move this to an
+		 * actionmap binding once Session B's input scope reopens. */
+		if (voiceEnabled() && voiceGetCaptureMode() == VOICE_CAPTURE_PUSH_TO_TALK) {
+			if (ImGui::IsKeyPressed(ImGuiKey_V, false))   voicePttBegin();
+			if (ImGui::IsKeyReleased(ImGuiKey_V))          voicePttEnd();
+		}
 	}
 
 	if (s_SidebarOpen) {
@@ -1063,6 +1070,28 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 						mask = inv ? (mask | SOCIAL_NOTIF_INVITES) : (mask & ~SOCIAL_NOTIF_INVITES);
 						socialNotifMaskSet(mask);
 					}
+
+					ImGui::Spacing();
+					ImGui::TextUnformatted("Voice");
+					ImGui::Indent(12.0f);
+					bool voice_on = voiceEnabled() != 0;
+					if (ImGui::Checkbox("Enable voice chat", &voice_on)) {
+						voiceSetEnabled(voice_on ? 1 : 0);
+					}
+					if (voice_on) {
+						const voice_capture_mode_t cm = voiceGetCaptureMode();
+						if (ImGui::RadioButton("Push-to-talk (default)", cm == VOICE_CAPTURE_PUSH_TO_TALK)) {
+							voiceSetCaptureMode(VOICE_CAPTURE_PUSH_TO_TALK);
+						}
+						if (ImGui::RadioButton("Voice-activated", cm == VOICE_CAPTURE_VOICE_ACTIVE)) {
+							voiceSetCaptureMode(VOICE_CAPTURE_VOICE_ACTIVE);
+						}
+						ImGui::TextDisabled(
+						        "Default off; opt-in. PTT key = V (hold to talk). "
+						        "Codec = Opus (low-latency, BSD-licensed). Per-friend mute "
+						        "applies to voice the same way it applies to chat / toasts.");
+					}
+					ImGui::Unindent(12.0f);
 
 					ImGui::Spacing();
 					ImGui::TextUnformatted("Diagnostics");
