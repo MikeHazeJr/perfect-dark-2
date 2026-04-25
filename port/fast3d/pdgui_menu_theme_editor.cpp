@@ -378,7 +378,9 @@ static ImU32 themeEditorU32FromRgba(u32 rgba)
 
 static void renderLivePreview(float h, float scale)
 {
-    ImGui::BeginChild("##theme_preview", ImVec2(0, h), true,
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
+    ImGui::BeginChild("##theme_preview", ImVec2(0, h),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened,
                       ImGuiWindowFlags_NoScrollbar);
 
     /* Mini header that mirrors the PD dialog title strip so the user can

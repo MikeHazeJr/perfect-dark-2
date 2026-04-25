@@ -703,7 +703,9 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
         float contentH     = pdguiBodyHeightForActionBar(availBelow);
         float contentW     = menuW - padX - padR;
 
-        ImGui::BeginChild("##PauseTabContent", ImVec2(contentW, contentH), false);
+        /* Priority L (2026-04-25): NavFlattened layout panel for pause tabs. */
+        ImGui::BeginChild("##PauseTabContent", ImVec2(contentW, contentH),
+                          ImGuiChildFlags_NavFlattened);
 
         switch (s_PauseTab) {
         case 0: renderRankingsTab(contentW); break;

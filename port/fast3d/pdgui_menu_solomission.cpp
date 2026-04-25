@@ -763,7 +763,9 @@ static s32 renderMissionSelect(struct menudialog *dialog,
     /* ===================================================================
      * LEFT PANEL — Mission List
      * =================================================================== */
-    if (ImGui::BeginChild("##ms_left", ImVec2(leftW, bodyH), false,
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
+    if (ImGui::BeginChild("##ms_left", ImVec2(leftW, bodyH),
+                           ImGuiChildFlags_NavFlattened,
                            ImGuiWindowFlags_None)) {
 
         /* D-pad up/down navigation in left panel */
@@ -1058,7 +1060,9 @@ static s32 renderMissionSelect(struct menudialog *dialog,
     /* ===================================================================
      * RIGHT PANEL — Mission Detail
      * =================================================================== */
-    if (ImGui::BeginChild("##ms_right", ImVec2(rightW, bodyH), false,
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
+    if (ImGui::BeginChild("##ms_right", ImVec2(rightW, bodyH),
+                           ImGuiChildFlags_NavFlattened,
                            ImGuiWindowFlags_None)) {
 
         s32 si = s_MissionSelectIdx;
@@ -2775,7 +2779,9 @@ static s32 renderPauseMenu(struct menudialog *dialog,
     s32 curDiff = lvGetDifficulty();
     s32 objCount = objectiveGetCount();
 
-    if (ImGui::BeginChild("##pause_obj", ImVec2(0, objH), false,
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
+    if (ImGui::BeginChild("##pause_obj", ImVec2(0, objH),
+                           ImGuiChildFlags_NavFlattened,
                            ImGuiWindowFlags_None)) {
         bool anyObj = false;
         /* objectivenames[0] is the briefing text; objectives are indices 1-5.
@@ -3557,7 +3563,9 @@ static s32 renderOptions(struct menudialog *dialog,
     ImGui::Separator();
 
     /* ---- Scrollable tab content ---- */
-    if (ImGui::BeginChild("##opts_content", ImVec2(0, 0), false)) {
+    /* Priority L (2026-04-25): NavFlattened layout panel for options tabs. */
+    if (ImGui::BeginChild("##opts_content", ImVec2(0, 0),
+                          ImGuiChildFlags_NavFlattened)) {
         switch (s_OptionsTabIdx) {
         case 0: renderOptionsAudio();    break;
         case 1: renderOptionsVideo();    break;
