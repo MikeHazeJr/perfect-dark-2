@@ -42,6 +42,7 @@
 #include "pdgui_audio.h"
 #include "pdgui_nav.h"
 #include "pdgui_layout.h"
+#include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "actionmap.h"
 #include "system.h"
 #include "inputctx.h"
@@ -466,28 +467,28 @@ static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0, 0))
     return clicked;
 }
 
+/* Priority L (2026-04-25): solomission's Pd* helpers now wrap the shared
+ * `pdgui*` widgets defined in `port/fast3d/pdgui_widgets.cpp` so the
+ * label-left layout pattern is single-source-of-truth across menus. */
+
 static bool PdCheckbox(const char *label, bool *v)
 {
-    bool changed = ImGui::Checkbox(label, v);
-    if (changed) pdguiPlaySound(*v ? PDGUI_SND_TOGGLEON : PDGUI_SND_TOGGLEOFF);
-    return changed;
+    return pdguiCheckbox(label, v);
 }
 
 static bool PdCombo(const char *label, int *current_item, const char *const items[], int items_count)
 {
-    bool changed = ImGui::Combo(label, current_item, items, items_count);
-    if (changed) pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-    return changed;
+    return pdguiCombo(label, current_item, items, items_count);
 }
 
 static bool PdSliderFloat(const char *label, float *v, float v_min, float v_max, const char *format = "%.3f")
 {
-    return ImGui::SliderFloat(label, v, v_min, v_max, format);
+    return pdguiSliderFloat(label, v, v_min, v_max, format);
 }
 
 static bool PdSliderInt(const char *label, int *v, int v_min, int v_max, const char *format = "%d")
 {
-    return ImGui::SliderInt(label, v, v_min, v_max, format);
+    return pdguiSliderInt(label, v, v_min, v_max, format);
 }
 
 /* =========================================================================
@@ -763,7 +764,9 @@ static s32 renderMissionSelect(struct menudialog *dialog,
     /* ===================================================================
      * LEFT PANEL — Mission List
      * =================================================================== */
-    if (ImGui::BeginChild("##ms_left", ImVec2(leftW, bodyH), false,
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
+    if (ImGui::BeginChild("##ms_left", ImVec2(leftW, bodyH),
+                           ImGuiChildFlags_NavFlattened,
                            ImGuiWindowFlags_None)) {
 
         /* D-pad up/down navigation in left panel */
@@ -1058,7 +1061,9 @@ static s32 renderMissionSelect(struct menudialog *dialog,
     /* ===================================================================
      * RIGHT PANEL — Mission Detail
      * =================================================================== */
-    if (ImGui::BeginChild("##ms_right", ImVec2(rightW, bodyH), false,
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
+    if (ImGui::BeginChild("##ms_right", ImVec2(rightW, bodyH),
+                           ImGuiChildFlags_NavFlattened,
                            ImGuiWindowFlags_None)) {
 
         s32 si = s_MissionSelectIdx;
@@ -2775,7 +2780,9 @@ static s32 renderPauseMenu(struct menudialog *dialog,
     s32 curDiff = lvGetDifficulty();
     s32 objCount = objectiveGetCount();
 
-    if (ImGui::BeginChild("##pause_obj", ImVec2(0, objH), false,
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
+    if (ImGui::BeginChild("##pause_obj", ImVec2(0, objH),
+                           ImGuiChildFlags_NavFlattened,
                            ImGuiWindowFlags_None)) {
         bool anyObj = false;
         /* objectivenames[0] is the briefing text; objectives are indices 1-5.
@@ -3557,7 +3564,9 @@ static s32 renderOptions(struct menudialog *dialog,
     ImGui::Separator();
 
     /* ---- Scrollable tab content ---- */
-    if (ImGui::BeginChild("##opts_content", ImVec2(0, 0), false)) {
+    /* Priority L (2026-04-25): NavFlattened layout panel for options tabs. */
+    if (ImGui::BeginChild("##opts_content", ImVec2(0, 0),
+                          ImGuiChildFlags_NavFlattened)) {
         switch (s_OptionsTabIdx) {
         case 0: renderOptionsAudio();    break;
         case 1: renderOptionsVideo();    break;

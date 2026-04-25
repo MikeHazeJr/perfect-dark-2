@@ -34,6 +34,7 @@
 #include "system.h"
 #include "fs.h"
 #include "pdgui_audio.h"
+#include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 
 /* =========================================================================
  * State
@@ -378,7 +379,9 @@ static ImU32 themeEditorU32FromRgba(u32 rgba)
 
 static void renderLivePreview(float h, float scale)
 {
-    ImGui::BeginChild("##theme_preview", ImVec2(0, h), true,
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
+    ImGui::BeginChild("##theme_preview", ImVec2(0, h),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened,
                       ImGuiWindowFlags_NoScrollbar);
 
     /* Mini header that mirrors the PD dialog title strip so the user can
@@ -595,7 +598,8 @@ static void renderThemeEditor(s32 winW, s32 winH)
             ImGui::Spacing();
         }
 
-        ImGui::Checkbox("Show Reserved (legacy unused slots)", &s_ShowReserved);
+        /* Priority L (2026-04-25): label LEFT via pdguiCheckbox. */
+        pdguiCheckbox("Show Reserved (legacy unused slots)", &s_ShowReserved);
         if (s_ShowReserved) {
             ImVec4 hdrCol = palToVec4(pdguiGetTextWarning());
             ImGui::TextColored(hdrCol, "Reserved Slots");

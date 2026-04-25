@@ -20,6 +20,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h" /* M-6: pdguiPopupDarkenBehind; M-7: action bar */
+#include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
@@ -594,7 +595,8 @@ static void renderSettingsTab(void)
     ImGui::TextDisabled("Controls");
 
     bool invertRStick = inputControllerGetInvertRStickY(0) != 0;
-    if (ImGui::Checkbox("Invert Y-Axis", &invertRStick)) {
+    /* Priority L (2026-04-25): label LEFT via pdguiCheckbox. */
+    if (pdguiCheckbox("Invert Y-Axis", &invertRStick)) {
         inputControllerSetInvertRStickY(0, invertRStick ? 1 : 0);
         configSave("pd.ini");
     }
@@ -703,7 +705,9 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
         float contentH     = pdguiBodyHeightForActionBar(availBelow);
         float contentW     = menuW - padX - padR;
 
-        ImGui::BeginChild("##PauseTabContent", ImVec2(contentW, contentH), false);
+        /* Priority L (2026-04-25): NavFlattened layout panel for pause tabs. */
+        ImGui::BeginChild("##PauseTabContent", ImVec2(contentW, contentH),
+                          ImGuiChildFlags_NavFlattened);
 
         switch (s_PauseTab) {
         case 0: renderRankingsTab(contentW); break;
@@ -862,9 +866,18 @@ static void scorecardTickButtonState(void)
         return;
     }
 
-    /* Action map: Tab / Back → ACTION_SCORECARD (hold-to-show).
-     * Replaces parallel SDL_GetKeyboardState + ImGui::IsKeyDown paths. */
-    s_ScorecardVisible = actionHeld(0, ACTION_SCORECARD) != 0;
+    /* Action map (Priority J, 2026-04-25):
+     *
+     *   ACTION_SCORECARD       -- Tab keyboard binding in g_ImcGameplay
+     *                             (transient peek, both schemes).
+     *   ACTION_SCORECARD_HOLD  -- gamepad Back binding in g_ImcCombatSim
+     *                             only. Fires after 400 ms hold so a
+     *                             stray Back-tap does not pop the
+     *                             scorecard. Inactive in Mission scheme
+     *                             (no binding -> no fire). */
+    static const s32 SCORECARD_BACK_HOLD_MS = 400;
+    s_ScorecardVisible = (actionHeld(0, ACTION_SCORECARD) != 0)
+                       || (actionHeldForMs(0, ACTION_SCORECARD_HOLD, SCORECARD_BACK_HOLD_MS) != 0);
 }
 
 /* ========================================================================

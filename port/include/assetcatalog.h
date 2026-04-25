@@ -1100,6 +1100,21 @@ s32 catalogGetHeadType(s32 headnum);
  * Deterministic-pair bodies (e.g. a unique character) will return a
  * single-element array.  Mod-authored bodies that declare the same
  * HEADBODYTYPE_* as an existing pool inherit the full pool automatically.
+ *
+ * AUDIT-24-M3 (2026-04-25) -- REENTRANCY CONTRACT:
+ *   The returned pointer aliases the module-static `s_ValidHeadBuf` (256
+ *   slots).  The next call to this function INVALIDATES the previous
+ *   return -- both arrays alias the same buffer.  Callers iterating two
+ *   bodies and remembering the first result will silently observe the
+ *   second body's heads.  Pattern that breaks:
+ *
+ *     const char *const *a = catalogGetBodyValidHeadIds(body_a, &na);
+ *     const char *const *b = catalogGetBodyValidHeadIds(body_b, &nb);
+ *     // a and b now both point at body_b's heads -- bug.
+ *
+ *   Safe pattern: iterate and copy strings on each call before invoking
+ *   again.  The single-threaded contract is also a non-thread contract
+ *   (no concurrent calls).
  */
 const char *const *catalogGetBodyValidHeadIds(const char *body_id,
                                               int *out_count);
@@ -1109,7 +1124,22 @@ const char *const *catalogGetBodyValidHeadIds(const char *body_id,
  * Uses rngRandom() so repeated calls yield different heads for a body that
  * has more than one valid head.  Deterministic-pair bodies always return the
  * same head.  Returns NULL if the body has no valid heads.
- */
+ *
+ * AUDIT-24-M2 (2026-04-25) -- DETERMINISM CONTRACT:
+ *   Each client picks INDEPENDENTLY -- there is no seed coordination.
+ *   Two clients invoking this function for the same bot slot will pick
+ *   different heads.  This is OK for the existing matchsetup flow because
+ *   the LEADER picks and then broadcasts the resolved `head_id` string
+ *   to peers via `g_MatchConfig` and SVC_LOBBY_STATE; followers receive
+ *   the picked ID rather than re-rolling.
+ *
+ *   DESYNC RISK: any future call site that picks then *uses* the head
+ *   locally without a paired wire broadcast will desync (player A sees
+ *   bot with face X; player B sees bot with face Y; HUD / killfeed /
+ *   stats names diverge).  Lobby preview rendering and server-side
+ *   simulant config resolution are the most likely future violators --
+ *   audit before merging.  Server-side code MUST resolve via the
+ *   leader-broadcast value, not by calling this helper. */
 const char *catalogPickRandomHeadIdForBody(const char *body_id);
 
 /** Integer: height field for a head (matches catalogGetBodyHeight contract). */

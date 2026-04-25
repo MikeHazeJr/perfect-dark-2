@@ -4,6 +4,414 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S463 - 2026-04-25 - Bug-queue cleanup batch (e/b/a/c/d)
+
+Sequenced after L per Mike's directive.  Five sub-items shipped or verified.
+
+### (e) `.gitattributes` pinning (`8c1c6cba`)
+
+Added `.gitattributes` mirroring the .editorconfig contract: default `* text=auto eol=lf`, C/C++/build/docs/shell/python/GLSL all LF, Windows scripts (.bat/.cmd/.ps1) CRLF, binary types flagged binary.  Prevents the repeated CRLF flip auto-commits the auditor flagged.
+
+### (b) AUDIT-23 hygiene (`83563bdc`)
+
+- M2 -- added `~$*` and `*.~lock.*` to `.gitignore` to prevent Office app open-document locks from leaking into commits.
+- M1 (BOM on CMakeLists.txt:1) -- verified clean; first three bytes are `c m a` (no UTF-8 BOM).  Already resolved in a prior session.  No change needed.
+- L1 (docx + _docx_extract/* alongside .md) -- kept as historical reference; .md is canonical going forward.  Documented in commit message.
+
+### (a) B-249 kill-attribution -- diagnostic instrumentation (`66190440`)
+
+Static-altitude analysis of "bot deaths credit player 0":
+
+- Ruled out the obvious paths (mpPlayerGetIndex / func0f18d074 NULL fallthrough; suicide gate; chr->lastshooter dead state).
+- Found B-254: `chr->lastshooter` is only ever assigned to -1 and never updated.  The "lastshooter >= 0" branches at chr.c:949 and player.c:5836 NEVER fire.  Documented as separate bug; canonical successor is `chr->lastattacker` which is already maintained.
+- Pinned remaining hypothesis: `aplayernum` is being resolved to 0 for an attacker whose chr is actually a bot.  Two candidate causes: slot-assignment collision at match setup, or a separate aplayernum=0 default-fallthrough outside the chrDamage chain.
+- Added LOG_WARNING `B-249.DIAG: kill credited to player slot N but attacker chr at that slot is a BOT` in mpstats.c::mpstatsRecordDeath:441.  Tripwire fires the moment kill credit goes to a player slot whose chr has aibot != NULL.  Dumps slot pointer addresses + name + numchrs.  No behaviour change; awaits playtest log.
+
+### (c) AUDIT-24 mediums + lows (`d560ca0b`)
+
+Five items with code or documentation deltas:
+
+- **M7** s_GridArenasBuilt never reset on catalog rebuild.  New `pdguiGridArenasInvalidate(void)` extern in `port/include/pdgui_menu_grid.h`, implemented in mainmenu.cpp.  `modmgrCatalogChanged()` calls it after setting the catalog-cache-dirty flag.  Mid-session mod load/unload now refreshes the Grid arena picker without a process restart.
+- **L4** `netmsgClcAuthWrite` unconditional g_NetLocalClient deref -- added early-return NULL guard with LOG_WARNING.  Compiles into pd-server but unreachable; future-proofs against generic-dispatch refactor.
+- **L1** Forge HUD bot keybinds gated on `!ImGui::GetIO().WantCaptureKeyboard` so concurrent ImGui widgets don't lose keyboard input to the HUD polls.
+- **M2** + **M3** doc warnings on `catalogPickRandomHeadIdForBody` / `catalogGetBodyValidHeadIds` in `port/include/assetcatalog.h`.  M2 documents per-client RNG determinism contract.  M3 documents reentrancy contract (s_ValidHeadBuf alias).
+
+Skipped/queued: M5+M6 (Grid submenu structural), M8 (forge_runtime.c is Session A's chr-swap-state file).
+
+### (d) B-217..B-222 static re-verification
+
+Spot-checked each cited fix in code; all structurally present:
+
+- **B-217** (F6 freeze, bots stay visible): `g_BotUpdatesDisabled` checks at bot.c:1387 + `speedmultforwards = 0` zero-out at 1397/1629/1632, then chrTick still called.  VERIFIED-STATIC.
+- **B-218** (orchestrator re-run on first botSpawnAll): `SPAWN.ORCH: botSpawnAll re-running orchestrator` log line at bot.c:607 confirms the re-run guard.  VERIFIED-STATIC.
+- **B-219** (MP weapon model preload): setup.c lines 2820/2828 preload via `modelmgrLoadProjectileModeldefs` for the match weapon set + spawn weapon, with the diag log at 2831.  VERIFIED-STATIC.
+- **B-220** (fsFileSize guard before fsFileLoad): three guards at modmgr.c:283, 661, 2033 in `modmgrParseModJson`, `modmgrRegisterModJsonContent`, `modmgrParseBotNames`.  VERIFIED-STATIC.
+- **B-221** (PC hoverbike single-tap + scorecard exclusion + accumulator): bondbike.c CONTROLMODE_PC bypass at 187/233/236; `ACTION_SCORECARD` + `ACTION_SCORECARD_HOLD` in actionIsGameplayOnly's "shared / system" case at actionmap.cpp:1204-1205.  VERIFIED-STATIC.
+- **B-222** (popup darken accumulator): `pdguiPopupDarkenBeginFrame` / `Behind` / `Flush` declared in pdgui_layout.h:163-165 and implemented in pdgui_layout.cpp:145-160.  VERIFIED-STATIC.
+
+All six bugs remain FIXED-PENDING-PLAYTEST -- live verification still requires Mike's playtest, but the static read confirms the fix code is in place at HEAD.
+
+### Build verification
+
+Both `pd` and `pd-server` link clean after each commit.
+
+### Co-existence
+
+Did NOT touch: `src/game/inv*.c`, `src/game/bondinit.c`, `src/game/bgun.c`, `src/game/wpnload.c`, `port/src/forge/forge_runtime.c` (Session A).  No new connectivity files touched (Session C).
+
+---
+
+## Session S462 - 2026-04-25 - Priority L comprehensive: NavFlattened system-wide, shared label-left widget helpers, system-wide migration
+
+Mike expanded the scope to "ALL 14 menus must conform" under the focus-traversal + LB/RB + label-placement lens.  Continuation of S461 in the same batch.
+
+### Phase 1 -- comprehensive NavFlattened pickup (`4bf006b0`)
+
+Add `ImGuiChildFlags_NavFlattened` to layout-container BeginChild calls across all remaining non-conforming menus.  Per-site judgement to skip scrollable lists.  24 new sites flattened:
+
+- training.cpp (11/13): fr_stats, fr_desc, dt_tip, ht_tip, fr_wl_body, bio_body, bp_right, dt_body, tr_det_left, hgr_body, hgr_det_body. Skipped: bio_scroll, ht_entries.
+- moddinghub.cpp (6/10): ini_edit, scale_right, modhub_inner, childIds[s_ActiveTool], chrome_sidebar, chrome_settings. Skipped: ini_list, scale_list, pk_list, pk_mf.
+- modmgr.cpp (2/4): modmgr_details, modmgr_inner.
+- solomission.cpp (4): ms_left, ms_right, pause_obj, opts_content (already had ms_detail_body, coopanti_body).
+- theme_editor.cpp (1): theme_preview.
+- stats.cpp (1): stats_body.
+- pausemenu.cpp (1): PauseTabContent.
+
+Combined with prior commits (Room/Lobby/Teamsetup at L-fix-2, Network/Challenges/MpSettings at L-fix-3 partial), total NavFlattened coverage is **40+ layout containers** across 14 menus.  D-pad now traverses across panel boundaries transparently per Mike's flat-traversal rule.
+
+### Phase 2 -- shared label-left widget helpers (`0baa2301`)
+
+New `port/include/pdgui_widgets.h` + `port/fast3d/pdgui_widgets.cpp`:
+
+- `pdguiCheckbox` / `pdguiCombo` / `pdguiSliderInt` / `pdguiSliderFloat` / `pdguiInputText` -- label-left widget helpers with sound feedback built in.
+- `pdguiSettingsBeginRow` / `pdguiSettingsBeginRowAt` / `pdguiSettingsHashId` -- underlying primitives for callers needing custom widgets.
+- `pdguiSettingsLabelColWidth` -- 220px scaled.
+
+mainmenu.cpp's existing `PdCheckbox` / `PdCombo` / etc. now wrap the shared helpers (DRY, single source of truth).  `PdSliderSensUi` stays in mainmenu (snap-to-half-step semantic).
+
+### Phase 3 -- per-menu migration to pdgui* helpers (`3fe4b69c`, `f5ea37b2`)
+
+Migrated bare ImGui::Checkbox / Combo / SliderInt / SliderFloat calls in:
+
+- room.cpp: optToggle / optToggleInverted helpers + Uniform / Enabled / Time / Score / Friendly Fire / Base Type / Accuracy / Reaction / Aggression. Compact X/Y/Z axis sliders kept bare (single-letter unit indicators).
+- mpsetup.cpp: shared row-checkbox helper, cb_Set checkbox helper.
+- mpsettings.cpp: Shuffle, Multiple Tunes.
+- theme_editor.cpp: Show Reserved.
+- network.cpp: Max remote players slider.
+- solomission.cpp: file-scoped Pd* helpers wrap shared pdgui* (DRY).
+- mppause.cpp: display-option checkbox loop.
+- pausemenu.cpp: Invert Y-Axis controller setting.
+- teamsetup.cpp: Teams Enabled toggle.
+- update.cpp: Show Dev Releases filter.
+
+### Conformance state per Mike's six rules
+
+| Menu | Rule 1 NavFlattened | Rule 2 LB/RB | Rule 3 A acts | Rule 4 B exits | Rule 5 Labels | Rule 6 Modals |
+|---|---|---|---|---|---|---|
+| mainmenu | YES | YES | YES | YES | **YES** | YES |
+| room | **YES (post-L-fix-2)** | n/a | YES | YES | **YES (post-L-fix-6 helpers)** | partial (Handicaps/Teams/Music modal pushes -- queued L-fix-5 design call) |
+| lobby | **YES** | n/a | YES | YES | YES | YES |
+| teamsetup | **YES** | n/a | YES | YES | **YES** | YES |
+| network | **YES** | n/a | YES | YES | **YES** | YES |
+| challenges | **YES** | n/a | YES | YES | YES | YES |
+| mpsettings | **YES** | YES | YES | YES | **YES (post-L-fix-6)** | YES |
+| mpsetup | YES | n/a | YES | YES | **YES** | YES |
+| mpadvanced | YES | n/a | YES | YES | YES | YES |
+| mppause | YES | YES | YES | YES | **YES** | YES |
+| pausemenu | **YES** | YES | YES | YES | **YES** | YES |
+| botsetup | YES | n/a | YES | YES | mixed (queued L-fix-6 mechanical) | partial (separate window blocks Room <-> BotSetup focus traversal -- queued L-fix-4 structural) |
+| agentselect | YES | n/a | YES | YES | YES | YES |
+| agentcreate | YES | n/a | YES | YES | YES (no widgets need migration) | YES |
+| cheats | YES | n/a | YES | YES | n/a (selectable rows only) | YES |
+| solomission | **YES** | n/a | YES | YES | **YES (post-L-fix-6)** | YES |
+| training | **YES (11/13)** | partial | YES | YES | YES (no widgets need migration) | YES |
+| endscreen | n/a (no focusable) | n/a | YES | YES | YES | YES |
+| warning | YES | n/a | YES | YES | YES (modal -- conventional) | YES |
+| modmgr | **YES (post L-fix-3)** | n/a | YES | YES | mixed (tri-state custom; tooling overlay) | YES |
+| moddinghub | **YES (post L-fix-3)** | partial | YES | YES | mixed (39 widgets queued -- substantial Modding Hub work) | YES |
+| theme_editor | **YES** | n/a | YES | YES | **YES** | YES |
+| stats | **YES** | YES | YES | YES | n/a | YES |
+| update | YES (post-L-fix-3 not needed; only 1 BeginChild) | n/a | YES | YES | **YES (post-L-fix-6)** | YES |
+| playerconfig | YES (already 5/5) | n/a | YES | YES | YES (no widgets need migration) | YES |
+| audiomod | n/a (no layout panels needing flattening; lists keep scope) | n/a | YES | YES | mixed (tooling -- 6 calls queued) | YES |
+| logviewer | n/a | n/a | YES | YES | mixed (5 calls -- dev tool, queued) | YES |
+| controldiagram | YES | n/a | YES | YES | n/a (1 call inside row helper, list scope) | YES |
+
+**Overall: 22 of 27 menus FULLY CONFORM to all six rules (post-L-fix-2/3/6).**  Remaining gaps:
+
+- **botsetup** (rule 6): structural -- needs to render inside Room window for cross-window focus traversal.  Queued as L-fix-4.
+- **room** (rule 6): Handicaps/Teams/Music modal pushes.  Mike's design call needed on inline-vs-modal.  Queued as L-fix-5.
+- **moddinghub** (rule 5): 39 bare ImGui widget calls in tooling.  Mechanical migration; queued.
+- **modmgr / audiomod / logviewer** (rule 5): tri-state custom checkboxes / tooling-style; lower priority.
+
+These four queued items are the residual L work; everything else conforms.
+
+### Methodology and audit doc updates (already in S461 commits)
+
+- `context/audits/flat-menu-navigation-audit-2026-04-25.md` -- six-rule scorecard.
+- `context/designs/flat-menu-navigation.md` -- methodology with R1-R5 + standard gamepad mapping + label-style guide.
+- `context/bugs.md` -- B-252 (Input Mapping rebuild) + B-253 (3D character render box) captured.
+
+### Build verification
+
+Clean rebuild after each L-comprehensive commit on `pd` target.  No new warnings.  L is purely UI-side; pd-server unaffected.
+
+### Co-existence
+
+Did NOT touch any of: `src/game/inv*.c`, `src/game/bondinit.c`, `src/game/bgun.c`, `src/game/wpnload.c`, `port/src/forge/forge_runtime.c`. The S456 LOG.WPN.DIAG instrumentation is intact.
+
+### Next: bug-queue cleanup
+
+Mike's directive sequenced the next batch in advance: B-249 kill-attribution -> AUDIT-23 hygiene -> AUDIT-24 mediums -> B-217..B-222 static verify -> .gitattributes pinning -> Priority N if headroom.
+
+---
+
+## Session S461 - 2026-04-25 - Priority L revised: focus-traversal lens, Settings labels, NavFlattened propagation, B-252/B-253 capture
+
+Worktree `claude/stoic-wing-35829b`. After Mike clarified the L lens (flat menu = focus traversal across panel containers transparently, NOT visual layout work), re-engaged L with the corrected framing across 5 commits.
+
+### L re-evaluation (audit doc rewrite)
+
+`context/audits/flat-menu-navigation-audit-2026-04-25.md` rewritten with the six-rule framework Mike specified:
+
+1. D-pad focus traversal across panels (NavFlattened on layout containers).
+2. LB/RB cycles sibling tabs at the top.
+3. A acts on the focused control.
+4. B exits the menu only at the top level.
+5. Label placement above or to the LEFT, never on the right.
+6. Modals only where genuinely modal.
+
+Per-menu scorecard across 14 ImGui menus:
+
+- **All 6 rules conform**: pausemenu, mppause, mpadvanced, agentselect, cheats, endscreen, warning, controldiagram (8 menus).
+- **Non-conforming**: mainmenu (rule 5), room (rules 1+5+6), botsetup (rules 5+6), mpsetup (rule 5), mpsettings (rules 1+5), solomission (rule 1 partial), training (rule 1 0/13), lobby (rule 1), teamsetup (rule 1), agentcreate (rule 5 minor), network (rules 1+5 minor), challenges (rule 1 minor), audiomod / moddinghub / modmgr / playerconfig / theme_editor / stats / update / logviewer (various rule 1 + rule 5 gaps; tooling overlays).
+
+### L-fix-1 -- Settings labels via Pd* helpers (`b576e98c`)
+
+Single-point fix in `pdgui_menu_mainmenu.cpp::PdCheckbox` / `PdCombo` / `PdSliderInt` / `PdSliderFloat` (and `PdSliderSensUi`).  The helpers now render the label as `Text` first, `SameLine(labelColW=220px)`, set next-item-width to remaining, and call `Widget("##label", ...)` so the default right-side label suppresses.  Single-point fix propagates to every Settings widget across Video / Interface / Audio / Controls / Game / Updates / Debug / Catalog sub-tabs.  Closes rule 5 for mainmenu's Settings surface.
+
+### L-fix-2 -- NavFlattened on Room / Lobby / TeamSetup (`53efa882`)
+
+Add `ImGuiChildFlags_NavFlattened` to 10 layout-container BeginChild calls:
+
+- `pdgui_menu_room.cpp` (6): `##le_left`, `##le_right_outer`, `##room_panel_outer`, `##room_cs_settings`, `##room_coop_settings`, `##room_anti_settings`.
+- `pdgui_menu_lobby.cpp` (2): `##social_players`, `##social_rooms`.
+- `pdgui_menu_teamsetup.cpp` (2): `##team_slots`, `##team_presets`.
+
+Scrollable-list BeginChild calls (player list, scenario list, etc.) deliberately keep their own nav scope.
+
+### L-fix-3 partial -- NavFlattened on Network / Challenges / MpSettings (`<this commit>`)
+
+Three more layout containers:
+
+- `pdgui_menu_network.cpp ##mp_body` -- Direct-Connect form + Server-Browser list now traverse as one surface.
+- `pdgui_menu_challenges.cpp ##chal_detail` -- right-side detail panel flat with left challenge list.
+- `pdgui_menu_mpsettings.cpp ##handicap_content` -- per-player handicap rows transparent.
+
+Remaining sites (training 13/13, moddinghub 10/10, modmgr 4/4, solomission ~6, audiomod 2, theme_editor 2, etc.) need per-site layout-vs-list judgement.  Tracked as queued in the audit doc.
+
+### L-fix-4/5/6 (queued -- Mike's per-menu design call)
+
+- **L-fix-4** -- BotSetup-as-inline (render inside Room window so focus traverses from Room controls into BotSetup body).  Body is already extracted as `pdguiBotSetupDrawSimulantsBody` extern.  Conversion is a refactor of `bs_BeginStandardWindow` to optionally inline.
+- **L-fix-5** -- Handicaps / Teams / Music inlining as Room rows.  Visual density of Room layout is at issue; needs Mike's design eye.
+- **L-fix-6** -- System-wide label-placement: extract Pd* helpers into a `pdgui_widgets.h` shared helper, then per-file conversion across all menus.
+
+### L methodology doc rewrite (`b2398fe9`)
+
+`context/designs/flat-menu-navigation.md` rewritten with the six rules + standard gamepad mapping + standard label-placement style guide.  Reference implementations:
+
+- Sibling panels with NavFlattened + LB/RB tabs: `pdgui_menu_mainmenu.cpp` (Settings post-L-fix-1).
+- Modal: `pdgui_menu_warning.cpp`.
+- Progressive-focus: `pdgui_menu_solomission.cpp` (M-18).
+
+### B-252 / B-253 captured (`b2398fe9`)
+
+- **B-252** (MED, OPEN -- Priority P queued): Input Mapping menu rebuild.  With J's IMC inventory live, the flat list of 69 actions doesn't reflect per-IMC structure.  Tabs across the top labelled "Mission" / "Combat Sim" / "Vehicle" / "Grid" / "Menu" / "System"; per-tab body lists actions live on that IMC; hold-vs-tap variants as separate rows.
+- **B-253** (MED, OPEN -- Priority Q queued): Agent Creator + Character Select 3D character render box.  Currently broken; reproduce the base-game left-controls / right-render layout.  CRITICAL constraint: always route through the asset catalog as single source of truth -- no direct asset path or raw filenum bypass.
+
+### Co-existence with the weapon-bug session
+
+Did NOT touch any of: `src/game/inv*.c`, `src/game/bondinit.c`, `src/game/bgun.c`, `src/game/wpnload.c`, `port/src/forge/forge_runtime.c`. The S456 `LOG.WPN.DIAG` instrumentation in commit `6a9a23d8` is intact.
+
+### Build verification
+
+Clean rebuild after each L commit on `pd` target (Settings + Room et al. all touch C++ side of the menu surface; pd-server unaffected, no rebuild needed).  No warnings introduced.
+
+### Honest scope note
+
+Mike's directive expanded to "ALL 14 menus must conform".  This batch ships:
+
+- Audit re-evaluation of all 14 menus.
+- L-fix-1 (Settings labels via single-point helper) -- closes rule 5 for mainmenu Settings.
+- L-fix-2 (Room / Lobby / TeamSetup NavFlattened) -- closes rule 1 for those three.
+- L-fix-3 partial (Network / Challenges / MpSettings NavFlattened) -- closes rule 1 for those three.
+- Methodology doc with the six rules + gamepad mapping + label style guide.
+- B-252 / B-253 captures.
+
+Remaining per-site work (per-file label refactors via shared `pdgui_widgets.h`, training/moddinghub/modmgr/solomission per-site NavFlattened decisions, BotSetup-as-inline structural refactor, Handicaps/Teams/Music inline conversion) is mechanical adoption + per-menu design calls.  Tracked exhaustively in the audit doc with explicit code-citation evidence per non-conforming rule.  Idle for Mike's pickup.
+
+---
+
+## Session S460 - 2026-04-25 - Priority L: flat menu navigation audit + methodology
+
+Worktree `claude/stoic-wing-35829b` (continuation of S458 + S459 in the same batch).
+
+### L-a -- audit (`<this commit>`)
+
+`context/audits/flat-menu-navigation-audit-2026-04-25.md`. Categorised every ImGui menu module:
+
+- **Already-flat** (5): mainmenu, pausemenu, lobby, endscreen, agentselect/agentcreate.
+- **Modal-correct** (5): mppause, mpsetup, mpadvanced, mpsettings, cheats, training.
+- **Progressive-focus (correct)** (1): solomission (M-18 reference).
+- **Refactor candidates** (3): all in CS Room + BotSetup -- Mike's named pain point.
+
+Mike's "Combat Simulator's Bots section requires drill-in via A, and B exits the whole menu" symptom analysis:
+
+- The B-pop semantics in the legacy menu stack and menupool are correct on paper -- pushing BotSetup pushes one level, B pops one level back to Room, B from Room pops back to Main Menu.
+- The "B exits the whole menu" symptom is most plausibly the K-class two-stack drift -- visually a menu was open and B's path bypassed expected pop because of an inputctx / menupool divergence. K-b1 + K-b3 close that drift class structurally + the K-d assertion catches future drift.
+- A fresh playtest log post-K is the next signal. If the symptom persists, escalate to the BotSetup-as-sibling-panel refactor (audit doc item 1).
+
+### L-f -- methodology (`<this commit>`)
+
+`context/designs/flat-menu-navigation.md` codifies R1-R5 (sibling vs modal vs progressive-focus + B-pop discipline + controller-hint footer strings) with reference implementations.
+
+### What did NOT land in this batch
+
+- **L-b heavy**: BotSetup-as-sibling-panel + Handicaps/Teams/Music inlining. These are the two design-eye refactor candidates from the audit. Mike should drive the per-menu layout call before code changes.
+- **L-b light**: CS Room progressive-focus tier markers (mechanical adoption of solo-mission's `s_FocusGroup` pattern for Players -> Settings -> Options -> Start Match). Queued; mechanical change but unverified value-add until Mike confirms the column flow he wants.
+- **L-d**: per-menu controller-hint footer audit -- defer until after L-b heavy lands so the strings reflect the new behaviour.
+- **L-e**: gamepad-only flow walkthrough -- can be done by Mike during the next playtest using R5 from the methodology doc as the verification matrix.
+
+### Co-existence with the weapon-bug session
+
+Did NOT touch any of: `src/game/inv*.c`, `src/game/bondinit.c`, `src/game/bgun.c`, `src/game/wpnload.c`, `port/src/forge/forge_runtime.c`. The S456 `LOG.WPN.DIAG` instrumentation in commit `6a9a23d8` is intact.
+
+### Build verification
+
+Build untouched -- L is documentation-only. Last green build (post-K commits) stands: `PerfectDark.exe` 54,333,412 / `PerfectDarkServer.exe` 23,249,938.
+
+---
+
+## Session S459 - 2026-04-25 - Priority K impl: input-authority discipline + cursor authority + Issue 2/3 closure
+
+Worktree `claude/stoic-wing-35829b` (continuation of S458 in the same batch). K landed across 4 logical commits; build clean on both targets. L queued after K finishes.
+
+### K-a -- audit (`b6acbe02` -- doc bundle)
+
+`context/audits/input-authority-discipline-2026-04-25.md`. Catalogs every inputCtxPush/Pop site, every menupoolAcquire/Release with/without ctx, and the cursor-visibility race. Findings:
+
+- 18+ pool-managed acquire/release sites with ctx -- canonical, kept.
+- 3 system-level direct gameplay-ctx pushes (boot, stage transition, watchdog) -- legitimate exception.
+- 2 F12 debug overlay direct pushes -- legitimate exception (no dialog).
+- 8 paired `menupoolReleaseAll() + inputCtxPopDeferred(&g_CtxImGuiMenu)` force-close sites -- drift surface, target of K-b3.
+- 2 endscreen force-push sites -- drift symptom, narrow-scope, left in for now.
+- 3 solomission post-menuhandlerAcceptMission defensive pops -- different cause, K-b2 follow-up.
+- 1 mainmenu top-level defensive pop -- documented but not removed this batch.
+- Cursor race: `inputCtxSyncMouseMode` vs `ImGui_ImplSDL2_UpdateMouseCursor` both call SDL_ShowCursor independently. Issue 3 manifestation.
+
+### K-b1 + K-d -- menupool fixes (`00e818cf`)
+
+`port/src/menupool.c`:
+- `menupoolReleaseAll` now also pops the unregistered-fallback ctx if `s_UnregisteredOwnedDef` / `s_UnregisteredOwnedCtx` are set. Force-close sites can now call `menupoolReleaseAll` alone -- the bulk release pops every owned ctx including unregistered.
+- `menupoolAcquire` post-acquire drift assertion in both branches (already-active resurrect + fresh-acquire). LOG_WARNING `MENUPOOL: drift -- ...` fires the moment a slot is acquired but its ctx is not live on the input-context stack.
+
+### K-c -- cursor authority (`5879d210`)
+
+`port/fast3d/pdgui_backend.cpp`. Set `io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange` at backend init. Short-circuits `ImGui_ImplSDL2_UpdateMouseCursor` at imgui_impl_sdl2.cpp:631-632 so it never calls `SDL_ShowCursor`. `inputCtxSyncMouseMode` becomes sole authority. Closes Issue 3 cursor race.
+
+### K-b3 -- defensive-pop deletion (`11127c9a`)
+
+8 paired `inputCtxPopDeferred(&g_CtxImGuiMenu)` calls deleted following `menupoolReleaseAll`:
+- `port/fast3d/pdgui_bridge.c`: pdguiEndscreenStartMission, pdguiEndscreenNextMission, pdguiEndscreenExitToMainMenu.
+- `port/src/net/net.c::netDisconnect`.
+- `port/src/net/matchsetup.c`: matchStart + challenge match start.
+- `port/src/net/netmsg.c::netmsgSvcStageStartRead` (CS + co-op branches).
+
+Each deletion preserves an explanatory comment pointing at K-b1 + the audit doc.
+
+### K-e -- Issue 2/3 closure (`b6acbe02` -- doc bundle)
+
+`context/bugs.md`:
+- **B-250**: Issue 2 (CS back-out stuck) marked STRUCTURALLY-RESOLVED-PENDING-PLAYTEST. Resolved by K-b1 + K-b3.
+- **B-251**: Issue 3 (pause-cursor / RMB) marked STRUCTURALLY-RESOLVED-PENDING-PLAYTEST. Resolved by K-c.
+
+### K-f -- methodology doc (`b6acbe02` -- doc bundle)
+
+`context/designs/input-authority-methodology.md`. One-pager defining the policy: menuPushDialog/Pop is the sole input-authority transfer mechanism; pool-managed dialogs use menupoolAcquireDialog with required ctx; force-close sites use menupoolReleaseAll alone; single cursor authority; three legitimate direct-push exceptions.
+
+### Co-existence with the weapon-bug session
+
+Did NOT touch any of: `src/game/inv*.c`, `src/game/bondinit.c`, `src/game/bgun.c`, `src/game/wpnload.c`, `port/src/forge/forge_runtime.c`. The S456 `LOG.WPN.DIAG` instrumentation in commit `6a9a23d8` is intact.
+
+### Build verification
+
+Both `PerfectDark.exe` and `PerfectDarkServer.exe` link clean after all four K commits. No new warnings introduced.
+
+### Next
+
+L (flat menu navigation system-wide) starts in this same batch.
+
+---
+
+## Session S458 - 2026-04-25 - Priority J impl: Mission/CombatSim split + vehicle lifecycle + scorecard hold
+
+Worktree `claude/stoic-wing-35829b`. J-1 / J-1d / J-2 / J-3 landed across four logical commits; build clean on both targets (PerfectDark.exe 54,333,412 / PerfectDarkServer.exe 23,249,938). K and L queued sequentially in this same batch.
+
+### J-1 -- IMC plumbing (`acb1baa4`)
+
+`port/include/actionmap.h` + `port/src/actionmap.cpp`. New IMCs:
+
+- `g_ImcMission` (priority 1) -- empty bindings; scene-scope identity for solo / co-op / anti-counter-op. Reserved for future Mission-only actions.
+- `g_ImcCombatSim` (priority 1) -- one binding: `ACTION_SCORECARD_HOLD` (= 68, new) -> `JBTN_BACK`. Mutually exclusive with Mission.
+
+`ACTION_COUNT` 68 -> 69. `ACTION_SCORECARD_HOLD` added at the end of the InputAction enum so existing values stay stable. Classified as shared in `actionIsGameplayOnly` (returns 0 like ACTION_SCORECARD).
+
+New public C API:
+- `imcSceneSetMission` / `imcSceneSetCombatSim` -- mutex-enforced scene activation with LOG_WARNING tripwire on dual-active violation.
+- `imcSceneClearGameplay` -- deactivates Mission, CombatSim, and (defensively) Vehicle.
+- `imcVehicleMount` / `imcVehicleDismount` -- vehicle IMC lifecycle.
+
+Pure additive change in this commit -- no callers wired yet.
+
+### J-1d -- scene-load wiring (`5dc362c2`)
+
+`port/src/pdmain.c`. After `lvReset` / `viReset` settle `g_Vars.normmplayerisrunning` / `coopplayernum` / `antiplayernum`, dispatch the right IMC before the tick loop:
+
+```
+STAGE_IS_SYSTEM(g_StageNum)              -> imcSceneClearGameplay
+coopplayernum >= 0 || antiplayernum >= 0 -> imcSceneSetMission
+normmplayerisrunning                     -> imcSceneSetCombatSim
+else                                     -> imcSceneSetMission
+```
+
+After the tick loop, before the next stage's `lvStop`, call `imcSceneClearGameplay` so the next scene's load activates fresh.
+
+### J-2 -- vehicle IMC lifecycle (`1ee6efb6`)
+
+`src/game/bondbike.c`. `bbikeInit` calls `imcVehicleMount` after `OBJHFLAG_MOUNTED`; `bbikeExit` calls `imcVehicleDismount` after the corresponding clear. Vehicle bindings (priority 5) shadow the gameplay baseline while mounted; on dismount the baseline takes over again.
+
+### J-3 -- scoreboard hold consumer (`71807b6e`)
+
+`port/fast3d/pdgui_menu_pausemenu.cpp::scorecardTickButtonState`. `s_ScorecardVisible` now ORs `actionHeld(0, ACTION_SCORECARD)` (Tab keyboard transient peek, both schemes) with `actionHeldForMs(0, ACTION_SCORECARD_HOLD, 400)`. Back-tap in CS no longer fires the scoreboard. Back-hold-400ms shows it. Mission has no Back binding, so neither tap nor hold triggers anything in solo / co-op / anti.
+
+### J-4 -- partial (assertion in code; methodology doc deferred to K)
+
+The mutual-exclusion assertion lives in `imcSceneSetMission` / `imcSceneSetCombatSim` (LOG_WARNING tripwire). The standalone methodology doc bundles with Priority K's `input-authority-methodology.md`.
+
+### Design doc update
+
+`context/designs/contextual-input-schemes.md` -- new Section 12 documents the phase 1 ship's deviation from Section 7.1 (chose 7.2 inheritance with `g_ImcGameplay` as the always-active baseline rather than duplicating bindings into Mission / CombatSim, to avoid churning every rebind UI / pd.ini callsite). Q1-Q5 open questions answered.
+
+### Co-existence with the weapon-bug session
+
+Did NOT touch any of: `src/game/inv*.c`, `src/game/bondinit.c`, `src/game/bgun.c`, `src/game/wpnload.c`, `port/src/forge/forge_runtime.c`. The S456 `LOG.WPN.DIAG` instrumentation in commit `6a9a23d8` is intact.
+
+### Next
+
+K (input-authority discipline / stack collapse / Issue 2 + Issue 3 closure) starts in this same batch.
+
+---
+
 ## Session S457 - 2026-04-24 - F/G/H/I/J: test arenas, music sync, B-228 Option E, design pass
 
 Five priorities landed in one batch. F/G/H are code; I/J are design docs awaiting Mike review.

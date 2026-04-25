@@ -621,6 +621,22 @@ u32 netmsgClcAuthWrite(struct netbuf *dst)
 		modDir = "";
 	}
 
+	/* AUDIT-24-L4 (2026-04-25): defensive NULL guard on g_NetLocalClient.
+	 * In normal operation this function is only invoked from
+	 * `netClientEvConnect` which is registered as a client-side connect
+	 * handler, so `g_NetLocalClient` is always set when we get here.
+	 * The function body still compiles into pd-server (no PD_SERVER
+	 * guard around the function); a future refactor that wires this
+	 * write into a generic dispatch could expose the unconditional
+	 * deref.  The guard converts the latent footgun into a logged
+	 * warning + early-return. */
+	if (!g_NetLocalClient) {
+		sysLogPrintf(LOG_WARNING,
+			"NETMSG: netmsgClcAuthWrite called with g_NetLocalClient == NULL "
+			"-- skipping write (server build path or refactor regression)");
+		return 0;
+	}
+
 	// Use identity profile name (authoritative for PC); fall back to settings name
 	const char *name = g_NetLocalClient->settings.name;
 	identity_profile_t *profile = identityGetActiveProfile();
@@ -1583,13 +1599,11 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
 		menuStop();
 #if !defined(PD_SERVER)
-		/* Phase 2: pool slot cleanup precedes the shared menu ctx pop
-		 * so any slot that was about to survive the stage transition
-		 * is released cleanly first. */
+		/* Phase 2 / Priority K-b3: pool slot cleanup is sufficient.
+		 * menupoolReleaseAll pops every owned ctx (including unregistered-
+		 * fallback after K-b1), so the legacy paired
+		 * inputCtxPopDeferred(&g_CtxImGuiMenu) is no longer needed. */
 		menupoolReleaseAll();
-		if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-			inputCtxPopDeferred(&g_CtxImGuiMenu);
-		}
 #endif
 
 		g_NotLoadMod = true;
@@ -1739,11 +1753,10 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
 		menuStop();
 #if !defined(PD_SERVER)
-		/* Phase 2: release pool slots before popping the menu ctx. */
+		/* Phase 2 / Priority K-b3: pool slot cleanup is sufficient -- bulk
+		 * release pops every owned ctx (incl. unregistered-fallback after
+		 * K-b1), so no paired direct ctx pop is needed. */
 		menupoolReleaseAll();
-		if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-			inputCtxPopDeferred(&g_CtxImGuiMenu);
-		}
 		/* U-10: Notify server that this client's stage is loaded and ready for bot authority.
 		 * Sent here (after mpStartMatch + scenarioInitProps) as the earliest reliable point
 		 * where the client's stage geometry and pads are in flight.  The 60-frame gate in

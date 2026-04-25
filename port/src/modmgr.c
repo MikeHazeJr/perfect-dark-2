@@ -2369,6 +2369,14 @@ struct mparena *modmgrGetArena(s32 index)
 void modmgrCatalogChanged(void)
 {
 	s_CatalogCacheDirty = 1;
+
+	/* AUDIT-24-M7 (2026-04-25): invalidate the Grid arena picker's cached
+	 * list so a mod-authored arena added/removed mid-session shows up on
+	 * the next picker open without a process restart. */
+	{
+		extern void pdguiGridArenasInvalidate(void);
+		pdguiGridArenasInvalidate();
+	}
 }
 
 const char *modmgrGetModsDir(void)

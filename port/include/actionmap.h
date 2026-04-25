@@ -151,7 +151,15 @@ typedef enum InputAction {
     ACTION_FORGE_TAB_PREV,       /* = 66 previous editor tab (LB on pad, PageUp / Ctrl+Shift+Tab on key) */
     ACTION_FORGE_TAB_NEXT,       /* = 67 next editor tab (RB on pad, PageDown / Ctrl+Tab on key) */
 
-    ACTION_COUNT                /* = 68, sentinel — keep last */
+    /* ---- Combat Sim hold-vs-tap (Priority J, 2026-04-25) ----
+     * Parallel action to ACTION_SCORECARD: bound only in g_ImcCombatSim
+     * to gamepad Back. Reads via actionHeldForMs() with a hold threshold
+     * (default 400 ms). Lets CS surface the scorecard on Back-hold while
+     * Mission keeps Back inert and keyboard Tab keeps the transient peek
+     * on ACTION_SCORECARD across both schemes. */
+    ACTION_SCORECARD_HOLD,       /* = 68 hold-Back-for-scorecard, CS scheme only */
+
+    ACTION_COUNT                /* = 69, sentinel — keep last */
 } InputAction;
 
 /* Backward-compat aliases */
@@ -447,7 +455,9 @@ void actionmapSetInteractHoldExtraTerminalMs(s32 ms);
  * Default IMC singletons
  * ============================================================ */
 
-extern InputMappingContext g_ImcGameplay;      /* priority  0 — WASD + mouse + JOY1 */
+extern InputMappingContext g_ImcGameplay;      /* priority  0 — shared baseline: movement, combat, weapons, interact */
+extern InputMappingContext g_ImcMission;       /* priority  1 — solo / co-op / anti scheme (Priority J)              */
+extern InputMappingContext g_ImcCombatSim;     /* priority  1 — Combat Sim / MP scheme + scorecard-hold (Priority J)  */
 extern InputMappingContext g_ImcVehicle;       /* priority  5 — vehicle controls     */
 extern InputMappingContext g_ImcForgeSession;  /* priority  6 — Forge session toggle (whole session) */
 extern InputMappingContext g_ImcForge;         /* priority  7 — Forge editor overlay (FREEFLY only)  */
@@ -455,6 +465,42 @@ extern InputMappingContext g_ImcMenu;          /* priority 10 — ImGui menu nav
 extern InputMappingContext g_ImcPauseMenu;     /* priority 11 — in-game pause         */
 extern InputMappingContext g_ImcDebugOverlay;  /* priority 20 — F12 debug window      */
 extern InputMappingContext g_ImcTextInput;     /* priority 30 — text entry / chat     */
+
+/* ============================================================
+ * Scene-scope IMC dispatch (Priority J, 2026-04-25)
+ *
+ * Mission XOR CombatSim. The bottom-of-stack g_ImcGameplay holds the
+ * shared baseline bindings and stays active across every gameplay scene;
+ * Mission and CombatSim shadow only on actions they explicitly bind
+ * (today: only ACTION_SCORECARD_HOLD on CombatSim). Activation is driven
+ * by scene load -- callers must dispatch exactly one of these per scene.
+ *
+ * Mutual exclusion is asserted internally: if the wrong-other IMC is
+ * already active when set is called, it is deactivated first and a
+ * LOG_WARNING is emitted. The clear path also deactivates Vehicle so a
+ * mid-vehicle stage transition does not leak a stale vehicle IMC.
+ *
+ * See context/designs/contextual-input-schemes.md.
+ * ============================================================ */
+
+/** Activate the Mission IMC. Deactivates CombatSim if it was active.
+ *  Use for: solo missions, co-op campaign, anti-counter-op. */
+void imcSceneSetMission(void);
+
+/** Activate the CombatSim IMC. Deactivates Mission if it was active.
+ *  Use for: Combat Simulator, online MP matches. */
+void imcSceneSetCombatSim(void);
+
+/** Deactivate both Mission and CombatSim (and Vehicle, defensively).
+ *  Use for: SYSTEM stages (title / intro / endscreen), netDisconnect. */
+void imcSceneClearGameplay(void);
+
+/** Activate / deactivate the Vehicle IMC. Called from the hoverbike
+ *  mount / dismount entry points (Priority J-2). Vehicle bindings shadow
+ *  the gameplay baseline (steering, throttle, brake) while mounted; on
+ *  dismount the baseline takes over again. */
+void imcVehicleMount(void);
+void imcVehicleDismount(void);
 
 #ifdef __cplusplus
 }

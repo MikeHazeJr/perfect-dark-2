@@ -48,6 +48,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_widgets.h"   /* Priority L: shared label-left widget helpers */
 #include "system.h"
 #include "inputctx.h"
 #include "assetcatalog.h"
@@ -553,39 +554,43 @@ static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0,0))
     return clicked;
 }
 
-/* Checkbox that plays TOGGLE sound on change */
+/* Priority L (2026-04-25): mainmenu's Pd* helpers now wrap the shared
+ * `pdgui*` widgets defined in `port/fast3d/pdgui_widgets.cpp` so the
+ * label-left layout pattern is single-source-of-truth across menus.
+ * Existing call sites in this file keep the `PdCheckbox` / `PdCombo`
+ * / etc. names; new code (and other menus' refactored call sites)
+ * call `pdguiCheckbox` / `pdguiCombo` / etc. directly via
+ * `pdgui_widgets.h`. */
+
 static bool PdCheckbox(const char *label, bool *v)
 {
-    bool changed = ImGui::Checkbox(label, v);
-    if (changed) pdguiPlaySound(*v ? PDGUI_SND_TOGGLEON : PDGUI_SND_TOGGLEOFF);
-    return changed;
+    return pdguiCheckbox(label, v);
 }
 
-/* Combo that plays TOGGLEOFF (dropdown open) sound on change */
 static bool PdCombo(const char *label, int *current_item, const char *const items[], int items_count)
 {
-    bool changed = ImGui::Combo(label, current_item, items, items_count);
-    if (changed) pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-    return changed;
+    return pdguiCombo(label, current_item, items, items_count);
 }
 
-/* SliderInt that plays SUBFOCUS on change */
 static bool PdSliderInt(const char *label, int *v, int v_min, int v_max, const char *format = "%d")
 {
-    bool changed = ImGui::SliderInt(label, v, v_min, v_max, format);
-    return changed; /* sliders are continuous — don't spam sounds */
+    return pdguiSliderInt(label, v, v_min, v_max, format);
 }
 
-/* SliderFloat that doesn't spam sounds */
 static bool PdSliderFloat(const char *label, float *v, float v_min, float v_max, const char *format = "%.3f")
 {
-    return ImGui::SliderFloat(label, v, v_min, v_max, format);
+    return pdguiSliderFloat(label, v, v_min, v_max, format);
 }
 
-/* Controller sensitivity UI: 1-10 in 0.5 steps (snapped on edit). */
+/* Controller sensitivity UI: 1-10 in 0.5 steps (snapped on edit), label LEFT.
+ * Stays in mainmenu because of the snap-to-half-step semantic that the
+ * generic helper doesn't carry. */
 static bool PdSliderSensUi(const char *label, float *v)
 {
-    bool ch = ImGui::SliderFloat(label, v, 1.0f, 10.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+    pdguiSettingsBeginRow(label);
+    char id[160];
+    bool ch = ImGui::SliderFloat(pdguiSettingsHashId(label, id, sizeof(id)),
+                                 v, 1.0f, 10.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
     if (ch) {
         *v = actionmapSnapSensUi(*v);
     }
@@ -3968,6 +3973,16 @@ static int             s_GridArenaCount = 0;
 static int             s_GridArenaCapacity = 0;
 static bool            s_GridArenasBuilt = false;
 static int             s_GridSelectedArena = 0;
+
+/* AUDIT-24-M7 (2026-04-25): clear the built-flag so the next render
+ * rebuilds the Grid arena list from the current catalog state.  Called
+ * from `modmgrCatalogChanged()` whenever a mod is enabled / disabled /
+ * scanned, so mod-authored arenas appear in the picker without a
+ * process restart. */
+extern "C" void pdguiGridArenasInvalidate(void)
+{
+    s_GridArenasBuilt = false;
+}
 
 static GridArenaCategory gridClassifyCategory(const char *cat)
 {

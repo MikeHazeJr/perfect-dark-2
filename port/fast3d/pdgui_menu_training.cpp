@@ -468,7 +468,9 @@ static s32 renderFrTrainingInfo(struct menudialog *dialog,
     }
 
     /* Stats panel (top 55% of content area) */
-    ImGui::BeginChild("##fr_stats", ImVec2(childW, contentH * 0.55f), false);
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
+    ImGui::BeginChild("##fr_stats", ImVec2(childW, contentH * 0.55f),
+                      ImGuiChildFlags_NavFlattened);
     renderLabelRow("Difficulty:",   frMenuTextDifficultyName(nullptr));
     renderLabelRow(frMenuTextGoalScoreLabel(nullptr),
                    frMenuTextGoalScoreValue(nullptr));
@@ -484,8 +486,10 @@ static s32 renderFrTrainingInfo(struct menudialog *dialog,
     ImGui::Spacing();
 
     /* Weapon description (scrollable, bottom 45%) */
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
     ImGui::BeginChild("##fr_desc",
-                      ImVec2(childW, contentH * 0.45f - pdguiScale(9.0f)), true);
+                      ImVec2(childW, contentH * 0.45f - pdguiScale(9.0f)),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
     {
         char *desc = frGetWeaponDescription();
         if (desc && desc[0]) {
@@ -728,8 +732,10 @@ static s32 renderDtResult(struct menudialog *dialog,
     ImGui::Separator();
     ImGui::Spacing();
 
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
     ImGui::BeginChild("##dt_tip",
-                      ImVec2(childW, contentH - pdguiScale(90.0f)), true);
+                      ImVec2(childW, contentH - pdguiScale(90.0f)),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
     {
         char *tip = completed ? dtGetTip2() : dtGetTip1();
         if (tip && tip[0]) {
@@ -922,8 +928,10 @@ static s32 renderHtResult(struct menudialog *dialog,
     ImGui::Separator();
     ImGui::Spacing();
 
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
     ImGui::BeginChild("##ht_tip",
-                      ImVec2(childW, contentH - pdguiScale(90.0f)), true);
+                      ImVec2(childW, contentH - pdguiScale(90.0f)),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
     {
         char *tip = completed ? htGetTip2() : htGetTip1();
         if (tip && tip[0]) {
@@ -1261,9 +1269,11 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
         }
     }
 
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
     ImGui::BeginChild("##fr_wl_body",
                       ImVec2(diagW - ImGui::GetStyle().WindowPadding.x * 2.0f,
-                             childH), false);
+                             childH),
+                      ImGuiChildFlags_NavFlattened);
     /* M-21 progressive focus: on first frame focus lands on the currently
      * selected weapon row so A immediately advances into difficulty/pre-
      * game without the user having to D-pad to re-anchor. */
@@ -1387,9 +1397,11 @@ static s32 renderBioList(struct menudialog *dialog,
     }
     listHandleKeyboardNav(&s_BioCursor, total);
 
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
     ImGui::BeginChild("##bio_body",
                       ImVec2(diagW - ImGui::GetStyle().WindowPadding.x * 2.0f,
-                             childH), false);
+                             childH),
+                      ImGuiChildFlags_NavFlattened);
 
     if (numChr > 0) {
         ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f),
@@ -1507,9 +1519,10 @@ static s32 renderBioProfile(struct menudialog *dialog,
     if (rightW < pdguiScale(200.0f)) rightW = pdguiScale(200.0f);
 
     ImGui::SetCursorPos(ImVec2(rightX, titleH + padY));
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
     ImGui::BeginChild("##bp_right",
                       ImVec2(rightW, diagH - titleH - footerH - padY * 2),
-                      false);
+                      ImGuiChildFlags_NavFlattened);
     {
         const char *name = pdguiTrBioChrName(pdguiTrBioGetSlot());
         char nameBuf[96];
@@ -1591,9 +1604,11 @@ static s32 renderDtList(struct menudialog *dialog,
     }
     listHandleKeyboardNav(&s_DtCursor, count);
 
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
     ImGui::BeginChild("##dt_body",
                       ImVec2(diagW - ImGui::GetStyle().WindowPadding.x * 2.0f,
-                             childH), false);
+                             childH),
+                      ImGuiChildFlags_NavFlattened);
     /* M-21 progressive focus: land focus on the currently-selected device
      * on first frame so D-pad / Enter immediately advances to details. */
     bool dtFocusOnAppear = ImGui::IsWindowAppearing();
@@ -1698,10 +1713,11 @@ static s32 renderTrainingDetailsImpl(const char *imguiId,
     if (leftW < pdguiScale(220.0f)) leftW = pdguiScale(220.0f);
 
     ImGui::SetCursorPos(ImVec2(pdguiScale(28.0f), titleH + padY));
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
     ImGui::BeginChild("##tr_det_left",
                       ImVec2(leftW,
                              diagH - titleH - footerH - padY * 2),
-                      false);
+                      ImGuiChildFlags_NavFlattened);
     if (description && description[0]) {
         ImGui::PushTextWrapPos(0.0f);
         ImGui::TextUnformatted(description);
@@ -1855,9 +1871,11 @@ static s32 renderHangarList(struct menudialog *dialog,
     }
     listHandleKeyboardNav(&s_HangarCursor, total);
 
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
     ImGui::BeginChild("##hgr_body",
                       ImVec2(diagW - ImGui::GetStyle().WindowPadding.x * 2.0f,
-                             childH), false);
+                             childH),
+                      ImGuiChildFlags_NavFlattened);
 
     if (numLoc > 0) {
         ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f), "Locations");
@@ -1976,9 +1994,11 @@ static s32 renderHangarDetailsImpl(const char *imguiId, bool isVehicle,
                    - ImGui::GetStyle().WindowPadding.y * 2.0f
                    - pdguiScale(30.0f);
 
+    /* Priority L (2026-04-25): NavFlattened layout panel. */
     ImGui::BeginChild("##hgr_det_body",
                       ImVec2(diagW - ImGui::GetStyle().WindowPadding.x * 2.0f,
-                             childH), true);
+                             childH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
     if (desc && desc[0]) {
         ImGui::PushTextWrapPos(0.0f);
         ImGui::TextUnformatted(desc);

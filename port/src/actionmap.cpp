@@ -357,6 +357,8 @@ static const char * const s_ActionNames[ACTION_COUNT] = {
     "ForgeSidebarActivate",
     "ForgeTabPrev",
     "ForgeTabNext",
+    /* 68: combat sim hold-vs-tap (Priority J) */
+    "ScorecardHold",
 };
 
 /* ============================================================
@@ -704,6 +706,86 @@ void imcDeactivate(InputMappingContext *imc)
     imc->active = 0;
     sysLogPrintf(LOG_NOTE, "ACTIONMAP: deactivated '%s' (depth now %d)",
                  imc->name, s_NumActive);
+}
+
+/* ============================================================
+ * Public: scene-scope IMC dispatch (Priority J, 2026-04-25)
+ *
+ * Mission XOR CombatSim invariant. The setters always deactivate the
+ * other gameplay-scope IMC first, then activate the requested one. If a
+ * mutual-exclusion violation is detected (both already active when set is
+ * called -- shouldn't happen, but defends against future drift) a
+ * LOG_WARNING fires and we converge to the requested state regardless.
+ *
+ * imcSceneClearGameplay also drops Vehicle so a stage transition that
+ * happens mid-vehicle (e.g. unexpected disconnect while mounted) cannot
+ * leave the vehicle IMC active across an unrelated next scene.
+ * ============================================================ */
+
+static void imcSceneAssertMutex(const char *caller)
+{
+    if (g_ImcMission.active && g_ImcCombatSim.active) {
+        sysLogPrintf(LOG_WARNING,
+            "ACTIONMAP: scene-scope mutex violated in %s -- both Mission and CombatSim active. "
+            "Recovering to requested state.",
+            caller ? caller : "?");
+    }
+}
+
+void imcSceneSetMission(void)
+{
+    imcSceneAssertMutex("imcSceneSetMission");
+    if (g_ImcCombatSim.active) {
+        imcDeactivate(&g_ImcCombatSim);
+    }
+    if (!g_ImcMission.active) {
+        imcActivate(&g_ImcMission);
+        sysLogPrintf(LOG_NOTE, "ACTIONMAP: scene -> Mission");
+    }
+}
+
+void imcSceneSetCombatSim(void)
+{
+    imcSceneAssertMutex("imcSceneSetCombatSim");
+    if (g_ImcMission.active) {
+        imcDeactivate(&g_ImcMission);
+    }
+    if (!g_ImcCombatSim.active) {
+        imcActivate(&g_ImcCombatSim);
+        sysLogPrintf(LOG_NOTE, "ACTIONMAP: scene -> CombatSim");
+    }
+}
+
+void imcSceneClearGameplay(void)
+{
+    if (g_ImcMission.active) {
+        imcDeactivate(&g_ImcMission);
+    }
+    if (g_ImcCombatSim.active) {
+        imcDeactivate(&g_ImcCombatSim);
+    }
+    if (g_ImcVehicle.active) {
+        /* Stage transition while mounted should never happen, but if it
+         * does, the vehicle IMC must not survive into the next scene. */
+        imcDeactivate(&g_ImcVehicle);
+    }
+    sysLogPrintf(LOG_NOTE, "ACTIONMAP: scene -> cleared");
+}
+
+void imcVehicleMount(void)
+{
+    if (!g_ImcVehicle.active) {
+        imcActivate(&g_ImcVehicle);
+        sysLogPrintf(LOG_NOTE, "ACTIONMAP: vehicle IMC mounted");
+    }
+}
+
+void imcVehicleDismount(void)
+{
+    if (g_ImcVehicle.active) {
+        imcDeactivate(&g_ImcVehicle);
+        sysLogPrintf(LOG_NOTE, "ACTIONMAP: vehicle IMC dismounted");
+    }
 }
 
 /* ============================================================
@@ -1120,6 +1202,7 @@ s32 actionIsGameplayOnly(InputAction a)
     case ACTION_CANCEL_USE:
     case ACTION_PAUSE:
     case ACTION_SCORECARD:
+    case ACTION_SCORECARD_HOLD:
     case ACTION_SCREENSHOT:
     case ACTION_CONSOLE_TOGGLE:
     case ACTION_DEBUG_TOGGLE:
@@ -1425,9 +1508,18 @@ s32 actionmapGetLastDevice(void)
  * Bind management helpers
  * ============================================================ */
 
-/* All known IMCs — used for save/load to iterate regardless of active state. */
+/* All known IMCs — used for save/load to iterate regardless of active state.
+ *
+ * Order matters: buildBindStr / actionmapLoadBinds use first-match-wins
+ * semantics. Gameplay must come first so the shared baseline (movement,
+ * combat, weapons, interact) is the canonical owner of those bindings in
+ * pd.ini. Mission / CombatSim sit above gameplay in the iteration but only
+ * own actions they explicitly bind (today: ACTION_SCORECARD_HOLD on
+ * CombatSim), so they never shadow the baseline at save/load time. */
 static InputMappingContext * const s_AllImcs[] = {
     &g_ImcGameplay,
+    &g_ImcMission,
+    &g_ImcCombatSim,
     &g_ImcVehicle,
     &g_ImcForgeSession,
     &g_ImcForge,
@@ -1902,6 +1994,27 @@ InputMappingContext g_ImcGameplay = {
     .active   = 0,
 };
 
+/* Priority J (2026-04-25): Mission scheme IMC. Priority 1 sits above the
+ * always-active gameplay baseline. Today carries no unique bindings --
+ * exists for the scene-scope identity, the mutual-exclusion invariant
+ * with CombatSim, and so future Mission-only bindings have a home. */
+InputMappingContext g_ImcMission = {
+    .name     = "mission",
+    .priority = 1,
+    .active   = 0,
+};
+
+/* Priority J (2026-04-25): Combat Sim scheme IMC. Priority 1 (mutually
+ * exclusive with Mission). Hosts ACTION_SCORECARD_HOLD on gamepad Back so
+ * CS scoreboard requires a hold, while Mission keeps Back inert. Tab on
+ * keyboard remains in g_ImcGameplay -> ACTION_SCORECARD (transient peek)
+ * across both schemes. */
+InputMappingContext g_ImcCombatSim = {
+    .name     = "combat_sim",
+    .priority = 1,
+    .active   = 0,
+};
+
 InputMappingContext g_ImcVehicle = {
     .name     = "vehicle",
     .priority = 5,
@@ -2062,6 +2175,33 @@ static void setupGameplayDefaults(s32 player)
     }
     /* Players 1-3: no default gamepad binds. MP slots start unbound.
      * The rebind UI is functional for all players — user configures manually. */
+}
+
+/* Priority J (2026-04-25): Mission scheme defaults. No unique bindings
+ * today -- the Mission IMC exists as a scene-scope identity above the
+ * always-active gameplay baseline. Reserved for future Mission-only
+ * actions (e.g. an in-mission objective re-prompt key). */
+static void setupMissionDefaults(s32 player)
+{
+    (void)player;
+    /* Intentionally empty. */
+}
+
+/* Priority J (2026-04-25): Combat Sim scheme defaults.
+ *
+ * Hosts ACTION_SCORECARD_HOLD on gamepad Back so CS scoreboard surfaces
+ * via a held Back press (read with actionHeldForMs threshold, default
+ * 400 ms). Tab on keyboard stays in g_ImcGameplay -> ACTION_SCORECARD
+ * for the transient peek across both schemes. Mission scheme leaves Back
+ * unbound entirely -- single-winner-per-IMC dispatch + priority 1 means
+ * CS's Back binding wins over the legacy gameplay Back -> SCORECARD only
+ * while CS is active. */
+static void setupCombatSimDefaults(s32 player)
+{
+    InputMappingContext *imc = &g_ImcCombatSim;
+    if (player != 0) return; /* Player 0 only -- single-seat port. */
+
+    addBind(imc, ACTION_SCORECARD_HOLD, JOY_BTN(0, JBTN_BACK));
 }
 
 static void setupVehicleDefaults(s32 player)
@@ -2272,6 +2412,10 @@ void actionmapSetDefaults(InputMappingContext *imc, s32 player)
     /* Re-apply defaults for this player */
     if (imc == &g_ImcGameplay) {
         setupGameplayDefaults(player);
+    } else if (imc == &g_ImcMission) {
+        setupMissionDefaults(player);
+    } else if (imc == &g_ImcCombatSim) {
+        setupCombatSimDefaults(player);
     } else if (imc == &g_ImcVehicle) {
         setupVehicleDefaults(player);
     } else if (imc == &g_ImcForgeSession) {
@@ -2311,6 +2455,8 @@ void actionmapInit(void)
 
     /* Zero all IMC mapping slots */
     memset(&g_ImcGameplay,     0, sizeof(g_ImcGameplay));
+    memset(&g_ImcMission,      0, sizeof(g_ImcMission));
+    memset(&g_ImcCombatSim,    0, sizeof(g_ImcCombatSim));
     memset(&g_ImcVehicle,      0, sizeof(g_ImcVehicle));
     memset(&g_ImcForgeSession, 0, sizeof(g_ImcForgeSession));
     memset(&g_ImcForge,        0, sizeof(g_ImcForge));
@@ -2321,6 +2467,8 @@ void actionmapInit(void)
 
     /* Restore names and priorities (memset wiped them) */
     g_ImcGameplay.name     = "gameplay";      g_ImcGameplay.priority     = 0;
+    g_ImcMission.name      = "mission";       g_ImcMission.priority      = 1;
+    g_ImcCombatSim.name    = "combat_sim";    g_ImcCombatSim.priority    = 1;
     g_ImcVehicle.name      = "vehicle";       g_ImcVehicle.priority      = 5;
     g_ImcForgeSession.name = "forge_session"; g_ImcForgeSession.priority = 6;
     g_ImcForge.name        = "forge";         g_ImcForge.priority        = 7;
@@ -2331,6 +2479,8 @@ void actionmapInit(void)
 
     /* Populate default bindings — Player 0 only. No local MP in this port. */
     setupGameplayDefaults(0);
+    setupMissionDefaults(0);
+    setupCombatSimDefaults(0);
     setupVehicleDefaults(0);
     setupForgeSessionDefaults(0);
     setupForgeDefaults(0);

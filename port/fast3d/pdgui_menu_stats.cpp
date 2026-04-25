@@ -546,7 +546,9 @@ void pdguiMenuStatsRender(s32 winW, s32 winH)
     float bodyH     = pdguiBodyHeightForActionBar(bodyAvail);
     float contentW  = mw - ImGui::GetStyle().WindowPadding.x * 2.0f;
 
-    if (ImGui::BeginChild("##stats_body", ImVec2(0, bodyH), false, 0)) {
+    /* Priority L (2026-04-25): NavFlattened layout panel for stats tabs. */
+    if (ImGui::BeginChild("##stats_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened, 0)) {
         switch (s_StatsTab) {
             case 0: renderOverviewTab(contentW);      break;
             case 1: renderWeaponsTab(contentW);        break;
