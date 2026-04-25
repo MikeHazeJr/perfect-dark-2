@@ -61,6 +61,7 @@
 #include "video.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "system.h" /* B-243 instrumentation: sysLogPrintf for LOG.WPN.DIAG lines */
 
 #define GUNLOADSTATE_FLUX     0
 #define GUNLOADSTATE_MODEL    1
@@ -5981,6 +5982,21 @@ void bgunAutoSwitchWeapon(void)
 
 void bgunEquipWeapon2(s32 handnum, s32 weaponnum)
 {
+	/* B-243 instrumentation: log every equip request so we can correlate UI
+	 * "weapon equipped" with hand/gunctrl state at the same instant. Player 0
+	 * only is enough to keep noise low while still covering the bug repro. */
+	if (g_Vars.currentplayernum == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunEquipWeapon2 enter player=0 hand=%d req_wpn=%d "
+			"cur_gunctrl_wpn=%d switchto=%d dualwield=%d hand_R_wpn=%d hand_L_wpn=%d",
+			handnum, weaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.weaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.switchtoweaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.dualwielding,
+			(s32)g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponnum,
+			(s32)g_Vars.currentplayer->hands[HAND_LEFT].gset.weaponnum);
+	}
+
 	if (handnum == HAND_LEFT) {
 		if (weaponnum == WEAPON_NONE) {
 			g_Vars.currentplayer->gunctrl.dualwielding = false;
@@ -5993,6 +6009,16 @@ void bgunEquipWeapon2(s32 handnum, s32 weaponnum)
 		}
 
 		bgunEquipWeapon(weaponnum);
+	}
+
+	if (g_Vars.currentplayernum == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunEquipWeapon2 exit player=0 hand=%d req_wpn=%d "
+			"now_gunctrl_wpn=%d switchto=%d dualwield=%d",
+			handnum, weaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.weaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.switchtoweaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.dualwielding);
 	}
 }
 
@@ -10952,6 +10978,35 @@ void bgunRender(Gfx **gdlptr)
 
 	player = g_Vars.currentplayer;
 
+	/* B-243 instrumentation: log FP render entry on the first 5 ticks of a
+	 * stage for player 0. If this never fires when Mike repros, the FP render
+	 * path is being skipped upstream. If it fires but `hand[i].visible` is
+	 * false, the visibility gate is the culprit. The static `s_LastFrame`
+	 * tracks the last reported tick; lvframe60 resets to 0 per stage so a
+	 * fresh batch of 5 reports kicks off automatically at each match. */
+	if (g_Vars.currentplayernum == 0) {
+		static s32 s_LastReportedFrame = -1;
+		if (g_Vars.lvframe60 < 5 && (s32)g_Vars.lvframe60 != s_LastReportedFrame) {
+			s_LastReportedFrame = (s32)g_Vars.lvframe60;
+			sysLogPrintf(LOG_NOTE,
+				"LOG.WPN.DIAG: bgunRender enter player=0 frame=%d visionmode=%d "
+				"R(wpn=%d visible=%d inuse=%d state=%d) L(wpn=%d visible=%d inuse=%d state=%d) "
+				"gunctrl_wpn=%d switchto=%d passive=%d",
+				(s32)g_Vars.lvframe60, (s32)player->visionmode,
+				(s32)player->hands[HAND_RIGHT].gset.weaponnum,
+				(s32)player->hands[HAND_RIGHT].visible,
+				(s32)player->hands[HAND_RIGHT].inuse,
+				(s32)player->hands[HAND_RIGHT].state,
+				(s32)player->hands[HAND_LEFT].gset.weaponnum,
+				(s32)player->hands[HAND_LEFT].visible,
+				(s32)player->hands[HAND_LEFT].inuse,
+				(s32)player->hands[HAND_LEFT].state,
+				(s32)player->gunctrl.weaponnum,
+				(s32)player->gunctrl.switchtoweaponnum,
+				(s32)player->gunctrl.passivemode);
+		}
+	}
+
 	if (player->visionmode == VISIONMODE_XRAY) {
 		for (i = 0; i < 2; i++) {
 			if (g_Vars.currentplayer->hands[i].firedrocket) {
@@ -11881,6 +11936,36 @@ void bgunTickGameplay(bool triggeron)
 	s32 gunsfiring[2] = {false, false};
 	struct player *player = g_Vars.currentplayer;
 	s32 i;
+
+	/* B-243 instrumentation: log fire handler entry on first frame after the
+	 * trigger toggles ON (rising edge). Captures the gate state at the exact
+	 * moment a Mike-pressed FirePrimary action would have armed `triggeron`.
+	 * Player 0 only; emit only on rising edge to avoid flooding the log. */
+	if (g_Vars.currentplayernum == 0 && triggeron && !player->playertriggeron) {
+		s32 hr_wpn = (s32)player->hands[HAND_RIGHT].gset.weaponnum;
+		s32 hl_wpn = (s32)player->hands[HAND_LEFT].gset.weaponnum;
+		s32 hr_inuse = (s32)player->hands[HAND_RIGHT].inuse;
+		s32 hl_inuse = (s32)player->hands[HAND_LEFT].inuse;
+		s32 hr_visible = (s32)player->hands[HAND_RIGHT].visible;
+		s32 hl_visible = (s32)player->hands[HAND_LEFT].visible;
+		s32 hr_state = (s32)player->hands[HAND_RIGHT].state;
+		s32 hl_state = (s32)player->hands[HAND_LEFT].state;
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: fire handler enter player=0 triggeron=%d gunctrl_wpn=%d switchto=%d "
+			"passive=%d tickmode=%d bondmovemode=%d ctrl=%d",
+			(s32)triggeron,
+			(s32)player->gunctrl.weaponnum,
+			(s32)player->gunctrl.switchtoweaponnum,
+			(s32)player->gunctrl.passivemode,
+			(s32)g_Vars.tickmode,
+			(s32)player->bondmovemode,
+			(s32)g_PlayersWithControl[0]);
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: fire handler hands player=0 R(wpn=%d inuse=%d visible=%d state=%d) "
+			"L(wpn=%d inuse=%d visible=%d state=%d)",
+			hr_wpn, hr_inuse, hr_visible, hr_state,
+			hl_wpn, hl_inuse, hl_visible, hl_state);
+	}
 
 	// Remove weapons if in passive mode
 	if (g_Vars.currentplayer->gunctrl.passivemode) {

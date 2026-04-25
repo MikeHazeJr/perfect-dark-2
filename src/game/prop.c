@@ -2705,6 +2705,23 @@ void propsTestForPickup(void)
 	RoomNum allrooms[21];
 	RoomNum tmp[11];
 
+	/* B-243 instrumentation: log the pickup probe gate state every ~120 ticks
+	 * for player 0 so we can correlate "can't pick up" with the gates that
+	 * decide whether the probe even runs. If `gate_pass=0`, the probe never
+	 * enumerates props -- chase whichever gate is false. */
+	if (g_Vars.currentplayernum == 0 && (g_Vars.lvframenum % 120) == 5) {
+		s32 gate_movemode = (g_Vars.currentplayer->bondmovemode != MOVEMODE_CUTSCENE) ? 1 : 0;
+		s32 gate_invincible = !g_PlayerInvincible ? 1 : 0;
+		s32 gate_anti = PLAYER_IS_NOT_ANTI(g_Vars.currentplayer) ? 1 : 0;
+		s32 gate_pass = gate_movemode && gate_invincible && gate_anti;
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: pickup probe player=0 frame=%d gate_pass=%d "
+			"movemode_ok=%d (movemode=%d) invincible_ok=%d anti_ok=%d",
+			g_Vars.lvframenum, gate_pass,
+			gate_movemode, (s32)g_Vars.currentplayer->bondmovemode,
+			gate_invincible, gate_anti);
+	}
+
 	if (g_Vars.currentplayer->bondmovemode != MOVEMODE_CUTSCENE
 			&& !g_PlayerInvincible
 			&& PLAYER_IS_NOT_ANTI(g_Vars.currentplayer)

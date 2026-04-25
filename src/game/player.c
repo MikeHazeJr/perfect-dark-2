@@ -1778,6 +1778,33 @@ void playerSpawn(void)
 	if (g_NetMode == NETMODE_SERVER && g_Vars.currentplayer->client) {
 		netmsgSvcPlayerStatsWrite(&g_NetMsgRel, g_Vars.currentplayer->client);
 	}
+
+	/* B-243 instrumentation: dump player-rig + equipped weapon state at the
+	 * end of a spawn for player 0. Pairs with the LOG.WPN.DIAG lines in
+	 * bondgun.c to fingerprint whether the spawn-with-weapon hand attach
+	 * actually completed before the first fire input arrives. */
+	if (g_Vars.currentplayernum == 0) {
+		struct chrdata *chr = g_Vars.currentplayer->prop ? g_Vars.currentplayer->prop->chr : NULL;
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: playerSpawn done player=0 chr=%p model00d4=%p "
+			"haschrbody=%d gunctrl_wpn=%d switchto=%d passive=%d "
+			"R(wpn=%d inuse=%d visible=%d) L(wpn=%d inuse=%d visible=%d) "
+			"bondmovemode=%d invcount=%d",
+			(void *)chr,
+			(void *)g_Vars.currentplayer->model00d4,
+			(s32)g_Vars.currentplayer->haschrbody,
+			(s32)g_Vars.currentplayer->gunctrl.weaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.switchtoweaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.passivemode,
+			(s32)g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponnum,
+			(s32)g_Vars.currentplayer->hands[HAND_RIGHT].inuse,
+			(s32)g_Vars.currentplayer->hands[HAND_RIGHT].visible,
+			(s32)g_Vars.currentplayer->hands[HAND_LEFT].gset.weaponnum,
+			(s32)g_Vars.currentplayer->hands[HAND_LEFT].inuse,
+			(s32)g_Vars.currentplayer->hands[HAND_LEFT].visible,
+			(s32)g_Vars.currentplayer->bondmovemode,
+			(s32)invGetCount());
+	}
 }
 
 void playerResetBond(struct playerbond *pb, struct coord *pos)
@@ -1875,6 +1902,39 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 		B234_RESOLVE_CHARCONFIG(
 			g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base,
 			headnum, bodynum, arg2);
+		/* B-243 instrumentation: log the resolved body/head + their rig_class
+		 * for player 0 only. The bug correlates with body choice (Dark Combat
+		 * default = broken; Dr Carroll = working in one log), so capturing
+		 * rig_class here lets us tell whether the per-body FP-rig anchor is
+		 * different in the broken vs working cases. */
+		if (g_Vars.currentplayernum == 0) {
+			const struct mpchrconfig *cfg =
+				&g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base;
+			const char *body_id = cfg->body_id[0] ? cfg->body_id : "(empty)";
+			const char *head_id = cfg->head_id[0] ? cfg->head_id : "(empty)";
+			const char *body_rig = "(none)";
+			const char *head_rig = "(none)";
+			if (cfg->body_id[0]) {
+				const asset_entry_t *be = assetCatalogResolve(cfg->body_id);
+				if (be && be->type == ASSET_BODY) {
+					body_rig = be->ext.body.rig_class[0] ? be->ext.body.rig_class : "(empty)";
+				}
+			}
+			if (cfg->head_id[0]) {
+				const asset_entry_t *he = assetCatalogResolve(cfg->head_id);
+				if (he && he->type == ASSET_HEAD) {
+					head_rig = he->ext.head.rig_class[0] ? he->ext.head.rig_class : "(empty)";
+				}
+			}
+			sysLogPrintf(LOG_NOTE,
+				"LOG.WPN.DIAG: playerChooseBodyAndHead normmp player=0 "
+				"resolved_body=%d resolved_head=%d "
+				"cfg_mpbody=%u cfg_mphead=%u "
+				"body_id='%s' head_id='%s' body_rig='%s' head_rig='%s'",
+				*bodynum, *headnum,
+				(u32)cfg->mpbodynum, (u32)cfg->mpheadnum,
+				body_id, head_id, body_rig, head_rig);
+		}
 		return;
 	}
 
