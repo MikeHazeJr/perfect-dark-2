@@ -342,10 +342,11 @@ Profile page is reachable from the friends list (right-click / context-menu "Vie
 
 Aggregates Public-flagged mods from all peers in the current session into one browsable list. Implementation:
 
-1. Each peer broadcasts a manifest of their Public mods on group join (`mod_id`, `name`, `version`, `size`, `sha256_hash`).
+1. Each peer broadcasts a manifest of their Public `.pdmod` mods on group join (`mod_id`, `name`, `version`, `size`, `sha256_hash`, `creator`). Because the manifest is read directly from each `.pdmod` archive in memory (no on-disk extraction; see Loader integration below), browse is fast and side-effect-free.
 2. Aggregator merges manifests; UI shows the union with per-mod "owner" badges.
-3. Click a mod -> initiate file transfer through the existing mod distribution pipe (Section 9, file-transfer plumbing).
-4. Hash-checked on receipt for transfer corruption.
+3. Click a mod -> initiate file transfer through the existing mod distribution pipe (Section 9, file-transfer plumbing). The artifact transferred IS the `.pdmod` already on the sender's disk; no repackaging step.
+4. Hash-checked on receipt for transfer corruption (Section 7 packaging, integrity).
+5. Received `.pdmod` lands in the shared-mods inbox (`mods/shared/<friend_agentname>/`). Manual install only (Section 7 install + trust) -- never auto-applied just because it was browsed.
 
 ### Trust model
 
@@ -357,9 +358,24 @@ Peers in your friend group are trusted to ship benign mods. Hashes catch transfe
 
 **All mods default to Private** (Q11). The player must explicitly flag a mod Public for it to appear on their profile or in the session aggregate. Distribution platform may serve any mod regardless of flag (mod sharing IS a feature), but un-flagged mods are not browsable.
 
-### Packaging format -- `.pdmod` (Q18 amendment)
+### Packaging format -- `.pdmod` (canonical format for ALL mods)
 
-Mods sent through chat, the public mods page, or any other sharing surface ship as a single **`.pdmod`** archive. Internally `.pdmod` is a deflate-compressed zip with a renamed extension; the rename signals to the OS and to the loader "this is a mod, not a generic archive."
+> "Ultimately, our mod tools should use a pdmod type as well, to keep the folder tidy, and make sharing them easier. Of course, the client will need to interpret them." -- Mike, 2026-04-24 architectural extension
+
+`.pdmod` is **the canonical mod format for the entire system, not only for shared / transferred mods.** All mod creation, distribution, and loading goes through `.pdmod` archives:
+
+- **Mod tools** (current Theme tool, future tools) output `.pdmod` archives, not loose folder trees.
+- **The mods folder** (`%APPDATA%/PerfectDark2/mods/installed/`) contains `.pdmod` files. One file per mod.
+- **The loader** enumerates `.pdmod` archives, reads `mod.json` from the archive's bytes without extracting to disk, and serves asset paths through a virtual file system mounted on the archive.
+- **Sharing through chat / Public Mods Page** uses the same artifact already on disk. No repackaging step.
+
+The benefits Mike called out:
+
+1. **Tidy mods folder.** One file per mod instead of one directory tree. `data/mods/` becomes scannable in a glance instead of a forest of subdirectories.
+2. **Trivial sharing.** The artifact you author IS the artifact you send. No "build a redistribution package" step.
+3. **One trust path.** The same install/trust rules (Section 7's manual-install gate, sha256, friend-graph identity) apply to mods authored locally, downloaded from the Public Mods Page, and received via chat. No code path bypasses the rules because of where the mod came from.
+
+**Loader implementation work is its own effort -- tracked as Priority M.** See `context/designs/pdmod-unified-mod-format.md` for the dedicated design (loader changes, virtual file system, hot-reload, migration, performance). This connectivity doc captures the format and its sharing semantics; M owns the loader engineering.
 
 **Archive contents:**
 
@@ -380,11 +396,42 @@ my_mod.pdmod
 - The loader rejects archives that lack `mod.json` at the root with a clear error (`"<filename>: missing mod.json at archive root; not a valid mod"`).
 - Discovery is by extension or by manifest presence; never by filename heuristics. A file named `holiday_party_2026.pdmod` and one named `weird-thing-from-chris.pdmod` are equivalent input to the loader.
 
-**Per-archive integrity:**
+**Per-archive integrity (sharing path):**
 
 - The sender computes `sha256(archive_bytes)` before transmission and includes the digest in the file-transfer descriptor (Section 9.4).
 - The receiver recomputes after the transfer completes and refuses the file if the digest does not match. UX: `"Transfer corrupted, file rejected. Ask <friend> to re-send."`
-- Hash protects against transfer corruption only, not malicious tampering. Mike's trust model (next subsection) covers the malicious case.
+- Hash protects against transfer corruption only, not malicious tampering. Mike's trust model (Mod install + trust subsection below) covers the malicious case. The same rules apply uniformly to local-authored mods (trust is implicit), chat-shared mods, and Public-Mods-Page downloads.
+
+### Loader integration (high level; full design in Priority M doc)
+
+The loader's runtime contract:
+
+1. **Enumeration.** On startup, scan `mods/installed/*.pdmod` (and any legacy folder mods during the migration window). Each archive is a candidate mod.
+2. **Manifest read.** Open the archive's central directory; locate `mod.json`; decompress and parse in memory. No on-disk extraction at this stage.
+3. **Virtual file system mount.** Each enabled `.pdmod` becomes a VFS mount point. Asset path lookups (e.g. `mods/<id>/textures/foo.png`) resolve into the archive's central directory and decompress entries on demand.
+4. **Asset cache.** Decompressed entries are cached in memory at first read; LRU eviction on memory pressure. The cache shape exists so a mod that's read every frame (a texture, a model) doesn't pay archive-decompression cost on every access.
+
+**Hot-reload:** enabling or disabling a `.pdmod` mid-session is acceptable when the mod's assets are not currently bound to active scene state. Implementation contract:
+- Disable -> drop VFS mount + flush cache entries owned by that mod. Stage assets unloaded; if the user is mid-stage and the mod owned the active stage's assets, the engine returns to main menu cleanly. The "mid-stage hot-disable bumps you to main menu" UX is documented in the mod manager.
+- Enable -> add VFS mount; assets become resolvable. Existing scene state is unaffected; subsequent scene loads pick up the new mod.
+- The manifest tag `"requires_restart": true` lets a mod author opt out of hot-reload when the mod injects code that can only run cleanly on a fresh process. The loader respects this and surfaces "Restart required for [mod] to take effect" instead of attempting hot-mount.
+
+**Performance implications:** there is small overhead per asset access from the VFS layer (zip central-directory lookup + decompress on miss). Priority M's design doc owns the benchmark that proves overhead stays within budget. Pre-implementation expectation: <1 ms per first read of a typical-size asset; cached reads at native memcpy speed.
+
+**File-system metadata exposure.** `.pdmod` files surface their headline manifest fields (creator, version, description, tags) at the OS shell layer through a Windows Property Handler component shipped with the installer. Right-click Properties in Explorer, or Explorer columns, render Creator / Version / Tags directly without opening the archive. The loader's startup enumeration uses the same metadata path for fast-scan, only opening the archive at mount time. A defensive zip-comment mirror lets non-Windows tools (7-Zip, Linux file managers) see the same headline info. Single source of truth: `mod.json` inside the archive; the metadata layer is a projection, never a separate writeable surface. Full design in `pdmod-unified-mod-format.md` Section 4.5.
+
+### Migration path (folder-based mods to `.pdmod`)
+
+Existing mods today live as folders under `data/mods/<name>/`. The path forward:
+
+1. **Phase M-1 (loader-side dual support).** The loader reads BOTH `.pdmod` archives AND legacy folders. Folder-based mods continue to work; new mods use `.pdmod`. No data loss; no surprise.
+2. **Phase M-2 (mod tools migrate).** Theme tool first, then each subsequent mod tool, switches to outputting `.pdmod`. Authoring a new mod produces an archive on first save.
+3. **Phase M-3 (one-shot auto-package).** On the first run after the upgrade, the loader auto-packages every legacy folder mod it finds in `data/mods/` into a `.pdmod` archive in the same directory, then renames the original folder to `<name>.legacy_backup/`. User keeps a backup; the active mod is now an archive.
+4. **Phase M-4 (legacy loader retirement, optional and contingent on Mike).** If Mike confirms folder-based loading should fully retire (per his "tidy folder" framing), the loader drops folder support after a defined sunset window. If he prefers indefinite dual-support, this phase doesn't happen and folder mods stay loadable forever.
+
+The Priority M design doc captures the M-1..M-4 phases with file-touch estimates and exit criteria; this connectivity doc only references them.
+
+**Recommendation (for Mike's review):** retire folder-based loading after the M-3 auto-package run lands. Mike's "tidy folder" framing reads as a goal, and dual-support indefinitely is a maintenance burden that adds nothing for users. Surface this recommendation in the M doc; let Mike decide.
 
 ### Mod manifest schema -- `mod.json` (Q18)
 

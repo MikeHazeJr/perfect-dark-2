@@ -56,6 +56,16 @@ Mike answered Q1-Q18 on `context/designs/connectivity-and-modern-main-menu.md` p
 - Section 8.5.2 context menu became type-aware. Mod-only actions (Install / Install and enable / View mod details / Reject mod). Cache-only (Save permanently / Delete from cache). Convertible-source action (Convert to mod...).
 - New Section 8.5.3 covers the Convert-to-mod modal: source types (mp3/ogg/wav/flac → music mod; image types post-MVP), modal fields (name / description / creator auto-filled / tags / version), output behaviour (writes a fresh `.pdmod` to `mods/installed/`, enabled by default), and validation (Convert button gated on non-empty name + creator).
 - Decisions Q18 row updated to reflect the broader file-transfer model + `.pdmod` format + manifest schema + manual-install rule + Convert-to-mod entry point.
+
+**`.pdmod` architectural extension (Mike, 2026-04-24, follow-up):**
+- `.pdmod` graduates from "shared mods only" to **canonical format for the entire mod system**. Mod tools output `.pdmod`, mods folder contains `.pdmod` files only (post-migration), loader interprets at runtime via virtual file system mounted on the archive (no on-disk extraction).
+- Connectivity Section 7 packaging subsection broadened to capture this. New Loader-integration subsection (high level: archive enumeration, manifest read in memory, VFS mount, asset cache, hot-reload contract) and Migration-path subsection (M-1 dual-support, M-2 tool migration, M-3 one-shot auto-package, M-4 optional folder-loader retirement).
+- Public Mods Page subsection updated: browsable manifests come straight from each peer's on-disk `.pdmod` (no extraction); transfers ship the same artifact; received mods land in shared inbox with manual-install gate.
+- File-system metadata exposure (Mike addendum): Windows Property Handler DLL projects `mod.json` headline fields (creator / version / description / tags) to the OS shell layer; right-click Properties in Explorer and column views render them without opening the archive. Loader uses the same path for fast-scan startup. Single source of truth: `mod.json` inside the archive. Defensive zip-comment mirror covers non-Windows tools.
+- New design doc `context/designs/pdmod-unified-mod-format.md` owns the loader engineering, mod-tool migration, hot-reload, file-system-metadata Property Handler, trust-model continuity, and folder-tidiness goal. 4-5 weeks estimated, 4 phases (M-1..M-4).
+- Tracked as **B-238** in bugs.md as "OPEN -- DESIGN APPROVED, IMPLEMENTATION QUEUED (Priority M)."
+
+Build-verify clean (no source touched in this update; both binaries unchanged from prior commits).
 - Section 9 includes the version-mismatch UX exact string format (Q14) and the file-transfer plumbing convergence (Q10/Q11/Q18).
 - Section 10 phasing spans 6 phases (added Theater as Phase 6 separate from Spectator Phase 5; Q12 unified-architecture rule means the camera/UI is written ONCE). Phase 1 acceptance + completion-before-pivot discipline note (Q13). Phase 2 reoriented post-tier-update to be **chat + file transfer + status popups + achievements broadcast** (was originally going to absorb NAT tiers 4-5; now obsolete because Phase 1 ships the full 5-tier stack).
 - Section 11 transformed from OPEN QUESTIONS into DECISIONS table covering Q1-Q18.
