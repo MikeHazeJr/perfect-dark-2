@@ -37,6 +37,7 @@
 #include "discord.h"
 #include "identity.h"
 #include "social.h"
+#include "presence.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
@@ -191,6 +192,7 @@ int main(int argc, const char **argv)
 	identityInit();
 	socialInit();
 	p2pInit();
+	presenceInit();
 
 	/* D13: Start background update check (non-blocking) */
 	if (!sysArgCheck("--no-update-check")) {

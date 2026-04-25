@@ -1,0 +1,697 @@
+/**
+ * presence.c -- Always-on peer-to-peer presence ping/pong + invite queue.
+ *
+ * Phase 1 of the connectivity rollout. Single connectionless UDP socket
+ * on port 27105. Frame format:
+ *
+ *   off len  field
+ *   ----------------------------
+ *    0  5    magic "PDPRS"
+ *    5  1    version (1)
+ *    6  1    kind  (0=ping, 1=pong, 2=invite, 3=invite-resp, 4=bye)
+ *    7  1    state (presence_state_t)
+ *    8  4    sender handle
+ *   12  4    target handle (0 = broadcast)
+ *   16  2    netproto version
+ *   18  2    invite_kind / invite_response (0/1)
+ *   20  4    nonce
+ *   24 64    status blurb / agent name (utf-8, null-padded)
+ *   88
+ */
+
+#include "presence.h"
+#include "social.h"
+#include "net/p2p.h"
+#include "net/net.h"
+#include "system.h"
+
+#include <SDL.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#ifdef _WIN32
+  #include <winsock2.h>
+  #include <ws2tcpip.h>
+#else
+  #include <sys/socket.h>
+  #include <netinet/in.h>
+  #include <arpa/inet.h>
+  #include <unistd.h>
+  #include <fcntl.h>
+  #define closesocket close
+  typedef int SOCKET;
+  #define INVALID_SOCKET (-1)
+#endif
+
+#define PRESENCE_PORT          27105
+#define PRESENCE_MAGIC         "PDPRS"
+#define PRESENCE_MAGIC_LEN     5
+#define PRESENCE_VERSION       1
+#define PRESENCE_FRAME_LEN     88
+#define PRESENCE_BLURB_LEN     64
+
+#define PRESENCE_KIND_PING        0
+#define PRESENCE_KIND_PONG        1
+#define PRESENCE_KIND_INVITE      2
+#define PRESENCE_KIND_INVITE_RESP 3
+#define PRESENCE_KIND_BYE         4
+
+#define PRESENCE_PING_INTERVAL_MS 30000  /* ping each friend every 30 s */
+#define PRESENCE_PONG_FRESH_MS    60000  /* pong'd within last 60 s = online */
+#define PRESENCE_RATE_WINDOW_MS    5000  /* per-source minimum ping interval */
+#define PRESENCE_RATE_BUCKETS       64
+#define PRESENCE_PEER_CAP           SOCIAL_FRIENDS_MAX
+#define PRESENCE_PENDING_CAP        16
+#define PRESENCE_INVITE_CAP         16
+#define PRESENCE_INVITE_TTL_MS    180000 /* 3 min */
+#define PRESENCE_INVITE_TIMEOUT_MS 5000
+
+typedef struct {
+	u32 handle;
+	u32 last_recv_ms;
+} rate_bucket_t;
+
+typedef struct {
+	u32 handle;
+	u32 added_ms;
+	u8  in_use;
+} pending_invite_t;
+
+typedef struct {
+	u32 handle;
+	u32 last_ping_ms;
+} ping_schedule_t;
+
+static SOCKET s_Sock = INVALID_SOCKET;
+static s32    s_SocketReady;
+
+static presence_state_t s_LocalState = PRESENCE_OFFLINE;
+static char   s_LocalBlurb[PRESENCE_BLURB_LEN];
+static u32    s_LocalAgentRecord_ms;
+
+static presence_peer_t  s_Peers[PRESENCE_PEER_CAP];
+static s32              s_NumPeers;
+
+static rate_bucket_t    s_RateBuckets[PRESENCE_RATE_BUCKETS];
+
+static pending_invite_t s_Pending[PRESENCE_PENDING_CAP];
+
+static presence_invite_t s_Inbox[PRESENCE_INVITE_CAP];
+static s32               s_NumInbox;
+
+static ping_schedule_t  s_Schedule[PRESENCE_PEER_CAP];
+static s32              s_NumScheduled;
+
+/* -------------------------------------------------------------------------
+ * Helpers
+ * ------------------------------------------------------------------------- */
+
+const char *presenceStateName(presence_state_t s)
+{
+	switch (s) {
+		case PRESENCE_OFFLINE:        return "offline";
+		case PRESENCE_BOOTSTRAP:      return "bootstrap";
+		case PRESENCE_ONLINE_IDLE:    return "online";
+		case PRESENCE_IN_MATCH:       return "in-match";
+		case PRESENCE_IN_MISSION:     return "in-mission";
+		case PRESENCE_SPECTATING:     return "spectating";
+		case PRESENCE_APPEAR_OFFLINE: return "appear-offline";
+		default: return "?";
+	}
+}
+
+static void wU8(u8 **p, u8 v)   { *(*p)++ = v; }
+static void wU16(u8 **p, u16 v) { (*p)[0]=(u8)v; (*p)[1]=(u8)(v>>8); *p+=2; }
+static void wU32(u8 **p, u32 v) {
+	(*p)[0]=(u8)v; (*p)[1]=(u8)(v>>8); (*p)[2]=(u8)(v>>16); (*p)[3]=(u8)(v>>24); *p+=4;
+}
+static u8  rU8 (const u8 **p) { return *(*p)++; }
+static u16 rU16(const u8 **p) {
+	u16 v = (u16)((*p)[0]) | ((u16)((*p)[1])<<8); *p+=2; return v;
+}
+static u32 rU32(const u8 **p) {
+	u32 v = ((u32)((*p)[0])      ) | ((u32)((*p)[1])<< 8) |
+	        ((u32)((*p)[2]) << 16) | ((u32)((*p)[3])<<24); *p+=4; return v;
+}
+
+static s32 socketSetNonblock(SOCKET s)
+{
+#ifdef _WIN32
+	u_long mode = 1;
+	return ioctlsocket(s, FIONBIO, &mode) == 0 ? 0 : -1;
+#else
+	int fl = fcntl(s, F_GETFL, 0);
+	if (fl < 0) return -1;
+	return fcntl(s, F_SETFL, fl | O_NONBLOCK) == 0 ? 0 : -1;
+#endif
+}
+
+static SOCKET ensureSocket(void)
+{
+	if (s_SocketReady) return s_Sock;
+	s_Sock = socket(AF_INET, SOCK_DGRAM, 0);
+	if (s_Sock == INVALID_SOCKET) return INVALID_SOCKET;
+	int yes = 1;
+	setsockopt(s_Sock, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes));
+	socketSetNonblock(s_Sock);
+	struct sockaddr_in addr;
+	memset(&addr, 0, sizeof(addr));
+	addr.sin_family = AF_INET;
+	addr.sin_addr.s_addr = htonl(INADDR_ANY);
+	addr.sin_port = htons(PRESENCE_PORT);
+	if (bind(s_Sock, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+		addr.sin_port = 0;
+		if (bind(s_Sock, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+			closesocket(s_Sock);
+			s_Sock = INVALID_SOCKET;
+			return INVALID_SOCKET;
+		}
+	}
+	s_SocketReady = 1;
+	sysLogPrintf(LOG_NOTE, "PRESENCE: socket bound on UDP %u", (unsigned)PRESENCE_PORT);
+	return s_Sock;
+}
+
+static presence_peer_t *findPeer(u32 handle)
+{
+	for (s32 i = 0; i < s_NumPeers; i++) {
+		if (s_Peers[i].handle == handle) return &s_Peers[i];
+	}
+	return NULL;
+}
+
+static presence_peer_t *touchPeer(u32 handle)
+{
+	presence_peer_t *p = findPeer(handle);
+	if (p) return p;
+	if (s_NumPeers >= PRESENCE_PEER_CAP) return NULL;
+	p = &s_Peers[s_NumPeers++];
+	memset(p, 0, sizeof(*p));
+	p->handle = handle;
+	p->state = PRESENCE_OFFLINE;
+	return p;
+}
+
+static s32 acceptFromHandle(u32 handle)
+{
+	if (handle == 0 || handle == socialMyHandle()) return 0;
+	if (socialBlockIsHandle(handle)) return 0;
+	if (socialFriendByHandle(handle)) return 1;
+	for (s32 i = 0; i < PRESENCE_PENDING_CAP; i++) {
+		if (s_Pending[i].in_use && s_Pending[i].handle == handle) return 1;
+	}
+	return 0;
+}
+
+static s32 rateLimitAllow(u32 handle)
+{
+	const u32 now = SDL_GetTicks();
+	rate_bucket_t *empty = NULL;
+	rate_bucket_t *oldest = &s_RateBuckets[0];
+	for (s32 i = 0; i < PRESENCE_RATE_BUCKETS; i++) {
+		rate_bucket_t *b = &s_RateBuckets[i];
+		if (b->handle == handle) {
+			if (now - b->last_recv_ms < PRESENCE_RATE_WINDOW_MS) return 0;
+			b->last_recv_ms = now;
+			return 1;
+		}
+		if (!b->handle && !empty) empty = b;
+		if (b->last_recv_ms < oldest->last_recv_ms) oldest = b;
+	}
+	rate_bucket_t *slot = empty ? empty : oldest;
+	slot->handle = handle;
+	slot->last_recv_ms = now;
+	return 1;
+}
+
+static void sendFrame(u32 ipv4, u16 port, u8 kind, u32 target_handle,
+                       u32 nonce, u8 invite_kind, const char *blurb_or_agent)
+{
+	if (!s_SocketReady) return;
+	u8 packet[PRESENCE_FRAME_LEN];
+	memset(packet, 0, sizeof(packet));
+	u8 *w = packet;
+	memcpy(w, PRESENCE_MAGIC, PRESENCE_MAGIC_LEN); w += PRESENCE_MAGIC_LEN;
+	wU8(&w, PRESENCE_VERSION);
+	wU8(&w, kind);
+	wU8(&w, (u8)s_LocalState);
+	wU32(&w, socialMyHandle());
+	wU32(&w, target_handle);
+	wU16(&w, NET_PROTOCOL_VER);
+	wU16(&w, invite_kind);
+	wU32(&w, nonce);
+	if (blurb_or_agent) {
+		size_t n = strlen(blurb_or_agent);
+		if (n > PRESENCE_BLURB_LEN - 1) n = PRESENCE_BLURB_LEN - 1;
+		memcpy(packet + 24, blurb_or_agent, n);
+	}
+
+	struct sockaddr_in dst;
+	memset(&dst, 0, sizeof(dst));
+	dst.sin_family = AF_INET;
+	dst.sin_addr.s_addr = htonl(ipv4);
+	dst.sin_port = htons(port);
+	(void)sendto(s_Sock, (const char *)packet, PRESENCE_FRAME_LEN, 0,
+	             (struct sockaddr *)&dst, sizeof(dst));
+}
+
+/* -------------------------------------------------------------------------
+ * Lifecycle
+ * ------------------------------------------------------------------------- */
+
+void presenceInit(void)
+{
+	memset(s_Peers, 0, sizeof(s_Peers));
+	memset(s_RateBuckets, 0, sizeof(s_RateBuckets));
+	memset(s_Pending, 0, sizeof(s_Pending));
+	memset(s_Inbox, 0, sizeof(s_Inbox));
+	memset(s_Schedule, 0, sizeof(s_Schedule));
+	s_NumPeers = 0;
+	s_NumInbox = 0;
+	s_NumScheduled = 0;
+	s_LocalBlurb[0] = '\0';
+	s_LocalState = PRESENCE_BOOTSTRAP;
+	(void)ensureSocket();
+
+	/* Seed schedule from current friend list. */
+	const s32 nf = socialFriendCount();
+	for (s32 i = 0; i < nf && s_NumScheduled < PRESENCE_PEER_CAP; i++) {
+		const social_friend_t *f = socialFriendAt(i);
+		if (!f) continue;
+		s_Schedule[s_NumScheduled].handle = f->handle;
+		s_Schedule[s_NumScheduled].last_ping_ms = 0;
+		s_NumScheduled++;
+	}
+
+	if (socialVisibilityGet() != SOCIAL_VIS_APPEAR_OFFLINE) {
+		s_LocalState = PRESENCE_ONLINE_IDLE;
+	} else {
+		s_LocalState = PRESENCE_APPEAR_OFFLINE;
+	}
+	sysLogPrintf(LOG_NOTE, "PRESENCE: initialised state=%s scheduled=%d",
+	             presenceStateName(s_LocalState), (int)s_NumScheduled);
+}
+
+void presenceShutdown(void)
+{
+	if (!s_SocketReady) return;
+
+	/* Send BYE to every cached peer endpoint. */
+	for (s32 i = 0; i < s_NumPeers; i++) {
+		presence_peer_t *p = &s_Peers[i];
+		if (p->cached_ipv4 == 0 || p->cached_port == 0) continue;
+		sendFrame(p->cached_ipv4, p->cached_port, PRESENCE_KIND_BYE,
+		          p->handle, 0, 0, socialMyAgentName());
+	}
+
+	closesocket(s_Sock);
+	s_Sock = INVALID_SOCKET;
+	s_SocketReady = 0;
+	s_LocalState = PRESENCE_OFFLINE;
+}
+
+void presenceSetLocalState(presence_state_t s)
+{
+	if (s == s_LocalState) return;
+	s_LocalState = s;
+	sysLogPrintf(LOG_NOTE, "PRESENCE: local state -> %s", presenceStateName(s));
+}
+
+presence_state_t presenceGetLocalState(void) { return s_LocalState; }
+
+void presenceSetLocalBlurb(const char *b)
+{
+	if (!b) { s_LocalBlurb[0] = '\0'; return; }
+	strncpy(s_LocalBlurb, b, PRESENCE_BLURB_LEN - 1);
+	s_LocalBlurb[PRESENCE_BLURB_LEN - 1] = '\0';
+}
+
+const char *presenceGetLocalBlurb(void) { return s_LocalBlurb; }
+
+/* -------------------------------------------------------------------------
+ * Inbound dispatch
+ * ------------------------------------------------------------------------- */
+
+static void recordPong(u32 handle, u8 state, u16 proto, u32 src_ipv4, u16 src_port,
+                        const char *blurb)
+{
+	presence_peer_t *p = touchPeer(handle);
+	if (!p) return;
+	p->last_pong_ms = SDL_GetTicks();
+	p->state = (presence_state_t)state;
+	p->proto_version = proto;
+	p->cached_ipv4 = src_ipv4;
+	p->cached_port = src_port;
+	if (blurb) {
+		strncpy(p->status_blurb, blurb, sizeof(p->status_blurb) - 1);
+		p->status_blurb[sizeof(p->status_blurb) - 1] = '\0';
+	}
+	socialFriendTouchSeen(socialFriendByHandle(handle) ?
+	                      socialFriendByHandle(handle)->connect_code : "");
+}
+
+static void enqueueInvite(u32 from_handle, u8 kind, const char *agent)
+{
+	/* Drop duplicates from the same handle within a short window. */
+	for (s32 i = 0; i < s_NumInbox; i++) {
+		if (s_Inbox[i].from_handle == from_handle && s_Inbox[i].kind == kind) {
+			s_Inbox[i].received_ms = SDL_GetTicks();
+			return;
+		}
+	}
+	if (s_NumInbox >= PRESENCE_INVITE_CAP) {
+		/* Drop oldest. */
+		memmove(&s_Inbox[0], &s_Inbox[1],
+		        (size_t)(PRESENCE_INVITE_CAP - 1) * sizeof(presence_invite_t));
+		s_NumInbox = PRESENCE_INVITE_CAP - 1;
+	}
+	presence_invite_t *e = &s_Inbox[s_NumInbox++];
+	memset(e, 0, sizeof(*e));
+	e->from_handle = from_handle;
+	e->kind = kind;
+	e->received_ms = SDL_GetTicks();
+	if (agent) {
+		strncpy(e->from_agent, agent, sizeof(e->from_agent) - 1);
+	}
+	sysLogPrintf(LOG_NOTE, "PRESENCE: invite from 0x%08x kind=%u",
+	             (unsigned)from_handle, (unsigned)kind);
+}
+
+static void drainReceive(void)
+{
+	for (;;) {
+		u8 packet[256];
+		struct sockaddr_in src;
+		socklen_t srclen = sizeof(src);
+		int n = recvfrom(s_Sock, (char *)packet, sizeof(packet), 0,
+		                 (struct sockaddr *)&src, &srclen);
+		if (n <= 0) break;
+		if (n != PRESENCE_FRAME_LEN) continue;
+		if (memcmp(packet, PRESENCE_MAGIC, PRESENCE_MAGIC_LEN) != 0) continue;
+
+		const u8 *p = packet + PRESENCE_MAGIC_LEN;
+		u8 ver   = rU8(&p);
+		u8 kind  = rU8(&p);
+		u8 state = rU8(&p);
+		u32 from_handle = rU32(&p);
+		u32 to_handle   = rU32(&p);
+		u16 proto       = rU16(&p);
+		u16 invite_kind = rU16(&p);
+		u32 nonce       = rU32(&p);
+		(void)nonce;
+		(void)to_handle;
+
+		if (ver != PRESENCE_VERSION) continue;
+		if (!acceptFromHandle(from_handle)) continue;
+		if (!rateLimitAllow(from_handle)) continue;
+
+		const u32 src_ipv4 = ntohl(src.sin_addr.s_addr);
+		const u16 src_port = ntohs(src.sin_port);
+		const char *blurb = (const char *)(packet + 24);
+
+		switch (kind) {
+			case PRESENCE_KIND_PING: {
+				/* Reply pong. */
+				recordPong(from_handle, state, proto, src_ipv4, src_port, blurb);
+				sendFrame(src_ipv4, src_port, PRESENCE_KIND_PONG, from_handle,
+				          nonce, 0, s_LocalBlurb);
+				break;
+			}
+			case PRESENCE_KIND_PONG: {
+				recordPong(from_handle, state, proto, src_ipv4, src_port, blurb);
+				break;
+			}
+			case PRESENCE_KIND_INVITE: {
+				/* Cache sender endpoint for the upcoming p2p path. */
+				recordPong(from_handle, state, proto, src_ipv4, src_port, blurb);
+				const social_friend_t *f = socialFriendByHandle(from_handle);
+				const char *agent = (f && f->agent_name[0]) ? f->agent_name : blurb;
+				enqueueInvite(from_handle, (u8)invite_kind, agent);
+				break;
+			}
+			case PRESENCE_KIND_INVITE_RESP: {
+				recordPong(from_handle, state, proto, src_ipv4, src_port, blurb);
+				/* Caller's pending pair sees the inviter come online; the p2p
+				 * orchestrator will pick it up via cached endpoint. */
+				break;
+			}
+			case PRESENCE_KIND_BYE: {
+				presence_peer_t *peer = findPeer(from_handle);
+				if (peer) {
+					peer->state = PRESENCE_OFFLINE;
+					peer->last_pong_ms = 0;
+				}
+				break;
+			}
+			default: break;
+		}
+	}
+}
+
+/* -------------------------------------------------------------------------
+ * Outgoing schedule
+ * ------------------------------------------------------------------------- */
+
+static void scheduleSync(void)
+{
+	/* Add any new friends not yet in schedule. */
+	const s32 nf = socialFriendCount();
+	for (s32 i = 0; i < nf; i++) {
+		const social_friend_t *f = socialFriendAt(i);
+		if (!f) continue;
+		s32 found = 0;
+		for (s32 j = 0; j < s_NumScheduled; j++) {
+			if (s_Schedule[j].handle == f->handle) { found = 1; break; }
+		}
+		if (!found && s_NumScheduled < PRESENCE_PEER_CAP) {
+			s_Schedule[s_NumScheduled].handle = f->handle;
+			s_Schedule[s_NumScheduled].last_ping_ms = 0;
+			s_NumScheduled++;
+		}
+	}
+}
+
+static void sendPingTo(u32 handle)
+{
+	const presence_peer_t *p = presencePeerByHandle(handle);
+	const social_friend_t *f = socialFriendByHandle(handle);
+	if (!f) return;
+
+	u32 ipv4 = 0;
+	u16 port = 0;
+	if (p && p->cached_ipv4 != 0) {
+		ipv4 = p->cached_ipv4;
+		port = p->cached_port ? p->cached_port : PRESENCE_PORT;
+	} else {
+		/* No cached endpoint -- try LAN tier first. */
+		(void)p2pLanLookup(handle, &ipv4, &port);
+		if (port == 0) port = PRESENCE_PORT;
+	}
+
+	if (ipv4 == 0) return; /* nothing to ping yet */
+
+	const u32 nonce = (u32)SDL_GetTicks() ^ handle;
+	sendFrame(ipv4, port, PRESENCE_KIND_PING, handle, nonce, 0, s_LocalBlurb);
+}
+
+void presenceTick(void)
+{
+	if (!s_SocketReady) return;
+
+	if (socialVisibilityGet() == SOCIAL_VIS_APPEAR_OFFLINE) {
+		s_LocalState = PRESENCE_APPEAR_OFFLINE;
+	}
+
+	drainReceive();
+	scheduleSync();
+
+	const u32 now = SDL_GetTicks();
+	for (s32 i = 0; i < s_NumScheduled; i++) {
+		ping_schedule_t *e = &s_Schedule[i];
+		if (now - e->last_ping_ms < PRESENCE_PING_INTERVAL_MS && e->last_ping_ms != 0) continue;
+		e->last_ping_ms = now;
+
+		/* Skip pinging when we are appear-offline (Q7). */
+		if (s_LocalState == PRESENCE_APPEAR_OFFLINE) continue;
+
+		sendPingTo(e->handle);
+	}
+
+	/* Prune stale invites. */
+	s32 w = 0;
+	for (s32 r = 0; r < s_NumInbox; r++) {
+		if (now - s_Inbox[r].received_ms < PRESENCE_INVITE_TTL_MS) {
+			if (w != r) s_Inbox[w] = s_Inbox[r];
+			w++;
+		}
+	}
+	s_NumInbox = w;
+
+	/* Prune pending invitees. */
+	for (s32 i = 0; i < PRESENCE_PENDING_CAP; i++) {
+		if (s_Pending[i].in_use && (now - s_Pending[i].added_ms) > PRESENCE_INVITE_TTL_MS) {
+			s_Pending[i].in_use = 0;
+		}
+	}
+
+	/* Drop offline peers from cache after staleness window. */
+	for (s32 i = 0; i < s_NumPeers; i++) {
+		presence_peer_t *peer = &s_Peers[i];
+		if (peer->last_pong_ms && (now - peer->last_pong_ms) > PRESENCE_PONG_FRESH_MS) {
+			peer->state = PRESENCE_OFFLINE;
+		}
+	}
+
+	(void)s_LocalAgentRecord_ms;
+}
+
+/* -------------------------------------------------------------------------
+ * Read accessors
+ * ------------------------------------------------------------------------- */
+
+const presence_peer_t *presencePeerByHandle(u32 handle)
+{
+	return findPeer(handle);
+}
+
+s32 presencePeerIsOnline(u32 handle)
+{
+	const presence_peer_t *p = findPeer(handle);
+	if (!p || !p->last_pong_ms) return 0;
+	const u32 now = SDL_GetTicks();
+	if ((now - p->last_pong_ms) > PRESENCE_PONG_FRESH_MS) return 0;
+	return p->state != PRESENCE_OFFLINE && p->state != PRESENCE_APPEAR_OFFLINE;
+}
+
+/* -------------------------------------------------------------------------
+ * Pending invite allowlist
+ * ------------------------------------------------------------------------- */
+
+s32 presencePendingInviteAdd(u32 handle)
+{
+	if (handle == 0) return -1;
+	for (s32 i = 0; i < PRESENCE_PENDING_CAP; i++) {
+		if (s_Pending[i].in_use && s_Pending[i].handle == handle) {
+			s_Pending[i].added_ms = SDL_GetTicks();
+			return 0;
+		}
+	}
+	for (s32 i = 0; i < PRESENCE_PENDING_CAP; i++) {
+		if (!s_Pending[i].in_use) {
+			s_Pending[i].in_use = 1;
+			s_Pending[i].handle = handle;
+			s_Pending[i].added_ms = SDL_GetTicks();
+			return 0;
+		}
+	}
+	return -1;
+}
+
+void presencePendingInviteRemove(u32 handle)
+{
+	for (s32 i = 0; i < PRESENCE_PENDING_CAP; i++) {
+		if (s_Pending[i].in_use && s_Pending[i].handle == handle) {
+			s_Pending[i].in_use = 0;
+			return;
+		}
+	}
+}
+
+/* -------------------------------------------------------------------------
+ * Outbound invite
+ * ------------------------------------------------------------------------- */
+
+s32 presenceSendInvite(u32 friend_handle, u8 kind)
+{
+	if (friend_handle == 0) return -1;
+	const social_friend_t *f = socialFriendByHandle(friend_handle);
+	if (!f) return -1;
+
+	const presence_peer_t *p = findPeer(friend_handle);
+	u32 ipv4 = 0; u16 port = 0;
+	if (p && p->cached_ipv4 != 0) {
+		ipv4 = p->cached_ipv4;
+		port = p->cached_port ? p->cached_port : PRESENCE_PORT;
+	} else {
+		(void)p2pLanLookup(friend_handle, &ipv4, &port);
+		if (port == 0) port = PRESENCE_PORT;
+	}
+
+	if (ipv4 == 0) return -1;
+
+	const u32 nonce = (u32)SDL_GetTicks() ^ friend_handle;
+	sendFrame(ipv4, port, PRESENCE_KIND_INVITE, friend_handle, nonce, kind,
+	          socialMyAgentName());
+
+	/* Begin a tier-1 capable p2p path so an accepted invite has a channel. */
+	(void)p2pPairBegin(friend_handle, ipv4, port);
+	sysLogPrintf(LOG_NOTE,
+	             "PRESENCE: invite sent handle=0x%08x kind=%u via %u.%u.%u.%u:%u",
+	             (unsigned)friend_handle, (unsigned)kind,
+	             (ipv4 >> 24) & 0xFF, (ipv4 >> 16) & 0xFF,
+	             (ipv4 >>  8) & 0xFF, (ipv4 >>  0) & 0xFF,
+	             (unsigned)port);
+	return 0;
+}
+
+/* -------------------------------------------------------------------------
+ * Inbox
+ * ------------------------------------------------------------------------- */
+
+s32 presenceInviteCount(void) { return s_NumInbox; }
+
+const presence_invite_t *presenceInviteAt(s32 idx)
+{
+	if (idx < 0 || idx >= s_NumInbox) return NULL;
+	return &s_Inbox[idx];
+}
+
+s32 presenceInviteAccept(s32 idx)
+{
+	if (idx < 0 || idx >= s_NumInbox) return -1;
+	const presence_invite_t *e = &s_Inbox[idx];
+	const presence_peer_t *p = findPeer(e->from_handle);
+
+	u32 ipv4 = 0; u16 port = 0;
+	if (p && p->cached_ipv4 != 0) {
+		ipv4 = p->cached_ipv4;
+		port = p->cached_port ? p->cached_port : PRESENCE_PORT;
+	}
+
+	const u32 nonce = (u32)SDL_GetTicks() ^ e->from_handle;
+	if (ipv4 != 0) {
+		sendFrame(ipv4, port, PRESENCE_KIND_INVITE_RESP, e->from_handle, nonce, 1,
+		          socialMyAgentName());
+	}
+
+	/* Open a p2p path so the actual game traffic can flow. */
+	(void)p2pPairBegin(e->from_handle, ipv4, port);
+
+	/* Remove from inbox. */
+	memmove(&s_Inbox[idx], &s_Inbox[idx + 1],
+	        (size_t)(s_NumInbox - idx - 1) * sizeof(presence_invite_t));
+	s_NumInbox--;
+	memset(&s_Inbox[s_NumInbox], 0, sizeof(presence_invite_t));
+	return 0;
+}
+
+s32 presenceInviteDecline(s32 idx)
+{
+	if (idx < 0 || idx >= s_NumInbox) return -1;
+	const presence_invite_t *e = &s_Inbox[idx];
+	const presence_peer_t *p = findPeer(e->from_handle);
+
+	if (p && p->cached_ipv4 != 0) {
+		const u32 nonce = (u32)SDL_GetTicks() ^ e->from_handle;
+		sendFrame(p->cached_ipv4, p->cached_port ? p->cached_port : PRESENCE_PORT,
+		          PRESENCE_KIND_INVITE_RESP, e->from_handle, nonce, 0,
+		          socialMyAgentName());
+	}
+
+	memmove(&s_Inbox[idx], &s_Inbox[idx + 1],
+	        (size_t)(s_NumInbox - idx - 1) * sizeof(presence_invite_t));
+	s_NumInbox--;
+	memset(&s_Inbox[s_NumInbox], 0, sizeof(presence_invite_t));
+	return 0;
+}

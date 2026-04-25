@@ -84,6 +84,7 @@
 #include "net/netmsg.h"
 #include "net/netmanifest.h"
 #include "net/p2p.h"
+#include "presence.h"
 #include "modelcatalog.h"
 #include "pdmain.h"
 #include "pdgui_theme.h"
@@ -650,6 +651,7 @@ void mainTick(void)
 	 * stage transitions and title screens. Internal guard returns early
 	 * before p2pInit() completes. */
 	p2pTick();
+	presenceTick();
 
 	if (g_MainChangeToStageNum < 0) {
 		frametimeCalculate();
