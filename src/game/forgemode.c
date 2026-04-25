@@ -377,10 +377,14 @@ static void forgeTransitionToInactive(const char *reason)
 	s_forge.state = FORGE_SESSION_INACTIVE;
 	s_forge.request_enter_session = false;
 
-	/* Issue 8b: ensure the Forge IMC is not left active if a session
-	 * ends via a path other than the NORMAL transition (stage-left-
-	 * gameplay watchdog, explicit exit). */
+	/* Issue 8b + AUDIT-24-H2/H3: ensure both Forge IMCs are released
+	 * when the session ends through any path (stage-left-gameplay
+	 * watchdog, explicit exit, transition to NORMAL is handled
+	 * separately). g_ImcForgeSession (FORGE_TOGGLE on Back) is whole-
+	 * session scope; g_ImcForge (camera axes / sidebar / tabs) is
+	 * FREEFLY scope. Both are idempotent on already-inactive. */
 	imcDeactivate(&g_ImcForge);
+	imcDeactivate(&g_ImcForgeSession);
 
 	/* Cleanup (2026-04-24): the Playtest HUD's Freeze All toggle mirrors
 	 * bs->all_frozen into g_BotUpdatesDisabled every forgeRuntimeTick.
@@ -546,6 +550,14 @@ void forgeTick(void)
 		struct player *p = forgeCurrentPlayer();
 		if (p) {
 			s_forge.request_enter_session = false;
+			/* AUDIT-24-H2: activate the whole-session IMC BEFORE the
+			 * FREEFLY transition. This puts JBTN_BACK -> FORGE_TOGGLE
+			 * on the wire as soon as the session is live, so the
+			 * Halo-style toggle works in both directions (Back during
+			 * Playtest enters FREEFLY; Back during FREEFLY returns to
+			 * Playtest). The FREEFLY-scoped g_ImcForge piggybacks on
+			 * this and is layered on top inside forgeTransitionToFreefly. */
+			imcActivate(&g_ImcForgeSession);
 			forgeTransitionToFreefly("session start (request)");
 			sysLogPrintf(LOG_NOTE, "GRID: session active stage=0x%02x (starting in FREEFLY)",
 					g_StageNum);

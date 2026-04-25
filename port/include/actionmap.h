@@ -449,7 +449,8 @@ void actionmapSetInteractHoldExtraTerminalMs(s32 ms);
 
 extern InputMappingContext g_ImcGameplay;      /* priority  0 — WASD + mouse + JOY1 */
 extern InputMappingContext g_ImcVehicle;       /* priority  5 — vehicle controls     */
-extern InputMappingContext g_ImcForge;         /* priority  7 — Forge editor overlay */
+extern InputMappingContext g_ImcForgeSession;  /* priority  6 — Forge session toggle (whole session) */
+extern InputMappingContext g_ImcForge;         /* priority  7 — Forge editor overlay (FREEFLY only)  */
 extern InputMappingContext g_ImcMenu;          /* priority 10 — ImGui menu nav        */
 extern InputMappingContext g_ImcPauseMenu;     /* priority 11 — in-game pause         */
 extern InputMappingContext g_ImcDebugOverlay;  /* priority 20 — F12 debug window      */

@@ -48,7 +48,33 @@ Landed five commits, one per priority, each build-verified on pd + pd-server whe
 ### What did NOT land
 
 - Subdivision of `rig_class` (splitting DEFAULT when neck drift shows) -- design-doc future work, lands as data-only edits.
-- A "sidebar" toggle in the Forge editor (Issue 8b hint: X = sidebar). No concrete sidebar surface designed yet; deferred.
+
+### Priority E v2 -- `29d05d49` feat(grid): X-toggle sidebar + D-pad nav + LB/RB tabs (Issue 8b)
+
+After Mike confirmed Priority E v1 was incomplete vs the verbatim spec, layered the real Issue 8b on top:
+
+- 6 new actions (`ACTION_FORGE_SIDEBAR_TOGGLE/UP/DOWN/ACTIVATE`, `ACTION_FORGE_TAB_PREV/NEXT`, `ACTION_COUNT` 62 -> 68) on a new `g_ImcForge` IMC at priority 7. Defaults: X = sidebar toggle, LB/RB = tab prev/next, D-pad up/down/right = sidebar nav. Keyboard equivalents Tab / PageUp / PageDown / arrow keys land in the same IMC.
+- Sidebar UI: `forgeSidebarDraw` ImGui child with per-tab section list (Level: Skylight / Skybox / Background Music / Lighting / Mission; Objects: every `forge_category_t`; Control: Logic / Wires / Zones / Channels; Gameplay: Game Type / Scoring / Players / Modifiers / HUD / Waves / Bots; Setup: Map Metadata / Variant / Players). `forgeScrollAnchorMaybe` planted at 17 section headers across `forgeDrawActiveTab` and the per-tab draws so sidebar activation scrolls the editor to the right section. Objects-tab activation writes `forgeGetEditor()->category_filter` directly.
+- Stick invariant documented in `forgeReadFreeflyInput`: stick axes ride on `actionmapPollFrame`'s direct `SDL_GameControllerGetAxis` write, bypass IMC priority entirely, and are gated only on `gameplayInputSuppressed` (menu / focus). Sidebar / tab / D-pad input never consumes sticks.
+
+### AUDIT-24-H2/H3 closure -- B-236
+
+The 4-24 super audit (committed as `5ee1b013`) flagged that `g_ImcGameplay`'s dual-bind of `JBTN_BACK -> FORGE_TOGGLE`, `JOFS_RTRIG -> FORGE_ASCEND`, and `JOFS_LTRIG -> FORGE_DESCEND` lost every press to SCORECARD / FIRE_PRIMARY / FIRE_SECONDARY via `fireVk`'s single-winner-per-IMC dispatch. Same root cause invalidated LSHIFT/LCTRL boost/precision against SPRINT/CROUCH on keyboard.
+
+Closure splits the Forge IMC in two:
+
+- New `g_ImcForgeSession` (priority 6, whole session) hosts `JBTN_BACK -> FORGE_TOGGLE` only. Active from session start (`forgeTick` consume of `request_enter_session`) through `forgeTransitionToInactive`.
+- Existing `g_ImcForge` (priority 7, FREEFLY-only) absorbs the moved triggers + modifiers (LT/RT, LSHIFT/LCTRL) alongside the Issue 8b sidebar / tab bindings.
+- Gameplay IMC keeps keyboard F7/E/Q (each a sole binding, no collision).
+
+State trace: outside session = original gameplay; NORMAL playtest = Back toggles to FREEFLY, every other gameplay action keeps working (LB/RB still WEAPON_PREV/NEXT, X still USE, RT/LT still FIRE_*); FREEFLY = forge IMC shadows triggers/modifiers/D-pad/X/LB/RB.
+
+### What did NOT land in this session
+
+- Subdivision of `rig_class` (splitting DEFAULT when neck drift shows) -- design-doc future work, lands as data-only edits.
+- AUDIT-24-M2 / M3 / M5 / M6 / M7 / M8 + L1-L4 from the 4-24 audit are still live; only the H2/H3 cluster is closed.
+- AUDIT-23-M1 (`CMakeLists.txt` BOM), AUDIT-23-M2 (`~$*` gitignore), AUDIT-23-L1 (docx dedup) carry-overs untouched.
+- B-217..B-222 playtest queue from 4-21 still pending Windows MSYS2 client run.
 
 ## Session S455 - 2026-04-24 - Grid playtest batch: crash fix + FREEFLY observer gating
 

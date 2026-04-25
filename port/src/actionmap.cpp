@@ -1429,6 +1429,7 @@ s32 actionmapGetLastDevice(void)
 static InputMappingContext * const s_AllImcs[] = {
     &g_ImcGameplay,
     &g_ImcVehicle,
+    &g_ImcForgeSession,
     &g_ImcForge,
     &g_ImcMenu,
     &g_ImcPauseMenu,
@@ -1907,12 +1908,27 @@ InputMappingContext g_ImcVehicle = {
     .active   = 0,
 };
 
+/* Issue 8b (2026-04-24): Forge session IMC. Priority 6 -- active for
+ * the entire forge session (NORMAL + FREEFLY). Hosts the FORGE_TOGGLE
+ * binding (gamepad Back) so the toggle wins over ACTION_SCORECARD in
+ * the gameplay IMC, both when entering FREEFLY from NORMAL playtest
+ * and when leaving FREEFLY back to NORMAL. AUDIT-24-H2 closure.
+ * Activated by forgeTick on the first tick of a live session;
+ * deactivated by forgeTransitionToInactive. */
+InputMappingContext g_ImcForgeSession = {
+    .name     = "forge_session",
+    .priority = 6,
+    .active   = 0,
+};
+
 /* Issue 8b (2026-04-24): Forge editor IMC. Priority 7 sits above
- * gameplay + vehicle so sidebar / tab bindings shadow their gameplay
- * counterparts (X vs USE, LB/RB vs WEAPON_PREV/NEXT, DPad vs DPad
- * cardinal) while FREEFLY is active. Priority stays below menu (10)
- * so the pause menu still wins if it opens over a forge session.
- * Activated in forgeTransitionToFreefly, deactivated on exit. */
+ * gameplay + vehicle + forge_session so sidebar / tab / camera-axis
+ * bindings shadow their gameplay counterparts (X vs USE, LB/RB vs
+ * WEAPON_PREV/NEXT, DPad vs DPad cardinal, LT/RT vs FIRE_*, LSHIFT/
+ * LCTRL vs SPRINT/CROUCH) while FREEFLY is active. Priority stays
+ * below menu (10) so the pause menu still wins if it opens over a
+ * forge session. Activated in forgeTransitionToFreefly, deactivated
+ * on exit. */
 InputMappingContext g_ImcForge = {
     .name     = "forge",
     .priority = 7,
@@ -2024,31 +2040,25 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_SCORECARD,      43); /* 43 = SDL_SCANCODE_TAB */
         addBind(imc, ACTION_SCORECARD,      JOY_BTN(0, JBTN_BACK));
 
-        /* The Grid mode toggle (Forge <-> Playtest).  Single-tap swap.
-         * Keyboard: F7 (legacy, kept for habit).  Gamepad: Back button
-         * (Halo-style Forge/Playtest swap, 2026-04-24).  Back also fires
-         * ACTION_SCORECARD; both actions edge-trigger on the same press,
-         * which is fine because scorecard in a solo Grid session is a
-         * no-op popup and the mode toggle is only consumed by forgeTick
-         * when a session is active.  LSHIFT/LCTRL for boost/precision
-         * are intentionally shared with sprint/crouch (no conflict --
-         * forgeReadFreeflyInput only reads them in FREEFLY, where the
-         * player movemode is MOVEMODE_CUTSCENE and bwalk is dormant).
-         * The design's hold-LB+RB chord is a later pass. */
+        /* The Grid mode toggle (Forge <-> Playtest), keyboard binding.
+         * F7 has no other binding in the gameplay IMC, so it dispatches
+         * cleanly. Keyboard E / Q (FORGE_ASCEND / DESCEND) are also
+         * unique-bound on this IMC and remain here -- they only have an
+         * effect when forgeReadFreeflyInput reads them in FREEFLY.
+         *
+         * AUDIT-24-H2 / H3 fix (2026-04-24):
+         *   - Gamepad Back -> FORGE_TOGGLE moved to g_ImcForgeSession.
+         *     Old dual-bind here lost the single-winner-per-IMC race
+         *     to ACTION_SCORECARD (lower enum) and never fired.
+         *   - Gamepad LT / RT -> FORGE_DESCEND / ASCEND moved to
+         *     g_ImcForge. Old binds here lost to FIRE_PRIMARY /
+         *     FIRE_SECONDARY (lower enum) and never fired.
+         *   - LSHIFT / LCTRL -> FORGE_BOOST / PRECISION moved to
+         *     g_ImcForge. Old binds here lost to SPRINT / CROUCH
+         *     (lower enum) and never fired even on keyboard. */
         addBind(imc, ACTION_FORGE_TOGGLE,    (u32)VKL_F7);
-        addBind(imc, ACTION_FORGE_TOGGLE,    JOY_BTN(0, JBTN_BACK));
         addBind(imc, ACTION_FORGE_ASCEND,    VKL_E);
         addBind(imc, ACTION_FORGE_DESCEND,   VKL_Q);
-        /* Issue 8 (2026-04-24): LT / RT on the gamepad raise and lower
-         * the freefly camera.  forgeReadFreeflyInput reads these actions
-         * held each tick while in FREEFLY; they never trigger bwalk
-         * movement because the player movemode is MOVEMODE_CUTSCENE.
-         * In a regular match they fire nothing because
-         * forgeSessionIsActive() is false. */
-        addBind(imc, ACTION_FORGE_ASCEND,    JOY_BTN(0, JOFS_RTRIG));
-        addBind(imc, ACTION_FORGE_DESCEND,   JOY_BTN(0, JOFS_LTRIG));
-        addBind(imc, ACTION_FORGE_BOOST,     VK_LSHIFT);
-        addBind(imc, ACTION_FORGE_PRECISION, VK_LCTRL);
     }
     /* Players 1-3: no default gamepad binds. MP slots start unbound.
      * The rebind UI is functional for all players — user configures manually. */
@@ -2074,26 +2084,64 @@ static void setupVehicleDefaults(s32 player)
     addBind(imc, ACTION_PAUSE,               JOY_BTN(0, JBTN_START));
 }
 
-/* Issue 8b (2026-04-24): Forge editor IMC default bindings.
+/* Issue 8b (2026-04-24): Forge session-scoped IMC default bindings.
  *
- * Scoped entirely to g_ImcForge (priority 7).  Activated by forgemode
- * when a forge session enters FREEFLY, deactivated on exit.  Binding
- * them here means X / LB / RB / D-pad capture shadows the gameplay
- * actions that share those buttons (USE, WEAPON_PREV, WEAPON_NEXT,
- * FIRE_MODE etc.) only while FREEFLY is on -- normal gameplay is
- * unaffected.
+ * Lives on g_ImcForgeSession (priority 6). Active for the entire forge
+ * session -- both NORMAL (Playtest) and FREEFLY -- so the toggle works
+ * in both directions: Back during Playtest enters FREEFLY, Back during
+ * FREEFLY returns to Playtest. Whole-session scope is required because
+ * NORMAL is a regular gameplay state (player has weapons, can interact)
+ * but Back must still reach FORGE_TOGGLE rather than ACTION_SCORECARD.
  *
- * Keyboard defaults land here too so the same actions drive both
- * input devices: Tab toggles sidebar, PageUp / PageDown cycle tabs.
- * Ctrl+Tab / Ctrl+Shift+Tab IDE-style binding is handled directly in
- * the editor render loop (chord detection lives with ImGui, not in
- * the scalar VK actionmap). */
+ * Hosts ONLY the toggle binding -- anything that affects the freefly
+ * camera (axes / triggers / boost / precision) or the editor surface
+ * (sidebar / tabs) lives on the FREEFLY-only g_ImcForge instead, so
+ * gameplay actions on those same buttons keep working in NORMAL state.
+ *
+ * AUDIT-24-H2 closure. */
+static void setupForgeSessionDefaults(s32 player)
+{
+    InputMappingContext *imc = &g_ImcForgeSession;
+    if (player != 0) return;
+
+    addBind(imc, ACTION_FORGE_TOGGLE, JOY_BTN(0, JBTN_BACK));
+}
+
+/* Issue 8b (2026-04-24): Forge editor (FREEFLY) IMC default bindings.
+ *
+ * Lives on g_ImcForge (priority 7). Activated by forgemode when a forge
+ * session enters FREEFLY, deactivated on exit. Binding here means each
+ * VK shadows its gameplay counterpart only while FREEFLY is on:
+ *
+ *   - X      shadows ACTION_USE             (sidebar toggle, Issue 8b v1)
+ *   - LB/RB  shadow  ACTION_WEAPON_PREV/NEXT (tab cycle, Issue 8b v1)
+ *   - D-pad  shadow  ACTION_FIRE_MODE etc.  (sidebar nav, Issue 8b v1)
+ *   - LT/RT  shadow  ACTION_FIRE_SECONDARY/PRIMARY  (descend/ascend,
+ *                                                    AUDIT-24-H3)
+ *   - LSHIFT shadows ACTION_SPRINT          (boost, AUDIT-24-H3 follow-up)
+ *   - LCTRL  shadows ACTION_CROUCH          (precision, same)
+ *
+ * Outside FREEFLY (NORMAL playtest, gameplay) g_ImcForge is inactive
+ * and every one of these VKs falls through to its gameplay binding.
+ *
+ * Keyboard defaults for sidebar / tabs land here too; Tab toggles
+ * sidebar, PageUp / PageDown cycle tabs. Ctrl+Tab / Ctrl+Shift+Tab
+ * chord lives in the editor render loop because the actionmap stores
+ * single-VK bindings only. */
 static void setupForgeDefaults(s32 player)
 {
     InputMappingContext *imc = &g_ImcForge;
     if (player != 0) return; /* Player 0 only -- single-seat forge authoring. */
 
-    /* ---- Gamepad ---- */
+    /* ---- Camera axis / freefly modifiers (gamepad) ---- */
+    addBind(imc, ACTION_FORGE_ASCEND,           JOY_BTN(0, JOFS_RTRIG));
+    addBind(imc, ACTION_FORGE_DESCEND,          JOY_BTN(0, JOFS_LTRIG));
+
+    /* ---- Camera modifiers (keyboard, also FREEFLY-only) ---- */
+    addBind(imc, ACTION_FORGE_BOOST,            VK_LSHIFT);
+    addBind(imc, ACTION_FORGE_PRECISION,        VK_LCTRL);
+
+    /* ---- Editor sidebar + tabs (gamepad) ---- */
     addBind(imc, ACTION_FORGE_SIDEBAR_TOGGLE,   JOY_BTN(0, JBTN_X));
     addBind(imc, ACTION_FORGE_TAB_PREV,         JOY_BTN(0, JBTN_LB));
     addBind(imc, ACTION_FORGE_TAB_NEXT,         JOY_BTN(0, JBTN_RB));
@@ -2101,7 +2149,7 @@ static void setupForgeDefaults(s32 player)
     addBind(imc, ACTION_FORGE_SIDEBAR_DOWN,     JOY_BTN(0, JBTN_DPAD_DOWN));
     addBind(imc, ACTION_FORGE_SIDEBAR_ACTIVATE, JOY_BTN(0, JBTN_DPAD_RIGHT));
 
-    /* ---- Keyboard ---- */
+    /* ---- Editor sidebar + tabs (keyboard) ---- */
     /* Scancodes follow the SDL_SCANCODE_* enum mirrored in s_VkNames
      * above: TAB=43, PAGEUP=75, PAGEDOWN=78, RIGHT=79, DOWN=81, UP=82. */
     addBind(imc, ACTION_FORGE_SIDEBAR_TOGGLE,   43);  /* TAB */
@@ -2226,6 +2274,8 @@ void actionmapSetDefaults(InputMappingContext *imc, s32 player)
         setupGameplayDefaults(player);
     } else if (imc == &g_ImcVehicle) {
         setupVehicleDefaults(player);
+    } else if (imc == &g_ImcForgeSession) {
+        setupForgeSessionDefaults(player);
     } else if (imc == &g_ImcForge) {
         setupForgeDefaults(player);
     } else if (imc == &g_ImcMenu) {
@@ -2262,6 +2312,7 @@ void actionmapInit(void)
     /* Zero all IMC mapping slots */
     memset(&g_ImcGameplay,     0, sizeof(g_ImcGameplay));
     memset(&g_ImcVehicle,      0, sizeof(g_ImcVehicle));
+    memset(&g_ImcForgeSession, 0, sizeof(g_ImcForgeSession));
     memset(&g_ImcForge,        0, sizeof(g_ImcForge));
     memset(&g_ImcMenu,         0, sizeof(g_ImcMenu));
     memset(&g_ImcPauseMenu,    0, sizeof(g_ImcPauseMenu));
@@ -2271,6 +2322,7 @@ void actionmapInit(void)
     /* Restore names and priorities (memset wiped them) */
     g_ImcGameplay.name     = "gameplay";      g_ImcGameplay.priority     = 0;
     g_ImcVehicle.name      = "vehicle";       g_ImcVehicle.priority      = 5;
+    g_ImcForgeSession.name = "forge_session"; g_ImcForgeSession.priority = 6;
     g_ImcForge.name        = "forge";         g_ImcForge.priority        = 7;
     g_ImcMenu.name         = "menu";          g_ImcMenu.priority         = 10;
     g_ImcPauseMenu.name    = "pause_menu";    g_ImcPauseMenu.priority    = 11;
@@ -2280,6 +2332,7 @@ void actionmapInit(void)
     /* Populate default bindings — Player 0 only. No local MP in this port. */
     setupGameplayDefaults(0);
     setupVehicleDefaults(0);
+    setupForgeSessionDefaults(0);
     setupForgeDefaults(0);
     setupMenuDefaults();
     setupPauseMenuDefaults();
