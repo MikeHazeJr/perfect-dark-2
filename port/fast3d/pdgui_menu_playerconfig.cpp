@@ -74,6 +74,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_charpreview.h"    /* B-253: pdguiCharPreviewSetRotY for fixed pose */
 #include "pdgui_model_preview.h"  /* Batch 0 reusable model preview widget */
 #include "pdgui.h"                /* langSafe */
 #include "system.h"
@@ -496,9 +497,17 @@ static void pc_NetNotifyLocalPlayerChanged(void)
  *   netmenu.c:179 / :403 apply to the modern netmenu character dropdowns.
  */
 
+/* B-253: 3/4-turn pose for the MP Character Select preview.  Matches the
+ * convention used in pdgui_menu_agentcreate.cpp so both screens read
+ * visually consistent. */
+#define MP_CHAR_PREVIEW_ROTY (-0.45f)
+
 static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
 {
-    WindowFrame wf = pc_BeginStandardWindow("##pc_char", "Character", 0.68f, 0.70f,
+    /* B-253: Wider window (was 0.68 wide, 0.70 tall) so the right-side
+     * 3D pane can be a substantial render box without crowding the body
+     * list on the left. */
+    WindowFrame wf = pc_BeginStandardWindow("##pc_char", "Character", 0.78f, 0.80f,
                                             menupoolDialogDef(dialog));
     if (wf.mw == 0.0f) { ImGui::End(); return 1; }
 
@@ -529,53 +538,34 @@ static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
         if (numHeads <= 0) numHeads = 1;
         if (curHead >= numHeads) curHead = numHeads - 1;
 
-        float previewW = pdguiScale(300.0f);
-        float previewH = pdguiScale(340.0f);
+        float contentW = ImGui::GetContentRegionAvail().x;
         float colGap   = pdguiScale(20.0f);
+        /* B-253: Layout flipped per Mike's brief — controls (body list +
+         * head carousel) on LEFT, 3D render box on RIGHT.  Left column
+         * gets ~45% so the body list (which scrolls) has room; right
+         * column gets the remainder, capped square against the body
+         * height so the render box is a true square. */
+        float leftW    = (contentW - colGap) * 0.45f;
+        float rightW   = contentW - colGap - leftW;
 
-        /* ------------------------------------------------------------
-         * Left column: live 3D preview.
-         * ------------------------------------------------------------ */
-        {
-            const char *headId = catalogMpHeadId(curHead);
-            const char *bodyId = catalogMpBodyId(curBody);
+        ImVec2 colsOrigin = ImGui::GetCursorScreenPos();
 
-            ImVec2 pos = ImGui::GetCursorScreenPos();
-
-            ModelPreviewOpts opts = pdguiModelPreviewDefaultOpts();
-            opts.showBodyName = 0;
-            opts.showHeadName = 0;
-            opts.idleRotation = 1;
-            opts.idleRotSpeed = 0.4f;
-            opts.cornerRadius = pdguiScale(4.0f);
-
-            pdguiModelPreviewDraw(headId, bodyId,
-                                   pos.x, pos.y,
-                                   previewW, previewH,
-                                   &opts);
-
-            ImGui::Dummy(ImVec2(previewW, previewH));
-        }
-
-        ImGui::SameLine(0.0f, colGap);
-
-        /* ------------------------------------------------------------
-         * Right column: scrollable body list + head carousel.
-         * ------------------------------------------------------------ */
+        /* ============================================================
+         * LEFT: Body list + Head carousel
+         * ============================================================ */
         ImGui::BeginGroup();
         {
-            float rightW = ImGui::GetContentRegionAvail().x;
-
             /* Body list ----------------------------------------------- */
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted("Body");
             ImGui::Spacing();
 
-            float listH = previewH - pdguiScale(120.0f);
+            float carouselH = pdguiScale(72.0f);  /* head carousel area */
+            float listH = bodyH - carouselH - pdguiScale(40.0f);
             if (listH < pdguiScale(120.0f)) listH = pdguiScale(120.0f);
 
             if (ImGui::BeginChild("##pc_char_body_list",
-                                  ImVec2(rightW, listH), true,
+                                  ImVec2(leftW, listH), true,
                                   ImGuiWindowFlags_NoBackground)) {
                 for (s32 i = 0; i < numBodies; i++) {
                     const char *t = list_GetOptionText(mpCharacterBodyListHandler, 0, i);
@@ -625,7 +615,7 @@ static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
             }
             ImGui::SameLine();
 
-            /* Show a numeric label + catalog ID hint -- heads have no
+            /* Show a numeric label + catalog ID hint — heads have no
              * localized display name (the N64 UI used a 3D preview and
              * carousel arrows only).  The catalog ID is the most
              * meaningful thing we can surface in text. */
@@ -649,6 +639,37 @@ static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
             ImGui::EndDisabled();
         }
         ImGui::EndGroup();
+
+        /* ============================================================
+         * RIGHT: 3D render pane (square, vertically centered)
+         * ============================================================ */
+        ImGui::SameLine(0.0f, colGap);
+
+        {
+            float paneW = rightW;
+            float paneH = bodyH - pdguiScale(8.0f);
+            float side = (paneW < paneH) ? paneW : paneH;
+            float px = colsOrigin.x + leftW + colGap + (paneW - side) * 0.5f;
+            float py = colsOrigin.y + (paneH - side) * 0.5f;
+
+            const char *headId = catalogMpHeadId(curHead);
+            const char *bodyId = catalogMpBodyId(curBody);
+
+            /* Fix the body at a 3/4-turn pose; idle rotation off so the
+             * pose is steady. */
+            pdguiCharPreviewSetRotY(MP_CHAR_PREVIEW_ROTY);
+
+            ModelPreviewOpts opts = pdguiModelPreviewDefaultOpts();
+            opts.showBodyName = 1;
+            opts.showHeadName = 0;
+            opts.idleRotation = 0;
+            opts.cornerRadius = pdguiScale(6.0f);
+
+            pdguiModelPreviewDraw(headId, bodyId, px, py, side, side, &opts);
+
+            /* Reserve cursor space so the BeginChild reports correct height. */
+            ImGui::Dummy(ImVec2(rightW, paneH));
+        }
     }
     ImGui::EndChild();
 

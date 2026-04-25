@@ -32,6 +32,7 @@
 #include "pdgui_audio.h"
 #include "pdgui_charpreview.h"
 #include "pdgui_model_preview.h"
+#include "pdgui_layout.h"  /* B-253: docked action bar primitives */
 #include "system.h"
 #include "assetcatalog.h"
 
@@ -118,6 +119,11 @@ static bool s_FirstFrame = true;      /* Focus name input on first frame */
 /* Cached counts (refreshed each frame) */
 static s32 s_NumHeads = 0;
 static s32 s_NumBodies = 0;
+
+/* Frame-scoped flag: set inside the LEFT-pane name input render, read in the
+ * docked action bar later in the same frame so Enter from the name field
+ * commits Create.  Reset to false at the top of each render pass. */
+static bool s_NameEnterPressedThisFrame = false;
 
 /* Head sort map — alphabetically sorted by display name */
 #define MAX_HEAD_COUNT 128
@@ -238,91 +244,13 @@ static void autoSelectHead(void)
     }
 }
 
-/* Track previous head/body to detect changes */
-static s32 s_PrevPreviewHead = -1;
-static s32 s_PrevPreviewBody = -1;
-
 /**
- * Draw the character portrait preview.
- *
- * If the 3D render-to-texture system has produced a valid preview,
- * displays the actual character model render via ImGui::Image.
- * Otherwise, falls back to a placeholder silhouette.
+ * 3/4-turn body angle in radians.  Shows mostly the front with a hint of
+ * profile so the head + shoulder silhouette read clearly.  Negative offset
+ * twists the model so the right shoulder leads (matching N64 PD's
+ * character-select pose convention).
  */
-static void drawPortraitPreview(ImDrawList *dl, float x, float y,
-                                 float size, float scale)
-{
-    /* Request a new preview render if head/body changed */
-    if (s_SelectedHead != s_PrevPreviewHead ||
-        s_SelectedBody != s_PrevPreviewBody) {
-        const char *hid = catalogMpHeadId(s_SortedHeadIndices[s_SelectedHead]);
-        const char *bid = catalogMpBodyId(s_SelectedBody);
-        pdguiCharPreviewRequest(hid ? hid : "", bid ? bid : "");
-        s_PrevPreviewHead = s_SelectedHead;
-        s_PrevPreviewBody = s_SelectedBody;
-    }
-
-    /* Center X — used for both the preview content and the body name label */
-    float cx = x + size * 0.5f;
-
-    /* Background frame — always drawn behind the preview */
-    dl->AddRectFilled(ImVec2(x, y), ImVec2(x + size, y + size),
-                      IM_COL32(10, 15, 30, 240), 4.0f * scale);
-    dl->AddRect(ImVec2(x, y), ImVec2(x + size, y + size),
-                pdguiImU32TintInfo(200), 4.0f * scale, 0, 2.0f * scale);
-
-    /* Try to display the 3D rendered preview */
-    u32 texId = pdguiCharPreviewGetTextureId();
-    if (texId != 0 && pdguiCharPreviewIsReady()) {
-        /* Display the FBO texture via ImGui::Image.
-         * The texture ID is a GL texture handle cast to ImTextureID. */
-        ImVec2 uv0(0.0f, 1.0f);  /* Flip Y — FBO textures are upside-down */
-        ImVec2 uv1(1.0f, 0.0f);
-        dl->AddImage((ImTextureID)(uintptr_t)texId,
-                     ImVec2(x + 2.0f, y + 2.0f),
-                     ImVec2(x + size - 2.0f, y + size - 2.0f),
-                     uv0, uv1);
-    } else {
-        /* Fallback: placeholder silhouette */
-        float cy = y + size * 0.4f;
-        float headR = size * 0.15f;
-
-        dl->AddCircleFilled(ImVec2(cx, cy), headR,
-                            pdguiImU32TintInfo(200), 24);
-        dl->AddRectFilled(
-            ImVec2(cx - size * 0.3f, cy + headR * 0.8f),
-            ImVec2(cx + size * 0.3f, cy + headR * 0.8f + size * 0.25f),
-            pdguiImU32TintInfo(200), headR);
-
-        /* Initials */
-        char initials[4] = {0};
-        if (s_AgentName[0]) {
-            initials[0] = s_AgentName[0];
-            for (int i = 1; s_AgentName[i]; i++) {
-                if (s_AgentName[i] == ' ' && s_AgentName[i + 1]) {
-                    initials[1] = s_AgentName[i + 1];
-                    break;
-                }
-            }
-            if (!initials[1] && s_AgentName[1]) {
-                initials[1] = s_AgentName[1];
-            }
-        } else {
-            initials[0] = '?';
-        }
-
-        ImVec2 textSize = ImGui::CalcTextSize(initials);
-        float textY = y + size * 0.72f;
-        dl->AddText(ImVec2(cx - textSize.x * 0.5f, textY),
-                    pdguiImU32TitleGlow(255), initials);
-    }
-
-    /* Body name below portrait */
-    const char *bodyName = getBodyDisplayName(s_SelectedBody);
-    ImVec2 bodyNameSize = ImGui::CalcTextSize(bodyName);
-    dl->AddText(ImVec2(cx - bodyNameSize.x * 0.5f, y + size + 4.0f * scale),
-                pdguiImU32TintInfo(180), bodyName);
-}
+#define AGENTCREATE_PREVIEW_ROTY  (-0.45f)
 
 /* ========================================================================
  * ImGui Render Callback
@@ -339,7 +267,6 @@ static s32 renderAgentCreate(struct menudialog *dialog,
     /* Rebuild head sort map if head count changed */
     if (s_SortedHeadNumHeads != s_NumHeads) {
         rebuildHeadSortMap();
-        s_PrevPreviewHead = -1; /* force preview re-render after rebuild */
         pdguiModelPreviewInvalidate();
     }
 
@@ -350,17 +277,15 @@ static s32 renderAgentCreate(struct menudialog *dialog,
     if (s_SelectedHead < 0) s_SelectedHead = 0;
 
     /* ---- Layout ---- */
-    float scale = pdguiScaleFactor();
     float dialogW = pdguiMenuWidth();
     float dialogH = pdguiMenuHeight();
     ImVec2 menuPos = pdguiMenuPos();
     float dialogX = menuPos.x;
     float dialogY = menuPos.y;
 
-    /* PD-authentic title bar height */
-    float pdTitleH = dialogH * 0.07f;
-    if (pdTitleH < 20.0f) pdTitleH = 20.0f;
-    if (pdTitleH > 30.0f) pdTitleH = 30.0f;
+    /* PD-authentic title bar height. 39px @ 1080p baseline matches the rest
+     * of the Phase-3 menus (cf. pdgui_menu_playerconfig.cpp). */
+    float pdTitleH = pdguiScale(39.0f);
 
     ImGui::SetNextWindowPos(ImVec2(dialogX, dialogY));
     ImGui::SetNextWindowSize(ImVec2(dialogW, dialogH));
@@ -382,8 +307,6 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         ImGui::SetWindowFocus();
         s_FirstFrame = true;
         /* Force preview re-render on screen open */
-        s_PrevPreviewHead = -1;
-        s_PrevPreviewBody = -1;
         pdguiModelPreviewInvalidate();
     }
 
@@ -400,293 +323,272 @@ static s32 renderAgentCreate(struct menudialog *dialog,
     pdguiDrawPdDialog(dialogX, dialogY, dialogW, dialogH,
                       "Create Agent", 1);
 
-    /* Draw title text with glow */
-    {
-        ImDrawList *dl = ImGui::GetWindowDrawList();
-        pdguiDrawTextGlow(dialogX + 8.0f, dialogY + 2.0f,
-                          dialogW - 16.0f, pdTitleH - 4.0f);
-
-        ImVec2 titleSize = ImGui::CalcTextSize("Create Agent");
-        dl->AddText(ImVec2(dialogX + 10.0f,
-                           dialogY + (pdTitleH - titleSize.y) * 0.5f),
-                    pdguiPalImU32(PDPAL_TITLEFG, 255), "Create Agent");
-    }
-
     /* Content starts below PD title bar */
     pdguiSetCursorBelowTitle(pdTitleH);
 
-    float pad = 12.0f * scale;
-    float contentW = dialogW - pad * 2.0f;
+    float pad = pdguiScale(16.0f);
+
+    /* Reserve room for the docked action bar at the bottom. */
+    float availY = ImGui::GetContentRegionAvail().y;
+    float bodyH  = pdguiBodyHeightForActionBar(availY);
 
     /* ================================================================
-     * Two-column layout: Left = form fields, Right = portrait preview
+     * Two-column body: LEFT = controls (1/2 width), RIGHT = 3D pane
+     * (1/2 width).  The 3D pane is square, vertically centered.
      * ================================================================ */
-    float portraitSize = 120.0f * scale;
-    float formW = contentW - portraitSize - pad * 2.0f;
+    if (ImGui::BeginChild("##ac_body", ImVec2(0, bodyH),
+                          ImGuiChildFlags_NavFlattened,
+                          ImGuiWindowFlags_NoBackground)) {
 
-    /* Portrait preview (right side) — P6: uses pdgui_model_preview panel */
-    {
-        float px = dialogX + pad + formW + pad;
-        float py = dialogY + pdTitleH + pad * 2.0f;
+        float contentW = ImGui::GetContentRegionAvail().x;
+        float colGap   = pdguiScale(20.0f);
+        float leftW    = (contentW - colGap) * 0.5f;
+        float rightW   = contentW - colGap - leftW;
 
-        const char *hid = catalogMpHeadId(s_SortedHeadIndices[s_SelectedHead]);
-        const char *bid = catalogMpBodyId(s_SelectedBody);
+        ImVec2 colsOrigin = ImGui::GetCursorScreenPos();
 
-        ModelPreviewOpts opts = pdguiModelPreviewDefaultOpts();
-        opts.showBodyName = 1;
-        opts.showHeadName = 0;
-        opts.idleRotation = 1;
-        opts.cornerRadius = 4.0f * scale;
-
-        pdguiModelPreviewDraw(hid, bid, px, py, portraitSize, portraitSize, &opts);
-    }
-
-    /* ================================================================
-     * Name Input
-     * ================================================================ */
-    ImGui::Text("Agent Name");
-    ImGui::PushItemWidth(formW);
-
-    /* Focus the name input on first frame */
-    if (s_FirstFrame) {
-        ImGui::SetKeyboardFocusHere();
-        s_FirstFrame = false;
-    }
-
-    ImGuiInputTextFlags inputFlags = ImGuiInputTextFlags_EnterReturnsTrue;
-    bool nameEntered = ImGui::InputText("##agent_name", s_AgentName,
-                                         sizeof(s_AgentName), inputFlags);
-    ImGui::PopItemWidth();
-
-    ImGui::Spacing();
-
-    /* ================================================================
-     * Body Selection — carousel with left/right arrows
-     * ================================================================ */
-    ImGui::Text("Character");
-    ImGui::Spacing();
-
-    {
-        /* Left arrow */
-        if (ImGui::ArrowButton("##body_prev", ImGuiDir_Left)) {
-            s_SelectedBody--;
-            if (s_SelectedBody < 0) s_SelectedBody = s_NumBodies - 1;
-            s_HeadOverridden = false;
-            autoSelectHead();
-            pdguiPlaySound(PDGUI_SND_FOCUS);
-        }
-
-        ImGui::SameLine();
-
-        /* Body name display — centered, fixed width */
+        /* ============================================================
+         * LEFT: Control rows
+         * ============================================================ */
+        ImGui::BeginGroup();
         {
-            const char *bodyName = getBodyDisplayName(s_SelectedBody);
-            float nameW = formW - 80.0f * scale;  /* space for arrows */
-            float textW = ImGui::CalcTextSize(bodyName).x;
-            float padLeft = (nameW - textW) * 0.5f;
-            if (padLeft < 0) padLeft = 0;
+            ImGui::PushItemWidth(leftW);
 
-            ImGui::BeginGroup();
-            ImGui::Dummy(ImVec2(padLeft, 0));
-            ImGui::SameLine(0, 0);
-            ImGui::Text("%s", bodyName);
-            ImGui::EndGroup();
+            /* ----- Agent Name ----- */
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Agent Name");
+            ImGui::Spacing();
 
-            /* Make the text region take the fixed width */
-            ImGui::SameLine(0, 0);
-            float remaining = nameW - (padLeft + textW);
-            if (remaining > 0) {
-                ImGui::Dummy(ImVec2(remaining, 0));
-                ImGui::SameLine(0, 0);
+            if (s_FirstFrame) {
+                ImGui::SetKeyboardFocusHere();
+                s_FirstFrame = false;
             }
-        }
 
-        ImGui::SameLine();
+            ImGuiInputTextFlags inputFlags = ImGuiInputTextFlags_EnterReturnsTrue;
+            bool nameEntered = ImGui::InputText("##agent_name", s_AgentName,
+                                                 sizeof(s_AgentName), inputFlags);
+            ImGui::Dummy(ImVec2(0, pdguiScale(8.0f)));
 
-        /* Right arrow */
-        if (ImGui::ArrowButton("##body_next", ImGuiDir_Right)) {
-            s_SelectedBody++;
-            if (s_SelectedBody >= s_NumBodies) s_SelectedBody = 0;
-            s_HeadOverridden = false;
-            autoSelectHead();
-            pdguiPlaySound(PDGUI_SND_FOCUS);
-        }
+            /* ----- Character (Body) carousel ----- */
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Character");
+            ImGui::Spacing();
 
-        /* Body index display */
-        ImGui::SameLine();
-        ImGui::TextDisabled("(%d/%d)", s_SelectedBody + 1, s_NumBodies);
-    }
+            float arrowW = pdguiScale(28.0f);
+            float bodyNameW = leftW - arrowW * 2.0f - pdguiScale(80.0f);
+            if (bodyNameW < pdguiScale(80.0f)) bodyNameW = pdguiScale(80.0f);
 
-    ImGui::Spacing();
-
-    /* ================================================================
-     * Head Selection — carousel with left/right arrows
-     * ================================================================ */
-    ImGui::Text("Head");
-    ImGui::Spacing();
-
-    {
-        if (ImGui::ArrowButton("##head_prev", ImGuiDir_Left)) {
-            s_SelectedHead--;
-            if (s_SelectedHead < 0) s_SelectedHead = s_NumHeads - 1;
-            s_HeadOverridden = true;
-            pdguiPlaySound(PDGUI_SND_FOCUS);
-        }
-
-        ImGui::SameLine();
-
-        {
-            const char *headName = getHeadDisplayName(s_SelectedHead);
-            float nameW = formW - 80.0f * scale;
-            float textW = ImGui::CalcTextSize(headName).x;
-            float padLeft = (nameW - textW) * 0.5f;
-            if (padLeft < 0) padLeft = 0;
-
-            ImGui::BeginGroup();
-            ImGui::Dummy(ImVec2(padLeft, 0));
-            ImGui::SameLine(0, 0);
-            ImGui::Text("%s", headName);
-            ImGui::EndGroup();
-
-            ImGui::SameLine(0, 0);
-            float remaining = nameW - (padLeft + textW);
-            if (remaining > 0) {
-                ImGui::Dummy(ImVec2(remaining, 0));
-                ImGui::SameLine(0, 0);
-            }
-        }
-
-        ImGui::SameLine();
-
-        if (ImGui::ArrowButton("##head_next", ImGuiDir_Right)) {
-            s_SelectedHead++;
-            if (s_SelectedHead >= s_NumHeads) s_SelectedHead = 0;
-            s_HeadOverridden = true;
-            pdguiPlaySound(PDGUI_SND_FOCUS);
-        }
-
-        ImGui::SameLine();
-        ImGui::TextDisabled("(%d/%d)", s_SelectedHead + 1, s_NumHeads);
-
-        /* Auto-reset hint */
-        if (!s_HeadOverridden) {
-            ImGui::TextDisabled("(auto-matched to character)");
-        } else {
-            if (ImGui::SmallButton("Auto")) {
+            if (ImGui::ArrowButton("##body_prev", ImGuiDir_Left)) {
+                s_SelectedBody--;
+                if (s_SelectedBody < 0) s_SelectedBody = s_NumBodies - 1;
                 s_HeadOverridden = false;
                 autoSelectHead();
-                pdguiPlaySound(PDGUI_SND_TOGGLEON);
+                pdguiPlaySound(PDGUI_SND_FOCUS);
             }
             ImGui::SameLine();
-            ImGui::TextDisabled("Reset to character default");
-        }
-    }
-
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    /* ================================================================
-     * Action Buttons
-     * ================================================================ */
-    {
-        float buttonW = 120.0f * scale;
-        float buttonH = 32.0f * scale;
-        float totalW = buttonW * 2.0f + pad;
-
-        /* Center the buttons */
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
-                             (formW - totalW) * 0.5f);
-
-        /* Disable Create if name is empty */
-        bool nameValid = (s_AgentName[0] != '\0');
-        if (!nameValid) {
-            ImGui::BeginDisabled();
-        }
-
-        bool doCreate = ImGui::Button("Create", ImVec2(buttonW, buttonH));
-
-        /* Also create on Enter from the name field */
-        if (nameEntered && nameValid) {
-            doCreate = true;
-        }
-
-        /* Also create on gamepad A when focused (ImGui handles this via nav) */
-
-        if (!nameValid) {
-            ImGui::EndDisabled();
-        }
-
-        ImGui::SameLine(0, pad);
-
-        bool doCancel = ImGui::Button("Cancel", ImVec2(buttonW, buttonH));
-
-        /* B button / Escape = cancel */
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-            doCancel = true;
-        }
-
-        /* ---- Execute Create ---- */
-        if (doCreate && nameValid) {
-            pdguiPlaySound(PDGUI_SND_SUCCESS);
-
-            /* Write name into g_GameFile.name (first 11 bytes of the struct).
-             * This is the campaign save file name — what appears in the
-             * Agent Select list. Truncate to 10 chars + null. */
-            char *gfName = (char *)&g_GameFile;
-            strncpy(gfName, s_AgentName, 10);
-            gfName[10] = '\0';
-
-            /* Set head and body on the active player config temporarily
-             * so the save includes this data. The agent is NOT loaded
-             * for play — the player must still select it from Agent Select. */
-            s32 pnum = g_MpPlayerNum;
-            if (pnum < 0) pnum = 0;
 
             {
-                const char *hid = catalogMpHeadId(s_SortedHeadIndices[s_SelectedHead]);
-                const char *bid = catalogMpBodyId(s_SelectedBody);
-                mpPlayerConfigSetHeadBody(pnum, hid ? hid : "", bid ? bid : "");
+                const char *bodyName = getBodyDisplayName(s_SelectedBody);
+                ImVec2 cur = ImGui::GetCursorScreenPos();
+                ImGui::Dummy(ImVec2(bodyNameW, ImGui::GetFrameHeight()));
+                ImVec2 sz = ImGui::CalcTextSize(bodyName);
+                float ty = cur.y + (ImGui::GetFrameHeight() - sz.y) * 0.5f;
+                ImGui::GetWindowDrawList()->AddText(
+                    ImVec2(cur.x + (bodyNameW - sz.x) * 0.5f, ty),
+                    pdguiPalImU32(PDPAL_TITLEFG, 255), bodyName);
             }
-            mpPlayerConfigSetName(pnum, s_AgentName);
+            ImGui::SameLine();
 
-            /* Pop the Agent Create dialog to return to Agent Select */
-            menuPopDialog();
+            if (ImGui::ArrowButton("##body_next", ImGuiDir_Right)) {
+                s_SelectedBody++;
+                if (s_SelectedBody >= s_NumBodies) s_SelectedBody = 0;
+                s_HeadOverridden = false;
+                autoSelectHead();
+                pdguiPlaySound(PDGUI_SND_FOCUS);
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%d/%d)", s_SelectedBody + 1, s_NumBodies);
 
-            /* Save the new agent to disk. The PC port auto-saves to
-             * SAVEDEVICE_GAMEPAK without a location dialog. The new agent
-             * will appear in the file list, but is NOT auto-loaded —
-             * the player must explicitly select it to play. */
-            filemgrPushSelectLocationDialog(0, FILETYPE_GAME);
+            ImGui::Dummy(ImVec2(0, pdguiScale(8.0f)));
 
-            sysLogPrintf(LOG_NOTE, "pdgui_agentcreate: Saved new agent '%s' "
-                         "body=%d head=%d (not loaded, requires selection)",
-                         s_AgentName, s_SelectedBody,
-                         s_SortedHeadIndices[s_SelectedHead]);
+            /* ----- Head carousel ----- */
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Head");
+            ImGui::Spacing();
 
-            /* Reset state for next use */
-            s_AgentName[0] = '\0';
-            s_SelectedBody = 0;
-            s_SelectedHead = 0;
-            s_HeadOverridden = false;
+            if (ImGui::ArrowButton("##head_prev", ImGuiDir_Left)) {
+                s_SelectedHead--;
+                if (s_SelectedHead < 0) s_SelectedHead = s_SortedHeadCount - 1;
+                s_HeadOverridden = true;
+                pdguiPlaySound(PDGUI_SND_FOCUS);
+            }
+            ImGui::SameLine();
+
+            {
+                const char *headName = getHeadDisplayName(s_SelectedHead);
+                ImVec2 cur = ImGui::GetCursorScreenPos();
+                ImGui::Dummy(ImVec2(bodyNameW, ImGui::GetFrameHeight()));
+                ImVec2 sz = ImGui::CalcTextSize(headName);
+                float ty = cur.y + (ImGui::GetFrameHeight() - sz.y) * 0.5f;
+                ImGui::GetWindowDrawList()->AddText(
+                    ImVec2(cur.x + (bodyNameW - sz.x) * 0.5f, ty),
+                    pdguiPalImU32(PDPAL_TITLEFG, 255), headName);
+            }
+            ImGui::SameLine();
+
+            if (ImGui::ArrowButton("##head_next", ImGuiDir_Right)) {
+                s_SelectedHead++;
+                if (s_SelectedHead >= s_SortedHeadCount) s_SelectedHead = 0;
+                s_HeadOverridden = true;
+                pdguiPlaySound(PDGUI_SND_FOCUS);
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%d/%d)", s_SelectedHead + 1, s_SortedHeadCount);
+
+            /* Auto-match indicator / Reset button */
+            if (!s_HeadOverridden) {
+                ImGui::TextDisabled("(auto-matched to character)");
+            } else {
+                if (ImGui::SmallButton("Auto-match")) {
+                    s_HeadOverridden = false;
+                    autoSelectHead();
+                    pdguiPlaySound(PDGUI_SND_TOGGLEON);
+                }
+                ImGui::SameLine();
+                ImGui::TextDisabled("Reset head to character default");
+            }
+
+            /* Capture Enter-press for the action bar later this frame. */
+            s_NameEnterPressedThisFrame = nameEntered;
+
+            ImGui::PopItemWidth();
         }
+        ImGui::EndGroup();
 
-        /* ---- Execute Cancel ---- */
-        if (doCancel) {
-            pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuPopDialog();
+        /* ============================================================
+         * RIGHT: 3D render pane (1/2 width, square, vertically centered)
+         * ============================================================ */
+        ImGui::SameLine(0.0f, colGap);
 
-            /* Reset state */
-            s_AgentName[0] = '\0';
-            s_SelectedBody = 0;
-            s_SelectedHead = 0;
-            s_HeadOverridden = false;
+        {
+            float paneW = rightW;
+            float paneH = bodyH - pdguiScale(8.0f);
+            /* Keep the render box square; cap at the smaller dimension. */
+            float side = (paneW < paneH) ? paneW : paneH;
+            float px = colsOrigin.x + leftW + colGap + (paneW - side) * 0.5f;
+            float py = colsOrigin.y + (paneH - side) * 0.5f;
+
+            const char *hid = catalogMpHeadId(s_SortedHeadIndices[s_SelectedHead]);
+            const char *bid = catalogMpBodyId(s_SelectedBody);
+
+            /* Fix the body at a 3/4-turn pose.  We disable idle rotation in
+             * pdgui_model_preview's options so the model is static; pose
+             * orientation is set explicitly via pdguiCharPreviewSetRotY()
+             * BEFORE the request fires. */
+            pdguiCharPreviewSetRotY(AGENTCREATE_PREVIEW_ROTY);
+
+            ModelPreviewOpts opts = pdguiModelPreviewDefaultOpts();
+            opts.showBodyName = 1;
+            opts.showHeadName = 1;
+            opts.idleRotation = 0;
+            opts.cornerRadius = pdguiScale(6.0f);
+
+            pdguiModelPreviewDraw(hid, bid, px, py, side, side, &opts);
+
+            /* Reserve cursor space so the layout child reports a sane size. */
+            ImGui::Dummy(ImVec2(rightW, paneH));
         }
     }
+    ImGui::EndChild();
 
-    /* ---- Footer ---- */
-    ImGui::Spacing();
-    ImGui::TextDisabled("Choose a name and character for your agent");
+    /* ================================================================
+     * Action bar: Create + Cancel
+     * ================================================================ */
+    bool doCreate = false;
+    bool doCancel = false;
+
+    bool nameValid = (s_AgentName[0] != '\0');
+
+    if (pdguiBeginActionBar("##ac_actionbar")) {
+        float avail = ImGui::GetContentRegionAvail().x;
+        float btnW  = (avail - pad) * 0.5f;
+
+        /* Create — disabled when name is empty */
+        if (!nameValid) ImGui::BeginDisabled();
+        if (pdguiActionBarButton("Create", 1, btnW)) {
+            doCreate = true;
+        }
+        if (!nameValid) ImGui::EndDisabled();
+
+        ImGui::SameLine(0.0f, pad);
+
+        if (pdguiActionBarButton("Cancel", 0, ImGui::GetContentRegionAvail().x)) {
+            doCancel = true;
+        }
+    }
+    pdguiEndActionBar();
+
+    /* Allow Enter from the name field to create. */
+    if (s_NameEnterPressedThisFrame && nameValid) {
+        doCreate = true;
+    }
+    s_NameEnterPressedThisFrame = false;  /* reset for next frame */
+
+    /* B / Escape cancels at the top level. */
+    if (!ImGui::IsWindowAppearing() &&
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        doCancel = true;
+    }
+
+    /* ---- Execute Create ---- */
+    if (doCreate && nameValid) {
+        pdguiPlaySound(PDGUI_SND_SUCCESS);
+
+        /* Write name into g_GameFile.name (first 11 bytes of the struct).
+         * This is the campaign save file name — what appears in the
+         * Agent Select list. Truncate to 10 chars + null. */
+        char *gfName = (char *)&g_GameFile;
+        strncpy(gfName, s_AgentName, 10);
+        gfName[10] = '\0';
+
+        /* Set head and body on the active player config so the save
+         * includes this data.  The agent is NOT loaded for play — the
+         * player must still select it from Agent Select. */
+        s32 pnum = g_MpPlayerNum;
+        if (pnum < 0) pnum = 0;
+        {
+            const char *hid = catalogMpHeadId(s_SortedHeadIndices[s_SelectedHead]);
+            const char *bid = catalogMpBodyId(s_SelectedBody);
+            mpPlayerConfigSetHeadBody(pnum, hid ? hid : "", bid ? bid : "");
+        }
+        mpPlayerConfigSetName(pnum, s_AgentName);
+
+        /* Pop the Agent Create dialog to return to Agent Select */
+        menuPopDialog();
+
+        filemgrPushSelectLocationDialog(0, FILETYPE_GAME);
+
+        sysLogPrintf(LOG_NOTE, "pdgui_agentcreate: Saved new agent '%s' "
+                     "body=%d head=%d (not loaded, requires selection)",
+                     s_AgentName, s_SelectedBody,
+                     s_SortedHeadIndices[s_SelectedHead]);
+
+        s_AgentName[0] = '\0';
+        s_SelectedBody = 0;
+        s_SelectedHead = 0;
+        s_HeadOverridden = false;
+    }
+
+    /* ---- Execute Cancel ---- */
+    if (doCancel) {
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        menuPopDialog();
+
+        s_AgentName[0] = '\0';
+        s_SelectedBody = 0;
+        s_SelectedHead = 0;
+        s_HeadOverridden = false;
+    }
 
     ImGui::End();
     return 1;  /* Handled */
