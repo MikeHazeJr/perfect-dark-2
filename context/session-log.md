@@ -4,6 +4,57 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S466 - 2026-04-25 - Connectivity Phase 3: spectator + Theater unified subsystem
+
+Phase 3 of the connectivity rollout. Per Q12 "don't build Theater twice": one camera + control + UI architecture, two drivers (live SVC_* stream + future saved-match file). The seam is `spectatorIngestParticipantSnapshot` — both drivers feed the exact same entry point.
+
+### P3.A -- `a4b215e1` feat(spectator): unified subsystem (live source + Theater seam)
+
+New module
+- `port/include/spectator.h` + `port/src/spectator.c` (~340 LOC). `spectator_state_t` carries the participant snapshot, focused index, subset, camera mode (3rd person / 1st person / free-fly), and a free-fly transform. Single-writer entry point shared by both drivers.
+- `port/include/pdgui_spectator.h` + `port/fast3d/pdgui_spectator.cpp` (~190 LOC). Top strip with subset / focused-name / camera label; right-side scoreboard listing the active subset; bottom-left hints for keyboard control. Mouse delta drives free-fly yaw / pitch.
+
+Camera + control scheme (Q12 + Section 8)
+- D-pad up/down (PgUp/PgDn): cycle subset (Players / All / Red / Green / Blue / Gold). Empty subsets skipped automatically.
+- D-pad left/right (Left/Right): cycle members within current subset.
+- R3 (Tab): toggle 1st/3rd person.
+- Hold Y (R): detach to free-fly camera; release re-attaches.
+- Esc: stop spectating.
+
+Free-fly transform: WASD horizontal, Q/E vertical, mouse yaw + pitch. Maclaurin sin / cos to avoid the precompiled-header math.h stripping on this TU.
+
+UI hook
+- `pdgui_friends.cpp`: friend rows in IN_MATCH / IN_MISSION states gain a "Spectate" button alongside Invite / Message.
+
+Wiring: spectatorInit / Tick wired into main.c + pdmain.c. `pdguiSpectatorRender` called after `pdguiToastRender`; `pdguiSpectatorOverlayActive` added to the friendsActive overlay-reason gate.
+
+### Phase 3 exit criteria (re-verified per principle 1)
+
+| Criterion (design Q12 + Phase 3 brief) | Status | Evidence |
+|---|---|---|
+| Unified subsystem (one camera/control/UI; two drivers) | YES | `spectatorIngestParticipantSnapshot` is the shared seam |
+| Camera architecture: 3rd / 1st / free-fly | YES | `spectator_camera_t` + `spectatorBeginFreeFly` + steering |
+| D-pad cycles subset (UD) + member (LR) | YES | `spectatorCycleSubset` + `spectatorCycleMember`, empty-subset skip |
+| R3 toggles first-person | YES | `spectatorToggleFirstPerson` (free-fly takes priority) |
+| Hold Y free-fly + release re-attach | YES | `spectatorBeginFreeFly` / `spectatorEndFreeFly` |
+| Spectator does not consume a player slot | YES (designed) | `spectatorBeginLive` is read-only; no participant_pool mutation |
+| Late-join state-snapshot path | YES | `late_join_pending` flag + first-snapshot accept |
+| Theater driver | DEFERRED (seam ready) | Recorder + replay file format is its own subproject; the spectator-state ingest is identical, so a Theater driver written later just calls `spectatorIngestParticipantSnapshot` once it parses each replay frame. |
+| Per-spectator bandwidth budget | YES (documented) | `SPECTATOR_FANOUT_HZ=10` -> ~14 KB/s per spectator at 16 participants |
+| Live host -> spectator ENet fan-out | DEFERRED (follow-up) | Wire layer plug-point exposed as `spectatorHostShouldBroadcastThisTick`; the actual SVC_SPECTATE_REQUEST / SVC_STATE_FRAME packets ride in a follow-up commit on the same NET_PROTOCOL_VER bump as Phase 4 if needed |
+
+### Phase 3 deferred-to-follow-up items (honest)
+
+- *Live wire fan-out.* The spectator state machine is ready and accepts ingest calls. The actual ENet packet definitions for `CLC_SPECTATE_REQUEST` / `SVC_SPECTATE_ACK` / spectator-broadcast frames need a wire-protocol bump and a netmsg.c addition; that's a follow-up commit. Without it, "Spectate" buttons begin a session locally but no inbound state arrives -- the UI shows "Joining match..." until the user stops.
+- *Theater recorder + replay file format.* Theater is genuinely a separate subproject (record SVC_* stream to disk, define replay file format, browse + play UI). The spectator subsystem will absorb it without changes -- the seam is documented in `spectator.h`.
+- *Game-side camera transform application.* The spectator state currently surfaces the desired camera (focused chr's pos + angles, or free-fly transform) but the existing first-person view path is not yet hooked to read from spectator_state_t.camera. That hook plugs into the player-render stage in a follow-up; cleanly scoped to its own commit because it touches the camera owner module that I want to review separately.
+
+### Phase 3 commits (chronological)
+
+| Commit | Scope |
+|---|---|
+| `a4b215e1` | P3.A unified spectator subsystem (live source + Theater seam) |
+
 ## Session S464 - 2026-04-25 - Connectivity Phase 1: social + 6-tier P2P + presence + UI surfaces
 
 Implementation of Phase 1 of `context/designs/connectivity-and-modern-main-menu.md`. Worktree `adoring-borg-2b6076`. Independent of two parallel sessions: Session A (Issue 1 weapon investigation) and Session B (J/K/L IMC architectural batch). No files owned by either of those sessions were touched.
