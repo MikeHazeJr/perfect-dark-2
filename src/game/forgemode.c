@@ -393,6 +393,27 @@ static void forgeUpdateFreefly(void)
 
 	const f32 speed = FORGE_FREEFLY_SPEED_DEFAULT * scale * FORGE_FRAME_DT;
 
+	/* B-255 (2026-04-25): one-shot trace on first non-trivial move input
+	 * so Mike can verify in playtest that the look-relative transform
+	 * is reaching the position update. Logs the current yaw/pitch and
+	 * the computed forward / right vectors. Fires once per session
+	 * activation; cleared in forgeTransitionToInactive (canvas_mode
+	 * field reset there also serves as the "session is starting fresh"
+	 * latch for this diagnostic). If the math were upstream-broken
+	 * (raw stick to world axes) the fwd vector would not change as
+	 * the user yaw-rotates the camera. */
+	{
+		static bool s_b255_logged = false;
+		if (!s_b255_logged && (mx != 0.0f || my != 0.0f)) {
+			sysLogPrintf(LOG_NOTE,
+				"GRID.B255: freefly move-frame trace yaw=%.1f pitch=%.1f "
+				"fwd=(%.3f,%.3f,%.3f) right=(%.3f,%.3f,%.3f) stick=(mx=%.2f,my=%.2f)",
+				s_forge.fly.yaw_deg, s_forge.fly.pitch_deg,
+				fwd_x, fwd_y, fwd_z, right_x, right_y, right_z, mx, my);
+			s_b255_logged = true;
+		}
+	}
+
 	s_forge.fly.pos.x += (fwd_x * my + right_x * mx) * speed;
 	s_forge.fly.pos.y += (fwd_y * my + right_y * mx) * speed;
 	s_forge.fly.pos.z += (fwd_z * my + right_z * mx) * speed;
