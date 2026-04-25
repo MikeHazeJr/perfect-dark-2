@@ -4,6 +4,41 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S457 - 2026-04-24 - F/G/H/I/J: test arenas, music sync, B-228 Option E, design pass
+
+Five priorities landed in one batch. F/G/H are code; I/J are design docs awaiting Mike review.
+
+### Priority F -- `cfac64b1` feat(grid): test arenas default-visible + Blank Map = STAGE_TEST_DEST
+
+Reverses Priority A's hide-by-default for the test arenas. Restored slugs at indices 57-64 and 69 in `s_ArenaNames`. Picked `STAGE_TEST_DEST` (0x1a, "Training Day") as `GRID_BLANK_STAGE` based on smallest geometry budget (`-mgfx120 -mvtx98`) + clean sky/ground env. Closes the "Blank Map deferred" item from `evening-decisions-2026-04-23.md`.
+
+### Priority G -- `373bd6ec` feat(net): Issue 4b music speed-lerp (B-237)
+
+`NET_PROTOCOL_VER` 39 -> 40. `SVC_MUSIC_ADVANCE` gains `u32 match_clock_offset_ms`. Authoritative host re-broadcasts every 2 s; clients lerp playback rate in `[0.97, 1.03]` for moderate drift, hard-seek if drift exceeds 5000 ms. Fractional-cursor mix loop in `modmusic.c` with linear interpolation between adjacent stereo frames. New API: `modMusicSetRate / GetRate / GetPositionMs / SetPositionMs / GetDurationMs`. Diagnostic: throttled "MUSIC.SYNC: drift=N rate=X.XX" + "MUSIC.SYNC: hard-seek..." + "MUSIC.SYNC: track-change..." log lines.
+
+### Priority H -- `dd622f2a` fix(setup): B-228a Option E SP-setup transport overlay
+
+After the main props loop in `setupCreateProps`, additionally load the SP setup blob via `assetLoadToNew(stage.setup_handle, ...)` for SP-in-MP class stages (CITRAINING, CHICAGO, VILLA, INFILTRATION, G5BUILDING, PELAGIC). Walk SP props for `OBJTYPE_LIFT` + `OBJTYPE_ESCASTEP` only; full creation logic copied verbatim from the MP path. SP blob lives in `MEMPOOL_STAGE` so `lift->doors[i]` pointers stay valid for the stage lifetime. `g_StageSetup.props` temporarily repointed at the SP blob during the overlay so `setupGetCmdByIndex` resolves SP-internal door cross-references correctly. Diagnostic: `SETUP.LIFT: SP-in-MP stagenum=0x%02x lifts=N escasteps=M`. B-228 split into B-228a (this fix, transport visibility) and B-228b (residual crash class, awaits playtest).
+
+### Priority I -- design only, `context/designs/connectivity-and-modern-main-menu.md`
+
+Connectivity / modern main menu design pass per Mike's verbatim spec + mid-session amendments (replaces dedicated server for friend-play; always-on presence; `appear_online` + `joinable` social settings; 5-phase rollout). Strategic positioning section calls out the C-1 / MASTER-C5 audit carry-over and the scope-narrowing effect of the pivot. Section 10 leaves OPEN QUESTIONS with stable IDs (Q1-Q10) cross-referenced to Mike's separate numbered question list (handled out-of-band).
+
+### Priority J -- design only, `context/designs/contextual-input-schemes.md`
+
+IMC architecture formalization per Mike's "multiple input schemes ... applied contextually" framing. Splits `g_ImcGameplay` into `g_ImcMission` + `g_ImcCombatSim` (mutually exclusive); documents activation rules, suppression-vs-deactivation per IMC, hold-vs-tap discrimination via parallel `ACTION_SCORECARD_HOLD` action, 4-phase rollout (J-1 split, J-2 vehicle lifecycle, J-3 hold/tap, J-4 docs + asserts). Section 8 explicitly defers the visual-stack vs input-stack collapse to Priority K (separate batch).
+
+### What did NOT land in this session
+
+- Priority K (input-authority discipline audit + methodology + drift-site fixes) -- captured as a separate batch deliverable per Mike's directive.
+- I and J implementations -- design only this batch.
+- Mike's connectivity-questions Q&A list -- handled out-of-band by Mike directly.
+- AUDIT-23/24 carry-overs not in this batch's scope (BOM, `~$*` gitignore, docx dedup, M2/M3/M5/M6/M7/M8 + L1-L4 from 4-24).
+
+### Build verification
+
+Both `PerfectDark.exe` and `PerfectDarkServer.exe` link clean after each of F, G, H. I and J are documentation-only.
+
 ## Session S456 - 2026-04-24 - Source-cleanup + Issue 10 execution + Level/Observer/8b polish
 
 Mike's standing rules for this batch:
