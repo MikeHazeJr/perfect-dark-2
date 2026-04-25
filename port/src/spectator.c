@@ -179,6 +179,22 @@ s32 spectatorBeginLive(u32 host_friend_handle)
 	return 0;
 }
 
+void spectatorBeginTheater(void)
+{
+	if (s_State.source != SPECTATOR_SOURCE_NONE) {
+		spectatorStop();
+	}
+	memset(&s_State, 0, sizeof(s_State));
+	s_State.source = SPECTATOR_SOURCE_THEATER;
+	s_State.camera = SPECTATOR_CAM_THIRD_PERSON;
+	s_State.subset = SPECTATOR_SUBSET_PLAYERS;
+	s_State.focus_idx = -1;
+	s_State.host_handle = 0; /* Theater driver does not bind to a friend host */
+	s_State.late_join_pending = 1;
+	s_RequestSent = 1; /* no wire request needed for Theater */
+	sysLogPrintf(LOG_NOTE, "SPECTATOR: begin theater playback");
+}
+
 void spectatorStop(void)
 {
 	if (s_State.source == SPECTATOR_SOURCE_NONE) return;
@@ -202,8 +218,10 @@ void spectatorIngestParticipantSnapshot(const spectator_participant_t *participa
 
 	/* Reject snapshots from a different host than the one we asked to
 	 * spectate (defence in depth -- the wire layer also gates on
-	 * stream_token). */
-	if (s_State.host_handle != 0 && host_handle != s_State.host_handle) {
+	 * stream_token). Theater driver bypasses this check: replay files
+	 * carry their own host_handle which we accept verbatim. */
+	if (s_State.source == SPECTATOR_SOURCE_LIVE &&
+	    s_State.host_handle != 0 && host_handle != s_State.host_handle) {
 		return;
 	}
 

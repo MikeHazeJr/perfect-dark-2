@@ -43,6 +43,7 @@
 #include "file_transfer.h"
 #include "pdgui_toast.h"
 #include "spectator.h"
+#include "theater.h"
 #include "listening_room.h"
 #include "voice.h"
 #include "assetcatalog.h"
@@ -205,6 +206,7 @@ int main(int argc, const char **argv)
 	fileTransferInit();
 	pdguiToastInit();
 	spectatorInit();
+	theaterInit();
 	listeningRoomInit();
 	voiceInit();
 

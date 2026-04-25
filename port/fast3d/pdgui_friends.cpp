@@ -33,6 +33,7 @@ extern "C" {
 #include "chat.h"
 #include "file_transfer.h"
 #include "spectator.h"
+#include "theater.h"
 #include "listening_room.h"
 #include "voice.h"
 #include "net/p2p.h"
@@ -61,6 +62,10 @@ static u32  s_ProfileFriendHandle = 0;
 /* Listening-room compose state for the Host tab. */
 static char s_LrAddIdBuf[LR_TRACK_ID_MAX];
 static char s_LrAddNameBuf[LR_TRACK_NAME_MAX];
+
+/* Theater compose state for the Replays tab. */
+static char s_TheaterRecordNameBuf[64];
+static u32  s_TheaterListLastRefreshMs = 0;
 
 /* Convert-to-mod modal state. Source path lives in s_ConvertSourcePath; the
  * modal is open while s_ConvertSourcePath[0] is non-zero. */
@@ -884,6 +889,86 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 							ImGui::PopID();
 						}
 					}
+					ImGui::EndChild();
+					ImGui::EndTabItem();
+				}
+
+				if (ImGui::BeginTabItem("Replays")) {
+					ImGui::BeginChild("##pd2_theater_body", ImVec2(0, -60.0f));
+
+					ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+					ImGui::TextUnformatted("Recorder");
+					ImGui::PopStyleColor();
+					ImGui::Separator();
+					if (theaterIsRecording()) {
+						ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintDanger(255));
+						ImGui::TextUnformatted("Recording in progress.");
+						ImGui::PopStyleColor();
+						if (ImGui::Button("Stop recording")) {
+							theaterStopRecording();
+						}
+					} else {
+						ImGui::SetNextItemWidth(280.0f);
+						ImGui::InputTextWithHint("filename", "my_match.pdth",
+						                          s_TheaterRecordNameBuf,
+						                          sizeof(s_TheaterRecordNameBuf));
+						ImGui::SameLine();
+						if (ImGui::Button("Start recording")) {
+							const char *fn = s_TheaterRecordNameBuf[0]
+							                  ? s_TheaterRecordNameBuf : "untitled.pdth";
+							theaterStartRecording(fn);
+						}
+					}
+
+					ImGui::Spacing();
+					ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+					ImGui::TextUnformatted("Saved replays");
+					ImGui::PopStyleColor();
+					ImGui::Separator();
+
+					const u32 now_ms = SDL_GetTicks();
+					if (s_TheaterListLastRefreshMs == 0 ||
+					    (now_ms - s_TheaterListLastRefreshMs) > 5000u) {
+						theaterRefreshList();
+						s_TheaterListLastRefreshMs = now_ms;
+					}
+
+					ImGui::SameLine();
+					if (ImGui::SmallButton("Refresh")) {
+						theaterRefreshList();
+						s_TheaterListLastRefreshMs = now_ms;
+					}
+
+					/* Iterate replays. */
+					{
+						s32 found = 0;
+						for (s32 i = 0; i < THEATER_REPLAY_LIST_MAX; i++) {
+							const theater_replay_entry_t *e = theaterListAt(i);
+							if (!e) break;
+							if (!e->filename[0]) break;
+							found++;
+							ImGui::PushID(15000 + i);
+							ImGui::Text("%s -- %u frames, %u KB",
+							             e->filename,
+							             (unsigned)e->frame_count,
+							             (unsigned)(e->size_bytes / 1024));
+							ImGui::SameLine();
+							if (theaterIsReplaying()) {
+								if (ImGui::SmallButton("Stop")) {
+									theaterStopReplay();
+								}
+							} else {
+								if (ImGui::SmallButton("Play")) {
+									theaterStartReplay(e->filename);
+								}
+							}
+							ImGui::PopID();
+						}
+						if (found == 0) {
+							ImGui::TextDisabled("No replays yet. Start recording to create one.");
+						}
+					}
+
 					ImGui::EndChild();
 					ImGui::EndTabItem();
 				}

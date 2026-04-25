@@ -90,6 +90,7 @@
 #include "file_transfer.h"
 #include "pdgui_toast.h"
 #include "spectator.h"
+#include "theater.h"
 #include "listening_room.h"
 #include "voice.h"
 #include "modelcatalog.h"
@@ -664,6 +665,7 @@ void mainTick(void)
 	fileTransferTick();
 	pdguiToastTick();
 	spectatorTick();
+	theaterTick();
 	listeningRoomTick();
 	voiceTick();
 
