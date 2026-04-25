@@ -2171,16 +2171,70 @@ void modmgrApplyChanges(void)
 {
 	sysLogPrintf(LOG_NOTE, "modmgr: applying changes...");
 
+	/* Priority M / B-238 (M-1.5): hot-reload state machine.
+	 *
+	 * Snapshot enabled (user intent) and loaded (current runtime state).
+	 * For mods with requires_restart=true whose intent diverges from the
+	 * current loaded state, defer the live transition until next launch:
+	 *   - The user's intent is persisted to config (so next launch picks
+	 *     it up).
+	 *   - The mod->enabled field is temporarily reverted to match its
+	 *     pre-apply loaded state so the rebuild below produces the same
+	 *     mount set as before.
+	 *   - mod->pending_restart is set so the UI can render
+	 *     "Restart required for [name]" until the next launch.
+	 *
+	 * Mods without requires_restart go through the normal hot-reload path
+	 * unchanged. */
+	bool intendedEnabled[MODMGR_MAX_MODS];
+	bool prevLoaded[MODMGR_MAX_MODS];
+	for (s32 i = 0; i < g_ModRegistryCount; i++) {
+		intendedEnabled[i] = g_ModRegistry[i].enabled;
+		prevLoaded[i]      = g_ModRegistry[i].loaded;
+	}
+
+	s32 deferCount = 0;
+	for (s32 i = 0; i < g_ModRegistryCount; i++) {
+		modinfo_t *mod = &g_ModRegistry[i];
+		if (mod->requires_restart && intendedEnabled[i] != prevLoaded[i]) {
+			mod->pending_restart = 1;
+			deferCount++;
+			sysLogPrintf(LOG_NOTE,
+				"modmgr: '%s' requires_restart=true -- %s deferred until next launch",
+				mod->id, intendedEnabled[i] ? "enable" : "disable");
+		} else {
+			mod->pending_restart = 0;
+		}
+	}
+
 	/* Persist catalog enable state to .modstate (read at next scan) */
 	modmgrSaveComponentState();
 
-	/* Persist legacy modinfo enables */
+	/* Persist legacy modinfo enables -- WITH user intent so config reflects
+	 * what they asked for, not the masked (preserved) state. */
 	modmgrSaveConfig();
 
-	/* Rebuild catalog + reverse-indexes from the newly saved config and
-	 * component state so enabled mod manifests/audio are live immediately. */
+	/* Mask enabled for deferred mods so the rebuild keeps them in their
+	 * pre-apply loaded state. After the rebuild we restore intent so the
+	 * registry surface (modmgrGetModEnabled) reflects what the user chose. */
+	for (s32 i = 0; i < g_ModRegistryCount; i++) {
+		if (g_ModRegistry[i].pending_restart) {
+			g_ModRegistry[i].enabled = prevLoaded[i];
+		}
+	}
+
+	/* Rebuild catalog + reverse-indexes from the (possibly masked) enabled set. */
 	modmgrUnloadAllMods();
 	modmgrRebuildCatalogFromCurrentSelection();
+
+	/* Restore intent so UI / network manifest / accessors see the user's
+	 * choice. The runtime mount state still reflects prevLoaded for the
+	 * deferred mods, which is what pending_restart communicates. */
+	for (s32 i = 0; i < g_ModRegistryCount; i++) {
+		if (g_ModRegistry[i].pending_restart) {
+			g_ModRegistry[i].enabled = intendedEnabled[i];
+		}
+	}
 
 	/* Invalidate catalog-backed caches so accessors pick up new state */
 	modmgrCatalogChanged();
@@ -2200,7 +2254,13 @@ void modmgrApplyChanges(void)
 
 	/* Stay in-place: no forced title restart.  Callers keep the active menu
 	 * and present an in-UI apply progress/completion modal. */
-	sysLogPrintf(LOG_NOTE, "modmgr: apply complete — no stage restart");
+	if (deferCount > 0) {
+		sysLogPrintf(LOG_NOTE,
+			"modmgr: apply complete -- %d mod(s) require restart to take effect",
+			deferCount);
+	} else {
+		sysLogPrintf(LOG_NOTE, "modmgr: apply complete -- no stage restart");
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -2878,4 +2938,19 @@ s32 modmgrGetModRequiresRestart(s32 index)
 {
 	if (index < 0 || index >= g_ModRegistryCount) return 0;
 	return g_ModRegistry[index].requires_restart;
+}
+
+s32 modmgrGetModPendingRestart(s32 index)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return 0;
+	return g_ModRegistry[index].pending_restart;
+}
+
+s32 modmgrGetPendingRestartCount(void)
+{
+	s32 n = 0;
+	for (s32 i = 0; i < g_ModRegistryCount; i++) {
+		if (g_ModRegistry[i].pending_restart) n++;
+	}
+	return n;
 }

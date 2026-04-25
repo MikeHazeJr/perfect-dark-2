@@ -105,6 +105,14 @@ typedef struct modinfo {
 	char            archive_path[FS_MAXPATH + 1];
 	mod_archive_t  *archive_handle;
 	s32             requires_restart;
+
+	// pending_restart : runtime-only. Set by modmgrApplyChanges when this
+	// mod has requires_restart=true and the user toggled `enabled` to a
+	// value that differs from the current `loaded` state. The persistence
+	// pass writes the user's INTENT to disk; the runtime keeps the
+	// pre-apply loaded state until the next launch. UI surfaces this flag
+	// as "Restart required for [name] to take effect."
+	s32             pending_restart;
 } modinfo_t;
 
 // ---- Lifecycle ----
@@ -280,6 +288,15 @@ const char *modmgrGetModArchivePath(s32 index);
 // "requires_restart": true. UI surfaces this when the user toggles the
 // mod mid-session.
 s32  modmgrGetModRequiresRestart(s32 index);
+
+// Returns 1 if the user toggled this mod's enabled state but the change
+// could not be applied live (because the mod has requires_restart=true).
+// The new state is persisted to config and will take effect on next launch.
+s32  modmgrGetModPendingRestart(s32 index);
+
+// Returns the total number of mods currently flagged pending_restart.
+// UI uses this to render a "Restart required" banner when > 0.
+s32  modmgrGetPendingRestartCount(void);
 
 // Signal that the Asset Catalog contents have changed.
 // Causes all catalog-backed caches (arenas, future: bodies, heads)
