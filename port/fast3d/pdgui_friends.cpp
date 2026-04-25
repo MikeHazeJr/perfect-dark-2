@@ -33,6 +33,7 @@ extern "C" {
 #include "chat.h"
 #include "file_transfer.h"
 #include "spectator.h"
+#include "listening_room.h"
 #include "net/p2p.h"
 #include "net/group_session.h"
 }
@@ -52,6 +53,13 @@ static char s_AddFriendStatus[128];
 static u32  s_ChatPanelFriendHandle = 0;
 static char s_ChatComposeBuf[CHAT_TEXT_MAX];
 static char s_ChatAttachPath[400];
+
+/* Per-friend Player Profile modal state. */
+static u32  s_ProfileFriendHandle = 0;
+
+/* Listening-room compose state for the Host tab. */
+static char s_LrAddIdBuf[LR_TRACK_ID_MAX];
+static char s_LrAddNameBuf[LR_TRACK_NAME_MAX];
 
 /* Convert-to-mod modal state. Source path lives in s_ConvertSourcePath; the
  * modal is open while s_ConvertSourcePath[0] is non-zero. */
@@ -368,6 +376,10 @@ static void renderFriendRow(s32 idx, const social_friend_t *f)
 		s_ChatComposeBuf[0] = '\0';
 	}
 	ImGui::SameLine();
+	if (ImGui::SmallButton("Profile")) {
+		s_ProfileFriendHandle = f->handle;
+	}
+	ImGui::SameLine();
 	if (ImGui::SmallButton(f->muted ? "Unmute" : "Mute")) {
 		socialFriendSetMuted(f->connect_code, f->muted ? 0 : 1);
 	}
@@ -565,6 +577,98 @@ static void renderChatPanel(s32 winW, s32 winH)
 	}
 
 	(void)winW;
+}
+
+/* Player Profile modal -- per-friend page (Q11 Halo 3 File Share lineage).
+ * Shows agent + connect code + nickname + last-seen, links to subscribe
+ * to their listening room, and reserves panels for stats + character
+ * preview + public mods list. The character render box ships from
+ * Priority Q (`03f44cb0` already in dev); this modal will pull that
+ * widget in a follow-up wiring commit. */
+static void renderProfileModal(void)
+{
+	if (s_ProfileFriendHandle == 0) return;
+	const social_friend_t *f = socialFriendByHandle(s_ProfileFriendHandle);
+	if (!f) { s_ProfileFriendHandle = 0; return; }
+
+	ImGui::OpenPopup("Player Profile");
+	if (ImGui::BeginPopupModal("Player Profile", nullptr,
+	                            ImGuiWindowFlags_AlwaysAutoResize |
+	                            ImGuiWindowFlags_NoSavedSettings)) {
+		ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+		ImGui::Text("%s", f->agent_name[0] ? f->agent_name : "?");
+		ImGui::PopStyleColor();
+		if (f->nickname[0]) ImGui::Text("\"%s\"", f->nickname);
+		ImGui::TextDisabled("Connect code: %s", f->connect_code);
+		ImGui::Separator();
+
+		const presence_peer_t *p = presencePeerByHandle(f->handle);
+		ImGui::Text("State:    %s", p ? stateLabel(p->state) : "Offline");
+		if (p && p->status_blurb[0]) {
+			ImGui::Text("Activity: %s", p->status_blurb);
+		}
+		if (p && p->last_pong_ms) {
+			char seen[24];
+			formatLastSeen(p->last_pong_ms, seen, sizeof(seen));
+			ImGui::Text("Last seen: %s", seen);
+		}
+
+		ImGui::Spacing();
+		ImGui::Separator();
+
+		/* Section 7 placeholders -- character render + stats + mods.
+		 * Each pulls a widget that lives elsewhere (Priority Q render,
+		 * playerstats.h totals, the Public Mods Page aggregator). The
+		 * follow-up wiring commit replaces these placeholders. */
+		ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo(255));
+		ImGui::TextUnformatted("Character preview");
+		ImGui::PopStyleColor();
+		ImGui::Indent(12.0f);
+		ImGui::TextDisabled("(3D head + body render -- pulls Priority Q render box "
+		                    "via charpreview when the wiring commit lands.)");
+		ImGui::Unindent(12.0f);
+
+		ImGui::Spacing();
+		ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo(255));
+		ImGui::TextUnformatted("Stats");
+		ImGui::PopStyleColor();
+		ImGui::Indent(12.0f);
+		ImGui::TextDisabled("(playerstats.h totals -- shipped per-friend once the "
+		                    "presence stats broadcast lands in a follow-up.)");
+		ImGui::Unindent(12.0f);
+
+		ImGui::Spacing();
+		ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo(255));
+		ImGui::TextUnformatted("Public mods");
+		ImGui::PopStyleColor();
+		ImGui::Indent(12.0f);
+		ImGui::TextDisabled("(Mod list shipped once the manifest broadcast wire ride "
+		                    "lands; click-to-download routes through file_transfer.c.)");
+		ImGui::Unindent(12.0f);
+
+		ImGui::Spacing();
+		ImGui::Separator();
+
+		const presence_state_t pstate = p ? p->state : PRESENCE_OFFLINE;
+		const bool can_invite = (pstate == PRESENCE_ONLINE_IDLE) ||
+		                         (pstate == PRESENCE_IN_MATCH) ||
+		                         (pstate == PRESENCE_IN_MISSION);
+		if (can_invite) {
+			if (ImGui::Button("Invite to play", ImVec2(180, 0))) {
+				presenceSendInvite(f->handle, PRESENCE_INVITE_KIND_MATCH);
+			}
+			ImGui::SameLine();
+		}
+		if (ImGui::Button("Subscribe to listening room", ImVec2(220, 0))) {
+			listeningRoomSubscribe(f->handle);
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Close", ImVec2(120, 0))) {
+			s_ProfileFriendHandle = 0;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
 }
 
 /* Section 8.5.3 -- Convert-to-mod modal. Drives
@@ -777,6 +881,149 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 					ImGui::EndTabItem();
 				}
 
+				if (ImGui::BeginTabItem("Listening room")) {
+					ImGui::BeginChild("##pd2_lr_body", ImVec2(0, -60.0f));
+
+					const listening_room_state_t st = listeningRoomState();
+					switch (st) {
+						case LR_STATE_OFF:
+							ImGui::TextDisabled("Not in a listening room.");
+							ImGui::Spacing();
+							if (ImGui::Button("Host a room")) {
+								listeningRoomHostBegin();
+							}
+							ImGui::SameLine();
+							ImGui::TextDisabled("Subscribe to a friend's room from their profile.");
+							break;
+						case LR_STATE_HOST: {
+							ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+							ImGui::TextUnformatted("You are hosting");
+							ImGui::PopStyleColor();
+							ImGui::Separator();
+							const s32 ntr = listeningRoomTrackCount();
+							const s32 cur = listeningRoomCurrentIdx();
+							for (s32 i = 0; i < ntr; i++) {
+								const lr_track_t *t = listeningRoomTrackAt(i);
+								if (!t) continue;
+								ImGui::PushID(13000 + i);
+								if (i == cur) {
+									ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo(255));
+									ImGui::Text("> %s", t->display_name);
+									ImGui::PopStyleColor();
+								} else {
+									ImGui::Text("  %s", t->display_name);
+								}
+								ImGui::SameLine();
+								if (ImGui::SmallButton("Play")) {
+									listeningRoomHostPlayTrack(i);
+								}
+								ImGui::SameLine();
+								if (ImGui::SmallButton("Remove")) {
+									listeningRoomHostRemoveTrack(t->track_id);
+									ImGui::PopID();
+									break;
+								}
+								ImGui::PopID();
+							}
+							ImGui::Spacing();
+							ImGui::TextUnformatted("Add track");
+							ImGui::SetNextItemWidth(220.0f);
+							ImGui::InputTextWithHint("track id", "mod-music id",
+							                          s_LrAddIdBuf, sizeof(s_LrAddIdBuf));
+							ImGui::SameLine();
+							ImGui::SetNextItemWidth(180.0f);
+							ImGui::InputTextWithHint("name", "display name",
+							                          s_LrAddNameBuf, sizeof(s_LrAddNameBuf));
+							ImGui::SameLine();
+							if (ImGui::Button("Add##lradd")) {
+								if (s_LrAddIdBuf[0]) {
+									if (listeningRoomHostAddTrack(s_LrAddIdBuf, s_LrAddNameBuf) == 0) {
+										s_LrAddIdBuf[0] = '\0';
+										s_LrAddNameBuf[0] = '\0';
+									}
+								}
+							}
+							ImGui::Spacing();
+							if (ImGui::Button("Stop hosting")) {
+								listeningRoomLeave();
+							}
+							break;
+						}
+						case LR_STATE_LISTENER: {
+							const u32 hh = listeningRoomHostHandle();
+							const social_friend_t *hf = socialFriendByHandle(hh);
+							ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+							ImGui::Text("Listening to %s",
+							             hf && hf->agent_name[0] ? hf->agent_name : "host");
+							ImGui::PopStyleColor();
+							ImGui::Separator();
+
+							const s32 ntr = listeningRoomTrackCount();
+							const s32 cur = listeningRoomCurrentIdx();
+							if (ntr == 0) {
+								ImGui::TextDisabled("Waiting for the host to share their playlist...");
+							}
+							for (s32 i = 0; i < ntr; i++) {
+								const lr_track_t *t = listeningRoomTrackAt(i);
+								if (!t) continue;
+								if (i == cur) {
+									ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo(255));
+									ImGui::Text("> %s%s", t->display_name,
+									             t->has_local_copy ? "" : " (downloading...)");
+									ImGui::PopStyleColor();
+								} else {
+									ImGui::Text("  %s%s", t->display_name,
+									             t->has_local_copy ? "" : " (queued)");
+								}
+							}
+							ImGui::Spacing();
+							if (cur >= 0) {
+								if (ImGui::Button("Save current track permanently")) {
+									listeningRoomPromoteCurrentTrack();
+								}
+							}
+							ImGui::SameLine();
+							if (ImGui::Button("Leave room")) {
+								listeningRoomLeave();
+							}
+							break;
+						}
+						case LR_STATE_MUTED_BY_MATCH:
+							ImGui::TextDisabled("Match track active -- listening-room track will resume after the match ends.");
+							break;
+					}
+					ImGui::EndChild();
+					ImGui::EndTabItem();
+				}
+
+				if (ImGui::BeginTabItem("Public mods")) {
+					ImGui::BeginChild("##pd2_pubmods_body", ImVec2(0, -60.0f));
+					ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+					ImGui::TextUnformatted("My public mods");
+					ImGui::PopStyleColor();
+					ImGui::Separator();
+					ImGui::TextWrapped(
+					        "Mods you have flagged Public are visible on your profile and "
+					        "in this list. Friends can browse + download via the same "
+					        "trust pipeline as chat attachments (sha256 + friend graph + "
+					        "manual install).");
+					ImGui::Spacing();
+					ImGui::TextDisabled("(Per-mod public toggle is owned by the mod manager from "
+					                    "Priority M; this tab will populate once the manifest "
+					                    "broadcast wire ride lands as a follow-up commit.)");
+					ImGui::Spacing();
+					ImGui::Separator();
+					ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+					ImGui::TextUnformatted("Public mods from peers in this session");
+					ImGui::PopStyleColor();
+					ImGui::Separator();
+					ImGui::TextDisabled("(Empty until peers broadcast their manifests in a follow-up commit. "
+					                    "Each row will show: mod name + version + creator (friend agent) + "
+					                    "size + Download button. Downloads route through file_transfer.c.)");
+					ImGui::EndChild();
+					ImGui::EndTabItem();
+				}
+
 				if (ImGui::BeginTabItem("Settings")) {
 					ImGui::TextUnformatted("My connect code");
 					ImGui::Indent(12.0f);
@@ -847,6 +1094,7 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 
 	pdguiNatDiagnosticsRender(winW, winH);
 	renderChatPanel(winW, winH);
+	renderProfileModal();
 	renderConvertToModModal();
 
 	if (s_AddFriendOpen) {

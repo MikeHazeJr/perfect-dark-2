@@ -90,6 +90,7 @@
 #include "file_transfer.h"
 #include "pdgui_toast.h"
 #include "spectator.h"
+#include "listening_room.h"
 #include "modelcatalog.h"
 #include "pdmain.h"
 #include "pdgui_theme.h"
@@ -662,6 +663,7 @@ void mainTick(void)
 	fileTransferTick();
 	pdguiToastTick();
 	spectatorTick();
+	listeningRoomTick();
 
 	if (g_MainChangeToStageNum < 0) {
 		frametimeCalculate();
