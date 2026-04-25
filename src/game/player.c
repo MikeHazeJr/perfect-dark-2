@@ -5866,8 +5866,18 @@ void playerDie(bool force)
 		return;
 	}
 
-	if (chr->lastshooter >= 0 && chr->timeshooter > 0) {
-		shooter = chr->lastshooter;
+	/* B-256 (2026-04-25): `lastshooter` / `timeshooter` were never wired up
+	 * on the damage side, so this branch never fired and player deaths
+	 * always defaulted to suicide credit (currentplayernum). The live
+	 * attacker field is `lastattacker` (set in chraction.c on every damage
+	 * hit). Resolve it to a player index; if it can't be resolved (attacker
+	 * chr removed, or no attacker tracked), fall back to suicide. Pairs
+	 * with the symmetric fix in chr.c for bot pit-deaths. */
+	if (chr->lastattacker) {
+		shooter = mpPlayerGetIndex(chr->lastattacker);
+		if (shooter < 0) {
+			shooter = g_Vars.currentplayernum;
+		}
 	} else {
 		shooter = g_Vars.currentplayernum;
 	}
