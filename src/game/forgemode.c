@@ -266,6 +266,18 @@ static void forgeApplyFreeflyToPlayer(struct player *p)
 	p->prop->pos.z = s_forge.fly.pos.z;
 	p->vv_theta = s_forge.fly.yaw_deg;
 	p->vv_verta = s_forge.fly.pitch_deg;
+
+	/* B-248 (2026-04-25): explicit gravity gate at the observer-control
+	 * point. Natural disable via MOVEMODE_CUTSCENE -> bcutsceneTick (empty)
+	 * is already in place, but zero the chr's fallspeed here so any
+	 * chrTick path that would otherwise accumulate gravity for a frame
+	 * cannot do so. Belt-and-braces with the bondmovemode override and
+	 * the per-tick prop->pos overwrite above. */
+	if (p->prop->chr) {
+		p->prop->chr->fallspeed.x = 0.0f;
+		p->prop->chr->fallspeed.y = 0.0f;
+		p->prop->chr->fallspeed.z = 0.0f;
+	}
 }
 
 static void forgeReadFreeflyInput(f32 *out_move_x, f32 *out_move_y,
