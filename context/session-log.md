@@ -4,6 +4,67 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S459 - 2026-04-25 - Priority K impl: input-authority discipline + cursor authority + Issue 2/3 closure
+
+Worktree `claude/stoic-wing-35829b` (continuation of S458 in the same batch). K landed across 4 logical commits; build clean on both targets. L queued after K finishes.
+
+### K-a -- audit (`b6acbe02` -- doc bundle)
+
+`context/audits/input-authority-discipline-2026-04-25.md`. Catalogs every inputCtxPush/Pop site, every menupoolAcquire/Release with/without ctx, and the cursor-visibility race. Findings:
+
+- 18+ pool-managed acquire/release sites with ctx -- canonical, kept.
+- 3 system-level direct gameplay-ctx pushes (boot, stage transition, watchdog) -- legitimate exception.
+- 2 F12 debug overlay direct pushes -- legitimate exception (no dialog).
+- 8 paired `menupoolReleaseAll() + inputCtxPopDeferred(&g_CtxImGuiMenu)` force-close sites -- drift surface, target of K-b3.
+- 2 endscreen force-push sites -- drift symptom, narrow-scope, left in for now.
+- 3 solomission post-menuhandlerAcceptMission defensive pops -- different cause, K-b2 follow-up.
+- 1 mainmenu top-level defensive pop -- documented but not removed this batch.
+- Cursor race: `inputCtxSyncMouseMode` vs `ImGui_ImplSDL2_UpdateMouseCursor` both call SDL_ShowCursor independently. Issue 3 manifestation.
+
+### K-b1 + K-d -- menupool fixes (`00e818cf`)
+
+`port/src/menupool.c`:
+- `menupoolReleaseAll` now also pops the unregistered-fallback ctx if `s_UnregisteredOwnedDef` / `s_UnregisteredOwnedCtx` are set. Force-close sites can now call `menupoolReleaseAll` alone -- the bulk release pops every owned ctx including unregistered.
+- `menupoolAcquire` post-acquire drift assertion in both branches (already-active resurrect + fresh-acquire). LOG_WARNING `MENUPOOL: drift -- ...` fires the moment a slot is acquired but its ctx is not live on the input-context stack.
+
+### K-c -- cursor authority (`5879d210`)
+
+`port/fast3d/pdgui_backend.cpp`. Set `io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange` at backend init. Short-circuits `ImGui_ImplSDL2_UpdateMouseCursor` at imgui_impl_sdl2.cpp:631-632 so it never calls `SDL_ShowCursor`. `inputCtxSyncMouseMode` becomes sole authority. Closes Issue 3 cursor race.
+
+### K-b3 -- defensive-pop deletion (`11127c9a`)
+
+8 paired `inputCtxPopDeferred(&g_CtxImGuiMenu)` calls deleted following `menupoolReleaseAll`:
+- `port/fast3d/pdgui_bridge.c`: pdguiEndscreenStartMission, pdguiEndscreenNextMission, pdguiEndscreenExitToMainMenu.
+- `port/src/net/net.c::netDisconnect`.
+- `port/src/net/matchsetup.c`: matchStart + challenge match start.
+- `port/src/net/netmsg.c::netmsgSvcStageStartRead` (CS + co-op branches).
+
+Each deletion preserves an explanatory comment pointing at K-b1 + the audit doc.
+
+### K-e -- Issue 2/3 closure (`b6acbe02` -- doc bundle)
+
+`context/bugs.md`:
+- **B-250**: Issue 2 (CS back-out stuck) marked STRUCTURALLY-RESOLVED-PENDING-PLAYTEST. Resolved by K-b1 + K-b3.
+- **B-251**: Issue 3 (pause-cursor / RMB) marked STRUCTURALLY-RESOLVED-PENDING-PLAYTEST. Resolved by K-c.
+
+### K-f -- methodology doc (`b6acbe02` -- doc bundle)
+
+`context/designs/input-authority-methodology.md`. One-pager defining the policy: menuPushDialog/Pop is the sole input-authority transfer mechanism; pool-managed dialogs use menupoolAcquireDialog with required ctx; force-close sites use menupoolReleaseAll alone; single cursor authority; three legitimate direct-push exceptions.
+
+### Co-existence with the weapon-bug session
+
+Did NOT touch any of: `src/game/inv*.c`, `src/game/bondinit.c`, `src/game/bgun.c`, `src/game/wpnload.c`, `port/src/forge/forge_runtime.c`. The S456 `LOG.WPN.DIAG` instrumentation in commit `6a9a23d8` is intact.
+
+### Build verification
+
+Both `PerfectDark.exe` and `PerfectDarkServer.exe` link clean after all four K commits. No new warnings introduced.
+
+### Next
+
+L (flat menu navigation system-wide) starts in this same batch.
+
+---
+
 ## Session S458 - 2026-04-25 - Priority J impl: Mission/CombatSim split + vehicle lifecycle + scorecard hold
 
 Worktree `claude/stoic-wing-35829b`. J-1 / J-1d / J-2 / J-3 landed across four logical commits; build clean on both targets (PerfectDark.exe 54,333,412 / PerfectDarkServer.exe 23,249,938). K and L queued sequentially in this same batch.
