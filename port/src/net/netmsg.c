@@ -621,6 +621,22 @@ u32 netmsgClcAuthWrite(struct netbuf *dst)
 		modDir = "";
 	}
 
+	/* AUDIT-24-L4 (2026-04-25): defensive NULL guard on g_NetLocalClient.
+	 * In normal operation this function is only invoked from
+	 * `netClientEvConnect` which is registered as a client-side connect
+	 * handler, so `g_NetLocalClient` is always set when we get here.
+	 * The function body still compiles into pd-server (no PD_SERVER
+	 * guard around the function); a future refactor that wires this
+	 * write into a generic dispatch could expose the unconditional
+	 * deref.  The guard converts the latent footgun into a logged
+	 * warning + early-return. */
+	if (!g_NetLocalClient) {
+		sysLogPrintf(LOG_WARNING,
+			"NETMSG: netmsgClcAuthWrite called with g_NetLocalClient == NULL "
+			"-- skipping write (server build path or refactor regression)");
+		return 0;
+	}
+
 	// Use identity profile name (authoritative for PC); fall back to settings name
 	const char *name = g_NetLocalClient->settings.name;
 	identity_profile_t *profile = identityGetActiveProfile();

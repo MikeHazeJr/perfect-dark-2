@@ -139,17 +139,25 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 		if (bs) {
 			/* Keybinds.  ImGui::IsKeyPressed polls the SDL backend's
 			 * key queue, which fires even without a focused ImGui
-			 * window (background overlay pattern).  false = no repeat. */
-			if (ImGui::IsKeyPressed(ImGuiKey_Insert, false)) {
+			 * window (background overlay pattern).  false = no repeat.
+			 *
+			 * AUDIT-24-L1 (2026-04-25): gate on `WantCaptureKeyboard` so
+			 * any in-game ImGui widget that wants keyboard (a console
+			 * widget rendered alongside the HUD, or a future text-input
+			 * overlay) takes priority -- HUD keys must not steal focus
+			 * from a widget that's also listening.  Mirrors the B-154 fix
+			 * pattern at the actionmap dispatch seam. */
+			const bool kbReadAvailable = !ImGui::GetIO().WantCaptureKeyboard;
+			if (kbReadAvailable && ImGui::IsKeyPressed(ImGuiKey_Insert, false)) {
 				forgeBotAddRequest(1);
 			}
-			if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
+			if (kbReadAvailable && ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
 				forgeBotRemoveAll();
 			}
-			if (ImGui::IsKeyPressed(ImGuiKey_End, false)) {
+			if (kbReadAvailable && ImGui::IsKeyPressed(ImGuiKey_End, false)) {
 				forgeBotFreezeAll(bs->all_frozen ? 0 : 1);
 			}
-			if (ImGui::IsKeyPressed(ImGuiKey_Home, false)) {
+			if (kbReadAvailable && ImGui::IsKeyPressed(ImGuiKey_Home, false)) {
 				s32 next = (s32)bs->spawn_mode + 1;
 				if (next > FORGE_BOT_SPAWN_SMART) next = FORGE_BOT_SPAWN_ANY;
 				bs->spawn_mode = (u8)next;

@@ -3974,6 +3974,16 @@ static int             s_GridArenaCapacity = 0;
 static bool            s_GridArenasBuilt = false;
 static int             s_GridSelectedArena = 0;
 
+/* AUDIT-24-M7 (2026-04-25): clear the built-flag so the next render
+ * rebuilds the Grid arena list from the current catalog state.  Called
+ * from `modmgrCatalogChanged()` whenever a mod is enabled / disabled /
+ * scanned, so mod-authored arenas appear in the picker without a
+ * process restart. */
+extern "C" void pdguiGridArenasInvalidate(void)
+{
+    s_GridArenasBuilt = false;
+}
+
 static GridArenaCategory gridClassifyCategory(const char *cat)
 {
     if (!cat || !cat[0])                         return GRID_CAT_UNKNOWN;
