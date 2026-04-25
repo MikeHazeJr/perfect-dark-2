@@ -393,6 +393,24 @@ void playerApplyOrchestratedSpawnFromPool(s32 playernum, s32 pool_idx)
 			&g_Vars.currentplayer->floorroom,
 			0, 0);
 
+	/* B-247 (2026-04-25): cdFindGroundFromList returns -2^32 sentinel
+	 * (-4294967296) when no ground geo intersects the search cylinder
+	 * (collision.c:1819 `curground` init). Adding eyeheight to that gives
+	 * ~-4.29e9, which propagated to prop->pos and the player fell through
+	 * the level (Mike's Grid log `019dc2f6-pdclient.log` showed exactly
+	 * this signature: pos=(0,-4294967040,0) where -4294967040 = -2^32+256).
+	 * Validate groundy and fall back to the spawn pad's authored Y so the
+	 * pad's altitude wins when ground lookup fails. */
+	{
+		const f32 GROUNDY_BOUND = 100000.0f;
+		if (groundy < -GROUNDY_BOUND || groundy > GROUNDY_BOUND) {
+			sysLogPrintf(LOG_WARNING,
+				"SPAWN.ORCH: cdFindGroundInfoAtCyl sentinel groundy=%g at pad pos=(%.0f,%.0f,%.0f) -- using pad Y",
+				groundy, pos.x, pos.y, pos.z);
+			groundy = pos.y;
+		}
+	}
+
 	pos.y = g_Vars.currentplayer->vv_eyeheight + groundy;
 	g_Vars.currentplayer->vv_manground = groundy;
 	g_Vars.currentplayer->vv_ground = groundy;
@@ -1151,6 +1169,20 @@ void playerStartNewLife(void)
 			&g_Vars.currentplayer->floorflags,
 			&g_Vars.currentplayer->floorroom,
 			NULL, NULL);
+
+	/* B-247 (2026-04-25): same sentinel guard as the orchestrator path
+	 * above. cdFindGroundFromList returns -2^32 when no ground intersects
+	 * the search cylinder; the resulting pos.y propagates as junk to
+	 * prop->pos. Fall back to the spawn pad's authored Y. */
+	{
+		const f32 GROUNDY_BOUND = 100000.0f;
+		if (groundy < -GROUNDY_BOUND || groundy > GROUNDY_BOUND) {
+			sysLogPrintf(LOG_WARNING,
+				"SPAWN.NEWLIFE: cdFindGroundInfoAtCyl sentinel groundy=%g at pad pos=(%.0f,%.0f,%.0f) -- using pad Y",
+				groundy, pos.x, pos.y, pos.z);
+			groundy = pos.y;
+		}
+	}
 
 	pos.y = groundy + g_Vars.currentplayer->vv_eyeheight;
 

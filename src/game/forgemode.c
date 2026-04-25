@@ -190,6 +190,21 @@ static void forgeSetFreeflyMode(struct player *p)
 				(u32)s_forge.fly.saved_headnum,
 				(u32)BODY_DRCAROLL);
 	}
+
+	/* B-247 (2026-04-25): explicit pos init at the body-swap control point.
+	 * forgeSnapFreeflyToPlayer (called immediately before this) already
+	 * validated p->prop->pos and stored a known-good value in s_forge.fly.pos
+	 * (falling back to (0,100,0) when the read was junk). Mirror that value
+	 * back to p->prop->pos NOW so the chr is never at junk coords for even
+	 * one tick -- without this, forgeApplyFreeflyToPlayer's first per-tick
+	 * write happens on the next frame, leaving a 1-tick window where the
+	 * observer chr could be at the original junk position. Belt-and-braces
+	 * with the read-side guard in snap. */
+	if (p->prop) {
+		p->prop->pos.x = s_forge.fly.pos.x;
+		p->prop->pos.y = s_forge.fly.pos.y;
+		p->prop->pos.z = s_forge.fly.pos.z;
+	}
 }
 
 static void forgeRestorePlayerMode(struct player *p)
