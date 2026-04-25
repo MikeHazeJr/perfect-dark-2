@@ -2144,7 +2144,9 @@ void netEndFrame(void)
 		netDistribServerTick();
 		/* Phase F: drive the match launch countdown (no-op until armed by readyGateCheck) */
 		readyGateTickCountdown();
-		/* v34: advance music playlist when track ends (host only, no-op if no playlist) */
+		/* v34: advance music playlist when track ends (host only, no-op if no playlist).
+		 * Issue 4b (v40): same tick re-broadcasts the current offset every 2s
+		 * for client drift correction. */
 		audioNetworkMusicTick();
 
 		/* U-10: Stage-ready timeout — if not all clients reported ready within the

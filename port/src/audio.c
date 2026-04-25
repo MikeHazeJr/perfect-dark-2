@@ -15,8 +15,10 @@
 extern s32 g_NetMode;
 extern s32 g_NetLocalBotAuthority; /* true if we are the host/bot authority */
 #define NETMODE_SERVER_AUDIO 1
-/* From netmsg.h — broadcast next track to room */
-extern void netMusicBroadcastAdvance(const char *track_id, u8 room_id);
+/* From netmsg.h -- broadcast next track to room. Issue 4b: gained
+ * match_clock_offset_ms after track_id so the host can publish drift-
+ * correction updates as well as track-change events. */
+extern void netMusicBroadcastAdvance(const char *track_id, u8 room_id, u32 match_clock_offset_ms);
 extern u8 g_LocalRoomId;
 
 static SDL_AudioDeviceID dev;
@@ -317,6 +319,12 @@ void audioEndFrame(void)
 		s_AudioDiagSumGapCount = 0;
 		s_AudioDiagFrameCount = 0;
 	}
+
+	/* Issue 4b (2026-04-24): client-side music sync correction. Runs
+	 * once per audio output frame, after the mix has been queued, so
+	 * any rate adjustment lands on the next mixInto call. No-op when
+	 * not playing or when no SVC_MUSIC_ADVANCE has been received yet. */
+	audioMusicSyncCorrectionTick();
 }
 
 /* B-141 telemetry getters. Any out parameter may be NULL. */
@@ -747,9 +755,17 @@ PD_CONSTRUCTOR static void audioConfigInit(void)
  * When the host is in-game with a playlist and the current track finishes,
  * pick the next track, start it locally, and broadcast SVC_MUSIC_ADVANCE
  * so all clients sync to the same track.
+ *
+ * Issue 4b (2026-04-24): also re-broadcast every MUSIC_SYNC_REBROADCAST_MS
+ * with the host's authoritative track offset so clients can lerp drift away.
  * --------------------------------------------------------------------------- */
 
-static s32 s_MusicWasPlaying = 0;  /* edge detector: was music playing last frame? */
+static s32  s_MusicWasPlaying       = 0;  /* edge detector: was music playing last frame? */
+static char s_MusicCurrentTrackId[CATALOG_ID_LEN] = {0};
+static u64  s_MusicTrackStartedAtMs = 0;  /* SDL_GetTicks64 when the current track began on host */
+static u64  s_MusicLastSyncTxMs     = 0;  /* SDL_GetTicks64 of the most recent sync re-broadcast */
+
+#define MUSIC_SYNC_REBROADCAST_MS 2000u  /* re-broadcast cadence */
 
 void audioNetworkMusicTick(void)
 {
@@ -758,6 +774,7 @@ void audioNetworkMusicTick(void)
 	if (g_AudioModPlaylistCount <= 0) return;
 
 	s32 playing = modMusicIsPlaying();
+	u64 now = SDL_GetTicks64();
 
 	if (s_MusicWasPlaying && !playing) {
 		/* Track just ended — advance to next */
@@ -770,12 +787,158 @@ void audioNetworkMusicTick(void)
 				modMusicPlay(fpath ? fpath : ae->ext.audio.file_path);
 			}
 
-			/* Broadcast to all clients in the room */
-			netMusicBroadcastAdvance(next, g_LocalRoomId);
+			/* Issue 4b: track_change event = offset 0; capture wall-clock
+			 * for subsequent drift-correction broadcasts. */
+			strncpy(s_MusicCurrentTrackId, next, sizeof(s_MusicCurrentTrackId) - 1);
+			s_MusicCurrentTrackId[sizeof(s_MusicCurrentTrackId) - 1] = '\0';
+			s_MusicTrackStartedAtMs = now;
+			s_MusicLastSyncTxMs     = now;
+
+			netMusicBroadcastAdvance(next, g_LocalRoomId, 0u);
 
 			sysLogPrintf(LOG_NOTE, "AUDIO: playlist auto-advance -> '%s'", next);
 		}
 	}
 
+	/* Issue 4b: periodic re-broadcast of (track_id, current offset) so
+	 * clients can compute drift and lerp. Skip if no track is loaded
+	 * or the track is between songs. */
+	if (playing && s_MusicCurrentTrackId[0] &&
+	    (now - s_MusicLastSyncTxMs) >= MUSIC_SYNC_REBROADCAST_MS) {
+		u32 offset_ms;
+		if (now > s_MusicTrackStartedAtMs) {
+			offset_ms = (u32)(now - s_MusicTrackStartedAtMs);
+		} else {
+			offset_ms = 0u;
+		}
+		netMusicBroadcastAdvance(s_MusicCurrentTrackId, g_LocalRoomId, offset_ms);
+		s_MusicLastSyncTxMs = now;
+	}
+
 	s_MusicWasPlaying = playing;
+}
+
+/* ---------------------------------------------------------------------------
+ * Issue 4b (2026-04-24): client-side music sync receiver + correction tick.
+ *
+ * On every SVC_MUSIC_ADVANCE the client lands here. The packet either
+ * announces a track change (start fresh playback) or refreshes the
+ * authoritative offset for the same track (drift-update). The receiver
+ * stores enough state for audioMusicSyncCorrectionTick() to compute
+ * drift each frame and apply rate-lerp or hard-seek as needed.
+ *
+ * Why store wall-clock offsets and not absolute server time: the client
+ * does not share a clock with the host. Instead we record (1) the local
+ * wall-clock at the moment the packet was received, and (2) the host's
+ * reported offset at that moment. Any later moment T's expected offset
+ * is then  `host_offset_at_recv + (T - recv_local_wallclock)`.
+ * --------------------------------------------------------------------------- */
+
+#define MUSIC_SYNC_LERP_GAIN_K       0.001f  /* drift_ms * K -> rate adjustment */
+#define MUSIC_SYNC_LERP_BAND_MS      30      /* drift smaller than this is ignored */
+#define MUSIC_SYNC_HARD_SEEK_MS      5000    /* drift larger than this triggers hard-seek */
+#define MUSIC_SYNC_LOG_INTERVAL_MS   2000    /* throttle "MUSIC.SYNC: drift= ... rate= ..." */
+
+static char s_MusicSyncTrackId[CATALOG_ID_LEN] = {0};
+static u64  s_MusicSyncRecvWallclockMs = 0;
+static u32  s_MusicSyncOffsetAtRecvMs  = 0;
+static s32  s_MusicSyncActive          = 0;
+static u64  s_MusicSyncLastLogMs       = 0;
+
+void audioMusicSyncReceive(const char *track_id, u32 match_clock_offset_ms)
+{
+	if (!track_id || !track_id[0]) return;
+
+	const s32 sameTrack = (s_MusicSyncTrackId[0] != '\0' &&
+	                       strncmp(s_MusicSyncTrackId, track_id, sizeof(s_MusicSyncTrackId)) == 0);
+
+	/* Always refresh the (track_id, recv_wallclock, recorded_offset)
+	 * triple. On a track-change we also start the track locally and
+	 * hard-seek to the server's current offset (for late-joiners or
+	 * mid-track tune-ins). */
+	const u64 now = SDL_GetTicks64();
+	strncpy(s_MusicSyncTrackId, track_id, sizeof(s_MusicSyncTrackId) - 1);
+	s_MusicSyncTrackId[sizeof(s_MusicSyncTrackId) - 1] = '\0';
+	s_MusicSyncRecvWallclockMs = now;
+	s_MusicSyncOffsetAtRecvMs  = match_clock_offset_ms;
+	s_MusicSyncActive          = 1;
+
+	if (!sameTrack) {
+		audioSetModTrackId(track_id);
+		const asset_entry_t *ae = assetCatalogResolve(track_id);
+		if (ae && ae->ext.audio.file_path[0]) {
+			const char *fpath = fsFullPath(ae->ext.audio.file_path);
+			modMusicPlay(fpath ? fpath : ae->ext.audio.file_path);
+			/* Late-join: skip ahead to the host's current offset so
+			 * the listener doesn't replay 30 seconds of intro. */
+			if (match_clock_offset_ms > 0u) {
+				modMusicSetPositionMs(match_clock_offset_ms);
+			}
+			sysLogPrintf(LOG_NOTE, "MUSIC.SYNC: track-change -> '%s' offset=%u ms",
+			             track_id, match_clock_offset_ms);
+		} else {
+			sysLogPrintf(LOG_WARNING, "MUSIC.SYNC: track '%s' not in catalog", track_id);
+			s_MusicSyncActive = 0;
+		}
+	}
+	/* same-track receive: drift-update only. The correction tick below
+	 * will compute drift on the next audio frame and adjust rate. */
+}
+
+void audioMusicSyncCorrectionTick(void)
+{
+	if (!s_MusicSyncActive) return;
+	if (!modMusicIsPlaying()) {
+		/* Track ended locally before the next sync packet; reset to
+		 * idle so a fresh track-change message starts cleanly. */
+		s_MusicSyncActive = 0;
+		modMusicSetRate(1.0f);
+		return;
+	}
+
+	const u64 now = SDL_GetTicks64();
+
+	/* Expected offset at the host right now: the offset they sent us
+	 * at recv-time, plus however much wall-clock has elapsed since. */
+	u64 elapsed_since_recv = (now > s_MusicSyncRecvWallclockMs)
+	                         ? (now - s_MusicSyncRecvWallclockMs) : 0u;
+	u64 expected_offset_ms = (u64)s_MusicSyncOffsetAtRecvMs + elapsed_since_recv;
+
+	u32 local_offset_ms = modMusicGetPositionMs();
+	s64 drift_ms        = (s64)expected_offset_ms - (s64)local_offset_ms;
+
+	/* Hard-seek for drift larger than the lerp window. */
+	if (drift_ms >  MUSIC_SYNC_HARD_SEEK_MS ||
+	    drift_ms < -MUSIC_SYNC_HARD_SEEK_MS) {
+		u32 target = (expected_offset_ms < (u64)0xFFFFFFFFu)
+		             ? (u32)expected_offset_ms : 0xFFFFFFFFu;
+		sysLogPrintf(LOG_WARNING,
+		             "MUSIC.SYNC: hard-seek (drift=%lld ms exceeded +-%d ms window) target=%u",
+		             (long long)drift_ms, MUSIC_SYNC_HARD_SEEK_MS, target);
+		modMusicSetPositionMs(target);
+		modMusicSetRate(1.0f);
+		return;
+	}
+
+	/* Inside the lerp dead-band, hold rate at 1.0 so we do not jitter
+	 * around perfect alignment. */
+	if (drift_ms > -MUSIC_SYNC_LERP_BAND_MS && drift_ms < MUSIC_SYNC_LERP_BAND_MS) {
+		modMusicSetRate(1.0f);
+		return;
+	}
+
+	/* Compute the rate. drift > 0 means client is BEHIND the host =>
+	 * speed up (rate > 1). drift < 0 means client is AHEAD => slow
+	 * down (rate < 1). modMusicSetRate already clamps to [0.97, 1.03]. */
+	f32 rate = 1.0f + ((f32)drift_ms) * MUSIC_SYNC_LERP_GAIN_K;
+	modMusicSetRate(rate);
+
+	/* Throttle the log line so we don't spam the file every audio
+	 * frame; the rate is still applied every tick. */
+	if ((now - s_MusicSyncLastLogMs) >= MUSIC_SYNC_LOG_INTERVAL_MS) {
+		f32 effective = modMusicGetRate();
+		sysLogPrintf(LOG_NOTE, "MUSIC.SYNC: drift=%lld ms rate=%.3f",
+		             (long long)drift_ms, effective);
+		s_MusicSyncLastLogMs = now;
+	}
 }

@@ -9,7 +9,16 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 39  /* v39: ADMIN_RESP_RATE_LIMIT (0x06) for failed ADMIN_AUTH
+#define NET_PROTOCOL_VER 40  /* v40: Issue 4b music speed-lerp -- SVC_MUSIC_ADVANCE
+                              * gains a u32 match_clock_offset_ms field after the
+                              * track_id string. Authoritative host computes the
+                              * elapsed milliseconds since track-start and
+                              * broadcasts it both on track change and as a
+                              * periodic re-broadcast (every ~2s) for drift
+                              * correction. Clients lerp playback rate in
+                              * [0.97, 1.03] to converge, hard-seek if drift
+                              * exceeds 5000 ms.
+                              * v39: ADMIN_RESP_RATE_LIMIT (0x06) for failed ADMIN_AUTH
                                * rate-limit / lockout (SVC_ADMIN wire). v38: Multiple additive changes on one protocol bump.
                                *   (a) MASTER-C3 identity cookie — CLC_AUTH now carries a
                                *       16-byte reconnect cookie (zeros on first join); SVC_AUTH

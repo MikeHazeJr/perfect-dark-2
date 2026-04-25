@@ -289,10 +289,14 @@ u32 netmsgSvcRoomListRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcRoomAssignWrite(struct netbuf *dst, u8 room_id);
 u32 netmsgSvcRoomAssignRead(struct netbuf *src, struct netclient *srccl);
 
-/* v34: Mid-match music playlist advance */
-u32 netmsgSvcMusicAdvanceWrite(struct netbuf *dst, const char *track_id);
+/* v34: Mid-match music playlist advance.
+ * v40 (Issue 4b): wire gains u32 match_clock_offset_ms after track_id;
+ * authoritative host broadcasts elapsed-since-track-start in ms so
+ * clients can lerp playback rate to converge or hard-seek if drift
+ * exceeds 5000 ms. */
+u32 netmsgSvcMusicAdvanceWrite(struct netbuf *dst, const char *track_id, u32 match_clock_offset_ms);
 u32 netmsgSvcMusicAdvanceRead(struct netbuf *src, struct netclient *srccl);
-void netMusicBroadcastAdvance(const char *track_id, u8 room_id);
+void netMusicBroadcastAdvance(const char *track_id, u8 room_id, u32 match_clock_offset_ms);
 
 /* R-5: Room settings sync (v35 additive) */
 u32 netmsgSvcRoomSettingsWrite(struct netbuf *dst, u8 numBots, u8 timelimit,

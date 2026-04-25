@@ -6289,44 +6289,43 @@ u32 netmsgSvcRoomAssignRead(struct netbuf *src, struct netclient *srccl)
 	return src->error;
 }
 
-/* ---- SVC_MUSIC_ADVANCE (v34) ---- */
+/* ---- SVC_MUSIC_ADVANCE (v34 base, v40 adds match_clock_offset_ms) ---- */
 
-u32 netmsgSvcMusicAdvanceWrite(struct netbuf *dst, const char *track_id)
+u32 netmsgSvcMusicAdvanceWrite(struct netbuf *dst, const char *track_id, u32 match_clock_offset_ms)
 {
 	netbufWriteU8(dst, SVC_MUSIC_ADVANCE);
 	netbufWriteStr(dst, track_id ? track_id : "");
+	/* v40: authoritative track offset in ms since track-start. Clients
+	 * compare to local position and converge via modMusicSetRate or a
+	 * hard-seek if drift exceeds the lerp window. Field is mandatory
+	 * on the wire from v40 onwards; mixed-version play is rejected at
+	 * the auth handshake (NET_PROTOCOL_VER). */
+	netbufWriteU32(dst, match_clock_offset_ms);
 	return dst->error;
 }
+
+/* Forward decl: client sync receive entry point lives in audio.c. */
+#if !defined(PD_SERVER)
+extern void audioMusicSyncReceive(const char *track_id, u32 match_clock_offset_ms);
+#endif
 
 u32 netmsgSvcMusicAdvanceRead(struct netbuf *src, struct netclient *srccl)
 {
 	const char *track_str = netbufReadStr(src);
+	u32 match_clock_offset_ms = netbufReadU32(src);
 	if (src->error) return src->error;
 
 	const char *track_id = track_str ? track_str : "";
 	if (!track_id[0]) return src->error;
 
 #if !defined(PD_SERVER)
-	/* Client: set the track and start playback */
-	audioSetModTrackId(track_id);
-
-	/* Resolve file path from catalog and play */
-	{
-		const asset_entry_t *ae = assetCatalogResolve(track_id);
-		if (ae && ae->ext.audio.file_path[0]) {
-			const char *fpath = fsFullPath(ae->ext.audio.file_path);
-			if (fpath) {
-				modMusicPlay(fpath);
-			} else {
-				modMusicPlay(ae->ext.audio.file_path);
-			}
-			sysLogPrintf(LOG_NOTE, "NET: SVC_MUSIC_ADVANCE: playing '%s'", track_id);
-		} else {
-			sysLogPrintf(LOG_WARNING, "NET: SVC_MUSIC_ADVANCE: track '%s' not in catalog", track_id);
-		}
-	}
+	/* Issue 4b (2026-04-24): hand off to the sync layer. It decides
+	 * whether this is a track-change (start fresh playback) or a
+	 * drift-update (keep current track, update target offset). */
+	audioMusicSyncReceive(track_id, match_clock_offset_ms);
 #else
 	(void)track_id;
+	(void)match_clock_offset_ms;
 #endif
 
 	return src->error;
@@ -6334,14 +6333,16 @@ u32 netmsgSvcMusicAdvanceRead(struct netbuf *src, struct netclient *srccl)
 
 /**
  * Broadcast SVC_MUSIC_ADVANCE to all clients in a room (or all if room_id == 0xFF).
- * Called by the host when a track ends and the next playlist track is picked.
+ * Called by the host on track change AND periodically (every ~2s) for drift
+ * correction. match_clock_offset_ms is the elapsed milliseconds since the
+ * current track started on the host (0 on a fresh track-change).
  */
-void netMusicBroadcastAdvance(const char *track_id, u8 room_id)
+void netMusicBroadcastAdvance(const char *track_id, u8 room_id, u32 match_clock_offset_ms)
 {
 	if (g_NetMode != NETMODE_SERVER || !track_id || !track_id[0]) return;
 
 	netbufStartWrite(&g_NetMsgRel);
-	netmsgSvcMusicAdvanceWrite(&g_NetMsgRel, track_id);
+	netmsgSvcMusicAdvanceWrite(&g_NetMsgRel, track_id, match_clock_offset_ms);
 
 	if (room_id != 0xFF) {
 		netSendToRoom(room_id, &g_NetMsgRel, true, NETCHAN_CONTROL);
@@ -6349,8 +6350,8 @@ void netMusicBroadcastAdvance(const char *track_id, u8 room_id)
 		netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL);
 	}
 
-	sysLogPrintf(LOG_NOTE, "NET: SVC_MUSIC_ADVANCE broadcast: '%s' room=%u",
-	             track_id, (unsigned)room_id);
+	sysLogPrintf(LOG_NOTE, "NET: SVC_MUSIC_ADVANCE broadcast: '%s' offset=%u ms room=%u",
+	             track_id, match_clock_offset_ms, (unsigned)room_id);
 }
 
 u32 netmsgClcRoomCreateWrite(struct netbuf *dst, const char *name, u8 access,

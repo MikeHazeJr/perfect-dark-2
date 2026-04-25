@@ -427,6 +427,11 @@ const char *audioGetModPlaylistEntry(s32 idx)               { (void)idx; return 
 const char *audioGetModTrackId(void)                        { return ""; }
 void        audioSetModTrackId(const char *id)              { (void)id; }
 void        audioNetworkMusicTick(void)                     { /* no-op on server */ }
+/* Issue 4b (2026-04-24): client-side music sync. Server has no audio
+ * device and never receives SVC_MUSIC_ADVANCE, so these are no-ops. */
+void        audioMusicSyncReceive(const char *track_id, u32 match_clock_offset_ms)
+                                                            { (void)track_id; (void)match_clock_offset_ms; }
+void        audioMusicSyncCorrectionTick(void)              { /* no-op on server */ }
 
 /* --- Asset Provider stubs (Direct File Access Phase 1) — server never
  * loads asset bytes (no ROM, no file system for assets), but shared

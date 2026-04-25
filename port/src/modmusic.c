@@ -34,9 +34,12 @@
 
 static s16 *s_ModMusicPCM  = NULL;  /* decoded PCM buffer (S16 stereo) */
 static u32  s_ModMusicLen  = 0;     /* buffer length in samples (L+R pairs = frames * 2) */
-static u32  s_ModMusicPos  = 0;     /* current playback position in samples */
+static u32  s_ModMusicPos  = 0;     /* current playback position in samples (integer floor of fractional cursor) */
+static f64  s_ModMusicPosFrac = 0.0; /* sub-sample fraction in [0,1) for rate-adjusted playback */
 static s32  s_ModMusicPlaying = 0;  /* 1 = playing, 0 = stopped */
 static f32  s_ModMusicVolume  = 1.0f; /* mod-specific volume 0.0 - 1.0 */
+static f32  s_ModMusicRateMul = 1.0f; /* Issue 4b: playback rate multiplier, clamped [0.97, 1.03] */
+static u32  s_ModMusicSampleRate = 22050; /* device sample rate for ms<->sample conversion */
 
 /* Forward declaration for base music volume control */
 extern void musicSetVolume(u16 volume);
@@ -424,6 +427,8 @@ void modMusicPlay(const char *file_path)
     s_ModMusicPCM     = pcm;
     s_ModMusicLen     = len;
     s_ModMusicPos     = 0;
+    s_ModMusicPosFrac = 0.0;
+    s_ModMusicRateMul = 1.0f;  /* fresh track resets any in-flight rate adjustment */
     s_ModMusicPlaying = 1;
 
     /* Silence base N64 music while mod track plays */
@@ -441,6 +446,8 @@ void modMusicStop(void)
     }
     s_ModMusicLen     = 0;
     s_ModMusicPos     = 0;
+    s_ModMusicPosFrac = 0.0;
+    s_ModMusicRateMul = 1.0f;
     s_ModMusicPlaying = 0;
 
     /* Restore base music volume to player's setting */
@@ -466,46 +473,147 @@ s32 modMusicIsPlaying(void)
 
 void modMusicMixInto(s16 *outBuf, u32 numFrames)
 {
-    u32 samplesToMix;
-    u32 samplesAvail;
-    u32 i;
     f32 vol;
+    f64 rate;
+    u32 i;
+    u32 framesAvail;
+    u32 framesProduced;
+    u32 framesToWrite;
     s32 mixed;
+    f64 cursor;
+    f64 step;
 
     if (!s_ModMusicPlaying || !s_ModMusicPCM || !outBuf) {
         return;
     }
 
     vol = modmusic_effectiveVolume();
+    rate = (f64)s_ModMusicRateMul;
+    if (rate < 0.001) rate = 0.001;  /* belt-and-braces, setter clamps already */
 
-    /* numFrames = stereo frames, each frame = 2 S16 samples (L + R) */
-    samplesToMix = numFrames * 2;
-    samplesAvail = s_ModMusicLen - s_ModMusicPos;
+    /* numFrames = stereo frames; each frame = 2 S16 samples (L + R).
+     * Cursor advances at `rate` source-frames per output-frame. Linear
+     * interpolation between adjacent source frames smooths the
+     * sub-sample case (rate != 1.0). At rate == 1.0 the math reduces
+     * to the integer-cursor fast path's behaviour exactly because
+     * cursor.frac stays 0 each step. */
+    cursor = (f64)s_ModMusicPos * 0.5 + s_ModMusicPosFrac;  /* fractional source-frame index */
+    step   = rate;
 
-    if (samplesToMix > samplesAvail) {
-        samplesToMix = samplesAvail;
+    /* Total source frames available from current position to end. */
+    framesAvail = (s_ModMusicLen / 2u);
+    if ((u32)cursor >= framesAvail) {
+        s_ModMusicPlaying = 0;
+        modmusic_restoreBaseMusic();
+        sysLogPrintf(LOG_NOTE, "modmusic: track finished");
+        return;
     }
 
-    /* Additive mix with volume scaling and S16 saturation */
-    for (i = 0; i < samplesToMix; i++) {
-        mixed = (s32)outBuf[i] + (s32)((f32)s_ModMusicPCM[s_ModMusicPos + i] * vol);
+    /* How many output frames can we produce before running out of
+     * source? Solve `cursor + step * N <= framesAvail - 1` for N. */
+    framesProduced = (u32)(((f64)(framesAvail - 1) - cursor) / step);
+    framesToWrite = (numFrames < framesProduced) ? numFrames : framesProduced;
 
-        /* Saturate to S16 range */
+    for (i = 0; i < framesToWrite; i++) {
+        u32 idx0 = (u32)cursor;
+        u32 idx1 = idx0 + 1u;
+        if (idx1 >= framesAvail) idx1 = idx0;
+        f64 frac = cursor - (f64)idx0;
+
+        /* Source samples for this output frame (stereo interleaved). */
+        s32 l0 = s_ModMusicPCM[idx0 * 2u];
+        s32 r0 = s_ModMusicPCM[idx0 * 2u + 1u];
+        s32 l1 = s_ModMusicPCM[idx1 * 2u];
+        s32 r1 = s_ModMusicPCM[idx1 * 2u + 1u];
+
+        f32 lInterp = (f32)((f64)l0 + ((f64)l1 - (f64)l0) * frac);
+        f32 rInterp = (f32)((f64)r0 + ((f64)r1 - (f64)r0) * frac);
+
+        /* Mix L. */
+        mixed = (s32)outBuf[i * 2u] + (s32)(lInterp * vol);
         if (mixed > 32767) mixed = 32767;
         if (mixed < -32768) mixed = -32768;
+        outBuf[i * 2u] = (s16)mixed;
 
-        outBuf[i] = (s16)mixed;
+        /* Mix R. */
+        mixed = (s32)outBuf[i * 2u + 1u] + (s32)(rInterp * vol);
+        if (mixed > 32767) mixed = 32767;
+        if (mixed < -32768) mixed = -32768;
+        outBuf[i * 2u + 1u] = (s16)mixed;
+
+        cursor += step;
     }
 
-    s_ModMusicPos += samplesToMix;
+    /* Write back integer + fractional position. */
+    {
+        u32 newFrameIdx = (u32)cursor;
+        s_ModMusicPos     = newFrameIdx * 2u;
+        s_ModMusicPosFrac = cursor - (f64)newFrameIdx;
+    }
 
-    /* Track finished — stop playback */
-    if (s_ModMusicPos >= s_ModMusicLen) {
+    /* Track finished — stop playback. Buffer stays alive until next
+     * modMusicPlay or modMusicStop so we don't free mid-frame. */
+    if (framesToWrite < numFrames || s_ModMusicPos >= s_ModMusicLen) {
         s_ModMusicPlaying = 0;
-        /* Don't free here — let the next modMusicPlay or explicit stop clean up.
-         * This avoids freeing mid-frame if audioEndFrame calls us. We mark stopped
-         * so the next frame won't mix anything, and the buffer stays valid. */
         modmusic_restoreBaseMusic();
         sysLogPrintf(LOG_NOTE, "modmusic: track finished");
     }
+}
+
+/* ============================================================
+ * Issue 4b (2026-04-24): rate adjustment + position API for
+ * networked music sync.
+ *
+ * The host broadcasts SVC_MUSIC_ADVANCE periodically with the
+ * current track offset; clients call modMusicGetPositionMs to
+ * compare against the authoritative offset and call
+ * modMusicSetRate to lerp playback rate within [0.97, 1.03] for
+ * gradual catch-up, or modMusicSetPositionMs as a hard-seek
+ * fallback when drift exceeds the lerp window.
+ * ============================================================ */
+
+void modMusicSetRate(f32 rate)
+{
+    /* Clamp to [0.97, 1.03] -- ~50 cents of pitch shift max, well
+     * under the threshold where listeners hear a noticeable bend. */
+    if (rate < 0.97f) rate = 0.97f;
+    if (rate > 1.03f) rate = 1.03f;
+    s_ModMusicRateMul = rate;
+}
+
+f32 modMusicGetRate(void)
+{
+    return s_ModMusicRateMul;
+}
+
+u32 modMusicGetPositionMs(void)
+{
+    if (!s_ModMusicPlaying || s_ModMusicSampleRate == 0) return 0;
+    /* s_ModMusicPos is in samples (L+R interleaved). Frames = samples/2. */
+    f64 frames = (f64)s_ModMusicPos * 0.5 + s_ModMusicPosFrac;
+    f64 ms = (frames * 1000.0) / (f64)s_ModMusicSampleRate;
+    if (ms < 0.0) ms = 0.0;
+    return (u32)ms;
+}
+
+void modMusicSetPositionMs(u32 ms)
+{
+    if (!s_ModMusicPlaying || s_ModMusicSampleRate == 0 || s_ModMusicLen == 0) return;
+    f64 frames = ((f64)ms * (f64)s_ModMusicSampleRate) / 1000.0;
+    u32 frameIdx = (u32)frames;
+    u32 maxFrame = s_ModMusicLen / 2u;
+    if (maxFrame == 0) return;
+    if (frameIdx >= maxFrame) frameIdx = maxFrame - 1;
+    s_ModMusicPos     = frameIdx * 2u;
+    s_ModMusicPosFrac = frames - (f64)frameIdx;
+    sysLogPrintf(LOG_NOTE, "modmusic: hard-seek to %u ms (frame %u of %u)",
+                 ms, frameIdx, maxFrame);
+}
+
+u32 modMusicGetDurationMs(void)
+{
+    if (!s_ModMusicPCM || s_ModMusicLen == 0 || s_ModMusicSampleRate == 0) return 0;
+    f64 frames = (f64)(s_ModMusicLen / 2u);
+    f64 ms = (frames * 1000.0) / (f64)s_ModMusicSampleRate;
+    return (u32)ms;
 }

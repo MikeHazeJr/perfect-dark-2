@@ -90,6 +90,24 @@ void audioResetPlaylistIndex(void);
 void audioNetworkMusicTick(void);
 
 /**
+ * Issue 4b (2026-04-24): client-side music sync.
+ *
+ * audioMusicSyncReceive is called by the SVC_MUSIC_ADVANCE network
+ * read handler when a track-change or drift-update packet arrives.
+ * On a track-change it starts the new track and hard-seeks to the
+ * host's current offset (so late-joiners pick up mid-song). On a
+ * drift-update it stores the new authoritative offset for the
+ * correction tick.
+ *
+ * audioMusicSyncCorrectionTick runs every audio frame on the client.
+ * It compares the local playback position to the expected host
+ * position, applies a rate adjustment in [0.97, 1.03] for small
+ * drift, or a hard-seek if drift exceeds 5000 ms.
+ */
+void audioMusicSyncReceive(const char *track_id, u32 match_clock_offset_ms);
+void audioMusicSyncCorrectionTick(void);
+
+/**
  * B-141 telemetry — read diagnostic counters for the audio push path.
  *   drops     — SDL queue was full at push time (buffered >= queueLimit).
  *   underruns — SDL queue was near-empty at push time (< 128 stereo samples).

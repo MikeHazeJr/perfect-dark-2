@@ -48,6 +48,32 @@ s32 modMusicIsPlaying(void);
  */
 void modMusicMixInto(s16 *outBuf, u32 numFrames);
 
+/* ============================================================
+ * Issue 4b (2026-04-24): networked music sync API.
+ *
+ * Set the playback rate multiplier (clamped to [0.97, 1.03]) for
+ * gradual drift correction. 1.0 = normal speed; >1.0 = slightly
+ * faster (catches up to authoritative offset); <1.0 = slightly
+ * slower (lets authoritative offset catch up). Pitch shift at the
+ * boundaries is ~50 cents -- audible if you're listening for it,
+ * tolerable for transient sync correction. Rate is always reset to
+ * 1.0 on modMusicPlay / modMusicStop. */
+void modMusicSetRate(f32 rate);
+f32  modMusicGetRate(void);
+
+/** Current playback position in milliseconds, 0 if not playing.
+ *  Used by the client sync tick to compute drift vs the host's
+ *  authoritative offset. */
+u32  modMusicGetPositionMs(void);
+
+/** Hard-seek to the given position in milliseconds. Clamped to track
+ *  duration. Used as a last-resort fallback when drift exceeds the
+ *  rate-lerp window. Logs the seek. */
+void modMusicSetPositionMs(u32 ms);
+
+/** Total track duration in milliseconds, 0 if not playing. */
+u32  modMusicGetDurationMs(void);
+
 #ifdef __cplusplus
 }
 #endif
