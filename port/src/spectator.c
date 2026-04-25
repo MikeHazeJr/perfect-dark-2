@@ -18,6 +18,11 @@
 #include "spectator.h"
 #include "social.h"
 #include "system.h"
+#include "net/net.h"
+#include "net/netmsg.h"
+#include "net/netbuf.h"
+#include "presence.h"
+#include <stdio.h>
 
 #include <SDL.h>
 #include <stdio.h>
@@ -27,6 +32,10 @@
 
 static spectator_state_t s_State;
 static s32               s_Initialised;
+/* Has CLC_SPECTATE_REQUEST been sent for the active session yet?
+ * Reset by spectatorBeginLive / spectatorStop; set by spectatorTick on
+ * the first CLSTATE_GAME observation. */
+static s32               s_RequestSent;
 
 /* -------------------------------------------------------------------------
  * Lifecycle
@@ -128,6 +137,7 @@ s32 spectatorBeginLive(u32 host_friend_handle)
 	s_State.focus_idx = -1;
 	s_State.host_handle = host_friend_handle;
 	s_State.late_join_pending = 1;
+	s_RequestSent = 0;
 
 	const social_friend_t *f = socialFriendByHandle(host_friend_handle);
 	sysLogPrintf(LOG_NOTE,
@@ -135,9 +145,37 @@ s32 spectatorBeginLive(u32 host_friend_handle)
 	             (unsigned)host_friend_handle,
 	             f && f->agent_name[0] ? f->agent_name : "?");
 
-	/* The actual SVC_SPECTATE_REQUEST send is the responsibility of the
-	 * wire layer (Phase 3 follow-up). The state machine sits ready and
-	 * accepts the first ingest call when packets arrive. */
+	/* Resolve host endpoint from social store (populated by presence)
+	 * and connect via the existing netStartClient pipeline. The CLC_AUTH
+	 * handshake completes normally; once we land in CLSTATE_GAME we
+	 * promote ourselves with CLC_SPECTATE_REQUEST. The state machine
+	 * accepts SVC_STATE_FRAME packets after that. */
+	u32 ipv4 = 0;
+	u16 port = 0;
+	if (!socialFriendGetEndpoint(host_friend_handle, &ipv4, &port)) {
+		sysLogPrintf(LOG_WARNING,
+		             "SPECTATOR: no cached endpoint for host 0x%08x -- "
+		             "spectator session aborted",
+		             (unsigned)host_friend_handle);
+		return -1;
+	}
+
+	if (g_NetMode == 0) {
+		char addr[64];
+		snprintf(addr, sizeof(addr), "%u.%u.%u.%u:%u",
+		         (unsigned)((ipv4 >> 24) & 0xFF),
+		         (unsigned)((ipv4 >> 16) & 0xFF),
+		         (unsigned)((ipv4 >>  8) & 0xFF),
+		         (unsigned)((ipv4 >>  0) & 0xFF),
+		         (unsigned)port);
+		const s32 rc = netStartClient(addr);
+		sysLogPrintf(LOG_NOTE, "SPECTATOR: netStartClient(%s) rc=%d", addr, rc);
+	}
+
+	/* CLC_SPECTATE_REQUEST is sent after CLC_AUTH succeeds. We rely on
+	 * the netClient state-machine for ordering: spectatorTick polls
+	 * g_NetLocalClient->state and fires the promote when it reaches
+	 * CLSTATE_GAME. */
 	return 0;
 }
 
@@ -149,6 +187,7 @@ void spectatorStop(void)
 	s_State.source = SPECTATOR_SOURCE_NONE;
 	s_State.focus_idx = -1;
 	s_State.subset = SPECTATOR_SUBSET_PLAYERS;
+	s_RequestSent = 0;
 }
 
 /* -------------------------------------------------------------------------
@@ -321,6 +360,20 @@ void spectatorFreeFlyInput(f32 dx, f32 dy, f32 dz, f32 dyaw, f32 dpitch, f32 dt)
 void spectatorTick(void)
 {
 	if (s_State.source != SPECTATOR_SOURCE_LIVE) return;
+
+	/* Send CLC_SPECTATE_REQUEST exactly once when the connection has
+	 * advanced to CLSTATE_GAME. The host responds with SVC_SPECTATE_ACK
+	 * and starts streaming SVC_STATE_FRAME packets. */
+	if (!s_RequestSent && g_NetLocalClient &&
+	    g_NetLocalClient->state == CLSTATE_GAME) {
+		netbufStartWrite(&g_NetMsgRel);
+		netmsgClcSpectateRequestWrite(&g_NetMsgRel, socialMyHandle());
+		netSend(g_NetLocalClient, &g_NetMsgRel, true, NETCHAN_CONTROL);
+		s_RequestSent = 1;
+		sysLogPrintf(LOG_NOTE,
+		             "SPECTATOR: sent CLC_SPECTATE_REQUEST (handle=0x%08x)",
+		             (unsigned)socialMyHandle());
+	}
 
 	/* If we have not received any state in 5 s, mark the stream stale.
 	 * The UI surfaces this as "Lost connection to host"; the user is

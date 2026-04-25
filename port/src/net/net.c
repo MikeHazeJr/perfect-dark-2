@@ -1711,6 +1711,8 @@ static void netServerEvReceive(struct netclient *cl)
 			case CLC_ROOM_PLAYLIST_UPDATE: rc = netmsgClcRoomPlaylistUpdateRead(&cl->in, cl); break;
 			/* MASTER-C2b: RCON admin channel */
 			case CLC_ADMIN:            rc = netmsgClcAdminRead(&cl->in, cl); break;
+			/* Phase 3 spectator (protocol v42) */
+			case CLC_SPECTATE_REQUEST: rc = netmsgClcSpectateRequestRead(&cl->in, cl); break;
 			/* Phase C: Match Startup Pipeline */
 			case CLC_MANIFEST_STATUS:  rc = netmsgClcManifestStatusRead(&cl->in, cl); break;
 			case CLC_LOBBY_CANCEL:     rc = netmsgClcLobbyCancelRead(&cl->in, cl); break;
@@ -1798,6 +1800,9 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_ROOM_ASSIGN:      rc = netmsgSvcRoomAssignRead(&cl->in, cl); break;
 			case SVC_MUSIC_ADVANCE:    rc = netmsgSvcMusicAdvanceRead(&cl->in, cl); break;
 			case SVC_ACHIEVEMENT_TOAST: rc = netmsgSvcAchievementToastRead(&cl->in, cl); break;
+			/* Phase 3 spectator (protocol v42) */
+			case SVC_SPECTATE_ACK:      rc = netmsgSvcSpectateAckRead(&cl->in, cl); break;
+			case SVC_STATE_FRAME:       rc = netmsgSvcStateFrameRead (&cl->in, cl); break;
 			/* R-5: Room settings + playlist sync */
 			case SVC_ROOM_SETTINGS:    rc = netmsgSvcRoomSettingsRead(&cl->in, cl); break;
 			case SVC_ROOM_PLAYLIST:    rc = netmsgSvcRoomPlaylistRead(&cl->in, cl); break;
@@ -1950,6 +1955,16 @@ void netEndFrame(void)
 
 	// send whatever messages have accumulated so far
 	netFlushSendBuffers();
+
+	/* Phase 3 (v42): spectator host fan-out. Server-side only. The
+	 * SPECTATOR_FANOUT_HZ cadence is enforced inside
+	 * netSendSpectateStateFrame via a static last-broadcast-ms gate, so
+	 * we can call this every tick on both `pd` (listen host) and
+	 * `pd-server` (dedicated). No-op when no spectator clients are
+	 * subscribed. */
+	if (g_NetMode == NETMODE_SERVER) {
+		netSendSpectateStateFrame();
+	}
 
 	/* --- Client: send player move --- */
 	if (g_NetMode == NETMODE_CLIENT
