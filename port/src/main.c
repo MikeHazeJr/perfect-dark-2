@@ -168,6 +168,13 @@ int main(int argc, const char **argv)
 	conInit();
 	sysInit();
 	fsInit();
+	/* Priority M / B-238 / M-1.7: optional perf harness for the .pdmod
+	 * archive layer. Runs when --bench-pdmod is passed; exits cleanly when
+	 * done. No effect otherwise. */
+	{
+		extern void modArchiveRunBenchmark(void);
+		modArchiveRunBenchmark();
+	}
 	/* M0.2 Phase B: register pd.ini keys BEFORE configLoad (called inside configInit) */
 	actionmapInit();
 	configInit();

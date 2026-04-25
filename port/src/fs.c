@@ -14,6 +14,9 @@
 #include "utils.h"
 #include "fs.h"
 #include "modmgr.h"
+#ifndef PD_SERVER
+#include "modvfs.h"  /* Priority M / B-238: VFS-backed .pdmod mounts */
+#endif
 #include "assetcatalog_resolve.h"
 #ifdef PLATFORM_WIN32
 #include <direct.h>
@@ -303,6 +306,26 @@ const char *fsGetModDir(void)
 
 s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize)
 {
+#ifndef PD_SERVER
+	/* Priority M / B-238: archive-backed mount lookup. The VFS owns its
+	 * own decompression pass so we can copy out without going through the
+	 * fsFullPath -> fopen -> fread pipeline. */
+	{
+		u32 vfsSize = 0;
+		void *vbuf = modVfsResolveAnyAlloc(name, &vfsSize, NULL, 0);
+		if (vbuf) {
+			if (vfsSize > dstSize) {
+				sysLogPrintf(LOG_ERROR, "fsFileLoadTo: vfs entry too big for buffer (%u > %u): %s",
+					vfsSize, dstSize, name);
+				free(vbuf);
+				return -1;
+			}
+			memcpy(dst, vbuf, vfsSize);
+			free(vbuf);
+			return (s32)vfsSize;
+		}
+	}
+#endif
 	const char *fullName = fsFullPath(name);
 
 	FILE *f = fopen(fullName, "rb");
@@ -338,6 +361,20 @@ s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize)
 
 void *fsFileLoad(const char *name, u32 *outSize)
 {
+#ifndef PD_SERVER
+	/* Priority M / B-238: prefer the in-memory VFS for any path satisfied
+	 * by a mounted .pdmod / .zip archive. The buffer is sysMemZeroAlloc-
+	 * compatible (heap-malloc with a trailing NUL), matching the existing
+	 * caller contract: "free() me when you are done." */
+	{
+		u32 vfsSize = 0;
+		void *vbuf = modVfsResolveAnyAlloc(name, &vfsSize, NULL, 0);
+		if (vbuf) {
+			if (outSize) *outSize = vfsSize;
+			return vbuf;
+		}
+	}
+#endif
 	const char *fullName = fsFullPath(name);
 
 	FILE *f = fopen(fullName, "rb");
@@ -384,6 +421,14 @@ void *fsFileLoad(const char *name, u32 *outSize)
 
 s32 fsFileSize(const char *name)
 {
+#ifndef PD_SERVER
+	/* Priority M / B-238: VFS short-circuit. modVfsGetSize is cheap --
+	 * a central-directory lookup, no decompression. */
+	s32 vfsSize = modVfsGetSize(name);
+	if (vfsSize >= 0) {
+		return vfsSize;
+	}
+#endif
 	const char *fullName = fsFullPath(name);
 	struct stat st;
 	if (stat(fullName, &st) < 0) {
