@@ -4,6 +4,65 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S458 - 2026-04-25 - Priority J impl: Mission/CombatSim split + vehicle lifecycle + scorecard hold
+
+Worktree `claude/stoic-wing-35829b`. J-1 / J-1d / J-2 / J-3 landed across four logical commits; build clean on both targets (PerfectDark.exe 54,333,412 / PerfectDarkServer.exe 23,249,938). K and L queued sequentially in this same batch.
+
+### J-1 -- IMC plumbing (`acb1baa4`)
+
+`port/include/actionmap.h` + `port/src/actionmap.cpp`. New IMCs:
+
+- `g_ImcMission` (priority 1) -- empty bindings; scene-scope identity for solo / co-op / anti-counter-op. Reserved for future Mission-only actions.
+- `g_ImcCombatSim` (priority 1) -- one binding: `ACTION_SCORECARD_HOLD` (= 68, new) -> `JBTN_BACK`. Mutually exclusive with Mission.
+
+`ACTION_COUNT` 68 -> 69. `ACTION_SCORECARD_HOLD` added at the end of the InputAction enum so existing values stay stable. Classified as shared in `actionIsGameplayOnly` (returns 0 like ACTION_SCORECARD).
+
+New public C API:
+- `imcSceneSetMission` / `imcSceneSetCombatSim` -- mutex-enforced scene activation with LOG_WARNING tripwire on dual-active violation.
+- `imcSceneClearGameplay` -- deactivates Mission, CombatSim, and (defensively) Vehicle.
+- `imcVehicleMount` / `imcVehicleDismount` -- vehicle IMC lifecycle.
+
+Pure additive change in this commit -- no callers wired yet.
+
+### J-1d -- scene-load wiring (`5dc362c2`)
+
+`port/src/pdmain.c`. After `lvReset` / `viReset` settle `g_Vars.normmplayerisrunning` / `coopplayernum` / `antiplayernum`, dispatch the right IMC before the tick loop:
+
+```
+STAGE_IS_SYSTEM(g_StageNum)              -> imcSceneClearGameplay
+coopplayernum >= 0 || antiplayernum >= 0 -> imcSceneSetMission
+normmplayerisrunning                     -> imcSceneSetCombatSim
+else                                     -> imcSceneSetMission
+```
+
+After the tick loop, before the next stage's `lvStop`, call `imcSceneClearGameplay` so the next scene's load activates fresh.
+
+### J-2 -- vehicle IMC lifecycle (`1ee6efb6`)
+
+`src/game/bondbike.c`. `bbikeInit` calls `imcVehicleMount` after `OBJHFLAG_MOUNTED`; `bbikeExit` calls `imcVehicleDismount` after the corresponding clear. Vehicle bindings (priority 5) shadow the gameplay baseline while mounted; on dismount the baseline takes over again.
+
+### J-3 -- scoreboard hold consumer (`71807b6e`)
+
+`port/fast3d/pdgui_menu_pausemenu.cpp::scorecardTickButtonState`. `s_ScorecardVisible` now ORs `actionHeld(0, ACTION_SCORECARD)` (Tab keyboard transient peek, both schemes) with `actionHeldForMs(0, ACTION_SCORECARD_HOLD, 400)`. Back-tap in CS no longer fires the scoreboard. Back-hold-400ms shows it. Mission has no Back binding, so neither tap nor hold triggers anything in solo / co-op / anti.
+
+### J-4 -- partial (assertion in code; methodology doc deferred to K)
+
+The mutual-exclusion assertion lives in `imcSceneSetMission` / `imcSceneSetCombatSim` (LOG_WARNING tripwire). The standalone methodology doc bundles with Priority K's `input-authority-methodology.md`.
+
+### Design doc update
+
+`context/designs/contextual-input-schemes.md` -- new Section 12 documents the phase 1 ship's deviation from Section 7.1 (chose 7.2 inheritance with `g_ImcGameplay` as the always-active baseline rather than duplicating bindings into Mission / CombatSim, to avoid churning every rebind UI / pd.ini callsite). Q1-Q5 open questions answered.
+
+### Co-existence with the weapon-bug session
+
+Did NOT touch any of: `src/game/inv*.c`, `src/game/bondinit.c`, `src/game/bgun.c`, `src/game/wpnload.c`, `port/src/forge/forge_runtime.c`. The S456 `LOG.WPN.DIAG` instrumentation in commit `6a9a23d8` is intact.
+
+### Next
+
+K (input-authority discipline / stack collapse / Issue 2 + Issue 3 closure) starts in this same batch.
+
+---
+
 ## Session S457 - 2026-04-24 - F/G/H/I/J: test arenas, music sync, B-228 Option E, design pass
 
 Five priorities landed in one batch. F/G/H are code; I/J are design docs awaiting Mike review.
