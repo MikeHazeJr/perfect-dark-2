@@ -129,6 +129,12 @@ s32 spectatorIsActive(void);
  * ------------------------------------------------------------------------- */
 
 s32  spectatorBeginLive(u32 host_friend_handle);
+
+/** Theater driver entry point. Sets source = SPECTATOR_SOURCE_THEATER
+ *  and resets the participant table; the Theater module then drives
+ *  spectatorIngestParticipantSnapshot directly from a replay file. */
+void spectatorBeginTheater(void);
+
 void spectatorStop(void);
 
 /**

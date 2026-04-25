@@ -9,7 +9,18 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 41  /* v41 (2026-04-25): Phase 2 connectivity additive --
+#define NET_PROTOCOL_VER 42  /* v42 (2026-04-25): Phase 3+ wire-layer additive --
+                              * (a) CLC_SPECTATE_REQUEST (0x16) + SVC_SPECTATE_ACK (0x6a)
+                              *     + SVC_STATE_FRAME (0x6b). Spectator does not consume
+                              *     a player slot: server sets CLFLAG_SPECTATOR on the
+                              *     netclient, skips player iteration, and fans out
+                              *     SVC_STATE_FRAME at SPECTATOR_FANOUT_HZ (10 Hz).
+                              * (b) CLFLAG_SPECTATOR (1 << 2) flag bit on netclient.flags.
+                              * (c) State frame body: u32 host_handle + u32 frame_seq
+                              *     + u8 participant_count + per-participant block.
+                              *     ~64 bytes per participant; ~10 KB/s outbound per
+                              *     spectator at 16 participants * 10 Hz.
+                              * v41 (2026-04-25): Phase 2 connectivity additive --
                               * SVC_ACHIEVEMENT_TOAST (0x69). Authoritative match
                               * host -> all clients in the match room. Carries
                               * an actor_handle (u32) plus a short utf-8
@@ -108,6 +119,7 @@ extern u8 g_NetPendingResyncReqFlags; /* client: resync types to request from se
 
 #define CLFLAG_ABSENT    (1 << 0) // player disconnected mid-game, slot preserved for reconnect
 #define CLFLAG_COOPREADY (1 << 1) // client is ready to start co-op mission
+#define CLFLAG_SPECTATOR (1 << 2) // v42: client is spectator-only; skip player iteration, fan out SVC_STATE_FRAME
 
 #define NET_MAX_RECENT_SERVERS 8
 #define NET_PRESERVE_TIMEOUT_FRAMES (60 * 60 * 5) // 5 minutes at 60 fps

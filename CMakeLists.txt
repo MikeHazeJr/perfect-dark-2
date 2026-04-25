@@ -303,6 +303,32 @@ else()
   list(APPEND LIBS "${SDL2_LIBRARY}")
 endif()
 
+# libopus -- OPTIONAL Phase 5 voice codec (BSD-licensed). Static-link when
+# available; voice.c falls back to the scaffold (PTT no-op) when not.
+# MSYS2: pacman -S mingw-w64-x86_64-opus
+# Decision logged in context/audits/connectivity-libopus-decision-2026-04-25.md
+find_package(PkgConfig QUIET)
+set(HAVE_OPUS 0)
+if(PkgConfig_FOUND)
+  pkg_check_modules(OPUS QUIET opus)
+  if(OPUS_FOUND)
+    set(HAVE_OPUS 1)
+    add_definitions(-DHAVE_OPUS=1)
+    include_directories(SYSTEM ${OPUS_INCLUDE_DIRS})
+    if(WIN32 AND EXISTS "${_msys_lib}/libopus.a")
+      message(STATUS "OPUS: Static linking via ${_msys_lib}/libopus.a")
+      list(APPEND LIBS "${_msys_lib}/libopus.a")
+    else()
+      list(APPEND LIBS ${OPUS_LIBRARIES})
+      message(STATUS "OPUS: Linking via pkg-config (libopus ${OPUS_VERSION})")
+    endif()
+  else()
+    message(STATUS "OPUS: not found via pkg-config; voice codec disabled (Phase 5 scaffold remains active)")
+  endif()
+else()
+  message(STATUS "OPUS: pkg-config not available; voice codec disabled (Phase 5 scaffold remains active)")
+endif()
+
 # ZLib -- static on Windows so no zlib1.dll is needed at runtime
 # MSYS2: pacman -S mingw-w64-x86_64-zlib
 find_package(ZLIB REQUIRED)

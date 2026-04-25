@@ -6411,6 +6411,263 @@ void netSendAchievementToast(u32 actor_handle, const char *achievement_text)
 	             (unsigned)actor_handle, achievement_text);
 }
 
+/* ---- Phase 3 spectator wire (protocol v42) ---- */
+
+#if !defined(PD_SERVER)
+#include "spectator.h"
+#endif
+#include "game/mplayer/mplayer.h"
+#include "game/mplayer/participant.h"
+#include "game/chr.h"
+#include "game/player.h"
+#include "game/playermgr.h"
+
+u32 netmsgClcSpectateRequestWrite(struct netbuf *dst, u32 my_handle)
+{
+	netbufWriteU8(dst, CLC_SPECTATE_REQUEST);
+	netbufWriteU32(dst, my_handle);
+	return dst->error;
+}
+
+u32 netmsgClcSpectateRequestRead(struct netbuf *src, struct netclient *srccl)
+{
+	u32 client_handle = netbufReadU32(src);
+	if (src->error) return src->error;
+
+	if (!srccl) return src->error;
+
+	/* Promote this netclient to spectator. Skip the player slot
+	 * iteration paths by setting CLFLAG_SPECTATOR. The slot was already
+	 * allocated at CLC_AUTH; we leave it allocated so the netclient ->
+	 * peer mapping survives, but every code path that iterates
+	 * "match players" should now skip clients with this flag set. */
+	srccl->flags |= CLFLAG_SPECTATOR;
+	(void)client_handle; /* informational; trust authoritatively comes from CLC_AUTH */
+
+	/* Reply with an accept token (the netclient.id is opaque + stable). */
+	const u32 stream_token = (u32)SDL_GetTicks() ^ srccl->id;
+	netbufStartWrite(&g_NetMsgRel);
+	netmsgSvcSpectateAckWrite(&g_NetMsgRel, 1, stream_token);
+	netSend(srccl, &g_NetMsgRel, true, NETCHAN_CONTROL);
+
+	sysLogPrintf(LOG_NOTE,
+	             "NET: CLC_SPECTATE_REQUEST -> client %u promoted to spectator (handle=0x%08x)",
+	             srccl->id, (unsigned)client_handle);
+	return src->error;
+}
+
+u32 netmsgSvcSpectateAckWrite(struct netbuf *dst, u8 accepted, u32 stream_token)
+{
+	netbufWriteU8(dst, SVC_SPECTATE_ACK);
+	netbufWriteU8(dst, accepted);
+	netbufWriteU32(dst, stream_token);
+	return dst->error;
+}
+
+u32 netmsgSvcSpectateAckRead(struct netbuf *src, struct netclient *srccl)
+{
+	u8  accepted = netbufReadU8(src);
+	u32 stream_token = netbufReadU32(src);
+	(void)stream_token;
+	(void)srccl;
+	if (src->error) return src->error;
+#if !defined(PD_SERVER)
+	if (!accepted) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_SPECTATE_ACK refused");
+		spectatorStop();
+	} else {
+		sysLogPrintf(LOG_NOTE, "NET: SVC_SPECTATE_ACK accepted token=0x%08x",
+		             (unsigned)stream_token);
+	}
+#else
+	(void)accepted;
+#endif
+	return src->error;
+}
+
+u32 netmsgSvcStateFrameWrite(struct netbuf *dst, u32 host_handle, u32 frame_seq,
+                              const void *participants_blob, u32 participants_count)
+{
+	netbufWriteU8(dst, SVC_STATE_FRAME);
+	netbufWriteU32(dst, host_handle);
+	netbufWriteU32(dst, frame_seq);
+	const u32 cap = (participants_count > SPECTATE_FRAME_PARTICIPANTS_MAX)
+	                ? (u32)SPECTATE_FRAME_PARTICIPANTS_MAX : participants_count;
+	netbufWriteU8(dst, (u8)cap);
+
+	const u8 *p = (const u8 *)participants_blob;
+	const u32 per_block = 1 + 1 + 1 + 1   /* in_use + team + is_bot + pad   */
+	                     + 2 + 2          /* score + deaths                 */
+	                     + 4 + 4 + 4      /* pos[3]                         */
+	                     + 4 + 4          /* angle theta + verta            */
+	                     + 4              /* weapon_runtime_idx             */
+	                     + SPECTATE_FRAME_NAME_MAX; /* name                  */
+	(void)per_block;
+
+	for (u32 i = 0; i < cap; i++) {
+		const u8 *blk = p + (size_t)i * per_block;
+		/* in_use / team / is_bot / pad */
+		netbufWriteU8(dst, blk[0]);
+		netbufWriteU8(dst, blk[1]);
+		netbufWriteU8(dst, blk[2]);
+		netbufWriteU8(dst, blk[3]);
+		/* score / deaths (s16) */
+		netbufWriteU16(dst, *(const u16 *)(blk + 4));
+		netbufWriteU16(dst, *(const u16 *)(blk + 6));
+		/* pos[3] (f32) */
+		netbufWriteF32(dst, *(const f32 *)(blk + 8));
+		netbufWriteF32(dst, *(const f32 *)(blk + 12));
+		netbufWriteF32(dst, *(const f32 *)(blk + 16));
+		/* angles */
+		netbufWriteF32(dst, *(const f32 *)(blk + 20));
+		netbufWriteF32(dst, *(const f32 *)(blk + 24));
+		/* weapon_runtime_idx */
+		netbufWriteU32(dst, *(const u32 *)(blk + 28));
+		/* name (32 bytes, null-padded) */
+		netbufWriteData(dst, blk + 32, SPECTATE_FRAME_NAME_MAX);
+	}
+	return dst->error;
+}
+
+u32 netmsgSvcStateFrameRead(struct netbuf *src, struct netclient *srccl)
+{
+	u32 host_handle = netbufReadU32(src);
+	u32 frame_seq   = netbufReadU32(src);
+	u8  count       = netbufReadU8(src);
+	(void)frame_seq;
+	(void)srccl;
+
+	if (src->error) return src->error;
+	if (count > SPECTATE_FRAME_PARTICIPANTS_MAX) {
+		src->error = 1;
+		return src->error;
+	}
+
+#if !defined(PD_SERVER)
+	spectator_participant_t blob[SPECTATE_FRAME_PARTICIPANTS_MAX];
+	memset(blob, 0, sizeof(blob));
+	for (u32 i = 0; i < count; i++) {
+		blob[i].in_use = netbufReadU8(src);
+		blob[i].team   = netbufReadU8(src);
+		blob[i].is_bot = netbufReadU8(src);
+		(void)netbufReadU8(src); /* pad */
+		blob[i].score  = (s16)netbufReadU16(src);
+		blob[i].deaths = (s16)netbufReadU16(src);
+		blob[i].pos[0] = netbufReadF32(src);
+		blob[i].pos[1] = netbufReadF32(src);
+		blob[i].pos[2] = netbufReadF32(src);
+		blob[i].angle_theta = netbufReadF32(src);
+		blob[i].angle_verta = netbufReadF32(src);
+		blob[i].weapon_runtime_idx = netbufReadU32(src);
+		netbufReadData(src, (u8 *)blob[i].name, SPECTATE_FRAME_NAME_MAX);
+		blob[i].name[SPECTATE_FRAME_NAME_MAX - 1] = '\0';
+	}
+	if (!src->error) {
+		spectatorIngestParticipantSnapshot(blob, (s32)count, host_handle);
+	}
+#else
+	(void)host_handle; (void)count;
+#endif
+	return src->error;
+}
+
+/* Build + broadcast a state frame to every CLFLAG_SPECTATOR netclient.
+ *
+ * Source data: g_MpParticipants slot table (via mpIsParticipantActive),
+ * with chr position + score + name pulled from the playermgr / chrdata
+ * tables already maintained on the host. For Phase 3 we surface a
+ * minimal snapshot (position + angles + score + name) -- weapon /
+ * health / animation can extend later without a wire bump because the
+ * frame layout has explicit field count via `count` and the participant
+ * block size is fixed by SPECTATE_FRAME_NAME_MAX (so future extensions
+ * either ride the next NET_PROTOCOL_VER bump or live in a parallel
+ * SVC_STATE_FRAME_EXT). */
+void netSendSpectateStateFrame(void)
+{
+	if (g_NetMode != NETMODE_SERVER) return;
+
+	/* SPECTATOR_FANOUT_HZ rate gate (10 Hz / 100 ms). Hard-coded here
+	 * so pd-server does not depend on the client-only spectator.h. */
+	static u32 s_LastBroadcastMs = 0;
+	const u32 now = SDL_GetTicks();
+	if (now - s_LastBroadcastMs < 100u) return;
+	s_LastBroadcastMs = now;
+
+	/* Skip if no spectators are subscribed. */
+	s32 nspec = 0;
+	for (s32 i = 0; i < NET_MAX_CLIENTS; i++) {
+		if (g_NetClients[i].state == CLSTATE_DISCONNECTED) continue;
+		if (g_NetClients[i].flags & CLFLAG_SPECTATOR) { nspec++; }
+	}
+	if (nspec == 0) return;
+
+	/* Static blob layout matches the one netmsgSvcStateFrameWrite expects. */
+	#define BLK_SIZE 64
+	static u8 s_Blob[SPECTATE_FRAME_PARTICIPANTS_MAX * BLK_SIZE];
+	static u32 s_FrameSeq = 0;
+	memset(s_Blob, 0, sizeof(s_Blob));
+	u32 nfilled = 0;
+
+	for (s32 i = 0; i < MAX_MPCHRS && nfilled < SPECTATE_FRAME_PARTICIPANTS_MAX; i++) {
+		if (!mpIsParticipantActive(i)) continue;
+
+		u8 *blk = s_Blob + (size_t)nfilled * BLK_SIZE;
+		const MpParticipant *part = mpGetParticipant(i);
+		s16 score = 0, deaths = 0;
+		f32 pos_x = 0.0f, pos_y = 0.0f, pos_z = 0.0f;
+		f32 ang_theta = 0.0f, ang_verta = 0.0f;
+		const char *name = "";
+		u8 is_bot = 0;
+		u8 team = 0;
+
+		if (part) {
+			team = part->team;
+			is_bot = (part->type == PARTICIPANT_BOT) ? 1 : 0;
+			if (part->type == PARTICIPANT_BOT && part->config && part->config->name[0]) {
+				name = part->config->name;
+			} else if ((part->type == PARTICIPANT_LOCAL || part->type == PARTICIPANT_REMOTE) &&
+			           part->client_id >= 0 && part->client_id < (s8)NET_MAX_CLIENTS) {
+				const struct netclient *cl = &g_NetClients[part->client_id];
+				name = cl->settings.name;
+			}
+			if (part->chr && part->chr->prop) {
+				pos_x = part->chr->prop->pos.x;
+				pos_y = part->chr->prop->pos.y;
+				pos_z = part->chr->prop->pos.z;
+			}
+		}
+
+		blk[0] = 1;                              /* in_use                 */
+		blk[1] = team;                           /* team                   */
+		blk[2] = is_bot;                         /* is_bot                 */
+		blk[3] = 0;                              /* pad                    */
+		*(s16 *)(blk + 4) = score;
+		*(s16 *)(blk + 6) = deaths;
+		*(f32 *)(blk + 8)  = pos_x;
+		*(f32 *)(blk + 12) = pos_y;
+		*(f32 *)(blk + 16) = pos_z;
+		*(f32 *)(blk + 20) = ang_theta;
+		*(f32 *)(blk + 24) = ang_verta;
+		*(u32 *)(blk + 28) = 0; /* weapon_runtime_idx (Phase 3 follow-up) */
+		strncpy((char *)(blk + 32), name ? name : "", SPECTATE_FRAME_NAME_MAX - 1);
+
+		nfilled++;
+	}
+
+	netbufStartWrite(&g_NetMsgRel);
+	netmsgSvcStateFrameWrite(&g_NetMsgRel, (u32)0 /* host handle filled by client side */,
+	                          s_FrameSeq, s_Blob, nfilled);
+	s_FrameSeq++;
+
+	/* Send only to spectator-subscribed clients. */
+	for (s32 i = 0; i < NET_MAX_CLIENTS; i++) {
+		struct netclient *cl = &g_NetClients[i];
+		if (cl->state == CLSTATE_DISCONNECTED) continue;
+		if (!(cl->flags & CLFLAG_SPECTATOR)) continue;
+		netSend(cl, &g_NetMsgRel, false /* unreliable -- 10 Hz stream */, NETCHAN_DEFAULT);
+	}
+}
+
 /**
  * Broadcast SVC_MUSIC_ADVANCE to all clients in a room (or all if room_id == 0xFF).
  * Called by the host on track change AND periodically (every ~2s) for drift

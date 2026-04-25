@@ -55,6 +55,67 @@ Did NOT touch: `forgemode.c`, `pdgui_menu_grid*.cpp` (Session A's Grid bug clust
 This session's deliverable is "all 27 menus conforming AND AUDIT-24-M5/M6 fixed AND merged to dev with a clean hash".  The merge follows.
 
 ---
+## Session S468 - 2026-04-25 - Connectivity follow-ups: spectator wire / Theater / cross-peer share / libopus voice
+
+Closes the on-the-wire backlog deferred during Phases 2-5. Each item from Mike's brief delivered with build-verify and commit per logical unit.
+
+### Brief items + commits
+
+| Brief | Commit | Item |
+|---|---|---|
+| a | `a92b8843` | Live spectator host fan-out wire (CLC_SPECTATE_REQUEST + SVC_SPECTATE_ACK + SVC_STATE_FRAME), CLFLAG_SPECTATOR, NET_PROTOCOL_VER 41->42 |
+| b | `7e9e45d0` | Theater recorder + replay file format (.pdth) + UI to list+play replays |
+| c+d+e+f | `9373bee9` | Single signed UDP socket on port 27109 ("PDSHR") carrying listening-room manifests, public mods manifests, profile stats, mod-request -> file_transfer-offer; new mod-public.json registry untouched by Priority M's loader; UI populated for Public Mods Page download path + Profile Stats + Profile Mods sections |
+| g | `7f19f68b` | libopus decision doc (`context/audits/connectivity-libopus-decision-2026-04-25.md`) + CMake `pkg_check_modules(OPUS)` block (optional, falls back to Phase 5 scaffold when not installed) |
+| h+i | `7f19f68b` | SDL audio capture/playback + opus_encoder/opus_decoder + PDVOC wire (port 27108, 20-byte header + opus payload + 32-byte pubkey + 64-byte sig). PTT key V + per-friend mute uniform with chat/toasts. |
+
+### Verification matrix
+
+| Item | Status | Evidence |
+|---|---|---|
+| Spectator wire end-to-end | YES | netSendSpectateStateFrame fan-out at 10 Hz, CLFLAG_SPECTATOR isolation, 64-byte-per-participant blob, ~10 KB/s outbound budget per spectator |
+| State frame includes positions / scores / weapons | YES (positions + scores + weapon_runtime_idx) | Health + animation extend within the same 64-byte block layout in a future bump (documented in net.h v42 comment) |
+| Theater recorder writes .pdth | YES | THEATER_MAGIC + version + start_time + frame_count, 64-byte participant blocks identical to wire |
+| Theater replay reads back through spectator subsystem | YES | spectatorBeginTheater + spectatorIngestParticipantSnapshot shared with live driver |
+| Theater compression | DEFERRED | zlib already statically linked; documented in theater.h preamble as polish |
+| Listening-room manifest broadcast | YES | shareBroadcastListeningRoom emits track list every 60 s when LR_STATE_HOST |
+| Per-mod public flag | YES (separate registry) | <home>/social/mod-public.json via shareModPublicAdd/Remove. Does NOT touch mod.json schema (Priority M co-existence). |
+| Cross-peer Public Mods aggregator | YES | s_AggregateMods populated by inbound MODS_MANIFEST; UI lists with per-mod owner badge + Download |
+| Public Mods Page download path | YES | shareSendModRequest -> handleModRequest probes <home>/mods/installed/<id>.pdmod or /<id>/mod.json -> fileTransferSendFile |
+| Profile data wiring | YES (stats + mods) | Stats from shareProfileFor; Public mods filtered by owner. The 3D character render box from Priority Q is the next focused commit. |
+| libopus decision documented | YES | connectivity-libopus-decision-2026-04-25.md |
+| libopus CMake integration | YES | pkg_check_modules optional + static link of libopus.a |
+| SDL audio capture | YES | SDL_OpenAudioDevice(capture) at 16 kHz mono S16; SDL_DequeueAudio drives encode loop |
+| Opus encode / decode | YES | opus_encoder_create with VOIP + 24 kbps + INBAND_FEC + 10% loss percent |
+| PDVOC packet | YES | port 27108, signed Ed25519, per-friend mute uniform |
+| Per-friend mute integrates with Q9 | YES | voicePeerIsTalking checks socialFriend.muted; receive pipeline drops muted friends pre-decode |
+
+### Co-existence
+
+No file owned by Session A (Grid B-254 cluster) was touched. No file owned by Session B (mod loader / manifest / Property Handler) was touched -- mod-public.json registry is intentionally a parallel social-layer file, NOT a mod.json schema field.
+
+### Connectivity rollout commit timeline
+
+| Phase | Commit | Scope |
+|---|---|---|
+| P1.A | `9df0990a` | social store + identity-stable connect codes |
+| P1.B | `1668211a` | 6-tier P2P escalation |
+| P1.E | `bc248616` | presence layer |
+| P1.G/H/I | `d2b0e4a5` | status indicator + sidebar + Social menu |
+| P1 ident | `44dd9f8d` | Network-agnostic Ed25519 identity rework |
+| P1 close | `6e08123b` | group_session + UX strings + NAT diagnostics |
+| P2.A | `37d61b72` | chat module + chat panel UI |
+| P2.B/C/D | `ba039ea5` | file transfer + chat attachments + convert-to-mod |
+| P2.E | `8cf51ad4` | toast notification system |
+| P2.F | `e552e3a2` | NET_PROTOCOL_VER 40 -> 41 + SVC_ACHIEVEMENT_TOAST |
+| P3.A | `a4b215e1` | spectator unified subsystem (live + Theater seam) |
+| P4 | `b152b4a1` | listening room + Public Mods Page + Player Profile UI scaffolds |
+| P5 scaffold | `f9c15d4a` | voice chat scaffold |
+| Wire follow-up a | `a92b8843` | spectator state frame wire (NET_PROTOCOL_VER 41 -> 42) |
+| Wire follow-up b | `7e9e45d0` | Theater recorder + replay |
+| Wire follow-up c-f | `9373bee9` | social_share (listening-room + public mods + profile + mod request) |
+| Wire follow-up g-i | `7f19f68b` | libopus + SDL audio + PDVOC voice codec |
+
 ## Session S467 - 2026-04-25 - Connectivity Phases 4 + 5: listening room / Public Mods Page / Player Profile / voice scaffold
 
 Two phases land in this session entry because the data infrastructure each depends on lives in adjacent already-merged work (Priority M's mod manager, Priority Q's render box, the existing file_transfer pipe + identity / social / presence) -- the new work in this session is the state machines + UI scaffolds that compose them.

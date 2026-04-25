@@ -76,6 +76,13 @@
 #define SVC_ACHIEVEMENT_TOAST 0x69
 #define ACHIEVEMENT_TOAST_MAX 96
 
+/* Phase 3 spectator wire (protocol v42): authoritative match host ->
+ * spectator-subscribed clients. */
+#define SVC_SPECTATE_ACK   0x6a
+#define SVC_STATE_FRAME    0x6b
+#define SPECTATE_FRAME_PARTICIPANTS_MAX 16
+#define SPECTATE_FRAME_NAME_MAX         32
+
 #define CLC_BAD      0x00 // trash
 #define CLC_NOP      0x01 // does nothing
 #define CLC_AUTH     0x02 // auth request, sent immediately after connecting
@@ -107,6 +114,9 @@
 
 /* MASTER-C2b: Admin RCON request (protocol v38+). */
 #define CLC_ADMIN                 0x15 // operator-client→server: admin auth / kick / ban / unban / list / status
+
+/* Phase 3 spectator wire (protocol v42). */
+#define CLC_SPECTATE_REQUEST      0x16 // client→host: promote me to CLFLAG_SPECTATOR; do not allocate a player slot
 
 /* Phase A: Match Startup Pipeline (protocol v24) */
 #define CLC_MANIFEST_STATUS 0x0E // client→server: manifest check result (READY / NEED_ASSETS / DECLINE)
@@ -348,6 +358,42 @@ u32 netmsgSvcAchievementToastRead(struct netbuf *src, struct netclient *srccl);
 /* Convenience: server / authoritative host enqueues a broadcast for the
  * current match room. */
 void netSendAchievementToast(u32 actor_handle, const char *achievement_text);
+
+/* Phase 3 (protocol v42): spectator wire.
+ *
+ * CLC_SPECTATE_REQUEST: client requests spectator role on the host
+ *   server. The server sets CLFLAG_SPECTATOR on the netclient; the
+ *   slot does NOT count as a match participant. Server replies with
+ *   SVC_SPECTATE_ACK. Subsequent SVC_STATE_FRAME packets stream the
+ *   match participant snapshot at SPECTATOR_FANOUT_HZ.
+ *
+ * SVC_SPECTATE_ACK: u8 accepted (1) or rejected (0); on accept, a
+ *   u32 stream_token the client mirrors back in any future requests.
+ *
+ * SVC_STATE_FRAME: u32 host_handle, u32 frame_seq, u8 participant_count,
+ *   followed by `participant_count` blocks of:
+ *     u8 in_use, u8 team, u8 is_bot, u8 _pad,
+ *     s16 score, s16 deaths,
+ *     f32 pos_x, f32 pos_y, f32 pos_z,
+ *     f32 angle_theta, f32 angle_verta,
+ *     u32 weapon_runtime_idx,
+ *     char name[SPECTATE_FRAME_NAME_MAX]
+ *   Total per-participant: 64 bytes.
+ */
+u32 netmsgClcSpectateRequestWrite(struct netbuf *dst, u32 my_handle);
+u32 netmsgClcSpectateRequestRead (struct netbuf *src, struct netclient *srccl);
+
+u32 netmsgSvcSpectateAckWrite(struct netbuf *dst, u8 accepted, u32 stream_token);
+u32 netmsgSvcSpectateAckRead (struct netbuf *src, struct netclient *srccl);
+
+u32 netmsgSvcStateFrameWrite(struct netbuf *dst, u32 host_handle, u32 frame_seq,
+                              const void *participants_blob, u32 participants_count);
+u32 netmsgSvcStateFrameRead (struct netbuf *src, struct netclient *srccl);
+
+/* Server-side host: build + broadcast a state frame to every netclient
+ * with CLFLAG_SPECTATOR set. Called on the spectator fan-out tick
+ * boundary. No-op if not in NETMODE_SERVER. */
+void netSendSpectateStateFrame(void);
 /* SVC_ADMIN is written by the server helper below; no client-side Write wrapper
  * is exposed because the client never sends it. */
 
