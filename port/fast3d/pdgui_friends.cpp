@@ -1,0 +1,508 @@
+/**
+ * pdgui_friends.cpp -- Phase 1 connectivity UI surfaces.
+ *
+ * Three surfaces:
+ *   - Top-right status indicator     (always visible when overlay is on)
+ *   - Sidebar peek                   (Tab-toggled or click-on-indicator)
+ *   - Full-screen Social menu        (Open from sidebar's "More" link)
+ *
+ * Visual style anchors on the existing PD2 ImGui palette via
+ * pdgui_style.h accessors (TitleGlow / TintSuccess / TintInfo / TintDanger).
+ *
+ * No drill-in/drill-out (Q16): rows are statically visible. Each friend
+ * row displays its actions inline (Invite / Message). D-pad navigates
+ * directly between rows and actions; A engages the focused button; B
+ * closes the surface only at the top level.
+ *
+ * Auto-discovered by GLOB_RECURSE in CMakeLists.txt.
+ */
+
+#include <SDL.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "imgui/imgui.h"
+
+#include "pdgui_friends.h"
+#include "pdgui_style.h"
+
+extern "C" {
+#include "presence.h"
+#include "social.h"
+#include "net/p2p.h"
+}
+
+/* -------------------------------------------------------------------------
+ * Module state
+ * ------------------------------------------------------------------------- */
+
+static bool s_SidebarOpen        = false;
+static bool s_SocialOpen         = false;
+static bool s_AddFriendOpen      = false;
+static char s_AddFriendCodeBuf[128];
+static char s_AddFriendNickBuf[64];
+static char s_AddFriendStatus[128];
+
+extern "C" void pdguiFriendsSidebarOpen(void)   { s_SidebarOpen = true; }
+extern "C" void pdguiFriendsSidebarClose(void)  { s_SidebarOpen = false; }
+extern "C" void pdguiFriendsSidebarToggle(void) { s_SidebarOpen = !s_SidebarOpen; }
+extern "C" s32  pdguiFriendsSidebarIsOpen(void) { return s_SidebarOpen ? 1 : 0; }
+
+extern "C" void pdguiFriendsSocialOpen(void)   { s_SocialOpen = true; s_SidebarOpen = false; }
+extern "C" void pdguiFriendsSocialClose(void)  { s_SocialOpen = false; }
+extern "C" s32  pdguiFriendsSocialIsOpen(void) { return s_SocialOpen ? 1 : 0; }
+
+/* -------------------------------------------------------------------------
+ * Helpers
+ * ------------------------------------------------------------------------- */
+
+static const char *visibilityLabel(social_visibility_t v)
+{
+	switch (v) {
+		case SOCIAL_VIS_PUBLIC:         return "Public";
+		case SOCIAL_VIS_FRIENDS_ONLY:   return "Friends Only";
+		case SOCIAL_VIS_APPEAR_OFFLINE: return "Appear Offline";
+		default: return "?";
+	}
+}
+
+static const char *stateLabel(presence_state_t s)
+{
+	switch (s) {
+		case PRESENCE_OFFLINE:        return "Offline";
+		case PRESENCE_BOOTSTRAP:      return "Connecting";
+		case PRESENCE_ONLINE_IDLE:    return "Online";
+		case PRESENCE_IN_MATCH:       return "In Match";
+		case PRESENCE_IN_MISSION:     return "In Mission";
+		case PRESENCE_SPECTATING:     return "Spectating";
+		case PRESENCE_APPEAR_OFFLINE: return "Appear Offline";
+		default: return "?";
+	}
+}
+
+static ImU32 stateDot(presence_state_t s)
+{
+	switch (s) {
+		case PRESENCE_ONLINE_IDLE:    return pdguiImU32TintSuccess(255);
+		case PRESENCE_IN_MATCH:
+		case PRESENCE_IN_MISSION:     return pdguiImU32TintInfo(255);
+		case PRESENCE_SPECTATING:     return pdguiImU32TitleGlow(255);
+		case PRESENCE_APPEAR_OFFLINE: return IM_COL32(120, 120, 120, 255);
+		case PRESENCE_OFFLINE:        return IM_COL32(80, 80, 80, 255);
+		case PRESENCE_BOOTSTRAP:      return IM_COL32(180, 160, 80, 255);
+		default: return IM_COL32(120, 120, 120, 255);
+	}
+}
+
+static void formatLastSeen(u32 last_pong_ms, char *out, size_t outsize)
+{
+	if (last_pong_ms == 0) { snprintf(out, outsize, "never"); return; }
+	const u32 now = SDL_GetTicks();
+	if (now <= last_pong_ms) { snprintf(out, outsize, "now"); return; }
+	const u32 delta = (now - last_pong_ms) / 1000u;
+	if (delta < 60)        snprintf(out, outsize, "%us ago", delta);
+	else if (delta < 3600) snprintf(out, outsize, "%um ago", delta / 60);
+	else                   snprintf(out, outsize, "%uh ago", delta / 3600);
+}
+
+static void drawDot(ImDrawList *dl, ImVec2 p, float r, ImU32 col)
+{
+	dl->AddCircleFilled(p, r, col, 16);
+}
+
+/* -------------------------------------------------------------------------
+ * Status indicator
+ *
+ * Top-right pill: [DOT] [Local Agent Name] [State Label] (Connect: foo bar...)
+ * Click-through opens the sidebar.
+ * ------------------------------------------------------------------------- */
+
+extern "C" void pdguiFriendsStatusIndicatorRender(s32 winW, s32 winH)
+{
+	if (!socialIsReady()) return;
+
+	const presence_state_t pstate = presenceGetLocalState();
+	const social_visibility_t vis = socialVisibilityGet();
+	const char *agent = socialMyAgentName();
+	const char *code  = socialMyConnectCode();
+
+	char label[160];
+	if (vis == SOCIAL_VIS_APPEAR_OFFLINE) {
+		snprintf(label, sizeof(label), "%s | Appear Offline | %s", agent, code);
+	} else {
+		snprintf(label, sizeof(label), "%s | %s | %s", agent, stateLabel(pstate), code);
+	}
+
+	ImGuiIO &io = ImGui::GetIO();
+	const ImVec2 textSize = ImGui::CalcTextSize(label);
+	const float pad = 10.0f;
+	const float dotR = 5.0f;
+	const float pillW = textSize.x + pad * 3 + dotR * 2;
+	const float pillH = textSize.y + pad;
+
+	const ImVec2 origin(io.DisplaySize.x - pillW - 12.0f, 12.0f);
+	const ImVec2 end(origin.x + pillW, origin.y + pillH);
+
+	ImDrawList *dl = ImGui::GetForegroundDrawList();
+	dl->AddRectFilled(origin, end, IM_COL32(8, 12, 24, 220), 6.0f);
+	dl->AddRect      (origin, end, pdguiImU32TitleGlow(180), 6.0f, 0, 1.0f);
+
+	const ImVec2 dotPos(origin.x + pad + dotR, origin.y + pillH * 0.5f);
+	drawDot(dl, dotPos, dotR, stateDot(pstate));
+
+	const ImVec2 textPos(dotPos.x + dotR + pad, origin.y + (pillH - textSize.y) * 0.5f);
+	dl->AddText(textPos, IM_COL32(220, 230, 240, 255), label);
+
+	/* Click-through: open the sidebar on left-click within the pill. */
+	const ImVec2 mp = io.MousePos;
+	if (io.MouseClicked[0] && mp.x >= origin.x && mp.x <= end.x &&
+	    mp.y >= origin.y && mp.y <= end.y) {
+		s_SidebarOpen = !s_SidebarOpen;
+	}
+
+	(void)winW; (void)winH;
+}
+
+/* -------------------------------------------------------------------------
+ * Sidebar peek
+ * ------------------------------------------------------------------------- */
+
+static void renderInvitationsSection(void)
+{
+	const s32 nin = presenceInviteCount();
+	if (nin <= 0) return;
+
+	ImGui::Spacing();
+	ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+	ImGui::TextUnformatted("Invitations");
+	ImGui::PopStyleColor();
+	ImGui::Separator();
+
+	for (s32 i = 0; i < nin; i++) {
+		const presence_invite_t *e = presenceInviteAt(i);
+		if (!e) continue;
+		ImGui::PushID(i + 7000);
+		const social_friend_t *f = socialFriendByHandle(e->from_handle);
+		const char *agent = (f && f->agent_name[0]) ? f->agent_name :
+		                    (e->from_agent[0] ? e->from_agent : "Unknown");
+		const char *kindLabel = e->kind == PRESENCE_INVITE_KIND_MATCH ? "match"
+		                       : e->kind == PRESENCE_INVITE_KIND_GROUP ? "group"
+		                       : "listening room";
+		ImGui::Text("%s invited you to %s", agent, kindLabel);
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Accept")) {
+			presenceInviteAccept(i);
+			ImGui::PopID();
+			return; /* indices shifted */
+		}
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Decline")) {
+			presenceInviteDecline(i);
+			ImGui::PopID();
+			return;
+		}
+		ImGui::PopID();
+	}
+}
+
+static void renderFriendRow(s32 idx, const social_friend_t *f)
+{
+	if (!f) return;
+	const presence_peer_t *peer = presencePeerByHandle(f->handle);
+	const presence_state_t pstate = peer ? peer->state : PRESENCE_OFFLINE;
+
+	char label[128];
+	socialFormatDisplay(f, label, sizeof(label));
+
+	ImDrawList *dl = ImGui::GetWindowDrawList();
+	const ImVec2 cursor = ImGui::GetCursorScreenPos();
+	const ImVec2 dotPos(cursor.x + 8.0f, cursor.y + 10.0f);
+	drawDot(dl, dotPos, 4.0f, stateDot(pstate));
+
+	ImGui::Indent(20.0f);
+
+	ImGui::PushID(idx);
+
+	ImGui::TextUnformatted(label);
+	if (peer && peer->status_blurb[0]) {
+		ImGui::SameLine();
+		ImGui::TextDisabled("(%s)", peer->status_blurb);
+	} else if (pstate != PRESENCE_OFFLINE) {
+		ImGui::SameLine();
+		ImGui::TextDisabled("[%s]", stateLabel(pstate));
+	} else {
+		ImGui::SameLine();
+		char seen[24];
+		formatLastSeen(peer ? peer->last_pong_ms : 0, seen, sizeof(seen));
+		ImGui::TextDisabled("(seen %s)", seen);
+	}
+
+	const bool can_invite = (pstate == PRESENCE_ONLINE_IDLE) ||
+	                         (pstate == PRESENCE_IN_MATCH) ||
+	                         (pstate == PRESENCE_IN_MISSION);
+	if (can_invite) {
+		if (ImGui::SmallButton("Invite")) {
+			presenceSendInvite(f->handle, PRESENCE_INVITE_KIND_MATCH);
+		}
+		ImGui::SameLine();
+	}
+
+	if (ImGui::SmallButton(f->muted ? "Unmute" : "Mute")) {
+		socialFriendSetMuted(f->connect_code, f->muted ? 0 : 1);
+	}
+	ImGui::SameLine();
+	if (ImGui::SmallButton("Block")) {
+		socialBlockAdd(f->connect_code, f->agent_name);
+	}
+	ImGui::SameLine();
+	if (ImGui::SmallButton("Remove")) {
+		socialFriendRemove(f->connect_code);
+	}
+
+	ImGui::PopID();
+
+	ImGui::Unindent(20.0f);
+}
+
+extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
+{
+	pdguiFriendsStatusIndicatorRender(winW, winH);
+
+	/* ImGui hotkey: Tab opens / closes the sidebar when no text input has
+	 * focus. Avoids reaching into the actionmap layer. */
+	if (!ImGui::GetIO().WantCaptureKeyboard) {
+		if (ImGui::IsKeyPressed(ImGuiKey_Tab, false)) {
+			s_SidebarOpen = !s_SidebarOpen;
+		}
+	}
+
+	if (s_SidebarOpen) {
+		const float w = 360.0f;
+		const float h = (float)winH * 0.7f;
+		ImGui::SetNextWindowPos(ImVec2((float)winW - w - 12.0f, 60.0f), ImGuiCond_Always);
+		ImGui::SetNextWindowSize(ImVec2(w, h), ImGuiCond_Always);
+
+		ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.04f, 0.06f, 0.12f, 0.94f));
+		if (ImGui::Begin("##pd2_friends_sidebar",
+		                 nullptr,
+		                 ImGuiWindowFlags_NoCollapse |
+		                 ImGuiWindowFlags_NoScrollbar |
+		                 ImGuiWindowFlags_NoTitleBar |
+		                 ImGuiWindowFlags_NoSavedSettings)) {
+
+			ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+			ImGui::TextUnformatted("Friends");
+			ImGui::PopStyleColor();
+			ImGui::SameLine();
+			s32 online = 0;
+			const s32 nf = socialFriendCount();
+			for (s32 i = 0; i < nf; i++) {
+				const social_friend_t *f = socialFriendAt(i);
+				if (f && presencePeerIsOnline(f->handle)) online++;
+			}
+			ImGui::TextDisabled("(%d / %d online)", (int)online, (int)nf);
+			ImGui::Separator();
+
+			ImGui::BeginChild("##pd2_sidebar_body", ImVec2(0, h - 110.0f), false,
+			                  ImGuiWindowFlags_HorizontalScrollbar);
+
+			if (nf == 0) {
+				ImGui::TextDisabled("No friends added yet.");
+				ImGui::TextDisabled("Use \"Add by code\" to add a friend.");
+			} else {
+				for (s32 i = 0; i < nf; i++) {
+					renderFriendRow(i, socialFriendAt(i));
+				}
+			}
+
+			renderInvitationsSection();
+
+			ImGui::EndChild();
+
+			ImGui::Separator();
+
+			if (ImGui::Button("Add by code")) {
+				s_AddFriendOpen = true;
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Open Social menu")) {
+				pdguiFriendsSocialOpen();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Close")) {
+				s_SidebarOpen = false;
+			}
+		}
+		ImGui::End();
+		ImGui::PopStyleColor();
+	}
+
+	if (s_SocialOpen) {
+		const float pad = 32.0f;
+		ImGui::SetNextWindowPos(ImVec2(pad, pad), ImGuiCond_Always);
+		ImGui::SetNextWindowSize(ImVec2((float)winW - pad * 2, (float)winH - pad * 2),
+		                          ImGuiCond_Always);
+
+		ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.04f, 0.06f, 0.12f, 0.97f));
+		if (ImGui::Begin("##pd2_social_menu",
+		                 nullptr,
+		                 ImGuiWindowFlags_NoCollapse |
+		                 ImGuiWindowFlags_NoTitleBar |
+		                 ImGuiWindowFlags_NoSavedSettings)) {
+
+			ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+			ImGui::TextUnformatted("SOCIAL");
+			ImGui::PopStyleColor();
+			ImGui::TextDisabled("Connect code: %s", socialMyConnectCode());
+			ImGui::Separator();
+
+			if (ImGui::BeginTabBar("##pd2_social_tabs")) {
+
+				if (ImGui::BeginTabItem("Friends")) {
+					ImGui::BeginChild("##pd2_friends_full", ImVec2(0, -60.0f));
+					const s32 nf = socialFriendCount();
+					if (nf == 0) {
+						ImGui::TextDisabled("No friends yet. Use \"Add by code\".");
+					} else {
+						for (s32 i = 0; i < nf; i++) {
+							renderFriendRow(i, socialFriendAt(i));
+							ImGui::Separator();
+						}
+					}
+					ImGui::EndChild();
+					ImGui::EndTabItem();
+				}
+
+				if (ImGui::BeginTabItem("Block list")) {
+					ImGui::BeginChild("##pd2_blocks_full", ImVec2(0, -60.0f));
+					const s32 nb = socialBlockCount();
+					if (nb == 0) {
+						ImGui::TextDisabled("No one is blocked.");
+					} else {
+						for (s32 i = 0; i < nb; i++) {
+							const social_block_t *b = socialBlockAt(i);
+							if (!b) continue;
+							ImGui::PushID(8000 + i);
+							ImGui::Text("%s  (%s)", b->agent_name[0] ? b->agent_name : "?",
+							                          b->connect_code);
+							ImGui::SameLine();
+							if (ImGui::SmallButton("Unblock")) {
+								socialBlockRemove(b->connect_code);
+								ImGui::PopID();
+								break;
+							}
+							ImGui::PopID();
+						}
+					}
+					ImGui::EndChild();
+					ImGui::EndTabItem();
+				}
+
+				if (ImGui::BeginTabItem("Settings")) {
+					social_visibility_t v = socialVisibilityGet();
+					ImGui::TextUnformatted("Visibility");
+					if (ImGui::RadioButton("Public", v == SOCIAL_VIS_PUBLIC)) {
+						socialVisibilitySet(SOCIAL_VIS_PUBLIC);
+					}
+					if (ImGui::RadioButton("Friends Only", v == SOCIAL_VIS_FRIENDS_ONLY)) {
+						socialVisibilitySet(SOCIAL_VIS_FRIENDS_ONLY);
+					}
+					if (ImGui::RadioButton("Appear Offline", v == SOCIAL_VIS_APPEAR_OFFLINE)) {
+						socialVisibilitySet(SOCIAL_VIS_APPEAR_OFFLINE);
+					}
+
+					ImGui::Spacing();
+					ImGui::TextUnformatted("Notifications");
+					u32 mask = socialNotifMaskGet();
+					bool soc = (mask & SOCIAL_NOTIF_SOCIAL) != 0;
+					bool inv = (mask & SOCIAL_NOTIF_INVITES) != 0;
+					if (ImGui::Checkbox("Social / achievements", &soc)) {
+						mask = soc ? (mask | SOCIAL_NOTIF_SOCIAL) : (mask & ~SOCIAL_NOTIF_SOCIAL);
+						socialNotifMaskSet(mask);
+					}
+					if (ImGui::Checkbox("Invitations / messages", &inv)) {
+						mask = inv ? (mask | SOCIAL_NOTIF_INVITES) : (mask & ~SOCIAL_NOTIF_INVITES);
+						socialNotifMaskSet(mask);
+					}
+
+					ImGui::Spacing();
+					ImGui::TextUnformatted("Diagnostics");
+					ImGui::TextDisabled("My handle: 0x%08x", (unsigned)socialMyHandle());
+					ImGui::TextDisabled("My code:   %s",      socialMyConnectCode());
+					ImGui::TextDisabled("Visibility: %s",     visibilityLabel(v));
+					ImGui::TextDisabled("Pairs:     %d",      (int)p2pPairCount());
+					ImGui::EndTabItem();
+				}
+
+				ImGui::EndTabBar();
+			}
+
+			ImGui::Separator();
+			if (ImGui::Button("Add by code")) {
+				s_AddFriendOpen = true;
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Close")) {
+				pdguiFriendsSocialClose();
+			}
+		}
+		ImGui::End();
+		ImGui::PopStyleColor();
+	}
+
+	if (s_AddFriendOpen) {
+		ImGui::OpenPopup("Add Friend");
+	}
+
+	if (ImGui::BeginPopupModal("Add Friend", nullptr,
+	                            ImGuiWindowFlags_AlwaysAutoResize |
+	                            ImGuiWindowFlags_NoSavedSettings)) {
+		ImGui::TextUnformatted("Enter a friend's connect code (4 words)");
+		ImGui::SetNextItemWidth(420.0f);
+		ImGui::InputText("Code", s_AddFriendCodeBuf, sizeof(s_AddFriendCodeBuf));
+
+		ImGui::TextUnformatted("Optional nickname (local only)");
+		ImGui::SetNextItemWidth(420.0f);
+		ImGui::InputText("Nickname", s_AddFriendNickBuf, sizeof(s_AddFriendNickBuf));
+
+		if (s_AddFriendStatus[0]) {
+			ImGui::Spacing();
+			ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TextWarning(255));
+			ImGui::TextUnformatted(s_AddFriendStatus);
+			ImGui::PopStyleColor();
+		}
+
+		ImGui::Spacing();
+		if (ImGui::Button("Add", ImVec2(140, 0))) {
+			s32 added = socialFriendAdd(s_AddFriendCodeBuf, "");
+			if (added < 0) {
+				snprintf(s_AddFriendStatus, sizeof(s_AddFriendStatus),
+				          "Could not add: invalid code or list is full.");
+			} else {
+				if (s_AddFriendNickBuf[0]) {
+					socialFriendSetNickname(s_AddFriendCodeBuf, s_AddFriendNickBuf);
+				}
+				/* Allow inbound presence pings from the new friend even before
+				 * they pong us, so the address-book bootstrap works. */
+				u32 h = 0;
+				if (socialDecodeHandle(s_AddFriendCodeBuf, &h) == 0) {
+					presencePendingInviteAdd(h);
+				}
+				s_AddFriendCodeBuf[0] = '\0';
+				s_AddFriendNickBuf[0] = '\0';
+				s_AddFriendStatus[0]  = '\0';
+				s_AddFriendOpen = false;
+				ImGui::CloseCurrentPopup();
+			}
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel", ImVec2(140, 0))) {
+			s_AddFriendCodeBuf[0] = '\0';
+			s_AddFriendNickBuf[0] = '\0';
+			s_AddFriendStatus[0]  = '\0';
+			s_AddFriendOpen = false;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
+}
