@@ -31,6 +31,25 @@
 #define MODMGR_MAX_TAGS          8    // S196: mod tag pool (free-form UI grouping labels)
 #define MODMGR_TAG_LEN          32    // S196: tag string length
 
+// Priority M / B-238: canonical archive extension. Plain ".zip" is also
+// accepted as a fallback (manifest-probed). See port/src/modarchive.c
+// and context/designs/pdmod-unified-mod-format.md.
+#define MODMGR_PDMOD_EXT        ".pdmod"
+#define MODMGR_ZIP_EXT          ".zip"
+
+// Top-level subdirectory names under the mods/ root that are NOT installed
+// mods. Trust invariant per design Section 8: only mods that are present
+// directly under mods/ (or under category folders) are loader-trusted. The
+// "shared" inbox is read-only-for-browsing; it must never auto-mount.
+// Anything appearing in this list is skipped during enumeration.
+#define MODMGR_RESERVED_NAMES_COUNT 3
+#define MODMGR_RESERVED_NAMES_LIST   { "shared", "inbox", "untrusted" }
+
+// Forward declaration -- archive handle is opaque to UI code that does not
+// link modarchive.h.
+struct mod_archive;
+typedef struct mod_archive mod_archive_t;
+
 // Mod info structure — one per discovered mod
 typedef struct modinfo {
 	char id[MODMGR_ID_LEN];
@@ -70,6 +89,22 @@ typedef struct modinfo {
 	s32  is_template;                    // non-zero if mod.json had "template": true
 	s32  num_tags;                       // number of entries in tags[]
 	char tags[MODMGR_MAX_TAGS][MODMGR_TAG_LEN]; // parsed from mod.json "tags" array
+
+	// Priority M / B-238: archive-backed mods (.pdmod / .zip)
+	// ----------------------------------------------------------------
+	// is_archive       : 1 if this mod was discovered as a .pdmod or .zip
+	//                    archive (single-file mod). 0 = legacy folder mod.
+	// archive_path     : full path to the archive file (when is_archive).
+	// archive_handle   : opaque mod_archive handle if currently mounted.
+	//                    NULL when the archive is registered but not loaded.
+	// requires_restart : mod.json "requires_restart": true -- mod opts out
+	//                    of hot-reload. The loader surfaces "Restart
+	//                    required for [name] to take effect." when the
+	//                    user toggles such a mod live.
+	s32             is_archive;
+	char            archive_path[FS_MAXPATH + 1];
+	mod_archive_t  *archive_handle;
+	s32             requires_restart;
 } modinfo_t;
 
 // ---- Lifecycle ----
@@ -232,6 +267,19 @@ const char *modmgrGetModTag(s32 index, s32 tagIndex);
 // Return 1 if this mod has the given tag (case-sensitive), 0 otherwise.
 // Convenience helper for Modding Hub grouping (e.g. modmgrModHasTag(i, "chrome")).
 s32  modmgrModHasTag(s32 index, const char *tag);
+
+// --- Priority M / B-238: archive-backed mod accessors (for UI) ---
+
+// Returns 1 if the mod was discovered as a .pdmod or .zip archive.
+s32  modmgrGetModIsArchive(s32 index);
+
+// Returns the on-disk archive path for archive-backed mods, or "" otherwise.
+const char *modmgrGetModArchivePath(s32 index);
+
+// Returns 1 if the mod's manifest opts out of hot-reload via
+// "requires_restart": true. UI surfaces this when the user toggles the
+// mod mid-session.
+s32  modmgrGetModRequiresRestart(s32 index);
 
 // Signal that the Asset Catalog contents have changed.
 // Causes all catalog-backed caches (arenas, future: bodies, heads)

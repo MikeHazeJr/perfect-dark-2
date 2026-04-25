@@ -20,6 +20,7 @@
 #include "config.h"
 #include "fs.h"
 #include "modmgr.h"
+#include "modarchive.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
@@ -37,7 +38,15 @@ extern void mainChangeToStage(s32 stagenum);
 
 /* Static forward declarations */
 static void modmgrParseBotNames(modinfo_t *mod);
+static void modmgrParseBotNamesBuf(modinfo_t *mod, const char *src, u32 size);
 static void modmgrClearBotNames(void);
+static bool modmgrParseModJsonBuf(modinfo_t *mod, const char *src, u32 size,
+                                   const char *manifest_label);
+static void modmgrRegisterModJsonContentBuf(modinfo_t *mod, const char *src, u32 size);
+static s32  modmgrTryRegisterArchive(const char *archivePath, const char *display_id,
+                                      const char *source_tag, bool dedupe_by_id);
+static int  modmgrIsReservedTopLevel(const char *name);
+static int  modmgrHasArchiveExtension(const char *name);
 
 // ---------------------------------------------------------------------------
 // Globals
@@ -274,40 +283,34 @@ static bool json_key_eq(const jtok_t *tok, const char *key)
 // mod.json parser
 // ---------------------------------------------------------------------------
 
-static bool modmgrParseModJson(modinfo_t *mod)
+/**
+ * Parse a mod.json document already loaded into memory.
+ *
+ * `src`             : pointer to JSON bytes; must be NUL-terminated AT or AFTER
+ *                     position `size`. The buffer is read-only.
+ * `size`            : byte count of JSON content (excluding any terminator).
+ * `manifest_label`  : human-readable source identifier used for log lines
+ *                     ("<archivepath>:mod.json", "<dirpath>/mod.json", etc.).
+ *
+ * Side effects: populates fields on `mod`. Sets `mod->has_modjson` on success.
+ * The function does NOT take ownership of `src`; the caller frees it.
+ *
+ * Returns true on parse success, false if the document does not start with
+ * an object or is otherwise unrecoverable.
+ */
+static bool modmgrParseModJsonBuf(modinfo_t *mod, const char *src, u32 size,
+                                   const char *manifest_label)
 {
-	char path[FS_MAXPATH + 1];
-	snprintf(path, sizeof(path), "%s/mod.json", mod->dirpath);
-
-	/* B-220: avoid fsFileLoad ERROR spam when the file vanished after scan */
-	if (fsFileSize(path) <= 0) {
-		return false;
-	}
-
-	u32 filesize = 0;
-	char *data = (char *)fsFileLoad(path, &filesize);
-	if (!data || filesize == 0) {
-		return false;
-	}
-
-	// Null-terminate
-	char *buf = (char *)malloc(filesize + 1);
-	if (!buf) {
-		free(data);
-		return false;
-	}
-	memcpy(buf, data, filesize);
-	buf[filesize] = '\0';
-	free(data);
+	(void)size;  /* JSON parser is NUL-terminated-driven */
 
 	jparse_t j;
-	j.src = buf;
-	j.pos = buf;
+	j.src = src;
+	j.pos = src;
 
 	jtok_t tok = json_next(&j);
 	if (tok.type != JTOK_LBRACE) {
-		sysLogPrintf(LOG_WARNING, "modmgr: %s/mod.json: expected object", mod->id);
-		free(buf);
+		sysLogPrintf(LOG_WARNING, "modmgr: %s: expected object",
+			manifest_label ? manifest_label : mod->id);
 		return false;
 	}
 
@@ -386,6 +389,18 @@ static bool modmgrParseModJson(modinfo_t *mod)
 					}
 				}
 			}
+		} else if (json_key_eq(&key, "requires_restart")) {
+			/* Priority M: opt-out of hot-reload. mod authors set true when
+			 * the mod's setup is not idempotent. Loader surfaces "Restart
+			 * required for [name] to take effect." instead of hot-mounting. */
+			tok = json_next(&j);
+			if (tok.type == JTOK_TRUE) {
+				mod->requires_restart = 1;
+			} else if (tok.type == JTOK_FALSE || tok.type == JTOK_NULL) {
+				mod->requires_restart = 0;
+			} else {
+				mod->requires_restart = (tok.type == JTOK_NUMBER) ? (json_tok_int(&tok) != 0) : 0;
+			}
 		} else if (json_key_eq(&key, "content")) {
 			// Parse content object for asset counts
 			tok = json_next(&j);
@@ -426,28 +441,48 @@ static bool modmgrParseModJson(modinfo_t *mod)
 		}
 	}
 
-	free(buf);
 	mod->has_modjson = true;
 
 	// Compatibility validation / defaults:
-	// - id: if missing, derive from directory slug
+	// - id: if missing, derive from a leaf-name slug. For folder mods this
+	//       is the directory basename; for archive mods the archive
+	//       filename without its .pdmod / .zip extension.
 	// - name: if missing, use id
 	// - base_fallback: if missing, default to "base-game"
 	mod->valid = true;
 	mod->validation_error[0] = '\0';
 	{
-		const char *slash = strrchr(mod->dirpath, '/');
-		const char *bslash = strrchr(mod->dirpath, '\\');
+		/* Pick the fallback source: archive filename for archive-backed
+		 * mods, directory leaf otherwise. Either way, scan from the right
+		 * for the rightmost path separator. */
+		const char *slugSrc = (mod->is_archive && mod->archive_path[0])
+		                        ? mod->archive_path : mod->dirpath;
+		const char *slash = strrchr(slugSrc, '/');
+		const char *bslash = strrchr(slugSrc, '\\');
 		const char *base = slash;
 		if (!base || (bslash && bslash > base)) base = bslash;
-		base = base ? base + 1 : mod->dirpath;
+		base = base ? base + 1 : slugSrc;
 
-		if (mod->id[0] == '\0' && base && base[0] != '\0') {
-			strncpy(mod->id, base, MODMGR_ID_LEN - 1);
+		/* Strip a trailing .pdmod / .zip from the slug so the fallback id
+		 * does not include the extension. */
+		char slug[MODMGR_ID_LEN];
+		strncpy(slug, base ? base : "", sizeof(slug) - 1);
+		slug[sizeof(slug) - 1] = '\0';
+		if (mod->is_archive) {
+			s32 sl = (s32)strlen(slug);
+			if (sl > 6 && strcmp(slug + sl - 6, MODMGR_PDMOD_EXT) == 0) {
+				slug[sl - 6] = '\0';
+			} else if (sl > 4 && strcmp(slug + sl - 4, MODMGR_ZIP_EXT) == 0) {
+				slug[sl - 4] = '\0';
+			}
+		}
+
+		if (mod->id[0] == '\0' && slug[0] != '\0') {
+			strncpy(mod->id, slug, MODMGR_ID_LEN - 1);
 			mod->id[MODMGR_ID_LEN - 1] = '\0';
 			sysLogPrintf(LOG_WARNING,
-				"modmgr: mod '%s' missing id in mod.json — using directory name fallback",
-				mod->id);
+				"modmgr: mod '%s' missing id in %s — using filename fallback",
+				mod->id, manifest_label ? manifest_label : "mod.json");
 		}
 		if (mod->name[0] == '\0' && mod->id[0] != '\0') {
 			strncpy(mod->name, mod->id, MODMGR_NAME_LEN - 1);
@@ -464,16 +499,50 @@ static bool modmgrParseModJson(modinfo_t *mod)
 	}
 
 	if (mod->valid) {
-		sysLogPrintf(LOG_NOTE, "modmgr: parsed mod.json for '%s' (%s v%s by %s) — %d bodies, %d heads, %d arenas, fallback=%s, template=%s, tags=%d",
+		sysLogPrintf(LOG_NOTE, "modmgr: parsed mod.json for '%s' (%s v%s by %s) — %d bodies, %d heads, %d arenas, fallback=%s, template=%s, tags=%d, archive=%s, requires_restart=%s",
 			mod->id, mod->name, mod->version, mod->author,
 			mod->num_bodies, mod->num_heads, mod->num_arenas, mod->base_fallback,
-			mod->is_template ? "yes" : "no", mod->num_tags);
+			mod->is_template ? "yes" : "no", mod->num_tags,
+			mod->is_archive ? "yes" : "no",
+			mod->requires_restart ? "yes" : "no");
 	} else {
 		sysLogPrintf(LOG_WARNING, "modmgr: mod.json validation failed for '%s': %s",
 			mod->id[0] ? mod->id : "(unknown)", mod->validation_error);
 	}
 
 	return true;
+}
+
+/* Folder-mod entry point: load mod.json from disk and call the buffer body. */
+static bool modmgrParseModJson(modinfo_t *mod)
+{
+	char path[FS_MAXPATH + 1];
+	snprintf(path, sizeof(path), "%s/mod.json", mod->dirpath);
+
+	/* B-220: avoid fsFileLoad ERROR spam when the file vanished after scan */
+	if (fsFileSize(path) <= 0) {
+		return false;
+	}
+
+	u32 filesize = 0;
+	char *data = (char *)fsFileLoad(path, &filesize);
+	if (!data || filesize == 0) {
+		return false;
+	}
+
+	/* Null-terminate the buffer for the JSON parser. */
+	char *buf = (char *)malloc(filesize + 1);
+	if (!buf) {
+		free(data);
+		return false;
+	}
+	memcpy(buf, data, filesize);
+	buf[filesize] = '\0';
+	free(data);
+
+	bool ok = modmgrParseModJsonBuf(mod, buf, filesize, path);
+	free(buf);
+	return ok;
 }
 
 // ---------------------------------------------------------------------------
@@ -650,31 +719,17 @@ static bool modmgrParseAudioIni(modinfo_t *mod)
 // entries of that type (base game + any prior mod entries).
 // ---------------------------------------------------------------------------
 
-static void modmgrRegisterModJsonContent(modinfo_t *mod)
+/* Body that walks an in-memory mod.json buffer. The buffer must be NUL
+ * terminated. Caller owns the buffer; this function does NOT free it. */
+static void modmgrRegisterModJsonContentBuf(modinfo_t *mod, const char *src, u32 size)
 {
 	if (!mod->has_modjson) return;
 	if (mod->num_bodies == 0 && mod->num_heads == 0 && mod->num_arenas == 0) return;
-
-	char path[FS_MAXPATH + 1];
-	snprintf(path, sizeof(path), "%s/mod.json", mod->dirpath);
-
-	if (fsFileSize(path) <= 0) {
-		return;
-	}
-
-	u32 filesize = 0;
-	char *data = (char *)fsFileLoad(path, &filesize);
-	if (!data || filesize == 0) return;
-
-	char *buf = (char *)malloc(filesize + 1);
-	if (!buf) { free(data); return; }
-	memcpy(buf, data, filesize);
-	buf[filesize] = '\0';
-	free(data);
+	if (!src || size == 0) return;
 
 	jparse_t j;
-	j.src = buf;
-	j.pos = buf;
+	j.src = src;
+	j.pos = src;
 
 	// Determine starting runtime_index offsets — new entries slot in after
 	// all existing entries of each type (base game + prior mod registrations).
@@ -828,6 +883,32 @@ done:
 		    "modmgr: '%s' content registered: %d bodies, %d heads, %d arenas",
 		    mod->id, body_reg, head_reg, arena_reg);
 	}
+}
+
+/* Folder-mod entry point: load mod.json from disk and call the buffer body. */
+static void modmgrRegisterModJsonContent(modinfo_t *mod)
+{
+	if (!mod->has_modjson) return;
+	if (mod->num_bodies == 0 && mod->num_heads == 0 && mod->num_arenas == 0) return;
+
+	char path[FS_MAXPATH + 1];
+	snprintf(path, sizeof(path), "%s/mod.json", mod->dirpath);
+
+	if (fsFileSize(path) <= 0) {
+		return;
+	}
+
+	u32 filesize = 0;
+	char *data = (char *)fsFileLoad(path, &filesize);
+	if (!data || filesize == 0) return;
+
+	char *buf = (char *)malloc(filesize + 1);
+	if (!buf) { free(data); return; }
+	memcpy(buf, data, filesize);
+	buf[filesize] = '\0';
+	free(data);
+
+	modmgrRegisterModJsonContentBuf(mod, buf, filesize);
 	free(buf);
 }
 
@@ -995,11 +1076,165 @@ static s32 modmgrTryRegisterModEntry(const char *fullpath, const char *display_i
 	return 1;
 }
 
+/* ------------------------------------------------------------------
+ * Priority M / B-238: archive-based mod discovery
+ * ------------------------------------------------------------------
+ *
+ * `.pdmod` (and plain `.zip` with a root mod.json) entries are first-class
+ * mods. The loader opens the archive briefly during scan to read mod.json
+ * in memory; the archive handle is reopened in modmgrLoadMod when the mod
+ * is enabled. No on-disk extraction at any point. */
+
+/* Returns 1 if the directory leaf name should be skipped during enumeration
+ * because it is a reserved trust-gate location (per design Section 8). */
+static int modmgrIsReservedTopLevel(const char *name)
+{
+	static const char *const reserved[MODMGR_RESERVED_NAMES_COUNT] = MODMGR_RESERVED_NAMES_LIST;
+	if (!name) return 0;
+	for (s32 i = 0; i < MODMGR_RESERVED_NAMES_COUNT; i++) {
+		if (strcmp(name, reserved[i]) == 0) return 1;
+	}
+	return 0;
+}
+
+/* Returns 1 if `name` ends in .pdmod or .zip (case-insensitive). */
+static int modmgrHasArchiveExtension(const char *name)
+{
+	if (!name) return 0;
+	s32 n = (s32)strlen(name);
+	if (n >= 6) {
+		const char *tail = name + n - 6;
+		if ((tail[0] == '.') &&
+		    (tail[1] == 'p' || tail[1] == 'P') &&
+		    (tail[2] == 'd' || tail[2] == 'D') &&
+		    (tail[3] == 'm' || tail[3] == 'M') &&
+		    (tail[4] == 'o' || tail[4] == 'O') &&
+		    (tail[5] == 'd' || tail[5] == 'D')) {
+			return 1;
+		}
+	}
+	if (n >= 4) {
+		const char *tail = name + n - 4;
+		if ((tail[0] == '.') &&
+		    (tail[1] == 'z' || tail[1] == 'Z') &&
+		    (tail[2] == 'i' || tail[2] == 'I') &&
+		    (tail[3] == 'p' || tail[3] == 'P')) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/* Try to register a single archive at `archivePath`. The archive is opened,
+ * its root mod.json is decompressed and parsed, then closed (the mounted
+ * handle is reopened during modmgrLoadMod when the mod is enabled).
+ *
+ * Plain .zip is accepted only when its root mod.json is present.
+ *
+ * Returns 1 if a slot was consumed, 0 otherwise. */
+static s32 modmgrTryRegisterArchive(const char *archivePath, const char *display_id,
+                                     const char *source_tag, bool dedupe_by_id)
+{
+	if (g_ModRegistryCount >= MODMGR_MAX_MODS) return 0;
+	if (!archivePath || !archivePath[0]) return 0;
+
+	mod_archive_t *arc = modArchiveOpen(archivePath);
+	if (!arc) {
+		sysLogPrintf(LOG_WARNING,
+			"modmgr: archive '%s' could not be opened (err=%d) -- skipping",
+			archivePath, modArchiveLastError());
+		return 0;
+	}
+
+	u32 mfstSize = 0;
+	char *mfstBuf = modArchiveReadManifest(arc, &mfstSize);
+	if (!mfstBuf) {
+		/* Plain .zip with no root mod.json -- not a mod, drop quietly. */
+		sysLogPrintf(LOG_NOTE,
+			"modmgr: archive '%s' has no root mod.json -- not a mod",
+			archivePath);
+		modArchiveClose(arc);
+		return 0;
+	}
+
+	/* Initialise mod entry. dirpath is not used for archives; archive_path
+	 * is the canonical reference. */
+	modinfo_t *mod = &g_ModRegistry[g_ModRegistryCount];
+	memset(mod, 0, sizeof(modinfo_t));
+	mod->is_archive = 1;
+	strncpy(mod->archive_path, archivePath, FS_MAXPATH);
+	mod->archive_path[FS_MAXPATH] = '\0';
+
+	char manifestLabel[FS_MAXPATH + 16];
+	snprintf(manifestLabel, sizeof(manifestLabel), "%s:mod.json", archivePath);
+
+	bool ok = modmgrParseModJsonBuf(mod, mfstBuf, mfstSize, manifestLabel);
+	free(mfstBuf);
+
+	if (!ok) {
+		/* Keep the entry visible in the registry so the UI can show the
+		 * validation error -- mirrors the folder-mod behaviour. */
+		strncpy(mod->id, display_id ? display_id : "", MODMGR_ID_LEN - 1);
+		mod->id[MODMGR_ID_LEN - 1] = '\0';
+		strncpy(mod->name, mod->id, MODMGR_NAME_LEN - 1);
+		mod->name[MODMGR_NAME_LEN - 1] = '\0';
+		mod->valid = false;
+		snprintf(mod->validation_error, MODMGR_ERROR_LEN,
+			"Malformed mod.json inside archive -- failed to parse");
+		mod->has_modjson = false;
+	}
+
+	modArchiveClose(arc);
+
+	if (dedupe_by_id) {
+		for (s32 k = 0; k < g_ModRegistryCount; k++) {
+			if (strcmp(g_ModRegistry[k].id, mod->id) == 0) {
+				memset(mod, 0, sizeof(*mod));
+				return 0;
+			}
+		}
+	}
+
+	mod->bundled = 0;
+
+	/* Content hash (CRC32 of id:version) for the network manifest. */
+	char hashsrc[256];
+	snprintf(hashsrc, sizeof(hashsrc), "%s:%s", mod->id, mod->version);
+	mod->contenthash = modmgrHashString(hashsrc);
+
+	/* SHA-256 over the WHOLE archive file -- this is the transfer-integrity
+	 * hash referenced by Section 7's distribution path. modArchiveSha256 is
+	 * a thin wrapper over sha256HashFile. */
+	if (modArchiveSha256(archivePath, mod->sha256) != 0) {
+		sha256Hash((const u8 *)hashsrc, strlen(hashsrc), mod->sha256);
+	}
+
+	/* Size for download estimation: archive file size, not uncompressed bytes. */
+	struct stat st;
+	if (stat(archivePath, &st) == 0) {
+		mod->size_bytes = (u32)((st.st_size > (off_t)0xFFFFFFFFu) ? 0xFFFFFFFFu : st.st_size);
+	}
+
+	mod->enabled = 0;
+
+	g_ModRegistryCount++;
+	if (source_tag) {
+		sysLogPrintf(LOG_NOTE,
+			"modmgr: discovered mod [%d] '%s' (%s) [.pdmod] from '%s' file=%s",
+			g_ModRegistryCount - 1, mod->id, mod->name, source_tag, archivePath);
+	} else {
+		sysLogPrintf(LOG_NOTE,
+			"modmgr: discovered mod [%d] '%s' (%s) [.pdmod] file=%s",
+			g_ModRegistryCount - 1, mod->id, mod->name, archivePath);
+	}
+	return 1;
+}
+
 /* Iterate children of `catPath` (a category folder such as
- * `mods/UI Chrome/`). Each child directory is tried as a mod entry.
- * Non-directory entries are skipped. This function does NOT recurse
- * further — depth is capped at one level under root to prevent runaway
- * directory walks on arbitrary user layouts. */
+ * `mods/UI Chrome/`). Each child entry is tried as a folder mod or as a
+ * `.pdmod` / `.zip` archive. Non-matching entries are skipped. This
+ * function does NOT recurse further -- depth is capped at one level under
+ * root to prevent runaway directory walks on arbitrary user layouts. */
 static void modmgrScanCategoryFolder(const char *catPath, const char *catName,
                                       bool dedupe_by_id)
 {
@@ -1016,9 +1251,13 @@ static void modmgrScanCategoryFolder(const char *catPath, const char *catName,
 		snprintf(subpath, sizeof(subpath), "%s/%s", catPath, ent->d_name);
 
 		struct stat st;
-		if (stat(subpath, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+		if (stat(subpath, &st) != 0) continue;
 
-		modmgrTryRegisterModEntry(subpath, ent->d_name, catName, dedupe_by_id);
+		if (S_ISDIR(st.st_mode)) {
+			modmgrTryRegisterModEntry(subpath, ent->d_name, catName, dedupe_by_id);
+		} else if (S_ISREG(st.st_mode) && modmgrHasArchiveExtension(ent->d_name)) {
+			modmgrTryRegisterArchive(subpath, ent->d_name, catName, dedupe_by_id);
+		}
 	}
 
 	closedir(d);
@@ -1085,25 +1324,44 @@ static void modmgrScanDirectory(void)
 
 	sysLogPrintf(LOG_NOTE, "modmgr: scanning '%s' for mods...", modsdir);
 
-	/* Root pass: try each top-level entry as a mod. If an entry is a dir
-	 * with no manifest, treat it as a category folder (e.g. UI Chrome,
-	 * Weapons, MP Maps) and scan one level deeper. This is bounded at
-	 * depth 1 from the primary root. */
+	/* Root pass: try each top-level entry as a mod. Order:
+	 *   1. Skip dotfiles and reserved trust-gate names (`shared`, `inbox`,
+	 *      `untrusted`) per design Section 8 -- these are read-only-for-
+	 *      browsing and must NEVER auto-mount.
+	 *   2. Files: candidate `.pdmod` / `.zip` archives.
+	 *   3. Directories with a manifest: folder mod (legacy path).
+	 *   4. Directories without a manifest: treat as category folder, scan
+	 *      one level deeper for archives + folder mods.
+	 * Depth is capped at one level under root to prevent runaway walks. */
 	struct dirent *ent;
 	while ((ent = readdir(dir)) != NULL && g_ModRegistryCount < MODMGR_MAX_MODS) {
 		if (ent->d_name[0] == '.') continue;
+		if (modmgrIsReservedTopLevel(ent->d_name)) {
+			sysLogPrintf(LOG_NOTE,
+				"modmgr: skipping reserved top-level '%s' (read-only inbox)",
+				ent->d_name);
+			continue;
+		}
 
 		char fullpath[FS_MAXPATH + 1];
 		snprintf(fullpath, sizeof(fullpath), "%s/%s", modsdir, ent->d_name);
 
 		struct stat st;
-		if (stat(fullpath, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+		if (stat(fullpath, &st) != 0) continue;
+
+		if (S_ISREG(st.st_mode)) {
+			if (modmgrHasArchiveExtension(ent->d_name)) {
+				modmgrTryRegisterArchive(fullpath, ent->d_name, NULL, false);
+			}
+			continue;
+		}
+		if (!S_ISDIR(st.st_mode)) continue;
 
 		if (modmgrTryRegisterModEntry(fullpath, ent->d_name, NULL, false)) {
 			continue;
 		}
 
-		/* Entry is a directory with no manifest — treat as category. */
+		/* Entry is a directory with no manifest -- treat as category. */
 		modmgrScanCategoryFolder(fullpath, ent->d_name, false);
 	}
 
@@ -1124,12 +1382,22 @@ static void modmgrScanDirectory(void)
 		struct dirent *altent;
 		while ((altent = readdir(altdir)) != NULL && g_ModRegistryCount < MODMGR_MAX_MODS) {
 			if (altent->d_name[0] == '.') continue;
+			if (modmgrIsReservedTopLevel(altent->d_name)) continue;
 
 			char altpath[FS_MAXPATH + 1];
 			snprintf(altpath, sizeof(altpath), "%s/%s", candidates[ci], altent->d_name);
 
 			struct stat altst;
-			if (stat(altpath, &altst) != 0 || !S_ISDIR(altst.st_mode)) continue;
+			if (stat(altpath, &altst) != 0) continue;
+
+			if (S_ISREG(altst.st_mode)) {
+				if (modmgrHasArchiveExtension(altent->d_name)) {
+					modmgrTryRegisterArchive(altpath, altent->d_name,
+					                          candidates[ci], true);
+				}
+				continue;
+			}
+			if (!S_ISDIR(altst.st_mode)) continue;
 
 			/* Try as mod first; if that fails (no manifest), try as category. */
 			if (modmgrTryRegisterModEntry(altpath, altent->d_name,
@@ -1137,14 +1405,12 @@ static void modmgrScanDirectory(void)
 				continue;
 			}
 			modmgrScanCategoryFolder(altpath, altent->d_name, true);
-			/* Loop-scoped continue is implicit (we fall through to the top). */
-			continue;
 		}
 
 		closedir(altdir);
 	}
 
-	sysLogPrintf(LOG_NOTE, "modmgr: scan complete — %d mods found", g_ModRegistryCount);
+	sysLogPrintf(LOG_NOTE, "modmgr: scan complete -- %d mods found", g_ModRegistryCount);
 }
 
 // ---------------------------------------------------------------------------
@@ -1419,6 +1685,43 @@ static void modmgrLoadMod(modinfo_t *mod)
 	if (mod->loaded) return;
 	if (!mod->valid) return; // Don't load invalid mods
 
+	if (mod->is_archive) {
+		/* Priority M / B-238: archive load path. Reopen the archive (it was
+		 * closed after the scan-time manifest read), keep the handle on
+		 * mod->archive_handle for the duration of the load, then read mod.json
+		 * once into a buffer that drives both content registration and bot
+		 * name parsing. The handle stays open so the M-1.3 VFS layer can
+		 * resolve asset path requests against this mount. */
+		sysLogPrintf(LOG_NOTE, "modmgr: loading mod '%s' from archive '%s'",
+			mod->id, mod->archive_path);
+
+		if (mod->archive_handle) {
+			modArchiveClose(mod->archive_handle);
+			mod->archive_handle = NULL;
+		}
+		mod->archive_handle = modArchiveOpen(mod->archive_path);
+		if (!mod->archive_handle) {
+			sysLogPrintf(LOG_WARNING,
+				"modmgr: archive '%s' would not reopen during load (err=%d) -- mod skipped",
+				mod->archive_path, modArchiveLastError());
+			return;
+		}
+
+		u32 mfstSize = 0;
+		char *mfstBuf = modArchiveReadManifest(mod->archive_handle, &mfstSize);
+		if (mfstBuf) {
+			modmgrRegisterModJsonContentBuf(mod, mfstBuf, mfstSize);
+			modmgrParseBotNamesBuf(mod, mfstBuf, mfstSize);
+			free(mfstBuf);
+		}
+
+		/* M-1.3 will register the open handle with the VFS here. For now
+		 * the handle is kept open so the unload path closes it correctly. */
+
+		mod->loaded = true;
+		return;
+	}
+
 	sysLogPrintf(LOG_NOTE, "modmgr: loading mod '%s' from %s", mod->id, mod->dirpath);
 
 	if (mod->has_audioini) {
@@ -1439,7 +1742,16 @@ static void modmgrLoadMod(modinfo_t *mod)
 static void modmgrUnloadAllMods(void)
 {
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		g_ModRegistry[i].loaded = false;
+		modinfo_t *mod = &g_ModRegistry[i];
+		mod->loaded = false;
+		/* Priority M: archive handle is owned by the loaded state. Close on
+		 * unload so we do not leak FILE handles across reloads. The M-1.3
+		 * VFS layer will hook in here to drop the mount + flush the per-mod
+		 * asset cache before we close the handle. */
+		if (mod->archive_handle) {
+			modArchiveClose(mod->archive_handle);
+			mod->archive_handle = NULL;
+		}
 	}
 
 	modmgrClearBotNames();
@@ -1569,11 +1881,19 @@ void modmgrRescanDirectory(void)
 	// Restore enabled/loaded for entries that existed before the rescan.
 	// Newly-discovered entries keep scanDirectory's defaults (enabled=0,
 	// loaded=0); caller can flip them via modmgrSetEnabled + modmgrSaveConfig.
+	//
+	// Priority M / B-238: archive mods carry an open FILE handle on
+	// mod->archive_handle when loaded=1. The pre-rescan handle was closed
+	// at the top of modmgrScanDirectory() (memset of every entry); a stale
+	// loaded=1 with a NULL handle would mis-state the unload path. So
+	// archive mods always come back as loaded=0 after rescan and are
+	// brought back live by the next modmgrLoadMod() pass.
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
 		for (s32 j = 0; j < numSaved; j++) {
 			if (strcmp(g_ModRegistry[i].id, saved[j].id) == 0) {
 				g_ModRegistry[i].enabled = saved[j].enabled;
-				g_ModRegistry[i].loaded  = saved[j].loaded;
+				g_ModRegistry[i].loaded  =
+					(g_ModRegistry[i].is_archive ? 0 : saved[j].loaded);
 				break;
 			}
 		}
@@ -1993,6 +2313,13 @@ const char *modmgrResolvePath(const char *relPath)
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
 		if (!g_ModRegistry[i].enabled || !g_ModRegistry[i].loaded) continue;
 
+		/* Priority M / B-238: archive-backed mods do not have on-disk
+		 * asset paths. The M-1.3 modvfs layer routes their asset reads
+		 * through the in-memory archive. Skip them here so we do not
+		 * spuriously hit the legacy modDir / basedir fallback for an
+		 * asset that exists in an archive. */
+		if (g_ModRegistry[i].is_archive) continue;
+
 		snprintf(g_ModPathBuf, sizeof(g_ModPathBuf), "%s/%s",
 			g_ModRegistry[i].dirpath, relPath);
 
@@ -2019,37 +2346,21 @@ const char *modmgrGetModDir(s32 index)
 static char s_BotNameOverrides[MODMGR_MAX_BOT_PROFILES][MODMGR_BOT_NAME_LEN];
 static s32  s_BotNameOverrideActive = 0;
 
-static void modmgrParseBotNames(modinfo_t *mod)
+/* Body that walks an in-memory mod.json buffer. Caller owns the buffer.
+ * NOTE: this body is shared by both folder mods (via modmgrParseBotNames)
+ * and archive mods (via modmgrLoadMod when is_archive). It writes into the
+ * file-scope s_BotNameOverrides[] table directly. */
+static void modmgrParseBotNamesBuf(modinfo_t *mod, const char *src, u32 size)
 {
-	/* B-172: skip silently for mods without mod.json (audio-only, etc.).
-	 * fsFileLoad logs LOG_ERROR on missing files; calling it blindly spams
-	 * the boot log with "could not find file: mods/<id>/mod.json" for every
-	 * audio-only mod. */
 	if (!mod->has_modjson) return;
-
-	char path[FS_MAXPATH + 1];
-	snprintf(path, sizeof(path), "%s/mod.json", mod->dirpath);
-
-	if (fsFileSize(path) <= 0) {
-		return;
-	}
-
-	u32 filesize = 0;
-	char *data = (char *)fsFileLoad(path, &filesize);
-	if (!data || filesize == 0) return;
-
-	char *buf = (char *)malloc(filesize + 1);
-	if (!buf) { free(data); return; }
-	memcpy(buf, data, filesize);
-	buf[filesize] = '\0';
-	free(data);
+	if (!src || size == 0) return;
 
 	jparse_t j;
-	j.src = buf;
-	j.pos = buf;
+	j.src = src;
+	j.pos = src;
 
 	jtok_t tok = json_next(&j);
-	if (tok.type != JTOK_LBRACE) { free(buf); return; }
+	if (tok.type != JTOK_LBRACE) return;
 
 	// Find "content" -> "botnames" -> "profiles" array
 	while (1) {
@@ -2152,10 +2463,37 @@ static void modmgrParseBotNames(modinfo_t *mod)
 		break; // content processed
 	}
 
-	free(buf);
 	if (s_BotNameOverrideActive) {
 		sysLogPrintf(LOG_NOTE, "modmgr: bot name overrides loaded from mod '%s'", mod->id);
 	}
+}
+
+/* Folder-mod entry point: load mod.json from disk and call the buffer body. */
+static void modmgrParseBotNames(modinfo_t *mod)
+{
+	/* B-172: skip silently for mods without mod.json. */
+	if (!mod->has_modjson) return;
+	/* Archive mods route through modmgrLoadMod which calls the buf body
+	 * directly with the manifest already in memory. */
+	if (mod->is_archive) return;
+
+	char path[FS_MAXPATH + 1];
+	snprintf(path, sizeof(path), "%s/mod.json", mod->dirpath);
+
+	if (fsFileSize(path) <= 0) return;
+
+	u32 filesize = 0;
+	char *data = (char *)fsFileLoad(path, &filesize);
+	if (!data || filesize == 0) return;
+
+	char *buf = (char *)malloc(filesize + 1);
+	if (!buf) { free(data); return; }
+	memcpy(buf, data, filesize);
+	buf[filesize] = '\0';
+	free(data);
+
+	modmgrParseBotNamesBuf(mod, buf, filesize);
+	free(buf);
 }
 
 static void modmgrClearBotNames(void)
@@ -2502,4 +2840,24 @@ s32 modmgrModHasTag(s32 index, const char *tag)
 		if (strcmp(mod->tags[i], tag) == 0) return 1;
 	}
 	return 0;
+}
+
+/* Priority M / B-238 accessors */
+
+s32 modmgrGetModIsArchive(s32 index)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return 0;
+	return g_ModRegistry[index].is_archive;
+}
+
+const char *modmgrGetModArchivePath(s32 index)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return "";
+	return g_ModRegistry[index].archive_path;
+}
+
+s32 modmgrGetModRequiresRestart(s32 index)
+{
+	if (index < 0 || index >= g_ModRegistryCount) return 0;
+	return g_ModRegistry[index].requires_restart;
 }
