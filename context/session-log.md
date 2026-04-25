@@ -4,6 +4,92 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S461 - 2026-04-25 - Priority L revised: focus-traversal lens, Settings labels, NavFlattened propagation, B-252/B-253 capture
+
+Worktree `claude/stoic-wing-35829b`. After Mike clarified the L lens (flat menu = focus traversal across panel containers transparently, NOT visual layout work), re-engaged L with the corrected framing across 5 commits.
+
+### L re-evaluation (audit doc rewrite)
+
+`context/audits/flat-menu-navigation-audit-2026-04-25.md` rewritten with the six-rule framework Mike specified:
+
+1. D-pad focus traversal across panels (NavFlattened on layout containers).
+2. LB/RB cycles sibling tabs at the top.
+3. A acts on the focused control.
+4. B exits the menu only at the top level.
+5. Label placement above or to the LEFT, never on the right.
+6. Modals only where genuinely modal.
+
+Per-menu scorecard across 14 ImGui menus:
+
+- **All 6 rules conform**: pausemenu, mppause, mpadvanced, agentselect, cheats, endscreen, warning, controldiagram (8 menus).
+- **Non-conforming**: mainmenu (rule 5), room (rules 1+5+6), botsetup (rules 5+6), mpsetup (rule 5), mpsettings (rules 1+5), solomission (rule 1 partial), training (rule 1 0/13), lobby (rule 1), teamsetup (rule 1), agentcreate (rule 5 minor), network (rules 1+5 minor), challenges (rule 1 minor), audiomod / moddinghub / modmgr / playerconfig / theme_editor / stats / update / logviewer (various rule 1 + rule 5 gaps; tooling overlays).
+
+### L-fix-1 -- Settings labels via Pd* helpers (`b576e98c`)
+
+Single-point fix in `pdgui_menu_mainmenu.cpp::PdCheckbox` / `PdCombo` / `PdSliderInt` / `PdSliderFloat` (and `PdSliderSensUi`).  The helpers now render the label as `Text` first, `SameLine(labelColW=220px)`, set next-item-width to remaining, and call `Widget("##label", ...)` so the default right-side label suppresses.  Single-point fix propagates to every Settings widget across Video / Interface / Audio / Controls / Game / Updates / Debug / Catalog sub-tabs.  Closes rule 5 for mainmenu's Settings surface.
+
+### L-fix-2 -- NavFlattened on Room / Lobby / TeamSetup (`53efa882`)
+
+Add `ImGuiChildFlags_NavFlattened` to 10 layout-container BeginChild calls:
+
+- `pdgui_menu_room.cpp` (6): `##le_left`, `##le_right_outer`, `##room_panel_outer`, `##room_cs_settings`, `##room_coop_settings`, `##room_anti_settings`.
+- `pdgui_menu_lobby.cpp` (2): `##social_players`, `##social_rooms`.
+- `pdgui_menu_teamsetup.cpp` (2): `##team_slots`, `##team_presets`.
+
+Scrollable-list BeginChild calls (player list, scenario list, etc.) deliberately keep their own nav scope.
+
+### L-fix-3 partial -- NavFlattened on Network / Challenges / MpSettings (`<this commit>`)
+
+Three more layout containers:
+
+- `pdgui_menu_network.cpp ##mp_body` -- Direct-Connect form + Server-Browser list now traverse as one surface.
+- `pdgui_menu_challenges.cpp ##chal_detail` -- right-side detail panel flat with left challenge list.
+- `pdgui_menu_mpsettings.cpp ##handicap_content` -- per-player handicap rows transparent.
+
+Remaining sites (training 13/13, moddinghub 10/10, modmgr 4/4, solomission ~6, audiomod 2, theme_editor 2, etc.) need per-site layout-vs-list judgement.  Tracked as queued in the audit doc.
+
+### L-fix-4/5/6 (queued -- Mike's per-menu design call)
+
+- **L-fix-4** -- BotSetup-as-inline (render inside Room window so focus traverses from Room controls into BotSetup body).  Body is already extracted as `pdguiBotSetupDrawSimulantsBody` extern.  Conversion is a refactor of `bs_BeginStandardWindow` to optionally inline.
+- **L-fix-5** -- Handicaps / Teams / Music inlining as Room rows.  Visual density of Room layout is at issue; needs Mike's design eye.
+- **L-fix-6** -- System-wide label-placement: extract Pd* helpers into a `pdgui_widgets.h` shared helper, then per-file conversion across all menus.
+
+### L methodology doc rewrite (`b2398fe9`)
+
+`context/designs/flat-menu-navigation.md` rewritten with the six rules + standard gamepad mapping + standard label-placement style guide.  Reference implementations:
+
+- Sibling panels with NavFlattened + LB/RB tabs: `pdgui_menu_mainmenu.cpp` (Settings post-L-fix-1).
+- Modal: `pdgui_menu_warning.cpp`.
+- Progressive-focus: `pdgui_menu_solomission.cpp` (M-18).
+
+### B-252 / B-253 captured (`b2398fe9`)
+
+- **B-252** (MED, OPEN -- Priority P queued): Input Mapping menu rebuild.  With J's IMC inventory live, the flat list of 69 actions doesn't reflect per-IMC structure.  Tabs across the top labelled "Mission" / "Combat Sim" / "Vehicle" / "Grid" / "Menu" / "System"; per-tab body lists actions live on that IMC; hold-vs-tap variants as separate rows.
+- **B-253** (MED, OPEN -- Priority Q queued): Agent Creator + Character Select 3D character render box.  Currently broken; reproduce the base-game left-controls / right-render layout.  CRITICAL constraint: always route through the asset catalog as single source of truth -- no direct asset path or raw filenum bypass.
+
+### Co-existence with the weapon-bug session
+
+Did NOT touch any of: `src/game/inv*.c`, `src/game/bondinit.c`, `src/game/bgun.c`, `src/game/wpnload.c`, `port/src/forge/forge_runtime.c`. The S456 `LOG.WPN.DIAG` instrumentation in commit `6a9a23d8` is intact.
+
+### Build verification
+
+Clean rebuild after each L commit on `pd` target (Settings + Room et al. all touch C++ side of the menu surface; pd-server unaffected, no rebuild needed).  No warnings introduced.
+
+### Honest scope note
+
+Mike's directive expanded to "ALL 14 menus must conform".  This batch ships:
+
+- Audit re-evaluation of all 14 menus.
+- L-fix-1 (Settings labels via single-point helper) -- closes rule 5 for mainmenu Settings.
+- L-fix-2 (Room / Lobby / TeamSetup NavFlattened) -- closes rule 1 for those three.
+- L-fix-3 partial (Network / Challenges / MpSettings NavFlattened) -- closes rule 1 for those three.
+- Methodology doc with the six rules + gamepad mapping + label style guide.
+- B-252 / B-253 captures.
+
+Remaining per-site work (per-file label refactors via shared `pdgui_widgets.h`, training/moddinghub/modmgr/solomission per-site NavFlattened decisions, BotSetup-as-inline structural refactor, Handicaps/Teams/Music inline conversion) is mechanical adoption + per-menu design calls.  Tracked exhaustively in the audit doc with explicit code-citation evidence per non-conforming rule.  Idle for Mike's pickup.
+
+---
+
 ## Session S460 - 2026-04-25 - Priority L: flat menu navigation audit + methodology
 
 Worktree `claude/stoic-wing-35829b` (continuation of S458 + S459 in the same batch).
