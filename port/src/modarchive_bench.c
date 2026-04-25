@@ -21,12 +21,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <PR/ultratypes.h>
 
 #include "system.h"
 #include "fs.h"
 #include "modarchive.h"
 #include "modvfs.h"
+#include "modmigrate.h"
 #include "modarchive_bench.h"
 
 /* Synthetic asset shapes mirroring the design's 4.6 buckets. */
@@ -100,8 +102,54 @@ static int writeSyntheticArchive(const char *outPath)
 	return modArchiveFinish(w) == MODARCHIVE_OK;
 }
 
+/* M-4.1 sibling utility: trigger the folder->.pdmod auto-migration in
+ * isolation. Walks each candidate mods/ root in the same priority order
+ * the loader uses, runs modMigrateRun on the first one that opens, and
+ * exits. Useful for ops + the M-4.2 verification recipe. */
+static void runStandaloneMigration(void)
+{
+	const char *candidates[4];
+	char buf[4][512];
+	const char *p;
+	p = fsFullPath("$E/../mods"); strncpy(buf[0], p ? p : "", sizeof(buf[0]) - 1); buf[0][sizeof(buf[0]) - 1] = '\0';
+	strncpy(buf[1], "./mods", sizeof(buf[1]) - 1); buf[1][sizeof(buf[1]) - 1] = '\0';
+	p = fsFullPath("$E/mods");    strncpy(buf[2], p ? p : "", sizeof(buf[2]) - 1); buf[2][sizeof(buf[2]) - 1] = '\0';
+	p = fsFullPath("mods");       strncpy(buf[3], p ? p : "", sizeof(buf[3]) - 1); buf[3][sizeof(buf[3]) - 1] = '\0';
+	for (s32 i = 0; i < 4; i++) candidates[i] = buf[i];
+
+	for (s32 i = 0; i < 4; i++) {
+		if (!candidates[i][0]) continue;
+		FILE *probe = fopen(candidates[i], "rb");
+		if (probe || (probe = fopen(candidates[i], "wb"))) {
+			fclose(probe);
+		}
+		struct stat st;
+		if (stat(candidates[i], &st) != 0) continue;
+		if (!(st.st_mode & S_IFDIR)) continue;
+		sysLogPrintf(LOG_NOTE, "MIGRATE: targeting '%s'", candidates[i]);
+		mod_migrate_summary_t mig = { 0, 0, 0 };
+		s32 ran = modMigrateRun(candidates[i], &mig);
+		if (ran) {
+			sysLogPrintf(LOG_NOTE,
+				"MIGRATE: standalone pass: packaged=%d skipped=%d failed=%d",
+				mig.packaged, mig.skipped, mig.failed);
+		} else {
+			sysLogPrintf(LOG_NOTE,
+				"MIGRATE: standalone pass: skipped (sentinel present or modsdir unreadable)");
+		}
+		exit(mig.failed > 0 ? 1 : 0);
+	}
+	sysLogPrintf(LOG_ERROR, "MIGRATE: no mods directory found in candidate roots");
+	exit(2);
+}
+
 void modArchiveRunBenchmark(void)
 {
+	if (sysArgCheck("--migrate-pdmod")) {
+		runStandaloneMigration();
+		/* unreached */
+	}
+
 	if (!sysArgCheck("--bench-pdmod")) return;
 
 	/* Try several writable locations in order; the cwd is the typical
