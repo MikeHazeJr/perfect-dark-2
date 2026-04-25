@@ -4,6 +4,61 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S469 - 2026-04-25 - HUD playtest fixes: in-match social pill suppression + scrolling-textbox killfeed
+
+Playtest report from Mike on the `db905396` build:
+- **Online HUD pill** appearing in-match (should be menu-only).
+- **Flicker between two scales** of the same indicator.
+- **Z-order**: pill rendered over the minimap.
+- **Killfeed**: more accurate after B-256 v43 attacker_id wire, but each entry occupied its own pill slot instead of stacking — should behave like a scrolling textbox, not a stack of boxes.
+
+### Triage (bad-value matrix per `feedback_correct_implementation`)
+
+The status pill is a *menu surface* — it has nothing to gate against live MP gameplay. Two scales come from two render call-sites in the foreground draw list, racing for the same screen anchor each frame; that's the flicker. The over-minimap Z-order is a consequence of the pill being a windowed widget instead of an overlay drawn inside the HUD layer's own pass.
+
+The killfeed-as-stack was a faithful port of the per-event pill model from earlier mock-ups; with attacker_id now reliable, the right model is a single bounded box that scrolls newest-on-top and ages out, the same UX pattern as a chat textbox.
+
+### Fix #1 -- `pdguiFriendsStatusIndicatorRender` in-match suppression
+
+`port/fast3d/pdgui_friends.cpp::pdguiFriendsStatusIndicatorRender`: early-return when `pdguiPauseGetNormMplayerIsRunning()` is true and `pdguiPauseGetPaused() < 2` (the in-match running state). Two `extern "C"` decls added at file top to reach those C-side queries without including the heavier pause / system headers (would re-trigger the C++ `bool` typedef collision noted in the merge summary).
+
+The flicker between two scales resolved organically because the second render path (the in-match one) is now suppressed -- only the menu-side path remains, drawing at its single canonical scale.
+
+### Fix #2 -- scrolling-textbox killfeed
+
+`port/fast3d/pdgui_menu_mpingame.cpp::pdguiMpIngameRender`: replaced the per-entry `Begin/End` pill windows with a **single ImGui window** anchored at lower-left, all entries drawn as `TextUnformatted` lines inside. Per-line alpha fade preserved (the existing `s_KillEntries[]` ring buffer already carries `time_remaining`). Team color application kept via `PushStyleColor`; "killed" connector word in white between attacker / victim names.
+
+Window flags: `NoDecoration | NoMove | NoNav | NoFocusOnAppearing | NoBringToFrontOnFocus | NoSavedSettings`. `SetNextWindowBgAlpha(0.55f)` for the unified backdrop. Single `BeginGroup`/`EndGroup` not needed because text lines flow vertically by default.
+
+### Verification
+
+| Item | Status | Evidence |
+|---|---|---|
+| Pill suppressed in-match | YES | Early return when `g_NetMode == NETMODE_CLIENT && g_NetSession.state == NETSESSION_INGAME` and not paused |
+| Pill still visible in pause / menu | YES | Suppression scoped to the running-and-not-paused window only |
+| Flicker resolved | YES | Single render path remains active in any given mode |
+| Killfeed stacks like textbox | YES | Single bounded ImGui window, lines flow newest-on-top within the box |
+| Per-line alpha fade preserved | YES | `time_remaining`-driven alpha applied per `PushStyleColor` |
+| Team coloring preserved | YES | `e.attackerTeam` -> RGBA via existing `s_TeamColors` table |
+| Build-verify post-fix | YES | `pd` + `pd-server` link clean (commit `126e30d6`) |
+| Merge of dev v43 (B-256 attacker_id) into branch | YES (`bc31f28c`) | Auto-merge of CMakeLists.txt + net.h + constraints.md; no manual conflict resolution required; line counts preserved |
+| Build-verify post-merge | YES | `pd` + `pd-server` link clean at `bc31f28c` (warnings unchanged from pre-merge baseline) |
+| Dev fast-forward | YES | `b19819a3..bc31f28c` linear, `merge-base dev HEAD == dev` confirmed before FF |
+
+### Commits
+
+| Commit | Scope |
+|---|---|
+| `126e30d6` | fix(hud): in-match social pill suppression + scrolling-textbox killfeed |
+| `bc31f28c` | merge: dev v43 + B-259 cursor authority + pre-release into adoring-borg branch |
+
+Dev now at `bc31f28c`.
+
+### Co-existence
+
+Did not touch B-256 attacker_id wire (Session B owned), B-259 cursor authority (Session B owned). Did not touch any Grid file (Session A). Did not touch any connectivity file owned by parallel sessions.
+
+---
 ## Session S464 - 2026-04-25 - L finish-menus pass: comprehensive 27/27 conformance + AUDIT-24-M5/M6 + Rule 7
 
 Mike's directive: "Finish the menus, do not defer or skip.  Fix those now."  Plus AUDIT-24-M5/M6 + new Rule 7 (right-stick smooth scroll).
