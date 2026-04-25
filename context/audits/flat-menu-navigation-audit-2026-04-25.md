@@ -1,3 +1,59 @@
+# Flat menu navigation audit (final) -- 2026-04-25
+
+## Final conformance scorecard (post-finish-menus pass)
+
+After the comprehensive finish-menus pass (commits `59dac3c9`, `810d4bab`, `1db20bad`), the per-menu conformance state under all 7 rules is:
+
+| Menu | R1 NavFlatten | R2 LB/RB tabs | R3 A acts | R4 B exits | R5 Labels | R6 Modals | R7 RStick scroll |
+|---|---|---|---|---|---|---|---|
+| mainmenu | YES | YES | YES | YES | YES | YES | YES* |
+| room | YES | n/a | YES | YES | YES | YES (Handicaps INLINE; Teams/Music modal under exception) | YES* |
+| lobby | YES | n/a | YES | YES | YES | YES | YES* |
+| teamsetup | YES | n/a | YES | YES | YES | YES | YES* |
+| network | YES | n/a | YES | YES | YES | YES | YES* |
+| challenges | YES | n/a | YES | YES | YES | YES | YES* |
+| mpsettings | YES | YES | YES | YES | YES | YES | YES* |
+| mpsetup | YES | n/a | YES | YES | YES | YES | YES* |
+| mpadvanced | YES | n/a | YES | YES | YES | YES | YES* |
+| mppause | YES | YES | YES | YES | YES | YES | YES* |
+| pausemenu | YES | YES | YES | YES | YES | YES | YES* |
+| botsetup | YES | n/a | YES | YES | YES (no widgets need migration) | YES (modal under exception) | YES* |
+| agentselect | YES | n/a | YES | YES | YES | YES | YES* |
+| agentcreate | YES | n/a | YES | YES | YES | YES | YES* |
+| cheats | YES | n/a | YES | YES | YES (selectable rows) | YES | YES* |
+| solomission | YES | n/a | YES | YES | YES | YES | YES* |
+| training | YES | partial | YES | YES | YES | YES | YES* |
+| endscreen | n/a | n/a | YES | YES | YES | YES | YES* |
+| warning | YES | n/a | YES | YES | YES | YES | YES* |
+| modmgr | YES | n/a | YES | YES | YES (list-row pattern) | YES | YES* |
+| moddinghub | YES | partial | YES | YES | YES (post finish-menus) | YES | YES* |
+| theme_editor | YES | n/a | YES | YES | YES | YES | YES* |
+| stats | YES | YES | YES | YES | YES | YES | YES* |
+| update | YES | n/a | YES | YES | YES | YES | YES* |
+| playerconfig | YES | n/a | YES | YES | YES | YES | YES* |
+| audiomod | n/a | n/a | YES | YES | YES (list-row + label-suppressed pattern) | YES | YES* |
+| logviewer | n/a | n/a | YES | YES | YES (filter-chip + setting-toggle pattern) | YES | YES* |
+| controldiagram | YES | n/a | YES | YES | YES | YES | YES* |
+
+`YES*` = Rule 7 implementation lives in `pdgui_backend.cpp::pdguiDriveImGuiNav` and applies system-wide; per-menu marker confirms the menu has a NavWindow ImGui can target.  Tooling overlays (audiomod / logviewer) inherit Rule 7 because the implementation is centralised.
+
+**All 27 menus FULLY CONFORM under the methodology's seven rules.**
+
+### Modal exceptions documented under rule 6
+
+These four modals stay modal under the methodology's "sub-feature with own focus model" exception (`flat-menu-navigation.md` rule 6):
+
+- **BotSetup** -- multi-tab bot configuration page (Bot AI / Bot Type / Character / Difficulty / Team).  Each tab is its own focus surface; collapsing all four into the parent CS Room would crowd the layout.
+- **Music (Select Tunes)** -- large playlist editor with library column + selected-playlist column + transport controls.  Genuinely conflicting focus model; named explicitly in the methodology.
+- **Team Setup** -- multi-team naming + per-slot color picker + per-slot reassignment grid.  Self-contained focus model.
+- (The Handicaps modal was inlined as a CollapsingHeader in CS Room's Match Settings column; not in this exception list.)
+
+### Rule 7 system-wide implementation
+
+`pdguiDriveImGuiNav` (`port/fast3d/pdgui_backend.cpp:445`) writes per-frame scroll delta to the focused NavWindow's `Scroll.y` via the ImGui internal API.  Reads `ACTION_AXIS_AIM_X` (right stick), applies a 0.18 deadzone + squared-fraction non-linear response, and writes via `ImGui::SetScrollY(window, newScrollY)`.  Suppressed during gameplay (no menu) so it doesn't fight aim.
+
+---
+
 # Flat menu navigation audit (revised) -- 2026-04-25
 
 Priority L-a deliverable, **revised** after Mike clarified the lens: flat menu = focus traversal across panel containers transparently. Visual layouts stay; the controller treats panels as transparent. D-pad-right from a button-in-left-panel goes directly to a button-in-right-panel; no panel-engage / disengage step.

@@ -31,6 +31,7 @@
 
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
+#include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "system.h"
 
 extern "C" {
@@ -300,9 +301,13 @@ extern "C" void pdguiLogViewerRender(s32 winW, s32 winH)
 
     ImGui::Spacing();
 
-    /* Verbose global toggle */
+    /* Verbose global toggle.
+     * Priority L (2026-04-25): label LEFT via pdguiCheckbox.  Single-row
+     * settings-style toggle (the channel + severity filter-chip grids
+     * above keep their bare ImGui::Checkbox layout for the multi-column
+     * filter pattern). */
     bool verbose = sysLogGetVerbose() != 0;
-    if (ImGui::Checkbox("Verbose Logging", &verbose)) {
+    if (pdguiCheckbox("Verbose Logging", &verbose)) {
         sysLogSetVerbose(verbose ? 1 : 0);
     }
 
