@@ -30,6 +30,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "pdgui_theme.h"
 #include "pdgui_nineslice.h"
 #include "pdgui_filebrowser.h"
@@ -1187,7 +1188,8 @@ static void renderPackTool(float contentW, float contentH, float scale)
 
     /* Session-only checkbox + Import button on same row */
     {
-        ImGui::Checkbox("Session Only (mods/.temp/)", &s_ImportSessionOnly);
+        /* Priority L (2026-04-25): label LEFT via pdguiCheckbox. */
+        pdguiCheckbox("Session Only (mods/.temp/)", &s_ImportSessionOnly);
         float btnW = 112.0f * scale;
         ImGui::SameLine(contentW - btnW);
 
@@ -2159,13 +2161,16 @@ static void chromeToolRenderSidebarPreview(float sidebarW, float sidebarH, float
 /* Renders the scrollable settings column (all sliders/toggles/presets). */
 static void chromeToolRenderSettings(float /*colW*/, float /*scale*/)
 {
-    ImGui::InputText("Mod Name", s_ChromeModName, sizeof(s_ChromeModName));
-    ImGui::Checkbox("L/R symmetry", &s_ChromeLrSymmetry);
-    ImGui::SameLine();
-    ImGui::Checkbox("T/B symmetry", &s_ChromeTbSymmetry);
-    ImGui::Checkbox("Center tile mode", &s_ChromeCenterTile);
-    ImGui::SameLine();
-    ImGui::Checkbox("Edge tile mode", &s_ChromeEdgeTile);
+    /* Priority L (2026-04-25): labels ABOVE/LEFT via pdgui* helpers.
+     * Note: SameLine pairings between symmetry checkboxes are dropped --
+     * the label-LEFT layout lays each row out at the column width so the
+     * pair-on-one-row layout no longer applies. Vertical stacking is the
+     * intended mode after L-fix-6. */
+    pdguiInputText("Mod Name", s_ChromeModName, sizeof(s_ChromeModName));
+    pdguiCheckbox("L/R symmetry", &s_ChromeLrSymmetry);
+    pdguiCheckbox("T/B symmetry", &s_ChromeTbSymmetry);
+    pdguiCheckbox("Center tile mode", &s_ChromeCenterTile);
+    pdguiCheckbox("Edge tile mode", &s_ChromeEdgeTile);
     bool editsChanged = false;
     /* S-9 audit fix: cross-clamp trim sliders so the opposite pair can never
      * over-commit the image (which previously yielded degenerate 1px crops
@@ -2174,29 +2179,35 @@ static void chromeToolRenderSettings(float /*colW*/, float /*scale*/)
     s32 trimRMax = s_ChromeImgW - s_ChromeTrimL - 1; if (trimRMax < 0) trimRMax = 0;
     s32 trimTMax = s_ChromeImgH - s_ChromeTrimB - 1; if (trimTMax < 0) trimTMax = 0;
     s32 trimBMax = s_ChromeImgH - s_ChromeTrimT - 1; if (trimBMax < 0) trimBMax = 0;
-    editsChanged |= ImGui::SliderInt("Trim Left", &s_ChromeTrimL, 0, trimLMax > 0 ? trimLMax : 1);
-    editsChanged |= ImGui::SliderInt("Trim Right", &s_ChromeTrimR, 0, trimRMax > 0 ? trimRMax : 1);
-    editsChanged |= ImGui::SliderInt("Trim Top", &s_ChromeTrimT, 0, trimTMax > 0 ? trimTMax : 1);
-    editsChanged |= ImGui::SliderInt("Trim Bottom", &s_ChromeTrimB, 0, trimBMax > 0 ? trimBMax : 1);
+    /* Priority L (2026-04-25): labels LEFT via pdguiSliderInt. */
+    editsChanged |= pdguiSliderInt("Trim Left", &s_ChromeTrimL, 0, trimLMax > 0 ? trimLMax : 1);
+    editsChanged |= pdguiSliderInt("Trim Right", &s_ChromeTrimR, 0, trimRMax > 0 ? trimRMax : 1);
+    editsChanged |= pdguiSliderInt("Trim Top", &s_ChromeTrimT, 0, trimTMax > 0 ? trimTMax : 1);
+    editsChanged |= pdguiSliderInt("Trim Bottom", &s_ChromeTrimB, 0, trimBMax > 0 ? trimBMax : 1);
 
     /* S305: advanced controls moved into a collapsed header to clean up the
      * tool. Scale X/Y, Center Cut, Desaturate, and the per-cut Quick Presets
      * are all power-user options most chrome mods never need — Border Scale
      * + Trim + per-edge insets handle the 90% case. Collapsed by default. */
     if (ImGui::CollapsingHeader("Advanced")) {
-        editsChanged |= ImGui::SliderInt("Scale X", &s_ChromeScaleXPct, 10, 400, "%d%%");
-        editsChanged |= ImGui::SliderInt("Scale Y", &s_ChromeScaleYPct, 10, 400, "%d%%");
+        /* Priority L (2026-04-25): labels LEFT via pdguiSliderInt. */
+        editsChanged |= pdguiSliderInt("Scale X", &s_ChromeScaleXPct, 10, 400, "%d%%");
+        editsChanged |= pdguiSliderInt("Scale Y", &s_ChromeScaleYPct, 10, 400, "%d%%");
         static const char *cutAxes[] = { "None", "Vertical (height)", "Horizontal (width)" };
-        editsChanged |= ImGui::Combo("Center Cut Axis", &s_ChromeCenterCutAxis, cutAxes, 3);
+        /* Priority L (2026-04-25): label LEFT via pdguiCombo. */
+        editsChanged |= pdguiCombo("Center Cut Axis", &s_ChromeCenterCutAxis, cutAxes, 3);
         if (s_ChromeCenterCutAxis != 0) {
-            editsChanged |= ImGui::SliderInt("Center Cut %", &s_ChromeCenterCutPct, 0, 90, "%d%%");
+            /* Priority L (2026-04-25): label LEFT via pdguiSliderInt. */
+            editsChanged |= pdguiSliderInt("Center Cut %", &s_ChromeCenterCutPct, 0, 90, "%d%%");
         } else {
             s_ChromeCenterCutPct = 0;
         }
 
-        bool desatChanged = ImGui::Checkbox("Desaturate for tint-friendly chrome", &s_ChromeDesaturate);
+        /* Priority L (2026-04-25): label LEFT via pdguiCheckbox. */
+        bool desatChanged = pdguiCheckbox("Desaturate for tint-friendly chrome", &s_ChromeDesaturate);
         if (s_ChromeDesaturate) {
-            desatChanged |= ImGui::SliderInt("Desaturate %", &s_ChromeDesaturatePct, 0, 100, "%d%%");
+            /* Priority L (2026-04-25): label LEFT via pdguiSliderInt. */
+            desatChanged |= pdguiSliderInt("Desaturate %", &s_ChromeDesaturatePct, 0, 100, "%d%%");
         }
         editsChanged = editsChanged || desatChanged;
 
@@ -2234,8 +2245,9 @@ static void chromeToolRenderSettings(float /*colW*/, float /*scale*/)
     /* Border Scale (always visible): multiplies dst_corner_px relative to
      * src_inset. Lets users produce a chrome that renders with a different
      * corner thickness than the source slice. 1.0 = source size. */
-    ImGui::SliderFloat("Border Scale", &s_ChromeBorderScale, 0.25f, 4.0f, "%.2fx");
-    ImGui::Checkbox("Proportional Insets (%% of output)", &s_ChromeProportionalInsets);
+    /* Priority L (2026-04-25): labels LEFT via pdgui* helpers. */
+    pdguiSliderFloat("Border Scale", &s_ChromeBorderScale, 0.25f, 4.0f, "%.2fx");
+    pdguiCheckbox("Proportional Insets (%% of output)", &s_ChromeProportionalInsets);
     ImGui::SameLine();
     ImGui::TextDisabled("(%%)");
     if (ImGui::IsItemHovered()) {
@@ -2246,19 +2258,23 @@ static void chromeToolRenderSettings(float /*colW*/, float /*scale*/)
 
     if (s_ChromeProportionalInsets) {
         bool insetChanged = false;
-        if (ImGui::SliderFloat("Left %",  &s_ChromeInsetLPct, 0.0f, 50.0f, "%.2f%%")) {
+        /* Priority L (2026-04-25): label LEFT via pdguiSliderFloat. */
+        if (pdguiSliderFloat("Left %",  &s_ChromeInsetLPct, 0.0f, 50.0f, "%.2f%%")) {
             if (s_ChromeLrSymmetry) s_ChromeInsetRPct = s_ChromeInsetLPct;
             insetChanged = true;
         }
-        if (ImGui::SliderFloat("Right %", &s_ChromeInsetRPct, 0.0f, 50.0f, "%.2f%%")) {
+        /* Priority L (2026-04-25): label LEFT via pdguiSliderFloat. */
+        if (pdguiSliderFloat("Right %", &s_ChromeInsetRPct, 0.0f, 50.0f, "%.2f%%")) {
             if (s_ChromeLrSymmetry) s_ChromeInsetLPct = s_ChromeInsetRPct;
             insetChanged = true;
         }
-        if (ImGui::SliderFloat("Top %",   &s_ChromeInsetTPct, 0.0f, 50.0f, "%.2f%%")) {
+        /* Priority L (2026-04-25): label LEFT via pdguiSliderFloat. */
+        if (pdguiSliderFloat("Top %",   &s_ChromeInsetTPct, 0.0f, 50.0f, "%.2f%%")) {
             if (s_ChromeTbSymmetry) s_ChromeInsetBPct = s_ChromeInsetTPct;
             insetChanged = true;
         }
-        if (ImGui::SliderFloat("Bottom %",&s_ChromeInsetBPct, 0.0f, 50.0f, "%.2f%%")) {
+        /* Priority L (2026-04-25): label LEFT via pdguiSliderFloat. */
+        if (pdguiSliderFloat("Bottom %",&s_ChromeInsetBPct, 0.0f, 50.0f, "%.2f%%")) {
             if (s_ChromeTbSymmetry) s_ChromeInsetTPct = s_ChromeInsetBPct;
             insetChanged = true;
         }
@@ -2274,16 +2290,20 @@ static void chromeToolRenderSettings(float /*colW*/, float /*scale*/)
     } else {
         s32 maxL = s_ChromeOutW > 1 ? s_ChromeOutW - 1 : 1;
         s32 maxT = s_ChromeOutH > 1 ? s_ChromeOutH - 1 : 1;
-        if (ImGui::SliderInt("Left", &s_ChromeInsetL, 0, maxL)) {
+        /* Priority L (2026-04-25): label LEFT via pdguiSliderInt. */
+        if (pdguiSliderInt("Left", &s_ChromeInsetL, 0, maxL)) {
             if (s_ChromeLrSymmetry) s_ChromeInsetR = s_ChromeInsetL;
         }
-        if (ImGui::SliderInt("Right", &s_ChromeInsetR, 0, maxL)) {
+        /* Priority L (2026-04-25): label LEFT via pdguiSliderInt. */
+        if (pdguiSliderInt("Right", &s_ChromeInsetR, 0, maxL)) {
             if (s_ChromeLrSymmetry) s_ChromeInsetL = s_ChromeInsetR;
         }
-        if (ImGui::SliderInt("Top", &s_ChromeInsetT, 0, maxT)) {
+        /* Priority L (2026-04-25): label LEFT via pdguiSliderInt. */
+        if (pdguiSliderInt("Top", &s_ChromeInsetT, 0, maxT)) {
             if (s_ChromeTbSymmetry) s_ChromeInsetB = s_ChromeInsetT;
         }
-        if (ImGui::SliderInt("Bottom", &s_ChromeInsetB, 0, maxT)) {
+        /* Priority L (2026-04-25): label LEFT via pdguiSliderInt. */
+        if (pdguiSliderInt("Bottom", &s_ChromeInsetB, 0, maxT)) {
             if (s_ChromeTbSymmetry) s_ChromeInsetT = s_ChromeInsetB;
         }
         if (s_ChromeOutW > 0) {
