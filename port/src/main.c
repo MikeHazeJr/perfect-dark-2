@@ -41,6 +41,7 @@
 #include "presence.h"
 #include "chat.h"
 #include "file_transfer.h"
+#include "pdgui_toast.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
@@ -199,6 +200,7 @@ int main(int argc, const char **argv)
 	groupSessionInit();
 	chatInit();
 	fileTransferInit();
+	pdguiToastInit();
 
 	/* D13: Start background update check (non-blocking) */
 	if (!sysArgCheck("--no-update-check")) {
