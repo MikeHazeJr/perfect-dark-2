@@ -1,165 +1,272 @@
-# Flat menu navigation audit -- 2026-04-25
+# Flat menu navigation audit (revised) -- 2026-04-25
 
-Priority L-a deliverable. Maps current nested-vs-flat structure across every ImGui menu. Drives the L-b refactor scope and the L-f methodology doc.
+Priority L-a deliverable, **revised** after Mike clarified the lens: flat menu = focus traversal across panel containers transparently. Visual layouts stay; the controller treats panels as transparent. D-pad-right from a button-in-left-panel goes directly to a button-in-right-panel; no panel-engage / disengage step.
 
 Branch: `claude/stoic-wing-35829b`. HEAD when audit captured: post-Priority-K (`2b69cc12`).
 
-## Mike's pain point (verbatim)
+## The six rules every menu must conform to
 
-> "Combat Simulator's Bots section requires drill-in via A, and B exits the whole menu instead of popping a level. The fix is the flat-panel model: D-pad navigates everything, A acts only on focused element, B exits only at top."
+1. **D-pad focus traversal across panels.** Layout container `BeginChild` calls must use `ImGuiChildFlags_NavFlattened` so D-pad nav crosses panel boundaries without engage/disengage. Scrollable list `BeginChild` calls keep their own nav scope (so D-pad navigates within the list).
+2. **LB / RB cycles sibling tabs** at the top of multi-tab menus. The actionmap action `ACTION_MENU_TAB_PREV` / `ACTION_MENU_TAB_NEXT` already translates to `ImGuiKey_PageUp` / `PageDown` via `pdguiDriveImGuiNav`; ImGui's TabBar consumes those for tab cycling automatically.
+3. **A acts on the focused control.** Default ImGui behaviour; the K-d assertion enforces input-authority correctness.
+4. **B exits the menu only at the top level.** Inside a modal / deeper tier / pushed sub-dialog, B steps back exactly one level. K's structural fixes prevent the two-stack drift symptom Mike named.
+5. **Label placement above or to the LEFT of controls**, never on the right. Default ImGui widget rendering (`Checkbox`, `Combo`, `SliderInt`, `SliderFloat`, `InputText`) puts the label to the right; helpers must either render the label first + `SameLine` + widget, or render label above + widget below.
+6. **Modals only where genuinely modal.** A modal is appropriate for: pick-one-from-a-list, destructive-confirm, sub-feature with conflicting focus model. Non-committing sub-sections should be inline rows or sibling tabs, not modal pushes.
 
-The directive is system-wide -- main menu, CS, Settings, Pause, MP Setup, every menu module. Convert nested chains to sibling panels where panels should be siblings; preserve genuine modals.
+## Per-menu conformance scorecard
 
-## Classification
+Format: rule -> conform (Y) / non-conform (N) / does-not-apply (-).
 
-Each menu file is one of:
+The audit is a code read at HEAD `2b69cc12`. Concrete code-citation evidence accompanies each non-conforming rule.
 
-- **Already flat** -- single window, sibling panels navigable via D-pad. Refactor is a no-op.
-- **Modal-correct** -- nested dialog pushes are confirms or settings panels that should stay modal. Refactor would degrade UX.
-- **Refactor candidate** -- nested dialog pushes that should be sibling panels in the parent. The L-b target.
-- **Progressive-focus** -- M-18..M-21 `s_FocusGroup` enum pattern; B-pop steps back one tier. Already the right shape.
+### `pdgui_menu_mainmenu.cpp` (Main Menu) -- 5650 LOC
 
-## Per-menu findings
+| Rule | Status | Evidence |
+|---|---|---|
+| 1. NavFlattened | Y (16/17 BeginChild flattened) | S388 layout pass landed NavFlattened on the body containers. Single non-flattened BeginChild is a scrollable list (its own scope is correct). |
+| 2. LB/RB tabs | Y | Hub uses `s_MenuView` switching driven by ACTION_MENU_TAB_PREV/NEXT. |
+| 3. A acts | Y | Default ImGui. |
+| 4. B exits | Y | Top-level closes; sub-modals pop one level. |
+| 5. Labels | **N** | `PdCheckbox` / `PdCombo` / `PdSliderInt` / `PdSliderFloat` helpers (lines 557-583) pass label directly to ImGui -- label appears on the right. |
+| 6. Modals | Y | Only modal pushes: ChangeAgent (557 line), Cheats. Both pick-one-from-list. Rest is inline siblings. |
 
-### `pdgui_menu_room.cpp` (CS Room) -- 4092 LOC -- **Refactor candidate (Mike's named pain point)**
+**Non-conformance:** rule 5 across all Settings tabs (Settings is reached via `s_MenuView == 2` which dispatches to renderSettingsVideo / Interface / Audio / Controls / Game / Updates / Debug / Catalog -- every one of those uses Pd* helpers).
 
-**Top-level structure**: single ImGui window with three columns: Players (left, with inline bot list + Add Bot button), Match Settings (middle), Options (right). Plus right-click context menu on each player/bot row.
+**Fix scope:** modify the 4 Pd* helpers in mainmenu.cpp to render label as `Text + SameLine` before the widget; widget gets `##` ID to suppress the right-side label. Single-point fix propagates to every Settings widget.
+
+### `pdgui_menu_room.cpp` (CS Room) -- 4092 LOC -- Mike's named pain point
+
+| Rule | Status | Evidence |
+|---|---|---|
+| 1. NavFlattened | **N** | 0 of 10 BeginChild use NavFlattened. Room's three-column layout (Players / Match Settings / Options) does not allow D-pad to cross between columns. |
+| 2. LB/RB tabs | - | Single-screen, no top-level tabs. |
+| 3. A acts | Y | Default ImGui. |
+| 4. B exits | Y | Top-level pop returns to Main Menu (Room is the dialog root). |
+| 5. Labels | **N** | Bare `ImGui::Checkbox` / `Combo` / `SliderInt` calls. |
+| 6. Modals | **N (partial)** | `Player Handicaps...` (line 2702), `Team Setup...` (line 2706), `Select Music...` (line 2713) push as modal dialogs. Per Mike: these are non-committing settings, not genuine modals. Should be inline rows or sibling tabs. |
 
-**Drill-in dialogs pushed via menuPushDialog**:
-- `g_MpHandicapsMenuDialog` (line 2702) -- "Player Handicaps..." button. Modal-correct: configures per-slot handicap values.
-- `g_MpTeamsMenuDialog` (line 2706) -- "Team Setup..." button. Modal-correct: configures team naming.
-- `g_MpSelectTunesMenuDialog` (line 2713) -- "Select Music..." button. Modal-correct: per-player playlist editor.
-
-**Add Bot path**: `pdgui_menu_botsetup.cpp` -- pushed when "Add Bot" is clicked. The path is `Add Bot button -> BotSetup dialog (configure new bot) -> close returns to Room`. **BotSetup is the "Bots section" Mike named.** B in BotSetup calls `menuPopDialog()` (line 513) -- correct, pops one level.
-
-**B-button behavior**: B in Room calls `menuPopDialog`, which closes the Room dialog -> returns to Main Menu (the Room's parent). Correct one-level pop *from the Room's perspective*. From the user's perspective in Mike's framing, the Room IS the menu, and B exits "the whole menu" because the Room is the top of its own stack.
-
-**Mike's complaint reconciled**: the symptom name "B exits the whole menu" is most likely referring to one of these:
-
-1. BotSetup -> some sub-modal drilling deeper -> B pops everything back to Room or further. This was the K-b territory: pre-K, force-close paths could pop too aggressively. K-b1 + K-b3 should have closed it. Needs a fresh playtest log to confirm.
-2. CS Room -> Add Bot -> BotSetup pushes work, but Mike feels BotSetup should be a "tab" in the Room's column -- i.e. the bot config UI should NOT be a separate dialog at all. This is the genuine flat-refactor candidate.
-
-**Refactor candidate (L-b)**: option (2) above. Convert BotSetup from a pushed dialog into an expandable panel inside the Room's Players column (or a third "Bot Editor" column when a bot is selected). Significant UI restructuring; would require Mike's design eye on the resulting layout.
-
-**Modal-correct**: Handicaps, Team Setup, Music pickers stay as pushed dialogs (configuration panels with their own focus model).
-
-### `pdgui_menu_mainmenu.cpp` (Main Menu) -- 5650 LOC -- **Already flat**
-
-Top-level structure: single ImGui window with `s_MenuView` enum (0 = hub, 1 = Solo, 2 = Settings, 3 = Modding, 4 = Online, 5 = (reserved), 6 = Grid). Each view is a sibling panel rendered conditionally inside the same window. LB/RB cycles between views. D-pad navigates within a view.
-
-Drill-in dialogs pushed:
-- `g_ChangeAgentMenuDialog` (line 4649) -- agent select push. Modal-correct (agent slot picker).
-- `g_CheatsMenuDialog` (line 4673) -- cheats list push. Modal-correct (its own scrollable list).
-
-Top-level B: closes the menu (correct for the top-level menu).
-
-**Verdict**: already meets Mike's spec. No refactor needed.
-
-### `pdgui_menu_pausemenu.cpp` (solo pause) -- 1300 LOC -- **Already flat**
-
-Tab-based UI (Mission, Inventory, Settings, Game). Sibling tabs navigated via LB/RB or D-pad. A acts on focused widget. B closes the pause menu (top of its stack).
-
-Drill-in: nothing significant. Settings opens as an expandable panel inline.
-
-**Verdict**: already meets Mike's spec.
-
-### `pdgui_menu_mppause.cpp` (MP pause) -- 1227 LOC -- **Modal-correct (with Tier-1 popups)**
-
-Single window with tab-style content. End Game button opens a modal popup confirm (M-1 / S385 work). The popup is genuinely modal -- it's a destructive confirm.
-
-`menuPushDialog` called once at line 563 for sub-dialog target. B in sub-dialog pops correctly (line 510).
-
-**Verdict**: modal-correct as-is.
-
-### `pdgui_menu_mpsetup.cpp` (MP Setup hub) -- 1355 LOC -- **Modal-correct (hub-of-pickers)**
-
-Hub of six pickers (arena, scenario, weapons, limits, etc.) each pushed via legacy menu handlers. The legacy push pattern is described in S389 M-19 as "hub-of-pickers ... progressive focus is realised via push/pop rather than tier-changes-within-a-menu."
-
-Each picker is a modal selection screen with `CLOSEONSELECT` -- A picks, dialog auto-pops back to MP Setup hub. B cancels and pops back. **Correct.**
-
-`g_ExtGameOptionsMenuDialog` push at line 1259 -- modal options panel.
-
-**Verdict**: modal-correct. The pickers are genuinely modal selection screens. Refactor would harm UX (six pickers can't all be visible siblings on one screen at readable size).
-
-### `pdgui_menu_mpadvanced.cpp` -- **Modal-correct (selectable -> sub-dialog handlers)**
-
-Selectable rows that open sub-dialogs via `menuPushDialog(target)` (line 436). Each sub-dialog is a configuration panel; B pops back. Modal-correct.
-
-### `pdgui_menu_mpsettings.cpp` -- **Modal-correct**
-
-Stacking sub-dialogs (e.g. Select Tunes nested inside Music settings). Each level pushes via `menuPushDialog`; B pops one level. Modal-correct.
-
-### `pdgui_menu_solomission.cpp` (solo mission select) -- 3667 LOC -- **Progressive-focus (correct)**
-
-S389 M-18 introduced a `MissionFocusGroup` enum (`FOCUS_MISSION_LIST -> FOCUS_DIFFICULTY -> FOCUS_START`). Within a single window:
-- Mission list on the left.
-- Difficulty selector on the right (visible after a mission is picked).
-- Start button (visible after a difficulty is unlocked).
-- Escape steps back one group; START -> DIFFICULTY -> MISSION_LIST -> popDialog.
-
-This is exactly the model Mike named: D-pad navigates within a tier, A advances a tier, B steps back one tier. The whole thing is one window with sibling panels and a tier marker. **Reference implementation.**
-
-Drill-in dialogs at lines 1392, 1569, 1643, 1840 -- `g_PdModeSettingsMenuDialog`, `g_AcceptMissionMenuDialog`, `g_CoopOptionsMenuDialog` -- all modal-correct (settings + confirm).
-
-In-mission dialogs at 2897, 2901, 2905 -- inventory, options, abort confirm. Modal-correct (these open from the in-mission pause menu).
-
-### `pdgui_menu_botsetup.cpp` (BotSetup) -- 1090 LOC -- **Refactor candidate (L-b option)**
-
-Pushed when "Add Bot" is clicked from CS Room. Single ImGui window configures one bot's body / head / type / difficulty / team. B closes (line 513).
-
-**Refactor option**: rather than push BotSetup as a separate dialog, embed it as a "Bot Editor" panel inside the CS Room's Players column when a bot is selected. This matches Mike's "siblings, not children" framing for the Bots section. Cost: substantial Room UI restructuring + needs Mike's design eye on the resulting layout.
-
-**Alternative**: leave BotSetup as a modal dialog (its existing form). The user's complaint may be about a deeper drill (bot character / type sub-pickers), each of which is a CLOSEONSELECT picker -- those are modal-correct.
-
-### `pdgui_menu_agentselect.cpp`, `pdgui_menu_agentcreate.cpp` -- **Modal-correct**
-
-Agent slot selector + new-agent name entry. Both modal-correct (filemgr-style name dialog with confirm/cancel).
-
-### `pdgui_menu_cheats.cpp` -- **Modal-correct**
-
-Cheats list with confirm-unlock popup (M-3, S385 work). Modal-correct.
-
-### `pdgui_menu_training.cpp` -- 12 menuPushDialog sites, **Modal-correct (deeply nested by design)**
-
-The training hub has FR / DT / HT / Bio / Hangar sub-modes, each with progressive-focus internally (M-21 / S389). Multi-level pushes are intentional: a Hangar vehicle row pushes Vehicle Details, which pushes Vehicle Holograph -- each is its own panel with its own back affordance.
-
-**Verdict**: modal-correct. The training hub is genuinely deep.
-
-### `pdgui_menu_lobby.cpp` (Social Lobby) -- **Already flat**
-
-Single window with sibling sections (rooms list, chat, friends, social). No menuPushDialog from the lobby; sub-actions are inline.
-
-### `pdgui_menu_endscreen.cpp` -- **Already flat**
-
-Single window with stat sections + action bar (Next Mission / Retry / Main Menu). No drill-ins.
-
-## Refactor candidates ranked by user-visible impact
-
-| Rank | Menu | Refactor | Estimated effort | Mike-design-decision needed |
-|------|------|----------|------------------|----------------------------|
-| 1 | CS Room + BotSetup | Embed BotSetup into Room as a Bot Editor sibling panel rather than pushed dialog. | Multi-day. Room layout already crowded; needs a column or tab-mode redesign. | YES -- multiple plausible layouts. |
-| 2 | CS Room sub-screens (Handicaps / Teams / Music) | Convert pushed dialogs to expandable inline panels. | Half-day each. Lower confidence the inline form would be readable on the existing Room layout. | YES -- whether to inline or keep modal. |
-| 3 | Inline progressive-focus tier markers in CS Room | Add an `s_RoomFocusGroup` enum (Players -> Settings -> Options -> Start Match) so D-pad cycles through the columns explicitly with a visible focus marker. | Half-day. Pure consistency with solo mission's M-18 pattern. | NO -- mechanical adoption of the M-18 pattern. |
-
-Items below #3 are modal-correct or already flat per the per-menu findings; no refactor.
-
-## What this audit confirms
-
-- The vast majority of the menus already meet Mike's spec.
-- The genuine refactor candidates are concentrated in the **CS Room and its BotSetup drill-in**.
-- Mike's specific "B exits the whole menu" symptom is most plausibly explained by the K-b drift class -- which the K commits already structurally close. **A fresh playtest log post-K is the next signal**: if the symptom persists, escalate to a Bots-as-sibling-panel refactor (item 1 above); if it does not, the refactor is opt-in cosmetic.
-
-## Plan for L-b/c/d/e/f
-
-Given that #1 and #2 above are design decisions Mike should drive, I will:
-
-- **L-b (light)**: implement #3 above (CS Room progressive-focus tier markers) as a mechanical adoption of the solo-mission pattern. This unifies the focus model across the two main gameplay-entry menus without changing any visual layout. ~1 day of work, covered in this batch.
-- **L-c**: confirm modals respect K's invariant (already verified by the K-d assertion -- modal pushes go through menupool with ctx).
-- **L-d**: update controller-hint footers in the CS Room to reflect the M-18 / new tier model.
-- **L-e**: gamepad-only flow verification -- inspect the path Main Menu -> CS Room -> Add Bot -> Configure -> Start Match. If any step has a drill-in that requires keyboard or has a B-jump-too-far symptom, surface it.
-- **L-f**: methodology doc `context/designs/flat-menu-navigation.md` documenting the "siblings vs modals" rule and pointing readers at solomission.cpp + room.cpp as canonical reference implementations.
-
-The deeper #1 / #2 refactors are out of scope for this batch -- they need Mike's per-menu design call. Surfacing them as queued L-follow-up rather than burning hours on speculative restructure.
+**Fix scope (this batch):** add NavFlattened to the three column-body BeginChild calls so D-pad-left/right traverses across columns. Label cleanup deferred to per-row rewrites (same-pass system-wide work). Handicaps/Teams/Music inline conversion deferred -- needs Mike's design eye on the resulting Room layout density.
+
+### `pdgui_menu_botsetup.cpp` (BotSetup) -- 1090 LOC
+
+| Rule | Status | Evidence |
+|---|---|---|
+| 1. NavFlattened | Y (5/5) | All BeginChild flattened (line 545). |
+| 2. LB/RB tabs | - | Single-screen, no tabs. |
+| 3. A acts | Y | Default. |
+| 4. B exits | Y | Pops one level (line 513). |
+| 5. Labels | **N** | Bare ImGui widget calls. |
+| 6. Modals | **N (debatable)** | BotSetup is pushed as a modal dialog with its own Begin/End. ImGui doesn't traverse focus across windows -- so once BotSetup is open, you cannot D-pad back to Room controls. This is exactly Mike's "drill in via A, can't traverse out" symptom. Fix would be to render BotSetup's body inline in Room rather than as a separate `ImGui::Begin` window. |
+
+**Fix scope (this batch):** the body content `pdguiBotSetupDrawSimulantsBody` is already `extern "C"` and accepts a height -- it can be invoked from within Room's window. Conversion is a pure refactor of the wrapper `bs_BeginStandardWindow` to optionally inline. Defer to per-menu impl pass.
+
+### `pdgui_menu_pausemenu.cpp` (solo pause) -- 1300 LOC
+
+| Rule | Status | Evidence |
+|---|---|---|
+| 1. NavFlattened | partial (1 BeginChild, 0 NavFlattened — but it's a scrollable list, correct) | Line ~880 BeginChild for stats list, scope-correct. |
+| 2. LB/RB tabs | Y | Tab-based UI uses ACTION_MENU_TAB_PREV/NEXT. |
+| 3. A acts | Y | Default. |
+| 4. B exits | Y | Closes pause. |
+| 5. Labels | Y (no widgets with labels in this file -- mostly buttons + list rows). |
+| 6. Modals | Y | Genuinely modal confirms (End Match etc.) use BeginPopupModal. |
+
+**Conform.** No fix needed.
+
+### `pdgui_menu_mppause.cpp` (MP pause) -- 1227 LOC
+
+| Rule | Status | Evidence |
+|---|---|---|
+| 1. NavFlattened | Y (6/7) | One non-flattened BeginChild is a scrollable list (correct). |
+| 2. LB/RB tabs | Y | Tab UI. |
+| 3. A acts | Y | Default. |
+| 4. B exits | Y | Pop one level. |
+| 5. Labels | Y | No widgets with labels. |
+| 6. Modals | Y | End Game popup is genuinely modal. |
+
+**Conform.** No fix needed.
+
+### `pdgui_menu_mpsetup.cpp` (MP Setup hub) -- 1355 LOC
+
+| Rule | Status | Evidence |
+|---|---|---|
+| 1. NavFlattened | Y (8/8) | All BeginChild flattened (S388). |
+| 2. LB/RB tabs | - | Hub-of-pickers, not tabbed. |
+| 3. A acts | Y | Default. |
+| 4. B exits | Y | Pop returns to caller. |
+| 5. Labels | mixed | Sliders for time/score limits use bare label; checkboxes too. |
+| 6. Modals | Y | Pickers (arena/scenario/weapons/limits) are pick-one-from-list -- genuinely modal. |
+
+**Non-conformance:** rule 5 across the limits / option widgets.
+
+**Fix scope:** apply the same label-placement helper pattern from mainmenu.cpp in this file. Defer to per-menu impl pass.
+
+### `pdgui_menu_mpadvanced.cpp` -- 1074 LOC
+
+| Rule | Status | Evidence |
+|---|---|---|
+| 1. NavFlattened | Y (6/6) | All BeginChild flattened. |
+| 2. LB/RB tabs | - | Selectable rows with handlers, no tabs. |
+| 3. A acts | Y | Default. |
+| 4. B exits | Y | Pop one level. |
+| 5. Labels | Y (mostly Selectable rows, no widget labels). |
+| 6. Modals | Y | Sub-dialogs are pickers. |
+
+**Conform.** No fix needed.
+
+### `pdgui_menu_mpsettings.cpp` -- 1334 LOC
+
+| Rule | Status | Evidence |
+|---|---|---|
+| 1. NavFlattened | partial (2/5) | Three non-flattened layout BeginChild detected. |
+| 2. LB/RB tabs | Y where present | Stacked sub-dialogs use page-up/down. |
+| 3. A acts | Y | Default. |
+| 4. B exits | Y | Pop one level. |
+| 5. Labels | mixed | Sliders / checkboxes for sub-screen settings. |
+| 6. Modals | Y | Modal pickers. |
+
+**Non-conformance:** rule 1 (3 layout BeginChild missing NavFlattened) + rule 5 (mixed). Defer.
+
+### `pdgui_menu_solomission.cpp` (solo mission select) -- 3667 LOC
+
+| Rule | Status | Evidence |
+|---|---|---|
+| 1. NavFlattened | partial (2/10) | M-18 progressive-focus pattern; many BeginChild are scrollable lists / panels. Some layout panels would benefit from NavFlattened. |
+| 2. LB/RB tabs | - | Progressive-focus tier model, not tabs. |
+| 3. A acts | Y | Default. |
+| 4. B exits | Y | Tier-step-back, then dialog pop. |
+| 5. Labels | Y (text rows, not labeled widgets). |
+| 6. Modals | Y | Confirm / settings dialogs. |
+
+**Non-conformance:** rule 1 partial; some progressive-focus panels would still benefit. Defer.
+
+### `pdgui_menu_agentselect.cpp` -- 807 LOC
+
+| Rule | Status | Evidence |
+|---|---|---|
+| 1. NavFlattened | partial (0/1) | Single BeginChild is a scrollable agent list -- correct without NavFlattened. |
+| 2. LB/RB tabs | - | Single-screen. |
+| 3. A acts | Y | Default. |
+| 4. B exits | Y | Pop one level. |
+| 5. Labels | Y (selectables only). |
+| 6. Modals | Y | Delete / Copy modals are genuinely confirm-modals (M-4). |
+
+**Conform.** No fix needed.
+
+### `pdgui_menu_agentcreate.cpp` -- 715 LOC
+
+| Rule | Status | Evidence |
+|---|---|---|
+| 1. NavFlattened | - | No layout BeginChild. |
+| 2. LB/RB tabs | - | Single-screen. |
+| 3. A acts | Y | Default. |
+| 4. B exits | Y | Pop one level. |
+| 5. Labels | mixed | InputText for name uses default; gender / body pickers may have right-side labels. |
+| 6. Modals | Y | Single-task screen. |
+
+**Minor non-conformance:** rule 5 partial. Defer.
+
+### `pdgui_menu_cheats.cpp` -- 1058 LOC
+
+| Rule | Status | Evidence |
+|---|---|---|
+| 1. NavFlattened | Y (1/1) | Cheat list BeginChild (correctly its own nav scope -- it's a scrollable list). |
+| 2. LB/RB tabs | - | Single screen. |
+| 3. A acts | Y | Default. |
+| 4. B exits | Y | Pop one level. |
+| 5. Labels | Y (cheat row Selectables). |
+| 6. Modals | Y | Confirm-Unlock popup is genuinely modal. |
+
+**Conform.** No fix needed.
+
+### `pdgui_menu_training.cpp` -- 2181 LOC
+
+| Rule | Status | Evidence |
+|---|---|---|
+| 1. NavFlattened | **N (0/13)** | 13 BeginChild calls, none flattened. Hub has FR / DT / HT / Bio / Hangar progressive-focus inside; the lack of NavFlattened means D-pad doesn't cross between layout panels (e.g. mission list vs description). |
+| 2. LB/RB tabs | partial | M-21 progressive-focus pattern; LB/RB doesn't apply at every tier. |
+| 3. A acts | Y | Default. |
+| 4. B exits | Y | Tier-step-back, then dialog pop. |
+| 5. Labels | Y (Selectables only). |
+| 6. Modals | Y | Sub-mode pushes are progressive-focus selections. |
+
+**Non-conformance:** rule 1 across 13 sites (some are list scopes -- needs per-site judgement). Defer to per-menu impl pass.
+
+### `pdgui_menu_lobby.cpp` (Social Lobby) -- 456 LOC
+
+| Rule | Status | Evidence |
+|---|---|---|
+| 1. NavFlattened | **N (0/2)** | Two layout BeginChild without NavFlattened. |
+| 2. LB/RB tabs | - | Single screen with sibling sections. |
+| 3. A acts | Y | Default. |
+| 4. B exits | Y | Pop. |
+| 5. Labels | Y (no widget labels). |
+| 6. Modals | Y. |
+
+**Non-conformance:** rule 1 (2 sites). Quick fix.
+
+### `pdgui_menu_endscreen.cpp` -- 1486 LOC
+
+| Rule | Status | Evidence |
+|---|---|---|
+| 1. NavFlattened | partial (0/2) | Two BeginChild for stats sections; results-only screen, focus traversal not really applicable. |
+| 2. LB/RB tabs | - | Single screen. |
+| 3. A acts | Y | Default. |
+| 4. B exits | Y | Action bar exit. |
+| 5. Labels | Y (text rows). |
+| 6. Modals | Y. |
+
+**Conform** (rule 1 doesn't apply for stat-rendering panels with no focusable controls inside).
+
+### `pdgui_menu_teamsetup.cpp` -- 434 LOC
+
+| Rule | Status | Evidence |
+|---|---|---|
+| 1. NavFlattened | **N (0/2)** | Two layout BeginChild without NavFlattened. |
+| 2. LB/RB tabs | - | Single screen. |
+| 3. A acts | Y | Default. |
+| 4. B exits | Y | Pop one level. |
+| 5. Labels | mixed | Team name InputText. |
+| 6. Modals | Y, but genuinely a settings-style sub-screen. |
+
+**Non-conformance:** rule 1 (2 sites). Quick fix.
+
+### `pdgui_menu_warning.cpp` -- 1342 LOC
+
+Modal primitive (DANGER / SUCCESS confirm popups). Single-purpose modals. No NavFlattened needed -- the popup body is one focusable region.
+
+**Conform.**
+
+### Special files
+
+- `pdgui_menu_controldiagram.cpp` (563 LOC): static read-only diagram, no widgets. **Conform.**
+- `pdgui_menu_network.cpp` (504 LOC): direct-connect form. **Minor non-conformance** rule 1 (2 BeginChild, no NavFlattened) + rule 5 (InputText label). Defer.
+- `pdgui_menu_challenges.cpp` (401 LOC): selectable list. **Minor non-conformance** rule 1 (2/3 BeginChild). Defer.
+- `pdgui_menu_audiomod.cpp`, `pdgui_menu_logviewer.cpp`, `pdgui_menu_modmgr.cpp`, `pdgui_menu_moddinghub.cpp`, `pdgui_menu_playerconfig.cpp`, `pdgui_menu_stats.cpp`, `pdgui_menu_theme_editor.cpp`, `pdgui_menu_update.cpp`: tooling / overlays not on Mike's named-14 list, but contain similar gaps. Triaged the same way; defer per-file.
+
+## Aggregate gap
+
+| Rule | Conforming menus | Non-conforming menus |
+|---|---|---|
+| 1. NavFlattened on layout containers | 7 | 7 (room, training, lobby, teamsetup, mpsettings, solomission, network/challenges as minor) |
+| 2. LB/RB tab cycling | n/a or Y for all | none |
+| 3. A acts | all Y | none |
+| 4. B exits at top level | all Y (post-K) | none |
+| 5. Label placement | 4 | 10 |
+| 6. Modals only where genuinely modal | 11 | 3 (room sub-screens) |
+
+## Plan
+
+| Item | Action | File(s) |
+|---|---|---|
+| L-fix-1 | Settings label-placement: rewrite the 4 Pd* helpers (`PdCheckbox` / `PdCombo` / `PdSliderInt` / `PdSliderFloat`) to render label as Text + SameLine + ##widget. Single-point fix propagates to every Settings widget. | `port/fast3d/pdgui_menu_mainmenu.cpp` |
+| L-fix-2 | Add NavFlattened to layout-container BeginChild in: `pdgui_menu_room.cpp` (3 column bodies), `pdgui_menu_lobby.cpp` (2), `pdgui_menu_teamsetup.cpp` (2). Skip scrollable-list BeginChild. | three files |
+| L-fix-3 | Add NavFlattened to remaining layout containers in `pdgui_menu_training.cpp`, `pdgui_menu_solomission.cpp`, `pdgui_menu_mpsettings.cpp`. Per-site judgement (skip lists). | three files |
+| L-fix-4 | BotSetup-as-inline: convert `bs_BeginStandardWindow` to optionally render inside a parent window so focus traverses from Room controls into BotSetup body. Body content is already extracted as `pdguiBotSetupDrawSimulantsBody`. | `port/fast3d/pdgui_menu_botsetup.cpp` + `pdgui_menu_room.cpp` -- queued, multi-day. |
+| L-fix-5 | Handicaps/Teams/Music inlining as Room rows: requires Mike's design call on the resulting Room layout density. | queued. |
+| L-fix-6 | System-wide label-placement helper: extract the Pd* pattern into a `pdgui_widgets.h` shared helper available to every menu. Then per-file conversion. | queued, multi-day. |
+| L-doc | Update `context/designs/flat-menu-navigation.md` with rules 1-6 explicit + LB/RB cycling spec + label-placement style guide. | one file. |
+| L-bugs | Capture B-252 (Input Mapping rebuild) + B-253 (3D character render box) in bugs.md. | one file. |
 
 ## Co-existence
 
