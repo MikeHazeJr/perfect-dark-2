@@ -22,6 +22,7 @@
 #include "modmgr.h"
 #include "modarchive.h"
 #include "modvfs.h"
+#include "modmigrate.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
@@ -976,6 +977,21 @@ static s32 modmgrTryRegisterModEntry(const char *fullpath, const char *display_i
 {
 	if (g_ModRegistryCount >= MODMGR_MAX_MODS) return 0;
 
+	/* Priority M / B-238 / M-4.1: skip folders ending in `.legacy_backup`.
+	 * These are post-migration safety copies of folder mods that have been
+	 * packaged into a sibling `.pdmod`; loading both would produce a
+	 * duplicate registry entry. The dedupe_by_id check would catch this
+	 * for known ids, but the suffix check is the precise rule. */
+	if (display_id) {
+		size_t leafLen = strlen(display_id);
+		const char *suffix = ".legacy_backup";
+		size_t suffixLen = strlen(suffix);
+		if (leafLen > suffixLen &&
+		    strcmp(display_id + leafLen - suffixLen, suffix) == 0) {
+			return 0;
+		}
+	}
+
 	/* Check for manifest: mod.json (full mod) or audio.ini (audio mod) */
 	char checkpath[FS_MAXPATH + 1];
 	bool has_modjson = false;
@@ -1434,6 +1450,16 @@ static void modmgrScanDirectory(void)
 	// Store resolved path for assetCatalogScanComponents() to use later
 	strncpy(g_ModsDirPath, modsdir, sizeof(g_ModsDirPath) - 1);
 	g_ModsDirPath[sizeof(g_ModsDirPath) - 1] = '\0';
+
+	/* Priority M / B-238 / M-4.1: one-shot folder->.pdmod migration. Runs
+	 * before the iteration loop below so the scan picks up freshly-created
+	 * .pdmod files in the same pass. Sentinel-guarded; subsequent launches
+	 * skip without rescan. modMigrateRun is idempotent and safe to call
+	 * unconditionally. */
+	{
+		mod_migrate_summary_t mig = { 0 };
+		modMigrateRun(modsdir, &mig);
+	}
 
 	sysLogPrintf(LOG_NOTE, "modmgr: scanning '%s' for mods...", modsdir);
 
