@@ -91,6 +91,11 @@ typedef struct forge_module {
 	bool initialized;
 	bool request_enter_session;
 	forge_freefly_state_t fly;
+	/* B-245 (2026-04-25): track the stagenum the session was started on so
+	 * forgeTick can detect any unexpected stage transition away from it
+	 * (e.g. Mission Failed -> CI hub, script-driven mainChangeToStage, etc.)
+	 * and tear down cleanly. -1 = no session active. */
+	s32 session_stagenum;
 } forge_module_t;
 
 static forge_module_t s_forge;
@@ -378,6 +383,10 @@ static void forgeTransitionToNormal(const char *reason)
 		forgeRuntimeEnterPlay();
 	}
 	s_forge.state = FORGE_SESSION_NORMAL;
+	/* B-245: capture session stagenum on first activation. */
+	if (s_forge.session_stagenum < 0) {
+		s_forge.session_stagenum = (s32)g_StageNum;
+	}
 
 	/* Issue 8b (2026-04-24): deactivate the Forge IMC when leaving
 	 * FREEFLY so X / LB / RB / D-pad revert to their gameplay actions
@@ -403,6 +412,10 @@ static void forgeTransitionToFreefly(const char *reason)
 		forgeRuntimeExitPlay();
 	}
 	s_forge.state = FORGE_SESSION_FREEFLY;
+	/* B-245: capture session stagenum on first activation. */
+	if (s_forge.session_stagenum < 0) {
+		s_forge.session_stagenum = (s32)g_StageNum;
+	}
 
 	/* Issue 8b (2026-04-24): activate the Forge IMC. Priority 7 is
 	 * above gameplay (0) and vehicle (5), so the forge bindings win
@@ -445,6 +458,7 @@ static void forgeTransitionToInactive(const char *reason)
 	}
 	s_forge.state = FORGE_SESSION_INACTIVE;
 	s_forge.request_enter_session = false;
+	s_forge.session_stagenum = -1;  /* B-245: clear so next session captures fresh stagenum */
 
 	/* Issue 8b + AUDIT-24-H2/H3: ensure both Forge IMCs are released
 	 * when the session ends through any path (stage-left-gameplay
@@ -480,6 +494,7 @@ void forgeInit(void)
 	}
 	s_forge.state = FORGE_SESSION_INACTIVE;
 	s_forge.request_enter_session = false;
+	s_forge.session_stagenum = -1;  /* B-245: no session active at init */
 	s_forge.fly.pos.x = 0.0f;
 	s_forge.fly.pos.y = 0.0f;
 	s_forge.fly.pos.z = 0.0f;
@@ -601,6 +616,29 @@ void forgeTick(void)
 	 * pak menu, 4MB) drops us out cleanly. */
 	if (s_forge.state != FORGE_SESSION_INACTIVE && !stage_is_gameplay) {
 		forgeTransitionToInactive("stage left gameplay");
+		return;
+	}
+
+	/* B-245 (2026-04-25): Mission-Failed -> CI Restart and other unexpected
+	 * stage transitions can move the player to a *different* gameplay stage
+	 * than the one the Grid session was started on. STAGE_CITRAINING is a
+	 * gameplay stage per `STAGE_IS_GAMEPLAY` (it is not in the system-stage
+	 * trio of TITLE/BOOTPAKMENU/CREDITS), so the watchdog above does not
+	 * fire and Grid session state survives the transition -- which leaves
+	 * the Grid UI accessible from CI hub and breaks subsequent gameplay.
+	 *
+	 * Capture the session-launch stagenum on first transition out of
+	 * INACTIVE (forgeTransitionToNormal / forgeTransitionToFreefly), and
+	 * fire transitionToInactive whenever g_StageNum diverges from it. The
+	 * Halo-style Forge<->Playtest in-place toggle keeps stagenum constant
+	 * by design, so this watchdog only fires on actual stage transitions. */
+	if (s_forge.state != FORGE_SESSION_INACTIVE
+			&& s_forge.session_stagenum >= 0
+			&& s_forge.session_stagenum != (s32)g_StageNum) {
+		sysLogPrintf(LOG_NOTE,
+			"GRID: stagenum diverged %d -> %d, tearing down session",
+			(s32)s_forge.session_stagenum, (s32)g_StageNum);
+		forgeTransitionToInactive("session stagenum diverged");
 		return;
 	}
 
