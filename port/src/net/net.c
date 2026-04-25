@@ -1271,14 +1271,13 @@ s32 netDisconnect(void)
 	sysLogPrintf(LOG_CHAT, "NET: disconnected");
 
 #if !defined(PD_SERVER)
-	/* M-23-A: cascade-close the menu pool on every disconnect (lobby or in-game).
-	 * Disconnect paths don't go through menuPushRootDialog, so pool slots from
-	 * lobby/room/mp-setup would survive and block reopen of the same type on
-	 * return. menupoolReleaseAll is idempotent. */
+	/* M-23-A / Priority K-b3: cascade-close the menu pool on every disconnect
+	 * (lobby or in-game).  Disconnect paths don't go through menuPushRootDialog,
+	 * so pool slots from lobby/room/mp-setup would survive and block reopen of
+	 * the same type on return.  menupoolReleaseAll is idempotent and pops every
+	 * owned ctx (including the unregistered-fallback after K-b1), so the legacy
+	 * paired inputCtxPopDeferred(&g_CtxImGuiMenu) is no longer needed. */
 	menupoolReleaseAll();
-	if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-		inputCtxPopDeferred(&g_CtxImGuiMenu);
-	}
 #endif
 
 	if (wasingame && !g_AppQuitting) {

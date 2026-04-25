@@ -851,16 +851,11 @@ s32 matchStart(void)
 	/* Stop the menu system and let the game take over */
 	menuStop();
 
-	/* Phase 2: release every pool slot before the stage transition.
-	 * Any slot surviving here would be stale once the new stage loads.
-	 * Pairs with the inputCtxPopDeferred below — pool handles identity,
-	 * inputctx handles the shared menu context. */
+	/* Phase 2 / Priority K-b3: release every pool slot before the stage
+	 * transition.  menupoolReleaseAll pops every owned ctx (including
+	 * unregistered-fallback after K-b1), so the legacy paired
+	 * inputCtxPopDeferred(&g_CtxImGuiMenu) is no longer needed. */
 	menupoolReleaseAll();
-
-	/* Pop menu context — gameplay context's on_push handles mouse capture. */
-	if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-		inputCtxPopDeferred(&g_CtxImGuiMenu);
-	}
 
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: match started successfully");
 	return 0;
@@ -954,13 +949,9 @@ s32 matchStartFromChallenge(s32 slot)
 	mpStartMatch();
 	menuStop();
 
-	/* Phase 2: release every pool slot — see matchStart for rationale. */
+	/* Phase 2 / Priority K-b3: release every pool slot — see matchStart for
+	 * rationale; menupoolReleaseAll already pops the ctx so no paired pop. */
 	menupoolReleaseAll();
-
-	/* Pop menu context — gameplay context's on_push handles mouse capture. */
-	if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-		inputCtxPopDeferred(&g_CtxImGuiMenu);
-	}
 
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: challenge match started");
 	return 0;

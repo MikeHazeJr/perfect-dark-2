@@ -1583,13 +1583,11 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
 		menuStop();
 #if !defined(PD_SERVER)
-		/* Phase 2: pool slot cleanup precedes the shared menu ctx pop
-		 * so any slot that was about to survive the stage transition
-		 * is released cleanly first. */
+		/* Phase 2 / Priority K-b3: pool slot cleanup is sufficient.
+		 * menupoolReleaseAll pops every owned ctx (including unregistered-
+		 * fallback after K-b1), so the legacy paired
+		 * inputCtxPopDeferred(&g_CtxImGuiMenu) is no longer needed. */
 		menupoolReleaseAll();
-		if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-			inputCtxPopDeferred(&g_CtxImGuiMenu);
-		}
 #endif
 
 		g_NotLoadMod = true;
@@ -1739,11 +1737,10 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
 		menuStop();
 #if !defined(PD_SERVER)
-		/* Phase 2: release pool slots before popping the menu ctx. */
+		/* Phase 2 / Priority K-b3: pool slot cleanup is sufficient -- bulk
+		 * release pops every owned ctx (incl. unregistered-fallback after
+		 * K-b1), so no paired direct ctx pop is needed. */
 		menupoolReleaseAll();
-		if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-			inputCtxPopDeferred(&g_CtxImGuiMenu);
-		}
 		/* U-10: Notify server that this client's stage is loaded and ready for bot authority.
 		 * Sent here (after mpStartMatch + scenarioInitProps) as the earliest reliable point
 		 * where the client's stage geometry and pads are in flight.  The 60-frame gate in
