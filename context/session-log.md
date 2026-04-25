@@ -4,6 +4,46 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S460 - 2026-04-25 - Priority L: flat menu navigation audit + methodology
+
+Worktree `claude/stoic-wing-35829b` (continuation of S458 + S459 in the same batch).
+
+### L-a -- audit (`<this commit>`)
+
+`context/audits/flat-menu-navigation-audit-2026-04-25.md`. Categorised every ImGui menu module:
+
+- **Already-flat** (5): mainmenu, pausemenu, lobby, endscreen, agentselect/agentcreate.
+- **Modal-correct** (5): mppause, mpsetup, mpadvanced, mpsettings, cheats, training.
+- **Progressive-focus (correct)** (1): solomission (M-18 reference).
+- **Refactor candidates** (3): all in CS Room + BotSetup -- Mike's named pain point.
+
+Mike's "Combat Simulator's Bots section requires drill-in via A, and B exits the whole menu" symptom analysis:
+
+- The B-pop semantics in the legacy menu stack and menupool are correct on paper -- pushing BotSetup pushes one level, B pops one level back to Room, B from Room pops back to Main Menu.
+- The "B exits the whole menu" symptom is most plausibly the K-class two-stack drift -- visually a menu was open and B's path bypassed expected pop because of an inputctx / menupool divergence. K-b1 + K-b3 close that drift class structurally + the K-d assertion catches future drift.
+- A fresh playtest log post-K is the next signal. If the symptom persists, escalate to the BotSetup-as-sibling-panel refactor (audit doc item 1).
+
+### L-f -- methodology (`<this commit>`)
+
+`context/designs/flat-menu-navigation.md` codifies R1-R5 (sibling vs modal vs progressive-focus + B-pop discipline + controller-hint footer strings) with reference implementations.
+
+### What did NOT land in this batch
+
+- **L-b heavy**: BotSetup-as-sibling-panel + Handicaps/Teams/Music inlining. These are the two design-eye refactor candidates from the audit. Mike should drive the per-menu layout call before code changes.
+- **L-b light**: CS Room progressive-focus tier markers (mechanical adoption of solo-mission's `s_FocusGroup` pattern for Players -> Settings -> Options -> Start Match). Queued; mechanical change but unverified value-add until Mike confirms the column flow he wants.
+- **L-d**: per-menu controller-hint footer audit -- defer until after L-b heavy lands so the strings reflect the new behaviour.
+- **L-e**: gamepad-only flow walkthrough -- can be done by Mike during the next playtest using R5 from the methodology doc as the verification matrix.
+
+### Co-existence with the weapon-bug session
+
+Did NOT touch any of: `src/game/inv*.c`, `src/game/bondinit.c`, `src/game/bgun.c`, `src/game/wpnload.c`, `port/src/forge/forge_runtime.c`. The S456 `LOG.WPN.DIAG` instrumentation in commit `6a9a23d8` is intact.
+
+### Build verification
+
+Build untouched -- L is documentation-only. Last green build (post-K commits) stands: `PerfectDark.exe` 54,333,412 / `PerfectDarkServer.exe` 23,249,938.
+
+---
+
 ## Session S459 - 2026-04-25 - Priority K impl: input-authority discipline + cursor authority + Issue 2/3 closure
 
 Worktree `claude/stoic-wing-35829b` (continuation of S458 in the same batch). K landed across 4 logical commits; build clean on both targets. L queued after K finishes.
