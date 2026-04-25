@@ -16,9 +16,31 @@ Build clean (787/787): PerfectDark.exe + PerfectDarkServer.exe both link success
 
 Bug entry added to `bugs.md` as B-240 FIXED-PENDING-PLAYTEST. Verification requires Mike's in-game test of full-bot match (16+) for actual frame-time smoothing -- code change verifies link/compile only.
 
-### Next: Priority O -- B-242 spawn capsule sweep with character-height-aware capsule
+### Priority O -- B-242 spawn capsule sweep with character-height-aware capsule
 
-Queued after N's commit lands. Read `context/designs/spawn-system-architecture-2026-04-13.md` and `src/include/lib/capsule.h` to set up implementation -- the swept capsule API exists but `PC_CAPSULE_ENABLED 0`; will route post-spawn validation through `cdExamCylMove01` rather than the disabled capsule sweep, since the sweep was for movement and we just need an overlap check.
+New helpers in `src/game/spawnpool.c`:
+
+- `spawnPoolGetChrCapsuleHeight(chr)`: reads body model bbox via `modelFindBboxRodata(chr->model)` so a tall Skedar gets ~220 and a short Carroll ~140; falls back to `chr->height` (185 default standing) and finally a constant.
+- `spawnPoolFindClearPosition(pos, rooms, radius, height)`: tests `cdTestVolume` against `GEOFLAG_WALL` for static cylinder overlap. On clip, sweeps 5 concentric rings (30..200 game units) at 8 directions per ring (45-degree spacing) and returns the first clean candidate. On sweep failure returns false; caller should re-pick a different pad.
+
+Wired into four spawn paths:
+
+- `bot.c::botSpawn` -- 3-attempt retry: pick -> clip-check -> if fail, re-call `scenarioChooseSpawnLocation` and re-check.
+- `player.c::playerStartNewLife` -- same 3-attempt retry pattern.
+- `player.c::playerApplyOrchestratedSpawnFromPool` -- one-pass sweep (orchestrator owns the assignment, no retry possible).
+- `playerreset.c` initial-player spawn -- one-pass sweep gated on the non-deferred-MP path so the orchestrator placeholder doesn't double-check.
+
+Existing pool-build validation (`spawnPoolValidateCandidate`) unchanged; the new check layers on top to catch chr-specific issues the fixed 30u/180u pool validation misses (Skedar 220u head, near-wall pads where the spawn pos is offset slightly from the pad anchor).
+
+Logs:
+- `SPAWN.CLIP: original=(...) clipped, swept iter=N ring=R deg=D -> placed=(...) room=K r=R h=H` on rescue.
+- `SPAWN.CLIP: original=(...) clipped, sweep_failed (iter=N r=R h=H) -- caller should pick a different pad` on bound-exceeded.
+
+First build attempt failed: used `chr->prop->model` (no such field on `struct prop`); fixed to `chr->model` (the chr's body model is owned directly by chr). Build then clean (pd + pd-server) in worktree.
+
+### Next: AUDIT-23 + AUDIT-24 hygiene cluster
+
+UTF-8 BOM on CMakeLists.txt, `.gitignore` `~$*`, `.gitattributes` CRLF pinning, `.editorconfig`, plus AUDIT-24-M2..M8 and L1..L4. Sequential within session.
 
 ## Session S457 - 2026-04-24 - F/G/H/I/J: test arenas, music sync, B-228 Option E, design pass
 

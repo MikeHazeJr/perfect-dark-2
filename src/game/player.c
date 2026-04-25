@@ -372,6 +372,20 @@ void playerApplyOrchestratedSpawnFromPool(s32 playernum, s32 pool_idx)
 		"SPAWN.ORCH: apply player %d pool=%d pos=(%.0f,%.0f,%.0f) room=%d",
 		playernum, pool_idx, pos.x, pos.y, pos.z, (s32)rooms[0]);
 
+	/* B-242 (Priority O): post-pick capsule clip check + radial sweep.
+	 * The pool point passed validation with fixed 30u radius / 180u
+	 * height; a tall body (Skedar ~220) or a near-wall pad can still
+	 * leave the capsule clipping. Sweep radially if needed. No retry
+	 * here -- orchestrator owns the assignment, so on sweep failure
+	 * accept the original position (warning logged inside the helper). */
+	{
+		struct chrdata *playerchr = g_Vars.currentplayer->prop->chr;
+		f32 chr_height = spawnPoolGetChrCapsuleHeight(playerchr);
+		f32 chr_radius = (playerchr && playerchr->radius > 0.0f)
+			? playerchr->radius : 30.0f;
+		(void)spawnPoolFindClearPosition(&pos, rooms, chr_radius, chr_height);
+	}
+
 	groundy = cdFindGroundInfoAtCyl(&pos, 30, rooms,
 			&g_Vars.currentplayer->floorcol,
 			&g_Vars.currentplayer->floortype,
@@ -1111,6 +1125,25 @@ void playerStartNewLife(void)
 	hudmsgsSetOn(0xffffffff);
 
 	angle = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop); // var7f1ad534
+
+	/* B-242 (Priority O): post-pick capsule clip check + radial sweep
+	 * before consuming pos. If the picked spawn pad puts the player
+	 * capsule into a wall, sweep radially; if the sweep fails, re-pick
+	 * a different pad and try again (up to 3 attempts). */
+	{
+		struct chrdata *playerchr = g_Vars.currentplayer->prop->chr;
+		f32 chr_height = spawnPoolGetChrCapsuleHeight(playerchr);
+		f32 chr_radius = (playerchr && playerchr->radius > 0.0f)
+			? playerchr->radius : 30.0f;
+		s32 attempt;
+		for (attempt = 0; attempt < 3; attempt++) {
+			if (spawnPoolFindClearPosition(&pos, rooms, chr_radius, chr_height)) {
+				break;
+			}
+			angle = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms,
+				g_Vars.currentplayer->prop);
+		}
+	}
 
 	groundy = cdFindGroundInfoAtCyl(&pos, 30, rooms,
 			&g_Vars.currentplayer->floorcol,

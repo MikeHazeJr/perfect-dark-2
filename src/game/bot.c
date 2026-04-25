@@ -401,6 +401,25 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 		} else {
 			thing = scenarioChooseSpawnLocation(chr->radius, &pos, rooms, chr->prop);
 		}
+
+		/* B-242 (Priority O): post-pick capsule clip check + radial sweep.
+		 * The pool-build validation uses fixed 30u radius / 180u height,
+		 * but a tall body (Skedar ~220) or a narrow corridor near a wall
+		 * corner can still leave the chr clipping geometry. Test the
+		 * actual chr's bounding capsule; if it overlaps a wall, sweep
+		 * radially; if the sweep fails, re-pick a different pad and try
+		 * again (up to 3 attempts before accepting the last position). */
+		{
+			f32 chr_height = spawnPoolGetChrCapsuleHeight(chr);
+			s32 attempt;
+			for (attempt = 0; attempt < 3; attempt++) {
+				if (spawnPoolFindClearPosition(&pos, rooms, chr->radius, chr_height)) {
+					break;
+				}
+				thing = scenarioChooseSpawnLocation(chr->radius, &pos, rooms, chr->prop);
+			}
+		}
+
 		chr->hidden |= CHRHFLAG_WARPONSCREEN;
 		chrMoveToPos(chr, &pos, rooms, thing, true);
 		/* Room recovery after spawn: if chrMoveToPos left rooms[0]==-1 the
