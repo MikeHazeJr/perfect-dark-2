@@ -167,6 +167,8 @@ The Property Handler path is Windows-specific. On other OSes:
 
 For loader code on non-Windows OSes, the metadata is read from the archive directly; the property-handler path is the optimisation, not the primary mechanism.
 
+**Verified post-implementation (M-2.4):** the engine's loader (`port/src/modarchive.c::modArchiveReadManifest`) reads `mod.json` directly from the archive bytes regardless of OS. The fast-scan property-handler path described in 4.5.4 is purely an optimisation; nothing in the loader's correctness or completeness depends on the Windows shell registration. A Linux build (when one exists) would behave identically: scan modsdir, open each `.pdmod`, parse manifest in memory. The defensive zip-comment mirror (M-2.3) is the universal cross-platform metadata surface for tools that don't load the archive themselves (7-Zip, `file-roller`, `unzip -l`).
+
 #### 4.5.4 Loader fast-scan strategy
 
 When enumerating `mods/installed/` at startup, the loader prefers the property-handler path on Windows:
