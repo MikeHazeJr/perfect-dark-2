@@ -357,6 +357,87 @@ Peers in your friend group are trusted to ship benign mods. Hashes catch transfe
 
 **All mods default to Private** (Q11). The player must explicitly flag a mod Public for it to appear on their profile or in the session aggregate. Distribution platform may serve any mod regardless of flag (mod sharing IS a feature), but un-flagged mods are not browsable.
 
+### Packaging format -- `.pdmod` (Q18 amendment)
+
+Mods sent through chat, the public mods page, or any other sharing surface ship as a single **`.pdmod`** archive. Internally `.pdmod` is a deflate-compressed zip with a renamed extension; the rename signals to the OS and to the loader "this is a mod, not a generic archive."
+
+**Archive contents:**
+
+```
+my_mod.pdmod
++-- mod.json              (manifest at root; required)
++-- assets/               (mod's existing asset structure)
+|   +-- ...
++-- audio/
++-- textures/
++-- (etc.)
+```
+
+**Loader rules:**
+
+- `.pdmod` is the canonical extension. The mod loader trusts files with this extension as mods.
+- Plain `.zip` is **accepted as a fallback** for hand-rolled mods. The loader looks for `mod.json` at the archive root; on success it treats the zip exactly like a `.pdmod`. This lets mod authors iterate without renaming.
+- The loader rejects archives that lack `mod.json` at the root with a clear error (`"<filename>: missing mod.json at archive root; not a valid mod"`).
+- Discovery is by extension or by manifest presence; never by filename heuristics. A file named `holiday_party_2026.pdmod` and one named `weird-thing-from-chris.pdmod` are equivalent input to the loader.
+
+**Per-archive integrity:**
+
+- The sender computes `sha256(archive_bytes)` before transmission and includes the digest in the file-transfer descriptor (Section 9.4).
+- The receiver recomputes after the transfer completes and refuses the file if the digest does not match. UX: `"Transfer corrupted, file rejected. Ask <friend> to re-send."`
+- Hash protects against transfer corruption only, not malicious tampering. Mike's trust model (next subsection) covers the malicious case.
+
+### Mod manifest schema -- `mod.json` (Q18)
+
+Every `.pdmod` (and every locally-installed legacy mod folder) carries a `mod.json` at its root. The schema:
+
+```json
+{
+  "id":          "chris.smarch.dark_noon_v3",
+  "name":        "Dark Noon Valley v3",
+  "version":     "1.2.0",
+  "creator":     "smarch",
+  "description": "Mod adds the Dark Noon Valley arena...",
+  "requires":    [{ "id": "...", "minVersion": "1.0" }],
+  "tags":        ["map", "skedar", "tested"],
+  "license":     "...",
+  "homepage":    "..."
+}
+```
+
+**Required fields** (loader rejects mods missing any of these):
+- `id` -- unique identifier; convention is `<creator>.<modname>` (kebab- or snake-case). Used for dedup, dependency resolution, and update detection.
+- `name` -- display name for the mod browser.
+- `version` -- semver-style; loader uses for update detection.
+- `creator` -- agentname (Q5 identity) of the original author. New mods authored locally auto-fill the current user's agentname; legacy mods without this field display **"Unknown"** in the mod browser until manually set in the mod's metadata editor.
+
+**Optional fields:**
+- `description`, `requires`, `tags`, `license`, `homepage`.
+
+**Backwards compatibility:** legacy mods (today's `mod.json` may not have `creator`) load with creator displayed as `"Unknown"`. The mod-browser UI surfaces a one-time "Set creator" prompt when the user opens a legacy mod's details; on confirm, the field is written back to the manifest. No silent rewrites.
+
+### Mod install + trust model (Q18)
+
+> "If I share a mod, send it as an installable pdmod file or something (or a compressed zip), but don't install it automatically, installation can be done through the context menu or manually by the user through the filesystem (Explorer)." -- Mike Q18
+
+**No auto-install. No auto-execute.** Receiving a mod through chat, the public mods page, or any other transport NEVER installs or enables it automatically. The mod lands in the **shared-mods inbox** (`%APPDATA%/PerfectDark2/mods/shared/<friend_agentname>/<mod_id>/`) and stays there until the user explicitly installs it.
+
+**Two install paths:**
+
+1. **Context menu** (Section 8.5.2). Focus the mod's chat row, press Y (or right-click), pick "Install mod" (move-and-leave-disabled) or "Install and enable" (move-and-flip-on). The action moves the `.pdmod` from the shared-mods inbox to the active mods folder (`%APPDATA%/PerfectDark2/mods/installed/`) and updates the registry.
+2. **Manual file-system copy.** User opens Explorer (the "Open file location" context-menu action also from Section 8.5.2), drags the `.pdmod` into `mods/installed/`, and the mod loader picks it up on next scan. No game-side step required.
+
+**Trust model.** Three layers, ordered from cheapest to most expensive:
+
+| Layer | Catches | Cost |
+|---|---|---|
+| **sha256 transfer hash** | Bit-rot, network corruption, midstream tamper of an in-flight packet | Cheap; computed by sender + verified by receiver. |
+| **Sender identity = friend** | Random strangers cannot push mods at you. Strangers' file-transfer requests are dropped at the presence layer (Section 3.2 anti-DoS). | Free; rides on the friend graph. |
+| **Manual install gate** | Your friend's account compromised? A bad actor on the friend graph cannot make their mod auto-execute on your machine. The user has to push a button to make any received code run. | One click of friction at install time. |
+
+What we explicitly do NOT do: CA-style cryptographic mod signing (per Q11 -- not strict crypto signing). Mods are trusted by the human-friendship graph, not by an authority. The manual-install gate is the safety net under that.
+
+**What "execute" means here:** mods can carry arbitrary files (audio, textures, scripts in formats the engine consumes). The dangerous case is a mod that ships a script that the engine runs. The manual-install gate ensures the user knows that script is being introduced. A future hardening pass can sandbox script execution per-mod, but that is out of scope for the social design.
+
 ---
 
 ## 8. UI surface -- modern main menu
@@ -435,31 +516,68 @@ Per-friend chat thread with:
 
 #### 8.5.1 File storage layout (Q18 amendment)
 
-Received files land in predictable per-type folders so they integrate cleanly with the rest of the game:
+> "Regarding chat. I should be able to send other files directly as well, such as mp3's." -- Mike Q18 amendment
 
-| File type | Destination folder | Notes |
-|---|---|---|
-| **Mod** | `%APPDATA%/PerfectDark2/mods/shared/<friend_agentname>/<mod_id>/` | Tagged "received from [friend]" in the mod manager UI. Shows up alongside locally-installed mods but in a sub-section so the user can tell what they got from whom. |
-| **Music track** (from listening-room, Q10) | `%APPDATA%/PerfectDark2/cache/music/<session_id>/` initially | Per-session cache, deleted on quit. "Save permanently" context-menu action moves the file to `%APPDATA%/PerfectDark2/music/saved/`. |
-| **Screenshot** | `%APPDATA%/PerfectDark2/screenshots/received/<friend_agentname>/` | Dated subfolder for organization. |
-| **Save game** | `%APPDATA%/PerfectDark2/saves/received/<friend_agentname>/` | Never auto-applied; user must explicitly "Apply" via context menu (a future option). |
-| **Other / unknown** | `%APPDATA%/PerfectDark2/cache/files/<session_id>/` | Per-session cache; "Save permanently" prompts for a destination. |
+**Chat file transfer is not mod-specific.** Any file type can be sent: mods, music, screenshots, saves, arbitrary blobs. The receiver lands them in predictable per-type folders so they integrate cleanly with the rest of the game.
 
-Storage paths use the same user-data root as Section 3.5's social storage. Each received file's metadata (sender, timestamp, original filename, sha256) is written alongside it as a sidecar `.meta.json` so the chat history can resolve "the mod I sent Mike on Tuesday" cleanly even after the chat thread scrolls.
+| File type | Detection | Destination folder | Default size limit | Notes |
+|---|---|---|---|---|
+| **Mod** (`.pdmod` or `.zip` with `mod.json`) | Extension + manifest probe | `%APPDATA%/PerfectDark2/mods/shared/<friend_agentname>/<mod_id>/` | 250 MB | Stays in inbox until user installs (Section 7 mod install + trust). Tagged "received from [friend]" in the mod manager UI. **Never auto-installed.** |
+| **Music** (`.mp3` / `.ogg` / `.wav` / `.flac`) | Extension | `%APPDATA%/PerfectDark2/cache/music/<session_id>/` (per-session cache) | 50 MB | "Save permanently" promotes to `%APPDATA%/PerfectDark2/music/saved/`. Listening-room tracks (Q10) use the same path. "Convert to mod" promotes to a music-mod (Section 8.5.3). |
+| **Image** (`.png` / `.jpg` / `.bmp`) | Extension | `%APPDATA%/PerfectDark2/screenshots/received/<friend_agentname>/` | 25 MB | Dated subfolder for organization. "Convert to mod" available if texture-mod support exists (currently scoped post-MVP). |
+| **Save game** | Extension match against PD2 save format | `%APPDATA%/PerfectDark2/saves/received/<friend_agentname>/` | 5 MB | Never auto-applied; user must explicitly "Apply" via context menu (future). |
+| **Replay** (Phase-6 Theater files) | Extension | `%APPDATA%/PerfectDark2/replays/received/<friend_agentname>/` | 100 MB | Played back via Theater (Phase 6). |
+| **Other / unknown** | Default | `%APPDATA%/PerfectDark2/cache/files/<session_id>/` | 50 MB | Per-session cache; "Save permanently" prompts for a destination. |
+
+**Detection rules:**
+1. Mod detection is **extension-first** (`.pdmod`), with **manifest-probe fallback** for `.zip` archives that contain a root `mod.json` (Section 7 packaging format). All other extensions skip the probe (no scanning random uploads for mod content).
+2. The other rows above are extension-only. Files arriving with an unknown extension fall through to "Other / unknown."
+3. The receiver looks at extension + a small magic-byte check at the head of the file before classifying. A renamed `.exe` claiming `.mp3` extension lands in the music folder per its claimed type but the player obviously won't try to play it; this is intentional -- we do not run unknown executables, period.
+
+**Per-type size limits.** Defaults above are tuned for typical content shipping over residential broadband. Limits are **per-file**, enforced at the sender side before the file-transfer descriptor is sent (`SVC_FILE_TRANSFER_REJECT_OVERSIZE` if the receiver's limit differs). Receiver can override their own limits in settings (`Files.MaxModSizeMB`, etc.).
+
+**Sidecar metadata.** Each received file gets a `.meta.json` sidecar at the same path:
+```json
+{
+  "sender": "smarch",
+  "sender_connect_code": "...",
+  "received_at": "2026-04-24T22:13:00Z",
+  "original_filename": "dark_noon_v3.pdmod",
+  "sha256": "...",
+  "type": "mod",
+  "size_bytes": 12345678
+}
+```
+The chat history scrolls; the sidecar lets the receiver answer "where's that mod Chris sent me on Tuesday?" without scrolling back. The mod browser also reads the sidecar to render the "received from [friend] on [date]" label.
+
+Storage paths use the same user-data root as Section 3.5's social storage.
 
 #### 8.5.2 Per-attachment context menu (Q18 amendment)
 
-Available actions on the focused file row, surfaced via right-click on mouse or **Y button** (controller default) on the focused row:
+Available actions on the focused file row, surfaced via right-click on mouse or **Y button** (controller default) on the focused row. Action visibility is **type-aware** -- the menu only shows actions that make sense for the focused file.
 
+Actions always shown:
 - **Open file location** -- opens the OS file manager focused on the saved file.
   - Windows: `ShellExecute(NULL, "open", "explorer.exe", "/select,\"<absolute_path>\"", NULL, SW_NORMAL)` so the file is highlighted in Explorer.
   - macOS: `open -R <absolute_path>` (Finder reveal).
   - Linux: `xdg-open <directory>` (best-effort; not all file managers support file-highlighting).
 - **Copy path to clipboard** -- copies the absolute path; useful when the user wants to drag the file elsewhere or reference it in another tool.
-- **Apply mod** -- only shown if the file is a recognised mod type. Triggers the existing mod-install flow.
-- **Save permanently** -- only shown if the file currently lives in a per-session cache. Moves the file from `cache/` to its permanent home (table above).
-- **Delete from cache** -- only shown if the file is in a per-session cache. Removes both the file and its sidecar.
 - **Reveal in chat history** -- jumps the chat scroll position back to the message where this file first appeared (useful after long scrollback).
+
+Mod-only actions:
+- **Install mod** -- moves the `.pdmod` from the shared-mods inbox to the active mods folder, **leaving it disabled**. User can enable it later from the mod manager. Recommended default for "I want this but not now."
+- **Install and enable mod** -- moves and immediately flips it on. The mod is loaded on the next stage transition.
+- **View mod details** -- opens a non-modal panel showing `mod.json` contents (name, version, creator, description, requires, tags). User can confirm what they're about to install.
+- **Reject mod** -- delete the `.pdmod` from the inbox without installing. Sidecar is also removed.
+
+Cache-only actions (file currently in per-session cache):
+- **Save permanently** -- moves the file from `cache/` to its permanent home (Section 8.5.1 table).
+- **Delete from cache** -- removes both file and sidecar.
+
+Convertible-source actions (file is MP3 / OGG / WAV / FLAC / PNG / etc.):
+- **Convert to mod...** -- opens the modal flow defined in Section 8.5.3.
+
+**Trust ladder reminder:** the only context-menu actions that introduce code execution are "Install and enable mod" -- and even that requires a button press by the user on a mod that arrived from a friend (Section 7 mod install + trust). "Open file location" and "Copy path" never run anything; they only surface paths. This is the safety net Mike's manual-install rule (Q18) relies on.
 
 **Controller binding choice.** Y is the default because:
 - A is "engage action on focused element" (open the chat thread of the focused friend; activate a button) per the top-level UX principle (Section 8.1).
@@ -468,6 +586,70 @@ Available actions on the focused file row, surfaced via right-click on mouse or 
 - Y is the natural fourth face button and is unbound during chat-history navigation. It maps semantically to "more options" / "context menu", consistent with how many console UIs use Y.
 
 If chat-input mode is active (text-entry focus), Y is captured by the text-input IMC (`g_ImcTextInput` priority 30) and behaves as a normal text key. The context menu is only reachable when focus is on a file row outside the text-entry box.
+
+#### 8.5.3 "Convert to mod" modal (Q18 amendment)
+
+> "If a file is an MP3 or something, context menu should have a 'convert to mod' option which opens a modal for setting up the mod info, then adds it to mods and enables it." -- Mike Q18 amendment
+
+The "Convert to mod" context-menu action (Section 8.5.2) opens a **modal dialog** that gathers manifest fields and produces a fresh `.pdmod` archive containing the source file plus the manifest.
+
+**Supported source types and conversion target:**
+
+| Source extension | Conversion target | Output structure |
+|---|---|---|
+| `.mp3` / `.ogg` / `.wav` / `.flac` | Music mod | `mod.json` + `audio/<safe_filename>` inside the `.pdmod` archive. Mod registers a single track audible in listening rooms / playlists. |
+| `.png` / `.jpg` (grouped) | Texture mod (post-MVP -- see scope note) | `mod.json` + `textures/<safe_filename>`. Phase 1 scope: texture-mod runtime support is not implemented yet, so this option is **disabled with a tooltip** until that lands. |
+| Other | (not offered) | If the file is not a recognised convertible type, the "Convert to mod..." action is hidden from the context menu. |
+
+**Modal fields:**
+
+```
++------------------------------------------+
+|  Convert to Mod                          |
++------------------------------------------+
+|  Name        [____________________]      |
+|  Description [____________________]      |
+|              [____________________]      |
+|  Creator     [smarch         ] (auto)    |
+|  Tags        [____________________]      |
+|  Version     [1.0.0          ]           |
+|                                          |
+|  Source: dark_noon_song.mp3              |
+|  Type:   Music mod                       |
+|                                          |
+|        [ Cancel ]   [ Convert ]          |
++------------------------------------------+
+```
+
+- **Name** -- required. Display name for the mod browser. Validated non-empty before Convert is enabled.
+- **Description** -- optional. Multi-line.
+- **Creator** -- pre-filled with the local user's `agentname` (Q5). Editable in case the user is converting on behalf of someone else (e.g. "smarch_with_help_from_chris"). Required.
+- **Tags** -- optional, comma-separated. Used by the mod browser's filter chips.
+- **Version** -- defaults to `1.0.0`. Editable for users who care about semver.
+
+**On Confirm:**
+
+1. Compute a unique `id` -- `<creator_lowercased>.<name_slugified>.<short_hash_of_source>`. Slugify name to ASCII alphanumerics + `_`.
+2. Build the manifest:
+   ```json
+   {
+     "id":          "smarch.dark_noon_song.a1b2c3d4",
+     "name":        "Dark Noon Song",
+     "version":     "1.0.0",
+     "creator":     "smarch",
+     "description": "...",
+     "tags":        ["music", "user-converted"],
+     "_converted_from": { "source": "dark_noon_song.mp3", "type": "music" }
+   }
+   ```
+   The `_converted_from` block is a non-required diagnostic field that records the conversion lineage; the mod loader ignores it but the mod browser shows "converted from MP3" badge for these.
+3. Create the `.pdmod` archive at `%APPDATA%/PerfectDark2/mods/installed/<id>.pdmod` with the manifest at the root and the source file at the type-appropriate path inside.
+4. Update the mod registry. The mod is **enabled by default** for converted mods (the user just chose to make this a mod; presumably they want it active). User can disable later from the mod manager if not.
+5. Show a transient confirmation toast: `"Converted '<filename>' to mod '<name>' and enabled it."`
+
+**On Cancel:** modal closes without writing anything. The source file remains where it was.
+
+**Modal navigation** follows the top-level UX principle (Section 8.1): D-pad moves between fields directly; A engages "Convert" only when the form is valid; B cancels. No drill-in / drill-out friction within the modal.
 
 ### Status indicator (top-right)
 
@@ -701,7 +883,7 @@ NAT traversal completes in Phase 1 (all 5 tiers); Phase 2 reorients around socia
 | **Q15** | Visual style? | Designer's choice **anchored in existing PD2 UI aesthetic**. Apply graphic-design principles in relation to current visual language. **Consistency over novelty.** (Section 8.2) |
 | **Q16** | Controller UX? | **TOP-LEVEL UX PRINCIPLE: full controller-only navigation, no drill-in / drill-out friction.** D-pad navigates DIRECTLY between any visible widget, regardless of panel. A engages action, B engages cancel. Sticks drive analog. Drill-in / drill-out is banned. (Section 8.1) |
 | **Q17** | Social surfaces? | **Three:** Sidebar (quick peek during gameplay/menus), Social menu (full-screen complete view), Private chat (1:1 deep-dive with file/mod attachments). (Section 8.3) |
-| **Q18** | Chat scope? | Phase 2: **text chat with file/mod attachments**. Voice chat queued for later. File-transfer plumbing serves chat AND mods AND music (Q10, Q11 convergence on a single transport). **Q18 amendment (2026-04-24):** received files land in predictable per-type folders (`mods/shared/`, `music/saved/`, `screenshots/received/`, etc.); per-attachment context menu (Y on controller) exposes "Open file location" -- using `explorer.exe /select,"<path>"` on Windows and Finder/xdg-open on other OSes -- plus type-appropriate actions (Apply mod, Save permanently, Delete from cache, Copy path). (Section 8.5, 8.5.1, 8.5.2; Section 9.4; Phase 2) |
+| **Q18** | Chat scope + file transfer? | Phase 2: **text chat with arbitrary file attachments**, not mod-specific. Voice chat queued for later. File-transfer plumbing serves chat AND mods AND music (Q10, Q11 convergence on a single transport). **Q18 amendment (2026-04-24):** received files land in predictable per-type folders with per-type size limits (mods 250 MB, music 50 MB, images 25 MB, etc.). Per-attachment context menu (Y on controller) is **type-aware** and exposes "Open file location" (`explorer.exe /select,"<path>"` on Windows, Finder reveal on macOS, xdg-open on Linux), Copy path, plus type-appropriate actions. **Mods ship as `.pdmod` archives** (rename of zip + `mod.json` at root; plain zip with manifest also accepted). **Manifest schema requires `creator`** (auto-filled with current user's agentname; legacy mods display "Unknown" until set). **Manual install only** -- mods land in shared-mods inbox; user installs via context menu ("Install" / "Install and enable") or by drag-drop in Explorer; **never auto-installed**. Three-layer trust model: sha256 transfer hash + sender-identity-via-friend-graph + manual install gate. **"Convert to mod"** modal action available for MP3/OGG/WAV/FLAC (music mods) and image types post-MVP (texture mods); modal collects name/description/creator/tags/version, writes a fresh `.pdmod` to `mods/installed/`, enables by default. (Sections 7 packaging + manifest + install/trust; 8.5.1 storage; 8.5.2 context menu; 8.5.3 Convert-to-mod; Section 9.4; Phase 2) |
 
 ---
 
