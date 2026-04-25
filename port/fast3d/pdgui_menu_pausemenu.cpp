@@ -862,9 +862,18 @@ static void scorecardTickButtonState(void)
         return;
     }
 
-    /* Action map: Tab / Back → ACTION_SCORECARD (hold-to-show).
-     * Replaces parallel SDL_GetKeyboardState + ImGui::IsKeyDown paths. */
-    s_ScorecardVisible = actionHeld(0, ACTION_SCORECARD) != 0;
+    /* Action map (Priority J, 2026-04-25):
+     *
+     *   ACTION_SCORECARD       -- Tab keyboard binding in g_ImcGameplay
+     *                             (transient peek, both schemes).
+     *   ACTION_SCORECARD_HOLD  -- gamepad Back binding in g_ImcCombatSim
+     *                             only. Fires after 400 ms hold so a
+     *                             stray Back-tap does not pop the
+     *                             scorecard. Inactive in Mission scheme
+     *                             (no binding -> no fire). */
+    static const s32 SCORECARD_BACK_HOLD_MS = 400;
+    s_ScorecardVisible = (actionHeld(0, ACTION_SCORECARD) != 0)
+                       || (actionHeldForMs(0, ACTION_SCORECARD_HOLD, SCORECARD_BACK_HOLD_MS) != 0);
 }
 
 /* ========================================================================
