@@ -89,6 +89,7 @@
 #include "chat.h"
 #include "file_transfer.h"
 #include "pdgui_toast.h"
+#include "spectator.h"
 #include "modelcatalog.h"
 #include "pdmain.h"
 #include "pdgui_theme.h"
@@ -660,6 +661,7 @@ void mainTick(void)
 	chatTick();
 	fileTransferTick();
 	pdguiToastTick();
+	spectatorTick();
 
 	if (g_MainChangeToStageNum < 0) {
 		frametimeCalculate();

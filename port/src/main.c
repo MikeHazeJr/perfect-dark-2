@@ -42,6 +42,7 @@
 #include "chat.h"
 #include "file_transfer.h"
 #include "pdgui_toast.h"
+#include "spectator.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
@@ -201,6 +202,7 @@ int main(int argc, const char **argv)
 	chatInit();
 	fileTransferInit();
 	pdguiToastInit();
+	spectatorInit();
 
 	/* D13: Start background update check (non-blocking) */
 	if (!sysArgCheck("--no-update-check")) {

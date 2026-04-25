@@ -86,6 +86,7 @@ extern "C" void pdguiLogViewerRender(s32 winW, s32 winH);
 #include "pdgui_friends.h"
 #include "pdgui_nat_diagnostics.h"
 #include "pdgui_toast.h"
+#include "pdgui_spectator.h"
 
 /* In-match HUD overlay (top scorers + timer) */
 #include "pdgui_hud.h"
@@ -654,7 +655,8 @@ void pdguiRender(void)
                           (pdguiFriendsSocialIsOpen() != 0) ||
                           (pdguiFriendsChatIsOpen() != 0) ||
                           (pdguiNatDiagnosticsIsOpen() != 0) ||
-                          (pdguiToastIsActive() != 0);
+                          (pdguiToastIsActive() != 0) ||
+                          (pdguiSpectatorOverlayActive() != 0);
 
     /* D13: Also render when update UI is visible (notification banner, version picker) */
 #if defined(PD_DEV_BUILD)
@@ -797,6 +799,11 @@ void pdguiRender(void)
     /* Phase 2 toast notifications: bottom-right transient stack.
      * Painted last so popups overlay even the friends surfaces. */
     pdguiToastRender((s32)winW, (s32)winH);
+
+    /* Phase 3 spectator overlay: top strip + scoreboard + control hints
+     * during a live spectate or Theater playback. Only paints when the
+     * spectator subsystem is active. */
+    pdguiSpectatorRender((s32)winW, (s32)winH);
 
     /* In-match HUD: top 2 scorers + remaining time.
      * Only visible during normmplayerisrunning (combat sim active). */

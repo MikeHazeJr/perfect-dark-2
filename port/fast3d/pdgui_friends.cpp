@@ -32,6 +32,7 @@ extern "C" {
 #include "social.h"
 #include "chat.h"
 #include "file_transfer.h"
+#include "spectator.h"
 #include "net/p2p.h"
 #include "net/group_session.h"
 }
@@ -349,6 +350,15 @@ static void renderFriendRow(s32 idx, const social_friend_t *f)
 	if (can_invite) {
 		if (ImGui::SmallButton("Invite")) {
 			presenceSendInvite(f->handle, PRESENCE_INVITE_KIND_MATCH);
+		}
+		ImGui::SameLine();
+	}
+
+	const bool can_spectate = (pstate == PRESENCE_IN_MATCH) ||
+	                           (pstate == PRESENCE_IN_MISSION);
+	if (can_spectate) {
+		if (ImGui::SmallButton("Spectate")) {
+			spectatorBeginLive(f->handle);
 		}
 		ImGui::SameLine();
 	}
