@@ -4,6 +4,63 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S463 - 2026-04-25 - Bug-queue cleanup batch (e/b/a/c/d)
+
+Sequenced after L per Mike's directive.  Five sub-items shipped or verified.
+
+### (e) `.gitattributes` pinning (`8c1c6cba`)
+
+Added `.gitattributes` mirroring the .editorconfig contract: default `* text=auto eol=lf`, C/C++/build/docs/shell/python/GLSL all LF, Windows scripts (.bat/.cmd/.ps1) CRLF, binary types flagged binary.  Prevents the repeated CRLF flip auto-commits the auditor flagged.
+
+### (b) AUDIT-23 hygiene (`83563bdc`)
+
+- M2 -- added `~$*` and `*.~lock.*` to `.gitignore` to prevent Office app open-document locks from leaking into commits.
+- M1 (BOM on CMakeLists.txt:1) -- verified clean; first three bytes are `c m a` (no UTF-8 BOM).  Already resolved in a prior session.  No change needed.
+- L1 (docx + _docx_extract/* alongside .md) -- kept as historical reference; .md is canonical going forward.  Documented in commit message.
+
+### (a) B-249 kill-attribution -- diagnostic instrumentation (`66190440`)
+
+Static-altitude analysis of "bot deaths credit player 0":
+
+- Ruled out the obvious paths (mpPlayerGetIndex / func0f18d074 NULL fallthrough; suicide gate; chr->lastshooter dead state).
+- Found B-254: `chr->lastshooter` is only ever assigned to -1 and never updated.  The "lastshooter >= 0" branches at chr.c:949 and player.c:5836 NEVER fire.  Documented as separate bug; canonical successor is `chr->lastattacker` which is already maintained.
+- Pinned remaining hypothesis: `aplayernum` is being resolved to 0 for an attacker whose chr is actually a bot.  Two candidate causes: slot-assignment collision at match setup, or a separate aplayernum=0 default-fallthrough outside the chrDamage chain.
+- Added LOG_WARNING `B-249.DIAG: kill credited to player slot N but attacker chr at that slot is a BOT` in mpstats.c::mpstatsRecordDeath:441.  Tripwire fires the moment kill credit goes to a player slot whose chr has aibot != NULL.  Dumps slot pointer addresses + name + numchrs.  No behaviour change; awaits playtest log.
+
+### (c) AUDIT-24 mediums + lows (`d560ca0b`)
+
+Five items with code or documentation deltas:
+
+- **M7** s_GridArenasBuilt never reset on catalog rebuild.  New `pdguiGridArenasInvalidate(void)` extern in `port/include/pdgui_menu_grid.h`, implemented in mainmenu.cpp.  `modmgrCatalogChanged()` calls it after setting the catalog-cache-dirty flag.  Mid-session mod load/unload now refreshes the Grid arena picker without a process restart.
+- **L4** `netmsgClcAuthWrite` unconditional g_NetLocalClient deref -- added early-return NULL guard with LOG_WARNING.  Compiles into pd-server but unreachable; future-proofs against generic-dispatch refactor.
+- **L1** Forge HUD bot keybinds gated on `!ImGui::GetIO().WantCaptureKeyboard` so concurrent ImGui widgets don't lose keyboard input to the HUD polls.
+- **M2** + **M3** doc warnings on `catalogPickRandomHeadIdForBody` / `catalogGetBodyValidHeadIds` in `port/include/assetcatalog.h`.  M2 documents per-client RNG determinism contract.  M3 documents reentrancy contract (s_ValidHeadBuf alias).
+
+Skipped/queued: M5+M6 (Grid submenu structural), M8 (forge_runtime.c is Session A's chr-swap-state file).
+
+### (d) B-217..B-222 static re-verification
+
+Spot-checked each cited fix in code; all structurally present:
+
+- **B-217** (F6 freeze, bots stay visible): `g_BotUpdatesDisabled` checks at bot.c:1387 + `speedmultforwards = 0` zero-out at 1397/1629/1632, then chrTick still called.  VERIFIED-STATIC.
+- **B-218** (orchestrator re-run on first botSpawnAll): `SPAWN.ORCH: botSpawnAll re-running orchestrator` log line at bot.c:607 confirms the re-run guard.  VERIFIED-STATIC.
+- **B-219** (MP weapon model preload): setup.c lines 2820/2828 preload via `modelmgrLoadProjectileModeldefs` for the match weapon set + spawn weapon, with the diag log at 2831.  VERIFIED-STATIC.
+- **B-220** (fsFileSize guard before fsFileLoad): three guards at modmgr.c:283, 661, 2033 in `modmgrParseModJson`, `modmgrRegisterModJsonContent`, `modmgrParseBotNames`.  VERIFIED-STATIC.
+- **B-221** (PC hoverbike single-tap + scorecard exclusion + accumulator): bondbike.c CONTROLMODE_PC bypass at 187/233/236; `ACTION_SCORECARD` + `ACTION_SCORECARD_HOLD` in actionIsGameplayOnly's "shared / system" case at actionmap.cpp:1204-1205.  VERIFIED-STATIC.
+- **B-222** (popup darken accumulator): `pdguiPopupDarkenBeginFrame` / `Behind` / `Flush` declared in pdgui_layout.h:163-165 and implemented in pdgui_layout.cpp:145-160.  VERIFIED-STATIC.
+
+All six bugs remain FIXED-PENDING-PLAYTEST -- live verification still requires Mike's playtest, but the static read confirms the fix code is in place at HEAD.
+
+### Build verification
+
+Both `pd` and `pd-server` link clean after each commit.
+
+### Co-existence
+
+Did NOT touch: `src/game/inv*.c`, `src/game/bondinit.c`, `src/game/bgun.c`, `src/game/wpnload.c`, `port/src/forge/forge_runtime.c` (Session A).  No new connectivity files touched (Session C).
+
+---
+
 ## Session S462 - 2026-04-25 - Priority L comprehensive: NavFlattened system-wide, shared label-left widget helpers, system-wide migration
 
 Mike expanded the scope to "ALL 14 menus must conform" under the focus-traversal + LB/RB + label-placement lens.  Continuation of S461 in the same batch.
