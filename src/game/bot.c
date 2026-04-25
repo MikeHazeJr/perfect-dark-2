@@ -83,36 +83,45 @@ struct botstuckstate {
 static struct botstuckstate s_BotStuck[MAX_BOTS];
 
 /**
- * Async bot tick scheduler.
- * With many bots, full AI (botTickUnpaused) is expensive. Instead of ticking
- * all bots every frame, we distribute them across frame groups:
- *   <=8 bots: tick all every frame (original behavior)
- *   9-16 bots: 2 groups, each ticked every other frame (30 Hz AI)
- *   17-24 bots: 3 groups, each ticked every 3rd frame (20 Hz AI)
- * Movement, physics, and rendering still run every frame via chrTick.
+ * B-240: Bot tick load-spreading.
+ *
+ * With 30+ bots in a full match, ticking everyone's full AI (botTickUnpaused)
+ * on the same frame spikes per-frame load and starves the audio thread.
+ * Bots are distributed across BOT_AI_TICK_BUCKETS frames; only one bucket
+ * runs the heavy AI per frame (~15 Hz at the default of 4).
+ *
+ * Movement, physics, animation, and weapon firing still run every frame
+ * via chrTick. Only the higher-level decision pass (target selection,
+ * weapon switching, navigation goals, reload scheduling) is bucketed.
+ *
+ * Bucket assignment is implicit: each bot's aibot->aibotnum is set at
+ * allocation time and stays constant for the bot's lifetime, so
+ * `aibotnum % BOT_AI_TICK_BUCKETS` is its bucket. Lookup is O(1).
+ *
+ * Tunable: lower BOT_AI_TICK_BUCKETS if AI cadence ever feels too slow.
  */
+#define BOT_AI_TICK_BUCKETS 4
+
 static inline bool botShouldTickAI(struct chrdata *chr)
 {
-	if (g_BotCount <= 8) {
-		return true; /* original behavior for small matches */
+	struct aibot *aibot = chr->aibot;
+	if (!aibot) {
+		return true; /* safety: no bot data; caller already checked, defensive */
 	}
 
-	/* Determine group count based on active bot count */
-	s32 groups = (g_BotCount <= 16) ? 2 : 3;
-
-	/* Use the chr's slot index for deterministic distribution */
-	s32 slot = -1;
-	for (s32 i = 0; i < MAX_BOTS; i++) {
-		if (g_MpBotChrPtrs[i] == chr) {
-			slot = i;
-			break;
-		}
+	/* In small matches the per-frame AI cost is negligible, so bucketing
+	 * costs latency (slower decisions, slower reloads) for no win. Above
+	 * the bucket count we always bucket. */
+	if (g_BotCount < BOT_AI_TICK_BUCKETS) {
+		return true;
 	}
+
+	s32 slot = (s32)aibot->aibotnum;
 	if (slot < 0) {
-		return true; /* safety: tick if not found in array */
+		return true; /* safety: unassigned slot, fall through */
 	}
 
-	return (slot % groups) == (g_Vars.lvframe60 % groups);
+	return (slot % BOT_AI_TICK_BUCKETS) == (g_Vars.lvframe60 % BOT_AI_TICK_BUCKETS);
 }
 
 struct botdifficulty g_BotDifficulties[] = {

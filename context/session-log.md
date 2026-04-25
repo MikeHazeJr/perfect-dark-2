@@ -4,6 +4,22 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S458 - 2026-04-25 - Priority N: bot tick load-spreading (B-240)
+
+`hardcore-feynman-e8acee` worktree. Mike redirected after a duplicate-session interrupt -- previous Priority M assignment running in `local_30af51b8`. New scope: sequential N -> O -> hygiene cluster.
+
+### Priority N -- B-240 bot tick load-spreading
+
+`src/game/bot.c::botShouldTickAI` rewritten. Previous scheme used 2 buckets (>=9 bots) / 3 buckets (>=17 bots) capped at 3, with an O(N) `g_MpBotChrPtrs[]` linear scan per call. Replaced with fixed `BOT_AI_TICK_BUCKETS=4` and direct `aibot->aibotnum` indexing (O(1)). Heavy AI decision pass (`botTickUnpaused`: targeting, weapon switch, navigation goals, reload scheduling, cloak control) now runs at ~15 Hz per bot; `chrTick` (physics, animation, weapon firing via `chraTick`) and `botApplyMovement` continue every frame. Small-match short-circuit: `g_BotCount < 4` skips bucketing. No shared writers; each bot's gate is pure read of `aibotnum`, `g_BotCount`, `lvframe60`. Tunable: lower the constant if AI feels too slow.
+
+Build clean (787/787): PerfectDark.exe + PerfectDarkServer.exe both link successfully in worktree Build dir.
+
+Bug entry added to `bugs.md` as B-240 FIXED-PENDING-PLAYTEST. Verification requires Mike's in-game test of full-bot match (16+) for actual frame-time smoothing -- code change verifies link/compile only.
+
+### Next: Priority O -- B-242 spawn capsule sweep with character-height-aware capsule
+
+Queued after N's commit lands. Read `context/designs/spawn-system-architecture-2026-04-13.md` and `src/include/lib/capsule.h` to set up implementation -- the swept capsule API exists but `PC_CAPSULE_ENABLED 0`; will route post-spawn validation through `cdExamCylMove01` rather than the disabled capsule sweep, since the sweep was for movement and we just need an overlap check.
+
 ## Session S457 - 2026-04-24 - F/G/H/I/J: test arenas, music sync, B-228 Option E, design pass
 
 Five priorities landed in one batch. F/G/H are code; I/J are design docs awaiting Mike review.
