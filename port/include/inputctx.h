@@ -113,6 +113,29 @@ s32 inputCtxShouldSuppressKey(const SDL_Event *ev);
  * something outside the context system may have changed SDL mouse state. */
 void inputCtxSyncMouseMode(void);
 
+/* Single authoritative cursor-visibility writer (B-259, 2026-04-25).
+ *
+ * Every SDL_ShowCursor call in the engine MUST flow through this helper.
+ * Direct SDL_ShowCursor calls bypass the input-context state machine and
+ * race against inputCtxSyncMouseMode (B-259 root cause: input.c's
+ * MLOCK_AUTO 3-second auto-hide timer fired in menu state, hiding the
+ * cursor while the menu was still consuming clicks -> "mouse usable but
+ * not visible").
+ *
+ * The caller passes their preferred state (1 = show, 0 = hide); the
+ * helper reconciles with the input-context stack:
+ *   - If the top context is &g_CtxGameplay, the caller's preference is
+ *     honoured (gameplay can hide the cursor for relative-mouse mode,
+ *     show it briefly on movement, etc.).
+ *   - If the top context is anything else (menu, pause, debug overlay,
+ *     text input), cursor is FORCED VISIBLE regardless of caller intent.
+ *     Menu contexts own visibility unconditionally.
+ *
+ * This collapses the four pre-existing SDL_ShowCursor writers
+ * (inputctx.c sync, input.c MLOCK_AUTO timer, gfx_sdl2.cpp gfx-API,
+ * pdgui_backend.cpp B-92 hotswap close) into a single decision point. */
+void inputCtxApplyCursorVisibility(s32 want_show);
+
 /* ---- Gameplay input authority predicate (ADR 2026-04-13) ----
  *
  * Central truth-source for "can gameplay-only actions be read right now?"

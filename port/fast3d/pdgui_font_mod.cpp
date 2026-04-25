@@ -18,6 +18,7 @@
 #include "config.h"
 #include "system.h"
 #include "fs.h"
+#include "modmgr.h"   /* B-238 follow-up: MODMGR_RESERVED_NAMES_LIST */
 
 #define FONTMOD_MAX             32
 #define FONTMOD_NAME_LEN        96
@@ -197,11 +198,30 @@ static void scan_mods_root(const char *root)
     DIR *d = opendir(root);
     if (!d) return;
 
+    /* B-238 follow-up trust-gate alignment: skip reserved trust-gate folders
+     * (shared/, inbox/, untrusted/) and any .legacy_backup residue from the
+     * M-4.1 migration. These are root-level checks; the Fonts/ category
+     * recursion below is depth-1 only and does not re-apply this filter. */
+    static const char *const k_reserved[MODMGR_RESERVED_NAMES_COUNT] = MODMGR_RESERVED_NAMES_LIST;
+    static const char k_legacy_suffix[] = ".legacy_backup";
+    const size_t k_legacy_suffix_len = sizeof(k_legacy_suffix) - 1;
+
     struct dirent *ent;
     while ((ent = readdir(d)) != nullptr) {
         const char *n = ent->d_name;
         if (!n || n[0] == '.') continue;
         if (!strcmp(n, ".") || !strcmp(n, "..")) continue;
+
+        bool reserved_hit = false;
+        for (s32 ri = 0; ri < MODMGR_RESERVED_NAMES_COUNT; ri++) {
+            if (strcmp(n, k_reserved[ri]) == 0) { reserved_hit = true; break; }
+        }
+        if (reserved_hit) continue;
+        size_t nlen = strlen(n);
+        if (nlen > k_legacy_suffix_len &&
+            strcmp(n + nlen - k_legacy_suffix_len, k_legacy_suffix) == 0) {
+            continue;
+        }
 
         char subdir[FONTMOD_PATH_LEN];
         snprintf(subdir, sizeof(subdir), "%s/%s", root, n);

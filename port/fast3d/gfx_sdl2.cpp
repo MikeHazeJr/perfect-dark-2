@@ -18,6 +18,8 @@ extern "C" {
     void inputCtxEndFrame(void);
     /* ADR 2026-04-13: window-focus signals into the input-authority predicate. */
     void inputCtxNotifyFocus(signed int gained);
+    /* B-259 (2026-04-25): single SDL_ShowCursor authority. */
+    void inputCtxApplyCursorVisibility(signed int want_show);
 }
 
 /* M0.2 Phase B: actionmap lifecycle */
@@ -257,11 +259,13 @@ static void gfx_sdl_set_cursor_visibility(bool visible) {
     if (!visible && pdguiIsActive()) {
         return;
     }
-    if (visible) {
-        SDL_ShowCursor(SDL_ENABLE);
-    } else {
-        SDL_ShowCursor(SDL_DISABLE);
-    }
+    /* B-259 (2026-04-25): route through the input-ctx authority. The
+     * gfx layer used to call SDL_ShowCursor directly, racing the
+     * input-ctx state machine -- a hide call here while a menu was
+     * active produced "cursor invisible while menu consumes clicks".
+     * The helper observes ctx state and refuses to hide while a menu
+     * is on top of the stack. */
+    inputCtxApplyCursorVisibility(visible ? 1 : 0);
 }
 
 static void get_centered_positions_native(int32_t width, int32_t height, int32_t *posX, int32_t *posY) {

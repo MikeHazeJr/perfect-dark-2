@@ -35,6 +35,8 @@
 #include "config.h"
 #include "system.h"
 #include "fs.h"
+#include "modmgr.h"           /* B-238 follow-up: MODMGR_RESERVED_NAMES_LIST */
+#include "modarchive.h"       /* B-238 follow-up: read theme.json from .pdmod archives */
 
 /* =========================================================================
  * Constants
@@ -158,11 +160,18 @@ struct theme_def {
 struct theme_entry {
     char catalog_id[THEME_CATALOG_ID_LEN];
     char name[THEME_NAME_LEN];
-    char filepath[THEME_FILEPATH_LEN]; /* empty for built-in */
+    char filepath[THEME_FILEPATH_LEN]; /* empty for built-in; for archive themes
+                                          this is "<archive>::theme.json" purely
+                                          for diagnostics — load goes via embed_data */
     s32  palette_index;                /* 0-6 for built-in, -1 for JSON */
     s32  enabled;                      /* 1=available in selector, 0=disabled */
     s32  first_sight;                  /* transient: 1 if just discovered this session */
     char cfg_enabled_key[96];          /* pd.ini key for enabled persistence */
+    /* B-238 follow-up: bytes for archive-sourced themes. NULL for folder /
+     * built-in themes, where filepath drives fsFileLoad on apply. Owned by
+     * the entry; freed on registry reset. */
+    char *embed_data;
+    u32   embed_size;
 };
 
 static struct theme_entry s_Themes[THEME_MAX_REGISTERED];
@@ -1022,6 +1031,8 @@ static struct theme_entry *add_entry(const char *catalog_id, const char *name,
     e->enabled = 1;       /* default-enabled policy */
     e->first_sight = 0;
     e->cfg_enabled_key[0] = '\0';
+    e->embed_data = nullptr;
+    e->embed_size = 0;
     return e;
 }
 
@@ -1181,6 +1192,160 @@ static bool dir_has_theme_or_mod(const char *dirpath)
     return false;
 }
 
+/* Returns 1 if `name` matches a top-level reserved trust-gate folder
+ * (per modmgr.h). Reserved folders are read-only-for-browsing and must
+ * never be walked for theme content -- they may hold untrusted content.
+ * Only applies at the root depth; recursed subdirs may legitimately be
+ * named e.g. mods/UI Chrome/shared/. */
+static bool is_reserved_top_level(const char *name)
+{
+    static const char *const reserved[MODMGR_RESERVED_NAMES_COUNT] = MODMGR_RESERVED_NAMES_LIST;
+    if (!name) return false;
+    for (s32 i = 0; i < MODMGR_RESERVED_NAMES_COUNT; i++) {
+        if (strcmp(name, reserved[i]) == 0) return true;
+    }
+    return false;
+}
+
+/* Returns 1 if `name` ends in ".legacy_backup". The M-4.1 migrator renames
+ * folder mods to <name>.legacy_backup after packaging; the renamed folders
+ * must NOT be re-discovered as live mods. */
+static bool has_legacy_backup_suffix(const char *name)
+{
+    if (!name) return false;
+    static const char k_suffix[] = ".legacy_backup";
+    size_t n = strlen(name);
+    size_t s = sizeof(k_suffix) - 1;
+    return n > s && strcmp(name + n - s, k_suffix) == 0;
+}
+
+/* Returns 1 if `name` ends in `.pdmod` (case-insensitive). Used to
+ * enumerate archive mods alongside folder mods during the theme scan. */
+static bool has_pdmod_extension(const char *name)
+{
+    if (!name) return false;
+    size_t n = strlen(name);
+    if (n < 7) return false;
+    const char *t = name + n - 6;
+    return (t[0] == '.') &&
+           (t[1] == 'p' || t[1] == 'P') &&
+           (t[2] == 'd' || t[2] == 'D') &&
+           (t[3] == 'm' || t[3] == 'M') &&
+           (t[4] == 'o' || t[4] == 'O') &&
+           (t[5] == 'd' || t[5] == 'D');
+}
+
+/* Compute the slug for an archive mod from its on-disk filename: strip
+ * the trailing ".pdmod". Truncates if the resulting slug exceeds out_cap. */
+static void archive_filename_to_slug(const char *filename, char *out, size_t out_cap)
+{
+    if (!filename || !out || out_cap == 0) {
+        if (out && out_cap > 0) out[0] = '\0';
+        return;
+    }
+    size_t n = strlen(filename);
+    if (n >= 6) n -= 6;  /* strip ".pdmod" */
+    if (n >= out_cap) n = out_cap - 1;
+    memcpy(out, filename, n);
+    out[n] = '\0';
+}
+
+/* Register a single .pdmod archive as a theme. Opens the archive, looks
+ * for theme.json (or mod.json with a "theme" key), and stashes the bytes
+ * in the theme entry's embed_data so the apply path bypasses fsFileLoad. */
+static void register_mod_theme_archive(const char *archive_path)
+{
+    if (!archive_path || !archive_path[0]) return;
+
+    /* Derive slug from archive leaf name (strip .pdmod). */
+    const char *leaf = archive_path;
+    for (const char *q = archive_path; *q; q++) {
+        if (*q == '/' || *q == '\\') leaf = q + 1;
+    }
+    char slug[THEME_CATALOG_ID_LEN];
+    archive_filename_to_slug(leaf, slug, sizeof(slug));
+    if (!slug[0]) return;
+
+    /* Skip if already registered (rescan idempotency). */
+    char catalog_id[THEME_CATALOG_ID_LEN];
+    snprintf(catalog_id, sizeof(catalog_id), "mod:%s", slug);
+    if (find_entry(catalog_id)) {
+        sysLogPrintf(LOG_NOTE,
+            "PDGUI theme loader: '%s' already registered, skipping (archive)", catalog_id);
+        return;
+    }
+
+    mod_archive_t *arc = modArchiveOpen(archive_path);
+    if (!arc) return;
+
+    /* Look for theme.json first (canonical theme mod). */
+    char *bytes = nullptr;
+    u32   size  = 0;
+    s32   idx   = modArchiveFindEntry(arc, "theme.json");
+    if (idx >= 0) {
+        bytes = (char *)modArchiveExtractAlloc(arc, idx, &size);
+    } else {
+        /* Fall back to mod.json with a "theme" key (legacy themes that put
+         * the colour fields directly in their manifest). */
+        u32 mfstSize = 0;
+        char *mfst = modArchiveReadManifest(arc, &mfstSize);
+        if (mfst) {
+            if (mfstSize > 0 && strstr(mfst, "\"theme\"") != nullptr) {
+                bytes = mfst;
+                size = mfstSize;
+                mfst = nullptr;  /* ownership transferred */
+            }
+            free(mfst);
+        }
+    }
+    modArchiveClose(arc);
+
+    if (!bytes || size == 0) {
+        free(bytes);
+        return;
+    }
+
+    /* Extract a display name. The bytes buffer needs NUL termination for
+     * the strstr-based extractor; modArchive*Alloc adds a trailing NUL but
+     * be defensive in case the contract drifts. */
+    char *json = (char *)malloc(size + 1);
+    if (!json) {
+        free(bytes);
+        return;
+    }
+    memcpy(json, bytes, size);
+    json[size] = '\0';
+    char display_name[THEME_NAME_LEN] = {0};
+    extract_theme_name(json, display_name, sizeof(display_name), slug);
+    free(json);
+
+    /* Register the theme entry. filepath is purely informational for archive
+     * themes -- the apply path uses embed_data when present. */
+    char info_path[THEME_FILEPATH_LEN];
+    snprintf(info_path, sizeof(info_path), "%s::theme.json", archive_path);
+    struct theme_entry *e = add_entry(catalog_id, display_name, info_path, -1);
+    if (!e) {
+        free(bytes);
+        return;
+    }
+    e->embed_data = bytes;
+    e->embed_size = size;
+
+    snprintf(e->cfg_enabled_key, sizeof(e->cfg_enabled_key),
+             "Theme.Enable.%s", slug);
+    e->enabled = 1;
+    configRegisterInt(e->cfg_enabled_key, &e->enabled, 0, 1);
+
+    e->first_sight = !theme_slug_is_seen(slug);
+    if (e->first_sight) {
+        theme_mark_slug_seen(slug);
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "PDGUI theme loader: registered mod theme '%s' (\"%s\") from %s [enabled=%d, first_sight=%d, archive]",
+        catalog_id, display_name, archive_path, e->enabled, e->first_sight);
+}
+
 /* Walk a mods-tree root, registering every theme mod directly under it,
  * and for any manifest-less subdirectory, recurse ONE more level (category
  * folder support — e.g., mods/UI Chrome/<slug>/). Tracks walked count via
@@ -1200,7 +1365,28 @@ static void scan_themes_in_root(const char *root, int allow_recurse, int *walked
         char subdir[THEME_FILEPATH_LEN];
         snprintf(subdir, sizeof(subdir), "%s/%s", root, name);
         struct stat st;
-        if (stat(subdir, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+        if (stat(subdir, &st) != 0) continue;
+
+        /* Archive mod (.pdmod / .zip with mod.json). Only at the root level;
+         * archives under category folders also get picked up via recurse. */
+        if (S_ISREG(st.st_mode)) {
+            if (has_pdmod_extension(name)) {
+                register_mod_theme_archive(subdir);
+                if (walked) (*walked)++;
+            }
+            continue;
+        }
+        if (!S_ISDIR(st.st_mode)) continue;
+
+        /* B-238 follow-up trust-gate alignment: at the root level, skip
+         * reserved trust-gate folders (shared/, inbox/, untrusted/) and
+         * any .legacy_backup migration residue. allow_recurse is set on
+         * the top-level call only; nested category folders are still
+         * walked normally. */
+        if (allow_recurse) {
+            if (is_reserved_top_level(name)) continue;
+            if (has_legacy_backup_suffix(name)) continue;
+        }
 
         if (dir_has_theme_or_mod(subdir)) {
             register_mod_theme_dir(root, name);
@@ -1379,20 +1565,29 @@ s32 pdguiThemeLoadFromCatalog(const char *catalog_id)
         return 0;
     }
 
-    /* Load the JSON file */
+    /* B-238 follow-up: archive-sourced themes hold their JSON bytes in
+     * embed_data. Apply directly without going through fsFileLoad. */
+    char *json = nullptr;
     u32 fileSize = 0;
-    char *data = (char *)fsFileLoad(entry->filepath, &fileSize);
-    if (!data) {
-        sysLogPrintf(LOG_WARNING,
-            "PDGUI theme loader: failed to load '%s'", entry->filepath);
-        return 0;
+    if (entry->embed_data && entry->embed_size > 0) {
+        fileSize = entry->embed_size;
+        json = (char *)malloc(fileSize + 1);
+        if (!json) return 0;
+        memcpy(json, entry->embed_data, fileSize);
+        json[fileSize] = '\0';
+    } else {
+        char *data = (char *)fsFileLoad(entry->filepath, &fileSize);
+        if (!data) {
+            sysLogPrintf(LOG_WARNING,
+                "PDGUI theme loader: failed to load '%s'", entry->filepath);
+            return 0;
+        }
+        json = (char *)malloc(fileSize + 1);
+        if (!json) { free(data); return 0; }
+        memcpy(json, data, fileSize);
+        json[fileSize] = '\0';
+        free(data);
     }
-
-    /* Null-terminate */
-    char *json = (char *)malloc(fileSize + 1);
-    memcpy(json, data, fileSize);
-    json[fileSize] = '\0';
-    free(data);
 
     struct theme_def def;
     s32 ok = parse_theme_json(json, &def);

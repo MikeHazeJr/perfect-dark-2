@@ -1482,6 +1482,22 @@ static void modmgrScanDirectory(void)
 			continue;
 		}
 
+		/* M-4.1 follow-up: silently skip .legacy_backup folders at the top
+		 * level. modmgrTryRegisterModEntry already refuses these as mods,
+		 * but without this skip the scanner falls through to
+		 * modmgrScanCategoryFolder which walks INTO the backup folder
+		 * looking for child mods, producing noisy log lines for what is
+		 * by design an inert safety copy. */
+		{
+			size_t leafLen = strlen(ent->d_name);
+			const char *suffix = ".legacy_backup";
+			size_t suffixLen = strlen(suffix);
+			if (leafLen > suffixLen &&
+			    strcmp(ent->d_name + leafLen - suffixLen, suffix) == 0) {
+				continue;
+			}
+		}
+
 		char fullpath[FS_MAXPATH + 1];
 		snprintf(fullpath, sizeof(fullpath), "%s/%s", modsdir, ent->d_name);
 
@@ -1522,6 +1538,19 @@ static void modmgrScanDirectory(void)
 		while ((altent = readdir(altdir)) != NULL && g_ModRegistryCount < MODMGR_MAX_MODS) {
 			if (altent->d_name[0] == '.') continue;
 			if (modmgrIsReservedTopLevel(altent->d_name)) continue;
+
+			/* M-4.1 follow-up: same .legacy_backup skip as the primary
+			 * scan so the alt candidates do not produce noisy walk
+			 * logs for migration safety folders either. */
+			{
+				size_t altLen = strlen(altent->d_name);
+				const char *suffix = ".legacy_backup";
+				size_t suffixLen = strlen(suffix);
+				if (altLen > suffixLen &&
+				    strcmp(altent->d_name + altLen - suffixLen, suffix) == 0) {
+					continue;
+				}
+			}
 
 			char altpath[FS_MAXPATH + 1];
 			snprintf(altpath, sizeof(altpath), "%s/%s", candidates[ci], altent->d_name);

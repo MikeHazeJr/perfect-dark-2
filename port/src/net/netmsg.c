@@ -2064,6 +2064,27 @@ u32 netmsgSvcPlayerStatsWrite(struct netbuf *dst, struct netclient *actcl)
 		}
 	}
 
+	/* B-256 structural fix (v43, 2026-04-25): authoritative attacker
+	 * identity on the wire. The dying chr's lastattacker pointer is
+	 * resolved to a player index here at write time on the producing
+	 * peer (where the chr-data is canonical), then transmitted so the
+	 * receiver can attribute the kill without re-resolving local state
+	 * that may not yet reflect the death event. -1 sentinel when the
+	 * attacker is not a player (NULL lastattacker, world damage,
+	 * out-of-bounds, suicide) -- receiver folds that to currentplayernum
+	 * via the legacy fallback path. Mandatory in v43; mixed-version play
+	 * is rejected at the auth handshake. */
+	{
+		s8 attacker_id = -1;
+		if (pl->prop->chr->lastattacker) {
+			s32 idx = mpPlayerGetIndex(pl->prop->chr->lastattacker);
+			if (idx >= 0 && idx <= 127) {
+				attacker_id = (s8)idx;
+			}
+		}
+		netbufWriteS8(dst, attacker_id);
+	}
+
 	return dst->error;
 }
 
@@ -2113,6 +2134,15 @@ u32 netmsgSvcPlayerStatsRead(struct netbuf *src, struct netclient *srccl)
 		}
 	}
 
+	/* B-256 v43 (2026-04-25): authoritative attacker identity from the
+	 * wire. The producing peer resolved mpPlayerGetIndex(lastattacker)
+	 * at write time and shipped it here. This bypasses the local-state
+	 * resolution race that the v42 fix at this site relied on (chrdata
+	 * may not yet reflect the attacker pointer when the death packet
+	 * arrives if events are reordered relative to chr-state replication).
+	 * Mandatory field in v43; mixed-version play rejected at handshake. */
+	const s8 wire_attacker_id = netbufReadS8(src);
+
 	const s32 prevplayernum = g_Vars.currentplayernum;
 
 	if (actcl->playernum >= MAX_PLAYERS) {
@@ -2124,9 +2154,26 @@ u32 netmsgSvcPlayerStatsRead(struct netbuf *src, struct netclient *srccl)
 
 	const bool newisdead = (flags & (1 << 0)) != 0;
 	if (!pl->isdead && newisdead) {
+		/* B-256 v43 dispatch:
+		 *   1. Wire field authoritative when in range and != self.  This
+		 *      is the new structural path: the producing peer already
+		 *      resolved the attacker so receivers don't re-resolve from
+		 *      potentially-stale local chr-state.
+		 *   2. Fallback to the local-resolve path (the v42 third-site
+		 *      closure: mpPlayerGetIndex on lastattacker pointer, then
+		 *      currentplayernum) when the wire reports -1 sentinel or a
+		 *      self-attribution, since "self" on the wire would be a
+		 *      suicide and the legacy path encodes that as
+		 *      currentplayernum == self anyway.
+		 * Both layers exist now: wire-authoritative for normal kills,
+		 * local-fallback for v42 grace and edge cases (suicides, world
+		 * damage, NULL attacker). */
 		s16 shooter;
-		if (pl->prop->chr->lastshooter >= 0 && pl->prop->chr->timeshooter > 0) {
-			shooter = pl->prop->chr->lastshooter;
+		if (wire_attacker_id >= 0 && (s32)wire_attacker_id != g_Vars.currentplayernum) {
+			shooter = (s16)wire_attacker_id;
+		} else if (pl->prop->chr->lastattacker) {
+			shooter = (s16)mpPlayerGetIndex(pl->prop->chr->lastattacker);
+			if (shooter < 0) shooter = g_Vars.currentplayernum;
 		} else {
 			shooter = g_Vars.currentplayernum;
 		}

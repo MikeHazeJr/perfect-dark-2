@@ -9,7 +9,22 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 42  /* v42 (2026-04-25): Phase 3+ wire-layer additive --
+#define NET_PROTOCOL_VER 43  /* v43 (2026-04-25): B-256 structural fix --
+                              * SVC_PLAYER_STATS gains a trailing s8 attacker_id
+                              * field carrying the dying chr's resolved
+                              * mpPlayerGetIndex(lastattacker) at write time, or
+                              * -1 sentinel when the attacker is unknown / not a
+                              * player (suicide, out-of-bounds, NULL lastattacker).
+                              * Receivers prefer the wire field over the local-
+                              * resolve fallback at netmsg.c:2128 so MP killfeed
+                              * and scoreboard attribution are no longer subject
+                              * to local-state-resolution races in 2+ peer
+                              * matches.  Mixed v42/v43 play is rejected at the
+                              * ENet auth handshake (netServerEvConnect, see
+                              * port/src/net/net.c:1560) and at the presence
+                              * proto_version check (group_session.c:212), so
+                              * receivers never see a v42 packet.
+                              * v42 (2026-04-25): Phase 3+ wire-layer additive --
                               * (a) CLC_SPECTATE_REQUEST (0x16) + SVC_SPECTATE_ACK (0x6a)
                               *     + SVC_STATE_FRAME (0x6b). Spectator does not consume
                               *     a player slot: server sets CLFLAG_SPECTATOR on the

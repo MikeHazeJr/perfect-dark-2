@@ -13,6 +13,7 @@
 #include "fs.h"
 #include "pdgui.h"
 #include "actionmap.h"
+#include "inputctx.h"   /* B-259: route SDL_ShowCursor through the authority */
 
 #if !SDL_VERSION_ATLEAST(2, 0, 14)
 // this was added in 2.0.14
@@ -1212,7 +1213,15 @@ void inputMouseShowCursor(s32 show)
 		return;
 	}
 
-	SDL_ShowCursor(mouseShowCursor);
+	/* B-259 (2026-04-25): route through the input-ctx authority. The
+	 * MLOCK_AUTO 3-second auto-hide timer in inputUpdateMouse() above
+	 * calls this with show=0 every tick once idle. Without the helper
+	 * the timer fired SDL_ShowCursor(SDL_DISABLE) even when the user
+	 * was inside a menu (mouseLocked was already false because the
+	 * menu had absolute-mouse mode), producing the "mouse usable but
+	 * not visible" symptom Mike playtested in build 21010fbd. The
+	 * helper observes that ctx-top != gameplay and refuses to hide. */
+	inputCtxApplyCursorVisibility(mouseShowCursor);
 	if (show) {
 		mouseCursorTime = sysGetMicroseconds() + CURSOR_HIDE_TIME;
 	}
