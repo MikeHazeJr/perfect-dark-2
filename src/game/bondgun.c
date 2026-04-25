@@ -5460,6 +5460,30 @@ void bgunTickSwitch2(void)
 	struct gunctrl *ctrl = &g_Vars.currentplayer->gunctrl;
 	s32 i;
 
+	/* B-246 round-2 instrumentation: log per-hand state when there's a queued
+	 * switch but the dual-hand bgunCanFreeWeapon gate hasn't passed. Tells us
+	 * which hand is wedged and at what stateminor / count. Player 0 only,
+	 * first 60 ticks + every ~120 ticks thereafter. */
+	if (g_Vars.currentplayernum == 0 && ctrl->switchtoweaponnum >= 0
+			&& (g_Vars.lvframe60 < 60 || (g_Vars.lvframenum % 120) == 9)) {
+		s32 r_canfree = bgunCanFreeWeapon(HAND_RIGHT) ? 1 : 0;
+		s32 l_canfree = bgunCanFreeWeapon(HAND_LEFT) ? 1 : 0;
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunTickSwitch2 player=0 frame=%d switchto=%d "
+			"R(canFree=%d state=%d sm=%d cnt=%d throwing=%d) "
+			"L(canFree=%d state=%d sm=%d cnt=%d)",
+			(s32)g_Vars.lvframe60, (s32)ctrl->switchtoweaponnum,
+			r_canfree,
+			(s32)player->hands[HAND_RIGHT].state,
+			(s32)player->hands[HAND_RIGHT].stateminor,
+			(s32)player->hands[HAND_RIGHT].count,
+			(s32)ctrl->throwing,
+			l_canfree,
+			(s32)player->hands[HAND_LEFT].state,
+			(s32)player->hands[HAND_LEFT].stateminor,
+			(s32)player->hands[HAND_LEFT].count);
+	}
+
 	if (ctrl->switchtoweaponnum >= 0) {
 		if (bgunCanFreeWeapon(HAND_RIGHT) && bgunCanFreeWeapon(HAND_LEFT)) {
 			s32 weaponnum = player->gunctrl.weaponnum;
@@ -11936,6 +11960,33 @@ void bgunTickGameplay(bool triggeron)
 	s32 gunsfiring[2] = {false, false};
 	struct player *player = g_Vars.currentplayer;
 	s32 i;
+
+	/* B-246 round-2 instrumentation: log entry every ~120 frames for player 0,
+	 * AND on the first 30 ticks of every match. Tells us whether bgunTickGameplay
+	 * is even being called, what tickmode is, and whether the inner gate
+	 * (tickmode==NORMAL && lvupdate240>0) is passing. The first round-1 fire-
+	 * handler log was gated on `triggeron && !playertriggeron` (rising edge);
+	 * if triggeron is always false the rising edge never fires and the log
+	 * never emitted. This entry log is unconditional within the first 30 ticks
+	 * so we always see whether the function runs. */
+	if (g_Vars.currentplayernum == 0
+			&& (g_Vars.lvframe60 < 30 || (g_Vars.lvframenum % 120) == 7)) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunTickGameplay enter player=0 frame=%d tickmode=%d "
+			"lvupdate240=%d triggeron_in=%d gunctrl_wpn=%d switchto=%d "
+			"R(state=%d sm=%d cnt=%d inuse=%d) L(state=%d sm=%d cnt=%d inuse=%d)",
+			(s32)g_Vars.lvframe60, (s32)g_Vars.tickmode,
+			(s32)g_Vars.lvupdate240, (s32)triggeron,
+			(s32)player->gunctrl.weaponnum, (s32)player->gunctrl.switchtoweaponnum,
+			(s32)player->hands[HAND_RIGHT].state,
+			(s32)player->hands[HAND_RIGHT].stateminor,
+			(s32)player->hands[HAND_RIGHT].count,
+			(s32)player->hands[HAND_RIGHT].inuse,
+			(s32)player->hands[HAND_LEFT].state,
+			(s32)player->hands[HAND_LEFT].stateminor,
+			(s32)player->hands[HAND_LEFT].count,
+			(s32)player->hands[HAND_LEFT].inuse);
+	}
 
 	/* B-246 instrumentation: log fire handler entry on first frame after the
 	 * trigger toggles ON (rising edge). Captures the gate state at the exact
