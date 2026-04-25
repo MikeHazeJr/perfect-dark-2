@@ -96,6 +96,17 @@ typedef struct forge_module {
 	 * (e.g. Mission Failed -> CI hub, script-driven mainChangeToStage, etc.)
 	 * and tear down cleanly. -1 = no session active. */
 	s32 session_stagenum;
+	/* B-254 (2026-04-25): canvas mode flag.  When true, the active session
+	 * was launched on a SP campaign stage as a build canvas; setup-time
+	 * chr / AI / script paths consult forgeIsCanvasMode() and short-circuit
+	 * to keep the stage's authored mission state from running.  Cleared
+	 * when the session transitions to INACTIVE. */
+	bool canvas_mode;
+	/* B-254 (2026-04-25): mirror of canvas_mode at request time, before the
+	 * session has activated (request_enter_session is true but state is
+	 * still INACTIVE).  Latched into canvas_mode at activation in
+	 * forgeTick. */
+	bool request_canvas_mode;
 } forge_module_t;
 
 static forge_module_t s_forge;
@@ -382,6 +393,27 @@ static void forgeUpdateFreefly(void)
 
 	const f32 speed = FORGE_FREEFLY_SPEED_DEFAULT * scale * FORGE_FRAME_DT;
 
+	/* B-255 (2026-04-25): one-shot trace on first non-trivial move input
+	 * so Mike can verify in playtest that the look-relative transform
+	 * is reaching the position update. Logs the current yaw/pitch and
+	 * the computed forward / right vectors. Fires once per session
+	 * activation; cleared in forgeTransitionToInactive (canvas_mode
+	 * field reset there also serves as the "session is starting fresh"
+	 * latch for this diagnostic). If the math were upstream-broken
+	 * (raw stick to world axes) the fwd vector would not change as
+	 * the user yaw-rotates the camera. */
+	{
+		static bool s_b255_logged = false;
+		if (!s_b255_logged && (mx != 0.0f || my != 0.0f)) {
+			sysLogPrintf(LOG_NOTE,
+				"GRID.B255: freefly move-frame trace yaw=%.1f pitch=%.1f "
+				"fwd=(%.3f,%.3f,%.3f) right=(%.3f,%.3f,%.3f) stick=(mx=%.2f,my=%.2f)",
+				s_forge.fly.yaw_deg, s_forge.fly.pitch_deg,
+				fwd_x, fwd_y, fwd_z, right_x, right_y, right_z, mx, my);
+			s_b255_logged = true;
+		}
+	}
+
 	s_forge.fly.pos.x += (fwd_x * my + right_x * mx) * speed;
 	s_forge.fly.pos.y += (fwd_y * my + right_y * mx) * speed;
 	s_forge.fly.pos.z += (fwd_z * my + right_z * mx) * speed;
@@ -486,6 +518,8 @@ static void forgeTransitionToInactive(const char *reason)
 	s_forge.state = FORGE_SESSION_INACTIVE;
 	s_forge.request_enter_session = false;
 	s_forge.session_stagenum = -1;  /* B-245: clear so next session captures fresh stagenum */
+	s_forge.canvas_mode = false;        /* B-254: clear canvas latch on session end */
+	s_forge.request_canvas_mode = false;
 
 	/* Issue 8b + AUDIT-24-H2/H3: ensure both Forge IMCs are released
 	 * when the session ends through any path (stage-left-gameplay
@@ -522,6 +556,8 @@ void forgeInit(void)
 	s_forge.state = FORGE_SESSION_INACTIVE;
 	s_forge.request_enter_session = false;
 	s_forge.session_stagenum = -1;  /* B-245: no session active at init */
+	s_forge.canvas_mode = false;          /* B-254: canvas inactive at init */
+	s_forge.request_canvas_mode = false;
 	s_forge.fly.pos.x = 0.0f;
 	s_forge.fly.pos.y = 0.0f;
 	s_forge.fly.pos.z = 0.0f;
@@ -543,7 +579,15 @@ void forgeInit(void)
 void forgeRequestEnterSession(void)
 {
 	s_forge.request_enter_session = true;
+	s_forge.request_canvas_mode = false;
 	sysLogPrintf(LOG_NOTE, "GRID: enter requested (will activate on gameplay stage load)");
+}
+
+void forgeRequestEnterSessionCanvas(void)
+{
+	s_forge.request_enter_session = true;
+	s_forge.request_canvas_mode = true;
+	sysLogPrintf(LOG_NOTE, "GRID: enter requested in CANVAS mode (will activate on gameplay stage load)");
 }
 
 void forgeExitSession(void)
@@ -568,6 +612,11 @@ s32 forgeSessionIsActive(void)
 s32 forgeIsFreefly(void)
 {
 	return (s_forge.state == FORGE_SESSION_FREEFLY) ? 1 : 0;
+}
+
+s32 forgeIsCanvasMode(void)
+{
+	return (s_forge.state != FORGE_SESSION_INACTIVE && s_forge.canvas_mode) ? 1 : 0;
 }
 
 void forgeGetCameraPos(struct coord *out_pos)
@@ -697,6 +746,14 @@ void forgeTick(void)
 		struct player *p = forgeCurrentPlayer();
 		if (p) {
 			s_forge.request_enter_session = false;
+			/* B-254 (2026-04-25): latch canvas-mode request now that the
+			 * session is going active. Cleared in forgeTransitionToInactive. */
+			s_forge.canvas_mode = s_forge.request_canvas_mode;
+			s_forge.request_canvas_mode = false;
+			if (s_forge.canvas_mode) {
+				sysLogPrintf(LOG_NOTE, "GRID: session activating in CANVAS mode (stage=0x%02x)",
+						(u32)g_StageNum);
+			}
 			/* AUDIT-24-H2: activate the whole-session IMC BEFORE the
 			 * FREEFLY transition. This puts JBTN_BACK -> FORGE_TOGGLE
 			 * on the wire as soon as the session is live, so the

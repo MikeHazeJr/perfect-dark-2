@@ -30,6 +30,11 @@
 extern "C" {
 #include "presence.h"
 #include "social.h"
+#include "chat.h"
+#include "file_transfer.h"
+#include "spectator.h"
+#include "listening_room.h"
+#include "voice.h"
 #include "net/p2p.h"
 #include "net/group_session.h"
 }
@@ -45,6 +50,28 @@ static char s_AddFriendCodeBuf[128];
 static char s_AddFriendNickBuf[64];
 static char s_AddFriendStatus[128];
 
+/* Per-friend chat panel state. One panel can be open at a time. */
+static u32  s_ChatPanelFriendHandle = 0;
+static char s_ChatComposeBuf[CHAT_TEXT_MAX];
+static char s_ChatAttachPath[400];
+
+/* Per-friend Player Profile modal state. */
+static u32  s_ProfileFriendHandle = 0;
+
+/* Listening-room compose state for the Host tab. */
+static char s_LrAddIdBuf[LR_TRACK_ID_MAX];
+static char s_LrAddNameBuf[LR_TRACK_NAME_MAX];
+
+/* Convert-to-mod modal state. Source path lives in s_ConvertSourcePath; the
+ * modal is open while s_ConvertSourcePath[0] is non-zero. */
+static char s_ConvertSourcePath[400];
+static char s_ConvertNameBuf[64];
+static char s_ConvertDescBuf[256];
+static char s_ConvertCreatorBuf[32];
+static char s_ConvertTagsBuf[64];
+static char s_ConvertVersionBuf[16];
+static char s_ConvertStatus[160];
+
 extern "C" void pdguiFriendsSidebarOpen(void)   { s_SidebarOpen = true; }
 extern "C" void pdguiFriendsSidebarClose(void)  { s_SidebarOpen = false; }
 extern "C" void pdguiFriendsSidebarToggle(void) { s_SidebarOpen = !s_SidebarOpen; }
@@ -53,6 +80,14 @@ extern "C" s32  pdguiFriendsSidebarIsOpen(void) { return s_SidebarOpen ? 1 : 0; 
 extern "C" void pdguiFriendsSocialOpen(void)   { s_SocialOpen = true; s_SidebarOpen = false; }
 extern "C" void pdguiFriendsSocialClose(void)  { s_SocialOpen = false; }
 extern "C" s32  pdguiFriendsSocialIsOpen(void) { return s_SocialOpen ? 1 : 0; }
+
+extern "C" void pdguiFriendsChatOpen(u32 friend_handle) {
+	s_ChatPanelFriendHandle = friend_handle;
+	s_ChatComposeBuf[0] = '\0';
+}
+extern "C" void pdguiFriendsChatClose(void) { s_ChatPanelFriendHandle = 0; }
+extern "C" s32  pdguiFriendsChatIsOpen(void) { return s_ChatPanelFriendHandle != 0 ? 1 : 0; }
+extern "C" u32  pdguiFriendsChatTargetHandle(void) { return s_ChatPanelFriendHandle; }
 
 /* -------------------------------------------------------------------------
  * Helpers
@@ -328,6 +363,24 @@ static void renderFriendRow(s32 idx, const social_friend_t *f)
 		ImGui::SameLine();
 	}
 
+	const bool can_spectate = (pstate == PRESENCE_IN_MATCH) ||
+	                           (pstate == PRESENCE_IN_MISSION);
+	if (can_spectate) {
+		if (ImGui::SmallButton("Spectate")) {
+			spectatorBeginLive(f->handle);
+		}
+		ImGui::SameLine();
+	}
+
+	if (ImGui::SmallButton("Message")) {
+		s_ChatPanelFriendHandle = f->handle;
+		s_ChatComposeBuf[0] = '\0';
+	}
+	ImGui::SameLine();
+	if (ImGui::SmallButton("Profile")) {
+		s_ProfileFriendHandle = f->handle;
+	}
+	ImGui::SameLine();
 	if (ImGui::SmallButton(f->muted ? "Unmute" : "Mute")) {
 		socialFriendSetMuted(f->connect_code, f->muted ? 0 : 1);
 	}
@@ -345,6 +398,355 @@ static void renderFriendRow(s32 idx, const social_friend_t *f)
 	ImGui::Unindent(20.0f);
 }
 
+/* -------------------------------------------------------------------------
+ * Per-friend chat panel (Phase 2 -- private 1:1 chat surface).
+ * ------------------------------------------------------------------------- */
+
+static void renderChatPanel(s32 winW, s32 winH)
+{
+	if (s_ChatPanelFriendHandle == 0) return;
+
+	const social_friend_t *f = socialFriendByHandle(s_ChatPanelFriendHandle);
+	if (!f) {
+		s_ChatPanelFriendHandle = 0;
+		return;
+	}
+
+	const float w = 480.0f;
+	const float h = (float)winH * 0.72f;
+	ImGui::SetNextWindowPos(ImVec2(40.0f, (float)winH * 0.14f), ImGuiCond_Appearing);
+	ImGui::SetNextWindowSize(ImVec2(w, h), ImGuiCond_Appearing);
+
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.04f, 0.06f, 0.12f, 0.95f));
+	bool open = true;
+	if (ImGui::Begin("##pd2_chat_panel",
+	                 &open,
+	                 ImGuiWindowFlags_NoCollapse |
+	                 ImGuiWindowFlags_NoSavedSettings)) {
+
+		char title[128];
+		socialFormatDisplay(f, title, sizeof(title));
+		ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+		ImGui::Text("Chat with %s", title);
+		ImGui::PopStyleColor();
+
+		const presence_peer_t *peer = presencePeerByHandle(f->handle);
+		const char *state_label = peer ? stateLabel(peer->state) : "Offline";
+		ImGui::TextDisabled("[%s]", state_label);
+		ImGui::Separator();
+
+		const float footer_h = 84.0f;
+		ImGui::BeginChild("##pd2_chat_history", ImVec2(0, -footer_h), false);
+		const s32 nm = chatHistoryCount(f->handle);
+		for (s32 i = 0; i < nm; i++) {
+			const chat_message_t *m = chatHistoryAt(f->handle, i);
+			if (!m) continue;
+			ImGui::PushID(11000 + i);
+			if (m->direction == CHAT_DIR_SYS) {
+				ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo(255));
+				ImGui::TextWrapped("-- %s --", m->text);
+				ImGui::PopStyleColor();
+			} else if (m->direction == CHAT_DIR_OUT) {
+				ImGui::Text("you:");
+				ImGui::SameLine();
+				ImGui::TextWrapped("%s", m->text);
+			} else {
+				ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+				ImGui::Text("%s:", f->agent_name[0] ? f->agent_name : "friend");
+				ImGui::PopStyleColor();
+				ImGui::SameLine();
+				ImGui::TextWrapped("%s", m->text);
+			}
+			if (m->attachment_kind != 0) {
+				ImGui::Indent(20.0f);
+				const char *kind_name = fileTransferKindName((s32)m->attachment_kind);
+				ImGui::Text("[%s] %s (%llu bytes)",
+				             kind_name,
+				             m->attachment_name[0] ? m->attachment_name : "(unnamed)",
+				             (unsigned long long)m->attachment_size);
+				if (m->attachment_path[0]) {
+					if (ImGui::SmallButton("Open file location")) {
+#ifdef _WIN32
+						char cmd[600];
+						snprintf(cmd, sizeof(cmd),
+						          "explorer.exe /select,\"%s\"", m->attachment_path);
+						(void)system(cmd);
+#elif defined(__APPLE__)
+						char cmd[600];
+						snprintf(cmd, sizeof(cmd), "open -R \"%s\"", m->attachment_path);
+						(void)system(cmd);
+#else
+						/* xdg-open against the directory; not all file
+						 * managers highlight, but it opens the folder. */
+						char cmd[600];
+						char dir[400];
+						strncpy(dir, m->attachment_path, sizeof(dir) - 1);
+						dir[sizeof(dir) - 1] = '\0';
+						char *slash = strrchr(dir, '/');
+						if (slash) *slash = '\0';
+						snprintf(cmd, sizeof(cmd), "xdg-open \"%s\"", dir);
+						(void)system(cmd);
+#endif
+					}
+					ImGui::SameLine();
+					if (ImGui::SmallButton("Copy path")) {
+						SDL_SetClipboardText(m->attachment_path);
+					}
+					/* Type-aware actions per Q18 amendment. */
+					if (m->attachment_kind == FT_KIND_MUSIC) {
+						ImGui::SameLine();
+						if (ImGui::SmallButton("Convert to mod...")) {
+							strncpy(s_ConvertSourcePath, m->attachment_path,
+							        sizeof(s_ConvertSourcePath) - 1);
+							s_ConvertSourcePath[sizeof(s_ConvertSourcePath) - 1] = '\0';
+							strncpy(s_ConvertNameBuf,
+							        m->attachment_name[0] ? m->attachment_name : "Untitled",
+							        sizeof(s_ConvertNameBuf) - 1);
+							s_ConvertNameBuf[sizeof(s_ConvertNameBuf) - 1] = '\0';
+							/* Strip extension from default name. */
+							char *dot = strrchr(s_ConvertNameBuf, '.');
+							if (dot) *dot = '\0';
+							s_ConvertDescBuf[0] = '\0';
+							strncpy(s_ConvertCreatorBuf, socialMyAgentName(),
+							        sizeof(s_ConvertCreatorBuf) - 1);
+							s_ConvertCreatorBuf[sizeof(s_ConvertCreatorBuf) - 1] = '\0';
+							strncpy(s_ConvertTagsBuf, "music,user-converted",
+							        sizeof(s_ConvertTagsBuf) - 1);
+							strncpy(s_ConvertVersionBuf, "1.0.0",
+							        sizeof(s_ConvertVersionBuf) - 1);
+							s_ConvertStatus[0] = '\0';
+						}
+					}
+				}
+				ImGui::Unindent(20.0f);
+			}
+			ImGui::PopID();
+		}
+		/* Auto-scroll if user is near the bottom. */
+		if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 40.0f) {
+			ImGui::SetScrollHereY(1.0f);
+		}
+		ImGui::EndChild();
+
+		ImGui::Separator();
+		ImGui::SetNextItemWidth(-100.0f);
+		bool submitted = ImGui::InputText("##pd2_chat_compose",
+		                                    s_ChatComposeBuf,
+		                                    sizeof(s_ChatComposeBuf),
+		                                    ImGuiInputTextFlags_EnterReturnsTrue);
+		ImGui::SameLine();
+		if (ImGui::Button("Send", ImVec2(80, 0)) || submitted) {
+			if (s_ChatComposeBuf[0] != '\0') {
+				if (chatSendText(f->handle, s_ChatComposeBuf) == 0) {
+					s_ChatComposeBuf[0] = '\0';
+				}
+			}
+		}
+
+		ImGui::SetNextItemWidth(-180.0f);
+		ImGui::InputTextWithHint("##pd2_chat_attach", "absolute path to attach...",
+		                          s_ChatAttachPath, sizeof(s_ChatAttachPath));
+		ImGui::SameLine();
+		if (ImGui::Button("Send file", ImVec2(120, 0))) {
+			if (s_ChatAttachPath[0] != '\0') {
+				s32 rc = fileTransferSendFile(f->handle, s_ChatAttachPath);
+				if (rc == 0) {
+					s_ChatAttachPath[0] = '\0';
+				}
+			}
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Paste path", ImVec2(120, 0))) {
+			char *clip = SDL_GetClipboardText();
+			if (clip) {
+				strncpy(s_ChatAttachPath, clip, sizeof(s_ChatAttachPath) - 1);
+				s_ChatAttachPath[sizeof(s_ChatAttachPath) - 1] = '\0';
+				SDL_free(clip);
+			}
+		}
+
+		if (peer && peer->state == PRESENCE_OFFLINE) {
+			ImGui::TextDisabled("Offline -- message will not be delivered until "
+			                      "%s is online again.", f->agent_name);
+		}
+	}
+	ImGui::End();
+	ImGui::PopStyleColor();
+
+	if (!open) {
+		s_ChatPanelFriendHandle = 0;
+	}
+
+	(void)winW;
+}
+
+/* Player Profile modal -- per-friend page (Q11 Halo 3 File Share lineage).
+ * Shows agent + connect code + nickname + last-seen, links to subscribe
+ * to their listening room, and reserves panels for stats + character
+ * preview + public mods list. The character render box ships from
+ * Priority Q (`03f44cb0` already in dev); this modal will pull that
+ * widget in a follow-up wiring commit. */
+static void renderProfileModal(void)
+{
+	if (s_ProfileFriendHandle == 0) return;
+	const social_friend_t *f = socialFriendByHandle(s_ProfileFriendHandle);
+	if (!f) { s_ProfileFriendHandle = 0; return; }
+
+	ImGui::OpenPopup("Player Profile");
+	if (ImGui::BeginPopupModal("Player Profile", nullptr,
+	                            ImGuiWindowFlags_AlwaysAutoResize |
+	                            ImGuiWindowFlags_NoSavedSettings)) {
+		ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+		ImGui::Text("%s", f->agent_name[0] ? f->agent_name : "?");
+		ImGui::PopStyleColor();
+		if (f->nickname[0]) ImGui::Text("\"%s\"", f->nickname);
+		ImGui::TextDisabled("Connect code: %s", f->connect_code);
+		ImGui::Separator();
+
+		const presence_peer_t *p = presencePeerByHandle(f->handle);
+		ImGui::Text("State:    %s", p ? stateLabel(p->state) : "Offline");
+		if (p && p->status_blurb[0]) {
+			ImGui::Text("Activity: %s", p->status_blurb);
+		}
+		if (p && p->last_pong_ms) {
+			char seen[24];
+			formatLastSeen(p->last_pong_ms, seen, sizeof(seen));
+			ImGui::Text("Last seen: %s", seen);
+		}
+
+		ImGui::Spacing();
+		ImGui::Separator();
+
+		/* Section 7 placeholders -- character render + stats + mods.
+		 * Each pulls a widget that lives elsewhere (Priority Q render,
+		 * playerstats.h totals, the Public Mods Page aggregator). The
+		 * follow-up wiring commit replaces these placeholders. */
+		ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo(255));
+		ImGui::TextUnformatted("Character preview");
+		ImGui::PopStyleColor();
+		ImGui::Indent(12.0f);
+		ImGui::TextDisabled("(3D head + body render -- pulls Priority Q render box "
+		                    "via charpreview when the wiring commit lands.)");
+		ImGui::Unindent(12.0f);
+
+		ImGui::Spacing();
+		ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo(255));
+		ImGui::TextUnformatted("Stats");
+		ImGui::PopStyleColor();
+		ImGui::Indent(12.0f);
+		ImGui::TextDisabled("(playerstats.h totals -- shipped per-friend once the "
+		                    "presence stats broadcast lands in a follow-up.)");
+		ImGui::Unindent(12.0f);
+
+		ImGui::Spacing();
+		ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo(255));
+		ImGui::TextUnformatted("Public mods");
+		ImGui::PopStyleColor();
+		ImGui::Indent(12.0f);
+		ImGui::TextDisabled("(Mod list shipped once the manifest broadcast wire ride "
+		                    "lands; click-to-download routes through file_transfer.c.)");
+		ImGui::Unindent(12.0f);
+
+		ImGui::Spacing();
+		ImGui::Separator();
+
+		const presence_state_t pstate = p ? p->state : PRESENCE_OFFLINE;
+		const bool can_invite = (pstate == PRESENCE_ONLINE_IDLE) ||
+		                         (pstate == PRESENCE_IN_MATCH) ||
+		                         (pstate == PRESENCE_IN_MISSION);
+		if (can_invite) {
+			if (ImGui::Button("Invite to play", ImVec2(180, 0))) {
+				presenceSendInvite(f->handle, PRESENCE_INVITE_KIND_MATCH);
+			}
+			ImGui::SameLine();
+		}
+		if (ImGui::Button("Subscribe to listening room", ImVec2(220, 0))) {
+			listeningRoomSubscribe(f->handle);
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Close", ImVec2(120, 0))) {
+			s_ProfileFriendHandle = 0;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
+}
+
+/* Section 8.5.3 -- Convert-to-mod modal. Drives
+ * fileTransferConvertMusicToMod and surfaces a confirmation toast on
+ * success. */
+static void renderConvertToModModal(void)
+{
+	if (s_ConvertSourcePath[0] == '\0') return;
+	ImGui::OpenPopup("Convert to Mod");
+	if (ImGui::BeginPopupModal("Convert to Mod", nullptr,
+	                            ImGuiWindowFlags_AlwaysAutoResize |
+	                            ImGuiWindowFlags_NoSavedSettings)) {
+		ImGui::Text("Source file: %s", s_ConvertSourcePath);
+		ImGui::Text("Type:        Music mod");
+		ImGui::Separator();
+
+		ImGui::SetNextItemWidth(380.0f);
+		ImGui::InputText("Name", s_ConvertNameBuf, sizeof(s_ConvertNameBuf));
+
+		ImGui::SetNextItemWidth(380.0f);
+		ImGui::InputTextMultiline("Description",
+		                            s_ConvertDescBuf, sizeof(s_ConvertDescBuf),
+		                            ImVec2(380.0f, 60.0f));
+
+		ImGui::SetNextItemWidth(220.0f);
+		ImGui::InputText("Creator", s_ConvertCreatorBuf, sizeof(s_ConvertCreatorBuf));
+
+		ImGui::SetNextItemWidth(380.0f);
+		ImGui::InputText("Tags", s_ConvertTagsBuf, sizeof(s_ConvertTagsBuf));
+
+		ImGui::SetNextItemWidth(140.0f);
+		ImGui::InputText("Version", s_ConvertVersionBuf, sizeof(s_ConvertVersionBuf));
+
+		const bool valid = (s_ConvertNameBuf[0] != '\0') &&
+		                    (s_ConvertCreatorBuf[0] != '\0');
+		if (s_ConvertStatus[0]) {
+			ImGui::Spacing();
+			ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo(255));
+			ImGui::TextWrapped("%s", s_ConvertStatus);
+			ImGui::PopStyleColor();
+		}
+
+		ImGui::Spacing();
+		if (!valid) ImGui::BeginDisabled();
+		if (ImGui::Button("Convert", ImVec2(140, 0))) {
+			char outpath[512];
+			s32 rc = fileTransferConvertMusicToMod(
+			            s_ConvertSourcePath,
+			            s_ConvertNameBuf,
+			            s_ConvertDescBuf,
+			            s_ConvertCreatorBuf,
+			            s_ConvertTagsBuf,
+			            s_ConvertVersionBuf,
+			            outpath, sizeof(outpath));
+			if (rc == 0) {
+				snprintf(s_ConvertStatus, sizeof(s_ConvertStatus),
+				          "Converted to mod at %s", outpath);
+				/* Reset source so the user can close the modal without
+				 * re-confirming -- the success message will linger one frame. */
+				s_ConvertSourcePath[0] = '\0';
+				ImGui::CloseCurrentPopup();
+			} else {
+				snprintf(s_ConvertStatus, sizeof(s_ConvertStatus),
+				          "Conversion failed (check name + creator are non-empty).");
+			}
+		}
+		if (!valid) ImGui::EndDisabled();
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel", ImVec2(140, 0))) {
+			s_ConvertSourcePath[0] = '\0';
+			s_ConvertStatus[0] = '\0';
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
+}
+
 extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 {
 	pdguiFriendsStatusIndicatorRender(winW, winH);
@@ -354,6 +756,12 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 	if (!ImGui::GetIO().WantCaptureKeyboard) {
 		if (ImGui::IsKeyPressed(ImGuiKey_Tab, false)) {
 			s_SidebarOpen = !s_SidebarOpen;
+		}
+		/* Phase 5 PTT: V key. Codec follow-up will move this to an
+		 * actionmap binding once Session B's input scope reopens. */
+		if (voiceEnabled() && voiceGetCaptureMode() == VOICE_CAPTURE_PUSH_TO_TALK) {
+			if (ImGui::IsKeyPressed(ImGuiKey_V, false))   voicePttBegin();
+			if (ImGui::IsKeyReleased(ImGuiKey_V))          voicePttEnd();
 		}
 	}
 
@@ -480,6 +888,149 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 					ImGui::EndTabItem();
 				}
 
+				if (ImGui::BeginTabItem("Listening room")) {
+					ImGui::BeginChild("##pd2_lr_body", ImVec2(0, -60.0f));
+
+					const listening_room_state_t st = listeningRoomState();
+					switch (st) {
+						case LR_STATE_OFF:
+							ImGui::TextDisabled("Not in a listening room.");
+							ImGui::Spacing();
+							if (ImGui::Button("Host a room")) {
+								listeningRoomHostBegin();
+							}
+							ImGui::SameLine();
+							ImGui::TextDisabled("Subscribe to a friend's room from their profile.");
+							break;
+						case LR_STATE_HOST: {
+							ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+							ImGui::TextUnformatted("You are hosting");
+							ImGui::PopStyleColor();
+							ImGui::Separator();
+							const s32 ntr = listeningRoomTrackCount();
+							const s32 cur = listeningRoomCurrentIdx();
+							for (s32 i = 0; i < ntr; i++) {
+								const lr_track_t *t = listeningRoomTrackAt(i);
+								if (!t) continue;
+								ImGui::PushID(13000 + i);
+								if (i == cur) {
+									ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo(255));
+									ImGui::Text("> %s", t->display_name);
+									ImGui::PopStyleColor();
+								} else {
+									ImGui::Text("  %s", t->display_name);
+								}
+								ImGui::SameLine();
+								if (ImGui::SmallButton("Play")) {
+									listeningRoomHostPlayTrack(i);
+								}
+								ImGui::SameLine();
+								if (ImGui::SmallButton("Remove")) {
+									listeningRoomHostRemoveTrack(t->track_id);
+									ImGui::PopID();
+									break;
+								}
+								ImGui::PopID();
+							}
+							ImGui::Spacing();
+							ImGui::TextUnformatted("Add track");
+							ImGui::SetNextItemWidth(220.0f);
+							ImGui::InputTextWithHint("track id", "mod-music id",
+							                          s_LrAddIdBuf, sizeof(s_LrAddIdBuf));
+							ImGui::SameLine();
+							ImGui::SetNextItemWidth(180.0f);
+							ImGui::InputTextWithHint("name", "display name",
+							                          s_LrAddNameBuf, sizeof(s_LrAddNameBuf));
+							ImGui::SameLine();
+							if (ImGui::Button("Add##lradd")) {
+								if (s_LrAddIdBuf[0]) {
+									if (listeningRoomHostAddTrack(s_LrAddIdBuf, s_LrAddNameBuf) == 0) {
+										s_LrAddIdBuf[0] = '\0';
+										s_LrAddNameBuf[0] = '\0';
+									}
+								}
+							}
+							ImGui::Spacing();
+							if (ImGui::Button("Stop hosting")) {
+								listeningRoomLeave();
+							}
+							break;
+						}
+						case LR_STATE_LISTENER: {
+							const u32 hh = listeningRoomHostHandle();
+							const social_friend_t *hf = socialFriendByHandle(hh);
+							ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+							ImGui::Text("Listening to %s",
+							             hf && hf->agent_name[0] ? hf->agent_name : "host");
+							ImGui::PopStyleColor();
+							ImGui::Separator();
+
+							const s32 ntr = listeningRoomTrackCount();
+							const s32 cur = listeningRoomCurrentIdx();
+							if (ntr == 0) {
+								ImGui::TextDisabled("Waiting for the host to share their playlist...");
+							}
+							for (s32 i = 0; i < ntr; i++) {
+								const lr_track_t *t = listeningRoomTrackAt(i);
+								if (!t) continue;
+								if (i == cur) {
+									ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo(255));
+									ImGui::Text("> %s%s", t->display_name,
+									             t->has_local_copy ? "" : " (downloading...)");
+									ImGui::PopStyleColor();
+								} else {
+									ImGui::Text("  %s%s", t->display_name,
+									             t->has_local_copy ? "" : " (queued)");
+								}
+							}
+							ImGui::Spacing();
+							if (cur >= 0) {
+								if (ImGui::Button("Save current track permanently")) {
+									listeningRoomPromoteCurrentTrack();
+								}
+							}
+							ImGui::SameLine();
+							if (ImGui::Button("Leave room")) {
+								listeningRoomLeave();
+							}
+							break;
+						}
+						case LR_STATE_MUTED_BY_MATCH:
+							ImGui::TextDisabled("Match track active -- listening-room track will resume after the match ends.");
+							break;
+					}
+					ImGui::EndChild();
+					ImGui::EndTabItem();
+				}
+
+				if (ImGui::BeginTabItem("Public mods")) {
+					ImGui::BeginChild("##pd2_pubmods_body", ImVec2(0, -60.0f));
+					ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+					ImGui::TextUnformatted("My public mods");
+					ImGui::PopStyleColor();
+					ImGui::Separator();
+					ImGui::TextWrapped(
+					        "Mods you have flagged Public are visible on your profile and "
+					        "in this list. Friends can browse + download via the same "
+					        "trust pipeline as chat attachments (sha256 + friend graph + "
+					        "manual install).");
+					ImGui::Spacing();
+					ImGui::TextDisabled("(Per-mod public toggle is owned by the mod manager from "
+					                    "Priority M; this tab will populate once the manifest "
+					                    "broadcast wire ride lands as a follow-up commit.)");
+					ImGui::Spacing();
+					ImGui::Separator();
+					ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+					ImGui::TextUnformatted("Public mods from peers in this session");
+					ImGui::PopStyleColor();
+					ImGui::Separator();
+					ImGui::TextDisabled("(Empty until peers broadcast their manifests in a follow-up commit. "
+					                    "Each row will show: mod name + version + creator (friend agent) + "
+					                    "size + Download button. Downloads route through file_transfer.c.)");
+					ImGui::EndChild();
+					ImGui::EndTabItem();
+				}
+
 				if (ImGui::BeginTabItem("Settings")) {
 					ImGui::TextUnformatted("My connect code");
 					ImGui::Indent(12.0f);
@@ -521,6 +1072,28 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 					}
 
 					ImGui::Spacing();
+					ImGui::TextUnformatted("Voice");
+					ImGui::Indent(12.0f);
+					bool voice_on = voiceEnabled() != 0;
+					if (ImGui::Checkbox("Enable voice chat", &voice_on)) {
+						voiceSetEnabled(voice_on ? 1 : 0);
+					}
+					if (voice_on) {
+						const voice_capture_mode_t cm = voiceGetCaptureMode();
+						if (ImGui::RadioButton("Push-to-talk (default)", cm == VOICE_CAPTURE_PUSH_TO_TALK)) {
+							voiceSetCaptureMode(VOICE_CAPTURE_PUSH_TO_TALK);
+						}
+						if (ImGui::RadioButton("Voice-activated", cm == VOICE_CAPTURE_VOICE_ACTIVE)) {
+							voiceSetCaptureMode(VOICE_CAPTURE_VOICE_ACTIVE);
+						}
+						ImGui::TextDisabled(
+						        "Default off; opt-in. PTT key = V (hold to talk). "
+						        "Codec = Opus (low-latency, BSD-licensed). Per-friend mute "
+						        "applies to voice the same way it applies to chat / toasts.");
+					}
+					ImGui::Unindent(12.0f);
+
+					ImGui::Spacing();
 					ImGui::TextUnformatted("Diagnostics");
 					ImGui::TextDisabled("My handle: 0x%08x", (unsigned)socialMyHandle());
 					ImGui::TextDisabled("My code:   %s",      socialMyConnectCode());
@@ -549,6 +1122,9 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 	}
 
 	pdguiNatDiagnosticsRender(winW, winH);
+	renderChatPanel(winW, winH);
+	renderProfileModal();
+	renderConvertToModModal();
 
 	if (s_AddFriendOpen) {
 		ImGui::OpenPopup("Add Friend");

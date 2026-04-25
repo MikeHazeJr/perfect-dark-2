@@ -55,6 +55,383 @@ Did NOT touch: `forgemode.c`, `pdgui_menu_grid*.cpp` (Session A's Grid bug clust
 This session's deliverable is "all 27 menus conforming AND AUDIT-24-M5/M6 fixed AND merged to dev with a clean hash".  The merge follows.
 
 ---
+## Session S467 - 2026-04-25 - Connectivity Phases 4 + 5: listening room / Public Mods Page / Player Profile / voice scaffold
+
+Two phases land in this session entry because the data infrastructure each depends on lives in adjacent already-merged work (Priority M's mod manager, Priority Q's render box, the existing file_transfer pipe + identity / social / presence) -- the new work in this session is the state machines + UI scaffolds that compose them.
+
+### P4 -- `b152b4a1` feat(connectivity): listening room + Public Mods Page + Player Profile UI scaffolds
+
+- `port/include/listening_room.h` + `port/src/listening_room.c` (~280 LOC): host playlist + listener subscription + match-vs-room precedence (Q10 + Issue 4a). Single-writer state. Tracks distributed via the existing mod-distribution rails (file_transfer.c) -- no new audio streaming protocol.
+- Social menu gains three new tabs:
+  - **Listening room** -- Off / Host / Listener / Muted-by-match states. Host can add tracks (track id + display name), play / remove, stop hosting. Listener sees current track, queued tracks (with download status), and a "Save permanently" promote button.
+  - **Public mods** -- "My public mods" + "Public mods from peers in this session" sections, both scaffolded with explicit deferral notes pointing at the manifest broadcast follow-up.
+  - **Settings** (extended) -- voice toggle (P5 below) and unchanged Q7/Q8/Q9 controls.
+- Player Profile modal (per-friend page, Q11 Halo 3 File Share lineage). Header (agent + nickname + connect code), state + activity + last-seen, three reserved sections (character preview / stats / public mods) each with explicit deferral notes pointing at the widgets that own the data.
+- Friend rows now have a "Profile" small button alongside Invite / Spectate / Message / Mute / Block / Remove.
+
+### P5 -- voice chat scaffold
+
+- `port/include/voice.h` + `port/src/voice.c` (~140 LOC). Voice is opt-in, default off. Settings tab toggle + radio for PTT vs voice-activated. PTT key is V (held to talk). Per-friend mute integrates with `socialFriend.muted` (the same bit Q9's sidebar uses).
+- Codec choice documented in voice.h: Opus (low-latency, ITU-T G.193 interoperable, BSD-licensed reference implementation). The codec + libopus integration + SDL audio capture / decode wires in a follow-up commit because libopus is a new third-party dependency that needs CMakeLists.txt vetting on Mike's side.
+- Wire format planned in voice.h ("PDVOC" magic, 5+1+1+1+4+4+2+2 = 20 byte header + opus payload + 32 byte pubkey + 64 byte signature). The packet definitions land with the codec.
+
+### Phase 4 + 5 exit criteria (re-verified per principle 1)
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Music-together: host playlist | YES | `listeningRoomHostBegin/Add/Remove/PlayTrack` |
+| Music-together: listener subscription | YES (UI + state machine) | `listeningRoomSubscribe / Leave / PromoteCurrentTrack` |
+| Music-together: tracks via mod-distribution rails (no new protocol) | YES (designed) | file_transfer pipe is the carrier; planned wire ride is the manifest broadcast |
+| Music-together: match-track-wins precedence | YES | `listeningRoomOnMatchStart/End` + `listeningRoomShouldPlay` |
+| Public Mods Page | SCAFFOLD (data deferred) | UI scaffold complete; per-mod public flag + manifest broadcast = follow-up |
+| Player Profile page | SCAFFOLD (data deferred) | Modal complete with header + actions; render / stats / mods sections wire in once their owners' data surfaces are read |
+| Voice channel | SCAFFOLD (codec deferred) | State + UI + PTT + per-friend mute integration ready; libopus + SDL audio capture = follow-up |
+| Push-to-talk default | YES | `VOICE_CAPTURE_PUSH_TO_TALK` is the initial mode |
+| Voice-activated optional | YES (toggle + scaffold) | Settings radio; threshold + hysteresis = follow-up |
+| Per-friend mute integrates with sidebar mute | YES | `voicePeerIsTalking` checks `socialFriend.muted` |
+| Codec choice documented (Opus) | YES | voice.h header preamble |
+| Wire format documented | YES | voice.h header preamble (PDVOC frame layout) |
+
+### Phase 4 + 5 deferred-to-follow-up items (honest)
+
+- *Listening-room playlist manifest wire ride.* Hosts can build a playlist locally and the state machine + UI ship; the wire packet that broadcasts the manifest to listeners is a follow-up that piggybacks on the existing SVC_DISTRIB pipeline.
+- *Per-mod public flag in the mod registry.* Priority M's mod manager owns mod metadata; the public-flag bit + per-mod Public toggle in the Modding Hub plug into that registry in a follow-up.
+- *Cross-peer public mods aggregator.* Each peer broadcasts a manifest of their Public mods on group join; aggregator merges + UI shows the union with per-mod owner badges. Wire ride + UI population ship in a follow-up.
+- *Player Profile data wiring.* Character preview pulls Priority Q's render box; stats pull playerstats.h totals; mods list pulls the Public Mods aggregator. Each is a focused wiring commit.
+- *Voice codec integration.* libopus vendored + linked; SDL audio capture / playback init; encode / decode pipeline; PDVOC wire send/receive on a new dedicated socket (port 27108). Substantial enough to deserve its own session.
+
+### Phase 4 + 5 commits (chronological)
+
+| Commit | Scope |
+|---|---|
+| `b152b4a1` | P4 listening room + Public Mods Page + Player Profile UI scaffolds |
+| (this commit) | P5 voice chat scaffold + session-log close-out |
+
+## Session S466 - 2026-04-25 - Connectivity Phase 3: spectator + Theater unified subsystem
+
+Phase 3 of the connectivity rollout. Per Q12 "don't build Theater twice": one camera + control + UI architecture, two drivers (live SVC_* stream + future saved-match file). The seam is `spectatorIngestParticipantSnapshot` — both drivers feed the exact same entry point.
+
+### P3.A -- `a4b215e1` feat(spectator): unified subsystem (live source + Theater seam)
+
+New module
+- `port/include/spectator.h` + `port/src/spectator.c` (~340 LOC). `spectator_state_t` carries the participant snapshot, focused index, subset, camera mode (3rd person / 1st person / free-fly), and a free-fly transform. Single-writer entry point shared by both drivers.
+- `port/include/pdgui_spectator.h` + `port/fast3d/pdgui_spectator.cpp` (~190 LOC). Top strip with subset / focused-name / camera label; right-side scoreboard listing the active subset; bottom-left hints for keyboard control. Mouse delta drives free-fly yaw / pitch.
+
+Camera + control scheme (Q12 + Section 8)
+- D-pad up/down (PgUp/PgDn): cycle subset (Players / All / Red / Green / Blue / Gold). Empty subsets skipped automatically.
+- D-pad left/right (Left/Right): cycle members within current subset.
+- R3 (Tab): toggle 1st/3rd person.
+- Hold Y (R): detach to free-fly camera; release re-attaches.
+- Esc: stop spectating.
+
+Free-fly transform: WASD horizontal, Q/E vertical, mouse yaw + pitch. Maclaurin sin / cos to avoid the precompiled-header math.h stripping on this TU.
+
+UI hook
+- `pdgui_friends.cpp`: friend rows in IN_MATCH / IN_MISSION states gain a "Spectate" button alongside Invite / Message.
+
+Wiring: spectatorInit / Tick wired into main.c + pdmain.c. `pdguiSpectatorRender` called after `pdguiToastRender`; `pdguiSpectatorOverlayActive` added to the friendsActive overlay-reason gate.
+
+### Phase 3 exit criteria (re-verified per principle 1)
+
+| Criterion (design Q12 + Phase 3 brief) | Status | Evidence |
+|---|---|---|
+| Unified subsystem (one camera/control/UI; two drivers) | YES | `spectatorIngestParticipantSnapshot` is the shared seam |
+| Camera architecture: 3rd / 1st / free-fly | YES | `spectator_camera_t` + `spectatorBeginFreeFly` + steering |
+| D-pad cycles subset (UD) + member (LR) | YES | `spectatorCycleSubset` + `spectatorCycleMember`, empty-subset skip |
+| R3 toggles first-person | YES | `spectatorToggleFirstPerson` (free-fly takes priority) |
+| Hold Y free-fly + release re-attach | YES | `spectatorBeginFreeFly` / `spectatorEndFreeFly` |
+| Spectator does not consume a player slot | YES (designed) | `spectatorBeginLive` is read-only; no participant_pool mutation |
+| Late-join state-snapshot path | YES | `late_join_pending` flag + first-snapshot accept |
+| Theater driver | DEFERRED (seam ready) | Recorder + replay file format is its own subproject; the spectator-state ingest is identical, so a Theater driver written later just calls `spectatorIngestParticipantSnapshot` once it parses each replay frame. |
+| Per-spectator bandwidth budget | YES (documented) | `SPECTATOR_FANOUT_HZ=10` -> ~14 KB/s per spectator at 16 participants |
+| Live host -> spectator ENet fan-out | DEFERRED (follow-up) | Wire layer plug-point exposed as `spectatorHostShouldBroadcastThisTick`; the actual SVC_SPECTATE_REQUEST / SVC_STATE_FRAME packets ride in a follow-up commit on the same NET_PROTOCOL_VER bump as Phase 4 if needed |
+
+### Phase 3 deferred-to-follow-up items (honest)
+
+- *Live wire fan-out.* The spectator state machine is ready and accepts ingest calls. The actual ENet packet definitions for `CLC_SPECTATE_REQUEST` / `SVC_SPECTATE_ACK` / spectator-broadcast frames need a wire-protocol bump and a netmsg.c addition; that's a follow-up commit. Without it, "Spectate" buttons begin a session locally but no inbound state arrives -- the UI shows "Joining match..." until the user stops.
+- *Theater recorder + replay file format.* Theater is genuinely a separate subproject (record SVC_* stream to disk, define replay file format, browse + play UI). The spectator subsystem will absorb it without changes -- the seam is documented in `spectator.h`.
+- *Game-side camera transform application.* The spectator state currently surfaces the desired camera (focused chr's pos + angles, or free-fly transform) but the existing first-person view path is not yet hooked to read from spectator_state_t.camera. That hook plugs into the player-render stage in a follow-up; cleanly scoped to its own commit because it touches the camera owner module that I want to review separately.
+
+### Phase 3 commits (chronological)
+
+| Commit | Scope |
+|---|---|
+| `a4b215e1` | P3.A unified spectator subsystem (live source + Theater seam) |
+
+## Session S464 - 2026-04-25 - Connectivity Phase 1: social + 6-tier P2P + presence + UI surfaces
+
+Implementation of Phase 1 of `context/designs/connectivity-and-modern-main-menu.md`. Worktree `adoring-borg-2b6076`. Independent of two parallel sessions: Session A (Issue 1 weapon investigation) and Session B (J/K/L IMC architectural batch). No files owned by either of those sessions were touched.
+
+Four commits, each build-clean on `pd` and `pd-server`.
+
+### P1.A -- `9df0990a` feat(social): friend / block / presence store + identity-stable connect codes
+
+`port/include/social.h` + `port/src/social_store.c`. Friend list, block list, three-state visibility (Q7), notification toggles (Q8), persisted under `<home>/social/{friends,blocks,presence}.json` with atomic rename. Hand rolled JSON tokeniser modelled on `port/src/modmgr.c`'s parser to avoid pulling in a JSON dep. Caps: SOCIAL_FRIENDS_MAX=128, SOCIAL_BLOCKS_MAX=64.
+
+Connect-code derivation: `handle = first 4 bytes of SHA-256(device_uuid || "pd-social-connect-v1")` using the existing `port/src/sha256.c`. The 4-word phrase is the same 4 bytes fed into `connectCodeEncode()` from `port/src/connectcode.c`. Both sides decode the same dictionary back to the same handle, so the friend list keys on a stable per-device identity rather than IP.
+
+`port/src/main.c` now calls `identityInit()` + `socialInit()` after `saveInit()` and before `netInit()` -- closes the "client never calls identityInit" gap that `net.c:390` had been working around with a fallback.
+
+Block / friend symmetry: `socialBlockAdd()` removes the friend in the same step.
+
+### P1.B -- `1668211a` feat(p2p): 6-tier connection layer (T0 LAN through T5 TURN)
+
+All six tiers ship together (Mike's "no staged rollout"). Each pair walks the ladder sequentially with `P2P_TIER_TIMEOUT_MS=2500ms` between tiers, surfacing `p2pTierUxLabel` per tier ("Looking for LAN peers..." / "Trying direct connection..." / "Trying NAT traversal..." / etc.).
+
+`port/include/net/p2p.h` -- public API: tier enum, pair-state enum, endpoint flags (DIRECT / HOLE_PUNCH / PORT_MAPPED / ICE_PAIR / RELAYED), pair lifecycle (Begin / Cancel / GetState / GetEndpoint / Diag), per-tier Start + Poll exports.
+
+Modules:
+
+- `port/src/net/p2p.c` -- orchestrator. P2P_MAX_PAIRS=64. enterTier dispatches; escalate moves to the next tier on failure or timeout; report-success parks the pair OPEN. `p2pTick()` fires every frame from `mainTick()`.
+- `port/src/net/p2p_lan.c` -- T0. UDP broadcast on port 27101, 32-byte announcement carrying sender handle + listen port + NET_PROTOCOL_VER, re-announce every 3s, prune unseen peers after 15s. Drops blocked-handle and appear-offline-flagged senders. Cache lookup feeds the orchestrator directly so same-subnet peers skip the rest of the ladder.
+- `port/src/net/p2p_direct.c` -- T1. 16-byte probe + ack on port 27102 with nonce-keyed reply. Reflects unsolicited probes so a peer can also use us as their tier-1 target.
+- `port/src/net/p2p_stun.c` -- T2. Wraps the existing `port/src/net/netstun.c` worker. Caches reflexive endpoint for 60s; `p2pPublishMyReflexive()` makes it available to the ICE tier.
+- `port/src/net/p2p_upnp.c` -- T3. Wraps `port/src/net/netupnp.c`. Maps the netInit-listening port at the IGD; reports `(external_ip, listen_port)` as the candidate.
+- `port/src/net/p2p_ice.c` -- T4. 16-byte probe + ack on port 27103. Multi-candidate parallel test (host + srflx + prflx, ICE_MAX_CANDS=8). First successful pair wins. `p2pIceAddPeerCandidate()` is the future signaling hook.
+- `port/src/net/p2p_turn.c` -- T5. Custom 24-byte relay protocol on port 27104 (Allocate / Allocate-Ack / Relay / Hangup). Intentionally simpler than RFC 5766 because the relay is another player's `pd.exe`, not a public TURN server (Mike's "any peer can act as a relay"). Bandwidth-aware selection via `p2pTurnRegisterRelayCandidate(handle, ip, port, kbps)` -- highest declared kbps wins.
+
+Wired in `port/src/pdmain.c::mainTick` at the very top so presence stays alive across stage transitions / title screens. `s_Initialised` guard makes the call safe before `p2pInit()` returns.
+
+### P1.E -- `bc248616` feat(presence): always-on peer-to-peer presence layer
+
+`port/include/presence.h` + `port/src/presence.c`. Connectionless UDP on port 27105, 88-byte frame: 5-byte magic "PDPRS", version, kind (ping / pong / invite / invite-resp / bye), local presence_state_t, sender + target handle, NET_PROTOCOL_VER, invite kind, nonce, 64-byte status blurb / agent name.
+
+Lifecycle:
+
+- `presenceInit()` seeds a ping schedule from the social friend list, binds the socket, sets initial state from `socialVisibilityGet()`. Default: PRESENCE_ONLINE_IDLE (or PRESENCE_APPEAR_OFFLINE if the user opted in to that).
+- `presenceTick()` drains the receive socket, schedules a 30-second ping per friend, prunes 3-minute-stale invites, marks peers OFFLINE after 60s without a pong.
+- `presenceShutdown()` sends BYE to every cached peer endpoint.
+
+Anti-DoS (Section 3.2): inbound pings accepted only from social friends or the `presencePendingInvite` allowlist; per-source 5-second rate limit (PRESENCE_RATE_BUCKETS=64); BYE silences immediately.
+
+Invite path:
+- `presenceSendInvite(handle, kind)` -- reuses cached endpoint or falls back to LAN tier-0 lookup, fires PRESENCE_KIND_INVITE, opens a `p2pPair` so the responder's accept lands on a ready channel.
+- `presenceInviteAccept(idx)` -- sends INVITE_RESP and opens its own `p2pPair` from the invitee side.
+
+Wired into `mainTick` immediately after `p2pTick()`.
+
+### P1.G + P1.H + P1.I -- `d2b0e4a5` feat(ui): status indicator, sidebar, social menu
+
+`port/include/pdgui_friends.h` + `port/fast3d/pdgui_friends.cpp`. Three surfaces in one file with shared row rendering -- consistent palette (TitleGlow / TintSuccess / TintInfo / TintDanger), `ImGui::GetForegroundDrawList` for the always-on pill, plain windows for the toggleable surfaces.
+
+**Status indicator (P1.G):** "[agent] | [state] | [connect code]" with a colored dot per state. Online green / in-match cyan / spectating glow / appear-offline grey. Click toggles the sidebar.
+
+**Sidebar (P1.H):** 360px right-anchored panel. Per-row dot + label + status blurb / last-seen time. Inline actions (Invite / Mute / Block / Remove) -- statically visible per Q16; Invite gated to online states only. Invitations section reads from `presenceInviteAt`. Tab toggles open/close from any non-text-input ImGui frame (no actionmap binding -- Session B owns those files).
+
+**Social menu (P1.I):** Full-screen, three tabs:
+- Friends -- shared `renderFriendRow` from the sidebar (no fork).
+- Block list -- with Unblock per row.
+- Settings -- visibility radios (Public / Friends Only / Appear Offline), notification category checkboxes (Social / Invitations), diagnostic block (handle / code / pair count).
+
+**Add Friend modal:** code + nickname inputs. On confirm, calls `socialFriendAdd` + `presencePendingInviteAdd` so the new friend's first ping is whitelisted before any pong arrives.
+
+`port/fast3d/pdgui_backend.cpp::pdguiRender` calls `pdguiFriendsRender` after the pause menu and scorecard so the surfaces paint above gameplay windows. `friendsActive` added to the early-return overlay-reason gate so the indicator / sidebar / Social menu render even when no other reason exists.
+
+### Phase 1 verification matrix (current state)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Friend list / blocks / visibility persist across runs | YES | `socialSave` writes atomically; `loadFriends` reads back; tested via re-init path. |
+| Identity-stable connect code derived from device UUID | YES | `deriveHandle` -> `connectCodeEncode`; round-trip via `socialDecodeHandle`. |
+| T0 LAN broadcast discovers same-subnet peers | YES (code-complete) | Real-network verification still pending Mike's lab. |
+| T1 direct UDP probe + ack | YES (code-complete) | Same. |
+| T2 STUN reflexive gathering | YES (wraps existing netstun.c) | Same. |
+| T3 UPnP / NAT-PMP port mapping | YES (wraps existing netupnp.c) | Same. |
+| T4 ICE candidate gathering + pair testing | YES (code-complete) | Same. |
+| T5 TURN-style relay (custom, not RFC 5766) | YES (code-complete) | Bandwidth-aware relay candidate selection; `p2pTurnRegisterRelayCandidate` API ready for `group_session.c` to feed it. |
+| Per-tier 2.5s timeout + escalation UX label | YES | `enterTier` logs `P2P.NAT: pair=X tier=Y`, `escalate` logs `tier=A -> tier=B reason=Z`. |
+| Presence ping every 30s with anti-DoS rate limit | YES | `presenceTick` schedule + `rateLimitAllow` (5s / source). |
+| Per-friend mute (Q9) | YES | Sidebar row, Social menu row. |
+| Block list separate from friend list (Q7) | YES | `socialBlockAdd` + symmetric unfriend; sidebar Block button; Social menu Unblock tab. |
+| Visibility three-state (Public / Friends Only / Appear Offline) | YES | Radio buttons in Social menu Settings tab. |
+| Notification category toggles (Q8) | YES | Two checkboxes in Social menu Settings tab; mask persisted in presence.json. |
+| Friend list global, NOT per-profile (Q6) | YES | Stored under `<home>/social/`, not under `<home>/saves/<profile>/`. |
+| Display format `[nickname]: [agentname]` (Q5) | YES | `socialFormatDisplay`. |
+| Top-right status indicator | YES | `pdguiFriendsStatusIndicatorRender`. |
+| Sidebar (peek view) | YES | Tab toggle + click-on-pill toggle; same row UI as Social menu. |
+| Social menu (full view) with tabs | YES | Friends / Block list / Settings tabs. |
+| Add Friend modal | YES | Connect-code + nickname inputs. |
+| In-match invite flow (P1.J) | DEFERRED | Requires new wire packet on the existing match channel; needs NET_PROTOCOL_VER bump 40 -> 41. Out of scope this session. |
+| Real-NAT verification matrix harness (P1.K) | DEFERRED | `pdgui_nat_diagnostics.cpp` not yet authored. |
+| Real-network testing across NAT types | PENDING | Mike has the only physical lab; must run on representative ISP / NAT pairs. |
+
+### What did NOT land in this session
+
+- **P1.J in-match invite path.** Joining a friend's CS / mission via invite needs a new ENet packet on the match channel (CLC_INVITE_JOIN / SVC_INVITE_TICKET). Implementation requires bumping `NET_PROTOCOL_VER 40 -> 41` and adding dispatch in `port/src/net/netmsg.c`. Pending.
+- **P1.K NAT diagnostics harness.** A pdgui debug overlay that walks each tier in turn against a known peer and reports per-tier success / RTT / endpoint. Pending.
+- **First-add friend bootstrap problem.** Without central signaling, two strangers who exchange connect codes have no way to find each other on the public internet unless one of them is on the same LAN (T0). The current design assumes the friend list also caches a last-known IP populated by some out-of-band mechanism. Friends who have never met can presence-ping only via T0 LAN. Documented as a known limitation; resolution is either a) shared-secret rendezvous (DHT-style) in Phase 2, or b) Mike's planned matchmaking server in a much later phase.
+- **Phases 2-5** (chat / spectator / Theater / music / profile / voice). Not started this session; will roll forward in subsequent sessions.
+
+### Build verification
+
+| Commit | PerfectDark.exe | PerfectDarkServer.exe | Notes |
+|---|---|---|---|
+| `9df0990a` (P1.A) | 54,378,723 | 23,250,450 (unchanged) | Server is unchanged: social_store.c is excluded from the explicit pd-server source list. |
+| `1668211a` (P1.B) | 54,567,866 | 23,250,450 (unchanged) | Same. New p2p sources are picked up by pd's GLOB_RECURSE only. |
+| `bc248616` (P1.E) | 54,651,xxx | 23,250,450 (unchanged) | Same. presence.c is client-only. |
+| `d2b0e4a5` (P1.G/H/I) | 54,721,448 | 23,250,450 (unchanged) | Same. UI is client-only. |
+
+All four commits link clean on both targets.
+
+### Co-existence with other sessions
+
+This session deliberately wrote 100% new files plus minimal hooks in `port/src/main.c` (init wiring), `port/src/pdmain.c::mainTick` (per-frame tick), and `port/fast3d/pdgui_backend.cpp::pdguiRender` (UI render hook). No file owned by Session A (weapon investigation) or Session B (input/menu refactor) was touched.
+
+### Surfaced milestone
+
+Phase 1 *infrastructure* (data layer + 6-tier P2P + presence + UI surfaces) is in place and ready for Mike's first playtest. Friends added via "Add by code" with a known cached endpoint will exchange presence pings; LAN peers will discover each other via T0; the sidebar / status indicator will reflect online state. The two genuine gaps before Phase 1 ships fully are P1.J (in-match invite flow) and the real-NAT verification matrix.
+
+### Mike clarification + identity rework -- `44dd9f8d` feat(connectivity): network-agnostic Ed25519 identity
+
+Mike, mid-session: "It seems we need a way to try to ping one another more than just a name. We have the server phrase dictionary we generated using our IP in the dedicated server, but we need to find another way of doing this..."
+
+The pre-existing `deriveHandle(device_uuid)` was network-agnostic in spirit but vulnerable to identity rotation on reinstall. This commit rewires the identity foundation to be `pubkey`-bound:
+
+- pd-identity.dat bumps to v3, persisting an Ed25519 keypair generated once on first launch (loader migrates v1/v2 in place).
+- New `ed25519GenerateKeypair` / `ed25519Sign` / `ed25519DerivePubkey` (all via OpenSSL EVP_PKEY_keygen / EVP_DigestSign -- same statically linked OpenSSL the verify path already uses).
+- `socialMyHandle` now derives from `identityGetPubkey()` (falls back to UUID only when keygen fails).
+- `social_friend_t` gains `pubkey[32]` + `has_pubkey` (TOFU bind on first verified ping) and a persistent `endpoint_ipv4 / endpoint_port / endpoint_ttl_unix` cache.
+- friends.json schema extended with optional `pubkey` (hex) and `endpoint` (ipv4/port/ttl) fields. Hex helpers added; existing files load without the new fields.
+- Presence wire bumps to v2: 88 -> 184 bytes, adding `pubkey[32]` at offset 88 and `signature[64]` at offset 120 over `body[0..120) || "pd-presence-v2"`.
+- `drainReceive` runs the new pipeline: `socialHandleBindsPubkey` (cheap) -> `verifyFrame` (Ed25519 against embedded pub) -> `socialFriendBindPubkey` (TOFU; mismatch rejects). All three logged on failure.
+- New `resolveEndpoint` is the canonical resolution flow: persistent TTL-checked cache -> in-memory peer cache -> T0 LAN. Used by `sendPingTo`, `presenceSendInvite`, `presenceInviteAccept`, `presenceInviteDecline`.
+- `recordPong` refreshes the persistent endpoint cache via `socialFriendUpdateEndpoint(... 300s)` so the friend stays reachable across restarts on the same network.
+
+Decisions captured in `context/audits/connectivity-phase1-decisions.md`:
+- pubkey-bound handle (rationale: network roaming, reinstall portability)
+- TOFU pubkey lock (rationale: aligns with Q11 "trust by friend graph")
+- 5-minute endpoint TTL (rationale: spans typical idle, drops stale NATs)
+- DHT/rendezvous deferred (rationale: Phase 1 scope; documented future options)
+- NET_PROTOCOL_VER NOT bumped (rationale: no ENet wire change yet)
+- P1.J / P1.K deferred
+
+System-level framing per Mike's methodology reminder: "what does identity mean if my network changes?" -- the answer is that identity IS the keypair, address is volatile, authentication proves possession of the private key, and trust is bootstrapped on first verified contact. The implementation now matches that frame end-to-end.
+
+Build-verify clean: PerfectDark.exe 54,739,286 / PerfectDarkServer.exe 23,257,513 (server now changes because identity.c is in SRC_SERVER and was extended for the keypair fields + ensureKeypair lifecycle).
+
+### Phase 1 close-out -- `6e08123b` group session + UX + NAT diagnostics
+
+Mike's three debugging-methodology principles were applied to close the remaining Phase 1 exit-criteria gaps:
+
+1. *Verify each phase actually closes its exit criteria before moving on.* The original Phase 1 close claim was structurally premature: match authority (e), in-match P2P handoff (f), and the explicit UX strings (Q14 mismatch + Section 2.4 network-blocked) were missing. This commit closes each.
+2. *Bad-value triage / single-writer hygiene.* group_session.c is the sole writer of mesh + authority + invite-to-match state. Presence hooks call public API; pair state is observed via p2pPairGetState polls in groupSessionTick rather than mutated via cross-module callbacks. Authority is recomputed through one entry point.
+3. *Up + down the stack.* Each transition logs `GROUP.SESSION:` with cause (state delta, fail reason). NAT diagnostics overlay correlates local STUN / UPnP / LAN state with per-pair tier history so a stuck-peer trace is one read.
+
+New / extended files
+- port/include/net/group_session.h + port/src/net/group_session.c (~410 LOC) -- mesh peer table, GROUP_PEER_INVITED/RESOLVING/CONNECTED/FAILED state machine, authority election, invite-to-match handoff, Q14 version-mismatch formatter.
+- port/include/pdgui_nat_diagnostics.h + port/fast3d/pdgui_nat_diagnostics.cpp (~250 LOC) -- in-build verification harness. Surfaces local STUN/UPnP/LAN, every p2p pair (id/peer/state/tier/ms/endpoint/error), and the group session table. Verification matrix template included.
+- port/fast3d/pdgui_friends.cpp -- new renderGroupConnectionsSection inline in the sidebar; tier label live-renders via p2pTierUxLabel(diag.current_tier); FAILED branch dispatches to either the Q14 mismatch string (groupSessionFormatVersionMismatch) or the Section 2.4 hard-failure prompt. Settings tab adds "Copy to clipboard" on the local connect code + "Open NAT diagnostics"; Add Friend modal adds "Paste".
+- port/src/presence.c -- presenceSendInvite no longer eagerly opens a p2p pair; group_session opens it on INVITE_RESP arrival. presenceInviteAccept hands off via groupSessionAcceptInvite. INVITE_RESP / BYE deliver to groupSessionOnInviteResponse / groupSessionDropPeer.
+- main.c initialises groupSession after presence; mainTick ticks groupSession after presenceTick (presence -> group_session -> p2p observation order).
+
+### Phase 1 exit criteria (re-verified per Mike's principle 1)
+
+| Criterion (design Section 10.1) | Status | Evidence |
+|---|---|---|
+| Two friends on different ISPs can launch + see each other online | YES (in-code) | Persistent endpoint cache + presence ping schedule + signed pings; identity is pubkey-bound so network mobility is transparent. |
+| Exchange invitations | YES | presenceSendInvite + presenceInviteAccept. |
+| Start a co-op match together | YES | groupSessionAcceptInvite -> p2p OPEN -> netStartClient handoff in onPairOpen. |
+| Presence stays connected through match-start / match-end | YES | Socket lifecycle is independent of g_NetMode; presenceTick runs every frame from mainTick. |
+| All 5 NAT tiers verified on real-NAT matrix | PENDING (Mike's lab) | All five tiers shipped + the diagnostics harness lets Mike record outcomes per NAT type. |
+| Tier escalation UX feedback user-visible | YES | renderGroupConnectionsSection + p2pTierUxLabel. |
+| Pairs that genuinely cannot connect see explicit error UX | YES | Section 2.4 string rendered for GROUP_FAIL_NETWORK_BLOCKED. |
+| Version-mismatch UX surfaces correctly | YES | groupSessionFormatVersionMismatch implements the Q14 wording. |
+
+**NET_PROTOCOL_VER stays at 40** -- no ENet wire packet changed in Phase 1. Bumping without a wire change would break compatibility for nothing. Decision logged in `context/audits/connectivity-phase1-decisions.md`. The bump comes naturally with Phase 2's chat / file-transfer additions.
+
+### What Phase 1 ships at the end of this session
+
+- 6-tier P2P escalation (LAN / direct / STUN / UPnP / ICE / TURN-style) with per-tier UX label + 2.5 s timeout + escalation logging.
+- Network-agnostic Ed25519-bound identity with TOFU pubkey lock + signed presence frames + 5-min endpoint TTL.
+- Friend list / block list / three-state visibility / two-category notifications, persisted under `<home>/social/`.
+- Status indicator pill (always-on), sidebar peek (Tab toggle / pill click), full-screen Social menu (Friends / Block list / Settings tabs), Add Friend modal with paste, Connect-code copy-to-clipboard.
+- Group session: mesh + per-match authority (highest-kbps / initiator fallback), invite-to-match handoff to netStartClient, Q14 / Section 2.4 UX prompts.
+- NAT diagnostics overlay surfacing every layer up + down the stack.
+
+What is NOT in scope for Phase 1 (per design doc + decisions log):
+- DHT / rendezvous discovery for friends with no cached endpoint and no LAN co-presence (Phase 2+ enhancement).
+- Per-friend QR / share-link UX (future polish; copy-to-clipboard ships).
+- Real-network verification across NAT types (Mike's playtest).
+
+Build-verify clean across all six Phase 1 commits: PerfectDark.exe 54,815,601 / PerfectDarkServer.exe 23,257,513.
+
+### Phase 1 commits (chronological)
+
+| Commit | Scope |
+|---|---|
+| `9df0990a` | P1.A social store + identity-stable connect codes |
+| `1668211a` | P1.B 6-tier P2P escalation layer |
+| `bc248616` | P1.E presence layer |
+| `d2b0e4a5` | P1.G/H/I status indicator + sidebar + Social menu |
+| `58687e2a` | session log Phase 1 infrastructure landing |
+| `44dd9f8d` | Network-agnostic Ed25519 identity rework |
+| `b00014f0` | session log identity-rework note |
+| `6e08123b` | P1.J + P1.K group session + UX + NAT diagnostics |
+
+## Session S465 - 2026-04-25 - Connectivity Phase 2: chat + file transfer + toasts + protocol bump
+
+Mike approved rolling forward through Phases 2-5 sequentially with incremental merges to dev between phases. This entry logs Phase 2.
+
+Mike's three debugging principles applied throughout:
+1. *Verify exit criteria.* Each sub-phase's design-doc obligation re-checked before claiming done (table below).
+2. *Single-writer hygiene.* Each new module owns its in-memory + persisted state; cross-module signals go through one explicit hook each.
+3. *Up + down the stack.* Every receive pipeline logs `CHAT:` / `FT:` / `TOAST:` with cause; the dispatch order is documented inline.
+
+### P2.A -- `37d61b72` feat(chat): 1:1 private chat over signed UDP
+
+Friends exchange text on a dedicated signed UDP socket (port 27106). 320-byte frame: 8-byte msg_id, multi-fragment chunk_seq/chunk_total for messages over 192 bytes (CHAT_TEXT_MAX = 512). Frame body signed via identitySign over body[0..224) || "pd-chat-v1"; receiver re-checks signature + handle/key bind + TOFU lock. Per-friend rolling history (CHAT_HISTORY_MAX = 128) persisted at `<home>/social/chat/<hex>.json` with atomic rename. Receive pipeline: rate-limit -> friend allowlist -> handle/key bind -> ed25519 verify -> TOFU lock -> reassembly -> append + save. UI surface in `pdgui_friends.cpp`: per-row "Message" button opens a 480x72%-of-screen panel with header / scrollable history / compose + Send / offline-warning text.
+
+### P2.B/C/D -- `ba039ea5` feat(file-transfer): chunked sha256-verified pipe + chat attachments + convert-to-mod
+
+`port/include/file_transfer.h` + `port/src/file_transfer.c` (~700 LOC). Dedicated signed UDP socket (port 27107), 1280-byte frame with 1024-byte payload, kinds: init / chunk / end / ack / reject. Reliable user-space (per-chunk ack + 250 ms / 12-retry retransmit). FT_KIND_* taxonomy with per-type caps (mods 250 MB, music 50 MB, images 25 MB, saves 5 MB, replays 100 MB, other 50 MB) per Q18 amendment. Receiver buffers chunks in memory + sha256-verifies before writing. Inbox layout `<home>/social/inbox/<kind>/<friend_agent>/<file>` plus a `.meta.json` sidecar (sender / received_at / sha256 / size / kind). Filename sanitisation strips path components + bad chars.
+
+Chat attachment surface: compose-bar second row with absolute-path field + Send file / Paste path. Per-attachment context actions: Open file location (Windows `explorer.exe /select`, macOS `open -R`, Linux `xdg-open` on parent dir), Copy path. Music attachments expose a "Convert to mod..." action wired to the modal below.
+
+Convert-to-mod (P2.D): `fileTransferConvertMusicToMod` creates `<home>/mods/installed/<id>/` with `mod.json` + `audio/<safe>.ext`. Manifest schema includes the design's required fields plus a `_converted_from` diagnostic block. Folder layout intentionally matches the M-1 dual-support phase of `pdmod-unified-mod-format.md`; auto-archives when M lands.
+
+### P2.E -- `8cf51ad4` feat(toast): status popup notification system
+
+`port/include/pdgui_toast.h` + `port/fast3d/pdgui_toast.cpp` (~190 LOC). Bottom-right transient stack, TOAST_MAX = 16, TOAST_MAX_VISIBLE = 4, 200 ms fade in / 5 s hold / 400 ms fade out. Per-category gating: TOAST_CATEGORY_SOCIAL / INVITES match SOCIAL_NOTIF_* bits and check socialNotifMaskGet; SYSTEM is always shown. Per-friend mute via `socialFriend.muted`; block list dropped at the same point. Hooks: `presence.c::recordPong` fires "X came online" SOCIAL toast on offline-to-online transition (single-writer hygiene -- `prev_state` snapshotted before mutation); `presence.c::enqueueInvite` fires "X invited you" INVITES toast keyed to the kind.
+
+### P2.F -- `e552e3a2` feat(net): NET_PROTOCOL_VER 40 -> 41 + SVC_ACHIEVEMENT_TOAST
+
+Bumps the ENet wire protocol because Phase 2 adds an authoritative match-host -> client toast broadcast on the existing match channel. Chat / file-transfer / presence Phase 2 work runs on dedicated UDP sockets and does NOT participate in the ENet wire, so the bump is gated specifically on this packet. New `SVC_ACHIEVEMENT_TOAST = 0x69` carrying `u32 actor_handle` + utf-8 string up to ACHIEVEMENT_TOAST_MAX = 96 bytes. Read path looks up the actor's social friend record to format the title (falls back to handle hex on unknowns) and routes into `pdguiToastEnqueue(TOAST_CATEGORY_SOCIAL)` so the settings checkbox + per-friend mute apply uniformly. `netSendAchievementToast` convenience for hosts. Dispatch added to `netClientEvReceive` under `SVC_MUSIC_ADVANCE` (single switch; single writer per case). `constraints.md` updated with the v41 entry.
+
+### Phase 2 exit criteria (re-verified per principle 1)
+
+| Criterion (design doc + Phase 2 brief) | Status | Evidence |
+|---|---|---|
+| Text chat 1:1 private with persistent local cache | YES | chat.c full lifecycle; `<home>/social/chat/<hex>.json` round-trip |
+| Wire to presence channel for delivery | YES | dedicated signed UDP socket; framing + sig + TOFU re-check on receive |
+| File attachment in chat (any extension) | YES | file_transfer.c FT_KIND_* + chunked sha256 pipe |
+| Per-type inbox folders with size limits | YES | `inboxRoot()/<kind>/<friend>/<file>` + `sizeLimitForKind` enforcement |
+| Sidecar `.meta.json` (sender + ts + sha256 + name) | YES | `writeSidecar` after sha256 verify |
+| Context menu: Open file location / Copy path / Reveal | YES | per-attachment row in chat panel; Windows + macOS + Linux variants |
+| Type-aware actions (mod / cache / convertible) | PARTIAL | Convert-to-mod for music shipped; per-type "Install" / "Reject" / "Save permanently" cache actions deferred to P3+ since the chat panel only exposes the inbox, not a separate "received" viewer. Documented as a Phase 2.5 follow-up if Mike wants it before Phase 3. |
+| Convert-to-mod modal (mp3/ogg/wav, manifest fields) | YES | `fileTransferConvertMusicToMod` + modal in pdgui_friends.cpp |
+| Status popups (online / invite / achievement) | YES | pdgui_toast.cpp + 3 hook sites (recordPong online, enqueueInvite, SVC_ACHIEVEMENT_TOAST broadcast receiver) |
+| Per-category notification toggles | YES | `socialNotifMaskGet` checked in `pdguiToastEnqueue` |
+| Per-friend mute via sidebar context menu | YES | `socialFriend.muted` checked at toast enqueue time + sidebar Mute / Unmute button |
+| Wire-protocol additions, NET_PROTOCOL_VER bump | YES | v40 -> v41 with rationale comment in net.h + constraints.md |
+
+### Phase 2 commits (chronological)
+
+| Commit | Scope |
+|---|---|
+| `37d61b72` | P2.A chat module + chat panel UI |
+| `ba039ea5` | P2.B/C/D file transfer + chat attachments + convert-to-mod |
+| `8cf51ad4` | P2.E toast notification system |
+| `e552e3a2` | P2.F NET_PROTOCOL_VER 40 -> 41 + SVC_ACHIEVEMENT_TOAST |
+
+### Phase 2 deferred-to-follow-up items (honest)
+
+- *Per-type inbox viewer with full context menu* (Install / Install and enable / Save permanently / Delete from cache / Reject mod). The chat panel exposes the inbox files via attachments; a dedicated "Received files" tab with the full Q18 action surface is a Phase 2.5 add. The sidecar metadata + folder layout already support it -- the missing piece is the UI tab.
+- *Drag-and-drop file send.* The compose bar accepts an absolute path + Paste; OS drag-into-window is deferred (would require SDL_DROPFILE handling we don't want to drag into Session B's input scope).
+- *Achievement broadcast producer.* `netSendAchievementToast` is the host-side API; the actual achievement-event source (e.g. on-kill thresholds, mission-complete) wires in as part of the achievements-system Phase 4 work and is intentionally not hooked here.
+
+### Build verification
+
+PerfectDark.exe + PerfectDarkServer.exe link clean across all four Phase 2 commits.
 
 ## Session S463 - 2026-04-25 - Bug-queue cleanup batch (e/b/a/c/d)
 

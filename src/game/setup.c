@@ -21,6 +21,7 @@
 #include "game/stagetable.h"
 #include "game/file.h"
 #include "game/lv.h"
+#include "game/forgemode.h"
 #include "game/mplayer/scenarios.h"
 #include "game/challenge.h"
 #include "game/lang.h"
@@ -1738,7 +1739,15 @@ void setupCreateProps(s32 stagenum)
 					}
 					break;
 				case OBJTYPE_CHR:
-					if (withchrs) {
+					/* B-254 (2026-04-25): canvas mode -- this Grid session
+					 * is using the stage geometry as a build canvas;
+					 * authored NPCs would patrol / shoot / talk / die,
+					 * none of which the user wants while editing. Skip
+					 * the chr allocation entirely so the slot pool stays
+					 * empty and chrTick never has anything to drive.  The
+					 * other slots (door / lift / weapon spawn / monitors)
+					 * still load so the geometry + visuals are intact. */
+					if (withchrs && !forgeIsCanvasMode()) {
 						bodyAllocateChr(stagenum, (struct packedchr *) obj, index);
 					}
 					break;
@@ -1759,12 +1768,17 @@ void setupCreateProps(s32 stagenum)
 					}
 					break;
 				case OBJTYPE_KEY:
-					if (withchrs && (obj->flags2 & diffflag) == 0) {
+					/* B-254: keys are mission-objective markers (give to
+					 * scripted NPC, etc.); skip in canvas mode where the
+					 * mission isn't running. */
+					if (withchrs && !forgeIsCanvasMode() && (obj->flags2 & diffflag) == 0) {
 						setupCreateKey((struct keyobj *)obj, index);
 					}
 					break;
 				case OBJTYPE_HAT:
-					if (withchrs && (obj->flags2 & diffflag) == 0) {
+					/* B-254: hats are NPC equipment; with chr creation
+					 * suppressed there is nothing to wear them. */
+					if (withchrs && !forgeIsCanvasMode() && (obj->flags2 & diffflag) == 0) {
 						setupCreateHat((struct hatobj *)obj, index);
 					}
 					break;
@@ -1774,7 +1788,10 @@ void setupCreateProps(s32 stagenum)
 					}
 					break;
 				case OBJTYPE_AUTOGUN:
-					if (withobjs && (obj->flags2 & diffflag) == 0) {
+					/* B-254: autoguns are active turrets that fire at the
+					 * player; skip in canvas mode (the user is observing,
+					 * not playing). */
+					if (withobjs && !forgeIsCanvasMode() && (obj->flags2 & diffflag) == 0) {
 						setupCreateAutogun((struct autogunobj *)obj, index);
 					}
 					break;

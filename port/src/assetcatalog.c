@@ -572,6 +572,7 @@ asset_entry_t *assetCatalogRegisterArena(const char *id, s32 stagenum,
     entry->ext.arena.stagenum = stagenum;
     entry->ext.arena.requirefeature = requirefeature;
     entry->ext.arena.name_langid = name_langid;
+    entry->ext.arena.load_mode = ARENA_LOADMODE_PLAYABLE;
 
     return entry;
 }

@@ -58,9 +58,11 @@
 #include "utils.h"
 #include "server_admin.h"
 #include "server_bans.h"
+#include "social.h"
 #if !defined(PD_SERVER)
 #include "pdgui.h"
 #include "pdgui_hud.h"
+#include "pdgui_toast.h"
 #include "inputctx.h"
 #include "menupool.h"
 #endif
@@ -6342,6 +6344,71 @@ u32 netmsgSvcMusicAdvanceRead(struct netbuf *src, struct netclient *srccl)
 #endif
 
 	return src->error;
+}
+
+/* ---- Phase 2 SVC_ACHIEVEMENT_TOAST (protocol v41) ----
+ *
+ * Authoritative match host -> all clients in the host's room. The
+ * receiver enqueues a TOAST_CATEGORY_SOCIAL popup gated by
+ * socialNotifMaskGet so the user's settings checkbox actually mutes
+ * achievement broadcasts. The actor_handle is the social handle of the
+ * player who earned the achievement; it lets the toast UI link the
+ * popup to the right friend record (e.g. for per-friend mute via
+ * socialFriend.muted).
+ */
+
+u32 netmsgSvcAchievementToastWrite(struct netbuf *dst, u32 actor_handle,
+                                    const char *achievement_text)
+{
+	netbufWriteU8(dst, SVC_ACHIEVEMENT_TOAST);
+	netbufWriteU32(dst, actor_handle);
+	netbufWriteStr(dst, achievement_text ? achievement_text : "");
+	return dst->error;
+}
+
+u32 netmsgSvcAchievementToastRead(struct netbuf *src, struct netclient *srccl)
+{
+	u32 actor_handle = netbufReadU32(src);
+	const char *txt  = netbufReadStr(src);
+	if (src->error) return src->error;
+
+	(void)srccl;
+
+#if !defined(PD_SERVER)
+	if (!txt || !txt[0]) return src->error;
+
+	/* Build a "name: achievement" body. Look up friend / participant
+	 * name from social store first; fall back to the handle hex on
+	 * unknown actors so anonymous events still display sensibly. */
+	const social_friend_t *f = socialFriendByHandle(actor_handle);
+	char title[96];
+	if (f && f->agent_name[0]) {
+		snprintf(title, sizeof(title), "%s -- achievement", f->agent_name);
+	} else if (actor_handle == socialMyHandle()) {
+		snprintf(title, sizeof(title), "Achievement");
+	} else {
+		snprintf(title, sizeof(title), "0x%08x -- achievement", (unsigned)actor_handle);
+	}
+	(void)pdguiToastEnqueue(actor_handle, TOAST_CATEGORY_SOCIAL, title, txt);
+#else
+	(void)actor_handle;
+	(void)txt;
+#endif
+
+	return src->error;
+}
+
+/* Convenience: server / authoritative host enqueues a broadcast to every
+ * client in the local-server's match room. No-op when not the host. */
+void netSendAchievementToast(u32 actor_handle, const char *achievement_text)
+{
+	if (g_NetMode != NETMODE_SERVER) return;
+	if (!achievement_text || !achievement_text[0]) return;
+	netbufStartWrite(&g_NetMsgRel);
+	netmsgSvcAchievementToastWrite(&g_NetMsgRel, actor_handle, achievement_text);
+	netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL);
+	sysLogPrintf(LOG_NOTE, "NET: SVC_ACHIEVEMENT_TOAST broadcast actor=0x%08x text=\"%s\"",
+	             (unsigned)actor_handle, achievement_text);
 }
 
 /**

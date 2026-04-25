@@ -4268,6 +4268,9 @@ struct GridArenaEntry {
     s32               stagenum;
     GridArenaCategory category;
     bool              is_blank;   /* true for the synthetic Blank Map row */
+    /* B-254 (2026-04-25): mirror of asset_entry.ext.arena.load_mode.
+     * 0 = ARENA_LOADMODE_PLAYABLE, 1 = ARENA_LOADMODE_CANVAS. */
+    u8                load_mode;
 };
 
 static GridArenaEntry *s_GridArenas = NULL;
@@ -4392,6 +4395,7 @@ static void gridArenaCollect(const asset_entry_t *e, void *userdata)
     a->stagenum = (s32)e->ext.arena.stagenum;
     a->category = gridClassifyCategory(e->category);
     a->is_blank = false;
+    a->load_mode = e->ext.arena.load_mode;
 
     s_GridArenaCount++;
 }
@@ -4616,7 +4620,15 @@ static bool gridCommitEnter(void)
             (int)s_GridTeamsOn, (int)s_GridOneHitKills, (int)s_GridSlowMotion);
 
     /* Hand off.  pdguiForgeStartSessionOn calls mainChangeToStage when the
-     * current stage differs; forgemode activates on next tick. */
+     * current stage differs; forgemode activates on next tick.
+     *
+     * B-254 (2026-04-25): catalog-keyed dispatch.  Arenas registered with
+     * load_mode == ARENA_LOADMODE_CANVAS route to the canvas variant so
+     * setup-time chr / AI / script paths suppress mission state.
+     * Default (PLAYABLE) is unchanged. */
+    if (a->load_mode == ARENA_LOADMODE_CANVAS) {
+        return pdguiForgeStartSessionOnCanvas(a->stagenum) != 0;
+    }
     return pdguiForgeStartSessionOn(a->stagenum) != 0;
 }
 
