@@ -2124,9 +2124,24 @@ u32 netmsgSvcPlayerStatsRead(struct netbuf *src, struct netclient *srccl)
 
 	const bool newisdead = (flags & (1 << 0)) != 0;
 	if (!pl->isdead && newisdead) {
+		/* B-256 third-site closure (2026-04-25): the original 7fbc5833
+		 * commit fixed chr.c (bot pit-fall path) and player.c (playerDie
+		 * symmetric path) but missed this network-replicated death path
+		 * that drives MP killfeed/scoreboard for non-self deaths in 2+
+		 * peer matches. lastshooter / timeshooter are dead fields (only
+		 * ever written to -1); the live attribution data is in
+		 * lastattacker, set by chraction.c on damage. Mirror the chr.c
+		 * shape exactly: resolve via mpPlayerGetIndex, fall back to the
+		 * current player on unknown / -1.
+		 *
+		 * If 2+ peer playtest still shows mis-attribution after this
+		 * site lands, the structural answer is encoding attacker_id
+		 * directly in SVC_PLAYER_STATS (v42 -> v43 protocol bump).
+		 * Out of scope for this patch. */
 		s16 shooter;
-		if (pl->prop->chr->lastshooter >= 0 && pl->prop->chr->timeshooter > 0) {
-			shooter = pl->prop->chr->lastshooter;
+		if (pl->prop->chr->lastattacker) {
+			shooter = (s16)mpPlayerGetIndex(pl->prop->chr->lastattacker);
+			if (shooter < 0) shooter = g_Vars.currentplayernum;
 		} else {
 			shooter = g_Vars.currentplayernum;
 		}

@@ -179,6 +179,13 @@ void playerDieByShooter(s32 shooter, s32 arg) { (void)shooter; (void)arg; }
 void playerStartNewLife(void) {}
 void setCurrentPlayerNum(s32 num) { (void)num; }
 s32 playermgrGetPlayerNumByProp(struct prop *prop) { (void)prop; return 0; }
+/* B-256 third-site closure (2026-04-25): netmsgSvcPlayerStatsRead now
+ * resolves the killfeed shooter via mpPlayerGetIndex on the live
+ * lastattacker pointer.  pd-server runs the same parser but the
+ * downstream playerDieByShooter is already a no-op stub above, so this
+ * stub returns the "unknown attacker" sentinel (-1) which the caller
+ * folds into g_Vars.currentplayernum. */
+s32 mpPlayerGetIndex(struct chrdata *chr) { (void)chr; return -1; }
 void chrSetPos(struct chrdata *chr, struct coord *pos, s16 *rooms, f32 angle, s32 onground) {
     (void)chr; (void)pos; (void)rooms; (void)angle; (void)onground;
 }
