@@ -75,9 +75,18 @@ Boot -> Local presence stack comes up; pings known friend connect codes
 
 The authority owns the match's `SVC_*` state stream. Other peers attach as participants. If the authority drops mid-match, **quiet failover** to the next-highest-bandwidth peer in the mesh; the match continues.
 
-### Connect codes (Q5)
+### Connect codes (Q5) -- network-agnostic, IP-free
 
-The friend graph is keyed on **game-generated connect codes**, not IP addresses. Two players behind the same NAT must remain distinguishable, so the connect code is a stable per-account identifier issued at first launch.
+> Mike, 2026-04-25 clarification: "It seems we need a way to try to ping one another more than just a name. We have the server phrase dictionary we generated using our IP in the dedicated server, but we need to find another way of doing this, as currently that would not work to allow people to see friends online if a person were to be on a different network for some reason."
+
+**Identity is decoupled from the network.** The legacy "encode-an-IPv4-as-a-phrase" mechanism from the dedicated-server era is INVALID for the connectivity layer. A connect code must remain stable when the player roams between networks, swaps ISPs, comes online from a phone tether, joins a VPN, or moves devices and restores their account. Any IP-derived identifier breaks this contract.
+
+**Identity = stable per-account connect code + Ed25519 keypair, generated once at first launch.**
+
+- The keypair lives in the local identity record (`pd-identity.dat`). The private key NEVER leaves the device.
+- The 32-bit connect-code "handle" is `SHA256(pubkey || "pd-social-connect-v1")[:4]`. The 4-word phrase is the same 4 bytes encoded through the existing word dictionary -- four-word phrases just give a memorable rendering of an opaque handle. The phrase is NOT encoding an IP. The dictionary is reused for word familiarity only.
+- Because the handle is bound to the pubkey by hash, two devices cannot share a handle without sharing the keypair, and a hostile peer cannot spoof a handle without the matching private key (see "Authentication" below).
+- The connect code is what your friend list stores. **NOT IP, NOT hostname.** Endpoints are resolved per-launch (see below).
 
 **Display format** (used in the friends panel, invitations, chat headers):
 
@@ -89,21 +98,65 @@ e.g. "Chris: smarch"
 - `agentname` -- the player's chosen handle on their account. Stable across sessions.
 - `nickname` -- local annotation set by the friend who added them. Different friends can give the same agent different nicknames.
 
-The connect code itself is opaque; the player never types or sees it. Add-friend flow exchanges connect codes via QR / share-link / direct entry as a future polish; phase 1 ships a "paste my friend code" copy-button.
+The connect code phrase is opaque; the player sees `nickname / agentname` in normal use and only handles the phrase when sharing it. Add-friend flow exchanges the phrase via QR / share-link / paste; phase 1 ships a paste-the-code add-friend modal plus copy-my-code in Settings.
 
-### Signaling: no central infrastructure (Q2)
+**Friend record schema** (per friends.json):
 
-There is no signaling server. The friend list IS the address book.
+```
+{
+    "code":     "fat vampire running to the park", -- the 4-word phrase
+    "agent":    "smarch",                          -- agentname
+    "nick":     "Chris",                           -- local annotation
+    "handle":   305419896,                         -- 32-bit handle (== first 4 bytes of SHA256(pubkey||domain))
+    "pubkey":   "<64-hex-chars>",                  -- 32-byte Ed25519 public key
+    "muted":    false,
+    "lastSeen": 1714000000,
+    "endpoint": { "ip": "...", "port": 27105, "ttl": 1714000300 }
+}
+```
+
+The `pubkey` field is filled on first verified contact (TOFU -- Trust On First Use). Once filled, it is the lock that gates every subsequent ping from that handle. Mismatch == reject.
+
+### Signaling: no central infrastructure, endpoint resolved at connect time (Q2)
+
+There is no signaling server. **The friend list IS the address book of *connect codes* -- not endpoints.** Endpoints are resolved per-launch, never stored as primary identity.
+
+**Endpoint resolution flow** (the canonical question "where do I send the next ping?"):
+
+1. Cached endpoint, if any, with non-expired TTL -- try first. The friend list keeps a `{ip, port, ttl}` cache populated by the latest successful pong.
+2. T0 LAN broadcast cache -- if the friend's handle is announcing on the local subnet, T0's cache returns its endpoint instantly (port 27101 announce frame).
+3. Last-resort discovery -- if no cached endpoint and no LAN announce, the only way to find a friend who has moved networks is a discovery beacon. **Phase 1 deferral:** for friends with no cached endpoint, presence stays in `PRESENCE_OFFLINE` from our side until they ping us first (e.g. they have our endpoint cached) OR until a future Phase 2+ DHT-style rendezvous lands. Documented decision: see `context/audits/connectivity-phase1-decisions.md` "rendezvous-mechanism-deferred".
+
+**Cross-network reconnect:** when a player moves networks (changes ISP, hops to mobile, joins a VPN), the next launch announces the new endpoint via the presence ping itself. Friends who already have any usable cached endpoint or LAN proximity will fold the new endpoint into their record on receipt; friends who are completely unreachable wait until the next mutual contact.
+
+**TTL:** endpoint cache entries expire after **5 minutes** of no inbound pong. After that the cached endpoint is treated as cold and a fresh discovery is required.
 
 When a client comes online:
 1. Read the local friend list (stored in user-data root, see Section 3.5).
-2. For each friend's connect code, attempt direct STUN-resolved contact.
-3. On contact, exchange presence state.
-4. Each peer keeps the connection alive with low-rate keepalives (every 30-60 s).
+2. For each friend whose record has a non-expired cached endpoint, send a signed presence ping to that endpoint.
+3. For each friend with an expired or absent endpoint, only the T0 LAN cache is consulted -- WAN reconnect waits for the friend to reach us.
+4. On any successful pong, refresh the cached endpoint and TTL.
 
-When a client goes offline (clean exit, or detected by missed keepalive), the loss propagates through the mesh.
+When a client goes offline (clean exit, or detected by missed pong), the cached endpoint stays valid for the TTL window so subsequent same-session reconnects skip discovery.
 
-**Anti-spam / DoS protection** for unsolicited pings: a connect code only accepts presence pings from connect codes already in the local friend list (or pending an accepted invite). Strangers' pings are dropped silently. Rate limit per source IP at 1 ping per 5 seconds; further pings discarded without response.
+**Anti-spam / DoS protection** for unsolicited pings: a presence ping is accepted only if the sender's connect code is in the local friend list (or pending-invite allowlist) AND the embedded signature verifies against the cached pubkey. First contact (no cached pubkey) is the TOFU bootstrap: accept on signature-valid + record the pubkey alongside the friend record; reject on signature-invalid. Strangers' pings are dropped silently. Rate limit per source handle at 1 ping per 5 seconds; further pings discarded without response.
+
+### Authentication -- signed presence (Mike Q5 clarification, 2026-04-25)
+
+Every presence frame carries an Ed25519 signature over its body. The signing pubkey is sent in the body itself so the receiver can:
+
+1. Verify `signature_valid(body, pubkey, sig)` -- if false, drop the packet.
+2. Verify `SHA256(pubkey || "pd-social-connect-v1")[:4] == sender_handle` -- if false, drop the packet (handle/key mismatch == spoofed handle).
+3. Look up the sender_handle in the friend record:
+    - **No cached pubkey** -- TOFU bind: store the received pubkey on the friend record, accept the ping.
+    - **Cached pubkey matches** -- normal accept path.
+    - **Cached pubkey differs** -- reject. Either the friend lost / regenerated their key, or someone is impersonating the handle. The user is shown a "<friend>'s identity changed -- re-add them?" prompt in the social menu (Phase 2 UX; in Phase 1 the rejection is silent + logged).
+
+This makes every step of the cross-network identity chain network-agnostic and tamper-evident:
+- Connect code is hash-bound to the pubkey, not bound to any network address.
+- Pubkey is bound to the device's private key, which never leaves the device.
+- Endpoints are runtime data, refreshed on every successful exchange, expirable, and never authoritative for identity.
+- A peer changing networks is a presence-layer event, not an identity-layer event.
 
 ### NAT traversal: 5-tier escalation, TURN as last resort (Q3 refined)
 

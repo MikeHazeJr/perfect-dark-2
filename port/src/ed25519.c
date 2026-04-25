@@ -118,3 +118,94 @@ s32 ed25519SelfTest(void)
 
 	return 1;
 }
+
+/* ========================================================================
+ * Keypair generation, signing, and pubkey derivation.
+ *
+ * Implemented via OpenSSL's EVP_PKEY_keygen with EVP_PKEY_ED25519. Same
+ * statically linked OpenSSL as the verify path -- no new dependencies.
+ * Signing uses EVP_DigestSign which is the documented one-shot API for
+ * Ed25519 (the algorithm intentionally rejects EVP_DigestUpdate).
+ * ======================================================================== */
+
+s32 ed25519GenerateKeypair(u8 outPriv[ED25519_PRIVKEY_SIZE],
+                            u8 outPub[ED25519_PUBKEY_SIZE])
+{
+	if (!outPriv || !outPub) return 0;
+
+	EVP_PKEY_CTX *kctx = EVP_PKEY_CTX_new_id(EVP_PKEY_ED25519, NULL);
+	if (!kctx) { ERR_clear_error(); return 0; }
+
+	EVP_PKEY *pkey = NULL;
+	s32 ok = 0;
+	if (EVP_PKEY_keygen_init(kctx) == 1 &&
+	    EVP_PKEY_keygen(kctx, &pkey) == 1 &&
+	    pkey != NULL) {
+		size_t plen = ED25519_PRIVKEY_SIZE;
+		size_t qlen = ED25519_PUBKEY_SIZE;
+		if (EVP_PKEY_get_raw_private_key(pkey, outPriv, &plen) == 1 &&
+		    EVP_PKEY_get_raw_public_key (pkey, outPub,  &qlen) == 1 &&
+		    plen == ED25519_PRIVKEY_SIZE &&
+		    qlen == ED25519_PUBKEY_SIZE) {
+			ok = 1;
+		}
+	}
+	if (pkey) EVP_PKEY_free(pkey);
+	EVP_PKEY_CTX_free(kctx);
+	ERR_clear_error();
+
+	if (!ok) {
+		memset(outPriv, 0, ED25519_PRIVKEY_SIZE);
+		memset(outPub,  0, ED25519_PUBKEY_SIZE);
+	}
+	return ok;
+}
+
+s32 ed25519Sign(const u8 privkey[ED25519_PRIVKEY_SIZE],
+                const void *msg, size_t msgLen,
+                u8 outSig[ED25519_SIGNATURE_SIZE])
+{
+	if (!privkey || !outSig || (!msg && msgLen > 0)) return 0;
+
+	EVP_PKEY *pkey = EVP_PKEY_new_raw_private_key(
+		EVP_PKEY_ED25519, NULL, privkey, ED25519_PRIVKEY_SIZE);
+	if (!pkey) { ERR_clear_error(); return 0; }
+
+	EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+	if (!ctx) { EVP_PKEY_free(pkey); ERR_clear_error(); return 0; }
+
+	s32 ok = 0;
+	size_t siglen = ED25519_SIGNATURE_SIZE;
+	if (EVP_DigestSignInit(ctx, NULL, NULL, NULL, pkey) == 1 &&
+	    EVP_DigestSign(ctx, outSig, &siglen,
+	                    (const unsigned char *)msg, msgLen) == 1 &&
+	    siglen == ED25519_SIGNATURE_SIZE) {
+		ok = 1;
+	}
+
+	EVP_MD_CTX_free(ctx);
+	EVP_PKEY_free(pkey);
+	ERR_clear_error();
+
+	if (!ok) memset(outSig, 0, ED25519_SIGNATURE_SIZE);
+	return ok;
+}
+
+s32 ed25519DerivePubkey(const u8 privkey[ED25519_PRIVKEY_SIZE],
+                         u8 outPub[ED25519_PUBKEY_SIZE])
+{
+	if (!privkey || !outPub) return 0;
+
+	EVP_PKEY *pkey = EVP_PKEY_new_raw_private_key(
+		EVP_PKEY_ED25519, NULL, privkey, ED25519_PRIVKEY_SIZE);
+	if (!pkey) { ERR_clear_error(); return 0; }
+
+	size_t qlen = ED25519_PUBKEY_SIZE;
+	s32 ok = (EVP_PKEY_get_raw_public_key(pkey, outPub, &qlen) == 1 &&
+	          qlen == ED25519_PUBKEY_SIZE);
+	EVP_PKEY_free(pkey);
+	ERR_clear_error();
+
+	if (!ok) memset(outPub, 0, ED25519_PUBKEY_SIZE);
+	return ok;
+}

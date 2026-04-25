@@ -83,6 +83,8 @@ extern "C" void pdguiLogViewerRender(s32 winW, s32 winH);
 
 /* Pause menu + scorecard overlay — declared in pdgui_pausemenu.h */
 #include "pdgui_pausemenu.h"
+#include "pdgui_friends.h"
+#include "pdgui_nat_diagnostics.h"
 
 /* In-match HUD overlay (top scorers + timer) */
 #include "pdgui_hud.h"
@@ -668,6 +670,9 @@ void pdguiRender(void)
     bool updateActive = (pdguiUpdateIsActive() != 0);
     bool pauseActive = (pdguiIsPauseMenuOpen() || pdguiIsScorecardVisible());
     bool hubActive = (pdguiModdingHubIsVisible() != 0);
+    bool friendsActive = (pdguiFriendsSidebarIsOpen() != 0) ||
+                          (pdguiFriendsSocialIsOpen() != 0) ||
+                          (pdguiNatDiagnosticsIsOpen() != 0);
 
     /* D13: Also render when update UI is visible (notification banner, version picker) */
 #if defined(PD_DEV_BUILD)
@@ -708,7 +713,8 @@ void pdguiRender(void)
              debugOverlayActive, menuStackDiag, networkActive, pauseActive, hubActive, interactPrompt,
              devGameplayHud)
         && !mpLiveMatchHud
-        && !s_ConsoleVisible && !hotswapQueued && !hotswapWasActive && !updateActive) {
+        && !s_ConsoleVisible && !hotswapQueued && !hotswapWasActive && !updateActive
+        && !friendsActive) {
         return;
     }
 
@@ -798,6 +804,13 @@ void pdguiRender(void)
      * Rendered independently of hotswap/menu state — active during gameplay. */
     pdguiPauseMenuRender((s32)winW, (s32)winH);
     pdguiScorecardRender((s32)winW, (s32)winH);
+
+    /* Phase 1 connectivity surfaces: top-right status indicator,
+     * Tab-toggled friend sidebar, full-screen Social menu, add-friend
+     * modal. Rendered after every other overlay so the status pill is
+     * always visible and the sidebar/Social menu paint above gameplay
+     * windows. */
+    pdguiFriendsRender((s32)winW, (s32)winH);
 
     /* In-match HUD: top 2 scorers + remaining time.
      * Only visible during normmplayerisrunning (combat sim active). */
