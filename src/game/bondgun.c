@@ -7760,10 +7760,56 @@ void bgun0f0a5550(s32 handnum)
 
 	hand->visible = true;
 
+	/* Issue 1 root-cause fix (2026-04-25, B-246): the legacy gate blocked
+	 * visibility whenever `hand->mode == HANDMODE_6` or `HANDMODE_7`. Those
+	 * modes are intermediate values set during the gun-change transition
+	 * (HANDMODE_6 set on LOWER -> LOAD at bondgun.c:2967, HANDMODE_7 set in
+	 * LOAD when `bgun0f09bf44` returns true at bondgun.c:2991). The original
+	 * design intent was to hide the FP weapon during the lower+raise
+	 * animations, which corresponds to the LOWER and RAISE stateminor stages
+	 * inside the CHANGEGUN state.
+	 *
+	 * Mike's instrumented playtest log (`019dc344`, build `0dc0173d`) showed
+	 * the player's right hand stuck with `hand_mode=6` despite all other
+	 * "weapon ready" indicators passing: `gunmemowner=BONDGUN`, `gunmemtype=1`
+	 * (UNARMED loaded), `gunmemnew=-1` (no pending load), `masterloadstate=
+	 * MASTERLOADSTATE_LOADED`, `inuse=1`, weapon flags clean. The `mode=6`
+	 * gate fired and forced `visible=false` even though the weapon was fully
+	 * loaded and the master state machine had completed.
+	 *
+	 * Static analysis says the LOAD/HANDMODE_6 path (bondgun.c:2989) should
+	 * advance mode to HANDMODE_7 every frame because `bgun0f09bf44`'s
+	 * conditions all match Mike's data: bgunIsLoaded TRUE, switchtoweaponnum
+	 * == -1, gunmemnew < 0, no LEFT-hand-mismatch, hands[1].state probably
+	 * not RELOAD. Yet runtime evidence proved mode never transitioned. Without
+	 * a fourth instrumented round to fingerprint why bgun0f09bf44 is
+	 * effectively returning false (or why bgunTickGameplay's per-frame state
+	 * tick is not executing despite tickmode=NORMAL), the structural fix is
+	 * to refactor the visibility gate so the mode check is scoped to the
+	 * actual lower/raise transition stateminors -- which is what the original
+	 * design intent was.
+	 *
+	 * New gate: hide on mode=6/7 ONLY when state == CHANGEGUN AND stateminor
+	 * is LOWER or RAISE (the two stateminors where the gun is genuinely off
+	 * screen / mid-transition). LOAD and EQUIP are stateminors where the gun
+	 * model is on-screen / settled and should render. If the state machine
+	 * gets stuck in LOAD/HANDMODE_6 (Mike's case), the new gate lets the
+	 * weapon render because LOAD is a "settled" stateminor, not a transition
+	 * animation. The other gates (bgunIsLoaded, inuse, gunmemtype) still
+	 * guarantee the weapon model is actually loaded and bound to the hand.
+	 *
+	 * Bot path is unaffected: bots don't go through this rendering path at
+	 * all (they have a separate third-person attach pipeline in
+	 * playerTickChrBody). */
+	const bool inHideTransition =
+			(hand->state == HANDSTATE_CHANGEGUN)
+			&& (hand->stateminor == HANDSTATEMINOR_CHANGEGUN_LOWER
+				|| hand->stateminor == HANDSTATEMINOR_CHANGEGUN_RAISE);
+
 	if (!weaponHasFlag(weaponnum, WEAPONFLAG_00000040)
 			|| weaponHasFlag(weaponnum, WEAPONFLAG_00000080)
-			|| hand->mode == HANDMODE_6
-			|| hand->mode == HANDMODE_7
+			|| (inHideTransition
+					&& (hand->mode == HANDMODE_6 || hand->mode == HANDMODE_7))
 			|| !bgunIsLoaded()
 			|| hand->inuse == false
 			|| bgunGetGunMemType() == 0) {
