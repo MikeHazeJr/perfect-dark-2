@@ -84,6 +84,7 @@
 #include "net/netmsg.h"
 #include "net/netmanifest.h"
 #include "net/p2p.h"
+#include "net/group_session.h"
 #include "presence.h"
 #include "modelcatalog.h"
 #include "pdmain.h"
@@ -652,6 +653,7 @@ void mainTick(void)
 	 * before p2pInit() completes. */
 	p2pTick();
 	presenceTick();
+	groupSessionTick();
 
 	if (g_MainChangeToStageNum < 0) {
 		frametimeCalculate();

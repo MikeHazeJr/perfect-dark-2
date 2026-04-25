@@ -31,6 +31,7 @@
 #include "ed25519.h"
 #include "net/p2p.h"
 #include "net/net.h"
+#include "net/group_session.h"
 #include "system.h"
 
 #include <SDL.h>
@@ -515,8 +516,10 @@ static void drainReceive(void)
 			}
 			case PRESENCE_KIND_INVITE_RESP: {
 				recordPong(from_handle, state, proto, src_ipv4, src_port, blurb);
-				/* Caller's pending pair sees the inviter come online; the p2p
-				 * orchestrator will pick it up via cached endpoint. */
+				/* The lower 16 bits of invite_kind encode the response: 1 =
+				 * accepted, 0 = declined. group_session moves the peer to
+				 * RESOLVING (kicks p2p) or FAILED (REJECTED). */
+				groupSessionOnInviteResponse(from_handle, invite_kind ? 1 : 0);
 				break;
 			}
 			case PRESENCE_KIND_BYE: {
@@ -525,6 +528,7 @@ static void drainReceive(void)
 					peer->state = PRESENCE_OFFLINE;
 					peer->last_pong_ms = 0;
 				}
+				groupSessionDropPeer(from_handle);
 				break;
 			}
 			default: break;
@@ -714,8 +718,11 @@ s32 presenceSendInvite(u32 friend_handle, u8 kind)
 	sendFrame(ipv4, port, PRESENCE_KIND_INVITE, friend_handle, nonce, kind,
 	          socialMyAgentName());
 
-	/* Begin a tier-1 capable p2p path so an accepted invite has a channel. */
-	(void)p2pPairBegin(friend_handle, ipv4, port);
+	/* Track the invite in the group session.  The actual p2p pair starts
+	 * when the friend's INVITE_RESP arrives -- racing to open the pair
+	 * before they accept would burn LAN/STUN attempts on a peer who may
+	 * decline.  groupSessionOnInviteResponse owns the pair-open path. */
+	(void)groupSessionRecordSentInvite(friend_handle);
 	sysLogPrintf(LOG_NOTE,
 	             "PRESENCE: invite sent handle=0x%08x kind=%u via %u.%u.%u.%u:%u",
 	             (unsigned)friend_handle, (unsigned)kind,
@@ -740,19 +747,23 @@ const presence_invite_t *presenceInviteAt(s32 idx)
 s32 presenceInviteAccept(s32 idx)
 {
 	if (idx < 0 || idx >= s_NumInbox) return -1;
-	const presence_invite_t *e = &s_Inbox[idx];
+	const presence_invite_t e = s_Inbox[idx];
 
 	u32 ipv4 = 0; u16 port = 0;
-	(void)resolveEndpoint(e->from_handle, &ipv4, &port);
+	(void)resolveEndpoint(e.from_handle, &ipv4, &port);
 
-	const u32 nonce = (u32)SDL_GetTicks() ^ e->from_handle;
+	const u32 nonce = (u32)SDL_GetTicks() ^ e.from_handle;
 	if (ipv4 != 0) {
-		sendFrame(ipv4, port, PRESENCE_KIND_INVITE_RESP, e->from_handle, nonce, 1,
+		sendFrame(ipv4, port, PRESENCE_KIND_INVITE_RESP, e.from_handle, nonce, 1,
 		          socialMyAgentName());
 	}
 
-	/* Open a p2p path so the actual game traffic can flow. */
-	(void)p2pPairBegin(e->from_handle, ipv4, port);
+	/* Hand the acceptance to the group session, which begins the p2p
+	 * pair, watches it through to OPEN, and triggers netStartClient on
+	 * success. Do NOT also call p2pPairBegin here -- the pair table is
+	 * the single writer for pair state, and group_session is now the
+	 * single writer of the invite-to-match handoff state. */
+	(void)groupSessionAcceptInvite(e.from_handle);
 
 	/* Remove from inbox. */
 	memmove(&s_Inbox[idx], &s_Inbox[idx + 1],

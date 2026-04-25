@@ -29,6 +29,7 @@
 #include "utils.h"
 #include "net/net.h"
 #include "net/p2p.h"
+#include "net/group_session.h"
 #include "updater.h"
 #include "actionmap.h"
 #include "savemigrate.h"
@@ -193,6 +194,7 @@ int main(int argc, const char **argv)
 	socialInit();
 	p2pInit();
 	presenceInit();
+	groupSessionInit();
 
 	/* D13: Start background update check (non-blocking) */
 	if (!sysArgCheck("--no-update-check")) {

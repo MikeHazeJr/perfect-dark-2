@@ -24,12 +24,14 @@
 #include "imgui/imgui.h"
 
 #include "pdgui_friends.h"
+#include "pdgui_nat_diagnostics.h"
 #include "pdgui_style.h"
 
 extern "C" {
 #include "presence.h"
 #include "social.h"
 #include "net/p2p.h"
+#include "net/group_session.h"
 }
 
 /* -------------------------------------------------------------------------
@@ -166,6 +168,85 @@ extern "C" void pdguiFriendsStatusIndicatorRender(s32 winW, s32 winH)
 /* -------------------------------------------------------------------------
  * Sidebar peek
  * ------------------------------------------------------------------------- */
+
+/* Section 2.4 (UX feedback) + Section 9.2 (Q14 mismatch) + Section 2.4
+ * residue UX: render an inline status row for any group_session peer
+ * that is RESOLVING or FAILED so the user sees the escalation in flight
+ * and the specific error string when nothing succeeds. */
+static void renderGroupConnectionsSection(void)
+{
+	const group_session_t *gs = groupSessionGet();
+	if (!gs) return;
+	s32 active = 0;
+	for (s32 i = 0; i < GROUP_SESSION_MAX_PEERS; i++) {
+		if (gs->peers[i].handle != 0 &&
+		    (gs->peers[i].state == GROUP_PEER_RESOLVING ||
+		     gs->peers[i].state == GROUP_PEER_INVITED  ||
+		     gs->peers[i].state == GROUP_PEER_FAILED   ||
+		     gs->peers[i].state == GROUP_PEER_CONNECTED)) {
+			active++;
+		}
+	}
+	if (active == 0) return;
+
+	ImGui::Spacing();
+	ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+	ImGui::TextUnformatted("Connections");
+	ImGui::PopStyleColor();
+	ImGui::Separator();
+
+	for (s32 i = 0; i < GROUP_SESSION_MAX_PEERS; i++) {
+		const group_peer_t *pp = &gs->peers[i];
+		if (pp->handle == 0) continue;
+		const social_friend_t *f = socialFriendByHandle(pp->handle);
+		const char *agent = f && f->agent_name[0] ? f->agent_name : "friend";
+
+		switch (pp->state) {
+			case GROUP_PEER_INVITED:
+				ImGui::TextDisabled("%s -- invite sent, waiting...", agent);
+				break;
+			case GROUP_PEER_RESOLVING: {
+				p2p_pair_diag_t diag; memset(&diag, 0, sizeof(diag));
+				if (pp->pair_id && p2pPairDiag(pp->pair_id, &diag)) {
+					ImGui::Text("%s -- %s",
+					             agent,
+					             p2pTierUxLabel(diag.current_tier));
+				} else {
+					ImGui::Text("%s -- connecting...", agent);
+				}
+				break;
+			}
+			case GROUP_PEER_CONNECTED:
+				ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintSuccess(255));
+				ImGui::Text("%s -- connected", agent);
+				ImGui::PopStyleColor();
+				break;
+			case GROUP_PEER_FAILED:
+				ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintDanger(255));
+				if (pp->fail == GROUP_FAIL_VERSION_MISMATCH) {
+					char msg[160];
+					groupSessionFormatVersionMismatch(pp, msg, sizeof(msg));
+					ImGui::TextWrapped("%s", msg);
+				} else if (pp->fail == GROUP_FAIL_NETWORK_BLOCKED) {
+					ImGui::TextWrapped(
+					        "Connection failed. Your network blocks the traffic this game uses. "
+					        "Contact your network admin or try a different network.");
+				} else {
+					ImGui::TextWrapped("%s -- %s", agent, groupFailReasonText(pp->fail));
+				}
+				ImGui::PopStyleColor();
+				ImGui::PushID(9000 + i);
+				if (ImGui::SmallButton("Dismiss")) {
+					groupSessionDropPeer(pp->handle);
+					ImGui::PopID();
+					return;
+				}
+				ImGui::PopID();
+				break;
+			default: break;
+		}
+	}
+}
 
 static void renderInvitationsSection(void)
 {
@@ -315,6 +396,7 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 				}
 			}
 
+			renderGroupConnectionsSection();
 			renderInvitationsSection();
 
 			ImGui::EndChild();
@@ -399,6 +481,19 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 				}
 
 				if (ImGui::BeginTabItem("Settings")) {
+					ImGui::TextUnformatted("My connect code");
+					ImGui::Indent(12.0f);
+					ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
+					ImGui::TextUnformatted(socialMyConnectCode());
+					ImGui::PopStyleColor();
+					if (ImGui::SmallButton("Copy to clipboard")) {
+						SDL_SetClipboardText(socialMyConnectCode());
+					}
+					ImGui::SameLine();
+					ImGui::TextDisabled("Share this with a friend so they can add you.");
+					ImGui::Unindent(12.0f);
+					ImGui::Spacing();
+
 					social_visibility_t v = socialVisibilityGet();
 					ImGui::TextUnformatted("Visibility");
 					if (ImGui::RadioButton("Public", v == SOCIAL_VIS_PUBLIC)) {
@@ -431,6 +526,9 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 					ImGui::TextDisabled("My code:   %s",      socialMyConnectCode());
 					ImGui::TextDisabled("Visibility: %s",     visibilityLabel(v));
 					ImGui::TextDisabled("Pairs:     %d",      (int)p2pPairCount());
+					if (ImGui::Button("Open NAT diagnostics")) {
+						pdguiNatDiagnosticsOpen();
+					}
 					ImGui::EndTabItem();
 				}
 
@@ -450,6 +548,8 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 		ImGui::PopStyleColor();
 	}
 
+	pdguiNatDiagnosticsRender(winW, winH);
+
 	if (s_AddFriendOpen) {
 		ImGui::OpenPopup("Add Friend");
 	}
@@ -460,6 +560,15 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 		ImGui::TextUnformatted("Enter a friend's connect code (4 words)");
 		ImGui::SetNextItemWidth(420.0f);
 		ImGui::InputText("Code", s_AddFriendCodeBuf, sizeof(s_AddFriendCodeBuf));
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Paste")) {
+			char *clip = SDL_GetClipboardText();
+			if (clip) {
+				strncpy(s_AddFriendCodeBuf, clip, sizeof(s_AddFriendCodeBuf) - 1);
+				s_AddFriendCodeBuf[sizeof(s_AddFriendCodeBuf) - 1] = '\0';
+				SDL_free(clip);
+			}
+		}
 
 		ImGui::TextUnformatted("Optional nickname (local only)");
 		ImGui::SetNextItemWidth(420.0f);
