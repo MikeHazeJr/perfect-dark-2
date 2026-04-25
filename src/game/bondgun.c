@@ -61,7 +61,7 @@
 #include "video.h"
 #include "net/net.h"
 #include "net/netmsg.h"
-#include "system.h" /* B-243 instrumentation: sysLogPrintf for LOG.WPN.DIAG lines */
+#include "system.h" /* B-246 instrumentation: sysLogPrintf for LOG.WPN.DIAG lines */
 
 #define GUNLOADSTATE_FLUX     0
 #define GUNLOADSTATE_MODEL    1
@@ -5982,7 +5982,7 @@ void bgunAutoSwitchWeapon(void)
 
 void bgunEquipWeapon2(s32 handnum, s32 weaponnum)
 {
-	/* B-243 instrumentation: log every equip request so we can correlate UI
+	/* B-246 instrumentation: log every equip request so we can correlate UI
 	 * "weapon equipped" with hand/gunctrl state at the same instant. Player 0
 	 * only is enough to keep noise low while still covering the bug repro. */
 	if (g_Vars.currentplayernum == 0) {
@@ -10978,7 +10978,7 @@ void bgunRender(Gfx **gdlptr)
 
 	player = g_Vars.currentplayer;
 
-	/* B-243 instrumentation: log FP render entry on the first 5 ticks of a
+	/* B-246 instrumentation: log FP render entry on the first 5 ticks of a
 	 * stage for player 0. If this never fires when Mike repros, the FP render
 	 * path is being skipped upstream. If it fires but `hand[i].visible` is
 	 * false, the visibility gate is the culprit. The static `s_LastFrame`
@@ -11937,7 +11937,7 @@ void bgunTickGameplay(bool triggeron)
 	struct player *player = g_Vars.currentplayer;
 	s32 i;
 
-	/* B-243 instrumentation: log fire handler entry on first frame after the
+	/* B-246 instrumentation: log fire handler entry on first frame after the
 	 * trigger toggles ON (rising edge). Captures the gate state at the exact
 	 * moment a Mike-pressed FirePrimary action would have armed `triggeron`.
 	 * Player 0 only; emit only on rising edge to avoid flooding the log. */

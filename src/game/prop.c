@@ -2705,7 +2705,7 @@ void propsTestForPickup(void)
 	RoomNum allrooms[21];
 	RoomNum tmp[11];
 
-	/* B-243 instrumentation: log the pickup probe gate state every ~120 ticks
+	/* B-246 instrumentation: log the pickup probe gate state every ~120 ticks
 	 * for player 0 so we can correlate "can't pick up" with the gates that
 	 * decide whether the probe even runs. If `gate_pass=0`, the probe never
 	 * enumerates props -- chase whichever gate is false. */

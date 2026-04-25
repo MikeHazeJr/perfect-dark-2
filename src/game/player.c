@@ -1779,7 +1779,7 @@ void playerSpawn(void)
 		netmsgSvcPlayerStatsWrite(&g_NetMsgRel, g_Vars.currentplayer->client);
 	}
 
-	/* B-243 instrumentation: dump player-rig + equipped weapon state at the
+	/* B-246 instrumentation: dump player-rig + equipped weapon state at the
 	 * end of a spawn for player 0. Pairs with the LOG.WPN.DIAG lines in
 	 * bondgun.c to fingerprint whether the spawn-with-weapon hand attach
 	 * actually completed before the first fire input arrives. */
@@ -1902,7 +1902,7 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 		B234_RESOLVE_CHARCONFIG(
 			g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base,
 			headnum, bodynum, arg2);
-		/* B-243 instrumentation: log the resolved body/head + their rig_class
+		/* B-246 instrumentation: log the resolved body/head + their rig_class
 		 * for player 0 only. The bug correlates with body choice (Dark Combat
 		 * default = broken; Dr Carroll = working in one log), so capturing
 		 * rig_class here lets us tell whether the per-body FP-rig anchor is
