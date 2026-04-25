@@ -7732,6 +7732,31 @@ void bgun0f0a5550(s32 handnum)
 			|| hand->inuse == false
 			|| bgunGetGunMemType() == 0) {
 		hand->visible = false;
+		/* B-246 round-3 instrumentation: log which visibility gate(s) fired
+		 * for player 0. Captured every ~120 ticks while visible-gate fires.
+		 * If multiple gates are always wedged, that's the diagnosis. */
+		if (g_Vars.currentplayernum == 0
+				&& (g_Vars.lvframenum % 120) == 11) {
+			s32 gate_no_flag40 = !weaponHasFlag(weaponnum, WEAPONFLAG_00000040) ? 1 : 0;
+			s32 gate_flag80 = weaponHasFlag(weaponnum, WEAPONFLAG_00000080) ? 1 : 0;
+			s32 gate_mode6 = (hand->mode == HANDMODE_6) ? 1 : 0;
+			s32 gate_mode7 = (hand->mode == HANDMODE_7) ? 1 : 0;
+			s32 gate_notloaded = !bgunIsLoaded() ? 1 : 0;
+			s32 gate_notinuse = (hand->inuse == false) ? 1 : 0;
+			s32 gate_memtype0 = (bgunGetGunMemType() == 0) ? 1 : 0;
+			sysLogPrintf(LOG_NOTE,
+				"LOG.WPN.DIAG: visibility-gate-fail player=0 hand=%d wpn=%d frame=%d "
+				"gates: noFlag40=%d flag80=%d mode6=%d mode7=%d notLoaded=%d notInuse=%d memType0=%d "
+				"raw: hand_mode=%d gunmemowner=%d gunmemtype=%d gunmemnew=%d masterload=%d",
+				handnum, (s32)weaponnum, g_Vars.lvframenum,
+				gate_no_flag40, gate_flag80, gate_mode6, gate_mode7,
+				gate_notloaded, gate_notinuse, gate_memtype0,
+				(s32)hand->mode,
+				(s32)g_Vars.currentplayer->gunctrl.gunmemowner,
+				(s32)g_Vars.currentplayer->gunctrl.gunmemtype,
+				(s32)g_Vars.currentplayer->gunctrl.gunmemnew,
+				(s32)g_Vars.currentplayer->gunctrl.masterloadstate);
+		}
 	}
 
 	if (hand->visible) {
