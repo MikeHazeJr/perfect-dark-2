@@ -345,6 +345,27 @@ void pdguiInit(void *sdlWindow)
     /* M0.2 Phase C: ImGui's built-in gamepad nav is disabled.
      * pdguiDriveImGuiNav() now injects nav events from actionmap each frame. */
 
+    /* Priority K-c (2026-04-25): make inputCtxSyncMouseMode the SOLE
+     * SDL_ShowCursor authority.  ImGui_ImplSDL2_UpdateMouseCursor reads
+     * io.MouseDrawCursor + the active ImGui cursor every NewFrame and
+     * calls SDL_ShowCursor independently; that fought inputCtxSyncMouseMode
+     * which runs at end-of-frame off the input-context stack top.  In
+     * gameplay both authorities pointed at "hide cursor" via different
+     * paths and happened to agree (relative-mouse mode hid the cursor
+     * regardless), but at gameplay->menu transitions they disagreed for
+     * one frame producing the Issue 3 cursor flicker / pause-menu RMB-
+     * only navigation symptom.
+     *
+     * NoMouseCursorChange short-circuits the SDL backend's cursor
+     * visibility logic at imgui_impl_sdl2.cpp:631-632, leaving the OS
+     * cursor visibility decision entirely to inputCtxSyncMouseMode in
+     * port/src/inputctx.c.  We lose ImGui's cursor-shape switching
+     * (resize handles etc.) which we don't surface anyway.
+     *
+     * See context/audits/input-authority-discipline-2026-04-25.md
+     * section G + context/designs/input-authority-methodology.md. */
+    io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+
     /* S309: don't persist ImGui window state to imgui.ini — per-agent
      * prefs own window visibility / selection, and imgui.ini has been a
      * source of "why did the dev menu open at a weird size?" reports.
