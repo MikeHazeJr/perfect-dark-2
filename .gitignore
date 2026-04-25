@@ -3,6 +3,12 @@ build/
 ClaudeBuilds/
 Cursor Build/
 dist/
+
+# Office app temp files (Word / Excel / PowerPoint open-document locks)
+# AUDIT-23-M2 (2026-04-25): prevents `~$*.docx` etc. from leaking into commits
+# when a tester opens a `.docx` reference document mid-session.
+~$*
+*.~lock.*
 backups/
 *.exe
 *.dll
