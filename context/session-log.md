@@ -4,6 +4,59 @@
 > **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S458 - 2026-04-25 - Priority M (B-238): unified .pdmod end-to-end (M-1 through M-4)
+
+Independent code session running in worktree `claude/sharp-almeida-aeeb1f`. Mike's directive: clear B-238 (the canonical-mod-format work) end-to-end before his return. 13 commits, all build-verified.
+
+### What landed
+
+**M-1 -- loader integration (6 commits + 1 chore).**
+- `77c622a2` M-1.1: `port/include/modarchive.h` + `port/src/modarchive.c`. Zip reader + writer routed through the system zlib (already linked via libz.a, no new dep). Atomic `<out>.tmp -> rename` writer. Per-entry CRC32 verification on extract. Path-traversal sanitisation at central-directory parse time. Refuses ZIP64 sentinels and encrypted entries.
+- `372e318f` M-1.2: `modmgr.c` extended to enumerate `*.pdmod` and `*.zip` at modsdir root + inside category folders. JSON parser body refactored into a buffer-driven helper (`modmgrParseModJsonBuf`) + folder/archive wrappers so manifest interpretation cannot drift between sources. modinfo_t gains `is_archive`, `archive_path`, `archive_handle`, `requires_restart`. Dual-support: legacy folder mods continue to load.
+- `2a4fbf30` M-1.3: `port/include/modvfs.h` + `port/src/modvfs.c`. Per-archive mount table + global doubly-linked LRU cache. Configurable cap via `Mods.AssetCacheMB` (default 256 MiB). Hooked into `fs.c::fsFileLoad`/`fsFileSize` (PD_SERVER-guarded so the server stays out). modmgr now mounts archives in modmgrLoadMod and unmounts in modmgrUnloadAllMods (BEFORE closing handles -- no dangling cache entries).
+- `2d58c69b` M-1.5: requires_restart deferral. modmgrApplyChanges snapshots intent vs current loaded, masks enabled for deferred mods so the rebuild keeps them in their pre-apply state, surfaces `pending_restart` for UI. modmgrReload still does a full reload (intentionally bypasses the deferral).
+- `7cd9dc47` M-1.6: trust-model continuity hardening. Defense-in-depth `modmgrArchivePathIsTrusted` refuses any archive under reserved top-level subdirectories. sha256 prefix echoed in discovery + load logs. One-shot `modmgrLogSharedInbox` confirms the inbox exists and is bounded.
+- `e3f9160a` M-1.7: `--bench-pdmod` perf harness in `port/src/modarchive_bench.c`. Numbers measured (debug-Og): 512 KiB cold read = **456 us** (PASS, 2x headroom on the design's <1 ms target). modArchiveOpen = 5.34 ms (borderline vs 5 ms target but well within one 60 Hz frame). modArchiveClose = 18 us (555x headroom). Documented in design 4.6 with PASS verdict.
+- `5cd130f0` chore: `--migrate-pdmod` CLI for testing migration in isolation (sister of `--bench-pdmod`).
+
+**M-2 -- Windows Shell Property Handler (1 commit + 1 doc).**
+- `199c689f` M-2.1 + M-2.2: `tools/pdmod_prophandler/PD2ModPropHandler.dll`. COM in-proc server implementing IInitializeWithStream + IPropertyStore. Reads .pdmod from the IStream, parses central directory, decompresses mod.json, emits PROPVARIANT for PKEY_Title / PKEY_Author (creator falls back to author) / PKEY_Comment / PKEY_Software_ProductVersion / PKEY_Keywords. Standalone CMake target with libz statically linked + zero non-system runtime deps. Registry shape per design 4.5.2 wired into `install/register.ps1` and `install/unregister.ps1`. DLL builds and exports the four required COM symbols (objdump -p verified).
+- `c55d96ce` M-2.4: design doc note that the loader's manifest read does not depend on the OS shell, so non-Windows behaves identically.
+
+**M-2.3 -- zip-comment mirror.**
+- Folded into `d90492d9` M-3.1 since the writer is the single source. Every .pdmod ends with a comment-mirror JSON blob `{"name":..,"creator":..,"version":..}` derived automatically from the manifest. Verified by Python zipfile in M-4.2.
+
+**M-3 -- mod tool migration (3 commits).**
+- `d90492d9` M-3.1: `port/include/modpack_pdmod.h` + `port/src/modpack_pdmod.c`. Two helpers: `modpackPdmodFromFolder` (recursive folder pack, used by M-4.1) and `modpackPdmodWriteSingle` (in-memory manifest + entry list, used by tools). Both compute the comment mirror automatically and stream through modarchive's atomic temp-rename pipeline.
+- `a3090849` M-3.2: theme editor "Save as .pdmod" button next to existing "Save". Composes the same mod.json + theme.json the folder save produces, then hands them to modpackPdmodWriteSingle. Folder save path retained during the migration window per design Section 5.
+- `a133c0a1` M-3.3: design doc Section 5 updated with concrete file pointers + step-by-step migration recipe for future tools (skin editor, forge map saver, bot config saver, audio mod packager).
+
+**M-4 -- first-run auto-migration (2 commits).**
+- `e750fba1` M-4.1: `port/include/modmigrate.h` + `port/src/modmigrate.c`. Sentinel-guarded one-shot folder->.pdmod auto-migration. Five-step atomic per-mod transition (read manifest -> package -> verify-by-reopen -> rename source). Skips reserved trust-gate names + existing .pdmod siblings + .legacy_backup folders. Wired into `modmgrScanDirectory` BEFORE the iteration loop so the scan picks up the new archives in the same pass.
+- `5c0f9851` M-4.2: `context/audits/pdmod-migration-2026-04-25.md`. Documents the migration design, skip rules, the operator verification recipe (`--migrate-pdmod`), and the end-to-end fixture run on this worktree. All 4 folders (3 real mods + 1 synthetic fixture) packaged successfully -- archive size, entry count, comment-mirror content for each captured. Worktree restored before commit (`git checkout -- mods/` + manual cleanup).
+
+### Verification matrix
+
+`context/audits/pdmod-verification-matrix-2026-04-25.md` enumerates each B-238 verification step, the implementation site that satisfies it, and what's PASS / READY / needs Mike's manual hand on a real install. Five operator-side verifications listed for post-merge: first-boot migration, Property Handler registration, hot-toggle smoke test, trust-gate test, theme editor "Save as .pdmod" round-trip.
+
+### State
+
+- bugs.md B-238 transitioned OPEN -> RESOLVED-PENDING-PLAYTEST.
+- Branch `claude/sharp-almeida-aeeb1f` ready for merge into dev.
+- Both `pd` and `pd-server` link cleanly at every commit.
+- Worktree clean; no untracked artifacts from the migration fixture run.
+
+### Co-existence notes
+
+This session ran independent of A (Issue 1 weapon -- B-246), B (Priority L menus + bug queue), C (connectivity Phase 1-5), E (3D render box). No files in those scopes were touched. Modmgr / modarchive / modvfs / modmigrate are wholly new files; the modmgr.c modifications stay within mod-loader internals (no UI / actionmap / inputctx / forge / bondinit / bgun touches). The fs.c hookin is two short PD_SERVER-guarded blocks at the top of fsFileLoad/Size/LoadTo.
+
+### What did NOT land
+
+- Archive-backed component scanner integration (asset catalog component scan walks subdirectories looking for skins etc.; archive-backed components require an archive walk, deferred as a follow-up enhancement -- the M-1 manifest-content path covers bodies / heads / arenas / audio / themes which is the bulk of mod content today).
+- Custom System.Mod.* shell properties (need a `.propdesc` schema file; deferred per design QM-7).
+- Phase M-4 (legacy folder loader retirement) -- contingent on Mike's review post-migration.
+- macOS Spotlight `mdimporter` (no macOS port exists).
+
 ## Session S457 - 2026-04-24 - F/G/H/I/J: test arenas, music sync, B-228 Option E, design pass
 
 Five priorities landed in one batch. F/G/H are code; I/J are design docs awaiting Mike review.
