@@ -155,6 +155,65 @@ System-level framing per Mike's methodology reminder: "what does identity mean i
 
 Build-verify clean: PerfectDark.exe 54,739,286 / PerfectDarkServer.exe 23,257,513 (server now changes because identity.c is in SRC_SERVER and was extended for the keypair fields + ensureKeypair lifecycle).
 
+### Phase 1 close-out -- `6e08123b` group session + UX + NAT diagnostics
+
+Mike's three debugging-methodology principles were applied to close the remaining Phase 1 exit-criteria gaps:
+
+1. *Verify each phase actually closes its exit criteria before moving on.* The original Phase 1 close claim was structurally premature: match authority (e), in-match P2P handoff (f), and the explicit UX strings (Q14 mismatch + Section 2.4 network-blocked) were missing. This commit closes each.
+2. *Bad-value triage / single-writer hygiene.* group_session.c is the sole writer of mesh + authority + invite-to-match state. Presence hooks call public API; pair state is observed via p2pPairGetState polls in groupSessionTick rather than mutated via cross-module callbacks. Authority is recomputed through one entry point.
+3. *Up + down the stack.* Each transition logs `GROUP.SESSION:` with cause (state delta, fail reason). NAT diagnostics overlay correlates local STUN / UPnP / LAN state with per-pair tier history so a stuck-peer trace is one read.
+
+New / extended files
+- port/include/net/group_session.h + port/src/net/group_session.c (~410 LOC) -- mesh peer table, GROUP_PEER_INVITED/RESOLVING/CONNECTED/FAILED state machine, authority election, invite-to-match handoff, Q14 version-mismatch formatter.
+- port/include/pdgui_nat_diagnostics.h + port/fast3d/pdgui_nat_diagnostics.cpp (~250 LOC) -- in-build verification harness. Surfaces local STUN/UPnP/LAN, every p2p pair (id/peer/state/tier/ms/endpoint/error), and the group session table. Verification matrix template included.
+- port/fast3d/pdgui_friends.cpp -- new renderGroupConnectionsSection inline in the sidebar; tier label live-renders via p2pTierUxLabel(diag.current_tier); FAILED branch dispatches to either the Q14 mismatch string (groupSessionFormatVersionMismatch) or the Section 2.4 hard-failure prompt. Settings tab adds "Copy to clipboard" on the local connect code + "Open NAT diagnostics"; Add Friend modal adds "Paste".
+- port/src/presence.c -- presenceSendInvite no longer eagerly opens a p2p pair; group_session opens it on INVITE_RESP arrival. presenceInviteAccept hands off via groupSessionAcceptInvite. INVITE_RESP / BYE deliver to groupSessionOnInviteResponse / groupSessionDropPeer.
+- main.c initialises groupSession after presence; mainTick ticks groupSession after presenceTick (presence -> group_session -> p2p observation order).
+
+### Phase 1 exit criteria (re-verified per Mike's principle 1)
+
+| Criterion (design Section 10.1) | Status | Evidence |
+|---|---|---|
+| Two friends on different ISPs can launch + see each other online | YES (in-code) | Persistent endpoint cache + presence ping schedule + signed pings; identity is pubkey-bound so network mobility is transparent. |
+| Exchange invitations | YES | presenceSendInvite + presenceInviteAccept. |
+| Start a co-op match together | YES | groupSessionAcceptInvite -> p2p OPEN -> netStartClient handoff in onPairOpen. |
+| Presence stays connected through match-start / match-end | YES | Socket lifecycle is independent of g_NetMode; presenceTick runs every frame from mainTick. |
+| All 5 NAT tiers verified on real-NAT matrix | PENDING (Mike's lab) | All five tiers shipped + the diagnostics harness lets Mike record outcomes per NAT type. |
+| Tier escalation UX feedback user-visible | YES | renderGroupConnectionsSection + p2pTierUxLabel. |
+| Pairs that genuinely cannot connect see explicit error UX | YES | Section 2.4 string rendered for GROUP_FAIL_NETWORK_BLOCKED. |
+| Version-mismatch UX surfaces correctly | YES | groupSessionFormatVersionMismatch implements the Q14 wording. |
+
+**NET_PROTOCOL_VER stays at 40** -- no ENet wire packet changed in Phase 1. Bumping without a wire change would break compatibility for nothing. Decision logged in `context/audits/connectivity-phase1-decisions.md`. The bump comes naturally with Phase 2's chat / file-transfer additions.
+
+### What Phase 1 ships at the end of this session
+
+- 6-tier P2P escalation (LAN / direct / STUN / UPnP / ICE / TURN-style) with per-tier UX label + 2.5 s timeout + escalation logging.
+- Network-agnostic Ed25519-bound identity with TOFU pubkey lock + signed presence frames + 5-min endpoint TTL.
+- Friend list / block list / three-state visibility / two-category notifications, persisted under `<home>/social/`.
+- Status indicator pill (always-on), sidebar peek (Tab toggle / pill click), full-screen Social menu (Friends / Block list / Settings tabs), Add Friend modal with paste, Connect-code copy-to-clipboard.
+- Group session: mesh + per-match authority (highest-kbps / initiator fallback), invite-to-match handoff to netStartClient, Q14 / Section 2.4 UX prompts.
+- NAT diagnostics overlay surfacing every layer up + down the stack.
+
+What is NOT in scope for Phase 1 (per design doc + decisions log):
+- DHT / rendezvous discovery for friends with no cached endpoint and no LAN co-presence (Phase 2+ enhancement).
+- Per-friend QR / share-link UX (future polish; copy-to-clipboard ships).
+- Real-network verification across NAT types (Mike's playtest).
+
+Build-verify clean across all six Phase 1 commits: PerfectDark.exe 54,815,601 / PerfectDarkServer.exe 23,257,513.
+
+### Phase 1 commits (chronological)
+
+| Commit | Scope |
+|---|---|
+| `9df0990a` | P1.A social store + identity-stable connect codes |
+| `1668211a` | P1.B 6-tier P2P escalation layer |
+| `bc248616` | P1.E presence layer |
+| `d2b0e4a5` | P1.G/H/I status indicator + sidebar + Social menu |
+| `58687e2a` | session log Phase 1 infrastructure landing |
+| `44dd9f8d` | Network-agnostic Ed25519 identity rework |
+| `b00014f0` | session log identity-rework note |
+| `6e08123b` | P1.J + P1.K group session + UX + NAT diagnostics |
+
 ## Session S457 - 2026-04-24 - F/G/H/I/J: test arenas, music sync, B-228 Option E, design pass
 
 Five priorities landed in one batch. F/G/H are code; I/J are design docs awaiting Mike review.
