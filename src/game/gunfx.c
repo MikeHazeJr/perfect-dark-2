@@ -717,8 +717,7 @@ void casingCreateForHand(s32 handnum, f32 ground, Mtxf *mtx)
 
 		casing->ground = ground;
 
-		if (weaponnum == WEAPON_PP9I || weaponnum == WEAPON_CC13
-				|| weaponnum == WEAPON_FALCON2 || weaponnum == WEAPON_MAGSEC4) {
+		if (weaponnum == WEAPON_FALCON2 || weaponnum == WEAPON_MAGSEC4) {
 			casing->speed.x = -(RANDOMFRAC() * 0.5333333f * 0.0625f + 0.5333333f);
 			casing->speed.y = RANDOMFRAC() * 2.5f * 0.0625f + 2.5f;
 			casing->speed.z = 0.0f;

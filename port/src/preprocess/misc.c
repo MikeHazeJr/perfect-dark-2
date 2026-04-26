@@ -56,13 +56,13 @@ u8 *preprocessMpConfigs(u8* data, u32 size, u32* outSize)
 		// TODO: are these required or are they always 0?
 		PD_SWAP_VAL(cfg->setup.fileguid.deviceserial);
 		PD_SWAP_VAL(cfg->setup.fileguid.fileid);
-		// convert MPWEAPON_ to take classic weapons and JPN weapons into account
+		// Convert MPWEAPON_ values from ROM enum to runtime enum.
+		// The +8 stage that previously skipped past 8 inserted Goldfinger
+		// 64 weapons (PP9I..RCP45) was deleted with the 2026-04-26 cull;
+		// only the IR Scanner / Night Vision shift (and JPN combat knife
+		// shift) remain.
 		for (s32 j = 0; j < ARRAYCOUNT(cfg->setup.weapons); ++j) {
 #if VERSION == VERSION_JPN_FINAL /* TODO: replace with runtime check */
-			if (cfg->setup.weapons[j] >= 0x24) {
-				// weapons after and including the shield need to be shifted (for classic weapons)
-				cfg->setup.weapons[j] += (MPWEAPON_SHIELD - MPWEAPON_PP9I);
-			}
 			if (cfg->setup.weapons[j] >= 0x22) {
 				// weapons after and including the cloaking device need to be shifted (for IR Scanner and Night Vision)
 				cfg->setup.weapons[j] += (MPWEAPON_CLOAKINGDEVICE - MPWEAPON_NIGHTVISION);
@@ -72,10 +72,6 @@ u8 *preprocessMpConfigs(u8* data, u32 size, u32* outSize)
 				cfg->setup.weapons[j]++;
 			}
 #else
-			if (cfg->setup.weapons[j] >= 0x25) {
-				// weapons after and including the shield need to be shifted (for classic weapons)
-				cfg->setup.weapons[j] += (MPWEAPON_SHIELD - MPWEAPON_PP9I);
-			}
 			if (cfg->setup.weapons[j] >= 0x23) {
 				// weapons after and including the cloaking device need to be shifted (for IR Scanner and Night Vision)
 				cfg->setup.weapons[j] += (MPWEAPON_CLOAKINGDEVICE - MPWEAPON_NIGHTVISION);

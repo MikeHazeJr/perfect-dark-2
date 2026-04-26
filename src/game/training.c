@@ -305,61 +305,6 @@ u32 frGetWeaponScriptIndex(u32 weaponnum)
 	return 0;
 }
 
-s32 frIsClassicWeaponUnlocked(u32 weapon)
-{
-	switch (weapon) {
-	case WEAPON_PP9I:
-		return ciGetFiringRangeScore(0) == 3
-			&& ciGetFiringRangeScore(1) == 3
-			&& ciGetFiringRangeScore(2) == 3;
-	case WEAPON_CC13:
-		return ciGetFiringRangeScore(3) == 3
-			&& ciGetFiringRangeScore(4) == 3
-			&& ciGetFiringRangeScore(5) == 3
-			&& ciGetFiringRangeScore(6) == 3
-			&& ciGetFiringRangeScore(7) == 3;
-	case WEAPON_KL01313:
-		return ciGetFiringRangeScore(8) == 3
-			&& ciGetFiringRangeScore(9) == 3
-			&& ciGetFiringRangeScore(10) == 3
-			&& ciGetFiringRangeScore(11) == 3;
-	case WEAPON_KF7SPECIAL:
-		return ciGetFiringRangeScore(12) == 3
-			&& ciGetFiringRangeScore(13) == 3
-			&& ciGetFiringRangeScore(14) == 3
-			&& ciGetFiringRangeScore(15) == 3
-			&& ciGetFiringRangeScore(16) == 3;
-	case WEAPON_ZZT:
-		return ciGetFiringRangeScore(17) == 3
-			&& ciGetFiringRangeScore(18) == 3
-			&& ciGetFiringRangeScore(24) == 3
-			&& ciGetFiringRangeScore(25) == 3;
-	case WEAPON_DMC:
-#if VERSION >= VERSION_NTSC_1_0
-		return ciGetFiringRangeScore(29) == 3
-			&& ciGetFiringRangeScore(30) == 3
-			&& ciGetFiringRangeScore(31) == 3;
-#else
-		return ciGetFiringRangeScore(29) == 3
-			&& ciGetFiringRangeScore(30) == 3
-			&& ciGetFiringRangeScore(32) == 3
-			&& ciGetFiringRangeScore(33) == 3
-			&& ciGetFiringRangeScore(34) == 3;
-#endif
-	case WEAPON_AR53:
-		return ciGetFiringRangeScore(19) == 3
-			&& ciGetFiringRangeScore(20) == 3
-			&& ciGetFiringRangeScore(26) == 3
-			&& ciGetFiringRangeScore(28) == 3;
-	case WEAPON_RCP45:
-		return ciGetFiringRangeScore(21) == 3
-			&& ciGetFiringRangeScore(22) == 3
-			&& ciGetFiringRangeScore(23) == 3;
-	}
-
-	return false;
-}
-
 s32 frGetSlot(void)
 {
 	return g_FrData.slot;

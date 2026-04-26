@@ -92,14 +92,6 @@ struct cheat g_Cheats[] = {
 #else
 	{ L_MPWEAPONS_108, TIME(1 m, 44 s),   SOLOSTAGEINDEX_CHICAGO,        DIFF_PA, CHEATFLAG_TIMED                              }, // Psychosis Gun
 #endif
-	{ L_MPWEAPONS_109, WEAPON_PP9I,       0,                             0,       CHEATFLAG_FIRINGRANGE                        }, // PP9i
-	{ L_MPWEAPONS_110, WEAPON_CC13,       0,                             0,       CHEATFLAG_FIRINGRANGE                        }, // CC13
-	{ L_MPWEAPONS_111, WEAPON_KL01313,    0,                             0,       CHEATFLAG_FIRINGRANGE                        }, // KL01313
-	{ L_MPWEAPONS_112, WEAPON_KF7SPECIAL, 0,                             0,       CHEATFLAG_FIRINGRANGE                        }, // KF7 Special
-	{ L_MPWEAPONS_113, WEAPON_ZZT,        0,                             0,       CHEATFLAG_FIRINGRANGE                        }, // ZZT (9mm)
-	{ L_MPWEAPONS_114, WEAPON_DMC,        0,                             0,       CHEATFLAG_FIRINGRANGE                        }, // DMC
-	{ L_MPWEAPONS_115, WEAPON_AR53,       0,                             0,       CHEATFLAG_FIRINGRANGE                        }, // AR53
-	{ L_MPWEAPONS_116, WEAPON_RCP45,      0,                             0,       CHEATFLAG_FIRINGRANGE                        }, // RC-P45
 	{ L_MPWEAPONS_215, 0,                 SOLOSTAGEINDEX_EXTRACTION,     DIFF_A,  CHEATFLAG_COMPLETION                         }, // Dual wield all guns
 };
 
@@ -108,11 +100,7 @@ u32 cheatIsUnlocked(s32 cheat_id)
 	struct cheat *cheat = &g_Cheats[cheat_id];
 	u32 unlocked = 0;
 
-	if (cheat->flags & CHEATFLAG_FIRINGRANGE) {
-		if (frIsClassicWeaponUnlocked(cheat->time)) {
-			unlocked++;
-		}
-	} else if (cheat->flags & CHEATFLAG_COMPLETION) {
+	if (cheat->flags & CHEATFLAG_COMPLETION) {
 		if (cheat->stage_index >= NUM_SOLOSTAGES) {
 			return 0;
 		}

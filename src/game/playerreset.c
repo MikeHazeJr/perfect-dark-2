@@ -609,46 +609,6 @@ void playerReset(void)
 	}
 #endif
 
-	if (cheatIsActive(CHEAT_PP9I)) {
-		invGiveSingleWeapon(WEAPON_PP9I);
-		bgunSetAmmoQuantity(AMMOTYPE_PISTOL, 200);
-	}
-
-	if (cheatIsActive(CHEAT_CC13)) {
-		invGiveSingleWeapon(WEAPON_CC13);
-		bgunSetAmmoQuantity(AMMOTYPE_PISTOL, 200);
-	}
-
-	if (cheatIsActive(CHEAT_KL01313)) {
-		invGiveSingleWeapon(WEAPON_KL01313);
-		bgunSetAmmoQuantity(AMMOTYPE_SMG, 200);
-	}
-
-	if (cheatIsActive(CHEAT_KF7SPECIAL)) {
-		invGiveSingleWeapon(WEAPON_KF7SPECIAL);
-		bgunSetAmmoQuantity(AMMOTYPE_RIFLE, 200);
-	}
-
-	if (cheatIsActive(CHEAT_ZZT)) {
-		invGiveSingleWeapon(WEAPON_ZZT);
-		bgunSetAmmoQuantity(AMMOTYPE_SMG, 200);
-	}
-
-	if (cheatIsActive(CHEAT_DMC)) {
-		invGiveSingleWeapon(WEAPON_DMC);
-		bgunSetAmmoQuantity(AMMOTYPE_SMG, 200);
-	}
-
-	if (cheatIsActive(CHEAT_AR53)) {
-		invGiveSingleWeapon(WEAPON_AR53);
-		bgunSetAmmoQuantity(AMMOTYPE_RIFLE, 200);
-	}
-
-	if (cheatIsActive(CHEAT_RCP45)) {
-		invGiveSingleWeapon(WEAPON_RCP45);
-		bgunSetAmmoQuantity(AMMOTYPE_SMG, 200);
-	}
-
 	if (!hasdefaultweapon) {
 		g_DefaultWeapons[HAND_RIGHT] = WEAPON_UNARMED;
 	}

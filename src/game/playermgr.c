@@ -774,14 +774,6 @@ s32 playermgrGetModelOfWeapon(s32 weapon)
 	case WEAPON_TIMEDMINE:        model = MODEL_CHRTIMEDMINE; break;
 	case WEAPON_BRIEFCASE2:       model = MODEL_CHRBRIEFCASE; break;
 	case WEAPON_CLOAKINGDEVICE:   model = MODEL_CHRCLOAKER; break;
-	case WEAPON_PP9I:             model = MODEL_CHRWPPK; break;
-	case WEAPON_CC13:             model = MODEL_CHRTT33; break;
-	case WEAPON_KL01313:          model = MODEL_CHRSKORPION; break;
-	case WEAPON_KF7SPECIAL:       model = MODEL_CHRKALASH; break;
-	case WEAPON_ZZT:              model = MODEL_CHRUZI; break;
-	case WEAPON_DMC:              model = MODEL_CHRMP5K; break;
-	case WEAPON_AR53:             model = MODEL_CHRM16; break;
-	case WEAPON_RCP45:            model = MODEL_CHRFNP90; break;
 	case WEAPON_COMBATBOOST:      model = -1; break;
 	case WEAPON_HAMMER:           model = MODEL_CHRLUMPHAMMER; break;
 	case WEAPON_SCREWDRIVER:      model = MODEL_CHRSONICSCREWER; break;

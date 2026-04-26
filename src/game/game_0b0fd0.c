@@ -652,15 +652,6 @@ u32 currentPlayerGetSight(void)
 	case WEAPON_CALLISTO:
 	case WEAPON_FARSIGHT:
 		return SIGHT_MAIAN;
-	case WEAPON_PP9I:
-	case WEAPON_CC13:
-	case WEAPON_KL01313:
-	case WEAPON_KF7SPECIAL:
-	case WEAPON_ZZT:
-	case WEAPON_DMC:
-	case WEAPON_AR53:
-	case WEAPON_RCP45:
-		return SIGHT_CLASSIC;
 	}
 
 	return SIGHT_DEFAULT;

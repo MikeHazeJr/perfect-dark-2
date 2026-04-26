@@ -1482,14 +1482,13 @@ MenuItemHandlerResult mpSelectRandomWeaponListHandler(s32 operation, struct menu
 {
 	static const char *labels[] = {
 		"Select Dark",
-		"Select Classic",
 		"Select All",
 		"Select None",
 	};
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		data->list.value = mpGetNumWeaponOptions() + 4;
+		data->list.value = mpGetNumWeaponOptions() + 3;
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		{
@@ -1538,22 +1537,13 @@ MenuItemHandlerResult mpSelectRandomWeaponListHandler(s32 operation, struct menu
 					}
 					break;
 				case 1:
-					// Select Classic
-					for (i = 0; i < ARRAYCOUNT(g_MpWeapons); i++) {
-						if (i >= MPWEAPON_PP9I && i <= MPWEAPON_RCP45) {
-							g_MpWeaponSetRandomFilters[i] = 1;
-						} else {
-							g_MpWeaponSetRandomFilters[i] = 0;
-						}
-					}
-					break;
-				case 2:
-					// Select All
+					// Select All (was: Select Classic, removed with the
+					// 2026-04-26 Goldfinger 64 weapon cull)
 					for (i = 0; i < ARRAYCOUNT(g_MpWeapons); i++) {
 						g_MpWeaponSetRandomFilters[i] = 1;
 					}
 					break;
-				case 3:
+				case 2:
 					// Select None
 					for (i = 0; i < ARRAYCOUNT(g_MpWeapons); i++) {
 						g_MpWeaponSetRandomFilters[i] = 0;

@@ -174,15 +174,7 @@ extern struct sc_solostage g_SoloStages[];
 #define SC_CHEAT_LAPTOPGUN              31
 #define SC_CHEAT_PHOENIX                32
 #define SC_CHEAT_PSYCHOSISGUN           33
-#define SC_CHEAT_PP9I                   34
-#define SC_CHEAT_CC13                   35
-#define SC_CHEAT_KL01313                36
-#define SC_CHEAT_KF7SPECIAL             37
-#define SC_CHEAT_ZZT                    38
-#define SC_CHEAT_DMC                    39
-#define SC_CHEAT_AR53                   40
-#define SC_CHEAT_RCP45                  41
-#define SC_CHEAT_DUALWIELDALLGUNS       42
+#define SC_CHEAT_DUALWIELDALLGUNS       34
 
 #define SC_CHEATFLAG_TIMED       0
 #define SC_CHEATFLAG_ALWAYSON    1
@@ -198,9 +190,8 @@ enum CheatsTab {
     SC_TAB_FUN             = 0,
     SC_TAB_GAMEPLAY        = 1,
     SC_TAB_SOLO_WEAPONS    = 2,
-    SC_TAB_CLASSIC_WEAPONS = 3,
-    SC_TAB_WEAPONS         = 4,
-    SC_TAB_BUDDIES         = 5,
+    SC_TAB_WEAPONS         = 3,
+    SC_TAB_BUDDIES         = 4,
     SC_TAB_COUNT
 };
 
@@ -254,17 +245,6 @@ static const CheatRow k_SoloWeaponRows[] = {
     { SC_CHEAT_FARSIGHT,         "FarSight" },
 };
 
-static const CheatRow k_ClassicWeaponRows[] = {
-    { SC_CHEAT_PP9I,             "PP9i" },
-    { SC_CHEAT_CC13,             "CC13" },
-    { SC_CHEAT_KL01313,          "KL01313" },
-    { SC_CHEAT_KF7SPECIAL,       "KF7 Special" },
-    { SC_CHEAT_ZZT,              "ZZT (9mm)" },
-    { SC_CHEAT_DMC,              "DMC" },
-    { SC_CHEAT_AR53,             "AR53" },
-    { SC_CHEAT_RCP45,            "RC-P45" },
-};
-
 static const CheatRow k_WeaponRows[] = {
     { SC_CHEAT_CLASSICSIGHT,         "Classic Sight" },
     { SC_CHEAT_UNLIMITEDAMMOLAPTOP,  "Unlimited Ammo - Laptop Sentry Gun" },
@@ -300,7 +280,6 @@ static const TabDescriptor k_Tabs[SC_TAB_COUNT] = {
     { "Fun",             k_FunRows,           sizeof(k_FunRows)           / sizeof(k_FunRows[0])           },
     { "Gameplay",        k_GameplayRows,      sizeof(k_GameplayRows)      / sizeof(k_GameplayRows[0])      },
     { "Jo Solo Weapons", k_SoloWeaponRows,    sizeof(k_SoloWeaponRows)    / sizeof(k_SoloWeaponRows[0])    },
-    { "Classic Weapons", k_ClassicWeaponRows, sizeof(k_ClassicWeaponRows) / sizeof(k_ClassicWeaponRows[0]) },
     { "Weapons",         k_WeaponRows,        sizeof(k_WeaponRows)        / sizeof(k_WeaponRows[0])        },
     { "Buddies",         nullptr,             sizeof(k_BuddyRows)         / sizeof(k_BuddyRows[0])         },
 };
@@ -661,7 +640,6 @@ static s32 sc_tabForDialog(struct menudialogdef *def)
     if (def == &g_CheatsFunMenuDialog)            return SC_TAB_FUN;
     if (def == &g_CheatsGameplayMenuDialog)       return SC_TAB_GAMEPLAY;
     if (def == &g_CheatsSoloWeaponsMenuDialog)    return SC_TAB_SOLO_WEAPONS;
-    if (def == &g_CheatsClassicWeaponsMenuDialog) return SC_TAB_CLASSIC_WEAPONS;
     if (def == &g_CheatsWeaponsMenuDialog)        return SC_TAB_WEAPONS;
     if (def == &g_CheatsBuddiesMenuDialog)        return SC_TAB_BUDDIES;
     return -1;

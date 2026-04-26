@@ -6149,20 +6149,14 @@ bool bgunHasAmmoForWeapon(s32 weaponnum)
 
 u8 g_AutoSwitchWeaponsPrimary[] = {
 	WEAPON_RCP120,
-	WEAPON_RCP45,
 	WEAPON_SUPERDRAGON, // primary function
 	WEAPON_K7AVENGER,
 	WEAPON_AR34,
-	WEAPON_AR53,
-	WEAPON_KF7SPECIAL,
 	WEAPON_CALLISTO,
 	WEAPON_LAPTOPGUN,
 	WEAPON_DRAGON,
 	WEAPON_CMP150,
 	WEAPON_CYCLONE,
-	WEAPON_ZZT,
-	WEAPON_DMC,
-	WEAPON_KL01313,
 	WEAPON_FARSIGHT,
 	WEAPON_SHOTGUN,
 	WEAPON_REAPER,
@@ -6174,8 +6168,6 @@ u8 g_AutoSwitchWeaponsPrimary[] = {
 	WEAPON_FALCON2_SCOPE,
 	WEAPON_FALCON2,
 	WEAPON_FALCON2_SILENCER,
-	WEAPON_PP9I,
-	WEAPON_CC13,
 	WEAPON_SNIPERRIFLE,
 	WEAPON_CROSSBOW,
 	WEAPON_TRANQUILIZER,
@@ -7953,14 +7945,6 @@ void bgunCreateFx(struct hand *hand, s32 handnum, struct weaponfunc *funcdef, s3
 		case WEAPON_SNIPERRIFLE:
 		case WEAPON_FARSIGHT:
 		case WEAPON_TRANQUILIZER:
-		case WEAPON_PP9I:
-		case WEAPON_CC13:
-		case WEAPON_KL01313:
-		case WEAPON_KF7SPECIAL:
-		case WEAPON_ZZT:
-		case WEAPON_DMC:
-		case WEAPON_AR53:
-		case WEAPON_RCP45:
 			beamCreateForHand(handnum);
 			hand->numfires++;
 			return;
