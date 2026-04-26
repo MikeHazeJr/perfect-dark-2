@@ -487,6 +487,22 @@ static void forgeTransitionToNormal(const char *reason)
 		forgeRuntimeEnterPlay();
 	}
 	s_forge.state = FORGE_SESSION_NORMAL;
+
+	/* B-246 round-6 instrumentation: Forge sessions toggle the FP rig on
+	 * and off as the player flips between FREEFLY observer and Playtest.
+	 * Logging the gunctrl snapshot at each transition makes any FP-rig
+	 * regression on session re-entry visible. */
+	if (p && p == g_Vars.players[0]) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: forgeTransitionToNormal player=0 reason='%s' wpn=%d switchto=%d gunmemowner=%d masterload=%d handmodeldef=%p haschrbody=%d",
+			reason ? reason : "",
+			(s32)p->gunctrl.weaponnum,
+			(s32)p->gunctrl.switchtoweaponnum,
+			(s32)p->gunctrl.gunmemowner,
+			(s32)p->gunctrl.masterloadstate,
+			(void *)p->gunctrl.handmodeldef,
+			(s32)p->haschrbody);
+	}
 	forgeApplyDebugRenderEntry();
 	/* B-245: capture session stagenum on first activation. */
 	if (s_forge.session_stagenum < 0) {
@@ -517,6 +533,20 @@ static void forgeTransitionToFreefly(const char *reason)
 		forgeRuntimeExitPlay();
 	}
 	s_forge.state = FORGE_SESSION_FREEFLY;
+
+	/* B-246 round-6 instrumentation: same purpose as forgeTransitionToNormal
+	 * snapshot, captured at FREEFLY entry. */
+	if (p == g_Vars.players[0]) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: forgeTransitionToFreefly player=0 reason='%s' wpn=%d switchto=%d gunmemowner=%d masterload=%d handmodeldef=%p haschrbody=%d",
+			reason ? reason : "",
+			(s32)p->gunctrl.weaponnum,
+			(s32)p->gunctrl.switchtoweaponnum,
+			(s32)p->gunctrl.gunmemowner,
+			(s32)p->gunctrl.masterloadstate,
+			(void *)p->gunctrl.handmodeldef,
+			(s32)p->haschrbody);
+	}
 	forgeApplyDebugRenderEntry();
 	/* B-245: capture session stagenum on first activation. */
 	if (s_forge.session_stagenum < 0) {

@@ -1,0 +1,341 @@
+# Weapon system deep audit -- 2026-04-25
+
+**Worktree:** `claude/charming-noether-7b69b3` (base dev `549ffdd2`)
+**Trigger:** B-246 round-5 playtest still showing no FP hands + weapon jump on fire despite master-loader fix landing in `f83ca230`. Mike approved a comprehensive instrumentation + struct-corruption audit.
+**Scope:** every weapon-related path in player + render + load pipeline; Mission, Combat Simulator, Vehicle, Forge / The Grid, FreeFly, observer / Playtest. Plus root-cause investigation of `visionmode=51503` anomaly seen in the round-5 log.
+
+This document captures findings, tracks instrumentation sites, and lists the candidate failure causes with the runtime evidence that would rule each one in or out.
+
+---
+
+## 1. Reproduction window from the round-5 playtest log
+
+Source log: `~/Downloads/Perfect Dark 2.0/pd-client.log` (29 345 lines, 768 `LOG.WPN.DIAG` events).
+
+In-match firing window is stage 4: `01:31.41` spawn through `01:57.44` end of log.
+
+Stage-4 facts:
+- `playerSpawn done`: `chr=0x...39a5570`, `model00d4=0x...397f508`, `haschrbody=1`, `switchto=22`. First stage in the log with `haschrbody=1`.
+- `playerChooseBodyAndHead normmp`: `resolved_body=86 ('base:dark_combat')`, `resolved_head=4 ('base:head_dark_combat')`, both rigs `human_female_neck_standard`. 21 calls in a 0.09s burst (`01:33.36 -> 01:33.45`).
+- `bgunEquipWeapon2 enter/exit`: hand=0 set `switchto=22` at `01:31.41`. No `bgunTickSwitch2` log lines for `switchto=22`, but by `01:34.97` `gunctrl_wpn=22` so the switch did complete.
+- `playerRenderHud branch`: `thirdperson_skip` at `lvframenum=23/83/143`, then `fp_render` continuously from 203 onward.
+- `fire handler`: 9 events between `01:34.97` and `01:53.76`. All show `R(wpn=22 inuse=1 visible=1 state=0|4) L(wpn=0 inuse=0 visible=0 state=0)`. Right hand visible=1 throughout firing.
+- `bgunTickGameplay enter`: gunctrl_wpn=22, R inuse=1, L inuse=0 across all sampled frames in stage 4.
+- `visibility-gate-fail`: zero events in stage 4 (5 in stage 2 for wpn=3 during loading).
+- `LOAD-mode6`: zero events in stage 4 (5 in stage 2).
+- `bgunRender enter`: zero events. Diagnostic gate is `lvframe60 < 5`; in stage 4 the cameramode is THIRDPERSON during those frames so `playerRenderHud` early-returns at [src/game/player.c:5515](src/game/player.c:5515) and never calls `bgunRender`.
+
+Mike's three observations from the playtest:
+1. He could fire the weapon (confirmed by 9 fire-handler events).
+2. No hands visible.
+3. Weapon jumped from a wrong spot to a correct spot when firing, then back.
+
+---
+
+## 2. visionmode=51503 -- root cause
+
+### Finding
+
+The diagnostic at [src/game/player.c:5504](src/game/player.c:5504) prints `visionmode=51503` for the first 8 sampled frames (`00:01.54 -> 00:05.83`), then drops to `visionmode=0` from frame 503 onward.
+
+`visionmode` is `u16` at offset 0x0010 of `struct player` per [src/include/types.h:2384](src/include/types.h:2384). 51503 = 0xC92F; valid u16, not a valid `VISIONMODE_*` enum value (0=NORMAL, 1=XRAY, 2=SLAYERROCKET, 3=SLAYERROCKETSTATIC per [src/include/constants.h:4411-4414](src/include/constants.h:4411)).
+
+The only field-init for `visionmode` in player allocation is at [src/game/playermgr.c:413-415](src/game/playermgr.c:413):
+
+```c
+#if VERSION >= VERSION_JPN_FINAL
+    g_Vars.players[index]->visionmode = VISIONMODE_NORMAL;
+#endif
+```
+
+Build configuration sets `VERSION=2 (VERSION_NTSC_FINAL)` per [CMakeLists.txt:86](CMakeLists.txt:86) when `ROMID="ntsc-final"`. The init does not compile in. `mempAlloc` at [src/lib/memp.c:213](src/lib/memp.c:213) does not zero memory before returning.
+
+Net effect: `g_Vars.players[index]->visionmode` is read from uninitialised heap memory until something writes a valid value. The 51503 -> 0 transition aligns with the first call to `bgunTickGameplay2` after the cutscene ends, which writes `VISIONMODE_NORMAL` at [src/game/bondgun.c:8439](src/game/bondgun.c:8439) or [bondgun.c:8445](src/game/bondgun.c:8445).
+
+### Implication
+
+This is a real latent bug. By the time the firing window of stage 4 arrives, `visionmode` has been written to 0, so the missing-hands and weapon-jump symptoms are NOT caused by `visionmode` corruption at the moment of firing. But the early-cutscene window has undefined behaviour: if the heap garbage happens to equal `VISIONMODE_XRAY` (1), `bgunRender` at [bondgun.c:11170](src/game/bondgun.c:11170) early-returns and the FP rig does not render at all. With arbitrary u16 garbage the chance is 1/65536, but 1 is a common allocator-byte value and a freshly allocated pool can plausibly produce it.
+
+### Other JPN_FINAL-gated init paths surveyed
+
+`grep -nE "VERSION >= VERSION_JPN_FINAL"` across player/gun/init files returns 10 hits. Only one is a struct-field initialiser ([playermgr.c:413](src/game/playermgr.c:413)). The others are screen-mode helpers, ammo clamp, hud text alignment, etc. -- not field initialisers. So `visionmode` is the unique case.
+
+### Status
+
+**Fixed in this audit.** Per Mike's policy update 2026-04-25 (PD2 targets USA ROM only; legacy `VERSION_*` gates are not load-bearing), the `#if VERSION >= VERSION_JPN_FINAL` wrapper was removed at [playermgr.c:413](src/game/playermgr.c:413). The init is now unconditional: `g_Vars.players[index]->visionmode = VISIONMODE_NORMAL`.
+
+A project-wide sweep of `VERSION_*` preprocessor gates is queued for after stability work completes (spawned as a separate task; not in scope this session).
+
+Instrumentation in this audit also logs `visionmode` through the cutscene window so the next playtest captures any remaining wild values.
+
+---
+
+## 3. Catalog and weapon-flag verification for the stage-4 reproduction
+
+### Body 86 has a configured hand-model file
+
+`g_HeadsAndBodies[0x56]` at [src/game/modeldata/robot.c:161](src/game/modeldata/robot.c:161):
+
+```c
+{ /*0x0056*/ 0, 0, 0, HEADBODYTYPE_FEMALE, 159, FILE_CDARK_COMBAT, 1, 0.95305162668228, 0, FILE_GCOMBATHANDSLOD },
+```
+
+`handfilenum = FILE_GCOMBATHANDSLOD`. `catalogGetBodyHandFilenum(86)` at [port/src/assetcatalog_api.c:902](port/src/assetcatalog_api.c:902) returns this filenum.
+
+So when stage 4 calls `bgunTickMasterLoad`, `handfilenum` resolves to a valid file. This rules out the "body has no hands registered" candidate from the prior triage.
+
+### Weapon 22 (FARSIGHT) carries WEAPONFLAG_HASHANDS
+
+[src/game/invitems.c:3653](src/game/invitems.c:3653) flags include `WEAPONFLAG_HASHANDS`. So the `hashands = true` branch at [bondgun.c:4099](src/game/bondgun.c:4099) takes effect during master load and the hand-file load path runs.
+
+### So why aren't the hands visible?
+
+The rendering gate that decides whether to draw the FP arms is [bondgun.c:11367-11378](src/game/bondgun.c:11367):
+
+```c
+if (player->gunctrl.handmodeldef && renderhand) {
+    s32 prevcolour = renderdata.envcolour;
+    hand->handmodel.matrices = hand->gunmodel.matrices;
+    modelUpdateRelations(&hand->handmodel);
+    renderdata.envcolour = colour;
+    modelRender(&renderdata, &hand->handmodel);
+    renderdata.envcolour = prevcolour;
+}
+```
+
+`renderhand` is a function-local `static bool renderhand = true` at [bondgun.c:11137](src/game/bondgun.c:11137); no `renderhand =` write sites exist in the codebase. So the gate reduces to `gunctrl.handmodeldef != NULL`.
+
+Possible reasons `handmodeldef` could be NULL during stage-4 firing despite a valid catalog entry:
+1. `bgunTickMasterLoad` never advanced past `MASTERLOADSTATE_HANDS` because the hand-file load returned early.
+2. The hand-file load path completed but hit the `handfilenum != gunctrl.handfilenum` short-circuit at [bondgun.c:4138](src/game/bondgun.c:4138) and never started the load.
+3. `bgunEnterFlux` at [bondgun.c:3744](src/game/bondgun.c:3744) cleared `handmodeldef = NULL` during a weapon-switch and the master loader never refilled it.
+4. `bgunChangeGunMem` parked `gunmemowner` in `GUNMEMOWNER_CHRBODY` indefinitely, blocking master-load progression.
+5. Hand model loaded successfully but `modelRender(&hand->handmodel)` produces no output (matrix degeneracy from the gun-model matrix aliasing at [bondgun.c:11371](src/game/bondgun.c:11371)).
+
+Current diagnostics cannot disambiguate. The instrumentation added in this audit (Section 5) addresses each of these.
+
+---
+
+## 4. Weapon-jump-on-fire candidates
+
+Two structurally different gun-matrix paths exist depending on `a0` at [bondgun.c:8025-8147](src/game/bondgun.c:8025):
+
+- `animmode == HANDANIMMODE_IDLE` (and a few other idle gates): `a0 = true`. Matrices computed by `mtx00015be4` against the cached `unk0dd8` buffer, which is filled exactly once when `unk0dd4 == -1` at [bondgun.c:8091-8120](src/game/bondgun.c:8091). `unk0dd4` is reset to `-1` only during `MASTERLOADSTATE_CARTS` handling at [bondgun.c:4262](src/game/bondgun.c:4262), i.e. on a fresh weapon load.
+- Otherwise (fire or any non-idle anim): `a0 = false`. Fresh `modelSetMatricesWithAnim(&hand->gunmodel)` each frame at [bondgun.c:8138](src/game/bondgun.c:8138) or [bondgun.c:8146](src/game/bondgun.c:8146).
+
+Plausible mechanisms for "wrong spot -> correct spot on fire -> back to wrong":
+
+| # | Hypothesis | Evidence path |
+|---|---|---|
+| A | `unk0dd8` cache filled while animation was not in true rest pose. Idle path uses stale cache; fire path forces fresh anim eval. | Log `unk0dd4` value entering the per-frame matrix function; log `animmode` and the first matrix entry of `unk0dd8` after fill. |
+| B | `hand->useposrot` is false during idle (so `posoffset / rotxoffset` get zeroed at [bondgun.c:7913-7918](src/game/bondgun.c:7913)) but true during fire, and the underlying base pose has an additive bug that recoil-time offsets coincidentally correct. | Log `hand->useposrot`, `hand->posoffset`, `hand->rotxoffset` per frame at the bgun0f0a5550 entry. |
+| C | `damplook` / `dampup` interpolators at [bondgun.c:7920-7922](src/game/bondgun.c:7920) advance differently during fire vs idle, producing visible camera-relative gun position drift. | Log `hand->damplook`, `hand->dampup` per frame around fire transitions. |
+| D | Animation asset for FARSIGHT idle vs shoot have keyed root-bone positions that differ. Asset / authoring mismatch, not code. | Inspect FARSIGHT idle / shoot animations in the asset definition. |
+
+Tier 2 instrumentation samples A/B/C every frame around fire boundaries. D is a separate asset-side investigation if A/B/C all rule out.
+
+---
+
+## 5. Instrumentation sites added in this audit
+
+Each site emits at least one `LOG.WPN.DIAG: <function-tag>: <state>` line. Entry vs exit naming uses `enter` / `exit` suffixes when both fire on a single call. Throttling notes follow the pattern in [Section 6](#6-throttling-pattern).
+
+| Tier | File | Function | Throttle | Sites added |
+|---|---|---|---|---|
+| 1 | `bondgun.c` | `bgunTickMasterLoad` | first call + every state-transition + every 60th tick while !LOADED | TBD |
+| 1 | `bondgun.c` | `bgunRender` | first 5 frames per stage AND every 60th frame thereafter | widen existing |
+| 1 | `bondgun.c` | `bgunChangeGunMem` | every call (low-frequency) | TBD |
+| 1 | `bondgun.c` | `bgunSetGunMemWeapon` | every call | TBD |
+| 1 | `bondgun.c` | `bgunFreeWeapon` | every call | TBD |
+| 1 | `bondgun.c` | `bgunEnterFlux` | every call | TBD |
+| 2 | `bondgun.c` | `bgunSetState` | on state-change | TBD |
+| 2 | `bondgun.c` | `bgunTickInc` | on prevstate != newstate | TBD |
+| 2 | `bondgun.c` | `bgunCanFreeWeapon` | first false-to-true and true-to-false transition only | TBD |
+| 2 | `bondgun.c` | `bgunTickGunLoad` | on gunloadstate transition | TBD |
+| 3 | `bondgunreset.c` | `bgunReset` | every call (per-player init) | TBD |
+| 3 | `bondgun.c` | `bgunInitHandAnims` | every call | TBD |
+| 3 | `bondgun.c` | `bgunDisarm` | every call | TBD |
+| 3 | `bondgun.c` | `bgunHandlePlayerDead` | every call | TBD |
+| 3 | `bondgun.c` | `bgunSetPassiveMode` | every call | TBD |
+| 3 | `bondgun.c` | `bgunAutoSwitchWeapon` | every call | TBD |
+| 3 | `bondgun.c` | `bgunEquipWeapon` | every call | TBD |
+| 3 | `player.c` | `playerLoadDefaults` | every call | TBD |
+| 3 | `player.c` | `playerRemoveChrBody` | every call | TBD |
+| 3 | `player.c` | `playerTickChrBody` | on haschrbody change | TBD |
+| 4 | `forgemode.c` | freefly chr-swap, observer<->playtest | every call | TBD |
+| 4 | `mplayer/setup.c` | MP setup hooks | every call | TBD |
+
+Site-by-site `file:line` table populated as each lands. Final tally ledger in [Section 7](#7-final-instrumentation-ledger).
+
+---
+
+## 6. Throttling pattern
+
+A single helper macro is used wherever a per-frame call site needs throttling. All other sites log unconditionally because they are low-frequency by construction.
+
+```c
+/* In bondgun.c top-of-file or shared header. */
+#define WPN_DIAG_FIRST_N_OR_PERIODIC(first_n, periodic_n, body) do { \
+    static s32 _diag_count = 0;                                       \
+    static s32 _diag_lastlv60 = -1;                                   \
+    if (g_Vars.currentplayernum == 0) {                               \
+        if (_diag_count < (first_n)                                   \
+                || ((s32)g_Vars.lvframe60 != _diag_lastlv60            \
+                        && (s32)g_Vars.lvframe60 % (periodic_n) == 0)) { \
+            _diag_count++;                                             \
+            _diag_lastlv60 = (s32)g_Vars.lvframe60;                    \
+            body                                                        \
+        }                                                              \
+    }                                                                  \
+} while (0)
+```
+
+For state-change sites, the pattern is:
+
+```c
+static u32 _last_state = 0xFFFFFFFFu;
+u32 _now_state = (u32)<combined-state-tuple>;
+if (_now_state != _last_state) {
+    _last_state = _now_state;
+    sysLogPrintf(LOG_NOTE, "LOG.WPN.DIAG: <tag>: %s ...", reason, ...);
+}
+```
+
+This keeps the log grep-able while still capturing every transition the next playtest might need to expose.
+
+---
+
+## 7. Final instrumentation ledger
+
+All sites tagged `LOG.WPN.DIAG: <tag>`. Player 0 only unless noted. Round-6 sites are the additions from this audit; round-2 / round-3 / round-5 sites pre-existed and are listed for completeness.
+
+### Round-6 additions (this audit)
+
+| Tier | File:line | Tag | Fields printed | Throttle |
+|---|---|---|---|---|
+| 1 | bondgun.c:3775 | `bgunFreeGunMem enter` | owner_was, gunmemtype, gunmemnew, masterload | every call |
+| 1 | bondgun.c:3801 | `bgunSetGunMemWeapon enter` | wpn, owner, gunmemnew_was, gunmemtype, masterload_was, gunloadstate_was | every call |
+| 1 | bondgun.c:3821 | `bgunSetGunMemWeapon exit` | wpn, owner, gunmemnew, masterload, gunloadstate, gunlocktimer | every call |
+| 1 | bondgun.c:3844 | `bgunEnterFlux enter` | handfilenum_was, handmodeldef_was, gunmodeldef_was, masterload_was, owner | every call |
+| 1 | bondgun.c:3882 | `bgunChangeGunMem enter` | cur_owner, new_owner, gunlocktimer, gunmemnew, gunmemtype, haschrbody, mp | every call where owner != newowner |
+| 1 | bondgun.c:3905 | `bgunChangeGunMem exit branch=timer_complete` | result=1, owner_now, gunlocktimer | only on timer-complete branch |
+| 1 | bondgun.c:3956 | `bgunChangeGunMem exit (post-switch)` | result=0, owner_now, gunlocktimer, unlock | every post-switch exit |
+| 1 | bondgun.c:3968 | `bgunChangeGunMem exit branch=timer_pending` | result, owner_now, gunlocktimer | timer-pending exit path |
+| 1 | bondgun.c:4252 | `bgunTickMasterLoad enter` | newwpn, filenum, bodynum, handfilenum, hashands_flag, masterload, gunloadstate, gunmemowner, gunmemtype, handmodeldef, gunmodeldef | one log per (newwpn, masterload) tuple change |
+| 1 | bondgun.c:4311 | `bgunTickMasterLoad transition FLUX->HANDS` | newwpn, hashands, handfilenum, cur_handfilenum | every transition |
+| 1 | bondgun.c:4348 | `bgunTickMasterLoad transition HANDS->GUN` | newwpn, hashands, handfilenum, handmodeldef | every transition |
+| 1 | bondgun.c:4371 | `bgunTickMasterLoad transition GUN->CARTS` | newwpn, gunmodeldef, handmodeldef | every transition |
+| 1 | bondgun.c:4474 | `bgunTickMasterLoad transition CARTS->LOADED` | newwpn, gunmodeldef, handmodeldef, sum, unk0dd4, unk0dd8 | every transition |
+| 1 | bondgun.c:4492 | `bgunTickMasterLoad transition SHORTCUT->LOADED` | newwpn | every shortcut-LOADED hit |
+| 1 | bondgun.c:11508 | `bgunRender enter` (widened) | frame, lvframe60, visionmode, R(wpn/visible/inuse/state/sm), L(...), gunctrl_wpn, switchto, passive, gunmodeldef, handmodeldef, R_handmodel_def, R_gunmodel_def, masterload, gunmemowner | first 5 frames per stage + every 60th frame thereafter |
+| 2 | bondgun.c:2855 | `bgunCanFreeWeapon` | hand, result, state, sm, throwing | per-hand transition (true<->false) |
+| 2 | bondgun.c:3364 | `bgunSetState` | hand, prev->next, valid, wpn, inuse | every accepted transition + rejected CHANGEFUNC |
+| 2 | bondgun.c:8003 | `bgun0f0a5550 enter` | wpn, frame, state, sm, animmode, useposrot, visible, inuse, posoffset, rotxoffset, damplook, dampup, unk0dd4 | every 30 frames OR on (animmode/state) change (RIGHT hand) |
+| 2 | bondgun.c:8420 | `bgun0f0a5550 a0_decision` | a0, wpn, animmode, state, sm, ejectstate, unk0dd4 | on a0 transition (RIGHT hand) |
+| 2 | bondgun.c:8466 | `bgun0f0a5550 cache_fill` | wpn, animmode, animnum, animframe, frame | every cache fill (one-shot per weapon load) |
+| 3 | bondgun.c:3445 | `bgunInitHandAnims` | R(state/animmode/animload), L(...) | every call |
+| 3 | bondgun.c:5706 | `bgunFreeWeapon enter` | hand, inuse_was, state, sm, wpn, gunmemtype | every call |
+| 3 | bondgun.c:5748 | `bgunFreeWeapon exit` | hand, inuse, wpn | every call |
+| 3 | bondgun.c:5937 | `bgunEquipWeapon enter` | wpn, cur_wpn, cur_switchto, shortcircuit | every call |
+| 3 | bondgun.c:6217 | `bgunAutoSwitchWeapon enter` | cur_wpn, switchto, tickmode | every call |
+| 3 | bondgun.c:6650 | `bgunHandlePlayerDead` | wpn, switchto, R(inuse), L(inuse), gunmemtype | every call |
+| 3 | bondgun.c:6711 | `bgunDisarm` | wpn, switchto, net, attackerprop | every call |
+| 3 | bondgun.c:12716 | `bgunSetPassiveMode` | players_p0_was, enable | every call (all players) |
+| 3 | bondgunreset.c:243 | `bgunReset` | gunmem, gunmemowner, gunmemtype, gunmemnew, masterload, gunloadstate, switchto, handfilenum, handmodeldef, gunmodeldef, loadall | every call |
+| 3 | player.c:1335 | `playerLoadDefaults enter` | visionmode, cameramode, haschrbody, gunctrl_wpn, switchto, gunmemowner | every call |
+| 3 | player.c:2471 | `playerTickChrBody haschrbody` | prev->now, gunmemowner, gunctrl_wpn, switchto, model00d4 | only on haschrbody flip |
+| 3 | player.c:2504 | `playerRemoveChrBody` | haschrbody_was, removed, mp, model00d4 | every call |
+| 4 | forgemode.c:497 | `forgeTransitionToNormal` | reason, wpn, switchto, gunmemowner, masterload, handmodeldef, haschrbody | every call |
+| 4 | forgemode.c:541 | `forgeTransitionToFreefly` | reason, wpn, switchto, gunmemowner, masterload, handmodeldef, haschrbody | every call |
+
+### Pre-existing sites (rounds 2 / 3 / 5)
+
+| Round | File:line | Tag | Purpose |
+|---|---|---|---|
+| 2 | bondgun.c:5770 | `bgunTickSwitch2` | logs queued-switch wedge with per-hand canFree state |
+| 2 | bondgun.c:6336 / 6362 | `bgunEquipWeapon2 enter / exit` | logs equip request and switchto outcome |
+| 2 | bondgun.c:12475 | `bgunTickGameplay enter` | logs per-tick gameplay state |
+| 2 | bondgun.c:12505 / 12515 | `fire handler enter / hands` | logs trigger rising-edge |
+| 3 | bondgun.c:8178 | `visibility-gate-fail` | logs which gate forced visible=false |
+| 3 | bondgun.c:3019 | `LOAD-mode6` | logs hand mode 6 progression conditions |
+| 5 | bondgun.c:11508 | `bgunRender enter` | (now widened in round-6) |
+| 5 | player.c:5552 | `playerRenderHud branch` | logs which render path was taken |
+| 5 | player.c:1871 | `playerSpawn done` | logs spawn outcome |
+| 5 | player.c:2012 | `playerChooseBodyAndHead normmp` | logs body/head resolution for MP |
+| 5 | lv.c:1594 | `lvRender cascade` | logs render-cascade entry to playerRenderHud |
+| 5 | prop.c:2718 | `pickup probe` | logs pickup gates |
+| 5 | bondmove.c:1001 | `fire-input pi` | logs fire input edge (sampled) |
+
+Total `LOG.WPN.DIAG` sites: 50+ across `bondgun.c`, `bondgunreset.c`, `player.c`, `forgemode.c`, `lv.c`, `prop.c`, `bondmove.c`.
+
+---
+
+## 8. Candidate failure avenues with rule-in / rule-out criteria for the next playtest log
+
+This is the core debug deliverable. Each candidate is paired with the specific log line and value pattern that would rule it in or out. Mike's next playtest log will be triaged against this matrix.
+
+| ID | Candidate | Rules IN if | Rules OUT if |
+|---|---|---|---|
+| H-NULL-A | `gunctrl.handmodeldef == NULL` at render time because master loader never advanced past MASTERLOADSTATE_HANDS for body 86 + weapon 22 | `LOG.WPN.DIAG: bgunTickMasterLoad: hands_load handfilenum=N hashands=1` followed indefinitely by `state=hands` and never `state=gun` or `state=loaded`. | `LOG.WPN.DIAG: bgunTickMasterLoad: ... state=loaded handmodeldef=0xNNN` with non-NULL pointer before the first fire-handler entry. |
+| H-NULL-B | `bgunEnterFlux` zeroed `handmodeldef` and master loader did not refill before fire | `LOG.WPN.DIAG: bgunEnterFlux: ... handmodeldef=0->NULL` with no subsequent `handmodeldef=NULL->0xNNN` log line before fire. | A `handmodeldef` non-NULL log line appears between the most recent `bgunEnterFlux` and the first fire-handler entry. |
+| H-NULL-C | `bgunChangeGunMem` parked `gunmemowner` in CHRBODY indefinitely | `LOG.WPN.DIAG: bgunChangeGunMem: enter from=CHRBODY to=BONDGUN unlock=0` repeating across many frames. | Single `bgunChangeGunMem: enter from=CHRBODY to=BONDGUN unlock=1` line. |
+| H-NULL-D | Hand model loaded but `handmodel.definition` is NULL (load returned without populating modeldef) | `LOG.WPN.DIAG: bgunRender: ... handmodeldef=0xNNN handmodel_def=NULL` at render time. | `handmodel_def` is non-NULL throughout. |
+| H-MTX-A | `unk0dd8` cache stale; idle uses cache, fire uses fresh anim. | `LOG.WPN.DIAG: bgun0f0a5550: enter ... a0=1` on idle frames AND `a0=0` on fire frames AND visible position-jump correlates with `a0` flips. | Position-jump persists when `a0` is constant. |
+| H-MTX-B | `hand->useposrot` toggling causes additive offsets only during fire | `LOG.WPN.DIAG: bgun0f0a5550: enter ... useposrot=0` idle vs `useposrot=1` fire AND posoffset values explain the jump magnitude. | `useposrot` constant; jump persists. |
+| H-MTX-C | `damplook` / `dampup` divergence | Per-frame `damplook` / `dampup` values diverge between idle and fire frames in a way that explains the jump. | These vectors are stable across the boundary. |
+| H-VIS-A | Early-cutscene visionmode garbage equalled XRAY | `LOG.WPN.DIAG: playerRenderHud branch=fp_render visionmode=1 ...` on any frame in the first 5s of stage 4. | visionmode is 0 throughout the in-match window. (Already partially confirmed: log shows 0 throughout firing window.) |
+| H-INPUT-A | Fire input is dispatched but the fire chain is dead because of left-hand state corruption | `LOG.WPN.DIAG: fire handler: ... L(state != 0)` on fire frames. | L state is 0 (idle) throughout (already confirmed). |
+| H-CTX-A | Forge / FREEFLY toggle nukes the FP rig and the master loader does not re-establish it on session re-entry | `LOG.WPN.DIAG: forgeTransitionToNormal ... handmodeldef=NULL` on Forge -> Normal transition followed by no `bgunTickMasterLoad transition CARTS->LOADED ... handmodeldef=0xNNN` before the next fire-handler entry. | Either no Forge transitions during the in-match window, OR a `CARTS->LOADED` log line lands between the Forge exit and the first fire-handler. |
+| H-CTX-B | Stage-4 spawn occurs while gunmem pool is still owned by CHRBODY and the unlock flow stalls | `LOG.WPN.DIAG: bgunChangeGunMem enter cur_owner=CHRBODY new_owner=BONDGUN haschrbody=1 mp=1` followed indefinitely by `result=0 unlock=0` log lines. | Single `unlock=1` line shortly after the spawn. |
+| H-CTX-C | bgunReset on stage 4 leaves gunmemowner in a stale state because of the static-hand-init pattern | `LOG.WPN.DIAG: bgunReset player=0 gunmemowner != GUNMEMOWNER_CHRBODY` (per code, must be CHRBODY at exit; any other value is a regression) | gunmemowner == 1 (CHRBODY) at every bgunReset exit. |
+| H-CTX-D | playerLoadDefaults fires with a non-zero visionmode, indicating the JPN_FINAL fix did not apply or another wild writer is active | `LOG.WPN.DIAG: playerLoadDefaults enter ... visionmode != 0` on any stage spawn after the round-6 fix lands. | visionmode == 0 at every playerLoadDefaults entry. |
+| H-FLUX-A | A weapon-switch path calls `bgunEnterFlux` after stage-4 spawn and the master loader does not refill `handmodeldef` before fire | A `bgunEnterFlux enter handmodeldef_was=0xNNN` log line in stage 4 not followed by a `CARTS->LOADED handmodeldef=0xNNN` line before the first fire-handler. | No `bgunEnterFlux enter` log lines in stage 4 after spawn. |
+
+This matrix is appended to as instrumentation lands.
+
+---
+
+## 10. Round-6 deliverables summary
+
+1. **visionmode latent uninit fixed.** Removed `#if VERSION >= VERSION_JPN_FINAL` gate from [src/game/playermgr.c:413](src/game/playermgr.c:413). Field is now unconditionally initialised to `VISIONMODE_NORMAL` for our NTSC_FINAL build.
+
+2. **Project-wide VERSION-gate strip queued.** Spawned task chip captures the future cleanup pass; not in scope this session.
+
+3. **Comprehensive instrumentation landed across 4 tiers.** Tier 1 covers the load / pool surface (master loader, change-gun-mem, set-gun-mem-weapon, free-weapon, enter-flux, free-gun-mem). Tier 2 covers state-machine transitions and the matrix-jump candidate paths (a0 decision, cache fill, useposrot / damplook / dampup at bgun0f0a5550 entry). Tier 3 covers per-player init / disarm / dead / passive / auto-switch / equip / playerLoadDefaults / playerRemoveChrBody / playerTickChrBody. Tier 4 covers forgemode FREEFLY / NORMAL transitions.
+
+4. **Build verified clean.** Both `pd` (PerfectDark.exe) and `pd-server` (PerfectDarkServer.exe) link with the round-6 changes applied.
+
+5. **Candidate-cause matrix populated** with 13 distinct hypotheses spanning H-NULL-* (handmodeldef NULL paths), H-MTX-* (matrix divergence), H-VIS-* (visionmode corruption), H-INPUT-* (input authority), H-CTX-* (cross-mode context wedge), H-FLUX-* (flux-without-refill). Each carries a specific log signature the next playtest will produce.
+
+### What Mike does next
+
+Run a playtest of the round-6 build on the Stage 4 reproduction (CS Combat Sim, FARSIGHT, dark_combat body). Capture `pd-client.log`. The matrix in Section 8 maps each log signature to the candidate it rules in or out. Triage against the matrix.
+
+The fastest expected path: the new `bgunTickMasterLoad transition CARTS->LOADED ... handmodeldef=0xNNN` line either appears or it doesn't. If it appears with a non-NULL `handmodeldef` and the FP arms still don't render, we shift focus to H-NULL-D (handmodel.definition NULL) and H-MTX-* (matrix divergence). If it does not appear, we walk back through HANDS->GUN, FLUX->HANDS, and the bgunChangeGunMem unlock chain to find where progression stalls.
+
+---
+
+## 9. Build verification log
+
+Each instrumentation pass must build both `pd` and `pd-server` cleanly.
+
+### Round-6 build (this audit)
+
+| Field | Value |
+|---|---|
+| Branch | `claude/charming-noether-7b69b3` (worktree) |
+| Base | dev `549ffdd2` |
+| Build env | `source devtools/build-env.sh` (ninja + mingw64 + ccache) |
+| Configure | `cmake -G Ninja -B Build -S . -DROMID=ntsc-final` -- 5.5s, clean |
+| Build cmd | `ninja -C Build pd pd-server` |
+| Result | exit 0, 461 build steps |
+| `Build/PerfectDark.exe` | 56 197 458 bytes (2026-04-26 14:19) |
+| `Build/PerfectDarkServer.exe` | 23 272 107 bytes (2026-04-26 14:19) |
+
+Build hit one missing-include error on first attempt (`bondgunreset.c` did not pull in `system.h` for `sysLogPrintf` / `LOG_NOTE`). Fixed by adding `#include "system.h"` to the includes block. Second build was clean.
+
+No new warnings introduced by the round-6 instrumentation. Pre-existing `-Wmaybe-uninitialized` warnings in `chraction.c` are unrelated.
+
+---
+
+*Audit doc opened 2026-04-25. Updates appended in-place as instrumentation lands.*

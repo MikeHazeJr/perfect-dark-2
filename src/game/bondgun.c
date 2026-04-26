@@ -2837,13 +2837,32 @@ bool bgunCanFreeWeapon(s32 handnum)
 	 * advances 6 -> 7 -> EQUIP -> stateminor advances LOAD -> RAISE -> EQUIP
 	 * -> hand->visible flips true -> FP weapon renders, fire fires, pickup
 	 * works. Bug spans SP and MP because both share this exact gate. */
-	if (player->hands[handnum].state == HANDSTATE_CHANGEGUN
-			&& player->hands[handnum].stateminor == HANDSTATEMINOR_CHANGEGUN_LOAD
-			&& player->gunctrl.throwing == false) {
-		return true;
-	}
+	{
+		bool result;
+		result = (player->hands[handnum].state == HANDSTATE_CHANGEGUN
+				&& player->hands[handnum].stateminor == HANDSTATEMINOR_CHANGEGUN_LOAD
+				&& player->gunctrl.throwing == false);
 
-	return false;
+		/* B-246 round-6 instrumentation: log only on transition. Each hand
+		 * has its own static so left and right are tracked independently. */
+		if (g_Vars.currentplayernum == 0) {
+			static s32 s_last_R = -1;
+			static s32 s_last_L = -1;
+			s32 *last = (handnum == HAND_RIGHT) ? &s_last_R : &s_last_L;
+			if (result != *last) {
+				*last = result;
+				sysLogPrintf(LOG_NOTE,
+					"LOG.WPN.DIAG: bgunCanFreeWeapon player=0 hand=%d -> %d state=%d sm=%d throwing=%d",
+					(s32)handnum,
+					(s32)result,
+					(s32)player->hands[handnum].state,
+					(s32)player->hands[handnum].stateminor,
+					(s32)player->gunctrl.throwing);
+			}
+		}
+
+		return result;
+	}
 }
 
 bool bgun0f09bf44(s32 handnum)
@@ -3319,6 +3338,9 @@ bool bgunSetState(s32 handnum, s32 state)
 {
 	bool valid = true;
 	struct hand *hand = &g_Vars.currentplayer->hands[handnum];
+	s32 prev_state;
+
+	prev_state = (s32)hand->state;
 
 	// Sanity check - don't allow changing function if there is no other
 	if (state == HANDSTATE_CHANGEFUNC && weaponGetFunction(&hand->gset, 1 - hand->gset.weaponfunc) == NULL) {
@@ -3332,6 +3354,20 @@ bool bgunSetState(s32 handnum, s32 state)
 		hand->statecycles = 0;
 		hand->stateminor = 0;
 		hand->statelastframe = 0;
+	}
+
+	/* B-246 round-6 instrumentation: state transitions are the load-bearing
+	 * signal for the FP rig lifecycle. Log every accepted transition (and
+	 * any rejected one). Player 0 only. Low frequency by construction. */
+	if (g_Vars.currentplayernum == 0 && (valid || state == HANDSTATE_CHANGEFUNC)) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunSetState player=0 hand=%d %d->%d valid=%d wpn=%d inuse=%d",
+			(s32)handnum,
+			prev_state,
+			(s32)state,
+			(s32)valid,
+			(s32)hand->gset.weaponnum,
+			(s32)hand->inuse);
 	}
 
 	return valid;
@@ -3400,6 +3436,19 @@ void bgunInitHandAnims(void)
 
 		hand->gunmodel.anim = &hand->anim;
 		hand->handmodel.anim = &hand->anim;
+	}
+
+	/* B-246 round-6 instrumentation: every per-player init invokes this.
+	 * Confirms both hands enter IDLE state with anim cleared. */
+	if (g_Vars.currentplayernum == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunInitHandAnims player=0 R(state=%d animmode=%d animload=%d) L(state=%d animmode=%d animload=%d)",
+			(s32)g_Vars.currentplayer->hands[HAND_RIGHT].state,
+			(s32)g_Vars.currentplayer->hands[HAND_RIGHT].animmode,
+			(s32)g_Vars.currentplayer->hands[HAND_RIGHT].animload,
+			(s32)g_Vars.currentplayer->hands[HAND_LEFT].state,
+			(s32)g_Vars.currentplayer->hands[HAND_LEFT].animmode,
+			(s32)g_Vars.currentplayer->hands[HAND_LEFT].animload);
 	}
 }
 
@@ -3718,6 +3767,18 @@ u32 bgunCalculateGunMemCapacity(void)
 
 void bgunFreeGunMem(void)
 {
+	/* B-246 round-6 instrumentation: pool ownership transitions are critical
+	 * for understanding why the FP rig may not have ownership of the gunmem
+	 * pool when it needs to load. Log every call. */
+	if (g_Vars.currentplayernum == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunFreeGunMem enter player=0 owner_was=%d gunmemtype=%d gunmemnew=%d masterload=%d",
+			(s32)g_Vars.currentplayer->gunctrl.gunmemowner,
+			(s32)g_Vars.currentplayer->gunctrl.gunmemtype,
+			(s32)g_Vars.currentplayer->gunctrl.gunmemnew,
+			(s32)g_Vars.currentplayer->gunctrl.masterloadstate);
+	}
+
 	g_Vars.currentplayer->gunctrl.gunmemowner = GUNMEMOWNER_FREE;
 	// gunmem is stale and so are the textures loaded from it.
 	// Selective purge isn't feasible: the fast3d texture cache is keyed by GBI load parameters
@@ -3731,6 +3792,21 @@ void bgunSetGunMemWeapon(s32 weaponnum)
 {
 	struct player *player = g_Vars.currentplayer;
 
+	/* B-246 round-6 instrumentation: this is the trigger for the master
+	 * load state machine. If we never see this log line during a stage, no
+	 * weapon load can advance. Log every call (low frequency: once per
+	 * commit-edge in bgunTickSwitch2). */
+	if (g_Vars.currentplayernum == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunSetGunMemWeapon enter player=0 wpn=%d owner=%d gunmemnew_was=%d gunmemtype=%d masterload_was=%d gunloadstate_was=%d",
+			(s32)weaponnum,
+			(s32)player->gunctrl.gunmemowner,
+			(s32)player->gunctrl.gunmemnew,
+			(s32)player->gunctrl.gunmemtype,
+			(s32)player->gunctrl.masterloadstate,
+			(s32)player->gunctrl.gunloadstate);
+	}
+
 	if (player->gunctrl.gunmemowner == GUNMEMOWNER_BONDGUN) {
 		player->gunctrl.masterloadstate = MASTERLOADSTATE_FLUX;
 		player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
@@ -3739,6 +3815,17 @@ void bgunSetGunMemWeapon(s32 weaponnum)
 	} else {
 		player->gunctrl.gunmemnew = weaponnum;
 	}
+
+	if (g_Vars.currentplayernum == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunSetGunMemWeapon exit  player=0 wpn=%d owner=%d gunmemnew=%d masterload=%d gunloadstate=%d gunlocktimer=%d",
+			(s32)weaponnum,
+			(s32)player->gunctrl.gunmemowner,
+			(s32)player->gunctrl.gunmemnew,
+			(s32)player->gunctrl.masterloadstate,
+			(s32)player->gunctrl.gunloadstate,
+			(s32)player->gunctrl.gunlocktimer);
+	}
 }
 
 void bgunEnterFlux(void)
@@ -3746,6 +3833,21 @@ void bgunEnterFlux(void)
 	s32 i;
 	struct casing *end;
 	struct casing *casing;
+
+	/* B-246 round-6 instrumentation: this clears handmodeldef to NULL. If
+	 * the FP rig is asked to render between this call and the next master-
+	 * load completion, the hand-render gate at bondgun.c:11368 will skip.
+	 * Log every call so we can correlate any handmodeldef=NULL render with
+	 * the most recent flux entry. */
+	if (g_Vars.currentplayernum == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunEnterFlux enter player=0 handfilenum_was=%d handmodeldef_was=%p gunmodeldef_was=%p masterload_was=%d owner=%d",
+			(s32)g_Vars.currentplayer->gunctrl.handfilenum,
+			(void *)g_Vars.currentplayer->gunctrl.handmodeldef,
+			(void *)g_Vars.currentplayer->gunctrl.gunmodeldef,
+			(s32)g_Vars.currentplayer->gunctrl.masterloadstate,
+			(s32)g_Vars.currentplayer->gunctrl.gunmemowner);
+	}
 
 	g_Vars.currentplayer->gunctrl.handfilenum = 0xffff;
 	g_Vars.currentplayer->gunctrl.handmodeldef = NULL;
@@ -3768,6 +3870,24 @@ void bgunEnterFlux(void)
 bool bgunChangeGunMem(s32 newowner)
 {
 	struct player *player = g_Vars.currentplayer;
+	bool result;
+
+	/* B-246 round-6 instrumentation: this is the gate that decides whether
+	 * the FP rig is allowed to take ownership of the gunmem pool. If unlock
+	 * does not fire when transitioning CHRBODY -> BONDGUN, the master loader
+	 * can never advance and the FP rig stays dark. Log entry+exit every
+	 * call (low frequency: invoked from bgunTickMasterLoad gate). */
+	if (g_Vars.currentplayernum == 0 && player->gunctrl.gunmemowner != newowner) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunChangeGunMem enter player=0 cur_owner=%d new_owner=%d gunlocktimer=%d gunmemnew=%d gunmemtype=%d haschrbody=%d mp=%d",
+			(s32)player->gunctrl.gunmemowner,
+			(s32)newowner,
+			(s32)player->gunctrl.gunlocktimer,
+			(s32)player->gunctrl.gunmemnew,
+			(s32)player->gunctrl.gunmemtype,
+			(s32)player->haschrbody,
+			(s32)g_Vars.mplayerisrunning);
+	}
 
 	if (player->gunctrl.gunmemowner == newowner) {
 		return true;
@@ -3779,6 +3899,14 @@ bool bgunChangeGunMem(s32 newowner)
 		if (player->gunctrl.gunlocktimer < -2) {
 			player->gunctrl.gunlocktimer = 0;
 			player->gunctrl.gunmemowner = newowner;
+
+			if (g_Vars.currentplayernum == 0) {
+				sysLogPrintf(LOG_NOTE,
+					"LOG.WPN.DIAG: bgunChangeGunMem exit  player=0 result=1 owner_now=%d gunlocktimer=%d branch=timer_complete",
+					(s32)player->gunctrl.gunmemowner,
+					(s32)player->gunctrl.gunlocktimer);
+			}
+
 			return true;
 		}
 	} else {
@@ -3822,6 +3950,25 @@ bool bgunChangeGunMem(s32 newowner)
 			player->gunctrl.gunlocktimer = -1;
 			player->gunctrl.gunmemowner = GUNMEMOWNER_CHANGING;
 		}
+
+		if (g_Vars.currentplayernum == 0) {
+			sysLogPrintf(LOG_NOTE,
+				"LOG.WPN.DIAG: bgunChangeGunMem exit  player=0 result=0 owner_now=%d gunlocktimer=%d unlock=%d",
+				(s32)player->gunctrl.gunmemowner,
+				(s32)player->gunctrl.gunlocktimer,
+				(s32)unlock);
+		}
+
+		return false;
+	}
+
+	if (g_Vars.currentplayernum == 0) {
+		result = false;
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunChangeGunMem exit  player=0 result=%d owner_now=%d gunlocktimer=%d branch=timer_pending",
+			(s32)result,
+			(s32)player->gunctrl.gunmemowner,
+			(s32)player->gunctrl.gunlocktimer);
 	}
 
 	return false;
@@ -4092,6 +4239,31 @@ void bgunTickMasterLoad(void)
 
 			filenum = weaponGetFileNum(newweaponnum);
 
+			/* B-246 round-6 instrumentation: log entry into the active load
+			 * tick. This is the inner gate where bodynum, handfilenum, and
+			 * weapon filenum are first known. Throttled: log once per
+			 * (newweaponnum, masterloadstate) tuple change. */
+			if (g_Vars.currentplayernum == 0) {
+				static s32 s_last_load_key = -1;
+				s32 load_key = (newweaponnum << 8) | (s32)player->gunctrl.masterloadstate;
+				if (load_key != s_last_load_key) {
+					s_last_load_key = load_key;
+					sysLogPrintf(LOG_NOTE,
+						"LOG.WPN.DIAG: bgunTickMasterLoad enter player=0 newwpn=%d filenum=%d bodynum=%d handfilenum=%d hashands_flag=%d masterload=%d gunloadstate=%d gunmemowner=%d gunmemtype=%d handmodeldef=%p gunmodeldef=%p",
+						(s32)newweaponnum,
+						(s32)filenum,
+						(s32)bodynum,
+						(s32)handfilenum,
+						(s32)(weaponHasFlag(newweaponnum, WEAPONFLAG_HASHANDS) ? 1 : 0),
+						(s32)player->gunctrl.masterloadstate,
+						(s32)player->gunctrl.gunloadstate,
+						(s32)player->gunctrl.gunmemowner,
+						(s32)player->gunctrl.gunmemtype,
+						(void *)player->gunctrl.handmodeldef,
+						(void *)player->gunctrl.gunmodeldef);
+				}
+			}
+
 			if (player->gunctrl.masterloadstate != MASTERLOADSTATE_LOADED || newweaponnum != player->gunctrl.gunmemtype) {
 				if (filenum) {
 					hashands = false;
@@ -4133,6 +4305,13 @@ void bgunTickMasterLoad(void)
 
 						player->gunctrl.cartmodeldef = NULL;
 						player->gunctrl.masterloadstate = MASTERLOADSTATE_HANDS;
+
+						if (g_Vars.currentplayernum == 0) {
+							sysLogPrintf(LOG_NOTE,
+								"LOG.WPN.DIAG: bgunTickMasterLoad transition player=0 FLUX->HANDS newwpn=%d hashands=%d handfilenum=%d cur_handfilenum=%d",
+								(s32)newweaponnum, (s32)hashands, (s32)handfilenum,
+								(s32)player->gunctrl.handfilenum);
+						}
 					} else if (player->gunctrl.masterloadstate == MASTERLOADSTATE_HANDS) {
 						if (hashands) {
 							if (handfilenum != player->gunctrl.handfilenum) {
@@ -4163,6 +4342,13 @@ void bgunTickMasterLoad(void)
 
 						player->gunctrl.masterloadstate = MASTERLOADSTATE_GUN;
 						player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
+
+						if (g_Vars.currentplayernum == 0) {
+							sysLogPrintf(LOG_NOTE,
+								"LOG.WPN.DIAG: bgunTickMasterLoad transition player=0 HANDS->GUN newwpn=%d hashands=%d handfilenum=%d handmodeldef=%p",
+								(s32)newweaponnum, (s32)hashands, (s32)handfilenum,
+								(void *)player->gunctrl.handmodeldef);
+						}
 					} else if (player->gunctrl.masterloadstate == MASTERLOADSTATE_GUN) {
 						if (player->gunctrl.gunloadstate == GUNLOADSTATE_FLUX) {
 							player->gunctrl.memloadptr = (u8 *) player->gunctrl.handmemloadptr;
@@ -4179,6 +4365,14 @@ void bgunTickMasterLoad(void)
 						if (player->gunctrl.gunloadstate == GUNLOADSTATE_LOADED) {
 							player->gunctrl.masterloadstate = MASTERLOADSTATE_CARTS;
 							player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
+
+							if (g_Vars.currentplayernum == 0) {
+								sysLogPrintf(LOG_NOTE,
+									"LOG.WPN.DIAG: bgunTickMasterLoad transition player=0 GUN->CARTS newwpn=%d gunmodeldef=%p handmodeldef=%p",
+									(s32)newweaponnum,
+									(void *)player->gunctrl.gunmodeldef,
+									(void *)player->gunctrl.handmodeldef);
+							}
 						}
 					} else if (player->gunctrl.masterloadstate == MASTERLOADSTATE_CARTS) {
 						if (player->gunctrl.gunloadstate == GUNLOADSTATE_LOADED) {
@@ -4274,6 +4468,17 @@ void bgunTickMasterLoad(void)
 						player->gunctrl.masterloadstate = MASTERLOADSTATE_LOADED;
 						player->gunctrl.gunmemtype = newweaponnum;
 						player->gunctrl.gunmemnew = -1;
+
+						if (g_Vars.currentplayernum == 0) {
+							sysLogPrintf(LOG_NOTE,
+								"LOG.WPN.DIAG: bgunTickMasterLoad transition player=0 CARTS->LOADED newwpn=%d gunmodeldef=%p handmodeldef=%p sum=%d unk0dd4=%d unk0dd8=%p",
+								(s32)newweaponnum,
+								(void *)player->gunctrl.gunmodeldef,
+								(void *)player->gunctrl.handmodeldef,
+								(s32)sum,
+								(s32)player->hands[0].unk0dd4,
+								(void *)player->hands[0].unk0dd8);
+						}
 					}
 				}
 #if VERSION >= VERSION_NTSC_1_0
@@ -4281,6 +4486,12 @@ void bgunTickMasterLoad(void)
 					player->gunctrl.masterloadstate = MASTERLOADSTATE_LOADED;
 					player->gunctrl.gunmemtype = newweaponnum;
 					player->gunctrl.gunmemnew = -1;
+
+					if (g_Vars.currentplayernum == 0) {
+						sysLogPrintf(LOG_NOTE,
+							"LOG.WPN.DIAG: bgunTickMasterLoad transition player=0 SHORTCUT->LOADED newwpn=%d (filenum=0 path)",
+							(s32)newweaponnum);
+					}
 				}
 #endif
 			}
@@ -5487,6 +5698,20 @@ void bgunFreeWeapon(s32 handnum)
 	struct player *player = g_Vars.currentplayer;
 	s32 i;
 
+	/* B-246 round-6 instrumentation: any path that frees a hand resets
+	 * inuse=false and disables the visibility gate. Log every call so we
+	 * can correlate with subsequent invisibility windows. */
+	if (g_Vars.currentplayernum == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunFreeWeapon enter player=0 hand=%d inuse_was=%d state=%d sm=%d wpn=%d gunmemtype=%d",
+			(s32)handnum,
+			(s32)player->hands[handnum].inuse,
+			(s32)player->hands[handnum].state,
+			(s32)player->hands[handnum].stateminor,
+			(s32)player->hands[handnum].gset.weaponnum,
+			(s32)player->gunctrl.gunmemtype);
+	}
+
 	if (player->hands[handnum].inuse) {
 		for (i = 0; i < 2; i++) {
 			if (player->gunctrl.ammotypes[i] >= 0) {
@@ -5517,6 +5742,14 @@ void bgunFreeWeapon(s32 handnum)
 	}
 
 	bgunFreeHeldRocket(handnum);
+
+	if (g_Vars.currentplayernum == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunFreeWeapon exit  player=0 hand=%d inuse=%d wpn=%d",
+			(s32)handnum,
+			(s32)player->hands[handnum].inuse,
+			(s32)player->hands[handnum].gset.weaponnum);
+	}
 }
 
 void bgunTickSwitch2(void)
@@ -5694,6 +5927,19 @@ void bgunTickSwitch2(void)
 void bgunEquipWeapon(s32 weaponnum)
 {
 	struct player *player = g_Vars.currentplayer;
+
+	/* B-246 round-6 instrumentation: legacy single-arg equip wrapper. The
+	 * MP / SP equip paths funnel through bgunEquipWeapon2 which calls into
+	 * this. Logging here gives visibility into early-return short-circuit
+	 * (when desired weapon already equipped). Player 0 only. */
+	if (g_Vars.currentplayernum == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunEquipWeapon enter player=0 wpn=%d cur_wpn=%d cur_switchto=%d shortcircuit=%d",
+			(s32)weaponnum,
+			(s32)player->gunctrl.weaponnum,
+			(s32)player->gunctrl.switchtoweaponnum,
+			(s32)((player->gunctrl.weaponnum == weaponnum && player->gunctrl.switchtoweaponnum == -1) ? 1 : 0));
+	}
 
 	if (player->gunctrl.weaponnum == weaponnum && player->gunctrl.switchtoweaponnum == -1) {
 		return;
@@ -5962,6 +6208,17 @@ void bgunAutoSwitchWeapon(void)
 	bool foundcurrent = false;
 	s32 curweaponnum = g_Vars.currentplayer->gunctrl.weaponnum;
 	bool wantammo = false;
+
+	/* B-246 round-6 instrumentation: auto-switch fires when the current
+	 * weapon runs out of ammo. Logging the entry point captures any
+	 * unexpected mid-match weapon swap. */
+	if (g_Vars.currentplayernum == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunAutoSwitchWeapon enter player=0 cur_wpn=%d switchto=%d tickmode=%d",
+			(s32)curweaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.switchtoweaponnum,
+			(s32)g_Vars.tickmode);
+	}
 
 	if (g_Vars.tickmode == TICKMODE_CUTSCENE) {
 		return;
@@ -6385,6 +6642,19 @@ void bgunHandlePlayerDead(void)
 	struct player *player = g_Vars.currentplayer;
 	s32 i;
 
+	/* B-246 round-6 instrumentation: death path clears the weapon. Log
+	 * every call so unexpected death-flow entries into the FP rig
+	 * lifecycle are visible. */
+	if (g_Vars.currentplayernum == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunHandlePlayerDead player=0 wpn=%d switchto=%d R(inuse=%d) L(inuse=%d) gunmemtype=%d",
+			(s32)player->gunctrl.weaponnum,
+			(s32)player->gunctrl.switchtoweaponnum,
+			(s32)player->hands[HAND_RIGHT].inuse,
+			(s32)player->hands[HAND_LEFT].inuse,
+			(s32)player->gunctrl.gunmemtype);
+	}
+
 	if (player->gunctrl.weaponnum != WEAPON_NONE && player->gunctrl.switchtoweaponnum != WEAPON_NONE) {
 		// Eject held weapons
 		if (player->hands[HAND_LEFT].inuse) {
@@ -6433,6 +6703,18 @@ void bgunDisarm(struct prop *attackerprop)
 	s32 i;
 	bool drop;
 	struct defaultobj *obj;
+
+	/* B-246 round-6 instrumentation: disarm forces a weapon drop. Log so
+	 * any in-match disarm event is visible. */
+	if (g_Vars.currentplayernum == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunDisarm player=0 wpn=%d switchto=%d net=%d attackerprop=%p",
+			(s32)weaponnum,
+			(s32)player->gunctrl.switchtoweaponnum,
+			(s32)g_NetMode,
+			(void *)attackerprop);
+	}
+
 	// don't do anything if we're not the authority
 	if (g_NetMode == NETMODE_CLIENT) {
 		return;
@@ -7697,6 +7979,43 @@ void bgun0f0a5550(s32 handnum)
 	f32 fspare1;
 	f32 fspare2;
 	struct coord sp1a4;
+
+	/* B-246 round-6 instrumentation: matrix-jump-on-fire diagnosis. The
+	 * idle vs fire matrix paths diverge at the a0 decision near line 8090
+	 * (idle uses cached unk0dd8; fire calls modelSetMatricesWithAnim
+	 * fresh). Logging useposrot, animmode, posoffset, damplook, dampup at
+	 * function entry gives the inputs to that decision. Throttled: every
+	 * 30 frames OR on animmode change OR on state change (RIGHT hand only
+	 * because that's where the firing weapon lives). */
+	if (g_Vars.currentplayernum == 0 && handnum == HAND_RIGHT) {
+		static s32 s_last_log_frame = -1;
+		static s32 s_last_animmode = -1;
+		static s32 s_last_state = -1;
+		s32 cur_animmode = (s32)hand->animmode;
+		s32 cur_state = (s32)hand->state;
+		bool periodic = ((g_Vars.lvframenum % 30) == 11 && (s32)g_Vars.lvframenum != s_last_log_frame);
+		bool changed = (cur_animmode != s_last_animmode) || (cur_state != s_last_state);
+		if (periodic || changed) {
+			s_last_log_frame = (s32)g_Vars.lvframenum;
+			s_last_animmode = cur_animmode;
+			s_last_state = cur_state;
+			sysLogPrintf(LOG_NOTE,
+				"LOG.WPN.DIAG: bgun0f0a5550 enter player=0 hand=R wpn=%d frame=%d state=%d sm=%d animmode=%d useposrot=%d visible=%d inuse=%d posoffset=(%.2f,%.2f,%.2f) rotxoffset=%.3f damplook=(%.3f,%.3f,%.3f) dampup=(%.3f,%.3f,%.3f) unk0dd4=%d",
+				(s32)weaponnum,
+				(s32)g_Vars.lvframenum,
+				cur_state,
+				(s32)hand->stateminor,
+				cur_animmode,
+				(s32)hand->useposrot,
+				(s32)hand->visible,
+				(s32)hand->inuse,
+				hand->posoffset.x, hand->posoffset.y, hand->posoffset.z,
+				hand->rotxoffset,
+				hand->damplook.x, hand->damplook.y, hand->damplook.z,
+				hand->dampup.x, hand->dampup.y, hand->dampup.z,
+				(s32)player->hands[HAND_RIGHT].unk0dd4);
+		}
+	}
 	Mtxf sp164;
 	Mtxf sp124;
 	struct coord sp118;
@@ -8087,6 +8406,28 @@ void bgun0f0a5550(s32 handnum)
 			}
 #endif
 
+			/* B-246 round-6 instrumentation: a0 selects between cached
+			 * matrix path (a0=true: use unk0dd8) and fresh-anim path
+			 * (a0=false: modelSetMatricesWithAnim each frame). The visible
+			 * weapon-jump-on-fire is consistent with this decision flipping
+			 * between idle and fire frames. Log on transition. */
+			if (g_Vars.currentplayernum == 0 && handnum == HAND_RIGHT) {
+				static s32 s_last_a0 = -1;
+				s32 cur_a0 = a0 ? 1 : 0;
+				if (cur_a0 != s_last_a0) {
+					s_last_a0 = cur_a0;
+					sysLogPrintf(LOG_NOTE,
+						"LOG.WPN.DIAG: bgun0f0a5550 a0_decision player=0 hand=R a0=%d wpn=%d animmode=%d state=%d sm=%d ejectstate=%d unk0dd4=%d",
+						cur_a0,
+						(s32)weaponnum,
+						(s32)hand->animmode,
+						(s32)hand->state,
+						(s32)hand->stateminor,
+						(s32)hand->ejectstate,
+						(s32)player->hands[HAND_RIGHT].unk0dd4);
+				}
+			}
+
 			if (a0) {
 				if (player->hands[HAND_RIGHT].unk0dd4 == -1) {
 					mtx4LoadIdentity(&sp84);
@@ -8117,6 +8458,18 @@ void bgun0f0a5550(s32 handnum)
 					player->hands[HAND_RIGHT].unk0dd4 = 1;
 
 					hand->gunmodel.matrices = spc4;
+
+					/* B-246 round-6: log every cache-fill so we know what
+					 * animation state was used to seed unk0dd8. */
+					if (g_Vars.currentplayernum == 0) {
+						sysLogPrintf(LOG_NOTE,
+							"LOG.WPN.DIAG: bgun0f0a5550 cache_fill player=0 hand=R wpn=%d animmode=%d animnum=%d animframe=%.2f frame=%d",
+							(s32)weaponnum,
+							(s32)hand->animmode,
+							(s32)modelGetAnimNum(&hand->gunmodel),
+							modelGetCurAnimFrame(&hand->gunmodel),
+							(s32)g_Vars.lvframenum);
+					}
 				}
 
 				spc8 = player->hands[HAND_RIGHT].unk0dd8;
@@ -11138,32 +11491,43 @@ void bgunRender(Gfx **gdlptr)
 
 	player = g_Vars.currentplayer;
 
-	/* B-246 instrumentation: log FP render entry on the first 5 ticks of a
-	 * stage for player 0. If this never fires when Mike repros, the FP render
-	 * path is being skipped upstream. If it fires but `hand[i].visible` is
-	 * false, the visibility gate is the culprit. The static `s_LastFrame`
-	 * tracks the last reported tick; lvframe60 resets to 0 per stage so a
-	 * fresh batch of 5 reports kicks off automatically at each match. */
+	/* B-246 round-6 instrumentation: log FP render entry on the first 5
+	 * ticks of a stage AND on every 60th tick thereafter. Round-5 showed the
+	 * round-4 first-5-frames-only window closed before stage 4's fp_render
+	 * branch became active (cameramode was THIRDPERSON during those frames),
+	 * leaving zero bgunRender entry log lines in the entire reproduction
+	 * window. Widening the throttle gives stable per-second visibility into
+	 * the gunmodeldef and handmodeldef pointers across the whole match. */
 	if (g_Vars.currentplayernum == 0) {
 		static s32 s_LastReportedFrame = -1;
-		if (g_Vars.lvframe60 < 5 && (s32)g_Vars.lvframe60 != s_LastReportedFrame) {
-			s_LastReportedFrame = (s32)g_Vars.lvframe60;
+		bool first_window = (g_Vars.lvframe60 < 5 && (s32)g_Vars.lvframe60 != s_LastReportedFrame);
+		bool periodic = ((g_Vars.lvframenum % 60) == 47 && (s32)g_Vars.lvframenum != s_LastReportedFrame);
+		if (first_window || periodic) {
+			s_LastReportedFrame = first_window ? (s32)g_Vars.lvframe60 : (s32)g_Vars.lvframenum;
 			sysLogPrintf(LOG_NOTE,
-				"LOG.WPN.DIAG: bgunRender enter player=0 frame=%d visionmode=%d "
-				"R(wpn=%d visible=%d inuse=%d state=%d) L(wpn=%d visible=%d inuse=%d state=%d) "
-				"gunctrl_wpn=%d switchto=%d passive=%d",
-				(s32)g_Vars.lvframe60, (s32)player->visionmode,
+				"LOG.WPN.DIAG: bgunRender enter player=0 frame=%d lvframe60=%d visionmode=%d "
+				"R(wpn=%d visible=%d inuse=%d state=%d sm=%d) L(wpn=%d visible=%d inuse=%d state=%d sm=%d) "
+				"gunctrl_wpn=%d switchto=%d passive=%d gunmodeldef=%p handmodeldef=%p R_handmodel_def=%p R_gunmodel_def=%p masterload=%d gunmemowner=%d",
+				(s32)g_Vars.lvframenum, (s32)g_Vars.lvframe60, (s32)player->visionmode,
 				(s32)player->hands[HAND_RIGHT].gset.weaponnum,
 				(s32)player->hands[HAND_RIGHT].visible,
 				(s32)player->hands[HAND_RIGHT].inuse,
 				(s32)player->hands[HAND_RIGHT].state,
+				(s32)player->hands[HAND_RIGHT].stateminor,
 				(s32)player->hands[HAND_LEFT].gset.weaponnum,
 				(s32)player->hands[HAND_LEFT].visible,
 				(s32)player->hands[HAND_LEFT].inuse,
 				(s32)player->hands[HAND_LEFT].state,
+				(s32)player->hands[HAND_LEFT].stateminor,
 				(s32)player->gunctrl.weaponnum,
 				(s32)player->gunctrl.switchtoweaponnum,
-				(s32)player->gunctrl.passivemode);
+				(s32)player->gunctrl.passivemode,
+				(void *)player->gunctrl.gunmodeldef,
+				(void *)player->gunctrl.handmodeldef,
+				(void *)player->hands[HAND_RIGHT].handmodel.definition,
+				(void *)player->hands[HAND_RIGHT].gunmodel.definition,
+				(s32)player->gunctrl.masterloadstate,
+				(s32)player->gunctrl.gunmemowner);
 		}
 	}
 
@@ -12338,11 +12702,19 @@ void bgunTickGameplay(bool triggeron)
 void bgunSetPassiveMode(bool enable)
 {
 	s32 i;
+	bool was_p0 = (g_Vars.players[0] != NULL) ? (bool)g_Vars.players[0]->gunctrl.passivemode : false;
 
 	for (i = 0; i < PLAYERCOUNT(); i++) {
 		if (!g_Vars.players[i]) continue;
 		g_Vars.players[i]->gunctrl.passivemode = enable;
 	}
+
+	/* B-246 round-6 instrumentation: passive mode disables fire and forces
+	 * weapon switch to UNARMED. Log every call so any unexpected entry into
+	 * passive mode during stage-4 firing is visible. */
+	sysLogPrintf(LOG_NOTE,
+		"LOG.WPN.DIAG: bgunSetPassiveMode players_p0_was=%d enable=%d",
+		(s32)was_p0, (s32)enable);
 }
 
 void bgunSetAimType(u32 aimtype)
