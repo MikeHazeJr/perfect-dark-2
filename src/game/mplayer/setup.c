@@ -146,35 +146,15 @@ struct mparena g_MpArenas[] = {
 	{ STAGE_TEST_MP6,        0, L_MPMENU_306  }, // Caves (PD Plus)
 	{ STAGE_TEST_MP2,        0, L_MPMENU_129  }, // Stack (PD Plus)
 	{ STAGE_MP_FELICITY,     0, L_MPMENU_135  }, // Felicity
-	// GoldenEye X Mod
-	{ STAGE_EXTRA6,          0, L_MPMENU_133 }, // Tample
-	{ STAGE_EXTRA2,          0, L_MPMENU_134 }, // Complex
-	{ STAGE_EXTRA8,          0, L_MPMENU_306 }, // Caves
-	{ STAGE_EXTRA9,          0, L_MPMENU_303 }, // Library
-	{ STAGE_EXTRA13,         0, L_MPMENU_302 }, // Basement
-	{ STAGE_EXTRA15,         0, L_MPMENU_309 }, // Stack
-	{ STAGE_EXTRA10,         0, L_MPMENU_311 }, // Facility
-	{ STAGE_EXTRA11,         0, L_MPMENU_300 }, // Bunker
-	{ STAGE_EXTRA4,          0, L_MPMENU_299 }, // Archives
-	{ STAGE_EXTRA12,         0, L_MPMENU_305 }, // Caverns
-	{ STAGE_EXTRA14,         0, L_MPMENU_312 }, // Egyptian
-	{ STAGE_TEST_MP17,       0, L_MPMENU_307 }, // Facility BZ
-	{ STAGE_EXTRA1,          0, L_MPMENU_298 }, // Frigate
-	{ STAGE_TEST_SILO,       0, L_MPMENU_314 }, // Archives 1F (GE-X 5e)
-	{ STAGE_TEST_MP16,       0, L_MPMENU_322 }, // Archives BZ
-	{ STAGE_TEST_MP14,       0, L_MPMENU_315 }, // Streets
-	{ STAGE_EXTRA3,          0, L_MPMENU_310 }, // Train
-	{ STAGE_TEST_MP18,       0, L_MPMENU_304 }, // Cradle
-	{ STAGE_EXTRA5,          0, L_MPMENU_313 }, // Aztec
-	{ STAGE_TEST_MP20,       0, L_MPMENU_308 }, // Citadel
-	{ STAGE_TEST_MP19,       0, L_MPMENU_301 }, // Labyrinth
-	{ STAGE_EXTRA7,          0, L_MPMENU_316 }, // Icicle Pyramid
-	{ STAGE_TEST_MP8,        0, L_MPMENU_323 }, // Cliff Base
+	// GoldenEye X (32-54), Kakariko (was 55), Dark Noon (was 56),
+	// Paradox (was 70), Random GoldenEye X (was 73), and the trailing
+	// junk slot (was 74) all removed 2026-04-26 with the AllInOne /
+	// Goldfinger / GEX content cull. The 13 remaining "Bonus" arenas
+	// (Suburb..Grand Library) are real PD2 Grid bonus stages -- noted
+	// as such in port/src/assetcatalog_base.c Priority F.
 	// Bonus
-	{ STAGE_24,              0, L_MPMENU_319 }, // Kakariko Village (Stormy)
-	{ STAGE_TEST_MP7,        0, L_MPMENU_321 }, // Dark Noon Mod Valley
 	{ STAGE_TEST_ARCH,       0, L_MPMENU_324 }, // Suburb
-	{ STAGE_TEST_DEST,       0, L_MPMENU_325 }, // Training Day
+	{ STAGE_TEST_DEST,       0, L_MPMENU_325 }, // Training Day (Forge Blank Map target)
 	{ STAGE_EXTRA16,         0, L_MPMENU_327 }, // Runway
 	{ STAGE_EXTRA17,         0, L_MPMENU_328 }, // Control
 	{ STAGE_EXTRA18,         0, L_MPMENU_329 }, // Tawfret Ruins
@@ -184,14 +164,11 @@ struct mparena g_MpArenas[] = {
 	{ STAGE_EXTRA22,         0, L_MPMENU_333 }, // Mall
 	{ STAGE_EXTRA23,         0, L_MPMENU_334 }, // Tunnels
 	{ STAGE_EXTRA24,         0, L_MPMENU_335 }, // Rogue
-	{ STAGE_EXTRA25,         0, L_MPMENU_336 }, // Paradox
 	{ STAGE_EXTRA26,         0, L_MPMENU_337 }, // War Colors
 	{ STAGE_TEST_LAM,        0, L_MPMENU_338 }, // Grand Library
 	// Random
 	{ STAGE_MP_RANDOM_MULTI, 0, L_MPMENU_294 }, // Random Multi
 	{ STAGE_MP_RANDOM_SOLO,  0, L_MPMENU_295 }, // Random Solo
-	{ STAGE_MP_RANDOM_GEX,   0, L_MPMENU_317 }, // Random GoldenEye X
-	{ 1,                   0,                          L_MPMENU_136 }, // "Random"
 };
 
 s32 mpGetNumStages(void)
@@ -200,30 +177,25 @@ s32 mpGetNumStages(void)
 }
 
 /*
- * B-225 (2026-04-23): stale-arena filter. Some legacy g_MpArenas[] slots carry
- * valid-looking data (non-zero stagenum, non-empty langbank name, unlocked
- * feature) but their underlying bgdata never shipped in the PD2 base build.
- * Listing them in Combat Sim leads to "start match -> stage load fails" with
- * no safe recovery. Filter them out by stagenum here. Mirror list lives in
- * port/src/assetcatalog_base.c (s_ArenaNames NULLs).
+ * stagenumIsPlayableInMp: stale-arena filter retained as a defensive
+ * gate even though the original B-225 entries (STAGE_24, STAGE_TEST_MP7,
+ * STAGE_EXTRA25) are now physically removed from g_MpArenas[] by the
+ * 2026-04-26 AllInOne cull. The filter currently returns true for all
+ * stagenums; future regressions where a stale entry sneaks back in can
+ * be blocked by adding a case here without restructuring callers.
  *
  * Structural note: the authoring contract is split across three tables
- * (g_MpArenas, s_ArenaNames, langbank) that must agree. Any divergence leaks
- * orphan entries into the UI. A future pass should consolidate playability
- * into a data-driven probe (e.g. at mpInit: walk g_MpArenas, probe each
- * stage's required files via catalogResolveFile, cache a per-arena
- * .available bit) so the three tables cannot drift.
+ * (g_MpArenas client, g_MpArenas server in server_stubs.c, s_ArenaNames
+ * in assetcatalog_base.c). Any divergence leaks orphan entries into the
+ * UI. A future pass should consolidate playability into a data-driven
+ * probe (e.g. at mpInit: walk g_MpArenas, probe each stage's required
+ * files via catalogResolveFile, cache a per-arena .available bit) so
+ * the three tables cannot drift.
  */
 static bool stagenumIsPlayableInMp(s16 stagenum)
 {
-	switch (stagenum) {
-	case STAGE_24:        /* Kakariko Village (Stormy) - AllInOne shell */
-	case STAGE_TEST_MP7:  /* Dark Noon Valley - AllInOne shell */
-	case STAGE_EXTRA25:   /* Paradox - removed */
-		return false;
-	default:
-		return true;
-	}
+	(void)stagenum;
+	return true;
 }
 
 static bool mpArenaIndexIsUsable(s32 index)

@@ -616,11 +616,20 @@ s32 assetCatalogRegisterBaseGame(void)
 	 * from g_MpArenas[] (preserves VERSION-conditional lang IDs).
 	 * Category field stores the arena group name for dropdown grouping.
 	 *
-	 * Human-readable arena names (Part 2: Phase B human-readable ID migration).
-	 * Maps g_MpArenas[] index → slug used in "base:arena_<slug>" catalog ID.
-	 * Indices 32-54 (GEX stages) are never registered; those slots use NULL.
+	 * Human-readable arena names. Maps g_MpArenas[] index to slug used
+	 * in "base:arena_<slug>" catalog ID.
+	 *
+	 * 2026-04-26: AllInOne / Goldfinger / GEX content cull. Removed the
+	 * GEX block (was 32-54), Kakariko shell (was 55), Dark Noon shell
+	 * (was 56), Paradox (was 70), Random GEX (was 73) and the trailing
+	 * junk slot (was 74). Surviving indices renumbered down. The 13
+	 * remaining "Bonus" arenas (Suburb..Grand Library) ARE valid PD2
+	 * Grid bonus stages with shipped data and proper langbank names;
+	 * STAGE_TEST_DEST is the Forge Blank Map target (see
+	 * GRID_BLANK_STAGE in port/include/pdgui_menu_grid.h). Total slot
+	 * count: 47 (was 75).
 	 */
-	static const char *const s_ArenaNames[75] = {
+	static const char *const s_ArenaNames[47] = {
 		/* Dark MP arenas (0-12) */
 		"mp_skedar",    "mp_pipes",     "mp_ravine",    "mp_g5building",
 		"mp_sewers",    "mp_warehouse", "mp_grid",      "mp_ruins",
@@ -634,41 +643,20 @@ s32 assetCatalogRegisterBaseGame(void)
 		/* Classic arenas (27-31) */
 		"mp_temple",    "mp_complex",   "mp_grid6",     "mp_grid2",
 		"mp_felicity",
-		/* GEX (32-54) — never registered; keep slots as NULL */
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-		/* Bonus arenas (55-70) */
-		/* B-225 (2026-04-23): indices 55/56 are stale AllInOne-lineage shells.
-		 * STAGE_24 (Kakariko Stormy) and STAGE_TEST_MP7 (Dark Noon Valley) have
-		 * valid langbank names (L_MPMENU_319 / L_MPMENU_321) but their bg data
-		 * (FILE_BG_SEVX_* / FILE_BG_MP7_*) did not ship with the PD2 base build.
-		 * Keep the slots NULL so the catalog hides them. UI-side filter also
-		 * exists in mpArenaIndexIsUsable (setup.c) to match. */
-		NULL,           /* index 55: stage_24 (Kakariko Stormy), data absent */
-		NULL,           /* index 56: mp_grid7 (Dark Noon Valley), data absent */
-		/* Priority F (2026-04-24): the "test" arenas are real bonus stages
-		 * with proper langbank names ("Suburb", "Training Day", "Runway",
-		 * etc.). Mike re-enabled them because they ARE valid Grid arenas;
-		 * the data is shipped, the geometry exists, the names show in the
-		 * picker. The earlier hide-by-default (Priority A 7ff165b0) was
-		 * over-eager. STAGE_TEST_DEST (index 58 / "Training Day") is also
-		 * the Blank Map target -- see GRID_BLANK_STAGE in
-		 * port/include/pdgui_menu_grid.h. */
-		"test_arch",                       /* index 57: STAGE_TEST_ARCH "Suburb" */
-		"test_dest",                       /* index 58: STAGE_TEST_DEST "Training Day" / Blank Map */
-		"extra16",                         /* index 59: STAGE_EXTRA16  "Runway" */
-		"extra17",                         /* index 60: STAGE_EXTRA17  "Control" */
-		"extra18",                         /* index 61: STAGE_EXTRA18  "Tawfret Ruins" */
-		"extra19",                         /* index 62: STAGE_EXTRA19  "Targitzan's Temple" */
-		"extra20",                         /* index 63: STAGE_EXTRA20  "Junkyard" */
-		"extra21",                         /* index 64: STAGE_EXTRA21  "Steel Mill" */
+		/* Bonus arenas (32-44) */
+		"test_arch",                       /* index 32: STAGE_TEST_ARCH "Suburb" */
+		"test_dest",                       /* index 33: STAGE_TEST_DEST "Training Day" / Forge Blank Map */
+		"extra16",                         /* index 34: STAGE_EXTRA16  "Runway" */
+		"extra17",                         /* index 35: STAGE_EXTRA17  "Control" */
+		"extra18",                         /* index 36: STAGE_EXTRA18  "Tawfret Ruins" */
+		"extra19",                         /* index 37: STAGE_EXTRA19  "Targitzan's Temple" */
+		"extra20",                         /* index 38: STAGE_EXTRA20  "Junkyard" */
+		"extra21",                         /* index 39: STAGE_EXTRA21  "Steel Mill" */
 		"extra22",      "extra23",
 		"extra24",      "extra26",
-		"test_lam",                        /* index 69: STAGE_TEST_LAM "Grand Library" */
-		NULL,           /* index 70: extra25=Paradox, removed */
-		/* Random (71-72) */
+		"test_lam",                        /* index 44: STAGE_TEST_LAM "Grand Library" */
+		/* Random (45-46) */
 		"mp_random_multi", "mp_random_solo",
-		/* 73-74: Random GEX + junk — not registered */
 	};
 	static const struct {
 		s32 first;           /* first index in g_MpArenas[] */
@@ -678,11 +666,8 @@ s32 assetCatalogRegisterBaseGame(void)
 		{  0, 13, "Dark" },
 		{ 13, 14, "Solo Missions" },
 		{ 27,  5, "Classic" },
-		/* indices 32-54 (GoldenEye X / GoldenEye X Bonus) intentionally
-		 * omitted — those mod maps are not part of this project. */
-		{ 55, 16, "Bonus" },
-		{ 71,  2, "Random" }, /* Random Multi (71) + Random Solo (72) only;
-		                       * index 73 (Random GEX) and 74 (junk) omitted */
+		{ 32, 13, "Bonus" },
+		{ 45,  2, "Random" },
 	};
 	#define NUM_ARENA_GROUPS (sizeof(s_ArenaGroupMap) / sizeof(s_ArenaGroupMap[0]))
 
@@ -690,12 +675,12 @@ s32 assetCatalogRegisterBaseGame(void)
 	for (s32 g = 0; g < (s32)NUM_ARENA_GROUPS; g++) {
 		for (s32 j = 0; j < s_ArenaGroupMap[g].count; j++) {
 			s32 idx = s_ArenaGroupMap[g].first + j;
-			if (idx < 0 || idx >= 75) {
+			if (idx < 0 || idx >= (s32)(sizeof(s_ArenaNames) / sizeof(s_ArenaNames[0]))) {
 				continue;
 			}
 
 			/* Skip any arena whose name entry is NULL. The NULL slots are the
-			 * canonical "not in catalog" marker — see s_ArenaNames[] above
+			 * canonical "not in catalog" marker -- see s_ArenaNames[] above
 			 * for which indices are excluded and why. */
 			if (!s_ArenaNames[idx]) {
 				continue;

@@ -131,32 +131,21 @@ struct mparena g_MpArenas[] = {
     { STAGE_MP_TEMPLE,      0, 0 }, { STAGE_MP_COMPLEX,     0, 0 },
     { STAGE_TEST_MP6,       0, 0 }, { STAGE_TEST_MP2,       0, 0 },
     { STAGE_MP_FELICITY,    0, 0 },
-    /* GoldenEye X (32-54, omitted from arena-list but stagenum still needed) */
-    { STAGE_EXTRA6,         0, 0 }, { STAGE_EXTRA2,         0, 0 },
-    { STAGE_EXTRA8,         0, 0 }, { STAGE_EXTRA9,         0, 0 },
-    { STAGE_EXTRA13,        0, 0 }, { STAGE_EXTRA15,        0, 0 },
-    { STAGE_EXTRA10,        0, 0 }, { STAGE_EXTRA11,        0, 0 },
-    { STAGE_EXTRA4,         0, 0 }, { STAGE_EXTRA12,        0, 0 },
-    { STAGE_EXTRA14,        0, 0 }, { STAGE_TEST_MP17,      0, 0 },
-    { STAGE_EXTRA1,         0, 0 }, { STAGE_TEST_SILO,      0, 0 },
-    { STAGE_TEST_MP16,      0, 0 }, { STAGE_TEST_MP14,      0, 0 },
-    { STAGE_EXTRA3,         0, 0 }, { STAGE_TEST_MP18,      0, 0 },
-    { STAGE_EXTRA5,         0, 0 }, { STAGE_TEST_MP20,      0, 0 },
-    { STAGE_TEST_MP19,      0, 0 }, { STAGE_EXTRA7,         0, 0 },
-    { STAGE_TEST_MP8,       0, 0 },
-    /* Bonus (55-70) */
-    { STAGE_24,             0, 0 }, { STAGE_TEST_MP7,       0, 0 },
+    /* GoldenEye X (was 32-54), Kakariko (was 55), Dark Noon (was 56),
+     * Paradox (was 70), Random GoldenEye X (was 73), and trailing
+     * junk slot (was 74) all removed 2026-04-26 with the AllInOne /
+     * Goldfinger / GEX content cull. Indices renumbered. Must agree
+     * with src/game/mplayer/setup.c g_MpArenas[]. */
+    /* Bonus (32-44) */
     { STAGE_TEST_ARCH,      0, 0 }, { STAGE_TEST_DEST,      0, 0 },
     { STAGE_EXTRA16,        0, 0 }, { STAGE_EXTRA17,        0, 0 },
     { STAGE_EXTRA18,        0, 0 }, { STAGE_EXTRA19,        0, 0 },
     { STAGE_EXTRA20,        0, 0 }, { STAGE_EXTRA21,        0, 0 },
     { STAGE_EXTRA22,        0, 0 }, { STAGE_EXTRA23,        0, 0 },
-    { STAGE_EXTRA24,        0, 0 }, { STAGE_EXTRA25,        0, 0 },
-    { STAGE_EXTRA26,        0, 0 }, { STAGE_TEST_LAM,       0, 0 },
-    /* Random (71-72) */
+    { STAGE_EXTRA24,        0, 0 }, { STAGE_EXTRA26,        0, 0 },
+    { STAGE_TEST_LAM,       0, 0 },
+    /* Random (45-46) */
     { STAGE_MP_RANDOM_MULTI,0, 0 }, { STAGE_MP_RANDOM_SOLO, 0, 0 },
-    /* 73-74: Random GEX + junk entry — omitted from arena-list, keep for index fidelity */
-    { STAGE_MP_RANDOM_GEX,  0, 0 }, { 1,                    0, 0 },
 };
 
 /* Solo stages */
