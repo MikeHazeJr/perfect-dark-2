@@ -591,6 +591,36 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
         return gdl;
     }
 
+    /* B-246 round-7: bail out when the local player has spawned in active
+     * MP gameplay. Round-6 playtest log (no-hands repro with random spawn
+     * weapon) showed this path racing the FP rig's master loader for the
+     * gunmem pool every frame: charpreview requests INVMENU -> triggers
+     * BONDGUN-out via bgunEnterFlux (clears handmodeldef, sets
+     * gunmemnew=gunmemtype) -> master loader at bondgun.c:4232 calls
+     * bgunChangeGunMem(BONDGUN) on the timer-flush frame and wins ->
+     * full FLUX->...->LOADED cycle for the same weapon -> charpreview
+     * never gets the pool, retries forever (s_PreviewRequested stays 1
+     * via the curparams==0 early-return at line 641). 1825 cycles in 20
+     * seconds = the FP rig is constantly being torn down and rebuilt,
+     * so handmodeldef is NULL most frames and the hand-render gate
+     * skips. Player sees no hands and no weapon.
+     *
+     * In active MP gameplay there is no legitimate caller of charpreview --
+     * setup screens are gone, character / weapon previews are not on the
+     * HUD. Drop the request to break the race. If a future MP overlay
+     * needs in-match preview rendering, this guard will need to be
+     * revisited (e.g. allow when a known-safe overlay is active). */
+    if (g_Vars.players[0] != NULL
+            && g_Vars.players[0]->haschrbody
+            && g_Vars.mplayerisrunning) {
+        if (s_PreviewRequested) {
+            sysLogPrintf(LOG_NOTE,
+                "LOG.WPN.DIAG: charpreview ACTIVE-GAMEPLAY-BAIL haschrbody=1 mp=1 -- request dropped to avoid master-loader race");
+        }
+        s_PreviewRequested = 0;
+        return gdl;
+    }
+
     struct menumodel *mm = &g_Menus[0].menumodel;
 
     /* Ensure model memory is available.  The standalone charpreview path
@@ -598,11 +628,29 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
      * menu init that normally acquires gun memory.  menuRenderModel returns
      * immediately when allocstart is NULL, so the FBO stays black.
      * Acquire the gun memory here — same call menuRenderModel makes for
-     * non-CI stages, but unconditional so it works on all stages. */
+     * non-CI stages, but unconditional so it works on all stages.
+     *
+     * B-246 round-7: bounded retry. If we cannot acquire INVMENU within
+     * CHARPREVIEW_ACQUIRE_MAX_RETRIES frames, give up by clearing the
+     * request. Catches the case where some non-MP path (e.g. SP cutscene
+     * overlay) ends up in the same fight. */
     if (mm->allocstart == NULL) {
+        static s32 s_AcquireFailures = 0;
         if (bgunChangeGunMem(GUNMEMOWNER_INVMENU)) {
             mm->allocstart = bgunGetGunMem();
             mm->alloclen = bgunCalculateGunMemCapacity();
+            s_AcquireFailures = 0;
+        } else {
+            s_AcquireFailures++;
+            #define CHARPREVIEW_ACQUIRE_MAX_RETRIES 30
+            if (s_AcquireFailures > CHARPREVIEW_ACQUIRE_MAX_RETRIES) {
+                sysLogPrintf(LOG_NOTE,
+                    "LOG.WPN.DIAG: charpreview ACQUIRE-GIVE-UP retries=%d -- pool contention; preview request dropped",
+                    s_AcquireFailures);
+                s_PreviewRequested = 0;
+                s_AcquireFailures = 0;
+                return gdl;
+            }
         }
     }
 

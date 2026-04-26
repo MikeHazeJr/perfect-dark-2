@@ -415,6 +415,15 @@ void playermgrAllocatePlayer(s32 index)
 	g_Vars.players[index]->gunctrl.gunmemtype = 0;
 	g_Vars.players[index]->gunctrl.gunmem = NULL;
 	g_Vars.players[index]->gunctrl.gunmodeldef = NULL;
+	/* B-246 round-7: round-6 playtest log showed bgunReset reading
+	 * handmodeldef=0x7c7b663545bbcbd1 (stale heap garbage, same value across
+	 * all spawns) at every match init. Same class as the visionmode latent
+	 * uninit -- gunmodeldef was the only modeldef pointer initialised at
+	 * player creation; handmodeldef and cartmodeldef were never written and
+	 * mempAlloc does not zero-fill. Fix mirrors the visionmode treatment:
+	 * unconditional NULL init, no VERSION gate. */
+	g_Vars.players[index]->gunctrl.handmodeldef = NULL;
+	g_Vars.players[index]->gunctrl.cartmodeldef = NULL;
 
 	g_Vars.players[index]->gunctrl.weaponnum = WEAPON_NONE;
 	g_Vars.players[index]->gunctrl.prevweaponnum = -1;

@@ -2495,14 +2495,16 @@ void playerRemoveChrBody(void)
 		}
 	}
 
-	/* B-246 round-6 instrumentation: this is the path that flips haschrbody
-	 * from 1 to 0, which is one of the unlock conditions for the gunmem
-	 * pool transition CHRBODY -> BONDGUN at bondgun.c:3803. Log every call
-	 * so the load chain has a visible trigger event. */
-	if (g_Vars.currentplayernum == 0) {
+	/* B-246 round-7 instrumentation: log only when this call did meaningful
+	 * work. Round-6 full-call logging produced 9201 entries in the no-hands
+	 * playtest, virtually all `haschrbody_was=0 removed=0` no-ops fired by
+	 * a per-frame caller in MP. We only need the events where state flips
+	 * (haschrbody was true at entry) to correlate with the gunmem pool
+	 * lifecycle. */
+	if (g_Vars.currentplayernum == 0 && was_haschrbody) {
 		sysLogPrintf(LOG_NOTE,
-			"LOG.WPN.DIAG: playerRemoveChrBody player=0 haschrbody_was=%d removed=%d mp=%d model00d4=%p",
-			(s32)was_haschrbody, (s32)removed, (s32)g_Vars.mplayerisrunning,
+			"LOG.WPN.DIAG: playerRemoveChrBody player=0 haschrbody_was=1 removed=%d mp=%d model00d4=%p",
+			(s32)removed, (s32)g_Vars.mplayerisrunning,
 			(void *)g_Vars.currentplayer->model00d4);
 	}
 }
