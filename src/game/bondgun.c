@@ -8532,6 +8532,104 @@ void bgun0f0a5550(s32 handnum)
 #endif
 			}
 
+			/* B-246 round-8 instrumentation: bone-snapshot at IDLE<->FIRE
+			 * state transitions. Discriminates between four LIVE candidates
+			 * for the idle-vs-animation positional asymmetry Mike observed:
+			 *   H-MTX-A2     (cache faithfully reproduces wrong IDLE rest pose)
+			 *   H-IDLE-POSE-A (idle anim data positions gun root wrong)
+			 *   H-HAND-RIG-A (hand rig idle pose places hand bone wrong;
+			 *                 gun rides along via shared matrix buffer per
+			 *                 bondgun.c:11371)
+			 *   H-PARENT-A   (gun attached to wrong bone; fire anim absolute
+			 *                 writes mask the wrong parent inheritance)
+			 *
+			 * Pure observational. Throttle: one sample on first IDLE-state
+			 * frame after FIRE, one on first FIRE-state frame after IDLE.
+			 * RIGHT hand only. RIGHT hand is where the firing weapon lives
+			 * in this codebase; HAND_LEFT only matters for dual-wield which
+			 * Mike's playtests do not exercise.
+			 *
+			 * Read interpretation (in next playtest log):
+			 *   - gun_root_t differs significantly between IDLE and FIRE
+			 *     phases -> the FIRE animation is producing a different
+			 *     gun-root translation than IDLE; H-IDLE-POSE-A or H-PARENT-A
+			 *     consistent
+			 *   - hand_root_t shifts in lockstep with gun_root_t -> hand
+			 *     rig itself is moving; H-HAND-RIG-A consistent
+			 *   - hand_root_t stable while gun_root_t shifts -> gun-only
+			 *     issue; H-HAND-RIG-A demoted, H-IDLE-POSE-A or H-PARENT-A
+			 *     consistent
+			 *   - mtx_alias=1 confirms gun and hand share the matrix buffer
+			 *     (expected per bondgun.c:11371). If gun_root_t != hand_root_t
+			 *     while alias=1, they index into different matrix slots
+			 *     within the shared buffer
+			 *   - gun_hand_idx + gun_hand_t captures the gun model's
+			 *     MODELPART_HAND_RIGHT node matrix -- the gun's expected
+			 *     attachment to the hand bone. If this matrix's translation
+			 *     differs between IDLE and FIRE, the parent is being
+			 *     repositioned by animation
+			 *   - useposrot, animmode, animnum captured for cross-reference
+			 *     against the existing per-frame samples */
+			if (g_Vars.currentplayernum == 0 && handnum == HAND_RIGHT && hand->visible) {
+				static s32 s_last_phase = -1;
+				s32 cur_phase;
+				if ((s32)hand->state == HANDSTATE_IDLE) {
+					cur_phase = 0;
+				} else if ((s32)hand->state == HANDSTATE_ATTACK) {
+					cur_phase = 1;
+				} else {
+					cur_phase = -1;
+				}
+
+				if (cur_phase >= 0 && cur_phase != s_last_phase) {
+					struct modeldef *gd = hand->gunmodel.definition;
+					struct modeldef *hd = hand->handmodel.definition;
+					Mtxf *gun_mtx = hand->gunmodel.matrices;
+					Mtxf *hand_mtx = hand->handmodel.matrices;
+					struct modelnode *gun_hand_node = (gd != NULL) ? modelGetPart(gd, MODELPART_HAND_RIGHT) : NULL;
+					s32 gun_hand_mtxidx = (gun_hand_node != NULL) ? modelFindNodeMtxIndex(gun_hand_node, 0) : -1;
+					Mtxf *gun_hand_mtx = NULL;
+					if (gun_hand_mtxidx >= 0 && gd != NULL && gun_hand_mtxidx < (s32)gd->nummatrices) {
+						gun_hand_mtx = &gun_mtx[gun_hand_mtxidx];
+					}
+
+					s_last_phase = cur_phase;
+
+					if (gun_mtx != NULL) {
+						const char *phase_str = (cur_phase == 1) ? "FIRE" : "IDLE";
+						sysLogPrintf(LOG_NOTE,
+							"LOG.WPN.DIAG: bone-snapshot phase=%s wpn=%d "
+							"gun_root_t=[%.3f,%.3f,%.3f] gun_root_r0=[%.3f,%.3f,%.3f,%.3f] "
+							"hand_root_t=[%.3f,%.3f,%.3f] hand_root_r0=[%.3f,%.3f,%.3f,%.3f] "
+							"gun_hand_idx=%d gun_hand_t=[%.3f,%.3f,%.3f] "
+							"gun_def=%p hand_def=%p mtx_alias=%d nummtx_gun=%d nummtx_hand=%d "
+							"useposrot=%d animmode=%d animnum=%d animframe=%.2f frame=%d",
+							phase_str, (s32)weaponnum,
+							gun_mtx[0].m[3][0], gun_mtx[0].m[3][1], gun_mtx[0].m[3][2],
+							gun_mtx[0].m[0][0], gun_mtx[0].m[0][1], gun_mtx[0].m[0][2], gun_mtx[0].m[0][3],
+							hand_mtx ? hand_mtx[0].m[3][0] : 0.0f,
+							hand_mtx ? hand_mtx[0].m[3][1] : 0.0f,
+							hand_mtx ? hand_mtx[0].m[3][2] : 0.0f,
+							hand_mtx ? hand_mtx[0].m[0][0] : 0.0f,
+							hand_mtx ? hand_mtx[0].m[0][1] : 0.0f,
+							hand_mtx ? hand_mtx[0].m[0][2] : 0.0f,
+							hand_mtx ? hand_mtx[0].m[0][3] : 0.0f,
+							gun_hand_mtxidx,
+							gun_hand_mtx ? gun_hand_mtx->m[3][0] : 0.0f,
+							gun_hand_mtx ? gun_hand_mtx->m[3][1] : 0.0f,
+							gun_hand_mtx ? gun_hand_mtx->m[3][2] : 0.0f,
+							(void *)gd, (void *)hd,
+							(s32)(gun_mtx == hand_mtx ? 1 : 0),
+							(s32)(gd ? gd->nummatrices : 0),
+							(s32)(hd ? hd->nummatrices : 0),
+							(s32)hand->useposrot, (s32)hand->animmode,
+							(s32)modelGetAnimNum(&hand->gunmodel),
+							modelGetCurAnimFrame(&hand->gunmodel),
+							(s32)g_Vars.lvframenum);
+					}
+				}
+			}
+
 			g_ModelJointPositionedFunc = 0;
 
 			node = modelGetPart(modeldef, MODELPART_GUN_SLIDE);
