@@ -3767,10 +3767,11 @@ u32 bgunCalculateGunMemCapacity(void)
 
 void bgunFreeGunMem(void)
 {
-	/* B-246 round-6 instrumentation: pool ownership transitions are critical
-	 * for understanding why the FP rig may not have ownership of the gunmem
-	 * pool when it needs to load. Log every call. */
-	if (g_Vars.currentplayernum == 0) {
+	/* B-246 round-7 instrumentation: only log when actually transitioning
+	 * away from a non-FREE owner. Repeated FREE->FREE no-ops are the bulk
+	 * of round-6's volume and provide no signal. */
+	if (g_Vars.currentplayernum == 0
+			&& g_Vars.currentplayer->gunctrl.gunmemowner != GUNMEMOWNER_FREE) {
 		sysLogPrintf(LOG_NOTE,
 			"LOG.WPN.DIAG: bgunFreeGunMem enter player=0 owner_was=%d gunmemtype=%d gunmemnew=%d masterload=%d",
 			(s32)g_Vars.currentplayer->gunctrl.gunmemowner,
@@ -3872,21 +3873,50 @@ bool bgunChangeGunMem(s32 newowner)
 	struct player *player = g_Vars.currentplayer;
 	bool result;
 
-	/* B-246 round-6 instrumentation: this is the gate that decides whether
-	 * the FP rig is allowed to take ownership of the gunmem pool. If unlock
-	 * does not fire when transitioning CHRBODY -> BONDGUN, the master loader
-	 * can never advance and the FP rig stays dark. Log entry+exit every
-	 * call (low frequency: invoked from bgunTickMasterLoad gate). */
+	/* B-246 round-7 instrumentation: only log when the (cur_owner, new_owner)
+	 * pair actually changes from the last logged pair. Round-6 full logging
+	 * produced 4366 entries because charpreview and the master loader
+	 * fight every frame for the pool. Transition-only logging captures the
+	 * topology of the fight without flooding. Player 0 only. */
 	if (g_Vars.currentplayernum == 0 && player->gunctrl.gunmemowner != newowner) {
-		sysLogPrintf(LOG_NOTE,
-			"LOG.WPN.DIAG: bgunChangeGunMem enter player=0 cur_owner=%d new_owner=%d gunlocktimer=%d gunmemnew=%d gunmemtype=%d haschrbody=%d mp=%d",
-			(s32)player->gunctrl.gunmemowner,
-			(s32)newowner,
-			(s32)player->gunctrl.gunlocktimer,
-			(s32)player->gunctrl.gunmemnew,
-			(s32)player->gunctrl.gunmemtype,
-			(s32)player->haschrbody,
-			(s32)g_Vars.mplayerisrunning);
+		static s32 s_last_pair = -1;
+		s32 pair = ((s32)player->gunctrl.gunmemowner << 8) | (s32)newowner;
+		if (pair != s_last_pair) {
+			s_last_pair = pair;
+			sysLogPrintf(LOG_NOTE,
+				"LOG.WPN.DIAG: bgunChangeGunMem enter player=0 cur_owner=%d new_owner=%d gunlocktimer=%d gunmemnew=%d gunmemtype=%d haschrbody=%d mp=%d",
+				(s32)player->gunctrl.gunmemowner,
+				(s32)newowner,
+				(s32)player->gunctrl.gunlocktimer,
+				(s32)player->gunctrl.gunmemnew,
+				(s32)player->gunctrl.gunmemtype,
+				(s32)player->haschrbody,
+				(s32)g_Vars.mplayerisrunning);
+		}
+	}
+
+	/* B-246 round-7: gunmemnew range-watch. Round-5 log saw a transient
+	 * gunmemnew=-1314284637 (=0xB1B49363) at 00:50.85 in two consecutive
+	 * bgunChangeGunMem entries. The field should hold -1 (no pending) or a
+	 * small WEAPON_* enum (0..~35). Anything else is a wild value -- could
+	 * be uninit read, struct overlap write, or memory corruption. Logging
+	 * here at every entry catches the moment the wild value enters this
+	 * function so we can correlate with the call site. Limit to one log
+	 * per distinct wild value so a corrupted state doesn't flood. */
+	if (g_Vars.currentplayernum == 0) {
+		s32 gmn = (s32)player->gunctrl.gunmemnew;
+		if (gmn < -1 || gmn > 100) {
+			static s32 s_last_wild = 0;
+			if (gmn != s_last_wild) {
+				s_last_wild = gmn;
+				sysLogPrintf(LOG_NOTE,
+					"LOG.WPN.DIAG: gunmemnew RANGE-WATCH player=0 wild_value=%d (0x%08x) site=bgunChangeGunMem cur_owner=%d new_owner=%d gunmemtype=%d gunmem=%p",
+					gmn, (u32)gmn,
+					(s32)player->gunctrl.gunmemowner, (s32)newowner,
+					(s32)player->gunctrl.gunmemtype,
+					(void *)player->gunctrl.gunmem);
+			}
+		}
 	}
 
 	if (player->gunctrl.gunmemowner == newowner) {
@@ -3900,11 +3930,19 @@ bool bgunChangeGunMem(s32 newowner)
 			player->gunctrl.gunlocktimer = 0;
 			player->gunctrl.gunmemowner = newowner;
 
+			/* B-246 round-7 instrumentation: keep success-exit log (result=1)
+			 * since each timer-complete is a real ownership transition, but
+			 * rate-limit on owner change so a tight fight loop logs only when
+			 * the topology shifts. */
 			if (g_Vars.currentplayernum == 0) {
-				sysLogPrintf(LOG_NOTE,
-					"LOG.WPN.DIAG: bgunChangeGunMem exit  player=0 result=1 owner_now=%d gunlocktimer=%d branch=timer_complete",
-					(s32)player->gunctrl.gunmemowner,
-					(s32)player->gunctrl.gunlocktimer);
+				static s32 s_last_owner = -2;
+				if ((s32)player->gunctrl.gunmemowner != s_last_owner) {
+					s_last_owner = (s32)player->gunctrl.gunmemowner;
+					sysLogPrintf(LOG_NOTE,
+						"LOG.WPN.DIAG: bgunChangeGunMem exit  player=0 result=1 owner_now=%d gunlocktimer=%d branch=timer_complete",
+						(s32)player->gunctrl.gunmemowner,
+						(s32)player->gunctrl.gunlocktimer);
+				}
 			}
 
 			return true;
@@ -3951,25 +3989,19 @@ bool bgunChangeGunMem(s32 newowner)
 			player->gunctrl.gunmemowner = GUNMEMOWNER_CHANGING;
 		}
 
-		if (g_Vars.currentplayernum == 0) {
-			sysLogPrintf(LOG_NOTE,
-				"LOG.WPN.DIAG: bgunChangeGunMem exit  player=0 result=0 owner_now=%d gunlocktimer=%d unlock=%d",
-				(s32)player->gunctrl.gunmemowner,
-				(s32)player->gunctrl.gunlocktimer,
-				(s32)unlock);
-		}
+		/* B-246 round-7: post-switch exit logs were redundant with the
+		 * round-7 throttled enter. Drop the per-call result=0 spam. The
+		 * enter log captures the state we'd see here. */
+		(void)unlock;
 
 		return false;
 	}
 
-	if (g_Vars.currentplayernum == 0) {
-		result = false;
-		sysLogPrintf(LOG_NOTE,
-			"LOG.WPN.DIAG: bgunChangeGunMem exit  player=0 result=%d owner_now=%d gunlocktimer=%d branch=timer_pending",
-			(s32)result,
-			(s32)player->gunctrl.gunmemowner,
-			(s32)player->gunctrl.gunlocktimer);
-	}
+	/* B-246 round-7: timer-pending exit was per-frame spam in fights. The
+	 * enter throttle now captures the topology; the timer ticking down is
+	 * implicit. */
+	result = false;
+	(void)result;
 
 	return false;
 }

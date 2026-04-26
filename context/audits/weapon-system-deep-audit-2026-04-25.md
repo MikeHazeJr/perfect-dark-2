@@ -339,3 +339,92 @@ No new warnings introduced by the round-6 instrumentation. Pre-existing `-Wmaybe
 ---
 
 *Audit doc opened 2026-04-25. Updates appended in-place as instrumentation lands.*
+
+---
+
+## 11. Round-7 -- no-hands repro caught the loop driver (2026-04-26)
+
+### Mike's playtest, verbatim
+
+> "I just had a playthrough where spawn weapon was set to random and I spawned with what it said was a Falcon 2, but no hands or weapon. Probably some failed init with the random spawn weapon option. I think it may also occur with random weapon set options also, as a not for later. But as I spawned with no usable weapon, I could not fire."
+
+### Log statistics (in-match window 00:41 -> 01:01, ~20 s)
+
+| Diagnostic | Round-5 count | Round-6 (no-fire) | Round-7 (no-hands) |
+|---|---|---|---|
+| `bgunTickMasterLoad enter` | 0 | 12 | **7301** |
+| `bgunTickMasterLoad transition` | 0 | 12 | **7301** (1825 each of FLUX->HANDS / HANDS->GUN / GUN->CARTS / CARTS->LOADED, plus 1 SHORTCUT) |
+| `bgunEnterFlux enter` | n/a | 46 | **5477** |
+| `bgunChangeGunMem enter/exit` | n/a | 4366 each | **5765 each** |
+| `playerChooseBodyAndHead normmp` | 21 | 21 | **34659** |
+| `bgunRender enter` | 0 | 42 | 70 (all stage-2 samples show `R(wpn=2 visible=1 inuse=1 state=5 sm=2)`, `handmodeldef=0x0000023a42b6cec0` non-NULL, `masterload=4 LOADED`) |
+
+The master loader is running 1825 full FLUX -> HANDS -> GUN -> CARTS -> LOADED cycles for `newwpn=2` (FALCON2) in the in-match window. At ~91 cycles/sec on a 60 Hz tick, this is multiple cycles per frame. Hand state machine is stuck at `HANDSTATE_CHANGEGUN, sm=HANDSTATEMINOR_CHANGEGUN_LOAD`.
+
+### Root cause
+
+`bgunChangeGunMem enter` shows three dominant patterns repeating 1824 times each:
+
+1. `cur_owner=0 (BONDGUN) new_owner=1 (INVMENU) gunlocktimer=0 gunmemnew=-1 gunmemtype=2`
+2. `cur_owner=10 (CHANGING) new_owner=1 gunlocktimer=-1 gunmemnew=2 gunmemtype=-1`
+3. `cur_owner=10 new_owner=0 (BONDGUN) gunlocktimer=-2 gunmemnew=2 gunmemtype=-1`
+
+Pattern 1 is the BONDGUN-out side effect of [bondgun.c:3787-3796](src/game/bondgun.c:3787): `gunmemnew = gunmemtype` (preserve current weapon for reload), `gunmemtype = -1`, `bgunEnterFlux()` (clear `handmodeldef`, set masterload=FLUX), `unlock=true`, `gunlocktimer=-1`, `gunmemowner=CHANGING`. The 3-frame timer is loaded.
+
+Pattern 3 is the master loader at [bondgun.c:4232](src/game/bondgun.c:4232): `if ((gunmemowner == BONDGUN || bgunChangeGunMem(BONDGUN)) && gunmemnew >= 0)`. When `gunmemowner=CHANGING` and the timer is at `-2`, this call ticks it to `-3` and flushes -> `gunmemowner=BONDGUN` (the master loader's `newowner`, NOT the original requester's).
+
+Pattern 2 is the loser of the race -- charpreview's INVMENU request, called after the master loader on the timer-flush frame, sees the new BONDGUN owner and triggers a fresh BONDGUN-out cycle.
+
+The fight runs every frame because:
+- Charpreview at [pdgui_charpreview.c:602-607](port/fast3d/pdgui_charpreview.c:602) calls `bgunChangeGunMem(GUNMEMOWNER_INVMENU)` while `mm->allocstart` is `NULL`.
+- The function early-returns at [pdgui_charpreview.c:641](port/fast3d/pdgui_charpreview.c:641) when `mm->curparams == 0` without clearing `s_PreviewRequested`. Comment says "Keep s_PreviewRequested alive for next frame" -- intentional retry. But the next frame never succeeds because the master loader keeps preempting.
+- The master loader's auto-acquire at [bondgun.c:4232](src/game/bondgun.c:4232) wins every timer flush because it runs first in `playerTick` while charpreview runs later in the render path.
+- The BONDGUN-out side effect at [bondgun.c:3789-3791](src/game/bondgun.c:3789) re-arms `gunmemnew = gunmemtype`, so when the master loader gets BONDGUN, it has work to do (load the same weapon) and runs a full cycle.
+
+Result: 1825 full master-load cycles in 20 seconds. `gunctrl.handmodeldef` toggles between NULL (FLUX phase, ~85% of frames) and `0x0000023a42b6cec0` (HANDS-onward phases, ~15%). The hand-render gate at [bondgun.c:11368](src/game/bondgun.c:11368) sees `NULL` most frames -> no hands rendered. The weapon model fares similarly because `bgun0f0a5550`'s matrix setup runs against the perpetually-resetting model and never settles.
+
+### How the random spawn weapon connects
+
+The CS setup screen with "spawn weapon = random" likely leaves a `pdguiCharPreviewRequest` pending when the match starts. Without the round-7 guard, the renderer keeps calling `bgunChangeGunMem(INVMENU)` every frame in active gameplay, fighting the master loader. Different random selections (or different selected weapons) would all hit the same race, with stronger or weaker visible symptoms depending on which weapon and how often the user looks down.
+
+### Mike's boundary observation (open follow-up)
+
+> "I think it may also occur with random weapon set options also"
+
+Filed as open question: does `random weapon set` (per-pickup randomisation) hit the same charpreview-vs-master-loader race when each pickup triggers a different weapon load? Plausible mechanism is identical -- a queued preview at the moment a different weapon spawns nearby would kick off the BONDGUN-out cycle and stall rendering until charpreview gives up. Not investigated this round; capture for the next time someone repros under that config.
+
+### Round-7 fixes landed
+
+1. **`playermgrCreatePlayer` handmodeldef / cartmodeldef latent uninit**. [src/game/playermgr.c:417-426](src/game/playermgr.c:417). The pointer fields were never zero-initialised at player creation; `mempAlloc` does not zero-fill. Round-6 saw `bgunReset` reading `handmodeldef=0x7c7b663545bbcbd1` (stale heap garbage, same value across all spawns) at every match start. First `bgunEnterFlux` cleared it harmlessly but the latent uninit was a real bug class. Same fix shape as the visionmode treatment: unconditional `NULL` init, no `VERSION` gate.
+
+2. **Charpreview master-loader race (PRIMARY FIX for Mike's repro)**. [port/fast3d/pdgui_charpreview.c](port/fast3d/pdgui_charpreview.c). Two layers:
+   - **Active-gameplay bail**: if `g_Vars.players[0]->haschrbody && g_Vars.mplayerisrunning`, drop `s_PreviewRequested` and return immediately. In active MP gameplay there is no legitimate consumer of in-match charpreview, so dropping the request is safe and breaks the fight loop.
+   - **Bounded retry**: if pool acquisition fails for 30 consecutive frames (~0.5 s), give up by clearing `s_PreviewRequested`. Catches any path that bypasses the active-gameplay guard (e.g. SP cutscene overlay).
+
+3. **Log throttling on the round-6 high-volume sites**. Round-6 produced 9201 / 4366 / 1453 entries from `playerRemoveChrBody` / `bgunChangeGunMem` / `bgunFreeGunMem` per match because they were logged every call. Round-7 throttles:
+   - `playerRemoveChrBody`: log only when `was_haschrbody=1` (real work, not in-MP no-op).
+   - `bgunChangeGunMem enter`: log only on `(cur_owner, new_owner)` pair change.
+   - `bgunChangeGunMem exit`: log only on result=1 timer-complete with owner-change. Drop the per-call result=0 spam.
+   - `bgunFreeGunMem`: log only when `gunmemowner != FREE` at entry.
+
+4. **`gunmemnew` range-watch**. [src/game/bondgun.c bgunChangeGunMem](src/game/bondgun.c). Round-5 saw a transient `gunmemnew=-1314284637` at 00:50.85 (twice). Round-7 adds an explicit warn-log when `gunmemnew` is outside `[-1, 100]` at `bgunChangeGunMem` entry, deduped by value so a corrupted state doesn't flood. If the wild value reappears, the log captures cur_owner / new_owner / gunmemtype / gunmem to bracket the writer.
+
+### Round-7 build verification
+
+| Field | Value |
+|---|---|
+| Build cmd | `source devtools/build-env.sh && ninja -C Build pd pd-server` |
+| Result | exit 0 |
+| `Build/PerfectDark.exe` | 56 222 172 bytes (2026-04-26 15:18) |
+| `Build/PerfectDarkServer.exe` | 23 272 107 bytes (2026-04-26 14:19, unchanged from round-6 -- none of round-7 changes are linked into the server target; verified via `ninja -t commands pd-server` returning no matches for `playermgr.c / bondgun.c / player.c / charpreview`) |
+
+### Candidate matrix update
+
+| ID | Status this round |
+|---|---|
+| H-NULL-A through H-NULL-D | All RULED-OUT for stage-2 in-match window with weapon=2 -- the load chain was completing 1825 times per match |
+| H-MTX-A/B/C | Still NEEDS-DATA -- no fire frames in the no-hands log |
+| H-INPUT-A | RULED-OUT for this repro -- Mike could not fire because there was no usable weapon, but the input chain itself was not implicated |
+| H-CTX-A through H-CTX-D | All RULED-OUT or N/A (no Forge transitions in this log; visionmode round-6 fix held; bgunReset showed expected gunmemowner=2) |
+| H-FLUX-A | EVOLVED -- bgunEnterFlux was firing 5477 times in the in-match window. Not the cause itself but the symptom of the charpreview race. The new candidate is the master-loader-vs-charpreview pool fight. |
+| **H-RACE-A (NEW)** | **CONFIRMED** -- charpreview's INVMENU request perpetually preempted by master loader's auto-acquire BONDGUN call. Cite: 1824x each of pattern-1/2/3 in `bgunChangeGunMem enter` shapes; 1825x master load CARTS->LOADED cycles in 20 s. Round-7 active-gameplay bail breaks the loop. |
