@@ -1100,86 +1100,6 @@
         "es": "Pistola Psicosis\n"
     },
     {
-        "id": "L_MPWEAPONS_109",
-        "en": "PP9i\n",
-        "gb": "PP9i\n",
-        "jp": "PP9i\n",
-        "it": "PP9i\n",
-        "fr": "PP9i\n",
-        "de": "PP9i\n",
-        "es": "PP9i\n"
-    },
-    {
-        "id": "L_MPWEAPONS_110",
-        "en": "CC13\n",
-        "gb": "CC13\n",
-        "jp": "CC13\n",
-        "it": "CC13\n",
-        "fr": "CC13\n",
-        "de": "CC13\n",
-        "es": "CC13\n"
-    },
-    {
-        "id": "L_MPWEAPONS_111",
-        "en": "KL01313\n",
-        "gb": "KL01313\n",
-        "jp": "KL01313\n",
-        "it": "KL01313\n",
-        "fr": "KL01313\n",
-        "de": "KLO1313\n",
-        "es": "Klo1313\n"
-    },
-    {
-        "id": "L_MPWEAPONS_112",
-        "en": "KF7 Special\n",
-        "gb": "KF7 Special\n",
-        "jp": "KF7 Special\n",
-        "it": "KF7 Special\n",
-        "fr": "KF7 Spécial\n",
-        "de": "KF7 Spezial\n",
-        "es": "KF7 Especial\n"
-    },
-    {
-        "id": "L_MPWEAPONS_113",
-        "en": "ZZT (9mm)\n",
-        "gb": "ZZT (9mm)\n",
-        "jp": "ZZT (9mm)\n",
-        "it": "ZZT (9mm)\n",
-        "fr": "ZZT (9mm)\n",
-        "de": "ZZT (9mm)\n",
-        "es": "ZZT (9mm)\n"
-    },
-    {
-        "id": "L_MPWEAPONS_114",
-        "en": "DMC\n",
-        "gb": "DMC\n",
-        "jp": "DMC\n",
-        "it": "DMC\n",
-        "fr": "DMC\n",
-        "de": "DMC\n",
-        "es": "DMC\n"
-    },
-    {
-        "id": "L_MPWEAPONS_115",
-        "en": "AR53\n",
-        "gb": "AR53\n",
-        "jp": "AR53\n",
-        "it": "AR53\n",
-        "fr": "AR53\n",
-        "de": "AR53\n",
-        "es": "AR53\n"
-    },
-    {
-        "id": "L_MPWEAPONS_116",
-        "en": "RC-P45\n",
-        "gb": "RC-P45\n",
-        "jp": "RC-P45\n",
-        "it": "RC-P45\n",
-        "fr": "RC-P45\n",
-        "de": "RC-P45\n",
-        "es": "RC-P45\n"
-    },
-    {
         "id": "L_MPWEAPONS_117",
         "en": "Velvet Dark\n",
         "gb": "Velvet Dark\n",
@@ -1238,16 +1158,6 @@
         "fr": "Armes pour Joanna en solo\n",
         "de": "Waffen für Jo im Solo-Modus\n",
         "es": "Armas para Joanna en Solo\n"
-    },
-    {
-        "id": "L_MPWEAPONS_123",
-        "en": "Classic Weapons for Jo in Solo\n",
-        "gb": "Classic Weapons for Jo in Solo\n",
-        "jp": "クラシックウェポン（ソロ）\n",
-        "it": "Armi classiche per Jo da sola\n",
-        "fr": "Armes classiques pour Joanna en solo\n",
-        "de": "Klassische Waffe für Jo im Solo-Modus\n",
-        "es": "Armas Clásicas para Joanna en Solo\n"
     },
     {
         "id": "L_MPWEAPONS_124",

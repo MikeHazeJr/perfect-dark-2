@@ -1090,86 +1090,6 @@
         "es": "Psychosis Gun\n"
     },
     {
-        "id": "L_MPWEAPONS_109",
-        "en": "PP9i\n",
-        "gb": "PP9i\n",
-        "jp": "PP7\n",
-        "it": "PP7\n",
-        "fr": "PP7\n",
-        "de": "PP7\n",
-        "es": "PP7\n"
-    },
-    {
-        "id": "L_MPWEAPONS_110",
-        "en": "CC13\n",
-        "gb": "CC13\n",
-        "jp": "DD44\n",
-        "it": "DD44\n",
-        "fr": "DD44\n",
-        "de": "DD44\n",
-        "es": "DD44\n"
-    },
-    {
-        "id": "L_MPWEAPONS_111",
-        "en": "KL01313\n",
-        "gb": "KL01313\n",
-        "jp": "Klobb\n",
-        "it": "Klobb\n",
-        "fr": "Klobb\n",
-        "de": "Klobb\n",
-        "es": "Klobb\n"
-    },
-    {
-        "id": "L_MPWEAPONS_112",
-        "en": "KF7 Special\n",
-        "gb": "KF7 Special\n",
-        "jp": "KF7 Soviet\n",
-        "it": "KF7 Soviet\n",
-        "fr": "KF7 Soviet\n",
-        "de": "KF7 Soviet\n",
-        "es": "KF7 Soviet\n"
-    },
-    {
-        "id": "L_MPWEAPONS_113",
-        "en": "ZZT (9mm)\n",
-        "gb": "ZZT (9mm)\n",
-        "jp": "ZMG (9mm)\n",
-        "it": "ZMG (9mm)\n",
-        "fr": "ZMG (9mm)\n",
-        "de": "ZMG (9mm)\n",
-        "es": "ZMG (9mm)\n"
-    },
-    {
-        "id": "L_MPWEAPONS_114",
-        "en": "DMC\n",
-        "gb": "DMC\n",
-        "jp": "D5K\n",
-        "it": "D5K\n",
-        "fr": "D5K\n",
-        "de": "D5K\n",
-        "es": "D5K\n"
-    },
-    {
-        "id": "L_MPWEAPONS_115",
-        "en": "AR53\n",
-        "gb": "AR53\n",
-        "jp": "AR33\n",
-        "it": "AR33\n",
-        "fr": "AR33\n",
-        "de": "AR33\n",
-        "es": "AR33\n"
-    },
-    {
-        "id": "L_MPWEAPONS_116",
-        "en": "RC-P45\n",
-        "gb": "RC-P45\n",
-        "jp": "RC-P90\n",
-        "it": "RC-P90\n",
-        "fr": "RC-P90\n",
-        "de": "RC-P90\n",
-        "es": "RC-P90\n"
-    },
-    {
         "id": "L_MPWEAPONS_117",
         "en": "Velvet Dark\n",
         "gb": "Velvet Dark\n",
@@ -1228,16 +1148,6 @@
         "fr": "Weapons for Jo in Solo\n",
         "de": "Weapons for Jo in Solo\n",
         "es": "Weapons for Jo in Solo\n"
-    },
-    {
-        "id": "L_MPWEAPONS_123",
-        "en": "Classic Weapons for Jo in Solo\n",
-        "gb": "Classic Weapons for Jo in Solo\n",
-        "jp": "Classic Weapons for Jo in Solo\n",
-        "it": "Classic Weapons for Jo in Solo\n",
-        "fr": "Classic Weapons for Jo in Solo\n",
-        "de": "Classic Weapons for Jo in Solo\n",
-        "es": "Classic Weapons for Jo in Solo\n"
     },
     {
         "id": "L_MPWEAPONS_124",
