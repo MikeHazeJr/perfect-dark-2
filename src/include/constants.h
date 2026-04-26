@@ -4549,6 +4549,14 @@ enum weaponnum {
 	/*0x5d*/ WEAPON_SUICIDEPILL
 };
 
+// Upper bound (inclusive) on weapon enum slots that may be dropped on death
+// or transferred via the wire weapon-drop path. Slots above this are
+// devices/scanners/keys/mission items that should not be droppable.
+// Consumers: port/src/net/netmsg.c (CLC_PROP_DROP validity reject) and
+// src/game/bondgun.c (drop-on-death gate). Adjust this define when the
+// boundary between droppable weapons and non-droppable items moves.
+#define WEAPON_MAX_DROPPABLE WEAPON_RCP45
+
 #define WEAPON_MPLOCATION00 240
 #define WEAPON_MPLOCATION01 241
 #define WEAPON_MPLOCATION02 242

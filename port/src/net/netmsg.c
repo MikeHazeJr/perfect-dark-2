@@ -3061,7 +3061,7 @@ u32 netmsgSvcChrDisarmRead(struct netbuf *src, struct netclient *srccl)
 
 	struct player *player = g_Vars.currentplayer;
 
-	if (weaponHasFlag(weaponnum, WEAPONFLAG_UNDROPPABLE) || weaponnum > WEAPON_RCP45 || weaponnum <= WEAPON_UNARMED) {
+	if (weaponHasFlag(weaponnum, WEAPONFLAG_UNDROPPABLE) || weaponnum > WEAPON_MAX_DROPPABLE || weaponnum <= WEAPON_UNARMED) {
 		setCurrentPlayerNum(prevplayernum);
 		return src->error;
 	}
