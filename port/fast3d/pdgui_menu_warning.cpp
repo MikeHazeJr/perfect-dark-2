@@ -1208,7 +1208,6 @@ void pdguiMenuWarningRegister(void)
     extern struct menudialogdef g_CheatsFunMenuDialog;
     extern struct menudialogdef g_CheatsGameplayMenuDialog;
     extern struct menudialogdef g_CheatsSoloWeaponsMenuDialog;
-    extern struct menudialogdef g_CheatsClassicWeaponsMenuDialog;
     extern struct menudialogdef g_CheatsWeaponsMenuDialog;
     extern struct menudialogdef g_CheatsBuddiesMenuDialog;
     extern struct menudialogdef g_CheatsWarningMenuDialog;
@@ -1226,9 +1225,6 @@ void pdguiMenuWarningRegister(void)
     pdguiHotswapRegister(&g_CheatsSoloWeaponsMenuDialog,
                           renderDefaultDialog,
                           "Cheats Solo Weapons (Batch 4)");
-    pdguiHotswapRegister(&g_CheatsClassicWeaponsMenuDialog,
-                          renderDefaultDialog,
-                          "Cheats Classic Weapons (Batch 4)");
     pdguiHotswapRegister(&g_CheatsWeaponsMenuDialog,
                           renderDefaultDialog,
                           "Cheats Weapons (Batch 4)");

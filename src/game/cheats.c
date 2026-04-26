@@ -249,15 +249,7 @@ void cheatsReset(void)
 			);
 			g_CheatsActiveBank1 &= ~(
 				(1 << (CHEAT_PHOENIX - 32)) |
-				(1 << (CHEAT_PSYCHOSISGUN - 32)) |
-				(1 << (CHEAT_PP9I - 32)) |
-				(1 << (CHEAT_CC13 - 32)) |
-				(1 << (CHEAT_KL01313 - 32)) |
-				(1 << (CHEAT_KF7SPECIAL - 32)) |
-				(1 << (CHEAT_ZZT - 32)) |
-				(1 << (CHEAT_DMC - 32)) |
-				(1 << (CHEAT_AR53 - 32)) |
-				(1 << (CHEAT_RCP45 - 32))
+				(1 << (CHEAT_PSYCHOSISGUN - 32))
 			);
 		}
 	} else {
@@ -1244,114 +1236,6 @@ struct menudialogdef g_CheatsSoloWeaponsMenuDialog = {
 	NULL,
 };
 
-struct menuitem g_CheatsClassicWeaponsMenuItems[] = {
-	{
-		MENUITEMTYPE_CHECKBOX,
-		CHEAT_PP9I,
-		0,
-		(uintptr_t)&cheatGetNameIfUnlocked,
-		0,
-		cheatCheckboxMenuHandler,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		CHEAT_CC13,
-		0,
-		(uintptr_t)&cheatGetNameIfUnlocked,
-		0,
-		cheatCheckboxMenuHandler,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		CHEAT_KL01313,
-		0,
-		(uintptr_t)&cheatGetNameIfUnlocked,
-		0,
-		cheatCheckboxMenuHandler,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		CHEAT_KF7SPECIAL,
-		0,
-		(uintptr_t)&cheatGetNameIfUnlocked,
-		0,
-		cheatCheckboxMenuHandler,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		CHEAT_ZZT,
-		0,
-		(uintptr_t)&cheatGetNameIfUnlocked,
-		0,
-		cheatCheckboxMenuHandler,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		CHEAT_DMC,
-		0,
-		(uintptr_t)&cheatGetNameIfUnlocked,
-		0,
-		cheatCheckboxMenuHandler,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		CHEAT_AR53,
-		0,
-		(uintptr_t)&cheatGetNameIfUnlocked,
-		0,
-		cheatCheckboxMenuHandler,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		CHEAT_RCP45,
-		0,
-		(uintptr_t)&cheatGetNameIfUnlocked,
-		0,
-		cheatCheckboxMenuHandler,
-	},
-	{
-		MENUITEMTYPE_SEPARATOR,
-		0,
-		0,
-		0x000000c8,
-		0,
-		NULL,
-	},
-	{
-		MENUITEMTYPE_MARQUEE,
-		0,
-		MENUITEMFLAG_SMALLFONT | MENUITEMFLAG_MARQUEE_FADEBOTHSIDES,
-		L_MPWEAPONS_144, // "Win Golds on the firing range to enable classic guns."
-		0,
-		NULL,
-	},
-	{
-		MENUITEMTYPE_SEPARATOR,
-		0,
-		0,
-		0x000000c8,
-		0,
-		NULL,
-	},
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG | MENUITEMFLAG_SELECTABLE_CENTRE,
-		L_MPMENU_477, // "Done"
-		0,
-		NULL,
-	},
-	{ MENUITEMTYPE_END },
-};
-
-struct menudialogdef g_CheatsClassicWeaponsMenuDialog = {
-	MENUDIALOGTYPE_DEFAULT,
-	L_MPWEAPONS_123, // "Classic Weapons for Jo in Solo"
-	g_CheatsClassicWeaponsMenuItems,
-	cheatMenuHandleDialog,
-	0,
-	NULL,
-};
 
 struct menuitem g_CheatsWeaponsMenuItems[] = {
 	{
@@ -1571,14 +1455,6 @@ struct menuitem g_CheatsMenuItems[] = {
 		L_MPWEAPONS_122, // "Weapons for Jo in Solo"
 		0,
 		(void *)&g_CheatsSoloWeaponsMenuDialog,
-	},
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_SELECTABLE_OPENSDIALOG,
-		L_MPWEAPONS_123, // "Classic Weapons for Jo in Solo"
-		0,
-		(void *)&g_CheatsClassicWeaponsMenuDialog,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,

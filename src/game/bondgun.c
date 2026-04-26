@@ -2562,8 +2562,6 @@ s32 bgunTickIncAttackEmpty(struct handweaponinfo *info, s32 handnum, struct hand
 	case WEAPON_LAPTOPGUN:
 	case WEAPON_REAPER:
 	case WEAPON_TRANQUILIZER:
-	case WEAPON_PP9I:
-	case WEAPON_CC13:
 		// These weapons are weapons with visible finger trigger animations
 		if (hand->stateframes > TICKS(25)) {
 			hand->stateframes -= TICKS(25);

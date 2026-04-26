@@ -116,16 +116,11 @@ struct mpweapon g_MpWeapons[NUM_MPWEAPONS] = {
 	/*0x24*/ { WEAPON_IRSCANNER,        0,                    0,   0,                   0,  1, 0,                                MODEL_MISC_IRSPECS,     256 },
 	/*0x25*/ { WEAPON_CLOAKINGDEVICE,   0,                    0,   0,                   0,  1, MPFEATURE_WEAPON_CLOAKINGDEVICE,  MODEL_CHRCLOAKER,       256 },
 	/*0x26*/ { WEAPON_COMBATBOOST,      0,                    0,   0,                   0,  1, MPFEATURE_WEAPON_COMBATBOOST,     MODEL_CHRSPEEDPILL,     256 },
-	/*0x27*/ { WEAPON_PP9I,             AMMOTYPE_PISTOL,      80,  0,                   0,  1, 0,                                MODEL_CHRWPPK,          256 },
-	/*0x28*/ { WEAPON_CC13,             AMMOTYPE_PISTOL,      80,  0,                   0,  1, 0,                                MODEL_CHRTT33,          256 },
-	/*0x29*/ { WEAPON_KL01313,          AMMOTYPE_SMG,         100, 0,                   0,  1, 0,                                MODEL_CHRSKORPION,      256 },
-	/*0x2a*/ { WEAPON_KF7SPECIAL,       AMMOTYPE_RIFLE,       100, 0,                   0,  1, 0,                                MODEL_CHRKALASH,        256 },
-	/*0x2b*/ { WEAPON_ZZT,              AMMOTYPE_SMG,         100, 0,                   0,  1, 0,                                MODEL_CHRUZI,           256 },
-	/*0x2c*/ { WEAPON_DMC,              AMMOTYPE_SMG,         100, 0,                   0,  1, 0,                                MODEL_CHRMP5K,          256 },
-	/*0x2d*/ { WEAPON_AR53,             AMMOTYPE_RIFLE,       150, 0,                   0,  1, 0,                                MODEL_CHRM16,           256 },
-	/*0x2e*/ { WEAPON_RCP45,            AMMOTYPE_SMG,         150, 0,                   0,  1, 0,                                MODEL_CHRFNP90,         256 },
-	/*0x2f*/ { WEAPON_MPSHIELD,         0,                    0,   0,                   0,  1, MPFEATURE_WEAPON_SHIELD,          MODEL_CHRSHIELD,        256 },
-	/*0x30*/ { WEAPON_DISABLED }, // 0x25 on N64
+	// 8 Goldfinger 64 imports (PP9I..RCP45, old slots 0x27..0x2e)
+	// removed 2026-04-26. SHIELD/DISABLED shifted down from 0x2f/0x30
+	// to 0x27/0x28.
+	/*0x27*/ { WEAPON_MPSHIELD,         0,                    0,   0,                   0,  1, MPFEATURE_WEAPON_SHIELD,          MODEL_CHRSHIELD,        256 },
+	/*0x28*/ { WEAPON_DISABLED }, // 0x25 on N64
 };
 
 

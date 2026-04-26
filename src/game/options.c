@@ -253,7 +253,6 @@ s32 optionsGetEffectiveScreenSize(void)
 		if (g_Menus[g_MpPlayerNum].curdialog->definition == &g_CheatsFunMenuDialog
 				|| g_Menus[g_MpPlayerNum].curdialog->definition == &g_CheatsGameplayMenuDialog
 				|| g_Menus[g_MpPlayerNum].curdialog->definition == &g_CheatsSoloWeaponsMenuDialog
-				|| g_Menus[g_MpPlayerNum].curdialog->definition == &g_CheatsClassicWeaponsMenuDialog
 				|| g_Menus[g_MpPlayerNum].curdialog->definition == &g_CheatsWeaponsMenuDialog
 				|| g_Menus[g_MpPlayerNum].curdialog->definition == &g_CheatsBuddiesMenuDialog
 				|| g_Menus[g_MpPlayerNum].curdialog->definition == &g_CheatsMenuDialog

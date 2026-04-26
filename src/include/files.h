@@ -913,14 +913,12 @@
 #define FILE_GTIMEDMINE              0x0391
 #define FILE_GPROXIMITYMINE          0x0392
 #define FILE_GREMOTEMINE             0x0393
-#define FILE_GWPPK                   0x0394
-#define FILE_GTT33                   0x0395
-#define FILE_GSKORPION               0x0396
-#define FILE_GAK47                   0x0397
-#define FILE_GUZI                    0x0398
-#define FILE_GMP5K                   0x0399
-#define FILE_GM16                    0x039a
-#define FILE_GFNP90                  0x039b
+// File IDs 0x0394..0x039b (FILE_GWPPK..FILE_GFNP90, the 8 Goldfinger 64
+// weapon models) removed 2026-04-26 with the weapon cull. The slots are
+// retained as gaps in src/assets/<region>/files/list.{c,ld} so that
+// later file IDs (0x039c onward) keep their numeric values. PC port
+// build does not consume list.c, so only this header needed updating
+// for the executable's perspective.
 #define FILE_GFALCON2LOD             0x039c
 #define FILE_GSKMINIGUNLOD           0x039d
 #define FILE_PA51_TURRET             0x039e

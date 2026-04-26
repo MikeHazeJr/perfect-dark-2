@@ -8,7 +8,6 @@ extern struct menudialogdef g_CheatsMenuDialog;
 extern struct menudialogdef g_CheatsFunMenuDialog;
 extern struct menudialogdef g_CheatsGameplayMenuDialog;
 extern struct menudialogdef g_CheatsSoloWeaponsMenuDialog;
-extern struct menudialogdef g_CheatsClassicWeaponsMenuDialog;
 extern struct menudialogdef g_CheatsWeaponsMenuDialog;
 extern struct menudialogdef g_CheatsBuddiesMenuDialog;
 
