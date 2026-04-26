@@ -9,7 +9,23 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 43  /* v43 (2026-04-25): B-256 structural fix --
+#define NET_PROTOCOL_VER 44  /* v44 (2026-04-26): hygiene bump for the
+                              * Goldfinger 64 weapon + AllInOne arena
+                              * cull. Wire format is structurally
+                              * unchanged (weapon identity already
+                              * crosses the wire as catalog session ref
+                              * u16 per the v30 rule, not raw enum
+                              * integers, so the enum-slot deletions are
+                              * invisible on the wire). The bump is a
+                              * coordinated "fresh build only" signal
+                              * alongside MPSETUP_VERSION 1 -> 2. Mixed
+                              * v43/v44 play is rejected at the ENet
+                              * auth handshake (netServerEvConnect,
+                              * net.c:1560) and at the presence
+                              * proto_version check (group_session.c:212),
+                              * so a post-cull server cannot accept a
+                              * pre-cull client and vice-versa.
+                              * v43 (2026-04-25): B-256 structural fix --
                               * SVC_PLAYER_STATS gains a trailing s8 attacker_id
                               * field carrying the dying chr's resolved
                               * mpPlayerGetIndex(lastattacker) at write time, or
