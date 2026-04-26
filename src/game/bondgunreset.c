@@ -8,6 +8,7 @@
 #include "data.h"
 #include "types.h"
 #include "game/player.h"
+#include "system.h" /* B-246 round-6 instrumentation: sysLogPrintf for LOG.WPN.DIAG */
 
 void bgunReset(void)
 {
@@ -231,6 +232,27 @@ void bgunReset(void)
 	bgunCalculateBlend(HAND_LEFT);
 	bgunCalculateBlend(HAND_LEFT);
 	bgunCalculateBlend(HAND_LEFT);
+
+	/* B-246 round-6 instrumentation: bgunReset is the per-player gun init.
+	 * Sets gunmemowner=CHRBODY (must be transitioned to BONDGUN later by
+	 * the master loader before the FP rig can take over). Logging here
+	 * captures the full reset state for player 0 so each per-stage / match
+	 * reset is auditable in the log. */
+	if (g_Vars.currentplayernum == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunReset player=0 gunmem=%p gunmemowner=%d gunmemtype=%d gunmemnew=%d masterload=%d gunloadstate=%d switchto=%d handfilenum=%d handmodeldef=%p gunmodeldef=%p loadall=%d",
+			(void *)g_Vars.currentplayer->gunctrl.gunmem,
+			(s32)g_Vars.currentplayer->gunctrl.gunmemowner,
+			(s32)g_Vars.currentplayer->gunctrl.gunmemtype,
+			(s32)g_Vars.currentplayer->gunctrl.gunmemnew,
+			(s32)g_Vars.currentplayer->gunctrl.masterloadstate,
+			(s32)g_Vars.currentplayer->gunctrl.gunloadstate,
+			(s32)g_Vars.currentplayer->gunctrl.switchtoweaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.handfilenum,
+			(void *)g_Vars.currentplayer->gunctrl.handmodeldef,
+			(void *)g_Vars.currentplayer->gunctrl.gunmodeldef,
+			(s32)g_Vars.currentplayer->gunctrl.loadall);
+	}
 
 	g_Vars.currentplayer->gunammooff = 0;
 	g_Vars.currentplayer->gunsightoff = GUNSIGHTREASON_NOTAIMING;

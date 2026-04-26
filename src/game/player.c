@@ -1324,6 +1324,23 @@ void playerStartNewLife(void)
 
 void playerLoadDefaults(void)
 {
+	/* B-246 round-6 instrumentation: playerLoadDefaults runs at every match
+	 * start before playerSpawn. Captures the visionmode field before any
+	 * fp_render path touches it (after the NTSC-FINAL build now also runs
+	 * the playermgr.c init unconditionally). Logging here is the cleanest
+	 * point to confirm the visionmode-uninit fix landed and that the field
+	 * is VISIONMODE_NORMAL=0 from this moment forward. */
+	if (g_Vars.currentplayernum == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: playerLoadDefaults enter player=0 visionmode=%d cameramode=%d haschrbody=%d gunctrl_wpn=%d switchto=%d gunmemowner=%d",
+			(s32)g_Vars.currentplayer->visionmode,
+			(s32)g_Vars.currentplayer->cameramode,
+			(s32)g_Vars.currentplayer->haschrbody,
+			(s32)g_Vars.currentplayer->gunctrl.weaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.switchtoweaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.gunmemowner);
+	}
+
 	if (!g_Vars.mplayerisrunning || g_Vars.currentplayer->model00d4 == NULL) {
 		g_Vars.currentplayer->vv_eyeheight = 159;
 		g_Vars.currentplayer->vv_headheight = 172;
@@ -2133,6 +2150,7 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 void playerTickChrBody(void)
 {
 	f32 turnangle = (360.0f - g_Vars.currentplayer->vv_theta) * M_BADTAU / 360.0f;
+	bool was_haschrbody = (bool)g_Vars.currentplayer->haschrbody;
 
 	if (g_Vars.currentplayer->haschrbody == false) {
 		struct chrdata *chr;
@@ -2443,10 +2461,28 @@ void playerTickChrBody(void)
 			bmoveUpdateRooms(g_Vars.currentplayer);
 		}
 	}
+
+	/* B-246 round-6 instrumentation: log only when haschrbody flips. The
+	 * 0->1 transition is the moment the third-person chr body is set up;
+	 * the gunmem pool is owned by GUNMEMOWNER_CHRBODY at that moment which
+	 * blocks FP master-load progression. */
+	if (g_Vars.currentplayernum == 0 && was_haschrbody != (bool)g_Vars.currentplayer->haschrbody) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: playerTickChrBody haschrbody player=0 %d->%d gunmemowner=%d gunctrl_wpn=%d switchto=%d model00d4=%p",
+			(s32)was_haschrbody,
+			(s32)g_Vars.currentplayer->haschrbody,
+			(s32)g_Vars.currentplayer->gunctrl.gunmemowner,
+			(s32)g_Vars.currentplayer->gunctrl.weaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.switchtoweaponnum,
+			(void *)g_Vars.currentplayer->model00d4);
+	}
 }
 
 void playerRemoveChrBody(void)
 {
+	bool was_haschrbody = (bool)g_Vars.currentplayer->haschrbody;
+	bool removed = false;
+
 	if (g_Vars.currentplayer->haschrbody) {
 		if (!g_Vars.mplayerisrunning) {
 			g_Vars.currentplayer->haschrbody = false;
@@ -2455,7 +2491,19 @@ void playerRemoveChrBody(void)
 			bmoveUpdateRooms(g_Vars.currentplayer);
 			bgunFreeGunMem();
 			g_Vars.currentplayer->gunmem2 = NULL;
+			removed = true;
 		}
+	}
+
+	/* B-246 round-6 instrumentation: this is the path that flips haschrbody
+	 * from 1 to 0, which is one of the unlock conditions for the gunmem
+	 * pool transition CHRBODY -> BONDGUN at bondgun.c:3803. Log every call
+	 * so the load chain has a visible trigger event. */
+	if (g_Vars.currentplayernum == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: playerRemoveChrBody player=0 haschrbody_was=%d removed=%d mp=%d model00d4=%p",
+			(s32)was_haschrbody, (s32)removed, (s32)g_Vars.mplayerisrunning,
+			(void *)g_Vars.currentplayer->model00d4);
 	}
 }
 
