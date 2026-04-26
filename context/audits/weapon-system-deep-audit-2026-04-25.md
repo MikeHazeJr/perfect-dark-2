@@ -428,3 +428,79 @@ Filed as open question: does `random weapon set` (per-pickup randomisation) hit 
 | H-CTX-A through H-CTX-D | All RULED-OUT or N/A (no Forge transitions in this log; visionmode round-6 fix held; bgunReset showed expected gunmemowner=2) |
 | H-FLUX-A | EVOLVED -- bgunEnterFlux was firing 5477 times in the in-match window. Not the cause itself but the symptom of the charpreview race. The new candidate is the master-loader-vs-charpreview pool fight. |
 | **H-RACE-A (NEW)** | **CONFIRMED** -- charpreview's INVMENU request perpetually preempted by master loader's auto-acquire BONDGUN call. Cite: 1824x each of pattern-1/2/3 in `bgunChangeGunMem enter` shapes; 1825x master load CARTS->LOADED cycles in 20 s. Round-7 active-gameplay bail breaks the loop. |
+
+---
+
+## 12. Round-8 -- bone-snapshot instrumentation for idle-vs-fire asymmetry (2026-04-26)
+
+### Mike's observation that opened the round
+
+> "The animations such as firing and reloading have the weapon in the proper place in the hand, but not when just holding the gun normally"
+
+> "It was the case for base game weapons also, such as the Farsight when I tested earlier."
+
+The asymmetry is universal: idle = wrong, fire / reload = right. Holds across stock PD weapons (FARSIGHT, DY357MAGNUM observed in playtest logs) and AllInOne imports. HASHANDS-set vs HASHANDS-unset both show the symptom.
+
+### Round-7 fire-frame log evidence (Build/pd-client.log timestamped 17:05)
+
+12 fire-handler events with `R(wpn=8 inuse=1 visible=1 state=0)` for DY357MAGNUM. Matrix-path branched cleanly at every fire transition:
+
+| Phase | state / sm | animmode | a0 | useposrot | posoffset | rotxoffset |
+|---|---|---|---|---|---|---|
+| Idle pre-fire | 0 / 0 | 0 | 1 (cached) | 0 | (0, 0, 0) | 0 |
+| Fire enter | 4 / 0 | 0 -> 2 | 1 -> 0 (fresh anim) | 0 | (0, 0, 0) | 0 |
+| Fire mid (recoil) | 4 / 2 | 2 -> 0 | 0 -> 1 | 1 | (~0.04..0.08, 0, ~1.7..8.3) | ~5.85..6.19 |
+| Fire decay | 4 / 2 | 0 | 1 | 0 | (0, 0, 0) | 0 |
+| Idle post-fire | 0 / 0 | 0 | 1 (cached) | 0 | (0, 0, 0) | 0 |
+
+Cache fill events both at `animnum=0 animframe=0.00` (true rest pose). `useposrot=1` recoil offsets are sub-unit-to-single-digit, too small to be the source of "weapon snaps to correct place" during fire. The correction must come from FIRE / RELOAD animation tracks producing different bone matrices than IDLE.
+
+### Live candidate space (each survives until its own evidence rules in or out)
+
+| ID | What "fits asymmetry" requires |
+|---|---|
+| H-MTX-A2 | IDLE rest-pose data wrong; cache faithfully reproduces wrong; fire-fresh-anim eval uses different keys |
+| H-IDLE-POSE-A | Same shape as A2 but pinned at the asset-side (anim track wrong) rather than the runtime-side |
+| H-HAND-RIG-A | Hand rig idle pose places hand bone wrong; gun rides along via shared matrix buffer ([bondgun.c:11371](src/game/bondgun.c:11371)) |
+| H-PARENT-A | Mike's wrong-bone hypothesis. Fits ONLY IF PD's animation evaluator writes absolute bone matrices that bypass parent inheritance during animations. If the eval writes locals, parent miswiring would persist in animations -- contradicting the observed asymmetry |
+
+### Round-8 diagnostic landed
+
+[src/game/bondgun.c bgun0f0a5550](src/game/bondgun.c) -- a `bone-snapshot` log emitted on first IDLE-state frame after FIRE and first FIRE-state frame after IDLE. Player 0, RIGHT hand only. Captures:
+
+- `gun_root_t` -- gun model matrix[0] translation (`m[3][0..2]`)
+- `gun_root_r0` -- gun model matrix[0] first row (`m[0][0..3]`)
+- `hand_root_t`, `hand_root_r0` -- hand model matrix[0] equivalents
+- `gun_hand_idx` -- gun model's `MODELPART_HAND_RIGHT` modelnode matrix index (where the gun expects to attach)
+- `gun_hand_t` -- the matrix at that index (what the gun model thinks the right-hand bone position is)
+- `gun_def`, `hand_def` -- pointer values, validation
+- `mtx_alias` -- 1 if gun and hand models share matrix buffer (expected per [bondgun.c:11371](src/game/bondgun.c:11371))
+- `nummtx_gun`, `nummtx_hand` -- matrix array sizes per modeldef
+- `useposrot`, `animmode`, `animnum`, `animframe`, `frame` -- cross-reference fields
+
+### Read interpretation when Mike's playtest log arrives
+
+| Pattern in log | Discriminator implication |
+|---|---|
+| `gun_root_t` and `hand_root_t` translation differs significantly between IDLE phase and FIRE phase | Anim tracks for the two phases produce different absolute bone positions -- consistent with H-IDLE-POSE-A or H-PARENT-A (anim absolute writes mask the parent issue) |
+| `hand_root_t` shifts in lockstep with `gun_root_t` between phases | Hand rig itself moves; H-HAND-RIG-A consistent |
+| `hand_root_t` stable while `gun_root_t` shifts | Gun-only issue; H-HAND-RIG-A demoted, H-IDLE-POSE-A or H-PARENT-A consistent |
+| `gun_hand_t` (gun model's MODELPART_HAND_RIGHT) shifts between phases | Animation is repositioning the bone the gun is attached to -- consistent with H-PARENT-A IF the parent semantics work that way |
+| `mtx_alias=1` confirmed | Expected; gun and hand share matrix buffer. If `gun_root_t != hand_root_t` while alias=1, they index different matrix slots within the shared buffer (different "roots" in their respective node trees) |
+| `useposrot=0` at IDLE samples and `useposrot=1` at FIRE samples | Cross-references the round-7 evidence. Recoil offsets confirmed to be sub-unit. If gun_root_t difference between phases is much larger than the useposrot offset magnitudes, the correction comes from the anim track, not from posoffset/rotxoffset |
+
+### Round-8 build verification
+
+| Field | Value |
+|---|---|
+| Build cmd | `source devtools/build-env.sh && ninja -C Build pd pd-server` |
+| Result | exit 0 |
+| `Build/PerfectDark.exe` | 56 225 790 bytes (2026-04-26 17:33) -- size grew ~3.6 KB vs round-7 (56 222 172) consistent with the new diagnostic code |
+| `Build/PerfectDarkServer.exe` | unchanged from round-7 (none of the round-8 changes are linked into the server target) |
+
+### What this round does NOT do
+
+- No fix candidates proposed.
+- No animation-asset inspection. Discrimination relies on the runtime matrix dump.
+- No second instrumentation layer. The `bone-snapshot` is intentionally targeted; if it does not fully discriminate the candidates, a follow-on round can dump bone matrix per node or instrument `modelSetMatricesWithAnim` directly.
+- No SP / SP-cutscene exercise. The diagnostic only fires for player 0 RIGHT hand in active gameplay where `hand->visible` is true.
