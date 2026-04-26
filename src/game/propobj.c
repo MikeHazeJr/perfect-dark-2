@@ -9384,7 +9384,7 @@ void autogunTickShoot(struct prop *autogunprop)
 				struct prop *targetprop = autogun->target;
 				struct modelnode *flashnode;
 				struct modelnode *posnode = NULL;
-				struct gset gset = { WEAPON_RCP45, 0, 0, FUNC_PRIMARY };
+				struct gset gset = { WEAPON_LAPTOPGUN, 0, 0, FUNC_PRIMARY };
 				struct prop *ownerprop = NULL;
 				struct chrdata *ownerchr = NULL;
 				s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
@@ -9681,7 +9681,7 @@ void autogunTickShoot(struct prop *autogunprop)
 						}
 
 						beam->age = 0;
-						beam->weaponnum = autogun->base.modelnum == MODEL_CETROOFGUN ? WEAPON_CALLISTO : WEAPON_RCP45;
+						beam->weaponnum = autogun->base.modelnum == MODEL_CETROOFGUN ? WEAPON_CALLISTO : WEAPON_LAPTOPGUN;
 						beam->maxdist = distance;
 
 						if (distance < 500.0f) {
@@ -21759,11 +21759,6 @@ void projectileCreate(struct prop *fromprop, struct fireslotthing *arg1, struct 
 				psStopSound(fromprop, PSTYPE_CHOPPERGUN, 0xffff);
 				psCreate(0, fromprop, SFX_810E, -1, -1, 0, 0, PSTYPE_CHOPPERGUN, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
 				arg1->unk08 = g_Vars.lvframe60 + 4;
-				break;
-			case WEAPON_RCP45:
-				psStopSound(fromprop, PSTYPE_GENERAL, 0xffff);
-				psCreate(0, fromprop, SFX_805A, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
-				arg1->unk08 = g_Vars.lvframe60 + 2;
 				break;
 			case WEAPON_WATCHLASER:
 				psStopSound(fromprop, PSTYPE_GENERAL, 0xffff);
