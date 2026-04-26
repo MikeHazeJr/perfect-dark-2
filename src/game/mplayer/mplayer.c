@@ -4476,6 +4476,27 @@ void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version)
 		unpackWeaponSetRandomFilters(wpnRndPacked);
 	}
 
+	if (version < 2) {
+		/* Migration v < 2 -> v2 (2026-04-26 weapon cull):
+		 * 8 Goldfinger 64 imports (MPWEAPON_PP9I..MPWEAPON_RCP45, old
+		 * slots 0x27..0x2e) removed. MPWEAPON_SHIELD shifted from 0x2f
+		 * to 0x27 and MPWEAPON_DISABLED from 0x30 to 0x28.
+		 *
+		 * Any saved value at or above the old PP9I slot (0x27) is now
+		 * either a removed weapon, a moved sentinel, or out of range
+		 * post-cull. Clamp to MPWEAPON_DISABLED. Clear the random
+		 * filter mask entirely so the user re-selects rather than
+		 * inheriting bits whose meaning shifted under them. */
+		for (i = 0; i < ARRAYCOUNT(g_MpSetup.weapons); i++) {
+			if (g_MpSetup.weapons[i] >= 0x27) {
+				g_MpSetup.weapons[i] = MPWEAPON_DISABLED;
+			}
+		}
+		for (i = 0; i < NUM_MPWEAPONS; i++) {
+			g_MpWeaponSetRandomFilters[i] = 0;
+		}
+	}
+
 	g_MpWeaponSetNum = savebufferReadBits(buffer, 8);
 
 	g_MpSetup.timelimit = savebufferReadBits(buffer, 6);
