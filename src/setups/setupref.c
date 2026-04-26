@@ -25,7 +25,7 @@ u32 props[] = {
 };
 
 s32 intro[] = {
-	intro_weapon(WEAPON_PP9I, -1)
+	intro_weapon(WEAPON_FALCON2, -1)
 	ammo(AMMOTYPE_PISTOL, 100)
 	outfit(OUTFIT_DEFAULT)
 	endintro
