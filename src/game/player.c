@@ -5485,6 +5485,33 @@ Gfx *playerRenderShield(Gfx *gdl)
 
 Gfx *playerRenderHud(Gfx *gdl)
 {
+	/* B-246 round-5 diagnostic (2026-04-26): periodic trace of which branch
+	 * the FP-render dispatch takes for player 0.  Mike's playtest of the
+	 * post-master-loader-fix build (f83ca230) reported FP weapon visible
+	 * but not animating / fire input dead.  The bgunRender enter and
+	 * visibility-gate-fail diagnostics are SILENT in the new log, which
+	 * proves the FP-render chain (bgunTickGameplay2 + bgunRender) is being
+	 * skipped despite the master loader now completing.  This trace
+	 * captures the cameramode + visionmode + haschrbody at render time
+	 * so the next playtest log shows whether the THIRDPERSON early-return
+	 * fires (line 5488) or the EYESPY skip (line 5504) or some other
+	 * upstream gate prevents playerRenderHud from running at all. */
+	if (g_Vars.currentplayernum == 0 && (g_Vars.lvframenum % 60) == 23) {
+		const char *branch =
+			(g_Vars.currentplayer->cameramode == CAMERAMODE_THIRDPERSON) ? "thirdperson_skip" :
+			(g_Vars.currentplayer->cameramode == CAMERAMODE_EYESPY) ? "eyespy_skip" : "fp_render";
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: playerRenderHud branch=%s cameramode=%d visionmode=%d "
+			"haschrbody=%d tickmode=%d normmplay=%d frame=%d",
+			branch,
+			(s32)g_Vars.currentplayer->cameramode,
+			(s32)g_Vars.currentplayer->visionmode,
+			(s32)g_Vars.currentplayer->haschrbody,
+			(s32)g_Vars.tickmode,
+			(s32)g_Vars.normmplayerisrunning,
+			(s32)g_Vars.lvframenum);
+	}
+
 	if (g_Vars.currentplayer->cameramode == CAMERAMODE_THIRDPERSON) {
 		gdl = boltbeamsRender(gdl);
 		gdl = bgRenderArtifacts(gdl);

@@ -1584,6 +1584,18 @@ Gfx *lvRender(Gfx *gdl)
 					gdl = nbombsRender(gdl);
 				}
 
+				/* B-246 round-5 diagnostic (2026-04-26): record which lvRender
+				 * cascade branch fires (lockscreen vs menu-render vs normal).
+				 * Mike's post-f83ca230 playtest log shows bgunRender silent;
+				 * if the gate is here (menu-render path stealing the frame),
+				 * this diag reveals it. Player 0 only, every 60 ticks. */
+				if (g_Vars.currentplayernum == 0 && (g_Vars.lvframenum % 60) == 17) {
+					sysLogPrintf(LOG_NOTE,
+						"LOG.WPN.DIAG: lvRender cascade=normal (playerRenderHud about to fire) "
+						"var80075d60=%d lockscreen=%d var8009dfc0=%d frame=%d",
+						(s32)var80075d60, (s32)g_Vars.lockscreen, (s32)var8009dfc0,
+						(s32)g_Vars.lvframenum);
+				}
 				if (var80075d60 == 2) {
 					gdl = playerRenderHud(gdl);
 

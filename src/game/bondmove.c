@@ -985,6 +985,24 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 		c1buttons = 0;
 		c1buttonsthisframe = 0;
 		if (allowc1buttons) {
+			/* B-246 round-5 diagnostic (2026-04-26): trace fire-input layer.
+			 * Mike's playtest of f83ca230 shows triggeron_in always 0 in
+			 * bgunTickGameplay (156/156 ticks).  Confirms input never reaches
+			 * the move-side fire path.  Capture actionHeld for FIRE_PRIMARY +
+			 * a few siblings every 60 frames so the next playtest log shows
+			 * whether actionHeld returns 0 (input layer dead) or returns 1
+			 * but the c1buttons -> triggeron path drops it.  Player 0 only. */
+			if (pi == 0 && (g_Vars.lvframenum % 60) == 29) {
+				s32 fp_held    = actionHeld(pi, ACTION_FIRE_PRIMARY);
+				s32 fp_pressed = actionPressed(pi, ACTION_FIRE_PRIMARY);
+				s32 use_held   = actionHeld(pi, ACTION_USE);
+				s32 wnxt_held  = actionHeld(pi, ACTION_WEAPON_NEXT);
+				sysLogPrintf(LOG_NOTE,
+					"LOG.WPN.DIAG: fire-input pi=0 fire_held=%d fire_pressed=%d "
+					"use_held=%d wnext_held=%d allowc1=%d frame=%d",
+					fp_held, fp_pressed, use_held, wnxt_held,
+					(s32)allowc1buttons, (s32)g_Vars.lvframenum);
+			}
 			if (actionHeld(pi, ACTION_FIRE_PRIMARY))   c1buttons |= Z_TRIG;
 			if (actionHeld(pi, ACTION_FIRE_SECONDARY)) c1buttons |= R_TRIG;
 			if (actionHeld(pi, ACTION_FIRE_MODE))      c1buttons |= L_TRIG;
