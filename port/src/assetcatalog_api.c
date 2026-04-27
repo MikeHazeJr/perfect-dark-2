@@ -662,10 +662,45 @@ const char *catalogPickRandomHeadIdForBody(const char *body_id)
     int count = 0;
     const char *const *ids = catalogGetBodyValidHeadIds(body_id, &count);
     if (!ids || count <= 0) return NULL;
-    /* rngRandom returns a u32; modulo by count picks one entry.  For
-     * deterministic bodies (count == 1) this always returns the same ID. */
-    u32 pick = rngRandom() % (u32)count;
-    return ids[(s32)pick];
+
+    /* Step 2 (heads catalog migration, 2026-04-26): apply the unlock filter
+     * per Mike's directive "selector pool = catalog INTERSECT unlock-state".
+     * Two-pass: count unlocked first, then walk to the Nth unlocked entry.
+     * Both passes resolve each ID via the catalog hash; neither re-enters
+     * catalogGetBodyValidHeadIds, so the s_ValidHeadBuf reentrancy
+     * contract is preserved. */
+    int unlocked = 0;
+    for (int i = 0; i < count; i++) {
+        const asset_entry_t *e = assetCatalogResolve(ids[i]);
+        if (!e || e->type != ASSET_HEAD) continue;
+        u32 req = (u32)e->ext.head.requirefeature;
+        if (req != 0 && !challengeIsFeatureUnlocked((s32)req)) continue;
+        unlocked++;
+    }
+
+    if (unlocked == 0) {
+        /* I.6 graceful fallback: a body with no rig-compatible AND unlocked
+         * head still needs a defined head to render.  Fall back to the body's
+         * declared default head, even if itself locked.  Better to render a
+         * face the player technically hasn't unlocked than to crash or pick
+         * a random off-rig head. */
+        return catalogGetBodyDefaultHead(body_id);
+    }
+
+    /* rngRandom returns a u32; modulo by unlocked count picks one entry.
+     * For deterministic bodies (one unlocked head) this always returns
+     * the same ID. */
+    u32 pick = rngRandom() % (u32)unlocked;
+    int seen = 0;
+    for (int i = 0; i < count; i++) {
+        const asset_entry_t *e = assetCatalogResolve(ids[i]);
+        if (!e || e->type != ASSET_HEAD) continue;
+        u32 req = (u32)e->ext.head.requirefeature;
+        if (req != 0 && !challengeIsFeatureUnlocked((s32)req)) continue;
+        if (seen == (int)pick) return ids[i];
+        seen++;
+    }
+    return ids[0];  /* unreachable -- pick was bounded by unlocked count */
 }
 #endif
 
