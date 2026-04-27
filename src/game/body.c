@@ -180,8 +180,16 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		bodynum = 0;
 	}
 
-	f32 scale = catalogGetBodyScaleByIndex(bodynum) * 0.10000001f; /* SA-5-cleanup */
-	f32 animscale = catalogGetBodyAnimScale(bodynum); /* SA-5d */
+	/* INV-1 / Cohort A.4 (player-init-architectural-fixes-2026-04-26):
+	 * checked variants surface catalog miss as a CATALOG.MISS WARNING
+	 * rather than silently substituting 1.0f. The substitution still
+	 * happens (spawn proceeds with default scale) so existing rendering
+	 * paths are unchanged on miss; the diff is the loud diagnostic. */
+	f32 scaleRaw = 1.0f;
+	f32 animscale = 1.0f;
+	(void)catalogGetBodyScaleChecked(bodynum, &scaleRaw);
+	(void)catalogGetBodyAnimScaleChecked(bodynum, &animscale);
+	f32 scale = scaleRaw * 0.10000001f; /* SA-5-cleanup */
 	struct modelnode *node = NULL;
 	u32 stack[2];
 
