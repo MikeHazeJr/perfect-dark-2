@@ -8,7 +8,7 @@ char *mpGetCurrentPlayerName(struct menuitem *item);
 s16 mpChooseRandomStage(void);
 s16 mpChooseRandomMultiStage(void);
 s16 mpChooseRandomSoloStage(void);
-s16 mpChooseRandomGexStage(void);
+/* mpChooseRandomGexStage retired 2026-04-26 -- see setup.c. */
 MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, union handlerdata *data);
 char *mpMenuTextWeaponNameForSlot(struct menuitem *item);
 char *mpMenuTextSetupName(struct menuitem *item);
