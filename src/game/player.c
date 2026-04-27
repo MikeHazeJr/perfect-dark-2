@@ -1789,14 +1789,23 @@ void playerSpawn(void)
 
 			if (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON) {
 				/* F.6/M0.1c: spawnWeaponNum is DERIVED from spawn_weapon_id at matchStart().
-				 * 0xFF = Random → fall through to weapons[0] from the active set. */
+				 * 0xFF = Random → fall through to weapons[0] from the active set.
+				 *
+				 * INV-1 / Cohort A.2 (player-init-architectural-fixes-2026-04-26):
+				 * catalog accessors here use the _Checked variants. On miss the
+				 * spawn falls back to (a) g_DefaultWeapons[] if INTROCMD_WEAPON
+				 * populated them (Co-Op / Counter-Op Bond pre-Cohort-B), or
+				 * (b) explicit WEAPON_UNARMED + LOG_ERROR + HUD message
+				 * (normal MP after the Cohort B guard re-add) so the player is
+				 * never silently empty-handed without a diagnostic. */
 				s32 resolvedWeaponNum = 0;
 				s32 spawnWeaponIdx = -1;
 				if (g_MatchConfig.spawnWeaponNum != 0xFF && g_MatchConfig.spawnWeaponNum != 0) {
 					s32 wi;
+					s32 wnum;
 					resolvedWeaponNum = (s32)g_MatchConfig.spawnWeaponNum;
 					for (wi = MPWEAPON_FALCON2; wi < NUM_MPWEAPONS; wi++) {
-						if (catalogGetMpWeaponNum(wi) == resolvedWeaponNum) { /* SA-5e */
+						if (catalogGetMpWeaponNumChecked(wi, &wnum) && wnum == resolvedWeaponNum) {
 							spawnWeaponIdx = wi;
 							break;
 						}
@@ -1805,7 +1814,9 @@ void playerSpawn(void)
 						&& g_MpSetup.weapons[0] != MPWEAPON_DISABLED
 						&& g_MpSetup.weapons[0] != MPWEAPON_SHIELD) {
 					spawnWeaponIdx = g_MpSetup.weapons[0];
-					resolvedWeaponNum = catalogGetMpWeaponNum(spawnWeaponIdx); /* SA-5e */
+					if (!catalogGetMpWeaponNumChecked(spawnWeaponIdx, &resolvedWeaponNum)) {
+						resolvedWeaponNum = 0; /* miss already logged */
+					}
 				}
 				if (resolvedWeaponNum > 0) {
 					/* B-219 v2 (2026-04-23): load the weapon's projectile / first-person
@@ -1822,10 +1833,17 @@ void playerSpawn(void)
 					modelmgrLoadProjectileModeldefs(resolvedWeaponNum);
 					invGiveSingleWeapon(resolvedWeaponNum);
 					if (spawnWeaponIdx >= 0) {
-						const s32 ammotype = (spawnWeaponIdx == MPWEAPON_COMBATBOOST)
-							? AMMOTYPE_BOOST : catalogGetMpWeaponPriAmmoType(spawnWeaponIdx);
+						s32 ammotype = 0;
+						if (spawnWeaponIdx == MPWEAPON_COMBATBOOST) {
+							ammotype = AMMOTYPE_BOOST;
+						} else {
+							(void)catalogGetMpWeaponPriAmmoTypeChecked(spawnWeaponIdx, &ammotype);
+						}
 						if (ammotype) {
-							s32 startammo = catalogGetMpWeaponPriAmmoQty(spawnWeaponIdx) / 2;
+							s32 priqty = 0;
+							s32 startammo;
+							(void)catalogGetMpWeaponPriAmmoQtyChecked(spawnWeaponIdx, &priqty);
+							startammo = priqty / 2;
 							if (startammo == 0) {
 								startammo = 1;
 							}
@@ -1836,13 +1854,32 @@ void playerSpawn(void)
 					bgunEquipWeapon2(HAND_RIGHT, resolvedWeaponNum);
 					sysLogPrintf(LOG_NOTE, "SPAWN: player %d spawned with weapon %d (%s) -- auto-equipped to right hand",
 							g_Vars.currentplayernum, resolvedWeaponNum, bgunGetShortName(resolvedWeaponNum));
-				} else {
+				} else if (g_DefaultWeapons[HAND_RIGHT] != 0 || g_DefaultWeapons[HAND_LEFT] != 0) {
+					/* Catalog miss BUT INTROCMD_WEAPON gave us defaults (Co-Op,
+					 * Counter-Op Bond, or normal MP if the Cohort B guard is
+					 * not yet active). Use intro defaults; log at WARNING so
+					 * the catalog miss is still visible. */
 					bgunEquipWeapon2(HAND_LEFT, g_DefaultWeapons[HAND_LEFT]);
 					bgunEquipWeapon2(HAND_RIGHT, g_DefaultWeapons[HAND_RIGHT]);
-					if (g_Vars.normmplayerisrunning) {
-						sysLogPrintf(LOG_NOTE, "SPAWN: player %d -- spawnwithweapon set but no valid weapon (spawnWeaponNum=%d weapons[0]=%d)",
-								g_Vars.currentplayernum, (s32)g_MatchConfig.spawnWeaponNum, (s32)g_MpSetup.weapons[0]);
-					}
+					sysLogPrintf(LOG_WARNING,
+						"SPAWN.CATALOG.MISS: player %d -- spawn-with-weapon catalog miss "
+						"(spawnWeaponNum=%d weapons[0]=%d), falling back to INTROCMD defaults R=%d L=%d",
+						g_Vars.currentplayernum, (s32)g_MatchConfig.spawnWeaponNum,
+						(s32)g_MpSetup.weapons[0],
+						g_DefaultWeapons[HAND_RIGHT], g_DefaultWeapons[HAND_LEFT]);
+				} else {
+					/* No catalog hit AND no INTROCMD defaults. Per D-2: explicit
+					 * WEAPON_UNARMED + LOG_ERROR + one-shot HUD message so the
+					 * player is never silently empty-handed without diagnosis. */
+					bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
+					bgunEquipWeapon2(HAND_RIGHT, WEAPON_UNARMED);
+					sysLogPrintf(LOG_ERROR,
+						"SPAWN.CATALOG.MISS: player %d -- spawn-with-weapon catalog miss "
+						"(spawnWeaponNum=%d weapons[0]=%d) AND no INTROCMD defaults; "
+						"forcing WEAPON_UNARMED",
+						g_Vars.currentplayernum, (s32)g_MatchConfig.spawnWeaponNum,
+						(s32)g_MpSetup.weapons[0]);
+					hudmsgCreate("Weapon load failed -- spawning unarmed", HUDMSGTYPE_DEFAULT);
 				}
 			} else {
 				bgunEquipWeapon2(HAND_LEFT, g_DefaultWeapons[HAND_LEFT]);
