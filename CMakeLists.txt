@@ -594,6 +594,11 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_api.c
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_deps.c
 
+  # INV-1: pure validators backing the _Checked catalog accessor variants.
+  # assetcatalog_api.c references catalogCheckedValidate*; without this
+  # source link, pd-server fails at the linker stage.
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_checked.c
+
   # UPnP library
   ${SRC_SERVER_MINIUPNPC}
 
@@ -804,6 +809,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/manifest_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_random_pool.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_bondgun_cache.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_catalog_checked.cpp
 
   # Linker stubs for symbols the cherry-picked sources reference but the
   # test binary should not actually invoke.
@@ -815,6 +821,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/net/netbuf.c
   ${CMAKE_SOURCE_DIR}/port/src/connectcode.c
   ${CMAKE_SOURCE_DIR}/port/src/bondgun_cache.c
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_checked.c
 )
 
 add_executable(pd-tests ${SRC_TESTS})

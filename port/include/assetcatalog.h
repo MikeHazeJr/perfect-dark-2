@@ -1273,6 +1273,40 @@ s32 catalogGetMpWeaponSecAmmoType(s32 mpweapon_idx);
 /** Integer: secondary ammo quantity granted on pickup for this MP weapon slot. */
 s32 catalogGetMpWeaponSecAmmoQty(s32 mpweapon_idx);
 
+/* ── INV-1 (player-init-architectural-fixes 2026-04-26): _Checked variants ──
+ *
+ * Loud-fail wrappers around the spawn-critical accessors above. Each writes
+ * the value to *out + returns 1 on success; on miss, writes a safe default
+ * to *out + returns 0 + emits one CATALOG.MISS WARNING line tagged with
+ * the accessor name + index + reason.
+ *
+ * Spawn-critical paths (playerSpawn, botSpawn, body0f02ce8c,
+ * bgunTickMasterLoad) MUST use these variants. Non-critical readers may
+ * continue to call the legacy accessors above for back-compat.
+ *
+ * Returns are s32 (1 success, 0 miss) to match the existing
+ * catalogResolveX() / catalogGetStageResultByIndex() return convention
+ * and avoid pulling stdbool.h into src/game/ TUs (per the CLAUDE.md
+ * "bool is s32" rule).
+ *
+ * Reference: context/designs/player-init-architectural-fixes-2026-04-26.md.
+ */
+
+s32 catalogGetMpWeaponNumChecked(s32 mpweapon_idx, s32 *out_value);
+s32 catalogGetMpWeaponPriAmmoTypeChecked(s32 mpweapon_idx, s32 *out_value);
+s32 catalogGetMpWeaponPriAmmoQtyChecked(s32 mpweapon_idx, s32 *out_value);
+
+s32 catalogGetBodyScaleChecked(s32 bodynum, f32 *out_value);
+s32 catalogGetBodyAnimScaleChecked(s32 bodynum, f32 *out_value);
+s32 catalogGetBodyHandFilenumChecked(s32 bodynum, s32 *out_value);
+
+#if !defined(PD_SERVER)
+s32 catalogGetBodyModeldefChecked(s32 bodynum, struct modeldef **out_md);
+s32 catalogGetHeadModeldefChecked(s32 headnum, struct modeldef **out_md);
+#endif
+
+s32 catalogGetStageResultByIndexChecked(s32 stageindex, catalog_stage_result_t *out);
+
 /* ── SA-2: Wire helpers ─────────────────────────────────────────────────── */
 
 /**

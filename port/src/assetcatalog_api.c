@@ -35,6 +35,7 @@
 #include "net/netbuf.h"
 #include "modmgr.h"
 #include "game/challenge.h"  /* unlock-state filter for assetCatalogIterateUnlockedByType */
+#include "catalog_checked.h"  /* INV-1: pure validators backing _Checked accessors */
 #if !defined(PD_SERVER)
 #include "game/modeldef.h"
 #include "lib/rng.h"  /* P3: rngRandom for catalogPickRandomHeadIdForBody (client-only) */
@@ -1117,4 +1118,234 @@ void catalogResetAllModeldefs(void)
     for (i = 0; g_HeadsAndBodies[i].filenum != 0; i++) {
         g_HeadsAndBodies[i].modeldef = NULL;
     }
+}
+
+/* -------------------------------------------------------------------------
+ * INV-1: _Checked accessor variants
+ *
+ * Loud-fail wrappers around the legacy accessors. Each returns true on
+ * success + writes the value to *out, or false on miss + writes a safe
+ * default to *out + emits one CATALOG.MISS WARNING line tagged with the
+ * accessor name + index + reason.
+ *
+ * Spawn-critical paths (playerSpawn, botSpawn, body0f02ce8c,
+ * bgunTickMasterLoad) MUST use these variants per Cohort A.2..A.4.
+ * Non-critical readers (UI property reads, etc.) may continue to call
+ * the legacy accessors.
+ *
+ * Rate-limit: a per-accessor static remembers the last logged index so
+ * a tight loop hammering the same bad index does not spam. A different
+ * bad index re-fires the warning.
+ *
+ * Reference: context/designs/player-init-architectural-fixes-2026-04-26.md
+ * Section 2 INV-1 + Section 3 Cohort A.
+ * ------------------------------------------------------------------------- */
+
+#define CATALOG_CHECKED_LOG_MISS(funcname, idx_val, result_code) do { \
+    sysLogPrintf(LOG_WARNING, "CATALOG.MISS: %s idx=%d reason=%s", \
+        (funcname), (s32)(idx_val), catalogCheckedResultName(result_code)); \
+} while (0)
+
+s32 catalogGetMpWeaponNumChecked(s32 mpweapon_idx, s32 *out_value)
+{
+    catalog_checked_result_e r;
+    static s32 s_lastBadIdx = -1;
+
+    if (out_value) { *out_value = 0; }
+    r = catalogCheckedValidateIndex(mpweapon_idx, NUM_MPWEAPONS);
+    if (r != CATALOG_CHECKED_OK) {
+        if (mpweapon_idx != s_lastBadIdx) {
+            s_lastBadIdx = mpweapon_idx;
+            CATALOG_CHECKED_LOG_MISS("catalogGetMpWeaponNumChecked", mpweapon_idx, r);
+        }
+        return 0;
+    }
+    if (out_value) { *out_value = (s32)g_MpWeapons[mpweapon_idx].weaponnum; }
+    return 1;
+}
+
+s32 catalogGetMpWeaponPriAmmoTypeChecked(s32 mpweapon_idx, s32 *out_value)
+{
+    catalog_checked_result_e r;
+    static s32 s_lastBadIdx = -1;
+
+    if (out_value) { *out_value = 0; }
+    r = catalogCheckedValidateIndex(mpweapon_idx, NUM_MPWEAPONS);
+    if (r != CATALOG_CHECKED_OK) {
+        if (mpweapon_idx != s_lastBadIdx) {
+            s_lastBadIdx = mpweapon_idx;
+            CATALOG_CHECKED_LOG_MISS("catalogGetMpWeaponPriAmmoTypeChecked", mpweapon_idx, r);
+        }
+        return 0;
+    }
+    if (out_value) { *out_value = (s32)g_MpWeapons[mpweapon_idx].priammotype; }
+    return 1;
+}
+
+s32 catalogGetMpWeaponPriAmmoQtyChecked(s32 mpweapon_idx, s32 *out_value)
+{
+    catalog_checked_result_e r;
+    static s32 s_lastBadIdx = -1;
+
+    if (out_value) { *out_value = 0; }
+    r = catalogCheckedValidateIndex(mpweapon_idx, NUM_MPWEAPONS);
+    if (r != CATALOG_CHECKED_OK) {
+        if (mpweapon_idx != s_lastBadIdx) {
+            s_lastBadIdx = mpweapon_idx;
+            CATALOG_CHECKED_LOG_MISS("catalogGetMpWeaponPriAmmoQtyChecked", mpweapon_idx, r);
+        }
+        return 0;
+    }
+    if (out_value) { *out_value = (s32)g_MpWeapons[mpweapon_idx].priammoqty; }
+    return 1;
+}
+
+s32 catalogGetBodyScaleChecked(s32 bodynum, f32 *out_value)
+{
+    catalog_checked_result_e r;
+    static s32 s_lastBadIdx = -1;
+    s32 sentinel;
+
+    if (out_value) { *out_value = 1.0f; }
+    sentinel = (bodynum >= 0 && bodynum < 152) ? (s32)g_HeadsAndBodies[bodynum].filenum : 0;
+    r = catalogCheckedValidateSlot(bodynum, 152, sentinel);
+    if (r != CATALOG_CHECKED_OK) {
+        if (bodynum != s_lastBadIdx) {
+            s_lastBadIdx = bodynum;
+            CATALOG_CHECKED_LOG_MISS("catalogGetBodyScaleChecked", bodynum, r);
+        }
+        return 0;
+    }
+    if (out_value) { *out_value = catalogGetBodyScaleByIndex(bodynum); }
+    return 1;
+}
+
+s32 catalogGetBodyAnimScaleChecked(s32 bodynum, f32 *out_value)
+{
+    catalog_checked_result_e r;
+    static s32 s_lastBadIdx = -1;
+    s32 sentinel;
+
+    if (out_value) { *out_value = 1.0f; }
+    sentinel = (bodynum >= 0 && bodynum < 152) ? (s32)g_HeadsAndBodies[bodynum].filenum : 0;
+    r = catalogCheckedValidateSlot(bodynum, 152, sentinel);
+    if (r != CATALOG_CHECKED_OK) {
+        if (bodynum != s_lastBadIdx) {
+            s_lastBadIdx = bodynum;
+            CATALOG_CHECKED_LOG_MISS("catalogGetBodyAnimScaleChecked", bodynum, r);
+        }
+        return 0;
+    }
+    if (out_value) { *out_value = g_HeadsAndBodies[bodynum].animscale; }
+    return 1;
+}
+
+s32 catalogGetBodyHandFilenumChecked(s32 bodynum, s32 *out_value)
+{
+    catalog_checked_result_e r;
+    static s32 s_lastBadIdx = -1;
+    s32 sentinel;
+
+    if (out_value) { *out_value = 0; }
+    sentinel = (bodynum >= 0 && bodynum < 152) ? (s32)g_HeadsAndBodies[bodynum].filenum : 0;
+    r = catalogCheckedValidateSlot(bodynum, 152, sentinel);
+    if (r != CATALOG_CHECKED_OK) {
+        if (bodynum != s_lastBadIdx) {
+            s_lastBadIdx = bodynum;
+            CATALOG_CHECKED_LOG_MISS("catalogGetBodyHandFilenumChecked", bodynum, r);
+        }
+        return 0;
+    }
+    if (out_value) { *out_value = (s32)g_HeadsAndBodies[bodynum].handfilenum; }
+    return 1;
+}
+
+#if !defined(PD_SERVER)
+s32 catalogGetBodyModeldefChecked(s32 bodynum, struct modeldef **out_md)
+{
+    catalog_checked_result_e r;
+    static s32 s_lastBadIdx = -1;
+    s32 sentinel;
+    struct modeldef *md;
+
+    if (out_md) { *out_md = NULL; }
+    sentinel = (bodynum >= 0 && bodynum < 152) ? (s32)g_HeadsAndBodies[bodynum].filenum : 0;
+    r = catalogCheckedValidateSlot(bodynum, 152, sentinel);
+    if (r != CATALOG_CHECKED_OK) {
+        if (bodynum != s_lastBadIdx) {
+            s_lastBadIdx = bodynum;
+            CATALOG_CHECKED_LOG_MISS("catalogGetBodyModeldefChecked", bodynum, r);
+        }
+        return 0;
+    }
+    md = catalogGetBodyModeldef(bodynum);
+    if (!md) {
+        /* Slot is registered but the lazy-load failed (ROM file missing,
+         * mod asset torn, etc.). Distinct from OOB / unpopulated. */
+        if (bodynum != s_lastBadIdx) {
+            s_lastBadIdx = bodynum;
+            sysLogPrintf(LOG_WARNING,
+                "CATALOG.MISS: catalogGetBodyModeldefChecked bodynum=%d reason=loadfail",
+                bodynum);
+        }
+        return 0;
+    }
+    if (out_md) { *out_md = md; }
+    return 1;
+}
+
+s32 catalogGetHeadModeldefChecked(s32 headnum, struct modeldef **out_md)
+{
+    catalog_checked_result_e r;
+    static s32 s_lastBadIdx = -1;
+    s32 sentinel;
+    struct modeldef *md;
+
+    if (out_md) { *out_md = NULL; }
+    /* HEAD_RANDOM_GENDER is a sentinel-out-of-band, not a miss. */
+    if (headnum == HEAD_RANDOM_GENDER) { return 0; }
+    sentinel = (headnum >= 0 && headnum < 152) ? (s32)g_HeadsAndBodies[headnum].filenum : 0;
+    r = catalogCheckedValidateSlot(headnum, 152, sentinel);
+    if (r != CATALOG_CHECKED_OK) {
+        if (headnum != s_lastBadIdx) {
+            s_lastBadIdx = headnum;
+            CATALOG_CHECKED_LOG_MISS("catalogGetHeadModeldefChecked", headnum, r);
+        }
+        return 0;
+    }
+    md = catalogGetHeadModeldef(headnum);
+    if (!md) {
+        if (headnum != s_lastBadIdx) {
+            s_lastBadIdx = headnum;
+            sysLogPrintf(LOG_WARNING,
+                "CATALOG.MISS: catalogGetHeadModeldefChecked headnum=%d reason=loadfail",
+                headnum);
+        }
+        return 0;
+    }
+    if (out_md) { *out_md = md; }
+    return 1;
+}
+#endif /* !PD_SERVER */
+
+s32 catalogGetStageResultByIndexChecked(s32 stageindex, catalog_stage_result_t *out)
+{
+    static s32 s_lastBadIdx = -1;
+    s32 ok;
+
+    if (out) { memset(out, 0, sizeof(*out)); }
+    /* Underlying call already logs ERROR + sets g_CatalogFailure on miss.
+     * Wrap to bool + add a CATALOG.MISS line at WARNING level so the
+     * spawn-path logs are tagged consistently. */
+    ok = catalogGetStageResultByIndex(stageindex, out);
+    if (!ok) {
+        if (stageindex != s_lastBadIdx) {
+            s_lastBadIdx = stageindex;
+            sysLogPrintf(LOG_WARNING,
+                "CATALOG.MISS: catalogGetStageResultByIndexChecked stageindex=%d reason=resolve",
+                stageindex);
+        }
+        return 0;
+    }
+    return 1;
 }
