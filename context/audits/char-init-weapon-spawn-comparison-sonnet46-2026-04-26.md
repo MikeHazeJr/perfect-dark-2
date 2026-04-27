@@ -1,376 +1,629 @@
 # Char Init + Weapon Spawn: PD2 vs Upstream Comparison
 
+> PD2 baseline is commit a30f3719, the dev HEAD before the bondgun per-hand matrix cache fix (Phase B, B-246 round 10) landed. This represents the broken state. Current dev tip ca23a3d2 has the fix applied.
+
 Auditor: claude-sonnet-4-6
-Date: 2026-04-27
+Date: 2026-04-27 (corrected run)
 Session scope: character initialization, weapon slot assignment, equip path, hand model setup, weapon render path
 
 ---
 
 ## Upstream Reference
 
-- Repository: https://github.com/fgsfdsfgs/perfect_dark
-- HEAD SHA: bed3bf52d0d5095d112940b1327ed6c256e54ea8
-- HEAD date: 2026-04-25 19:31:47 +0200
-- Clone path: /tmp/upstream_pd_decomp_sonnet46 (landed at Windows TEMP: C:/Users/mikeh/AppData/Local/Temp/upstream_pd_decomp_sonnet46)
+Repository: https://github.com/fgsfdsfgs/perfect_dark.git
+Clone path: /tmp/upstream_pd_decomp_sonnet46
+HEAD SHA: bed3bf52d0d5095d112940b1327ed6c256e54ea8
+HEAD date: 2026-04-25 19:31:47 +0200
 
-## PD2 Reference
+Files examined:
+- src/game/playermgr.c
+- src/game/player.c
+- src/game/bondgun.c
+- src/game/setup.c
 
-- Repository: C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike
-- HEAD SHA: 7902a403bf40de8224c09a09639a26e322d3b9e4
-- HEAD date: 2026-04-27 00:11:51 -0400
+---
+
+## PD2 Reference (commit a30f3719 -- pre-Phase-B-fix baseline)
+
+Repository: C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike
+Baseline SHA: a30f3719
+Baseline date: 2026-04-26 23:46:30 -0400
+Branch at time of audit: claude/frosty-mayer-bf0154 (worktree)
+
+This commit is the state immediately before the bondgun per-hand matrix cache
+fix (B-246 round 10 Phase B) landed. The CARTS phase of bgunTickMasterLoad
+still writes hand->unk0dd8 for HAND_RIGHT only (player->hands[0]), and the
+idle render path continues to reference this cached matrix buffer when a0=true.
 
 ---
 
 ## Mission-Start to Weapon-Render Path (Side-by-Side)
 
-The call chain from mission start through first weapon render frame, with upstream and PD2 file:line references.
+The call chain from mission load through first weapon render frame:
 
 ```
-Stage load trigger
-  setupCreateProps(stagenum)
-    upstream: setup.c:1491  PD2: setup.c:1587
-    for each OBJTYPE_CHR: bodyAllocateChr(...)
-    invInit(setupCountCommandType(OBJTYPE_LINKGUNS))  [per player]
-
-Player allocation (before stage load, at game start or match restart)
-  playermgrAllocatePlayers(count)
-    upstream: playermgr.c:49  PD2: playermgr.c:55
-  playermgrAllocatePlayer(index)
-    upstream: playermgr.c:89  PD2: playermgr.c:101
-    -- initializes struct player fields, including gunctrl fields
-    -- sets gunctrl.gunmodeldef = NULL, gunctrl.weaponnum = WEAPON_NONE
-
-Respawn / new life
-  playerStartNewLife()
-    upstream: player.c:489  PD2: player.c:1106
-    calls playerLoadDefaults()
-      upstream: player.c:676  PD2: player.c:1325
-    calls playerSpawn()
-      upstream: player.c:939  PD2: player.c:1613
-
-Weapon equip (inside playerSpawn, MP path)
-  bgunEquipWeapon2(HAND_RIGHT, weaponnum)
-    upstream: bondgun.c:5987  PD2: bondgun.c:6351
-  bgunEquipWeapon(weaponnum)
-    upstream: bondgun.c:5609  PD2: bondgun.c:5957
-    sets gunctrl.switchtoweaponnum
-
-Weapon switch commit (each tick)
-  bgunTickSwitch()  ->  bgunTickSwitch2()
-    upstream: bondgun.c:3313/3315  PD2: bondgun.c:3411/3413
-    bgunSetGunMemWeapon(ctrl->switchtoweaponnum)
-      upstream: bondgun.c:3680  PD2: bondgun.c:3790
-    sets gunctrl.gunmemnew, triggers MASTERLOADSTATE_FLUX
-
-Master load state machine (each tick until loaded)
-  bgunTickMasterLoad()
-    upstream: bondgun.c:4015  PD2: bondgun.c:4242
-    FLUX -> HANDS: loads hand model file, sets gunctrl.handmodeldef
-    HANDS -> GUN: loads weapon model file, sets gunctrl.gunmodeldef
-    GUN -> CARTS: loads casing model(s), sets gunctrl.cartmodeldef
-    CARTS -> LOADED: calls modelInit for hand+gun models, builds cmd lists
-
-FP render (each frame when loaded)
-  [render loop calls bondgun render path]
-    upstream: bondgun.c:~7676+  PD2: bondgun.c:~8125+
-    gate: bgunIsLoaded() && hand->inuse && gunctrl.gunmemtype != 0
-    modelSetMatricesWithAnim() builds bone matrices for current anim state
-    renders weapon model with hand attachment
+[Stage load trigger]
+  -> playermgrAllocatePlayers()          playermgr.c
+       -> playermgrAllocatePlayer(i)     playermgr.c
+  -> setCurrentPlayerNum(0)              playermgr.c
+  -> [net players allocated if MP]       playermgr.c (PD2 addition)
+  -> playerLoadDefaults()                player.c
+  -> [intro cmd parsing: INTROCMD_WEAPON -> invGiveSingleWeapon / invGiveDoubleWeapon]
+                                         player.c
+  -> playerSpawn()                       player.c
+     -> [chr body attached, haschrbody set]
+  -> [per-frame tick begins]
+  -> bgunTickGameplay()                  bondgun.c
+       -> bgunTickSwitch()
+            -> bgunTickSwitch2()         bondgun.c
+                 -> [switchtoweaponnum resolved -> bgunSetGunMemWeapon()]
+       -> bgunTickLoad()                 bondgun.c
+            -> bgunTickMasterLoad() x N  bondgun.c  [multi-call per frame]
+                 FLUX -> HANDS -> GUN -> CARTS -> LOADED
+  -> [per-frame render]
+  -> bgun0f0a5550()  (hand render fn)   bondgun.c
+       a0 decision -> cached unk0dd8 path OR modelSetMatricesWithAnim fresh path
 ```
+
+Key invariant before first render: masterloadstate must reach MASTERLOADSTATE_LOADED
+and unk0dd8 (HAND_RIGHT) must be a valid Mtxf pointer inside gunmem for the
+cached matrix path to be safe.
 
 ---
 
 ## Per-Function Diff Catalog
 
-### playermgrReset (playermgr.c)
+### playermgr.c -- playermgrReset()
 
-Upstream (playermgr.c:27): Hard-coded to clear exactly 4 player slots:
-```c
-g_Vars.players[0] = NULL;
-// ...
-g_Vars.players[3] = NULL;
+Upstream (bed3bf52):
+- Four hard-coded NULLs: players[0..3] = NULL
+- playerorder[0..3] = 0..3 (hard-coded loop unroll)
+- No conditional
+
+PD2 a30f3719 (playermgr.c):
+- Wraps player slot clears in `#if MAX_PLAYERS > 4` / `#else` block
+- When MAX_PLAYERS > 4: uses a for-loop over all slots
+- playerorder loop uses `for (s32 i ...)` iterating MAX_PLAYERS
+
+Change class: MAX_PLAYERS generalization. PD2 supports more than 4 players
+in netplay. No behavioral difference for <= 4 player configurations.
+
+### playermgr.c -- playermgrAllocatePlayers()
+
+Upstream:
+- Solo branch calls `playermgrSetViewSize(playerGetFbWidth(), playerGetFbHeight() * 2)`
+  when `g_Vars.fourmeg2player` is true; otherwise the single-height form.
+- No netplay allocation call.
+
+PD2 a30f3719:
+- `fourmeg2player` branch removed entirely. Solo branch always calls
+  `playermgrSetViewSize(playerGetFbWidth(), playerGetFbHeight())` with no
+  doubling. `IS4MB()` is a compile-time 0 in PD2.
+- When count > 0: calls `netPlayersAllocate()` if `g_NetMode && stagenum`
+  is not TITLE/CITRAINING. This is a PD2 addition; upstream has no equivalent.
+
+Change class: N64 4MB/2-player workaround removed; netplay allocation added.
+
+### playermgr.c -- playermgrAllocatePlayer()
+
+Upstream:
+- `visionmode` init is inside `#if VERSION >= VERSION_JPN_FINAL` guard.
+  On non-JPN_FINAL builds, visionmode is never initialized here.
+- `gunctrl.handmodeldef` and `gunctrl.cartmodeldef` are NOT initialized.
+  Only `gunctrl.gunmodeldef` receives a NULL assignment.
+- No net-related fields.
+- No jump/wantsjump fields.
+
+PD2 a30f3719 (playermgr.c):
+- `visionmode` init is unconditional. VERSION gate dropped.
+- `gunctrl.handmodeldef = NULL` and `gunctrl.cartmodeldef = NULL` added
+  unconditionally after gunmodeldef. Comment attributes this to B-246 round-7:
+  mempAlloc does not zero-fill; without explicit init these would hold heap
+  garbage.
+- `wantsjump = false`, `jumpconsumed = true` added (PC input extension).
+- `client = NULL`, `ucmd`, `isremote = false` added (netplay fields).
+- MAX_PLAYERS > 4 conditional wraps the player slot null-fill loops.
+
+Change class: uninit bug fixes (visionmode, handmodeldef, cartmodeldef);
+netplay field init; jump input extension.
+
+### playermgr.c -- playermgrGetPlayerNumByProp()
+
+Upstream:
+- No NULL guard on player slot: `if (prop == g_Vars.players[i]->prop)`
+  dereferences directly.
+
+PD2 a30f3719:
+- Adds `if (!g_Vars.players[i]) continue;` before the prop dereference.
+
+Change class: null safety for MP scenarios where player slots may be sparse.
+
+### playermgr.c -- playermgrShuffle()
+
+Upstream:
+- No MP shuffle guard. Shuffles unconditionally.
+
+PD2 a30f3719:
+- Early return if `g_NetMode`. Comment: "don't shuffle in netgames".
+
+Change class: netplay behavioral gate.
+
+### playermgr.c -- playermgrGetModelOfWeapon()
+
+Upstream has additional weapon cases not present in PD2 a30f3719:
+- WEAPON_PP9I, WEAPON_CC13, WEAPON_KL01313, WEAPON_KF7SPECIAL,
+  WEAPON_ZZT, WEAPON_DMC, WEAPON_AR53, WEAPON_RCP45
+
+PD2 a30f3719 does not include these weapon model mappings. Those weapons are
+not part of the AllInOneMods weapon set.
+
+Change class: weapon roster difference. No behavioral effect for weapons
+present in both.
+
+### player.c -- playerReset() / INTROCMD_WEAPON branch
+
+Upstream (bed3bf52):
+- INTROCMD_WEAPON branch calls `invGiveDoubleWeapon` or `invGiveSingleWeapon`
+  based on cmd[2] value.
+- No diagnostic logging.
+
+PD2 a30f3719:
+- INTROCMD_WEAPON branch: same logic, but preceded by comment referencing
+  B-246 round instrumentation.
+- `playerLoadDefaults()` emits a LOG.WPN.DIAG sysLogPrintf line before
+  executing: captures visionmode, cameramode, haschrbody, gunctrl_wpn,
+  switchtoweaponnum, gunmemowner.
+
+Change class: diagnostic instrumentation added; core logic identical.
+
+### player.c -- playerLoadDefaults()
+
+Upstream:
+- Minimal. Sets eyeheight, headheight, globaldraws, cameramode, movement
+  state, health, crosshair, colours, bondleandown, and a small set of
+  device/training fields.
+- No logging.
+
+PD2 a30f3719:
+- All upstream fields plus: `autoaimdamp` field assignment added,
+  `usinggoggles`, NV fields, overexposure colour fields, `amdowntime`,
+  `altdowntime` added (PC input extensions).
+- LOG.WPN.DIAG sysLogPrintf at entry and later at PLAYER_SPAWN.
+- `stageGetIndex()` call to adjust initial bondhealth for DUEL and MAIANSOS
+  stages -- upstream does not do per-stage health init here.
+
+Change class: PC input/optics extensions; per-stage health init; diagnostics.
+
+### bondgun.c -- file-level globals
+
+Upstream:
+- VERSION-gated BSS blocks for audio handles and fireslots (PAL_BETA /
+  NTSC_1_0 / else variants).
+- `g_BgunGunMemBaseSizeDefault`: on `PLATFORM_64BIT` set to 150*1024*2,
+  else 150*1024. Also has `g_BgunGunMemBaseSize4Mb2P = 120*1024*2 / 120*1024`.
+- `g_BgunGeMuzzleFlashes` under `#ifndef PLATFORM_N64`.
+- No `assetcatalog.h` or `assetload.h` includes.
+
+PD2 a30f3719 (bondgun.c lines 1-90):
+- VERSION-gated blocks removed. Single unified declaration for all audio
+  handles and fireslots (no VERSION branching).
+- `g_BgunGunMemBaseSize4Mb2P` removed. PD2 dropped the 4MB-2P gunmem pool.
+  Only `g_BgunGunMemBaseSizeDefault` remains.
+- `g_BgunGeMuzzleFlashes` unconditional (no PLATFORM_N64 guard needed).
+- Adds `#include "assetcatalog.h"`, `#include "assetload.h"`, `#include
+  "system.h"` for catalog-backed hand file lookup and instrumentation.
+- Adds `MASTERLOADSTATE_CARTS` define (same as upstream; both codebases have
+  all five MASTERLOADSTATE values).
+
+Change class: N64 version fragmentation removed; 4MB pool removed; PC-only
+includes added.
+
+### bondgun.c -- bgunTickMasterLoad() (the critical function)
+
+This function drives the FLUX->HANDS->GUN->CARTS->LOADED state machine that
+loads gun models, hand models, and cartridge models per weapon switch.
+
+Upstream (bed3bf52), HANDS state:
+- When `hashands` and hand file differs: sets up `handmemloadptr` /
+  `handmemloadremaining` pointing to base of `bgunGetGunMem()`.
+- Hand file loaded via `bgunTickGunLoad()` which calls the generic
+  `assetLoadRomToAddr()` path.
+- `player->gunctrl.loadtomodeldef = &player->gunctrl.handmodeldef`.
+
+PD2 a30f3719, HANDS state:
+- Replaces the inline hand file lookup with `catalogGetBodyHandFilenum(bodynum)`.
+  `bodynum` comes from `playerChooseBodyAndHead(&bodynum, &headnum, NULL)`.
+  This is the asset catalog integration (SA-5d).
+- `catalogGetBodyHandFilenum` returns a file number looked up by body index
+  rather than a hard-coded file constant.
+- Rest of hand load logic identical.
+
+Change class: catalog-backed hand file resolution. Asset catalog replaces
+direct file number.
+
+Upstream (bed3bf52), CARTS state completion (bondgun.c lines 4485-4494):
 ```
-Also sets playerorder[0..3] explicitly.
+hand = &player->hands[0];
+hand->unk0dd4 = -1;
 
-PD2 (playermgr.c:28): Adds `#if MAX_PLAYERS > 4` compile-time branch that loops over all slots. The `playerorder` initialization changed from 4 explicit assignments to a loop `for (s32 i = 0; i < MAX_PLAYERS; i++) g_Vars.playerorder[i] = i;`.
-
-Impact: functional equivalence at MAX_PLAYERS=4. The loop form is future-safe for player count expansion without behavioral change now.
-
----
-
-### playermgrAllocatePlayers (playermgr.c)
-
-Upstream (playermgr.c:49): In the `count > 0` path, does not call `netPlayersAllocate()`. In the `count == 0` (single player) path, has `fourmeg2player` branch:
-```c
-if (g_Vars.fourmeg2player) {
-    playermgrSetViewSize(playerGetFbWidth(), playerGetFbHeight() * 2);
+if (player->gunctrl.memloadremaining > 50 * sizeof(Mtxf)) {
+    hand->unk0dd8 = (Mtxf *) player->gunctrl.memloadptr;
+    player->gunctrl.memloadptr += 50 * sizeof(Mtxf);
+    player->gunctrl.memloadremaining -= 50 * sizeof(Mtxf);
 } else {
-    playermgrSetViewSize(playerGetFbWidth(), playerGetFbHeight());
+    hand->unk0dd8 = NULL;
 }
 ```
 
-PD2 (playermgr.c:55): In the `count > 0` path, adds netplay init call:
-```c
-if (g_NetMode && g_StageNum != STAGE_TITLE && g_StageNum != STAGE_CITRAINING) {
-    netPlayersAllocate();
-}
+PD2 a30f3719, CARTS state completion (bondgun.c lines 4489-4493):
+Identical code. `hand = &player->hands[0]` (HAND_RIGHT index 0). unk0dd8
+is written only for HAND_RIGHT. HAND_LEFT never receives an unk0dd8 assignment
+in this path.
+
+**This is the B-246 bug shape at a30f3719.** The Phase-B fix (landed at
+ca23a3d2) adds `player->hands[1].unk0dd8 = NULL` immediately after the
+HAND_RIGHT assignment to clear any stale pointer on HAND_LEFT. At a30f3719,
+that line is absent.
+
+Idle render path (bgun0f0a5550, bondgun.c line 8452):
 ```
-In the `count == 0` path, the `fourmeg2player` branch is removed entirely. Always calls `playermgrSetViewSize(playerGetFbWidth(), playerGetFbHeight())`.
-
-Impact: `fourmeg2player` was an N64 2-player 4MB workaround. Removed as a dead N64-only path. The `netPlayersAllocate()` hook is new PD2 infrastructure that sets up netplay state for allocated players.
-
----
-
-### playermgrAllocatePlayer (playermgr.c)
-
-Upstream (playermgr.c:89): The `visionmode` field is initialized inside a version gate:
-```c
-#if VERSION >= VERSION_JPN_FINAL
-    g_Vars.players[index]->visionmode = VISIONMODE_NORMAL;
-#endif
+renderdata.unk10 = player->hands[HAND_RIGHT].unk0dd8;
 ```
-This means on NTSC_1_0 and earlier version targets, `visionmode` is never written. Since `mempAlloc` does not zero-fill, that field held heap garbage.
+This path reads `hands[0].unk0dd8` when `a0=true` (idle/cached matrix mode).
+On the first weapon load, `hands[0].unk0dd4 == -1`, so the cache-fill branch
+executes: `modelSetMatricesWithAnim` is called with `renderdata.unk10` pointing
+to the newly allocated cache buffer. Thereafter `hands[0].unk0dd4 = 1` and
+subsequent idle frames use the cached matrices from `unk0dd8`.
 
-`targetset` cleared with `for (i = 0; i < MAX_PLAYERS; i++)` using the fixed constant MAX_PLAYERS.
+HAND_LEFT (`hands[1]`) has no corresponding unk0dd8 assignment. Its unk0dd8
+holds whatever was in the mempAlloc slab at allocation time (uninitialized).
 
-`gunctrl.handmodeldef` and `gunctrl.cartmodeldef`: NOT initialized. Only `gunctrl.gunmodeldef` is set to NULL.
+### bondgun.c -- bgunFreeGunMem() and videoResetTextureCache()
 
-Upstream does not set `wantsjump`, `jumpconsumed`, `client`, `ucmd`, `isremote`.
+Upstream:
+- Sets `gunmemowner = GUNMEMOWNER_FREE`. No texture cache interaction.
 
-PD2 (playermgr.c:101): `visionmode` initialized unconditionally at the same position, no version gate. This is the latent-uninit fix documented in the commit comment.
+PD2 a30f3719:
+- Same ownership clear, plus `videoResetTextureCache()` call. Comment
+  explains: fast3d texture cache is keyed by GBI load parameters and has no
+  ranged-evict API; full clear is required when gunmem is released.
 
-`targetset` cleared with `for (i = 0; i < ARRAYCOUNT(g_Vars.players[index]->targetset); i++)`, which is correct for any future array resize.
+Change class: fast3d texture cache coherence. N64 had no texture cache to
+invalidate; PC renderer caches textures by address/format so a full evict
+is required on gunmem release.
 
-`gunctrl.handmodeldef` and `gunctrl.cartmodeldef` are both initialized to NULL explicitly:
-```c
-g_Vars.players[index]->gunctrl.handmodeldef = NULL;
-g_Vars.players[index]->gunctrl.cartmodeldef = NULL;
-```
-The commit comment explains these were reading stale heap garbage (wild pointer `0x7c7b663545bbcbd1` observed in playtest log) that caused undefined behavior in `bgunTickMasterLoad`.
+### bondgun.c -- bgunSetGunMemWeapon()
 
-New fields initialized: `wantsjump = false`, `jumpconsumed = true`, `client = NULL`, `ucmd = (g_NetMode == NETMODE_SERVER) ? UCMD_FL_FORCEMASK : 0`, `isremote = false`. These are all PD2 netplay additions with no upstream equivalent.
+Upstream: sets masterloadstate = MASTERLOADSTATE_FLUX, gunloadstate = FLUX,
+gunmemnew, gunlocktimer = -1 when owner is BONDGUN. No logging.
 
----
+PD2 a30f3719: identical logic plus LOG.WPN.DIAG sysLogPrintf at entry and
+exit. No behavioral change.
 
-### playermgrGetPlayerNumByProp (playermgr.c)
+### bondgun.c -- bgunEnterFlux()
 
-Upstream (playermgr.c:672): No NULL check on `g_Vars.players[i]` before accessing `->prop`.
+Upstream: sets handfilenum=0xffff, handmodeldef=NULL, handmemloadptr=0,
+handmemloadremaining=0, masterloadstate=FLUX, gunloadstate=FLUX. Clears
+casing modeldef pointers.
 
-PD2 (playermgr.c:698): Adds guard `if (!g_Vars.players[i]) continue;` before the prop comparison.
+PD2 a30f3719: identical logic plus LOG.WPN.DIAG sysLogPrintf instrumentation.
+No behavioral change.
 
-Impact: upstream crashes if called when a player slot is NULL (e.g., during match setup before all players are allocated). PD2 fixes the NULL-deref.
+### bondgun.c -- bgunChangeGunMem()
 
----
+Upstream: core state machine for gunmem ownership transfer. GUNMEMOWNER_BONDGUN
+branch sets gunmemtype=-1, calls bgunEnterFlux(), sets loadall=true, sets
+unlock=true. GUNMEMOWNER_CHRBODY branch checks mplayerisrunning and haschrbody.
 
-### playermgrShuffle (playermgr.c)
+PD2 a30f3719: identical ownership logic plus extensive LOG.WPN.DIAG
+instrumentation: throttled enter log, gunmemnew range-watch (catches wild
+values outside -1..100), throttled exit log. Static local `s_last_pair`
+for transition-only logging.
 
-Upstream (playermgr.c:800): Always performs the random swap.
+Change class: diagnostic instrumentation only. No behavioral change to the
+core ownership transfer.
 
-PD2 (playermgr.c:819): Adds an early-return guard for netgames:
-```c
-if (g_NetMode) {
-    return;
-}
-```
-PD2 comment: "don't shuffle in netgames -- why is this a thing anyway?" The shuffle randomizes draw order; in netgames the server controls order so shuffling locally would cause clients to diverge.
+### bondgun.c -- bgunIsLoaded()
 
----
+Upstream and PD2 a30f3719: identical. Returns true when owner==BONDGUN and
+(gunmemtype==WEAPON_NONE OR (gunmemnew < 0 AND masterloadstate==LOADED)).
 
-### playermgrGetModelOfWeapon (playermgr.c)
+### bondgun.c -- visibility gate in bgun0f0a5550
 
-Upstream (playermgr.c:707): Includes `WEAPON_PP9I` through `WEAPON_SCREWDRIVER` (GoldenEye/retro weapon set) mapped to model constants.
+Upstream (bed3bf52, line ~7890 area):
+- Checks `(hand->mode == HANDMODE_6 || hand->mode == HANDMODE_7)` directly
+  to gate visibility.
 
-PD2 (playermgr.c:734): Identical body; `WEAPON_CLOAKINGDEVICE` present in both; `WEAPON_COMBATBOOST` present in both returning -1. No catalog lookup here -- this function still uses the hardcoded switch table. This is a pre-catalog holdover. The catalog system does not yet route through this function.
+PD2 a30f3719 (bondgun.c lines 8125-8178):
+- Issue 1 root-cause fix comment (2026-04-25, B-246). Legacy gate replaced
+  with `inHideTransition` scope: hide on mode 6/7 ONLY when
+  state==HANDSTATE_CHANGEGUN AND stateminor is LOWER or RAISE.
+- This prevents the weapon being invisible when the state machine is stuck
+  in LOAD/HANDMODE_6 while masterloadstate==LOADED.
 
----
+Change class: visibility gate refactor for stuck-mode recovery. Behavioral
+difference: in the case where hand->mode=6 but state machine has otherwise
+completed, upstream would show invisible weapon; PD2 would show the weapon.
 
-### playerStartNewLife (player.c)
+### bondgun.c -- bgunCalculateGunMemCapacity()
 
-Upstream (player.c:489): `rooms[8]` local uninitialized (stack content). The `PLATFORM_N64` guard around `blurdrugamount` / `poisoncounter` reset means those fields are skipped on N64. The intro command loop has no bounds check on iterations; a malformed intro list can loop forever.
+Upstream:
+- Two-branch: PLAYERCOUNT()==1 uses BaseSizeDefault + extragunmem;
+  otherwise uses BaseSizeDefault.
+- No 4MB branch (already removed in upstream).
 
-PD2 (player.c:1106): `rooms[8]` initialized to all -1. `blurdrugamount` and `poisoncounter` reset unconditionally (guard removed). Intro command loop has a safety counter `++safety < 10000` to prevent infinite loop on malformed data. Adds capsule collision check at spawn position with up to 3 retry attempts using `spawnPoolFindClearPosition`. Adds a sentinel guard on `cdFindGroundInfoAtCyl` result to catch the `-2^32` no-ground value and fall back to pad Y. Neither of these safety systems exists in upstream.
+PD2 a30f3719:
+- Identical to upstream. The `g_BgunGunMemBaseSize4Mb2P` pool was removed.
+  The 64-bit doubling is baked into `g_BgunGunMemBaseSizeDefault` itself at
+  file-global level.
 
----
+### setup.c -- file-level additions in PD2
 
-### playerSpawn (player.c)
+Upstream:
+- Declares only `g_SetupCurMpLocation`.
+- Includes: game headers, lib headers, data.h, types.h only.
 
-Upstream (player.c:939): In the normal MP (non-anti) spawn path, `MPOPTION_SPAWNWITHWEAPON` handling:
-```c
-if (g_Vars.normmplayerisrunning
-        && (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON)
-        && g_MpSetup.weapons[0] != MPWEAPON_NONE
-        && g_MpSetup.weapons[0] != MPWEAPON_DISABLED
-        && g_MpSetup.weapons[0] != MPWEAPON_SHIELD) {
-    struct mpweapon *mpweapon = &g_MpWeapons[g_MpSetup.weapons[0]];
-    invGiveSingleWeapon(mpweapon->weaponnum);
-    ...
-    bgunEquipWeapon2(HAND_RIGHT, mpweapon->weaponnum);
-}
-```
-Direct array access `g_MpWeapons[g_MpSetup.weapons[0]]` using the static compile-time `g_MpWeapons` table. No `modelmgrLoadProjectileModeldefs` call before equip.
+PD2 a30f3719:
+- Adds `s_SetupMpWeaponLocationCount` and `s_SetupMpCreatedWeaponCount`
+  (static MP weapon placement counters).
+- Adds `#include "assetcatalog.h"`, `#include "assetload.h"`,
+  `#include "net/matchsetup.h"`, `#include "game/spawnpool.h"`,
+  `#include "game/forgemode.h"`, `#include "game/mplayer/participant.h"`.
+- `langManifestRecordBank()` forward declaration for Phase 3 manifest tracking.
 
-Upstream also has `#if VERSION >= VERSION_NTSC_1_0` guard around the `playerTickChrBody()` fallback call.
+Change class: MP weapon placement tracking; catalog/net includes; lang
+manifest tracking.
 
-PD2 (player.c:1613): The spawn-with-weapon path is completely rewritten. Uses `g_MatchConfig.spawnWeaponNum` (a server-authoritative field) and catalog lookups:
-```c
-resolvedWeaponNum = catalogGetMpWeaponNum(wi);
-catalogGetMpWeaponPriAmmoType(spawnWeaponIdx);
-catalogGetMpWeaponPriAmmoQty(spawnWeaponIdx);
-```
-Before the equip, explicitly calls `modelmgrLoadProjectileModeldefs(resolvedWeaponNum)` to ensure FP model is loaded before `bgunTickSwitch2` runs. Falls back to `g_MpSetup.weapons[0]` path (also via catalog) when `g_MatchConfig.spawnWeaponNum` is 0xFF (random) or 0.
+### setup.c -- propsReset()
 
-The `#if VERSION >= VERSION_NTSC_1_0` gate on `playerTickChrBody` is removed; the call is unconditional `if (g_Vars.currentplayer->model00d4 == NULL)`. At end of spawn, PD2 adds a `netmsgSvcPlayerStatsWrite` call for server-side stat sync, plus a dense diagnostic log block.
+Upstream: inline slot counts (MaxWeaponSlots=50, MaxHatSlots=10, etc.);
+no conditional override when at STAGE_TITLE.
 
-Anti-player detection changed from `g_Vars.currentplayer == g_Vars.anti` (upstream) to `PLAYER_IS_ANTI(g_Vars.currentplayer)` (PD2 macro).
+PD2 a30f3719: same slot counts, but adds a conditional block that zeroes all
+limits when `g_Vars.stagenum >= STAGE_TITLE` (prevents wasted allocation on
+title screen). Also: `g_MaxProjectiles = IS4MB() ? 20 : 100` retains the
+compile-time IS4MB() call (always 0 on PC, so always 100).
 
----
+Change class: title-screen allocation guard; IS4MB() is compile-time 0.
 
-### bgunTickMasterLoad: handfilenum resolution (bondgun.c)
+### setup.c -- setupLoadStage() / weapon placement
 
-Upstream (bondgun.c:4041):
-```c
-handfilenum = g_HeadsAndBodies[bodynum].handfilenum;
-if (IS4MB()) {
-    handfilenum = FILE_GCOMBATHANDSLOD;
-}
-```
-Uses the static `g_HeadsAndBodies` array with direct index lookup. Includes IS4MB() fallback to low-detail hand file.
+PD2 a30f3719 additions not present in upstream:
+- Calls `catalogGetStageResultByIndex()` to look up stage asset entries by
+  index rather than using hard-coded file numbers.
+- Calls `assetLoadRomToAddr()` and `assetLoadToNew()` for stage file loading
+  via the asset loader pipeline.
+- `langManifestRecordBank(stagebank)` call records which language bank the
+  stage loaded, for manifest tracking.
+- MP weapon placement uses `catalogGetMpWeaponNum()`,
+  `catalogGetMpWeaponPriAmmoType()`, `catalogGetMpWeaponPriAmmoQty()`,
+  `catalogGetMpWeaponSecAmmoType()`, `catalogGetMpWeaponSecAmmoQty()` to
+  derive weapon and ammo identities from the catalog instead of direct
+  enum values.
+- Spawn-with-weapon: `g_MatchConfig.spawnWeaponNum` populated via
+  `catalogGetMpWeaponNum(setSpawnMpw)`.
+- `s_SetupMpWeaponLocationCount` and `s_SetupMpCreatedWeaponCount` track
+  how many pickup locations exist vs how many were instantiated.
 
-PD2 (bondgun.c:4268):
-```c
-handfilenum = catalogGetBodyHandFilenum(bodynum); /* SA-5d */
-```
-Uses catalog API. `IS4MB()` compiles to 0 (removed). No LOD fallback. The catalog lookup must return the correct file number for every registered body; if a body is registered without a hand file, `handfilenum` will be 0 and hands will be invisible.
-
----
-
-### bgunEnterFlux (bondgun.c)
-
-Upstream (bondgun.c:3694): Clears `handfilenum`, `handmodeldef`, `handmemloadptr`, `handmemloadremaining`, resets `masterloadstate` and `gunloadstate` to FLUX. Also nulls all `casing->modeldef` entries.
-
-PD2 (bondgun.c:3830): Same functional operations, adds a diagnostic log block (player 0 only) before the writes, capturing the old values. This is pure observability scaffolding with no behavioral change.
-
----
-
-### bgunFreeGunMem (bondgun.c)
-
-Upstream (bondgun.c:3670): Sets `gunmemowner = GUNMEMOWNER_FREE`. Has a `#ifndef PLATFORM_N64` guard around `videoResetTextureCache()`.
-
-PD2 (bondgun.c:3766): Same logic, adds a diagnostic log for non-FREE-to-FREE transitions. Removes the `PLATFORM_N64` guard (dead on PC). The comment explains why full cache clear is used instead of ranged eviction (the fast3d texture cache has no ranged-evict API).
-
----
-
-### bgunSetGunMemWeapon (bondgun.c)
-
-Upstream (bondgun.c:3680): Pure logic, no logging.
-
-PD2 (bondgun.c:3790): Same logic, wraps with entry and exit diagnostic logs for player 0. No behavioral change.
-
----
-
-### bgunTickSwitch2 (bondgun.c)
-
-Upstream (bondgun.c:5456): Pure logic. Removed the `#if (VERSION == VERSION_JPN_FINAL) && defined(PLATFORM_N64)` block that forced WEAPON_COMBATKNIFE to WEAPON_UNARMED (a JPN-only exclusion).
-
-PD2 (bondgun.c:5785): Same core logic. The JPN-only combatknife exclusion block is removed. Adds a diagnostic log block at entry for player 0 (throttled to first 60 ticks plus every 120 ticks) that shows per-hand canFree / state / stateminor / count before the switch gate. No behavioral change to the core state machine.
-
----
-
-### FP weapon render path (bondgun.c)
-
-Upstream (bondgun.c:~7676): The visibility gate is:
-```c
-|| !bgunIsLoaded()
-|| hand->inuse == false
-|| bgunGetGunMemType() == 0
-```
-When `hand->visible` is true, calls `bgunExecuteModelCmdList` then `bgun0f098030` which drives `modelSetMatricesWithAnim`. The render path uses a per-hand matrix cache (`hand->unk0dd8`) filled at weapon-load time (T-pose anim frame 0) and reused for IDLE render frames.
-
-PD2 (bondgun.c:~8125 and 8375): The visibility gate is restructured (Issue 1 root-cause fix: the legacy `count >= 3` gate that blocked the first render frames was removed). The IDLE render path no longer uses the matrix cache (`unk0dd8`). Per the B-246 round-10 Phase B comment:
-
-> Phase B drops the cache entirely: every render frame now runs `modelSetMatricesWithAnim` against the gun's current anim state, identical to what fire and reload already did.
-
-The cache fields `unk0dd4` and `unk0dd8` remain allocated in `struct hand` as dead state. This is a behavioral change: IDLE frames now read live animation state instead of the T-pose snapshot.
-
----
-
-### setupCreateProps (setup.c)
-
-Upstream (setup.c:1491): Stage guard `if (stagenum < STAGE_TITLE)`. `nodoors` flag drives `setupMarkLiftDoors()` (present in upstream too). OBJTYPE_SHIELD block has `#if VERSION >= VERSION_JPN_FINAL` gate for JPN-inclusive shield behavior. No simulant chr-slot accounting.
-
-PD2 (setup.c:1587): Stage guard changed to `if (STAGE_IS_GAMEPLAY(stagenum))` (macro that excludes additional non-game stage types). Adds simulant bot slot accounting for `chrmgrConfigure` (up to `MAX_BOTS` additional slots). Adds `s_SetupMpWeaponLocationCount` / `s_SetupMpCreatedWeaponCount` tracking variables. Adds `mptransport_diffflag` relaxation for SP-in-MP stages (CITRAINING, CHICAGO, VILLA, INFILTRATION, G5BUILDING, PELAGIC) so LIFT and ESCASTEP props survive when those stages are hosted as MP arenas. OBJTYPE_LIFT adds auto-registration via `liftActivate` to handle CI/Chicago lifts that have no AI script. `forgeIsCanvasMode()` guards on OBJTYPE_CHR, OBJTYPE_KEY, OBJTYPE_HAT, OBJTYPE_AUTOGUN to suppress those prop types in canvas/editor mode. OBJTYPE_DOOR: removes `nodoors` custom logic path (simplified). The `#if VERSION >= VERSION_JPN_FINAL` shield gate is retained verbatim.
+Change class: full catalog integration for stage/weapon loading. Upstream
+uses direct file numbers and enum constants; PD2 derives them at runtime
+from the catalog.
 
 ---
 
 ## Catalog / N64 / ROM-Decoupling Impact Analysis
 
-### Catalog system
+### Catalog System (asset_entry_t, runtime indices)
 
-PD2 replaces `g_MpWeapons[index]` direct array lookups in `playerSpawn` with `catalogGetMpWeaponNum(wi)`, `catalogGetMpWeaponPriAmmoType`, `catalogGetMpWeaponPriAmmoQty`. These catalog functions resolve through the `asset_entry_t` registry, which is mod-extensible and runtime-filterable by unlock state.
+PD2 uses `catalogGetBodyHandFilenum(bodynum)` in bgunTickMasterLoad to
+resolve the hand model file number. This means the hand model file number
+is a function of the body index chosen by `playerChooseBodyAndHead()`, which
+in turn queries the catalog at runtime. The upstream uses a direct file
+constant derived at compile time (implicit in the MASTERLOADSTATE_HANDS
+branch).
 
-Risk: if a catalog entry is missing or its weaponnum does not match the legacy `g_MpWeapons` enum order, the spawn-with-weapon weapon may be wrong or zero. The PD2 code has a fallback to `g_MpSetup.weapons[0]` but the fallback itself also uses a catalog call.
+In setup.c, all stage and weapon file lookups go through `catalogGetStageResultByIndex()`
+and `catalogGetMpWeapon*()` functions. The catalog maps game-facing indices
+(stage index, MP weapon index) to ROM file handles. This decouples the game
+code from hardcoded file numbers entirely.
 
-In `bgunTickMasterLoad`, `handfilenum` resolution changed from `g_HeadsAndBodies[bodynum].handfilenum` to `catalogGetBodyHandFilenum(bodynum)`. If the catalog entry for a body does not populate the hand file number, `handfilenum` will be 0 and the hand model will not load, leaving the player with a floating gun and no visible hands.
+The catalog lookup chain introduces a runtime dependency: if the catalog
+is not populated or is populated with wrong data before bgunTickMasterLoad
+runs, `catalogGetBodyHandFilenum()` may return an unexpected file number.
+In that scenario, handmodeldef would be loaded from the wrong file.
 
-### N64 decoupling
+### N64 Hardware Decoupling
 
-`IS4MB()` compile-time 0 means the `FILE_GCOMBATHANDSLOD` hand LOD fallback in `bgunTickMasterLoad` is unreachable and has been replaced by the catalog call. The `fourmeg2player` branch in `playermgrAllocatePlayers` is gone. `playerSpawn`'s `#if VERSION >= VERSION_NTSC_1_0` guard on `playerTickChrBody` is gone. All of these were N64 memory-constraint accommodations with no PC relevance.
+Items removed from PD2 relative to upstream:
+- `PLATFORM_N64` guards around `g_BgunGeMuzzleFlashes`, `#include "video.h"`,
+  `#include "platform.h"` (upstream has these under `#ifndef PLATFORM_N64`).
+- `fourmeg2player` height doubling in playermgrAllocatePlayers.
+- `IS4MB()` calls in propsReset remain but evaluate to compile-time 0.
+- `g_BgunGunMemBaseSize4Mb2P` pool removed.
+- VERSION-gated BSS layouts in bondgun.c removed; single layout used.
 
-`rooms[8]` initialization to `{-1, ...}` in `playerStartNewLife` fixes a subtle UB from stack garbage rooms being passed into `cdFindGroundInfoAtCyl` on first life.
+Items added or changed for PC:
+- `videoResetTextureCache()` in bgunFreeGunMem -- no N64 equivalent needed.
+- `g_BgunGunMemBaseSizeDefault` doubled on `PLATFORM_64BIT` to accommodate
+  pointer-sized fields expanding from 4 to 8 bytes after GBI preprocessing.
+- `assetLoadRomToAddr()` used throughout for model loading. This replaces
+  N64 DMA-based ROM loads with a PC file-system backed loader.
 
-### ROM version gate removal
+### ROM Version Gate Removal
 
-The `#if VERSION >= VERSION_JPN_FINAL` gate on `visionmode` initialization in `playermgrAllocatePlayer` was removed. This is the B-246 latent uninit: on NTSC_1_0 targets the field was never written, causing `visionmode` to hold heap garbage that could activate night-vision or other modes unexpectedly on first FP render. PD2 initializes it unconditionally.
+Upstream has:
+- `#if VERSION >= VERSION_JPN_FINAL` gate on visionmode init in
+  playermgrAllocatePlayer.
+- VERSION-gated BSS layouts (PAL_BETA, NTSC_1_0, else) in bondgun.c globals.
+- `#if VERSION >= VERSION_NTSC_1_0` gate on NTSC_1_0 specific code in
+  bgunRumble and bgunTickMasterLoad shortcut path.
+- `#if PIRACYCHECKS` gate around ROM checksum verification in bgunTickGunLoad.
 
-The `gunctrl.handmodeldef` and `gunctrl.cartmodeldef` missing initialization was not gated on a version block in upstream, but was effectively a latent uninit because `mempAlloc` does not zero-fill. PD2 adds explicit NULL initialization at `playermgrAllocatePlayer` time.
-
-The `#if (VERSION == VERSION_JPN_FINAL) && defined(PLATFORM_N64)` combatknife exclusion in `bgunTickSwitch2` was removed. On PD2 (PC, USA ROM only) this block was dead and its removal has no functional effect.
-
-The `#ifndef PLATFORM_N64` guard on `videoResetTextureCache` in `bgunFreeGunMem` was removed. On PD2 PC this was always entered anyway.
+PD2 a30f3719:
+- All VERSION gates dropped. visionmode init is unconditional.
+- BSS layout is unified (no PAL/NTSC fragmentation).
+- bgunRumble NTSC_1_0 path is the only path present (PC always targets the
+  NTSC_1_0 logic, which uses joyGetContpadNumsForPlayer).
+- PIRACYCHECKS block absent.
 
 ---
 
 ## Hypotheses: What Could Be Broken
 
-**H1 (high): catalog body hand-file regression on custom/mod bodies**
-`bgunTickMasterLoad` now calls `catalogGetBodyHandFilenum(bodynum)` at PD2:bondgun.c:4268. If any body registered in the catalog has an empty or incorrect hand file number, the hand model fails to load and `handmodeldef` remains NULL after MASTERLOADSTATE_LOADED. The FP render gate at bondgun.c:~8219 checks `handmodeldef != NULL` before rendering hand geometry. This MAY produce invisible hands (weapon floating in air) for any body whose catalog entry does not carry a valid handfilenum.
+### H-1: HAND_LEFT unk0dd8 uninitialized at first weapon load (HIGH)
 
-**H2 (high): spawn-with-weapon catalog lookup silent zero on unregistered weapons**
-In `playerSpawn` (PD2:player.c:1799), `catalogGetMpWeaponNum(wi)` is called in a loop over `g_MpWeapons` enum values. If a weapon is registered in `g_MpWeapons` but absent from the catalog (or vice versa), the loop may either match the wrong weapon or never match, leaving `resolvedWeaponNum = 0`. The code then falls through to the `g_MpSetup.weapons[0]` fallback, which itself calls `catalogGetMpWeaponNum(spawnWeaponIdx)`. If that also resolves to 0, the player spawns with no spawn weapon, silently, with only a log warning. This MAY break spawn-with-weapon for any weapon added to the MP weapon list that is not yet catalog-registered.
+This is the described B-246 bug shape at a30f3719.
 
-**H3 (medium): handmodeldef / cartmodeldef stale pointer on match restart without full playermgr reinit**
-Upstream did not initialize `handmodeldef` or `cartmodeldef` at `playermgrAllocatePlayer` time. PD2 adds those NULL inits. However, if a match restart path calls `playermgrReset` and reassigns `players[i]` from an existing allocation (without calling `playermgrAllocatePlayer` again), those fields may carry the previous match's modeldef pointer. The `bgunEnterFlux` call at equip-time would null `handmodeldef` but not `cartmodeldef`. This MAY produce a stale `cartmodeldef` read in `bgunTickMasterLoad` around line 4317 (`if (casing->modeldef == player->gunctrl.cartmodeldef)`) comparing against a freed pointer from the previous match.
+`bgunTickMasterLoad` CARTS completion writes `player->hands[0].unk0dd8`
+(HAND_RIGHT) to a valid Mtxf buffer inside gunmem. It does not write
+`player->hands[1].unk0dd8` (HAND_LEFT). `mempAlloc` does not zero-fill.
+`playermgrAllocatePlayer` copies a zeroed `hand` struct initializer into
+both `hands[0]` and `hands[1]`, so unk0dd8 starts as zero (null) at
+player allocation. However, between player allocation and the first
+bgunTickMasterLoad completion, HAND_LEFT unk0dd8 remains whatever the
+`hand` struct initializer produced -- which for unk0dd8 is implicitly zero
+(not explicitly listed in the hand initializer in playermgr.c).
 
-**H4 (medium): IDLE anim position shift from matrix cache drop (B-246 round-10)**
-The per-hand matrix cache (`unk0dd8`) was filled at weapon-load T-pose and reused for all IDLE frames. Phase B drops this cache and always calls `modelSetMatricesWithAnim`. If the AllInOneMods weapon idle animations have a different bone-rest position than frame-0 of the base anim track, the first IDLE frame after a weapon equip MAY show the gun jumping to a new position when compared to the previous (cache-based) IDLE position. This is the intended behavioral fix (T-pose was wrong). The hypothesis is not that IDLE is wrong after the fix, but that the transition from equip-frame to first-IDLE-frame MAY show a position pop visible to the player if the model's anim-0 frame-0 was being used by other systems to anchor the gun at equip time.
+The render path (bgun0f0a5550) reads `player->hands[HAND_RIGHT].unk0dd8`
+(i.e., `hands[0]`) on the cached path. HAND_LEFT does not appear to use its
+own unk0dd8 in the same cached-matrix section. The confirmed bug shape is
+therefore: on a weapon change (second weapon switch or round restart), the
+CARTS completion path does NOT zero out `hands[1].unk0dd8`. If an earlier
+load cycle had placed a valid pointer there (via any path that writes it),
+that pointer MAY now dangle into stale gunmem from the previous weapon, since
+gunmem is reused across weapon switches.
 
-**H5 (medium): orchestrated spawn pool vs `scenarioChooseSpawnLocation` divergence**
-PD2 adds `spawnPoolFindClearPosition` with up to 3 retries around the `scenarioChooseSpawnLocation` call in `playerStartNewLife` (PD2:player.c:1157). The spawn pool is separate infrastructure not present upstream. If `spawnPoolIsReady()` returns false (e.g., pool not built yet on first match tick), `spawnPoolFindClearPosition` is a no-op and the base `scenarioChooseSpawnLocation` result is used unchanged. The risk is that `spawnPoolFindClearPosition` and `scenarioChooseSpawnLocation` use different geometries (spawn pool uses pad positions, the scenario chooser uses a different weighting), and in some edge cases the cleared-position check MAY reject a valid pad, causing all 3 attempts to fail and falling through to the last chosen position anyway, which may be inside geometry. The fallback behavior (use last chosen pos) matches upstream behavior, so this is a no-regression risk rather than a regression.
+References: bondgun.c (a30f3719) lines 4485-4510 (CARTS completion);
+bondgun.c (a30f3719) line 8452 (render read).
 
-**H6 (medium): netPlayersAllocate called before players have chr props**
-In `playermgrAllocatePlayers` (PD2:playermgr.c:75), `netPlayersAllocate()` is called immediately after the player struct allocation loop but before any `playerSpawn` or `bodyAllocateChr`. If `netPlayersAllocate` reads `player->prop->chr` or other fields that are not yet populated, it MAY crash or corrupt state. The guard `g_StageNum != STAGE_TITLE && g_StageNum != STAGE_CITRAINING` reduces the exposure but does not eliminate it for all stage contexts.
+### H-2: handmodeldef and cartmodeldef uninit during fast-path first frame (MEDIUM)
 
-**H7 (low): version-gate combatknife removal (JPN-only path)**
-`bgunTickSwitch2` upstream had `#if (VERSION == VERSION_JPN_FINAL) && defined(PLATFORM_N64)` that forced `WEAPON_COMBATKNIFE` to `WEAPON_UNARMED`. PD2 targets USA ROM and `PLATFORM_N64` is removed, so this block was dead even before removal. The risk that removing it affects behavior is essentially zero.
+At a30f3719, `playermgrAllocatePlayer` explicitly NULLs `handmodeldef` and
+`cartmodeldef` (B-246 round-7 fix). So on initial player allocation this is
+safe. However: if `bgunEnterFlux()` is called between allocation and first
+masterload tick, it NULLs `handmodeldef` again and sets `handfilenum=0xffff`.
+On a subsequent `bgunChangeGunMem` -> `bgunEnterFlux` call triggered by a
+weapon switch, `gunmodeldef` is NOT cleared (only `handmodeldef` is cleared
+in bgunEnterFlux). A stale gunmodeldef pointer could persist from a previous
+weapon load if the CARTS state is bypassed via the SHORTCUT->LOADED path
+(filenum==0 branch). This MAY cause the render path to use a modeldef from a
+previous weapon for one frame.
 
-**H8 (low): rooms[8] stack init in playerStartNewLife**
-Upstream left `rooms[8]` uninitialized. PD2 initializes to `{-1, -1, -1, -1, -1, -1, -1, -1}`. `cdFindGroundInfoAtCyl` and related functions use rooms as input/output; on first call with uninitialized data the function may return incorrect ground Y. PD2's fix is correct. The hypothesis is that the fix changes ground-Y resolution for the first spawn in edge cases where room data matters, which could shift spawn position slightly vs upstream. This is intentionally correct behavior, not a bug.
+References: bondgun.c (a30f3719) bgunEnterFlux (~line 3850); bgunTickMasterLoad
+SHORTCUT path (~line 4516).
 
-**H9 (low): MPOPTION_SPAWNWITHWEAPON modelmgrLoadProjectileModeldefs ordering**
-PD2 adds `modelmgrLoadProjectileModeldefs(resolvedWeaponNum)` before `invGiveSingleWeapon` and `bgunEquipWeapon2` in the spawn-with-weapon path (PD2:player.c:1822). This call loads the weapon's projectile model into the model manager. If the model manager slot allocation fails at spawn time (pool full), the function MAY return without loading, leaving the projectile model undefined. Upstream never loaded the model here at all (it relied on `setupPlaceWeapon` in `setupCreateProps` to load it as a pickup). On maps with no weapon pickups (Chicago CS, for example) neither the old pickup path nor the new spawn path would have loaded the model in upstream, so PD2 adds a net improvement. The risk is a pool-full edge case only.
+### H-3: catalogGetBodyHandFilenum returning wrong filenum if catalog not ready (MEDIUM)
+
+`bgunTickMasterLoad` HANDS state calls `catalogGetBodyHandFilenum(bodynum)`
+where bodynum comes from `playerChooseBodyAndHead()`. If the catalog is not
+fully populated at the time bgunTickMasterLoad first runs (e.g., if stage
+asset loading is still in progress), this function MAY return 0 or an
+unexpected filenum. A filenum of 0 would cause bgunTickMasterLoad to take
+the "no hands" branch (hashands stays false), loading no hand model. The
+player would render with gunmodel matrices only, potentially misaligned
+against the hand rig.
+
+References: bondgun.c (a30f3719) ~line 4268 (catalogGetBodyHandFilenum call).
+
+### H-4: netPlayersAllocate() called before player structs fully initialized (LOW)
+
+In `playermgrAllocatePlayers`, when count > 0, `netPlayersAllocate()` is
+called after the player allocation loop but before `setCurrentPlayerNum(0)`.
+This ordering means net player state is initialized while `g_Vars.currentplayer`
+is still NULL (setCurrentPlayerNum has not yet run). Any code inside
+`netPlayersAllocate()` that dereferences `g_Vars.currentplayer` MAY fault
+or produce undefined behavior. Upstream has no such call.
+
+References: playermgr.c (a30f3719) ~line 64-68 (count > 0 branch).
+
+### H-5: Visibility gate change causing weapon to appear one frame early (LOW)
+
+PD2 a30f3719 refines the visibility gate (B-246 Issue 1 fix): hides weapon
+on mode 6/7 only when stateminor is LOWER or RAISE, not during LOAD. Upstream
+would hide the weapon throughout any mode 6 or 7 frame. The PD2 change means
+the weapon MAY become visible during the LOAD stateminor while the model is
+still being positioned by the change-gun animation. If the gunmodel matrices
+have not been finalized by modelInit at that moment, this could produce a
+one-frame visual glitch where the gun appears at an incorrect position before
+settling.
+
+References: bondgun.c (a30f3719) lines 8125-8178 (inHideTransition gate).
+
+### H-6: Stale per-hand unk0dd8 pointer on WEAPON_NONE switch (MEDIUM)
+
+When `bgunTickSwitch2` switches to `WEAPON_NONE`, it sets `lefthand->inuse =
+false` and `righthand->inuse = false` and sets `ctrl->weaponnum = WEAPON_NONE`.
+It does NOT call `bgunEnterFlux` or zero unk0dd8. On the subsequent weapon
+equip, `bgunTickMasterLoad` runs CARTS completion which writes `hands[0].unk0dd8`
+to a new location. But `hands[1].unk0dd8` still points to the previous load's
+buffer region within gunmem. When bgunLoadAll() re-enters (e.g., after eyespy
+or menu), the synchronous `do { bgunTickMasterLoad(); } while (!bgunIsLoaded())`
+loop will overwrite gunmem from the start, potentially causing the old
+`hands[1].unk0dd8` to now alias to the new gun's data at a different
+interpretation.
+
+References: bondgun.c (a30f3719) bgunTickSwitch2 (~line 5820), bgunLoadAll
+(~line 4561), CARTS completion (~line 4485).
+
+### H-7: MAX_PLAYERS > 4 playerorder loop initializing beyond actual player count (LOW)
+
+In PD2, `playermgrReset()` iterates `for (s32 i = 0; i < MAX_PLAYERS; ++i)`
+to initialize playerorder. If MAX_PLAYERS > 4, this initializes slots beyond
+the four that upstream touches. No behavioral problem unless code elsewhere
+iterates only the first four playerorder slots and the extra slots have stale
+values. Because the loop fills them sequentially, this is unlikely to cause
+a live bug but represents a divergence from the upstream contract.
+
+References: playermgr.c (a30f3719) playermgrReset loop.
 
 ---
 
 ## Cross-Cuts: Related Subsystems
 
-**netPlayersAllocate**: new call in `playermgrAllocatePlayers` (PD2:playermgr.c:75). Touches the net player registry. No upstream equivalent. Any regression in net player state at stage load would propagate to `player->client` and `player->isremote` being stale or wrong.
+### Asset Catalog (assetcatalog.h)
 
-**spawnPool system**: `spawnPoolFindClearPosition`, `spawnPoolIsReady`, `spawnPoolGet`, `spawnPoolSelectTiered`, `spawnPoolLastResort` are all new PD2 subsystems with no upstream equivalents. They are coupled to `playerStartNewLife` and `playerApplyOrchestratedSpawnFromPool`. The spawn pool must be built (by a call to something like `spawnPoolBuild`) before it is queried; if it is not ready, every call is a no-op.
+PD2 integrates the catalog throughout the weapon-spawn path:
+- `catalogGetBodyHandFilenum()` in bgunTickMasterLoad for hand model lookup.
+- `catalogGetStageResultByIndex()`, `catalogGetMpWeapon*()` in setup.c for
+  stage/weapon file resolution.
 
-**assetcatalog.h / catalogGetMpWeaponNum etc.**: The catalog API (`catalogGetMpWeaponNum`, `catalogGetBodyHandFilenum`, `catalogGetBodyModeldef`, `catalogGetHeadModeldef`, `catalogGetBodyIsComplete`, `catalogGetBodyHeight`, `catalogGetHeadHeight`, `catalogGetPropFilenumByIndex`) replaces direct array lookups throughout `player.c` and `bondgun.c`. The catalog must be initialized before any of these calls fire. If initialization is deferred past `playermgrAllocatePlayers` or `bgunTickMasterLoad` on the first tick, calls will return invalid data.
+If the catalog API changes its return conventions (0-indexed vs 1-indexed,
+sentinel for "no file" vs NULL), all three call sites are affected
+simultaneously. The catalog is a shared dependency across the full init path.
 
-**forgeIsCanvasMode**: new PD2 guard in `setupCreateProps` that suppresses chr, key, hat, and autogun creation in canvas/editor mode. This subsystem has no upstream equivalent and does not affect normal gameplay or MP sessions.
+### Texture Cache (videoResetTextureCache)
 
-**Bond matrix cache (unk0dd8)**: The per-hand matrix cache is dead state after Phase B. The `bgunMatrixCacheIsStale` predicate in `port/src/bondgun_cache.c` remains as a test fixture. Any future reintroduction of caching must satisfy those tests.
+`bgunFreeGunMem()` now calls `videoResetTextureCache()`. This function is
+specific to the fast3d PC renderer. Any code path that calls `bgunFreeGunMem()`
+during a frame (e.g., eyespy return, menu exit, weapon switch) will flush the
+entire texture cache. On stages with many textures, this MAY cause a one-frame
+hitch as textures are re-uploaded to the GPU. The hitch does not exist in
+upstream (N64 had no texture cache to flush).
 
-**visionmode**: now always initialized at player alloc (PD2:playermgr.c:413). The `VISIONMODE_NORMAL = 0` value is safe for all rendering paths. The original latent uninit caused night-vision to activate spuriously on some N64 ROM version configurations; that class of bug is eliminated.
+### netPlayersAllocate() (net/net.h)
+
+Called from playermgrAllocatePlayers in the MP case. This is a PD2-only
+addition with no upstream equivalent. Its interaction with the player struct
+initialization order (called before setCurrentPlayerNum) is a potential
+ordering hazard noted in H-4 above.
+
+### bgunLoadAll() / synchronous spin
+
+`bgunLoadAll()` uses a synchronous `do { bgunTickMasterLoad(); } while`
+loop. In PD2, each call to `bgunTickMasterLoad()` may invoke
+`catalogGetBodyHandFilenum()`. If that function has any side effects or
+mutates global state, the synchronous spin could call it multiple times
+unexpectedly (once per FLUX->HANDS transition that retries). Upstream does
+not have this concern because the hand file is a constant.
+
+### stageGetIndex() in playerLoadDefaults
+
+PD2 a30f3719 calls `stageGetIndex(g_Vars.stagenum)` inside `playerLoadDefaults()`
+to set stage-specific initial health. Upstream does not. `stageGetIndex` queries
+the stage table. If the stage table is not loaded when playerLoadDefaults runs,
+this call MAY return an incorrect index, setting wrong initial health. The
+interaction with the asset catalog stage load ordering is a latent hazard.
+
+---
+
+*End of audit. File represents the broken state at a30f3719 before Phase-B fix.*
