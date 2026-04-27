@@ -504,3 +504,100 @@ Cache fill events both at `animnum=0 animframe=0.00` (true rest pose). `useposro
 - No animation-asset inspection. Discrimination relies on the runtime matrix dump.
 - No second instrumentation layer. The `bone-snapshot` is intentionally targeted; if it does not fully discriminate the candidates, a follow-on round can dump bone matrix per node or instrument `modelSetMatricesWithAnim` directly.
 - No SP / SP-cutscene exercise. The diagnostic only fires for player 0 RIGHT hand in active gameplay where `hand->visible` is true.
+
+---
+
+## 13. Round-10 -- headless characterisation via pd-tests (2026-04-26)
+
+### Round-10 fire-frame playtest discriminator data
+
+`Build/pd-client.log` 23:05 ran with F2 helper from round-9, captured 7 fire-handler events for FALCON2 (wpn=2), 15 round-8 bone-snapshot pairs at IDLE / FIRE transitions.
+
+**Diagnostic limitations surfaced by the data:**
+
+- `gun_hand_idx=-1` at every snapshot. `MODELPART_HAND_RIGHT` does not exist on the gun model -- the H-PARENT-A discriminator returns NULL.
+- `mtx_alias=1` always. `gun_root_t` and `hand_root_t` read the same matrix slot; they cannot differ. The H-HAND-RIG-A lockstep discriminator is degenerate.
+- `gun_root_t` deltas across IDLE / FIRE were sub-unit. Matrix index 0 is most likely a stable upstream transform, not the bone driving the visible weapon position.
+
+**The smoking-gun column was elsewhere:**
+
+| Diagnostic | animnum | animframe |
+|---|---|---|
+| `cache_fill wpn=2` (when `unk0dd8` was populated) | 0 | 0.00 |
+| `bone-snapshot phase=IDLE wpn=2` (every IDLE sample, 8/8) | 236 | 17.00 |
+| `bone-snapshot phase=FIRE wpn=2` (every FIRE sample, 7/7) | 236 | 1.00 |
+
+The cache was populated when the gun was at anim 0 frame 0 -- the model's default-skeleton T-pose. Idle hold is at anim 236 frame 17. Fire is at anim 236 frame 1. **The cache encodes a different anim pose than every observed IDLE frame.** Idle path `a0=true` reads the cache (T-pose oriented by `sp2c4`). Fire path `a0=false` runs fresh `modelSetMatricesWithAnim` against the actual current anim. This produces the observed asymmetry.
+
+### Phase A landed (2026-04-26)
+
+Per Mike's "Option C, can you test this via our new test method?" directive, Phase A pivots from a wider playtest diag to a **headless pd-tests characterisation**.
+
+Phase A introduces a pure predicate that the Phase B fix will wire into the matrix-cache decision in `bgun0f0a5550`. The predicate is locked by Catch2 tests; the wiring is deferred so this commit is behaviour-preserving.
+
+**Files added:**
+- [port/include/bondgun_cache.h](port/include/bondgun_cache.h) -- declares `bgunMatrixCacheIsStale`
+- [port/src/bondgun_cache.c](port/src/bondgun_cache.c) -- defines the predicate. Currently returns true when (a) `cache_animnum != cur_animnum`, or (b) same animnum but frame drift >= half-frame epsilon. Otherwise false
+- [tests/test_bondgun_cache.cpp](tests/test_bondgun_cache.cpp) -- 6 Catch2 cases (619 assertions, including a 0..60 anim-progress sweep) that lock the predicate spec. Tagged `[bondgun][matrix-cache][regression]`
+
+**CMake:**
+- `port/src/bondgun_cache.c` is auto-discovered by the existing `GLOB_RECURSE port/*.c` for the `pd` target
+- Explicitly added to `SRC_TESTS` list for `pd-tests` target
+
+**Build verification:**
+
+| Target | Result | Bytes |
+|---|---|---|
+| `pd` | exit 0 | 56 267 522 |
+| `pd-server` | exit 0 | 23 274 010 |
+| `pd-tests` | exit 0 | 14 330 032 |
+| `pd-tests` runtime | All tests passed (1389 assertions in 83 test cases) -- up from 770 / 77 pre-Phase-A. The new bondgun-cache filter `[bondgun]` reports 619 assertions in 6 test cases | n/a |
+
+Phase A is observation-only at runtime: `bgunMatrixCacheIsStale` is not yet called from `bgun0f0a5550`. The bug Mike sees in playtest is unchanged. The predicate exists, ready for Phase B activation.
+
+### Phase B fix proposal (surfaced for Mike's approval, not auto-merged)
+
+**Wiring shape.** Two parts to the Phase B activation:
+
+1. **Capture cache anim state at fill time.** In `bgun0f0a5550` cache-fill (the `unk0dd4 == -1` branch around bondgun.c:8463), record `cache_animnum = modelGetAnimNum(&hand->gunmodel)` and `cache_animframe = modelGetCurAnimFrame(&hand->gunmodel)`. Store somewhere persistent -- options:
+   - Add two fields `s32 cached_animnum` and `f32 cached_animframe` to `struct hand` (player.hands[handnum]). Minimal struct surface change; matches the pattern of `unk0dd4` and `unk0dd8` already living on `struct hand`.
+   - Add static globals indexed by player num. Less clean; rejected.
+
+2. **Check predicate at the a0 decision.** Around bondgun.c:8341 where `bool a0 = true;` is initialised, add:
+   ```
+   if (a0 && handnum == HAND_RIGHT
+           && bgunMatrixCacheIsStale(
+               player->hands[HAND_RIGHT].cached_animnum,
+               player->hands[HAND_RIGHT].cached_animframe,
+               (s32)modelGetAnimNum(&hand->gunmodel),
+               modelGetCurAnimFrame(&hand->gunmodel))) {
+       a0 = false;
+   }
+   ```
+   When the predicate returns true, the cache is stale and the fresh-anim path runs instead. Idle frames now produce the actual current-anim pose, matching what fire / reload already do.
+
+**Scope.** All weapons. The fix is in the shared FP-render path so every weapon's idle animation will render its anim's actual current frame instead of the cached-at-fill-time pose.
+
+**Side effects:**
+- Per-frame `modelSetMatricesWithAnim` cost replaces the cached `mtx00015be4` per-matrix multiply on idle frames where the cache is stale. At full anim mismatch the cost is the same as fire frames (which already run fresh per-frame). At sub-half-frame matched state the cache is still used, preserving the perf for the common case where idle anim genuinely holds at one frame.
+- `cached_animnum` / `cached_animframe` add 8 bytes to `struct hand`. The struct is already several KB; this is negligible.
+- The `unk0dd8` buffer continues to be populated and used when the predicate returns false (cache is fresh). No code is dead-pathed.
+
+**What we'd verify after Phase B lands:**
+- Mike playtests with FALCON2 idle hold + a fire + a reload. The weapon stays in the same position across phases. No "snap to correct on fire, snap back to wrong on idle".
+- The round-10 fire-frame playtest pattern (cache at anim 0/0, idle at anim 236/17) is no longer asymmetric -- bone-snapshot data should show idle and fire matrix positions converge.
+- Other weapons (FARSIGHT, DY357MAGNUM) exhibit the same fix.
+- pd-tests `[bondgun][matrix-cache]` cases continue to pass (the predicate wasn't changed, only its callers).
+
+**Risks flagged for Mike's review:**
+- Some weapon special case might depend on the cache being stable (e.g., a weapon-specific path that compares cached vs current matrix). I did not find such a path in `bgun0f0a5550`; flagging.
+- The original PD code lived without this check. Possibly the IDLE animation in original PD was always anim 0 frame 0 (T-pose was the IDLE pose by authoring convention), and the cache was correct for that authoring choice. PD2 / AllInOne may have different idle-anim conventions where the cache became stale by accident. The Phase B fix is "drop a stale optimisation," not "delete a feature."
+
+**Alternative considered: drop the cache entirely (always fresh).**
+Equivalent symptom resolution; smaller diff (`bool a0 = false;` initial value, deletes the cache-multiply branch). Trades all idle frames' cached-multiply cost for fresh-eval cost. On modern hardware this is imperceptible. Slightly less surgical than the predicate approach but eliminates a class of staleness bugs entirely. Surfacing for Mike's call.
+
+### What Phase A does NOT do (regression boundary)
+
+- Phase A does NOT change runtime behaviour. The bug Mike sees in playtest is unchanged until Phase B activates the predicate.
+- Phase A does NOT inspect anim 236's keyframe data. If H-MTX-A1 turns out to be wrong and the symptom persists post-Phase-B, the demoted candidates (H-MTX-A2 / H-IDLE-POSE-A / H-HAND-RIG-A / H-PARENT-A) come back as LIVE.
+- Phase A is a pure-function regression test. The state-machine harness queued in the design doc Section F (cohort 2) remains queued. If Phase B's wiring needs additional state-machine coverage, that scope expands at Phase B time.

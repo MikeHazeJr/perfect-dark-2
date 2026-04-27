@@ -803,6 +803,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_manifest.cpp
   ${CMAKE_SOURCE_DIR}/tests/manifest_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_random_pool.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_bondgun_cache.cpp
 
   # Linker stubs for symbols the cherry-picked sources reference but the
   # test binary should not actually invoke.
@@ -810,9 +811,10 @@ set(SRC_TESTS
 
   # Cherry-picked code under test. Only fully pure files (no globals,
   # no SDL/GL/ENet dependencies) live here. Everything else is tested
-  # through stubbed callees or test-local copies — see the design doc.
+  # through stubbed callees or test-local copies, see the design doc.
   ${CMAKE_SOURCE_DIR}/port/src/net/netbuf.c
   ${CMAKE_SOURCE_DIR}/port/src/connectcode.c
+  ${CMAKE_SOURCE_DIR}/port/src/bondgun_cache.c
 )
 
 add_executable(pd-tests ${SRC_TESTS})
