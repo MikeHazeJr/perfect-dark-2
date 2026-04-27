@@ -793,10 +793,20 @@ set(SRC_TESTS
   # Catch2 entry point + test cases
   ${CMAKE_SOURCE_DIR}/tests/main.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_smoke.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_netbuf.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_versions.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_versions_pin.c
+  ${CMAKE_SOURCE_DIR}/tests/test_connectcode.cpp
 
   # Linker stubs for symbols the cherry-picked sources reference but the
   # test binary should not actually invoke.
   ${CMAKE_SOURCE_DIR}/tests/stubs.c
+
+  # Cherry-picked code under test. Only fully pure files (no globals,
+  # no SDL/GL/ENet dependencies) live here. Everything else is tested
+  # through stubbed callees or test-local copies — see the design doc.
+  ${CMAKE_SOURCE_DIR}/port/src/net/netbuf.c
+  ${CMAKE_SOURCE_DIR}/port/src/connectcode.c
 )
 
 add_executable(pd-tests ${SRC_TESTS})
