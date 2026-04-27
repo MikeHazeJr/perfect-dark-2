@@ -8338,15 +8338,10 @@ void bgun0f0a5550(s32 handnum)
 		}
 
 		{
-			bool a0 = true;
 			struct modelrenderdata renderdata = {NULL, true, 3};
 #if VERSION >= VERSION_PAL_BETA
 			bool a3 = false;
 #endif
-			s32 spcc;
-			Mtxf *spc8;
-			Mtxf *spc4;
-			Mtxf sp84;
 			u32 sp80;
 			struct coord sp74;
 			s32 stack;
@@ -8354,49 +8349,6 @@ void bgun0f0a5550(s32 handnum)
 
 			renderdata.unk00 = &sp2c4;
 			renderdata.unk10 = hand->gunmodel.matrices;
-
-			if (hand->animmode != HANDANIMMODE_IDLE) {
-				a0 = false;
-			}
-
-			switch (weaponnum) {
-			case WEAPON_REAPER:
-				a0 = false;
-				break;
-			case WEAPON_COMBATKNIFE:
-				if (player->hands[HAND_LEFT].loadedammo[0] == 0) {
-					a0 = false;
-				}
-				// fall through
-			case WEAPON_GRENADE:
-			case WEAPON_NBOMB:
-			case WEAPON_TIMEDMINE:
-			case WEAPON_PROXIMITYMINE:
-			case WEAPON_REMOTEMINE:
-			case WEAPON_ECMMINE:
-				if (player->hands[HAND_RIGHT].loadedammo[0] == 0) {
-					a0 = false;
-				}
-
-				if (player->hands[handnum].state == HANDSTATE_AUTOSWITCH) {
-					a0 = false;
-				}
-
-				if (player->hands[handnum].state == HANDSTATE_ATTACK) {
-					a0 = false;
-				}
-				break;
-			}
-
-			if (hand->ejectstate != EJECTSTATE_INACTIVE) {
-				a0 = false;
-			}
-
-			if (player->hands[handnum].state == HANDSTATE_CHANGEGUN
-					&& player->hands[handnum].stateminor <= HANDSTATEMINOR_CHANGEGUN_LOWER
-					&& weapondef->unequip_animation != NULL) {
-				a0 = false;
-			}
 
 #if VERSION >= VERSION_PAL_BETA
 			switch (modelGetAnimNum(&hand->gunmodel)) {
@@ -8420,99 +8372,45 @@ void bgun0f0a5550(s32 handnum)
 			}
 #endif
 
-			/* B-246 round-6 instrumentation: a0 selects between cached
-			 * matrix path (a0=true: use unk0dd8) and fresh-anim path
-			 * (a0=false: modelSetMatricesWithAnim each frame). The visible
-			 * weapon-jump-on-fire is consistent with this decision flipping
-			 * between idle and fire frames. Log on transition. */
-			if (g_Vars.currentplayernum == 0 && handnum == HAND_RIGHT) {
-				static s32 s_last_a0 = -1;
-				s32 cur_a0 = a0 ? 1 : 0;
-				if (cur_a0 != s_last_a0) {
-					s_last_a0 = cur_a0;
-					sysLogPrintf(LOG_NOTE,
-						"LOG.WPN.DIAG: bgun0f0a5550 a0_decision player=0 hand=R a0=%d wpn=%d animmode=%d state=%d sm=%d ejectstate=%d unk0dd4=%d",
-						cur_a0,
-						(s32)weaponnum,
-						(s32)hand->animmode,
-						(s32)hand->state,
-						(s32)hand->stateminor,
-						(s32)hand->ejectstate,
-						(s32)player->hands[HAND_RIGHT].unk0dd4);
-				}
+			/* B-246 round-10 Phase B (cache drop): the per-hand matrix
+			 * cache `unk0dd8` was filled exactly once at weapon-load
+			 * time, when the gun's animation was at anim 0 frame 0
+			 * (model T-pose), and reused for every IDLE render frame
+			 * via the prior `if (a0)` branch. PD2 / AllInOne idle
+			 * authoring uses different anim tracks (e.g. anim 236
+			 * frame 17 for FALCON2) so the cache encoded a stale
+			 * T-pose vs the live anim state. Idle frames rendered the
+			 * gun at its model-local origin instead of where the IDLE
+			 * animation's keyframes place it. Fire and reload were
+			 * unaffected because they bypassed the cache via the
+			 * fresh-anim path.
+			 *
+			 * Phase B drops the cache entirely: every render frame now
+			 * runs `modelSetMatricesWithAnim` against the gun's
+			 * current anim state, identical to what fire and reload
+			 * already did. `unk0dd4` and `unk0dd8` in struct hand
+			 * remain allocated as dead state for minimum diff; the
+			 * Phase A predicate `bgunMatrixCacheIsStale` at
+			 * port/src/bondgun_cache.c stays in the codebase with
+			 * its [bondgun][matrix-cache] pd-tests cases pinning the
+			 * spec for any future reintroduction. */
+#if VERSION >= VERSION_PAL_BETA
+			var8005efd8_2 = true;
+
+			if (a3) {
+				var8005efb0_2 = true;
 			}
 
-			if (a0) {
-				if (player->hands[HAND_RIGHT].unk0dd4 == -1) {
-					mtx4LoadIdentity(&sp84);
+			modelSetMatricesWithAnim(&renderdata, &hand->gunmodel);
 
-					spc4 = hand->gunmodel.matrices;
+			var8005efd8_2 = false;
 
-					renderdata.unk00 = &sp84;
-					renderdata.unk10 = player->hands[HAND_RIGHT].unk0dd8;
-
-#if VERSION >= VERSION_PAL_BETA
-					var8005efd8_2 = true;
-
-					if (a3) {
-						var8005efb0_2 = true;
-					}
-
-					modelSetMatricesWithAnim(&renderdata, &hand->gunmodel);
-
-					var8005efd8_2 = false;
-
-					if (a3) {
-						var8005efb0_2 = false;
-					}
-#else
-					modelSetMatricesWithAnim(&renderdata, &hand->gunmodel);
-#endif
-
-					player->hands[HAND_RIGHT].unk0dd4 = 1;
-
-					hand->gunmodel.matrices = spc4;
-
-					/* B-246 round-6: log every cache-fill so we know what
-					 * animation state was used to seed unk0dd8. */
-					if (g_Vars.currentplayernum == 0) {
-						sysLogPrintf(LOG_NOTE,
-							"LOG.WPN.DIAG: bgun0f0a5550 cache_fill player=0 hand=R wpn=%d animmode=%d animnum=%d animframe=%.2f frame=%d",
-							(s32)weaponnum,
-							(s32)hand->animmode,
-							(s32)modelGetAnimNum(&hand->gunmodel),
-							modelGetCurAnimFrame(&hand->gunmodel),
-							(s32)g_Vars.lvframenum);
-					}
-				}
-
-				spc8 = player->hands[HAND_RIGHT].unk0dd8;
-				spc4 = hand->gunmodel.matrices;
-
-				for (spcc = 0; spcc < hand->gunmodel.definition->nummatrices; spcc++) {
-					mtx00015be4(&sp2c4, spc8, spc4);
-					spc8++;
-					spc4++;
-				}
-			} else {
-#if VERSION >= VERSION_PAL_BETA
-				var8005efd8_2 = true;
-
-				if (a3) {
-					var8005efb0_2 = true;
-				}
-
-				modelSetMatricesWithAnim(&renderdata, &hand->gunmodel);
-
-				var8005efd8_2 = false;
-
-				if (a3) {
-					var8005efb0_2 = false;
-				}
-#else
-				modelSetMatricesWithAnim(&renderdata, &hand->gunmodel);
-#endif
+			if (a3) {
+				var8005efb0_2 = false;
 			}
+#else
+			modelSetMatricesWithAnim(&renderdata, &hand->gunmodel);
+#endif
 
 			/* B-246 round-8 instrumentation: bone-snapshot at IDLE<->FIRE
 			 * state transitions. Discriminates between four LIVE candidates
