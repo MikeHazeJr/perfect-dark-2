@@ -849,6 +849,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_menu_stack.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_menu_reachability.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_right_stick_scroll.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_social_toggle_imc.cpp
 
   # Linker stubs for symbols the cherry-picked sources reference but the
   # test binary should not actually invoke.

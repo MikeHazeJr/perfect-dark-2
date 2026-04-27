@@ -4,6 +4,54 @@
 > **S284–S483** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
+## Session S483b (`charming-noether-7b69b3`) - 2026-04-27 - crash mitigation (B-261) + Tab IMC fix (B-262)
+
+Two threads, evidence-only investigation per Mike's reset directive (no recency or subsystem priors), then both fixes shipped.
+
+### Thread 1: Crash investigation (B-261)
+
+ACCESS_VIOLATION 0xc0000005 at PC RVA 0x396ed2, LVTICK 1836 of stage 0x33 (Investigation), ~30s after spawn. addr2line landed on `src/lib/model.c:1387` (`sp2c.z = rodata->reorder.unk08;`) inside `modelUpdateReorderRelations`. Disassembly of the shipped exe (md5 bb97fd31...) showed reads at offsets 0x28 / 0xc / 0x10 / 0x14 / 0x0 / 0x4 succeeded; the +0x8 read AVs -- consistent with the rodata struct straddling a page boundary into unmapped memory. Same frame logged the existing `DOOR.DIAG: doorGetBbox -- no bbox for modelnum=154 model=0x0000019939568438 flags=0x80 doortype=0 (count=1)` defensive guard (the bbox node was missing on the same model that crashed during REORDER traversal). Mike's catalog-data-missing hypothesis sharpened the candidate ranking: the door's `model_009a` was loaded with partially populated rodata, where some nodes have unreadable rodata that succeeds at low-byte reads but fails at the page boundary.
+
+**Mitigation shipped (does NOT fix upstream catalog incompleteness):**
+
+1. Per-tick rodata-validity guard via `VirtualQuery` probe in five rodata-reading update functions (`modelUpdateReorderRelations`, `modelUpdateDistanceRelations`, `modelApplyDistanceRelations`, `modelApplyToggleRelations`, `modelApplyReorderRelationsByArg`). Probes BEFORE any deref and BEFORE `modelGetNodeRwData` (which reads `rodata->*.rwdataindex`). On miss emits rate-limited `MODEL.RODATA.MISS:` warning and skips the node safely.
+2. Load-time tree-walk validator in `setupLoadModeldef` (the chokepoint for prop / weapon / hat / projectile model loads). After `modeldefLoadToNew` succeeds, walks the rootnode tree once and probes every node's rodata. Logs `MODEL.RODATA.LOAD: PARTIAL modelnum=<N> ...` if any node is unreadable.
+3. New helper module: `port/src/model_rodata_guard.c` + `port/include/model_rodata_guard.h`. Header returns `int` rather than `bool` so it stays includable from `src/lib/model.c` where `bool` is the `s32` macro.
+
+**Diagnostic discipline:** the channel name `MODEL.RODATA.MISS:` parallels `CATALOG.MISS:` from INV-1 (b6a0c280). Mike's directive to extend loud-fail to model-rodata accessors is satisfied by the new diagnostic surface; the existing `modelFindBboxRodata` / `modelGetPartRodata` accessors already return NULL safely on miss and the existing `DOOR.DIAG` channel covers bbox-side discovery.
+
+**Forensic next step:** post-playtest `MODEL.RODATA.LOAD: PARTIAL` lines discriminate Mike's catalog-data-missing hypothesis from the alternate use-after-free path. Root cause then lands on the catalog/load side, separate from this session's mitigation.
+
+### Thread 2: Tab IMC fix (B-262)
+
+Mike's playtest 2026-04-27 hit Tab during an active SP mission and the Online connectivity / friends sidebar opened. Handler at `port/fast3d/pdgui_friends.cpp:813` was a raw `ImGui::IsKeyPressed(ImGuiKey_Tab)` with the comment "Avoids reaching into the actionmap layer" -- a deliberate IMC-stack bypass. Fix (Mike picked option (c)): routed Tab through actionmap as new `ACTION_SOCIAL_TOGGLE` (= 69), bound only on `g_ImcMenu` and `g_ImcPauseMenu` (NOT on `g_ImcGameplay`). `fireVk`'s priority-sorted first-match-wins walk now structurally cannot fire ACTION_SOCIAL_TOGGLE during pure gameplay -- gameplay IMC has no Tab binding for this action. Tab continues to fire ACTION_SCORECARD on gameplay (no-op outside Combat Sim).
+
+pd-tests case `tests/test_social_toggle_imc.cpp` pins the invariant Mike named ("Tab during top-IMC = gameplay does not toggle sidebar state"): 5 cases / 7 assertions with `[s483b]` tag. Pure mirror of the priority-sorted resolver, no SDL coupling.
+
+### Files
+
+- `port/include/actionmap.h` -- new `ACTION_SOCIAL_TOGGLE = 69`, `ACTION_COUNT = 70`
+- `port/src/actionmap.cpp` -- s_ActionNames extension, `actionIsGameplayOnly` shared classification, Tab binding on g_ImcMenu and g_ImcPauseMenu
+- `port/fast3d/pdgui_friends.cpp` -- replaced raw ImGui hotkey with `actionPressed(0, ACTION_SOCIAL_TOGGLE)`
+- `tests/test_social_toggle_imc.cpp` -- new pd-tests case
+- `port/include/model_rodata_guard.h` + `port/src/model_rodata_guard.c` -- new helper module
+- `src/lib/model.c` -- per-tick guards in the five rodata-reading functions
+- `src/game/setuputils.c` -- `setupValidateModeldefRodata` + call from `setupLoadModeldef`
+- `CMakeLists.txt` -- pd-tests SRC list extension
+- `context/bugs.md` -- B-261, B-262
+- `context/constraints.md` -- model rodata-validity guard invariant
+
+### Verify
+
+Build clean: 860/860 objects. `pd-tests` 4813 assertions / 186 cases pass; `[s483b]` tag passes 7 assertions / 5 cases. PerfectDark.exe + PerfectDarkServer.exe both linked.
+
+### Outstanding
+
+- Mike's playtest of the crash repro path -- AV must NOT recur at LVTICK 1836+ on Investigation; forward `MODEL.RODATA.LOAD: PARTIAL` and `MODEL.RODATA.MISS:` log lines for catalog-side root-cause discrimination.
+- Mike's playtest of Tab key invariant -- Tab during gameplay must not open sidebar; Tab during pause toggles sidebar.
+
+---
+
 ## Session S483 (`jovial-kirch-181c60` follow-up) - 2026-04-27 - host-eligible weapon pool via match manifest
 
 Mike's clarification on Random/Fiesta semantics after S482 shipped: the eligible pool should draw from the host's full unlocked-weapon catalog, distributed via the match manifest, not just the active match weapon set's 6 slots.

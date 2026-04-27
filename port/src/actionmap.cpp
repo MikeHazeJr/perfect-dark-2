@@ -360,6 +360,8 @@ static const char * const s_ActionNames[ACTION_COUNT] = {
     "ForgeTabNext",
     /* 68: combat sim hold-vs-tap (Priority J) */
     "ScorecardHold",
+    /* 69: connectivity sidebar toggle (S483b) -- menu IMCs only */
+    "SocialToggle",
 };
 
 /* ============================================================
@@ -1204,6 +1206,7 @@ s32 actionIsGameplayOnly(InputAction a)
     case ACTION_PAUSE:
     case ACTION_SCORECARD:
     case ACTION_SCORECARD_HOLD:
+    case ACTION_SOCIAL_TOGGLE:
     case ACTION_SCREENSHOT:
     case ACTION_CONSOLE_TOGGLE:
     case ACTION_DEBUG_TOGGLE:
@@ -2335,6 +2338,15 @@ static void setupMenuDefaults(void)
     addBind(imc, ACTION_MENU_RIGHT,   JOY_BTN(0, JBTN_DPAD_RIGHT));/* Nav right — d-pad */
     addBind(imc, ACTION_MENU_TAB_PREV,JOY_BTN(0, JBTN_LB));       /* Previous tab — LB */
     addBind(imc, ACTION_MENU_TAB_NEXT,JOY_BTN(0, JBTN_RB));       /* Next tab — RB */
+    /* S483b (2026-04-27): Tab toggles the Online connectivity sidebar.
+     * Bound on menu IMCs only (here + setupPauseMenuDefaults) so pressing
+     * Tab during pure gameplay (only g_ImcGameplay active) cannot fire
+     * ACTION_SOCIAL_TOGGLE -- fireVk's first-match-wins walk simply has
+     * no binding for SDL_SCANCODE_TAB at gameplay priority. The legacy
+     * ImGui::IsKeyPressed(Tab) hotkey at pdgui_friends.cpp:813 was the
+     * IMC-bypass that let Tab open the sidebar mid-mission; routed
+     * through actionPressed(0, ACTION_SOCIAL_TOGGLE) instead. */
+    addBind(imc, ACTION_SOCIAL_TOGGLE, 43);                       /* TAB scancode */
 }
 
 static void setupPauseMenuDefaults(void)
@@ -2358,6 +2370,9 @@ static void setupPauseMenuDefaults(void)
     addBind(imc, ACTION_MENU_RIGHT,   JOY_BTN(0, JBTN_DPAD_RIGHT));/* Nav right — d-pad */
     addBind(imc, ACTION_MENU_TAB_PREV,JOY_BTN(0, JBTN_LB));       /* Previous tab — LB */
     addBind(imc, ACTION_MENU_TAB_NEXT,JOY_BTN(0, JBTN_RB));       /* Next tab — RB */
+    /* S483b (2026-04-27): Tab toggles the Online connectivity sidebar
+     * while paused. See setupMenuDefaults for the design rationale. */
+    addBind(imc, ACTION_SOCIAL_TOGGLE, 43);                       /* TAB scancode */
 }
 
 static void setupDebugOverlayDefaults(void)

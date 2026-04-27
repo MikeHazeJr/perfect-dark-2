@@ -39,6 +39,7 @@ extern "C" {
 #include "voice.h"
 #include "net/p2p.h"
 #include "net/group_session.h"
+#include "actionmap.h"
 }
 
 /* -------------------------------------------------------------------------
@@ -807,12 +808,20 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 {
 	pdguiFriendsStatusIndicatorRender(winW, winH);
 
-	/* ImGui hotkey: Tab opens / closes the sidebar when no text input has
-	 * focus. Avoids reaching into the actionmap layer. */
+	/* S483b (2026-04-27): Tab toggles the sidebar via ACTION_SOCIAL_TOGGLE.
+	 * Bound only on g_ImcMenu / g_ImcPauseMenu (port/src/actionmap.cpp
+	 * setupMenuDefaults / setupPauseMenuDefaults), so during pure
+	 * gameplay -- when only g_ImcGameplay is on top -- pressing Tab
+	 * cannot fire this action. The previous implementation called
+	 * ImGui::IsKeyPressed(Tab) directly with a comment "Avoids reaching
+	 * into the actionmap layer", which was the IMC bypass that opened
+	 * the connectivity sidebar mid-mission. WantCaptureKeyboard is
+	 * still queried for the V (PTT) hotkey below, which has not yet
+	 * migrated to actionmap. */
+	if (actionPressed(0, ACTION_SOCIAL_TOGGLE)) {
+		s_SidebarOpen = !s_SidebarOpen;
+	}
 	if (!ImGui::GetIO().WantCaptureKeyboard) {
-		if (ImGui::IsKeyPressed(ImGuiKey_Tab, false)) {
-			s_SidebarOpen = !s_SidebarOpen;
-		}
 		/* Phase 5 PTT: V key. Codec follow-up will move this to an
 		 * actionmap binding once Session B's input scope reopens. */
 		if (voiceEnabled() && voiceGetCaptureMode() == VOICE_CAPTURE_PUSH_TO_TALK) {

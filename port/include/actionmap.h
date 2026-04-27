@@ -159,7 +159,17 @@ typedef enum InputAction {
      * on ACTION_SCORECARD across both schemes. */
     ACTION_SCORECARD_HOLD,       /* = 68 hold-Back-for-scorecard, CS scheme only */
 
-    ACTION_COUNT                /* = 69, sentinel — keep last */
+    /* ---- Connectivity / friends sidebar (S483b, 2026-04-27) ----
+     * Toggles pdguiFriends sidebar (Online connectivity surface). Bound
+     * only on the menu / pause-menu IMCs (g_ImcMenu, g_ImcPauseMenu) so
+     * that pressing Tab during active gameplay -- when only g_ImcGameplay
+     * is on top -- structurally cannot toggle the sidebar. The legacy
+     * raw `ImGui::IsKeyPressed(ImGuiKey_Tab)` check at pdgui_friends.cpp
+     * was bypassing the IMC stack and opening the sidebar mid-mission;
+     * routing through the actionmap restores IMC discipline. */
+    ACTION_SOCIAL_TOGGLE,        /* = 69 toggle friends/connectivity sidebar (menu IMCs only) */
+
+    ACTION_COUNT                /* = 70, sentinel — keep last */
 } InputAction;
 
 /* Backward-compat aliases */

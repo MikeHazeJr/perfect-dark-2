@@ -15,6 +15,7 @@
 #include "assetcatalog.h"
 #include "net/netmanifest.h"
 #include "system.h"
+#include "model_rodata_guard.h" /* S483b: load-time rodata-tree validator */
 
 struct stagesetup g_StageSetup;
 u8 *g_GeCreditsData;
@@ -155,6 +156,111 @@ u32 setupGetCmdIndexByProp(struct prop *prop)
 	return -1;
 }
 
+/* S483b (2026-04-27): walk a freshly-loaded modeldef's tree and probe
+ * each node's rodata pointer for readability.  Logs a per-modelnum
+ * summary plus a per-bad-node MODEL.RODATA.MISS warning so we can
+ * correlate corrupt-load events with the runtime AVs.  Mike's
+ * hypothesis (catalog-data-missing) for the 04:21 LVTICK 1836 crash
+ * is that this kind of post-load probe will surface partial loads
+ * before a tick ever touches them.  The walker iterates exactly the
+ * same way modelUpdateRelations / modelUpdateRelationsQuick do
+ * (rootnode -> child -> next -> back to parent->next) so every node
+ * the tick code can reach gets probed once at load time. */
+/* Indexed type-count buckets covering the full single-byte type range
+ * (MODELNODETYPE_DL = 0x18 is the highest used by tree walkers). */
+#define SETUP_RODATA_TYPE_BUCKETS 0x20
+
+static void setupValidateModeldefRodata(s32 modelnum, struct modeldef *modeldef, u16 fileid, const char *model_id)
+{
+	struct modelnode *node;
+	struct modelnode *root;
+	u32 total_nodes = 0;
+	u32 bad_rodata = 0;
+	u32 type_counts[SETUP_RODATA_TYPE_BUCKETS];
+	u32 i;
+
+	if (modeldef == NULL || modeldef->rootnode == NULL) {
+		return;
+	}
+
+	for (i = 0; i < SETUP_RODATA_TYPE_BUCKETS; i++) {
+		type_counts[i] = 0;
+	}
+
+	root = modeldef->rootnode;
+	node = root;
+	while (node) {
+		u32 type = node->type & 0xff;
+		u32 needed = 0;
+
+		total_nodes++;
+		if (type < SETUP_RODATA_TYPE_BUCKETS) {
+			type_counts[type]++;
+		}
+
+		/* Pick the rodata-variant size to probe.  We only probe variants
+		 * the relations-update tree dereferences directly; DL nodes and
+		 * skeletal nodes are skipped because their tick paths read
+		 * different fields with their own guards. */
+		switch (type) {
+		case MODELNODETYPE_DISTANCE:
+			needed = sizeof(struct modelrodata_distance);
+			break;
+		case MODELNODETYPE_REORDER:
+			needed = sizeof(struct modelrodata_reorder);
+			break;
+		case MODELNODETYPE_TOGGLE:
+			needed = sizeof(struct modelrodata_toggle);
+			break;
+		case MODELNODETYPE_BBOX:
+			needed = sizeof(struct modelrodata_bbox);
+			break;
+		default:
+			needed = 0;
+			break;
+		}
+
+		if (needed > 0) {
+			if (!modelRodataIsReadable(node->rodata, needed)) {
+				bad_rodata++;
+				modelRodataLogMiss("LoadValidate", modeldef, node, node->rodata, needed,
+						node->rodata == NULL ? "NULL" : "page-unmapped");
+			}
+		}
+
+		/* Tree walk: descend into children, then siblings, then back up. */
+		if (node->child) {
+			node = node->child;
+		} else {
+			while (node) {
+				if (node == root && node->next == NULL) {
+					node = NULL;
+					break;
+				}
+				if (node->next) {
+					node = node->next;
+					break;
+				}
+				node = node->parent;
+			}
+		}
+	}
+
+	if (bad_rodata > 0) {
+		sysLogPrintf(LOG_WARNING,
+				"MODEL.RODATA.LOAD: PARTIAL modelnum=%d fileid=0x%04x id=%s nodes=%u bad=%u "
+				"reorder=%u distance=%u toggle=%u bbox=%u dl=%u -- ticks of this model will skip bad nodes",
+				modelnum, (unsigned)fileid,
+				model_id ? model_id : "<unknown>",
+				total_nodes, bad_rodata,
+				type_counts[MODELNODETYPE_REORDER],
+				type_counts[MODELNODETYPE_DISTANCE],
+				type_counts[MODELNODETYPE_TOGGLE],
+				type_counts[MODELNODETYPE_BBOX],
+				type_counts[MODELNODETYPE_DL]);
+	}
+}
+
 bool setupLoadModeldef(s32 modelnum)
 {
 	s32 fileid;
@@ -190,6 +296,13 @@ bool setupLoadModeldef(s32 modelnum)
 		}
 
 		modelAllocateRwData(g_ModelStates[modelnum].modeldef);
+
+		/* S483b (2026-04-27): probe the freshly-loaded model's rodata tree
+		 * once and warn if any node is unreadable.  See
+		 * setupValidateModeldefRodata above. */
+		setupValidateModeldefRodata(modelnum, g_ModelStates[modelnum].modeldef,
+				(u16)fileid, model_id);
+
 		return true;
 	}
 

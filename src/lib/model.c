@@ -17,6 +17,7 @@
 #include "lib/model.h"
 #include "data.h"
 #include "types.h"
+#include "model_rodata_guard.h" /* S483b: per-tick rodata-validity guard */
 
 /**
  * -- Model Definitions --
@@ -1222,9 +1223,20 @@ void modelUpdatePositionHeldNodeMtx(struct modelrenderdata *arg0, struct model *
 void modelUpdateDistanceRelations(struct model *model, struct modelnode *node)
 {
 	union modelrodata *rodata = node->rodata;
-	union modelrwdata *rwdata = modelGetNodeRwData(model, node);
-	Mtxf *mtx = modelFindNodeMtx(model, node, 0);
+	union modelrwdata *rwdata;
+	Mtxf *mtx;
 	f32 distance;
+
+	/* S483b: rodata-validity guard. See modelUpdateReorderRelations. */
+	if (!modelRodataIsReadable(rodata, sizeof(struct modelrodata_distance))) {
+		modelRodataLogMiss("UpdateDistance", model, node, rodata,
+				sizeof(struct modelrodata_distance),
+				rodata == NULL ? "NULL" : "page-unmapped");
+		return;
+	}
+
+	rwdata = modelGetNodeRwData(model, node);
+	mtx = modelFindNodeMtx(model, node, 0);
 
 	if (g_ModelDistanceDisabled || !mtx) {
 		distance = 0;
@@ -1251,7 +1263,20 @@ void modelUpdateDistanceRelations(struct model *model, struct modelnode *node)
 void modelApplyDistanceRelations(struct model *model, struct modelnode *node)
 {
 	struct modelrodata_distance *rodata = &node->rodata->distance;
-	struct modelrwdata_distance *rwdata = modelGetNodeRwData(model, node);
+	struct modelrwdata_distance *rwdata;
+
+	/* S483b: rodata-validity guard. See modelUpdateReorderRelations.
+	 * Probe BEFORE modelGetNodeRwData -- that helper would AV reading
+	 * rodata->distance.rwdataindex if rodata is unreadable. */
+	if (!modelRodataIsReadable(rodata, sizeof(struct modelrodata_distance))) {
+		modelRodataLogMiss("ApplyDistance", model, node, rodata,
+				sizeof(struct modelrodata_distance),
+				node->rodata == NULL ? "NULL" : "page-unmapped");
+		node->child = NULL;
+		return;
+	}
+
+	rwdata = modelGetNodeRwData(model, node);
 
 	if (rwdata->visible) {
 		node->child = rodata->target;
@@ -1263,7 +1288,20 @@ void modelApplyDistanceRelations(struct model *model, struct modelnode *node)
 void modelApplyToggleRelations(struct model *model, struct modelnode *node)
 {
 	struct modelrodata_toggle *rodata = &node->rodata->toggle;
-	struct modelrwdata_toggle *rwdata = modelGetNodeRwData(model, node);
+	struct modelrwdata_toggle *rwdata;
+
+	/* S483b: rodata-validity guard. See modelUpdateReorderRelations.
+	 * Probe BEFORE modelGetNodeRwData -- that helper would AV reading
+	 * rodata->toggle.rwdataindex if rodata is unreadable. */
+	if (!modelRodataIsReadable(rodata, sizeof(struct modelrodata_toggle))) {
+		modelRodataLogMiss("ApplyToggle", model, node, rodata,
+				sizeof(struct modelrodata_toggle),
+				node->rodata == NULL ? "NULL" : "page-unmapped");
+		node->child = NULL;
+		return;
+	}
+
+	rwdata = modelGetNodeRwData(model, node);
 
 	if (rwdata->visible) {
 		node->child = rodata->target;
@@ -1299,6 +1337,15 @@ void modelApplyReorderRelationsByArg(struct modelnode *basenode, bool reverse)
 	struct modelnode *node1;
 	struct modelnode *node2;
 	struct modelnode *loopnode;
+
+	/* S483b: rodata-validity guard. See modelUpdateReorderRelations. */
+	if (!modelRodataIsReadable(rodata, sizeof(struct modelrodata_reorder))) {
+		modelRodataLogMiss("ApplyReorderByArg", NULL, basenode, rodata,
+				sizeof(struct modelrodata_reorder),
+				rodata == NULL ? "NULL" : "page-unmapped");
+		basenode->child = NULL;
+		return;
+	}
 
 	if (reverse) {
 		node1 = rodata->reorder.unk18;
@@ -1357,11 +1404,31 @@ void modelApplyReorderRelations(struct model *model, struct modelnode *node)
 void modelUpdateReorderRelations(struct model *model, struct modelnode *node)
 {
 	union modelrodata *rodata = node->rodata;
-	union modelrwdata *rwdata = modelGetNodeRwData(model, node);
-	Mtxf *mtx = modelFindNodeMtx(model, node, 0);
+	union modelrwdata *rwdata;
+	Mtxf *mtx;
 	struct coord sp38;
 	struct coord sp2c;
 	f32 tmp;
+
+	/* S483b (2026-04-27): per-tick rodata-validity guard. The 0xc0000005
+	 * AV at LVTICK 1836 of stage 0x33 read rodata->reorder.unk08 at line
+	 * 1387 below; the fault offset pattern (low offsets read fine, +0x8
+	 * AVs) is consistent with a rodata struct straddling a page boundary
+	 * into unmapped memory. Probe the full struct extent up front so a
+	 * partially-mapped or NULL rodata produces a logged miss rather than
+	 * a process AV.  Order: probe BEFORE modelGetNodeRwData -- that
+	 * helper reads rodata->reorder.rwdataindex (offset 0x2a) and would
+	 * AV ahead of the guard if the page-boundary spans there too.  See
+	 * port/include/model_rodata_guard.h for design. */
+	if (!modelRodataIsReadable(rodata, sizeof(struct modelrodata_reorder))) {
+		modelRodataLogMiss("UpdateReorder", model, node, rodata,
+				sizeof(struct modelrodata_reorder),
+				rodata == NULL ? "NULL" : "page-unmapped");
+		return;
+	}
+
+	rwdata = modelGetNodeRwData(model, node);
+	mtx = modelFindNodeMtx(model, node, 0);
 
 	if (rodata->reorder.side == 0) {
 		sp38.x = rodata->reorder.unk0c[0];
