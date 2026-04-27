@@ -7,6 +7,7 @@
 #include "game/objectives.h"
 #include "game/playerreset.h"
 #include "game/spawnpool.h"
+#include "options_forced.h" /* INV-4: matchOptionsForceBit for B-181 fallback */
 #include "game/botmgr.h"
 #include "game/bot.h"
 #include "game/chr.h"
@@ -2742,7 +2743,16 @@ void setupCreateProps(s32 stagenum)
 				 * MPWEAPON_FALCON2 (0x01) maps to "base:falcon2_silencer"
 				 * (off-by-one). Scan `ext.weapon.weapon_id` directly (same
 				 * pattern as savefile.c / buildSpawnWeaponList). */
-				g_MatchConfig.options |= MPOPTION_SPAWNWITHWEAPON;
+				/* INV-4 / Cohort D (player-init-architectural-fixes-2026-04-26):
+				 * use matchOptionsForceBit so the bit is recorded in
+				 * options_engine_forced AT THE SAME TIME it is OR'd into
+				 * options. matchStart() restores user-original options at the
+				 * top of each new match by clearing the forced bits, so this
+				 * engine override is bounded to the current match and does
+				 * not silently mutate the user's persistent menu choice. */
+				matchOptionsForceBit(&g_MatchConfig.options,
+				                     &g_MatchConfig.options_engine_forced,
+				                     MPOPTION_SPAWNWITHWEAPON);
 				g_MpSetup.options |= MPOPTION_SPAWNWITHWEAPON;
 
 				const bool userPickedSpawnWeapon =

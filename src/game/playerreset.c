@@ -5,6 +5,7 @@
 #include "game/cheats.h"
 #include "game/inv.h"
 #include "game/playerreset.h"
+#include "spawn_predicate.h"  /* INV-2: spawn-with-weapon mutual-exclusion gate */
 #include "game/chr.h"
 #include "game/body.h"
 #include "game/prop.h"
@@ -222,8 +223,15 @@ void playerReset(void)
 				 * the main loop). Both paths then apply — two weapons, conflicting
 				 * equip state vs HUD. Skip intro weapons in norm MP when the spawn
 				 * fallback option is active. */
-				if (g_Vars.normmplayerisrunning
-						&& (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON)) {
+				/* INV-2 / Cohort B (player-init-architectural-fixes-2026-04-26):
+				 * single-source-of-truth predicate. The same call at
+				 * player.c:playerSpawn and bot.c:botSpawn fires
+				 * spawn-with-weapon, so both paths agree per spawn.
+				 * Mutual exclusion: predicate=true here means both
+				 * (a) skip INTROCMD_WEAPON AND (b) fire spawn-with-weapon. */
+				if (spawnWithWeaponShouldApply(g_Vars.normmplayerisrunning,
+				                               g_MpSetup.options,
+				                               MPOPTION_SPAWNWITHWEAPON)) {
 					sysLogPrintf(LOG_NOTE,
 						"GAMELOOP.WEAPON: playernum=%d mission=0x%02x INTRO skipped (spawn-with-weapon owns MP loadout)",
 						g_Vars.currentplayernum, g_Vars.stagenum);

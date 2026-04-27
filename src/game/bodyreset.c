@@ -14,6 +14,7 @@
 #include "types.h"
 #include "system.h"
 #include "assetcatalog.h"
+#include "bodies_headcount.h" /* INV-5: pure stage_id-to-head-count lookup */
 
 void bodiesReset(s32 stagenum)
 {
@@ -52,15 +53,27 @@ void bodiesReset(s32 stagenum)
 	if (PLAYERCOUNT() >= 2) {
 		g_NumActiveHeadsPerGender = 4;
 	} else {
-		/* M0.1a: catalog-first stage identity for head count overrides */
-		g_NumActiveHeadsPerGender = 8;
+		/* M0.1a: catalog-first stage identity for head count overrides.
+		 *
+		 * INV-5 / Cohort E.2 (player-init-architectural-fixes-2026-04-26):
+		 * stage_id-to-head-count override moved into pure helper
+		 * bodiesGetActiveHeadCountForStageId so the override map is
+		 * locked by pd-tests. Pre-INV-5 the strcmp literal chain was
+		 * silent for any stage_id not matching base:infiltration|rescue|escape
+		 * (e.g. mod stages, AllInOne missions). Add WARNING when an
+		 * empty or unknown non-empty stage_id falls through to the
+		 * default so mods can be registered explicitly. */
+		const s32 default_count = 8;
+		g_NumActiveHeadsPerGender =
+			bodiesGetActiveHeadCountForStageId(g_MissionConfig.stage_id, default_count);
 
-		if (strcmp(g_MissionConfig.stage_id, "base:infiltration") == 0) {
-			g_NumActiveHeadsPerGender = 5;
-		} else if (strcmp(g_MissionConfig.stage_id, "base:rescue") == 0) {
-			g_NumActiveHeadsPerGender = 4;
-		} else if (strcmp(g_MissionConfig.stage_id, "base:escape") == 0) {
-			g_NumActiveHeadsPerGender = 5;
+		if (g_NumActiveHeadsPerGender == default_count
+				&& g_MissionConfig.stage_id[0] != '\0') {
+			sysLogPrintf(LOG_WARNING,
+				"BODIES.HEADCOUNT: stage_id='%s' not in override map "
+				"(base:infiltration|rescue|escape), defaulting to %d -- "
+				"guards may use unintended head set",
+				g_MissionConfig.stage_id, g_NumActiveHeadsPerGender);
 		}
 	}
 

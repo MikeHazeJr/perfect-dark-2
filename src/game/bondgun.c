@@ -4265,7 +4265,19 @@ void bgunTickMasterLoad(void)
 
 			playerChooseBodyAndHead(&bodynum, &headnum, NULL);
 
-			handfilenum = catalogGetBodyHandFilenum(bodynum); /* SA-5d */
+			/* INV-1 / Cohort A.4 (player-init-architectural-fixes-2026-04-26):
+			 * checked variant surfaces catalog miss as CATALOG.MISS WARNING
+			 * with the bodynum that resolved out-of-bounds or unpopulated. On
+			 * miss handfilenum stays 0 which causes the master loader's HANDS
+			 * state to skip the hand-model load (hashands stays false); the
+			 * gun renders without hand attachment. Existing behavior preserved;
+			 * loud signal added. handfilenum is u16 in struct gunctrl; the
+			 * checked accessor returns s32 so use an s32 intermediate. */
+			{
+				s32 hf32 = 0;
+				(void)catalogGetBodyHandFilenumChecked(bodynum, &hf32);
+				handfilenum = (u16)hf32;
+			}
 
 			filenum = weaponGetFileNum(newweaponnum);
 

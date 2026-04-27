@@ -594,6 +594,16 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_api.c
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_deps.c
 
+  # INV-1: pure validators backing the _Checked catalog accessor variants.
+  # assetcatalog_api.c references catalogCheckedValidate*; without this
+  # source link, pd-server fails at the linker stage.
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_checked.c
+
+  # INV-4: pure helpers for matchOptionsForceBit / matchOptionsRestoreUserOriginal.
+  # matchsetup.c references them at matchStart restore; without this
+  # source link pd-server would fail.
+  ${CMAKE_SOURCE_DIR}/port/src/options_forced.c
+
   # UPnP library
   ${SRC_SERVER_MINIUPNPC}
 
@@ -804,6 +814,10 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/manifest_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_random_pool.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_bondgun_cache.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_catalog_checked.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_spawn_predicate.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_bodies_headcount.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_options_forced.cpp
 
   # Linker stubs for symbols the cherry-picked sources reference but the
   # test binary should not actually invoke.
@@ -815,6 +829,10 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/net/netbuf.c
   ${CMAKE_SOURCE_DIR}/port/src/connectcode.c
   ${CMAKE_SOURCE_DIR}/port/src/bondgun_cache.c
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_checked.c
+  ${CMAKE_SOURCE_DIR}/port/src/spawn_predicate.c
+  ${CMAKE_SOURCE_DIR}/port/src/bodies_headcount.c
+  ${CMAKE_SOURCE_DIR}/port/src/options_forced.c
 )
 
 add_executable(pd-tests ${SRC_TESTS})

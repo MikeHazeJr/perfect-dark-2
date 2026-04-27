@@ -21,6 +21,7 @@
 #include "crashbreadcrumb.h"
 #include "net/net.h"
 #include "net/netlobby.h"
+#include "options_forced.h" /* INV-4: engine-forced bit restore at matchStart */
 #include "game/menu.h"
 #include "game/mplayer/mplayer.h"
 #include "game/challenge.h"
@@ -99,6 +100,8 @@ void matchConfigInit(void)
 	g_MatchConfig.teamscorelimit = 400; /* no team score limit */
 	/* F.6/B-70: Default spawn-with-weapon ON so bots and players always start armed. */
 	g_MatchConfig.options = MPOPTION_SPAWNWITHWEAPON;
+	/* INV-4 / Cohort D: engine-forced bit history starts empty. */
+	g_MatchConfig.options_engine_forced = 0;
 	g_MatchConfig.weaponSetIndex = 0;   /* default to first available preset (Pistols) */
 	/* M0.1c: catalog ID is PRIMARY for spawn weapon. Empty = Random. */
 	g_MatchConfig.spawn_weapon_id[0] = '\0';
@@ -639,6 +642,26 @@ void matchConfigRerollBotName(s32 idx)
 
 s32 matchStart(void)
 {
+	/* INV-4 / Cohort D (player-init-architectural-fixes-2026-04-26):
+	 * restore user-original options before propagating to g_MpSetup. Any
+	 * MPOPTION_* bits force-set by an engine fallback (e.g. setup.c B-181
+	 * forcing SPAWNWITHWEAPON when world pickups were sparse on the prior
+	 * map) are cleared from g_MatchConfig.options here so the new match
+	 * starts from the user's original menu choices. The B-181 fallback
+	 * re-evaluates per stage and re-fires if the new map's pickup count
+	 * is still low; tracking via options_engine_forced makes the cycle
+	 * idempotent. Pre-INV-4 the OR-set persisted across matches because
+	 * matchConfigReset() is rare. */
+	if (g_MatchConfig.options_engine_forced != 0) {
+		const u32 cleared = g_MatchConfig.options_engine_forced;
+		matchOptionsRestoreUserOriginal(&g_MatchConfig.options,
+		                                &g_MatchConfig.options_engine_forced);
+		sysLogPrintf(LOG_NOTE,
+			"MATCHSETUP: cleared engine-forced MP option bits 0x%08x at matchStart "
+			"(restoring user-original options); B-181 will re-evaluate for new stage",
+			cleared);
+	}
+
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: starting match — %d slots, scenario=%d stage='%s'",
 	             g_MatchConfig.numSlots, g_MatchConfig.scenario, g_MatchConfig.stage_id);
 

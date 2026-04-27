@@ -77,7 +77,17 @@ struct matchconfig {
 	u8 timelimit;                   /* minutes (0 = unlimited) */
 	u8 scorelimit;                  /* score to win (0 = unlimited) */
 	u16 teamscorelimit;             /* team score limit */
-	u32 options;                    /* MPOPTION_* bitmask */
+	u32 options;                    /* MPOPTION_* bitmask (engine view: includes any forced bits) */
+	/* INV-4 / Cohort D (player-init-architectural-fixes-2026-04-26):
+	 * mask of MPOPTION_* bits that were force-set by an engine fallback
+	 * (e.g. setup.c B-181 force-enabling SPAWNWITHWEAPON when world
+	 * pickups are sparse). matchStart() restores user-original options
+	 * by clearing these bits from `options` + zeroing this field, so the
+	 * user's original menu choice is recovered on each new match.
+	 * Engine-forced bit setters MUST use matchOptionsForceBit so the
+	 * mark and the apply cannot drift. Tests pin the bit math in
+	 * port/src/options_forced.c. Not persisted to save files. */
+	u32 options_engine_forced;
 	/* PRIMARY: catalog ID strings for per-slot weapons (custom weapon sets).
 	 * e.g. "base:falcon2", "base:dragon". Empty = no weapon (MPWEAPON_NONE).
 	 * weapons[] (u8) is DERIVED — resolved from weapon_ids at matchStart(). */
