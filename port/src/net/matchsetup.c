@@ -34,6 +34,7 @@
 #include "inputctx.h"
 #include "menupool.h"
 #include "fs.h"
+#include "lib/rng.h"
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -103,9 +104,17 @@ void matchConfigInit(void)
 	/* INV-4 / Cohort D: engine-forced bit history starts empty. */
 	g_MatchConfig.options_engine_forced = 0;
 	g_MatchConfig.weaponSetIndex = 0;   /* default to first available preset (Pistols) */
-	/* M0.1c: catalog ID is PRIMARY for spawn weapon. Empty = Random. */
+	/* M0.1c: catalog ID is PRIMARY for spawn weapon. Empty + mode=RANDOM = roll
+	 * once at matchStart(). Empty + mode=FIESTA = roll per-spawn. Non-empty +
+	 * mode=SPECIFIC = use the named weapon. */
 	g_MatchConfig.spawn_weapon_id[0] = '\0';
 	g_MatchConfig.spawnWeaponNum = 0xFF; /* DEPRECATED derived cache */
+	/* S482 (2026-04-27): default mode = RANDOM. The legacy default was the
+	 * degenerate "fall back to weapons[0]" path which the user labeled
+	 * "Random" in the dropdown but did NOT actually roll. RANDOM here makes
+	 * the lobby pick reflect its label: every match rolls once across the
+	 * active weapon set and uses that for every spawn. */
+	g_MatchConfig.spawnWeaponMode = SPAWNWEAPON_MODE_RANDOM;
 	/* M0.1c: weapon_ids[] initialized to empty — preset sets fill g_MpSetup directly */
 	memset(g_MatchConfig.weapon_ids, 0, sizeof(g_MatchConfig.weapon_ids));
 	g_MatchConfig.numSlots = 0;
@@ -637,6 +646,60 @@ void matchConfigRerollBotName(s32 idx)
 }
 
 /* ========================================================================
+ * Spawn-weapon roll helpers (S482, 2026-04-27)
+ *
+ * Random / Fiesta semantics depend on a uniform pick across the active
+ * match weapon set, with NONE / DISABLED / SHIELD slots filtered out.
+ *
+ * spawnWeaponPickFromSlots is the pure variant — pluggable RNG, no globals.
+ * The test suite (tests/test_spawn_weapon_mode.cpp) replicates the spec
+ * directly per the test_random_pool.cpp pattern; this signature is provided
+ * so callers in non-test code (or future test bins that link the live
+ * function) have a stable API.
+ *
+ * spawnWeaponPickFromActiveSet is the live entry: reads g_MpSetup.weapons[]
+ * and rngRandom() and returns the chosen MPWEAPON_* index.
+ * ======================================================================== */
+
+s32 spawnWeaponPickFromSlots(const u8 *slots, s32 numSlots,
+                             u32 (*rng_fn)(void *userdata), void *userdata)
+{
+	u8 eligible[NUM_MPWEAPONSLOTS];
+	s32 num_eligible = 0;
+
+	if (slots == NULL || numSlots <= 0 || rng_fn == NULL) {
+		return 0;
+	}
+	if (numSlots > NUM_MPWEAPONSLOTS) {
+		numSlots = NUM_MPWEAPONSLOTS;
+	}
+	for (s32 i = 0; i < numSlots; i++) {
+		u8 w = slots[i];
+		if (w == MPWEAPON_NONE) continue;
+		if (w == MPWEAPON_DISABLED) continue;
+		if (w == MPWEAPON_SHIELD) continue;
+		eligible[num_eligible++] = w;
+	}
+	if (num_eligible == 0) {
+		return 0;
+	}
+	u32 r = rng_fn(userdata);
+	return (s32)eligible[r % (u32)num_eligible];
+}
+
+static u32 spawnWeaponRngBridge(void *userdata)
+{
+	(void)userdata;
+	return rngRandom();
+}
+
+s32 spawnWeaponPickFromActiveSet(void)
+{
+	return spawnWeaponPickFromSlots(g_MpSetup.weapons, NUM_MPWEAPONSLOTS,
+	                                spawnWeaponRngBridge, NULL);
+}
+
+/* ========================================================================
  * Match start — the clean replacement for the old menutick flow
  * ======================================================================== */
 
@@ -749,30 +812,63 @@ s32 matchStart(void)
 	             g_MpSetup.weapons[0], g_MpSetup.weapons[1], g_MpSetup.weapons[2],
 	             g_MpSetup.weapons[3], g_MpSetup.weapons[4], g_MpSetup.weapons[5]);
 
-	/* M0.1c: resolve spawn_weapon_id → spawnWeaponNum for legacy engine consumption.
-	 * Empty spawn_weapon_id = Random (0xFF). */
-	if (g_MatchConfig.spawn_weapon_id[0]) {
-		const asset_entry_t *swe = assetCatalogResolve(g_MatchConfig.spawn_weapon_id);
-		if (swe && swe->type == ASSET_WEAPON) {
-			/* ext.weapon.weapon_id is MPWEAPON_* index; need WEAPON_* enum. */
-			s32 mpw = swe->ext.weapon.weapon_id;
-			if (mpw > 0 && mpw < NUM_MPWEAPONS) {
-				g_MatchConfig.spawnWeaponNum = catalogGetMpWeaponNum(mpw);
+	/* S482 (2026-04-27): resolve spawn weapon for the match.
+	 *
+	 * SPECIFIC: spawn_weapon_id names the weapon; resolve to WEAPON_* enum.
+	 * RANDOM:   roll once across the active weapon set; the rolled WEAPON_*
+	 *           enum is what every spawn uses for the rest of the match.
+	 * FIESTA:   set spawnWeaponNum = SPAWNWEAPON_FIESTA_SENTINEL so player.c /
+	 *           bot.c spawn sites detect FIESTA and roll per-spawn from the
+	 *           active set.
+	 *
+	 * The host runs matchStart() once and writes spawnWeaponNum into the wire
+	 * (SVC_STAGE_START), so clients in MP receive the resolved integer
+	 * directly without re-rolling.
+	 */
+	switch (g_MatchConfig.spawnWeaponMode) {
+	case SPAWNWEAPON_MODE_FIESTA:
+		g_MatchConfig.spawnWeaponNum = SPAWNWEAPON_FIESTA_SENTINEL;
+		sysLogPrintf(LOG_NOTE,
+		    "MATCHSETUP: spawn weapon mode=FIESTA — every spawn rolls from active weapon set");
+		break;
+	case SPAWNWEAPON_MODE_RANDOM: {
+		s32 picked_mpw = spawnWeaponPickFromActiveSet();
+		if (picked_mpw <= 0) {
+			sysLogPrintf(LOG_WARNING,
+			    "MATCHSETUP: RANDOM roll found zero eligible slots — falling back to MPWEAPON_FALCON2");
+			picked_mpw = MPWEAPON_FALCON2;
+		}
+		g_MatchConfig.spawnWeaponNum = (u8)catalogGetMpWeaponNum(picked_mpw);
+		sysLogPrintf(LOG_NOTE,
+		    "MATCHSETUP: spawn weapon mode=RANDOM — rolled mpidx=%d weaponnum=%d for the match",
+		    picked_mpw, (s32)g_MatchConfig.spawnWeaponNum);
+		break;
+	}
+	case SPAWNWEAPON_MODE_SPECIFIC:
+	default:
+		if (g_MatchConfig.spawn_weapon_id[0]) {
+			const asset_entry_t *swe = assetCatalogResolve(g_MatchConfig.spawn_weapon_id);
+			if (swe && swe->type == ASSET_WEAPON) {
+				s32 mpw = swe->ext.weapon.weapon_id;
+				if (mpw > 0 && mpw < NUM_MPWEAPONS) {
+					g_MatchConfig.spawnWeaponNum = catalogGetMpWeaponNum(mpw);
+				} else {
+					g_MatchConfig.spawnWeaponNum = 0xFF;
+				}
 			} else {
+				sysLogPrintf(LOG_WARNING,
+				    "MATCHSETUP: spawn_weapon_id '%s' not in catalog — defaulting to Random fallback",
+				    g_MatchConfig.spawn_weapon_id);
 				g_MatchConfig.spawnWeaponNum = 0xFF;
 			}
 		} else {
-			sysLogPrintf(LOG_WARNING,
-			    "MATCHSETUP: spawn_weapon_id '%s' not in catalog — defaulting to Random",
-			    g_MatchConfig.spawn_weapon_id);
 			g_MatchConfig.spawnWeaponNum = 0xFF;
 		}
-	} else {
-		g_MatchConfig.spawnWeaponNum = 0xFF; /* Random */
+		sysLogPrintf(LOG_NOTE, "MATCHSETUP: spawn weapon mode=SPECIFIC '%s' → weaponnum=%d",
+		             g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "(empty)",
+		             (s32)g_MatchConfig.spawnWeaponNum);
+		break;
 	}
-	sysLogPrintf(LOG_NOTE, "MATCHSETUP: spawn weapon '%s' → weaponnum=%d",
-	             g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "(random)",
-	             (s32)g_MatchConfig.spawnWeaponNum);
 
 	/* --- Populate the participant pool (B-12 Phase 3) --- */
 	mpClearAllParticipants();

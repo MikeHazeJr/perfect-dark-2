@@ -833,6 +833,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_manifest.cpp
   ${CMAKE_SOURCE_DIR}/tests/manifest_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_random_pool.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_spawn_weapon_mode.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_bondgun_cache.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_checked.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_spawn_predicate.cpp

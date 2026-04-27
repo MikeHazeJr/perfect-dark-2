@@ -515,8 +515,11 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 		                               g_MpSetup.options,
 		                               MPOPTION_SPAWNWITHWEAPON)) {
 			/* F.6/M0.1c: spawnWeaponNum is DERIVED from spawn_weapon_id at matchStart().
-			 * 0xFF = Random → fall through to weapons[0] from the active set.
-			 * Any other value is a WEAPON_* enum resolved from catalog ID.
+			 *
+			 * S482 (2026-04-27) — three spawn-weapon modes (mirror of player.c:
+			 * SPECIFIC, RANDOM, FIESTA — see player.c spawn-weapon block for the
+			 * full doc). FIESTA rolls per-spawn from the active set so each bot
+			 * respawn yields a fresh weapon, independent of other bots / players.
 			 *
 			 * INV-1 / Cohort A.3 (player-init-architectural-fixes-2026-04-26):
 			 * catalog accessors here use the _Checked variants. On total miss
@@ -525,8 +528,18 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 			 * miss is logged as WARNING so it is auditable. */
 			s32 resolvedWeaponNum = 0;
 			s32 spawnWeaponIdx = -1;
-			if (g_MatchConfig.spawnWeaponNum != 0xFF && g_MatchConfig.spawnWeaponNum != 0) {
-				/* Specific weapon chosen: find the catalog index for ammo data */
+			if (g_MatchConfig.spawnWeaponMode == SPAWNWEAPON_MODE_FIESTA
+					|| g_MatchConfig.spawnWeaponNum == SPAWNWEAPON_FIESTA_SENTINEL) {
+				/* FIESTA: roll fresh from the active match set every bot spawn. */
+				spawnWeaponIdx = spawnWeaponPickFromActiveSet();
+				if (spawnWeaponIdx > 0) {
+					s32 wnum = 0;
+					if (catalogGetMpWeaponNumChecked(spawnWeaponIdx, &wnum)) {
+						resolvedWeaponNum = wnum;
+					}
+				}
+			} else if (g_MatchConfig.spawnWeaponNum != 0xFF && g_MatchConfig.spawnWeaponNum != 0) {
+				/* Specific (or RANDOM-rolled-once) weapon: find the catalog index for ammo data */
 				s32 wi;
 				s32 wnum;
 				resolvedWeaponNum = (s32)g_MatchConfig.spawnWeaponNum;
@@ -539,7 +552,7 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 			} else if (g_MpSetup.weapons[0] != MPWEAPON_NONE
 					&& g_MpSetup.weapons[0] != MPWEAPON_DISABLED
 					&& g_MpSetup.weapons[0] != MPWEAPON_SHIELD) {
-				/* Random / unset: use first weapon in the match set */
+				/* Legacy fallback (0xFF / 0): use first weapon in the match set */
 				spawnWeaponIdx = g_MpSetup.weapons[0];
 				if (!catalogGetMpWeaponNumChecked(spawnWeaponIdx, &resolvedWeaponNum)) {
 					resolvedWeaponNum = 0; /* miss already logged */

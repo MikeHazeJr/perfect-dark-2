@@ -486,8 +486,10 @@ static const int s_NumSimDiffs = 6;
  * ======================================================================== */
 
 struct spawnweapon_entry {
-    char catalog_id[64]; /* catalog ID e.g. "base:falcon2", or "" for Random */
+    char catalog_id[64]; /* catalog ID e.g. "base:falcon2", or "" for Random/Fiesta */
     char name[64];       /* display name */
+    u8   mode;           /* SPAWNWEAPON_MODE_* — RANDOM/FIESTA for synthetic
+                          * dropdown entries, SPECIFIC for catalog weapons. */
 };
 
 #define MAX_SPAWN_WEAPONS 64
@@ -498,32 +500,48 @@ static void buildSpawnWeaponList(void)
 {
     s_NumSpawnWeapons = 0;
 
-    /* Entry 0: Random (special — empty catalog_id) */
+    /* Entry 0: Random (rolled once at match start; every spawn uses that). */
     s_SpawnWeapons[0].catalog_id[0] = '\0';
     strncpy(s_SpawnWeapons[0].name, "Random", sizeof(s_SpawnWeapons[0].name));
-    s_NumSpawnWeapons = 1;
+    s_SpawnWeapons[0].mode = SPAWNWEAPON_MODE_RANDOM;
 
-    /* Scan catalog for all ASSET_WEAPON entries, skip NONE/DISABLED/SHIELD */
+    /* Entry 1: Fiesta (rolls fresh per spawn, per player). S482 (2026-04-27). */
+    s_SpawnWeapons[1].catalog_id[0] = '\0';
+    strncpy(s_SpawnWeapons[1].name, "Fiesta", sizeof(s_SpawnWeapons[1].name));
+    s_SpawnWeapons[1].mode = SPAWNWEAPON_MODE_FIESTA;
+
+    s_NumSpawnWeapons = 2;
+
+    /* Scan catalog for all ASSET_WEAPON entries, skip NONE/DISABLED/SHIELD.
+     * Post-cull (2026-04-26): MPWEAPON_SHIELD = 0x27, MPWEAPON_DISABLED = 0x28.
+     * The legacy 0x2f/0x30 values pre-cull are also rejected for safety in
+     * case any pre-cull catalog data leaks through. */
     for (int i = 0; ; i++) {
         const asset_entry_t *e = assetCatalogGetByIndex(i);
         if (!e) break;
         if (e->type != ASSET_WEAPON) continue;
         if (s_NumSpawnWeapons >= MAX_SPAWN_WEAPONS) break;
-        /* Skip non-combat entries */
         s32 wid = e->ext.weapon.weapon_id;
-        if (wid == 0x00 || wid == 0x30 || wid == 0x2f) continue; /* NONE, DISABLED, SHIELD */
+        if (wid == 0x00 /* NONE */
+                || wid == 0x27 /* SHIELD post-cull */
+                || wid == 0x28 /* DISABLED post-cull */
+                || wid == 0x2f /* SHIELD pre-cull (defensive) */
+                || wid == 0x30 /* DISABLED pre-cull (defensive) */) {
+            continue;
+        }
         spawnweapon_entry *sw = &s_SpawnWeapons[s_NumSpawnWeapons];
         strncpy(sw->catalog_id, e->id, sizeof(sw->catalog_id) - 1);
         sw->catalog_id[sizeof(sw->catalog_id) - 1] = '\0';
         strncpy(sw->name, e->ext.weapon.name ? e->ext.weapon.name : e->id,
                 sizeof(sw->name) - 1);
         sw->name[sizeof(sw->name) - 1] = '\0';
+        sw->mode = SPAWNWEAPON_MODE_SPECIFIC;
         s_NumSpawnWeapons++;
     }
 
-    /* B-187: alphabetize weapon entries to match Weapon Set dropdown (Random stays at index 0). */
-    if (s_NumSpawnWeapons > 2) {
-        std::sort(s_SpawnWeapons + 1, s_SpawnWeapons + s_NumSpawnWeapons,
+    /* B-187: alphabetize weapon entries (Random + Fiesta stay at index 0/1). */
+    if (s_NumSpawnWeapons > 3) {
+        std::sort(s_SpawnWeapons + 2, s_SpawnWeapons + s_NumSpawnWeapons,
                   [](const spawnweapon_entry &a, const spawnweapon_entry &b) {
                       return strcmp(a.name, b.name) < 0;
                   });
@@ -1437,16 +1455,29 @@ static void renderLevelEditorOverlay(void)
 
 static void syncSpawnWeaponFromConfig(void)
 {
-    /* M0.1c: match by catalog ID (PRIMARY) */
-    if (g_MatchConfig.spawn_weapon_id[0]) {
+    /* S482 (2026-04-27): mode-aware sync. RANDOM and FIESTA are synthetic
+     * dropdown entries with empty catalog_id; SPECIFIC matches by catalog ID. */
+    if (g_MatchConfig.spawnWeaponMode == SPAWNWEAPON_MODE_FIESTA) {
         for (int i = 0; i < s_NumSpawnWeapons; i++) {
-            if (strcmp(s_SpawnWeapons[i].catalog_id, g_MatchConfig.spawn_weapon_id) == 0) {
+            if (s_SpawnWeapons[i].mode == SPAWNWEAPON_MODE_FIESTA) {
+                s_SpawnWeaponIdx = i;
+                return;
+            }
+        }
+    } else if (g_MatchConfig.spawnWeaponMode == SPAWNWEAPON_MODE_SPECIFIC
+            && g_MatchConfig.spawn_weapon_id[0]) {
+        for (int i = 0; i < s_NumSpawnWeapons; i++) {
+            if (s_SpawnWeapons[i].mode == SPAWNWEAPON_MODE_SPECIFIC
+                    && strcmp(s_SpawnWeapons[i].catalog_id,
+                              g_MatchConfig.spawn_weapon_id) == 0) {
                 s_SpawnWeaponIdx = i;
                 return;
             }
         }
     }
-    s_SpawnWeaponIdx = 0;  /* default to Random */
+    /* RANDOM (default), or SPECIFIC with stale/missing id, or any unknown:
+     * land on entry 0 (Random). */
+    s_SpawnWeaponIdx = 0;
 }
 
 /* ========================================================================
@@ -2986,7 +3017,11 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     optToggle        ("Friendly Fire",   MPOPTION_FRIENDLYFIRE,      leader);
     optToggle        ("Fast Movement",   MPOPTION_FASTMOVEMENT,      leader);
     optToggle        ("Spawn w/ Weapon", MPOPTION_SPAWNWITHWEAPON,   leader);
-    /* Weapon selector — only visible when spawn-with-weapon is on */
+    /* Weapon selector — only visible when spawn-with-weapon is on.
+     *
+     * S482 (2026-04-27): three-mode selector. Random = roll once at match
+     * start (fixed for the match); Fiesta = roll fresh per spawn per player;
+     * specific weapon = always that weapon. */
     if (g_MatchConfig.options & MPOPTION_SPAWNWITHWEAPON) {
         if (!leader) ImGui::BeginDisabled();
         ImGui::SetNextItemWidth(comboW * 0.9f);
@@ -2996,11 +3031,14 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
                 bool sel = (wi == s_SpawnWeaponIdx);
                 if (ImGui::Selectable(s_SpawnWeapons[wi].name, sel)) {
                     s_SpawnWeaponIdx = wi;
-                    /* M0.1c: set catalog ID as PRIMARY identity */
+                    const spawnweapon_entry &chosen = s_SpawnWeapons[wi];
+                    /* M0.1c: set catalog ID as PRIMARY identity. RANDOM/FIESTA
+                     * entries clear the id; SPECIFIC writes the catalog id. */
                     strncpy(g_MatchConfig.spawn_weapon_id,
-                            s_SpawnWeapons[wi].catalog_id,
+                            chosen.catalog_id,
                             sizeof(g_MatchConfig.spawn_weapon_id) - 1);
                     g_MatchConfig.spawn_weapon_id[sizeof(g_MatchConfig.spawn_weapon_id) - 1] = '\0';
+                    g_MatchConfig.spawnWeaponMode = chosen.mode;
                     pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                 }
                 if (sel) ImGui::SetItemDefaultFocus();
