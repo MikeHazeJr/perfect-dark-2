@@ -2132,63 +2132,14 @@ struct mphead g_MpHeads[] = {
 	{ /*0x4b*/ HEAD_GREY,         0                          }, // Joanna (JP version)
 };
 
-u32 g_BotHeads[] = {
-	MPHEAD_JON,
-	MPHEAD_BEAU1,
-	MPHEAD_ROSS,
-	MPHEAD_MARK2,
-	MPHEAD_CHRIST,
-	MPHEAD_RUSS,
-	MPHEAD_DARLING,
-	MPHEAD_BRIAN,
-	MPHEAD_JAMIE,
-	MPHEAD_DUNCAN2,
-	MPHEAD_KEITH,
-	MPHEAD_STEVEM,
-	MPHEAD_GRANT,
-	MPHEAD_PENNY,
-	MPHEAD_DAVEC,
-	MPHEAD_JONES,
-	MPHEAD_GRAHAM,
-	MPHEAD_ROBERT,
-	MPHEAD_NEIL2,
-	MPHEAD_SHAUN,
-	MPHEAD_ROBIN,
-	MPHEAD_COOK,
-	MPHEAD_PRYCE,
-	MPHEAD_SILKE,
-	MPHEAD_SMITH,
-	MPHEAD_GARETH,
-	MPHEAD_MURCHIE,
-	MPHEAD_WONG,
-	MPHEAD_CARTER,
-	MPHEAD_TINTIN,
-	MPHEAD_MUNTON,
-	MPHEAD_STAMPER,
-	MPHEAD_PHELPS,
-	MPHEAD_ALEX,
-	MPHEAD_JULIANNE,
-	MPHEAD_LAURA,
-	MPHEAD_EDMCG,
-	MPHEAD_ANKA,
-	MPHEAD_LESLIE_S,
-	MPHEAD_MATT_C,
-	MPHEAD_PEER_S,
-	MPHEAD_EILEEN_T,
-	MPHEAD_ANDY_R,
-	MPHEAD_BEN_R,
-	MPHEAD_STEVE_K,
-	MPHEAD_SANCHEZ,
-	MPHEAD_TIM,
-	MPHEAD_KEN,
-	MPHEAD_EILEEN_H,
-	MPHEAD_SCOTT_H,
-	MPHEAD_JOEL,
-	MPHEAD_GRIFFEY,
-#if VERSION != VERSION_JPN_FINAL
-	MPHEAD_MOTO,
-#endif
-};
+/* g_BotHeads[] retired 2026-04-26 (heads catalog migration Step 6, decision
+ * I.5).  The hand-curated 52-entry list excluded "famous-named" characters
+ * (Joanna variants, Elvis, Carrington, Cassandra, Trent, Mr. Blonde) so
+ * bots only got rank-and-file rare-staff faces.  Per Mike's directive,
+ * bots now pick from the same unlocked catalog pool the player picks from
+ * (mpCreateBotFromProfile below).  If the famous-name exclusion is wanted
+ * back, add an `is_simulant_eligible` flag on the catalog entry rather than
+ * resurrecting a static enum list. */
 
 struct botprofile g_BotProfiles[] = {
 	// type,           difficulty,      name,       body,                 require feature
@@ -3584,11 +3535,37 @@ u8 mpFindUnusedTeamNum(void)
 	return teamnum;
 }
 
+/* Heads catalog migration Step 6 -- replace the static g_BotHeads[] pool
+ * with the catalog's unlocked head set, filtered by mp_index >= 0 (legacy
+ * bot wire format still uses mpheadnum).  Decision I.5: drop the
+ * famous-name exclusion -- bots can wear any unlocked head.  Decision I.6:
+ * graceful "no head" fallback (head_id "") when the pool is empty.
+ *
+ * Reentrancy / desync notes -- see catalogPickRandomHeadIdForBody header
+ * comment.  This callsite is NOT desync-sensitive: it runs only on the
+ * authoritative side that creates the bot config, then the resolved head_id
+ * is broadcast to peers via the standard match-config wire path. */
+struct s_mpBotHeadCollectCtx {
+	const char *ids[128];
+	s32         mpidxs[128];
+	s32         count;
+};
+
+static void s_mpCollectBotHead(const asset_entry_t *e, void *userdata)
+{
+	struct s_mpBotHeadCollectCtx *ctx = userdata;
+	if (ctx->count >= 128) return;
+	if (e->mp_index < 0) return;  /* legacy mpheadnum wire path needs mp_idx */
+	ctx->ids[ctx->count]    = e->id;
+	ctx->mpidxs[ctx->count] = (s32)e->mp_index;
+	ctx->count++;
+}
+
 void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 {
 	s32 headnum = 0;
+	const char *headIdResolved = NULL;
 	u8 team = mpFindUnusedTeamNum();
-	bool available = false;
 	s32 i;
 
 	g_BotConfigsArray[botnum].type = g_BotProfiles[profilenum].type;
@@ -3602,34 +3579,61 @@ void mpCreateBotFromProfile(s32 botnum, u8 profilenum)
 	strncpy(g_BotConfigsArray[botnum].base.name, "Sim\n", 14); g_BotConfigsArray[botnum].base.name[14] = '\0';
 	g_BotConfigsArray[botnum].base.team = team;
 
-	while (!available) {
-		headnum = g_BotHeads[rngRandom() % ARRAYCOUNT(g_BotHeads)];
-		available = true;
+	/* Build the candidate pool from the catalog's unlocked head set. */
+	struct s_mpBotHeadCollectCtx pool;
+	pool.count = 0;
+	assetCatalogIterateUnlockedByType(ASSET_HEAD, s_mpCollectBotHead, &pool);
 
-		const char *try_hid = catalogMpHeadId(headnum);
-
-		/* Check uniqueness by catalog ID string comparison */
-		for (i = mpParticipantFirst(); i >= 0; i = mpParticipantNext(i)) {
-			struct mpchrconfig *mpchr = MPCHR(i);
-
-			if (try_hid && mpchr->head_id[0] && strcmp(mpchr->head_id, try_hid) == 0) {
-				available = false;
+	if (pool.count > 0) {
+		/* Random pick with uniqueness preference against existing chr
+		 * head_ids.  Capped retries: with 32 max bots in a 76-head pool
+		 * uniqueness is overwhelmingly probable, but the cap prevents an
+		 * unbounded loop if the pool shrinks (e.g. heavy unlock filter
+		 * + max bot count). */
+		const s32 max_attempts = 64;
+		for (s32 attempt = 0; attempt < max_attempts; attempt++) {
+			s32 pick = (s32)(rngRandom() % (u32)pool.count);
+			const char *try_hid = pool.ids[pick];
+			s32         try_mp  = pool.mpidxs[pick];
+			bool dup = false;
+			for (i = mpParticipantFirst(); i >= 0; i = mpParticipantNext(i)) {
+				struct mpchrconfig *mpchr = MPCHR(i);
+				if (mpchr->head_id[0] && strcmp(mpchr->head_id, try_hid) == 0) {
+					dup = true;
+					break;
+				}
+			}
+			if (!dup || attempt + 1 == max_attempts) {
+				headnum         = try_mp;
+				headIdResolved  = try_hid;
+				break;
 			}
 		}
 	}
+	/* I.6 graceful fallback: pool empty (no unlocked heads with mp_idx) ->
+	 * head_id stays empty; consumers (preview, body load) treat empty as
+	 * "use body default head". */
 
 	/* PRIMARY: set catalog ID strings first */
+	if (headIdResolved) {
+		strncpy(g_BotConfigsArray[botnum].base.head_id, headIdResolved,
+			sizeof(g_BotConfigsArray[botnum].base.head_id) - 1);
+		g_BotConfigsArray[botnum].base.head_id[sizeof(g_BotConfigsArray[botnum].base.head_id) - 1] = '\0';
+	} else {
+		g_BotConfigsArray[botnum].base.head_id[0] = '\0';
+	}
 	{
-		const char *cid;
-		cid = catalogMpHeadId(headnum);
-		if (cid) { strncpy(g_BotConfigsArray[botnum].base.head_id, cid, sizeof(g_BotConfigsArray[botnum].base.head_id) - 1); g_BotConfigsArray[botnum].base.head_id[sizeof(g_BotConfigsArray[botnum].base.head_id) - 1] = '\0'; }
-		else { g_BotConfigsArray[botnum].base.head_id[0] = '\0'; }
-		cid = catalogMpBodyId(g_BotProfiles[profilenum].body);
-		if (cid) { strncpy(g_BotConfigsArray[botnum].base.body_id, cid, sizeof(g_BotConfigsArray[botnum].base.body_id) - 1); g_BotConfigsArray[botnum].base.body_id[sizeof(g_BotConfigsArray[botnum].base.body_id) - 1] = '\0'; }
-		else { g_BotConfigsArray[botnum].base.body_id[0] = '\0'; }
+		const char *cid = catalogMpBodyId(g_BotProfiles[profilenum].body);
+		if (cid) {
+			strncpy(g_BotConfigsArray[botnum].base.body_id, cid,
+				sizeof(g_BotConfigsArray[botnum].base.body_id) - 1);
+			g_BotConfigsArray[botnum].base.body_id[sizeof(g_BotConfigsArray[botnum].base.body_id) - 1] = '\0';
+		} else {
+			g_BotConfigsArray[botnum].base.body_id[0] = '\0';
+		}
 	}
 	/* DERIVED: set deprecated integer indices */
-	g_BotConfigsArray[botnum].base.mpheadnum = headnum;
+	g_BotConfigsArray[botnum].base.mpheadnum = (u8)headnum;
 	g_BotConfigsArray[botnum].base.mpbodynum = g_BotProfiles[profilenum].body;
 }
 

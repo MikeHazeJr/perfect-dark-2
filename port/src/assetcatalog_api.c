@@ -34,6 +34,7 @@
 #include "net/sessioncatalog.h"
 #include "net/netbuf.h"
 #include "modmgr.h"
+#include "game/challenge.h"  /* unlock-state filter for assetCatalogIterateUnlockedByType */
 #if !defined(PD_SERVER)
 #include "game/modeldef.h"
 #include "lib/rng.h"  /* P3: rngRandom for catalogPickRandomHeadIdForBody (client-only) */
@@ -448,6 +449,67 @@ const char *catalogIdByRuntime(asset_type_e type, s32 runtime_index)
     return s_RuntimeCache[(s32)type][runtime_index];
 }
 
+/* -------------------------------------------------------------------------
+ * Unlock-filtered iteration (selector pool = catalog INTERSECT unlock-state)
+ *
+ * The unlock gate field lives at different offsets per type's ext payload,
+ * so the helper centralises the type-to-field switch. Types without a
+ * requirefeature gate (most asset types) iterate identically to
+ * assetCatalogIterateByType.
+ *
+ * Server build: `challengeIsFeatureUnlocked` is compiled in for both targets,
+ * but `assetCatalogRegisterBaseGame` is not invoked server-side, so the
+ * iteration finds zero entries to emit.
+ * ------------------------------------------------------------------------- */
+
+static u32 s_entryRequireFeature(const asset_entry_t *e)
+{
+    switch (e->type) {
+        case ASSET_ARENA: return (u32)e->ext.arena.requirefeature;
+        case ASSET_BODY:  return (u32)e->ext.body.requirefeature;
+        case ASSET_HEAD:  return (u32)e->ext.head.requirefeature;
+        default:          return 0;
+    }
+}
+
+typedef struct {
+    asset_iter_fn user_fn;
+    void         *user_data;
+} unlock_filter_ctx_t;
+
+static void s_unlockFilterCb(const asset_entry_t *e, void *userdata)
+{
+    unlock_filter_ctx_t *ctx = (unlock_filter_ctx_t *)userdata;
+    u32 req = s_entryRequireFeature(e);
+    if (req != 0 && !challengeIsFeatureUnlocked((s32)req)) {
+        return;
+    }
+    ctx->user_fn(e, ctx->user_data);
+}
+
+void assetCatalogIterateUnlockedByType(asset_type_e type, asset_iter_fn fn,
+                                        void *userdata)
+{
+    if (!fn) return;
+    unlock_filter_ctx_t ctx;
+    ctx.user_fn   = fn;
+    ctx.user_data = userdata;
+    assetCatalogIterateByType(type, s_unlockFilterCb, &ctx);
+}
+
+static void s_unlockCountCb(const asset_entry_t *e, void *userdata)
+{
+    (void)e;
+    (*(s32 *)userdata)++;
+}
+
+s32 assetCatalogGetUnlockedCountByType(asset_type_e type)
+{
+    s32 count = 0;
+    assetCatalogIterateUnlockedByType(type, s_unlockCountCb, &count);
+    return count;
+}
+
 /* Body → default head catalog ID.  Reads ext.body.headnum from the body catalog
  * entry and resolves it to a HEAD catalog ID string via the runtime cache.
  * Returns NULL if body_id is unknown, wrong type, or headnum < 0. */
@@ -600,10 +662,45 @@ const char *catalogPickRandomHeadIdForBody(const char *body_id)
     int count = 0;
     const char *const *ids = catalogGetBodyValidHeadIds(body_id, &count);
     if (!ids || count <= 0) return NULL;
-    /* rngRandom returns a u32; modulo by count picks one entry.  For
-     * deterministic bodies (count == 1) this always returns the same ID. */
-    u32 pick = rngRandom() % (u32)count;
-    return ids[(s32)pick];
+
+    /* Step 2 (heads catalog migration, 2026-04-26): apply the unlock filter
+     * per Mike's directive "selector pool = catalog INTERSECT unlock-state".
+     * Two-pass: count unlocked first, then walk to the Nth unlocked entry.
+     * Both passes resolve each ID via the catalog hash; neither re-enters
+     * catalogGetBodyValidHeadIds, so the s_ValidHeadBuf reentrancy
+     * contract is preserved. */
+    int unlocked = 0;
+    for (int i = 0; i < count; i++) {
+        const asset_entry_t *e = assetCatalogResolve(ids[i]);
+        if (!e || e->type != ASSET_HEAD) continue;
+        u32 req = (u32)e->ext.head.requirefeature;
+        if (req != 0 && !challengeIsFeatureUnlocked((s32)req)) continue;
+        unlocked++;
+    }
+
+    if (unlocked == 0) {
+        /* I.6 graceful fallback: a body with no rig-compatible AND unlocked
+         * head still needs a defined head to render.  Fall back to the body's
+         * declared default head, even if itself locked.  Better to render a
+         * face the player technically hasn't unlocked than to crash or pick
+         * a random off-rig head. */
+        return catalogGetBodyDefaultHead(body_id);
+    }
+
+    /* rngRandom returns a u32; modulo by unlocked count picks one entry.
+     * For deterministic bodies (one unlocked head) this always returns
+     * the same ID. */
+    u32 pick = rngRandom() % (u32)unlocked;
+    int seen = 0;
+    for (int i = 0; i < count; i++) {
+        const asset_entry_t *e = assetCatalogResolve(ids[i]);
+        if (!e || e->type != ASSET_HEAD) continue;
+        u32 req = (u32)e->ext.head.requirefeature;
+        if (req != 0 && !challengeIsFeatureUnlocked((s32)req)) continue;
+        if (seen == (int)pick) return ids[i];
+        seen++;
+    }
+    return ids[0];  /* unreachable -- pick was bounded by unlocked count */
 }
 #endif
 
