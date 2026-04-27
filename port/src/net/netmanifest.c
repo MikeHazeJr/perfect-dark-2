@@ -57,6 +57,63 @@ PD_CONSTRUCTOR static void manifestConfigInit(void)
                       64, MANIFEST_MAX_ENTRIES);
 }
 
+/* S483 (2026-04-27): host-eligible spawn-weapon pool enumeration.
+ *
+ * The Random and Fiesta spawn-weapon modes (matchsetup.c
+ * spawnWeaponPickFromMatchManifest) draw their pool from the host's full
+ * unlocked-weapon catalog, not just the 6 active-set slots. Build sites
+ * (manifestBuild server-side, manifestBuildForHost client-side) call this
+ * helper after the existing 6-slot enumeration to add every host-unlocked
+ * ASSET_WEAPON entry (minus NONE/DISABLED/SHIELD) so clients receive the
+ * same pool the host rolls from. manifestAddEntry deduplicates by catalog
+ * id, so weapons already added via the active-set pass are not double-
+ * counted.
+ *
+ * Distribution: ASSET_WEAPON is already in the SVC_CATALOG_INFO type list
+ * (netmsg.c netmsgSvcCatalogInfoWrite), so mod-only weapons will already
+ * stream to clients via the existing CLC_CATALOG_DIFF / SVC_DISTRIB_*
+ * pipeline at lobby join time. */
+struct manifestWeaponPoolCtx {
+    match_manifest_t *m;
+    s32               added;
+    s32               skipped_filtered;
+    s32               skipped_invalid;
+};
+
+static void s_manifestWeaponPoolCb(const asset_entry_t *e, void *ud)
+{
+    struct manifestWeaponPoolCtx *ctx = (struct manifestWeaponPoolCtx *)ud;
+    if (!e || !e->id[0]) {
+        ctx->skipped_invalid++;
+        return;
+    }
+    s32 wid = (s32)e->ext.weapon.weapon_id;
+    if (wid <= 0 || wid >= NUM_MPWEAPONS
+            || wid == MPWEAPON_NONE
+            || wid == MPWEAPON_DISABLED
+            || wid == MPWEAPON_SHIELD) {
+        ctx->skipped_filtered++;
+        return;
+    }
+    manifestAddEntry(ctx->m, e->id,
+                     MANIFEST_TYPE_WEAPON, MANIFEST_SLOT_MATCH);
+    ctx->added++;
+}
+
+static void s_manifestAppendWeaponPool(match_manifest_t *out)
+{
+    struct manifestWeaponPoolCtx ctx;
+    ctx.m = out;
+    ctx.added = 0;
+    ctx.skipped_filtered = 0;
+    ctx.skipped_invalid = 0;
+    assetCatalogIterateUnlockedByType(ASSET_WEAPON,
+                                      s_manifestWeaponPoolCb, &ctx);
+    sysLogPrintf(LOG_NOTE,
+        "manifest: weapon pool enumeration -- added=%d filtered=%d invalid=%d",
+        ctx.added, ctx.skipped_filtered, ctx.skipped_invalid);
+}
+
 s32 manifestGetMaxEntries(void)
 {
     return s_ManifestMaxEntries;
@@ -442,7 +499,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
         }
     }
 
-    /* ---- Weapons ---- */
+    /* ---- Weapons (active set: 6 slots) ---- */
     for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
         const u8 wnum = g_MpSetup.weapons[i];
         const char *canon_id;
@@ -461,6 +518,12 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
                          (int)wnum);
         }
     }
+
+    /* ---- Weapons (host-eligible Random/Fiesta pool, S483 2026-04-27) ----
+     * Adds every host-unlocked ASSET_WEAPON entry (minus NONE/DISABLED/SHIELD)
+     * so clients receive the full pool the host rolls Random/Fiesta from.
+     * Dedup is automatic; the active-set 6 above already covers their slots. */
+    s_manifestAppendWeaponPool(out);
 
     /* ---- Players: iterate connected clients ---- */
     slot_index = 0;
@@ -756,7 +819,7 @@ void manifestBuildForHost(match_manifest_t *out)
         }
     }
 
-    /* ---- Weapons ---- */
+    /* ---- Weapons (active set: 6 slots) ---- */
     for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
         const u8 wnum = g_MpSetup.weapons[i];
         const char *canon_id;
@@ -771,6 +834,12 @@ void manifestBuildForHost(match_manifest_t *out)
                              MANIFEST_TYPE_WEAPON, MANIFEST_SLOT_MATCH);
         }
     }
+
+    /* ---- Weapons (host-eligible Random/Fiesta pool, S483 2026-04-27) ----
+     * Mirror of manifestBuild's enumeration so the host's CLC_LOBBY_START
+     * carries the full Random/Fiesta pool. Dedup against the active-set 6
+     * is automatic via manifestAddEntry. */
+    s_manifestAppendWeaponPool(out);
 
     /* ---- Host player (slot 0) ---- */
     slot_index = 0;

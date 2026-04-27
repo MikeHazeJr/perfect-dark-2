@@ -1822,8 +1822,10 @@ void playerSpawn(void)
 				s32 spawnWeaponIdx = -1;
 				if (g_MatchConfig.spawnWeaponMode == SPAWNWEAPON_MODE_FIESTA
 						|| g_MatchConfig.spawnWeaponNum == SPAWNWEAPON_FIESTA_SENTINEL) {
-					/* FIESTA: roll fresh from the active match set on every spawn. */
-					spawnWeaponIdx = spawnWeaponPickFromActiveSet();
+					/* FIESTA: roll fresh on every spawn from the host-broadcast
+					 * match manifest pool (S483). Falls back to the active weapon
+					 * set when the manifest is unavailable. */
+					spawnWeaponIdx = spawnWeaponPickFromMatchManifest();
 					if (spawnWeaponIdx > 0) {
 						s32 wnum = 0;
 						if (catalogGetMpWeaponNumChecked(spawnWeaponIdx, &wnum)) {
