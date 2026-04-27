@@ -506,15 +506,22 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 		if (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON) {
 			/* F.6/M0.1c: spawnWeaponNum is DERIVED from spawn_weapon_id at matchStart().
 			 * 0xFF = Random → fall through to weapons[0] from the active set.
-			 * Any other value is a WEAPON_* enum resolved from catalog ID. */
+			 * Any other value is a WEAPON_* enum resolved from catalog ID.
+			 *
+			 * INV-1 / Cohort A.3 (player-init-architectural-fixes-2026-04-26):
+			 * catalog accessors here use the _Checked variants. On total miss
+			 * the bot stays armed via the bot AI's own weapon-acquisition
+			 * fallback (botinvSwitchToWeapon path remains untouched); the
+			 * miss is logged as WARNING so it is auditable. */
 			s32 resolvedWeaponNum = 0;
 			s32 spawnWeaponIdx = -1;
 			if (g_MatchConfig.spawnWeaponNum != 0xFF && g_MatchConfig.spawnWeaponNum != 0) {
 				/* Specific weapon chosen: find the catalog index for ammo data */
 				s32 wi;
+				s32 wnum;
 				resolvedWeaponNum = (s32)g_MatchConfig.spawnWeaponNum;
 				for (wi = MPWEAPON_FALCON2; wi < NUM_MPWEAPONS; wi++) {
-					if (catalogGetMpWeaponNum(wi) == resolvedWeaponNum) { /* SA-5e */
+					if (catalogGetMpWeaponNumChecked(wi, &wnum) && wnum == resolvedWeaponNum) {
 						spawnWeaponIdx = wi;
 						break;
 					}
@@ -524,15 +531,24 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 					&& g_MpSetup.weapons[0] != MPWEAPON_SHIELD) {
 				/* Random / unset: use first weapon in the match set */
 				spawnWeaponIdx = g_MpSetup.weapons[0];
-				resolvedWeaponNum = catalogGetMpWeaponNum(spawnWeaponIdx); /* SA-5e */
+				if (!catalogGetMpWeaponNumChecked(spawnWeaponIdx, &resolvedWeaponNum)) {
+					resolvedWeaponNum = 0; /* miss already logged */
+				}
 			}
 			if (resolvedWeaponNum > 0) {
 				botinvGiveSingleWeapon(chr, resolvedWeaponNum);
 				if (spawnWeaponIdx >= 0) {
-					const s32 ammotype = (spawnWeaponIdx == MPWEAPON_COMBATBOOST)
-						? AMMOTYPE_BOOST : catalogGetMpWeaponPriAmmoType(spawnWeaponIdx);
+					s32 ammotype = 0;
+					if (spawnWeaponIdx == MPWEAPON_COMBATBOOST) {
+						ammotype = AMMOTYPE_BOOST;
+					} else {
+						(void)catalogGetMpWeaponPriAmmoTypeChecked(spawnWeaponIdx, &ammotype);
+					}
 					if (ammotype) {
-						s32 startammo = catalogGetMpWeaponPriAmmoQty(spawnWeaponIdx) / 2;
+						s32 priqty = 0;
+						s32 startammo;
+						(void)catalogGetMpWeaponPriAmmoQtyChecked(spawnWeaponIdx, &priqty);
+						startammo = priqty / 2;
 						if (startammo == 0) {
 							startammo = 1;
 						}
@@ -543,8 +559,10 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 				sysLogPrintf(LOG_NOTE, "SPAWN: bot chr=%p spawned with weapon %d (%s) -- auto-equipped",
 						(void *)chr, resolvedWeaponNum, bgunGetShortName(resolvedWeaponNum));
 			} else {
-				sysLogPrintf(LOG_NOTE, "SPAWN: bot chr=%p -- spawnwithweapon set but no valid weapon (spawnWeaponNum=%d weapons[0]=%d)",
-						(void *)chr, (s32)g_MatchConfig.spawnWeaponNum, (s32)g_MpSetup.weapons[0]);
+				sysLogPrintf(LOG_WARNING,
+					"SPAWN.CATALOG.MISS: bot chr=%p -- spawn-with-weapon catalog miss "
+					"(spawnWeaponNum=%d weapons[0]=%d); bot keeps default loadout",
+					(void *)chr, (s32)g_MatchConfig.spawnWeaponNum, (s32)g_MpSetup.weapons[0]);
 			}
 		}
 
