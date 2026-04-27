@@ -800,6 +800,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_savebuffer.cpp
   ${CMAKE_SOURCE_DIR}/tests/savebuffer_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_save_migration.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_manifest.cpp
+  ${CMAKE_SOURCE_DIR}/tests/manifest_pure.c
 
   # Linker stubs for symbols the cherry-picked sources reference but the
   # test binary should not actually invoke.
