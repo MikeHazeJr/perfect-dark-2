@@ -98,6 +98,17 @@ extern "C" void pdguiLogViewerRender(s32 winW, s32 winH);
 /* Mesh collision debug (F10) — declared in gfx_sdl2.cpp */
 extern "C" void meshDebugToggle(void);
 
+/* Pause-menu Debug Shortcuts registry. Single source of truth for the
+ * read-only shortcuts list shown by the pause menu's Debug Shortcuts
+ * modal.  Each raw SDL hotkey if-block in pdguiProcessEvent (and the
+ * Alt+Enter / backtick handlers in gfx_sdl2.cpp) is paired with a
+ * pdguiDebugShortcutRegister call inside registerDebugShortcuts() below.
+ * Adding a new raw hotkey?  Add a paired register call there.
+ *
+ * Forward decl for registerDebugShortcuts() lives inside the extern "C"
+ * block alongside its definition (line 238+). */
+#include "pdgui_debug_shortcuts.h"
+
 /* MP In-Game overlays: kill ticker + endscreen suppression */
 extern "C" void pdguiMpIngameRender(s32 winW, s32 winH);
 
@@ -228,6 +239,11 @@ extern "C" {
 
 /* Include C headers inside extern "C" block to ensure proper linkage */
 #include "pdgui.h"
+
+/* Forward decl for the Debug Shortcuts registry init function.  Defined
+ * later in this same extern "C" block, called from pdguiInit().  Must
+ * live inside extern "C" to match the definition's linkage. */
+static void registerDebugShortcuts(void);
 
 /* D5 Phase 2: C++ trampoline for ImGui nav wrapping.
  * Called from pdguiNavTickWrap() via function pointer to avoid
@@ -448,6 +464,11 @@ void pdguiInit(void *sdlWindow)
      * It's already called in main.c:161 (before configInit/actionmapLoadBinds).
      * Calling it again here wipes all pd.ini bind customizations that were
      * loaded by actionmapLoadBinds() at main.c:164. Removed. */
+
+    /* Pause-menu Debug Shortcuts registry: register all raw SDL hotkey
+     * entries + the actionmap-bound Forge toggle.  Co-located with the
+     * dispatcher in this file so drift is catchable in code review. */
+    registerDebugShortcuts();
 }
 
 /* M0.2 Phase C: Translate actionmap queries into ImGui nav key events.
@@ -1149,6 +1170,71 @@ void pdguiShutdown(void)
     g_PdguiWindow = nullptr;
 }
 
+/* Pause-menu Debug Shortcuts registry: single source of truth for the
+ * read-only shortcuts list shown by the pause menu modal.  Co-located
+ * with the dispatcher so adding a new raw SDL hotkey if-block below
+ * also requires a paired pdguiDebugShortcutRegister call here -- drift
+ * is catchable in code review.
+ *
+ * Entries cover (a) raw SDL handlers in pdguiProcessEvent below, (b) the
+ * two raw handlers in gfx_sdl2.cpp (Alt+Enter, backtick), and (c) one
+ * actionmap-bound debug-adjacent entry (F11 ACTION_FORGE_TOGGLE) that is
+ * surfaced for completeness with a "rebindable" note.
+ *
+ * Called once from pdguiInit() after subsystem init. */
+static void registerDebugShortcuts(void)
+{
+    /* Rendering (always-on, B-253 follow-up) */
+    pdguiDebugShortcutRegister("Shift+F1",
+        "Cycle backface cull mode (none -> back -> front)",
+        DBG_SHORTCUT_CAT_RENDERING, 0);
+    pdguiDebugShortcutRegister("Shift+F2",
+        "Toggle wireframe overlay on world render",
+        DBG_SHORTCUT_CAT_RENDERING, 0);
+
+    /* Diagnostics */
+    pdguiDebugShortcutRegister("F6",
+        "Freeze MP bot AI / movement (spawn-layout inspection)",
+        DBG_SHORTCUT_CAT_DIAGNOSTICS, 1);
+    pdguiDebugShortcutRegister("F9",
+        "Toggle menu / input-context diagnostics overlay (read-only)",
+        DBG_SHORTCUT_CAT_DIAGNOSTICS, 0);
+    pdguiDebugShortcutRegister("F10",
+        "Toggle mesh collision debug overlay",
+        DBG_SHORTCUT_CAT_DIAGNOSTICS, 0);
+
+    /* Developer */
+    pdguiDebugShortcutRegister("F12",
+        "Toggle dev debug overlay (push g_CtxDebugOverlay)",
+        DBG_SHORTCUT_CAT_DEVELOPER, 1);
+    pdguiDebugShortcutRegister("`",
+        "Toggle dev console (backtick / grave)",
+        DBG_SHORTCUT_CAT_DEVELOPER, 0);
+
+    /* Tooling */
+    pdguiDebugShortcutRegister("F8",
+        "Hot-swap toggle (flip rendering mode for ImGui menus)",
+        DBG_SHORTCUT_CAT_TOOLING, 0);
+    pdguiDebugShortcutRegister("Right-stick click",
+        "Hot-swap toggle (gamepad alias for F8)",
+        DBG_SHORTCUT_CAT_TOOLING, 0);
+    pdguiDebugShortcutRegister("Alt+Enter",
+        "Toggle fullscreen window",
+        DBG_SHORTCUT_CAT_TOOLING, 0);
+
+    /* Cheats */
+    pdguiDebugShortcutRegister("F7",
+        "Toggle player invincibility (solo / MP debug)",
+        DBG_SHORTCUT_CAT_CHEATS, 1);
+
+    /* Forge / Grid (actionmap-bound; shown here for completeness).
+     * Default keyboard binding moved from F7 to F11 (2026-04-26) to
+     * split the F7 dual-bind with the invincibility cheat above. */
+    pdguiDebugShortcutRegister("F11",
+        "Toggle Grid / Forge mode (default; rebindable in Settings -> Controls)",
+        DBG_SHORTCUT_CAT_FORGE, 0);
+}
+
 s32 pdguiProcessEvent(void *sdlEvent)
 {
     if (!g_PdguiInitialized) {
@@ -1157,7 +1243,11 @@ s32 pdguiProcessEvent(void *sdlEvent)
 
     const SDL_Event *ev = (const SDL_Event *)sdlEvent;
 
-    /* ---- Global hotkeys: always consumed regardless of context ---- */
+    /* ---- Global hotkeys: always consumed regardless of context ----
+     *
+     * IMPORTANT: any new raw SDL hotkey if-block added below must also
+     * be added to registerDebugShortcuts() above so the pause-menu
+     * Debug Shortcuts modal stays in sync.  Drift here = stale UI. */
 
 #if defined(PD_DEV_BUILD)
     /* F6: toggle MP bot AI/movement freeze (spawn layout inspection) */
