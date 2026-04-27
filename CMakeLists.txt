@@ -811,6 +811,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_bondgun_cache.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_checked.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_spawn_predicate.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_bodies_headcount.cpp
 
   # Linker stubs for symbols the cherry-picked sources reference but the
   # test binary should not actually invoke.
@@ -824,6 +825,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/bondgun_cache.c
   ${CMAKE_SOURCE_DIR}/port/src/catalog_checked.c
   ${CMAKE_SOURCE_DIR}/port/src/spawn_predicate.c
+  ${CMAKE_SOURCE_DIR}/port/src/bodies_headcount.c
 )
 
 add_executable(pd-tests ${SRC_TESTS})
