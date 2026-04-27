@@ -774,3 +774,58 @@ endif()
 # Built when targeting Windows; emits Build/PD2ModPropHandler.dll. The
 # subdirectory's CMakeLists.txt no-ops on non-Windows.
 add_subdirectory("${CMAKE_SOURCE_DIR}/tools/pdmod_prophandler")
+
+# ---------------------------------------------------------------------------
+# pd-tests: unit/roundtrip/state-machine test runner.
+#
+# Self-contained: does NOT link the full game (no SDL, no GL, no ImGui, no
+# ENet). Cherry-picks a handful of pure source files from src/ and port/src/
+# and links them against tests/main.cpp + tests/test_*.cpp under Catch2.
+#
+# Build:  ninja -C Build pd-tests
+# Run:    ./Build/pd-tests          (all tests)
+#         ./Build/pd-tests "[tag]"  (subset by tag)
+#
+# See context/designs/testing-framework-2026-04-26.md for the framework
+# design, coverage roadmap, and conventions.
+# ---------------------------------------------------------------------------
+set(SRC_TESTS
+  # Catch2 entry point + test cases
+  ${CMAKE_SOURCE_DIR}/tests/main.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_smoke.cpp
+
+  # Linker stubs for symbols the cherry-picked sources reference but the
+  # test binary should not actually invoke.
+  ${CMAKE_SOURCE_DIR}/tests/stubs.c
+)
+
+add_executable(pd-tests ${SRC_TESTS})
+add_dependencies(pd-tests pd_headers)
+target_include_directories(pd-tests PRIVATE
+  ${CMAKE_SOURCE_DIR}/include
+  ${CMAKE_SOURCE_DIR}/include/PR
+  ${CMAKE_SOURCE_DIR}/src/include
+  ${CMAKE_SOURCE_DIR}/port/include
+  ${CMAKE_BINARY_DIR}/port/include
+  ${CMAKE_BINARY_DIR}/src/generated/${ROMID}
+)
+target_compile_definitions(pd-tests PRIVATE
+  PD_TESTS=1
+  AVOID_UB=1
+  _LANGUAGE_C=1
+  PAL=0
+  VERSION=2
+  ROM_SIZE=32
+  PIRACYCHECKS=0
+  MATCHING=0
+)
+# Tests don't need the full PD warning fence, but match enough so genuine
+# bugs in test code aren't silently dropped.
+target_compile_options(pd-tests PRIVATE
+  $<$<COMPILE_LANGUAGE:C>:-Wno-pointer-sign>
+)
+if(WIN32)
+  target_link_libraries(pd-tests PRIVATE -static-libgcc -static-libstdc++
+    -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
+endif()
+set_target_properties(pd-tests PROPERTIES OUTPUT_NAME "pd-tests")
