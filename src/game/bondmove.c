@@ -50,6 +50,64 @@
 
 #define BUTTON_JUMP CONT_4000
 
+/* B-246 round-9: F2 test-fire scheduler. Mike's remote-testing setup
+ * (phone -> Windows RDP) does not let him use most game inputs, so F2
+ * schedules a single one-frame Z_TRIG pulse for player 0 a configurable
+ * number of ticks after the keypress. The pulse synthesises both
+ * c1buttons and c1buttonsthisframe so the fire chain sees a normal
+ * trigger rising edge. Multiple F2 presses queue independently up to
+ * F2_TEST_FIRE_QUEUE_SIZE.
+ *
+ * The actual injection happens in the c1buttons assembly inside the
+ * per-player input mux below; the schedule entry point is exported as
+ * bmoveScheduleTestFire so the SDL key handler in pdgui_backend.cpp
+ * can fill it without depending on game-side internals. */
+#define F2_TEST_FIRE_QUEUE_SIZE 16
+static s32 s_F2TestFireTargetFrame[F2_TEST_FIRE_QUEUE_SIZE];
+static s32 s_F2TestFireQueueCount = 0;
+
+void bmoveScheduleTestFire(s32 delay_ticks_60hz)
+{
+	s32 target;
+
+	if (s_F2TestFireQueueCount >= F2_TEST_FIRE_QUEUE_SIZE) {
+		return;
+	}
+
+	target = (s32)g_Vars.lvframenum + delay_ticks_60hz;
+	s_F2TestFireTargetFrame[s_F2TestFireQueueCount] = target;
+	s_F2TestFireQueueCount++;
+
+	sysLogPrintf(LOG_NOTE,
+		"LOG.WPN.DIAG: F2-test-fire scheduled at +1s (target_frame=%d cur_frame=%d queue_depth=%d)",
+		target, (s32)g_Vars.lvframenum, s_F2TestFireQueueCount);
+}
+
+static bool bmoveTestFireDueThisFrame(void)
+{
+	s32 cur = (s32)g_Vars.lvframenum;
+	s32 i;
+	bool fire = false;
+
+	for (i = 0; i < s_F2TestFireQueueCount; ) {
+		if (s_F2TestFireTargetFrame[i] <= cur) {
+			s32 j;
+			fire = true;
+			sysLogPrintf(LOG_NOTE,
+				"LOG.WPN.DIAG: F2-test-fire triggered (1s elapsed) frame=%d",
+				cur);
+			for (j = i; j < s_F2TestFireQueueCount - 1; j++) {
+				s_F2TestFireTargetFrame[j] = s_F2TestFireTargetFrame[j + 1];
+			}
+			s_F2TestFireQueueCount--;
+		} else {
+			i++;
+		}
+	}
+
+	return fire;
+}
+
 /* Use hold duration: propGetActionUseHoldThresholdMs() — when an interact prompt is active,
  * equals propInteractPromptHoldThresholdMs() (effective ms + per-target extras in prop.c);
  * otherwise actionmapGetEffectiveHoldMs(ACTION_USE). See actionmap.h / pdgui-hold-ring.md. */
@@ -1004,6 +1062,15 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					(s32)allowc1buttons, (s32)g_Vars.lvframenum);
 			}
 			if (actionHeld(pi, ACTION_FIRE_PRIMARY))   c1buttons |= Z_TRIG;
+			/* B-246 round-9: F2 test-fire injection. When a scheduled fire
+			 * reaches its target lvframenum, synthesise a one-frame Z_TRIG
+			 * pulse for player 0. Drains one queue entry per call. The
+			 * c1buttonsthisframe OR happens at the matching actionPressed
+			 * site below to provide a rising edge on the same frame. */
+			if (pi == 0 && bmoveTestFireDueThisFrame()) {
+				c1buttons |= Z_TRIG;
+				c1buttonsthisframe |= Z_TRIG;
+			}
 			if (actionHeld(pi, ACTION_FIRE_SECONDARY)) c1buttons |= R_TRIG;
 			if (actionHeld(pi, ACTION_FIRE_MODE))      c1buttons |= L_TRIG;
 			if (actionHeld(pi, ACTION_CANCEL_USE))     c1buttons |= B_BUTTON;

@@ -1277,12 +1277,27 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 					head_canon = g_MatchConfig.slots[slotIdx].head_id;
 				}
 
-				/* Fallback: resolve from mpbodynum/mpheadnum via cached lookup. */
+				/* Fallback: resolve from mpbodynum/mpheadnum via the mp_idx
+				 * cache.
+				 *
+				 * B-235 sibling fix (heads catalog migration, 2026-04-26):
+				 * bc->base.mpbodynum / mpheadnum are mp_idx (g_MpBodies[] /
+				 * g_MpHeads[] position), NOT runtime_index (g_HeadsAndBodies[]
+				 * position).  The previous catalogIdByRuntime(ASSET_HEAD,
+				 * mp_idx) call cross-indexed the wrong cache and serialized
+				 * a different head's catalog ID -- bots with mpheadnum=6
+				 * (Carrington) shipped as "base:head_ross" because
+				 * g_HeadsAndBodies[6] is HEAD_ROSS.  Same class as the
+				 * S452 room-screen bug (B-235) and the weapons anti-pattern
+				 * documented at src/game/setup.c:2739.
+				 *
+				 * Use catalogMpBodyId / catalogMpHeadId which take mp_idx
+				 * as input -- the matching cache. */
 				if (!body_canon) {
-					body_canon = catalogIdByRuntime(ASSET_BODY, (s32)bc->base.mpbodynum);
+					body_canon = catalogMpBodyId((s32)bc->base.mpbodynum);
 				}
 				if (!head_canon) {
-					head_canon = catalogIdByRuntime(ASSET_HEAD, (s32)bc->base.mpheadnum);
+					head_canon = catalogMpHeadId((s32)bc->base.mpheadnum);
 				}
 
 				catalogWriteAssetRef(dst, body_canon ? sessionCatalogGetId(body_canon) : 0);

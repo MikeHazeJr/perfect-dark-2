@@ -80,6 +80,7 @@
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "assetcatalog.h"         /* heads catalog migration: assetCatalogIterateUnlockedByType */
 
 extern "C" {
 #include "pdgui_menus.h"  /* for pdguiMenuPlayerConfigRegister declaration */
@@ -124,7 +125,13 @@ void netClientSettingsChanged(void);
  *      includes on some compiler configs). ---- */
 const char *catalogMpBodyId(s32 mpbodynum);
 const char *catalogMpHeadId(s32 mpheadnum);
+const char *catalogGetBodyDefaultHead(const char *body_id);
 char       *mpGetBodyName(u8 mpbodynum);
+
+/* ---- Head selector commit (writes head_id PRIMARY + DEPRECATED mpheadnum
+ *      via mpchrSetHeadById). Defined in pdgui_bridge.c. ---- */
+void mpPlayerConfigSetHeadId(s32 playernum, const char *head_id);
+const char *mpPlayerConfigGetHeadId(s32 playernum);
 
 /* ---- Batch 11 bridge accessors (pdgui_bridge.c) ---- */
 void pdguiPcMpSetShowPresets(s32 on);
@@ -502,6 +509,80 @@ static void pc_NetNotifyLocalPlayerChanged(void)
  * visually consistent. */
 #define MP_CHAR_PREVIEW_ROTY (-0.45f)
 
+/* Heads catalog migration (Step 4): unlocked head pool, sorted by display
+ * name.  Built via assetCatalogIterateUnlockedByType so the carousel only
+ * shows heads the player has actually unlocked.  Same shape as
+ * pdgui_menu_agentcreate.cpp; could be extracted to a shared helper in a
+ * future polish pass.  s_PcHeadListCountKnown == -1 forces first-frame
+ * build; subsequent unlock-state changes are detected via count delta. */
+#define PC_MAX_HEAD_COUNT 128
+struct PcHeadEntry {
+    char id[CATALOG_ID_LEN];
+    char display[64];
+};
+static PcHeadEntry s_PcHeadList[PC_MAX_HEAD_COUNT];
+static s32         s_PcHeadListCount      = 0;
+static s32         s_PcHeadListCountKnown = -1;
+
+static void s_pcFormatHeadName(const char *raw, char *out, size_t outsz)
+{
+    if (outsz == 0) return;
+    out[0] = '\0';
+    if (!raw) return;
+    static const char k_prefix[] = "head_";
+    const size_t prefixLen = sizeof(k_prefix) - 1;
+    const char *src = raw;
+    if (strncmp(src, k_prefix, prefixLen) == 0) src += prefixLen;
+    bool capitalize = true;
+    size_t i = 0;
+    while (*src && i + 1 < outsz) {
+        unsigned char c = (unsigned char)*src++;
+        if (c == '_') { out[i++] = ' '; capitalize = true; }
+        else if (capitalize) { out[i++] = (char)toupper(c); capitalize = false; }
+        else { out[i++] = (char)tolower(c); }
+    }
+    out[i] = '\0';
+}
+
+static int s_pcCompareHead(const void *a, const void *b)
+{
+    return strcmp(((const PcHeadEntry *)a)->display,
+                  ((const PcHeadEntry *)b)->display);
+}
+
+static void s_pcCollectUnlockedHead(const asset_entry_t *e, void *userdata)
+{
+    (void)userdata;
+    if (s_PcHeadListCount >= PC_MAX_HEAD_COUNT) return;
+    PcHeadEntry *h = &s_PcHeadList[s_PcHeadListCount++];
+    strncpy(h->id, e->id, sizeof(h->id) - 1);
+    h->id[sizeof(h->id) - 1] = '\0';
+    s_pcFormatHeadName(e->id, h->display, sizeof(h->display));
+}
+
+static void s_pcRebuildHeadList(void)
+{
+    s_PcHeadListCount = 0;
+    assetCatalogIterateUnlockedByType(ASSET_HEAD, s_pcCollectUnlockedHead, NULL);
+    if (s_PcHeadListCount > 1) {
+        qsort(s_PcHeadList, (size_t)s_PcHeadListCount, sizeof(s_PcHeadList[0]),
+              s_pcCompareHead);
+    }
+    s_PcHeadListCountKnown = s_PcHeadListCount;
+}
+
+/* Find list position for catalog head ID, or 0 if not present (e.g. the
+ * player's currently-equipped head was unlocked-then-locked or removed
+ * by a mod). */
+static s32 s_pcFindHeadIndexById(const char *head_id)
+{
+    if (!head_id || !head_id[0]) return 0;
+    for (s32 i = 0; i < s_PcHeadListCount; i++) {
+        if (strcmp(s_PcHeadList[i].id, head_id) == 0) return i;
+    }
+    return 0;
+}
+
 static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
 {
     /* B-253: Wider window (was 0.68 wide, 0.70 tall) so the right-side
@@ -525,18 +606,31 @@ static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
                           ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
-        /* Current committed selection (read via legacy handlers so we match
-         * the preview state the legacy menu runtime sees for its own
-         * MENUOP_11 preview-tick side effects). */
+        /* Current committed selection (body via legacy handlers; head via
+         * the unlocked-pool list).  Body-side stays legacy because bodies
+         * have their own migration session pending; per the heads audit
+         * (Section H), we leave the body picker untouched. */
         s32 numBodies = list_GetOptionCount(mpCharacterBodyListHandler, 0);
         s32 curBody   = list_GetSelectedIndex(mpCharacterBodyListHandler, 0);
         if (curBody < 0 || curBody >= numBodies) curBody = 0;
 
-        s32 numHeads  = car_GetCount(menuhandlerMpCharacterHead, 0);
-        s32 curHead   = car_GetSelectedIndex(menuhandlerMpCharacterHead, 0);
+        /* Heads catalog migration (Step 4): rebuild the unlocked head pool
+         * when the unlocked count changes (catalog or unlock-state delta). */
+        s32 unlockedHeadCount = assetCatalogGetUnlockedCountByType(ASSET_HEAD);
+        if (s_PcHeadListCountKnown != unlockedHeadCount) {
+            s_pcRebuildHeadList();
+        }
+
+        s32 numHeads = s_PcHeadListCount;
+        if (numHeads <= 0) numHeads = 1;  /* keep clamp math sane */
+        /* Locate the player's committed head_id in the unlocked list.
+         * If the equipped head is locked or missing (mod removed) the
+         * carousel falls to position 0 -- still a valid unlocked head. */
+        const char *committedHeadId = mpPlayerConfigGetHeadId(g_MpPlayerNum);
+        s32 curHead = s_pcFindHeadIndexById(committedHeadId);
         if (curHead < 0) curHead = 0;
-        if (numHeads <= 0) numHeads = 1;
-        if (curHead >= numHeads) curHead = numHeads - 1;
+        if (curHead >= s_PcHeadListCount) curHead = s_PcHeadListCount - 1;
+        if (curHead < 0) curHead = 0;
 
         float contentW = ImGui::GetContentRegionAvail().x;
         float colGap   = pdguiScale(20.0f);
@@ -603,38 +697,36 @@ static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
             ImGui::TextUnformatted("Head");
             ImGui::SameLine();
 
-            /* The head carousel MENUOP_SET accepts any valid index.  For
-             * bodies with an integrated head the legacy handler clamps
-             * the count to 1 and ignores SET, which is a no-op here too. */
-            bool canCycle = (numHeads > 1);
+            /* Step 4 -- carousel reads from the unlocked-pool list.  Steps
+             * commit via mpPlayerConfigSetHeadId which updates head_id
+             * (PRIMARY) and DEPRECATED mpheadnum together.  Bodies with
+             * an integrated head have no rig-compatible head pool entries
+             * for swapping in this UI today; if Mike wants the integrated-
+             * head guard here too, follow the agentcreate pattern. */
+            bool canCycle = (s_PcHeadListCount > 1);
 
             ImGui::BeginDisabled(!canCycle);
             if (ImGui::ArrowButton("##pc_char_head_prev", ImGuiDir_Left)) {
-                s32 next = (curHead - 1 + numHeads) % numHeads;
-                car_Set(menuhandlerMpCharacterHead, 0, next);
+                s32 next = (curHead - 1 + s_PcHeadListCount) % s_PcHeadListCount;
+                mpPlayerConfigSetHeadId(g_MpPlayerNum, s_PcHeadList[next].id);
                 pdguiPlaySound(PDGUI_SND_SELECT);
             }
             ImGui::SameLine();
 
-            /* Show a numeric label + catalog ID hint — heads have no
-             * localized display name (the N64 UI used a 3D preview and
-             * carousel arrows only).  The catalog ID is the most
-             * meaningful thing we can surface in text. */
+            /* Show "i / N (display_name)" -- catalog display name beats
+             * the raw catalog ID hint that previously shipped here. */
             char headLbl[96];
-            const char *curHeadId = catalogMpHeadId(curHead);
-            if (curHeadId && curHeadId[0]) {
-                snprintf(headLbl, sizeof(headLbl), "%d / %d  (%s)",
-                         (int)(curHead + 1), (int)numHeads, curHeadId);
-            } else {
-                snprintf(headLbl, sizeof(headLbl), "%d / %d",
-                         (int)(curHead + 1), (int)numHeads);
-            }
+            const char *curHeadDisplay = (curHead >= 0 && curHead < s_PcHeadListCount)
+                ? s_PcHeadList[curHead].display
+                : "???";
+            snprintf(headLbl, sizeof(headLbl), "%d / %d  (%s)",
+                     (int)(curHead + 1), (int)s_PcHeadListCount, curHeadDisplay);
             ImGui::TextUnformatted(headLbl);
 
             ImGui::SameLine();
             if (ImGui::ArrowButton("##pc_char_head_next", ImGuiDir_Right)) {
-                s32 next = (curHead + 1) % numHeads;
-                car_Set(menuhandlerMpCharacterHead, 0, next);
+                s32 next = (curHead + 1) % s_PcHeadListCount;
+                mpPlayerConfigSetHeadId(g_MpPlayerNum, s_PcHeadList[next].id);
                 pdguiPlaySound(PDGUI_SND_SELECT);
             }
             ImGui::EndDisabled();
@@ -653,7 +745,11 @@ static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
             float px = colsOrigin.x + leftW + colGap;
             float py = colsOrigin.y;
 
-            const char *headId = catalogMpHeadId(curHead);
+            /* Live preview: head_id from the unlocked pool list (Step 4 --
+             * curHead is now a list-index, NOT mp_idx).  Body still legacy. */
+            const char *headId = (curHead >= 0 && curHead < s_PcHeadListCount)
+                ? s_PcHeadList[curHead].id
+                : NULL;
             const char *bodyId = catalogMpBodyId(curBody);
 
             /* Fix the body at a 3/4-turn pose; idle rotation off so the

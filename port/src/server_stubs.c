@@ -429,6 +429,14 @@ void        audioMusicSyncReceive(const char *track_id, u32 match_clock_offset_m
                                                             { (void)track_id; (void)match_clock_offset_ms; }
 void        audioMusicSyncCorrectionTick(void)              { /* no-op on server */ }
 
+/* --- Challenge stub --- server never loads challenge save data, but the
+ * shared assetCatalogIterateUnlockedByType / assetCatalogGetUnlockedCountByType
+ * helpers in assetcatalog_api.c reference challengeIsFeatureUnlocked. The
+ * server registers no ASSET_HEAD / BODY / ARENA entries (no ROM data), so
+ * the iterator filter never actually fires; returning "everything unlocked"
+ * is the safe default. */
+bool challengeIsFeatureUnlocked(s32 feature) { (void)feature; return 1; }
+
 /* --- Asset Provider stubs (Direct File Access Phase 1) — server never
  * loads asset bytes (no ROM, no file system for assets), but shared
  * registration code (assetcatalog_base.c, assetcatalog_scanner.c) calls

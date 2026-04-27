@@ -72,18 +72,12 @@ void mpPlayerConfigSetHeadBody(s32 playernum, const char *head_id, const char *b
 extern s32 g_MpPlayerNum;
 
 /* Head/body accessors (defined in mplayer.c) */
-s32 mpGetNumHeads2(void);
-s32 mpGetNumHeads(void);
-s32 mpGetHeadId(u8 headnum);
 u32 mpGetNumBodies(void);
-s32 mpGetBodyId(u8 bodynum);
 char *mpGetBodyName(u8 mpbodynum);
-s32 catalogGetBodyDefaultMpHeadIdx(s32 mpbodynum);
-/* Body/head data accessed via catalog accessors (catalogMpBodyId, catalogMpHeadId) */
-
-/* Feature checking — unlock system */
-s32 mpGetHeadRequiredFeature(u8 headnum);
-s32 mpGetBodyRequiredFeature(u8 bodynum);
+/* Body/head data accessed via catalog accessors (catalogMpBodyId,
+ * catalogGetBodyDefaultHead, assetCatalogIterateUnlockedByType, etc.). The
+ * head pool reads through the catalog with the unlock filter applied -- per
+ * Mike's directive "selector pool = catalog INTERSECT unlock-state". */
 
 /* File operations.
  * In PD, "New Agent" creates a campaign GAME save (FILETYPE_GAME).
@@ -117,7 +111,6 @@ static bool s_HeadOverridden = false; /* Has user manually picked a head? */
 static bool s_FirstFrame = true;      /* Focus name input on first frame */
 
 /* Cached counts (refreshed each frame) */
-static s32 s_NumHeads = 0;
 static s32 s_NumBodies = 0;
 
 /* Frame-scoped flag: set inside the LEFT-pane name input render, read in the
@@ -125,12 +118,26 @@ static s32 s_NumBodies = 0;
  * commits Create.  Reset to false at the top of each render pass. */
 static bool s_NameEnterPressedThisFrame = false;
 
-/* Head sort map — alphabetically sorted by display name */
+/* Head pool -- catalog entries filtered by the local player's unlock state,
+ * sorted by display name.  Built via assetCatalogIterateUnlockedByType so
+ * the carousel only ever shows heads the player has actually unlocked.  Mod
+ * heads enter the pool automatically (their requirefeature is 0 by
+ * convention).  Heads with mp_index == -1 (mod / SP fallback heads) are
+ * included -- the catalog ID is the canonical identity, not mp_index.
+ *
+ * Cache invalidation: rebuilt when the unlocked count differs from
+ * s_HeadListCount or when the dialog appears.  Both signals catch unlock
+ * state changes mid-session (Unlock All cheat, save load) without paying
+ * for a full rebuild every frame.
+ */
 #define MAX_HEAD_COUNT 128
-static s32  s_SortedHeadIndices[MAX_HEAD_COUNT];
-static char s_HeadDisplayNames[MAX_HEAD_COUNT][64];
-static s32  s_SortedHeadCount    = 0;
-static s32  s_SortedHeadNumHeads = 0; /* triggers rebuild when != s_NumHeads */
+struct HeadEntry {
+    char id[CATALOG_ID_LEN];   /* "base:head_carrington", "modid:head_x" */
+    char display[64];           /* formatted from id */
+};
+static HeadEntry s_HeadList[MAX_HEAD_COUNT];
+static s32       s_HeadListCount       = 0;
+static s32       s_HeadListCountKnown  = -1; /* triggers rebuild when stale */
 
 /* ========================================================================
  * Helpers
@@ -167,56 +174,68 @@ static void formatCatalogId(const char *raw_id, const char *prefix,
 
 static int s_compareHeadByName(const void *a, const void *b)
 {
-    return strcmp(s_HeadDisplayNames[*(const s32 *)a],
-                  s_HeadDisplayNames[*(const s32 *)b]);
+    return strcmp(((const HeadEntry *)a)->display,
+                  ((const HeadEntry *)b)->display);
 }
 
-/**
- * Rebuild the sorted head index map.
- * s_SortedHeadIndices[i] is the mpheadnum at sorted position i.
- * s_HeadDisplayNames[mpheadnum] is the formatted display name.
- */
+/* Iteration callback for assetCatalogIterateUnlockedByType.  Appends to
+ * s_HeadList[] while count < MAX_HEAD_COUNT. */
+static void s_collectUnlockedHead(const asset_entry_t *e, void *userdata)
+{
+    (void)userdata;
+    if (s_HeadListCount >= MAX_HEAD_COUNT) return;
+    HeadEntry *h = &s_HeadList[s_HeadListCount++];
+    strncpy(h->id, e->id, sizeof(h->id) - 1);
+    h->id[sizeof(h->id) - 1] = '\0';
+    /* formatCatalogId strips the legacy "head_" prefix only.  Catalog IDs
+     * have a "namespace:" prefix ("base:head_carrington",
+     * "base:sp_head_67") which is preserved in the display today.  Display
+     * polish (strip namespace + handle sp_head_) is a follow-up. */
+    formatCatalogId(e->id, "head_", h->display, sizeof(h->display));
+}
+
+/* Rebuild s_HeadList from the catalog, filtered by unlock-state.  O(N) over
+ * the full catalog pool.  Called when the dialog appears or when the
+ * unlocked count changes (cheap detection signal for catalog mutations). */
 static void rebuildHeadSortMap(void)
 {
-    s32 n = s_NumHeads;
-    if (n > MAX_HEAD_COUNT) n = MAX_HEAD_COUNT;
-    s_SortedHeadCount = n;
-    for (s32 i = 0; i < n; i++) {
-        s_SortedHeadIndices[i] = i;
-        const char *catId = catalogMpHeadId(i);
-        if (catId)
-            formatCatalogId(catId, "head_",
-                            s_HeadDisplayNames[i], sizeof(s_HeadDisplayNames[i]));
-        else
-            snprintf(s_HeadDisplayNames[i], sizeof(s_HeadDisplayNames[i]),
-                     "Head %d", i);
+    s_HeadListCount = 0;
+    assetCatalogIterateUnlockedByType(ASSET_HEAD, s_collectUnlockedHead, NULL);
+    if (s_HeadListCount > 1) {
+        qsort(s_HeadList, (size_t)s_HeadListCount, sizeof(s_HeadList[0]),
+              s_compareHeadByName);
     }
-    qsort(s_SortedHeadIndices, n, sizeof(s_SortedHeadIndices[0]),
-          s_compareHeadByName);
-    s_SortedHeadNumHeads = s_NumHeads;
+    s_HeadListCountKnown = s_HeadListCount;
 }
 
-/**
- * Find the sorted-list position for a given mpheadnum.
- * Returns 0 if not found.
- */
-static s32 findSortedPosForMpHeadnum(s32 mpheadnum)
+/* Find list position for a catalog head ID.  Returns 0 if not found. */
+static s32 findHeadIndexById(const char *head_id)
 {
-    for (s32 i = 0; i < s_SortedHeadCount; i++) {
-        if (s_SortedHeadIndices[i] == mpheadnum) return i;
+    if (!head_id || !head_id[0]) return 0;
+    for (s32 i = 0; i < s_HeadListCount; i++) {
+        if (strcmp(s_HeadList[i].id, head_id) == 0) return i;
     }
     return 0;
 }
 
-/**
- * Get the display name for the head at sorted position sortedPos.
- * Returns a pointer into s_HeadDisplayNames (stable until rebuildHeadSortMap).
- */
-static const char *getHeadDisplayName(s32 sortedPos)
+/* Get the display name for the head at list position pos. */
+static const char *getHeadDisplayName(s32 pos)
 {
-    if (sortedPos < 0 || sortedPos >= s_SortedHeadCount)
-        return "Head ???";
-    return s_HeadDisplayNames[s_SortedHeadIndices[sortedPos]];
+    if (pos < 0 || pos >= s_HeadListCount) return "Head ???";
+    return s_HeadList[pos].display;
+}
+
+/* True when the body at mp_idx mpbodynum has an integrated head model
+ * (unk00_01 == 1) -- e.g. Dr. Carroll, Skedar, Eye Spy.  These bodies
+ * cannot accept a separate head; the head carousel is disabled. */
+static bool s_bodyHasIntegratedHead(s32 mpbodynum)
+{
+    const char *bid = catalogMpBodyId(mpbodynum);
+    if (!bid) return false;
+    const asset_entry_t *be = assetCatalogResolve(bid);
+    if (!be || be->type != ASSET_BODY) return false;
+    /* runtime_index for body entries is the g_HeadsAndBodies[] index. */
+    return catalogGetBodyIsComplete(be->runtime_index) ? true : false;
 }
 
 /**
@@ -231,17 +250,23 @@ static const char *getBodyDisplayName(s32 bodyIdx)
     return name ? name : "???";
 }
 
-/**
- * Auto-select a head that matches the current body.
- * Uses the same logic as the original game.
- */
+/* Auto-select the head paired with the current body.
+ *
+ * Uses catalogGetBodyDefaultHead to get the body's declared default head as
+ * a catalog ID string, then finds its position in the unlocked list.  If
+ * the default head is locked it won't be in the list -- findHeadIndexById
+ * returns 0, the carousel falls to the first available unlocked head.
+ * This is acceptable because the carousel only EVER contains unlocked
+ * entries, so any selection is guaranteed loadable. */
 static void autoSelectHead(void)
 {
-    if (!s_HeadOverridden && s_SelectedBody >= 0 && s_SelectedBody < s_NumBodies) {
-        s32 mpheadnum = catalogGetBodyDefaultMpHeadIdx(s_SelectedBody);
-        if (mpheadnum >= 0 && mpheadnum < s_NumHeads)
-            s_SelectedHead = findSortedPosForMpHeadnum(mpheadnum);
-    }
+    if (s_HeadOverridden) return;
+    if (s_SelectedBody < 0 || s_SelectedBody >= s_NumBodies) return;
+    const char *bid = catalogMpBodyId(s_SelectedBody);
+    if (!bid) return;
+    const char *defaultHeadId = catalogGetBodyDefaultHead(bid);
+    if (!defaultHeadId) return;
+    s_SelectedHead = findHeadIndexById(defaultHeadId);
 }
 
 /**
@@ -260,12 +285,17 @@ static s32 renderAgentCreate(struct menudialog *dialog,
                               struct menu *menu,
                               s32 winW, s32 winH)
 {
-    /* Refresh counts each frame in case mods change them */
-    s_NumHeads = mpGetNumHeads2();
+    /* Refresh counts each frame in case mods or unlock-state change them */
     s_NumBodies = (s32)mpGetNumBodies();
+    s32 unlockedHeadCount = assetCatalogGetUnlockedCountByType(ASSET_HEAD);
 
-    /* Rebuild head sort map if head count changed */
-    if (s_SortedHeadNumHeads != s_NumHeads) {
+    /* Rebuild head pool when the unlocked count changed.  Initial state
+     * (s_HeadListCountKnown == -1) always triggers the first-time build.
+     * Subsequent unlock-state changes (Unlock All cheat toggle, save load)
+     * change the count and trigger rebuild.  A catalog mutation that
+     * preserves count but swaps IDs is not detected -- acceptable for a
+     * settings dialog; matches the arena builder's one-shot pattern. */
+    if (s_HeadListCountKnown != unlockedHeadCount) {
         rebuildHeadSortMap();
         pdguiModelPreviewInvalidate();
     }
@@ -273,7 +303,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
     /* Clamp selections */
     if (s_SelectedBody >= s_NumBodies) s_SelectedBody = s_NumBodies - 1;
     if (s_SelectedBody < 0) s_SelectedBody = 0;
-    if (s_SelectedHead >= s_SortedHeadCount) s_SelectedHead = s_SortedHeadCount - 1;
+    if (s_SelectedHead >= s_HeadListCount) s_SelectedHead = s_HeadListCount - 1;
     if (s_SelectedHead < 0) s_SelectedHead = 0;
 
     /* ---- Layout ---- */
@@ -424,16 +454,24 @@ static s32 renderAgentCreate(struct menudialog *dialog,
             ImGui::TextUnformatted("Head");
             ImGui::Spacing();
 
+            /* H.5 (audit): bodies with an integrated head model (Dr. Carroll,
+             * Skedar, Eye Spy) cannot accept a separate head.  Disable the
+             * carousel; the body's own head will render. */
+            bool integratedHead = s_bodyHasIntegratedHead(s_SelectedBody);
+            ImGui::BeginDisabled(integratedHead || s_HeadListCount <= 1);
+
             if (ImGui::ArrowButton("##head_prev", ImGuiDir_Left)) {
                 s_SelectedHead--;
-                if (s_SelectedHead < 0) s_SelectedHead = s_SortedHeadCount - 1;
+                if (s_SelectedHead < 0) s_SelectedHead = s_HeadListCount - 1;
                 s_HeadOverridden = true;
                 pdguiPlaySound(PDGUI_SND_FOCUS);
             }
             ImGui::SameLine();
 
             {
-                const char *headName = getHeadDisplayName(s_SelectedHead);
+                const char *headName = integratedHead
+                    ? "(integrated)"
+                    : getHeadDisplayName(s_SelectedHead);
                 ImVec2 cur = ImGui::GetCursorScreenPos();
                 ImGui::Dummy(ImVec2(bodyNameW, ImGui::GetFrameHeight()));
                 ImVec2 sz = ImGui::CalcTextSize(headName);
@@ -446,24 +484,32 @@ static s32 renderAgentCreate(struct menudialog *dialog,
 
             if (ImGui::ArrowButton("##head_next", ImGuiDir_Right)) {
                 s_SelectedHead++;
-                if (s_SelectedHead >= s_SortedHeadCount) s_SelectedHead = 0;
+                if (s_SelectedHead >= s_HeadListCount) s_SelectedHead = 0;
                 s_HeadOverridden = true;
                 pdguiPlaySound(PDGUI_SND_FOCUS);
             }
             ImGui::SameLine();
-            ImGui::TextDisabled("(%d/%d)", s_SelectedHead + 1, s_SortedHeadCount);
-
-            /* Auto-match indicator / Reset button */
-            if (!s_HeadOverridden) {
-                ImGui::TextDisabled("(auto-matched to character)");
+            if (integratedHead) {
+                ImGui::TextDisabled("(N/A)");
             } else {
-                if (ImGui::SmallButton("Auto-match")) {
-                    s_HeadOverridden = false;
-                    autoSelectHead();
-                    pdguiPlaySound(PDGUI_SND_TOGGLEON);
+                ImGui::TextDisabled("(%d/%d)", s_SelectedHead + 1, s_HeadListCount);
+            }
+
+            ImGui::EndDisabled();
+
+            /* Auto-match indicator / Reset button (skipped for integrated bodies). */
+            if (!integratedHead) {
+                if (!s_HeadOverridden) {
+                    ImGui::TextDisabled("(auto-matched to character)");
+                } else {
+                    if (ImGui::SmallButton("Auto-match")) {
+                        s_HeadOverridden = false;
+                        autoSelectHead();
+                        pdguiPlaySound(PDGUI_SND_TOGGLEON);
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("Reset head to character default");
                 }
-                ImGui::SameLine();
-                ImGui::TextDisabled("Reset head to character default");
             }
 
             /* Capture Enter-press for the action bar later this frame. */
@@ -490,7 +536,14 @@ static s32 renderAgentCreate(struct menudialog *dialog,
             float px = colsOrigin.x + leftW + colGap;
             float py = colsOrigin.y;
 
-            const char *hid = catalogMpHeadId(s_SortedHeadIndices[s_SelectedHead]);
+            /* Live preview reads from the unlocked-and-filtered s_HeadList,
+             * not from raw mp_idx -- the catalog ID is the canonical
+             * identity for the renderer.  For integrated-head bodies the
+             * head_id is empty; pdguiModelPreviewDraw falls back to the
+             * body's own integrated head. */
+            const char *hid = (s_HeadListCount > 0)
+                ? s_HeadList[s_SelectedHead].id
+                : NULL;
             const char *bid = catalogMpBodyId(s_SelectedBody);
 
             /* Fix the body at a 3/4-turn pose.  We disable idle rotation in
@@ -569,9 +622,11 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         s32 pnum = g_MpPlayerNum;
         if (pnum < 0) pnum = 0;
         {
-            const char *hid = catalogMpHeadId(s_SortedHeadIndices[s_SelectedHead]);
+            const char *hid = (s_HeadListCount > 0)
+                ? s_HeadList[s_SelectedHead].id
+                : "";
             const char *bid = catalogMpBodyId(s_SelectedBody);
-            mpPlayerConfigSetHeadBody(pnum, hid ? hid : "", bid ? bid : "");
+            mpPlayerConfigSetHeadBody(pnum, hid, bid ? bid : "");
         }
         mpPlayerConfigSetName(pnum, s_AgentName);
 
@@ -581,9 +636,9 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         filemgrPushSelectLocationDialog(0, FILETYPE_GAME);
 
         sysLogPrintf(LOG_NOTE, "pdgui_agentcreate: Saved new agent '%s' "
-                     "body=%d head=%d (not loaded, requires selection)",
+                     "body=%d head_id=\"%s\" (not loaded, requires selection)",
                      s_AgentName, s_SelectedBody,
-                     s_SortedHeadIndices[s_SelectedHead]);
+                     (s_HeadListCount > 0) ? s_HeadList[s_SelectedHead].id : "");
 
         s_AgentName[0] = '\0';
         s_SelectedBody = 0;
