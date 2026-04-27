@@ -1,8 +1,48 @@
 
 # Session Log (Active)
 
-> **S284–S482** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S284–S483** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S483 (`unruffled-edison-af5d41`) - 2026-04-27 - GPU swarm + test scenarios Phase 1 design
+
+Mike's directive: design a Test Scenarios dropdown in Settings > Debug (Empty Map / Swarm CPU / Swarm GPU) plus a GPU compute boid system that swaps in for the existing CPU bot tick under the GPU scenario. Cycler 4-8-16-32-64-128-256 Skedars with 1 HP each, player invincible, full random weapons, bottomless ammo, score 1 per kill. Per-frame benchmark logging on `BENCHMARK.SWARM.{CPU,GPU}` and `TESTSCEN.*`. Phase 1 = design doc; Phase 2 = implement after Mike reviews and decides the open questions.
+
+### Outcome (Phase 1 only)
+
+Design doc landed at `context/designs/gpu-swarm-and-test-scenarios-2026-04-27.md` (617 lines). Sections A-G per Mike's prescribed structure. Linked into `context/README.md` under Plan / Design Files (active).
+
+### Architecturally significant findings surfaced as decisions for Mike (Section F)
+
+1. **GL compute path (F.1).** Current GL context is 3.0 compatibility (`port/fast3d/gfx_sdl2.cpp:164`), glad caps at GL 4.1 (`port/fast3d/glad/glad.h:2433`). Compute shaders need 4.3. Three options: A) regenerate glad at 4.3 core + prepend the version probe (recommended, ~0.5d); B) transform feedback on GL 3.0 (no surgery but contorted shader, ~1d); C) gate 4.3 behind a feature flag. **Stop condition: Mike picks before Phase 2.**
+2. **Bot-count ceiling (F.2).** `MAX_BOTS=32` and `g_MpBotChrPtrs[]` hard-sized; chr pool at 248 total slots cannot hold 256 swarm bots. Recommended: separate test-mode chr table + bump NUMTYPE2 from 50 to 100.
+3. **Hit detection in GPU mode (F.3).** Recommended F.3.A: CPU readback per frame, existing damage path handles scoring/kill/animation/audio. Matches the directive's default.
+4. **Empty Map source (F.4).** Recommended F.4.A: reuse `STAGE_CITRAINING` for v1 (matches directive's "test level if exists"). F.4.B procedural ground plane is a follow-on.
+5. **CPU mode AI (F.5).** Recommended F.5.B: simple seek-player action that mirrors the GPU shader, for apples-to-apples benchmark. Full `MA_AIBOTMAINLOOP` retained behind a debug toggle as a separate "what 256 real bots cost" number.
+
+### Constraints respected in design
+
+- No `NET_PROTOCOL_VER` bump. Test mode is local-only; dropdown greys out in netplay.
+- No save format change. `g_TestScenario` is volatile.
+- Catalog ID strings used everywhere (`base:skedar` body, `base:mp_skedar` arena).
+- Stage transitions reach `mainChangeToStage` via the existing `pdguiForgeStartSessionOn` catalog path. No hardcoded stagenum.
+- All Test Scenarios UI gated by `PD_DEV_BUILD` (the Debug tab is already dev-only).
+- Em-dash count: 0 (methodology gate).
+
+### Files (Phase 1)
+
+- New: `context/designs/gpu-swarm-and-test-scenarios-2026-04-27.md`.
+- Touched: `context/README.md` (Plan / Design Files index), `context/session-log.md` (this entry).
+
+### Phase 2 plan (gated on Mike's approval)
+
+- New modules: `port/{src,include}/testscenarios.{c,h}`, `port/{src,include}/swarm_test.{c,h}`, `port/fast3d/swarm_gpu.{cpp,h}` (Option A or C), tests `tests/test_swarm_boid_sim.cpp` + `tests/test_testscenarios_launch.cpp`.
+- Touched: `port/fast3d/pdgui_menu_mainmenu.cpp::renderSettingsDebug` (UI insertion at line 3486), `port/fast3d/glad/{glad.c,glad.h}` (regen if Option A), `port/fast3d/gfx_sdl2.cpp:164` (probe prepend if Option A), `src/include/game/chr.h` + `src/game/chraction.c` (two new `MA_SWARM_TEST_*` actions), `port/include/actionmap.h` + `port/src/actionmap.c` (`ACTION_TESTSCEN_CYCLE_COUNT`), `CMakeLists.txt` (`SRC_TESTS` + `SRC_PORT`), memsizes (NUMTYPE2 50 -> 100 if F.2.C).
+- Untouched: `port/src/net/*`, `src/game/botmgr.c`, `src/game/bot.c::botSpawn`, save files.
+
+### Build / verify
+
+Phase 1 doc-only. No build needed. Build verification deferred to Phase 2 per scenario commit.
 
 ## Session S482 (`jovial-kirch-181c60`) - 2026-04-27 - spawn-weapon Random/Fiesta semantics
 
