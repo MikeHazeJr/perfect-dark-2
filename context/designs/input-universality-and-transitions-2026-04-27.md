@@ -1,6 +1,6 @@
 # Input Universality and Transitions
 
-> Status: **PROPOSED (Phase 1 design)**
+> Status: **APPROVED (Phase 1 design, K.1-K.9 decided 2026-04-27). Phase 2 implementation in progress.**
 > Date: 2026-04-27
 > Branch: `claude/clever-montalcini-4902a1`
 > Predecessor docs: [input-authority-and-menu-pool-2026-04-13.md](input-authority-and-menu-pool-2026-04-13.md), [menu-stack-architecture.md](menu-stack-architecture.md), [activemenu-radial-architecture.md](activemenu-radial-architecture.md)
@@ -646,7 +646,7 @@ Alternative: keep `s_MenuView` as intra-menu state but declare each sub-view-cha
 
 ### K.8 Net protocol bump scheduling (section G.2)
 
-Default proposal: **bump `NET_PROTOCOL_VER 44 -> 45` in Cohort 4** for the per-player cutscene state. Coordinated with `MPSETUP_VERSION` if any (none required by this change).
+Default proposal: **bump `NET_PROTOCOL_VER 45 -> 46` in Cohort 4** for the per-player cutscene state. (v45 was taken on 2026-04-27 by the Random / Fiesta session bump; this cohort takes the next slot.) Coordinated with `MPSETUP_VERSION` if any (none required by this change).
 
 Alternative: defer protocol bump until Cohort 5 to combine with vehicle layer net work. Cohort 4 ships with shimmed wire format that broadcasts mask=0xFF unconditionally for back-compat.
 
@@ -662,7 +662,37 @@ Alternative: split into LAYER_FORGE_SESSION and LAYER_OBSERVER (where LAYER_OBSE
 
 This section is a running log filled in during Phase 2 implementation. Entries land alongside the code change that motivated them.
 
-(Empty at Phase 1 surface.)
+### L.1 K.1 through K.9 resolved (2026-04-27, decided by parent session per delegated authority)
+
+- **K.1 Phasing.** Two branches. Cohorts 1-4 land the user-visible flash fix first; Cohorts 5-8 finish the architecture in a follow-up branch.
+- **K.2 LAYER_CUTSCENE IMC.** New thin `g_ImcCutscene` IMC bound to `ACTION_SKIP_CUTSCENE` plus `ACTION_PAUSE`. Symmetric with the rest of the layer-IMC mapping.
+- **K.3 Cutscene-protect rule scope.** All damage classes covered, no carve-out for scripted environmental damage. Matches Mike's directive verbatim ("treated normally" only after exit).
+- **K.4 Pause menu dedup.** Deferred. The three pause renderers (`pdgui_menu_pausemenu.cpp`, `pdgui_menu_solomission.cpp` inline, `pdgui_menu_mppause.cpp`) stay separate and just get distinct `menu_type_t` registrations in the graph.
+- **K.5 Co-op skip semantics.** Per-player. First skip pops that player's `LAYER_CUTSCENE` and routes them back to gameplay tickmode; watchers continue. `cutscene_protect` retained on early-skippers until the last player exits the layer, so nobody is exposed during partial-watch.
+- **K.6 Skip detection: held vs pressed.** `actionPressed` (edge), not `actionHeld`. Belt-and-braces alongside the layer-push held-state flush. The flush is the structural fix; the edge requirement is the second line of defense.
+- **K.7 Main menu sub-views.** Convert `s_MenuView` flat-state to real `MENU_TYPE_*` pushes. Larger touch but uniform with the rest of the graph.
+- **K.8 Net protocol bump.** v45 -> v46 in Cohort 4 (v45 was taken on 2026-04-27 by the Random / Fiesta session). `SVC_CUTSCENE` gains `u8 player_mask`; new `CLC_CUTSCENE_SKIP { u8 playernum }`.
+- **K.9 Forge / Observer.** Keep two-IMC stack (`g_ImcForgeSession` priority 6 plus `g_ImcForge` priority 7) pinned to LAYER_OBSERVER. "Session active but not freefly" remains expressible by IMC priority within a single layer.
+
+Phase 2 begins with Cohort 1 immediately following.
+
+### L.2 Section B.3 correction (Cohort 1, 2026-04-27)
+
+The Phase 1 doc proposed three new ACTION_* enum entries (`ACTION_TEXT_PASTE`, `ACTION_TAB_PREV`, `ACTION_TAB_NEXT`). On implementation: `ACTION_MENU_TAB_PREV` (id 49) and `ACTION_MENU_TAB_NEXT` (id 50) already exist in [port/include/actionmap.h:122-123](port/include/actionmap.h:122). Cohort 1 adds only `ACTION_TEXT_PASTE`. Cohort 7 will migrate the raw `ImGui::IsKeyPressed(ImGuiKey_Q/E)` reads in `pdgui_menu_solomission.cpp` to `actionPressed(0, ACTION_MENU_TAB_PREV/NEXT)` and add Q/E binds to `g_ImcMenu` defaults if not already covered.
+
+### L.3 Cohort 1 shipped (2026-04-27)
+
+- `port/include/actionmap.h`: added `ACTION_TEXT_PASTE` at id 71 (post-rebase onto S483b/S483c which claim ids 69/70 respectively); `ACTION_COUNT` advances 71 -> 72.
+- `port/src/actionmap.cpp`: `actionIsGameplayOnly` returns 0 for `ACTION_TEXT_PASTE` (text-input ownership). `setupTextInputDefaults` adds `addBind(g_ImcTextInput, ACTION_TEXT_PASTE, VK_MOUSE_RIGHT)`. `s_ActionNames` array gets `"TextPaste"` at index 71.
+- `tests/actionmap_pure.{c,h}` + `tests/test_actionmap_flush.cpp`: 8 cases / ~70 assertions locking down the existing flush + classifier semantics that Cohort 4's flash fix depends on. Includes a bug-named "actionmap flush: bug invariant (the Mission 1 obj 2 cutscene flash)" case asserting that gameplay-only siblings of held ACTION_USE clear under flush.
+- [input-authority-and-menu-pool-2026-04-13.md](input-authority-and-menu-pool-2026-04-13.md) §2.1: dispatch-order documentation corrected to match the actual pdgui_backend.cpp ordering (ImGui-first with `WantCaptureKeyboard` gate, B-154 lineage).
+- `CMakeLists.txt` SRC_TESTS: registered new files.
+
+### L.4 Rebase note (Cohort 1, 2026-04-27)
+
+Cohort 1 was committed at id 69 then rebased onto dev's S483b (id 69 = ACTION_SOCIAL_TOGGLE) and S483c (id 70 = ACTION_TESTSCEN_CYCLE_COUNT). Final id for ACTION_TEXT_PASTE is 71. No semantic change to Cohort 1; the pure-C test mirror (`tests/actionmap_pure.{c,h}`) does not track production ids and stays at its own internal ordering since the flush + classifier behavior under test does not depend on the absolute id.
+
+
 
 ---
 
