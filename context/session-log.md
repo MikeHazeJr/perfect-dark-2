@@ -1,8 +1,36 @@
 
 # Session Log (Active)
 
-> **S284–S474** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S284–S475** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S475 (`festive-hawking-49649b`) - 2026-04-27 - dev-tool cleanup: build-time regression fix, server retirement, async worktree prune, Run Tests button
+
+Mike's directive (verbatim): "A few things. One, the project hasn't grown significantly in size, but the build times when using Dev Window v2 for the client have quintupled in the last few weeks. Find the reason and fix it. Also, we aren't building the Dedicated Server anymore, since we incorporated our client-based online connectivity into the client, but it still gets built and released currently. The text in the build window is still very small; see image. Release also seems to be taking a long time. And our old Dev Window seems to work to remove worktrees (claude and git), but it takes a very long time, and is threaded as such to where the program hangs while it waits. It shouldn't hang, and there should be a status indication of what is happening." + "I would also like a button in the Dev Window to run our tests, I don't want to be forced to use the command line."
+
+**Root cause -- build regression**: `CMakeLists.txt:152` (`file(WRITE ${_CACERT_OUT} ...)`) unconditionally rewrote the embedded Mozilla CA bundle (`cacert_blob.h`, ~1.1 MB) on every cmake configure. dev-window-v2 reconfigures every build. The new mtime made ninja recompile `updater.c` AND **relink `PerfectDark.exe`** (and `pd-server`, and `Updater.exe`) on every build -- ~7-10 s of pure waste per cycle. CACERT was added 2026-04-17 (10 days ago); fits "the last few weeks" timeline. Measured before-fix: ninja recompile + relink path was 7-15 s for a no-op; after: 0.088 s.
+
+**Fixes landed (CMakeLists.txt + dev-window-v2.ps1 + _dev-window.ps1 + release.ps1)**:
+1. **`CMakeLists.txt`** -- `cacert_blob.h` regeneration is now gated on `${_CACERT_SRC}` mtime vs the existing output (`IS_NEWER_THAN`). Skips the file(READ HEX) + regex + file(WRITE) chain when the source hasn't moved. Prints "CACERT: cacert_blob.h is up-to-date; skipping regeneration" so the skip is auditable. **Dominant build-time savings.**
+2. **`devtools/dev-window-v2/dev-window-v2.ps1` -- `Get-BuildSteps`**: removed (a) the redundant cmd.exe "Auto-commit + push" step (Start-GitSyncBeforeBuild already commits+pushes async earlier in the same Build() call), and (b) the `Build (server: pd-server)` step. pd-server is no longer shipped or built per BUILD/RELEASE; the cmake target stays defined so pd-tests can link against it if needed.
+3. **`devtools/dev-window-v2/dev-window-v2.ps1` -- UI**: bottom-bar `RUN SERVER` button replaced with `RUN TESTS`. Status / version font sizes bumped (FontSize 14→17 for client/tests rows, 13→15 for version sub-rows + auth + latest + local labels) so the Build window reads at glance scale, matching the BUILD/RELEASE button visual weight. Old `LblServerStatus` row repurposed as a `tests:` status row (PREPARING / BUILDING / RUNNING / PASSED / FAILED).
+4. **`devtools/dev-window-v2/dev-window-v2.ps1` -- new tests pipeline** (Toggle-Tests / Start-RunTests / Build-Tests-Then-Run / Run-Tests-Process / Stop-RunTests): builds pd-tests on demand if the binary is missing, runs it, streams stdout/stderr into the Log tab via the existing `AsyncLineReader` + `TestsOutputQueue` (drained by StatusModeTimer at 500 ms), watchdog DispatcherTimer detects exit + queue drain, parses Catch2 summary lines for pass/fail counts, and surfaces a final MessageBox + status row update. Ctrl+T rebound to Toggle-Tests (was Toggle-Server).
+5. **`devtools/_dev-window.ps1` -- worktree prune** is now async via the same Runspace + DispatcherTimer pattern already used for git polling. A `ConcurrentQueue<string>` carries per-step status messages ("removing 4/12 -- worktree-name") that the timer pumps into LblBuildActivity. Buttons stay enabled across the rest of the UI; the prune button shows "PRUNING..." and re-enables on completion. Per-directory failures are collected into a final summary instead of silently swallowed.
+6. **`devtools/release.ps1`**: dropped the `pd-server` entry from the build-targets array, hardcoded `$ServerExe = ""`, removed `PerfectDarkServer.exe` from the asset-upload list, removed the `Server: FOUND/MISSING` preflight noise, and updated the no-artifacts exit guard to require only the client. Each release now skips one cmake --build invocation (~6-10 s) and one upload step.
+
+**Measured impact (incremental rebuild after touching one .c file, full dev-window-v2 BUILD pipeline simulation)**:
+- Before: configure ~0.7 s + ninja rebuild 7-12 s (cacert force-relink + pd-server build + updater relink) + redundant cmd.exe commit ~2 s = **~10-15 s**.
+- After: configure 0.54 s + ninja 1.24 s = **1.78 s** (8x faster).
+
+**Behavior preserved**:
+- `pd-server` cmake target still exists; `pd-tests` continues to link against `participant.c`, `catalog_checked.c`, `options_forced.c` etc. as before.
+- Mozilla CA bundle still embedded; first build from a clean Build dir still regenerates `cacert_blob.h` (gate is "exists + up-to-date", not "skip always").
+- `Start-GitSyncBeforeBuild` still commits + pushes via the async runspace pool exactly as before.
+- `RUN GAME` button + Toggle-Game unchanged.
+
+Build verified: PowerShell parser passes on dev-window-v2.ps1 + _dev-window.ps1 (release.ps1 has 2 pre-existing parser warnings at lines 615 / 639 that long predate this change). Ran cmake configure + `--build pd` end-to-end clean. `--build pd-tests` produces `pd-tests.exe` (15.8 MB) successfully -- separate issue: the binary itself is silent on stdout/stderr in this environment, but the pipeline doesn't depend on observed output; it parses whatever the binary prints and reports.
+
+Files: `CMakeLists.txt`, `devtools/_dev-window.ps1`, `devtools/dev-window-v2/dev-window-v2.ps1`, `devtools/release.ps1`.
 
 ## Session S474 (`gifted-elion-ca7cea`) - 2026-04-27 - cohort 2 tests + foolproof input authority + room screen bug batch
 

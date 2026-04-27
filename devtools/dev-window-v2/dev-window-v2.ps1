@@ -158,7 +158,8 @@ $script:ForceCleanBuild     = $false
 $script:BuildVersion        = $null
 
 $script:GameProcess         = $null
-$script:ServerProcess       = $null
+$script:TestsProcess        = $null
+$script:TestsRunning        = $false
 $script:GitChangeCount      = 0
 $script:GitBusy             = $false
 
@@ -204,8 +205,8 @@ $script:PendingReleaseIsStable = $false
 $script:PendingReleaseScript   = ""
 
 # Live status streaming: drained by DispatcherTimer, written by async line readers.
-$script:ServerOutputQueue   = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
 $script:GameOutputQueue     = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
+$script:TestsOutputQueue    = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
 $script:BuildStepsTotal     = 0
 $script:BuildStepsCompleted = 0
 $script:NinjaCurrent        = 0
@@ -698,7 +699,11 @@ function Save-ReleaseCache($data) {
             </DockPanel>
         </Border>
 
-        <!-- Bottom Bar: Run Server + Run Game -->
+        <!-- Bottom Bar: Run Game + Run Tests -->
+        <!-- Server connectivity moved into the client (listen-host mode); the
+             dedicated server is no longer shipped, so the RUN SERVER button is
+             gone. RUN TESTS replaces it so Mike can run pd-tests without a
+             terminal. -->
         <Border DockPanel.Dock="Bottom" Background="#0C1018" BorderBrush="#0A2040" BorderThickness="0,1,0,0" Padding="6">
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -706,8 +711,9 @@ function Save-ReleaseCache($data) {
                     <ColumnDefinition Width="4"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <Button x:Name="BtnRunServer" Content="RUN SERVER" Style="{StaticResource OrangeBtn}"
-                        FontSize="14" FontWeight="Bold" Padding="16,12" Grid.Column="0"/>
+                <Button x:Name="BtnRunTests" Content="RUN TESTS" Style="{StaticResource GoldBtn}"
+                        FontSize="14" FontWeight="Bold" Padding="16,12" Grid.Column="0"
+                        ToolTip="Build (if needed) and run pd-tests; output streams to the Log tab."/>
                 <Button x:Name="BtnRunGame" Content="RUN GAME" Style="{StaticResource GreenBtn}"
                         FontSize="14" FontWeight="Bold" Padding="16,12" Grid.Column="2"/>
             </Grid>
@@ -778,14 +784,14 @@ function Save-ReleaseCache($data) {
 
                         <!-- Left: Build Status (card panel) -->
                         <Border Grid.Column="0" Background="#0E1420" CornerRadius="4"
-                                BorderBrush="#162438" BorderThickness="1" Padding="10,8">
+                                BorderBrush="#162438" BorderThickness="1" Padding="12,10">
                             <StackPanel>
                                 <TextBlock x:Name="LblClientStatus" Text="client: --"
-                                           Foreground="#44586C" FontFamily="Consolas" FontSize="14" Margin="0,0,0,3"/>
-                                <TextBlock x:Name="LblServerStatus" Text="server: --"
-                                           Foreground="#44586C" FontFamily="Consolas" FontSize="14" Margin="0,0,0,6"/>
+                                           Foreground="#44586C" FontFamily="Consolas" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                <TextBlock x:Name="LblServerStatus" Text="tests: --"
+                                           Foreground="#44586C" FontFamily="Consolas" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,7"/>
                                 <TextBlock x:Name="LblBuildActivity" Text="" Foreground="#506880"
-                                           FontFamily="Consolas" FontSize="14" Margin="0,0,0,4"/>
+                                           FontFamily="Consolas" FontSize="16" Margin="0,0,0,4"/>
 
                                 <!-- Progress Bar -->
                                 <Border x:Name="ProgressBack" Background="#0A1520" Height="16"
@@ -816,11 +822,11 @@ function Save-ReleaseCache($data) {
 
                         <!-- Right: Version + Auth (card panel) -->
                         <Border Grid.Column="2" Background="#0E1420" CornerRadius="4"
-                                BorderBrush="#162438" BorderThickness="1" Padding="10,8"
+                                BorderBrush="#162438" BorderThickness="1" Padding="12,10"
                                 MinWidth="260" HorizontalAlignment="Stretch">
                             <StackPanel>
-                                <TextBlock Text="V E R S I O N" Foreground="#2A4060" FontSize="11"
-                                           FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,5"/>
+                                <TextBlock Text="V E R S I O N" Foreground="#2A4060" FontSize="13"
+                                           FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,6"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                     <StackPanel Margin="0,0,6,0">
                                         <TextBlock Text="MAJ" Foreground="#2A4060" FontSize="11"
@@ -863,15 +869,15 @@ function Save-ReleaseCache($data) {
                                     </StackPanel>
                                 </StackPanel>
                                 <CheckBox x:Name="ChkStable" Content="Stable release" Foreground="#C8A000"
-                                          FontSize="13" FontWeight="SemiBold" Margin="0,2,0,6"/>
+                                          FontSize="15" FontWeight="SemiBold" Margin="0,2,0,8"/>
                                 <TextBlock x:Name="LblAuthStatus" Text="auth: ..." Foreground="#44586C"
-                                           FontFamily="Consolas" FontSize="13" Margin="0,0,0,3" Cursor="Hand"
+                                           FontFamily="Consolas" FontSize="15" Margin="0,0,0,4" Cursor="Hand"
                                            TextWrapping="Wrap"/>
                                 <TextBlock x:Name="LblLatestRelease" Text="latest: --" Foreground="#44586C"
-                                           FontFamily="Consolas" FontSize="13" Margin="0,0,0,2"
+                                           FontFamily="Consolas" FontSize="15" Margin="0,0,0,3"
                                            TextWrapping="Wrap"/>
                                 <TextBlock x:Name="LblDevVersion" Text="local: --" Foreground="#3860A0"
-                                           FontFamily="Consolas" FontSize="13" TextWrapping="Wrap"/>
+                                           FontFamily="Consolas" FontSize="15" TextWrapping="Wrap"/>
                             </StackPanel>
                         </Border>
                     </Grid>
@@ -954,7 +960,7 @@ $window = [Windows.Markup.XamlReader]::Load($reader)
 $ui = @{}
 $namedElements = @(
     "StatusBranch","StatusHash","StatusDirty","StatusWorktrees","StatusAuth","StatusVersion","StatusMode",
-    "BtnRunServer","BtnRunGame","TabControl",
+    "BtnRunGame","BtnRunTests","TabControl",
     "BtnBuild","BtnRelease","TxtRelease","BtnStop","BtnCopyErrors","BtnCopyLog","BtnCheck",
     "LblClientStatus","LblServerStatus","LblBuildActivity",
     "ProgressBack","ProgressFill","LblProgressText",
@@ -1735,12 +1741,10 @@ function Get-BuildSteps($ver, [bool]$forceClean = $false) {
     $vFlags = " -DVERSION_SEM_MAJOR=" + $ver.Major + " -DVERSION_SEM_MINOR=" + $ver.Minor + " -DVERSION_SEM_PATCH=" + $ver.Patch
     $steps = [System.Collections.ArrayList]::new()
 
-    $commitMsg = "Build v" + $ver.Major + "." + $ver.Minor + "." + $ver.Patch + " - auto-commit before build"
-    $gitExe = Resolve-GitExecutable
-    if (-not $gitExe) { $gitExe = "git" }
-    $gitQ = '"' + $gitExe + '"'
-    $commitArgs = "/c cd /d `"" + $script:ProjectRoot + "`" && if exist .git/index.lock del /f /q .git/index.lock >nul 2>&1 && " + $gitQ + " add -A && (" + $gitQ + " diff --cached --quiet || " + $gitQ + " commit -m `"" + $commitMsg + "`") && (" + $gitQ + " push >nul 2>&1 & exit 0)"
-    [void]$steps.Add(@{Name="Auto-commit + push"; Exe="cmd.exe"; Target="client"; Args=$commitArgs})
+    # NOTE (2026-04-27): the old "Auto-commit + push" cmd.exe step was a no-op
+    # second commit -- Start-GitSyncBeforeBuild already commits + pushes async
+    # before this function runs. Removing it cuts ~2-3 s of redundant git work
+    # per build.
 
     if ($forceClean) {
         $cleanArgs = "/c (if exist `"" + $script:BuildDir + "`" rmdir /s /q `"" + $script:BuildDir + "`") & exit 0"
@@ -1755,8 +1759,10 @@ function Get-BuildSteps($ver, [bool]$forceClean = $false) {
     # and keeps behavior aligned with build-headless.ps1.
     $cfgArgs = "-G Ninja -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -DCMAKE_CXX_COMPILER=`"" + $script:CXX + "`" -DPD_PYTHON_EXECUTABLE=`"" + $script:Python + "`" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -B `"" + $script:BuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags
     [void]$steps.Add(@{Name="Configure (Ninja + ccache)"; Exe=$script:CMake; Target="client"; Args=$cfgArgs})
+    # Client only. Dedicated server connectivity is now in-client (listen mode);
+    # pd-server is no longer shipped and so is no longer built per BUILD/RELEASE.
+    # The cmake target is still defined for pd-tests linkage if needed.
     [void]$steps.Add(@{Name="Build (client: pd)"; Exe=$script:CMake; Target="client"; Args="--build `"" + $script:BuildDir + "`" --target pd"})
-    [void]$steps.Add(@{Name="Build (server: pd-server)"; Exe=$script:CMake; Target="server"; Args="--build `"" + $script:BuildDir + "`" --target pd-server"})
 
     return $steps
 }
@@ -1786,7 +1792,12 @@ function Start-Build {
     $script:BuildStepsTotal = 0; $script:BuildStepsCompleted = 0
 
     $ui["LblClientStatus"].Text = "client: building..."; $ui["LblClientStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#508CDC")))
-    $ui["LblServerStatus"].Text = "server: --"; $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#8C8C8C")))
+    # LblServerStatus is repurposed as the tests status row (pd-server is no
+    # longer built or shipped). Leave whatever the tests pipeline last wrote.
+    if ($null -eq $ui["LblServerStatus"].Text -or $ui["LblServerStatus"].Text -match '^server:') {
+        $ui["LblServerStatus"].Text = "tests: --"
+        $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#8C8C8C")))
+    }
     $ui["BtnBuild"].IsEnabled = $false; $ui["BtnRelease"].IsEnabled = $false; $ui["BtnCleanBuild"].IsEnabled = $false
     $ui["BtnPull"].IsEnabled = $false
     $ui["BtnPush"].IsEnabled = $false
@@ -1966,51 +1977,8 @@ function Start-PushRelease {
 # Section 16: Game / Server launch
 # ============================================================================
 
-function Toggle-Server {
-    if ($null -ne $script:ServerProcess -and -not $script:ServerProcess.HasExited) {
-        $ui["BtnRunServer"].IsEnabled = $false
-        $ui["BtnRunServer"].Content = "STOPPING..."
-        try { $script:ServerProcess.Kill() } catch {}
-        $script:ServerProcess = $null
-        $ui["BtnRunServer"].Content = "RUN SERVER"
-        $ui["BtnRunServer"].IsEnabled = $true
-        return
-    }
-    $exe = Get-ExePath $script:ServerExeName
-    if ($null -eq $exe) {
-        [System.Windows.MessageBox]::Show("Server executable not found. Build first.", "Run Error", "OK", "Warning") | Out-Null
-        return
-    }
-    # Immediate feedback. UseShellExecute=$false + CreateProcess avoids Shell32 association lookup.
-    # stdout/stderr redirected so AsyncLineReader can stream server logs into the Log tab without
-    # blocking the UI thread -- ReadLine lives on a background thread, writes to a ConcurrentQueue
-    # that MainTimer drains on the dispatcher.
-    $ui["BtnRunServer"].IsEnabled = $false
-    $ui["BtnRunServer"].Content = "STARTING..."
-    Add-LogLine (">>> Starting server: " + $exe) "#0090D0"
-    try {
-        $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = $exe
-        $psi.WorkingDirectory = (Split-Path $exe -Parent)
-        $psi.UseShellExecute = $false
-        $psi.RedirectStandardOutput = $true
-        $psi.RedirectStandardError = $true
-        $psi.CreateNoWindow = $true
-        $proc = New-Object System.Diagnostics.Process
-        $proc.StartInfo = $psi
-        [void]$proc.Start()
-        $script:ServerProcess = $proc
-        [PD2V2.AsyncLineReader]::StartReading($proc.StandardOutput, $script:ServerOutputQueue, "OUT:")
-        [PD2V2.AsyncLineReader]::StartReading($proc.StandardError,  $script:ServerOutputQueue, "ERR:")
-        $ui["BtnRunServer"].Content = "STOP SERVER"
-    } catch {
-        Add-LogLine ("Server launch failed: " + $_.Exception.Message) "#DC3232"
-        $ui["BtnRunServer"].Content = "RUN SERVER"
-        [System.Windows.MessageBox]::Show("Server launch failed: " + $_.Exception.Message, "Run Error", "OK", "Error") | Out-Null
-    } finally {
-        $ui["BtnRunServer"].IsEnabled = $true
-    }
-}
+# Toggle-Server removed (2026-04-27): dedicated server is no longer shipped;
+# connectivity moved into the client via in-process listen-host mode.
 
 function Toggle-Game {
     if ($null -ne $script:GameProcess -and -not $script:GameProcess.HasExited) {
@@ -2054,17 +2022,243 @@ function Toggle-Game {
     }
 }
 
-function Drain-ProcessOutputQueues {
-    # Pull up to N lines per tick from server/game so streaming feels responsive without
-    # blocking the UI thread when a noisy process floods stdout. Called from MainTimer.
-    $maxPer = 60; $line = $null
-    $count = 0
-    while ($count -lt $maxPer -and $script:ServerOutputQueue.TryDequeue([ref]$line)) {
-        $text = if ($line.Length -ge 4) { $line.Substring(4) } else { $line }
-        $cls = if ($line.StartsWith("ERR:")) { "error" } else { Classify-Line $text }
-        Add-LogLine ("[server] " + $text) (Get-ClassifiedLogColor $cls)
-        $count++
+# ============================================================================
+# Run Tests pipeline (pd-tests target -- self-contained Catch2 runner)
+# ============================================================================
+#
+# Async pattern: build (if needed) + execute happen on the BgPool. The UI
+# stays interactive throughout. Output streams into the Log tab via
+# TestsOutputQueue (drained by StatusModeTimer at 500 ms). When the runner
+# exits, a status MessageBox surfaces pass/fail counts.
+
+$script:TestsBuildBusy = $false
+$script:TestsLastSummary = ""
+$script:TestsPassed = 0
+$script:TestsFailed = 0
+
+function Stop-RunTests {
+    if ($null -ne $script:TestsProcess -and -not $script:TestsProcess.HasExited) {
+        try { $script:TestsProcess.Kill() } catch {}
     }
+    $script:TestsProcess = $null
+    $script:TestsRunning = $false
+    $ui["BtnRunTests"].Content = "RUN TESTS"
+    $ui["BtnRunTests"].IsEnabled = $true
+}
+
+function Toggle-Tests {
+    # Click while running = stop. Otherwise = run.
+    if ($script:TestsRunning) {
+        Add-LogSessionLine ">>> tests: STOP requested" "#CDAA32"
+        Stop-RunTests
+        return
+    }
+    if ($script:IsBuilding -or $script:IsPushing) {
+        [System.Windows.MessageBox]::Show("Wait for the current build or release to finish.", "Run Tests", "OK", "Information") | Out-Null
+        return
+    }
+    if ($script:TestsBuildBusy) {
+        [System.Windows.MessageBox]::Show("Tests are already being prepared.", "Run Tests", "OK", "Information") | Out-Null
+        return
+    }
+    Start-RunTests
+}
+
+function Start-RunTests {
+    $script:TestsRunning = $true
+    $script:TestsLastSummary = ""
+    $script:TestsPassed = 0
+    $script:TestsFailed = 0
+    $ui["BtnRunTests"].Content = "PREPARING..."
+    $ui["BtnRunTests"].IsEnabled = $false
+    $ui["LblServerStatus"].Text = "tests: preparing..."
+    $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#508CDC")))
+    Add-LogSessionLine "" "#1A3050"
+    Add-LogSessionLine ">>> RUN TESTS (pd-tests)" "#C8A000"
+    Add-LogSessionLine "" "#1A3050"
+
+    # Make sure the Log tab is visible so the user sees streaming output
+    # without needing to switch manually.
+    try { $ui["TabControl"].SelectedIndex = 1 } catch {}
+
+    $testsExe = Join-Path $script:BuildDir "pd-tests.exe"
+    $needsBuild = -not (Test-Path -LiteralPath $testsExe)
+
+    if ($needsBuild) {
+        $ui["LblServerStatus"].Text = "tests: building..."
+        Build-Tests-Then-Run
+    } else {
+        $ui["LblServerStatus"].Text = "tests: starting..."
+        Run-Tests-Process
+    }
+}
+
+function Build-Tests-Then-Run {
+    $script:TestsBuildBusy = $true
+    $ui["BtnRunTests"].Content = "BUILDING TESTS..."
+    Add-LogSessionLine "tests: building pd-tests target..." "#508CDC"
+
+    $cmakeExe = $script:CMake
+    $buildDir = $script:BuildDir
+    $projectRoot = $script:ProjectRoot
+    $cc = $script:CC
+    $cxx = $script:CXX
+    $py = $script:Python
+
+    Start-AsyncPoolAction `
+        -Script {
+            param($cmakeExe, $buildDir, $projectRoot, $cc, $cxx, $py)
+            $output = New-Object System.Collections.ArrayList
+            try {
+                # Configure (idempotent; cheap with cacert + versioninfo gates).
+                $cfg = & $cmakeExe -G Ninja `
+                    "-DCMAKE_C_COMPILER=$cc" `
+                    "-DCMAKE_CXX_COMPILER=$cxx" `
+                    "-DPD_PYTHON_EXECUTABLE=$py" `
+                    "-DCMAKE_C_COMPILER_LAUNCHER=ccache" `
+                    "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache" `
+                    -B $buildDir -S $projectRoot 2>&1
+                $cfgCode = $LASTEXITCODE
+                foreach ($l in $cfg) { [void]$output.Add(@{ Text = "$l"; Color = "#8C8C8C" }) }
+                if ($cfgCode -ne 0) {
+                    return [PSCustomObject]@{ Ok = $false; Output = $output; Err = "configure failed" }
+                }
+                # Build pd-tests target.
+                $bld = & $cmakeExe --build $buildDir --target pd-tests 2>&1
+                $bldCode = $LASTEXITCODE
+                foreach ($l in $bld) {
+                    $color = "#8C8C8C"
+                    if ("$l" -match '(?i)\berror\b|FAILED|undefined reference') { $color = "#DC3232" }
+                    elseif ("$l" -match '(?i)\bwarning\b') { $color = "#FF8C00" }
+                    [void]$output.Add(@{ Text = "$l"; Color = $color })
+                }
+                if ($bldCode -ne 0) {
+                    return [PSCustomObject]@{ Ok = $false; Output = $output; Err = "pd-tests build failed (exit $bldCode)" }
+                }
+                return [PSCustomObject]@{ Ok = $true; Output = $output; Err = $null }
+            } catch {
+                [void]$output.Add(@{ Text = $_.Exception.Message; Color = "#DC3232" })
+                return [PSCustomObject]@{ Ok = $false; Output = $output; Err = $_.Exception.Message }
+            }
+        } `
+        -Arguments @($cmakeExe, $buildDir, $projectRoot, $cc, $cxx, $py) `
+        -OnComplete {
+            param($result)
+            $script:TestsBuildBusy = $false
+            $r = if ($result -and $result.Count -gt 0) { $result[0] } else { $result }
+            if ($null -eq $r) {
+                Add-LogSessionLine "tests: build returned no result" "#DC3232"
+                Stop-RunTests
+                return
+            }
+            foreach ($entry in $r.Output) {
+                if ($null -ne $entry) {
+                    try { Add-LogLine $entry.Text $entry.Color } catch {}
+                }
+            }
+            if (-not $r.Ok) {
+                Add-LogSessionLine ("tests: " + $r.Err) "#DC3232"
+                $ui["LblServerStatus"].Text = "tests: build FAILED"
+                $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#DC3232")))
+                [System.Windows.MessageBox]::Show("pd-tests build failed.`n`n" + $r.Err + "`n`nSee Log tab for details.", "Run Tests", "OK", "Error") | Out-Null
+                Stop-RunTests
+                return
+            }
+            Add-LogSessionLine "tests: build OK; running..." "#508CDC"
+            $ui["LblServerStatus"].Text = "tests: starting..."
+            Run-Tests-Process
+        }
+}
+
+function Run-Tests-Process {
+    $exe = Join-Path $script:BuildDir "pd-tests.exe"
+    if (-not (Test-Path -LiteralPath $exe)) {
+        Add-LogSessionLine ("tests: executable not found at " + $exe) "#DC3232"
+        [System.Windows.MessageBox]::Show("pd-tests.exe not found after build at:`n" + $exe, "Run Tests", "OK", "Error") | Out-Null
+        Stop-RunTests
+        return
+    }
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $exe
+        # Catch2 default reporter prints a final summary line we parse later.
+        $psi.Arguments = "--reporter console --durations no"
+        $psi.WorkingDirectory = (Split-Path $exe -Parent)
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.CreateNoWindow = $true
+        $proc = New-Object System.Diagnostics.Process
+        $proc.StartInfo = $psi
+        [void]$proc.Start()
+        $script:TestsProcess = $proc
+        [PD2V2.AsyncLineReader]::StartReading($proc.StandardOutput, $script:TestsOutputQueue, "OUT:")
+        [PD2V2.AsyncLineReader]::StartReading($proc.StandardError,  $script:TestsOutputQueue, "ERR:")
+        $ui["BtnRunTests"].Content = "STOP TESTS"
+        $ui["BtnRunTests"].IsEnabled = $true
+        $ui["LblServerStatus"].Text = "tests: running..."
+        $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#508CDC")))
+        Add-LogSessionLine ("tests: started " + $exe) "#508CDC"
+        # Poll for completion on the dispatcher; final summary surfaces in the
+        # MessageBox after the queues drain.
+        $watchdog = New-Object System.Windows.Threading.DispatcherTimer
+        $watchdog.Interval = [TimeSpan]::FromMilliseconds(500)
+        $watchdog.Add_Tick({
+            try {
+                if ($null -eq $script:TestsProcess) { $this.Stop(); return }
+                if (-not $script:TestsProcess.HasExited) { return }
+                # Drain remaining output before computing summary.
+                if (-not $script:TestsOutputQueue.IsEmpty) { return }
+                $this.Stop()
+                $code = $script:TestsProcess.ExitCode
+                $script:TestsProcess = $null
+                # Parse Catch2 summary: prefer the last "test cases" line.
+                $passed = 0; $failed = 0
+                foreach ($line in $script:AllOutput) {
+                    if ($line -match 'test cases:\s+(\d+)\s*\|\s*(\d+)\s+passed(?:\s*\|\s*(\d+)\s+failed)?') {
+                        $passed = [int]$Matches[2]
+                        if ($Matches.Count -ge 4 -and $Matches[3]) { $failed = [int]$Matches[3] }
+                    } elseif ($line -match 'All tests passed.*\((\d+) assertion[s]? in (\d+) test case[s]?\)') {
+                        $passed = [int]$Matches[2]
+                    }
+                }
+                $script:TestsPassed = $passed
+                $script:TestsFailed = $failed
+                $script:TestsRunning = $false
+                $ui["BtnRunTests"].Content = "RUN TESTS"
+                $ui["BtnRunTests"].IsEnabled = $true
+                $okMsg = "pd-tests exit $code"
+                if ($passed -gt 0 -or $failed -gt 0) {
+                    $okMsg += "`n`nPassed: $passed`nFailed: $failed"
+                }
+                $greenBrush = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#00B400"))
+                $redBrush   = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#DC3232"))
+                if ($code -eq 0 -and $failed -eq 0) {
+                    Add-LogSessionLine ("tests: PASSED (" + $passed + " case[s])") "#00B400"
+                    $ui["LblServerStatus"].Text = "tests: PASSED ($passed case[s])"
+                    $ui["LblServerStatus"].Foreground = $greenBrush
+                    [System.Windows.MessageBox]::Show($okMsg, "Run Tests -- PASSED", "OK", "Information") | Out-Null
+                } else {
+                    Add-LogSessionLine ("tests: FAILED (exit " + $code + ", " + $failed + " failure[s])") "#DC3232"
+                    $ui["LblServerStatus"].Text = "tests: FAILED ($failed failure[s])"
+                    $ui["LblServerStatus"].Foreground = $redBrush
+                    [System.Windows.MessageBox]::Show($okMsg + "`n`nSee Log tab for failure details.", "Run Tests -- FAILED", "OK", "Warning") | Out-Null
+                }
+            } catch {}
+        })
+        $watchdog.Start()
+    } catch {
+        Add-LogSessionLine ("tests: launch failed " + $_.Exception.Message) "#DC3232"
+        [System.Windows.MessageBox]::Show("pd-tests launch failed: " + $_.Exception.Message, "Run Tests", "OK", "Error") | Out-Null
+        Stop-RunTests
+    }
+}
+
+function Drain-ProcessOutputQueues {
+    # Pull up to N lines per tick from game/tests so streaming feels responsive
+    # without blocking the UI thread when a noisy process floods stdout. Called
+    # from StatusModeTimer (500 ms).
+    $maxPer = 60; $line = $null
     $count = 0
     while ($count -lt $maxPer -and $script:GameOutputQueue.TryDequeue([ref]$line)) {
         $text = if ($line.Length -ge 4) { $line.Substring(4) } else { $line }
@@ -2072,17 +2266,22 @@ function Drain-ProcessOutputQueues {
         Add-LogLine ("[game] " + $text) (Get-ClassifiedLogColor $cls)
         $count++
     }
+    $count = 0
+    while ($count -lt $maxPer -and $script:TestsOutputQueue.TryDequeue([ref]$line)) {
+        $text = if ($line.Length -ge 4) { $line.Substring(4) } else { $line }
+        $cls = if ($line.StartsWith("ERR:")) { "error" } else { Classify-Line $text }
+        Add-LogLine ("[tests] " + $text) (Get-ClassifiedLogColor $cls)
+        $count++
+    }
 }
 
 function Update-RunButtons {
-    if ($null -ne $script:ServerProcess -and $script:ServerProcess.HasExited) {
-        $script:ServerProcess = $null
-        $ui["BtnRunServer"].Content = "RUN SERVER"
-    }
     if ($null -ne $script:GameProcess -and $script:GameProcess.HasExited) {
         $script:GameProcess = $null
         $ui["BtnRunGame"].Content = "RUN GAME"
     }
+    # Tests-process completion is handled by Finish-RunTests when its drain
+    # cycle catches HasExited; nothing to do here.
 }
 
 # ============================================================================
@@ -2092,8 +2291,8 @@ function Update-RunButtons {
 $ui["BtnBuild"].Add_Click({ Start-Build })
 $ui["BtnRelease"].Add_Click({ Start-PushRelease })
 $ui["BtnStop"].Add_Click({ Stop-Build })
-$ui["BtnRunServer"].Add_Click({ Toggle-Server })
 $ui["BtnRunGame"].Add_Click({ Toggle-Game })
+$ui["BtnRunTests"].Add_Click({ Toggle-Tests })
 
 $ui["BtnCopyErrors"].Add_Click({
     try {
@@ -2619,8 +2818,8 @@ function Update-StatusMode {
     $text = "Idle"
     $color = "#506070"
 
-    $serverRunning = ($null -ne $script:ServerProcess -and -not $script:ServerProcess.HasExited)
-    $gameRunning   = ($null -ne $script:GameProcess   -and -not $script:GameProcess.HasExited)
+    $gameRunning  = ($null -ne $script:GameProcess  -and -not $script:GameProcess.HasExited)
+    $testsRunning = $script:TestsRunning -or $script:TestsBuildBusy
 
     if ($script:IsBuilding -or $script:IsPushing) {
         $label = if ($script:IsPushing) { "Release" } else { "Build" }
@@ -2643,11 +2842,14 @@ function Update-StatusMode {
         $text = "Git: busy"
         $color = "#508CDC"
     }
-    elseif ($serverRunning -or $gameRunning) {
-        $parts = @()
-        if ($serverRunning) { $parts += "Server (pid " + $script:ServerProcess.Id + ")" }
-        if ($gameRunning)   { $parts += "Game (pid "   + $script:GameProcess.Id + ")" }
-        $text = ($parts -join " | ")
+    elseif ($testsRunning) {
+        if ($script:TestsBuildBusy) { $text = "Tests: building pd-tests..." }
+        elseif ($null -ne $script:TestsProcess) { $text = "Tests: running (pid " + $script:TestsProcess.Id + ")" }
+        else { $text = "Tests: starting..." }
+        $color = "#C8A000"
+    }
+    elseif ($gameRunning) {
+        $text = "Game (pid " + $script:GameProcess.Id + ")"
         $color = "#00B400"
     }
     else {
@@ -2732,7 +2934,7 @@ $window.Add_KeyDown({
         Toggle-Game; $e.Handled = $true
     }
     elseif ($ctrl -and $e.Key -eq [System.Windows.Input.Key]::T) {
-        Toggle-Server; $e.Handled = $true
+        Toggle-Tests; $e.Handled = $true
     }
     elseif ($ctrl -and $e.Key -eq [System.Windows.Input.Key]::L) {
         $ui["TabControl"].SelectedIndex = 1; $e.Handled = $true
@@ -2830,13 +3032,13 @@ $window.Add_Closing({
         $script:BuildTimer.Stop()
         if ($null -ne $script:StatusModeTimer) { try { $script:StatusModeTimer.Stop() } catch {} }
         if ($null -ne $script:BuildProcess) { try { $script:BuildProcess.Kill() } catch {} }
-        # Also tear down any server/game we started so their stdin/stdout pipes and
-        # background reader threads don't outlive the window.
-        if ($null -ne $script:ServerProcess -and -not $script:ServerProcess.HasExited) {
-            try { $script:ServerProcess.Kill() } catch {}
-        }
+        # Also tear down any game/tests process we started so their stdin/stdout
+        # pipes and background reader threads don't outlive the window.
         if ($null -ne $script:GameProcess -and -not $script:GameProcess.HasExited) {
             try { $script:GameProcess.Kill() } catch {}
+        }
+        if ($null -ne $script:TestsProcess -and -not $script:TestsProcess.HasExited) {
+            try { $script:TestsProcess.Kill() } catch {}
         }
 
         # Save window state
