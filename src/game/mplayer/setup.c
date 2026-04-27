@@ -3281,38 +3281,80 @@ struct menudialogdef g_MpReadyMenuDialog = {
 	NULL,
 };
 
+/*
+ * Catalog universality sweep (2026-04-27): bot profile picker iterates
+ * ASSET_BOT_PROFILE via the catalog filtered by unlock state.  Layer A
+ * `g_BotProfiles[]` remains the data home for AI dispatch; only the
+ * SELECTOR pool migrates per Mike's directive
+ * "selector pool = catalog INTERSECT unlock-state".
+ *
+ * Catalog mp_index = g_BotProfiles[] index (set at registration), so
+ * the selector lookups produce the same profile index that
+ * mpCreateBotFromProfile / .type / .difficulty consumers expect.
+ */
+struct botprofile_pick_ctx {
+	s32 needle_idx;       /* "give me the N-th unlocked entry" */
+	s32 cur;              /* running count */
+	s32 max_mp_index;     /* upper bound for GETGROUPSTARTINDEX */
+	s32 result_profnum;   /* g_BotProfiles[] index, or -1 */
+	s16 result_namelang;  /* langid for GETOPTIONTEXT */
+};
+
+static void botprofileCountCb(const asset_entry_t *e, void *userdata)
+{
+	struct botprofile_pick_ctx *ctx = (struct botprofile_pick_ctx *)userdata;
+	if (e->type != ASSET_BOT_PROFILE) return;
+	ctx->cur++;
+}
+
+static void botprofilePickByIndexCb(const asset_entry_t *e, void *userdata)
+{
+	struct botprofile_pick_ctx *ctx = (struct botprofile_pick_ctx *)userdata;
+	if (e->type != ASSET_BOT_PROFILE) return;
+	if (ctx->result_profnum >= 0) return;
+	if (ctx->cur == ctx->needle_idx) {
+		ctx->result_profnum = (s32)e->mp_index;
+		ctx->result_namelang = e->ext.bot_profile.name_langid;
+	}
+	ctx->cur++;
+}
+
+static void botprofileGroupStartCb(const asset_entry_t *e, void *userdata)
+{
+	struct botprofile_pick_ctx *ctx = (struct botprofile_pick_ctx *)userdata;
+	if (e->type != ASSET_BOT_PROFILE) return;
+	if ((s32)e->mp_index < ctx->max_mp_index) {
+		ctx->cur++;
+	}
+}
+
 MenuItemHandlerResult mpAddChangeSimulantMenuHandler(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	s32 i;
-	s32 count = 0;
-
 	struct optiongroup groups[] = {
 		{ 0, L_MPMENU_103 }, // "Normal Simulants"
 		{ 6, L_MPMENU_104 }, // "Special Simulants"
 	};
 
+	struct botprofile_pick_ctx ctx;
 	s32 botnum;
 	bool creating;
 
+	ctx.needle_idx = 0;
+	ctx.cur = 0;
+	ctx.max_mp_index = 0;
+	ctx.result_profnum = -1;
+	ctx.result_namelang = 0;
+
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		for (i = 0; i < ARRAYCOUNT(g_BotProfiles); i++) {
-			if (challengeIsFeatureUnlocked(g_BotProfiles[i].requirefeature)) {
-				count++;
-			}
-		}
-
-		data->list.value = count;
+		assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botprofileCountCb, &ctx);
+		data->list.value = ctx.cur;
 		break;
 	case MENUOP_GETOPTIONTEXT:
-		for (i = 0; i < ARRAYCOUNT(g_BotProfiles); i++) {
-			if (challengeIsFeatureUnlocked(g_BotProfiles[i].requirefeature)) {
-				if (count == data->list.value) {
-					return (uintptr_t)langGet(g_BotProfiles[i].name);
-				}
-
-				count++;
-			}
+		ctx.needle_idx = data->list.value;
+		assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botprofilePickByIndexCb, &ctx);
+		if (ctx.result_profnum >= 0) {
+			return (uintptr_t)langGet(ctx.result_namelang);
 		}
 		break;
 	case MENUOP_SET:
@@ -3326,23 +3368,18 @@ MenuItemHandlerResult mpAddChangeSimulantMenuHandler(s32 operation, struct menui
 			creating = 1;
 		}
 
-		for (i = 0; i < ARRAYCOUNT(g_BotProfiles); i++) {
-			if (challengeIsFeatureUnlocked(g_BotProfiles[i].requirefeature)) {
-				if (count == data->list.value) {
-					break;
+		ctx.needle_idx = data->list.value;
+		assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botprofilePickByIndexCb, &ctx);
+
+		if (ctx.result_profnum >= 0) {
+			s32 profnum = ctx.result_profnum;
+			if (creating) {
+				mpCreateBotFromProfile(botnum, profnum);
+			} else {
+				g_BotConfigsArray[botnum].type = g_BotProfiles[profnum].type;
+				if (g_BotConfigsArray[botnum].type == BOTTYPE_GENERAL) {
+					mpSetBotDifficulty(botnum, g_BotProfiles[profnum].difficulty);
 				}
-
-				count++;
-			}
-		}
-
-		if (creating) {
-			mpCreateBotFromProfile(botnum, i);
-		} else {
-			g_BotConfigsArray[botnum].type = g_BotProfiles[i].type;
-
-			if (g_BotConfigsArray[botnum].type == BOTTYPE_GENERAL) {
-				mpSetBotDifficulty(botnum, g_BotProfiles[i].difficulty);
 			}
 		}
 
@@ -3350,17 +3387,16 @@ MenuItemHandlerResult mpAddChangeSimulantMenuHandler(s32 operation, struct menui
 		g_Menus[g_MpPlayerNum].mpsetup.slotcount = data->list.value;
 		break;
 	case MENUOP_LISTITEMFOCUS:
-		for (i = 0; i < ARRAYCOUNT(g_BotProfiles); i++) {
-			if (challengeIsFeatureUnlocked(g_BotProfiles[i].requirefeature)) {
-				if (count == data->list.value) {
-					break;
-				}
-
-				count++;
-			}
+		ctx.needle_idx = data->list.value;
+		assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botprofilePickByIndexCb, &ctx);
+		if (ctx.result_profnum >= 0) {
+			g_Menus[g_MpPlayerNum].mpsetup.unke24 = ctx.result_profnum;
+		} else {
+			/* Legacy behaviour: when the loop falls through without finding
+			 * a match, the loop variable lands at ARRAYCOUNT(g_BotProfiles).
+			 * Match by emitting the array length sentinel. */
+			g_Menus[g_MpPlayerNum].mpsetup.unke24 = (s32)ARRAYCOUNT(g_BotProfiles);
 		}
-
-		g_Menus[g_MpPlayerNum].mpsetup.unke24 = i;
 		// fall-through
 	case MENUOP_GETSELECTEDINDEX:
 		data->list.value = g_Menus[g_MpPlayerNum].mpsetup.slotcount;
@@ -3371,13 +3407,9 @@ MenuItemHandlerResult mpAddChangeSimulantMenuHandler(s32 operation, struct menui
 	case MENUOP_GETOPTGROUPTEXT:
 		return (uintptr_t)langGet(groups[data->list.value].name);
 	case MENUOP_GETGROUPSTARTINDEX:
-		for (i = 0; i < groups[data->list.value].offset; i++) {
-			if (challengeIsFeatureUnlocked(g_BotProfiles[i].requirefeature)) {
-				count++;
-			}
-		}
-
-		data->list.groupstartindex = count;
+		ctx.max_mp_index = groups[data->list.value].offset;
+		assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botprofileGroupStartCb, &ctx);
+		data->list.groupstartindex = ctx.cur;
 		break;
 	}
 
@@ -3463,10 +3495,44 @@ MenuDialogHandlerResult menudialog0017ccfc(s32 operation, struct menudialogdef *
 	return menudialogMpSimulant(operation, dialogdef, data);
 }
 
+/*
+ * Catalog universality sweep (2026-04-27): difficulty dropdown iterates
+ * the first BOTDIFF_DISABLED entries (the "general" difficulty rung) of
+ * ASSET_BOT_PROFILE filtered by unlock state.  Layer A `g_BotProfiles[]`
+ * remains the data home; only the SELECTOR pool migrates.
+ *
+ * Catalog mp_index = g_BotProfiles[] index; difficulties are entries
+ * 0..BOTDIFF_DISABLED-1 in that ordering.  Filter on mp_index range.
+ */
+struct botdiff_pick_ctx {
+	s32 needle_idx;     /* "give me the N-th unlocked entry" */
+	s32 cur;
+	s32 result_diffidx; /* g_BotProfiles[] index (= difficulty), or -1 */
+};
+
+static void botdiffCountCb(const asset_entry_t *e, void *userdata)
+{
+	struct botdiff_pick_ctx *ctx = (struct botdiff_pick_ctx *)userdata;
+	if (e->type != ASSET_BOT_PROFILE) return;
+	if ((s32)e->mp_index >= BOTDIFF_DISABLED) return;
+	ctx->cur++;
+}
+
+static void botdiffPickByIndexCb(const asset_entry_t *e, void *userdata)
+{
+	struct botdiff_pick_ctx *ctx = (struct botdiff_pick_ctx *)userdata;
+	if (e->type != ASSET_BOT_PROFILE) return;
+	if ((s32)e->mp_index >= BOTDIFF_DISABLED) return;
+	if (ctx->result_diffidx >= 0) return;
+	if (ctx->cur == ctx->needle_idx) {
+		ctx->result_diffidx = (s32)e->mp_index;
+	}
+	ctx->cur++;
+}
+
 MenuItemHandlerResult mpBotDifficultyMenuHandler(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	s32 count = 0;
-	s32 i;
+	struct botdiff_pick_ctx ctx;
 
 	switch (operation) {
 	case MENUOP_SET:
@@ -3482,26 +3548,21 @@ MenuItemHandlerResult mpBotDifficultyMenuHandler(s32 operation, struct menuitem 
 		}
 		break;
 	case MENUOP_GETOPTIONCOUNT:
-		for (i = 0; i < BOTDIFF_DISABLED; i++) {
-			if (challengeIsFeatureUnlocked(g_BotProfiles[i].requirefeature)) {
-				count++;
-			}
-		}
-
-		data->dropdown.value = count;
+		ctx.needle_idx = 0;
+		ctx.cur = 0;
+		ctx.result_diffidx = -1;
+		assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botdiffCountCb, &ctx);
+		data->dropdown.value = ctx.cur;
 		break;
 	case MENUOP_GETOPTIONTEXT:
-		for (i = 0; i < BOTDIFF_DISABLED; i++) {
-			if (challengeIsFeatureUnlocked(g_BotProfiles[i].requirefeature)) {
-				if (count == data->dropdown.value) {
-					// "Meat", "Easy", "Normal" etc
-					return (uintptr_t) langGet(L_MISC_082 + i);
-				}
-
-				count++;
-			}
+		ctx.needle_idx = data->dropdown.value;
+		ctx.cur = 0;
+		ctx.result_diffidx = -1;
+		assetCatalogIterateUnlockedByType(ASSET_BOT_PROFILE, botdiffPickByIndexCb, &ctx);
+		if (ctx.result_diffidx >= 0) {
+			// "Meat", "Easy", "Normal" etc
+			return (uintptr_t)langGet(L_MISC_082 + ctx.result_diffidx);
 		}
-
 		return (uintptr_t)"\n";
 	}
 
