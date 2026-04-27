@@ -507,6 +507,28 @@ u8 pdguiPauseGetStagenum(void)
     return g_MpSetup.stagenum;
 }
 
+/**
+ * Set the MP setup arena (stagenum + stage_id catalog ID).
+ * Used by the catalog-driven arena picker in pdgui_menu_mpsetup.cpp.
+ * stagenum and stage_id should both come from the same asset_entry_t to
+ * stay in sync (constraint v32: stage_id is the wire identity).
+ */
+void pdguiMpSetupSetArena(u8 stagenum, const char *stage_id)
+{
+    g_MpSetup.stagenum = stagenum;
+    if (stage_id && stage_id[0]) {
+        strncpy(g_MpSetup.stage_id, stage_id, sizeof(g_MpSetup.stage_id) - 1);
+        g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
+    } else {
+        g_MpSetup.stage_id[0] = '\0';
+    }
+}
+
+const char *pdguiMpSetupGetStageId(void)
+{
+    return g_MpSetup.stage_id;
+}
+
 u8 pdguiPauseGetTimelimit(void)
 {
     return g_MpSetup.timelimit;

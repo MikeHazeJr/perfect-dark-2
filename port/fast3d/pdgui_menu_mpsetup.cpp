@@ -47,6 +47,7 @@
 #include <SDL.h>
 #include <PR/ultratypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "imgui/imgui.h"
@@ -60,6 +61,7 @@
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "assetcatalog.h" /* maps/arenas catalog migration: ASSET_ARENA iteration */
 
 extern "C" {
 #include "pdgui_menus.h"  /* for pdguiMenuMpSetupRegister declaration */
@@ -94,6 +96,14 @@ void menuPopDialog(void);
 /* ---- Language ---- */
 char *langGet(s32 textid);
 /* langSafe comes from pdgui.h */
+
+/* ---- MP setup bridge (defined in pdgui_bridge.c) ---- */
+void        pdguiMpSetupSetArena(u8 stagenum, const char *stage_id);
+const char *pdguiMpSetupGetStageId(void);
+u8          pdguiPauseGetStagenum(void);
+
+/* ---- Unlock filter ---- */
+s32 challengeIsFeatureUnlocked(u32 feature);
 
 /* ---- MENUOP_* opcodes (Batch 4 gotcha: declared locally in each cpp)
  * Values must match src/include/constants.h exactly. */
@@ -170,6 +180,9 @@ uintptr_t menuhandlerMpSlowMotion     (s32, struct s203_menuitem *, union s203_h
 uintptr_t menuhandlerMpHillTime       (s32, struct s203_menuitem *, union s203_handlerdata *);
 
 } /* extern "C" */
+
+/* ---- Arena name override (defined in pdgui_menu_room.cpp; C++ linkage). */
+const char *arenaGetName(u16 textId);
 
 /* =========================================================================
  * Module state
@@ -490,17 +503,156 @@ static bool mp_BackPressed(void)
  * Renderer: Arena picker (g_MpArenaMenuDialog)
  * =========================================================================
  *
- * Delegates to mpArenaMenuHandler for:
- *   - GETOPTIONCOUNT     -> number of visible arena+group rows
- *   - GETOPTIONTEXT      -> row label ("+ Free for All", "  -Skedar Ruins-", etc.)
- *   - SET(idx)           -> toggles group collapse OR selects arena
- *   - GETSELECTEDINDEX   -> index for the currently selected arena
- *
- * The legacy handler already handles group-header rows with "+"/"-" prefix
- * inline in the text, so we just display the returned string as-is and pass
- * clicks through.  Arena selection auto-closes the dialog
- * (MENUDIALOGFLAG_CLOSEONSELECT in the legacy def).
+ * Maps / arenas catalog migration (2026-04-26).  Reads the asset catalog
+ * directly via assetCatalogIterateUnlockedByType(ASSET_ARENA, ...) so the
+ * list reflects "catalog INTERSECT unlock-state" -- Mike's standing
+ * directive.  The legacy mpArenaMenuHandler is no longer consulted here;
+ * the picker now mirrors the canonical pdgui_menu_room.cpp shape:
+ * collector callback -> sort by section + alphabetical -> per-row
+ * Selectable + commit via pdguiMpSetupSetArena().
  */
+
+/* Mirror of pdgui_menu_room.cpp arena_entry layout (kept module-local so
+ * the two pickers stay independent and can diverge in future polish). */
+#define MPSETUP_ARENA_SEC_MP_BASE  0
+#define MPSETUP_ARENA_SEC_CAMPAIGN 1
+#define MPSETUP_ARENA_SEC_MOD      2
+#define MPSETUP_ARENA_SEC_COUNT    3
+
+struct mpsetup_arena_entry {
+    char name[64];
+    char id[64];
+    s32  stagenum;
+    s32  section;       /* MPSETUP_ARENA_SEC_* */
+    char category[32];
+};
+
+static mpsetup_arena_entry *s_MpArenaList = nullptr;
+static s32                  s_MpArenaCount = 0;
+static s32                  s_MpArenaCapacity = 0;
+static s32                  s_MpArenaUnlockedCountKnown = -1; /* invalidate trigger */
+static s32                  s_MpArenaSectionStart[MPSETUP_ARENA_SEC_COUNT] = { 0 };
+static s32                  s_MpArenaSectionCount[MPSETUP_ARENA_SEC_COUNT] = { 0 };
+
+static void mpsetupArenaCollect(const asset_entry_t *e, void *userdata)
+{
+    (void)userdata;
+    if (!e || e->type != ASSET_ARENA) return;
+
+    /* Capacity grow.  Mirror pdgui_menu_room.cpp::catalogArenaCollect: start at 32, double. */
+    if (s_MpArenaCount >= s_MpArenaCapacity) {
+        s32 newCap = (s_MpArenaCapacity == 0) ? 32 : s_MpArenaCapacity * 2;
+        mpsetup_arena_entry *newBuf = (mpsetup_arena_entry *)realloc(
+                s_MpArenaList, (size_t)newCap * sizeof(mpsetup_arena_entry));
+        if (!newBuf) {
+            sysLogPrintf(LOG_WARNING,
+                "MPSETUP.ARENA: list realloc failed at %d entries",
+                s_MpArenaCount);
+            return;
+        }
+        s_MpArenaList = newBuf;
+        s_MpArenaCapacity = newCap;
+    }
+
+    /* Display name: route through arenaGetName (override table + langbank
+     * fallback) so the AllInOne-era langid override map applies here too.
+     * A registered-but-nameless arena is a catalog data bug; skip it. */
+    const char *name = arenaGetName((u16)e->ext.arena.name_langid);
+    if (!name || !name[0] || strcmp(name, "???") == 0) {
+        sysLogPrintf(LOG_WARNING,
+            "MPSETUP.ARENA: id=\"%s\" stagenum=0x%02x langid=0x%04x has no name, skipping",
+            e->id, e->ext.arena.stagenum, e->ext.arena.name_langid);
+        return;
+    }
+
+    mpsetup_arena_entry *a = &s_MpArenaList[s_MpArenaCount];
+    strncpy(a->name, name, sizeof(a->name) - 1);
+    a->name[sizeof(a->name) - 1] = '\0';
+    strncpy(a->id, e->id, sizeof(a->id) - 1);
+    a->id[sizeof(a->id) - 1] = '\0';
+    a->stagenum = (s32)e->ext.arena.stagenum;
+    strncpy(a->category, e->category, sizeof(a->category) - 1);
+    a->category[sizeof(a->category) - 1] = '\0';
+
+    /* Section split mirrors pdgui_menu_room.cpp: mod entries first by
+     * !bundled, then Solo Missions = CAMPAIGN, everything else = MP_BASE. */
+    if (!e->bundled) {
+        a->section = MPSETUP_ARENA_SEC_MOD;
+    } else if (strcmp(a->category, "Solo Missions") == 0) {
+        a->section = MPSETUP_ARENA_SEC_CAMPAIGN;
+    } else {
+        a->section = MPSETUP_ARENA_SEC_MP_BASE;
+    }
+
+    s_MpArenaCount++;
+}
+
+static int mpsetupArenaCompare(const void *a, const void *b)
+{
+    const mpsetup_arena_entry *ea = (const mpsetup_arena_entry *)a;
+    const mpsetup_arena_entry *eb = (const mpsetup_arena_entry *)b;
+    if (ea->section != eb->section) return ea->section - eb->section;
+    return strcasecmp(ea->name, eb->name);
+}
+
+static void mpsetupArenaListBuild(void)
+{
+    s_MpArenaCount = 0;
+    /* assetCatalogIterateUnlockedByType already applies the
+     * challengeIsFeatureUnlocked filter; the collector does not need to
+     * re-check.  This is the SHAPE the audit prescribes: selector pool =
+     * catalog INTERSECT unlock-state, single source of truth. */
+    assetCatalogIterateUnlockedByType(ASSET_ARENA, mpsetupArenaCollect, nullptr);
+
+    if (s_MpArenaCount > 1) {
+        qsort(s_MpArenaList, (size_t)s_MpArenaCount,
+              sizeof(mpsetup_arena_entry), mpsetupArenaCompare);
+    }
+
+    /* Section boundary scan -- mirrors pdgui_menu_room.cpp. */
+    for (s32 s = 0; s < MPSETUP_ARENA_SEC_COUNT; s++) {
+        s_MpArenaSectionStart[s] = 0;
+        s_MpArenaSectionCount[s] = 0;
+    }
+    for (s32 i = 0; i < s_MpArenaCount; i++) {
+        s32 sec = s_MpArenaList[i].section;
+        if (sec >= 0 && sec < MPSETUP_ARENA_SEC_COUNT) {
+            if (s_MpArenaSectionCount[sec] == 0) s_MpArenaSectionStart[sec] = i;
+            s_MpArenaSectionCount[sec]++;
+        }
+    }
+
+    s_MpArenaUnlockedCountKnown = assetCatalogGetUnlockedCountByType(ASSET_ARENA);
+    sysLogPrintf(LOG_NOTE,
+        "MPSETUP.ARENA: list built: %d arenas (MP=%d, Campaign=%d, Mod=%d)",
+        s_MpArenaCount,
+        s_MpArenaSectionCount[MPSETUP_ARENA_SEC_MP_BASE],
+        s_MpArenaSectionCount[MPSETUP_ARENA_SEC_CAMPAIGN],
+        s_MpArenaSectionCount[MPSETUP_ARENA_SEC_MOD]);
+}
+
+/* Rebuild trigger: count delta on appearing or whenever the catalog has
+ * gained/lost unlocked arenas since the last build (e.g. challenge flag
+ * change, mod scan added a map). */
+static void mpsetupArenaListEnsure(bool windowAppearing)
+{
+    s32 currentUnlocked = assetCatalogGetUnlockedCountByType(ASSET_ARENA);
+    if (windowAppearing
+            || s_MpArenaUnlockedCountKnown < 0
+            || currentUnlocked != s_MpArenaUnlockedCountKnown) {
+        mpsetupArenaListBuild();
+    }
+}
+
+static const char *mpsetupArenaSectionLabel(s32 section)
+{
+    switch (section) {
+    case MPSETUP_ARENA_SEC_MP_BASE:  return "Combat Simulator";
+    case MPSETUP_ARENA_SEC_CAMPAIGN: return "Solo Missions";
+    case MPSETUP_ARENA_SEC_MOD:      return "Mods";
+    default:                         return "Other";
+    }
+}
 
 static s32 renderMpArena(struct menudialog *dialog, struct menu *, s32, s32)
 {
@@ -518,30 +670,56 @@ static s32 renderMpArena(struct menudialog *dialog, struct menu *, s32, s32)
 
     mp_ArmFocusOnOpen(&s_ArenaFocusPending);
 
+    /* Catalog-driven list rebuild on appearing or unlock-count delta. */
+    mpsetupArenaListEnsure(ImGui::IsWindowAppearing());
+
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
 
-    s32 selected = list_GetSelectedIndex(mpArenaMenuHandler, 0);
+    /* Resolve the currently selected stagenum to a list index for the
+     * focus latch.  Falls back to 0 when no selection matches (fresh
+     * build / mod-removed arena). */
+    const u8 currentStagenum = pdguiPauseGetStagenum();
+    s32 selectedIdx = -1;
+    for (s32 i = 0; i < s_MpArenaCount; i++) {
+        if ((u8)s_MpArenaList[i].stagenum == currentStagenum) {
+            selectedIdx = i;
+            break;
+        }
+    }
+
+    bool selectionMade = false;
 
     if (ImGui::BeginChild("##mp_arena_body", ImVec2(0, bodyH),
                           ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
-        s32 count = list_GetOptionCount(mpArenaMenuHandler, 0);
-        for (s32 i = 0; i < count; i++) {
-            const char *text = list_GetOptionText(mpArenaMenuHandler, 0, i);
-            if (!text) text = "";
+        s32 lastSection = -1;
+        for (s32 i = 0; i < s_MpArenaCount; i++) {
+            const mpsetup_arena_entry *a = &s_MpArenaList[i];
+
+            if (a->section != lastSection) {
+                if (lastSection != -1) ImGui::Spacing();
+                ImGui::TextDisabled("%s", mpsetupArenaSectionLabel(a->section));
+                ImGui::Separator();
+                lastSection = a->section;
+            }
 
             ImGui::PushID(i);
-            bool isSelected = (i == selected);
+            bool isSelected = (i == selectedIdx);
             mp_ConsumePendingFocus(&s_ArenaFocusPending, isSelected);
-            if (ImGui::Selectable(text, isSelected, ImGuiSelectableFlags_None)) {
-                list_Set(mpArenaMenuHandler, 0, i);
+            if (ImGui::Selectable(a->name, isSelected, ImGuiSelectableFlags_None)) {
+                pdguiMpSetupSetArena((u8)a->stagenum, a->id);
                 pdguiPlaySound(PDGUI_SND_SELECT);
-                /* Legacy dialog def has MENUDIALOGFLAG_CLOSEONSELECT.  When
-                 * the SET hits an arena row (not a group header), that flag
-                 * closes the dialog via the menu runtime automatically. */
+                /* Legacy dialog def has MENUDIALOGFLAG_CLOSEONSELECT.  We
+                 * replicate that close ourselves after the body block to
+                 * keep ImGui's Begin/End nesting balanced. */
+                selectionMade = true;
             }
             ImGui::PopID();
+        }
+
+        if (s_MpArenaCount == 0) {
+            ImGui::TextDisabled("No arenas available.");
         }
     }
     ImGui::EndChild();
@@ -554,6 +732,10 @@ static s32 renderMpArena(struct menudialog *dialog, struct menu *, s32, s32)
     pdguiEndActionBar();
 
     ImGui::End();
+
+    if (selectionMade) {
+        mp_CloseCurrentDialog();
+    }
     return 1;
 }
 
