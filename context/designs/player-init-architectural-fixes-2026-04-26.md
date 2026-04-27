@@ -696,3 +696,36 @@ then D, sequential bisectable commits, build-verify per step, all
 new pd-tests cases land in the same commit as the invariant they
 enforce. Post-cohort merges follow standard auto-merge protocol per
 the user's `auto-merge-by-default-sequentially` memory.
+
+---
+
+## 8. Decisions logged 2026-04-26 by parent session per delegated authority
+
+Parent session greenlit Phase 2 with all five recommendations accepted.
+Logged here for the implementation session's reference and future
+audit traceability.
+
+- **D-1 (INV-2 resolution): Option A.** Re-add `g_Vars.normmplayerisrunning &&`
+  outer guard at [src/game/player.c:1790](../../src/game/player.c) and
+  [src/game/bot.c:506](../../src/game/bot.c) to match the existing
+  [src/game/playerreset.c:225](../../src/game/playerreset.c) gate.
+  Cohort B implementation proceeds with this option.
+- **D-2 (INV-1 fallback policy): explicit `WEAPON_UNARMED` + HUD message
+  on catalog miss.** Loud failure, not silent. Cohort A.2 migration
+  emits a `LOG_ERROR "SPAWN.CATALOG.MISS: ..."` line + a one-shot
+  player-screen HUD message + force-equips `WEAPON_UNARMED` instead of
+  falling through to `g_DefaultWeapons[]` (which is `0` in normal MP).
+- **D-3 (INV-3 test approach): doc audit + extract-pure-helpers.** Audit
+  C.1 produces the field checklist. Pure-helper extraction in C.3 covers
+  the testable subset; depth follows what the audit surfaces. If C.1
+  finds >25 fields, split the cohort and resurface to parent before
+  pushing.
+- **D-4 (INV-4 implementation): separate `g_MatchConfig.options_engine_forced`
+  field.** Less invasive than the overlay-struct alternative. The full
+  overlay-struct refactor (D5R territory) is queued for a future pass.
+- **D-5 (cohort scope): 5 cohorts sequential.** Surface to parent if any
+  single cohort exceeds 5 commits OR if Cohort C scope balloons beyond
+  expectations. Methodology gates remain in effect: possibility framing,
+  no half measures (every site in scope migrates per its invariant), no
+  em-dashes anywhere, hierarchical log channels for any new diag.
+  pd-tests cases land in the same commit as the invariant they enforce.
