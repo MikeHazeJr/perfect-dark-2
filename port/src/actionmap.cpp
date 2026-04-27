@@ -68,9 +68,10 @@ void actionmapRefreshStickMultFromUi(void);
 #define VKL_LEFT  80
 #define VKL_RIGHT 79
 
-/* F-keys: VK_F1=58 → F5=62, F7=64, F10=67 */
+/* F-keys: VK_F1=58 -> F5=62, F7=64, F10=67, F11=68 */
 #define VKL_F5    62
 #define VKL_F7    64
+#define VKL_F11   68
 
 /* Number row: VK_1=30 .. VK_9=38, VK_0=39 */
 #define VKL_2 31
@@ -2154,10 +2155,16 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_SCORECARD,      JOY_BTN(0, JBTN_BACK));
 
         /* The Grid mode toggle (Forge <-> Playtest), keyboard binding.
-         * F7 has no other binding in the gameplay IMC, so it dispatches
-         * cleanly. Keyboard E / Q (FORGE_ASCEND / DESCEND) are also
-         * unique-bound on this IMC and remain here -- they only have an
-         * effect when forgeReadFreeflyInput reads them in FREEFLY.
+         * Moved from F7 to F11 (2026-04-26) to split the dual-bind with
+         * the raw F7 -> playerToggleDevInvincibility() handler in
+         * pdgui_backend.cpp. F7 was previously bound here AND to the
+         * cheat handler; the in-handler forgeIsFreefly() check in the
+         * cheat path was the only thing keeping the two from racing.
+         * F11 is otherwise unbound in the codebase (Alt+Enter handles
+         * fullscreen, not F11). Keyboard E / Q (FORGE_ASCEND / DESCEND)
+         * are also unique-bound on this IMC and remain here -- they
+         * only have an effect when forgeReadFreeflyInput reads them in
+         * FREEFLY.
          *
          * AUDIT-24-H2 / H3 fix (2026-04-24):
          *   - Gamepad Back -> FORGE_TOGGLE moved to g_ImcForgeSession.
@@ -2169,7 +2176,7 @@ static void setupGameplayDefaults(s32 player)
          *   - LSHIFT / LCTRL -> FORGE_BOOST / PRECISION moved to
          *     g_ImcForge. Old binds here lost to SPRINT / CROUCH
          *     (lower enum) and never fired even on keyboard. */
-        addBind(imc, ACTION_FORGE_TOGGLE,    (u32)VKL_F7);
+        addBind(imc, ACTION_FORGE_TOGGLE,    (u32)VKL_F11);
         addBind(imc, ACTION_FORGE_ASCEND,    VKL_E);
         addBind(imc, ACTION_FORGE_DESCEND,   VKL_Q);
     }

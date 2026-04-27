@@ -1167,19 +1167,12 @@ s32 pdguiProcessEvent(void *sdlEvent)
     }
 
     /* F7: toggle player invincibility (solo/MP debug).
-     * Issue 5b (2026-04-24): in Grid FREEFLY the player chr is an
-     * observer / camera avatar, not a combat participant.  The
-     * cheat has nothing meaningful to apply to (no damage path is
-     * active on a freefly body), and the same physical key also
-     * fires ACTION_FORGE_TOGGLE via the actionmap -- running both
-     * in parallel creates the "F7 conflicts with Change Mode"
-     * confusion Mike reported as Issue 6.  Consume the press to
-     * block the cheat; let the actionmap's ACTION_FORGE_TOGGLE
-     * handle the mode toggle.  On exit from FREEFLY (back to
-     * NORMAL playtest mode) the cheat becomes available again
-     * automatically. */
+     * 2026-04-26: dual-bind with ACTION_FORGE_TOGGLE split.  The
+     * actionmap binding for ACTION_FORGE_TOGGLE was moved to F11
+     * (port/src/actionmap.cpp), so F7 is now uniquely the
+     * invincibility cheat.  The earlier forgeIsFreefly() early-return
+     * is removed -- there is no longer any other consumer of F7. */
     if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F7) {
-        if (forgeIsFreefly()) return 1;
         playerToggleDevInvincibility();
         return 1;
     }
