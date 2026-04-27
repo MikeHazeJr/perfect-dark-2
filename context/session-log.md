@@ -1,8 +1,106 @@
 
 # Session Log (Active)
 
-> **S284–S411** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S284–S471** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S471 (`cool-dirac-4af9b8`) - 2026-04-26 - pd-tests framework first cohort
+
+Mike's directive: "Regarding the testing setup, build a plan, then execute it fully."
+
+### Outcome
+
+New `pd-tests` build target alongside `pd` and `pd-server`. Catch2 v2.13.10 single-header dropped into `port/include/catch.hpp`. **77 test cases / 770 assertions, all green**. Build verified: `pd` (56,181,959 bytes) + `pd-server` (23,269,035 bytes) + `pd-tests` (14,201,518 bytes) all link clean.
+
+### Design doc
+
+[`context/designs/testing-framework-2026-04-26.md`](designs/testing-framework-2026-04-26.md) -- ADR + roadmap. Sections: goals/non-goals, framework choice (Catch2 v2 vs Unity vs GoogleTest), build integration, harness shapes (pure unit / roundtrip / state-machine), mocking strategy (link-time stubs, not function pointers), coverage roadmap (first / second / third cohort), test conventions, scope guards, decision log.
+
+### First cohort coverage
+
+| Subsystem | Cases | Asserts | Source-vs-copy |
+|---|---:|---:|---|
+| smoke (Catch2 sanity) | 3 | 6 | n/a |
+| netbuf wire primitives | 16 | 77 | real `port/src/net/netbuf.c` |
+| connect codes | 6 | 99 | real `port/src/connectcode.c` |
+| version pins (NET_PROTOCOL_VER + MPSETUP_VERSION) | 4 | ~5 | real headers |
+| savebuffer bit-pack | 10 | ~80 | test-local copy `tests/savebuffer_pure.{c,h}` |
+| v1 -> v2 save migration | 8 | ~30 | rule replicated in test |
+| manifest container | 8 | ~30 | test-local copy `tests/manifest_pure.{c,h}` |
+| manifest hash | 3 | ~12 | test-local copy |
+| manifest serialize/deserialize | 5 | ~50 | test-local copy (incl. SEC-5 zero-SHA256 reject) |
+| manifest diff | 5 | ~30 | test-local copy |
+| random-pool selector | 10 | ~60 | rule replicated in test |
+| **Total** | **77** | **770** | -- |
+
+### Decisions made
+
+1. **Catch2 v2 single-header** over Unity / GoogleTest. Drops into `port/include/`, no separate compile unit, no submodule. Tests are C++ but the C code under test is callable via `extern "C"`.
+2. **Cherry-picked source list, not GLOB.** The full game's GLOB pulls 600+ files. Keeping pd-tests at ~12 sources prevents a global cascade.
+3. **Source-vs-copy hybrid:** netbuf and connectcode are pure -- compile real. savebuffer has GBI/VI/Mtx in the same file -- copy the bit-pack subset only. netmanifest references 7 globals + 11 functions -- copy the pure subset only. mpSetRandomWeapons rule replicated as a parametrised pure helper. Each copy carries `@SYNC` markers pointing back to source line ranges.
+4. **Stub assetCatalogResolve to NULL** -- forces the synthetic-FNV-1a fallback path that's the deterministic test surface.
+5. **Version pin via dual-TU pattern** -- C TU `tests/test_versions_pin.c` reads NET_PROTOCOL_VER + MPSETUP_VERSION from the live headers; C++ TU compares against expected. A bump without a coordinated test update is now loud.
+6. **MPSETUP_VERSION promoted** from a file-local `#define` in `port/src/mpsetups.c` to the public header `port/include/mpsetups.h` so the test pin reads the live constant. Semantics unchanged; `pd` + `pd-server` build verified after the move.
+
+### Files added (10)
+
+- `context/designs/testing-framework-2026-04-26.md` -- ADR
+- `port/include/catch.hpp` -- Catch2 v2.13.10 single header (vendored)
+- `tests/main.cpp` -- Catch2 entry point
+- `tests/test_smoke.cpp` -- framework sanity
+- `tests/test_netbuf.cpp` -- 16 wire primitive cases
+- `tests/test_connectcode.cpp` -- 6 connect-code cases
+- `tests/test_versions.cpp` + `tests/test_versions_pin.c` -- version pins
+- `tests/test_savebuffer.cpp` + `tests/savebuffer_pure.{c,h}` -- 10 bit-pack cases
+- `tests/test_save_migration.cpp` -- 8 v1 -> v2 weapon-cull cases
+- `tests/test_manifest.cpp` + `tests/manifest_pure.{c,h}` -- 21 manifest cases
+- `tests/test_random_pool.cpp` -- 10 random-pool cases
+- `tests/stubs.c` -- linker stubs (sysLogPrintf, configRegisterInt, asset catalog, mod manager, audio playlist)
+- `tests/README.md` -- usage + conventions
+
+### Files modified (2)
+
+- `CMakeLists.txt` -- new `pd-tests` target (~70 lines)
+- `port/include/mpsetups.h` -- MPSETUP_VERSION promoted from `port/src/mpsetups.c`
+- `port/src/mpsetups.c` -- comment-only delete of the moved `#define`
+
+### Commits
+
+| SHA | Scope |
+|---|---|
+| `687f286a` | docs(testing): ADR for pd-tests Catch2 framework |
+| `3cd968b8` | test(framework): pd-tests scaffold with Catch2 v2.13.10 |
+| `477d5a59` | test(wire): netbuf primitives + connect codes + version pins |
+| `6a73ae5b` | test(save): savebuffer bit-pack + v1->v2 weapon-cull migration |
+| `ec2da66a` | test(manifest): container ops + hash + diff + serialize/deserialize |
+| `b0e174bb` | test(random-pool): mpSetRandomWeapons specification tests |
+| `5b3a3b30` | docs(tests): add tests/README.md for pd-tests usage and conventions |
+
+### Second cohort (queued for follow-up sessions)
+
+Per the design doc Section F:
+
+- IMC stack (input-context push/pop, active-scheme correctness)
+- Menu stack (push/pop dedup, pool API)
+- Master loader state machine (FLUX -> HANDS -> GUN -> CARTS -> LOADED) -- would have caught the round-7 charpreview-vs-master-loader race programmatically
+- Hand state machine (CHANGEGUN / LOAD / IDLE / ATTACK transitions)
+- Mission / mode transitions
+- Catalog dependency-graph traversal
+- Per-message netmsg encode/decode roundtrips (would need ~7 globals + 11 stub functions)
+
+### Notes
+
+- Catch2 v2 was chosen over v3 because v2 is a single header. v3 requires building Catch2 itself as a separate static lib.
+- Tests link `libwinpthread-1.dll` dynamically (the static-link flags didn't take effect on the small test binary). Mitigation: `source devtools/build-env.sh` puts mingw64 on PATH, which is the standard project invocation. Documented in `tests/README.md`.
+- The two `[stub-log L2] NET: could not read N bytes` lines that print before the test summary are EXPECTED -- they come from netbuf's read-past-end safety tests routing through the stub `sysLogPrintf`.
+
+### Next steps
+
+- Merge to dev (with pre/post line-count snapshots per the worktree git safety rules)
+- Mike validates by running `ninja -C Build pd-tests && ./Build/pd-tests`
+- Wire `pd-tests` into `devtools/build-headless.ps1` as a pre-merge gate (suggested in design doc Section G; not done in this session)
+
+---
 
 ## Session S470 (`peaceful-banach-7a2c66`) - 2026-04-25 (PM) - B-253 follow-up: framing + missing-renders + Grid debug toggles
 
