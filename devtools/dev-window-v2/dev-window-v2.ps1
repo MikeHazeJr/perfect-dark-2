@@ -518,7 +518,7 @@ function Save-ReleaseCache($data) {
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Perfect Dark 2  |  Dev Window v2"
-        MinWidth="1400" MinHeight="920"
+        MinWidth="1500" MinHeight="940"
         Background="#ECEEF2"
         WindowStartupLocation="CenterScreen"
         UseLayoutRounding="True"
@@ -734,7 +734,7 @@ function Save-ReleaseCache($data) {
                            FontFamily="Consolas" FontSize="30" FontWeight="Bold"/>
                 <Rectangle Width="1" Fill="#C0C8D2" Margin="22,0"/>
                 <TextBlock x:Name="StatusWorktrees" Text="worktrees: --" Foreground="#4A5868"
-                           FontFamily="Consolas" FontSize="30" FontWeight="Bold"/>
+                           FontFamily="Consolas" FontSize="30" FontWeight="Bold" Margin="0,0,22,0"/>
             </DockPanel>
         </Border>
 
@@ -839,15 +839,18 @@ function Save-ReleaseCache($data) {
                         </ScrollViewer>
                     </Border>
 
-                    <!-- Status Area: 2 columns, white cards on light bg. Both
-                         take their content's natural height; vertical space is
-                         no longer wasted between hero and status bar. MinWidths
-                         bumped (S478) so doubled-bold text never clips. -->
+                    <!-- Status Area: 2 columns, white cards on light bg.
+                         Columns are equal share now (S479) so the right card
+                         gets enough horizontal room for the doubled-bold
+                         spinner row + auth/latest/local labels without
+                         clipping. MinWidth on the right pinned to 740 so the
+                         spinner triplet (~600 px at doubled-bold) plus card
+                         padding fits comfortably. -->
                     <Grid DockPanel.Dock="Top">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="2*" MinWidth="520"/>
+                            <ColumnDefinition Width="*" MinWidth="500"/>
                             <ColumnDefinition Width="16"/>
-                            <ColumnDefinition Width="*" MinWidth="560"/>
+                            <ColumnDefinition Width="*" MinWidth="740"/>
                         </Grid.ColumnDefinitions>
 
                         <!-- Left: Build Status (white card) -->
@@ -894,34 +897,38 @@ function Save-ReleaseCache($data) {
                                 MinWidth="560" HorizontalAlignment="Stretch">
                             <StackPanel>
                                 <TextBlock Text="V E R S I O N" Foreground="#7A8898" FontSize="24"
-                                           FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,8"/>
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                    <!-- Spinner buttons enlarged so doubled-bold "+/-" fits.
-                                         56x56 with no internal padding so the glyph centers cleanly. -->
-                                    <StackPanel Margin="0,0,14,0">
+                                           FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,6"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                    <!-- S479: spinner triplet trimmed to fit the right card without
+                                         clipping. Buttons 48x52 (was 56x56), number boxes 64/64/72 (was
+                                         80/80/92), inter-stack margin 8 (was 14). Per-stack width:
+                                         MAJ/MIN = 48+64+48 = 160; PAT = 48+72+48 = 168. Triplet total
+                                         = 160 + 8 + 160 + 8 + 168 = 504 px (was 616), comfortably
+                                         under the right card's usable width. -->
+                                    <StackPanel Margin="0,0,8,0">
                                         <TextBlock Text="MAJ" Foreground="#7A8898" FontSize="22"
                                                    FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,4"/>
                                         <StackPanel Orientation="Horizontal">
                                             <Button x:Name="BtnVerMajDown" Content="-" Style="{StaticResource ToolBtn}"
-                                                    Padding="0" Width="56" MinHeight="56" FontFamily="Consolas" FontSize="28"/>
-                                            <TextBox x:Name="TxtVerMajor" Width="80" TextAlignment="Center"
+                                                    Padding="0" Width="48" MinHeight="52" FontFamily="Consolas" FontSize="28"/>
+                                            <TextBox x:Name="TxtVerMajor" Width="64" TextAlignment="Center"
                                                      Background="#F5F7FA" Foreground="#A06A10" BorderBrush="#C0C8D2"
-                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="30" Padding="4"/>
+                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="28" Padding="2"/>
                                             <Button x:Name="BtnVerMajUp" Content="+" Style="{StaticResource ToolBtn}"
-                                                    Padding="0" Width="56" MinHeight="56" FontFamily="Consolas" FontSize="28"/>
+                                                    Padding="0" Width="48" MinHeight="52" FontFamily="Consolas" FontSize="28"/>
                                         </StackPanel>
                                     </StackPanel>
-                                    <StackPanel Margin="0,0,14,0">
+                                    <StackPanel Margin="0,0,8,0">
                                         <TextBlock Text="MIN" Foreground="#7A8898" FontSize="22"
                                                    FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,4"/>
                                         <StackPanel Orientation="Horizontal">
                                             <Button x:Name="BtnVerMinDown" Content="-" Style="{StaticResource ToolBtn}"
-                                                    Padding="0" Width="56" MinHeight="56" FontFamily="Consolas" FontSize="28"/>
-                                            <TextBox x:Name="TxtVerMinor" Width="80" TextAlignment="Center"
+                                                    Padding="0" Width="48" MinHeight="52" FontFamily="Consolas" FontSize="28"/>
+                                            <TextBox x:Name="TxtVerMinor" Width="64" TextAlignment="Center"
                                                      Background="#F5F7FA" Foreground="#A06A10" BorderBrush="#C0C8D2"
-                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="30" Padding="4"/>
+                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="28" Padding="2"/>
                                             <Button x:Name="BtnVerMinUp" Content="+" Style="{StaticResource ToolBtn}"
-                                                    Padding="0" Width="56" MinHeight="56" FontFamily="Consolas" FontSize="28"/>
+                                                    Padding="0" Width="48" MinHeight="52" FontFamily="Consolas" FontSize="28"/>
                                         </StackPanel>
                                     </StackPanel>
                                     <StackPanel>
@@ -929,22 +936,22 @@ function Save-ReleaseCache($data) {
                                                    FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,4"/>
                                         <StackPanel Orientation="Horizontal">
                                             <Button x:Name="BtnVerPatDown" Content="-" Style="{StaticResource ToolBtn}"
-                                                    Padding="0" Width="56" MinHeight="56" FontFamily="Consolas" FontSize="28"/>
-                                            <TextBox x:Name="TxtVerPatch" Width="92" TextAlignment="Center"
+                                                    Padding="0" Width="48" MinHeight="52" FontFamily="Consolas" FontSize="28"/>
+                                            <TextBox x:Name="TxtVerPatch" Width="86" TextAlignment="Center"
                                                      Background="#F5F7FA" Foreground="#A06A10" BorderBrush="#C0C8D2"
-                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="30" Padding="4"/>
+                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="28" Padding="2"/>
                                             <Button x:Name="BtnVerPatUp" Content="+" Style="{StaticResource ToolBtn}"
-                                                    Padding="0" Width="56" MinHeight="56" FontFamily="Consolas" FontSize="28"/>
+                                                    Padding="0" Width="48" MinHeight="52" FontFamily="Consolas" FontSize="28"/>
                                         </StackPanel>
                                     </StackPanel>
                                 </StackPanel>
                                 <CheckBox x:Name="ChkStable" Content="Stable release" Foreground="#A06A10"
-                                          FontSize="28" FontWeight="Bold" Margin="0,2,0,12"/>
+                                          FontSize="28" FontWeight="Bold" Margin="0,2,0,8"/>
                                 <TextBlock x:Name="LblAuthStatus" Text="auth: ..." Foreground="#4A5868"
-                                           FontFamily="Consolas" FontSize="28" Margin="0,0,0,5" Cursor="Hand"
+                                           FontFamily="Consolas" FontSize="28" FontWeight="Bold" Margin="0,0,0,4" Cursor="Hand"
                                            TextWrapping="Wrap"/>
                                 <TextBlock x:Name="LblLatestRelease" Text="latest: --" Foreground="#4A5868"
-                                           FontFamily="Consolas" FontSize="28" Margin="0,0,0,4"
+                                           FontFamily="Consolas" FontSize="28" FontWeight="Bold" Margin="0,0,0,4"
                                            TextWrapping="Wrap"/>
                                 <TextBlock x:Name="LblDevVersion" Text="local: --" Foreground="#0078A8"
                                            FontFamily="Consolas" FontSize="28" FontWeight="Bold" TextWrapping="Wrap"/>

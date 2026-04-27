@@ -1,8 +1,23 @@
 
 # Session Log (Active)
 
-> **S284–S478** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S284–S479** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S479 (`festive-hawking-49649b` follow-up #4) - 2026-04-27 - right panel clipping fix
+
+Mike's directive (verbatim): "Update Dev Window v2 is much better. There is some info being cut off though in the right side panel."
+
+Screenshot review showed (a) the PAT spinner box rendering "17" with the trailing "0" clipped behind the "+" button, (b) the `latest:` and `local:` rows clipped off the bottom of the right card, and (c) the bottom status bar showing "worktreesauth: ok" with no visual gap between the two labels. Three layout fixes:
+
+1. **Status grid column rebalance** -- column shares moved from `2*` left / `*` right to `*` / `*` (equal share) so the right card gets enough horizontal room. MinWidths bumped: left 520 -> 500 (slightly narrower since balanced), right 560 -> 740. Window MinWidth 1400 -> 1500 to ensure the new MinWidth sum + gap + dock margins fits.
+2. **Spinner triplet slimmed** -- per-spinner-button width 56 -> 48 (height 56 -> 52); MAJ/MIN number boxes 80 -> 64; PAT number box 92 -> 86 (still wide enough to render "170" Bold Consolas without clipping); inter-stack margin 14 -> 8. Triplet total width 616px -> 504px (fits comfortably in the right card's ~700px usable interior). FontSize on the number boxes 30 -> 28 to match the spinner buttons.
+3. **Right card vertical margins tightened** -- VERSION header bottom margin 8 -> 6, spinner-row group bottom margin 10 -> 8, ChkStable bottom margin 12 -> 8, LblAuthStatus bottom margin 5 -> 4, LblLatestRelease bottom margin unchanged at 4. LblAuthStatus and LblLatestRelease gained explicit FontWeight="Bold" (they would have inherited from the Window TextElement default but explicit assertion prevents drift).
+4. **Status bar gap fix** -- StatusWorktrees gained Margin="0,0,22,0" so it doesn't visually run into the next-element StatusAuth (which is right-docked). The DockPanel "remainder" gap was collapsing to zero when the left-flowing labels filled most of the bar.
+
+Verified: PowerShell parser passes; XAML loads cleanly via XamlReader.Load (1500x940 MinSize confirmed); spinner width math (48+64+48 + 8 + 48+64+48 + 8 + 48+86+48 = 510px) fits inside the right card's ~700px usable interior with comfortable margin.
+
+Files: `devtools/dev-window-v2/dev-window-v2.ps1`.
 
 ## Session S478 (`festive-hawking-49649b` follow-up #3) - 2026-04-27 - doubled bold UI sweep
 
