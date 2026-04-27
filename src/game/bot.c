@@ -15,6 +15,7 @@
 #include "game/player.h"
 #include "game/playermgr.h"
 #include "game/bg.h"
+#include "game/playerreset.h" /* INV-5 / E.3: per-spawn modelmgrLoadProjectileModeldefs */
 #include "game/mplayer/setup.h"
 #include "game/mplayer/scenarios.h"
 #include "game/radar.h"
@@ -545,6 +546,16 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 				}
 			}
 			if (resolvedWeaponNum > 0) {
+				/* INV-5 / Cohort E.3 (player-init-architectural-fixes-2026-04-26):
+				 * mirror player.c:1822 per-spawn defensive preload. The
+				 * setup.c:2825 batch preload covers g_MpSetup.weapons[]
+				 * + g_MatchConfig.spawnWeaponNum at end-of-stage-load,
+				 * but a future per-bot loadout (or mid-match scenario
+				 * change) could resolve a weapon outside both sets. The
+				 * call is cheap and idempotent (no-op if def is already
+				 * resident) so add it unconditionally to close the
+				 * asymmetry vs the player path. */
+				modelmgrLoadProjectileModeldefs(resolvedWeaponNum);
 				botinvGiveSingleWeapon(chr, resolvedWeaponNum);
 				if (spawnWeaponIdx >= 0) {
 					s32 ammotype = 0;
