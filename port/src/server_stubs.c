@@ -21,6 +21,7 @@
 #include "types.h"
 #include "constants.h"
 #include "data.h"
+#include "game/mplayer/scenarios.h"
 #include "system.h"
 #include "lib/main.h"
 #include "game/mplayer/participant.h"
@@ -406,6 +407,15 @@ struct headorbody g_HeadsAndBodies[152];    /* zero-initialised; no model data o
 struct mpweapon   g_MpWeapons[NUM_MPWEAPONS]; /* zero-initialised; no weapon data on server */
 struct stagetableentry *g_Stages = NULL;    /* no stage table on server */
 s32 g_NumStages = 0;
+
+/* Catalog universality sweep (2026-04-27): the assetcatalog_base_extended
+ * registration loops touch these tables to mirror unlock-state fields onto
+ * catalog entries.  Server build never invokes assetCatalogRegisterBaseGame
+ * (no ROM data), but the linker still needs the symbols to satisfy the
+ * extern declarations in assetcatalog_base_extended.c. */
+struct mpscenariooverview g_MpScenarioOverviews[6]; /* zero-initialised; server skips registration */
+struct mptrack            g_MpTracks[43];           /* zero-initialised; server skips registration */
+struct botprofile         g_BotProfiles[18];        /* zero-initialised; server skips registration */
 
 /* --- assetcatalog_load stubs — server has no game asset filesystem --- */
 s32  catalogLoadAsset(const char *assetId)   { (void)assetId; return 1; }
