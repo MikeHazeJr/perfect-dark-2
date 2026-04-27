@@ -1101,6 +1101,25 @@ asset_entry_t *assetCatalogRegisterAudio(const char *id, s32 sound_id,
     return entry;
 }
 
+asset_entry_t *assetCatalogRegisterBotProfile(const char *id, s32 type,
+                                              s32 difficulty, s16 body,
+                                              s16 name_langid,
+                                              u8 requirefeature)
+{
+    asset_entry_t *entry = assetCatalogRegister(id, ASSET_BOT_PROFILE);
+    if (entry == NULL) {
+        return NULL;
+    }
+
+    entry->ext.bot_profile.type = type;
+    entry->ext.bot_profile.difficulty = difficulty;
+    entry->ext.bot_profile.body = body;
+    entry->ext.bot_profile.name_langid = name_langid;
+    entry->ext.bot_profile.requirefeature = requirefeature;
+
+    return entry;
+}
+
 asset_entry_t *assetCatalogRegisterHud(const char *id, s32 hud_id,
                                         const char *name, s32 element_type,
                                         const char *texture_file)

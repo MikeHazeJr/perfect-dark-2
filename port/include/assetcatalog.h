@@ -100,6 +100,7 @@ typedef enum {
     ASSET_EFFECT,              /* visual effect: shader tint, glow, particle, screen-space */
     ASSET_MODEL,               /* individual 3-D model (g_ModelStates[] entry, MODEL_* index) */
     ASSET_LANG,                /* language string bank (LANGBANK_* constant) */
+    ASSET_BOT_PROFILE,         /* MP simulant profile entry (g_BotProfiles[] / mod) */
     ASSET_TYPE_COUNT
 } asset_type_e;
 
@@ -279,6 +280,7 @@ typedef struct asset_entry {
             f32  fire_rate;            /* rounds per second (0 = unknown) */
             s32  ammo_type;            /* ammo category constant */
             s32  dual_wieldable;       /* bool: can be dual-wielded */
+            u8   requirefeature;       /* unlock check (0 = always available) */
         } weapon;
         struct {
             s32 anim_id;               /* animation table index */
@@ -307,6 +309,7 @@ typedef struct asset_entry {
             s32 min_players;           /* minimum players required */
             s32 max_players;           /* maximum players supported */
             s32 team_based;            /* bool: requires teams */
+            u8  requirefeature;        /* unlock check (0 = always available) */
         } gamemode;
         struct {
             s32 sound_id;              /* SFX enum value or music track index */
@@ -314,6 +317,10 @@ typedef struct asset_entry {
             s32 category;              /* AUDIO_CAT_SFX / AUDIO_CAT_MUSIC / AUDIO_CAT_VOICE */
             s32 duration_ms;           /* duration in milliseconds (0 = unknown) */
             char file_path[128];       /* path to audio file (empty = ROM-embedded) */
+            /* MUSIC tracks only: solo stage whose best-time gates this track.
+             * Mirrors g_MpTracks[].unlockstage. -1 = always unlocked
+             * (mod tracks default here). SFX / VOICE entries leave at 0. */
+            s16  unlockstage;
         } audio;
         struct {
             s32 hud_id;                /* HUD element ID */
@@ -332,6 +339,13 @@ typedef struct asset_entry {
         struct {
             s32 bank_id;               /* LANGBANK_* constant (0x01-0x44) */
         } lang;
+        struct {
+            s32  type;                 /* BOTTYPE_* constant (e.g. BOTTYPE_GENERAL) */
+            s32  difficulty;           /* BOTDIFF_* constant */
+            s16  body;                 /* default MP body index (g_MpBodies[] position) */
+            s16  name_langid;          /* langbank string ID for display name */
+            u8   requirefeature;       /* unlock check (0 = always available) */
+        } bot_profile;
     } ext;
 
     /* Source numeric IDs for reverse-index (C-4 through C-7).
@@ -546,6 +560,19 @@ asset_entry_t *assetCatalogRegisterWeapon(const char *id, s32 weapon_id,
                                            s32 ammo_type, s32 dual_wieldable);
 
 /**
+ * Register an MP bot profile asset.
+ * Convenience wrapper that sets ext.bot_profile fields.
+ * `type` and `difficulty` are BOTTYPE_* / BOTDIFF_* constants.
+ * `body` is the default MP body index (g_MpBodies[] position).
+ * `name_langid` is the langbank string ID for the display name.
+ * `requirefeature` is the MPFEATURE_* unlock gate (0 = always available).
+ */
+asset_entry_t *assetCatalogRegisterBotProfile(const char *id, s32 type,
+                                              s32 difficulty, s16 body,
+                                              s16 name_langid,
+                                              u8 requirefeature);
+
+/**
  * Register an animation asset.
  * Convenience wrapper that sets ext.anim fields.
  * anim_id is the index in the animation table (matches animations.json order).
@@ -706,6 +733,27 @@ void assetCatalogIterateUnlockedByType(asset_type_e type, asset_iter_fn fn,
  * catalog pool; use sparingly (cache the result for per-frame UI sizing).
  */
 s32 assetCatalogGetUnlockedCountByType(asset_type_e type);
+
+/**
+ * Iterate ASSET_AUDIO entries with category == AUDIO_CAT_MUSIC that are
+ * unlocked for the current player.  The unlock semantic for music tracks
+ * is best-time-based, NOT challenge-feature-based: a track is unlocked
+ * iff `ext.audio.unlockstage < 0`, out of campaign range, or the player
+ * has any best-time on `g_GameFile.besttimes[unlockstage]`.  Mirrors the
+ * legacy `mpIsTrackUnlocked` predicate (src/game/mplayer/mplayer.c).
+ *
+ * Mod tracks register with `unlockstage = -1` and are always emitted.
+ *
+ * Server build: zero entries (no `assetCatalogRegisterBaseGame` and no
+ * `g_GameFile`); the iterator still compiles and is a no-op.
+ */
+void assetCatalogIterateUnlockedMusic(asset_iter_fn fn, void *userdata);
+
+/**
+ * Count of unlocked music tracks (same predicate as
+ * assetCatalogIterateUnlockedMusic).
+ */
+s32 assetCatalogGetUnlockedMusicCount(void);
 
 /* ========================================================================
  * Query API

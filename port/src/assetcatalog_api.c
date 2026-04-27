@@ -466,10 +466,13 @@ const char *catalogIdByRuntime(asset_type_e type, s32 runtime_index)
 static u32 s_entryRequireFeature(const asset_entry_t *e)
 {
     switch (e->type) {
-        case ASSET_ARENA: return (u32)e->ext.arena.requirefeature;
-        case ASSET_BODY:  return (u32)e->ext.body.requirefeature;
-        case ASSET_HEAD:  return (u32)e->ext.head.requirefeature;
-        default:          return 0;
+        case ASSET_ARENA:       return (u32)e->ext.arena.requirefeature;
+        case ASSET_BODY:        return (u32)e->ext.body.requirefeature;
+        case ASSET_HEAD:        return (u32)e->ext.head.requirefeature;
+        case ASSET_WEAPON:      return (u32)e->ext.weapon.requirefeature;
+        case ASSET_GAMEMODE:    return (u32)e->ext.gamemode.requirefeature;
+        case ASSET_BOT_PROFILE: return (u32)e->ext.bot_profile.requirefeature;
+        default:                return 0;
     }
 }
 
@@ -508,6 +511,69 @@ s32 assetCatalogGetUnlockedCountByType(asset_type_e type)
 {
     s32 count = 0;
     assetCatalogIterateUnlockedByType(type, s_unlockCountCb, &count);
+    return count;
+}
+
+/* -------------------------------------------------------------------------
+ * Music track unlock iterator (selector pool = catalog INTERSECT best-times)
+ *
+ * The unlock semantic for music tracks is best-time-based, distinct from
+ * the feature-flag gate used by the generic assetCatalogIterateUnlockedByType.
+ * Mirrors mpIsTrackUnlocked (src/game/mplayer/mplayer.c): a track is unlocked
+ * iff its unlockstage is out-of-range OR the player has any best-time on
+ * g_GameFile.besttimes[unlockstage].
+ *
+ * Server build: g_GameFile is the server stub (zero-initialised), so all
+ * besttimes are 0 and the iterator emits only mod tracks (which have
+ * unlockstage = -1).  Pre-cull base tracks register with positive
+ * unlockstage values, so they are gated until the player finishes that
+ * stage even on the server build. Matches legacy behaviour.
+ * ------------------------------------------------------------------------- */
+
+extern struct gamefile g_GameFile;
+
+#ifndef SOLOSTAGEINDEX_SKEDARRUINS
+#include "constants.h"
+#endif
+
+typedef struct {
+    asset_iter_fn user_fn;
+    void         *user_data;
+} music_filter_ctx_t;
+
+static int s_musicTrackUnlocked(s16 unlockstage)
+{
+    s32 i;
+    if (unlockstage < 0) return 1;
+    if (unlockstage > SOLOSTAGEINDEX_SKEDARRUINS) return 1;
+    for (i = 0; i < 3; i++) {
+        if (g_GameFile.besttimes[unlockstage][i] != 0) return 1;
+    }
+    return 0;
+}
+
+static void s_musicFilterCb(const asset_entry_t *e, void *userdata)
+{
+    music_filter_ctx_t *ctx = (music_filter_ctx_t *)userdata;
+    if (!e || e->type != ASSET_AUDIO) return;
+    if (e->ext.audio.category != AUDIO_CAT_MUSIC) return;
+    if (!s_musicTrackUnlocked(e->ext.audio.unlockstage)) return;
+    ctx->user_fn(e, ctx->user_data);
+}
+
+void assetCatalogIterateUnlockedMusic(asset_iter_fn fn, void *userdata)
+{
+    if (!fn) return;
+    music_filter_ctx_t ctx;
+    ctx.user_fn   = fn;
+    ctx.user_data = userdata;
+    assetCatalogIterateByType(ASSET_AUDIO, s_musicFilterCb, &ctx);
+}
+
+s32 assetCatalogGetUnlockedMusicCount(void)
+{
+    s32 count = 0;
+    assetCatalogIterateUnlockedMusic(s_unlockCountCb, &count);
     return count;
 }
 
