@@ -819,6 +819,16 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_bodies_headcount.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_options_forced.cpp
 
+  # Cohort 2: state-machine + reachability + right-stick scroll spec.
+  # Pure-C mirrors of inputctx + menupool live under tests/ so the runner
+  # stays SDL-free; @SYNC markers point back to the real source lines.
+  ${CMAKE_SOURCE_DIR}/tests/inputctx_pure.c
+  ${CMAKE_SOURCE_DIR}/tests/menupool_pure.c
+  ${CMAKE_SOURCE_DIR}/tests/test_input_authority.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_menu_stack.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_menu_reachability.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_right_stick_scroll.cpp
+
   # Linker stubs for symbols the cherry-picked sources reference but the
   # test binary should not actually invoke.
   ${CMAKE_SOURCE_DIR}/tests/stubs.c

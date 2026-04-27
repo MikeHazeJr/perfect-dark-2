@@ -130,6 +130,15 @@ s32 mpDefaultHeadForBody(s32 mpbodynum);
 const char *lobbyGetPlayerBodyId(s32 idx);
 const char *lobbyGetPlayerHeadId(s32 idx);
 
+/* Local-player character override (room-scoped). Catalog ID accessors
+ * + writers, declared in port/fast3d/pdgui_bridge.c. The room screen
+ * uses these for the temporary character override (the saved Agent on
+ * disk is untouched (disk writes are filemgr-explicit). */
+const char *mpPlayerConfigGetBodyId(s32 playernum);
+const char *mpPlayerConfigGetHeadId(s32 playernum);
+void mpPlayerConfigSetHeadBody(s32 playernum, const char *head_id, const char *body_id);
+const char *catalogGetBodyDefaultHead(const char *body_id);
+
 /* Weapon sets (mplayer.c) */
 void mpSetWeaponSet(s32 weaponsetnum);
 s32 mpGetWeaponSet(void);
@@ -608,6 +617,81 @@ static int s_TeamSortMode = TEAMSORT_CUSTOM;
 
 /* Name buffer for batch name edits in the bot context menu */
 static char s_BotCtxNameBuf[MAX_PLAYER_NAME] = {0};
+
+/* ========================================================================
+ * Local player character override (room-scoped, this match only).
+ *
+ * The user can change their visible character from inside the Room
+ * without overwriting the saved Agent file on disk. The override is
+ * captured once when it goes live: we copy the current persistent
+ * mpchrconfig body/head IDs into backup, write the picked IDs through
+ * `mpPlayerConfigSetHeadBody` (which is an in-memory setter; disk
+ * save is filemgr-explicit and never auto-fires from this path), and
+ * on `pdguiRoomScreenReset` (called on roomLeave) we restore the
+ * persistent IDs from the backup before any future code reads
+ * `g_PlayerConfigsArray[0]`.
+ *
+ * Why `mpPlayerConfigSetHeadBody` and not just `g_MatchConfig.slots[0]`:
+ * `matchConfigInit` populates `slots[0]` from `g_PlayerConfigsArray[0]`
+ * once; the lobby propagation in MP also reads from the player config,
+ * not the match-config slot. Writing through the player config is the
+ * single channel that keeps solo and MP behaviour consistent without
+ * any wire change. The body / head fields already cross the wire as
+ * catalog ID strings, so no protocol bump is required.
+ *
+ * Constraint compliance:
+ *   - Save format: untouched. The override never reaches disk.
+ *   - Wire format: untouched. The body / head fields already cross the
+ *     wire as catalog ID strings (protocol v32+); the override values
+ *     ride that channel.
+ *   - Persistent profile: restored on roomLeave. Even if the room is
+ *     left abruptly (disconnect, force-close), the next match start
+ *     reads from the live in-memory profile, which is the in-memory
+ *     override; once `pdguiRoomScreenReset` fires, the backup is
+ *     replayed back into the profile.
+ */
+static bool s_RoomCharOverrideActive = false;
+static char s_RoomCharBackupBodyId[64] = {0};
+static char s_RoomCharBackupHeadId[64] = {0};
+static bool s_ShowChangeCharModal = false;
+static char s_PendingCharBodyId[64] = {0};
+static char s_PendingCharHeadId[64] = {0};
+
+static void roomCharOverrideCaptureIfNeeded(void)
+{
+    if (s_RoomCharOverrideActive) return;
+    const char *curBody = mpPlayerConfigGetBodyId(0);
+    const char *curHead = mpPlayerConfigGetHeadId(0);
+    strncpy(s_RoomCharBackupBodyId,
+            curBody ? curBody : "",
+            sizeof(s_RoomCharBackupBodyId) - 1);
+    s_RoomCharBackupBodyId[sizeof(s_RoomCharBackupBodyId) - 1] = '\0';
+    strncpy(s_RoomCharBackupHeadId,
+            curHead ? curHead : "",
+            sizeof(s_RoomCharBackupHeadId) - 1);
+    s_RoomCharBackupHeadId[sizeof(s_RoomCharBackupHeadId) - 1] = '\0';
+    s_RoomCharOverrideActive = true;
+    sysLogPrintf(LOG_NOTE,
+                 "ROOM.CHAR: override captured. backup body='%s' head='%s'",
+                 s_RoomCharBackupBodyId, s_RoomCharBackupHeadId);
+}
+
+static void roomCharOverrideRestore(void)
+{
+    if (!s_RoomCharOverrideActive) return;
+    /* Replay the saved persistent IDs back into the live in-memory
+     * profile. Disk is never written here (filemgr is the only writer
+     * to the on-disk Agent file). */
+    mpPlayerConfigSetHeadBody(0,
+                               s_RoomCharBackupHeadId,
+                               s_RoomCharBackupBodyId);
+    sysLogPrintf(LOG_NOTE,
+                 "ROOM.CHAR: override restored. body='%s' head='%s'",
+                 s_RoomCharBackupBodyId, s_RoomCharBackupHeadId);
+    s_RoomCharOverrideActive = false;
+    s_RoomCharBackupBodyId[0] = '\0';
+    s_RoomCharBackupHeadId[0] = '\0';
+}
 
 /* ========================================================================
  * D3R-8: Bot Customizer state (U-7b Step B — ported from matchsetup.cpp)
@@ -1610,7 +1694,18 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
      * child — adding enough bots to scroll would push the count off-screen,
      * giving the impression that the number wasn't updating.  The count +
      * cap is also repeated on the Add Bot button below for at-a-glance
-     * feedback next to the interaction point. */
+     * feedback next to the interaction point.
+     *
+     * Top-of-panel docking (2026-04-27): the header section renders TWO
+     * fixed lines unconditionally so the panel's content origin never
+     * shifts based on selection state. Before, line 2 ("N selected ...")
+     * appeared only when s_BotSelectCount > 0, displacing the row list
+     * (and the visible position of every member) on every selection
+     * change. Always rendering both lines pins the dock at the top: line
+     * 1 is the Players-in-Room status; line 2 is selection state when
+     * any are selected, otherwise a multi-select hint that's useful at
+     * the same vertical position. The hint also serves as discoverability
+     * for the multi-select gestures. */
     {
         s32 numPlayers = s_IsSoloMode ? 1 : humanCount;
         s32 numBots    = curBots;
@@ -1620,10 +1715,17 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                            numBots, maxBots,
                            numBots != 1 ? "s" : "",
                            s_BotSelectCount > 0 ? ", multi-select" : "");
+        /* Line 2: always rendered, dock-stable. Reads as "selection
+         * status" when bots are selected, "multi-select hint" otherwise.
+         * The lines below this header (separator + scrollable list +
+         * Add Bot footer) anchor against a constant header height. */
         if (s_BotSelectCount > 0) {
             ImGui::TextColored(pdguiVec4TitleGlow(),
                                "  %d selected — Ctrl/Shift/Y to multi-select, X for menu",
                                s_BotSelectCount);
+        } else {
+            ImGui::TextDisabled(
+                "  Ctrl/Shift+Click or Y on a bot row to multi-select; X for menu");
         }
     }
 
@@ -2453,12 +2555,20 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
     /* Add Bot button + slot count (B-190: count baked into the label so the
      * visible number updates on every click, immediately adjacent to the
      * interaction, independent of whether the scrollable player list has
-     * scrolled past the sticky header above). */
+     * scrolled past the sticky header above).
+     *
+     * Stable ImGui ID via ###add_bot_btn: ImGui hashes the full label as
+     * the widget ID by default, so embedding the live count `(N / M)` in
+     * the visible text would change the ID after every click and drop
+     * controller / keyboard focus off the button. The `###suffix` trick
+     * pins the ID to "add_bot_btn" regardless of visible text. Focus
+     * holds across action firings so repeat clicks just work. */
     bool canAdd = isLeader
                   && (curBots < maxBots)
                   && (g_MatchConfig.numSlots < MATCH_MAX_SLOTS);
-    char addBotLabel[48];
-    snprintf(addBotLabel, sizeof(addBotLabel), "Add Bot  (%d / %d)", curBots, maxBots);
+    char addBotLabel[64];
+    snprintf(addBotLabel, sizeof(addBotLabel),
+             "Add Bot  (%d / %d)###add_bot_btn", curBots, maxBots);
     if (!canAdd) ImGui::BeginDisabled();
     if (ImGui::Button(addBotLabel, ImVec2(-1.0f, btnH))) {
         /* Random bot — no explicit body/head/name triggers generators */
@@ -2467,6 +2577,186 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
         s_RoomSettingsDirty = true;
     }
     if (!canAdd) ImGui::EndDisabled();
+
+    /* "Change Character (this match)" for the local player. The override
+     * applies for this room session; the on-disk Agent is unchanged.
+     * See the file-level header block at s_RoomCharOverrideActive for
+     * the rationale and lifecycle. Stable ID (###room_char_btn) for the
+     * same reason as Add Bot. */
+    {
+        char charBtnLabel[80];
+        if (s_RoomCharOverrideActive) {
+            snprintf(charBtnLabel, sizeof(charBtnLabel),
+                     "Change Character (Active, Temporary)###room_char_btn");
+        } else {
+            snprintf(charBtnLabel, sizeof(charBtnLabel),
+                     "Change Character (Temporary)###room_char_btn");
+        }
+        if (ImGui::Button(charBtnLabel, ImVec2(-1.0f, btnH))) {
+            /* Seed the modal's pending IDs from the live in-memory
+             * profile so Cancel round-trips cleanly. */
+            const char *curBody = mpPlayerConfigGetBodyId(0);
+            const char *curHead = mpPlayerConfigGetHeadId(0);
+            strncpy(s_PendingCharBodyId,
+                    curBody ? curBody : "",
+                    sizeof(s_PendingCharBodyId) - 1);
+            s_PendingCharBodyId[sizeof(s_PendingCharBodyId) - 1] = '\0';
+            strncpy(s_PendingCharHeadId,
+                    curHead ? curHead : "",
+                    sizeof(s_PendingCharHeadId) - 1);
+            s_PendingCharHeadId[sizeof(s_PendingCharHeadId) - 1] = '\0';
+            s_ShowChangeCharModal = true;
+            ImGui::OpenPopup("##room_change_char_modal");
+        }
+    }
+
+    /* Modal: body + head pickers, Apply / Cancel / Reset-to-Saved.
+     * BeginPopupModal floats above the parent regardless of where it's
+     * rendered in the parent's tree. Pool registration not required;
+     * popup tears down with the Room screen automatically. */
+    if (s_ShowChangeCharModal) {
+        ImGui::SetNextWindowSizeConstraints(
+            ImVec2(pdguiScale(420.0f), pdguiScale(360.0f)),
+            ImVec2(pdguiScale(640.0f), pdguiScale(640.0f)));
+        if (ImGui::BeginPopupModal("##room_change_char_modal",
+                                    NULL,
+                                    ImGuiWindowFlags_NoSavedSettings)) {
+            pdguiPopupDarkenBehind(0.65f);
+            ImGui::TextColored(pdguiVec4TitleGlow(),
+                               "Change Character (this match only)");
+            ImGui::TextDisabled(
+                "Applies for this room session. Your saved Agent character is unchanged.");
+            ImGui::Separator();
+
+            /* ---- Body list ---- */
+            struct CharEntry {
+                char id[64];
+                const char *name;
+                s32 mp_idx;
+            };
+            static CharEntry s_ModalBodies[256];
+            static s32 s_ModalBodyCount = 0;
+            static CharEntry s_ModalHeads[256];
+            static s32 s_ModalHeadCount = 0;
+
+            /* Rebuild lists when popup first appears (catches catalog
+             * unlock changes between opens). */
+            if (ImGui::IsWindowAppearing()) {
+                s_ModalBodyCount = 0;
+                struct BodyCtx { CharEntry *out; s32 *count; };
+                BodyCtx bctx = { s_ModalBodies, &s_ModalBodyCount };
+                auto bcb = +[](const asset_entry_t *e, void *ud) {
+                    BodyCtx *c = (BodyCtx *)ud;
+                    if (*c->count >= 256) return;
+                    CharEntry *be = &c->out[(*c->count)++];
+                    strncpy(be->id, e->id, sizeof(be->id) - 1);
+                    be->id[sizeof(be->id) - 1] = '\0';
+                    char *raw = (e->mp_index >= 0)
+                        ? mpGetBodyName((u8)e->mp_index)
+                        : (char *)NULL;
+                    be->name = (raw && raw[0]) ? raw : e->id;
+                    be->mp_idx = (s32)e->mp_index;
+                };
+                assetCatalogIterateUnlockedByType(ASSET_BODY, bcb, &bctx);
+
+                s_ModalHeadCount = 0;
+                struct HeadCtx { CharEntry *out; s32 *count; };
+                HeadCtx hctx = { s_ModalHeads, &s_ModalHeadCount };
+                auto hcb = +[](const asset_entry_t *e, void *ud) {
+                    HeadCtx *c = (HeadCtx *)ud;
+                    if (*c->count >= 256) return;
+                    CharEntry *he = &c->out[(*c->count)++];
+                    strncpy(he->id, e->id, sizeof(he->id) - 1);
+                    he->id[sizeof(he->id) - 1] = '\0';
+                    /* No mpGetHeadName() API exists (per the comment block
+                     * in pdgui_menu_botsetup.cpp); the catalog ID is the
+                     * display name for heads. */
+                    he->name = e->id;
+                    he->mp_idx = (s32)e->mp_index;
+                };
+                assetCatalogIterateUnlockedByType(ASSET_HEAD, hcb, &hctx);
+            }
+
+            ImGui::Text("Body");
+            ImGui::BeginChild("##char_body_list",
+                              ImVec2(pdguiScale(380.0f), pdguiScale(180.0f)),
+                              true);
+            for (s32 i = 0; i < s_ModalBodyCount; i++) {
+                bool sel = (strcmp(s_ModalBodies[i].id, s_PendingCharBodyId) == 0);
+                if (ImGui::Selectable(s_ModalBodies[i].name, sel)) {
+                    strncpy(s_PendingCharBodyId, s_ModalBodies[i].id,
+                            sizeof(s_PendingCharBodyId) - 1);
+                    s_PendingCharBodyId[sizeof(s_PendingCharBodyId) - 1] = '\0';
+                    /* Auto-pick the body's declared default head so the
+                     * common "I want body X with its canonical face"
+                     * case works in one click. The user can still pick
+                     * a different head from the list below. */
+                    const char *def = catalogGetBodyDefaultHead(s_PendingCharBodyId);
+                    if (def && def[0]) {
+                        strncpy(s_PendingCharHeadId, def,
+                                sizeof(s_PendingCharHeadId) - 1);
+                        s_PendingCharHeadId[sizeof(s_PendingCharHeadId) - 1] = '\0';
+                    }
+                }
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndChild();
+
+            ImGui::Text("Head");
+            ImGui::BeginChild("##char_head_list",
+                              ImVec2(pdguiScale(380.0f), pdguiScale(140.0f)),
+                              true);
+            for (s32 i = 0; i < s_ModalHeadCount; i++) {
+                bool sel = (strcmp(s_ModalHeads[i].id, s_PendingCharHeadId) == 0);
+                if (ImGui::Selectable(s_ModalHeads[i].name, sel)) {
+                    strncpy(s_PendingCharHeadId, s_ModalHeads[i].id,
+                            sizeof(s_PendingCharHeadId) - 1);
+                    s_PendingCharHeadId[sizeof(s_PendingCharHeadId) - 1] = '\0';
+                }
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndChild();
+
+            ImGui::Separator();
+
+            float actBtnW = pdguiScale(120.0f);
+            float actBtnH = btnH;
+            if (ImGui::Button("Apply###char_modal_apply",
+                              ImVec2(actBtnW, actBtnH))) {
+                roomCharOverrideCaptureIfNeeded();
+                mpPlayerConfigSetHeadBody(0,
+                                           s_PendingCharHeadId,
+                                           s_PendingCharBodyId);
+                s_RoomSettingsDirty = true;
+                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                s_ShowChangeCharModal = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel###char_modal_cancel",
+                              ImVec2(actBtnW, actBtnH))) {
+                s_ShowChangeCharModal = false;
+                ImGui::CloseCurrentPopup();
+            }
+            if (s_RoomCharOverrideActive) {
+                ImGui::SameLine();
+                if (ImGui::Button("Reset to Saved###char_modal_reset",
+                                  ImVec2(pdguiScale(150.0f), actBtnH))) {
+                    roomCharOverrideRestore();
+                    s_RoomSettingsDirty = true;
+                    pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    s_ShowChangeCharModal = false;
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+
+            ImGui::EndPopup();
+        } else {
+            /* User dismissed via Esc / outside-click; keep state
+             * consistent. */
+            s_ShowChangeCharModal = false;
+        }
+    }
 
     ImGui::EndChild(); /* ##room_panel_outer */
 }
@@ -4142,6 +4432,16 @@ extern "C" void pdguiRoomScreenSetSolo(s32 solo)
 extern "C" void pdguiRoomScreenReset(void)
 {
     s_MatchConfigInited = false;
+    /* Local-player character override: replay the saved persistent IDs
+     * back into mpchrconfig BEFORE any later code that reads the live
+     * profile. The on-disk Agent file is untouched throughout (disk
+     * writes are filemgr-explicit, never auto-fired from the override
+     * path). See the s_RoomCharOverrideActive header block for the full
+     * lifecycle rationale. */
+    roomCharOverrideRestore();
+    s_ShowChangeCharModal = false;
+    s_PendingCharBodyId[0] = '\0';
+    s_PendingCharHeadId[0] = '\0';
     /* S352: free any baked portrait textures before state teardown */
     lobbyPortraitsReset();
     /* S300: pool release handles ctx cleanup. */
