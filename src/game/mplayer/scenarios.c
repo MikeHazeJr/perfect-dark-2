@@ -38,6 +38,7 @@
 #include "lib/collision.h"
 #include "data.h"
 #include "types.h"
+#include "assetcatalog.h"   /* catalog universality sweep (2026-04-27) */
 
 /**
  * There are six multiplayer scenarios:
@@ -307,6 +308,79 @@ struct scenariogroup {
 	u16 textid;
 };
 
+/*
+ * Catalog universality sweep (2026-04-27): scenario picker iterates
+ * ASSET_GAMEMODE entries via the catalog, filtered by unlock state and
+ * the team-only flag (which lives on ext.gamemode.team_based).  Layer A
+ * `g_MpScenarioOverviews[]` remains the data home; only the SELECTOR
+ * pool migrates per Mike's directive
+ * "selector pool = catalog INTERSECT unlock-state".
+ *
+ * Catalog mp_index for scenarios mirrors mode_id (MPSCENARIO_*), which
+ * matches the original `g_MpScenarioOverviews[]` ordering.  Iteration
+ * order is therefore stable with the legacy ordering.
+ */
+struct scenario_pick_ctx {
+	bool teamgame;       /* user's "team game" filter from item->param */
+	s32  needle_idx;     /* "give me the N-th unlocked teamgame-eligible entry" */
+	s32  cur;            /* running count */
+	s32  max_mp_index;   /* upper bound for GETGROUPSTARTINDEX */
+	s32  scenario_match; /* MPSCENARIO_* result for SET / GETOPTIONTEXT */
+	s16  name_langid;    /* langid result for GETOPTIONTEXT */
+};
+
+static bool scenarioCtxAccepts(const asset_entry_t *e, const struct scenario_pick_ctx *ctx)
+{
+	if (!ctx->teamgame && e->ext.gamemode.team_based) {
+		return false;
+	}
+	return true;
+}
+
+static void scenarioCountCb(const asset_entry_t *e, void *userdata)
+{
+	struct scenario_pick_ctx *ctx = (struct scenario_pick_ctx *)userdata;
+	if (e->type != ASSET_GAMEMODE) return;
+	if (!scenarioCtxAccepts(e, ctx)) return;
+	ctx->cur++;
+}
+
+static void scenarioPickByIndexCb(const asset_entry_t *e, void *userdata)
+{
+	struct scenario_pick_ctx *ctx = (struct scenario_pick_ctx *)userdata;
+	if (e->type != ASSET_GAMEMODE) return;
+	if (!scenarioCtxAccepts(e, ctx)) return;
+	if (ctx->scenario_match >= 0) return;
+	if (ctx->cur == ctx->needle_idx) {
+		ctx->scenario_match = e->ext.gamemode.mode_id;
+		ctx->name_langid = (s16)g_MpScenarioOverviews[e->ext.gamemode.mode_id].name;
+	}
+	ctx->cur++;
+}
+
+static void scenarioFindByModeIdCb(const asset_entry_t *e, void *userdata)
+{
+	struct scenario_pick_ctx *ctx = (struct scenario_pick_ctx *)userdata;
+	if (e->type != ASSET_GAMEMODE) return;
+	if (!scenarioCtxAccepts(e, ctx)) return;
+	if (ctx->scenario_match >= 0) return;
+	if (e->ext.gamemode.mode_id == ctx->needle_idx) {
+		ctx->scenario_match = e->ext.gamemode.mode_id;
+		return; /* mark found; subsequent calls return early */
+	}
+	ctx->cur++;
+}
+
+static void scenarioGroupStartCb(const asset_entry_t *e, void *userdata)
+{
+	struct scenario_pick_ctx *ctx = (struct scenario_pick_ctx *)userdata;
+	if (e->type != ASSET_GAMEMODE) return;
+	if (!scenarioCtxAccepts(e, ctx)) return;
+	if (e->ext.gamemode.mode_id < ctx->max_mp_index) {
+		ctx->cur++;
+	}
+}
+
 MenuItemHandlerResult scenarioScenarioMenuHandler(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	struct scenariogroup groups[] = {
@@ -314,87 +388,61 @@ MenuItemHandlerResult scenarioScenarioMenuHandler(s32 operation, struct menuitem
 		{ 4, L_MPMENU_245 }, // "-Teamwork-"
 	};
 
-	s32 i;
-	s32 count = 0;
-	bool teamgame = true;
+	struct scenario_pick_ctx ctx;
+	ctx.teamgame = true;
+	ctx.needle_idx = 0;
+	ctx.cur = 0;
+	ctx.max_mp_index = 0;
+	ctx.scenario_match = -1;
+	ctx.name_langid = 0;
 
 	if (item->param) {
 		if (g_Vars.mpquickteam == MPQUICKTEAM_PLAYERSONLY || g_Vars.mpquickteam == MPQUICKTEAM_PLAYERSANDSIMS) {
-			teamgame = false;
+			ctx.teamgame = false;
 		}
 	}
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		for (i = 0; i < ARRAYCOUNT(g_MpScenarioOverviews); i++) {
-			if (challengeIsFeatureUnlocked(g_MpScenarioOverviews[i].requirefeature)
-					&& (teamgame || g_MpScenarioOverviews[i].teamonly == false)) {
-				count++;
-			}
-		}
-
-		data->list.value = count;
+		assetCatalogIterateUnlockedByType(ASSET_GAMEMODE, scenarioCountCb, &ctx);
+		data->list.value = ctx.cur;
 		break;
 	case MENUOP_GETOPTIONTEXT:
-		for (i = 0; i < ARRAYCOUNT(g_MpScenarioOverviews); i++) {
-			if (challengeIsFeatureUnlocked(g_MpScenarioOverviews[i].requirefeature)
-					&& (teamgame || g_MpScenarioOverviews[i].teamonly == false)) {
-				if (count == data->list.value) {
-					return (uintptr_t)langGet(g_MpScenarioOverviews[i].name);
-				}
-
-				count++;
-			}
+		ctx.needle_idx = data->list.value;
+		assetCatalogIterateUnlockedByType(ASSET_GAMEMODE, scenarioPickByIndexCb, &ctx);
+		if (ctx.scenario_match >= 0) {
+			return (uintptr_t)langGet(ctx.name_langid);
 		}
-
 		break;
 	case MENUOP_SET:
-		for (i = 0; i < ARRAYCOUNT(g_MpScenarioOverviews); i++) {
-			if (challengeIsFeatureUnlocked(g_MpScenarioOverviews[i].requirefeature)
-					&& (teamgame || g_MpScenarioOverviews[i].teamonly == false)) {
-				if (count == data->list.value) {
-					g_MpSetup.scenario = i;
-					break;
-				}
-
-				count++;
-			}
+		ctx.needle_idx = data->list.value;
+		assetCatalogIterateUnlockedByType(ASSET_GAMEMODE, scenarioPickByIndexCb, &ctx);
+		if (ctx.scenario_match >= 0) {
+			g_MpSetup.scenario = ctx.scenario_match;
 		}
-
 		scenarioInit();
 		break;
 	case MENUOP_GETSELECTEDINDEX:
-		for (i = 0; i < ARRAYCOUNT(g_MpScenarioOverviews); i++) {
-			if (challengeIsFeatureUnlocked(g_MpScenarioOverviews[i].requirefeature)
-					&& (teamgame || g_MpScenarioOverviews[i].teamonly == false)) {
-				if (i == g_MpSetup.scenario) {
-					data->list.value = count;
-					break;
-				}
-
-				count++;
-			}
-		}
-
+		/* needle == current scenario; cur counts unlocked & teamgame-eligible
+		 * entries with mode_id < needle (catalog iterates in mode_id order). */
+		ctx.needle_idx = g_MpSetup.scenario;
+		ctx.cur = 0;
+		ctx.scenario_match = -1;
+		assetCatalogIterateUnlockedByType(ASSET_GAMEMODE, scenarioFindByModeIdCb, &ctx);
+		data->list.value = ctx.cur;
 		break;
 	case MENUOP_GETOPTGROUPCOUNT:
 		data->list.value = 2;
-
-		if (!teamgame || (!challengeIsFeatureUnlocked(MPFEATURE_SCENARIO_KOH) && !challengeIsFeatureUnlocked(MPFEATURE_SCENARIO_CTC))) {
+		if (!ctx.teamgame || (!challengeIsFeatureUnlocked(MPFEATURE_SCENARIO_KOH) && !challengeIsFeatureUnlocked(MPFEATURE_SCENARIO_CTC))) {
 			data->list.value--;
 		}
 		break;
 	case MENUOP_GETOPTGROUPTEXT:
 		return (uintptr_t)langGet(groups[data->list.value].textid);
 	case MENUOP_GETGROUPSTARTINDEX:
-		for (i = 0; i < groups[data->list.value].startindex; i++) {
-			if (challengeIsFeatureUnlocked(g_MpScenarioOverviews[i].requirefeature)
-					&& (teamgame || g_MpScenarioOverviews[i].teamonly == false)) {
-				count++;
-			}
-		}
-
-		data->list.groupstartindex = count;
+		ctx.max_mp_index = groups[data->list.value].startindex;
+		assetCatalogIterateUnlockedByType(ASSET_GAMEMODE, scenarioGroupStartCb, &ctx);
+		data->list.groupstartindex = ctx.cur;
 		break;
 	}
 

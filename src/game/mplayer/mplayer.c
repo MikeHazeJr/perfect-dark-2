@@ -1263,47 +1263,80 @@ s32 func0f188bcc(void)
 	return NUM_MPWEAPONS;
 }
 
+/*
+ * Catalog universality sweep (2026-04-27): the weapon-slot picker
+ * helpers (W.1-W.4) iterate ASSET_WEAPON via the catalog filtered by
+ * unlock state.  Layer A `g_MpWeapons[]` remains the data home; only
+ * the SELECTOR pool migrates per Mike's directive
+ * "selector pool = catalog INTERSECT unlock-state".
+ *
+ * Iteration ordering: the catalog emits entries in pool insertion
+ * order; base weapons register sequentially with mp_index = 0..N-1, so
+ * the legacy enum ordering is preserved.  Mod weapons (none today)
+ * would append after the base set.
+ */
+
+struct mpweapon_pick_ctx {
+	s32 target_idx;     /* "give me the N-th unlocked entry" */
+	s32 cur;            /* running unlocked counter */
+	s32 result_mpidx;   /* set to mp_index when matched, -1 otherwise */
+};
+
+static void mpweaponPickByIndexCb(const asset_entry_t *e, void *userdata)
+{
+	struct mpweapon_pick_ctx *ctx = (struct mpweapon_pick_ctx *)userdata;
+	if (ctx->result_mpidx >= 0) {
+		return; /* already found; cheap no-op tail */
+	}
+	if (ctx->cur == ctx->target_idx) {
+		ctx->result_mpidx = (s32)e->mp_index;
+	}
+	ctx->cur++;
+}
+
+struct mpweapon_find_ctx {
+	s32 needle_mpidx;   /* find this catalog mp_index */
+	s32 below_count;    /* count of unlocked entries with mp_index < needle */
+};
+
+static void mpweaponFindByMpIdxCb(const asset_entry_t *e, void *userdata)
+{
+	struct mpweapon_find_ctx *ctx = (struct mpweapon_find_ctx *)userdata;
+	if ((s32)e->mp_index < ctx->needle_mpidx) {
+		ctx->below_count++;
+	}
+}
+
 s32 mpGetNumWeaponOptions(void)
 {
-	s32 count = 0;
-	s32 i;
-
-	for (i = 0; i < ARRAYCOUNT(g_MpWeapons); i++) {
-		if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i))) { /* SA-5e */
-			count++;
-		}
-	}
-
-	return count;
+	return assetCatalogGetUnlockedCountByType(ASSET_WEAPON);
 }
 
 char *mpGetWeaponLabel(s32 weaponnum)
 {
-	s32 i;
+	struct mpweapon_pick_ctx ctx;
+	s32 wnum;
 
-	for (i = 0; i < ARRAYCOUNT(g_MpWeapons); i++) {
-		if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i))) { /* SA-5e */
-			if (weaponnum == 0) {
-				if (catalogGetMpWeaponNum(i) == WEAPON_NONE) {
-					return langGet(L_MPWEAPONS_058); // "Nothing"
-				}
+	ctx.target_idx = weaponnum;
+	ctx.cur = 0;
+	ctx.result_mpidx = -1;
+	assetCatalogIterateUnlockedByType(ASSET_WEAPON, mpweaponPickByIndexCb, &ctx);
 
-				if (catalogGetMpWeaponNum(i) == WEAPON_MPSHIELD) {
-					return langGet(L_MPWEAPONS_059); // "Shield"
-				}
-
-				if (catalogGetMpWeaponNum(i) == WEAPON_DISABLED) {
-					return langGet(L_MPWEAPONS_060); // "Disabled"
-				}
-
-				return bgunGetName(catalogGetMpWeaponNum(i));
-			}
-
-			weaponnum--;
-		}
+	if (ctx.result_mpidx < 0) {
+		return "";
 	}
 
-	return "";
+	wnum = catalogGetMpWeaponNum(ctx.result_mpidx);
+	if (wnum == WEAPON_NONE) {
+		return langGet(L_MPWEAPONS_058); // "Nothing"
+	}
+	if (wnum == WEAPON_MPSHIELD) {
+		return langGet(L_MPWEAPONS_059); // "Shield"
+	}
+	if (wnum == WEAPON_DISABLED) {
+		return langGet(L_MPWEAPONS_060); // "Disabled"
+	}
+	return bgunGetName(wnum);
 }
 
 #if VERSION >= VERSION_NTSC_1_0
@@ -1313,32 +1346,33 @@ const char var7f1b8a80[] = "HOLDER: selecting weapon set %d\n";
 
 void mpSetWeaponSlot(s32 slot, s32 mpweaponnum)
 {
-	s32 optionindex = mpweaponnum;
-	s32 i;
+	/* mpweaponnum is the UI index (0..N-1 over unlocked weapons).  Walk
+	 * the catalog until we hit the N-th unlocked entry; store its
+	 * mp_index into g_MpSetup.weapons[slot]. */
+	struct mpweapon_pick_ctx ctx;
+	ctx.target_idx = mpweaponnum;
+	ctx.cur = 0;
+	ctx.result_mpidx = -1;
+	assetCatalogIterateUnlockedByType(ASSET_WEAPON, mpweaponPickByIndexCb, &ctx);
 
-	for (i = 0; i <= mpweaponnum; i++) {
-		if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i)) == 0) { /* SA-5e */
-			mpweaponnum++;
-		}
-
-		optionindex = mpweaponnum;
+	if (ctx.result_mpidx >= 0) {
+		g_MpSetup.weapons[slot] = (u8)ctx.result_mpidx;
+	} else {
+		/* No matching unlocked entry -- legacy behaviour stored mpweaponnum
+		 * unchanged in this branch (the next-valid step would clamp).  Match. */
+		g_MpSetup.weapons[slot] = (u8)mpweaponnum;
 	}
-
-	g_MpSetup.weapons[slot] = optionindex;
 }
 
 s32 mpGetWeaponSlot(s32 slot)
 {
-	s32 count = 0;
-	s32 i;
-
-	for (i = 0; i < g_MpSetup.weapons[slot]; i++) {
-		if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i))) { /* SA-5e */
-			count++;
-		}
-	}
-
-	return count;
+	/* Return UI position of the unlocked weapon at g_MpSetup.weapons[slot].
+	 * Matches legacy: count unlocked entries with mp_index < needle. */
+	struct mpweapon_find_ctx ctx;
+	ctx.needle_mpidx = (s32)g_MpSetup.weapons[slot];
+	ctx.below_count = 0;
+	assetCatalogIterateUnlockedByType(ASSET_WEAPON, mpweaponFindByMpIdxCb, &ctx);
+	return ctx.below_count;
 }
 
 struct mpweapon *mpGetMpWeaponByLocation(s32 locationindex)
@@ -1495,28 +1529,41 @@ void func0f18913c(void)
 	}
 }
 
+/* mpSetRandomWeapons context: catalog universality sweep migration.
+ * Iterates unlocked weapons in mp_index order; for each entry whose
+ * g_MpWeaponSetRandomFilters[mp_index] bit is set, appends the
+ * unlocked-list UI index (running ui_idx counter) to weapons[].
+ * Output is identical to the legacy "i - lockcount" computation. */
+struct mpweapon_random_ctx {
+	u8 *weapons;
+	s32 ui_idx;
+	s32 index;
+};
+
+static void mpweaponRandomCollectCb(const asset_entry_t *e, void *userdata)
+{
+	struct mpweapon_random_ctx *ctx = (struct mpweapon_random_ctx *)userdata;
+	s32 mpidx = (s32)e->mp_index;
+	if (mpidx >= 0 && mpidx < (s32)ARRAYCOUNT(g_MpWeaponSetRandomFilters)
+			&& g_MpWeaponSetRandomFilters[mpidx] == 1) {
+		ctx->weapons[ctx->index++] = (u8)ctx->ui_idx;
+	}
+	ctx->ui_idx++;
+}
+
 void mpSetRandomWeapons(u8 weapons[])
 {
-	s32 lockcount = 0;
-	s32 index = 0;
-	s32 i;
+	struct mpweapon_random_ctx ctx;
+	ctx.weapons = weapons;
+	ctx.ui_idx = 0;
+	ctx.index = 0;
+	assetCatalogIterateUnlockedByType(ASSET_WEAPON, mpweaponRandomCollectCb, &ctx);
 
-	for (i = 0; i < NUM_MPWEAPONS; i++) {
-		if (challengeIsFeatureUnlocked(catalogGetMpWeaponUnlockFeature(i))) { /* SA-5e */
-			if (g_MpWeaponSetRandomFilters[i] == 1) {
-				weapons[index] = i - lockcount;
-				index++;
-			}
-		} else {
-			lockcount++;
-		}
-	}
-
-	if (index == 0) {
-		weapons[0] = 0; // optionindex (shifted by unlocked weapons, but usually 0 is "Nothing")
+	if (ctx.index == 0) {
+		weapons[0] = 0; // optionindex (usually 0 == "Nothing")
 		g_MpWeaponRandomFilterNum = 1;
 	} else {
-		g_MpWeaponRandomFilterNum = index;
+		g_MpWeaponRandomFilterNum = ctx.index;
 	}
 }
 
@@ -3198,41 +3245,75 @@ bool mpIsTrackUnlocked(s32 tracknum)
 	return unlocked;
 }
 
+/*
+ * Catalog universality sweep (2026-04-27): track-slot helpers iterate
+ * ASSET_AUDIO category=AUDIO_CAT_MUSIC entries via the catalog,
+ * filtered by best-time-based unlock state (assetCatalogIterateUnlockedMusic).
+ * Layer A `g_MpTracks[]` remains the data home for musicnum / name /
+ * duration; only the SELECTOR pool migrates per Mike's directive
+ * "selector pool = catalog INTERSECT unlock-state".
+ *
+ * Catalog mp_index for music tracks mirrors the `g_MpTracks[]` index
+ * (set at registration), so `mpGetTrackNumAtSlotIndex` returns the
+ * legacy tracknum and downstream helpers continue to read
+ * g_MpTracks[tracknum].{musicnum,name} unchanged.
+ */
+struct mptrack_pick_ctx {
+	s32 needle_idx;       /* "give me the N-th unlocked entry" */
+	s32 cur;
+	s32 result_tracknum;  /* mp_index = legacy tracknum, or -1 */
+};
+
+static void mptrackPickByIndexCb(const asset_entry_t *e, void *userdata)
+{
+	struct mptrack_pick_ctx *ctx = (struct mptrack_pick_ctx *)userdata;
+	if (ctx->result_tracknum >= 0) return;
+	if (ctx->cur == ctx->needle_idx) {
+		ctx->result_tracknum = (s32)e->mp_index;
+	}
+	ctx->cur++;
+}
+
+struct mptrack_find_ctx {
+	s32 needle_tracknum;  /* find this mp_index */
+	s32 below_count;      /* unlocked entries with mp_index < needle */
+};
+
+static void mptrackFindByMpIdxCb(const asset_entry_t *e, void *userdata)
+{
+	struct mptrack_find_ctx *ctx = (struct mptrack_find_ctx *)userdata;
+	if ((s32)e->mp_index < ctx->needle_tracknum) {
+		ctx->below_count++;
+	}
+}
+
 s32 mpGetTrackSlotIndex(s32 tracknum)
 {
-	s32 i;
-	s32 slotindex = 0;
-
-	for (i = 0; i < tracknum; i++) {
-		if (mpIsTrackUnlocked(i)) {
-			slotindex++;
-		}
-	}
-
-	return slotindex;
+	struct mptrack_find_ctx ctx;
+	ctx.needle_tracknum = tracknum;
+	ctx.below_count = 0;
+	assetCatalogIterateUnlockedMusic(mptrackFindByMpIdxCb, &ctx);
+	return ctx.below_count;
 }
 
 s32 mpGetTrackNumAtSlotIndex(s32 slotindex)
 {
-	s32 i;
-	s32 numunlocked = 0;
-
-	for (i = 0; i != ARRAYCOUNT(g_MpTracks); i++) {
-		if (mpIsTrackUnlocked(i)) {
-			if (numunlocked == slotindex) {
-				break;
-			}
-
-			numunlocked++;
-		}
+	struct mptrack_pick_ctx ctx;
+	ctx.needle_idx = slotindex;
+	ctx.cur = 0;
+	ctx.result_tracknum = -1;
+	assetCatalogIterateUnlockedMusic(mptrackPickByIndexCb, &ctx);
+	if (ctx.result_tracknum < 0) {
+		/* Out-of-range slot: legacy returned ARRAYCOUNT(g_MpTracks) (one
+		 * past last). Match. */
+		return (s32)ARRAYCOUNT(g_MpTracks);
 	}
-
-	return i;
+	return ctx.result_tracknum;
 }
 
 s32 mpGetNumUnlockedTracks(void)
 {
-	return mpGetTrackSlotIndex(ARRAYCOUNT(g_MpTracks));
+	return assetCatalogGetUnlockedMusicCount();
 }
 
 s32 mpGetTrackMusicNum(s32 slotindex)
@@ -3371,15 +3452,18 @@ s32 mpChooseTrack(void)
 					}
 					/* Default track life mirrors music.c's static initializer
 					 * so the advance timer always has a sane value even if
-					 * g_MpTracks holds no matching entry (shouldn't happen
+					 * the catalog entry lacks a duration (shouldn't happen
 					 * for a bundled catalog track, but defense-in-depth). */
 					g_MusicLife60 = TICKS(120);
-					for (tracknum = 0; tracknum != ARRAYCOUNT(g_MpTracks); tracknum++) {
-						if (g_MpTracks[tracknum].musicnum == ar.sound_id) {
-							g_MpLockInfo.unk04 = tracknum;
-							g_MusicLife60 = g_MpTracks[tracknum].duration * TICKS(60);
-							break;
-						}
+					/* Catalog universality sweep (2026-04-27): the catalog
+					 * entry already carries mp_index (= legacy tracknum) and
+					 * duration_ms.  Read both directly instead of scanning
+					 * g_MpTracks[] for a sound_id match. */
+					if (ar.entry->mp_index >= 0) {
+						g_MpLockInfo.unk04 = (s32)ar.entry->mp_index;
+					}
+					if (ar.entry->ext.audio.duration_ms > 0) {
+						g_MusicLife60 = (ar.entry->ext.audio.duration_ms / 1000) * TICKS(60);
 					}
 					return ar.sound_id;
 				}

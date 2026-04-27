@@ -36,6 +36,7 @@
 #include "lib/mtx.h"
 #include "data.h"
 #include "types.h"
+#include "assetcatalog.h"   /* catalog universality sweep (2026-04-27) */
 
 #define FRSCRIPTINDEX_WEAPONS 0x00
 #define FRSCRIPTINDEX_TARGETS 0x22
@@ -2349,36 +2350,76 @@ char *ciGetChrBioDescription(void)
 	return langGet(bio->description);
 }
 
+/*
+ * Catalog universality sweep (2026-04-27): CI Training character bios
+ * iterate ASSET_BODY + ASSET_HEAD entries via the catalog.  Layer A
+ * `g_HeadsAndBodies[]` remains the data home; only the SELECTOR pool
+ * migrates per Mike's directive
+ * "selector pool = catalog INTERSECT unlock-state".
+ *
+ * The bio unlock semantic (`ciIsChrBioUnlocked`) is best-time-based,
+ * distinct from challengeIsFeatureUnlocked, so the predicate stays at
+ * the call site rather than baking into the catalog.  Both ASSET_BODY
+ * and ASSET_HEAD entries register with `runtime_index = bodynum`
+ * (heads / bodies migration Pass 1 + Pass 2), so the iteration covers
+ * every g_HeadsAndBodies[] slot the catalog has registered, including
+ * the SP fallback set.
+ */
+struct chrbio_pick_ctx {
+	s32 needle_slot;       /* slot index requested by caller */
+	s32 cur;               /* count of unlocked bodynums seen */
+	s32 result_bodynum;    /* matched bodynum, or -1 */
+	s32 count;             /* unlocked count for ciGetNumUnlockedChrBios */
+};
+
+static void chrbioCountCb(const asset_entry_t *e, void *userdata)
+{
+	struct chrbio_pick_ctx *ctx = (struct chrbio_pick_ctx *)userdata;
+	s32 bodynum = e->runtime_index;
+	if (bodynum < 0 || bodynum >= (s32)ARRAYCOUNT(g_HeadsAndBodies) - 1) return;
+	if (ciIsChrBioUnlocked(bodynum)) {
+		ctx->count++;
+	}
+}
+
+static void chrbioPickByIndexCb(const asset_entry_t *e, void *userdata)
+{
+	struct chrbio_pick_ctx *ctx = (struct chrbio_pick_ctx *)userdata;
+	s32 bodynum;
+	if (ctx->result_bodynum >= 0) return;
+	bodynum = e->runtime_index;
+	if (bodynum < 0 || bodynum >= (s32)ARRAYCOUNT(g_HeadsAndBodies) - 1) return;
+	if (!ciIsChrBioUnlocked(bodynum)) return;
+	if (ctx->cur == ctx->needle_slot) {
+		ctx->result_bodynum = bodynum;
+	}
+	ctx->cur++;
+}
+
 s32 ciGetNumUnlockedChrBios(void)
 {
-	s32 count = 0;
-	s32 bodynum;
-
-	for (bodynum = 0; bodynum < ARRAYCOUNT(g_HeadsAndBodies) - 1; bodynum++) {
-		if (ciIsChrBioUnlocked(bodynum)) {
-			count++;
-		}
-	}
-
-	return count;
+	struct chrbio_pick_ctx ctx;
+	ctx.needle_slot = 0;
+	ctx.cur = 0;
+	ctx.result_bodynum = -1;
+	ctx.count = 0;
+	assetCatalogIterateByType(ASSET_BODY, chrbioCountCb, &ctx);
+	assetCatalogIterateByType(ASSET_HEAD, chrbioCountCb, &ctx);
+	return ctx.count;
 }
 
 s32 ciGetChrBioBodynumBySlot(s32 slot)
 {
-	s32 index = -1;
-	s32 bodynum;
-
-	for (bodynum = 0; bodynum < ARRAYCOUNT(g_HeadsAndBodies) - 1; bodynum++) {
-		if (ciIsChrBioUnlocked(bodynum)) {
-			index++;
-		}
-
-		if (index == slot) {
-			return bodynum;
-		}
+	struct chrbio_pick_ctx ctx;
+	ctx.needle_slot = slot;
+	ctx.cur = 0;
+	ctx.result_bodynum = -1;
+	ctx.count = 0;
+	assetCatalogIterateByType(ASSET_BODY, chrbioPickByIndexCb, &ctx);
+	if (ctx.result_bodynum < 0) {
+		assetCatalogIterateByType(ASSET_HEAD, chrbioPickByIndexCb, &ctx);
 	}
-
-	return 0;
+	return ctx.result_bodynum >= 0 ? ctx.result_bodynum : 0;
 }
 
 struct miscbio *ciGetMiscBio(s32 index)

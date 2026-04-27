@@ -1,16 +1,24 @@
 /**
  * assetcatalog_base_extended.c -- S46a: Extended base game asset registration
  *
- * Registers 8 new asset types in the Asset Catalog:
- *   ASSET_WEAPON    -- all 47 MP weapons (MPWEAPON_* constants)
- *   ASSET_ANIMATION -- 1207 animations (full table, indices 0x0000..0x04B6)
- *   ASSET_TEXTURE   -- NUM_TEXTURES base textures (3503 NTSC / 3511 JPN-final)
- *   ASSET_PROP      -- 8 base prop categories (PROPTYPE_* constants)
- *   ASSET_GAMEMODE  -- all 6 Combat Simulator scenarios (MPSCENARIO_*)
- *   ASSET_AUDIO     -- 1545 SFX entries (full main bank, 0x0000..0x0608)
- *                   -- 43 music tracks (g_MpTracks[], AUDIO_CAT_MUSIC)
- *   ASSET_HUD       -- 6 HUD element categories (HUD_ELEM_*)
- *   ASSET_LANG      -- 68 language string banks (LANGBANK_* constants)
+ * Registers 9 base game asset types in the Asset Catalog:
+ *   ASSET_WEAPON      -- all 47 MP weapons (MPWEAPON_* constants)
+ *                       requirefeature populated from g_MpWeapons[].unlockfeature
+ *                       (catalog universality sweep, 2026-04-27)
+ *   ASSET_ANIMATION   -- 1207 animations (full table, indices 0x0000..0x04B6)
+ *   ASSET_TEXTURE     -- NUM_TEXTURES base textures (3503 NTSC / 3511 JPN-final)
+ *   ASSET_PROP        -- 8 base prop categories (PROPTYPE_* constants)
+ *   ASSET_GAMEMODE    -- all 6 Combat Simulator scenarios (MPSCENARIO_*)
+ *                       requirefeature populated from g_MpScenarioOverviews[].requirefeature
+ *                       (catalog universality sweep, 2026-04-27)
+ *   ASSET_AUDIO       -- 1545 SFX entries (full main bank, 0x0000..0x0608)
+ *                     -- 43 music tracks (g_MpTracks[], AUDIO_CAT_MUSIC)
+ *                       unlockstage populated from g_MpTracks[].unlockstage
+ *                       (catalog universality sweep, 2026-04-27)
+ *   ASSET_HUD         -- 6 HUD element categories (HUD_ELEM_*)
+ *   ASSET_LANG        -- 68 language string banks (LANGBANK_* constants)
+ *   ASSET_BOT_PROFILE -- 18 base MP simulant profiles (g_BotProfiles[])
+ *                       (catalog universality sweep, 2026-04-27)
  *
  * Called by assetCatalogRegisterBaseGame() at the end of base registration.
  * Auto-discovered by CMake glob (port/*.c). No build system changes needed.
@@ -27,6 +35,15 @@
 #include "data.h"
 #include "game/mplayer/scenarios.h"
 #include "game/lang.h"
+
+/* Catalog universality sweep (2026-04-27): externs for sources that
+ * carry the unlock-state fields the catalog now mirrors.  Layer A
+ * remains the data home; the catalog adds requirefeature / unlockstage
+ * so selectors can ride assetCatalogIterateUnlockedByType. */
+extern struct mpweapon          g_MpWeapons[];
+extern struct mpscenariooverview g_MpScenarioOverviews[];
+extern struct mptrack           g_MpTracks[];
+extern struct botprofile        g_BotProfiles[18];
 
 /* ========================================================================
  * Weapon Table
@@ -412,10 +429,15 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			}
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1; e->runtime_index = i;
+			e->mp_index = (s16)i;
+			/* Catalog universality sweep (2026-04-27): mirror the unlock
+			 * gate so assetCatalogIterateUnlockedByType(ASSET_WEAPON, ...)
+			 * matches challengeIsFeatureUnlocked semantics. */
+			e->ext.weapon.requirefeature = g_MpWeapons[i].unlockfeature;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
-		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base weapons", n);
+		sysLogPrintf(LOG_NOTE, "CATALOG.SWEEP: registered %d base weapons (with requirefeature)", n);
 		count += n;
 	}
 
@@ -503,10 +525,15 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = s_BaseGameModes[i].mode_id;
+			e->mp_index = (s16)s_BaseGameModes[i].mode_id;
+			/* Catalog universality sweep (2026-04-27): mode_id matches the
+			 * scenario's index into g_MpScenarioOverviews[] (MPSCENARIO_*),
+			 * so the requirefeature read is direct. */
+			e->ext.gamemode.requirefeature = g_MpScenarioOverviews[s_BaseGameModes[i].mode_id].requirefeature;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
-		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base game modes", n);
+		sysLogPrintf(LOG_NOTE, "CATALOG.SWEEP: registered %d base game modes (with requirefeature)", n);
 		count += n;
 	}
 
@@ -550,10 +577,73 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = i; /* index into g_MpTracks[] */
+			e->mp_index = (s16)i; /* base tracks: catalog mp_index mirrors g_MpTracks[] index */
+			/* Catalog universality sweep (2026-04-27): mirror the
+			 * best-time gate so assetCatalogIterateUnlockedMusic matches
+			 * mpIsTrackUnlocked semantics. */
+			e->ext.audio.unlockstage = g_MpTracks[i].unlockstage;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
-		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base music tracks", n);
+		sysLogPrintf(LOG_NOTE, "CATALOG.SWEEP: registered %d base music tracks (with unlockstage)", n);
+		count += n;
+	}
+
+	/* ---- bot profiles (g_BotProfiles[]) ---- */
+	/*
+	 * Catalog universality sweep (2026-04-27): bot profiles register as
+	 * ASSET_BOT_PROFILE so the simulant pickers ride the catalog
+	 * INTERSECT unlock-state pattern.  Layer A `g_BotProfiles[]` remains
+	 * the source of record (AI dispatch reads `botprofile.type` /
+	 * `.difficulty` / `.body` directly); only the SELECTORS migrate.
+	 *
+	 * Catalog ID = "base:bot_<bottype>_<difficulty>" where the slug is
+	 * derived from BOTTYPE_* + BOTDIFF_* short names.  The mapping is
+	 * stable across builds because g_BotProfiles[] is enum-keyed.
+	 */
+	{
+		static const char *const s_BotProfileSlugs[18] = {
+			"bot_meat",         /* GENERAL  / MEAT    */
+			"bot_easy",         /* GENERAL  / EASY    */
+			"bot_normal",       /* GENERAL  / NORMAL  */
+			"bot_hard",         /* GENERAL  / HARD    */
+			"bot_perfect",      /* GENERAL  / PERFECT */
+			"bot_dark",         /* GENERAL  / DARK    */
+			"bot_peace",        /* PEACE    / NORMAL  */
+			"bot_shield",       /* SHIELD   / NORMAL  */
+			"bot_rocket",       /* ROCKET   / NORMAL  */
+			"bot_kaze",         /* KAZE     / NORMAL  */
+			"bot_fist",         /* FIST     / NORMAL  */
+			"bot_prey",         /* PREY     / NORMAL  */
+			"bot_coward",       /* COWARD   / NORMAL  */
+			"bot_judge",        /* JUDGE    / NORMAL  */
+			"bot_feud",         /* FEUD     / NORMAL  */
+			"bot_speed",        /* SPEED    / NORMAL  */
+			"bot_turtle",       /* TURTLE   / NORMAL  */
+			"bot_venge",        /* VENGE    / NORMAL  */
+		};
+		s32 n = 0;
+		for (s32 i = 0; i < 18; i++) {
+			snprintf(idbuf, sizeof(idbuf), "base:%s", s_BotProfileSlugs[i]);
+			asset_entry_t *e = assetCatalogRegisterBotProfile(
+				idbuf,
+				g_BotProfiles[i].type,
+				g_BotProfiles[i].difficulty,
+				g_BotProfiles[i].body,
+				g_BotProfiles[i].name,
+				g_BotProfiles[i].requirefeature);
+			if (!e) {
+				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register bot profile %s", idbuf);
+				continue;
+			}
+			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
+			e->bundled = 1; e->enabled = 1;
+			e->runtime_index = i; /* index into g_BotProfiles[] */
+			e->mp_index = (s16)i;
+			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
+			n++;
+		}
+		sysLogPrintf(LOG_NOTE, "CATALOG.SWEEP: registered %d base bot profiles", n);
 		count += n;
 	}
 
