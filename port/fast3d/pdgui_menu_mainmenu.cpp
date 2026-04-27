@@ -63,6 +63,7 @@ extern "C" {
  * under the C linkage block so matchConfigInit() etc. resolve to the
  * unmangled C definitions in port/src/net/matchsetup.c. */
 #include "net/matchsetup.h"
+#include "testscenarios.h"
 }
 
 /* ========================================================================
@@ -3608,6 +3609,60 @@ static void renderSettingsDebug(float scale)
         s32 ok = mempPCValidate("settings_debug");
         sysLogPrintf(LOG_NOTE, "SETTINGS_DEBUG: mempPCValidate = %s",
             ok ? "OK" : "CORRUPTED");
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ------ Test Scenarios (S483) ------
+     * Dropdown that launches one of three benchmark scenarios:
+     * Empty Map, Swarm CPU, Swarm GPU. Disabled in any net mode != NONE
+     * since these run as local-only sessions. Default map for the swarm
+     * scenarios is base:mp_skedar; v1 ships default-only, an explicit
+     * selector lands later if first-run feedback warrants it. */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Test Scenarios");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    {
+        static int s_TestScenChoice = 0;
+        const char *items[] = {
+            "The Grid - Empty Map",
+            "Swarm - CPU Bots",
+            "Swarm - GPU Boids",
+        };
+        const int item_count = (int)(sizeof(items) / sizeof(items[0]));
+
+        const bool launchOk = (testScenarioCanLaunch() != 0);
+        const char *whyDisabled = testScenarioWhyDisabled();
+
+        ImGui::SetNextItemWidth(260.0f * scale);
+        ImGui::Combo("##testscen_choice", &s_TestScenChoice, items, item_count);
+        ImGui::SameLine();
+        if (!launchOk) ImGui::BeginDisabled();
+        if (ImGui::Button("Launch##testscen", ImVec2(btnW, btnH))) {
+            test_scenario_t scen = TESTSCEN_NONE;
+            switch (s_TestScenChoice) {
+            case 0: scen = TESTSCEN_EMPTY_MAP;  break;
+            case 1: scen = TESTSCEN_SWARM_CPU;  break;
+            case 2: scen = TESTSCEN_SWARM_GPU;  break;
+            default: break;
+            }
+            if (scen != TESTSCEN_NONE) {
+                testScenarioLaunch(scen, NULL);
+            }
+        }
+        if (!launchOk) ImGui::EndDisabled();
+
+        if (s_TestScenChoice == 1 || s_TestScenChoice == 2) {
+            ImGui::TextDisabled("Map:    Skedar Ruins (base:mp_skedar)");
+            ImGui::TextDisabled("Bots:   start at 4, cycle [0] / D-pad-Down");
+        } else {
+            ImGui::TextDisabled("Loads CI Training as a baseline empty session.");
+        }
+        if (!launchOk && whyDisabled) {
+            ImGui::TextDisabled("Disabled: %s", whyDisabled);
+        }
     }
 
     ImGui::Spacing();

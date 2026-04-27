@@ -42,6 +42,8 @@ enum LogLevel {
 #define LOG_CH_CATALOG   0x0200  /* CATALOG, MANIFEST, ASSET             */
 #define LOG_CH_DISTRIB   0x0400  /* DISTRIB                              */
 #define LOG_CH_RENDER    0x0800  /* RENDER, GFX, TEXTURE, FAST3D         */
+#define LOG_CH_BENCHMARK 0x1000  /* BENCHMARK.SWARM.{CPU,GPU} (S483)     */
+#define LOG_CH_TESTSCEN  0x2000  /* TESTSCEN test-scenario lifecycle (S483) */
 #define LOG_CH_ALL       0xFFFF
 #define LOG_CH_NONE      0x0000
 
@@ -54,7 +56,7 @@ s32  sysLogGetVerbose(void);
 void sysLogSetVerbose(s32 enabled);
 
 /* Channel names/count for UI enumeration */
-#define LOG_CH_COUNT 12
+#define LOG_CH_COUNT 14
 extern const char *sysLogChannelNames[LOG_CH_COUNT];
 extern const u32   sysLogChannelBits[LOG_CH_COUNT];
 

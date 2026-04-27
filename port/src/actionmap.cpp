@@ -362,6 +362,8 @@ static const char * const s_ActionNames[ACTION_COUNT] = {
     "ScorecardHold",
     /* 69: connectivity sidebar toggle (S483b) -- menu IMCs only */
     "SocialToggle",
+    /* 70: test-scenarios swarm benchmark cycler (S483c) -- PD_DEV_BUILD only */
+    "TestScenCycleCount",
 };
 
 /* ============================================================
@@ -2182,6 +2184,16 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_FORGE_TOGGLE,    (u32)VKL_F11);
         addBind(imc, ACTION_FORGE_ASCEND,    VKL_E);
         addBind(imc, ACTION_FORGE_DESCEND,   VKL_Q);
+
+        /* S483: Test Scenarios swarm benchmark cycler (PD_DEV_BUILD only).
+         * KEY_0 (SDL scan 39) and gamepad D-pad-down. Action only does
+         * anything when a swarm test scenario is active; the gameplay-side
+         * read is gated on g_TestScenario state in swarm_test.c so the
+         * binding is harmless during normal play. D-pad-down also drives
+         * ACTION_FORGE_SIDEBAR_DOWN; that action is consumed only inside
+         * forge freefly + sidebar visible, so the two coexist. */
+        addBind(imc, ACTION_TESTSCEN_CYCLE_COUNT, 39);                       /* KEY_0 (SDL scan) */
+        addBind(imc, ACTION_TESTSCEN_CYCLE_COUNT, JOY_BTN(0, JBTN_DPAD_DOWN));
     }
     /* Players 1-3: no default gamepad binds. MP slots start unbound.
      * The rebind UI is functional for all players — user configures manually. */

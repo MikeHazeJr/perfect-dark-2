@@ -161,8 +161,13 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
 
     // ideally we need 3.0 compat
     // if that doesn't work, try 3.2 core in case we're on mac, 2.1 compat as a last resort
+    // S483: 4.3 core prepended so the swarm_gpu.cpp compute path is available
+    // when the driver supports it. Falls back through the existing chain when
+    // 4.3 isn't available; the GPU swarm scenario is greyed out in that case
+    // but the rest of the renderer continues to work on 3.0 compat.
     static u32 glver[][3] = {
         { 0, 0, 0                                    }, // for command line override
+        { 4, 3, SDL_GL_CONTEXT_PROFILE_CORE          }, // 4.3core: enables compute shaders + SSBOs (S483)
         { 3, 0, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY }, // 3.0: default, has all the features required
         { 4, 1, SDL_GL_CONTEXT_PROFILE_CORE          }, // 4.1core: macs only have core profile and this is the latest
         { 3, 2, SDL_GL_CONTEXT_PROFILE_CORE          }, // 3.2core: older macs will only have this at best

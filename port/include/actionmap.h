@@ -169,7 +169,14 @@ typedef enum InputAction {
      * routing through the actionmap restores IMC discipline. */
     ACTION_SOCIAL_TOGGLE,        /* = 69 toggle friends/connectivity sidebar (menu IMCs only) */
 
-    ACTION_COUNT                /* = 70, sentinel — keep last */
+    /* ---- Test Scenarios benchmark cycler (S483, PD_DEV_BUILD only) ----
+     * Cycles the swarm bot count 4 -> 8 -> 16 -> 32 -> 64 -> 128 -> 256 -> 4
+     * inside the Swarm CPU / Swarm GPU test scenarios. Default bindings:
+     * KEY_0 on keyboard, SDL_CONTROLLER_BUTTON_DPAD_DOWN on gamepad. The
+     * binding is gameplay-only and is consumed by swarm_test.c::tick(). */
+    ACTION_TESTSCEN_CYCLE_COUNT, /* = 70 cycle bot count in swarm benchmark */
+
+    ACTION_COUNT                /* = 71, sentinel — keep last */
 } InputAction;
 
 /* Backward-compat aliases */

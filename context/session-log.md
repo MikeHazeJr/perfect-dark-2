@@ -1,7 +1,7 @@
 
 # Session Log (Active)
 
-> **S284–S483** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S284–S483c** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
 ## Session S483b (`charming-noether-7b69b3`) - 2026-04-27 - crash mitigation (B-261) + Tab IMC fix (B-262)
@@ -90,6 +90,62 @@ Adds 9 new cases (now 26 total / ~2-3k assertions): pool draws from MANIFEST_TYP
 ### Phase 2 status (deferred)
 
 Distribution-as-needed verification requires an in-game playtest with a mod weapon installed on host but not client. The wiring is ALREADY in place via `SVC_CATALOG_INFO` (S222 audio mod sync extension) -- no new code is needed for the distribution itself. Phase 2 is "verify the existing pipeline picks up ASSET_WEAPON entries during lobby join", which can only be validated end-to-end at runtime.
+## Session S483c (`unruffled-edison-af5d41`) - 2026-04-27 - GPU swarm + Test Scenarios (design + impl)
+
+Mike's directive: design a Test Scenarios dropdown in Settings > Debug (Empty Map / Swarm CPU / Swarm GPU) plus a GPU compute boid system that swaps in for the existing CPU bot tick under the GPU scenario. Cycler 4-8-16-32-64-128-256 Skedars with 1 HP each, player invincible, full random weapons, bottomless ammo, score 1 per kill. Per-frame benchmark logging on `BENCHMARK.SWARM.{CPU,GPU}` and `TESTSCEN.*`. Phase 1 = design doc; Phase 2 = implement after Mike approves; Phase 4 = auto-merge per standing rule.
+
+Mike approved all five F-section recommended defaults so Phase 2 ran in the same session. Renamed S483 -> S483c at merge time because dev had already shipped S483 (host-eligible spawn-weapon pool) and S483b (Tab IMC + per-tick rodata guard) under the parent S483 label.
+
+### Outcome (Phase 1 + Phase 2)
+
+Design doc landed at `context/designs/gpu-swarm-and-test-scenarios-2026-04-27.md` (Sections A-G per Mike's prescribed structure). Five-commit Phase 2 stack landed on the worktree branch and merged to dev:
+
+- `8566d5a9` foundation registries (log channels + action enum + actionmap entry)
+- `e147dda1` testscenarios module + Settings > Debug UI + Empty Map scenario
+- `4e0a4d87` swarm_test runtime + HUD + chr-pool hook (G.1.1 numchrs hook in setup.c)
+- `b83095ad` swarm_gpu compute path (4.3 core context probe + SSBO sim + readback)
+- `7b61a998` pd-tests cases (test_swarm_boid_sim, 6 cases under `[swarm][sim]`)
+
+### Architecturally significant findings + Mike's approved decisions (Section F)
+
+All five Mike-approved defaults landed:
+
+1. **F.1 -> Option A**: prepended `(4, 3, CORE)` to the SDL probe at `port/fast3d/gfx_sdl2.cpp:164`. Compute symbols (`glDispatchCompute`, `glMemoryBarrier`, `glBindBufferBase`) loaded at runtime via `SDL_GL_GetProcAddress` rather than regenerating glad (G.2 refinement). `swarmGpuAvailable()` returns 0 + greys-out the GPU scenario tooltip when the probe fails.
+2. **F.2 -> B+C combined, refined to G.1.1**: separate test-mode chr table escapes `MAX_BOTS=32`. Refinement during impl: NUMTYPE2 50->100 was misdirected (Type 2 = weapons rwdata), the right hook is the per-stage `numchrs` bump in `setup.c`. All 256 same-body Skedars share one Type 3 binding so NUMTYPE3=48 is plenty. The `numchrs += testScenarioGetSwarmMaxCount()` hook lands between simulant-bot count and `modelmgrAllocateSlots`, naturally extending `g_Vars.maxprops`.
+3. **F.3 -> A**: CPU readback per frame. `swarmGpuStepAndApply` writes the GPU-stepped positions back into `chr->prop->pos` so the existing damage / kill / animation / audio paths handle scoring without instrumentation.
+4. **F.4 -> A**: Empty Map reuses `STAGE_CITRAINING`. Procedural ground plane deferred to a follow-on if the CI Training prop load muddies the empty-map number.
+5. **F.5 -> B**: CPU mode runs the seek-player action that mirrors the GPU shader byte-for-byte (max_speed = 18.0, dt = 1/60, ground-locked Y, seek-only) for an apples-to-apples benchmark.
+
+### Constraints respected in design
+
+- No `NET_PROTOCOL_VER` bump. Test mode is local-only; dropdown greys out in netplay.
+- No save format change. `g_TestScenario` is volatile.
+- Catalog ID strings used everywhere (`base:skedar` body, `base:mp_skedar` arena).
+- Stage transitions reach `mainChangeToStage` via the existing `pdguiForgeStartSessionOn` catalog path. No hardcoded stagenum.
+- All Test Scenarios UI gated by `PD_DEV_BUILD` (the Debug tab is already dev-only).
+- Em-dash count: 0 (methodology gate).
+
+### Constraints respected
+
+- No `NET_PROTOCOL_VER` bump. Test mode is local-only; dropdown greys out in netplay via `g_NetMode != NETMODE_NONE`.
+- No save format change. `g_TestScenario` is volatile.
+- Catalog ID strings used everywhere (`base:skedar` body, `base:skedar_warrior` head with fallback, `base:mp_skedar` arena).
+- Stage transitions reach `mainChangeToStage` via the existing `pdguiForgeStartSessionOn` catalog path. No hardcoded stagenum.
+- All Test Scenarios UI gated by `PD_DEV_BUILD` (the Debug tab is already dev-only).
+- Em-dash count in design doc: 0 (methodology gate).
+
+### Files
+
+- **New**: `context/designs/gpu-swarm-and-test-scenarios-2026-04-27.md`,
+  `port/include/testscenarios.h`, `port/src/testscenarios.c`,
+  `port/include/swarm_test.h`, `port/src/swarm_test.c`,
+  `port/fast3d/swarm_gpu.cpp`, `tests/test_swarm_boid_sim.cpp`.
+- **Touched**: `port/include/system.h`, `port/src/system.c` (LOG_CH_BENCHMARK + LOG_CH_TESTSCEN); `src/include/constants.h` (MA_SWARM_TEST_{SEEK,GPU_DRIVEN}, MA_END 55->57); `port/include/actionmap.h`, `port/src/actionmap.cpp` (ACTION_TESTSCEN_CYCLE_COUNT bound to KEY_0 + DPAD_DOWN); `port/fast3d/pdgui_menu_mainmenu.cpp::renderSettingsDebug` (Test Scenarios section); `port/fast3d/pdgui_backend.cpp` (top-right HUD overlay); `port/fast3d/gfx_sdl2.cpp` (4.3 core probe prepend); `port/src/pdmain.c` (swarmTestTick call); `src/game/setup.c` (numchrs hook); `CMakeLists.txt` (SRC_TESTS).
+- **Untouched**: `port/src/net/*`, `src/game/botmgr.c`, `src/game/bot.c::botSpawn`, save files.
+
+### Build / verify
+
+`ninja -C Build pd pd-server pd-tests` clean at worktree branch tip 7b61a998 (`[67/67]` linked). pd-tests `[swarm][sim]` cases compile + link; runtime verification is Mike's playtest step.
 
 ## Session S482 (`jovial-kirch-181c60`) - 2026-04-27 - spawn-weapon Random/Fiesta semantics
 
