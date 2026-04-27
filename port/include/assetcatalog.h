@@ -677,6 +677,36 @@ void assetCatalogIterateByType(asset_type_e type, asset_iter_fn fn,
 void assetCatalogIterateByCategory(const char *category, asset_iter_fn fn,
                                     void *userdata);
 
+/**
+ * Iterate entries of a specific asset type that are AVAILABLE to the local
+ * player right now: catalog membership intersected with unlock-state. The
+ * unlock filter consults `challengeIsFeatureUnlocked` against whichever
+ * `requirefeature` field the type carries on its `ext` payload:
+ *   ASSET_ARENA -> ext.arena.requirefeature
+ *   ASSET_BODY  -> ext.body.requirefeature
+ *   ASSET_HEAD  -> ext.head.requirefeature
+ *   any other type -> no unlock gate (iterates identically to
+ *                     assetCatalogIterateByType)
+ *
+ * This is the canonical helper for selector pools. Per Mike's directive
+ * "selector pool = catalog INTERSECT unlock-state": every UI that builds a
+ * pickable list of arenas / bodies / heads should call this rather than
+ * iterating the full catalog and filtering inline.
+ *
+ * Server build: returns immediately for ASSET_ARENA / BODY / HEAD because
+ * `assetCatalogRegisterBaseGame` is not called server-side, so no entries
+ * exist to iterate.
+ */
+void assetCatalogIterateUnlockedByType(asset_type_e type, asset_iter_fn fn,
+                                        void *userdata);
+
+/**
+ * Count entries of a specific asset type that pass the unlock filter (same
+ * predicate as assetCatalogIterateUnlockedByType).  O(N) over the full
+ * catalog pool; use sparingly (cache the result for per-frame UI sizing).
+ */
+s32 assetCatalogGetUnlockedCountByType(asset_type_e type);
+
 /* ========================================================================
  * Query API
  * ======================================================================== */

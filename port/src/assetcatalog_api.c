@@ -34,6 +34,7 @@
 #include "net/sessioncatalog.h"
 #include "net/netbuf.h"
 #include "modmgr.h"
+#include "game/challenge.h"  /* unlock-state filter for assetCatalogIterateUnlockedByType */
 #if !defined(PD_SERVER)
 #include "game/modeldef.h"
 #include "lib/rng.h"  /* P3: rngRandom for catalogPickRandomHeadIdForBody (client-only) */
@@ -446,6 +447,67 @@ const char *catalogIdByRuntime(asset_type_e type, s32 runtime_index)
     if ((s32)type < 0 || (s32)type >= ASSET_TYPE_COUNT) return NULL;
     if (runtime_index < 0 || runtime_index >= RT_CACHE_SIZE) return NULL;
     return s_RuntimeCache[(s32)type][runtime_index];
+}
+
+/* -------------------------------------------------------------------------
+ * Unlock-filtered iteration (selector pool = catalog INTERSECT unlock-state)
+ *
+ * The unlock gate field lives at different offsets per type's ext payload,
+ * so the helper centralises the type-to-field switch. Types without a
+ * requirefeature gate (most asset types) iterate identically to
+ * assetCatalogIterateByType.
+ *
+ * Server build: `challengeIsFeatureUnlocked` is compiled in for both targets,
+ * but `assetCatalogRegisterBaseGame` is not invoked server-side, so the
+ * iteration finds zero entries to emit.
+ * ------------------------------------------------------------------------- */
+
+static u32 s_entryRequireFeature(const asset_entry_t *e)
+{
+    switch (e->type) {
+        case ASSET_ARENA: return (u32)e->ext.arena.requirefeature;
+        case ASSET_BODY:  return (u32)e->ext.body.requirefeature;
+        case ASSET_HEAD:  return (u32)e->ext.head.requirefeature;
+        default:          return 0;
+    }
+}
+
+typedef struct {
+    asset_iter_fn user_fn;
+    void         *user_data;
+} unlock_filter_ctx_t;
+
+static void s_unlockFilterCb(const asset_entry_t *e, void *userdata)
+{
+    unlock_filter_ctx_t *ctx = (unlock_filter_ctx_t *)userdata;
+    u32 req = s_entryRequireFeature(e);
+    if (req != 0 && !challengeIsFeatureUnlocked((s32)req)) {
+        return;
+    }
+    ctx->user_fn(e, ctx->user_data);
+}
+
+void assetCatalogIterateUnlockedByType(asset_type_e type, asset_iter_fn fn,
+                                        void *userdata)
+{
+    if (!fn) return;
+    unlock_filter_ctx_t ctx;
+    ctx.user_fn   = fn;
+    ctx.user_data = userdata;
+    assetCatalogIterateByType(type, s_unlockFilterCb, &ctx);
+}
+
+static void s_unlockCountCb(const asset_entry_t *e, void *userdata)
+{
+    (void)e;
+    (*(s32 *)userdata)++;
+}
+
+s32 assetCatalogGetUnlockedCountByType(asset_type_e type)
+{
+    s32 count = 0;
+    assetCatalogIterateUnlockedByType(type, s_unlockCountCb, &count);
+    return count;
 }
 
 /* Body → default head catalog ID.  Reads ext.body.headnum from the body catalog

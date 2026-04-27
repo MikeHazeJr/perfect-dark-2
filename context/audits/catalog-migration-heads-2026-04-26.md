@@ -507,6 +507,37 @@ Each builds clean and is bisectable. **Confirm bundling shape with Mike?**
 
 ---
 
+---
+
+## Section J -- Decisions confirmed (2026-04-26, delegated by Mike via parent session)
+
+All eight Section I decisions approved + B-235 sibling fold-in.
+
+| # | Decision |
+|---|---|
+| **I.1** | Catalog ID renames for non-conforming entries (`base:head_75`, `base:sp_head_<idx>` set) -- DEFER to a follow-up session. Track in audit, do NOT rename in this session. |
+| **I.2** | Keep mixed `g_HeadsAndBodies[]` array intact. Bodies migration session needs it. Migrate the head-related callers; leave the array alone. |
+| **I.3** | New `assetCatalogIterateUnlockedByType` helper lands in `assetcatalog_api.c` alongside the existing iterators. Document in the function block comment style the existing iterators use. |
+| **I.4** | Wire / cross-client unlock validation policy: STATUS QUO. Host authority for cosmetics. No follower-side unlock validation. Cosmetics are non-cheating-sensitive. |
+| **I.5** | Drop the `g_BotHeads` "famous-named character" exclusion. Bots can wear any unlocked head, including Joanna's face if unlocked. |
+| **I.6** | Random head selection uses the unlock-filtered pool. Preserve a graceful "no unlocked head" sentinel fallback so a body that cannot resolve any unlocked head still has a defined state. |
+| **I.7** | Apply the unlock filter inside `catalogPickRandomHeadIdForBody` (one-shot fix, propagates to all callers). Single point of truth. |
+| **I.8** | Bundle the 8 migration steps into 4-6 commits. Sequential, bisectable, build-verified per commit. |
+| **Bonus** | Fold the suspected B-235 sibling fix at `port/src/net/netmsg.c:1285` into the migration commit series. Document in `context/bugs.md` as a B-235 sibling fix. |
+
+## Phase 2 commit plan (6 commits)
+
+1. **Step 1** -- helper + count helper in `assetcatalog_api.c` + Section J record (this commit).
+2. **Step 2** -- filter `catalogPickRandomHeadIdForBody` by unlock.
+3. **Step 3** -- migrate Agent Creator + integrated-head guard (H.5).
+4. **Steps 4 + 5** -- migrate Player Config + Bot Setup pickers (same shape).
+5. **Step 6** -- migrate `mpCreateBotFromProfile` random AI head pick + retire `g_BotHeads`. Honor I.6 graceful fallback.
+6. **Step 7** -- fix `netmsg.c:1285` B-235 sibling + `bugs.md` entry.
+
+Step 8 (legacy-handler audit) deferred -- the new pickers no longer route through the legacy handler for size queries, so the handler becomes vestigial without needing a removal commit.
+
+---
+
 ## Stop conditions encountered (none)
 
 - Unlock-state lookup is NOT more invasive than expected -- `challengeIsFeatureUnlocked` is the single point and the catalog already carries `ext.head.requirefeature`.
