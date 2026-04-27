@@ -217,12 +217,13 @@ $script:NinjaTotal          = 0
 # ============================================================================
 
 function Load-Settings {
-    # Defaults bumped 2026-04-27 (S476) to fit the larger UI font sweep.
-    # First-time launch uses these; subsequent launches restore the user's
-    # last manual size from settings.json.
+    # Defaults bumped 2026-04-27 (S478) to fit the doubled-bold UI font sweep
+    # (Mike's directive: "All the font should be at least double the size,
+    # and bold."). First-time launch uses these; subsequent launches restore
+    # the user's last manual size from settings.json.
     $defaults = @{
-        WindowWidth   = 1180
-        WindowHeight  = 820
+        WindowWidth   = 1700
+        WindowHeight  = 1100
         WindowLeft    = -1
         WindowTop     = -1
         GitHubRepo    = ""
@@ -517,7 +518,7 @@ function Save-ReleaseCache($data) {
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Perfect Dark 2  |  Dev Window v2"
-        MinWidth="980" MinHeight="620"
+        MinWidth="1400" MinHeight="920"
         Background="#ECEEF2"
         WindowStartupLocation="CenterScreen"
         UseLayoutRounding="True"
@@ -525,7 +526,8 @@ function Save-ReleaseCache($data) {
         TextOptions.TextFormattingMode="Display"
         RenderOptions.ClearTypeHint="Enabled"
         TextElement.FontFamily="Segoe UI"
-        TextElement.FontSize="15"
+        TextElement.FontSize="30"
+        TextElement.FontWeight="Bold"
         TextElement.Foreground="#1A2434">
     <Window.Resources>
         <!-- Light-theme PD palette (S477):
@@ -537,10 +539,10 @@ function Save-ReleaseCache($data) {
         <Style x:Key="AccentBtn" TargetType="Button">
             <Setter Property="Background" Value="#0078A8"/>
             <Setter Property="Foreground" Value="#FFFFFF"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="28"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="14,8"/>
+            <Setter Property="Padding" Value="22,14"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -613,10 +615,10 @@ function Save-ReleaseCache($data) {
             <Setter Property="Foreground" Value="#1A2434"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="BorderBrush" Value="#B0B8C2"/>
-            <Setter Property="Padding" Value="12,7"/>
-            <Setter Property="MinHeight" Value="32"/>
-            <Setter Property="FontSize" Value="14"/>
-            <Setter Property="FontWeight" Value="Normal"/>
+            <Setter Property="Padding" Value="20,12"/>
+            <Setter Property="MinHeight" Value="58"/>
+            <Setter Property="FontSize" Value="28"/>
+            <Setter Property="FontWeight" Value="Bold"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
@@ -687,20 +689,20 @@ function Save-ReleaseCache($data) {
         <!-- Header Brand Bar (light theme, narrow PD-styled band; cyan accent
              on the PD2 chip + "v2" label preserves PD identity without
              dominating the page) -->
-        <Border DockPanel.Dock="Top" Background="#FFFFFF" BorderBrush="#0078A8" BorderThickness="0,0,0,2" Padding="14,8">
+        <Border DockPanel.Dock="Top" Background="#FFFFFF" BorderBrush="#0078A8" BorderThickness="0,0,0,3" Padding="20,14">
             <DockPanel>
                 <TextBlock DockPanel.Dock="Right"
                            Text="Ctrl+B=Build    Ctrl+R=Release    Ctrl+L=Log    Ctrl+G=Game    Ctrl+T=Tests"
-                           Foreground="#7A8898" FontSize="13" FontFamily="Consolas"
+                           Foreground="#7A8898" FontSize="26" FontFamily="Consolas"
                            VerticalAlignment="Center"/>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <Border Background="#0078A8" CornerRadius="2" Padding="8,3" Margin="0,0,10,0">
-                        <TextBlock Text="PD2" FontSize="14" FontWeight="Black" Foreground="#FFFFFF"
+                        <TextBlock Text="PD2" FontSize="28" FontWeight="Black" Foreground="#FFFFFF"
                                    FontFamily="Consolas"/>
                     </Border>
-                    <TextBlock Text="Dev Window" FontSize="15" Foreground="#1A2434"
-                               FontWeight="SemiBold" VerticalAlignment="Center"/>
-                    <TextBlock Text=" v2" FontSize="15" Foreground="#0078A8"
+                    <TextBlock Text="Dev Window" FontSize="30" Foreground="#1A2434"
+                               FontWeight="Bold" VerticalAlignment="Center"/>
+                    <TextBlock Text=" v2" FontSize="30" Foreground="#0078A8"
                                FontWeight="Bold" VerticalAlignment="Center"/>
                 </StackPanel>
             </DockPanel>
@@ -709,48 +711,48 @@ function Save-ReleaseCache($data) {
         <!-- Status Bar (bottom; promoted to primary info row, light theme).
              Mike: this is "primary interactive info"; readable, not crammed.
              FontSize 15 Consolas with vertical separators. -->
-        <Border DockPanel.Dock="Bottom" Background="#F5F7FA" BorderBrush="#C0C8D2" BorderThickness="0,1,0,0" Padding="14,9">
+        <Border DockPanel.Dock="Bottom" Background="#F5F7FA" BorderBrush="#C0C8D2" BorderThickness="0,1,0,0" Padding="22,16">
             <DockPanel>
                 <TextBlock x:Name="StatusVersion" Text="v0.0.0" Foreground="#A06A10"
-                           FontFamily="Consolas" FontSize="15" FontWeight="Bold"
+                           FontFamily="Consolas" FontSize="30" FontWeight="Bold"
                            DockPanel.Dock="Right" VerticalAlignment="Center"/>
-                <Rectangle Width="1" Fill="#C0C8D2" Margin="14,0" DockPanel.Dock="Right"/>
+                <Rectangle Width="1" Fill="#C0C8D2" Margin="22,0" DockPanel.Dock="Right"/>
                 <TextBlock x:Name="StatusAuth" Text="auth: ..." Foreground="#4A5868"
-                           FontFamily="Consolas" FontSize="15"
-                           DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,14,0"/>
-                <Rectangle Width="1" Fill="#C0C8D2" Margin="0,0,14,0"/>
+                           FontFamily="Consolas" FontSize="30" FontWeight="Bold"
+                           DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,22,0"/>
+                <Rectangle Width="1" Fill="#C0C8D2" Margin="0,0,22,0"/>
                 <TextBlock x:Name="StatusMode" Text="Idle" Foreground="#1A2434"
-                           FontFamily="Consolas" FontSize="15" FontWeight="SemiBold" Margin="0,0,14,0"/>
-                <Rectangle Width="1" Fill="#C0C8D2" Margin="0,0,14,0"/>
+                           FontFamily="Consolas" FontSize="30" FontWeight="Bold" Margin="0,0,22,0"/>
+                <Rectangle Width="1" Fill="#C0C8D2" Margin="0,0,22,0"/>
                 <TextBlock x:Name="StatusBranch" Text="branch: --" Foreground="#0078A8"
-                           FontFamily="Consolas" FontSize="15" FontWeight="SemiBold" Margin="0,0,14,0"/>
-                <Rectangle Width="1" Fill="#C0C8D2" Margin="0,0,14,0"/>
+                           FontFamily="Consolas" FontSize="30" FontWeight="Bold" Margin="0,0,22,0"/>
+                <Rectangle Width="1" Fill="#C0C8D2" Margin="0,0,22,0"/>
                 <TextBlock x:Name="StatusHash" Text="HEAD: ------" Foreground="#4A5868"
-                           FontFamily="Consolas" FontSize="15" Margin="0,0,14,0"/>
-                <Rectangle Width="1" Fill="#C0C8D2" Margin="0,0,14,0"/>
+                           FontFamily="Consolas" FontSize="30" FontWeight="Bold" Margin="0,0,22,0"/>
+                <Rectangle Width="1" Fill="#C0C8D2" Margin="0,0,22,0"/>
                 <TextBlock x:Name="StatusDirty" Text="clean" Foreground="#10783A"
-                           FontFamily="Consolas" FontSize="15" FontWeight="SemiBold"/>
-                <Rectangle Width="1" Fill="#C0C8D2" Margin="14,0"/>
+                           FontFamily="Consolas" FontSize="30" FontWeight="Bold"/>
+                <Rectangle Width="1" Fill="#C0C8D2" Margin="22,0"/>
                 <TextBlock x:Name="StatusWorktrees" Text="worktrees: --" Foreground="#4A5868"
-                           FontFamily="Consolas" FontSize="15"/>
+                           FontFamily="Consolas" FontSize="30" FontWeight="Bold"/>
             </DockPanel>
         </Border>
 
         <!-- Bottom Bar: Run Game + Run Tests (light theme; sized as
              secondary actions, not hero. Buttons command attention via
              color + width, not font shouting). -->
-        <Border DockPanel.Dock="Bottom" Background="#FFFFFF" BorderBrush="#C0C8D2" BorderThickness="0,1,0,0" Padding="10,8">
+        <Border DockPanel.Dock="Bottom" Background="#FFFFFF" BorderBrush="#C0C8D2" BorderThickness="0,1,0,0" Padding="14,12">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="14"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <Button x:Name="BtnRunTests" Content="RUN TESTS" Style="{StaticResource GoldBtn}"
-                        FontSize="14" FontWeight="Bold" Padding="14,9" MinHeight="42" Grid.Column="0"
+                        FontSize="28" FontWeight="Bold" Padding="20,16" MinHeight="78" Grid.Column="0"
                         ToolTip="Build (if needed) and run pd-tests; output streams to the Log tab."/>
                 <Button x:Name="BtnRunGame" Content="RUN GAME" Style="{StaticResource GreenBtn}"
-                        FontSize="14" FontWeight="Bold" Padding="14,9" MinHeight="42" Grid.Column="2"/>
+                        FontSize="28" FontWeight="Bold" Padding="20,16" MinHeight="78" Grid.Column="2"/>
             </Grid>
         </Border>
 
@@ -760,9 +762,9 @@ function Save-ReleaseCache($data) {
                 <Style TargetType="TabItem">
                     <Setter Property="Background" Value="#ECEEF2"/>
                     <Setter Property="Foreground" Value="#7A8898"/>
-                    <Setter Property="Padding" Value="22,10"/>
-                    <Setter Property="FontSize" Value="14"/>
-                    <Setter Property="FontWeight" Value="SemiBold"/>
+                    <Setter Property="Padding" Value="32,18"/>
+                    <Setter Property="FontSize" Value="28"/>
+                    <Setter Property="FontWeight" Value="Bold"/>
                     <Setter Property="Template">
                         <Setter.Value>
                             <ControlTemplate TargetType="TabItem">
@@ -792,152 +794,160 @@ function Save-ReleaseCache($data) {
                  hero buttons sized to be prominent without dominating, status +
                  version cards take the freed vertical space). -->
             <TabItem Header="BUILD">
-                <DockPanel Margin="14,12,14,12" LastChildFill="False">
-                    <!-- Hero Buttons Row: smaller (60px) than the prior 92px,
-                         text 18 instead of 24. Width carries prominence. -->
-                    <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                <DockPanel Margin="20,18,20,18" LastChildFill="False">
+                    <!-- Hero Buttons Row (S478: doubled-bold text fits at MinHeight=104,
+                         font 36 BUILD / 32 RELEASE Bold, padding 20,16). -->
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,16">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="14"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Button x:Name="BtnBuild" Style="{StaticResource GreenBtn}"
-                                FontSize="18" FontWeight="Black" MinHeight="60" Padding="16,0" Grid.Column="0">
-                            <TextBlock Text="BUILD" FontSize="18" FontWeight="Black" FontFamily="Consolas"/>
+                                FontSize="36" FontWeight="Black" MinHeight="104" Padding="20,16" Grid.Column="0">
+                            <TextBlock Text="BUILD" FontSize="36" FontWeight="Black" FontFamily="Consolas"/>
                         </Button>
                         <Button x:Name="BtnRelease" Style="{StaticResource GoldBtn}"
-                                FontSize="16" FontWeight="Bold" MinHeight="60" Padding="16,0" Grid.Column="2">
+                                FontSize="32" FontWeight="Bold" MinHeight="104" Padding="20,16" Grid.Column="2">
                             <TextBlock x:Name="TxtRelease" Text="RELEASE" TextAlignment="Center"
-                                       FontSize="16" FontWeight="Bold" LineHeight="20"/>
+                                       FontSize="32" FontWeight="Bold" LineHeight="36"/>
                         </Button>
                     </Grid>
 
                     <!-- Utility Buttons Row: one row, sits directly under the
                          hero pair so primary + supporting actions share top of
                          pane. Free-standing rather than crammed into a card. -->
-                    <Border DockPanel.Dock="Top" Margin="0,0,0,12"
-                            Background="#FFFFFF" BorderBrush="#C0C8D2" BorderThickness="1" CornerRadius="3" Padding="8,6">
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <Button x:Name="BtnOpenGitHub" Content="GitHub" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"/>
-                            <Button x:Name="BtnOpenFolder" Content="Project Folder" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"/>
-                            <Button x:Name="BtnCleanBuild" Content="Clean Build" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"/>
-                            <Button x:Name="BtnPull" Content="Pull" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"
-                                    ToolTip="git pull (current branch, upstream)"/>
-                            <Button x:Name="BtnPush" Content="Push" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"
-                                    ToolTip="git push (current branch to upstream)"/>
-                            <Button x:Name="BtnPruneWorktrees" Content="Prune Worktrees" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"
-                                    ToolTip="git worktree prune (remove stale worktree references from .claude/worktrees/)"/>
-                            <Button x:Name="BtnCheck" Content="Check" Style="{StaticResource ToolBtn}"
-                                    ToolTip="Validate clean git state + run git-snapshot.sh"/>
-                        </StackPanel>
+                    <!-- Utility Row card. ScrollViewer keeps the row reachable
+                         even at narrow widths now that doubled-bold buttons
+                         take more horizontal real estate (S478). -->
+                    <Border DockPanel.Dock="Top" Margin="0,0,0,16"
+                            Background="#FFFFFF" BorderBrush="#C0C8D2" BorderThickness="1" CornerRadius="3" Padding="12,10">
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="BtnOpenGitHub" Content="GitHub" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"/>
+                                <Button x:Name="BtnOpenFolder" Content="Project Folder" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"/>
+                                <Button x:Name="BtnCleanBuild" Content="Clean Build" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"/>
+                                <Button x:Name="BtnPull" Content="Pull" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
+                                        ToolTip="git pull (current branch, upstream)"/>
+                                <Button x:Name="BtnPush" Content="Push" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
+                                        ToolTip="git push (current branch to upstream)"/>
+                                <Button x:Name="BtnPruneWorktrees" Content="Prune Worktrees" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
+                                        ToolTip="git worktree prune (remove stale worktree references from .claude/worktrees/)"/>
+                                <Button x:Name="BtnCheck" Content="Check" Style="{StaticResource ToolBtn}"
+                                        ToolTip="Validate clean git state + run git-snapshot.sh"/>
+                            </StackPanel>
+                        </ScrollViewer>
                     </Border>
 
                     <!-- Status Area: 2 columns, white cards on light bg. Both
                          take their content's natural height; vertical space is
-                         no longer wasted between hero and status bar. -->
+                         no longer wasted between hero and status bar. MinWidths
+                         bumped (S478) so doubled-bold text never clips. -->
                     <Grid DockPanel.Dock="Top">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="2*" MinWidth="320"/>
-                            <ColumnDefinition Width="12"/>
-                            <ColumnDefinition Width="*" MinWidth="340"/>
+                            <ColumnDefinition Width="2*" MinWidth="520"/>
+                            <ColumnDefinition Width="16"/>
+                            <ColumnDefinition Width="*" MinWidth="560"/>
                         </Grid.ColumnDefinitions>
 
                         <!-- Left: Build Status (white card) -->
                         <Border Grid.Column="0" Background="#FFFFFF" CornerRadius="3"
-                                BorderBrush="#C0C8D2" BorderThickness="1" Padding="14,12">
+                                BorderBrush="#C0C8D2" BorderThickness="1" Padding="20,18">
                             <StackPanel>
-                                <TextBlock Text="S T A T U S" Foreground="#7A8898" FontSize="12"
+                                <TextBlock Text="S T A T U S" Foreground="#7A8898" FontSize="24"
                                            FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,8"/>
                                 <TextBlock x:Name="LblClientStatus" Text="client: --"
-                                           Foreground="#1A2434" FontFamily="Consolas" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                                           Foreground="#1A2434" FontFamily="Consolas" FontSize="32" FontWeight="Bold" Margin="0,0,0,5"/>
                                 <TextBlock x:Name="LblServerStatus" Text="tests: --"
-                                           Foreground="#1A2434" FontFamily="Consolas" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                                           Foreground="#1A2434" FontFamily="Consolas" FontSize="32" FontWeight="Bold" Margin="0,0,0,10"/>
                                 <TextBlock x:Name="LblBuildActivity" Text="" Foreground="#4A5868"
-                                           FontFamily="Consolas" FontSize="14" Margin="0,0,0,6" TextWrapping="Wrap"/>
+                                           FontFamily="Consolas" FontSize="28" Margin="0,0,0,6" TextWrapping="Wrap"/>
 
-                                <!-- Progress Bar -->
-                                <Border x:Name="ProgressBack" Background="#E0E8F0" Height="20"
-                                        CornerRadius="2" Margin="0,4" Visibility="Collapsed"
+                                <!-- Progress Bar (S478: height bumped to fit 26pt bold text) -->
+                                <Border x:Name="ProgressBack" Background="#E0E8F0" Height="38"
+                                        CornerRadius="2" Margin="0,6" Visibility="Collapsed"
                                         BorderBrush="#B0B8C2" BorderThickness="1">
                                     <Grid>
                                         <Border x:Name="ProgressFill" Background="#0078A8"
                                                 CornerRadius="1" HorizontalAlignment="Left" Width="0"/>
                                         <TextBlock x:Name="LblProgressText" Text="" Foreground="#FFFFFF"
-                                                   FontFamily="Consolas" FontSize="13" FontWeight="SemiBold"
+                                                   FontFamily="Consolas" FontSize="26" FontWeight="Bold"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Grid>
                                 </Border>
 
                                 <!-- Action Buttons Row (only visible when relevant) -->
-                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                                     <Button x:Name="BtnStop" Content="STOP" Style="{StaticResource RedBtn}"
-                                            Padding="14,7" Margin="0,0,6,0" Visibility="Collapsed"/>
+                                            Padding="22,12" Margin="0,0,8,0" Visibility="Collapsed"/>
                                     <Button x:Name="BtnCopyErrors" Content="Copy Errors" Style="{StaticResource ToolBtn}"
-                                            Margin="0,0,6,0" Visibility="Collapsed"/>
+                                            Margin="0,0,8,0" Visibility="Collapsed"/>
                                     <Button x:Name="BtnCopyLog" Content="Copy Log" Style="{StaticResource ToolBtn}"
-                                            Margin="0,0,6,0" Visibility="Collapsed"/>
+                                            Margin="0,0,8,0" Visibility="Collapsed"/>
                                 </StackPanel>
                             </StackPanel>
                         </Border>
 
                         <!-- Right: Version + Auth (white card) -->
                         <Border Grid.Column="2" Background="#FFFFFF" CornerRadius="3"
-                                BorderBrush="#C0C8D2" BorderThickness="1" Padding="14,12"
-                                MinWidth="340" HorizontalAlignment="Stretch">
+                                BorderBrush="#C0C8D2" BorderThickness="1" Padding="20,18"
+                                MinWidth="560" HorizontalAlignment="Stretch">
                             <StackPanel>
-                                <TextBlock Text="V E R S I O N" Foreground="#7A8898" FontSize="12"
+                                <TextBlock Text="V E R S I O N" Foreground="#7A8898" FontSize="24"
                                            FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,8"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                    <StackPanel Margin="0,0,10,0">
-                                        <TextBlock Text="MAJ" Foreground="#7A8898" FontSize="11"
-                                                   FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,3"/>
+                                    <!-- Spinner buttons enlarged so doubled-bold "+/-" fits.
+                                         56x56 with no internal padding so the glyph centers cleanly. -->
+                                    <StackPanel Margin="0,0,14,0">
+                                        <TextBlock Text="MAJ" Foreground="#7A8898" FontSize="22"
+                                                   FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,4"/>
                                         <StackPanel Orientation="Horizontal">
                                             <Button x:Name="BtnVerMajDown" Content="-" Style="{StaticResource ToolBtn}"
-                                                    Padding="0" Width="28" MinHeight="28" FontFamily="Consolas" FontSize="14"/>
-                                            <TextBox x:Name="TxtVerMajor" Width="42" TextAlignment="Center"
+                                                    Padding="0" Width="56" MinHeight="56" FontFamily="Consolas" FontSize="28"/>
+                                            <TextBox x:Name="TxtVerMajor" Width="80" TextAlignment="Center"
                                                      Background="#F5F7FA" Foreground="#A06A10" BorderBrush="#C0C8D2"
-                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="15" Padding="3"/>
+                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="30" Padding="4"/>
                                             <Button x:Name="BtnVerMajUp" Content="+" Style="{StaticResource ToolBtn}"
-                                                    Padding="0" Width="28" MinHeight="28" FontFamily="Consolas" FontSize="14"/>
+                                                    Padding="0" Width="56" MinHeight="56" FontFamily="Consolas" FontSize="28"/>
                                         </StackPanel>
                                     </StackPanel>
-                                    <StackPanel Margin="0,0,10,0">
-                                        <TextBlock Text="MIN" Foreground="#7A8898" FontSize="11"
-                                                   FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,3"/>
+                                    <StackPanel Margin="0,0,14,0">
+                                        <TextBlock Text="MIN" Foreground="#7A8898" FontSize="22"
+                                                   FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,4"/>
                                         <StackPanel Orientation="Horizontal">
                                             <Button x:Name="BtnVerMinDown" Content="-" Style="{StaticResource ToolBtn}"
-                                                    Padding="0" Width="28" MinHeight="28" FontFamily="Consolas" FontSize="14"/>
-                                            <TextBox x:Name="TxtVerMinor" Width="42" TextAlignment="Center"
+                                                    Padding="0" Width="56" MinHeight="56" FontFamily="Consolas" FontSize="28"/>
+                                            <TextBox x:Name="TxtVerMinor" Width="80" TextAlignment="Center"
                                                      Background="#F5F7FA" Foreground="#A06A10" BorderBrush="#C0C8D2"
-                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="15" Padding="3"/>
+                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="30" Padding="4"/>
                                             <Button x:Name="BtnVerMinUp" Content="+" Style="{StaticResource ToolBtn}"
-                                                    Padding="0" Width="28" MinHeight="28" FontFamily="Consolas" FontSize="14"/>
+                                                    Padding="0" Width="56" MinHeight="56" FontFamily="Consolas" FontSize="28"/>
                                         </StackPanel>
                                     </StackPanel>
                                     <StackPanel>
-                                        <TextBlock Text="PAT" Foreground="#7A8898" FontSize="11"
-                                                   FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,3"/>
+                                        <TextBlock Text="PAT" Foreground="#7A8898" FontSize="22"
+                                                   FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,4"/>
                                         <StackPanel Orientation="Horizontal">
                                             <Button x:Name="BtnVerPatDown" Content="-" Style="{StaticResource ToolBtn}"
-                                                    Padding="0" Width="28" MinHeight="28" FontFamily="Consolas" FontSize="14"/>
-                                            <TextBox x:Name="TxtVerPatch" Width="48" TextAlignment="Center"
+                                                    Padding="0" Width="56" MinHeight="56" FontFamily="Consolas" FontSize="28"/>
+                                            <TextBox x:Name="TxtVerPatch" Width="92" TextAlignment="Center"
                                                      Background="#F5F7FA" Foreground="#A06A10" BorderBrush="#C0C8D2"
-                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="15" Padding="3"/>
+                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="30" Padding="4"/>
                                             <Button x:Name="BtnVerPatUp" Content="+" Style="{StaticResource ToolBtn}"
-                                                    Padding="0" Width="28" MinHeight="28" FontFamily="Consolas" FontSize="14"/>
+                                                    Padding="0" Width="56" MinHeight="56" FontFamily="Consolas" FontSize="28"/>
                                         </StackPanel>
                                     </StackPanel>
                                 </StackPanel>
                                 <CheckBox x:Name="ChkStable" Content="Stable release" Foreground="#A06A10"
-                                          FontSize="14" FontWeight="SemiBold" Margin="0,2,0,12"/>
+                                          FontSize="28" FontWeight="Bold" Margin="0,2,0,12"/>
                                 <TextBlock x:Name="LblAuthStatus" Text="auth: ..." Foreground="#4A5868"
-                                           FontFamily="Consolas" FontSize="14" Margin="0,0,0,5" Cursor="Hand"
+                                           FontFamily="Consolas" FontSize="28" Margin="0,0,0,5" Cursor="Hand"
                                            TextWrapping="Wrap"/>
                                 <TextBlock x:Name="LblLatestRelease" Text="latest: --" Foreground="#4A5868"
-                                           FontFamily="Consolas" FontSize="14" Margin="0,0,0,4"
+                                           FontFamily="Consolas" FontSize="28" Margin="0,0,0,4"
                                            TextWrapping="Wrap"/>
                                 <TextBlock x:Name="LblDevVersion" Text="local: --" Foreground="#0078A8"
-                                           FontFamily="Consolas" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                           FontFamily="Consolas" FontSize="28" FontWeight="Bold" TextWrapping="Wrap"/>
                             </StackPanel>
                         </Border>
                     </Grid>
@@ -955,17 +965,17 @@ function Save-ReleaseCache($data) {
                         <Button x:Name="BtnLogExport" Content="Export..." Style="{StaticResource ToolBtn}"
                                 DockPanel.Dock="Right" Margin="6,0,0,0"/>
                         <CheckBox x:Name="ChkAutoScroll" Content="Auto-scroll" Foreground="#1A2434"
-                                  FontFamily="Segoe UI" FontSize="14"
+                                  FontFamily="Segoe UI" FontSize="28"
                                   IsChecked="True" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="10,0"/>
                         <TextBox x:Name="TxtLogFilter" Background="#FFFFFF" Foreground="#4A5868"
                                  BorderBrush="#C0C8D2" Padding="8,5"
-                                 FontFamily="Consolas" FontSize="14"
+                                 FontFamily="Consolas" FontSize="28"
                                  Tag="Filter..." FontStyle="Italic"/>
                     </DockPanel>
                     <RichTextBox x:Name="LogOutput" Background="#FFFFFF" Foreground="#1A2434"
                                  IsReadOnly="True" BorderThickness="1" BorderBrush="#C0C8D2"
                                  FontFamily="Consolas"
-                                 FontSize="14" VerticalScrollBarVisibility="Auto"
+                                 FontSize="28" VerticalScrollBarVisibility="Auto"
                                  HorizontalScrollBarVisibility="Auto"
                                  Padding="8,6">
                         <FlowDocument>
@@ -985,12 +995,12 @@ function Save-ReleaseCache($data) {
                     </Grid.ColumnDefinitions>
                     <ListBox x:Name="DocList" Grid.Column="0" Background="#FFFFFF" Foreground="#1A2434"
                              BorderBrush="#C0C8D2" BorderThickness="1"
-                             FontFamily="Consolas" FontSize="14"/>
+                             FontFamily="Consolas" FontSize="28"/>
                     <GridSplitter Grid.Column="1" Width="6" Background="#C0C8D2" HorizontalAlignment="Stretch"/>
                     <TextBox x:Name="DocContent" Grid.Column="2" Background="#FFFFFF" Foreground="#1A2434"
                              IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
                              VerticalScrollBarVisibility="Auto" BorderThickness="1" BorderBrush="#C0C8D2"
-                             FontFamily="Consolas" FontSize="14" Padding="8,6"/>
+                             FontFamily="Consolas" FontSize="28" Padding="8,6"/>
                 </Grid>
             </TabItem>
         </TabControl>
