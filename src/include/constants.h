@@ -1603,7 +1603,14 @@
 #define MA_FLANKBEST       52
 #define MA_FACING          53
 #define MA_PUNCHING        54
-#define MA_END             55
+/* S483: GPU swarm + test scenarios. Two new myaction states for the
+ * Test Scenarios > Swarm benchmark mode. SEEK is the apples-to-apples
+ * CPU AI (simple "run at player" used by both CPU and GPU paths in
+ * different ways). GPU_DRIVEN is a stub action whose body does nothing;
+ * the GPU readback writes chr->prop->pos directly each frame. */
+#define MA_SWARM_TEST_SEEK       55
+#define MA_SWARM_TEST_GPU_DRIVEN 56
+#define MA_END             57
 
 #define MEDAL_KILLMASTER 0x01
 #define MEDAL_HEADSHOT   0x02

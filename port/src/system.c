@@ -72,12 +72,13 @@ static s32 s_LogVerbose = 0;
 
 const char *sysLogChannelNames[LOG_CH_COUNT] = {
 	"Network", "Game", "Combat", "Audio", "Menu", "Save", "Mods", "System", "Match",
-	"Catalog", "Distrib", "Render"
+	"Catalog", "Distrib", "Render", "Benchmark", "TestScen"
 };
 const u32 sysLogChannelBits[LOG_CH_COUNT] = {
 	LOG_CH_NETWORK, LOG_CH_GAME, LOG_CH_COMBAT, LOG_CH_AUDIO,
 	LOG_CH_MENU, LOG_CH_SAVE, LOG_CH_MOD, LOG_CH_SYSTEM, LOG_CH_MATCH,
-	LOG_CH_CATALOG, LOG_CH_DISTRIB, LOG_CH_RENDER
+	LOG_CH_CATALOG, LOG_CH_DISTRIB, LOG_CH_RENDER,
+	LOG_CH_BENCHMARK, LOG_CH_TESTSCEN
 };
 
 u32 sysLogGetChannelMask(void) { return s_LogChannelMask; }
@@ -193,6 +194,12 @@ static u32 sysLogClassifyMessage(const char *msg)
 	if (strncmp(msg, "CRASH:",   6) == 0) return LOG_CH_SYSTEM;
 	if (strncmp(msg, "FS:",      3) == 0) return LOG_CH_SYSTEM;
 	if (strncmp(msg, "UPDATER:", 8) == 0) return LOG_CH_SYSTEM;
+
+	/* Benchmark + test scenarios (S483). Prefix matches are dot-suffixed
+	 * so any BENCHMARK.SWARM.CPU / .GPU / .SUMMARY / etc. all route here. */
+	if (strncmp(msg, "BENCHMARK.", 10) == 0) return LOG_CH_BENCHMARK;
+	if (strncmp(msg, "TESTSCEN.",   9) == 0) return LOG_CH_TESTSCEN;
+	if (strncmp(msg, "TESTSCEN:",   9) == 0) return LOG_CH_TESTSCEN;
 
 	/* No recognized prefix — treat as untagged (always passes filter) */
 	return 0;

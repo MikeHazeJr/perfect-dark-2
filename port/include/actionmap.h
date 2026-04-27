@@ -159,7 +159,14 @@ typedef enum InputAction {
      * on ACTION_SCORECARD across both schemes. */
     ACTION_SCORECARD_HOLD,       /* = 68 hold-Back-for-scorecard, CS scheme only */
 
-    ACTION_COUNT                /* = 69, sentinel — keep last */
+    /* ---- Test Scenarios benchmark cycler (S483, PD_DEV_BUILD only) ----
+     * Cycles the swarm bot count 4 -> 8 -> 16 -> 32 -> 64 -> 128 -> 256 -> 4
+     * inside the Swarm CPU / Swarm GPU test scenarios. Default bindings:
+     * KEY_0 on keyboard, SDL_CONTROLLER_BUTTON_DPAD_DOWN on gamepad. The
+     * binding is gameplay-only and is consumed by swarm_test.c::tick(). */
+    ACTION_TESTSCEN_CYCLE_COUNT, /* = 69 cycle bot count in swarm benchmark */
+
+    ACTION_COUNT                /* = 70, sentinel — keep last */
 } InputAction;
 
 /* Backward-compat aliases */

@@ -561,8 +561,104 @@ seek is the apples-to-apples comparison the directive seems to want.
 
 ## G. Decisions made during execution
 
-(Placeholder. Phase 2 decisions go here as work progresses, with date and
-rationale, so the doc tells the full story afterward.)
+### G.1 All five F-section decisions approved per recommended defaults
+
+Decided 2026-04-27 by parent session per delegated authority:
+
+- **F.1 -> Option A**: regenerate glad at 4.3 core, prepend `(4, 3, CORE)`
+  to the SDL probe array.
+- **F.2 -> F.2.B + F.2.C combined**: separate test-mode chr table escapes
+  `MAX_BOTS = 32`; NUMTYPE2 bumped 50 to 100 so 256 bots fit in the chr
+  pool.
+- **F.3 -> F.3.A**: CPU readback per frame for hit detection; existing
+  damage path handles scoring/kill/animation/audio.
+- **F.4 -> F.4.A**: reuse `STAGE_CITRAINING` for v1 Empty Map. Procedural
+  ground plane (F.4.B) is a follow-on if the Empty Map number ends up
+  muddied by CI Training's prop load.
+- **F.5 -> F.5.B**: simple seek-player AI for CPU mode (apples-to-apples
+  benchmark with the GPU shader); full `MA_AIBOTMAINLOOP` retained behind
+  a debug toggle as a separate "what 256 real bots cost today" number.
+
+### G.1.1 F.2 refined: chr-pool sizing via setup.c numchrs hook, not NUMTYPE2
+
+Reading `src/game/modelmgr.c:30-34` clarified the existing pool taxonomy:
+
+- NUMTYPE1 = 70: small rwdata (props, simple objects)
+- NUMTYPE2 = 50: medium rwdata (weapons, animated objects)
+- NUMTYPE3 = 48: large rwdata (character body models)
+
+The original recommendation (bump NUMTYPE2 50 -> 100) was misdirected; Type 2
+is for weapons, not chrs. Since all 256 swarm Skedars share a single Skedar
+body model, they share a single Type 3 model rwdata binding, so NUMTYPE3 = 48
+is already plenty.
+
+The actual chr-pool sizing is dynamic per stage:
+[`src/game/setup.c:1567-1585`](src/game/setup.c:1567):
+
+```
+modelmgrAllocateSlots(numobjs, numchrs);    /* dynamic per-stage */
+g_Vars.maxprops = numobjs + numchrs + extra + 40;
+```
+
+`numchrs` already includes the simulant bots from the participant pool
+(`setup.c:1557-1565`). The right hook is to extend that pattern: when the
+swarm test scenario is active, add the swarm cap (256) into `numchrs`
+before `modelmgrAllocateSlots` runs. This naturally bumps both the model
+slot allocation AND the prop pool budget without touching any of the
+NUMTYPE static caps.
+
+Implementation (lands in commit 3, swarm_test runtime):
+
+```c
+/* in setup.c around line 1565, after the participant-pool count */
+if (testScenarioIsSwarmActive()) {
+    s32 swarm_cap = testScenarioGetSwarmMaxCount();   /* 256 */
+    numchrs += swarm_cap;
+    sysLogPrintf(LOG_NOTE,
+        "TESTSCEN: added %d swarm chr slots for benchmark", swarm_cap);
+}
+```
+
+This replaces the F.2.C "NUMTYPE2 bump" plan; the F.2.B "separate test-mode
+chr table" plan is unaffected.
+
+### G.2 F.1 Option A refined: glad symbols via SDL_GL_GetProcAddress, not regen
+
+Decided 2026-04-27 during Phase 2 implementation: rather than regenerate
+the glad output (which usually requires the upstream Python generator and
+a clean rebuild of `glad.c`/`glad.h`), the GL 4.3 symbols needed for
+compute shaders (`glDispatchCompute`, `glBindBufferBase`,
+`glShaderStorageBlockBinding`, `glMemoryBarrier`, the SSBO enums) are
+loaded on-demand via `SDL_GL_GetProcAddress` from inside
+`port/fast3d/swarm_gpu.cpp`. The probe-array prepend at
+`gfx_sdl2.cpp:164` still happens so a 4.3 core context is requested first,
+but glad itself stays unmodified.
+
+Rationale: the minimal-change variant of Option A. Functionally equivalent,
+zero risk to existing glad-using code, and it sidesteps the tooling step
+of running the glad generator (which is not currently checked into this
+worktree). If the project ever needs broader 4.3+ access from outside the
+swarm module, a proper glad regeneration can happen as a separate
+infrastructure change without re-opening this design.
+
+### G.3 Implementation cuts for Phase 2
+
+The Phase 2 work lands in stacked commits, each build-verified
+independently, in the order:
+
+1. Foundation: log channels (`LOG_CH_BENCHMARK`, `LOG_CH_TESTSCEN`),
+   action enum (`MA_SWARM_TEST_SEEK`, `MA_SWARM_TEST_GPU_DRIVEN`),
+   `ACTION_TESTSCEN_CYCLE_COUNT` action wiring, memsize bump (NUMTYPE2
+   50 -> 100). No game-visible behavior.
+2. `testscenarios` module + Settings > Debug UI + Empty Map scenario.
+3. `swarm_test` runtime (CPU path): player setup, separate test-mode chr
+   table, cycler, HUD overlay, per-frame BENCHMARK.SWARM.CPU logging.
+4. `swarm_gpu` compute path: 4.3 context probe + SSBO sim + readback +
+   BENCHMARK.SWARM.GPU logging.
+5. pd-tests cases.
+
+Each commit references this doc and the decision tag (`F.x -> G.x`) so
+the commit history reads alongside the design.
 
 ## Files (Phase 2 plan)
 
