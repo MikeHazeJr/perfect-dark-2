@@ -184,13 +184,16 @@ s32 mpGetNumStages(void)
  * stagenums; future regressions where a stale entry sneaks back in can
  * be blocked by adding a case here without restructuring callers.
  *
- * Structural note: the authoring contract is split across three tables
- * (g_MpArenas client, g_MpArenas server in server_stubs.c, s_ArenaNames
- * in assetcatalog_base.c). Any divergence leaks orphan entries into the
- * UI. A future pass should consolidate playability into a data-driven
- * probe (e.g. at mpInit: walk g_MpArenas, probe each stage's required
- * files via catalogResolveFile, cache a per-arena .available bit) so
- * the three tables cannot drift.
+ * Structural note (updated 2026-04-26 after the maps/arenas catalog
+ * migration): the live UI selectors and the random meta resolvers
+ * below now read the asset catalog directly via
+ * assetCatalogIterateUnlockedByType(ASSET_ARENA, ...), so the three
+ * authoring tables (g_MpArenas client, g_MpArenas server in
+ * server_stubs.c, s_ArenaNames in assetcatalog_base.c) are reduced
+ * to catalog seed data -- their role is registration-only.  Drift
+ * between them no longer leaks into the user-facing pickers.  Future
+ * cleanup may collapse to a single declarative table; out of scope
+ * for the migration session.
  */
 static bool stagenumIsPlayableInMp(s16 stagenum)
 {
@@ -231,131 +234,110 @@ static bool mpArenaIndexIsUsable(s32 index)
 	return true;
 }
 
+/*
+ * Random arena selection -- catalog-driven (2026-04-26 maps/arenas
+ * migration). Reads ASSET_ARENA entries that pass the unlock filter,
+ * filters by category bitmask, picks one at random.
+ *
+ * Replaces the prior Layer A walks which carried pre-cull index
+ * bounds (71 / 32 / 61) and a dead Gex variant (the GEX block was
+ * physically removed from g_MpArenas[] in the 2026-04-26 cull).
+ *
+ * Server build: assetCatalogIterateUnlockedByType is a no-op on
+ * pd-server (no entries registered), so the helper returns the
+ * supplied fallback sentinel -- matches the prior behaviour where
+ * mpArenaIndexIsUsable always failed server-side.
+ */
+#define RNDMASK_DARK         (1u << 0)
+#define RNDMASK_CLASSIC      (1u << 1)
+#define RNDMASK_BONUS        (1u << 2)
+#define RNDMASK_SOLOMISSIONS (1u << 3)
+
+#define RNDMASK_MULTI  (RNDMASK_DARK | RNDMASK_CLASSIC | RNDMASK_BONUS)
+#define RNDMASK_SOLO   (RNDMASK_SOLOMISSIONS)
+#define RNDMASK_ANYMP  (RNDMASK_MULTI | RNDMASK_SOLO)
+
+#define RNDPOOL_MAX_ARENAS 64
+
+struct random_pool_ctx {
+	u32 mask;
+	s32 count;
+	s16 pool[RNDPOOL_MAX_ARENAS];
+};
+
+static u32 categoryToMask(const char *cat)
+{
+	if (!cat || !cat[0]) {
+		return 0;
+	}
+	if (strcmp(cat, "Dark") == 0)          return RNDMASK_DARK;
+	if (strcmp(cat, "Classic") == 0)       return RNDMASK_CLASSIC;
+	if (strcmp(cat, "Bonus") == 0)         return RNDMASK_BONUS;
+	if (strcmp(cat, "Solo Missions") == 0) return RNDMASK_SOLOMISSIONS;
+	/* "Random" and unknown categories never participate -- a Random meta
+	 * arena cannot be the resolution target of another Random pick. */
+	return 0;
+}
+
+static void randomPoolCollect(const asset_entry_t *e, void *userdata)
+{
+	struct random_pool_ctx *ctx = (struct random_pool_ctx *)userdata;
+	u32 entryMask;
+
+	if (!e || e->type != ASSET_ARENA) {
+		return;
+	}
+
+	entryMask = categoryToMask(e->category);
+	if (entryMask == 0 || (entryMask & ctx->mask) == 0) {
+		return;
+	}
+
+	if (ctx->count >= RNDPOOL_MAX_ARENAS) {
+		return;
+	}
+
+	ctx->pool[ctx->count++] = (s16)e->ext.arena.stagenum;
+}
+
+static s16 chooseRandomFromCatalog(u32 categoryMask, s16 fallback)
+{
+	struct random_pool_ctx ctx;
+	ctx.mask = categoryMask;
+	ctx.count = 0;
+	assetCatalogIterateUnlockedByType(ASSET_ARENA, randomPoolCollect, &ctx);
+	if (ctx.count <= 0) {
+		return fallback;
+	}
+	return ctx.pool[rngRandom() % (u32)ctx.count];
+}
+
 s16 mpChooseRandomStage(void)
 {
-	s32 i;
-	s32 numchallengescomplete = 0;
-	s32 index;
-
-	for (i = 0; i < 71; i++) {
-		if (mpArenaIndexIsUsable(i)) {
-			numchallengescomplete++;
-		}
-	}
-
-	if (numchallengescomplete <= 0) {
-		return STAGE_MP_SKEDAR;
-	}
-
-	index = rngRandom() % numchallengescomplete;
-
-	for (i = 0; i < 71; i++) {
-		if (mpArenaIndexIsUsable(i)) {
-			if (index == 0) {
-				return modmgrGetArena(i)->stagenum;
-			}
-
-			index--;
-		}
-	}
-
-	return STAGE_MP_SKEDAR;
+	/* STAGE_MP_RANDOM 0x01 token: any unlocked non-meta arena. */
+	return chooseRandomFromCatalog(RNDMASK_ANYMP, STAGE_MP_SKEDAR);
 }
 
 s16 mpChooseRandomMultiStage(void)
 {
-	s32 i;
-	s32 numchallengescomplete = 0;
-	s32 index;
-
-	for (i = 0; i < 32; i++) {
-		if ((i <= 12 || i >= 27) && mpArenaIndexIsUsable(i)) {
-			numchallengescomplete++;
-		}
-	}
-
-	if (numchallengescomplete <= 0) {
-		return STAGE_MP_SKEDAR;
-	}
-
-	index = rngRandom() % numchallengescomplete;
-
-	for (i = 0; i < 32; i++) {
-		if ((i <= 12 || i >= 27) && mpArenaIndexIsUsable(i)) {
-			if (index == 0) {
-				return modmgrGetArena(i)->stagenum;
-			}
-
-			index--;
-		}
-	}
-
-	return STAGE_MP_SKEDAR;
+	/* STAGE_MP_RANDOM_MULTI 0x02 token: Dark / Classic / Bonus arenas. */
+	return chooseRandomFromCatalog(RNDMASK_MULTI, STAGE_MP_SKEDAR);
 }
 
 s16 mpChooseRandomSoloStage(void)
 {
-	s32 i;
-	s32 numchallengescomplete = 0;
-	s32 index;
-
-	for (i = 0; i < 27; i++) {
-		if ((i >= 13 && i <= 26) && mpArenaIndexIsUsable(i)) {
-			numchallengescomplete++;
-		}
-	}
-
-	if (numchallengescomplete <= 0) {
-		return STAGE_DEFECTION;
-	}
-
-	index = rngRandom() % numchallengescomplete;
-
-	for (i = 0; i < 27; i++) {
-		if ((i >= 13 && i <= 26) && mpArenaIndexIsUsable(i)) {
-			if (index == 0) {
-				return modmgrGetArena(i)->stagenum;
-			}
-
-			index--;
-		}
-	}
-
-	return STAGE_DEFECTION;
+	/* STAGE_MP_RANDOM_SOLO 0x03 token: Solo Missions arenas only. */
+	return chooseRandomFromCatalog(RNDMASK_SOLO, STAGE_DEFECTION);
 }
 
-s16 mpChooseRandomGexStage(void)
-{
-	s32 i;
-	s32 numchallengescomplete = 0;
-	s32 index;
-
-	for (i = 0; i < 61; i++) {
-		if (((i >= 32 && i <= 54) || (i >= 59 && i <= 60))
-				&& mpArenaIndexIsUsable(i)) {
-			numchallengescomplete++;
-		}
-	}
-
-	if (numchallengescomplete <= 0) {
-		return STAGE_EXTRA6; // Temple
-	}
-
-	index = rngRandom() % numchallengescomplete;
-
-	for (i = 0; i < 61; i++) {
-		if (((i >= 32 && i <= 54) || (i >= 59 && i <= 60))
-				&& mpArenaIndexIsUsable(i)) {
-			if (index == 0) {
-				return modmgrGetArena(i)->stagenum;
-			}
-
-			index--;
-		}
-	}
-
-	return STAGE_EXTRA6; // Temple
-}
+/*
+ * mpChooseRandomGexStage retired 2026-04-26 alongside the AllInOne /
+ * GEX content cull. The function iterated a pre-cull index range that
+ * is now out of bounds; the only caller (mpStartMatch's
+ * STAGE_MP_RANDOM_GEX branch) has been removed too. The
+ * STAGE_MP_RANDOM_GEX 0x04 constant survives in constants.h for save
+ * format compatibility but no live UI path can set it.
+ */
 
 
 // PC: Collapsible arena groups — group headers are selectable options.

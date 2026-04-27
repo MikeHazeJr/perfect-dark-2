@@ -288,9 +288,11 @@ void mpStartMatch(void)
 		stagenum = mpChooseRandomMultiStage();
 	} else if (g_MpSetup.stagenum == STAGE_MP_RANDOM_SOLO) {
 		stagenum = mpChooseRandomSoloStage();
-	} else if (g_MpSetup.stagenum == STAGE_MP_RANDOM_GEX) {
-		stagenum = mpChooseRandomGexStage();
 	}
+	/* STAGE_MP_RANDOM_GEX branch retired 2026-04-26 alongside the AllInOne /
+	 * GEX content cull -- the catalog no longer has any "GEX" arenas to pick
+	 * from, and no live UI path can set the token.  Constant survives in
+	 * constants.h for save format compatibility. */
 
 	/* BUG-SL-2 fix: update g_MpSetup.stagenum to the resolved stagenum so
 	 * any code reading it after match start gets the actual stage, not a

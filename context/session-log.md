@@ -1,8 +1,81 @@
 
 # Session Log (Active)
 
-> **S284–S472** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S284–S473** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S473 (`condescending-ellis-248824`) - 2026-04-26 - maps / arenas catalog migration
+
+Mike's directive (carried from the heads / bodies / weapons / arenas selector pool series): "It should build the weapons list from the weapons listed in the catalog, filtering by weapons that are either not unlocked yet or are disabled... This same thing should apply for character heads and bodies, weapons, maps, etc."
+
+Final selector-pool migration in the catalog chain.  Heads merged at dev `132a883c`, bodies at `e7c4e702`.  This session migrates maps / arenas to Layer B.
+
+### Outcome
+
+Maps / arenas selector pool now reads from the catalog filtered by unlock-state.  The MP setup arena picker plus all three random meta resolvers (`mpChooseRandomStage` / `Multi` / `Solo`) migrated; the dead `mpChooseRandomGexStage` resolver retired alongside the post-cull `STAGE_MP_RANDOM_GEX` branch in `mpStartMatch`.  `pd` (56,288,676 bytes) + `pd-server` (23,275,546 bytes) + `pd-tests` (14,330,544 bytes) all link clean; **83 test cases / 1389 assertions, all green**.
+
+### Audit doc
+
+[`context/audits/catalog-migration-maps-2026-04-26.md`](audits/catalog-migration-maps-2026-04-26.md) -- 428 lines, Sections A-J mirroring the heads / bodies audits.  Findings:
+
+- Layer A: `g_MpArenas[]` (47 entries post-AllInOne cull) authoritative on client; server stub mirror in `port/src/server_stubs.c`; `s_ArenaNames[47]` slug shadow for catalog ID generation; `g_ArenaGroupDefs[7]` legacy collapsible-group offsets used only by `mpArenaMenuHandler`.
+- Layer B: arena registration in `port/src/assetcatalog_base.c:612-735`; `assetCatalogIterateUnlockedByType(ASSET_ARENA, ...)` + `assetCatalogGetUnlockedCountByType` already shipped from heads Step 1.
+- Already migrated: `pdgui_menu_room.cpp` CS arena picker (canonical template), `pdgui_menu_mainmenu.cpp` Forge / Grid arena picker.
+- Migration targets: `pdgui_menu_mpsetup.cpp::renderMpArena` (delegated all MENUOPs to legacy `mpArenaMenuHandler`); the four `mpChooseRandom*Stage` functions (Layer A walks with pre-cull bounds 71 / 32 / 27 / 61).
+- B-235 sibling check: zero (wire reads use `assetCatalogResolve` type-correctly).
+- Catalog ID conformance: 47 / 47 (test-style slugs `test_arch` / `test_dest` / `test_lam` deferred per heads I.1 / bodies J.1).
+
+### Decisions confirmed by default (Section J)
+
+Per `make-decisions-delegation` memory, all decisions transferred from heads / bodies with no Mike call needed.  Item J.5 specific to arenas: `mpChooseRandomGexStage` retired in Step 2 (dead post-cull, unreachable through any UI path).  Item J.7: legacy `mpArenaMenuHandler` carousel left in place per heads disposition (vestigial, harmless).
+
+### Migration commits (3: audit + 2 steps)
+
+| SHA | Scope |
+|---|---|
+| `45293ede` | Phase 1 audit |
+| `16826e40` | Step 1: mpsetup arena picker + new `pdguiMpSetupSetArena` bridge |
+| `d27f66b5` | Step 2: random meta resolvers (`Stage` / `Multi` / `Solo`) + retire Gex |
+
+### Files touched
+
+- `context/audits/catalog-migration-maps-2026-04-26.md` (+428): audit
+- `port/fast3d/pdgui_menu_mpsetup.cpp` (+204 / -21): Step 1 picker rewrite
+- `port/fast3d/pdgui_bridge.c` (+22): new `pdguiMpSetupSetArena` + `pdguiMpSetupGetStageId`
+- `src/game/mplayer/setup.c` (+88 / -100): random selector rewrite
+- `src/game/mplayer/mplayer.c` (+5 / -3): retire `STAGE_MP_RANDOM_GEX` branch
+- `src/include/game/mplayer/setup.h` (+1 / -1): retire `mpChooseRandomGexStage` decl
+
+### Migration shape
+
+Step 1 (mpsetup picker) mirrors `pdgui_menu_room.cpp::catalogArenaCollect`: collector callback over `assetCatalogIterateUnlockedByType` -> sort by section (Combat Simulator / Solo Missions / Mods) + alphabetical -> per-row `Selectable` -> commit via `pdguiMpSetupSetArena(stagenum, stage_id)` to keep `g_MpSetup.stagenum` and `g_MpSetup.stage_id` (catalog ID, wire identity per protocol v32+) in sync.  Cache invalidation triggered by `IsWindowAppearing` or `assetCatalogGetUnlockedCountByType` delta.
+
+Step 2 (random selectors) introduces a single `chooseRandomFromCatalog(categoryMask, fallback)` helper plus a `categoryToMask("Dark" / "Classic" / "Bonus" / "Solo Missions")` mapping.  `mpChooseRandomStage` -> `RNDMASK_ANYMP` (any non-meta category).  `Multi` -> `RNDMASK_MULTI` (Dark + Classic + Bonus).  `Solo` -> `RNDMASK_SOLO` (Solo Missions only).  Each retains its prior fallback sentinel.  Pool stack-allocated 64 entries (well above the 47-arena ceiling).
+
+### Coverage NOT migrated (per audit C.6)
+
+RESOLUTION-only sites left alone (consistent with heads C.9 / bodies C.10 disposition):
+
+- `src/game/mplayer/setup.c::mpMenuTextSetupName` / `mpMenuTextArenaName` (resolve arena name by stagenum for hub row text)
+- `src/game/challenge.c::challengeForceUnlockSetup` (resolve arena by stagenum to force-unlock its requirefeature)
+- `port/fast3d/pdgui_bridge.c::pdguiPauseGetStageName` (pause-menu stage name lookup)
+- Wire reads in `port/src/net/netmsg.c` and `port/src/net/matchsetup.c` (already use `assetCatalogResolve` type-correctly)
+- `src/game/mplayer/mplayer.c::mpInit` (resolves `"base:arena_mp_skedar"` for default stagenum, already catalog-driven)
+- `src/game/spawnpool.c` smoke-test arena walk (development tool)
+
+Legacy `mpArenaMenuHandler` + helpers (`arenaMapIndex` / `arenaCountVisible` / `arenaFindSelected`) in `setup.c` left in place.  Vestigial after Step 1; removal is a follow-up cleanup.
+
+### Structural note update
+
+`src/game/mplayer/setup.c:179-194` structural note updated to reflect the migration: the live UI selectors and random meta resolvers now read the asset catalog directly, so the three authoring tables (Layer A `g_MpArenas` x2 + `s_ArenaNames` slug shadow) are reduced to catalog seed data and their drift no longer reaches the user-facing pickers.  Future cleanup may collapse to a single declarative table but is out of scope.
+
+### Next steps
+
+The selector-pool migration chain (heads, bodies, maps / arenas) is now complete.  Optional follow-ups remain:
+
+- Test-style slug renames for arenas (`test_arch` -> `suburb`, `test_dest` -> `training_day`, `test_lam` -> `grand_library`) -- save format compatibility consideration.
+- Retire vestigial legacy carousel handlers (`mpCharacterHeadMenuHandler`, `mpCharacterBodyMenuHandler`, `mpArenaMenuHandler`) once no callers reference them.
+- Collapse three Layer A authoring tables (`g_MpArenas` client + server + `s_ArenaNames`) into a single declarative table per the long-standing structural note.
 
 ## Session S472 (`strange-hoover-d0cb7d`) - 2026-04-26 - bodies catalog migration
 
