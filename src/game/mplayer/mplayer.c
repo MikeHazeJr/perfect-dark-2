@@ -3245,41 +3245,75 @@ bool mpIsTrackUnlocked(s32 tracknum)
 	return unlocked;
 }
 
+/*
+ * Catalog universality sweep (2026-04-27): track-slot helpers iterate
+ * ASSET_AUDIO category=AUDIO_CAT_MUSIC entries via the catalog,
+ * filtered by best-time-based unlock state (assetCatalogIterateUnlockedMusic).
+ * Layer A `g_MpTracks[]` remains the data home for musicnum / name /
+ * duration; only the SELECTOR pool migrates per Mike's directive
+ * "selector pool = catalog INTERSECT unlock-state".
+ *
+ * Catalog mp_index for music tracks mirrors the `g_MpTracks[]` index
+ * (set at registration), so `mpGetTrackNumAtSlotIndex` returns the
+ * legacy tracknum and downstream helpers continue to read
+ * g_MpTracks[tracknum].{musicnum,name} unchanged.
+ */
+struct mptrack_pick_ctx {
+	s32 needle_idx;       /* "give me the N-th unlocked entry" */
+	s32 cur;
+	s32 result_tracknum;  /* mp_index = legacy tracknum, or -1 */
+};
+
+static void mptrackPickByIndexCb(const asset_entry_t *e, void *userdata)
+{
+	struct mptrack_pick_ctx *ctx = (struct mptrack_pick_ctx *)userdata;
+	if (ctx->result_tracknum >= 0) return;
+	if (ctx->cur == ctx->needle_idx) {
+		ctx->result_tracknum = (s32)e->mp_index;
+	}
+	ctx->cur++;
+}
+
+struct mptrack_find_ctx {
+	s32 needle_tracknum;  /* find this mp_index */
+	s32 below_count;      /* unlocked entries with mp_index < needle */
+};
+
+static void mptrackFindByMpIdxCb(const asset_entry_t *e, void *userdata)
+{
+	struct mptrack_find_ctx *ctx = (struct mptrack_find_ctx *)userdata;
+	if ((s32)e->mp_index < ctx->needle_tracknum) {
+		ctx->below_count++;
+	}
+}
+
 s32 mpGetTrackSlotIndex(s32 tracknum)
 {
-	s32 i;
-	s32 slotindex = 0;
-
-	for (i = 0; i < tracknum; i++) {
-		if (mpIsTrackUnlocked(i)) {
-			slotindex++;
-		}
-	}
-
-	return slotindex;
+	struct mptrack_find_ctx ctx;
+	ctx.needle_tracknum = tracknum;
+	ctx.below_count = 0;
+	assetCatalogIterateUnlockedMusic(mptrackFindByMpIdxCb, &ctx);
+	return ctx.below_count;
 }
 
 s32 mpGetTrackNumAtSlotIndex(s32 slotindex)
 {
-	s32 i;
-	s32 numunlocked = 0;
-
-	for (i = 0; i != ARRAYCOUNT(g_MpTracks); i++) {
-		if (mpIsTrackUnlocked(i)) {
-			if (numunlocked == slotindex) {
-				break;
-			}
-
-			numunlocked++;
-		}
+	struct mptrack_pick_ctx ctx;
+	ctx.needle_idx = slotindex;
+	ctx.cur = 0;
+	ctx.result_tracknum = -1;
+	assetCatalogIterateUnlockedMusic(mptrackPickByIndexCb, &ctx);
+	if (ctx.result_tracknum < 0) {
+		/* Out-of-range slot: legacy returned ARRAYCOUNT(g_MpTracks) (one
+		 * past last). Match. */
+		return (s32)ARRAYCOUNT(g_MpTracks);
 	}
-
-	return i;
+	return ctx.result_tracknum;
 }
 
 s32 mpGetNumUnlockedTracks(void)
 {
-	return mpGetTrackSlotIndex(ARRAYCOUNT(g_MpTracks));
+	return assetCatalogGetUnlockedMusicCount();
 }
 
 s32 mpGetTrackMusicNum(s32 slotindex)
@@ -3418,15 +3452,18 @@ s32 mpChooseTrack(void)
 					}
 					/* Default track life mirrors music.c's static initializer
 					 * so the advance timer always has a sane value even if
-					 * g_MpTracks holds no matching entry (shouldn't happen
+					 * the catalog entry lacks a duration (shouldn't happen
 					 * for a bundled catalog track, but defense-in-depth). */
 					g_MusicLife60 = TICKS(120);
-					for (tracknum = 0; tracknum != ARRAYCOUNT(g_MpTracks); tracknum++) {
-						if (g_MpTracks[tracknum].musicnum == ar.sound_id) {
-							g_MpLockInfo.unk04 = tracknum;
-							g_MusicLife60 = g_MpTracks[tracknum].duration * TICKS(60);
-							break;
-						}
+					/* Catalog universality sweep (2026-04-27): the catalog
+					 * entry already carries mp_index (= legacy tracknum) and
+					 * duration_ms.  Read both directly instead of scanning
+					 * g_MpTracks[] for a sound_id match. */
+					if (ar.entry->mp_index >= 0) {
+						g_MpLockInfo.unk04 = (s32)ar.entry->mp_index;
+					}
+					if (ar.entry->ext.audio.duration_ms > 0) {
+						g_MusicLife60 = (ar.entry->ext.audio.duration_ms / 1000) * TICKS(60);
 					}
 					return ar.sound_id;
 				}
