@@ -44,6 +44,7 @@
 
 #include "scenario_save.h"
 #include "assetcatalog.h"
+#include "options_forced.h" /* INV-4: matchOptionsUserView for save-clean serialization */
 #include "fs.h"
 #include "system.h"
 
@@ -282,7 +283,13 @@ s32 scenarioSave(const char *name)
     fprintf(fp, "  \"timelimit\": %u,\n",    (unsigned)g_MatchConfig.timelimit);
     fprintf(fp, "  \"scorelimit\": %u,\n",   (unsigned)g_MatchConfig.scorelimit);
     fprintf(fp, "  \"teamscorelimit\": %u,\n",(unsigned)g_MatchConfig.teamscorelimit);
-    fprintf(fp, "  \"options\": %u,\n",      (unsigned)g_MatchConfig.options);
+    /* INV-4 / Cohort D: write user-original options only. Engine-forced
+     * bits (e.g. setup.c B-181 SPAWNWITHWEAPON force-set when world
+     * pickups are sparse) are transient state -- they must never persist
+     * to a saved scenario or the user's menu choice would silently
+     * change. matchOptionsUserView subtracts the forced bits. */
+    fprintf(fp, "  \"options\": %u,\n",
+        (unsigned)matchOptionsUserView(g_MatchConfig.options, g_MatchConfig.options_engine_forced));
     fprintf(fp, "  \"weaponset\": %d,\n",    (int)g_MatchConfig.weaponSetIndex);
 
     /* M0.1c: weapon_ids[] are PRIMARY — write catalog ID strings directly.
