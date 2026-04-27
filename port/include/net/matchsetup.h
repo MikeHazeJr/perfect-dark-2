@@ -64,6 +64,42 @@ struct matchslot {
 	char name[MAX_PLAYER_NAME];  /* display name */
 };
 
+/* Spawn-weapon mode — what "Random" means and how it interacts with spawns.
+ *
+ * SPECIFIC: spawn_weapon_id names the weapon, used for every spawn. spawnWeaponNum
+ *           is derived from it at matchStart().
+ * RANDOM:   matchStart() rolls one weapon from the active match set (at the host)
+ *           and stores the rolled WEAPON_* enum in spawnWeaponNum. Every spawn
+ *           uses that same weapon for the duration of the match. Bots too.
+ * FIESTA:   each spawn (every player, every bot, every respawn) rolls fresh
+ *           from the active match set independently. spawnWeaponNum carries the
+ *           SPAWNWEAPON_FIESTA_SENTINEL (0xFE) on the wire and at runtime so the
+ *           spawn sites know to roll per-spawn.
+ *
+ * Wire / save format:
+ *   - Wire: SVC_STAGE_START + CLC_LOBBY_START carry an explicit u8 mode +
+ *     u8 spawnWeaponNum after the existing spawn_weapon_id string. Bumped
+ *     NET_PROTOCOL_VER 44 -> 45 (2026-04-27, S481).
+ *   - Save (scenario JSON): "spawnWeaponMode" key written; missing key
+ *     defaults to RANDOM if spawn_weapon_id is empty, SPECIFIC otherwise
+ *     (preserves legacy semantics for v <= 44 saves).
+ *   - mpsetup WAD save: unchanged — spawn weapon is not persisted there.
+ */
+enum spawn_weapon_mode {
+	SPAWNWEAPON_MODE_SPECIFIC = 0,
+	SPAWNWEAPON_MODE_RANDOM   = 1,
+	SPAWNWEAPON_MODE_FIESTA   = 2,
+};
+
+/* Sentinel WEAPON_* enum value for FIESTA mode. The spawn sites read this
+ * and roll per-spawn instead of equipping a fixed weapon. Chosen as 0xFE
+ * (one less than the legacy 0xFF "no spawn weapon" sentinel) so that any
+ * code path checking `!= 0xFF && != 0` for a real weapon continues to
+ * exclude this value as well. */
+#ifndef SPAWNWEAPON_FIESTA_SENTINEL
+#define SPAWNWEAPON_FIESTA_SENTINEL 0xFE
+#endif
+
 struct matchconfig {
 	struct matchslot slots[MATCH_MAX_SLOTS];
 	/* PRIMARY: catalog ID string for game mode (e.g. "base:combat", "base:king_of_the_hill").
@@ -95,10 +131,13 @@ struct matchconfig {
 	u8 weapons[NUM_MPWEAPONSLOTS];  /* DEPRECATED: MPWEAPON_* indices. Use weapon_ids instead. */
 	s8 weaponSetIndex;              /* -1 = custom, 0+ = preset index */
 	u8 numSlots;                    /* number of active slots */
-	/* PRIMARY: catalog ID for spawn weapon. Empty = Random.
-	 * e.g. "base:falcon2". spawnWeaponNum is DERIVED at spawn time. */
+	/* PRIMARY: catalog ID for spawn weapon. Empty for RANDOM/FIESTA modes; the
+	 * user's lobby intent is captured in spawnWeaponMode. spawnWeaponNum is
+	 * the runtime-resolved WEAPON_* enum (set at matchStart() / on the wire). */
 	char spawn_weapon_id[64];
-	u8 spawnWeaponNum;              /* DEPRECATED: WEAPON_* enum value. Use spawn_weapon_id instead. */
+	u8 spawnWeaponNum;              /* DEPRECATED: WEAPON_* enum value. RUNTIME-resolved
+	                                 * (matchStart for SPECIFIC/RANDOM, sentinel for FIESTA). */
+	u8 spawnWeaponMode;             /* enum spawn_weapon_mode (SPECIFIC / RANDOM / FIESTA). */
 };
 
 /* Defined in matchsetup.c */
@@ -136,6 +175,22 @@ void matchResetHandicaps(void);
 /* M0.1c: Get the catalog ID string for a weapon currently in g_MpSetup.weapons[slot].
  * Returns "" if the slot is empty or the weapon is not in the catalog. */
 const char *matchGetWeaponSlotCatalogId(s32 slot);
+
+/* S481 (2026-04-27): Random / Fiesta spawn-weapon helpers.
+ *
+ * spawnWeaponPickFromActiveSet — read g_MpSetup.weapons[0..NUM_MPWEAPONSLOTS-1],
+ *   filter to non-NONE/non-DISABLED/non-SHIELD slots, and pick one uniformly at
+ *   random via rngRandom(). Returns the chosen MPWEAPON_* index. If the active
+ *   set has zero eligible slots, returns 0 (caller should treat as "no spawn
+ *   weapon"; the existing miss path in player.c / bot.c already handles this).
+ *
+ * spawnWeaponPickFromSlots — pure variant for testing: takes the slot array +
+ *   count + a pluggable u32 RNG. Same filtering rules. Returns the chosen
+ *   MPWEAPON_* index, or 0 when degenerate.
+ */
+s32 spawnWeaponPickFromActiveSet(void);
+s32 spawnWeaponPickFromSlots(const u8 *slots, s32 numSlots,
+                             u32 (*rng_fn)(void *userdata), void *userdata);
 
 /* Challenge-mode start: applies challenge config to g_MpSetup and calls
  * mpStartMatch() directly, bypassing the g_MatchConfig → g_MpSetup copy. */

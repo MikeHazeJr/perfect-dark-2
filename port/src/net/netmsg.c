@@ -1189,9 +1189,18 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 			}
 		}
 		/* B-125: spawn_weapon_id as catalog ID string — clients need this
-		 * to resolve spawnWeaponNum on their side for player spawn. */
+		 * to resolve spawnWeaponNum on their side for player spawn.
+		 *
+		 * S481 (2026-04-27, NET_PROTOCOL_VER 44 -> 45): spawn-weapon mode
+		 * (SPECIFIC / RANDOM / FIESTA) plus the host-resolved spawnWeaponNum
+		 * follow the catalog ID. The host resolves SPECIFIC + RANDOM at
+		 * matchStart() so clients receive the integer directly without
+		 * re-rolling. FIESTA carries SPAWNWEAPON_FIESTA_SENTINEL and clients
+		 * roll per-spawn at the spawn site. */
 		netbufWriteStr(dst, g_MatchConfig.spawn_weapon_id[0]
 			? g_MatchConfig.spawn_weapon_id : "");
+		netbufWriteU8(dst, g_MatchConfig.spawnWeaponMode);
+		netbufWriteU8(dst, g_MatchConfig.spawnWeaponNum);
 
 		/* A-7: mod track ID for network-synced mod audio.
 		 * Host resolves one track from the playlist (shuffle/sequential)
@@ -1435,30 +1444,30 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 				}
 			}
 		}
-		/* B-125: read spawn_weapon_id and resolve to spawnWeaponNum. */
+		/* B-125: read spawn_weapon_id and resolve to spawnWeaponNum.
+		 *
+		 * S481 (2026-04-27, NET_PROTOCOL_VER 45): wire format adds
+		 *   u8 spawnWeaponMode + u8 spawnWeaponNum after spawn_weapon_id.
+		 * The host resolves the integer at matchStart() so the client uses
+		 * it directly (no re-roll). FIESTA carries SPAWNWEAPON_FIESTA_SENTINEL
+		 * and the client rolls fresh per-spawn at the spawn site. */
 		{
 			const char *swid_str = netbufReadStr(src);
 			const char *swid = swid_str ? swid_str : "";
+			const u8 wireMode = netbufReadU8(src);
+			const u8 wireNum  = netbufReadU8(src);
 			if (swid[0]) {
 				strncpy(g_MatchConfig.spawn_weapon_id, swid, sizeof(g_MatchConfig.spawn_weapon_id) - 1);
 				g_MatchConfig.spawn_weapon_id[sizeof(g_MatchConfig.spawn_weapon_id) - 1] = '\0';
-				const asset_entry_t *swe = assetCatalogResolve(swid);
-				if (swe && swe->type == ASSET_WEAPON) {
-					s32 mpw = swe->ext.weapon.weapon_id;
-					if (mpw > 0 && mpw < NUM_MPWEAPONS) {
-						g_MatchConfig.spawnWeaponNum = catalogGetMpWeaponNum(mpw);
-					} else {
-						g_MatchConfig.spawnWeaponNum = 0xFF;
-					}
-				} else {
-					g_MatchConfig.spawnWeaponNum = 0xFF;
-				}
 			} else {
 				g_MatchConfig.spawn_weapon_id[0] = '\0';
-				g_MatchConfig.spawnWeaponNum = 0xFF;
 			}
-			sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_START spawn weapon '%s' → weaponnum=%d",
-				g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "(random)",
+			g_MatchConfig.spawnWeaponMode = wireMode;
+			g_MatchConfig.spawnWeaponNum  = wireNum;
+			sysLogPrintf(LOG_NOTE,
+				"NET: SVC_STAGE_START spawn weapon '%s' mode=%u weaponnum=%d",
+				g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "(empty)",
+				(unsigned)g_MatchConfig.spawnWeaponMode,
 				(s32)g_MatchConfig.spawnWeaponNum);
 		}
 
@@ -4546,9 +4555,17 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	}
 
 	/* B-125: spawn_weapon_id as catalog ID string (PRIMARY).
-	 * Matches weapon_ids[] pattern above — sent as string, resolved on server. */
+	 * Matches weapon_ids[] pattern above — sent as string, resolved on server.
+	 *
+	 * S481 (2026-04-27, NET_PROTOCOL_VER 45): trailing u8 spawnWeaponMode
+	 * carries the user's lobby intent (SPECIFIC / RANDOM / FIESTA) so the
+	 * server's matchStart() can roll RANDOM once or arm FIESTA appropriately.
+	 * (CLC_LOBBY_START is sent BEFORE the host roll, so spawnWeaponNum on the
+	 * wire here is just the user's stale lobby cache and not authoritative;
+	 * the server re-resolves at matchStart and broadcasts via SVC_STAGE_START.) */
 	netbufWriteStr(dst, g_MatchConfig.spawn_weapon_id[0]
 		? g_MatchConfig.spawn_weapon_id : "");
+	netbufWriteU8(dst, g_MatchConfig.spawnWeaponMode);
 
 	/* U-9: per-player handicap bytes — one per player slot */
 	for (s32 hi = 0; hi < MAX_PLAYERS; hi++) {
@@ -4943,7 +4960,13 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 	}
 
 	/* B-125: read spawn_weapon_id catalog string and resolve to spawnWeaponNum.
-	 * Mirrors matchStart() resolution logic for the network path. */
+	 * Mirrors matchStart() resolution logic for the network path.
+	 *
+	 * S481 (2026-04-27, NET_PROTOCOL_VER 45): trailing u8 spawnWeaponMode
+	 * carries the lobby leader's mode choice (SPECIFIC / RANDOM / FIESTA).
+	 * The server stores this in g_MatchConfig and the host's matchStart()
+	 * does the actual roll for RANDOM (and arms FIESTA) before
+	 * SVC_STAGE_START. */
 	{
 		const char *swid_str = netbufReadStr(src);
 		const char *swid = swid_str ? swid_str : "";
@@ -4967,8 +4990,14 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			g_MatchConfig.spawn_weapon_id[0] = '\0';
 			g_MatchConfig.spawnWeaponNum = 0xFF;
 		}
-		sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_START spawn weapon '%s' → weaponnum=%d",
-			g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "(random)",
+		const u8 wireMode = netbufReadU8(src);
+		g_MatchConfig.spawnWeaponMode = (wireMode <= SPAWNWEAPON_MODE_FIESTA)
+			? wireMode
+			: SPAWNWEAPON_MODE_RANDOM;
+		sysLogPrintf(LOG_NOTE,
+			"NET: CLC_LOBBY_START spawn weapon '%s' mode=%u weaponnum=%d (re-resolved at matchStart)",
+			g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "(empty)",
+			(unsigned)g_MatchConfig.spawnWeaponMode,
 			(s32)g_MatchConfig.spawnWeaponNum);
 	}
 

@@ -1799,7 +1799,17 @@ void playerSpawn(void)
 			                               g_MpSetup.options,
 			                               MPOPTION_SPAWNWITHWEAPON)) {
 				/* F.6/M0.1c: spawnWeaponNum is DERIVED from spawn_weapon_id at matchStart().
-				 * 0xFF = Random → fall through to weapons[0] from the active set.
+				 *
+				 * S481 (2026-04-27) — three spawn-weapon modes:
+				 *   SPECIFIC: g_MatchConfig.spawnWeaponNum is the resolved WEAPON_*
+				 *             enum from matchStart(). Use it directly.
+				 *   RANDOM:   matchStart() already rolled once and stored the rolled
+				 *             WEAPON_* enum in spawnWeaponNum. Same path as SPECIFIC.
+				 *   FIESTA:   spawnWeaponNum carries SPAWNWEAPON_FIESTA_SENTINEL —
+				 *             roll a FRESH weapon from the active set on every
+				 *             spawn, independently of other players.
+				 * Legacy 0xFF / 0 fallback continues to mean "no resolved weapon" —
+				 * the existing weapons[0] fallback path covers it for old saves.
 				 *
 				 * INV-1 / Cohort A.2 (player-init-architectural-fixes-2026-04-26):
 				 * catalog accessors here use the _Checked variants. On miss the
@@ -1810,7 +1820,17 @@ void playerSpawn(void)
 				 * never silently empty-handed without a diagnostic. */
 				s32 resolvedWeaponNum = 0;
 				s32 spawnWeaponIdx = -1;
-				if (g_MatchConfig.spawnWeaponNum != 0xFF && g_MatchConfig.spawnWeaponNum != 0) {
+				if (g_MatchConfig.spawnWeaponMode == SPAWNWEAPON_MODE_FIESTA
+						|| g_MatchConfig.spawnWeaponNum == SPAWNWEAPON_FIESTA_SENTINEL) {
+					/* FIESTA: roll fresh from the active match set on every spawn. */
+					spawnWeaponIdx = spawnWeaponPickFromActiveSet();
+					if (spawnWeaponIdx > 0) {
+						s32 wnum = 0;
+						if (catalogGetMpWeaponNumChecked(spawnWeaponIdx, &wnum)) {
+							resolvedWeaponNum = wnum;
+						}
+					}
+				} else if (g_MatchConfig.spawnWeaponNum != 0xFF && g_MatchConfig.spawnWeaponNum != 0) {
 					s32 wi;
 					s32 wnum;
 					resolvedWeaponNum = (s32)g_MatchConfig.spawnWeaponNum;

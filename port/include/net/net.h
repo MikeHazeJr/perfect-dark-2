@@ -9,7 +9,25 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 44  /* v44 (2026-04-26): hygiene bump for the
+#define NET_PROTOCOL_VER 45  /* v45 (2026-04-27): spawn-weapon mode wire fields
+                              * (SPECIFIC / RANDOM / FIESTA). SVC_STAGE_START
+                              * gains a trailing u8 spawnWeaponMode + u8
+                              * spawnWeaponNum after the existing spawn_weapon_id
+                              * string; CLC_LOBBY_START gains a trailing u8
+                              * spawnWeaponMode. The host's matchStart() rolls
+                              * RANDOM once (every spawn uses the rolled value
+                              * for the rest of the match) and arms FIESTA via
+                              * the SPAWNWEAPON_FIESTA_SENTINEL (0xFE) integer
+                              * so player.c / bot.c spawn sites roll fresh
+                              * per-spawn. Mixed v44/v45 play is rejected at
+                              * the ENet auth handshake (netServerEvConnect,
+                              * net.c:1560) -- the v44 readers do not consume
+                              * the trailing mode bytes and would mis-parse
+                              * subsequent fields. See port/src/net/matchsetup.c
+                              * spawnWeaponPickFromActiveSet for the eligible
+                              * pool (active match set's 6 slots minus
+                              * NONE/DISABLED/SHIELD).
+                              * v44 (2026-04-26): hygiene bump for the
                               * Goldfinger 64 weapon + AllInOne arena
                               * cull. Wire format is structurally
                               * unchanged (weapon identity already

@@ -308,6 +308,13 @@ s32 scenarioSave(const char *name)
     fprintf(fp, "  \"spawnWeaponId\": \"");
     jsonEscapeStr(fp, g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "");
     fprintf(fp, "\",\n");
+    /* S481 (2026-04-27): spawn weapon mode — 0=SPECIFIC / 1=RANDOM / 2=FIESTA.
+     * Backwards-compat: scenarios saved before S481 lack this key; the loader
+     * defaults to SPECIFIC (when spawn_weapon_id is non-empty) or RANDOM
+     * (when empty) -- which preserves the legacy "empty = Random label"
+     * intent that those saves were authored with. */
+    fprintf(fp, "  \"spawnWeaponMode\": %u,\n",
+        (unsigned)g_MatchConfig.spawnWeaponMode);
 
     /* Bot roster — only SLOT_BOT entries, skip slot 0 (local player) */
     fprintf(fp, "  \"bots\": [\n");
@@ -495,10 +502,27 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
     /* M0.1c: Restore spawn weapon — catalog ID string is PRIMARY. */
     {
         char spawnId[128];
-        if (jsonFindString(buf, "spawnWeaponId", spawnId, sizeof(spawnId)) && spawnId[0]) {
+        s32 hasSpawnId = jsonFindString(buf, "spawnWeaponId", spawnId, sizeof(spawnId)) && spawnId[0];
+        if (hasSpawnId) {
             strncpy(g_MatchConfig.spawn_weapon_id, spawnId,
                     sizeof(g_MatchConfig.spawn_weapon_id) - 1);
             g_MatchConfig.spawn_weapon_id[sizeof(g_MatchConfig.spawn_weapon_id) - 1] = '\0';
+        } else {
+            g_MatchConfig.spawn_weapon_id[0] = '\0';
+        }
+        /* S481 (2026-04-27): restore spawn-weapon mode. Backwards-compat with
+         * pre-S481 saves: missing "spawnWeaponMode" key defaults to SPECIFIC
+         * when spawn_weapon_id is non-empty, RANDOM when empty. This matches
+         * the legacy authoring intent ("empty = Random label" pre-S481). */
+        s32 modeVal = -1;
+        if (jsonFindInt(buf, "spawnWeaponMode", &modeVal)
+                && modeVal >= 0
+                && modeVal <= (s32)SPAWNWEAPON_MODE_FIESTA) {
+            g_MatchConfig.spawnWeaponMode = (u8)modeVal;
+        } else {
+            g_MatchConfig.spawnWeaponMode = hasSpawnId
+                ? SPAWNWEAPON_MODE_SPECIFIC
+                : SPAWNWEAPON_MODE_RANDOM;
         }
         /* spawn_weapon_id → spawnWeaponNum derivation happens at matchStart() */
     }

@@ -17,6 +17,10 @@
  *    roundtrip + cross-version reject"
  *   "Save format (MPSETUP_VERSION 1 -> 2): WAD save/load roundtrip +
  *    v1 -> v2 migration"
+ *
+ * Bumped 2026-04-27 (S481) to NET_PROTOCOL_VER 45 for the spawn-weapon
+ * mode (SPECIFIC / RANDOM / FIESTA) wire fields. MPSETUP_VERSION
+ * unchanged — spawn weapon is not persisted in the mpsetup WAD format.
  */
 
 #include "catch.hpp"
@@ -39,7 +43,7 @@ extern const u32 g_TestExpectedMpsetupVersion;
 extern const u32 g_TestLiveMpsetupVersion;
 }
 
-const u32 g_TestExpectedNetProtocolVer  = 44;
+const u32 g_TestExpectedNetProtocolVer  = 45;
 const u32 g_TestExpectedMpsetupVersion  = 2;
 
 TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written against",
@@ -50,8 +54,10 @@ TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written ag
      * verifying the bump is intentional, update g_TestExpectedNetProtocolVer
      * to match and re-run.
      *
-     * As of 2026-04-26 the live value is 44 (Goldfinger 64 weapon +
-     * AllInOne arena cull hygiene bump alongside MPSETUP_VERSION 1 -> 2). */
+     * As of 2026-04-27 (S481) the live value is 45 (spawn-weapon mode wire
+     * fields: SVC_STAGE_START + CLC_LOBBY_START carry u8 spawnWeaponMode +
+     * u8 spawnWeaponNum). MPSETUP_VERSION stays at 2 — spawn weapon is not
+     * persisted in the mpsetup WAD save (see scenario_save.c instead). */
     REQUIRE(g_TestLiveNetProtocolVer == g_TestExpectedNetProtocolVer);
 }
 
