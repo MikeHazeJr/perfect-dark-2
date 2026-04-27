@@ -72,11 +72,10 @@ void mpPlayerConfigSetHeadBody(s32 playernum, const char *head_id, const char *b
 extern s32 g_MpPlayerNum;
 
 /* Head/body accessors (defined in mplayer.c) */
-u32 mpGetNumBodies(void);
 char *mpGetBodyName(u8 mpbodynum);
 /* Body/head data accessed via catalog accessors (catalogMpBodyId,
- * catalogGetBodyDefaultHead, assetCatalogIterateUnlockedByType, etc.). The
- * head pool reads through the catalog with the unlock filter applied -- per
+ * catalogGetBodyDefaultHead, assetCatalogIterateUnlockedByType, etc.). Both
+ * pools read through the catalog with the unlock filter applied -- per
  * Mike's directive "selector pool = catalog INTERSECT unlock-state". */
 
 /* File operations.
@@ -110,34 +109,40 @@ static s32  s_SelectedHead = 0;
 static bool s_HeadOverridden = false; /* Has user manually picked a head? */
 static bool s_FirstFrame = true;      /* Focus name input on first frame */
 
-/* Cached counts (refreshed each frame) */
-static s32 s_NumBodies = 0;
-
 /* Frame-scoped flag: set inside the LEFT-pane name input render, read in the
  * docked action bar later in the same frame so Enter from the name field
  * commits Create.  Reset to false at the top of each render pass. */
 static bool s_NameEnterPressedThisFrame = false;
 
-/* Head pool -- catalog entries filtered by the local player's unlock state,
- * sorted by display name.  Built via assetCatalogIterateUnlockedByType so
- * the carousel only ever shows heads the player has actually unlocked.  Mod
- * heads enter the pool automatically (their requirefeature is 0 by
- * convention).  Heads with mp_index == -1 (mod / SP fallback heads) are
+/* Head + body pools -- catalog entries filtered by the local player's unlock
+ * state, sorted by display name.  Built via assetCatalogIterateUnlockedByType
+ * so the carousels only ever show entries the player has actually unlocked.
+ * Mod heads / bodies enter the pool automatically (their requirefeature is 0
+ * by convention).  Entries with mp_index == -1 (mod / SP fallback) are
  * included -- the catalog ID is the canonical identity, not mp_index.
  *
- * Cache invalidation: rebuilt when the unlocked count differs from
- * s_HeadListCount or when the dialog appears.  Both signals catch unlock
+ * Cache invalidation: rebuilt when the unlocked count differs from the
+ * tracked count or when the dialog appears.  Both signals catch unlock
  * state changes mid-session (Unlock All cheat, save load) without paying
  * for a full rebuild every frame.
  */
 #define MAX_HEAD_COUNT 128
+#define MAX_BODY_COUNT 128
 struct HeadEntry {
     char id[CATALOG_ID_LEN];   /* "base:head_carrington", "modid:head_x" */
     char display[64];           /* formatted from id */
 };
+struct BodyEntry {
+    char id[CATALOG_ID_LEN];   /* "base:dark_combat", "modid:body_x" */
+    char display[64];           /* mpGetBodyName for mp_index >= 0, else formatCatalogId */
+    s32  mp_index;              /* g_MpBodies[] position; -1 for SP / mod bodies */
+};
 static HeadEntry s_HeadList[MAX_HEAD_COUNT];
 static s32       s_HeadListCount       = 0;
 static s32       s_HeadListCountKnown  = -1; /* triggers rebuild when stale */
+static BodyEntry s_BodyList[MAX_BODY_COUNT];
+static s32       s_BodyListCount       = 0;
+static s32       s_BodyListCountKnown  = -1; /* triggers rebuild when stale */
 
 /* ========================================================================
  * Helpers
@@ -225,29 +230,83 @@ static const char *getHeadDisplayName(s32 pos)
     return s_HeadList[pos].display;
 }
 
-/* True when the body at mp_idx mpbodynum has an integrated head model
+/* ----- Body pool ----- */
+
+static int s_compareBodyByName(const void *a, const void *b)
+{
+    return strcmp(((const BodyEntry *)a)->display,
+                  ((const BodyEntry *)b)->display);
+}
+
+/* Iteration callback for assetCatalogIterateUnlockedByType. Appends to
+ * s_BodyList[] while count < MAX_BODY_COUNT.  Display name preference:
+ *   - mp_index >= 0: mpGetBodyName preserves langbank + B-226 catalog
+ *     overrides (Bond actors, Skedar, Dr. Caroll).
+ *   - mp_index <  0: formatCatalogId on the entry id ("base:sp_body_67"
+ *     becomes "Base:sp Body 67"; cosmetic but legible).  Display polish
+ *     for SP body human names is a follow-up. */
+static void s_collectUnlockedBody(const asset_entry_t *e, void *userdata)
+{
+    (void)userdata;
+    if (s_BodyListCount >= MAX_BODY_COUNT) return;
+    BodyEntry *b = &s_BodyList[s_BodyListCount++];
+    strncpy(b->id, e->id, sizeof(b->id) - 1);
+    b->id[sizeof(b->id) - 1] = '\0';
+    b->mp_index = (s32)e->mp_index;
+    b->display[0] = '\0';
+    if (b->mp_index >= 0) {
+        char *raw = mpGetBodyName((u8)b->mp_index);
+        if (raw && raw[0]) {
+            strncpy(b->display, raw, sizeof(b->display) - 1);
+            b->display[sizeof(b->display) - 1] = '\0';
+        }
+    }
+    if (!b->display[0]) {
+        formatCatalogId(e->id, "body_", b->display, sizeof(b->display));
+    }
+}
+
+/* Rebuild s_BodyList from the catalog, filtered by unlock-state.  O(N) over
+ * the full catalog pool.  Called when the dialog appears or when the
+ * unlocked count changes (cheap detection signal for catalog mutations). */
+static void rebuildBodySortMap(void)
+{
+    s_BodyListCount = 0;
+    assetCatalogIterateUnlockedByType(ASSET_BODY, s_collectUnlockedBody, NULL);
+    if (s_BodyListCount > 1) {
+        qsort(s_BodyList, (size_t)s_BodyListCount, sizeof(s_BodyList[0]),
+              s_compareBodyByName);
+    }
+    s_BodyListCountKnown = s_BodyListCount;
+}
+
+/* Find list position for a catalog body ID. Returns 0 if not found. */
+static s32 findBodyIndexById(const char *body_id)
+{
+    if (!body_id || !body_id[0]) return 0;
+    for (s32 i = 0; i < s_BodyListCount; i++) {
+        if (strcmp(s_BodyList[i].id, body_id) == 0) return i;
+    }
+    return 0;
+}
+
+/* True when the body at list position pos has an integrated head model
  * (unk00_01 == 1) -- e.g. Dr. Carroll, Skedar, Eye Spy.  These bodies
  * cannot accept a separate head; the head carousel is disabled. */
-static bool s_bodyHasIntegratedHead(s32 mpbodynum)
+static bool s_bodyHasIntegratedHead(s32 bodyListPos)
 {
-    const char *bid = catalogMpBodyId(mpbodynum);
-    if (!bid) return false;
-    const asset_entry_t *be = assetCatalogResolve(bid);
+    if (bodyListPos < 0 || bodyListPos >= s_BodyListCount) return false;
+    const asset_entry_t *be = assetCatalogResolve(s_BodyList[bodyListPos].id);
     if (!be || be->type != ASSET_BODY) return false;
     /* runtime_index for body entries is the g_HeadsAndBodies[] index. */
     return catalogGetBodyIsComplete(be->runtime_index) ? true : false;
 }
 
-/**
- * Get body display name via the game's localization system.
- */
+/* Get the display name for the body at list position pos. */
 static const char *getBodyDisplayName(s32 bodyIdx)
 {
-    if (bodyIdx < 0 || bodyIdx >= s_NumBodies) {
-        return "???";
-    }
-    char *name = mpGetBodyName((u8)bodyIdx);
-    return name ? name : "???";
+    if (bodyIdx < 0 || bodyIdx >= s_BodyListCount) return "???";
+    return s_BodyList[bodyIdx].display;
 }
 
 /* Auto-select the head paired with the current body.
@@ -261,9 +320,9 @@ static const char *getBodyDisplayName(s32 bodyIdx)
 static void autoSelectHead(void)
 {
     if (s_HeadOverridden) return;
-    if (s_SelectedBody < 0 || s_SelectedBody >= s_NumBodies) return;
-    const char *bid = catalogMpBodyId(s_SelectedBody);
-    if (!bid) return;
+    if (s_SelectedBody < 0 || s_SelectedBody >= s_BodyListCount) return;
+    const char *bid = s_BodyList[s_SelectedBody].id;
+    if (!bid || !bid[0]) return;
     const char *defaultHeadId = catalogGetBodyDefaultHead(bid);
     if (!defaultHeadId) return;
     s_SelectedHead = findHeadIndexById(defaultHeadId);
@@ -286,8 +345,8 @@ static s32 renderAgentCreate(struct menudialog *dialog,
                               s32 winW, s32 winH)
 {
     /* Refresh counts each frame in case mods or unlock-state change them */
-    s_NumBodies = (s32)mpGetNumBodies();
     s32 unlockedHeadCount = assetCatalogGetUnlockedCountByType(ASSET_HEAD);
+    s32 unlockedBodyCount = assetCatalogGetUnlockedCountByType(ASSET_BODY);
 
     /* Rebuild head pool when the unlocked count changed.  Initial state
      * (s_HeadListCountKnown == -1) always triggers the first-time build.
@@ -299,9 +358,14 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         rebuildHeadSortMap();
         pdguiModelPreviewInvalidate();
     }
+    /* Same delta-detection for the body pool. */
+    if (s_BodyListCountKnown != unlockedBodyCount) {
+        rebuildBodySortMap();
+        pdguiModelPreviewInvalidate();
+    }
 
     /* Clamp selections */
-    if (s_SelectedBody >= s_NumBodies) s_SelectedBody = s_NumBodies - 1;
+    if (s_SelectedBody >= s_BodyListCount) s_SelectedBody = s_BodyListCount - 1;
     if (s_SelectedBody < 0) s_SelectedBody = 0;
     if (s_SelectedHead >= s_HeadListCount) s_SelectedHead = s_HeadListCount - 1;
     if (s_SelectedHead < 0) s_SelectedHead = 0;
@@ -418,7 +482,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
 
             if (ImGui::ArrowButton("##body_prev", ImGuiDir_Left)) {
                 s_SelectedBody--;
-                if (s_SelectedBody < 0) s_SelectedBody = s_NumBodies - 1;
+                if (s_SelectedBody < 0) s_SelectedBody = s_BodyListCount - 1;
                 s_HeadOverridden = false;
                 autoSelectHead();
                 pdguiPlaySound(PDGUI_SND_FOCUS);
@@ -439,13 +503,13 @@ static s32 renderAgentCreate(struct menudialog *dialog,
 
             if (ImGui::ArrowButton("##body_next", ImGuiDir_Right)) {
                 s_SelectedBody++;
-                if (s_SelectedBody >= s_NumBodies) s_SelectedBody = 0;
+                if (s_SelectedBody >= s_BodyListCount) s_SelectedBody = 0;
                 s_HeadOverridden = false;
                 autoSelectHead();
                 pdguiPlaySound(PDGUI_SND_FOCUS);
             }
             ImGui::SameLine();
-            ImGui::TextDisabled("(%d/%d)", s_SelectedBody + 1, s_NumBodies);
+            ImGui::TextDisabled("(%d/%d)", s_SelectedBody + 1, s_BodyListCount);
 
             ImGui::Dummy(ImVec2(0, pdguiScale(8.0f)));
 
@@ -536,15 +600,17 @@ static s32 renderAgentCreate(struct menudialog *dialog,
             float px = colsOrigin.x + leftW + colGap;
             float py = colsOrigin.y;
 
-            /* Live preview reads from the unlocked-and-filtered s_HeadList,
-             * not from raw mp_idx -- the catalog ID is the canonical
-             * identity for the renderer.  For integrated-head bodies the
-             * head_id is empty; pdguiModelPreviewDraw falls back to the
-             * body's own integrated head. */
+            /* Live preview reads from the unlocked-and-filtered s_HeadList /
+             * s_BodyList, not from raw mp_idx -- the catalog ID is the
+             * canonical identity for the renderer.  For integrated-head
+             * bodies the head_id is empty; pdguiModelPreviewDraw falls back
+             * to the body's own integrated head. */
             const char *hid = (s_HeadListCount > 0)
                 ? s_HeadList[s_SelectedHead].id
                 : NULL;
-            const char *bid = catalogMpBodyId(s_SelectedBody);
+            const char *bid = (s_BodyListCount > 0)
+                ? s_BodyList[s_SelectedBody].id
+                : NULL;
 
             /* Fix the body at a 3/4-turn pose.  We disable idle rotation in
              * pdgui_model_preview's options so the model is static; pose
@@ -625,8 +691,10 @@ static s32 renderAgentCreate(struct menudialog *dialog,
             const char *hid = (s_HeadListCount > 0)
                 ? s_HeadList[s_SelectedHead].id
                 : "";
-            const char *bid = catalogMpBodyId(s_SelectedBody);
-            mpPlayerConfigSetHeadBody(pnum, hid, bid ? bid : "");
+            const char *bid = (s_BodyListCount > 0)
+                ? s_BodyList[s_SelectedBody].id
+                : "";
+            mpPlayerConfigSetHeadBody(pnum, hid, bid);
         }
         mpPlayerConfigSetName(pnum, s_AgentName);
 
@@ -636,8 +704,9 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         filemgrPushSelectLocationDialog(0, FILETYPE_GAME);
 
         sysLogPrintf(LOG_NOTE, "pdgui_agentcreate: Saved new agent '%s' "
-                     "body=%d head_id=\"%s\" (not loaded, requires selection)",
-                     s_AgentName, s_SelectedBody,
+                     "body_id=\"%s\" head_id=\"%s\" (not loaded, requires selection)",
+                     s_AgentName,
+                     (s_BodyListCount > 0) ? s_BodyList[s_SelectedBody].id : "",
                      (s_HeadListCount > 0) ? s_HeadList[s_SelectedHead].id : "");
 
         s_AgentName[0] = '\0';
