@@ -42,6 +42,9 @@ src/generated
 # Build tool (local machine state)
 .build-settings.json
 .build-release-cache.json
+.dev-window-release-cache.json
+.dev-window-settings.json
+._dev-window-settings.json
 devtools/dev-window-v2/settings.json
 devtools/dev-window-v2/dev-window-v2-debug.log
 
