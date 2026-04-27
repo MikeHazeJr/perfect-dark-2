@@ -1,8 +1,44 @@
 
 # Session Log (Active)
 
-> **S284–S477** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S284–S478** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S478 (`festive-hawking-49649b` follow-up #3) - 2026-04-27 - doubled bold UI sweep
+
+Mike's directive (verbatim): "All the font should be at least double the size, and bold."
+
+Mechanical sweep across `devtools/dev-window-v2/dev-window-v2.ps1`. Every `FontSize=` value doubled, every `FontWeight=` lifted to Bold or Black, every container/button MinHeight/Padding bumped to fit the doubled text without truncation.
+
+| Before | After |
+|---|---|
+| FontSize 11 / 12 / 13 / 14 / 15 / 16 / 18 | 22 / 24 / 26 / 28 / 30 / 32 / 36 |
+| Window TextElement defaults: FontSize=15 (no FontWeight) | FontSize=30, FontWeight=Bold (propagates to all child text via TextElement attached property) |
+| FontWeight="SemiBold" / "Normal" | "Bold" everywhere (27 Bold + 3 Black after sweep) |
+| BUILD/RELEASE hero MinHeight=60, Padding=16,0 | MinHeight=104, Padding=20,16 (Hero column gap 10 -> 14) |
+| RUN TESTS / RUN GAME MinHeight=42, Padding=14,9 | MinHeight=78, Padding=20,16 (column gap 8 -> 14) |
+| ToolBtn MinHeight=32, Padding=12,7 | MinHeight=58, Padding=20,12 (Setter property "Normal" was missed by attribute-form replace_all -- caught with Setter-form edit) |
+| AccentBtn Padding=14,8 | 22,14 |
+| Version spinner +/- buttons 28x28 | 56x56 (no internal padding so glyph centers cleanly) |
+| Version spinner number boxes Width 42 / 42 / 48 | 80 / 80 / 92 (PAT box widest for triple-digit patch numbers) |
+| Status panel cards Padding=14,12 | 20,18 |
+| Status grid column MinWidths 320 + 12 + 340 | 520 + 16 + 560 |
+| Status bar Padding=14,9 + 14,0 separator margins | 22,16 + 22,0 separator margins |
+| Status bar StatusHash / StatusWorktrees / StatusAuth lacked FontWeight | Bold added |
+| TabItem Padding=22,10 | 32,18 |
+| TabItem selected underline 2px | 3px (already done in S477) |
+| Header brand bar Padding=14,8 + 2px underline | 20,14 + 3px underline |
+| Utility row Padding=8,6 | 12,10 (also wrapped in ScrollViewer so doubled-bold buttons stay reachable at narrow widths) |
+| Progress bar Height=20 | 38 (fits 26pt bold text) |
+| BUILD tab DockPanel Margin=14,12 | 20,18 |
+| Window MinSize 980x620 | 1400x920 |
+| Default window size 1180x820 | 1700x1100 |
+
+Behavior preserved: light theme palette + PD cyan/gold accents + layout structure + all event wiring. Catch2 parser, per-case test output, BOM-safe Set-ProjectVersion, and gitignore hygiene from S477 unchanged.
+
+Verified: PowerShell parser passes; XAML loads cleanly via `XamlReader.Load` (title + 1400x920 min size + #FFECEEF2 bg confirmed); FontSize values audit shows all 43 occurrences in the 22-36 range (no small values leftover); FontWeight audit shows all 30 occurrences are Bold (27) or Black (3 -- BUILD button hero text).
+
+Files: `devtools/dev-window-v2/dev-window-v2.ps1`.
 
 ## Session S477 (`festive-hawking-49649b` follow-up #2) - 2026-04-27 - light theme PD redesign + per-case test output + release-clean fix
 
