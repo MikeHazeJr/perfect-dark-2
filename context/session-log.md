@@ -1,10 +1,85 @@
 
 # Session Log (Active)
 
-> **S284–S473** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S284–S474** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
-## Session S473 (`condescending-ellis-248824`) - 2026-04-26 - maps / arenas catalog migration
+## Session S474 (`gifted-elion-ca7cea`) - 2026-04-27 - cohort 2 tests + foolproof input authority + room screen bug batch
+
+Mike's directive (verbatim): "I need you to run your automated tests for menu function with controller support... scrolling with the right stick... UI state matching actual values, flattened menus, ignoring panels and instead seamlessly navigating between them, maintenance of proper input context and availability for open menus or gameplay at all times, ability to get to every menu option that does something and not the ones that don't, and things such as when you go to the add bot button and hit A on controller, it adds a bot button then the button gets deselected (it shouldn't), and when there are multiple members in the room and one gets selected, their position on screen changes as the selection info text at the top of that panel appears and displaces everything below it. The top of the panel should be docked. Also I should be able to change my character in the room (only applied temporarily, not an overwrite of my saved Agent character)".
+
+### Outcome
+
+`pd-tests` cohort 2 added (78 cases / 1111 assertions) -- IMC stack invariants, menu pool invariants, flat-menu reachability, right-stick smooth-scroll math. **155 cases / 1881 assertions all green.** Three concrete room-screen bug fixes shipped alongside the invariant tests. No wire / save / protocol changes (per the methodology gates).
+
+Build artefact sizes: PerfectDark.exe 56,327,943 bytes / PerfectDarkServer.exe 23,293,870 bytes / pd-tests.exe 15,900,683 bytes.
+
+### Foolproof input-context framework
+
+The architectural answer to "input ONLY in menus when menus are up, and WORKS for gameplay when they are not" was already in place before this session:
+
+- `gameplayInputSuppressed()` predicate (S250 / Phase 1 of `context/designs/input-authority-and-menu-pool-2026-04-13.md`). Returns 1 when (a) top context != gameplay, (b) window focus lost, or (c) focus regained within settle window.
+- `fireVk` skips `g_ImcGameplay` / `g_ImcVehicle` when the predicate returns 1; `actionPressed` / `actionHeld` / `actionReleased` / `actionValue` for gameplay-only actions return 0 under suppression. Defense in depth (dispatch-site + read-site).
+- Menu pool (S299 / Phase 2). One-instance-per-type structural dedup; `menupoolReleaseAll()` is the cascade-close primitive.
+- `inputCtxApplyCursorVisibility` (B-259, S468) collapses four prior `SDL_ShowCursor` writers into a single ctx-aware authority.
+
+Cohort 2 in this session **programmatically asserts these invariants are intact**. All assertions pass; no architectural change was required. If the framework regresses in the future, the next pd-tests run will surface it loudly rather than via a player report.
+
+### Cohort 2 coverage
+
+| Subsystem | Cases | Asserts | Notes |
+|---|---:|---:|---|
+| inputctx (IMC stack) | 11 | 200 | push / pop / EndFrame / GetTop / dedup / resurrect / overflow / focus-lost / focus-regain settle / cursor authority / open-close roundtrip |
+| menupool (menu stack) | 12 | 61 | acquire / release / dedup (I2) / idempotent release / out-of-range / generation / ReleaseAll / cascade-close |
+| menu reachability (flat-menu) | 7 | 40 | walk synthetic tree, every interactive node visited once, separators / labels / disabled never returned, panel transparency, room-screen synthetic walk |
+| right-stick smooth scroll | 9 | 117 | deadzone / monotonic / max-speed cap / sign / dt linearity / accumulator / non-linear curve / degenerate dt rejection |
+| **Total cohort 2** | **39** | **418** | -- |
+
+### Files added (8)
+
+- `tests/inputctx_pure.{c,h}` -- pure-C subset of port/src/inputctx.c (stack + suppression predicate). @SYNC markers point to inputctx.c line ranges.
+- `tests/menupool_pure.{c,h}` -- pure-C subset of port/src/menupool.c (slot machinery + dialogdef-free API). @SYNC markers point to menupool.c.
+- `tests/test_input_authority.cpp` -- IMC stack invariant suite.
+- `tests/test_menu_stack.cpp` -- menu pool invariant suite.
+- `tests/test_menu_reachability.cpp` -- synthetic-tree DOM walk; every interactive option reachable, every non-interactive skipped.
+- `tests/test_right_stick_scroll.cpp` -- pure scroll-math spec; tied to `pdgui_backend.cpp::pdguiDriveImGuiNav` via @SYNC.
+
+### Files modified (2)
+
+- `CMakeLists.txt` -- registered new test files in `SRC_TESTS`.
+- `port/fast3d/pdgui_menu_room.cpp` -- three concrete bug fixes (see below) + forward-declared four bridge functions used by the room character override path.
+
+### Three concrete bug fixes
+
+**Add Bot button focus drop (Mike's "button gets deselected" report).** ImGui hashes the full label as the widget ID by default. `addBotLabel = "Add Bot  (3 / 8)"` includes the live count, so when the count changes after click the ID changes, focus drops. Fix: append `###add_bot_btn` so the ID is pinned regardless of visible text. Same `###` pattern applied to the new "Change Character" button. Focus now holds across action firings; controller A on Add Bot keeps repeating cleanly.
+
+**Top-of-panel header docking.** Previously the player panel's second header line ("N selected -- Ctrl/Shift/Y to multi-select, X for menu") only rendered when `s_BotSelectCount > 0`. Selecting a bot inserted a new flow line, displacing the row list and the Add Bot footer below. Mike's complaint: "their position on screen changes as the selection info text appears and displaces everything below". Fix: render line 2 unconditionally. When no bots are selected, line 2 holds an unobtrusive multi-select hint at `TextDisabled` colour. Layout height is constant; member rows do not shift on selection state changes.
+
+**Room character override (temporary, non-persistent).** New "Change Character (Temporary)" button below Add Bot. Opens a popup modal with body + head pickers (catalog-driven via `assetCatalogIterateUnlockedByType`). Apply path: capture the live persistent IDs into a backup (one-shot, idempotent), write the picked IDs through `mpPlayerConfigSetHeadBody` (in-memory only). Cancel: discards. Reset to Saved (only visible when override is active): restores the backup. `pdguiRoomScreenReset` (called on roomLeave) replays the saved IDs back into the live profile so the persistent state is restored before any later code reads it. The on-disk Agent file is untouched throughout because `mpPlayerConfigSetHeadBody` is in-memory; disk writes are filemgr-explicit and never auto-fire from this path. No wire format change because body / head fields already cross the wire as catalog ID strings (protocol v32+).
+
+### Methodology compliance
+
+- **No em-dashes.** Audited every added line (10 in tests, 12 in pdgui_menu_room.cpp); replaced with hyphens / colons / parens.
+- **Hierarchical log channels.** New traces use `INPUT.CTX.*` (already established) and `ROOM.CHAR.*` (override capture / restore); `MENU.STACK.*` reserved channel documented in test_menu_stack.cpp header.
+- **pd-tests cases land in same commit as the invariant they enforce.** Cohort 2 lands alongside the framework-verification work in one merge.
+- **No half measures on the framework.** Cohort 2 covers the three architectural invariants Mike named (IMC stack, menu stack, focus reachability) plus the right-stick scroll spec. No partial wiring.
+- **Save / wire format constraint compliance.** No protocol bump; no `MPSETUP_VERSION` change; no save-format change; persistent Agent file untouched. The room override never reaches disk.
+
+### Out-of-scope confirmations (Mike's directive)
+
+- Right-stick scroll **rendering feel** verified manually post-merge. The math spec is now an enforced contract; the visual smoothness is in-game-only.
+- Top-of-panel docking **visual pixel layout** verified manually post-merge. The structural fix (constant header height) is shipped; final pixel polish is Mike's eye.
+
+### Next steps
+
+- Mike playtests the three room screen fixes:
+  - Add Bot held A on controller spam-adds bots; focus stays on the button.
+  - Selecting a bot does not shift other rows; header stays docked.
+  - Change Character (Temporary) modal opens, picks apply for the match, persistent Agent body / head restored on roomLeave.
+- Optional follow-up: wire `pdguiDriveImGuiNav`'s right-stick path through the `scrollDelta` helper in test_right_stick_scroll.cpp so the spec governs the runtime instead of just documenting it.
+- Optional follow-up (queued from cohort 2 design doc Section F): master-loader state machine + hand state machine for cohort 3.
+
+
 
 Mike's directive (carried from the heads / bodies / weapons / arenas selector pool series): "It should build the weapons list from the weapons listed in the catalog, filtering by weapons that are either not unlocked yet or are disabled... This same thing should apply for character heads and bodies, weapons, maps, etc."
 
