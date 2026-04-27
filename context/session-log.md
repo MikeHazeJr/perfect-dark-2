@@ -1,8 +1,89 @@
 
 # Session Log (Active)
 
-> **S284–S475** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S284–S477** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S477 (`festive-hawking-49649b` follow-up #2) - 2026-04-27 - light theme PD redesign + per-case test output + release-clean fix
+
+Mike's directives this round (verbatim, in order):
+1. "The text is still quite small in the UI, and also overall." (after S476 partial bump)
+2. "Can you read the small darkened text in the window? ... we don't have to dark theme it, let's still use Perfect Dark styling, but light themed."
+3. "The log should list each test it is running and the result received which made it consider it a pass or fail" (per-test visibility)
+4. "Don't be afraid to restructure the window layout."
+5. "When I release, it automatically says I then have 1 uncommitted change. Any way to make it so that isn't the case?"
+
+**Light-theme PD redesign**:
+- Window background `#ECEEF2` (light gray-blue), card surfaces `#FFFFFF`, card borders `#C0C8D2`, primary text `#1A2434`, secondary `#4A5868`, dim `#7A8898`. PD identity preserved via cyan `#0078A8` accents (header underline, selected tab, accent button, info-color logs, branch label) and gold `#A06A10` (RELEASE, Stable checkbox, version label, version number text). Success `#10783A`, warning `#B86810`, error `#B81818` chosen for legibility on white. Code-behind palette in `Get-ClassifiedLogColor` updated to match.
+- Bulk replace_all swept the dark-theme color hexes (`#0090D0` -> `#0078A8`, `#DC3232` -> `#B81818`, `#00B400` -> `#10783A`, `#FF8C00` -> `#B86810`, `#C8A000` -> `#A06A10`, `#508CDC` -> `#0078A8`, `#CDAA32` -> `#A07810`, `#8C8C8C` -> `#4A5868`, `#1A3050` -> `#C0C8D2`) so dynamic SolidColorBrush construction (status row foregrounds, log-line classification, button highlight states) matches the new palette.
+
+**Layout restructure (BUILD tab)**: Hero buttons reduced from MinHeight=92 to 60 (font 24 -> 18); old utility row promoted to its own white card directly under hero pair (free-standing, easy reach); status grid now uses two white cards on light bg with section headers ("S T A T U S" / "V E R S I O N"). Status row fonts moved 17 -> 16 (less shouty), version sub-labels harmonized to 14, version spinner buttons dropped to a tight 28x28. The freed vertical space goes to the cards' content rather than crammed into a side panel. Status bar (bottom) is now a primary info row at FontSize 15 Consolas with vertical separators on a `#F5F7FA` band; bottom RUN bar 14pt with MinHeight=42.
+
+**Catch2 parser fix (S476 + S477 fold-in)**:
+- Per-run `$script:TestsScanBuffer` ArrayList introduced; `Drain-ProcessOutputQueues` appends every `[tests]` raw line. Watchdog parser now scans this buffer (was scanning `$script:AllOutput` which is the BUILD pipeline's buffer and never received test output -- that was why "PASSED (0 case[s])" appeared in Mike's first playtest).
+- Three regexes split: `All tests passed (N assertions in M test cases)` (success format), `test cases: A | B passed | C failed`, `assertions: A | B passed | C failed`. Both Catch2 summary shapes parse; status row + MessageBox now surface BOTH case AND assertion counts ("tests: PASSED (155 cases, 1881 assertions)").
+
+**Per-case test output (S477)**: pd-tests invocation changed to `-r console -s -d yes` -- `-s` lists each assertion (the result that made each case pass/fail), `-d yes` shows per-case durations. Mike now sees every test and its result streamed into the Log tab.
+
+**Release "1 uncommitted change" fix (S477, root cause + fix)**: `Set-ProjectVersion` (dev-window-v2 + _dev-window) and `Set-CMakeListsSemVer` (version-util.ps1) used `Set-Content -Encoding UTF8` which on PowerShell 5.1 ALWAYS emits a UTF-8 BOM regardless of -NoNewline. After every release, the rewrite-then-no-op-replace path silently added a BOM byte to CMakeLists.txt, leaving the working tree dirty until Mike committed a phantom byte. Two-prong fix in all three writers + the inline rewrite in release.ps1 line 79-92:
+1. Skip the write entirely when content is unchanged (mtime + bytes preserved).
+2. When we DO write, use `[System.IO.File]::WriteAllText($path, $content, (New-Object System.Text.UTF8Encoding($false)))` -- explicit no-BOM encoder.
+
+Verified offline: `Set-Content -Encoding UTF8` produces `EF BB BF 63 6D 61` (BOM + "cma"); `WriteAllText UTF8($false)` produces `63 6D 61 6B 65 5F` ("cmake_"), no BOM. Content's `PATCH 999` (or whatever value) replacement intact.
+
+**Bonus gitignore hygiene (S477)**: `.dev-window-release-cache.json` (rewritten on every gh-api fetch by old _dev-window.ps1), `.dev-window-settings.json`, `._dev-window-settings.json` were tracked in git but described as "gitignored" in ADR-004. Added to .gitignore + `git rm --cached` so future writes do not show as dirty changes.
+
+Files: `devtools/dev-window-v2/dev-window-v2.ps1`, `devtools/_dev-window.ps1`, `devtools/release.ps1`, `devtools/version-util.ps1`, `.gitignore`. Untracked: `.dev-window-release-cache.json`, `.dev-window-settings.json`, `._dev-window-settings.json`.
+
+Verified: PowerShell parser passes on dev-window-v2.ps1 / _dev-window.ps1 / version-util.ps1; XAML loads cleanly via XamlReader.Load (title + min size + bg confirmed); release.ps1 retains the 2 pre-existing parser warnings at lines 623 / 647 from inline `$()` interpolation that long predate this work.
+
+## Session S476 (`festive-hawking-49649b` follow-up) - 2026-04-27 - Catch2 parser fix + comprehensive font sweep
+
+Mike's directive (verbatim, after S475 playtest): "The text is still quite small in the UI, and also overall. Also, I got an Exit 0 on the tests." + follow-up: "Mike just ran tests again and the actual Catch2 output IS streaming through, but the parser is misreading the count" -- log showed `[tests] All tests passed (1881 assertions in 155 test cases)` upstream of `tests: PASSED (0 case[s])`.
+
+**Catch2 parser fix (root cause)**: `Drain-ProcessOutputQueues` writes test lines through `Add-LogLine` (UI-only, does NOT append to `$script:AllOutput`), but the watchdog parser walked `$script:AllOutput`. Result: parser saw zero test lines, both regexes failed, `$passed` stayed at 0. Fix in [devtools/dev-window-v2/dev-window-v2.ps1](devtools/dev-window-v2/dev-window-v2.ps1):
+1. New per-run `$script:TestsScanBuffer = ArrayList`. Cleared at `Start-RunTests`. `Drain-ProcessOutputQueues` now appends each raw test line (without the `[tests] ` UI prefix) to it.
+2. Watchdog parser walks `TestsScanBuffer` instead of `AllOutput`.
+3. Parser regexes split into three lines (a) all-passed: `All tests passed (N assertions in M test cases)` -> M cases / N assertions / passed=M / failed=0; (b) test-cases tally: `test cases: A | B passed | C failed` -> A cases / B passed / C failed; (c) assertions tally: `assertions: A | B passed | C failed` -> A assertions. Both shapes parse correctly (verified offline).
+4. Status row + MessageBox now surface BOTH case AND assertion counts ("tests: PASSED (155 cases, 1881 assertions)" + multi-line MessageBox showing Cases/Passed/Failed/Assertions). Falls back to "no Catch2 summary found" if neither shape was emitted.
+
+**Comprehensive UI font sweep**: prior bump (status panel 14->17, version sub-labels 13->15) wasn't enough. Mike said small "in the UI, and also overall," so this round walks every textual element and bumps the window default plus every override:
+
+| Element | Before | After |
+|---|---|---|
+| Window `TextElement.FontSize` (default) | 13 | 16 |
+| Top brand bar shortcuts hint | 12 | 14 |
+| PD2 / Dev Window / v2 brand labels | 13 | 16 |
+| Status bar (branch / hash / dirty / worktrees / auth / version / mode) | 14 | 16 |
+| Bottom RUN TESTS / RUN GAME buttons | 14 | 17 (padding 16,12 -> 16,14) |
+| Hero BUILD button | 20 | 24 (MinHeight 82 -> 92) |
+| Hero RELEASE button | 14 | 17 (MinHeight 82 -> 92) |
+| LblClientStatus / LblServerStatus (tests row) | 17 | 20 |
+| LblBuildActivity | 16 | 18 |
+| Progress bar text | 11 | 14 SemiBold (height 16 -> 22) |
+| V E R S I O N section header | 13 | 15 |
+| MAJ/MIN/PAT labels | 11 | 13 |
+| Version spinner +/- buttons | (default) | 16 (Width 28 -> 34, Padding 4,5 -> 6,6) |
+| Version spinner number boxes | 13 | 17 (Width 32/32/32 -> 40/40/44) |
+| ChkStable | 15 | 17 |
+| LblAuthStatus / LblLatestRelease / LblDevVersion | 15 | 17 |
+| TabItem template | 12 | 15 (Padding 20,9 -> 22,11) |
+| ChkAutoScroll / TxtLogFilter | 11 | 14 |
+| LogOutput RichTextBox | 11 | 14 |
+| DocList / DocContent | 11 | 14 (DocList width 240 -> 320) |
+| ToolBtn style (utility row + Version +/- + Stop/Copy/Check) | (default) | 15 (MinHeight 32 -> 38, Padding 10,7 -> 12,9) |
+| AccentBtn style padding | 16,8 | 18,10 |
+| Window MinWidth / MinHeight | 820 / 500 | 1000 / 640 |
+| Default window size (first launch) | 960x700 | 1180x820 |
+| Status Area left col MinWidth | 220 | 280 |
+| Status Area right col MinWidth | 280 | 360 |
+| Right (version/auth) card MinWidth | 260 | 340 |
+
+Also added "Ctrl+T=Tests" to the brand-bar shortcuts hint to match the rebound shortcut from S475.
+
+Verified: PowerShell parser passes; XAML loads cleanly via `[Windows.Markup.XamlReader]::Load` (window title + min size + default font confirmed); no behavior changes outside font/padding/size and the parser fix.
+
+Files: `devtools/dev-window-v2/dev-window-v2.ps1`.
 
 ## Session S475 (`festive-hawking-49649b`) - 2026-04-27 - dev-tool cleanup: build-time regression fix, server retirement, async worktree prune, Run Tests button
 

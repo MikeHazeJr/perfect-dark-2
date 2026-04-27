@@ -99,11 +99,17 @@ function Set-CMakeListsSemVer {
         [Parameter(Mandatory)][int]$Minor,
         [Parameter(Mandatory)][int]$Patch
     )
+    # Skip the write when content unchanged AND use a no-BOM UTF-8 encoder
+    # when we do write. PowerShell 5.1's `Set-Content -Encoding UTF8` always
+    # emits a BOM regardless of -NoNewline; that BOM byte made every release
+    # leave CMakeLists.txt dirty in the working tree (see S477).
     $path = Join-Path $ProjectRoot "CMakeLists.txt"
     if (-not (Test-Path $path)) { throw "CMakeLists.txt not found: $path" }
-    $cmake = Get-Content $path -Raw -ErrorAction Stop
-    $cmake = $cmake -replace '(VERSION_SEM_MAJOR\s+)\d+', ("`${1}" + $Major)
+    $orig = Get-Content $path -Raw -ErrorAction Stop
+    $cmake = $orig -replace '(VERSION_SEM_MAJOR\s+)\d+', ("`${1}" + $Major)
     $cmake = $cmake -replace '(VERSION_SEM_MINOR\s+)\d+', ("`${1}" + $Minor)
     $cmake = $cmake -replace '(VERSION_SEM_PATCH\s+)\d+', ("`${1}" + $Patch)
-    Set-Content $path -Value $cmake -NoNewline -Encoding UTF8 -ErrorAction Stop
+    if ($cmake -eq $orig) { return }
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($path, $cmake, $utf8NoBom)
 }

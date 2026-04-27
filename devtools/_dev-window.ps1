@@ -1435,14 +1435,19 @@ function Get-ProjectVersion {
 }
 
 function Set-ProjectVersion($major, $minor, $patch) {
+    # Skip when content unchanged + no-BOM UTF-8 encoder.
+    # `Set-Content -Encoding UTF8` on PS 5.1 emits a BOM that leaves
+    # CMakeLists.txt dirty after every release (S477).
     $cp = Join-Path $script:ProjectRoot "CMakeLists.txt"
     if (-not (Test-Path $cp)) { return }
     try {
-        $c = Get-Content $cp -Raw -Encoding UTF8 -ErrorAction Stop
-        $c = $c -replace '(VERSION_SEM_MAJOR\s+)\d+', ("`${1}" + $major)
+        $orig = Get-Content $cp -Raw -Encoding UTF8 -ErrorAction Stop
+        $c = $orig -replace '(VERSION_SEM_MAJOR\s+)\d+', ("`${1}" + $major)
         $c = $c -replace '(VERSION_SEM_MINOR\s+)\d+', ("`${1}" + $minor)
         $c = $c -replace '(VERSION_SEM_PATCH\s+)\d+', ("`${1}" + $patch)
-        Set-Content -Path $cp -Value $c -NoNewline -Encoding UTF8 -ErrorAction Stop
+        if ($c -eq $orig) { return }
+        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($cp, $c, $utf8NoBom)
     } catch {}
 }
 

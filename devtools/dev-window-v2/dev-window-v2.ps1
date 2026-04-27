@@ -217,9 +217,12 @@ $script:NinjaTotal          = 0
 # ============================================================================
 
 function Load-Settings {
+    # Defaults bumped 2026-04-27 (S476) to fit the larger UI font sweep.
+    # First-time launch uses these; subsequent launches restore the user's
+    # last manual size from settings.json.
     $defaults = @{
-        WindowWidth   = 960
-        WindowHeight  = 700
+        WindowWidth   = 1180
+        WindowHeight  = 820
         WindowLeft    = -1
         WindowTop     = -1
         GitHubRepo    = ""
@@ -471,14 +474,29 @@ function Get-ProjectVersion {
 }
 
 function Set-ProjectVersion($major, $minor, $patch) {
+    # Two safety nets here, both new 2026-04-27 (S477):
+    #
+    # 1. Skip the write entirely when content is unchanged. The build success
+    #    path calls this on every cycle even when version hasn't moved; the
+    #    no-op write was rebumping CMakeLists.txt's mtime and (worse) silently
+    #    introducing a UTF-8 BOM into the file -- which is what Mike was
+    #    seeing as "1 uncommitted change" after every release.
+    #
+    # 2. When we DO write, use [System.IO.File]::WriteAllText with a no-BOM
+    #    UTF-8 encoder. PowerShell 5.1's `Set-Content -Encoding UTF8` always
+    #    emits a BOM regardless of `-NoNewline`. The MSYS2 git treats the
+    #    BOM-modified CMakeLists.txt as a real change, so the working tree
+    #    stays dirty until Mike commits a phantom byte.
     $cp = Join-Path $script:ProjectRoot "CMakeLists.txt"
     if (-not (Test-Path $cp)) { return }
     try {
-        $c = Get-Content $cp -Raw -Encoding UTF8 -ErrorAction Stop
-        $c = $c -replace '(VERSION_SEM_MAJOR\s+)\d+', ("`${1}" + $major)
+        $orig = Get-Content $cp -Raw -Encoding UTF8 -ErrorAction Stop
+        $c = $orig -replace '(VERSION_SEM_MAJOR\s+)\d+', ("`${1}" + $major)
         $c = $c -replace '(VERSION_SEM_MINOR\s+)\d+', ("`${1}" + $minor)
         $c = $c -replace '(VERSION_SEM_PATCH\s+)\d+', ("`${1}" + $patch)
-        Set-Content -Path $cp -Value $c -NoNewline -Encoding UTF8 -ErrorAction Stop
+        if ($c -eq $orig) { return }   # no change, no write -- preserves mtime + bytes
+        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($cp, $c, $utf8NoBom)
     } catch {}
 }
 
@@ -499,38 +517,45 @@ function Save-ReleaseCache($data) {
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Perfect Dark 2  |  Dev Window v2"
-        MinWidth="820" MinHeight="500"
-        Background="#141820"
+        MinWidth="980" MinHeight="620"
+        Background="#ECEEF2"
         WindowStartupLocation="CenterScreen"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
         TextOptions.TextFormattingMode="Display"
         RenderOptions.ClearTypeHint="Enabled"
         TextElement.FontFamily="Segoe UI"
-        TextElement.FontSize="13"
-        TextElement.Foreground="#C8D0DC">
+        TextElement.FontSize="15"
+        TextElement.Foreground="#1A2434">
     <Window.Resources>
+        <!-- Light-theme PD palette (S477):
+             page bg #ECEEF2, card bg #FFFFFF, card border #C0C8D2,
+             primary text #1A2434, secondary #4A5868, dim #7A8898,
+             PD cyan #0078A8 / hover #0090C8, BUILD teal-green #008860,
+             RELEASE gold #A06A10, gold border #C8A015, magenta #A82070,
+             error #B81818, warning #B86810, success #10783A. -->
         <Style x:Key="AccentBtn" TargetType="Button">
-            <Setter Property="Background" Value="#0090D0"/>
-            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="#0078A8"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="14"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="Padding" Value="14,8"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="border" Background="{TemplateBinding Background}"
-                                CornerRadius="3" Padding="{TemplateBinding Padding}">
+                                CornerRadius="2" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#00A8E8"/>
+                                <Setter TargetName="border" Property="Background" Value="#0090C8"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="border" Property="Background" Value="#404040"/>
-                                <Setter Property="Foreground" Value="#808080"/>
+                                <Setter TargetName="border" Property="Background" Value="#C8CFD8"/>
+                                <Setter Property="Foreground" Value="#7A8898"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -538,21 +563,21 @@ function Save-ReleaseCache($data) {
             </Setter>
         </Style>
         <Style x:Key="GreenBtn" TargetType="Button" BasedOn="{StaticResource AccentBtn}">
-            <Setter Property="Background" Value="#2D5A27"/>
+            <Setter Property="Background" Value="#10783A"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="border" Background="{TemplateBinding Background}"
-                                CornerRadius="3" Padding="{TemplateBinding Padding}">
+                                CornerRadius="2" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#3A7A30"/>
+                                <Setter TargetName="border" Property="Background" Value="#149048"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="border" Property="Background" Value="#404040"/>
-                                <Setter Property="Foreground" Value="#808080"/>
+                                <Setter TargetName="border" Property="Background" Value="#C8CFD8"/>
+                                <Setter Property="Foreground" Value="#7A8898"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -560,22 +585,23 @@ function Save-ReleaseCache($data) {
             </Setter>
         </Style>
         <Style x:Key="GoldBtn" TargetType="Button" BasedOn="{StaticResource AccentBtn}">
-            <Setter Property="Background" Value="#1A3A5C"/>
+            <Setter Property="Background" Value="#A06A10"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="border" Background="{TemplateBinding Background}"
-                                CornerRadius="3" Padding="{TemplateBinding Padding}"
-                                BorderBrush="#DAA520" BorderThickness="1">
+                                CornerRadius="2" Padding="{TemplateBinding Padding}"
+                                BorderBrush="#C8A015" BorderThickness="1">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#254A6C"/>
+                                <Setter TargetName="border" Property="Background" Value="#B87C18"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="border" Property="Background" Value="#404040"/>
-                                <Setter Property="Foreground" Value="#808080"/>
+                                <Setter TargetName="border" Property="Background" Value="#C8CFD8"/>
+                                <Setter Property="Foreground" Value="#7A8898"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -583,12 +609,14 @@ function Save-ReleaseCache($data) {
             </Setter>
         </Style>
         <Style x:Key="ToolBtn" TargetType="Button">
-            <Setter Property="Background" Value="#3A3A3A"/>
-            <Setter Property="Foreground" Value="#DCDCDC"/>
+            <Setter Property="Background" Value="#FFFFFF"/>
+            <Setter Property="Foreground" Value="#1A2434"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="#505050"/>
-            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="BorderBrush" Value="#B0B8C2"/>
+            <Setter Property="Padding" Value="12,7"/>
             <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="Normal"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
@@ -601,7 +629,12 @@ function Save-ReleaseCache($data) {
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#505050"/>
+                                <Setter TargetName="border" Property="Background" Value="#E0E8F0"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#0078A8"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="#A0A8B2"/>
+                                <Setter TargetName="border" Property="Background" Value="#F5F7FA"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -609,17 +642,17 @@ function Save-ReleaseCache($data) {
             </Setter>
         </Style>
         <Style x:Key="RedBtn" TargetType="Button" BasedOn="{StaticResource AccentBtn}">
-            <Setter Property="Background" Value="#8B2020"/>
+            <Setter Property="Background" Value="#B81818"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="border" Background="{TemplateBinding Background}"
-                                CornerRadius="3" Padding="{TemplateBinding Padding}">
+                                CornerRadius="2" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#A03030"/>
+                                <Setter TargetName="border" Property="Background" Value="#D02828"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -627,21 +660,21 @@ function Save-ReleaseCache($data) {
             </Setter>
         </Style>
         <Style x:Key="OrangeBtn" TargetType="Button" BasedOn="{StaticResource AccentBtn}">
-            <Setter Property="Background" Value="#5A3A10"/>
+            <Setter Property="Background" Value="#A85420"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="border" Background="{TemplateBinding Background}"
-                                CornerRadius="3" Padding="{TemplateBinding Padding}">
+                                CornerRadius="2" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#7A5020"/>
+                                <Setter TargetName="border" Property="Background" Value="#C46428"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="border" Property="Background" Value="#404040"/>
-                                <Setter Property="Foreground" Value="#808080"/>
+                                <Setter TargetName="border" Property="Background" Value="#C8CFD8"/>
+                                <Setter Property="Foreground" Value="#7A8898"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -651,100 +684,102 @@ function Save-ReleaseCache($data) {
     </Window.Resources>
 
     <DockPanel>
-        <!-- Header Brand Bar -->
-        <Border DockPanel.Dock="Top" Background="#0C1220" BorderBrush="#0A2040" BorderThickness="0,0,0,1" Padding="14,7">
+        <!-- Header Brand Bar (light theme, narrow PD-styled band; cyan accent
+             on the PD2 chip + "v2" label preserves PD identity without
+             dominating the page) -->
+        <Border DockPanel.Dock="Top" Background="#FFFFFF" BorderBrush="#0078A8" BorderThickness="0,0,0,2" Padding="14,8">
             <DockPanel>
                 <TextBlock DockPanel.Dock="Right"
-                           Text="Ctrl+B=Build    Ctrl+R=Release    Ctrl+L=Log    Ctrl+G=Game"
-                           Foreground="#304870" FontSize="12" FontFamily="Consolas"
+                           Text="Ctrl+B=Build    Ctrl+R=Release    Ctrl+L=Log    Ctrl+G=Game    Ctrl+T=Tests"
+                           Foreground="#7A8898" FontSize="13" FontFamily="Consolas"
                            VerticalAlignment="Center"/>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Background="#0090D0" CornerRadius="2" Padding="7,2" Margin="0,0,10,0">
-                        <TextBlock Text="PD2" FontSize="13" FontWeight="Black" Foreground="White"
+                    <Border Background="#0078A8" CornerRadius="2" Padding="8,3" Margin="0,0,10,0">
+                        <TextBlock Text="PD2" FontSize="14" FontWeight="Black" Foreground="#FFFFFF"
                                    FontFamily="Consolas"/>
                     </Border>
-                    <TextBlock Text="Dev Window" FontSize="13" Foreground="#6878A0"
-                               VerticalAlignment="Center"/>
-                    <TextBlock Text=" v2" FontSize="13" Foreground="#0090D0"
+                    <TextBlock Text="Dev Window" FontSize="15" Foreground="#1A2434"
                                FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Text=" v2" FontSize="15" Foreground="#0078A8"
+                               FontWeight="Bold" VerticalAlignment="Center"/>
                 </StackPanel>
             </DockPanel>
         </Border>
 
-        <!-- Status Bar -->
-        <Border DockPanel.Dock="Bottom" Background="#0A0F1A" BorderBrush="#0A2040" BorderThickness="0,1,0,0" Padding="10,7">
+        <!-- Status Bar (bottom; promoted to primary info row, light theme).
+             Mike: this is "primary interactive info"; readable, not crammed.
+             FontSize 15 Consolas with vertical separators. -->
+        <Border DockPanel.Dock="Bottom" Background="#F5F7FA" BorderBrush="#C0C8D2" BorderThickness="0,1,0,0" Padding="14,9">
             <DockPanel>
-                <TextBlock x:Name="StatusVersion" Text="v0.0.0" Foreground="#C8A000"
-                           FontFamily="Consolas" FontSize="14" FontWeight="SemiBold"
+                <TextBlock x:Name="StatusVersion" Text="v0.0.0" Foreground="#A06A10"
+                           FontFamily="Consolas" FontSize="15" FontWeight="Bold"
                            DockPanel.Dock="Right" VerticalAlignment="Center"/>
-                <Rectangle Width="1" Fill="#162030" Margin="12,0" DockPanel.Dock="Right"/>
-                <TextBlock x:Name="StatusAuth" Text="auth: ..." Foreground="#506070"
-                           FontFamily="Consolas" FontSize="14"
-                           DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0"/>
-                <TextBlock x:Name="StatusMode" Text="Idle" Foreground="#44586C"
-                           FontFamily="Consolas" FontSize="14" FontWeight="SemiBold" Margin="0,0,12,0"/>
-                <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0"/>
-                <TextBlock x:Name="StatusBranch" Text="branch: --" Foreground="#0090D0"
-                           FontFamily="Consolas" FontSize="14" Margin="0,0,12,0"/>
-                <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0"/>
-                <TextBlock x:Name="StatusHash" Text="HEAD: ------" Foreground="#3A5070"
-                           FontFamily="Consolas" FontSize="14" Margin="0,0,12,0"/>
-                <Rectangle Width="1" Fill="#162030" Margin="0,0,12,0"/>
-                <TextBlock x:Name="StatusDirty" Text="clean" Foreground="#00B400"
-                           FontFamily="Consolas" FontSize="14"/>
-                <Rectangle Width="1" Fill="#162030" Margin="12,0"/>
-                <TextBlock x:Name="StatusWorktrees" Text="worktrees: --" Foreground="#506070"
-                           FontFamily="Consolas" FontSize="14"/>
+                <Rectangle Width="1" Fill="#C0C8D2" Margin="14,0" DockPanel.Dock="Right"/>
+                <TextBlock x:Name="StatusAuth" Text="auth: ..." Foreground="#4A5868"
+                           FontFamily="Consolas" FontSize="15"
+                           DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,14,0"/>
+                <Rectangle Width="1" Fill="#C0C8D2" Margin="0,0,14,0"/>
+                <TextBlock x:Name="StatusMode" Text="Idle" Foreground="#1A2434"
+                           FontFamily="Consolas" FontSize="15" FontWeight="SemiBold" Margin="0,0,14,0"/>
+                <Rectangle Width="1" Fill="#C0C8D2" Margin="0,0,14,0"/>
+                <TextBlock x:Name="StatusBranch" Text="branch: --" Foreground="#0078A8"
+                           FontFamily="Consolas" FontSize="15" FontWeight="SemiBold" Margin="0,0,14,0"/>
+                <Rectangle Width="1" Fill="#C0C8D2" Margin="0,0,14,0"/>
+                <TextBlock x:Name="StatusHash" Text="HEAD: ------" Foreground="#4A5868"
+                           FontFamily="Consolas" FontSize="15" Margin="0,0,14,0"/>
+                <Rectangle Width="1" Fill="#C0C8D2" Margin="0,0,14,0"/>
+                <TextBlock x:Name="StatusDirty" Text="clean" Foreground="#10783A"
+                           FontFamily="Consolas" FontSize="15" FontWeight="SemiBold"/>
+                <Rectangle Width="1" Fill="#C0C8D2" Margin="14,0"/>
+                <TextBlock x:Name="StatusWorktrees" Text="worktrees: --" Foreground="#4A5868"
+                           FontFamily="Consolas" FontSize="15"/>
             </DockPanel>
         </Border>
 
-        <!-- Bottom Bar: Run Game + Run Tests -->
-        <!-- Server connectivity moved into the client (listen-host mode); the
-             dedicated server is no longer shipped, so the RUN SERVER button is
-             gone. RUN TESTS replaces it so Mike can run pd-tests without a
-             terminal. -->
-        <Border DockPanel.Dock="Bottom" Background="#0C1018" BorderBrush="#0A2040" BorderThickness="0,1,0,0" Padding="6">
+        <!-- Bottom Bar: Run Game + Run Tests (light theme; sized as
+             secondary actions, not hero. Buttons command attention via
+             color + width, not font shouting). -->
+        <Border DockPanel.Dock="Bottom" Background="#FFFFFF" BorderBrush="#C0C8D2" BorderThickness="0,1,0,0" Padding="10,8">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="8"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <Button x:Name="BtnRunTests" Content="RUN TESTS" Style="{StaticResource GoldBtn}"
-                        FontSize="14" FontWeight="Bold" Padding="16,12" Grid.Column="0"
+                        FontSize="14" FontWeight="Bold" Padding="14,9" MinHeight="42" Grid.Column="0"
                         ToolTip="Build (if needed) and run pd-tests; output streams to the Log tab."/>
                 <Button x:Name="BtnRunGame" Content="RUN GAME" Style="{StaticResource GreenBtn}"
-                        FontSize="14" FontWeight="Bold" Padding="16,12" Grid.Column="2"/>
+                        FontSize="14" FontWeight="Bold" Padding="14,9" MinHeight="42" Grid.Column="2"/>
             </Grid>
         </Border>
 
-        <!-- Tab Control -->
-        <TabControl x:Name="TabControl" Background="#141820" BorderThickness="0" Padding="0">
+        <!-- Tab Control (light theme; PD cyan accent on the selected tab) -->
+        <TabControl x:Name="TabControl" Background="#ECEEF2" BorderThickness="0" Padding="0">
             <TabControl.Resources>
                 <Style TargetType="TabItem">
-                    <Setter Property="Background" Value="#141820"/>
-                    <Setter Property="Foreground" Value="#44586C"/>
-                    <Setter Property="Padding" Value="20,9"/>
-                    <Setter Property="FontSize" Value="12"/>
+                    <Setter Property="Background" Value="#ECEEF2"/>
+                    <Setter Property="Foreground" Value="#7A8898"/>
+                    <Setter Property="Padding" Value="22,10"/>
+                    <Setter Property="FontSize" Value="14"/>
                     <Setter Property="FontWeight" Value="SemiBold"/>
                     <Setter Property="Template">
                         <Setter.Value>
                             <ControlTemplate TargetType="TabItem">
                                 <Border x:Name="tabBorder" Background="{TemplateBinding Background}"
                                         Padding="{TemplateBinding Padding}" Margin="0,0,0,0"
-                                        BorderBrush="Transparent" BorderThickness="0,0,0,2">
+                                        BorderBrush="Transparent" BorderThickness="0,0,0,3">
                                     <ContentPresenter ContentSource="Header"/>
                                 </Border>
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsSelected" Value="True">
-                                        <Setter TargetName="tabBorder" Property="Background" Value="#141820"/>
-                                        <Setter TargetName="tabBorder" Property="BorderBrush" Value="#0090D0"/>
-                                        <Setter Property="Foreground" Value="#D0DCF0"/>
+                                        <Setter TargetName="tabBorder" Property="Background" Value="#FFFFFF"/>
+                                        <Setter TargetName="tabBorder" Property="BorderBrush" Value="#0078A8"/>
+                                        <Setter Property="Foreground" Value="#1A2434"/>
                                     </Trigger>
                                     <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="tabBorder" Property="Background" Value="#1A2030"/>
-                                        <Setter Property="Foreground" Value="#7090B0"/>
+                                        <Setter TargetName="tabBorder" Property="Background" Value="#E0E8F0"/>
+                                        <Setter Property="Foreground" Value="#1A2434"/>
                                     </Trigger>
                                 </ControlTemplate.Triggers>
                             </ControlTemplate>
@@ -753,172 +788,186 @@ function Save-ReleaseCache($data) {
                 </Style>
             </TabControl.Resources>
 
-            <!-- BUILD TAB -->
+            <!-- BUILD TAB (S477 redesign: light theme, balanced font hierarchy,
+                 hero buttons sized to be prominent without dominating, status +
+                 version cards take the freed vertical space). -->
             <TabItem Header="BUILD">
-                <DockPanel Margin="12,10,12,10" LastChildFill="False">
-                    <!-- Hero Buttons Row -->
-                    <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
+                <DockPanel Margin="14,12,14,12" LastChildFill="False">
+                    <!-- Hero Buttons Row: smaller (60px) than the prior 92px,
+                         text 18 instead of 24. Width carries prominence. -->
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="10"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Button x:Name="BtnBuild" Style="{StaticResource GreenBtn}"
-                                FontSize="20" FontWeight="Black" MinHeight="82" Padding="16,0" Grid.Column="0">
-                            <TextBlock Text="BUILD" FontSize="20" FontWeight="Black" FontFamily="Consolas"/>
+                                FontSize="18" FontWeight="Black" MinHeight="60" Padding="16,0" Grid.Column="0">
+                            <TextBlock Text="BUILD" FontSize="18" FontWeight="Black" FontFamily="Consolas"/>
                         </Button>
                         <Button x:Name="BtnRelease" Style="{StaticResource GoldBtn}"
-                                FontSize="14" FontWeight="Bold" MinHeight="82" Padding="16,0" Grid.Column="2">
+                                FontSize="16" FontWeight="Bold" MinHeight="60" Padding="16,0" Grid.Column="2">
                             <TextBlock x:Name="TxtRelease" Text="RELEASE" TextAlignment="Center"
-                                       FontSize="14" FontWeight="Bold" LineHeight="18"/>
+                                       FontSize="16" FontWeight="Bold" LineHeight="20"/>
                         </Button>
                     </Grid>
 
-                    <!-- Status Area: proportional columns so VERSION card never clips -->
-                    <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
+                    <!-- Utility Buttons Row: one row, sits directly under the
+                         hero pair so primary + supporting actions share top of
+                         pane. Free-standing rather than crammed into a card. -->
+                    <Border DockPanel.Dock="Top" Margin="0,0,0,12"
+                            Background="#FFFFFF" BorderBrush="#C0C8D2" BorderThickness="1" CornerRadius="3" Padding="8,6">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="BtnOpenGitHub" Content="GitHub" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"/>
+                            <Button x:Name="BtnOpenFolder" Content="Project Folder" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"/>
+                            <Button x:Name="BtnCleanBuild" Content="Clean Build" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"/>
+                            <Button x:Name="BtnPull" Content="Pull" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"
+                                    ToolTip="git pull (current branch, upstream)"/>
+                            <Button x:Name="BtnPush" Content="Push" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"
+                                    ToolTip="git push (current branch to upstream)"/>
+                            <Button x:Name="BtnPruneWorktrees" Content="Prune Worktrees" Style="{StaticResource ToolBtn}" Margin="0,0,6,0"
+                                    ToolTip="git worktree prune (remove stale worktree references from .claude/worktrees/)"/>
+                            <Button x:Name="BtnCheck" Content="Check" Style="{StaticResource ToolBtn}"
+                                    ToolTip="Validate clean git state + run git-snapshot.sh"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Status Area: 2 columns, white cards on light bg. Both
+                         take their content's natural height; vertical space is
+                         no longer wasted between hero and status bar. -->
+                    <Grid DockPanel.Dock="Top">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="2*" MinWidth="220"/>
-                            <ColumnDefinition Width="8"/>
-                            <ColumnDefinition Width="*" MinWidth="280"/>
+                            <ColumnDefinition Width="2*" MinWidth="320"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*" MinWidth="340"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- Left: Build Status (card panel) -->
-                        <Border Grid.Column="0" Background="#0E1420" CornerRadius="4"
-                                BorderBrush="#162438" BorderThickness="1" Padding="12,10">
+                        <!-- Left: Build Status (white card) -->
+                        <Border Grid.Column="0" Background="#FFFFFF" CornerRadius="3"
+                                BorderBrush="#C0C8D2" BorderThickness="1" Padding="14,12">
                             <StackPanel>
+                                <TextBlock Text="S T A T U S" Foreground="#7A8898" FontSize="12"
+                                           FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,8"/>
                                 <TextBlock x:Name="LblClientStatus" Text="client: --"
-                                           Foreground="#44586C" FontFamily="Consolas" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                                           Foreground="#1A2434" FontFamily="Consolas" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,5"/>
                                 <TextBlock x:Name="LblServerStatus" Text="tests: --"
-                                           Foreground="#44586C" FontFamily="Consolas" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,7"/>
-                                <TextBlock x:Name="LblBuildActivity" Text="" Foreground="#506880"
-                                           FontFamily="Consolas" FontSize="16" Margin="0,0,0,4"/>
+                                           Foreground="#1A2434" FontFamily="Consolas" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                                <TextBlock x:Name="LblBuildActivity" Text="" Foreground="#4A5868"
+                                           FontFamily="Consolas" FontSize="14" Margin="0,0,0,6" TextWrapping="Wrap"/>
 
                                 <!-- Progress Bar -->
-                                <Border x:Name="ProgressBack" Background="#0A1520" Height="16"
-                                        CornerRadius="3" Margin="0,2" Visibility="Collapsed"
-                                        BorderBrush="#1A3050" BorderThickness="1">
+                                <Border x:Name="ProgressBack" Background="#E0E8F0" Height="20"
+                                        CornerRadius="2" Margin="0,4" Visibility="Collapsed"
+                                        BorderBrush="#B0B8C2" BorderThickness="1">
                                     <Grid>
-                                        <Border x:Name="ProgressFill" Background="#0090D0"
-                                                CornerRadius="2" HorizontalAlignment="Left" Width="0"/>
-                                        <TextBlock x:Name="LblProgressText" Text="" Foreground="White"
-                                                   FontFamily="Consolas" FontSize="11"
+                                        <Border x:Name="ProgressFill" Background="#0078A8"
+                                                CornerRadius="1" HorizontalAlignment="Left" Width="0"/>
+                                        <TextBlock x:Name="LblProgressText" Text="" Foreground="#FFFFFF"
+                                                   FontFamily="Consolas" FontSize="13" FontWeight="SemiBold"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Grid>
                                 </Border>
 
-                                <!-- Action Buttons Row -->
-                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                <!-- Action Buttons Row (only visible when relevant) -->
+                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                                     <Button x:Name="BtnStop" Content="STOP" Style="{StaticResource RedBtn}"
-                                            Padding="10,7" Margin="0,0,4,0" Visibility="Collapsed"/>
+                                            Padding="14,7" Margin="0,0,6,0" Visibility="Collapsed"/>
                                     <Button x:Name="BtnCopyErrors" Content="Copy Errors" Style="{StaticResource ToolBtn}"
-                                            Margin="0,0,4,0" Visibility="Collapsed"/>
+                                            Margin="0,0,6,0" Visibility="Collapsed"/>
                                     <Button x:Name="BtnCopyLog" Content="Copy Log" Style="{StaticResource ToolBtn}"
-                                            Margin="0,0,4,0" Visibility="Collapsed"/>
-                                    <Button x:Name="BtnCheck" Content="Check" Style="{StaticResource ToolBtn}"
-                                            Padding="12,7" ToolTip="Validate clean git state + run git-snapshot.sh"/>
+                                            Margin="0,0,6,0" Visibility="Collapsed"/>
                                 </StackPanel>
                             </StackPanel>
                         </Border>
 
-                        <!-- Right: Version + Auth (card panel) -->
-                        <Border Grid.Column="2" Background="#0E1420" CornerRadius="4"
-                                BorderBrush="#162438" BorderThickness="1" Padding="12,10"
-                                MinWidth="260" HorizontalAlignment="Stretch">
+                        <!-- Right: Version + Auth (white card) -->
+                        <Border Grid.Column="2" Background="#FFFFFF" CornerRadius="3"
+                                BorderBrush="#C0C8D2" BorderThickness="1" Padding="14,12"
+                                MinWidth="340" HorizontalAlignment="Stretch">
                             <StackPanel>
-                                <TextBlock Text="V E R S I O N" Foreground="#2A4060" FontSize="13"
-                                           FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,6"/>
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                                    <StackPanel Margin="0,0,6,0">
-                                        <TextBlock Text="MAJ" Foreground="#2A4060" FontSize="11"
-                                                   FontFamily="Consolas" Margin="0,0,0,2"/>
+                                <TextBlock Text="V E R S I O N" Foreground="#7A8898" FontSize="12"
+                                           FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,8"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                    <StackPanel Margin="0,0,10,0">
+                                        <TextBlock Text="MAJ" Foreground="#7A8898" FontSize="11"
+                                                   FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,3"/>
                                         <StackPanel Orientation="Horizontal">
                                             <Button x:Name="BtnVerMajDown" Content="-" Style="{StaticResource ToolBtn}"
-                                                    Padding="4,5" Width="28" FontFamily="Consolas"/>
-                                            <TextBox x:Name="TxtVerMajor" Width="32" TextAlignment="Center"
-                                                     Background="#0A1020" Foreground="#C8A000" BorderBrush="#1A3050"
-                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="13" Padding="2"/>
+                                                    Padding="0" Width="28" MinHeight="28" FontFamily="Consolas" FontSize="14"/>
+                                            <TextBox x:Name="TxtVerMajor" Width="42" TextAlignment="Center"
+                                                     Background="#F5F7FA" Foreground="#A06A10" BorderBrush="#C0C8D2"
+                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="15" Padding="3"/>
                                             <Button x:Name="BtnVerMajUp" Content="+" Style="{StaticResource ToolBtn}"
-                                                    Padding="4,5" Width="28" FontFamily="Consolas"/>
+                                                    Padding="0" Width="28" MinHeight="28" FontFamily="Consolas" FontSize="14"/>
                                         </StackPanel>
                                     </StackPanel>
-                                    <StackPanel Margin="0,0,6,0">
-                                        <TextBlock Text="MIN" Foreground="#2A4060" FontSize="11"
-                                                   FontFamily="Consolas" Margin="0,0,0,2"/>
+                                    <StackPanel Margin="0,0,10,0">
+                                        <TextBlock Text="MIN" Foreground="#7A8898" FontSize="11"
+                                                   FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,3"/>
                                         <StackPanel Orientation="Horizontal">
                                             <Button x:Name="BtnVerMinDown" Content="-" Style="{StaticResource ToolBtn}"
-                                                    Padding="4,5" Width="28" FontFamily="Consolas"/>
-                                            <TextBox x:Name="TxtVerMinor" Width="32" TextAlignment="Center"
-                                                     Background="#0A1020" Foreground="#C8A000" BorderBrush="#1A3050"
-                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="13" Padding="2"/>
+                                                    Padding="0" Width="28" MinHeight="28" FontFamily="Consolas" FontSize="14"/>
+                                            <TextBox x:Name="TxtVerMinor" Width="42" TextAlignment="Center"
+                                                     Background="#F5F7FA" Foreground="#A06A10" BorderBrush="#C0C8D2"
+                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="15" Padding="3"/>
                                             <Button x:Name="BtnVerMinUp" Content="+" Style="{StaticResource ToolBtn}"
-                                                    Padding="4,5" Width="28" FontFamily="Consolas"/>
+                                                    Padding="0" Width="28" MinHeight="28" FontFamily="Consolas" FontSize="14"/>
                                         </StackPanel>
                                     </StackPanel>
                                     <StackPanel>
-                                        <TextBlock Text="PAT" Foreground="#2A4060" FontSize="11"
-                                                   FontFamily="Consolas" Margin="0,0,0,2"/>
+                                        <TextBlock Text="PAT" Foreground="#7A8898" FontSize="11"
+                                                   FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,3"/>
                                         <StackPanel Orientation="Horizontal">
                                             <Button x:Name="BtnVerPatDown" Content="-" Style="{StaticResource ToolBtn}"
-                                                    Padding="4,5" Width="28" FontFamily="Consolas"/>
-                                            <TextBox x:Name="TxtVerPatch" Width="32" TextAlignment="Center"
-                                                     Background="#0A1020" Foreground="#C8A000" BorderBrush="#1A3050"
-                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="13" Padding="2"/>
+                                                    Padding="0" Width="28" MinHeight="28" FontFamily="Consolas" FontSize="14"/>
+                                            <TextBox x:Name="TxtVerPatch" Width="48" TextAlignment="Center"
+                                                     Background="#F5F7FA" Foreground="#A06A10" BorderBrush="#C0C8D2"
+                                                     FontFamily="Consolas" FontWeight="Bold" FontSize="15" Padding="3"/>
                                             <Button x:Name="BtnVerPatUp" Content="+" Style="{StaticResource ToolBtn}"
-                                                    Padding="4,5" Width="28" FontFamily="Consolas"/>
+                                                    Padding="0" Width="28" MinHeight="28" FontFamily="Consolas" FontSize="14"/>
                                         </StackPanel>
                                     </StackPanel>
                                 </StackPanel>
-                                <CheckBox x:Name="ChkStable" Content="Stable release" Foreground="#C8A000"
-                                          FontSize="15" FontWeight="SemiBold" Margin="0,2,0,8"/>
-                                <TextBlock x:Name="LblAuthStatus" Text="auth: ..." Foreground="#44586C"
-                                           FontFamily="Consolas" FontSize="15" Margin="0,0,0,4" Cursor="Hand"
+                                <CheckBox x:Name="ChkStable" Content="Stable release" Foreground="#A06A10"
+                                          FontSize="14" FontWeight="SemiBold" Margin="0,2,0,12"/>
+                                <TextBlock x:Name="LblAuthStatus" Text="auth: ..." Foreground="#4A5868"
+                                           FontFamily="Consolas" FontSize="14" Margin="0,0,0,5" Cursor="Hand"
                                            TextWrapping="Wrap"/>
-                                <TextBlock x:Name="LblLatestRelease" Text="latest: --" Foreground="#44586C"
-                                           FontFamily="Consolas" FontSize="15" Margin="0,0,0,3"
+                                <TextBlock x:Name="LblLatestRelease" Text="latest: --" Foreground="#4A5868"
+                                           FontFamily="Consolas" FontSize="14" Margin="0,0,0,4"
                                            TextWrapping="Wrap"/>
-                                <TextBlock x:Name="LblDevVersion" Text="local: --" Foreground="#3860A0"
-                                           FontFamily="Consolas" FontSize="15" TextWrapping="Wrap"/>
+                                <TextBlock x:Name="LblDevVersion" Text="local: --" Foreground="#0078A8"
+                                           FontFamily="Consolas" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
                             </StackPanel>
                         </Border>
                     </Grid>
-
-                    <!-- Utility Buttons Row (Top-dock + no fill: prevents vertical stretch of buttons) -->
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,2,0,0"
-                                VerticalAlignment="Top">
-                        <Button x:Name="BtnOpenGitHub" Content="GitHub" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"/>
-                        <Button x:Name="BtnOpenFolder" Content="Project Folder" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"/>
-                        <Button x:Name="BtnCleanBuild" Content="Clean Build" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"/>
-                        <Button x:Name="BtnPull" Content="Pull" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"
-                                ToolTip="git pull (current branch, upstream)"/>
-                        <Button x:Name="BtnPush" Content="Push" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"
-                                ToolTip="git push (current branch to upstream)"/>
-                        <Button x:Name="BtnPruneWorktrees" Content="Prune Worktrees" Style="{StaticResource ToolBtn}" Margin="0,0,4,0"
-                                ToolTip="git worktree prune (remove stale worktree references from .claude/worktrees/)"/>
-                    </StackPanel>
                 </DockPanel>
             </TabItem>
 
-            <!-- LOG TAB -->
+            <!-- LOG TAB (light theme: white surface for readability of long
+                 streaming output; line color classification still applied via
+                 Foreground per-Run in code-behind). -->
             <TabItem Header="LOG">
-                <DockPanel Margin="10">
-                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                <DockPanel Margin="14,12,14,12">
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
                         <Button x:Name="BtnLogClear" Content="Clear" Style="{StaticResource ToolBtn}"
                                 DockPanel.Dock="Right" Margin="6,0,0,0"/>
                         <Button x:Name="BtnLogExport" Content="Export..." Style="{StaticResource ToolBtn}"
                                 DockPanel.Dock="Right" Margin="6,0,0,0"/>
-                        <CheckBox x:Name="ChkAutoScroll" Content="Auto-scroll" Foreground="#44586C"
-                                  FontFamily="Consolas" FontSize="11"
+                        <CheckBox x:Name="ChkAutoScroll" Content="Auto-scroll" Foreground="#1A2434"
+                                  FontFamily="Segoe UI" FontSize="14"
                                   IsChecked="True" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="10,0"/>
-                        <TextBox x:Name="TxtLogFilter" Background="#0A1020" Foreground="#6888A8"
-                                 BorderBrush="#1A3050" Padding="6,3"
-                                 FontFamily="Consolas" FontSize="11"
+                        <TextBox x:Name="TxtLogFilter" Background="#FFFFFF" Foreground="#4A5868"
+                                 BorderBrush="#C0C8D2" Padding="8,5"
+                                 FontFamily="Consolas" FontSize="14"
                                  Tag="Filter..." FontStyle="Italic"/>
                     </DockPanel>
-                    <RichTextBox x:Name="LogOutput" Background="#080D14" Foreground="#6888A8"
-                                 IsReadOnly="True" BorderThickness="1" BorderBrush="#0E1E30"
+                    <RichTextBox x:Name="LogOutput" Background="#FFFFFF" Foreground="#1A2434"
+                                 IsReadOnly="True" BorderThickness="1" BorderBrush="#C0C8D2"
                                  FontFamily="Consolas"
-                                 FontSize="11" VerticalScrollBarVisibility="Auto"
-                                 HorizontalScrollBarVisibility="Auto">
+                                 FontSize="14" VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto"
+                                 Padding="8,6">
                         <FlowDocument>
                             <Paragraph/>
                         </FlowDocument>
@@ -926,22 +975,22 @@ function Save-ReleaseCache($data) {
                 </DockPanel>
             </TabItem>
 
-            <!-- DOCS TAB -->
+            <!-- DOCS TAB (light theme; left list + right content reader) -->
             <TabItem Header="DOCS">
-                <Grid Margin="10">
+                <Grid Margin="14,12,14,12">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="240"/>
+                        <ColumnDefinition Width="320"/>
                         <ColumnDefinition Width="6"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <ListBox x:Name="DocList" Grid.Column="0" Background="#0E1420" Foreground="#6888A8"
-                             BorderBrush="#162438" BorderThickness="1"
-                             FontFamily="Consolas" FontSize="11"/>
-                    <GridSplitter Grid.Column="1" Width="6" Background="#0A1828" HorizontalAlignment="Stretch"/>
-                    <TextBox x:Name="DocContent" Grid.Column="2" Background="#080D14" Foreground="#A0B8D0"
+                    <ListBox x:Name="DocList" Grid.Column="0" Background="#FFFFFF" Foreground="#1A2434"
+                             BorderBrush="#C0C8D2" BorderThickness="1"
+                             FontFamily="Consolas" FontSize="14"/>
+                    <GridSplitter Grid.Column="1" Width="6" Background="#C0C8D2" HorizontalAlignment="Stretch"/>
+                    <TextBox x:Name="DocContent" Grid.Column="2" Background="#FFFFFF" Foreground="#1A2434"
                              IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
-                             VerticalScrollBarVisibility="Auto" BorderThickness="1" BorderBrush="#0E1E30"
-                             FontFamily="Consolas" FontSize="11"/>
+                             VerticalScrollBarVisibility="Auto" BorderThickness="1" BorderBrush="#C0C8D2"
+                             FontFamily="Consolas" FontSize="14" Padding="8,6"/>
                 </Grid>
             </TabItem>
         </TabControl>
@@ -1036,11 +1085,14 @@ function Test-LogLineMatchesFilter([string]$line) {
 }
 
 function Get-ClassifiedLogColor($cls) {
+    # Light-theme palette (S477): chosen for legibility on white #FFFFFF
+    # Log surface. Same semantics as the dark-theme classification, just
+    # darker / higher-contrast values.
     switch ($cls) {
-        "error"   { return "#DC3232" }
-        "warning" { return "#FF8C00" }
-        "info"    { return "#508CDC" }
-        default   { return "#8C8C8C" }
+        "error"   { return "#B81818" }
+        "warning" { return "#B86810" }
+        "info"    { return "#0078A8" }
+        default   { return "#1A2434" }
     }
 }
 
@@ -1249,7 +1301,7 @@ function Start-GitSyncBeforeBuild {
         return
     }
     if ($script:GitSyncBusy) {
-        Add-LogSessionLine "git sync already running; ignoring duplicate request." "#CDAA32"
+        Add-LogSessionLine "git sync already running; ignoring duplicate request." "#A07810"
         & $OnComplete $false
         return
     }
@@ -1267,8 +1319,8 @@ function Start-GitSyncBeforeBuild {
     $wslCmd = Get-Command wsl.exe -ErrorAction SilentlyContinue
     $wslExe = if ($null -ne $wslCmd) { $wslCmd.Source } else { $null }
 
-    Add-LogSessionLine "" "#1A3050"
-    Add-LogSessionLine ">>> git: sync before build" "#0090D0"
+    Add-LogSessionLine "" "#C0C8D2"
+    Add-LogSessionLine ">>> git: sync before build" "#0078A8"
 
     Start-AsyncPoolAction `
         -Script {
@@ -1335,7 +1387,7 @@ function Start-GitSyncBeforeBuild {
                 if ($addCode -eq 0) { break }
                 $addText = ($addOut | Out-String)
                 if ($addText -match 'index\.lock|Unable to create|Another git process') {
-                    [void]$logs.Add(@{ Text = "git add: index.lock / concurrent git (attempt $attempt/$($addBackoffMs.Count)), cleanup + backoff..."; Color = "#CDAA32" })
+                    [void]$logs.Add(@{ Text = "git add: index.lock / concurrent git (attempt $attempt/$($addBackoffMs.Count)), cleanup + backoff..."; Color = "#A07810" })
                     & $cleanup
                     if (Test-Path -LiteralPath $winLock) {
                         $wUntil = [DateTime]::UtcNow.AddMilliseconds(2200)
@@ -1349,8 +1401,8 @@ function Start-GitSyncBeforeBuild {
                 break
             }
             if ($addCode -ne 0) {
-                foreach ($line in $addOut) { [void]$logs.Add(@{ Text = "$line"; Color = "#DC3232" }) }
-                [void]$logs.Add(@{ Text = "git add failed before build."; Color = "#DC3232" })
+                foreach ($line in $addOut) { [void]$logs.Add(@{ Text = "$line"; Color = "#B81818" }) }
+                [void]$logs.Add(@{ Text = "git add failed before build."; Color = "#B81818" })
                 $hint = "git add failed (index.lock). Close other git users of this repo: Cursor/VS Code Source Control, terminals, then retry. Prefer MSYS2 MinGW git (C:\msys64\mingw64\bin\git.exe) over usr\bin\git.exe."
                 return [PSCustomObject]@{ Ok = $false; Logs = $logs; ErrMsg = $hint }
             }
@@ -1367,19 +1419,19 @@ function Start-GitSyncBeforeBuild {
                     $commitCode = $LASTEXITCODE
                 }
                 if ($commitCode -ne 0) {
-                    [void]$logs.Add(@{ Text = "git commit failed; retrying with --no-verify (forced by outage-safe sync policy)."; Color = "#CDAA32" })
+                    [void]$logs.Add(@{ Text = "git commit failed; retrying with --no-verify (forced by outage-safe sync policy)."; Color = "#A07810" })
                     $co = @(& $gitExe -C $root commit --no-verify -m $commitMessage 2>&1)
                     $commitCode = $LASTEXITCODE
                 }
                 foreach ($line in $co) {
-                    $cl = if ($commitCode -ne 0) { "#DC3232" } else { "#8C8C8C" }
+                    $cl = if ($commitCode -ne 0) { "#B81818" } else { "#4A5868" }
                     [void]$logs.Add(@{ Text = "$line"; Color = $cl })
                 }
                 if ($commitCode -ne 0) {
-                    [void]$logs.Add(@{ Text = "git commit failed (hooks, conflicts, or repo state)."; Color = "#DC3232" })
+                    [void]$logs.Add(@{ Text = "git commit failed (hooks, conflicts, or repo state)."; Color = "#B81818" })
                     return [PSCustomObject]@{ Ok = $false; Logs = $logs; ErrMsg = "git commit failed before build. Fix the repo, then retry." }
                 }
-                [void]$logs.Add(@{ Text = "Committed: $commitMessage"; Color = "#508CDC" })
+                [void]$logs.Add(@{ Text = "Committed: $commitMessage"; Color = "#0078A8" })
             } else {
                 [void]$logs.Add(@{ Text = "(working tree already clean - nothing to commit)"; Color = "#44586C" })
             }
@@ -1393,7 +1445,7 @@ function Start-GitSyncBeforeBuild {
                 if ($pushCode -eq 0) { break }
                 $pushText = ($pu | Out-String)
                 if ($pushText -match 'index\.lock|Unable to create|Another git process') {
-                    [void]$logs.Add(@{ Text = "git push: index.lock / concurrent git (attempt $pAttempt/$maxPushAttempts), cleanup + backoff..."; Color = "#CDAA32" })
+                    [void]$logs.Add(@{ Text = "git push: index.lock / concurrent git (attempt $pAttempt/$maxPushAttempts), cleanup + backoff..."; Color = "#A07810" })
                     & $cleanup
                     if ($pAttempt -lt $maxPushAttempts) {
                         $si = [math]::Min($pAttempt - 1, $pushBackoffMs.Count - 1)
@@ -1404,15 +1456,15 @@ function Start-GitSyncBeforeBuild {
                 break
             }
             foreach ($line in $pu) {
-                $cl = if ($pushCode -ne 0) { "#CDAA32" } else { "#8C8C8C" }
+                $cl = if ($pushCode -ne 0) { "#A07810" } else { "#4A5868" }
                 [void]$logs.Add(@{ Text = "$line"; Color = $cl })
             }
             if ($pushCode -ne 0) {
                 # Audit 2026-04-16: push failure must NOT abort the build. v1 treats
                 # push as a best-effort step; log and continue.
-                [void]$logs.Add(@{ Text = "git push failed (exit $pushCode) - continuing build without pushing."; Color = "#CDAA32" })
+                [void]$logs.Add(@{ Text = "git push failed (exit $pushCode) - continuing build without pushing."; Color = "#A07810" })
             } else {
-                [void]$logs.Add(@{ Text = "git push: ok"; Color = "#508CDC" })
+                [void]$logs.Add(@{ Text = "git push: ok"; Color = "#0078A8" })
             }
 
             return [PSCustomObject]@{ Ok = $true; Logs = $logs; ErrMsg = $null }
@@ -1438,13 +1490,13 @@ function Start-GitSyncBeforeBuild {
                     }
                 }
             } catch {}
-            Add-LogSessionLine "" "#1A3050"
+            Add-LogSessionLine "" "#C0C8D2"
             $script:GitSyncBusy = $false
             $cb = $script:PendingGitSyncCallback
             $script:PendingGitSyncCallback = $null
             if ($null -ne $cb) {
                 try { & $cb $ok } catch {
-                    try { Add-LogSessionLine ("git sync callback threw: " + $_.Exception.Message) "#DC3232" } catch {}
+                    try { Add-LogSessionLine ("git sync callback threw: " + $_.Exception.Message) "#B81818" } catch {}
                 }
             }
         }
@@ -1513,7 +1565,7 @@ function Invoke-GitPull {
     $script:GitActionBusy = $true
     $ui["BtnPull"].IsEnabled = $false
     $br = Get-GitCurrentBranch
-    Add-LogLine ">>> git pull (branch: $br)" "#0090D0"
+    Add-LogLine ">>> git pull (branch: $br)" "#0078A8"
     Clear-StaleGitIndexLock $script:ProjectRoot
 
     Start-AsyncPoolAction `
@@ -1534,7 +1586,7 @@ function Invoke-GitPull {
                 if ($null -ne $r) {
                     $code = [int]$r.Code
                     foreach ($line in $r.Out) {
-                        $cl = if ($code -ne 0) { "#DC3232" } else { "#8C8C8C" }
+                        $cl = if ($code -ne 0) { "#B81818" } else { "#4A5868" }
                         Add-LogLine ("$line".TrimEnd("`r")) $cl
                     }
                     if ($code -eq 0) {
@@ -1566,7 +1618,7 @@ function Invoke-GitPush {
     $script:GitActionBusy = $true
     $ui["BtnPush"].IsEnabled = $false
     $br = Get-GitCurrentBranch
-    Add-LogLine ">>> git push (branch: $br)" "#0090D0"
+    Add-LogLine ">>> git push (branch: $br)" "#0078A8"
     Clear-StaleGitIndexLock $script:ProjectRoot
 
     Start-AsyncPoolAction `
@@ -1587,7 +1639,7 @@ function Invoke-GitPush {
                 if ($null -ne $r) {
                     $code = [int]$r.Code
                     foreach ($line in $r.Out) {
-                        $cl = if ($code -ne 0) { "#DC3232" } else { "#8C8C8C" }
+                        $cl = if ($code -ne 0) { "#B81818" } else { "#4A5868" }
                         Add-LogLine ("$line".TrimEnd("`r")) $cl
                     }
                     if ($code -eq 0) {
@@ -1621,9 +1673,9 @@ function Invoke-GitPruneWorktrees {
 
     $script:GitActionBusy = $true
     $ui["BtnPruneWorktrees"].IsEnabled = $false
-    Add-LogSessionLine "" "#1A3050"
-    Add-LogSessionLine ">>> git worktree prune -v" "#0090D0"
-    Add-LogSessionLine "" "#1A3050"
+    Add-LogSessionLine "" "#C0C8D2"
+    Add-LogSessionLine ">>> git worktree prune -v" "#0078A8"
+    Add-LogSessionLine "" "#C0C8D2"
 
     Start-AsyncPoolAction `
         -Script {
@@ -1651,7 +1703,7 @@ function Invoke-GitPruneWorktrees {
                 $r = if ($result -and $result.Count -gt 0) { $result[0] } else { $result }
                 if ($null -ne $r) {
                     if ($r.Out) { foreach ($l in ($r.Out -split "`n")) { if ($l.Trim()) { Add-LogLine $l "#6888A8" } } }
-                    if ($r.Err) { foreach ($l in ($r.Err -split "`n")) { if ($l.Trim()) { Add-LogLine $l "#DC3232" } } }
+                    if ($r.Err) { foreach ($l in ($r.Err -split "`n")) { if ($l.Trim()) { Add-LogLine $l "#B81818" } } }
                     if ($r.Code -eq 0) {
                         $pruned = if ($r.Out -and $r.Out.Trim()) { $r.Out.Trim() } else { "(no stale worktrees found)" }
                         [System.Windows.MessageBox]::Show("Prune completed.`n`n" + $pruned, "Prune Worktrees", "OK", "Information") | Out-Null
@@ -1698,7 +1750,7 @@ function Start-Build-Step($step) {
     $script:NinjaTotal     = 0
     $ui["LblBuildActivity"].Text = $step.Name + "..."
     $ui["LblProgressText"].Text = "0% - " + $step.Name
-    $ui["ProgressFill"].Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0090D0")))
+    $ui["ProgressFill"].Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0078A8")))
     $ui["ProgressFill"].Width = 0
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -1791,12 +1843,12 @@ function Start-Build {
     $script:NinjaCurrent = 0; $script:NinjaTotal = 0
     $script:BuildStepsTotal = 0; $script:BuildStepsCompleted = 0
 
-    $ui["LblClientStatus"].Text = "client: building..."; $ui["LblClientStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#508CDC")))
+    $ui["LblClientStatus"].Text = "client: building..."; $ui["LblClientStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0078A8")))
     # LblServerStatus is repurposed as the tests status row (pd-server is no
     # longer built or shipped). Leave whatever the tests pipeline last wrote.
     if ($null -eq $ui["LblServerStatus"].Text -or $ui["LblServerStatus"].Text -match '^server:') {
         $ui["LblServerStatus"].Text = "tests: --"
-        $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#8C8C8C")))
+        $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#4A5868")))
     }
     $ui["BtnBuild"].IsEnabled = $false; $ui["BtnRelease"].IsEnabled = $false; $ui["BtnCleanBuild"].IsEnabled = $false
     $ui["BtnPull"].IsEnabled = $false
@@ -1808,7 +1860,7 @@ function Start-Build {
     $ui["ProgressBack"].Visibility = [System.Windows.Visibility]::Visible
     $ui["LblBuildActivity"].Text = "Git: syncing..."
     $ui["LblProgressText"].Text = "Git: syncing..."
-    $ui["ProgressFill"].Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0090D0")))
+    $ui["ProgressFill"].Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0078A8")))
     $ui["ProgressFill"].Width = 0
     $ui["ProgressBack"].UpdateLayout()
     $pw0 = $ui["ProgressBack"].ActualWidth
@@ -1838,9 +1890,9 @@ function Start-Build {
         $buildMode = $(if ($script:CurrentBuildClean) { "clean" } else { "incremental" })
         $ui["LblBuildActivity"].Text = "Starting " + $buildMode + " build..."
         $ui["LblProgressText"].Text = "0% - starting " + $buildMode + " build..."
-        Add-LogSessionLine "" "#1A3050"
-        Add-LogSessionLine (">>> BUILD (" + $buildMode + ")") "#0090D0"
-        Add-LogSessionLine "" "#1A3050"
+        Add-LogSessionLine "" "#C0C8D2"
+        Add-LogSessionLine (">>> BUILD (" + $buildMode + ")") "#0078A8"
+        Add-LogSessionLine "" "#C0C8D2"
 
         $script:BuildVersion = Get-UiVersion
         $script:BuildProcess = $null
@@ -1894,7 +1946,7 @@ function Start-PushRelease {
     $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Visible
     $ui["LblBuildActivity"].Text = "Git: syncing..."
     $ui["LblProgressText"].Text = "Git: syncing..."
-    $ui["ProgressFill"].Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0090D0")))
+    $ui["ProgressFill"].Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0078A8")))
     $ui["ProgressFill"].Width = 0
     $ui["ProgressBack"].UpdateLayout()
     $pw0r = $ui["ProgressBack"].ActualWidth
@@ -1942,10 +1994,10 @@ function Start-PushRelease {
         $ui["BtnCopyLog"].Visibility = [System.Windows.Visibility]::Visible
 
         $script:BuildVersion = $relVer
-        Add-LogSessionLine "" "#1A3050"
-        Add-LogSessionLine (">>> RELEASE PIPELINE v" + $relVs + " (" + $relKind + ")") "#C8A000"
+        Add-LogSessionLine "" "#C0C8D2"
+        Add-LogSessionLine (">>> RELEASE PIPELINE v" + $relVs + " (" + $relKind + ")") "#A06A10"
         Add-LogSessionLine "    Version written to CMakeLists.txt; steps below run in order (build, then package/push)." "#44586C"
-        Add-LogSessionLine "" "#1A3050"
+        Add-LogSessionLine "" "#C0C8D2"
 
         # Audit 2026-04-16: release builds now do a clean build to match v1 behavior.
         # Stale object files from a previous broken build can otherwise link into
@@ -1997,7 +2049,7 @@ function Toggle-Game {
     }
     $ui["BtnRunGame"].IsEnabled = $false
     $ui["BtnRunGame"].Content = "STARTING..."
-    Add-LogLine (">>> Starting game: " + $exe) "#0090D0"
+    Add-LogLine (">>> Starting game: " + $exe) "#0078A8"
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $exe
@@ -2014,7 +2066,7 @@ function Toggle-Game {
         [PD2V2.AsyncLineReader]::StartReading($proc.StandardError,  $script:GameOutputQueue, "ERR:")
         $ui["BtnRunGame"].Content = "STOP GAME"
     } catch {
-        Add-LogLine ("Game launch failed: " + $_.Exception.Message) "#DC3232"
+        Add-LogLine ("Game launch failed: " + $_.Exception.Message) "#B81818"
         $ui["BtnRunGame"].Content = "RUN GAME"
         [System.Windows.MessageBox]::Show("Game launch failed: " + $_.Exception.Message, "Run Error", "OK", "Error") | Out-Null
     } finally {
@@ -2035,6 +2087,13 @@ $script:TestsBuildBusy = $false
 $script:TestsLastSummary = ""
 $script:TestsPassed = 0
 $script:TestsFailed = 0
+$script:TestsAssertions = 0
+# Per-run scan buffer for the tests pipeline. Drain-ProcessOutputQueues
+# appends every "[tests] ..." line here in addition to writing it to the
+# Log tab. Build's $script:AllOutput is used by Copy Log / Export and
+# starts/ends per BUILD, so we don't want test lines to pollute it. The
+# watchdog parser scans this buffer for the Catch2 summary lines.
+$script:TestsScanBuffer = [System.Collections.ArrayList]::new()
 
 function Stop-RunTests {
     if ($null -ne $script:TestsProcess -and -not $script:TestsProcess.HasExited) {
@@ -2049,7 +2108,7 @@ function Stop-RunTests {
 function Toggle-Tests {
     # Click while running = stop. Otherwise = run.
     if ($script:TestsRunning) {
-        Add-LogSessionLine ">>> tests: STOP requested" "#CDAA32"
+        Add-LogSessionLine ">>> tests: STOP requested" "#A07810"
         Stop-RunTests
         return
     }
@@ -2069,13 +2128,15 @@ function Start-RunTests {
     $script:TestsLastSummary = ""
     $script:TestsPassed = 0
     $script:TestsFailed = 0
+    $script:TestsAssertions = 0
+    [void]$script:TestsScanBuffer.Clear()
     $ui["BtnRunTests"].Content = "PREPARING..."
     $ui["BtnRunTests"].IsEnabled = $false
     $ui["LblServerStatus"].Text = "tests: preparing..."
-    $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#508CDC")))
-    Add-LogSessionLine "" "#1A3050"
-    Add-LogSessionLine ">>> RUN TESTS (pd-tests)" "#C8A000"
-    Add-LogSessionLine "" "#1A3050"
+    $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0078A8")))
+    Add-LogSessionLine "" "#C0C8D2"
+    Add-LogSessionLine ">>> RUN TESTS (pd-tests)" "#A06A10"
+    Add-LogSessionLine "" "#C0C8D2"
 
     # Make sure the Log tab is visible so the user sees streaming output
     # without needing to switch manually.
@@ -2096,7 +2157,7 @@ function Start-RunTests {
 function Build-Tests-Then-Run {
     $script:TestsBuildBusy = $true
     $ui["BtnRunTests"].Content = "BUILDING TESTS..."
-    Add-LogSessionLine "tests: building pd-tests target..." "#508CDC"
+    Add-LogSessionLine "tests: building pd-tests target..." "#0078A8"
 
     $cmakeExe = $script:CMake
     $buildDir = $script:BuildDir
@@ -2119,7 +2180,7 @@ function Build-Tests-Then-Run {
                     "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache" `
                     -B $buildDir -S $projectRoot 2>&1
                 $cfgCode = $LASTEXITCODE
-                foreach ($l in $cfg) { [void]$output.Add(@{ Text = "$l"; Color = "#8C8C8C" }) }
+                foreach ($l in $cfg) { [void]$output.Add(@{ Text = "$l"; Color = "#4A5868" }) }
                 if ($cfgCode -ne 0) {
                     return [PSCustomObject]@{ Ok = $false; Output = $output; Err = "configure failed" }
                 }
@@ -2127,9 +2188,9 @@ function Build-Tests-Then-Run {
                 $bld = & $cmakeExe --build $buildDir --target pd-tests 2>&1
                 $bldCode = $LASTEXITCODE
                 foreach ($l in $bld) {
-                    $color = "#8C8C8C"
-                    if ("$l" -match '(?i)\berror\b|FAILED|undefined reference') { $color = "#DC3232" }
-                    elseif ("$l" -match '(?i)\bwarning\b') { $color = "#FF8C00" }
+                    $color = "#4A5868"
+                    if ("$l" -match '(?i)\berror\b|FAILED|undefined reference') { $color = "#B81818" }
+                    elseif ("$l" -match '(?i)\bwarning\b') { $color = "#B86810" }
                     [void]$output.Add(@{ Text = "$l"; Color = $color })
                 }
                 if ($bldCode -ne 0) {
@@ -2137,7 +2198,7 @@ function Build-Tests-Then-Run {
                 }
                 return [PSCustomObject]@{ Ok = $true; Output = $output; Err = $null }
             } catch {
-                [void]$output.Add(@{ Text = $_.Exception.Message; Color = "#DC3232" })
+                [void]$output.Add(@{ Text = $_.Exception.Message; Color = "#B81818" })
                 return [PSCustomObject]@{ Ok = $false; Output = $output; Err = $_.Exception.Message }
             }
         } `
@@ -2147,7 +2208,7 @@ function Build-Tests-Then-Run {
             $script:TestsBuildBusy = $false
             $r = if ($result -and $result.Count -gt 0) { $result[0] } else { $result }
             if ($null -eq $r) {
-                Add-LogSessionLine "tests: build returned no result" "#DC3232"
+                Add-LogSessionLine "tests: build returned no result" "#B81818"
                 Stop-RunTests
                 return
             }
@@ -2157,14 +2218,14 @@ function Build-Tests-Then-Run {
                 }
             }
             if (-not $r.Ok) {
-                Add-LogSessionLine ("tests: " + $r.Err) "#DC3232"
+                Add-LogSessionLine ("tests: " + $r.Err) "#B81818"
                 $ui["LblServerStatus"].Text = "tests: build FAILED"
-                $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#DC3232")))
+                $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#B81818")))
                 [System.Windows.MessageBox]::Show("pd-tests build failed.`n`n" + $r.Err + "`n`nSee Log tab for details.", "Run Tests", "OK", "Error") | Out-Null
                 Stop-RunTests
                 return
             }
-            Add-LogSessionLine "tests: build OK; running..." "#508CDC"
+            Add-LogSessionLine "tests: build OK; running..." "#0078A8"
             $ui["LblServerStatus"].Text = "tests: starting..."
             Run-Tests-Process
         }
@@ -2173,7 +2234,7 @@ function Build-Tests-Then-Run {
 function Run-Tests-Process {
     $exe = Join-Path $script:BuildDir "pd-tests.exe"
     if (-not (Test-Path -LiteralPath $exe)) {
-        Add-LogSessionLine ("tests: executable not found at " + $exe) "#DC3232"
+        Add-LogSessionLine ("tests: executable not found at " + $exe) "#B81818"
         [System.Windows.MessageBox]::Show("pd-tests.exe not found after build at:`n" + $exe, "Run Tests", "OK", "Error") | Out-Null
         Stop-RunTests
         return
@@ -2181,8 +2242,13 @@ function Run-Tests-Process {
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $exe
-        # Catch2 default reporter prints a final summary line we parse later.
-        $psi.Arguments = "--reporter console --durations no"
+        # Verbose per-case run (S477, Mike's ask): -s prints every assertion
+        # (the result that made each case pass/fail), -d yes prints per-case
+        # durations. Final Catch2 summary still appears at end and is parsed
+        # by the watchdog. -r console makes the reporter explicit; default
+        # would also pick console but be explicit so future Catch2 default
+        # changes don't silently shift the format the parser expects.
+        $psi.Arguments = "-r console -s -d yes"
         $psi.WorkingDirectory = (Split-Path $exe -Parent)
         $psi.UseShellExecute = $false
         $psi.RedirectStandardOutput = $true
@@ -2197,8 +2263,8 @@ function Run-Tests-Process {
         $ui["BtnRunTests"].Content = "STOP TESTS"
         $ui["BtnRunTests"].IsEnabled = $true
         $ui["LblServerStatus"].Text = "tests: running..."
-        $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#508CDC")))
-        Add-LogSessionLine ("tests: started " + $exe) "#508CDC"
+        $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0078A8")))
+        Add-LogSessionLine ("tests: started " + $exe) "#0078A8"
         # Poll for completion on the dispatcher; final summary surfaces in the
         # MessageBox after the queues drain.
         $watchdog = New-Object System.Windows.Threading.DispatcherTimer
@@ -2212,35 +2278,59 @@ function Run-Tests-Process {
                 $this.Stop()
                 $code = $script:TestsProcess.ExitCode
                 $script:TestsProcess = $null
-                # Parse Catch2 summary: prefer the last "test cases" line.
-                $passed = 0; $failed = 0
-                foreach ($line in $script:AllOutput) {
-                    if ($line -match 'test cases:\s+(\d+)\s*\|\s*(\d+)\s+passed(?:\s*\|\s*(\d+)\s+failed)?') {
+                # Parse Catch2 summary. Two shapes are emitted by the
+                # default "console" reporter:
+                #   (a) all-passed:   "All tests passed (1881 assertions in 155 test cases)"
+                #   (b) with-failures:
+                #         "test cases: 12 | 10 passed | 2 failed"
+                #         "assertions: 4080 | 4078 passed | 2 failed"
+                # Scan the per-run TestsScanBuffer (NOT $script:AllOutput,
+                # which is the build pipeline's buffer and is not populated
+                # by the tests drain path).
+                $cases = 0; $passed = 0; $failed = 0; $assertions = 0
+                foreach ($line in $script:TestsScanBuffer) {
+                    if ($line -match 'All tests passed.*?\((\d+)\s+assertion(?:s)?\s+in\s+(\d+)\s+test case(?:s)?\)') {
+                        $assertions = [int]$Matches[1]
+                        $cases      = [int]$Matches[2]
+                        $passed     = $cases
+                        $failed     = 0
+                    } elseif ($line -match '^\s*test cases:\s*(\d+)\s*\|\s*(\d+)\s+passed(?:\s*\|\s*(\d+)\s+failed)?') {
+                        $cases  = [int]$Matches[1]
                         $passed = [int]$Matches[2]
                         if ($Matches.Count -ge 4 -and $Matches[3]) { $failed = [int]$Matches[3] }
-                    } elseif ($line -match 'All tests passed.*\((\d+) assertion[s]? in (\d+) test case[s]?\)') {
-                        $passed = [int]$Matches[2]
+                    } elseif ($line -match '^\s*assertions:\s*(\d+)\s*\|') {
+                        $assertions = [int]$Matches[1]
                     }
                 }
-                $script:TestsPassed = $passed
-                $script:TestsFailed = $failed
-                $script:TestsRunning = $false
+                $script:TestsPassed     = $passed
+                $script:TestsFailed     = $failed
+                $script:TestsAssertions = $assertions
+                $script:TestsRunning    = $false
                 $ui["BtnRunTests"].Content = "RUN TESTS"
                 $ui["BtnRunTests"].IsEnabled = $true
-                $okMsg = "pd-tests exit $code"
-                if ($passed -gt 0 -or $failed -gt 0) {
-                    $okMsg += "`n`nPassed: $passed`nFailed: $failed"
+
+                # Compose status + message-box text. Show whichever counts we
+                # were able to extract; fall back to "exit 0" if Catch2's
+                # summary was missing entirely.
+                $countsBlurb = if ($cases -gt 0 -or $assertions -gt 0) {
+                    "$cases case$(if ($cases -ne 1) {'s'}), $assertions assertion$(if ($assertions -ne 1) {'s'})"
+                } else {
+                    "no Catch2 summary found"
                 }
-                $greenBrush = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#00B400"))
-                $redBrush   = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#DC3232"))
+                $okMsg = "pd-tests exit $code`n`n"
+                $okMsg += "Cases: $cases   Passed: $passed   Failed: $failed`n"
+                $okMsg += "Assertions: $assertions"
+
+                $greenBrush = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10783A"))
+                $redBrush   = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#B81818"))
                 if ($code -eq 0 -and $failed -eq 0) {
-                    Add-LogSessionLine ("tests: PASSED (" + $passed + " case[s])") "#00B400"
-                    $ui["LblServerStatus"].Text = "tests: PASSED ($passed case[s])"
+                    Add-LogSessionLine ("tests: PASSED (" + $countsBlurb + ")") "#10783A"
+                    $ui["LblServerStatus"].Text = "tests: PASSED ($countsBlurb)"
                     $ui["LblServerStatus"].Foreground = $greenBrush
                     [System.Windows.MessageBox]::Show($okMsg, "Run Tests -- PASSED", "OK", "Information") | Out-Null
                 } else {
-                    Add-LogSessionLine ("tests: FAILED (exit " + $code + ", " + $failed + " failure[s])") "#DC3232"
-                    $ui["LblServerStatus"].Text = "tests: FAILED ($failed failure[s])"
+                    Add-LogSessionLine ("tests: FAILED (exit " + $code + ", " + $failed + " failure[s] of " + $cases + " case[s])") "#B81818"
+                    $ui["LblServerStatus"].Text = "tests: FAILED ($failed of $cases failed)"
                     $ui["LblServerStatus"].Foreground = $redBrush
                     [System.Windows.MessageBox]::Show($okMsg + "`n`nSee Log tab for failure details.", "Run Tests -- FAILED", "OK", "Warning") | Out-Null
                 }
@@ -2248,7 +2338,7 @@ function Run-Tests-Process {
         })
         $watchdog.Start()
     } catch {
-        Add-LogSessionLine ("tests: launch failed " + $_.Exception.Message) "#DC3232"
+        Add-LogSessionLine ("tests: launch failed " + $_.Exception.Message) "#B81818"
         [System.Windows.MessageBox]::Show("pd-tests launch failed: " + $_.Exception.Message, "Run Tests", "OK", "Error") | Out-Null
         Stop-RunTests
     }
@@ -2271,6 +2361,11 @@ function Drain-ProcessOutputQueues {
         $text = if ($line.Length -ge 4) { $line.Substring(4) } else { $line }
         $cls = if ($line.StartsWith("ERR:")) { "error" } else { Classify-Line $text }
         Add-LogLine ("[tests] " + $text) (Get-ClassifiedLogColor $cls)
+        # Feed the raw test line (without "[tests] " prefix) into the scan
+        # buffer so the watchdog parser can find Catch2's summary.
+        if ($null -ne $script:TestsScanBuffer) {
+            [void]$script:TestsScanBuffer.Add($text)
+        }
         $count++
     }
 }
@@ -2317,7 +2412,7 @@ $ui["BtnCheck"].Add_Click({
     }
     $script:GitActionBusy = $true
     $ui["BtnCheck"].IsEnabled = $false
-    Add-LogLine ">>> check: git status + git-snapshot.sh" "#0090D0"
+    Add-LogLine ">>> check: git status + git-snapshot.sh" "#0078A8"
 
     Start-AsyncPoolAction `
         -Script {
@@ -2406,14 +2501,14 @@ $script:BuildTimer.Add_Tick({
                 $next = $script:BuildStepQueue[0]; $script:BuildStepQueue.RemoveAt(0)
                 if ($next.Target -eq "server") {
                     $ui["LblServerStatus"].Text = "server: building..."
-                    $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#508CDC")))
+                    $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0078A8")))
                 }
-                Add-LogSessionLine "" "#1A3050"
-                Add-LogSessionLine (">>> " + $next.Name) "#0090D0"
+                Add-LogSessionLine "" "#C0C8D2"
+                Add-LogSessionLine (">>> " + $next.Name) "#0078A8"
                 if ($next.Name -match "Release") {
                     Add-LogSessionLine "    Packaging / gh release upload may print little until GitHub responds (30-90s is normal)." "#44586C"
                 }
-                Add-LogSessionLine "" "#1A3050"
+                Add-LogSessionLine "" "#C0C8D2"
                 Start-Build-Step $next
             } else {
                 $script:BuildTimer.Stop()
@@ -2430,7 +2525,7 @@ $script:BuildTimer.Add_Tick({
                 $script:HasBuildErrors = $true
                 if ($script:CurrentBuildTarget -eq "server") { [void]$script:ServerErrors.Add($text) }
                 else { [void]$script:ClientErrors.Add($text) }
-                $ui["ProgressFill"].Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#DC3232")))
+                $ui["ProgressFill"].Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#B81818")))
             }
             Add-LogLine $text (Get-ClassifiedLogColor $cls)
 
@@ -2507,9 +2602,9 @@ $script:BuildTimer.Add_Tick({
             $script:BuildProcess = $null
             $script:BuildStepsCompleted = $script:BuildStepsCompleted + 1
 
-            $greenBrush = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#00B400"))
-            $redBrush   = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#DC3232"))
-            $dimBrush   = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#8C8C8C"))
+            $greenBrush = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10783A"))
+            $redBrush   = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#B81818"))
+            $dimBrush   = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#4A5868"))
 
             if ($exitCode -ne 0) {
                 if ($script:CurrentBuildTarget -eq "client") {
@@ -2543,7 +2638,7 @@ $script:BuildTimer.Add_Tick({
                 $next = $script:BuildStepQueue[0]; $script:BuildStepQueue.RemoveAt(0)
                 if ($next.Target -eq "server") {
                     $ui["LblServerStatus"].Text = "server: building..."
-                    $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#508CDC")))
+                    $ui["LblServerStatus"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0078A8")))
                 }
                 Start-Build-Step $next; $script:BuildTimer.Start()
             } else {
@@ -2561,7 +2656,7 @@ $script:BuildTimer.Add_Tick({
                         }
                     } catch {}
                 } else { Play-FailureSound }
-                $fillColor = $(if ($anyErr) { "#DC3232" } else { "#00B400" })
+                $fillColor = $(if ($anyErr) { "#B81818" } else { "#10783A" })
                 $ui["ProgressFill"].Background = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($fillColor)))
                 $pw = $ui["ProgressBack"].ActualWidth
                 if ($pw -gt 0) { $ui["ProgressFill"].Width = $pw }
@@ -2763,7 +2858,7 @@ function Invoke-GhAuthBackgroundCheck {
 
 function Update-Auth-Labels {
     $authText  = "auth: ..."
-    $authColor = "#8C8C8C"
+    $authColor = "#4A5868"
     if (-not $script:GhAuthChecked) {
         # still checking - avoids flashing auth: no gh before background run finishes
     } elseif (-not $script:GhCliAvailable) {
@@ -2771,10 +2866,10 @@ function Update-Auth-Labels {
         $authColor = "#C9A020"
     } elseif (-not $script:GhAuthOk) {
         $authText  = "auth: sign in"
-        $authColor = "#FF8C00"
+        $authColor = "#B86810"
     } else {
         $authText  = "auth: ok"
-        $authColor = "#00B400"
+        $authColor = "#10783A"
     }
     try {
         $ui["StatusAuth"].Text = $authText
@@ -2832,25 +2927,25 @@ function Update-StatusMode {
         } else {
             $text = "${label}: $($script:CurrentStepName)"
         }
-        $color = "#508CDC"
+        $color = "#0078A8"
     }
     elseif ($script:GitSyncBusy) {
         $text = "Git: syncing..."
-        $color = "#508CDC"
+        $color = "#0078A8"
     }
     elseif ($script:GitActionBusy) {
         $text = "Git: busy"
-        $color = "#508CDC"
+        $color = "#0078A8"
     }
     elseif ($testsRunning) {
         if ($script:TestsBuildBusy) { $text = "Tests: building pd-tests..." }
         elseif ($null -ne $script:TestsProcess) { $text = "Tests: running (pid " + $script:TestsProcess.Id + ")" }
         else { $text = "Tests: starting..." }
-        $color = "#C8A000"
+        $color = "#A06A10"
     }
     elseif ($gameRunning) {
         $text = "Game (pid " + $script:GameProcess.Id + ")"
-        $color = "#00B400"
+        $color = "#10783A"
     }
     else {
         $text = "Idle"
@@ -2895,14 +2990,14 @@ function Update-StatusBar {
                     $ui["StatusHash"].Text   = "HEAD: " + $r.Hash
                     if ($r.Count -eq 0) {
                         $ui["StatusDirty"].Text = "clean"
-                        $ui["StatusDirty"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#00B400")))
+                        $ui["StatusDirty"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10783A")))
                     } else {
                         $ui["StatusDirty"].Text = [string]$r.Count + " uncommitted"
-                        $ui["StatusDirty"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#FF8C00")))
+                        $ui["StatusDirty"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#B86810")))
                     }
                     if ($r.Worktrees -gt 0) {
                         $ui["StatusWorktrees"].Text = "worktrees: " + $r.Worktrees
-                        $wtColor = if ($r.Worktrees -gt 20) { "#FF8C00" } else { "#506070" }
+                        $wtColor = if ($r.Worktrees -gt 20) { "#B86810" } else { "#506070" }
                         $ui["StatusWorktrees"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($wtColor)))
                     }
                     Update-Auth-Labels
@@ -2978,7 +3073,7 @@ $window.Add_Loaded({
                 $pre = $cached.prerelease
                 $kind = $(if ($pre) { "dev" } else { "stable" })
                 $ui["LblLatestRelease"].Text = "latest: " + $tag + " (" + $kind + ")"
-                $color = $(if ($pre) { "#508CDC" } else { "#00B400" })
+                $color = $(if ($pre) { "#0078A8" } else { "#10783A" })
                 $ui["LblLatestRelease"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($color)))
             } catch {}
         }

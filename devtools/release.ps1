@@ -80,12 +80,20 @@ if ($Nightly) {
         $parts = $Version -split '\.'
         if ($parts.Count -ge 3 -and $parts[0] -match '^\d+$' -and $parts[1] -match '^\d+$' -and $parts[2] -match '^\d+$') {
             try {
-                $cmake = Get-Content "CMakeLists.txt" -Raw -ErrorAction Stop
-                $cmake = $cmake -replace '(VERSION_SEM_MAJOR\s+)\d+', ("`${1}" + $parts[0])
+                $orig = Get-Content "CMakeLists.txt" -Raw -ErrorAction Stop
+                $cmake = $orig -replace '(VERSION_SEM_MAJOR\s+)\d+', ("`${1}" + $parts[0])
                 $cmake = $cmake -replace '(VERSION_SEM_MINOR\s+)\d+', ("`${1}" + $parts[1])
                 $cmake = $cmake -replace '(VERSION_SEM_PATCH\s+)\d+', ("`${1}" + $parts[2])
-                Set-Content "CMakeLists.txt" -Value $cmake -NoNewline -Encoding UTF8 -ErrorAction Stop
-                Write-Host "  Synced CMakeLists.txt to v$Version" -ForegroundColor Gray
+                # No-op skip + no-BOM UTF-8 encoder. Set-Content -Encoding UTF8
+                # on PowerShell 5.1 emits a BOM that leaves the working tree
+                # dirty after every release (S477).
+                if ($cmake -ne $orig) {
+                    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+                    [System.IO.File]::WriteAllText((Resolve-Path "CMakeLists.txt").Path, $cmake, $utf8NoBom)
+                    Write-Host "  Synced CMakeLists.txt to v$Version" -ForegroundColor Gray
+                } else {
+                    Write-Host "  CMakeLists.txt already at v$Version (no rewrite)" -ForegroundColor Gray
+                }
             } catch {
                 Write-Host "  Warning: Could not sync CMakeLists.txt: $_" -ForegroundColor Yellow
             }
