@@ -9,6 +9,7 @@
 #include "game/modelmgr.h"
 #include "game/lv.h"
 #include "game/forgemode.h"
+#include "game/hudmsg.h" /* INV-5: HUD message on body identity substitution */
 #include "game/modeldef.h"
 #include "game/mplayer/mplayer.h"
 #include "game/pad.h"
@@ -173,10 +174,21 @@ bool bodyLoad(s32 bodynum)
 
 struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeldef, struct modeldef *headmodeldef, bool sunglasses, struct model *model, bool isplayer, u8 varyheight)
 {
-	/* Bounds check bodynum against g_HeadsAndBodies[152] */
+	/* INV-5 / Cohort E.1 (player-init-architectural-fixes-2026-04-26):
+	 * defensive bodynum-OOB substitution clamps the requested body to slot 0
+	 * (DJ Bond) so chrSetup has a renderable model. The substitution is
+	 * preserved (existing rendering behavior) but elevated to LOG_ERROR
+	 * with full context, plus a one-shot HUD message during active
+	 * gameplay so the player can see WHY their selected body appears as
+	 * DJ Bond rather than silently wondering. Per Opus H-6 + design D-X. */
 	if (bodynum < 0 || bodynum >= ARRAYCOUNT(g_HeadsAndBodies)) {
-		sysLogPrintf(LOG_WARNING, "body0f02ce8c: bodynum %d out of range [0,%d), falling back to 0",
-		             bodynum, ARRAYCOUNT(g_HeadsAndBodies));
+		sysLogPrintf(LOG_ERROR,
+			"BODY.IDENTITY: bodynum=%d OOB [0,%d), substituting bodynum=0 "
+			"(DJ Bond) -- chr will appear as wrong character (isplayer=%d headnum=%d)",
+			bodynum, ARRAYCOUNT(g_HeadsAndBodies), isplayer, headnum);
+		if (isplayer && g_Vars.currentplayer != NULL && g_Vars.currentplayer->prop != NULL) {
+			hudmsgCreate("Character load failed -- using fallback body", HUDMSGTYPE_DEFAULT);
+		}
 		bodynum = 0;
 	}
 
