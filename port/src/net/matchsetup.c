@@ -356,10 +356,41 @@ static const char *pickHeadIdForBody(const char *body_id)
 	return catalogPickRandomHeadIdForBody(body_id);
 }
 
+/* Bodies catalog migration (Step 5): collector for the unlocked body
+ * pool used by pickRandomBodyHead.  Reads catalog IDs straight off the
+ * entry; capped at MS_MAX_RANDOM_POOL because the body pool fits in 128
+ * with mods (63 base + headroom) and we want a deterministic stack
+ * footprint.  When the iterator finds zero unlocked entries (e.g.
+ * dedicated-server build with no assetCatalogRegisterBaseGame call) the
+ * caller falls back to the "base:dark_combat" sentinel. */
+#define MS_MAX_RANDOM_POOL 128
+struct ms_random_body_ctx {
+	const char *ids[MS_MAX_RANDOM_POOL];
+	s32         count;
+};
+
+static void ms_collect_random_body(const asset_entry_t *e, void *userdata)
+{
+	struct ms_random_body_ctx *ctx = (struct ms_random_body_ctx *)userdata;
+	if (ctx->count >= MS_MAX_RANDOM_POOL) return;
+	if (!e->id || !e->id[0]) return;
+	ctx->ids[ctx->count++] = e->id;
+}
+
 static void pickRandomBodyHead(char *body_id, s32 bodyLen, char *head_id, s32 headLen)
 {
-	u32 numBodies = mpGetNumBodies();
-	if (numBodies == 0) {
+	struct ms_random_body_ctx pool;
+	pool.count = 0;
+	assetCatalogIterateUnlockedByType(ASSET_BODY, ms_collect_random_body, &pool);
+
+	const char *picked_body = NULL;
+
+	/* Empty pool fallback: dedicated server (no entries registered) or a
+	 * playthrough with no unlocked bodies (theoretically impossible since
+	 * base:dark_combat has requirefeature == 0).  Constant fallback keeps
+	 * the function defined under all conditions, matching the heads I.6
+	 * graceful-fallback intent. */
+	if (pool.count == 0) {
 		strncpy(body_id, "base:dark_combat", bodyLen - 1);
 		body_id[bodyLen - 1] = '\0';
 		strncpy(head_id, "base:head_dark_combat", headLen - 1);
@@ -368,23 +399,24 @@ static void pickRandomBodyHead(char *body_id, s32 bodyLen, char *head_id, s32 he
 	}
 
 	/* Try up to 10 times to avoid duplicate body with existing bots */
-	const char *picked_body = NULL;
 	for (s32 attempt = 0; attempt < 10; attempt++) {
-		u32 idx = rand() % numBodies;
-		picked_body = catalogMpBodyId(idx);
-		if (!picked_body || !picked_body[0]) continue;
+		u32 idx = (u32)rand() % (u32)pool.count;
+		const char *candidate = pool.ids[idx];
+		if (!candidate || !candidate[0]) continue;
 
 		/* Check for duplicates among existing slots */
 		bool dup = false;
 		for (s32 s = 0; s < g_MatchConfig.numSlots; s++) {
 			if (g_MatchConfig.slots[s].type != SLOT_EMPTY &&
-			    strcmp(g_MatchConfig.slots[s].body_id, picked_body) == 0) {
+			    strcmp(g_MatchConfig.slots[s].body_id, candidate) == 0) {
 				dup = true;
 				break;
 			}
 		}
-		if (!dup || attempt == 9) break;
-		picked_body = NULL;
+		if (!dup || attempt == 9) {
+			picked_body = candidate;
+			break;
+		}
 	}
 
 	if (!picked_body || !picked_body[0]) {
@@ -394,8 +426,10 @@ static void pickRandomBodyHead(char *body_id, s32 bodyLen, char *head_id, s32 he
 	strncpy(body_id, picked_body, bodyLen - 1);
 	body_id[bodyLen - 1] = '\0';
 
-	/* B-235: use pickHeadIdForBody so HEAD_RANDOM_GENDER bodies get a
-	 * gender-pool random head instead of the dark_combat fallback. */
+	/* B-235: use pickHeadIdForBody (catalogPickRandomHeadIdForBody) so
+	 * HEAD_RANDOM_GENDER bodies get a gender-pool random head instead of
+	 * the dark_combat fallback.  Heads Step 2 added the unlock filter
+	 * inside that helper. */
 	const char *paired_head = pickHeadIdForBody(picked_body);
 	if (paired_head && paired_head[0]) {
 		strncpy(head_id, paired_head, headLen - 1);
