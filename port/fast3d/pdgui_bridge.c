@@ -148,6 +148,28 @@ void mpPlayerConfigSetHeadId(s32 playernum, const char *head_id)
 }
 
 /**
+ * Set the MP player config BODY only (preserves head).
+ * Routes through mpchrSetBodyById which writes body_id (PRIMARY) and
+ * keeps the DEPRECATED mpbodynum integer in sync via catalog lookup.
+ * Used by the catalog-driven body pickers (bodies catalog migration).
+ *
+ * Callers that want the body's declared default head to follow should
+ * combine with mpPlayerConfigSetHeadId, mirroring the legacy
+ * mpCharacterBodyListHandler MENUOP_SET path:
+ *
+ *   mpPlayerConfigSetBodyId(pnum, body_id);
+ *   const char *def = catalogGetBodyDefaultHead(body_id);
+ *   if (def && def[0]) mpPlayerConfigSetHeadId(pnum, def);
+ */
+void mpPlayerConfigSetBodyId(s32 playernum, const char *body_id)
+{
+    if (playernum < 0 || playernum >= ARRAYCOUNT(g_PlayerConfigsArray)) {
+        return;
+    }
+    mpchrSetBodyById(&g_PlayerConfigsArray[playernum].base, body_id);
+}
+
+/**
  * Get the MP player config head catalog ID string.
  */
 const char *mpPlayerConfigGetHeadId(s32 playernum)

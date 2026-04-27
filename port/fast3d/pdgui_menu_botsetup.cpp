@@ -216,6 +216,23 @@ static BsHeadEntry s_BsHeadList[BS_MAX_HEAD_COUNT];
 static s32         s_BsHeadListCount      = 0;
 static s32         s_BsHeadListCountKnown = -1;
 
+/* Bodies catalog migration (Step 3): unlocked body pool for the simulant
+ * character dropdown.  Same shape as s_BsHeadList -- the legacy carousel
+ * commit path (car_Set(menuhandlerMpSimulantBody, ...)) writes mp_idx into
+ * the bot config via mpchrSetBodyByIndex, so we store the mp_index as the
+ * commit key.  Bodies with mp_index < 0 (SP / mod fallbacks) are excluded
+ * because the legacy commit path needs a valid mp_idx; this matches the
+ * heads-side pattern.  Display name preference: mpGetBodyName when
+ * available (preserves langbank + B-226 catalog override). */
+#define BS_MAX_BODY_COUNT 128
+struct BsBodyEntry {
+    s32  mp_idx;             /* g_MpBodies[] position; legacy car_Set key */
+    char display[64];        /* "Joanna Dark (Combat)", "Carrington", ... */
+};
+static BsBodyEntry s_BsBodyList[BS_MAX_BODY_COUNT];
+static s32         s_BsBodyListCount      = 0;
+static s32         s_BsBodyListCountKnown = -1;
+
 /* =========================================================================
  * s204 call-through helpers
  *
@@ -517,6 +534,59 @@ static s32 s_bsFindHeadIndexByMpIdx(s32 mp_idx)
 {
     for (s32 i = 0; i < s_BsHeadListCount; i++) {
         if (s_BsHeadList[i].mp_idx == mp_idx) return i;
+    }
+    return 0;
+}
+
+/* =========================================================================
+ * Bodies catalog migration (Step 3): unlocked body pool builder
+ *
+ * Mirrors the Step 5 head pool.  Skips bodies with mp_index < 0 because
+ * the legacy car_Set(menuhandlerMpSimulantBody, ...) commit path uses mp_idx
+ * as the write key.
+ * ========================================================================= */
+
+static int s_bsCompareBody(const void *a, const void *b)
+{
+    return strcmp(((const BsBodyEntry *)a)->display,
+                  ((const BsBodyEntry *)b)->display);
+}
+
+static void s_bsCollectUnlockedBody(const asset_entry_t *e, void *userdata)
+{
+    (void)userdata;
+    if (s_BsBodyListCount >= BS_MAX_BODY_COUNT) return;
+    if (e->mp_index < 0) return;  /* legacy commit path needs an mp_idx */
+    BsBodyEntry *b = &s_BsBodyList[s_BsBodyListCount++];
+    b->mp_idx = (s32)e->mp_index;
+    b->display[0] = '\0';
+    /* Prefer the localized + B-226 catalog-override name. */
+    char *raw = mpGetBodyName((u8)b->mp_idx);
+    if (raw && raw[0]) {
+        strncpy(b->display, raw, sizeof(b->display) - 1);
+        b->display[sizeof(b->display) - 1] = '\0';
+    } else {
+        snprintf(b->display, sizeof(b->display), "Body %d", (int)b->mp_idx);
+    }
+}
+
+static void s_bsRebuildBodyList(void)
+{
+    s_BsBodyListCount = 0;
+    assetCatalogIterateUnlockedByType(ASSET_BODY, s_bsCollectUnlockedBody, NULL);
+    if (s_BsBodyListCount > 1) {
+        qsort(s_BsBodyList, (size_t)s_BsBodyListCount, sizeof(s_BsBodyList[0]),
+              s_bsCompareBody);
+    }
+    s_BsBodyListCountKnown = s_BsBodyListCount;
+}
+
+/* Find list position whose mp_idx matches the bot's currently-equipped body.
+ * Returns 0 if not found. */
+static s32 s_bsFindBodyIndexByMpIdx(s32 mp_idx)
+{
+    for (s32 i = 0; i < s_BsBodyListCount; i++) {
+        if (s_BsBodyList[i].mp_idx == mp_idx) return i;
     }
     return 0;
 }
@@ -1009,11 +1079,11 @@ static s32 renderMpSimulantCharacter(struct menudialog *dialog, struct menu *, s
                           ImGuiWindowFlags_NoBackground)) {
 
         /* Pull the current carousel selection once -- both columns use the
-         * same values so we keep them consistent across the frame.  Body is
-         * still legacy; head is the catalog-driven unlocked pool (Step 5). */
+         * same values so we keep them consistent across the frame.  Both
+         * head and body now read from catalog-driven unlocked pools
+         * (heads Step 5 + bodies Step 3). */
         s32 curHeadMpIdx = car_GetSelectedIndex(menuhandlerMpSimulantHead, 0);
-        s32 curBody      = car_GetSelectedIndex(menuhandlerMpSimulantBody, 0);
-        s32 nBody        = car_GetCount        (menuhandlerMpSimulantBody, 0);
+        s32 curBodyMpIdx = car_GetSelectedIndex(menuhandlerMpSimulantBody, 0);
 
         /* Heads catalog migration (Step 5): rebuild unlocked head pool when
          * the unlocked count changes.  s_BsHeadListCountKnown == -1 forces
@@ -1023,6 +1093,13 @@ static s32 renderMpSimulantCharacter(struct menudialog *dialog, struct menu *, s
             s_bsRebuildHeadList();
         }
         s32 curHeadListIdx = s_bsFindHeadIndexByMpIdx(curHeadMpIdx);
+
+        /* Bodies catalog migration (Step 3): same delta-detection rebuild. */
+        s32 unlockedBodyCount = assetCatalogGetUnlockedCountByType(ASSET_BODY);
+        if (s_BsBodyListCountKnown != unlockedBodyCount) {
+            s_bsRebuildBodyList();
+        }
+        s32 curBodyListIdx = s_bsFindBodyIndexByMpIdx(curBodyMpIdx);
 
         /* Layout sizes (1080p baseline -- pdguiScale rescales at other DPIs). */
         float previewW = pdguiScale(300.0f);
@@ -1039,10 +1116,11 @@ static s32 renderMpSimulantCharacter(struct menudialog *dialog, struct menu *, s
          * to the right.  Same pattern as pdgui_menu_agentcreate.cpp.
          * ------------------------------------------------------------ */
         {
-            /* Step 5: live preview reads head_id directly via the bot's
-             * currently-equipped mp_idx (curHeadMpIdx).  Body still legacy. */
+            /* Step 5 + Step 3: live preview reads head_id and body_id via
+             * the bot's currently-equipped mp_idx (still the legacy carousel
+             * write key). */
             const char *headId = catalogMpHeadId(curHeadMpIdx);
-            const char *bodyId = catalogMpBodyId(curBody);
+            const char *bodyId = catalogMpBodyId(curBodyMpIdx);
 
             ImVec2 pos = ImGui::GetCursorScreenPos();
 
@@ -1114,10 +1192,16 @@ static s32 renderMpSimulantCharacter(struct menudialog *dialog, struct menu *, s
 
             ImGui::Spacing();
 
-            /* Body dropdown */
+            /* Body dropdown -- catalog-driven unlocked pool (Step 3).  Same
+             * shape as the Head dropdown above; selection commits via car_Set
+             * with the entry's mp_idx so the legacy mpchrSetBodyByIndex
+             * writer keeps body_id (PRIMARY) and mpbodynum (DEPRECATED) in
+             * sync. */
             {
-                char *curLabelRaw = mpGetBodyName((u8)curBody);
-                const char *curLabel = curLabelRaw ? curLabelRaw : "???";
+                const char *curLabel = (curBodyListIdx >= 0 &&
+                                        curBodyListIdx < s_BsBodyListCount)
+                    ? s_BsBodyList[curBodyListIdx].display
+                    : "Body ???";
 
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextUnformatted("Body:");
@@ -1125,13 +1209,12 @@ static s32 renderMpSimulantCharacter(struct menudialog *dialog, struct menu *, s
                 ImGui::PushID("##bs_body");
                 ImGui::SetNextItemWidth(-FLT_MIN);
                 if (ImGui::BeginCombo("##bs_body_cb", curLabel)) {
-                    for (s32 i = 0; i < nBody; i++) {
-                        char *tRaw = mpGetBodyName((u8)i);
-                        const char *t = tRaw ? tRaw : "???";
-                        bool sel = (i == curBody);
+                    for (s32 i = 0; i < s_BsBodyListCount; i++) {
+                        bool sel = (i == curBodyListIdx);
                         ImGui::PushID(i);
-                        if (ImGui::Selectable(t, sel)) {
-                            car_Set(menuhandlerMpSimulantBody, 0, i);
+                        if (ImGui::Selectable(s_BsBodyList[i].display, sel)) {
+                            car_Set(menuhandlerMpSimulantBody, 0,
+                                    s_BsBodyList[i].mp_idx);
                             pdguiPlaySound(PDGUI_SND_SELECT);
                         }
                         if (sel) ImGui::SetItemDefaultFocus();

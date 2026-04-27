@@ -128,10 +128,13 @@ const char *catalogMpHeadId(s32 mpheadnum);
 const char *catalogGetBodyDefaultHead(const char *body_id);
 char       *mpGetBodyName(u8 mpbodynum);
 
-/* ---- Head selector commit (writes head_id PRIMARY + DEPRECATED mpheadnum
- *      via mpchrSetHeadById). Defined in pdgui_bridge.c. ---- */
+/* ---- Head/body selector commit (writes head_id/body_id PRIMARY +
+ *      DEPRECATED mpheadnum/mpbodynum via mpchrSetHead/BodyById). Defined
+ *      in pdgui_bridge.c. ---- */
 void mpPlayerConfigSetHeadId(s32 playernum, const char *head_id);
+void mpPlayerConfigSetBodyId(s32 playernum, const char *body_id);
 const char *mpPlayerConfigGetHeadId(s32 playernum);
+const char *mpPlayerConfigGetBodyId(s32 playernum);
 
 /* ---- Batch 11 bridge accessors (pdgui_bridge.c) ---- */
 void pdguiPcMpSetShowPresets(s32 on);
@@ -583,6 +586,76 @@ static s32 s_pcFindHeadIndexById(const char *head_id)
     return 0;
 }
 
+/* Bodies catalog migration (Step 2): unlocked body pool, sorted by display
+ * name.  Built via assetCatalogIterateUnlockedByType so the list only shows
+ * bodies the player has actually unlocked.  Same shape as s_PcHeadList; the
+ * mp_index field tracks the legacy g_MpBodies[] position when available
+ * (>= 0) so we can keep the legacy preview tracker in sync; SP / mod bodies
+ * carry mp_index = -1 and commit via the catalog ID directly. */
+#define PC_MAX_BODY_COUNT 128
+struct PcBodyEntry {
+    char id[CATALOG_ID_LEN];   /* "base:dark_combat", "modid:body_x" */
+    char display[64];           /* mpGetBodyName for mp_index >= 0, else id */
+    s32  mp_index;              /* g_MpBodies[] position; -1 for SP / mod */
+};
+static PcBodyEntry s_PcBodyList[PC_MAX_BODY_COUNT];
+static s32         s_PcBodyListCount      = 0;
+static s32         s_PcBodyListCountKnown = -1;
+
+static int s_pcCompareBody(const void *a, const void *b)
+{
+    return strcmp(((const PcBodyEntry *)a)->display,
+                  ((const PcBodyEntry *)b)->display);
+}
+
+static void s_pcCollectUnlockedBody(const asset_entry_t *e, void *userdata)
+{
+    (void)userdata;
+    if (s_PcBodyListCount >= PC_MAX_BODY_COUNT) return;
+    PcBodyEntry *b = &s_PcBodyList[s_PcBodyListCount++];
+    strncpy(b->id, e->id, sizeof(b->id) - 1);
+    b->id[sizeof(b->id) - 1] = '\0';
+    b->mp_index = (s32)e->mp_index;
+    b->display[0] = '\0';
+    if (b->mp_index >= 0) {
+        char *raw = mpGetBodyName((u8)b->mp_index);
+        if (raw && raw[0]) {
+            strncpy(b->display, raw, sizeof(b->display) - 1);
+            b->display[sizeof(b->display) - 1] = '\0';
+        }
+    }
+    if (!b->display[0]) {
+        /* SP / mod body fallback: show the catalog ID with the
+         * "namespace:" prefix preserved.  Display polish for SP body human
+         * names is a follow-up (matches heads decision I.1). */
+        strncpy(b->display, e->id, sizeof(b->display) - 1);
+        b->display[sizeof(b->display) - 1] = '\0';
+    }
+}
+
+static void s_pcRebuildBodyList(void)
+{
+    s_PcBodyListCount = 0;
+    assetCatalogIterateUnlockedByType(ASSET_BODY, s_pcCollectUnlockedBody, NULL);
+    if (s_PcBodyListCount > 1) {
+        qsort(s_PcBodyList, (size_t)s_PcBodyListCount, sizeof(s_PcBodyList[0]),
+              s_pcCompareBody);
+    }
+    s_PcBodyListCountKnown = s_PcBodyListCount;
+}
+
+/* Find list position for the player's currently-equipped body_id.  Returns
+ * 0 if the equipped body is not in the unlocked list (locked-after-unlock
+ * or mod-removed). */
+static s32 s_pcFindBodyIndexById(const char *body_id)
+{
+    if (!body_id || !body_id[0]) return 0;
+    for (s32 i = 0; i < s_PcBodyListCount; i++) {
+        if (strcmp(s_PcBodyList[i].id, body_id) == 0) return i;
+    }
+    return 0;
+}
+
 static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
 {
     /* B-253: Wider window (was 0.68 wide, 0.70 tall) so the right-side
@@ -606,13 +679,23 @@ static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
                           ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
-        /* Current committed selection (body via legacy handlers; head via
-         * the unlocked-pool list).  Body-side stays legacy because bodies
-         * have their own migration session pending; per the heads audit
-         * (Section H), we leave the body picker untouched. */
-        s32 numBodies = list_GetOptionCount(mpCharacterBodyListHandler, 0);
-        s32 curBody   = list_GetSelectedIndex(mpCharacterBodyListHandler, 0);
-        if (curBody < 0 || curBody >= numBodies) curBody = 0;
+        /* Bodies catalog migration (Step 2): rebuild unlocked body pool on
+         * count delta. */
+        s32 unlockedBodyCount = assetCatalogGetUnlockedCountByType(ASSET_BODY);
+        if (s_PcBodyListCountKnown != unlockedBodyCount) {
+            s_pcRebuildBodyList();
+        }
+        s32 numBodies = s_PcBodyListCount;
+        if (numBodies <= 0) numBodies = 1;  /* keep clamp math sane */
+        /* Locate the player's committed body_id in the unlocked list.  If
+         * the equipped body is locked or removed (mod ejected, save load
+         * with fewer unlocks) the list falls to position 0 -- still a
+         * valid unlocked body. */
+        const char *committedBodyId = mpPlayerConfigGetBodyId(g_MpPlayerNum);
+        s32 curBody = s_pcFindBodyIndexById(committedBodyId);
+        if (curBody < 0) curBody = 0;
+        if (curBody >= s_PcBodyListCount) curBody = s_PcBodyListCount - 1;
+        if (curBody < 0) curBody = 0;
 
         /* Heads catalog migration (Step 4): rebuild the unlocked head pool
          * when the unlocked count changes (catalog or unlock-state delta). */
@@ -662,27 +745,48 @@ static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
             if (ImGui::BeginChild("##pc_char_body_list",
                                   ImVec2(leftW, listH), true,
                                   ImGuiWindowFlags_NoBackground)) {
-                for (s32 i = 0; i < numBodies; i++) {
-                    const char *t = list_GetOptionText(mpCharacterBodyListHandler, 0, i);
-                    if (!t) t = "???";
+                for (s32 i = 0; i < s_PcBodyListCount; i++) {
+                    const PcBodyEntry &be = s_PcBodyList[i];
+                    const char *t = be.display[0] ? be.display : "???";
                     ImGui::PushID(i);
                     bool isSel = (i == curBody);
                     if (ImGui::Selectable(t, isSel, 0,
                                           ImVec2(0, pdguiScale(22.0f)))) {
-                        /* Click -> legacy commit (writes
-                         * g_PlayerConfigsArray[g_MpPlayerNum].base.body_id
-                         * + mpbodynum + auto-picks default head). */
-                        list_Set(mpCharacterBodyListHandler, 0, i);
+                        /* Bodies migration Step 2: commit by catalog ID
+                         * (body_id PRIMARY + mpbodynum DEPRECATED in sync
+                         * via mpchrSetBodyById).  Then auto-pick the body's
+                         * declared default head and commit through the same
+                         * head bridge already used by the carousel.  Mirrors
+                         * the legacy mpCharacterBodyListHandler MENUOP_SET
+                         * path at setup.c:2903-2922 but reads from the
+                         * unlocked-pool list instead of mp_idx-keyed
+                         * iteration.
+                         *
+                         * If the body's declared default head is itself
+                         * locked, mpPlayerConfigSetHeadId still commits the
+                         * id; the head carousel will display it as "0/N
+                         * (???)" since it isn't in the unlocked list, and
+                         * the player can pick any unlocked head from there.
+                         * Matches heads I.6 graceful-fallback intent without
+                         * a second-tier unlock filter. */
+                        mpPlayerConfigSetBodyId(g_MpPlayerNum, be.id);
+                        const char *defaultHeadId =
+                            catalogGetBodyDefaultHead(be.id);
+                        if (defaultHeadId && defaultHeadId[0]) {
+                            mpPlayerConfigSetHeadId(g_MpPlayerNum,
+                                                     defaultHeadId);
+                        } else if (be.mp_index >= 0) {
+                            /* HEAD_RANDOM_GENDER bodies: legacy resolver
+                             * picks a male/female pool entry. */
+                            s32 dh = catalogGetBodyDefaultMpHeadIdx(be.mp_index);
+                            const char *fallbackHid =
+                                (dh >= 0) ? catalogMpHeadId(dh) : NULL;
+                            if (fallbackHid && fallbackHid[0]) {
+                                mpPlayerConfigSetHeadId(g_MpPlayerNum,
+                                                         fallbackHid);
+                            }
+                        }
                         pdguiPlaySound(PDGUI_SND_SELECT);
-                    } else if (ImGui::IsItemHovered()) {
-                        /* Hover -> legacy focus preview (writes
-                         * s_PreviewBodyNum / s_PreviewHeadNum via the
-                         * LISTITEMFOCUS branch).  Preview widget itself
-                         * reads the CURRENT committed selection, so the
-                         * focus path is only kept here to preserve the
-                         * legacy s_PreviewBodyNum tracker behavior for
-                         * any code that still inspects it. */
-                        list_Focus(mpCharacterBodyListHandler, 0, i);
                     }
                     if (isSel) ImGui::SetItemDefaultFocus();
                     ImGui::PopID();
@@ -745,12 +849,15 @@ static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
             float px = colsOrigin.x + leftW + colGap;
             float py = colsOrigin.y;
 
-            /* Live preview: head_id from the unlocked pool list (Step 4 --
-             * curHead is now a list-index, NOT mp_idx).  Body still legacy. */
+            /* Live preview: head_id and body_id both from the unlocked
+             * pool lists (Step 4 + bodies Step 2 -- both indices are now
+             * list-positions, NOT mp_idx). */
             const char *headId = (curHead >= 0 && curHead < s_PcHeadListCount)
                 ? s_PcHeadList[curHead].id
                 : NULL;
-            const char *bodyId = catalogMpBodyId(curBody);
+            const char *bodyId = (curBody >= 0 && curBody < s_PcBodyListCount)
+                ? s_PcBodyList[curBody].id
+                : NULL;
 
             /* Fix the body at a 3/4-turn pose; idle rotation off so the
              * pose is steady. */

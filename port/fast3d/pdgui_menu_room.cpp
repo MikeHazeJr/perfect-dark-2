@@ -2220,48 +2220,65 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 ImGui::EndMenu();
             }
 
-            /* Set Character — body/head pair. Applies to all selected. */
+            /* Set Character — body/head pair. Applies to all selected.
+             *
+             * Bodies catalog migration (Step 4): build the picker list from
+             * the catalog's unlocked body pool instead of iterating
+             * mpGetNumBodies() entries.  Locked bodies disappear from the
+             * menu; SP / mod bodies are included (their requirefeature is
+             * 0 = always available). */
             if (isLeader && ImGui::BeginMenu("Set Character")) {
-                u32 numBodies = mpGetNumBodies();
-
-                /* Build sortable list of (displayName, mpIndex) pairs.
-                 * P4 (2026-04-24): trust the catalog display_name for every
-                 * registered body. An empty name = catalog registration bug,
-                 * not a soft "defensive skip" -- log and skip so the real
-                 * source gets fixed. */
                 static const u32 MAX_BODY_ENTRIES = 256;
-                struct BodyEntry { const char *name; u32 idx; };
-                BodyEntry sorted[MAX_BODY_ENTRIES];
-                if (numBodies > MAX_BODY_ENTRIES) numBodies = MAX_BODY_ENTRIES;
+                struct RoomBodyEntry {
+                    char        id[CATALOG_ID_LEN];
+                    const char *name;
+                    s32         mp_idx;
+                };
+                static thread_local RoomBodyEntry s_sorted[MAX_BODY_ENTRIES];
                 u32 sortedCount = 0;
-                for (u32 b = 0; b < numBodies; b++) {
-                    char *bodyName = mpGetBodyName((u8)b);
-                    if (!bodyName || !bodyName[0]) {
-                        const char *bid = catalogMpBodyId(b);
-                        sysLogPrintf(LOG_ERROR,
-                            "ROOM.CharSet: body mpidx=%u id=\"%s\" has empty "
-                            "display_name -- catalog registration bug",
-                            b, bid ? bid : "?");
-                        continue;
-                    }
-                    sorted[sortedCount++] = { bodyName, b };
-                }
 
-                /* Sort alphabetically by display name (case-insensitive) */
+                struct CollectCtx {
+                    RoomBodyEntry *out;
+                    u32           *count;
+                };
+                CollectCtx ctx = { s_sorted, &sortedCount };
+
+                auto collect = +[](const asset_entry_t *e, void *userdata) {
+                    CollectCtx *c = (CollectCtx *)userdata;
+                    if (*c->count >= MAX_BODY_ENTRIES) return;
+                    char *raw = (e->mp_index >= 0)
+                        ? mpGetBodyName((u8)e->mp_index)
+                        : (char *)NULL;
+                    if (!raw || !raw[0]) {
+                        /* Mod / SP body without a localized name: fall back
+                         * to the catalog ID so the row is still selectable.
+                         * mp_index < 0 SP bodies hit this path. */
+                        raw = (char *)e->id;
+                    }
+                    RoomBodyEntry *be = &c->out[(*c->count)++];
+                    strncpy(be->id, e->id, sizeof(be->id) - 1);
+                    be->id[sizeof(be->id) - 1] = '\0';
+                    be->name   = raw;
+                    be->mp_idx = (s32)e->mp_index;
+                };
+
+                assetCatalogIterateUnlockedByType(ASSET_BODY, collect, &ctx);
+
+                /* Sort alphabetically by display name (case-insensitive). */
                 for (u32 a = 0; a < sortedCount; a++) {
                     for (u32 c = a + 1; c < sortedCount; c++) {
-                        if (strcasecmp(sorted[a].name, sorted[c].name) > 0) {
-                            BodyEntry tmp = sorted[a];
-                            sorted[a] = sorted[c];
-                            sorted[c] = tmp;
+                        if (strcasecmp(s_sorted[a].name, s_sorted[c].name) > 0) {
+                            RoomBodyEntry tmp = s_sorted[a];
+                            s_sorted[a] = s_sorted[c];
+                            s_sorted[c] = tmp;
                         }
                     }
                 }
 
                 for (u32 si = 0; si < sortedCount; si++) {
-                    u32 b = sorted[si].idx;
-                    const char *bid = catalogMpBodyId(b);
-                    if (ImGui::MenuItem(sorted[si].name, NULL, (int)b == commonBody)) {
+                    const RoomBodyEntry &be = s_sorted[si];
+                    bool isCommon = (be.mp_idx >= 0 && be.mp_idx == commonBody);
+                    if (ImGui::MenuItem(be.name, NULL, isCommon)) {
                         /* B-235 follow-up + P3 (2026-04-24): PER-BOT random head
                          * roll, this time driven by the catalog's full valid-head
                          * set for the picked body.  catalogPickRandomHeadIdForBody
@@ -2270,14 +2287,16 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                          * male heads; unique character -> that one head) and
                          * returns a fresh random pick per call.  Called once per
                          * selected slot so 31 Maian bots get 31 varied Maian
-                         * heads instead of sharing one face. */
+                         * heads instead of sharing one face.
+                         *
+                         * Step 2 of the heads migration also folded the unlock
+                         * filter into catalogPickRandomHeadIdForBody, so locked
+                         * heads are never assigned here. */
                         for (int j = 1; j < g_MatchConfig.numSlots; j++) {
                             if (!s_BotSelected[j] || g_MatchConfig.slots[j].type != SLOT_BOT) continue;
-                            if (bid) {
-                                strncpy(g_MatchConfig.slots[j].body_id, bid, sizeof(g_MatchConfig.slots[j].body_id) - 1);
-                                g_MatchConfig.slots[j].body_id[sizeof(g_MatchConfig.slots[j].body_id) - 1] = '\0';
-                            }
-                            const char *hid = catalogPickRandomHeadIdForBody(bid);
+                            strncpy(g_MatchConfig.slots[j].body_id, be.id, sizeof(g_MatchConfig.slots[j].body_id) - 1);
+                            g_MatchConfig.slots[j].body_id[sizeof(g_MatchConfig.slots[j].body_id) - 1] = '\0';
+                            const char *hid = catalogPickRandomHeadIdForBody(be.id);
                             if (hid) {
                                 strncpy(g_MatchConfig.slots[j].head_id, hid, sizeof(g_MatchConfig.slots[j].head_id) - 1);
                                 g_MatchConfig.slots[j].head_id[sizeof(g_MatchConfig.slots[j].head_id) - 1] = '\0';
@@ -3432,16 +3451,42 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 ImGui::EndCombo();
             }
 
-            /* Character */
-            u32 numBodies = mpGetNumBodies();
-            /* Resolve current display name from catalog ID (PRIMARY). */
+            /* Character -- bodies catalog migration (Step 4): build the
+             * combo list from the catalog's unlocked body pool. */
+            static const u32 BOTMODAL_MAX_BODY_ENTRIES = 256;
+            struct BotModalBodyEntry {
+                char        id[CATALOG_ID_LEN];
+                const char *name;
+            };
+            static thread_local BotModalBodyEntry s_botModalBodies[BOTMODAL_MAX_BODY_ENTRIES];
+            u32 botModalBodyCount = 0;
+            struct BotModalCollectCtx {
+                BotModalBodyEntry *out;
+                u32               *count;
+            };
+            BotModalCollectCtx botModalCtx = { s_botModalBodies, &botModalBodyCount };
+            auto botModalCollect = +[](const asset_entry_t *e, void *userdata) {
+                BotModalCollectCtx *c = (BotModalCollectCtx *)userdata;
+                if (*c->count >= BOTMODAL_MAX_BODY_ENTRIES) return;
+                char *raw = (e->mp_index >= 0)
+                    ? mpGetBodyName((u8)e->mp_index)
+                    : (char *)NULL;
+                if (!raw || !raw[0]) raw = (char *)e->id;
+                BotModalBodyEntry *be = &c->out[(*c->count)++];
+                strncpy(be->id, e->id, sizeof(be->id) - 1);
+                be->id[sizeof(be->id) - 1] = '\0';
+                be->name = raw;
+            };
+            assetCatalogIterateUnlockedByType(ASSET_BODY, botModalCollect, &botModalCtx);
+
+            /* Resolve current display name from the unlocked list -- if the
+             * bot's body_id is locked (e.g. host changed unlocks since the
+             * last save) we still want a graceful "?" rather than a crash. */
             const char *curBody = "?";
             if (sl->body_id[0]) {
-                for (u32 b2 = 0; b2 < numBodies; b2++) {
-                    const char *bid2 = catalogMpBodyId(b2);
-                    if (bid2 && strcmp(bid2, sl->body_id) == 0) {
-                        char *n = mpGetBodyName((u8)b2);
-                        if (n && n[0]) curBody = n;
+                for (u32 b2 = 0; b2 < botModalBodyCount; b2++) {
+                    if (strcmp(s_botModalBodies[b2].id, sl->body_id) == 0) {
+                        curBody = s_botModalBodies[b2].name;
                         break;
                     }
                 }
@@ -3450,31 +3495,22 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             ImGui::SameLine(labelCol);
             ImGui::SetNextItemWidth(-1);
             if (ImGui::BeginCombo("##botmodalchar", curBody)) {
-                for (u32 b = 0; b < numBodies; b++) {
-                    char *bodyName = mpGetBodyName((u8)b);
-                    if (!bodyName || !bodyName[0]) {
-                        const char *bidErr = catalogMpBodyId(b);
-                        sysLogPrintf(LOG_ERROR,
-                            "ROOM.BotModal: body mpidx=%u id=\"%s\" has empty "
-                            "display_name -- catalog registration bug",
-                            b, bidErr ? bidErr : "?");
-                        continue;
-                    }
-                    const char *bid = catalogMpBodyId(b);
-                    bool sel = bid && sl->body_id[0] && strcmp(bid, sl->body_id) == 0;
-                    char bLabel[64];
-                    snprintf(bLabel, sizeof(bLabel), "%s##mb%u", bodyName, b);
+                for (u32 b = 0; b < botModalBodyCount; b++) {
+                    const BotModalBodyEntry &be = s_botModalBodies[b];
+                    bool sel = sl->body_id[0] && strcmp(be.id, sl->body_id) == 0;
+                    char bLabel[CATALOG_ID_LEN + 16];
+                    snprintf(bLabel, sizeof(bLabel), "%s##mb%u", be.name, b);
                     if (ImGui::Selectable(bLabel, sel)) {
-                        if (bid) {
-                            strncpy(sl->body_id, bid, sizeof(sl->body_id) - 1);
-                            sl->body_id[sizeof(sl->body_id) - 1] = '\0';
-                        }
+                        strncpy(sl->body_id, be.id, sizeof(sl->body_id) - 1);
+                        sl->body_id[sizeof(sl->body_id) - 1] = '\0';
                         /* P3 (2026-04-24): single-bot edit modal also uses the
                          * full valid-head set for the picked body.  For a
                          * specific-pair body this is deterministic; for pooled
                          * bodies (Maian, human male, human female) the user
-                         * gets a fresh random head on each body pick. */
-                        const char *hid = catalogPickRandomHeadIdForBody(bid);
+                         * gets a fresh random head on each body pick.  Heads
+                         * Step 2 added the unlock filter to
+                         * catalogPickRandomHeadIdForBody. */
+                        const char *hid = catalogPickRandomHeadIdForBody(be.id);
                         if (hid) {
                             strncpy(sl->head_id, hid, sizeof(sl->head_id) - 1);
                             sl->head_id[sizeof(sl->head_id) - 1] = '\0';
