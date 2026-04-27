@@ -1,8 +1,93 @@
 
 # Session Log (Active)
 
-> **S284–S471** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S284–S472** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S472 (`strange-hoover-d0cb7d`) - 2026-04-26 - bodies catalog migration
+
+Mike's directive (carried from the heads / weapons / arenas selector pool series): "It should build the weapons list from the weapons listed in the catalog, filtering by weapons that are either not unlocked yet or are disabled... This same thing should apply for character heads and bodies, weapons, maps, etc."
+
+Sibling to the heads catalog migration that landed earlier today as `132a883c`. Maps / arenas is the next planned migration in the same series.
+
+### Outcome
+
+Bodies selector pool now reads from the catalog filtered by unlock-state. Five player-facing body pickers + one server-side random body assignment migrated. `pd` (56,025,277 bytes) + `pd-server` (23,275,564 bytes) + `pd-tests` (14,195,374 bytes) all link clean; **77 test cases / 770 assertions, all green**.
+
+Merged to dev as **`e7c4e702`** alongside Mike's pause-menu Debug Shortcuts modal which had landed at `a653d242` mid-session (no conflicts -- non-overlapping files).
+
+### Audit doc
+
+[`context/audits/catalog-migration-bodies-2026-04-26.md`](audits/catalog-migration-bodies-2026-04-26.md) -- 460 lines, Sections A-J mirroring the heads audit. Findings:
+
+- Layer A: `g_MpBodies[63]` is the canonical MP-eligible subset (kept intact per heads I.2).
+- Layer A consumers: 5 sites needed migration (Agent Creator, Player Config, Bot Setup, Room bulk Set Body, Room single bot edit modal, plus matchsetup.c::pickRandomBodyHead random body assignment).
+- Layer B: `assetCatalogIterateUnlockedByType` and `assetCatalogGetUnlockedCountByType` already supported `ASSET_BODY` natively (heads Step 1 shipped the type-generic dispatch). No new public API needed.
+- B-235 sibling check: bodies use `catalogMpBodyId(mp_idx)` correctly on the wire at `netmsg.c:1297` -- no sibling bug for bodies.
+- Catalog ID conformance: 63/63 for MP bodies (better than heads 75/76).
+
+### Decisions confirmed by default (Section J)
+
+Per the `make-decisions-delegation` memory, all 8 heads decisions transferred 1:1 with no Mike call needed:
+
+| # | Decision |
+|---|---|
+| J.1 | Catalog ID renames deferred (matches heads I.1) |
+| J.2 | `g_HeadsAndBodies[]` kept intact (matches heads I.2) |
+| J.3 | Reuse existing `assetCatalogIterateUnlockedByType` helper |
+| J.4 | Wire = STATUS QUO; host authority for cosmetics |
+| J.5 | `pickRandomBodyHead` adopts unlock filter; `g_BotProfiles[].body` archetype assignments stay unchanged |
+| J.6 | Graceful fallback to `base:dark_combat` when pool empty |
+| J.7 | Integrated-head guard at Agent Creator stays catalog-driven |
+| J.8 | 5 commits, sequential, bisectable, build-verified per step |
+
+### Migration commits (5 + audit + merge)
+
+| SHA | Scope |
+|---|---|
+| `1357200d` | Phase 1 audit |
+| `71dc3b54` | Step 1: Agent Creator body carousel |
+| `ae31fcfd` | Step 2: Player Config body list |
+| `042a8ca2` | Step 3: Bot Setup body dropdown |
+| `54846074` | Step 4: Room screen body pickers (bulk + single) |
+| `943391be` | Step 5: `pickRandomBodyHead` in matchsetup.c |
+| `e7c4e702` | Merge into dev |
+
+### Files touched
+
+- `port/fast3d/pdgui_menu_agentcreate.cpp` (+157 / -44): Step 1
+- `port/fast3d/pdgui_menu_playerconfig.cpp` (+163 / -28): Step 2
+- `port/fast3d/pdgui_menu_botsetup.cpp` (+99 / -16): Step 3
+- `port/fast3d/pdgui_menu_room.cpp` (+164 / -64): Step 4
+- `port/src/net/matchsetup.c` (+45 / -11): Step 5
+- `port/fast3d/pdgui_bridge.c` (+22): new `mpPlayerConfigSetBodyId` (mirrors `mpPlayerConfigSetHeadId`)
+- `context/audits/catalog-migration-bodies-2026-04-26.md` (+460): audit
+
+### Migration shape per consumer
+
+Each migrated picker now follows the same template heads established:
+
+1. Static `<Prefix>BodyEntry { id, display, mp_index }` array (sized 128 or 256).
+2. Collector callback that appends entries via `assetCatalogIterateUnlockedByType(ASSET_BODY, ...)`.
+3. Sort by display name (`mpGetBodyName` for `mp_index >= 0` to preserve langbank + B-226 catalog overrides).
+4. Cache invalidation triggered by `assetCatalogGetUnlockedCountByType` delta.
+5. Selection commits use the entry's catalog ID directly via `mpchrSetBodyById` / `mpPlayerConfigSetBodyId` / `car_Set` (Bot Setup keeps the legacy carousel write key path because `mpchrSetBodyByIndex` already syncs `body_id` PRIMARY).
+
+### Coverage NOT migrated (per audit C.10)
+
+Authoring tools and dead legacy paths intentionally left alone:
+
+- `port/fast3d/pdgui_skin_editor.cpp::refreshCharacterList` -- Skin Editor authoring tool, deliberately shows all bodies regardless of unlock.
+- `port/src/net/netmenu.c::menuhandlerCoopCharacter` / `menuhandlerJoinCharacter` -- legacy native co-op / join body dropdowns; P10 D5.7 made native rendering dead. Handlers vestigial.
+- `src/game/mplayer/setup.c::mpCharacterBodyMenuHandler` / `mpCharacterBodyListHandler` -- legacy carousel handlers; new pickers bypass `MENUOP_GETOPTIONCOUNT` so the unfiltered count never reaches the UI.
+- `g_BotProfiles[].body` archetype defaults -- intentional per-bot-type assignments, not a selector pool.
+- `mpDefaultHeadForBody` (mplayer.c:2938) `g_MpMaleHeads` / `g_MpFemaleHeads` random-gender fallback -- RESOLUTION not iteration, called only when `catalogGetBodyDefaultHead` returns NULL.
+
+### Next steps
+
+- **Maps / arenas catalog migration** -- next sibling in the series. Audit will follow the same Section A-J shape; arena selector at `pdgui_menu_room.cpp:343-393` already inlines the unlock filter so the migration is mostly retiring `mpGetNumArenas()` direct iterations elsewhere.
+- Optional polish: rename `base:sp_body_<i>` / `base:sp_head_<i>` IDs to human-readable form (deferred per heads I.1 / bodies J.1 -- separate session).
+- Optional polish: extend the integrated-head guard from Agent Creator to Player Config + Bot Setup head carousels (deferred per audit H.5).
 
 ## Session S471 (`cool-dirac-4af9b8`) - 2026-04-26 - pd-tests framework first cohort
 
