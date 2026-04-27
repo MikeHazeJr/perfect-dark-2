@@ -323,10 +323,17 @@ static void gfx_sdl_handle_events(void) {
 
         switch (event.type) {
             case SDL_KEYDOWN:
+                /* Adding a new raw SDL hotkey here?  Also add a paired
+                 * pdguiDebugShortcutRegister call to registerDebugShortcuts()
+                 * in port/fast3d/pdgui_backend.cpp so the pause-menu Debug
+                 * Shortcuts modal stays in sync.  Drift = stale UI. */
                 if (event.key.keysym.sym == SDLK_RETURN && (event.key.keysym.mod & KMOD_ALT)) {
                     // alt-enter received, switch fullscreen state
                     set_fullscreen(!fullscreen_state, true);
                 } else if (event.key.keysym.sym == SDLK_F10) {
+                    /* Note: pdguiProcessEvent above always consumes F10
+                     * via the meshDebugToggle handler, so this branch is
+                     * dead in practice.  Retained for safety. */
                     meshDebugToggle();
                 } else if (event.key.keysym.sym == SDLK_BACKQUOTE) {
                     pdguiConsoleToggle();

@@ -21,6 +21,7 @@
 #include "pdgui_audio.h"
 #include "pdgui_layout.h" /* M-6: pdguiPopupDarkenBehind; M-7: action bar */
 #include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
+#include "pdgui_debug_shortcuts.h" /* 2026-04-26: pause-menu Debug Shortcuts modal registry */
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
@@ -217,6 +218,15 @@ static bool s_EndGameConfirm = false;
 static s32  s_EndGameOpenFrame = -1;
 #define ENDGAME_PM_FRAME_DEBOUNCE     3
 #define ENDGAME_PM_FORCE_FOCUS_FRAMES 5
+
+/* 2026-04-26: Debug Shortcuts modal -- read-only list of raw SDL hotkeys
+ * (and one actionmap-bound Forge entry) registered by the pause-menu
+ * Debug Shortcuts registry in pdgui_backend.cpp.  Activated by the
+ * "Shortcuts" button in the pause-menu button strip. */
+static bool s_ShortcutsModalArmed   = false;
+static s32  s_ShortcutsOpenFrame    = -1;
+#define SHORTCUTS_PM_FRAME_DEBOUNCE     3
+#define SHORTCUTS_PM_FORCE_FOCUS_FRAMES 5
 static s32 s_GameOverTab = 0;  /* 0=Rankings, 1=Personal */
 
 /* Simple SDL-based cooldown to prevent double-press (replaces menumgr) */
@@ -254,6 +264,8 @@ void pdguiPauseMenuOpen(void)
     s_PauseTab = 0;
     s_EndGameConfirm = false;
     s_EndGameOpenFrame = -1;
+    s_ShortcutsModalArmed = false;
+    s_ShortcutsOpenFrame  = -1;
 
     s_pauseSetCooldown();
 
@@ -270,6 +282,8 @@ void pdguiPauseMenuClose(void)
     s_PauseMenuOpen = false;
     s_EndGameConfirm = false;
     s_EndGameOpenFrame = -1;
+    s_ShortcutsModalArmed = false;
+    s_ShortcutsOpenFrame  = -1;
 
     /* M-22: release the pool slot; it pops the owned ctx via inputCtxPopDeferred. */
     menupoolRelease(MENU_TYPE_PAUSE_MENU);
@@ -668,8 +682,11 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
 
         ImGui::SetCursorPos(ImVec2(padX, padY));
 
-        /* Tab buttons across the top */
-        float tabW = (menuW - padX - padR - pdguiScale(12.0f) * 2) / 3.0f;
+        /* Tab buttons across the top.  Four slots: Rankings, Settings,
+         * Shortcuts (debug-shortcuts modal), End Game (danger).  The
+         * Shortcuts button arms a modal popup rather than switching the
+         * tab body -- it is intentionally NOT a tab. */
+        float tabW = (menuW - padX - padR - pdguiScale(12.0f) * 3) / 4.0f;
         ImVec2 tabSize(tabW, pdguiScale(42.0f));
 
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(pdguiScale(12.0f), pdguiScale(12.0f)));
@@ -679,7 +696,19 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
         if (PdPauseButton("Settings##pm", tabSize)) { s_PauseTab = 1; pdguiPlaySound(PDGUI_SND_FOCUS); }
         ImGui::SameLine();
 
-        /* End Game button — danger styled. M-6: click arms a proper
+        /* Shortcuts button -- arms the Debug Shortcuts modal.  Opens a
+         * read-only popup listing every raw SDL hotkey + the F11 Forge
+         * toggle (registry source: registerDebugShortcuts in
+         * port/fast3d/pdgui_backend.cpp). */
+        if (PdPauseButton("Shortcuts##pm", tabSize)) {
+            if (!s_ShortcutsModalArmed) {
+                s_ShortcutsModalArmed = true;
+                pdguiPlaySound(PDGUI_SND_FOCUS);
+            }
+        }
+        ImGui::SameLine();
+
+        /* End Game button -- danger styled. M-6: click arms a proper
          * BeginPopupModal confirm (canonical C4/C5 pattern). The modal
          * renders below near the Resume button, after the tab content. */
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.1f, 0.1f, 0.9f));
@@ -819,17 +848,146 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
             }
         }
 
-        /* B-14 fix: On the frame the menu opens, the legacy path (bondmove→
-         * mpPushPauseDialog→ingame.c) already opened us. ImGui also sees
+        /* 2026-04-26: Debug Shortcuts modal -- read-only list of raw SDL
+         * hotkeys + the F11 Forge toggle.  Same arming + frame-debounce
+         * pattern as End Game so the press that arms the modal does not
+         * also bleed into the modal's own Close handler. */
+        bool shortcutsPopupWasOpen = s_ShortcutsModalArmed;
+        {
+            const char *shortcutsPopupId = "Debug Shortcuts##pm_shortcuts";
+            if (s_ShortcutsModalArmed && !ImGui::IsPopupOpen(shortcutsPopupId)) {
+                ImGui::OpenPopup(shortcutsPopupId);
+                s_ShortcutsOpenFrame = (s32)ImGui::GetFrameCount();
+            }
+
+            float modalW = pdguiScale(640.0f);
+            float modalH = pdguiScale(520.0f);
+            ImGui::SetNextWindowSize(ImVec2(modalW, modalH));
+            if (ImGui::BeginPopupModal(shortcutsPopupId, nullptr,
+                                        ImGuiWindowFlags_NoResize |
+                                        ImGuiWindowFlags_NoMove)) {
+                pdguiPopupDarkenBehind(0.65f);
+
+                s32 curFrame   = (s32)ImGui::GetFrameCount();
+                s32 framesOpen = (s_ShortcutsOpenFrame >= 0)
+                                 ? (curFrame - s_ShortcutsOpenFrame)
+                                 : SHORTCUTS_PM_FORCE_FOCUS_FRAMES + 1;
+                bool forceFocus     = (framesOpen >= 0 && framesOpen < SHORTCUTS_PM_FORCE_FOCUS_FRAMES);
+                bool inputDebounced = (framesOpen >= 0 && framesOpen < SHORTCUTS_PM_FRAME_DEBOUNCE);
+
+                ImGui::TextColored(pdguiVec4TitleGlow(), "Debug Shortcuts");
+                ImGui::SameLine();
+                ImGui::TextDisabled("(read-only)");
+                ImGui::Separator();
+                ImGui::Spacing();
+
+                /* Scrollable child for the list -- right-stick scroll
+                 * works automatically via ImGui's nav scroll integration
+                 * when this child has keyboard / nav focus. */
+                float listH = modalH
+                            - pdguiScale(110.0f); /* title + separator + footer */
+                ImGui::BeginChild("##shortcuts_list",
+                                  ImVec2(0.0f, listH),
+                                  ImGuiChildFlags_NavFlattened |
+                                  ImGuiChildFlags_FrameStyle,
+                                  ImGuiWindowFlags_None);
+
+                s32 entryCount = 0;
+                const PdguiDebugShortcut *entries =
+                    pdguiDebugShortcutsGetAll(&entryCount);
+
+#if defined(PD_DEV_BUILD)
+                const bool isDevBuild = true;
+#else
+                const bool isDevBuild = false;
+#endif
+
+                /* Group rendering: walk categories in enum order; for
+                 * each, emit a header then the matching rows.  Order is
+                 * stable + matches the enum declaration in the header. */
+                bool anyShown = false;
+                for (s32 c = 0; c < (s32)DBG_SHORTCUT_CAT_COUNT; c++) {
+                    s32 emittedHeader = 0;
+                    for (s32 i = 0; i < entryCount; i++) {
+                        const PdguiDebugShortcut *e = &entries[i];
+                        if ((s32)e->cat != c) continue;
+                        if (e->dev_only && !isDevBuild) continue;
+
+                        if (!emittedHeader) {
+                            if (anyShown) ImGui::Spacing();
+                            ImGui::TextColored(pdguiVec4TitleGlow(),
+                                "%s", pdguiDebugShortcutCatName(e->cat));
+                            ImGui::Separator();
+                            emittedHeader = 1;
+                            anyShown      = true;
+                        }
+
+                        /* Combo column: fixed-width, monospaced via
+                         * font-disabled scope is unavailable here; use
+                         * a fixed cursor X to align descriptions. */
+                        float comboColW = pdguiScale(170.0f);
+                        ImVec2 rowStart = ImGui::GetCursorPos();
+                        ImGui::TextUnformatted(e->combo);
+                        ImGui::SameLine();
+                        ImGui::SetCursorPosX(rowStart.x + comboColW);
+                        ImGui::TextWrapped("%s", e->description);
+                    }
+                }
+
+                if (!anyShown) {
+                    ImGui::TextDisabled("No debug shortcuts registered.");
+                }
+
+                ImGui::EndChild();
+
+                ImGui::Spacing();
+
+                /* Footer: Close button (also Esc / B). */
+                bool doClose = false;
+                if (forceFocus) ImGui::SetKeyboardFocusHere(0);
+                if (ImGui::Button("Close##pmshortcuts",
+                                  ImVec2(pdguiScale(150.0f), 0.0f))) {
+                    if (!inputDebounced) doClose = true;
+                }
+                ImGui::SetItemDefaultFocus();
+
+                if (!inputDebounced) {
+                    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+                        ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                        ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
+                        ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+                        doClose = true;
+                    }
+                }
+
+                if (doClose) {
+                    pdguiPlaySound(PDGUI_SND_KBCANCEL);
+                    s_ShortcutsModalArmed = false;
+                    s_ShortcutsOpenFrame  = -1;
+                    ImGui::CloseCurrentPopup();
+                }
+
+                ImGui::EndPopup();
+            } else if (s_ShortcutsModalArmed) {
+                /* Popup was closed externally (hotswap / stage transition). */
+                s_ShortcutsModalArmed = false;
+                s_ShortcutsOpenFrame  = -1;
+            }
+        }
+
+        /* B-14 fix: On the frame the menu opens, the legacy path (bondmove->
+         * mpPushPauseDialog->ingame.c) already opened us. ImGui also sees
          * the same START press via polling. Skip close checks this frame
          * to prevent open+close in one tick.
          *
          * M-6: also skip when the End Game confirm modal was open at frame
-         * start — the modal absorbs Escape, so the parent should not
-         * double-consume the same press and close the pause menu. */
+         * start -- the modal absorbs Escape, so the parent should not
+         * double-consume the same press and close the pause menu.
+         *
+         * 2026-04-26: same gate applies to the Shortcuts modal. */
         if (s_PauseJustOpened) {
             s_PauseJustOpened = false;
-        } else if (!endgamePopupWasOpen) {
+        } else if (!endgamePopupWasOpen && !shortcutsPopupWasOpen) {
             /* S311: title X button or Escape closes (X channel avoids
              * the one-frame-swallow class that needed two clicks). */
             if (pdguiConsumeTitleClose() ||
