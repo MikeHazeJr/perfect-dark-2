@@ -35,6 +35,7 @@
 #include "menupool.h"
 #include "fs.h"
 #include "lib/rng.h"
+#include "net/netmanifest.h"
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -699,6 +700,79 @@ s32 spawnWeaponPickFromActiveSet(void)
 	                                spawnWeaponRngBridge, NULL);
 }
 
+/* ------------------------------------------------------------------------
+ * S483 (2026-04-27): host-eligible weapon pool via match manifest.
+ *
+ * Mike's clarification on Random/Fiesta: the eligible pool draws from the
+ * host's full unlocked-weapon catalog, distributed via the match manifest
+ * (`SVC_MATCH_MANIFEST` carries every MANIFEST_TYPE_WEAPON entry the host
+ * enumerated at match start — see netmanifest.c manifestBuild +
+ * manifestBuildForHost). At spawn time both host and clients walk the
+ * loaded manifest, resolve catalog IDs to MPWEAPON_* indices, filter
+ * NONE/DISABLED/SHIELD, and roll. Mod-only weapons distribute "as needed"
+ * via the existing SVC_CATALOG_INFO + SVC_DISTRIB pipeline (ASSET_WEAPON
+ * is already in the SVC_CATALOG_INFO type list — see netmsg.c
+ * netmsgSvcCatalogInfoWrite).
+ *
+ * Fallback discipline (per directive): if the manifest pool resolves to
+ * zero eligible weapons (e.g. solo CS where no manifest has been broadcast,
+ * or a degenerate manifest), fall back to spawnWeaponPickFromActiveSet()
+ * so the match never spawns players empty-handed.
+ *
+ * Test surface: tests/test_spawn_weapon_mode.cpp replicates the helper as
+ * a pure spec (catalog + manifest globals are not linked into pd-tests).
+ * ------------------------------------------------------------------------ */
+
+/* Internal: pick the most-relevant manifest for spawn-time pool resolution.
+ * Cascade:
+ *   1. g_CurrentLoadedManifest -- post-transition definitive list.
+ *   2. g_ServerManifest        -- host-side built manifest (pre-broadcast).
+ *   3. g_ClientManifest        -- received from server (post-wire).
+ *   4. NULL                    -- caller falls back to active weapon set.
+ */
+static const match_manifest_t *spawnWeaponSelectManifest(void)
+{
+	if (g_CurrentLoadedManifest.num_entries > 0) return &g_CurrentLoadedManifest;
+	if (g_ServerManifest.num_entries > 0)        return &g_ServerManifest;
+	if (g_ClientManifest.num_entries > 0)        return &g_ClientManifest;
+	return NULL;
+}
+
+static s32 spawnWeaponBuildPoolFromManifest(const match_manifest_t *m,
+                                            u8 *out_pool, s32 out_cap)
+{
+	if (!m || !out_pool || out_cap <= 0) return 0;
+	s32 count = 0;
+	for (u16 i = 0; i < m->num_entries && count < out_cap; i++) {
+		const match_manifest_entry_t *e = &m->entries[i];
+		if (e->type != MANIFEST_TYPE_WEAPON) continue;
+		const asset_entry_t *ae = e->id[0] ? assetCatalogResolve(e->id) : NULL;
+		if (!ae || ae->type != ASSET_WEAPON) continue;
+		s32 wid = (s32)ae->ext.weapon.weapon_id;
+		if (wid <= 0 || wid >= NUM_MPWEAPONS) continue;
+		if (wid == MPWEAPON_NONE)     continue;
+		if (wid == MPWEAPON_DISABLED) continue;
+		if (wid == MPWEAPON_SHIELD)   continue;
+		out_pool[count++] = (u8)wid;
+	}
+	return count;
+}
+
+s32 spawnWeaponPickFromMatchManifest(void)
+{
+	const match_manifest_t *m = spawnWeaponSelectManifest();
+	if (!m) {
+		return spawnWeaponPickFromActiveSet();
+	}
+	u8 pool[NUM_MPWEAPONS];
+	s32 count = spawnWeaponBuildPoolFromManifest(m, pool, (s32)NUM_MPWEAPONS);
+	if (count == 0) {
+		return spawnWeaponPickFromActiveSet();
+	}
+	u32 r = rngRandom();
+	return (s32)pool[r % (u32)count];
+}
+
 /* ========================================================================
  * Match start — the clean replacement for the old menutick flow
  * ======================================================================== */
@@ -832,10 +906,15 @@ s32 matchStart(void)
 		    "MATCHSETUP: spawn weapon mode=FIESTA — every spawn rolls from active weapon set");
 		break;
 	case SPAWNWEAPON_MODE_RANDOM: {
-		s32 picked_mpw = spawnWeaponPickFromActiveSet();
+		/* S483 (2026-04-27): pool source is the host's full match manifest
+		 * (every host-unlocked ASSET_WEAPON), not just the 6 active-set slots.
+		 * spawnWeaponPickFromMatchManifest cascades to the active-set helper
+		 * when the manifest is empty / unavailable (solo CS, pre-build, etc). */
+		s32 picked_mpw = spawnWeaponPickFromMatchManifest();
 		if (picked_mpw <= 0) {
 			sysLogPrintf(LOG_WARNING,
-			    "MATCHSETUP: RANDOM roll found zero eligible slots — falling back to MPWEAPON_FALCON2");
+			    "MATCHSETUP: RANDOM roll found zero eligible weapons (manifest + active set both empty) "
+			    "— falling back to MPWEAPON_FALCON2");
 			picked_mpw = MPWEAPON_FALCON2;
 		}
 		g_MatchConfig.spawnWeaponNum = (u8)catalogGetMpWeaponNum(picked_mpw);

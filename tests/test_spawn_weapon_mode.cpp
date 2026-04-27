@@ -414,3 +414,311 @@ TEST_CASE("spawn-weapon: mode enum values are stable",
     REQUIRE(kSPAWNWEAPON_MODE_RANDOM   == 1);
     REQUIRE(kSPAWNWEAPON_MODE_FIESTA   == 2);
 }
+
+/* ============================================================================
+ * S483 (2026-04-27): host-eligible pool via match manifest.
+ *
+ * Source of the rules:
+ *   port/src/net/matchsetup.c
+ *     - spawnWeaponPickFromMatchManifest  (live: cascade through
+ *                                          g_CurrentLoadedManifest /
+ *                                          g_ServerManifest / g_ClientManifest;
+ *                                          fallback to active set)
+ *     - spawnWeaponBuildPoolFromManifest  (file-static: catalog-resolve each
+ *                                          MANIFEST_TYPE_WEAPON entry, filter
+ *                                          NONE/DISABLED/SHIELD)
+ *   port/src/net/netmanifest.c
+ *     - s_manifestAppendWeaponPool        (build site: walks
+ *                                          assetCatalogIterateUnlockedByType
+ *                                          ASSET_WEAPON, adds each as
+ *                                          MANIFEST_TYPE_WEAPON +
+ *                                          MANIFEST_SLOT_MATCH; dedup is
+ *                                          automatic via manifestAddEntry)
+ *
+ * Tests below replicate the spec as a pure helper so the test stays
+ * SDL/ENet/catalog-free. Drift audit: diff
+ * spec_pickFromManifestPool against matchsetup.c
+ * spawnWeaponBuildPoolFromManifest + the live cascade in
+ * spawnWeaponPickFromMatchManifest.
+ * ============================================================================ */
+
+namespace {
+
+/* Synthetic manifest entry for testing. The live helper walks
+ * match_manifest_t.entries[] for MANIFEST_TYPE_WEAPON; we model that as a
+ * (catalog_id_present, weapon_id) pair where catalog_id_present represents
+ * "the catalog has a non-NULL ASSET_WEAPON entry for this id". */
+struct fake_manifest_entry {
+    u8   type;            /* mirror of match_manifest_entry_t.type */
+    bool catalog_present; /* assetCatalogResolve hits */
+    u8   weapon_id;       /* ext.weapon.weapon_id (MPWEAPON_*) */
+};
+
+/* Mirror of MANIFEST_TYPE_WEAPON (netmanifest.h:74). */
+constexpr u8 kMANIFEST_TYPE_WEAPON = 3;
+/* Mirror of MANIFEST_TYPE_BODY  (netmanifest.h:71) — used to cover the
+ * "non-weapon manifest entries are skipped" invariant. */
+constexpr u8 kMANIFEST_TYPE_BODY   = 0;
+
+/* Pure replication of spawnWeaponBuildPoolFromManifest + the cascade in
+ * spawnWeaponPickFromMatchManifest (matchsetup.c S483). Build the pool from
+ * `manifest`; if it is empty / all-filtered, fall back to `activeSet`. Both
+ * pools use the same filtering rules.
+ *
+ * Returns the picked MPWEAPON_* index, or 0 when both pools are degenerate. */
+s32 spec_pickFromManifestPool(const fake_manifest_entry *manifest,
+                              s32 manifest_count,
+                              const u8 *activeSet, s32 activeSetCount,
+                              std::function<u32()> rng_fn)
+{
+    /* Build manifest-derived pool. */
+    u8 mpool[64];
+    s32 mcount = 0;
+    if (manifest && manifest_count > 0) {
+        for (s32 i = 0; i < manifest_count && mcount < (s32)sizeof(mpool); i++) {
+            const fake_manifest_entry &e = manifest[i];
+            if (e.type != kMANIFEST_TYPE_WEAPON) continue;     /* non-weapon: skip */
+            if (!e.catalog_present) continue;                  /* missing catalog: skip */
+            s32 wid = (s32)e.weapon_id;
+            if (wid <= 0 || wid >= 0x29 /* NUM_MPWEAPONS */) continue;
+            if (wid == kMPWEAPON_NONE)     continue;
+            if (wid == kMPWEAPON_DISABLED) continue;
+            if (wid == kMPWEAPON_SHIELD)   continue;
+            mpool[mcount++] = (u8)wid;
+        }
+    }
+    if (mcount > 0) {
+        u32 r = rng_fn();
+        return (s32)mpool[r % (u32)mcount];
+    }
+    /* Fallback: active weapon set. */
+    return spec_pickFromSlots(activeSet, activeSetCount, rng_fn);
+}
+
+} /* anon */
+
+TEST_CASE("spawn-weapon manifest: pool draws from MANIFEST_TYPE_WEAPON entries",
+          "[spawn-weapon][manifest]") {
+    /* Manifest has 4 weapon entries plus 1 body entry; the body is ignored. */
+    const fake_manifest_entry m[] = {
+        { kMANIFEST_TYPE_WEAPON, true, kMPWEAPON_FALCON2 },
+        { kMANIFEST_TYPE_BODY,   true, 0 /* irrelevant */ },
+        { kMANIFEST_TYPE_WEAPON, true, kMPWEAPON_DRAGON },
+        { kMANIFEST_TYPE_WEAPON, true, kMPWEAPON_K7 },
+        { kMANIFEST_TYPE_WEAPON, true, kMPWEAPON_AR34 },
+    };
+    /* Active set is intentionally degenerate so any non-weapon-pool pick
+     * would surface as 0. */
+    const u8 active[kNUM_MPWEAPONSLOTS] = {
+        kMPWEAPON_NONE, kMPWEAPON_NONE, kMPWEAPON_NONE,
+        kMPWEAPON_NONE, kMPWEAPON_NONE, kMPWEAPON_NONE,
+    };
+    seeded_rng rng(0x9001);
+    for (int i = 0; i < 256; i++) {
+        s32 picked = spec_pickFromManifestPool(m, (s32)(sizeof(m)/sizeof(m[0])),
+                                               active, kNUM_MPWEAPONSLOTS,
+                                               [&] { return rng.next(); });
+        REQUIRE(picked != 0);
+        REQUIRE(picked != kMPWEAPON_NONE);
+        bool ok = (picked == kMPWEAPON_FALCON2)
+               || (picked == kMPWEAPON_DRAGON)
+               || (picked == kMPWEAPON_K7)
+               || (picked == kMPWEAPON_AR34);
+        REQUIRE(ok);
+    }
+}
+
+TEST_CASE("spawn-weapon manifest: NONE/DISABLED/SHIELD entries are filtered",
+          "[spawn-weapon][manifest][pool]") {
+    const fake_manifest_entry m[] = {
+        { kMANIFEST_TYPE_WEAPON, true, kMPWEAPON_NONE },     /* excluded */
+        { kMANIFEST_TYPE_WEAPON, true, kMPWEAPON_FALCON2 },  /* eligible */
+        { kMANIFEST_TYPE_WEAPON, true, kMPWEAPON_DISABLED }, /* excluded */
+        { kMANIFEST_TYPE_WEAPON, true, kMPWEAPON_SHIELD },   /* excluded */
+        { kMANIFEST_TYPE_WEAPON, true, kMPWEAPON_DRAGON },   /* eligible */
+    };
+    const u8 active[kNUM_MPWEAPONSLOTS] = {
+        kMPWEAPON_K7, kMPWEAPON_NONE, kMPWEAPON_NONE,
+        kMPWEAPON_NONE, kMPWEAPON_NONE, kMPWEAPON_NONE,
+    };
+    seeded_rng rng(0x9002);
+    for (int i = 0; i < 64; i++) {
+        s32 picked = spec_pickFromManifestPool(m, 5, active,
+                                               kNUM_MPWEAPONSLOTS,
+                                               [&] { return rng.next(); });
+        /* Manifest pool has 2 eligible (FALCON2, DRAGON) so the active-set
+         * fallback (which would pick K7) MUST NOT fire. */
+        bool ok = (picked == kMPWEAPON_FALCON2)
+               || (picked == kMPWEAPON_DRAGON);
+        REQUIRE(ok);
+    }
+}
+
+TEST_CASE("spawn-weapon manifest: empty manifest falls back to active set",
+          "[spawn-weapon][manifest][fallback]") {
+    /* Empty manifest pool -> fallback path runs. */
+    const u8 active[kNUM_MPWEAPONSLOTS] = {
+        kMPWEAPON_FALCON2, kMPWEAPON_DRAGON, kMPWEAPON_NONE,
+        kMPWEAPON_NONE, kMPWEAPON_NONE, kMPWEAPON_NONE,
+    };
+    seeded_rng rng(0x9003);
+    for (int i = 0; i < 64; i++) {
+        s32 picked = spec_pickFromManifestPool(nullptr, 0, active,
+                                               kNUM_MPWEAPONSLOTS,
+                                               [&] { return rng.next(); });
+        bool ok = (picked == kMPWEAPON_FALCON2)
+               || (picked == kMPWEAPON_DRAGON);
+        REQUIRE(ok);
+    }
+}
+
+TEST_CASE("spawn-weapon manifest: all-filtered manifest falls back to active set",
+          "[spawn-weapon][manifest][fallback]") {
+    /* Manifest has only excluded entries -> pool is empty -> fallback. */
+    const fake_manifest_entry m[] = {
+        { kMANIFEST_TYPE_WEAPON, true, kMPWEAPON_NONE },
+        { kMANIFEST_TYPE_WEAPON, true, kMPWEAPON_DISABLED },
+        { kMANIFEST_TYPE_WEAPON, true, kMPWEAPON_SHIELD },
+        { kMANIFEST_TYPE_BODY,   true, 0 },
+    };
+    const u8 active[kNUM_MPWEAPONSLOTS] = {
+        kMPWEAPON_K7, kMPWEAPON_NONE, kMPWEAPON_NONE,
+        kMPWEAPON_NONE, kMPWEAPON_NONE, kMPWEAPON_NONE,
+    };
+    seeded_rng rng(0x9004);
+    s32 picked = spec_pickFromManifestPool(m, 4, active,
+                                           kNUM_MPWEAPONSLOTS,
+                                           [&] { return rng.next(); });
+    REQUIRE(picked == kMPWEAPON_K7);
+}
+
+TEST_CASE("spawn-weapon manifest: missing-catalog entries skipped (Phase 2 distribution gap)",
+          "[spawn-weapon][manifest][distribution]") {
+    /* If the host puts a mod weapon in the manifest but the client's catalog
+     * distribution hasn't completed yet, the weapon's catalog_present is
+     * false. The pool builder must skip such entries gracefully (they
+     * effectively don't exist for this client until SVC_DISTRIB_END
+     * registers them). When no eligible entries remain, fall back. */
+    const fake_manifest_entry m[] = {
+        { kMANIFEST_TYPE_WEAPON, false, kMPWEAPON_FALCON2 }, /* not yet distributed */
+        { kMANIFEST_TYPE_WEAPON, false, kMPWEAPON_DRAGON },  /* not yet distributed */
+    };
+    const u8 active[kNUM_MPWEAPONSLOTS] = {
+        kMPWEAPON_K7, kMPWEAPON_NONE, kMPWEAPON_NONE,
+        kMPWEAPON_NONE, kMPWEAPON_NONE, kMPWEAPON_NONE,
+    };
+    seeded_rng rng(0x9005);
+    s32 picked = spec_pickFromManifestPool(m, 2, active,
+                                           kNUM_MPWEAPONSLOTS,
+                                           [&] { return rng.next(); });
+    REQUIRE(picked == kMPWEAPON_K7);
+}
+
+TEST_CASE("spawn-weapon manifest: mod weapon (synthetic catalog id) included",
+          "[spawn-weapon][manifest][mods]") {
+    /* A mod weapon is just an ASSET_WEAPON entry with a catalog_present and
+     * a non-zero weapon_id (the catalog scanner assigns one). The pool
+     * builder is agnostic to whether the entry is base or mod -- the
+     * weapon_id alone determines eligibility. We use 0x12 (SHOTGUN) as a
+     * stand-in for a mod-supplied weapon to exercise the "any valid
+     * weapon_id is eligible" rule. */
+    const u8 kMODWEAPON_STANDIN = 0x12; /* SHOTGUN slot, used as a stand-in */
+    const fake_manifest_entry m[] = {
+        { kMANIFEST_TYPE_WEAPON, true, kMODWEAPON_STANDIN },
+    };
+    const u8 active[kNUM_MPWEAPONSLOTS] = {
+        kMPWEAPON_NONE, kMPWEAPON_NONE, kMPWEAPON_NONE,
+        kMPWEAPON_NONE, kMPWEAPON_NONE, kMPWEAPON_NONE,
+    };
+    seeded_rng rng(0x9006);
+    s32 picked = spec_pickFromManifestPool(m, 1, active,
+                                           kNUM_MPWEAPONSLOTS,
+                                           [&] { return rng.next(); });
+    REQUIRE(picked == kMODWEAPON_STANDIN);
+}
+
+TEST_CASE("spawn-weapon manifest: invalid weapon_id (>=NUM_MPWEAPONS) skipped",
+          "[spawn-weapon][manifest][pool]") {
+    /* A corrupt manifest with an out-of-range weapon_id must NOT crash and
+     * must be skipped. Falls back to active set when nothing valid remains. */
+    const fake_manifest_entry m[] = {
+        { kMANIFEST_TYPE_WEAPON, true, 0xFF }, /* out of range */
+        { kMANIFEST_TYPE_WEAPON, true, 0x29 }, /* == NUM_MPWEAPONS, out of range */
+    };
+    const u8 active[kNUM_MPWEAPONSLOTS] = {
+        kMPWEAPON_FALCON2, kMPWEAPON_NONE, kMPWEAPON_NONE,
+        kMPWEAPON_NONE, kMPWEAPON_NONE, kMPWEAPON_NONE,
+    };
+    seeded_rng rng(0x9007);
+    s32 picked = spec_pickFromManifestPool(m, 2, active,
+                                           kNUM_MPWEAPONSLOTS,
+                                           [&] { return rng.next(); });
+    REQUIRE(picked == kMPWEAPON_FALCON2);
+}
+
+TEST_CASE("spawn-weapon manifest: active-set BOTH degenerate -> 0 (caller fallback)",
+          "[spawn-weapon][manifest][fallback]") {
+    /* If both manifest and active set are empty, the spec helper returns 0.
+     * The live spawn sites (player.c / bot.c) handle this via the existing
+     * weapons[0] / unarmed fallback path. matchStart() RANDOM falls back to
+     * MPWEAPON_FALCON2 with a LOG_WARNING. */
+    const fake_manifest_entry m[] = {
+        { kMANIFEST_TYPE_WEAPON, true, kMPWEAPON_NONE },
+    };
+    const u8 active[kNUM_MPWEAPONSLOTS] = {
+        kMPWEAPON_NONE, kMPWEAPON_NONE, kMPWEAPON_NONE,
+        kMPWEAPON_NONE, kMPWEAPON_NONE, kMPWEAPON_NONE,
+    };
+    seeded_rng rng(0x9008);
+    s32 picked = spec_pickFromManifestPool(m, 1, active,
+                                           kNUM_MPWEAPONSLOTS,
+                                           [&] { return rng.next(); });
+    REQUIRE(picked == 0);
+}
+
+TEST_CASE("spawn-weapon manifest: pool size scales beyond 6 slots",
+          "[spawn-weapon][manifest]") {
+    /* The active-set pool caps at 6 slots; the manifest pool is bounded by
+     * NUM_MPWEAPONS (41). Verify the spec covers a pool larger than 6 -- if
+     * the implementation accidentally clamped to NUM_MPWEAPONSLOTS the larger
+     * pool entries would be dropped. */
+    fake_manifest_entry m[20];
+    /* Fill 20 entries with weapons 1..20 (all eligible). */
+    for (int i = 0; i < 20; i++) {
+        m[i].type = kMANIFEST_TYPE_WEAPON;
+        m[i].catalog_present = true;
+        m[i].weapon_id = (u8)(i + 1); /* 1..20, all eligible (NONE=0/SHIELD=0x27/DISABLED=0x28 not in range) */
+    }
+    const u8 active[kNUM_MPWEAPONSLOTS] = {
+        kMPWEAPON_NONE, kMPWEAPON_NONE, kMPWEAPON_NONE,
+        kMPWEAPON_NONE, kMPWEAPON_NONE, kMPWEAPON_NONE,
+    };
+    /* Confirm at least 6 distinct values appear under a reasonable rng
+     * stream -- verifying the pool isn't artificially clamped at 6. */
+    seeded_rng rng(0x9009);
+    bool seen[256] = {false};
+    int distinct = 0;
+    for (int i = 0; i < 200; i++) {
+        s32 picked = spec_pickFromManifestPool(m, 20, active,
+                                               kNUM_MPWEAPONSLOTS,
+                                               [&] { return rng.next(); });
+        REQUIRE(picked >= 1);
+        REQUIRE(picked <= 20);
+        if (!seen[picked]) {
+            seen[picked] = true;
+            distinct++;
+        }
+    }
+    /* Statistical: with 20 buckets and 200 picks, distinct should easily
+     * exceed 7. Setting the bar at 7 makes the assertion meaningful (catches
+     * a 6-slot clamp) without being flaky. */
+    REQUIRE(distinct > 6);
+}
+
+TEST_CASE("spawn-weapon manifest: MANIFEST_TYPE_WEAPON value pin",
+          "[spawn-weapon][pin]") {
+    /* The wire format depends on this exact integer (netmanifest.h:74).
+     * If MANIFEST_TYPE_WEAPON drifts, the pool builder reads zero entries
+     * silently because the type filter mismatches. */
+    REQUIRE(kMANIFEST_TYPE_WEAPON == 3);
+}

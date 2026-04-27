@@ -1,8 +1,47 @@
 
 # Session Log (Active)
 
-> **S284–S482** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S284–S483** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S483 (`jovial-kirch-181c60` follow-up) - 2026-04-27 - host-eligible weapon pool via match manifest
+
+Mike's clarification on Random/Fiesta semantics after S482 shipped: the eligible pool should draw from the host's full unlocked-weapon catalog, distributed via the match manifest, not just the active match weapon set's 6 slots.
+
+### Outcome
+
+S482's `spawnWeaponPickFromActiveSet()` (active-set 6-slot pool) is preserved as a **fallback only**. The primary pool is now the match manifest's `MANIFEST_TYPE_WEAPON` entries -- enumerated by the host at match start and broadcast via the existing `SVC_MATCH_MANIFEST` machinery. Distribution-as-needed for mod-only weapons is **already wired**: `ASSET_WEAPON` is in the `SVC_CATALOG_INFO` type list (`port/src/net/netmsg.c::netmsgSvcCatalogInfoWrite`), so any non-bundled mod weapon the host has streams to clients via the existing `CLC_CATALOG_DIFF` -> `SVC_DISTRIB_BEGIN` / `SVC_DISTRIB_CHUNK` / `SVC_DISTRIB_END` pipeline at lobby join time. **No NET_PROTOCOL_VER bump** -- the manifest serialization is `(u8 type, u8 slot, str id)` per entry; adding more entries is wire-compatible. v45 still in effect.
+
+### Mode semantics (post-S483)
+
+- **SPECIFIC**: unchanged. matchStart() resolves `spawn_weapon_id` via the catalog.
+- **RANDOM**: matchStart() now rolls from the manifest pool (`spawnWeaponPickFromMatchManifest`). Falls back to active-set roll when the manifest is unavailable (solo CS, pre-broadcast windows). Rolled WEAPON_* enum is broadcast in `SVC_STAGE_START` as before.
+- **FIESTA**: every spawn (player.c / bot.c) now rolls from the manifest pool. Same fallback discipline.
+
+### Pool source cascade (live helper `spawnWeaponPickFromMatchManifest`)
+
+1. `g_CurrentLoadedManifest` (post-transition definitive list).
+2. `g_ServerManifest` (host-side built manifest, pre-broadcast).
+3. `g_ClientManifest` (received from server).
+4. None populated -> falls back to `spawnWeaponPickFromActiveSet()` (active set's 6 slots).
+
+If even that yields zero eligible weapons, matchStart() RANDOM falls back to `MPWEAPON_FALCON2` with a `LOG_WARNING`; FIESTA falls into the existing `resolvedWeaponNum=0` miss path.
+
+### Files
+
+- `port/src/net/netmanifest.c` -- new `s_manifestAppendWeaponPool` helper. Walks `assetCatalogIterateUnlockedByType(ASSET_WEAPON, ...)`, filters NONE/DISABLED/SHIELD via `ext.weapon.weapon_id`, calls `manifestAddEntry` with `MANIFEST_TYPE_WEAPON` + `MANIFEST_SLOT_MATCH`. Hooked into both `manifestBuild` (server) and `manifestBuildForHost` (client outgoing CLC_LOBBY_START) right after the existing 6-slot active-set loop. Logs the (added/filtered/invalid) tally.
+- `port/src/net/matchsetup.c` -- new `spawnWeaponPickFromMatchManifest()` (public), `spawnWeaponBuildPoolFromManifest()` + `spawnWeaponSelectManifest()` (file-static). matchStart() RANDOM branch + player.c FIESTA branch + bot.c FIESTA branch all migrated to the new helper. Includes `net/netmanifest.h`.
+- `port/include/net/matchsetup.h` -- new `spawnWeaponPickFromMatchManifest` declaration with the same doc-comment convention as the S482 helpers.
+- `src/game/player.c` -- FIESTA branch calls `spawnWeaponPickFromMatchManifest` instead of `spawnWeaponPickFromActiveSet`.
+- `src/game/bot.c` -- mirror.
+
+### Tests (extended `tests/test_spawn_weapon_mode.cpp`)
+
+Adds 9 new cases (now 26 total / ~2-3k assertions): pool draws from MANIFEST_TYPE_WEAPON entries (skipping non-weapon entries), NONE/DISABLED/SHIELD filtered from the manifest pool, empty manifest falls back to active set, all-filtered manifest falls back, missing-catalog entries skipped (Phase 2 distribution gap), mod weapon (synthetic catalog id) included in pool, invalid weapon_id (>=NUM_MPWEAPONS) skipped, both pools degenerate -> 0 (caller fallback), pool size scales beyond 6 slots, MANIFEST_TYPE_WEAPON value pin (== 3, mirrors `netmanifest.h:74`).
+
+### Phase 2 status (deferred)
+
+Distribution-as-needed verification requires an in-game playtest with a mod weapon installed on host but not client. The wiring is ALREADY in place via `SVC_CATALOG_INFO` (S222 audio mod sync extension) -- no new code is needed for the distribution itself. Phase 2 is "verify the existing pipeline picks up ASSET_WEAPON entries during lobby join", which can only be validated end-to-end at runtime.
 
 ## Session S482 (`jovial-kirch-181c60`) - 2026-04-27 - spawn-weapon Random/Fiesta semantics
 

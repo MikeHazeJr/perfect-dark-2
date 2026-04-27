@@ -187,10 +187,24 @@ const char *matchGetWeaponSlotCatalogId(s32 slot);
  * spawnWeaponPickFromSlots — pure variant for testing: takes the slot array +
  *   count + a pluggable u32 RNG. Same filtering rules. Returns the chosen
  *   MPWEAPON_* index, or 0 when degenerate.
+ *
+ * S483 (2026-04-27): host-eligible pool via match manifest.
+ *
+ * spawnWeaponPickFromMatchManifest — primary spawn-weapon roll. Walks the
+ *   loaded match manifest (cascade: g_CurrentLoadedManifest, g_ServerManifest,
+ *   g_ClientManifest), resolves each MANIFEST_TYPE_WEAPON entry to an
+ *   MPWEAPON_* index, filters NONE/DISABLED/SHIELD, and rolls uniformly. Falls
+ *   back to spawnWeaponPickFromActiveSet() when no manifest is loaded yet
+ *   (e.g. solo CS, pre-broadcast) or when zero entries resolve.
+ *
+ * The pure pool-builder spawnWeaponBuildPoolFromManifest is internal to
+ * matchsetup.c; tests in tests/test_spawn_weapon_mode.cpp replicate the
+ * spec directly per the test_random_pool.cpp pattern.
  */
 s32 spawnWeaponPickFromActiveSet(void);
 s32 spawnWeaponPickFromSlots(const u8 *slots, s32 numSlots,
                              u32 (*rng_fn)(void *userdata), void *userdata);
+s32 spawnWeaponPickFromMatchManifest(void);
 
 /* Challenge-mode start: applies challenge config to g_MpSetup and calls
  * mpStartMatch() directly, bypassing the g_MatchConfig → g_MpSetup copy. */
