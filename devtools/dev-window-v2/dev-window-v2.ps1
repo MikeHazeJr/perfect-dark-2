@@ -510,6 +510,93 @@ function Save-ReleaseCache($data) {
     try { $data | ConvertTo-Json -Depth 3 | Set-Content $script:ReleaseCachePath -Encoding UTF8 -ErrorAction Stop } catch {}
 }
 
+# Slug used for `gh api repos/<slug>/releases/latest`. Same fork as the
+# BtnOpenGitHub URL fallback. If GitHubRepo in settings.json is set as a
+# raw "owner/repo" slug, prefer that; if it's a full URL, parse it; else
+# default to the canonical fork.
+function Get-GitHubRepoSlug {
+    $r = $script:Settings.GitHubRepo
+    if ($r -and $r -ne "") {
+        if ($r -match '^https?://github\.com/([^/]+/[^/]+?)(?:\.git)?/?$') { return $Matches[1] }
+        if ($r -match '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$') { return $r }
+    }
+    return "MikeHazeJr/perfect-dark-2"
+}
+
+# Update the LblLatestRelease text/color from a parsed release object.
+# Shape: PSCustomObject with .tag_name and .prerelease (matching the
+# `gh api repos/.../releases/latest` JSON shape).
+function Update-LatestReleaseLabel($cached) {
+    if ($null -eq $cached) {
+        $ui["LblLatestRelease"].Text = "latest: --"
+        $ui["LblLatestRelease"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#7A8898")))
+        return
+    }
+    try {
+        $tag = $cached.tag_name
+        $pre = $cached.prerelease
+        $kind = $(if ($pre) { "dev" } else { "stable" })
+        $ui["LblLatestRelease"].Text = "latest: " + $tag + " (" + $kind + ")"
+        $color = $(if ($pre) { "#0078A8" } else { "#10783A" })
+        $ui["LblLatestRelease"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($color)))
+    } catch {}
+}
+
+$script:LatestReleaseRefreshBusy = $false
+
+# Async fetch of the latest GitHub release via `gh api`. Updates
+# LblLatestRelease + the on-disk cache on success. Used at startup (when
+# no cache exists), on F5, and at the end of every successful release
+# (Mike's S480 ask). Skips silently if gh is missing or not authed.
+function Refresh-LatestRelease {
+    if ($script:LatestReleaseRefreshBusy) { return }
+    if (-not $script:GhCliAvailable) { return }
+    $script:LatestReleaseRefreshBusy = $true
+
+    # Surface a transient "checking..." state so the user sees the refresh
+    # in flight; on completion we either update with the new value or
+    # restore the previous cache value.
+    $priorText = $ui["LblLatestRelease"].Text
+    $priorBrush = $ui["LblLatestRelease"].Foreground
+    $ui["LblLatestRelease"].Text = "latest: checking..."
+    $ui["LblLatestRelease"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0078A8")))
+
+    $slug = Get-GitHubRepoSlug
+    $envPath = $env:PATH
+
+    Start-AsyncPoolAction `
+        -Script {
+            param($repoSlug, $envPathArg)
+            try {
+                $env:PATH = $envPathArg
+                $j = & gh api ("repos/" + $repoSlug + "/releases/latest") 2>$null
+                if ($LASTEXITCODE -eq 0 -and $j) {
+                    return [PSCustomObject]@{ Ok = $true; Data = ($j | ConvertFrom-Json) }
+                }
+                return [PSCustomObject]@{ Ok = $false; Data = $null; Err = "gh api exit $LASTEXITCODE" }
+            } catch {
+                return [PSCustomObject]@{ Ok = $false; Data = $null; Err = $_.Exception.Message }
+            }
+        } `
+        -Arguments @($slug, $envPath) `
+        -OnComplete {
+            param($result)
+            try {
+                $r = if ($result -and $result.Count -gt 0) { $result[0] } else { $result }
+                if ($null -ne $r -and $r.Ok -and $r.Data) {
+                    Update-LatestReleaseLabel $r.Data
+                    Save-ReleaseCache $r.Data
+                } else {
+                    # Restore prior text + color so the user is not left with
+                    # a stuck "checking..." after a failed probe.
+                    $ui["LblLatestRelease"].Text = $priorText
+                    $ui["LblLatestRelease"].Foreground = $priorBrush
+                }
+            } catch {}
+            $script:LatestReleaseRefreshBusy = $false
+        }
+}
+
 # ============================================================================
 # Section 9: WPF XAML Definition
 # ============================================================================
@@ -790,10 +877,14 @@ function Save-ReleaseCache($data) {
                 </Style>
             </TabControl.Resources>
 
-            <!-- BUILD TAB (S477 redesign: light theme, balanced font hierarchy,
-                 hero buttons sized to be prominent without dominating, status +
-                 version cards take the freed vertical space). -->
+            <!-- BUILD TAB (S477 redesign + S480 ScrollViewer wrap). The
+                 ScrollViewer means active-build content (progress bar +
+                 STOP / Copy buttons appearing inside the STATUS card) can
+                 grow without being clipped at the tab boundary; once the
+                 build settles back to idle, the natural-height content fits
+                 and the scrollbar disappears. -->
             <TabItem Header="BUILD">
+              <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0">
                 <DockPanel Margin="20,18,20,18" LastChildFill="False">
                     <!-- Hero Buttons Row (S478: doubled-bold text fits at MinHeight=104,
                          font 36 BUILD / 32 RELEASE Bold, padding 20,16). -->
@@ -932,8 +1023,13 @@ function Save-ReleaseCache($data) {
                                         </StackPanel>
                                     </StackPanel>
                                     <StackPanel>
-                                        <TextBlock Text="PAT" Foreground="#7A8898" FontSize="22"
-                                                   FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,4"/>
+                                        <!-- Display label is "REV" (Mike's S480 rename); the
+                                             underlying control names + cmake variable
+                                             (VERSION_SEM_PATCH) stay the same so code-behind
+                                             and version-stamping are unchanged. -->
+                                        <TextBlock Text="REV" Foreground="#7A8898" FontSize="22"
+                                                   FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,4"
+                                                   ToolTip="Revision (third semver segment; cmake VERSION_SEM_PATCH)"/>
                                         <StackPanel Orientation="Horizontal">
                                             <Button x:Name="BtnVerPatDown" Content="-" Style="{StaticResource ToolBtn}"
                                                     Padding="0" Width="48" MinHeight="52" FontFamily="Consolas" FontSize="28"/>
@@ -959,6 +1055,7 @@ function Save-ReleaseCache($data) {
                         </Border>
                     </Grid>
                 </DockPanel>
+              </ScrollViewer>
             </TabItem>
 
             <!-- LOG TAB (light theme: white surface for readability of long
@@ -2687,6 +2784,7 @@ $script:BuildTimer.Add_Tick({
                 $errCnt = $script:ClientErrors.Count + $script:ServerErrors.Count
                 $ui["BtnCopyErrors"].Visibility = $(if ($errCnt -gt 0) { [System.Windows.Visibility]::Visible } else { [System.Windows.Visibility]::Collapsed })
                 $ui["BtnCopyLog"].Visibility = [System.Windows.Visibility]::Visible
+                $wasReleaseSuccess = ($script:IsPushing -and -not $anyErr)
                 $script:IsBuilding = $false; $script:IsPushing = $false
                 $ui["BtnBuild"].IsEnabled = $true; $ui["BtnRelease"].IsEnabled = $true; $ui["BtnCleanBuild"].IsEnabled = $true
                 $ui["BtnPull"].IsEnabled = $true
@@ -2694,6 +2792,14 @@ $script:BuildTimer.Add_Tick({
                 $ui["BtnPruneWorktrees"].IsEnabled = $true
                 $ui["BtnStop"].Visibility = [System.Windows.Visibility]::Collapsed
                 Refresh-VersionDisplay; Update-RunButtons; Update-StatusBar
+                # S480: post-release latest-version label refresh. Only fires
+                # on a fully successful release (anyErr false + IsPushing
+                # was true at completion). gh push lag is usually 1-3 s, so
+                # the gh-api call has ~likely-fresh data; if not, the label
+                # falls back to the prior value.
+                if ($wasReleaseSuccess) {
+                    Refresh-LatestRelease
+                }
             }
         }
     } catch {}
@@ -2713,6 +2819,16 @@ $script:MainTimer.Add_Tick({
         if (-not $script:GhAuthOk -and -not $script:GhAuthRefreshBusy) {
             $elapsed = ([DateTime]::UtcNow - $script:LastGhAuthProbeUtc).TotalSeconds
             if ($elapsed -ge 10) { Invoke-GhAuthBackgroundCheck }
+        }
+        # Deferred one-shot initial fetch of the latest GitHub release.
+        # Set in Window.Loaded; fires here once gh CLI is available and we
+        # are not in a build / release / refresh window (avoids competing
+        # with the post-release refresh that auto-fires from the BuildTimer
+        # success path).
+        if ($script:LatestReleaseNeedsInitialFetch -and $script:GhCliAvailable -and `
+            -not $script:LatestReleaseRefreshBusy -and -not $script:IsBuilding -and -not $script:IsPushing) {
+            $script:LatestReleaseNeedsInitialFetch = $false
+            Refresh-LatestRelease
         }
     } catch {}
 })
@@ -3056,6 +3172,7 @@ $window.Add_KeyDown({
         Stop-GhAuthProbeInFlight
         Invoke-GhAuthBackgroundCheck
         Refresh-VersionDisplay
+        Refresh-LatestRelease
         $e.Handled = $true
     }
 })
@@ -3082,18 +3199,16 @@ $window.Add_Loaded({
         # Version
         Refresh-VersionDisplay
 
-        # Release cache
+        # Release cache: prefer the on-disk cache for instant display, then
+        # kick a background refresh so the label tracks the live GitHub
+        # state. If no cache exists, the refresh is the first source of
+        # truth; the label shows "latest: --" until it lands.
         $cached = Load-ReleaseCache
-        if ($null -ne $cached) {
-            try {
-                $tag = $cached.tag_name
-                $pre = $cached.prerelease
-                $kind = $(if ($pre) { "dev" } else { "stable" })
-                $ui["LblLatestRelease"].Text = "latest: " + $tag + " (" + $kind + ")"
-                $color = $(if ($pre) { "#0078A8" } else { "#10783A" })
-                $ui["LblLatestRelease"].Foreground = (New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($color)))
-            } catch {}
-        }
+        if ($null -ne $cached) { Update-LatestReleaseLabel $cached }
+        # Defer the gh-api refresh until after the gh-auth probe finishes
+        # (it needs gh on PATH and a valid token). MainTimer's existing
+        # post-auth state will trigger a one-shot refresh below.
+        $script:LatestReleaseNeedsInitialFetch = $true
 
         # Dev version
         $ver = Get-ProjectVersion

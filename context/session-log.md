@@ -1,8 +1,23 @@
 
 # Session Log (Active)
 
-> **S284–S479** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S284–S480** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S480 (`festive-hawking-49649b` follow-up #5) - 2026-04-27 - post-release latest refresh + build-tab clipping + PAT rename to REV
+
+Three Mike asks resolved in one merge:
+
+1. **Post-release latest-version refresh** ("When I release a build, after the release it should update the latest version label with a fresh check"). New helpers in `dev-window-v2.ps1`:
+   - `Get-GitHubRepoSlug` -- resolves `owner/repo` slug from Settings.GitHubRepo (handles raw slug, full URL, or empty -> default fork).
+   - `Update-LatestReleaseLabel($cached)` -- shared text/color update from a parsed release JSON object (also used by Loaded path now).
+   - `Refresh-LatestRelease` -- async `gh api repos/<slug>/releases/latest` via `Start-AsyncPoolAction`. Shows "latest: checking..." while in flight; on success, updates the label + writes the cache; on failure, restores the prior text + brush so the user is not stranded on the transient state. Guarded by `$script:LatestReleaseRefreshBusy` so it never stacks. Hooked into the BuildTimer release-success branch -- only fires when `$wasReleaseSuccess = ($script:IsPushing -and -not $anyErr)`. Also fired by F5 + the deferred initial fetch from MainTimer (kicks once after gh auth becomes ok).
+2. **BUILD tab content clipping during builds** -- visible in Mike's screenshot, the STOP button at the bottom of the STATUS card was getting cut off mid-glyph because the cards' content (active progress bar + STOP/Copy buttons) exceeded the available tab area. Wrapped the BUILD tab's DockPanel in a `<ScrollViewer VerticalScrollBarVisibility="Auto">` so vertical overflow scrolls instead of clipping; once the build finishes and the active controls hide, content fits and the scrollbar disappears.
+3. **PAT spinner relabel to REV** ("Not 4 segments, just rename Patch to Revision") -- display-only change in `dev-window-v2.ps1`. The `TextBlock Text="PAT"` now reads "REV" with a tooltip clarifying it backs cmake `VERSION_SEM_PATCH`. Underlying control names (`TxtVerPatch`, `BtnVerPatDown/Up`) and the on-disk version format `M.m.p` stay unchanged so version-util.ps1 / release.ps1 / CMakeLists.txt don't need touching. Mike clarified mid-session that 4-segment versions are NOT wanted -- just the label rename.
+
+Verified: PowerShell parser passes; XAML loads cleanly via XamlReader.Load (1500x940 MinSize unchanged from S479).
+
+Files: `devtools/dev-window-v2/dev-window-v2.ps1`.
 
 ## Session S479 (`festive-hawking-49649b` follow-up #4) - 2026-04-27 - right panel clipping fix
 
