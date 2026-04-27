@@ -1193,6 +1193,9 @@ static void registerDebugShortcuts(void)
         DBG_SHORTCUT_CAT_RENDERING, 0);
 
     /* Diagnostics */
+    pdguiDebugShortcutRegister("F2",
+        "Schedule one-shot test-fire pulse for player 0 (+1s delay)",
+        DBG_SHORTCUT_CAT_DIAGNOSTICS, 0);
     pdguiDebugShortcutRegister("F6",
         "Freeze MP bot AI / movement (spawn-layout inspection)",
         DBG_SHORTCUT_CAT_DIAGNOSTICS, 1);
