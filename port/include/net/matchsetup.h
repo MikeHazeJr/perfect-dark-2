@@ -79,7 +79,7 @@ struct matchslot {
  * Wire / save format:
  *   - Wire: SVC_STAGE_START + CLC_LOBBY_START carry an explicit u8 mode +
  *     u8 spawnWeaponNum after the existing spawn_weapon_id string. Bumped
- *     NET_PROTOCOL_VER 44 -> 45 (2026-04-27, S481).
+ *     NET_PROTOCOL_VER 44 -> 45 (2026-04-27, S482).
  *   - Save (scenario JSON): "spawnWeaponMode" key written; missing key
  *     defaults to RANDOM if spawn_weapon_id is empty, SPECIFIC otherwise
  *     (preserves legacy semantics for v <= 44 saves).
@@ -176,7 +176,7 @@ void matchResetHandicaps(void);
  * Returns "" if the slot is empty or the weapon is not in the catalog. */
 const char *matchGetWeaponSlotCatalogId(s32 slot);
 
-/* S481 (2026-04-27): Random / Fiesta spawn-weapon helpers.
+/* S482 (2026-04-27): Random / Fiesta spawn-weapon helpers.
  *
  * spawnWeaponPickFromActiveSet — read g_MpSetup.weapons[0..NUM_MPWEAPONSLOTS-1],
  *   filter to non-NONE/non-DISABLED/non-SHIELD slots, and pick one uniformly at

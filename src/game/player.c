@@ -1800,7 +1800,7 @@ void playerSpawn(void)
 			                               MPOPTION_SPAWNWITHWEAPON)) {
 				/* F.6/M0.1c: spawnWeaponNum is DERIVED from spawn_weapon_id at matchStart().
 				 *
-				 * S481 (2026-04-27) — three spawn-weapon modes:
+				 * S482 (2026-04-27) — three spawn-weapon modes:
 				 *   SPECIFIC: g_MatchConfig.spawnWeaponNum is the resolved WEAPON_*
 				 *             enum from matchStart(). Use it directly.
 				 *   RANDOM:   matchStart() already rolled once and stored the rolled

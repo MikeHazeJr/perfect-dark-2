@@ -1191,7 +1191,7 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 		/* B-125: spawn_weapon_id as catalog ID string — clients need this
 		 * to resolve spawnWeaponNum on their side for player spawn.
 		 *
-		 * S481 (2026-04-27, NET_PROTOCOL_VER 44 -> 45): spawn-weapon mode
+		 * S482 (2026-04-27, NET_PROTOCOL_VER 44 -> 45): spawn-weapon mode
 		 * (SPECIFIC / RANDOM / FIESTA) plus the host-resolved spawnWeaponNum
 		 * follow the catalog ID. The host resolves SPECIFIC + RANDOM at
 		 * matchStart() so clients receive the integer directly without
@@ -1446,7 +1446,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		}
 		/* B-125: read spawn_weapon_id and resolve to spawnWeaponNum.
 		 *
-		 * S481 (2026-04-27, NET_PROTOCOL_VER 45): wire format adds
+		 * S482 (2026-04-27, NET_PROTOCOL_VER 45): wire format adds
 		 *   u8 spawnWeaponMode + u8 spawnWeaponNum after spawn_weapon_id.
 		 * The host resolves the integer at matchStart() so the client uses
 		 * it directly (no re-roll). FIESTA carries SPAWNWEAPON_FIESTA_SENTINEL
@@ -4557,7 +4557,7 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 	/* B-125: spawn_weapon_id as catalog ID string (PRIMARY).
 	 * Matches weapon_ids[] pattern above — sent as string, resolved on server.
 	 *
-	 * S481 (2026-04-27, NET_PROTOCOL_VER 45): trailing u8 spawnWeaponMode
+	 * S482 (2026-04-27, NET_PROTOCOL_VER 45): trailing u8 spawnWeaponMode
 	 * carries the user's lobby intent (SPECIFIC / RANDOM / FIESTA) so the
 	 * server's matchStart() can roll RANDOM once or arm FIESTA appropriately.
 	 * (CLC_LOBBY_START is sent BEFORE the host roll, so spawnWeaponNum on the
@@ -4962,7 +4962,7 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 	/* B-125: read spawn_weapon_id catalog string and resolve to spawnWeaponNum.
 	 * Mirrors matchStart() resolution logic for the network path.
 	 *
-	 * S481 (2026-04-27, NET_PROTOCOL_VER 45): trailing u8 spawnWeaponMode
+	 * S482 (2026-04-27, NET_PROTOCOL_VER 45): trailing u8 spawnWeaponMode
 	 * carries the lobby leader's mode choice (SPECIFIC / RANDOM / FIESTA).
 	 * The server stores this in g_MatchConfig and the host's matchStart()
 	 * does the actual roll for RANDOM (and arms FIESTA) before

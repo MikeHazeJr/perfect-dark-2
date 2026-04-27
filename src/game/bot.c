@@ -516,7 +516,7 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 		                               MPOPTION_SPAWNWITHWEAPON)) {
 			/* F.6/M0.1c: spawnWeaponNum is DERIVED from spawn_weapon_id at matchStart().
 			 *
-			 * S481 (2026-04-27) — three spawn-weapon modes (mirror of player.c:
+			 * S482 (2026-04-27) — three spawn-weapon modes (mirror of player.c:
 			 * SPECIFIC, RANDOM, FIESTA — see player.c spawn-weapon block for the
 			 * full doc). FIESTA rolls per-spawn from the active set so each bot
 			 * respawn yields a fresh weapon, independent of other bots / players.

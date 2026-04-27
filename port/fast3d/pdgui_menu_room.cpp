@@ -505,7 +505,7 @@ static void buildSpawnWeaponList(void)
     strncpy(s_SpawnWeapons[0].name, "Random", sizeof(s_SpawnWeapons[0].name));
     s_SpawnWeapons[0].mode = SPAWNWEAPON_MODE_RANDOM;
 
-    /* Entry 1: Fiesta (rolls fresh per spawn, per player). S481 (2026-04-27). */
+    /* Entry 1: Fiesta (rolls fresh per spawn, per player). S482 (2026-04-27). */
     s_SpawnWeapons[1].catalog_id[0] = '\0';
     strncpy(s_SpawnWeapons[1].name, "Fiesta", sizeof(s_SpawnWeapons[1].name));
     s_SpawnWeapons[1].mode = SPAWNWEAPON_MODE_FIESTA;
@@ -1455,7 +1455,7 @@ static void renderLevelEditorOverlay(void)
 
 static void syncSpawnWeaponFromConfig(void)
 {
-    /* S481 (2026-04-27): mode-aware sync. RANDOM and FIESTA are synthetic
+    /* S482 (2026-04-27): mode-aware sync. RANDOM and FIESTA are synthetic
      * dropdown entries with empty catalog_id; SPECIFIC matches by catalog ID. */
     if (g_MatchConfig.spawnWeaponMode == SPAWNWEAPON_MODE_FIESTA) {
         for (int i = 0; i < s_NumSpawnWeapons; i++) {
@@ -3019,7 +3019,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     optToggle        ("Spawn w/ Weapon", MPOPTION_SPAWNWITHWEAPON,   leader);
     /* Weapon selector — only visible when spawn-with-weapon is on.
      *
-     * S481 (2026-04-27): three-mode selector. Random = roll once at match
+     * S482 (2026-04-27): three-mode selector. Random = roll once at match
      * start (fixed for the match); Fiesta = roll fresh per spawn per player;
      * specific weapon = always that weapon. */
     if (g_MatchConfig.options & MPOPTION_SPAWNWITHWEAPON) {

@@ -308,8 +308,8 @@ s32 scenarioSave(const char *name)
     fprintf(fp, "  \"spawnWeaponId\": \"");
     jsonEscapeStr(fp, g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "");
     fprintf(fp, "\",\n");
-    /* S481 (2026-04-27): spawn weapon mode — 0=SPECIFIC / 1=RANDOM / 2=FIESTA.
-     * Backwards-compat: scenarios saved before S481 lack this key; the loader
+    /* S482 (2026-04-27): spawn weapon mode — 0=SPECIFIC / 1=RANDOM / 2=FIESTA.
+     * Backwards-compat: scenarios saved before S482 lack this key; the loader
      * defaults to SPECIFIC (when spawn_weapon_id is non-empty) or RANDOM
      * (when empty) -- which preserves the legacy "empty = Random label"
      * intent that those saves were authored with. */
@@ -510,10 +510,10 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
         } else {
             g_MatchConfig.spawn_weapon_id[0] = '\0';
         }
-        /* S481 (2026-04-27): restore spawn-weapon mode. Backwards-compat with
-         * pre-S481 saves: missing "spawnWeaponMode" key defaults to SPECIFIC
+        /* S482 (2026-04-27): restore spawn-weapon mode. Backwards-compat with
+         * pre-S482 saves: missing "spawnWeaponMode" key defaults to SPECIFIC
          * when spawn_weapon_id is non-empty, RANDOM when empty. This matches
-         * the legacy authoring intent ("empty = Random label" pre-S481). */
+         * the legacy authoring intent ("empty = Random label" pre-S482). */
         s32 modeVal = -1;
         if (jsonFindInt(buf, "spawnWeaponMode", &modeVal)
                 && modeVal >= 0

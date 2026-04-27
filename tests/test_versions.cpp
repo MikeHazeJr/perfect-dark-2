@@ -18,7 +18,7 @@
  *   "Save format (MPSETUP_VERSION 1 -> 2): WAD save/load roundtrip +
  *    v1 -> v2 migration"
  *
- * Bumped 2026-04-27 (S481) to NET_PROTOCOL_VER 45 for the spawn-weapon
+ * Bumped 2026-04-27 (S482) to NET_PROTOCOL_VER 45 for the spawn-weapon
  * mode (SPECIFIC / RANDOM / FIESTA) wire fields. MPSETUP_VERSION
  * unchanged — spawn weapon is not persisted in the mpsetup WAD format.
  */
@@ -54,7 +54,7 @@ TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written ag
      * verifying the bump is intentional, update g_TestExpectedNetProtocolVer
      * to match and re-run.
      *
-     * As of 2026-04-27 (S481) the live value is 45 (spawn-weapon mode wire
+     * As of 2026-04-27 (S482) the live value is 45 (spawn-weapon mode wire
      * fields: SVC_STAGE_START + CLC_LOBBY_START carry u8 spawnWeaponMode +
      * u8 spawnWeaponNum). MPSETUP_VERSION stays at 2 — spawn weapon is not
      * persisted in the mpsetup WAD save (see scenario_save.c instead). */

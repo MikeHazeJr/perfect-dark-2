@@ -70,7 +70,7 @@ constexpr u8 kSPAWNWEAPON_MODE_FIESTA   = 2;
 /* Mirror of SPAWNWEAPON_FIESTA_SENTINEL. */
 constexpr u8 kSPAWNWEAPON_FIESTA_SENTINEL = 0xFE;
 
-/* Pure replication of spawnWeaponPickFromSlots (matchsetup.c S481).
+/* Pure replication of spawnWeaponPickFromSlots (matchsetup.c S482).
  * Filter out NONE/DISABLED/SHIELD, then index uniformly via RNG % count. */
 s32 spec_pickFromSlots(const u8 *slots, s32 numSlots,
                        std::function<u32()> rng_fn)
@@ -104,7 +104,7 @@ struct seeded_rng {
     }
 };
 
-/* Mirror of the matchStart() mode-dispatch decision (matchsetup.c S481).
+/* Mirror of the matchStart() mode-dispatch decision (matchsetup.c S482).
  * Inputs: mode + spawn_weapon_id_present + roll_result.
  * Outputs: the runtime spawnWeaponNum that the spawn sites would observe.
  *
@@ -131,7 +131,7 @@ u8 spec_resolveAtMatchStart(u8 mode, bool specificIdPresent,
     }
 }
 
-/* Mirror of the scenario_save.c S481 legacy-default rule:
+/* Mirror of the scenario_save.c S482 legacy-default rule:
  * If "spawnWeaponMode" key is missing in the JSON, default to:
  *   - RANDOM   when spawn_weapon_id is empty (legacy "empty = Random label")
  *   - SPECIFIC when spawn_weapon_id is non-empty (a named weapon)
@@ -335,7 +335,7 @@ TEST_CASE("spawn-weapon: SPECIFIC with empty id falls back to legacy 0xFF",
           "[spawn-weapon][specific]") {
     /* The legacy meaning of 0xFF is "no resolved weapon, fall back to
      * weapons[0]" — preserved for backwards compat with old saves where
-     * spawn_weapon_id is empty + (post-S481) mode defaulted to SPECIFIC.
+     * spawn_weapon_id is empty + (post-S482) mode defaulted to SPECIFIC.
      * Such saves SHOULD load with mode=RANDOM (see legacy-default test
      * below), but if a save somehow lands here, the spawn sites still
      * have a sensible fallback path. */
@@ -348,9 +348,9 @@ TEST_CASE("spawn-weapon: SPECIFIC with empty id falls back to legacy 0xFF",
 
 TEST_CASE("spawn-weapon: legacy save (no spawnWeaponMode key) -> RANDOM when id is empty",
           "[spawn-weapon][migration]") {
-    /* Pre-S481 scenario JSON: only "spawnWeaponId" was written. When that
+    /* Pre-S482 scenario JSON: only "spawnWeaponId" was written. When that
      * id is empty, the user picked "Random" from the dropdown — and the
-     * S481 rule is that those saves load with mode=RANDOM so the actual
+     * S482 rule is that those saves load with mode=RANDOM so the actual
      * roll happens (rather than the broken legacy weapons[0] fallback). */
     u8 mode = spec_loadLegacyMode(/*keyPresent=*/false, /*keyValue=*/0,
                                   /*spawnIdPresent=*/false);
@@ -359,16 +359,16 @@ TEST_CASE("spawn-weapon: legacy save (no spawnWeaponMode key) -> RANDOM when id 
 
 TEST_CASE("spawn-weapon: legacy save (no spawnWeaponMode key) -> SPECIFIC when id is non-empty",
           "[spawn-weapon][migration]") {
-    /* If a pre-S481 save has a named weapon, the user picked a specific
+    /* If a pre-S482 save has a named weapon, the user picked a specific
      * weapon — load as SPECIFIC. */
     u8 mode = spec_loadLegacyMode(/*keyPresent=*/false, /*keyValue=*/0,
                                   /*spawnIdPresent=*/true);
     REQUIRE(mode == kSPAWNWEAPON_MODE_SPECIFIC);
 }
 
-TEST_CASE("spawn-weapon: post-S481 save round-trips mode verbatim",
+TEST_CASE("spawn-weapon: post-S482 save round-trips mode verbatim",
           "[spawn-weapon][migration]") {
-    /* Saves authored after S481 ALWAYS write the spawnWeaponMode key.
+    /* Saves authored after S482 ALWAYS write the spawnWeaponMode key.
      * The loader uses it verbatim for every value in [0..2]. */
     REQUIRE(spec_loadLegacyMode(true, 0, false) == kSPAWNWEAPON_MODE_SPECIFIC);
     REQUIRE(spec_loadLegacyMode(true, 0, true)  == kSPAWNWEAPON_MODE_SPECIFIC);

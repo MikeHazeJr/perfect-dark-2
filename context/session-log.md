@@ -1,10 +1,10 @@
 
 # Session Log (Active)
 
-> **S284–S481** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S284–S482** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
 
-## Session S481 (`jovial-kirch-181c60`) - 2026-04-27 - spawn-weapon Random/Fiesta semantics
+## Session S482 (`jovial-kirch-181c60`) - 2026-04-27 - spawn-weapon Random/Fiesta semantics
 
 Mike's directive (verbatim): "We so have Random, and Fiesta. Random will select a random weapon and use that as the spawn weapon for the match, every spawn. Fiesta will randomize the weapon for every spawn? So each time a player respawns they get a random weapon independent of anyone else."
 
@@ -12,9 +12,9 @@ Mike's directive (verbatim): "We so have Random, and Fiesta. Random will select 
 
 `g_MatchConfig.spawnWeaponMode` (new `u8` field, enum `spawn_weapon_mode`) gates three behaviors at the spawn sites + the matchStart resolver. Wire bump `NET_PROTOCOL_VER 44 -> 45` carries the mode + the host-rolled spawnWeaponNum so clients receive the resolved integer directly (no client-side re-roll for SPECIFIC/RANDOM). FIESTA carries the `SPAWNWEAPON_FIESTA_SENTINEL = 0xFE` sentinel and player.c / bot.c roll fresh per-spawn from the active weapon set.
 
-### Mode semantics (S481)
+### Mode semantics (S482)
 
-- **SPECIFIC** (`spawnWeaponMode == 0`): `spawn_weapon_id` names the weapon; `matchStart()` resolves it to `WEAPON_*` enum at match start; every spawn uses that weapon. (Existing pre-S481 behavior for non-empty `spawn_weapon_id`.)
+- **SPECIFIC** (`spawnWeaponMode == 0`): `spawn_weapon_id` names the weapon; `matchStart()` resolves it to `WEAPON_*` enum at match start; every spawn uses that weapon. (Existing pre-S482 behavior for non-empty `spawn_weapon_id`.)
 - **RANDOM** (`spawnWeaponMode == 1`): `matchStart()` picks one weapon at random from `g_MpSetup.weapons[0..5]` (NONE/DISABLED/SHIELD filtered) via `spawnWeaponPickFromActiveSet()`. The rolled WEAPON_* enum is stored in `spawnWeaponNum`. Every player + every bot uses that same weapon for the remainder of the match.
 - **FIESTA** (`spawnWeaponMode == 2`): `matchStart()` writes `SPAWNWEAPON_FIESTA_SENTINEL` (0xFE) into `spawnWeaponNum`. Spawn sites in `player.c::playerSpawn` and `bot.c::botSpawn` detect FIESTA mode (or the sentinel) and call `spawnWeaponPickFromActiveSet()` for a FRESH roll on each spawn -- per-player, per-bot, per-respawn, independent.
 
@@ -30,12 +30,12 @@ Mike's directive (verbatim): "We so have Random, and Fiesta. Random will select 
 - `src/game/bot.c::botSpawn` -- mirror.
 - `port/src/net/netmsg.c` -- `SVC_STAGE_START` + `CLC_LOBBY_START` write/read add the trailing `u8 spawnWeaponMode` (+ `u8 spawnWeaponNum` on `SVC_STAGE_START`).
 - `port/include/net/net.h` -- `NET_PROTOCOL_VER 44 -> 45` with full block-comment description.
-- `port/src/scenario_save.c` -- writes `"spawnWeaponMode"` JSON key; loader honors verbatim, with backwards-compat default = RANDOM when `spawnWeaponId` is empty / SPECIFIC when non-empty (preserves pre-S481 authoring intent).
+- `port/src/scenario_save.c` -- writes `"spawnWeaponMode"` JSON key; loader honors verbatim, with backwards-compat default = RANDOM when `spawnWeaponId` is empty / SPECIFIC when non-empty (preserves pre-S482 authoring intent).
 - `port/fast3d/pdgui_menu_room.cpp` -- dropdown gains entry 1 "Fiesta" alongside entry 0 "Random"; selection writes `spawnWeaponMode` + `spawn_weapon_id` per the chosen entry's `mode`; `syncSpawnWeaponFromConfig()` reads `spawnWeaponMode` and lands on the right entry. Stale 0x2f/0x30 SHIELD/DISABLED filter literals updated to post-cull 0x27/0x28 (kept legacy values defensively).
 
 ### Files (tests)
 
-- `tests/test_spawn_weapon_mode.cpp` (new, 17 cases) -- pool filter, degenerate fallback, RANDOM-rolls-once invariant, RANDOM determinism (same seed -> same roll), FIESTA arms sentinel, FIESTA varies per spawn, FIESTA per-player independence, SPECIFIC passthrough + empty-id fallback, legacy save defaults (no key -> RANDOM/SPECIFIC by id presence), post-S481 round-trip, out-of-range mode value falls back, FIESTA sentinel + mode enum + NUM_MPWEAPONSLOTS pins.
+- `tests/test_spawn_weapon_mode.cpp` (new, 17 cases) -- pool filter, degenerate fallback, RANDOM-rolls-once invariant, RANDOM determinism (same seed -> same roll), FIESTA arms sentinel, FIESTA varies per spawn, FIESTA per-player independence, SPECIFIC passthrough + empty-id fallback, legacy save defaults (no key -> RANDOM/SPECIFIC by id presence), post-S482 round-trip, out-of-range mode value falls back, FIESTA sentinel + mode enum + NUM_MPWEAPONSLOTS pins.
 - `tests/test_versions.cpp` -- expected `NET_PROTOCOL_VER` bumped to 45.
 - `CMakeLists.txt` -- new test file added to `SRC_TESTS`.
 

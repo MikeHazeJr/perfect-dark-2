@@ -109,7 +109,7 @@ void matchConfigInit(void)
 	 * mode=SPECIFIC = use the named weapon. */
 	g_MatchConfig.spawn_weapon_id[0] = '\0';
 	g_MatchConfig.spawnWeaponNum = 0xFF; /* DEPRECATED derived cache */
-	/* S481 (2026-04-27): default mode = RANDOM. The legacy default was the
+	/* S482 (2026-04-27): default mode = RANDOM. The legacy default was the
 	 * degenerate "fall back to weapons[0]" path which the user labeled
 	 * "Random" in the dropdown but did NOT actually roll. RANDOM here makes
 	 * the lobby pick reflect its label: every match rolls once across the
@@ -646,7 +646,7 @@ void matchConfigRerollBotName(s32 idx)
 }
 
 /* ========================================================================
- * Spawn-weapon roll helpers (S481, 2026-04-27)
+ * Spawn-weapon roll helpers (S482, 2026-04-27)
  *
  * Random / Fiesta semantics depend on a uniform pick across the active
  * match weapon set, with NONE / DISABLED / SHIELD slots filtered out.
@@ -812,7 +812,7 @@ s32 matchStart(void)
 	             g_MpSetup.weapons[0], g_MpSetup.weapons[1], g_MpSetup.weapons[2],
 	             g_MpSetup.weapons[3], g_MpSetup.weapons[4], g_MpSetup.weapons[5]);
 
-	/* S481 (2026-04-27): resolve spawn weapon for the match.
+	/* S482 (2026-04-27): resolve spawn weapon for the match.
 	 *
 	 * SPECIFIC: spawn_weapon_id names the weapon; resolve to WEAPON_* enum.
 	 * RANDOM:   roll once across the active weapon set; the rolled WEAPON_*
