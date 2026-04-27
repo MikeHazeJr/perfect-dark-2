@@ -22,6 +22,7 @@
 #include "game/botcmd.h"
 #include "game/botact.h"
 #include "game/botinv.h"
+#include "spawn_predicate.h"  /* INV-2: spawn-with-weapon mutual-exclusion gate */
 #include "game/challenge.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
@@ -503,7 +504,15 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 			}
 		}
 
-		if (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON) {
+		/* INV-2 / Cohort B (player-init-architectural-fixes-2026-04-26):
+		 * predicate keys on (normmplayer && SPAWNWITHWEAPON-bit) so this
+		 * bot site is symmetric with player.c (above) + playerreset.c:225
+		 * gate. Pre-INV-2 the inner normmplayer guard was dropped here too;
+		 * Co-Op simulants would equip both their AI loadout AND the
+		 * spawn-with-weapon, dual-arming the chr's inventory. */
+		if (spawnWithWeaponShouldApply(g_Vars.normmplayerisrunning,
+		                               g_MpSetup.options,
+		                               MPOPTION_SPAWNWITHWEAPON)) {
 			/* F.6/M0.1c: spawnWeaponNum is DERIVED from spawn_weapon_id at matchStart().
 			 * 0xFF = Random → fall through to weapons[0] from the active set.
 			 * Any other value is a WEAPON_* enum resolved from catalog ID.

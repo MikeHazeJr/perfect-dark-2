@@ -79,6 +79,7 @@
 #include "net/netmsg.h"
 #include "net/matchsetup.h"
 #include "game/playerreset.h" /* 2026-04-23 B-219 v2: modelmgrLoadProjectileModeldefs */
+#include "spawn_predicate.h"  /* INV-2: spawn-with-weapon mutual-exclusion gate */
 #include "assetcatalog.h"
 #include "actionmap.h"
 #include "game/spawnpool.h"
@@ -1787,7 +1788,16 @@ void playerSpawn(void)
 				invGiveSingleWeapon(WEAPON_NIGHTVISION);
 			}
 
-			if (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON) {
+			/* INV-2 / Cohort B (player-init-architectural-fixes-2026-04-26):
+			 * predicate keys on (normmplayer && SPAWNWITHWEAPON-bit) so this
+			 * site is symmetric with playerreset.c:225 + bot.c (below) +
+			 * setup.c B-181 fallback. Pre-INV-2 the inner normmplayer guard
+			 * was dropped here, allowing Co-Op / Counter-Op Bond to run BOTH
+			 * INTROCMD_WEAPON (via playerreset.c) AND spawn-with-weapon (via
+			 * this branch), which dual-added inventory. */
+			if (spawnWithWeaponShouldApply(g_Vars.normmplayerisrunning,
+			                               g_MpSetup.options,
+			                               MPOPTION_SPAWNWITHWEAPON)) {
 				/* F.6/M0.1c: spawnWeaponNum is DERIVED from spawn_weapon_id at matchStart().
 				 * 0xFF = Random → fall through to weapons[0] from the active set.
 				 *
