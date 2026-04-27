@@ -144,32 +144,52 @@ configure_file("${CMAKE_SOURCE_DIR}/port/include/versioninfo.h.in" "${CMAKE_BINA
 # and independent of whatever cert store exists on the tester's machine.
 set(_CACERT_SRC "${CMAKE_SOURCE_DIR}/port/src/cacert.pem")
 set(_CACERT_OUT "${CMAKE_BINARY_DIR}/port/include/cacert_blob.h")
-if(EXISTS "${_CACERT_SRC}")
-  file(READ "${_CACERT_SRC}" _cacert_hex HEX)
-  string(LENGTH "${_cacert_hex}" _cacert_hex_len)
-  math(EXPR _cacert_bytes "${_cacert_hex_len} / 2")
-  string(REGEX REPLACE "(..)" "0x\\1," _cacert_c_body "${_cacert_hex}")
-  file(WRITE "${_CACERT_OUT}"
-    "/* Auto-generated from port/src/cacert.pem by CMake. Do not edit. */\n"
-    "#ifndef CACERT_BLOB_H\n"
-    "#define CACERT_BLOB_H\n\n"
-    "#include <stddef.h>\n\n"
-    "static const unsigned char cacert_pem_data[] = {\n"
-    "${_cacert_c_body}\n"
-    "};\n\n"
-    "static const size_t cacert_pem_size = ${_cacert_bytes};\n\n"
-    "#endif /* CACERT_BLOB_H */\n"
-  )
-  message(STATUS "CACERT: Embedded Mozilla CA bundle (${_cacert_bytes} bytes)")
+# Skip regeneration when output is already up-to-date. file(WRITE) always
+# overwrites and bumps mtime, so unconditional generation forced a recompile
+# of every TU including cacert_blob.h plus a full relink of pd / pd-server /
+# Updater on every cmake configure -- the dominant build-time cost since
+# 2026-04-17 because dev-window-v2 reconfigures on every build.
+set(_cacert_needs_regen TRUE)
+if(EXISTS "${_CACERT_OUT}")
+  if(EXISTS "${_CACERT_SRC}")
+    if(NOT "${_CACERT_SRC}" IS_NEWER_THAN "${_CACERT_OUT}")
+      set(_cacert_needs_regen FALSE)
+    endif()
+  else()
+    # No source file but output exists -- keep the existing fallback blob.
+    set(_cacert_needs_regen FALSE)
+  endif()
+endif()
+if(_cacert_needs_regen)
+  if(EXISTS "${_CACERT_SRC}")
+    file(READ "${_CACERT_SRC}" _cacert_hex HEX)
+    string(LENGTH "${_cacert_hex}" _cacert_hex_len)
+    math(EXPR _cacert_bytes "${_cacert_hex_len} / 2")
+    string(REGEX REPLACE "(..)" "0x\\1," _cacert_c_body "${_cacert_hex}")
+    file(WRITE "${_CACERT_OUT}"
+      "/* Auto-generated from port/src/cacert.pem by CMake. Do not edit. */\n"
+      "#ifndef CACERT_BLOB_H\n"
+      "#define CACERT_BLOB_H\n\n"
+      "#include <stddef.h>\n\n"
+      "static const unsigned char cacert_pem_data[] = {\n"
+      "${_cacert_c_body}\n"
+      "};\n\n"
+      "static const size_t cacert_pem_size = ${_cacert_bytes};\n\n"
+      "#endif /* CACERT_BLOB_H */\n"
+    )
+    message(STATUS "CACERT: Embedded Mozilla CA bundle (${_cacert_bytes} bytes)")
+  else()
+    message(WARNING "CACERT: ${_CACERT_SRC} not found; updater TLS will fall back to system CA store")
+    file(WRITE "${_CACERT_OUT}"
+      "/* Auto-generated fallback (no cacert.pem present). */\n"
+      "#ifndef CACERT_BLOB_H\n#define CACERT_BLOB_H\n#include <stddef.h>\n"
+      "static const unsigned char cacert_pem_data[1] = { 0 };\n"
+      "static const size_t cacert_pem_size = 0;\n"
+      "#endif /* CACERT_BLOB_H */\n"
+    )
+  endif()
 else()
-  message(WARNING "CACERT: ${_CACERT_SRC} not found; updater TLS will fall back to system CA store")
-  file(WRITE "${_CACERT_OUT}"
-    "/* Auto-generated fallback (no cacert.pem present). */\n"
-    "#ifndef CACERT_BLOB_H\n#define CACERT_BLOB_H\n#include <stddef.h>\n"
-    "static const unsigned char cacert_pem_data[1] = { 0 };\n"
-    "static const size_t cacert_pem_size = 0;\n"
-    "#endif /* CACERT_BLOB_H */\n"
-  )
+  message(STATUS "CACERT: cacert_blob.h is up-to-date; skipping regeneration")
 endif()
 
 set(ASSET_DIR "src/assets/${ROMID}")

@@ -593,43 +593,194 @@ $script:BtnPruneWorktrees.ForeColor = $script:ColorGold
 $script:BtnPruneWorktrees.BackColor = [System.Drawing.Color]::FromArgb(58, 58, 58)
 $script:BtnPruneWorktrees.Font = New-UIFont 12 -Bold
 $script:BtnPruneWorktrees.Cursor = [System.Windows.Forms.Cursors]::Hand
+# Async pattern (2026-04-27): worktree prune now runs in a background
+# runspace and streams "still working" status into LblBuildActivity. The
+# old sync handler called Remove-Item -Recurse -Force on every worktree
+# directory inline -- that can take 30+ s on a tree with many large
+# build dirs and froze the entire UI thread, including the close box.
+$script:WorktreePruneBusy = $false
+$script:WorktreePrunePS = $null
+$script:WorktreePruneRS = $null
+$script:WorktreePruneHandle = $null
+$script:WorktreePruneTimer = $null
+$script:WorktreePruneStatusQueue = $null
+$script:WorktreePruneStarted = [DateTime]::Now
+
 $script:BtnPruneWorktrees.Add_Click({
-    try {
-        $wtDir = Join-Path $script:ProjectRoot ".claude\worktrees"
-        $pruneOut = git -C $script:ProjectRoot worktree prune -v 2>&1
-        $removed = 0
-        if (Test-Path $wtDir) {
-            $dirs = Get-ChildItem $wtDir -Directory -ErrorAction SilentlyContinue
-            foreach ($d in $dirs) {
-                try {
-                    Remove-Item $d.FullName -Recurse -Force -ErrorAction Stop
-                    $removed++
-                } catch {}
-            }
-            $remaining = (Get-ChildItem $wtDir -Directory -ErrorAction SilentlyContinue).Count
-            if ($remaining -eq 0 -and (Test-Path $wtDir)) {
-                Remove-Item $wtDir -Force -ErrorAction SilentlyContinue
-            }
+    if ($script:WorktreePruneBusy) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Worktree prune is already running. Watch the activity row for progress.",
+            "Prune Worktrees",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+        return
+    }
+    if ($script:IsBuilding -or $script:IsPushing) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Wait for the current build or release to finish.",
+            "Prune Worktrees",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+        return
+    }
+    $script:WorktreePruneBusy = $true
+    $script:WorktreePruneStarted = [DateTime]::Now
+    $script:BtnPruneWorktrees.Enabled = $false
+    $script:BtnPruneWorktrees.Text = "PRUNING..."
+    if ($null -ne $script:LblBuildActivity) {
+        $script:LblBuildActivity.Text = "worktree prune: starting..."
+        try { $script:LblBuildActivity.ForeColor = $script:ColorBlue } catch {}
+    }
+    # Status queue is shared between the runspace and the polling timer so
+    # the runspace can stream per-step progress lines back to the UI thread
+    # without ever touching WinForms controls itself (cross-thread access
+    # would crash).
+    $script:WorktreePruneStatusQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
+
+    $root = $script:ProjectRoot
+    $statusQ = $script:WorktreePruneStatusQueue
+
+    $script:WorktreePruneRS = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+    $script:WorktreePruneRS.Open()
+    $script:WorktreePruneRS.SessionStateProxy.SetVariable("StatusQueue", $statusQ)
+    $script:WorktreePrunePS = [System.Management.Automation.PowerShell]::Create()
+    $script:WorktreePrunePS.Runspace = $script:WorktreePruneRS
+    [void]$script:WorktreePrunePS.AddScript({
+        param($projRoot)
+        $report = [PSCustomObject]@{
+            Removed     = 0
+            Failed      = 0
+            BranchCount = 0
+            Errors      = New-Object System.Collections.ArrayList
+            FailedDirs  = New-Object System.Collections.ArrayList
         }
-        $branches = git -C $script:ProjectRoot branch --list 'claude/*' 2>$null
-        $branchCount = 0
-        if ($branches) {
-            foreach ($b in ($branches -split "`n")) {
-                $b = $b.Trim().TrimStart('* ')
-                if ($b -ne "" -and $b -match '^claude/') {
-                    git -C $script:ProjectRoot branch -D $b 2>$null | Out-Null
-                    $branchCount++
+        try {
+            [void]$StatusQueue.Enqueue("worktree prune: git worktree prune -v")
+            try { git -C $projRoot worktree prune -v 2>&1 | Out-Null } catch {}
+
+            $wtDir = Join-Path $projRoot ".claude\worktrees"
+            if (Test-Path $wtDir) {
+                $dirs = @(Get-ChildItem $wtDir -Directory -ErrorAction SilentlyContinue)
+                $total = $dirs.Count
+                $i = 0
+                foreach ($d in $dirs) {
+                    $i++
+                    [void]$StatusQueue.Enqueue("worktree prune: removing $i/$total -- $($d.Name)")
+                    try {
+                        Remove-Item $d.FullName -Recurse -Force -ErrorAction Stop
+                        $report.Removed++
+                    } catch {
+                        $report.Failed++
+                        [void]$report.FailedDirs.Add($d.Name)
+                        [void]$report.Errors.Add(("$($d.Name): " + $_.Exception.Message))
+                    }
+                }
+                $remaining = @(Get-ChildItem $wtDir -Directory -ErrorAction SilentlyContinue).Count
+                if ($remaining -eq 0 -and (Test-Path $wtDir)) {
+                    try { Remove-Item $wtDir -Force -ErrorAction SilentlyContinue } catch {}
                 }
             }
+
+            [void]$StatusQueue.Enqueue("worktree prune: deleting claude/* branches")
+            $branches = git -C $projRoot branch --list 'claude/*' 2>$null
+            if ($branches) {
+                foreach ($b in ($branches -split "`n")) {
+                    $b = $b.Trim().TrimStart('* ')
+                    if ($b -ne "" -and $b -match '^claude/') {
+                        git -C $projRoot branch -D $b 2>$null | Out-Null
+                        $report.BranchCount++
+                    }
+                }
+            }
+            [void]$StatusQueue.Enqueue("worktree prune: done")
+            return $report
+        } catch {
+            [void]$report.Errors.Add($_.Exception.Message)
+            return $report
         }
-        $msg = "Worktree prune complete.`n"
-        $msg += "  Git registry pruned`n"
-        $msg += "  $removed worktree directories removed`n"
-        $msg += "  $branchCount claude/* branches deleted"
-        [System.Windows.Forms.MessageBox]::Show($msg, "Worktree Cleanup", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
-    } catch {
-        [System.Windows.Forms.MessageBox]::Show("Worktree prune failed: $($_.Exception.Message)", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
-    }
+    }).AddArgument($root)
+
+    $script:WorktreePruneHandle = $script:WorktreePrunePS.BeginInvoke()
+
+    $script:WorktreePruneTimer = New-Object System.Windows.Forms.Timer
+    $script:WorktreePruneTimer.Interval = 250
+    $script:WorktreePruneTimer.Add_Tick({
+        try {
+            # Drain status messages so the activity row reflects progress.
+            $line = $null
+            $latest = $null
+            while ($script:WorktreePruneStatusQueue -and $script:WorktreePruneStatusQueue.TryDequeue([ref]$line)) {
+                $latest = $line
+            }
+            if ($null -ne $latest -and $null -ne $script:LblBuildActivity) {
+                $el = [math]::Floor(([DateTime]::Now - $script:WorktreePruneStarted).TotalSeconds)
+                $script:LblBuildActivity.Text = "$latest (${el}s)"
+            }
+
+            if ($null -eq $script:WorktreePruneHandle) { $this.Stop(); return }
+            if (-not $script:WorktreePruneHandle.IsCompleted) {
+                # Periodic heartbeat in case no new status arrived (e.g. inside
+                # a long Remove-Item call on a heavy worktree). Keeps the UI
+                # honest about the operation still being in flight.
+                if ($null -ne $script:LblBuildActivity -and ($null -eq $latest)) {
+                    $el = [math]::Floor(([DateTime]::Now - $script:WorktreePruneStarted).TotalSeconds)
+                    if (-not $script:LblBuildActivity.Text.StartsWith("worktree prune: still working")) {
+                        $script:LblBuildActivity.Text = "worktree prune: still working... (${el}s)"
+                    } else {
+                        $script:LblBuildActivity.Text = "worktree prune: still working... (${el}s)"
+                    }
+                }
+                return
+            }
+            $this.Stop()
+            $report = $null
+            try { $report = $script:WorktreePrunePS.EndInvoke($script:WorktreePruneHandle) } catch {}
+            try { $script:WorktreePrunePS.Dispose() } catch {}
+            try { $script:WorktreePruneRS.Close(); $script:WorktreePruneRS.Dispose() } catch {}
+            $script:WorktreePrunePS = $null
+            $script:WorktreePruneRS = $null
+            $script:WorktreePruneHandle = $null
+            $script:WorktreePruneTimer = $null
+
+            $r = if ($null -ne $report -and $report.Count -gt 0) { $report[0] } else { $report }
+            $totalSec = [math]::Floor(([DateTime]::Now - $script:WorktreePruneStarted).TotalSeconds)
+            $msg = "Worktree prune complete (${totalSec}s).`n"
+            $msg += "  Git registry pruned`n"
+            if ($null -ne $r) {
+                $msg += "  $($r.Removed) worktree directories removed`n"
+                if ($r.Failed -gt 0) {
+                    $msg += "  $($r.Failed) directories FAILED to remove`n"
+                    if ($r.FailedDirs.Count -gt 0) {
+                        $msg += "    " + (($r.FailedDirs | Select-Object -First 5) -join "`n    ") + "`n"
+                    }
+                }
+                $msg += "  $($r.BranchCount) claude/* branches deleted"
+                $icon = if ($r.Failed -gt 0) { [System.Windows.Forms.MessageBoxIcon]::Warning } else { [System.Windows.Forms.MessageBoxIcon]::Information }
+            } else {
+                $msg += "  (no result returned)"
+                $icon = [System.Windows.Forms.MessageBoxIcon]::Warning
+            }
+
+            if ($null -ne $script:LblBuildActivity) {
+                $script:LblBuildActivity.Text = "worktree prune: done (${totalSec}s)"
+                try { $script:LblBuildActivity.ForeColor = $script:ColorGreen } catch {}
+            }
+            $script:BtnPruneWorktrees.Enabled = $true
+            $script:BtnPruneWorktrees.Text = "PRUNE WORKTREES"
+            $script:WorktreePruneBusy = $false
+            [System.Windows.Forms.MessageBox]::Show($msg, "Worktree Cleanup", [System.Windows.Forms.MessageBoxButtons]::OK, $icon) | Out-Null
+        } catch {
+            try { $this.Stop() } catch {}
+            $script:BtnPruneWorktrees.Enabled = $true
+            $script:BtnPruneWorktrees.Text = "PRUNE WORKTREES"
+            $script:WorktreePruneBusy = $false
+            if ($null -ne $script:LblBuildActivity) {
+                $script:LblBuildActivity.Text = "worktree prune: error -- $($_.Exception.Message)"
+                try { $script:LblBuildActivity.ForeColor = $script:ColorOrange } catch {}
+            }
+        }
+    })
+    $script:WorktreePruneTimer.Start()
 })
 $script:LinkPanel.Controls.Add($script:BtnPruneWorktrees)
 

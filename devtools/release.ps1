@@ -278,9 +278,13 @@ if ($SkipBuild) {
         # Client must be first so Copy-RomAddinIntoBuild (below) only runs once
         # the client exe is known-good. Updater is optional — its failure only
         # drops it from the release, not the whole pipeline.
+        # Server target retired from the release pipeline 2026-04-27.
+        # Connectivity now lives in-client via listen-host mode; pd-server is
+        # no longer shipped. The cmake target itself remains defined for
+        # pd-tests linkage and ad-hoc dev runs, but releases skip building it
+        # (saves ~6-10 s per release).
         $targets = @(
             @{ Name="client";  Target="pd";         Optional=$false },
-            @{ Name="server";  Target="pd-server";  Optional=$false },
             @{ Name="updater"; Target="pd-updater"; Optional=$true  }
         )
         foreach ($t in $targets) {
@@ -320,7 +324,10 @@ if ($SkipBuild) {
 
 # Build artifact paths -- unified Build/ directory
 $ClientExe  = $(if (Test-Path (Join-Path $BuildDir "PerfectDark.exe"))       { Join-Path $BuildDir "PerfectDark.exe" }       else { "" })
-$ServerExe  = $(if (Test-Path (Join-Path $BuildDir "PerfectDarkServer.exe")) { Join-Path $BuildDir "PerfectDarkServer.exe" } else { "" })
+# pd-server is no longer built/shipped (see Step 0 -- connectivity is in-client
+# via listen-host mode). $ServerExe stays "" so the assembly + asset-upload
+# branches below skip cleanly.
+$ServerExe  = ""
 $UpdaterExe = $(if (Test-Path (Join-Path $BuildDir "Updater.exe"))           { Join-Path $BuildDir "Updater.exe" }           else { "" })
 
 # Data and mods -- prefer Build/ copies, fall back to post-batch-addin
@@ -393,8 +400,8 @@ $env:GIT_TERMINAL_PROMPT = "0"
 if ($hasClient) { Write-Host "  Client:      FOUND ($ClientExe)" -ForegroundColor Green }
 else            { Write-Host "  Client:      MISSING" -ForegroundColor Yellow }
 
-if ($hasServer) { Write-Host "  Server:      FOUND ($ServerExe)" -ForegroundColor Green }
-else            { Write-Host "  Server:      MISSING" -ForegroundColor Yellow }
+# pd-server retired from the release pipeline (in-client listen host).
+# Skip the FOUND/MISSING line entirely so the preflight isn't noisy.
 
 if ($hasUpdater) { Write-Host "  Updater:     FOUND ($UpdaterExe)" -ForegroundColor Green }
 else             { Write-Host "  Updater:     MISSING (release will omit Updater.exe)" -ForegroundColor Yellow }
@@ -408,10 +415,10 @@ else            { Write-Host "  Mods:        MISSING" -ForegroundColor Yellow }
 Write-Host "  Notes:       $(if ($hasNotes) { 'FOUND' } else { 'MISSING (will auto-generate)' })" -ForegroundColor $(if ($hasNotes) { 'Green' } else { 'Yellow' })
 Write-Host "  Source:      GitHub auto-generates source archives" -ForegroundColor Gray
 
-if (-not $hasClient -and -not $hasServer) {
+if (-not $hasClient) {
     Write-Host ""
-    Write-Host "  ERROR: No build artifacts found." -ForegroundColor Red
-    Write-Host "  Build client and/or server first via Build Tool or build.bat." -ForegroundColor Red
+    Write-Host "  ERROR: No client build artifact found." -ForegroundColor Red
+    Write-Host "  Build the client first via Dev Window v2 or build-headless.ps1." -ForegroundColor Red
     exit 1
 }
 
@@ -746,11 +753,12 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
     }
 
     # --- Unified release (tag: v{M}.{m}.{p}) ---
-    # The zip is the full distribution for new users (client + server + updater + data + mods).
+    # The zip is the full distribution for new users (client + updater + data + mods).
     # Bare exe files are ALSO uploaded as individual release assets so the in-game updater
     # (updater.c) can find them by exact filename.
     # Updater.exe ships alongside so users can fall back to the standalone recovery tool
     # if a bad release breaks PerfectDark.exe's self-update path.
+    # pd-server / PerfectDarkServer.exe retired 2026-04-27 -- see Step 0.
     # GitHub auto-generates source archives.
     Write-Host "  Creating release ($ReleaseTag) ..." -ForegroundColor Cyan
     $assets = @()
@@ -761,7 +769,6 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
     if (Test-Path "$zipPath.sig")    { $assets += "$zipPath.sig" }
     # Bare executables for in-game updater
     if (Test-Path "$DistDir/PerfectDark.exe")               { $assets += "$DistDir/PerfectDark.exe" }
-    if (Test-Path "$DistDir/PerfectDarkServer.exe")         { $assets += "$DistDir/PerfectDarkServer.exe" }
     # Standalone updater (recovery tool, zero-DLL)
     if (Test-Path "$DistDir/Updater.exe")                   { $assets += "$DistDir/Updater.exe" }
 
