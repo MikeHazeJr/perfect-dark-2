@@ -802,6 +802,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_save_migration.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_manifest.cpp
   ${CMAKE_SOURCE_DIR}/tests/manifest_pure.c
+  ${CMAKE_SOURCE_DIR}/tests/test_random_pool.cpp
 
   # Linker stubs for symbols the cherry-picked sources reference but the
   # test binary should not actually invoke.
