@@ -1,6 +1,7 @@
 #include <string.h>
 #include <ultra64.h>
 #include "constants.h"
+#include "testscenarios.h"
 #include "game/cheats.h"
 #include "game/game_00b820.h"
 #include "game/setup.h"
@@ -1562,6 +1563,22 @@ void setupLoadFiles(s32 stagenum)
 				}
 			}
 			sysLogPrintf(LOG_NOTE, "MODELMGR: added simulant bot count to numchrs=%d for model slot allocation", numchrs);
+		}
+
+		/* S483 (G.1.1): swarm benchmark needs up to 256 chr slots above
+		 * whatever the stage already declares. Add the cap into numchrs
+		 * BEFORE modelmgrAllocateSlots so both the model slot pool and
+		 * g_Vars.maxprops account for the swarm. All swarm Skedars
+		 * share one Skedar body model, so NUMTYPE3 (model rwdata
+		 * bindings, large-data slots) is unaffected. */
+		{
+			s32 swarm_extra = testScenarioGetSwarmMaxCount();
+			if (swarm_extra > 0) {
+				numchrs += swarm_extra;
+				sysLogPrintf(LOG_NOTE,
+					"TESTSCEN: added %d swarm chr slots for benchmark; numchrs=%d",
+					swarm_extra, numchrs);
+			}
 		}
 
 		sysLogPrintf(LOG_NOTE, "LOAD: model allocation numobjs=%d numchrs=%d", numobjs, numchrs);

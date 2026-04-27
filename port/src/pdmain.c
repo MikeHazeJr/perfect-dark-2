@@ -37,6 +37,7 @@
 #include "game/forgemode.h"
 #include "forge/forge_core.h"
 #include "pdgui_forge.h"
+#include "swarm_test.h"
 #include "actionmap.h"
 #include "game/lv.h"
 #include "game/options.h"
@@ -729,6 +730,13 @@ void mainTick(void)
 			 * pick is pending.  Early-outs when FREEFLY is inactive or
 			 * no ghost is active. */
 			pdguiForgeEditorTick();
+
+			/* S483 -- Swarm benchmark tick. Idempotent + state-machine
+			 * driven; early-outs when no swarm scenario is armed.
+			 * Drives the per-frame seek-player AI for CPU mode, the
+			 * GPU compute dispatch + readback for GPU mode, the cycler,
+			 * death poll, and BENCHMARK.SWARM.* logging. */
+			swarmTestTick();
 
 			if (STAGE_IS_GAMEPLAY(g_StageNum)) {
 				for (i = 0; i < PLAYERCOUNT(); i++) {

@@ -239,6 +239,8 @@ extern "C" {
 
 /* Include C headers inside extern "C" block to ensure proper linkage */
 #include "pdgui.h"
+#include "testscenarios.h"
+#include "swarm_test.h"
 
 /* Forward decl for the Debug Shortcuts registry init function.  Defined
  * later in this same extern "C" block, called from pdguiInit().  Must
@@ -938,6 +940,38 @@ void pdguiRender(void)
                 | ImGuiWindowFlags_NoSavedSettings);
         ImGui::TextColored(ImVec4(0.35f, 1.0f, 0.45f, 1.0f), "Player: INVINCIBLE");
         ImGui::TextDisabled("Press F7 to disable");
+        ImGui::End();
+    }
+
+    /* S483: Test Scenarios swarm benchmark HUD. Renders only when a swarm
+     * scenario is armed. Top-right corner so it doesn't overlap the F6 /
+     * F7 banners (top-center) and stays out of the gameplay sight line. */
+    if (testScenarioIsSwarmActive()) {
+        const s32 cur = testScenarioGetCurrentSwarmCount();
+        s32 idx = 0;
+        for (s32 i = 0; i < SWARM_TEST_CYCLE_STEPS; i++) {
+            if (SWARM_TEST_CYCLE[i] == cur) { idx = i; break; }
+        }
+        const s32 next_count = SWARM_TEST_CYCLE[(idx + 1) % SWARM_TEST_CYCLE_STEPS];
+
+        ImGui::SetNextWindowPos(ImVec2((float)winW - 12.0f, 22.0f),
+                ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+        ImGui::SetNextWindowBgAlpha(0.78f);
+        ImGui::Begin("##testscen_swarm_hud", NULL,
+                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize
+                | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove
+                | ImGuiWindowFlags_NoSavedSettings);
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f),
+                "TEST SCENARIO  Swarm - %s",
+                (testScenarioActiveMethod() == SWARM_METHOD_GPU)
+                    ? "GPU Boids" : "CPU Bots");
+        ImGui::Separator();
+        ImGui::Text("Bots:    %d  (alive %d)",
+                swarmTestGetActiveCount(),
+                swarmTestGetActiveCount() - swarmTestGetKillCount());
+        ImGui::Text("Kills:   %d", swarmTestGetKillCount());
+        ImGui::Text("Next:    %d", next_count);
+        ImGui::TextDisabled("[0] / D-pad-Down: cycle");
         ImGui::End();
     }
 #endif
