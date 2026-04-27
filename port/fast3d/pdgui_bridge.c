@@ -134,6 +134,20 @@ u8 mpPlayerConfigGetBody(s32 playernum)
 }
 
 /**
+ * Set the MP player config HEAD only (preserves body).
+ * Routes through mpchrSetHeadById which writes head_id (PRIMARY) and
+ * keeps the DEPRECATED mpheadnum integer in sync via catalog lookup.
+ * Used by the catalog-driven head pickers (Step 4-5 heads migration).
+ */
+void mpPlayerConfigSetHeadId(s32 playernum, const char *head_id)
+{
+    if (playernum < 0 || playernum >= ARRAYCOUNT(g_PlayerConfigsArray)) {
+        return;
+    }
+    mpchrSetHeadById(&g_PlayerConfigsArray[playernum].base, head_id);
+}
+
+/**
  * Get the MP player config head catalog ID string.
  */
 const char *mpPlayerConfigGetHeadId(s32 playernum)

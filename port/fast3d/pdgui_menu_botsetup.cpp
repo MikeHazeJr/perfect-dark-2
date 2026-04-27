@@ -63,6 +63,7 @@
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "assetcatalog.h"  /* heads catalog migration: assetCatalogIterateUnlockedByType */
 
 extern "C" {
 #include "pdgui_menus.h"  /* for pdguiMenuBotSetupRegister declaration */
@@ -192,6 +193,28 @@ char *mpMenuTitleEditSimulant       (void *dialogdef_nullable);
  * ========================================================================= */
 
 static bool s_Registered = false;
+
+/* Heads catalog migration (Step 5): unlocked head pool for the simulant
+ * character dropdown.  Stores both the catalog ID (for display name source)
+ * and the mp_index (for the legacy car_Set commit path which writes
+ * g_BotConfigsArray[bot].base.{mpheadnum,head_id} via mpchrSetHeadByIndex).
+ *
+ * Heads with mp_index == -1 (mod heads not in g_MpHeads[], SP fallback
+ * heads) are excluded from the legacy commit path -- the underlying
+ * carousel handler uses mp_idx as a write key.  Adding them would require a
+ * dedicated head_id bridge for bots; flagged for the bodies migration
+ * session to share the bridge it will likely add anyway.  In the meantime,
+ * the dropdown matches the legacy coverage (base mp heads only) but with
+ * the unlock filter correctly applied.
+ */
+#define BS_MAX_HEAD_COUNT 128
+struct BsHeadEntry {
+    s32  mp_idx;             /* g_MpHeads[] position; legacy car_Set key */
+    char display[64];        /* "Carrington", "Dark Combat", ... */
+};
+static BsHeadEntry s_BsHeadList[BS_MAX_HEAD_COUNT];
+static s32         s_BsHeadListCount      = 0;
+static s32         s_BsHeadListCountKnown = -1;
 
 /* =========================================================================
  * s204 call-through helpers
@@ -450,6 +473,52 @@ static void bot_FormatHeadName(s32 mpheadnum, char *out, size_t outsz)
         }
     }
     out[i] = '\0';
+}
+
+/* =========================================================================
+ * Heads catalog migration (Step 5): unlocked head pool builder
+ *
+ * Builds s_BsHeadList[] by iterating ASSET_HEAD entries with the unlock
+ * filter applied.  Heads without an mp_index (mod / SP fallback heads) are
+ * skipped because the legacy carousel commit path uses mp_idx as the
+ * write key.
+ * ========================================================================= */
+
+static int s_bsCompareHead(const void *a, const void *b)
+{
+    return strcmp(((const BsHeadEntry *)a)->display,
+                  ((const BsHeadEntry *)b)->display);
+}
+
+static void s_bsCollectUnlockedHead(const asset_entry_t *e, void *userdata)
+{
+    (void)userdata;
+    if (s_BsHeadListCount >= BS_MAX_HEAD_COUNT) return;
+    if (e->mp_index < 0) return;  /* legacy commit path needs an mp_idx */
+    BsHeadEntry *h = &s_BsHeadList[s_BsHeadListCount++];
+    h->mp_idx = (s32)e->mp_index;
+    bot_FormatHeadName(h->mp_idx, h->display, sizeof(h->display));
+}
+
+static void s_bsRebuildHeadList(void)
+{
+    s_BsHeadListCount = 0;
+    assetCatalogIterateUnlockedByType(ASSET_HEAD, s_bsCollectUnlockedHead, NULL);
+    if (s_BsHeadListCount > 1) {
+        qsort(s_BsHeadList, (size_t)s_BsHeadListCount, sizeof(s_BsHeadList[0]),
+              s_bsCompareHead);
+    }
+    s_BsHeadListCountKnown = s_BsHeadListCount;
+}
+
+/* Find list position whose mp_idx matches the bot's currently-equipped head.
+ * Returns 0 if not found (e.g. equipped head was unlocked-then-locked). */
+static s32 s_bsFindHeadIndexByMpIdx(s32 mp_idx)
+{
+    for (s32 i = 0; i < s_BsHeadListCount; i++) {
+        if (s_BsHeadList[i].mp_idx == mp_idx) return i;
+    }
+    return 0;
 }
 
 /* =========================================================================
@@ -940,11 +1009,20 @@ static s32 renderMpSimulantCharacter(struct menudialog *dialog, struct menu *, s
                           ImGuiWindowFlags_NoBackground)) {
 
         /* Pull the current carousel selection once -- both columns use the
-         * same values so we keep them consistent across the frame. */
-        s32 curHead = car_GetSelectedIndex(menuhandlerMpSimulantHead, 0);
-        s32 curBody = car_GetSelectedIndex(menuhandlerMpSimulantBody, 0);
-        s32 nHead   = car_GetCount        (menuhandlerMpSimulantHead, 0);
-        s32 nBody   = car_GetCount        (menuhandlerMpSimulantBody, 0);
+         * same values so we keep them consistent across the frame.  Body is
+         * still legacy; head is the catalog-driven unlocked pool (Step 5). */
+        s32 curHeadMpIdx = car_GetSelectedIndex(menuhandlerMpSimulantHead, 0);
+        s32 curBody      = car_GetSelectedIndex(menuhandlerMpSimulantBody, 0);
+        s32 nBody        = car_GetCount        (menuhandlerMpSimulantBody, 0);
+
+        /* Heads catalog migration (Step 5): rebuild unlocked head pool when
+         * the unlocked count changes.  s_BsHeadListCountKnown == -1 forces
+         * first-frame build. */
+        s32 unlockedHeadCount = assetCatalogGetUnlockedCountByType(ASSET_HEAD);
+        if (s_BsHeadListCountKnown != unlockedHeadCount) {
+            s_bsRebuildHeadList();
+        }
+        s32 curHeadListIdx = s_bsFindHeadIndexByMpIdx(curHeadMpIdx);
 
         /* Layout sizes (1080p baseline -- pdguiScale rescales at other DPIs). */
         float previewW = pdguiScale(300.0f);
@@ -961,7 +1039,9 @@ static s32 renderMpSimulantCharacter(struct menudialog *dialog, struct menu *, s
          * to the right.  Same pattern as pdgui_menu_agentcreate.cpp.
          * ------------------------------------------------------------ */
         {
-            const char *headId = catalogMpHeadId(curHead);
+            /* Step 5: live preview reads head_id directly via the bot's
+             * currently-equipped mp_idx (curHeadMpIdx).  Body still legacy. */
+            const char *headId = catalogMpHeadId(curHeadMpIdx);
             const char *bodyId = catalogMpBodyId(curBody);
 
             ImVec2 pos = ImGui::GetCursorScreenPos();
@@ -998,10 +1078,17 @@ static s32 renderMpSimulantCharacter(struct menudialog *dialog, struct menu *, s
             if (yOffset < 0.0f) yOffset = 0.0f;
             ImGui::Dummy(ImVec2(0.0f, yOffset));
 
-            /* Head dropdown */
+            /* Head dropdown -- catalog-driven unlocked pool (Step 5).  The
+             * combo iterates s_BsHeadList[] (rig-class-agnostic for now,
+             * matching legacy coverage; rig_class filter is a follow-up).
+             * Selection commits via car_Set with the entry's mp_idx so the
+             * legacy mpchrSetHeadByIndex writer keeps both head_id (PRIMARY)
+             * and mpheadnum (DEPRECATED) in sync. */
             {
-                char curLabel[64];
-                bot_FormatHeadName(curHead, curLabel, sizeof(curLabel));
+                const char *curLabel = (curHeadListIdx >= 0 &&
+                                        curHeadListIdx < s_BsHeadListCount)
+                    ? s_BsHeadList[curHeadListIdx].display
+                    : "Head ???";
 
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextUnformatted("Head:");
@@ -1009,13 +1096,12 @@ static s32 renderMpSimulantCharacter(struct menudialog *dialog, struct menu *, s
                 ImGui::PushID("##bs_head");
                 ImGui::SetNextItemWidth(-FLT_MIN);
                 if (ImGui::BeginCombo("##bs_head_cb", curLabel)) {
-                    for (s32 i = 0; i < nHead; i++) {
-                        char t[64];
-                        bot_FormatHeadName(i, t, sizeof(t));
-                        bool sel = (i == curHead);
+                    for (s32 i = 0; i < s_BsHeadListCount; i++) {
+                        bool sel = (i == curHeadListIdx);
                         ImGui::PushID(i);
-                        if (ImGui::Selectable(t, sel)) {
-                            car_Set(menuhandlerMpSimulantHead, 0, i);
+                        if (ImGui::Selectable(s_BsHeadList[i].display, sel)) {
+                            car_Set(menuhandlerMpSimulantHead, 0,
+                                    s_BsHeadList[i].mp_idx);
                             pdguiPlaySound(PDGUI_SND_SELECT);
                         }
                         if (sel) ImGui::SetItemDefaultFocus();
