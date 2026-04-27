@@ -1223,6 +1223,20 @@ s32 pdguiProcessEvent(void *sdlEvent)
         return 1;
     }
 
+    /* B-246 round-9: F2 (no modifier) schedules a one-frame test-fire
+     * pulse for player 0 one second after the keypress. Mike uses this
+     * for remote-testing the round-8 bone-snapshot diagnostic when his
+     * full keyboard / mouse rig is unavailable (phone -> RDP into
+     * Windows). Multiple presses queue. Shift+F2 still falls through
+     * to the wireframe toggle below; Ctrl+F2 / Alt+F2 also fall
+     * through (currently unbound). */
+    if (ev->type == SDL_KEYDOWN && ev->key.keysym.sym == SDLK_F2 &&
+            !(ev->key.keysym.mod & (KMOD_SHIFT | KMOD_CTRL | KMOD_ALT))) {
+        extern void bmoveScheduleTestFire(s32 delay_ticks_60hz);
+        bmoveScheduleTestFire(60);
+        return 1;
+    }
+
     /* B-253 follow-up: Shift+F2 toggles wireframe overlay on the world
      * render (glPolygonMode lines).  Useful in The Grid for an
      * editor-style "see geometry edges" view. */
