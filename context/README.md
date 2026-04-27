@@ -116,6 +116,7 @@ In **Cursor**, attach the project skill **[context-session-start](../.cursor/ski
 
 | File | Phase / scope | When to load |
 |------|---------------|-------------|
+| [designs/full-release-roadmap-2026-04-27.md](designs/full-release-roadmap-2026-04-27.md) | **Master roadmap to v1.0.0** -- 80+ pillars across 10 categories, 5-gate sequencing, 11 decision points (2026-04-27, post-S480) | Release planning, scope/sequencing review |
 | [network-architecture.md](network-architecture.md) | Consolidated networking roadmap (replaces the former 5 plan files — multiplayer / master-server / join-flow / lobby-flow / room-architecture, all archived) | MP infrastructure, any room / lobby / join work |
 | [designs/d5-full-menu-overhaul.md](designs/d5-full-menu-overhaul.md) | 5 phases, binding UX guidelines | Menu work |
 | [designs/d5-ui-polish-plan.md](designs/d5-ui-polish-plan.md) | D5.0-D5.8 sub-phase plan | D5 work |
