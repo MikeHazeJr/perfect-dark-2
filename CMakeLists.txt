@@ -864,6 +864,12 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/inputlayer_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_input_layer_stack.cpp
 
+  # Cohort 3 (input universality and transitions, 2026-04-27): Scene
+  # Manager dispatcher. SceneEvent -> inputLayer push/pop translation
+  # invariants via pure-C mirror at tests/scene_pure.{c,h}.
+  ${CMAKE_SOURCE_DIR}/tests/scene_pure.c
+  ${CMAKE_SOURCE_DIR}/tests/test_scene_dispatch.cpp
+
   # Linker stubs for symbols the cherry-picked sources reference but the
   # test binary should not actually invoke.
   ${CMAKE_SOURCE_DIR}/tests/stubs.c
