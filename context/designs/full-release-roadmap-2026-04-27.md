@@ -4,7 +4,9 @@
 >
 > Authored under Mike's directive: "Make a plan for how we can get to a full release so we can follow that. It will include every architecture pillar and infrastructure system we've planned and discussed."
 >
-> No em-dashes anywhere (PowerShell hygiene). No implementation in this session, plan only. Status markers: SHIPPED / IN-FLIGHT / QUEUED / PLANNED / DEFERRED / OPEN-DECISION.
+> **All 11 architectural decisions in Section E resolved 2026-04-27** (Mike approved 5 directly, 6 by delegated authority). See E.0 for the resolution table.
+>
+> No em-dashes anywhere (PowerShell hygiene). No implementation in this session, plan only. Status markers: SHIPPED / IN-FLIGHT / QUEUED / PLANNED / DEFERRED / OPEN-DECISION / RESOLVED.
 
 ---
 
@@ -601,6 +603,8 @@ These are now explicitly post-v1.0 per the resolutions above:
 
 ### E.2 Catalog full-pipeline data migration scope
 
+**RESOLVED 2026-04-27: Incremental per-domain** (Mike approved direct). Weapons in Gate 2; rest in Gate 3. Manager + .pdbase pattern per `project_catalog_architecture_future.md`.
+
 **Question:** Mike's directive (per audit `catalog-universality-sweep-2026-04-27.md` Section I deferred): "extend the catalog struct to be inclusive of ALL data, not just selection layer." That includes weapon damage, fire rate, AI script tables, animations. Estimated 100+ sites.
 
 **Options:**
@@ -614,6 +618,8 @@ These are now explicitly post-v1.0 per the resolutions above:
 **Recommendation if asked:** Option 2. Land Weapons in Gate 2 as the validated path; Gate 3 picks up the rest opportunistically.
 
 ### E.3 SP-stage MP-readiness Option E
+
+**RESOLVED 2026-04-27: Top 3 stages only** (Mike approved direct). Airbase, CITraining, Skedar Ruins. Other 7 stages deferred.
 
 **Question:** B-228 reopened with corrected diagnosis. P5 stage relax does nothing without overlaying SP setup transport-prop blob (LIFT/ESCASTEP) into MP setup at runtime. Affects Airbase, Attackship, AirForceOne, Infiltration, CITraining, Defection, Defense, Investigation, Deepsea, SkedarRuins.
 
@@ -629,6 +635,8 @@ These are now explicitly post-v1.0 per the resolutions above:
 
 ### E.4 Catalog ID slug renames
 
+**RESOLVED 2026-04-27: Bundle into Gate 5 release-prep ID rename pass** (delegated authority). Single SAVE_VERSION bump.
+
 **Question:** Test-style slugs (`test_arch`, `test_dest`, `test_lam` -> `suburb`, `training_day`, `grand_library`) deferred from heads/bodies/maps audits. Affects save format compatibility.
 
 **Options:**
@@ -642,6 +650,8 @@ These are now explicitly post-v1.0 per the resolutions above:
 **Recommendation if asked:** Option 2. Bundle into a single Gate 5 release-prep ID rename pass.
 
 ### E.5 Grid Blank Map stagenum
+
+**RESOLVED 2026-04-27: Defer to Forge F3** (delegated authority). Blank Map row stays hidden until F3 lands `forge_blank` as a `FileProvider` catalog entry.
 
 **Question:** Per `audits/evening-decisions-2026-04-23.md`: "DO NOT ship CI Training as the blank." Submenu omits Blank Map row until Mike names a stagenum.
 
@@ -657,6 +667,8 @@ These are now explicitly post-v1.0 per the resolutions above:
 
 ### E.6 Voice chat scope at v1.0.0
 
+**RESOLVED 2026-04-27: PTT-only** (Mike approved direct). VAD deferred past v1.0.
+
 **Question:** `audits/connectivity-libopus-decision-2026-04-25.md` decides codec + wire format; implementation pending.
 
 **Options:**
@@ -670,6 +682,8 @@ These are now explicitly post-v1.0 per the resolutions above:
 **Recommendation if asked:** Option 1. Voice is the long-tail piece; PTT covers 90% of friend-play utility without VAD complexity.
 
 ### E.7 Federation / Master Server (D16) scope at v1.0.0
+
+**RESOLVED 2026-04-27: Minimal D16a bootstrap** (Mike approved direct). Bootstrap-rendezvous only. D16b/c/d (full federation) deferred past v1.0.
 
 **Question:** D16 master server is planned for v0.4.0 but the connectivity pivot may obviate it.
 
@@ -685,6 +699,8 @@ These are now explicitly post-v1.0 per the resolutions above:
 
 ### E.8 Studio Platform scope at v1.0.0
 
+**RESOLVED 2026-04-27: Studio S1-S10 in Gate 5** (delegated authority). Asset import + weapon editor + map editor. S11-S14 (ADS/auto-aim, mod packager, hot-reload, network integration) deferred past v1.0.
+
 **Question:** `studio-platform-design.md` is 14 phases / ~35 sessions / ~13,400 LOC. Full scope vs partial vs deferred to post-v1.0.
 
 **Options:**
@@ -698,6 +714,8 @@ These are now explicitly post-v1.0 per the resolutions above:
 **Recommendation if asked:** Option 2. Forge covers the level-editor story; Studio covers the asset/weapon authoring story; mod packager and network integration can lag.
 
 ### E.9 PVS / Interest Management depth
+
+**RESOLVED 2026-04-27: Phase A in Gate 4, Phase B in Gate 5** (delegated authority). Room/stage relevance + radius/grid filter ship for v1.0. Phase C (PVS) and Phase D (cadence throttling) deferred past v1.0.
 
 **Question:** SEC-8/SEC-9 audit calls for interest management to scale past 8 clients. `interest-management-replication.md` has 4 phases.
 
@@ -713,6 +731,8 @@ These are now explicitly post-v1.0 per the resolutions above:
 
 ### E.10 Cross-platform port (X4) at any release?
 
+**RESOLVED 2026-04-27: PC-only through v1.0.0** (delegated authority). Mac/Linux ports + cross-platform shell metadata (X3) deferred post-v1.0 as their own pillar.
+
 **Question:** PD2 is PC-only. macOS/Linux future pillar.
 
 **Options:**
@@ -724,6 +744,8 @@ These are now explicitly post-v1.0 per the resolutions above:
 **Recommendation if asked:** Option 1. Architecture is portable (SDL2 + OpenGL + statically-linked deps); but explicit cross-platform engineering is its own pillar best deferred.
 
 ### E.11 Whether to allocate audit waves on a fixed cadence
+
+**RESOLVED 2026-04-27: Per-gate cadence** (delegated authority). One full super-audit at each gate boundary. Daily delta audits and weekly skill-driven audits remain ad-hoc.
 
 **Question:** Super-audit cadence is currently ad hoc.
 
@@ -929,7 +951,9 @@ For navigation:
 | D.3 | Gate 3: Content Systems and Tools (-> v0.5.0) |
 | D.4 | Gate 4: Online and UGC (-> v0.3.0/v0.4.0) |
 | D.5 | Gate 5: Polish and Release Prep (-> v1.0.0) |
-| E | Decision points (E.1 - E.11) |
+| E | Decision points (resolved 2026-04-27) |
+| E.0 | Resolution table + sequencing implications + post-v1.0 deferred list |
+| E.1 - E.11 | Long-form analysis (RESOLVED stamps at top of each) |
 | F | What's done |
 | G | Unknowns and risks |
 | H | Table of contents (this section) |
