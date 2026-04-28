@@ -82,6 +82,7 @@
 #include "spawn_predicate.h"  /* INV-2: spawn-with-weapon mutual-exclusion gate */
 #include "assetcatalog.h"
 #include "actionmap.h"
+#include "scene.h"
 #include "game/spawnpool.h"
 
 s32 g_DefaultWeapons[2];
@@ -2709,6 +2710,11 @@ void playerEndCutscene(void)
 				&& (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI)) {
 			netmsgSvcCutsceneWrite(&g_NetMsgRel, 0);
 		}
+
+		/* Cohort 4 (2026-04-27, input universality): pop LAYER_CUTSCENE
+		 * via the Scene Manager. Fires the on_pop hook (deactivates
+		 * g_ImcCutscene). Idempotent if no cutscene was pushed. */
+		sceneFire(SCENE_EVENT_CUTSCENE_END, NULL);
 	}
 }
 
@@ -2839,6 +2845,14 @@ void playerExecutePreparedWarp(void)
 
 void playerStartCutscene2(void)
 {
+	/* Cohort 4 (2026-04-27, input universality): push LAYER_CUTSCENE
+	 * via the Scene Manager BEFORE the tickmode flip so the on_push
+	 * hook fires actionmapFlushGameplayState() while gameplay state
+	 * is still observable. Combined with the K.6 actionPressed (edge)
+	 * skip detection in playerTickCutscene, this makes the Mission 1
+	 * obj 2 cutscene flash structurally impossible. */
+	sceneFire(SCENE_EVENT_CUTSCENE_START, NULL);
+
 	playerSetTickMode(TICKMODE_CUTSCENE);
 	g_PlayerTriggerGeFadeIn = false;
 	bmoveSetModeForAllPlayers(MOVEMODE_CUTSCENE);
@@ -2944,18 +2958,29 @@ void playerTickCutscene(bool arg0)
 	f32 sp64[4];
 	f32 sp54[4];
 
-	/* M0.2: replaced joyGetButtons(contpadnum, 0xffffffff) with action map queries */
+	/* Cohort 4 (2026-04-27, K.6): edge-only skip detection. The K.6
+	 * belt-and-braces fix for the Mission 1 obj 2 cutscene flash:
+	 * actionPressed (rising edge) instead of actionHeld (level). A
+	 * key held across the menu-accept-then-stage-load transition
+	 * cannot register as a skip because there is no fresh keydown
+	 * during the cutscene. ACTION_SKIP_CUTSCENE is the dedicated
+	 * action (g_ImcCutscene IMC, K.2); the legacy USE/CANCEL/FIRE/
+	 * PAUSE/RELOAD/WEAPON_NEXT bindings remain as press-to-skip
+	 * fallbacks so existing muscle memory still works. The 30-frame
+	 * gate downstream provides a second line of defense even if a
+	 * fresh press happens immediately. */
 	if (arg0) {
-		anybutton = actionHeld(playeridx, ACTION_USE)
-			|| actionHeld(playeridx, ACTION_CANCEL_USE)
-			|| actionHeld(playeridx, ACTION_FIRE_PRIMARY)
-			|| actionHeld(playeridx, ACTION_FIRE_SECONDARY)
-			|| actionHeld(playeridx, ACTION_PAUSE)
-			|| actionHeld(playeridx, ACTION_FIRE_MODE)
-			|| actionHeld(playeridx, ACTION_RELOAD)
-			|| actionHeld(playeridx, ACTION_WEAPON_NEXT);
-		cancelorpause = actionHeld(playeridx, ACTION_CANCEL_USE)
-			|| actionHeld(playeridx, ACTION_PAUSE);
+		anybutton = actionPressed(playeridx, ACTION_SKIP_CUTSCENE)
+			|| actionPressed(playeridx, ACTION_USE)
+			|| actionPressed(playeridx, ACTION_CANCEL_USE)
+			|| actionPressed(playeridx, ACTION_FIRE_PRIMARY)
+			|| actionPressed(playeridx, ACTION_FIRE_SECONDARY)
+			|| actionPressed(playeridx, ACTION_PAUSE)
+			|| actionPressed(playeridx, ACTION_FIRE_MODE)
+			|| actionPressed(playeridx, ACTION_RELOAD)
+			|| actionPressed(playeridx, ACTION_WEAPON_NEXT);
+		cancelorpause = actionPressed(playeridx, ACTION_CANCEL_USE)
+			|| actionPressed(playeridx, ACTION_PAUSE);
 	} else {
 		anybutton = 0;
 		cancelorpause = 0;

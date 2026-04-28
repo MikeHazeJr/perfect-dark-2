@@ -183,7 +183,19 @@ typedef enum InputAction {
      * classification so menus never gate it via gameplayInputSuppressed. */
     ACTION_TEXT_PASTE,           /* = 71 right-mouse-button paste-from-clipboard */
 
-    ACTION_COUNT                /* = 72, sentinel — keep last */
+    /* ---- Cutscene skip (Cohort 4, 2026-04-27, K.2 + K.6) ----
+     * Bound on g_ImcCutscene only (the thin per-K.2 IMC). Used by
+     * playerTickCutscene's skip detection alongside the legacy
+     * actionPressed checks for USE / CANCEL_USE / FIRE_PRIMARY /
+     * FIRE_SECONDARY / FIRE_MODE / RELOAD / WEAPON_NEXT / PAUSE.
+     * The K.6 belt-and-braces fix for the Mission 1 obj 2 cutscene
+     * flash uses actionPressed (edge), not actionHeld (level), so
+     * a key held across the menu-accept-then-stage-load transition
+     * cannot register as a skip. Exempt from gameplay-only
+     * classification. */
+    ACTION_SKIP_CUTSCENE,        /* = 72 dedicated cutscene-skip action */
+
+    ACTION_COUNT                /* = 73, sentinel — keep last */
 } InputAction;
 
 /* Backward-compat aliases */
@@ -482,6 +494,7 @@ void actionmapSetInteractHoldExtraTerminalMs(s32 ms);
 extern InputMappingContext g_ImcGameplay;      /* priority  0 — shared baseline: movement, combat, weapons, interact */
 extern InputMappingContext g_ImcMission;       /* priority  1 — solo / co-op / anti scheme (Priority J)              */
 extern InputMappingContext g_ImcCombatSim;     /* priority  1 — Combat Sim / MP scheme + scorecard-hold (Priority J)  */
+extern InputMappingContext g_ImcCutscene;      /* priority  4 — cutscene skip (Cohort 4, K.2)                         */
 extern InputMappingContext g_ImcVehicle;       /* priority  5 — vehicle controls     */
 extern InputMappingContext g_ImcForgeSession;  /* priority  6 — Forge session toggle (whole session) */
 extern InputMappingContext g_ImcForge;         /* priority  7 — Forge editor overlay (FREEFLY only)  */
@@ -525,6 +538,15 @@ void imcSceneClearGameplay(void);
  *  dismount the baseline takes over again. */
 void imcVehicleMount(void);
 void imcVehicleDismount(void);
+
+/** Activate / deactivate the Cutscene IMC (Cohort 4, K.2). Called from
+ *  the LAYER_CUTSCENE on_push / on_pop hooks in inputlayer.c. Bindings
+ *  cover ACTION_SKIP_CUTSCENE only (Space + Gamepad A). Pause-during-
+ *  cutscene continues to fire ACTION_PAUSE on the gameplay/mission/CS
+ *  IMCs as before; this IMC sits at priority 4 below vehicle (5) so a
+ *  cutscene playing while a player is mounted still allows skip. */
+void imcCutsceneEnter(void);
+void imcCutsceneExit(void);
 
 #ifdef __cplusplus
 }
