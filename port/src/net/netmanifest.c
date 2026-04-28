@@ -442,6 +442,23 @@ static u8 s_assetTypeToManifestType(asset_type_e atype)
     }
 }
 
+static asset_type_e s_manifestCatalogAssetType(u8 manifest_type)
+{
+    switch (manifest_type) {
+    case MANIFEST_TYPE_BODY:      return ASSET_BODY;
+    case MANIFEST_TYPE_HEAD:      return ASSET_HEAD;
+    case MANIFEST_TYPE_STAGE:     return ASSET_MAP;
+    case MANIFEST_TYPE_WEAPON:    return ASSET_WEAPON;
+    case MANIFEST_TYPE_MODEL:     return ASSET_MODEL;
+    case MANIFEST_TYPE_ANIM:      return ASSET_ANIMATION;
+    case MANIFEST_TYPE_TEXTURE:   return ASSET_TEXTURE;
+    case MANIFEST_TYPE_LANG:      return ASSET_LANG;
+    case MANIFEST_TYPE_AUDIO:     return ASSET_AUDIO;
+    case MANIFEST_TYPE_COMPONENT: return ASSET_NONE;
+    default:                      return ASSET_NONE;
+    }
+}
+
 static void s_manifestDepAddEntry(const char *dep_id, void *userdata)
 {
     s_DepExpandCtx *ctx = (s_DepExpandCtx *)userdata;
@@ -507,7 +524,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
         if (wnum == 0) {
             continue;
         }
-        canon_id = catalogIdByRuntime(ASSET_WEAPON, (s32)wnum);
+        canon_id = catalogWeaponIdByMpWeaponId((s32)wnum);
         e = canon_id ? assetCatalogResolve(canon_id) : NULL;
         if (e) {
             manifestAddEntry(out, e->id,
@@ -827,7 +844,7 @@ void manifestBuildForHost(match_manifest_t *out)
         if (wnum == 0) {
             continue;
         }
-        canon_id = catalogIdByRuntime(ASSET_WEAPON, (s32)wnum);
+        canon_id = catalogWeaponIdByMpWeaponId((s32)wnum);
         e = canon_id ? assetCatalogResolve(canon_id) : NULL;
         if (e) {
             manifestAddEntry(out, e->id,
@@ -1091,7 +1108,7 @@ static void s_manifestAddBody(match_manifest_t *out, s32 bodynum, s32 slot_tag,
     if (bodynum < 0 || bodynum >= 256) {
         return; /* 255 = random, negative = reserved */
     }
-    bcan = catalogIdByRuntime(ASSET_BODY, bodynum);
+    bcan = catalogBodyIdByBodynum(bodynum);
     be   = bcan ? assetCatalogResolve(bcan) : NULL;
     if (!be) {
         if (scan_source) {
@@ -1121,7 +1138,7 @@ static void s_manifestAddHead(match_manifest_t *out, s32 headnum, s32 slot_tag,
     if (headnum < 0 || headnum >= 256) {
         return; /* negative = hologram / special */
     }
-    hcan = catalogIdByRuntime(ASSET_HEAD, headnum);
+    hcan = catalogHeadIdByHeadnum(headnum);
     he   = hcan ? assetCatalogResolve(hcan) : NULL;
     if (!he) {
         if (scan_source) {
@@ -1152,7 +1169,7 @@ static void s_manifestAddModel(match_manifest_t *out, s32 modelnum,
     if (modelnum <= 0 || modelnum >= 0xFFFF) {
         return;
     }
-    mcan = catalogIdByRuntime(ASSET_MODEL, modelnum);
+    mcan = catalogModelIdByModelnum(modelnum);
     if (!mcan) {
         return;
     }
@@ -1177,7 +1194,7 @@ static void s_manifestAddWeapon(match_manifest_t *out, s32 weaponnum,
     if (weaponnum <= 0) {
         return;
     }
-    wcan = catalogIdByRuntime(ASSET_WEAPON, weaponnum);
+    wcan = catalogWeaponIdByRuntimeWeaponNum(weaponnum);
     we   = wcan ? assetCatalogResolve(wcan) : NULL;
     if (!we) {
         if (wcan && scan_source) {
@@ -1340,7 +1357,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
 
     /* ---- Stage ---- */
     {
-        const char *stage_canon = catalogIdByRuntime(ASSET_MAP, stagenum);
+        const char *stage_canon = catalogStageIdByStagenum(stagenum);
         if (stage_canon && catalogResolveStage(stage_canon, &stage_result)
                 && stage_result.entry) {
             manifestAddEntry(out, stage_result.entry->id,
@@ -1466,8 +1483,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
      * these do not appear in the props spawn list, so they must be added here. */
     if (g_Vars.antiplayernum >= 0) {
         if (g_Vars.antibodynum >= 0) {
-            const char *bcan = catalogIdByRuntime(ASSET_BODY,
-                                                             (s32)g_Vars.antibodynum);
+            const char *bcan = catalogBodyIdByBodynum((s32)g_Vars.antibodynum);
             const asset_entry_t *cbe = bcan ? assetCatalogResolve(bcan) : NULL;
             if (cbe) {
                 manifestAddEntry(out, cbe->id,
@@ -1478,8 +1494,7 @@ void manifestBuildMission(s32 stagenum, match_manifest_t *out)
         }
 
         if (g_Vars.antiheadnum >= 0) {
-            const char *hcan = catalogIdByRuntime(ASSET_HEAD,
-                                                             (s32)g_Vars.antiheadnum);
+            const char *hcan = catalogHeadIdByHeadnum((s32)g_Vars.antiheadnum);
             const asset_entry_t *che = hcan ? assetCatalogResolve(hcan) : NULL;
             if (che) {
                 manifestAddEntry(out, che->id,
@@ -1582,7 +1597,9 @@ void manifestApplyDiff(const match_manifest_t *needed,
      * back to ROM so the game does not crash on a missing mod file. */
     for (i = 0; i < diff->num_to_load; i++) {
         if (diff->to_load[i].id[0]) {
-            load_ok = catalogLoadAsset(diff->to_load[i].id);
+            load_ok = catalogLoadTypedAsset(
+                    s_manifestCatalogAssetType(diff->to_load[i].type),
+                    diff->to_load[i].id);
             if (!load_ok) {
                 sysLogPrintf(LOG_WARNING,
                              "MANIFEST-SP: load failed '%s' — asset missing, skipping",
@@ -1604,7 +1621,9 @@ void manifestApplyDiff(const match_manifest_t *needed,
      * Detailed "freed / retained" logging is emitted inside catalogUnloadAsset. */
     for (i = 0; i < diff->num_to_unload; i++) {
         if (diff->to_unload[i].id[0]) {
-            catalogUnloadAsset(diff->to_unload[i].id);
+            catalogReleaseTypedAsset(
+                    s_manifestCatalogAssetType(diff->to_unload[i].type),
+                    diff->to_unload[i].id);
             sysLogPrintf(LOG_NOTE, "MANIFEST-SP: unload '%s'",
                          diff->to_unload[i].id);
         }
@@ -1930,7 +1949,7 @@ s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
                      catalog_id, asset_type);
         manifestAddEntry(&g_CurrentLoadedManifest, e->id,
                          (u8)asset_type, MANIFEST_SLOT_MATCH);
-        catalogLoadAsset(e->id);
+        catalogLoadTypedAsset(s_manifestCatalogAssetType((u8)asset_type), e->id);
 
         /* S312: late-add diagnostic for body/head modeldefs — the
          * sp_body_108 parts=0 class (S308) was observed after a late-add

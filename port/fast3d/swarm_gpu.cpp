@@ -143,7 +143,12 @@ void main() {
     vec3 to_player = vec3(P.player_x - pos.x, 0.0, P.player_z - pos.z);
     float d = length(to_player);
     if (d > 1.0) {
-        vec3 vel = (to_player / d) * P.max_speed;
+        float step = P.max_speed * P.dt * 60.0;
+        float speed = P.max_speed;
+        if (step > d) {
+            speed = d / (P.dt * 60.0);
+        }
+        vec3 vel = (to_player / d) * speed;
         pos.x += vel.x * P.dt * 60.0;
         pos.z += vel.z * P.dt * 60.0;
         b[i].vx = vel.x;

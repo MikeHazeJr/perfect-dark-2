@@ -20,6 +20,7 @@
 #include <PR/ultratypes.h>
 #include "screenmfst.h"
 #include "assetcatalog_load.h"
+#include "net/netmanifest.h"
 #include "system.h"
 
 /* ========================================================================
@@ -32,6 +33,23 @@ typedef struct {
     u8    types[SMFST_MAX_IDS_PER_SCREEN];     /* MANIFEST_TYPE_* per ID */
     s32   count;                                /* valid entries */
 } ScreenEntry;
+
+static asset_type_e screenManifestCatalogAssetType(u8 manifest_type)
+{
+    switch (manifest_type) {
+    case MANIFEST_TYPE_BODY:      return ASSET_BODY;
+    case MANIFEST_TYPE_HEAD:      return ASSET_HEAD;
+    case MANIFEST_TYPE_STAGE:     return ASSET_MAP;
+    case MANIFEST_TYPE_WEAPON:    return ASSET_WEAPON;
+    case MANIFEST_TYPE_MODEL:     return ASSET_MODEL;
+    case MANIFEST_TYPE_ANIM:      return ASSET_ANIMATION;
+    case MANIFEST_TYPE_TEXTURE:   return ASSET_TEXTURE;
+    case MANIFEST_TYPE_LANG:      return ASSET_LANG;
+    case MANIFEST_TYPE_AUDIO:     return ASSET_AUDIO;
+    case MANIFEST_TYPE_COMPONENT: return ASSET_NONE;
+    default:                      return ASSET_NONE;
+    }
+}
 
 /* ========================================================================
  * Module state
@@ -145,7 +163,7 @@ void screenManifestTick(void **active_defs, s32 count)
                      active_defs[i], e->count);
         for (j = 0; j < e->count; j++) {
             if (e->ids[j][0]) {
-                catalogLoadAsset(e->ids[j]);
+                catalogLoadTypedAsset(screenManifestCatalogAssetType(e->types[j]), e->ids[j]);
             }
         }
     }
@@ -172,7 +190,7 @@ void screenManifestTick(void **active_defs, s32 count)
                      s_LastActive[i], e->count);
         for (j = 0; j < e->count; j++) {
             if (e->ids[j][0]) {
-                catalogUnloadAsset(e->ids[j]);
+                catalogReleaseTypedAsset(screenManifestCatalogAssetType(e->types[j]), e->ids[j]);
             }
         }
     }
@@ -200,7 +218,7 @@ void screenManifestShutdown(void)
         }
         for (j = 0; j < e->count; j++) {
             if (e->ids[j][0]) {
-                catalogUnloadAsset(e->ids[j]);
+                catalogReleaseTypedAsset(screenManifestCatalogAssetType(e->types[j]), e->ids[j]);
             }
         }
     }

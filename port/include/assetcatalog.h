@@ -273,7 +273,7 @@ typedef struct asset_entry {
             char rig_class[32];
         } head;
         struct {
-            s32 weapon_id;             /* MPWEAPON_* constant */
+            s32 weapon_id;             /* MPWEAPON_* slot, not runtime WEAPON_* */
             char name[64];             /* human-readable display name */
             char model_file[128];      /* model file path (empty for base game) */
             f32  damage;               /* base damage value (0 = unknown) */
@@ -550,7 +550,7 @@ void catalogSetHeadRigClass(asset_entry_t *entry, const char *rig_class);
 /**
  * Register a weapon asset.
  * Convenience wrapper that sets ext.weapon fields.
- * weapon_id should be an MPWEAPON_* constant.
+ * weapon_id should be an MPWEAPON_* slot, not a runtime WEAPON_* enum.
  * model_file, damage, fire_rate may be NULL/"" / 0.0f for base game entries.
  */
 asset_entry_t *assetCatalogRegisterWeapon(const char *id, s32 weapon_id,
@@ -863,6 +863,7 @@ struct netbuf;
 typedef struct {
     const asset_entry_t *entry;        /**< full catalog entry (NULL on failure) */
     s32                  filenum;      /**< runtime filenum for model load calls */
+    asset_data_handle_t  handle;       /**< provider-ready source handle */
     f32                  model_scale;  /**< from catalog entry (default 1.0) */
     const char          *display_name; /**< points to entry->id */
     u32                  net_hash;     /**< internal CRC32; not wire/save identity */
@@ -907,7 +908,9 @@ typedef struct {
 typedef struct {
     const asset_entry_t *entry;
     s32                  filenum;     /**< weapon model file (source_filenum, -1 for base) */
+    asset_data_handle_t  handle;      /**< provider-ready source handle */
     s32                  weapon_num;  /**< runtime WEAPON_* enum value */
+    s32                  mp_weapon_id;/**< MPWEAPON_* slot used by g_MpWeapons[] */
     u32                  net_hash;    /**< internal CRC32; not wire/save identity */
     u16                  session_id;
 } catalog_weapon_result_t;
@@ -916,6 +919,7 @@ typedef struct {
 typedef struct {
     const asset_entry_t *entry;
     s32                  filenum;    /**< prop model file (source_filenum, -1 for base) */
+    asset_data_handle_t  handle;     /**< provider-ready source handle */
     s32                  prop_type;  /**< runtime PROPTYPE_* value */
     u32                  net_hash;   /**< internal CRC32; not wire/save identity */
     u16                  session_id;
@@ -1007,6 +1011,43 @@ const char *catalogMpHeadId(s32 mp_idx);
  * Returns NULL if not found or runtime_index is out of cache range.
  */
 const char *catalogIdByRuntime(asset_type_e type, s32 runtime_index);
+
+/**
+ * Explicit stage identity helpers. Stages have three legacy integer spaces:
+ * stage table index (g_Stages[] / catalog runtime_index), solo stage index
+ * (g_SoloStages[] / besttimes[]), and stagenum (logical STAGE_* id passed to
+ * mainChangeToStage). Use these instead of catalogIdByRuntime(ASSET_MAP,...)
+ * where the integer space matters.
+ */
+const char *catalogStageIdByStageTableIndex(s32 stage_table_index);
+const char *catalogStageIdBySoloStageIndex(s32 solo_stage_index);
+const char *catalogStageIdByStagenum(s32 stagenum);
+
+/**
+ * Explicit weapon identity helpers. Weapons have two legacy integer spaces:
+ * MPWEAPON_* slots for multiplayer setup and WEAPON_* runtime enums for
+ * gameplay/inventory. Use these instead of catalogIdByRuntime(ASSET_WEAPON,...)
+ * where the integer space matters.
+ */
+const char *catalogWeaponIdByRuntimeWeaponNum(s32 weapon_num);
+const char *catalogWeaponIdByMpWeaponId(s32 mp_weapon_id);
+
+/**
+ * Explicit model/body/head identity helpers. These are runtime engine indices,
+ * not MP selector positions. MP body/head selector positions still use
+ * catalogMpBodyId() / catalogMpHeadId().
+ */
+const char *catalogModelIdByModelnum(s32 modelnum);
+const char *catalogBodyIdByBodynum(s32 bodynum);
+const char *catalogHeadIdByHeadnum(s32 headnum);
+
+/**
+ * Source identity helpers. These are only for catalog/provider internals and
+ * migration bridges that need to resolve a source back to the owning catalog
+ * entry. Public boundaries should use catalog ID strings directly.
+ */
+const char *catalogIdBySourceFilenum(asset_type_e type, s32 source_filenum);
+const char *catalogIdBySourceHandle(asset_type_e type, asset_data_handle_t handle);
 
 /**
  * Body → default head catalog ID string.

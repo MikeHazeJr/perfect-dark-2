@@ -2,10 +2,10 @@
  * inputlayer.c -- Cohort 2 implementation of typed Input Layer Stack.
  * See port/include/inputlayer.h for the contract.
  *
- * Cohort 2 scope: pure stack mechanics + canonical layer singletons.
- * No IMC activation, no actionmap gate, no Scene Manager wiring -- those
- * land in Cohort 3+. The handle-based push/pop discipline is the load-
- * bearing invariant tested in tests/test_input_layer_stack.cpp.
+ * Cohort 2 scope began as pure stack mechanics + canonical layer singletons.
+ * Later cohorts layered scene dispatch and cutscene entry cleanup onto this
+ * stack. The handle-based push/pop discipline remains the load-bearing
+ * invariant tested in tests/test_input_layer_stack.cpp.
  */
 
 #include "inputlayer.h"
@@ -28,20 +28,35 @@ static struct LayerHandle s_Stack[INPUTLAYER_MAX_DEPTH];
 static s32                s_Depth = 0;
 static s32                s_NextGeneration = 1;
 
+static const InputAction s_CutsceneActionSet[] = {
+    ACTION_SKIP_CUTSCENE,
+    ACTION_USE,            /* ACTION_MENU_ACCEPT alias */
+    ACTION_CANCEL_USE,     /* ACTION_MENU_CANCEL alias */
+    ACTION_FIRE_PRIMARY,
+    ACTION_FIRE_SECONDARY,
+    ACTION_PAUSE,
+    ACTION_FIRE_MODE,
+    ACTION_RELOAD,
+    ACTION_WEAPON_NEXT,
+};
+
+#define INPUTLAYER_ARRAYCOUNT(a) ((s32)(sizeof(a) / sizeof((a)[0])))
+
 /* ============================================================
  * Cohort 4 (2026-04-27, K.2 + K.6): Cutscene layer push/pop hooks.
  *
  * On push (cutscene start):
  *   1. Activate g_ImcCutscene so ACTION_SKIP_CUTSCENE binds win.
  *   2. Flush gameplay-only action state for ALL players.
+ *   3. Flush the cutscene action set, including shared accept/cancel state.
  *
  * The flush is the belt of the flash fix; the actionPressed
  * (edge) skip detection at player.c (K.6) is the braces.
  * Together they make the Mission 1 obj 2 cutscene flash
- * structurally impossible: any held gameplay-only action
- * clears at push, and any held shared action (ACTION_USE,
- * ACTION_PAUSE, etc.) cannot register as a fresh press during
- * the cutscene because it never had a release-then-press cycle.
+ * structurally impossible: any held gameplay-only action clears at
+ * push, and any held shared skip action (ACTION_USE / menu accept,
+ * ACTION_PAUSE, etc.) is explicitly cleared by the layer action-set
+ * flush before the cutscene tick can observe it.
  *
  * On pop (cutscene end): deactivate g_ImcCutscene only. Do NOT
  * flush again on exit -- gameplay state should resume cleanly
@@ -53,6 +68,7 @@ static int onCutscenePush(void *payload)
     (void)payload;
     imcCutsceneEnter();
     actionmapFlushGameplayState();
+    actionmapFlushActionSet(s_CutsceneActionSet, INPUTLAYER_ARRAYCOUNT(s_CutsceneActionSet));
     return 0;
 }
 
@@ -69,8 +85,7 @@ static void onCutsceneAbort(int reason_code)
 }
 
 /* ============================================================
- * Canonical layer singletons (Cohort 2: name + type only;
- * Cohort 3 will populate action_set + IMC bindings)
+ * Canonical layer singletons
  * ============================================================ */
 
 const LayerDef g_LayerBoot = {
@@ -102,8 +117,8 @@ const LayerDef g_LayerGameplay = {
 const LayerDef g_LayerCutscene = {
     .type                  = LAYER_CUTSCENE,
     .name                  = "Cutscene",
-    .action_set            = NULL,
-    .action_set_count      = 0,
+    .action_set            = s_CutsceneActionSet,
+    .action_set_count      = INPUTLAYER_ARRAYCOUNT(s_CutsceneActionSet),
     .on_push               = onCutscenePush,    /* Cohort 4: flash fix belt */
     .on_pop                = onCutscenePop,     /* Cohort 4: IMC deactivate on exit */
     .on_abort              = onCutsceneAbort,   /* Cohort 4: same cleanup on abort */

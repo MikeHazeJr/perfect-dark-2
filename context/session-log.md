@@ -1,8 +1,220 @@
 
 # Session Log (Active)
 
-> **S284–S483d** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S284–S489** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S489 - 2026-04-28 - Input action-set transition flush
+
+Focused input infrastructure slice, kept narrow per Mike's directive. No raw ImGui key migration sweep and no broad scene/state manager expansion.
+
+### Outcome
+
+- Added public `actionmapFlushActionSet(const InputAction *actions, s32 action_count)` as the small action-set flush surface missing from the earlier cutscene flash fix.
+- Kept `actionmapFlushGameplayState()` gameplay-only and reused a shared internal state-slot clear helper so both flush paths synthesize release edges consistently.
+- Declared `g_LayerCutscene.action_set` in `inputlayer.c`: ACTION_SKIP_CUTSCENE, ACTION_USE / ACTION_MENU_ACCEPT, ACTION_CANCEL_USE, ACTION_FIRE_PRIMARY, ACTION_FIRE_SECONDARY, ACTION_PAUSE, ACTION_FIRE_MODE, ACTION_RELOAD, ACTION_WEAPON_NEXT.
+- Updated `onCutscenePush` to flush both gameplay-only state and the cutscene action set. Held Continue/Use no longer survives from menu accept through stage change into cutscene entry.
+- Tightened pd-tests:
+  - action-set flush clears declared shared and gameplay actions only;
+  - cutscene transition flush clears held ACTION_USE / menu accept;
+  - unrelated menu actions survive if not declared in the flushed set;
+  - fresh ACTION_SKIP_CUTSCENE press during a cutscene still registers.
+- Logged B-266 and added the transition-flush invariant to `constraints.md`.
+
+### Files
+
+- `port/include/actionmap.h`
+- `port/src/actionmap.cpp`
+- `port/include/inputlayer.h`
+- `port/src/inputlayer.c`
+- `src/game/player.c`
+- `tests/actionmap_pure.c`
+- `tests/actionmap_pure.h`
+- `tests/test_actionmap_flush.cpp`
+- `tests/test_cutscene_layer.cpp`
+- Context updates: `context/constraints.md`, `context/bugs.md`, `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Prescribed MSYS2/Ninja flow: `pd`, `pd-server`, and `pd-tests` passed.
+- `pd-tests.exe`: 253 test cases / 6641 assertions passed.
+
+### Next
+
+- Mike playtest: complete Mission 1 objective 1, hold Continue/Use through the transition, confirm the objective 2 intro cutscene does not flash or skip after the 30-frame gate. Then press a fresh skip key after the gate and confirm deliberate skip still works.
+- Continue input architecture in small slices. Raw ImGui key migration remains deferred unless a concrete input-system dependency requires it.
+
+---
+
+## Session S488 - 2026-04-28 - Bondgun provider-handle bridge
+
+Continued Asset Provider Phase 4 from S487, focused on the first-person weapon loader.
+
+### Outcome
+
+- Added `struct gunctrl::loadhandle` so queued first-person model loads carry the catalog/provider source handle alongside the legacy `loadfilenum`.
+- Added a single `bgunQueueModelLoad(...)` path for hand, gun, and cartridge model loads in `bgunTickMasterLoad`.
+- Added catalog source-filenum resolution for queued bondgun model loads across `ASSET_MODEL`, `ASSET_BODY`, `ASSET_HEAD`, and `ASSET_WEAPON`.
+- Routed `bgunTickGunLoad` model sizing and load-to-address calls through provider-aware APIs when the queued handle is a RomProvider handle.
+- Preserved a warning-backed temporary ROM fallback for uncataloged sources and non-ROM provider handles because the current model promotion path still writes through `g_FileInfo[loadfilenum]`.
+- Added a null-load guard so a missing bondgun model file reports `CATALOG_CRITICAL` instead of immediately promoting a NULL modeldef.
+- Continued the same Phase 4 slice after the first verification pass:
+  - title/logo model loads now resolve catalog provider handles via `catalogGetPropHandle()` and use `modeldefLoadFromHandle()` plus provider-aware loaded-size queries;
+  - title/logo uncataloged sources are routed through one warning-backed temporary fallback;
+  - `modelcatalog` validation now resolves body/head provider handles by source filenum and uses `modeldefLoadToNewFromHandle()` while preserving its SEH/signal fault guard;
+  - `modelcatalog` uncataloged sources remain a warning-backed legacy fallback.
+- Completed the requested sprint follow-through:
+  - `catalogLoadTypedAsset()` now uses a type-policy/provider-backed payload loader instead of just validating then delegating to the string-only loader.
+  - `modeldefLoadFromHandle()` now supports non-ROM provider handles by promoting display lists from caller/provider sizes instead of indexing `g_FileInfo[]`; the old `modeldef0f1a7560()` wrapper still preserves `g_FileInfo[]` mutation for legacy ROM callers.
+  - title/modelcatalog non-ROM provider handles now use the handle loader directly; only no-handle cases fall back to legacy filenum loading.
+  - `lv.c` stage diff and `screenmfst.c` screen mini-manifests now use typed lifecycle load/release calls.
+  - Added `tests/test_catalog_provider_static.cpp` to pin the migrated call sites and prevent the modeldef handle loader from becoming RomProvider-only again.
+
+### Files
+
+- `src/include/types.h`
+- `src/game/bondgun.c`
+- `src/game/title.c`
+- `src/game/lv.c`
+- `port/src/modelcatalog.c`
+- `port/src/assetcatalog_load.c`
+- `port/src/screenmfst.c`
+- `CMakeLists.txt`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Prescribed MSYS2/Ninja build: `pd`, `pd-server`, and `pd-tests` linked clean.
+- `pd-tests.exe`: 252 test cases / 6626 assertions passed.
+- Re-ran prescribed MSYS2/Ninja verification after title/modelcatalog migration: `pd`, `pd-server`, and `pd-tests` targets completed cleanly; `pd-tests.exe` passed 253 test cases / 6641 assertions.
+- Re-ran prescribed MSYS2/Ninja verification after completing typed lifecycle/model-promotion/static-check work: `pd`, `pd-server`, and `pd-tests` targets completed cleanly; `pd-tests.exe` passed 255 test cases / 6651 assertions.
+
+### Next
+
+Continue Asset Provider Phase 4 by replacing the remaining warning-backed fallback paths as each domain gets a typed provider API. The main known bridge is the first-person gun async loader, which still restores `g_FileInfo[loadfilenum]` while it performs incremental texture/DL work across ticks.
+
+---
+
+## Session S487 - 2026-04-27 - Catalog typed identity normalization
+
+Continued the Catalog-Owned Asset Pipeline Phase 1 after S485/S486.
+
+### Outcome
+
+- Added explicit catalog ID helpers for the major numeric spaces that were still using generic runtime lookup:
+  - `catalogStageIdByStageTableIndex`
+  - `catalogStageIdBySoloStageIndex`
+  - `catalogStageIdByStagenum`
+  - `catalogModelIdByModelnum`
+  - `catalogBodyIdByBodynum`
+  - `catalogHeadIdByHeadnum`
+  - `catalogIdBySourceFilenum`
+  - `catalogIdBySourceHandle`
+- Migrated ASSET_MAP / ASSET_MODEL / ASSET_BODY / ASSET_HEAD callers away from ambiguous `catalogIdByRuntime(type, n)`.
+- Fixed B-265: several stage-id and manifest backfill paths passed a logical `stagenum` into the stage-table-index cache. They now use `catalogStageIdByStagenum`.
+- Started Asset Provider Phase 4:
+  - added `assetLoadGetInflatedSize` and `assetLoadGetLoadedSize` provider-aware size queries;
+  - added handle-aware modeldef loaders `modeldefLoadFromHandle` and `modeldefLoadToNewFromHandle`;
+  - migrated `setupLoadModeldef` to use `catalogGetPropHandle()` and catalog source metadata for prop / weapon / hat / projectile model loads.
+  - migrated `catalogGetBodyModeldef` and `catalogGetHeadModeldef` to load through `catalogGetBodyHandle()` / `catalogGetHeadHandle()`.
+- Continued Asset Provider Phase 4:
+  - `catalog_body_result_t`, `catalog_head_result_t`, `catalog_weapon_result_t`, and `catalog_prop_result_t` now expose the catalog effective provider handle alongside legacy source filenum metadata.
+  - Forge runtime door, weapon-pad, and prop spawning now loads modeldefs through `modeldefLoadToNewFromHandle(...)` using the resolved catalog handle.
+  - `struct menumodel` now stores pending/current/body/head provider handles and source filenum tags; `menuSetModelFileHandle(...)` seeds handle-aware single-model previews.
+  - `menuRenderModel` now uses catalog-resolved provider handles for body/head preview sizing and modeldef loading, and uses the seeded provider handle for catalog-backed single-model previews. Raw filenum-only menu previews now attempt catalog source-filenum resolution first; only truly uncataloged ROM files use the temporary fallback and log a warning.
+  - MP head preview and main-menu weapon preview now seed menu model handles from catalog resolution.
+  - `playerTickChrBody` first-person body/head/weapon size accounting and modeldef loading now use catalog-resolved provider handles.
+  - Added typed lifecycle wrappers `catalogLoadTypedAsset`, `catalogReleaseTypedAsset`, and `catalogRetainTypedAsset`; they validate the resolved catalog entry type before dispatching to the legacy string-only lifecycle calls. SP manifest diff load/unload and `manifestEnsureLoaded` late-add now call these wrappers for known manifest asset types.
+- Mike clarified that preserving the ROM fast path is acceptable only as a sub-step. Recorded the constraint: the endpoint is still full migration away from legacy filenum-first loading and toward catalog/provider-owned source handles, payloads, refcounts, and release behavior.
+- Updated `tests/stubs.c` so pd-tests link against the new typed helper surface.
+- Updated `constraints.md`, `bugs.md`, and `tasks-current.md` with the new helper rule and Phase 1 progress.
+
+### Files
+
+- `port/include/assetcatalog.h`
+- `port/src/assetcatalog_api.c`
+- `port/src/modelcatalog.c`
+- `port/include/assetload.h`, `port/src/assetload.c`
+- `port/src/forge/forge_runtime.c`
+- `port/src/net/net.c`, `port/src/net/netmanifest.c`, `port/src/net/netmsg.c`
+- `port/src/server_stubs.c`
+- `port/src/scenario_save.c`
+- `src/include/game/modeldef.h`
+- `src/include/game/menu.h`
+- `src/include/types.h`
+- `src/game/body.c`, `src/game/lv.c`, `src/game/mainmenu.c`, `src/game/menu.c`, `src/game/menutick.c`, `src/game/modeldef.c`, `src/game/mplayer/mplayer.c`, `src/game/mplayer/setup.c`, `src/game/player.c`, `src/game/setuputils.c`
+- `tests/stubs.c`
+- Context updates: `context/constraints.md`, `context/bugs.md`, `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Prescribed MSYS2/Ninja build: `pd`, `pd-server`, and `pd-tests` linked clean.
+- `pd-tests.exe`: 252 test cases / 6626 assertions passed.
+- Re-ran the same prescribed build/test pass after the Forge provider-handle migration: `pd`, `pd-server`, and `pd-tests` linked clean; `pd-tests.exe` passed 252 test cases / 6626 assertions.
+- Re-ran the prescribed build/test pass after menu and player provider-handle migration: `pd`, `pd-server`, and `pd-tests` linked clean; `pd-tests.exe` passed 252 test cases / 6626 assertions.
+- Re-ran the prescribed build/test pass after catalog-wrapping raw filenum menu previews and adding typed lifecycle wrappers: `pd`, `pd-server`, and `pd-tests` linked clean; `pd-tests.exe` passed 252 test cases / 6626 assertions.
+
+### Next
+
+Continue Asset Provider Phase 4: audit remaining direct model size/load paths, mark true legacy exceptions, then expand typed lifecycle wrappers into asset-type-specific payload loaders.
+
+---
+
+## Session S486 - 2026-04-27 - Online shipping scope correction
+
+Mike clarified the current release target: do **not** ship the standalone dedicated server now. The online target is internal connectivity inside the client.
+
+### Decision
+
+- Current ship-track online work targets in-client/listen-host connectivity: host flow, join flow, rooms/lobby UX, connect codes/NAT path, manifest/catalog distribution, ready gate, stage transitions, reconnect, and in-client validation.
+- `pd-server` remains useful as a build target and regression/tooling surface, but it is not the release product right now.
+- Game-agnostic dedicated server work is deferred: P4-B/P4-C broker implementation, `server_stubs.c` shrink, and plugin ABI cleanup should not block client online work.
+
+### Context updates
+
+- `context/tasks-current.md` marks Tier 4 dedicated-server work deferred and adds the current client-online shipping focus.
+- `context/constraints.md` adds the active shipping-scope constraint and supersedes the old dedicated-server-only shipping model note.
+- `context/server-architecture.md` now opens with a shipping note so future sessions do not mistake the dedicated-server architecture doc for current release scope.
+
+---
+
+## Session S485 - 2026-04-27 - Catalog-owned asset pipeline Phase 0 + weapon identity split
+
+Mike's directive: implement the Catalog-Owned Asset Pipeline plan, with the catalog as the single source of truth for all declared assets, references, source handles, loading/unloading, dependencies, refcounts, and payload ownership. Weapons remain the first proving domain because they expose the current identity bugs, but the scope is explicitly all assets.
+
+### Outcome
+
+Phase 0 baseline is green and Phase 1 has its first identity split in place.
+
+- Fixed the pre-existing `test_swarm_boid_sim` failure by clamping seek speed when the target is closer than one frame of movement. CPU, GPU shader, and test mirror now agree.
+- Corrected base weapon catalog registration to the post-GF64-cull MP table: `NUM_MPWEAPONS = 0x29` (41 slots), not 47. Registration now includes `MPWEAPON_NONE`, `MPWEAPON_SHIELD = 0x27`, and `MPWEAPON_DISABLED = 0x28`, and has a `_Static_assert(NUM_BASE_WEAPONS == NUM_MPWEAPONS)`.
+- Split weapon identity explicitly:
+  - runtime `weapon_num` = `WEAPON_*` enum, final gameplay handoff only;
+  - `mp_weapon_id` = `MPWEAPON_*` selector/setup slot;
+  - catalog ID string = authoritative boundary identity.
+- Added typed helpers `catalogWeaponIdByRuntimeWeaponNum()` and `catalogWeaponIdByMpWeaponId()`.
+- Migrated MP setup, match manifest, stage-start wire refs, scenario save/load fallback, and setup preload fallback away from ambiguous `catalogIdByRuntime(ASSET_WEAPON, ...)` use.
+- Fixed catalog iteration over pools with holes in `catalogBuildRuntimeCaches()` and the room spawn-weapon UI list.
+
+### Files
+
+- `port/src/assetcatalog_base_extended.c`, `port/src/assetcatalog_api.c`, `port/src/assetcatalog_scanner.c`, `port/include/assetcatalog.h`
+- `port/src/net/matchsetup.c`, `port/src/net/netmanifest.c`, `port/src/net/netmsg.c`, `port/src/net/netdistrib.c`
+- `port/src/scenario_save.c`, `src/game/setup.c`, `src/game/mplayer/mplayer.c`
+- `port/src/swarm_test.c`, `port/fast3d/swarm_gpu.cpp`, `tests/test_swarm_boid_sim.cpp`, `tests/test_spawn_weapon_mode.cpp`
+- Context updates: `context/tasks-current.md`, `context/constraints.md`, `context/bugs.md`, `context/designs/catalog-full-pipeline-weapons-2026-04-27.md`, `context/audits/catalog-universality-sweep-2026-04-27.md`, `context/qc-tests.md`, `context/session-log.md`
+
+### Verification
+
+- `pd-tests`: passed all 252 test cases / 6626 assertions.
+- `pd` + `pd-server`: linked clean via direct Ninja invocation after the PowerShell wrapper failed before invoking the build targets with a runspace exception.
+
+### Next
+
+Continue the all-assets catalog-owned pipeline in this order: finish typed identity helpers for stage/model/body/head/source-handle spaces, finish Asset Provider Phase 4, add typed retain/release loaders, then migrate domains one at a time with parity tests and static checks only after a domain has approved catalog/provider APIs.
+
+---
 
 ## Session S483d (`charming-noether-7b69b3` follow-up #2) - 2026-04-27 - FIESTA match-start crash (B-263)
 

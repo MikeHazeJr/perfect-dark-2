@@ -356,10 +356,10 @@ static void s_spawn_door(const forge_object_t *o)
         return;
     }
 
-    struct modeldef *modeldef = modeldefLoadToNew((u16)pr.filenum);
+    struct modeldef *modeldef = modeldefLoadToNewFromHandle(pr.handle, pr.filenum);
     if (!modeldef) {
         sysLogPrintf(LOG_WARNING,
-                "GRID.RUNTIME: door uid=%u -- modeldefLoadToNew(%d) failed",
+                "GRID.RUNTIME: door uid=%u -- modeldefLoadToNewFromHandle(%d) failed",
                 o->uid, pr.filenum);
         return;
     }
@@ -520,10 +520,10 @@ static void s_spawn_weapon_pad(const forge_object_t *o)
 
     weapon->weaponnum = (s32)wr.weapon_num;
 
-    struct modeldef *modeldef = modeldefLoadToNew((u16)wr.filenum);
+    struct modeldef *modeldef = modeldefLoadToNewFromHandle(wr.handle, wr.filenum);
     if (!modeldef) {
         sysLogPrintf(LOG_WARNING,
-                "GRID.RUNTIME: weapon pad uid=%u -- modeldefLoadToNew(%d) failed",
+                "GRID.RUNTIME: weapon pad uid=%u -- modeldefLoadToNewFromHandle(%d) failed",
                 o->uid, wr.filenum);
         return;
     }
@@ -597,10 +597,10 @@ static void s_spawn_prop(const forge_object_t *o)
         return;
     }
 
-    struct modeldef *modeldef = modeldefLoadToNew((u16)pr.filenum);
+    struct modeldef *modeldef = modeldefLoadToNewFromHandle(pr.handle, pr.filenum);
     if (!modeldef) {
         sysLogPrintf(LOG_WARNING,
-                "GRID.RUNTIME: prop uid=%u -- modeldefLoadToNew(%d) failed",
+                "GRID.RUNTIME: prop uid=%u -- modeldefLoadToNewFromHandle(%d) failed",
                 o->uid, pr.filenum);
         return;
     }

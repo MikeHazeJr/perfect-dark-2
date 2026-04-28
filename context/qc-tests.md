@@ -207,7 +207,7 @@
 
 | # | Test | Expected | Status |
 |---|------|----------|--------|
-| 26 | Startup log: weapon count | Log shows "assetcatalog: weapons: 47 entries" | [x] |
+| 26 | Startup log: weapon count | Log shows `CATALOG.SWEEP: registered 41 base weapons` | [x] |
 | 27 | Startup log: prop count | Log shows "assetcatalog: props: 8 entries" | [x] |
 | 28 | Startup log: gamemode count | Log shows "assetcatalog: gamemodes: 6 entries" | [x] |
 | 29 | Startup log: hud count | Log shows "assetcatalog: hud elements: 6 entries" | [x] |

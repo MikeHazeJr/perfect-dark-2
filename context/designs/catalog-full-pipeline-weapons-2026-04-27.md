@@ -1,12 +1,14 @@
-# Catalog Full-Pipeline Migration: Weapons (Phase 1 Design)
+# Catalog-Owned Asset Pipeline: Weapons Proving Domain (Phase 1 Design)
 
-**Status:** DESIGN. Pending Mike's approval before Phase 2 implementation.
+**Status:** BASELINE UPDATED. Weapon-only scope is superseded by the all-assets catalog-owned pipeline; this document remains the weapon proving-domain design.
 **Date:** 2026-04-27
 **Session:** S484 (`suspicious-napier-2c0224`)
 **Companion roadmap entry:** Full-Release Roadmap E.2.
-**Scope gate:** Weapons only this session; other asset types follow per Gate 3.
+**Scope gate:** Weapons are first proving domain only. The target is all declared assets, references, source handles, loading/unloading, dependencies, refcounts, and payload ownership.
 
 > Methodology gates respected: comprehensive Layer A audit before migration; possibility framing on findings; no half measures (every weapon-data Layer A read migrates); hierarchical log channels (`CATALOG.MGR.WEAPON.*`, `LOADER.PDBASE.*`); pd-tests cases land in same commit as the invariant they enforce; no em-dashes.
+>
+> S485 correction: post-GF64-cull counts are runtime `g_Weapons[WEAPON_SUICIDEPILL + 1]` = 86 entries and MP `g_MpWeapons[NUM_MPWEAPONS]` = 41 slots. The base catalog seed now covers the 41 MP selector slots exactly and splits MP slot identity from runtime weapon identity.
 
 ---
 
@@ -20,7 +22,7 @@ Mike's directive: "without these secret gaps we discover weeks after migration".
 
 | Symbol | File:line | Notes |
 |---|---|---|
-| `struct weapon *g_Weapons[]` | `src/game/invitems.c:5700-5789` | 89 entries indexed by `WEAPON_*` enum (range 0x00 to 0x55). `WEAPON_NONE` and `WEAPON_UNARMED` at slots 0/1. MP weapons 0x02 to 0x29. SP-only items (keycards, briefcase, suitcase, hammer, rocket, watchlaser, suicidepill) at slots 0x2a to 0x55. |
+| `struct weapon *g_Weapons[]` | `src/game/invitems.c:5700-5789` | 86 entries indexed by `WEAPON_*` enum (range 0x00 to 0x55). `WEAPON_NONE` and `WEAPON_UNARMED` at slots 0/1. Runtime droppable/MP gameplay weapons run through `WEAPON_COMBATBOOST` at 0x23 after the 8 GF64 imports were culled; device/item slots continue at 0x24..0x55. MP setup identity is a separate 41-slot `MPWEAPON_*` table, not this runtime index space. |
 | `invitem_*` `struct weapon` definitions | `src/game/invitems.c` (whole file) | One `static struct weapon invitem_<name> = { ... };` per weapon. Field set is hi_model/lo_model, equip / unequip / pri-to-sec / sec-to-pri animation pointers, functions[2] (primary / secondary `weaponfunc *`), ammos[2] (`inventory_ammo *`), aimsettings (`invaimsettings *`), muzzlez / posx / posy / posz / sway floats, gunviscmds (`gunviscmd *`), partvisibility (`modelpartvisibility *`), shortname / name / manufacturer / description (langbank u16), flags (u32). |
 | `invfunc_*` `struct weaponfunc_*` definitions | `src/game/invitems.c` | One per primary or secondary fire mode. Subclass varies (shoot single / shoot auto / shoot projectile / throw / melee / special / device). Fields include damage, spread, recoilsettings, recoverytime, duration, shootsound, penetration, projectilemodelnum, scale, speed, etc. |
 | `invammo_*` `struct inventory_ammo` definitions | `src/game/invitems.c` | `type` (ammo enum), `casingeject`, `clipsize`, `reload_animation`, `flags`. |
@@ -33,7 +35,7 @@ Mike's directive: "without these secret gaps we discover weeks after migration".
 | `struct aibotweaponpreference g_AibotWeaponPreferences[]` | `src/game/botinv.c:22-128` | Indexed by `WEAPON_*`. Holds bot AI preference data: pri / sec scores at 4 ranges, has-pri-ammo-goal, has-sec-ammo-goal, distance configs, target / critical ammo counts, reload delay, allow-partial-reload-delay. **Same key space as `g_Weapons[]`.** |
 | `extern struct invaimsettings invaimsettings_default` | `src/include/game/inv.h:8` | The fallback aim-settings record returned by `gsetGetAimSettings` when a weapon has no aim settings. Defined in `invitems.c`. |
 | `extern struct noisesettings invnoisesettings_silent` | `src/include/game/inv.h:7` | The fallback noise-settings record returned by `gsetGetNoiseSettings` when a weapon function has no noise settings. Defined in `invitems.c`. |
-| `extern struct weapon *g_Weapons[]` | `src/include/data.h:236`, `src/include/game/inv.h:9` | Two extern declarations. The `inv.h` form sizes the array as `[WEAPON_SUICIDEPILL + 1]` (89). |
+| `extern struct weapon *g_Weapons[]` | `src/include/data.h:236`, `src/include/game/inv.h:9` | Two extern declarations. The `inv.h` form sizes the array as `[WEAPON_SUICIDEPILL + 1]` (86 after the GF64 cull; `WEAPON_SUICIDEPILL` is 0x55). |
 
 ### A.2 Layer A read sites (direct table access)
 
@@ -115,8 +117,8 @@ Three mutation sites exist and must continue to function under the manager:
 
 ### A.7 Surprises and notes
 
-- The `g_Weapons[]` array carries 89 entries but only the first ~47 are "weapons" in the multiplayer / inventory sense. Slots 0x2a onward are cutscene props (keycards, briefcase, suitcase, hammer, rocket, watchlaser, suicidepill). They have a `struct weapon` row because they share the inventory and gunctrl pipeline, but they have minimal data (no functions, no ammo, just text IDs and a model). The manager must hold all 89 entries; the ASSET_WEAPON catalog row already supports this shape via the `weapon_id` field but is currently registered for only 47 MP entries (`port/src/assetcatalog_base_extended.c:s_BaseWeapons`). Phase 2 extends the catalog to register all 89.
-- The `g_AibotWeaponPreferences[]` table is keyed by `WEAPON_*` enum (same as `g_Weapons[]`) and shares the same 89-slot range. It must become weapon DATA owned by the manager, not a separate parallel table. Phase 2 folds it into the per-weapon `weapon_data_t` payload as a `bot_pref` sub-struct.
+- The `g_Weapons[]` array carries 86 runtime entries, while `g_MpWeapons[]` carries 41 MP selector/setup slots. These are separate numeric spaces. Slots 0x24 onward in the runtime table are devices/items/cutscene props (keycards, briefcase, suitcase, hammer, rocket, watchlaser, suicidepill, etc.). They have a `struct weapon` row because they share the inventory and gunctrl pipeline, but many have minimal weapon behavior. The manager must hold all 86 runtime entries; the base ASSET_WEAPON selector seed currently covers all 41 MP slots exactly (`port/src/assetcatalog_base_extended.c:s_BaseWeapons`) and resolves runtime handoff separately.
+- The `g_AibotWeaponPreferences[]` table is keyed by `WEAPON_*` enum (same as `g_Weapons[]`) and shares the same 86-slot range. It must become weapon DATA owned by the manager, not a separate parallel table. Phase 2 folds it into the per-weapon `weapon_data_t` payload as a `bot_pref` sub-struct.
 - `invaimsettings_default` and `invnoisesettings_silent` are two singleton fallback records. Manager API exposes them as `catalogManagerWeaponDefaultAimSettings()` / `catalogManagerWeaponDefaultNoiseSettings()` returning const pointers.
 - `currentPlayerSetWeaponPos` writes in-place to the static data table. This was almost certainly a debug or position-tuning hook and is not invoked during normal gameplay. Phase 2 keeps the manager mutable for this case; if no live caller exists, removal is queued behind a separate audit.
 - `modelmgrreset.c:194` already uses the `WEAPON.SLOT.MISS:` log channel pattern (loud-fail discipline from S483c, B-263). The new manager accessors adopt the same discipline under `CATALOG.MGR.WEAPON.MISS:`.
@@ -133,19 +135,19 @@ Three mutation sites exist and must continue to function under the manager:
 | Tier-2 cached `info->definition` chained reads | ~20 | 1 (bondgun.c) |
 | Indirect `gset->weaponnum` passers | 35+ files | identity-only, not migrated |
 
-Total Layer A migration surface: 65 read / write sites in 8 files, plus extending ASSET_WEAPON catalog rows from 47 to 89 entries. Mike's stop condition "> 50 read sites" is hit at 65 if every site requires per-call edits, but Section F shows that 37 of those 65 inherit the change automatically through the canonical accessor, leaving 28 explicit edits. **Phasing strategy is not needed; the migration is one accessor + 28 leaf sites and fits in one session.**
+Total Layer A migration surface: 65 read / write sites in 8 files, plus generating catalog-owned runtime weapon payloads for 86 `WEAPON_*` entries while preserving the 41-slot MP selector seed. Mike's stop condition "> 50 read sites" is hit at 65 if every site requires per-call edits, but Section F shows that 37 of those 65 inherit the change automatically through the canonical accessor, leaving 28 explicit edits. **Phasing strategy is needed only at the all-asset pipeline level; the weapon proving-domain accessor migration itself remains one bounded slice.**
 
 ---
 
 ## B. Catalog Row + Manager Schema
 
-### B.1 Catalog row (lightweight, in `asset_entry_t.ext.weapon`)
+### B.1 Catalog row (lightweight MP selector identity, in `asset_entry_t.ext.weapon`)
 
-The catalog row stays lightweight and identity-focused. The existing `ext.weapon` (`port/include/assetcatalog.h:275-284`) is augmented with the file refs the loader needs to resolve the .pdbase definition; no DATA fields appear here.
+The existing catalog row stays lightweight and identity-focused. S485 corrected its numeric field to be the MP selector/setup slot (`MPWEAPON_*`), not the runtime `WEAPON_*` enum. Full runtime weapon data and `.pdbase` source refs belong in a typed payload sidecar/manager, not in the MP selector row.
 
 ```
 struct asset_entry.ext.weapon {
-    s32  weapon_id;             /* WEAPON_* enum (was MPWEAPON_* -- widened to all 89 slots) */
+    s32  weapon_id;             /* MPWEAPON_* selector/setup slot */
     char name[64];              /* display name (UI / lobby) */
     char model_file[128];       /* primary model file path (resolved from .pdbase or ROM) */
     f32  damage;                /* HEADLINE damage value (0 = data lives in manager only) */
@@ -153,14 +155,10 @@ struct asset_entry.ext.weapon {
     s32  ammo_type;             /* HEADLINE ammo category (-1 = data lives in manager only) */
     s32  dual_wieldable;        /* bool */
     u8   requirefeature;        /* unlock check */
-    /* NEW (this design): */
-    char pdbase_path[128];      /* path to .pdbase file inside its mod / base namespace */
-    u32  pdbase_offset;         /* offset within the .pdbase file to this weapon's record */
-    u32  pdbase_size;           /* record size in bytes (for validation) */
 };
 ```
 
-Note: `damage`, `fire_rate`, `ammo_type` retain their existing semantics as headline / UI metadata (they were added during the catalog universality sweep for selectors). The full damage curve, ammo enum, etc. live in the manager's `weapon_data_t`.
+Note: `damage`, `fire_rate`, `ammo_type` retain their existing semantics as headline / UI metadata. The full damage curve, ammo enum, source handle, `.pdbase` offset/size, loaded payload, refcount, and unload behavior live in the manager's typed runtime payload.
 
 ### B.2 Manager-served `weapon_data_t` (typed payload)
 
@@ -406,12 +404,11 @@ Sequence:
 
 ```
 1. assetCatalogInit()                        // existing
-2. assetCatalogRegisterBaseGame()            // existing, registers 47 ASSET_WEAPON rows
+2. assetCatalogRegisterBaseGame()            // existing, registers 41 MP-selector ASSET_WEAPON rows
 3. loaderPdbaseScan("base/")                 // NEW: walks base/*.pdbase
    - For each archive, parse manifest.json
-   - Register additional ASSET_WEAPON rows (catalog already supports
-     overlays, so this is a noop for slots 0x01..0x2f and an add for
-     slots 0x00, 0x2a..0x55)
+   - Register/generate runtime weapon payload records for all 86 WEAPON_* rows
+   - Preserve the 41 MP selector rows as the boundary-facing ASSET_WEAPON identity set until the typed payload sidecar lands
 4. modmgrScanDirectory("mods/")              // existing, walks mods/*.pdmod
    - Already registers mod-side weapons
 5. catalogManagerWeaponInit()                // NEW
@@ -419,11 +416,11 @@ Sequence:
    - Iterate ASSET_WEAPON catalog rows
    - For each, load weapon_data_t from its .pdbase / .pdmod source
    - Register with manager
-   - Log CATALOG.MGR.WEAPON.LOAD: count=N expected=89
+   - Log CATALOG.MGR.WEAPON.LOAD: count=N expected=86
 7. weaponFindById() now routes through manager
 ```
 
-A per-frame load-status message ("Building catalog: weapons 47 / 89...") displays in the corner during startup so the user sees progress (mirrors Mike's "load-status message in corner" directive). The text is rendered through the existing splash / HUD message path; new strings added to `port/fast3d/pdgui_splash.cpp` (or equivalent).
+A per-frame load-status message ("Building catalog: weapons 41 selector slots / 86 runtime rows...") displays in the corner during startup so the user sees progress (mirrors Mike's "load-status message in corner" directive). The text is rendered through the existing splash / HUD message path; new strings added to `port/fast3d/pdgui_splash.cpp` (or equivalent).
 
 ### E.2 Lazy read phase (runtime)
 
@@ -454,7 +451,7 @@ Sequential commits. Each commit lands code + the pd-tests case that pins its inv
 | F6 | modelmgrreset.c direct read | Line 194 -- swap to `weaponFindById(...)`. The B-263 guard already exists; manager preserves it (`CATALOG.MGR.WEAPON.MISS:` channel). | pd + pd-server | Existing B-263 invariant remains. |
 | F7 | bot.c + botinv.c g_AibotWeaponPreferences reads | 28 sites -- swap to `catalogManagerGetWeaponBotPref(weaponnum)`. Sub-struct lookup returns const ptr; field reads unchanged. | pd + pd-server + pd-tests | `tests/test_bot_weapon_pref_via_manager.cpp` (round-trip pin: every WEAPON_* index returns matching pref values vs. legacy table). |
 | F8 | game_0b0fd0.c default-fallback externs | `gsetGetAimSettings` and `gsetGetNoiseSettings` -- swap `&invaimsettings_default` / `&invnoisesettings_silent` for manager defaults. | pd + pd-server | `tests/test_weapon_defaults.cpp` (asserts pointer identity stable across calls, fields match expected). |
-| F9 | Catalog row extension | `port/src/assetcatalog_base_extended.c::s_BaseWeapons` extended to all 89 entries (slots 0x00 unarmed, 0x01 nothing, 0x02 falcon2, ..., 0x55 suicidepill). Adds `pdbase_path` / `pdbase_offset` / `pdbase_size` to `ext.weapon` (paths empty until Phase 1.G). | pd + pd-server + pd-tests | `tests/test_catalog_weapon_count.cpp` (asserts catalog has exactly 89 ASSET_WEAPON rows). |
+| F9 | Catalog/runtime payload seed | `port/src/assetcatalog_base_extended.c::s_BaseWeapons` remains the exact 41-slot MP selector seed. A generated sidecar/manager payload covers all 86 runtime `WEAPON_*` entries (0x00..0x55). Adds `pdbase_path` / `pdbase_offset` / `pdbase_size` to the typed weapon payload owner rather than overloading the MP selector field. | pd + pd-server + pd-tests | `tests/test_catalog_weapon_count.cpp` (asserts 41 MP selector rows and 86 runtime payload rows). |
 | F10 | Loader skeleton | New `port/src/loader_pdbase.c` with `loaderPdbaseScan` + `loaderPdbaseBuildWeaponManager`. Handles `base/` directory only; mod overlay path lives in modmgr. For now the loader has no .pdbase to load (Section G.1) so the code path is exercised but yields no records. Manager continues to source from `g_Weapons[]` until G.2. | pd + pd-server + pd-tests | `tests/test_loader_pdbase_scan_empty.cpp` (asserts empty `base/` produces zero records, no errors). |
 | F11 | g_Weapons retire | After F1-F10 stable, delete `g_Weapons[]` declaration from `data.h` and `inv.h`. Delete the array literal from `invitems.c`. Delete the `invitem_*` static records (move them to `base/weapons.pdbase` JSON). Loader fully sources weapons from .pdbase. | pd + pd-server + pd-tests | `tests/test_no_g_weapons_extern.cpp` (compile + grep test ensures `g_Weapons` symbol is gone). |
 | F12 | g_AibotWeaponPreferences retire | Delete table from `botinv.c`. Manager's per-weapon `bot_pref` is sole source. | pd + pd-server + pd-tests | `tests/test_no_g_aibot_extern.cpp` (compile + grep). |
@@ -492,13 +489,13 @@ Each pd-tests case uses `[catalog-mgr-weapon]` and `[s484]` tags so the running 
 
 | Test case file | Invariant | Commit |
 |---|---|---|
-| `tests/test_catalog_mgr_weapons_api.cpp` | API contract: index range, string id round-trip, NULL on miss, count is 89 after init. | F1 |
+| `tests/test_catalog_mgr_weapons_api.cpp` | API contract: index range, string id round-trip, NULL on miss, count is 86 runtime payloads after init. | F1 |
 | `tests/test_weapon_findbyid_routes_to_manager.cpp` | weaponFindById returns the same pointer as catalogManagerGetWeaponByIndex. | F2 |
 | `tests/test_game_0b0fd0_no_g_weapons_direct.cpp` | Compile-time grep: `g_Weapons[` appears only in invitems.c + assetcatalog_base_extended.c. | F3 |
 | `tests/test_eyespy_variant_mutator.cpp` | Variant 0/1/2 sets expected name + shortname + flags. | F5 |
 | `tests/test_bot_weapon_pref_via_manager.cpp` | catalogManagerGetWeaponBotPref returns identical fields to legacy table for every WEAPON_*. | F7 |
 | `tests/test_weapon_defaults.cpp` | Default aim / noise pointers stable across calls and fields match expected. | F8 |
-| `tests/test_catalog_weapon_count.cpp` | ASSET_WEAPON catalog has 89 rows after init. | F9 |
+| `tests/test_catalog_weapon_count.cpp` | ASSET_WEAPON catalog has 41 MP selector rows and the runtime manager has 86 payload rows after init. | F9 |
 | `tests/test_loader_pdbase_scan_empty.cpp` | Empty base/ produces 0 records, no errors. | F10 |
 | `tests/test_loader_pdbase_parse_roundtrip.cpp` | Round-trip: weapon_data_t -> JSON -> weapon_data_t produces identical struct. | F10 (added when JSON path is wired) |
 | `tests/test_no_g_weapons_extern.cpp` | After F11, `g_Weapons` symbol is gone. | F11 |
@@ -533,14 +530,14 @@ The catalog row's `ext.weapon` already carries `damage`, `fire_rate`, `ammo_type
 
 The format proposal is JSON in `manifest.json` for human authorability and consistency with `.pdmod`. **Question for Mike: agree, or prefer a binary record format for faster parse?**
 
-- Option A: JSON. Parses ~0.5ms per weapon on modern HW. 89 weapons = ~45ms once at startup. Authorable by hand or by mod tools. Same parser as `.pdmod`.
+- Option A: JSON. Parses ~0.5ms per weapon on modern HW. 86 runtime weapons = ~43ms once at startup. Authorable by hand or by mod tools. Same parser as `.pdmod`.
 - Option B: Binary. Sub-millisecond load. Requires a separate authoring tool (the mod-tools layer would generate it from JSON anyway).
 
 **My recommendation: Option A (JSON).** 45ms at startup is negligible; authoring story matters.
 
 ### I.4 Phase 2 scope: stop after F10 or push through F13?
 
-F1-F10 land the manager + loader skeleton + catalog extension while preserving `g_Weapons[]` as the data source. F11-F13 retire the legacy table and switch the manager's data source to `.pdbase`. Doing F11-F13 in the same session means Phase 2 includes **moving all 89 weapon definitions from `invitems.c` C records into `base/weapons.pdbase` JSON.** That is mechanical but verbose.
+F1-F10 land the manager + loader skeleton + catalog extension while preserving `g_Weapons[]` as the data source. F11-F13 retire the legacy table and switch the manager's data source to `.pdbase`. Doing F11-F13 in the same session means Phase 2 includes **moving all 86 runtime weapon definitions from `invitems.c` C records into `base/weapons.pdbase` JSON.** That is mechanical but verbose.
 
 **Question for Mike: land F1-F10 only this session (manager scaffold + parity with g_Weapons), defer F11-F13 (data move) to a follow-up session?**
 

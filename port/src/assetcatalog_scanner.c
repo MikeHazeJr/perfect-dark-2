@@ -25,6 +25,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include "types.h"
+#include "constants.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 #include "assetprovider.h"
@@ -396,6 +397,11 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 
 	case ASSET_WEAPON:
 		e->ext.weapon.weapon_id = iniGetInt(ini, "weapon_id", -1);
+		if (e->ext.weapon.weapon_id >= 0
+				&& e->ext.weapon.weapon_id < NUM_MPWEAPONS) {
+			e->mp_index = (s16)e->ext.weapon.weapon_id;
+			e->runtime_index = catalogGetMpWeaponNum(e->ext.weapon.weapon_id);
+		}
 		strncpy(e->ext.weapon.name, iniGet(ini, "name", ""), sizeof(e->ext.weapon.name) - 1);
 		strncpy(e->ext.weapon.model_file, iniGet(ini, "model_file", ""), sizeof(e->ext.weapon.model_file) - 1);
 		e->ext.weapon.damage = iniGetFloat(ini, "damage", 0.0f);

@@ -2,14 +2,14 @@
  * actionmap_pure.h -- pure-C subset of port/src/actionmap.cpp for pd-tests.
  *
  * Mirrors the InputAction enum, ActionState struct, s_State backing array,
- * actionIsGameplayOnly classifier, and actionmapFlushGameplayState mutator.
+ * actionIsGameplayOnly classifier, and actionmap flush mutators.
  * No SDL, no IMC stack, no dispatch logic. The aim is to lock down the
- * flush invariants ("gameplay-only actions clear, shared actions persist")
- * before Cohort 2 generalizes the API to actionmapFlushLayerActions.
+ * flush invariants for gameplay-only state and declared transition action
+ * sets.
  *
  * @SYNC port/include/actionmap.h (InputAction enum + ACTION_COUNT)
- * @SYNC port/src/actionmap.cpp:1188-1313 (actionIsGameplayOnly,
- *       actionmapFlushGameplayState)
+ * @SYNC port/src/actionmap.cpp (actionIsGameplayOnly,
+ *       actionmapFlushGameplayState, actionmapFlushActionSet)
  *
  * Cohort 1 of context/designs/input-universality-and-transitions-2026-04-27.md.
  */
@@ -93,7 +93,10 @@ typedef enum AmpInputAction {
     AMP_ACTION_FORGE_TAB_PREV,
     AMP_ACTION_FORGE_TAB_NEXT,
     AMP_ACTION_SCORECARD_HOLD,
+    AMP_ACTION_SOCIAL_TOGGLE,
+    AMP_ACTION_TESTSCEN_CYCLE_COUNT,
     AMP_ACTION_TEXT_PASTE,
+    AMP_ACTION_SKIP_CUTSCENE,
     AMP_ACTION_COUNT
 } AmpInputAction;
 
@@ -123,6 +126,12 @@ int ampIsGameplayOnly(AmpInputAction a);
 
 /* Mirrors port/src/actionmap.cpp:actionmapFlushGameplayState. */
 void ampFlushGameplayState(void);
+
+/* Mirrors port/src/actionmap.cpp:actionmapFlushActionSet. */
+void ampFlushActionSet(const AmpInputAction *actions, int action_count);
+
+/* Mirrors port/src/inputlayer.c:g_LayerCutscene.action_set. */
+const AmpInputAction *ampCutsceneActionSet(int *out_count);
 
 #ifdef __cplusplus
 }

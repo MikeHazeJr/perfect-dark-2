@@ -59,6 +59,7 @@
 #include "pdgui_hotswap.h"
 #include "pdgui_charpreview.h"
 #include "assetcatalog.h"
+#include "assetload.h"
 #include "menupool.h"
 #define BLUR_OFS 10
 
@@ -1925,6 +1926,69 @@ void menuConfigureModel(struct menumodel *menumodel, f32 x, f32 y, f32 z, f32 ro
 	menumodel->configurefrac = 0.0f;
 }
 
+static asset_data_handle_t menuNullModelHandle(void)
+{
+	asset_data_handle_t handle = ASSET_HANDLE_NULL_INIT;
+	return handle;
+}
+
+static void menuClearPendingModelHandle(struct menumodel *menumodel)
+{
+	menumodel->newhandle = menuNullModelHandle();
+	menumodel->newhandle_filenum = -1;
+}
+
+static void menuClearCurrentModelHandles(struct menumodel *menumodel)
+{
+	menumodel->curhandle = menuNullModelHandle();
+	menumodel->bodyhandle = menuNullModelHandle();
+	menumodel->headhandle = menuNullModelHandle();
+	menumodel->curhandle_filenum = -1;
+	menumodel->bodyhandle_filenum = -1;
+	menumodel->headhandle_filenum = -1;
+}
+
+void menuSetModelFileHandle(struct menumodel *menumodel, s32 source_filenum, asset_data_handle_t handle)
+{
+	menumodel->newparams = MENUMODELPARAMS_SET_FILENUM(source_filenum);
+	menumodel->newhandle = handle;
+	menumodel->newhandle_filenum = source_filenum;
+}
+
+static bool menuResolveModelHandleByFilenum(s32 source_filenum, asset_data_handle_t *handle)
+{
+	static const asset_type_e types[] = {
+		ASSET_MODEL,
+		ASSET_HEAD,
+		ASSET_BODY,
+		ASSET_PROP,
+		ASSET_VEHICLE,
+	};
+	s32 i;
+
+	*handle = menuNullModelHandle();
+
+	if (source_filenum <= 0) {
+		return false;
+	}
+
+	for (i = 0; i < (s32)(sizeof(types) / sizeof(types[0])); i++) {
+		const char *id = catalogIdBySourceFilenum(types[i], source_filenum);
+		const asset_entry_t *entry = id ? assetCatalogResolve(id) : NULL;
+
+		if (entry) {
+			asset_data_handle_t candidate = catalogEffectiveHandle(entry);
+
+			if (!assetHandleIsNull(candidate)) {
+				*handle = candidate;
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
 void menuUnsetModel(struct menumodel *menumodel)
 {
 	if (menumodel->curparams == 0x4fac5ace) {
@@ -1947,6 +2011,8 @@ void menuUnsetModel(struct menumodel *menumodel)
 	menumodel->unk5b1_06 = false;
 	menumodel->drawbehinddialog = false;
 	menumodel->partvisibility = NULL;
+	menuClearPendingModelHandle(menumodel);
+	menuClearCurrentModelHandles(menumodel);
 	menumodel->unk560 = -1;
 	menumodel->headnum = -1;
 	menumodel->bodynum = -1;
@@ -2056,17 +2122,34 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 						}
 					}
 
-					bodyfilenum = catalogGetBodyFilenumByIndex(bodynum); /* SA-5a */
+					catalog_body_result_t bodyresult;
+					catalog_head_result_t headresult;
+					const char *bodyid = catalogBodyIdByBodynum(bodynum);
+					const char *headid = NULL;
+					bool havehead = false;
 
-					totalfilelen = fileGetInflatedSize(bodyfilenum, LOADTYPE_MODEL);
+					if (!bodyid || !catalogResolveBody(bodyid, &bodyresult)) {
+						sysLogPrintf(LOG_WARNING, "menuRenderModel: cannot resolve body catalog entry (bodynum=%d), skipping",
+						             bodynum);
+						menumodel->bodymodeldef = NULL;
+						menumodel->headmodeldef = NULL;
+						menumodel->curparams = menumodel->newparams;
+						menumodel->newparams = 0;
+						menuClearCurrentModelHandles(menumodel);
+						return gdl;
+					}
+
+					bodyfilenum = (u16)bodyresult.filenum;
+					totalfilelen = assetLoadGetInflatedSize(bodyresult.handle, LOADTYPE_MODEL);
 					if (totalfilelen <= 0) {
-						/* Model file missing or empty — skip this body entirely */
+						/* Model file missing or empty -- skip this body entirely */
 						sysLogPrintf(LOG_WARNING, "menuRenderModel: file 0x%04x has no data (bodynum=%d), skipping",
 						             bodyfilenum, bodynum);
 						menumodel->bodymodeldef = NULL;
 						menumodel->headmodeldef = NULL;
 						menumodel->curparams = menumodel->newparams;
 						menumodel->newparams = 0;
+						menuClearCurrentModelHandles(menumodel);
 						return gdl;
 					}
 					totalfilelen = ALIGN64(totalfilelen);
@@ -2075,8 +2158,15 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 						headnum = -1;
 						headfilenum = 0xffff;
 					} else {
-						headfilenum = catalogGetHeadFilenumByIndex(headnum); /* SA-5a */
-						totalfilelen += ALIGN64(fileGetInflatedSize(headfilenum, LOADTYPE_MODEL));
+						headid = catalogHeadIdByHeadnum(headnum);
+						havehead = headid && catalogResolveHead(headid, &headresult);
+						if (havehead) {
+							headfilenum = (u16)headresult.filenum;
+							totalfilelen += ALIGN64(assetLoadGetInflatedSize(headresult.handle, LOADTYPE_MODEL));
+						} else {
+							headnum = -1;
+							headfilenum = 0xffff;
+						}
 					}
 
 #ifdef PLATFORM_64BIT
@@ -2089,7 +2179,11 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 
 					menumodel->headnum = headnum;
 					menumodel->bodynum = bodynum;
-					menumodel->bodymodeldef = modeldefLoad(bodyfilenum, menumodel->allocstart, totalfilelen, &texpool);
+					menumodel->bodyhandle = bodyresult.handle;
+					menumodel->bodyhandle_filenum = bodyresult.filenum;
+					menumodel->headhandle = havehead ? headresult.handle : menuNullModelHandle();
+					menumodel->headhandle_filenum = havehead ? headresult.filenum : -1;
+					menumodel->bodymodeldef = modeldefLoadFromHandle(bodyresult.handle, bodyresult.filenum, menumodel->allocstart, totalfilelen, &texpool);
 
 					if (menumodel->bodymodeldef == NULL
 						|| menumodel->bodymodeldef->skel == NULL
@@ -2105,24 +2199,27 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 						menumodel->headmodeldef = NULL;
 						menumodel->curparams = menumodel->newparams;
 						menumodel->newparams = 0;
+						menuClearCurrentModelHandles(menumodel);
 						return gdl;
 					}
 
-					bodyfilelen2 = ALIGN64(fileGetLoadedSize(bodyfilenum));
+					bodyfilelen2 = ALIGN64(assetLoadGetLoadedSize(bodyresult.handle));
 					modelAllocateRwData(menumodel->bodymodeldef);
 
 					if (headnum < 0) {
 						menumodel->headmodeldef = NULL;
 					} else {
-						menumodel->headmodeldef = modeldefLoad(headfilenum, menumodel->allocstart + bodyfilelen2, totalfilelen - bodyfilelen2, &texpool);
+						menumodel->headmodeldef = modeldefLoadFromHandle(headresult.handle, headresult.filenum, menumodel->allocstart + bodyfilelen2, totalfilelen - bodyfilelen2, &texpool);
 						if (menumodel->headmodeldef != NULL) {
-							fileGetLoadedSize(headfilenum);
+							assetLoadGetLoadedSize(headresult.handle);
 							bodyCalculateHeadOffset(menumodel->headmodeldef, headnum, bodynum);
 							modelAllocateRwData(menumodel->headmodeldef);
 						} else {
-							// Head model failed to load — render body only
+							// Head model failed to load -- render body only
 							headnum = -1;
 							menumodel->headnum = -1;
+							menumodel->headhandle = menuNullModelHandle();
+							menumodel->headhandle_filenum = -1;
 						}
 					}
 
@@ -2138,23 +2235,53 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 
 					body0f02ce8c(bodynum, headnum, menumodel->bodymodeldef, menumodel->headmodeldef, totalfilelen * 0, &menumodel->bodymodel, false, 1);
 				} else {
-					totalfilelen = ALIGN64(fileGetInflatedSize(menumodel->newparams, LOADTYPE_MODEL)) + 0x4000;
+					s32 source_filenum = MENUMODELPARAMS_GET_FILENUM(menumodel->newparams);
+					bool has_handle = !assetHandleIsNull(menumodel->newhandle)
+						&& menumodel->newhandle_filenum == source_filenum;
+					asset_data_handle_t modelhandle = has_handle ? menumodel->newhandle : menuNullModelHandle();
+
+					if (!has_handle) {
+						has_handle = menuResolveModelHandleByFilenum(source_filenum, &modelhandle);
+					}
+
+					if (has_handle) {
+						totalfilelen = ALIGN64(assetLoadGetInflatedSize(modelhandle, LOADTYPE_MODEL)) + 0x4000;
+					} else {
+						sysLogPrintf(LOG_WARNING,
+							"menuRenderModel: uncataloged raw model filenum 0x%04x using temporary ROM fallback",
+							source_filenum);
+						totalfilelen = ALIGN64(fileGetInflatedSize(source_filenum, LOADTYPE_MODEL)) + 0x4000;
+					}
 					if (1);
 
 					texInitPool(&texpool, &menumodel->allocstart[(u32)totalfilelen], menumodel->alloclen - totalfilelen);
 
 					menumodel->headnum = -1;
 					menumodel->bodynum = -1;
-					menumodel->bodymodeldef = modeldefLoad(menumodel->newparams, menumodel->allocstart, totalfilelen, &texpool);
+					menumodel->bodyhandle = modelhandle;
+					menumodel->bodyhandle_filenum = has_handle ? source_filenum : -1;
+					menumodel->headhandle = menuNullModelHandle();
+					menumodel->headhandle_filenum = -1;
+
+					if (has_handle) {
+						menumodel->bodymodeldef = modeldefLoadFromHandle(modelhandle, source_filenum, menumodel->allocstart, totalfilelen, &texpool);
+					} else {
+						menumodel->bodymodeldef = modeldefLoad((u16)source_filenum, menumodel->allocstart, totalfilelen, &texpool);
+					}
 
 					if (menumodel->bodymodeldef == NULL) {
 						menumodel->headmodeldef = NULL;
 						menumodel->curparams = menumodel->newparams;
 						menumodel->newparams = 0;
+						menuClearCurrentModelHandles(menumodel);
 						return gdl;
 					}
 
-					fileGetLoadedSize(menumodel->newparams);
+					if (has_handle) {
+						assetLoadGetLoadedSize(modelhandle);
+					} else {
+						fileGetLoadedSize(source_filenum);
+					}
 					modelAllocateRwData(menumodel->bodymodeldef);
 					modelInit(&menumodel->bodymodel, menumodel->bodymodeldef, menumodel->rwdata, true);
 					animInit(&menumodel->bodyanim);
@@ -2168,8 +2295,11 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 				}
 
 				menumodel->curparams = menumodel->newparams;
+				menumodel->curhandle = menumodel->bodyhandle;
+				menumodel->curhandle_filenum = menumodel->bodyhandle_filenum;
 				menumodel->curanimnum = 0;
 				menumodel->newparams = 0;
+				menuClearPendingModelHandle(menumodel);
 			} else {
 				return gdl;
 			}
@@ -3992,6 +4122,8 @@ void menuResetModel(struct menumodel *menumodel, u32 allocationlen, bool allocat
 	menumodel->unk5b1_02 = false;
 	menumodel->reverseanim = false;
 	menumodel->unk5b1_06 = false;
+	menuClearPendingModelHandle(menumodel);
+	menuClearCurrentModelHandles(menumodel);
 	menumodel->headnum = -1;
 	menumodel->bodynum = -1;
 }

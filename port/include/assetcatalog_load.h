@@ -18,6 +18,7 @@
 #define _IN_ASSETCATALOG_LOAD_H
 
 #include <PR/ultratypes.h>
+#include "assetcatalog.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -154,6 +155,15 @@ const char *catalogGetSoundOverride(s32 soundnum);
 s32 catalogLoadAsset(const char *assetId);
 
 /**
+ * Type-checked load wrapper.
+ *
+ * expected_type must match the resolved catalog entry type. Pass ASSET_NONE
+ * only for legacy/component paths where the caller cannot name a concrete
+ * asset type yet. Returns 1 on success, 0 on type mismatch or load failure.
+ */
+s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId);
+
+/**
  * Decrement ref_count for a loaded asset.
  *
  * When ref_count reaches 0 and the entry is not bundled, the loaded data
@@ -163,6 +173,12 @@ s32 catalogLoadAsset(const char *assetId);
 void catalogUnloadAsset(const char *assetId);
 
 /**
+ * Type-checked release wrapper. Same validation rule as
+ * catalogLoadTypedAsset; mismatches log and leave the asset untouched.
+ */
+void catalogReleaseTypedAsset(asset_type_e expected_type, const char *assetId);
+
+/**
  * Increment ref_count without triggering a load.
  * The entry must already be at ASSET_STATE_LOADED or higher.
  * Used when transferring ownership of a loaded asset (e.g., stage diff
@@ -170,6 +186,12 @@ void catalogUnloadAsset(const char *assetId);
  * No-op for bundled entries.
  */
 void catalogRetainAsset(const char *assetId);
+
+/**
+ * Type-checked retain wrapper. Same validation rule as
+ * catalogLoadTypedAsset; mismatches log and leave the asset untouched.
+ */
+void catalogRetainTypedAsset(asset_type_e expected_type, const char *assetId);
 
 /**
  * Log intercept query counters (file/tex/anim/snd) at LOG_NOTE.

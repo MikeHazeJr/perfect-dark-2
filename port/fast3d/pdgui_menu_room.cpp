@@ -516,9 +516,9 @@ static void buildSpawnWeaponList(void)
      * Post-cull (2026-04-26): MPWEAPON_SHIELD = 0x27, MPWEAPON_DISABLED = 0x28.
      * The legacy 0x2f/0x30 values pre-cull are also rejected for safety in
      * case any pre-cull catalog data leaks through. */
-    for (int i = 0; ; i++) {
+    for (int i = 0; i < assetCatalogGetPoolSize(); i++) {
         const asset_entry_t *e = assetCatalogGetByIndex(i);
-        if (!e) break;
+        if (!e) continue;
         if (e->type != ASSET_WEAPON) continue;
         if (s_NumSpawnWeapons >= MAX_SPAWN_WEAPONS) break;
         s32 wid = e->ext.weapon.weapon_id;

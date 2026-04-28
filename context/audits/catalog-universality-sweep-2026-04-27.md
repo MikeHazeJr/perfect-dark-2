@@ -16,7 +16,7 @@ The sweep finds **five remaining Layer A asset domains** that still drive user-f
 
 | # | Domain | Catalog type | Layer A array | # sites | Catalog already populated? | Unlock field on ext? |
 |---|---|---|---|---:|---|---|
-| W | **Weapons** | `ASSET_WEAPON` | `g_MpWeapons[]` (47) | 7 | YES (47 entries via `assetcatalog_base_extended.c`) | NO -- add `requirefeature` |
+| W | **Weapons** | `ASSET_WEAPON` | `g_MpWeapons[]` (41) | 7 | YES (41 MP selector slots via `assetcatalog_base_extended.c`) | YES -- `requirefeature` populated S485 |
 | S | **Scenarios** (gamemodes) | `ASSET_GAMEMODE` | `g_MpScenarioOverviews[]` (6) | 6 | YES (6 entries) | NO -- add `requirefeature` |
 | M | **Music tracks** | `ASSET_AUDIO` (cat=MUSIC) | `g_MpTracks[]` (43) | 5 | YES (43 entries) | NO -- add `unlockstage` |
 | B | **Bot profiles** | (none) | `g_BotProfiles[]` (12) | 2 | NO -- needs new `ASSET_BOT_PROFILE` type or piggyback `ASSET_BOT_VARIANT` | n/a |
@@ -35,11 +35,11 @@ Bot profiles is the most architectural item -- `g_BotProfiles[]` has no catalog 
 
 ## Section A -- Layer A iteration sites by domain
 
-### A.W -- Weapons (`g_MpWeapons[]`, 47 entries; `g_MpWeaponSets[]`, 16 entries)
+### A.W -- Weapons (`g_MpWeapons[]`, 41 MP selector slots; `g_MpWeaponSets[]`, 16 entries)
 
-Layer A array: [src/game/mplayer/mplayer.c:78](src/game/mplayer/mplayer.c:78) (post-cull 47 entries). Server stub: [port/src/server_stubs.c:406](port/src/server_stubs.c:406).
+Layer A array: [src/game/mplayer/mplayer.c:78](src/game/mplayer/mplayer.c:78) (post-cull 41 slots, `NUM_MPWEAPONS = 0x29`). Server stub: [port/src/server_stubs.c:406](port/src/server_stubs.c:406).
 
-Catalog already registers all 47 via `assetcatalog_base_extended.c::s_BaseWeapons[]`. `ext.weapon` carries `weapon_id`, `name`, `model_file`, `damage`, `fire_rate`, `ammo_type`, `dual_wieldable` -- but **no `requirefeature` field**.
+Catalog now registers all 41 MP slots via `assetcatalog_base_extended.c::s_BaseWeapons[]`, including `MPWEAPON_NONE`, `MPWEAPON_SHIELD = 0x27`, and `MPWEAPON_DISABLED = 0x28`. `ext.weapon.weapon_id` is the `MPWEAPON_*` slot, not the runtime `WEAPON_*` enum. `ext.weapon.requirefeature` is populated from `g_MpWeapons[mpw].unlockfeature`.
 
 | # | File:line | Function | What it iterates | Filter today | Shape |
 |---|---|---|---|---|---|
@@ -58,7 +58,7 @@ Catalog already registers all 47 via `assetcatalog_base_extended.c::s_BaseWeapon
 - "Select Random Weapons" submenu -- [src/game/mplayer/setup.c:1419-1537](src/game/mplayer/setup.c:1419) -- iterates `g_MpWeapons[]` to render checkbox list. **Out of scope this sweep**: this is the random filter MUTATOR (sets `g_MpWeaponSetRandomFilters[]` per-mp-index by enum value); migrating it would require redesigning the filter mask shape since the mask is sized to `NUM_MPWEAPONS`. The displayed labels already route through W.1/W.2 so name/count are catalog-correct after Step W lands.
 
 **Migration plan W**:
-1. **W.0 -- catalog-side prep**: extend `ext.weapon` with `u8 requirefeature`. Populate at registration from `g_MpWeapons[i].unlockfeature`. Extend `s_entryRequireFeature` switch in `assetcatalog_api.c` to return `e->ext.weapon.requirefeature`.
+1. **W.0 -- catalog-side prep**: **DONE S485**. `ext.weapon.requirefeature` is populated at registration from `g_MpWeapons[mpw].unlockfeature`; `s_BaseWeapons[]` is pinned with `_Static_assert(NUM_BASE_WEAPONS == NUM_MPWEAPONS)`.
 2. **W.1-W.5 -- weapon slot picker**: replace ARRAYCOUNT(g_MpWeapons) walks with `assetCatalogIterateUnlockedByType(ASSET_WEAPON, ...)`. The catalog entry's `mp_index` field carries the original mp_idx, so the unlocked-index <-> mp_index round-trip is preserved by sorting collected entries on `mp_index` (stable order matches the legacy enum order).
 3. **W.6, W.7 -- weapon set picker**: `g_MpWeaponSets[]` is a SET-of-weapons table, not a weapon table. It carries `requirefeatures[4]` (a list of 4 feature gates) and `unk0c` (single-weapon fallback). It is NOT a catalog asset class today (catalog has ASSET_WEAPON for individual weapons; weapon SETS are a higher-level grouping). **Out of scope** for the universal asset migration: this is "presets for selector input", not an asset type. Note added to `constraints.md` Removed-Constraints clarification.
 
@@ -263,7 +263,7 @@ Each step is a self-contained, build-verifiable commit. Bisectable on failure.
 - `mpGetWeaponLabel(weaponnum)` -> iterate ASSET_WEAPON unlocked, sort on mp_index, take N-th.
 - `mpSetWeaponSlot` / `mpGetWeaponSlot` -> same iteration, round-trip on mp_index.
 - `mpSetRandomWeapons` -> iterate ASSET_WEAPON unlocked, intersect with `g_MpWeaponSetRandomFilters[]` (still mp_idx keyed), produce filtered pool.
-- pd-tests: assert all five helpers return same values pre- and post-migration for a fresh save (sentinel weapons all unlocked, all 47 reachable).
+- pd-tests: assert all five helpers return same values pre- and post-migration for a fresh save (sentinel weapons all unlocked, all 41 MP slots reachable).
 
 **Step 4 -- Migrate scenario selector handler (S.1-S.5).**
 - `scenarioScenarioMenuHandler` per case migrates each ARRAYCOUNT walk to `assetCatalogIterateUnlockedByType(ASSET_GAMEMODE, ...)` with `team_based` predicate.

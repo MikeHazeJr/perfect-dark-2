@@ -378,11 +378,11 @@ struct model *bodyAllocateModel(s32 bodynum, s32 headnum, u32 spawnflags)
 	 * This covers all spawn paths including AI-command spawns (chrSpawnAtCoord)
 	 * that bypass bodyAllocateChr.  manifestEnsureLoaded is a no-op in MP mode
 	 * or before the manifest is built, so this call is unconditionally safe. */
-	body_canon = catalogIdByRuntime(ASSET_BODY, bodynum);
+	body_canon = catalogBodyIdByBodynum(bodynum);
 	head_canon = NULL;
 	if (body_canon) { manifestEnsureLoaded(body_canon, MANIFEST_TYPE_BODY); }
 	if (headnum >= 0 && headnum != HEAD_RANDOM_GENDER) {
-		head_canon = catalogIdByRuntime(ASSET_HEAD, headnum);
+		head_canon = catalogHeadIdByHeadnum(headnum);
 		if (head_canon) { manifestEnsureLoaded(head_canon, MANIFEST_TYPE_HEAD); }
 	}
 
@@ -536,10 +536,10 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 	 * or pre-load), so this guard is safe to leave unconditional.
 	 * headnum -55555 means the head is built into the body model — no
 	 * separate head catalog entry exists for that case. */
-	body_canon = catalogIdByRuntime(ASSET_BODY, bodynum);
+	body_canon = catalogBodyIdByBodynum(bodynum);
 	if (body_canon) { manifestEnsureLoaded(body_canon, MANIFEST_TYPE_BODY); }
 	if (headnum >= 0 && headnum != HEAD_RANDOM_GENDER) {
-		head_canon = catalogIdByRuntime(ASSET_HEAD, headnum);
+		head_canon = catalogHeadIdByHeadnum(headnum);
 		if (head_canon) { manifestEnsureLoaded(head_canon, MANIFEST_TYPE_HEAD); }
 	}
 

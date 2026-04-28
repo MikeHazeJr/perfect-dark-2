@@ -3992,7 +3992,16 @@ void func0f105948(s32 weaponnum)
 
 		g_Menus[g_MpPlayerNum].menumodel.loaddelay = 8;
 		g_Menus[g_MpPlayerNum].menumodel.curparams = 0;
-		g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(weaponGetFileNum(weaponnum));
+		{
+			catalog_weapon_result_t result;
+			const char *weaponid = catalogWeaponIdByRuntimeWeaponNum(weaponnum);
+
+			if (weaponid && catalogResolveWeapon(weaponid, &result)) {
+				menuSetModelFileHandle(&g_Menus[g_MpPlayerNum].menumodel, result.filenum, result.handle);
+			} else {
+				g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(weaponGetFileNum(weaponnum));
+			}
+		}
 
 		g_Menus[g_MpPlayerNum].menumodel.curposx = g_Menus[g_MpPlayerNum].menumodel.newposx = 0;
 		g_Menus[g_MpPlayerNum].menumodel.curposy = g_Menus[g_MpPlayerNum].menumodel.newposy = 0;

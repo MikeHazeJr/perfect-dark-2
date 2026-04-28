@@ -1301,29 +1301,34 @@ s32 actionIsBlockedInFreefly(InputAction a)
     }
 }
 
+static void actionmapFlushStateSlot(ActionState *st, u32 now)
+{
+    s32 wasHeld = st->held;
+    st->held          = 0;
+    st->pressed       = 0;
+    st->released      = wasHeld ? 1 : st->released;
+    st->value         = 0.0f;
+    if (wasHeld) {
+        st->up_time_ms = now;
+    }
+    st->hold_consumed = 0;
+    st->hold_pin_full_until_ms = 0;
+    st->hold_vis_grace_until_ms = 0;
+    st->hold_vis_last_down_progress = 0.0f;
+}
+
 void actionmapFlushGameplayState(void)
 {
     /* Zero every gameplay-only action's state across all players. Issues a
      * synthetic "released" edge so any consumer that latched on press sees a
      * corresponding release. */
+    u32 now = SDL_GetTicks();
     for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
         for (s32 a = 0; a < ACTION_COUNT; a++) {
             if (!actionIsGameplayOnly((InputAction)a)) {
                 continue;
             }
-            ActionState *st = &s_State[p][a];
-            s32 wasHeld = st->held;
-            st->held          = 0;
-            st->pressed       = 0;
-            st->released      = wasHeld ? 1 : st->released;
-            st->value         = 0.0f;
-            if (wasHeld) {
-                st->up_time_ms = SDL_GetTicks();
-            }
-            st->hold_consumed = 0;
-            st->hold_pin_full_until_ms = 0;
-            st->hold_vis_grace_until_ms = 0;
-            st->hold_vis_last_down_progress = 0.0f;
+            actionmapFlushStateSlot(&s_State[p][a], now);
         }
         /* Stick threshold bookkeeping: clear latched digital-from-axis state so
          * that when gameplay resumes, a subsequent axis below threshold does
@@ -1331,6 +1336,24 @@ void actionmapFlushGameplayState(void)
          * handler as e.g. MOVE_LEFT toggling off). */
         for (s32 i = 0; i < 10; i++) {
             s_StickHeld[p][i] = 0;
+        }
+    }
+}
+
+void actionmapFlushActionSet(const InputAction *actions, s32 action_count)
+{
+    if (!actions || action_count <= 0) {
+        return;
+    }
+
+    u32 now = SDL_GetTicks();
+    for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
+        for (s32 i = 0; i < action_count; i++) {
+            InputAction a = actions[i];
+            if (a < 0 || a >= ACTION_COUNT) {
+                continue;
+            }
+            actionmapFlushStateSlot(&s_State[p][a], now);
         }
     }
 }

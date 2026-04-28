@@ -16,7 +16,7 @@
  *
  * Exception safety:
  *   Model loading touches ROM data and mod files which may be corrupt.
- *   On Windows, modeldefLoadToNew() is wrapped in SEH __try/__except so
+ *   On Windows, modeldefLoadToNewFromHandle() is wrapped in SEH __try/__except so
  *   an access violation in a single model marks it INVALID rather than
  *   crashing the entire game. On other platforms, a setjmp/longjmp guard
  *   with SIGSEGV handler provides equivalent protection.
@@ -136,7 +136,37 @@ static void catalogSigsegvHandler(int sig, siginfo_t *info, void *ucontext)
  * Attempt to load a modeldef, catching access violations.
  * Returns the loaded modeldef on success, or NULL on fault.
  */
-static struct modeldef *safeModeldefLoad(u16 filenum, s32 index)
+static asset_data_handle_t catalogValidateResolveHandle(s32 index, u8 category, u16 filenum)
+{
+	static const asset_type_e body_first[] = { ASSET_BODY, ASSET_HEAD };
+	static const asset_type_e head_first[] = { ASSET_HEAD, ASSET_BODY };
+	const asset_type_e *types = category == MODELCAT_HEAD ? head_first : body_first;
+	asset_data_handle_t null_handle = ASSET_HANDLE_NULL_INIT;
+	s32 i;
+
+	for (i = 0; i < 2; i++) {
+		const char *id = catalogIdBySourceFilenum(types[i], filenum);
+
+		if (id) {
+			const asset_entry_t *entry = assetCatalogResolve(id);
+
+			if (entry) {
+				asset_data_handle_t handle = catalogEffectiveHandle(entry);
+
+				if (!assetHandleIsNull(handle)) {
+					return handle;
+				}
+			}
+		}
+	}
+
+	sysLogPrintf(LOG_WARNING,
+		"CATALOG.MISS: modelcatalog index=%d filenum=0x%04x has no provider handle -- using temporary ROM fallback",
+		index, filenum);
+	return null_handle;
+}
+
+static struct modeldef *safeModeldefLoad(u16 filenum, asset_data_handle_t handle, s32 index)
 {
 	struct modeldef *result = NULL;
 
@@ -145,7 +175,11 @@ static struct modeldef *safeModeldefLoad(u16 filenum, s32 index)
 	PVOID handler = AddVectoredExceptionHandler(1, catalogVehHandler);
 	s_InSafeLoad = 1;
 	if (setjmp(s_ModelLoadJmpBuf) == 0) {
-		result = modeldefLoadToNew(filenum);
+		if (!assetHandleIsNull(handle)) {
+			result = modeldefLoadToNewFromHandle(handle, filenum);
+		} else {
+			result = modeldefLoadToNew(filenum);
+		}
 	} else {
 		sysLogPrintf(LOG_WARNING,
 			"CATALOG: ACCESS VIOLATION loading model index %d (file 0x%04x) — "
@@ -166,7 +200,11 @@ static struct modeldef *safeModeldefLoad(u16 filenum, s32 index)
 
 	s_InSafeLoad = 1;
 	if (setjmp(s_ModelLoadJmpBuf) == 0) {
-		result = modeldefLoadToNew(filenum);
+		if (!assetHandleIsNull(handle)) {
+			result = modeldefLoadToNewFromHandle(handle, filenum);
+		} else {
+			result = modeldefLoadToNew(filenum);
+		}
 	} else {
 		sysLogPrintf(LOG_WARNING,
 			"CATALOG: SIGSEGV loading model index %d (file 0x%04x) — "
@@ -428,13 +466,15 @@ static void catalogValidateOne(s32 index)
 	if (ce->status != MODELSTATUS_UNKNOWN) return; /* Already validated */
 
 	struct headorbody *hb = &g_HeadsAndBodies[index];
+	asset_data_handle_t handle = catalogValidateResolveHandle(index, ce->category, hb->filenum);
 
 	/* Quick pre-check: if the file doesn't exist in ROM data, mark it
 	 * MISSING immediately. This avoids the overhead of VEH setup/teardown
 	 * and mempAlloc for every non-existent model file. The deeper fix in
 	 * fileLoadRomToNew also returns NULL for missing files, but catching it
 	 * here produces a cleaner log and skips unnecessary work entirely. */
-	if (romdataFileGetData(hb->filenum) == NULL) {
+	if ((assetHandleIsNull(handle) || handle.provider == romProvider())
+			&& romdataFileGetData(hb->filenum) == NULL) {
 		ce->status = MODELSTATUS_MISSING;
 		sysLogPrintf(LOG_WARNING, "CATALOG: [%3d] file 0x%04x — not in ROM data (MISSING)",
 		             index, hb->filenum);
@@ -445,7 +485,7 @@ static void catalogValidateOne(s32 index)
 	 * Use safeModeldefLoad() so a corrupt model file causes an INVALID
 	 * status rather than crashing the entire game. */
 	if (hb->modeldef == NULL) {
-		hb->modeldef = safeModeldefLoad(hb->filenum, index);
+		hb->modeldef = safeModeldefLoad(hb->filenum, handle, index);
 	}
 
 	f32 corrected = hb->scale;
@@ -805,10 +845,10 @@ void catalogPollThumbnails(void)
 			const char *hid = "";
 			const char *bid = "";
 			if (ce->category == MODELCAT_HEAD) {
-				const char *resolved = catalogIdByRuntime(ASSET_HEAD, (s32)ce->index);
+				const char *resolved = catalogHeadIdByHeadnum((s32)ce->index);
 				if (resolved) hid = resolved;
 			} else {
-				const char *resolved = catalogIdByRuntime(ASSET_BODY, (s32)ce->index);
+				const char *resolved = catalogBodyIdByBodynum((s32)ce->index);
 				if (resolved) bid = resolved;
 			}
 			pdguiCharPreviewRequest(hid, bid);

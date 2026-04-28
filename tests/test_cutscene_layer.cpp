@@ -2,15 +2,13 @@
  * test_cutscene_layer.cpp -- Cohort 4 invariants for the Mission 1
  * obj 2 cutscene flash fix.
  *
- * Asserts the two layers of defense Cohort 4 lands:
- *   - belt: actionmapFlushGameplayState() called by LAYER_CUTSCENE's
- *           on_push hook clears every gameplay-only action state
- *           (FIRE_*, RELOAD, WEAPON_NEXT, etc.) before the cutscene
- *           tick begins.
- *   - braces: K.6 actionPressed (edge) skip detection -- a key held
- *             across the menu-accept-then-stage-load transition has
- *             pressed = 0 throughout the cutscene because there was
- *             no fresh keydown during it.
+ * Asserts the two layers of defense:
+ *   - belt: LAYER_CUTSCENE's on_push hook clears every gameplay-only
+ *           action state, then clears the cutscene action set including
+ *           ACTION_USE / ACTION_MENU_ACCEPT before the cutscene tick begins.
+ *   - braces: K.6 actionPressed (edge) skip detection -- even if a stale
+ *             state reaches the tick path, no skip fires without a fresh
+ *             keydown during the cutscene.
  *
  * Also asserts that scene CUTSCENE_START / CUTSCENE_END round-trip
  * leaves the layer stack in a clean state suitable for the next
@@ -20,7 +18,8 @@
  * Section H.1 for the full step-by-step.
  *
  * @SYNC port/src/inputlayer.c (onCutscenePush hook)
- * @SYNC port/src/actionmap.cpp (actionmapFlushGameplayState)
+ * @SYNC port/src/actionmap.cpp (actionmapFlushGameplayState,
+ *       actionmapFlushActionSet)
  * @SYNC src/game/player.c:2944 (K.6 actionPressed switch)
  * @SYNC src/game/player.c:2835 (sceneFire CUTSCENE_START hook)
  *
@@ -48,15 +47,18 @@ void resetAll()
     spInit();
 }
 
-/* Simulate Cohort 4's onCutscenePush hook firing during a cutscene
+/* Simulate the onCutscenePush hook firing during a cutscene
  * layer push. In production this is done automatically by
  * inputlayer.c's g_LayerCutscene.on_push field; the pure-C mirrors
- * do not run real callbacks tied to the actionmap module, so the
- * test invokes the flush directly to mirror the contract. */
+ * do not run real callbacks tied to the actionmap module, so the test
+ * invokes the flushes directly to mirror the contract. */
 void simulateCutsceneStartWithFlushHook()
 {
     spFire(SP_SCENE_EVENT_CUTSCENE_START, nullptr);
-    ampFlushGameplayState(); /* the on_push hook contract */
+    ampFlushGameplayState();
+    int count = 0;
+    const AmpInputAction *set = ampCutsceneActionSet(&count);
+    ampFlushActionSet(set, count);
 }
 
 } /* namespace */
@@ -71,7 +73,8 @@ TEST_CASE("cutscene flash fix: belt -- on_push hook clears gameplay-only state",
     ampSetHeld(0, AMP_ACTION_FIRE_PRIMARY);   /* gameplay-only: must clear */
     ampSetHeld(0, AMP_ACTION_RELOAD);         /* gameplay-only: must clear */
     ampSetHeld(0, AMP_ACTION_WEAPON_NEXT);    /* gameplay-only: must clear */
-    ampSetHeld(0, AMP_ACTION_USE);            /* shared: must persist */
+    ampSetHeld(0, AMP_ACTION_USE);            /* shared accept: must clear */
+    ampSetHeld(0, AMP_ACTION_MENU_DOWN);      /* unrelated menu state persists */
 
     /* Cutscene starts -- on_push hook fires the flush. */
     simulateCutsceneStartWithFlushHook();
@@ -81,8 +84,9 @@ TEST_CASE("cutscene flash fix: belt -- on_push hook clears gameplay-only state",
     REQUIRE(ampGetState(0, AMP_ACTION_FIRE_PRIMARY)->held == 0);
     REQUIRE(ampGetState(0, AMP_ACTION_RELOAD)->held       == 0);
     REQUIRE(ampGetState(0, AMP_ACTION_WEAPON_NEXT)->held  == 0);
-    /* Shared action survives the flush -- K.6 braces handles this case. */
-    REQUIRE(ampGetState(0, AMP_ACTION_USE)->held == 1);
+    REQUIRE(ampGetState(0, AMP_ACTION_USE)->held       == 0);
+    REQUIRE(ampGetState(0, AMP_ACTION_USE)->released   == 1);
+    REQUIRE(ampGetState(0, AMP_ACTION_MENU_DOWN)->held == 1);
 }
 
 TEST_CASE("cutscene flash fix: braces -- actionPressed reads 0 for held-since-before state", "[cutscene][bug][flash][braces]")
@@ -107,14 +111,14 @@ TEST_CASE("cutscene flash fix: braces -- actionPressed reads 0 for held-since-be
     REQUIRE(st->held    == 1);
     REQUIRE(st->pressed == 0);
 
-    /* Stage swap, cutscene starts. The flush is shared-action-safe so
-     * USE stays held. The braces: actionPressed still reads 0. */
+    /* Stage swap, cutscene starts. The transition flush clears USE
+     * entirely, and the braces still ensure actionPressed reads 0. */
     simulateCutsceneStartWithFlushHook();
-    REQUIRE(st->held    == 1);
+    REQUIRE(st->held    == 0);
     REQUIRE(st->pressed == 0);
 
-    /* Throughout the cutscene, while USE remains held, actionPressed
-     * remains 0. No skip can fire from a stale press. */
+    /* Throughout the cutscene, actionPressed remains 0. No skip can
+     * fire from a stale press. */
     for (int frame = 0; frame < 100; frame++) {
         REQUIRE(st->pressed == 0); /* this is what actionPressed reads */
     }
@@ -128,10 +132,9 @@ TEST_CASE("cutscene flash fix: bug invariant -- the Mission 1 obj 2 repro", "[cu
      *   3. Stage swap. AI script runs aiSetCameraAnimation.
      *   4. playerStartCutscene -> playerStartCutscene2 fires
      *      sceneFire(CUTSCENE_START), pushing LAYER_CUTSCENE; the
-     *      on_push hook clears gameplay-only state.
+     *      on_push hook clears gameplay-only and cutscene action-set state.
      *   5. playerTickCutscene polls actionPressed (K.6) for skip
-     *      detection. ACTION_USE is still held but pressed = 0 because
-     *      no fresh keydown happened across steps 2-4.
+     *      detection. ACTION_USE is no longer held and pressed = 0.
      *   6. The 30-frame gate is moot (it gated against actionHeld;
      *      under K.6 it gates against actionPressed which is 0 anyway).
      *   7. Cutscene plays its full duration. No flash. */
@@ -150,6 +153,7 @@ TEST_CASE("cutscene flash fix: bug invariant -- the Mission 1 obj 2 repro", "[cu
     REQUIRE(ilpTopType() == ILP_LAYER_CUTSCENE);
 
     /* Step 5-6: K.6 invariant. The would-be skip checks all read 0. */
+    REQUIRE(ampGetState(0, AMP_ACTION_USE)->held               == 0);
     REQUIRE(ampGetState(0, AMP_ACTION_USE)->pressed            == 0);
     REQUIRE(ampGetState(0, AMP_ACTION_FIRE_PRIMARY)->pressed   == 0);
     REQUIRE(ampGetState(0, AMP_ACTION_RELOAD)->pressed         == 0);
@@ -171,14 +175,12 @@ TEST_CASE("cutscene: skip via fresh press DOES register", "[cutscene][skip][posi
     simulateCutsceneStartWithFlushHook();
 
     /* Mid-cutscene, player presses Space (ACTION_SKIP_CUTSCENE). */
-    ampSetPressed(0, AMP_ACTION_SCREENSHOT); /* arbitrary press for test */
+    ampSetPressed(0, AMP_ACTION_SKIP_CUTSCENE);
 
     /* The skip-relevant flag must read 1 in the frame the press
-     * happens. We use ACTION_SCREENSHOT because actionmap_pure does
-     * not yet declare AMP_ACTION_SKIP_CUTSCENE; the flag semantics
-     * are the same: any rising-edge fresh press during the cutscene
+     * happens. Any rising-edge fresh press during the cutscene
      * window registers. */
-    REQUIRE(ampGetState(0, AMP_ACTION_SCREENSHOT)->pressed == 1);
+    REQUIRE(ampGetState(0, AMP_ACTION_SKIP_CUTSCENE)->pressed == 1);
 }
 
 TEST_CASE("cutscene: round-trip cleans up handles for the next cutscene", "[cutscene][lifecycle]")

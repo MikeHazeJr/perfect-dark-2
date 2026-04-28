@@ -78,6 +78,56 @@ const char *catalogIdByRuntime(asset_type_e type, s32 runtime_index)
     return NULL;
 }
 
+const char *catalogStageIdByStageTableIndex(s32 stage_table_index)
+{
+    (void)stage_table_index;
+    return NULL;
+}
+
+const char *catalogStageIdBySoloStageIndex(s32 solo_stage_index)
+{
+    (void)solo_stage_index;
+    return NULL;
+}
+
+const char *catalogStageIdByStagenum(s32 stagenum)
+{
+    (void)stagenum;
+    return NULL;
+}
+
+const char *catalogModelIdByModelnum(s32 modelnum)
+{
+    (void)modelnum;
+    return NULL;
+}
+
+const char *catalogBodyIdByBodynum(s32 bodynum)
+{
+    (void)bodynum;
+    return NULL;
+}
+
+const char *catalogHeadIdByHeadnum(s32 headnum)
+{
+    (void)headnum;
+    return NULL;
+}
+
+const char *catalogIdBySourceFilenum(asset_type_e type, s32 source_filenum)
+{
+    (void)type;
+    (void)source_filenum;
+    return NULL;
+}
+
+const char *catalogIdBySourceHandle(asset_type_e type, asset_data_handle_t handle)
+{
+    (void)type;
+    (void)handle;
+    return NULL;
+}
+
 void catalogDepForEach(const char *owner_id,
                        void (*callback)(const char *dep_id, void *userdata),
                        void *userdata)

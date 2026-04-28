@@ -7,6 +7,59 @@
 
 ---
 
+## Open -- 2026-04-28 (Input infrastructure: cutscene transition flush)
+
+**Status: CODE DONE / BUILD VERIFIED.** Narrow slice only. No raw ImGui key migration sweep and no broad scene-manager expansion.
+
+**Done this session:**
+- Added public `actionmapFlushActionSet(const InputAction *actions, s32 action_count)` so transition/layer code can flush declared shared actions without broadening `actionmapFlushGameplayState()`.
+- Declared the cutscene layer action set and wired `onCutscenePush` to flush both gameplay-only state and the cutscene action set. Held ACTION_USE / ACTION_MENU_ACCEPT, CANCEL, PAUSE, ACTION_SKIP_CUTSCENE, and legacy cutscene skip actions are cleared at cutscene entry.
+- Tightened pd-tests around the invariant: held menu/gameplay accept clears on cutscene transition flush, and flushing one declared action set preserves unrelated actions.
+- Logged B-266 for the held shared accept state that survived the earlier gameplay-only flush.
+
+**Verification:**
+- Prescribed MSYS2/Ninja flow passed: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- `pd-tests.exe`: 253 test cases / 6641 assertions passed.
+
+**Operator-side verification still owed:**
+1. Mike playtest: complete Mission 1 objective 1, hold Continue/Use through the transition, confirm objective 2 intro cutscene does not flash/skip after the 30-frame gate.
+2. Fresh skip press after the gate should still skip.
+
+## Open -- 2026-04-27 (Catalog-Owned Asset Pipeline)
+
+**Status: PHASE 0 COMPLETE / PHASE 1 STARTED.** The catalog is the intended single source of truth for all declared assets, not just weapons: identity, metadata, references, source handles, dependencies, load state, loaded payloads, refcounts, and release/unload behavior.
+
+**Done this session:**
+- Fixed Phase 0 baseline blockers: `pd-tests` is green and `test_swarm_boid_sim` no longer overshoots when seek distance is shorter than one frame of movement.
+- Corrected base weapon catalog registration to the post-GF64-cull MP table: `NUM_MPWEAPONS = 0x29` (41 slots), including `MPWEAPON_NONE`, `MPWEAPON_SHIELD = 0x27`, and `MPWEAPON_DISABLED = 0x28`.
+- Split weapon identity API surfaces: runtime `WEAPON_*` handoff vs MP `MPWEAPON_*` selector/setup slot vs catalog ID string boundary identity.
+- Added regression tests pinning MP/runtime weapon identity separation and the 41-slot MP table.
+- Continued Phase 1 typed identity normalization: added explicit helpers for stage table index vs solo stage index vs stagenum, modelnum, bodynum/headnum, and source filenum/handle identity; migrated ASSET_MAP/MODEL/BODY/HEAD callers off ambiguous generic lookup. Fixed B-265 stagenum-to-stage-table-index confusion in stage_id and manifest backfill paths.
+- Started Asset Provider Phase 4: added provider-aware inflated/loaded size query APIs, added handle-aware modeldef load wrappers, migrated `setupLoadModeldef` to load prop/weapon/hat/projectile models from `catalogGetPropHandle()` plus catalog source metadata, and migrated body/head lazy modeldef loaders to `catalogGetBodyHandle()` / `catalogGetHeadHandle()`.
+- Continued Asset Provider Phase 4:
+  - catalog body/head/weapon/prop resolution results now carry the effective provider handle;
+  - Forge runtime door / weapon-pad / prop model loads use `modeldefLoadToNewFromHandle()` instead of direct filenum-only `modeldefLoadToNew()`;
+  - menu model state now stores pending/current/body/head provider handles, catalog-resolved menu body/head/weapon previews use provider-aware size/load APIs, and raw filenum menu previews now attempt catalog source-filenum resolution before falling back to the temporary ROM path;
+  - `playerTickChrBody` first-person body/head/weapon sizing and modeldef loads now use catalog-resolved provider handles.
+  - typed lifecycle wrappers (`catalogLoadTypedAsset`, `catalogReleaseTypedAsset`, `catalogRetainTypedAsset`) now validate catalog entry type before dispatching to the legacy string-only lifecycle calls; SP manifest load/unload and late-add paths use the typed wrappers for known manifest asset types.
+  - `bgunTickMasterLoad` / `bgunTickGunLoad` now queue a catalog/provider handle alongside the legacy first-person hand/gun/cart `loadfilenum`; catalog-backed ROM handles use provider-aware size/load APIs. Non-ROM provider handles and uncataloged sources still fall back to the temporary ROM path with warnings until model promotion bookkeeping is catalog/provider-owned.
+  - Title/logo model loads now resolve `ASSET_MODEL` provider handles through `catalogGetPropHandle()` and use `modeldefLoadFromHandle()` / `assetLoadGetLoadedSize()` for catalog/provider-backed sources. A single warning-backed fallback remains only when no provider handle exists.
+  - `modelcatalog` validation now resolves body/head provider handles by source filenum and uses `modeldefLoadToNewFromHandle()` while preserving the existing fault guard. A warning-backed fallback remains only when no provider handle exists.
+  - Typed lifecycle loaders now have a type-policy/provider-backed payload path: `catalogLoadTypedAsset()` validates type, loads through the catalog effective provider handle when present, and falls back to the legacy file path only when no provider handle exists.
+  - `modeldefLoadFromHandle()` now supports non-ROM provider handles by using a size-driven promotion path instead of `g_FileInfo[]`; the legacy `modeldef0f1a7560()` wrapper still updates `g_FileInfo[]` for old ROM callers.
+  - Stage diff (`lv.c`) and screen mini-manifests (`screenmfst.c`) now call typed retain/release/load wrappers instead of raw string-only lifecycle functions.
+  - Added focused static tests to keep those migrated lifecycle call sites typed and to prevent the handle modeldef loader from regressing to RomProvider-only.
+
+**Next execution order:**
+1. Continue replacing remaining warning-backed fallback paths as their domains get typed provider APIs: first-person gun async loader still has manual `g_FileInfo[loadfilenum]` restore because it performs incremental texture/DL work across ticks.
+2. Expand typed payload activation beyond raw bytes: models should cache promoted modeldefs/payload metadata in catalog-owned state; audio/lang/texture should gain type-specific activate/deactivate hooks.
+3. Migrate domains incrementally: weapons first as proving domain, then bodies/heads/characters, models/props/arenas/stages, then audio/language/textures/UI/effects, then gameplay metadata.
+4. Broaden static checks only after each domain has typed catalog/provider APIs and approved seed/generator exceptions.
+
+**Operator-side verification still owed:** in-game validation for Combat Sim setup weapon slots, Random/Fiesta spawn modes, weapon pads, stage transitions, and any mod weapon distribution path.
+
+---
+
 ## Open — 2026-04-25 (Priority M / B-238 -- unified `.pdmod` end-to-end)
 
 **Status: RESOLVED-PENDING-PLAYTEST.** Branch `claude/sharp-almeida-aeeb1f`, 13 commits (`77c622a2` -> `c55d96ce`). All M-1 / M-2 / M-3 / M-4 phases landed and build-verified.
@@ -40,6 +93,8 @@ After Mike validates the above, B-238 closes fully (RESOLVED -> CLOSED) and the 
 
 **Done 2026-04-20 (H-1 P3-A/P3-B — in-client host / go online):** `pdgui_menu_network` listen host + `pdgui_lobby` route for `NETMODE_SERVER && !g_NetDedicated`; `netSendRoom*` + `netListenHostRoomLeave` for leader/leave; `Net.Server.Port` + README PD2 fork pointer. See `session-log.md` S421.
 
+**Shipping scope update 2026-04-27 (S486):** Do not spend current ship-track effort on the dedicated server product. For now the online target is internal client-hosted connectivity: in-client listen host, join flow, room/lobby UX, NAT/connect-code path, manifest/catalog distribution, ready gate, stage start/end, and reconnect behavior inside the game client. `pd-server` may remain buildable for tooling/regression coverage, but it is not the release surface.
+
 **Done 2026-04-20 (controller + hold housekeeping):** USE hold **Settings UX** when per-action override is set (effective ms + disabled global slider); **C-button policy** in `constraints.md` (UI-only hide on Controller tab); **bondmove** / **actionmap.h** comments; **terminal extra hold** tunable via **`ActionMap.InteractHoldExtraTerminalMs`** + Settings slider; **menu-controller-input-constraints.md** §2.1 sanity table; **INDEX.md** link. Follow-up only if needed: stage-specific hold beyond actionmap + `prop.c` categories.
 
 **Done this session (S410):** Settings → Controls → Controller map — **split zones** (Bind 1 left / Bind 2 right), **right-click clear** per column, **LS/RS cardinal** synthetic VK drop targets; `pickSlotForControllerBindColumn` matches table. See `context/session-log.md` S410.
@@ -61,13 +116,13 @@ fix list.
 
 **Full Super Audit (standalone, 2026-04-21):** [`context/audits/2026-04-21-full.md`](audits/2026-04-21-full.md) — complete pass per `audit-prompt.md` (not delta vs 2026-04-20); scorecard **1 C / 6 H / 3 M / 1 L**; covers game-agnostic server programme + in-client listen-host vs product UI.
 
-### Tier 4 C-1 — game-agnostic dedicated server (P4-A / P4-B / P4-C)
+### Tier 4 C-1 — game-agnostic dedicated server (P4-A / P4-B / P4-C) — DEFERRED
 
 - **P4-A (doc-only) — DONE 2026-04-21 (revised S423):** ADR [`context/designs/pd-server-plugin-abi-adr.md`](designs/pd-server-plugin-abi-adr.md) — **primary:** host **manifest broker**, **catalog ID** identity, per-client **dynamic catalogs**, **hashes** / manifest revision, **no game content** in server exe; **Trust / Confirm First** (per-player readiness); optional **policy module** only where data cannot express rules; versioning + CMake direction. Audit prompts: [`context/audits/2026-04-21-resolution-prompts.md`](audits/2026-04-21-resolution-prompts.md) Tier 4.
-- **P4-B — pending approval:** smallest **broker-aligned** slice — host manifest **received/stored**, **fan-out**, per-player **readiness** for manifest accept/hash (**Confirm First** must not block whole lobby); deliberate **`NET_PROTOCOL_VER`** bump if wire changes; **no** new baked PD2 tables as the fix.
-- **P4-C — follows P4-B:** shrink `server_stubs.c` **baked authority** as manifest path replaces it; track line count + CMake link surfaces; align **`netmsg`** with broker checks (IDs + hashes + readiness) before PD2-only branches.
+- **P4-B — deferred, not current ship-track:** smallest **broker-aligned** slice — host manifest **received/stored**, **fan-out**, per-player **readiness** for manifest accept/hash (**Confirm First** must not block whole lobby); deliberate **`NET_PROTOCOL_VER`** bump if wire changes; **no** new baked PD2 tables as the fix.
+- **P4-C — deferred with P4-B:** shrink `server_stubs.c` **baked authority** as manifest path replaces it; track line count + CMake link surfaces; align **`netmsg`** with broker checks (IDs + hashes + readiness) before PD2-only branches.
 
-**Prior decision fork (AUDIT-C1 / MASTER-C5):** pillar still formally unmet until P4-B+ lands; alternative was retire pillar in `pillars.md` for v0.1.0 — superseded if Mike commits to Tier 4 track above.
+**Current decision (S486):** dedicated server remains a valid future architecture track, but it is not part of the next release scope. Do not let P4-B/P4-C block client online connectivity work.
 
 ### Wave 3A Hardening — batch candidate (½ d – 1 d)
 

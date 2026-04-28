@@ -599,7 +599,7 @@ void menuTick(void)
 								}
 								g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
 								/* Phase 2: populate PRIMARY catalog ID string field */
-								{ const char *cid = catalogIdByRuntime(ASSET_MAP, g_MissionConfig.stagenum); if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; } else { g_MissionConfig.stage_id[0] = '\0'; } }
+								{ const char *cid = catalogStageIdByStagenum(g_MissionConfig.stagenum); if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; } else { g_MissionConfig.stage_id[0] = '\0'; } }
 								titleSetNextStage(g_MissionConfig.stagenum);
 								lvSetDifficulty(g_MissionConfig.difficulty);
 								titleSetNextMode(TITLEMODE_SKIP);

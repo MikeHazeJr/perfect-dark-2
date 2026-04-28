@@ -36,9 +36,9 @@
 
 /*
  * NOTE: This table is NOT registered -- assetCatalogRegisterBaseGameExtended()
- * handles weapon registration with the full 47-entry table (MPWEAPON_0x01-0x2f).
+ * handles weapon registration with the full 41-slot table (MPWEAPON_0x00-0x28).
  * This stub is kept as a reference mapping only; do not iterate it.
- * Coverage: 37 of 47 weapons (missing 0x23-0x24, 0x27-0x2e).
+ * Coverage: partial reference list only.
  */
 static const struct {
 	s16 weapon_id;
@@ -81,7 +81,7 @@ static const struct {
 	{ 0x22, "weapon_xrayscanner",    "X-Ray Scanner" },
 	{ 0x25, "weapon_cloakingdevice", "Cloaking Device" },
 	{ 0x26, "weapon_combatboost",    "Combat Boost" },
-	{ 0x2f, "weapon_shield",         "Shield" },
+	{ 0x27, "weapon_shield",         "Shield" },
 };
 
 #define NUM_BASE_WEAPONS (sizeof(s_BaseWeapons) / sizeof(s_BaseWeapons[0]))

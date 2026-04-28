@@ -2,7 +2,7 @@
  * assetcatalog_base_extended.c -- S46a: Extended base game asset registration
  *
  * Registers 9 base game asset types in the Asset Catalog:
- *   ASSET_WEAPON      -- all 47 MP weapons (MPWEAPON_* constants)
+ *   ASSET_WEAPON      -- all 41 MP weapon slots (MPWEAPON_* constants)
  *                       requirefeature populated from g_MpWeapons[].unlockfeature
  *                       (catalog universality sweep, 2026-04-27)
  *   ASSET_ANIMATION   -- 1207 animations (full table, indices 0x0000..0x04B6)
@@ -51,7 +51,7 @@ extern struct botprofile        g_BotProfiles[18];
 
 /*
  * Maps MPWEAPON_* constant -> catalog slug, display name, dual-wield flag.
- * weapon_id is the value used by the game engine (MPWEAPON_* range 0x01-0x2f).
+ * weapon_id is the MP weapon table slot (MPWEAPON_* range 0x00-0x28).
  * model_file, damage, fire_rate are left at defaults -- base game loads from ROM.
  */
 static const struct {
@@ -60,56 +60,52 @@ static const struct {
 	const char *name;
 	s32         dual_wieldable;
 } s_BaseWeapons[] = {
-	{ 0x01, "falcon2",          "Falcon 2",            0 },
-	{ 0x02, "falcon2_silencer", "Falcon 2 Silencer",   0 },
-	{ 0x03, "falcon2_scope",    "Falcon 2 Scope",      1 },
-	{ 0x04, "magsec4",          "Magsec 4",            1 },
-	{ 0x05, "mauler",           "Mauler",              1 },
-	{ 0x06, "phoenix",          "Phoenix",             0 },
-	{ 0x07, "dy357magnum",      "DY357 Magnum",        1 },
-	{ 0x08, "dy357lx",          "DY357-LX",            1 },
-	{ 0x09, "cmp150",           "CMP150",              1 },
-	{ 0x0a, "cyclone",          "Cyclone",             1 },
-	{ 0x0b, "callisto",         "Callisto NTG",        1 },
-	{ 0x0c, "rcp120",           "RC-P120",             0 },
-	{ 0x0d, "laptopgun",        "Laptop Gun",          0 },
-	{ 0x0e, "dragon",           "Dragon",              0 },
-	{ 0x0f, "k7avenger",        "K7 Avenger",          0 },
-	{ 0x10, "ar34",             "AR34",                0 },
-	{ 0x11, "superdragon",      "SuperDragon",         0 },
-	{ 0x12, "shotgun",          "Shotgun",             0 },
-	{ 0x13, "reaper",           "Reaper",              0 },
-	{ 0x14, "sniperrifle",      "Sniper Rifle",        0 },
-	{ 0x15, "farsight",         "FarSight XR-20",      0 },
-	{ 0x16, "devastator",       "Devastator",          0 },
-	{ 0x17, "rocketlauncher",   "Rocket Launcher",     0 },
-	{ 0x18, "slayer",           "Slayer",              0 },
-	{ 0x19, "combatknife",      "Combat Knife",        1 },
-	{ 0x1a, "crossbow",         "Crossbow",            0 },
-	{ 0x1b, "tranquilizer",     "Tranquilizer",        0 },
-	{ 0x1c, "grenade",          "Grenade",             0 },
-	{ 0x1d, "nbomb",            "N-Bomb",              0 },
-	{ 0x1e, "timedmine",        "Timed Mine",          0 },
-	{ 0x1f, "proximitymine",    "Proximity Mine",      0 },
-	{ 0x20, "remotemine",       "Remote Mine",         0 },
-	{ 0x21, "laser",            "Laser",               0 },
-	{ 0x22, "xrayscanner",      "X-Ray Scanner",       0 },
-	{ 0x23, "nightvision",      "Night Vision",        0 },
-	{ 0x24, "irscanner",        "IR Scanner",          0 },
-	{ 0x25, "cloakingdevice",   "Cloaking Device",     0 },
-	{ 0x26, "combatboost",      "Combat Boost",        0 },
-	{ 0x27, "pp9i",             "PP9i",                1 },
-	{ 0x28, "cc13",             "CC13",                0 },
-	{ 0x29, "kl01313",          "Kl01313",             0 },
-	{ 0x2a, "kf7special",       "KF7 Special",         0 },
-	{ 0x2b, "zzt",              "ZZT x3",              0 },
-	{ 0x2c, "dmc",              "DMC",                 0 },
-	{ 0x2d, "ar53",             "AR53",                0 },
-	{ 0x2e, "rcp45",            "RC-P45",              0 },
-	{ 0x2f, "shield",           "Shield",              0 },
+	{ MPWEAPON_NONE,            "none",              "Nothing",             0 },
+	{ MPWEAPON_FALCON2,         "falcon2",           "Falcon 2",            0 },
+	{ MPWEAPON_FALCON2_SILENCER, "falcon2_silencer", "Falcon 2 Silencer",   0 },
+	{ MPWEAPON_FALCON2_SCOPE,   "falcon2_scope",     "Falcon 2 Scope",      1 },
+	{ MPWEAPON_MAGSEC4,         "magsec4",           "Magsec 4",            1 },
+	{ MPWEAPON_MAULER,          "mauler",            "Mauler",              1 },
+	{ MPWEAPON_PHOENIX,         "phoenix",           "Phoenix",             0 },
+	{ MPWEAPON_DY357MAGNUM,     "dy357magnum",       "DY357 Magnum",        1 },
+	{ MPWEAPON_DY357LX,         "dy357lx",           "DY357-LX",            1 },
+	{ MPWEAPON_CMP150,          "cmp150",            "CMP150",              1 },
+	{ MPWEAPON_CYCLONE,         "cyclone",           "Cyclone",             1 },
+	{ MPWEAPON_CALLISTO,        "callisto",          "Callisto NTG",        1 },
+	{ MPWEAPON_RCP120,          "rcp120",            "RC-P120",             0 },
+	{ MPWEAPON_LAPTOPGUN,       "laptopgun",         "Laptop Gun",          0 },
+	{ MPWEAPON_DRAGON,          "dragon",            "Dragon",              0 },
+	{ MPWEAPON_K7AVENGER,       "k7avenger",         "K7 Avenger",          0 },
+	{ MPWEAPON_AR34,            "ar34",              "AR34",                0 },
+	{ MPWEAPON_SUPERDRAGON,     "superdragon",       "SuperDragon",         0 },
+	{ MPWEAPON_SHOTGUN,         "shotgun",           "Shotgun",             0 },
+	{ MPWEAPON_REAPER,          "reaper",            "Reaper",              0 },
+	{ MPWEAPON_SNIPERRIFLE,     "sniperrifle",       "Sniper Rifle",        0 },
+	{ MPWEAPON_FARSIGHT,        "farsight",          "FarSight XR-20",      0 },
+	{ MPWEAPON_DEVASTATOR,      "devastator",        "Devastator",          0 },
+	{ MPWEAPON_ROCKETLAUNCHER,  "rocketlauncher",    "Rocket Launcher",     0 },
+	{ MPWEAPON_SLAYER,          "slayer",            "Slayer",              0 },
+	{ MPWEAPON_COMBATKNIFE,     "combatknife",       "Combat Knife",        1 },
+	{ MPWEAPON_CROSSBOW,        "crossbow",          "Crossbow",            0 },
+	{ MPWEAPON_TRANQUILIZER,    "tranquilizer",      "Tranquilizer",        0 },
+	{ MPWEAPON_GRENADE,         "grenade",           "Grenade",             0 },
+	{ MPWEAPON_NBOMB,           "nbomb",             "N-Bomb",              0 },
+	{ MPWEAPON_TIMEDMINE,       "timedmine",         "Timed Mine",          0 },
+	{ MPWEAPON_PROXIMITYMINE,   "proximitymine",     "Proximity Mine",      0 },
+	{ MPWEAPON_REMOTEMINE,      "remotemine",        "Remote Mine",         0 },
+	{ MPWEAPON_LASER,           "laser",             "Laser",               0 },
+	{ MPWEAPON_XRAYSCANNER,     "xrayscanner",       "X-Ray Scanner",       0 },
+	{ MPWEAPON_NIGHTVISION,     "nightvision",       "Night Vision",        0 },
+	{ MPWEAPON_IRSCANNER,       "irscanner",         "IR Scanner",          0 },
+	{ MPWEAPON_CLOAKINGDEVICE,  "cloakingdevice",    "Cloaking Device",     0 },
+	{ MPWEAPON_COMBATBOOST,     "combatboost",       "Combat Boost",        0 },
+	{ MPWEAPON_SHIELD,          "shield",            "Shield",              0 },
+	{ MPWEAPON_DISABLED,        "disabled",          "Disabled",            0 },
 };
 
 #define NUM_BASE_WEAPONS (sizeof(s_BaseWeapons) / sizeof(s_BaseWeapons[0]))
+_Static_assert(NUM_BASE_WEAPONS == NUM_MPWEAPONS,
+	"base weapon catalog table must cover every MPWEAPON_* slot");
 
 /* ========================================================================
  * Animation Table
@@ -427,13 +423,17 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register weapon %s", idbuf);
 				continue;
 			}
+			s32 mpw = s_BaseWeapons[i].weapon_id;
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
-			e->bundled = 1; e->enabled = 1; e->runtime_index = i;
-			e->mp_index = (s16)i;
+			e->bundled = 1; e->enabled = 1;
+			e->runtime_index = (mpw >= 0 && mpw < NUM_MPWEAPONS)
+				? (s32)g_MpWeapons[mpw].weaponnum : -1;
+			e->mp_index = (s16)mpw;
 			/* Catalog universality sweep (2026-04-27): mirror the unlock
 			 * gate so assetCatalogIterateUnlockedByType(ASSET_WEAPON, ...)
 			 * matches challengeIsFeatureUnlocked semantics. */
-			e->ext.weapon.requirefeature = g_MpWeapons[i].unlockfeature;
+			e->ext.weapon.requirefeature = (mpw >= 0 && mpw < NUM_MPWEAPONS)
+				? g_MpWeapons[mpw].unlockfeature : 0;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}

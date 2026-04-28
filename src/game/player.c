@@ -81,6 +81,7 @@
 #include "game/playerreset.h" /* 2026-04-23 B-219 v2: modelmgrLoadProjectileModeldefs */
 #include "spawn_predicate.h"  /* INV-2: spawn-with-weapon mutual-exclusion gate */
 #include "assetcatalog.h"
+#include "assetload.h"
 #include "actionmap.h"
 #include "scene.h"
 #include "game/spawnpool.h"
@@ -2238,7 +2239,9 @@ void playerTickChrBody(void)
 		void *spe8;
 		s32 offset2;
 		u32 stack2;
-		struct weaponobj *weaponobj;
+		struct weaponobj *weaponobj = NULL;
+		s32 weapon_filenum_1p = -1;
+		asset_data_handle_t weapon_handle = ASSET_HANDLE_NULL_INIT;
 
 		// Unused
 		struct weaponobj template = {
@@ -2336,18 +2339,40 @@ void playerTickChrBody(void)
 			offset1 += sizeof(struct weaponobj);
 			offset1 = ALIGN64(offset1);
 
-			/* SA-5a: resolve mod-override-aware filenums once for this load sequence */
-			s32 body_filenum_1p = catalogGetBodyFilenumByIndex(bodynum);
-			s32 head_filenum_1p = (headnum >= 0) ? catalogGetHeadFilenumByIndex(headnum) : -1;
+			/* Resolve catalog sources once for this first-person load sequence. */
+			catalog_body_result_t bodyresult;
+			catalog_head_result_t headresult;
+			const char *bodyid = catalogBodyIdByBodynum(bodynum);
+			const char *headid = (headnum >= 0) ? catalogHeadIdByHeadnum(headnum) : NULL;
+			s32 havehead = 0;
+			s32 body_filenum_1p;
+			s32 head_filenum_1p = -1;
+			if (!bodyid || !catalogResolveBody(bodyid, &bodyresult)) {
+				sysLogPrintf(LOG_WARNING, "PLAYER: cannot resolve body catalog entry for bodynum=%d",
+					bodynum);
+				return;
+			}
 
-			offset2 = offset1 + ALIGN64(fileGetInflatedSize(body_filenum_1p, LOADTYPE_MODEL));
+			body_filenum_1p = bodyresult.filenum;
 
-			if (headnum >= 0) {
-				offset2 += ALIGN64(fileGetInflatedSize(head_filenum_1p, LOADTYPE_MODEL));
+			if (headid && catalogResolveHead(headid, &headresult)) {
+				havehead = 1;
+				head_filenum_1p = headresult.filenum;
 			}
 
 			if (weaponmodelnum >= 0) {
-				offset2 += ALIGN64(fileGetInflatedSize(catalogGetPropFilenumByIndex(weaponmodelnum), LOADTYPE_MODEL)); /* SA-5c */
+				weapon_filenum_1p = catalogGetPropFilenumByIndex(weaponmodelnum); /* SA-5c */
+				weapon_handle = catalogGetPropHandle(weaponmodelnum);
+			}
+
+			offset2 = offset1 + ALIGN64(assetLoadGetInflatedSize(bodyresult.handle, LOADTYPE_MODEL));
+
+			if (havehead) {
+				offset2 += ALIGN64(assetLoadGetInflatedSize(headresult.handle, LOADTYPE_MODEL));
+			}
+
+			if (weapon_filenum_1p >= 0 && !assetHandleIsNull(weapon_handle)) {
+				offset2 += ALIGN64(assetLoadGetInflatedSize(weapon_handle, LOADTYPE_MODEL));
 			}
 
 			offset2 += 0x4000;
@@ -2357,21 +2382,21 @@ void playerTickChrBody(void)
 			bgunCalculateGunMemCapacity();
 			spe8 = g_Vars.currentplayer->gunmem2 + offset2;
 			texInitPool(&texpool, spe8, bgunCalculateGunMemCapacity() - offset2);
-			bodymodeldef = modeldefLoad(body_filenum_1p, allocation + offset1, offset2 - offset1, &texpool);
+			bodymodeldef = modeldefLoadFromHandle(bodyresult.handle, bodyresult.filenum, allocation + offset1, offset2 - offset1, &texpool);
 
 			if (bodymodeldef == NULL) {
-				// Body model failed to load — player will be invisible but won't crash
+				// Body model failed to load -- player will be invisible but won't crash
 				sysLogPrintf(LOG_WARNING, "PLAYER: bodymodeldef NULL for bodynum=%d filenum=0x%04x",
 					bodynum, body_filenum_1p);
 				return;
 			}
 
-			offset1 = ALIGN64(fileGetLoadedSize(body_filenum_1p) + offset1);
+			offset1 = ALIGN64(assetLoadGetLoadedSize(bodyresult.handle) + offset1);
 
-			if (headnum >= 0) {
-				headmodeldef = modeldefLoad(head_filenum_1p, allocation + offset1, offset2 - offset1, &texpool);
+			if (havehead) {
+				headmodeldef = modeldefLoadFromHandle(headresult.handle, headresult.filenum, allocation + offset1, offset2 - offset1, &texpool);
 				if (headmodeldef != NULL) {
-					offset1 = ALIGN64(fileGetLoadedSize(head_filenum_1p) + offset1);
+					offset1 = ALIGN64(assetLoadGetLoadedSize(headresult.handle) + offset1);
 				} else {
 					sysLogPrintf(LOG_WARNING, "PLAYER: headmodeldef NULL for headnum=%d filenum=0x%04x",
 						headnum, head_filenum_1p);
@@ -2505,9 +2530,16 @@ void playerTickChrBody(void)
 
 		if (weaponmodelnum >= 0) {
 			if (g_Vars.mplayerisrunning == false) {
-				s32 wfn = catalogGetPropFilenumByIndex(weaponmodelnum); /* SA-5c */
-				weaponmodeldef = modeldefLoad(wfn, allocation + offset1, offset2 - offset1, &texpool);
-				fileGetLoadedSize(wfn);
+				s32 wfn = weapon_filenum_1p;
+				if (wfn < 0) {
+					weaponmodeldef = NULL;
+				} else if (!assetHandleIsNull(weapon_handle)) {
+					weaponmodeldef = modeldefLoadFromHandle(weapon_handle, wfn, allocation + offset1, offset2 - offset1, &texpool);
+					assetLoadGetLoadedSize(weapon_handle);
+				} else {
+					weaponmodeldef = modeldefLoad((u16)wfn, allocation + offset1, offset2 - offset1, &texpool);
+					fileGetLoadedSize(wfn);
+				}
 				if (weaponmodeldef == NULL) {
 					sysLogPrintf(LOG_WARNING, "PLAYER: weapon modeldef NULL for modelnum=%d filenum=0x%04x -- weapon will be hidden",
 						weaponmodelnum, wfn);
@@ -2847,10 +2879,10 @@ void playerStartCutscene2(void)
 {
 	/* Cohort 4 (2026-04-27, input universality): push LAYER_CUTSCENE
 	 * via the Scene Manager BEFORE the tickmode flip so the on_push
-	 * hook fires actionmapFlushGameplayState() while gameplay state
-	 * is still observable. Combined with the K.6 actionPressed (edge)
-	 * skip detection in playerTickCutscene, this makes the Mission 1
-	 * obj 2 cutscene flash structurally impossible. */
+	 * hook flushes gameplay state plus the cutscene action set while
+	 * input state is still observable. Combined with the K.6 actionPressed
+	 * (edge) skip detection in playerTickCutscene, this makes the
+	 * Mission 1 obj 2 cutscene flash structurally impossible. */
 	sceneFire(SCENE_EVENT_CUTSCENE_START, NULL);
 
 	playerSetTickMode(TICKMODE_CUTSCENE);
@@ -7123,4 +7155,3 @@ s32 playerGetLocalCount(void)
 	}
 	return playercount;
 }
-

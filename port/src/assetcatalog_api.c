@@ -51,6 +51,7 @@ static void s_fillBodyResult(const asset_entry_t *e, catalog_body_result_t *out)
     memset(out, 0, sizeof(*out));
     out->entry        = e;
     out->filenum      = (e->source_filenum >= 0) ? e->source_filenum : -1;
+    out->handle       = catalogEffectiveHandle(e);
     out->model_scale  = e->model_scale;
     out->display_name = e->id;
     out->net_hash     = e->net_hash;
@@ -62,6 +63,7 @@ static void s_fillHeadResult(const asset_entry_t *e, catalog_head_result_t *out)
     memset(out, 0, sizeof(*out));
     out->entry        = e;
     out->filenum      = (e->source_filenum >= 0) ? e->source_filenum : -1;
+    out->handle       = catalogEffectiveHandle(e);
     out->model_scale  = e->model_scale;
     out->display_name = e->id;
     out->net_hash     = e->net_hash;
@@ -105,10 +107,17 @@ static void s_fillStageResult(const asset_entry_t *e, catalog_stage_result_t *ou
 
 static void s_fillWeaponResult(const asset_entry_t *e, catalog_weapon_result_t *out)
 {
+    s32 mp_weapon_id;
+
     memset(out, 0, sizeof(*out));
     out->entry      = e;
     out->filenum    = (e->source_filenum >= 0) ? e->source_filenum : -1;
-    out->weapon_num = e->ext.weapon.weapon_id;
+    out->handle     = catalogEffectiveHandle(e);
+    mp_weapon_id    = e->ext.weapon.weapon_id;
+    out->mp_weapon_id = mp_weapon_id;
+    out->weapon_num = (e->runtime_index >= 0)
+        ? e->runtime_index
+        : catalogGetMpWeaponNum(mp_weapon_id);
     out->net_hash   = e->net_hash;
     out->session_id = sessionCatalogLookupWireId(e->id);
 }
@@ -118,6 +127,7 @@ static void s_fillPropResult(const asset_entry_t *e, catalog_prop_result_t *out)
     memset(out, 0, sizeof(*out));
     out->entry      = e;
     out->filenum    = (e->source_filenum >= 0) ? e->source_filenum : -1;
+    out->handle     = catalogEffectiveHandle(e);
     out->prop_type  = e->ext.prop.prop_type;
     out->net_hash   = e->net_hash;
     out->session_id = sessionCatalogLookupWireId(e->id);
@@ -392,9 +402,9 @@ void catalogBuildRuntimeCaches(void)
     memset(s_RuntimeCache, 0, sizeof(s_RuntimeCache));
 
     /* Pass 1: build general runtime cache from all catalog entries */
-    for (i = 0; ; i++) {
+    for (i = 0; i < assetCatalogGetPoolSize(); i++) {
         e = assetCatalogGetByIndex(i);
-        if (!e) break;
+        if (!e) continue;
         s32 t = (s32)e->type;
         s32 ri = e->runtime_index;
         if (t >= 0 && t < ASSET_TYPE_COUNT && ri >= 0 && ri < RT_CACHE_SIZE) {
@@ -448,6 +458,141 @@ const char *catalogIdByRuntime(asset_type_e type, s32 runtime_index)
     if ((s32)type < 0 || (s32)type >= ASSET_TYPE_COUNT) return NULL;
     if (runtime_index < 0 || runtime_index >= RT_CACHE_SIZE) return NULL;
     return s_RuntimeCache[(s32)type][runtime_index];
+}
+
+const char *catalogStageIdByStageTableIndex(s32 stage_table_index)
+{
+    return catalogIdByRuntime(ASSET_MAP, stage_table_index);
+}
+
+const char *catalogStageIdBySoloStageIndex(s32 solo_stage_index)
+{
+    if (solo_stage_index < 0 || solo_stage_index >= NUM_SOLOSTAGES) {
+        return NULL;
+    }
+    return catalogStageIdByStagenum((s32)g_SoloStages[solo_stage_index].stagenum);
+}
+
+const char *catalogStageIdByStagenum(s32 stagenum)
+{
+    s32 i;
+
+    for (i = 0; i < assetCatalogGetPoolSize(); i++) {
+        const asset_entry_t *e = assetCatalogGetByIndex(i);
+        if (!e) continue;
+        if (e->type != ASSET_MAP) continue;
+        if (e->ext.map.stagenum == stagenum) return e->id;
+    }
+
+    return NULL;
+}
+
+const char *catalogWeaponIdByRuntimeWeaponNum(s32 weapon_num)
+{
+    const char *id;
+    s32 i;
+
+    id = catalogIdByRuntime(ASSET_WEAPON, weapon_num);
+    if (id) {
+        return id;
+    }
+
+    for (i = 0; i < assetCatalogGetPoolSize(); i++) {
+        const asset_entry_t *e = assetCatalogGetByIndex(i);
+        s32 mpw;
+        if (!e) continue;
+        if (e->type != ASSET_WEAPON) continue;
+        if (e->runtime_index == weapon_num) return e->id;
+        mpw = e->ext.weapon.weapon_id;
+        if (mpw >= 0 && mpw < NUM_MPWEAPONS
+                && catalogGetMpWeaponNum(mpw) == weapon_num) {
+            return e->id;
+        }
+    }
+
+    return NULL;
+}
+
+const char *catalogWeaponIdByMpWeaponId(s32 mp_weapon_id)
+{
+    s32 i;
+
+    if (mp_weapon_id < 0) {
+        return NULL;
+    }
+
+    for (i = 0; i < assetCatalogGetPoolSize(); i++) {
+        const asset_entry_t *e = assetCatalogGetByIndex(i);
+        if (!e) continue;
+        if (e->type == ASSET_WEAPON
+                && e->ext.weapon.weapon_id == mp_weapon_id) {
+            return e->id;
+        }
+    }
+
+    return NULL;
+}
+
+const char *catalogModelIdByModelnum(s32 modelnum)
+{
+    return catalogIdByRuntime(ASSET_MODEL, modelnum);
+}
+
+const char *catalogBodyIdByBodynum(s32 bodynum)
+{
+    return catalogIdByRuntime(ASSET_BODY, bodynum);
+}
+
+const char *catalogHeadIdByHeadnum(s32 headnum)
+{
+    return catalogIdByRuntime(ASSET_HEAD, headnum);
+}
+
+const char *catalogIdBySourceFilenum(asset_type_e type, s32 source_filenum)
+{
+    s32 i;
+
+    if (source_filenum < 0) {
+        return NULL;
+    }
+
+    for (i = 0; i < assetCatalogGetPoolSize(); i++) {
+        const asset_entry_t *e = assetCatalogGetByIndex(i);
+        if (!e) continue;
+        if (e->type != type) continue;
+        if (e->source_filenum == source_filenum) return e->id;
+    }
+
+    return NULL;
+}
+
+static s32 s_catalogHandleEquals(asset_data_handle_t a, asset_data_handle_t b)
+{
+    return a.provider == b.provider
+        && a.opaque[0] == b.opaque[0]
+        && a.opaque[1] == b.opaque[1];
+}
+
+const char *catalogIdBySourceHandle(asset_type_e type, asset_data_handle_t handle)
+{
+    s32 i;
+
+    if (assetHandleIsNull(handle)) {
+        return NULL;
+    }
+
+    for (i = 0; i < assetCatalogGetPoolSize(); i++) {
+        const asset_entry_t *e = assetCatalogGetByIndex(i);
+        if (!e) continue;
+        if (e->type != type) continue;
+        if (s_catalogHandleEquals(e->source.primary, handle)) return e->id;
+        if (!assetHandleIsNull(e->source.override)
+                && s_catalogHandleEquals(e->source.override, handle)) {
+            return e->id;
+        }
+    }
+
+    return NULL;
 }
 
 /* -------------------------------------------------------------------------
@@ -587,7 +732,7 @@ const char *catalogGetBodyDefaultHead(const char *body_id)
     e = assetCatalogResolve(body_id);
     if (!e || e->type != ASSET_BODY) return NULL;
     if (e->ext.body.headnum < 0 || e->ext.body.headnum == HEAD_RANDOM_GENDER) return NULL;
-    return catalogIdByRuntime(ASSET_HEAD, (s32)e->ext.body.headnum);
+    return catalogHeadIdByHeadnum((s32)e->ext.body.headnum);
 }
 
 /* B-226: Body mp_index -> catalog display_name. Returns NULL if no override
@@ -786,7 +931,7 @@ s32 catalogGetBodyDefaultMpHeadIdx(s32 mpbodynum)
     if (!e || e->type != ASSET_BODY) return -1;
     if (e->ext.body.headnum < 0) return -1;
     /* Look up the head entry via the runtime cache and read its mp_index */
-    const char *hid = catalogIdByRuntime(ASSET_HEAD, (s32)e->ext.body.headnum);
+    const char *hid = catalogHeadIdByHeadnum((s32)e->ext.body.headnum);
     if (!hid) return -1;
     he = assetCatalogResolve(hid);
     if (!he || he->type != ASSET_HEAD) return -1;
@@ -831,7 +976,7 @@ s32 catalogGetBodyFilenumByIndex(s32 bodynum)
     const char *id;
     catalog_body_result_t result;
 
-    id = catalogIdByRuntime(ASSET_BODY, bodynum);
+    id = catalogBodyIdByBodynum(bodynum);
     if (id && catalogResolveBody(id, &result)) {
         sysLogPrintf(LOG_VERBOSE, "CATALOG: %s (%d) → ROM", id, result.filenum);
         return result.filenum;
@@ -853,7 +998,7 @@ s32 catalogGetHeadFilenumByIndex(s32 headnum)
         return 0;
     }
 
-    id = catalogIdByRuntime(ASSET_HEAD, headnum);
+    id = catalogHeadIdByHeadnum(headnum);
     if (id && catalogResolveHead(id, &result)) {
         sysLogPrintf(LOG_VERBOSE, "CATALOG: %s (%d) → ROM", id, result.filenum);
         return result.filenum;
@@ -871,7 +1016,7 @@ f32 catalogGetBodyScaleByIndex(s32 bodynum)
     const char *id;
     catalog_body_result_t result;
 
-    id = catalogIdByRuntime(ASSET_BODY, bodynum);
+    id = catalogBodyIdByBodynum(bodynum);
     if (id && catalogResolveBody(id, &result)) {
         return result.model_scale;
     }
@@ -897,7 +1042,7 @@ s32 catalogGetStageResultByIndex(s32 stageindex, catalog_stage_result_t *out)
     const char *id;
 
     memset(out, 0, sizeof(*out));
-    id = catalogIdByRuntime(ASSET_MAP, stageindex);
+    id = catalogStageIdByStageTableIndex(stageindex);
     if (id && catalogResolveStage(id, out)) {
         return 1;
     }
@@ -923,7 +1068,7 @@ s32 catalogGetPropFilenumByIndex(s32 propnum)
     const char *id;
     const asset_entry_t *e;
 
-    id = catalogIdByRuntime(ASSET_MODEL, propnum);
+    id = catalogModelIdByModelnum(propnum);
     if (id) {
         e = assetCatalogResolve(id);
         if (e) {
@@ -951,7 +1096,7 @@ asset_data_handle_t catalogGetBodyHandle(s32 bodynum)
     asset_data_handle_t null_h;
     memset(&null_h, 0, sizeof(null_h));
 
-    id = catalogIdByRuntime(ASSET_BODY, bodynum);
+    id = catalogBodyIdByBodynum(bodynum);
     if (id) {
         e = assetCatalogResolve(id);
         if (e) {
@@ -976,7 +1121,7 @@ asset_data_handle_t catalogGetHeadHandle(s32 headnum)
     if (headnum == HEAD_RANDOM_GENDER) {
         return null_h;
     }
-    id = catalogIdByRuntime(ASSET_HEAD, headnum);
+    id = catalogHeadIdByHeadnum(headnum);
     if (id) {
         e = assetCatalogResolve(id);
         if (e) {
@@ -998,7 +1143,7 @@ asset_data_handle_t catalogGetPropHandle(s32 propnum)
     asset_data_handle_t null_h;
     memset(&null_h, 0, sizeof(null_h));
 
-    id = catalogIdByRuntime(ASSET_MODEL, propnum);
+    id = catalogModelIdByModelnum(propnum);
     if (id) {
         e = assetCatalogResolve(id);
         if (e) {
@@ -1142,23 +1287,31 @@ s32 catalogGetMpWeaponSecAmmoQty(s32 mpweapon_idx)
 #if !defined(PD_SERVER)
 struct modeldef *catalogGetBodyModeldef(s32 bodynum)
 {
-    s32 filenum;
+    const char *id;
+    const asset_entry_t *e;
     if (bodynum < 0 || bodynum >= 152) { return NULL; }
     if (!g_HeadsAndBodies[bodynum].modeldef) {
-        filenum = catalogGetBodyFilenumByIndex(bodynum);
-        g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNew((u16)filenum);
+        id = catalogBodyIdByBodynum(bodynum);
+        e = id ? assetCatalogResolve(id) : NULL;
+        g_HeadsAndBodies[bodynum].modeldef = modeldefLoadToNewFromHandle(
+                catalogGetBodyHandle(bodynum),
+                e ? e->source_filenum : -1);
     }
     return g_HeadsAndBodies[bodynum].modeldef;
 }
 
 struct modeldef *catalogGetHeadModeldef(s32 headnum)
 {
-    s32 filenum;
+    const char *id;
+    const asset_entry_t *e;
     if (headnum < 0 || headnum >= 152) { return NULL; }
     if (headnum == HEAD_RANDOM_GENDER) { return NULL; }
     if (!g_HeadsAndBodies[headnum].modeldef) {
-        filenum = catalogGetHeadFilenumByIndex(headnum);
-        g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNew((u16)filenum);
+        id = catalogHeadIdByHeadnum(headnum);
+        e = id ? assetCatalogResolve(id) : NULL;
+        g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNewFromHandle(
+                catalogGetHeadHandle(headnum),
+                e ? e->source_filenum : -1);
     }
     return g_HeadsAndBodies[headnum].modeldef;
 }

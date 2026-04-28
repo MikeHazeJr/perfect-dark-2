@@ -873,6 +873,7 @@ set(SRC_TESTS
   # Cohort 4 (input universality and transitions, 2026-04-27): cutscene
   # flash fix invariants (K.2 + K.6). Mission 1 obj 2 bug repro.
   ${CMAKE_SOURCE_DIR}/tests/test_cutscene_layer.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_catalog_provider_static.cpp
 
   # Linker stubs for symbols the cherry-picked sources reference but the
   # test binary should not actually invoke.

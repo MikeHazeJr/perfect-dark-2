@@ -1,8 +1,8 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "memsizes.h"
-#include "assetcatalog.h" /* SA-5d: catalogGetBodyHandFilenum */
-#include "assetload.h"    /* AP Phase 3: assetLoadRomToAddr */
+#include "assetcatalog.h" /* Catalog-owned asset identity and source handles */
+#include "assetload.h"    /* Provider-aware asset load bridge */
 #include "../lib/naudio/n_sndp.h"
 #include "game/bondmove.h"
 #include "game/cheats.h"
@@ -4004,6 +4004,116 @@ bool bgunChangeGunMem(s32 newowner)
 	return false;
 }
 
+static asset_data_handle_t bgunNullAssetHandle(void)
+{
+	asset_data_handle_t handle = ASSET_HANDLE_NULL_INIT;
+	return handle;
+}
+
+static asset_data_handle_t bgunResolveQueuedModelHandle(s32 filenum)
+{
+	static const asset_type_e types[] = {
+		ASSET_MODEL,
+		ASSET_BODY,
+		ASSET_HEAD,
+		ASSET_WEAPON,
+	};
+	asset_data_handle_t null_handle = bgunNullAssetHandle();
+	s32 i;
+
+	if (filenum <= 0) {
+		return null_handle;
+	}
+
+	for (i = 0; i < (s32)ARRAYCOUNT(types); i++) {
+		const char *id = catalogIdBySourceFilenum(types[i], filenum);
+
+		if (id) {
+			const asset_entry_t *entry = assetCatalogResolve(id);
+
+			if (entry) {
+				asset_data_handle_t handle = catalogEffectiveHandle(entry);
+
+				if (!assetHandleIsNull(handle)) {
+					return handle;
+				}
+			}
+		}
+	}
+
+	if (g_Vars.currentplayernum == 0) {
+		static s32 s_last_missing_filenum = -1;
+
+		if (s_last_missing_filenum != filenum) {
+			s_last_missing_filenum = filenum;
+			sysLogPrintf(LOG_WARNING,
+				"CATALOG.MISS: bgun model filenum=%d has no catalog/provider handle -- using temporary ROM fallback",
+				filenum);
+		}
+	}
+
+	return null_handle;
+}
+
+static void bgunQueueModelLoad(struct player *player, u16 filenum, struct modeldef **modeldef,
+		uintptr_t *memptr, uintptr_t *memremaining)
+{
+	player->gunctrl.loadfilenum = filenum;
+	player->gunctrl.loadhandle = bgunResolveQueuedModelHandle((s32)filenum);
+	player->gunctrl.loadtomodeldef = modeldef;
+	player->gunctrl.loadmemptr = memptr;
+	player->gunctrl.loadmemremaining = memremaining;
+
+	if (!assetHandleIsNull(player->gunctrl.loadhandle)
+			&& player->gunctrl.loadhandle.provider != romProvider()
+			&& g_Vars.currentplayernum == 0) {
+		static s32 s_last_nonrom_filenum = -1;
+
+		if (s_last_nonrom_filenum != (s32)filenum) {
+			char desc[128];
+
+			s_last_nonrom_filenum = (s32)filenum;
+			sysLogPrintf(LOG_WARNING,
+				"CATALOG.PROVIDER: bgun model filenum=%d source=%s still uses temporary ROM fallback until model promotion is provider-owned",
+				(s32)filenum,
+				assetDescribe(player->gunctrl.loadhandle, desc, sizeof(desc)));
+		}
+	}
+}
+
+static bool bgunQueuedLoadCanUseHandle(struct player *player)
+{
+	return !assetHandleIsNull(player->gunctrl.loadhandle)
+		&& player->gunctrl.loadhandle.provider == romProvider();
+}
+
+static s32 bgunQueuedGetInflatedSize(struct player *player)
+{
+	if (bgunQueuedLoadCanUseHandle(player)) {
+		return assetLoadGetInflatedSize(player->gunctrl.loadhandle, LOADTYPE_MODEL);
+	}
+
+	return fileGetInflatedSize(player->gunctrl.loadfilenum, LOADTYPE_MODEL);
+}
+
+static s32 bgunQueuedGetLoadedSize(struct player *player)
+{
+	if (bgunQueuedLoadCanUseHandle(player)) {
+		return assetLoadGetLoadedSize(player->gunctrl.loadhandle);
+	}
+
+	return fileGetLoadedSize(player->gunctrl.loadfilenum);
+}
+
+static struct modeldef *bgunQueuedLoadToAddr(struct player *player, void *ptr, u32 loadsize)
+{
+	if (bgunQueuedLoadCanUseHandle(player)) {
+		return assetLoadToAddr(player->gunctrl.loadhandle, FILELOADMETHOD_EXTRAMEM, ptr, loadsize);
+	}
+
+	return assetLoadRomToAddr(player->gunctrl.loadfilenum, FILELOADMETHOD_EXTRAMEM, ptr, loadsize);
+}
+
 /**
  * This function loads resources for a gun change.
  *
@@ -4059,7 +4169,7 @@ void bgunTickGunLoad(void)
 		*player->gunctrl.loadmemptr = ptr;
 		*player->gunctrl.loadmemremaining = remaining;
 
-		loadsize = ALIGN64(fileGetInflatedSize(player->gunctrl.loadfilenum, LOADTYPE_MODEL)) + GUN_MODEL_LOAD_SCRATCH;
+		loadsize = ALIGN64(bgunQueuedGetInflatedSize(player)) + GUN_MODEL_LOAD_SCRATCH;
 
 		osSyncPrintf("BriGun:  Loading - %s, pMem 0x%08x Size %d\n");
 
@@ -4073,10 +4183,19 @@ void bgunTickGunLoad(void)
 
 		osSyncPrintf("BriGun:  obLoadto at 0x%08x, size %d\n", ptr, loadsize);
 
-		modeldef = assetLoadRomToAddr(player->gunctrl.loadfilenum, FILELOADMETHOD_EXTRAMEM, (void *)ptr, loadsize);
+		modeldef = bgunQueuedLoadToAddr(player, (void *)ptr, loadsize);
+
+		if (modeldef == NULL) {
+			g_LoadType = LOADTYPE_NONE;
+			sysLogPrintf(LOG_ERROR,
+				"CATALOG_CRITICAL: bgun model filenum=%d failed to load",
+				(s32)player->gunctrl.loadfilenum);
+			player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
+			return;
+		}
 
 		// Reserve some space for textures
-		allocsize = fileGetLoadedSize(player->gunctrl.loadfilenum) + 0xe00;
+		allocsize = bgunQueuedGetLoadedSize(player) + 0xe00;
 #ifdef PLATFORM_64BIT
 		allocsize += 0xe00;
 #endif
@@ -4086,7 +4205,7 @@ void bgunTickGunLoad(void)
 		osSyncPrintf("BriGun:  obln ram_len %d block_len %d\n");
 		osSyncPrintf("BriGun:  new used size %d\n");
 
-		fileGetLoadedSize(player->gunctrl.loadfilenum);
+		bgunQueuedGetLoadedSize(player);
 
 		fileinfo = &g_FileInfo[player->gunctrl.loadfilenum];
 		fileinfo->allocsize = allocsize;
@@ -4161,10 +4280,10 @@ void bgunTickGunLoad(void)
 
 		modeldef0f1a7560(modeldef, player->gunctrl.loadfilenum, 0x05000000, modeldef, &player->gunctrl.texpool, false);
 
-		fileGetInflatedSize(player->gunctrl.loadfilenum, LOADTYPE_MODEL);
-		fileGetLoadedSize(player->gunctrl.loadfilenum);
-		fileGetLoadedSize(player->gunctrl.loadfilenum);
-		fileGetLoadedSize(player->gunctrl.loadfilenum);
+		bgunQueuedGetInflatedSize(player);
+		bgunQueuedGetLoadedSize(player);
+		bgunQueuedGetLoadedSize(player);
+		bgunQueuedGetLoadedSize(player);
 
 		modelAllocateRwData(modeldef);
 
@@ -4361,10 +4480,10 @@ void bgunTickMasterLoad(void)
 									player->gunctrl.handmemloadptr = bgunGetGunMem();
 									player->gunctrl.handmemloadremaining = bgunCalculateGunMemCapacity();
 									player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
-									player->gunctrl.loadfilenum = handfilenum;
-									player->gunctrl.loadtomodeldef = &player->gunctrl.handmodeldef;
-									player->gunctrl.loadmemptr = (uintptr_t *) &player->gunctrl.handmemloadptr;
-									player->gunctrl.loadmemremaining = (uintptr_t*) &player->gunctrl.handmemloadremaining;
+									bgunQueueModelLoad(player, handfilenum,
+										&player->gunctrl.handmodeldef,
+										(uintptr_t *) &player->gunctrl.handmemloadptr,
+										(uintptr_t *) &player->gunctrl.handmemloadremaining);
 								}
 
 								bgunTickGunLoad();
@@ -4396,10 +4515,10 @@ void bgunTickMasterLoad(void)
 							player->gunctrl.memloadptr = (u8 *) player->gunctrl.handmemloadptr;
 							player->gunctrl.memloadremaining = player->gunctrl.handmemloadremaining;
 							player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
-							player->gunctrl.loadfilenum = filenum;
-							player->gunctrl.loadtomodeldef = &player->gunctrl.gunmodeldef;
-							player->gunctrl.loadmemptr = (uintptr_t*) &player->gunctrl.memloadptr;
-							player->gunctrl.loadmemremaining = (uintptr_t*) &player->gunctrl.memloadremaining;
+							bgunQueueModelLoad(player, filenum,
+								&player->gunctrl.gunmodeldef,
+								(uintptr_t *) &player->gunctrl.memloadptr,
+								(uintptr_t *) &player->gunctrl.memloadremaining);
 						}
 
 						bgunTickGunLoad();
@@ -4445,11 +4564,11 @@ void bgunTickMasterLoad(void)
 									if (casingindex >= 0) {
 										if (player->gunctrl.cartmodeldef == NULL) {
 											filenum = g_CartFileNums[casingindex];
-											player->gunctrl.loadfilenum = filenum;
 											player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
-											player->gunctrl.loadtomodeldef = &player->gunctrl.cartmodeldef;
-											player->gunctrl.loadmemptr = (uintptr_t *) &player->gunctrl.memloadptr;
-											player->gunctrl.loadmemremaining = (uintptr_t*) &player->gunctrl.memloadremaining;
+											bgunQueueModelLoad(player, filenum,
+												&player->gunctrl.cartmodeldef,
+												(uintptr_t *) &player->gunctrl.memloadptr,
+												(uintptr_t *) &player->gunctrl.memloadremaining);
 											break;
 										}
 

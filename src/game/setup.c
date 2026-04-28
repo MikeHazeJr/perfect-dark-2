@@ -2754,12 +2754,9 @@ void setupCreateProps(s32 stagenum)
 				 * (player didn't explicitly select anything, so fall back to
 				 * the set). It does NOT apply when the user did select one.
 				 *
-				 * DO NOT use catalogIdByRuntime(ASSET_WEAPON, mpw) in the
-				 * fallback scan: that helper indexes the runtime cache by
-				 * catalog array position, not by MPWEAPON_*, so
-				 * MPWEAPON_FALCON2 (0x01) maps to "base:falcon2_silencer"
-				 * (off-by-one). Scan `ext.weapon.weapon_id` directly (same
-				 * pattern as savefile.c / buildSpawnWeaponList). */
+				 * Resolve from MPWEAPON_* explicitly. Weapon catalog entries
+				 * also carry runtime WEAPON_* identity, so generic numeric
+				 * lookup is intentionally avoided here. */
 				/* INV-4 / Cohort D (player-init-architectural-fixes-2026-04-26):
 				 * use matchOptionsForceBit so the bit is recorded in
 				 * options_engine_forced AT THE SAME TIME it is OR'd into
@@ -2790,15 +2787,7 @@ void setupCreateProps(s32 stagenum)
 								|| mpw == MPWEAPON_DISABLED) {
 							continue;
 						}
-						for (s32 wi = 0; ; wi++) {
-							const asset_entry_t *we = assetCatalogGetByIndex(wi);
-							if (!we) break;
-							if (we->type == ASSET_WEAPON
-									&& we->ext.weapon.weapon_id == mpw) {
-								setSpawnId = we->id;
-								break;
-							}
-						}
+						setSpawnId = catalogWeaponIdByMpWeaponId(mpw);
 						if (setSpawnId && setSpawnId[0]) {
 							setSpawnMpw = mpw;
 							break;

@@ -263,22 +263,27 @@ static void setupValidateModeldefRodata(s32 modelnum, struct modeldef *modeldef,
 
 bool setupLoadModeldef(s32 modelnum)
 {
-	s32 fileid;
+	s32 source_filenum;
 	const char *model_id;
+	asset_data_handle_t model_handle;
+	const asset_entry_t *model_entry;
 
 	/* Ensure this model is tracked in the active SP asset manifest.
 	 * manifestEnsureLoaded is a no-op in MP mode or before the manifest is
 	 * built, so this guard is unconditionally safe.  All prop/weapon/hat/
 	 * projectile model loads funnel through this function, making it the
 	 * canonical chokepoint for MANIFEST_TYPE_MODEL tracking. */
-	model_id = catalogIdByRuntime(ASSET_MODEL, modelnum);
+	model_id = catalogModelIdByModelnum(modelnum);
 	if (model_id) {
 		manifestEnsureLoaded(model_id, MANIFEST_TYPE_MODEL);
 	}
 
 	if (g_ModelStates[modelnum].modeldef == NULL) {
-		fileid = catalogGetPropFilenumByIndex(modelnum); /* SA-5c */
-		g_ModelStates[modelnum].modeldef = modeldefLoadToNew((u16)fileid);
+		model_handle = catalogGetPropHandle(modelnum);
+		model_entry = model_id ? assetCatalogResolve(model_id) : NULL;
+		source_filenum = model_entry ? model_entry->source_filenum : -1;
+		g_ModelStates[modelnum].modeldef =
+			modeldefLoadToNewFromHandle(model_handle, source_filenum);
 
 		/* FIX-B.2: graceful fallback for missing prop/weapon models.
 		 * modeldefLoadToNew() returns NULL when the file is absent from ROM
@@ -286,11 +291,11 @@ bool setupLoadModeldef(s32 modelnum)
 		 * gap).  Calling modelAllocateRwData(NULL) would immediately crash
 		 * at modeldef->rwdatalen.  Instead, log a warning and return false
 		 * so the caller skips entity initialisation for this modelnum.
-		 * This converts a hard crash into a missing prop — visually wrong
+		 * This converts a hard crash into a missing prop -- visually wrong
 		 * but diagnosable. */
 		if (g_ModelStates[modelnum].modeldef == NULL) {
-			sysLogPrintf(LOG_WARNING, "FIX-B.2: modelnum %d (fileid=0x%04x, id=%s) failed to load — entity skipped",
-				modelnum, (unsigned)fileid,
+			sysLogPrintf(LOG_WARNING, "FIX-B.2: modelnum %d (fileid=0x%04x, id=%s) failed to load -- entity skipped",
+				modelnum, (unsigned)source_filenum,
 				model_id ? model_id : "<unknown>");
 			return false;
 		}
@@ -301,7 +306,7 @@ bool setupLoadModeldef(s32 modelnum)
 		 * once and warn if any node is unreadable.  See
 		 * setupValidateModeldefRodata above. */
 		setupValidateModeldefRodata(modelnum, g_ModelStates[modelnum].modeldef,
-				(u16)fileid, model_id);
+				(u16)source_filenum, model_id);
 
 		return true;
 	}

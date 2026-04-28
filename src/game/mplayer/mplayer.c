@@ -299,15 +299,14 @@ void mpStartMatch(void)
 	 * RANDOM token.  The log line above captures both values for history. */
 	g_MpSetup.stagenum = (u8)stagenum;
 
-	/* M0.1a: Sync stage_id (PRIMARY) from resolved stagenum.
-	 * catalogIdByRuntime takes stage TABLE index, not stagenum — convert first. */
+	/* M0.1a: Sync stage_id (PRIMARY) from resolved stagenum. */
 	{
-		s32 stIdx = bgGetStageIndex(stagenum);
-		const char *sid = (stIdx >= 0) ? catalogIdByRuntime(ASSET_MAP, stIdx) : NULL;
+		const char *sid = catalogStageIdByStagenum(stagenum);
 		if (sid) {
 			strncpy(g_MpSetup.stage_id, sid, sizeof(g_MpSetup.stage_id) - 1);
 			g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
 		} else {
+			s32 stIdx = bgGetStageIndex(stagenum);
 			sysLogPrintf(LOG_ERROR, "MPLAYER: no catalog entry for stagenum=0x%02x (idx=%d)", stagenum, stIdx);
 			g_MpSetup.stage_id[0] = '\0';
 		}
@@ -1270,10 +1269,10 @@ s32 func0f188bcc(void)
  * the SELECTOR pool migrates per Mike's directive
  * "selector pool = catalog INTERSECT unlock-state".
  *
- * Iteration ordering: the catalog emits entries in pool insertion
- * order; base weapons register sequentially with mp_index = 0..N-1, so
- * the legacy enum ordering is preserved.  Mod weapons (none today)
- * would append after the base set.
+ * Iteration ordering: the catalog emits entries in pool insertion order;
+ * base weapons register with mp_index equal to their MPWEAPON_* slot, so
+ * the legacy enum ordering is preserved. Mod weapons (none today) would
+ * append after the base set.
  */
 
 struct mpweapon_pick_ctx {

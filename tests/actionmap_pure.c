@@ -8,6 +8,20 @@
 
 static AmpActionState s_State[AMP_MAX_PLAYERS][AMP_ACTION_COUNT];
 
+static const AmpInputAction s_CutsceneActionSet[] = {
+    AMP_ACTION_SKIP_CUTSCENE,
+    AMP_ACTION_USE,
+    AMP_ACTION_CANCEL_USE,
+    AMP_ACTION_FIRE_PRIMARY,
+    AMP_ACTION_FIRE_SECONDARY,
+    AMP_ACTION_PAUSE,
+    AMP_ACTION_FIRE_MODE,
+    AMP_ACTION_RELOAD,
+    AMP_ACTION_WEAPON_NEXT,
+};
+
+#define AMP_ARRAYCOUNT(a) ((int)(sizeof(a) / sizeof((a)[0])))
+
 void ampReset(void)
 {
     memset(s_State, 0, sizeof(s_State));
@@ -70,15 +84,27 @@ int ampIsGameplayOnly(AmpInputAction a)
     case AMP_ACTION_PAUSE:
     case AMP_ACTION_SCORECARD:
     case AMP_ACTION_SCORECARD_HOLD:
+    case AMP_ACTION_SOCIAL_TOGGLE:
     case AMP_ACTION_SCREENSHOT:
     case AMP_ACTION_CONSOLE_TOGGLE:
     case AMP_ACTION_DEBUG_TOGGLE:
     case AMP_ACTION_CHEAT_ENTER:
     case AMP_ACTION_TEXT_PASTE:
+    case AMP_ACTION_SKIP_CUTSCENE:
         return 0;
     default:
         return 1;
     }
+}
+
+static void ampFlushStateSlot(AmpActionState *st)
+{
+    int wasHeld = st->held;
+    st->held    = 0;
+    st->pressed = 0;
+    st->released      = wasHeld ? 1 : st->released;
+    st->value         = 0.0f;
+    st->hold_consumed = 0;
 }
 
 void ampFlushGameplayState(void)
@@ -91,13 +117,32 @@ void ampFlushGameplayState(void)
             if (!ampIsGameplayOnly((AmpInputAction)a)) {
                 continue;
             }
-            AmpActionState *st = &s_State[p][a];
-            int wasHeld = st->held;
-            st->held    = 0;
-            st->pressed = 0;
-            st->released      = wasHeld ? 1 : st->released;
-            st->value         = 0.0f;
-            st->hold_consumed = 0;
+            ampFlushStateSlot(&s_State[p][a]);
         }
     }
+}
+
+void ampFlushActionSet(const AmpInputAction *actions, int action_count)
+{
+    if (!actions || action_count <= 0) {
+        return;
+    }
+
+    for (int p = 0; p < AMP_MAX_PLAYERS; p++) {
+        for (int i = 0; i < action_count; i++) {
+            AmpInputAction a = actions[i];
+            if (a < 0 || a >= AMP_ACTION_COUNT) {
+                continue;
+            }
+            ampFlushStateSlot(&s_State[p][a]);
+        }
+    }
+}
+
+const AmpInputAction *ampCutsceneActionSet(int *out_count)
+{
+    if (out_count) {
+        *out_count = AMP_ARRAYCOUNT(s_CutsceneActionSet);
+    }
+    return s_CutsceneActionSet;
 }

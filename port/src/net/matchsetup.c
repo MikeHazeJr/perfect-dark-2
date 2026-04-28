@@ -1102,7 +1102,7 @@ const char *matchGetWeaponSlotCatalogId(s32 slot)
 	if (slot < 0 || slot >= NUM_MPWEAPONSLOTS) return "";
 	u8 mpw = g_MpSetup.weapons[slot];
 	if (mpw == 0) return "";
-	const char *cid = catalogIdByRuntime(ASSET_WEAPON, (s32)mpw);
+	const char *cid = catalogWeaponIdByMpWeaponId((s32)mpw);
 	return cid ? cid : "";
 }
 

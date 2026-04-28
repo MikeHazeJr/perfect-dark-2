@@ -1,5 +1,7 @@
 # Server Architecture — Decoupled from N64 Game Code
 
+> **Shipping note (S486, 2026-04-27):** Dedicated server architecture remains documented for a future track, but it is not the current release surface. Current online shipping work targets in-client connectivity: listen host, join/room/lobby UX, connect codes/NAT path, manifest/catalog distribution, ready gate, stage transitions, and reconnect inside the game client.
+
 **See also:** [Hosting modes (listen vs dedicated): threat model](designs/hosting-modes-listen-vs-dedicated.md) — ROM/mod checks (`g_NetDedicated` in `netmsg.c`), NAT/UPnP/STUN, admin RCON, connect codes vs raw IP. **Tier 4 C-1:** [pd-server-plugin-abi ADR](designs/pd-server-plugin-abi-adr.md) — **manifest broker** (host manifest, catalog IDs, hashes), per-client dynamic catalogs, no game content in the server binary, Trust/Confirm First readiness; optional policy module; stub migration (P4-B onward).
 
 ## Vision

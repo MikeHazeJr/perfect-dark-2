@@ -23,6 +23,7 @@
 #include "data.h"
 #include "game/mplayer/scenarios.h"
 #include "system.h"
+#include "assetcatalog.h"
 #include "lib/main.h"
 #include "game/mplayer/participant.h"
 #include "scenario_save.h"  /* struct matchconfig for g_MatchConfig stub */
@@ -420,6 +421,9 @@ struct botprofile         g_BotProfiles[18];        /* zero-initialised; server 
 /* --- assetcatalog_load stubs — server has no game asset filesystem --- */
 s32  catalogLoadAsset(const char *assetId)   { (void)assetId; return 1; }
 void catalogUnloadAsset(const char *assetId) { (void)assetId; }
+s32  catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId) { (void)expected_type; (void)assetId; return 1; }
+void catalogReleaseTypedAsset(asset_type_e expected_type, const char *assetId) { (void)expected_type; (void)assetId; }
+void catalogRetainTypedAsset(asset_type_e expected_type, const char *assetId) { (void)expected_type; (void)assetId; }
 
 /* --- Theme stubs — server has no renderer/ImGui --- */
 s32 pdguiThemeRegisterModDir(const char *slug, const char *filepath) { (void)slug; (void)filepath; return 0; }

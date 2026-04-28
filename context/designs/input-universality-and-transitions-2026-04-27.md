@@ -713,9 +713,9 @@ Cohort 1 was committed at id 69 then rebased onto dev's S483b (id 69 = ACTION_SO
 
 Two layers of defense:
 
-1. **Belt: held-state flush at LAYER_CUTSCENE push.** `port/src/inputlayer.c` adds `onCutscenePush` / `onCutscenePop` hooks; the LayerDef `g_LayerCutscene` is wired with `on_push = onCutscenePush` (calls `imcCutsceneEnter()` then `actionmapFlushGameplayState()`) and `on_pop = onCutscenePop` (calls `imcCutsceneExit()`). On every cutscene start the gameplay-only action state for all players clears, so any held FIRE / RELOAD / WEAPON_NEXT bleeding through from the menu accept does not survive into the cutscene tick.
+1. **Belt: held-state flush at LAYER_CUTSCENE push.** `port/src/inputlayer.c` adds `onCutscenePush` / `onCutscenePop` hooks; the LayerDef `g_LayerCutscene` is wired with `on_push = onCutscenePush` (calls `imcCutsceneEnter()`, `actionmapFlushGameplayState()`, then `actionmapFlushActionSet(g_LayerCutscene.action_set, ...)`) and `on_pop = onCutscenePop` (calls `imcCutsceneExit()`). On every cutscene start the gameplay-only action state for all players clears, and the declared cutscene action set clears shared skip actions such as ACTION_USE / ACTION_MENU_ACCEPT, ACTION_CANCEL_USE, ACTION_PAUSE, and ACTION_SKIP_CUTSCENE.
 
-2. **Braces: K.6 actionPressed (edge) skip detection.** `src/game/player.c:2944-2953` switched from `actionHeld` to `actionPressed` for every cutscene-skip check (USE / CANCEL_USE / FIRE_PRIMARY / FIRE_SECONDARY / FIRE_MODE / RELOAD / WEAPON_NEXT / PAUSE) plus the new dedicated `ACTION_SKIP_CUTSCENE`. A key held across the menu-accept-then-stage-load transition has `pressed = 0` throughout the cutscene because there is no fresh keydown during it. The legacy 30-frame gate at line 3080 stays as a third line of defense.
+2. **Braces: K.6 actionPressed (edge) skip detection.** `src/game/player.c:2944-2953` switched from `actionHeld` to `actionPressed` for every cutscene-skip check (USE / CANCEL_USE / FIRE_PRIMARY / FIRE_SECONDARY / FIRE_MODE / RELOAD / WEAPON_NEXT / PAUSE) plus the new dedicated `ACTION_SKIP_CUTSCENE`. A key held across the menu-accept-then-stage-load transition is now also cleared at layer push; if any stale state reaches the tick path, `pressed = 0` unless there is a fresh keydown during the cutscene. The legacy 30-frame gate at line 3080 stays as a third line of defense.
 
 K.2 cutscene IMC: new `g_ImcCutscene` IMC at priority 4 (between gameplay 0 / mission 1 / combat-sim 1 below and vehicle 5 / forge 6+7 / menu 10+11 / debug 20 / text-input 30 above). Bound to `ACTION_SKIP_CUTSCENE` (Space + Gamepad A) and `ACTION_PAUSE` (Escape + Start). Activated/deactivated by the layer push/pop hooks. The IMC is registered in `s_AllImcs[]` so its bindings persist across save/load.
 
@@ -723,7 +723,7 @@ ACTION_SKIP_CUTSCENE is the new dedicated action at id 72, ACTION_COUNT advances
 
 Wiring: `src/game/player.c::playerStartCutscene2` fires `sceneFire(SCENE_EVENT_CUTSCENE_START, NULL)` immediately before the tickmode flip. `src/game/player.c::playerEndCutscene` fires `sceneFire(SCENE_EVENT_CUTSCENE_END, NULL)` at the end of the regular (non-autocut) branch. The autocut "play all" debug path is intentionally not wired in Cohort 4 since it has its own state machine and is not the bug repro path.
 
-Tests: `tests/test_cutscene_layer.cpp` adds 6 cases / ~50 assertions covering: belt (gameplay-only state cleared at cutscene push, shared state preserved), braces (held-since-before-cutscene actionPressed is 0 throughout), the bug invariant (the Mission 1 obj 2 repro mirrored step by step), positive-path (fresh press DOES register as skip), round-trip cleanup for back-to-back cutscenes, STAGE_TEARDOWN unwinds cleanly while a cutscene is active.
+Tests: `tests/test_cutscene_layer.cpp` adds 6 cases / ~50 assertions covering: belt (gameplay-only state cleared at cutscene push, shared ACTION_USE / menu accept cleared by the cutscene action-set flush, unrelated menu actions preserved), braces (held-since-before-cutscene actionPressed is 0 throughout), the bug invariant (the Mission 1 obj 2 repro mirrored step by step), positive-path (fresh press DOES register as skip), round-trip cleanup for back-to-back cutscenes, STAGE_TEARDOWN unwinds cleanly while a cutscene is active. `tests/test_actionmap_flush.cpp` also locks the lower-level invariant that flushing one declared action set does not erase unrelated actions.
 
 **Deferred to Cohorts 5-8 (per K.1's two-branch phasing):**
 
@@ -733,6 +733,15 @@ Tests: `tests/test_cutscene_layer.cpp` adds 6 cases / ~50 assertions covering: b
 - **Cohort 7 raw input migration sweep.** The ~75 raw `ImGui::IsKey*` callsites in `pdgui_menu_*.cpp` (full inventory in Section A.2) remain. The new ACTION_TEXT_PASTE bind is in place but no caller has migrated to it yet.
 
 The flash fix lands in this branch (per K.1 Option B: "Cohorts 1-4 land flash fix first"). The architectural completion lands in the second branch.
+
+### L.8 Shared accept/action-set flush follow-up (2026-04-28)
+
+The first Cohort 4 implementation intentionally leaned on the K.6 edge-only check for shared ACTION_USE / ACTION_MENU_ACCEPT, leaving `actionmapFlushGameplayState()` as gameplay-only. The 2026-04-28 infrastructure slice closes that remaining held-state gap directly:
+
+- `port/include/actionmap.h` / `port/src/actionmap.cpp` add public `actionmapFlushActionSet(const InputAction *actions, s32 action_count)`.
+- `port/src/inputlayer.c` declares `s_CutsceneActionSet` and assigns it to `g_LayerCutscene.action_set`. The set includes ACTION_SKIP_CUTSCENE, ACTION_USE / ACTION_MENU_ACCEPT, ACTION_CANCEL_USE, ACTION_FIRE_PRIMARY, ACTION_FIRE_SECONDARY, ACTION_PAUSE, ACTION_FIRE_MODE, ACTION_RELOAD, and ACTION_WEAPON_NEXT.
+- `onCutscenePush` now runs both flushes: gameplay-only state first, then the declared cutscene action set. This preserves the existing "clear all gameplay-only held state at cutscene entry" behavior while also clearing shared accept/cancel/skip state.
+- Tests were tightened so the cutscene transition invariant now asserts held ACTION_USE is cleared, and the low-level action-set test asserts unrelated actions survive when they are not declared in the flushed set.
 
 ---
 

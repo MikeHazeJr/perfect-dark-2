@@ -1,0 +1,76 @@
+{
+  "skill_name": "super-audit",
+  "notes": "Test prompts for the Super Audit skill, grounded in Perfect Dark 2's actual context: real encountered bugs (12→16 byte Vec3-class struct breaking level rendering, VM startup cascade failures, worktree git diff anomalies), real content in flight (the Felicity level), real upstream lineage contamination risks (AllInOne's per-arena source-mutation mod mechanism vs. PD2's catalog-driven deterministic pipeline), real infrastructure (Windows 11 dev host 'Shadowbane', Claude Desktop VMs, worktree-based git, Dispatch orchestration), and the real architectural pillars (Catalog SOT, mod/native equality, Modding Pipeline, The Grid, client online mode, game-agnostic dedicated server). Each prompt is phrased the way Mike actually phrases requests — direct, technical, proper-noun-heavy, trusting the auditor to interpret. Each is substantial enough that Claude would clearly benefit from consulting the skill rather than answering cold. Run the primary invocation (eval 1) first to verify the canonical 'Super Audit' trigger fires.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "canonical-super-audit-invocation",
+      "prompt": "Dispatch, run our Super Audit.",
+      "expected_output": "Skill triggers on the proper-noun invocation 'Super Audit' alone, without any subsystem or scope qualifier. Because scope is unspecified and no code has been attached yet, the skill should ask one clarifying question (full repo audit vs. scoped subsystem audit) rather than either refusing or defaulting silently to a partial scan. If context/ exists in the active project, the skill reads it before asking. The question is single and concrete — not a menu of options.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "full-super-audit-with-dispatch-fanout",
+      "prompt": "Kick off a Super Audit over the full repo at C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike. Spawn Dispatch children for catalog, netplay, menus+input, Grid, dedicated-server, modding pipeline, layout sweep, scaling sweep, and lineage sweep. Merge everything into one master report when the children return. I want to see the master file path, Critical+High counts, and top 3 action items in chat — nothing else.",
+      "expected_output": "Skill triggers. Reads context/ first (including context/upstream-quirks.md and context/audits/ if present). Spawns 9 Dispatch child sessions in parallel, one per named scope, each with a scoped briefing and reference to references/audit-prompt.md. Each child writes to context/audits/YYYY-MM-DD-<scope>.md. After children return, merges into context/audits/YYYY-MM-DD-full.md with findings de-duplicated across scopes and cross-cutting concerns surfaced. Chat summary is terse: master file path, Critical+High counts, top 3 actions. No full report pasted in chat.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "felicity-level-loader-after-layout-bug",
+      "prompt": "Felicity's loader broke this morning after a Vec3-class struct grew from 12 to 16 bytes — the 4-byte padding tail was reading uninitialized memory and the renderer ate the junk. Do a Phase 2.5 layout sweep across every custom-level loader we have, every ROM-era struct that feeds into level rendering, and every persisted format (save files, mod packs, Catalog entries, network packets, Grid payloads) that could carry the same defect class. Assume the same shape of bug exists elsewhere until proven otherwise. I want every unasserted sizeof, every fread-over-struct, every packed↔unpacked boundary, and every Vec3/Vec4/matrix site with stride consistency audited across declaration, allocation, and all read/write sites.",
+      "expected_output": "Skill triggers on 'Phase 2.5 layout sweep'. Scope narrows to level-loading path first, then broadens to all ROM/save/packet/mod/Catalog/Grid I/O. Every finding carries Defect Class: Layout. Scorecard's 'Top Data-Layout Integrity Breaches' section is populated. Each finding cites file:line, declared type, sizeof, allotted storage, consumer assumption, downstream observers, and persistence (persisted-format hits rated higher severity than in-memory-only). Felicity's loader is called out by name. Written to context/audits/YYYY-MM-DD-layout.md.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "allinone-contamination-vs-pd2-pipeline",
+      "prompt": "The AllInOne parent swaps mods per-arena by mutating source files — it's an experimental hack, not a real pipeline. Our PD2 modding pipeline is supposed to be deterministic, catalog-driven, and treat mods as first-class equal to native. Audit: (1) is any AllInOne-era per-arena-swap residue still in our loader or build? (2) is our pack format actually deterministic — same input, same output bytes every time? (3) are mods registered in the Catalog the same way native assets are, or is there a shadow mod-table somewhere? (4) is there any UI or feature gating that silently demotes mods — lobby eligibility, scoreboard, Grid discoverability, dedicated-server hostability, online-mode compatibility?",
+      "expected_output": "Skill triggers on 'audit'. Scope is Modding Pipeline + Catalog SOT + Mod-native Parity pillars. Lineage awareness is demonstrated: findings distinguish AllInOne-inherited code from PD2-authored code. Pack determinism is audited concretely (timestamps, unordered iteration, wall-clock entropy, unfixed hash seeds, platform-specific float formatting). Every 'if (asset.is_mod)' branch is surfaced with justify-or-flag. Any shadow mod-table parallel to the Catalog is flagged as SOT violation. Written to context/audits/YYYY-MM-DD-modding.md.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "netplay-scaling-ceiling-sweep",
+      "prompt": "The port-net netplay code assumes 8 players everywhere — that's fgsfdsfgs' experimental ceiling, not our target. Find every literal, struct field, packet-width encoding, lobby UI slot array, and O(n²) loop that bakes in the ceiling. For each one, tell me: current ceiling, scaling behavior (linear / quadratic / worse), which host resource runs out first (CPU tick / bandwidth / memory / GPU / UI), and whether the dedicated server would hit the same wall or a different one if it hosted the same session. Assume our real target is host-bound on P2P and server-bound on dedicated — no hardcoded caps anywhere.",
+      "expected_output": "Skill triggers on 'audit'. Scope is netplay + Scaling Ceiling pillar + Dedicated-server Boundary pillar. Lineage tagged (port-net inherited vs. PD2 authored). Every fixed-count literal is enumerated with scaling analysis per the prompt's requested shape. O(n²) loops get their growth curve stated explicitly. Server-vs-P2P comparison is made for each ceiling. Written to context/audits/YYYY-MM-DD-netplay.md or YYYY-MM-DD-scaling.md.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "name": "grid-adversarial-threat-model",
+      "prompt": "Threat-model the Grid. Assume the Grid itself is compromised or adversarial and is serving malicious payloads. Walk every inbound path: Grid response → client parser → game state → match. For each path, tell me concrete attack outcomes: what crashes the client, what corrupts a save, what leaks a peer's IP through lobby UI or logs, what escalates into the live match via shared configs or challenges, what persists as stored XSS-equivalent in rendered text. Any assumption of the form 'we trust the Grid' is itself a finding — surface it explicitly. Also audit the identity model: can a Grid-presented peer identity be spoofed, and if so, what does that grant?",
+      "expected_output": "Skill triggers on 'audit' and 'threat-model'. Scope is Security dimension + Grid Trust pillar. Every finding carries Pillar Impact: Grid Trust. Specific attack classes are enumerated: injection, malformed-payload crash, path traversal if filesystem referenced, rendering-time content injection in text displays, identity spoofing, lobby-UI IP exposure. Blast radius is stated concretely for each. 'We trust the Grid' assumptions are surfaced as first-class findings. Written to context/audits/YYYY-MM-DD-grid.md.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "name": "dedicated-server-game-agnosticism-multitenant",
+      "prompt": "Our dedicated server is supposed to be game-agnostic — PD2 is just one plugin, and the core shouldn't know PD2 semantics. Audit the plugin boundary: where has PD2 leaked into the server core, and where has the server core leaked into the PD2 client? If we ran two game plugins simultaneously on the same server instance, what breaks first — memory isolation, filesystem, network ports, config, resource quotas, admin surface? Also audit the per-game interface itself: is it actually a proper abstraction, or is it PD2-shaped with optional parameters for 'other games' that will never really fit?",
+      "expected_output": "Skill triggers on 'audit'. Scope is Dedicated-server Boundary pillar + Architectural Discipline. Every finding carries Pillar Impact: Dedicated-server Boundary. Report maps the current plugin boundary, names every PD2-specific leak in the core and every core-internal leak in the PD2 plugin, and assesses multi-tenant isolation across memory / filesystem / network / resource quotas / admin. Plugin-interface quality is rated separately from leak count — a clean interface with leaks is a different fix path than a PD2-shaped interface. Written to context/audits/YYYY-MM-DD-dedicated-server.md.",
+      "files": []
+    },
+    {
+      "id": 8,
+      "name": "infrastructure-worktree-vm-assumptions",
+      "prompt": "Our dev infrastructure is Windows 11 (Shadowbane), Claude Desktop VMs, worktree-based git, and Dispatch orchestration. We've had git diff anomalies in worktrees that required a repair-worktrees.ps1 script, VM startup cascade failures tied to git timeouts on the Perfect-Dark-2 workspace, guest connection timeouts, and Windows Hypervisor Platform misconfigs. Audit whether any of our code, build scripts, CI config, or runtime paths makes assumptions about a specific worktree state, a specific VM network config, a specific host OS, or Hypervisor presence. Anything that would silently behave differently between a clean clone, a worktree, a VM rebuild, or a non-Windows contributor's machine is a finding. I especially want to know about any hardcoded paths, hardcoded line endings, hardcoded shell assumptions, or hidden Windows/PowerShell dependencies that would trip up a Linux or macOS contributor.",
+      "expected_output": "Skill triggers on 'audit'. Scope is Code Quality dimension + cross-cutting infrastructure concerns. Findings enumerate platform-specific assumptions with Portability as the cross-cutting risk dimension. Hardcoded paths, PowerShell-only tooling, CRLF/LF assumptions, drive-letter references, and Hypervisor-gated code are each surfaced. Impact on Linux/macOS contributors is stated concretely for each finding. Written to context/audits/YYYY-MM-DD-infrastructure.md.",
+      "files": []
+    },
+    {
+      "id": 9,
+      "name": "catalog-save-coevolution",
+      "prompt": "The Catalog is SOT for assets. Saves encode asset-referencing state: unlock flags, Transfer Pak emulation cheat state, config, mod references, possibly Felicity progression. Audit the save↔Catalog relationship. Where can a save drift from the Catalog? What happens when a save references a mod that's no longer in the Catalog? What happens when a save references a native asset whose Catalog entry was regenerated after a schema change? What happens when the Catalog evolves (new fields, renamed entries, removed entries) and old saves are loaded? Is there a save format version tag, and is it actually checked on load? What's the migration story?",
+      "expected_output": "Skill triggers on 'audit'. Scope is Catalog SOT pillar + save integrity + cross-cutting. Every finding carries Pillar Impact: Catalog SOT. Save format version tagging is checked for presence and for actual runtime enforcement. Migration path (or absence) is called out as its own finding if missing. Stale-reference, removed-entry, and schema-evolution scenarios are each walked through with concrete failure modes. Written to context/audits/YYYY-MM-DD-catalog.md.",
+      "files": []
+    },
+    {
+      "id": 10,
+      "name": "online-mode-boundary-sweep",
+      "prompt": "Client online mode is a distinct mode from offline / LAN / split-screen / direct-connect. Audit the offline↔online boundary. Where does offline state leak into online paths — for example, trusting local-player input for all slots when an online match actually has remote players in some of them? Where does online-only logic run while offline, wasting work or holding stale connections? What happens if the mode transitions mid-match, mid-menu, or mid-lobby? Is there a single authoritative place where the current mode is held, or is it inferred from multiple sources that can disagree? Also: is there any UI that displays online-only state (ping, connection indicators, Grid presence) while the client is offline?",
+      "expected_output": "Skill triggers on 'audit'. Scope is Online-mode Boundary pillar + UI/state consistency. Every finding carries Pillar Impact: Online-mode Boundary. Mode-state sources are enumerated; divergence between them is a finding. Mid-transition scenarios are walked through. Offline-leak-into-online and online-leak-into-offline cases are surfaced separately. Written to context/audits/YYYY-MM-DD-online-mode.md.",
+      "files": []
+    }
+  ]
+}

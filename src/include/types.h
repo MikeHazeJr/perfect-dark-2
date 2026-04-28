@@ -9,6 +9,7 @@
 #include "tiles.h"
 #include "gbi.h"
 #include "platform.h"
+#include "assetprovider.h"
 
 #define bool s32
 #define ubool u32
@@ -2356,6 +2357,7 @@ struct gunctrl {
 	/*0x15b0*/ u8 masterloadstate;
 	/*0x15b1*/ u8 gunloadstate;
 	/*0x15b2*/ u16 loadfilenum;
+	asset_data_handle_t loadhandle; /* Catalog/provider source for loadfilenum. */
 	/*0x15b4*/ struct modeldef **loadtomodeldef;
 	/*0x15b8*/ uintptr_t *loadmemptr;
 	/*0x15bc*/ uintptr_t*loadmemremaining;
@@ -3942,6 +3944,14 @@ struct menumodel {
 	/*0x5b1*/ u8 unk5b1_06 : 1; // unused
 	/*0x5b1*/ u8 drawbehinddialog : 1;
 	/*0x5b4*/ struct modelpartvisibility *partvisibility;
+	asset_data_handle_t newhandle;
+	asset_data_handle_t curhandle;
+	asset_data_handle_t bodyhandle;
+	asset_data_handle_t headhandle;
+	s32 newhandle_filenum;
+	s32 curhandle_filenum;
+	s32 bodyhandle_filenum;
+	s32 headhandle_filenum;
 };
 
 struct menurow {

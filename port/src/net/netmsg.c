@@ -1178,8 +1178,8 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 				if (g_MpSetup.weapons[wi] == 0) {
 					catalogWriteAssetRef(dst, 0);
 				} else {
-					const char *wcanon = catalogIdByRuntime(
-						ASSET_WEAPON, (s32)g_MpSetup.weapons[wi]);
+					const char *wcanon =
+						catalogWeaponIdByMpWeaponId((s32)g_MpSetup.weapons[wi]);
 					if (wcanon) {
 						catalogWriteAssetRef(dst, sessionCatalogGetId(wcanon));
 					} else {
@@ -1437,7 +1437,9 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 				} else {
 					catalog_weapon_result_t wr;
 					if (catalogResolveWeaponBySession(wsession, &wr)) {
-						g_MpSetup.weapons[wi] = (u8)wr.weapon_num;
+						g_MpSetup.weapons[wi] =
+							(wr.mp_weapon_id >= 0 && wr.mp_weapon_id < NUM_MPWEAPONS)
+								? (u8)wr.mp_weapon_id : 0;
 					} else {
 						g_MpSetup.weapons[wi] = 0;
 					}
@@ -1971,38 +1973,13 @@ u32 netmsgSvcPlayerMoveRead(struct netbuf *src, struct netclient *srccl)
  * Used by SVC_PLAYER_STATS, SVC_PROP_SPAWN, SVC_PROP_DAMAGE,
  * SVC_CHR_DISARM, SVC_CHR_STATE, and SVC_CHR_RESYNC.
  *
- * The catalog stores weapon_id as MPWEAPON_* constants (0x01-0x2f),
- * but the game engine uses WEAPON_* enums (different numbering).
- * catalogGetMpWeaponNum(idx) maps MPWEAPON_* → WEAPON_*.
- * These helpers bridge the two domains. */
-
-#if !defined(PD_SERVER)
-/* Convert WEAPON_* enum → MPWEAPON_* index by scanning catalog. */
-static s32 weaponToMpWeapon(s32 weaponnum)
-{
-	for (s32 i = 1; i < NUM_MPWEAPONS; i++) {
-		if (catalogGetMpWeaponNum(i) == weaponnum) {
-			return i;
-		}
-	}
-	return -1;
-}
-
-/* Convert MPWEAPON_* index → WEAPON_* enum via catalog. */
-static s32 mpWeaponToWeapon(s32 mpweaponnum)
-{
-	if (mpweaponnum >= 0 && mpweaponnum < NUM_MPWEAPONS) {
-		return catalogGetMpWeaponNum(mpweaponnum);
-	}
-	return WEAPON_UNARMED;
-}
-#endif
+ * The catalog stores ext.weapon.weapon_id as MPWEAPON_* slots, while
+ * catalog_weapon_result_t.weapon_num carries the final runtime WEAPON_* enum. */
 
 static void netWriteWeaponRef(struct netbuf *dst, s32 weaponnum)
 {
 #if !defined(PD_SERVER)
-	s32 mpw = weaponToMpWeapon(weaponnum);
-	const char *wid = (mpw >= 0) ? catalogIdByRuntime(ASSET_WEAPON, mpw) : NULL;
+	const char *wid = catalogWeaponIdByRuntimeWeaponNum(weaponnum);
 	catalogWriteAssetRef(dst, wid ? sessionCatalogGetId(wid) : 0);
 #else
 	catalogWriteAssetRef(dst, 0);
@@ -2018,7 +1995,7 @@ static s32 netReadWeaponRef(struct netbuf *src)
 #if !defined(PD_SERVER)
 	catalog_weapon_result_t wr;
 	if (catalogResolveWeaponBySession(wsession, &wr)) {
-		return mpWeaponToWeapon(wr.weapon_num);
+		return wr.weapon_num;
 	}
 #endif
 	return WEAPON_UNARMED;
@@ -2028,7 +2005,7 @@ static s32 netReadWeaponRef(struct netbuf *src)
  * All g_ModelStates entries are registered as ASSET_MODEL in the catalog. */
 static void netWriteModelRef(struct netbuf *dst, s32 modelnum)
 {
-	const char *id = catalogIdByRuntime(ASSET_MODEL, modelnum);
+	const char *id = catalogModelIdByModelnum(modelnum);
 	catalogWriteAssetRef(dst, id ? sessionCatalogGetId(id) : 0);
 }
 
@@ -4547,8 +4524,8 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 			} else if (g_MpSetup.weapons[wi] == 0) {
 				netbufWriteStr(dst, "");
 			} else {
-				const char *wcanon = catalogIdByRuntime(
-					ASSET_WEAPON, (s32)g_MpSetup.weapons[wi]);
+				const char *wcanon =
+					catalogWeaponIdByMpWeaponId((s32)g_MpSetup.weapons[wi]);
 				netbufWriteStr(dst, wcanon ? wcanon : "");
 			}
 		}
@@ -4945,7 +4922,7 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			const char *wid = wid_str ? wid_str : "";
 			if (wid[0]) {
 				const asset_entry_t *we = assetCatalogResolve(wid);
-				if (we) {
+				if (we && we->type == ASSET_WEAPON) {
 					g_MpSetup.weapons[wi] = (u8)we->ext.weapon.weapon_id;
 				} else {
 					sysLogPrintf(LOG_ERROR,

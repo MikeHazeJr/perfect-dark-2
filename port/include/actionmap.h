@@ -302,6 +302,15 @@ void actionmapEndFrame(void);
  */
 void actionmapFlushGameplayState(void);
 
+/** Flush (zero) all per-player state for a declared action set.
+ *
+ *  This is for layer / transition boundaries that need to clear shared
+ *  actions as well as gameplay-only actions. Example: cutscene entry clears
+ *  ACTION_USE / ACTION_MENU_ACCEPT so a held Continue press cannot survive
+ *  into cutscene skip handling.
+ */
+void actionmapFlushActionSet(const InputAction *actions, s32 action_count);
+
 /** Classify an action as gameplay-only.
  *  Returns 1 for pure gameplay actions (movement, combat, weapon, vehicle,
  *  scorecard, aim, C-buttons, D-pad when mapped to gameplay, etc.).

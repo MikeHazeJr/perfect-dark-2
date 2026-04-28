@@ -465,7 +465,7 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
     mpSetWeaponSet(g_MatchConfig.weaponSetIndex);
 
     /* M0.1c: Restore weapon slot picks — catalog ID string is PRIMARY.
-     * Populate weapon_ids[] and derive weapons[] / g_MpSetup.weapons[]. */
+     * Populate weapon_ids[] and derive weapons[] MPWEAPON_* slots. */
     for (s32 slot = 0; slot < 6; slot++) {
         char idkey[24], wkey[16], idbuf[128];
         snprintf(idkey, sizeof(idkey), "weapon_id%d", slot);
@@ -479,7 +479,6 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
             const asset_entry_t *we = assetCatalogResolve(idbuf);
             if (we && we->type == ASSET_WEAPON) {
                 s32 wval = (s32)we->ext.weapon.weapon_id;
-                mpSetWeaponSlot(slot, wval);
                 g_MatchConfig.weapons[slot] = (u8)wval;
             }
         } else {
@@ -487,9 +486,8 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
              * Reverse-resolve to catalog ID for weapon_ids[]. */
             s32 wval = -1;
             if (jsonFindInt(buf, wkey, &wval) && wval >= 0) {
-                mpSetWeaponSlot(slot, wval);
                 g_MatchConfig.weapons[slot] = (u8)wval;
-                const char *cid = matchGetWeaponSlotCatalogId(slot);
+                const char *cid = catalogWeaponIdByMpWeaponId(wval);
                 if (cid && cid[0]) {
                     strncpy(g_MatchConfig.weapon_ids[slot], cid,
                             sizeof(g_MatchConfig.weapon_ids[slot]) - 1);
@@ -590,14 +588,14 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
                 /* Catalog-ID-native: prefer string IDs as the primary identity.
                  * Fall back to legacy integer → catalog lookup for old saves. */
                 if (!body_id[0] && body >= 0 && body < 152) {
-                    const char *bid = catalogIdByRuntime(ASSET_BODY, body);
+                    const char *bid = catalogBodyIdByBodynum(body);
                     if (bid) {
                         strncpy(body_id, bid, sizeof(body_id) - 1);
                         body_id[sizeof(body_id) - 1] = '\0';
                     }
                 }
                 if (!head_id[0] && head >= 0 && head < 152) {
-                    const char *hid = catalogIdByRuntime(ASSET_HEAD, head);
+                    const char *hid = catalogHeadIdByHeadnum(head);
                     if (hid) {
                         strncpy(head_id, hid, sizeof(head_id) - 1);
                         head_id[sizeof(head_id) - 1] = '\0';

@@ -5,9 +5,12 @@
  * Cohort 4's cutscene-flash fix depends on:
  *
  *   - gameplay-only actions clear (held/pressed/released/value/timing)
- *   - shared / menu / system actions persist (USE, CANCEL_USE, PAUSE,
+ *   - gameplay flush leaves shared / menu / system actions intact (USE,
+ *     CANCEL_USE, PAUSE,
  *     SCORECARD, SCREENSHOT, CONSOLE_TOGGLE, DEBUG_TOGGLE, CHEAT_ENTER,
  *     SCORECARD_HOLD, MENU_*, TEXT_PASTE)
+ *   - action-set flush clears only the declared action set, including
+ *     shared actions when a transition declares ownership of them
  *   - any action that was held synthesizes a released edge so consumers
  *     latched on press see the corresponding release
  *
@@ -72,6 +75,9 @@ TEST_CASE("actionmap classifier: gameplay-only actions are gameplay-only", "[act
         REQUIRE(ampIsGameplayOnly(AMP_ACTION_FORGE_TOGGLE) == 1);
         REQUIRE(ampIsGameplayOnly(AMP_ACTION_FORGE_ASCEND) == 1);
     }
+    SECTION("test scenario cycling is gameplay-only") {
+        REQUIRE(ampIsGameplayOnly(AMP_ACTION_TESTSCEN_CYCLE_COUNT) == 1);
+    }
 }
 
 TEST_CASE("actionmap classifier: shared actions are NOT gameplay-only", "[actionmap][classifier]")
@@ -103,6 +109,10 @@ TEST_CASE("actionmap classifier: shared actions are NOT gameplay-only", "[action
     }
     SECTION("Cohort 1: ACTION_TEXT_PASTE is shared (text input only)") {
         REQUIRE(ampIsGameplayOnly(AMP_ACTION_TEXT_PASTE) == 0);
+    }
+    SECTION("menu/cutscene side actions are not gameplay-only") {
+        REQUIRE(ampIsGameplayOnly(AMP_ACTION_SOCIAL_TOGGLE) == 0);
+        REQUIRE(ampIsGameplayOnly(AMP_ACTION_SKIP_CUTSCENE) == 0);
     }
 }
 
@@ -167,6 +177,33 @@ TEST_CASE("flush: leaves shared actions intact", "[actionmap][flush]")
     REQUIRE(ampGetState(0, AMP_ACTION_FIRE_PRIMARY)->held == 0);
 }
 
+TEST_CASE("action-set flush: clears declared shared and gameplay actions only", "[actionmap][flush][actionset]")
+{
+    resetWorld();
+
+    const AmpInputAction set[] = {
+        AMP_ACTION_USE,
+        AMP_ACTION_FIRE_PRIMARY,
+    };
+
+    ampSetHeld(0, AMP_ACTION_USE);
+    ampSetHeld(0, AMP_ACTION_FIRE_PRIMARY);
+    ampSetHeld(0, AMP_ACTION_MENU_DOWN);
+    ampSetHeld(0, AMP_ACTION_PAUSE);
+    ampSetHeld(0, AMP_ACTION_TESTSCEN_CYCLE_COUNT);
+
+    ampFlushActionSet(set, (int)(sizeof(set) / sizeof(set[0])));
+
+    REQUIRE(ampGetState(0, AMP_ACTION_USE)->held == 0);
+    REQUIRE(ampGetState(0, AMP_ACTION_USE)->released == 1);
+    REQUIRE(ampGetState(0, AMP_ACTION_FIRE_PRIMARY)->held == 0);
+    REQUIRE(ampGetState(0, AMP_ACTION_FIRE_PRIMARY)->released == 1);
+
+    REQUIRE(ampGetState(0, AMP_ACTION_MENU_DOWN)->held == 1);
+    REQUIRE(ampGetState(0, AMP_ACTION_PAUSE)->held == 1);
+    REQUIRE(ampGetState(0, AMP_ACTION_TESTSCEN_CYCLE_COUNT)->held == 1);
+}
+
 TEST_CASE("flush: synthesizes released edge for held actions", "[actionmap][flush]")
 {
     resetWorld();
@@ -212,17 +249,13 @@ TEST_CASE("flush: clears hold_consumed flag", "[actionmap][flush]")
 
 TEST_CASE("flush: bug invariant (the Mission 1 obj 2 cutscene flash)", "[actionmap][flush][bug]")
 {
-    /* Repro: held ACTION_USE from a menu-accept must clear from gameplay
-     * state when the layer-stack push fires (Cohort 4 will wire this).
-     * Today, ACTION_USE is shared so flush leaves it intact -- but the
-     * gameplay-only siblings (FIRE_PRIMARY, RELOAD, etc.) that the
-     * cutscene skip check polls at player.c:3059,3072,3084 must clear.
-     *
-     * This test asserts the slice that's load-bearing for the fix:
-     * gameplay-only inputs that get held via key-mapping aliasing
-     * across the menu-accept transition do NOT survive the flush. */
+    /* Repro: held ACTION_USE from a menu-accept must clear when the
+     * cutscene layer push fires. Gameplay flush clears gameplay-only
+     * siblings; cutscene action-set flush clears shared accept/cancel. */
     resetWorld();
 
+    ampSetHeld(0, AMP_ACTION_USE);
+    ampSetHeld(0, AMP_ACTION_CANCEL_USE);
     ampSetHeld(0, AMP_ACTION_FIRE_PRIMARY);
     ampSetHeld(0, AMP_ACTION_FIRE_SECONDARY);
     ampSetHeld(0, AMP_ACTION_FIRE_MODE);
@@ -230,7 +263,12 @@ TEST_CASE("flush: bug invariant (the Mission 1 obj 2 cutscene flash)", "[actionm
     ampSetHeld(0, AMP_ACTION_WEAPON_NEXT);
 
     ampFlushGameplayState();
+    int count = 0;
+    const AmpInputAction *set = ampCutsceneActionSet(&count);
+    ampFlushActionSet(set, count);
 
+    REQUIRE(ampGetState(0, AMP_ACTION_USE)->held            == 0);
+    REQUIRE(ampGetState(0, AMP_ACTION_CANCEL_USE)->held     == 0);
     REQUIRE(ampGetState(0, AMP_ACTION_FIRE_PRIMARY)->held   == 0);
     REQUIRE(ampGetState(0, AMP_ACTION_FIRE_SECONDARY)->held == 0);
     REQUIRE(ampGetState(0, AMP_ACTION_FIRE_MODE)->held      == 0);

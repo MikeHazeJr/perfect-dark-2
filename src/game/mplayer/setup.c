@@ -2372,12 +2372,30 @@ MenuItemHandlerResult mpCharacterHeadMenuHandler(s32 operation, struct menuitem 
 		if (mpheadnum < mpGetNumHeads2()) {
 			headnum = mpGetHeadId(mpheadnum);
 
-			g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
+			{
+				catalog_head_result_t result;
+				const char *headid = catalogHeadIdByHeadnum(headnum);
+
+				if (headid && catalogResolveHead(headid, &result)) {
+					menuSetModelFileHandle(&g_Menus[g_MpPlayerNum].menumodel, result.filenum, result.handle);
+				} else {
+					g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
+				}
+			}
 			g_Menus[g_MpPlayerNum].menumodel.isperfecthead = false;
 		} else {
 			headnum = mpGetBeauHeadId(func0f14a9f8(mpheadnum - mpGetNumHeads2()));
 
-			g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
+			{
+				catalog_head_result_t result;
+				const char *headid = catalogHeadIdByHeadnum(headnum);
+
+				if (headid && catalogResolveHead(headid, &result)) {
+					menuSetModelFileHandle(&g_Menus[g_MpPlayerNum].menumodel, result.filenum, result.handle);
+				} else {
+					g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(catalogGetHeadFilenumByIndex(headnum)); /* SA-5a */
+				}
+			}
 			g_Menus[g_MpPlayerNum].menumodel.isperfecthead = true;
 			g_Menus[g_MpPlayerNum].menumodel.perfectheadnum = mpheadnum - mpGetNumHeads2();
 		}

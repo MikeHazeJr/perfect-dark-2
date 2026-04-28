@@ -987,7 +987,7 @@ void netServerCoopStageStart(u8 stagenum, u8 difficulty)
 	g_MissionConfig.stagenum = stagenum;
 	/* Phase 2: populate PRIMARY catalog ID string field */
 	{
-		const char *cid = catalogIdByRuntime(ASSET_MAP, stagenum);
+		const char *cid = catalogStageIdByStagenum(stagenum);
 		if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; }
 		else { g_MissionConfig.stage_id[0] = '\0'; }
 	}

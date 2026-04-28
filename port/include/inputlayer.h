@@ -4,8 +4,8 @@
  * Typed Input Layer Stack. Each layer declares its LayerType, the actions
  * it owns, an optional IMC, push/pop/abort callbacks, and a cursor-mode
  * preference. Push and pop are explicit. Only the topmost layer fires
- * actions (Cohort 7 wires the dispatch-side gate; this cohort just
- * provides the data structure + invariants).
+ * actions once the dispatch-side gate is wired. The stack also provides
+ * transition hooks for targeted state cleanup.
  *
  * The existing IMC stack (port/src/inputctx.c) stays as the binding
  * resolution layer; the Layer Stack sits above it as the activation +
@@ -13,10 +13,9 @@
  * push/pop in response to scene events. Cohort 4 wires the cutscene
  * flash fix on top of this scaffolding.
  *
- * Cohort 2 deliberately does NOT change `gameplayInputSuppressed()`,
- * does NOT hook actionmap dispatch, and does NOT push from any real
- * site. It only adds the stack module + tests so later cohorts can
- * land their migrations in bisectable steps.
+ * Cohort 2 deliberately did NOT change `gameplayInputSuppressed()`,
+ * did NOT hook actionmap dispatch, and did NOT push from real sites.
+ * Later cohorts added scene/cutscene callsite wiring.
  *
  * @design context/designs/input-universality-and-transitions-2026-04-27.md SC
  *
@@ -140,9 +139,9 @@ const LayerDef *inputLayerHandleDef(const LayerHandle *h);
  * Canonical layer singletons (declared in inputlayer.c)
  *
  * Cohort 2 declares one LayerDef per LayerType with sensible defaults.
- * Cohort 3 will populate `imc` and `action_set` to match the design
- * catalog (Section E). Callers must pass these to inputLayerPush;
- * future code will get a `inputLayerPushType(LayerType)` shorthand.
+ * Later cohorts populate `imc` and `action_set` where a layer has
+ * concrete ownership. Callers must pass these to inputLayerPush; future
+ * code will get a `inputLayerPushType(LayerType)` shorthand.
  * ============================================================ */
 
 extern const LayerDef g_LayerBoot;

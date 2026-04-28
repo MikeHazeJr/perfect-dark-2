@@ -21,6 +21,7 @@
 #include "lib/vi.h"
 #include "lib/main.h"
 #include "lib/model.h"
+#include "lib/memp.h"
 #include "data.h"
 #include "types.h"
 #include "system.h"
@@ -111,10 +112,8 @@ struct skeleton *g_Skeletons[] = {
 #endif
 };
 
-void modeldef0f1a7560(struct modeldef *modeldef, u16 filenum, u32 arg2, struct modeldef *modeldef2, struct texpool *texpool, bool arg5)
+static void modeldefPromoteDisplayListsWithSizes(struct modeldef *modeldef, s32 filenum, s32 allocsize, s32 loadedsize, u32 arg2, struct modeldef *modeldef2, struct texpool *texpool, bool arg5, bool update_fileinfo)
 {
-	s32 allocsize;
-	s32 loadedsize;
 	s32 sp84;
 	u32 s0;
 	u32 s4;
@@ -124,8 +123,10 @@ void modeldef0f1a7560(struct modeldef *modeldef, u16 filenum, u32 arg2, struct m
 	uintptr_t gdl;
 	Vtx *vertices;
 
-	allocsize = fileGetAllocationSize(filenum);
-	loadedsize = fileGetLoadedSize(filenum);
+	if (allocsize <= 0 || loadedsize <= 0) {
+		return;
+	}
+
 	node = NULL;
 
 	modelIterateDisplayLists(modeldef, &node, (Gfx **)&gdl);
@@ -165,8 +166,30 @@ void modeldef0f1a7560(struct modeldef *modeldef, u16 filenum, u32 arg2, struct m
 			s5 += texLoadFromGdl((Gfx *)((uintptr_t)modeldef + (UNSEGADDR(s0) & 0xffffff) + sp84), s4, (Gfx *)((uintptr_t)modeldef + (UNSEGADDR(s5) & 0xffffff)), texpool, (u8 *) vertices);
 		}
 
-		fileSetSize(filenum, modeldef, (((uintptr_t)modeldef + (UNSEGADDR(s5) & 0xffffff)) - (uintptr_t)modeldef + 0xf) & ~0xf, arg5);
+		{
+			u32 newsize = (((uintptr_t)modeldef + (UNSEGADDR(s5) & 0xffffff)) - (uintptr_t)modeldef + 0xf) & ~0xf;
+
+			if (update_fileinfo && filenum >= 0) {
+				fileSetSize(filenum, modeldef, newsize, arg5);
+			} else if (arg5) {
+				mempRealloc(modeldef, newsize, MEMPOOL_STAGE);
+			}
+		}
 	}
+}
+
+void modeldef0f1a7560(struct modeldef *modeldef, u16 filenum, u32 arg2, struct modeldef *modeldef2, struct texpool *texpool, bool arg5)
+{
+	modeldefPromoteDisplayListsWithSizes(
+		modeldef,
+		(s32)filenum,
+		fileGetAllocationSize(filenum),
+		fileGetLoadedSize(filenum),
+		arg2,
+		modeldef2,
+		texpool,
+		arg5,
+		true);
 }
 
 void modelPromoteTypeToPointer(struct modeldef *modeldef)
@@ -183,39 +206,50 @@ void modelPromoteTypeToPointer(struct modeldef *modeldef)
 	}
 }
 
-struct modeldef *modeldefLoad(u16 fileid, u8 *dst, s32 size, struct texpool *arg3)
+static struct modeldef *modeldefValidateLoaded(struct modeldef *modeldef, s32 source_filenum)
 {
-	struct modeldef *modeldef;
-
-	g_LoadType = LOADTYPE_MODEL;
-
-	if (dst) {
-		modeldef = assetLoadRomToAddr(fileid, FILELOADMETHOD_EXTRAMEM, dst, size);
-	} else {
-		modeldef = assetLoadRomToNew((s32)fileid, FILELOADMETHOD_EXTRAMEM, LOADTYPE_MODEL);
-	}
-
-	if (modeldef == NULL) {
-		/* assetLoadToNew returned NULL (file not in ROM data). Clear
-		 * g_LoadType since fileLoad never ran to reset it -- leaving it
-		 * stale would cause the next fileLoad to misapply model
-		 * preprocessing to unrelated data. */
+	if (modeldef->rootnode == NULL
+			|| modeldef->numparts > 500) {
+		sysLogPrintf(LOG_ERROR,
+				"MODELDEF: file %u loaded torn -- parts=%d root=%p scale=%.3f -- rejecting",
+				(unsigned)source_filenum,
+				modeldef->numparts,
+				(void *)modeldef->rootnode,
+				modeldef->scale);
 		g_LoadType = LOADTYPE_NONE;
-		sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: modeldef fileid=%d failed to load -- "
-			"asset not in catalog or ROM data missing", fileid);
 		return NULL;
 	}
+	if (modeldef->scale <= 0.0f) {
+		sysLogPrintf(LOG_WARNING,
+				"MODELDEF: file %u loaded with degenerate scale %.3f -- clamping to 1.0",
+				(unsigned)source_filenum, modeldef->scale);
+		modeldef->scale = 1.0f;
+	}
 
+	return modeldef;
+}
+
+static struct modeldef *modeldefFinalizeLoadedWithSizes(struct modeldef *modeldef, s32 source_filenum, s32 allocsize, s32 loadedsize, u8 *dst, struct texpool *arg3, bool update_fileinfo)
+{
 	modelPromoteTypeToPointer(modeldef);
 	modelPromoteOffsetsToPointers(modeldef, 0x5000000, (uintptr_t) modeldef);
-	modeldef0f1a7560(modeldef, fileid, 0x5000000, modeldef, arg3, dst == NULL);
+	modeldefPromoteDisplayListsWithSizes(
+		modeldef,
+		source_filenum,
+		allocsize,
+		loadedsize,
+		0x5000000,
+		modeldef,
+		arg3,
+		dst == NULL,
+		update_fileinfo);
 
 	/* B-161 root-cause fix (updated 2026-04-18): validate the fully-promoted
 	 * modeldef before returning so torn data never reaches any cache
 	 * (g_ModelStates[].modeldef, g_HeadsAndBodies[].modeldef) or downstream
 	 * code. Reject ONLY truly-structural corruption:
-	 *   - rootnode == NULL  → cannot walk the node tree at all
-	 *   - numparts  > 500   → preposterous count, likely decode garbage
+	 *   - rootnode == NULL  -> cannot walk the node tree at all
+	 *   - numparts  > 500   -> preposterous count, likely decode garbage
 	 *
 	 * Do NOT reject numparts == 0. Simple non-skeletal props -- title logos
 	 * (Nintendo, Rare, PD, MODEL_NINTENDOLOGO = file 221), doors, barrels,
@@ -229,30 +263,103 @@ struct modeldef *modeldefLoad(u16 fileid, u8 *dst, s32 size, struct texpool *arg
 	 * body0f02ce8c (src/game/body.c:203) iterates parts to merge body+head
 	 * skeletons. That per-caller guard (already present) keeps the stricter
 	 * check where it's needed without poisoning prop loads. */
-	if (modeldef->rootnode == NULL
-			|| modeldef->numparts > 500) {
-		sysLogPrintf(LOG_ERROR,
-				"MODELDEF: file %u loaded torn — parts=%d root=%p scale=%.3f -- rejecting",
-				(unsigned)fileid,
-				modeldef->numparts,
-				(void *)modeldef->rootnode,
-				modeldef->scale);
+	return modeldefValidateLoaded(modeldef, source_filenum);
+}
+
+static struct modeldef *modeldefFinalizeLoaded(struct modeldef *modeldef, s32 source_filenum, u8 *dst, struct texpool *arg3)
+{
+	return modeldefFinalizeLoadedWithSizes(
+		modeldef,
+		source_filenum,
+		fileGetAllocationSize(source_filenum),
+		fileGetLoadedSize(source_filenum),
+		dst,
+		arg3,
+		true);
+}
+
+struct modeldef *modeldefLoadFromHandle(asset_data_handle_t handle, s32 source_filenum, u8 *dst, s32 size, struct texpool *arg3)
+{
+	struct modeldef *modeldef;
+
+	g_LoadType = LOADTYPE_MODEL;
+
+	if (assetHandleIsNull(handle)) {
+		char desc[128];
 		g_LoadType = LOADTYPE_NONE;
+		sysLogPrintf(LOG_ERROR,
+			"CATALOG_CRITICAL: modeldef handle source unsupported -- source_filenum=%d source=%s",
+			source_filenum,
+			assetDescribe(handle, desc, sizeof(desc)));
 		return NULL;
 	}
-	if (modeldef->scale <= 0.0f) {
-		sysLogPrintf(LOG_WARNING,
-				"MODELDEF: file %u loaded with degenerate scale %.3f — clamping to 1.0",
-				(unsigned)fileid, modeldef->scale);
-		modeldef->scale = 1.0f;
+
+	if (dst) {
+		modeldef = assetLoadToAddr(handle, FILELOADMETHOD_EXTRAMEM, dst, size);
+	} else {
+		modeldef = assetLoadToNew(handle, FILELOADMETHOD_EXTRAMEM, LOADTYPE_MODEL);
 	}
 
-	return modeldef;
+	if (modeldef == NULL) {
+		/* assetLoadToNew returned NULL (file not in ROM data). Clear
+		 * g_LoadType since fileLoad never ran to reset it -- leaving it
+		 * stale would cause the next fileLoad to misapply model
+		 * preprocessing to unrelated data. */
+		g_LoadType = LOADTYPE_NONE;
+		sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: modeldef fileid=%d failed to load -- "
+			"asset not in catalog or ROM data missing", source_filenum);
+		return NULL;
+	}
+
+	if (handle.provider == romProvider() && source_filenum >= 0) {
+		return modeldefFinalizeLoaded(modeldef, source_filenum, dst, arg3);
+	}
+
+	{
+		s32 loadedsize = assetLoadGetLoadedSize(handle);
+		s32 allocsize = dst ? size : ALIGN16(loadedsize + 0x20) + 0x8000;
+
+		return modeldefFinalizeLoadedWithSizes(
+			modeldef,
+			source_filenum,
+			allocsize,
+			loadedsize,
+			dst,
+			arg3,
+			false);
+	}
+}
+
+struct modeldef *modeldefLoad(u16 fileid, u8 *dst, s32 size, struct texpool *arg3)
+{
+	struct modeldef *modeldef;
+
+	g_LoadType = LOADTYPE_MODEL;
+
+	if (dst) {
+		modeldef = assetLoadRomToAddr(fileid, FILELOADMETHOD_EXTRAMEM, dst, size);
+	} else {
+		modeldef = assetLoadRomToNew((s32)fileid, FILELOADMETHOD_EXTRAMEM, LOADTYPE_MODEL);
+	}
+
+	if (modeldef == NULL) {
+		g_LoadType = LOADTYPE_NONE;
+		sysLogPrintf(LOG_ERROR, "CATALOG_CRITICAL: modeldef fileid=%d failed to load -- "
+			"asset not in catalog or ROM data missing", fileid);
+		return NULL;
+	}
+
+	return modeldefFinalizeLoaded(modeldef, (s32)fileid, dst, arg3);
 }
 
 struct modeldef *modeldefLoadToNew(u16 fileid)
 {
 	return modeldefLoad(fileid, NULL, 0, NULL);
+}
+
+struct modeldef *modeldefLoadToNewFromHandle(asset_data_handle_t handle, s32 source_filenum)
+{
+	return modeldefLoadFromHandle(handle, source_filenum, NULL, 0, NULL);
 }
 
 struct modeldef *modeldefLoadToAddr(u16 fileid, u8 *dst, s32 size)

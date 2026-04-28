@@ -11,13 +11,13 @@
  * rzipInflate, romdataFilePreprocess, g_FileInfo[] tracking). Those workers
  * are exported specifically so the dispatcher can reach them without
  * recursing back through any public wrapper. Phase 3 (2026-04-19) deleted
- * the previous public wrappers `fileLoadToNew` / `fileLoadToAddr` — game
+ * the previous public wrappers `fileLoadToNew` / `fileLoadToAddr` -- game
  * code now calls `assetLoadRomToNew` / `assetLoadRomToAddr` directly.
  *
  * For FileProvider, the dispatcher allocates a MEMPOOL_STAGE buffer sized
  * by `resolve_size` and asks the provider to fill it via its `load` fn.
  * Any file preprocessing (rzip inflate, endian swap, etc.) is not applied
- * because FileProvider assets are not exercised through this path yet —
+ * because FileProvider assets are not exercised through this path yet --
  * Phase 2 mods continue to load through the legacy `romdataFileLoad`
  * pipeline that does its own preprocessing.
  *
@@ -47,6 +47,42 @@ s32 assetLoad(asset_data_handle_t handle, void *buf, s32 buf_size)
     return handle.provider->load(handle.provider, handle, buf, buf_size);
 }
 
+s32 assetLoadGetInflatedSize(asset_data_handle_t handle, u32 loadtype)
+{
+    if (assetHandleIsNull(handle)) {
+        return 0;
+    }
+
+    if (handle.provider == romProvider()) {
+        s32 filenum = romProviderFilenum(handle);
+        if (filenum < 0) {
+            return 0;
+        }
+        return (s32)fileGetInflatedSize(filenum, loadtype);
+    }
+
+    return handle.provider->resolve_size
+        ? handle.provider->resolve_size(handle.provider, handle) : 0;
+}
+
+s32 assetLoadGetLoadedSize(asset_data_handle_t handle)
+{
+    if (assetHandleIsNull(handle)) {
+        return 0;
+    }
+
+    if (handle.provider == romProvider()) {
+        s32 filenum = romProviderFilenum(handle);
+        if (filenum < 0) {
+            return 0;
+        }
+        return (s32)fileGetLoadedSize(filenum);
+    }
+
+    return handle.provider->resolve_size
+        ? handle.provider->resolve_size(handle.provider, handle) : 0;
+}
+
 void *assetLoadToNew(asset_data_handle_t handle, u32 method, u32 loadtype)
 {
     if (assetHandleIsNull(handle)) {
@@ -65,7 +101,7 @@ void *assetLoadToNew(asset_data_handle_t handle, u32 method, u32 loadtype)
     }
 
     /* Generic path: ask the provider for the size, allocate from the stage
-     * pool, and copy bytes into the allocation. No inflate/preprocess —
+     * pool, and copy bytes into the allocation. No inflate/preprocess --
      * providers that need that (currently none) can wrap this. */
     s32 size = handle.provider->resolve_size
         ? handle.provider->resolve_size(handle.provider, handle) : 0;
@@ -153,7 +189,7 @@ void *assetLoadToAddr(asset_data_handle_t handle, u32 method, void *buf, u32 siz
         return fileLoadRomToAddr(filenum, method, (u8 *)buf, size);
     }
 
-    /* Generic path (unused in Phase 3 — no FileProvider game-code callers
+    /* Generic path (unused in Phase 3 -- no FileProvider game-code callers
      * yet). Asks the provider to fill the buffer directly without inflate
      * or preprocess. Providers needing those steps must wrap this call. */
     s32 n = handle.provider->load

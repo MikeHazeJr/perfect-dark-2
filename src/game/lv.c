@@ -122,6 +122,12 @@
 /* PC: persistent stats tracking */
 extern void statIncrement(const char *key, u64 amount);
 
+static asset_type_e lvCatalogAssetTypeForId(const char *assetId)
+{
+	const asset_entry_t *entry = assetCatalogResolve(assetId);
+	return entry ? entry->type : ASSET_NONE;
+}
+
 /* M0.2: helper — returns true if player has any button or stick input.
  * Replaces the old joyGetButtons(contpad, 0xffffffff) + stick deadzone checks.
  * Threshold 0.125 matches the legacy 10/80 stick deadzone. */
@@ -351,10 +357,10 @@ void lvReset(s32 stagenum)
 			             "CATALOG: stage 0x%02x diff — load:%d unload:%d",
 			             stagenum, loadCount, unloadCount);
 			for (s32 i = 0; i < unloadCount; i++) {
-				catalogUnloadAsset(toUnload[i]);
+				catalogReleaseTypedAsset(lvCatalogAssetTypeForId(toUnload[i]), toUnload[i]);
 			}
 			for (s32 i = 0; i < loadCount; i++) {
-				catalogLoadAsset(toLoad[i]);
+				catalogLoadTypedAsset(lvCatalogAssetTypeForId(toLoad[i]), toLoad[i]);
 			}
 		}
 #undef STAGE_DIFF_MAX
@@ -1994,7 +2000,7 @@ Gfx *lvRender(Gfx *gdl)
 			g_MissionConfig.stageindex = g_Cutscenes[g_Vars.autocutgroupcur].mission;
 			g_MissionConfig.stagenum = g_Cutscenes[g_Vars.autocutgroupcur].stage;
 			/* Phase 2: populate PRIMARY catalog ID string field */
-			{ const char *cid = catalogIdByRuntime(ASSET_MAP, g_MissionConfig.stagenum); if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; } else { g_MissionConfig.stage_id[0] = '\0'; } }
+			{ const char *cid = catalogStageIdByStagenum(g_MissionConfig.stagenum); if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; } else { g_MissionConfig.stage_id[0] = '\0'; } }
 			titleSetNextStage(g_Cutscenes[g_Vars.autocutgroupcur].stage);
 			mainChangeToStage(g_Cutscenes[g_Vars.autocutgroupcur].stage);
 		}

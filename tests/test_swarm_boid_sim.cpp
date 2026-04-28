@@ -32,7 +32,8 @@ struct vec3 { float x, y, z; };
  *   port/fast3d/swarm_gpu.cpp::kSwarmCs main()  (GPU)
  *
  * Both production sites do exactly: ground-locked Y, length-checked
- * direction vector, scaled by max_speed, integrated with dt * 60. */
+ * direction vector, scaled by max_speed, clamped to the remaining distance,
+ * integrated with dt * 60. */
 vec3 swarm_seek_step(vec3 pos, vec3 player_pos)
 {
     float dx = player_pos.x - pos.x;
@@ -40,8 +41,13 @@ vec3 swarm_seek_step(vec3 pos, vec3 player_pos)
     float d2 = dx * dx + dz * dz;
     if (d2 < kSeekDeadzone) return pos;
     float d  = std::sqrt(d2);
-    float vx = (dx / d) * kSwarmMaxSpeed;
-    float vz = (dz / d) * kSwarmMaxSpeed;
+    float step = kSwarmMaxSpeed * (60.0f * kSwarmDt);
+    float speed = kSwarmMaxSpeed;
+    if (step > d) {
+        speed = d / (60.0f * kSwarmDt);
+    }
+    float vx = (dx / d) * speed;
+    float vz = (dz / d) * speed;
     return { pos.x + vx * (60.0f * kSwarmDt),
              pos.y,
              pos.z + vz * (60.0f * kSwarmDt) };
@@ -96,6 +102,19 @@ TEST_CASE("swarm seek: speed clamped to max_speed", "[swarm][sim]")
 
     float step = std::abs(pos.x - next.x);
     REQUIRE(step == Approx(kSwarmMaxSpeed).margin(0.001f));
+}
+
+TEST_CASE("swarm seek: step clamps to remaining distance near player",
+          "[swarm][sim]")
+{
+    vec3 pos    = { 6.0f, 0.0f, 0.0f };
+    vec3 player = { 0.0f, 0.0f, 0.0f };
+
+    vec3 next = swarm_seek_step(pos, player);
+
+    REQUIRE(next.x == Approx(player.x).margin(0.001f));
+    REQUIRE(next.z == Approx(player.z).margin(0.001f));
+    REQUIRE(dist_xz(next, player) <= dist_xz(pos, player));
 }
 
 TEST_CASE("swarm seek: deadzone within 1 unit holds position",

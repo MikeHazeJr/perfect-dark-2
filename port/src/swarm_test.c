@@ -247,8 +247,13 @@ static void cpu_seek_tick(struct coord *player_pos)
 		f32 d2 = dx * dx + dz * dz;
 		if (d2 < 1.0f) continue;
 		f32 d = sqrtf(d2);
-		f32 vx = (dx / d) * SWARM_MAX_SPEED;
-		f32 vz = (dz / d) * SWARM_MAX_SPEED;
+		f32 step = SWARM_MAX_SPEED * (60.0f * SWARM_DT);
+		f32 speed = SWARM_MAX_SPEED;
+		if (step > d) {
+			speed = d / (60.0f * SWARM_DT);
+		}
+		f32 vx = (dx / d) * speed;
+		f32 vz = (dz / d) * speed;
 		prop->pos.x += vx * (60.0f * SWARM_DT);
 		prop->pos.y += dy;
 		prop->pos.z += vz * (60.0f * SWARM_DT);

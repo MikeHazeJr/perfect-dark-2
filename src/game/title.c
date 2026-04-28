@@ -36,6 +36,7 @@
 #include "video.h"
 #include "system.h"
 #include "assetcatalog.h" /* SA-5d: catalogGetPropFilenumByIndex */
+#include "assetload.h"
 
 #define TITLE_ASPECT (videoGetAspect())
 
@@ -126,6 +127,33 @@ char *mpPlayerGetWeaponOfChoiceName(u32 playernum, u32 slot)
 	setCurrentPlayerNum(prevplayernum);
 
 	return name;
+}
+
+static struct modeldef *titleLoadModeldefToAddr(s32 modelnum, u8 *dst, s32 size)
+{
+	s32 filenum = catalogGetPropFilenumByIndex(modelnum);
+	asset_data_handle_t handle = catalogGetPropHandle(modelnum);
+
+	if (!assetHandleIsNull(handle)) {
+		return modeldefLoadFromHandle(handle, filenum, dst, size, NULL);
+	}
+
+	sysLogPrintf(LOG_WARNING,
+		"CATALOG.MISS: title modelnum=%d filenum=%d has no provider handle -- using temporary ROM fallback",
+		modelnum, filenum);
+	return modeldefLoad((u16)filenum, dst, size, NULL);
+}
+
+static s32 titleGetLoadedModelSize(s32 modelnum)
+{
+	s32 filenum = catalogGetPropFilenumByIndex(modelnum);
+	asset_data_handle_t handle = catalogGetPropHandle(modelnum);
+
+	if (!assetHandleIsNull(handle)) {
+		return assetLoadGetLoadedSize(handle);
+	}
+
+	return fileGetLoadedSize(filenum);
 }
 
 void titleSetLight(Lights1 *light, u8 r, u8 g, u8 b, f32 luminosity, struct coord *dir)
@@ -580,10 +608,9 @@ void titleInitPdLogo(void)
 	{
 		struct coord coord = {0, 0, 0};
 		struct modeldef *modeldef;
-		s32 fid = catalogGetPropFilenumByIndex(MODEL_NLOGO); /* SA-5d */
-		modeldef = modeldefLoad(fid, nextaddr, TITLE_ALLOCSIZE, 0);
+		modeldef = titleLoadModeldefToAddr(MODEL_NLOGO, nextaddr, TITLE_ALLOCSIZE);
 		g_ModelStates[MODEL_NLOGO].modeldef = modeldef;
-		size = ALIGN64(fileGetLoadedSize(fid));
+		size = ALIGN64(titleGetLoadedModelSize(MODEL_NLOGO));
 		nextaddr += size;
 		remaining = TITLE_ALLOCSIZE - size;
 		g_TitleModel = NULL;
@@ -603,10 +630,9 @@ void titleInitPdLogo(void)
 	{
 		struct coord coord = {0, 0, 0};
 		struct modeldef *modeldef;
-		s32 fid = catalogGetPropFilenumByIndex(MODEL_NLOGO2); /* SA-5d */
-		modeldef = modeldefLoad(fid, nextaddr, remaining, 0);
+		modeldef = titleLoadModeldefToAddr(MODEL_NLOGO2, nextaddr, remaining);
 		g_ModelStates[MODEL_NLOGO2].modeldef = modeldef;
-		size = ALIGN64(fileGetLoadedSize(fid));
+		size = ALIGN64(titleGetLoadedModelSize(MODEL_NLOGO2));
 		nextaddr += size;
 		remaining -= size;
 		g_TitleModelNLogo2 = NULL;
@@ -625,10 +651,9 @@ void titleInitPdLogo(void)
 	{
 		struct coord coord = {0, 0, 0};
 		struct modeldef *modeldef;
-		s32 fid = catalogGetPropFilenumByIndex(MODEL_PDTWO); /* SA-5d */
-		modeldef = modeldefLoad(fid, nextaddr, remaining, 0);
+		modeldef = titleLoadModeldefToAddr(MODEL_PDTWO, nextaddr, remaining);
 		g_ModelStates[MODEL_PDTWO].modeldef = modeldef;
-		size = ALIGN64(fileGetLoadedSize(fid));
+		size = ALIGN64(titleGetLoadedModelSize(MODEL_PDTWO));
 		nextaddr += size;
 		remaining -= size;
 		g_TitleModelPdTwo = NULL;
@@ -648,10 +673,9 @@ void titleInitPdLogo(void)
 	{
 		struct coord coord = {0, 0, 0};
 		struct modeldef *modeldef;
-		s32 fid_jpnlogo = catalogGetPropFilenumByIndex(MODEL_JPNLOGO); /* SA-5d */
-		modeldef = modeldefLoad(fid_jpnlogo, nextaddr, remaining, 0);
+		modeldef = titleLoadModeldefToAddr(MODEL_JPNLOGO, nextaddr, remaining);
 		g_ModelStates[MODEL_JPNLOGO].modeldef = modeldef;
-		size = ALIGN64(fileGetLoadedSize(fid_jpnlogo));
+		size = ALIGN64(titleGetLoadedModelSize(MODEL_JPNLOGO));
 		nextaddr += size;
 		remaining -= size;
 		g_TitleModelJpnLogo1 = NULL;
@@ -674,10 +698,9 @@ void titleInitPdLogo(void)
 
 		{
 			struct modeldef *jpnpd;
-			s32 fid_jpnpd = catalogGetPropFilenumByIndex(MODEL_JPNPD); /* SA-5d */
-			jpnpd = modeldefLoad(fid_jpnpd, nextaddr, remaining, 0);
+			jpnpd = titleLoadModeldefToAddr(MODEL_JPNPD, nextaddr, remaining);
 			g_ModelStates[MODEL_JPNPD].modeldef = jpnpd;
-			size = ALIGN64(fileGetLoadedSize(fid_jpnpd));
+			size = ALIGN64(titleGetLoadedModelSize(MODEL_JPNPD));
 			nextaddr += size;
 			remaining -= size;
 			g_TitleModelJpnPd = NULL;
@@ -698,10 +721,9 @@ void titleInitPdLogo(void)
 	{
 		struct coord coord = {0, 0, 0};
 		struct modeldef *modeldef;
-		s32 fid = catalogGetPropFilenumByIndex(MODEL_PDTHREE); /* SA-5d */
-		modeldef = modeldefLoad(fid, nextaddr, remaining, 0);
+		modeldef = titleLoadModeldefToAddr(MODEL_PDTHREE, nextaddr, remaining);
 		g_ModelStates[MODEL_PDTHREE].modeldef = modeldef;
-		size = ALIGN64(fileGetLoadedSize(fid));
+		size = ALIGN64(titleGetLoadedModelSize(MODEL_PDTHREE));
 		nextaddr += size;
 		remaining -= size;
 		g_TitleModelPdThree = NULL;
@@ -1935,7 +1957,7 @@ void titleInitNintendoLogo(void)
 		struct coord coord = {0, 0, 0};
 		struct modeldef *modeldef;
 
-		modeldef = modeldefLoad(catalogGetPropFilenumByIndex(MODEL_NINTENDOLOGO), nextaddr, TITLE_ALLOCSIZE, 0); /* SA-5d */
+		modeldef = titleLoadModeldefToAddr(MODEL_NINTENDOLOGO, nextaddr, TITLE_ALLOCSIZE);
 		g_ModelStates[MODEL_NINTENDOLOGO].modeldef = modeldef;
 
 		/* B-161 crash-proof: modeldefLoad returns NULL when the modeldef is
@@ -2126,7 +2148,7 @@ void titleInitRareLogo(void)
 		struct coord coord = {0, 0, 0};
 		struct modeldef *modeldef;
 
-		modeldef = modeldefLoad(catalogGetPropFilenumByIndex(MODEL_RARELOGO), nextaddr, TITLE_ALLOCSIZE, 0); /* SA-5d */
+		modeldef = titleLoadModeldefToAddr(MODEL_RARELOGO, nextaddr, TITLE_ALLOCSIZE);
 		g_ModelStates[MODEL_RARELOGO].modeldef = modeldef;
 
 		/* B-161 crash-proof: torn modeldef -> NULL. Advance to the next intro

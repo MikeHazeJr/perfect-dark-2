@@ -3,7 +3,7 @@
  *
  * Entry points game code uses to load asset bytes through the provider
  * abstraction. The dispatcher reads the provider vtable on the handle and
- * forwards to the right impl — callers never care which provider serves the
+ * forwards to the right impl -- callers never care which provider serves the
  * bytes.
  *
  * AP Phase 3 (2026-04-19) finished the call-site migration: every game-code
@@ -34,6 +34,20 @@ extern "C" {
 s32 assetLoad(asset_data_handle_t handle, void *buf, s32 buf_size);
 
 /**
+ * Provider-aware size query. For RomProvider this delegates to
+ * fileGetInflatedSize(filenum, loadtype), preserving legacy preprocessing
+ * size semantics. Other providers use their resolve_size vtable.
+ */
+s32 assetLoadGetInflatedSize(asset_data_handle_t handle, u32 loadtype);
+
+/**
+ * Provider-aware loaded-size query. For RomProvider this delegates to
+ * fileGetLoadedSize(filenum). Other providers use their resolve_size vtable
+ * because they do not yet expose a post-preprocess size distinction.
+ */
+s32 assetLoadGetLoadedSize(asset_data_handle_t handle);
+
+/**
  * Allocate-and-load: dispatcher allocates a MEMPOOL_STAGE buffer sized by the
  * provider's `resolve_size` and asks the provider to fill it. RomProvider
  * fast-paths to the legacy `fileLoad` pipeline (rzip inflate +
@@ -41,13 +55,13 @@ s32 assetLoad(asset_data_handle_t handle, void *buf, s32 buf_size);
  * byte-identical to the pre-AP load path. Returns the allocation on success,
  * NULL on error (null handle, missing asset, zero load size).
  *
- * `method` and `loadtype` mirror the legacy contract — see `FILELOADMETHOD_*`
+ * `method` and `loadtype` mirror the legacy contract -- see `FILELOADMETHOD_*`
  * and `LOADTYPE_*` in the game headers.
  */
 void *assetLoadToNew(asset_data_handle_t handle, u32 method, u32 loadtype);
 
 /**
- * Convenience wrapper for ROM filenums — equivalent to
+ * Convenience wrapper for ROM filenums -- equivalent to
  * `assetLoadToNew(romProviderHandle(filenum), method, loadtype)` but does
  * not require the caller to know about the provider abstraction. Game code
  * uses this directly (Phase 3 replacement for the deleted `fileLoadToNew`
@@ -66,7 +80,7 @@ void *assetLoadRomToNew(s32 filenum, u32 method, u32 loadtype);
 void *assetLoadToAddr(asset_data_handle_t handle, u32 method, void *buf, u32 size);
 
 /**
- * Convenience wrapper for ROM filenums — equivalent to
+ * Convenience wrapper for ROM filenums -- equivalent to
  * `assetLoadToAddr(romProviderHandle(filenum), method, buf, size)`. Game
  * code uses this directly (Phase 3 replacement for the deleted
  * `fileLoadToAddr` wrapper).

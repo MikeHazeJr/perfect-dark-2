@@ -21,6 +21,7 @@
 #include "assetcatalog_load.h"
 #include "assetcatalog_deps.h"
 #include "assetprovider.h"
+#include "assetload.h"
 #include "system.h"
 #include "fs.h"
 
@@ -347,6 +348,138 @@ void catalogLoadLogStats(void)
  *   "MOD:"     — mod asset actually loaded or freed
  * ======================================================================== */
 
+static const char *s_catalogPayloadKind(asset_type_e type)
+{
+    switch (type) {
+    case ASSET_MODEL:     return "model";
+    case ASSET_BODY:      return "body";
+    case ASSET_HEAD:      return "head";
+    case ASSET_WEAPON:    return "weapon";
+    case ASSET_MAP:       return "map";
+    case ASSET_ARENA:     return "arena";
+    case ASSET_CHARACTER: return "character";
+    case ASSET_PROP:      return "prop";
+    case ASSET_ANIMATION: return "animation";
+    case ASSET_TEXTURE:   return "texture";
+    case ASSET_TEXTURES:  return "texture-pack";
+    case ASSET_AUDIO:     return "audio";
+    case ASSET_SFX:       return "sfx";
+    case ASSET_MUSIC:     return "music";
+    case ASSET_LANG:      return "language";
+    case ASSET_HUD:       return "hud";
+    case ASSET_EFFECT:    return "effect";
+    case ASSET_SKIN:      return "skin";
+    case ASSET_GAMEMODE:  return "gamemode";
+    case ASSET_BOT_PROFILE: return "bot-profile";
+    default:              return "generic";
+    }
+}
+
+static s32 s_catalogLoadEntryFromProvider(asset_entry_t *entry, asset_type_e expected_type)
+{
+    asset_data_handle_t handle = catalogEffectiveHandle(entry);
+    char desc[128];
+    s32 size;
+    void *data;
+    s32 loaded;
+
+    if (assetHandleIsNull(handle)) {
+        return 0;
+    }
+
+    size = assetLoadGetInflatedSize(handle, expected_type == ASSET_MODEL ? LOADTYPE_MODEL : 0);
+    if (size <= 0) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.LOAD: '%s' %s provider reports zero size (%s)",
+                     entry->id, s_catalogPayloadKind(entry->type),
+                     assetDescribe(handle, desc, sizeof(desc)));
+        return 0;
+    }
+
+    data = sysMemAlloc((u32)size);
+    if (!data) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.LOAD: '%s' could not allocate %d bytes",
+                     entry->id, size);
+        return 0;
+    }
+
+    loaded = assetLoad(handle, data, size);
+    if (loaded <= 0) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.LOAD: '%s' provider load failed (%s)",
+                     entry->id,
+                     assetDescribe(handle, desc, sizeof(desc)));
+        sysMemFree(data);
+        return 0;
+    }
+
+    entry->loaded_data      = data;
+    entry->data_size_bytes  = (u32)loaded;
+    entry->load_state       = ASSET_STATE_LOADED;
+    entry->ref_count        = 1;
+
+    sysLogPrintf(LOG_NOTE,
+                 "CATALOG.LIFECYCLE.LOAD: loaded %s '%s' (%d bytes) from %s",
+                 s_catalogPayloadKind(entry->type), entry->id, loaded,
+                 assetDescribe(handle, desc, sizeof(desc)));
+    return 1;
+}
+
+static s32 s_catalogLoadEntryFromPath(asset_entry_t *entry)
+{
+    const char *path = entryGetFilePath(entry);
+    u32 size = 0;
+    void *data;
+
+    if (!path || !path[0]) {
+        sysLogPrintf(LOG_WARNING, "MOD: catalogLoadAsset: no file path for '%s'", entry->id);
+        return 0;
+    }
+
+    data = fsFileLoad(path, &size);
+    if (!data || size == 0) {
+        sysLogPrintf(LOG_WARNING, "CATALOG: FALLBACK: catalogLoadAsset: '%s' failed to load from '%s', caller will use fallback",
+                     entry->id, path);
+        if (data) {
+            sysMemFree(data);
+        }
+        return 0;
+    }
+
+    entry->loaded_data      = data;
+    entry->data_size_bytes  = size;
+    entry->load_state       = ASSET_STATE_LOADED;
+    entry->ref_count        = 1;
+
+    sysLogPrintf(LOG_NOTE, "MOD: loaded '%s' (%u bytes) from '%s'", entry->id, size, path);
+    return 1;
+}
+
+static s32 s_catalogLoadEntry(asset_entry_t *entry, asset_type_e expected_type)
+{
+    if (entry->bundled || entry->ref_count == ASSET_REF_BUNDLED) {
+        sysLogPrintf(LOG_NOTE, "CATALOG: retain bundled '%s'", entry->id);
+        return 1;
+    }
+
+    if (entry->load_state >= ASSET_STATE_LOADED && entry->loaded_data) {
+        entry->ref_count++;
+        return 1;
+    }
+
+    if (!entry->enabled) {
+        sysLogPrintf(LOG_WARNING, "MOD: catalogLoadAsset: '%s' is not enabled", entry->id);
+        return 0;
+    }
+
+    if (s_catalogLoadEntryFromProvider(entry, expected_type)) {
+        return 1;
+    }
+
+    return s_catalogLoadEntryFromPath(entry);
+}
+
 s32 catalogLoadAsset(const char *assetId)
 {
     if (!assetId) {
@@ -359,48 +492,53 @@ s32 catalogLoadAsset(const char *assetId)
         return 0;
     }
 
-    /* Bundled assets are ROM-resident; treat as an implicit retain. */
-    if (entry->bundled || entry->ref_count == ASSET_REF_BUNDLED) {
-        sysLogPrintf(LOG_NOTE, "CATALOG: retain bundled '%s'", assetId);
+    return s_catalogLoadEntry(entry, ASSET_NONE);
+}
+
+static s32 s_catalogValidateTypedLifecycle(const char *op, asset_type_e expected_type, const char *assetId)
+{
+    const asset_entry_t *entry;
+
+    if (!assetId) {
+        return 0;
+    }
+
+    if (expected_type == ASSET_NONE) {
         return 1;
     }
 
-    /* Already loaded — just bump the ref count. */
-    if (entry->load_state >= ASSET_STATE_LOADED && entry->loaded_data) {
-        entry->ref_count++;
-        return 1;
-    }
-
-    /* Must be ENABLED to load. */
-    if (!entry->enabled) {
-        sysLogPrintf(LOG_WARNING, "MOD: catalogLoadAsset: '%s' is not enabled", assetId);
+    entry = assetCatalogResolve(assetId);
+    if (!entry) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.%s: '%s' not found for expected type %d",
+                     op, assetId, expected_type);
         return 0;
     }
 
-    const char *path = entryGetFilePath(entry);
-    if (!path || !path[0]) {
-        sysLogPrintf(LOG_WARNING, "MOD: catalogLoadAsset: no file path for '%s'", assetId);
+    if (entry->type != expected_type) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.%s: '%s' type mismatch expected=%d actual=%d",
+                     op, assetId, expected_type, entry->type);
         return 0;
     }
 
-    u32 size = 0;
-    void *data = fsFileLoad(path, &size);
-    if (!data || size == 0) {
-        sysLogPrintf(LOG_WARNING, "CATALOG: FALLBACK: catalogLoadAsset: '%s' failed to load from '%s', caller will use fallback",
-                     assetId, path);
-        if (data) {
-            sysMemFree(data);
-        }
-        return 0;
-    }
-
-    entry->loaded_data      = data;
-    entry->data_size_bytes  = size;
-    entry->load_state       = ASSET_STATE_LOADED;
-    entry->ref_count        = 1;
-
-    sysLogPrintf(LOG_NOTE, "MOD: loaded '%s' (%u bytes) from '%s'", assetId, size, path);
     return 1;
+}
+
+s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId)
+{
+    asset_entry_t *entry;
+
+    if (!s_catalogValidateTypedLifecycle("LOAD", expected_type, assetId)) {
+        return 0;
+    }
+
+    entry = assetCatalogGetMutable(assetId);
+    if (!entry) {
+        return 0;
+    }
+
+    return s_catalogLoadEntry(entry, expected_type);
 }
 
 /**
@@ -474,6 +612,15 @@ void catalogUnloadAsset(const char *assetId)
     /* old_ref == new_ref == 0: already fully unloaded — silent no-op. */
 }
 
+void catalogReleaseTypedAsset(asset_type_e expected_type, const char *assetId)
+{
+    if (!s_catalogValidateTypedLifecycle("RELEASE", expected_type, assetId)) {
+        return;
+    }
+
+    catalogUnloadAsset(assetId);
+}
+
 void catalogRetainAsset(const char *assetId)
 {
     if (!assetId) {
@@ -492,6 +639,15 @@ void catalogRetainAsset(const char *assetId)
     if (entry->load_state >= ASSET_STATE_LOADED) {
         entry->ref_count++;
     }
+}
+
+void catalogRetainTypedAsset(asset_type_e expected_type, const char *assetId)
+{
+    if (!s_catalogValidateTypedLifecycle("RETAIN", expected_type, assetId)) {
+        return;
+    }
+
+    catalogRetainAsset(assetId);
 }
 
 /* ========================================================================

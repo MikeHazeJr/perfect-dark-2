@@ -59,6 +59,9 @@ constexpr u8 kMPWEAPON_AR34     = 0x10;
 constexpr u8 kMPWEAPON_SHIELD   = 0x27;
 constexpr u8 kMPWEAPON_DISABLED = 0x28;
 
+/* Mirror of NUM_MPWEAPONS (constants.h). */
+constexpr s32 kNUM_MPWEAPONS = 0x29;
+
 /* Mirror of NUM_MPWEAPONSLOTS (constants.h). */
 constexpr s32 kNUM_MPWEAPONSLOTS = 6;
 
@@ -394,6 +397,31 @@ TEST_CASE("spawn-weapon: NUM_MPWEAPONSLOTS pin",
     REQUIRE(kNUM_MPWEAPONSLOTS == 6);
 }
 
+TEST_CASE("weapon catalog identity: MP weapon table count is post-cull 41",
+          "[spawn-weapon][catalog][pin]") {
+    REQUIRE(kNUM_MPWEAPONS == 0x29);
+    REQUIRE(kMPWEAPON_NONE == 0x00);
+    REQUIRE(kMPWEAPON_SHIELD == 0x27);
+    REQUIRE(kMPWEAPON_DISABLED == 0x28);
+}
+
+TEST_CASE("weapon catalog identity: MP and runtime identity remain separate",
+          "[spawn-weapon][catalog][regression]") {
+    struct fake_resolved_weapon {
+        s32 mp_weapon_id;
+        s32 runtime_weapon_num;
+    };
+
+    const fake_resolved_weapon falcon2 = {
+        kMPWEAPON_FALCON2,
+        2 /* WEAPON_FALCON2 in constants.h */
+    };
+
+    REQUIRE(falcon2.mp_weapon_id == 1);
+    REQUIRE(falcon2.runtime_weapon_num == 2);
+    REQUIRE(falcon2.mp_weapon_id != falcon2.runtime_weapon_num);
+}
+
 TEST_CASE("spawn-weapon: FIESTA sentinel pin",
           "[spawn-weapon][pin]") {
     /* Pin the on-the-wire / runtime sentinel. If matchsetup.h
@@ -480,7 +508,7 @@ s32 spec_pickFromManifestPool(const fake_manifest_entry *manifest,
             if (e.type != kMANIFEST_TYPE_WEAPON) continue;     /* non-weapon: skip */
             if (!e.catalog_present) continue;                  /* missing catalog: skip */
             s32 wid = (s32)e.weapon_id;
-            if (wid <= 0 || wid >= 0x29 /* NUM_MPWEAPONS */) continue;
+            if (wid <= 0 || wid >= kNUM_MPWEAPONS) continue;
             if (wid == kMPWEAPON_NONE)     continue;
             if (wid == kMPWEAPON_DISABLED) continue;
             if (wid == kMPWEAPON_SHIELD)   continue;
@@ -643,7 +671,7 @@ TEST_CASE("spawn-weapon manifest: invalid weapon_id (>=NUM_MPWEAPONS) skipped",
      * must be skipped. Falls back to active set when nothing valid remains. */
     const fake_manifest_entry m[] = {
         { kMANIFEST_TYPE_WEAPON, true, 0xFF }, /* out of range */
-        { kMANIFEST_TYPE_WEAPON, true, 0x29 }, /* == NUM_MPWEAPONS, out of range */
+        { kMANIFEST_TYPE_WEAPON, true, (u8)kNUM_MPWEAPONS }, /* out of range */
     };
     const u8 active[kNUM_MPWEAPONSLOTS] = {
         kMPWEAPON_FALCON2, kMPWEAPON_NONE, kMPWEAPON_NONE,
