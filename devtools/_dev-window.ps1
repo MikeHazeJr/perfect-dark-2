@@ -1290,7 +1290,13 @@ function Save-QcFile {
         }
         $out += $line
     }
-    try { Set-Content -Path $script:QcFilePath -Value $out -Encoding UTF8 -ErrorAction Stop } catch {}
+    # No-BOM UTF-8 write. context/qc-tests.md is tracked; PS 5.1's
+    # `Set-Content -Encoding UTF8` would emit a BOM byte that left the
+    # working tree dirty after every QC update (S481).
+    try {
+        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($script:QcFilePath, ($out -join "`n"), $utf8NoBom)
+    } catch {}
 }
 
 function Update-QcSummary {
