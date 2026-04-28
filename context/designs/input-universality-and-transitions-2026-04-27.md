@@ -692,6 +692,13 @@ The Phase 1 doc proposed three new ACTION_* enum entries (`ACTION_TEXT_PASTE`, `
 
 Cohort 1 was committed at id 69 then rebased onto dev's S483b (id 69 = ACTION_SOCIAL_TOGGLE) and S483c (id 70 = ACTION_TESTSCEN_CYCLE_COUNT). Final id for ACTION_TEXT_PASTE is 71. No semantic change to Cohort 1; the pure-C test mirror (`tests/actionmap_pure.{c,h}`) does not track production ids and stays at its own internal ordering since the flush + classifier behavior under test does not depend on the absolute id.
 
+### L.5 Cohort 2 shipped (2026-04-27)
+
+- New module `port/include/inputlayer.h` + `port/src/inputlayer.c` -- typed Input Layer Stack. `LayerType` enum with 7 first-class scenes (Boot / Gameplay / Cutscene / Menu / VehicleDriver / VehicleTurret / Observer). Capacity 16. Handle-based push/pop with generation guard prevents use-after-pop. Abort cascade unwinds N layers in LIFO order. Canonical singletons declared (`g_LayerBoot`, `g_LayerGameplay`, etc.) with placeholder IMC + action-set fields that Cohort 3 will populate.
+- Cohort 2 deliberately does NOT yet wire the Layer Stack into actual push sites (gameplay start / menu open / cutscene tick); that work is Cohort 3's Scene Manager dispatch. `gameplayInputSuppressed()` is unchanged. The IMC stack is unchanged. This cohort is pure scaffolding plus invariant tests.
+- Tests: `tests/inputlayer_pure.{c,h}` pure-C mirror with per-type instrumentation (push_count / pop_count / abort_count / last_abort_reason) so callback ordering and reason-code propagation are observable. `tests/test_input_layer_stack.cpp` adds 15 cases / ~80 assertions covering: empty stack, init pushes BOOT, init idempotency, push/pop topology, mismatched-handle rejection, NULL-handle rejection, use-after-pop rejection, abort cascade with reason propagation, abort with from_top > depth clamps, abort with from_top <= 0 is no-op, capacity overflow, NULL def rejection, same-type stacking allowed (menu pool enforces uniqueness at higher level), payload threading into on_push, top-type sentinel when empty, shutdown aborts everything remaining.
+- `CMakeLists.txt` SRC_TESTS: registered new files. `port/src/inputlayer.c` gets auto-discovered into pd via GLOB_RECURSE.
+
 
 
 ---
