@@ -45,6 +45,7 @@
 #include "pdgui_menu_theme_editor.h"
 #include "pdgui_forge.h"
 #include "pdgui_menu_grid.h"
+#include "pdgui_friends.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
@@ -3589,6 +3590,20 @@ static s32 pdguiMainMenuGraphOpenStatsPanel(void *userdata)
     return 0;
 }
 
+static s32 pdguiMainMenuGraphOpenSocial(void *userdata)
+{
+    (void)userdata;
+    pdguiFriendsSocialOpen();
+    return 0;
+}
+
+static s32 pdguiMainMenuGraphOpenPublicMods(void *userdata)
+{
+    (void)userdata;
+    pdguiFriendsSocialOpenPublicMods();
+    return 0;
+}
+
 static s32 pdguiMainMenuGraphQuit(void *userdata)
 {
     (void)userdata;
@@ -5232,10 +5247,12 @@ static s32 renderMainMenu(struct menudialog *dialog,
      * pdgui_nav so keyboard and controller cancel share action-map authority. */
     bool titleClose = pdguiConsumeTitleClose() != 0;
     bool actionCancelEdge = pdguiMenuCancelPressed() != 0;
+    bool socialSurfaceOpen = pdguiFriendsAnySurfaceIsOpen() != 0;
     /* titleClose and actionCancelEdge bypass the closeGracePending grace: they
      * are precise signals (X-button click flag / hardware actionmap edge) that
      * cannot be spoofed by a queued opening press. */
     if (!ImGui::IsWindowAppearing()
+        && !socialSurfaceOpen
         && (titleClose || (!closeGracePending && actionCancelEdge))) {
         if (s_MenuView != 0) {
             if (s_MenuView == 2) {
@@ -5287,6 +5304,26 @@ static s32 renderMainMenu(struct menudialog *dialog,
         if (PdButton("Online Play", ImVec2(buttonW, buttonH * 1.2f))) {
             if (pdguiMainMenuFireSubviewEdge("online_play", 4, "open-online") == 0) {
                 pdguiPlaySound(PDGUI_SND_SELECT);
+            }
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        {
+            float halfButtonW = (buttonW - spacing) * 0.5f;
+            if (halfButtonW < pdguiScale(130.0f)) {
+                halfButtonW = buttonW;
+            }
+            if (PdButton("Social", ImVec2(halfButtonW, buttonH * 1.2f))) {
+                menuGraphFirePushOp(MENU_TYPE_MAIN_MENU, "social",
+                    pdguiMainMenuGraphOpenSocial, NULL);
+            }
+            if (halfButtonW < buttonW) {
+                ImGui::SameLine(0.0f, spacing);
+            }
+            if (PdButton("Public Mods", ImVec2(halfButtonW, buttonH * 1.2f))) {
+                menuGraphFirePushOp(MENU_TYPE_MAIN_MENU, "public_mods",
+                    pdguiMainMenuGraphOpenPublicMods, NULL);
             }
         }
 

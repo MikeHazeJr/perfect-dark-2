@@ -128,7 +128,7 @@ $script:AddinDir            = Join-Path $script:ProjectRoot "..\post-batch-addin
 $script:CMake               = "C:/msys64/mingw64/bin/cmake.exe"
 $script:CC                  = "C:/msys64/mingw64/bin/cc.exe"
 $script:CXX                 = "C:/msys64/mingw64/bin/c++.exe"
-$script:Python              = "C:/msys64/usr/bin/python3.exe"
+$script:Python              = $(if (Test-Path -LiteralPath "C:/Python312/python.exe") { "C:/Python312/python.exe" } else { "C:/msys64/usr/bin/python3.exe" })
 $script:ClientExeName       = "PerfectDark.exe"
 $script:ServerExeName       = "PerfectDarkServer.exe"
 $script:SoundsDir           = Join-Path $script:ProjectRoot "dist\build-sounds"
@@ -187,6 +187,7 @@ $script:BgPool.ThreadOptions  = [System.Management.Automation.Runspaces.PSThread
 $script:BgPool.Open()
 $script:DocListLoadBusy     = $false
 $script:GitActionBusy       = $false
+$script:GitActionLabel      = ""
 $script:GitSyncBusy         = $false
 
 # Pending-state stash for async callbacks.
@@ -415,19 +416,38 @@ function Get-ExePath($name) {
 
 function Test-ExeExists($name) { return ($null -ne (Get-ExePath $name)) }
 
-function Test-NeedsConfigure($buildDir) {
+function Test-NeedsConfigure($buildDir, $ver = $null) {
     $cache = Join-Path $buildDir "CMakeCache.txt"
     if (-not (Test-Path $cache)) { return $true }
+    $ninja = Join-Path $buildDir "build.ninja"
+    if (-not (Test-Path $ninja)) { return $true }
     $cmake = Join-Path $script:ProjectRoot "CMakeLists.txt"
     if (-not (Test-Path $cmake)) { return $true }
     if ((Get-Item $cmake).LastWriteTime -gt (Get-Item $cache).LastWriteTime) { return $true }
     try {
-        $snippet = (Get-Content -LiteralPath $cache -TotalCount 150 -ErrorAction Stop) -join "`n"
+        $snippet = Get-Content -LiteralPath $cache -Raw -ErrorAction Stop
         # Cache produced under WSL/Unix while we build from C:\ -> mixed paths (".../home/.../C:/...")
         if ($script:ProjectRoot -match '^[A-Za-z]:\\' -and $snippet -match '/home/[^\s\r\n]+') {
             return $true
         }
-    } catch {}
+        $expectedPython = $script:Python -replace '\\', '/'
+        $pythonMatch = [regex]::Match($snippet, "(?m)^PD_PYTHON_EXECUTABLE(?::[^=]*)?=(.+?)\s*$")
+        if (-not $pythonMatch.Success) { return $true }
+        $cachedPython = $pythonMatch.Groups[1].Value.Trim() -replace '\\', '/'
+        if ($cachedPython -ne $expectedPython) { return $true }
+        if ($null -ne $ver) {
+            $expected = @{
+                VERSION_SEM_MAJOR = [int]$ver.Major
+                VERSION_SEM_MINOR = [int]$ver.Minor
+                VERSION_SEM_PATCH = [int]$ver.Patch
+            }
+            foreach ($name in $expected.Keys) {
+                $m = [regex]::Match($snippet, "(?m)^$name(?::[^=]*)?=(\d+)\s*$")
+                if (-not $m.Success) { return $true }
+                if ([int]$m.Groups[1].Value -ne $expected[$name]) { return $true }
+            }
+        }
+    } catch { return $true }
     return $false
 }
 
@@ -921,7 +941,7 @@ function Refresh-LatestRelease {
                                 <Button x:Name="BtnPull" Content="Pull" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
                                         ToolTip="git pull (current branch, upstream)"/>
                                 <Button x:Name="BtnPush" Content="Push" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
-                                        ToolTip="git push (current branch to upstream)"/>
+                                        ToolTip="Commit pending changes, then push the current branch"/>
                                 <Button x:Name="BtnPruneWorktrees" Content="Prune Worktrees" Style="{StaticResource ToolBtn}" Margin="0,0,8,0"
                                         ToolTip="git worktree prune (remove stale worktree references from .claude/worktrees/)"/>
                                 <Button x:Name="BtnCheck" Content="Check" Style="{StaticResource ToolBtn}"
@@ -1376,6 +1396,12 @@ function Copy-AddinFiles {
     $dstData = Join-Path $script:BuildDir "data"
     if (-not (Test-Path $srcData)) { return }
     try {
+        $robocopy = Get-Command robocopy.exe -ErrorAction SilentlyContinue
+        if ($null -ne $robocopy) {
+            $robocopyPath = if ($robocopy.Path) { $robocopy.Path } elseif ($robocopy.Source) { $robocopy.Source } else { "robocopy.exe" }
+            & $robocopyPath $srcData $dstData /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
+            if ($LASTEXITCODE -le 7) { return }
+        }
         if (Test-Path $dstData) { Remove-Item $dstData -Recurse -Force -ErrorAction SilentlyContinue }
         Copy-Item -Path $srcData -Destination $dstData -Recurse -Force -ErrorAction Stop
     } catch {}
@@ -1402,6 +1428,8 @@ function Get-GitCurrentBranch {
 function Start-GitSyncBeforeBuild {
     param(
         [string]$CommitMessage = "chore: auto-commit before build (dev window)",
+        [string]$ActionLabel = "sync before build",
+        [bool]$RequirePush = $false,
         [Parameter(Mandatory=$true)][scriptblock]$OnComplete
     )
     # Stash the caller's callback in a $script: var instead of a local + GetNewClosure().
@@ -1434,11 +1462,11 @@ function Start-GitSyncBeforeBuild {
     $wslExe = if ($null -ne $wslCmd) { $wslCmd.Source } else { $null }
 
     Add-LogSessionLine "" "#C0C8D2"
-    Add-LogSessionLine ">>> git: sync before build" "#0078A8"
+    Add-LogSessionLine (">>> git: " + $ActionLabel) "#0078A8"
 
     Start-AsyncPoolAction `
         -Script {
-            param($root, $gitExe, $commitMessage, $winLock, $rmExe, $cygpathExe, $wslExe)
+            param($root, $gitExe, $commitMessage, $winLock, $rmExe, $cygpathExe, $wslExe, $requirePush)
 
             $logs = New-Object System.Collections.ArrayList
 
@@ -1516,7 +1544,8 @@ function Start-GitSyncBeforeBuild {
             }
             if ($addCode -ne 0) {
                 foreach ($line in $addOut) { [void]$logs.Add(@{ Text = "$line"; Color = "#B81818" }) }
-                [void]$logs.Add(@{ Text = "git add failed before build."; Color = "#B81818" })
+                $addFailText = if ($requirePush) { "git add failed before push." } else { "git add failed before build." }
+                [void]$logs.Add(@{ Text = $addFailText; Color = "#B81818" })
                 $hint = "git add failed (index.lock). Close other git users of this repo: Cursor/VS Code Source Control, terminals, then retry. Prefer MSYS2 MinGW git (C:\msys64\mingw64\bin\git.exe) over usr\bin\git.exe."
                 return [PSCustomObject]@{ Ok = $false; Logs = $logs; ErrMsg = $hint }
             }
@@ -1543,7 +1572,8 @@ function Start-GitSyncBeforeBuild {
                 }
                 if ($commitCode -ne 0) {
                     [void]$logs.Add(@{ Text = "git commit failed (hooks, conflicts, or repo state)."; Color = "#B81818" })
-                    return [PSCustomObject]@{ Ok = $false; Logs = $logs; ErrMsg = "git commit failed before build. Fix the repo, then retry." }
+                    $commitHint = if ($requirePush) { "git commit failed. Fix the repo, then retry." } else { "git commit failed before build. Fix the repo, then retry." }
+                    return [PSCustomObject]@{ Ok = $false; Logs = $logs; ErrMsg = $commitHint }
                 }
                 [void]$logs.Add(@{ Text = "Committed: $commitMessage"; Color = "#0078A8" })
             } else {
@@ -1574,16 +1604,21 @@ function Start-GitSyncBeforeBuild {
                 [void]$logs.Add(@{ Text = "$line"; Color = $cl })
             }
             if ($pushCode -ne 0) {
-                # Audit 2026-04-16: push failure must NOT abort the build. v1 treats
-                # push as a best-effort step; log and continue.
-                [void]$logs.Add(@{ Text = "git push failed (exit $pushCode) - continuing build without pushing."; Color = "#A07810" })
+                if ($requirePush) {
+                    [void]$logs.Add(@{ Text = "git push failed (exit $pushCode)."; Color = "#B81818" })
+                    return [PSCustomObject]@{ Ok = $false; Logs = $logs; ErrMsg = "git push failed. See the Log tab for details." }
+                } else {
+                    # Audit 2026-04-16: push failure must NOT abort the build. v1 treats
+                    # push as a best-effort step; log and continue.
+                    [void]$logs.Add(@{ Text = "git push failed (exit $pushCode) - continuing build without pushing."; Color = "#A07810" })
+                }
             } else {
                 [void]$logs.Add(@{ Text = "git push: ok"; Color = "#0078A8" })
             }
 
             return [PSCustomObject]@{ Ok = $true; Logs = $logs; ErrMsg = $null }
         } `
-        -Arguments @($root, $gitExe, $CommitMessage, $winLock, $rmExe, $cygpathExe, $wslExe) `
+        -Arguments @($root, $gitExe, $CommitMessage, $winLock, $rmExe, $cygpathExe, $wslExe, $RequirePush) `
         -OnComplete {
             # Plain scriptblock (NO GetNewClosure). It retains the main module's
             # $script: scope, so writes to $script:GitSyncBusy here actually clear the
@@ -1672,27 +1707,30 @@ function Invoke-GitPull {
         [System.Windows.MessageBox]::Show("Another git action is in progress.", "Git Pull", "OK", "Information") | Out-Null
         return
     }
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    $gitExe = Resolve-GitExecutable
+    if (-not $gitExe) {
         [System.Windows.MessageBox]::Show("git was not found on PATH.", "Git Pull", "OK", "Warning") | Out-Null
         return
     }
     $script:GitActionBusy = $true
+    $script:GitActionLabel = "pulling..."
     $ui["BtnPull"].IsEnabled = $false
-    $br = Get-GitCurrentBranch
+    $ui["BtnPush"].IsEnabled = $false
+    $br = Get-GitCurrentBranch -GitExe $gitExe
     Add-LogLine ">>> git pull (branch: $br)" "#0078A8"
     Clear-StaleGitIndexLock $script:ProjectRoot
 
     Start-AsyncPoolAction `
         -Script {
-            param($root)
+            param($root, $gitExe)
             try {
-                $out = & git -C $root pull 2>&1
+                $out = & $gitExe -C $root pull 2>&1
                 [PSCustomObject]@{ Code = $LASTEXITCODE; Out = @($out | ForEach-Object { "$_" }) }
             } catch {
                 [PSCustomObject]@{ Code = -1; Out = @($_.Exception.Message) }
             }
         } `
-        -Arguments @($script:ProjectRoot) `
+        -Arguments @($script:ProjectRoot, $gitExe) `
         -OnComplete {
             param($result)
             try {
@@ -1711,7 +1749,10 @@ function Invoke-GitPull {
                 }
             } catch {}
             $script:GitActionBusy = $false
+            $script:GitActionLabel = ""
             $ui["BtnPull"].IsEnabled = $true
+            $ui["BtnPush"].IsEnabled = $true
+            Refresh-VersionDisplay
             Update-StatusBar
         }
 }
@@ -1725,47 +1766,32 @@ function Invoke-GitPush {
         [System.Windows.MessageBox]::Show("Another git action is in progress.", "Git Push", "OK", "Information") | Out-Null
         return
     }
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    $gitExe = Resolve-GitExecutable
+    if (-not $gitExe) {
         [System.Windows.MessageBox]::Show("git was not found on PATH.", "Git Push", "OK", "Warning") | Out-Null
         return
     }
     $script:GitActionBusy = $true
+    $script:GitActionLabel = "committing + pushing..."
     $ui["BtnPush"].IsEnabled = $false
-    $br = Get-GitCurrentBranch
-    Add-LogLine ">>> git push (branch: $br)" "#0078A8"
-    Clear-StaleGitIndexLock $script:ProjectRoot
+    $ui["BtnPull"].IsEnabled = $false
+    $br = Get-GitCurrentBranch -GitExe $gitExe
+    Add-LogLine ">>> git commit + push (branch: $br)" "#0078A8"
 
-    Start-AsyncPoolAction `
-        -Script {
-            param($root)
-            try {
-                $out = & git -C $root push 2>&1
-                [PSCustomObject]@{ Code = $LASTEXITCODE; Out = @($out | ForEach-Object { "$_" }) }
-            } catch {
-                [PSCustomObject]@{ Code = -1; Out = @($_.Exception.Message) }
-            }
-        } `
-        -Arguments @($script:ProjectRoot) `
-        -OnComplete {
-            param($result)
-            try {
-                $r = if ($result -and $result.Count -gt 0) { $result[0] } else { $result }
-                if ($null -ne $r) {
-                    $code = [int]$r.Code
-                    foreach ($line in $r.Out) {
-                        $cl = if ($code -ne 0) { "#B81818" } else { "#4A5868" }
-                        Add-LogLine ("$line".TrimEnd("`r")) $cl
-                    }
-                    if ($code -eq 0) {
-                        [System.Windows.MessageBox]::Show("Push completed successfully.", "Git Push", "OK", "Information") | Out-Null
-                    } else {
-                        [System.Windows.MessageBox]::Show("Push finished with exit code $code.`nSee Log tab for details.", "Git Push", "OK", "Warning") | Out-Null
-                    }
-                }
-            } catch {}
+    Start-GitSyncBeforeBuild -CommitMessage "chore: dev window push" -ActionLabel "commit + push" -RequirePush $true -OnComplete {
+            param($ok)
             $script:GitActionBusy = $false
+            $script:GitActionLabel = ""
             $ui["BtnPush"].IsEnabled = $true
+            $ui["BtnPull"].IsEnabled = $true
+            Refresh-VersionDisplay
+            Update-RunButtons
             Update-StatusBar
+            if ($ok) {
+                [System.Windows.MessageBox]::Show("Commit + push completed successfully.", "Git Push", "OK", "Information") | Out-Null
+            } else {
+                Add-LogLine "Commit + push did not complete. See details above." "#B81818"
+            }
         }
 }
 
@@ -1778,14 +1804,14 @@ function Invoke-GitPruneWorktrees {
         [System.Windows.MessageBox]::Show("Another git action is in progress.", "Prune Worktrees", "OK", "Information") | Out-Null
         return
     }
-    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    $gitExe = Resolve-GitExecutable
+    if (-not $gitExe) {
         [System.Windows.MessageBox]::Show("git was not found on PATH.", "Prune Worktrees", "OK", "Warning") | Out-Null
         return
     }
-    $gitExe = Resolve-GitExecutable
-    if (-not $gitExe) { $gitExe = "git" }
 
     $script:GitActionBusy = $true
+    $script:GitActionLabel = "pruning worktrees..."
     $ui["BtnPruneWorktrees"].IsEnabled = $false
     Add-LogSessionLine "" "#C0C8D2"
     Add-LogSessionLine ">>> git worktree prune -v" "#0078A8"
@@ -1827,6 +1853,7 @@ function Invoke-GitPruneWorktrees {
                 }
             } catch {}
             $script:GitActionBusy = $false
+            $script:GitActionLabel = ""
             $ui["BtnPruneWorktrees"].IsEnabled = $true
             Update-StatusBar
         }
@@ -1901,7 +1928,7 @@ function Start-Build-Step($step) {
 }
 
 function Get-BuildSteps($ver, [bool]$forceClean = $false) {
-    # SYNC RULE: cmake configure args MUST match build-headless.ps1 exactly.
+    # SYNC RULE: when configure runs, args MUST stay aligned with build-headless.ps1.
     $cores = $(if ($env:NUMBER_OF_PROCESSORS) { $env:NUMBER_OF_PROCESSORS } else { "4" })
     # SYNC: optional -DPD_STABLE_RELEASE=ON matches CMakeLists.txt / build-headless.ps1
     $vFlags = " -DVERSION_SEM_MAJOR=" + $ver.Major + " -DVERSION_SEM_MINOR=" + $ver.Minor + " -DVERSION_SEM_PATCH=" + $ver.Patch
@@ -1920,15 +1947,17 @@ function Get-BuildSteps($ver, [bool]$forceClean = $false) {
     $ensureBuildDirArgs = "/c if not exist `"" + $script:BuildDir + "`" mkdir `"" + $script:BuildDir + "`""
     [void]$steps.Add(@{Name="Ensure build dir"; Exe="cmd.exe"; Target="client"; Args=$ensureBuildDirArgs})
 
-    # Always reconfigure for Build/Release in v2.
-    # This avoids stale cache/version metadata when CMake regenerates via Ninja
-    # and keeps behavior aligned with build-headless.ps1.
-    $cfgArgs = "-G Ninja -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -DCMAKE_CXX_COMPILER=`"" + $script:CXX + "`" -DPD_PYTHON_EXECUTABLE=`"" + $script:Python + "`" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -B `"" + $script:BuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags
-    [void]$steps.Add(@{Name="Configure (Ninja + ccache)"; Exe=$script:CMake; Target="client"; Args=$cfgArgs})
+    $needsConfigure = $forceClean -or (Test-NeedsConfigure $script:BuildDir $ver)
+    if ($needsConfigure) {
+        $cfgArgs = "-G Ninja -DCMAKE_C_COMPILER=`"" + $script:CC + "`" -DCMAKE_CXX_COMPILER=`"" + $script:CXX + "`" -DCMAKE_C_COMPILER_FORCED=TRUE -DCMAKE_CXX_COMPILER_FORCED=TRUE -DPD_PYTHON_EXECUTABLE=`"" + $script:Python + "`" -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -B `"" + $script:BuildDir + "`" -S `"" + $script:ProjectRoot + "`"" + $vFlags
+        [void]$steps.Add(@{Name="Configure (Ninja + ccache)"; Exe=$script:CMake; Target="client"; Args=$cfgArgs})
+    } else {
+        Add-LogSessionLine "CMake configure skipped (cache/version current)." "#44586C"
+    }
     # Client only. Dedicated server connectivity is now in-client (listen mode);
     # pd-server is no longer shipped and so is no longer built per BUILD/RELEASE.
     # The cmake target is still defined for pd-tests linkage if needed.
-    [void]$steps.Add(@{Name="Build (client: pd)"; Exe=$script:CMake; Target="client"; Args="--build `"" + $script:BuildDir + "`" --target pd"})
+    [void]$steps.Add(@{Name="Build (client: pd)"; Exe=$script:CMake; Target="client"; Args="--build `"" + $script:BuildDir + "`" --target pd --parallel " + $cores})
 
     return $steps
 }
@@ -2279,27 +2308,42 @@ function Build-Tests-Then-Run {
     $cc = $script:CC
     $cxx = $script:CXX
     $py = $script:Python
+    $ver = Get-ProjectVersion
+    $needsConfigure = Test-NeedsConfigure $buildDir $ver
+    $cores = $(if ($env:NUMBER_OF_PROCESSORS) { $env:NUMBER_OF_PROCESSORS } else { "4" })
+    $versionMajor = [int]$ver.Major
+    $versionMinor = [int]$ver.Minor
+    $versionPatch = [int]$ver.Patch
 
     Start-AsyncPoolAction `
         -Script {
-            param($cmakeExe, $buildDir, $projectRoot, $cc, $cxx, $py)
+            param($cmakeExe, $buildDir, $projectRoot, $cc, $cxx, $py, $needsConfigure, $cores, $versionMajor, $versionMinor, $versionPatch)
             $output = New-Object System.Collections.ArrayList
             try {
-                # Configure (idempotent; cheap with cacert + versioninfo gates).
-                $cfg = & $cmakeExe -G Ninja `
-                    "-DCMAKE_C_COMPILER=$cc" `
-                    "-DCMAKE_CXX_COMPILER=$cxx" `
-                    "-DPD_PYTHON_EXECUTABLE=$py" `
-                    "-DCMAKE_C_COMPILER_LAUNCHER=ccache" `
-                    "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache" `
-                    -B $buildDir -S $projectRoot 2>&1
-                $cfgCode = $LASTEXITCODE
-                foreach ($l in $cfg) { [void]$output.Add(@{ Text = "$l"; Color = "#4A5868" }) }
-                if ($cfgCode -ne 0) {
-                    return [PSCustomObject]@{ Ok = $false; Output = $output; Err = "configure failed" }
+                if ($needsConfigure) {
+                    $cfg = & $cmakeExe -G Ninja `
+                        "-DCMAKE_C_COMPILER=$cc" `
+                        "-DCMAKE_CXX_COMPILER=$cxx" `
+                        "-DCMAKE_C_COMPILER_FORCED=TRUE" `
+                        "-DCMAKE_CXX_COMPILER_FORCED=TRUE" `
+                        "-DPD_PYTHON_EXECUTABLE=$py" `
+                        "-DVERSION_SEM_MAJOR=$versionMajor" `
+                        "-DVERSION_SEM_MINOR=$versionMinor" `
+                        "-DVERSION_SEM_PATCH=$versionPatch" `
+                        "-DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY" `
+                        "-DCMAKE_C_COMPILER_LAUNCHER=ccache" `
+                        "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache" `
+                        -B $buildDir -S $projectRoot 2>&1
+                    $cfgCode = $LASTEXITCODE
+                    foreach ($l in $cfg) { [void]$output.Add(@{ Text = "$l"; Color = "#4A5868" }) }
+                    if ($cfgCode -ne 0) {
+                        return [PSCustomObject]@{ Ok = $false; Output = $output; Err = "configure failed" }
+                    }
+                } else {
+                    [void]$output.Add(@{ Text = "tests: configure skipped (cache current)."; Color = "#44586C" })
                 }
                 # Build pd-tests target.
-                $bld = & $cmakeExe --build $buildDir --target pd-tests 2>&1
+                $bld = & $cmakeExe --build $buildDir --target pd-tests --parallel $cores 2>&1
                 $bldCode = $LASTEXITCODE
                 foreach ($l in $bld) {
                     $color = "#4A5868"
@@ -2316,7 +2360,7 @@ function Build-Tests-Then-Run {
                 return [PSCustomObject]@{ Ok = $false; Output = $output; Err = $_.Exception.Message }
             }
         } `
-        -Arguments @($cmakeExe, $buildDir, $projectRoot, $cc, $cxx, $py) `
+        -Arguments @($cmakeExe, $buildDir, $projectRoot, $cc, $cxx, $py, $needsConfigure, $cores, $versionMajor, $versionMinor, $versionPatch) `
         -OnComplete {
             param($result)
             $script:TestsBuildBusy = $false
@@ -2763,7 +2807,8 @@ $script:BuildTimer.Add_Tick({
                         Set-ProjectVersion $script:BuildVersion.Major $script:BuildVersion.Minor $script:BuildVersion.Patch
                     }
                     try {
-                        $headHash = (git -C $script:ProjectRoot rev-parse HEAD 2>$null)
+                        $gitExe = Resolve-GitExecutable
+                        $headHash = if ($gitExe) { (& $gitExe -C $script:ProjectRoot rev-parse HEAD 2>$null) } else { $null }
                         if ($headHash) {
                             $hf = Join-Path $script:ProjectRoot "build\.last-built-hash"
                             Set-Content -Path $hf -Value $headHash.Trim() -NoNewline -Encoding UTF8
@@ -3063,11 +3108,11 @@ function Update-StatusMode {
         $color = "#0078A8"
     }
     elseif ($script:GitSyncBusy) {
-        $text = "Git: syncing..."
+        $text = if ($script:GitActionBusy -and $script:GitActionLabel) { "Git: " + $script:GitActionLabel } else { "Git: syncing..." }
         $color = "#0078A8"
     }
     elseif ($script:GitActionBusy) {
-        $text = "Git: busy"
+        $text = if ($script:GitActionLabel) { "Git: " + $script:GitActionLabel } else { "Git: busy" }
         $color = "#0078A8"
     }
     elseif ($testsRunning) {
@@ -3095,20 +3140,22 @@ function Update-StatusBar {
     # Guard: skip if a git poll is already in flight
     if ($script:GitBusy) { return }
     $script:GitBusy = $true
+    $gitExe = Resolve-GitExecutable
+    if (-not $gitExe) { $gitExe = "git" }
 
     # Perf: reuse the persistent BgPool instead of creating a fresh runspace per
     # call. Old code opened a runspace here every 2s tick (~100-500ms on UI
     # thread). Pool-backed PowerShell instances skip the Open() cost entirely.
     Start-AsyncPoolAction `
         -Script {
-            param($root)
-            $b = try { $x = git -C $root branch --show-current 2>$null; if ($x) { $x.Trim() } else { 'unknown' } } catch { 'unknown' }
-            $h = try { $x = git -C $root rev-parse --short HEAD 2>$null; if ($x) { $x.Trim() } else { '------' } } catch { '------' }
-            $c = try { $st = git -C $root status --porcelain 2>$null; if ($st) { @($st).Count } else { 0 } } catch { 0 }
-            $w = try { $wt = git -C $root worktree list --porcelain 2>$null; if ($wt) { ([regex]::Matches($wt, '^worktree ', [System.Text.RegularExpressions.RegexOptions]::Multiline)).Count } else { 1 } } catch { 0 }
+            param($root, $gitExe)
+            $b = try { $x = & $gitExe -C $root branch --show-current 2>$null; if ($x) { $x.Trim() } else { 'unknown' } } catch { 'unknown' }
+            $h = try { $x = & $gitExe -C $root rev-parse --short HEAD 2>$null; if ($x) { $x.Trim() } else { '------' } } catch { '------' }
+            $c = try { $st = & $gitExe -C $root status --porcelain 2>$null; if ($st) { @($st).Count } else { 0 } } catch { 0 }
+            $w = try { $wt = & $gitExe -C $root worktree list --porcelain 2>$null; if ($wt) { ([regex]::Matches($wt, '^worktree ', [System.Text.RegularExpressions.RegexOptions]::Multiline)).Count } else { 1 } } catch { 0 }
             [PSCustomObject]@{ Branch = $b; Hash = $h; Count = $c; Worktrees = $w }
         } `
-        -Arguments @($script:ProjectRoot) `
+        -Arguments @($script:ProjectRoot, $gitExe) `
         -OnComplete {
             # Plain scriptblock (NO GetNewClosure) so $script: writes propagate.
             # Earlier inlined GetNewClosure'd tick handler had a SEPARATE $script: scope --

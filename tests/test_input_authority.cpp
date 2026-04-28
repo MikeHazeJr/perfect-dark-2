@@ -88,6 +88,60 @@ TEST_CASE("inputctx: any non-gameplay context on top suppresses input", "[inputc
     }
 }
 
+TEST_CASE("inputctx bridge: menu layer tracks effective non-gameplay top",
+          "[inputctx][inputlayer][bridge]")
+{
+    resetWorld();
+    REQUIRE(inputCtxPurePush(&k_Gameplay) == 1);
+    REQUIRE(inputCtxPureMenuLayerActive() == 0);
+    REQUIRE(inputCtxPureMenuLayerPushCount() == 0);
+    REQUIRE(inputCtxPureMenuLayerPopCount() == 0);
+
+    REQUIRE(inputCtxPurePush(&k_ImguiMenu) == 1);
+    REQUIRE(inputCtxPureMenuLayerActive() == 1);
+    REQUIRE(inputCtxPureMenuLayerPushCount() == 1);
+    REQUIRE(inputCtxPureMenuLayerPopCount() == 0);
+
+    REQUIRE(inputCtxPurePush(&k_DebugOvl) == 1);
+    REQUIRE(inputCtxPureMenuLayerActive() == 1);
+    REQUIRE(inputCtxPureMenuLayerPushCount() == 1);
+
+    inputCtxPurePopDeferred(&k_DebugOvl);
+    REQUIRE(inputCtxPureGetTop() == &k_ImguiMenu);
+    REQUIRE(inputCtxPureMenuLayerActive() == 1);
+    inputCtxPureEndFrame();
+    REQUIRE(inputCtxPureMenuLayerActive() == 1);
+
+    inputCtxPurePopDeferred(&k_ImguiMenu);
+    REQUIRE(inputCtxPureGetTop() == &k_Gameplay);
+    REQUIRE(inputCtxPureMenuLayerActive() == 0);
+    REQUIRE(inputCtxPureMenuLayerPopCount() == 1);
+    REQUIRE(inputCtxPureDepth() == 2);
+
+    inputCtxPureEndFrame();
+    REQUIRE(inputCtxPureDepth() == 1);
+    REQUIRE(inputCtxPureMenuLayerActive() == 0);
+}
+
+TEST_CASE("inputctx bridge: resurrecting a marked menu restores menu layer",
+          "[inputctx][inputlayer][bridge][resurrect]")
+{
+    resetWorld();
+    REQUIRE(inputCtxPurePush(&k_Gameplay) == 1);
+    REQUIRE(inputCtxPurePush(&k_ImguiMenu) == 1);
+    REQUIRE(inputCtxPureMenuLayerActive() == 1);
+
+    inputCtxPurePopDeferred(&k_ImguiMenu);
+    REQUIRE(inputCtxPureGetTop() == &k_Gameplay);
+    REQUIRE(inputCtxPureMenuLayerActive() == 0);
+
+    REQUIRE(inputCtxPurePush(&k_ImguiMenu) == 2);
+    REQUIRE(inputCtxPureGetTop() == &k_ImguiMenu);
+    REQUIRE(inputCtxPureMenuLayerActive() == 1);
+    REQUIRE(inputCtxPureMenuLayerPushCount() == 2);
+    REQUIRE(inputCtxPureMenuLayerPopCount() == 1);
+}
+
 TEST_CASE("inputctx: deferred pop unblocks gameplay only after EndFrame", "[inputctx][authority][deferred]")
 {
     resetWorld();

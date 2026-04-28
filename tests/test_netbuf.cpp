@@ -241,6 +241,23 @@ TEST_CASE("netbuf: zero-length wire string returns safe empty string", "[netbuf]
     REQUIRE(nb.error == 0);
 }
 
+TEST_CASE("netbuf: unterminated wire string is rejected without mutating payload",
+          "[netbuf][security]") {
+    u8 wire[] = {
+        0x05, 0x00,             /* string len = 5 */
+        'h', 'e', 'l', 'l', 'o',
+        0xAB                    /* next field payload */
+    };
+    netbuf nb;
+    netbufStartReadData(&nb, wire, sizeof(wire));
+    const char *s = netbufReadStr(&nb);
+    REQUIRE(s == nullptr);
+    REQUIRE(nb.error == 1);
+    REQUIRE(nb.rp == 2);
+    REQUIRE(wire[6] == 'o');
+    REQUIRE(wire[7] == 0xAB);
+}
+
 TEST_CASE("net distribution: SVC_DISTRIB_BEGIN carries mandatory digest",
           "[netbuf][security][static]") {
     auto read_file = [](const char *path) {

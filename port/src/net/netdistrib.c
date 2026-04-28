@@ -43,7 +43,6 @@
 #include "net/netmanifest.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
-#include "assetprovider.h"
 #include "pdgui_theme_loader.h"
 #include "system.h"
 #include "fs.h"
@@ -945,35 +944,24 @@ static asset_type_e iniFilenameToAssetType(const char *ini_name)
     return ASSET_NONE;
 }
 
-static asset_data_handle_t distribFileProviderHandle(const char *dirpath, const char *relpath)
-{
-    char fullpath[FS_MAXPATH];
-
-    if (!relpath || !relpath[0]) {
-        return (asset_data_handle_t){0};
-    }
-
-    if (relpath[0] == '/'
-            || relpath[0] == '\\'
-            || (relpath[0] && relpath[1] == ':')) {
-        return fileProviderHandle(relpath);
-    }
-
-    if (!dirpath || !dirpath[0]) {
-        return fileProviderHandle(relpath);
-    }
-
-    snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, relpath);
-    return fileProviderHandle(fullpath);
-}
-
 static void distribSetPrimaryFromFile(asset_entry_t *e, const char *dirpath, const char *relpath)
 {
-    asset_data_handle_t handle = distribFileProviderHandle(dirpath, relpath);
+    char fullpath[FS_MAXPATH];
+    const char *path = relpath;
 
-    if (!assetHandleIsNull(handle)) {
-        catalogSetPrimary(e, handle);
+    if (!relpath || !relpath[0]) {
+        return;
     }
+
+    if (relpath[0] != '/'
+            && relpath[0] != '\\'
+            && !(relpath[0] && relpath[1] == ':')
+            && dirpath && dirpath[0]) {
+        snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, relpath);
+        path = fullpath;
+    }
+
+    catalogSetPrimaryFile(e, path);
 }
 
 /* Populate the asset_entry_t ext union from the parsed INI, mirroring the

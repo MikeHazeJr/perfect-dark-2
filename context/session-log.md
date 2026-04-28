@@ -1,8 +1,259 @@
 
 # Session Log (Active)
 
-> **S284-S565** (rolling window). Older sessions **S280-S241** -> [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240-S157** -> [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1-S119** -> [_archive/sessions/].
+> **S284-S572** (rolling window). Older sessions **S280-S241** -> [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240-S157** -> [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1-S119** -> [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S572 - 2026-04-28 - Quality pd-tests start/manifest lifecycle pass
+
+Continued the Quality / Testing / Audits lane. Scope stayed on the current highest-risk start/manifest lifecycle and network parser invariants, with production guards and `pd-tests` coverage in the same change.
+
+### Outcome
+
+- Added `tests/test_net_lifecycle_static.cpp` to `pd-tests` and pinned the `CLC_LOBBY_START` authority-before-payload invariant so rejected non-leader starts cannot dirty match setup.
+- Hardened malformed `SVC_MATCH_MANIFEST` handling so `g_ClientManifest` is cleared again on parse failure, including staged hash cleanup before PREPARING state.
+- Made Counter-Op anti-client validation transactional: invalid/disconnected/wrong-room anti clients now return before committing `g_NetGameMode` / `g_NetCounterOpClientId`.
+- Added `SVC_STAGE_START` mode validation and staged tick/RNG/match-seed commits until stage identity and mode validation pass.
+- Added `SVC_STAGE_START` null-source rejection before `srccl->state` access or payload reads.
+- Added `SVC_LOBBY_STATE` mode/status validation before committing lobby/global mode state.
+- Logged B-272 through B-279 for the concrete one-off lifecycle/parser bugs fixed or covered in this pass.
+
+### Files
+
+- `port/src/net/netmsg.c`
+- `tests/test_net_lifecycle_static.cpp`
+- `CMakeLists.txt`
+- Context updates: `context/tasks-current.md`, `context/bugs.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated session id `qlc566`, not shared `Build/`.
+- The prescribed wrapper `.\devtools\build-session.ps1 -Session qlc566 -Target all` configured the isolated tree but stalled in Ninja client compilation, matching the known Codex desktop wrapper stall. Verification then used the same isolated tree's canonical `ninja -t commands` command list directly.
+- Final focused verification rebuilt the affected `pd-tests` object, relinked `pd-tests.exe`, and compiled the changed `netmsg.c` for both client and server object targets.
+- Final `pd-tests.exe` pass: 347 test cases / 19492 assertions.
+- Recurring expected stub logs remained: missing read bytes, malformed string terminator, truncated read, and truncated u32 read.
+
+### Next
+
+- Next quality follow-up is broader than this pass: audit handler dispatch contracts for other `srccl` assumptions (`CLC_*` server handlers and `SVC_*` client handlers) and decide whether shared dispatch-side null/source guards are cleaner than per-handler patches.
+- Manual negative tests remain useful for B-272 through B-279, especially rejected start requests, malformed stage/lobby state packets, and truncated manifest handling.
+
+---
+
+## Session S571 - 2026-04-28 - Social shell main-menu entry and force-close cleanup
+
+Continued the controller-first modern main menu / Social shell work after the initial menu-pool and controller-row pass. Scope stayed inside ImGui/menu-pool/input-context ownership.
+
+### Outcome
+
+- Added first-screen `Social` and `Public Mods` main-menu entry points using `menugraph` push ops to `MENU_TYPE_SOCIAL_SHELL`.
+- Public Mods now opens the Social shell directly on the Public Mods tab through `pdguiFriendsSocialOpenPublicMods()`.
+- Main-menu Back/Escape now defers while any Social shell surface is open, letting chat/Social/sidebar consume Back before the main menu unwinds.
+- Status-pill clicks now immediately resync Social shell menu-pool ownership.
+- Social/sidebar/chat/NAT windows request focus when appearing.
+- Social shell state now adopts external force-close / `menupoolReleaseAll()` by clearing local sidebar/menu/chat/modal booleans instead of immediately reacquiring the pool slot.
+- `pdguiNewFrame()` now treats active Social shell surfaces as a reason to start an ImGui frame, so standalone social surfaces are not skipped by the backend early-return gate.
+
+### Files
+
+- `port/include/pdgui_friends.h`
+- `port/fast3d/pdgui_friends.cpp`
+- `port/fast3d/pdgui_nat_diagnostics.cpp`
+- `port/fast3d/pdgui_menu_mainmenu.cpp`
+- `port/fast3d/pdgui_backend.cpp`
+- `port/src/menugraph.c`
+- Context updates: `context/build.md`, `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- `git diff --check` passed for the touched Social shell, backend, menugraph, menu-pool, and context files.
+- Isolated build session `ui568` was used, not shared `Build/`.
+- `.\devtools\build-session.ps1 -Session ui568 -Target all` completed configure and then client compilation ran until the Codex command timed out at 15 minutes without surfacing a compiler diagnostic.
+- The stale `ui568` lock recorded PID 6120; that PID was gone. Cleanup used `.\devtools\build-session.ps1 -Remove -Session ui568 -Force`, and `.\devtools\build-session.ps1 -List` confirmed `ui568` was removed while other active sessions were left untouched.
+
+### Next
+
+- Re-run isolated verification after current parallel builds clear, with a longer window or the known direct isolated-tree Ninja fallback if the wrapper stalls again.
+- Then do an in-game controller pass over first-screen Social/Public Mods entry, sidebar, Social tabs, chat, invites, public mods, profile modal, add-friend modal, and NAT diagnostics.
+- If build/gamepad verification is clean, the next safe code slice is public-mod add/import form layout and default focus polish inside the Social shell.
+
+---
+
+## Session S570 - 2026-04-28 - Dev Window v2 push and warm-build polish
+
+Updated Dev Window v2 after S569 while leaving parallel catalog/input/security work untouched.
+
+### Outcome
+
+- The Push button now runs the same async git sync path as build/release, but as a required commit+push action: stage pending changes, commit with `chore: dev window push`, push the current branch, then refresh version/run/status UI.
+- Git pull/push/prune/status paths now use the resolved Git executable instead of falling back to the unreliable MSYS `usr\bin\git.exe` path where practical.
+- Warm BUILD and RUN TESTS paths now skip CMake configure when the cache, generated Ninja file, CMakeLists timestamp, cached version, and cached Python executable are current.
+- Configure paths now prefer Windows Python when available, use forced compiler checks/static try-compile mode, and pass parallel build jobs to CMake.
+- Addin data copy now uses `robocopy /MIR` when available and falls back to the prior remove/copy behavior.
+- Dev Window v2 README now documents the Push button as commit+push plus UI refresh.
+
+### Files
+
+- `devtools/dev-window-v2/dev-window-v2.ps1`
+- `devtools/dev-window-v2/README.md`
+- Context updates: `context/build.md`, `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- PowerShell parser check passed for `devtools/dev-window-v2/dev-window-v2.ps1`.
+- `git diff --check` passed for the Dev Window v2 files.
+- Full build not rerun from this Codex desktop session because the current build caveat still applies; use the isolated session build path if a live build is needed.
+
+### Next
+
+- Launch Dev Window v2 on Mike's desktop and click Push once on a disposable/small change to confirm the MessageBox, status bar, and dirty-count refresh behavior against the live Git credentials.
+
+---
+
+## Session S569 - 2026-04-28 - Untyped lifecycle API retirement
+
+Continued the catalog-owned asset pipeline after S568. Scope stayed on retiring the compatibility API surface now that all production manifest/screen/stage callers use typed lifecycle.
+
+### Outcome
+
+- Removed public `catalogLoadAsset()`, `catalogUnloadAsset()`, and `catalogRetainAsset()` declarations and implementations.
+- Removed the dedicated-server stubs for those untyped lifecycle wrappers while keeping typed lifecycle stubs.
+- Kept entry-level load/release/retain helpers internal to `assetcatalog_load.c` so typed lifecycle and dependency cascade share the same implementation path.
+- Updated stale manifest/hotswap comments from untyped lifecycle wording to typed lifecycle wording.
+- Updated the typed lifecycle constraint and static coverage so untyped lifecycle declarations/calls cannot be reintroduced.
+
+### Files
+
+- `port/include/assetcatalog_load.h`
+- `port/src/assetcatalog_load.c`
+- `port/src/server_stubs.c`
+- `port/include/net/netmanifest.h`
+- `port/src/net/netmanifest.c`
+- `port/fast3d/pdgui_hotswap.cpp`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/constraints.md`, `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `cat566`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session cat566 -Target all` passed for `pd` and `pd-server`.
+- Isolated Ninja build passed for `pd-tests`.
+- Isolated `pd-tests.exe`: 337 test cases / 17914 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: malformed string missing terminator (len=5 rp=2)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Next safe catalog slice is source-handle centralization for file-backed component registration: remove direct `fileProviderHandle()` use from scanner/distribution code by routing file-backed primary handle assignment through a catalog helper.
+
+---
+
+## Session S568 - 2026-04-28 - UI lifecycle policy and raw path fallback removal
+
+Continued the catalog-owned asset pipeline after S567. Scope stayed on the final generic lifecycle domain and the now-obsolete raw path fallback.
+
+### Outcome
+
+- Added `ASSET_UI` to metadata/runtime lifecycle activation. Renderer-owned UI textures/fonts remain owned by the UI runtime; catalog lifecycle tracks activation/refcount without loading generic bytes.
+- Removed the legacy `s_catalogLoadEntryFromPath()` raw path loader.
+- Legacy untyped `catalogLoadAsset()` now dispatches through the entry's actual catalog type instead of passing `ASSET_NONE`.
+- Static coverage now prevents `s_catalogLoadEntryFromPath()` and the old `FALLBACK: catalogLoadAsset` diagnostic from returning.
+- Current typed lifecycle policy now covers every declared asset type; no generic raw path payload fallback remains.
+
+### Files
+
+- `port/src/assetcatalog_load.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `cat566`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session cat566 -Target all` passed for `pd` and `pd-server`.
+- Isolated Ninja build passed for `pd-tests`.
+- Isolated `pd-tests.exe`: 337 test cases / 17899 assertions passed.
+- Usual stub logs still appear; the newer malformed-string stub log from the quality lane also appears:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: malformed string missing terminator (len=5 rp=2)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- The next safe catalog slice is an API retirement audit: decide whether the legacy untyped lifecycle entry points should stay as compatibility wrappers or become internal/removed now that production callers use typed lifecycle APIs.
+
+---
+
+## Session S567 - 2026-04-28 - Pack metadata lifecycle expansion
+
+Continued the catalog-owned asset pipeline after S566. Scope stayed on pack/descriptor catalog types that do not currently own independent file payload fields.
+
+### Outcome
+
+- Moved `ASSET_ANIMATION`, `ASSET_TEXTURES`, `ASSET_SFX`, and `ASSET_MUSIC` to metadata runtime lifecycle activation.
+- `ASSET_AUDIO` is now the only audio lifecycle type that requires a file provider handle.
+- Removed the obsolete audio provider/path fallback branch because component audio now requires a provider handle and pack-level SFX/music entries are metadata.
+- Static coverage now pins the pack metadata types and the narrower `ASSET_AUDIO` runtime policy.
+
+### Files
+
+- `port/src/assetcatalog_load.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `cat566`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session cat566 -Target all` passed for `pd` and `pd-server`.
+- Isolated Ninja build passed for `pd-tests`.
+- Isolated `pd-tests.exe`: 335 test cases / 17867 assertions passed.
+- Usual stub logs still appear; the newer malformed-string stub log from the quality lane also appears:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: malformed string missing terminator (len=5 rp=2)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. `ASSET_UI` is the only remaining generic lifecycle domain, but it is renderer/runtime-owned in several paths and needs a dedicated UI payload policy rather than a generic metadata sweep.
+
+---
+
+## Session S566 - 2026-04-28 - Descriptor metadata lifecycle expansion
+
+Continued the catalog-owned asset pipeline after S533 and after parallel sessions advanced the log to S565. Scope stayed on descriptor-only catalog types from the remaining generic lifecycle list.
+
+### Outcome
+
+- Added `ASSET_TOOL`, `ASSET_VEHICLE`, and `ASSET_MISSION` to metadata runtime lifecycle activation.
+- These descriptor-only catalog entries now activate as catalog metadata instead of reaching generic provider/path loading.
+- Static coverage now pins all three types in the metadata lifecycle set.
+
+### Files
+
+- `port/src/assetcatalog_load.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `cat566`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session cat566 -Target all` passed for `pd` and `pd-server`.
+- Isolated Ninja build passed for `pd-tests`.
+- Isolated `pd-tests.exe`: 331 test cases / 17810 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. Remaining generic lifecycle domains are `ASSET_ANIMATION`, `ASSET_TEXTURES`, `ASSET_SFX`, `ASSET_MUSIC`, and `ASSET_UI`; only migrate one after its ownership is clear.
+
+---
 
 ## Session S565 - 2026-04-28 - Quality pd-tests recursive invariant expansion
 

@@ -24,6 +24,9 @@
  *        (a) top != gameplay
  *        (b) window focus lost
  *        (c) focus regained within settle window (modeled via a flag)
+ *   7. The inputctx-to-layer bridge publishes one menu-layer ownership bit
+ *      while the effective top is non-gameplay, and clears it as soon as
+ *      gameplay is effective again.
  *
  * @SYNC port/src/inputctx.c (push/pop/EndFrame/GetTop) lines 88-465.
  * @SYNC port/src/inputctx.c::gameplayInputSuppressed lines 647-672.
@@ -64,6 +67,11 @@ s32 inputCtxPureDepth(void);                          /* physical depth incl. ma
 InputContextPure *inputCtxPureGetTop(void);           /* skips marked */
 s32 inputCtxPureIsActive(InputContextPure *ctx);
 const char *inputCtxPureGetTopName(void);
+
+/* Test mirror for the production inputctx -> LAYER_MENU bridge. */
+s32 inputCtxPureMenuLayerActive(void);
+s32 inputCtxPureMenuLayerPushCount(void);
+s32 inputCtxPureMenuLayerPopCount(void);
 
 /* Gameplay context identity: tests register one canonical "gameplay" ctx
  * via this setter. gameplayInputSuppressedPure() compares top against it. */

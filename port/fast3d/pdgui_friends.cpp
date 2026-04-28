@@ -53,6 +53,7 @@ extern "C" {
 static bool s_SidebarOpen        = false;
 static bool s_SocialOpen         = false;
 static bool s_AddFriendOpen      = false;
+static bool s_SocialPoolWasActive = false;
 static char s_AddFriendCodeBuf[128];
 static char s_AddFriendNickBuf[64];
 static char s_AddFriendStatus[128];
@@ -119,8 +120,33 @@ static void socialShellSyncMenuPool(void)
 {
 	if (socialShellNeedsMenuInput()) {
 		menupoolAcquire(MENU_TYPE_SOCIAL_SHELL, NULL, &g_CtxImGuiMenu);
+		s_SocialPoolWasActive = menupoolIsActive(MENU_TYPE_SOCIAL_SHELL) != 0;
 	} else {
 		menupoolRelease(MENU_TYPE_SOCIAL_SHELL);
+		s_SocialPoolWasActive = false;
+	}
+}
+
+static void socialShellClearLocalState(void)
+{
+	s_SidebarOpen = false;
+	s_SocialOpen = false;
+	s_AddFriendOpen = false;
+	s_ChatPanelFriendHandle = 0;
+	s_ProfileFriendHandle = 0;
+	s_ConvertSourcePath[0] = '\0';
+	s_ConvertStatus[0] = '\0';
+	s_SocialPendingTab = -1;
+	pdguiNatDiagnosticsClose();
+}
+
+static void socialShellAdoptForceClose(void)
+{
+	if (s_SocialPoolWasActive &&
+	    socialShellNeedsMenuInput() &&
+	    !menupoolIsActive(MENU_TYPE_SOCIAL_SHELL)) {
+		socialShellClearLocalState();
+		s_SocialPoolWasActive = false;
 	}
 }
 
@@ -155,9 +181,11 @@ extern "C" void pdguiFriendsSidebarClose(void)  { s_SidebarOpen = false; socialS
 extern "C" void pdguiFriendsSidebarToggle(void) { s_SidebarOpen = !s_SidebarOpen; socialShellSyncMenuPool(); }
 extern "C" s32  pdguiFriendsSidebarIsOpen(void) { return s_SidebarOpen ? 1 : 0; }
 
-extern "C" void pdguiFriendsSocialOpen(void)   { s_SocialOpen = true; s_SidebarOpen = false; socialShellSyncMenuPool(); }
+extern "C" void pdguiFriendsSocialOpen(void)   { s_SocialOpen = true; s_SidebarOpen = false; s_SocialPendingTab = SOCIAL_TAB_FRIENDS; socialShellSyncMenuPool(); }
+extern "C" void pdguiFriendsSocialOpenPublicMods(void) { s_SocialOpen = true; s_SidebarOpen = false; s_SocialPendingTab = SOCIAL_TAB_PUBLIC_MODS; socialShellSyncMenuPool(); }
 extern "C" void pdguiFriendsSocialClose(void)  { s_SocialOpen = false; socialShellSyncMenuPool(); }
 extern "C" s32  pdguiFriendsSocialIsOpen(void) { return s_SocialOpen ? 1 : 0; }
+extern "C" s32  pdguiFriendsAnySurfaceIsOpen(void) { return socialShellNeedsMenuInput() ? 1 : 0; }
 
 extern "C" void pdguiFriendsChatOpen(u32 friend_handle) {
 	s_ChatPanelFriendHandle = friend_handle;
@@ -301,6 +329,7 @@ extern "C" void pdguiFriendsStatusIndicatorRender(s32 winW, s32 winH)
 	if (io.MouseClicked[0] && mp.x >= origin.x && mp.x <= end.x &&
 	    mp.y >= origin.y && mp.y <= end.y) {
 		s_SidebarOpen = !s_SidebarOpen;
+		socialShellSyncMenuPool();
 	}
 
 	(void)winW; (void)winH;
@@ -549,6 +578,9 @@ static void renderChatPanel(s32 winW, s32 winH)
 	                 &open,
 	                 ImGuiWindowFlags_NoCollapse |
 	                 ImGuiWindowFlags_NoSavedSettings)) {
+		if (ImGui::IsWindowAppearing()) {
+			ImGui::SetWindowFocus();
+		}
 
 		char title[128];
 		socialFormatDisplay(f, title, sizeof(title));
@@ -914,6 +946,7 @@ static void renderConvertToModModal(void)
 
 extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 {
+	socialShellAdoptForceClose();
 	pdguiFriendsStatusIndicatorRender(winW, winH);
 
 	/* S483b (2026-04-27): Tab toggles the sidebar via ACTION_SOCIAL_TOGGLE.
@@ -960,6 +993,9 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 		                 ImGuiWindowFlags_NoScrollbar |
 		                 ImGuiWindowFlags_NoTitleBar |
 		                 ImGuiWindowFlags_NoSavedSettings)) {
+			if (ImGui::IsWindowAppearing()) {
+				ImGui::SetWindowFocus();
+			}
 
 			ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
 			ImGui::TextUnformatted("Friends");
@@ -1023,6 +1059,9 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 		                 ImGuiWindowFlags_NoCollapse |
 		                 ImGuiWindowFlags_NoTitleBar |
 		                 ImGuiWindowFlags_NoSavedSettings)) {
+			if (ImGui::IsWindowAppearing()) {
+				ImGui::SetWindowFocus();
+			}
 
 			ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
 			ImGui::TextUnformatted("SOCIAL");

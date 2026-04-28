@@ -337,9 +337,9 @@ void catalogLoadLogStats(void)
 /* ========================================================================
  * MEM-2: Asset Lifecycle API
  *
- * catalogLoadAsset  — load file data into entry.loaded_data, inc ref_count
- * catalogUnloadAsset — dec ref_count; free when it hits 0 (non-bundled only)
- * catalogRetainAsset — inc ref_count on an already-loaded entry
+ * catalogLoadTypedAsset    — activate entry using its typed lifecycle policy
+ * catalogReleaseTypedAsset — dec ref_count; free when it hits 0 (non-bundled only)
+ * catalogRetainTypedAsset  — inc ref_count on an already-loaded entry
  *
  * Bundled (base-game) entries carry ref_count = ASSET_REF_BUNDLED and are
  * never loaded or evicted through these functions — their data lives in the
@@ -347,7 +347,7 @@ void catalogLoadLogStats(void)
  *
  * Logging prefixes:
  *   "CATALOG:" — base-game bundled retain (informational)
- *   "MOD:"     — mod asset actually loaded or freed
+ *   "CATALOG.LIFECYCLE." — typed lifecycle activation/release diagnostics
  * ======================================================================== */
 
 static const char *s_catalogPayloadKind(asset_type_e type)
@@ -447,24 +447,16 @@ static s32 s_catalogLoadEntryLangPayload(asset_entry_t *entry)
 
 static s32 s_catalogTypeUsesAudioRuntimePayload(asset_type_e type)
 {
-    return type == ASSET_AUDIO || type == ASSET_SFX || type == ASSET_MUSIC;
+    return type == ASSET_AUDIO;
 }
 
 static s32 s_catalogLoadEntryAudioPayload(asset_entry_t *entry, asset_data_handle_t handle)
 {
-    const char *path = entryGetFilePath(entry);
     char desc[128];
 
     if (entry->type == ASSET_AUDIO && assetHandleIsNull(handle)) {
         sysLogPrintf(LOG_WARNING,
                      "CATALOG.LIFECYCLE.ACTIVATE: '%s' audio payload has no provider handle",
-                     entry->id);
-        return 0;
-    }
-
-    if (assetHandleIsNull(handle) && (!path || !path[0])) {
-        sysLogPrintf(LOG_WARNING,
-                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' audio payload has no provider/path",
                      entry->id);
         return 0;
     }
@@ -478,8 +470,7 @@ static s32 s_catalogLoadEntryAudioPayload(asset_entry_t *entry, asset_data_handl
     sysLogPrintf(LOG_NOTE,
                  "CATALOG.LIFECYCLE.ACTIVATE: activated %s runtime payload '%s' (%s)",
                  s_catalogPayloadKind(entry->type), entry->id,
-                 !assetHandleIsNull(handle) ? assetDescribe(handle, desc, sizeof(desc)) :
-                     (path ? path : "(no path)"));
+                 assetDescribe(handle, desc, sizeof(desc)));
     return 1;
 }
 
@@ -487,6 +478,14 @@ static s32 s_catalogTypeUsesMetadataRuntimePayload(asset_type_e type)
 {
     return type == ASSET_MAP
         || type == ASSET_CHARACTER
+        || type == ASSET_ANIMATION
+        || type == ASSET_TEXTURES
+        || type == ASSET_SFX
+        || type == ASSET_MUSIC
+        || type == ASSET_UI
+        || type == ASSET_TOOL
+        || type == ASSET_VEHICLE
+        || type == ASSET_MISSION
         || type == ASSET_HUD
         || type == ASSET_BOT_PROFILE
         || type == ASSET_ARENA
@@ -616,37 +615,6 @@ static s32 s_catalogLoadEntryFromProvider(asset_entry_t *entry, asset_type_e exp
     return 1;
 }
 
-static s32 s_catalogLoadEntryFromPath(asset_entry_t *entry)
-{
-    const char *path = entryGetFilePath(entry);
-    u32 size = 0;
-    void *data;
-
-    if (!path || !path[0]) {
-        sysLogPrintf(LOG_WARNING, "MOD: catalogLoadAsset: no file path for '%s'", entry->id);
-        return 0;
-    }
-
-    data = fsFileLoad(path, &size);
-    if (!data || size == 0) {
-        sysLogPrintf(LOG_WARNING, "CATALOG: FALLBACK: catalogLoadAsset: '%s' failed to load from '%s', caller will use fallback",
-                     entry->id, path);
-        if (data) {
-            sysMemFree(data);
-        }
-        return 0;
-    }
-
-    entry->loaded_data      = data;
-    entry->data_size_bytes  = size;
-    entry->payload_kind     = ASSET_PAYLOAD_SYSMEM_BYTES;
-    entry->load_state       = ASSET_STATE_LOADED;
-    entry->ref_count        = 1;
-
-    sysLogPrintf(LOG_NOTE, "MOD: loaded '%s' (%u bytes) from '%s'", entry->id, size, path);
-    return 1;
-}
-
 static s32 s_catalogLoadEntry(asset_entry_t *entry, asset_type_e expected_type)
 {
     asset_data_handle_t handle = catalogEffectiveHandle(entry);
@@ -662,7 +630,7 @@ static s32 s_catalogLoadEntry(asset_entry_t *entry, asset_type_e expected_type)
     }
 
     if (!entry->enabled) {
-        sysLogPrintf(LOG_WARNING, "MOD: catalogLoadAsset: '%s' is not enabled", entry->id);
+        sysLogPrintf(LOG_WARNING, "CATALOG.LIFECYCLE.LOAD: '%s' is not enabled", entry->id);
         return 0;
     }
 
@@ -702,26 +670,10 @@ static s32 s_catalogLoadEntry(asset_entry_t *entry, asset_type_e expected_type)
         return s_catalogLoadEntryFromProvider(entry, expected_type);
     }
 
-    if (s_catalogLoadEntryFromProvider(entry, expected_type)) {
-        return 1;
-    }
-
-    return s_catalogLoadEntryFromPath(entry);
-}
-
-s32 catalogLoadAsset(const char *assetId)
-{
-    if (!assetId) {
-        return 0;
-    }
-
-    asset_entry_t *entry = assetCatalogGetMutable(assetId);
-    if (!entry) {
-        sysLogPrintf(LOG_WARNING, "catalogLoadAsset: '%s' not found in catalog", assetId);
-        return 0;
-    }
-
-    return s_catalogLoadEntry(entry, ASSET_NONE);
+    sysLogPrintf(LOG_WARNING,
+                 "CATALOG.LIFECYCLE.LOAD: '%s' has no typed lifecycle policy",
+                 entry->id);
+    return 0;
 }
 
 static s32 s_catalogValidateTypedLifecycle(const char *op, asset_type_e expected_type, const char *assetId)
@@ -791,14 +743,14 @@ struct modeldef *catalogGetLoadedModeldef(const char *assetId)
 static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry);
 
 /**
- * Dep cascade callback for catalogUnloadAsset.
+ * Dep cascade callback for typed catalog release.
  *
  * When a parent asset's ref_count hits zero and its data is freed, this
  * callback is invoked for each dependency registered under that parent.
  * Each dep's own ref_count is decremented; if it also reaches zero, the dep
  * is freed recursively.
  *
- * This handles callers that unload the parent directly (outside the manifest).
+ * This handles callers that release the parent directly (outside the manifest).
  * When the manifest also lists the dep in to_unload, the direct manifest call
  * arrives after the cascade and finds loaded_data == NULL (dep already freed),
  * making it a safe no-op — no double-free can occur.
@@ -865,22 +817,6 @@ static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry)
     /* old_ref == new_ref == 0: already fully unloaded — silent no-op. */
 }
 
-void catalogUnloadAsset(const char *assetId)
-{
-    asset_entry_t *entry;
-
-    if (!assetId) {
-        return;
-    }
-
-    entry = assetCatalogGetMutable(assetId);
-    if (!entry) {
-        return;
-    }
-
-    s_catalogUnloadEntry(assetId, entry);
-}
-
 void catalogReleaseTypedAsset(asset_type_e expected_type, const char *assetId)
 {
     asset_entry_t *entry;
@@ -908,22 +844,6 @@ static void s_catalogRetainEntry(asset_entry_t *entry)
     }
 }
 
-void catalogRetainAsset(const char *assetId)
-{
-    asset_entry_t *entry;
-
-    if (!assetId) {
-        return;
-    }
-
-    entry = assetCatalogGetMutable(assetId);
-    if (!entry) {
-        return;
-    }
-
-    s_catalogRetainEntry(entry);
-}
-
 void catalogRetainTypedAsset(asset_type_e expected_type, const char *assetId)
 {
     asset_entry_t *entry;
@@ -948,8 +868,8 @@ void catalogRetainTypedAsset(asset_type_e expected_type, const char *assetId)
  *   - "needed for new stage" (same category as newStageId's map entry,
  *                             enabled, !bundled)
  *   - shared = intersection → no-op (assets remain resident)
- *   - toUnload = loaded \ needed  → catalogUnloadAsset each
- *   - toLoad   = needed \ loaded  → catalogLoadAsset each
+ *   - toUnload = loaded \ needed  -> release typed asset
+ *   - toLoad   = needed \ loaded  -> load typed asset
  *
  * When newStageId is NULL (transitioning to a base-game-only stage),
  * the "needed" set is empty, so all loaded non-bundled assets go to

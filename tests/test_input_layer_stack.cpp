@@ -13,7 +13,11 @@
  */
 
 #include "catch.hpp"
+#include <cstring>
 #include <cstdint>
+#include <fstream>
+#include <sstream>
+#include <string>
 
 extern "C" {
 #include "inputlayer_pure.h"
@@ -25,6 +29,17 @@ void resetWorld()
 {
     ilpShutdown();
     ilpInstrumentReset(nullptr);
+}
+
+std::string readTextFile(const char *path)
+{
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        return {};
+    }
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return ss.str();
 }
 
 } /* namespace */
@@ -275,4 +290,27 @@ TEST_CASE("inputlayer: shutdown aborts every remaining layer", "[inputlayer][lif
     REQUIRE(ilpInstrumentGet(ILP_LAYER_CUTSCENE)->abort_count == 1);
     REQUIRE(ilpInstrumentGet(ILP_LAYER_GAMEPLAY)->abort_count == 1);
     REQUIRE(ilpInstrumentGet(ILP_LAYER_BOOT)->abort_count     == 1);
+}
+
+TEST_CASE("inputctx bridge: non-gameplay input ownership publishes LAYER_MENU", "[inputctx][inputlayer][static]")
+{
+    const std::string inputctx = readTextFile("port/src/inputctx.c");
+
+    REQUIRE_FALSE(inputctx.empty());
+    REQUIRE(inputctx.find("#include \"inputlayer.h\"") != std::string::npos);
+    REQUIRE(inputctx.find("static LayerHandle *s_MenuLayerHandle") != std::string::npos);
+    REQUIRE(inputctx.find("static void inputctxSyncMenuLayerBridge(void)") != std::string::npos);
+    REQUIRE(inputctx.find("InputContext *top = inputCtxGetTop()") != std::string::npos);
+    REQUIRE(inputctx.find("top && top != &g_CtxGameplay") != std::string::npos);
+    REQUIRE(inputctx.find("inputLayerPush(&g_LayerMenu, NULL)") != std::string::npos);
+    REQUIRE(inputctx.find("inputLayerPop(s_MenuLayerHandle, NULL)") != std::string::npos);
+    REQUIRE(inputctx.find("inputLayerAbort(from_top, /* inputctx nested menu close */ 0)") != std::string::npos);
+
+    size_t calls = 0;
+    size_t pos = 0;
+    while ((pos = inputctx.find("inputctxSyncMenuLayerBridge();", pos)) != std::string::npos) {
+        calls++;
+        pos += strlen("inputctxSyncMenuLayerBridge();");
+    }
+    REQUIRE(calls >= 5);
 }

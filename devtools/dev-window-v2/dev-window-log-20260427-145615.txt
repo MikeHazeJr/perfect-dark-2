@@ -1,7 +1,0 @@
-
->>> RUN TESTS (pd-tests)
-
-tests: building pd-tests target...
-tests: build OK; running...
-tests: started C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\Build\pd-tests.exe
-tests: PASSED (0 case[s])

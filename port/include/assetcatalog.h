@@ -814,6 +814,7 @@ void assetCatalogSetEnabled(const char *id, s32 enabled);
  */
 
 void catalogSetPrimary(asset_entry_t *entry, asset_data_handle_t handle);
+void catalogSetPrimaryFile(asset_entry_t *entry, const char *path);
 void catalogSetOverride(asset_entry_t *entry, asset_data_handle_t handle);
 void catalogClearOverride(asset_entry_t *entry);
 

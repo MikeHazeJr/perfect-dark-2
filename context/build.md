@@ -108,8 +108,15 @@ In the Codex desktop sandbox, build capability is currently unreliable even thou
   - ccache launch probe/disable because `ccache cc.exe --version` can hang even when `ccache --version` works.
   - skip compiler-implicit MinGW root include dirs in CMake; adding `C:/msys64/mingw64/include` as a global `SYSTEM` include breaks C++ standard-library `#include_next` for headers such as `stdlib.h` and `math.h`.
   - run `pd-tests.exe` with `C:\msys64\mingw64\bin` on `PATH` so `libwinpthread-1.dll` resolves; otherwise the process can appear to hang before Catch2 handles `--help` or test execution.
+- S571 `ui568` update: `.\devtools\build-session.ps1 -Session ui568 -Target all` got farther than `s501ui`; configure completed and ccache was disabled after the compiler-launch probe timed out. Client compilation then ran until the Codex command timeout at 15 minutes without a surfaced compiler diagnostic. Cleanup was: confirm the stale lock PID 6120 was gone, run `.\devtools\build-session.ps1 -Remove -Session ui568 -Force`, then confirm `ui568` no longer appeared in `-List`. Treat this as build-pending, not a compile failure.
 
 Until Mike confirms the fix, AI sessions should avoid spending time rediscovering this. Run static checks (`git diff --check`, focused source scans) and report build as skipped by instruction rather than repeatedly retrying wrappers.
+
+## Dev Window v2 Build/Push Notes (2026-04-28)
+
+- The Dev Window v2 **Push** button now stages pending changes, commits them with the Dev Window push message, pushes the current branch, and refreshes version/run/status UI when the async git action completes. Unlike build/release pre-sync, this button requires push success and reports failure instead of treating push as best-effort.
+- Warm `BUILD` and `RUN TESTS` paths skip CMake configure when `CMakeCache.txt`, `build.ninja`, the `CMakeLists.txt` timestamp, cached semantic version, and cached `PD_PYTHON_EXECUTABLE` are current. Clean/release paths and stale cache/version/tool mismatches still reconfigure.
+- Dev Window v2 configure calls use the Windows Python fallback (`C:/Python312/python.exe` when present), forced compiler checks, static try-compile mode, ccache launchers, and parallel CMake builds. Addin data copy now uses `robocopy /MIR` when available, falling back to the older remove/copy path.
 
 ## Important: Cannot Compile from Linux VM
 The build requires MSYS2/MinGW on Windows. The AI sandbox runs Linux and cannot compile this project. All compilation must be done by the user on their Windows machine.
@@ -196,7 +203,7 @@ CMake rule: if a CACHE entry already exists, `set(... CACHE ...)` is **silently 
 
 **Fix**: `Get-BuildSteps -Ver $ver` now appends `-DVERSION_SEM_MAJOR=X -DVERSION_SEM_MINOR=Y -DVERSION_SEM_PATCH=Z` to BOTH cmake configure commands (client and server). Command-line `-D` flags always override the cache and update it.
 
-Only release builds (`Start-PushRelease`) pass the version. Regular BUILD button builds use the cache as-is (consistent with expectation that the cache reflects the last deliberate change).
+Current Dev Window v2 builds compare the shared build cache against the UI version; when configure is needed, BUILD, RELEASE, and RUN TESTS pass `-DVERSION_SEM_MAJOR/MINOR/PATCH`. Warm BUILD/RUN TESTS runs skip configure only when the cached version already matches the UI version.
 
 ### Files involved
 - `devtools/dev-window.ps1` — `Get-BuildSteps` (cmake args), `Set-ProjectVersion` (edits CMakeLists.txt), `Start-PushRelease` (orchestration)

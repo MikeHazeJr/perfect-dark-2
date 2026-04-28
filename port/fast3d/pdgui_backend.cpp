@@ -596,6 +596,7 @@ void pdguiNewFrame(void)
     bool networkActive = (netGetMode() != 0);
     bool pauseActive = (pdguiIsPauseMenuOpen() || pdguiIsScorecardVisible());
     bool hubActive = (pdguiModdingHubIsVisible() != 0);
+    bool friendsActive = (pdguiFriendsAnySurfaceIsOpen() != 0);
 
 #if defined(PD_DEV_BUILD)
     bool debugOverlayActive = (inputCtxIsActive(&g_CtxDebugOverlay) != 0);
@@ -657,6 +658,7 @@ void pdguiNewFrame(void)
              debugOverlayActive, menuStackDiag, networkActive, pauseActive, hubActive, interactPrompt,
              devGameplayHud)
         && !mpLiveMatchHud
+        && !friendsActive
         && !pdguiHotswapHasQueued() && !pdguiHotswapWasActive()) {
         return;
     }
@@ -747,10 +749,7 @@ void pdguiRender(void)
     bool updateActive = (pdguiUpdateIsActive() != 0);
     bool pauseActive = (pdguiIsPauseMenuOpen() || pdguiIsScorecardVisible());
     bool hubActive = (pdguiModdingHubIsVisible() != 0);
-    bool friendsActive = (pdguiFriendsSidebarIsOpen() != 0) ||
-                          (pdguiFriendsSocialIsOpen() != 0) ||
-                          (pdguiFriendsChatIsOpen() != 0) ||
-                          (pdguiNatDiagnosticsIsOpen() != 0) ||
+    bool friendsActive = (pdguiFriendsAnySurfaceIsOpen() != 0) ||
                           (pdguiToastIsActive() != 0) ||
                           (pdguiSpectatorOverlayActive() != 0);
 

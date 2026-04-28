@@ -38,6 +38,8 @@
 static const MenuGraphEdge s_MainMenuEdges[] = {
     EDGE_PUSH("solo_play", ACTION_MENU_ACCEPT, "Solo Play", MENU_TYPE_MAIN_SOLO_VIEW),
     EDGE_PUSH("online_play", ACTION_MENU_ACCEPT, "Online Play", MENU_TYPE_MAIN_ONLINE_VIEW),
+    EDGE_PUSH("social", ACTION_MENU_ACCEPT, "Social", MENU_TYPE_SOCIAL_SHELL),
+    EDGE_PUSH("public_mods", ACTION_MENU_ACCEPT, "Public Mods", MENU_TYPE_SOCIAL_SHELL),
     EDGE_PUSH("change_agent", ACTION_MENU_ACCEPT, "Change Agent", MENU_TYPE_AGENT_SELECT),
     EDGE_PUSH("settings", ACTION_MENU_ACCEPT, "Settings", MENU_TYPE_MAIN_SETTINGS_VIEW),
     EDGE_PUSH("modding", ACTION_MENU_ACCEPT, "Mods", MENU_TYPE_MAIN_MODDING_VIEW),
@@ -136,6 +138,10 @@ static const MenuGraphEdge s_SocialLobbyEdges[] = {
     EDGE_NETWORK("disconnect", ACTION_MENU_CANCEL, "Disconnect", "disconnect"),
 };
 
+static const MenuGraphEdge s_SocialShellEdges[] = {
+    EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
+};
+
 static const MenuGraphEdge s_NetworkEdges[] = {
     EDGE_NETWORK("host", ACTION_MENU_ACCEPT, "Host Game", "server"),
     EDGE_NETWORK("join", ACTION_MENU_ACCEPT, "Join Game", "client"),
@@ -177,6 +183,7 @@ static const MenuGraphNode s_Nodes[] = {
     NODE(MENU_TYPE_SOLO_INVENTORY, "solo_inventory", s_SoloInventoryEdges),
     NODE(MENU_TYPE_SOLO_OPTIONS, "solo_options", s_SoloOptionsEdges),
     NODE(MENU_TYPE_SOCIAL_LOBBY, "social_lobby", s_SocialLobbyEdges),
+    NODE(MENU_TYPE_SOCIAL_SHELL, "social_shell", s_SocialShellEdges),
     NODE(MENU_TYPE_NETWORK, "network", s_NetworkEdges),
     NODE(MENU_TYPE_AGENT_SELECT, "agent_select", s_AgentSelectEdges),
     NODE(MENU_TYPE_WARNING_MODAL, "warning_modal", s_WarningModalEdges),

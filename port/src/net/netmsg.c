@@ -951,6 +951,42 @@ u32 netmsgClcMoveRead(struct netbuf *src, struct netclient *srccl)
 	return src->error;
 }
 
+static u8 netmsgCurrentClientTeamOrDefault(const struct netclient *srccl)
+{
+	if (srccl && srccl->state >= CLSTATE_GAME && srccl->config && srccl->config->base.team < MAX_TEAMS) {
+		return srccl->config->base.team;
+	}
+	if (srccl && srccl->settings.team < MAX_TEAMS) {
+		return srccl->settings.team;
+	}
+	if (srccl && srccl->config && srccl->config->base.team < MAX_TEAMS) {
+		return srccl->config->base.team;
+	}
+	return 0;
+}
+
+static u8 netmsgSanitizeClientTeam(struct netclient *srccl, u8 wireTeam)
+{
+	const u8 fallback = netmsgCurrentClientTeamOrDefault(srccl);
+	const u32 clientId = srccl ? srccl->id : 0;
+
+	if (wireTeam >= MAX_TEAMS) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_SETTINGS client %u sent invalid team %u; keeping %u",
+		             clientId, (unsigned)wireTeam, (unsigned)fallback);
+		return fallback;
+	}
+
+	if (srccl && srccl->state >= CLSTATE_GAME && !(g_MpSetup.options & MPOPTION_TEAMSENABLED)
+			&& wireTeam != fallback) {
+		sysLogPrintf(LOG_WARNING,
+		             "NET: CLC_SETTINGS client %u attempted team switch in non-team match %u -> %u; keeping %u",
+		             clientId, (unsigned)fallback, (unsigned)wireTeam, (unsigned)fallback);
+		return fallback;
+	}
+
+	return wireTeam;
+}
+
 u32 netmsgClcSettingsWrite(struct netbuf *dst)
 {
 	netbufWriteU8(dst, CLC_SETTINGS);
@@ -995,6 +1031,8 @@ u32 netmsgClcSettingsRead(struct netbuf *src, struct netclient *srccl)
 		return 1;
 	}
 
+	const u8 sanitizedTeam = netmsgSanitizeClientTeam(srccl, team);
+
 	if (srccl->settings.name[0] && strncmp(srccl->settings.name, name, MAX_PLAYERNAME) != 0) {
 		netChatPrintf(NULL, "%s is now known as %s", srccl->settings.name, name);
 	}
@@ -1031,12 +1069,13 @@ u32 netmsgClcSettingsRead(struct netbuf *src, struct netclient *srccl)
 	srccl->settings.fovzoommult = fovzoommult;
 
 	// apply team change if in-game
-	if (team != srccl->settings.team && srccl->state >= CLSTATE_GAME && srccl->config) {
-		sysLogPrintf(LOG_NOTE, "NET: client %u (%s) switched to team %u", srccl->id, srccl->settings.name, team);
+	if (sanitizedTeam != srccl->settings.team && srccl->state >= CLSTATE_GAME && srccl->config) {
+		sysLogPrintf(LOG_NOTE, "NET: client %u (%s) switched to team %u",
+		             srccl->id, srccl->settings.name, sanitizedTeam);
 		netChatPrintf(NULL, "%s switched teams", srccl->settings.name);
-		srccl->config->base.team = team;
+		srccl->config->base.team = sanitizedTeam;
 	}
-	srccl->settings.team = team;
+	srccl->settings.team = sanitizedTeam;
 
 	return src->error;
 }
@@ -1365,6 +1404,12 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 	crashBreadcrumbPush("SVC_STAGE_START.read srccl=%d state=%u",
 		srccl ? srccl->id : -1, srccl ? srccl->state : 0xFFu);
 
+	if (!srccl) {
+		sysLogPrintf(LOG_WARNING,
+			"MATCHSTART.DIAG: SVC_STAGE reject — missing source client");
+		return 1;
+	}
+
 	if (srccl->state != CLSTATE_LOBBY && srccl->state != CLSTATE_GAME
 	    && srccl->state != CLSTATE_PREPARING) {
 		sysLogPrintf(LOG_WARNING,
@@ -1373,13 +1418,11 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		return 1;
 	}
 
-	g_NetTick = netbufReadU32(src);
-
-	g_NetRngSeeds[0] = netbufReadU64(src);
-	g_NetRngSeeds[1] = netbufReadU64(src);
-	g_NetRngLatch = true;
+	const u32 netTick = netbufReadU32(src);
+	const u64 rngSeed0 = netbufReadU64(src);
+	const u64 rngSeed1 = netbufReadU64(src);
 	/* L2-4: match_seed for deterministic spawn pools */
-	g_NetMatchSeed = netbufReadU32(src);
+	const u32 matchSeed = netbufReadU32(src);
 
 	/* SA-3: stage as session ID; 0 = return to lobby */
 	const u16 stage_session = catalogReadAssetRef(src);
@@ -1402,6 +1445,22 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 
 	const u8 mode = netbufReadU8(src);
 	u8 antiPlayerNumWire = NET_NULL_CLIENT;
+	if (src->error) {
+		sysLogPrintf(LOG_WARNING, "NET: malformed SVC_STAGE from server");
+		return 1;
+	}
+	if (mode != NETGAMEMODE_MP && mode != NETGAMEMODE_COOP &&
+	    mode != NETGAMEMODE_ANTI) {
+		sysLogPrintf(LOG_WARNING,
+		             "NET: SVC_STAGE invalid gamemode=%u",
+		             (unsigned)mode);
+		return 1;
+	}
+	g_NetTick = netTick;
+	g_NetRngSeeds[0] = rngSeed0;
+	g_NetRngSeeds[1] = rngSeed1;
+	g_NetRngLatch = true;
+	g_NetMatchSeed = matchSeed;
 	g_NetGameMode = mode;
 
 	/* Phase 2: resolve stage catalog ID for all paths below */
@@ -4934,6 +4993,55 @@ s32 netReadyGateCancelByServer(void)
 
 u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 {
+	/* Only process on server, and only from the room/global lobby leader.
+	 * This gate intentionally runs before the first payload read so a rejected
+	 * start request cannot dirty g_MpSetup, g_MatchConfig, player handicaps,
+	 * g_NetGameMode, or ready-gate inputs. */
+	if (g_NetMode != NETMODE_SERVER) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_START received but not server");
+		return src->error;
+	}
+
+	if (!srccl) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_START received without client");
+		return src->error;
+	}
+
+	/* R-3: Validate sender is in a room and is the room creator (room leader).
+	 * The room creator is the only one who can start the match for that room.
+	 * Also accept from global lobby leader as fallback for backward compat. */
+	lobbyUpdate();
+	bool isLeader = false;
+	hub_room_t *startRoom = NULL;
+
+	if (srccl->room_id != 0xFF) {
+		startRoom = roomGetById(srccl->room_id);
+		if (startRoom && startRoom->creator_client_id == srccl->id) {
+			isLeader = true;
+		}
+	}
+
+	/* Fallback: if not in a room, check global lobby leader (backward compat) */
+	if (!isLeader && srccl->room_id == 0xFF) {
+		u8 leaderSlot = lobbyGetLeader();
+		if (leaderSlot < LOBBY_MAX_PLAYERS) {
+			struct lobbyplayer *lp = &g_Lobby.players[leaderSlot];
+			if (lp->active && &g_NetClients[lp->clientId] == srccl) {
+				isLeader = true;
+			}
+		}
+		/* Fallback: if no explicit leader exists yet, allow any lobby sender. */
+		if (!isLeader && leaderSlot == 0xFF) {
+			isLeader = (srccl->state >= CLSTATE_LOBBY);
+		}
+	}
+
+	if (!isLeader) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_START rejected from client %d (%s) — not room creator",
+		             srccl->id, srccl->settings.name);
+		return src->error;
+	}
+
 	u8 gamemode              = netbufReadU8(src);
 	/* SEC-26: clamp untrusted wire value to declared enum range.
 	 * Out-of-range bytes would silently index g_NetGameMode beyond its
@@ -5073,56 +5181,12 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 
-	/* Only process on server */
-	if (g_NetMode != NETMODE_SERVER) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_START received but not server");
-		return src->error;
-	}
-
-	/* R-3: Validate sender is in a room and is the room creator (room leader).
-	 * The room creator is the only one who can start the match for that room.
-	 * Also accept from global lobby leader as fallback for backward compat. */
-	lobbyUpdate();
-	bool isLeader = false;
-	hub_room_t *startRoom = NULL;
-
-	if (srccl->room_id != 0xFF) {
-		startRoom = roomGetById(srccl->room_id);
-		if (startRoom && startRoom->creator_client_id == srccl->id) {
-			isLeader = true;
-		}
-	}
-
-	/* Fallback: if not in a room, check global lobby leader (backward compat) */
-	if (!isLeader && srccl->room_id == 0xFF) {
-		u8 leaderSlot = lobbyGetLeader();
-		if (leaderSlot < LOBBY_MAX_PLAYERS) {
-			struct lobbyplayer *lp = &g_Lobby.players[leaderSlot];
-			if (lp->active && &g_NetClients[lp->clientId] == srccl) {
-				isLeader = true;
-			}
-		}
-		/* Fallback: if no explicit leader exists yet, allow any lobby sender. */
-		if (!isLeader && leaderSlot == 0xFF) {
-			isLeader = (srccl->state >= CLSTATE_LOBBY);
-		}
-	}
-
-	if (!isLeader) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_LOBBY_START rejected from client %d (%s) — not room creator",
-		             srccl->id, srccl->settings.name);
-		return src->error;
-	}
-
 	sysLogPrintf(LOG_NOTE, "NET: CLC_LOBBY_START from leader %s: gamemode=%u stage='%s'(num=%u) diff=%u antiClient=%u tl=%u opt=0x%08x",
 	             srccl->settings.name, gamemode, g_MatchConfig.stage_id, (unsigned)g_MpSetup.stagenum,
 	             difficulty, (unsigned)antiClientId, timelimit, (unsigned)options);
 
-	/* Apply settings */
-	g_NetGameMode = gamemode;
-	g_NetCounterOpClientId = NET_NULL_CLIENT;
+	u8 counterOpClientId = NET_NULL_CLIENT;
 	if (gamemode == NETGAMEMODE_ANTI) {
-		g_NetCounterOpClientId = antiClientId;
 		if (antiClientId == NET_NULL_CLIENT || antiClientId >= NET_MAX_CLIENTS) {
 			sysLogPrintf(LOG_WARNING,
 			             "NET: CLC_LOBBY_START rejected — invalid Counter-Op anti client id %u",
@@ -5144,7 +5208,12 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 				return src->error;
 			}
 		}
+		counterOpClientId = antiClientId;
 	}
+
+	/* Apply settings after all rejection paths have passed. */
+	g_NetGameMode = gamemode;
+	g_NetCounterOpClientId = counterOpClientId;
 
 	/* Start the match based on game mode.
 	 * For Combat Sim: load the requested stage and start.
@@ -5299,6 +5368,26 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			             g_BotConfigsArray[bi].base.mpheadnum,
 			             botType, botDifficulty);
 		}
+
+		if (clampedSims < numSims) {
+			for (s32 bi = clampedSims; bi < (s32)numSims; bi++) {
+				netbufReadStr(src); /* bot name */
+				netbufReadStr(src); /* body catalog ID */
+				netbufReadStr(src); /* head catalog ID */
+				netbufReadU8(src);  /* difficulty */
+				netbufReadU8(src);  /* type */
+				if (src->error) {
+					break;
+				}
+			}
+			if (src->error) {
+				sysLogPrintf(LOG_WARNING,
+				             "NET: CLC_LOBBY_START malformed over-cap bot configs after sims clamp %u -> %u",
+				             (unsigned)numSims, (unsigned)clampedSims);
+				return 1;
+			}
+		}
+
 		g_Lobby.settings.numSimulants = clampedSims;
 		sysLogPrintf(LOG_NOTE, "NET: Combat Sim setup: stage=0x%02x activeMask=0x%llx players=%d sims=%d type=%d",
 		             (unsigned)g_MpSetup.stagenum,
@@ -5606,6 +5695,19 @@ u32 netmsgSvcLobbyStateRead(struct netbuf *src, struct netclient *srccl)
 
 	if (src->error) {
 		return src->error;
+	}
+	if (gamemode != NETGAMEMODE_MP && gamemode != NETGAMEMODE_COOP &&
+	    gamemode != NETGAMEMODE_ANTI) {
+		sysLogPrintf(LOG_WARNING,
+		             "NET: SVC_LOBBY_STATE invalid gamemode=%u",
+		             (unsigned)gamemode);
+		return 1;
+	}
+	if (status > 2) {
+		sysLogPrintf(LOG_WARNING,
+		             "NET: SVC_LOBBY_STATE invalid status=%u",
+		             (unsigned)status);
+		return 1;
 	}
 
 	sysLogPrintf(LOG_NOTE, "NET: SVC_LOBBY_STATE: mode=%u stage=%u status=%u",
@@ -5965,6 +6067,7 @@ u32 netmsgSvcMatchManifestRead(struct netbuf *src, struct netclient *srccl)
 
 	if (manifestDeserialize(src, &g_ClientManifest) != 0 || src->error) {
 		sysLogPrintf(LOG_WARNING, "NET: SVC_MATCH_MANIFEST parse error");
+		manifestClear(&g_ClientManifest);
 		return 1;
 	}
 
@@ -7438,22 +7541,27 @@ u32 netmsgClcRoomSettingsUpdateRead(struct netbuf *src, struct netclient *srccl)
 	    "NET: CLC_ROOM_SETTINGS_UPDATE from leader %u: numBots=%u stage='%s'",
 	    srccl->id, numBots, stage_id ? stage_id : "");
 
-	/* Rebroadcast as SVC_ROOM_SETTINGS to all other room members. */
-	u8 bcastData[256];
-	struct netbuf bcast;
-	bcast.data = bcastData;
-	bcast.size = sizeof(bcastData);
-	netbufStartWrite(&bcast);
-	netmsgSvcRoomSettingsWrite(&bcast, numBots, timelimit, scorelimit,
-	                           teamscorelimit, options, scenario,
-	                           weaponSetIndex, stage_id);
-
 	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
 		struct netclient *ncl = &g_NetClients[ci];
 		if (ncl == srccl) continue;
 		if (ncl->state < CLSTATE_LOBBY) continue;
 		if (ncl->room_id != srccl->room_id) continue;
-		netSend(ncl, &bcast, true, NETCHAN_CONTROL);
+
+		/* netSend resets the source buffer after queueing a packet, so rebuild
+		 * the payload per recipient.  Use the normal reliable buffer instead
+		 * of the old 256-byte stack packet so catalog ID growth fails loudly. */
+		netbufStartWrite(&g_NetMsgRel);
+		netmsgSvcRoomSettingsWrite(&g_NetMsgRel, numBots, timelimit, scorelimit,
+		                           teamscorelimit, options, scenario,
+		                           weaponSetIndex, stage_id);
+		if (g_NetMsgRel.error) {
+			sysLogPrintf(LOG_WARNING,
+			             "NET: CLC_ROOM_SETTINGS_UPDATE failed to encode rebroadcast from client %u",
+			             srccl->id);
+			netbufStartWrite(&g_NetMsgRel);
+			return 1;
+		}
+		netSend(ncl, &g_NetMsgRel, true, NETCHAN_CONTROL);
 	}
 
 	return src->error;
@@ -7503,19 +7611,22 @@ u32 netmsgClcRoomPlaylistUpdateRead(struct netbuf *src, struct netclient *srccl)
 	sysLogPrintf(LOG_NOTE,
 	    "NET: CLC_ROOM_PLAYLIST_UPDATE from leader %u — rebroadcasting", srccl->id);
 
-	u8 bcastData[AUDIO_MAX_PLAYLIST * 65 + 4];
-	struct netbuf bcast;
-	bcast.data = bcastData;
-	bcast.size = sizeof(bcastData);
-	netbufStartWrite(&bcast);
-	netmsgSvcRoomPlaylistWrite(&bcast, clamped);
-
 	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
 		struct netclient *ncl = &g_NetClients[ci];
 		if (ncl == srccl) continue;
 		if (ncl->state < CLSTATE_LOBBY) continue;
 		if (ncl->room_id != srccl->room_id) continue;
-		netSend(ncl, &bcast, true, NETCHAN_CONTROL);
+
+		netbufStartWrite(&g_NetMsgRel);
+		netmsgSvcRoomPlaylistWrite(&g_NetMsgRel, clamped);
+		if (g_NetMsgRel.error) {
+			sysLogPrintf(LOG_WARNING,
+			             "NET: CLC_ROOM_PLAYLIST_UPDATE failed to encode rebroadcast from client %u",
+			             srccl->id);
+			netbufStartWrite(&g_NetMsgRel);
+			return 1;
+		}
+		netSend(ncl, &g_NetMsgRel, true, NETCHAN_CONTROL);
 	}
 
 	return src->error;

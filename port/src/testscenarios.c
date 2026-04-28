@@ -6,7 +6,8 @@
  * read from.
  *
  * Design: context/designs/gpu-swarm-and-test-scenarios-2026-04-27.md
- * sections A.3, F.4, G.1 (decided 2026-04-27).
+ * sections A.3, F.4, G.1 (decided 2026-04-27), plus the 2026-04-28
+ * implementation correction for MP arena launch.
  *
  * Scope: this module owns the SCENARIO STATE and the LAUNCH dispatch.
  * The swarm runtime (player setup, bot allocation, cycler, HUD,
@@ -29,10 +30,7 @@
 #include "testscenarios.h"
 
 /* Externs we need to drive a session. */
-extern void mainChangeToStage(s32 stagenum);
 extern s32  pdguiForgeStartSessionOn(s32 stagenum);
-extern struct matchconfig g_MatchConfig;
-extern void matchConfigInit(void);
 
 /* Net-mode probe -- must be NETMODE_NONE (0) for local-only test mode. */
 extern s32 g_NetMode;
@@ -197,17 +195,23 @@ s32 testScenarioLaunch(test_scenario_t scen, const char *map_id)
 		strncpy(g_MatchConfig.scenario_id, "base:combat",
 			sizeof(g_MatchConfig.scenario_id) - 1);
 		g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
-		g_MatchConfig.timelimit  = 0;  /* unlimited; benchmark mode */
-		g_MatchConfig.scorelimit = 0;
+		g_MatchConfig.timelimit      = 60;  /* no limit */
+		g_MatchConfig.scorelimit     = 100; /* no limit */
+		g_MatchConfig.teamscorelimit = 400; /* no limit */
 
 		sysLogPrintf(LOG_NOTE,
-			"TESTSCEN.LAUNCH: Swarm-%s map='%s' stagenum=0x%02x initial=%d",
+			"TESTSCEN.LAUNCH: Swarm-%s map='%s' stagenum=0x%02x initial=%d via matchStart",
 			(scen == TESTSCEN_SWARM_GPU) ? "GPU" : "CPU",
 			resolved_id, (u32)stagenum, (s32)TESTSCEN_SWARM_INITIAL_COUNT);
 
-		if (!pdguiForgeStartSessionOn(stagenum)) {
+		/* Swarm scenarios target MP arenas. The Grid/Forge handoff loads
+		 * a stage directly, which leaves normmplayerisrunning false and
+		 * setup.c selects the SP setup/manifest for arenas like
+		 * base:mp_skedar. Use the normal match path so the MP
+		 * setup/manifest path owns the load. */
+		if (matchStart() != 0) {
 			sysLogPrintf(LOG_WARNING,
-				"TESTSCEN: Swarm handoff failed; resetting state");
+				"TESTSCEN: Swarm matchStart failed; resetting state");
 			testScenarioReset();
 			return 0;
 		}

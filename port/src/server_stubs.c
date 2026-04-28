@@ -431,8 +431,6 @@ struct mptrack            g_MpTracks[43];           /* zero-initialised; server 
 struct botprofile         g_BotProfiles[18];        /* zero-initialised; server skips registration */
 
 /* --- assetcatalog_load stubs — server has no game asset filesystem --- */
-s32  catalogLoadAsset(const char *assetId)   { (void)assetId; return 1; }
-void catalogUnloadAsset(const char *assetId) { (void)assetId; }
 s32  catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId) { (void)expected_type; (void)assetId; return 1; }
 void catalogReleaseTypedAsset(asset_type_e expected_type, const char *assetId) { (void)expected_type; (void)assetId; }
 void catalogRetainTypedAsset(asset_type_e expected_type, const char *assetId) { (void)expected_type; (void)assetId; }

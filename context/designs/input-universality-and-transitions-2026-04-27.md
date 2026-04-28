@@ -1270,6 +1270,17 @@ The next shim-retirement slice removed the backend PageUp/PageDown bridge that h
 
 Verification: isolated build session `ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 329 test cases / 17795 assertions.
 
+### L.53 Inputctx to menu-layer bridge (2026-04-28)
+
+The next infrastructure slice adds the bridge needed before `gameplayInputSuppressed()` and other remaining inputctx authority shims can safely retire.
+
+- `port/src/inputctx.c` now mirrors effective non-gameplay input ownership into the typed input layer as a single `LAYER_MENU` handle.
+- The bridge syncs on init, shutdown, push, resurrect, deferred pop, immediate pop, and end-frame compaction, so every existing menu-pool/inputctx owner gets the same layer signal without per-menu edits.
+- Out-of-order bridge teardown uses `inputLayerHandleDistanceFromTop()` plus `inputLayerAbort()` to unwind any layer stacked above the mirrored menu handle before clearing it.
+- Pure pd-tests model the bridge state transitions for nested menu contexts, deferred pop, and resurrected menus. A source guard pins the production bridge to real input-layer push/pop/abort calls.
+
+Verification: pending isolated build session `ml53`.
+
 ---
 
 ## Appendix A: Audit raw findings

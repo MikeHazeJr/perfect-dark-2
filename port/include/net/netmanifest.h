@@ -422,8 +422,8 @@ void manifestMenuTransition(void);
  *
  * Uses g_ClientManifest (populated when SVC_MATCH_MANIFEST was received from
  * the server) as the "needed" manifest and diffs it against
- * g_CurrentLoadedManifest.  catalogLoadAsset / catalogUnloadAsset are called
- * for each to_load / to_unload entry respectively.
+ * g_CurrentLoadedManifest. Typed catalog load/release calls are driven for
+ * each to_load / to_unload entry respectively.
  *
  * Call from mainChangeToStage() for STAGE_IS_GAMEPLAY stages in MP mode
  * (when g_ClientManifest.num_entries > 0 — i.e. the server has already sent

@@ -3,9 +3,9 @@
  *
  * Surface: a small dropdown in the Debug tab launches one of three
  * benchmarking sessions ("The Grid - Empty Map", "Swarm - CPU Bots",
- * "Swarm - GPU Boids"). Implementation routes through the existing Grid
- * session-start path (pdguiForgeStartSessionOn) so the catalog/manifest
- * pipeline behaves exactly as it does for a normal Grid launch.
+ * "Swarm - GPU Boids"). Empty Map routes through the existing Grid
+ * session-start path. Swarm scenarios enter through matchStart() so MP
+ * arenas use the MP setup and manifest path.
  *
  * Per the design doc context/designs/gpu-swarm-and-test-scenarios-2026-04-27.md
  * (sections A.3, F.4, G.1).

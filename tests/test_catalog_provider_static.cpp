@@ -182,11 +182,7 @@ TEST_CASE("catalog lifecycle call sites use typed wrappers", "[catalog][provider
 
 TEST_CASE("untyped catalog lifecycle calls stay inside catalog implementation", "[catalog][provider][static]")
 {
-	const std::vector<std::string> allowed = {
-		"port/include/assetcatalog_load.h",
-		"port/src/assetcatalog_load.c",
-		"port/src/server_stubs.c",
-	};
+	const std::vector<std::string> allowed = {};
 	const std::array<const char *, 4> banned = {
 		"catalogLoadAsset(",
 		"catalogUnloadAsset(",
@@ -208,6 +204,15 @@ TEST_CASE("untyped catalog lifecycle calls stay inside catalog implementation", 
 
 	INFO("untyped lifecycle calls outside catalog implementation:\n" << joinLines(violations));
 	REQUIRE(violations.empty());
+
+	const std::string api = stripComments(readTextFile("port/include/assetcatalog_load.h"), true);
+	const std::string catalogLoad = stripComments(readTextFile("port/src/assetcatalog_load.c"), true);
+	const std::string stubs = stripComments(readTextFile("port/src/server_stubs.c"), true);
+	for (const char *pattern : banned) {
+		REQUIRE(api.find(pattern) == std::string::npos);
+		REQUIRE(catalogLoad.find(pattern) == std::string::npos);
+		REQUIRE(stubs.find(pattern) == std::string::npos);
+	}
 }
 
 TEST_CASE("typed catalog release and retain use entry-level internals", "[catalog][provider][static]")
@@ -228,8 +233,9 @@ TEST_CASE("typed catalog lifecycle does not use generic path fallback", "[catalo
 	REQUIRE(catalogLoad.find("CATALOG.LIFECYCLE.LOAD: typed '%s' %s payload has no provider handle") != std::string::npos);
 	REQUIRE(catalogLoad.find("if (expected_type != ASSET_NONE)") != std::string::npos);
 	REQUIRE(catalogLoad.find("return s_catalogLoadEntryFromProvider(entry, expected_type);") != std::string::npos);
-	REQUIRE(catalogLoad.find("return s_catalogLoadEntryFromPath(entry);") != std::string::npos);
-	REQUIRE(catalogLoad.find("if (s_catalogLoadEntryFromProvider(entry, expected_type))") != std::string::npos);
+	REQUIRE(catalogLoad.find("s_catalogLoadEntryFromPath") == std::string::npos);
+	REQUIRE(catalogLoad.find("FALLBACK: catalogLoadAsset") == std::string::npos);
+	REQUIRE(catalogLoad.find("catalogLoadAsset(") == std::string::npos);
 }
 
 TEST_CASE("catalog identity fallbacks use typed helpers at migrated boundaries", "[catalog][provider][static]")
@@ -422,14 +428,28 @@ TEST_CASE("weapon and prop model files populate provider handles", "[catalog][pr
 	const std::string scanner = readTextFile("port/src/assetcatalog_scanner.c");
 	const std::string distrib = readTextFile("port/src/net/netdistrib.c");
 
-	REQUIRE(scanner.find("catalogSetPrimary(e, fileProviderHandle(e->ext.weapon.model_file))") != std::string::npos);
-	REQUIRE(scanner.find("catalogSetPrimary(e, fileProviderHandle(e->ext.prop.model_file))") != std::string::npos);
-	REQUIRE(distrib.find("#include \"assetprovider.h\"") != std::string::npos);
+	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.weapon.model_file)") != std::string::npos);
+	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.prop.model_file)") != std::string::npos);
+	REQUIRE(distrib.find("#include \"assetprovider.h\"") == std::string::npos);
 	REQUIRE(distrib.find("\"prop.ini\"") != std::string::npos);
 	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.character.bodyfile)") != std::string::npos);
 	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.weapon.model_file)") != std::string::npos);
 	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.prop.model_file)") != std::string::npos);
 	REQUIRE(distrib.find("snprintf(fullpath, sizeof(fullpath), \"%s/%s\", dirpath, relpath)") != std::string::npos);
+	REQUIRE(distrib.find("catalogSetPrimaryFile(e, path)") != std::string::npos);
+}
+
+TEST_CASE("base first-person hand model files populate provider handles", "[catalog][provider][static]")
+{
+	const std::string baseExtended = readTextFile("port/src/assetcatalog_base_extended.c");
+	const std::string bondgun = readTextFile("src/game/bondgun.c");
+
+	REQUIRE(baseExtended.find("g_HeadsAndBodies[i].handfilenum") != std::string::npos);
+	REQUIRE(baseExtended.find("base:hand_model_%04x") != std::string::npos);
+	REQUIRE(baseExtended.find("e->runtime_index = -handfilenum") != std::string::npos);
+	REQUIRE(baseExtended.find("e->source_filenum = handfilenum") != std::string::npos);
+	REQUIRE(baseExtended.find("catalogSetPrimary(e, romProviderHandle(e->source_filenum))") != std::string::npos);
+	REQUIRE(bondgun.find("catalogHandleBySourceFilenum(ASSET_MODEL, filenum)") != std::string::npos);
 }
 
 TEST_CASE("texture audio and hud file fields populate provider handles", "[catalog][provider][static]")
@@ -437,9 +457,9 @@ TEST_CASE("texture audio and hud file fields populate provider handles", "[catal
 	const std::string scanner = readTextFile("port/src/assetcatalog_scanner.c");
 	const std::string distrib = readTextFile("port/src/net/netdistrib.c");
 
-	REQUIRE(scanner.find("catalogSetPrimary(e, fileProviderHandle(e->ext.texture.file_path))") != std::string::npos);
-	REQUIRE(scanner.find("catalogSetPrimary(e, fileProviderHandle(e->ext.audio.file_path))") != std::string::npos);
-	REQUIRE(scanner.find("catalogSetPrimary(e, fileProviderHandle(e->ext.hud.texture_file))") != std::string::npos);
+	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.texture.file_path)") != std::string::npos);
+	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.audio.file_path)") != std::string::npos);
+	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.hud.texture_file)") != std::string::npos);
 	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.texture.file_path)") != std::string::npos);
 	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.audio.file_path)") != std::string::npos);
 	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.hud.texture_file)") != std::string::npos);
@@ -449,16 +469,40 @@ TEST_CASE("texture audio and hud file fields populate provider handles", "[catal
 TEST_CASE("file-backed catalog registration helpers populate provider handles", "[catalog][provider][static]")
 {
 	const std::string catalog = readTextFile("port/src/assetcatalog.c");
+	const std::string header = readTextFile("port/include/assetcatalog.h");
 
-	REQUIRE(catalog.find("assetCatalogSetPrimaryFileIfPresent") != std::string::npos);
+	REQUIRE(header.find("catalogSetPrimaryFile(asset_entry_t *entry, const char *path)") != std::string::npos);
+	REQUIRE(catalog.find("catalogSetPrimaryFile(asset_entry_t *entry, const char *path)") != std::string::npos);
 	REQUIRE(catalog.find("fileProviderHandle(path)") != std::string::npos);
 	REQUIRE(catalog.find("catalogSetPrimary(entry, handle)") != std::string::npos);
-	REQUIRE(catalog.find("assetCatalogSetPrimaryFileIfPresent(entry, entry->ext.character.bodyfile)") != std::string::npos);
-	REQUIRE(countOccurrences(catalog, "assetCatalogSetPrimaryFileIfPresent(entry, entry->ext.weapon.model_file)") >= 1);
-	REQUIRE(countOccurrences(catalog, "assetCatalogSetPrimaryFileIfPresent(entry, entry->ext.prop.model_file)") >= 1);
-	REQUIRE(countOccurrences(catalog, "assetCatalogSetPrimaryFileIfPresent(entry, entry->ext.texture.file_path)") >= 1);
-	REQUIRE(countOccurrences(catalog, "assetCatalogSetPrimaryFileIfPresent(entry, entry->ext.audio.file_path)") >= 1);
-	REQUIRE(countOccurrences(catalog, "assetCatalogSetPrimaryFileIfPresent(entry, entry->ext.hud.texture_file)") >= 1);
+	REQUIRE(catalog.find("catalogSetPrimaryFile(entry, entry->ext.character.bodyfile)") != std::string::npos);
+	REQUIRE(countOccurrences(catalog, "catalogSetPrimaryFile(entry, entry->ext.weapon.model_file)") >= 1);
+	REQUIRE(countOccurrences(catalog, "catalogSetPrimaryFile(entry, entry->ext.prop.model_file)") >= 1);
+	REQUIRE(countOccurrences(catalog, "catalogSetPrimaryFile(entry, entry->ext.texture.file_path)") >= 1);
+	REQUIRE(countOccurrences(catalog, "catalogSetPrimaryFile(entry, entry->ext.audio.file_path)") >= 1);
+	REQUIRE(countOccurrences(catalog, "catalogSetPrimaryFile(entry, entry->ext.hud.texture_file)") >= 1);
+}
+
+TEST_CASE("file provider handles stay behind catalog provider boundary", "[catalog][provider][static]")
+{
+	const std::vector<std::string> allowed = {
+		"port/include/assetprovider.h",
+		"port/src/assetprovider_file.c",
+		"port/src/assetcatalog.c",
+		"port/src/server_stubs.c",
+	};
+	std::vector<std::string> violations;
+
+	for (const std::string &path : repoSourceFiles()) {
+		const std::string stripped = stripComments(readTextFile(path.c_str()), true);
+		if (stripped.find("fileProviderHandle(") != std::string::npos
+				&& !isAllowedPath(path, allowed)) {
+			violations.push_back(path);
+		}
+	}
+
+	INFO("fileProviderHandle outside catalog/provider boundary:\n" << joinLines(violations));
+	REQUIRE(violations.empty());
 }
 
 TEST_CASE("typed catalog language lifecycle activates runtime payloads", "[catalog][provider][static]")
@@ -478,10 +522,30 @@ TEST_CASE("typed catalog audio lifecycle uses runtime activation", "[catalog][pr
 
 	REQUIRE(catalogLoad.find("s_catalogLoadEntryAudioPayload") != std::string::npos);
 	REQUIRE(catalogLoad.find("s_catalogTypeUsesAudioRuntimePayload") != std::string::npos);
-	REQUIRE(catalogLoad.find("type == ASSET_AUDIO || type == ASSET_SFX || type == ASSET_MUSIC") != std::string::npos);
+	REQUIRE(catalogLoad.find("return type == ASSET_AUDIO;") != std::string::npos);
 	REQUIRE(catalogLoad.find("entry->type == ASSET_AUDIO && assetHandleIsNull(handle)") != std::string::npos);
 	REQUIRE(catalogLoad.find("audio payload has no provider handle") != std::string::npos);
-	REQUIRE(catalogLoad.find("audio payload has no provider/path") != std::string::npos);
+	REQUIRE(catalogLoad.find("audio payload has no provider/path") == std::string::npos);
+}
+
+TEST_CASE("swarm debug scenarios enter through match setup", "[testscenarios][static]")
+{
+	const std::string source = readTextFile("port/src/testscenarios.c");
+	const std::string header = readTextFile("port/include/testscenarios.h");
+
+	const size_t swarmBlockStart = source.find("case TESTSCEN_SWARM_CPU:");
+	REQUIRE(swarmBlockStart != std::string::npos);
+	const size_t defaultBlockStart = source.find("default:", swarmBlockStart);
+	REQUIRE(defaultBlockStart != std::string::npos);
+	const std::string swarmBlock = source.substr(
+		swarmBlockStart, defaultBlockStart - swarmBlockStart);
+
+	REQUIRE(swarmBlock.find("matchStart()") != std::string::npos);
+	REQUIRE(swarmBlock.find("pdguiForgeStartSessionOn(stagenum)") == std::string::npos);
+	REQUIRE(swarmBlock.find("MP setup/manifest path") != std::string::npos);
+	REQUIRE(swarmBlock.find("g_MatchConfig.timelimit      = 60") != std::string::npos);
+	REQUIRE(swarmBlock.find("g_MatchConfig.scorelimit     = 100") != std::string::npos);
+	REQUIRE(header.find("Swarm scenarios enter through matchStart()") != std::string::npos);
 }
 
 TEST_CASE("typed catalog metadata lifecycle uses runtime activation", "[catalog][provider][static]")
@@ -492,6 +556,14 @@ TEST_CASE("typed catalog metadata lifecycle uses runtime activation", "[catalog]
 	REQUIRE(catalogLoad.find("s_catalogTypeUsesMetadataRuntimePayload") != std::string::npos);
 	REQUIRE(catalogLoad.find("type == ASSET_MAP") != std::string::npos);
 	REQUIRE(catalogLoad.find("type == ASSET_CHARACTER") != std::string::npos);
+	REQUIRE(catalogLoad.find("type == ASSET_ANIMATION") != std::string::npos);
+	REQUIRE(catalogLoad.find("type == ASSET_TEXTURES") != std::string::npos);
+	REQUIRE(catalogLoad.find("type == ASSET_SFX") != std::string::npos);
+	REQUIRE(catalogLoad.find("type == ASSET_MUSIC") != std::string::npos);
+	REQUIRE(catalogLoad.find("type == ASSET_UI") != std::string::npos);
+	REQUIRE(catalogLoad.find("type == ASSET_TOOL") != std::string::npos);
+	REQUIRE(catalogLoad.find("type == ASSET_VEHICLE") != std::string::npos);
+	REQUIRE(catalogLoad.find("type == ASSET_MISSION") != std::string::npos);
 	REQUIRE(catalogLoad.find("type == ASSET_HUD") != std::string::npos);
 	REQUIRE(catalogLoad.find("type == ASSET_BOT_PROFILE") != std::string::npos);
 	REQUIRE(catalogLoad.find("type == ASSET_ARENA") != std::string::npos);

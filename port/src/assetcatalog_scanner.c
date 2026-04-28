@@ -28,7 +28,6 @@
 #include "constants.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
-#include "assetprovider.h"
 #include "romdata.h"
 #include "system.h"
 #include "fs.h"
@@ -373,7 +372,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 				/* Asset Provider: mod characters are served by FileProvider
 				 * from a loose file on disk. The bodyfile path is relative
 				 * to the FS base dir (fsFileLoad resolves it). */
-				catalogSetPrimary(e, fileProviderHandle(bf));
+				catalogSetPrimaryFile(e, bf);
 			}
 		}
 		break;
@@ -405,7 +404,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		strncpy(e->ext.weapon.name, iniGet(ini, "name", ""), sizeof(e->ext.weapon.name) - 1);
 		strncpy(e->ext.weapon.model_file, iniGet(ini, "model_file", ""), sizeof(e->ext.weapon.model_file) - 1);
 		if (e->ext.weapon.model_file[0]) {
-			catalogSetPrimary(e, fileProviderHandle(e->ext.weapon.model_file));
+			catalogSetPrimaryFile(e, e->ext.weapon.model_file);
 		}
 		e->ext.weapon.damage = iniGetFloat(ini, "damage", 0.0f);
 		e->ext.weapon.fire_rate = iniGetFloat(ini, "fire_rate", 0.0f);
@@ -418,7 +417,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		strncpy(e->ext.prop.name, iniGet(ini, "name", ""), sizeof(e->ext.prop.name) - 1);
 		strncpy(e->ext.prop.model_file, iniGet(ini, "model_file", ""), sizeof(e->ext.prop.model_file) - 1);
 		if (e->ext.prop.model_file[0]) {
-			catalogSetPrimary(e, fileProviderHandle(e->ext.prop.model_file));
+			catalogSetPrimaryFile(e, e->ext.prop.model_file);
 		}
 		e->ext.prop.flags = (u32)iniGetInt(ini, "flags", 0);
 		e->ext.prop.health = iniGetFloat(ini, "health", 100.0f);
@@ -438,7 +437,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		e->ext.texture.format = iniGetInt(ini, "format", 0);
 		strncpy(e->ext.texture.file_path, iniGet(ini, "file_path", ""), sizeof(e->ext.texture.file_path) - 1);
 		if (e->ext.texture.file_path[0]) {
-			catalogSetPrimary(e, fileProviderHandle(e->ext.texture.file_path));
+			catalogSetPrimaryFile(e, e->ext.texture.file_path);
 		}
 		break;
 
@@ -459,7 +458,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		e->ext.audio.duration_ms = iniGetInt(ini, "duration_ms", 0);
 		strncpy(e->ext.audio.file_path, iniGet(ini, "file_path", ""), sizeof(e->ext.audio.file_path) - 1);
 		if (e->ext.audio.file_path[0]) {
-			catalogSetPrimary(e, fileProviderHandle(e->ext.audio.file_path));
+			catalogSetPrimaryFile(e, e->ext.audio.file_path);
 		}
 		break;
 
@@ -469,7 +468,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		e->ext.hud.element_type = iniGetInt(ini, "element_type", HUD_ELEM_CROSSHAIR);
 		strncpy(e->ext.hud.texture_file, iniGet(ini, "texture_file", ""), sizeof(e->ext.hud.texture_file) - 1);
 		if (e->ext.hud.texture_file[0]) {
-			catalogSetPrimary(e, fileProviderHandle(e->ext.hud.texture_file));
+			catalogSetPrimaryFile(e, e->ext.hud.texture_file);
 		}
 		break;
 

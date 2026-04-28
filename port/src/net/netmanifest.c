@@ -750,9 +750,8 @@ void manifestBuildForMenu(match_manifest_t *out)
 
     /* Register every body and head in the catalog.  The menu stage is the
      * hub — the Skin Editor, Agent Select, Bot Setup, and Modding Hub all
-     * need to preview arbitrary characters.  Bundled assets are ROM-resident
-     * (load is a no-op); mod assets need catalogLoadAsset() via the diff
-     * pipeline to load their files from disk. */
+     * need to preview arbitrary characters. Bundled assets are ROM-resident;
+     * mod assets are activated through the typed lifecycle diff pipeline. */
     assetCatalogIterateByType(ASSET_BODY, s_menuBodyCallback, &ctx);
     assetCatalogIterateByType(ASSET_HEAD, s_menuHeadCallback, &ctx);
 

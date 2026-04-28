@@ -19,6 +19,7 @@
  *   ASSET_LANG        -- 68 language string banks (LANGBANK_* constants)
  *   ASSET_BOT_PROFILE -- 18 base MP simulant profiles (g_BotProfiles[])
  *                       (catalog universality sweep, 2026-04-27)
+ *   ASSET_MODEL       -- base prop models plus first-person hand model files
  *
  * Called by assetCatalogRegisterBaseGame() at the end of base registration.
  * Auto-discovered by CMake glob (port/*.c). No build system changes needed.
@@ -707,6 +708,61 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			n++;
 		}
 		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base prop models (ASSET_MODEL)", n);
+		count += n;
+	}
+
+	/* ---- first-person hand models (B-275/S483 runtime coverage) ---- */
+	/*
+	 * bgun queues hand models by raw FILE_* filenum from the active body.
+	 * Those files live in g_HeadsAndBodies[].handfilenum rather than
+	 * g_ModelStates[], so register the distinct hand files as ASSET_MODEL
+	 * provider-backed catalog entries. They intentionally use negative
+	 * runtime_index values: catalogModelIdByModelnum() remains reserved for
+	 * g_ModelStates[] MODEL_* indices, while source-filenum lookups can now
+	 * resolve files such as FILE_GCOMBATHANDSLOD.
+	 */
+	{
+		u16 seen[152];
+		s32 seen_count = 0;
+		s32 n = 0;
+
+		for (s32 i = 0; i < 152; i++) {
+			s32 handfilenum = (s32)g_HeadsAndBodies[i].handfilenum;
+			s32 duplicate = 0;
+
+			if (g_HeadsAndBodies[i].filenum == 0 || handfilenum <= 0) {
+				continue;
+			}
+
+			for (s32 j = 0; j < seen_count; j++) {
+				if (seen[j] == (u16)handfilenum) {
+					duplicate = 1;
+					break;
+				}
+			}
+			if (duplicate) {
+				continue;
+			}
+			seen[seen_count++] = (u16)handfilenum;
+
+			snprintf(idbuf, sizeof(idbuf), "base:hand_model_%04x", (u32)handfilenum);
+			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_MODEL);
+			if (!e) {
+				sysLogPrintf(LOG_ERROR,
+					"assetcatalog: failed to register hand model %s", idbuf);
+				continue;
+			}
+			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
+			e->bundled = 1; e->enabled = 1;
+			e->runtime_index = -handfilenum;
+			e->source_filenum = handfilenum;
+			catalogSetPrimary(e, romProviderHandle(e->source_filenum));
+			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
+			n++;
+		}
+
+		sysLogPrintf(LOG_NOTE,
+			"assetcatalog: registered %d base first-person hand models (ASSET_MODEL)", n);
 		count += n;
 	}
 

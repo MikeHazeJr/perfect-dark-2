@@ -37,8 +37,12 @@ s32  pdguiFriendsSidebarIsOpen(void);
 
 /* Open / close the full-screen Social menu. */
 void pdguiFriendsSocialOpen(void);
+void pdguiFriendsSocialOpenPublicMods(void);
 void pdguiFriendsSocialClose(void);
 s32  pdguiFriendsSocialIsOpen(void);
+
+/* Any Social shell surface currently owns menu input. */
+s32  pdguiFriendsAnySurfaceIsOpen(void);
 
 /* Per-friend 1:1 chat panel (Phase 2). */
 void pdguiFriendsChatOpen(u32 friend_handle);

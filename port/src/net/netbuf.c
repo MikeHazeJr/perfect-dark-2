@@ -129,7 +129,10 @@ const char *netbufReadStr(struct netbuf *buf)
 	}
 	if (netbufCanRead(buf, len)) {
 		if (buf->data[buf->rp + len - 1] != '\0') {
-			buf->data[buf->rp + len - 1] = '\0';
+			sysLogPrintf(LOG_WARNING, "NET: malformed string missing terminator (len=%u rp=%u)",
+			             (unsigned)len, (unsigned)buf->rp);
+			buf->error = 1;
+			return NULL;
 		}
 		const char *ret = (const char *)&buf->data[buf->rp];
 		buf->rp += len;

@@ -20,6 +20,11 @@ static s32 s_Depth = 0;
 static InputContextPure *s_GameplayCtx = NULL;
 static s32 s_FocusLost = 0;
 static s32 s_FocusSettlePending = 0;
+static s32 s_MenuLayerActive = 0;
+static s32 s_MenuLayerPushCount = 0;
+static s32 s_MenuLayerPopCount = 0;
+
+static void inputCtxPureSyncMenuLayerBridge(void);
 
 void inputCtxPureReset(void)
 {
@@ -38,6 +43,9 @@ void inputCtxPureReset(void)
     s_GameplayCtx = NULL;
     s_FocusLost = 0;
     s_FocusSettlePending = 0;
+    s_MenuLayerActive = 0;
+    s_MenuLayerPushCount = 0;
+    s_MenuLayerPopCount = 0;
 }
 
 void inputCtxPureSetGameplayCtx(InputContextPure *ctx)
@@ -60,6 +68,7 @@ s32 inputCtxPurePush(InputContextPure *ctx)
         if (s_Stack[i] == ctx) {
             if (ctx->marked_for_removal) {
                 ctx->marked_for_removal = 0;
+                inputCtxPureSyncMenuLayerBridge();
                 return 2;  /* resurrect */
             }
             return 0;  /* duplicate, ignore */
@@ -70,6 +79,7 @@ s32 inputCtxPurePush(InputContextPure *ctx)
     ctx->marked_for_removal = 0;
     s_Stack[s_Depth] = ctx;
     s_Depth++;
+    inputCtxPureSyncMenuLayerBridge();
     return 1;
 }
 
@@ -80,6 +90,7 @@ void inputCtxPurePopDeferred(InputContextPure *ctx)
     for (s32 i = 0; i < s_Depth; i++) {
         if (s_Stack[i] == ctx) {
             ctx->marked_for_removal = 1;
+            inputCtxPureSyncMenuLayerBridge();
             return;
         }
     }
@@ -96,6 +107,7 @@ void inputCtxPurePopImmediate(void)
         ctx->active = 0;
         ctx->marked_for_removal = 0;
     }
+    inputCtxPureSyncMenuLayerBridge();
 }
 
 void inputCtxPureEndFrame(void)
@@ -116,6 +128,7 @@ void inputCtxPureEndFrame(void)
         s_Stack[i] = NULL;
     }
     s_Depth = write;
+    inputCtxPureSyncMenuLayerBridge();
 }
 
 s32 inputCtxPureDepth(void)
@@ -150,6 +163,40 @@ const char *inputCtxPureGetTopName(void)
     InputContextPure *t = inputCtxPureGetTop();
     if (t && t->name) return t->name;
     return "none";
+}
+
+static void inputCtxPureSyncMenuLayerBridge(void)
+{
+    InputContextPure *top = inputCtxPureGetTop();
+    s32 wants_menu_layer = (top && (!s_GameplayCtx || top != s_GameplayCtx));
+
+    if (wants_menu_layer) {
+        if (!s_MenuLayerActive) {
+            s_MenuLayerActive = 1;
+            s_MenuLayerPushCount++;
+        }
+        return;
+    }
+
+    if (s_MenuLayerActive) {
+        s_MenuLayerActive = 0;
+        s_MenuLayerPopCount++;
+    }
+}
+
+s32 inputCtxPureMenuLayerActive(void)
+{
+    return s_MenuLayerActive;
+}
+
+s32 inputCtxPureMenuLayerPushCount(void)
+{
+    return s_MenuLayerPushCount;
+}
+
+s32 inputCtxPureMenuLayerPopCount(void)
+{
+    return s_MenuLayerPopCount;
 }
 
 void inputCtxPureNotifyFocus(s32 gained)

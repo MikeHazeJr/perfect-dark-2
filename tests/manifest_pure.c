@@ -9,7 +9,7 @@
  * g_NetMode, g_NetLocalClient, g_NetMsgRel) and call into 11+ subsystem
  * functions (chraiGetCommandLength, audioGetModTrackId,
  * assetCatalogIterateByType, catalogResolveStage, setupGetCmdLength,
- * catalogLoadAsset, catalogUnloadAsset, catalogGetBodyModeldef,
+ * typed catalog load/release, catalogGetBodyModeldef,
  * catalogGetHeadModeldef, modmgrFindMod, sha256ToHex,
  * netmsgClcManifestStatusWrite, netSend). Linking netmanifest.c into
  * the test binary cascades into a stub surface roughly the size of the

@@ -81,6 +81,9 @@ extern "C" void pdguiNatDiagnosticsRender(s32 winW, s32 winH)
 	                 ImGuiWindowFlags_NoCollapse |
 	                 ImGuiWindowFlags_NoTitleBar |
 	                 ImGuiWindowFlags_NoSavedSettings)) {
+		if (ImGui::IsWindowAppearing()) {
+			ImGui::SetWindowFocus();
+		}
 
 		ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
 		ImGui::TextUnformatted("NAT DIAGNOSTICS");

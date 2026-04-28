@@ -18,6 +18,7 @@
 #include "inputctx.h"
 #include "actionmap.h"
 #include "menupool.h"
+#include "inputlayer.h"
 #include "system.h"
 
 /* ---- Stack storage ---- */
@@ -41,6 +42,65 @@ static s32 s_GamePaused = 0;
  * pressed" and move the player. Users must release + re-press to count. */
 static s32 s_WindowFocusLost = 0;
 static u32 s_FocusRegainTick = 0;
+
+/* ---- Input-layer bridge ----
+ *
+ * The menu pool and inputctx stack already decide when UI owns input.
+ * The typed layer stack needs the same signal before gameplay authority
+ * can stop consulting inputctx directly. Keep this as a single current
+ * LAYER_MENU mirror of the effective inputctx top rather than one layer
+ * per menu dialog. Menu dialog identity and nesting remain menupool's job. */
+static LayerHandle *s_MenuLayerHandle = NULL;
+
+static void inputctxPopMenuLayerBridge(void)
+{
+    if (!s_MenuLayerHandle) {
+        return;
+    }
+
+    if (!inputLayerHandleDef(s_MenuLayerHandle)) {
+        s_MenuLayerHandle = NULL;
+        return;
+    }
+
+    s32 rc = inputLayerPop(s_MenuLayerHandle, NULL);
+    if (rc == -2) {
+        s32 from_top = inputLayerHandleDistanceFromTop(s_MenuLayerHandle);
+        if (from_top > 0) {
+            inputLayerAbort(from_top, /* inputctx nested menu close */ 0);
+        }
+    }
+
+    s_MenuLayerHandle = NULL;
+}
+
+static void inputctxSyncMenuLayerBridge(void)
+{
+    if (inputLayerDepth() <= 0) {
+        s_MenuLayerHandle = NULL;
+        return;
+    }
+
+    if (s_MenuLayerHandle && !inputLayerHandleDef(s_MenuLayerHandle)) {
+        s_MenuLayerHandle = NULL;
+    }
+
+    InputContext *top = inputCtxGetTop();
+    s32 wants_menu_layer = (top && top != &g_CtxGameplay);
+
+    if (wants_menu_layer) {
+        if (!s_MenuLayerHandle) {
+            s_MenuLayerHandle = inputLayerPush(&g_LayerMenu, NULL);
+            if (!s_MenuLayerHandle) {
+                sysLogPrintf(LOG_WARNING,
+                    "INPUTCTX: could not publish menu ownership to input layer");
+            }
+        }
+        return;
+    }
+
+    inputctxPopMenuLayerBridge();
+}
 
 /* ---- Issue 11 (2026-04-24): push / pop history ring ----
  *
@@ -89,6 +149,7 @@ void inputCtxInit(void)
 {
     memset(s_Stack, 0, sizeof(s_Stack));
     s_Depth = 0;
+    inputctxSyncMenuLayerBridge();
     s_GamePaused = 0;
     s_WindowFocusLost = 0;
     s_FocusRegainTick = 0;
@@ -100,6 +161,7 @@ void inputCtxInit(void)
      * Ensure no pool slots survive that reset — inputCtxShutdown popped
      * every context, so any slot that was holding a context pop is stale. */
     menupoolReleaseAll();
+    inputctxSyncMenuLayerBridge();
     sysLogPrintf(LOG_NOTE, "INPUTCTX: initialized");
 }
 
@@ -125,6 +187,7 @@ void inputCtxShutdown(void)
         }
     }
     s_Depth = 0;
+    inputctxSyncMenuLayerBridge();
     s_GamePaused = 0;
     sysLogPrintf(LOG_NOTE, "INPUTCTX: shutdown");
 }
@@ -168,6 +231,7 @@ void inputCtxPush(InputContext *ctx)
                 if (ctx != &g_CtxGameplay) {
                     actionmapFlushGameplayState();
                 }
+                inputctxSyncMenuLayerBridge();
                 sysLogPrintf(LOG_NOTE,
                     "INPUTCTX: push on marked '%s' at depth %d — un-marked for removal (resurrect)",
                     ctx->name ? ctx->name : "?", i);
@@ -199,6 +263,8 @@ void inputCtxPush(InputContext *ctx)
         actionmapFlushGameplayState();
     }
 
+    inputctxSyncMenuLayerBridge();
+
     sysLogPrintf(LOG_NOTE, "INPUTCTX: pushed '%s' (depth now %d)",
                  ctx->name ? ctx->name : "?", s_Depth);
     s_historyRecord('P', ctx, s_Depth);
@@ -225,6 +291,7 @@ void inputCtxPopDeferred(InputContext *ctx)
              * absolute mode after a menu closes, causing visible cursor flash
              * and one frame of lost mouse input. */
             inputCtxSyncMouseMode();
+            inputctxSyncMenuLayerBridge();
             return;
         }
     }
@@ -258,6 +325,7 @@ void inputCtxPopImmediate(void)
 
     /* Sync mouse mode to reflect the new top context immediately. */
     inputCtxSyncMouseMode();
+    inputctxSyncMenuLayerBridge();
 }
 
 s32 inputCtxDispatch(const SDL_Event *ev)
@@ -407,6 +475,7 @@ void inputCtxEndFrame(void)
      * This catches any case where something outside the context system
      * changed SDL state (e.g., deferred mouse lock, hotswap transitions). */
     inputCtxSyncMouseMode();
+    inputctxSyncMenuLayerBridge();
 }
 
 /* ---- Query API ---- */

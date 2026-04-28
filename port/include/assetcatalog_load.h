@@ -137,32 +137,10 @@ const char *catalogGetSoundOverride(s32 soundnum);
  * ======================================================================== */
 
 /**
- * Load an asset into memory and advance its load state to LOADED.
- *
- * Bundled (base-game) entries are already ROM-resident; this is a no-op
- * retain for them (returns 1 immediately).
- *
- * For non-bundled entries: resolves the catalog/provider source, stores the
- * loaded payload in entry->loaded_data, and increments ref_count on every
- * call. Model-like entries use the typed activation path and store a promoted
- * modeldef payload; generic entries store provider/file bytes.
- *
- * If the entry is already LOADED (from a prior call) only the ref_count
- * is incremented — no double-load.
- *
- * Returns 1 on success, 0 on error (entry not found, not enabled, or
- * file load failure).
- *
- * Log prefix: "CATALOG:" for bundled, "MOD:" for mod assets.
- */
-s32 catalogLoadAsset(const char *assetId);
-
-/**
  * Type-checked load wrapper.
  *
- * expected_type must match the resolved catalog entry type. Pass ASSET_NONE
- * only for legacy/component paths where the caller cannot name a concrete
- * asset type yet. Returns 1 on success, 0 on type mismatch or load failure.
+ * expected_type must match the resolved catalog entry type. Returns 1 on
+ * success, 0 on type mismatch or load failure.
  */
 s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId);
 
@@ -173,29 +151,10 @@ s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId);
 struct modeldef *catalogGetLoadedModeldef(const char *assetId);
 
 /**
- * Decrement ref_count for a loaded asset.
- *
- * When ref_count reaches 0 and the entry is not bundled, catalog-owned payload
- * state is released according to its payload_kind and the entry reverts to
- * ASSET_STATE_ENABLED.
- * Bundled entries (ASSET_REF_BUNDLED sentinel) are never freed.
- */
-void catalogUnloadAsset(const char *assetId);
-
-/**
  * Type-checked release wrapper. Same validation rule as
  * catalogLoadTypedAsset; mismatches log and leave the asset untouched.
  */
 void catalogReleaseTypedAsset(asset_type_e expected_type, const char *assetId);
-
-/**
- * Increment ref_count without triggering a load.
- * The entry must already be at ASSET_STATE_LOADED or higher.
- * Used when transferring ownership of a loaded asset (e.g., stage diff
- * marks an asset as shared between old and new stage).
- * No-op for bundled entries.
- */
-void catalogRetainAsset(const char *assetId);
 
 /**
  * Type-checked retain wrapper. Same validation rule as
@@ -236,7 +195,7 @@ void catalogLoadLogStats(void);
  *
  * Load order in toLoad respects the stage-load sequence:
  *   ASSET_MAP first, then characters, then everything else.
- * Caller drives the actual catalogLoadAsset / catalogUnloadAsset calls.
+ * Caller drives the actual typed catalog load/release calls.
  */
 s32 catalogComputeStageDiff(const char *newStageId,
                             const char **toLoad,  s32 *loadCount,

@@ -29,7 +29,7 @@
 
 ## Open -- 2026-04-28 (Modern main menu / social shell)
 
-**Status: INPUT-OWNERSHIP + CONTROLLER ROWS PATCHED / ISOLATED BUILD BLOCKED.** Continue the controller-first Social shell without violating ImGui-only/menu-pool/input-context ownership.
+**Status: MAIN-MENU ENTRY + SOCIAL SHELL OWNERSHIP PATCHED / STATIC VERIFIED / ISOLATED BUILD TIMED OUT IN CLIENT COMPILE.** Continue the controller-first Social shell without violating ImGui-only/menu-pool/input-context ownership.
 
 **Done this slice:**
 - Added `MENU_TYPE_SOCIAL_SHELL` for the friends sidebar, full Social menu, chat panel, profile modal, convert-to-mod modal, add-friend modal, and NAT diagnostics.
@@ -38,20 +38,27 @@
 - `pdgui_nat_diagnostics.cpp` now closes from `ACTION_CANCEL_USE`, not just the Close button.
 - Friend rows now render as bordered cards with large focused actions instead of inline micro-buttons.
 - Chat attachment actions, incoming invites, profile/session public-mod downloads, local public-mod removal, block-list unblock, replay actions, listening-room track actions, settings copy, and add-friend paste are now regular controller-sized ImGui buttons.
-- Static verification: `git diff --check` passed for the touched social/menu-pool files after both UI slices.
+- Status-pill clicks now resync `MENU_TYPE_SOCIAL_SHELL` immediately instead of relying on a later render path.
+- The first-screen main menu exposes controller-sized `Social` and `Public Mods` entry points through `menugraph` push ops to `MENU_TYPE_SOCIAL_SHELL`; Public Mods opens the Social shell directly on the Public Mods tab.
+- Main-menu Back/Escape now defers while any Social shell surface is open, so Back closes chat/Social/sidebar before unwinding the main menu.
+- Social/sidebar/chat/NAT windows request focus when appearing, and Social shell local booleans are cleared if `menupoolReleaseAll()` or another force-close path releases the pool slot externally.
+- `pdguiNewFrame()` now treats active Social shell surfaces as a reason to start an ImGui frame, so standalone sidebar/chat/menu surfaces are not skipped by the backend gate.
+- Static verification: `git diff --check` passed for the touched social/menu-pool/backend/menugraph/context files after the entry/force-close slice.
 
-**Build note:** Mike provided the isolated-build rule. Attempted `.\devtools\build-session.ps1 -Session s501ui -Target all`; it used `.claude/session-builds/s501ui`. The earlier attempt failed with the PowerShell runspace exception; the later attempt stayed in configure until the Codex command timed out at 120s. Cleanup required removing the stale `s501ui` lock/directory with `-Remove -Force` after confirming the lock PID was gone, then stopping the orphaned child process tree from that timed-out build. Details recorded in `context/build.md`.
+**Build note:** Mike provided the isolated-build rule. Earlier `s501ui` attempts hit the PowerShell runspace/configure timeout path. This slice used `.\devtools\build-session.ps1 -Session ui568 -Target all`; configure completed, ccache was disabled after the compiler-launch probe timed out, and client compilation ran until the Codex command timed out at 15 minutes without surfacing a compile diagnostic. The stale `ui568` lock recorded PID 6120; that PID was gone, so cleanup used `.\devtools\build-session.ps1 -Remove -Session ui568 -Force`, and `-List` confirmed `ui568` was gone while other sessions remained untouched. Details recorded in `context/build.md`.
 
 **Next UI slice:**
-1. Rebuild/verify this patch once the build wrapper is fixed.
-2. Do an in-game controller pass over sidebar, Social tabs, chat, invites, public mods, profile modal, add-friend modal, and NAT diagnostics; tune any row heights/focus order that clip at Mike's test resolution.
-3. If that pass is clean, continue with the next modern-main-menu shell task: make the first-screen main menu entry points expose Social / Public Mods / Settings without raw input or legacy-menu stack bypasses.
+1. Re-run verification in an isolated build after the current parallel builds clear, preferably with a longer window or the known direct isolated-tree Ninja fallback if the wrapper stalls again.
+2. Do an in-game controller pass over first-screen Social/Public Mods entry, sidebar, Social tabs, chat, invites, public mods, profile modal, add-friend modal, and NAT diagnostics; tune only row heights/focus order that clip or traverse incorrectly.
+3. If build/gamepad verification is clean, continue with the next safe UI code slice: refine public-mod add/import form layout and default focus inside the Social shell without adding raw input shortcuts or legacy menu-stack state.
 
 ## Open -- 2026-04-28 (Quality / Testing / Audits)
 
-**Status: RECURSIVE TEST EXPANSION PAUSED AFTER FOUR VERIFIED SLICES.** Mike requested recursive pd-tests expansion around the next highest-risk invariants after reading the testing framework, QC checklist, bugs, and current audits.
+**Status: RECURSIVE TEST EXPANSION COMPLETE FOR CURRENT SAFE START/MANIFEST LIFECYCLE PASS.** Mike requested recursive pd-tests expansion around the next highest-risk invariants after reading the testing framework, QC checklist, bugs, and current audits.
 
 **Build infrastructure side quest complete (S504):** concurrent test builds now have `devtools/build-session.ps1`, which routes each session to `.claude/session-builds/<session-id>/` via the canonical headless build script and adds per-session locking plus cleanup commands. Use this instead of shared `Build/` when multiple sessions may build simultaneously.
+
+**Dev Window v2 side quest complete (S570):** the Push button now stages, commits, pushes, and refreshes UI state; warm BUILD/RUN TESTS paths skip configure when the cache/version/Python tool are current, run CMake builds in parallel, and mirror addin data with `robocopy` when available. Verified with the PowerShell parser and `git diff --check` on the dev-window files; full build was not rerun because the Codex desktop build caveat still applies.
 
 **Completed slice 1 -- catalog/provider identity:** production code outside the catalog API should not use generic `catalogIdByRuntime(ASSET_*)` for domains that have typed helpers (`catalogStageIdBy*`, `catalogModelIdByModelnum`, `catalogBodyIdByBodynum`, `catalogHeadIdByHeadnum`, `catalogWeaponIdBy*`, `catalogGameModeIdByScenarioIndex`). Added a source-wide static guard in `tests/test_catalog_provider_static.cpp`. Verification passed: focused `[catalog][identity][static]` test, then `pd`, `pd-server`, `pd-tests`, and full `pd-tests.exe` (269 cases / 12329 assertions).
 
@@ -61,13 +68,25 @@
 
 **Completed slice 4 -- save migration/version gating:** added a static production guard in `tests/test_save_migration.cpp` that pins the destructive v1->v2 weapon-cull migration behind `if (version < 2)`, after random-filter unpack and before the next saved field.
 
-**Verification:** used isolated session id `qtest503`. The prescribed wrapper/configure path was attempted first, but Ninja execution still hangs in this Codex desktop sandbox; verification used the same isolated CMake/Ninja tree and executed the canonical `ninja -t commands` command list directly. `pd`, `pd-server`, and `pd-tests` linked in `.claude/session-builds/qtest503`; `pd-tests.exe` passed 331 test cases / 17807 assertions. Build-environment fixes made in the same session: Windows Python fallback for asset tools, ccache compiler-launch probe/disable, Git-for-Windows safe-directory handling, CMake configure hang avoidance, and skipping compiler-implicit MinGW root includes so C++ `#include_next` works.
+**Completed slice 5 -- mode lifecycle / rejected start authority:** read-only audit found `netmsgClcLobbyStartRead()` parsed `CLC_LOBBY_START` into global match setup state before checking whether the sender was the room creator / lobby leader. Patch moves server-mode, non-null-client, lobby refresh, room/global leader detection, and non-leader rejection before the first payload read so rejected starts cannot dirty match setup or ready-gate inputs. Added `tests/test_net_lifecycle_static.cpp` and wired it into `pd-tests` to pin the authority-before-payload invariant. Bug logged as B-272. Verification: isolated `qlc566` wrapper configured but stalled in Ninja; direct isolated `pd-tests` target command list linked `pd-tests.exe`, full suite passed 341 cases / 19366 assertions, and the changed `netmsg.c` compiled for both client and server object targets.
 
-**Next recursive decision point:** the remaining uncovered high-risk lane is mode lifecycle/input transition cleanup around failed lobby/manifest/start paths. Start with a read-only audit for lifecycle roots that clear or preserve `g_ClientManifest`, lobby state, input/scene layers, and ready gates after malformed or rejected network transitions; then add the narrowest static/pure guard that falls out of that audit.
+**Completed slice 6 -- mode lifecycle / malformed match manifest cleanup:** follow-up audit found `netmsgSvcMatchManifestRead()` staged the incoming manifest hash before deserialize and returned on parse failure without clearing that staged hash. Patch clears `g_ClientManifest` again on malformed parse so rejected manifests leave entries and hash empty and cannot move the client into PREPARING. Added static coverage in `tests/test_net_lifecycle_static.cpp`. Bug logged as B-273. Verification: isolated `qlc566` affected `pd-tests` object relink passed the full suite, 342 cases / 19382 assertions, and the changed `netmsg.c` compiled for both client and server object targets.
+
+**Completed slice 7 -- mode lifecycle / rejected Counter-Op anti-client validation:** follow-up audit found `netmsgClcLobbyStartRead()` committed `g_NetGameMode` and `g_NetCounterOpClientId` before validating the requested Counter-Op anti client. Patch keeps the anti-client id local until invalid-id, not-lobby-ready, and wrong-room rejection paths have all passed, then commits the globals together. Added static coverage in `tests/test_net_lifecycle_static.cpp`. Bug logged as B-274. Verification: isolated `qlc566` affected `pd-tests` object relink passed the full suite, 343 cases / 19407 assertions, and the changed `netmsg.c` compiled for both client and server object targets.
+
+**Completed slice 8 -- mode lifecycle / SVC_STAGE_START mode validation:** follow-up audit found `netmsgSvcStageStartRead()` accepted any server-provided mode byte and committed it to `g_NetGameMode` before branching into mission/combat setup writes. Patch rejects malformed/truncated mode reads and out-of-range mode bytes before committing global mode state. Added static coverage in `tests/test_net_lifecycle_static.cpp`. Bug logged as B-276. Verification: isolated `qlc566` affected `pd-tests` object relink passed the full suite, 344 cases / 19423 assertions, and the changed `netmsg.c` compiled for both client and server object targets.
+
+**Completed slice 9 -- mode lifecycle / SVC_LOBBY_STATE validation:** follow-up audit found `netmsgSvcLobbyStateRead()` accepted any server-provided lobby mode/status bytes, committed `g_NetGameMode`, and treated any status `>= 2` as in-game. Patch rejects out-of-range mode and status bytes before lobby/global state writes. Added static coverage in `tests/test_net_lifecycle_static.cpp`. Bug logged as B-277. Verification: isolated `qlc566` affected `pd-tests` object relink passed the full suite, 345 cases / 19443 assertions, and the changed `netmsg.c` compiled for both client and server object targets.
+
+**Completed slice 10 -- mode lifecycle / SVC_STAGE_START early tick-RNG commit:** follow-up audit found `netmsgSvcStageStartRead()` committed `g_NetTick`, RNG seeds/latch, and `g_NetMatchSeed` before validating the stage session and mode byte. Patch stages those fields in locals and commits them only after stage identity and mode validation pass. Added static coverage in `tests/test_net_lifecycle_static.cpp`. Bug logged as B-278. Verification: isolated `qlc566` affected `pd-tests` object relink passed the full suite, 346 cases / 19482 assertions, and the changed `netmsg.c` compiled for both client and server object targets.
+
+**Completed slice 11 -- network packet parsing / SVC_STAGE_START source-client guard:** follow-up audit found `netmsgSvcStageStartRead()` logged `srccl` with null-safe formatting but then dereferenced `srccl->state` without rejecting a missing source client first. Patch adds an explicit null-source rejection before any `srccl->state` access or payload read. Added static coverage in `tests/test_net_lifecycle_static.cpp`. Bug logged as B-279. Verification: isolated `qlc566` affected `pd-tests` object relink passed the full suite, 347 cases / 19492 assertions, and the changed `netmsg.c` compiled for both client and server object targets.
+
+**Next follow-up:** the next recursion candidate is broader than this pass: audit handler dispatch contracts for other `srccl` assumptions (`CLC_*` server handlers and `SVC_*` client handlers) and decide whether to add shared dispatch-side null/source guards rather than patching dozens of handlers one by one. Keep it as a separate audit slice because it crosses many network message families.
 
 ## Open -- 2026-04-28 (Input infrastructure: cutscene transition flush)
 
-**Status: TRANSITIONAL SHIM RETIREMENT IN PROGRESS / PAGEUP SHIM BUILD VERIFIED.** Narrow slices only. No broad scene-manager expansion.
+**Status: TRANSITIONAL SHIM RETIREMENT IN PROGRESS / MENU-LAYER BRIDGE PATCHED-PENDING-VERIFY.** Narrow slices only. No broad scene-manager expansion.
 
 **Done this session:**
 - Added public `actionmapFlushActionSet(const InputAction *actions, s32 action_count)` so transition/layer code can flush declared shared actions without broadening `actionmapFlushGameplayState()`.
@@ -198,6 +217,9 @@
 - Removed backend `ACTION_MENU_TAB_PREV/NEXT` to `ImGuiKey_PageUp/PageDown` injection.
 - Removed the main-menu PageUp/PageDown queue drain that only existed to compensate for that injection.
 - Added static pd-tests guarding Social tab action ownership and preventing the PageUp/PageDown injection or queue drain from returning.
+- Added a narrow `inputctx` to `LAYER_MENU` bridge: when the effective input context top is non-gameplay, `inputctx` publishes one menu layer; when gameplay becomes effective again, it pops that layer.
+- Wired the bridge through central input context lifecycle points instead of per-menu callsites: init, shutdown, push, resurrect, deferred pop, immediate pop, and end-frame compaction.
+- Added pure pd-tests for the bridge semantics and a source guard that the production bridge calls the real input-layer push/pop/abort APIs.
 
 **Verification:**
 - Prescribed MSYS2/Ninja flow passed: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
@@ -292,6 +314,7 @@
 - `git diff --check` passed outside the sandbox; only the existing LF-to-CRLF warnings for `devtools/_build-env-prelude.ps1` and `devtools/build-headless.ps1` appeared.
 - PageUp/PageDown shim verification reused isolated build session `ix46`; isolated Ninja outside the sandbox built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
 - Latest isolated `pd-tests.exe`: 329 test cases / 17795 assertions passed.
+- Menu-layer bridge verification is pending isolated build session `ml53`.
 - `Build/pd-client.log` playtest evidence:
   - `[03:11.66]` held A advanced from endscreen to stage 0x33.
   - `[03:12.26]` objective 2 intro reached frame 30 and kept playing.
@@ -381,6 +404,15 @@
     - Confined generic raw path fallback to legacy untyped `catalogLoadAsset()` compatibility. Typed lifecycle callers that reach the generic branch now require a provider handle and fail loud instead of falling through to `s_catalogLoadEntryFromPath()`.
     - Added `ASSET_MAP` to metadata runtime activation so stage/catalog map entries load as catalog metadata instead of falling into generic provider/path loading. Refreshed stale screen/manifest lifecycle comments to typed load/release wording.
     - Added `ASSET_CHARACTER` to metadata runtime activation so composite character catalog entries no longer load their bodyfile as a generic byte payload.
+    - Added `ASSET_TOOL`, `ASSET_VEHICLE`, and `ASSET_MISSION` to metadata runtime activation. These descriptor-only catalog types now avoid generic provider/path loading until a future domain-specific payload policy exists.
+    - Moved pack/descriptor entries `ASSET_ANIMATION`, `ASSET_TEXTURES`, `ASSET_SFX`, and `ASSET_MUSIC` to metadata runtime activation. `ASSET_AUDIO` is now the only audio lifecycle type that requires a file provider handle.
+    - Added `ASSET_UI` to metadata/runtime activation so renderer-owned UI entries are tracked by catalog lifecycle without being treated as generic byte payloads.
+    - Removed the legacy raw path lifecycle fallback. Untyped `catalogLoadAsset()` now dispatches through the entry's actual catalog type, and static coverage prevents `s_catalogLoadEntryFromPath()` / `FALLBACK: catalogLoadAsset` from returning.
+    - Retired public untyped lifecycle wrappers entirely. `catalogLoadAsset()`, `catalogUnloadAsset()`, and `catalogRetainAsset()` are no longer declared, implemented, or stubbed; typed lifecycle is the only public catalog retain/load/release surface.
+    - Updated stale manifest/hotswap comments and static coverage so untyped lifecycle declarations/calls cannot be reintroduced outside the internal entry-level helpers in `assetcatalog_load.c`.
+    - Centralized file-backed primary source-handle assignment behind `catalogSetPrimaryFile(entry, path)`.
+    - Migrated local component scanning and network-distributed hot registration off direct `fileProviderHandle()` calls while preserving distributed relative-path resolution against the extracted component directory.
+    - Added a source-wide static guard so future direct `fileProviderHandle()` callers stay inside the catalog/provider boundary allowlist.
   - Source-filenum provider handle bridge cleanup:
     - Added `catalogHandleBySourceFilenum(asset_type_e type, s32 source_filenum)` so legacy numeric source-file callers ask the catalog for the effective provider handle instead of open-coding `catalogIdBySourceFilenum()` / `assetCatalogResolve()` / `catalogEffectiveHandle()` loops.
     - Migrated the first-person gun async loader, raw menu model preview path, and `modelcatalog` validation bridge to the shared helper.
@@ -401,10 +433,10 @@
     - Added a source-wide static guard preventing production code from calling untyped catalog lifecycle functions outside the catalog implementation/header and server stubs.
 
 **Next execution order:**
-1. Decide source/lifecycle ownership for the remaining generic payload domains before changing behavior: `ASSET_ANIMATION`, `ASSET_TEXTURES`, `ASSET_SFX`, `ASSET_MUSIC`, `ASSET_UI`, `ASSET_TOOL`, `ASSET_VEHICLE`, and `ASSET_MISSION`.
-2. After each domain has an explicit owner (metadata runtime vs provider-backed bytes vs renderer/runtime-owned payload), migrate it incrementally and add a static guard for that specific policy.
-3. Keep the source-wide provider-surface guardrails in place while adding domain-specific static checks only after each domain has typed catalog/provider APIs and approved seed/generator exceptions.
-4. Determine the next safe catalog/provider slice and continue recursively until a hard blocker requires Mike's decision.
+1. Current typed lifecycle policy covers every declared asset type; no generic raw path payload fallback remains.
+2. Public untyped lifecycle wrappers are retired; typed lifecycle APIs are now the only public retain/load/release surface.
+3. File-backed scanner/distribution primary source handles now route through the catalog helper; direct `fileProviderHandle()` use is confined to catalog/provider internals and stubs.
+4. Keep source-wide provider-surface guardrails in place and determine the next safe catalog/provider slice recursively until a hard blocker requires Mike's decision.
 
 **Operator-side verification still owed:** in-game validation for Combat Sim setup weapon slots, Random/Fiesta spawn modes, weapon pads, stage transitions, and any mod weapon distribution path.
 

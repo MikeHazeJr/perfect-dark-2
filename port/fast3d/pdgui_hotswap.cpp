@@ -300,8 +300,8 @@ void pdguiHotswapRenderQueued(s32 winW, s32 winH)
      * memory.  On frame 1, s_HotswapMenuWasActive is still true from the
      * last frame (keeping us in the render path), but s_Queue is empty.
      * Calling screenManifestTick with count=0 triggers "leave" events that
-     * call catalogUnloadAsset while the catalog is reinitialising for the
-     * new stage → crash.  Defer the tick until lvframe60 >= 2. */
+     * release catalog lifecycle entries while the catalog is reinitialising
+     * for the new stage -> crash. Defer the tick until lvframe60 >= 2. */
     {
         s32 lvframe = pdmainGetLvFrame60();
         if (lvframe >= 2) {
