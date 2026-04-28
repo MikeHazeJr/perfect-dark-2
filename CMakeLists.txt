@@ -857,6 +857,12 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/actionmap_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_actionmap_flush.cpp
 
+  # Cohort 2 (input universality and transitions, 2026-04-27): typed
+  # Input Layer Stack. Push / pop / abort / exclusivity invariants via
+  # pure-C mirror at tests/inputlayer_pure.{c,h}.
+  ${CMAKE_SOURCE_DIR}/tests/inputlayer_pure.c
+  ${CMAKE_SOURCE_DIR}/tests/test_input_layer_stack.cpp
+
   # Linker stubs for symbols the cherry-picked sources reference but the
   # test binary should not actually invoke.
   ${CMAKE_SOURCE_DIR}/tests/stubs.c
