@@ -7,6 +7,7 @@
 #include "game/nbomb.h"
 #include "game/chr.h"
 #include "game/chraction.h"
+#include "game/player.h"
 #include "game/prop.h"
 #include "game/objectives.h"
 #include "game/atan2f.h"
@@ -975,10 +976,12 @@ Gfx *gasRender(Gfx *gdl)
 		alphafrac *= intensityfrac;
 
 		if (show && g_Vars.tickmode == TICKMODE_CUTSCENE) {
-			if (g_CutsceneCurAnimFrame60 < 2180) {
+			s32 cutsceneframe60 = playerCurrentCutsceneCurAnimFrame60();
+
+			if (cutsceneframe60 < 2180) {
 				show = false;
-			} else if (g_CutsceneCurAnimFrame60 < 2600) {
-				f32 tmp = (g_CutsceneCurAnimFrame60 - 2180) / 420.0f;
+			} else if (cutsceneframe60 < 2600) {
+				f32 tmp = (cutsceneframe60 - 2180) / 420.0f;
 				alphafrac *= tmp;
 			}
 		}

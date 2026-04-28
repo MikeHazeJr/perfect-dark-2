@@ -743,6 +743,533 @@ The first Cohort 4 implementation intentionally leaned on the K.6 edge-only chec
 - `onCutscenePush` now runs both flushes: gameplay-only state first, then the declared cutscene action set. This preserves the existing "clear all gameplay-only held state at cutscene entry" behavior while also clearing shared accept/cancel/skip state.
 - Tests were tightened so the cutscene transition invariant now asserts held ACTION_USE is cleared, and the low-level action-set test asserts unrelated actions survive when they are not declared in the flushed set.
 
+Playtest follow-up, same day: Mike held A through the Mission 1 objective 1 -> objective 2 transition. `Build/pd-client.log` shows the held menu accept at `[03:11.66]`, the objective 2 intro reaching frame 30 at `[03:12.26]`, release at `[03:19.05]`, and a later fresh A press mapping to `ACTION_SKIP_CUTSCENE` at `[03:19.65]`. That confirms the held-transition flash class is fixed.
+
+The same log exposed B-267: after a deliberate skip at `[03:08.14]`, the endscreen opened without a matching cutscene layer pop, so the cutscene IMC stayed active beneath the endscreen and next mission until `[03:19.66]`. The next safe slice should not broaden raw input migration; it should make cutscene exit, skip-to-endscreen, and stage teardown unwind the cached cutscene layer handle consistently.
+
+### L.9 B-267 cutscene lifecycle cleanup (2026-04-28)
+
+The B-267 slice kept to the transition substrate and did not broaden menu/raw input migration.
+
+- `port/src/main.c` now initializes `inputLayerInit()` and `sceneInit()` after action-map binds load, and shuts both down on exit. This gives production a real BOOT root instead of first using the stack from cutscene push.
+- `port/src/pdmain.c::mainEndStage()` fires `SCENE_EVENT_CUTSCENE_END` before `endscreenPrepare()`. This covers the skip-to-endstage path that can bypass `playerEndCutscene()`.
+- `port/src/pdmain.c` fires `SCENE_EVENT_STAGE_READY` when a gameplay stage is live and `SCENE_EVENT_STAGE_TEARDOWN` when leaving gameplay/system stages. Teardown remains the backstop for any active layer that missed a normal close.
+- `inputLayerHandleDistanceFromTop()` is the small public handle-order helper scene cleanup needs without exposing `struct LayerHandle`.
+- `scenePopTrackedLayer()` now handles nested close correctly: if the cached handle is below the top layer, scene aborts from top through that handle and clears all cached scene handles in the aborted range.
+- Regression tests cover skip-to-endstage cleanup before the next mission intro, active-cutscene stage teardown, and nested tracked close with a menu layer above cutscene.
+
+Verification: prescribed MSYS2/Ninja flow passed for `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`; 262 test cases / 10883 assertions passed. B-267 remains pending Mike playtest.
+
+### L.10 B-267 propagation audit (2026-04-28)
+
+Mike asked whether the B-267 fix was applied everywhere it needed to be. The audit found the first lifecycle cleanup was central but incomplete: the solo/local endstage and stage ready/teardown roots were covered, but network cutscene sync, disconnect, and tickmode exit needed to feed the same scene/layer authority.
+
+Additional wiring:
+
+- `port/src/net/netmsg.c::netmsgSvcCutsceneRead()` fires `SCENE_EVENT_CUTSCENE_START` / `SCENE_EVENT_CUTSCENE_END` on client builds after reading the server's `SVC_CUTSCENE active` bit.
+- `port/src/net/net.c::netDisconnect()` fires `SCENE_EVENT_DISCONNECT` before menu-pool teardown and in-game return-to-title cleanup.
+- `src/game/player.c::playerSetTickMode()` records the previous tickmode and fires `SCENE_EVENT_CUTSCENE_END` whenever a transition leaves `TICKMODE_CUTSCENE`.
+- `tests/test_cutscene_layer.cpp` now has a static lifecycle wiring test that checks the active roots and also verifies `src/lib/main.c` is not part of the CMake client build path. The active PC lifecycle is `port/src/pdmain.c`; stale legacy duplicates should not receive parallel fixes unless they re-enter the build.
+
+Verification: `git diff --check` passed; prescribed MSYS2/Ninja flow passed for `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`; 267 test cases / 10926 assertions passed. B-267 remains pending Mike playtest.
+
+### L.11 Per-player cutscene state migration (2026-04-28)
+
+The next infrastructure slice moved cutscene runtime state behind `struct player.cutscene` accessors without changing wire semantics yet.
+
+- Added `struct playercutscenestate` to `types.h` and embedded it in `struct player`.
+- Added `playerSet*`, `playerCurrent*`, `playerAny*`, and reset/sync accessors in `player.c` / `player.h` for the active flag, in-progress flag, skip-requested flag, cutscene anim id, current anim frame, and total cutscene frame time.
+- Kept the legacy globals as compatibility shims synced from the current player's cutscene state. This preserves existing consumers while migrated call sites move to the accessor API.
+- Migrated active gameplay/render/audio/script call sites in `player.c`, `lv.c`, `chraction.c`, `chraicommands.c`, `chr.c`, `hudmsg.c`, `vi.c`, `model.c`, `prop.c`, `propobj.c`, `mplayer.c`, `menu.c`, `sky.c`, `bondgun.c`, and `nbomb.c`.
+- Network `SVC_CUTSCENE` client handling now sets player 0 through the accessor and still fires scene events. The server-only stub/global path remains a compatibility bridge until the v46 player-mask slice.
+- Transitional direct globals remain only in declarations, `playerSyncCutsceneGlobalsToCurrent()`, `varsinit.c`, `server_stubs.c`, the PD_SERVER branch in `netmsg.c`, and the `USINGDEVICE` macro. Those are tracked for the shim-retirement step.
+- Added static pd-tests that keep migrated gameplay paths off the old globals.
+
+Verification: `git diff --check` passed for the input-state migration files; prescribed MSYS2/Ninja flow passed for `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`; 281 test cases / 15294 assertions passed.
+
+### L.12 Cutscene protection gates (2026-04-28)
+
+The next slice implemented K.3's protection flag without starting the v46 network mask work yet.
+
+- Added `chr->cutscene_protect` to `struct chrdata` and initialized it in `chrInit()`.
+- Added `playerRefreshCutsceneProtect()` so per-player cutscene state changes set the flag on all allocated player chrs while any player is in a cutscene. This is the pre-v46 behavior; the player-mask slice will narrow the protected set to the mask.
+- `chrDamage()` now ignores protected targets and logs `CUTSCENE.DAMAGE.IGNORED chr=<n> attacker=<n>`.
+- `chrCompareTeams(..., COMPARE_ENEMIES)` no longer classifies protected targets as enemies, preventing canonical enemy target selection from choosing them.
+- `chrHasLosToChr()` and `botIsTargetInvisible()` treat protected targets as invisible, covering the direct line-of-sight and bot visibility gates.
+- Static pd-tests now guard the protection field, refresh path, damage gate, enemy-classification gate, LOS gate, and bot invisibility gate.
+
+Verification: `git diff --check` passed for the protection slice; prescribed MSYS2/Ninja flow passed for `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`; 286 test cases / 16727 assertions passed.
+
+### L.13 Cutscene network semantics (2026-04-28)
+
+The next slice completed K.8 on the existing v46 protocol. v46 was already claimed by S507's mandatory mod-transfer digest, so this slice appended the cutscene semantics to v46 instead of bumping again.
+
+- `SVC_CUTSCENE` now carries `active` plus `player_mask`; clients set per-player cutscene state from the mask and fire cutscene scene events from the server-authoritative state.
+- `CLC_CUTSCENE_SKIP` (0x17) lets clients request a cutscene skip after the 30-frame gate. The server binds the request to `srccl->playernum` and ignores untrusted player numbers from the payload.
+- Net clients no longer locally end a cutscene on skip input. They send the skip request and wait for the host/server path to end the cutscene.
+- Cutscene protection now narrows to `playerInCutscene(i)` for each player chr instead of protecting every player chr while any player is in cutscene.
+- AI script skip checks now use any server-validated cutscene skip request so a remote client's accepted skip can drive the existing cutscene branch.
+- Static pd-tests guard the v46 message constants, SVC payload shape, CLC dispatch path, server authority check, active-mask handling, protection narrowing, and client skip request write.
+
+Verification: isolated build session `ix46` built `pd` and `pd-server`; isolated `pd-tests.exe` passed 289 test cases / 16786 assertions.
+
+### L.14 Vehicle and observer layer wiring (2026-04-28)
+
+The next slice completed Cohort 5's first production wiring without starting a vehicle turret layer or broad raw-input migration.
+
+- `LAYER_VEHICLE_DRIVER` now declares its action set and owns transition flushing for accelerate, brake, steer left/right, exit, and pause. Push/pop/abort callbacks own `imcVehicleMount()` / `imcVehicleDismount()`.
+- `bbikeInit()` and `bbikeExit()` now fire `SCENE_EVENT_VEHICLE_BOARD` / `SCENE_EVENT_VEHICLE_DISMOUNT` with a `SceneVehiclePayload` instead of directly mounting or dismounting the vehicle IMC.
+- `LAYER_OBSERVER` now declares the observer/Forge action set and flushes it on push/pop/abort. Pop/abort also deactivate `g_ImcForge` and `g_ImcForgeSession` as a cleanup guard.
+- Forge session and freefly transitions now enter the observer layer through scene events; Forge inactive exit closes the observer layer while preserving the existing Forge IMC activation behavior.
+- Spectator live and theater sessions now enter and exit the observer layer through scene events.
+- The scene manager tracks the current observer source so a spectator stop cannot pop a Forge-owned observer layer, and a Forge inactive transition cannot pop a spectator-owned observer layer.
+- Static pd-tests guard the vehicle and observer action sets, callbacks, bike scene-event wiring, Forge observer helpers, spectator observer helpers, and observer source guard.
+
+Verification: isolated build session `ix46` built `pd` and `pd-server`; isolated `pd-tests.exe` passed 291 test cases / 16843 assertions.
+
+### L.15 Main-menu subview pool ownership (2026-04-28)
+
+The first menu graph migration slice implemented K.7's safe substrate for inline main-menu subviews without replacing the whole renderer or starting the broader priority-node graph in one jump.
+
+- Added dedicated pure-ImGui menu-pool identities for main-menu Solo, Settings, Modding, Online, and Stats subviews. The existing `MENU_TYPE_GRID_SUBMENU` remains the Grid subview identity.
+- Added `pdguiMainMenuViewPoolType()` and `pdguiMainMenuSetView()` so every `s_MenuView` change acquires/releases exactly one subview pool slot.
+- Added render-time subview sync: if a bulk teardown released pool state while the main-menu renderer retained its local subview, the renderer reacquires the matching subview slot.
+- Removed the old Grid-only pool transition branch so Grid follows the same ownership path as every other inline subview.
+- Static pd-tests guard the subview identities, mapping helper, acquire/release calls, render-sync call, and the rule that raw `s_MenuView` assignments live only in the helper and declaration.
+
+Verification: isolated build session `ix46` built `pd` and `pd-server`; isolated `pd-tests.exe` passed 293 test cases / 16881 assertions.
+
+### L.16 Menu graph edge substrate (2026-04-28)
+
+The next menu graph slice added the graph descriptor module and migrated the first safe direct dialog pushes.
+
+- Added `port/include/menugraph.h` and `port/src/menugraph.c`.
+- The graph now declares priority-node descriptors for main menu, main-menu subviews, solo mission, room, solo/MP endscreen, pause variants, social lobby, network, agent select, and warning modal.
+- Added edge lookup and destination-kind name APIs for tests and diagnostics.
+- Added `menuGraphFirePushDialog()`, which validates that a dialog-push edge exists and that the supplied legacy dialogdef maps to the declared menu-pool destination before calling `menuPushDialog()`.
+- Migrated main-menu Change Agent and Cheats pushes through `menuGraphFirePushDialog()`.
+- Static pd-tests guard graph substrate presence, priority-node coverage, destination validation, and the first migrated direct push sites.
+
+Verification: isolated build session `ix46` built `pd` and `pd-server`; isolated `pd-tests.exe` passed 294 test cases / 16925 assertions.
+
+### L.17 Network menu graph migration (2026-04-28)
+
+The next menu graph slice migrated the Network priority node and the duplicate main-menu Online connect path.
+
+- Added `menuGraphFireNetworkOp()` and `menuGraphFirePop()`.
+- Added `MENU_TYPE_NETWORK_JOINING` and registered `g_NetJoiningDialog` so the Joining dialog has a typed graph and menu-pool destination.
+- Network menu Stop Hosting, pre-host disconnect, Host, host-success pop, Join, Joining dialog push, and Back now route through graph helpers.
+- The main-menu Online subview's direct connect and recent-server connect paths now route through `MENU_TYPE_MAIN_ONLINE_VIEW` graph network edges.
+- Static pd-tests guard the Network menu and main-menu Online renderers against reintroducing direct `netStart*`, `netDisconnect`, `menuPushDialog(&g_NetJoiningDialog)`, or `menuPopDialog()` calls in those paths.
+
+Verification: isolated build session `ix46` built `pd` and `pd-server`; isolated `pd-tests.exe` passed 296 test cases / 16953 assertions.
+
+### L.18 MP endscreen disconnect graph migration (2026-04-28)
+
+The next menu graph slice migrated the smallest MP endscreen direct transition.
+
+- MP endscreen Disconnect confirmation now fires the `MENU_TYPE_ENDSCREEN_MP` `disconnect` graph network edge before returning to the existing `pdguiEndscreenExitToMainMenu()` path.
+- The graph callback preserves the existing `netDisconnect()` behavior and returns success to the graph diagnostics.
+- Static pd-tests guard the MP endscreen renderer against direct `netDisconnect()` reintroduction.
+
+Verification: isolated build session `ix46` built `pd` and `pd-server`; isolated `pd-tests.exe` passed 298 test cases / 16970 assertions.
+
+### L.19 Agent Select graph migration (2026-04-28)
+
+The next menu graph slice migrated the Agent Select priority node's simple dialog transitions.
+
+- Registered `g_FilemgrEnterNameMenuDialog` as `MENU_TYPE_AGENT_CREATE`.
+- Agent Select New Agent now fires the `create` graph dialog-push edge before opening the enter-name dialog.
+- Agent Select Back now fires the `back` graph pop edge.
+- Static pd-tests guard Agent Select against direct `menuPushDialog(&g_FilemgrEnterNameMenuDialog)` and `menuPopDialog()` reintroduction in the renderer.
+
+Verification: isolated build session `ix46` built `pd` and `pd-server`; isolated `pd-tests.exe` passed 299 test cases / 16981 assertions.
+
+### L.20 MP pause graph migration (2026-04-28)
+
+The next menu graph slice migrated the MP pause priority node's simple dialog transitions.
+
+- MP pause Resume/Back now fires the `MENU_TYPE_MP_PAUSE` `resume` graph pop edge.
+- Added a `MENU_TYPE_MP_PAUSE` `end_game` edge targeting `MENU_TYPE_WARNING_MODAL`.
+- MP pause End Game now fires the graph dialog-push edge before opening `g_MpEndGameMenuDialog`.
+- Static pd-tests guard the MP pause close and End Game helpers against direct `menuPopDialog()` or `menuPushDialog(target)` reintroduction.
+
+Verification: isolated build session `ix46` built `pd` and `pd-server`; isolated `pd-tests.exe` passed 300 test cases / 16993 assertions.
+
+### L.21 Solo pause graph migration, first slice (2026-04-28)
+
+The next menu graph slice migrated the safe solo in-mission pause transitions without changing the legacy sibling-stack behavior.
+
+- `MENU_TYPE_SOLO_MISSION_PAUSE` now has its own graph edge set instead of reusing the generic pause edge set.
+- Solo pause Resume/Back now fires the `MENU_TYPE_SOLO_MISSION_PAUSE` `resume` graph pop edge.
+- Solo pause Abort now fires the `MENU_TYPE_SOLO_MISSION_PAUSE` `abort` warning-modal push edge.
+- Static pd-tests guard the solo pause renderer against reintroducing direct `menuPopDialog()` for Resume/Back or direct `menuPushDialog(&g_MissionAbortMenuDialog)` for Abort.
+- Inventory and Settings remain direct for the next slice because they are legacy next-sibling dialogs, not ordinary child pushes. The correct follow-up is a small graph helper for sibling transitions, not a broad menu rewrite.
+
+Verification: isolated build session `ix46` was reused. The session wrapper was invoked first but stalled in client compile with idle CMake/Ninja children after the command timeout; direct isolated Ninja in `.claude/session-builds/ix46` then built `pd`, `pd-server`, and `pd-tests`, and isolated `pd-tests.exe` passed 303 test cases / 17031 assertions.
+
+### L.22 Solo pause sibling graph migration (2026-04-28)
+
+The follow-up solo pause slice handled Inventory and Settings correctly as legacy sibling transitions instead of ordinary child pushes.
+
+- Added `menuSwitchToDialog(struct menudialogdef *dialogdef)` in `src/game/menu.c` / `src/include/game/menu.h` so callers can switch directly to an already-open sibling by dialogdef with one transition.
+- Added `MENU_GRAPH_DEST_SWITCH_SIBLING` and `menuGraphFireSwitchSibling()`, with the same graph-edge and menu-pool target validation pattern as dialog pushes.
+- Added `MENU_TYPE_SOLO_INVENTORY` and registered `g_SoloMissionInventoryMenuDialog`; also registered `g_SoloMissionOptionsMenuDialog` as `MENU_TYPE_SOLO_OPTIONS`.
+- Added solo Inventory and solo Options graph nodes with Back edges to `MENU_TYPE_SOLO_MISSION_PAUSE`.
+- Solo pause Inventory and Settings buttons now fire sibling graph edges; Inventory and Options Back paths return to solo pause through sibling graph edges instead of popping the whole pause layer.
+- Static pd-tests guard the sibling helper, destination kind, menu-pool registrations, graph edges, renderer calls, and removal of the direct Inventory/Settings pushes.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, and isolated `pd-tests.exe` passed 303 test cases / 17061 assertions.
+
+### L.23 Social Lobby graph migration (2026-04-28)
+
+The next menu graph slice migrated the Social Lobby node's declared network operations.
+
+- Social Lobby Create Room now fires the `MENU_TYPE_SOCIAL_LOBBY` `create_room` graph network edge.
+- Social Lobby Disconnect confirmation now fires the `MENU_TYPE_SOCIAL_LOBBY` `disconnect` graph network edge.
+- The graph callbacks preserve the existing create-room packet send and `netDisconnect()` behavior.
+- Static pd-tests guard the Social Lobby renderer against reintroducing direct `netmsgClcRoomCreateWrite()` or direct `netDisconnect()` in the render path.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built the affected targets and isolated `pd-tests.exe` passed 304 test cases / 17070 assertions.
+
+### L.24 Warning modal graph pop migration (2026-04-28)
+
+The next menu graph slice migrated the Warning Modal node's declared confirm and cancel exits.
+
+- Generic typed dialog fallback OK now fires `MENU_TYPE_WARNING_MODAL` `confirm`.
+- Generic typed dialog Escape now fires `MENU_TYPE_WARNING_MODAL` `cancel`.
+- MP End Game popup external dismiss and Cancel now fire `cancel`; End Match now fires `confirm` after preserving the legacy selectable handler call.
+- PC filemgr placeholder OK and Escape now fire the warning-modal `confirm` and `cancel` graph pop edges.
+- Static pd-tests guard the warning renderer against direct `menuPopDialog()` reintroduction.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built the affected targets and isolated `pd-tests.exe` passed 305 test cases / 17083 assertions.
+
+### L.25 Room setup subdialog graph migration (2026-04-28)
+
+The next menu graph slice migrated Room setup child pushes that do not start or leave the room.
+
+- Added `team_setup` and `select_music` push edges to `MENU_TYPE_ROOM`.
+- Room Team Setup now fires `MENU_TYPE_ROOM` `team_setup` and validates the destination as `MENU_TYPE_MP_TEAM_SETUP`.
+- Room Select Music now fires `MENU_TYPE_ROOM` `select_music` and validates the destination as `MENU_TYPE_MP_TUNES`.
+- Start Match and Leave Room remain direct for a later scene/network slice.
+- Static pd-tests guard the Room renderer against direct Team Setup / Select Music `menuPushDialog()` reintroduction.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built the affected targets and isolated `pd-tests.exe` passed 306 test cases / 17092 assertions.
+
+### L.26 Main-menu inline subview graph firing (2026-04-28)
+
+The next menu graph slice connected already-declared main-menu inline edges to the subview pool helper.
+
+- Added `pdguiMainMenuFireSubviewEdge()` to validate `MENU_TYPE_MAIN_MENU` graph edges before changing inline views.
+- Solo Play, Online Play, Settings, Mods, Stats, and The Grid now fire their declared graph edges before delegating to `pdguiMainMenuSetView()`.
+- The existing subview pool ownership behavior is unchanged; the graph helper validates the destination menu-pool type first.
+- Static pd-tests guard the edge lookup, destination validation, and absence of direct top-level `pdguiMainMenuSetView(1..6, "open-*")` calls.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built the affected targets and isolated `pd-tests.exe` passed 306 test cases / 17103 assertions.
+
+### L.27 Main-menu inline back-edge graph firing (2026-04-28)
+
+The next menu graph slice connected already-declared inline subview `back` edges to top-level view return.
+
+- Added `pdguiMainMenuFireSubviewBackEdge()` to validate the current inline subview's `back` edge before returning to view 0.
+- Shared subview close, Grid Back, Modding Back, and Stats auto-close now fire the validated back edge before delegating to `pdguiMainMenuSetView(0, ...)`.
+- External reset, initial menu open, and Grid Enter remain direct because they are not user back edges.
+- Static pd-tests guard the back-edge lookup, destination kind validation, and removal of direct `pdguiMainMenuSetView(0, "close-subview" / "grid-back" / "modding-back" / "stats-closed")` calls.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built the affected targets and isolated `pd-tests.exe` passed 306 test cases / 17114 assertions.
+
+### L.28 Scene-operation graph helper and pause End Match (2026-04-28)
+
+The next slice added the smallest helper needed for scene/stage-like graph edges without replacing stage logic.
+
+- Added `menuGraphFireSceneOp()` to validate `MENU_GRAPH_DEST_SCENE_EVENT` edges, log the declared scene event payload, run a behavior-preserving callback, and log the result.
+- Combat-sim pause End Match now fires `MENU_TYPE_PAUSE_MENU` `end_mission` through the scene-op helper.
+- The actual previous behavior stays inside `pauseGraphEndMission()`: set the player-aborted flag, then call `mainEndStage()`.
+- Removed unused pause-menu forward declarations for direct stage/network helpers that the file no longer calls.
+- Static pd-tests guard the helper and keep the pause renderer from directly calling `pdguiPauseSetPlayerAborted()` or `mainEndStage()`.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built the affected targets and isolated `pd-tests.exe` passed 307 test cases / 17128 assertions.
+
+### L.29 The Grid enter scene edge (2026-04-28)
+
+The next scene-op slice migrated the already-declared Grid enter edge.
+
+- Added `pdguiMainMenuGraphEnterGrid()` as a behavior-preserving callback around `gridCommitEnter()`.
+- The Grid Enter button now fires `MENU_TYPE_GRID_SUBMENU` `enter` through `menuGraphFireSceneOp()`.
+- Success and failure behavior is unchanged: success plays the open-dialog sound and returns the main menu to view 0; failure stays on the Grid submenu and plays cancel.
+- Static pd-tests guard that `renderGridSubmenu()` uses the scene-op helper and no longer calls `gridCommitEnter()` directly.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built the affected targets and isolated `pd-tests.exe` passed 307 test cases / 17133 assertions.
+
+### L.30 Room Start Match scene edge (2026-04-28)
+
+The next scene-op slice migrated the already-declared Room start edge.
+
+- Extracted the existing Room Start Match switch into `roomGraphStartMatch()`.
+- The callback preserves Combat Sim solo start, Combat Sim online start, Campaign start, and Counter-Op start behavior.
+- The Start Match button now fires `MENU_TYPE_ROOM` `start_match` through `menuGraphFireSceneOp()`.
+- Static pd-tests guard that `pdguiRoomScreenRender()` fires the scene-op helper and no longer directly calls `matchStart()` / `netLobbyRequestStart*()`.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built the affected targets and isolated `pd-tests.exe` passed 308 test cases / 17144 assertions.
+
+### L.31 Room Leave graph edge (2026-04-28)
+
+The next Room slice migrated the remaining declared Room edge.
+
+- Changed `MENU_TYPE_ROOM` `leave_room` to a graph operation edge so the renderer can preserve solo and online leave behavior behind one validated edge.
+- Added `roomGraphLeaveRoom()` to reset room setup state, release `MENU_TYPE_ROOM`, close the solo room path, send client leave packets, run listen-host local leave, and return online clients to the social lobby as appropriate.
+- The leave-confirm modal now fires `MENU_TYPE_ROOM` `leave_room` through `menuGraphFireNetworkOp()`.
+- Static pd-tests guard that `pdguiRoomScreenRender()` no longer directly sends leave packets, calls listen-host leave, or returns to the lobby.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built the affected targets and isolated `pd-tests.exe` passed 309 test cases / 17158 assertions.
+
+### L.32 Endscreen scene graph edges (2026-04-28)
+
+The next priority-node slice completed the remaining endscreen exits without changing the bridge functions that actually perform stage/menu teardown.
+
+- Solo endscreen Continue, Retry, and Main Menu now fire `MENU_TYPE_ENDSCREEN_SOLO` scene graph edges.
+- `main_menu` is now a scene edge with `SCENE_EVENT_STAGE_TEARDOWN` instead of a bare graph pop-root, because the real behavior must still go through `pdguiEndscreenExitToMainMenu()`.
+- MP endscreen Return to Room and Play Again now share the `MENU_TYPE_ENDSCREEN_MP` `continue` scene edge, with the existing networked/local branch preserved inside `endscreenGraphMpContinue()`.
+- MP Quit now fires a scene graph edge, and MP Disconnect now owns both `netDisconnect()` and the existing endscreen exit path inside the graph-dispatched callback.
+- Static pd-tests guard solo/MP endscreen renderers against direct `pdguiEndscreen*`, `netDisconnect()`, `pdguiSetInRoom(1)`, or `pdguiSoloRoomReturn()` calls returning to the render paths.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 310 test cases / 17193 assertions.
+
+### L.33 Solo Mission start/back/restart graph edges (2026-04-28)
+
+The next priority-node slice migrated already-declared Solo Mission edges without changing the surrounding difficulty, PD Mode, or raw ImGui key handling.
+
+- Added `soloMissionGraphStart()` to preserve the existing `menuhandlerAcceptMission(MENUOP_SET, ...)` bridge and the post-start ImGui-menu context pop.
+- Added `soloMissionGraphRestart()` to preserve the existing catalog-backed restart stage resolution before `mainChangeToStage()`.
+- Mission Select list-level Back now fires `MENU_TYPE_SOLO_MISSION` `back` through `menuGraphFirePop()`.
+- Mission Select Start and Accept Mission Accept now fire `MENU_TYPE_SOLO_MISSION` `start` through `menuGraphFireSceneOp()`.
+- Accept Mission Decline now fires the same `back` edge instead of directly popping the dialog.
+- Solo pause Restart confirmation now fires `MENU_TYPE_SOLO_MISSION_PAUSE` `restart` through `menuGraphFireSceneOp()`.
+- Static pd-tests guard those render paths against direct `menuhandlerAcceptMission()`, `mainChangeToStage()`, and `menuPopDialog()` reintroduction where the graph now owns the edge.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 311 test cases / 17218 assertions.
+
+### L.34 Main-menu Solo view push-op graph edges (2026-04-28)
+
+The next menu graph slice handled push edges whose destination open is not a simple `menuPushDialog()` call.
+
+- Added `MenuGraphPushOpFn` and `menuGraphFirePushOp()` for `MENU_GRAPH_DEST_PUSH_MENU` edges that must preserve an existing state-setting handler.
+- Main-menu Solo Missions now fires `MENU_TYPE_MAIN_SOLO_VIEW` `solo_missions` through the push-op helper. The callback preserves `pdguiSoloMissionReset()` and `menuhandlerMainMenuSoloMissions(MENUOP_SET, ...)`.
+- Main-menu Combat Simulator now fires `MENU_TYPE_MAIN_SOLO_VIEW` `combat_simulator` through the push-op helper. The callback preserves `menuhandlerMainMenuCombatSimulator(MENUOP_SET, ...)`, including the legacy setup and `pdguiSoloRoomOpen()` path inside that handler.
+- Static pd-tests guard the push-op helper and the main-menu Solo view render path.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 312 test cases / 17238 assertions.
+
+### L.35 Main-menu Modding hub graph edge (2026-04-28)
+
+The next main-menu slice reused `menuGraphFirePushOp()` for the Modding hub overlay.
+
+- Added `pdguiMainMenuGraphOpenModdingHub()` as a behavior-preserving callback around `pdguiModdingHubShow()`.
+- The top-level Mods shortcut now opens the Modding subview, then fires the `MENU_TYPE_MAIN_MODDING_VIEW` `open_hub` edge through the push-op helper.
+- The Modding subview's closed-hub `Open Modding Hub` button now fires the same graph edge instead of calling the hub opener directly.
+- Static pd-tests guard the declared `open_hub` edge and the render path.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 313 test cases / 17246 assertions.
+
+### L.36 Main-menu Stats panel graph edge (2026-04-28)
+
+The next main-menu slice added the missing explicit graph edge for the Stats panel open path.
+
+- Added `MENU_TYPE_MAIN_STATS_VIEW` `open_panel` as a push edge targeting `MENU_TYPE_STATS_PANEL`.
+- Added `pdguiMainMenuGraphOpenStatsPanel()` as a behavior-preserving callback around `pdguiMenuStatsShow()`.
+- The top-level Stats shortcut now opens the Stats subview, then fires `open_panel` through `menuGraphFirePushOp()`.
+- Static pd-tests guard the edge and prevent the render path from calling `pdguiMenuStatsShow()` directly.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 314 test cases / 17254 assertions.
+
+### L.37 Main-menu Quit process graph edge (2026-04-28)
+
+The next main-menu slice migrated the existing Quit graph edge.
+
+- Added `MenuGraphProcessOpFn` and `menuGraphFireProcessOp()` for `MENU_GRAPH_DEST_PROCESS_EXIT` edges.
+- Added `pdguiMainMenuGraphQuit()` as a behavior-preserving callback that posts the existing `SDL_QUIT` event.
+- The Quit confirmation modal now fires `MENU_TYPE_MAIN_MENU` `quit` through the process-op helper instead of posting the event directly from the renderer.
+- Static pd-tests guard the process-op helper and main-menu Quit render path.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 315 test cases / 17267 assertions.
+
+### L.38 Main-menu Close pop graph edge (2026-04-28)
+
+The next main-menu slice migrated the top-level close path while preserving its extra game-state restoration.
+
+- Added `MenuGraphPopOpFn` and `menuGraphFirePopOp()` for pop edges whose behavior must run a state-restoring callback.
+- Added `pdguiMainMenuGraphClose()` to preserve the existing close behavior: unpause the level, call `playerUnpause()`, restore player control, pop the legacy dialog, and defensively pop `g_CtxImGuiMenu` if it survived.
+- The top-level Escape/B/title-close path now fires `MENU_TYPE_MAIN_MENU` `close` through the pop-op helper.
+- Static pd-tests guard the helper and render path.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 316 test cases / 17285 assertions.
+
+### L.39 Agent Select load local graph edge (2026-04-28)
+
+The next graph audit slice corrected Agent Select `load` semantics.
+
+- Added `MENU_GRAPH_DEST_LOCAL_OP`, `MenuGraphLocalOpFn`, and `menuGraphFireLocalOp()` for graph edges that mutate local menu/game state without pushing, popping, or changing scenes.
+- Changed `MENU_TYPE_AGENT_SELECT` `load` from a pop edge to a local-op edge named `load_agent`.
+- Added `agentSelectGraphLoad()` to preserve the existing load behavior: optional pool release for the Enter path, `g_GameFileGuid` update, `filemgrSaveOrLoad()`, and `prefsLoadForFile()`.
+- Routed the Enter/selected-agent and mouse/selectable load paths through the local-op edge. Auto-load and copy-confirm load paths remain direct because they are not the user `load` graph edge.
+- Static pd-tests guard the local-op helper and Agent Select load/create/back graph usage.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 316 test cases / 17299 assertions.
+
+### L.40 Raw menu-action helper and first priority exits (2026-04-28)
+
+The next recursive input slice started raw action input migration without sweeping every ImGui key site at once.
+
+- Added `pdguiMenuActionPressed()`, `pdguiMenuActionHeld()`, `pdguiMenuActionRepeat()`, and named accept/cancel/nav helpers in `pdgui_nav`.
+- Added Space and keypad Enter to menu/pause/debug `ACTION_USE` defaults so existing confirm-modal shortcuts remain available through action-map authority.
+- Migrated `pdguiActionBarButton()` and `pdguiRenderConfirmModal()` off raw Enter/Space/Escape polling.
+- Migrated graph-owned endscreen cancel paths, Network menu Back, Social Lobby disconnect confirm open, MP pause Back helper, and Bot Setup Back helper off raw Escape polling.
+- Added static pd-tests guarding the helper API, the menu accept bindings, and the confirm modal/action bar migration.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 317 test cases / 17319 assertions.
+
+### L.41 Priority confirm and exit raw-input migration (2026-04-28)
+
+The next raw-input slice finished the high-risk confirm/cancel sites that are already graph-owned or shared modal surfaces.
+
+- Warning-modal typed dialogs, MP End Game, and PC file-manager placeholder now use `pdguiMenuAcceptPressed()` / `pdguiMenuCancelPressed()` instead of raw Enter, Space, keypad Enter, or Escape polling.
+- Combat-sim pause End Match, Debug Shortcuts close, and the parent pause close path now use the same menu-action helpers.
+- Room Leave arm, scenario delete confirm, and Leave Room confirm now use menu-action helpers while preserving the existing debounce and destructive-action confirmation behavior.
+- Static pd-tests now guard these priority sites against raw menu shortcut polling returning.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 317 test cases / 17350 assertions.
+
+### L.42 Priority navigation and tab raw-input migration (2026-04-28)
+
+The next raw-input slice moved priority list navigation and tab switching behind action-map authority.
+
+- Added PageUp/PageDown as keyboard defaults for `ACTION_MENU_TAB_PREV` / `ACTION_MENU_TAB_NEXT` in menu and pause contexts. LB/RB remain the gamepad defaults.
+- Agent Select accept/cancel/list up/down now use `pdgui_nav` helpers.
+- Main-menu Settings tab cycle and Cinema close/select/up/down now use `pdgui_nav` helpers.
+- Room tab cycle and Stats tab/close now use `pdgui_nav` helpers.
+- Two raw PageUp/PageDown reads remain in `renderMainMenu()` as a transitional ImGui queue drain outside Settings. Remove them when the remaining tab sites and backend PageUp injection are retired together.
+- Static pd-tests now guard the migrated priority navigation and tab sites.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 318 test cases / 17423 assertions.
+
+### L.43 Simple legacy menu back/nav raw-input migration (2026-04-28)
+
+The next raw-input slice handled simple legacy menu replacement screens whose remaining raw reads were Back, Done, or list up/down.
+
+- Countdown cancel and the shared file browser parent navigation now use `pdguiMenuCancelPressed()`.
+- Agent Create cancel, Challenges list/back, Control Diagram back/up/down, MP Advanced back, MP Settings back/Done, MP Setup back, Player Config back, and Team Setup Done now use `pdgui_nav` helpers.
+- Static pd-tests now guard these files against raw menu shortcut/navigation polling returning.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 319 test cases / 17543 assertions.
+
+### L.44 Cheats and modding panel raw-input migration (2026-04-28)
+
+The next raw-input slice migrated cheats/modding panel shortcuts that behave like normal menu actions.
+
+- Cheats hub close, tab cycling, warning close, and Unlock Everything confirm/cancel now use `pdgui_nav` helpers.
+- Mod Manager tab cycling and close now use `pdgui_nav` helpers.
+- Modding Hub tool cycling and close now use `pdgui_nav` helpers.
+- Static pd-tests now guard these files against raw menu shortcut/navigation polling returning.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 320 test cases / 17579 assertions.
+
+### L.45 Training menu raw-input migration (2026-04-28)
+
+The next raw-input slice migrated Training menu shortcuts that behave like normal menu actions.
+
+- `pdgui_menu_training.cpp` now uses `pdgui_nav` helpers for Back, Continue, weapon/list up/down, and firing range confirm shortcuts.
+- Static pd-tests now guard Training against raw menu shortcut/navigation polling returning.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 321 test cases / 17591 assertions.
+
+### L.46 Solo Mission raw-input migration (2026-04-28)
+
+The next raw-input slice migrated the remaining Solo Mission menu-owned shortcuts.
+
+- Mission select, difficulty selection, co-op/anti difficulty, co-op/anti options, briefing, inventory, accept mission, solo pause, abort mission, and solo options now use `pdgui_nav` helpers for Back, Accept, directional navigation, and tab switching.
+- Added Q/E as additional menu/pause defaults for `ACTION_MENU_TAB_PREV` / `ACTION_MENU_TAB_NEXT` so Solo Options keeps its keyboard tab shortcuts behind action-map authority.
+- Static pd-tests now guard Solo Mission against raw menu shortcut/navigation polling returning.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 322 test cases / 17647 assertions.
+
+### L.47 Secondary menu command raw-input migration (2026-04-28)
+
+The next raw-input slice migrated secondary menu commands that were still plain raw-key shortcuts, while preserving their existing menu behavior.
+
+- Added `ACTION_MENU_SECONDARY`, `ACTION_MENU_TERTIARY`, and `ACTION_MENU_DELETE` to the action map, with C / gamepad X, D / gamepad Y, and Delete defaults for menu and pause contexts.
+- Added named `pdgui_nav` helpers for secondary, tertiary, delete, and text paste actions.
+- Agent Select secondary copy, delete, and directory-open commands now use action-map helpers instead of raw C, Delete, and D reads.
+- Room bot-row secondary and tertiary commands now use action-map helpers instead of raw gamepad face-button reads.
+- MP Settings preview commands now use the secondary action helper instead of raw gamepad face-button reads.
+- Static pd-tests guard the secondary command defaults, helper API, and migrated command sites.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 323 test cases / 17687 assertions.
+
+### L.48 Spectator observer raw-input migration (2026-04-28)
+
+The next raw-input slice moved spectator live/theater controls behind a dedicated observer action map while preserving Forge observer behavior.
+
+- Added `g_ImcObserver` and observer actions for subset/member navigation, camera toggle, freefly, stop, ascend, and descend.
+- `LAYER_OBSERVER` activates `g_ImcObserver` only for `SCENE_OBSERVER_SOURCE_SPECTATOR`; Forge observer entry continues to use the existing Forge IMCs.
+- Scene observer payload storage is now stable inside `scene.c` so layer callbacks do not retain a caller stack pointer.
+- `pdgui_spectator.cpp` no longer polls raw ImGui keys for observer controls. Freefly uses the gameplay move axis for lateral/forward movement and observer ascend/descend actions for vertical movement.
+- Glyph lookup and the Controls UI now include observer bindings.
+- Static pd-tests guard the observer action set, source-specific activation, stable scene payload, spectator raw-key migration, and observer binding visibility.
+
+Verification: the isolated build wrapper was invoked for session `ix46` but stalled during client compile and left only a dead lock. Direct isolated Ninja in `.claude/session-builds/ix46` then built `pd`, `pd-server`, and `pd-tests`, and isolated `pd-tests.exe` passed 324 test cases / 17729 assertions.
+
+### L.49 Social voice PTT raw-input migration (2026-04-28)
+
+The next raw-input slice moved voice push-to-talk behind action-map authority.
+
+- Added `ACTION_VOICE_PTT` with V as the default binding.
+- Bound `ACTION_VOICE_PTT` in gameplay, cutscene, vehicle, observer, Forge session, menu, pause-menu, and debug overlay IMCs so it preserves the old raw hotkey's broad availability.
+- Kept the existing `ImGui::GetIO().WantCaptureKeyboard` guard at the read site so typing in UI fields does not start voice transmission.
+- `pdgui_friends.cpp` now calls `actionPressed/Released(0, ACTION_VOICE_PTT)` instead of raw `ImGuiKey_V` polling.
+- Controls UI exposes Voice Push-to-Talk under System Hotkeys.
+- Static pd-tests guard the action id, binding, shared-action classification, raw V polling removal, and Controls UI visibility.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 327 test cases / 17748 assertions.
+
+### L.50 Editor/tool hotkey raw-input migration (2026-04-28)
+
+The next raw-input slice moved editor/tool command shortcuts behind action-map authority without changing text-entry or geometry behavior.
+
+- Added synthetic chord VKs for Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y, and Ctrl+S. Chord keyup releases use keydown-tracked synthetic VKs so the action edge is not lost if modifiers release first.
+- Added Forge placement/bot actions and Skin Editor brush/tool/grid/UV/undo/redo/save actions.
+- Bound Forge session commands in `g_ImcForgeSession`, placement/sidebar commands in `g_ImcForge`, and Skin Editor commands in `g_ImcMenu`.
+- Migrated Forge HUD bot commands, Forge placement cancel, Forge Ctrl+Tab sidebar cycling, and Skin Editor shortcuts from raw ImGui polling to action-map reads.
+- Exposed the new Forge and Skin Editor actions in the Controls UI.
+- Static pd-tests guard action ids, binding visibility, synthetic chord declarations, raw polling removal in Forge HUD/Forge Editor/Skin Editor, and Controls UI rows.
+- First-party raw-key audit now leaves only the documented main-menu PageUp/PageDown queue drain plus comments; third-party ImGui internals are ignored.
+
+Verification: direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 327 test cases / 17751 assertions.
+
+### L.51 Cutscene compatibility global retirement (2026-04-28)
+
+The next shim-retirement slice removed cutscene globals that were no longer read by production gameplay paths after the per-player cutscene state migration.
+
+- Removed `g_InCutscene`, `g_CutsceneSkipRequested`, `g_CutsceneAnimNum`, `g_CutsceneCurAnimFrame60`, and `g_CutsceneCurTotalFrame60f`.
+- Removed `playerSyncCutsceneGlobalsToCurrent()` and its call sites.
+- `USINGDEVICE(device)` now checks `playerCurrentInCutscene()` instead of reading `g_InCutscene`.
+- `SVC_CUTSCENE` handling now calls `playerSetCutsceneActiveMask(...)` for both client and pd-server builds.
+- pd-server stubs keep a local cutscene active mask instead of a fake `g_InCutscene`.
+- Static pd-tests guard the retired globals and wrapper against returning.
+
+Verification: isolated build session `ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 328 test cases / 17784 assertions. `git diff --check` passed with only existing LF-to-CRLF warnings for two devtools scripts.
+
+### L.52 PageUp/PageDown backend injection retirement (2026-04-28)
+
+The next shim-retirement slice removed the backend PageUp/PageDown bridge that had been used as a generic ImGui tab-bar side channel.
+
+- Social menu tabs now cycle through `pdguiMenuTabPrevPressed()` / `pdguiMenuTabNextPressed()` with explicit selected-tab state.
+- `pdguiDriveImGuiNav()` no longer injects `ACTION_MENU_TAB_PREV/NEXT` as `ImGuiKey_PageUp/PageDown`.
+- The main-menu PageUp/PageDown queue drain was removed because the backend no longer injects those keys every frame.
+- Static pd-tests guard Social tab action ownership and prevent the PageUp/PageDown injection or queue drain from returning.
+- First-party raw-key audit now shows no command reads; remaining `IsKey*` hits are comments or third-party ImGui internals.
+
+Verification: isolated build session `ix46` built `pd`, `pd-server`, and `pd-tests`, then isolated `pd-tests.exe` passed 329 test cases / 17795 assertions.
+
 ---
 
 ## Appendix A: Audit raw findings

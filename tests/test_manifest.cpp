@@ -20,6 +20,7 @@
  *   - ComputeHash: deterministic, order-sensitive, drift-detectable
  *   - Serialize/Deserialize: full roundtrip via raw byte buffer
  *   - Deserialize: malformed bytes (truncated, oversized count) error gracefully
+ *   - Deserialize: malformed packets roll back entries appended by that packet
  *   - Deserialize: SEC-5 zero-SHA256 COMPONENT entries are dropped
  *   - Diff: empty/full pair classifications, to_load/to_unload/to_keep correctness
  */
@@ -43,6 +44,17 @@ std::vector<unsigned char> fake_sha256(unsigned char seed) {
     std::vector<unsigned char> v(32, 0);
     for (size_t i = 0; i < v.size(); i++) v[i] = (unsigned char)(seed + i);
     return v;
+}
+
+void append_u16le(std::vector<unsigned char>& v, unsigned short n) {
+    v.push_back((unsigned char)(n & 0xff));
+    v.push_back((unsigned char)((n >> 8) & 0xff));
+}
+
+void append_str(std::vector<unsigned char>& v, const char *s) {
+    const size_t n = std::strlen(s) + 1;
+    append_u16le(v, (unsigned short)n);
+    v.insert(v.end(), s, s + n);
 }
 } /* anon */
 
@@ -231,6 +243,35 @@ TEST_CASE("manifest: Deserialize of oversized count returns error",
     unsigned char wire[2] = { 0xFF, 0xFF };
     pdtest_manifest_t dst = make_manifest();
     REQUIRE(pdtest_manifestDeserialize(wire, sizeof(wire), &dst, nullptr) == 1);
+    pdtest_manifestFree(&dst);
+}
+
+TEST_CASE("manifest: Deserialize parse error rolls back entries from the failed packet",
+          "[manifest][wire][security]") {
+    std::vector<unsigned char> wire;
+    append_u16le(wire, 2); /* one valid entry, then one truncated entry */
+
+    wire.push_back(PDTEST_MANIFEST_TYPE_BODY);
+    wire.push_back(3);
+    append_str(wire, "base:partial_good");
+
+    wire.push_back(PDTEST_MANIFEST_TYPE_COMPONENT);
+    wire.push_back(PDTEST_MANIFEST_SLOT_MATCH);
+    append_str(wire, "user:truncated_component");
+    wire.insert(wire.end(), { 0x10, 0x11, 0x12, 0x13 }); /* short SHA-256 */
+
+    pdtest_manifest_t dst = make_manifest();
+    pdtest_manifestAddEntry(&dst, "base:preexisting", PDTEST_MANIFEST_TYPE_STAGE,
+                            PDTEST_MANIFEST_SLOT_MATCH);
+    const unsigned short start_entries = dst.num_entries;
+    const unsigned int start_hash = pdtest_manifestComputeHash(&dst);
+
+    size_t consumed = 0;
+    REQUIRE(pdtest_manifestDeserialize(wire.data(), wire.size(), &dst, &consumed) == 1);
+    REQUIRE(dst.num_entries == start_entries);
+    REQUIRE(dst.manifest_hash == start_hash);
+    REQUIRE(std::string(dst.entries[0].id) == "base:preexisting");
+
     pdtest_manifestFree(&dst);
 }
 

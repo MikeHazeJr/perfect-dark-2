@@ -1112,7 +1112,7 @@ bool shotTestLos(struct coord *gunpos2d, struct coord *gundir2d, struct coord *g
 		prop = *propptr;
 		if (prop) {
 			if (prop->type == PROPTYPE_CHR
-					|| (prop->type == PROPTYPE_PLAYER && prop->chr && (g_Vars.in_cutscene || playermgrGetPlayerNumByProp(prop) != g_Vars.currentplayernum))) {
+					|| (prop->type == PROPTYPE_PLAYER && prop->chr && (playerCurrentCutsceneInProgress() || playermgrGetPlayerNumByProp(prop) != g_Vars.currentplayernum))) {
 				chrTestHit(prop, &shotdata, false, true);
 			} else if (prop->type == PROPTYPE_WEAPON || prop->type == PROPTYPE_DOOR
 					|| (prop->type == PROPTYPE_OBJ && prop->obj->type != OBJTYPE_GLASS && prop->obj->type != OBJTYPE_TINTEDGLASS)) {

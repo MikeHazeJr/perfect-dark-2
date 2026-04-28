@@ -10,6 +10,7 @@
 #include "game/gfxmemory.h"
 #include "game/bg.h"
 #include "game/file.h"
+#include "game/player.h"
 #include "bss.h"
 #include "lib/rng.h"
 #include "lib/mtx.h"
@@ -651,7 +652,7 @@ void modelUpdateChrInfo(struct model *model, struct modelnode *node)
 
 	rwdata->chrinfo.yrot = rwdata->chrinfo.unk30;
 
-	if (g_Vars.in_cutscene && anim->speed > 0.0f) {
+	if (playerAnyCutsceneInProgress() && anim->speed > 0.0f) {
 #if VERSION >= VERSION_PAL_BETA
 		frac = floorf(anim->frac / anim->speed + 0.01f) * anim->speed;
 #else
@@ -769,7 +770,7 @@ void modelUpdateChrNodeMtx(struct modelrenderdata *arg0, struct model *model, st
 
 	animGetRotTranslateScale(animpart, anim->flip, skel, anim->animnum, anim->frameslot1, &rot1, &translate1, &scale1);
 
-	if (g_Vars.in_cutscene && anim->speed > 0) {
+	if (playerAnyCutsceneInProgress() && anim->speed > 0) {
 #if VERSION >= VERSION_PAL_BETA
 		sp154 = floorf(anim->frac / anim->speed + 0.01f) * anim->speed;
 #else
@@ -1093,7 +1094,7 @@ void modelUpdatePositionNodeMtx(struct modelrenderdata *renderdata, struct model
 
 			animGetRotTranslateScale(animpart, anim->flip, skel, anim->animnum, anim->frameslot1, &rot1, &translate1, &scale1);
 
-			if (g_Vars.in_cutscene && anim->speed > 0.0f) {
+			if (playerAnyCutsceneInProgress() && anim->speed > 0.0f) {
 #if VERSION >= VERSION_PAL_BETA
 				spe0 = floorf(anim->frac / anim->speed + 0.0099999997764826f) * anim->speed;
 #else

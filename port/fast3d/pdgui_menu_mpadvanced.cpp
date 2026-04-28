@@ -72,6 +72,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_nav.h"
 #include "pdgui.h"        /* langSafe */
 #include "system.h"
 #include "inputctx.h"
@@ -406,7 +407,7 @@ static void ma_CloseCurrentDialog(void)
 static bool ma_BackPressed(void)
 {
     return !ImGui::IsWindowAppearing() &&
-           ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+           pdguiMenuCancelPressed();
 }
 
 /* ---- Hub row: label + optional dynamic-text on the right, pushes a

@@ -36,6 +36,7 @@ if (-not (Test-Path -LiteralPath $env:TEMP)) {
 # MSYS/Cygwin cmake) ahead of the intended one.
 $mingwBin = "C:\msys64\mingw64\bin"
 $msysUsr  = "C:\msys64\usr\bin"
+$gitCmd   = "C:\Program Files\Git\cmd"
 $pathParts = @()
 if ($env:PATH) {
     $pathParts = $env:PATH -split ';'
@@ -45,9 +46,13 @@ foreach ($p in $pathParts) {
     if (-not $p) { continue }
     if ($p -ieq $mingwBin) { continue }
     if ($p -ieq $msysUsr) { continue }
+    if ($p -ieq $gitCmd) { continue }
     $filtered += $p
 }
 $env:PATH = "$mingwBin;$msysUsr"
+if (Test-Path -LiteralPath (Join-Path $gitCmd "git.exe")) {
+    $env:PATH = "$mingwBin;$gitCmd;$msysUsr"
+}
 if ($filtered.Count -gt 0) {
     $env:PATH = "$env:PATH;" + ($filtered -join ';')
 }

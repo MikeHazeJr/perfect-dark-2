@@ -118,6 +118,9 @@
 /* Phase 3 spectator wire (protocol v42). */
 #define CLC_SPECTATE_REQUEST      0x16 // client→host: promote me to CLFLAG_SPECTATOR; do not allocate a player slot
 
+/* v46: cutscene skip authority. */
+#define CLC_CUTSCENE_SKIP         0x17 // client->server: request cutscene skip {playernum}
+
 /* Phase A: Match Startup Pipeline (protocol v24) */
 #define CLC_MANIFEST_STATUS 0x0E // client→server: manifest check result (READY / NEED_ASSETS / DECLINE)
 #define CLC_LOBBY_CANCEL    0x0F // client→server: cancel countdown before match launch (any player)
@@ -202,8 +205,10 @@ u32 netmsgSvcObjStatusWrite(struct netbuf *dst, u8 index, u8 status);
 u32 netmsgSvcObjStatusRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcAlarmWrite(struct netbuf *dst, u8 active);
 u32 netmsgSvcAlarmRead(struct netbuf *src, struct netclient *srccl);
-u32 netmsgSvcCutsceneWrite(struct netbuf *dst, u8 active);
+u32 netmsgSvcCutsceneWrite(struct netbuf *dst, u8 active, u8 player_mask);
 u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgClcCutsceneSkipWrite(struct netbuf *dst, u8 playernum);
+u32 netmsgClcCutsceneSkipRead(struct netbuf *src, struct netclient *srccl);
 
 /* Lobby protocol messages (Phase 3) */
 u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 antiClientId, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex);
@@ -227,7 +232,8 @@ u32 netmsgClcCatalogDiffRead(struct netbuf *src, struct netclient *srccl);
 /* SVC_DISTRIB_BEGIN/CHUNK/END: server→client, component archive stream.
  * v27: catalog ID string replaces u32 net_hash as component identity on the wire. */
 u32 netmsgSvcDistribBeginWrite(struct netbuf *dst, const char *catalog_id,
-                                const char *category, u32 total_chunks, u32 archive_bytes);
+                                const char *category, u32 total_chunks,
+                                u32 archive_bytes, const u8 expected_sha256[32]);
 u32 netmsgSvcDistribBeginRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcDistribChunkWrite(struct netbuf *dst, const char *catalog_id, u16 chunk_idx,
                                 u8 compression, const u8 *data, u16 data_len);

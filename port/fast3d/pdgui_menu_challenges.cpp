@@ -39,6 +39,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_nav.h"
 #include "system.h"
 
 /* ========================================================================
@@ -237,14 +238,14 @@ static s32 renderChallenges(struct menudialog *dialog,
 
         /* Keyboard / gamepad navigation: up/down arrows */
         if (isSelected && ImGui::IsWindowFocused()) {
-            if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true))
+            if (pdguiMenuDownRepeat())
             {
                 if (s_SelectedSlot < numChallenges - 1) {
                     s_SelectedSlot++;
                     pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                 }
             }
-            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true))
+            if (pdguiMenuUpRepeat())
             {
                 if (s_SelectedSlot > 0) {
                     s_SelectedSlot--;
@@ -355,7 +356,7 @@ static s32 renderChallenges(struct menudialog *dialog,
     ImGui::SetCursorPosX((diagW - backW) * 0.5f);
 
     if (PdButton("Back", ImVec2(backW, backH))
-        || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+        || pdguiMenuCancelPressed())
     {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_NeedsInit = true;

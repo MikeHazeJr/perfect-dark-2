@@ -9,7 +9,7 @@ ENet-based multiplayer, co-op, and counter-op networking fully implemented acros
 - **Tick rate**: 60 Hz
 - **Player cap**: `NET_MAX_CLIENTS 32` is the hard ceiling (ENet peer allocation). Runtime cap is `g_NetMaxClients`, set at server start and sent to clients via `SVC_AUTH`. Do not hardcode player-count assumptions — a planned network benchmark will call `hubSetMaxSlots()` to lower the runtime cap dynamically based on measured bandwidth/latency/tick sustainability.
 - **Channels**: `NETCHAN_DEFAULT`(0) unreliable positions, `NETCHAN_CONTROL`(1) reliable state/events, `NETCHAN_TRANSFER`(2) reliable mod distribution
-- **Protocol version**: **27** (v20: D3R-9 NETCHAN_TRANSFER; v21: chrslots u64; v22: CLC_LOBBY_START weapons; v23: NAT traversal; v24: match manifest; v25: SVC_STAGE_START bot config; v27: all net_hash replaced with catalog ID strings). **net_hash is dead — zero usage in wire protocol.**
+- **Protocol version**: **46** (v46: mandatory `SVC_DISTRIB_BEGIN` SHA-256 digest plus `SVC_CUTSCENE { active, player_mask }` and `CLC_CUTSCENE_SKIP`; v45: spawn-weapon mode fields; v42: spectator wire; v37: participant pool active-slot mask; v27: all net_hash replaced with catalog ID strings). **net_hash is dead - zero usage in wire protocol.**
 - **Modes**: `g_NetMode` — NETMODE_NONE(0), NETMODE_SERVER(1), NETMODE_CLIENT(2)
 - **Game modes**: `g_NetGameMode` — NETGAMEMODE_MP(0), NETGAMEMODE_COOP(1), NETGAMEMODE_ANTI(2)
 
@@ -139,10 +139,11 @@ ENet-based multiplayer, co-op, and counter-op networking fully implemented acros
 - alarmActivate/alarmDeactivate guarded on client in co-op
 - Server broadcasts on state change
 
-### Phase C5: Cutscenes (DONE — MVP)
-- SVC_CUTSCENE (0x53): Active flag
-- Client freezes input during server cutscenes (no camera sync — MVP limitation)
-- Future: Send animation number for full client-side cinematic
+### Phase C5: Cutscenes (DONE)
+- SVC_CUTSCENE (0x53): active flag + player_mask.
+- CLC_CUTSCENE_SKIP (0x17): C->S reliable skip request. Server uses the authenticated netclient playernum as authority and ignores untrusted payload player numbers.
+- Client freezes input during server cutscenes (no camera sync, MVP limitation).
+- Future: Send animation number for full client-side cinematic.
 
 ### Phase C6: Pickups & Inventory (Already Covered)
 - Existing SVC_PROP_PICKUP handles both MP and co-op pickups
@@ -188,6 +189,7 @@ ENet-based multiplayer, co-op, and counter-op networking fully implemented acros
 |------|------------------|-----------|------------|--------------------|
 | 0x06 | CLC_RESYNC_REQ   | C→S       | reliable   | on desync           |
 | 0x07 | CLC_COOP_READY   | C→S       | reliable   | once per mission    |
+| 0x17 | CLC_CUTSCENE_SKIP| C->S      | reliable   | on skip request     |
 | 0x23 | SVC_PLAYER_SCORES| S→C       | reliable   | on reconnect/demand |
 | 0x37 | SVC_PROP_SYNC    | S→C       | reliable   | every 120 frames    |
 | 0x38 | SVC_PROP_RESYNC  | S→C       | reliable   | on demand           |
@@ -202,7 +204,7 @@ ENet-based multiplayer, co-op, and counter-op networking fully implemented acros
 | 0x50 | SVC_STAGE_FLAG   | S→C       | reliable   | on change           |
 | 0x51 | SVC_OBJ_STATUS   | S→C       | reliable   | on change           |
 | 0x52 | SVC_ALARM        | S→C       | reliable   | on change           |
-| 0x53 | SVC_CUTSCENE     | S→C       | reliable   | on change           |
+| 0x53 | SVC_CUTSCENE     | S→C       | reliable   | on change, active + mask |
 
 ## Pre-existing Messages (from original netplay)
 - SVC_PLAYER_MOVE, SVC_PLAYER_STATS — Player replication

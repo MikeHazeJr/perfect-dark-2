@@ -276,7 +276,7 @@ s32 scenarioSave(const char *name)
     {
         const char *sid = g_MatchConfig.scenario_id[0]
             ? g_MatchConfig.scenario_id
-            : catalogIdByRuntime(ASSET_GAMEMODE, (s32)g_MatchConfig.scenario);
+            : catalogGameModeIdByScenarioIndex((s32)g_MatchConfig.scenario);
         jsonEscapeStr(fp, sid ? sid : "");
     }
     fprintf(fp, "\",\n");
@@ -449,7 +449,7 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
     } else if (scenario >= 0 && scenario < 16) {
         g_MatchConfig.scenario = (u8)scenario;
         /* Derive scenario_id from integer for newly-loaded legacy saves */
-        const char *sid = catalogIdByRuntime(ASSET_GAMEMODE, scenario);
+        const char *sid = catalogGameModeIdByScenarioIndex(scenario);
         if (sid) {
             strncpy(g_MatchConfig.scenario_id, sid, sizeof(g_MatchConfig.scenario_id) - 1);
             g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';

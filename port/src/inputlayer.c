@@ -10,6 +10,7 @@
 
 #include "inputlayer.h"
 #include "actionmap.h"
+#include "scene.h"
 #include <stddef.h>
 #include <string.h>
 
@@ -38,6 +39,52 @@ static const InputAction s_CutsceneActionSet[] = {
     ACTION_FIRE_MODE,
     ACTION_RELOAD,
     ACTION_WEAPON_NEXT,
+};
+
+static const InputAction s_VehicleDriverActionSet[] = {
+    ACTION_VEHICLE_ACCELERATE,
+    ACTION_VEHICLE_BRAKE,
+    ACTION_VEHICLE_STEER_LEFT,
+    ACTION_VEHICLE_STEER_RIGHT,
+    ACTION_VEHICLE_EXIT,
+    ACTION_PAUSE,
+};
+
+static const InputAction s_ObserverActionSet[] = {
+    ACTION_AXIS_MOVE_X,
+    ACTION_AXIS_MOVE_Y,
+    ACTION_AXIS_AIM_X,
+    ACTION_AXIS_AIM_Y,
+    ACTION_MOVE_FORWARD,
+    ACTION_MOVE_BACKWARD,
+    ACTION_MOVE_LEFT,
+    ACTION_MOVE_RIGHT,
+    ACTION_FORGE_TOGGLE,
+    ACTION_FORGE_ASCEND,
+    ACTION_FORGE_DESCEND,
+    ACTION_FORGE_BOOST,
+    ACTION_FORGE_PRECISION,
+    ACTION_FORGE_SIDEBAR_TOGGLE,
+    ACTION_FORGE_SIDEBAR_UP,
+    ACTION_FORGE_SIDEBAR_DOWN,
+    ACTION_FORGE_SIDEBAR_ACTIVATE,
+    ACTION_FORGE_TAB_PREV,
+    ACTION_FORGE_TAB_NEXT,
+    ACTION_FORGE_PLACE_CANCEL,
+    ACTION_FORGE_BOT_ADD,
+    ACTION_FORGE_BOT_REMOVE_ALL,
+    ACTION_FORGE_BOT_FREEZE_TOGGLE,
+    ACTION_FORGE_BOT_SPAWN_CYCLE,
+    ACTION_OBSERVER_SUBSET_PREV,
+    ACTION_OBSERVER_SUBSET_NEXT,
+    ACTION_OBSERVER_MEMBER_PREV,
+    ACTION_OBSERVER_MEMBER_NEXT,
+    ACTION_OBSERVER_CAMERA_TOGGLE,
+    ACTION_OBSERVER_FREEFLY,
+    ACTION_OBSERVER_STOP,
+    ACTION_OBSERVER_ASCEND,
+    ACTION_OBSERVER_DESCEND,
+    ACTION_PAUSE,
 };
 
 #define INPUTLAYER_ARRAYCOUNT(a) ((s32)(sizeof(a) / sizeof((a)[0])))
@@ -82,6 +129,57 @@ static void onCutsceneAbort(int reason_code)
 {
     (void)reason_code;
     imcCutsceneExit();
+}
+
+static int onVehicleDriverPush(void *payload)
+{
+    (void)payload;
+    imcVehicleMount();
+    actionmapFlushGameplayState();
+    actionmapFlushActionSet(s_VehicleDriverActionSet, INPUTLAYER_ARRAYCOUNT(s_VehicleDriverActionSet));
+    return 0;
+}
+
+static void onVehicleDriverPop(void *result_out)
+{
+    (void)result_out;
+    imcVehicleDismount();
+    actionmapFlushActionSet(s_VehicleDriverActionSet, INPUTLAYER_ARRAYCOUNT(s_VehicleDriverActionSet));
+}
+
+static void onVehicleDriverAbort(int reason_code)
+{
+    (void)reason_code;
+    imcVehicleDismount();
+    actionmapFlushActionSet(s_VehicleDriverActionSet, INPUTLAYER_ARRAYCOUNT(s_VehicleDriverActionSet));
+}
+
+static int onObserverPush(void *payload)
+{
+    const SceneObserverPayload *observer_payload = (const SceneObserverPayload *)payload;
+    if (observer_payload && observer_payload->source == SCENE_OBSERVER_SOURCE_SPECTATOR) {
+        imcActivate(&g_ImcObserver);
+    }
+    actionmapFlushActionSet(s_ObserverActionSet, INPUTLAYER_ARRAYCOUNT(s_ObserverActionSet));
+    return 0;
+}
+
+static void onObserverPop(void *result_out)
+{
+    (void)result_out;
+    actionmapFlushActionSet(s_ObserverActionSet, INPUTLAYER_ARRAYCOUNT(s_ObserverActionSet));
+    imcDeactivate(&g_ImcObserver);
+    imcDeactivate(&g_ImcForge);
+    imcDeactivate(&g_ImcForgeSession);
+}
+
+static void onObserverAbort(int reason_code)
+{
+    (void)reason_code;
+    actionmapFlushActionSet(s_ObserverActionSet, INPUTLAYER_ARRAYCOUNT(s_ObserverActionSet));
+    imcDeactivate(&g_ImcObserver);
+    imcDeactivate(&g_ImcForge);
+    imcDeactivate(&g_ImcForgeSession);
 }
 
 /* ============================================================
@@ -143,12 +241,12 @@ const LayerDef g_LayerMenu = {
 const LayerDef g_LayerVehicleDriver = {
     .type                  = LAYER_VEHICLE_DRIVER,
     .name                  = "VehicleDriver",
-    .action_set            = NULL,
-    .action_set_count      = 0,
-    .on_push               = NULL,
-    .on_pop                = NULL,
-    .on_abort              = NULL,
-    .imc                   = NULL, /* Cohort 5: &g_ImcVehicle */
+    .action_set            = s_VehicleDriverActionSet,
+    .action_set_count      = INPUTLAYER_ARRAYCOUNT(s_VehicleDriverActionSet),
+    .on_push               = onVehicleDriverPush,
+    .on_pop                = onVehicleDriverPop,
+    .on_abort              = onVehicleDriverAbort,
+    .imc                   = &g_ImcVehicle,
     .wants_relative_mouse  = 1,
     .wants_visible_cursor  = 0,
 };
@@ -169,12 +267,12 @@ const LayerDef g_LayerVehicleTurret = {
 const LayerDef g_LayerObserver = {
     .type                  = LAYER_OBSERVER,
     .name                  = "Observer",
-    .action_set            = NULL,
-    .action_set_count      = 0,
-    .on_push               = NULL,
-    .on_pop                = NULL,
-    .on_abort              = NULL,
-    .imc                   = NULL, /* Cohort 5: g_ImcForge stack per K.9 */
+    .action_set            = s_ObserverActionSet,
+    .action_set_count      = INPUTLAYER_ARRAYCOUNT(s_ObserverActionSet),
+    .on_push               = onObserverPush,
+    .on_pop                = onObserverPop,
+    .on_abort              = onObserverAbort,
+    .imc                   = &g_ImcObserver,
     .wants_relative_mouse  = 1,
     .wants_visible_cursor  = 0,
 };
@@ -314,4 +412,10 @@ const LayerDef *inputLayerHandleDef(const LayerHandle *h)
 {
     if (!handleIsValid(h)) return NULL;
     return h->def;
+}
+
+s32 inputLayerHandleDistanceFromTop(const LayerHandle *h)
+{
+    if (!handleIsValid(h)) return -1;
+    return s_Depth - h->slot;
 }

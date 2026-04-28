@@ -58,6 +58,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_nav.h"
 #include "pdgui_model_preview.h" /* reusable 3D model preview widget (FBO+ImGui) */
 #include "pdgui.h"        /* langSafe */
 #include "system.h"
@@ -656,7 +657,7 @@ static void bs_CloseCurrentDialog(void)
 static bool bs_BackPressed(void)
 {
     return !ImGui::IsWindowAppearing() &&
-           ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+           pdguiMenuCancelPressed();
 }
 
 /* =========================================================================

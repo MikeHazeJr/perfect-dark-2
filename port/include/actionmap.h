@@ -41,7 +41,7 @@ extern "C" {
  * ============================================================ */
 
 #define ACTIONMAP_MAX_TRIGGERS      4    /* bindings per action per IMC */
-#define ACTIONMAP_MAX_CONTEXTS      8    /* active IMCs at once */
+#define ACTIONMAP_MAX_CONTEXTS     10    /* active IMCs at once */
 #define ACTIONMAP_MAX_PLAYERS       4    /* splitscreen players */
 #define ACTIONMAP_CHEAT_BUF_LEN    20    /* rolling cheat input window */
 #define ACTIONMAP_DEFAULT_DEADZONE  0.15f
@@ -195,7 +195,57 @@ typedef enum InputAction {
      * classification. */
     ACTION_SKIP_CUTSCENE,        /* = 72 dedicated cutscene-skip action */
 
-    ACTION_COUNT                /* = 73, sentinel — keep last */
+    /* ---- Menu secondary commands (2026-04-28) ----
+     * Generic menu-owned secondary/tertiary/delete actions for contextual
+     * panel commands such as copy, default, multi-select, and row delete.
+     * Bound only on menu / pause IMCs. */
+    ACTION_MENU_SECONDARY,       /* = 73 C / X */
+    ACTION_MENU_TERTIARY,        /* = 74 D / Y */
+    ACTION_MENU_DELETE,          /* = 75 Delete */
+
+    /* ---- Observer / spectator controls (2026-04-28) ----
+     * Bound on g_ImcObserver while LAYER_OBSERVER is active. The same
+     * observer layer covers spectator and Forge, but these actions are
+     * consumed only by the spectator overlay. */
+    ACTION_OBSERVER_SUBSET_PREV,  /* = 76 PageUp / LB */
+    ACTION_OBSERVER_SUBSET_NEXT,  /* = 77 PageDown / RB */
+    ACTION_OBSERVER_MEMBER_PREV,  /* = 78 Left / D-pad left */
+    ACTION_OBSERVER_MEMBER_NEXT,  /* = 79 Right / D-pad right */
+    ACTION_OBSERVER_CAMERA_TOGGLE,/* = 80 Tab / R3 */
+    ACTION_OBSERVER_FREEFLY,      /* = 81 R / Y hold */
+    ACTION_OBSERVER_STOP,         /* = 82 Escape / B */
+    ACTION_OBSERVER_ASCEND,       /* = 83 E / RT */
+    ACTION_OBSERVER_DESCEND,      /* = 84 Q / LT */
+
+    /* ---- Voice chat (2026-04-28) ----
+     * Push-to-talk is a shared/system action. It is bound in the gameplay
+     * and UI IMCs where the legacy raw V hotkey previously worked, then
+     * pdgui_friends.cpp still gates it on ImGui keyboard capture so typing
+     * into text fields does not start transmission. */
+    ACTION_VOICE_PTT,             /* = 85 V hold */
+
+    /* ---- Forge editor commands (2026-04-28) ---- */
+    ACTION_FORGE_PLACE_CANCEL,     /* = 86 Escape while placing */
+    ACTION_FORGE_BOT_ADD,          /* = 87 Insert */
+    ACTION_FORGE_BOT_REMOVE_ALL,   /* = 88 Delete */
+    ACTION_FORGE_BOT_FREEZE_TOGGLE,/* = 89 End */
+    ACTION_FORGE_BOT_SPAWN_CYCLE,  /* = 90 Home */
+
+    /* ---- Skin editor commands (2026-04-28) ---- */
+    ACTION_SKIN_BRUSH_DECREASE,    /* = 91 [ */
+    ACTION_SKIN_BRUSH_INCREASE,    /* = 92 ] */
+    ACTION_SKIN_TOOL_DRAW,         /* = 93 1 */
+    ACTION_SKIN_TOOL_ERASE,        /* = 94 2 */
+    ACTION_SKIN_TOOL_FILL,         /* = 95 3 */
+    ACTION_SKIN_TOOL_EYEDROPPER,   /* = 96 4 */
+    ACTION_SKIN_TOOL_LINE,         /* = 97 5 */
+    ACTION_SKIN_GRID_TOGGLE,       /* = 98 G */
+    ACTION_SKIN_UV_TOGGLE,         /* = 99 U */
+    ACTION_SKIN_UNDO,              /* = 100 Ctrl+Z */
+    ACTION_SKIN_REDO,              /* = 101 Ctrl+Y / Ctrl+Shift+Z */
+    ACTION_SKIN_SAVE,              /* = 102 Ctrl+S */
+
+    ACTION_COUNT                /* = 103, sentinel - keep last */
 } InputAction;
 
 /* Backward-compat aliases */
@@ -507,6 +557,7 @@ extern InputMappingContext g_ImcCutscene;      /* priority  4 — cutscene skip 
 extern InputMappingContext g_ImcVehicle;       /* priority  5 — vehicle controls     */
 extern InputMappingContext g_ImcForgeSession;  /* priority  6 — Forge session toggle (whole session) */
 extern InputMappingContext g_ImcForge;         /* priority  7 — Forge editor overlay (FREEFLY only)  */
+extern InputMappingContext g_ImcObserver;      /* priority  8 - spectator / observer overlay */
 extern InputMappingContext g_ImcMenu;          /* priority 10 — ImGui menu nav        */
 extern InputMappingContext g_ImcPauseMenu;     /* priority 11 — in-game pause         */
 extern InputMappingContext g_ImcDebugOverlay;  /* priority 20 — F12 debug window      */

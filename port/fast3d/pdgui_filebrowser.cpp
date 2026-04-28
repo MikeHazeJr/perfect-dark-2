@@ -39,6 +39,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_nav.h"
 #include "fs.h"
 
 /* ========================================================================
@@ -435,7 +436,7 @@ s32 pdguiFileBrowserRender(void)
                       ImGuiWindowFlags_AlwaysVerticalScrollbar);
 
     /* Escape navigates to parent */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+    if (pdguiMenuCancelPressed()) {
         /* Navigate to parent directory */
         char parent[FB_PATH_LEN];
         strncpy(parent, s_CurrentDir, FB_PATH_LEN);

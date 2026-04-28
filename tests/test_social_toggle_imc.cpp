@@ -36,6 +36,9 @@
 
 #include "catch.hpp"
 
+#include <fstream>
+#include <sstream>
+#include <string>
 #include <vector>
 
 namespace {
@@ -47,6 +50,8 @@ constexpr unsigned VK_TAB = 43;          /* SDL_SCANCODE_TAB */
 constexpr int ACT_NONE             = -1;
 constexpr int ACT_SCORECARD        = 56; /* InputAction::ACTION_SCORECARD */
 constexpr int ACT_SOCIAL_TOGGLE    = 69; /* InputAction::ACTION_SOCIAL_TOGGLE */
+constexpr unsigned VK_V = 25;            /* SDL_SCANCODE_V */
+constexpr int ACT_VOICE_PTT = 85;        /* InputAction::ACTION_VOICE_PTT */
 
 struct PureBind {
     unsigned vk;
@@ -77,20 +82,31 @@ int resolvePureVk(const std::vector<const PureCtx *> &active, unsigned vk)
     return ACT_NONE;
 }
 
+std::string readTextFile(const char *path)
+{
+    std::ifstream f(path, std::ios::in | std::ios::binary);
+    if (!f) {
+        return {};
+    }
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
 /* Build IMCs that mirror today's binding tables, scoped to Tab. */
 PureCtx makeGameplay()
 {
-    return PureCtx{ "gameplay", 0, { { VK_TAB, ACT_SCORECARD } } };
+    return PureCtx{ "gameplay", 0, { { VK_TAB, ACT_SCORECARD }, { VK_V, ACT_VOICE_PTT } } };
 }
 
 PureCtx makeMenu()
 {
-    return PureCtx{ "menu", 10, { { VK_TAB, ACT_SOCIAL_TOGGLE } } };
+    return PureCtx{ "menu", 10, { { VK_TAB, ACT_SOCIAL_TOGGLE }, { VK_V, ACT_VOICE_PTT } } };
 }
 
 PureCtx makePauseMenu()
 {
-    return PureCtx{ "pause_menu", 11, { { VK_TAB, ACT_SOCIAL_TOGGLE } } };
+    return PureCtx{ "pause_menu", 11, { { VK_TAB, ACT_SOCIAL_TOGGLE }, { VK_V, ACT_VOICE_PTT } } };
 }
 
 } /* namespace */
@@ -162,4 +178,65 @@ TEST_CASE("ACTION_SOCIAL_TOGGLE id is 69 (catches enum reorder regressions)",
      * neighbour action. */
     REQUIRE(ACT_SOCIAL_TOGGLE == 69);
     REQUIRE(ACT_SCORECARD     == 56);
+}
+
+TEST_CASE("Voice PTT resolves through action map in gameplay and menu contexts",
+          "[actionmap][imc][voice][ptt]")
+{
+    PureCtx gameplay = makeGameplay();
+    PureCtx menu     = makeMenu();
+    PureCtx pause    = makePauseMenu();
+
+    REQUIRE(resolvePureVk({ &gameplay }, VK_V) == ACT_VOICE_PTT);
+    REQUIRE(resolvePureVk({ &menu, &gameplay }, VK_V) == ACT_VOICE_PTT);
+    REQUIRE(resolvePureVk({ &pause, &gameplay }, VK_V) == ACT_VOICE_PTT);
+}
+
+TEST_CASE("Voice PTT raw V polling stays retired", "[input][voice][ptt][static]")
+{
+    const std::string header = readTextFile("port/include/actionmap.h");
+    const std::string actionmap = readTextFile("port/src/actionmap.cpp");
+    const std::string friends = readTextFile("port/fast3d/pdgui_friends.cpp");
+    const std::string mainmenu = readTextFile("port/fast3d/pdgui_menu_mainmenu.cpp");
+
+    REQUIRE_FALSE(header.empty());
+    REQUIRE_FALSE(actionmap.empty());
+    REQUIRE_FALSE(friends.empty());
+    REQUIRE_FALSE(mainmenu.empty());
+
+    REQUIRE(header.find("ACTION_VOICE_PTT") != std::string::npos);
+    REQUIRE(actionmap.find("\"VoicePtt\"") != std::string::npos);
+    REQUIRE(actionmap.find("case ACTION_VOICE_PTT:") != std::string::npos);
+    REQUIRE(actionmap.find("addBind(imc, ACTION_VOICE_PTT,      VKL_V)") != std::string::npos);
+    REQUIRE(actionmap.find("addBind(imc, ACTION_VOICE_PTT,     VKL_V)") != std::string::npos);
+    REQUIRE(friends.find("actionPressed(0, ACTION_VOICE_PTT)") != std::string::npos);
+    REQUIRE(friends.find("actionReleased(0, ACTION_VOICE_PTT)") != std::string::npos);
+    REQUIRE(friends.find("ImGui::IsKeyPressed(ImGuiKey_V") == std::string::npos);
+    REQUIRE(friends.find("ImGui::IsKeyReleased(ImGuiKey_V") == std::string::npos);
+    REQUIRE(mainmenu.find("ACTION_VOICE_PTT") != std::string::npos);
+}
+
+TEST_CASE("Social tabs and menu tab navigation stay action-map owned", "[input][menu_action][social][static]")
+{
+    const std::string friends = readTextFile("port/fast3d/pdgui_friends.cpp");
+    const std::string backend = readTextFile("port/fast3d/pdgui_backend.cpp");
+    const std::string mainmenu = readTextFile("port/fast3d/pdgui_menu_mainmenu.cpp");
+
+    REQUIRE_FALSE(friends.empty());
+    REQUIRE_FALSE(backend.empty());
+    REQUIRE_FALSE(mainmenu.empty());
+
+    REQUIRE(friends.find("#include \"pdgui_nav.h\"") != std::string::npos);
+    REQUIRE(friends.find("pdguiMenuTabPrevPressed()") != std::string::npos);
+    REQUIRE(friends.find("pdguiMenuTabNextPressed()") != std::string::npos);
+    REQUIRE(friends.find("socialTabFlags(SOCIAL_TAB_PUBLIC_MODS)") != std::string::npos);
+    REQUIRE(backend.find("ACTION_MENU_TAB_PREV,    ImGuiKey_PageUp") == std::string::npos);
+    REQUIRE(backend.find("ACTION_MENU_TAB_NEXT,    ImGuiKey_PageDown") == std::string::npos);
+    REQUIRE(mainmenu.find("ImGui::IsKeyPressed(ImGuiKey_PageUp") == std::string::npos);
+    REQUIRE(mainmenu.find("ImGui::IsKeyPressed(ImGuiKey_PageDown") == std::string::npos);
+}
+
+TEST_CASE("ACTION_VOICE_PTT id is 85", "[actionmap][imc][voice][ptt][pin]")
+{
+    REQUIRE(ACT_VOICE_PTT == 85);
 }

@@ -24,7 +24,7 @@
 #include "lib/joy.h"
 #include "data.h"
 #include "types.h"
-#include "actionmap.h" /* Priority J (2026-04-25): vehicle IMC mount/dismount */
+#include "scene.h"
 
 void bbikeInit(void)
 {
@@ -69,9 +69,12 @@ void bbikeInit(void)
 
 	hoverbike->base.hidden |= OBJHFLAG_MOUNTED;
 
-	/* Priority J (2026-04-25): activate vehicle IMC so steering / throttle
-	 * / brake / exit bindings shadow the gameplay baseline while mounted. */
-	imcVehicleMount();
+	{
+		SceneVehiclePayload payload;
+		payload.vehicle_kind = SCENE_VEHICLE_KIND_DRIVER;
+		payload.prop = g_Vars.currentplayer->hoverbike;
+		sceneFire(SCENE_EVENT_VEHICLE_BOARD, &payload);
+	}
 }
 
 void bbikeExit(void)
@@ -96,9 +99,12 @@ void bbikeExit(void)
 
 	obj->flags |= OBJFLAG_HOVERBIKE_MOVINGWHILEEMPTY;
 
-	/* Priority J (2026-04-25): drop vehicle IMC so the gameplay baseline
-	 * resumes ownership of W / A / S / D / triggers / X for on-foot. */
-	imcVehicleDismount();
+	{
+		SceneVehiclePayload payload;
+		payload.vehicle_kind = SCENE_VEHICLE_KIND_DRIVER;
+		payload.prop = g_Vars.currentplayer->hoverbike;
+		sceneFire(SCENE_EVENT_VEHICLE_DISMOUNT, &payload);
+	}
 }
 
 void bbikeUpdateVehicleOffset(void)

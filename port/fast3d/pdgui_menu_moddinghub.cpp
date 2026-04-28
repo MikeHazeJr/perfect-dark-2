@@ -30,6 +30,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_nav.h"
 #include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "pdgui_theme.h"
 #include "pdgui_nineslice.h"
@@ -1325,11 +1326,11 @@ static void renderModdingHub(s32 winW, s32 winH)
             "Font Mod"
         };
 
-        /* Bumper (LB/RB) tab cycling — PageUp/PageDown driven by pdguiDriveImGuiNav.
+        /* ACTION_MENU_TAB_PREV/NEXT cycle hub tools.
          * Skin Editor uses list navigation heavily; suppress global tab cycling there
          * to avoid stealing selection input from the character list/editor UI. */
         const bool allowHubTabCycle = (s_ActiveTool != 5);
-        if (allowHubTabCycle && ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
+        if (allowHubTabCycle && pdguiMenuTabPrevPressed()) {
             int next = (s_ActiveTool - 1 + NUM_TOOLS) % NUM_TOOLS;
             s_ActiveTool = next;
             if (next == 0) pdguiModManagerRefreshSnapshot();
@@ -1343,7 +1344,7 @@ static void renderModdingHub(s32 winW, s32 winH)
                     else if (next == 8) fontToolReset();
             pdguiPlaySound(PDGUI_SND_SWIPE);
         }
-        if (allowHubTabCycle && ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
+        if (allowHubTabCycle && pdguiMenuTabNextPressed()) {
             int next = (s_ActiveTool + 1) % NUM_TOOLS;
             s_ActiveTool = next;
             if (next == 0) pdguiModManagerRefreshSnapshot();
@@ -1486,7 +1487,7 @@ static void renderModdingHub(s32 winW, s32 winH)
     if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
         if (pdguiConsumeTitleClose()) {
             moddingHubCloseFromUi("title-x-button");
-        } else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        } else if (pdguiMenuCancelPressed()) {
             if (s_ModHubOpenFrame < 0
                 || (ImGui::GetFrameCount() - s_ModHubOpenFrame) >= 5) {
                 /* B-213: Escape leaves paint session first; second Escape closes hub. */

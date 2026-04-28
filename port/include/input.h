@@ -74,6 +74,15 @@ enum virtkey {
 	VK_RCTRL = 228,
 	VK_RSHIFT = 229,
 
+	/* Synthetic keyboard chords emitted by actionmapDispatch. These live below
+	 * VK_MOUSE_BEGIN so they are still treated as keyboard/mouse bindings. */
+	VK_CHORD_CTRL_TAB = 300,
+	VK_CHORD_CTRL_SHIFT_TAB,
+	VK_CHORD_CTRL_Z,
+	VK_CHORD_CTRL_SHIFT_Z,
+	VK_CHORD_CTRL_Y,
+	VK_CHORD_CTRL_S,
+
 	/* same order as SDL mouse buttons */
 	VK_MOUSE_BEGIN = 512,
 	VK_MOUSE_LEFT = VK_MOUSE_BEGIN,

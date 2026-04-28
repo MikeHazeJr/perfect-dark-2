@@ -1349,6 +1349,7 @@ struct chrdata {
 	 * care that consecutive allocs at the SAME address differ.
 	 */
 	/*0x368*/ u32 generation;
+	u8 cutscene_protect;
 };
 
 // This appears to be misnamed. Not only is it projectiles such as grenades and
@@ -2363,7 +2364,7 @@ struct gunctrl {
 	/*0x15bc*/ uintptr_t*loadmemremaining;
 	/*0x15c0*/ struct texpool texpool;
 	/*0x15d0*/ u32 nexttexturetoload;
-	/*0x15d4*/ struct fileinfo fileinfo;
+	/*0x15d4*/ struct fileinfo fileinfo; /* Queued model payload sizes, independent of g_FileInfo[]. */
 	/*0x15dc*/ struct abmag abmag;
 	/*0x15e4*/ s8 ammotypes[2];
 	/*0x15e6*/ u8 action;
@@ -2378,6 +2379,15 @@ struct gunctrl {
 	/*0x15f0*/ u8 guntypefader;
 	/*0x15f2*/ u16 curgunstr;
 	/*0x15f4*/ u8 paddingashdown;
+};
+
+struct playercutscenestate {
+	s32 active;
+	s32 in_progress;
+	s32 skiprequested;
+	s16 animnum;
+	s32 curanimframe60;
+	f32 curtotalframe60f;
 };
 
 struct player {
@@ -2831,6 +2841,7 @@ struct player {
 	bool jumpconsumed;  /* Prevents held-button re-triggering after a jump attempt */
 	/* PC twin-stick: 1 = ACTION_USE tap/short press (mount vehicle), 2 = long-hold (pickup). Cleared each frame in bondmove. */
 	u8 pcinteractusekind;
+	struct playercutscenestate cutscene;
 };
 
 struct ailist {

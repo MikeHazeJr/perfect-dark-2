@@ -192,6 +192,20 @@ void modeldef0f1a7560(struct modeldef *modeldef, u16 filenum, u32 arg2, struct m
 		true);
 }
 
+void modeldefPromoteDisplayListsUsingSizes(struct modeldef *modeldef, s32 source_filenum, s32 allocsize, s32 loadedsize, u32 arg2, struct modeldef *modeldef2, struct texpool *texpool, bool arg5)
+{
+	modeldefPromoteDisplayListsWithSizes(
+		modeldef,
+		source_filenum,
+		allocsize,
+		loadedsize,
+		arg2,
+		modeldef2,
+		texpool,
+		arg5,
+		false);
+}
+
 void modelPromoteTypeToPointer(struct modeldef *modeldef)
 {
 	s32 i;

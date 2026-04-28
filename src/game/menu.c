@@ -1973,16 +1973,11 @@ static bool menuResolveModelHandleByFilenum(s32 source_filenum, asset_data_handl
 	}
 
 	for (i = 0; i < (s32)(sizeof(types) / sizeof(types[0])); i++) {
-		const char *id = catalogIdBySourceFilenum(types[i], source_filenum);
-		const asset_entry_t *entry = id ? assetCatalogResolve(id) : NULL;
+		asset_data_handle_t candidate = catalogHandleBySourceFilenum(types[i], source_filenum);
 
-		if (entry) {
-			asset_data_handle_t candidate = catalogEffectiveHandle(entry);
-
-			if (!assetHandleIsNull(candidate)) {
-				*handle = candidate;
-				return true;
-			}
+		if (!assetHandleIsNull(candidate)) {
+			*handle = candidate;
+			return true;
 		}
 	}
 
@@ -2248,9 +2243,14 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 						totalfilelen = ALIGN64(assetLoadGetInflatedSize(modelhandle, LOADTYPE_MODEL)) + 0x4000;
 					} else {
 						sysLogPrintf(LOG_WARNING,
-							"menuRenderModel: uncataloged raw model filenum 0x%04x using temporary ROM fallback",
+							"CATALOG.MISS: menu raw model filenum=0x%04x has no provider handle",
 							source_filenum);
-						totalfilelen = ALIGN64(fileGetInflatedSize(source_filenum, LOADTYPE_MODEL)) + 0x4000;
+						menumodel->bodymodeldef = NULL;
+						menumodel->headmodeldef = NULL;
+						menumodel->curparams = menumodel->newparams;
+						menumodel->newparams = 0;
+						menuClearCurrentModelHandles(menumodel);
+						return gdl;
 					}
 					if (1);
 
@@ -2263,11 +2263,7 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 					menumodel->headhandle = menuNullModelHandle();
 					menumodel->headhandle_filenum = -1;
 
-					if (has_handle) {
-						menumodel->bodymodeldef = modeldefLoadFromHandle(modelhandle, source_filenum, menumodel->allocstart, totalfilelen, &texpool);
-					} else {
-						menumodel->bodymodeldef = modeldefLoad((u16)source_filenum, menumodel->allocstart, totalfilelen, &texpool);
-					}
+					menumodel->bodymodeldef = modeldefLoadFromHandle(modelhandle, source_filenum, menumodel->allocstart, totalfilelen, &texpool);
 
 					if (menumodel->bodymodeldef == NULL) {
 						menumodel->headmodeldef = NULL;
@@ -2277,11 +2273,7 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 						return gdl;
 					}
 
-					if (has_handle) {
-						assetLoadGetLoadedSize(modelhandle);
-					} else {
-						fileGetLoadedSize(source_filenum);
-					}
+					assetLoadGetLoadedSize(modelhandle);
 					modelAllocateRwData(menumodel->bodymodeldef);
 					modelInit(&menumodel->bodymodel, menumodel->bodymodeldef, menumodel->rwdata, true);
 					animInit(&menumodel->bodyanim);
@@ -4306,6 +4298,99 @@ void menuSwipe(s32 direction)
 	}
 }
 
+s32 menuSwitchToDialog(struct menudialogdef *dialogdef)
+{
+	struct menulayer *layer;
+	struct menuitem *item;
+	union handlerdata sp50;
+	union handlerdata sp40;
+	s32 target = -1;
+	s32 direction;
+	s32 forward;
+	s32 backward;
+	s32 i;
+
+	if (!dialogdef || g_MpPlayerNum < 0 || g_MpPlayerNum >= MAX_PLAYERS) {
+		return 0;
+	}
+
+	if (g_Menus[g_MpPlayerNum].depth <= 0) {
+		return 0;
+	}
+
+	layer = &g_Menus[g_MpPlayerNum].layers[g_Menus[g_MpPlayerNum].depth - 1];
+
+	for (i = 0; i < layer->numsiblings; i++) {
+		if (layer->siblings[i] && layer->siblings[i]->definition == dialogdef) {
+			target = i;
+			break;
+		}
+	}
+
+	if (target < 0) {
+		return 0;
+	}
+
+	if (layer->cursibling == target) {
+		return 1;
+	}
+
+	forward = target - layer->cursibling;
+	if (forward < 0) {
+		forward += layer->numsiblings;
+	}
+
+	backward = layer->cursibling - target;
+	if (backward < 0) {
+		backward += layer->numsiblings;
+	}
+
+	direction = (forward <= backward) ? 1 : -1;
+
+	g_Menus[g_MpPlayerNum].curdialog->swipedir = -direction;
+	layer->cursibling = target;
+	g_Menus[g_MpPlayerNum].curdialog = layer->siblings[layer->cursibling];
+
+	if (direction == 1) {
+		g_Menus[g_MpPlayerNum].curdialog->focuseditem = dialogFindFirstItem(g_Menus[g_MpPlayerNum].curdialog);
+	} else {
+		g_Menus[g_MpPlayerNum].curdialog->focuseditem = dialogFindFirstItemRight(g_Menus[g_MpPlayerNum].curdialog);
+	}
+
+	item = g_Menus[g_MpPlayerNum].curdialog->definition->items;
+
+	while (item->type != MENUITEMTYPE_END) {
+		if (item->handler
+				&& (item->flags & MENUITEMFLAG_SELECTABLE_OPENSDIALOG) == 0
+				&& item->handler(MENUOP_CHECKPREFOCUSED, item, &sp50)) {
+			g_Menus[g_MpPlayerNum].curdialog->focuseditem = item;
+		}
+
+		item++;
+	}
+
+	if (g_Menus[g_MpPlayerNum].curdialog->focuseditem != 0
+			&& g_Menus[g_MpPlayerNum].curdialog->focuseditem->handler
+			&& ((g_Menus[g_MpPlayerNum].curdialog->focuseditem->flags & MENUITEMFLAG_SELECTABLE_OPENSDIALOG) == 0)) {
+		g_Menus[g_MpPlayerNum].curdialog->focuseditem->handler(MENUOP_FOCUS, g_Menus[g_MpPlayerNum].curdialog->focuseditem, &sp40);
+	}
+
+	g_Menus[g_MpPlayerNum].curdialog->swipedir = direction;
+
+	dialogCalculatePosition(g_Menus[g_MpPlayerNum].curdialog);
+
+	g_Menus[g_MpPlayerNum].curdialog->x = g_Menus[g_MpPlayerNum].curdialog->dstx;
+	g_Menus[g_MpPlayerNum].curdialog->y = g_Menus[g_MpPlayerNum].curdialog->dsty;
+	g_Menus[g_MpPlayerNum].curdialog->swipedir = 0;
+	g_Menus[g_MpPlayerNum].curdialog->state = MENUDIALOGSTATE_PREOPEN;
+	g_Menus[g_MpPlayerNum].curdialog->statefrac = 0.0f;
+
+	menuUnsetModel(&g_Menus[g_MpPlayerNum].menumodel);
+	menuPlaySound(MENUSOUND_SWIPE);
+
+	return 1;
+}
+
 extern struct menudialogdef g_MpDropOut4MbMenuDialog;
 
 void dialogTick(struct menudialog *dialog, struct menuinputs *inputs, u32 tickflags)
@@ -5500,7 +5585,7 @@ void menuProcessInput(void)
 			}
 			break;
 		case MENUROOT_MPPAUSE:
-			if (g_InCutscene) {
+			if (playerAnyInCutscene()) {
 				func0f0f8120();
 			}
 			g_Menus[g_MpPlayerNum].openinhibit = 10;

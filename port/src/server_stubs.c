@@ -86,7 +86,7 @@ u8 g_ObjectiveStatuses[MAX_OBJECTIVES];
 s32 g_ObjectiveLastIndex = 0;
 u32 g_StageFlags = 0;
 s32 g_AlarmTimer = 0;
-s32 g_InCutscene = 0;
+static u8 s_CutsceneActiveMask = 0;
 
 /* Menu / UI state */
 struct menudata g_MenuData;
@@ -181,6 +181,16 @@ void chrSetPos(struct chrdata *chr, struct coord *pos, s16 *rooms, f32 angle, s3
     (void)chr; (void)pos; (void)rooms; (void)angle; (void)onground;
 }
 s32 chrIsDead(struct chrdata *chr) { (void)chr; return 0; }
+bool playerAnyInCutscene(void) { return s_CutsceneActiveMask ? true : false; }
+u8 playerCutsceneActiveMask(void) { return s_CutsceneActiveMask; }
+void playerSetCutsceneActiveMask(u8 player_mask, bool active) {
+    if (active) {
+        s_CutsceneActiveMask |= player_mask;
+    } else {
+        s_CutsceneActiveMask &= (u8)~player_mask;
+    }
+}
+void playerSetCutsceneSkipRequested(s32 playernum, bool skiprequested) { (void)playernum; (void)skiprequested; }
 f32 chrGetInverseTheta(struct chrdata *chr) {
 	/* On the dedicated server, CLC_BOT_MOVE stores the authority client's
 	 * angle into aibot->roty.  Return it here so SVC_CHR_MOVE relays the
@@ -208,6 +218,8 @@ struct defaultobj *weaponCreate(struct prop *prop, struct model *model, s32 weap
     (void)prop; (void)model; (void)weaponnum; return NULL;
 }
 void invRemoveItemByNum(s32 itemnum) { (void)itemnum; }
+bool invHasSingleWeaponIncAllGuns(s32 weaponnum) { (void)weaponnum; return true; }
+bool invHasDoubleWeaponIncAllGuns(s32 weapon1, s32 weapon2) { (void)weapon1; (void)weapon2; return true; }
 
 /* --- Match / Stage --- */
 /*

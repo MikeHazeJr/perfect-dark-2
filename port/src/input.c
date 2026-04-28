@@ -498,6 +498,13 @@ static inline void inputInitKeyNames(void)
 		inputGetScancodeName(key, vkNames[key], sizeof(vkNames[key]));
 	}
 
+	strncpy(vkNames[VK_CHORD_CTRL_TAB], "CTRL+TAB", sizeof(vkNames[VK_CHORD_CTRL_TAB]) - 1);
+	strncpy(vkNames[VK_CHORD_CTRL_SHIFT_TAB], "CTRL+SHIFT+TAB", sizeof(vkNames[VK_CHORD_CTRL_SHIFT_TAB]) - 1);
+	strncpy(vkNames[VK_CHORD_CTRL_Z], "CTRL+Z", sizeof(vkNames[VK_CHORD_CTRL_Z]) - 1);
+	strncpy(vkNames[VK_CHORD_CTRL_SHIFT_Z], "CTRL+SHIFT+Z", sizeof(vkNames[VK_CHORD_CTRL_SHIFT_Z]) - 1);
+	strncpy(vkNames[VK_CHORD_CTRL_Y], "CTRL+Y", sizeof(vkNames[VK_CHORD_CTRL_Y]) - 1);
+	strncpy(vkNames[VK_CHORD_CTRL_S], "CTRL+S", sizeof(vkNames[VK_CHORD_CTRL_S]) - 1);
+
 	// mouse names
 	for (u32 vk = VK_MOUSE_BEGIN; vk < VK_JOY1_BEGIN; ++vk) {
 		strncpy(vkNames[vk], vkMouseNames[vk - VK_MOUSE_BEGIN], sizeof(vkNames[vk]) - 1);

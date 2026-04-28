@@ -26,12 +26,14 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"       /* pdguiPopupDarkenBehind (M-4 confirm modal) */
+#include "pdgui_nav.h"
 #include "pdgui_charpreview.h"
 #include "screenmfst.h"
 #include "net/netmanifest.h"
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "menugraph.h"
 
 extern "C" {
 
@@ -41,9 +43,6 @@ extern struct menudialogdef g_FilemgrEnterNameMenuDialog;
 /* Config system — for storing default agent */
 s32 configSave(const char *fname);
 void configRegisterInt(const char *key, s32 *var, s32 min, s32 max);
-
-/* Menu stack */
-void menuPopDialog(void);
 
 struct filelistfile {
     s32 fileid;
@@ -124,8 +123,6 @@ void filemgrDeleteCurrentFile(void);
 #define FILETYPE_GAME 0
 void filemgrPushSelectLocationDialog(s32 arg0, u32 filetype);
 
-void menuPushDialog(struct menudialogdef *dialogdef);
-
 const char *langSafe(s32 textid);
 
 struct solostage {
@@ -152,6 +149,29 @@ const char *mpPlayerConfigGetHeadId(s32 playernum);
 const char *mpPlayerConfigGetBodyId(s32 playernum);
 
 } /* extern "C" */
+
+typedef struct AgentSelectLoadPayload {
+    struct filelistfile *file;
+    const struct menudialogdef *release_def;
+} AgentSelectLoadPayload;
+
+static s32 agentSelectGraphLoad(void *userdata)
+{
+    AgentSelectLoadPayload *payload = (AgentSelectLoadPayload *)userdata;
+    if (!payload || !payload->file) {
+        return -1;
+    }
+
+    if (payload->release_def) {
+        menupoolReleaseDialog(payload->release_def);
+    }
+
+    g_GameFileGuid.fileid = payload->file->fileid;
+    g_GameFileGuid.deviceserial = payload->file->deviceserial;
+    filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0);
+    prefsLoadForFile(payload->file);
+    return 0;
+}
 
 /* ========================================================================
  * State
@@ -305,26 +325,24 @@ static s32 renderAgentSelect(struct menudialog *dialog,
 
     /* A / Enter = load/select — disabled while confirm modal is open so
      * the modal owns input. */
-    if (!confirmActive && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+    if (!confirmActive && pdguiMenuAcceptPressed()) {
         if (s_SelectedIdx == fl->numfiles) {
             pdguiPlaySound(PDGUI_SND_SELECT);
             /* B-124 / S300: pop owned ctx before transitioning away */
             menupoolReleaseDialog(menupoolDialogDef(dialog));
             gamefileLoadDefaults(&g_GameFile);
-            menuPushDialog(&g_FilemgrEnterNameMenuDialog);
+            menuGraphFirePushDialog(MENU_TYPE_AGENT_SELECT, "create",
+                &g_FilemgrEnterNameMenuDialog);
         } else if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
             struct filelistfile *file = &fl->files[s_SelectedIdx];
             pdguiPlaySound(PDGUI_SND_SELECT);
-            /* B-124 / S300: pop owned ctx before transitioning away */
-            menupoolReleaseDialog(menupoolDialogDef(dialog));
-            g_GameFileGuid.fileid = file->fileid;
-            g_GameFileGuid.deviceserial = file->deviceserial;
-            filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0);
-            prefsLoadForFile(file);
+            AgentSelectLoadPayload payload = { file, menupoolDialogDef(dialog) };
+            menuGraphFireLocalOp(MENU_TYPE_AGENT_SELECT, "load",
+                agentSelectGraphLoad, &payload);
         }
     }
     /* X / C = copy (with confirmation) */
-    if (!confirmActive && ImGui::IsKeyPressed(ImGuiKey_C, false)) {
+    if (!confirmActive && pdguiMenuSecondaryPressed()) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
             pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
             s_ConfirmMode = CONFIRM_COPY;
@@ -334,7 +352,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         }
     }
     /* Y / Delete = delete (with confirmation) */
-    if (!confirmActive && ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
+    if (!confirmActive && pdguiMenuDeletePressed()) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
             pdguiPlaySound(PDGUI_SND_ERROR);
             s_ConfirmMode = CONFIRM_DELETE;
@@ -344,7 +362,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         }
     }
     /* D / RB = set as default agent */
-    if (!confirmActive && ImGui::IsKeyPressed(ImGuiKey_D, false)) {
+    if (!confirmActive && pdguiMenuTertiaryPressed()) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
             struct filelistfile *file = &fl->files[s_SelectedIdx];
             if (s_DefaultAgentFileId == file->fileid) {
@@ -360,20 +378,20 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     /* L-4: B / Escape = go back to previous menu — only when the confirm
      * modal isn't open. When it is, Escape cancels the modal (handled in
      * the BeginPopupModal block below). */
-    if (!confirmActive && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (!confirmActive && pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_AGENT_SELECT, "back");
         ImGui::End();
         return 1;
     }
     /* Arrow key navigation for MKB — frozen while modal is open. */
-    if (!confirmActive && ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+    if (!confirmActive && pdguiMenuDownRepeat()) {
         s_SelectedIdx++;
         if (s_SelectedIdx >= totalEntries) s_SelectedIdx = 0;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (!confirmActive && ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+    if (!confirmActive && pdguiMenuUpRepeat()) {
         s_SelectedIdx--;
         if (s_SelectedIdx < 0) s_SelectedIdx = totalEntries - 1;
         pdguiPlaySound(PDGUI_SND_FOCUS);
@@ -398,7 +416,8 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                                       ImVec2(0, 40.0f * scale))) {
                     pdguiPlaySound(PDGUI_SND_SELECT);
                     gamefileLoadDefaults(&g_GameFile);
-                    menuPushDialog(&g_FilemgrEnterNameMenuDialog);
+                    menuGraphFirePushDialog(MENU_TYPE_AGENT_SELECT, "create",
+                        &g_FilemgrEnterNameMenuDialog);
                 }
                 if (ImGui::IsItemHovered()) s_SelectedIdx = i;
             } else {
@@ -429,10 +448,9 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                                       ImGuiSelectableFlags_AllowDoubleClick,
                                       ImVec2(0, rowH))) {
                     pdguiPlaySound(PDGUI_SND_SELECT);
-                    g_GameFileGuid.fileid = file->fileid;
-                    g_GameFileGuid.deviceserial = file->deviceserial;
-                    filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0);
-                    prefsLoadForFile(file);
+                    AgentSelectLoadPayload payload = { file, NULL };
+                    menuGraphFireLocalOp(MENU_TYPE_AGENT_SELECT, "load",
+                        agentSelectGraphLoad, &payload);
                 }
                 if (ImGui::IsItemHovered()) s_SelectedIdx = i;
 
@@ -701,12 +719,10 @@ static s32 renderAgentSelect(struct menudialog *dialog,
             /* Keyboard + gamepad shortcuts — debounced for a few frames so
              * the X/Delete press that opened the popup doesn't bleed through. */
             if (!inputDebounced) {
-                if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
-                    ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
-                    ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+                if (pdguiMenuAcceptPressed()) {
                     doConfirm = true;
                 }
-                if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+                if (pdguiMenuCancelPressed()) {
                     doCancel = true;
                 }
             }

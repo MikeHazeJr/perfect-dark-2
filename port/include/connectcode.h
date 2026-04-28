@@ -5,8 +5,8 @@
  *   [adjective] [noun] [verb] [noun]
  *   Example: "sneaky falcon chasing castle"
  *
- * Port is assumed to be the default (CONNECT_DEFAULT_PORT).
- * If a non-standard port is needed, append ":PORT" to the decoded IP.
+ * The 4-word form uses CONNECT_DEFAULT_PORT. The 6-word form appends a
+ * port encoded as two extra words.
  *
  * Case-insensitive decode. Separators: spaces, hyphens, dots.
  */
@@ -25,7 +25,7 @@ extern "C" {
 
 /**
  * Encode an IPv4 address into a 4-word sentence code.
- * @param ip      IPv4 address in network byte order (big-endian).
+ * @param ip      IPv4 address packed as a | (b << 8) | (c << 16) | (d << 24).
  * @param buf     Output buffer (at least CONNECT_CODE_MAX bytes).
  * @param bufsize Size of output buffer.
  * @return Number of characters written (excluding null), or -1 on error.
@@ -36,7 +36,7 @@ s32 connectCodeEncode(u32 ip, char *buf, s32 bufsize);
  * Decode a 4-word sentence code back to an IPv4 address.
  * Case-insensitive. Words separated by spaces, hyphens, or dots.
  * @param code   The sentence code string.
- * @param outIp  Output: IPv4 address in network byte order.
+ * @param outIp  Output: IPv4 address packed as a | (b << 8) | (c << 16) | (d << 24).
  * @return 0 on success, -1 on parse failure.
  */
 s32 connectCodeDecode(const char *code, u32 *outIp);
@@ -47,7 +47,7 @@ s32 connectCodeDecode(const char *code, u32 *outIp);
  * Otherwise appends two extra words (adjective + noun) encoding the port
  * as high-byte/low-byte using the same dictionaries:
  *   "[adj] [noun] [action] [place] [adj2] [noun2]"
- * @param ip      IPv4 address in network byte order.
+ * @param ip      IPv4 address packed as a | (b << 8) | (c << 16) | (d << 24).
  * @param port    Port in host byte order.
  * @param buf     Output buffer (at least CONNECT_CODE_MAX bytes).
  * @param bufsize Size of output buffer.
@@ -60,7 +60,7 @@ s32 connectCodeEncodeWithPort(u32 ip, u16 port, char *buf, s32 bufsize);
  * A 4-word code sets *outPort = CONNECT_DEFAULT_PORT.
  * A 6-word code decodes the extra adjective+noun pair as the port.
  * @param code    The sentence code string.
- * @param outIp   Output: IPv4 address in network byte order.
+ * @param outIp   Output: IPv4 address packed as a | (b << 8) | (c << 16) | (d << 24).
  * @param outPort Output: port in host byte order.
  * @return 0 on success, -1 on parse failure.
  */

@@ -18,7 +18,11 @@ add_library(PD2ModPropHandler SHARED
     pdmod_json_min.cpp
 )
 
-target_compile_features(PD2ModPropHandler PRIVATE cxx_std_17)
+set_target_properties(PD2ModPropHandler PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
 
 # The handler links to libz statically (matches the engine's choice in the
 # parent CMakeLists.txt) so the DLL has zero non-system runtime

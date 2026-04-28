@@ -504,8 +504,6 @@ static void pdguiDriveImGuiNav(void)
     driveHeld(ACTION_MENU_DOWN,        ImGuiKey_DownArrow);
     driveHeld(ACTION_MENU_LEFT,        ImGuiKey_LeftArrow);
     driveHeld(ACTION_MENU_RIGHT,       ImGuiKey_RightArrow);
-    driveHeld(ACTION_MENU_TAB_PREV,    ImGuiKey_PageUp);
-    driveHeld(ACTION_MENU_TAB_NEXT,    ImGuiKey_PageDown);
 
     /* Universal mouse back/cancel: middle-click maps to the same back path
      * menus already use (Escape / ACTION_CANCEL_USE). Using middle-click avoids

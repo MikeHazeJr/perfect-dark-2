@@ -242,7 +242,7 @@ static void forgeDrawCatalogTab(void)
 			ImGui::EndChild();
 			ImGui::PopStyleColor();
 			/* Escape cancels placement when the editor has focus. */
-			if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+			if (actionPressed(0, ACTION_FORGE_PLACE_CANCEL)) {
 				forgePlaceCancel();
 			}
 		}
@@ -1955,21 +1955,9 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 	 * forgeSidebarHandleInput() above. Firing them again here would
 	 * double-advance the tab.
 	 *
-	 * Keep only the Ctrl+Tab / Ctrl+Shift+Tab IDE-style chord, which
-	 * actionmap cannot express (single-VK bindings only). Chord
-	 * detection rides on ImGui's own keyboard state. */
-	if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
-		bool ctrlTab = ImGui::GetIO().KeyCtrl
-				&& ImGui::IsKeyPressed(ImGuiKey_Tab, false);
-		bool ctrlShiftTab = ctrlTab && ImGui::GetIO().KeyShift;
-		if (ctrlShiftTab) {
-			s_forge_active_tab = (s_forge_active_tab + FGT_COUNT - 1) % FGT_COUNT;
-			s_forge_tab_set_request = s_forge_active_tab;
-		} else if (ctrlTab) {
-			s_forge_active_tab = (s_forge_active_tab + 1) % FGT_COUNT;
-			s_forge_tab_set_request = s_forge_active_tab;
-		}
-	}
+	 * Ctrl+Tab / Ctrl+Shift+Tab are synthetic chord VKs emitted by
+	 * actionmapDispatch and consumed through the same ACTION_FORGE_TAB_*
+	 * reads in forgeSidebarHandleInput() above. */
 
 	ImGui::Separator();
 

@@ -22,6 +22,7 @@
 #include "net/netmsg.h"
 #include "net/netbuf.h"
 #include "presence.h"
+#include "scene.h"
 #include <stdio.h>
 
 #include <SDL.h>
@@ -36,6 +37,29 @@ static s32               s_Initialised;
  * Reset by spectatorBeginLive / spectatorStop; set by spectatorTick on
  * the first CLSTATE_GAME observation. */
 static s32               s_RequestSent;
+static s32               s_ObserverLayerActive;
+
+static void spectatorObserverLayerEnter(void)
+{
+	if (s_ObserverLayerActive) return;
+
+	SceneObserverPayload payload;
+	payload.source = SCENE_OBSERVER_SOURCE_SPECTATOR;
+
+	if (sceneFire(SCENE_EVENT_OBSERVER_ENTER, &payload) == 0) {
+		s_ObserverLayerActive = 1;
+	}
+}
+
+static void spectatorObserverLayerExit(void)
+{
+	if (!s_ObserverLayerActive) return;
+
+	SceneObserverPayload payload;
+	payload.source = SCENE_OBSERVER_SOURCE_SPECTATOR;
+	sceneFire(SCENE_EVENT_OBSERVER_EXIT, &payload);
+	s_ObserverLayerActive = 0;
+}
 
 /* -------------------------------------------------------------------------
  * Lifecycle
@@ -49,6 +73,7 @@ void spectatorInit(void)
 	s_State.camera = SPECTATOR_CAM_THIRD_PERSON;
 	s_State.subset = SPECTATOR_SUBSET_PLAYERS;
 	s_State.focus_idx = -1;
+	s_ObserverLayerActive = 0;
 	s_Initialised = 1;
 	sysLogPrintf(LOG_NOTE, "SPECTATOR: initialised");
 }
@@ -56,7 +81,9 @@ void spectatorInit(void)
 void spectatorShutdown(void)
 {
 	if (!s_Initialised) return;
+	spectatorObserverLayerExit();
 	memset(&s_State, 0, sizeof(s_State));
+	s_ObserverLayerActive = 0;
 	s_Initialised = 0;
 }
 
@@ -160,6 +187,8 @@ s32 spectatorBeginLive(u32 host_friend_handle)
 		return -1;
 	}
 
+	spectatorObserverLayerEnter();
+
 	if (g_NetMode == 0) {
 		char addr[64];
 		snprintf(addr, sizeof(addr), "%u.%u.%u.%u:%u",
@@ -192,6 +221,7 @@ void spectatorBeginTheater(void)
 	s_State.host_handle = 0; /* Theater driver does not bind to a friend host */
 	s_State.late_join_pending = 1;
 	s_RequestSent = 1; /* no wire request needed for Theater */
+	spectatorObserverLayerEnter();
 	sysLogPrintf(LOG_NOTE, "SPECTATOR: begin theater playback");
 }
 
@@ -199,11 +229,13 @@ void spectatorStop(void)
 {
 	if (s_State.source == SPECTATOR_SOURCE_NONE) return;
 	sysLogPrintf(LOG_NOTE, "SPECTATOR: stop (source=%d)", (int)s_State.source);
+	spectatorObserverLayerExit();
 	memset(&s_State, 0, sizeof(s_State));
 	s_State.source = SPECTATOR_SOURCE_NONE;
 	s_State.focus_idx = -1;
 	s_State.subset = SPECTATOR_SUBSET_PLAYERS;
 	s_RequestSent = 0;
+	s_ObserverLayerActive = 0;
 }
 
 /* -------------------------------------------------------------------------

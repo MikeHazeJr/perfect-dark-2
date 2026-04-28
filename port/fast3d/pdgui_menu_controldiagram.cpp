@@ -42,6 +42,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_nav.h"
 #include "system.h"
 
 /* =========================================================================
@@ -150,7 +151,7 @@ static bool beginPdWindow(const char *imguiId, const char *title)
 
 static bool backPressed(void)
 {
-    return ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+    return pdguiMenuCancelPressed();
 }
 
 /* =========================================================================
@@ -303,13 +304,13 @@ static s32 renderSoloMissionControlStyle(struct menudialog *dialog,
     }
 
     /* Keyboard / D-pad nav */
-    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+    if (pdguiMenuDownRepeat()) {
         if (s_SmcCursor < 8) {
             s_SmcCursor++;
             pdguiPlaySound(PDGUI_SND_SUBFOCUS);
         }
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+    if (pdguiMenuUpRepeat()) {
         if (s_SmcCursor > 0) {
             s_SmcCursor--;
             pdguiPlaySound(PDGUI_SND_SUBFOCUS);

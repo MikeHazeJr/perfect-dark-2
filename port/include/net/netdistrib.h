@@ -199,6 +199,7 @@ void netDistribClientHandleCatalogInfo(const char (*ids)[64],
  */
 void netDistribClientHandleBegin(const char *catalog_id, const char *category,
                                   u32 total_chunks, u32 archive_bytes,
+                                  const u8 expected_sha256[32],
                                   s32 temporary);
 
 /**

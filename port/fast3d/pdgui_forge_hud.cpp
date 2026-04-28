@@ -32,6 +32,7 @@
 extern "C" {
 #include "game/forgemode.h"
 #include "forge/forge_core.h"
+#include "actionmap.h"
 }
 
 /* Local mirror of struct coord for the readout.  Same memory layout as the
@@ -130,34 +131,30 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 		 *   End        -> Toggle Freeze All
 		 *   Home       -> Cycle Spawn Mode (Any -> Near Me -> Smart -> ...)
 		 *
-		 * The keys are outside the standard action map to keep the
-		 * regular gameplay bindings untouched -- Insert / Delete /
-		 * Home / End are normally unbound during combat.  The HUD is
+		 * These commands live on the Forge-session action map so the
+		 * regular gameplay bindings stay untouched. Insert / Delete /
+		 * Home / End are normally unbound during combat. The HUD is
 		 * read-only text; all state mutations are keybind-driven.
 		 * ============================================================ */
 		forge_bot_settings_t *bs = forgeBotSettings();
 		if (bs) {
-			/* Keybinds.  ImGui::IsKeyPressed polls the SDL backend's
-			 * key queue, which fires even without a focused ImGui
-			 * window (background overlay pattern).  false = no repeat.
-			 *
-			 * AUDIT-24-L1 (2026-04-25): gate on `WantCaptureKeyboard` so
+			/* AUDIT-24-L1 (2026-04-25): gate on `WantCaptureKeyboard` so
 			 * any in-game ImGui widget that wants keyboard (a console
 			 * widget rendered alongside the HUD, or a future text-input
 			 * overlay) takes priority -- HUD keys must not steal focus
 			 * from a widget that's also listening.  Mirrors the B-154 fix
 			 * pattern at the actionmap dispatch seam. */
 			const bool kbReadAvailable = !ImGui::GetIO().WantCaptureKeyboard;
-			if (kbReadAvailable && ImGui::IsKeyPressed(ImGuiKey_Insert, false)) {
+			if (kbReadAvailable && actionPressed(0, ACTION_FORGE_BOT_ADD)) {
 				forgeBotAddRequest(1);
 			}
-			if (kbReadAvailable && ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
+			if (kbReadAvailable && actionPressed(0, ACTION_FORGE_BOT_REMOVE_ALL)) {
 				forgeBotRemoveAll();
 			}
-			if (kbReadAvailable && ImGui::IsKeyPressed(ImGuiKey_End, false)) {
+			if (kbReadAvailable && actionPressed(0, ACTION_FORGE_BOT_FREEZE_TOGGLE)) {
 				forgeBotFreezeAll(bs->all_frozen ? 0 : 1);
 			}
-			if (kbReadAvailable && ImGui::IsKeyPressed(ImGuiKey_Home, false)) {
+			if (kbReadAvailable && actionPressed(0, ACTION_FORGE_BOT_SPAWN_CYCLE)) {
 				s32 next = (s32)bs->spawn_mode + 1;
 				if (next > FORGE_BOT_SPAWN_SMART) next = FORGE_BOT_SPAWN_ANY;
 				bs->spawn_mode = (u8)next;

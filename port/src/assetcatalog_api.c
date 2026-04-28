@@ -122,6 +122,17 @@ static void s_fillWeaponResult(const asset_entry_t *e, catalog_weapon_result_t *
     out->session_id = sessionCatalogLookupWireId(e->id);
 }
 
+static void s_fillModelResult(const asset_entry_t *e, catalog_model_result_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    out->entry      = e;
+    out->filenum    = (e->source_filenum >= 0) ? e->source_filenum : -1;
+    out->handle     = catalogEffectiveHandle(e);
+    out->modelnum   = e->runtime_index;
+    out->net_hash   = e->net_hash;
+    out->session_id = sessionCatalogLookupWireId(e->id);
+}
+
 static void s_fillPropResult(const asset_entry_t *e, catalog_prop_result_t *out)
 {
     memset(out, 0, sizeof(*out));
@@ -203,6 +214,21 @@ s32 catalogResolveWeapon(const char *id, catalog_weapon_result_t *out)
         return 0;
     }
     s_fillWeaponResult(e, out);
+    return 1;
+}
+
+s32 catalogResolveModel(const char *id, catalog_model_result_t *out)
+{
+    const asset_entry_t *e;
+
+    memset(out, 0, sizeof(*out));
+    e = assetCatalogResolve(id);
+    if (!e || e->type != ASSET_MODEL) {
+        sysLogPrintf(LOG_WARNING, "[CATALOG-ERROR] catalogResolveModel: '%s' not found or wrong type",
+                     id ? id : "(null)");
+        return 0;
+    }
+    s_fillModelResult(e, out);
     return 1;
 }
 
@@ -487,6 +513,30 @@ const char *catalogStageIdByStagenum(s32 stagenum)
     return NULL;
 }
 
+const char *catalogGameModeIdByScenarioIndex(s32 scenario_index)
+{
+    const char *id;
+    s32 i;
+
+    if (scenario_index < 0) {
+        return NULL;
+    }
+
+    id = catalogIdByRuntime(ASSET_GAMEMODE, scenario_index);
+    if (id) {
+        return id;
+    }
+
+    for (i = 0; i < assetCatalogGetPoolSize(); i++) {
+        const asset_entry_t *e = assetCatalogGetByIndex(i);
+        if (!e) continue;
+        if (e->type != ASSET_GAMEMODE) continue;
+        if (e->ext.gamemode.mode_id == scenario_index) return e->id;
+    }
+
+    return NULL;
+}
+
 const char *catalogWeaponIdByRuntimeWeaponNum(s32 weapon_num)
 {
     const char *id;
@@ -550,7 +600,7 @@ const char *catalogHeadIdByHeadnum(s32 headnum)
 
 const char *catalogIdBySourceFilenum(asset_type_e type, s32 source_filenum)
 {
-    s32 i;
+	s32 i;
 
     if (source_filenum < 0) {
         return NULL;
@@ -563,12 +613,34 @@ const char *catalogIdBySourceFilenum(asset_type_e type, s32 source_filenum)
         if (e->source_filenum == source_filenum) return e->id;
     }
 
-    return NULL;
+	return NULL;
+}
+
+asset_data_handle_t catalogHandleBySourceFilenum(asset_type_e type, s32 source_filenum)
+{
+	s32 i;
+	asset_data_handle_t null_handle = ASSET_HANDLE_NULL_INIT;
+
+	if (source_filenum < 0) {
+		return null_handle;
+	}
+
+	for (i = 0; i < assetCatalogGetPoolSize(); i++) {
+		const asset_entry_t *e = assetCatalogGetByIndex(i);
+
+		if (!e) continue;
+		if (e->type != type) continue;
+		if (e->source_filenum != source_filenum) continue;
+
+		return catalogEffectiveHandle(e);
+	}
+
+	return null_handle;
 }
 
 static s32 s_catalogHandleEquals(asset_data_handle_t a, asset_data_handle_t b)
 {
-    return a.provider == b.provider
+	return a.provider == b.provider
         && a.opaque[0] == b.opaque[0]
         && a.opaque[1] == b.opaque[1];
 }
@@ -1054,6 +1126,23 @@ s32 catalogGetStageResultByIndex(s32 stageindex, catalog_stage_result_t *out)
     return 0;
 }
 
+s32 catalogResolveModelByModelnum(s32 modelnum, catalog_model_result_t *out)
+{
+    const char *id;
+
+    memset(out, 0, sizeof(*out));
+    id = catalogModelIdByModelnum(modelnum);
+    if (id && catalogResolveModel(id, out)) {
+        return 1;
+    }
+    sysLogPrintf(LOG_ERROR,
+        "[CATALOG-FATAL] catalogResolveModelByModelnum: modelnum=%d not in catalog", modelnum);
+    g_CatalogFailure = 1;
+    snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
+        "CATALOG-FATAL: model modelnum=%d not found in catalog", modelnum);
+    return 0;
+}
+
 /* -------------------------------------------------------------------------
  * SA-5c: Prop model load-site helper
  * Mod-override-aware file ID resolution by runtime model array index (MODEL_*).
@@ -1065,10 +1154,15 @@ s32 catalogGetStageResultByIndex(s32 stageindex, catalog_stage_result_t *out)
 
 s32 catalogGetPropFilenumByIndex(s32 propnum)
 {
+    return catalogGetModelFilenumByModelnum(propnum);
+}
+
+s32 catalogGetModelFilenumByModelnum(s32 modelnum)
+{
     const char *id;
     const asset_entry_t *e;
 
-    id = catalogModelIdByModelnum(propnum);
+    id = catalogModelIdByModelnum(modelnum);
     if (id) {
         e = assetCatalogResolve(id);
         if (e) {
@@ -1077,10 +1171,10 @@ s32 catalogGetPropFilenumByIndex(s32 propnum)
         }
     }
     sysLogPrintf(LOG_ERROR,
-        "[CATALOG-FATAL] catalogGetPropFilenumByIndex: propnum=%d not in catalog", propnum);
+        "[CATALOG-FATAL] catalogGetModelFilenumByModelnum: modelnum=%d not in catalog", modelnum);
     g_CatalogFailure = 1;
     snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
-        "CATALOG-FATAL: prop model propnum=%d not found in catalog", propnum);
+        "CATALOG-FATAL: model modelnum=%d not found in catalog", modelnum);
     return 0;
 }
 
@@ -1138,12 +1232,17 @@ asset_data_handle_t catalogGetHeadHandle(s32 headnum)
 
 asset_data_handle_t catalogGetPropHandle(s32 propnum)
 {
+    return catalogGetModelHandle(propnum);
+}
+
+asset_data_handle_t catalogGetModelHandle(s32 modelnum)
+{
     const char *id;
     const asset_entry_t *e;
     asset_data_handle_t null_h;
     memset(&null_h, 0, sizeof(null_h));
 
-    id = catalogModelIdByModelnum(propnum);
+    id = catalogModelIdByModelnum(modelnum);
     if (id) {
         e = assetCatalogResolve(id);
         if (e) {
@@ -1151,10 +1250,10 @@ asset_data_handle_t catalogGetPropHandle(s32 propnum)
         }
     }
     sysLogPrintf(LOG_ERROR,
-        "[CATALOG-FATAL] catalogGetPropHandle: propnum=%d not in catalog", propnum);
+        "[CATALOG-FATAL] catalogGetModelHandle: modelnum=%d not in catalog", modelnum);
     g_CatalogFailure = 1;
     snprintf(g_CatalogFailureMsg, sizeof(g_CatalogFailureMsg),
-        "CATALOG-FATAL: prop model propnum=%d not found in catalog", propnum);
+        "CATALOG-FATAL: model modelnum=%d not found in catalog", modelnum);
     return null_h;
 }
 

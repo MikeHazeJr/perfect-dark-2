@@ -9,7 +9,21 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 45  /* v45 (2026-04-27): spawn-weapon mode wire fields
+#define NET_PROTOCOL_VER 46  /* v46 (2026-04-28): SEC-5 mandatory mod-transfer
+                              * hash on SVC_DISTRIB_BEGIN, plus cutscene
+                              * authority wire cleanup. SVC_DISTRIB_BEGIN now
+                              * appends a 32-byte SHA-256 digest of the exact
+                              * compressed PDCA archive bytes sent through
+                              * SVC_DISTRIB_CHUNK. Clients reject zero digests
+                              * at BEGIN and verify the digest before
+                              * decompression/extraction at END. SVC_CUTSCENE
+                              * now carries active + player_mask, and clients
+                              * request server-side skips with
+                              * CLC_CUTSCENE_SKIP (0x17) { playernum }. Mixed
+                              * v45/v46 play is rejected at the ENet auth
+                              * handshake because v45 clients do not consume
+                              * the trailing digest or cutscene mask bytes.
+                              * v45 (2026-04-27): spawn-weapon mode wire fields
                               * (SPECIFIC / RANDOM / FIESTA). SVC_STAGE_START
                               * gains a trailing u8 spawnWeaponMode + u8
                               * spawnWeaponNum after the existing spawn_weapon_id

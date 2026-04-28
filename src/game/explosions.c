@@ -15,6 +15,7 @@
 #include "game/file.h"
 #include "game/gfxmemory.h"
 #include "game/mplayer/mplayer.h"
+#include "game/player.h"
 #include "game/propobj.h"
 #include "game/utils.h"
 #include "game/wallhit.h"

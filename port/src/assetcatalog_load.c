@@ -22,6 +22,8 @@
 #include "assetcatalog_deps.h"
 #include "assetprovider.h"
 #include "assetload.h"
+#include "game/modeldef.h"
+#include "langmanifest.h"
 #include "system.h"
 #include "fs.h"
 
@@ -375,6 +377,193 @@ static const char *s_catalogPayloadKind(asset_type_e type)
     }
 }
 
+static s32 s_catalogTypeUsesModelPayload(asset_type_e type)
+{
+    switch (type) {
+    case ASSET_MODEL:
+    case ASSET_WEAPON:
+    case ASSET_BODY:
+    case ASSET_HEAD:
+    case ASSET_PROP:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static s32 s_catalogLoadEntryModelPayload(asset_entry_t *entry, asset_data_handle_t handle)
+{
+    char desc[128];
+    struct modeldef *modeldef;
+    s32 loaded_size;
+
+    modeldef = modeldefLoadToNewFromHandle(handle, entry->source_filenum);
+    if (!modeldef) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' model payload activation failed (%s)",
+                     entry->id,
+                     assetDescribe(handle, desc, sizeof(desc)));
+        return 0;
+    }
+
+    loaded_size = assetLoadGetLoadedSize(handle);
+    if (loaded_size <= 0) {
+        loaded_size = assetLoadGetInflatedSize(handle, LOADTYPE_MODEL);
+    }
+
+    entry->loaded_data      = modeldef;
+    entry->data_size_bytes  = loaded_size > 0 ? (u32)loaded_size : 0;
+    entry->payload_kind     = ASSET_PAYLOAD_STAGE_MODELDEF;
+    entry->load_state       = ASSET_STATE_ACTIVE;
+    entry->ref_count        = 1;
+
+    sysLogPrintf(LOG_NOTE,
+                 "CATALOG.LIFECYCLE.ACTIVATE: activated %s model payload '%s' (%u bytes) from %s",
+                 s_catalogPayloadKind(entry->type), entry->id, entry->data_size_bytes,
+                 assetDescribe(handle, desc, sizeof(desc)));
+    return 1;
+}
+
+static s32 s_catalogLoadEntryLangPayload(asset_entry_t *entry)
+{
+    if (!langManifestEnsureId(entry->id)) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' language payload activation failed",
+                     entry->id);
+        return 0;
+    }
+
+    entry->loaded_data      = entry;
+    entry->data_size_bytes  = 0;
+    entry->payload_kind     = ASSET_PAYLOAD_RUNTIME_ACTIVE;
+    entry->load_state       = ASSET_STATE_ACTIVE;
+    entry->ref_count        = 1;
+
+    sysLogPrintf(LOG_NOTE,
+                 "CATALOG.LIFECYCLE.ACTIVATE: activated language payload '%s' bank=%d",
+                 entry->id, entry->ext.lang.bank_id);
+    return 1;
+}
+
+static s32 s_catalogTypeUsesAudioRuntimePayload(asset_type_e type)
+{
+    return type == ASSET_AUDIO || type == ASSET_SFX || type == ASSET_MUSIC;
+}
+
+static s32 s_catalogLoadEntryAudioPayload(asset_entry_t *entry, asset_data_handle_t handle)
+{
+    const char *path = entryGetFilePath(entry);
+    char desc[128];
+
+    if (entry->type == ASSET_AUDIO && assetHandleIsNull(handle)) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' audio payload has no provider handle",
+                     entry->id);
+        return 0;
+    }
+
+    if (assetHandleIsNull(handle) && (!path || !path[0])) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' audio payload has no provider/path",
+                     entry->id);
+        return 0;
+    }
+
+    entry->loaded_data      = entry;
+    entry->data_size_bytes  = 0;
+    entry->payload_kind     = ASSET_PAYLOAD_RUNTIME_ACTIVE;
+    entry->load_state       = ASSET_STATE_ACTIVE;
+    entry->ref_count        = 1;
+
+    sysLogPrintf(LOG_NOTE,
+                 "CATALOG.LIFECYCLE.ACTIVATE: activated %s runtime payload '%s' (%s)",
+                 s_catalogPayloadKind(entry->type), entry->id,
+                 !assetHandleIsNull(handle) ? assetDescribe(handle, desc, sizeof(desc)) :
+                     (path ? path : "(no path)"));
+    return 1;
+}
+
+static s32 s_catalogTypeUsesMetadataRuntimePayload(asset_type_e type)
+{
+    return type == ASSET_MAP
+        || type == ASSET_CHARACTER
+        || type == ASSET_HUD
+        || type == ASSET_BOT_PROFILE
+        || type == ASSET_ARENA
+        || type == ASSET_GAMEMODE
+        || type == ASSET_SKIN
+        || type == ASSET_BOT_VARIANT
+        || type == ASSET_EFFECT;
+}
+
+static s32 s_catalogLoadEntryMetadataPayload(asset_entry_t *entry)
+{
+    entry->loaded_data      = entry;
+    entry->data_size_bytes  = 0;
+    entry->payload_kind     = ASSET_PAYLOAD_RUNTIME_ACTIVE;
+    entry->load_state       = ASSET_STATE_ACTIVE;
+    entry->ref_count        = 1;
+
+    sysLogPrintf(LOG_NOTE,
+                 "CATALOG.LIFECYCLE.ACTIVATE: activated %s metadata payload '%s'",
+                 s_catalogPayloadKind(entry->type), entry->id);
+    return 1;
+}
+
+static s32 s_catalogLoadEntryTexturePayload(asset_entry_t *entry, asset_data_handle_t handle)
+{
+    char desc[128];
+    s32 size;
+    s32 loaded;
+    void *data;
+
+    if (assetHandleIsNull(handle)) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' texture payload has no provider handle",
+                     entry->id);
+        return 0;
+    }
+
+    size = assetLoadGetInflatedSize(handle, 0);
+    if (size <= 0) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' texture provider reports zero size (%s)",
+                     entry->id,
+                     assetDescribe(handle, desc, sizeof(desc)));
+        return 0;
+    }
+
+    data = sysMemAlloc((u32)size);
+    if (!data) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' could not allocate texture payload (%d bytes)",
+                     entry->id, size);
+        return 0;
+    }
+
+    loaded = assetLoad(handle, data, size);
+    if (loaded <= 0) {
+        sysLogPrintf(LOG_WARNING,
+                     "CATALOG.LIFECYCLE.ACTIVATE: '%s' texture provider load failed (%s)",
+                     entry->id,
+                     assetDescribe(handle, desc, sizeof(desc)));
+        sysMemFree(data);
+        return 0;
+    }
+
+    entry->loaded_data      = data;
+    entry->data_size_bytes  = (u32)loaded;
+    entry->payload_kind     = ASSET_PAYLOAD_SYSMEM_BYTES;
+    entry->load_state       = ASSET_STATE_ACTIVE;
+    entry->ref_count        = 1;
+
+    sysLogPrintf(LOG_NOTE,
+                 "CATALOG.LIFECYCLE.ACTIVATE: activated texture payload '%s' (%d bytes) from %s",
+                 entry->id, loaded,
+                 assetDescribe(handle, desc, sizeof(desc)));
+    return 1;
+}
+
 static s32 s_catalogLoadEntryFromProvider(asset_entry_t *entry, asset_type_e expected_type)
 {
     asset_data_handle_t handle = catalogEffectiveHandle(entry);
@@ -416,6 +605,7 @@ static s32 s_catalogLoadEntryFromProvider(asset_entry_t *entry, asset_type_e exp
 
     entry->loaded_data      = data;
     entry->data_size_bytes  = (u32)loaded;
+    entry->payload_kind     = ASSET_PAYLOAD_SYSMEM_BYTES;
     entry->load_state       = ASSET_STATE_LOADED;
     entry->ref_count        = 1;
 
@@ -449,6 +639,7 @@ static s32 s_catalogLoadEntryFromPath(asset_entry_t *entry)
 
     entry->loaded_data      = data;
     entry->data_size_bytes  = size;
+    entry->payload_kind     = ASSET_PAYLOAD_SYSMEM_BYTES;
     entry->load_state       = ASSET_STATE_LOADED;
     entry->ref_count        = 1;
 
@@ -458,6 +649,8 @@ static s32 s_catalogLoadEntryFromPath(asset_entry_t *entry)
 
 static s32 s_catalogLoadEntry(asset_entry_t *entry, asset_type_e expected_type)
 {
+    asset_data_handle_t handle = catalogEffectiveHandle(entry);
+
     if (entry->bundled || entry->ref_count == ASSET_REF_BUNDLED) {
         sysLogPrintf(LOG_NOTE, "CATALOG: retain bundled '%s'", entry->id);
         return 1;
@@ -471,6 +664,42 @@ static s32 s_catalogLoadEntry(asset_entry_t *entry, asset_type_e expected_type)
     if (!entry->enabled) {
         sysLogPrintf(LOG_WARNING, "MOD: catalogLoadAsset: '%s' is not enabled", entry->id);
         return 0;
+    }
+
+    if (s_catalogTypeUsesModelPayload(entry->type)) {
+        if (assetHandleIsNull(handle)) {
+            sysLogPrintf(LOG_WARNING,
+                         "CATALOG.LIFECYCLE.ACTIVATE: '%s' model payload has no provider handle",
+                         entry->id);
+            return 0;
+        }
+        return s_catalogLoadEntryModelPayload(entry, handle);
+    }
+
+    if (entry->type == ASSET_LANG) {
+        return s_catalogLoadEntryLangPayload(entry);
+    }
+
+    if (s_catalogTypeUsesAudioRuntimePayload(entry->type)) {
+        return s_catalogLoadEntryAudioPayload(entry, handle);
+    }
+
+    if (s_catalogTypeUsesMetadataRuntimePayload(entry->type)) {
+        return s_catalogLoadEntryMetadataPayload(entry);
+    }
+
+    if (entry->type == ASSET_TEXTURE) {
+        return s_catalogLoadEntryTexturePayload(entry, handle);
+    }
+
+    if (expected_type != ASSET_NONE) {
+        if (assetHandleIsNull(handle)) {
+            sysLogPrintf(LOG_WARNING,
+                         "CATALOG.LIFECYCLE.LOAD: typed '%s' %s payload has no provider handle",
+                         entry->id, s_catalogPayloadKind(entry->type));
+            return 0;
+        }
+        return s_catalogLoadEntryFromProvider(entry, expected_type);
     }
 
     if (s_catalogLoadEntryFromProvider(entry, expected_type)) {
@@ -541,6 +770,26 @@ s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId)
     return s_catalogLoadEntry(entry, expected_type);
 }
 
+struct modeldef *catalogGetLoadedModeldef(const char *assetId)
+{
+    const asset_entry_t *entry;
+
+    if (!assetId) {
+        return NULL;
+    }
+
+    entry = assetCatalogResolve(assetId);
+    if (!entry
+            || entry->load_state < ASSET_STATE_LOADED
+            || entry->payload_kind != ASSET_PAYLOAD_STAGE_MODELDEF) {
+        return NULL;
+    }
+
+    return (struct modeldef *)entry->loaded_data;
+}
+
+static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry);
+
 /**
  * Dep cascade callback for catalogUnloadAsset.
  *
@@ -556,24 +805,19 @@ s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId)
  */
 static void s_catalogUnloadDepCallback(const char *dep_id, void *userdata)
 {
+    asset_entry_t *entry;
+
     (void)userdata;
-    catalogUnloadAsset(dep_id);
+    entry = assetCatalogGetMutable(dep_id);
+    if (entry) {
+        s_catalogUnloadEntry(dep_id, entry);
+    }
 }
 
-void catalogUnloadAsset(const char *assetId)
+static void s_catalogUnloadEntry(const char *assetId, asset_entry_t *entry)
 {
     s32 old_ref;
     s32 new_ref;
-    asset_entry_t *entry;
-
-    if (!assetId) {
-        return;
-    }
-
-    entry = assetCatalogGetMutable(assetId);
-    if (!entry) {
-        return;
-    }
 
     /* Never evict bundled assets — they are ROM-resident for the process lifetime. */
     if (entry->bundled || entry->ref_count == ASSET_REF_BUNDLED) {
@@ -598,9 +842,18 @@ void catalogUnloadAsset(const char *assetId)
         sysLogPrintf(LOG_NOTE,
                      "MANIFEST: unload '%s' ref=%d->%d (freed)",
                      assetId, old_ref, new_ref);
-        sysMemFree(entry->loaded_data);
+        if (entry->payload_kind == ASSET_PAYLOAD_SYSMEM_BYTES) {
+            sysMemFree(entry->loaded_data);
+        } else if (entry->payload_kind == ASSET_PAYLOAD_STAGE_MODELDEF) {
+            assetUnload(catalogEffectiveHandle(entry));
+        } else if (entry->payload_kind == ASSET_PAYLOAD_RUNTIME_ACTIVE) {
+            /* Runtime-owned activation (for example language banks) is
+             * detached from this catalog reference. The owning subsystem
+             * releases its memory on its normal reset/reload path. */
+        }
         entry->loaded_data     = NULL;
         entry->data_size_bytes = 0;
+        entry->payload_kind    = ASSET_PAYLOAD_NONE;
         entry->load_state      = ASSET_STATE_ENABLED;
         entry->ref_count       = 0;
     } else if (old_ref != new_ref) {
@@ -612,26 +865,40 @@ void catalogUnloadAsset(const char *assetId)
     /* old_ref == new_ref == 0: already fully unloaded — silent no-op. */
 }
 
-void catalogReleaseTypedAsset(asset_type_e expected_type, const char *assetId)
+void catalogUnloadAsset(const char *assetId)
 {
-    if (!s_catalogValidateTypedLifecycle("RELEASE", expected_type, assetId)) {
-        return;
-    }
+    asset_entry_t *entry;
 
-    catalogUnloadAsset(assetId);
-}
-
-void catalogRetainAsset(const char *assetId)
-{
     if (!assetId) {
         return;
     }
 
-    asset_entry_t *entry = assetCatalogGetMutable(assetId);
+    entry = assetCatalogGetMutable(assetId);
     if (!entry) {
         return;
     }
 
+    s_catalogUnloadEntry(assetId, entry);
+}
+
+void catalogReleaseTypedAsset(asset_type_e expected_type, const char *assetId)
+{
+    asset_entry_t *entry;
+
+    if (!s_catalogValidateTypedLifecycle("RELEASE", expected_type, assetId)) {
+        return;
+    }
+
+    entry = assetCatalogGetMutable(assetId);
+    if (!entry) {
+        return;
+    }
+
+    s_catalogUnloadEntry(assetId, entry);
+}
+
+static void s_catalogRetainEntry(asset_entry_t *entry)
+{
     if (entry->bundled || entry->ref_count == ASSET_REF_BUNDLED) {
         return;
     }
@@ -641,13 +908,36 @@ void catalogRetainAsset(const char *assetId)
     }
 }
 
+void catalogRetainAsset(const char *assetId)
+{
+    asset_entry_t *entry;
+
+    if (!assetId) {
+        return;
+    }
+
+    entry = assetCatalogGetMutable(assetId);
+    if (!entry) {
+        return;
+    }
+
+    s_catalogRetainEntry(entry);
+}
+
 void catalogRetainTypedAsset(asset_type_e expected_type, const char *assetId)
 {
+    asset_entry_t *entry;
+
     if (!s_catalogValidateTypedLifecycle("RETAIN", expected_type, assetId)) {
         return;
     }
 
-    catalogRetainAsset(assetId);
+    entry = assetCatalogGetMutable(assetId);
+    if (!entry) {
+        return;
+    }
+
+    s_catalogRetainEntry(entry);
 }
 
 /* ========================================================================

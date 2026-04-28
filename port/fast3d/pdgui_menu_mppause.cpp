@@ -71,11 +71,13 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_nav.h"
 #include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "pdgui.h"        /* langSafe */
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "menugraph.h"
 
 extern "C" {
 #include "pdgui_menus.h"  /* for pdguiMenuMpPauseRegister declaration */
@@ -106,9 +108,6 @@ extern struct menudialogdef g_MpEndGameMenuDialog;
 extern struct menudialogdef g_NetPauseControlsMenuDialog;
 
 /* ---- Menu navigation ---- */
-void menuPushDialog(struct menudialogdef *dialogdef);
-void menuPopDialog(void);
-
 /* ---- Language ---- */
 char *langGet(s32 textid);
 /* langSafe comes from pdgui.h */
@@ -508,14 +507,14 @@ static void mpp_CloseCurrentDialog(void)
 {
     pdguiPlaySound(PDGUI_SND_KBCANCEL);
     /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
-    menuPopDialog();
+    menuGraphFirePop(MENU_TYPE_MP_PAUSE, "resume");
 }
 
 /* True if this frame saw Escape or gamepad-B (the universal back button). */
 static bool mpp_BackPressed(void)
 {
     return !ImGui::IsWindowAppearing() &&
-           ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+           pdguiMenuCancelPressed();
 }
 
 /* ---- Label row: plain text, optional right-side dynamic text ---- */
@@ -561,7 +560,9 @@ static bool hubPushRow(const char *label, struct menudialogdef *target,
             ImGui::GetColorU32(ImGuiCol_TextDisabled), rightSideText);
     }
     if (clicked) {
-        if (target) menuPushDialog(target);
+        if (target) {
+            menuGraphFirePushDialog(MENU_TYPE_MP_PAUSE, "end_game", target);
+        }
         pdguiPlaySound(PDGUI_SND_SELECT);
     }
     ImGui::PopID();

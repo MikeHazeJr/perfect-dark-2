@@ -1,12 +1,9 @@
 /**
  * pdgui_nav.h -- D-pad wrapping utility and safe area for ImGui menus.
  *
- * M0.2 Phase C: Accept/cancel queries, device detection, and event processing
- * have been removed. Those are now handled by actionmap.h:
- *   - actionPressed(0, ACTION_USE)           replaces pdguiNavAcceptPressed()
- *   - actionPressed(0, ACTION_CANCEL_USE)   replaces pdguiNavCancelPressed()
- *   - actionmapGetLastDevice()              replaces pdguiNavGetLastDevice()
- *   - ACTIONMAP_DEVICE_GAMEPAD              replaces PDNAV_DEVICE_GAMEPAD
+ * M0.2 Phase C: Device detection and event processing live in actionmap.h.
+ * This header keeps small menu-action wrappers so ImGui renderers do not
+ * poll raw keyboard/gamepad state directly.
  *
  * Only D-pad wrapping and safe area remain in this header.
  *
@@ -17,6 +14,7 @@
 #define _IN_PDGUI_NAV_H
 
 #include <PR/ultratypes.h>
+#include "actionmap.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,6 +34,33 @@ void pdguiNavTickWrap(void);
  * Called once from pdguiInit() in the backend.
  */
 void pdguiNavSetWrapCallback(void (*fn)(void));
+
+/* ========================================================================
+ * Action-map menu queries
+ * ======================================================================== */
+
+s32 pdguiMenuActionPressed(InputAction action);
+s32 pdguiMenuActionHeld(InputAction action);
+s32 pdguiMenuActionRepeat(InputAction action);
+
+s32 pdguiMenuAcceptPressed(void);
+s32 pdguiMenuCancelPressed(void);
+s32 pdguiMenuUpPressed(void);
+s32 pdguiMenuDownPressed(void);
+s32 pdguiMenuLeftPressed(void);
+s32 pdguiMenuRightPressed(void);
+s32 pdguiMenuTabPrevPressed(void);
+s32 pdguiMenuTabNextPressed(void);
+s32 pdguiMenuSecondaryPressed(void);
+s32 pdguiMenuTertiaryPressed(void);
+s32 pdguiMenuDeletePressed(void);
+s32 pdguiMenuUpRepeat(void);
+s32 pdguiMenuDownRepeat(void);
+s32 pdguiMenuLeftRepeat(void);
+s32 pdguiMenuRightRepeat(void);
+s32 pdguiMenuTabPrevRepeat(void);
+s32 pdguiMenuTabNextRepeat(void);
+s32 pdguiTextPastePressed(void);
 
 /* ========================================================================
  * Safe area — resolution-independent menu positioning

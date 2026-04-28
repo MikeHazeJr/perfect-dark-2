@@ -133,7 +133,7 @@ void playerReset(void)
 
 	func0f18e558();
 
-	g_InCutscene = false;
+	playerResetCutsceneState(g_Vars.currentplayernum);
 
 #if PAL
 	var8009e388pf = 0;

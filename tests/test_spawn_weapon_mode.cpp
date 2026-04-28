@@ -45,8 +45,29 @@
 
 #include <cstdint>
 #include <cstring>
-#include <vector>
+#include <fstream>
 #include <functional>
+#include <sstream>
+#include <string>
+#include <vector>
+
+extern "C" {
+struct netbuf {
+    u8 *data;
+    u32 size;
+    u32 rp;
+    u32 wp;
+    u32 error;
+};
+
+void netbufStartReadData(struct netbuf *buf, const void *data, u32 size);
+void netbufStartWrite(struct netbuf *buf);
+s32  netbufReadLeft(const struct netbuf *buf);
+u8   netbufReadU8(struct netbuf *buf);
+const char *netbufReadStr(struct netbuf *buf);
+u32  netbufWriteU8(struct netbuf *buf, const u8 v);
+u32  netbufWriteStr(struct netbuf *buf, const char *v);
+}
 
 namespace {
 
@@ -72,6 +93,55 @@ constexpr u8 kSPAWNWEAPON_MODE_FIESTA   = 2;
 
 /* Mirror of SPAWNWEAPON_FIESTA_SENTINEL. */
 constexpr u8 kSPAWNWEAPON_FIESTA_SENTINEL = 0xFE;
+
+struct WireBuf {
+    u8 storage[256];
+    netbuf nb;
+
+    WireBuf() {
+        std::memset(storage, 0, sizeof(storage));
+        nb.data = storage;
+        nb.size = sizeof(storage);
+        nb.rp = 0;
+        nb.wp = 0;
+        nb.error = 0;
+        netbufStartWrite(&nb);
+    }
+
+    void rewind_for_read() {
+        const u32 written = nb.wp;
+        netbufStartReadData(&nb, storage, written);
+    }
+};
+
+std::string read_text_file(const char *path)
+{
+    std::ifstream in(path, std::ios::in | std::ios::binary);
+    REQUIRE(in.good());
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return ss.str();
+}
+
+std::string source_slice(const std::string &text, const char *start, const char *end)
+{
+    const size_t begin = text.find(start);
+    REQUIRE(begin != std::string::npos);
+    const size_t finish = text.find(end, begin + std::strlen(start));
+    REQUIRE(finish != std::string::npos);
+    return text.substr(begin, finish - begin);
+}
+
+void require_ordered(const std::string &text, const std::vector<const char *> &patterns)
+{
+    size_t cursor = 0;
+    for (const char *pattern : patterns) {
+        const size_t pos = text.find(pattern, cursor);
+        INFO("missing or out-of-order pattern: " << pattern);
+        REQUIRE(pos != std::string::npos);
+        cursor = pos + std::strlen(pattern);
+    }
+}
 
 /* Pure replication of spawnWeaponPickFromSlots (matchsetup.c S482).
  * Filter out NONE/DISABLED/SHIELD, then index uniformly via RNG % count. */
@@ -441,6 +511,113 @@ TEST_CASE("spawn-weapon: mode enum values are stable",
     REQUIRE(kSPAWNWEAPON_MODE_SPECIFIC == 0);
     REQUIRE(kSPAWNWEAPON_MODE_RANDOM   == 1);
     REQUIRE(kSPAWNWEAPON_MODE_FIESTA   == 2);
+}
+
+TEST_CASE("spawn-weapon wire: SVC_STAGE_START v45 tail preserves following mod-track field",
+          "[spawn-weapon][wire][netbuf]") {
+    WireBuf b;
+    netbufWriteStr(&b.nb, "base:dragon");
+    netbufWriteU8(&b.nb, kSPAWNWEAPON_MODE_FIESTA);
+    netbufWriteU8(&b.nb, kSPAWNWEAPON_FIESTA_SENTINEL);
+    netbufWriteStr(&b.nb, "user:test_track");
+    REQUIRE(b.nb.error == 0);
+
+    b.rewind_for_read();
+    const char *spawnId = netbufReadStr(&b.nb);
+    const u8 mode = netbufReadU8(&b.nb);
+    const u8 num = netbufReadU8(&b.nb);
+    const char *modTrack = netbufReadStr(&b.nb);
+
+    REQUIRE(spawnId != nullptr);
+    REQUIRE(std::string(spawnId) == "base:dragon");
+    REQUIRE(mode == kSPAWNWEAPON_MODE_FIESTA);
+    REQUIRE(num == kSPAWNWEAPON_FIESTA_SENTINEL);
+    REQUIRE(modTrack != nullptr);
+    REQUIRE(std::string(modTrack) == "user:test_track");
+    REQUIRE(b.nb.error == 0);
+    REQUIRE(netbufReadLeft(&b.nb) == 0);
+}
+
+TEST_CASE("spawn-weapon wire: CLC_LOBBY_START mode does not consume first handicap byte",
+          "[spawn-weapon][wire][netbuf]") {
+    WireBuf b;
+    netbufWriteStr(&b.nb, "base:falcon2");
+    netbufWriteU8(&b.nb, kSPAWNWEAPON_MODE_RANDOM);
+    netbufWriteU8(&b.nb, 77); /* first U-9 handicap byte */
+    REQUIRE(b.nb.error == 0);
+
+    b.rewind_for_read();
+    const char *spawnId = netbufReadStr(&b.nb);
+    const u8 mode = netbufReadU8(&b.nb);
+    const u8 firstHandicap = netbufReadU8(&b.nb);
+
+    REQUIRE(spawnId != nullptr);
+    REQUIRE(std::string(spawnId) == "base:falcon2");
+    REQUIRE(mode == kSPAWNWEAPON_MODE_RANDOM);
+    REQUIRE(firstHandicap == 77);
+    REQUIRE(b.nb.error == 0);
+    REQUIRE(netbufReadLeft(&b.nb) == 0);
+}
+
+TEST_CASE("spawn-weapon wire: truncated SVC_STAGE_START spawn tail is malformed",
+          "[spawn-weapon][wire][netbuf]") {
+    WireBuf b;
+    netbufWriteStr(&b.nb, "base:dragon");
+    netbufWriteU8(&b.nb, kSPAWNWEAPON_MODE_RANDOM);
+    REQUIRE(b.nb.error == 0);
+
+    b.rewind_for_read();
+    REQUIRE(std::string(netbufReadStr(&b.nb)) == "base:dragon");
+    REQUIRE(netbufReadU8(&b.nb) == kSPAWNWEAPON_MODE_RANDOM);
+    REQUIRE(netbufReadU8(&b.nb) == 0);
+    REQUIRE(b.nb.error == 1);
+}
+
+TEST_CASE("spawn-weapon wire: production netmsg keeps v45 field order",
+          "[spawn-weapon][wire][static]") {
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+
+    const std::string svcWrite = source_slice(
+        netmsg,
+        "u32 netmsgSvcStageStartWrite",
+        "u32 netmsgSvcStageStartRead");
+    require_ordered(svcWrite, {
+        "netbufWriteStr(dst, g_MatchConfig.spawn_weapon_id",
+        "netbufWriteU8(dst, g_MatchConfig.spawnWeaponMode);",
+        "netbufWriteU8(dst, g_MatchConfig.spawnWeaponNum);",
+        "netbufWriteStr(dst, wireTrack ? wireTrack : \"\");",
+    });
+
+    const std::string svcRead = source_slice(
+        netmsg,
+        "u32 netmsgSvcStageStartRead",
+        "u32 netmsgSvcStageEndWrite");
+    require_ordered(svcRead, {
+        "const char *swid_str = netbufReadStr(src);",
+        "const u8 wireMode = netbufReadU8(src);",
+        "const u8 wireNum  = netbufReadU8(src);",
+        "const char *modtrack_str = netbufReadStr(src);",
+    });
+
+    const std::string clcWrite = source_slice(
+        netmsg,
+        "u32 netmsgClcLobbyStartWrite",
+        "u32 netmsgClcLobbyStartRead");
+    require_ordered(clcWrite, {
+        "netbufWriteStr(dst, g_MatchConfig.spawn_weapon_id",
+        "netbufWriteU8(dst, g_MatchConfig.spawnWeaponMode);",
+        "g_PlayerConfigsArray[hi].handicap",
+    });
+
+    const std::string clcRead = source_slice(
+        netmsg,
+        "u32 netmsgClcLobbyStartRead",
+        "u32 netmsgClcCatalogDiffWrite");
+    require_ordered(clcRead, {
+        "const char *swid_str = netbufReadStr(src);",
+        "const u8 wireMode = netbufReadU8(src);",
+        "g_PlayerConfigsArray[hi].handicap = netbufReadU8(src);",
+    });
 }
 
 /* ============================================================================

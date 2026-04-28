@@ -4,6 +4,7 @@
 #include "game/camera.h"
 #include "game/chr.h"
 #include "game/gfxmemory.h"
+#include "game/player.h"
 #include "game/tex.h"
 #include "game/sparks.h"
 #include "game/file.h"

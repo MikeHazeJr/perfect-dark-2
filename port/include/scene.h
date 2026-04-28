@@ -88,6 +88,7 @@ typedef struct SceneObserverPayload {
 #define SCENE_OBSERVER_SOURCE_DR_CARROLL 0
 #define SCENE_OBSERVER_SOURCE_FORGE      1
 #define SCENE_OBSERVER_SOURCE_DEBUG_FLY  2
+#define SCENE_OBSERVER_SOURCE_SPECTATOR  3
 
 /* ============================================================
  * Lifecycle

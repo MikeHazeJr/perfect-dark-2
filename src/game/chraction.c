@@ -4302,6 +4302,12 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 	s32 aplayernum = -1;
 	s32 choketype = CHOKETYPE_NONE;
 
+	if (chr->cutscene_protect) {
+		sysLogPrintf(LOG_NOTE, "CUTSCENE.DAMAGE.IGNORED chr=%d attacker=%d",
+			chr->chrnum, aprop && aprop->chr ? aprop->chr->chrnum : -1);
+		return;
+	}
+
 	/* Combat debug: log every chrDamage entry with full context */
 	{
 		const char *atype = "???";
@@ -6594,6 +6600,14 @@ bool chrHasLosToChr(struct chrdata *chr, struct chrdata *target, RoomNum *room)
 	bool cansee = false;
 	u32 stack;
 	RoomNum sp88[] = {-1, 0, 0, 0, 0, 0, 0, 0};
+
+	if (target && target->cutscene_protect) {
+		if (room) {
+			*room = sp88[0];
+		}
+
+		return false;
+	}
 
 	if (!botIsTargetInvisible(chr, target)) {
 		struct prop *prop = chr->prop;
@@ -13586,7 +13600,7 @@ void chraTick(struct chrdata *chr)
 		}
 
 		if (chr->prop) {
-			if (g_Vars.in_cutscene) {
+			if (playerAnyCutsceneInProgress()) {
 				switch (chr->actiontype) {
 				case ACT_ANIM:   chrTickAnim(chr);   break;
 				case ACT_PATROL: chrTickPatrol(chr); pass = false; break;
@@ -13685,8 +13699,8 @@ void cutsceneStart(u32 ailistid)
 #else
 	g_CutsceneFrameOverrun240 = 0;
 #endif
-	g_CutsceneSkipRequested = false;
-	g_CutsceneCurTotalFrame60f = 0;
+	playerSetCutsceneSkipRequested(g_Vars.currentplayernum, false);
+	playerSetCutsceneCurTotalFrame60f(g_Vars.currentplayernum, 0);
 
 	prop = g_Vars.activeprops;
 
@@ -15084,9 +15098,13 @@ bool chrSetChrPresetToChrNearPos(u8 checktype, struct chrdata *chr, f32 distance
 
 bool chrCompareTeams(struct chrdata *chr1, struct chrdata *chr2, u8 checktype)
 {
-	if (chr1 && chr1->prop) {
+	if (chr1 && chr1->prop && chr2) {
 		if (checktype == COMPARE_ANY) {
 			return true;
+		}
+
+		if (checktype == COMPARE_ENEMIES && chr2->cutscene_protect) {
+			return false;
 		}
 
 		if (checktype == COMPARE_FRIENDS) { // Return true if chrs are friends

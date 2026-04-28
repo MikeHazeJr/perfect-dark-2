@@ -20,11 +20,13 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h" /* M-6: pdguiPopupDarkenBehind; M-7: action bar */
+#include "pdgui_nav.h"
 #include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "pdgui_debug_shortcuts.h" /* 2026-04-26: pause-menu Debug Shortcuts modal registry */
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "menugraph.h"
 #include "actionmap.h"
 
 /* ========================================================================
@@ -57,10 +59,6 @@ extern s32 g_NetMode;
 
 /* End game / stage transition */
 void mainEndStage(void);
-void mainChangeToStage(s32 stagenum);
-void netDisconnect(void);
-void pdguiEndscreenExitToMainMenu(void);
-void pdguiSoloRoomReturn(void);
 
 /* Mouse */
 s32 inputMouseIsLocked(void);
@@ -185,6 +183,14 @@ s32 inputControllerGetInvertRStickY(s32 cidx);
 void inputControllerSetInvertRStickY(s32 cidx, s32 invert);
 
 } /* extern "C" */
+
+static s32 pauseGraphEndMission(void *userdata)
+{
+    (void)userdata;
+    pdguiPauseSetPlayerAborted();
+    mainEndStage();
+    return 0;
+}
 
 /* ========================================================================
  * Scenario name table (local, since we can't use langGet easily from C++)
@@ -810,12 +816,10 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
                 ImGui::PopStyleColor(3);
 
                 if (!inputDebounced) {
-                    if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
-                        ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
-                        ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+                    if (pdguiMenuAcceptPressed()) {
                         doConfirm = true;
                     }
-                    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+                    if (pdguiMenuCancelPressed()) {
                         doCancel = true;
                     }
                 }
@@ -827,8 +831,8 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
                      * already calls netDisconnect for the teardown once the
                      * player has seen results. */
                     pdguiPlaySound(PDGUI_SND_SELECT);
-                    pdguiPauseSetPlayerAborted();
-                    mainEndStage();
+                    menuGraphFireSceneOp(MENU_TYPE_PAUSE_MENU, "end_mission",
+                                         pauseGraphEndMission, NULL);
                     s_EndGameConfirm = false;
                     s_EndGameOpenFrame = -1;
                     ImGui::CloseCurrentPopup();
@@ -952,10 +956,7 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
                 ImGui::SetItemDefaultFocus();
 
                 if (!inputDebounced) {
-                    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
-                        ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
-                        ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
-                        ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+                    if (pdguiMenuCancelPressed() || pdguiMenuAcceptPressed()) {
                         doClose = true;
                     }
                 }
@@ -991,7 +992,7 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
             /* S311: title X button or Escape closes (X channel avoids
              * the one-frame-swallow class that needed two clicks). */
             if (pdguiConsumeTitleClose() ||
-                ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+                pdguiMenuCancelPressed()) {
                 pdguiPauseMenuClose();
             }
         }

@@ -19,6 +19,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_style.h"
 #include "pdgui_audio.h"
+#include "pdgui_nav.h"
 
 /* Action bar metrics (1080p baseline, matching pdgui_scaling.h reference and
  * the d5-full-menu-overhaul.md UI Scaling table).
@@ -125,7 +126,7 @@ s32 pdguiActionBarButton(const char *label, s32 isFocused, f32 width)
 
     /* Enter confirms the focused button. */
     bool doActivate = (isFocused != 0) &&
-        ImGui::IsKeyPressed(ImGuiKey_Enter, false);
+        pdguiMenuAcceptPressed();
 
     if (clicked || doActivate) {
         pdguiPlaySound(PDGUI_SND_SELECT);
@@ -350,12 +351,10 @@ s32 pdguiRenderConfirmModal(const char *popupId,
     /* Keyboard / gamepad shortcuts.  Debounced for FRAME_DEBOUNCE frames
      * so the Enter press that opened the popup cannot bleed through. */
     if (!inputDebounced) {
-        if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+        if (pdguiMenuAcceptPressed()) {
             doConfirm = true;
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        if (pdguiMenuCancelPressed()) {
             doCancel = true;
         }
     }

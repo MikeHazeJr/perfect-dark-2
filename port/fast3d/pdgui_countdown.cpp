@@ -27,6 +27,7 @@
 #include "pdgui_style.h"
 #include "pdgui_glyphs.h"
 #include "pdgui_audio.h"
+#include "pdgui_nav.h"
 #include "system.h"
 
 /* ============================================================================
@@ -118,7 +119,7 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH)
 
     /* ---- Check for cancel input (ESC or gamepad B) ---- */
     if (showCountdown) {
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        if (pdguiMenuCancelPressed()) {
             sysLogPrintf(LOG_NOTE, "MENU_STACK: countdown CANCEL by local player (ESC/B)");
             netLobbyRequestCancel();
         }

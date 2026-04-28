@@ -72,6 +72,7 @@
 #include "input.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "scene.h"
 #endif
 
 s32 g_NetMode = NETMODE_NONE;
@@ -615,7 +616,7 @@ static void netServerQueryResponse(ENetAddress *address)
 	{
 		const char *sid = g_MatchConfig.scenario_id[0]
 			? g_MatchConfig.scenario_id
-			: catalogIdByRuntime(ASSET_GAMEMODE, (s32)g_MpSetup.scenario);
+			: catalogGameModeIdByScenarioIndex((s32)g_MpSetup.scenario);
 		netbufWriteStr(&buf, sid ? sid : "base:combat");
 	}
 	netbufWriteStr(&buf, g_NetLocalClient ? g_NetLocalClient->settings.name : "");
@@ -1271,6 +1272,8 @@ s32 netDisconnect(void)
 	sysLogPrintf(LOG_CHAT, "NET: disconnected");
 
 #if !defined(PD_SERVER)
+	sceneFire(SCENE_EVENT_DISCONNECT, NULL);
+
 	/* M-23-A / Priority K-b3: cascade-close the menu pool on every disconnect
 	 * (lobby or in-game).  Disconnect paths don't go through menuPushRootDialog,
 	 * so pool slots from lobby/room/mp-setup would survive and block reopen of
@@ -1712,6 +1715,8 @@ static void netServerEvReceive(struct netclient *cl)
 			case CLC_ADMIN:            rc = netmsgClcAdminRead(&cl->in, cl); break;
 			/* Phase 3 spectator (protocol v42) */
 			case CLC_SPECTATE_REQUEST: rc = netmsgClcSpectateRequestRead(&cl->in, cl); break;
+			/* v46 cutscene skip authority */
+			case CLC_CUTSCENE_SKIP:    rc = netmsgClcCutsceneSkipRead(&cl->in, cl); break;
 			/* Phase C: Match Startup Pipeline */
 			case CLC_MANIFEST_STATUS:  rc = netmsgClcManifestStatusRead(&cl->in, cl); break;
 			case CLC_LOBBY_CANCEL:     rc = netmsgClcLobbyCancelRead(&cl->in, cl); break;

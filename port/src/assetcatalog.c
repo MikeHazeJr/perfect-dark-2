@@ -125,6 +125,18 @@ static u32 crc32(const char *str)
     return crc ^ 0xFFFFFFFFu;
 }
 
+static void assetCatalogSetPrimaryFileIfPresent(asset_entry_t *entry, const char *path)
+{
+    if (entry == NULL || path == NULL || path[0] == '\0') {
+        return;
+    }
+
+    asset_data_handle_t handle = fileProviderHandle(path);
+    if (!assetHandleIsNull(handle)) {
+        catalogSetPrimary(entry, handle);
+    }
+}
+
 /* ========================================================================
  * Internal Utilities
  * ======================================================================== */
@@ -477,6 +489,7 @@ asset_entry_t *assetCatalogRegister(const char *id, asset_type_e type)
     entry->load_state = ASSET_STATE_REGISTERED;
     entry->loaded_data = NULL;
     entry->data_size_bytes = 0;
+    entry->payload_kind = ASSET_PAYLOAD_NONE;
     entry->ref_count = 0;
     entry->occupied = 1;
 
@@ -519,6 +532,7 @@ asset_entry_t *assetCatalogRegisterCharacter(const char *id,
         strncpy(entry->ext.character.headfile, headfile, FS_MAXPATH - 1);
         entry->ext.character.headfile[FS_MAXPATH - 1] = '\0';
     }
+    assetCatalogSetPrimaryFileIfPresent(entry, entry->ext.character.bodyfile);
 
     return entry;
 }
@@ -971,6 +985,7 @@ asset_entry_t *assetCatalogRegisterWeapon(const char *id, s32 weapon_id,
         strncpy(entry->ext.weapon.model_file, model_file, 127);
         entry->ext.weapon.model_file[127] = '\0';
     }
+    assetCatalogSetPrimaryFileIfPresent(entry, entry->ext.weapon.model_file);
     entry->ext.weapon.damage = damage;
     entry->ext.weapon.fire_rate = fire_rate;
     entry->ext.weapon.ammo_type = ammo_type;
@@ -1020,6 +1035,7 @@ asset_entry_t *assetCatalogRegisterTexture(const char *id, s32 texture_id,
         strncpy(entry->ext.texture.file_path, file_path, 127);
         entry->ext.texture.file_path[127] = '\0';
     }
+    assetCatalogSetPrimaryFileIfPresent(entry, entry->ext.texture.file_path);
 
     return entry;
 }
@@ -1043,6 +1059,7 @@ asset_entry_t *assetCatalogRegisterProp(const char *id, s32 prop_type,
         strncpy(entry->ext.prop.model_file, model_file, 127);
         entry->ext.prop.model_file[127] = '\0';
     }
+    assetCatalogSetPrimaryFileIfPresent(entry, entry->ext.prop.model_file);
     entry->ext.prop.flags = flags;
     entry->ext.prop.health = health;
 
@@ -1097,6 +1114,7 @@ asset_entry_t *assetCatalogRegisterAudio(const char *id, s32 sound_id,
         strncpy(entry->ext.audio.file_path, file_path, 127);
         entry->ext.audio.file_path[127] = '\0';
     }
+    assetCatalogSetPrimaryFileIfPresent(entry, entry->ext.audio.file_path);
 
     return entry;
 }
@@ -1139,6 +1157,7 @@ asset_entry_t *assetCatalogRegisterHud(const char *id, s32 hud_id,
         strncpy(entry->ext.hud.texture_file, texture_file, 127);
         entry->ext.hud.texture_file[127] = '\0';
     }
+    assetCatalogSetPrimaryFileIfPresent(entry, entry->ext.hud.texture_file);
 
     return entry;
 }

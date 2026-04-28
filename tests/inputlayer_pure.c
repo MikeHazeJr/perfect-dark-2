@@ -217,3 +217,9 @@ const IlpLayerDef *ilpHandleDef(const IlpLayerHandle *h)
     if (!handleIsValid(h)) return NULL;
     return h->def;
 }
+
+int ilpHandleDistanceFromTop(const IlpLayerHandle *h)
+{
+    if (!handleIsValid(h)) return -1;
+    return s_Depth - h->slot;
+}

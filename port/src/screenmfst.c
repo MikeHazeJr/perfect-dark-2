@@ -4,8 +4,8 @@
  * Registry that maps menudialogdef* → list of catalog IDs.  On every frame,
  * pdguiHotswapRenderQueued() calls screenManifestTick() with the set of
  * dialogs rendered this frame.  Enter/leave events are detected by comparing
- * against last-frame's set, then catalogLoadAsset / catalogUnloadAsset are
- * driven accordingly.
+ * against last-frame's set, then typed catalog load/release calls are driven
+ * accordingly.
  *
  * Phase 5 ref counting ensures that an asset shared by two simultaneously
  * active screens is only freed after both screens leave.

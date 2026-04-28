@@ -32,6 +32,7 @@ extern struct menudialogdef g_CinemaMenuDialog;
  * registry can register it. See B-194 comment at the REG(...) site below
  * for rationale. */
 extern struct menudialogdef g_FilemgrFileSelectMenuDialog;
+extern struct menudialogdef g_FilemgrEnterNameMenuDialog;
 
 /* MP auto-team dialogdef lives in src/game/mplayer/setup.c; not in data.h. */
 extern struct menudialogdef g_MpAutoTeamMenuDialog;
@@ -59,6 +60,8 @@ extern struct menudialogdef g_MpEndGameMenuDialog;
  * Both dialogdefs are defined in src/game/ but not exported via data.h. */
 extern struct menudialogdef g_MissionAbortMenuDialog;
 extern struct menudialogdef g_CheatsConfirmUnlockMenuDialog;
+extern struct menudialogdef g_SoloMissionInventoryMenuDialog;
+extern struct menudialogdef g_SoloMissionOptionsMenuDialog;
 
 /* M-22 (2026-04-19): Solo mission endscreens defined in src/game/endscreen.c
  * and the Network menu dialog defined in port/src/net/netmenu.c are not
@@ -69,6 +72,7 @@ extern struct menudialogdef g_CheatsConfirmUnlockMenuDialog;
 extern struct menudialogdef g_SoloMissionEndscreenCompletedMenuDialog;
 extern struct menudialogdef g_SoloMissionEndscreenFailedMenuDialog;
 extern struct menudialogdef g_NetMenuDialog;
+extern struct menudialogdef g_NetJoiningDialog;
 
 /* Firing Range difficulty picker -- defined in src/game/trainingmenus.c
  * but not exported via data.h.  Registered locally so the FR flow
@@ -104,9 +108,15 @@ static menupool_slot_t s_Pool[MENU_TYPE_COUNT];
 static const char *const s_TypeNames[MENU_TYPE_COUNT] = {
     [MENU_TYPE_NONE]                = "none",
     [MENU_TYPE_MAIN_MENU]           = "main_menu",
+    [MENU_TYPE_MAIN_SOLO_VIEW]      = "main_solo_view",
+    [MENU_TYPE_MAIN_SETTINGS_VIEW]  = "main_settings_view",
+    [MENU_TYPE_MAIN_MODDING_VIEW]   = "main_modding_view",
+    [MENU_TYPE_MAIN_ONLINE_VIEW]    = "main_online_view",
+    [MENU_TYPE_MAIN_STATS_VIEW]     = "main_stats_view",
     [MENU_TYPE_CI_OPTIONS]          = "ci_options",
     [MENU_TYPE_SOLO_MISSION]        = "solo_mission",
     [MENU_TYPE_SOLO_MISSION_PAUSE]  = "solo_mission_pause",
+    [MENU_TYPE_SOLO_INVENTORY]      = "solo_inventory",
     [MENU_TYPE_SOLO_OPTIONS]        = "solo_options",
     [MENU_TYPE_ENDSCREEN_SOLO]      = "endscreen_solo",
     [MENU_TYPE_ENDSCREEN_MP]        = "endscreen_mp",
@@ -136,6 +146,7 @@ static const char *const s_TypeNames[MENU_TYPE_COUNT] = {
     [MENU_TYPE_AGENT_SELECT]        = "agent_select",
     [MENU_TYPE_AGENT_CREATE]        = "agent_create",
     [MENU_TYPE_NETWORK]             = "network",
+    [MENU_TYPE_NETWORK_JOINING]     = "network_joining",
     [MENU_TYPE_SOCIAL_LOBBY]        = "social_lobby",
     [MENU_TYPE_CHALLENGES]          = "challenges",
     [MENU_TYPE_WARNING_MODAL]       = "warning_modal",
@@ -146,6 +157,8 @@ static const char *const s_TypeNames[MENU_TYPE_COUNT] = {
     [MENU_TYPE_THEME_EDITOR]        = "theme_editor",
     [MENU_TYPE_STATS_PANEL]         = "stats_panel",
     [MENU_TYPE_DEBUG_OVERLAY]       = "debug_overlay",
+    [MENU_TYPE_GRID_SUBMENU]        = "grid_submenu",
+    [MENU_TYPE_SOCIAL_SHELL]        = "social_shell",
 };
 
 /* ---- Private helpers ---- */
@@ -574,6 +587,8 @@ void menupoolInit(void)
     /* ---- Solo mission ---- */
     REG(&g_PreAndPostMissionBriefingMenuDialog, MENU_TYPE_SOLO_MISSION);
     REG(&g_SoloMissionPauseMenuDialog,   MENU_TYPE_SOLO_MISSION_PAUSE);
+    REG(&g_SoloMissionInventoryMenuDialog, MENU_TYPE_SOLO_INVENTORY);
+    REG(&g_SoloMissionOptionsMenuDialog, MENU_TYPE_SOLO_OPTIONS);
     REG(&g_SoloMissionControlStyleMenuDialog, MENU_TYPE_SOLO_OPTIONS);
 
     /* ---- Endscreen (MP variants — Solo endscreens use different defs
@@ -715,6 +730,7 @@ void menupoolInit(void)
     REG(&g_FilemgrFileSelect4MbMenuDialog, MENU_TYPE_AGENT_SELECT);
     REG(&g_PakChoosePakMenuDialog,       MENU_TYPE_AGENT_SELECT);
     REG(&g_ChangeAgentMenuDialog,        MENU_TYPE_AGENT_SELECT);
+    REG(&g_FilemgrEnterNameMenuDialog,   MENU_TYPE_AGENT_CREATE);
 
     /* Dedicated "ready" dialog used by MP match-start — share slot with setup. */
     REG(&g_MpReadyMenuDialog,            MENU_TYPE_MP_SETUP);
@@ -725,6 +741,7 @@ void menupoolInit(void)
      * main menu item cannot open a second copy, and ties it to cascade
      * close via menupoolReleaseAll() on stage transitions. */
     REG(&g_NetMenuDialog,                MENU_TYPE_NETWORK);
+    REG(&g_NetJoiningDialog,             MENU_TYPE_NETWORK_JOINING);
 
     /* All remaining dialogs (PAK device errors, 2P splitscreen variants,
      * and whatever else lives in src/game/ .c files) pass through

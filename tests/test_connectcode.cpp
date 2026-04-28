@@ -39,6 +39,8 @@
 #include <cstring>
 #include <string>
 #include <cctype>
+#include <fstream>
+#include <sstream>
 
 extern "C" {
 #define CONNECT_DEFAULT_PORT 27100
@@ -166,6 +168,57 @@ TEST_CASE("connectcode: garbage input returns -1",
     REQUIRE(connectCodeDecode("hello world", &ip) == -1);
     /* Words none of which appear in any slot's dictionary. */
     REQUIRE(connectCodeDecode("zzz qqq xxx www vvv", &ip) == -1);
+}
+
+TEST_CASE("connectcode: trailing garbage is rejected",
+          "[connectcode][security]") {
+    char buf[CONNECT_CODE_MAX];
+    REQUIRE(connectCodeEncode(packIp(1, 2, 3, 4), buf, sizeof(buf)) > 0);
+
+    std::string bad = std::string(buf) + " extra";
+    u32 ip = 0;
+    REQUIRE(connectCodeDecode(bad.c_str(), &ip) == -1);
+
+    u16 port = 0;
+    REQUIRE(connectCodeDecodeWithPort(bad.c_str(), &ip, &port) == -1);
+
+    REQUIRE(connectCodeEncodeWithPort(packIp(8, 8, 8, 8), 27500, buf, sizeof(buf)) > 0);
+    bad = std::string(buf) + " extra";
+    REQUIRE(connectCodeDecodeWithPort(bad.c_str(), &ip, &port) == -1);
+
+    bad = std::string(buf).substr(0, std::string(buf).find_last_of(' ')) + " extra";
+    REQUIRE(connectCodeDecodeWithPort(bad.c_str(), &ip, &port) == -1);
+}
+
+TEST_CASE("connectcode UI: join surfaces stay connect-code only",
+          "[connectcode][security][static]") {
+    auto read_file = [](const char *path) {
+        std::ifstream in(path, std::ios::in | std::ios::binary);
+        REQUIRE(in.good());
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        return ss.str();
+    };
+
+    const std::string network = read_file("port/fast3d/pdgui_menu_network.cpp");
+    const std::string mainmenu = read_file("port/fast3d/pdgui_menu_mainmenu.cpp");
+    const std::string lobby = read_file("port/fast3d/pdgui_menu_lobby.cpp");
+    const std::string netmenu = read_file("port/src/net/netmenu.c");
+
+    REQUIRE(network.find("Enter IP:port") == std::string::npos);
+    REQUIRE(network.find("strncpy(s_JoinAddress, g_NetLastJoinAddr") == std::string::npos);
+    REQUIRE(network.find("connectCodeDecodeWithPort(code, &ip, &port)") != std::string::npos);
+
+    REQUIRE(mainmenu.find("Join a server by connect code or direct IP") == std::string::npos);
+    REQUIRE(mainmenu.find("connectCodeToAddrString(s_JoinCodeInput") != std::string::npos);
+    REQUIRE(mainmenu.find("connectCodeEncodeWithPort(ip, (u16)port") != std::string::npos);
+
+    REQUIRE(lobby.find("ipAddr = a | (b << 8) | (c << 16) | (d << 24)") != std::string::npos);
+    REQUIRE(lobby.find("connectCodeEncodeWithPort(ipAddr, (u16)port") != std::string::npos);
+
+    REQUIRE(netmenu.find("Connect Code:") != std::string::npos);
+    REQUIRE(netmenu.find("strncpy(g_NetJoinAddr, g_NetLastJoinAddr") == std::string::npos);
+    REQUIRE(netmenu.find("connectCodeDecodeWithPort(code, &ip, &port)") != std::string::npos);
 }
 
 TEST_CASE("connectcode: byte 0 (LSB) drives adjective slot",

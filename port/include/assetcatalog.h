@@ -164,6 +164,13 @@ typedef enum {
     ASSET_STATE_ACTIVE
 } asset_load_state_t;
 
+typedef enum {
+    ASSET_PAYLOAD_NONE = 0,
+    ASSET_PAYLOAD_SYSMEM_BYTES,
+    ASSET_PAYLOAD_STAGE_MODELDEF,
+    ASSET_PAYLOAD_RUNTIME_ACTIVE
+} asset_payload_kind_t;
+
 /** Sentinel ref_count for bundled assets: never evicted from memory. */
 #define ASSET_REF_BUNDLED 0x7FFFFFFF
 
@@ -370,6 +377,7 @@ typedef struct asset_entry {
     asset_load_state_t load_state;     /* lifecycle state of this entry */
     void              *loaded_data;    /* pointer to loaded asset data (NULL if not loaded) */
     u32                data_size_bytes;/* size of loaded_data in bytes (0 if not loaded) */
+    asset_payload_kind_t payload_kind; /* ownership/activation policy for loaded_data */
     s32                ref_count;      /* reference count; ASSET_REF_BUNDLED = never evict */
 
     /* Catalog internals */
@@ -915,6 +923,16 @@ typedef struct {
     u16                  session_id;
 } catalog_weapon_result_t;
 
+/** Result struct for modelnum asset resolution. */
+typedef struct {
+    const asset_entry_t *entry;
+    s32                  filenum;    /**< model file (source_filenum, -1 for base) */
+    asset_data_handle_t  handle;     /**< provider-ready source handle */
+    s32                  modelnum;   /**< runtime MODEL_* / g_ModelStates[] index */
+    u32                  net_hash;   /**< internal CRC32; not wire/save identity */
+    u16                  session_id;
+} catalog_model_result_t;
+
 /** Result struct for prop asset resolution. */
 typedef struct {
     const asset_entry_t *entry;
@@ -946,6 +964,9 @@ s32 catalogResolveStage(const char *id, catalog_stage_result_t *out);
 
 /** Resolve a weapon asset by catalog string ID. Returns 1 on success, 0 on failure. */
 s32 catalogResolveWeapon(const char *id, catalog_weapon_result_t *out);
+
+/** Resolve a model asset by catalog string ID. Returns 1 on success, 0 on failure. */
+s32 catalogResolveModel(const char *id, catalog_model_result_t *out);
 
 /** Resolve a prop asset by catalog string ID. Returns 1 on success, 0 on failure. */
 s32 catalogResolveProp(const char *id, catalog_prop_result_t *out);
@@ -1024,6 +1045,12 @@ const char *catalogStageIdBySoloStageIndex(s32 solo_stage_index);
 const char *catalogStageIdByStagenum(s32 stagenum);
 
 /**
+ * Explicit game-mode identity helper. The scenario index is an MPSCENARIO_*
+ * value / ext.gamemode.mode_id, not a generic catalog pool index.
+ */
+const char *catalogGameModeIdByScenarioIndex(s32 scenario_index);
+
+/**
  * Explicit weapon identity helpers. Weapons have two legacy integer spaces:
  * MPWEAPON_* slots for multiplayer setup and WEAPON_* runtime enums for
  * gameplay/inventory. Use these instead of catalogIdByRuntime(ASSET_WEAPON,...)
@@ -1048,6 +1075,7 @@ const char *catalogHeadIdByHeadnum(s32 headnum);
  */
 const char *catalogIdBySourceFilenum(asset_type_e type, s32 source_filenum);
 const char *catalogIdBySourceHandle(asset_type_e type, asset_data_handle_t handle);
+asset_data_handle_t catalogHandleBySourceFilenum(asset_type_e type, s32 source_filenum);
 
 /**
  * Body → default head catalog ID string.
@@ -1160,6 +1188,15 @@ f32 catalogGetBodyScaleByIndex(s32 bodynum);
  * Returns 1 on success (catalog hit), 0 on catalog miss.
  */
 s32 catalogGetStageResultByIndex(s32 stageindex, catalog_stage_result_t *out);
+
+/** Phase 4: Resolve an ASSET_MODEL result by runtime MODEL_* / g_ModelStates[] index. */
+s32 catalogResolveModelByModelnum(s32 modelnum, catalog_model_result_t *out);
+
+/** Phase 4: Effective provider handle for a model by runtime MODEL_* index. */
+asset_data_handle_t catalogGetModelHandle(s32 modelnum);
+
+/** [DEPRECATED] Prefer catalogResolveModelByModelnum() when the filenum is required. */
+s32 catalogGetModelFilenumByModelnum(s32 modelnum);
 
 /**
  * [DEPRECATED] SA-5c: Resolve a prop model filenum by runtime model array

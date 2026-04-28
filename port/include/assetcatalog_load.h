@@ -24,6 +24,8 @@
 extern "C" {
 #endif
 
+struct modeldef;
+
 /* ========================================================================
  * Initialization
  * ======================================================================== */
@@ -140,9 +142,10 @@ const char *catalogGetSoundOverride(s32 soundnum);
  * Bundled (base-game) entries are already ROM-resident; this is a no-op
  * retain for them (returns 1 immediately).
  *
- * For non-bundled entries: resolves the file path from the catalog entry,
- * calls fsFileLoad(), stores data in entry->loaded_data, and sets
- * load_state = ASSET_STATE_LOADED.  Increments ref_count on every call.
+ * For non-bundled entries: resolves the catalog/provider source, stores the
+ * loaded payload in entry->loaded_data, and increments ref_count on every
+ * call. Model-like entries use the typed activation path and store a promoted
+ * modeldef payload; generic entries store provider/file bytes.
  *
  * If the entry is already LOADED (from a prior call) only the ref_count
  * is incremented — no double-load.
@@ -164,10 +167,17 @@ s32 catalogLoadAsset(const char *assetId);
 s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId);
 
 /**
+ * Return a catalog-owned activated model payload for a loaded model-like asset.
+ * Only entries loaded through the typed lifecycle model path return non-NULL.
+ */
+struct modeldef *catalogGetLoadedModeldef(const char *assetId);
+
+/**
  * Decrement ref_count for a loaded asset.
  *
- * When ref_count reaches 0 and the entry is not bundled, the loaded data
- * is freed (sysMemFree) and the entry reverts to ASSET_STATE_ENABLED.
+ * When ref_count reaches 0 and the entry is not bundled, catalog-owned payload
+ * state is released according to its payload_kind and the entry reverts to
+ * ASSET_STATE_ENABLED.
  * Bundled entries (ASSET_REF_BUNDLED sentinel) are never freed.
  */
 void catalogUnloadAsset(const char *assetId);

@@ -47,6 +47,7 @@
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "menugraph.h"
 #include "assetcatalog.h"
 
 /* =========================================================================
@@ -447,6 +448,31 @@ static s32   s_AbortOpenFrame = -1;
 static s32 s_OptionsSelectIdx = 0;
 static s32 s_OptionsTabIdx    = 0;  /* 0=Audio, 1=Video, 2=Controls */
 
+static s32 soloMissionGraphStart(void *userdata)
+{
+    (void)userdata;
+    menuhandlerAcceptMission(MENUOP_SET, nullptr, nullptr);
+    if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+        inputCtxPopDeferred(&g_CtxImGuiMenu);
+    }
+    return 0;
+}
+
+static s32 soloMissionGraphRestart(void *userdata)
+{
+    (void)userdata;
+
+    s32 rsn = (s32)(u8)g_MissionConfig.stagenum;
+    if (g_MissionConfig.stage_id[0] != '\0') {
+        catalog_stage_result_t sr;
+        if (catalogResolveStage(g_MissionConfig.stage_id, &sr)) {
+            rsn = sr.stagenum;
+        }
+    }
+    mainChangeToStage(rsn);
+    return 0;
+}
+
 /* =========================================================================
  * PD-styled widget wrappers (match pdgui_menu_mainmenu.cpp style)
  * ========================================================================= */
@@ -719,9 +745,9 @@ static s32 renderMissionSelect(struct menudialog *dialog,
      * a single Esc press would skip DIFFICULTY -> LIST -> dialog-pop in
      * one keystroke, violating the "one tier per press" invariant. */
     if (s_FocusGroup == FOCUS_MISSION_LIST &&
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_SOLO_MISSION, "back");
         ImGui::End();
         return 1;
     }
@@ -731,14 +757,14 @@ static s32 renderMissionSelect(struct menudialog *dialog,
      * Left-arrow jumps directly back to the list (visual parity with the
      * two-column layout), while Esc/B steps ONE tier so keyboard users
      * can unwind START -> DIFFICULTY -> LIST one press at a time. */
-    if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) {
+    if (pdguiMenuRightPressed()) {
         if (s_FocusGroup == FOCUS_MISSION_LIST) {
             s_FocusGroup = FOCUS_DIFFICULTY;
             s_DetailFocusIdx = 0;
             pdguiPlaySound(PDGUI_SND_FOCUS);
         }
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)) {
+    if (pdguiMenuLeftPressed()) {
         if (s_FocusGroup != FOCUS_MISSION_LIST) {
             s_FocusGroup = FOCUS_MISSION_LIST;
             pdguiPlaySound(PDGUI_SND_FOCUS);
@@ -747,7 +773,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
     /* B button / Esc: step back one focus tier. From START -> DIFFICULTY
      * (restoring focus to the currently-selected diff row); from DIFFICULTY
      * -> MISSION_LIST (restoring focus to the selected mission row). */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (pdguiMenuCancelPressed()) {
         if (s_FocusGroup == FOCUS_START) {
             s_FocusGroup = FOCUS_DIFFICULTY;
             s_DetailFocusIdx = s_DetailDiffIdx; /* return focus to invoker diff */
@@ -771,8 +797,8 @@ static s32 renderMissionSelect(struct menudialog *dialog,
 
         /* D-pad up/down navigation in left panel */
         if (!s_DetailPanelFocus) {
-            bool navDown = ImGui::IsKeyPressed(ImGuiKey_DownArrow, true);
-            bool navUp   = ImGui::IsKeyPressed(ImGuiKey_UpArrow, true);
+            bool navDown = pdguiMenuDownRepeat();
+            bool navUp   = pdguiMenuUpRepeat();
 
             if (navDown) {
                 s32 next = s_MissionSelectIdx + 1;
@@ -795,7 +821,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
              * (M-18: MISSION_LIST -> DIFFICULTY). Focus lands on the first
              * (Agent) difficulty row; the user then presses A again on the
              * chosen diff to narrow to START. */
-            if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+            if (pdguiMenuAcceptPressed()) {
                 s_FocusGroup = FOCUS_DIFFICULTY;
                 s_DetailFocusIdx = 0;
                 pdguiPlaySound(PDGUI_SND_FOCUS);
@@ -1094,8 +1120,8 @@ static s32 renderMissionSelect(struct menudialog *dialog,
         s32 startFocusIdx    = k_NumDetailItems - 1;
 
         if (s_DetailPanelFocus) {
-            bool navDown = ImGui::IsKeyPressed(ImGuiKey_DownArrow, true);
-            bool navUp   = ImGui::IsKeyPressed(ImGuiKey_UpArrow, true);
+            bool navDown = pdguiMenuDownRepeat();
+            bool navUp   = pdguiMenuUpRepeat();
 
             if (navDown) {
                 s_DetailFocusIdx++;
@@ -1163,8 +1189,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
             }
 
             /* Confirm from keyboard/gamepad */
-            bool doConfirm = isFocus &&
-                ImGui::IsKeyPressed(ImGuiKey_Enter, false);
+            bool doConfirm = isFocus && pdguiMenuAcceptPressed();
 
             if ((clicked || doConfirm) && !locked) {
                 s_DetailDiffIdx = d;
@@ -1248,7 +1273,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                 s_FocusGroup = FOCUS_DIFFICULTY;
             }
 
-            bool pdConfirm = isPdFocus && ImGui::IsKeyPressed(ImGuiKey_Enter, false);
+            bool pdConfirm = isPdFocus && pdguiMenuAcceptPressed();
             if (pdClicked || pdConfirm) {
                 s_DetailDiffIdx = 3;
                 pdguiPlaySound(PDGUI_SND_SELECT);
@@ -1399,10 +1424,8 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                     SM_CLEAR_PDMODE(&g_MissionConfig);
                     SM_SET_DIFFICULTY(&g_MissionConfig, selDiff);
                     lvSetDifficulty(selDiff);
-                    menuhandlerAcceptMission(MENUOP_SET, nullptr, nullptr);
-                    if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-                        inputCtxPopDeferred(&g_CtxImGuiMenu);
-                    }
+                    menuGraphFireSceneOp(MENU_TYPE_SOLO_MISSION, "start",
+                        soloMissionGraphStart, NULL);
                 }
             } else if (activated && diffLocked) {
                 /* Action-bar button already played SND_SELECT; override
@@ -1481,17 +1504,17 @@ static s32 renderDifficulty(struct menudialog *dialog,
     if (s_DiffSelectIdx >= numOptions) s_DiffSelectIdx = numOptions - 1;
 
     /* Navigation */
-    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+    if (pdguiMenuDownRepeat()) {
         s_DiffSelectIdx++;
         if (s_DiffSelectIdx >= numOptions) s_DiffSelectIdx = 0;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+    if (pdguiMenuUpRepeat()) {
         s_DiffSelectIdx--;
         if (s_DiffSelectIdx < 0) s_DiffSelectIdx = numOptions - 1;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
         ImGui::End();
@@ -1561,8 +1584,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
         if (ImGui::IsItemHovered()) { s_DiffSelectIdx = i; }
 
         /* Confirm from keyboard/gamepad */
-        bool kbConfirm = isActive &&
-            ImGui::IsKeyPressed(ImGuiKey_Enter, false);
+        bool kbConfirm = isActive && pdguiMenuAcceptPressed();
 
         if ((clicked || kbConfirm) && !locked) {
             s_DiffSelectIdx = i;
@@ -1640,7 +1662,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
         ImGui::PopStyleColor();
 
         if (ImGui::IsItemHovered()) s_DiffSelectIdx = pdIdx;
-        if (isActive && ImGui::IsKeyPressed(ImGuiKey_Enter, false))
+        if (isActive && pdguiMenuAcceptPressed())
             doSelect = true;
 
         if (doSelect) {
@@ -1680,7 +1702,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
         ImGui::PopStyleColor();
 
         if (ImGui::IsItemHovered()) s_DiffSelectIdx = cancelIdx;
-        if (isActive && ImGui::IsKeyPressed(ImGuiKey_Enter, false))
+        if (isActive && pdguiMenuAcceptPressed())
             doCancel = true;
 
         if (doCancel) {
@@ -1779,15 +1801,15 @@ static s32 renderCoopAntiDifficultyImpl(struct menudialog *dialog,
     if (s_CoopAntiDiffSelectIdx >= numOptions) s_CoopAntiDiffSelectIdx = numOptions - 1;
 
     /* D-pad nav with wrap (d5 rule: circular wrapping always enabled) */
-    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+    if (pdguiMenuDownRepeat()) {
         s_CoopAntiDiffSelectIdx = (s_CoopAntiDiffSelectIdx + 1) % numOptions;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+    if (pdguiMenuUpRepeat()) {
         s_CoopAntiDiffSelectIdx = (s_CoopAntiDiffSelectIdx - 1 + numOptions) % numOptions;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
         ImGui::End();
@@ -1832,8 +1854,7 @@ static s32 renderCoopAntiDifficultyImpl(struct menudialog *dialog,
 
         if (ImGui::IsItemHovered()) s_CoopAntiDiffSelectIdx = i;
 
-        bool kbConfirm = isActive &&
-            ImGui::IsKeyPressed(ImGuiKey_Enter, false);
+        bool kbConfirm = isActive && pdguiMenuAcceptPressed();
 
         if ((clicked || kbConfirm) && !locked) {
             s_CoopAntiDiffSelectIdx = i;
@@ -1888,7 +1909,7 @@ static s32 renderCoopAntiDifficultyImpl(struct menudialog *dialog,
         ImGui::PopStyleColor();
 
         if (ImGui::IsItemHovered()) s_CoopAntiDiffSelectIdx = cancelIdx;
-        if (isActive && ImGui::IsKeyPressed(ImGuiKey_Enter, false))
+        if (isActive && pdguiMenuAcceptPressed())
             doCancel = true;
 
         if (doCancel) {
@@ -2058,17 +2079,17 @@ static s32 renderCoopAntiOptionsImpl(struct menudialog *dialog,
         s_CoopAntiOptSelectIdx = numFocusable - 1;
 
     /* D-pad nav with wrap (d5 circular wrapping rule). */
-    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+    if (pdguiMenuDownRepeat()) {
         s_CoopAntiOptSelectIdx = (s_CoopAntiOptSelectIdx + 1) % numFocusable;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+    if (pdguiMenuUpRepeat()) {
         s_CoopAntiOptSelectIdx =
             (s_CoopAntiOptSelectIdx - 1 + numFocusable) % numFocusable;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
     /* B / Escape closes the dialog (d5 back rule). */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
         ImGui::End();
@@ -2112,10 +2133,9 @@ static s32 renderCoopAntiOptionsImpl(struct menudialog *dialog,
             if (ImGui::IsItemHovered()) s_CoopAntiOptSelectIdx = rowIdx;
 
             bool kbToggle = isActive &&
-                (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
-                 ImGui::IsKeyPressed(ImGuiKey_Space, false) ||
-                 ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false) ||
-                 ImGui::IsKeyPressed(ImGuiKey_RightArrow, false));
+                (pdguiMenuAcceptPressed() ||
+                 pdguiMenuLeftPressed() ||
+                 pdguiMenuRightPressed());
 
             if (clicked || kbToggle) {
                 s194_SetCheckbox(h, radarOn ? 0u : 1u);
@@ -2150,10 +2170,9 @@ static s32 renderCoopAntiOptionsImpl(struct menudialog *dialog,
             if (ImGui::IsItemHovered()) s_CoopAntiOptSelectIdx = rowIdx;
 
             bool kbToggle = isActive &&
-                (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
-                 ImGui::IsKeyPressed(ImGuiKey_Space, false) ||
-                 ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false) ||
-                 ImGui::IsKeyPressed(ImGuiKey_RightArrow, false));
+                (pdguiMenuAcceptPressed() ||
+                 pdguiMenuLeftPressed() ||
+                 pdguiMenuRightPressed());
 
             if (clicked || kbToggle) {
                 s194_SetCheckbox(menuhandlerCoopFriendlyFire, ffOn ? 0u : 1u);
@@ -2202,10 +2221,10 @@ static s32 renderCoopAntiOptionsImpl(struct menudialog *dialog,
             /* Left/Right decrements/increments the dropdown value.
              * A / Enter cycles forward (advance one step). */
             bool decrement = isActive && ddCount > 1 &&
-                ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true);
+                pdguiMenuLeftRepeat();
             bool increment = isActive && ddCount > 1 &&
-                (ImGui::IsKeyPressed(ImGuiKey_RightArrow, true) ||
-                 ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                (pdguiMenuRightRepeat() ||
+                 pdguiMenuAcceptPressed() ||
                  clicked);
 
             if (decrement) {
@@ -2251,10 +2270,10 @@ static s32 renderCoopAntiOptionsImpl(struct menudialog *dialog,
         }
 
         /* Keyboard / gamepad confirm on the focused action button */
-        if (continueActive && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+        if (continueActive && pdguiMenuAcceptPressed()) {
             doContinue = true;
         }
-        if (cancelActive && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+        if (cancelActive && pdguiMenuAcceptPressed()) {
             doCancel = true;
         }
 
@@ -2337,7 +2356,7 @@ static s32 renderBriefingImpl(struct menudialog *dialog,
     ImGui::Separator();
 
     /* Close with B / Escape */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();
     }
@@ -2458,12 +2477,13 @@ static s32 renderInventory(struct menudialog *dialog,
     ImGui::EndChild();
 
     ImGui::Separator();
-    ImGui::TextDisabled("B/Esc: Close");
+    ImGui::TextDisabled("B/Esc: Back");
 
-    /* B / Escape = dismiss */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    /* B / Escape = back */
+    if (pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFireSwitchSibling(MENU_TYPE_SOLO_INVENTORY, "back",
+                                   &g_SoloMissionPauseMenuDialog);
     }
 
     ImGui::End();
@@ -2531,34 +2551,32 @@ static s32 renderAcceptMission(struct menudialog *dialog,
     bool doAccept  = false;
     bool doDecline = false;
 
-    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+    if (pdguiMenuDownRepeat()) {
         s_AcceptSelectIdx = 1;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+    if (pdguiMenuUpRepeat()) {
         s_AcceptSelectIdx = 0;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+    if (pdguiMenuAcceptPressed()) {
         if (s_AcceptSelectIdx == 0) doAccept  = true;
         else                        doDecline = true;
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (pdguiMenuCancelPressed()) {
         doDecline = true;
     }
 
     if (doAccept) {
         pdguiPlaySound(PDGUI_SND_SELECT);
-        menuhandlerAcceptMission(MENUOP_SET, nullptr, nullptr);
-        if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-        }
+        menuGraphFireSceneOp(MENU_TYPE_SOLO_MISSION, "start",
+            soloMissionGraphStart, NULL);
         ImGui::End();
         return 1;
     }
     if (doDecline) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_SOLO_MISSION, "back");
         ImGui::End();
         return 1;
     }
@@ -2627,17 +2645,15 @@ static s32 renderAcceptMission(struct menudialog *dialog,
 
     if (drawBtn(0, langSafe(L_OPTIONS_274), pdguiImU32TintSuccess(255))) {
         pdguiPlaySound(PDGUI_SND_SELECT);
-        menuhandlerAcceptMission(MENUOP_SET, nullptr, nullptr);
-        if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-            inputCtxPopDeferred(&g_CtxImGuiMenu);
-        }
+        menuGraphFireSceneOp(MENU_TYPE_SOLO_MISSION, "start",
+            soloMissionGraphStart, NULL);
         ImGui::End();
         return 1;
     }
     ImGui::SameLine(0.0f, pdguiScale(15.0f));
     if (drawBtn(1, langSafe(L_OPTIONS_275), pdguiImU32TintDanger(255))) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_SOLO_MISSION, "back");
         ImGui::End();
         return 1;
     }
@@ -2760,17 +2776,17 @@ static s32 renderPauseMenu(struct menudialog *dialog,
     if (s_PauseSelectIdx >= k_NumPauseItems) s_PauseSelectIdx = k_NumPauseItems - 1;
 
     /* Navigation */
-    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+    if (pdguiMenuDownRepeat()) {
         s_PauseSelectIdx++;
         if (s_PauseSelectIdx >= k_NumPauseItems) s_PauseSelectIdx = 0;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+    if (pdguiMenuUpRepeat()) {
         s_PauseSelectIdx--;
         if (s_PauseSelectIdx < 0) s_PauseSelectIdx = k_NumPauseItems - 1;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    bool doConfirm = ImGui::IsKeyPressed(ImGuiKey_Enter, false);
+    bool doConfirm = pdguiMenuAcceptPressed();
 
     /* ---- Objectives with completion status ---- */
     /* Height = total - title - separators/padding - 5 action buttons */
@@ -2892,7 +2908,7 @@ static s32 renderPauseMenu(struct menudialog *dialog,
             switch (b) {
             case 0: /* Resume */
                 pdguiPlaySound(PDGUI_SND_KBCANCEL);
-                menuPopDialog();
+                menuGraphFirePop(MENU_TYPE_SOLO_MISSION_PAUSE, "resume");
                 break;
             case 1: /* Restart Mission — M-6-A: open canonical S385 confirm modal */
                 ImGui::OpenPopup("Restart Mission?##restart");
@@ -2901,15 +2917,18 @@ static s32 renderPauseMenu(struct menudialog *dialog,
                 break;
             case 2: /* Inventory (ImGui weapon list — M1.2) */
                 pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-                menuPushDialog(&g_SoloMissionInventoryMenuDialog);
+                menuGraphFireSwitchSibling(MENU_TYPE_SOLO_MISSION_PAUSE, "inventory",
+                                           &g_SoloMissionInventoryMenuDialog);
                 break;
             case 3: /* Options */
                 pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-                menuPushDialog(&g_SoloMissionOptionsMenuDialog);
+                menuGraphFireSwitchSibling(MENU_TYPE_SOLO_MISSION_PAUSE, "settings",
+                                           &g_SoloMissionOptionsMenuDialog);
                 break;
             case 4: /* Abort! */
                 pdguiPlaySound(PDGUI_SND_ERROR);
-                menuPushDialog(&g_MissionAbortMenuDialog);
+                menuGraphFirePushDialog(MENU_TYPE_SOLO_MISSION_PAUSE, "abort",
+                                        &g_MissionAbortMenuDialog);
                 break;
             }
             ImGui::PopID();
@@ -2924,9 +2943,9 @@ static s32 renderPauseMenu(struct menudialog *dialog,
      * M-6-A: restart confirm is now a popup modal — suppress the pause-level
      * cancel while the popup is open so Esc routes to the modal only. */
     if (!ImGui::IsPopupOpen("Restart Mission?##restart") &&
-        (actionPressed(0, ACTION_CANCEL_USE) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
+        pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_SOLO_MISSION_PAUSE, "resume");
         ImGui::End();
         return 1;
     }
@@ -2945,12 +2964,8 @@ static s32 renderPauseMenu(struct menudialog *dialog,
     ImGui::End();
 
     if (restartRes == PDGUI_CONFIRM_OK) {
-        s32 rsn = (s32)(u8)g_MissionConfig.stagenum;
-        if (g_MissionConfig.stage_id[0] != '\0') {
-            catalog_stage_result_t sr;
-            if (catalogResolveStage(g_MissionConfig.stage_id, &sr)) rsn = sr.stagenum;
-        }
-        mainChangeToStage(rsn);
+        menuGraphFireSceneOp(MENU_TYPE_SOLO_MISSION_PAUSE, "restart",
+            soloMissionGraphRestart, NULL);
     }
 
     return 1;
@@ -3143,12 +3158,10 @@ static s32 renderAbortMission(struct menudialog *dialog,
      * after open so the Enter press that activated the Abort row can't bleed
      * through. */
     if (!inputDebounced) {
-        if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+        if (pdguiMenuAcceptPressed()) {
             doConfirm = true;
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        if (pdguiMenuCancelPressed()) {
             doCancel = true;
         }
     }
@@ -3509,26 +3522,24 @@ static s32 renderOptions(struct menudialog *dialog,
     static const char *k_TabNames[] = { "Audio", "Video", "Controls" };
     static const s32 k_NumTabs = 3;
 
-    /* Tab switching uses action-driven PageUp/PageDown (LB/RB mapping comes
-     * from pdguiDriveImGuiNav) plus Q/E keyboard shortcuts. */
-    if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_Q, false)) {
+    /* Tab switching uses ACTION_MENU_TAB_PREV/NEXT. */
+    if (pdguiMenuTabPrevPressed()) {
         s_OptionsTabIdx--;
         if (s_OptionsTabIdx < 0) s_OptionsTabIdx = k_NumTabs - 1;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_E, false)) {
+    if (pdguiMenuTabNextPressed()) {
         s_OptionsTabIdx++;
         if (s_OptionsTabIdx >= k_NumTabs) s_OptionsTabIdx = 0;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
 
     /* B / Escape = back + save config */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         configSave("pd.ini");
-        menuPopDialog();
+        menuGraphFireSwitchSibling(MENU_TYPE_SOLO_OPTIONS, "back",
+                                   &g_SoloMissionPauseMenuDialog);
         ImGui::End();
         return 1;
     }

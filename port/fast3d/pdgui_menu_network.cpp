@@ -22,10 +22,12 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_nav.h"
 #include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "screenmfst.h"
 #include "system.h"
 #include "connectcode.h"
+#include "menugraph.h"
 
 extern "C" {
 /* C headers with function decls must be inside extern "C" or C++ will mangle
@@ -79,10 +81,6 @@ s32 netRecentServerGetInfo(s32 idx, char *addr, s32 addrSize,
                            u8 *flags, u8 *numclients, u8 *maxclients,
                            u32 *online);
 
-/* Menu stack */
-void menuPushDialog(struct menudialogdef *dialogdef);
-void menuPopDialog(void);
-
 /* Join dialog */
 extern struct menudialogdef g_NetJoiningDialog;
 
@@ -107,6 +105,35 @@ static int  s_HostPort       = (int)NET_DEFAULT_PORT;
 static int  s_HostMaxRemotes = 7; /* +1 local host slot -> netStartServer second arg */
 static char s_HostErr[160]   = {0};
 
+typedef struct NetworkHostStartArgs {
+    u16 port;
+    s32 maxclients;
+} NetworkHostStartArgs;
+
+static s32 networkGraphDisconnect(void *userdata)
+{
+    (void)userdata;
+    return netDisconnect();
+}
+
+static s32 networkGraphStartServer(void *userdata)
+{
+    NetworkHostStartArgs *args = static_cast<NetworkHostStartArgs *>(userdata);
+    if (!args) {
+        return -99;
+    }
+    return netStartServer(args->port, args->maxclients);
+}
+
+static s32 networkGraphStartClient(void *userdata)
+{
+    const char *addr = static_cast<const char *>(userdata);
+    if (!addr) {
+        return -99;
+    }
+    return netStartClientWithHolePunch(addr);
+}
+
 static const char *fmtUpnpStatus(s32 st)
 {
 	switch (st) {
@@ -129,18 +156,42 @@ static const char *fmtStunStatus(s32 st)
 	}
 }
 
-/* F-IP-Browser: Convert a raw "A.B.C.D" or "A.B.C.D:port" address string to a
- * connect code for display. sscanf stops at ':' so port is harmlessly ignored. */
+/* Convert an internal raw "A.B.C.D" or "A.B.C.D:port" address string to a
+ * connect code for display. Raw addresses are stored internally only. */
 static bool addrStringToConnectCode(const char *addrStr, char *buf, s32 bufsize)
 {
-    unsigned a = 0, b = 0, c = 0, d = 0;
-    if (sscanf(addrStr, "%u.%u.%u.%u", &a, &b, &c, &d) != 4) return false;
+    unsigned a = 0, b = 0, c = 0, d = 0, port = CONNECT_DEFAULT_PORT;
+    int consumed = 0;
+
+    if (sscanf(addrStr, " %u.%u.%u.%u:%u %n", &a, &b, &c, &d, &port, &consumed) == 5) {
+        if (addrStr[consumed] != '\0') return false;
+    } else {
+        consumed = 0;
+        if (sscanf(addrStr, " %u.%u.%u.%u %n", &a, &b, &c, &d, &consumed) != 4) return false;
+        if (addrStr[consumed] != '\0') return false;
+    }
+
+    if (a > 255 || b > 255 || c > 255 || d > 255 || port < 1 || port > 65535) return false;
+
     u32 ip = (u32)a | ((u32)b << 8) | ((u32)c << 16) | ((u32)d << 24);
-    return connectCodeEncode(ip, buf, bufsize) >= 0;
+    return connectCodeEncodeWithPort(ip, (u16)port, buf, bufsize) >= 0;
+}
+
+static bool connectCodeToAddrString(const char *code, char *buf, s32 bufsize)
+{
+    u32 ip = 0;
+    u16 port = 0;
+
+    if (connectCodeDecodeWithPort(code, &ip, &port) != 0 || ip == 0 || port == 0) return false;
+
+    snprintf(buf, bufsize, "%u.%u.%u.%u:%u",
+             ip & 0xFF, (ip >> 8) & 0xFF,
+             (ip >> 16) & 0xFF, (ip >> 24) & 0xFF, port);
+    return true;
 }
 
 /* ========================================================================
- * Multiplayer Menu — Server Browser + Direct IP
+ * Multiplayer Menu — Server Browser + Connect Code
  * ======================================================================== */
 
 static s32 renderMultiplayerMenu(struct menudialog *dialog,
@@ -178,14 +229,15 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
             s_HostPort = (int)NET_DEFAULT_PORT;
         }
         s_HostErr[0] = '\0';
-        /* Restore last used address */
+        /* Restore last used address as a connect code when the internal raw
+         * address is parseable. Never copy raw addresses into the UI field. */
         extern char g_NetLastJoinAddr[];
         if (s_JoinAddress[0] == '\0') {
             char code[CONNECT_CODE_MAX];
             if (addrStringToConnectCode(g_NetLastJoinAddr, code, sizeof(code))) {
                 strncpy(s_JoinAddress, code, NET_MAX_ADDR);
             } else {
-                strncpy(s_JoinAddress, g_NetLastJoinAddr, NET_MAX_ADDR);
+                s_JoinAddress[0] = '\0';
             }
             s_JoinAddress[NET_MAX_ADDR] = '\0';
         }
@@ -249,7 +301,7 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
             fmtStunStatus(stunGetStatus()));
         if (ImGui::Button("Stop hosting")) {
             pdguiPlaySound(PDGUI_SND_SELECT);
-            netDisconnect();
+            menuGraphFireNetworkOp(MENU_TYPE_NETWORK, "disconnect", networkGraphDisconnect, NULL);
             s_HostErr[0] = '\0';
         }
     } else {
@@ -279,16 +331,21 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
             s_HostErr[0] = '\0';
             pdguiPlaySound(PDGUI_SND_SELECT);
             if (g_NetMode == NETMODE_CLIENT) {
-                netDisconnect();
+                menuGraphFireNetworkOp(MENU_TYPE_NETWORK, "disconnect", networkGraphDisconnect, NULL);
             }
             g_NetServerPort = (u32)s_HostPort;
             g_NetMenuPort   = s_HostPort;
             /* Second arg is total player slots (listen host in slot 0 + remotes). */
-            s32 rc = netStartServer((u16)s_HostPort, s_HostMaxRemotes + 1);
+            NetworkHostStartArgs hostArgs = {
+                (u16)s_HostPort,
+                s_HostMaxRemotes + 1
+            };
+            s32 rc = menuGraphFireNetworkOp(MENU_TYPE_NETWORK, "host",
+                networkGraphStartServer, &hostArgs);
             if (rc == 0) {
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: listen host started port=%d maxclients=%d",
                     s_HostPort, s_HostMaxRemotes + 1);
-                menuPopDialog();
+                menuGraphFirePop(MENU_TYPE_NETWORK, "host_started");
             } else if (rc == -1) {
                 snprintf(s_HostErr, sizeof(s_HostErr), "Already in a network session.");
             } else if (rc == -2) {
@@ -375,10 +432,10 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
 
     ImGui::Spacing();
 
-    /* ---- Direct IP / Connect Code section ---- */
+    /* ---- Connect Code section ---- */
     ImGui::TextColored(pdguiVec4TitleGlow(), "Direct Connect");
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.7f, 1.0f), "Enter IP:port or connect code");
+    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.7f, 1.0f), "Enter connect code");
 
     ImGui::PushItemWidth(itemW - 120.0f * scale);
     ImGuiInputTextFlags inputFlags = ImGuiInputTextFlags_EnterReturnsTrue;
@@ -406,7 +463,7 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
             }
             SDL_free(clip);
             sysLogPrintf(LOG_NOTE,
-                "MENU_IMGUI: network menu PASTE addr=\"%s\"", s_JoinAddress);
+                "MENU_IMGUI: network menu PASTE code=\"%s\"", s_JoinAddress);
             pdguiPlaySound(PDGUI_SND_SUBFOCUS);
         }
     }
@@ -422,30 +479,20 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
     if (enterPressed && canConnect) doConnect = true;
 
     if (doConnect) {
-        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: network menu CONNECT pressed addr=\"%s\"", s_JoinAddress);
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: network menu CONNECT pressed");
         pdguiPlaySound(PDGUI_SND_SELECT);
-
-        /* Detect if input is a connect code (contains alpha chars) or raw IP */
-        bool isConnectCode = false;
-        for (const char *ch = s_JoinAddress; *ch; ch++) {
-            if ((*ch >= 'A' && *ch <= 'Z') || (*ch >= 'a' && *ch <= 'z')) {
-                isConnectCode = true;
-                break;
-            }
-        }
 
         /* All join attempts must go through connect code decode.
          * Raw IP addresses are not accepted -- the code is a security
          * layer that prevents exposing public IPs. */
         {
-            u32 ip = 0;
-            if (connectCodeDecode(s_JoinAddress, &ip) == 0 && ip) {
-                snprintf(g_NetJoinAddr, NET_MAX_ADDR, "%u.%u.%u.%u:%u",
-                         ip & 0xFF, (ip >> 8) & 0xFF,
-                         (ip >> 16) & 0xFF, (ip >> 24) & 0xFF, CONNECT_DEFAULT_PORT);
-                if (netStartClientWithHolePunch(g_NetJoinAddr) == 0) {
-                    menuPushDialog(&g_NetJoiningDialog);
+            if (connectCodeToAddrString(s_JoinAddress, g_NetJoinAddr, NET_MAX_ADDR + 1)) {
+                if (menuGraphFireNetworkOp(MENU_TYPE_NETWORK, "join",
+                        networkGraphStartClient, g_NetJoinAddr) == 0) {
+                    menuGraphFirePushDialog(MENU_TYPE_NETWORK, "joining", &g_NetJoiningDialog);
                 }
+            } else {
+                sysLogPrintf(LOG_WARNING, "MENU_IMGUI: invalid connect code");
             }
             /* Invalid code -- field stays, user can retry */
         }
@@ -464,10 +511,10 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
     }
     pdguiEndActionBar();
 
-    if (backActivated || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (backActivated || pdguiMenuCancelPressed()) {
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: network/join menu CLOSE via Back/ESC");
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_NETWORK, "back");
     }
 
     ImGui::End();

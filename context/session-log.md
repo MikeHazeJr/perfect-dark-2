@@ -1,8 +1,2882 @@
 
 # Session Log (Active)
 
-> **S284–S489** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S284-S565** (rolling window). Older sessions **S280-S241** -> [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240-S157** -> [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1-S119** -> [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S565 - 2026-04-28 - Quality pd-tests recursive invariant expansion
+
+Continued the Quality / Testing / Audits lane. Read the required testing/context docs and expanded `pd-tests` around the highest-risk uncovered invariants, keeping each guard with the invariant it enforces.
+
+### Outcome
+
+- Added a catalog/provider identity static guard that prevents production code outside `assetcatalog_api.c` from using generic `catalogIdByRuntime(ASSET_*)` for domains that have typed helper APIs.
+- Added v45 network packet parsing tests for `SVC_STAGE_START` and `CLC_LOBBY_START` spawn-weapon tail alignment, truncated-tail failure, and production field-order drift.
+- Made `manifestDeserialize()` transactional on parse error: entries appended by a malformed packet are rolled back before returning failure. Mirrored the pure test copy and added a malformed COMPONENT-tail rollback test.
+- Added a save-migration static guard that pins the destructive v1->v2 weapon-cull migration behind `if (version < 2)` in the live MP setup loader.
+- Fixed build environment blockers discovered while using the isolated session build path: PowerShell session build directory creation, Git-for-Windows safe-directory handling, Codex-safe async output capture, CMake configure probes that hang in the sandbox, Windows Python fallback for asset tools, ccache launch probing/disable, and filtering compiler-implicit MinGW root include dirs so C++ standard `#include_next` works.
+
+### Files
+
+- `tests/test_catalog_provider_static.cpp`
+- `tests/test_spawn_weapon_mode.cpp`
+- `tests/test_manifest.cpp`
+- `tests/manifest_pure.c`
+- `tests/test_save_migration.cpp`
+- `port/src/net/netmanifest.c`
+- Build support: `devtools/build-session.ps1`, `devtools/build-headless.ps1`, `devtools/_build-env-prelude.ps1`, `cmake/TargetArch.cmake`, `cmake/FindSDL2.cmake`, `tools/pdmod_prophandler/CMakeLists.txt`, `CMakeLists.txt`
+- Context updates: `context/tasks-current.md`, `context/build.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated session id `qtest503`; did not use shared `Build/`.
+- The prescribed `build-session.ps1 -Session qtest503 -Target all` path configured but Ninja execution still hangs in the Codex desktop sandbox, so verification used the same isolated CMake/Ninja tree and executed the canonical `ninja -t commands` list directly.
+- `PerfectDark.exe`, `PerfectDarkServer.exe`, and `pd-tests.exe` linked in `.claude/session-builds/qtest503`.
+- Final `pd-tests.exe`: 331 test cases / 17807 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Next recursive target is mode lifecycle/input transition cleanup around failed lobby/manifest/start paths. Start with a read-only audit for lifecycle roots that clear or preserve `g_ClientManifest`, lobby state, input/scene layers, and ready gates after malformed or rejected network transitions.
+
+---
+
+## Session S564 - 2026-04-28 - PageUp/PageDown backend injection retirement
+
+Continued transitional shim retirement after cutscene compatibility globals. Scope stayed on the PageUp/PageDown action-to-ImGui bridge and its main-menu queue drain.
+
+### Outcome
+
+- Social menu tabs now cycle through `pdguiMenuTabPrevPressed()` / `pdguiMenuTabNextPressed()` with explicit selected-tab state.
+- Removed backend injection of `ACTION_MENU_TAB_PREV/NEXT` into `ImGuiKey_PageUp/PageDown`.
+- Removed the main-menu PageUp/PageDown queue drain that existed to compensate for that injection.
+- Added static coverage that keeps Social tab navigation action-map owned and prevents the backend injection or queue drain from returning.
+- First-party raw-key audit now shows no command reads; remaining hits are comments or third-party ImGui internals.
+
+### Files
+
+- `port/fast3d/pdgui_friends.cpp`
+- `port/fast3d/pdgui_backend.cpp`
+- `port/fast3d/pdgui_menu_mainmenu.cpp`
+- `tests/test_social_toggle_imc.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- Isolated Ninja outside the sandbox built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 329 test cases / 17795 assertions passed.
+
+### Next
+
+- Continue transitional-shim audit. `gameplayInputSuppressed()` is not safe to retire yet because the layer stack does not own every menu context. The remaining transition triplets need a narrow scene-manager slice before they can be replaced safely.
+
+---
+
+## Session S563 - 2026-04-28 - Cutscene compatibility global retirement
+
+Continued transitional shim retirement after editor/tool hotkeys. Scope stayed on cutscene compatibility globals that were no longer read by production gameplay paths.
+
+### Outcome
+
+- Removed `g_InCutscene`, `g_CutsceneSkipRequested`, `g_CutsceneAnimNum`, `g_CutsceneCurAnimFrame60`, and `g_CutsceneCurTotalFrame60f`.
+- Removed `playerSyncCutsceneGlobalsToCurrent()` and its call sites.
+- `USINGDEVICE(device)` now checks `playerCurrentInCutscene()` instead of `g_InCutscene`.
+- `SVC_CUTSCENE` now updates cutscene active state through `playerSetCutsceneActiveMask(...)` on both client and pd-server builds.
+- pd-server stubs now keep a local cutscene active mask instead of defining a fake `g_InCutscene`.
+- Added static coverage that prevents the retired globals and wrapper from returning.
+
+### Files
+
+- `src/include/constants.h`
+- `src/include/data.h`
+- `src/include/bss.h`
+- `src/include/game/player.h`
+- `src/game/player.c`
+- `src/game/playermgr.c`
+- `src/game/explosions.c`
+- `src/game/sparks.c`
+- `port/src/net/netmsg.c`
+- `port/src/server_stubs.c`
+- `tests/test_cutscene_layer.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- The session wrapper was invoked first as directed but timed out in the known client-compile stall.
+- Sandboxed direct Ninja also left stale locks without live compiler processes, so the isolated `ix46` build/test was rerun outside the sandbox.
+- Isolated `pd`, `pd-server`, and `pd-tests` built successfully.
+- Isolated `pd-tests.exe`: 328 test cases / 17784 assertions passed.
+- `git diff --check` passed outside the sandbox; only existing LF-to-CRLF warnings appeared for `devtools/_build-env-prelude.ps1` and `devtools/build-headless.ps1`.
+
+### Next
+
+- Continue transitional-shim audit. Remaining known candidates are the main-menu PageUp/PageDown queue drain/backend injection, `gameplayInputSuppressed()` as the old input-context authority wrapper, and ad-hoc `manifestClear` / `mainChangeToStage` / `menupoolReleaseAll` transition triplets.
+
+---
+
+## Session S562 - 2026-04-28 - Editor/tool hotkey raw-input migration
+
+Continued the raw action input migration after social voice PTT. Scope stayed on editor/tool command shortcuts and did not change true ImGui text-entry or geometry queries.
+
+### Outcome
+
+- Added synthetic chord VKs for Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y, and Ctrl+S, including keydown-to-keyup release tracking.
+- Added Forge placement/bot command actions and Skin Editor brush/tool/grid/UV/undo/redo/save actions.
+- Bound Forge session commands through `g_ImcForgeSession`, Forge placement/sidebar commands through `g_ImcForge`, and Skin Editor commands through `g_ImcMenu`.
+- Migrated Forge HUD bot commands, Forge placement cancel, Forge Ctrl+Tab sidebar cycling, and Skin Editor shortcuts from raw ImGui polling to action-map reads.
+- Exposed the new Forge and Skin Editor actions in the Controls UI.
+- Added static coverage for action ids, synthetic chord bindings, raw polling removal in Forge HUD/Forge Editor/Skin Editor, and Controls UI visibility.
+- First-party raw-key audit now leaves only the documented main-menu PageUp/PageDown queue drain plus comments; third-party ImGui internals are ignored.
+
+### Files
+
+- `port/include/input.h`
+- `port/src/input.c`
+- `port/include/actionmap.h`
+- `port/src/actionmap.cpp`
+- `port/src/inputlayer.c`
+- `port/fast3d/pdgui_forge_hud.cpp`
+- `port/fast3d/pdgui_forge_editor.cpp`
+- `port/fast3d/pdgui_skin_editor.cpp`
+- `port/fast3d/pdgui_menu_mainmenu.cpp`
+- `tests/actionmap_pure.h`
+- `tests/actionmap_pure.c`
+- `tests/test_actionmap_flush.cpp`
+- `tests/test_editor_tool_hotkeys.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 327 test cases / 17751 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Retire transitional shims where ownership has moved to the action map, layer stack, or scene manager. Start with the main-menu PageUp/PageDown queue drain/backend injection and then audit cutscene compatibility globals/wrappers.
+
+---
+
+## Session S561 - 2026-04-28 - Voice PTT raw-input migration
+
+Continued the raw action input migration after spectator observer controls. Scope stayed on the social voice push-to-talk hotkey.
+
+### Outcome
+
+- Added `ACTION_VOICE_PTT`, defaulted to V.
+- Bound voice PTT in gameplay, cutscene, vehicle, observer, Forge session, menu, pause-menu, and debug overlay IMCs to preserve the old raw hotkey's broad availability.
+- Migrated `pdgui_friends.cpp` from raw `ImGuiKey_V` polling to `actionPressed/Released(0, ACTION_VOICE_PTT)`.
+- Preserved the existing ImGui keyboard-capture guard so typing into fields does not start voice transmission.
+- Exposed Voice Push-to-Talk in Controls under System Hotkeys.
+- Added static coverage for action-map binding, shared-action classification, raw V polling removal, and Controls UI visibility.
+
+### Files
+
+- `port/include/actionmap.h`
+- `port/src/actionmap.cpp`
+- `port/fast3d/pdgui_friends.cpp`
+- `port/fast3d/pdgui_menu_mainmenu.cpp`
+- `tests/actionmap_pure.h`
+- `tests/actionmap_pure.c`
+- `tests/test_actionmap_flush.cpp`
+- `tests/test_social_toggle_imc.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 327 test cases / 17748 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Migrate editor/tool hotkeys off raw ImGui polling where they represent commands rather than text-entry or geometry reads.
+
+---
+
+## Session S560 - 2026-04-28 - Spectator observer raw-input migration
+
+Continued the raw action input migration after secondary menu commands. Scope stayed on spectator observer controls and did not sweep unrelated editor/tool hotkeys.
+
+### Outcome
+
+- Added observer action-map actions and `g_ImcObserver` for subset/member navigation, camera toggle, freefly, stop, ascend, and descend.
+- Wired `LAYER_OBSERVER` so the observer IMC activates only for `SCENE_OBSERVER_SOURCE_SPECTATOR`; Forge observer entry continues to use the existing Forge IMCs.
+- Made `scene.c` store observer event payloads in stable scene-owned storage before pushing the observer layer.
+- Migrated `pdgui_spectator.cpp` off raw ImGui key polling for observer controls. Freefly uses the gameplay move axis plus observer ascend/descend actions.
+- Added observer bindings to glyph lookup and the Controls UI.
+- Added static coverage for observer action-set membership, source-specific activation, scene payload storage, spectator raw-key removal, and observer binding visibility.
+
+### Files
+
+- `port/include/actionmap.h`
+- `port/src/actionmap.cpp`
+- `port/src/inputlayer.c`
+- `port/src/scene.c`
+- `port/fast3d/pdgui_spectator.cpp`
+- `port/fast3d/pdgui_glyphs.cpp`
+- `port/fast3d/pdgui_menu_mainmenu.cpp`
+- `tests/actionmap_pure.h`
+- `tests/actionmap_pure.c`
+- `tests/test_actionmap_flush.cpp`
+- `tests/test_vehicle_observer_layer.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- Invoked `.\devtools\build-session.ps1 -Session ix46 -Target all` first as requested. It stalled in client compile and left only a dead session lock after timeout.
+- After confirming no active compiler or build process, cleared the dead `ix46` lock and used direct isolated Ninja in `.claude/session-builds/ix46`.
+- Direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 324 test cases / 17729 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Migrate social voice push-to-talk off raw V key polling if the audit confirms it is an action read. Then continue to editor/tool hotkeys and transitional shim retirement.
+
+---
+
+## Session S559 - 2026-04-28 - Secondary menu command raw-input migration
+
+Continued the raw action input migration after Solo Mission. Scope stayed on secondary menu commands that were still first-party action shortcuts, not editor/tool hotkeys.
+
+### Outcome
+
+- Added `ACTION_MENU_SECONDARY`, `ACTION_MENU_TERTIARY`, and `ACTION_MENU_DELETE`, with menu/pause defaults for C / gamepad X, D / gamepad Y, and Delete.
+- Added `pdgui_nav` helpers for secondary, tertiary, delete, and text paste action reads.
+- Migrated Agent Select copy/delete/open-directory commands, Room bot-row secondary/tertiary commands, and MP Settings preview commands behind action-map authority.
+- Added static coverage for the new action defaults, helper API, and migrated secondary command sites.
+
+### Files
+
+- `port/include/actionmap.h`
+- `port/src/actionmap.cpp`
+- `port/include/pdgui_nav.h`
+- `port/src/pdgui_nav.c`
+- `port/fast3d/pdgui_menu_agentselect.cpp`
+- `port/fast3d/pdgui_menu_room.cpp`
+- `port/fast3d/pdgui_menu_mpsettings.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 323 test cases / 17687 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Classify or migrate the remaining first-party raw reads: spectator/observer controls, voice PTT, and editor/tool hotkeys. Keep the documented main-menu PageUp/PageDown queue drain transitional until backend PageUp injection is retired.
+
+---
+
+## Session S558 - 2026-04-28 - Solo Mission raw-input migration
+
+Continued the raw action input migration after Training. Scope stayed on `pdgui_menu_solomission.cpp`.
+
+### Outcome
+
+- Migrated Mission Select, difficulty selection, co-op/anti difficulty, co-op/anti options, briefing, inventory, Accept Mission, solo pause, abort modal, and solo options shortcuts to `pdgui_nav` helpers.
+- Added Q/E as additional menu and pause defaults for `ACTION_MENU_TAB_PREV` / `ACTION_MENU_TAB_NEXT` so Solo Options keeps its keyboard tab shortcuts behind action-map authority.
+- Added static coverage so Solo Mission cannot reintroduce raw Enter, Space, Escape, arrow, Q/E, or PageUp/PageDown menu polling.
+
+### Files
+
+- `port/src/actionmap.cpp`
+- `port/fast3d/pdgui_menu_solomission.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 322 test cases / 17647 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Run the remaining raw-key audit and classify or migrate any leftover menu-owned reads. Tool/editor hotkeys stay classified separately.
+
+---
+
+## Session S557 - 2026-04-28 - Training menu raw-input migration
+
+Continued the raw action input migration after cheats/modding panels. Scope stayed on Training menu shortcuts that behave like normal menu actions.
+
+### Outcome
+
+- Migrated Training Back, Continue, list up/down, and firing range confirm shortcuts to `pdgui_nav` helpers.
+- Added static coverage so `pdgui_menu_training.cpp` cannot reintroduce raw Enter, Space, Escape, arrow, or PageUp/PageDown menu polling.
+
+### Files
+
+- `port/fast3d/pdgui_menu_training.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 321 test cases / 17591 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Migrate remaining Solo Mission menu-owned raw reads as its own slice.
+
+---
+
+## Session S556 - 2026-04-28 - Cheats and modding panel raw-input migration
+
+Continued the raw action input migration after simple legacy menu screens. Scope stayed on cheats and modding panel shortcuts that behave like normal menu actions.
+
+### Outcome
+
+- Migrated Cheats hub close, tab cycling, warning close, and Unlock Everything confirm/cancel to `pdgui_nav` helpers.
+- Migrated Mod Manager tab cycling and close to `pdgui_nav` helpers.
+- Migrated Modding Hub tool cycling and close to `pdgui_nav` helpers.
+- Added static coverage so those files cannot reintroduce raw Enter, Space, Escape, arrow, or PageUp/PageDown menu polling.
+
+### Files
+
+- `port/fast3d/pdgui_menu_cheats.cpp`
+- `port/fast3d/pdgui_menu_modmgr.cpp`
+- `port/fast3d/pdgui_menu_moddinghub.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 320 test cases / 17579 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue remaining raw menu-owned groups: training menus, then Solo Mission. Keep tool/editor hotkeys classified separately.
+
+---
+
+## Session S555 - 2026-04-28 - Simple legacy menu back/nav raw-input migration
+
+Continued the raw action input migration after priority navigation and tab sites. Scope stayed on simple legacy menu replacement screens with Back, Done, or list up/down shortcuts.
+
+### Outcome
+
+- Migrated countdown cancel and shared file browser parent navigation to `pdguiMenuCancelPressed()`.
+- Migrated Agent Create cancel, Challenges list/back, Control Diagram back/up/down, MP Advanced back, MP Settings back/Done, MP Setup back, Player Config back, and Team Setup Done to `pdgui_nav` helpers.
+- Added static coverage so those files cannot reintroduce raw Enter, Space, Escape, arrow, or PageUp/PageDown menu polling.
+
+### Files
+
+- `port/fast3d/pdgui_countdown.cpp`
+- `port/fast3d/pdgui_filebrowser.cpp`
+- `port/fast3d/pdgui_menu_agentcreate.cpp`
+- `port/fast3d/pdgui_menu_challenges.cpp`
+- `port/fast3d/pdgui_menu_controldiagram.cpp`
+- `port/fast3d/pdgui_menu_mpadvanced.cpp`
+- `port/fast3d/pdgui_menu_mpsettings.cpp`
+- `port/fast3d/pdgui_menu_mpsetup.cpp`
+- `port/fast3d/pdgui_menu_playerconfig.cpp`
+- `port/fast3d/pdgui_menu_teamsetup.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 319 test cases / 17543 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue remaining raw menu-owned groups in order: cheats/modding panels, training menus, then Solo Mission. Keep tool/editor hotkeys classified separately.
+
+---
+
+## Session S554 - 2026-04-28 - Priority navigation and tab raw-input migration
+
+Continued the raw action input migration after priority confirm/cancel sites. Scope stayed on priority list navigation and tab cycling.
+
+### Outcome
+
+- Added PageUp/PageDown as keyboard defaults for `ACTION_MENU_TAB_PREV` / `ACTION_MENU_TAB_NEXT` in menu and pause contexts while preserving LB/RB as gamepad defaults.
+- Migrated Agent Select accept/cancel/list up/down to `pdgui_nav` helpers.
+- Migrated main-menu Settings tab cycling and Cinema close/select/up/down to `pdgui_nav` helpers.
+- Migrated Room tab cycling and Stats tab/close to `pdgui_nav` helpers.
+- Left the two `renderMainMenu()` PageUp/PageDown calls as a documented transitional ImGui queue drain until backend PageUp injection can be retired with the remaining tab sites.
+- Added static coverage for the migrated priority navigation/tab sites.
+
+### Files
+
+- `port/src/actionmap.cpp`
+- `port/fast3d/pdgui_menu_agentselect.cpp`
+- `port/fast3d/pdgui_menu_mainmenu.cpp`
+- `port/fast3d/pdgui_menu_room.cpp`
+- `port/fast3d/pdgui_menu_stats.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 318 test cases / 17423 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Audit remaining raw ImGui key reads and classify each as a tool/editor exception, transitional ImGui queue drain, or menu-owned action read that must migrate next.
+
+---
+
+## Session S553 - 2026-04-28 - Priority confirm and exit raw-input migration
+
+Continued the raw action input migration after adding the shared helpers. Scope stayed on high-risk confirm and cancel shortcuts in graph-owned or shared modal surfaces.
+
+### Outcome
+
+- Migrated warning-modal typed dialogs, MP End Game, and the PC file-manager placeholder from raw Enter/Space/Escape polling to `pdguiMenuAcceptPressed()` / `pdguiMenuCancelPressed()`.
+- Migrated combat-sim pause End Match, Debug Shortcuts close, and parent pause close shortcuts to the same menu-action helpers.
+- Migrated Room Leave arm, scenario delete confirm, and Leave Room confirm shortcuts to menu-action helpers while preserving the existing debounce and destructive-action confirmation behavior.
+- Added static coverage so those priority sites cannot reintroduce raw Enter, keypad Enter, Space, or Escape polling.
+
+### Files
+
+- `port/fast3d/pdgui_menu_warning.cpp`
+- `port/fast3d/pdgui_menu_pausemenu.cpp`
+- `port/fast3d/pdgui_menu_room.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 317 test cases / 17350 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue raw action input migration for remaining priority navigation and tab-repeat reads.
+
+---
+
+## Session S552 - 2026-04-28 - Raw menu-action helper and first priority exits
+
+Moved from graph-declared transitions into the first raw action input slice. Scope stayed narrow: shared menu helper substrate plus high-risk confirm/cancel paths.
+
+### Outcome
+
+- Added `pdguiMenuActionPressed()`, `pdguiMenuActionHeld()`, `pdguiMenuActionRepeat()`, and named accept/cancel/nav helpers in `pdgui_nav`.
+- Added Space and keypad Enter to menu/pause/debug `ACTION_USE` defaults so existing confirm-modal shortcuts now flow through action-map authority.
+- Migrated `pdguiActionBarButton()` and `pdguiRenderConfirmModal()` off raw Enter/Space/Escape polling.
+- Migrated graph-owned endscreen cancel paths, Network menu Back, Social Lobby disconnect confirm open, MP pause Back helper, and Bot Setup Back helper off raw Escape polling.
+- Added static coverage for the helper API, menu accept bindings, and shared modal/action-bar migration.
+
+### Files
+
+- `port/include/pdgui_nav.h`
+- `port/src/pdgui_nav.c`
+- `port/src/actionmap.cpp`
+- `port/fast3d/pdgui_layout.cpp`
+- `port/fast3d/pdgui_menu_endscreen.cpp`
+- `port/fast3d/pdgui_menu_network.cpp`
+- `port/fast3d/pdgui_menu_lobby.cpp`
+- `port/fast3d/pdgui_menu_mppause.cpp`
+- `port/fast3d/pdgui_menu_botsetup.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 317 test cases / 17319 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue raw action input migration for priority menu exits/confirms, then move to navigation/tab-repeat sites with the new repeat helper.
+
+---
+
+## Session S551 - 2026-04-28 - Agent Select load local graph edge
+
+Continued graph-declared audit after main-menu close. Scope stayed on Agent Select `load`.
+
+### Outcome
+
+- Added `MENU_GRAPH_DEST_LOCAL_OP`, `MenuGraphLocalOpFn`, and `menuGraphFireLocalOp()` for graph edges that mutate local state without pushing, popping, networking, or scene changes.
+- Changed Agent Select `load` from a pop edge to a local-op edge.
+- Added `agentSelectGraphLoad()` to preserve optional pool release, game-file GUID update, save load, and per-agent preference load.
+- Routed the Enter/selected-agent and mouse/selectable load paths through the local-op edge.
+- Left auto-load and copy-confirm load direct because they are not the user-facing Agent Select `load` edge.
+
+### Files
+
+- `port/include/menugraph.h`
+- `port/src/menugraph.c`
+- `port/fast3d/pdgui_menu_agentselect.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 316 test cases / 17299 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Run remaining graph coverage check. If only unused/deferred edges remain, move into raw ImGui key migration behind action-map authority.
+
+---
+
+## Session S550 - 2026-04-28 - Main-menu Close pop graph edge
+
+Continued the main-menu graph audit after Quit. Scope stayed on the existing `MENU_TYPE_MAIN_MENU` `close` edge.
+
+### Outcome
+
+- Added `MenuGraphPopOpFn` and `menuGraphFirePopOp()` for pop edges with required behavior-preserving side effects.
+- Added `pdguiMainMenuGraphClose()` around the existing top-level close behavior: unpause level, call `playerUnpause()`, restore player control, pop the legacy dialog, and defensively pop `g_CtxImGuiMenu` if needed.
+- Routed the top-level main-menu close path through `MENU_TYPE_MAIN_MENU` `close` using the pop-op helper.
+- Added static coverage for the helper and render path.
+
+### Files
+
+- `port/include/menugraph.h`
+- `port/src/menugraph.c`
+- `port/fast3d/pdgui_menu_mainmenu.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 316 test cases / 17285 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Re-run graph coverage audit. Agent Select load remains declared but has in-place load semantics that may need graph redesign rather than a blind pop.
+
+---
+
+## Session S549 - 2026-04-28 - Main-menu Quit process graph edge
+
+Continued the main-menu graph audit after Stats panel open. Scope stayed on the existing `MENU_TYPE_MAIN_MENU` `quit` process edge.
+
+### Outcome
+
+- Added `MenuGraphProcessOpFn` and `menuGraphFireProcessOp()` for process-exit graph edges.
+- Added `pdguiMainMenuGraphQuit()` as a callback around the existing `SDL_QUIT` event post.
+- Routed the Quit confirmation result through `MENU_TYPE_MAIN_MENU` `quit` using the process-op helper.
+- Added static coverage for the helper and render path.
+
+### Files
+
+- `port/include/menugraph.h`
+- `port/src/menugraph.c`
+- `port/fast3d/pdgui_menu_mainmenu.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 315 test cases / 17267 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Finish remaining graph-declared audit before raw key migration. Main-menu close and Agent Select load need special handling because they combine graph edges with behavior-preserving side effects.
+
+---
+
+## Session S548 - 2026-04-28 - Main-menu Stats panel graph edge
+
+Continued the main-menu graph audit after Modding hub open. Scope stayed on the Stats panel open transition.
+
+### Outcome
+
+- Added `MENU_TYPE_MAIN_STATS_VIEW` `open_panel` as a graph push edge targeting `MENU_TYPE_STATS_PANEL`.
+- Added `pdguiMainMenuGraphOpenStatsPanel()` as a callback around the existing `pdguiMenuStatsShow()` behavior.
+- Routed the top-level Stats shortcut through the Stats subview edge and then through `open_panel`.
+- Added static coverage so the render path no longer calls `pdguiMenuStatsShow()` directly.
+
+### Files
+
+- `port/src/menugraph.c`
+- `port/fast3d/pdgui_menu_mainmenu.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 314 test cases / 17254 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue the remaining graph-declared audit. Agent Select load and main-menu quit/close need careful treatment because they are not plain push/pop-without-side-effects.
+
+---
+
+## Session S547 - 2026-04-28 - Main-menu Modding hub graph edge
+
+Continued the main-menu graph audit after the Solo view push-op slice. Scope stayed on the existing `MENU_TYPE_MAIN_MODDING_VIEW` `open_hub` edge.
+
+### Outcome
+
+- Added `pdguiMainMenuGraphOpenModdingHub()` as a callback around the existing `pdguiModdingHubShow()` behavior.
+- Routed the top-level Mods shortcut through the Modding subview edge and then through `open_hub`.
+- Routed the Modding subview's closed-hub `Open Modding Hub` button through the same graph edge.
+- Added static coverage so those render paths no longer call `pdguiModdingHubShow()` directly.
+
+### Files
+
+- `port/fast3d/pdgui_menu_mainmenu.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 313 test cases / 17246 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue remaining graph-declared audit. Stats open lacks a declared open edge, while Agent Select `load` is declared but currently only partly modeled.
+
+---
+
+## Session S546 - 2026-04-28 - Main-menu Solo view push-op graph edges
+
+Continued the priority-node audit after Solo Mission start/restart. Scope stayed on the main-menu Solo subview's two declared push edges.
+
+### Outcome
+
+- Added `MenuGraphPushOpFn` and `menuGraphFirePushOp()` for push edges that must preserve existing handler side effects instead of calling `menuPushDialog()` directly.
+- Routed main-menu Solo Missions through `MENU_TYPE_MAIN_SOLO_VIEW` `solo_missions`, preserving `pdguiSoloMissionReset()` and `menuhandlerMainMenuSoloMissions()`.
+- Routed main-menu Combat Simulator through `MENU_TYPE_MAIN_SOLO_VIEW` `combat_simulator`, preserving `menuhandlerMainMenuCombatSimulator()` and its room-open setup path.
+- Added static coverage for the push-op helper and the main-menu Solo view render path.
+
+### Files
+
+- `port/include/menugraph.h`
+- `port/src/menugraph.c`
+- `port/fast3d/pdgui_menu_mainmenu.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 312 test cases / 17238 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue remaining priority-node audit. Main-menu Modding/Stats overlay edges and Agent Select load are candidates, but raw key migration remains a separate later step.
+
+---
+
+## Session S545 - 2026-04-28 - Solo Mission start/back/restart graph edges
+
+Continued the recursive menu graph migration after endscreen exits. Scope stayed on existing Solo Mission scene/pop edges.
+
+### Outcome
+
+- Added `soloMissionGraphStart()` so Mission Select and Accept Mission start paths preserve the existing `menuhandlerAcceptMission()` bridge and ImGui context pop inside a graph callback.
+- Added `soloMissionGraphRestart()` so the solo pause Restart confirmation preserves catalog-backed stage resolution before `mainChangeToStage()`.
+- Routed Mission Select Start and Accept Mission Accept through `MENU_TYPE_SOLO_MISSION` `start` using `menuGraphFireSceneOp()`.
+- Routed Mission Select Back and Accept Mission Decline through `MENU_TYPE_SOLO_MISSION` `back` using `menuGraphFirePop()`.
+- Routed solo pause Restart through `MENU_TYPE_SOLO_MISSION_PAUSE` `restart` using `menuGraphFireSceneOp()`.
+- Added static coverage for those render paths.
+
+### Files
+
+- `port/fast3d/pdgui_menu_solomission.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 311 test cases / 17218 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue remaining priority-node audit before raw key migration. Inspect graph-declared direct edges still left in main menu, training, cinema, stats, and related menu files.
+
+---
+
+## Session S544 - 2026-04-28 - Endscreen scene graph edges
+
+Continued menu graph migration after the Room node. Scope stayed on endscreen transitions already represented by graph nodes.
+
+### Outcome
+
+- Changed solo endscreen `main_menu` to a scene graph edge because the real behavior must still run the existing endscreen bridge teardown.
+- Routed solo endscreen Continue, Retry, and Main Menu through `MENU_TYPE_ENDSCREEN_SOLO` scene graph callbacks.
+- Routed MP endscreen Return to Room, Play Again, and Quit through `MENU_TYPE_ENDSCREEN_MP` scene graph callbacks.
+- Moved the MP disconnect post-disconnect endscreen exit into the graph-dispatched disconnect callback, keeping the renderer free of direct network/teardown calls.
+- Added static coverage for solo and MP endscreen graph usage and direct-call prevention in the render paths.
+
+### Files
+
+- `port/src/menugraph.c`
+- `port/fast3d/pdgui_menu_endscreen.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 310 test cases / 17193 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue the remaining priority-node audit. Likely next candidate is Solo Mission start/restart/back because it already declares graph edges but still has renderer-local stage calls.
+
+---
+
+## Session S543 - 2026-04-28 - Room Leave graph edge
+
+Continued menu graph migration after Room Start Match. Scope stayed on the remaining declared Room edge.
+
+### Outcome
+
+- Changed `MENU_TYPE_ROOM` `leave_room` to a graph operation edge.
+- Added `roomGraphLeaveRoom()` to preserve solo back-to-menu, client leave packet, listen-host local leave, menu-pool release, setup reset, and return-to-social-lobby behavior.
+- Routed the leave-confirm modal through `MENU_TYPE_ROOM` `leave_room` using `menuGraphFireNetworkOp()`.
+- Added static coverage so `pdguiRoomScreenRender()` no longer directly sends leave packets, calls listen-host leave, or returns online clients to the lobby.
+
+### Files
+
+- `port/src/menugraph.c`
+- `port/fast3d/pdgui_menu_room.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built the affected targets.
+- Isolated `pd-tests.exe`: 309 test cases / 17158 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Room node migration is now covered. Continue remaining priority-node audit with solo mission or endscreen scene edges next.
+
+---
+
+## Session S542 - 2026-04-28 - Room Start Match scene edge
+
+Continued menu graph migration after The Grid enter slice. Scope stayed on the already-declared Room `start_match` edge.
+
+### Outcome
+
+- Extracted the existing Room Start Match switch into `roomGraphStartMatch()`.
+- Preserved Combat Sim solo start, Combat Sim online start, Campaign start, and Counter-Op start behavior.
+- Routed the Start Match button through `MENU_TYPE_ROOM` `start_match` using `menuGraphFireSceneOp()`.
+- Added static coverage so `pdguiRoomScreenRender()` cannot directly call `matchStart()` or `netLobbyRequestStart*()` for Start Match.
+
+### Files
+
+- `port/fast3d/pdgui_menu_room.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built the affected targets.
+- Isolated `pd-tests.exe`: 308 test cases / 17144 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue the remaining priority-node audit. Room Leave is now the main Room edge left, but it needs a behavior-preserving helper because solo and online leave have different side effects.
+
+---
+
+## Session S541 - 2026-04-28 - The Grid enter scene edge
+
+Continued menu graph migration after adding the scene-operation helper. Scope stayed on the already-declared Grid submenu `enter` edge.
+
+### Outcome
+
+- Added `pdguiMainMenuGraphEnterGrid()` as a callback around the existing `gridCommitEnter()` behavior.
+- Routed The Grid Enter through `MENU_TYPE_GRID_SUBMENU` `enter` using `menuGraphFireSceneOp()`.
+- Preserved success behavior, including open-dialog sound and returning to main view.
+- Preserved failure behavior, including staying on the Grid submenu and playing cancel.
+- Added static coverage so `renderGridSubmenu()` cannot call `gridCommitEnter()` directly.
+
+### Files
+
+- `port/fast3d/pdgui_menu_mainmenu.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built the affected targets.
+- Isolated `pd-tests.exe`: 307 test cases / 17133 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue the remaining priority-node audit. Likely next candidates are solo mission menu graph edges or Room start/leave, depending on which can be preserved with the current graph helpers.
+
+---
+
+## Session S540 - 2026-04-28 - Scene-operation graph helper and pause End Match
+
+Continued menu graph migration after the main-menu back-edge slice. Scope added the smallest scene-operation helper needed to migrate a stage-like direct transition without changing stage behavior.
+
+### Outcome
+
+- Added `MenuGraphSceneOpFn` and `menuGraphFireSceneOp()` for `MENU_GRAPH_DEST_SCENE_EVENT` edges.
+- The helper validates edge existence and kind, logs the declared scene event payload, runs a callback, and logs the result.
+- Migrated combat-sim pause End Match through `MENU_TYPE_PAUSE_MENU` `end_mission`.
+- Preserved existing behavior inside `pauseGraphEndMission()`: set player-aborted state, then call `mainEndStage()`.
+- Added static coverage for the helper and for removing direct `pdguiPauseSetPlayerAborted()` / `mainEndStage()` calls from the pause renderer body.
+
+### Files
+
+- `port/include/menugraph.h`
+- `port/src/menugraph.c`
+- `port/fast3d/pdgui_menu_pausemenu.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built the affected targets.
+- Isolated `pd-tests.exe`: 307 test cases / 17128 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Use the scene-operation helper for the next small existing scene/stage graph edge, or move into solo mission push/pop graph migration if no small scene site preserves behavior cleanly.
+
+---
+
+## Session S539 - 2026-04-28 - Main-menu inline back-edge graph firing
+
+Continued menu graph migration after the main-menu inline open slice. Scope stayed on already-declared inline subview `back` edges.
+
+### Outcome
+
+- Added `pdguiMainMenuFireSubviewBackEdge()` to validate the current inline subview's declared `back` edge and destination kind before returning to view 0.
+- Routed shared subview close, Grid Back, Modding Back, and Stats auto-close through the back-edge helper.
+- Left external reset, initial menu open, and Grid Enter direct because they are lifecycle/scene paths, not user back edges.
+- Added static coverage for the back-edge helper and removal of direct top-level-return `pdguiMainMenuSetView(0, "...")` calls for those user back paths.
+
+### Files
+
+- `port/fast3d/pdgui_menu_mainmenu.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built the affected targets.
+- Isolated `pd-tests.exe`: 306 test cases / 17114 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Inspect remaining priority-node direct transitions. The next likely choices are solo mission menu push/pop migration or introducing a small scene-operation helper for stage/endstage paths.
+
+---
+
+## Session S538 - 2026-04-28 - Main-menu inline subview graph firing
+
+Continued menu graph migration after the Room setup subdialog slice. Scope stayed on already-declared main-menu inline subview edges.
+
+### Outcome
+
+- Added `pdguiMainMenuFireSubviewEdge()` to validate `MENU_TYPE_MAIN_MENU` graph edges and destination menu-pool types before changing inline views.
+- Routed top-level Solo Play, Online Play, Settings, Mods, Stats, and The Grid through the inline graph helper.
+- Preserved the existing `pdguiMainMenuSetView()` pool acquire/release behavior and renderer state model.
+- Added static coverage for edge lookup, push-destination validation, and removal of direct top-level `pdguiMainMenuSetView(1..6, "open-*")` calls.
+
+### Files
+
+- `port/fast3d/pdgui_menu_mainmenu.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built the affected targets.
+- Isolated `pd-tests.exe`: 306 test cases / 17103 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Inspect remaining priority-node direct transitions. Most remaining direct sites are scene/stage transitions or broad training/solo stacks, so choose the next slice only after checking whether a small graph helper can preserve current behavior.
+
+---
+
+## Session S537 - 2026-04-28 - Room setup subdialog graph migration
+
+Continued menu graph migration after the warning-modal slice. Scope stayed on Room setup child pushes and did not touch match start or room leave.
+
+### Outcome
+
+- Added `MENU_TYPE_ROOM` graph push edges for Team Setup and Select Music.
+- Migrated Room Team Setup through the `team_setup` graph edge, validating the destination as `MENU_TYPE_MP_TEAM_SETUP`.
+- Migrated Room Select Music through the `select_music` graph edge, validating the destination as `MENU_TYPE_MP_TUNES`.
+- Added static coverage so those Room setup subdialogs cannot reintroduce direct `menuPushDialog()` calls.
+
+### Files
+
+- `port/src/menugraph.c`
+- `port/fast3d/pdgui_menu_room.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test/context files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built the affected targets.
+- Isolated `pd-tests.exe`: 306 test cases / 17092 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Inspect remaining priority-node direct transitions and migrate the next small graph-safe site before Room start/leave.
+
+---
+
+## Session S536 - 2026-04-28 - Warning modal graph pop migration
+
+Continued menu graph migration after the Social Lobby slice. Scope stayed on the declared Warning Modal confirm/cancel pop edges.
+
+### Outcome
+
+- Migrated generic typed-dialog fallback OK through the `MENU_TYPE_WARNING_MODAL` `confirm` graph pop edge.
+- Migrated generic typed-dialog Escape through the `MENU_TYPE_WARNING_MODAL` `cancel` graph pop edge.
+- Migrated MP End Game popup external dismiss, Confirm, and Cancel through warning-modal graph pop edges while preserving the existing legacy End Match selectable handler call.
+- Migrated the PC filemgr placeholder OK/Escape exits through warning-modal graph pop edges.
+- Added static coverage so the warning renderer cannot reintroduce direct `menuPopDialog()` calls.
+
+### Files
+
+- `port/fast3d/pdgui_menu_warning.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built the affected targets.
+- Isolated `pd-tests.exe`: 305 test cases / 17083 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Inspect remaining priority-node direct transitions and migrate the next small graph-safe site before Room start/leave.
+
+---
+
+## Session S535 - 2026-04-28 - Social Lobby graph migration
+
+Continued menu graph migration after the solo pause sibling slice. Scope stayed on the Social Lobby node's declared network operations.
+
+### Outcome
+
+- Migrated Social Lobby Create Room through the `MENU_TYPE_SOCIAL_LOBBY` `create_room` graph network edge.
+- Migrated Social Lobby Disconnect confirmation through the `MENU_TYPE_SOCIAL_LOBBY` `disconnect` graph network edge.
+- Kept the existing create-room packet send and disconnect behavior inside local graph callbacks.
+- Added static coverage so the Social Lobby render path cannot reintroduce direct create-room packet writes or direct `netDisconnect()`.
+
+### Files
+
+- `port/fast3d/pdgui_menu_lobby.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built the affected targets.
+- Isolated `pd-tests.exe`: 304 test cases / 17070 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Inspect remaining priority-node direct transitions and migrate the next small graph-safe site before Room start/leave.
+
+---
+
+## Session S534 - 2026-04-28 - Solo pause sibling graph migration
+
+Continued the solo pause graph migration after S532. Scope stayed on Inventory and Settings, which are legacy next-sibling dialogs rather than ordinary child pushes.
+
+### Outcome
+
+- Added `menuSwitchToDialog()` so graph firing can switch directly to an already-open legacy sibling by dialogdef.
+- Added `MENU_GRAPH_DEST_SWITCH_SIBLING` and `menuGraphFireSwitchSibling()`.
+- Added `MENU_TYPE_SOLO_INVENTORY` and registered solo Inventory and solo Options in the menu pool.
+- Added graph nodes for solo Inventory and solo Options back edges.
+- Migrated solo pause Inventory and Settings through sibling graph edges.
+- Migrated Inventory and Options Back paths through sibling graph edges back to solo pause.
+- Extended static coverage for the new graph destination kind, helper, registrations, renderer calls, and back paths.
+
+### Files
+
+- `src/include/game/menu.h`
+- `src/game/menu.c`
+- `port/include/menupool.h`
+- `port/src/menupool.c`
+- `port/include/menugraph.h`
+- `port/src/menugraph.c`
+- `port/fast3d/pdgui_menu_solomission.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files before the build.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 303 test cases / 17061 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Inspect the remaining priority-node direct transitions and migrate the next small graph-safe site before Room start/leave.
+
+---
+
+## Session S533 - 2026-04-28 - Character metadata lifecycle activation
+
+Continued the catalog-owned asset pipeline after S531. Scope stayed on composite catalog entries that should not become generic byte payloads. Note: S532 belongs to the parallel input/menu graph lane.
+
+### Outcome
+
+- Added `ASSET_CHARACTER` to metadata runtime lifecycle activation.
+- Composite character entries now activate as catalog metadata rather than loading `bodyfile` as an opaque byte payload.
+- Static coverage now pins `ASSET_CHARACTER` in the metadata lifecycle type set.
+
+### Files
+
+- `port/src/assetcatalog_load.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `catalog-s506`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session catalog-s506 -Target all` passed for `pd` and `pd-server`.
+- Isolated Ninja build passed for `pd-tests`.
+- Isolated `pd-tests.exe`: 303 test cases / 17032 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. Candidate: audit remaining generic byte payload types (`ASSET_ANIMATION`, `ASSET_TEXTURES`, `ASSET_SFX`, `ASSET_MUSIC`, `ASSET_UI`, `ASSET_TOOL`, `ASSET_VEHICLE`, `ASSET_MISSION`) and choose only domains with clear provider/source ownership.
+
+---
+
+## Session S532 - 2026-04-28 - Solo pause graph migration, first slice
+
+Continued menu graph migration after MP pause. Scope stayed on solo in-mission pause transitions that do not require changing legacy sibling-stack behavior.
+
+### Outcome
+
+- Split `MENU_TYPE_SOLO_MISSION_PAUSE` onto its own graph edge set instead of reusing the generic pause edges.
+- Migrated solo pause Resume/Back through the `resume` graph pop edge.
+- Migrated solo pause Abort through the `abort` graph warning-modal push edge.
+- Added static coverage so the solo pause renderer cannot reintroduce direct Resume/Back `menuPopDialog()` or direct `menuPushDialog(&g_MissionAbortMenuDialog)` for Abort.
+- Left solo pause Inventory and Settings direct for the next slice because they are legacy next-sibling dialogs, not ordinary child pushes.
+
+### Files
+
+- `port/src/menugraph.c`
+- `port/fast3d/pdgui_menu_solomission.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `git diff --check` passed for the touched code/test files.
+- `.\devtools\build-session.ps1 -Session ix46 -Target all` was invoked first but stalled in client compile with idle CMake/Ninja children after the command timeout. Stale `ix46` locks were removed only after confirming no compiler or Ninja process was active.
+- Direct isolated Ninja in `.claude/session-builds/ix46` built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 303 test cases / 17031 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Add the smallest proper graph helper for solo pause Inventory/Settings next-sibling transitions, then continue the menu graph migration before Room start/leave.
+
+---
+
+## Session S531 - 2026-04-28 - Map metadata lifecycle activation
+
+Continued the catalog-owned asset pipeline after S530. Scope stayed on typed lifecycle domains that should be metadata-owned rather than file-loaded.
+
+### Outcome
+
+- Added `ASSET_MAP` to metadata runtime lifecycle activation.
+- Stage/catalog map entries now activate as catalog metadata instead of reaching generic provider/path loading.
+- Refreshed stale screen-manifest and net-manifest comments that still described untyped `catalogLoadAsset()` / `catalogUnloadAsset()` behavior.
+- Static coverage now pins `ASSET_MAP` in the metadata lifecycle type set.
+
+### Files
+
+- `port/src/assetcatalog_load.c`
+- `port/src/net/netmanifest.c`
+- `port/src/screenmfst.c`
+- `port/include/screenmfst.h`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `catalog-s506`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session catalog-s506 -Target all` passed for `pd` and `pd-server`.
+- Isolated Ninja build passed for `pd-tests`.
+- Isolated `pd-tests.exe`: 303 test cases / 17031 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. Candidate: audit whether `ASSET_CHARACTER` should become metadata/composite activation rather than generic bodyfile byte loading, or leave it for the body/head composite migration.
+
+---
+
+## Session S530 - 2026-04-28 - Typed lifecycle fallback confinement
+
+Continued the catalog-owned asset pipeline after S529. Scope stayed on separating typed lifecycle behavior from legacy untyped path fallback.
+
+### Outcome
+
+- Confined generic raw path fallback to legacy untyped `catalogLoadAsset()` compatibility.
+- `catalogLoadTypedAsset()` callers that reach the generic lifecycle branch now require a provider handle and fail loud with `CATALOG.LIFECYCLE.LOAD` when missing.
+- Provider load failure in the typed generic branch now returns failure instead of falling through to `s_catalogLoadEntryFromPath()`.
+- Static coverage pins the typed/untyped boundary and keeps the untyped path fallback visibly separate.
+
+### Files
+
+- `port/src/assetcatalog_load.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `catalog-s506`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session catalog-s506 -Target all` passed for `pd` and `pd-server`.
+- Isolated Ninja build passed for `pd-tests`.
+- Isolated `pd-tests.exe`: 303 test cases / 17030 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. Candidate: audit remaining legacy untyped lifecycle call sites and remove or narrow `catalogLoadAsset()` path fallback once all callers are migrated to typed/provider-owned flows.
+
+---
+
+## Session S529 - 2026-04-28 - Model lifecycle provider-handle tightening
+
+Continued the catalog-owned asset pipeline after S528. Scope stayed on typed lifecycle activation for model payloads.
+
+### Outcome
+
+- Tightened model-like typed lifecycle activation so `ASSET_MODEL`, `ASSET_WEAPON`, `ASSET_BODY`, `ASSET_HEAD`, and `ASSET_PROP` require a catalog provider handle.
+- Missing model payload provider handles now fail loud with `CATALOG.LIFECYCLE.ACTIVATE` instead of falling through to generic path loading.
+- Static coverage now pins the provider-handle miss wording alongside the handle-aware modeldef activation path.
+
+### Files
+
+- `port/src/assetcatalog_load.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `catalog-s506`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session catalog-s506 -Target all` passed for `pd` and `pd-server`.
+- Isolated Ninja build passed for `pd-tests`.
+- Isolated `pd-tests.exe`: 302 test cases / 17024 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. Candidate: split the generic path fallback into legacy/untyped compatibility only so typed lifecycle calls for remaining migrated domains fail loud on missing provider handles.
+
+---
+
+## Session S528 - 2026-04-28 - Audio lifecycle provider-handle tightening
+
+Continued the catalog-owned asset pipeline after S527. Scope stayed on component audio, without sweeping the older `ASSET_SFX` / `ASSET_MUSIC` compatibility path.
+
+### Outcome
+
+- Tightened `ASSET_AUDIO` runtime lifecycle activation to require a catalog provider handle.
+- Preserved the existing `ASSET_SFX` / `ASSET_MUSIC` no-provider compatibility behavior for now.
+- Fixed distributed `audio.ini` hot-registration so a missing `file_path` does not synthesize a `destdir/` file provider handle through the central audio registration helper.
+- Removed the now-duplicated manual audio `catalogSetPrimary(e, fileProviderHandle(fullfile))` call from the distributed hot-registration special case; the typed registrar owns that source handle.
+- Static coverage now pins the `ASSET_AUDIO` provider-handle check and the distributed empty-path guard.
+
+### Files
+
+- `port/src/assetcatalog_load.c`
+- `port/src/net/netdistrib.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `catalog-s506`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session catalog-s506 -Target all` passed for `pd` and `pd-server`.
+- Isolated Ninja build passed for `pd-tests`.
+- Isolated `pd-tests.exe`: 302 test cases / 17023 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. Candidate: audit remaining `entryGetFilePath()` consumers and separate legacy override-path compatibility from typed lifecycle provider requirements.
+
+---
+
+## Session S527 - 2026-04-28 - Texture lifecycle provider-only activation
+
+Continued the catalog-owned asset pipeline after S526. Scope stayed on reducing typed lifecycle fallback reliance now that file-backed registration owns source handles.
+
+### Outcome
+
+- Tightened `ASSET_TEXTURE` typed lifecycle activation to require a catalog provider handle.
+- Removed the raw path `fsFileLoad()` fallback from texture payload activation.
+- Missing texture provider handles now fail loud with `CATALOG.LIFECYCLE.ACTIVATE` rather than loading outside the provider layer.
+- Static coverage now requires the provider-handle miss wording and guards against reintroducing the raw texture path-load fallback.
+
+### Files
+
+- `port/src/assetcatalog_load.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `catalog-s506`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session catalog-s506 -Target all` passed for `pd` and `pd-server`.
+- Isolated Ninja build passed for `pd-tests`.
+- Isolated `pd-tests.exe`: 302 test cases / 17021 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. Candidate: move audio runtime activation for `ASSET_AUDIO` to provider-handle-only while preserving base bundled SFX/music behavior.
+
+---
+
+## Session S526 - 2026-04-28 - Central file-backed provider handles
+
+Continued the catalog-owned asset pipeline after S525. Scope stayed on source-handle ownership now that temporary ROM model fallbacks are gone.
+
+### Outcome
+
+- Added a central `assetCatalogSetPrimaryFileIfPresent()` helper in catalog registration.
+- Typed file-backed registration helpers now populate `entry->source.primary` from their declared file fields:
+  - character `bodyfile`
+  - weapon/prop `model_file`
+  - texture/audio `file_path`
+  - HUD `texture_file`
+- Direct registration callers such as audio menus, mod manager, scanner, and distributed hot-registration now get catalog provider handles from the registration API itself. Scanner/distribution-specific `catalogSetPrimary()` calls remain compatible reinforcement for this slice.
+- Added static coverage pinning the central registration helper and each file-backed registration field.
+
+### Files
+
+- `port/src/assetcatalog.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `catalog-s506`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session catalog-s506 -Target all` passed for `pd` and `pd-server`.
+- Isolated Ninja build passed for `pd-tests`.
+- Isolated `pd-tests.exe`: 302 test cases / 17020 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. The likely next step is reducing `entryGetFilePath()` fallback reliance for file-backed lifecycle loaders now that central registration owns source handles.
+
+---
+
+## Session S525 - 2026-04-28 - Player weapon ROM fallback removal
+
+Continued the catalog-owned asset pipeline after S524. Scope stayed on the final remaining temporary ROM model fallback site.
+
+### Outcome
+
+- Removed the first-person player weapon model no-handle ROM fallback.
+- Player weapon model loading now uses `modeldefLoadFromHandle()` only when `catalogResolveModelByModelnum()` supplies a provider handle.
+- Missing player weapon provider handles now log `CATALOG.MISS`, leave `weaponmodeldef = NULL`, and use the existing "weapon will be hidden" warning path.
+- Tightened static coverage so the temporary ROM fallback allowlist is empty across runtime/model bridge files.
+- Source scan confirmed the fallback wording remains only inside the static test guard.
+
+### Files
+
+- `src/game/player.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `catalog-s506`; did not use shared `Build/`.
+- Isolated build passed for `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 300 test cases / 17002 assertions passed.
+- Source scans:
+  - `temporary ROM fallback` appears only in `tests/test_catalog_provider_static.cpp`.
+  - Removed raw model fallback patterns are absent from production model bridge files.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. With temporary ROM model fallbacks removed, the next likely step is a broader source-handle coverage audit for catalog entries that still rely on `entryGetFilePath()` ext/path fallback rather than `entry->source.primary`.
+
+---
+
+## Session S524 - 2026-04-28 - First-person gun ROM fallback removal
+
+Continued the catalog-owned asset pipeline after S523. Scope stayed on the first-person gun queued model loader for hand/gun/cart model files.
+
+### Outcome
+
+- Removed the first-person gun queued-load no-handle ROM fallback.
+- `bgunResolveQueuedModelHandle()` now logs `CATALOG.MISS` without advertising or allowing a temporary ROM fallback.
+- Queued gun/hand/cart size and load helpers now return `0` / `NULL` when no provider handle exists, using the existing load-failure path instead of loading outside the provider layer.
+- Tightened static coverage so `src/game/bondgun.c` cannot reintroduce the temporary ROM fallback, raw `assetLoadRomToAddr`, or raw queued `fileGetInflatedSize` path.
+
+### Files
+
+- `src/game/bondgun.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `catalog-s506`; did not use shared `Build/`.
+- Isolated build passed for `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 300 test cases / 17001 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. The remaining temporary ROM model fallback allowlist should now be down to `src/game/player.c`.
+
+---
+
+## Session S523 - 2026-04-28 - Menu raw model ROM fallback removal
+
+Continued the catalog-owned asset pipeline after S521. Scope stayed on the raw menu model preview source-filenum bridge.
+
+### Outcome
+
+- Removed the raw menu model preview no-handle ROM fallback.
+- `menuRenderModel()` now logs `CATALOG.MISS` and skips the preview when a raw model filenum cannot resolve to a catalog/provider handle.
+- The raw preview path now loads only through `modeldefLoadFromHandle()` and uses provider-aware loaded-size accounting.
+- Tightened static coverage so `src/game/menu.c` cannot reintroduce the temporary ROM fallback, raw `modeldefLoad((u16)source_filenum)`, or raw `fileGetInflatedSize(source_filenum, LOADTYPE_MODEL)` path.
+
+### Files
+
+- `src/game/menu.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `catalog-s506`; did not use shared `Build/`.
+- Isolated build passed for `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 300 test cases / 16997 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. Remaining temporary ROM model fallback sites are first-person gun loads and player weapon model loads.
+
+---
+
+## Session S522 - 2026-04-28 - MP pause graph migration
+
+Continued menu graph migration after Agent Select. Scope stayed on MP pause's simple pop and warning-modal push transitions.
+
+### Outcome
+
+- Migrated MP pause Resume/Back through the `MENU_TYPE_MP_PAUSE` `resume` graph pop edge.
+- Added a `MENU_TYPE_MP_PAUSE` `end_game` edge targeting `MENU_TYPE_WARNING_MODAL`.
+- Migrated MP pause End Game warning-modal push through `menuGraphFirePushDialog()`.
+- Added static tests that guard MP pause close and End Game helpers from direct pop/push reintroduction.
+
+### Files
+
+- `port/src/menugraph.c`
+- `port/fast3d/pdgui_menu_mppause.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session ix46 -Target all` built `pd` and `pd-server`.
+- Isolated Ninja build then built and ran `pd-tests`.
+- `pd-tests.exe`: 300 test cases / 16993 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue menu graph migration by inspecting remaining priority-node direct transitions and migrate the next small one before attempting Room start/leave.
+
+---
+
+## Session S521 - 2026-04-28 - Modelcatalog ROM fallback removal
+
+Continued the catalog-owned asset pipeline after S519. Scope stayed on the modelcatalog validation bridge, not player-facing model load paths.
+
+### Outcome
+
+- Removed the `modelcatalog` no-handle ROM model fallback.
+- `catalogValidateResolveHandle()` now logs `CATALOG.MISS` without advertising or allowing a temporary ROM fallback.
+- `safeModeldefLoad()` only loads through `modeldefLoadToNewFromHandle()` when a provider handle exists.
+- `catalogValidateSourceMissing()` treats a null provider handle as missing source data.
+- Tightened static coverage so `port/src/modelcatalog.c` cannot reintroduce the temporary ROM fallback or raw `modeldefLoadToNew(filenum)` path.
+
+### Files
+
+- `port/src/modelcatalog.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `catalog-s506`; did not use shared `Build/`.
+- Isolated build passed for `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 300 test cases / 16993 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. Remaining temporary ROM model fallback sites are first-person gun loads, player weapon model loads, and raw menu model previews.
+
+---
+
+## Session S520 - 2026-04-28 - Agent Select graph migration
+
+Continued menu graph migration after the MP endscreen disconnect slice. Scope stayed on the Agent Select priority node's simple dialog transitions.
+
+### Outcome
+
+- Registered `g_FilemgrEnterNameMenuDialog` as `MENU_TYPE_AGENT_CREATE`.
+- Migrated Agent Select New Agent pushes through the graph `create` edge.
+- Migrated Agent Select Back through the graph `back` edge.
+- Added static tests that guard Agent Select from reintroducing direct enter-name dialog push or direct pop in the renderer.
+
+### Files
+
+- `port/src/menupool.c`
+- `port/fast3d/pdgui_menu_agentselect.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session ix46 -Target all` built `pd` and `pd-server`.
+- Isolated Ninja build then built and ran `pd-tests`.
+- `pd-tests.exe`: 299 test cases / 16981 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue menu graph migration by inspecting remaining priority-node direct transitions and migrate the next small one before attempting Room start/leave.
+
+---
+
+## Session S519 - 2026-04-28 - Title model ROM fallback removal
+
+Continued the catalog-owned asset pipeline after S517. Scope stayed on one typed model domain with existing `ASSET_MODEL` provider handles.
+
+### Outcome
+
+- Removed the title/logo model no-handle ROM fallback.
+- `titleLoadModeldefToAddr()` now logs `CATALOG.MISS` and returns `NULL` if `catalogResolveModelByModelnum()` returns no provider handle.
+- `titleGetLoadedModelSize()` now logs `CATALOG.MISS` and returns `0` on a missing provider handle instead of using `fileGetLoadedSize()`.
+- Tightened the temporary-ROM-fallback static allowlist so `src/game/title.c` cannot reintroduce the fallback.
+
+### Files
+
+- `src/game/title.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `catalog-s506`; did not use shared `Build/`.
+- Isolated build passed for `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 298 test cases / 16973 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. Remaining temporary ROM model fallback sites are menu raw model previews, first-person gun loads, player weapon model loads, and modelcatalog validation.
+
+---
+
+## Session S518 - 2026-04-28 - MP endscreen disconnect graph migration
+
+Continued menu graph migration after Network paths. Scope stayed on the smallest MP endscreen direct transition.
+
+### Outcome
+
+- Migrated MP endscreen Disconnect confirmation through the `MENU_TYPE_ENDSCREEN_MP` `disconnect` graph network edge.
+- Preserved the existing `pdguiEndscreenExitToMainMenu()` path after the graph-dispatched disconnect.
+- Added a static test guard so `renderMpEndscreen()` cannot reintroduce direct `netDisconnect()`.
+
+### Files
+
+- `port/fast3d/pdgui_menu_endscreen.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session ix46 -Target all` built `pd` and `pd-server`.
+- Isolated Ninja build then built and ran `pd-tests`.
+- `pd-tests.exe`: 298 test cases / 16970 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue menu graph migration with the next safe priority-node direct transitions, likely Room start/leave if behavior surface stays small after inspection.
+
+---
+
+## Session S517 - 2026-04-28 - Catalog file-backed scanner provider handles
+
+Continued the catalog-owned asset pipeline after S515. Scope stayed on source-handle normalization for file-backed catalog entries and did not remove any fallback path.
+
+### Outcome
+
+- Local component scanning now records catalog primary `FileProvider` handles for `ASSET_TEXTURE` `file_path`, `ASSET_AUDIO` `file_path`, and `ASSET_HUD` `texture_file` fields.
+- Static coverage now requires local scanner and network-distributed hot-registration paths to keep texture/audio/HUD file fields provider-backed.
+
+### Files
+
+- `port/src/assetcatalog_scanner.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `catalog-s506`; did not use shared `Build/`.
+- Isolated build passed for `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 298 test cases / 16970 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. Good candidate: begin replacing the remaining warning-backed no-handle ROM fallback in one typed model domain now that source handles are more consistently populated.
+
+---
+
+## Session S516 - 2026-04-28 - Network menu graph migration
+
+Continued menu graph migration after the edge substrate. Scope stayed on Network priority-node transitions and the duplicate main-menu Online connect path.
+
+### Outcome
+
+- Added graph helpers for network operations and pop transitions.
+- Added `MENU_TYPE_NETWORK_JOINING` and registered `g_NetJoiningDialog`.
+- Migrated Network menu Stop Hosting, pre-host disconnect, Host, host-success pop, Join, Joining dialog push, and Back through graph helpers.
+- Migrated main-menu Online direct connect and recent-server connect through `MENU_TYPE_MAIN_ONLINE_VIEW` graph edges.
+- Added static tests that guard Network menu and main-menu Online paths from reintroducing direct network, joining-dialog push, or pop calls inside the renderers.
+
+### Files
+
+- `port/include/menupool.h`
+- `port/src/menupool.c`
+- `port/include/menugraph.h`
+- `port/src/menugraph.c`
+- `port/fast3d/pdgui_menu_network.cpp`
+- `port/fast3d/pdgui_menu_mainmenu.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session ix46 -Target all` built `pd` and `pd-server`.
+- Isolated Ninja build then built and ran `pd-tests`.
+- `pd-tests.exe`: 296 test cases / 16953 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue menu graph migration with the next safe priority-node direct transitions, likely Room start/leave or endscreen disconnect/continue after inspecting behavior surface.
+
+---
+
+## Session S515 - 2026-04-28 - Catalog weapon/prop model provider handles
+
+Continued the catalog-owned asset pipeline after S510/S514 parallel work. Scope stayed on provider handle wiring for model-file declarations and weapon model payload activation; warning-backed ROM fallbacks remain only as temporary bridges for uncataloged legacy sources.
+
+### Outcome
+
+- Added `ASSET_WEAPON` to the typed model payload lifecycle path so provider-backed weapon entries activate through `modeldefLoadToNewFromHandle()` and cache `ASSET_PAYLOAD_STAGE_MODELDEF` like model/body/head/prop entries.
+- Local component scanning now converts weapon and prop `model_file` INI fields into catalog primary `FileProvider` handles.
+- Network-distributed hot registration now restores provider handles for character `bodyfile`, weapon `model_file`, and prop `model_file` after extracting the transferred component.
+- Corrected distributed provider handle restoration to resolve relative file fields against the extracted component directory, and added hot-registration coverage for `prop.ini`, `texture.ini`, `audio.ini`, and `hud.ini`.
+- Added static coverage so weapon/prop model-file provider wiring and weapon model payload activation cannot silently regress.
+
+### Files
+
+- `port/src/assetcatalog_load.c`
+- `port/src/assetcatalog_scanner.c`
+- `port/src/net/netdistrib.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `catalog-s506`; did not use shared `Build/`.
+- The sandboxed Ninja run hit Git safe-directory ownership checks after CMake regeneration; reran the same isolated build/test command outside the sandbox.
+- Isolated build passed for `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 294 test cases / 16925 assertions passed.
+- Follow-up isolated rebuild after distributed path correction passed for `pd`, `pd-server`, and `pd-tests`.
+- Follow-up isolated `pd-tests.exe`: 296 test cases / 16955 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. Good candidates: finish distributed provider handle restoration for other file-backed ext fields, then remove one warning-backed ROM fallback where a typed provider API now exists.
+
+---
+
+## Session S514 - 2026-04-28 - Menu graph edge substrate
+
+Continued menu graph migration after main-menu subview pool ownership. Scope stayed on graph descriptors and validated dialog pushes.
+
+### Outcome
+
+- Added `menugraph.h` and `menugraph.c`.
+- Declared graph nodes for main menu, main-menu subviews, solo mission, room, solo/MP endscreen, pause variants, social lobby, network, agent select, and warning modal.
+- Added edge lookup and destination-kind name helpers.
+- Added `menuGraphFirePushDialog()`, which validates the edge and the destination menu-pool type before calling `menuPushDialog()`.
+- Migrated the main-menu Change Agent and Cheats pushes through the graph.
+- Added static tests for graph substrate coverage, priority nodes, push validation, and the first migrated main-menu push sites.
+
+### Files
+
+- `port/include/menugraph.h`
+- `port/src/menugraph.c`
+- `port/fast3d/pdgui_menu_mainmenu.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session ix46 -Target all` built `pd` and `pd-server`.
+- Isolated Ninja build then built and ran `pd-tests`.
+- `pd-tests.exe`: 294 test cases / 16925 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue menu graph migration by adding validated graph helpers for network and pop transitions, then migrate the next safe Network menu and main-menu Online direct call sites.
+
+---
+
+## Session S513 - 2026-04-28 - Main-menu subview pool ownership
+
+Continued menu graph migration after vehicle and observer layer wiring. Scope stayed on K.7's first safe step: give inline main-menu subviews real menu-pool ownership before adding broader priority-node edge execution.
+
+### Outcome
+
+- Added pure-ImGui menu-pool identities for main-menu Solo, Settings, Modding, Online, and Stats subviews.
+- Kept the existing Grid submenu identity and moved it onto the common main-menu subview transition path.
+- Added `pdguiMainMenuSetView()` so all `s_MenuView` changes acquire/release the matching subview pool slot and log `MENU_GRAPH` diagnostics.
+- Added render-sync handling so a retained subview reacquires its pool slot after a bulk teardown.
+- Removed the Grid-only pool transition branch.
+- Added static tests that guard the subview identities, mapping, transition helper, render-sync call, and the rule that raw `s_MenuView` assignment is limited to the declaration and helper.
+
+### Files
+
+- `port/include/menupool.h`
+- `port/src/menupool.c`
+- `port/fast3d/pdgui_menu_mainmenu.cpp`
+- `tests/test_menu_graph.cpp`
+- `CMakeLists.txt`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session ix46 -Target all` built `pd` and `pd-server`.
+- Isolated Ninja build then built and ran `pd-tests`.
+- `pd-tests.exe`: 293 test cases / 16881 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue menu graph migration by adding the edge substrate and priority-node descriptors, then migrate the next safe direct menu transition call sites.
+
+---
+
+## Session S512 - 2026-04-28 - Vehicle and observer layer wiring
+
+Continued the approved input-universality tracker after cutscene network semantics. Scope stayed on vehicle driver and observer layer ownership; no vehicle turret work, no raw ImGui sweep, and no broad scene manager expansion.
+
+### Outcome
+
+- Declared the vehicle driver action set and wired push/pop/abort callbacks to own `g_ImcVehicle` activation plus transition flushing.
+- Migrated hoverbike mount/dismount from direct `imcVehicleMount()` / `imcVehicleDismount()` calls to `sceneFire(SCENE_EVENT_VEHICLE_BOARD/_DISMOUNT)`.
+- Declared the observer action set and wired observer push/pop/abort flushing. Observer pop/abort also deactivate Forge IMCs as cleanup.
+- Wired Forge session/freefly entry and inactive exit through observer scene events while preserving the existing Forge IMC behavior.
+- Wired spectator live/theater entry and stop/shutdown through observer scene events.
+- Added observer source tracking in the scene manager so Forge and spectator cannot pop each other's observer layer handle.
+- Added static tests for vehicle and observer action sets, callbacks, scene events, Forge helpers, spectator helpers, and observer source guard behavior.
+
+### Files
+
+- `port/src/inputlayer.c`
+- `port/include/scene.h`
+- `port/src/scene.c`
+- `src/game/bondbike.c`
+- `src/game/forgemode.c`
+- `port/src/spectator.c`
+- `tests/test_vehicle_observer_layer.cpp`
+- `CMakeLists.txt`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session ix46 -Target all` built `pd` and `pd-server`.
+- Isolated Ninja build then built and ran `pd-tests`.
+- `pd-tests.exe`: 291 test cases / 16843 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue the tracker with menu graph migration: introduce real menu graph edges for priority menus and convert the first main-menu subviews to real `MENU_TYPE_*` pushes per K.7.
+
+---
+
+## Session S511 - 2026-04-28 - Cutscene network semantics v46
+
+Continued the approved input-universality path after the cutscene protection gates. Scope stayed narrow: no raw ImGui key sweep, no menu graph migration, and no dedicated-server productization work.
+
+### Outcome
+
+- Completed cutscene network semantics on the existing v46 protocol. S507 already claimed v46 for mandatory mod-transfer digest, so this slice appended the cutscene semantics without bumping again.
+- `SVC_CUTSCENE` now writes and reads `active` plus `player_mask`; clients set per-player cutscene state from the mask and fire the scene cutscene start/end events from server state.
+- Added `CLC_CUTSCENE_SKIP` (0x17). Net clients send this after the 30-frame gate and do not locally end the cutscene; the server binds the request to `srccl->playernum` and ignores untrusted payload player numbers.
+- Cutscene protection now narrows by `playerInCutscene(i)` instead of protecting every player chr while any player is in cutscene.
+- AI script skip checks now observe any server-validated cutscene skip request so remote client skip requests can drive the existing script branch.
+- Added focused static tests for the v46 cutscene message shape, CLC dispatch, authority binding, mask handling, protection narrowing, and client skip request path.
+
+### Files
+
+- `port/include/net/netmsg.h`
+- `port/src/net/netmsg.c`
+- `port/src/net/net.c`
+- `port/include/net/net.h`
+- `src/include/game/player.h`
+- `src/game/player.c`
+- `src/game/chraicommands.c`
+- `tests/test_cutscene_layer.cpp`
+- `tests/test_versions.cpp`
+- Context updates: `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/networking.md`, `context/constraints.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build session id `ix46`; did not use shared `Build/`.
+- `.\devtools\build-session.ps1 -Session ix46 -Target all` built `pd` and `pd-server`.
+- Isolated Ninja build then built and ran `pd-tests`.
+- `pd-tests.exe`: 289 test cases / 16786 assertions passed.
+- Usual stub logs still appeared:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue the task tracker with vehicle and observer layer wiring: bike mount/dismount plus Forge/observer entry/exit should flow through `sceneFire` and tracked layer handles while preserving existing IMC behavior.
+
+---
+
+## Session S510 - 2026-04-28 - Catalog effect metadata runtime activation
+
+Continued typed catalog lifecycle coverage after S509. Scope stayed on metadata-owned assets and avoided broad file-backed domain migration.
+
+### Outcome
+
+- Extended metadata runtime activation to `ASSET_EFFECT`.
+- Effect entries now activate through catalog lifecycle as `ASSET_PAYLOAD_RUNTIME_ACTIVE` rather than falling through to generic provider/path byte loading.
+- Updated the static metadata lifecycle guard to require effect coverage alongside HUD, bot-profile, arena, gamemode, skin, and bot-variant.
+
+### Files
+
+- `port/src/assetcatalog_load.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `catalog-s506`; did not use shared `Build/`.
+- Incremental isolated Ninja pass built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 288 test cases / 16777 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. Remaining metadata-only candidates need another ownership check before activation; file-backed domains stay deferred.
+
+---
+
+## Session S509 - 2026-04-28 - Catalog skin/bot metadata runtime activation
+
+Continued metadata-only catalog lifecycle coverage after S508. Scope stayed on descriptor assets whose scanners/distribution paths only populate catalog extension fields.
+
+### Outcome
+
+- Extended metadata runtime activation to `ASSET_SKIN` and `ASSET_BOT_VARIANT`.
+- Updated the static metadata lifecycle guard so HUD, bot-profile, arena, gamemode, skin, and bot-variant remain covered by the runtime-active metadata path.
+- While verifying in the shared worktree, repaired small build blockers from parallel lanes:
+  - Added `pdgui_scaling.h` include for `pdgui_friends.cpp`.
+  - Matched `netmsgSvcCutsceneWrite` implementation/read path to the new `{active, player_mask}` signature.
+  - Kept the v46 `CLC_CUTSCENE_SKIP` dispatch case single and reachable.
+  - Added dedicated-server stubs for newly referenced inventory/cutscene helpers so `pd-server` remains buildable.
+
+### Files
+
+- `port/src/assetcatalog_load.c`
+- `tests/test_catalog_provider_static.cpp`
+- Parallel-lane build repairs: `port/fast3d/pdgui_friends.cpp`, `port/src/net/netmsg.c`, `port/src/net/net.c`, `port/src/server_stubs.c`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Used isolated build directory session id `catalog-s506`; did not use shared `Build/`.
+- Incremental isolated Ninja pass built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 288 test cases / 16776 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. Continue using isolated build id `catalog-s506` until cleanup.
+
+---
+
+## Session S508 - 2026-04-28 - Catalog selector metadata runtime activation
+
+Continued typed catalog lifecycle coverage after S505. Scope stayed on selector-style metadata assets that are represented by catalog/ext fields rather than independently owned loaded bytes.
+
+### Outcome
+
+- Extended metadata runtime activation to `ASSET_ARENA` and `ASSET_GAMEMODE`.
+- These selector metadata entries now become `ASSET_STATE_ACTIVE` with `ASSET_PAYLOAD_RUNTIME_ACTIVE` when loaded through catalog lifecycle, matching the existing HUD / bot-profile metadata path.
+- Left file-backed UI/effect/animation/map paths unchanged.
+- Updated the static metadata lifecycle guard to require HUD, bot-profile, arena, and gamemode coverage.
+
+### Files
+
+- `port/src/assetcatalog_load.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Per Mike's instruction, used isolated build directory session id `catalog-s506`; did not use shared `Build/`.
+- `devtools/build-session.ps1 -Session catalog-s506 -Target all` produced an isolated Ninja tree but exited at the configure wrapper step without surfacing a CMake diagnostic.
+- Continued verification inside the same isolated build directory with Ninja: built `pd`, `pd-server`, and `pd-tests`.
+- Isolated `pd-tests.exe`: 286 test cases / 16733 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. Continue using isolated build id `catalog-s506` for this lane until cleanup.
+
+---
+
+## Session S507 - 2026-04-28 - Client-hosted trust/security hardening
+
+Read the required server/trust context, `server-architecture.md`, `hosting-modes-listen-vs-dedicated.md`, and the relevant security audits. Scope stayed on client-hosted/listen online shipping; standalone dedicated-server product work remains deferred.
+
+### Outcome
+
+- Closed the SEC-5 gap in mod distribution by making the actual archive transfer self-authenticating: `SVC_DISTRIB_BEGIN` now carries the SHA-256 digest of the compressed PDCA archive bytes, and clients verify that digest before decompression/extraction.
+- Bumped `NET_PROTOCOL_VER` to 46 and updated the version pin test. Mixed v45/v46 peers are rejected at the existing ENet protocol handshake.
+- Hardened malformed wire strings: a zero-length encoded string now returns a safe empty string and cannot make callers scan into the next payload field.
+- Tightened connect-code address validation across current join surfaces: raw IPs are not prefilled or advertised, 4-word and 6-word codes are decoded through `connectCodeDecodeWithPort`, trailing garbage is rejected, server history displays connect codes, and host lobby codes preserve non-default listen ports.
+- Closed the first stat-integrity gap found in the client-hosted path: remote `CLC_MOVE` weapon-select requests are now checked against the listen host's server-side inventory for that player before the server accepts the switch. Invalid selects are logged and stripped from the move packet.
+- Corrected connect-code comments to the pinned host-order convention.
+- Confirmed updater signing design is already implemented in the current tree: mandatory `.sha256` plus Ed25519 `.sig` verification over `sha256(zip)||tag`, embedded public key, and init self-test.
+
+### Files
+
+- `port/include/net/net.h`
+- `port/include/net/netmsg.h`
+- `port/include/net/netdistrib.h`
+- `port/src/net/netmsg.c`
+- `port/src/net/netdistrib.c`
+- `port/src/net/netbuf.c`
+- `port/include/connectcode.h`
+- `port/src/connectcode.c`
+- `port/fast3d/pdgui_menu_network.cpp`
+- `port/fast3d/pdgui_menu_mainmenu.cpp`
+- `port/fast3d/pdgui_menu_lobby.cpp`
+- `port/src/net/netmenu.c`
+- `tests/test_versions.cpp`
+- `tests/test_netbuf.cpp`
+- `tests/test_connectcode.cpp`
+- Context updates: `context/constraints.md`, `context/tasks-current.md`, `context/session-log.md`, `context/bugs.md`
+
+### Verification
+
+- `git diff --check` passed for the touched trust/security files.
+- Used isolated build session id `sec507` as directed: `.\devtools\build-session.ps1 -Session sec507 -Target all`.
+- The isolated build did not reach compilation; CMake configure spun for about 18 minutes and exited before producing a complete build.
+- Cleaned up the partial isolated directory with `.\devtools\build-session.ps1 -Remove -Session sec507`.
+- Later CMake/Ninja processes from another parallel session were visible and were left untouched.
+
+### Next
+
+- First rerun the isolated build/test pass once the configure hang is resolved. Then continue the same trust/security lane with one more low-risk malformed-packet audit around pre-auth/lobby packet length and count fields.
+
+---
+
+## Session S506 - 2026-04-28 - Cutscene protection gates
+
+Continued the input infrastructure completion tracker after per-player cutscene state migration. Scope stayed on the K.3 protection flag and canonical gates, without starting the v46 wire-mask work.
+
+### Outcome
+
+- Added `chr->cutscene_protect` to `struct chrdata` and initialized it in `chrInit()`.
+- Added `playerRefreshCutsceneProtect()` so per-player cutscene state changes protect all allocated player chrs while any player is in cutscene. This preserves current global cutscene behavior until the player-mask network slice lands.
+- `chrDamage()` now ignores protected targets and logs `CUTSCENE.DAMAGE.IGNORED`.
+- `chrCompareTeams(..., COMPARE_ENEMIES)` no longer classifies protected targets as enemies.
+- `chrHasLosToChr()` and `botIsTargetInvisible()` treat protected targets as invisible.
+- Added a static pd-test guard for the protection field, refresh path, damage gate, enemy gate, LOS gate, and bot invisibility gate.
+
+### Files
+
+- `src/include/types.h`
+- `src/game/chr.c`
+- `src/game/player.c`
+- `src/game/chraction.c`
+- `src/game/bot.c`
+- `tests/test_cutscene_layer.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`
+
+### Verification
+
+- `git diff --check` passed for the protection slice.
+- Prescribed MSYS2/Ninja flow passed: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- `pd-tests.exe`: 286 test cases / 16727 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Start the next tracked item: v46 cutscene network semantics with `SVC_CUTSCENE` player mask and `CLC_CUTSCENE_SKIP`.
+
+---
+
+## Session S505 - 2026-04-28 - Catalog temporary ROM fallback visibility
+
+Continued the catalog/provider migration after S502. Scope stayed on the remaining approved ROM fallback bridge rather than removing it, per Mike's direction that preserving the ROM fast path is acceptable only as a temporary sub-step toward full migration.
+
+### Outcome
+
+- Made the player weapon model no-handle path emit a throttled `CATALOG.MISS` warning before using the temporary ROM fallback.
+- Added a source-wide static guard that confines `temporary ROM fallback` wording to the known catalog/provider bridge files.
+- Added a focused assertion that the player weapon fallback remains explicit and warning-backed while it exists.
+- Left the actual ROM fallback behavior unchanged for this slice.
+
+### Files
+
+- `src/game/player.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Prescribed MSYS2/Ninja flow built `pd`, `pd-server`, and `pd-tests`.
+- The first full `pd-tests.exe` pass reported one stale input static-test failure after the build linked tests early, but the current source already contained the expected invariant.
+- Re-ran `pd-tests.exe` with `devtools/build-env.sh` loaded: 286 test cases / 16727 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. The remaining visible debt is still the allowlisted no-handle model fallback set in bondgun/menu/player/title/modelcatalog.
+
+---
+
+## Session S503 - 2026-04-28 - Quality pd-tests invariant expansion
+
+Read the required context, testing framework notes, QC checklist, bug list, and active audits, then started the requested recursive `pd-tests` expansion against the next highest-risk invariants. Scope stayed on tests/guardrails; no gameplay production behavior was intentionally changed.
+
+### Outcome
+
+- Chose catalog/provider identity first because B-264/B-265 showed numeric identity confusion across catalog domains and the catalog pipeline is an active work front.
+- Added a source-wide static guard that confines generic `catalogIdByRuntime(ASSET_MAP/MODEL/BODY/HEAD/WEAPON/GAMEMODE, ...)` usage to `assetcatalog_api.c`, forcing production call sites through typed helpers.
+- Started the next recursive slice for network packet parsing: added spawn-weapon v45 wire tests for `SVC_STAGE_START` and `CLC_LOBBY_START` so the new `spawnWeaponMode` / `spawnWeaponNum` bytes cannot shift the following mod-track or handicap fields.
+- Added a malformed-tail test that confirms a truncated `SVC_STAGE_START` spawn tail trips the netbuf error path.
+- Added a static production-order guard over `port/src/net/netmsg.c` for the v45 spawn-weapon field order.
+- During build-environment recovery, fixed `cmake/TargetArch.cmake` so the generated architecture detector uses `#else` before the fallback `cmake_ARCH unknown` marker. This patch is unverified because Mike asked to skip build attempts while he works on the wrapper solution.
+
+### Files
+
+- `tests/test_catalog_provider_static.cpp`
+- `tests/test_spawn_weapon_mode.cpp`
+- `cmake/TargetArch.cmake`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Before the build directory was disrupted, the focused catalog identity test passed: `[catalog][identity][static]` with 1391 assertions.
+- The full then-current `pd-tests.exe` passed before the network-wire slice was added: 269 test cases / 12329 assertions.
+- The network-wire tests and `TargetArch.cmake` patch have not been build-verified. Build attempts stopped after Mike said to skip build for now.
+
+### Next
+
+- First, verify the network-wire slice once the build-wrapper solution lands.
+- Then continue the recursive quality lane by choosing manifest malformed-input behavior or save-migration/version gating as the next highest-risk uncovered invariant.
+
+---
+
+## Session S504 - 2026-04-28 - Concurrent session build isolation
+
+### Outcome
+
+- Added `devtools/build-session.ps1` as the per-session test-build wrapper.
+- The wrapper keeps `build-headless.ps1` as the canonical build path and forwards `-OutputDir .claude/session-builds/<session-id>`, so simultaneous sessions do not share `Build/`, `CMakeCache.txt`, `.ninja_log`, generated headers, or clean steps.
+- Runs the canonical headless build as a child PowerShell process because `build-headless.ps1` intentionally calls `exit`; this lets the wrapper release its lock and print cleanup guidance after the child exits.
+- Added per-session lock files under `.claude/session-builds/.locks/` so accidental reuse of the same session id fails clearly instead of corrupting a build directory.
+- Added maintenance modes: `-List`, `-Remove -Session <id>`, `-RemoveAll`, and `-Force` for confirmed stale-lock cleanup.
+- Added `.claude/session-builds/` to `.gitignore`.
+- Documented the workflow in `AGENTS.md`, `context/build.md`, `context/CRITICAL-PROCEDURES.md`, and `context/tasks-current.md`.
+
+### Files
+
+- `devtools/build-session.ps1`
+- `.gitignore`
+- `AGENTS.md`
+- Context updates: `context/build.md`, `context/CRITICAL-PROCEDURES.md`, `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- PowerShell parser check passed for `devtools/build-session.ps1`.
+- `build-session.ps1 -List` smoke test passed and reports no existing `.claude/session-builds/` directory yet.
+- `git diff --check` passed for the touched files using Git for Windows with a one-command `safe.directory` override. MSYS/devkitPro git still fails in this sandbox with Win32 signal-pipe/CreateFileMapping errors.
+- Full C/C++ compile was not run because this is a doc/tooling-only change and the wrapper delegates actual builds to the existing headless script.
+
+### Next
+
+- For concurrent AI/code builds, use `.\devtools\build-session.ps1 -Session <short-session-id> -Target all`.
+- Clean up after a session with `.\devtools\build-session.ps1 -Remove -Session <short-session-id>`.
+
+---
+
+## Session S502 - 2026-04-28 - Catalog metadata runtime payload activation
+
+Continued typed payload activation coverage after S499's lifecycle guardrail. Scope stayed on metadata-only runtime assets whose catalog/ext data is already the runtime payload.
+
+### Outcome
+
+- Added `s_catalogTypeUsesMetadataRuntimePayload()` for metadata-only runtime asset types.
+- Added `s_catalogLoadEntryMetadataPayload()` and routed `ASSET_HUD` / `ASSET_BOT_PROFILE` lifecycle loads through it.
+- These entries now become `ASSET_STATE_ACTIVE` with `ASSET_PAYLOAD_RUNTIME_ACTIVE` instead of falling through to generic byte loading. Release detaches the catalog reference while catalog/runtime metadata remains owned by its subsystem.
+- Left file-backed map/UI/effect/animation paths unchanged.
+- Added a focused static guard for the metadata runtime payload hook.
+
+### Files
+
+- `port/src/assetcatalog_load.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Prescribed MSYS2/Ninja flow passed: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- `pd-tests.exe`: 282 test cases / 15299 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next safe catalog/provider slice. Remaining obvious options are explicit no-handle fallback narrowing, or typed payload activation for another class only if ownership is clear.
+
+---
+
+## Session S501 - 2026-04-28 - Social shell input ownership
+
+Continued the controller-first modern main menu / Social shell after reading the connectivity design, ImGui context, menu-stack architecture, flat-navigation rules, controller-input constraints, and input-authority docs.
+
+### Outcome
+
+- Added `MENU_TYPE_SOCIAL_SHELL` as the pure-ImGui pool identity for the friends sidebar, Social menu, chat panel, profile modal, convert-to-mod modal, add-friend modal, and NAT diagnostics.
+- `pdgui_friends.cpp` now synchronizes that pool slot with `g_CtxImGuiMenu` whenever any interactive social surface is open. This keeps the Social shell under input-context ownership instead of relying on raw ImGui window booleans.
+- Controller Back (`ACTION_CANCEL_USE`) now closes the top Social shell surface: chat first, then Social menu, then sidebar. Blocking modals keep focus and close themselves.
+- Profile, convert-to-mod, add-friend, and NAT diagnostics close from `ACTION_CANCEL_USE` as well as their visible buttons.
+- Friend rows now render as bordered controller-first cards with large actions.
+- Chat attachment actions, incoming invites, public-mod download/removal entry points, block-list unblock, replay actions, listening-room track actions, settings copy, and add-friend paste now use regular focused buttons instead of dense `SmallButton` clusters.
+
+### Files
+
+- `port/include/menupool.h`
+- `port/src/menupool.c`
+- `port/fast3d/pdgui_friends.cpp`
+- `port/fast3d/pdgui_nat_diagnostics.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`, `context/build.md`
+
+### Verification
+
+- `git diff --check` passed for the touched social/menu-pool files after the input-ownership and action-row slices.
+- Build was initially skipped by Mike's instruction after two build-environment failures:
+  - `.\devtools\build-headless.ps1` exited during configure with a PowerShell runspace exception.
+  - `C:\msys64\usr\bin\bash.exe -lc ...` failed with `fatal error - couldn't create signal pipe, Win32 error 5`.
+- Mike then provided the isolated build rule. Attempted `.\devtools\build-session.ps1 -Session s501ui -Target all`; it correctly used `.claude/session-builds/s501ui` but hit the same PowerShell runspace exception during configure.
+- Cleanup succeeded with `.\devtools\build-session.ps1 -Remove -Session s501ui`.
+- A later isolated `s501ui` build attempt stayed in configure until the Codex tool timed out at 120s. The timeout left a stale `s501ui` lock and an orphaned child build process tree; after confirming the recorded lock PID no longer existed, cleanup succeeded with `.\devtools\build-session.ps1 -Remove -Session s501ui -Force`, and the orphaned child processes from that build were stopped. `s501ui` no longer appears in `.\devtools\build-session.ps1 -List`.
+- Isolated build rule + caveat recorded in `context/build.md` so later sessions avoid shared `Build/` and do not rediscover the same failure.
+
+### Next
+
+- Re-run the prescribed build once Mike's build wrapper solution lands.
+- Run a gamepad-only pass over sidebar, Social tabs, chat, invites, profile/public mods, add-friend, and NAT diagnostics; tune row heights/focus order if any card clips at Mike's test resolution.
+- If that pass is clean, continue the modern-main-menu shell by wiring first-screen entry points for Social / Public Mods / Settings through ImGui/menu-pool ownership only.
+
+---
+
+## Session S500 - 2026-04-28 - Per-player cutscene state accessors
+
+Continued the input infrastructure completion tracker after B-267 propagation. Scope stayed on per-player cutscene state only, without raw ImGui migration or network protocol changes.
+
+### Outcome
+
+- Added `struct playercutscenestate` and embedded it in `struct player`.
+- Added cutscene state accessors and reset/sync helpers in `player.c` / `player.h`.
+- Migrated active gameplay, render, audio, pickup, AI script, and viewport call sites off direct reads of `g_Vars.in_cutscene`, `g_InCutscene`, and the cutscene skip/anim/frame globals.
+- Kept legacy globals as compatibility shims in the sync point, declarations, initialization, server-only stubs, and macro bridge until the tracked shim-retirement step.
+- Added static pd-tests that guard migrated paths against reintroducing direct cutscene global state reads.
+
+### Files
+
+- `src/include/types.h`
+- `src/include/game/player.h`
+- `src/game/player.c`
+- `src/game/playermgr.c`
+- `src/game/playerreset.c`
+- `src/game/chraction.c`
+- `src/game/chraicommands.c`
+- `src/game/chr.c`
+- `src/game/lv.c`
+- `src/game/hudmsg.c`
+- `src/lib/vi.c`
+- `src/lib/model.c`
+- `src/game/prop.c`
+- `src/game/propobj.c`
+- `src/game/mplayer/mplayer.c`
+- `src/game/menu.c`
+- `src/game/sky.c`
+- `src/game/bondgun.c`
+- `src/game/nbomb.c`
+- `port/src/net/netmsg.c`
+- `tests/test_cutscene_layer.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`
+
+### Verification
+
+- `git diff --check` passed for the input-state migration files.
+- Prescribed MSYS2/Ninja flow passed: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- `pd-tests.exe`: 281 test cases / 15294 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Start the next tracked item: `chr->cutscene_protect` and canonical damage/hostility protection gates.
+
+---
+
+## Session S499 - 2026-04-28 - Untyped lifecycle production guardrail
+
+Follow-up guardrail after S498's typed release/retain internal refactor.
+
+### Outcome
+
+- Added a source-wide static test that prevents production code from calling untyped lifecycle functions (`catalogLoadAsset()`, `catalogUnloadAsset()`, `catalogRetainAsset()`, `catalogReleaseAsset()`) outside the catalog implementation/header and server stubs.
+- This upgrades the earlier focused lifecycle callsite guard into a broader production boundary check while preserving the compatibility API internally.
+
+### Files
+
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Prescribed MSYS2/Ninja flow passed: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- `pd-tests.exe`: 281 test cases / 15294 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine whether the next safe slice should target remaining explicit no-handle fallbacks or typed payload activation coverage for another asset class.
+
+---
+
+## Session S498 - 2026-04-28 - Typed lifecycle release/retain internals
+
+Continued toward typed catalog retain/release loaders after the modelnum API guardrail.
+
+### Outcome
+
+- Split catalog release/unload behavior into an entry-level internal helper, `s_catalogUnloadEntry()`.
+- Split catalog retain behavior into an entry-level internal helper, `s_catalogRetainEntry()`.
+- `catalogReleaseTypedAsset()` and `catalogRetainTypedAsset()` now validate type, resolve the mutable entry, and call the internal entry-level helpers directly instead of bouncing through the untyped public wrappers.
+- Dependency cascade unloads now resolve the dependency entry and call the internal entry-level helper directly.
+- Added a static guard that prevents typed retain/release and dependency cascade paths from regressing to `catalogUnloadAsset(assetId)`, `catalogUnloadAsset(dep_id)`, or `catalogRetainAsset(assetId)`.
+
+### Files
+
+- `port/src/assetcatalog_load.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Prescribed MSYS2/Ninja flow passed: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- `pd-tests.exe`: 278 test cases / 13801 assertions passed.
+- Re-ran after adding the source-wide untyped lifecycle production guardrail: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe` passed.
+- `pd-tests.exe`: 281 test cases / 15294 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue typed lifecycle cleanup by identifying any remaining untyped public lifecycle surface that can be narrowed without breaking legacy/component callers.
+
+---
+
+## Session S497 - 2026-04-28 - Catalog modelnum API guardrail
+
+Follow-up guardrail after S496's modelnum API normalization.
+
+### Outcome
+
+- Added a source-wide static test that keeps deprecated prop-named model wrappers (`catalogGetPropHandle()`, `catalogGetPropFilenumByIndex()`) confined to `assetcatalog.h` / `assetcatalog_api.c`.
+- This locks the migrated production surface onto the explicit modelnum APIs while keeping compatibility wrappers available inside the catalog API during the transition.
+
+### Files
+
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Prescribed MSYS2/Ninja flow passed: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- `pd-tests.exe`: 277 test cases / 13795 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Continue against the remaining explicit temporary ROM fallbacks: first-person gun no-handle, menu raw filenum preview no-handle, player weapon no-handle, title no-handle, and `modelcatalog` validation no-handle.
+
+---
+
+## Session S496 - 2026-04-28 - Catalog modelnum API normalization
+
+Continued typed identity normalization for model numbers after centralizing source-filenum handle lookup. Scope stayed on `MODEL_*` / `g_ModelStates[]` identity: the previous provider APIs worked, but their prop-named surface was misleading for generic modelnum callers.
+
+### Outcome
+
+- Added explicit modelnum catalog APIs:
+  - `catalog_model_result_t`
+  - `catalogResolveModel()`
+  - `catalogResolveModelByModelnum()`
+  - `catalogGetModelHandle()`
+  - `catalogGetModelFilenumByModelnum()`
+- Kept the old `catalogGetPropHandle()` and `catalogGetPropFilenumByIndex()` as compatibility wrappers over the new modelnum APIs.
+- Migrated live modelnum load sites in `title.c`, `player.c`, and `setuputils.c` from prop-named accessors to typed modelnum result APIs.
+- Preserved no-handle ROM fallback behavior for title/menu-style legacy sources while making the typed catalog result the first-class path.
+- Added a static guard so the migrated modelnum load sites stay off prop-named APIs.
+- Updated the provider constraint text to point modelnum loads at `catalogResolveModelByModelnum()` / `catalogGetModelHandle()`; `catalogGetPropHandle()` is now documented as a compatibility wrapper only.
+
+### Files
+
+- `port/include/assetcatalog.h`
+- `port/src/assetcatalog_api.c`
+- `src/game/title.c`
+- `src/game/player.c`
+- `src/game/setuputils.c`
+- `tests/stubs.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/constraints.md`, `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- `Build/build.ninja` was missing after the previous green run; `devtools/build-headless.ps1` hit a PowerShell runspace exception before it could reconfigure.
+- Reconfigured `Build/` directly through the same pinned MSYS2 CMake/Ninja environment used by the prescribed build flow.
+- Prescribed MSYS2/Ninja flow then passed: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- `pd-tests.exe`: 276 test cases / 12403 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)`
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next remaining warning-backed fallback that can be safely narrowed or migrated now that modelnum callers have explicit typed APIs.
+
+---
+
+## Session S495 - 2026-04-28 - Catalog source-filenum handle lookup centralization
+
+Continued the main Catalog-Owned Asset Pipeline lane after typed texture payload activation. Scope stayed intentionally narrow: keep the temporary ROM fast path, but move repeated source-filenum reverse handle resolution into the catalog API.
+
+### Outcome
+
+- Added `catalogHandleBySourceFilenum(asset_type_e type, s32 source_filenum)` as the catalog-owned helper for converting a legacy source filenum into the effective provider handle for a typed asset entry.
+- Migrated local reverse-lookup loops in first-person gun async loads, raw menu model previews, and `modelcatalog` validation from `catalogIdBySourceFilenum()` + `assetCatalogResolve()` + `catalogEffectiveHandle()` to the shared helper.
+- Preserved the existing warning-backed no-handle ROM fallbacks for uncataloged legacy sources. This is still a temporary bridge, not a permanent endpoint.
+- Added a focused static guard so these migrated source-filenum bridge callsites keep using the shared catalog helper.
+
+### Files
+
+- `port/include/assetcatalog.h`
+- `port/src/assetcatalog_api.c`
+- `src/game/title.c`
+- `src/game/player.c`
+- `src/game/setuputils.c`
+- `src/game/bondgun.c`
+- `src/game/menu.c`
+- `port/src/modelcatalog.c`
+- `tests/stubs.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Prescribed MSYS2/Ninja flow passed: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- `pd-tests.exe`: 269 test cases / 12329 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Determine the next warning-backed fallback that has enough typed provider/catalog support to migrate safely, then continue recursively.
+
+---
+
+## Session S494 - 2026-04-28 - Input B-267 propagation audit
+
+Follow-up to Mike's direct question on whether the B-267 fix was applied everywhere it needed to be. Scope stayed narrow to cutscene and transition lifecycle wiring.
+
+### Outcome
+
+- Answer: the initial B-267 fix covered the central solo/local endstage path, but not every active lifecycle entry point.
+- Audited cutscene, endstage, stage transition, disconnect, and network cutscene paths.
+- Confirmed active client builds use `port/src/pdmain.c`; stale legacy `src/lib/main.c` is not compiled. Added a static guard so that assumption is checked by `pd-tests`.
+- Patched remaining active lifecycle roots:
+  - `port/src/net/netmsg.c::netmsgSvcCutsceneRead()` now maps `SVC_CUTSCENE active=1/0` to `SCENE_EVENT_CUTSCENE_START` / `SCENE_EVENT_CUTSCENE_END` on client builds.
+  - `port/src/net/net.c::netDisconnect()` now fires `SCENE_EVENT_DISCONNECT` before menu-pool teardown and in-game return-to-title cleanup.
+  - `src/game/player.c::playerSetTickMode()` now fires `SCENE_EVENT_CUTSCENE_END` when any path leaves `TICKMODE_CUTSCENE`, covering exits that bypass `playerEndCutscene()`.
+- Extended `tests/test_cutscene_layer.cpp` with static lifecycle wiring coverage for `mainEndStage`, stage ready/teardown, tickmode exit, network cutscene sync, disconnect, and the stale-main exclusion.
+
+### Files
+
+- `src/game/player.c`
+- `port/src/net/net.c`
+- `port/src/net/netmsg.c`
+- `tests/test_cutscene_layer.cpp`
+- Context updates: `context/bugs.md`, `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- `git diff --check` passed for the input-system files and related context updates.
+- Prescribed MSYS2/Ninja flow passed: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- `pd-tests.exe`: 267 test cases / 10926 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Mike playtest B-267 again: deliberate skip into endscreen, then continue to next mission. Expected log: cutscene IMC deactivates at endstage/teardown or disconnect, and the next intro logs a fresh cutscene activation.
+- If playtest passes, continue sequentially with per-player cutscene state migration.
+
+---
+
+## Session S493 - 2026-04-28 - Catalog model payload activation
+
+Continued the main Catalog-Owned Asset Pipeline lane after the bondgun async bridge and the parallel audit/guardrail sessions.
+
+### Outcome
+
+- Added `asset_payload_kind_t` and `asset_entry_t::payload_kind` so catalog lifecycle can distinguish raw byte payload ownership from activated model payload ownership.
+- `catalogLoadTypedAsset()` now activates/caches promoted modeldef payloads for model-like types (`ASSET_MODEL`, `ASSET_BODY`, `ASSET_HEAD`, `ASSET_PROP`) through `modeldefLoadToNewFromHandle()`.
+- Model payload lifecycle entries now store the promoted modeldef in `entry->loaded_data`, set `ASSET_PAYLOAD_STAGE_MODELDEF`, and advance to `ASSET_STATE_ACTIVE`.
+- Added `catalogGetLoadedModeldef()` as the typed query surface for catalog-owned activated model payloads.
+- Release now frees `ASSET_PAYLOAD_SYSMEM_BYTES` with `sysMemFree`, but only detaches `ASSET_PAYLOAD_STAGE_MODELDEF` modeldefs and calls provider unload. This avoids blindly freeing stage-pool model memory.
+- Added the first non-model typed activation hook: `ASSET_LANG` lifecycle loads now call `langManifestEnsureId()`, mark the catalog entry active, and use `ASSET_PAYLOAD_RUNTIME_ACTIVE` so release detaches the catalog reference while the language subsystem owns actual memory lifetime.
+- Added typed audio runtime activation: `ASSET_AUDIO`, `ASSET_SFX`, and `ASSET_MUSIC` lifecycle loads now validate that a provider/path exists and mark the entry active with `ASSET_PAYLOAD_RUNTIME_ACTIVE` instead of reading whole audio files as generic byte blobs.
+- Added typed individual texture activation: `ASSET_TEXTURE` lifecycle loads now use a texture-specific hook, stores loaded bytes as `ASSET_PAYLOAD_SYSMEM_BYTES`, and marks the entry active. Texture packs/directories remain component-level assets rather than single texture payloads.
+- Added a static test guard for the model payload activation path.
+- Added the payload ownership rule to `constraints.md`.
+
+### Files
+
+- `port/include/assetcatalog.h`
+- `port/include/assetcatalog_load.h`
+- `port/src/assetcatalog.c`
+- `port/src/assetcatalog_load.c`
+- `port/src/assetcatalog_api.c`
+- `src/game/bondgun.c`
+- `src/game/menu.c`
+- `port/src/modelcatalog.c`
+- `tests/stubs.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/constraints.md`, `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Prescribed MSYS2/Ninja flow passed: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- `pd-tests.exe`: 263 test cases / 10891 assertions passed.
+- Re-ran after typed language activation hook: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe` passed.
+- `pd-tests.exe`: 265 test cases / 10916 assertions passed.
+- Re-ran after typed audio activation hook: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe` passed.
+- `pd-tests.exe`: 266 test cases / 10921 assertions passed.
+- Re-ran after typed texture activation hook: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe` passed.
+- `pd-tests.exe`: 267 test cases / 10926 assertions passed.
+- Re-ran after source-filenum handle lookup centralization: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe` passed.
+- `pd-tests.exe`: 269 test cases / 12329 assertions passed.
+- Reconfigured `Build/` after `build.ninja` went missing, then re-ran after typed modelnum API normalization: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe` passed.
+- `pd-tests.exe`: 276 test cases / 12403 assertions passed.
+- Re-ran after adding the source-wide prop-named wrapper guardrail: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe` passed.
+- `pd-tests.exe`: 277 test cases / 13795 assertions passed.
+- Re-ran after typed lifecycle release/retain internals refactor: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe` passed.
+- `pd-tests.exe`: 278 test cases / 13801 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Expand typed payload activation beyond models: audio/lang/texture need type-specific activate/deactivate hooks and payload ownership kinds.
+- Continue replacing warning-backed no-handle fallbacks only when the target domain has a typed provider API.
+
+---
+
+## Session S492 - 2026-04-28 - Input B-267 cutscene lifecycle cleanup
+
+Focused the next sequential input slice after Mike's B-266 playtest. Scope stayed narrow: cutscene layer cleanup on skip-to-endstage and stage teardown only. No raw ImGui input migration and no broad scene-manager rewrite.
+
+### Outcome
+
+- Confirmed B-267 root cause from `Build/pd-client.log`: deliberate cutscene skip entered endscreen without a matching cutscene layer pop, leaving `g_ImcCutscene` active under the endscreen and next mission.
+- Wired production lifecycle roots:
+  - `port/src/main.c` now initializes input layer + scene manager after action-map binds load, and shuts them down during exit.
+  - `port/src/pdmain.c::mainEndStage()` now fires `SCENE_EVENT_CUTSCENE_END` before endscreen preparation.
+  - `port/src/pdmain.c` stage load/unload paths now fire `SCENE_EVENT_STAGE_READY` / `SCENE_EVENT_STAGE_TEARDOWN`.
+- Added `inputLayerHandleDistanceFromTop()` so scene code can reason about cached handles without touching opaque input-layer internals.
+- Hardened tracked scene close: if the target layer is not top, scene aborts from top through that target and clears all cached handles in the aborted range.
+- Added focused B-267 tests for skip-to-endstage cleanup before next mission intro and nested tracked close where a menu layer is above cutscene.
+
+### Files
+
+- `port/src/main.c`
+- `port/src/pdmain.c`
+- `port/include/inputlayer.h`
+- `port/src/inputlayer.c`
+- `port/src/scene.c`
+- `tests/inputlayer_pure.c`
+- `tests/inputlayer_pure.h`
+- `tests/scene_pure.c`
+- `tests/test_scene_dispatch.cpp`
+- `tests/test_cutscene_layer.cpp`
+- Context updates: `context/bugs.md`, `context/tasks-current.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`, `context/session-log.md`
+
+### Verification
+
+- Prescribed MSYS2/Ninja flow passed: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- `pd-tests.exe`: 262 test cases / 10883 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Mike playtest B-267: deliberate skip into endscreen, then continue to next mission. Expected log: cutscene IMC deactivates at endstage/teardown before the next intro, and the next intro logs a fresh cutscene activation.
+- If playtest passes, continue sequentially with per-player cutscene state migration.
+
+---
+
+## Session S491 - 2026-04-28 - Catalog provider-surface guardrails
+
+Focused the Catalog-Owned Asset Pipeline guardrail lane. Scope stayed on provider-surface audit and static enforcement, with one isolated cleanup. No runtime loader restructuring, no dedicated-server productization, and no broker/plugin ABI work.
+
+### Outcome
+
+- Audited source for raw `romProviderHandle()`, `assetprovider_internal.h`, direct RomProvider assumptions, and RomProvider-only loader wording/guards outside approved catalog/provider internals.
+- No raw `romProviderHandle()` calls or `assetprovider_internal.h` includes were found outside the established catalog/provider allowlist.
+- Fixed the one isolated direct provider assumption found: `port/src/modelcatalog.c` now uses `assetLoadGetInflatedSize(handle, LOADTYPE_MODEL)` for catalog/provider-backed missing-source prechecks instead of branching on `handle.provider == romProvider()`. Null handles still use the temporary ROM fallback for uncataloged legacy sources.
+- Broadened `tests/test_catalog_provider_static.cpp`:
+  - source-wide allowlist check for raw `romProviderHandle()`;
+  - source-wide allowlist check for `assetprovider_internal.h`;
+  - source-wide allowlist check for RomProvider-specific provider comparisons and `romProviderFilenum()`;
+  - typed lifecycle boundary check now covers `lv.c`, `screenmfst.c`, and `netmanifest.c`;
+  - existing modeldef and first-person gun async checks still guard against RomProvider-only wording/gating regressions.
+
+### Files
+
+- `port/src/modelcatalog.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Prescribed MSYS2/Ninja flow passed: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- `pd-tests.exe`: 260 test cases / 10865 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- Keep this lane to guardrails/static checks. Runtime loader/payload ownership work stays with the main Catalog-Owned Asset Pipeline session.
+- Continue replacing warning-backed no-handle fallbacks only as each domain gets a typed provider API.
+
+---
+
+## Session S491 - 2026-04-28 - Catalog domain migration audit
+
+Focused Catalog-Owned Asset Pipeline cleanup slice. Scope was domain migration audit and low-risk callsite cleanup only. No edits to the protected read-only files: `src/game/bondgun.c`, `src/game/modeldef.c`, `src/include/types.h`, or `port/src/assetcatalog_load.c`.
+
+### Outcome
+
+- Added typed `catalogGameModeIdByScenarioIndex()` for MPSCENARIO / `ext.gamemode.mode_id` identity. The helper preserves the existing runtime-cache fast path and falls back to scanning game-mode entries by `mode_id`.
+- Migrated the remaining production `ASSET_GAMEMODE` `catalogIdByRuntime` fallbacks to the typed helper:
+  - `port/src/scenario_save.c`
+  - `port/src/savefile.c`
+  - `port/src/net/net.c`
+  - `port/src/net/matchsetup.c`
+  - `port/src/net/netmsg.c`
+  - `port/fast3d/pdgui_menu_room.cpp`
+- Migrated the room screen Campaign and Counter-Op mission-start paths from `catalogIdByRuntime(ASSET_MAP, stagenum)` to `catalogStageIdByStagenum()`.
+- Extended `tests/test_catalog_provider_static.cpp` with a focused static guard so the migrated game-mode and room-stage boundaries do not regress to generic runtime lookup.
+- Audit result: no production raw `catalogLoadAsset()` / `catalogUnloadAsset()` call sites remain outside `port/src/assetcatalog_load.c` and `port/src/server_stubs.c`; other hits are comments, declarations, implementation, or static tests.
+
+### Remaining
+
+- Source-filenum bridge probes remain in `src/game/menu.c`, `src/game/bondgun.c`, and `port/src/modelcatalog.c`. They resolve legacy file numbers back to catalog/provider handles and should move with the main payload-promotion/provider session.
+- Direct model/file fallback paths remain where no provider handle exists: title/menu/player/modelcatalog fallbacks and any first-person gun no-handle fallback paths. These were deliberately recorded, not edited, under this cleanup lane.
+
+### Files
+
+- `port/include/assetcatalog.h`
+- `port/src/assetcatalog_api.c`
+- `port/src/scenario_save.c`
+- `port/src/savefile.c`
+- `port/src/net/net.c`
+- `port/src/net/matchsetup.c`
+- `port/src/net/netmsg.c`
+- `port/fast3d/pdgui_menu_room.cpp`
+- `tests/stubs.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Prescribed MSYS2/Ninja flow passed: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- `pd-tests.exe`: 260 test cases / 10865 assertions passed.
+
+---
+
+## Session S490 - 2026-04-28 - Bondgun async provider payload sizes
+
+Continued the Catalog-Owned Asset Pipeline toward the sprint completion boundary. Main-session lane owned the first-person weapon async loader; parallel prompts were prepared for domain-audit/static-guardrail sessions that avoid the same files.
+
+### Outcome
+
+- Closed the known `bgunTickGunLoad` bridge where the async hand/gun/cart loader restored `g_FileInfo[loadfilenum]` across texture and display-list ticks.
+- Kept the existing multi-tick behavior, but stores the queued model's loaded/allocation sizes in `gunctrl.fileinfo` immediately after provider-aware load.
+- Added `modeldefPromoteDisplayListsUsingSizes(...)`, a public size-driven wrapper around the existing display-list promotion implementation. Legacy `modeldef0f1a7560(...)` still updates `g_FileInfo[]` for old ROM callers.
+- `bgunQueuedLoadCanUseHandle(...)` now accepts any non-null provider handle; non-ROM handles no longer route to the temporary ROM fallback solely because they are not RomProvider.
+- Added a static guard proving the first-person gun async loader does not restore `g_FileInfo[]` or regress to RomProvider-only gating.
+
+### Files
+
+- `src/game/bondgun.c`
+- `src/game/modeldef.c`
+- `src/include/game/modeldef.h`
+- `src/include/types.h`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Prescribed MSYS2/Ninja flow passed: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- `pd-tests.exe`: 256 test cases / 6658 assertions passed.
+- Usual stub logs still appear:
+  - `[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)`
+  - `[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)`
+
+### Next
+
+- If verification passes, continue with catalog-owned model payload activation/cache state and type-specific activate/deactivate hooks.
+- Keep replacing warning-backed no-handle fallbacks only when a typed provider API exists for that domain.
+
+---
 
 ## Session S489 - 2026-04-28 - Input action-set transition flush
 
@@ -38,11 +2912,16 @@ Focused input infrastructure slice, kept narrow per Mike's directive. No raw ImG
 
 - Prescribed MSYS2/Ninja flow: `pd`, `pd-server`, and `pd-tests` passed.
 - `pd-tests.exe`: 253 test cases / 6641 assertions passed.
+- Mike playtest confirmed B-266 in `Build/pd-client.log`:
+  - held A at `[03:11.66]` advanced the endscreen from stage 0x30 to stage 0x33;
+  - objective 2 intro reached frame 30 at `[03:12.26]` and continued playing instead of flashing/skipping;
+  - release at `[03:19.05]`, fresh A press at `[03:19.65]`, and `ACTION_SKIP_CUTSCENE` exit at `[03:19.66]` confirmed deliberate skip still works.
+- Same log exposed B-267: a deliberate skip at `[03:08.14]` moved to endscreen at `[03:08.16]`, but the cutscene IMC did not deactivate and remained under the endscreen/next mission until `[03:19.66]`.
 
 ### Next
 
-- Mike playtest: complete Mission 1 objective 1, hold Continue/Use through the transition, confirm the objective 2 intro cutscene does not flash or skip after the 30-frame gate. Then press a fresh skip key after the gate and confirm deliberate skip still works.
-- Continue input architecture in small slices. Raw ImGui key migration remains deferred unless a concrete input-system dependency requires it.
+- B-266 is playtest-confirmed and closed.
+- Next narrow input slice is B-267: unwind the cutscene layer/IMC on skip-to-endscreen and stage teardown paths so the next mission intro gets a fresh cutscene push. Raw ImGui key migration remains deferred unless a concrete input-system dependency requires it.
 
 ---
 

@@ -52,12 +52,14 @@
 #include "system.h"
 #include "inputctx.h"
 #include "assetcatalog.h"
+#include "connectcode.h"
 #include "net/netmanifest.h"
 
 extern "C" {
 #include "pdgui_nav.h"
 #include "actionmap.h"
 #include "menupool.h"
+#include "menugraph.h"
 #include "game/forgemode.h"
 /* net/matchsetup.h has no extern "C" wrap of its own; pull it in
  * under the C linkage block so matchConfigInit() etc. resolve to the
@@ -399,12 +401,6 @@ s32  pdguiModdingHubIsVisible(void);
 void pdguiSoloRoomOpen(void);
 s32  pdguiSoloRoomIsActive(void);
 void pdguiSoloMissionReset(void); /* F-1.2 */
-
-/* Connect codes (connectcode.c) */
-s32 connectCodeDecode(const char *code, u32 *outIp);
-s32 connectCodeEncode(u32 ip, char *buf, s32 bufsize);
-#define CONNECT_DEFAULT_PORT 27100
-#define CONNECT_CODE_MAX     128
 
 /* Recent server list — layout must match struct netrecentserver in net.h exactly.
  * NET_MAX_ADDR=256, NET_MAX_NAME=MAX_PLAYERNAME=15. */
@@ -1559,6 +1555,8 @@ enum BindableGroup {
     BG_DPAD,
     BG_FORGE_SESSION,  /* FORGE_TOGGLE                                                  */
     BG_FORGE_EDITOR,   /* FORGE_ASCEND, _DESCEND, _BOOST, _PRECISION, _SIDEBAR_*, _TAB_* */
+    BG_SKIN_EDITOR,    /* Skin Editor brush, tool, view, undo/redo/save commands          */
+    BG_OBSERVER,       /* spectator overlay and observer freefly controls                 */
     BG_MENU,           /* USE, CANCEL_USE, PAUSE, MENU_*  on g_ImcMenu                  */
     BG_PAUSEMENU,      /* same actions on g_ImcPauseMenu                                */
     BG_DEBUG_OVERLAY,  /* DEBUG_TOGGLE, USE, CANCEL_USE, CONSOLE, SCREENSHOT            */
@@ -1585,6 +1583,8 @@ static const BindableGroupInfo s_BindableGroups[BG_COUNT] = {
     { BG_DPAD,           "D-Pad",           "Directional pad. Doubles as radial." },
     { BG_FORGE_SESSION,  "Forge Session",   "Active for the entire Grid session." },
     { BG_FORGE_EDITOR,   "Forge Editor",    "Active in Freefly only." },
+    { BG_SKIN_EDITOR,    "Skin Editor",     "Brush, tool, view, undo/redo, and save commands." },
+    { BG_OBSERVER,       "Observer",        "Spectator overlay and freefly camera controls." },
     { BG_MENU,           "Menu",            "Navigation while a menu is on top." },
     { BG_PAUSEMENU,      "Pause Menu",      "Navigation while the pause menu is on top." },
     { BG_DEBUG_OVERLAY,  "Debug Overlay",   "F12 overlay rebinds (DebugOverlay IMC)." },
@@ -1685,6 +1685,36 @@ static const BindableAction s_BindableActions[] = {
     { ACTION_FORGE_SIDEBAR_ACTIVATE,"Sidebar Activate", BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
     { ACTION_FORGE_TAB_PREV,      "Editor Tab Prev",    BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
     { ACTION_FORGE_TAB_NEXT,      "Editor Tab Next",    BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
+    { ACTION_FORGE_PLACE_CANCEL,  "Cancel Placement",   BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
+    { ACTION_FORGE_BOT_ADD,       "Add Bot",            BG_FORGE_SESSION, NULL,                                                                                                  &g_ImcForgeSession },
+    { ACTION_FORGE_BOT_REMOVE_ALL,"Remove All Bots",    BG_FORGE_SESSION, NULL,                                                                                                  &g_ImcForgeSession },
+    { ACTION_FORGE_BOT_FREEZE_TOGGLE,"Freeze All Bots", BG_FORGE_SESSION, NULL,                                                                                                  &g_ImcForgeSession },
+    { ACTION_FORGE_BOT_SPAWN_CYCLE,"Cycle Bot Spawn",   BG_FORGE_SESSION, NULL,                                                                                                  &g_ImcForgeSession },
+
+    /* --- Skin Editor commands --- */
+    { ACTION_SKIN_BRUSH_DECREASE, "Brush Smaller",      BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_BRUSH_INCREASE, "Brush Larger",       BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_TOOL_DRAW,      "Tool Draw",          BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_TOOL_ERASE,     "Tool Erase",         BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_TOOL_FILL,      "Tool Fill",          BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_TOOL_EYEDROPPER,"Tool Eyedropper",    BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_TOOL_LINE,      "Tool Line",          BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_GRID_TOGGLE,    "Toggle Grid",        BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_UV_TOGGLE,      "Toggle UV Overlay",  BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_UNDO,           "Undo",               BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_REDO,           "Redo",               BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_SAVE,           "Save Skin",          BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+
+    /* --- Observer (spectator overlay) --- */
+    { ACTION_OBSERVER_SUBSET_PREV, "Previous Subset",    BG_OBSERVER,      NULL,                                                                                                  &g_ImcObserver },
+    { ACTION_OBSERVER_SUBSET_NEXT, "Next Subset",        BG_OBSERVER,      NULL,                                                                                                  &g_ImcObserver },
+    { ACTION_OBSERVER_MEMBER_PREV, "Previous Member",    BG_OBSERVER,      NULL,                                                                                                  &g_ImcObserver },
+    { ACTION_OBSERVER_MEMBER_NEXT, "Next Member",        BG_OBSERVER,      NULL,                                                                                                  &g_ImcObserver },
+    { ACTION_OBSERVER_CAMERA_TOGGLE, "Toggle Camera",    BG_OBSERVER,      NULL,                                                                                                  &g_ImcObserver },
+    { ACTION_OBSERVER_FREEFLY,     "Freefly Hold",       BG_OBSERVER,      "Hold to move the spectator freefly camera.",                                                          &g_ImcObserver },
+    { ACTION_OBSERVER_STOP,        "Stop Spectating",    BG_OBSERVER,      NULL,                                                                                                  &g_ImcObserver },
+    { ACTION_OBSERVER_ASCEND,      "Ascend",             BG_OBSERVER,      NULL,                                                                                                  &g_ImcObserver },
+    { ACTION_OBSERVER_DESCEND,     "Descend",            BG_OBSERVER,      NULL,                                                                                                  &g_ImcObserver },
 
     /* --- Menu IMC (top-level menus) --- */
     { ACTION_USE,                 "Accept",             BG_MENU,          "UI accept while a menu is on top. Distinct from gameplay Use.",                                       &g_ImcMenu },
@@ -1725,6 +1755,7 @@ static const BindableAction s_BindableActions[] = {
     { ACTION_CONSOLE_TOGGLE,      "Console Toggle",     BG_SYSTEM,        NULL,                                                                                                  &g_ImcGameplay },
     { ACTION_DEBUG_TOGGLE,        "Debug Overlay",      BG_SYSTEM,        "F12 by default.",                                                                                     &g_ImcGameplay },
     { ACTION_CHEAT_ENTER,         "Enter Cheat",        BG_SYSTEM,        "Open the cheat-code entry dialog.",                                                                   &g_ImcGameplay },
+    { ACTION_VOICE_PTT,           "Voice Push-to-Talk", BG_SYSTEM,        "Hold while voice chat is enabled.",                                                                   &g_ImcGameplay },
 };
 #define NUM_BINDABLE_ACTIONS (sizeof(s_BindableActions) / sizeof(s_BindableActions[0]))
 
@@ -1743,6 +1774,7 @@ static InputMappingContext *s_ResetImcsMission[]   = { &g_ImcGameplay, &g_ImcMis
 static InputMappingContext *s_ResetImcsCombatSim[] = { &g_ImcGameplay, &g_ImcCombatSim };
 static InputMappingContext *s_ResetImcsVehicle[]   = { &g_ImcVehicle };
 static InputMappingContext *s_ResetImcsGrid[]      = { &g_ImcForgeSession, &g_ImcForge };
+static InputMappingContext *s_ResetImcsObserver[]  = { &g_ImcObserver };
 static InputMappingContext *s_ResetImcsMenu[]      = { &g_ImcMenu, &g_ImcPauseMenu };
 static InputMappingContext *s_ResetImcsSystem[]    = { &g_ImcDebugOverlay, &g_ImcTextInput, &g_ImcGameplay };
 
@@ -1774,9 +1806,15 @@ static const ImcTabDesc s_ImcTabs[] = {
         s_ResetImcsGrid, 2,
     },
     {
+        "Observer",
+        "Spectator overlay and freefly camera controls.",
+        (1u << BG_OBSERVER),
+        s_ResetImcsObserver, 1,
+    },
+    {
         "Menu",
         "Top-level menu nav and pause-menu nav. Distinct from gameplay bindings.",
-        (1u << BG_MENU) | (1u << BG_PAUSEMENU),
+        (1u << BG_MENU) | (1u << BG_PAUSEMENU) | (1u << BG_SKIN_EDITOR),
         s_ResetImcsMenu, 2,
     },
     {
@@ -3397,6 +3435,192 @@ static void renderSettingsGame(float scale)
 /* Menu view state: 0 = top-level (Play/Settings/Quit), 1 = Play, 2 = Settings */
 static s32 s_MenuView = 0;
 
+static menu_type_t pdguiMainMenuViewPoolType(s32 view)
+{
+    switch (view) {
+    case 1: return MENU_TYPE_MAIN_SOLO_VIEW;
+    case 2: return MENU_TYPE_MAIN_SETTINGS_VIEW;
+    case 3: return MENU_TYPE_MAIN_MODDING_VIEW;
+    case 4: return MENU_TYPE_MAIN_ONLINE_VIEW;
+    case 5: return MENU_TYPE_MAIN_STATS_VIEW;
+    case 6: return MENU_TYPE_GRID_SUBMENU;
+    default: return MENU_TYPE_NONE;
+    }
+}
+
+static void pdguiMainMenuSetView(s32 view, const char *reason)
+{
+    if (view < 0 || view > 6) {
+        view = 0;
+    }
+
+    s32 oldView = s_MenuView;
+    menu_type_t oldType = pdguiMainMenuViewPoolType(oldView);
+    menu_type_t newType = pdguiMainMenuViewPoolType(view);
+
+    if (oldView == view) {
+        if (newType != MENU_TYPE_NONE && !menupoolIsActive(newType)) {
+            menupoolAcquire(newType, NULL, NULL);
+            sysLogPrintf(LOG_NOTE, "MENUPOOL: reacquired main menu subview %s (%s)",
+                menupoolTypeName(newType), reason ? reason : "sync");
+        }
+        return;
+    }
+
+    if (oldType != MENU_TYPE_NONE && oldType != newType) {
+        menupoolRelease(oldType);
+        sysLogPrintf(LOG_NOTE, "MENUPOOL: released main menu subview %s (%s)",
+            menupoolTypeName(oldType), reason ? reason : "view-change");
+    }
+
+    if (newType != MENU_TYPE_NONE && oldType != newType) {
+        menupoolAcquire(newType, NULL, NULL);
+        sysLogPrintf(LOG_NOTE, "MENUPOOL: acquired main menu subview %s (%s)",
+            menupoolTypeName(newType), reason ? reason : "view-change");
+    }
+
+    s_MenuView = view;
+    sysLogPrintf(LOG_NOTE, "MENU_GRAPH: main menu view %d -> %d (%s)",
+        (int)oldView, (int)view, reason ? reason : "view-change");
+}
+
+static s32 pdguiMainMenuFireSubviewEdge(const char *edge_id, s32 view, const char *reason)
+{
+    const MenuGraphEdge *edge = menuGraphEdge(MENU_TYPE_MAIN_MENU, edge_id);
+    menu_type_t target = pdguiMainMenuViewPoolType(view);
+
+    if (!edge) {
+        sysLogPrintf(LOG_WARNING,
+            "MENU.GRAPH.FIRE source=%s edge=%s dest=missing ok=0",
+            menupoolTypeName(MENU_TYPE_MAIN_MENU), edge_id ? edge_id : "(null)");
+        return -1;
+    }
+
+    if (edge->kind != MENU_GRAPH_DEST_PUSH_MENU) {
+        sysLogPrintf(LOG_WARNING,
+            "MENU.GRAPH.FIRE source=%s edge=%s dest=%s ok=0",
+            menupoolTypeName(MENU_TYPE_MAIN_MENU), edge_id,
+            menuGraphDestKindName(edge->kind));
+        return -2;
+    }
+
+    if (edge->payload.push_target != target) {
+        sysLogPrintf(LOG_WARNING,
+            "MENU.GRAPH.FIRE source=%s edge=%s target=%s actual=%s ok=0",
+            menupoolTypeName(MENU_TYPE_MAIN_MENU), edge_id,
+            menupoolTypeName(edge->payload.push_target),
+            menupoolTypeName(target));
+        return -3;
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "MENU.GRAPH.FIRE source=%s edge=%s trigger=%d dest=%s target=%s ok=1",
+        menupoolTypeName(MENU_TYPE_MAIN_MENU), edge_id, (int)edge->trigger,
+        menuGraphDestKindName(edge->kind),
+        menupoolTypeName(edge->payload.push_target));
+
+    pdguiMainMenuSetView(view, reason);
+    return 0;
+}
+
+static s32 pdguiMainMenuFireSubviewBackEdge(const char *reason)
+{
+    menu_type_t source = pdguiMainMenuViewPoolType(s_MenuView);
+    const MenuGraphEdge *edge = menuGraphEdge(source, "back");
+
+    if (!edge) {
+        sysLogPrintf(LOG_WARNING,
+            "MENU.GRAPH.FIRE source=%s edge=back dest=missing ok=0",
+            menupoolTypeName(source));
+        return -1;
+    }
+
+    if (edge->kind != MENU_GRAPH_DEST_POP_TO_PARENT) {
+        sysLogPrintf(LOG_WARNING,
+            "MENU.GRAPH.FIRE source=%s edge=back dest=%s ok=0",
+            menupoolTypeName(source), menuGraphDestKindName(edge->kind));
+        return -2;
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "MENU.GRAPH.FIRE source=%s edge=back trigger=%d dest=%s ok=1",
+        menupoolTypeName(source), (int)edge->trigger,
+        menuGraphDestKindName(edge->kind));
+
+    pdguiMainMenuSetView(0, reason);
+    return 0;
+}
+
+static s32 pdguiMainMenuGraphStartClient(void *userdata)
+{
+    const char *addr = static_cast<const char *>(userdata);
+    if (!addr) {
+        return -99;
+    }
+    return netStartClientWithHolePunch(addr);
+}
+
+static s32 pdguiMainMenuGraphSoloMissions(void *userdata)
+{
+    (void)userdata;
+    pdguiSoloMissionReset();
+    menuhandlerMainMenuSoloMissions(MENUOP_SET, nullptr, nullptr);
+    return 0;
+}
+
+static s32 pdguiMainMenuGraphCombatSimulator(void *userdata)
+{
+    (void)userdata;
+    menuhandlerMainMenuCombatSimulator(MENUOP_SET, nullptr, nullptr);
+    return 0;
+}
+
+static s32 pdguiMainMenuGraphOpenModdingHub(void *userdata)
+{
+    (void)userdata;
+    pdguiModdingHubShow();
+    return 0;
+}
+
+static s32 pdguiMainMenuGraphOpenStatsPanel(void *userdata)
+{
+    (void)userdata;
+    pdguiMenuStatsShow();
+    return 0;
+}
+
+static s32 pdguiMainMenuGraphQuit(void *userdata)
+{
+    (void)userdata;
+
+    SDL_Event quitEvent;
+    quitEvent.type = SDL_QUIT;
+    SDL_PushEvent(&quitEvent);
+    return 0;
+}
+
+static s32 pdguiMainMenuGraphClose(void *userdata)
+{
+    (void)userdata;
+
+    sysLogPrintf(LOG_NOTE, "MENU_IMGUI: restoring game state -- lvIsPaused=%d g_PlayersWithControl[0]=%d",
+                 lvIsPaused(), (int)g_PlayersWithControl[0]);
+    lvSetPaused(false);
+    playerUnpause();
+    g_PlayersWithControl[0] = true;
+    sysLogPrintf(LOG_NOTE, "MENU_IMGUI: game state restored -- lvIsPaused=%d", lvIsPaused());
+
+    menuPopDialog();
+
+    if (inputCtxIsActive(&g_CtxImGuiMenu)) {
+        sysLogPrintf(LOG_NOTE,
+            "MENU_IMGUI: defensive inputCtxPopDeferred(g_CtxImGuiMenu) -- leak class caught on top-level close");
+        inputCtxPopDeferred(&g_CtxImGuiMenu);
+    }
+
+    return 0;
+}
+
 /* S295 F7: s_MainMenuPushedCtx removed. The close handler at ~line 2618
  * already pops unconditionally via `inputCtxIsActive` — see comment there.
  * The ownership bool had a documented failure mode (it could be cleared by a
@@ -4119,16 +4343,12 @@ static void renderSettingsCatalog(float scale)
 /* Render the Settings sub-view with LB/RB bumper tab switching */
 static void renderSettingsView(float scale, float contentH)
 {
-    /* LB/RB bumper handling: use a pending flag so SetSelected only fires
+    /* Tab action handling: use a pending flag so SetSelected only fires
      * for ONE frame after a bumper press, not continuously.
      *
-     * 2026-04-11 fix: check PageUp/PageDown instead of GamepadL1/R1.
-     * NavEnableGamepad is OFF (pdgui_backend.cpp:211) so ImGui ignores all
-     * ImGuiKey_Gamepad* inputs. pdguiDriveImGuiNav() translates LB/RB
-     * (ACTION_MENU_TAB_PREV/NEXT) to ImGuiKey_PageUp/PageDown — so that is
-     * what we must poll here. Before this fix, gamepad bumpers fell through
-     * to ImGui's default PgUp/PgDn nav which scrolled within the current
-     * tab's list instead of switching tabs. */
+     * 2026-04-28: ACTION_MENU_TAB_PREV/NEXT are the authority here.
+     * PageUp/PageDown remain keyboard defaults in the action map, and LB/RB
+     * remain gamepad defaults. */
     static s32 s_BumperPendingTab = -1; /* -1 = no pending switch */
 
 #if defined(PD_DEV_BUILD)
@@ -4143,14 +4363,14 @@ static void renderSettingsView(float scale, float contentH)
     /* S306: 8 tabs with PD_DEV_BUILD (Debug present); 7 tabs on stable (no Debug).
      * Order: 0=Video 1=Interface 2=Audio 3=Controls 4=Game 5=Updates
      * [6=Debug] 6/7=Catalog. */
-    if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
+    if (pdguiMenuTabPrevPressed()) {
         s_SettingsSubTab--;
         if (s_SettingsSubTab < 0) s_SettingsSubTab = settingsTabLast;
         s_BumperPendingTab = s_SettingsSubTab;
         s_NeedsFocus = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
+    if (pdguiMenuTabNextPressed()) {
         s_SettingsSubTab++;
         if (s_SettingsSubTab > settingsTabLast) s_SettingsSubTab = 0;
         s_BumperPendingTab = s_SettingsSubTab;
@@ -4687,6 +4907,12 @@ static bool gridCommitEnter(void)
     return pdguiForgeStartSessionOn(a->stagenum) != 0;
 }
 
+static s32 pdguiMainMenuGraphEnterGrid(void *userdata)
+{
+    (void)userdata;
+    return gridCommitEnter() ? 0 : -1;
+}
+
 static void renderGridSubmenu(float scale, float buttonW, float buttonH,
                               float spacing)
 {
@@ -4788,9 +5014,10 @@ static void renderGridSubmenu(float scale, float buttonW, float buttonH,
     const bool canEnter = (s_GridArenaCount > 0);
     if (!canEnter) ImGui::BeginDisabled();
     if (PdButton("Enter The Grid", ImVec2(buttonW, buttonH * 1.2f))) {
-        if (gridCommitEnter()) {
+        if (menuGraphFireSceneOp(MENU_TYPE_GRID_SUBMENU, "enter",
+                                 pdguiMainMenuGraphEnterGrid, NULL) == 0) {
             pdguiPlaySound(PDGUI_SND_OPENDIALOG);
-            s_MenuView = 0;
+            pdguiMainMenuSetView(0, "grid-enter");
         } else {
             /* Stay on the submenu; gridCommitEnter already logged why. */
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
@@ -4801,7 +5028,7 @@ static void renderGridSubmenu(float scale, float buttonW, float buttonH,
     ImGui::Dummy(ImVec2(0, spacing));
 
     if (PdButton("Back", ImVec2(buttonW, buttonH))) {
-        s_MenuView = 0;
+        pdguiMainMenuFireSubviewBackEdge("grid-back");
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
 }
@@ -4910,7 +5137,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
      * SetNextWindowFocus() to avoid stealing focus from child popups. */
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
-        s_MenuView = 0; /* Always open to main menu */
+        pdguiMainMenuSetView(0, "window-open"); /* Always open to main menu */
         s_NeedsFocus = true;
         /* B-131: stamp the open time so the close handler can grace-guard
          * the first MAIN_MENU_CLOSE_GRACE_MS of this appearance. */
@@ -4936,6 +5163,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
         nio.AddKeyEvent(ImGuiKey_Enter, false);
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu OPEN");
     }
+    pdguiMainMenuSetView(s_MenuView, "render-sync");
 
     /* Determine title based on current view */
     const char *windowTitle = "Perfect Dark";
@@ -5000,29 +5228,15 @@ static s32 renderMainMenu(struct menudialog *dialog,
      * IsKeyPressed saw it. pdguiConsumeTitleClose returns 1 at most
      * once per X click and resets the flag internally.
      *
-     * 2026-04-23 B-230 fix: controller B needs two presses to close.
-     * Same root cause as the S306 X-button fix: ImGui's internal nav
-     * was eating the first Escape edge that pdguiDriveImGuiNav injected
-     * from actionPressed(ACTION_CANCEL_USE). Add a third close channel
-     * reading actionPressed directly, which is the hardware-level edge
-     * (untouchable by ImGui's nav consumption). The IsKeyPressed path
-     * stays in as a fallback for the pure-keyboard Escape case (where
-     * no ACTION_CANCEL_USE binding exists or differs from the key).
-     * The closeGracePending guard only applies to the IsKeyPressed
-     * path - the actionPressed edge is precise at the hardware layer
-     * and doesn't need a timestamp grace (IsWindowAppearing alone is
-     * enough to skip the appearing frame itself). */
+     * 2026-04-28: the close channel now reads ACTION_CANCEL_USE through
+     * pdgui_nav so keyboard and controller cancel share action-map authority. */
     bool titleClose = pdguiConsumeTitleClose() != 0;
-    bool actionCancelEdge = actionPressed(0, ACTION_CANCEL_USE) != 0;
-    bool keyboardEscape = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+    bool actionCancelEdge = pdguiMenuCancelPressed() != 0;
     /* titleClose and actionCancelEdge bypass the closeGracePending grace: they
      * are precise signals (X-button click flag / hardware actionmap edge) that
-     * cannot be spoofed by a queued opening press. keyboardEscape keeps the
-     * grace because ImGui's key queue can carry an opening Escape edge into
-     * the first few frames of the new window (B-131 rationale). */
+     * cannot be spoofed by a queued opening press. */
     if (!ImGui::IsWindowAppearing()
-        && (titleClose || actionCancelEdge
-            || (!closeGracePending && keyboardEscape))) {
+        && (titleClose || (!closeGracePending && actionCancelEdge))) {
         if (s_MenuView != 0) {
             if (s_MenuView == 2) {
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — settings CLOSE (view 2->0)%s",
@@ -5039,68 +5253,15 @@ static s32 renderMainMenu(struct menudialog *dialog,
             } else {
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — sub-view %d -> 0", s_MenuView);
             }
-            s_MenuView = 0;
+            pdguiMainMenuFireSubviewBackEdge("close-subview");
             pdguiPlaySound(PDGUI_SND_SWIPE);
         } else {
             /* At top-level: close the menu, return to Carrington Institute */
             sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu CLOSE via ESC/B (top-level -> CI free-roam)");
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-
-            /* Restore game control BEFORE menuPopDialog. The legacy
-             * menutick bg-transition (func0f0fa6ac) never completes
-             * under ImGui hotswap. Must restore ALL game state:
-             *  - lvSetPaused(false): unfreeze game world (lvupdate240=0 while paused)
-             *  - playerUnpause(): reset pausemode + music (only if pausemode==PAUSED)
-             *  - g_PlayersWithControl: allow movement/buttons in bmoveTick
-             * All three must run before menuPopDialog in case it has side effects. */
-            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: restoring game state — lvIsPaused=%d g_PlayersWithControl[0]=%d",
-                         lvIsPaused(), (int)g_PlayersWithControl[0]);
-            lvSetPaused(false);
-            playerUnpause();
-            g_PlayersWithControl[0] = true;
-            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: game state restored — lvIsPaused=%d", lvIsPaused());
-            /* S304: menuPopDialog → menuCloseDialog → menupoolReleaseDialog
-             * releases the pool slot AND pops the owned ctx. If the stack
-             * is somehow already at depth=0 (force-close race), the
-             * underflow handler in menuPopDialog catches it with
-             * menupoolReleaseAll. Either way, no manual ctx pop needed. */
-            menuPopDialog();
-
-            /* S306: defensive ctx flush. If g_CtxImGuiMenu is still on
-             * the stack after menuPopDialog (e.g. because a sibling
-             * renderer like renderCiSettingsRedirect pushed it at boot
-             * and the pool-release chain only tears down the current
-             * main menu slot), input would continue to route to
-             * g_ImcMenu instead of gameplay — that's the "movement
-             * locked after menu closed" symptom in Mike's playtest
-             * report. Popping it here closes the leak without requiring
-             * the full renderCiSettingsRedirect S300 migration. The pop
-             * is idempotent (no-op when not active) so it's safe even
-             * when menuCloseDialog already cleaned up. */
-            if (inputCtxIsActive(&g_CtxImGuiMenu)) {
-                sysLogPrintf(LOG_NOTE,
-                    "MENU_IMGUI: defensive inputCtxPopDeferred(g_CtxImGuiMenu) — leak class caught on top-level close");
-                inputCtxPopDeferred(&g_CtxImGuiMenu);
-            }
+            menuGraphFirePopOp(MENU_TYPE_MAIN_MENU, "close",
+                pdguiMainMenuGraphClose, NULL);
         }
-    }
-
-    /* LB/RB: cycle through top-level sub-views (1=Solo, 2=Settings, 3=Modding, 4=Online).
-     * From view 0 (hub), LB/RB enter the first/last sub-view.
-     * Wraps around: view 1 ← LB → view 4, view 4 → RB → view 1.
-     *
-     * 2026-04-11 fix: poll PageUp/PageDown instead of GamepadL1/R1.  See
-     * renderSettingsView() comment for the full rationale.  pdguiDriveImGuiNav
-     * already injects these keys from ACTION_MENU_TAB_PREV/NEXT every frame. */
-    /* Issue 12: bumpers (LB/RB → PageUp/PageDown) only switch tabs inside
-     * the Settings sub-view (view 2).  At the root level they do nothing.
-     * The Settings view handles its own bumper tab switching internally
-     * in renderSettingsView(). Consume PageUp/PageDown at all other levels
-     * to prevent ImGui's nav from scrolling or jumping focus. */
-    if (!ImGui::IsWindowAppearing() && s_MenuView != 2) {
-        /* Silently consume bumper presses — no action at root or non-Settings views */
-        (void)ImGui::IsKeyPressed(ImGuiKey_PageUp, false);
-        (void)ImGui::IsKeyPressed(ImGuiKey_PageDown, false);
     }
 
     if (s_MenuView == 0) {
@@ -5117,46 +5278,50 @@ static s32 renderMainMenu(struct menudialog *dialog,
         /* Solo Play -- opens local lobby (no server connection) */
         if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
         if (PdButton("Solo Play", ImVec2(buttonW, buttonH * 1.2f))) {
-            s_MenuView = 1; /* Solo play sub-menu for now; will become local lobby */
+            pdguiMainMenuFireSubviewEdge("solo_play", 1, "open-solo");
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
 
         /* Online Play */
         if (PdButton("Online Play", ImVec2(buttonW, buttonH * 1.2f))) {
-            s_MenuView = 4;
-            pdguiPlaySound(PDGUI_SND_SELECT);
+            if (pdguiMainMenuFireSubviewEdge("online_play", 4, "open-online") == 0) {
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            }
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
 
         /* Change Agent */
         if (PdButton("Change Agent", ImVec2(buttonW, buttonH * 1.2f))) {
-            menuPushDialog(&g_ChangeAgentMenuDialog);
+            menuGraphFirePushDialog(MENU_TYPE_MAIN_MENU, "change_agent", &g_ChangeAgentMenuDialog);
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
 
         /* Settings */
         if (PdButton("Settings", ImVec2(buttonW, buttonH * 1.2f))) {
-            s_MenuView = 2;
-            sysLogPrintf(LOG_NOTE, "MENU_STACK: settings OPEN (s_MenuView=2)");
+            if (pdguiMainMenuFireSubviewEdge("settings", 2, "open-settings") == 0) {
+                sysLogPrintf(LOG_NOTE, "MENU_STACK: settings OPEN (s_MenuView=2)");
+            }
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
 
         /* Mods -- opens the Modding Hub (view 3) */
         if (PdButton("Mods", ImVec2(buttonW, buttonH * 1.2f))) {
-            s_MenuView = 3;
-            pdguiModdingHubShow();
-            sysLogPrintf(LOG_NOTE, "MENU_STACK: modding hub OPEN (s_MenuView=3)");
+            if (pdguiMainMenuFireSubviewEdge("modding", 3, "open-modding") == 0) {
+                menuGraphFirePushOp(MENU_TYPE_MAIN_MODDING_VIEW, "open_hub",
+                    pdguiMainMenuGraphOpenModdingHub, NULL);
+                sysLogPrintf(LOG_NOTE, "MENU_STACK: modding hub OPEN (s_MenuView=3)");
+            }
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
 
         /* Cheats -- opens cheats hub dialog */
         if (PdButton("Cheats", ImVec2(buttonW, buttonH * 1.2f))) {
-            menuPushDialog(&g_CheatsMenuDialog);
+            menuGraphFirePushDialog(MENU_TYPE_MAIN_MENU, "cheats", &g_CheatsMenuDialog);
             pdguiPlaySound(PDGUI_SND_OPENDIALOG);
         }
 
@@ -5164,8 +5329,10 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
         /* Stats -- opens the Stats Viewer (view 5) */
         if (PdButton("Stats", ImVec2(buttonW, buttonH * 1.2f))) {
-            s_MenuView = 5;
-            pdguiMenuStatsShow();
+            if (pdguiMainMenuFireSubviewEdge("stats", 5, "open-stats") == 0) {
+                menuGraphFirePushOp(MENU_TYPE_MAIN_STATS_VIEW, "open_panel",
+                    pdguiMainMenuGraphOpenStatsPanel, NULL);
+            }
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
@@ -5182,8 +5349,9 @@ static s32 renderMainMenu(struct menudialog *dialog,
          * Playtest are modes inside it).  Priority 2 will wire the
          * in-session Halo-Back-style mode toggle. */
         if (PdButton("The Grid", ImVec2(buttonW, buttonH * 1.2f))) {
-            s_MenuView = 6;
-            sysLogPrintf(LOG_NOTE, "MENU_STACK: Grid submenu OPEN (s_MenuView=6)");
+            if (pdguiMainMenuFireSubviewEdge("grid", 6, "open-grid") == 0) {
+                sysLogPrintf(LOG_NOTE, "MENU_STACK: Grid submenu OPEN (s_MenuView=6)");
+            }
         }
 
         /* Quit Game -- docked to bottom-right; M-Q-A opens a canonical
@@ -5218,9 +5386,8 @@ static s32 renderMainMenu(struct menudialog *dialog,
                 "Quit",
                 &s_QuitOpenFrame);
             if (quitRes == PDGUI_CONFIRM_OK) {
-                SDL_Event quitEvent;
-                quitEvent.type = SDL_QUIT;
-                SDL_PushEvent(&quitEvent);
+                menuGraphFireProcessOp(MENU_TYPE_MAIN_MENU, "quit",
+                    pdguiMainMenuGraphQuit, NULL);
             }
         }
 
@@ -5235,15 +5402,16 @@ static s32 renderMainMenu(struct menudialog *dialog,
         /* Solo Missions -- campaign */
         if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
         if (PdButton("Solo Missions", ImVec2(buttonW, buttonH))) {
-            pdguiSoloMissionReset(); /* F-1.2: clear stale cursor/difficulty state */
-            menuhandlerMainMenuSoloMissions(MENUOP_SET, nullptr, nullptr);
+            menuGraphFirePushOp(MENU_TYPE_MAIN_SOLO_VIEW, "solo_missions",
+                pdguiMainMenuGraphSoloMissions, NULL);
         }
 
         ImGui::Dummy(ImVec2(0, spacing));
 
         /* Combat Simulator -- opens Room screen in solo (offline) mode */
         if (PdButton("Combat Simulator", ImVec2(buttonW, buttonH))) {
-            pdguiSoloRoomOpen();
+            menuGraphFirePushOp(MENU_TYPE_MAIN_SOLO_VIEW, "combat_simulator",
+                pdguiMainMenuGraphCombatSimulator, NULL);
         }
 
         /* Co-Operative and Counter-Operative removed — no local multiplayer
@@ -5288,12 +5456,13 @@ static s32 renderMainMenu(struct menudialog *dialog,
             ImGui::TextDisabled("Modding tools are closed.");
             ImGui::Dummy(ImVec2(0, 8.0f * scale));
             if (PdButton("Open Modding Hub", ImVec2(buttonW, buttonH * 1.15f))) {
-                pdguiModdingHubShow();
+                menuGraphFirePushOp(MENU_TYPE_MAIN_MODDING_VIEW, "open_hub",
+                    pdguiMainMenuGraphOpenModdingHub, NULL);
                 pdguiPlaySound(PDGUI_SND_SELECT);
             }
             ImGui::Dummy(ImVec2(0, 6.0f * scale));
             if (PdButton("Back", ImVec2(buttonW * 0.65f, buttonH))) {
-                s_MenuView = 0;
+                pdguiMainMenuFireSubviewBackEdge("modding-back");
                 pdguiPlaySound(PDGUI_SND_SWIPE);
             }
         }
@@ -5301,7 +5470,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
     } else if (s_MenuView == 4) {
         /* ================================================================
          * ONLINE PLAY
-         * Join a server by connect code or direct IP.
+         * Join a server by connect code.
          * After connecting, transitions to the server lobby.
          * ================================================================ */
         /* Format a unix timestamp as a compact relative-time string.
@@ -5316,6 +5485,34 @@ static s32 renderMainMenu(struct menudialog *dialog,
             else if (diff < 86400)     snprintf(buf, bufsz, "%ldh ago", diff / 3600);
             else                       snprintf(buf, bufsz, "%ldd ago", diff / 86400);
             return buf;
+        };
+        auto addrStringToConnectCode = [](const char *addrStr, char *buf, size_t bufsz) -> bool {
+            unsigned a = 0, b = 0, c = 0, d = 0, port = CONNECT_DEFAULT_PORT;
+            int consumed = 0;
+
+            if (sscanf(addrStr, " %u.%u.%u.%u:%u %n", &a, &b, &c, &d, &port, &consumed) == 5) {
+                if (addrStr[consumed] != '\0') return false;
+            } else {
+                consumed = 0;
+                if (sscanf(addrStr, " %u.%u.%u.%u %n", &a, &b, &c, &d, &consumed) != 4) return false;
+                if (addrStr[consumed] != '\0') return false;
+            }
+
+            if (a > 255 || b > 255 || c > 255 || d > 255 || port < 1 || port > 65535) return false;
+
+            u32 ip = (u32)a | ((u32)b << 8) | ((u32)c << 16) | ((u32)d << 24);
+            return connectCodeEncodeWithPort(ip, (u16)port, buf, (s32)bufsz) >= 0;
+        };
+        auto connectCodeToAddrString = [](const char *code, char *buf, size_t bufsz) -> bool {
+            u32 ip = 0;
+            u16 port = 0;
+
+            if (connectCodeDecodeWithPort(code, &ip, &port) != 0 || ip == 0 || port == 0) return false;
+
+            snprintf(buf, bufsz, "%u.%u.%u.%u:%u",
+                ip & 0xff, (ip >> 8) & 0xff,
+                (ip >> 16) & 0xff, (ip >> 24) & 0xff, port);
+            return true;
         };
         static char s_JoinCodeInput[64] = "";
         static char s_JoinStatus[128] = "";
@@ -5351,22 +5548,17 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
         if (PdButton("Connect", ImVec2(buttonW, 32.0f * scale))) {
             if (s_JoinCodeInput[0]) {
-                u32 ip = 0;
+                char addrStr[64];
 
                 /* Connect code is the ONLY accepted input.
-                 * Must be exactly 4 valid words from the dictionaries.
                  * No direct IP addresses allowed -- the code is a security layer
                  * that prevents sharing raw public IPs. */
-                if (connectCodeDecode(s_JoinCodeInput, &ip) == 0 && ip) {
-                    /* Code validated -- resolve internally and connect.
-                     * Bytes are packed little-endian (a=LSB, d=MSB) by the encoder. */
-                    char addrStr[64];
-                    snprintf(addrStr, sizeof(addrStr), "%u.%u.%u.%u:%u",
-                        ip & 0xff, (ip >> 8) & 0xff,
-                        (ip >> 16) & 0xff, (ip >> 24) & 0xff, CONNECT_DEFAULT_PORT);
+                if (connectCodeToAddrString(s_JoinCodeInput, addrStr, sizeof(addrStr))) {
+                    /* Code validated -- resolve internally and connect. */
                     sysLogPrintf(LOG_NOTE, "JOIN: code validated, connecting...");
 
-                    if (netStartClientWithHolePunch(addrStr) == 0) {
+                    if (menuGraphFireNetworkOp(MENU_TYPE_MAIN_ONLINE_VIEW, "connect",
+                            pdguiMainMenuGraphStartClient, addrStr) == 0) {
                         snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Connecting...");
                         s_JoinStatusColor = ImVec4(0.3f, 1.0f, 0.3f, 1.0f);
                     } else {
@@ -5386,7 +5578,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
         }
 
         ImGui::Dummy(ImVec2(0, 8.0f * scale));
-        ImGui::TextDisabled("Enter a 4-word connect code from the server host");
+        ImGui::TextDisabled("Enter a 4-word or 6-word connect code from the server host");
         ImGui::TextDisabled("Example: fat vampire running to the park");
 
         /* Server History */
@@ -5419,13 +5611,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
 
                 /* Build connect code from stored addr "a.b.c.d[:port]". */
                 char code[CONNECT_CODE_MAX] = "";
-                {
-                    u32 a = 0, b = 0, c = 0, d = 0;
-                    if (sscanf(srv->addr, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
-                        u32 ip = a | (b << 8) | (c << 16) | (d << 24);
-                        connectCodeEncode(ip, code, sizeof(code));
-                    }
-                }
+                addrStringToConnectCode(srv->addr, code, sizeof(code));
 
                 /* Online/offline dot — pulsing amber while query in flight. */
                 if (g_NetQueryInFlight) {
@@ -5441,7 +5627,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
                 ImGui::SameLine();
 
                 /* Clickable row — hostname (or code fallback) + player count. */
-                const char *name = (srv->hostname[0] != '\0') ? srv->hostname : code;
+                const char *name = (srv->hostname[0] != '\0') ? srv->hostname : (code[0] ? code : "Server");
                 char rowText[256];
                 if (srv->online && srv->maxclients > 0) {
                     snprintf(rowText, sizeof(rowText), "%s  [%u/%u]",
@@ -5453,7 +5639,8 @@ static s32 renderMainMenu(struct menudialog *dialog,
                 ImGui::PushID(i);
                 if (ImGui::Selectable(rowText, false, ImGuiSelectableFlags_None,
                         ImVec2(buttonW - pdguiScale(36.0f), 0.0f))) {
-                    if (netStartClientWithHolePunch(srv->addr) == 0) {
+                    if (menuGraphFireNetworkOp(MENU_TYPE_MAIN_ONLINE_VIEW, "recent_server",
+                            pdguiMainMenuGraphStartClient, srv->addr) == 0) {
                         snprintf(s_JoinStatus, sizeof(s_JoinStatus), "Connecting...");
                         s_JoinStatusColor = ImVec4(0.3f, 1.0f, 0.3f, 1.0f);
                     } else {
@@ -5484,7 +5671,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
          * ================================================================ */
         pdguiMenuStatsRender(winW, winH);
         if (!pdguiMenuStatsIsVisible()) {
-            s_MenuView = 0;
+            pdguiMainMenuFireSubviewBackEdge("stats-closed");
         }
 
     } else if (s_MenuView == 6) {
@@ -5520,28 +5707,8 @@ static s32 renderMainMenu(struct menudialog *dialog,
             s_ControlsNeedsInit = true;
         }
 
-        /* AUDIT-24-M5 (2026-04-25): track Grid submenu pool slot.
-         *
-         * The Grid submenu renders inline as `s_MenuView == 6` rather
-         * than as a separate `menuPushDialog`-pushed surface.  Without
-         * a corresponding menupool slot, K's input-authority assertion
-         * has no anchor for the Grid screen and any future code that
-         * checks "is the Grid submenu active?" has to twiddle
-         * `s_MenuView` directly.  Acquire the slot when the view
-         * transitions INTO 6 and release when it transitions OUT.  The
-         * acquire passes ctx=NULL because the Grid submenu shares the
-         * parent main menu's input context (it's an inline tab-state,
-         * not an independent dialog), so the pool slot is identity-
-         * tracking only -- the inputctx is owned by MAIN_MENU. */
-        if (s_PrevView != 6 && s_MenuView == 6) {
-            menupoolAcquire(MENU_TYPE_GRID_SUBMENU, NULL, NULL);
-            sysLogPrintf(LOG_NOTE,
-                "MENUPOOL: acquired grid_submenu (s_MenuView entered 6)");
-        } else if (s_PrevView == 6 && s_MenuView != 6) {
-            menupoolRelease(MENU_TYPE_GRID_SUBMENU);
-            sysLogPrintf(LOG_NOTE,
-                "MENUPOOL: released grid_submenu (s_MenuView left 6)");
-        }
+        /* Main-menu subview pool ownership is handled at every
+         * pdguiMainMenuSetView() call. */
     }
     s_PrevView = s_MenuView;
 
@@ -5738,7 +5905,7 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
      * edge, so the X button closes on the first attempt. */
     bool titleCloseCi = pdguiConsumeTitleClose() != 0;
     if (!ImGui::IsWindowAppearing() &&
-        (titleCloseCi || ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
+        (titleCloseCi || pdguiMenuCancelPressed())) {
         wantBack = true;
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
     }
@@ -5837,8 +6004,8 @@ static s32 renderCiDeadPlayer2(struct menudialog *dialog,
     /* S311: title X / Escape / Enter all close the dead-P2 notice. */
     if (!ImGui::IsWindowAppearing() &&
         (pdguiConsumeTitleClose() ||
-         ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
-         ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
+         pdguiMenuCancelPressed() ||
+         pdguiMenuAcceptPressed())) {
         wantClose = true;
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
     }
@@ -5930,7 +6097,7 @@ static s32 renderCinemaList(struct menudialog *dialog,
     bool wantClose = false;
     if (!ImGui::IsWindowAppearing() &&
         (pdguiConsumeTitleClose() ||
-         ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
+         pdguiMenuCancelPressed())) {
         wantClose = true;
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
     }
@@ -5946,11 +6113,11 @@ static s32 renderCinemaList(struct menudialog *dialog,
 
     /* D-pad nav with wrap -- include +1 action-bar row for Back */
     const s32 totalFocusable = (s32)optionCount + 1;
-    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) {
+    if (pdguiMenuDownRepeat()) {
         s_CinemaSelectIdx = (s_CinemaSelectIdx + 1) % totalFocusable;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) {
+    if (pdguiMenuUpRepeat()) {
         s_CinemaSelectIdx = (s_CinemaSelectIdx - 1 + totalFocusable) % totalFocusable;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
@@ -6011,8 +6178,7 @@ static s32 renderCinemaList(struct menudialog *dialog,
                                               ImVec2(0, pdguiScale(36.0f)));
             if (ImGui::IsItemHovered()) s_CinemaSelectIdx = (s32)i;
 
-            bool kbConfirm = isActive &&
-                ImGui::IsKeyPressed(ImGuiKey_Enter, false);
+            bool kbConfirm = isActive && pdguiMenuAcceptPressed();
 
             if (clicked || kbConfirm) {
                 pdguiPlaySound(PDGUI_SND_SELECT);
@@ -6039,8 +6205,7 @@ static s32 renderCinemaList(struct menudialog *dialog,
         if (pdguiActionBarButton("Back", backActive ? 1 : 0, barW)) {
             wantClose = true;
         }
-        if (backActive &&
-            ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+        if (backActive && pdguiMenuAcceptPressed()) {
             wantClose = true;
         }
     }
@@ -6064,7 +6229,7 @@ extern "C" {
 
 void pdguiMainMenuReset(void)
 {
-    s_MenuView = 0;
+    pdguiMainMenuSetView(0, "external-reset");
 }
 
 void pdguiMenuMainMenuRegister(void)

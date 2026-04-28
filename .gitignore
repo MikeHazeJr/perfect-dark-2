@@ -58,6 +58,9 @@ build/game_output.log
 # Claude Code worktrees (prevent git add -A from scanning them)
 .claude/worktrees/
 
+# Per-session isolated build directories for concurrent code sessions
+.claude/session-builds/
+
 # Claude Code session build/verify directories (ephemeral build artifacts)
 .claude/b8-dev-verify/
 .claude/mb2/

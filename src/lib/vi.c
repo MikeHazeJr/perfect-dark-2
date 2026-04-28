@@ -629,7 +629,7 @@ Gfx *viRenderViewportEdges(Gfx *gdl)
 	if (PLAYERCOUNT() == 1
 			|| ((g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0)
 				&& (
-					(g_InCutscene && !g_MainIsEndscreen) || menuGetRoot() == MENUROOT_COOPCONTINUE
+					(playerAnyInCutscene() && !g_MainIsEndscreen) || menuGetRoot() == MENUROOT_COOPCONTINUE
 					) && g_Vars.currentplayernum == 0))
 #endif
 	{

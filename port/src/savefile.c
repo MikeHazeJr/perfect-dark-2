@@ -835,7 +835,7 @@ s32 saveSaveMpSetup(const char *name)
 	{
 		const char *sid = g_MatchConfig.scenario_id[0]
 			? g_MatchConfig.scenario_id
-			: catalogIdByRuntime(ASSET_GAMEMODE, (s32)g_MpSetup.scenario);
+			: catalogGameModeIdByScenarioIndex((s32)g_MpSetup.scenario);
 		writeJsonString(fp, "scenario_id", sid ? sid : "");
 		fprintf(fp, ",\n");
 	}

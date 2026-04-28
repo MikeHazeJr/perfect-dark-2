@@ -420,7 +420,7 @@ bool aiChrDoAnimation(void)
 	if (chr && chr->model) {
 		f32 speed = 1.0f / (s32)cmd[11];
 
-		if (g_Vars.in_cutscene) {
+		if (playerCurrentCutsceneInProgress()) {
 			if (startframe != 0xfffe) {
 #if PAL
 				fstartframe += var8009e388pf * speed;
@@ -4892,7 +4892,7 @@ bool aiIfInCutscene(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if (g_Vars.in_cutscene) {
+	if (playerCurrentCutsceneInProgress()) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
 		g_Vars.aioffset += 3;
@@ -4908,7 +4908,7 @@ bool aiIfCutsceneButtonPressed(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 
-	if ((g_Vars.in_cutscene && g_CutsceneSkipRequested) ||
+	if ((playerAnyCutsceneInProgress() && playerAnyCutsceneSkipRequested()) ||
 			(g_Vars.stagenum == STAGE_CITRAINING && var80087260 > 0)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
@@ -4972,7 +4972,7 @@ bool aiObjectDoAnimation(void)
 		if (obj->model->anim) {
 			thing = 1.0f / (s32)cmd[5];
 
-			if (g_Vars.in_cutscene && startframe != 0xfffe) {
+			if (playerCurrentCutsceneInProgress() && startframe != 0xfffe) {
 #if PAL
 				fstartframe += var8009e388pf * thing;
 #else

@@ -65,6 +65,7 @@
 #include "pdgui_toast.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "scene.h"
 #endif
 #include <SDL.h>
 #include <stdarg.h>
@@ -551,6 +552,25 @@ static inline u32 netbufReadPlayerMove(struct netbuf *buf, struct netplayermove 
 	return buf->error;
 }
 
+static bool netmsgClientCanSelectWeapon(struct netclient *cl, s32 weaponnum, bool dualwield)
+{
+	if (!cl || cl->playernum >= MAX_PLAYERS || !cl->player) {
+		return false;
+	}
+
+	if (weaponnum < WEAPON_UNARMED || weaponnum > WEAPON_SUICIDEPILL) {
+		return false;
+	}
+
+	const s32 prevplayernum = g_Vars.currentplayernum;
+	setCurrentPlayerNum(cl->playernum);
+	const bool has_single = invHasSingleWeaponIncAllGuns(weaponnum);
+	const bool has_double = !dualwield || invHasDoubleWeaponIncAllGuns(weaponnum, weaponnum);
+	setCurrentPlayerNum(prevplayernum);
+
+	return has_single && has_double;
+}
+
 static inline u32 netbufWritePropPtr(struct netbuf *buf, const struct prop *prop)
 {
 	netbufWriteU32(buf, prop ? prop->syncid : 0);
@@ -884,6 +904,17 @@ u32 netmsgClcMoveRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 
+	if ((newmove.ucmd & UCMD_SELECT) && newmove.weaponnum >= 0) {
+		const bool dualwield = (newmove.ucmd & UCMD_SELECT_DUAL) != 0;
+		if (!netmsgClientCanSelectWeapon(srccl, newmove.weaponnum, dualwield)) {
+			sysLogPrintf(LOG_WARNING,
+				"NET: rejected CLC_MOVE weapon select from client %u (weapon=%d dual=%d)",
+				srccl->id, newmove.weaponnum, dualwield ? 1 : 0);
+			newmove.weaponnum = -1;
+			newmove.ucmd &= ~(UCMD_SELECT | UCMD_SELECT_DUAL);
+		}
+	}
+
 	srccl->outmoveack = outmoveack;
 
 	if (!src->error) {
@@ -1161,7 +1192,7 @@ u32 netmsgSvcStageStartWrite(struct netbuf *dst)
 		{
 			const char *sid = g_MatchConfig.scenario_id[0]
 				? g_MatchConfig.scenario_id
-				: catalogIdByRuntime(ASSET_GAMEMODE, (s32)g_MpSetup.scenario);
+				: catalogGameModeIdByScenarioIndex((s32)g_MpSetup.scenario);
 			netbufWriteStr(dst, sid ? sid : "base:combat");
 		}
 		netbufWriteU8(dst, g_MpSetup.scorelimit);
@@ -4434,30 +4465,83 @@ u32 netmsgSvcAlarmRead(struct netbuf *src, struct netclient *srccl)
 /* ========================================================================
  * SVC_CUTSCENE - Server-authoritative cutscene state sync (co-op only)
  * Sent when a cutscene starts or ends on the server.
- * Client locks/unlocks input and sets g_InCutscene flag.
- * Camera sync is not included — client freezes during cutscene (MVP).
+ * Client locks/unlocks input and sets the player cutscene state.
+ * v46 payload: active, player_mask.
+ * Camera sync is not included. Client freezes during cutscene (MVP).
  * ======================================================================== */
 
-u32 netmsgSvcCutsceneWrite(struct netbuf *dst, u8 active)
+u32 netmsgSvcCutsceneWrite(struct netbuf *dst, u8 active, u8 player_mask)
 {
 	netbufWriteU8(dst, SVC_CUTSCENE);
 	netbufWriteU8(dst, active);
+	netbufWriteU8(dst, player_mask);
 	return dst->error;
 }
 
 u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u8 active = netbufReadU8(src);
+	u8 player_mask = netbufReadU8(src);
 
-	if (src->error || srccl->state < CLSTATE_GAME) {
+	if (src->error || !srccl || srccl->state < CLSTATE_GAME) {
 		return src->error;
 	}
 
-	sysLogPrintf(LOG_NOTE, "NET: SVC_CUTSCENE read active=%u", active);
+	if (!player_mask) {
+		player_mask = playerCutsceneActiveMask();
+		if (!player_mask) {
+			player_mask = 1;
+		}
+	}
 
-	g_InCutscene = active ? 1 : 0;
-	/* Setting g_InCutscene is sufficient — the input gating macro in constants.h
-	 * checks this flag and suppresses player input automatically. */
+	sysLogPrintf(LOG_NOTE, "NET: SVC_CUTSCENE read active=%u player_mask=0x%02x", active, player_mask);
+
+	playerSetCutsceneActiveMask(player_mask, active ? true : false);
+#if !defined(PD_SERVER)
+	sceneFire(active ? SCENE_EVENT_CUTSCENE_START : SCENE_EVENT_CUTSCENE_END, NULL);
+#endif
+
+	return src->error;
+}
+
+u32 netmsgClcCutsceneSkipWrite(struct netbuf *dst, u8 playernum)
+{
+	netbufWriteU8(dst, CLC_CUTSCENE_SKIP);
+	netbufWriteU8(dst, playernum);
+	return dst->error;
+}
+
+u32 netmsgClcCutsceneSkipRead(struct netbuf *src, struct netclient *srccl)
+{
+	const u8 requested_playernum = netbufReadU8(src);
+	u8 playernum = requested_playernum;
+
+	if (src->error || !srccl || srccl->state < CLSTATE_GAME) {
+		return src->error;
+	}
+
+	if (srccl->playernum < MAX_PLAYERS) {
+		playernum = srccl->playernum;
+	}
+
+	if (playernum >= MAX_PLAYERS) {
+		sysLogPrintf(LOG_WARNING,
+			"NET: CLC_CUTSCENE_SKIP rejected client=%u requested=%u authoritative=%u",
+			srccl->id, requested_playernum, srccl->playernum);
+		return src->error;
+	}
+
+	if (!playerAnyInCutscene()) {
+		sysLogPrintf(LOG_NOTE,
+			"NET: CLC_CUTSCENE_SKIP ignored outside cutscene client=%u player=%u",
+			srccl->id, playernum);
+		return src->error;
+	}
+
+	playerSetCutsceneSkipRequested(playernum, true);
+	sysLogPrintf(LOG_NOTE,
+		"NET: CLC_CUTSCENE_SKIP client=%u player=%u requested=%u",
+		srccl->id, playernum, requested_playernum);
 
 	return src->error;
 }
@@ -4508,7 +4592,7 @@ u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 di
 		netbufWriteStr(dst, g_MatchConfig.scenario_id);
 	} else {
 		/* Fallback: resolve from integer */
-		const char *sid = catalogIdByRuntime(ASSET_GAMEMODE, (s32)scenario);
+		const char *sid = catalogGameModeIdByScenarioIndex((s32)scenario);
 		netbufWriteStr(dst, sid ? sid : "base:combat");
 	}
 	netbufWriteU8(dst, scorelimit);
@@ -5661,7 +5745,8 @@ u32 netmsgClcCatalogDiffRead(struct netbuf *src, struct netclient *srccl)
 /* ---- SVC_DISTRIB_BEGIN ---- */
 
 u32 netmsgSvcDistribBeginWrite(struct netbuf *dst, const char *catalog_id,
-                                const char *category, u32 total_chunks, u32 archive_bytes)
+                                const char *category, u32 total_chunks,
+                                u32 archive_bytes, const u8 expected_sha256[32])
 {
 	netbufWriteU8(dst, SVC_DISTRIB_BEGIN);
 	/* v27: catalog ID string is the component identity — no net_hash on wire. */
@@ -5669,6 +5754,8 @@ u32 netmsgSvcDistribBeginWrite(struct netbuf *dst, const char *catalog_id,
 	netbufWriteStr(dst, category);
 	netbufWriteU32(dst, total_chunks);
 	netbufWriteU32(dst, archive_bytes);
+	/* v46 / SEC-5: mandatory digest of the compressed PDCA archive bytes. */
+	netbufWriteData(dst, expected_sha256, 32);
 	return dst->error;
 }
 
@@ -5680,6 +5767,8 @@ u32 netmsgSvcDistribBeginRead(struct netbuf *src, struct netclient *srccl)
 	const char *category    = netbufReadStr(src);
 	u32  total_chunks = netbufReadU32(src);
 	u32  archive_bytes = netbufReadU32(src);
+	u8   expected_sha256[32];
+	netbufReadData(src, expected_sha256, sizeof(expected_sha256));
 
 	if (src->error) return src->error;
 
@@ -5690,7 +5779,8 @@ u32 netmsgSvcDistribBeginRead(struct netbuf *src, struct netclient *srccl)
 
 	netDistribClientHandleBegin(catalog_id,
 	                             category ? category : "",
-	                             total_chunks, archive_bytes, 0);
+	                             total_chunks, archive_bytes,
+	                             expected_sha256, 0);
 	return src->error;
 }
 

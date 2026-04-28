@@ -25,6 +25,8 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_nav.h"
+#include "menugraph.h"
 #include "system.h"
 
 /* ========================================================================
@@ -122,9 +124,6 @@ struct menudialogdef {
 
 /* Language strings */
 const char *langSafe(s32 textid);
-
-/* Menu stack */
-void menuPopDialog(void);
 
 /* Video info */
 s32 viGetWidth(void);
@@ -639,18 +638,18 @@ static s32 renderTypedDialog(struct menudialog *dialog,
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availW - buttonW) * 0.5f);
             if (ImGui::Button("OK", ImVec2(buttonW, 28.0f * scale))) {
                 pdguiPlaySound(PDGUI_SND_SELECT);
-                menuPopDialog();
+                menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "confirm");
             }
             ImGui::SetItemDefaultFocus();
         }
     }
 
     /* B / Escape = dismiss */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_KbdInitialised = false;
         s_KbdDialogDef = nullptr;
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "cancel");
     }
 
     ImGui::End();
@@ -788,7 +787,7 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
             s_EndGameOpenedForDialog = nullptr;
             s_EndGameOpenFrame = -1;
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "cancel");
         }
         pdguiSetPalette(prevPalette);
         return 1;
@@ -905,12 +904,10 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
      * Enter press that activated the hubPushRow Selectable can't bleed
      * through into this frame. */
     if (!inputDebounced) {
-        if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+        if (pdguiMenuAcceptPressed()) {
             doConfirm = true;
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        if (pdguiMenuCancelPressed()) {
             doCancel = true;
         }
     }
@@ -934,13 +931,13 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
         ImGui::CloseCurrentPopup();
         s_EndGameOpenedForDialog = nullptr;
         s_EndGameOpenFrame = -1;
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "confirm");
     } else if (doCancel) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         ImGui::CloseCurrentPopup();
         s_EndGameOpenedForDialog = nullptr;
         s_EndGameOpenFrame = -1;
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "cancel");
     }
 
     ImGui::EndPopup();
@@ -1064,15 +1061,15 @@ static s32 renderFilemgrPcPlaceholder(struct menudialog *dialog,
     if (pdguiBeginActionBar("##fm_action_bar")) {
         float barW = ImGui::GetContentRegionAvail().x;
         if (pdguiActionBarButton("OK", 1, barW)) {
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "confirm");
         }
     }
     pdguiEndActionBar();
 
     /* B / Escape = dismiss */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuPopDialog();
+        menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "cancel");
     }
 
     ImGui::End();

@@ -2,8 +2,8 @@
  * screenmfst.h -- Phase 6: Menu/UI screen asset mini-manifests.
  *
  * Each ImGui menu screen may declare a "mini-manifest" — a list of catalog
- * asset IDs it needs loaded.  As screens enter and leave, catalogLoadAsset /
- * catalogUnloadAsset are called so assets stay resident while a screen is
+ * asset IDs it needs loaded.  As screens enter and leave, typed catalog
+ * load/release calls keep assets resident while a screen is
  * visible and are released when it is dismissed.
  *
  * Phase 5 ref counting handles shared assets correctly: an asset needed by
@@ -19,7 +19,7 @@
  * Asset types: use MANIFEST_TYPE_* constants from netmanifest.h.
  *
  * Note on base-game assets: all bundled base-game bodies, heads, lang banks,
- * etc. carry bundled=1, so catalogLoadAsset / catalogUnloadAsset are no-ops
+ * etc. carry bundled=1, so typed catalog load/release calls are no-ops
  * for them.  Mini-manifests for base-game content are still useful as
  * documentation and as a compatibility layer for mod overrides of those assets
  * (mod entries are non-bundled and go through the full ref-counted lifecycle).
@@ -68,8 +68,8 @@ void screenManifestRegister(void *dialogdef,
  * count:       Number of entries in active_defs.
  *
  * Called from pdguiHotswapRenderQueued() after processing the render queue.
- * On enter (newly visible screen): calls catalogLoadAsset() for each ID.
- * On leave (screen no longer visible): calls catalogUnloadAsset() for each ID.
+ * On enter (newly visible screen): calls typed catalog load for each ID.
+ * On leave (screen no longer visible): calls typed catalog release for each ID.
  *
  * Internal — not intended for direct call outside of pdgui_hotswap.cpp.
  */

@@ -32,6 +32,8 @@
 #include "net/group_session.h"
 #include "updater.h"
 #include "actionmap.h"
+#include "inputlayer.h"
+#include "scene.h"
 #include "savemigrate.h"
 #include "savefile.h"
 #include "prefs_agent.h"
@@ -131,6 +133,8 @@ static void cleanup(void)
 	g_AppQuitting = 1;
 
 	discordShutdown();
+	inputLayerShutdown();
+	sceneShutdown();
 	inputCtxShutdown();
 	updaterShutdown();
 	pdguiShutdown();
@@ -193,6 +197,8 @@ int main(int argc, const char **argv)
 	configInit();
 	/* M0.2 Phase B: parse bind strings that configLoad just populated */
 	actionmapLoadBinds();
+	inputLayerInit();
+	sceneInit();
 
 	/* D13: Initialize update system + save migration after filesystem is ready */
 	updaterInit();

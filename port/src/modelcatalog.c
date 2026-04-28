@@ -36,6 +36,7 @@
 #include "modelcatalog.h"
 #include "modmgr.h"
 #include "assetcatalog.h"
+#include "assetload.h"
 #include "game/modeldef.h"
 #include "game/lang.h"
 #include "lib/memp.h"
@@ -145,23 +146,15 @@ static asset_data_handle_t catalogValidateResolveHandle(s32 index, u8 category, 
 	s32 i;
 
 	for (i = 0; i < 2; i++) {
-		const char *id = catalogIdBySourceFilenum(types[i], filenum);
+		asset_data_handle_t handle = catalogHandleBySourceFilenum(types[i], filenum);
 
-		if (id) {
-			const asset_entry_t *entry = assetCatalogResolve(id);
-
-			if (entry) {
-				asset_data_handle_t handle = catalogEffectiveHandle(entry);
-
-				if (!assetHandleIsNull(handle)) {
-					return handle;
-				}
-			}
+		if (!assetHandleIsNull(handle)) {
+			return handle;
 		}
 	}
 
 	sysLogPrintf(LOG_WARNING,
-		"CATALOG.MISS: modelcatalog index=%d filenum=0x%04x has no provider handle -- using temporary ROM fallback",
+		"CATALOG.MISS: modelcatalog index=%d filenum=0x%04x has no provider handle",
 		index, filenum);
 	return null_handle;
 }
@@ -177,8 +170,6 @@ static struct modeldef *safeModeldefLoad(u16 filenum, asset_data_handle_t handle
 	if (setjmp(s_ModelLoadJmpBuf) == 0) {
 		if (!assetHandleIsNull(handle)) {
 			result = modeldefLoadToNewFromHandle(handle, filenum);
-		} else {
-			result = modeldefLoadToNew(filenum);
 		}
 	} else {
 		sysLogPrintf(LOG_WARNING,
@@ -202,8 +193,6 @@ static struct modeldef *safeModeldefLoad(u16 filenum, asset_data_handle_t handle
 	if (setjmp(s_ModelLoadJmpBuf) == 0) {
 		if (!assetHandleIsNull(handle)) {
 			result = modeldefLoadToNewFromHandle(handle, filenum);
-		} else {
-			result = modeldefLoadToNew(filenum);
 		}
 	} else {
 		sysLogPrintf(LOG_WARNING,
@@ -219,6 +208,15 @@ static struct modeldef *safeModeldefLoad(u16 filenum, asset_data_handle_t handle
 #endif
 
 	return result;
+}
+
+static s32 catalogValidateSourceMissing(asset_data_handle_t handle, u16 filenum)
+{
+	if (!assetHandleIsNull(handle)) {
+		return assetLoadGetInflatedSize(handle, LOADTYPE_MODEL) <= 0;
+	}
+
+	return 1;
 }
 
 /* ========================================================================
@@ -473,8 +471,7 @@ static void catalogValidateOne(s32 index)
 	 * and mempAlloc for every non-existent model file. The deeper fix in
 	 * fileLoadRomToNew also returns NULL for missing files, but catching it
 	 * here produces a cleaner log and skips unnecessary work entirely. */
-	if ((assetHandleIsNull(handle) || handle.provider == romProvider())
-			&& romdataFileGetData(hb->filenum) == NULL) {
+	if (catalogValidateSourceMissing(handle, hb->filenum)) {
 		ce->status = MODELSTATUS_MISSING;
 		sysLogPrintf(LOG_WARNING, "CATALOG: [%3d] file 0x%04x — not in ROM data (MISSING)",
 		             index, hb->filenum);

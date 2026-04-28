@@ -30,9 +30,11 @@
 #include "pdgui_audio.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_layout.h"
+#include "pdgui_nav.h"
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "menugraph.h"
 #include "achievements.h"
 #include "pdgui_achievement_toast.h"
 
@@ -197,6 +199,50 @@ extern struct menudialogdef g_MpEndscreenTeamRankingMenuDialog;
 extern struct menudialogdef g_MpEndscreenPlayerStatsMenuDialog;
 
 } /* extern "C" */
+
+static s32 endscreenGraphNextMission(void *userdata)
+{
+    (void)userdata;
+    pdguiEndscreenNextMission();
+    return 0;
+}
+
+static s32 endscreenGraphRetryMission(void *userdata)
+{
+    (void)userdata;
+    pdguiEndscreenStartMission();
+    return 0;
+}
+
+static s32 endscreenGraphExitToMainMenu(void *userdata)
+{
+    (void)userdata;
+    pdguiEndscreenExitToMainMenu();
+    return 0;
+}
+
+static s32 endscreenGraphMpContinue(void *userdata)
+{
+    (void)userdata;
+
+    if (g_NetMode != ES_NETMODE_NONE) {
+        pdguiEndscreenExitToMainMenu();
+        pdguiSetInRoom(1);
+    } else {
+        pdguiEndscreenExitToMainMenu();
+        pdguiSoloRoomReturn(); /* U-12: preserve config for rematch. */
+    }
+
+    return 0;
+}
+
+static s32 endscreenGraphDisconnect(void *userdata)
+{
+    (void)userdata;
+    netDisconnect();
+    pdguiEndscreenExitToMainMenu();
+    return 0;
+}
 
 /* ========================================================================
  * Local constants
@@ -680,23 +726,27 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
             /* NEXT MISSION (default)  |  RETRY MISSION / MAIN MENU */
             if (pdguiEndscreenHasNextMission()) {
                 if (pdguiActionBarButton("Next Mission", 1, halfW) && !inputSuppressed) {
-                    pdguiEndscreenNextMission();
+                    menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "continue",
+                        endscreenGraphNextMission, NULL);
                 }
                 ImGui::SameLine();
                 if (pdguiActionBarButton("Retry Mission", 0,
                                           ImGui::GetContentRegionAvail().x)
                         && !inputSuppressed) {
-                    pdguiEndscreenStartMission();
+                    menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "retry",
+                        endscreenGraphRetryMission, NULL);
                 }
             } else {
                 if (pdguiActionBarButton("Retry Mission", 1, halfW) && !inputSuppressed) {
-                    pdguiEndscreenStartMission();
+                    menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "retry",
+                        endscreenGraphRetryMission, NULL);
                 }
                 ImGui::SameLine();
                 if (pdguiActionBarButton("Main Menu", 0,
                                           ImGui::GetContentRegionAvail().x)
                         && !inputSuppressed) {
-                    pdguiEndscreenExitToMainMenu();
+                    menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "main_menu",
+                        endscreenGraphExitToMainMenu, NULL);
                 }
             }
         } else {
@@ -705,7 +755,8 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
              * any unsaved progress), so route through the canonical S385
              * confirm modal. */
             if (pdguiActionBarButton("Retry Mission", 1, halfW) && !inputSuppressed) {
-                pdguiEndscreenStartMission();
+                menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "retry",
+                    endscreenGraphRetryMission, NULL);
             }
             ImGui::SameLine();
             ImGui::PushStyleColor(ImGuiCol_Button,
@@ -738,13 +789,14 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
         bool confirmOpen = ImGui::IsPopupOpen(sfmmPopupId);
         if (!confirmOpen &&
             (pdguiConsumeTitleClose() ||
-             ImGui::IsKeyPressed(ImGuiKey_Escape))) {
+             pdguiMenuCancelPressed())) {
             if (!completed) {
                 ImGui::OpenPopup(sfmmPopupId);
                 s_SoloFailedMainMenuOpenFrame = (s32)ImGui::GetFrameCount();
                 pdguiPlaySound(PDGUI_SND_OPENDIALOG);
             } else {
-                pdguiEndscreenExitToMainMenu();
+                menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "main_menu",
+                    endscreenGraphExitToMainMenu, NULL);
             }
         }
     }
@@ -762,7 +814,8 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
     ImGui::End();
 
     if (sfmmRes == PDGUI_CONFIRM_OK) {
-        pdguiEndscreenExitToMainMenu();
+        menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "main_menu",
+            endscreenGraphExitToMainMenu, NULL);
     }
 
     /* E.3: Restore palette so the next renderer (main menu, etc.) is clean. */
@@ -1271,8 +1324,8 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
         if (networked) {
             if (pdguiActionBarButton("Return to Room", 1, halfW)
                     && !inputSuppressed) {
-                pdguiEndscreenExitToMainMenu();
-                pdguiSetInRoom(1);
+                menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_MP, "continue",
+                    endscreenGraphMpContinue, NULL);
             }
             ImGui::SameLine();
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
@@ -1291,8 +1344,8 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
         } else {
             if (pdguiActionBarButton("Play Again", 1, halfW)
                     && !inputSuppressed) {
-                pdguiEndscreenExitToMainMenu();
-                pdguiSoloRoomReturn(); /* U-12: preserve config for rematch */
+                menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_MP, "continue",
+                    endscreenGraphMpContinue, NULL);
             }
             ImGui::SameLine();
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
@@ -1322,7 +1375,7 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
                            || ImGui::IsPopupOpen(mpQuitPopupId);
         if (!anyConfirmOpen &&
             (pdguiConsumeTitleClose() ||
-             ImGui::IsKeyPressed(ImGuiKey_Escape))) {
+             pdguiMenuCancelPressed())) {
             if (networked) {
                 ImGui::OpenPopup(mpDisconnectPopupId);
                 s_MpDisconnectOpenFrame = (s32)ImGui::GetFrameCount();
@@ -1352,10 +1405,11 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
     ImGui::End();
 
     if (discRes == PDGUI_CONFIRM_OK) {
-        netDisconnect();
-        pdguiEndscreenExitToMainMenu();
+        menuGraphFireNetworkOp(MENU_TYPE_ENDSCREEN_MP, "disconnect",
+            endscreenGraphDisconnect, NULL);
     } else if (quitRes == PDGUI_CONFIRM_OK) {
-        pdguiEndscreenExitToMainMenu();
+        menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_MP, "quit",
+            endscreenGraphExitToMainMenu, NULL);
     }
 
     /* E.3: Restore palette so the next renderer (main menu, etc.) is clean. */

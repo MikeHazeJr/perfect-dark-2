@@ -15,6 +15,61 @@ static IlpLayerHandle *s_Observer = NULL;
 
 static SpFireCounts s_Counts;
 
+static void spClearTrackedHandlesInRange(int from_top)
+{
+    int d;
+
+    if (from_top <= 0) {
+        return;
+    }
+
+    d = s_Cutscene ? ilpHandleDistanceFromTop(s_Cutscene) : 0;
+    if (d < 0 || (d > 0 && d <= from_top)) {
+        s_Cutscene = NULL;
+    }
+
+    d = s_Pause ? ilpHandleDistanceFromTop(s_Pause) : 0;
+    if (d < 0 || (d > 0 && d <= from_top)) {
+        s_Pause = NULL;
+    }
+
+    d = s_Vehicle ? ilpHandleDistanceFromTop(s_Vehicle) : 0;
+    if (d < 0 || (d > 0 && d <= from_top)) {
+        s_Vehicle = NULL;
+    }
+
+    d = s_Observer ? ilpHandleDistanceFromTop(s_Observer) : 0;
+    if (d < 0 || (d > 0 && d <= from_top)) {
+        s_Observer = NULL;
+    }
+}
+
+static void spPopTrackedLayer(IlpLayerHandle **handle_slot, SpSceneEvent ev)
+{
+    IlpLayerHandle *h;
+    int rc;
+
+    if (!handle_slot || !*handle_slot) {
+        return;
+    }
+
+    h = *handle_slot;
+    rc = ilpPop(h, NULL);
+    if (rc != 0) {
+        s_Counts.reject_count[ev]++;
+
+        if (rc == -2) {
+            int from_top = ilpHandleDistanceFromTop(h);
+            if (from_top > 0) {
+                spClearTrackedHandlesInRange(from_top);
+                ilpAbort(from_top, 0);
+            }
+        }
+    }
+
+    *handle_slot = NULL;
+}
+
 void spInit(void)
 {
     s_Cutscene = NULL;
@@ -74,9 +129,7 @@ int spFire(SpSceneEvent ev, const void *payload)
         return 0;
 
     case SP_SCENE_EVENT_CUTSCENE_END:
-        if (s_Cutscene == NULL) return 0;
-        if (ilpPop(s_Cutscene, NULL) != 0) s_Counts.reject_count[ev]++;
-        s_Cutscene = NULL;
+        spPopTrackedLayer(&s_Cutscene, ev);
         return 0;
 
     case SP_SCENE_EVENT_PAUSE_OPEN:
@@ -86,9 +139,7 @@ int spFire(SpSceneEvent ev, const void *payload)
         return 0;
 
     case SP_SCENE_EVENT_PAUSE_CLOSE:
-        if (s_Pause == NULL) return 0;
-        if (ilpPop(s_Pause, NULL) != 0) s_Counts.reject_count[ev]++;
-        s_Pause = NULL;
+        spPopTrackedLayer(&s_Pause, ev);
         return 0;
 
     case SP_SCENE_EVENT_VEHICLE_BOARD:
@@ -104,9 +155,7 @@ int spFire(SpSceneEvent ev, const void *payload)
         return 0;
 
     case SP_SCENE_EVENT_VEHICLE_DISMOUNT:
-        if (s_Vehicle == NULL) return 0;
-        if (ilpPop(s_Vehicle, NULL) != 0) s_Counts.reject_count[ev]++;
-        s_Vehicle = NULL;
+        spPopTrackedLayer(&s_Vehicle, ev);
         return 0;
 
     case SP_SCENE_EVENT_OBSERVER_ENTER:
@@ -116,9 +165,7 @@ int spFire(SpSceneEvent ev, const void *payload)
         return 0;
 
     case SP_SCENE_EVENT_OBSERVER_EXIT:
-        if (s_Observer == NULL) return 0;
-        if (ilpPop(s_Observer, NULL) != 0) s_Counts.reject_count[ev]++;
-        s_Observer = NULL;
+        spPopTrackedLayer(&s_Observer, ev);
         return 0;
 
     case SP_SCENE_EVENT_STAGE_TEARDOWN:

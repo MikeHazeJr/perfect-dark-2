@@ -15117,7 +15117,7 @@ void objCheckDestroyed(struct defaultobj *obj, struct coord *pos, s32 playernum)
 		RoomNum rooms[8];
 
 		// If in Deep Sea outro
-		if (g_Vars.tickmode == TICKMODE_CUTSCENE && g_CutsceneAnimNum == ANIM_CUT_PAM_OUTRO_CAM) {
+		if (g_Vars.tickmode == TICKMODE_CUTSCENE && playerCurrentCutsceneAnimNum() == ANIM_CUT_PAM_OUTRO_CAM) {
 			exptype = EXPLOSIONTYPE_24;
 		}
 
@@ -17631,7 +17631,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 
 	switch (obj->type) {
 	case OBJTYPE_KEY:
-		if (g_Vars.in_cutscene == false) {
+		if (!playerCurrentCutsceneInProgress()) {
 			playerSndStart(var80095200, SFX_PICKUP_KEYCARD, NULL, g_Vars.currentplayernum, -1, -1, -1);
 		}
 
@@ -17651,7 +17651,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 		{
 			struct ammocrateobj *crate = (struct ammocrateobj *) prop->obj;
 			s32 quantity = ammocrateGetPickupAmmoQty(crate);
-			ammoHandlePickup(crate->ammotype, quantity, !g_Vars.in_cutscene, showhudmsg);
+			ammoHandlePickup(crate->ammotype, quantity, !playerCurrentCutsceneInProgress(), showhudmsg);
 			result = TICKOP_FREE;
 		}
 		break;
@@ -17671,7 +17671,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 				ammoHandlePickup(i + 1, qty, false, showhudmsg);
 			}
 
-			if (g_Vars.in_cutscene == false) {
+			if (!playerCurrentCutsceneInProgress()) {
 				playerSndStart(var80095200, SFX_PICKUP_AMMO, NULL, g_Vars.currentplayernum, -1, -1, -1);
 			}
 
@@ -17714,7 +17714,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 				}
 			}
 
-			if (g_Vars.in_cutscene == false) {
+			if (!playerCurrentCutsceneInProgress()) {
 				weaponPlayPickupSound(weapon->weaponnum);
 			}
 
@@ -17741,7 +17741,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 				if (weapon->weaponnum == WEAPON_BOLT) {
 					count = 1;
 					given = true;
-					ammoHandlePickup(AMMOTYPE_CROSSBOW, 1, !g_Vars.in_cutscene, true);
+					ammoHandlePickup(AMMOTYPE_CROSSBOW, 1, !playerCurrentCutsceneInProgress(), true);
 					result = TICKOP_FREE;
 					showhudmsg = false;
 					sp70 = true;
@@ -17820,7 +17820,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 		{
 			playerSetShieldFrac(((struct shieldobj *) prop->obj)->amount);
 
-			if (!g_Vars.in_cutscene) {
+			if (!playerCurrentCutsceneInProgress()) {
 				playerSndStart(var80095200, SFX_PICKUP_SHIELD, NULL, g_Vars.currentplayernum, -1, -1, -1);
 			}
 
@@ -17857,7 +17857,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 	case OBJTYPE_SAFE:
 	case OBJTYPE_TINTEDGLASS:
 	default:
-		if (g_Vars.in_cutscene == false) {
+		if (!playerCurrentCutsceneInProgress()) {
 			playerSndStart(var80095200, SFX_PICKUP_KEYCARD, NULL, g_Vars.currentplayernum, -1, -1, -1);
 		}
 
@@ -19952,7 +19952,7 @@ void doorPlayOpeningSound(s32 soundtype, struct prop *prop)
 
 	psStopSound(prop, PSTYPE_DOOR, 0xffff);
 
-	if (g_Vars.in_cutscene
+	if (playerAnyCutsceneInProgress()
 			&& (prop->type == PROPTYPE_OBJ || prop->type == PROPTYPE_DOOR)
 			&& (prop->obj->flags3 & OBJFLAG3_AUTOCUTSCENESOUNDS) == 0) {
 		return;
@@ -20029,7 +20029,7 @@ void doorPlayClosingSound(s32 soundtype, struct prop *prop)
 
 	psStopSound(prop, PSTYPE_DOOR, 0xffff);
 
-	if (g_Vars.in_cutscene
+	if (playerAnyCutsceneInProgress()
 			&& (prop->type == PROPTYPE_OBJ || prop->type == PROPTYPE_DOOR)
 			&& (prop->obj->flags3 & OBJFLAG3_AUTOCUTSCENESOUNDS) == 0) {
 		return;
@@ -20088,7 +20088,7 @@ void doorPlayOpenedSound(s32 soundtype, struct prop *prop)
 
 	psStopSound(prop, PSTYPE_DOOR, 0xffff);
 
-	if (g_Vars.in_cutscene
+	if (playerAnyCutsceneInProgress()
 			&& (prop->type == PROPTYPE_OBJ || prop->type == PROPTYPE_DOOR)
 			&& (prop->obj->flags3 & OBJFLAG3_AUTOCUTSCENESOUNDS) == 0) {
 		return;
@@ -20141,7 +20141,7 @@ void doorPlayClosedSound(s32 soundtype, struct prop *prop)
 
 	psStopSound(prop, PSTYPE_DOOR, 0xffff);
 
-	if (g_Vars.in_cutscene
+	if (playerAnyCutsceneInProgress()
 			&& (prop->type == PROPTYPE_OBJ || prop->type == PROPTYPE_DOOR)
 			&& (prop->obj->flags3 & OBJFLAG3_AUTOCUTSCENESOUNDS) == 0) {
 		return;

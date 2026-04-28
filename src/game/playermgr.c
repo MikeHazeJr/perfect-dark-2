@@ -664,6 +664,8 @@ void playermgrAllocatePlayer(s32 index)
 
 	g_Vars.players[index]->wantsjump = false;
 	g_Vars.players[index]->jumpconsumed = true; /* start consumed so held button doesn't fire on first frame */
+	g_Vars.players[index]->pcinteractusekind = 0;
+	playerResetCutsceneState(index);
 
 	g_Vars.players[index]->client = NULL;
 	g_Vars.players[index]->ucmd = (g_NetMode == NETMODE_SERVER) ? UCMD_FL_FORCEMASK : 0;

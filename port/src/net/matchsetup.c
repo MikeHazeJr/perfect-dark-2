@@ -1156,7 +1156,7 @@ s32 matchStartFromChallenge(s32 slot)
 	g_MatchConfig.scenario = (u8)g_MpSetup.scenario;
 	/* M0.1d: sync scenario_id from integer (challenge configs set integers) */
 	{
-		const char *sid = catalogIdByRuntime(ASSET_GAMEMODE, (s32)g_MpSetup.scenario);
+		const char *sid = catalogGameModeIdByScenarioIndex((s32)g_MpSetup.scenario);
 		if (sid) {
 			strncpy(g_MatchConfig.scenario_id, sid, sizeof(g_MatchConfig.scenario_id) - 1);
 			g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';

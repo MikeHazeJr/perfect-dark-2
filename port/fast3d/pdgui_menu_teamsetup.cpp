@@ -23,6 +23,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_nav.h"
 #include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "system.h"
 #include "inputctx.h"
@@ -401,7 +402,7 @@ static s32 renderTeamSetup(struct menudialog *dialog,
     ImGui::SetCursorPosX((diagW - doneW) * 0.5f);
 
     if (PdButton("Done", ImVec2(doneW, doneH))
-        || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+        || pdguiMenuCancelPressed())
     {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuPopDialog();

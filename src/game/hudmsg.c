@@ -360,7 +360,7 @@ s32 hudmsg0f0ddb1c(s32 *arg0, s32 arg1)
 
 	if (LOCALPLAYERCOUNT() == 2
 			&& optionsGetScreenSplit() == SCREENSPLIT_VERTICAL
-			&& (!g_InCutscene || g_MainIsEndscreen)) {
+			&& (!playerAnyInCutscene() || g_MainIsEndscreen)) {
 		result -= *arg0 * 2 / 3;
 
 		if (g_Vars.currentplayernum == 0) {
@@ -372,7 +372,7 @@ s32 hudmsg0f0ddb1c(s32 *arg0, s32 arg1)
 
 	result = result + viewwidth - *arg0 - arg1 - 11;
 
-	if (LOCALPLAYERCOUNT() == 1 || (LOCALPLAYERCOUNT() == 2 && g_InCutscene && !g_MainIsEndscreen)) {
+	if (LOCALPLAYERCOUNT() == 1 || (LOCALPLAYERCOUNT() == 2 && playerAnyInCutscene() && !g_MainIsEndscreen)) {
 		result -= 16;
 
 #if VERSION < VERSION_JPN_FINAL
@@ -876,7 +876,7 @@ void hudmsgCalculatePosition(struct hudmessage *msg)
 
 	if (LOCALPLAYERCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) {
 #if VERSION >= VERSION_PAL_FINAL
-		if (!g_InCutscene || g_MainIsEndscreen)
+		if (!playerAnyInCutscene() || g_MainIsEndscreen)
 #endif
 		{
 			viewwidth -= offset;
@@ -893,13 +893,13 @@ void hudmsgCalculatePosition(struct hudmessage *msg)
 		x = msg->xmargin;
 		break;
 	case HUDMSGALIGN_LEFT:
-		v0 = (g_InCutscene && !g_MainIsEndscreen) ? 24 : msg->xmarginextra;
+		v0 = (playerAnyInCutscene() && !g_MainIsEndscreen) ? 24 : msg->xmarginextra;
 
 		x = viewleft + v0 + msg->xmargin + 3;
 
 		if (LOCALPLAYERCOUNT() == 2
 				&& optionsGetScreenSplit() == SCREENSPLIT_VERTICAL
-				&& (!g_InCutscene || g_MainIsEndscreen)) {
+				&& (!playerAnyInCutscene() || g_MainIsEndscreen)) {
 			if (msg->playernum == 0) {
 				x += 15;
 			} else if (msg->playernum == 1) {
@@ -934,7 +934,7 @@ void hudmsgCalculatePosition(struct hudmessage *msg)
 	case HUDMSGALIGN_BOTTOM:
 		y = viewtop + viewheight - msg->height - msg->ymargin - 14;
 
-		if (LOCALPLAYERCOUNT() == 2 && (g_InCutscene == 0 || g_MainIsEndscreen)) {
+		if (LOCALPLAYERCOUNT() == 2 && (!playerAnyInCutscene() || g_MainIsEndscreen)) {
 			if (optionsGetScreenSplit() != SCREENSPLIT_VERTICAL && msg->playernum == 0) {
 				y += 8;
 			} else {
@@ -1402,7 +1402,7 @@ Gfx *hudmsgsRender(Gfx *gdl)
 	gdl = text0f153628(gdl);
 
 	if ((g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0)
-			&& g_InCutscene
+			&& playerAnyInCutscene()
 			&& g_MainIsEndscreen == 0
 			&& g_Vars.currentplayernum == 0) {
 		spdc = false;

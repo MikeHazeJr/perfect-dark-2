@@ -135,6 +135,10 @@ s32 inputLayerHas(LayerType t);
 /** The LayerDef for a given handle (NULL when handle is invalid). */
 const LayerDef *inputLayerHandleDef(const LayerHandle *h);
 
+/** Distance from top for a valid handle, with the top layer returning 1.
+ *  Returns -1 when the handle is invalid. */
+s32 inputLayerHandleDistanceFromTop(const LayerHandle *h);
+
 /* ============================================================
  * Canonical layer singletons (declared in inputlayer.c)
  *

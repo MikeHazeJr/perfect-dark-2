@@ -39,6 +39,7 @@
 #include "assetcatalog.h"
 #include "system.h"
 #include "fs.h"
+#include "actionmap.h"
 #include <errno.h>
 
 /* S-5: stb_image for image import (public domain, vendored) */
@@ -530,30 +531,27 @@ static void renderCanvas(float panelW, float panelH, float scale)
     /* Keyboard shortcuts */
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
         /* Brush size: [ and ] */
-        if (ImGui::IsKeyPressed(ImGuiKey_LeftBracket) && s_BrushSize > 1) s_BrushSize--;
-        if (ImGui::IsKeyPressed(ImGuiKey_RightBracket) && s_BrushSize < 8) s_BrushSize++;
+        if (actionPressed(0, ACTION_SKIN_BRUSH_DECREASE) && s_BrushSize > 1) s_BrushSize--;
+        if (actionPressed(0, ACTION_SKIN_BRUSH_INCREASE) && s_BrushSize < 8) s_BrushSize++;
 
         /* Tool shortcuts */
-        if (ImGui::IsKeyPressed(ImGuiKey_1)) s_CurrentTool = SKIN_TOOL_DRAW;
-        if (ImGui::IsKeyPressed(ImGuiKey_2)) s_CurrentTool = SKIN_TOOL_ERASE;
-        if (ImGui::IsKeyPressed(ImGuiKey_3)) s_CurrentTool = SKIN_TOOL_FILL;
-        if (ImGui::IsKeyPressed(ImGuiKey_4)) s_CurrentTool = SKIN_TOOL_EYEDROPPER;
-        if (ImGui::IsKeyPressed(ImGuiKey_5)) s_CurrentTool = SKIN_TOOL_LINE;
+        if (actionPressed(0, ACTION_SKIN_TOOL_DRAW)) s_CurrentTool = SKIN_TOOL_DRAW;
+        if (actionPressed(0, ACTION_SKIN_TOOL_ERASE)) s_CurrentTool = SKIN_TOOL_ERASE;
+        if (actionPressed(0, ACTION_SKIN_TOOL_FILL)) s_CurrentTool = SKIN_TOOL_FILL;
+        if (actionPressed(0, ACTION_SKIN_TOOL_EYEDROPPER)) s_CurrentTool = SKIN_TOOL_EYEDROPPER;
+        if (actionPressed(0, ACTION_SKIN_TOOL_LINE)) s_CurrentTool = SKIN_TOOL_LINE;
 
         /* Grid toggle */
-        if (ImGui::IsKeyPressed(ImGuiKey_G)) s_ShowGrid = !s_ShowGrid;
+        if (actionPressed(0, ACTION_SKIN_GRID_TOGGLE)) s_ShowGrid = !s_ShowGrid;
 
         /* S-8: UV overlay toggle */
-        if (ImGui::IsKeyPressed(ImGuiKey_U)) s_ShowUv = !s_ShowUv;
+        if (actionPressed(0, ACTION_SKIN_UV_TOGGLE)) s_ShowUv = !s_ShowUv;
 
         /* Undo/Redo (S-3) */
-        if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z)) {
-            if (ImGui::GetIO().KeyShift)
-                skinCanvasRedo();
-            else
-                skinCanvasUndo();
+        if (actionPressed(0, ACTION_SKIN_UNDO)) {
+            skinCanvasUndo();
         }
-        if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y)) {
+        if (actionPressed(0, ACTION_SKIN_REDO)) {
             skinCanvasRedo();
         }
     }
@@ -1755,7 +1753,7 @@ void pdguiSkinEditorRender(float contentW, float contentH, float scale)
     renderExportDialog(scale);
 
     /* Ctrl+S shortcut for save */
-    if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
+    if (actionPressed(0, ACTION_SKIN_SAVE)) {
         s_SaveDialogOpen = true;
         s_SaveStatus[0] = '\0';
     }

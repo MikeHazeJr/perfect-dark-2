@@ -23,6 +23,7 @@
 #include "pdgui_style.h"
 
 extern "C" {
+#include "actionmap.h"
 #include "net/p2p.h"
 #include "net/group_session.h"
 #include "net/netstun.h"
@@ -244,7 +245,8 @@ extern "C" void pdguiNatDiagnosticsRender(s32 winW, s32 winH)
 		ImGui::EndChild();
 
 		ImGui::Separator();
-		if (ImGui::Button("Close")) {
+		if (ImGui::Button("Close") ||
+		    actionPressed(0, ACTION_CANCEL_USE)) {
 			s_Open = false;
 		}
 	}

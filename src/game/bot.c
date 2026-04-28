@@ -2045,6 +2045,10 @@ void botSetTarget(struct chrdata *botchr, s32 propnum)
 
 bool botIsTargetInvisible(struct chrdata *botchr, struct chrdata *otherchr)
 {
+	if (otherchr->cutscene_protect) {
+		return true;
+	}
+
 	if (otherchr->prop->type == PROPTYPE_PLAYER && !g_Vars.bondvisible) {
 		return true;
 	}

@@ -101,27 +101,21 @@ f32 g_WarpType3MoreHeight;
 u32 g_WarpType3Pad;
 s32 g_WarpType2HasDirection;
 u32 g_WarpType2Arg2;
-s32 g_CutsceneCurAnimFrame60;
 
 #if VERSION == VERSION_JPN_FINAL
 s32 g_CutsceneCurAnimFrame240;
 s32 g_CutsceneFrameOverrun240;
-s16 g_CutsceneAnimNum;
 f32 g_CutsceneBlurFrac;
 #elif PAL
 f32 g_CutsceneCurAnimFrame240;
 f32 var8009e388pf;
-s16 g_CutsceneAnimNum;
 f32 g_CutsceneBlurFrac;
 #else
 s32 g_CutsceneCurAnimFrame240;
-s16 g_CutsceneAnimNum;
 f32 g_CutsceneBlurFrac;
 s32 g_CutsceneFrameOverrun240;
 #endif
 
-bool g_CutsceneSkipRequested;
-f32 g_CutsceneCurTotalFrame60f;
 s32 g_CutsceneTweenDuration60;
 f32 g_CutsceneTweenFrac; // 0 when bars across the top and bottom, 1 when fullscreen
 u32 var8009de34;
@@ -213,7 +207,328 @@ s32 playerDevInvincibilityHudActive(void)
 	return g_PlayerInvincible ? 1 : 0;
 }
 
-s32 g_InCutscene = 0x00000000;
+static struct playercutscenestate s_CutsceneFallbackState;
+
+static void playerRefreshCutsceneProtect(void);
+
+static void playerClearCutsceneState(struct playercutscenestate *state)
+{
+	if (!state) {
+		return;
+	}
+
+	state->active = false;
+	state->in_progress = false;
+	state->skiprequested = false;
+	state->animnum = 0;
+	state->curanimframe60 = 0;
+	state->curtotalframe60f = 0.0f;
+}
+
+static struct playercutscenestate *playerCutsceneStateForNum(s32 playernum)
+{
+	if (playernum >= 0 && playernum < MAX_PLAYERS && g_Vars.players[playernum]) {
+		return &g_Vars.players[playernum]->cutscene;
+	}
+
+	return NULL;
+}
+
+static struct playercutscenestate *playerCurrentCutsceneState(void)
+{
+	struct playercutscenestate *state = playerCutsceneStateForNum(g_Vars.currentplayernum);
+
+	return state ? state : &s_CutsceneFallbackState;
+}
+
+void playerResetCutsceneState(s32 playernum)
+{
+	struct playercutscenestate *state = playerCutsceneStateForNum(playernum);
+
+	if (!state) {
+		return;
+	}
+
+	playerClearCutsceneState(state);
+	playerRefreshCutsceneProtect();
+}
+
+void playerResetAllCutsceneStates(void)
+{
+	s32 i;
+
+	playerClearCutsceneState(&s_CutsceneFallbackState);
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		playerClearCutsceneState(playerCutsceneStateForNum(i));
+	}
+
+	playerRefreshCutsceneProtect();
+}
+
+void playerSetCutsceneActive(s32 playernum, bool active)
+{
+	struct playercutscenestate *state = playerCutsceneStateForNum(playernum);
+
+	if (!state) {
+		state = &s_CutsceneFallbackState;
+	}
+
+	state->active = active ? true : false;
+
+	if (!active) {
+		state->in_progress = false;
+	}
+
+	playerRefreshCutsceneProtect();
+}
+
+bool playerInCutscene(s32 playernum)
+{
+	struct playercutscenestate *state = playerCutsceneStateForNum(playernum);
+
+	return state ? state->active : s_CutsceneFallbackState.active;
+}
+
+bool playerAnyInCutscene(void)
+{
+	s32 i;
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (playerInCutscene(i)) {
+			return true;
+		}
+	}
+
+	return s_CutsceneFallbackState.active;
+}
+
+u8 playerCutsceneActiveMask(void)
+{
+	u8 mask = 0;
+	s32 i;
+
+	for (i = 0; i < MAX_PLAYERS && i < 8; i++) {
+		if (playerInCutscene(i)) {
+			mask |= (u8)(1u << i);
+		}
+	}
+
+	return mask;
+}
+
+void playerSetCutsceneActiveMask(u8 player_mask, bool active)
+{
+	s32 i;
+
+	for (i = 0; i < MAX_PLAYERS && i < 8; i++) {
+		if (player_mask & (u8)(1u << i)) {
+			playerSetCutsceneActive(i, active);
+		}
+	}
+}
+
+static u8 playerBuildCutsceneNetworkMask(void)
+{
+	u8 mask = 0;
+	s32 i;
+
+	if (g_NetMode == NETMODE_SERVER
+			&& (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI)) {
+		for (i = 0; i < g_NetMaxClients && i < NET_MAX_CLIENTS; i++) {
+			struct netclient *client = &g_NetClients[i];
+
+			if (client->state >= CLSTATE_GAME
+					&& !(client->flags & CLFLAG_SPECTATOR)
+					&& client->playernum < MAX_PLAYERS
+					&& client->playernum < 8) {
+				mask |= (u8)(1u << client->playernum);
+			}
+		}
+	}
+
+	if (!mask && g_Vars.currentplayernum >= 0 && g_Vars.currentplayernum < MAX_PLAYERS && g_Vars.currentplayernum < 8) {
+		mask = (u8)(1u << g_Vars.currentplayernum);
+	}
+
+	return mask;
+}
+
+static void playerSendCutsceneSkipRequest(s32 playernum)
+{
+	if (g_NetMode == NETMODE_CLIENT
+			&& g_NetLocalClient
+			&& g_NetLocalClient->state == CLSTATE_GAME) {
+		u8 wire_playernum = (playernum >= 0 && playernum < MAX_PLAYERS) ? (u8)playernum : 0;
+
+		netmsgClcCutsceneSkipWrite(&g_NetMsgRel, wire_playernum);
+	}
+}
+
+static void playerRefreshCutsceneProtect(void)
+{
+	s32 i;
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		struct player *player = g_Vars.players[i];
+
+		if (player && player->prop && player->prop->chr) {
+			player->prop->chr->cutscene_protect = playerInCutscene(i);
+		}
+	}
+}
+
+bool playerCurrentInCutscene(void)
+{
+	return playerCurrentCutsceneState()->active;
+}
+
+void playerSetCutsceneInProgress(s32 playernum, bool in_progress)
+{
+	struct playercutscenestate *state = playerCutsceneStateForNum(playernum);
+
+	if (!state) {
+		state = &s_CutsceneFallbackState;
+	}
+
+	state->in_progress = in_progress ? true : false;
+
+	if (in_progress) {
+		state->active = true;
+	}
+
+	playerRefreshCutsceneProtect();
+}
+
+bool playerCutsceneInProgress(s32 playernum)
+{
+	struct playercutscenestate *state = playerCutsceneStateForNum(playernum);
+
+	return state ? state->in_progress : s_CutsceneFallbackState.in_progress;
+}
+
+bool playerAnyCutsceneInProgress(void)
+{
+	s32 i;
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (playerCutsceneInProgress(i)) {
+			return true;
+		}
+	}
+
+	return s_CutsceneFallbackState.in_progress;
+}
+
+bool playerCurrentCutsceneInProgress(void)
+{
+	return playerCurrentCutsceneState()->in_progress;
+}
+
+void playerSetCutsceneSkipRequested(s32 playernum, bool skiprequested)
+{
+	struct playercutscenestate *state = playerCutsceneStateForNum(playernum);
+
+	if (!state) {
+		state = &s_CutsceneFallbackState;
+	}
+
+	state->skiprequested = skiprequested ? true : false;
+}
+
+bool playerCutsceneSkipRequested(s32 playernum)
+{
+	struct playercutscenestate *state = playerCutsceneStateForNum(playernum);
+
+	return state ? state->skiprequested : s_CutsceneFallbackState.skiprequested;
+}
+
+bool playerAnyCutsceneSkipRequested(void)
+{
+	s32 i;
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (playerCutsceneSkipRequested(i)) {
+			return true;
+		}
+	}
+
+	return s_CutsceneFallbackState.skiprequested;
+}
+
+bool playerCurrentCutsceneSkipRequested(void)
+{
+	return playerCurrentCutsceneState()->skiprequested;
+}
+
+void playerSetCutsceneAnimNum(s32 playernum, s16 animnum)
+{
+	struct playercutscenestate *state = playerCutsceneStateForNum(playernum);
+
+	if (!state) {
+		state = &s_CutsceneFallbackState;
+	}
+
+	state->animnum = animnum;
+}
+
+s16 playerCutsceneAnimNum(s32 playernum)
+{
+	struct playercutscenestate *state = playerCutsceneStateForNum(playernum);
+
+	return state ? state->animnum : s_CutsceneFallbackState.animnum;
+}
+
+s16 playerCurrentCutsceneAnimNum(void)
+{
+	return playerCurrentCutsceneState()->animnum;
+}
+
+void playerSetCutsceneCurAnimFrame60(s32 playernum, s32 frame60)
+{
+	struct playercutscenestate *state = playerCutsceneStateForNum(playernum);
+
+	if (!state) {
+		state = &s_CutsceneFallbackState;
+	}
+
+	state->curanimframe60 = frame60;
+}
+
+s32 playerCutsceneCurAnimFrame60(s32 playernum)
+{
+	struct playercutscenestate *state = playerCutsceneStateForNum(playernum);
+
+	return state ? state->curanimframe60 : s_CutsceneFallbackState.curanimframe60;
+}
+
+s32 playerCurrentCutsceneCurAnimFrame60(void)
+{
+	return playerCurrentCutsceneState()->curanimframe60;
+}
+
+void playerSetCutsceneCurTotalFrame60f(s32 playernum, f32 total60f)
+{
+	struct playercutscenestate *state = playerCutsceneStateForNum(playernum);
+
+	if (!state) {
+		state = &s_CutsceneFallbackState;
+	}
+
+	state->curtotalframe60f = total60f;
+}
+
+f32 playerCutsceneCurTotalFrame60f(s32 playernum)
+{
+	struct playercutscenestate *state = playerCutsceneStateForNum(playernum);
+
+	return state ? state->curtotalframe60f : s_CutsceneFallbackState.curtotalframe60f;
+}
+
+f32 playerCurrentCutsceneCurTotalFrame60f(void)
+{
+	return playerCurrentCutsceneState()->curtotalframe60f;
+}
 
 s16 g_DeathAnimations[] = {
 	ANIM_DEATH_001A,
@@ -2242,6 +2557,7 @@ void playerTickChrBody(void)
 		struct weaponobj *weaponobj = NULL;
 		s32 weapon_filenum_1p = -1;
 		asset_data_handle_t weapon_handle = ASSET_HANDLE_NULL_INIT;
+		catalog_model_result_t weapon_model_result;
 
 		// Unused
 		struct weaponobj template = {
@@ -2361,8 +2677,10 @@ void playerTickChrBody(void)
 			}
 
 			if (weaponmodelnum >= 0) {
-				weapon_filenum_1p = catalogGetPropFilenumByIndex(weaponmodelnum); /* SA-5c */
-				weapon_handle = catalogGetPropHandle(weaponmodelnum);
+				if (catalogResolveModelByModelnum(weaponmodelnum, &weapon_model_result)) {
+					weapon_filenum_1p = weapon_model_result.filenum;
+					weapon_handle = weapon_model_result.handle;
+				}
 			}
 
 			offset2 = offset1 + ALIGN64(assetLoadGetInflatedSize(bodyresult.handle, LOADTYPE_MODEL));
@@ -2537,8 +2855,15 @@ void playerTickChrBody(void)
 					weaponmodeldef = modeldefLoadFromHandle(weapon_handle, wfn, allocation + offset1, offset2 - offset1, &texpool);
 					assetLoadGetLoadedSize(weapon_handle);
 				} else {
-					weaponmodeldef = modeldefLoad((u16)wfn, allocation + offset1, offset2 - offset1, &texpool);
-					fileGetLoadedSize(wfn);
+					static s32 s_last_missing_weapon_filenum = -1;
+
+					if (s_last_missing_weapon_filenum != wfn) {
+						s_last_missing_weapon_filenum = wfn;
+						sysLogPrintf(LOG_WARNING,
+							"CATALOG.MISS: player weapon modelnum=%d filenum=0x%04x has no provider handle",
+							weaponmodelnum, wfn);
+					}
+					weaponmodeldef = NULL;
 				}
 				if (weaponmodeldef == NULL) {
 					sysLogPrintf(LOG_WARNING, "PLAYER: weapon modeldef NULL for modelnum=%d filenum=0x%04x -- weapon will be hidden",
@@ -2618,8 +2943,18 @@ void playerRemoveChrBody(void)
 
 void playerSetTickMode(s32 tickmode)
 {
+	s32 prevtickmode = g_Vars.tickmode;
+
 	g_Vars.tickmode = tickmode;
-	g_Vars.in_cutscene = false;
+
+	if (tickmode != TICKMODE_CUTSCENE) {
+		playerSetCutsceneInProgress(g_Vars.currentplayernum, false);
+	}
+
+	if (prevtickmode == TICKMODE_CUTSCENE && tickmode != TICKMODE_CUTSCENE) {
+		playerSetCutsceneActive(g_Vars.currentplayernum, false);
+		sceneFire(SCENE_EVENT_CUTSCENE_END, NULL);
+	}
 }
 
 void playerBeginGeFadeIn(void)
@@ -2733,14 +3068,21 @@ void playerEndCutscene(void)
 	if (g_Vars.autocutplaying) {
 		g_Vars.autocutfinished = true;
 	} else {
+		u8 cutscene_mask = playerCutsceneActiveMask();
+
+		if (!cutscene_mask) {
+			cutscene_mask = playerBuildCutsceneNetworkMask();
+		}
+
 		playerSetTickMode(TICKMODE_NORMAL);
 		g_PlayerTriggerGeFadeIn = false;
 		bmoveSetModeForAllPlayers(MOVEMODE_WALK);
+		playerSetCutsceneActiveMask(cutscene_mask, false);
 
 		// Broadcast cutscene end to co-op clients
 		if (g_NetMode == NETMODE_SERVER
 				&& (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI)) {
-			netmsgSvcCutsceneWrite(&g_NetMsgRel, 0);
+			netmsgSvcCutsceneWrite(&g_NetMsgRel, 0, cutscene_mask);
 		}
 
 		/* Cohort 4 (2026-04-27, input universality): pop LAYER_CUTSCENE
@@ -2892,44 +3234,49 @@ void playerStartCutscene2(void)
 
 #if PAL
 	g_CutsceneCurAnimFrame240 = var8009e388pf;
-	g_CutsceneCurAnimFrame60 = floorf(g_CutsceneCurAnimFrame240 + 0.01f);
+	playerSetCutsceneCurAnimFrame60(g_Vars.currentplayernum, floorf(g_CutsceneCurAnimFrame240 + 0.01f));
 #else
 	g_CutsceneCurAnimFrame240 = g_CutsceneFrameOverrun240;
-	g_CutsceneCurAnimFrame60 = g_CutsceneFrameOverrun240 >> 2;
+	playerSetCutsceneCurAnimFrame60(g_Vars.currentplayernum, g_CutsceneFrameOverrun240 >> 2);
 #endif
 
 	g_CutsceneBlurFrac = 0;
 	g_CutsceneTweenDuration60 = -1;
-	g_InCutscene = 1;
+	playerSetCutsceneActive(g_Vars.currentplayernum, true);
 
 	// Broadcast cutscene start to co-op clients
 	if (g_NetMode == NETMODE_SERVER
 			&& (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI)) {
-		netmsgSvcCutsceneWrite(&g_NetMsgRel, 1);
+		u8 cutscene_mask = playerBuildCutsceneNetworkMask();
+
+		playerSetCutsceneActiveMask(cutscene_mask, true);
+		netmsgSvcCutsceneWrite(&g_NetMsgRel, 1, cutscene_mask);
 	}
 
 	paksStop(true);
-	g_Vars.in_cutscene = g_Vars.tickmode == TICKMODE_CUTSCENE && g_CutsceneCurAnimFrame60 < animGetNumFrames(g_CutsceneAnimNum) - 1;
+	playerSetCutsceneInProgress(g_Vars.currentplayernum,
+			g_Vars.tickmode == TICKMODE_CUTSCENE
+			&& playerCurrentCutsceneCurAnimFrame60() < animGetNumFrames(playerCurrentCutsceneAnimNum()) - 1);
 	g_Vars.cutsceneskip60ths = 0;
 }
 
 void playerStartCutscene(s16 animnum)
 {
 	if (!g_Vars.autocutplaying
-			|| !g_Vars.in_cutscene
-			|| !g_CutsceneSkipRequested) {
+			|| !playerCurrentCutsceneInProgress()
+			|| !playerCurrentCutsceneSkipRequested()) {
 		joyDisableTemporarily();
 
 		if (g_Vars.tickmode != TICKMODE_CUTSCENE) {
-			g_CutsceneSkipRequested = false;
-			g_CutsceneCurTotalFrame60f = 0;
+			playerSetCutsceneSkipRequested(g_Vars.currentplayernum, false);
+			playerSetCutsceneCurTotalFrame60f(g_Vars.currentplayernum, 0);
 		}
 
 		if (g_Vars.tickmode != TICKMODE_CUTSCENE) {
 			playersTickAllChrBodies();
 		}
 
-		g_CutsceneAnimNum = animnum;
+		playerSetCutsceneAnimNum(g_Vars.currentplayernum, animnum);
 
 		if (g_Vars.currentplayer->haschrbody) {
 			playerStartCutscene2();
@@ -2949,11 +3296,11 @@ void playerReorientForCutsceneStop(s32 tweenduration60)
 	u32 stack;
 
 	g_CutsceneTweenDuration60 = tweenduration60;
-	lastframe = animGetNumFrames(g_CutsceneAnimNum) - 1;
-	animLoadHeader(g_CutsceneAnimNum);
-	frameslot = animLoadFrame(g_CutsceneAnimNum, lastframe);
+	lastframe = animGetNumFrames(playerCurrentCutsceneAnimNum()) - 1;
+	animLoadHeader(playerCurrentCutsceneAnimNum());
+	frameslot = animLoadFrame(playerCurrentCutsceneAnimNum(), lastframe);
 	animForgetFrameBirths();
-	animGetRotTranslateScale(0, 0, &g_Skel20, g_CutsceneAnimNum, frameslot, &rot, &translate, &scale);
+	animGetRotTranslateScale(0, 0, &g_Skel20, playerCurrentCutsceneAnimNum(), frameslot, &rot, &translate, &scale);
 	mtx4LoadRotation(&rot, &rotmtx);
 
 	theta = atan2f(-rotmtx.m[2][0], -rotmtx.m[2][2]);
@@ -2989,6 +3336,7 @@ void playerTickCutscene(bool arg0)
 	f32 sp74[4];
 	f32 sp64[4];
 	f32 sp54[4];
+	struct playercutscenestate *cutscene = playerCurrentCutsceneState();
 
 	/* Cohort 4 (2026-04-27, K.6): edge-only skip detection. The K.6
 	 * belt-and-braces fix for the Mission 1 obj 2 cutscene flash:
@@ -3018,30 +3366,30 @@ void playerTickCutscene(bool arg0)
 		cancelorpause = 0;
 	}
 
-	animLoadHeader(g_CutsceneAnimNum);
+	animLoadHeader(cutscene->animnum);
 
-	endframe = animGetNumFrames(g_CutsceneAnimNum) - 1;
+	endframe = animGetNumFrames(cutscene->animnum) - 1;
 
 	if (g_Vars.currentplayerindex == 0) {
 		g_Vars.cutsceneskip60ths = 0;
 
-		if (g_CutsceneCurAnimFrame60 < endframe) {
+		if (cutscene->curanimframe60 < endframe) {
 #if PAL
 			g_CutsceneCurAnimFrame240 += g_Vars.lvupdate60freal;
-			g_CutsceneCurAnimFrame60 = floorf(g_CutsceneCurAnimFrame240 + 0.01f);
+			cutscene->curanimframe60 = floorf(g_CutsceneCurAnimFrame240 + 0.01f);
 #else
 			g_CutsceneCurAnimFrame240 += g_Vars.lvupdate240;
-			g_CutsceneCurAnimFrame60 = g_CutsceneCurAnimFrame240 >> 2;
+			cutscene->curanimframe60 = g_CutsceneCurAnimFrame240 >> 2;
 #endif
 
-			if (g_Anims[g_CutsceneAnimNum].flags & ANIMFLAG_HASCUTSKIPFRAMES) {
-				while (g_CutsceneCurAnimFrame60 < endframe
-						&& animIsFrameCutSkipped(g_CutsceneAnimNum, g_CutsceneCurAnimFrame60)) {
+			if (g_Anims[cutscene->animnum].flags & ANIMFLAG_HASCUTSKIPFRAMES) {
+				while (cutscene->curanimframe60 < endframe
+						&& animIsFrameCutSkipped(cutscene->animnum, cutscene->curanimframe60)) {
 #if PAL
 					g_CutsceneCurAnimFrame240 += 1.2f;
-					g_CutsceneCurAnimFrame60 = floorf(g_CutsceneCurAnimFrame240 + 0.01f);
+					cutscene->curanimframe60 = floorf(g_CutsceneCurAnimFrame240 + 0.01f);
 #else
-					g_CutsceneCurAnimFrame60++;
+					cutscene->curanimframe60++;
 					g_CutsceneCurAnimFrame240 += 4;
 #endif
 
@@ -3049,7 +3397,7 @@ void playerTickCutscene(bool arg0)
 				}
 			}
 
-			if (g_CutsceneCurAnimFrame60 >= endframe) {
+			if (cutscene->curanimframe60 >= endframe) {
 #if PAL
 				var8009e388pf = g_CutsceneCurAnimFrame240 - endframe;
 #else
@@ -3057,16 +3405,17 @@ void playerTickCutscene(bool arg0)
 #endif
 			}
 
-			if (g_CutsceneCurAnimFrame60 > endframe) {
-				g_CutsceneCurAnimFrame60 = endframe;
+			if (cutscene->curanimframe60 > endframe) {
+				cutscene->curanimframe60 = endframe;
 			}
 		}
 	}
 
-	g_Vars.in_cutscene = (g_Vars.tickmode == TICKMODE_CUTSCENE && g_CutsceneCurAnimFrame60 < endframe);
-	frameslot = animLoadFrame(g_CutsceneAnimNum, g_CutsceneCurAnimFrame60);
+	playerSetCutsceneInProgress(playeridx,
+			g_Vars.tickmode == TICKMODE_CUTSCENE && cutscene->curanimframe60 < endframe);
+	frameslot = animLoadFrame(cutscene->animnum, cutscene->curanimframe60);
 	animForgetFrameBirths();
-	animGetRotTranslateScale(0, 0, &g_Skel20, g_CutsceneAnimNum, frameslot, &rot, &translate, &scale);
+	animGetRotTranslateScale(0, 0, &g_Skel20, cutscene->animnum, frameslot, &rot, &translate, &scale);
 
 	pos.x = translate.x * translatescale;
 	pos.y = translate.y * translatescale;
@@ -3082,14 +3431,14 @@ void playerTickCutscene(bool arg0)
 	look.y = -rotmtx.m[2][1];
 	look.z = -rotmtx.m[2][2];
 
-	fovy = animGetCameraValue(1, g_CutsceneAnimNum, frameslot);
-	g_CutsceneBlurFrac = animGetCameraValue(2, g_CutsceneAnimNum, frameslot);
+	fovy = animGetCameraValue(1, cutscene->animnum, frameslot);
+	g_CutsceneBlurFrac = animGetCameraValue(2, cutscene->animnum, frameslot);
 	g_CutsceneTweenFrac = 0;
 
-	if (g_CutsceneTweenDuration60 > 0 && endframe - g_CutsceneCurAnimFrame60 <= g_CutsceneTweenDuration60) {
+	if (g_CutsceneTweenDuration60 > 0 && endframe - cutscene->curanimframe60 <= g_CutsceneTweenDuration60) {
 		// Cutscene is almost done
 		// Camera is tweening to head and top/bottom bars are shrinking
-		tweenfrac = 1 - (f32)(endframe - g_CutsceneCurAnimFrame60) / (f32)g_CutsceneTweenDuration60;
+		tweenfrac = 1 - (f32)(endframe - cutscene->curanimframe60) / (f32)g_CutsceneTweenDuration60;
 
 		g_CutsceneTweenFrac = tweenfrac;
 		sp104 = 1 - cosf(1.5705462694168f * tweenfrac);
@@ -3128,7 +3477,7 @@ void playerTickCutscene(bool arg0)
 	viSetFovY(fovy);
 
 	if (g_Vars.currentplayerindex == 0) {
-		g_CutsceneCurTotalFrame60f += g_Vars.lvupdate60freal;
+		cutscene->curtotalframe60f += g_Vars.lvupdate60freal;
 	}
 
 	/* Action map: Escape → ACTION_PAUSE (no parallel raw path) */
@@ -3139,33 +3488,41 @@ void playerTickCutscene(bool arg0)
 
 #if VERSION >= VERSION_NTSC_1_0
 	/* M0.2: replaced buttons bitmask tests with action map booleans */
-	if (g_CutsceneCurTotalFrame60f > 30 && anybutton) {
-		g_CutsceneSkipRequested = true;
+	if (cutscene->curtotalframe60f > 30 && anybutton) {
+		if (g_NetMode == NETMODE_CLIENT) {
+			playerSendCutsceneSkipRequest(playeridx);
+		} else {
+			playerSetCutsceneSkipRequested(playeridx, true);
 
-		if (g_Vars.autocutplaying) {
-			if (cancelorpause) {
-				g_Vars.autocutgroupskip = true;
-			} else {
-				g_Vars.autocutfinished = true;
+			if (g_Vars.autocutplaying) {
+				if (cancelorpause) {
+					g_Vars.autocutgroupskip = true;
+				} else {
+					g_Vars.autocutfinished = true;
+				}
 			}
 		}
 	}
 #else
-	if (g_CutsceneCurTotalFrame60f > 30) {
+	if (cutscene->curtotalframe60f > 30) {
 		if (anybutton) {
-			g_CutsceneSkipRequested = true;
+			if (g_NetMode == NETMODE_CLIENT) {
+				playerSendCutsceneSkipRequest(playeridx);
+			} else {
+				playerSetCutsceneSkipRequested(playeridx, true);
+			}
 		}
 
-		if (cancelorpause && g_Vars.autocutplaying) {
+		if (g_NetMode != NETMODE_CLIENT && cancelorpause && g_Vars.autocutplaying) {
 			g_Vars.autocutgroupskip = true;
 		}
 	}
 #endif
 
 	if (g_Vars.stagenum == STAGE_CITRAINING) {
-		if (g_CutsceneCurTotalFrame60f > 10 && (g_NetHostLatch || g_NetJoinLatch)) {
+		if (cutscene->curtotalframe60f > 10 && (g_NetHostLatch || g_NetJoinLatch)) {
 			// just booted up and host/join was requested from command line, skip the intro cutscene
-			g_CutsceneSkipRequested = true;
+			playerSetCutsceneSkipRequested(playeridx, true);
 		}
 	}
 }
@@ -3922,7 +4279,7 @@ bool playerHasSharedViewport(void)
 		return true;
 	}
 
-	return (g_InCutscene && !g_MainIsEndscreen) || menuGetRoot() == MENUROOT_COOPCONTINUE;
+	return (playerAnyInCutscene() && !g_MainIsEndscreen) || menuGetRoot() == MENUROOT_COOPCONTINUE;
 }
 #endif
 
@@ -3933,7 +4290,7 @@ s16 playerGetViewportWidth(void)
 #if VERSION >= VERSION_NTSC_1_0
 	if (!playerHasSharedViewport())
 #else
-	if ((!g_InCutscene || g_MainIsEndscreen) && menuGetRoot() != MENUROOT_COOPCONTINUE)
+	if ((!playerAnyInCutscene() || g_MainIsEndscreen) && menuGetRoot() != MENUROOT_COOPCONTINUE)
 #endif
 	{
 		if (LOCALPLAYERCOUNT() >= 3) {
@@ -3972,7 +4329,7 @@ s16 playerGetViewportLeft(void)
 #if VERSION >= VERSION_NTSC_1_0
 	s32 something = !playerHasSharedViewport();
 #else
-	s32 something = !((g_InCutscene && !g_MainIsEndscreen) || menuGetRoot() == MENUROOT_COOPCONTINUE);
+	s32 something = !((playerAnyInCutscene() && !g_MainIsEndscreen) || menuGetRoot() == MENUROOT_COOPCONTINUE);
 #endif
 	s16 left;
 
@@ -4013,7 +4370,7 @@ s16 playerGetViewportHeight(void)
 #if VERSION >= VERSION_NTSC_1_0
 			&& !playerHasSharedViewport()
 #else
-			&& !((g_InCutscene && !g_MainIsEndscreen) || menuGetRoot() == MENUROOT_COOPCONTINUE)
+			&& !((playerAnyInCutscene() && !g_MainIsEndscreen) || menuGetRoot() == MENUROOT_COOPCONTINUE)
 #endif
 			) {
 		s16 tmp = g_ViModes[g_ViRes].fullheight;
@@ -4034,7 +4391,7 @@ s16 playerGetViewportHeight(void)
 			height = g_ViModes[g_ViRes].wideheight;
 		} else if (optionsGetEffectiveScreenSize() == SCREENSIZE_CINEMA) {
 			height = g_ViModes[g_ViRes].cinemaheight;
-		} else if (g_InCutscene && !var8009dfc0) {
+		} else if (playerAnyInCutscene() && !var8009dfc0) {
 			if (g_CutsceneTweenDuration60 >= 1) {
 				f32 a = g_ViModes[g_ViRes].wideheight;
 				f32 b = g_ViModes[g_ViRes].fullheight;
@@ -4060,7 +4417,7 @@ s16 playerGetViewportTop(void)
 #if VERSION >= VERSION_NTSC_1_0
 			&& !playerHasSharedViewport()
 #else
-			&& (!g_InCutscene || g_MainIsEndscreen)
+			&& (!playerAnyInCutscene() || g_MainIsEndscreen)
 			&& menuGetRoot() != MENUROOT_COOPCONTINUE
 #endif
 			) {
@@ -4085,7 +4442,7 @@ s16 playerGetViewportTop(void)
 		}
 	} else {
 		if (optionsGetEffectiveScreenSize() == SCREENSIZE_WIDE) {
-			if (g_InCutscene && optionsGetCutsceneSubtitles() && g_Vars.stagenum != STAGE_CITRAINING) {
+			if (playerAnyInCutscene() && optionsGetCutsceneSubtitles() && g_Vars.stagenum != STAGE_CITRAINING) {
 				if (g_CutsceneTweenDuration60 >= 1) {
 					f32 a = g_ViModes[g_ViRes].fulltop;
 					f32 b = g_ViModes[g_ViRes].widetop;
@@ -4101,7 +4458,7 @@ s16 playerGetViewportTop(void)
 		} else if (optionsGetEffectiveScreenSize() == SCREENSIZE_CINEMA) {
 			top = g_ViModes[g_ViRes].cinematop;
 		} else {
-			if (g_InCutscene && !var8009dfc0
+			if (playerAnyInCutscene() && !var8009dfc0
 					&& (!optionsGetCutsceneSubtitles() || g_Vars.stagenum == STAGE_CITRAINING)) {
 				if (g_CutsceneTweenDuration60 >= 1) {
 					f32 a = g_ViModes[g_ViRes].widetop;
@@ -4333,7 +4690,7 @@ void playerTick(bool arg0)
 	bgunSetGunAmmoVisible(GUNAMMOREASON_OPTION, optionsGetAmmoOnScreen(g_Vars.currentplayerstats->mpindex));
 	bgunSetSightVisible(GUNSIGHTREASON_1, true);
 
-	if ((g_Vars.tickmode == TICKMODE_GE_FADEIN || g_Vars.tickmode == TICKMODE_NORMAL) && !g_InCutscene && !g_MainIsEndscreen) {
+	if ((g_Vars.tickmode == TICKMODE_GE_FADEIN || g_Vars.tickmode == TICKMODE_NORMAL) && !playerCurrentInCutscene() && !g_MainIsEndscreen) {
 		g_Vars.currentplayer->bondviewlevtime60 += g_Vars.lvupdate60;
 	}
 
@@ -4465,7 +4822,7 @@ void playerTick(bool arg0)
 	}
 
 	if (g_Vars.tickmode != TICKMODE_CUTSCENE) {
-		g_InCutscene = false;
+		playerSetCutsceneActive(g_Vars.currentplayernum, false);
 	}
 
 	if (g_Vars.tickmode == (u32)TICKMODE_CUTSCENE) {
@@ -5749,13 +6106,13 @@ Gfx *playerRenderHud(Gfx *gdl)
 		}
 
 		if (g_Vars.currentplayer->isdead == false
-				&& g_InCutscene == 0
+				&& !playerCurrentInCutscene()
 				&& (!g_Vars.currentplayer->eyespy || (g_Vars.currentplayer->eyespy && !g_Vars.currentplayer->eyespy->active))
 				&& ((g_Vars.currentplayer->devicesactive & ~g_Vars.currentplayer->devicesinhibit) & DEVICE_NIGHTVISION)) {
 			gdl = bviewDrawNvLens(gdl);
 			gdl = bviewDrawNvBinoculars(gdl);
 		} else if (g_Vars.currentplayer->isdead == false
-				&& g_InCutscene == 0
+				&& !playerCurrentInCutscene()
 				&& (!g_Vars.currentplayer->eyespy || (g_Vars.currentplayer->eyespy && !g_Vars.currentplayer->eyespy->active))
 				&& ((g_Vars.currentplayer->devicesactive & ~g_Vars.currentplayer->devicesinhibit) & DEVICE_IRSCANNER)) {
 			gdl = bviewDrawIrLens(gdl);

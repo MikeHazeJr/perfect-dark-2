@@ -96,6 +96,7 @@ static InputMappingContext *const kAllImcs[] = {
 	&g_ImcDebugOverlay,
 	&g_ImcPauseMenu,
 	&g_ImcMenu,
+	&g_ImcObserver,
 	&g_ImcVehicle,
 	&g_ImcGameplay,
 };

@@ -445,7 +445,7 @@ static s32 renderCheatsHub(struct menudialog *dialog,
 
     /* B / Escape closes the hub entirely. */
     if (!ImGui::IsWindowAppearing() && !s_ConfirmUnlockModal &&
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         /* S300: menuCloseDialog (invoked by menuPopDialog) releases the
          * pool slot and pops the owned ctx; no explicit ctx pop here. */
@@ -462,13 +462,12 @@ static s32 renderCheatsHub(struct menudialog *dialog,
                           ImGuiChildFlags_NavFlattened,
                           ImGuiWindowFlags_NoBackground)) {
 
-        /* Bumper (LB/RB) tab cycling via PageUp/PageDown */
-        if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
+        if (pdguiMenuTabPrevPressed()) {
             s_CheatsTab = (s_CheatsTab - 1 + SC_TAB_COUNT) % SC_TAB_COUNT;
             s_ForceSelectTab = true;
             pdguiPlaySound(PDGUI_SND_SWIPE);
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
+        if (pdguiMenuTabNextPressed()) {
             s_CheatsTab = (s_CheatsTab + 1) % SC_TAB_COUNT;
             s_ForceSelectTab = true;
             pdguiPlaySound(PDGUI_SND_SWIPE);
@@ -755,9 +754,7 @@ static s32 renderCheatsWarning(struct menudialog *dialog,
     }
     pdguiEndActionBar();
 
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false)) {
+    if (pdguiMenuCancelPressed() || pdguiMenuAcceptPressed()) {
         wantClose = true;
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
     }
@@ -955,12 +952,10 @@ static s32 renderCheatsConfirmUnlock(struct menudialog *dialog,
      * frames so the Enter press that activated the Unlock All row can't bleed
      * through. */
     if (!inputDebounced) {
-        if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
-            ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+        if (pdguiMenuAcceptPressed()) {
             doYes = true;
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        if (pdguiMenuCancelPressed()) {
             doNo = true;
         }
     }

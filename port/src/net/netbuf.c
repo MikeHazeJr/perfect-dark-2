@@ -119,9 +119,16 @@ f32 netbufReadF32(struct netbuf *buf)
 
 const char *netbufReadStr(struct netbuf *buf)
 {
+	static const char s_empty[] = "";
 	const u16 len = netbufReadU16(buf);
+	if (buf->error) {
+		return NULL;
+	}
+	if (len == 0) {
+		return s_empty;
+	}
 	if (netbufCanRead(buf, len)) {
-		if (len > 0 && buf->data[buf->rp + len - 1] != '\0') {
+		if (buf->data[buf->rp + len - 1] != '\0') {
 			buf->data[buf->rp + len - 1] = '\0';
 		}
 		const char *ret = (const char *)&buf->data[buf->rp];

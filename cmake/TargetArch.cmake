@@ -67,15 +67,23 @@ set(archdetect_c_code "
     #else
         #error cmake_ARCH ppc
     #endif
-#endif
-
+#else
 #error cmake_ARCH unknown
+#endif
 ")
 
 # Set ppc_support to TRUE before including this file or ppc and ppc64
 # will be treated as invalid architectures since they are no longer supported by Apple
 
 function(target_architecture output_var)
+    if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 4)
+        set(${output_var} "i386" PARENT_SCOPE)
+        return()
+    elseif(WIN32)
+        set(${output_var} "x86_64" PARENT_SCOPE)
+        return()
+    endif()
+
     if(APPLE AND CMAKE_OSX_ARCHITECTURES)
         # On OS X we use CMAKE_OSX_ARCHITECTURES *if* it was set
         # First let's normalize the order of the values

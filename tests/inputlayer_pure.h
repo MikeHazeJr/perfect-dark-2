@@ -60,6 +60,7 @@ IlpLayerType         ilpTopType(void);
 int                  ilpDepth(void);
 int                  ilpHas(IlpLayerType t);
 const IlpLayerDef   *ilpHandleDef(const IlpLayerHandle *h);
+int                  ilpHandleDistanceFromTop(const IlpLayerHandle *h);
 
 /* Test instrumentation: per-callback invocation counts. */
 typedef struct IlpInvokeCounts {

@@ -39,6 +39,7 @@
 #include "pdgui_forge.h"
 #include "swarm_test.h"
 #include "actionmap.h"
+#include "scene.h"
 #include "game/lv.h"
 #include "game/options.h"
 #include "game/timing.h"
@@ -638,6 +639,11 @@ void mainLoop(void)
 			/* Solo mission / generic gameplay. */
 			imcSceneSetMission();
 		}
+		if (STAGE_IS_SYSTEM(g_StageNum)) {
+			sceneFire(SCENE_EVENT_STAGE_TEARDOWN, NULL);
+		} else {
+			sceneFire(SCENE_EVENT_STAGE_READY, NULL);
+		}
 
 		while (g_MainChangeToStageNum < 0) {
 			const s32 cycles = osGetCount() - g_Vars.thisframestartt;
@@ -654,6 +660,7 @@ void mainLoop(void)
 		/* Priority J (2026-04-25): scene unloading -- drop both
 		 * gameplay-scope IMCs (and Vehicle, defensively) before the next
 		 * stage's load activates the right one. */
+		sceneFire(SCENE_EVENT_STAGE_TEARDOWN, NULL);
 		imcSceneClearGameplay();
 
 		lvStop();
@@ -916,6 +923,7 @@ void mainTick(void)
 void mainEndStage(void)
 {
 	sndStopNosedive();
+	sceneFire(SCENE_EVENT_CUTSCENE_END, NULL);
 
 	if (!g_MainIsEndscreen) {
 		pak0f11c6d0();

@@ -75,6 +75,11 @@ TEST_CASE("actionmap classifier: gameplay-only actions are gameplay-only", "[act
         REQUIRE(ampIsGameplayOnly(AMP_ACTION_FORGE_TOGGLE) == 1);
         REQUIRE(ampIsGameplayOnly(AMP_ACTION_FORGE_ASCEND) == 1);
     }
+    SECTION("observer actions are gameplay-only") {
+        REQUIRE(ampIsGameplayOnly(AMP_ACTION_OBSERVER_SUBSET_PREV) == 1);
+        REQUIRE(ampIsGameplayOnly(AMP_ACTION_OBSERVER_FREEFLY)     == 1);
+        REQUIRE(ampIsGameplayOnly(AMP_ACTION_OBSERVER_STOP)        == 1);
+    }
     SECTION("test scenario cycling is gameplay-only") {
         REQUIRE(ampIsGameplayOnly(AMP_ACTION_TESTSCEN_CYCLE_COUNT) == 1);
     }
@@ -113,6 +118,13 @@ TEST_CASE("actionmap classifier: shared actions are NOT gameplay-only", "[action
     SECTION("menu/cutscene side actions are not gameplay-only") {
         REQUIRE(ampIsGameplayOnly(AMP_ACTION_SOCIAL_TOGGLE) == 0);
         REQUIRE(ampIsGameplayOnly(AMP_ACTION_SKIP_CUTSCENE) == 0);
+        REQUIRE(ampIsGameplayOnly(AMP_ACTION_MENU_SECONDARY) == 0);
+        REQUIRE(ampIsGameplayOnly(AMP_ACTION_MENU_TERTIARY)  == 0);
+        REQUIRE(ampIsGameplayOnly(AMP_ACTION_MENU_DELETE)    == 0);
+        REQUIRE(ampIsGameplayOnly(AMP_ACTION_VOICE_PTT)      == 0);
+        REQUIRE(ampIsGameplayOnly(AMP_ACTION_FORGE_BOT_ADD)  == 0);
+        REQUIRE(ampIsGameplayOnly(AMP_ACTION_SKIN_UNDO)      == 0);
+        REQUIRE(ampIsGameplayOnly(AMP_ACTION_SKIN_SAVE)      == 0);
     }
 }
 

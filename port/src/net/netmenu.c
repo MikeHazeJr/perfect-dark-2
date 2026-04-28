@@ -51,6 +51,45 @@ s32 g_NetMenuPort = NET_DEFAULT_PORT;
 char g_NetJoinAddr[NET_MAX_ADDR + 1];
 static s32 g_NetJoinAddrPtr = 0;
 
+static s32 netMenuAddrStringToConnectCode(const char *addrStr, char *buf, s32 bufsize)
+{
+	unsigned a = 0, b = 0, c = 0, d = 0, port = CONNECT_DEFAULT_PORT;
+	int consumed = 0;
+
+	if (!addrStr || !buf || bufsize <= 0) {
+		return 0;
+	}
+
+	if (sscanf(addrStr, " %u.%u.%u.%u:%u %n", &a, &b, &c, &d, &port, &consumed) == 5) {
+		if (addrStr[consumed] != '\0') return 0;
+	} else {
+		consumed = 0;
+		if (sscanf(addrStr, " %u.%u.%u.%u %n", &a, &b, &c, &d, &consumed) != 4) return 0;
+		if (addrStr[consumed] != '\0') return 0;
+	}
+
+	if (a > 255 || b > 255 || c > 255 || d > 255 || port < 1 || port > 65535) {
+		return 0;
+	}
+
+	u32 ip = (u32)a | ((u32)b << 8) | ((u32)c << 16) | ((u32)d << 24);
+	return connectCodeEncodeWithPort(ip, (u16)port, buf, bufsize) >= 0;
+}
+
+static s32 netMenuConnectCodeToAddrString(const char *code, char *buf, s32 bufsize)
+{
+	u32 ip = 0;
+	u16 port = 0;
+
+	if (!code || !buf || bufsize <= 0) return 0;
+	if (connectCodeDecodeWithPort(code, &ip, &port) != 0 || ip == 0 || port == 0) return 0;
+
+	snprintf(buf, bufsize, "%u.%u.%u.%u:%u",
+	         ip & 0xFF, (ip >> 8) & 0xFF,
+	         (ip >> 16) & 0xFF, (ip >> 24) & 0xFF, port);
+	return 1;
+}
+
 /* ========================================================================
  * Co-op configuration dialog (used by lobby leader, no local server)
  *
@@ -549,25 +588,12 @@ MenuItemHandlerResult menuhandlerJoinStart(s32 operation, struct menuitem *item,
 {
 	if (operation == MENUOP_SET) {
 		if (g_NetJoinAddr[0] != '\0') {
-			/* Detect connect code (contains alpha chars) vs raw IP */
-			s32 isCode = 0;
-			for (const char *ch = g_NetJoinAddr; *ch; ch++) {
-				if ((*ch >= 'A' && *ch <= 'Z') || (*ch >= 'a' && *ch <= 'z')) {
-					isCode = 1;
-					break;
-				}
-			}
-
 			/* All join attempts must go through connect code decode.
 			 * Raw IP addresses are not accepted -- the code is a security
 			 * layer that prevents exposing public IPs. */
 			{
-				u32 ip = 0;
-				if (connectCodeDecode(g_NetJoinAddr, &ip) == 0 && ip) {
-					char resolved[NET_MAX_ADDR + 1];
-					snprintf(resolved, sizeof(resolved), "%u.%u.%u.%u:%u",
-					         ip & 0xFF, (ip >> 8) & 0xFF,
-					         (ip >> 16) & 0xFF, (ip >> 24) & 0xFF, CONNECT_DEFAULT_PORT);
+				char resolved[NET_MAX_ADDR + 1];
+				if (netMenuConnectCodeToAddrString(g_NetJoinAddr, resolved, sizeof(resolved))) {
 					if (netStartClientWithHolePunch(resolved) == 0) {
 						menuPushDialog(&g_NetJoiningDialog);
 					}
@@ -605,8 +631,12 @@ static const char *menutextRecentServerEntry(struct menuitem *item)
 			status = "Lobby";
 		}
 	}
+	char code[CONNECT_CODE_MAX] = "";
+	if (!netMenuAddrStringToConnectCode(srv->addr, code, sizeof(code))) {
+		snprintf(code, sizeof(code), "Server");
+	}
 	snprintf(g_NetRecentServerStatusText[idx], sizeof(g_NetRecentServerStatusText[idx]),
-		"%s  [%s] %u/%u\n", srv->addr, status, srv->numclients, srv->maxclients);
+		"%s  [%s] %u/%u\n", code, status, srv->numclients, srv->maxclients);
 	return g_NetRecentServerStatusText[idx];
 }
 
@@ -615,8 +645,9 @@ static MenuItemHandlerResult menuhandlerRecentServer(s32 operation, struct menui
 	if (operation == MENUOP_SET) {
 		s32 idx = item->param;
 		if (idx >= 0 && idx < g_NetNumRecentServers) {
-			strncpy(g_NetJoinAddr, g_NetRecentServers[idx].addr, NET_MAX_ADDR);
-			g_NetJoinAddr[NET_MAX_ADDR] = '\0';
+			if (!netMenuAddrStringToConnectCode(g_NetRecentServers[idx].addr, g_NetJoinAddr, NET_MAX_ADDR + 1)) {
+				g_NetJoinAddr[0] = '\0';
+			}
 			g_NetJoinAddrPtr = strlen(g_NetJoinAddr);
 		}
 	}
@@ -762,7 +793,7 @@ struct menudialogdef g_NetRecentServersMenuDialog = {
  *
  * Layout:
  *   - Server Browser (recent/discovered servers)
- *   - Direct IP connect
+ *   - Connect-code join
  *   - Back
  * ======================================================================== */
 
@@ -772,8 +803,9 @@ MenuItemHandlerResult menuhandlerMultiplayerConnect(s32 operation, struct menuit
 {
 	if (operation == MENUOP_SET) {
 		if (g_NetJoinAddr[0] == '\0') {
-			strncpy(g_NetJoinAddr, g_NetLastJoinAddr, NET_MAX_ADDR);
-			g_NetJoinAddr[NET_MAX_ADDR] = '\0';
+			if (!netMenuAddrStringToConnectCode(g_NetLastJoinAddr, g_NetJoinAddr, NET_MAX_ADDR + 1)) {
+				g_NetJoinAddr[0] = '\0';
+			}
 			g_NetJoinAddrPtr = strlen(g_NetJoinAddr);
 		}
 	}
@@ -786,7 +818,7 @@ struct menuitem g_NetMenuItems[] = {
 		MENUITEMTYPE_SELECTABLE,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Address:   \n",
+		(uintptr_t)"Connect Code:   \n",
 		(uintptr_t)&menutextJoinAddress,
 		menuhandlerJoinAddress,
 	},

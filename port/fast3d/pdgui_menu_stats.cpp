@@ -19,6 +19,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_nav.h"
 #include "system.h"
 
 extern "C" {
@@ -515,13 +516,13 @@ void pdguiMenuStatsRender(s32 winW, s32 winH)
 
     pdguiSetCursorBelowTitle(titleH);
 
-    /* Tab bar — bumper (LB/RB) cycling via PageUp/PageDown */
+    /* Tab bar: ACTION_MENU_TAB_PREV/NEXT cycle categories. */
     const char *tabs[] = { "Overview", "Weapons", "Modes", "Achievements" };
-    if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
+    if (pdguiMenuTabPrevPressed()) {
         s_StatsTab = (s_StatsTab - 1 + 4) % 4;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
+    if (pdguiMenuTabNextPressed()) {
         s_StatsTab = (s_StatsTab + 1) % 4;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
@@ -567,7 +568,7 @@ void pdguiMenuStatsRender(s32 winW, s32 winH)
     }
     pdguiEndActionBar();
 
-    if (closeActivated || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+    if (closeActivated || pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_StatsOpen = false;
     }

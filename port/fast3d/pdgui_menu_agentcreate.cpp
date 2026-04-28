@@ -33,6 +33,7 @@
 #include "pdgui_charpreview.h"
 #include "pdgui_model_preview.h"
 #include "pdgui_layout.h"  /* B-253: docked action bar primitives */
+#include "pdgui_nav.h"
 #include "system.h"
 #include "assetcatalog.h"
 
@@ -667,7 +668,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
 
     /* B / Escape cancels at the top level. */
     if (!ImGui::IsWindowAppearing() &&
-        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        pdguiMenuCancelPressed()) {
         doCancel = true;
     }
 

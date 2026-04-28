@@ -6,11 +6,9 @@
  * participants in the current subset (focused row highlighted with
  * TitleGlow). Stop button bottom-right.
  *
- * The overlay also handles the input-binding-free camera controls
- * documented in spectator.h: ImGui keyboard checks for arrow keys
- * (D-pad analogue) + Page Up/Down (cycle subset) + R/F (free-fly hold)
- * + Tab / Backquote (toggle FP/TP). Mouse delta drives free-fly yaw +
- * pitch when free_fly is active.
+ * The overlay also handles observer action-map camera controls documented
+ * in spectator.h. Mouse delta drives free-fly yaw + pitch when free_fly
+ * is active.
  */
 
 #include <SDL.h>
@@ -23,6 +21,7 @@
 #include "pdgui_style.h"
 
 extern "C" {
+#include "actionmap.h"
 #include "spectator.h"
 #include "social.h"
 #include "system.h"
@@ -162,24 +161,25 @@ static void handleKeyboard(void)
 	ImGuiIO &io = ImGui::GetIO();
 	if (io.WantCaptureKeyboard) return;
 
-	if (ImGui::IsKeyPressed(ImGuiKey_PageUp,   false)) spectatorCycleSubset(-1);
-	if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) spectatorCycleSubset(+1);
-	if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow,  false)) spectatorCycleMember(-1);
-	if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false)) spectatorCycleMember(+1);
-	if (ImGui::IsKeyPressed(ImGuiKey_Tab, false))         spectatorToggleFirstPerson();
-	if (ImGui::IsKeyPressed(ImGuiKey_R, false))           spectatorBeginFreeFly();
-	if (ImGui::IsKeyReleased(ImGuiKey_R))                 spectatorEndFreeFly();
-	if (ImGui::IsKeyPressed(ImGuiKey_Escape, false))      spectatorStop();
+	if (actionPressed(0, ACTION_OBSERVER_SUBSET_PREV))   spectatorCycleSubset(-1);
+	if (actionPressed(0, ACTION_OBSERVER_SUBSET_NEXT))   spectatorCycleSubset(+1);
+	if (actionPressed(0, ACTION_OBSERVER_MEMBER_PREV))   spectatorCycleMember(-1);
+	if (actionPressed(0, ACTION_OBSERVER_MEMBER_NEXT))   spectatorCycleMember(+1);
+	if (actionPressed(0, ACTION_OBSERVER_CAMERA_TOGGLE)) spectatorToggleFirstPerson();
+	if (actionPressed(0, ACTION_OBSERVER_FREEFLY))       spectatorBeginFreeFly();
+	if (actionReleased(0, ACTION_OBSERVER_FREEFLY))      spectatorEndFreeFly();
+	if (actionPressed(0, ACTION_OBSERVER_STOP))          spectatorStop();
 
 	if (spectatorGet()->free_fly_active) {
 		const f32 dt = io.DeltaTime;
 		f32 dx = 0.0f, dy = 0.0f, dz = 0.0f;
-		if (ImGui::IsKeyDown(ImGuiKey_W)) dz -= 1.0f;
-		if (ImGui::IsKeyDown(ImGuiKey_S)) dz += 1.0f;
-		if (ImGui::IsKeyDown(ImGuiKey_A)) dx -= 1.0f;
-		if (ImGui::IsKeyDown(ImGuiKey_D)) dx += 1.0f;
-		if (ImGui::IsKeyDown(ImGuiKey_Q)) dy -= 1.0f;
-		if (ImGui::IsKeyDown(ImGuiKey_E)) dy += 1.0f;
+		f32 move_x = 0.0f;
+		f32 move_y = 0.0f;
+		actionAxis(0, ACTION_AXIS_MOVE_X, &move_x, &move_y);
+		dx += move_x;
+		dz -= move_y;
+		if (actionHeld(0, ACTION_OBSERVER_DESCEND)) dy -= 1.0f;
+		if (actionHeld(0, ACTION_OBSERVER_ASCEND)) dy += 1.0f;
 		const f32 dyaw   = io.MouseDelta.x * 0.005f;
 		const f32 dpitch = io.MouseDelta.y * 0.005f;
 		spectatorFreeFlyInput(dx, dy, dz, dyaw, dpitch, dt);

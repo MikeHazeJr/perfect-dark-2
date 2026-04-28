@@ -7,23 +7,316 @@
 
 ---
 
+## Open -- 2026-04-28 (Server / Trust / Security)
+
+**Status: CLIENT-HOSTED TRUST PATCHED / ISOLATED BUILD CONFIGURE BLOCKED.** Dedicated-server product work remains deferred unless Mike explicitly revives it. Scope is listen-host/client-hosted online shipping only.
+
+**Done this slice:**
+- Made mod distribution hashes mandatory on the actual `SVC_DISTRIB_BEGIN` transfer: v46 appends a 32-byte SHA-256 digest of the compressed PDCA archive bytes; clients reject zero/missing digests at BEGIN and verify the accumulated compressed bytes before decompress/extract at END.
+- Hardened malformed net string parsing: zero-length wire strings now return a safe empty string instead of a pointer into following payload bytes.
+- Tightened connect-code address validation: current join UIs no longer prefill or advertise raw IP input, decode 4-word/6-word connect codes through `connectCodeDecodeWithPort`, reject trailing garbage, validate stored raw address octets/ports before displaying as codes, and preserve custom listen ports in host lobby codes.
+- Started and completed the first stat-integrity slice: remote `CLC_MOVE` weapon-select requests are now server-side inventory-gated before the listen host applies `bgunEquipWeapon`, so a client cannot equip and score with a weapon the host has not observed them owning.
+- Confirmed updater signing is already implemented: release zips require `.sha256` and `.sig`; the updater verifies Ed25519 over `sha256(zip)||tag` with the embedded public key and runs a self-test at init. No dedicated-server product work needed for this lane.
+- Added focused static/source tests for mandatory distribution digest, zero-length strings, strict connect-code parsing, connect-code-only UI invariants, and inventory-gated weapon-select packets.
+
+**Verification:**
+- `git diff --check` passed for the trust/security touched files.
+- Isolated build wrapper was used as directed: `.\devtools\build-session.ps1 -Session sec507 -Target all`. It did not reach compilation; CMake configure spun for about 18 minutes and exited before producing a complete build. `.\devtools\build-session.ps1 -Remove -Session sec507` removed the partial directory. Later CMake/Ninja processes from another parallel session were visible and were left untouched.
+
+**Next recursive trust/security item:**
+1. After the build wrapper/configure issue is clear, rerun the isolated build/test pass.
+2. Then do one more low-risk protocol-hardening audit for malformed packet length/count fields that are reachable before auth or lobby readiness.
+
+## Open -- 2026-04-28 (Modern main menu / social shell)
+
+**Status: INPUT-OWNERSHIP + CONTROLLER ROWS PATCHED / ISOLATED BUILD BLOCKED.** Continue the controller-first Social shell without violating ImGui-only/menu-pool/input-context ownership.
+
+**Done this slice:**
+- Added `MENU_TYPE_SOCIAL_SHELL` for the friends sidebar, full Social menu, chat panel, profile modal, convert-to-mod modal, add-friend modal, and NAT diagnostics.
+- `pdgui_friends.cpp` now acquires/releases `g_CtxImGuiMenu` through `menupoolAcquire(MENU_TYPE_SOCIAL_SHELL, ...)` whenever any interactive social surface is open.
+- Controller Back (`ACTION_CANCEL_USE`) now closes the top social surface: chat first, then Social menu, then sidebar; profile / add-friend / convert / NAT diagnostics close their own modal/window.
+- `pdgui_nat_diagnostics.cpp` now closes from `ACTION_CANCEL_USE`, not just the Close button.
+- Friend rows now render as bordered cards with large focused actions instead of inline micro-buttons.
+- Chat attachment actions, incoming invites, profile/session public-mod downloads, local public-mod removal, block-list unblock, replay actions, listening-room track actions, settings copy, and add-friend paste are now regular controller-sized ImGui buttons.
+- Static verification: `git diff --check` passed for the touched social/menu-pool files after both UI slices.
+
+**Build note:** Mike provided the isolated-build rule. Attempted `.\devtools\build-session.ps1 -Session s501ui -Target all`; it used `.claude/session-builds/s501ui`. The earlier attempt failed with the PowerShell runspace exception; the later attempt stayed in configure until the Codex command timed out at 120s. Cleanup required removing the stale `s501ui` lock/directory with `-Remove -Force` after confirming the lock PID was gone, then stopping the orphaned child process tree from that timed-out build. Details recorded in `context/build.md`.
+
+**Next UI slice:**
+1. Rebuild/verify this patch once the build wrapper is fixed.
+2. Do an in-game controller pass over sidebar, Social tabs, chat, invites, public mods, profile modal, add-friend modal, and NAT diagnostics; tune any row heights/focus order that clip at Mike's test resolution.
+3. If that pass is clean, continue with the next modern-main-menu shell task: make the first-screen main menu entry points expose Social / Public Mods / Settings without raw input or legacy-menu stack bypasses.
+
+## Open -- 2026-04-28 (Quality / Testing / Audits)
+
+**Status: RECURSIVE TEST EXPANSION PAUSED AFTER FOUR VERIFIED SLICES.** Mike requested recursive pd-tests expansion around the next highest-risk invariants after reading the testing framework, QC checklist, bugs, and current audits.
+
+**Build infrastructure side quest complete (S504):** concurrent test builds now have `devtools/build-session.ps1`, which routes each session to `.claude/session-builds/<session-id>/` via the canonical headless build script and adds per-session locking plus cleanup commands. Use this instead of shared `Build/` when multiple sessions may build simultaneously.
+
+**Completed slice 1 -- catalog/provider identity:** production code outside the catalog API should not use generic `catalogIdByRuntime(ASSET_*)` for domains that have typed helpers (`catalogStageIdBy*`, `catalogModelIdByModelnum`, `catalogBodyIdByBodynum`, `catalogHeadIdByHeadnum`, `catalogWeaponIdBy*`, `catalogGameModeIdByScenarioIndex`). Added a source-wide static guard in `tests/test_catalog_provider_static.cpp`. Verification passed: focused `[catalog][identity][static]` test, then `pd`, `pd-server`, `pd-tests`, and full `pd-tests.exe` (269 cases / 12329 assertions).
+
+**Completed slice 2 -- network packet parsing:** guard the v45 spawn-weapon wire fields so `SVC_STAGE_START` and `CLC_LOBBY_START` parse `spawn_weapon_id` first, then `spawnWeaponMode`, then `spawnWeaponNum` where applicable, without shifting the following field. Added focused `tests/test_spawn_weapon_mode.cpp` coverage for SVC tail alignment, CLC handicap alignment, truncated tail failure, and static production field order.
+
+**Completed slice 3 -- manifest malformed-input behavior:** `manifestDeserialize()` now rolls back entries appended by the failed call on parse error, so truncated or malformed manifest packets cannot leave a partial client/server manifest behind. Mirrored the behavior in `tests/manifest_pure.c` and added a malformed COMPONENT-tail rollback test in `tests/test_manifest.cpp`.
+
+**Completed slice 4 -- save migration/version gating:** added a static production guard in `tests/test_save_migration.cpp` that pins the destructive v1->v2 weapon-cull migration behind `if (version < 2)`, after random-filter unpack and before the next saved field.
+
+**Verification:** used isolated session id `qtest503`. The prescribed wrapper/configure path was attempted first, but Ninja execution still hangs in this Codex desktop sandbox; verification used the same isolated CMake/Ninja tree and executed the canonical `ninja -t commands` command list directly. `pd`, `pd-server`, and `pd-tests` linked in `.claude/session-builds/qtest503`; `pd-tests.exe` passed 331 test cases / 17807 assertions. Build-environment fixes made in the same session: Windows Python fallback for asset tools, ccache compiler-launch probe/disable, Git-for-Windows safe-directory handling, CMake configure hang avoidance, and skipping compiler-implicit MinGW root includes so C++ `#include_next` works.
+
+**Next recursive decision point:** the remaining uncovered high-risk lane is mode lifecycle/input transition cleanup around failed lobby/manifest/start paths. Start with a read-only audit for lifecycle roots that clear or preserve `g_ClientManifest`, lobby state, input/scene layers, and ready gates after malformed or rejected network transitions; then add the narrowest static/pure guard that falls out of that audit.
+
 ## Open -- 2026-04-28 (Input infrastructure: cutscene transition flush)
 
-**Status: CODE DONE / BUILD VERIFIED.** Narrow slice only. No raw ImGui key migration sweep and no broad scene-manager expansion.
+**Status: TRANSITIONAL SHIM RETIREMENT IN PROGRESS / PAGEUP SHIM BUILD VERIFIED.** Narrow slices only. No broad scene-manager expansion.
 
 **Done this session:**
 - Added public `actionmapFlushActionSet(const InputAction *actions, s32 action_count)` so transition/layer code can flush declared shared actions without broadening `actionmapFlushGameplayState()`.
 - Declared the cutscene layer action set and wired `onCutscenePush` to flush both gameplay-only state and the cutscene action set. Held ACTION_USE / ACTION_MENU_ACCEPT, CANCEL, PAUSE, ACTION_SKIP_CUTSCENE, and legacy cutscene skip actions are cleared at cutscene entry.
 - Tightened pd-tests around the invariant: held menu/gameplay accept clears on cutscene transition flush, and flushing one declared action set preserves unrelated actions.
 - Logged B-266 for the held shared accept state that survived the earlier gameplay-only flush.
+- Mike playtest confirmed B-266: held A through the objective 1 -> objective 2 transition did not skip the objective 2 intro after the 30-frame gate, while a later fresh press still skipped deliberately.
+- Logged B-267 for the separate cutscene layer lifecycle leak visible in the same log: the cutscene IMC stayed active under the endscreen and next mission until the next deliberate skip.
+- Fixed B-267's narrow lifecycle gap: production startup now initializes the input layer stack and scene manager, `mainEndStage()` fires `SCENE_EVENT_CUTSCENE_END`, and stage load/unload paths fire `SCENE_EVENT_STAGE_READY` / `SCENE_EVENT_STAGE_TEARDOWN`.
+- Added `inputLayerHandleDistanceFromTop()` so scene cleanup can unwind through a tracked layer handle without reaching into opaque input-layer internals.
+- Hardened tracked scene close: if a cached layer is no longer top, scene aborts from top through that layer and clears any cached handles that were inside the aborted range.
+- Added B-267 pd-tests covering skip-to-endstage cleanup before the next mission intro and nested tracked close with a menu layer above cutscene.
+- Propagation audit found the initial B-267 fix covered the central solo/local endstage path but not every active lifecycle entry point. Follow-up patch covers network `SVC_CUTSCENE` start/end, disconnect teardown, and central tickmode transitions out of `TICKMODE_CUTSCENE`.
+- Added a static pd-test guard that asserts the active lifecycle roots fire scene events, and that stale `src/lib/main.c` is not part of the client build path.
+- Migrated cutscene runtime state behind per-player accessors: active/in-progress flags, skip-requested state, cutscene anim id, current anim frame, and total cutscene frame time now live in `struct player.cutscene`.
+- Updated migrated gameplay/render/audio/cutscene script call sites to use `playerCurrent*` or `playerAny*` cutscene accessors instead of reading `g_Vars.in_cutscene`, `g_InCutscene`, or the cutscene frame globals directly.
+- Left the old globals as compatibility shims only in the sync point, declarations, server stubs, initialization, and the `USINGDEVICE` macro until the tracked shim-retirement step.
+- Added static pd-tests that guard migrated gameplay paths against reintroducing direct cutscene global reads.
+- Added `chr->cutscene_protect`, toggled from the per-player cutscene state refresh path. Current pre-v46 behavior protects all allocated player chrs while any player is in cutscene.
+- Added canonical protection gates: `chrDamage()` ignores protected targets and logs `CUTSCENE.DAMAGE.IGNORED`; `chrCompareTeams(..., COMPARE_ENEMIES)` does not classify protected targets as enemies; `chrHasLosToChr()` and `botIsTargetInvisible()` treat protected targets as invisible.
+- Added a static pd-test guard for the protection field, refresh path, damage gate, hostility gate, LOS gate, and bot invisibility gate.
+- Completed cutscene network semantics on the existing v46 protocol: `SVC_CUTSCENE` now carries `active` plus `player_mask`, and `CLC_CUTSCENE_SKIP` lets a client request skip without locally ending the cutscene.
+- Server-side skip authority now binds the skip request to `srccl->playernum` and ignores untrusted player numbers from the payload.
+- Cutscene protection now narrows to the active player mask instead of protecting every player chr while any player is in cutscene.
+- Clients send the skip request after the existing 30-frame gate and leave actual cutscene end to the server/host path. AI script skip checks now use any server-validated player skip request.
+- Added focused static pd-tests for v46 cutscene network semantics, dispatch coverage, active-mask handling, per-player protection, and client skip request wiring.
+- Declared vehicle driver and observer layer action sets with push/pop/abort callbacks that flush their declared action sets at transition boundaries.
+- Moved hoverbike mount/dismount ownership through `sceneFire(SCENE_EVENT_VEHICLE_BOARD/_DISMOUNT)` so the vehicle layer owns `g_ImcVehicle` activation while preserving existing bike behavior.
+- Wired Forge session/freefly entry and inactive exit through observer scene events while preserving the existing Forge IMC activation paths.
+- Wired spectator live/theater entry and stop/shutdown through observer scene events, with source tracking so one observer owner cannot pop another owner's layer.
+- Added focused static pd-tests for vehicle and observer layer action sets, callbacks, scene event wiring, Forge observer helpers, spectator observer helpers, and source-guard behavior.
+- Added dedicated pure-ImGui menu-pool identities for main-menu Solo, Settings, Modding, Online, and Stats subviews, reusing the existing Grid submenu identity.
+- Routed all `s_MenuView` changes in `pdgui_menu_mainmenu.cpp` through `pdguiMainMenuSetView()`, which acquires/releases the subview's menu-pool slot and emits `MENU_GRAPH` diagnostics.
+- Added a render-sync guard so an inline main-menu subview reacquires its slot if a bulk menu-pool teardown happened while the renderer retained its local view state.
+- Removed the Grid-only transition special case in favor of the common subview helper.
+- Added focused static pd-tests for main-menu subview identities, subview mapping, transition helper ownership, and raw `s_MenuView` assignment prevention outside the helper.
+- Added `menugraph.h` / `menugraph.c` with priority menu node descriptors, edge lookup, destination-kind names, and a validated dialog-push firing helper.
+- Declared graph nodes for main menu, its inline subviews, solo mission, room, solo/MP endscreen, pause variants, social lobby, network, agent select, and warning modal.
+- Migrated the main-menu Change Agent and Cheats direct dialog pushes through `menuGraphFirePushDialog()`, with destination type validation against the menu-pool registry before the legacy push executes.
+- Extended static pd-tests to guard graph substrate presence, priority-node descriptor coverage, graph push validation, and the first migrated main-menu push sites.
+- Added graph helpers for network operations and menu pops, with diagnostics around operation result codes.
+- Added `MENU_TYPE_NETWORK_JOINING` and registered `g_NetJoiningDialog` so joining progress is no longer an untyped child dialog.
+- Migrated the Network menu's Stop Hosting, pre-host disconnect, Host, host-success pop, Join, Joining dialog push, and Back paths through graph helpers.
+- Migrated the main-menu Online subview's direct connect and recent-server connect paths through graph network edges.
+- Extended static pd-tests to guard Network menu and main-menu Online graph usage and block direct network/push/pop calls inside those renderers.
+- Migrated MP endscreen Disconnect confirmation through the `MENU_TYPE_ENDSCREEN_MP` graph network edge before returning to the existing endscreen exit path.
+- Extended static pd-tests to guard MP endscreen disconnect against reintroducing direct `netDisconnect()` in the renderer.
+- Registered `g_FilemgrEnterNameMenuDialog` as `MENU_TYPE_AGENT_CREATE`.
+- Migrated Agent Select's New Agent push and Back pop through graph helpers.
+- Extended static pd-tests to guard Agent Select create/back against reintroducing direct `menuPushDialog(&g_FilemgrEnterNameMenuDialog)` or `menuPopDialog()` in the renderer.
+- Migrated MP pause Resume/Back pop through the `MENU_TYPE_MP_PAUSE` graph pop edge.
+- Added an MP pause `end_game` graph edge and routed the End Game warning-modal push through `menuGraphFirePushDialog()`.
+- Extended static pd-tests to guard MP pause against reintroducing direct `menuPopDialog()` or `menuPushDialog(target)` in those helpers.
+- Split solo in-mission pause onto its own graph edge set instead of reusing the generic pause edges.
+- Migrated solo pause Resume/Back pop through the `MENU_TYPE_SOLO_MISSION_PAUSE` graph pop edge.
+- Migrated solo pause Abort through the `MENU_TYPE_SOLO_MISSION_PAUSE` graph warning-modal edge.
+- Added static pd-tests that guard solo pause Resume/Abort against direct `menuPopDialog()` / `menuPushDialog(&g_MissionAbortMenuDialog)` reintroduction.
+- Added `menuSwitchToDialog()` so graph firing can switch to an already-open legacy sibling without treating it as a new child push.
+- Added `MENU_GRAPH_DEST_SWITCH_SIBLING` and `menuGraphFireSwitchSibling()`.
+- Added `MENU_TYPE_SOLO_INVENTORY`, registered solo Inventory and solo Options in the menu pool, and declared graph nodes for solo Inventory and solo Options back edges.
+- Migrated solo pause Inventory/Settings and their Back paths through sibling graph edges.
+- Extended static pd-tests to guard the sibling helper, registrations, Inventory/Settings graph calls, and back paths.
+- Migrated Social Lobby Create Room and Disconnect through `MENU_TYPE_SOCIAL_LOBBY` graph network edges while preserving the existing packet send and disconnect callbacks.
+- Extended static pd-tests to guard the Social Lobby renderer against reintroducing direct create-room packet writes or direct `netDisconnect()`.
+- Migrated warning-modal confirm/cancel close paths through `MENU_TYPE_WARNING_MODAL` graph pop edges in the generic typed dialog, MP End Game popup, and PC filemgr placeholder.
+- Extended static pd-tests to guard the warning renderer against reintroducing direct `menuPopDialog()` calls.
+- Added Room graph push edges for Team Setup and Select Music and migrated the Room renderer to use them while leaving Start Match and Leave Room untouched.
+- Extended static pd-tests to guard the Room setup subdialogs against direct `menuPushDialog()` reintroduction.
+- Added a main-menu inline subview graph fire helper that validates declared graph edges before delegating to the existing subview pool setter.
+- Migrated top-level main-menu Solo Play, Online Play, Settings, Mods, Stats, and The Grid buttons through the inline graph helper.
+- Added a main-menu inline back-edge helper that validates each subview's declared `back` edge before returning to the top-level view.
+- Migrated subview close, Grid Back, Modding Back, and Stats auto-close through the back-edge helper.
+- Added `menuGraphFireSceneOp()` so scene/stage-like graph edges can validate the declared edge before running a behavior-preserving callback.
+- Migrated combat-sim pause End Match through `MENU_TYPE_PAUSE_MENU` `end_mission`, with `pdguiPauseSetPlayerAborted()` and `mainEndStage()` preserved inside the callback.
+- Migrated The Grid Enter through the existing `MENU_TYPE_GRID_SUBMENU` `enter` scene graph edge, preserving `gridCommitEnter()` inside a callback.
+- Migrated Room Start Match through the existing `MENU_TYPE_ROOM` `start_match` scene graph edge, preserving the Combat Sim, Campaign, and Counter-Op start logic inside a callback.
+- Migrated Room Leave through the existing `MENU_TYPE_ROOM` `leave_room` graph operation, preserving solo-room close, client leave packet, listen-host local leave, and return-to-social-lobby behavior inside a callback.
+- Migrated solo endscreen Continue, Retry, and Main Menu through `MENU_TYPE_ENDSCREEN_SOLO` scene graph edges, with the previous bridge calls preserved inside callbacks.
+- Migrated MP endscreen Return to Room, Play Again, and Quit through `MENU_TYPE_ENDSCREEN_MP` scene graph edges, and moved the post-disconnect endscreen exit into the graph-dispatched disconnect callback.
+- Migrated Solo Mission start/back and in-mission Restart through graph edges, preserving `menuhandlerAcceptMission()` and catalog-backed restart stage resolution inside graph callbacks.
+- Added `menuGraphFirePushOp()` for graph push edges whose behavior must stay behind an existing state-setting handler instead of a raw `menuPushDialog()`, then migrated main-menu Solo Missions and Combat Simulator through `MENU_TYPE_MAIN_SOLO_VIEW` push edges.
+- Migrated main-menu Modding hub open paths through the existing `MENU_TYPE_MAIN_MODDING_VIEW` `open_hub` push edge, covering both the top-level Mods shortcut and the closed-hub re-entry button.
+- Added and migrated a main-menu Stats `open_panel` push edge so the Stats panel open path also goes through graph dispatch.
+- Added `menuGraphFireProcessOp()` and migrated the main-menu Quit confirm path through the existing `MENU_TYPE_MAIN_MENU` `quit` process edge.
+- Added `menuGraphFirePopOp()` and migrated the main-menu top-level Close path through the existing `MENU_TYPE_MAIN_MENU` `close` pop edge while preserving pause/control restoration.
+- Added local-op graph support and corrected Agent Select `load` to a local operation, then routed the Enter/select load paths through `MENU_TYPE_AGENT_SELECT` `load` without changing auto-load or copy flows.
+- Added shared `pdgui_nav` menu-action helpers so ImGui renderers can query menu accept/cancel/nav through the action map instead of raw `ImGui::IsKeyPressed`.
+- Added Space and keypad Enter as menu/pause/debug accept bindings, then migrated the shared action-bar and confirm-modal accept/cancel shortcuts to `pdguiMenuAcceptPressed()` / `pdguiMenuCancelPressed()`.
+- Migrated the graph-owned endscreen, Network menu Back, Social Lobby disconnect, MP pause Back helper, and Bot Setup Back helper off raw Escape polling.
+- Migrated the warning-modal typed, MP End Game, and file-manager placeholder shortcuts off raw Enter/Space/Escape polling.
+- Migrated combat-sim pause End Match, Debug Shortcuts close, and parent pause close off raw Enter/Space/Escape polling.
+- Migrated Room Leave arm, scenario delete confirm, and Leave Room confirm shortcuts off raw Enter/Space/Escape polling.
+- Added static pd-tests that guard these priority sites against raw menu shortcut polling returning.
+- Added PageUp/PageDown as action-map defaults for `ACTION_MENU_TAB_PREV` / `ACTION_MENU_TAB_NEXT` so keyboard tab cycling is preserved behind action-map authority.
+- Migrated Agent Select accept/cancel/list up/down, main-menu Settings tab cycle, main-menu Cinema close/select/up/down, Room tab cycle, and Stats tab/close shortcuts to `pdgui_nav` helpers.
+- Added static pd-tests guarding those priority navigation/tab sites against raw menu action polling returning.
+- Migrated simple legacy menu replacement surfaces off raw Back/list navigation polling: countdown cancel, shared file browser parent navigation, Agent Create cancel, Challenges list/back, Control Diagram back/up/down, MP Advanced back, MP Settings back/Done, MP Setup back, Player Config back, and Team Setup Done.
+- Added static pd-tests guarding those simple legacy menu files against raw menu action polling returning.
+- Migrated Cheats hub close, tab cycling, warning close, and Unlock Everything confirm/cancel to `pdgui_nav` helpers.
+- Migrated Mod Manager tab cycling/close and Modding Hub tool cycling/close to `pdgui_nav` helpers.
+- Added static pd-tests guarding those cheats/modding files against raw menu action polling returning.
+- Migrated Training menu Back/Continue/list navigation helpers in `pdgui_menu_training.cpp` to `pdgui_nav`.
+- Added static pd-tests guarding Training against raw menu action polling returning.
+- Migrated Solo Mission menu-owned Back/Accept/navigation/tab reads to `pdgui_nav`, including mission select, difficulty, co-op/anti options, briefing, inventory, accept mission, solo pause, abort modal, and solo options tabs.
+- Added Q/E as additional menu/pause action-map defaults for `ACTION_MENU_TAB_PREV` / `ACTION_MENU_TAB_NEXT` to preserve Solo Options tab shortcuts behind action-map authority.
+- Added static pd-tests guarding Solo Mission against raw menu action polling returning.
+- Added `ACTION_MENU_SECONDARY`, `ACTION_MENU_TERTIARY`, and `ACTION_MENU_DELETE`, with menu/pause defaults and shared `pdgui_nav` helpers for secondary commands.
+- Migrated Agent Select copy/delete/open-directory, Room bot-row secondary/tertiary commands, and MP Settings preview commands behind action-map authority.
+- Added observer-specific action-map actions and `g_ImcObserver`, with default spectator bindings for subset/member navigation, camera toggle, freefly, stop, ascend, and descend.
+- Migrated spectator live/theater controls off raw ImGui key polling and into the observer action set. Freefly movement now uses the gameplay move axis plus observer ascend/descend actions.
+- Kept Forge observer behavior separate: `LAYER_OBSERVER` only activates `g_ImcObserver` for `SCENE_OBSERVER_SOURCE_SPECTATOR`, while Forge continues using its existing Forge IMCs.
+- Added static pd-tests guarding the observer action set, source-specific observer activation, stable observer scene payload storage, spectator raw-key migration, and observer binding visibility in glyph/control UI.
+- Added `ACTION_VOICE_PTT`, defaulted to V across gameplay, cutscene, vehicle, observer, Forge session, menu, pause-menu, and debug overlay IMCs.
+- Migrated social voice push-to-talk from raw `ImGui::IsKeyPressed/Released(ImGuiKey_V)` polling to `actionPressed/Released(0, ACTION_VOICE_PTT)`, while preserving the existing ImGui keyboard-capture guard so text fields do not start transmission.
+- Added static pd-tests guarding voice PTT action-map binding, shared-action classification, raw V polling removal, and Controls UI visibility.
+- Added synthetic action-map chord VKs for Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y, and Ctrl+S, with keydown-to-keyup release tracking so chord releases stay paired even if modifiers release first.
+- Added Forge placement/bot command actions and Skin Editor brush/tool/grid/UV/undo/redo/save actions.
+- Migrated Forge HUD bot commands, Forge placement cancel, Forge Ctrl+Tab sidebar cycling, and Skin Editor shortcuts behind action-map authority.
+- Added Controls UI rows for the new Forge and Skin Editor actions.
+- Added static pd-tests guarding the editor/tool action ids, synthetic chord bindings, raw polling removal in Forge HUD/Forge Editor/Skin Editor, and Controls UI visibility.
+- Current first-party raw-key audit now shows only the documented main-menu PageUp/PageDown queue drain plus comments; third-party ImGui internals are ignored.
+- Retired the old cutscene compatibility globals that were no longer read by production gameplay paths: `g_InCutscene`, `g_CutsceneSkipRequested`, `g_CutsceneAnimNum`, `g_CutsceneCurAnimFrame60`, and `g_CutsceneCurTotalFrame60f`.
+- `USINGDEVICE(device)` now queries `playerCurrentInCutscene()` instead of the removed `g_InCutscene` global.
+- `SVC_CUTSCENE` handling now updates cutscene active state through `playerSetCutsceneActiveMask(...)` on both client and pd-server builds.
+- pd-server stubs now keep a local cutscene active mask instead of a fake `g_InCutscene` global.
+- Added static pd-tests guarding the retired cutscene globals and sync wrapper against returning.
+- Moved Social menu tab cycling behind `pdguiMenuTabPrevPressed()` / `pdguiMenuTabNextPressed()`.
+- Removed backend `ACTION_MENU_TAB_PREV/NEXT` to `ImGuiKey_PageUp/PageDown` injection.
+- Removed the main-menu PageUp/PageDown queue drain that only existed to compensate for that injection.
+- Added static pd-tests guarding Social tab action ownership and preventing the PageUp/PageDown injection or queue drain from returning.
 
 **Verification:**
 - Prescribed MSYS2/Ninja flow passed: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
 - `pd-tests.exe`: 253 test cases / 6641 assertions passed.
+- B-267 follow-up verification passed through the same flow: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- Latest `pd-tests.exe`: 262 test cases / 10883 assertions passed.
+- B-267 propagation verification passed through the same flow: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- Latest `pd-tests.exe`: 267 test cases / 10926 assertions passed.
+- `git diff --check` passed for the input-system files and related context updates.
+- Per-player cutscene state migration verification passed through the prescribed flow: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- Latest `pd-tests.exe`: 281 test cases / 15294 assertions passed.
+- Cutscene protection verification passed through the prescribed flow: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
+- Latest `pd-tests.exe`: 286 test cases / 16727 assertions passed.
+- Cutscene network semantics verification used isolated build session `ix46`: `.\devtools\build-session.ps1 -Session ix46 -Target all` built `pd` and `pd-server`; isolated Ninja then built and ran `pd-tests`.
+- Latest isolated `pd-tests.exe`: 289 test cases / 16786 assertions passed.
+- Vehicle and observer layer verification reused isolated build session `ix46`: `.\devtools\build-session.ps1 -Session ix46 -Target all` built `pd` and `pd-server`; isolated Ninja then built and ran `pd-tests`.
+- Latest isolated `pd-tests.exe`: 291 test cases / 16843 assertions passed.
+- Main-menu subview graph verification reused isolated build session `ix46`: `.\devtools\build-session.ps1 -Session ix46 -Target all` built `pd` and `pd-server`; isolated Ninja then built and ran `pd-tests`.
+- Latest isolated `pd-tests.exe`: 293 test cases / 16881 assertions passed.
+- Menu graph edge substrate verification reused isolated build session `ix46`: `.\devtools\build-session.ps1 -Session ix46 -Target all` built `pd` and `pd-server`; isolated Ninja then built and ran `pd-tests`.
+- Latest isolated `pd-tests.exe`: 294 test cases / 16925 assertions passed.
+- Network graph migration verification reused isolated build session `ix46`: `.\devtools\build-session.ps1 -Session ix46 -Target all` built `pd` and `pd-server`; isolated Ninja then built and ran `pd-tests`.
+- Latest isolated `pd-tests.exe`: 296 test cases / 16953 assertions passed.
+- MP endscreen disconnect graph verification reused isolated build session `ix46`: `.\devtools\build-session.ps1 -Session ix46 -Target all` built `pd` and `pd-server`; isolated Ninja then built and ran `pd-tests`.
+- Latest isolated `pd-tests.exe`: 298 test cases / 16970 assertions passed.
+- Agent Select graph verification reused isolated build session `ix46`: `.\devtools\build-session.ps1 -Session ix46 -Target all` built `pd` and `pd-server`; isolated Ninja then built and ran `pd-tests`.
+- Latest isolated `pd-tests.exe`: 299 test cases / 16981 assertions passed.
+- MP pause graph verification reused isolated build session `ix46`: `.\devtools\build-session.ps1 -Session ix46 -Target all` built `pd` and `pd-server`; isolated Ninja then built and ran `pd-tests`.
+- Latest isolated `pd-tests.exe`: 300 test cases / 16993 assertions passed.
+- Solo pause graph verification reused isolated build session `ix46`. The session wrapper was invoked but twice stalled in client compile with idle CMake/Ninja children after the command timeout; after confirming no active compiler process, stale `ix46` locks were removed and direct isolated Ninja was used in the same build directory.
+- Latest isolated `pd-tests.exe`: 303 test cases / 17031 assertions passed.
+- Solo pause sibling graph verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 303 test cases / 17061 assertions passed.
+- Social Lobby graph verification reused isolated build session `ix46`; direct isolated Ninja built the affected targets and ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 304 test cases / 17070 assertions passed.
+- Warning modal graph verification reused isolated build session `ix46`; direct isolated Ninja built the affected targets and ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 305 test cases / 17083 assertions passed.
+- Room setup subdialog graph verification reused isolated build session `ix46`; direct isolated Ninja built the affected targets and ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 306 test cases / 17092 assertions passed.
+- Main-menu inline subview graph verification reused isolated build session `ix46`; direct isolated Ninja built the affected targets and ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 306 test cases / 17103 assertions passed.
+- Main-menu inline back-edge graph verification reused isolated build session `ix46`; direct isolated Ninja built the affected targets and ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 306 test cases / 17114 assertions passed.
+- Scene-operation graph helper verification reused isolated build session `ix46`; direct isolated Ninja built the affected targets and ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 307 test cases / 17128 assertions passed.
+- The Grid enter graph verification reused isolated build session `ix46`; direct isolated Ninja built the affected targets and ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 307 test cases / 17133 assertions passed.
+- Room Start Match graph verification reused isolated build session `ix46`; direct isolated Ninja built the affected targets and ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 308 test cases / 17144 assertions passed.
+- Room Leave graph verification reused isolated build session `ix46`; direct isolated Ninja built the affected targets and ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 309 test cases / 17158 assertions passed.
+- Endscreen graph verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 310 test cases / 17193 assertions passed.
+- Solo Mission graph verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 311 test cases / 17218 assertions passed.
+- Main-menu Solo view graph verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 312 test cases / 17238 assertions passed.
+- Main-menu Modding graph verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 313 test cases / 17246 assertions passed.
+- Main-menu Stats graph verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 314 test cases / 17254 assertions passed.
+- Main-menu Quit graph verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 315 test cases / 17267 assertions passed.
+- Main-menu Close graph verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 316 test cases / 17285 assertions passed.
+- Agent Select load graph verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 316 test cases / 17299 assertions passed.
+- Raw menu-action helper verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 317 test cases / 17319 assertions passed.
+- Priority confirm/exit raw-input verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 317 test cases / 17350 assertions passed.
+- Priority navigation/tab raw-input verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 318 test cases / 17423 assertions passed.
+- Simple legacy menu back/nav raw-input verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 319 test cases / 17543 assertions passed.
+- Cheats/modding raw-input verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 320 test cases / 17579 assertions passed.
+- Training raw-input verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 321 test cases / 17591 assertions passed.
+- Solo Mission raw-input verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 322 test cases / 17647 assertions passed.
+- Secondary menu command raw-input verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 323 test cases / 17687 assertions passed.
+- Spectator observer raw-input verification reused isolated build session `ix46`. The session wrapper was invoked before building but stalled in client compile with no live compiler after timeout; after clearing the dead `ix46` lock, direct isolated Ninja in the same session build directory built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 324 test cases / 17729 assertions passed.
+- Voice PTT raw-input verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 327 test cases / 17748 assertions passed.
+- Editor/tool hotkey verification reused isolated build session `ix46`; direct isolated Ninja built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 327 test cases / 17751 assertions passed.
+- Cutscene shim-retirement verification reused isolated build session `ix46`. The wrapper was invoked first as directed but timed out in the known client-compile stall. Sandboxed direct Ninja also left stale locks with no live compiler process, so the isolated `ix46` build/test was rerun outside the sandbox.
+- Latest isolated `pd-tests.exe`: 328 test cases / 17784 assertions passed.
+- `git diff --check` passed outside the sandbox; only the existing LF-to-CRLF warnings for `devtools/_build-env-prelude.ps1` and `devtools/build-headless.ps1` appeared.
+- PageUp/PageDown shim verification reused isolated build session `ix46`; isolated Ninja outside the sandbox built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
+- Latest isolated `pd-tests.exe`: 329 test cases / 17795 assertions passed.
+- `Build/pd-client.log` playtest evidence:
+  - `[03:11.66]` held A advanced from endscreen to stage 0x33.
+  - `[03:12.26]` objective 2 intro reached frame 30 and kept playing.
+  - `[03:19.05]` A released.
+  - `[03:19.65]` fresh A press mapped to `ACTION_SKIP_CUTSCENE`; `[03:19.66]` cutscene IMC exited.
 
-**Operator-side verification still owed:**
-1. Mike playtest: complete Mission 1 objective 1, hold Continue/Use through the transition, confirm objective 2 intro cutscene does not flash/skip after the 30-frame gate.
-2. Fresh skip press after the gate should still skip.
+**Next input slice:**
+1. Continue transitional-shim audit. Remaining known candidates are `gameplayInputSuppressed()` as the old input-context authority wrapper and ad-hoc `manifestClear` / `mainChangeToStage` / `menupoolReleaseAll` transition triplets.
+2. Keep B-267 in Mike's playtest queue: deliberate skip into endscreen, then continue to next mission. Expected log: cutscene IMC deactivates at endstage/teardown before the next intro, and the next intro logs a fresh cutscene activation.
+
+**Task transfer -- sequential completion path:**
+1. B-267 root-cause inspection: DONE. Skip-to-endstage missed `SCENE_EVENT_CUTSCENE_END`, and production stage/load lifecycle did not consistently fire scene ready/teardown.
+2. B-267 narrow fix: DONE. Skip-to-endstage and stage teardown now unwind cutscene layer/IMC without broad scene-manager expansion.
+3. B-267 propagation audit: DONE. Active lifecycle roots now cover skip/endstage, stage ready/teardown, network cutscene sync, disconnect, and tickmode exit from cutscene. Stale `src/lib/main.c` is not compiled and is guarded by test.
+4. B-267 regression tests: DONE. Focused `pd-tests` cover cutscene skip -> endscreen -> next mission intro, nested tracked close, and central lifecycle wiring.
+5. B-267 verification: BUILD VERIFIED. Mike playtest still required before closing B-267.
+6. Per-player cutscene state: DONE / BUILD VERIFIED. `g_InCutscene`, `g_CutsceneSkipRequested`, `g_CutsceneAnimNum`, `g_CutsceneCurAnimFrame60`, `g_CutsceneCurTotalFrame60f`, and `g_Vars.in_cutscene` are behind per-player accessors for migrated gameplay paths. Compatibility shims remain for the later shim-retirement step.
+7. Cutscene protection: DONE / BUILD VERIFIED. `chr->cutscene_protect` is toggled with cutscene state and canonical damage/hostility/visibility gates use it.
+8. Cutscene network semantics: DONE / BUILD VERIFIED. Existing v46 now includes `SVC_CUTSCENE { active, player_mask }` and `CLC_CUTSCENE_SKIP { playernum }`; server authority binds skip to the authenticated netclient, and protection is narrowed by mask.
+9. Vehicle and observer layers: DONE / BUILD VERIFIED. Bike mount/dismount, Forge observer entry/exit, and spectator entry/exit now flow through scene events and tracked layer handles while preserving existing IMC behavior.
+10. Menu graph migration: DONE FOR PRIORITY NODES / WATCHING FOR NEW SITES. Main-menu inline subviews now have real `MENU_TYPE_*` pool ownership; graph descriptors, dialog-push, push-op, local-op, sibling-switch, network-op, scene-op, process-op, pop-op, and pop helpers are in place; top-level main-menu inline view opens and subview backs, main-menu Solo Missions and Combat Simulator, main-menu Modding hub open, main-menu Stats panel open, main-menu Quit and Close, Change Agent, Cheats, Network menu, main-menu Online connect paths, Social Lobby create/disconnect, solo/MP endscreen exits, combat-sim pause End Match, The Grid Enter, full Room node, Agent Select load/create/back, MP pause resume/end-game, solo mission start/back/restart, solo pause resume/inventory/settings/abort, and warning-modal confirm/cancel close paths use graph helpers.
+11. Raw input migration sweep: DONE FOR CURRENT FIRST-PARTY COMMAND SITES / WATCHING FOR NEW SITES. Shared menu-action helpers are in place; action-bar, confirm modal, endscreen cancel, Network Back, Social Lobby disconnect, MP pause Back, Bot Setup Back, warning-modal shortcuts, combat-sim pause shortcuts, Room Leave/Delete confirm shortcuts, Agent Select navigation, Agent Select secondary/delete/tertiary commands, main-menu Settings/Cinema navigation, Room tabs and bot-row secondary/tertiary commands, Stats tabs/close, countdown cancel, file browser Back, Agent Create cancel, Challenges list/back, Control Diagram back/up/down, MP Advanced back, MP Settings back/Done/preview secondary command, MP Setup back, Player Config back, Team Setup Done, Cheats shortcuts, Mod Manager tab/close, Modding Hub tool/close, Training shortcuts, Solo Mission shortcuts, spectator observer controls, social voice PTT, Forge editor/HUD commands, and Skin Editor shortcuts now use action-map authority. Current audit leaves only the documented main-menu PageUp/PageDown queue drain plus comments/third-party internals.
+12. Retire transitional shims: IN PROGRESS. Cutscene compatibility globals, the old sync wrapper, backend PageUp/PageDown action injection, and the main-menu PageUp/PageDown queue drain are retired and build verified. Remaining candidates: `gameplayInputSuppressed()` wrapper and ad-hoc transition triplets once scene ownership is central enough to replace them safely.
+13. Determine the next completion task and continue recursively until the input architecture is complete or a hard blocker requires Mike's decision.
+14. Final integration verification: run `pd`, `pd-server`, `pd-tests`, grep/static guard checks, and Mike playtests across mission transitions, cutscenes, menus, vehicle, forge/observer, and alt-tab/focus boundaries.
 
 ## Open -- 2026-04-27 (Catalog-Owned Asset Pipeline)
 
@@ -42,19 +335,76 @@
   - menu model state now stores pending/current/body/head provider handles, catalog-resolved menu body/head/weapon previews use provider-aware size/load APIs, and raw filenum menu previews now attempt catalog source-filenum resolution before falling back to the temporary ROM path;
   - `playerTickChrBody` first-person body/head/weapon sizing and modeldef loads now use catalog-resolved provider handles.
   - typed lifecycle wrappers (`catalogLoadTypedAsset`, `catalogReleaseTypedAsset`, `catalogRetainTypedAsset`) now validate catalog entry type before dispatching to the legacy string-only lifecycle calls; SP manifest load/unload and late-add paths use the typed wrappers for known manifest asset types.
-  - `bgunTickMasterLoad` / `bgunTickGunLoad` now queue a catalog/provider handle alongside the legacy first-person hand/gun/cart `loadfilenum`; catalog-backed ROM handles use provider-aware size/load APIs. Non-ROM provider handles and uncataloged sources still fall back to the temporary ROM path with warnings until model promotion bookkeeping is catalog/provider-owned.
+  - `bgunTickMasterLoad` / `bgunTickGunLoad` now queue a catalog/provider handle alongside the legacy first-person hand/gun/cart `loadfilenum`; provider handles use provider-aware size/load APIs, and only no-handle uncataloged sources use the temporary ROM fallback.
+  - First-person gun async model loads no longer restore `g_FileInfo[loadfilenum]` across texture/DL ticks. The queued gun load stores its own loaded/allocation sizes and calls a size-driven display-list promotion wrapper, leaving `g_FileInfo[]` mutation to legacy ROM callers.
   - Title/logo model loads now resolve `ASSET_MODEL` provider handles through `catalogGetPropHandle()` and use `modeldefLoadFromHandle()` / `assetLoadGetLoadedSize()` for catalog/provider-backed sources. A single warning-backed fallback remains only when no provider handle exists.
   - `modelcatalog` validation now resolves body/head provider handles by source filenum and uses `modeldefLoadToNewFromHandle()` while preserving the existing fault guard. A warning-backed fallback remains only when no provider handle exists.
   - Typed lifecycle loaders now have a type-policy/provider-backed payload path: `catalogLoadTypedAsset()` validates type, loads through the catalog effective provider handle when present, and falls back to the legacy file path only when no provider handle exists.
   - `modeldefLoadFromHandle()` now supports non-ROM provider handles by using a size-driven promotion path instead of `g_FileInfo[]`; the legacy `modeldef0f1a7560()` wrapper still updates `g_FileInfo[]` for old ROM callers.
   - Stage diff (`lv.c`) and screen mini-manifests (`screenmfst.c`) now call typed retain/release/load wrappers instead of raw string-only lifecycle functions.
   - Added focused static tests to keep those migrated lifecycle call sites typed and to prevent the handle modeldef loader from regressing to RomProvider-only.
+  - Domain migration audit / low-risk cleanup slice:
+    - Added typed `catalogGameModeIdByScenarioIndex()` for MPSCENARIO / `ext.gamemode.mode_id` identity and migrated the remaining production `ASSET_GAMEMODE` `catalogIdByRuntime` fallbacks in `scenario_save.c`, `savefile.c`, `net.c`, `matchsetup.c`, `netmsg.c`, and `pdgui_menu_room.cpp`.
+    - Migrated the room screen Campaign and Counter-Op mission starts from generic `catalogIdByRuntime(ASSET_MAP, stagenum)` to `catalogStageIdByStagenum()`.
+    - Added a focused static guard in `tests/test_catalog_provider_static.cpp` for the migrated game-mode and room-stage boundaries.
+    - Audit found no production raw `catalogLoadAsset()` / `catalogUnloadAsset()` call sites outside `assetcatalog_load.c` and `server_stubs.c`; remaining hits are comments, declarations, implementation, or static tests.
+    - Deferred source-filenum bridge sites in `src/game/menu.c`, `src/game/bondgun.c`, and `port/src/modelcatalog.c`; these still probe catalog source handles from legacy file numbers and need the main payload-promotion/provider session, not this cleanup lane.
+    - Deferred direct model/file fallback paths in title/menu/player/modelcatalog and any first-person gun no-handle fallback paths; no first-person async loader state edits were made in this cleanup lane.
+  - Provider-surface guardrail lane:
+    - Audited source for raw `romProviderHandle()`, `assetprovider_internal.h`, direct RomProvider assumptions, and RomProvider-only loader wording/guards outside approved catalog/provider internals. No raw handle or internal-header leaks were found outside the allowlist.
+    - Fixed one isolated provider-surface violation: `modelcatalog.c` no longer checks `handle.provider == romProvider()` for its missing-file precheck; it uses the provider-aware inflated-size query for catalog handles and keeps the null-handle ROM fallback for uncataloged legacy sources.
+    - Broadened `tests/test_catalog_provider_static.cpp` with source-wide allowlist checks for raw `romProviderHandle()`, `assetprovider_internal.h`, and RomProvider-specific checks; extended typed lifecycle boundary coverage to `netmanifest.c`; and kept modeldef/bondgun guards against RomProvider-only regression wording and gating.
+  - Catalog-owned model payload slice:
+    - Added `asset_payload_kind_t` and `asset_entry_t::payload_kind` so catalog lifecycle knows how `loaded_data` is owned and released.
+    - `catalogLoadTypedAsset()` now activates/caches promoted modeldef payloads for model-like types (`ASSET_MODEL`, `ASSET_BODY`, `ASSET_HEAD`, `ASSET_PROP`) via `modeldefLoadToNewFromHandle()` and marks them `ASSET_STATE_ACTIVE`.
+    - Added `catalogGetLoadedModeldef()` as the typed query surface for catalog-owned activated model payloads.
+    - Release now frees raw byte payloads with `sysMemFree` but only detaches stage-pool modeldef payloads, avoiding incorrect frees.
+    - Added typed language payload activation: `ASSET_LANG` lifecycle loads now call `langManifestEnsureId()`, mark the entry `ASSET_STATE_ACTIVE`, and use `ASSET_PAYLOAD_RUNTIME_ACTIVE` so release detaches the catalog reference without freeing runtime-owned lang memory.
+    - Added typed audio runtime activation: `ASSET_AUDIO`, `ASSET_SFX`, and `ASSET_MUSIC` lifecycle loads now validate that a provider/path exists and mark the entry active with `ASSET_PAYLOAD_RUNTIME_ACTIVE` instead of reading whole audio files as generic byte blobs.
+    - Added typed individual texture payload activation: `ASSET_TEXTURE` lifecycle loads now use a texture-specific hook, stores loaded bytes with `ASSET_PAYLOAD_SYSMEM_BYTES`, and marks the entry `ASSET_STATE_ACTIVE`. Texture packs/directories remain separate component-level assets.
+    - Added typed metadata runtime activation: `ASSET_HUD` and `ASSET_BOT_PROFILE` lifecycle loads now activate from catalog metadata with `ASSET_PAYLOAD_RUNTIME_ACTIVE` instead of falling through to generic byte loading. Release detaches the catalog reference while runtime/catalog metadata ownership stays with the owning subsystem.
+    - Extended metadata runtime activation to selector metadata (`ASSET_ARENA` and `ASSET_GAMEMODE`) so arena/scenario catalog entries become active through lifecycle without loading INI bytes as generic payloads.
+    - Extended metadata runtime activation to descriptor metadata (`ASSET_SKIN` and `ASSET_BOT_VARIANT`) and kept static coverage requiring all metadata-only lifecycle types to use `ASSET_PAYLOAD_RUNTIME_ACTIVE`.
+    - Extended metadata runtime activation to `ASSET_EFFECT`, whose catalog extension is shader/effect metadata rather than an independently owned byte payload.
+    - Restored isolated build verification after parallel-lane changes by adding missing social scaling include, aligning cutscene packet implementation with the new player-mask signature, keeping the `CLC_CUTSCENE_SKIP` dispatch single/reachable, and adding dedicated-server stubs for newly referenced inventory/cutscene helpers.
+    - Wired weapon/prop `model_file` declarations to catalog primary provider handles in local scanner and network-distributed hot registration, restored distributed character `bodyfile` provider handles, corrected distributed relative-file handles to resolve against the extracted component directory, added `prop.ini`/`texture.ini`/`audio.ini`/`hud.ini` hot-registration coverage, and added `ASSET_WEAPON` to catalog-owned model payload activation.
+    - Wired local scanner source handles for `ASSET_TEXTURE` `file_path`, `ASSET_AUDIO` `file_path`, and `ASSET_HUD` `texture_file`, with static coverage matching the distributed hot-registration path.
+    - Removed the title/logo model no-handle ROM fallback; title model loads now require a catalog provider handle and fail loud with `CATALOG.MISS` otherwise.
+    - Removed the `modelcatalog` validation no-handle ROM fallback; validation now treats missing provider handles as missing catalog source data.
+    - Removed the raw menu model preview no-handle ROM fallback; uncataloged raw preview filenums now log `CATALOG.MISS` and skip instead of loading outside the provider layer.
+    - Removed the first-person gun queued-load no-handle ROM fallback; queued hand/gun/cart loads now require catalog provider handles and use the existing failure path on miss.
+    - Removed the first-person player weapon model no-handle ROM fallback; the temporary ROM model fallback allowlist is now empty and production fallback wording is gone.
+    - Centralized file-backed source-handle assignment in the typed catalog registration helpers for character `bodyfile`, weapon/prop `model_file`, texture/audio `file_path`, and HUD `texture_file`. Direct registration callers now populate `entry->source.primary` without waiting for scanner or distribution-specific repair code.
+    - Tightened typed texture lifecycle activation so `ASSET_TEXTURE` payloads require a catalog provider handle and no longer fall back to raw `fsFileLoad()` from path fields.
+    - Tightened `ASSET_AUDIO` runtime activation so component audio entries require a catalog provider handle while preserving the broader `ASSET_SFX`/`ASSET_MUSIC` compatibility path. Distributed `audio.ini` hot-registration now avoids synthesizing a `destdir/` provider handle when `file_path` is absent.
+    - Tightened model-like typed lifecycle activation (`ASSET_MODEL`, weapon, body, head, prop) so model payloads require catalog provider handles and no longer fall through to generic path loading when a handle is missing.
+    - Confined generic raw path fallback to legacy untyped `catalogLoadAsset()` compatibility. Typed lifecycle callers that reach the generic branch now require a provider handle and fail loud instead of falling through to `s_catalogLoadEntryFromPath()`.
+    - Added `ASSET_MAP` to metadata runtime activation so stage/catalog map entries load as catalog metadata instead of falling into generic provider/path loading. Refreshed stale screen/manifest lifecycle comments to typed load/release wording.
+    - Added `ASSET_CHARACTER` to metadata runtime activation so composite character catalog entries no longer load their bodyfile as a generic byte payload.
+  - Source-filenum provider handle bridge cleanup:
+    - Added `catalogHandleBySourceFilenum(asset_type_e type, s32 source_filenum)` so legacy numeric source-file callers ask the catalog for the effective provider handle instead of open-coding `catalogIdBySourceFilenum()` / `assetCatalogResolve()` / `catalogEffectiveHandle()` loops.
+    - Migrated the first-person gun async loader, raw menu model preview path, and `modelcatalog` validation bridge to the shared helper.
+    - Preserved warning-backed no-handle ROM fallbacks for uncataloged legacy sources as temporary migration bridges only.
+    - Added a static guard to keep these source-filenum bridge callsites catalog-owned.
+    - Made the remaining player weapon model no-handle fallback emit a throttled `CATALOG.MISS` warning before using the temporary ROM fallback, and added a source-wide guard so temporary ROM fallback wording stays confined to the known bridge files.
+  - Modelnum typed identity/API cleanup:
+    - Added explicit modelnum APIs (`catalog_model_result_t`, `catalogResolveModel()`, `catalogResolveModelByModelnum()`, `catalogGetModelHandle()`, `catalogGetModelFilenumByModelnum()`) so `MODEL_*` / `g_ModelStates[]` identity no longer routes through prop-named public helpers.
+    - Kept `catalogGetPropHandle()` and `catalogGetPropFilenumByIndex()` as compatibility wrappers while live callsites migrate.
+    - Migrated `title.c`, `player.c`, and `setuputils.c` modelnum load sites to typed modelnum result APIs.
+    - Added a static guard to prevent these migrated modelnum load sites from regressing to prop-named helpers.
+    - Added a source-wide static guard so deprecated prop-named model wrappers remain confined to the catalog API/header during the compatibility period.
+  - Typed lifecycle release/retain cleanup:
+    - Split `catalogUnloadAsset()` / `catalogRetainAsset()` behavior into entry-level internal helpers.
+    - `catalogReleaseTypedAsset()` and `catalogRetainTypedAsset()` now validate the expected type, resolve the mutable entry, and call those internals directly instead of bouncing through untyped public wrappers.
+    - Dependency cascade unloads now use the same entry-level internal unload helper.
+    - Added a static guard preventing typed lifecycle internals from regressing to untyped public wrapper calls.
+    - Added a source-wide static guard preventing production code from calling untyped catalog lifecycle functions outside the catalog implementation/header and server stubs.
 
 **Next execution order:**
-1. Continue replacing remaining warning-backed fallback paths as their domains get typed provider APIs: first-person gun async loader still has manual `g_FileInfo[loadfilenum]` restore because it performs incremental texture/DL work across ticks.
-2. Expand typed payload activation beyond raw bytes: models should cache promoted modeldefs/payload metadata in catalog-owned state; audio/lang/texture should gain type-specific activate/deactivate hooks.
-3. Migrate domains incrementally: weapons first as proving domain, then bodies/heads/characters, models/props/arenas/stages, then audio/language/textures/UI/effects, then gameplay metadata.
-4. Broaden static checks only after each domain has typed catalog/provider APIs and approved seed/generator exceptions.
+1. Decide source/lifecycle ownership for the remaining generic payload domains before changing behavior: `ASSET_ANIMATION`, `ASSET_TEXTURES`, `ASSET_SFX`, `ASSET_MUSIC`, `ASSET_UI`, `ASSET_TOOL`, `ASSET_VEHICLE`, and `ASSET_MISSION`.
+2. After each domain has an explicit owner (metadata runtime vs provider-backed bytes vs renderer/runtime-owned payload), migrate it incrementally and add a static guard for that specific policy.
+3. Keep the source-wide provider-surface guardrails in place while adding domain-specific static checks only after each domain has typed catalog/provider APIs and approved seed/generator exceptions.
+4. Determine the next safe catalog/provider slice and continue recursively until a hard blocker requires Mike's decision.
 
 **Operator-side verification still owed:** in-game validation for Combat Sim setup weapon slots, Random/Fiesta spawn modes, weapon pads, stage transitions, and any mod weapon distribution path.
 

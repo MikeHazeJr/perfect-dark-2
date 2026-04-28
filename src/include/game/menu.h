@@ -110,6 +110,7 @@ Gfx *menuRenderDialogs(Gfx *gdl);
 void menuResetModel(struct menumodel *menumodel, u32 allocationlen, bool allocate);
 void menuReset(void);
 void menuSwipe(s32 direction);
+s32 menuSwitchToDialog(struct menudialogdef *dialogdef);
 void dialogTick(struct menudialog *dialog, struct menuinputs *inputs, u32 tickflags);
 void dialogInitItems(struct menudialog *dialog);
 void func0f0fa6ac(void);

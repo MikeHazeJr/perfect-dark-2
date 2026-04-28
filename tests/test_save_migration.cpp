@@ -26,13 +26,18 @@
  *   whose meaning shifted under them.
  *
  * If the source rule changes (e.g., further weapon culls in v3), update
- * BOTH the source AND this test so they stay aligned.
+ * BOTH the source AND this test so they stay aligned. A static guard at
+ * the bottom pins the live loader's version gate around this destructive
+ * migration.
  */
 
 #include "catch.hpp"
 
 #include <cstdint>
 #include <cstring>
+#include <fstream>
+#include <sstream>
+#include <string>
 #include <vector>
 
 namespace {
@@ -63,6 +68,14 @@ int migrate_v1_to_v2(std::uint8_t *weapons, std::size_t count) {
  * mask so the user re-selects. */
 std::uint64_t migrate_random_filter_mask_v1_to_v2(std::uint64_t /*v1_mask*/) {
     return 0ull;
+}
+
+std::string read_text_file(const char *path) {
+    std::ifstream in(path, std::ios::binary);
+    REQUIRE(in.good());
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return ss.str();
 }
 } /* anon */
 
@@ -190,4 +203,22 @@ TEST_CASE("save migration: clamp sentinel matches MPWEAPON_DISABLED_V2",
     REQUIRE(one == 0x28);
     REQUIRE(one != 0x00);
     REQUIRE(one != 0xFF);
+}
+
+TEST_CASE("save migration: production weapon-cull migration remains version-gated",
+          "[save][migration][static]") {
+    const std::string source = read_text_file("src/game/mplayer/mplayer.c");
+    const std::size_t unpack = source.find("unpackWeaponSetRandomFilters(wpnRndPacked)");
+    const std::size_t gate = source.find("if (version < 2)");
+    const std::size_t next_field = source.find("g_MpWeaponSetNum = savebufferReadBits", gate);
+
+    REQUIRE(unpack != std::string::npos);
+    REQUIRE(gate != std::string::npos);
+    REQUIRE(next_field != std::string::npos);
+    REQUIRE(unpack < gate);
+
+    const std::string block = source.substr(gate, next_field - gate);
+    REQUIRE(block.find("g_MpSetup.weapons[i] >= 0x27") != std::string::npos);
+    REQUIRE(block.find("g_MpSetup.weapons[i] = MPWEAPON_DISABLED") != std::string::npos);
+    REQUIRE(block.find("g_MpWeaponSetRandomFilters[i] = 0") != std::string::npos);
 }

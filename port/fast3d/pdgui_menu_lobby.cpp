@@ -37,11 +37,13 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_nav.h"
 #include "system.h"
 #include "hub.h"
 #include "room.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "menugraph.h"
 
 extern "C" {
 
@@ -53,6 +55,7 @@ const char *netGetPublicIP(void);
 
 /* Connect codes (connectcode.c) */
 s32 connectCodeEncode(u32 ip, char *buf, s32 bufsize);
+s32 connectCodeEncodeWithPort(u32 ip, u16 port, char *buf, s32 bufsize);
 s32 connectCodeDecode(const char *code, u32 *outIp);
 #define CONNECT_DEFAULT_PORT 27100
 extern s32 g_NetDedicated;
@@ -121,6 +124,24 @@ void netbufStartWrite(struct netbuf *buf);
  * pdguiRenderConfirmModal consults it for the 5-frame force-focus latch
  * and 3-frame input debounce, and clears it back to -1 on dismiss. */
 static s32 s_LobbyDisconnectOpenFrame = -1;
+
+static s32 lobbyGraphCreateRoom(void * /*userdata*/)
+{
+    sysLogPrintf(LOG_NOTE, "LOBBY: sending CLC_ROOM_CREATE to server");
+    /* SEC-14: default create goes out as an open room with the hub-wide
+     * max_players.  A follow-up UI pass should expose access mode +
+     * password + max_players fields in the "Create Room" dialog. */
+    netbufStartWrite(&g_NetMsgRel);
+    netmsgClcRoomCreateWrite(&g_NetMsgRel, "", /*access=*/0,
+                              /*password=*/"", /*maxPlayers=*/0);
+    netSend(NULL, &g_NetMsgRel, 1, 0);
+    return 0;
+}
+
+static s32 lobbyGraphDisconnect(void * /*userdata*/)
+{
+    return netDisconnect();
+}
 
 /* ========================================================================
  * Render — Social Lobby
@@ -207,12 +228,15 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
             u32 ipAddr = 0;
             if (ip) {
                 u32 a=0,b=0,c=0,d=0;
-                if (sscanf(ip, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
-                    ipAddr = (a << 24) | (b << 16) | (c << 8) | d;
+                if (sscanf(ip, "%u.%u.%u.%u", &a, &b, &c, &d) == 4
+                        && a <= 255 && b <= 255 && c <= 255 && d <= 255) {
+                    ipAddr = a | (b << 8) | (c << 16) | (d << 24);
                 }
             }
             if (ipAddr) {
-                connectCodeEncode(ipAddr, s_ConnectCode, sizeof(s_ConnectCode));
+                u32 port = netGetServerPort();
+                if (port < 1 || port > 65535) port = CONNECT_DEFAULT_PORT;
+                connectCodeEncodeWithPort(ipAddr, (u16)port, s_ConnectCode, sizeof(s_ConnectCode));
                 s_CodeGenerated = true;
                 sysLogPrintf(LOG_NOTE, "LOBBY: connect code: %s", s_ConnectCode);
             }
@@ -418,22 +442,16 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
     pdguiEndActionBar();
 
     if (wantCreate) {
-        sysLogPrintf(LOG_NOTE, "LOBBY: sending CLC_ROOM_CREATE to server");
-        /* SEC-14: default create goes out as an open room with the hub-wide
-         * max_players.  A follow-up UI pass should expose access mode +
-         * password + max_players fields in the "Create Room" dialog. */
-        netbufStartWrite(&g_NetMsgRel);
-        netmsgClcRoomCreateWrite(&g_NetMsgRel, "", /*access=*/0,
-                                  /*password=*/"", /*maxPlayers=*/0);
-        netSend(NULL, &g_NetMsgRel, 1, 0);
+        menuGraphFireNetworkOp(MENU_TYPE_SOCIAL_LOBBY, "create_room",
+                               lobbyGraphCreateRoom, NULL);
     }
 
     /* S391 M-5-A: route Disconnect button + Esc through a confirm modal
      * (canonical S385 pattern) instead of tearing down the session on a
-     * single click / stray keystroke.  The modal fires netDisconnect()
-     * only when the user confirms. */
+     * single click / stray keystroke.  The modal fires the graph disconnect
+     * edge only when the user confirms. */
     const char *discPopupId = "Disconnect from Server?##lobby_disconnect";
-    if ((wantDisconnect || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) &&
+    if ((wantDisconnect || pdguiMenuCancelPressed()) &&
             !ImGui::IsPopupOpen(discPopupId)) {
         sysLogPrintf(LOG_NOTE,
             "MENU_IMGUI: social lobby DISCONNECT confirm OPEN via button/ESC");
@@ -452,7 +470,8 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
         sysLogPrintf(LOG_NOTE,
             "MENU_IMGUI: social lobby DISCONNECT confirmed");
         ImGui::End();
-        netDisconnect();
+        menuGraphFireNetworkOp(MENU_TYPE_SOCIAL_LOBBY, "disconnect",
+                               lobbyGraphDisconnect, NULL);
         return;
     }
 

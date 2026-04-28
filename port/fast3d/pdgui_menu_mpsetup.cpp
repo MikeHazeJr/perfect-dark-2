@@ -56,6 +56,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_nav.h"
 #include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "pdgui.h"        /* langSafe */
 #include "system.h"
@@ -496,7 +497,7 @@ static void mp_ConsumePendingFocus(bool *pendingFlag, bool isTargetRow)
 static bool mp_BackPressed(void)
 {
     return !ImGui::IsWindowAppearing() &&
-           ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+           pdguiMenuCancelPressed();
 }
 
 /* =========================================================================

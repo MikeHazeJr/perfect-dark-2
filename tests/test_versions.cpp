@@ -18,9 +18,9 @@
  *   "Save format (MPSETUP_VERSION 1 -> 2): WAD save/load roundtrip +
  *    v1 -> v2 migration"
  *
- * Bumped 2026-04-27 (S482) to NET_PROTOCOL_VER 45 for the spawn-weapon
- * mode (SPECIFIC / RANDOM / FIESTA) wire fields. MPSETUP_VERSION
- * unchanged — spawn weapon is not persisted in the mpsetup WAD format.
+ * Bumped 2026-04-28 to NET_PROTOCOL_VER 46 for the mandatory SHA-256
+ * digest appended to SVC_DISTRIB_BEGIN and the cutscene mask/skip wire
+ * cleanup. MPSETUP_VERSION unchanged.
  */
 
 #include "catch.hpp"
@@ -43,7 +43,7 @@ extern const u32 g_TestExpectedMpsetupVersion;
 extern const u32 g_TestLiveMpsetupVersion;
 }
 
-const u32 g_TestExpectedNetProtocolVer  = 45;
+const u32 g_TestExpectedNetProtocolVer  = 46;
 const u32 g_TestExpectedMpsetupVersion  = 2;
 
 TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written against",
@@ -54,10 +54,10 @@ TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written ag
      * verifying the bump is intentional, update g_TestExpectedNetProtocolVer
      * to match and re-run.
      *
-     * As of 2026-04-27 (S482) the live value is 45 (spawn-weapon mode wire
-     * fields: SVC_STAGE_START + CLC_LOBBY_START carry u8 spawnWeaponMode +
-     * u8 spawnWeaponNum). MPSETUP_VERSION stays at 2 — spawn weapon is not
-     * persisted in the mpsetup WAD save (see scenario_save.c instead). */
+     * As of 2026-04-28 the live value is 46. SVC_DISTRIB_BEGIN carries a
+     * trailing SHA-256 digest for mandatory mod-transfer verification,
+     * SVC_CUTSCENE carries a player mask, and CLC_CUTSCENE_SKIP carries
+     * the requesting player number. MPSETUP_VERSION stays at 2. */
     REQUIRE(g_TestLiveNetProtocolVer == g_TestExpectedNetProtocolVer);
 }
 

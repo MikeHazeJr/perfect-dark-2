@@ -4026,18 +4026,10 @@ static asset_data_handle_t bgunResolveQueuedModelHandle(s32 filenum)
 	}
 
 	for (i = 0; i < (s32)ARRAYCOUNT(types); i++) {
-		const char *id = catalogIdBySourceFilenum(types[i], filenum);
+		asset_data_handle_t handle = catalogHandleBySourceFilenum(types[i], filenum);
 
-		if (id) {
-			const asset_entry_t *entry = assetCatalogResolve(id);
-
-			if (entry) {
-				asset_data_handle_t handle = catalogEffectiveHandle(entry);
-
-				if (!assetHandleIsNull(handle)) {
-					return handle;
-				}
-			}
+		if (!assetHandleIsNull(handle)) {
+			return handle;
 		}
 	}
 
@@ -4047,7 +4039,7 @@ static asset_data_handle_t bgunResolveQueuedModelHandle(s32 filenum)
 		if (s_last_missing_filenum != filenum) {
 			s_last_missing_filenum = filenum;
 			sysLogPrintf(LOG_WARNING,
-				"CATALOG.MISS: bgun model filenum=%d has no catalog/provider handle -- using temporary ROM fallback",
+				"CATALOG.MISS: bgun model filenum=%d has no catalog/provider handle",
 				filenum);
 		}
 	}
@@ -4063,28 +4055,13 @@ static void bgunQueueModelLoad(struct player *player, u16 filenum, struct modeld
 	player->gunctrl.loadtomodeldef = modeldef;
 	player->gunctrl.loadmemptr = memptr;
 	player->gunctrl.loadmemremaining = memremaining;
-
-	if (!assetHandleIsNull(player->gunctrl.loadhandle)
-			&& player->gunctrl.loadhandle.provider != romProvider()
-			&& g_Vars.currentplayernum == 0) {
-		static s32 s_last_nonrom_filenum = -1;
-
-		if (s_last_nonrom_filenum != (s32)filenum) {
-			char desc[128];
-
-			s_last_nonrom_filenum = (s32)filenum;
-			sysLogPrintf(LOG_WARNING,
-				"CATALOG.PROVIDER: bgun model filenum=%d source=%s still uses temporary ROM fallback until model promotion is provider-owned",
-				(s32)filenum,
-				assetDescribe(player->gunctrl.loadhandle, desc, sizeof(desc)));
-		}
-	}
+	player->gunctrl.fileinfo.loadedsize = 0;
+	player->gunctrl.fileinfo.allocsize = 0;
 }
 
 static bool bgunQueuedLoadCanUseHandle(struct player *player)
 {
-	return !assetHandleIsNull(player->gunctrl.loadhandle)
-		&& player->gunctrl.loadhandle.provider == romProvider();
+	return !assetHandleIsNull(player->gunctrl.loadhandle);
 }
 
 static s32 bgunQueuedGetInflatedSize(struct player *player)
@@ -4093,7 +4070,7 @@ static s32 bgunQueuedGetInflatedSize(struct player *player)
 		return assetLoadGetInflatedSize(player->gunctrl.loadhandle, LOADTYPE_MODEL);
 	}
 
-	return fileGetInflatedSize(player->gunctrl.loadfilenum, LOADTYPE_MODEL);
+	return 0;
 }
 
 static s32 bgunQueuedGetLoadedSize(struct player *player)
@@ -4102,7 +4079,7 @@ static s32 bgunQueuedGetLoadedSize(struct player *player)
 		return assetLoadGetLoadedSize(player->gunctrl.loadhandle);
 	}
 
-	return fileGetLoadedSize(player->gunctrl.loadfilenum);
+	return 0;
 }
 
 static struct modeldef *bgunQueuedLoadToAddr(struct player *player, void *ptr, u32 loadsize)
@@ -4111,7 +4088,7 @@ static struct modeldef *bgunQueuedLoadToAddr(struct player *player, void *ptr, u
 		return assetLoadToAddr(player->gunctrl.loadhandle, FILELOADMETHOD_EXTRAMEM, ptr, loadsize);
 	}
 
-	return assetLoadRomToAddr(player->gunctrl.loadfilenum, FILELOADMETHOD_EXTRAMEM, ptr, loadsize);
+	return NULL;
 }
 
 /**
@@ -4144,8 +4121,6 @@ void bgunTickGunLoad(void)
 	uintptr_t ptr;
 	struct player *player = g_Vars.currentplayer;
 	struct modeldef *modeldef;
-	struct fileinfo *fileinfo;
-	struct fileinfo *gunfileinfo;
 	uintptr_t newvalue;
 	uintptr_t end;
 	u32 stack;
@@ -4207,10 +4182,11 @@ void bgunTickGunLoad(void)
 
 		bgunQueuedGetLoadedSize(player);
 
-		fileinfo = &g_FileInfo[player->gunctrl.loadfilenum];
-		fileinfo->allocsize = allocsize;
+		player->gunctrl.fileinfo.loadedsize = bgunQueuedGetLoadedSize(player);
+		player->gunctrl.fileinfo.allocsize = allocsize;
 		end = ALIGN16((uintptr_t)ptr + allocsize);
 		allocsize = end - ptr;
+		player->gunctrl.fileinfo.allocsize = allocsize;
 		if (1);
 		remaining -= allocsize;
 
@@ -4225,8 +4201,6 @@ void bgunTickGunLoad(void)
 		*player->gunctrl.loadtomodeldef = modeldef;
 
 		player->gunctrl.nexttexturetoload = 0;
-		player->gunctrl.fileinfo = *fileinfo;
-
 		osSyncPrintf("BriGun:  Set Load State: GUN_LOADSTATE_DECOMPRESS_TEXTURES\n");
 		player->gunctrl.gunloadstate = GUNLOADSTATE_TEXTURES;
 		return;
@@ -4235,9 +4209,6 @@ void bgunTickGunLoad(void)
 	if (player->gunctrl.gunloadstate == GUNLOADSTATE_TEXTURES) {
 		osSyncPrintf("BriGun:  BriGunLoadTick process GUN_LOADSTATE_DECOMPRESS_TEXTURES\n");
 
-		gunfileinfo = &player->gunctrl.fileinfo;
-		fileinfo = &g_FileInfo[player->gunctrl.loadfilenum];
-		*fileinfo = *gunfileinfo;
 		modeldef = *player->gunctrl.loadtomodeldef;
 
 		// Load textures - up to 3 per call
@@ -4264,8 +4235,6 @@ void bgunTickGunLoad(void)
 			player->gunctrl.nexttexturetoload++;
 		}
 
-		*gunfileinfo = *fileinfo;
-
 		osSyncPrintf("BriGun:  Set Load State: GUN_LOADSTATE_DECOMPRESS_DLS\n");
 		player->gunctrl.gunloadstate = GUNLOADSTATE_DLS;
 		return;
@@ -4274,11 +4243,17 @@ void bgunTickGunLoad(void)
 	if (player->gunctrl.gunloadstate == GUNLOADSTATE_DLS) {
 		osSyncPrintf("BriGun:  BriGunLoadTick process GUN_LOADSTATE_DECOMPRESS_DLS\n");
 
-		fileinfo = &g_FileInfo[player->gunctrl.loadfilenum];
-		*fileinfo = player->gunctrl.fileinfo;
 		modeldef = *player->gunctrl.loadtomodeldef;
 
-		modeldef0f1a7560(modeldef, player->gunctrl.loadfilenum, 0x05000000, modeldef, &player->gunctrl.texpool, false);
+		modeldefPromoteDisplayListsUsingSizes(
+			modeldef,
+			(s32)player->gunctrl.loadfilenum,
+			(s32)player->gunctrl.fileinfo.allocsize,
+			(s32)player->gunctrl.fileinfo.loadedsize,
+			0x05000000,
+			modeldef,
+			&player->gunctrl.texpool,
+			false);
 
 		bgunQueuedGetInflatedSize(player);
 		bgunQueuedGetLoadedSize(player);
@@ -14011,7 +13986,7 @@ void bgunRevertBoost(void)
  */
 void bgunTickBoost(void)
 {
-	if (g_Vars.speedpillon && g_Vars.speedpilltime > 0 && !g_Vars.in_cutscene) {
+	if (g_Vars.speedpillon && g_Vars.speedpilltime > 0 && !playerCurrentCutsceneInProgress()) {
 		g_Vars.speedpilltime -= g_Vars.lvupdate60;
 
 		if (g_Vars.speedpilltime <= 0) {

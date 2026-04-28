@@ -266,22 +266,29 @@ bool setupLoadModeldef(s32 modelnum)
 	s32 source_filenum;
 	const char *model_id;
 	asset_data_handle_t model_handle;
-	const asset_entry_t *model_entry;
+	catalog_model_result_t model_result;
+	s32 have_model_result;
 
 	/* Ensure this model is tracked in the active SP asset manifest.
 	 * manifestEnsureLoaded is a no-op in MP mode or before the manifest is
 	 * built, so this guard is unconditionally safe.  All prop/weapon/hat/
 	 * projectile model loads funnel through this function, making it the
 	 * canonical chokepoint for MANIFEST_TYPE_MODEL tracking. */
-	model_id = catalogModelIdByModelnum(modelnum);
+	have_model_result = catalogResolveModelByModelnum(modelnum, &model_result);
+	model_id = have_model_result ? model_result.entry->id : NULL;
 	if (model_id) {
 		manifestEnsureLoaded(model_id, MANIFEST_TYPE_MODEL);
 	}
 
 	if (g_ModelStates[modelnum].modeldef == NULL) {
-		model_handle = catalogGetPropHandle(modelnum);
-		model_entry = model_id ? assetCatalogResolve(model_id) : NULL;
-		source_filenum = model_entry ? model_entry->source_filenum : -1;
+		if (!have_model_result) {
+			sysLogPrintf(LOG_WARNING, "FIX-B.2: modelnum %d missing catalog entry -- entity skipped",
+				modelnum);
+			return false;
+		}
+
+		model_handle = model_result.handle;
+		source_filenum = model_result.filenum;
 		g_ModelStates[modelnum].modeldef =
 			modeldefLoadToNewFromHandle(model_handle, source_filenum);
 

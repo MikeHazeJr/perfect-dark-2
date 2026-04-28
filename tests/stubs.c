@@ -20,6 +20,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stddef.h>
+#include <string.h>
 #include "platform.h"
 #include "types.h"
 #include "system.h"
@@ -96,10 +97,38 @@ const char *catalogStageIdByStagenum(s32 stagenum)
     return NULL;
 }
 
+const char *catalogGameModeIdByScenarioIndex(s32 scenario_index)
+{
+    (void)scenario_index;
+    return NULL;
+}
+
 const char *catalogModelIdByModelnum(s32 modelnum)
 {
     (void)modelnum;
     return NULL;
+}
+
+s32 catalogResolveModelByModelnum(s32 modelnum, catalog_model_result_t *out)
+{
+    (void)modelnum;
+    if (out) {
+        memset(out, 0, sizeof(*out));
+    }
+    return 0;
+}
+
+asset_data_handle_t catalogGetModelHandle(s32 modelnum)
+{
+    asset_data_handle_t handle = ASSET_HANDLE_NULL_INIT;
+    (void)modelnum;
+    return handle;
+}
+
+s32 catalogGetModelFilenumByModelnum(s32 modelnum)
+{
+    (void)modelnum;
+    return -1;
 }
 
 const char *catalogBodyIdByBodynum(s32 bodynum)
@@ -119,6 +148,14 @@ const char *catalogIdBySourceFilenum(asset_type_e type, s32 source_filenum)
     (void)type;
     (void)source_filenum;
     return NULL;
+}
+
+asset_data_handle_t catalogHandleBySourceFilenum(asset_type_e type, s32 source_filenum)
+{
+    asset_data_handle_t handle = ASSET_HANDLE_NULL_INIT;
+    (void)type;
+    (void)source_filenum;
+    return handle;
 }
 
 const char *catalogIdBySourceHandle(asset_type_e type, asset_data_handle_t handle)

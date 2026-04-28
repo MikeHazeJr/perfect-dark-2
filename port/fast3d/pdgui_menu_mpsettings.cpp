@@ -58,6 +58,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_nav.h"
 #include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "pdgui.h"          /* langSafe */
 #include "system.h"
@@ -368,7 +369,7 @@ static void pdms_CloseCurrentDialog(void)
 static bool pdms_BackPressed(void)
 {
     return !ImGui::IsWindowAppearing() &&
-           ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+           pdguiMenuCancelPressed();
 }
 
 /* ========================================================================
@@ -520,7 +521,7 @@ static s32 renderHandicap(struct menudialog *dialog,
     ImGui::SameLine(0, pdguiScale(12.0f));
 
     if (PdButton("Done", ImVec2(btnW, btnH))
-        || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+        || pdguiMenuCancelPressed())
     {
         /* Handicap uses its own Begin path and never pushes g_CtxImGuiMenu,
          * so no pool-owned ctx involved — plain menuPopDialog. */
@@ -865,10 +866,9 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
                                 i, (int)musicnum);
                         }
                     }
-                    /* Gamepad X (ImGui::GamepadFaceLeft = Xbox X / PS Square)
-                     * while this row is focused -> toggle preview. */
+                    /* Secondary action while this row is focused toggles preview. */
                     if (ImGui::IsItemFocused()
-                        && ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft, false)) {
+                        && pdguiMenuSecondaryPressed()) {
                         if (isPrev) {
                             pdms_EndTunesPreview();
                             pdguiPlaySound(PDGUI_SND_KBCANCEL);
@@ -930,9 +930,9 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
                             netSendRoomPlaylistUpdate();
                         }
                     }
-                    /* Gamepad X preview toggle while row is focused */
+                    /* Secondary action preview toggle while row is focused */
                     if (ImGui::IsItemFocused()
-                        && ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft, false)) {
+                        && pdguiMenuSecondaryPressed()) {
                         if (isPrev) {
                             pdms_EndTunesPreview();
                             pdguiPlaySound(PDGUI_SND_KBCANCEL);

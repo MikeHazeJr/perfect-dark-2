@@ -25,6 +25,7 @@
 
 #include "pdgui_friends.h"
 #include "pdgui_nat_diagnostics.h"
+#include "pdgui_scaling.h"
 #include "pdgui_style.h"
 
 extern "C" {
@@ -40,6 +41,9 @@ extern "C" {
 #include "net/p2p.h"
 #include "net/group_session.h"
 #include "actionmap.h"
+#include "inputctx.h"
+#include "menupool.h"
+#include "pdgui_nav.h"
 }
 
 /* -------------------------------------------------------------------------
@@ -79,20 +83,88 @@ static char s_ConvertTagsBuf[64];
 static char s_ConvertVersionBuf[16];
 static char s_ConvertStatus[160];
 
-extern "C" void pdguiFriendsSidebarOpen(void)   { s_SidebarOpen = true; }
-extern "C" void pdguiFriendsSidebarClose(void)  { s_SidebarOpen = false; }
-extern "C" void pdguiFriendsSidebarToggle(void) { s_SidebarOpen = !s_SidebarOpen; }
+enum SocialTabIndex {
+	SOCIAL_TAB_FRIENDS = 0,
+	SOCIAL_TAB_BLOCK_LIST,
+	SOCIAL_TAB_REPLAYS,
+	SOCIAL_TAB_LISTENING_ROOM,
+	SOCIAL_TAB_PUBLIC_MODS,
+	SOCIAL_TAB_SETTINGS,
+	SOCIAL_TAB_COUNT,
+};
+
+static s32 s_SocialActiveTab = SOCIAL_TAB_FRIENDS;
+static s32 s_SocialPendingTab = -1;
+
+static bool socialShellNeedsMenuInput(void)
+{
+	return s_SidebarOpen ||
+	       s_SocialOpen ||
+	       s_ChatPanelFriendHandle != 0 ||
+	       s_ProfileFriendHandle != 0 ||
+	       s_AddFriendOpen ||
+	       s_ConvertSourcePath[0] != '\0' ||
+	       pdguiNatDiagnosticsIsOpen() != 0;
+}
+
+static bool socialShellBlockingModalOpen(void)
+{
+	return s_AddFriendOpen ||
+	       s_ProfileFriendHandle != 0 ||
+	       s_ConvertSourcePath[0] != '\0' ||
+	       pdguiNatDiagnosticsIsOpen() != 0;
+}
+
+static void socialShellSyncMenuPool(void)
+{
+	if (socialShellNeedsMenuInput()) {
+		menupoolAcquire(MENU_TYPE_SOCIAL_SHELL, NULL, &g_CtxImGuiMenu);
+	} else {
+		menupoolRelease(MENU_TYPE_SOCIAL_SHELL);
+	}
+}
+
+static void socialHandleTabActions(void)
+{
+	if (socialShellBlockingModalOpen()) {
+		return;
+	}
+
+	if (pdguiMenuTabPrevPressed()) {
+		s_SocialActiveTab--;
+		if (s_SocialActiveTab < 0) {
+			s_SocialActiveTab = SOCIAL_TAB_COUNT - 1;
+		}
+		s_SocialPendingTab = s_SocialActiveTab;
+	} else if (pdguiMenuTabNextPressed()) {
+		s_SocialActiveTab++;
+		if (s_SocialActiveTab >= SOCIAL_TAB_COUNT) {
+			s_SocialActiveTab = 0;
+		}
+		s_SocialPendingTab = s_SocialActiveTab;
+	}
+}
+
+static ImGuiTabItemFlags socialTabFlags(s32 tab)
+{
+	return s_SocialPendingTab == tab ? ImGuiTabItemFlags_SetSelected : 0;
+}
+
+extern "C" void pdguiFriendsSidebarOpen(void)   { s_SidebarOpen = true; socialShellSyncMenuPool(); }
+extern "C" void pdguiFriendsSidebarClose(void)  { s_SidebarOpen = false; socialShellSyncMenuPool(); }
+extern "C" void pdguiFriendsSidebarToggle(void) { s_SidebarOpen = !s_SidebarOpen; socialShellSyncMenuPool(); }
 extern "C" s32  pdguiFriendsSidebarIsOpen(void) { return s_SidebarOpen ? 1 : 0; }
 
-extern "C" void pdguiFriendsSocialOpen(void)   { s_SocialOpen = true; s_SidebarOpen = false; }
-extern "C" void pdguiFriendsSocialClose(void)  { s_SocialOpen = false; }
+extern "C" void pdguiFriendsSocialOpen(void)   { s_SocialOpen = true; s_SidebarOpen = false; socialShellSyncMenuPool(); }
+extern "C" void pdguiFriendsSocialClose(void)  { s_SocialOpen = false; socialShellSyncMenuPool(); }
 extern "C" s32  pdguiFriendsSocialIsOpen(void) { return s_SocialOpen ? 1 : 0; }
 
 extern "C" void pdguiFriendsChatOpen(u32 friend_handle) {
 	s_ChatPanelFriendHandle = friend_handle;
 	s_ChatComposeBuf[0] = '\0';
+	socialShellSyncMenuPool();
 }
-extern "C" void pdguiFriendsChatClose(void) { s_ChatPanelFriendHandle = 0; }
+extern "C" void pdguiFriendsChatClose(void) { s_ChatPanelFriendHandle = 0; socialShellSyncMenuPool(); }
 extern "C" s32  pdguiFriendsChatIsOpen(void) { return s_ChatPanelFriendHandle != 0 ? 1 : 0; }
 extern "C" u32  pdguiFriendsChatTargetHandle(void) { return s_ChatPanelFriendHandle; }
 
@@ -305,7 +377,7 @@ static void renderGroupConnectionsSection(void)
 				}
 				ImGui::PopStyleColor();
 				ImGui::PushID(9000 + i);
-				if (ImGui::SmallButton("Dismiss")) {
+				if (ImGui::Button("Dismiss", ImVec2(-1, 0))) {
 					groupSessionDropPeer(pp->handle);
 					ImGui::PopID();
 					return;
@@ -338,20 +410,32 @@ static void renderInvitationsSection(void)
 		const char *kindLabel = e->kind == PRESENCE_INVITE_KIND_MATCH ? "match"
 		                       : e->kind == PRESENCE_INVITE_KIND_GROUP ? "group"
 		                       : "listening room";
-		ImGui::Text("%s invited you to %s", agent, kindLabel);
+		s32 invite_action = 0;
+		ImGui::BeginChild("##invite_card", ImVec2(0, 82.0f),
+		                  ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened,
+		                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+		ImGui::TextWrapped("%s invited you to %s", agent, kindLabel);
+		const float gap = ImGui::GetStyle().ItemSpacing.x;
+		float btnW = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
+		if (btnW < 90.0f) btnW = 90.0f;
+		if (ImGui::Button("Accept", ImVec2(btnW, 0))) {
+			invite_action = 1;
+		}
 		ImGui::SameLine();
-		if (ImGui::SmallButton("Accept")) {
+		if (ImGui::Button("Decline", ImVec2(btnW, 0))) {
+			invite_action = 2;
+		}
+		ImGui::EndChild();
+		ImGui::PopID();
+		if (invite_action == 1) {
 			presenceInviteAccept(i);
-			ImGui::PopID();
 			return; /* indices shifted */
 		}
-		ImGui::SameLine();
-		if (ImGui::SmallButton("Decline")) {
+		if (invite_action == 2) {
 			presenceInviteDecline(i);
-			ImGui::PopID();
 			return;
 		}
-		ImGui::PopID();
+		ImGui::Spacing();
 	}
 }
 
@@ -364,72 +448,80 @@ static void renderFriendRow(s32 idx, const social_friend_t *f)
 	char label[128];
 	socialFormatDisplay(f, label, sizeof(label));
 
+	ImGui::PushID(idx);
+	const float scale = pdguiScale(1.0f);
+	const float cardH = peer && peer->status_blurb[0] ? 164.0f * scale : 146.0f * scale;
+	ImGui::BeginChild("##friend_card", ImVec2(0, cardH),
+	                  ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened,
+	                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
 	ImDrawList *dl = ImGui::GetWindowDrawList();
 	const ImVec2 cursor = ImGui::GetCursorScreenPos();
-	const ImVec2 dotPos(cursor.x + 8.0f, cursor.y + 10.0f);
-	drawDot(dl, dotPos, 4.0f, stateDot(pstate));
+	const ImVec2 dotPos(cursor.x + 7.0f * scale, cursor.y + 11.0f * scale);
+	drawDot(dl, dotPos, 4.0f * scale, stateDot(pstate));
 
-	ImGui::Indent(20.0f);
-
-	ImGui::PushID(idx);
-
+	ImGui::Indent(18.0f * scale);
 	ImGui::TextUnformatted(label);
 	if (peer && peer->status_blurb[0]) {
-		ImGui::SameLine();
-		ImGui::TextDisabled("(%s)", peer->status_blurb);
+		ImGui::TextDisabled("%s", peer->status_blurb);
 	} else if (pstate != PRESENCE_OFFLINE) {
-		ImGui::SameLine();
-		ImGui::TextDisabled("[%s]", stateLabel(pstate));
+		ImGui::TextDisabled("%s", stateLabel(pstate));
 	} else {
-		ImGui::SameLine();
 		char seen[24];
 		formatLastSeen(peer ? peer->last_pong_ms : 0, seen, sizeof(seen));
-		ImGui::TextDisabled("(seen %s)", seen);
+		ImGui::TextDisabled("seen %s", seen);
 	}
+	ImGui::Unindent(18.0f * scale);
+
+	const float availW = ImGui::GetContentRegionAvail().x;
+	const float gap = ImGui::GetStyle().ItemSpacing.x;
+	float btnW = (availW - gap * 2.0f) / 3.0f;
+	if (btnW < 72.0f * scale) btnW = availW;
+	int actionCol = 0;
+	auto actionButton = [&](const char *labelText) -> bool {
+		if (actionCol > 0 && btnW < availW) ImGui::SameLine();
+		bool hit = ImGui::Button(labelText, ImVec2(btnW, 0));
+		actionCol = (btnW >= availW) ? 0 : ((actionCol + 1) % 3);
+		return hit;
+	};
 
 	const bool can_invite = (pstate == PRESENCE_ONLINE_IDLE) ||
 	                         (pstate == PRESENCE_IN_MATCH) ||
 	                         (pstate == PRESENCE_IN_MISSION);
 	if (can_invite) {
-		if (ImGui::SmallButton("Invite")) {
+		if (actionButton("Invite")) {
 			presenceSendInvite(f->handle, PRESENCE_INVITE_KIND_MATCH);
 		}
-		ImGui::SameLine();
 	}
 
 	const bool can_spectate = (pstate == PRESENCE_IN_MATCH) ||
 	                           (pstate == PRESENCE_IN_MISSION);
 	if (can_spectate) {
-		if (ImGui::SmallButton("Spectate")) {
+		if (actionButton("Spectate")) {
 			spectatorBeginLive(f->handle);
 		}
-		ImGui::SameLine();
 	}
 
-	if (ImGui::SmallButton("Message")) {
-		s_ChatPanelFriendHandle = f->handle;
-		s_ChatComposeBuf[0] = '\0';
+	if (actionButton("Message")) {
+		pdguiFriendsChatOpen(f->handle);
 	}
-	ImGui::SameLine();
-	if (ImGui::SmallButton("Profile")) {
+	if (actionButton("Profile")) {
 		s_ProfileFriendHandle = f->handle;
+		socialShellSyncMenuPool();
 	}
-	ImGui::SameLine();
-	if (ImGui::SmallButton(f->muted ? "Unmute" : "Mute")) {
+	if (actionButton(f->muted ? "Unmute" : "Mute")) {
 		socialFriendSetMuted(f->connect_code, f->muted ? 0 : 1);
 	}
-	ImGui::SameLine();
-	if (ImGui::SmallButton("Block")) {
+	if (actionButton("Block")) {
 		socialBlockAdd(f->connect_code, f->agent_name);
 	}
-	ImGui::SameLine();
-	if (ImGui::SmallButton("Remove")) {
+	if (actionButton("Remove")) {
 		socialFriendRemove(f->connect_code);
 	}
+	ImGui::EndChild();
 
 	ImGui::PopID();
-
-	ImGui::Unindent(20.0f);
+	ImGui::Spacing();
 }
 
 /* -------------------------------------------------------------------------
@@ -499,7 +591,7 @@ static void renderChatPanel(s32 winW, s32 winH)
 				             m->attachment_name[0] ? m->attachment_name : "(unnamed)",
 				             (unsigned long long)m->attachment_size);
 				if (m->attachment_path[0]) {
-					if (ImGui::SmallButton("Open file location")) {
+					if (ImGui::Button("Open file location", ImVec2(-1, 0))) {
 #ifdef _WIN32
 						char cmd[600];
 						snprintf(cmd, sizeof(cmd),
@@ -522,14 +614,12 @@ static void renderChatPanel(s32 winW, s32 winH)
 						(void)system(cmd);
 #endif
 					}
-					ImGui::SameLine();
-					if (ImGui::SmallButton("Copy path")) {
+					if (ImGui::Button("Copy path", ImVec2(-1, 0))) {
 						SDL_SetClipboardText(m->attachment_path);
 					}
 					/* Type-aware actions per Q18 amendment. */
 					if (m->attachment_kind == FT_KIND_MUSIC) {
-						ImGui::SameLine();
-						if (ImGui::SmallButton("Convert to mod...")) {
+						if (ImGui::Button("Convert to mod...", ImVec2(-1, 0))) {
 							strncpy(s_ConvertSourcePath, m->attachment_path,
 							        sizeof(s_ConvertSourcePath) - 1);
 							s_ConvertSourcePath[sizeof(s_ConvertSourcePath) - 1] = '\0';
@@ -549,6 +639,7 @@ static void renderChatPanel(s32 winW, s32 winH)
 							strncpy(s_ConvertVersionBuf, "1.0.0",
 							        sizeof(s_ConvertVersionBuf) - 1);
 							s_ConvertStatus[0] = '\0';
+							socialShellSyncMenuPool();
 						}
 					}
 				}
@@ -607,8 +698,9 @@ static void renderChatPanel(s32 winW, s32 winH)
 	ImGui::End();
 	ImGui::PopStyleColor();
 
-	if (!open) {
+	if (!open || (!socialShellBlockingModalOpen() && actionPressed(0, ACTION_CANCEL_USE))) {
 		s_ChatPanelFriendHandle = 0;
+		socialShellSyncMenuPool();
 	}
 
 	(void)winW;
@@ -624,7 +716,7 @@ static void renderProfileModal(void)
 {
 	if (s_ProfileFriendHandle == 0) return;
 	const social_friend_t *f = socialFriendByHandle(s_ProfileFriendHandle);
-	if (!f) { s_ProfileFriendHandle = 0; return; }
+	if (!f) { s_ProfileFriendHandle = 0; socialShellSyncMenuPool(); return; }
 
 	ImGui::OpenPopup("Player Profile");
 	if (ImGui::BeginPopupModal("Player Profile", nullptr,
@@ -689,14 +781,21 @@ static void renderProfileModal(void)
 			const share_mod_entry_t *e = shareAggregateModAt(i);
 			if (!e || e->owner_handle != f->handle) continue;
 			ImGui::PushID(18000 + i);
+			ImGui::BeginChild("##profile_public_mod_card", ImVec2(0, 82.0f),
+			                  ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened,
+			                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 			ImGui::Text("%s v%s",
-			             e->display_name[0] ? e->display_name : e->mod_id,
-			             e->version[0] ? e->version : "?");
-			ImGui::SameLine();
-			if (ImGui::SmallButton("Download")) {
+			            e->display_name[0] ? e->display_name : e->mod_id,
+			            e->version[0] ? e->version : "?");
+			ImGui::TextDisabled("%s  -  %u KB",
+			                    e->mod_id,
+			                    (unsigned)(e->size_bytes / 1024));
+			if (ImGui::Button("Request download", ImVec2(-1, 0))) {
 				shareSendModRequest(f->handle, e->mod_id);
 			}
+			ImGui::EndChild();
 			ImGui::PopID();
+			ImGui::Spacing();
 			own_count++;
 		}
 		if (own_count == 0) {
@@ -721,12 +820,16 @@ static void renderProfileModal(void)
 			listeningRoomSubscribe(f->handle);
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("Close", ImVec2(120, 0))) {
+		if (ImGui::Button("Close", ImVec2(120, 0)) ||
+		    actionPressed(0, ACTION_CANCEL_USE)) {
 			s_ProfileFriendHandle = 0;
+			socialShellSyncMenuPool();
 			ImGui::CloseCurrentPopup();
 		}
 		ImGui::EndPopup();
 	}
+
+	socialShellSyncMenuPool();
 }
 
 /* Section 8.5.3 -- Convert-to-mod modal. Drives
@@ -787,6 +890,7 @@ static void renderConvertToModModal(void)
 				/* Reset source so the user can close the modal without
 				 * re-confirming -- the success message will linger one frame. */
 				s_ConvertSourcePath[0] = '\0';
+				socialShellSyncMenuPool();
 				ImGui::CloseCurrentPopup();
 			} else {
 				snprintf(s_ConvertStatus, sizeof(s_ConvertStatus),
@@ -795,13 +899,17 @@ static void renderConvertToModModal(void)
 		}
 		if (!valid) ImGui::EndDisabled();
 		ImGui::SameLine();
-		if (ImGui::Button("Cancel", ImVec2(140, 0))) {
+		if (ImGui::Button("Cancel", ImVec2(140, 0)) ||
+		    actionPressed(0, ACTION_CANCEL_USE)) {
 			s_ConvertSourcePath[0] = '\0';
 			s_ConvertStatus[0] = '\0';
+			socialShellSyncMenuPool();
 			ImGui::CloseCurrentPopup();
 		}
 		ImGui::EndPopup();
 	}
+
+	socialShellSyncMenuPool();
 }
 
 extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
@@ -816,17 +924,26 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 	 * ImGui::IsKeyPressed(Tab) directly with a comment "Avoids reaching
 	 * into the actionmap layer", which was the IMC bypass that opened
 	 * the connectivity sidebar mid-mission. WantCaptureKeyboard is
-	 * still queried for the V (PTT) hotkey below, which has not yet
-	 * migrated to actionmap. */
+	 * still queried for PTT below so text fields do not start voice
+	 * transmission. */
 	if (actionPressed(0, ACTION_SOCIAL_TOGGLE)) {
 		s_SidebarOpen = !s_SidebarOpen;
 	}
+	socialShellSyncMenuPool();
+	if (!socialShellBlockingModalOpen() && actionPressed(0, ACTION_CANCEL_USE)) {
+		if (s_ChatPanelFriendHandle != 0) {
+			s_ChatPanelFriendHandle = 0;
+		} else if (s_SocialOpen) {
+			s_SocialOpen = false;
+		} else if (s_SidebarOpen) {
+			s_SidebarOpen = false;
+		}
+		socialShellSyncMenuPool();
+	}
 	if (!ImGui::GetIO().WantCaptureKeyboard) {
-		/* Phase 5 PTT: V key. Codec follow-up will move this to an
-		 * actionmap binding once Session B's input scope reopens. */
 		if (voiceEnabled() && voiceGetCaptureMode() == VOICE_CAPTURE_PUSH_TO_TALK) {
-			if (ImGui::IsKeyPressed(ImGuiKey_V, false))   voicePttBegin();
-			if (ImGui::IsKeyReleased(ImGuiKey_V))          voicePttEnd();
+			if (actionPressed(0, ACTION_VOICE_PTT))   voicePttBegin();
+			if (actionReleased(0, ACTION_VOICE_PTT))  voicePttEnd();
 		}
 	}
 
@@ -878,6 +995,7 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 
 			if (ImGui::Button("Add by code")) {
 				s_AddFriendOpen = true;
+				socialShellSyncMenuPool();
 			}
 			ImGui::SameLine();
 			if (ImGui::Button("Open Social menu")) {
@@ -886,6 +1004,7 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 			ImGui::SameLine();
 			if (ImGui::Button("Close")) {
 				s_SidebarOpen = false;
+				socialShellSyncMenuPool();
 			}
 		}
 		ImGui::End();
@@ -911,9 +1030,12 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 			ImGui::TextDisabled("Connect code: %s", socialMyConnectCode());
 			ImGui::Separator();
 
+			socialHandleTabActions();
+
 			if (ImGui::BeginTabBar("##pd2_social_tabs")) {
 
-				if (ImGui::BeginTabItem("Friends")) {
+				if (ImGui::BeginTabItem("Friends", nullptr, socialTabFlags(SOCIAL_TAB_FRIENDS))) {
+					s_SocialActiveTab = SOCIAL_TAB_FRIENDS;
 					ImGui::BeginChild("##pd2_friends_full", ImVec2(0, -60.0f));
 					const s32 nf = socialFriendCount();
 					if (nf == 0) {
@@ -928,7 +1050,8 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 					ImGui::EndTabItem();
 				}
 
-				if (ImGui::BeginTabItem("Block list")) {
+				if (ImGui::BeginTabItem("Block list", nullptr, socialTabFlags(SOCIAL_TAB_BLOCK_LIST))) {
+					s_SocialActiveTab = SOCIAL_TAB_BLOCK_LIST;
 					ImGui::BeginChild("##pd2_blocks_full", ImVec2(0, -60.0f));
 					const s32 nb = socialBlockCount();
 					if (nb == 0) {
@@ -938,22 +1061,30 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 							const social_block_t *b = socialBlockAt(i);
 							if (!b) continue;
 							ImGui::PushID(8000 + i);
-							ImGui::Text("%s  (%s)", b->agent_name[0] ? b->agent_name : "?",
-							                          b->connect_code);
-							ImGui::SameLine();
-							if (ImGui::SmallButton("Unblock")) {
+							bool unblock = false;
+							ImGui::BeginChild("##blocked_friend_card", ImVec2(0, 78.0f),
+							                  ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened,
+							                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+							ImGui::Text("%s", b->agent_name[0] ? b->agent_name : "?");
+							ImGui::TextDisabled("%s", b->connect_code);
+							if (ImGui::Button("Unblock", ImVec2(-1, 0))) {
+								unblock = true;
+							}
+							ImGui::EndChild();
+							ImGui::PopID();
+							if (unblock) {
 								socialBlockRemove(b->connect_code);
-								ImGui::PopID();
 								break;
 							}
-							ImGui::PopID();
+							ImGui::Spacing();
 						}
 					}
 					ImGui::EndChild();
 					ImGui::EndTabItem();
 				}
 
-				if (ImGui::BeginTabItem("Replays")) {
+				if (ImGui::BeginTabItem("Replays", nullptr, socialTabFlags(SOCIAL_TAB_REPLAYS))) {
+					s_SocialActiveTab = SOCIAL_TAB_REPLAYS;
 					ImGui::BeginChild("##pd2_theater_body", ImVec2(0, -60.0f));
 
 					ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
@@ -993,8 +1124,7 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 						s_TheaterListLastRefreshMs = now_ms;
 					}
 
-					ImGui::SameLine();
-					if (ImGui::SmallButton("Refresh")) {
+					if (ImGui::Button("Refresh")) {
 						theaterRefreshList();
 						s_TheaterListLastRefreshMs = now_ms;
 					}
@@ -1008,21 +1138,25 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 							if (!e->filename[0]) break;
 							found++;
 							ImGui::PushID(15000 + i);
+							ImGui::BeginChild("##replay_card", ImVec2(0, 78.0f),
+							                  ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened,
+							                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 							ImGui::Text("%s -- %u frames, %u KB",
 							             e->filename,
 							             (unsigned)e->frame_count,
 							             (unsigned)(e->size_bytes / 1024));
-							ImGui::SameLine();
 							if (theaterIsReplaying()) {
-								if (ImGui::SmallButton("Stop")) {
+								if (ImGui::Button("Stop", ImVec2(-1, 0))) {
 									theaterStopReplay();
 								}
 							} else {
-								if (ImGui::SmallButton("Play")) {
+								if (ImGui::Button("Play", ImVec2(-1, 0))) {
 									theaterStartReplay(e->filename);
 								}
 							}
+							ImGui::EndChild();
 							ImGui::PopID();
+							ImGui::Spacing();
 						}
 						if (found == 0) {
 							ImGui::TextDisabled("No replays yet. Start recording to create one.");
@@ -1033,7 +1167,8 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 					ImGui::EndTabItem();
 				}
 
-				if (ImGui::BeginTabItem("Listening room")) {
+				if (ImGui::BeginTabItem("Listening room", nullptr, socialTabFlags(SOCIAL_TAB_LISTENING_ROOM))) {
+					s_SocialActiveTab = SOCIAL_TAB_LISTENING_ROOM;
 					ImGui::BeginChild("##pd2_lr_body", ImVec2(0, -60.0f));
 
 					const listening_room_state_t st = listeningRoomState();
@@ -1058,6 +1193,10 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 								const lr_track_t *t = listeningRoomTrackAt(i);
 								if (!t) continue;
 								ImGui::PushID(13000 + i);
+								bool remove_track = false;
+								ImGui::BeginChild("##host_track_card", ImVec2(0, 82.0f),
+								                  ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened,
+								                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 								if (i == cur) {
 									ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo(255));
 									ImGui::Text("> %s", t->display_name);
@@ -1065,17 +1204,23 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 								} else {
 									ImGui::Text("  %s", t->display_name);
 								}
-								ImGui::SameLine();
-								if (ImGui::SmallButton("Play")) {
+								const float gap = ImGui::GetStyle().ItemSpacing.x;
+								float btnW = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
+								if (btnW < 90.0f) btnW = 90.0f;
+								if (ImGui::Button("Play", ImVec2(btnW, 0))) {
 									listeningRoomHostPlayTrack(i);
 								}
 								ImGui::SameLine();
-								if (ImGui::SmallButton("Remove")) {
+								if (ImGui::Button("Remove", ImVec2(btnW, 0))) {
+									remove_track = true;
+								}
+								ImGui::EndChild();
+								ImGui::PopID();
+								if (remove_track) {
 									listeningRoomHostRemoveTrack(t->track_id);
-									ImGui::PopID();
 									break;
 								}
-								ImGui::PopID();
+								ImGui::Spacing();
 							}
 							ImGui::Spacing();
 							ImGui::TextUnformatted("Add track");
@@ -1148,7 +1293,8 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 					ImGui::EndTabItem();
 				}
 
-				if (ImGui::BeginTabItem("Public mods")) {
+				if (ImGui::BeginTabItem("Public mods", nullptr, socialTabFlags(SOCIAL_TAB_PUBLIC_MODS))) {
+					s_SocialActiveTab = SOCIAL_TAB_PUBLIC_MODS;
 					ImGui::BeginChild("##pd2_pubmods_body", ImVec2(0, -60.0f));
 					ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
 					ImGui::TextUnformatted("My public mods");
@@ -1171,14 +1317,22 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 						const char *nm = shareModPublicNameAt(i);
 						if (!id) continue;
 						ImGui::PushID(16000 + i);
-						ImGui::Text("%s -- %s", nm && *nm ? nm : id, id);
-						ImGui::SameLine();
-						if (ImGui::SmallButton("Remove")) {
+						bool remove_public = false;
+						ImGui::BeginChild("##public_mod_card", ImVec2(0, 86.0f),
+						                  ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened,
+						                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+						ImGui::Text("%s", nm && *nm ? nm : id);
+						ImGui::TextDisabled("%s", id);
+						if (ImGui::Button("Remove public flag", ImVec2(-1, 0))) {
+							remove_public = true;
+						}
+						ImGui::EndChild();
+						ImGui::PopID();
+						if (remove_public) {
 							shareModPublicRemove(id);
-							ImGui::PopID();
 							break;
 						}
-						ImGui::PopID();
+						ImGui::Spacing();
 					}
 
 					/* Inline add form. The mod_id is the internal id from
@@ -1229,13 +1383,17 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 						const social_friend_t *of = socialFriendByHandle(e->owner_handle);
 						const char *owner = of && of->agent_name[0] ? of->agent_name : "friend";
 						ImGui::PushID(17000 + i);
-						ImGui::Text("%s v%s by %s (%u KB)",
-						             e->display_name[0] ? e->display_name : e->mod_id,
-						             e->version[0] ? e->version : "?",
-						             owner,
-						             (unsigned)(e->size_bytes / 1024));
-						ImGui::SameLine();
-						if (ImGui::SmallButton("Download")) {
+						ImGui::BeginChild("##session_public_mod_card", ImVec2(0, 82.0f),
+						                  ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened,
+						                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+						ImGui::Text("%s v%s",
+						            e->display_name[0] ? e->display_name : e->mod_id,
+						            e->version[0] ? e->version : "?");
+						ImGui::TextDisabled("by %s  -  %s  -  %u KB",
+						                    owner,
+						                    e->mod_id,
+						                    (unsigned)(e->size_bytes / 1024));
+						if (ImGui::Button("Request download", ImVec2(-1, 0))) {
 							if (shareSendModRequest(e->owner_handle, e->mod_id) == 0) {
 								/* Send succeeded; the file_transfer pipe takes over
 								 * on the responder side. The receiver will see the
@@ -1243,20 +1401,23 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 								 * row (file_transfer's existing UX). */
 							}
 						}
+						ImGui::EndChild();
 						ImGui::PopID();
+						ImGui::Spacing();
 					}
 
 					ImGui::EndChild();
 					ImGui::EndTabItem();
 				}
 
-				if (ImGui::BeginTabItem("Settings")) {
+				if (ImGui::BeginTabItem("Settings", nullptr, socialTabFlags(SOCIAL_TAB_SETTINGS))) {
+					s_SocialActiveTab = SOCIAL_TAB_SETTINGS;
 					ImGui::TextUnformatted("My connect code");
 					ImGui::Indent(12.0f);
 					ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
 					ImGui::TextUnformatted(socialMyConnectCode());
 					ImGui::PopStyleColor();
-					if (ImGui::SmallButton("Copy to clipboard")) {
+					if (ImGui::Button("Copy to clipboard", ImVec2(220.0f, 0))) {
 						SDL_SetClipboardText(socialMyConnectCode());
 					}
 					ImGui::SameLine();
@@ -1325,11 +1486,13 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 				}
 
 				ImGui::EndTabBar();
+				s_SocialPendingTab = -1;
 			}
 
 			ImGui::Separator();
 			if (ImGui::Button("Add by code")) {
 				s_AddFriendOpen = true;
+				socialShellSyncMenuPool();
 			}
 			ImGui::SameLine();
 			if (ImGui::Button("Close")) {
@@ -1356,7 +1519,7 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 		ImGui::SetNextItemWidth(420.0f);
 		ImGui::InputText("Code", s_AddFriendCodeBuf, sizeof(s_AddFriendCodeBuf));
 		ImGui::SameLine();
-		if (ImGui::SmallButton("Paste")) {
+		if (ImGui::Button("Paste", ImVec2(110.0f, 0))) {
 			char *clip = SDL_GetClipboardText();
 			if (clip) {
 				strncpy(s_AddFriendCodeBuf, clip, sizeof(s_AddFriendCodeBuf) - 1);
@@ -1396,17 +1559,22 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 				s_AddFriendNickBuf[0] = '\0';
 				s_AddFriendStatus[0]  = '\0';
 				s_AddFriendOpen = false;
+				socialShellSyncMenuPool();
 				ImGui::CloseCurrentPopup();
 			}
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("Cancel", ImVec2(140, 0))) {
+		if (ImGui::Button("Cancel", ImVec2(140, 0)) ||
+		    actionPressed(0, ACTION_CANCEL_USE)) {
 			s_AddFriendCodeBuf[0] = '\0';
 			s_AddFriendNickBuf[0] = '\0';
 			s_AddFriendStatus[0]  = '\0';
 			s_AddFriendOpen = false;
+			socialShellSyncMenuPool();
 			ImGui::CloseCurrentPopup();
 		}
 		ImGui::EndPopup();
 	}
+
+	socialShellSyncMenuPool();
 }

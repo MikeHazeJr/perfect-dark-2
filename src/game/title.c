@@ -35,7 +35,7 @@
 #include "string.h"
 #include "video.h"
 #include "system.h"
-#include "assetcatalog.h" /* SA-5d: catalogGetPropFilenumByIndex */
+#include "assetcatalog.h"
 #include "assetload.h"
 
 #define TITLE_ASPECT (videoGetAspect())
@@ -131,29 +131,38 @@ char *mpPlayerGetWeaponOfChoiceName(u32 playernum, u32 slot)
 
 static struct modeldef *titleLoadModeldefToAddr(s32 modelnum, u8 *dst, s32 size)
 {
-	s32 filenum = catalogGetPropFilenumByIndex(modelnum);
-	asset_data_handle_t handle = catalogGetPropHandle(modelnum);
+	catalog_model_result_t modelresult;
 
-	if (!assetHandleIsNull(handle)) {
-		return modeldefLoadFromHandle(handle, filenum, dst, size, NULL);
+	if (!catalogResolveModelByModelnum(modelnum, &modelresult)) {
+		return NULL;
+	}
+
+	if (!assetHandleIsNull(modelresult.handle)) {
+		return modeldefLoadFromHandle(modelresult.handle, modelresult.filenum, dst, size, NULL);
 	}
 
 	sysLogPrintf(LOG_WARNING,
-		"CATALOG.MISS: title modelnum=%d filenum=%d has no provider handle -- using temporary ROM fallback",
-		modelnum, filenum);
-	return modeldefLoad((u16)filenum, dst, size, NULL);
+		"CATALOG.MISS: title modelnum=%d filenum=%d has no provider handle",
+		modelnum, modelresult.filenum);
+	return NULL;
 }
 
 static s32 titleGetLoadedModelSize(s32 modelnum)
 {
-	s32 filenum = catalogGetPropFilenumByIndex(modelnum);
-	asset_data_handle_t handle = catalogGetPropHandle(modelnum);
+	catalog_model_result_t modelresult;
 
-	if (!assetHandleIsNull(handle)) {
-		return assetLoadGetLoadedSize(handle);
+	if (!catalogResolveModelByModelnum(modelnum, &modelresult)) {
+		return 0;
 	}
 
-	return fileGetLoadedSize(filenum);
+	if (!assetHandleIsNull(modelresult.handle)) {
+		return assetLoadGetLoadedSize(modelresult.handle);
+	}
+
+	sysLogPrintf(LOG_WARNING,
+		"CATALOG.MISS: title modelnum=%d filenum=%d has no provider handle for size query",
+		modelnum, modelresult.filenum);
+	return 0;
 }
 
 void titleSetLight(Lights1 *light, u8 r, u8 g, u8 b, f32 luminosity, struct coord *dir)

@@ -34,6 +34,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_nav.h"
 #include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "system.h"
 #include "assetcatalog.h"
@@ -1123,18 +1124,17 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
     ImGui::Separator();
 
     /* --- Tab bar --- */
-    /* S312: LB/RB bumper tab cycling — pdguiDriveImGuiNav translates
-     * ACTION_MENU_TAB_PREV/NEXT to PageUp/PageDown so we poll those. */
+    /* ACTION_MENU_TAB_PREV/NEXT cycle tabs for keyboard and gamepad. */
     static s32 s_ModMgrPendingTab = -1;
     const s32 k_ModMgrTabCount = 3;
     /* Visual/UI order: Installed Mods (2), By Category (0), By Mod (1). */
     static const s32 k_ModMgrOrder[3] = { 2, 0, 1 };
     s32 s_ModMgrUiIdx = (s_Tab == 2) ? 0 : (s_Tab == 0 ? 1 : 2);
-    if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
+    if (pdguiMenuTabPrevPressed()) {
         s_ModMgrUiIdx = (s_ModMgrUiIdx - 1 + k_ModMgrTabCount) % k_ModMgrTabCount;
         s_ModMgrPendingTab = s_ModMgrUiIdx;
         pdguiPlaySound(PDGUI_SND_SWIPE);
-    } else if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
+    } else if (pdguiMenuTabNextPressed()) {
         s_ModMgrUiIdx = (s_ModMgrUiIdx + 1) % k_ModMgrTabCount;
         s_ModMgrPendingTab = s_ModMgrUiIdx;
         pdguiPlaySound(PDGUI_SND_SWIPE);
@@ -1273,7 +1273,7 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
     ImGui::PopStyleColor(2);
 
     /* B button / Escape also closes — same guard */
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+    if (pdguiMenuCancelPressed()) {
         bool hasDirty = (pending > 0) || (modmgrIsDirty() != 0);
         if (hasDirty) {
             ImGui::OpenPopup("Unsaved Changes");

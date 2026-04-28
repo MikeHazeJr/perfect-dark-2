@@ -201,6 +201,23 @@ TEST_CASE("scene: nested layers preserve ancestry", "[scene][nesting]")
     REQUIRE(ilpTopType() == ILP_LAYER_GAMEPLAY);
 }
 
+TEST_CASE("scene: tracked close unwinds layers above the target", "[scene][nesting][teardown]")
+{
+    resetWorld();
+    spFire(SP_SCENE_EVENT_STAGE_READY,    nullptr);
+    spFire(SP_SCENE_EVENT_CUTSCENE_START, nullptr);
+    spFire(SP_SCENE_EVENT_PAUSE_OPEN,     nullptr);
+    REQUIRE(ilpTopType() == ILP_LAYER_MENU);
+
+    REQUIRE(spFire(SP_SCENE_EVENT_CUTSCENE_END, nullptr) == 0);
+    REQUIRE(ilpTopType() == ILP_LAYER_GAMEPLAY);
+    REQUIRE(ilpHas(ILP_LAYER_MENU) == 0);
+    REQUIRE(ilpHas(ILP_LAYER_CUTSCENE) == 0);
+
+    REQUIRE(spFire(SP_SCENE_EVENT_PAUSE_OPEN, nullptr) == 0);
+    REQUIRE(ilpTopType() == ILP_LAYER_MENU);
+}
+
 TEST_CASE("scene: out-of-range event id rejected", "[scene][safety]")
 {
     resetWorld();

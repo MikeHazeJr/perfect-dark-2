@@ -987,16 +987,22 @@ u32 manifestSerialize(struct netbuf *dst, const match_manifest_t *m)
  * manifestDeserialize -- read manifest entries from netbuf (D.3 wire helper).
  *
  * Appends to *out (does NOT clear first — caller should call manifestClear
- * if starting fresh).  Counterpart to manifestSerialize().
+ * if starting fresh). On parse failure, rolls back entries appended by this
+ * call so malformed packets cannot leave a partial manifest behind.
+ * Counterpart to manifestSerialize().
  * Returns 0 on success, 1 on parse error.
  */
 s32 manifestDeserialize(struct netbuf *src, match_manifest_t *out)
 {
     s32 i;
+    const u16 start_entries = out->num_entries;
+    const u32 start_hash = out->manifest_hash;
     const u16 num_entries = netbufReadU16(src);
     if (src->error || num_entries > (u16)manifestGetMaxEntries()) {
         sysLogPrintf(LOG_WARNING,
                      "MANIFEST: deserialize: bad entry count %u", (unsigned)num_entries);
+        out->num_entries = start_entries;
+        out->manifest_hash = start_hash;
         return 1;
     }
     for (i = 0; i < (s32)num_entries; i++) {
@@ -1007,6 +1013,8 @@ s32 manifestDeserialize(struct netbuf *src, match_manifest_t *out)
         if (src->error) {
             sysLogPrintf(LOG_WARNING,
                          "MANIFEST: deserialize: truncated at entry %d", i);
+            out->num_entries = start_entries;
+            out->manifest_hash = start_hash;
             return 1;
         }
         /* Derive net_hash from local catalog (CRC32) or s_fnv1a as fallback. */
@@ -1019,6 +1027,8 @@ s32 manifestDeserialize(struct netbuf *src, match_manifest_t *out)
             u8 sha256[32];
             netbufReadData(src, sha256, sizeof(sha256));
             if (src->error) {
+                out->num_entries = start_entries;
+                out->manifest_hash = start_hash;
                 return 1;
             }
             /* SEC-5 / MASTER-H2: reject COMPONENT entries with all-zero SHA-256.
@@ -1592,9 +1602,9 @@ void manifestApplyDiff(const match_manifest_t *needed,
      * is freed, preventing any window during the transition where neither the old
      * nor the new asset data exists in memory.
      * For bundled (base-game) assets this is a no-op retain (already ROM-resident).
-     * For mod assets, the file is read from disk and ref_count is incremented.
-     * A missing asset logs a warning and is skipped — the intercept layer falls
-     * back to ROM so the game does not crash on a missing mod file. */
+     * For mod assets, the typed catalog lifecycle activates the provider-backed
+     * payload or metadata and increments ref_count. A missing asset logs a
+     * warning and is skipped. */
     for (i = 0; i < diff->num_to_load; i++) {
         if (diff->to_load[i].id[0]) {
             load_ok = catalogLoadTypedAsset(
@@ -1615,10 +1625,10 @@ void manifestApplyDiff(const match_manifest_t *needed,
      * Executed after loads so new assets are already resident before old ones are
      * released — this is the primary guard against the 56-asset transition crash
      * (use-after-free when assets were freed before the new stage was ready).
-     * For bundled (base-game) assets catalogUnloadAsset is a no-op.
+     * For bundled (base-game) assets typed catalog release is a no-op.
      * For mod assets, ref_count decrements; when it hits 0, data is freed and
-     * registered deps are cascade-decremented (see catalogUnloadAsset).
-     * Detailed "freed / retained" logging is emitted inside catalogUnloadAsset. */
+     * registered deps are cascade-decremented. Detailed "freed / retained"
+     * logging is emitted inside the catalog lifecycle implementation. */
     for (i = 0; i < diff->num_to_unload; i++) {
         if (diff->to_unload[i].id[0]) {
             catalogReleaseTypedAsset(
@@ -1861,8 +1871,8 @@ void manifestMenuTransition(void)
  * the "needed" manifest and diffs it against g_CurrentLoadedManifest.
  *
  * For each diff entry:
- *   to_load   -- catalogLoadAsset() (no-op for bundled; loads mod file from disk)
- *   to_unload -- catalogUnloadAsset() (no-op for bundled; decrements ref + frees at 0)
+ *   to_load   -- typed catalog load (no-op for bundled; activates provider-backed payload/metadata)
+ *   to_unload -- typed catalog release (no-op for bundled; decrements ref + frees at 0)
  *   to_keep   -- no action (already loaded, ref_count unchanged)
  *
  * After applying, g_CurrentLoadedManifest becomes the MP manifest, which

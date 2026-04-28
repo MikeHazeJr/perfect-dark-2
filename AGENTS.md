@@ -31,6 +31,23 @@ From PowerShell:
 `build-env.sh` sets `TEMP`, `TMP`, and prepends `/c/msys64/mingw64/bin` to `PATH`.
 `build-headless.ps1` dot-sources `devtools/_build-env-prelude.ps1` (idempotent).
 
+### Parallel test builds
+
+If more than one AI/code session may build at the same time, **do not use shared `Build/`**.
+Use an isolated session build directory instead:
+
+```powershell
+.\devtools\build-session.ps1 -Session <short-session-id> -Target all
+```
+
+Outputs go to `.claude/session-builds/<short-session-id>/`. Reuse the same
+`-Session` value for incremental rebuilds in one session; use a different value
+for simultaneous sessions. Clean up after the session:
+
+```powershell
+.\devtools\build-session.ps1 -Remove -Session <short-session-id>
+```
+
 ---
 
 ## STANDING ORDERS — Context System

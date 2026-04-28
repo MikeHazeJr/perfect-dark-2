@@ -74,6 +74,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
+#include "pdgui_nav.h"
 #include "pdgui_charpreview.h"    /* B-253: pdguiCharPreviewSetRotY for fixed pose */
 #include "pdgui_model_preview.h"  /* Batch 0 reusable model preview widget */
 #include "pdgui.h"                /* langSafe */
@@ -457,7 +458,7 @@ static void pc_CloseCurrentDialog(void)
 static bool pc_BackPressed(void)
 {
     return !ImGui::IsWindowAppearing() &&
-           ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+           pdguiMenuCancelPressed();
 }
 
 /* Notify the networking layer that the local player's settings have

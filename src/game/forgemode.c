@@ -33,6 +33,7 @@
 #include "system.h"
 
 #include "actionmap.h"
+#include "scene.h"
 #include "game/env.h"
 #include "game/music.h"
 #include "game/sky.h"
@@ -107,6 +108,7 @@ typedef struct forge_module {
 	 * still INACTIVE).  Latched into canvas_mode at activation in
 	 * forgeTick. */
 	bool request_canvas_mode;
+	bool observer_layer_active;
 } forge_module_t;
 
 static forge_module_t s_forge;
@@ -476,12 +478,44 @@ static void forgeApplyDebugRenderExit(void)
 	s_GridSavedWireframe = -1;
 }
 
+static void forgeObserverLayerEnter(const char *reason)
+{
+	if (s_forge.observer_layer_active) {
+		return;
+	}
+
+	SceneObserverPayload payload;
+	payload.source = SCENE_OBSERVER_SOURCE_FORGE;
+
+	if (sceneFire(SCENE_EVENT_OBSERVER_ENTER, &payload) == 0) {
+		s_forge.observer_layer_active = true;
+	} else {
+		sysLogPrintf(LOG_WARNING,
+			"GRID: observer layer enter rejected (%s)",
+			reason ? reason : "");
+	}
+}
+
+static void forgeObserverLayerExit(const char *reason)
+{
+	if (!s_forge.observer_layer_active) {
+		return;
+	}
+
+	SceneObserverPayload payload;
+	payload.source = SCENE_OBSERVER_SOURCE_FORGE;
+	(void)reason;
+	sceneFire(SCENE_EVENT_OBSERVER_EXIT, &payload);
+	s_forge.observer_layer_active = false;
+}
+
 static void forgeTransitionToNormal(const char *reason)
 {
 	struct player *p = forgeCurrentPlayer();
 	if (p) {
 		forgeRestorePlayerMode(p);
 	}
+	forgeObserverLayerEnter(reason);
 	if (s_forge.state != FORGE_SESSION_NORMAL) {
 		sysLogPrintf(LOG_NOTE, "GRID: -> NORMAL (%s)", reason ? reason : "");
 		forgeRuntimeEnterPlay();
@@ -523,6 +557,7 @@ static void forgeTransitionToFreefly(const char *reason)
 		sysLogPrintf(LOG_WARNING, "GRID: cannot enter FREEFLY -- no current player");
 		return;
 	}
+	forgeObserverLayerEnter(reason);
 	forgeSnapFreeflyToPlayer();
 	forgeSetFreeflyMode(p);
 	if (s_forge.state != FORGE_SESSION_FREEFLY) {
@@ -587,6 +622,7 @@ static void forgeTransitionToInactive(const char *reason)
 	 * last-known values keeps the diff minimal. */
 	s_forge.fly.has_saved_movemode = false;
 	s_forge.fly.has_saved_body     = false;
+	forgeObserverLayerExit(reason);
 
 	if (s_forge.state != FORGE_SESSION_INACTIVE) {
 		sysLogPrintf(LOG_NOTE, "GRID: -> INACTIVE (%s)", reason ? reason : "");
@@ -598,6 +634,7 @@ static void forgeTransitionToInactive(const char *reason)
 	s_forge.session_stagenum = -1;  /* B-245: clear so next session captures fresh stagenum */
 	s_forge.canvas_mode = false;        /* B-254: clear canvas latch on session end */
 	s_forge.request_canvas_mode = false;
+	s_forge.observer_layer_active = false;
 
 	/* Issue 8b + AUDIT-24-H2/H3: ensure both Forge IMCs are released
 	 * when the session ends through any path (stage-left-gameplay
@@ -636,6 +673,7 @@ void forgeInit(void)
 	s_forge.session_stagenum = -1;  /* B-245: no session active at init */
 	s_forge.canvas_mode = false;          /* B-254: canvas inactive at init */
 	s_forge.request_canvas_mode = false;
+	s_forge.observer_layer_active = false;
 	s_forge.fly.pos.x = 0.0f;
 	s_forge.fly.pos.y = 0.0f;
 	s_forge.fly.pos.z = 0.0f;

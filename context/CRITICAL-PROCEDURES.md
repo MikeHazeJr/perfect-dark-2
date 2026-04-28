@@ -34,6 +34,16 @@ Dev Window v2 runs **`git pull --rebase`** inside `devtools/release.ps1` before 
 - After all changes are finalized, run a build (all targets)
 - If build errors occur, fix them before reporting
 - Do not report "ready to build" or "done" until a clean compile is confirmed
+- If another session may also be building, do not use shared `Build/`. Run
+  `.\devtools\build-session.ps1 -Session <short-session-id> -Target all` so the
+  build goes to `.claude/session-builds/<short-session-id>/`.
+- Reuse one `-Session` id only inside the same active session. Parallel sessions
+  must use different ids; the wrapper holds a lock and fails fast on accidental
+  reuse instead of corrupting Ninja/CMake state.
+- Clean up isolated build directories when done:
+  `.\devtools\build-session.ps1 -Remove -Session <short-session-id>`. Use
+  `-List` to inspect old directories and `-RemoveAll` only when no session build
+  is running.
 
 ---
 

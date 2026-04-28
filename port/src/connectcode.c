@@ -10,7 +10,8 @@
  *   "heroic flea hiding in a mall"
  *
  * Each slot maps to one byte (256 entries per category).
- * Port is assumed as CONNECT_DEFAULT_PORT (27100).
+ * The 4-word form uses CONNECT_DEFAULT_PORT. The 6-word form appends a
+ * port encoded as two extra words.
  * Case-insensitive decode. The decoder strips articles (the, a, an)
  * and matches only the core words.
  */
@@ -249,7 +250,7 @@ static const char **s_SlotWords[4] = {
 };
 
 /* ========================================================================
- * Encode: IP (network byte order) -> 4-part sentence
+ * Encode: IP packed as a | (b << 8) | (c << 16) | (d << 24) -> 4-part sentence
  * Port assumed as CONNECT_DEFAULT_PORT.
  * ======================================================================== */
 
@@ -320,6 +321,14 @@ static s32 matchSlot(const char *input, s32 slot, s32 *chars_consumed)
     return -1;
 }
 
+static const char *skipSeparators(const char *p)
+{
+    while (*p && (isspace((unsigned char)*p) || *p == '-' || *p == '.' || *p == ',')) {
+        p++;
+    }
+    return p;
+}
+
 s32 connectCodeDecode(const char *code, u32 *outIp)
 {
     if (!code || !outIp) return -1;
@@ -346,6 +355,9 @@ s32 connectCodeDecode(const char *code, u32 *outIp)
 
     *outIp = (u32)bytes[0] | ((u32)bytes[1] << 8) |
               ((u32)bytes[2] << 16) | ((u32)bytes[3] << 24);
+
+    p = skipSeparators(p);
+    if (*p) return -1;
 
     return 0;
 }
@@ -417,7 +429,7 @@ s32 connectCodeDecodeWithPort(const char *code, u32 *outIp, u16 *outPort)
              ((u32)bytes[2] << 16) | ((u32)bytes[3] << 24);
 
     /* Skip separators, check for optional port words */
-    while (*p && (isspace((unsigned char)*p) || *p == '-' || *p == '.' || *p == ',')) p++;
+    p = skipSeparators(p);
 
     if (!*p) {
         /* 4-word code: default port */
@@ -429,20 +441,16 @@ s32 connectCodeDecodeWithPort(const char *code, u32 *outIp, u16 *outPort)
     {
         s32 consumedHi = 0;
         s32 hi = matchSlot(p, 0, &consumedHi); /* slot 0 = adjective */
-        if (hi < 0) {
-            /* Not a valid port word — treat as 4-word code with trailing garbage */
-            if (outPort) *outPort = CONNECT_DEFAULT_PORT;
-            return 0;
-        }
+        if (hi < 0) return -1;
         p += consumedHi;
-        while (*p && (isspace((unsigned char)*p) || *p == '-' || *p == '.' || *p == ',')) p++;
+        p = skipSeparators(p);
 
         s32 consumedLo = 0;
         s32 lo = matchSlot(p, 1, &consumedLo); /* slot 1 = noun */
-        if (lo < 0) {
-            if (outPort) *outPort = CONNECT_DEFAULT_PORT;
-            return 0;
-        }
+        if (lo < 0) return -1;
+        p += consumedLo;
+        p = skipSeparators(p);
+        if (*p) return -1;
 
         if (outPort) *outPort = (u16)(((u16)hi << 8) | (u16)lo);
     }

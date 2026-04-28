@@ -307,7 +307,8 @@ void pdtest_manifestDiffFree(pdtest_manifest_diff_t *diff)
  *     bytes id (strlen bytes, last byte null)
  *     [u8[32] sha256]   (only when type == COMPONENT)
  *
- * Returns 0 on success, non-zero on overflow / parse failure.
+ * Returns 0 on success, non-zero on overflow / parse failure. Parse failure
+ * rolls back entries appended by this call, matching the live deserializer.
  * ======================================================================== */
 
 static void w_u8(unsigned char **p, unsigned char *end, unsigned char v, int *err) {
@@ -389,10 +390,14 @@ int pdtest_manifestDeserialize(const unsigned char *src, size_t src_size,
 {
     const unsigned char *p = src;
     const unsigned char *end = src + src_size;
+    uint16_t start_entries = out->num_entries;
+    uint32_t start_hash = out->manifest_hash;
     int err = 0;
 
     uint16_t num = r_u16le(&p, end, &err);
     if (err || num > (uint16_t)PDTEST_MANIFEST_MAX_ENTRIES) {
+        out->num_entries = start_entries;
+        out->manifest_hash = start_hash;
         if (bytes_consumed) *bytes_consumed = (size_t)(p - src);
         return 1;
     }
@@ -401,6 +406,8 @@ int pdtest_manifestDeserialize(const unsigned char *src, size_t src_size,
         unsigned char slot_index = r_u8(&p, end, &err);
         const char *id           = r_str(&p, end, &err);
         if (err) {
+            out->num_entries = start_entries;
+            out->manifest_hash = start_hash;
             if (bytes_consumed) *bytes_consumed = (size_t)(p - src);
             return 1;
         }
@@ -408,6 +415,8 @@ int pdtest_manifestDeserialize(const unsigned char *src, size_t src_size,
             unsigned char sha256[32];
             r_bytes(&p, end, sha256, sizeof(sha256), &err);
             if (err) {
+                out->num_entries = start_entries;
+                out->manifest_hash = start_hash;
                 if (bytes_consumed) *bytes_consumed = (size_t)(p - src);
                 return 1;
             }

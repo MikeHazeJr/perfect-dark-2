@@ -29,6 +29,8 @@
 #include <PR/ultratypes.h>
 
 #include <cstring>
+#include <fstream>
+#include <sstream>
 #include <string>
 
 /* Forward-declared netbuf API — keep in sync with port/include/net/netbuf.h. */
@@ -219,6 +221,65 @@ TEST_CASE("netbuf: string roundtrip preserves null terminator", "[netbuf]") {
     REQUIRE(s3 != nullptr);
     REQUIRE(std::string(s3) == "base:dark_combat");
     REQUIRE(b.nb.error == 0);
+}
+
+TEST_CASE("netbuf: zero-length wire string returns safe empty string", "[netbuf][security]") {
+    /* Malformed peers can send a string length of 0. The reader must not
+     * return a pointer into subsequent field bytes and let strlen/strcmp
+     * scan outside the declared string. */
+    u8 wire[] = {
+        0x00, 0x00,             /* string len = 0 */
+        'N', 'O', 'T', 0x00     /* next field payload, not part of string */
+    };
+    netbuf nb;
+    netbufStartReadData(&nb, wire, sizeof(wire));
+    const char *s = netbufReadStr(&nb);
+    REQUIRE(s != nullptr);
+    REQUIRE(std::string(s) == "");
+    REQUIRE(nb.rp == 2);
+    REQUIRE(netbufReadLeft(&nb) == 4);
+    REQUIRE(nb.error == 0);
+}
+
+TEST_CASE("net distribution: SVC_DISTRIB_BEGIN carries mandatory digest",
+          "[netbuf][security][static]") {
+    auto read_file = [](const char *path) {
+        std::ifstream in(path, std::ios::in | std::ios::binary);
+        REQUIRE(in.good());
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        return ss.str();
+    };
+
+    const std::string distrib = read_file("port/src/net/netdistrib.c");
+    const std::string netmsg = read_file("port/src/net/netmsg.c");
+    const std::string netmsg_h = read_file("port/include/net/netmsg.h");
+
+    REQUIRE(distrib.find("expected_sha256[SHA256_DIGEST_SIZE]") != std::string::npos);
+    REQUIRE(distrib.find("sha256Hash(compressed, (size_t)compressed_len, compressed_sha256)") != std::string::npos);
+    REQUIRE(distrib.find("memcmp(actual, slot->expected_sha256") != std::string::npos);
+    REQUIRE(netmsg.find("netbufWriteData(dst, expected_sha256, 32)") != std::string::npos);
+    REQUIRE(netmsg.find("netbufReadData(src, expected_sha256, sizeof(expected_sha256))") != std::string::npos);
+    REQUIRE(netmsg_h.find("const u8 expected_sha256[32]") != std::string::npos);
+}
+
+TEST_CASE("net move: client weapon select is server inventory-gated",
+          "[netbuf][security][static]") {
+    auto read_file = [](const char *path) {
+        std::ifstream in(path, std::ios::in | std::ios::binary);
+        REQUIRE(in.good());
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        return ss.str();
+    };
+
+    const std::string netmsg = read_file("port/src/net/netmsg.c");
+
+    REQUIRE(netmsg.find("static bool netmsgClientCanSelectWeapon") != std::string::npos);
+    REQUIRE(netmsg.find("invHasSingleWeaponIncAllGuns(weaponnum)") != std::string::npos);
+    REQUIRE(netmsg.find("invHasDoubleWeaponIncAllGuns(weaponnum, weaponnum)") != std::string::npos);
+    REQUIRE(netmsg.find("NET: rejected CLC_MOVE weapon select") != std::string::npos);
+    REQUIRE(netmsg.find("newmove.ucmd &= ~(UCMD_SELECT | UCMD_SELECT_DUAL)") != std::string::npos);
 }
 
 TEST_CASE("netbuf: mixed-type sequence preserves order", "[netbuf]") {

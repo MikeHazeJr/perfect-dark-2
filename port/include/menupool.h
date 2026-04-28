@@ -71,9 +71,15 @@ typedef enum {
 
     /* Legacy dialog-backed — registered via dialogdef→type pairs. */
     MENU_TYPE_MAIN_MENU,          /* CI + Settings variants */
+    MENU_TYPE_MAIN_SOLO_VIEW,     /* pure ImGui main-menu Solo Play subview */
+    MENU_TYPE_MAIN_SETTINGS_VIEW, /* pure ImGui main-menu Settings subview */
+    MENU_TYPE_MAIN_MODDING_VIEW,  /* pure ImGui main-menu Modding subview */
+    MENU_TYPE_MAIN_ONLINE_VIEW,   /* pure ImGui main-menu Online Play subview */
+    MENU_TYPE_MAIN_STATS_VIEW,    /* pure ImGui main-menu Stats subview */
     MENU_TYPE_CI_OPTIONS,         /* nextsibling auto-open partner of MAIN */
     MENU_TYPE_SOLO_MISSION,       /* select / difficulty / briefing / accept */
     MENU_TYPE_SOLO_MISSION_PAUSE, /* in-mission pause */
+    MENU_TYPE_SOLO_INVENTORY,     /* in-mission inventory sibling */
     MENU_TYPE_SOLO_OPTIONS,       /* mission options sub-tree */
     MENU_TYPE_ENDSCREEN_SOLO,
     MENU_TYPE_ENDSCREEN_MP,
@@ -113,6 +119,7 @@ typedef enum {
     MENU_TYPE_AGENT_SELECT,
     MENU_TYPE_AGENT_CREATE,
     MENU_TYPE_NETWORK,
+    MENU_TYPE_NETWORK_JOINING,
     /* Dedicated-server social lobby (pdgui_menu_lobby) — pure ImGui, no dialogdef. */
     MENU_TYPE_SOCIAL_LOBBY,
     MENU_TYPE_CHALLENGES,
@@ -136,6 +143,7 @@ typedef enum {
      * twiddling `s_MenuView`, and keeps the existing inline-render so
      * the main menu's chrome continues around it. */
     MENU_TYPE_GRID_SUBMENU,
+    MENU_TYPE_SOCIAL_SHELL,       /* friends sidebar / Social menu / chat / NAT diagnostics */
 
     MENU_TYPE_COUNT
 } menu_type_t;

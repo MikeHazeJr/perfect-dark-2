@@ -60,13 +60,29 @@ void actionmapRefreshStickMultFromUi(void);
 #define VKL_F     9
 #define VKL_Q     20
 #define VKL_R     21
+#define VKL_V     25
+#define VKL_U     24
+#define VKL_Y     28
+#define VKL_Z     29
+#define VKL_G     10
 #define VKL_C     6
+#define VKL_1     30
+#define VKL_4     33
+#define VKL_5     34
+#define VKL_LEFTBRACKET 47
+#define VKL_RIGHTBRACKET 48
 
 /* Arrow keys */
 #define VKL_UP    82
 #define VKL_DOWN  81
 #define VKL_LEFT  80
 #define VKL_RIGHT 79
+#define VKL_KP_ENTER 88
+#define VKL_PAGEUP 75
+#define VKL_PAGEDOWN 78
+#define VKL_INSERT 73
+#define VKL_HOME 74
+#define VKL_END 77
 
 /* F-keys: VK_F1=58 -> F5=62, F7=64, F10=67, F11=68 */
 #define VKL_F5    62
@@ -189,6 +205,13 @@ static const VkNameEntry s_VkNameTable[] = {
     /* --- Keyboard: modifiers (224-231) --- */
     {224,"LEFT_CTRL"},{225,"LEFT_SHIFT"},{226,"LEFT_ALT"},{227,"LEFT_GUI"},
     {228,"RIGHT_CTRL"},{229,"RIGHT_SHIFT"},{230,"RIGHT_ALT"},{231,"RIGHT_GUI"},
+    /* --- Synthetic keyboard chords --- */
+    {VK_CHORD_CTRL_TAB,       "CTRL+TAB"},
+    {VK_CHORD_CTRL_SHIFT_TAB, "CTRL+SHIFT+TAB"},
+    {VK_CHORD_CTRL_Z,         "CTRL+Z"},
+    {VK_CHORD_CTRL_SHIFT_Z,   "CTRL+SHIFT+Z"},
+    {VK_CHORD_CTRL_Y,         "CTRL+Y"},
+    {VK_CHORD_CTRL_S,         "CTRL+S"},
     /* --- Mouse (VK_MOUSE_BEGIN = 512) --- */
     {VK_MOUSE_LEFT,     "MOUSE_LEFT"},
     {VK_MOUSE_MIDDLE,   "MOUSE_MIDDLE"},
@@ -368,6 +391,41 @@ static const char * const s_ActionNames[ACTION_COUNT] = {
     "TextPaste",
     /* 72: cutscene-skip (Cohort 4, K.2) -- g_ImcCutscene IMC only */
     "SkipCutscene",
+    /* 73-75: menu secondary commands */
+    "MenuSecondary",
+    "MenuTertiary",
+    "MenuDelete",
+    /* 76-84: observer / spectator controls */
+    "ObserverSubsetPrev",
+    "ObserverSubsetNext",
+    "ObserverMemberPrev",
+    "ObserverMemberNext",
+    "ObserverCameraToggle",
+    "ObserverFreefly",
+    "ObserverStop",
+    "ObserverAscend",
+    "ObserverDescend",
+    /* 85: voice chat */
+    "VoicePtt",
+    /* 86-90: Forge editor commands */
+    "ForgePlaceCancel",
+    "ForgeBotAdd",
+    "ForgeBotRemoveAll",
+    "ForgeBotFreezeToggle",
+    "ForgeBotSpawnCycle",
+    /* 91-102: Skin editor commands */
+    "SkinBrushDecrease",
+    "SkinBrushIncrease",
+    "SkinToolDraw",
+    "SkinToolErase",
+    "SkinToolFill",
+    "SkinToolEyedropper",
+    "SkinToolLine",
+    "SkinGridToggle",
+    "SkinUvToggle",
+    "SkinUndo",
+    "SkinRedo",
+    "SkinSave",
 };
 
 /* ============================================================
@@ -508,7 +566,8 @@ static void fireVk(u32 vk, s32 is_down)
     for (s32 ci = 0; ci < s_NumActive; ci++) {
         InputMappingContext *ctx = s_Active[ci];
 
-        if (suppressGameplay && (ctx == &g_ImcGameplay || ctx == &g_ImcVehicle)) {
+        if (suppressGameplay &&
+            (ctx == &g_ImcGameplay || ctx == &g_ImcVehicle || ctx == &g_ImcObserver)) {
             continue;
         }
 
@@ -593,6 +652,35 @@ static void fireVk(u32 vk, s32 is_down)
     return;
 next_player:;
 }
+
+static u32 chordVkForKeysym(const SDL_Keysym *keysym)
+{
+    if (!keysym) {
+        return 0;
+    }
+
+    const s32 ctrl = (keysym->mod & KMOD_CTRL) != 0;
+    const s32 shift = (keysym->mod & KMOD_SHIFT) != 0;
+
+    if (!ctrl) {
+        return 0;
+    }
+
+    switch (keysym->scancode) {
+    case SDL_SCANCODE_TAB:
+        return shift ? VK_CHORD_CTRL_SHIFT_TAB : VK_CHORD_CTRL_TAB;
+    case SDL_SCANCODE_Z:
+        return shift ? VK_CHORD_CTRL_SHIFT_Z : VK_CHORD_CTRL_Z;
+    case SDL_SCANCODE_Y:
+        return VK_CHORD_CTRL_Y;
+    case SDL_SCANCODE_S:
+        return VK_CHORD_CTRL_S;
+    default:
+        return 0;
+    }
+}
+
+static u32 s_KeyDownChordVk[SDL_NUM_SCANCODES];
 
 /* ============================================================
  * Helpers: device detection update
@@ -831,13 +919,21 @@ void actionmapDispatch(const SDL_Event *ev)
     case SDL_KEYDOWN:
         if (ev->key.repeat) break;
         updateDevice(ACTIONMAP_DEVICE_KBM);
-        fireVk((u32)ev->key.keysym.scancode, 1);
+        if (ev->key.keysym.scancode >= 0 && ev->key.keysym.scancode < SDL_NUM_SCANCODES) {
+            u32 chord_vk = chordVkForKeysym(&ev->key.keysym);
+            s_KeyDownChordVk[ev->key.keysym.scancode] = chord_vk;
+            fireVk(chord_vk ? chord_vk : (u32)ev->key.keysym.scancode, 1);
+        }
         break;
 
     case SDL_KEYUP:
         if (ev->key.repeat) break;
         updateDevice(ACTIONMAP_DEVICE_KBM);
-        fireVk((u32)ev->key.keysym.scancode, 0);
+        if (ev->key.keysym.scancode >= 0 && ev->key.keysym.scancode < SDL_NUM_SCANCODES) {
+            u32 chord_vk = s_KeyDownChordVk[ev->key.keysym.scancode];
+            s_KeyDownChordVk[ev->key.keysym.scancode] = 0;
+            fireVk(chord_vk ? chord_vk : (u32)ev->key.keysym.scancode, 0);
+        }
         break;
 
     /* ---- Mouse buttons ---- */
@@ -1237,6 +1333,27 @@ s32 actionIsGameplayOnly(InputAction a)
     case ACTION_CHEAT_ENTER:
     case ACTION_TEXT_PASTE:
     case ACTION_SKIP_CUTSCENE:
+    case ACTION_MENU_SECONDARY:
+    case ACTION_MENU_TERTIARY:
+    case ACTION_MENU_DELETE:
+    case ACTION_VOICE_PTT:
+    case ACTION_FORGE_PLACE_CANCEL:
+    case ACTION_FORGE_BOT_ADD:
+    case ACTION_FORGE_BOT_REMOVE_ALL:
+    case ACTION_FORGE_BOT_FREEZE_TOGGLE:
+    case ACTION_FORGE_BOT_SPAWN_CYCLE:
+    case ACTION_SKIN_BRUSH_DECREASE:
+    case ACTION_SKIN_BRUSH_INCREASE:
+    case ACTION_SKIN_TOOL_DRAW:
+    case ACTION_SKIN_TOOL_ERASE:
+    case ACTION_SKIN_TOOL_FILL:
+    case ACTION_SKIN_TOOL_EYEDROPPER:
+    case ACTION_SKIN_TOOL_LINE:
+    case ACTION_SKIN_GRID_TOGGLE:
+    case ACTION_SKIN_UV_TOGGLE:
+    case ACTION_SKIN_UNDO:
+    case ACTION_SKIN_REDO:
+    case ACTION_SKIN_SAVE:
         return 0;
     default:
         return 1;
@@ -1577,6 +1694,7 @@ static InputMappingContext * const s_AllImcs[] = {
     &g_ImcVehicle,
     &g_ImcForgeSession,
     &g_ImcForge,
+    &g_ImcObserver,
     &g_ImcMenu,
     &g_ImcPauseMenu,
     &g_ImcDebugOverlay,
@@ -2114,6 +2232,12 @@ InputMappingContext g_ImcForge = {
     .active   = 0,
 };
 
+InputMappingContext g_ImcObserver = {
+    .name     = "observer",
+    .priority = 8,
+    .active   = 0,
+};
+
 InputMappingContext g_ImcMenu = {
     .name     = "menu",
     .priority = 10,
@@ -2218,6 +2342,7 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_DEBUG_TOGGLE,   (u32)VK_F9);
         addBind(imc, ACTION_SCORECARD,      43); /* 43 = SDL_SCANCODE_TAB */
         addBind(imc, ACTION_SCORECARD,      JOY_BTN(0, JBTN_BACK));
+        addBind(imc, ACTION_VOICE_PTT,      VKL_V);
 
         /* The Grid mode toggle (Forge <-> Playtest), keyboard binding.
          * Moved from F7 to F11 (2026-04-26) to split the dual-bind with
@@ -2298,6 +2423,7 @@ static void setupCutsceneDefaults(s32 player)
     addBind(imc, ACTION_SKIP_CUTSCENE, JOY_BTN(0, JBTN_A));  /* gamepad  */
     addBind(imc, ACTION_PAUSE,         VK_ESCAPE);           /* allow Escape during cutscene */
     addBind(imc, ACTION_PAUSE,         JOY_BTN(0, JBTN_START));
+    addBind(imc, ACTION_VOICE_PTT,     VKL_V);
 }
 
 static void setupVehicleDefaults(s32 player)
@@ -2318,6 +2444,7 @@ static void setupVehicleDefaults(s32 player)
     addBind(imc, ACTION_VEHICLE_EXIT,        JOY_BTN(0, JBTN_X)); /* align with on-foot USE / exit */
     addBind(imc, ACTION_PAUSE,               VK_ESCAPE);
     addBind(imc, ACTION_PAUSE,               JOY_BTN(0, JBTN_START));
+    addBind(imc, ACTION_VOICE_PTT,           VKL_V);
 }
 
 /* Issue 8b (2026-04-24): Forge session-scoped IMC default bindings.
@@ -2341,6 +2468,11 @@ static void setupForgeSessionDefaults(s32 player)
     if (player != 0) return;
 
     addBind(imc, ACTION_FORGE_TOGGLE, JOY_BTN(0, JBTN_BACK));
+    addBind(imc, ACTION_VOICE_PTT,    VKL_V);
+    addBind(imc, ACTION_FORGE_BOT_ADD,           VKL_INSERT);
+    addBind(imc, ACTION_FORGE_BOT_REMOVE_ALL,    VK_DELETE);
+    addBind(imc, ACTION_FORGE_BOT_FREEZE_TOGGLE, VKL_END);
+    addBind(imc, ACTION_FORGE_BOT_SPAWN_CYCLE,   VKL_HOME);
 }
 
 /* Issue 8b (2026-04-24): Forge editor (FREEFLY) IMC default bindings.
@@ -2390,10 +2522,39 @@ static void setupForgeDefaults(s32 player)
      * above: TAB=43, PAGEUP=75, PAGEDOWN=78, RIGHT=79, DOWN=81, UP=82. */
     addBind(imc, ACTION_FORGE_SIDEBAR_TOGGLE,   43);  /* TAB */
     addBind(imc, ACTION_FORGE_TAB_PREV,         75);  /* PAGEUP */
+    addBind(imc, ACTION_FORGE_TAB_PREV,         VK_CHORD_CTRL_SHIFT_TAB);
     addBind(imc, ACTION_FORGE_TAB_NEXT,         78);  /* PAGEDOWN */
+    addBind(imc, ACTION_FORGE_TAB_NEXT,         VK_CHORD_CTRL_TAB);
     addBind(imc, ACTION_FORGE_SIDEBAR_UP,       82);  /* UP */
     addBind(imc, ACTION_FORGE_SIDEBAR_DOWN,     81);  /* DOWN */
     addBind(imc, ACTION_FORGE_SIDEBAR_ACTIVATE, 79);  /* RIGHT */
+    addBind(imc, ACTION_FORGE_PLACE_CANCEL,     VK_ESCAPE);
+}
+
+static void setupObserverDefaults(s32 player)
+{
+    InputMappingContext *imc = &g_ImcObserver;
+    if (player != 0) return;
+
+    addBind(imc, ACTION_OBSERVER_SUBSET_PREV,   VKL_PAGEUP);
+    addBind(imc, ACTION_OBSERVER_SUBSET_PREV,   JOY_BTN(0, JBTN_LB));
+    addBind(imc, ACTION_OBSERVER_SUBSET_NEXT,   VKL_PAGEDOWN);
+    addBind(imc, ACTION_OBSERVER_SUBSET_NEXT,   JOY_BTN(0, JBTN_RB));
+    addBind(imc, ACTION_OBSERVER_MEMBER_PREV,   VKL_LEFT);
+    addBind(imc, ACTION_OBSERVER_MEMBER_PREV,   JOY_BTN(0, JBTN_DPAD_LEFT));
+    addBind(imc, ACTION_OBSERVER_MEMBER_NEXT,   VKL_RIGHT);
+    addBind(imc, ACTION_OBSERVER_MEMBER_NEXT,   JOY_BTN(0, JBTN_DPAD_RIGHT));
+    addBind(imc, ACTION_OBSERVER_CAMERA_TOGGLE, 43); /* TAB */
+    addBind(imc, ACTION_OBSERVER_CAMERA_TOGGLE, JOY_BTN(0, JBTN_RSTICK));
+    addBind(imc, ACTION_OBSERVER_FREEFLY,       VKL_R);
+    addBind(imc, ACTION_OBSERVER_FREEFLY,       JOY_BTN(0, JBTN_Y));
+    addBind(imc, ACTION_OBSERVER_STOP,          VK_ESCAPE);
+    addBind(imc, ACTION_OBSERVER_STOP,          JOY_BTN(0, JBTN_B));
+    addBind(imc, ACTION_OBSERVER_ASCEND,        VKL_E);
+    addBind(imc, ACTION_OBSERVER_ASCEND,        JOY_BTN(0, JOFS_RTRIG));
+    addBind(imc, ACTION_OBSERVER_DESCEND,       VKL_Q);
+    addBind(imc, ACTION_OBSERVER_DESCEND,       JOY_BTN(0, JOFS_LTRIG));
+    addBind(imc, ACTION_VOICE_PTT,              VKL_V);
 }
 
 static void setupMenuDefaults(void)
@@ -2409,21 +2570,32 @@ static void setupMenuDefaults(void)
      * doesn't, and the result was that arrows/d-pad stopped working in menus.
      */
     InputMappingContext *imc = &g_ImcMenu;
-    addBind(imc, ACTION_USE,          VK_RETURN);                 /* UI Select/Accept — kbd */
-    addBind(imc, ACTION_USE,          JOY_BTN(0, JBTN_A));        /* UI Select/Accept — gamepad */
-    addBind(imc, ACTION_CANCEL_USE,   VK_ESCAPE);                 /* Back/Cancel — kbd */
-    addBind(imc, ACTION_CANCEL_USE,   JOY_BTN(0, JBTN_B));        /* Back/Cancel — gamepad */
-    addBind(imc, ACTION_PAUSE,        JOY_BTN(0, JBTN_START));    /* Pause toggle — gamepad only (kbd Escape covered by CANCEL_USE) */
-    addBind(imc, ACTION_MENU_UP,      VKL_UP);                    /* Nav up — kbd arrow */
-    addBind(imc, ACTION_MENU_UP,      JOY_BTN(0, JBTN_DPAD_UP));  /* Nav up — d-pad */
-    addBind(imc, ACTION_MENU_DOWN,    VKL_DOWN);                  /* Nav down — kbd arrow */
-    addBind(imc, ACTION_MENU_DOWN,    JOY_BTN(0, JBTN_DPAD_DOWN));/* Nav down — d-pad */
-    addBind(imc, ACTION_MENU_LEFT,    VKL_LEFT);                  /* Nav left — kbd arrow */
-    addBind(imc, ACTION_MENU_LEFT,    JOY_BTN(0, JBTN_DPAD_LEFT));/* Nav left — d-pad */
-    addBind(imc, ACTION_MENU_RIGHT,   VKL_RIGHT);                 /* Nav right — kbd arrow */
-    addBind(imc, ACTION_MENU_RIGHT,   JOY_BTN(0, JBTN_DPAD_RIGHT));/* Nav right — d-pad */
-    addBind(imc, ACTION_MENU_TAB_PREV,JOY_BTN(0, JBTN_LB));       /* Previous tab — LB */
-    addBind(imc, ACTION_MENU_TAB_NEXT,JOY_BTN(0, JBTN_RB));       /* Next tab — RB */
+    addBind(imc, ACTION_USE,          VK_RETURN);                 /* UI Select/Accept - kbd */
+    addBind(imc, ACTION_USE,          VK_SPACE);                  /* UI Select/Accept - kbd */
+    addBind(imc, ACTION_USE,          VKL_KP_ENTER);              /* UI Select/Accept - keypad */
+    addBind(imc, ACTION_USE,          JOY_BTN(0, JBTN_A));        /* UI Select/Accept - gamepad */
+    addBind(imc, ACTION_CANCEL_USE,   VK_ESCAPE);                 /* Back/Cancel - kbd */
+    addBind(imc, ACTION_CANCEL_USE,   JOY_BTN(0, JBTN_B));        /* Back/Cancel - gamepad */
+    addBind(imc, ACTION_PAUSE,        JOY_BTN(0, JBTN_START));    /* Pause toggle - gamepad only (kbd Escape covered by CANCEL_USE) */
+    addBind(imc, ACTION_MENU_UP,      VKL_UP);                    /* Nav up - kbd arrow */
+    addBind(imc, ACTION_MENU_UP,      JOY_BTN(0, JBTN_DPAD_UP));  /* Nav up - d-pad */
+    addBind(imc, ACTION_MENU_DOWN,    VKL_DOWN);                  /* Nav down - kbd arrow */
+    addBind(imc, ACTION_MENU_DOWN,    JOY_BTN(0, JBTN_DPAD_DOWN));/* Nav down - d-pad */
+    addBind(imc, ACTION_MENU_LEFT,    VKL_LEFT);                  /* Nav left - kbd arrow */
+    addBind(imc, ACTION_MENU_LEFT,    JOY_BTN(0, JBTN_DPAD_LEFT));/* Nav left - d-pad */
+    addBind(imc, ACTION_MENU_RIGHT,   VKL_RIGHT);                 /* Nav right - kbd arrow */
+    addBind(imc, ACTION_MENU_RIGHT,   JOY_BTN(0, JBTN_DPAD_RIGHT));/* Nav right - d-pad */
+    addBind(imc, ACTION_MENU_TAB_PREV,VKL_PAGEUP);                /* Previous tab - kbd */
+    addBind(imc, ACTION_MENU_TAB_PREV,VKL_Q);                     /* Previous tab - kbd */
+    addBind(imc, ACTION_MENU_TAB_PREV,JOY_BTN(0, JBTN_LB));       /* Previous tab - LB */
+    addBind(imc, ACTION_MENU_TAB_NEXT,VKL_PAGEDOWN);              /* Next tab - kbd */
+    addBind(imc, ACTION_MENU_TAB_NEXT,VKL_E);                     /* Next tab - kbd */
+    addBind(imc, ACTION_MENU_TAB_NEXT,JOY_BTN(0, JBTN_RB));       /* Next tab - RB */
+    addBind(imc, ACTION_MENU_SECONDARY,VKL_C);                    /* Secondary command - kbd */
+    addBind(imc, ACTION_MENU_SECONDARY,JOY_BTN(0, JBTN_X));       /* Secondary command - X */
+    addBind(imc, ACTION_MENU_TERTIARY,VKL_D);                     /* Tertiary command - kbd */
+    addBind(imc, ACTION_MENU_TERTIARY,JOY_BTN(0, JBTN_Y));        /* Tertiary command - Y */
+    addBind(imc, ACTION_MENU_DELETE,VK_DELETE);                   /* Delete command - kbd */
     /* S483b (2026-04-27): Tab toggles the Online connectivity sidebar.
      * Bound on menu IMCs only (here + setupPauseMenuDefaults) so pressing
      * Tab during pure gameplay (only g_ImcGameplay active) cannot fire
@@ -2433,6 +2605,20 @@ static void setupMenuDefaults(void)
      * IMC-bypass that let Tab open the sidebar mid-mission; routed
      * through actionPressed(0, ACTION_SOCIAL_TOGGLE) instead. */
     addBind(imc, ACTION_SOCIAL_TOGGLE, 43);                       /* TAB scancode */
+    addBind(imc, ACTION_VOICE_PTT,     VKL_V);                    /* Voice push-to-talk */
+    addBind(imc, ACTION_SKIN_BRUSH_DECREASE,  VKL_LEFTBRACKET);
+    addBind(imc, ACTION_SKIN_BRUSH_INCREASE,  VKL_RIGHTBRACKET);
+    addBind(imc, ACTION_SKIN_TOOL_DRAW,       VKL_1);
+    addBind(imc, ACTION_SKIN_TOOL_ERASE,      VKL_2);
+    addBind(imc, ACTION_SKIN_TOOL_FILL,       VKL_3);
+    addBind(imc, ACTION_SKIN_TOOL_EYEDROPPER, VKL_4);
+    addBind(imc, ACTION_SKIN_TOOL_LINE,       VKL_5);
+    addBind(imc, ACTION_SKIN_GRID_TOGGLE,     VKL_G);
+    addBind(imc, ACTION_SKIN_UV_TOGGLE,       VKL_U);
+    addBind(imc, ACTION_SKIN_UNDO,            VK_CHORD_CTRL_Z);
+    addBind(imc, ACTION_SKIN_REDO,            VK_CHORD_CTRL_Y);
+    addBind(imc, ACTION_SKIN_REDO,            VK_CHORD_CTRL_SHIFT_Z);
+    addBind(imc, ACTION_SKIN_SAVE,            VK_CHORD_CTRL_S);
 }
 
 static void setupPauseMenuDefaults(void)
@@ -2441,24 +2627,36 @@ static void setupPauseMenuDefaults(void)
      * ACTION_PAUSE is NOT bound to VK_ESCAPE here — Escape means "go back"
      * (ACTION_CANCEL_USE) in a pause menu, not a second pause-toggle. */
     InputMappingContext *imc = &g_ImcPauseMenu;
-    addBind(imc, ACTION_USE,          VK_RETURN);                 /* UI Select/Accept — kbd */
-    addBind(imc, ACTION_USE,          JOY_BTN(0, JBTN_A));        /* UI Select/Accept — gamepad */
-    addBind(imc, ACTION_CANCEL_USE,   VK_ESCAPE);                 /* Back/Cancel — kbd */
-    addBind(imc, ACTION_CANCEL_USE,   JOY_BTN(0, JBTN_B));        /* Back/Cancel — gamepad */
-    addBind(imc, ACTION_PAUSE,        JOY_BTN(0, JBTN_START));    /* Pause toggle — gamepad only */
-    addBind(imc, ACTION_MENU_UP,      VKL_UP);                    /* Nav up — kbd arrow */
-    addBind(imc, ACTION_MENU_UP,      JOY_BTN(0, JBTN_DPAD_UP));  /* Nav up — d-pad */
-    addBind(imc, ACTION_MENU_DOWN,    VKL_DOWN);                  /* Nav down — kbd arrow */
-    addBind(imc, ACTION_MENU_DOWN,    JOY_BTN(0, JBTN_DPAD_DOWN));/* Nav down — d-pad */
-    addBind(imc, ACTION_MENU_LEFT,    VKL_LEFT);                  /* Nav left — kbd arrow */
-    addBind(imc, ACTION_MENU_LEFT,    JOY_BTN(0, JBTN_DPAD_LEFT));/* Nav left — d-pad */
-    addBind(imc, ACTION_MENU_RIGHT,   VKL_RIGHT);                 /* Nav right — kbd arrow */
-    addBind(imc, ACTION_MENU_RIGHT,   JOY_BTN(0, JBTN_DPAD_RIGHT));/* Nav right — d-pad */
-    addBind(imc, ACTION_MENU_TAB_PREV,JOY_BTN(0, JBTN_LB));       /* Previous tab — LB */
-    addBind(imc, ACTION_MENU_TAB_NEXT,JOY_BTN(0, JBTN_RB));       /* Next tab — RB */
+    addBind(imc, ACTION_USE,          VK_RETURN);                 /* UI Select/Accept - kbd */
+    addBind(imc, ACTION_USE,          VK_SPACE);                  /* UI Select/Accept - kbd */
+    addBind(imc, ACTION_USE,          VKL_KP_ENTER);              /* UI Select/Accept - keypad */
+    addBind(imc, ACTION_USE,          JOY_BTN(0, JBTN_A));        /* UI Select/Accept - gamepad */
+    addBind(imc, ACTION_CANCEL_USE,   VK_ESCAPE);                 /* Back/Cancel - kbd */
+    addBind(imc, ACTION_CANCEL_USE,   JOY_BTN(0, JBTN_B));        /* Back/Cancel - gamepad */
+    addBind(imc, ACTION_PAUSE,        JOY_BTN(0, JBTN_START));    /* Pause toggle - gamepad only */
+    addBind(imc, ACTION_MENU_UP,      VKL_UP);                    /* Nav up - kbd arrow */
+    addBind(imc, ACTION_MENU_UP,      JOY_BTN(0, JBTN_DPAD_UP));  /* Nav up - d-pad */
+    addBind(imc, ACTION_MENU_DOWN,    VKL_DOWN);                  /* Nav down - kbd arrow */
+    addBind(imc, ACTION_MENU_DOWN,    JOY_BTN(0, JBTN_DPAD_DOWN));/* Nav down - d-pad */
+    addBind(imc, ACTION_MENU_LEFT,    VKL_LEFT);                  /* Nav left - kbd arrow */
+    addBind(imc, ACTION_MENU_LEFT,    JOY_BTN(0, JBTN_DPAD_LEFT));/* Nav left - d-pad */
+    addBind(imc, ACTION_MENU_RIGHT,   VKL_RIGHT);                 /* Nav right - kbd arrow */
+    addBind(imc, ACTION_MENU_RIGHT,   JOY_BTN(0, JBTN_DPAD_RIGHT));/* Nav right - d-pad */
+    addBind(imc, ACTION_MENU_TAB_PREV,VKL_PAGEUP);                /* Previous tab - kbd */
+    addBind(imc, ACTION_MENU_TAB_PREV,VKL_Q);                     /* Previous tab - kbd */
+    addBind(imc, ACTION_MENU_TAB_PREV,JOY_BTN(0, JBTN_LB));       /* Previous tab - LB */
+    addBind(imc, ACTION_MENU_TAB_NEXT,VKL_PAGEDOWN);              /* Next tab - kbd */
+    addBind(imc, ACTION_MENU_TAB_NEXT,VKL_E);                     /* Next tab - kbd */
+    addBind(imc, ACTION_MENU_TAB_NEXT,JOY_BTN(0, JBTN_RB));       /* Next tab - RB */
+    addBind(imc, ACTION_MENU_SECONDARY,VKL_C);                    /* Secondary command - kbd */
+    addBind(imc, ACTION_MENU_SECONDARY,JOY_BTN(0, JBTN_X));       /* Secondary command - X */
+    addBind(imc, ACTION_MENU_TERTIARY,VKL_D);                     /* Tertiary command - kbd */
+    addBind(imc, ACTION_MENU_TERTIARY,JOY_BTN(0, JBTN_Y));        /* Tertiary command - Y */
+    addBind(imc, ACTION_MENU_DELETE,VK_DELETE);                   /* Delete command - kbd */
     /* S483b (2026-04-27): Tab toggles the Online connectivity sidebar
      * while paused. See setupMenuDefaults for the design rationale. */
     addBind(imc, ACTION_SOCIAL_TOGGLE, 43);                       /* TAB scancode */
+    addBind(imc, ACTION_VOICE_PTT,     VKL_V);                    /* Voice push-to-talk */
 }
 
 static void setupDebugOverlayDefaults(void)
@@ -2467,9 +2665,12 @@ static void setupDebugOverlayDefaults(void)
     InputMappingContext *imc = &g_ImcDebugOverlay;
     addBind(imc, ACTION_DEBUG_TOGGLE,   (u32)VK_F9);
     addBind(imc, ACTION_USE,            VK_RETURN); /* accept in debug panels */
+    addBind(imc, ACTION_USE,            VK_SPACE);  /* accept in debug panels */
+    addBind(imc, ACTION_USE,            VKL_KP_ENTER);
     addBind(imc, ACTION_CANCEL_USE,     VK_ESCAPE); /* close/cancel */
     addBind(imc, ACTION_CONSOLE_TOGGLE, VK_GRAVE);
     addBind(imc, ACTION_SCREENSHOT,     VKL_F5);
+    addBind(imc, ACTION_VOICE_PTT,      VKL_V);
 }
 
 static void setupTextInputDefaults(void)
@@ -2533,6 +2734,8 @@ void actionmapSetDefaults(InputMappingContext *imc, s32 player)
         setupForgeSessionDefaults(player);
     } else if (imc == &g_ImcForge) {
         setupForgeDefaults(player);
+    } else if (imc == &g_ImcObserver) {
+        setupObserverDefaults(player);
     } else if (imc == &g_ImcMenu) {
         setupMenuDefaults();
     } else if (imc == &g_ImcPauseMenu) {
@@ -2572,6 +2775,7 @@ void actionmapInit(void)
     memset(&g_ImcVehicle,      0, sizeof(g_ImcVehicle));
     memset(&g_ImcForgeSession, 0, sizeof(g_ImcForgeSession));
     memset(&g_ImcForge,        0, sizeof(g_ImcForge));
+    memset(&g_ImcObserver,     0, sizeof(g_ImcObserver));
     memset(&g_ImcMenu,         0, sizeof(g_ImcMenu));
     memset(&g_ImcPauseMenu,    0, sizeof(g_ImcPauseMenu));
     memset(&g_ImcDebugOverlay, 0, sizeof(g_ImcDebugOverlay));
@@ -2585,6 +2789,7 @@ void actionmapInit(void)
     g_ImcVehicle.name      = "vehicle";       g_ImcVehicle.priority      = 5;
     g_ImcForgeSession.name = "forge_session"; g_ImcForgeSession.priority = 6;
     g_ImcForge.name        = "forge";         g_ImcForge.priority        = 7;
+    g_ImcObserver.name     = "observer";      g_ImcObserver.priority     = 8;
     g_ImcMenu.name         = "menu";          g_ImcMenu.priority         = 10;
     g_ImcPauseMenu.name    = "pause_menu";    g_ImcPauseMenu.priority    = 11;
     g_ImcDebugOverlay.name = "debug_overlay"; g_ImcDebugOverlay.priority = 20;
@@ -2598,6 +2803,7 @@ void actionmapInit(void)
     setupVehicleDefaults(0);
     setupForgeSessionDefaults(0);
     setupForgeDefaults(0);
+    setupObserverDefaults(0);
     setupMenuDefaults();
     setupPauseMenuDefaults();
     setupDebugOverlayDefaults();

@@ -38,6 +38,7 @@
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "menugraph.h"
 #include "room.h"
 
 /* ========================================================================
@@ -228,7 +229,6 @@ void netSendRoomPlaylistUpdate(void);
 
 /* Sub-screen dialog defs (U-2, U-3) */
 struct menudialogdef;
-void menuPushDialog(struct menudialogdef *dialogdef);
 extern struct menudialogdef g_MpHandicapsMenuDialog;
 extern struct menudialogdef g_MpSelectTunesMenuDialog;
 extern struct menudialogdef g_MpTeamsMenuDialog;
@@ -2014,18 +2014,18 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
             }
 
-            /* Controller: Y (GamepadFaceUp) toggles multi-select on the
-             * currently-focused row; X (GamepadFaceLeft) opens the context
+            /* Controller: tertiary toggles multi-select on the
+             * currently-focused row; secondary opens the context
              * menu for the current selection. Controller A (GamepadFaceDown)
              * activates the Selectable above via the standard ImGui nav path
              * and falls through to the same single-select branch. */
             if (ImGui::IsItemFocused()) {
-                if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceUp, false)) {
+                if (pdguiMenuTertiaryPressed()) {
                     botSelectToggle(r.slotIdx);
                     s_BotLastClickedSlot = r.slotIdx;
                     pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                 }
-                if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceLeft, false)) {
+                if (pdguiMenuSecondaryPressed()) {
                     if (!s_BotSelected[r.slotIdx]) botSelectSet(r.slotIdx);
                     s_BotLastClickedSlot = r.slotIdx;
                     ImGui::OpenPopup("##bot_ctx");
@@ -2815,7 +2815,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
             if (ImGui::Selectable(s_ScenarioNames[si], sel)) {
                 g_MatchConfig.scenario = (u8)si;
                 /* M0.1d: set scenario_id (PRIMARY) from catalog */
-                const char *sid = catalogIdByRuntime(ASSET_GAMEMODE, si);
+                const char *sid = catalogGameModeIdByScenarioIndex(si);
                 if (sid) {
                     strncpy(g_MatchConfig.scenario_id, sid,
                             sizeof(g_MatchConfig.scenario_id) - 1);
@@ -3105,14 +3105,16 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
          * reassignment grid has its own focus model per the methodology
          * rule 6 exception. */
         if (ImGui::Button("Team Setup...", ImVec2(subBtnW, subBtnH))) {
-            menuPushDialog(&g_MpTeamsMenuDialog);
+            menuGraphFirePushDialog(MENU_TYPE_ROOM, "team_setup",
+                                    &g_MpTeamsMenuDialog);
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
         if (!leader) ImGui::EndDisabled();
 
         /* Music selection — available to all players (personal playlist choice) */
         if (ImGui::Button("Select Music...", ImVec2(subBtnW, subBtnH))) {
-            menuPushDialog(&g_MpSelectTunesMenuDialog);
+            menuGraphFirePushDialog(MENU_TYPE_ROOM, "select_music",
+                                    &g_MpSelectTunesMenuDialog);
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
     }
@@ -3353,6 +3355,129 @@ static void renderCounterOpTab(float panelW, float panelH, bool leader)
     ImGui::EndChild();
 }
 
+static s32 roomGraphStartMatch(void *userdata)
+{
+    (void)userdata;
+
+    switch (s_ActiveTab) {
+        case 0: {
+            /* Combat Simulator */
+            if (s_NumArenas == 0) return -1;
+            /* Write stage_id (PRIMARY) into g_MatchConfig so matchStart()
+             * can resolve stagenum from the catalog. */
+            strncpy(g_MatchConfig.stage_id, s_Arenas[s_SelectedArena].id,
+                    sizeof(g_MatchConfig.stage_id) - 1);
+            g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+            sysLogPrintf(LOG_NOTE,
+                "ROOM: stage selected: \"%s\" id='%s' stagenum=0x%02x",
+                s_Arenas[s_SelectedArena].name,
+                s_Arenas[s_SelectedArena].id,
+                (int)s_Arenas[s_SelectedArena].stagenum);
+            if (s_IsSoloMode) {
+                /* Solo play: matchStart() resolves stage_id to stagenum.
+                 * Keep s_MatchConfigInited=true so returning via
+                 * pdguiSoloRoomReturn() preserves the full room setup
+                 * (bots, weapons, arena, settings). */
+                pdguiSoloRoomClose();
+                matchStart();
+                return 0;
+            } else {
+                int humanCount = s_IsSoloMode ? 1 : lobbyGetPlayerCount();
+                int maxBots = matchConfigMaxBotsForHumans(humanCount);
+                int numBots = countBots();
+                if (numBots > maxBots) {
+                    numBots = maxBots;
+                }
+                u8 simType  = getLeadSimType();
+                return netLobbyRequestStartWithSims(
+                    GAMEMODE_MP,
+                    s_Arenas[s_SelectedArena].id,
+                    0,
+                    0xFF,
+                    (u8)numBots,
+                    simType,
+                    g_MatchConfig.timelimit,
+                    g_MatchConfig.options,
+                    g_MatchConfig.scenario,
+                    g_MatchConfig.scorelimit,
+                    g_MatchConfig.teamscorelimit,
+                    (u8)(g_MatchConfig.weaponSetIndex >= 0 ? g_MatchConfig.weaponSetIndex : 0xFF));
+            }
+        }
+        case 1: {
+            /* Campaign: resolve mission stagenum to catalog ID at callsite. */
+            const char *coop_id = catalogStageIdByStagenum(
+                (s32)s_Missions[s_CampaignMission].stagenum);
+            if (!coop_id) {
+                sysLogPrintf(LOG_ERROR,
+                    "ROOM: no catalog entry for coop stagenum=0x%02x",
+                    (unsigned)s_Missions[s_CampaignMission].stagenum);
+                return -1;
+            }
+            return netLobbyRequestStart(GAMEMODE_COOP, coop_id, (u8)s_CampaignDiff);
+        }
+        case 2: {
+            /* Counter-Operative: same pattern. */
+            const char *anti_id = catalogStageIdByStagenum(
+                (s32)s_Missions[s_CounterOpMission].stagenum);
+            if (!anti_id) {
+                sysLogPrintf(LOG_ERROR,
+                    "ROOM: no catalog entry for anti stagenum=0x%02x",
+                    (unsigned)s_Missions[s_CounterOpMission].stagenum);
+                return -1;
+            }
+            if (s_CounterOpClientId == 0xFF) {
+                sysLogPrintf(LOG_ERROR, "ROOM: Counter-Op start rejected -- no anti player selected");
+                return -1;
+            }
+            return netLobbyRequestStartWithSims(
+                GAMEMODE_ANTI,
+                anti_id,
+                (u8)s_CounterOpDiff,
+                s_CounterOpClientId,
+                0,
+                0,
+                60,
+                0,
+                0,
+                0,
+                0,
+                0xFF);
+        }
+    }
+
+    return -1;
+}
+
+static s32 roomGraphLeaveRoom(void *userdata)
+{
+    (void)userdata;
+
+    s_MatchConfigInited = false;
+    s_CodeGenerated = false;
+
+    /* S300: release MENU_TYPE_ROOM. The pool pops ctx only if it owned the
+     * push in network mode. Solo mode pool was shared, so the main-menu-owned
+     * push survives until the main menu closes. */
+    menupoolRelease(MENU_TYPE_ROOM);
+
+    if (s_IsSoloMode) {
+        pdguiSoloRoomClose();
+        return 0;
+    }
+
+    if (g_NetMode == RM_NETMODE_CLIENT) {
+        netbufStartWrite(&g_NetMsgRel);
+        netmsgClcRoomLeaveWrite(&g_NetMsgRel);
+        netSend(NULL, &g_NetMsgRel, 1, 0);
+    } else if (g_NetMode == NETMODE_SERVER && !g_NetDedicated) {
+        netListenHostRoomLeave();
+    }
+
+    pdguiSetInRoom(0);
+    return 0;
+}
+
 /* ========================================================================
  * Public entry point
  * ======================================================================== */
@@ -3494,18 +3619,18 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     };
     static const int s_NumTabs = 4;
 
-    /* Tab switching: use action-driven PageUp/PageDown (LB/RB mapping comes
-     * from pdguiDriveImGuiNav) so controller/keyboard rebinds share one path.
+    /* Tab switching: ACTION_MENU_TAB_PREV/NEXT are bound to PageUp/PageDown
+     * and LB/RB, so controller/keyboard rebinds share one path.
      * Use a pending flag so SetSelected only fires for one frame. */
     static s32 s_BumperPendingTab = -1;
 
-    if (ImGui::IsKeyPressed(ImGuiKey_PageUp, false)) {
+    if (pdguiMenuTabPrevPressed()) {
         s_ActiveTab--;
         if (s_ActiveTab < 0) s_ActiveTab = s_NumTabs - 1;
         s_BumperPendingTab = s_ActiveTab;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
-    if (ImGui::IsKeyPressed(ImGuiKey_PageDown, false)) {
+    if (pdguiMenuTabNextPressed()) {
         s_ActiveTab++;
         if (s_ActiveTab >= s_NumTabs) s_ActiveTab = 0;
         s_BumperPendingTab = s_ActiveTab;
@@ -3603,95 +3728,8 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         }
         if (ImGui::Button("Start Match", ImVec2(startW, btnH))) {
             pdguiPlaySound(PDGUI_SND_SELECT);
-
-            switch (s_ActiveTab) {
-                case 0: {
-                    /* Combat Simulator */
-                    if (s_NumArenas == 0) break;
-                    /* Write stage_id (PRIMARY) into g_MatchConfig so matchStart()
-                     * can resolve stagenum from the catalog. */
-                    strncpy(g_MatchConfig.stage_id, s_Arenas[s_SelectedArena].id,
-                            sizeof(g_MatchConfig.stage_id) - 1);
-                    g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
-                    sysLogPrintf(LOG_NOTE,
-                        "ROOM: stage selected: \"%s\" id='%s' stagenum=0x%02x",
-                        s_Arenas[s_SelectedArena].name,
-                        s_Arenas[s_SelectedArena].id,
-                        (int)s_Arenas[s_SelectedArena].stagenum);
-                    if (s_IsSoloMode) {
-                        /* Solo play: matchStart() resolves stage_id → stagenum.
-                         * Keep s_MatchConfigInited=true so returning via
-                         * pdguiSoloRoomReturn() preserves the full room setup
-                         * (bots, weapons, arena, settings). */
-                        pdguiSoloRoomClose();
-                        matchStart();
-                    } else {
-                        int humanCount = s_IsSoloMode ? 1 : lobbyGetPlayerCount();
-                        int maxBots = matchConfigMaxBotsForHumans(humanCount);
-                        int numBots = countBots();
-                        if (numBots > maxBots) {
-                            numBots = maxBots;
-                        }
-                        u8 simType  = getLeadSimType();
-                        netLobbyRequestStartWithSims(
-                            GAMEMODE_MP,
-                            s_Arenas[s_SelectedArena].id,
-                            0,
-                            0xFF,
-                            (u8)numBots,
-                            simType,
-                            g_MatchConfig.timelimit,
-                            g_MatchConfig.options,
-                            g_MatchConfig.scenario,
-                            g_MatchConfig.scorelimit,
-                            g_MatchConfig.teamscorelimit,
-                            (u8)(g_MatchConfig.weaponSetIndex >= 0 ? g_MatchConfig.weaponSetIndex : 0xFF));
-                    }
-                    break;
-                }
-                case 1: {
-                    /* Campaign — resolve mission stagenum to catalog ID at callsite. */
-                    const char *coop_id = catalogIdByRuntime(
-                        ASSET_MAP, (s32)s_Missions[s_CampaignMission].stagenum);
-                    if (!coop_id) {
-                        sysLogPrintf(LOG_ERROR,
-                            "ROOM: no catalog entry for coop stagenum=0x%02x",
-                            (unsigned)s_Missions[s_CampaignMission].stagenum);
-                        break;
-                    }
-                    netLobbyRequestStart(GAMEMODE_COOP, coop_id, (u8)s_CampaignDiff);
-                    break;
-                }
-                case 2: {
-                    /* Counter-Operative — same pattern. */
-                    const char *anti_id = catalogIdByRuntime(
-                        ASSET_MAP, (s32)s_Missions[s_CounterOpMission].stagenum);
-                    if (!anti_id) {
-                        sysLogPrintf(LOG_ERROR,
-                            "ROOM: no catalog entry for anti stagenum=0x%02x",
-                            (unsigned)s_Missions[s_CounterOpMission].stagenum);
-                        break;
-                    }
-                    if (s_CounterOpClientId == 0xFF) {
-                        sysLogPrintf(LOG_ERROR, "ROOM: Counter-Op start rejected — no anti player selected");
-                        break;
-                    }
-                    netLobbyRequestStartWithSims(
-                        GAMEMODE_ANTI,
-                        anti_id,
-                        (u8)s_CounterOpDiff,
-                        s_CounterOpClientId,
-                        0,
-                        0,
-                        60,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0xFF);
-                    break;
-                }
-            }
+            menuGraphFireSceneOp(MENU_TYPE_ROOM, "start_match",
+                                 roomGraphStartMatch, NULL);
         }
 
         ImGui::SameLine();
@@ -3724,7 +3762,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
      * user must confirm. */
     if (ImGui::Button(leaveLabel, ImVec2(leaveW, btnH)) ||
         (!countdownBlocks && !hotswapBlocks &&
-         ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
+         pdguiMenuCancelPressed())) {
         if (!s_ShowLeaveConfirm) {
             s_ShowLeaveConfirm = true;
             pdguiPlaySound(PDGUI_SND_SUBFOCUS);
@@ -4277,12 +4315,10 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 ImGui::PopStyleColor(3);
 
                 if (!inputDebounced) {
-                    if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
-                        ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
-                        ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+                    if (pdguiMenuAcceptPressed()) {
                         doConfirm = true;
                     }
-                    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+                    if (pdguiMenuCancelPressed()) {
                         doCancel = true;
                     }
                 }
@@ -4386,12 +4422,10 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             ImGui::PopStyleColor(3);
 
             if (!inputDebounced) {
-                if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
-                    ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false) ||
-                    ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+                if (pdguiMenuAcceptPressed()) {
                     doConfirm = true;
                 }
-                if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+                if (pdguiMenuCancelPressed()) {
                     doCancel = true;
                 }
             }
@@ -4400,30 +4434,11 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room CLOSE confirmed via %s (solo=%d)",
                              leaveLabel, s_IsSoloMode);
                 pdguiPlaySound(PDGUI_SND_KBCANCEL);
-                s_MatchConfigInited = false;  /* reset on next enter */
-                s_CodeGenerated     = false;
                 s_ShowLeaveConfirm  = false;
                 s_LeaveConfirmOpenFrame = -1;
                 ImGui::CloseCurrentPopup();
-                /* S300: release MENU_TYPE_ROOM — pool pops ctx only if it
-                 * owned the push (network mode). Solo mode pool was in
-                 * shared mode, so the main-menu-owned push survives until
-                 * the main menu closes. */
-                menupoolRelease(MENU_TYPE_ROOM);
-                if (s_IsSoloMode) {
-                    pdguiSoloRoomClose();  /* return to main menu */
-                    } else {
-                        /* R-3: Tell server we're leaving the room */
-                        if (g_NetMode == RM_NETMODE_CLIENT) {
-                            netbufStartWrite(&g_NetMsgRel);
-                            netmsgClcRoomLeaveWrite(&g_NetMsgRel);
-                            netSend(NULL, &g_NetMsgRel, 1, 0);
-                        } else if (g_NetMode == NETMODE_SERVER && !g_NetDedicated) {
-                            /* Listen host has no ENet peer to self — local server path. */
-                            netListenHostRoomLeave();
-                        }
-                        pdguiSetInRoom(0);  /* return to social lobby, stay connected */
-                    }
+                menuGraphFireNetworkOp(MENU_TYPE_ROOM, "leave_room",
+                                       roomGraphLeaveRoom, NULL);
             } else if (doCancel) {
                 pdguiPlaySound(PDGUI_SND_KBCANCEL);
                 s_ShowLeaveConfirm = false;

@@ -116,9 +116,9 @@ ENDIF(NOT SDL2_BUILDING_LIBRARY)
 # The Apple build may not need an explicit flag because one of the
 # frameworks may already provide it.
 # But for non-OSX systems, I will use the CMake Threads package.
-IF(NOT APPLE)
+IF(NOT APPLE AND NOT WIN32)
   FIND_PACKAGE(Threads)
-ENDIF(NOT APPLE)
+ENDIF(NOT APPLE AND NOT WIN32)
 
 # MinGW needs an additional library, mwindows
 # It's total link flags should look like -lmingw32 -lSDL2main -lSDL2 -lmwindows
@@ -149,9 +149,9 @@ IF(SDL2_LIBRARY_TEMP)
   # For threads, as mentioned Apple doesn't need this.
   # In fact, there seems to be a problem if I used the Threads package
   # and try using this line, so I'm just skipping it entirely for OS X.
-  IF(NOT APPLE)
+  IF(NOT APPLE AND NOT WIN32)
     SET(SDL2_LIBRARY_TEMP ${SDL2_LIBRARY_TEMP} ${CMAKE_THREAD_LIBS_INIT})
-  ENDIF(NOT APPLE)
+  ENDIF(NOT APPLE AND NOT WIN32)
 
   # For MinGW library
   IF(MINGW)

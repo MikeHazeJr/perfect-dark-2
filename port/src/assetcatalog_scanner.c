@@ -404,6 +404,9 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		}
 		strncpy(e->ext.weapon.name, iniGet(ini, "name", ""), sizeof(e->ext.weapon.name) - 1);
 		strncpy(e->ext.weapon.model_file, iniGet(ini, "model_file", ""), sizeof(e->ext.weapon.model_file) - 1);
+		if (e->ext.weapon.model_file[0]) {
+			catalogSetPrimary(e, fileProviderHandle(e->ext.weapon.model_file));
+		}
 		e->ext.weapon.damage = iniGetFloat(ini, "damage", 0.0f);
 		e->ext.weapon.fire_rate = iniGetFloat(ini, "fire_rate", 0.0f);
 		e->ext.weapon.ammo_type = iniGetInt(ini, "ammo_type", 0);
@@ -414,6 +417,9 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		e->ext.prop.prop_type = iniGetInt(ini, "prop_type", 0);
 		strncpy(e->ext.prop.name, iniGet(ini, "name", ""), sizeof(e->ext.prop.name) - 1);
 		strncpy(e->ext.prop.model_file, iniGet(ini, "model_file", ""), sizeof(e->ext.prop.model_file) - 1);
+		if (e->ext.prop.model_file[0]) {
+			catalogSetPrimary(e, fileProviderHandle(e->ext.prop.model_file));
+		}
 		e->ext.prop.flags = (u32)iniGetInt(ini, "flags", 0);
 		e->ext.prop.health = iniGetFloat(ini, "health", 100.0f);
 		break;
@@ -431,6 +437,9 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		e->ext.texture.height = iniGetInt(ini, "height", 0);
 		e->ext.texture.format = iniGetInt(ini, "format", 0);
 		strncpy(e->ext.texture.file_path, iniGet(ini, "file_path", ""), sizeof(e->ext.texture.file_path) - 1);
+		if (e->ext.texture.file_path[0]) {
+			catalogSetPrimary(e, fileProviderHandle(e->ext.texture.file_path));
+		}
 		break;
 
 	case ASSET_GAMEMODE:
@@ -449,6 +458,9 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			iniGet(ini, "category", ""), AUDIO_CAT_SFX);
 		e->ext.audio.duration_ms = iniGetInt(ini, "duration_ms", 0);
 		strncpy(e->ext.audio.file_path, iniGet(ini, "file_path", ""), sizeof(e->ext.audio.file_path) - 1);
+		if (e->ext.audio.file_path[0]) {
+			catalogSetPrimary(e, fileProviderHandle(e->ext.audio.file_path));
+		}
 		break;
 
 	case ASSET_HUD:
@@ -456,6 +468,9 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		strncpy(e->ext.hud.name, iniGet(ini, "name", ""), sizeof(e->ext.hud.name) - 1);
 		e->ext.hud.element_type = iniGetInt(ini, "element_type", HUD_ELEM_CROSSHAIR);
 		strncpy(e->ext.hud.texture_file, iniGet(ini, "texture_file", ""), sizeof(e->ext.hud.texture_file) - 1);
+		if (e->ext.hud.texture_file[0]) {
+			catalogSetPrimary(e, fileProviderHandle(e->ext.hud.texture_file));
+		}
 		break;
 
 	case ASSET_LANG:

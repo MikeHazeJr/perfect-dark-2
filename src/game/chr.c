@@ -1148,6 +1148,7 @@ void chrInit(struct prop *prop, u8 *ailist)
 	 * Any cached (chr*, generation) pair becomes stale the next time
 	 * the same slot is reused. */
 	chr->generation = ++s_ChrGenerationCounter;
+	chr->cutscene_protect = false;
 
 	chr->headnum = 0;
 	chr->bodynum = 0;
@@ -2462,7 +2463,7 @@ s32 chrTick(struct prop *prop)
 		}
 #endif
 
-		if (g_Vars.in_cutscene) {
+		if (playerAnyCutsceneInProgress()) {
 			chr->drugheadcount = 0;
 			chr->drugheadsway = 0;
 		} else if (chr->blurdrugamount > TICKS(1000) && chr->actiontype != ACT_DRUGGEDKO) {

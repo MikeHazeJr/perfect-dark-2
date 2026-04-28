@@ -43,6 +43,7 @@
 #include "net/netmanifest.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
+#include "assetprovider.h"
 #include "pdgui_theme_loader.h"
 #include "system.h"
 #include "fs.h"
@@ -103,6 +104,7 @@ typedef struct distrib_recv_slot {
     u8  *compressed_buf;      /* accumulates compressed chunks */
     u32  compressed_cap;
     u32  compressed_len;
+    u8   expected_sha256[SHA256_DIGEST_SIZE];  /* v46: digest of compressed archive */
     s32  temporary;
     /* Trust threshold approval (set when archive_bytes > s_TrustThresholdMb*1MB) */
     s32  needs_approval;
@@ -383,10 +385,16 @@ static void streamComponentToClient(struct netclient *cl, const char *catalog_id
     sysLogPrintf(LOG_NOTE, "DISTRIB: '%s' compressed %lu→%lu bytes, %u chunks",
                  entry->id, (unsigned long)raw_len, (unsigned long)compressed_len, total_chunks);
 
+    /* v46 / SEC-5: digest the exact compressed archive bytes that cross the
+     * wire. The client rejects BEGIN packets with a zero digest and verifies
+     * this before decompression/extraction at END. */
+    u8 compressed_sha256[SHA256_DIGEST_SIZE];
+    sha256Hash(compressed, (size_t)compressed_len, compressed_sha256);
+
     /* SVC_DISTRIB_BEGIN */
     netbufStartWrite(&g_NetMsgRel);
     netmsgSvcDistribBeginWrite(&g_NetMsgRel, entry->id, entry->category,
-                               total_chunks, raw_len);
+                               total_chunks, raw_len, compressed_sha256);
     netSend(cl, &g_NetMsgRel, 1, NETCHAN_CONTROL);
 
     /* SVC_DISTRIB_CHUNK × total_chunks on NETCHAN_TRANSFER.
@@ -747,15 +755,37 @@ void netDistribClientHandleCatalogInfo(const char (*ids)[64],
 
 void netDistribClientHandleBegin(const char *catalog_id, const char *category,
                                   u32 total_chunks, u32 archive_bytes,
+                                  const u8 expected_sha256[SHA256_DIGEST_SIZE],
                                   s32 temporary)
 {
     if (!s_Initialized) return;
 
-    /* M-4: Validate archive_bytes before storing — reject oversized transfers. */
-    if (archive_bytes == 0 || archive_bytes > MAX_DISTRIB_ARCHIVE_BYTES) {
-        sysLogPrintf(LOG_WARNING, "DISTRIB: rejecting BEGIN '%s' — invalid archive_bytes=%u (max=%u)",
-                     catalog_id, archive_bytes, MAX_DISTRIB_ARCHIVE_BYTES);
+    if (!catalog_id || !catalog_id[0] || !category) {
+        sysLogPrintf(LOG_WARNING,
+                     "DISTRIB: rejecting BEGIN -- missing catalog/category identity");
         return;
+    }
+
+    /* M-4: Validate archive_bytes before storing — reject oversized transfers. */
+    if (archive_bytes == 0 || archive_bytes > MAX_DISTRIB_ARCHIVE_BYTES
+            || total_chunks == 0 || total_chunks > 65535u) {
+        sysLogPrintf(LOG_WARNING,
+                     "DISTRIB: rejecting BEGIN '%s' — invalid archive_bytes=%u "
+                     "(max=%u) total_chunks=%u",
+                     catalog_id, archive_bytes, MAX_DISTRIB_ARCHIVE_BYTES,
+                     total_chunks);
+        return;
+    }
+
+    {
+        static const u8 s_zero32[SHA256_DIGEST_SIZE] = {0};
+        if (!expected_sha256
+                || memcmp(expected_sha256, s_zero32, SHA256_DIGEST_SIZE) == 0) {
+            sysLogPrintf(LOG_ERROR,
+                         "DISTRIB: rejecting BEGIN '%s' — missing SHA-256 digest",
+                         catalog_id);
+            return;
+        }
     }
 
     /* SEC-25: enforce the aggregate per-session cap across all components.
@@ -808,6 +838,7 @@ void netDistribClientHandleBegin(const char *catalog_id, const char *category,
     slot->compressed_buf = buf;
     slot->compressed_cap = initial_cap;
     slot->compressed_len = 0;
+    memcpy(slot->expected_sha256, expected_sha256, sizeof(slot->expected_sha256));
     strncpy(slot->id, catalog_id, sizeof(slot->id) - 1);
     strncpy(slot->category, category, sizeof(slot->category) - 1);
 
@@ -902,18 +933,53 @@ static asset_type_e iniFilenameToAssetType(const char *ini_name)
     if (strcmp(ini_name, "map.ini") == 0)       return ASSET_MAP;
     if (strcmp(ini_name, "character.ini") == 0) return ASSET_CHARACTER;
     if (strcmp(ini_name, "bot.ini") == 0)       return ASSET_BOT_VARIANT;
+    if (strcmp(ini_name, "prop.ini") == 0)      return ASSET_PROP;
     if (strcmp(ini_name, "textures.ini") == 0)  return ASSET_TEXTURES;
+    if (strcmp(ini_name, "texture.ini") == 0)   return ASSET_TEXTURE;
     if (strcmp(ini_name, "skin.ini") == 0)      return ASSET_SKIN;
     if (strcmp(ini_name, "weapon.ini") == 0)    return ASSET_WEAPON;
+    if (strcmp(ini_name, "audio.ini") == 0)     return ASSET_AUDIO;
+    if (strcmp(ini_name, "hud.ini") == 0)       return ASSET_HUD;
     if (strcmp(ini_name, "sfx.ini") == 0)       return ASSET_SFX;
     if (strcmp(ini_name, "music.ini") == 0)     return ASSET_MUSIC;
     return ASSET_NONE;
 }
 
+static asset_data_handle_t distribFileProviderHandle(const char *dirpath, const char *relpath)
+{
+    char fullpath[FS_MAXPATH];
+
+    if (!relpath || !relpath[0]) {
+        return (asset_data_handle_t){0};
+    }
+
+    if (relpath[0] == '/'
+            || relpath[0] == '\\'
+            || (relpath[0] && relpath[1] == ':')) {
+        return fileProviderHandle(relpath);
+    }
+
+    if (!dirpath || !dirpath[0]) {
+        return fileProviderHandle(relpath);
+    }
+
+    snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, relpath);
+    return fileProviderHandle(fullpath);
+}
+
+static void distribSetPrimaryFromFile(asset_entry_t *e, const char *dirpath, const char *relpath)
+{
+    asset_data_handle_t handle = distribFileProviderHandle(dirpath, relpath);
+
+    if (!assetHandleIsNull(handle)) {
+        catalogSetPrimary(e, handle);
+    }
+}
+
 /* Populate the asset_entry_t ext union from the parsed INI, mirroring the
  * field-for-field behavior of assetcatalog_scanner.c's registerComponent().
  * Keeps registration parity between local-scan and wire-delivery paths. */
-static void populateExtFromIni(asset_entry_t *e, asset_type_e type,
+static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *dirpath,
                                 const ini_section_t *ini)
 {
     switch (type) {
@@ -930,6 +996,9 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type,
     case ASSET_CHARACTER:
         strncpy(e->ext.character.bodyfile, iniGet(ini, "bodyfile", ""), FS_MAXPATH - 1);
         strncpy(e->ext.character.headfile, iniGet(ini, "headfile", ""), FS_MAXPATH - 1);
+        if (e->ext.character.bodyfile[0]) {
+            distribSetPrimaryFromFile(e, dirpath, e->ext.character.bodyfile);
+        }
         break;
     case ASSET_SKIN:
         strncpy(e->ext.skin.target_id, iniGet(ini, "target", ""), CATALOG_ID_LEN - 1);
@@ -949,10 +1018,55 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type,
         }
         strncpy(e->ext.weapon.name, iniGet(ini, "name", ""), sizeof(e->ext.weapon.name) - 1);
         strncpy(e->ext.weapon.model_file, iniGet(ini, "model_file", ""), sizeof(e->ext.weapon.model_file) - 1);
+        if (e->ext.weapon.model_file[0]) {
+            distribSetPrimaryFromFile(e, dirpath, e->ext.weapon.model_file);
+        }
         e->ext.weapon.damage         = iniGetFloat(ini, "damage", 0.0f);
         e->ext.weapon.fire_rate      = iniGetFloat(ini, "fire_rate", 0.0f);
         e->ext.weapon.ammo_type      = iniGetInt(ini, "ammo_type", 0);
         e->ext.weapon.dual_wieldable = iniGetInt(ini, "dual_wieldable", 0);
+        break;
+    case ASSET_PROP:
+        e->ext.prop.prop_type = iniGetInt(ini, "prop_type", 0);
+        strncpy(e->ext.prop.name, iniGet(ini, "name", ""), sizeof(e->ext.prop.name) - 1);
+        strncpy(e->ext.prop.model_file, iniGet(ini, "model_file", ""), sizeof(e->ext.prop.model_file) - 1);
+        if (e->ext.prop.model_file[0]) {
+            distribSetPrimaryFromFile(e, dirpath, e->ext.prop.model_file);
+        }
+        e->ext.prop.flags = (u32)iniGetInt(ini, "flags", 0);
+        e->ext.prop.health = iniGetFloat(ini, "health", 100.0f);
+        break;
+    case ASSET_TEXTURE:
+        e->ext.texture.texture_id = iniGetInt(ini, "texture_id", -1);
+        e->ext.texture.width = iniGetInt(ini, "width", 0);
+        e->ext.texture.height = iniGetInt(ini, "height", 0);
+        e->ext.texture.format = iniGetInt(ini, "format", 0);
+        strncpy(e->ext.texture.file_path, iniGet(ini, "file_path", ""),
+                sizeof(e->ext.texture.file_path) - 1);
+        if (e->ext.texture.file_path[0]) {
+            distribSetPrimaryFromFile(e, dirpath, e->ext.texture.file_path);
+        }
+        break;
+    case ASSET_AUDIO:
+        e->ext.audio.sound_id = iniGetInt(ini, "sound_id", -1);
+        strncpy(e->ext.audio.name, iniGet(ini, "name", ""), sizeof(e->ext.audio.name) - 1);
+        e->ext.audio.category = iniGetInt(ini, "category", AUDIO_CAT_SFX);
+        e->ext.audio.duration_ms = iniGetInt(ini, "duration_ms", 0);
+        strncpy(e->ext.audio.file_path, iniGet(ini, "file_path", ""),
+                sizeof(e->ext.audio.file_path) - 1);
+        if (e->ext.audio.file_path[0]) {
+            distribSetPrimaryFromFile(e, dirpath, e->ext.audio.file_path);
+        }
+        break;
+    case ASSET_HUD:
+        e->ext.hud.hud_id = iniGetInt(ini, "hud_id", -1);
+        strncpy(e->ext.hud.name, iniGet(ini, "name", ""), sizeof(e->ext.hud.name) - 1);
+        e->ext.hud.element_type = iniGetInt(ini, "element_type", HUD_ELEM_CROSSHAIR);
+        strncpy(e->ext.hud.texture_file, iniGet(ini, "texture_file", ""),
+                sizeof(e->ext.hud.texture_file) - 1);
+        if (e->ext.hud.texture_file[0]) {
+            distribSetPrimaryFromFile(e, dirpath, e->ext.hud.texture_file);
+        }
         break;
     default:
         /* ASSET_TEXTURES, ASSET_SFX, ASSET_MUSIC: no extra ext fields. */
@@ -994,6 +1108,22 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         goto done;
     }
 
+    /* SEC-5 / v46: mandatory archive integrity before decompression. */
+    {
+        u8 actual[SHA256_DIGEST_SIZE];
+        sha256Hash(slot->compressed_buf, slot->compressed_len, actual);
+        if (memcmp(actual, slot->expected_sha256, sizeof(actual)) != 0) {
+            char expect_hex[SHA256_HEX_SIZE], actual_hex[SHA256_HEX_SIZE];
+            sha256ToHex(slot->expected_sha256, expect_hex);
+            sha256ToHex(actual, actual_hex);
+            sysLogPrintf(LOG_ERROR,
+                         "DISTRIB: SHA-256 mismatch for '%s': expected %s, got %s",
+                         slot->id, expect_hex, actual_hex);
+            goto done;
+        }
+        sysLogPrintf(LOG_NOTE, "DISTRIB: SHA-256 verified for '%s'", slot->id);
+    }
+
     /* Decompress */
     if (slot->archive_bytes == 0) {
         sysLogPrintf(LOG_ERROR, "DISTRIB: archive_bytes is zero — rejecting '%s'", slot->id);
@@ -1021,44 +1151,6 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         goto done;
     }
 
-    /* C-2 / SEC-5 / MASTER-H2: SHA-256 verification — mandatory for COMPONENT
-     * (mod) entries. Find the matching manifest entry; if it is COMPONENT-typed
-     * the manifest must carry a non-zero hash and the archive must match it.
-     * Without this enforcement a hostile server can push arbitrary PDCA archives
-     * by simply omitting the hash from the manifest entry. */
-    {
-        static const u8 s_zero32[32] = {0};
-        const match_manifest_entry_t *match_entry = NULL;
-        for (u16 mi = 0; mi < g_ClientManifest.num_entries; mi++) {
-            const match_manifest_entry_t *me = &g_ClientManifest.entries[mi];
-            if (me->id[0] && strncmp(me->id, slot->id, sizeof(me->id)) == 0) {
-                match_entry = me;
-                break;
-            }
-        }
-        if (match_entry && match_entry->type == MANIFEST_TYPE_COMPONENT) {
-            if (memcmp(match_entry->sha256, s_zero32, sizeof(match_entry->sha256)) == 0) {
-                sysLogPrintf(LOG_ERROR,
-                             "DISTRIB: '%s' has zero SHA-256 in manifest — refusing install (no integrity)",
-                             slot->id);
-                free(raw);
-                goto done;
-            }
-            u8 actual[SHA256_DIGEST_SIZE];
-            sha256Hash(slot->compressed_buf, slot->compressed_len, actual);
-            if (memcmp(actual, match_entry->sha256, SHA256_DIGEST_SIZE) != 0) {
-                char expect_hex[SHA256_HEX_SIZE], actual_hex[SHA256_HEX_SIZE];
-                sha256ToHex(match_entry->sha256, expect_hex);
-                sha256ToHex(actual, actual_hex);
-                sysLogPrintf(LOG_ERROR, "DISTRIB: SHA-256 mismatch for '%s': expected %s, got %s",
-                             slot->id, expect_hex, actual_hex);
-                free(raw);
-                goto done;
-            }
-            sysLogPrintf(LOG_NOTE, "DISTRIB: SHA-256 verified for '%s'", slot->id);
-        }
-    }
-
     /* Build destination directory */
     const char *modsdir = fsGetModDir();
     char destdir[FS_MAXPATH];
@@ -1076,8 +1168,9 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
     if (extractArchive(raw, (u32)raw_len, destdir)) {
         /* Hot-register in catalog */
         char inipath[FS_MAXPATH];
-        const char *ini_names[] = { "map.ini", "character.ini", "bot.ini", "textures.ini",
-                                    "skin.ini", "weapon.ini", "audio.ini",
+        const char *ini_names[] = { "map.ini", "character.ini", "bot.ini", "prop.ini",
+                                    "textures.ini", "texture.ini", "skin.ini",
+                                    "weapon.ini", "audio.ini", "hud.ini",
                                     "sfx.ini", "music.ini", NULL };
         ini_section_t ini;
         s32 registered = 0;
@@ -1094,7 +1187,7 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                     char fullfile[FS_MAXPATH];
                     snprintf(fullfile, sizeof(fullfile), "%s/%s", destdir, fpath);
                     asset_entry_t *e = assetCatalogRegisterAudio(
-                        slot->id, 0, aname, cat, dur, fullfile);
+                        slot->id, 0, aname, cat, dur, fpath[0] ? fullfile : "");
                     if (e) {
                         strncpy(e->dirpath, destdir, sizeof(e->dirpath) - 1);
                         e->enabled = 1;
@@ -1124,7 +1217,7 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                         e->temporary = slot->temporary;
                         e->bundled = 0;
                         e->model_scale = iniGetFloat(&ini, "model_scale", 1.0f);
-                        populateExtFromIni(e, type, &ini);
+                        populateExtFromIni(e, type, destdir, &ini);
                         sysLogPrintf(LOG_NOTE, "DISTRIB: hot-registered '%s' (type=%d) from %s",
                                      slot->id, (int)type, destdir);
                         registered = 1;

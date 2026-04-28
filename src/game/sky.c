@@ -3036,7 +3036,7 @@ Gfx *skyRenderOverexposure(Gfx *gdl)
 		? g_Vars.currentplayer->overexposuregreen
 		: g_Vars.currentplayer->overexposureblue;
 
-	if (!g_InCutscene && EYESPYINACTIVE() && value > 0) {
+	if (!playerCurrentInCutscene() && EYESPYINACTIVE() && value > 0) {
 		f32 r = g_Vars.currentplayer->overexposurered * (255.0f / value);
 		f32 g = g_Vars.currentplayer->overexposuregreen * (255.0f / value);
 		f32 b = g_Vars.currentplayer->overexposureblue * (255.0f / value);

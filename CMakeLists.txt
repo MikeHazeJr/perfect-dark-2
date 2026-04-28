@@ -126,7 +126,7 @@ endif()
 # GitHub release prerelease flag, not by the version number itself.
 set(VERSION_SEM_MAJOR 0 CACHE STRING "Semantic version major")
 set(VERSION_SEM_MINOR 0 CACHE STRING "Semantic version minor")
-set(VERSION_SEM_PATCH 173 CACHE STRING "Semantic version revision")
+set(VERSION_SEM_PATCH 174 CACHE STRING "Semantic version revision")
 
 set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}")
 
@@ -327,6 +327,39 @@ endif()
 # available; voice.c falls back to the scaffold (PTT no-op) when not.
 # MSYS2: pacman -S mingw-w64-x86_64-opus
 # Decision logged in context/audits/connectivity-libopus-decision-2026-04-25.md
+function(pd_include_system_dirs)
+  set(_skip_dirs ${CMAKE_C_IMPLICIT_INCLUDE_DIRECTORIES} ${CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES})
+  if(WIN32 AND CMAKE_C_COMPILER)
+    get_filename_component(_compiler_bin "${CMAKE_C_COMPILER}" DIRECTORY)
+    get_filename_component(_compiler_prefix "${_compiler_bin}/.." ABSOLUTE)
+    list(APPEND _skip_dirs "${_compiler_prefix}/include")
+  endif()
+
+  foreach(_dir IN LISTS ARGN)
+    if(NOT _dir)
+      continue()
+    endif()
+
+    get_filename_component(_abs_dir "${_dir}" ABSOLUTE)
+    set(_is_implicit FALSE)
+
+    foreach(_skip IN LISTS _skip_dirs)
+      if(NOT _skip)
+        continue()
+      endif()
+      get_filename_component(_abs_skip "${_skip}" ABSOLUTE)
+      if(_abs_dir STREQUAL _abs_skip)
+        set(_is_implicit TRUE)
+        break()
+      endif()
+    endforeach()
+
+    if(NOT _is_implicit)
+      include_directories(SYSTEM "${_dir}")
+    endif()
+  endforeach()
+endfunction()
+
 find_package(PkgConfig QUIET)
 set(HAVE_OPUS 0)
 if(PkgConfig_FOUND)
@@ -334,7 +367,7 @@ if(PkgConfig_FOUND)
   if(OPUS_FOUND)
     set(HAVE_OPUS 1)
     add_definitions(-DHAVE_OPUS=1)
-    include_directories(SYSTEM ${OPUS_INCLUDE_DIRS})
+    pd_include_system_dirs(${OPUS_INCLUDE_DIRS})
     if(WIN32 AND EXISTS "${_msys_lib}/libopus.a")
       message(STATUS "OPUS: Static linking via ${_msys_lib}/libopus.a")
       list(APPEND LIBS "${_msys_lib}/libopus.a")
@@ -353,7 +386,7 @@ endif()
 # MSYS2: pacman -S mingw-w64-x86_64-zlib
 find_package(ZLIB REQUIRED)
 if(ZLIB_INCLUDE_DIR)
-  include_directories(SYSTEM "${ZLIB_INCLUDE_DIR}")
+  pd_include_system_dirs("${ZLIB_INCLUDE_DIR}")
 endif()
 if(WIN32)
   if(EXISTS "${_msys_lib}/libz.a")
@@ -401,9 +434,9 @@ if(WIN32)
   else()
     find_package(CURL REQUIRED)
     if(CURL_INCLUDE_DIRS)
-      include_directories(SYSTEM "${CURL_INCLUDE_DIRS}")
+      pd_include_system_dirs("${CURL_INCLUDE_DIRS}")
     elseif(CURL_INCLUDE_DIR)
-      include_directories(SYSTEM "${CURL_INCLUDE_DIR}")
+      pd_include_system_dirs("${CURL_INCLUDE_DIR}")
     endif()
     if(CURL_LIBRARIES)
       list(APPEND LIBS "${CURL_LIBRARIES}")
@@ -414,9 +447,9 @@ if(WIN32)
 else()
   find_package(CURL REQUIRED)
   if(CURL_INCLUDE_DIRS)
-    include_directories(SYSTEM "${CURL_INCLUDE_DIRS}")
+    pd_include_system_dirs("${CURL_INCLUDE_DIRS}")
   elseif(CURL_INCLUDE_DIR)
-    include_directories(SYSTEM "${CURL_INCLUDE_DIR}")
+    pd_include_system_dirs("${CURL_INCLUDE_DIR}")
   endif()
   if(CURL_LIBRARIES)
     list(APPEND LIBS "${CURL_LIBRARIES}")
@@ -849,6 +882,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_input_authority.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_menu_stack.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_menu_reachability.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_menu_graph.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_right_stick_scroll.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_social_toggle_imc.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_spawn_weapon_resolved.cpp
@@ -873,6 +907,7 @@ set(SRC_TESTS
   # Cohort 4 (input universality and transitions, 2026-04-27): cutscene
   # flash fix invariants (K.2 + K.6). Mission 1 obj 2 bug repro.
   ${CMAKE_SOURCE_DIR}/tests/test_cutscene_layer.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_vehicle_observer_layer.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_provider_static.cpp
 
   # Linker stubs for symbols the cherry-picked sources reference but the

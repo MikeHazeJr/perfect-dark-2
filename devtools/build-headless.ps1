@@ -109,20 +109,61 @@ if (Test-Path $PreferredCMake) {
 }
 $CC         = "C:/msys64/mingw64/bin/cc.exe"
 $CXX        = "C:/msys64/mingw64/bin/c++.exe"
-$PythonExe  = "C:/msys64/usr/bin/python3.exe"
+$PreferredPython = "C:/Python312/python.exe"
+if (Test-Path -LiteralPath $PreferredPython) {
+    # Codex desktop's sandbox can block MSYS Python before generated-header tools run.
+    $PythonExe = $PreferredPython
+} else {
+    $PythonExe = "C:/msys64/usr/bin/python3.exe"
+}
 $NinjaExe   = "C:\msys64\mingw64\bin\ninja.exe"
 $Generator  = "Ninja"
 
-# ccache: injected via cmake launcher flags
+# ccache: injected via cmake launcher flags when the local toolchain can launch
+# through it. Some desktop sandboxes allow ccache itself but hang when it spawns
+# the compiler, so probe that path before wiring it into CMake.
 # Install: pacman -S --noconfirm mingw-w64-x86_64-ccache
 # NOTE: mold was installed (mold 2.40.4) but -fuse-ld=mold fails on MinGW because
 # GCC looks for ld.mold.exe which doesn't exist (only mold.exe). Rolled back to GNU ld.
-$CcacheLauncher = "-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+$CcacheExe = "C:\msys64\mingw64\bin\ccache.exe"
+$CcacheLauncher = ""
 
 # Build environment -- self-configures TEMP/TMP, PATH (MinGW64), MSYSTEM, ccache.
 # Prelude is idempotent: safe to run multiple times or in nested script invocations.
 . (Join-Path $ScriptDir "_build-env-prelude.ps1")
 . (Join-Path $ScriptDir "version-util.ps1")
+
+if (Test-Path -LiteralPath $CcacheExe) {
+    $probeOut = Join-Path $env:TEMP ("pd-ccache-probe-{0}.out" -f $PID)
+    $probeErr = Join-Path $env:TEMP ("pd-ccache-probe-{0}.err" -f $PID)
+    Remove-Item -LiteralPath $probeOut, $probeErr -Force -ErrorAction SilentlyContinue
+
+    $probe = Start-Process -FilePath $CcacheExe `
+                           -ArgumentList @($CC, "--version") `
+                           -RedirectStandardOutput $probeOut `
+                           -RedirectStandardError $probeErr `
+                           -WindowStyle Hidden `
+                           -PassThru
+
+    if ($probe.WaitForExit(5000) -and $probe.ExitCode -eq 0) {
+        $CcacheLauncher = "-DCMAKE_C_COMPILER_LAUNCHER=`"$CcacheExe`" -DCMAKE_CXX_COMPILER_LAUNCHER=`"$CcacheExe`""
+    } else {
+        if (-not $probe.HasExited) {
+            Stop-Process -Id $probe.Id -Force -ErrorAction SilentlyContinue
+        }
+        Write-Warning "ccache compiler probe failed or timed out; building without ccache launcher."
+    }
+
+    Remove-Item -LiteralPath $probeOut, $probeErr -Force -ErrorAction SilentlyContinue
+}
+
+$GitForWindows = "C:\Program Files\Git\cmd\git.exe"
+if (Test-Path -LiteralPath $GitForWindows) {
+    Set-Alias -Name git -Value $GitForWindows -Scope Script
+}
+$env:GIT_CONFIG_COUNT = "1"
+$env:GIT_CONFIG_KEY_0 = "safe.directory"
+$env:GIT_CONFIG_VALUE_0 = ([System.IO.Path]::GetFullPath($ProjectDir) -replace '\\', '/')
 
 $Cores = $env:NUMBER_OF_PROCESSORS
 if (-not $Cores) { $Cores = 4 }
@@ -224,13 +265,9 @@ function Invoke-BuildStep {
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $psi
 
-    $stdoutLines = [System.Collections.Generic.List[string]]::new()
-    $stderrLines = [System.Collections.Generic.List[string]]::new()
+    $stdoutLines = @()
+    $stderrLines = @()
     $errorLines  = [System.Collections.Generic.List[string]]::new()
-
-    # Async readers to prevent deadlock when both stdout and stderr fill
-    $stdoutQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
-    $stderrQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
 
     try {
         [void]$proc.Start()
@@ -240,86 +277,55 @@ function Invoke-BuildStep {
         return $false
     }
 
-    # Reader threads
-    $stdoutReader = $proc.StandardOutput
-    $stderrReader = $proc.StandardError
+    # Read streams asynchronously via .NET tasks. Avoid PowerShell scriptblocks
+    # on background threads: this host can crash with "no Runspace available".
+    $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+    $stderrTask = $proc.StandardError.ReadToEndAsync()
 
-    $stdoutThread = [System.Threading.Thread]::new([System.Threading.ThreadStart]{
-        try {
-            $line = $stdoutReader.ReadLine()
-            while ($null -ne $line) {
-                $stdoutQueue.Enqueue($line)
-                $line = $stdoutReader.ReadLine()
-            }
-        } catch {}
-    })
-    $stdoutThread.IsBackground = $true
-    $stdoutThread.Start()
-
-    $stderrThread = [System.Threading.Thread]::new([System.Threading.ThreadStart]{
-        try {
-            $line = $stderrReader.ReadLine()
-            while ($null -ne $line) {
-                $stderrQueue.Enqueue($line)
-                $line = $stderrReader.ReadLine()
-            }
-        } catch {}
-    })
-    $stderrThread.IsBackground = $true
-    $stderrThread.Start()
-
-    # Drain both queues until process exits and both readers are done
     $spinChars = @('|', '/', '-', '\')
     $spinIdx   = 0
     $lastSpin  = [DateTime]::Now
 
-    while (-not $proc.HasExited -or -not $stdoutQueue.IsEmpty -or -not $stderrQueue.IsEmpty) {
-        $drained = $false
-        $outLine = $null
-        $errLine = $null
-
-        while ($stdoutQueue.TryDequeue([ref]$outLine)) {
-            $stdoutLines.Add($outLine)
-            if ($ShowAll) {
-                Write-Host $outLine
-            } elseif (Is-ErrorLine $outLine) {
-                Write-Err $outLine
-                $errorLines.Add($outLine)
-            }
-            $drained = $true
-        }
-
-        while ($stderrQueue.TryDequeue([ref]$errLine)) {
-            $stderrLines.Add($errLine)
-            # stderr always shown (CMake progress + errors go here)
-            if ($ShowAll -or (Is-ErrorLine $errLine)) {
-                if (Is-ErrorLine $errLine) {
-                    Write-Err $errLine
-                    $errorLines.Add($errLine)
-                } else {
-                    Write-Host $errLine -ForegroundColor DarkGray
-                }
-            }
-            $drained = $true
-        }
-
-        if (-not $drained) {
-            # Spinner while waiting
-            $now = [DateTime]::Now
-            if (($now - $lastSpin).TotalMilliseconds -gt 250) {
-                $spin = $spinChars[$spinIdx % 4]
-                $spinIdx++
-                $elapsed = [math]::Floor(($now - $script:StepStart).TotalSeconds)
-                Write-Host "`r  $spin  $StepName  (${elapsed}s)   " -NoNewline
-                $lastSpin = $now
-            }
-            [System.Threading.Thread]::Sleep(50)
+    while (-not $proc.WaitForExit(250)) {
+        $now = [DateTime]::Now
+        if (($now - $lastSpin).TotalMilliseconds -gt 5000) {
+            $spin = $spinChars[$spinIdx % 4]
+            $spinIdx++
+            $elapsed = [math]::Floor(($now - $script:StepStart).TotalSeconds)
+            Write-Host "`r  $spin  $StepName  (${elapsed}s)   " -NoNewline
+            $lastSpin = $now
         }
     }
 
-    # Ensure reader threads finish
-    $stdoutThread.Join(2000) | Out-Null
-    $stderrThread.Join(2000) | Out-Null
+    $proc.WaitForExit()
+    $stdoutText = $stdoutTask.Result
+    $stderrText = $stderrTask.Result
+    if ($stdoutText) {
+        $stdoutLines = $stdoutText -split "`r?`n" | Where-Object { $_ -ne "" }
+    }
+    if ($stderrText) {
+        $stderrLines = $stderrText -split "`r?`n" | Where-Object { $_ -ne "" }
+    }
+
+    foreach ($outLine in $stdoutLines) {
+        if ($ShowAll) {
+            Write-Host $outLine
+        } elseif (Is-ErrorLine $outLine) {
+            Write-Err $outLine
+            $errorLines.Add($outLine)
+        }
+    }
+
+    foreach ($errLine in $stderrLines) {
+        if ($ShowAll -or (Is-ErrorLine $errLine)) {
+            if (Is-ErrorLine $errLine) {
+                Write-Err $errLine
+                $errorLines.Add($errLine)
+            } else {
+                Write-Host $errLine -ForegroundColor DarkGray
+            }
+        }
+    }
 
     # Clear spinner line
     Write-Host "`r" + (" " * 72) + "`r" -NoNewline
@@ -598,7 +604,7 @@ if (-not (Test-Path $devKeyPath)) {
 # CMake Configure (unified Build/ dir for both pd and pd-server)
 # ============================================================================
 
-$configArgs = "-G $Generator -DCMAKE_C_COMPILER=`"$CC`" -DCMAKE_CXX_COMPILER=`"$CXX`" -DPD_PYTHON_EXECUTABLE=`"$PythonExe`" $CcacheLauncher -B `"$BuildDir`" -S `"$ProjectDir`"$vFlags"
+$configArgs = "-G $Generator -DCMAKE_C_COMPILER=`"$CC`" -DCMAKE_CXX_COMPILER=`"$CXX`" -DCMAKE_C_COMPILER_FORCED=TRUE -DCMAKE_CXX_COMPILER_FORCED=TRUE -DPD_PYTHON_EXECUTABLE=`"$PythonExe`" -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY $CcacheLauncher -B `"$BuildDir`" -S `"$ProjectDir`"$vFlags"
 
 $script:StepStart = [DateTime]::Now
 $configOk = Invoke-BuildStep -StepName "Configure (CMake - Ninja + ccache)" `

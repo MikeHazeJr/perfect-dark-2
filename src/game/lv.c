@@ -278,7 +278,7 @@ void lvUpdateMiscSfx(void)
 	} else {
 		bool usingboost = g_Vars.speedpillon
 			&& lvGetSlowMotionType() == SLOWMOTION_OFF
-			&& g_Vars.in_cutscene == false;
+			&& !playerAnyCutsceneInProgress();
 		bool usingrocket;
 
 		lvSetMiscSfxState(MISCSFX_BOOSTHEARTBEAT, usingboost);
@@ -413,7 +413,7 @@ void lvReset(s32 stagenum)
 	g_Vars.antiheadnum = -1;
 	g_Vars.antibodynum = -1;
 	g_Vars.dontplaynrg = false;
-	g_Vars.in_cutscene = false;
+	playerResetAllCutsceneStates();
 	g_Vars.autocutplaying = false;
 	g_Vars.autocutfinished = false;
 	g_Vars.autocutgroupskip = false;
@@ -1286,7 +1286,7 @@ Gfx *lvRender(Gfx *gdl)
 			&& playerHasSharedViewport();
 #else
 		bool forcesingleplayer = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0)
-			&& ((g_InCutscene && !g_MainIsEndscreen) || menuGetRoot() == MENUROOT_COOPCONTINUE);
+			&& ((playerAnyInCutscene() && !g_MainIsEndscreen) || menuGetRoot() == MENUROOT_COOPCONTINUE);
 #endif
 		struct player *player;
 		struct chrdata *chr;
@@ -1630,22 +1630,24 @@ Gfx *lvRender(Gfx *gdl)
 						if (g_Vars.stagenum == STAGE_TEST_OLD) {
 							f32 frac = 0;
 							u32 colour;
-							s32 endframe = animGetNumFrames(g_CutsceneAnimNum) - 1;
+							s32 cutsceneanimnum = playerCurrentCutsceneAnimNum();
+							s32 cutsceneframe60 = playerCurrentCutsceneCurAnimFrame60();
+							s32 endframe = animGetNumFrames(cutsceneanimnum) - 1;
 
 							colour = 0;
 
-							if (g_CutsceneCurAnimFrame60 < 90) {
-								frac = 1.0f - (f32)g_CutsceneCurAnimFrame60 / 90.0f;
+							if (cutsceneframe60 < 90) {
+								frac = 1.0f - (f32)cutsceneframe60 / 90.0f;
 							}
 
-							if (g_CutsceneAnimNum != ANIM_CUT_OLD_TITLE_CAM_04) {
-								if (g_CutsceneCurAnimFrame60 > endframe - 90) {
-									frac = (g_CutsceneCurAnimFrame60 - endframe + 90) / 90.0f;
+							if (cutsceneanimnum != ANIM_CUT_OLD_TITLE_CAM_04) {
+								if (cutsceneframe60 > endframe - 90) {
+									frac = (cutsceneframe60 - endframe + 90) / 90.0f;
 								}
 							} else {
-								if (g_CutsceneCurAnimFrame60 > endframe - 30) {
+								if (cutsceneframe60 > endframe - 30) {
 									colour = 0xffffff00;
-									frac = (g_CutsceneCurAnimFrame60 - endframe + 30) / 30.0f;
+									frac = (cutsceneframe60 - endframe + 30) / 30.0f;
 								}
 							}
 
@@ -1669,10 +1671,10 @@ Gfx *lvRender(Gfx *gdl)
 #endif
 
 						// Handle visual effects in cutscenes
-						switch (g_CutsceneAnimNum) {
+						switch (playerCurrentCutsceneAnimNum()) {
 						case ANIM_CUT_CAVE_INTRO_CAM:
 							// Horizon scanner in Air Base intro
-							if (g_CutsceneCurAnimFrame60 > 839 && g_CutsceneCurAnimFrame60 < 1411) {
+							if (playerCurrentCutsceneCurAnimFrame60() > 839 && playerCurrentCutsceneCurAnimFrame60() < 1411) {
 								gdl = bviewDrawHorizonScanner(gdl);
 							}
 							break;
@@ -1954,7 +1956,7 @@ Gfx *lvRender(Gfx *gdl)
 #if VERSION >= VERSION_NTSC_1_0
 					&& playerHasSharedViewport()
 #else
-					&& ((g_InCutscene && !g_MainIsEndscreen) || menuGetRoot() == MENUROOT_COOPCONTINUE)
+					&& ((playerAnyInCutscene() && !g_MainIsEndscreen) || menuGetRoot() == MENUROOT_COOPCONTINUE)
 #endif
 					&& g_Vars.currentplayernum != 0) {
 				gdl = savedgdl;
@@ -2245,7 +2247,7 @@ s32 sub54321(s32 value)
 
 void lvUpdateCutsceneTime(void)
 {
-	if (g_Vars.in_cutscene) {
+	if (playerAnyCutsceneInProgress()) {
 		g_CutsceneTime240_60 += g_Vars.lvupdate60;
 		return;
 	}
@@ -2390,14 +2392,14 @@ void lvTick(void)
 		g_Vars.lvupdate240 = g_Vars.diffframe240;
 
 		if (slowmo == SLOWMOTION_ON) {
-			if (g_Vars.speedpillon == false || g_Vars.in_cutscene) {
+			if (g_Vars.speedpillon == false || playerAnyCutsceneInProgress()) {
 				if (g_Vars.lvupdate240 > LV_SLOMO_TICK_CAP) {
 					g_Vars.lvupdate240 = LV_SLOMO_TICK_RATE;
 				}
 			}
 		} else if (slowmo == SLOWMOTION_SMART) {
 			// Smart slow motion - activates if an enemy chr is nearby
-			if (g_Vars.speedpillon == false || g_Vars.in_cutscene) {
+			if (g_Vars.speedpillon == false || playerAnyCutsceneInProgress()) {
 				if (g_Vars.mplayerisrunning) {
 					bool foundnearbychr = false;
 					s32 playernum;
@@ -2440,7 +2442,7 @@ void lvTick(void)
 			}
 		} else {
 			// Slow motion settings are off
-			if (g_Vars.speedpillon && g_Vars.in_cutscene == false) {
+			if (g_Vars.speedpillon && !playerAnyCutsceneInProgress()) {
 				if (g_Vars.lvupdate240 > LV_SLOMO_TICK_CAP) {
 					g_Vars.lvupdate240 = LV_SLOMO_TICK_RATE;
 				}
