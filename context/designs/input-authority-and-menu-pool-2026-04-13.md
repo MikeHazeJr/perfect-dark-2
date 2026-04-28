@@ -95,22 +95,32 @@ Out of scope for this session — see §6.
 
 ### 2.1 Input pipeline, end-to-end
 
+> Updated 2026-04-27 (Cohort 1 of input-universality-and-transitions): the
+> documented order below was wrong. ImGui processing runs BEFORE actionmap
+> dispatch with a `WantCaptureKeyboard` gate (B-154 fix). Restored fidelity:
+
 ```
 SDL_PollEvent  (gfx_sdl_handle_events in gfx_sdl2.cpp)
-  └─ pdguiProcessEvent(ev)  (pdgui_backend.cpp:683)
-       ├─ Global hotkey check (F8 / F12 / RS-click)  — consumed early
-       ├─ inputCtxShouldSuppressKey(ev)              — consumed if in grace period
-       ├─ actionmapDispatch(ev)                      — writes s_State unconditionally
-       ├─ ImGui_ImplSDL2_ProcessEvent(ev)            — ImGui state
-       └─ inputCtxDispatch(ev)                       — game vs. menu routing
+  +-- pdguiProcessEvent(ev)  (pdgui_backend.cpp:1241)
+       +-- Global hotkey check (F8 / F12 / RS-click)  -- consumed early
+       +-- inputCtxShouldSuppressKey(ev)              -- consumed if in grace period
+       +-- ImGui_ImplSDL2_ProcessEvent(ev)            -- writes io.WantCaptureKeyboard
+       +-- if (io.WantCaptureKeyboard) drop key       -- B-154 gate
+       +-- actionmapDispatch(ev)                      -- writes s_State (gated)
+       +-- inputCtxDispatch(ev)                       -- game vs. menu routing
 
           [per-frame]
-          inputCtxPollFrame()            — top-ctx poll
-          actionmapPollFrame()           — stick/mouse sampling (menu-gated)
-          <game tick — reads s_State via actionHeld/Pressed>
-          actionmapEndFrame()            — clears pressed/released edges
-          inputCtxEndFrame()             — processes deferred pops
+          inputCtxPollFrame()            -- top-ctx poll
+          actionmapPollFrame()           -- stick/mouse sampling (menu-gated)
+          <game tick -- reads s_State via actionHeld/Pressed>
+          actionmapEndFrame()            -- clears pressed/released edges
+          inputCtxEndFrame()             -- processes deferred pops
 ```
+
+Phase 2 supersedes parts of this ADR. The Layer Stack defined in
+[input-universality-and-transitions-2026-04-27.md](input-universality-and-transitions-2026-04-27.md)
+takes ownership of which IMCs are active; the IMC stack itself stays as
+the binding-resolution layer.
 
 ### 2.2 IMC priority order
 

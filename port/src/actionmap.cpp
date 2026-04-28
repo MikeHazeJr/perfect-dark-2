@@ -364,6 +364,8 @@ static const char * const s_ActionNames[ACTION_COUNT] = {
     "SocialToggle",
     /* 70: test-scenarios swarm benchmark cycler (S483c) -- PD_DEV_BUILD only */
     "TestScenCycleCount",
+    /* 71: text-input paste-from-clipboard (Cohort 1) -- text-input IMC only */
+    "TextPaste",
 };
 
 /* ============================================================
@@ -1213,6 +1215,7 @@ s32 actionIsGameplayOnly(InputAction a)
     case ACTION_CONSOLE_TOGGLE:
     case ACTION_DEBUG_TOGGLE:
     case ACTION_CHEAT_ENTER:
+    case ACTION_TEXT_PASTE:
         return 0;
     default:
         return 1;
@@ -2409,6 +2412,7 @@ static void setupTextInputDefaults(void)
     addBind(imc, ACTION_CANCEL_USE,  VK_ESCAPE);           /* cancel — kbd */
     addBind(imc, ACTION_CANCEL_USE,  JOY_BTN(0, JBTN_B));  /* cancel — gamepad */
     addBind(imc, ACTION_CHEAT_ENTER, VK_RETURN);
+    addBind(imc, ACTION_TEXT_PASTE,  VK_MOUSE_RIGHT);      /* RMB paste-from-clipboard (Cohort 1) */
 }
 
 /** Build default bind strings from the freshly populated IMC mappings. */

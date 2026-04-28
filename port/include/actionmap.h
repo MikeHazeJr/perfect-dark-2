@@ -176,7 +176,14 @@ typedef enum InputAction {
      * binding is gameplay-only and is consumed by swarm_test.c::tick(). */
     ACTION_TESTSCEN_CYCLE_COUNT, /* = 70 cycle bot count in swarm benchmark */
 
-    ACTION_COUNT                /* = 71, sentinel — keep last */
+    /* ---- Text input field actions (Cohort 1, 2026-04-27) ----
+     * Bound only on g_ImcTextInput. Allows raw IsMouseClicked(Right) sites
+     * to migrate to actionPressed(0, ACTION_TEXT_PASTE) without leaking
+     * mouse-clicks-as-paste to gameplay/menus. Exempt from gameplay-only
+     * classification so menus never gate it via gameplayInputSuppressed. */
+    ACTION_TEXT_PASTE,           /* = 71 right-mouse-button paste-from-clipboard */
+
+    ACTION_COUNT                /* = 72, sentinel — keep last */
 } InputAction;
 
 /* Backward-compat aliases */
