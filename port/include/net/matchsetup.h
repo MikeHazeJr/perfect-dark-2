@@ -93,12 +93,44 @@ enum spawn_weapon_mode {
 
 /* Sentinel WEAPON_* enum value for FIESTA mode. The spawn sites read this
  * and roll per-spawn instead of equipping a fixed weapon. Chosen as 0xFE
- * (one less than the legacy 0xFF "no spawn weapon" sentinel) so that any
- * code path checking `!= 0xFF && != 0` for a real weapon continues to
- * exclude this value as well. */
+ * (one less than the legacy 0xFF "no spawn weapon" sentinel).
+ *
+ * S483c (2026-04-27, B-263): the original design comment claimed any guard
+ * checking `!= 0xFF && != 0` would also exclude 0xFE -- that math is
+ * WRONG (0xFE != 0xFF AND 0xFE != 0 both hold).  Use
+ * spawnWeaponNumIsResolved() at every consumer site instead of open-coded
+ * sentinel checks; it is the single source of truth that excludes all
+ * three reserved values (0, 0xFF, 0xFE).  See B-263 in context/bugs.md. */
 #ifndef SPAWNWEAPON_FIESTA_SENTINEL
 #define SPAWNWEAPON_FIESTA_SENTINEL 0xFE
 #endif
+
+/* S483c (2026-04-27, B-263): single-source-of-truth predicate for
+ * "is g_MatchConfig.spawnWeaponNum a resolved real WEAPON_* enum?".
+ *
+ * Returns 0 when num is one of the three reserved values:
+ *   0    -- unset / cleared
+ *   0xFE -- SPAWNWEAPON_FIESTA_SENTINEL (FIESTA rolls per-spawn site)
+ *   0xFF -- legacy "no spawn weapon" sentinel
+ *
+ * Returns 1 otherwise.  Consumer sites that previously open-coded
+ * `(num != 0xFF && num != 0)` failed to exclude 0xFE; modelmgrLoadProjectileModeldefs
+ * indexed g_Weapons[254] and AVed.  Centralising the check eliminates that
+ * class of bug and gives the next sentinel addition a single audit
+ * surface to update.
+ *
+ * static inline so the predicate is callable from src/game/ C code and
+ * tests/ Catch2 cpp without dragging matchsetup.c into the test binary;
+ * every translation unit that includes matchsetup.h gets the inlined
+ * comparison directly.
+ */
+static inline s32 spawnWeaponNumIsResolved(s32 num)
+{
+	if (num == 0) return 0;
+	if (num == 0xFF) return 0;
+	if (num == SPAWNWEAPON_FIESTA_SENTINEL) return 0;
+	return 1;
+}
 
 struct matchconfig {
 	struct matchslot slots[MATCH_MAX_SLOTS];

@@ -1,8 +1,72 @@
 
 # Session Log (Active)
 
-> **S284–S483c** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S284–S483d** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S483d (`charming-noether-7b69b3` follow-up #2) - 2026-04-27 - FIESTA match-start crash (B-263)
+
+Mike's playtest after S483b shipped: tried starting a match with FIESTA spawn-weapon mode, hit a fresh AV. Different binary base, different PC offset from the prior crash; this is its own root cause.
+
+### Crash anchor
+
+`PC RVA 0xef32b` -> `modelmgrLoadProjectileModeldefs at modelmgrreset.c:173`. Backtrace via addr2line: `setupCreateProps:2872 -> lvReset -> mainLoop -> mainProc -> main`.
+
+### Mechanism (single cause, traced end-to-end)
+
+`SPAWNWEAPON_FIESTA_SENTINEL = 0xFE` was added in S482 as the FIESTA marker. `matchStart` writes it into `g_MatchConfig.spawnWeaponNum`. The model-preload guard at `setup.c:2870-2872` was written before the FIESTA sentinel existed and only excluded the legacy two values:
+
+```c
+if (g_MatchConfig.spawnWeaponNum != 0xFF
+        && g_MatchConfig.spawnWeaponNum != 0) {
+    modelmgrLoadProjectileModeldefs((s32)g_MatchConfig.spawnWeaponNum);
+}
+```
+
+`0xFE` passed both conditions. `modelmgrLoadProjectileModeldefs(254)` indexed `g_Weapons[254]` -- a 254-byte walk past the end of the [WEAPON_SUICIDEPILL + 1] = 86-entry array (`src/include/game/inv.h:9`). The next deref AVed.
+
+The FIESTA design comment in matchsetup.h had claimed "0xFE was chosen so any code path checking `!= 0xFF && != 0` continues to exclude this value as well" -- that math was wrong (`0xFE != 0xFF AND 0xFE != 0` both hold). Two more sites had the same incomplete exclusion: the userPickedSpawnWeapon predicate at setup.c:2775 (which then logged "user-picked spawn weapon ... num=254 preserved" -- visible in the crash log immediately before the FATAL line), and the elif paths in `bot.c:543` + `player.c:1835` (structurally safe because the FIESTA-mode branch above caught 0xFE first, but the predicate text drifted from the spec).
+
+### Fix (4 changes, no half-measures, INV-1 loud-fail discipline)
+
+1. **Shared single-source-of-truth predicate**: `spawnWeaponNumIsResolved(num)` static inline in `port/include/net/matchsetup.h`. Returns 0 for {0, 0xFF, SPAWNWEAPON_FIESTA_SENTINEL}, 1 for resolved real WEAPON_* enum values. `static inline` so it's callable from C (src/game/) and C++ (tests/) without dragging matchsetup.c into the test binary.
+
+2. **Migrated four consumers** to call the helper:
+   - `setup.c:2781` (userPickedSpawnWeapon predicate)
+   - `setup.c:2878` (model-preload guard, the actual crash site)
+   - `bot.c:543` (elif sentinel check, audit consistency)
+   - `player.c:1835` (elif sentinel check, audit consistency)
+
+3. **Defensive bound + INV-1 loud-fail in the leaf** (`modelmgrLoadProjectileModeldefs`): weaponnum out of `[0, ARRAYCOUNT(g_Weapons))` returns false with `WEAPON.SLOT.MISS:` LOG_WARNING. Defence in depth -- catches any future caller that bypasses the upstream gate (wire tampering, not-yet-migrated consumer, race).
+
+4. **pd-tests pin** (`tests/test_spawn_weapon_resolved.cpp`): 10 cases / 860 assertions covering the helper contract -- exhaustive 0..0xFF walk catches future sentinel-addition drift; consumer-gate + leaf-bound invariants pin Mike's "FIESTA-mode spawnWeaponNum never flows into a weapon-num-as-array-index consumer" rule. `[b263]` tag.
+
+### Methodology learning
+
+Captured in `context/constraints.md` Active Constraints + commit message: when adding a new reserved-value sentinel to a field with existing consumer-side checks, audit EVERY consumer, not just the writer that produced the sentinel. Centralise the "is this resolved?" predicate so the next sentinel addition has one audit surface. Pin the contract with a test that walks the entire input domain (every byte value here).
+
+### Files
+
+- `port/include/net/matchsetup.h` -- `spawnWeaponNumIsResolved` helper + comment correcting the original FIESTA-sentinel design claim
+- `src/game/setup.c` -- two consumer migrations
+- `src/game/bot.c` -- one consumer migration
+- `src/game/player.c` -- one consumer migration
+- `src/game/modelmgrreset.c` -- leaf-side bound + WEAPON.SLOT.MISS LOG_WARNING
+- `tests/test_spawn_weapon_resolved.cpp` -- new (10 cases / 860 assertions)
+- `CMakeLists.txt` -- pd-tests SRC list extension
+- `context/bugs.md` -- B-263 entry
+- `context/constraints.md` -- sentinel-audit-discipline invariant
+- `context/session-log.md` -- this entry
+
+### Verify
+
+Build clean: PerfectDark.exe + PerfectDarkServer.exe + pd-tests linked. `[b263]` tag passes 860 assertions / 10 cases. Pre-existing test failure in `tests/test_swarm_boid_sim.cpp:123` (S483c boid-sim, unrelated) remains; my changes did not introduce it.
+
+### Outstanding
+
+Mike's playtest of FIESTA match start -- match must start without crashing; subsequent spawns must roll fresh weapons per spawn.
+
+---
 
 ## Session S483b (`charming-noether-7b69b3`) - 2026-04-27 - crash mitigation (B-261) + Tab IMC fix (B-262)
 

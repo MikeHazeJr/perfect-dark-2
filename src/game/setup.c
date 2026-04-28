@@ -2772,9 +2772,13 @@ void setupCreateProps(s32 stagenum)
 				                     MPOPTION_SPAWNWITHWEAPON);
 				g_MpSetup.options |= MPOPTION_SPAWNWITHWEAPON;
 
+				/* S483c (2026-04-27, B-263): use the shared predicate so the
+				 * FIESTA sentinel (0xFE) is correctly classified as "not a
+				 * resolved user pick".  Pre-fix the open-coded `!= 0xFF && != 0`
+				 * check let 0xFE flow through as a "user pick" and the matching
+				 * model-preload site at line 2870 indexed g_Weapons[254]. */
 				const bool userPickedSpawnWeapon =
-					(g_MatchConfig.spawnWeaponNum != 0xFF
-						&& g_MatchConfig.spawnWeaponNum != 0);
+					(spawnWeaponNumIsResolved((s32)g_MatchConfig.spawnWeaponNum) != 0);
 
 				if (!userPickedSpawnWeapon) {
 					s32 setSpawnMpw = -1;
@@ -2864,11 +2868,14 @@ void setupCreateProps(s32 stagenum)
 				modelmgrLoadProjectileModeldefs(wnum);
 			}
 		}
-		/* spawn_weapon_id can be outside the active set (user's explicit pick
-		 * or the B-181 fallback override). 0xFF means random from the set,
-		 * which the loop above already covered. */
-		if (g_MatchConfig.spawnWeaponNum != 0xFF
-				&& g_MatchConfig.spawnWeaponNum != 0) {
+		/* S483c (2026-04-27, B-263): only preload when spawnWeaponNum is a
+		 * resolved real WEAPON_* enum.  Reserved values (0, 0xFF random,
+		 * 0xFE FIESTA) all roll per-spawn from the active set or manifest
+		 * pool, which the per-slot loop above already preloaded.  Pre-fix
+		 * the FIESTA sentinel 0xFE flowed through this guard and indexed
+		 * g_Weapons[254] -- AV crash. spawnWeaponNumIsResolved is the
+		 * single source of truth in matchsetup.h. */
+		if (spawnWeaponNumIsResolved((s32)g_MatchConfig.spawnWeaponNum)) {
 			modelmgrLoadProjectileModeldefs((s32)g_MatchConfig.spawnWeaponNum);
 		}
 		sysLogPrintf(LOG_NOTE,

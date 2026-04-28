@@ -540,8 +540,14 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 						resolvedWeaponNum = wnum;
 					}
 				}
-			} else if (g_MatchConfig.spawnWeaponNum != 0xFF && g_MatchConfig.spawnWeaponNum != 0) {
-				/* Specific (or RANDOM-rolled-once) weapon: find the catalog index for ammo data */
+			} else if (spawnWeaponNumIsResolved((s32)g_MatchConfig.spawnWeaponNum)) {
+				/* S483c (2026-04-27, B-263): use shared helper instead of
+				 * open-coded `!= 0xFF && != 0`.  Functionally equivalent here
+				 * (the FIESTA branch above already caught 0xFE), but the
+				 * helper is the single source of truth for "is this a real
+				 * resolved WEAPON_* enum?" and matches setup.c.
+				 *
+				 * Specific (or RANDOM-rolled-once) weapon: find the catalog index for ammo data */
 				s32 wi;
 				s32 wnum;
 				resolvedWeaponNum = (s32)g_MatchConfig.spawnWeaponNum;

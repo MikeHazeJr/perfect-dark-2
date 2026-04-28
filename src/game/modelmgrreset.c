@@ -166,8 +166,39 @@ void modelmgrAllocateSlots(s32 numobjs, s32 numchrs)
 bool modelmgrLoadProjectileModeldefs(s32 weaponnum)
 {
 	bool result = false;
-	struct weapon *weapon = g_Weapons[weaponnum];
+	struct weapon *weapon;
 	s32 i;
+
+	/* S483c (2026-04-27, B-263): leaf-side defensive bound + loud-fail
+	 * (INV-1 discipline, mirrors MODEL.RODATA.MISS: from S483b).
+	 *
+	 * The crash that motivated this guard was a Fiesta-mode match start
+	 * where g_MatchConfig.spawnWeaponNum carried SPAWNWEAPON_FIESTA_SENTINEL
+	 * (0xFE = 254). An incomplete sentinel check at setup.c:2870 let that
+	 * value flow into here as `weaponnum`, and `g_Weapons[254]` walked off
+	 * the end of the 86-entry array (sized [WEAPON_SUICIDEPILL + 1]),
+	 * reading garbage adjacent .data and AVing on the subsequent
+	 * `weapon->functions[i]` deref.
+	 *
+	 * Fail loudly so a future bad caller surfaces in the log instead of
+	 * AVing the process. The shared spawnWeaponNumIsResolved() predicate
+	 * in matchsetup.h is the upstream guard; this is defence in depth. */
+	if (weaponnum < 0 || weaponnum >= ARRAYCOUNT(g_Weapons)) {
+		sysLogPrintf(LOG_WARNING,
+				"WEAPON.SLOT.MISS: modelmgrLoadProjectileModeldefs weaponnum=%d "
+				"out of range [0, %d) -- returning false (B-263 leaf guard)",
+				weaponnum, (s32)ARRAYCOUNT(g_Weapons));
+		return false;
+	}
+
+	weapon = g_Weapons[weaponnum];
+	if (weapon == NULL) {
+		sysLogPrintf(LOG_WARNING,
+				"WEAPON.SLOT.MISS: modelmgrLoadProjectileModeldefs weaponnum=%d "
+				"slot is NULL -- returning false",
+				weaponnum);
+		return false;
+	}
 
 	for (i = 0; i != 2; i++) {
 		if (weapon->functions[i]) {

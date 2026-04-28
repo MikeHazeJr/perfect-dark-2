@@ -851,6 +851,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_menu_reachability.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_right_stick_scroll.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_social_toggle_imc.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_spawn_weapon_resolved.cpp
 
   # Cohort 1 (input universality and transitions, 2026-04-27): action map
   # flush + classifier invariants. Pure-C mirror at tests/actionmap_pure.{c,h}.

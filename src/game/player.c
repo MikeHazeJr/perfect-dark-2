@@ -1832,7 +1832,12 @@ void playerSpawn(void)
 							resolvedWeaponNum = wnum;
 						}
 					}
-				} else if (g_MatchConfig.spawnWeaponNum != 0xFF && g_MatchConfig.spawnWeaponNum != 0) {
+				} else if (spawnWeaponNumIsResolved((s32)g_MatchConfig.spawnWeaponNum)) {
+					/* S483c (2026-04-27, B-263): single source of truth via
+					 * matchsetup.h helper. Matches bot.c:543 and setup.c
+					 * sites; FIESTA branch above already handled 0xFE so
+					 * the helper's added 0xFE exclusion is purely defensive
+					 * here, but consistency matters for the audit trail. */
 					s32 wi;
 					s32 wnum;
 					resolvedWeaponNum = (s32)g_MatchConfig.spawnWeaponNum;
