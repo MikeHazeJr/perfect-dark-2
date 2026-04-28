@@ -530,11 +530,62 @@ These don't belong to a single gate; they run continuously.
 
 ---
 
-## E. Decision points for Mike
+## E. Decision points
 
-Items where scope or direction needs Mike's call before the gate kicks off. Listed in the order they would block sequencing.
+Items where scope or direction needed Mike's call before the gate kicks off. **All 11 decisions resolved 2026-04-27** (see E.0 below). Long-form analysis preserved in E.1 through E.11 for historical record; each subsection now carries a RESOLVED stamp at the top.
+
+### E.0 Resolution table (2026-04-27)
+
+Mike approved E.1, E.2, E.3, E.6, E.7 directly. E.4, E.5, E.8, E.9, E.10, E.11 resolved per delegated authority using the recommendations already in this doc (Mike's note: "if you have explicit recommended defaults in the existing doc, you can mark those approved per delegated authority too").
+
+| ID | Question | Resolution | Rationale |
+|---|---|---|---|
+| **E.1** | Dedicated server: revive or retire? | **Defer to Gate 4.** Listen + P2P first; revisit dedicated track once connectivity Phase 1+2 is real. P4-A/B/C plugin-ABI track and R-5 server GUI redesign stay stranded for now. | Friend-play story is covered by listen + P2P; community-server volume is the real driver and we cannot judge it without Phase 1+2 data. |
+| **E.2** | Catalog full-pipeline migration scope | **Incremental per-domain.** Land Weapons in Gate 2 to validate the Manager + .pdbase pattern. Other asset types (bodies, heads, scenarios, music, bot profiles, AI scripts, animations, prop tables) follow in Gate 3 as their consumers get touched. Manager pattern + .pdbase format already specced in `project_catalog_architecture_future.md`. | Validates the architectural pattern on the highest-ext-data domain (Weapons) without committing to a multi-week sprint. Lets pd-tests cohort lock in the pattern before scaling. |
+| **E.3** | SP-stage MP-readiness Option E (B-228) | **Top 3 stages: Airbase, CITraining, Skedar Ruins.** Defer Attackship / AirForceOne / Infiltration / Defection / Defense / Investigation / Deepsea. | Airbase + CITraining are highest-replay-value; Skedar Ruins is the showcase setpiece. Other 7 stages can ship later without blocking v0.5.0. |
+| **E.4** | Catalog ID slug renames | **Approved per delegated authority: Bundle into a single Gate 5 release-prep ID rename pass.** Test-style slugs (`test_arch` -> `suburb`, `test_dest` -> `training_day`, `test_lam` -> `grand_library`) ride a single SAVE_VERSION bump. | Rename churn is cosmetic; bundling into one bump avoids multiple migrations and keeps the v1.0 polish surface clean. |
+| **E.5** | Grid Blank Map stagenum | **Approved per delegated authority: Defer to Forge F3.** Blank Map becomes the natural empty base stage when F3 (Save/load + base stage) lands; register `forge_blank` as a `FileProvider` catalog entry at that point. The Grid submenu continues to omit the Blank Map row until then. | F3 already needs a base-stage registration mechanism; building Blank Map separately would duplicate plumbing. |
+| **E.6** | Voice chat scope at v1.0.0 | **PTT-only.** Hard mute + per-friend mute. VAD deferred past v1.0. | PTT covers ~90% of friend-play utility; VAD adds detector complexity and quality tuning that does not justify v1.0 scope. |
+| **E.7** | Federation / Master Server (D16) | **Minimal D16a bootstrap.** Bootstrap-rendezvous nodes for non-friend discovery. Full federation (D16b/c/d: cross-server matchmaking, signed transfer tokens, trust levels) deferred past v1.0. | Bootstrap gives discovery without committing to centralized identity or matchmaking; aligns with the connectivity P2P-first stance. |
+| **E.8** | Studio Platform scope at v1.0.0 | **Approved per delegated authority: S1-S10 in Gate 5.** Asset import, weapon editor, map editor. Defer S11-S14 (ADS/auto-aim, mod packager, hot-reload, network integration). | Forge F1-F8 already covers level-editor surface; Studio adds asset/weapon authoring. S11-S14 are cross-cutting integrations best landed once content tools are real. |
+| **E.9** | PVS / Interest Management depth | **Approved per delegated authority: Phase A at Gate 4, Phase B at Gate 5, defer C/D.** Phase A (room/stage relevance) + Phase B (radius/grid filter) ship in Gate 4 and Gate 5 respectively; PVS portal walking (Phase C) and cadence throttling (Phase D) deferred past v1.0. | Phase A+B is enough for friend-mesh scaling; PVS is high-cost optimization with limited friend-mesh ROI. |
+| **E.10** | Cross-platform port (X4) | **Approved per delegated authority: PC-only through v1.0.0.** Mac/Linux ports parked as a post-v1.0 pillar. macOS Spotlight + Linux file-manager metadata hooks (X3) likewise deferred. | Architecture is portable (SDL2 + OpenGL + statically linked deps), but explicit cross-platform engineering is its own pillar. PC-only ships v1.0 sooner. |
+| **E.11** | Audit cadence | **Approved per delegated authority: Per-gate cadence.** One full super-audit at each gate boundary (Gate 1 -> Gate 2 -> ... -> Gate 5). Daily delta audits and weekly skill-driven audits remain ad-hoc. | Per-gate cadence aligns with exit-criteria checks and avoids audit fatigue between gates. |
+
+### E.0.1 Sequencing implications of the resolutions
+
+Several resolutions tighten or relax the gate sequencing in Section D:
+
+- **E.1 (defer dedicated server)** removes P4-B/C and R-5 from Gate 4 scope, tightening Gate 4 to listen + P2P + connectivity Phase 1-3 + drop-in/drop-out + security blockers + Phase A interest management.
+- **E.2 (incremental catalog migration)** keeps Gate 2 to a single domain (Weapons + Manager + .pdbase pattern); Gate 3 picks up bodies/heads/scenarios/music/AI scripts/animations as content-system work touches them.
+- **E.3 (top-3 SP stages)** scopes C3 in Gate 3 to three stages, not ten.
+- **E.6 (PTT-only voice)** trims Gate 5 voice scope.
+- **E.7 (minimal D16a)** removes federation matchmaking from v1.0 scope.
+- **E.8 (Studio S1-S10)** trims Gate 5 Studio scope.
+- **E.9 (Phase A in Gate 4, Phase B in Gate 5)** splits interest-management work across both gates.
+- **E.4 / E.5 / E.10 / E.11** are scoping/cadence calls that don't change pillar count, just timing.
+
+The resolved sequence is otherwise unchanged from Section D.
+
+### E.0.2 Decisions deferred (explicitly post-v1.0)
+
+These are now explicitly post-v1.0 per the resolutions above:
+
+- Full federation (D16b/c/d): cross-server matchmaking, signed transfer tokens, trust levels.
+- Cross-platform play (Mac/Linux ports + cross-platform shell metadata).
+- Voice activity detection / noise suppression.
+- Interest management Phase C (PVS) and Phase D (cadence throttling).
+- Studio Platform S11-S14 (ADS/auto-aim, mod packager, hot-reload, network integration).
+- SP-stages-in-MP Option E for the seven non-top-3 stages (Attackship, AirForceOne, Infiltration, Defection, Defense, Investigation, Deepsea).
+- Game-agnostic dedicated server (P4-B/C, R-5) -- pending Gate 4 review.
+
+---
 
 ### E.1 Dedicated server track: revive or retire?
+
+**RESOLVED 2026-04-27: Defer to Gate 4** (Mike approved direct).
+
+
 
 **Question:** `pd-server` was retired from build/release as of S475. The connectivity pivot replaces dedicated-server hosting with in-client P2P + listen-host. The ADR for game-agnostic server (`pd-server-plugin-abi-adr.md`, P4-A) is doc-complete; P4-B/C are deferred. Audit DS-1 calls the "game-agnostic dedicated server" pillar unmet.
 
