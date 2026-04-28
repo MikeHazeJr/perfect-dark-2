@@ -42,8 +42,9 @@
 - Hardened `CLC_LOBBY_START` count parsing: when `numSims` is clamped, over-cap bot config records are drained before the embedded manifest is parsed, preventing manifest-boundary skew from stale or hostile bot counts.
 - Hardened room settings sync: `CLC_ROOM_SETTINGS_UPDATE` and `CLC_ROOM_PLAYLIST_UPDATE` now rebuild their rebroadcast packet per recipient because `netSend()` resets the source buffer after queueing; settings also use the normal reliable buffer instead of the old 256-byte stack packet.
 - Closed the loaded-address validation gap: after `pd.ini` load, invalid internal `Net.Client.LastJoinAddr` values are cleared and invalid `Net.RecentServer.*` entries are compacted out; the modern server list no longer falls back to displaying raw stored addresses when connect-code conversion fails.
+- Made recent-server UDP response parsing transactional: server-browser metadata now stages protocol/status/scenario/hostname fields locally and commits them only after the full response parses without netbuf error, so malformed strings cannot leave a partial online server row.
 - Confirmed updater signing is already implemented: release zips require `.sha256` and `.sig`; the updater verifies Ed25519 over `sha256(zip)||tag` with the embedded public key and runs a self-test at init. No dedicated-server product work needed for this lane.
-- Added focused static/source tests for mandatory distribution digest, zero/unterminated strings, strict connect-code parsing, connect-code-only UI invariants, loaded-address scrubbing, inventory-gated weapon-select packets, lobby over-cap bot draining, team sanitization, and per-recipient room rebroadcasts.
+- Added focused static/source tests for mandatory distribution digest, zero/unterminated strings, strict connect-code parsing, connect-code-only UI invariants, loaded-address scrubbing, recent-server transactional parsing, inventory-gated weapon-select packets, lobby over-cap bot draining, team sanitization, and per-recipient room rebroadcasts.
 
 **Verification:**
 - `git diff --check` passed for the trust/security touched files, including the address-validation follow-up.

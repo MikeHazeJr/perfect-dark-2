@@ -2571,6 +2571,15 @@ void netRecentServerUpdate(const char *addr, const u8 *data, s32 len)
 		struct netrecentserver *srv = &g_NetRecentServers[i];
 		if (strncasecmp(srv->addr, addr, NET_MAX_ADDR) == 0) {
 			struct netbuf buf = { 0 };
+			u32 protocol = 0;
+			u8 flags = 0;
+			u8 numclients = 0;
+			u8 maxclients = 0;
+			u8 stagenum = 0;
+			u8 scenario = 0;
+			char scenario_id[CATALOG_ID_LEN] = "";
+			char hostname[NET_MAX_NAME] = "";
+
 			netbufStartReadData(&buf, data, len);
 
 			// skip magic + size
@@ -2580,29 +2589,42 @@ void netRecentServerUpdate(const char *addr, const u8 *data, s32 len)
 			}
 			netbufReadU16(&buf);
 
-			srv->protocol = netbufReadU32(&buf);
-			srv->flags = netbufReadU8(&buf);
-			srv->numclients = netbufReadU8(&buf);
-			srv->maxclients = netbufReadU8(&buf);
-			srv->stagenum = netbufReadU8(&buf);
+			protocol = netbufReadU32(&buf);
+			flags = netbufReadU8(&buf);
+			numclients = netbufReadU8(&buf);
+			maxclients = netbufReadU8(&buf);
+			stagenum = netbufReadU8(&buf);
 			/* M0.1d: scenario as catalog ID string (v32+). */
 			{
 				const char *scid = netbufReadStr(&buf);
 				if (scid && scid[0]) {
-					strncpy(srv->scenario_id, scid, sizeof(srv->scenario_id) - 1);
-					srv->scenario_id[sizeof(srv->scenario_id) - 1] = '\0';
-					const asset_entry_t *gm = assetCatalogResolve(scid);
-					srv->scenario = (gm && gm->type == ASSET_GAMEMODE) ? (u8)gm->ext.gamemode.mode_id : 0;
-				} else {
-					srv->scenario_id[0] = '\0';
-					srv->scenario = 0;
+					strncpy(scenario_id, scid, sizeof(scenario_id) - 1);
+					scenario_id[sizeof(scenario_id) - 1] = '\0';
+					const asset_entry_t *gm = assetCatalogResolve(scenario_id);
+					scenario = (gm && gm->type == ASSET_GAMEMODE) ? (u8)gm->ext.gamemode.mode_id : 0;
 				}
 			}
-			const char *hostname = netbufReadStr(&buf);
-			if (hostname) {
-				strncpy(srv->hostname, hostname, NET_MAX_NAME - 1);
-				srv->hostname[NET_MAX_NAME - 1] = '\0';
+			const char *hostname_wire = netbufReadStr(&buf);
+			if (hostname_wire) {
+				strncpy(hostname, hostname_wire, sizeof(hostname) - 1);
+				hostname[sizeof(hostname) - 1] = '\0';
 			}
+
+			if (buf.error) {
+				sysLogPrintf(LOG_WARNING, "NET: ignoring malformed recent-server response from %s", addr);
+				return;
+			}
+
+			srv->protocol = protocol;
+			srv->flags = flags;
+			srv->numclients = numclients;
+			srv->maxclients = maxclients;
+			srv->stagenum = stagenum;
+			srv->scenario = scenario;
+			strncpy(srv->scenario_id, scenario_id, sizeof(srv->scenario_id) - 1);
+			srv->scenario_id[sizeof(srv->scenario_id) - 1] = '\0';
+			strncpy(srv->hostname, hostname, NET_MAX_NAME - 1);
+			srv->hostname[NET_MAX_NAME - 1] = '\0';
 			srv->lastresponse = (u32)time(NULL);
 			srv->online = true;
 			return;

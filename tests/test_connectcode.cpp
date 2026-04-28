@@ -219,6 +219,24 @@ TEST_CASE("connectcode UI: join surfaces stay connect-code only",
     REQUIRE(net.find("g_NetRecentServers[out] = g_NetRecentServers[i]") != std::string::npos);
     REQUIRE(net.find("memset(&g_NetRecentServers[i], 0, sizeof(g_NetRecentServers[i]))") != std::string::npos);
 
+    const size_t recent_update = net.find("void netRecentServerUpdate");
+    const size_t protocol_local = net.find("u32 protocol = 0;", recent_update);
+    const size_t protocol_read = net.find("protocol = netbufReadU32(&buf)", protocol_local);
+    const size_t parse_error = net.find("if (buf.error)", protocol_read);
+    const size_t protocol_commit = net.find("srv->protocol = protocol;", parse_error);
+    const size_t online_commit = net.find("srv->online = true;", protocol_commit);
+    REQUIRE(recent_update != std::string::npos);
+    REQUIRE(protocol_local != std::string::npos);
+    REQUIRE(protocol_read != std::string::npos);
+    REQUIRE(parse_error != std::string::npos);
+    REQUIRE(protocol_commit != std::string::npos);
+    REQUIRE(online_commit != std::string::npos);
+    REQUIRE(recent_update < protocol_local);
+    REQUIRE(protocol_local < protocol_read);
+    REQUIRE(protocol_read < parse_error);
+    REQUIRE(parse_error < protocol_commit);
+    REQUIRE(protocol_commit < online_commit);
+
     const size_t config_init = main.find("configInit();");
     const size_t sanitize = main.find("netConfigSanitizeLoadedAddresses();");
     REQUIRE(config_init != std::string::npos);

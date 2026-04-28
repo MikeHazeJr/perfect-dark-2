@@ -15,6 +15,7 @@ Continued Server / Trust / Security work for current listen-host/client-hosted o
 - `CLC_SETTINGS` now sanitizes client-reported team changes before any match-state write: invalid team ids fall back to current/default team, and in-game team switches are ignored when the match is not team-enabled.
 - `CLC_ROOM_SETTINGS_UPDATE` and `CLC_ROOM_PLAYLIST_UPDATE` now rebuild their rebroadcast packet per room recipient because `netSend()` resets the source buffer after queueing. Room settings rebroadcast also uses the normal reliable buffer instead of the old 256-byte stack packet.
 - After `pd.ini` load, invalid internal `Net.Client.LastJoinAddr` values are cleared and invalid `Net.RecentServer.*` entries are compacted out. The modern server list now shows an invalid-entry placeholder instead of falling back to raw stored address text when connect-code conversion fails.
+- Recent-server UDP responses now stage parsed metadata locally and commit it only after the whole response parses without netbuf error, preventing malformed response strings from leaving partially updated online rows.
 - Added static/source coverage for the new string, lobby-drain, team-sanitize, and room-rebroadcast invariants.
 
 ### Files

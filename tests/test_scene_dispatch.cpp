@@ -271,6 +271,7 @@ TEST_CASE("scene transition helper: centralizes manifest/menu cleanup before sta
 {
     const std::string header = readTextFile("port/include/scene_transition.h");
     const std::string impl = readTextFile("port/src/scene_transition.c");
+    const std::string cmake = readTextFile("CMakeLists.txt");
 
     REQUIRE(header.find("SCENE_STAGE_TRANSITION_CLEAR_CLIENT_MANIFEST") != std::string::npos);
     REQUIRE(header.find("SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL") != std::string::npos);
@@ -286,6 +287,7 @@ TEST_CASE("scene transition helper: centralizes manifest/menu cleanup before sta
 
     REQUIRE(impl.find("sceneFire(SCENE_EVENT_DISCONNECT, NULL);") != std::string::npos);
     REQUIRE(impl.find("menupoolReleaseAll();") != std::string::npos);
+    REQUIRE(cmake.find("port/src/scene_transition.c") != std::string::npos);
 }
 
 TEST_CASE("scene transition helper: priority transition sites use shared cleanup",
@@ -301,6 +303,8 @@ TEST_CASE("scene transition helper: priority transition sites use shared cleanup
     REQUIRE(bridge.find("\"endscreen retry\"") != std::string::npos);
     REQUIRE(bridge.find("\"endscreen next mission\"") != std::string::npos);
     REQUIRE(bridge.find("\"endscreen exit to main menu\"") != std::string::npos);
+    REQUIRE(bridge.find("manifestClear(&g_ClientManifest);") == std::string::npos);
+    REQUIRE(bridge.find("menupoolReleaseAll();") == std::string::npos);
 
     REQUIRE(net.find("SCENE_STAGE_TRANSITION_DISCONNECT") != std::string::npos);
     REQUIRE(net.find("\"netDisconnect lobby return\"") != std::string::npos);
@@ -308,12 +312,15 @@ TEST_CASE("scene transition helper: priority transition sites use shared cleanup
 
     REQUIRE(netmsg.find("\"SVC_STAGE_START coop\"") != std::string::npos);
     REQUIRE(netmsg.find("\"SVC_STAGE_START combat\"") != std::string::npos);
+    REQUIRE(netmsg.find("menupoolReleaseAll();") == std::string::npos);
 
     REQUIRE(match.find("\"matchStart\"") != std::string::npos);
     REQUIRE(match.find("\"matchStartFromChallenge\"") != std::string::npos);
+    REQUIRE(match.find("menupoolReleaseAll();") == std::string::npos);
 
     REQUIRE(menutick.find("\"menutick deep sea auto advance\"") != std::string::npos);
     REQUIRE(menutick.find("\"menutick MPENDSCREEN restart\"") != std::string::npos);
     REQUIRE(menutick.find("\"menutick MPENDSCREEN exit\"") != std::string::npos);
     REQUIRE(menutick.find("\"menutick COOPCONTINUE exit\"") != std::string::npos);
+    REQUIRE(menutick.find("manifestClear(&g_ClientManifest);") == std::string::npos);
 }
