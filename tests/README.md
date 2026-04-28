@@ -31,7 +31,12 @@ Preferred for parallel AI/code sessions on Windows:
 `.claude/session-builds/<session>/`, prepends the MinGW runtime path needed by
 `pd-tests.exe`, and runs from the repository root so static source guards use
 the same relative paths as the full suite. Use a short unique `-Session` per
-parallel session and reuse it only for that session's reruns.
+parallel session and reuse it only for that session's reruns. The underlying
+`build-session.ps1` wrapper is queued by default, so parallel sessions keep
+isolated build trees but wait their turn for the expensive compile step.
+Full build verification still uses
+`.\devtools\build-session.ps1 -Session <id> -Target all`; do not use shared
+`Build/` for verification when other sessions may be active.
 
 From bash:
 
@@ -77,6 +82,8 @@ The PowerShell wrapper forwards the same Catch2 selectors:
 .\devtools\run-pd-tests.ps1 -Session qmanifest -Selector "[manifest]"
 .\devtools\run-pd-tests.ps1 -Session qinput -Selector "[input]"
 .\devtools\run-pd-tests.ps1 -Session qsave -Selector "[save][migration]"
+.\devtools\run-pd-tests.ps1 -Session qcat -Scope catalog-provider
+.\devtools\run-pd-tests.ps1 -ListScopes
 .\devtools\run-pd-tests.ps1 -Session qtags -ListTags
 .\devtools\run-pd-tests.ps1 -Session qtests -ListTests -NoBuild
 ```
@@ -91,6 +98,9 @@ Common scope selectors:
 | Manifest behavior | `[manifest]`, `[manifest][hash]`, `[manifest][diff]` |
 | Save migration | `[savebuffer]`, `[save][migration]`, `[versions]` |
 | Spawn weapon behavior | `[spawn-weapon]`, `[matchsetup][spawn-weapon]`, `[random-pool]` |
+
+Use `-Scope` for the common first-pass selectors and `-Selector` when a slice
+needs a more precise Catch2 expression.
 
 ## Layout
 

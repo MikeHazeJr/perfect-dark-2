@@ -214,10 +214,20 @@ TEST_CASE("connectcode UI: join surfaces stay connect-code only",
     REQUIRE(network.find("connectCodeDecodeWithPort(code, &ip, &port)") != std::string::npos);
 
     REQUIRE(net.find("static s32 netStoredAddrIsValid") != std::string::npos);
+    REQUIRE(net.find("portval <= 0") != std::string::npos);
     REQUIRE(net.find("void netConfigSanitizeLoadedAddresses(void)") != std::string::npos);
     REQUIRE(net.find("g_NetLastJoinAddr[0] = '\\0'") != std::string::npos);
     REQUIRE(net.find("g_NetRecentServers[out] = g_NetRecentServers[i]") != std::string::npos);
     REQUIRE(net.find("memset(&g_NetRecentServers[i], 0, sizeof(g_NetRecentServers[i]))") != std::string::npos);
+
+    const size_t recent_add = net.find("void netRecentServerAdd");
+    const size_t recent_add_validate = net.find("if (!netStoredAddrIsValid(addr))", recent_add);
+    const size_t recent_add_duplicate_scan = net.find("strncasecmp(g_NetRecentServers[i].addr, addr", recent_add_validate);
+    REQUIRE(recent_add != std::string::npos);
+    REQUIRE(recent_add_validate != std::string::npos);
+    REQUIRE(recent_add_duplicate_scan != std::string::npos);
+    REQUIRE(recent_add < recent_add_validate);
+    REQUIRE(recent_add_validate < recent_add_duplicate_scan);
 
     const size_t recent_update = net.find("void netRecentServerUpdate");
     const size_t protocol_local = net.find("u32 protocol = 0;", recent_update);

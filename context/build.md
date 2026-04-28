@@ -6,20 +6,34 @@ Build system is fully functional. User compiles on Windows via build.bat or Buil
 ## Concurrent Session Test Builds
 
 Use this whenever two AI/code sessions may build at the same time. Shared
-`Build/` is still the normal human/dev-window/release directory, but concurrent
-test builds must use isolated CMake/Ninja directories to avoid `.ninja_log`,
-`CMakeCache.txt`, generated headers, and clean-step collisions.
+`Build/` is still the normal human/dev-window/release directory, but AI/test
+builds must use `build-session.ps1`. It keeps isolated CMake/Ninja directories
+to avoid `.ninja_log`, `CMakeCache.txt`, generated headers, and clean-step
+collisions, and it serializes the heavy build phase through a repo-local queue
+so sessions do not overload the machine by compiling at the same time.
 
 PowerShell:
 ```powershell
 .\devtools\build-session.ps1 -Session <short-session-id> -Target all
 ```
 
-The wrapper forwards to the canonical `devtools/build-headless.ps1` with
+The wrapper queues by default, then forwards to the canonical
+`devtools/build-headless.ps1` with
 `-OutputDir .claude/session-builds/<short-session-id>`, so compiler paths,
 TEMP/TMP, ccache, CMake flags, addin copy, and target names stay identical to
 the headless build. Reuse the same `-Session` id for incremental rebuilds in one
-session. Use different ids for simultaneous sessions.
+session. Use different ids for simultaneous sessions. Watch the queue output
+while waiting; it prints queue position, active build elapsed time, estimated
+wait, and the current session wait time every 30 seconds. Do not pass
+`-NoQueue` unless Mike explicitly asks for a manual bypass.
+
+Queued builds have a 3-minute active-build watchdog by default
+(`-BuildTimeoutSeconds 180`). If the child build exceeds that runtime, the
+wrapper stops the child process tree, records exit code `124`, clears the active
+queue slot, and lets the next queued session start. Use
+`-BuildTimeoutSeconds <seconds>` only when a specific slow clean build needs a
+longer window; `0` disables the watchdog and should be reserved for an explicit
+manual bypass.
 
 Maintenance:
 ```powershell
@@ -29,7 +43,8 @@ Maintenance:
 ```
 
 The wrapper stores session output under `.claude/session-builds/` (ignored by
-git) and holds a per-session lock under `.claude/session-builds/.locks/`.
+git), holds a per-session lock under `.claude/session-builds/.locks/`, and stores
+queue state under `.claude/session-builds/.queue/`.
 If a lock remains after a crashed build, confirm no build is running, then remove
 that session with `-Force`.
 
@@ -80,7 +95,7 @@ cmake --build build -- -j%NUMBER_OF_PROCESSORS%
 
 ## Codex Desktop Build Rule (2026-04-28)
 
-When building from Codex desktop, do **not** use shared `Build/` if another session may be building. Use an isolated session directory:
+When building from Codex desktop, do **not** use shared `Build/` if another session may be building. Use the queued isolated session wrapper:
 
 ```powershell
 .\devtools\build-session.ps1 -Session <short-unique-id> -Target all
@@ -93,6 +108,9 @@ Reuse the same `-Session` id only within the same AI session. Clean up afterward
 ```
 
 Observed path shape: `.claude/session-builds/<session-id>/`.
+The wrapper queues by default and applies the 3-minute active-build watchdog.
+Watch the queue status/ETA while waiting, and do not pass `-NoQueue` unless
+Mike explicitly asks.
 
 ## Codex Desktop Build Caveat (2026-04-28)
 

@@ -709,6 +709,12 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl)
 		netServerKick(srccl, DISCONNECT_KICKED);
 		return 1;
 	}
+	if (players == 0 || players > MAX_PLAYERS) {
+		sysLogPrintf(LOG_WARNING, "NET: malformed CLC_AUTH from client %u: invalid local player count %u",
+			srccl->id, players);
+		netServerKick(srccl, DISCONNECT_KICKED);
+		return 1;
+	}
 
 	/* Dedicated servers have no ROM or mods loaded — skip file checks entirely.
 	 * Only a listen server (client hosting) validates ROM and mod agreement. */
@@ -899,6 +905,9 @@ u32 netmsgClcMoveRead(struct netbuf *src, struct netclient *srccl)
 	struct netplayermove newmove;
 	const u32 outmoveack = netbufReadU32(src);
 	netbufReadPlayerMove(src, &newmove);
+	if (src->error) {
+		return src->error;
+	}
 
 	if (srccl->state != CLSTATE_GAME) {
 		// silently ignore
@@ -1982,7 +1991,8 @@ u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl)
 	 * The manifest is fully rebuilt when SVC_MATCH_MANIFEST arrives for the next
 	 * match.  Without this, any code path that triggers mainChangeToStage() between
 	 * matches could load the wrong assets from the previous manifest. */
-	manifestClear(&g_ClientManifest);
+	sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_CLEAR_CLIENT_MANIFEST,
+		"SVC_STAGE_END");
 
 	/* Bot authority relinquished at match end — next match will re-assign */
 	g_NetLocalBotAuthority = false;
@@ -6116,6 +6126,19 @@ u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl)
 		sysLogPrintf(LOG_WARNING, "NET: malformed CLC_MANIFEST_STATUS header");
 		return 1;
 	}
+	if (status > MANIFEST_STATUS_DECLINE) {
+		sysLogPrintf(LOG_WARNING, "NET: malformed CLC_MANIFEST_STATUS status %u from client %u",
+			(unsigned)status, srccl ? srccl->id : 0xFF);
+		return 1;
+	}
+	if (s_ReadyGate.active && manifest_hash != g_ServerManifest.manifest_hash) {
+		sysLogPrintf(LOG_WARNING,
+			"NET: CLC_MANIFEST_STATUS hash mismatch from client %u (got 0x%08x expected 0x%08x)",
+			srccl ? srccl->id : 0xFF,
+			(unsigned)manifest_hash,
+			(unsigned)g_ServerManifest.manifest_hash);
+		return 1;
+	}
 
 	sysLogPrintf(LOG_NOTE, "NET: CLC_MANIFEST_STATUS from client %u: hash=0x%08x status=%u missing=%u",
 	             srccl ? srccl->id : 0xFF,
@@ -6401,6 +6424,15 @@ u32 netmsgClcBotMoveWrite(struct netbuf *dst)
 u32 netmsgClcBotMoveRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u8 count = netbufReadU8(src);
+	if (src->error) {
+		return src->error;
+	}
+	if (count > MAX_BOTS || count > g_BotCount) {
+		sysLogPrintf(LOG_WARNING, "NET: malformed CLC_BOT_MOVE count %u (bots=%d max=%d)",
+			(unsigned)count, (int)g_BotCount, (int)MAX_BOTS);
+		return 1;
+	}
+
 	const bool authorized = srccl
 		&& srccl->state == CLSTATE_GAME
 		&& g_NetBotAuthorityClientId != NET_NULL_CLIENT
@@ -6992,6 +7024,7 @@ u32 netmsgClcRoomCreateRead(struct netbuf *src, struct netclient *srccl)
 	if (src->error) return src->error;
 
 	if (g_NetMode != NETMODE_SERVER) return src->error;
+	if (!srccl) return 1;
 
 	/* SEC-13: rate-limit room mutations (1/sec/client). */
 	if (!netmsgRoomRateAllow(srccl)) {
@@ -7013,15 +7046,18 @@ u32 netmsgClcRoomCreateRead(struct netbuf *src, struct netclient *srccl)
 		finalName = genName;
 	}
 
-	/* SEC-14: validate access mode.  Invite-only is declared but not yet
-	 * implemented — treat as OPEN server-side so clients that try it don't
-	 * get silently locked out. */
+	/* SEC-14: validate access mode before room creation. */
 	room_access_t access = ROOM_ACCESS_OPEN;
-	if (accessRaw == ROOM_ACCESS_PASSWORD) {
+	if (accessRaw > ROOM_ACCESS_INVITE) {
+		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_CREATE from client %u rejected — access=%u out of range",
+			srccl->id, accessRaw);
+		return 1;
+	} else if (accessRaw == ROOM_ACCESS_PASSWORD) {
 		/* Require a non-empty password for password rooms. */
 		if (!passwordBuf[0]) {
-			sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_CREATE from client %u: password room with empty password — downgrading to OPEN", srccl->id);
-			access = ROOM_ACCESS_OPEN;
+			sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_CREATE from client %u rejected — password room without password",
+				srccl->id);
+			return 1;
 		} else {
 			access = ROOM_ACCESS_PASSWORD;
 		}
@@ -7086,6 +7122,7 @@ u32 netmsgClcRoomJoinRead(struct netbuf *src, struct netclient *srccl)
 	if (src->error) return src->error;
 
 	if (g_NetMode != NETMODE_SERVER) return src->error;
+	if (!srccl) return 1;
 
 	/* SEC-13: rate-limit room mutations (1/sec/client). */
 	if (!netmsgRoomRateAllow(srccl)) {
@@ -7163,6 +7200,7 @@ u32 netmsgClcRoomLeaveRead(struct netbuf *src, struct netclient *srccl)
 	if (src->error) return src->error;
 
 	if (g_NetMode != NETMODE_SERVER) return src->error;
+	if (!srccl) return 1;
 
 	if (srccl->room_id == 0xFF) return src->error;
 
@@ -7481,6 +7519,7 @@ u32 netmsgClcRoomSettingsUpdateRead(struct netbuf *src, struct netclient *srccl)
 	if (src->error) return src->error;
 
 	if (g_NetMode != NETMODE_SERVER) return src->error;
+	if (!srccl) return 1;
 
 	/* Only the room creator (leader) may push settings. */
 	if (srccl->room_id == 0xFF) return src->error;
@@ -7585,6 +7624,7 @@ u32 netmsgClcRoomPlaylistUpdateRead(struct netbuf *src, struct netclient *srccl)
 	if (src->error) return src->error;
 
 	if (g_NetMode != NETMODE_SERVER) return src->error;
+	if (!srccl) return 1;
 
 	if (srccl->room_id == 0xFF) return src->error;
 	hub_room_t *room = roomGetById(srccl->room_id);

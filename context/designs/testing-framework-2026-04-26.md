@@ -174,7 +174,13 @@ Preferred for parallel AI/code sessions on Windows:
 
 This uses `.claude/session-builds/<session>/` instead of shared `Build/`,
 builds only the `pd-tests` target through `build-session.ps1 -Target tests`,
-and then runs `pd-tests.exe` with the supplied Catch2 selector.
+and then runs `pd-tests.exe` with the supplied Catch2 selector. The build-session
+wrapper is queued by default: waiting sessions keep their isolated build
+directory and receive visible queue position / elapsed / estimated-wait updates
+instead of compiling simultaneously.
+Full build verification remains a separate queued build step:
+`.\devtools\build-session.ps1 -Session <id> -Target all`. Do not use shared
+`Build/` for verification while other sessions may be active.
 
 ```bash
 source devtools/build-env.sh
@@ -196,6 +202,8 @@ PowerShell targeted equivalents:
 - `.\devtools\run-pd-tests.ps1 -Session qmanifest -Selector "[manifest]"`
 - `.\devtools\run-pd-tests.ps1 -Session qinput -Selector "[input]"`
 - `.\devtools\run-pd-tests.ps1 -Session qsave -Selector "[save][migration]"`
+- `.\devtools\run-pd-tests.ps1 -Session qcat -Scope catalog-provider`
+- `.\devtools\run-pd-tests.ps1 -ListScopes`
 - `.\devtools\run-pd-tests.ps1 -Session qtags -ListTags`
 
 ### Build-environment integration
@@ -403,6 +411,10 @@ Common selectors:
 | Manifest behavior | `[manifest]`, `[manifest][hash]`, `[manifest][diff]` |
 | Save migration | `[savebuffer]`, `[save][migration]`, `[versions]` |
 | Spawn weapon behavior | `[spawn-weapon]`, `[matchsetup][spawn-weapon]`, `[random-pool]` |
+
+Use `-Scope` for common lanes (`catalog`, `catalog-provider`, `input`,
+`manifest`, `save`, `netbuf`, `connectcode`, `network-lifecycle`, `spawn`) and
+fall back to `-Selector` for a custom Catch2 expression.
 
 ### Suggested next steps (not done in this session)
 

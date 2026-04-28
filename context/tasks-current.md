@@ -38,23 +38,31 @@
 - Hardened malformed net string parsing: zero-length wire strings now return a safe empty string instead of a pointer into following payload bytes, and unterminated wire strings are rejected without mutating inbound packet payload.
 - Tightened connect-code address validation: current join UIs no longer prefill or advertise raw IP input, decode 4-word/6-word connect codes through `connectCodeDecodeWithPort`, reject trailing garbage, validate stored raw address octets/ports before displaying as codes, and preserve custom listen ports in host lobby codes.
 - Started and completed the first stat-integrity slice: remote `CLC_MOVE` weapon-select requests are now server-side inventory-gated before the listen host applies `bgunEquipWeapon`, so a client cannot equip and score with a weapon the host has not observed them owning.
+- Hardened malformed `CLC_MOVE` parsing: player moves now return immediately on netbuf parse error before state checks, weapon-select validation, or `outmoveack` updates can observe a partially decoded move.
 - Added a second stat-integrity gate: `CLC_SETTINGS` team changes now reject team ids outside `MAX_TEAMS` and ignore in-game team switches when the match is not team-enabled, so the raw wire byte is never written directly into `srccl->config->base.team`.
+- Hardened `CLC_AUTH` malformed input: the client-supplied local-player count is now rejected when it is zero or above `MAX_PLAYERS` before ROM/mod checks or auth state commits, keeping the unused wire field from becoming a future trust-boundary footgun.
 - Hardened `CLC_LOBBY_START` count parsing: when `numSims` is clamped, over-cap bot config records are drained before the embedded manifest is parsed, preventing manifest-boundary skew from stale or hostile bot counts.
+- Hardened manifest ready-gate integrity: `CLC_MANIFEST_STATUS` now rejects unknown status bytes and, while a ready gate is active, requires the echoed manifest hash to match `g_ServerManifest.manifest_hash` before parsing missing IDs or setting ready/decline bits.
+- Hardened delegated bot-authority updates: `CLC_BOT_MOVE` now rejects impossible record counts (`> MAX_BOTS` or `> g_BotCount`) before authorization-dependent bot state writes, preventing partial application from over-counted streams.
+- Hardened room mutation source-client assumptions: room create/join/leave/settings/playlist handlers now reject a missing `srccl` before rate limits, room membership checks, or room rebroadcasts dereference client state.
+- Hardened room access creation: `CLC_ROOM_CREATE` now rejects unknown access modes and rejects password-room creation without a password instead of silently downgrading to an open room.
 - Hardened room settings sync: `CLC_ROOM_SETTINGS_UPDATE` and `CLC_ROOM_PLAYLIST_UPDATE` now rebuild their rebroadcast packet per recipient because `netSend()` resets the source buffer after queueing; settings also use the normal reliable buffer instead of the old 256-byte stack packet.
 - Closed the loaded-address validation gap: after `pd.ini` load, invalid internal `Net.Client.LastJoinAddr` values are cleared and invalid `Net.RecentServer.*` entries are compacted out; the modern server list no longer falls back to displaying raw stored addresses when connect-code conversion fails.
+- Closed the follow-up stored-address ingress gap: parsed join addresses now reject explicit port `0`, and `netRecentServerAdd()` refuses to persist invalid recent-server strings even if a future internal caller bypasses the post-load sanitizer.
 - Made recent-server UDP response parsing transactional: server-browser metadata now stages protocol/status/scenario/hostname fields locally and commits them only after the full response parses without netbuf error, so malformed strings cannot leave a partial online server row.
 - Confirmed updater signing is already implemented: release zips require `.sha256` and `.sig`; the updater verifies Ed25519 over `sha256(zip)||tag` with the embedded public key and runs a self-test at init. No dedicated-server product work needed for this lane.
 - Added focused static/source tests for mandatory distribution digest, zero/unterminated strings, strict connect-code parsing, connect-code-only UI invariants, loaded-address scrubbing, recent-server transactional parsing, inventory-gated weapon-select packets, lobby over-cap bot draining, team sanitization, and per-recipient room rebroadcasts.
 
 **Verification:**
-- `git diff --check` passed for the trust/security touched files, including the address-validation follow-up.
+- `git diff --check` passed for the trust/security touched files after the final malformed-packet/source-client follow-ups.
 - Earlier isolated build wrapper attempt `sec507` did not reach compilation; it was cleaned up and recorded in `context/build.md`.
 - This slice used the required isolated build wrapper: `.\devtools\build-session.ps1 -Session sec575 -Target all`. Configure completed in 1s, ccache was disabled after the compiler-launch probe timed out, and client compilation ran until the Codex command timed out at 45 minutes without surfacing a compiler diagnostic.
 - Cleanup was targeted to this session: stale lock PID 20428 was gone, `.\devtools\build-session.ps1 -Remove -Session sec575 -Force` removed the build directory and lock, and `-List` confirmed `sec575` was gone while `t573`, `ml53`, and `cat566` remained untouched.
+- No second build was started after the final source-only follow-ups because `.\devtools\build-session.ps1 -List` still showed other locked isolated sessions (`t573`, `cat566`).
 
 **Next recursive trust/security item:**
-1. Re-run isolated verification when current build contention clears, preferably through the targeted test wrapper once that lane verifies cleanly.
-2. Continue the low-risk client-hosted audit with any remaining malformed packet length/count fields reachable from current listen-host shipping paths.
+1. Re-run isolated verification when current build contention clears, preferably with the targeted runner for `[netbuf]`, `[net][lifecycle][security][static]`, and `[connectcode][security][static]`.
+2. No further low-risk listen-host code slice is queued from this scan until verification runs; keep dedicated-server product work deferred.
 
 ## Open -- 2026-04-28 (Modern main menu / social shell)
 
@@ -83,11 +91,11 @@
 
 ## Open -- 2026-04-28 (Quality / Testing / Audits)
 
-**Status: TARGETED TEST PIPELINE PATCHED / VERIFY PENDING.** Mike requested scoped `pd-tests` runs so sessions can build and execute only the tests tied to their current invariant, without colliding in shared `Build/`.
+**Status: TARGETED TEST PIPELINE PATCHED / QUEUED BUILD VERIFY WAITING.** Mike requested scoped `pd-tests` runs so sessions can build and execute only the tests tied to their current invariant, without colliding in shared `Build/`.
 
-**Build infrastructure side quest complete (S504):** concurrent test builds now have `devtools/build-session.ps1`, which routes each session to `.claude/session-builds/<session-id>/` via the canonical headless build script and adds per-session locking plus cleanup commands. Use this instead of shared `Build/` when multiple sessions may build simultaneously.
+**Build infrastructure side quest complete (S504/S579/S582):** concurrent test builds now have `devtools/build-session.ps1`, which routes each session to `.claude/session-builds/<session-id>/` via the canonical headless build script and adds per-session locking plus cleanup commands. As of S579, the wrapper also queues builds by default: sessions keep isolated build trees, but only one heavy build runs at a time, and waiting sessions receive queue position, active elapsed time, estimated wait, and waited-time status. S582 added the active-build watchdog: queued child builds default to a 3-minute timeout, stop the child process tree on timeout, clear the active queue slot, and return exit code `124`. Use this instead of shared `Build/` when multiple sessions may build; reserve `-NoQueue` or `-BuildTimeoutSeconds 0` for intentional manual bypass only.
 
-**Targeted test pipeline slice in progress (S573):** `devtools/build-headless.ps1` and `devtools/build-session.ps1` now accept `-Target tests` for the `pd-tests` CMake target, and `devtools/run-pd-tests.ps1` builds/runs `pd-tests.exe` from `.claude/session-builds/<session-id>/` with a Catch2 selector such as `[catalog][provider][static]`, `[input]`, `[manifest]`, `[save][migration]`, or `[netbuf]`. Documentation updated in `tests/README.md` and `context/designs/testing-framework-2026-04-26.md`. Verification and cleanup are still in progress for session id `t573`.
+**Targeted test pipeline slice in progress (S573/S581):** `devtools/build-headless.ps1` and `devtools/build-session.ps1` now accept `-Target tests` for the `pd-tests` CMake target, and `devtools/run-pd-tests.ps1` builds/runs `pd-tests.exe` from `.claude/session-builds/<session-id>/` with a Catch2 selector such as `[catalog][provider][static]`, `[input]`, `[manifest]`, `[save][migration]`, or `[netbuf]`. `run-pd-tests.ps1` now also supports `-Scope` aliases (`catalog`, `catalog-provider`, `catalog-identity`, `input`, `manifest`, `save`, `netbuf`, `connectcode`, `network-lifecycle`, `spawn`) plus `-ListScopes`. Documentation updated in `tests/README.md` and `context/designs/testing-framework-2026-04-26.md`, including the clarification that full build verification stays on `.\devtools\build-session.ps1 -Session <id> -Target all`. Parser checks, `.\devtools\run-pd-tests.ps1 -ListScopes`, and `git diff --check` passed for the touched scripts/docs. The aborted `t573` test-build attempt left a stale lock; its recorded PID was gone, no objects/test binary existed, and `.\devtools\build-session.ps1 -Remove -Session t573 -Force` removed it. Follow-up fixed `build-session.ps1 -List` elapsed/waiting display for UTC queue timestamps and tightened `-NoQueue` wording to match Mike's explicit-only rule. Full build verification is now queued as `tv573` with `.\devtools\build-session.ps1 -Session tv573 -Target all`, initially position 4/4 behind existing queued builds with about 2h55m estimated wait.
 
 **Dev Window v2 side quest complete (S570):** the Push button now stages, commits, pushes, and refreshes UI state; warm BUILD/RUN TESTS paths skip configure when the cache/version/Python tool are current, run CMake builds in parallel, and mirror addin data with `robocopy` when available. Verified with the PowerShell parser and `git diff --check` on the dev-window files; full build was not rerun because the Codex desktop build caveat still applies.
 
@@ -117,7 +125,7 @@
 
 ## Open -- 2026-04-28 (Input infrastructure: cutscene transition flush)
 
-**Status: TRANSITIONAL SHIM RETIREMENT IN PROGRESS / MENU-LAYER BRIDGE PATCHED-PENDING-VERIFY.** Narrow slices only. No broad scene-manager expansion.
+**Status: TRANSITIONAL SHIM RETIREMENT IN PROGRESS / MENU-LAYER BRIDGE AND STAGE-TRANSITION HELPER PATCHED-PENDING-VERIFY.** Narrow slices only. No broad scene-manager expansion.
 
 **Done this session:**
 - Added public `actionmapFlushActionSet(const InputAction *actions, s32 action_count)` so transition/layer code can flush declared shared actions without broadening `actionmapFlushGameplayState()`.
@@ -251,6 +259,18 @@
 - Added a narrow `inputctx` to `LAYER_MENU` bridge: when the effective input context top is non-gameplay, `inputctx` publishes one menu layer; when gameplay becomes effective again, it pops that layer.
 - Wired the bridge through central input context lifecycle points instead of per-menu callsites: init, shutdown, push, resurrect, deferred pop, immediate pop, and end-frame compaction.
 - Added pure pd-tests for the bridge semantics and a source guard that the production bridge calls the real input-layer push/pop/abort APIs.
+- Added `scene_transition.h` / `scene_transition.c` as the small stage-transition cleanup substrate, centralizing `g_ClientManifest` clearing, menu-pool release, and disconnect scene teardown without introducing a broad scene manager rewrite.
+- Migrated priority transition cleanup sites to the helper: solo endscreen retry/next/main-menu exit, `netDisconnect`, client `SVC_STAGE_START` menu teardown, client `SVC_STAGE_END` manifest cleanup, local match start/challenge start, and the legacy `menutick.c` MP/coop manifest-clear-before-stage-change exits.
+- Added static pd-tests to pin the helper API, server source inclusion, cleanup ordering before `mainChangeToStage`, and the migrated priority callsites.
+- Added conservative layer-aware read gating in `actionmap.cpp`: when the top input layer declares an action set, gameplay-only read queries must be in that declared set; shared/system actions keep current behavior, and layers without declared sets still fall back to `gameplayInputSuppressed()`.
+- Added a static pd-test guard that the query API calls the layer-aware aperture instead of open-coding the old inputctx-only predicate.
+- Extended the same layer-aware aperture to `fireVk()` dispatch writes after the normal IMC priority winner is chosen. Disallowed gameplay-only actions are consumed before `s_State` writes, preserving first-match-wins semantics and avoiding lower-priority remapping.
+- Added a static pd-test guard that dispatch writes call the aperture before `ActionState` mutation.
+- Extended the aperture to the remaining direct gameplay-axis writer in `actionmapPollFrame()`. Generic move/aim axes now write only when the current layer allows those axis pairs; blocked pairs are zeroed so stale values do not survive cutscene/menu/vehicle authority.
+- Added a static pd-test guard for analog axis aperture and zeroing.
+- Gated `actionConsumeHold()` and `actionHoldConsumed()` through the same aperture and freefly block so hold bookkeeping cannot mutate or expose disallowed gameplay-only state.
+- Migrated `inputReadController()` legacy `OSContPad` axis population from raw SDL axis reads to `actionValue(...)`, so legacy pad samples inherit action-map/layer authority. Raw `inputKeyPressed()` remains documented for key capture and mouse plumbing only.
+- Added static pd-tests for hold bookkeeping gates and `inputReadController()` action-axis mirroring.
 
 **Verification:**
 - Prescribed MSYS2/Ninja flow passed: `pd`, `pd-server`, `pd-tests`, then `pd-tests.exe`.
@@ -345,7 +365,12 @@
 - `git diff --check` passed outside the sandbox; only the existing LF-to-CRLF warnings for `devtools/_build-env-prelude.ps1` and `devtools/build-headless.ps1` appeared.
 - PageUp/PageDown shim verification reused isolated build session `ix46`; isolated Ninja outside the sandbox built `pd`, `pd-server`, and `pd-tests`, then ran `pd-tests.exe`.
 - Latest isolated `pd-tests.exe`: 329 test cases / 17795 assertions passed.
-- Menu-layer bridge verification is pending isolated build session `ml53`.
+- Menu-layer bridge verification was attempted in isolated build session `ml53`, but the wrapper stalled in client compilation. Mike then directed to skip tests this time; `ml53` was stopped and removed with `-Remove -Session ml53 -Force`.
+- Stage-transition helper verification: `git diff --check` passed for the touched production/test files. No build or `pd-tests` run was performed after Mike's skip-tests instruction.
+- Layer-aware read-gate verification: `git diff --check` passed for the touched production/test/context files. No build or `pd-tests` run was performed after Mike's skip-tests instruction.
+- Layer-aware dispatch-gate verification: `git diff --check` passed for the touched production/test/context files. No build or `pd-tests` run was performed after Mike's skip-tests instruction.
+- Layer-aware analog-axis verification: `git diff --check` passed for the touched production/test/context files. No build or `pd-tests` run was performed after Mike's skip-tests instruction.
+- Hold-bookkeeping and `inputReadController()` verification: `git diff --check` passed for the touched production/test/context files. No build or `pd-tests` run was performed after Mike's skip-tests instruction.
 - `Build/pd-client.log` playtest evidence:
   - `[03:11.66]` held A advanced from endscreen to stage 0x33.
   - `[03:12.26]` objective 2 intro reached frame 30 and kept playing.
@@ -353,8 +378,9 @@
   - `[03:19.65]` fresh A press mapped to `ACTION_SKIP_CUTSCENE`; `[03:19.66]` cutscene IMC exited.
 
 **Next input slice:**
-1. Continue transitional-shim audit. Remaining known candidates are `gameplayInputSuppressed()` as the old input-context authority wrapper and ad-hoc `manifestClear` / `mainChangeToStage` / `menupoolReleaseAll` transition triplets.
-2. Keep B-267 in Mike's playtest queue: deliberate skip into endscreen, then continue to next mission. Expected log: cutscene IMC deactivates at endstage/teardown before the next intro, and the next intro logs a fresh cutscene activation.
+1. Continue transitional-shim audit. Remaining known candidate is `gameplayInputSuppressed()` as the old input-context authority wrapper, but do not switch it to pure top-layer logic until observer and vehicle action-read ownership are confirmed safe.
+2. Continue stage-transition cleanup only where a caller still open-codes ordering-sensitive cleanup around a stage handoff. Leave non-stage manifest parse/rollback clears alone.
+3. Keep B-267 in Mike's playtest queue: deliberate skip into endscreen, then continue to next mission. Expected log: cutscene IMC deactivates at endstage/teardown before the next intro, and the next intro logs a fresh cutscene activation.
 
 **Task transfer -- sequential completion path:**
 1. B-267 root-cause inspection: DONE. Skip-to-endstage missed `SCENE_EVENT_CUTSCENE_END`, and production stage/load lifecycle did not consistently fire scene ready/teardown.
@@ -368,6 +394,14 @@
 9. Vehicle and observer layers: DONE / BUILD VERIFIED. Bike mount/dismount, Forge observer entry/exit, and spectator entry/exit now flow through scene events and tracked layer handles while preserving existing IMC behavior.
 10. Menu graph migration: DONE FOR PRIORITY NODES / WATCHING FOR NEW SITES. Main-menu inline subviews now have real `MENU_TYPE_*` pool ownership; graph descriptors, dialog-push, push-op, local-op, sibling-switch, network-op, scene-op, process-op, pop-op, and pop helpers are in place; top-level main-menu inline view opens and subview backs, main-menu Solo Missions and Combat Simulator, main-menu Modding hub open, main-menu Stats panel open, main-menu Quit and Close, Change Agent, Cheats, Network menu, main-menu Online connect paths, Social Lobby create/disconnect, solo/MP endscreen exits, combat-sim pause End Match, The Grid Enter, full Room node, Agent Select load/create/back, MP pause resume/end-game, solo mission start/back/restart, solo pause resume/inventory/settings/abort, and warning-modal confirm/cancel close paths use graph helpers.
 11. Raw input migration sweep: DONE FOR CURRENT FIRST-PARTY COMMAND SITES / WATCHING FOR NEW SITES. Shared menu-action helpers are in place; action-bar, confirm modal, endscreen cancel, Network Back, Social Lobby disconnect, MP pause Back, Bot Setup Back, warning-modal shortcuts, combat-sim pause shortcuts, Room Leave/Delete confirm shortcuts, Agent Select navigation, Agent Select secondary/delete/tertiary commands, main-menu Settings/Cinema navigation, Room tabs and bot-row secondary/tertiary commands, Stats tabs/close, countdown cancel, file browser Back, Agent Create cancel, Challenges list/back, Control Diagram back/up/down, MP Advanced back, MP Settings back/Done/preview secondary command, MP Setup back, Player Config back, Team Setup Done, Cheats shortcuts, Mod Manager tab/close, Modding Hub tool/close, Training shortcuts, Solo Mission shortcuts, spectator observer controls, social voice PTT, Forge editor/HUD commands, and Skin Editor shortcuts now use action-map authority. Current audit leaves only the documented main-menu PageUp/PageDown queue drain plus comments/third-party internals.
+12. Menu-layer bridge: PATCHED / VERIFY SKIPPED BY MIKE. `inputctx` now publishes one typed menu layer for any effective non-gameplay input context and unwinds out-of-order via input-layer abort. Focused pure/static tests are added but not run in this slice.
+13. Stage-transition cleanup helper: PATCHED / VERIFY SKIPPED BY MIKE. `sceneStageTransitionPrepare` / `sceneStageChangeTo` centralize manifest clear, menu-pool release, and disconnect scene cleanup at priority transition sites, including the follow-up `SVC_STAGE_END` match-teardown clear. Static tests are added but not run in this slice.
+14. Layer-aware action read aperture: PATCHED / VERIFY SKIPPED BY MIKE. `actionLayerAllows()` now lets declared top-layer action sets constrain gameplay-only query reads without changing shared/system action behavior or replacing `gameplayInputSuppressed()` wholesale. Static test coverage is added but not run in this slice.
+15. Layer-aware action dispatch aperture: PATCHED / VERIFY SKIPPED BY MIKE. `fireVk()` now applies `actionLayerAllows()` after choosing the highest-priority mapped action and before mutating `s_State`, so declared top layers can suppress gameplay-only writes without changing IMC ordering. Static test coverage is added but not run in this slice.
+16. Layer-aware analog axis aperture: PATCHED / VERIFY SKIPPED BY MIKE. `actionmapPollFrame()` now uses the same layer aperture for generic move/aim axes and zeros blocked pairs before keyboard synthesis, preserving observer axes while preventing cutscene/menu/vehicle layers from inheriting stale generic gameplay axes. Static test coverage is added but not run in this slice.
+17. Hold bookkeeping aperture: PATCHED / VERIFY SKIPPED BY MIKE. `actionConsumeHold()` and `actionHoldConsumed()` now follow layer/freefly gating before mutating or reading hold-consumed state. Static test coverage is added but not run in this slice.
+18. Legacy OSContPad axis bridge: PATCHED / VERIFY SKIPPED BY MIKE. `inputReadController()` now mirrors `ACTION_AXIS_MOVE_*` and `ACTION_AXIS_AIM_*` through `actionValue()` instead of raw SDL axis reads, leaving only documented raw key capture/mouse helper paths in `input.c`. Static test coverage is added but not run in this slice.
+19. Determine next recursive slice: BOUNDARY REACHED. Source audit now shows no `s_State` access outside `actionmap.cpp` except comments, and first-party gameplay/menu callers use action query APIs. Next step is build/playtest verification when Mike reopens tests; do not retire `gameplayInputSuppressed()` before that verification.
 12. Retire transitional shims: IN PROGRESS. Cutscene compatibility globals, the old sync wrapper, backend PageUp/PageDown action injection, and the main-menu PageUp/PageDown queue drain are retired and build verified. Remaining candidates: `gameplayInputSuppressed()` wrapper and ad-hoc transition triplets once scene ownership is central enough to replace them safely.
 13. Determine the next completion task and continue recursively until the input architecture is complete or a hard blocker requires Mike's decision.
 14. Final integration verification: run `pd`, `pd-server`, `pd-tests`, grep/static guard checks, and Mike playtests across mission transitions, cutscenes, menus, vehicle, forge/observer, and alt-tab/focus boundaries.
@@ -444,6 +478,8 @@
     - Centralized file-backed primary source-handle assignment behind `catalogSetPrimaryFile(entry, path)`.
     - Migrated local component scanning and network-distributed hot registration off direct `fileProviderHandle()` calls while preserving distributed relative-path resolution against the extracted component directory.
     - Added a source-wide static guard so future direct `fileProviderHandle()` callers stay inside the catalog/provider boundary allowlist.
+    - Added `catalogSetPrimaryRomFilenum(entry, filenum)` and migrated base catalog seed registration off direct `romProviderHandle()` calls/includes while preserving the ROM fast path as a catalog-internal bridge.
+    - Tightened static coverage so base registration files cannot reintroduce `assetprovider_internal.h` or raw `catalogSetPrimary(e, romProviderHandle(...))`.
   - Source-filenum provider handle bridge cleanup:
     - Added `catalogHandleBySourceFilenum(asset_type_e type, s32 source_filenum)` so legacy numeric source-file callers ask the catalog for the effective provider handle instead of open-coding `catalogIdBySourceFilenum()` / `assetCatalogResolve()` / `catalogEffectiveHandle()` loops.
     - Migrated the first-person gun async loader, raw menu model preview path, and `modelcatalog` validation bridge to the shared helper.
@@ -467,7 +503,8 @@
 1. Current typed lifecycle policy covers every declared asset type; no generic raw path payload fallback remains.
 2. Public untyped lifecycle wrappers are retired; typed lifecycle APIs are now the only public retain/load/release surface.
 3. File-backed scanner/distribution primary source handles now route through the catalog helper; direct `fileProviderHandle()` use is confined to catalog/provider internals and stubs.
-4. Keep source-wide provider-surface guardrails in place and determine the next safe catalog/provider slice recursively until a hard blocker requires Mike's decision.
+4. ROM-backed base registration primary source handles now route through the catalog helper; direct `romProviderHandle()` use is confined to catalog/provider internals, assetload bridges, and stubs.
+5. Next step is verification for the S577/S578 code slices once builds resume. Further catalog/provider code work should wait until the skipped build/test pass catches up.
 
 **Operator-side verification still owed:** in-game validation for Combat Sim setup weapon slots, Random/Fiesta spawn modes, weapon pads, stage transitions, and any mod weapon distribution path.
 

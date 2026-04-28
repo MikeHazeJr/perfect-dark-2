@@ -187,7 +187,7 @@ s32 netParseAddr(ENetAddress *out, const char *str)
 	}
 
 	const s32 portval = port ? atoi(port) : NET_DEFAULT_PORT;
-	if (portval < 0 || portval > 0xFFFF) {
+	if (portval <= 0 || portval > 0xFFFF) {
 		return false;
 	}
 
@@ -2535,6 +2535,10 @@ static s32 netClientHandleQueryChallenge(ENetSocket sock, const ENetAddress *add
 void netRecentServerAdd(const char *addr)
 {
 	if (!addr || !addr[0]) {
+		return;
+	}
+	if (!netStoredAddrIsValid(addr)) {
+		sysLogPrintf(LOG_WARNING, "NET: not storing invalid recent server address `%s`", addr);
 		return;
 	}
 

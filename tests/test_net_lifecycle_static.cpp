@@ -103,6 +103,99 @@ TEST_CASE("net lifecycle: malformed SVC_MATCH_MANIFEST clears staged client mani
     REQUIRE(failure_return < preparing_state);
 }
 
+TEST_CASE("net auth: local player count is validated before auth state commits",
+          "[net][auth][security][static]")
+{
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string read = function_block(netmsg, "u32 netmsgClcAuthRead");
+
+    const size_t players_read = read.find("const u8 players = netbufReadU8(src)");
+    const size_t error_gate = read.find("if (src->error)", players_read);
+    const size_t players_gate = read.find("players == 0 || players > MAX_PLAYERS", error_gate);
+    const size_t players_return = read.find("return 1;", players_gate);
+    const size_t file_check = read.find("romCrc != utilCrc32(g_RomName)", players_return);
+    const size_t settings_commit = read.find("srccl->settings", players_return);
+
+    REQUIRE(players_read != std::string::npos);
+    REQUIRE(error_gate != std::string::npos);
+    REQUIRE(players_gate != std::string::npos);
+    REQUIRE(players_return != std::string::npos);
+    REQUIRE(file_check != std::string::npos);
+    REQUIRE(settings_commit != std::string::npos);
+
+    REQUIRE(players_read < error_gate);
+    REQUIRE(error_gate < players_gate);
+    REQUIRE(players_gate < players_return);
+    REQUIRE(players_return < file_check);
+    REQUIRE(players_return < settings_commit);
+}
+
+TEST_CASE("net manifest status: status and hash are validated before ready gate commits",
+          "[net][lifecycle][manifest][security][static]")
+{
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string read = function_block(netmsg, "u32 netmsgClcManifestStatusRead");
+
+    const size_t status_read = read.find("const u8  status");
+    const size_t missing_read = read.find("const u8  num_missing", status_read);
+    const size_t error_gate = read.find("if (src->error)", missing_read);
+    const size_t status_gate = read.find("status > MANIFEST_STATUS_DECLINE", error_gate);
+    const size_t status_return = read.find("return 1;", status_gate);
+    const size_t hash_gate = read.find("manifest_hash != g_ServerManifest.manifest_hash", status_return);
+    const size_t hash_return = read.find("return 1;", hash_gate);
+    const size_t missing_loop = read.find("for (s32 mi = 0;", hash_return);
+    const size_t ready_gate = read.find("if (s_ReadyGate.active && srccl)", missing_loop);
+    const size_t ready_commit = read.find("s_ReadyGate.ready_mask |=", ready_gate);
+
+    REQUIRE(status_read != std::string::npos);
+    REQUIRE(missing_read != std::string::npos);
+    REQUIRE(error_gate != std::string::npos);
+    REQUIRE(status_gate != std::string::npos);
+    REQUIRE(status_return != std::string::npos);
+    REQUIRE(hash_gate != std::string::npos);
+    REQUIRE(hash_return != std::string::npos);
+    REQUIRE(missing_loop != std::string::npos);
+    REQUIRE(ready_gate != std::string::npos);
+    REQUIRE(ready_commit != std::string::npos);
+
+    REQUIRE(status_read < missing_read);
+    REQUIRE(missing_read < error_gate);
+    REQUIRE(error_gate < status_gate);
+    REQUIRE(status_gate < status_return);
+    REQUIRE(status_return < hash_gate);
+    REQUIRE(hash_gate < hash_return);
+    REQUIRE(hash_return < missing_loop);
+    REQUIRE(missing_loop < ready_gate);
+    REQUIRE(ready_gate < ready_commit);
+}
+
+TEST_CASE("net bot authority: bot move count is validated before state writes",
+          "[net][bot-authority][security][static]")
+{
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string read = function_block(netmsg, "u32 netmsgClcBotMoveRead");
+
+    const size_t count_read = read.find("const u8 count = netbufReadU8(src)");
+    const size_t error_gate = read.find("if (src->error)", count_read);
+    const size_t count_gate = read.find("count > MAX_BOTS || count > g_BotCount", error_gate);
+    const size_t count_return = read.find("return 1;", count_gate);
+    const size_t authorized = read.find("const bool authorized", count_return);
+    const size_t apply_write = read.find("prop->syncid = syncid;", authorized);
+
+    REQUIRE(count_read != std::string::npos);
+    REQUIRE(error_gate != std::string::npos);
+    REQUIRE(count_gate != std::string::npos);
+    REQUIRE(count_return != std::string::npos);
+    REQUIRE(authorized != std::string::npos);
+    REQUIRE(apply_write != std::string::npos);
+
+    REQUIRE(count_read < error_gate);
+    REQUIRE(error_gate < count_gate);
+    REQUIRE(count_gate < count_return);
+    REQUIRE(count_return < authorized);
+    REQUIRE(authorized < apply_write);
+}
+
 TEST_CASE("net lifecycle: rejected Counter-Op start does not commit mode state",
           "[net][lifecycle][static]")
 {
@@ -372,6 +465,58 @@ TEST_CASE("net settings: client team changes are sanitized before match state wr
 
     REQUIRE(read.find("srccl->config->base.team = team") == std::string::npos);
     REQUIRE(read.find("srccl->settings.team = team") == std::string::npos);
+}
+
+TEST_CASE("net room mutations: source client is validated before room state access",
+          "[net][room][security][static]")
+{
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+
+    auto require_source_guard = [&](const char *signature, const char *first_srccl_use) {
+        const std::string read = function_block(netmsg, signature);
+        const size_t server_gate = read.find("if (g_NetMode != NETMODE_SERVER)");
+        const size_t source_guard = read.find("if (!srccl) return 1", server_gate);
+        const size_t first_use = read.find(first_srccl_use, source_guard);
+
+        REQUIRE(server_gate != std::string::npos);
+        REQUIRE(source_guard != std::string::npos);
+        REQUIRE(first_use != std::string::npos);
+
+        REQUIRE(server_gate < source_guard);
+        REQUIRE(source_guard < first_use);
+    };
+
+    require_source_guard("u32 netmsgClcRoomCreateRead", "netmsgRoomRateAllow(srccl)");
+    require_source_guard("u32 netmsgClcRoomJoinRead", "netmsgRoomRateAllow(srccl)");
+    require_source_guard("u32 netmsgClcRoomLeaveRead", "srccl->room_id == 0xFF");
+    require_source_guard("u32 netmsgClcRoomSettingsUpdateRead", "srccl->room_id == 0xFF");
+    require_source_guard("u32 netmsgClcRoomPlaylistUpdateRead", "srccl->room_id == 0xFF");
+}
+
+TEST_CASE("net room create: access mode is rejected before room creation",
+          "[net][room][security][static]")
+{
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string read = function_block(netmsg, "u32 netmsgClcRoomCreateRead");
+
+    REQUIRE(read.find("downgrading to OPEN") == std::string::npos);
+
+    const size_t access_gate = read.find("accessRaw > ROOM_ACCESS_INVITE");
+    const size_t access_return = read.find("return 1;", access_gate);
+    const size_t password_gate = read.find("if (!passwordBuf[0])", access_return);
+    const size_t password_return = read.find("return 1;", password_gate);
+    const size_t create = read.find("roomCreateConfigured", password_return);
+
+    REQUIRE(access_gate != std::string::npos);
+    REQUIRE(access_return != std::string::npos);
+    REQUIRE(password_gate != std::string::npos);
+    REQUIRE(password_return != std::string::npos);
+    REQUIRE(create != std::string::npos);
+
+    REQUIRE(access_gate < access_return);
+    REQUIRE(access_return < password_gate);
+    REQUIRE(password_gate < password_return);
+    REQUIRE(password_return < create);
 }
 
 TEST_CASE("net room settings: rebroadcast buffer is rebuilt per recipient",

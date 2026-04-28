@@ -25,7 +25,6 @@
 #include "constants.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
-#include "assetprovider_internal.h"
 #include "system.h"
 #include "data.h"
 #include "game/stagetable.h"
@@ -513,7 +512,7 @@ s32 assetCatalogRegisterBaseGame(void)
 		/* C-2-ext: record the ROM filenum for this body model */
 		e->source_filenum = (s32)g_HeadsAndBodies[g_MpBodies[idx].bodynum].filenum;
 		/* Asset Provider: base bodies are served by RomProvider. */
-		catalogSetPrimary(e, romProviderHandle(e->source_filenum));
+		catalogSetPrimaryRomFilenum(e, e->source_filenum);
 		/* Issue 10 (2026-04-24): rig_class from HEADBODYTYPE -- authoritative
 		 * compatibility key for body <-> head pairing. Base mapping is 1:1
 		 * with the engine's HEADBODYTYPE buckets (FEMALE + FEMALEGUARD merged).
@@ -599,7 +598,7 @@ s32 assetCatalogRegisterBaseGame(void)
 		/* C-2-ext: record the ROM filenum for this head model */
 		e->source_filenum = (s32)g_HeadsAndBodies[g_MpHeads[mpidx].headnum].filenum;
 		/* Asset Provider: base heads are served by RomProvider. */
-		catalogSetPrimary(e, romProviderHandle(e->source_filenum));
+		catalogSetPrimaryRomFilenum(e, e->source_filenum);
 		/* Issue 10: rig_class for this head from HEADBODYTYPE bucket. */
 		catalogSetHeadRigClass(e, rigClassForHeadBodyType(
 			g_HeadsAndBodies[g_MpHeads[mpidx].headnum].type));
@@ -797,7 +796,7 @@ s32 assetCatalogRegisterBaseGame(void)
 					e->load_state = ASSET_STATE_LOADED;
 					e->ref_count = ASSET_REF_BUNDLED;
 					e->source_filenum = (s32)g_HeadsAndBodies[i].filenum;
-					catalogSetPrimary(e, romProviderHandle(e->source_filenum));
+					catalogSetPrimaryRomFilenum(e, e->source_filenum);
 					/* Issue 10: SP heads pick rig_class from the same
 					 * HEADBODYTYPE bucket as MP heads. An SP head and MP
 					 * body (or vice versa) with matching rig_class is a
@@ -819,7 +818,7 @@ s32 assetCatalogRegisterBaseGame(void)
 					e->load_state = ASSET_STATE_LOADED;
 					e->ref_count = ASSET_REF_BUNDLED;
 					e->source_filenum = (s32)g_HeadsAndBodies[i].filenum;
-					catalogSetPrimary(e, romProviderHandle(e->source_filenum));
+					catalogSetPrimaryRomFilenum(e, e->source_filenum);
 					/* Issue 10: SP bodies participate in the rig_class
 					 * compatibility system the same way MP bodies do. */
 					catalogSetBodyRigClass(e, rigClassForHeadBodyType(

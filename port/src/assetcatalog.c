@@ -26,6 +26,7 @@
 #include "types.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
+#include "assetprovider_internal.h"
 #include "system.h"
 
 /* ========================================================================
@@ -1191,6 +1192,15 @@ void catalogSetPrimaryFile(asset_entry_t *entry, const char *path)
     if (!assetHandleIsNull(handle)) {
         catalogSetPrimary(entry, handle);
     }
+}
+
+void catalogSetPrimaryRomFilenum(asset_entry_t *entry, s32 filenum)
+{
+    if (entry == NULL || filenum <= 0) {
+        return;
+    }
+
+    catalogSetPrimary(entry, romProviderHandle(filenum));
 }
 
 void catalogSetOverride(asset_entry_t *entry, asset_data_handle_t handle)

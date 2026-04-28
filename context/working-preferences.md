@@ -27,6 +27,13 @@ Mike is the architect / designer. Claude is the intermediary / interpreter. Sess
 - Safely (dry-run + line-count verify + build verify), one merge at a time.
 - Code sessions handle their own merge as part of completion.
 
+## Build verification
+
+- Use `.\devtools\build-session.ps1 -Session <short-id> -Target all`.
+- The session build wrapper is isolated and queued by default. Do not use shared `Build/` for verification when parallel sessions may build.
+- Do not pass `-NoQueue` unless Mike explicitly asks for it.
+- Reuse the same session id for reruns in one session, watch queue status/ETA while waiting, and clean up with `.\devtools\build-session.ps1 -Remove -Session <short-id>`.
+
 ## Investigation discipline
 
 - Possibility-framed hypotheses (mechanism + boundary + cross-cuts), never near-conclusions.

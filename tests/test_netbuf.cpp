@@ -297,6 +297,23 @@ TEST_CASE("net move: client weapon select is server inventory-gated",
     REQUIRE(netmsg.find("invHasDoubleWeaponIncAllGuns(weaponnum, weaponnum)") != std::string::npos);
     REQUIRE(netmsg.find("NET: rejected CLC_MOVE weapon select") != std::string::npos);
     REQUIRE(netmsg.find("newmove.ucmd &= ~(UCMD_SELECT | UCMD_SELECT_DUAL)") != std::string::npos);
+
+    const size_t move_read = netmsg.find("u32 netmsgClcMoveRead");
+    const size_t parse_move = netmsg.find("netbufReadPlayerMove(src, &newmove)", move_read);
+    const size_t parse_error = netmsg.find("if (src->error)", parse_move);
+    const size_t state_gate = netmsg.find("srccl->state != CLSTATE_GAME", parse_error);
+    const size_t weapon_gate = netmsg.find("netmsgClientCanSelectWeapon", parse_error);
+    const size_t ack_commit = netmsg.find("srccl->outmoveack = outmoveack", parse_error);
+    REQUIRE(move_read != std::string::npos);
+    REQUIRE(parse_move != std::string::npos);
+    REQUIRE(parse_error != std::string::npos);
+    REQUIRE(state_gate != std::string::npos);
+    REQUIRE(weapon_gate != std::string::npos);
+    REQUIRE(ack_commit != std::string::npos);
+    REQUIRE(parse_move < parse_error);
+    REQUIRE(parse_error < state_gate);
+    REQUIRE(parse_error < weapon_gate);
+    REQUIRE(parse_error < ack_commit);
 }
 
 TEST_CASE("netbuf: mixed-type sequence preserves order", "[netbuf]") {

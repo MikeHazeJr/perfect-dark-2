@@ -642,6 +642,17 @@ static const struct { u32 contbit; InputAction action; } s_ContToAction[] = {
 };
 #define CONT_TO_ACTION_COUNT ((s32)(sizeof(s_ContToAction) / sizeof(s_ContToAction[0])))
 
+static s8 inputAxisValueToStick(f32 value)
+{
+	if (value <= -1.0f) {
+		return -128;
+	}
+	if (value >= 1.0f) {
+		return 127;
+	}
+	return (s8)(value * 127.0f);
+}
+
 s32 inputReadController(s32 idx, OSContPad *npad)
 {
 	if (idx < 0 || idx >= INPUT_MAX_CONTROLLERS  || !npad) {
@@ -696,36 +707,27 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 		return 0;
 	}
 
-	/* C-3 fix: Restore controller analog stick population so OSContPad reflects
-	 * complete input state. actionmapPollFrame() is the primary source for game
-	 * code via actionValue(), but joyGetStickX/Y and joyGetRStickX/Y still read
-	 * from OSContPad samples — keeping them populated ensures correctness. */
+	/* C-3 follow-up: OSContPad legacy samples mirror the action-map axes so
+	 * layer authority and actionmapPollFrame() zeroing apply here too. */
 	{
-		s32 leftX = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[0][0]);
-		s32 leftY = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[0][1]);
-		s32 rightX = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[1][0]);
-		s32 rightY = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[1][1]);
-
-		leftX = inputAxisScale(leftX, cfg->deadzone[cfg->axisMap[0][0]], cfg->sens[cfg->axisMap[0][0]]);
-		leftY = inputAxisScale(leftY, cfg->deadzone[cfg->axisMap[0][1]], cfg->sens[cfg->axisMap[0][1]]);
-		rightX = inputAxisScale(rightX, cfg->deadzone[cfg->axisMap[1][0]], cfg->sens[cfg->axisMap[1][0]]);
-		rightY = inputAxisScale(rightY, cfg->deadzone[cfg->axisMap[1][1]], cfg->sens[cfg->axisMap[1][1]]);
+		s8 leftX = inputAxisValueToStick(actionValue(idx, ACTION_AXIS_MOVE_X));
+		s8 leftY = inputAxisValueToStick(actionValue(idx, ACTION_AXIS_MOVE_Y));
+		s8 rightX = inputAxisValueToStick(actionValue(idx, ACTION_AXIS_AIM_X));
+		s8 rightY = inputAxisValueToStick(actionValue(idx, ACTION_AXIS_AIM_Y));
 
 		/* Merge: keyboard digital takes priority (already set above), controller fills gaps */
 		if (!npad->stick_x && leftX) {
-			npad->stick_x = leftX / 0x100;
+			npad->stick_x = leftX;
 		}
-		s32 stickY = -leftY / 0x100;
-		if (!npad->stick_y && stickY) {
-			npad->stick_y = (stickY == 128) ? 127 : stickY;
+		if (!npad->stick_y && leftY) {
+			npad->stick_y = leftY;
 		}
 
 		if (rightX) {
-			npad->rstick_x = rightX / 0x100;
+			npad->rstick_x = rightX;
 		}
-		s32 rStickY = -rightY / 0x100;
-		if (rStickY) {
-			npad->rstick_y = (rStickY == 128) ? 127 : rStickY;
+		if (rightY) {
+			npad->rstick_y = rightY;
 		}
 	}
 

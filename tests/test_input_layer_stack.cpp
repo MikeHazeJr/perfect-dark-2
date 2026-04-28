@@ -314,3 +314,91 @@ TEST_CASE("inputctx bridge: non-gameplay input ownership publishes LAYER_MENU", 
     }
     REQUIRE(calls >= 5);
 }
+
+TEST_CASE("actionmap: query reads honor layer-declared gameplay aperture", "[inputlayer][actionmap][static]")
+{
+    const std::string actionmap = readTextFile("port/src/actionmap.cpp");
+
+    REQUIRE(actionmap.find("#include \"inputlayer.h\"") != std::string::npos);
+    REQUIRE(actionmap.find("static s32 actionLayerAllows(InputAction a)") != std::string::npos);
+    REQUIRE(actionmap.find("inputLayerTop()") != std::string::npos);
+    REQUIRE(actionmap.find("inputLayerHandleDef(top)") != std::string::npos);
+    REQUIRE(actionmap.find("def->action_set && def->action_set_count > 0 && actionIsGameplayOnly(a)") != std::string::npos);
+    REQUIRE(actionmap.find("def->action_set[i] == a") != std::string::npos);
+    REQUIRE(actionmap.find("gameplayInputSuppressed() && actionIsGameplayOnly(a)") != std::string::npos);
+
+    size_t calls = 0;
+    size_t pos = 0;
+    while ((pos = actionmap.find("actionLayerAllows(action)", pos)) != std::string::npos) {
+        calls++;
+        pos += strlen("actionLayerAllows(action)");
+    }
+    REQUIRE(calls >= 8);
+}
+
+TEST_CASE("actionmap: dispatch writes honor layer-declared gameplay aperture", "[inputlayer][actionmap][static]")
+{
+    const std::string actionmap = readTextFile("port/src/actionmap.cpp");
+
+    REQUIRE(actionmap.find("static s32 actionLayerAllows(InputAction a);") != std::string::npos);
+
+    const size_t gate = actionmap.find("if (!actionLayerAllows((InputAction)best_a))");
+    REQUIRE(gate != std::string::npos);
+
+    const size_t stateWrite = actionmap.find("ActionState *st = &s_State[player][best_a]", gate);
+    REQUIRE(stateWrite != std::string::npos);
+    REQUIRE(gate < stateWrite);
+}
+
+TEST_CASE("actionmap: analog axes honor layer-declared gameplay aperture", "[inputlayer][actionmap][static]")
+{
+    const std::string actionmap = readTextFile("port/src/actionmap.cpp");
+
+    REQUIRE(actionmap.find("static void actionmapZeroGameplayAxes(s32 player, s32 zero_move, s32 zero_aim)") != std::string::npos);
+    REQUIRE(actionmap.find("actionLayerAllows(ACTION_AXIS_MOVE_X)") != std::string::npos);
+    REQUIRE(actionmap.find("actionLayerAllows(ACTION_AXIS_MOVE_Y)") != std::string::npos);
+    REQUIRE(actionmap.find("actionLayerAllows(ACTION_AXIS_AIM_X)") != std::string::npos);
+    REQUIRE(actionmap.find("actionLayerAllows(ACTION_AXIS_AIM_Y)") != std::string::npos);
+    REQUIRE(actionmap.find("if (!moveAxesAllowed || !aimAxesAllowed)") != std::string::npos);
+    REQUIRE(actionmap.find("actionmapZeroGameplayAxes(0, !moveAxesAllowed, !aimAxesAllowed)") != std::string::npos);
+    REQUIRE(actionmap.find("if (!moveAxesAllowed)") != std::string::npos);
+}
+
+TEST_CASE("actionmap: hold bookkeeping honors layer-declared gameplay aperture", "[inputlayer][actionmap][static]")
+{
+    const std::string actionmap = readTextFile("port/src/actionmap.cpp");
+
+    const size_t consume = actionmap.find("void actionConsumeHold(s32 player, InputAction action)");
+    REQUIRE(consume != std::string::npos);
+    const size_t consumeGate = actionmap.find("if (!actionLayerAllows(action)) return;", consume);
+    REQUIRE(consumeGate != std::string::npos);
+    const size_t consumeWrite = actionmap.find("st->hold_consumed = 1;", consume);
+    REQUIRE(consumeWrite != std::string::npos);
+    REQUIRE(consumeGate < consumeWrite);
+
+    const size_t read = actionmap.find("s32 actionHoldConsumed(s32 player, InputAction action)");
+    REQUIRE(read != std::string::npos);
+    const size_t readGate = actionmap.find("if (!actionLayerAllows(action)) return 0;", read);
+    REQUIRE(readGate != std::string::npos);
+    const size_t readState = actionmap.find("return s_State[player][action].hold_consumed;", read);
+    REQUIRE(readState != std::string::npos);
+    REQUIRE(readGate < readState);
+}
+
+TEST_CASE("inputReadController mirrors action-map axes", "[inputlayer][input][static]")
+{
+    const std::string input = readTextFile("port/src/input.c");
+
+    const size_t start = input.find("s32 inputReadController(s32 idx, OSContPad *npad)");
+    REQUIRE(start != std::string::npos);
+    const size_t end = input.find("/* M0.2 Phase D: inputKeyBind/inputKeyGetBinds removed", start);
+    REQUIRE(end != std::string::npos);
+    const std::string body = input.substr(start, end - start);
+
+    REQUIRE(input.find("static s8 inputAxisValueToStick(f32 value)") != std::string::npos);
+    REQUIRE(body.find("actionValue(idx, ACTION_AXIS_MOVE_X)") != std::string::npos);
+    REQUIRE(body.find("actionValue(idx, ACTION_AXIS_MOVE_Y)") != std::string::npos);
+    REQUIRE(body.find("actionValue(idx, ACTION_AXIS_AIM_X)") != std::string::npos);
+    REQUIRE(body.find("actionValue(idx, ACTION_AXIS_AIM_Y)") != std::string::npos);
+    REQUIRE(body.find("SDL_GameControllerGetAxis") == std::string::npos);
+}

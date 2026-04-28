@@ -1,8 +1,266 @@
 
 # Session Log (Active)
 
-> **S284-S575** (rolling window). Older sessions **S280-S241** -> [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240-S157** -> [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1-S119** -> [_archive/sessions/].
+> **S284-S582** (rolling window). Older sessions **S280-S241** -> [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240-S157** -> [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1-S119** -> [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S582 - 2026-04-28 - Queued build hang watchdog
+
+Followed up on the queued isolated-build pipeline after Mike asked whether queued builds can be detected as hung and removed from the queue.
+
+### Outcome
+
+- Added `-BuildTimeoutSeconds` to `devtools/build-session.ps1`, defaulting to 180 seconds for queued builds.
+- Queued builds now record the timeout in active queue metadata, show it in `-List`, and return exit code `124` when the watchdog fires.
+- If a queued child build exceeds the timeout, the wrapper stops that child process tree, updates queue heartbeat/status, clears the active slot in `finally`, and lets the next queued session start.
+- Stale active queue cleanup can also stop an orphaned over-timeout child process tree after its wrapper has died.
+- Queue ETA defaults were tightened to match observed normal runtime expectations: `client`/`server` 60s, `tests` 120s, `all` 180s, with successful duration history still preferred when present.
+- Checked the live queue: old active `ui568` was already gone by the time the stop command ran; a fresh queued `ui568` request briefly reappeared and was removed too aggressively. Mike clarified only the hung front-of-queue instance needed removal, and future `ui568` re-adds are normal queue entries.
+
+### Files
+
+- `devtools/build-session.ps1`
+- `AGENTS.md`
+- Context updates: `context/build.md`, `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- PowerShell parser check passed for `devtools/build-session.ps1`.
+- `git diff --check` passed for `devtools/build-session.ps1`, `AGENTS.md`, and the touched context files.
+- `.\devtools\build-session.ps1 -List` passed and showed the new active timeout display.
+- After `ui568` cleanup, `tv573` became active with the 3-minute watchdog attached. It timed out and the queue advanced automatically to `swarm275`, confirming the watchdog path clears the active slot.
+
+### Next
+
+- Let the queued watchdog govern active builds going forward. A session that times out should treat exit code `124` as a hung-build failure, record it in context, and clean up its session directory with `.\devtools\build-session.ps1 -Remove -Session <id>`.
+- If normal clean builds prove to need more than 180 seconds on this machine, raise the timeout with `-BuildTimeoutSeconds <seconds>` for that specific verification rather than disabling the queue.
+
+---
+
+## Session S581 - 2026-04-28 - Targeted test runner and queue status follow-up
+
+Continued the Quality / Testing / Audits pipeline slice after the queued-build rule was clarified.
+
+### Outcome
+
+- Confirmed `devtools/run-pd-tests.ps1` is the scoped Catch2 selector wrapper, while full build verification remains `.\devtools\build-session.ps1 -Session <id> -Target all`.
+- Added `-Scope` aliases and `-ListScopes` to `devtools/run-pd-tests.ps1` so sessions can use stable lane names like `catalog-provider`, `manifest`, `save`, `netbuf`, or `network-lifecycle` without memorizing raw Catch2 filters.
+- Fixed `devtools/build-session.ps1 -List` elapsed/waiting display for queue JSON timestamps. PowerShell converts UTC JSON strings into `DateTime`; the helper now preserves those values directly and parses string timestamps with round-trip UTC semantics.
+- Removed the `-NoQueue` example from `build-session.ps1` help text and changed queue/bypass messages to match Mike's rule: do not bypass unless he explicitly asks.
+- Removed stale `t573` session state after confirming its recorded PID was gone and no objects or `pd-tests.exe` existed.
+- Started queued full-build verification as `tv573` with `.\devtools\build-session.ps1 -Session tv573 -Target all`, no `-NoQueue`.
+
+### Files
+
+- `devtools/build-session.ps1`
+- `tests/README.md`
+- `context/designs/testing-framework-2026-04-26.md`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- PowerShell parser checks passed for `devtools/build-session.ps1`.
+- PowerShell parser checks passed for `devtools/run-pd-tests.ps1`.
+- `.\devtools\run-pd-tests.ps1 -ListScopes` printed the expected scope-to-selector table.
+- `git diff --check` passed for the touched scripts/docs/context files.
+- `.\devtools\build-session.ps1 -List` now reports real active elapsed/waiting times.
+- `tv573` is queued behind existing builds. First observed queue state: active `ui568`, waiting `cat581`, `sec581`, `swarm275`, then `tv573` at position 4/4 with roughly 2h55m estimated wait.
+
+### Next
+
+- Keep polling the queue/build status until `tv573` completes, then clean up with `.\devtools\build-session.ps1 -Remove -Session tv573`.
+- Once verification is resolved, the next quality recursion candidate remains the broader handler dispatch contract audit for remaining `srccl` assumptions.
+
+---
+
+## Session S580 - 2026-04-28 - Queued build verification rule clarified
+
+Recorded Mike's build-verification rule for future sessions.
+
+### Outcome
+
+- Codex/AI build verification must use `.\devtools\build-session.ps1 -Session <short-id> -Target all`, not shared `Build/`.
+- The wrapper queues by default; sessions should reuse their own session id for reruns, watch queue status/ETA while waiting, and avoid `-NoQueue` unless Mike explicitly asks.
+- Cleanup remains `.\devtools\build-session.ps1 -Remove -Session <short-id>`.
+
+### Files
+
+- `AGENTS.md`
+- `context/build.md`
+- Context updates: `context/session-log.md`
+
+### Verification
+
+- Documentation-only change; no build run.
+
+### Next
+
+- Use the queued isolated build wrapper for the next verification pass.
+
+---
+
+## Session S579 - 2026-04-28 - Queued isolated session builds
+
+Updated the isolated build wrapper after Mike called out that per-session build directories avoid file collisions but still allow simultaneous compiler overload.
+
+### Outcome
+
+- `devtools/build-session.ps1` now queues builds by default before entering the per-session build lock and launching `build-headless.ps1`.
+- Queue state lives under `.claude/session-builds/.queue/`; isolated build outputs still live under `.claude/session-builds/<session-id>/`.
+- Waiting sessions print status every 30 seconds: queue position, active session/target, active elapsed time, estimated wait, and their own wait time.
+- `.\devtools\build-session.ps1 -List` now shows both isolated session directories and queue state.
+- The active build record tracks wrapper PID and child PowerShell PID so a waiting session can avoid starting another build while an orphaned child build is still alive.
+- Completed queued builds record recent durations for rough target-specific ETA estimates.
+- `-NoQueue` is available as an intentional manual bypass only; normal AI/session builds should not use it.
+- `-RemoveAll` now skips the internal `.queue` metadata directory alongside `.locks`.
+
+### Files
+
+- `devtools/build-session.ps1`
+- `tests/README.md`
+- `context/designs/testing-framework-2026-04-26.md`
+- Context updates: `context/build.md`, `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- PowerShell parser check passed for `devtools/build-session.ps1`.
+- `.\devtools\build-session.ps1 -List` passed and displayed active session directories plus empty queue state.
+- Full build was not started; the purpose of this slice is queue behavior, and current context still shows long-running build contention.
+
+### Next
+
+- Let the next real build request exercise the queue. If the queue output is too noisy or ETA defaults are off, tune `QueueStatusSeconds` and the per-target duration defaults.
+
+---
+
+## Session S578 - 2026-04-28 - RomProvider primary source helper
+
+Continued the catalog-owned asset pipeline after S577 without build verification, per Mike's instruction to skip the build for now. Scope stayed on provider-boundary cleanup for base catalog seed registration.
+
+### Outcome
+
+- Added `catalogSetPrimaryRomFilenum(entry, filenum)` as the catalog-owned helper for RomProvider-backed primary source assignment.
+- Migrated base body/head/SP body/SP head/model/first-person hand seed registration off direct `catalogSetPrimary(e, romProviderHandle(e->source_filenum))`.
+- Removed `assetprovider_internal.h` includes from `assetcatalog_base.c` and `assetcatalog_base_extended.c`.
+- Kept the ROM fast path intact as a catalog-internal bridge in `assetcatalog.c`, matching Mike's note that preserving it is fine only as a migration sub-step.
+- Updated static coverage so base seed registration cannot reintroduce direct RomProvider handle creation or the internal provider header.
+
+### Files
+
+- `port/include/assetcatalog.h`
+- `port/src/assetcatalog.c`
+- `port/src/assetcatalog_base.c`
+- `port/src/assetcatalog_base_extended.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/constraints.md`, `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Build/test verification intentionally skipped after Mike's instruction to skip the build for now.
+- Static source scans confirmed base registration no longer has direct `romProviderHandle()` calls or `assetprovider_internal.h` includes.
+
+### Next
+
+- Next step is verification for S577/S578 once builds resume. Further catalog/provider code work should wait until `pd`, `pd-server`, and `pd-tests` catch up in an isolated session build.
+
+---
+
+## Session S577 - 2026-04-28 - FileProvider source-handle boundary
+
+Continued the catalog-owned asset pipeline after S569 while parallel lanes advanced the log to S576. Scope stayed on source-handle ownership for file-backed component registration.
+
+### Outcome
+
+- Added `catalogSetPrimaryFile(entry, path)` as the catalog-owned helper for FileProvider-backed primary source assignment.
+- Migrated local component scanner registration for character bodyfile, weapon/prop model_file, texture/audio file_path, and HUD texture_file off direct `fileProviderHandle()` calls.
+- Migrated network-distributed hot registration to resolve relative paths against the extracted component directory, then route the resulting path through `catalogSetPrimaryFile()`.
+- Removed `assetprovider.h` includes from scanner/distribution code that only existed for direct FileProvider handle creation.
+- Cleaned the last stale untyped lifecycle log/comment references from the prior lifecycle API retirement slice.
+- Added static coverage so direct `fileProviderHandle()` calls stay confined to the catalog/provider boundary allowlist.
+
+### Files
+
+- `port/include/assetcatalog.h`
+- `port/src/assetcatalog.c`
+- `port/src/assetcatalog_scanner.c`
+- `port/src/net/netdistrib.c`
+- `port/include/assetcatalog_load.h`
+- `port/src/assetcatalog_load.c`
+- `tests/manifest_pure.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/constraints.md`, `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Build/test verification intentionally skipped after Mike's instruction to skip the build for now.
+- Used isolated build directory session id `cat566`; did not use shared `Build/`.
+- The prescribed wrapper configured cleanly but timed out in client compilation while other isolated sessions were active.
+- A dry-run in `.claude/session-builds/cat566` completed and showed the expected isolated graph for `pd`, `pd-server`, and `pd-tests`, including the touched catalog/provider files.
+- The interrupted `cat566` build process tree was stopped, and no `cat566` lock remained.
+
+### Next
+
+- Next safe non-build slice: centralize RomProvider-backed primary source assignment for base catalog seed registration behind a catalog helper. Preserve the ROM fast path as a catalog-internal bridge only.
+- Verification remains pending for S577 and the next slice until builds are resumed.
+
+---
+
+## Session S576 - 2026-04-28 - Input transition cleanup substrate
+
+Continued the input infrastructure lane after Mike asked to keep the recursive tracker moving and then directed to skip build/test verification this time. Scope stayed narrow: no raw ImGui key migration sweep, no catalog/provider work, and no full scene manager rewrite.
+
+### Outcome
+
+- Added a central `inputctx` to `LAYER_MENU` bridge so effective non-gameplay input context ownership publishes exactly one typed menu layer and clears when gameplay is effective again.
+- Added pure/static `pd-tests` coverage for the menu-layer bridge.
+- Reviewed Mike's playtest log. The held transition A press no longer appeared as held Use during the objective 2 intro, and the later fresh A press correctly skipped the cutscene.
+- Added `scene_transition.h` / `scene_transition.c`, a small helper for ordering-sensitive transition cleanup.
+- Migrated priority transition cleanup sites through `sceneStageTransitionPrepare` / `sceneStageChangeTo`: solo endscreen retry/next/main-menu exit, `netDisconnect`, client `SVC_STAGE_START` menu teardown, client `SVC_STAGE_END` manifest cleanup, local match start/challenge start, and legacy `menutick.c` MP/coop manifest-clear-before-stage-change exits.
+- Added static `pd-tests` guards for the transition helper API, server source inclusion, clear-before-stage-change ordering, and migrated priority callsites.
+- Added conservative layer-aware query gating in `actionmap.cpp`: declared top-layer action sets now constrain gameplay-only reads, while shared/system actions and layers without declared sets preserve existing behavior.
+- Added a static `pd-tests` guard that query reads use the layer-aware aperture.
+- Extended the same aperture to `fireVk()` dispatch writes after the highest-priority action winner is selected and before `s_State` mutation. Disallowed gameplay-only writes are consumed rather than remapped through lower-priority contexts.
+- Added a static `pd-tests` guard that dispatch writes use the aperture before `ActionState` mutation.
+- Extended the aperture to `actionmapPollFrame()` generic move/aim axis writes. Blocked axis pairs are zeroed before controller state or keyboard synthesis can leave stale generic gameplay axis state under cutscene/menu/vehicle authority.
+- Added a static `pd-tests` guard for analog axis aperture and zeroing.
+- Gated `actionConsumeHold()` and `actionHoldConsumed()` through the same layer/freefly checks used by action query APIs.
+- Migrated `inputReadController()` legacy `OSContPad` axis fields from raw SDL axis reads to `actionValue(...)` so legacy pad samples mirror action-map/layer authority.
+- Added static `pd-tests` guards for hold bookkeeping gates and `inputReadController()` action-axis mirroring.
+
+### Files
+
+- `port/src/inputctx.c`
+- `tests/inputctx_pure.c`
+- `tests/inputctx_pure.h`
+- `tests/test_input_authority.cpp`
+- `tests/test_input_layer_stack.cpp`
+- `port/include/scene_transition.h`
+- `port/src/scene_transition.c`
+- `CMakeLists.txt`
+- `port/fast3d/pdgui_bridge.c`
+- `port/src/net/net.c`
+- `port/src/net/netmsg.c`
+- `port/src/net/matchsetup.c`
+- `src/game/menutick.c`
+- `port/src/actionmap.cpp`
+- `port/src/input.c`
+- `tests/test_scene_dispatch.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`, `context/designs/input-universality-and-transitions-2026-04-27.md`
+
+### Verification
+
+- `git diff --check` passed for the touched production/test files.
+- Isolated build session `ml53` was used for the attempted bridge verification, not shared `Build/`.
+- `.\devtools\build-session.ps1 -Session ml53 -Target all` stalled in client compilation. Mike then directed to skip tests this time.
+- The lingering `ml53` process chain was stopped and `.\devtools\build-session.ps1 -Remove -Session ml53 -Force` removed the stale build directory and lock.
+- No build or `pd-tests` run was completed for S576 after Mike's skip-tests instruction.
+
+### Next
+
+- Next step is verification, not another code slice: source audit now shows no `s_State` access outside `actionmap.cpp` except comments, and the only remaining raw SDL axis reads are the canonical action-map poller plus documented deprecated key-capture paths.
+- Keep `gameplayInputSuppressed()` as a transitional wrapper until isolated build/tests and Mike playtests cover mission transitions, menus, vehicles, observer/freefly, and focus boundaries.
+
+---
 
 ## Session S575 - 2026-04-28 - Client-hosted trust and protocol hardening
 
@@ -11,12 +269,19 @@ Continued Server / Trust / Security work for current listen-host/client-hosted o
 ### Outcome
 
 - `netbufReadStr()` now rejects unterminated wire strings without mutating inbound packet payload, while preserving the prior safe empty string behavior for zero-length wire strings.
+- `CLC_MOVE` now returns immediately on player-move parse errors before weapon-select validation or `outmoveack` updates can observe a partially decoded move.
 - `CLC_LOBBY_START` now drains over-cap bot config records after the `numSims` clamp and before parsing the embedded manifest, so stale or hostile bot counts cannot shift the manifest read boundary.
 - `CLC_SETTINGS` now sanitizes client-reported team changes before any match-state write: invalid team ids fall back to current/default team, and in-game team switches are ignored when the match is not team-enabled.
+- `CLC_AUTH` now rejects malformed local-player counts (`0` or above `MAX_PLAYERS`) before ROM/mod checks or auth state commits, closing an unused wire-field trust boundary before it can be relied on later.
 - `CLC_ROOM_SETTINGS_UPDATE` and `CLC_ROOM_PLAYLIST_UPDATE` now rebuild their rebroadcast packet per room recipient because `netSend()` resets the source buffer after queueing. Room settings rebroadcast also uses the normal reliable buffer instead of the old 256-byte stack packet.
+- `CLC_MANIFEST_STATUS` now rejects unknown status bytes and requires the echoed manifest hash to match the active server manifest before it parses missing IDs or marks a ready-gate client ready/declined.
+- `CLC_BOT_MOVE` now rejects impossible bot record counts (`> MAX_BOTS` or `> g_BotCount`) before any delegated bot-authority state writes, so an over-counted stream cannot partially update host-side bot stubs.
+- Room create/join/leave/settings/playlist handlers now reject a missing source client before rate limits, room membership checks, or rebroadcast paths touch `srccl` state.
+- `CLC_ROOM_CREATE` now rejects unknown access-mode bytes and password-room requests with empty passwords instead of silently creating an open room.
 - After `pd.ini` load, invalid internal `Net.Client.LastJoinAddr` values are cleared and invalid `Net.RecentServer.*` entries are compacted out. The modern server list now shows an invalid-entry placeholder instead of falling back to raw stored address text when connect-code conversion fails.
+- Join parsing now rejects explicit port `0`, and `netRecentServerAdd()` validates stored recent-server addresses before insertion so future internal callers cannot reintroduce invalid saved endpoints.
 - Recent-server UDP responses now stage parsed metadata locally and commit it only after the whole response parses without netbuf error, preventing malformed response strings from leaving partially updated online rows.
-- Added static/source coverage for the new string, lobby-drain, team-sanitize, and room-rebroadcast invariants.
+- Added static/source coverage for the new string, lobby-drain, team-sanitize, room-rebroadcast, address-sanitizer, and recent-server parse invariants.
 
 ### Files
 
@@ -34,15 +299,16 @@ Continued Server / Trust / Security work for current listen-host/client-hosted o
 
 ### Verification
 
-- `git diff --check` passed for the trust/security touched source/test files, including the address-validation follow-up.
+- `git diff --check` passed for the trust/security touched source/test files after the final malformed-packet/source-client follow-ups.
 - Isolated build session `sec575` was used, not shared `Build/`.
 - `.\devtools\build-session.ps1 -Session sec575 -Target all` completed configure, disabled ccache after the compiler-launch probe timed out, then client compilation ran until the Codex command timed out at 45 minutes without surfacing a compile diagnostic.
 - The stale `sec575` lock recorded PID 20428; that PID was gone. Cleanup used `.\devtools\build-session.ps1 -Remove -Session sec575 -Force`, and `-List` confirmed `sec575` was removed while other active sessions remained untouched.
+- No second build was started after the final source-only follow-ups because the isolated build list still showed other locked sessions (`t573`, `cat566`).
 
 ### Next
 
-- Re-run isolated verification when the current parallel build contention clears, preferably through the targeted test wrapper once that lane verifies.
-- Continue the current client-hosted trust audit with any remaining malformed packet length/count fields reachable from listen-host shipping paths.
+- Re-run isolated verification when the current parallel build contention clears, preferably with the targeted runner for `[netbuf]`, `[net][lifecycle][security][static]`, and `[connectcode][security][static]`.
+- No further low-risk listen-host code slice is queued from this scan until verification runs; keep dedicated-server product work deferred.
 
 ---
 
@@ -104,7 +370,11 @@ Continued the Quality / Testing / Audits lane, pivoting from adding another inva
 
 ### Verification
 
-- Pending: run the new wrapper in isolated session `t573` with a narrow selector, then clean up the session build directory.
+- PowerShell parser checks passed for `devtools/build-headless.ps1`, `devtools/build-session.ps1`, and `devtools/run-pd-tests.ps1`.
+- `git diff --check` passed for the touched scripts/docs/context files.
+- Initial targeted-run smoke in session `t573` exposed runner bugs before useful build output: a `-Verbose` common-parameter conflict and an in-process `build-session.ps1` invocation conflict. Both were fixed.
+- The follow-up `t573` build attempt was interrupted during the known long-running isolated compile path. The stale lock recorded PID 12684; that PID was gone and no objects or `pd-tests.exe` existed. Cleanup used `.\devtools\build-session.ps1 -Remove -Session t573 -Force`, and `-List` confirmed no session builds and an empty queue.
+- Pending: run the required queued full build verification with `.\devtools\build-session.ps1 -Session tv573 -Target all`.
 
 ### Next
 

@@ -1279,7 +1279,80 @@ The next infrastructure slice adds the bridge needed before `gameplayInputSuppre
 - Out-of-order bridge teardown uses `inputLayerHandleDistanceFromTop()` plus `inputLayerAbort()` to unwind any layer stacked above the mirrored menu handle before clearing it.
 - Pure pd-tests model the bridge state transitions for nested menu contexts, deferred pop, and resurrected menus. A source guard pins the production bridge to real input-layer push/pop/abort calls.
 
-Verification: pending isolated build session `ml53`.
+Verification: attempted in isolated build session `ml53`, but client compilation stalled before a result. Mike directed to skip tests this time; `ml53` was stopped and removed. Build and `pd-tests` remain pending.
+
+### L.54 Stage-transition cleanup helper (2026-04-28)
+
+The next narrow infrastructure slice centralizes ordering-sensitive stage cleanup without introducing the full Scene Manager rewrite.
+
+- Added `port/include/scene_transition.h` and `port/src/scene_transition.c`.
+- `sceneStageTransitionPrepare(flags, reason)` owns the shared cleanup primitives: clear `g_ClientManifest`, fire disconnect scene teardown, and release the menu pool. Server builds compile the helper; client-only scene/menu cleanup is gated behind `!PD_SERVER`.
+- `sceneStageChangeTo(stagenum, flags, reason)` runs the cleanup helper before `mainChangeToStage(stagenum)`, pinning the SP-13 invariant that MP client manifests are cleared before stage changes that must not consume them.
+- Migrated priority cleanup sites that were open-coding the same primitives: solo endscreen retry/next/main-menu exit, `netDisconnect`, client `SVC_STAGE_START` menu teardown, client `SVC_STAGE_END` manifest cleanup, local `matchStart` / `matchStartFromChallenge`, and legacy `menutick.c` MP/coop manifest-clear-before-stage-change exits.
+- Left non-stage manifest parse/rollback cleanup in `netmsg.c` alone. Those clears are data-validation cleanup, not transition handoff ordering.
+- Added static pd-tests in `tests/test_scene_dispatch.cpp` guarding the helper API, server source inclusion, clear-before-stage-change ordering, and migrated priority callsites.
+
+Verification: `git diff --check` passed. Build and `pd-tests` were skipped by Mike for this slice.
+
+### L.55 Conservative layer-aware action read gate (2026-04-28)
+
+The next shim-retirement substrate is a narrow read-side aperture in `actionmap.cpp`, not the full `gameplayInputSuppressed()` replacement.
+
+- Added `actionLayerAllows(InputAction a)`.
+- If the top input layer declares an action set, gameplay-only action reads must appear in that set. This lets cutscene, vehicle, and observer layers start constraining gameplay reads through declared ownership.
+- Shared/system actions keep current behavior for now. This preserves existing menu, social, Forge, Skin Editor, and cutscene skip behavior while the remaining layer ownership is audited.
+- Layers without a declared action set still fall back to the old `gameplayInputSuppressed() && actionIsGameplayOnly(...)` predicate.
+- Query APIs now use the helper: pressed, held, released, scalar value, axis pair, hold threshold, tap, last gesture hold, hold progress, and hold start timestamp.
+- Added a static pd-test in `tests/test_input_layer_stack.cpp` to prevent query reads from drifting back to the old inputctx-only gate.
+
+Verification: `git diff --check` passed for the touched production/test/context files. Build and `pd-tests` were skipped by Mike for this slice.
+
+### L.56 Conservative layer-aware action dispatch gate (2026-04-28)
+
+The next follow-up extends the same aperture to digital VK dispatch writes without changing IMC priority order.
+
+- `fireVk()` still walks active IMCs highest priority first and chooses one winning action per context.
+- After the winning action is found, `fireVk()` calls `actionLayerAllows((InputAction)best_a)` before mutating `s_State`.
+- If the top layer's declared action set does not allow that gameplay-only action, the event is consumed. It does not fall through to lower-priority contexts, preserving the established first-match-wins dispatch contract.
+- The legacy `gameplayInputSuppressed()` context-level skip remains in place for gameplay, vehicle, and observer IMCs while the remaining non-digital action writers are audited.
+- Added a static pd-test in `tests/test_input_layer_stack.cpp` to pin the gate before the `ActionState` write.
+
+Verification: `git diff --check` passed for the touched production/test/context files. Build and `pd-tests` were skipped by Mike for this slice.
+
+### L.57 Conservative layer-aware analog axis gate (2026-04-28)
+
+The remaining same-class writer was per-frame analog axis polling, which bypasses `fireVk()`.
+
+- Added `actionmapZeroGameplayAxes(player, zero_move, zero_aim)` so blocked axis pairs are actively cleared.
+- `actionmapPollFrame()` now computes `moveAxesAllowed` from `ACTION_AXIS_MOVE_X/Y` and `aimAxesAllowed` from `ACTION_AXIS_AIM_X/Y` through `actionLayerAllows(...)`.
+- Controller polling writes generic move and aim axes only for pairs allowed by the current top layer.
+- Blocked pairs are zeroed for controller input and for player 0 keyboard-move synthesis. This preserves observer/freefly axis ownership while preventing cutscene/menu/vehicle layers from carrying stale generic gameplay axes.
+- The existing vehicle-specific digital actions still flow through `fireVk()` and the vehicle action set; this slice does not add a generic vehicle axis model.
+- Added a static pd-test in `tests/test_input_layer_stack.cpp` to pin analog aperture and zeroing.
+
+Verification: `git diff --check` passed for the touched production/test/context files. Build and `pd-tests` were skipped by Mike for this slice.
+
+### L.58 Hold bookkeeping and legacy pad axis bridge (2026-04-28)
+
+The follow-up source audit covered the remaining direct action state readers/writers.
+
+- `actionConsumeHold()` and `actionHoldConsumed()` now call `actionLayerAllows(...)` and the freefly block before touching hold-consumed state.
+- `inputReadController()` no longer samples SDL controller axes directly for legacy `OSContPad` stick fields. It mirrors `ACTION_AXIS_MOVE_X/Y` and `ACTION_AXIS_AIM_X/Y` through `actionValue(...)`, then converts normalized action values to N64-style stick bytes.
+- This keeps legacy pad samples under the same layer authority and zeroing as action-map reads.
+- Raw `inputKeyPressed()` remains as documented key-capture/mouse plumbing. It was not swept in this slice.
+- Added static pd-tests in `tests/test_input_layer_stack.cpp` to pin hold bookkeeping gates and to ensure `inputReadController()` axes come from `actionValue(...)`, not `SDL_GameControllerGetAxis(...)`.
+
+Verification: `git diff --check` passed for the touched production/test/context files. Build and `pd-tests` were skipped by Mike for this slice.
+
+### L.59 Current recursive boundary (2026-04-28)
+
+Source audit after L.58:
+
+- `rg "s_State\\[" port src --glob "!port/src/actionmap.cpp"` finds only comments outside `actionmap.cpp`.
+- First-party gameplay/menu callers are behind public action query APIs.
+- Remaining raw SDL axis reads are either the canonical action-map poller or documented deprecated key-capture paths in `input.c`.
+- Therefore the next step is verification, not another code slice: run the isolated build/test flow, then playtest mission transitions, cutscene skip/continue, menus, vehicle, observer/freefly, and focus loss/regain.
+- Keep `gameplayInputSuppressed()` as a transitional wrapper until that verification passes. Do not convert it to pure `inputLayerTopType() != LAYER_GAMEPLAY` in this unverified slice.
 
 ---
 

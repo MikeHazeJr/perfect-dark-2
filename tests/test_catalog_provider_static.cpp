@@ -448,7 +448,7 @@ TEST_CASE("base first-person hand model files populate provider handles", "[cata
 	REQUIRE(baseExtended.find("base:hand_model_%04x") != std::string::npos);
 	REQUIRE(baseExtended.find("e->runtime_index = -handfilenum") != std::string::npos);
 	REQUIRE(baseExtended.find("e->source_filenum = handfilenum") != std::string::npos);
-	REQUIRE(baseExtended.find("catalogSetPrimary(e, romProviderHandle(e->source_filenum))") != std::string::npos);
+	REQUIRE(baseExtended.find("catalogSetPrimaryRomFilenum(e, e->source_filenum)") != std::string::npos);
 	REQUIRE(bondgun.find("catalogHandleBySourceFilenum(ASSET_MODEL, filenum)") != std::string::npos);
 }
 
@@ -503,6 +503,24 @@ TEST_CASE("file provider handles stay behind catalog provider boundary", "[catal
 
 	INFO("fileProviderHandle outside catalog/provider boundary:\n" << joinLines(violations));
 	REQUIRE(violations.empty());
+}
+
+TEST_CASE("rom-backed catalog registration helpers populate provider handles", "[catalog][provider][static]")
+{
+	const std::string catalog = readTextFile("port/src/assetcatalog.c");
+	const std::string header = readTextFile("port/include/assetcatalog.h");
+	const std::string base = readTextFile("port/src/assetcatalog_base.c");
+	const std::string baseExtended = readTextFile("port/src/assetcatalog_base_extended.c");
+
+	REQUIRE(header.find("catalogSetPrimaryRomFilenum(asset_entry_t *entry, s32 filenum)") != std::string::npos);
+	REQUIRE(catalog.find("catalogSetPrimaryRomFilenum(asset_entry_t *entry, s32 filenum)") != std::string::npos);
+	REQUIRE(catalog.find("catalogSetPrimary(entry, romProviderHandle(filenum))") != std::string::npos);
+	REQUIRE(base.find("#include \"assetprovider_internal.h\"") == std::string::npos);
+	REQUIRE(baseExtended.find("#include \"assetprovider_internal.h\"") == std::string::npos);
+	REQUIRE(countOccurrences(base, "catalogSetPrimaryRomFilenum(e, e->source_filenum)") >= 4);
+	REQUIRE(countOccurrences(baseExtended, "catalogSetPrimaryRomFilenum(e, e->source_filenum)") >= 2);
+	REQUIRE(base.find("catalogSetPrimary(e, romProviderHandle") == std::string::npos);
+	REQUIRE(baseExtended.find("catalogSetPrimary(e, romProviderHandle") == std::string::npos);
 }
 
 TEST_CASE("typed catalog language lifecycle activates runtime payloads", "[catalog][provider][static]")
@@ -591,9 +609,8 @@ TEST_CASE("raw RomProvider handles stay inside catalog provider internals", "[ca
 		"port/include/assetprovider_internal.h",
 		"port/src/assetprovider_rom.c",
 		"port/src/assetload.c",
+		"port/src/assetcatalog.c",
 		"port/src/assetcatalog_api.c",
-		"port/src/assetcatalog_base.c",
-		"port/src/assetcatalog_base_extended.c",
 		"port/src/server_stubs.c",
 	};
 	std::vector<std::string> violations;
@@ -615,9 +632,8 @@ TEST_CASE("assetprovider internal header stays inside approved implementation fi
 {
 	const std::vector<std::string> allowed = {
 		"port/src/assetload.c",
+		"port/src/assetcatalog.c",
 		"port/src/assetcatalog_api.c",
-		"port/src/assetcatalog_base.c",
-		"port/src/assetcatalog_base_extended.c",
 		"port/src/server_stubs.c",
 	};
 	std::vector<std::string> violations;

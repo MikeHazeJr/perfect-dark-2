@@ -12,6 +12,7 @@
     .\devtools\build-session.ps1 -Session s500 -Target all
     .\devtools\build-session.ps1 -Session s500 -Target tests
     .\devtools\build-session.ps1 -Session s500 -Target client -Clean
+    .\devtools\build-session.ps1 -Session s500 -Target all -BuildTimeoutSeconds 7200
     .\devtools\build-session.ps1 -List
     .\devtools\build-session.ps1 -Remove -Session s500
     .\devtools\build-session.ps1 -RemoveAll
@@ -29,6 +30,11 @@ param(
 
     [switch]$Clean,
     [switch]$Verbose,
+    [switch]$NoQueue,
+    [int]$QueueStatusSeconds = 30,
+    # Queued builds that exceed this active runtime are treated as hung. Use 0
+    # only for an intentional no-watchdog run.
+    [int]$BuildTimeoutSeconds = 7200,
 
     # Maintenance modes.
     [switch]$List,
@@ -46,10 +52,442 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = Split-Path -Parent $ScriptDir
 $SessionBuildRoot = Join-Path $ProjectDir ".claude\session-builds"
 $LockDir = Join-Path $SessionBuildRoot ".locks"
+$QueueDir = Join-Path $SessionBuildRoot ".queue"
+$QueueLockPath = Join-Path $QueueDir "queue.lock"
+$QueueActivePath = Join-Path $QueueDir "active.json"
+$QueueDurationsPath = Join-Path $QueueDir "durations.json"
+$QueueTimeoutExitCode = 124
 
 function Write-Info([string]$text) { Write-Host $text -ForegroundColor Gray }
 function Write-Warn([string]$text) { Write-Host $text -ForegroundColor Yellow }
 function Write-Ok([string]$text)   { Write-Host $text -ForegroundColor Green }
+
+function Format-DurationShort([double]$seconds) {
+    $total = [int][math]::Max(0, [math]::Round($seconds))
+    $ts = [TimeSpan]::FromSeconds($total)
+    if ($ts.TotalHours -ge 1) {
+        return "{0}h {1}m" -f [int][math]::Floor($ts.TotalHours), $ts.Minutes
+    }
+    if ($ts.TotalMinutes -ge 1) {
+        return "{0}m {1}s" -f $ts.Minutes, $ts.Seconds
+    }
+    return "{0}s" -f $ts.Seconds
+}
+
+function Get-ObjectValue($obj, [string]$name, $defaultValue) {
+    if ($null -eq $obj) { return $defaultValue }
+    $prop = $obj.PSObject.Properties[$name]
+    if ($null -eq $prop -or $null -eq $prop.Value) { return $defaultValue }
+    return $prop.Value
+}
+
+function ConvertTo-UtcDateTime($value) {
+    try {
+        if ($value -is [DateTime]) {
+            return ([DateTime]$value).ToUniversalTime()
+        }
+        return ([DateTime]::Parse(
+            [string]$value,
+            [System.Globalization.CultureInfo]::InvariantCulture,
+            [System.Globalization.DateTimeStyles]::RoundtripKind)).ToUniversalTime()
+    } catch {
+        return [DateTime]::UtcNow
+    }
+}
+
+function Test-PidAlive($pidValue) {
+    try { $pidInt = [int]$pidValue } catch { return $false }
+    if ($pidInt -le 0) { return $false }
+    try {
+        [void](Get-Process -Id $pidInt -ErrorAction Stop)
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Get-ChildProcessIds([int]$parentPid) {
+    $result = @()
+    try {
+        $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$parentPid" -ErrorAction Stop)
+    } catch {
+        try {
+            $children = @(Get-WmiObject Win32_Process -Filter "ParentProcessId=$parentPid" -ErrorAction SilentlyContinue)
+        } catch {
+            $children = @()
+        }
+    }
+
+    foreach ($child in $children) {
+        $childPid = [int]$child.ProcessId
+        $result += $childPid
+        $result += Get-ChildProcessIds $childPid
+    }
+    return $result
+}
+
+function Stop-ProcessTree([int]$rootPid) {
+    if ($rootPid -le 0) { return }
+
+    $descendants = @(Get-ChildProcessIds $rootPid)
+    for ($i = $descendants.Count - 1; $i -ge 0; $i--) {
+        $pidToStop = [int]$descendants[$i]
+        if (-not (Test-PidAlive $pidToStop)) { continue }
+        try { Stop-Process -Id $pidToStop -Force -ErrorAction Stop } catch {}
+    }
+
+    if (Test-PidAlive $rootPid) {
+        try { Stop-Process -Id $rootPid -Force -ErrorAction Stop } catch {}
+    }
+}
+
+function Get-BuildStdoutLogPath([string]$buildDir) {
+    return Join-Path $buildDir "_build-session.out.log"
+}
+
+function Get-BuildStderrLogPath([string]$buildDir) {
+    return Join-Path $buildDir "_build-session.err.log"
+}
+
+function Write-JsonFile([string]$path, $value) {
+    $value | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $path -Encoding UTF8
+}
+
+function Ensure-QueueDir {
+    if (-not (Test-Path -LiteralPath $QueueDir)) {
+        New-Item -ItemType Directory -Path $QueueDir -Force | Out-Null
+    }
+}
+
+function Enter-QueueStateLock {
+    Ensure-QueueDir
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    while ($true) {
+        try {
+            return [System.IO.File]::Open($QueueLockPath, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+        } catch [System.IO.IOException] {
+            if ([DateTime]::UtcNow -ge $deadline) {
+                throw "Timed out waiting for build queue state lock: $QueueLockPath"
+            }
+            Start-Sleep -Milliseconds 200
+        }
+    }
+}
+
+function Exit-QueueStateLock($stream) {
+    if ($null -ne $stream) {
+        try { $stream.Dispose() } catch {}
+    }
+}
+
+function Read-QueueJson([string]$path) {
+    try {
+        if (-not (Test-Path -LiteralPath $path)) { return $null }
+        return Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json
+    } catch {
+        return $null
+    }
+}
+
+function Get-QueueRequestFiles {
+    if (-not (Test-Path -LiteralPath $QueueDir)) { return @() }
+    return @(Get-ChildItem -LiteralPath $QueueDir -Filter "*.request.json" -File -ErrorAction SilentlyContinue | Sort-Object Name)
+}
+
+function Get-BuildDurationEstimateSeconds([string]$target) {
+    $defaults = @{
+        client = 60
+        server = 60
+        tests  = 120
+        all    = 180
+    }
+    $fallback = if ($defaults.ContainsKey($target)) { [double]$defaults[$target] } else { 180.0 }
+    $history = Read-QueueJson $QueueDurationsPath
+    if ($null -eq $history) { return $fallback }
+
+    $items = @(@($history) |
+        Where-Object {
+            (Get-ObjectValue $_ "Target" "") -eq $target -and
+            [int](Get-ObjectValue $_ "ExitCode" 1) -eq 0 -and
+            [double](Get-ObjectValue $_ "DurationSeconds" 0) -gt 0
+        } |
+        Select-Object -Last 8)
+
+    if ($items.Count -eq 0) { return $fallback }
+    $sum = 0.0
+    foreach ($item in $items) {
+        $sum += [double](Get-ObjectValue $item "DurationSeconds" $fallback)
+    }
+    return [math]::Max(60.0, $sum / $items.Count)
+}
+
+function Get-QueueTimeoutSeconds($entry) {
+    $timeoutSeconds = [int](Get-ObjectValue $entry "TimeoutSeconds" $BuildTimeoutSeconds)
+    if ($timeoutSeconds -lt 0) { return 0 }
+    return $timeoutSeconds
+}
+
+function Clear-StaleQueueState {
+    foreach ($file in Get-QueueRequestFiles) {
+        $entry = Read-QueueJson $file.FullName
+        $wrapperPid = Get-ObjectValue $entry "WrapperPid" 0
+        if ($null -eq $entry -or -not (Test-PidAlive $wrapperPid)) {
+            Remove-Item -LiteralPath $file.FullName -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    $active = Read-QueueJson $QueueActivePath
+    if ($null -eq $active) {
+        Remove-Item -LiteralPath $QueueActivePath -Force -ErrorAction SilentlyContinue
+        return
+    }
+
+    $wrapperAlive = Test-PidAlive (Get-ObjectValue $active "WrapperPid" 0)
+    $childPid = [int](Get-ObjectValue $active "ChildPid" 0)
+    $childAlive = Test-PidAlive $childPid
+    if (-not $wrapperAlive -and $childAlive) {
+        $timeoutSeconds = Get-QueueTimeoutSeconds $active
+        if ($timeoutSeconds -gt 0) {
+            $started = ConvertTo-UtcDateTime (Get-ObjectValue $active "StartedUtc" ([DateTime]::UtcNow.ToString("o")))
+            $elapsed = ([DateTime]::UtcNow - $started).TotalSeconds
+            if ($elapsed -ge $timeoutSeconds) {
+                $session = Get-ObjectValue $active "Session" "unknown"
+                Write-Warn ("Clearing stale over-timeout build queue active record for '{0}' after {1}; stopping child process tree pid {2}." -f $session, (Format-DurationShort $elapsed), $childPid)
+                Stop-ProcessTree $childPid
+                Remove-Item -LiteralPath $QueueActivePath -Force -ErrorAction SilentlyContinue
+                return
+            }
+        }
+    }
+    if (-not $wrapperAlive -and -not $childAlive) {
+        $session = Get-ObjectValue $active "Session" "unknown"
+        Write-Warn "Clearing stale build queue active record for '$session' (owner process is gone)."
+        Remove-Item -LiteralPath $QueueActivePath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function New-QueueSnapshot([string]$requestPath, [DateTime]$enqueuedUtc) {
+    $now = [DateTime]::UtcNow
+    $active = Read-QueueJson $QueueActivePath
+    $entries = @(Get-QueueRequestFiles)
+    $position = 0
+    for ($i = 0; $i -lt $entries.Count; $i++) {
+        if ($entries[$i].FullName -eq $requestPath) {
+            $position = $i + 1
+            break
+        }
+    }
+    if ($position -eq 0) {
+        throw "Build queue request disappeared: $requestPath"
+    }
+
+    $estimate = 0.0
+    $activeSession = ""
+    $activeTarget = ""
+    $activeElapsed = 0.0
+    if ($null -ne $active) {
+        $activeSession = [string](Get-ObjectValue $active "Session" "")
+        $activeTarget = [string](Get-ObjectValue $active "Target" "")
+        $started = ConvertTo-UtcDateTime (Get-ObjectValue $active "StartedUtc" $now.ToString("o"))
+        $activeElapsed = [math]::Max(0.0, ($now - $started).TotalSeconds)
+        $estimate += [math]::Max(0.0, (Get-BuildDurationEstimateSeconds $activeTarget) - $activeElapsed)
+    }
+
+    for ($i = 0; $i -lt ($position - 1); $i++) {
+        $entry = Read-QueueJson $entries[$i].FullName
+        $queuedTarget = [string](Get-ObjectValue $entry "Target" "all")
+        $estimate += Get-BuildDurationEstimateSeconds $queuedTarget
+    }
+
+    return [PSCustomObject]@{
+        Position = $position
+        QueueCount = $entries.Count
+        WaitSeconds = ($now - $enqueuedUtc).TotalSeconds
+        EstimatedWaitSeconds = $estimate
+        ActiveSession = $activeSession
+        ActiveTarget = $activeTarget
+        ActiveElapsedSeconds = $activeElapsed
+    }
+}
+
+function Write-QueueWaitStatus($snapshot) {
+    $activeText = if ($snapshot.ActiveSession) {
+        "$($snapshot.ActiveSession) ($($snapshot.ActiveTarget), elapsed $(Format-DurationShort $snapshot.ActiveElapsedSeconds))"
+    } else {
+        "none"
+    }
+    Write-Warn ("Build queue: waiting position {0}/{1}; active: {2}; estimated wait: {3}; waited: {4}." -f `
+        $snapshot.Position,
+        $snapshot.QueueCount,
+        $activeText,
+        (Format-DurationShort $snapshot.EstimatedWaitSeconds),
+        (Format-DurationShort $snapshot.WaitSeconds))
+}
+
+function Enter-BuildQueue([string]$sessionName, [string]$target, [string]$buildDir, [int]$statusSeconds, [int]$timeoutSeconds) {
+    if ($statusSeconds -lt 5) { $statusSeconds = 5 }
+    if ($timeoutSeconds -lt 0) { $timeoutSeconds = 0 }
+    Ensure-QueueDir
+
+    $enqueuedUtc = [DateTime]::UtcNow
+    $requestId = "{0}-{1}-{2}" -f $enqueuedUtc.Ticks, $PID, $sessionName
+    $requestPath = Join-Path $QueueDir "$requestId.request.json"
+    $request = [PSCustomObject]@{
+        RequestId = $requestId
+        Session = $sessionName
+        Target = $target
+        BuildDir = $buildDir
+        WrapperPid = $PID
+        EnqueuedUtc = $enqueuedUtc.ToString("o")
+        Host = $env:COMPUTERNAME
+        TimeoutSeconds = $timeoutSeconds
+    }
+    Write-JsonFile $requestPath $request
+    Write-Info "Build queue: queued '$sessionName' for target '$target'. Do not use -NoQueue unless Mike explicitly asks."
+
+    $lastStatusUtc = [DateTime]::MinValue
+    while ($true) {
+        $stateLock = $null
+        try {
+            $stateLock = Enter-QueueStateLock
+            Clear-StaleQueueState
+            $entries = @(Get-QueueRequestFiles)
+            $active = Read-QueueJson $QueueActivePath
+            $front = ($entries.Count -gt 0 -and $entries[0].FullName -eq $requestPath)
+
+            if ($front -and $null -eq $active) {
+                Remove-Item -LiteralPath $requestPath -Force -ErrorAction SilentlyContinue
+                $now = [DateTime]::UtcNow
+                $activeRecord = [PSCustomObject]@{
+                    RequestId = $requestId
+                    Session = $sessionName
+                    Target = $target
+                    BuildDir = $buildDir
+                    WrapperPid = $PID
+                    ChildPid = 0
+                    StartedUtc = $now.ToString("o")
+                    HeartbeatUtc = $now.ToString("o")
+                    QueueWaitSeconds = ($now - $enqueuedUtc).TotalSeconds
+                    TimeoutSeconds = $timeoutSeconds
+                }
+                Write-JsonFile $QueueActivePath $activeRecord
+                Write-Ok ("Build queue: starting '{0}' after waiting {1}." -f $sessionName, (Format-DurationShort $activeRecord.QueueWaitSeconds))
+                return [PSCustomObject]@{
+                    RequestId = $requestId
+                    StartedUtc = $now.ToString("o")
+                    Session = $sessionName
+                    Target = $target
+                    TimeoutSeconds = $timeoutSeconds
+                }
+            }
+
+            $snapshot = New-QueueSnapshot $requestPath $enqueuedUtc
+        } finally {
+            Exit-QueueStateLock $stateLock
+        }
+
+        if (([DateTime]::UtcNow - $lastStatusUtc).TotalSeconds -ge $statusSeconds) {
+            Write-QueueWaitStatus $snapshot
+            $lastStatusUtc = [DateTime]::UtcNow
+        }
+        Start-Sleep -Seconds 5
+    }
+}
+
+function Update-BuildQueueActive($queueToken, [int]$childPid, [string]$stdoutLog = "", [string]$stderrLog = "") {
+    if ($null -eq $queueToken) { return }
+    $stateLock = $null
+    try {
+        $stateLock = Enter-QueueStateLock
+        $active = Read-QueueJson $QueueActivePath
+        if ($null -eq $active) { return }
+        if ([string](Get-ObjectValue $active "RequestId" "") -ne [string]$queueToken.RequestId) { return }
+        $active | Add-Member -NotePropertyName HeartbeatUtc -NotePropertyValue ([DateTime]::UtcNow.ToString("o")) -Force
+        if ($childPid -ge 0) {
+            $active | Add-Member -NotePropertyName ChildPid -NotePropertyValue $childPid -Force
+        }
+        if ($stdoutLog -ne "") {
+            $active | Add-Member -NotePropertyName StdoutLog -NotePropertyValue $stdoutLog -Force
+        }
+        if ($stderrLog -ne "") {
+            $active | Add-Member -NotePropertyName StderrLog -NotePropertyValue $stderrLog -Force
+        }
+        Write-JsonFile $QueueActivePath $active
+    } finally {
+        Exit-QueueStateLock $stateLock
+    }
+}
+
+function Add-BuildDurationRecord($queueToken, [int]$exitCode) {
+    if ($null -eq $queueToken) { return }
+    $started = ConvertTo-UtcDateTime (Get-ObjectValue $queueToken "StartedUtc" ([DateTime]::UtcNow.ToString("o")))
+    $durationSeconds = [math]::Max(0.0, ([DateTime]::UtcNow - $started).TotalSeconds)
+    $record = [PSCustomObject]@{
+        Session = [string]$queueToken.Session
+        Target = [string]$queueToken.Target
+        DurationSeconds = [math]::Round($durationSeconds, 1)
+        ExitCode = $exitCode
+        CompletedUtc = [DateTime]::UtcNow.ToString("o")
+    }
+
+    $history = @(Read-QueueJson $QueueDurationsPath)
+    if ($history.Count -eq 1 -and $null -eq $history[0]) { $history = @() }
+    $history = @($history + $record) | Select-Object -Last 40
+    Write-JsonFile $QueueDurationsPath $history
+}
+
+function Exit-BuildQueue($queueToken, [int]$exitCode) {
+    if ($null -eq $queueToken) { return }
+    $stateLock = $null
+    try {
+        $stateLock = Enter-QueueStateLock
+        Add-BuildDurationRecord $queueToken $exitCode
+        $active = Read-QueueJson $QueueActivePath
+        if ($null -ne $active -and [string](Get-ObjectValue $active "RequestId" "") -eq [string]$queueToken.RequestId) {
+            Remove-Item -LiteralPath $QueueActivePath -Force -ErrorAction SilentlyContinue
+        }
+    } finally {
+        Exit-QueueStateLock $stateLock
+    }
+}
+
+function Invoke-QueuedBuildChild([string[]]$childArgs, $queueToken, [int]$timeoutSeconds, [string]$buildDir) {
+    if ($timeoutSeconds -lt 0) { $timeoutSeconds = 0 }
+    if (-not (Test-Path -LiteralPath $buildDir)) {
+        New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
+    }
+
+    $stdoutLog = Get-BuildStdoutLogPath $buildDir
+    $stderrLog = Get-BuildStderrLogPath $buildDir
+    Set-Content -LiteralPath $stdoutLog -Value "" -Encoding UTF8
+    Set-Content -LiteralPath $stderrLog -Value "" -Encoding UTF8
+
+    Write-Info "Build output: $stdoutLog"
+    Write-Info "Build errors: $stderrLog"
+    $child = Start-Process -FilePath "powershell.exe" -ArgumentList $childArgs -NoNewWindow -PassThru `
+        -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+    $startedUtc = [DateTime]::UtcNow
+    Update-BuildQueueActive $queueToken $child.Id $stdoutLog $stderrLog
+    while (-not $child.WaitForExit(5000)) {
+        Update-BuildQueueActive $queueToken $child.Id $stdoutLog $stderrLog
+        $elapsed = ([DateTime]::UtcNow - $startedUtc).TotalSeconds
+        if ($timeoutSeconds -gt 0 -and $elapsed -ge $timeoutSeconds) {
+            Write-Warn ("Build watchdog: session '{0}' target '{1}' exceeded {2}; stopping child process tree pid {3}." -f `
+                (Get-ObjectValue $queueToken "Session" "unknown"),
+                (Get-ObjectValue $queueToken "Target" "unknown"),
+                (Format-DurationShort $timeoutSeconds),
+                $child.Id)
+            Write-Warn "Build output log: $stdoutLog"
+            Write-Warn "Build error log: $stderrLog"
+            Stop-ProcessTree $child.Id
+            try { [void]$child.WaitForExit(10000) } catch {}
+            Update-BuildQueueActive $queueToken $child.Id $stdoutLog $stderrLog
+            return $QueueTimeoutExitCode
+        }
+    }
+    Update-BuildQueueActive $queueToken $child.Id $stdoutLog $stderrLog
+    return [int]$child.ExitCode
+}
 
 function ConvertTo-SafeSessionName([string]$value) {
     $name = $value.Trim()
@@ -142,7 +580,7 @@ function Show-SessionBuilds {
 
     $rows = @()
     Get-ChildItem -LiteralPath $SessionBuildRoot -Directory -Force |
-        Where-Object { $_.Name -ne ".locks" } |
+        Where-Object { $_.Name -ne ".locks" -and $_.Name -ne ".queue" } |
         Sort-Object LastWriteTime -Descending |
         ForEach-Object {
             $rows += [PSCustomObject]@{
@@ -157,6 +595,65 @@ function Show-SessionBuilds {
         Write-Info "No session builds found under $SessionBuildRoot"
     } else {
         $rows | Format-Table -AutoSize
+    }
+
+    Show-BuildQueue
+}
+
+function Show-BuildQueue {
+    Ensure-QueueDir
+    $stateLock = $null
+    try {
+        $stateLock = Enter-QueueStateLock
+        Clear-StaleQueueState
+        $active = Read-QueueJson $QueueActivePath
+        $entries = @(Get-QueueRequestFiles)
+
+        Write-Host ""
+        Write-Host "Build queue:" -ForegroundColor Cyan
+        if ($null -ne $active) {
+            $started = ConvertTo-UtcDateTime (Get-ObjectValue $active "StartedUtc" ([DateTime]::UtcNow.ToString("o")))
+            $elapsed = ([DateTime]::UtcNow - $started).TotalSeconds
+            $timeoutSeconds = Get-QueueTimeoutSeconds $active
+            $timeoutText = if ($timeoutSeconds -gt 0) { Format-DurationShort $timeoutSeconds } else { "off" }
+            $statusText = if ($timeoutSeconds -gt 0 -and $elapsed -ge $timeoutSeconds) { " status=over-timeout" } else { "" }
+            Write-Host ("  Active: {0} target={1} elapsed={2} timeout={3} wrapperPid={4} childPid={5}{6}" -f `
+                (Get-ObjectValue $active "Session" "unknown"),
+                (Get-ObjectValue $active "Target" "unknown"),
+                (Format-DurationShort $elapsed),
+                $timeoutText,
+                (Get-ObjectValue $active "WrapperPid" 0),
+                (Get-ObjectValue $active "ChildPid" 0),
+                $statusText) -ForegroundColor Yellow
+            $stdoutLog = [string](Get-ObjectValue $active "StdoutLog" "")
+            $stderrLog = [string](Get-ObjectValue $active "StderrLog" "")
+            if ($stdoutLog -ne "" -or $stderrLog -ne "") {
+                Write-Host ("          logs: out={0} err={1}" -f $stdoutLog, $stderrLog) -ForegroundColor DarkGray
+            }
+        } else {
+            Write-Host "  Active: none" -ForegroundColor Gray
+        }
+
+        if ($entries.Count -eq 0) {
+            Write-Host "  Waiting: none" -ForegroundColor Gray
+        } else {
+            $rows = @()
+            for ($i = 0; $i -lt $entries.Count; $i++) {
+                $entry = Read-QueueJson $entries[$i].FullName
+                if ($null -eq $entry) { continue }
+                $enqueued = ConvertTo-UtcDateTime (Get-ObjectValue $entry "EnqueuedUtc" ([DateTime]::UtcNow.ToString("o")))
+                $rows += [PSCustomObject]@{
+                    Position = $i + 1
+                    Session = Get-ObjectValue $entry "Session" "unknown"
+                    Target = Get-ObjectValue $entry "Target" "unknown"
+                    Waiting = Format-DurationShort (([DateTime]::UtcNow - $enqueued).TotalSeconds)
+                    Pid = Get-ObjectValue $entry "WrapperPid" 0
+                }
+            }
+            if ($rows.Count -gt 0) { $rows | Format-Table -AutoSize }
+        }
+    } finally {
+        Exit-QueueStateLock $stateLock
     }
 }
 
@@ -194,7 +691,7 @@ if ($RemoveAll) {
     }
 
     Get-ChildItem -LiteralPath $SessionBuildRoot -Directory -Force |
-        Where-Object { $_.Name -ne ".locks" } |
+        Where-Object { $_.Name -ne ".locks" -and $_.Name -ne ".queue" } |
         ForEach-Object { Remove-SessionBuild $_.Name }
     exit 0
 }
@@ -221,8 +718,16 @@ Write-Host "  Target:   $Target" -ForegroundColor Gray
 Write-Host "  BuildDir: $buildDir" -ForegroundColor DarkGray
 Write-Host ""
 
+$queueToken = $null
 $lock = $null
+$exitCode = 1
 try {
+    if (-not $NoQueue) {
+        $queueToken = Enter-BuildQueue $sessionName $Target $buildDir $QueueStatusSeconds $BuildTimeoutSeconds
+    } else {
+        Write-Warn "Build queue bypassed by -NoQueue. This should only happen when Mike explicitly asks."
+    }
+
     $lock = Enter-SessionBuildLock $sessionName
 
     $buildArgs = @(
@@ -239,10 +744,15 @@ try {
         $env:PATH = "$gitForWindows;$env:PATH"
     }
     $childArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $headless) + $buildArgs
-    & powershell.exe @childArgs
-    $exitCode = $LASTEXITCODE
+    if ($NoQueue) {
+        & powershell.exe @childArgs
+        $exitCode = $LASTEXITCODE
+    } else {
+        $exitCode = Invoke-QueuedBuildChild $childArgs $queueToken $BuildTimeoutSeconds
+    }
 } finally {
     Exit-SessionBuildLock $lock
+    Exit-BuildQueue $queueToken $exitCode
 }
 
 Write-Host ""

@@ -34,6 +34,7 @@
 #include "config.h"     /* configRegisterString */
 #include "system.h"     /* sysLogPrintf, LOG_NOTE, LOG_WARNING */
 #include "inputctx.h"   /* inputCtxGetTop, g_CtxGameplay — for menu axis suppression */
+#include "inputlayer.h" /* layer-declared action aperture for transition layers */
 
 /* Priority D (2026-04-24): FREEFLY observer suppression. Single extern
  * decl keeps forgemode.h (and its types.h dependency) out of this TU. */
@@ -540,6 +541,8 @@ static void cheatRecord(InputAction action)
     }
 }
 
+static s32 actionLayerAllows(InputAction a);
+
 /* ============================================================
  * Helpers: fire a digital VK event into action states
  * ============================================================ */
@@ -554,12 +557,9 @@ static void fireVk(u32 vk, s32 is_down)
 
     s32 player = playerForVk(vk);
 
-    /* Dispatch-site gate (ADR 2026-04-13): when gameplay input is suppressed
-     * (non-gameplay context on top, focus lost, or focus-regain settle window),
-     * skip the gameplay + vehicle IMCs entirely. Any VK bound only there —
-     * like Ctrl→ACTION_JUMP — will fall through without writing s_State, so
-     * a Ctrl+V in the Online-window menu no longer makes the background
-     * player jump. Read-site gates in the query API are a defence in depth. */
+    /* Legacy dispatch-site gate (ADR 2026-04-13): while the inputctx
+     * predicate suppresses gameplay, skip gameplay-scope IMCs entirely.
+     * Layer-declared action apertures are applied per winning action below. */
     s32 suppressGameplay = gameplayInputSuppressed();
 
     /* Walk contexts from highest priority to lowest */
@@ -594,6 +594,10 @@ static void fireVk(u32 vk, s32 is_down)
         }
 
         if (best_a < ACTION_COUNT) {
+            if (!actionLayerAllows((InputAction)best_a)) {
+                goto next_player;
+            }
+
             ActionState *st = &s_State[player][best_a];
 
             /* DIAG: Log which IMC wins the VK→action mapping for gamepad VKs.
@@ -1050,6 +1054,27 @@ void actionmapDispatch(const SDL_Event *ev)
     }
 }
 
+static void actionmapZeroGameplayAxes(s32 player, s32 zero_move, s32 zero_aim)
+{
+    if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) {
+        return;
+    }
+
+    if (zero_move) {
+        s_State[player][ACTION_AXIS_MOVE_X].value = 0.0f;
+        s_State[player][ACTION_AXIS_MOVE_Y].value = 0.0f;
+        s_State[player][ACTION_AXIS_MOVE_X].held = 0;
+        s_State[player][ACTION_AXIS_MOVE_Y].held = 0;
+    }
+
+    if (zero_aim) {
+        s_State[player][ACTION_AXIS_AIM_X].value = 0.0f;
+        s_State[player][ACTION_AXIS_AIM_Y].value = 0.0f;
+        s_State[player][ACTION_AXIS_AIM_X].held = 0;
+        s_State[player][ACTION_AXIS_AIM_Y].held = 0;
+    }
+}
+
 /* ============================================================
  * Public: actionmapPollFrame — analog axis sampling
  * ============================================================ */
@@ -1068,6 +1093,14 @@ void actionmapPollFrame(void)
      * window-focus-lost and the focus-regain settle window. */
     InputContext *topCtx = inputCtxGetTop();
     s32 menuActive = gameplayInputSuppressed();
+    s32 moveAxesAllowed =
+        !menuActive &&
+        actionLayerAllows(ACTION_AXIS_MOVE_X) &&
+        actionLayerAllows(ACTION_AXIS_MOVE_Y);
+    s32 aimAxesAllowed =
+        !menuActive &&
+        actionLayerAllows(ACTION_AXIS_AIM_X) &&
+        actionLayerAllows(ACTION_AXIS_AIM_Y);
 
     /* DIAG: Log context and active IMCs every ~120 frames (verbose-only). */
     if (sysLogGetVerbose() && (s_DiagFrameCount % 120) == 1) {
@@ -1096,7 +1129,7 @@ void actionmapPollFrame(void)
     for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
         SDL_GameController *ctrl = SDL_GameControllerFromPlayerIndex(p);
 
-        if (ctrl && !menuActive) {
+        if (ctrl && (moveAxesAllowed || aimAxesAllowed)) {
             /* Read raw axes — honour swap sticks setting */
             SDL_GameControllerAxis lxAxis = s_SwapSticks ? SDL_CONTROLLER_AXIS_RIGHTX : SDL_CONTROLLER_AXIS_LEFTX;
             SDL_GameControllerAxis lyAxis = s_SwapSticks ? SDL_CONTROLLER_AXIS_RIGHTY : SDL_CONTROLLER_AXIS_LEFTY;
@@ -1126,18 +1159,25 @@ void actionmapPollFrame(void)
                 avy = -avy;
             }
 
-            s_State[p][ACTION_AXIS_MOVE_X].value = clampf(mvx, -1.0f, 1.0f);
-            s_State[p][ACTION_AXIS_MOVE_Y].value = clampf(mvy, -1.0f, 1.0f);
-            s_State[p][ACTION_AXIS_AIM_X].value  = clampf(avx, -1.0f, 1.0f);
-            s_State[p][ACTION_AXIS_AIM_Y].value  = clampf(avy, -1.0f, 1.0f);
+            if (moveAxesAllowed) {
+                s_State[p][ACTION_AXIS_MOVE_X].value = clampf(mvx, -1.0f, 1.0f);
+                s_State[p][ACTION_AXIS_MOVE_Y].value = clampf(mvy, -1.0f, 1.0f);
+                s_State[p][ACTION_AXIS_MOVE_X].held = (mvx != 0.0f) ? 1 : 0;
+                s_State[p][ACTION_AXIS_MOVE_Y].held = (mvy != 0.0f) ? 1 : 0;
+            } else {
+                actionmapZeroGameplayAxes(p, 1, 0);
+            }
 
-            /* Mark as held if axis is significantly deflected (sign-agnostic) */
-            s_State[p][ACTION_AXIS_MOVE_X].held = (mvx != 0.0f) ? 1 : 0;
-            s_State[p][ACTION_AXIS_MOVE_Y].held = (mvy != 0.0f) ? 1 : 0;
-            s_State[p][ACTION_AXIS_AIM_X].held  = (avx != 0.0f) ? 1 : 0;
-            s_State[p][ACTION_AXIS_AIM_Y].held  = (avy != 0.0f) ? 1 : 0;
+            if (aimAxesAllowed) {
+                s_State[p][ACTION_AXIS_AIM_X].value = clampf(avx, -1.0f, 1.0f);
+                s_State[p][ACTION_AXIS_AIM_Y].value = clampf(avy, -1.0f, 1.0f);
+                s_State[p][ACTION_AXIS_AIM_X].held  = (avx != 0.0f) ? 1 : 0;
+                s_State[p][ACTION_AXIS_AIM_Y].held  = (avy != 0.0f) ? 1 : 0;
+            } else {
+                actionmapZeroGameplayAxes(p, 0, 1);
+            }
 
-            if (p == 0) {
+            if (p == 0 && moveAxesAllowed) {
                 p0CtrlDroveAxis = 1;
             }
 
@@ -1147,29 +1187,18 @@ void actionmapPollFrame(void)
                 sysLogPrintf(LOG_NOTE, "DIAG axes p%d: raw lx=%d ly=%d rx=%d ry=%d -> mv=%.3f,%.3f av=%.3f,%.3f",
                              p, (int)lx, (int)ly, (int)rx, (int)ry, mvx, mvy, avx, avy);
             }
-        } else if (ctrl && menuActive) {
-            /* Menu is open: zero gameplay axes to prevent camera/movement behind menu */
-            s_State[p][ACTION_AXIS_MOVE_X].value = 0.0f;
-            s_State[p][ACTION_AXIS_MOVE_Y].value = 0.0f;
-            s_State[p][ACTION_AXIS_AIM_X].value  = 0.0f;
-            s_State[p][ACTION_AXIS_AIM_Y].value  = 0.0f;
-            s_State[p][ACTION_AXIS_MOVE_X].held = 0;
-            s_State[p][ACTION_AXIS_MOVE_Y].held = 0;
-            s_State[p][ACTION_AXIS_AIM_X].held  = 0;
-            s_State[p][ACTION_AXIS_AIM_Y].held  = 0;
+        } else if (ctrl) {
+            /* Layer or inputctx authority blocks generic gameplay axes. */
+            actionmapZeroGameplayAxes(p, 1, 1);
         }
     }
 
-    if (menuActive) {
-        /* Menu active: zero player 0 KBM axes too and skip all synthesis */
-        s_State[0][ACTION_AXIS_MOVE_X].value = 0.0f;
-        s_State[0][ACTION_AXIS_MOVE_Y].value = 0.0f;
-        s_State[0][ACTION_AXIS_AIM_X].value  = 0.0f;
-        s_State[0][ACTION_AXIS_AIM_Y].value  = 0.0f;
-        s_State[0][ACTION_AXIS_MOVE_X].held = 0;
-        s_State[0][ACTION_AXIS_MOVE_Y].held = 0;
-        s_State[0][ACTION_AXIS_AIM_X].held  = 0;
-        s_State[0][ACTION_AXIS_AIM_Y].held  = 0;
+    if (!moveAxesAllowed || !aimAxesAllowed) {
+        actionmapZeroGameplayAxes(0, !moveAxesAllowed, !aimAxesAllowed);
+    }
+
+    if (!moveAxesAllowed) {
+        /* Move axes blocked: skip player 0 keyboard synthesis too. */
         return;
     }
 
@@ -1360,6 +1389,27 @@ s32 actionIsGameplayOnly(InputAction a)
     }
 }
 
+static s32 actionLayerAllows(InputAction a)
+{
+    const LayerHandle *top = inputLayerTop();
+    const LayerDef *def = top ? inputLayerHandleDef(top) : NULL;
+
+    if (def && def->action_set && def->action_set_count > 0 && actionIsGameplayOnly(a)) {
+        for (s32 i = 0; i < def->action_set_count; i++) {
+            if (def->action_set[i] == a) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+
+    if (gameplayInputSuppressed() && actionIsGameplayOnly(a)) {
+        return 0;
+    }
+
+    return 1;
+}
+
 /* Priority D (2026-04-24): FREEFLY observer suppression.
  *
  * When the Forge session is in FREEFLY, the player-chr is frozen and
@@ -1483,10 +1533,10 @@ s32 actionPressed(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
-    /* Input-authority gate (ADR §3.2): gameplay-only actions do not read
-     * while gameplay is not authoritative (menu on top, focus lost, or
-     * focus-regain settle window). */
-    if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0;
+    /* Input-authority gate: when a top layer declares a gameplay action
+     * aperture, gameplay-only reads must be in that set. Otherwise, fall
+     * back to the transitional inputctx suppression predicate. */
+    if (!actionLayerAllows(action)) return 0;
     /* Priority D (2026-04-24): FREEFLY observer suppression. */
     if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     return s_State[player][action].pressed;
@@ -1496,7 +1546,7 @@ s32 actionHeld(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
-    if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0;
+    if (!actionLayerAllows(action)) return 0;
     if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     return s_State[player][action].held;
 }
@@ -1505,7 +1555,7 @@ s32 actionReleased(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
-    if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0;
+    if (!actionLayerAllows(action)) return 0;
     if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     return s_State[player][action].released;
 }
@@ -1514,7 +1564,7 @@ f32 actionValue(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0.0f;
     if (action < 0 || action >= ACTION_COUNT) return 0.0f;
-    if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0.0f;
+    if (!actionLayerAllows(action)) return 0.0f;
     if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0.0f;
     return s_State[player][action].value;
 }
@@ -1528,8 +1578,8 @@ void actionAxis(s32 player, InputAction action, f32 *out_x, f32 *out_y)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return;
     if (action < 0 || action >= ACTION_COUNT) return;
 
-    /* Gate axis reads: every axis pair is gameplay-scope (MOVE, AIM). */
-    if (gameplayInputSuppressed()) return;
+    /* Gate axis reads through the layer-declared gameplay aperture. */
+    if (!actionLayerAllows(action)) return;
 
     /* Axis-pair actions: return both components */
     if (action == ACTION_AXIS_MOVE_X || action == ACTION_AXIS_MOVE_Y) {
@@ -1552,7 +1602,7 @@ s32 actionHeldForMs(s32 player, InputAction action, s32 threshold_ms)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
-    if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0;
+    if (!actionLayerAllows(action)) return 0;
     if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     const ActionState *st = &s_State[player][action];
     if (!st->held || st->down_time_ms == 0) return 0;
@@ -1565,7 +1615,7 @@ s32 actionWasTap(s32 player, InputAction action, s32 max_hold_ms)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
-    if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0;
+    if (!actionLayerAllows(action)) return 0;
     if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     const ActionState *st = &s_State[player][action];
     if (!st->released) return 0;
@@ -1579,7 +1629,7 @@ s32 actionLastGestureHoldMs(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
-    if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0;
+    if (!actionLayerAllows(action)) return 0;
     if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     const ActionState *st = &s_State[player][action];
     if (!st->released) return 0;
@@ -1592,6 +1642,8 @@ void actionConsumeHold(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return;
     if (action < 0 || action >= ACTION_COUNT) return;
+    if (!actionLayerAllows(action)) return;
+    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return;
     {
         ActionState *st = &s_State[player][action];
         st->hold_consumed = 1;
@@ -1604,6 +1656,8 @@ s32 actionHoldConsumed(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
+    if (!actionLayerAllows(action)) return 0;
+    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     return s_State[player][action].hold_consumed;
 }
 
@@ -1611,7 +1665,7 @@ f32 actionHoldProgress(s32 player, InputAction action, s32 threshold_ms)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0.0f;
     if (action < 0 || action >= ACTION_COUNT) return 0.0f;
-    if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) return 0.0f;
+    if (!actionLayerAllows(action)) return 0.0f;
     if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0.0f;
     if (threshold_ms <= 0) return 0.0f;
     ActionState *st = &s_State[player][action];
@@ -1655,7 +1709,7 @@ u32 actionHoldPressStartMs(s32 player, InputAction action)
     if (action < 0 || action >= ACTION_COUNT) {
         return 0;
     }
-    if (gameplayInputSuppressed() && actionIsGameplayOnly(action)) {
+    if (!actionLayerAllows(action)) {
         return 0;
     }
     const ActionState *st = &s_State[player][action];

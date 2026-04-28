@@ -16,6 +16,12 @@
     .\devtools\run-pd-tests.ps1 -Session qcat1 -Selector "[catalog][provider][static]"
 
 .EXAMPLE
+    .\devtools\run-pd-tests.ps1 -Session qcat1 -Scope catalog-provider
+
+.EXAMPLE
+    .\devtools\run-pd-tests.ps1 -ListScopes
+
+.EXAMPLE
     .\devtools\run-pd-tests.ps1 -Session qall1
 
 .EXAMPLE
@@ -23,13 +29,28 @@
 #>
 
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [string]$Session,
 
     [string]$Selector = "",
 
+    [ValidateSet(
+        "catalog",
+        "catalog-provider",
+        "catalog-identity",
+        "input",
+        "manifest",
+        "save",
+        "netbuf",
+        "connectcode",
+        "network-lifecycle",
+        "spawn"
+    )]
+    [string]$Scope = "",
+
     [switch]$ListTags,
     [switch]$ListTests,
+    [switch]$ListScopes,
     [switch]$NoBuild,
     [switch]$Clean,
     [switch]$BuildVerbose,
@@ -45,6 +66,18 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = Split-Path -Parent $ScriptDir
 $SessionBuildRoot = Join-Path $ProjectDir ".claude\session-builds"
 $BuildSession = Join-Path $ScriptDir "build-session.ps1"
+$ScopeSelectors = [ordered]@{
+    "catalog" = "[catalog]"
+    "catalog-provider" = "[catalog][provider][static]"
+    "catalog-identity" = "[catalog][identity][static]"
+    "input" = "[input]"
+    "manifest" = "[manifest]"
+    "save" = "[save][migration]"
+    "netbuf" = "[netbuf]"
+    "connectcode" = "[connectcode]"
+    "network-lifecycle" = "[lifecycle]"
+    "spawn" = "[spawn-weapon]"
+}
 
 function ConvertTo-SafeSessionName([string]$value) {
     $name = $value.Trim()
@@ -69,8 +102,29 @@ function ConvertTo-SafeSessionName([string]$value) {
     return $name
 }
 
-if ($ListTags -and $ListTests) {
+if ($ListScopes) {
+    $ScopeSelectors.GetEnumerator() |
+        ForEach-Object {
+            [PSCustomObject]@{
+                Scope = $_.Key
+                Selector = $_.Value
+            }
+        } |
+        Format-Table -AutoSize
+    exit 0
+}
+
+if ($Session -eq "") {
+    throw "Specify -Session <id>, or use -ListScopes."
+}
+
+$listModes = @($ListTags.IsPresent, $ListTests.IsPresent) | Where-Object { $_ }
+if ($listModes.Count -gt 1) {
     throw "Choose only one of -ListTags or -ListTests."
+}
+
+if ($Scope -ne "" -and $Selector -ne "") {
+    throw "Use either -Scope or -Selector, not both."
 }
 
 if (-not (Test-Path -LiteralPath $BuildSession)) {
@@ -80,6 +134,7 @@ if (-not (Test-Path -LiteralPath $BuildSession)) {
 $sessionName = ConvertTo-SafeSessionName $Session
 $buildDir = Join-Path $SessionBuildRoot $sessionName
 $testsExe = Join-Path $buildDir "pd-tests.exe"
+$effectiveSelector = if ($Scope -ne "") { $ScopeSelectors[$Scope] } else { $Selector }
 
 if (-not $NoBuild) {
     $buildArgs = @("-Session", $sessionName, "-Target", "tests")
@@ -108,8 +163,8 @@ if ($ListTags) {
     $testArgs += "--list-tags"
 } elseif ($ListTests) {
     $testArgs += "--list-tests"
-} elseif ($Selector -ne "") {
-    $testArgs += $Selector
+} elseif ($effectiveSelector -ne "") {
+    $testArgs += $effectiveSelector
 }
 if ($CatchArgs.Count -gt 0) {
     $testArgs += $CatchArgs
@@ -119,7 +174,7 @@ Write-Host ""
 Write-Host "  Perfect Dark PC Port - Targeted Tests" -ForegroundColor Cyan
 Write-Host "  Session:  $sessionName" -ForegroundColor Gray
 Write-Host "  BuildDir: $buildDir" -ForegroundColor DarkGray
-Write-Host "  Selector: $(if ($Selector -ne '') { $Selector } elseif ($ListTags) { '--list-tags' } elseif ($ListTests) { '--list-tests' } else { '<all>' })" -ForegroundColor Gray
+Write-Host "  Selector: $(if ($effectiveSelector -ne '') { $effectiveSelector } elseif ($ListTags) { '--list-tags' } elseif ($ListTests) { '--list-tests' } else { '<all>' })" -ForegroundColor Gray
 Write-Host ""
 
 Push-Location $ProjectDir

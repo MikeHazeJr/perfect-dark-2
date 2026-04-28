@@ -312,6 +312,13 @@ TEST_CASE("scene transition helper: priority transition sites use shared cleanup
 
     REQUIRE(netmsg.find("\"SVC_STAGE_START coop\"") != std::string::npos);
     REQUIRE(netmsg.find("\"SVC_STAGE_START combat\"") != std::string::npos);
+    const size_t svc_stage_end = netmsg.find("u32 netmsgSvcStageEndRead");
+    const size_t svc_stage_end_clear = netmsg.find(
+        "sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_CLEAR_CLIENT_MANIFEST",
+        svc_stage_end);
+    REQUIRE(svc_stage_end != std::string::npos);
+    REQUIRE(svc_stage_end_clear != std::string::npos);
+    REQUIRE(svc_stage_end < svc_stage_end_clear);
     REQUIRE(netmsg.find("menupoolReleaseAll();") == std::string::npos);
 
     REQUIRE(match.find("\"matchStart\"") != std::string::npos);

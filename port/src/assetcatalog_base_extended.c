@@ -31,7 +31,6 @@
 #include "types.h"
 #include "constants.h"
 #include "assetcatalog.h"
-#include "assetprovider_internal.h"
 #include "system.h"
 #include "data.h"
 #include "game/mplayer/scenarios.h"
@@ -702,7 +701,7 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->source_filenum = (s32)g_ModelStates[i].fileid;
 			/* Asset Provider: base prop models are served by RomProvider. */
 			if (e->source_filenum > 0) {
-				catalogSetPrimary(e, romProviderHandle(e->source_filenum));
+				catalogSetPrimaryRomFilenum(e, e->source_filenum);
 			}
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
@@ -756,7 +755,7 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = -handfilenum;
 			e->source_filenum = handfilenum;
-			catalogSetPrimary(e, romProviderHandle(e->source_filenum));
+			catalogSetPrimaryRomFilenum(e, e->source_filenum);
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}

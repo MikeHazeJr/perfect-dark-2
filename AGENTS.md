@@ -42,11 +42,19 @@ Use an isolated session build directory instead:
 
 Outputs go to `.claude/session-builds/<short-session-id>/`. Reuse the same
 `-Session` value for incremental rebuilds in one session; use a different value
-for simultaneous sessions. Clean up after the session:
+for simultaneous sessions. The wrapper is queued by default, so watch its
+queue status/ETA while waiting. Do not pass `-NoQueue` unless Mike explicitly
+asks. Clean up after the session:
 
 ```powershell
 .\devtools\build-session.ps1 -Remove -Session <short-session-id>
 ```
+
+Queued builds have a 3-minute active-build watchdog by default. If a build
+times out, treat exit code `124` as a hung-build failure, record it in context,
+and clean up the session directory with the same `-Remove -Session <id>`
+command. Use `-BuildTimeoutSeconds <seconds>` only for a specific slow clean
+build; use `0` only when Mike explicitly asks to disable the watchdog.
 
 ---
 
