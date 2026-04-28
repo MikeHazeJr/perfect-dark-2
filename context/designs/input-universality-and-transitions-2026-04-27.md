@@ -707,6 +707,33 @@ Cohort 1 was committed at id 69 then rebased onto dev's S483b (id 69 = ACTION_SO
 - Tests: `tests/scene_pure.{c,h}` layered on top of `inputlayer_pure` so the dispatcher invariants are asserted without SDL or actionmap. `tests/test_scene_dispatch.cpp` adds 16 cases / ~70 assertions covering: BOOT_COMPLETE replaces BOOT with GAMEPLAY, STAGE_READY pushes GAMEPLAY when not already top, STAGE_READY idempotent when already on GAMEPLAY, STAGE_LOADING is advisory, CUTSCENE_START/END round-trip, duplicate CUTSCENE_START is idempotent, CUTSCENE_END without START is idempotent, PAUSE_OPEN/CLOSE round-trip, VEHICLE_BOARD for driver/turret variants, OBSERVER_ENTER/EXIT round-trip, STAGE_TEARDOWN unwinds everything to BOOT and clears cached handles, DISCONNECT same, nested layers preserve ancestry on pop, out-of-range event ids rejected, instrumentation tallies, sceneCurrentLayer mirrors inputLayerTopType.
 - `CMakeLists.txt` SRC_TESTS: registered new files. `port/src/scene.c` auto-discovered into pd via GLOB_RECURSE.
 
+### L.7 Cohort 4 shipped (2026-04-27) - the cutscene flash fix
+
+**The user-visible deliverable: Mission 1 objective 2 cutscene flash is fixed.**
+
+Two layers of defense:
+
+1. **Belt: held-state flush at LAYER_CUTSCENE push.** `port/src/inputlayer.c` adds `onCutscenePush` / `onCutscenePop` hooks; the LayerDef `g_LayerCutscene` is wired with `on_push = onCutscenePush` (calls `imcCutsceneEnter()` then `actionmapFlushGameplayState()`) and `on_pop = onCutscenePop` (calls `imcCutsceneExit()`). On every cutscene start the gameplay-only action state for all players clears, so any held FIRE / RELOAD / WEAPON_NEXT bleeding through from the menu accept does not survive into the cutscene tick.
+
+2. **Braces: K.6 actionPressed (edge) skip detection.** `src/game/player.c:2944-2953` switched from `actionHeld` to `actionPressed` for every cutscene-skip check (USE / CANCEL_USE / FIRE_PRIMARY / FIRE_SECONDARY / FIRE_MODE / RELOAD / WEAPON_NEXT / PAUSE) plus the new dedicated `ACTION_SKIP_CUTSCENE`. A key held across the menu-accept-then-stage-load transition has `pressed = 0` throughout the cutscene because there is no fresh keydown during it. The legacy 30-frame gate at line 3080 stays as a third line of defense.
+
+K.2 cutscene IMC: new `g_ImcCutscene` IMC at priority 4 (between gameplay 0 / mission 1 / combat-sim 1 below and vehicle 5 / forge 6+7 / menu 10+11 / debug 20 / text-input 30 above). Bound to `ACTION_SKIP_CUTSCENE` (Space + Gamepad A) and `ACTION_PAUSE` (Escape + Start). Activated/deactivated by the layer push/pop hooks. The IMC is registered in `s_AllImcs[]` so its bindings persist across save/load.
+
+ACTION_SKIP_CUTSCENE is the new dedicated action at id 72, ACTION_COUNT advances from 73 to 73. (Cohort 4 numbering: id 71 = TEXT_PASTE from Cohort 1, id 72 = SKIP_CUTSCENE.) Exempt from `actionIsGameplayOnly` so it routes properly through the cutscene IMC.
+
+Wiring: `src/game/player.c::playerStartCutscene2` fires `sceneFire(SCENE_EVENT_CUTSCENE_START, NULL)` immediately before the tickmode flip. `src/game/player.c::playerEndCutscene` fires `sceneFire(SCENE_EVENT_CUTSCENE_END, NULL)` at the end of the regular (non-autocut) branch. The autocut "play all" debug path is intentionally not wired in Cohort 4 since it has its own state machine and is not the bug repro path.
+
+Tests: `tests/test_cutscene_layer.cpp` adds 6 cases / ~50 assertions covering: belt (gameplay-only state cleared at cutscene push, shared state preserved), braces (held-since-before-cutscene actionPressed is 0 throughout), the bug invariant (the Mission 1 obj 2 repro mirrored step by step), positive-path (fresh press DOES register as skip), round-trip cleanup for back-to-back cutscenes, STAGE_TEARDOWN unwinds cleanly while a cutscene is active.
+
+**Deferred to Cohorts 5-8 (per K.1's two-branch phasing):**
+
+- **Per-player cutscene state migration.** `g_InCutscene`, `g_CutsceneSkipRequested`, `g_CutsceneAnimNum`, `g_CutsceneCurAnimFrame60`, `g_CutsceneCurTotalFrame60f`, and `g_Vars.in_cutscene` remain global in this cohort. The layer push/pop is global (single-instance per design Section G.1). Cohort 5+ moves these into `struct player.cutscene` and updates the ~30 read sites.
+- **chr->cutscene_protect (invuln + invisible to enemies, K.3).** Field not yet added; damage and AI hostility checks remain global on `g_InCutscene`. Cohort 5+ adds the per-chr field, wires it set/cleared at cutscene push/pop, and updates the 5 canonical hostility/damage gates.
+- **Net protocol bump (K.8).** `NET_PROTOCOL_VER` stays at 45. `SVC_CUTSCENE 0x53` retains its existing single-bool body. New `CLC_CUTSCENE_SKIP` not yet added. Cohort 5+ bumps to v46 with `player_mask` on `SVC_CUTSCENE` and the new client message.
+- **Cohort 7 raw input migration sweep.** The ~75 raw `ImGui::IsKey*` callsites in `pdgui_menu_*.cpp` (full inventory in Section A.2) remain. The new ACTION_TEXT_PASTE bind is in place but no caller has migrated to it yet.
+
+The flash fix lands in this branch (per K.1 Option B: "Cohorts 1-4 land flash fix first"). The architectural completion lands in the second branch.
+
 ---
 
 ## Appendix A: Audit raw findings

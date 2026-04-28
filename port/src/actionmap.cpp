@@ -366,6 +366,8 @@ static const char * const s_ActionNames[ACTION_COUNT] = {
     "TestScenCycleCount",
     /* 71: text-input paste-from-clipboard (Cohort 1) -- text-input IMC only */
     "TextPaste",
+    /* 72: cutscene-skip (Cohort 4, K.2) -- g_ImcCutscene IMC only */
+    "SkipCutscene",
 };
 
 /* ============================================================
@@ -795,6 +797,24 @@ void imcVehicleDismount(void)
     }
 }
 
+/* Cohort 4 (2026-04-27, K.2): Cutscene IMC entry / exit. Called from
+ * inputlayer.c's LAYER_CUTSCENE on_push / on_pop hooks. Idempotent. */
+void imcCutsceneEnter(void)
+{
+    if (!g_ImcCutscene.active) {
+        imcActivate(&g_ImcCutscene);
+        sysLogPrintf(LOG_NOTE, "ACTIONMAP: cutscene IMC entered");
+    }
+}
+
+void imcCutsceneExit(void)
+{
+    if (g_ImcCutscene.active) {
+        imcDeactivate(&g_ImcCutscene);
+        sysLogPrintf(LOG_NOTE, "ACTIONMAP: cutscene IMC exited");
+    }
+}
+
 /* ============================================================
  * Public: actionmapDispatch
  * ============================================================ */
@@ -1216,6 +1236,7 @@ s32 actionIsGameplayOnly(InputAction a)
     case ACTION_DEBUG_TOGGLE:
     case ACTION_CHEAT_ENTER:
     case ACTION_TEXT_PASTE:
+    case ACTION_SKIP_CUTSCENE:
         return 0;
     default:
         return 1;
@@ -1527,6 +1548,7 @@ s32 actionmapGetLastDevice(void)
  * CombatSim), so they never shadow the baseline at save/load time. */
 static InputMappingContext * const s_AllImcs[] = {
     &g_ImcGameplay,
+    &g_ImcCutscene,
     &g_ImcMission,
     &g_ImcCombatSim,
     &g_ImcVehicle,
@@ -2030,6 +2052,18 @@ InputMappingContext g_ImcVehicle = {
     .active   = 0,
 };
 
+/* Cohort 4 (2026-04-27, K.2): Cutscene-scoped IMC. Priority 4 sits below
+ * vehicle (5) so a cutscene fired while the player is mounted still lets
+ * the vehicle layer keep its bindings, while still routing dedicated
+ * ACTION_SKIP_CUTSCENE above the gameplay (0) / mission (1) / combat-
+ * sim (1) baseline. Activated by inputlayer.c's onCutscenePush hook
+ * when LAYER_CUTSCENE is pushed; deactivated on pop. */
+InputMappingContext g_ImcCutscene = {
+    .name     = "cutscene",
+    .priority = 4,
+    .active   = 0,
+};
+
 /* Issue 8b (2026-04-24): Forge session IMC. Priority 6 -- active for
  * the entire forge session (NORMAL + FREEFLY). Hosts the FORGE_TOGGLE
  * binding (gamepad Back) so the toggle wins over ACTION_SCORECARD in
@@ -2227,6 +2261,20 @@ static void setupCombatSimDefaults(s32 player)
     if (player != 0) return; /* Player 0 only -- single-seat port. */
 
     addBind(imc, ACTION_SCORECARD_HOLD, JOY_BTN(0, JBTN_BACK));
+}
+
+/* Cohort 4 (2026-04-27, K.2): Cutscene IMC default bindings. Bound
+ * only on g_ImcCutscene; the IMC is activated/deactivated on
+ * LAYER_CUTSCENE push/pop. SKIP fires via actionPressed (K.6 edge),
+ * so a held-since-menu state cannot register as a skip. */
+static void setupCutsceneDefaults(s32 player)
+{
+    InputMappingContext *imc = &g_ImcCutscene;
+    if (player != 0) return; /* Player 0 only -- no local MP */
+    addBind(imc, ACTION_SKIP_CUTSCENE, VK_SPACE);            /* keyboard */
+    addBind(imc, ACTION_SKIP_CUTSCENE, JOY_BTN(0, JBTN_A));  /* gamepad  */
+    addBind(imc, ACTION_PAUSE,         VK_ESCAPE);           /* allow Escape during cutscene */
+    addBind(imc, ACTION_PAUSE,         JOY_BTN(0, JBTN_START));
 }
 
 static void setupVehicleDefaults(s32 player)
@@ -2456,6 +2504,8 @@ void actionmapSetDefaults(InputMappingContext *imc, s32 player)
         setupCombatSimDefaults(player);
     } else if (imc == &g_ImcVehicle) {
         setupVehicleDefaults(player);
+    } else if (imc == &g_ImcCutscene) {
+        setupCutsceneDefaults(player);
     } else if (imc == &g_ImcForgeSession) {
         setupForgeSessionDefaults(player);
     } else if (imc == &g_ImcForge) {
@@ -2495,6 +2545,7 @@ void actionmapInit(void)
     memset(&g_ImcGameplay,     0, sizeof(g_ImcGameplay));
     memset(&g_ImcMission,      0, sizeof(g_ImcMission));
     memset(&g_ImcCombatSim,    0, sizeof(g_ImcCombatSim));
+    memset(&g_ImcCutscene,     0, sizeof(g_ImcCutscene));
     memset(&g_ImcVehicle,      0, sizeof(g_ImcVehicle));
     memset(&g_ImcForgeSession, 0, sizeof(g_ImcForgeSession));
     memset(&g_ImcForge,        0, sizeof(g_ImcForge));
@@ -2507,6 +2558,7 @@ void actionmapInit(void)
     g_ImcGameplay.name     = "gameplay";      g_ImcGameplay.priority     = 0;
     g_ImcMission.name      = "mission";       g_ImcMission.priority      = 1;
     g_ImcCombatSim.name    = "combat_sim";    g_ImcCombatSim.priority    = 1;
+    g_ImcCutscene.name     = "cutscene";      g_ImcCutscene.priority     = 4;
     g_ImcVehicle.name      = "vehicle";       g_ImcVehicle.priority      = 5;
     g_ImcForgeSession.name = "forge_session"; g_ImcForgeSession.priority = 6;
     g_ImcForge.name        = "forge";         g_ImcForge.priority        = 7;
@@ -2519,6 +2571,7 @@ void actionmapInit(void)
     setupGameplayDefaults(0);
     setupMissionDefaults(0);
     setupCombatSimDefaults(0);
+    setupCutsceneDefaults(0);
     setupVehicleDefaults(0);
     setupForgeSessionDefaults(0);
     setupForgeDefaults(0);

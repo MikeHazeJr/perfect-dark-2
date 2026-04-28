@@ -29,6 +29,46 @@ static s32                s_Depth = 0;
 static s32                s_NextGeneration = 1;
 
 /* ============================================================
+ * Cohort 4 (2026-04-27, K.2 + K.6): Cutscene layer push/pop hooks.
+ *
+ * On push (cutscene start):
+ *   1. Activate g_ImcCutscene so ACTION_SKIP_CUTSCENE binds win.
+ *   2. Flush gameplay-only action state for ALL players.
+ *
+ * The flush is the belt of the flash fix; the actionPressed
+ * (edge) skip detection at player.c (K.6) is the braces.
+ * Together they make the Mission 1 obj 2 cutscene flash
+ * structurally impossible: any held gameplay-only action
+ * clears at push, and any held shared action (ACTION_USE,
+ * ACTION_PAUSE, etc.) cannot register as a fresh press during
+ * the cutscene because it never had a release-then-press cycle.
+ *
+ * On pop (cutscene end): deactivate g_ImcCutscene only. Do NOT
+ * flush again on exit -- gameplay state should resume cleanly
+ * with whatever the player happens to be pressing AT exit.
+ * ============================================================ */
+
+static int onCutscenePush(void *payload)
+{
+    (void)payload;
+    imcCutsceneEnter();
+    actionmapFlushGameplayState();
+    return 0;
+}
+
+static void onCutscenePop(void *result_out)
+{
+    (void)result_out;
+    imcCutsceneExit();
+}
+
+static void onCutsceneAbort(int reason_code)
+{
+    (void)reason_code;
+    imcCutsceneExit();
+}
+
+/* ============================================================
  * Canonical layer singletons (Cohort 2: name + type only;
  * Cohort 3 will populate action_set + IMC bindings)
  * ============================================================ */
@@ -64,10 +104,10 @@ const LayerDef g_LayerCutscene = {
     .name                  = "Cutscene",
     .action_set            = NULL,
     .action_set_count      = 0,
-    .on_push               = NULL,
-    .on_pop                = NULL,
-    .on_abort              = NULL,
-    .imc                   = NULL, /* Cohort 4: g_ImcCutscene per K.2 */
+    .on_push               = onCutscenePush,    /* Cohort 4: flash fix belt */
+    .on_pop                = onCutscenePop,     /* Cohort 4: IMC deactivate on exit */
+    .on_abort              = onCutsceneAbort,   /* Cohort 4: same cleanup on abort */
+    .imc                   = &g_ImcCutscene,    /* Cohort 4 wired (K.2) */
     .wants_relative_mouse  = 0,
     .wants_visible_cursor  = 0,
 };
