@@ -10,6 +10,7 @@
 
 .EXAMPLE
     .\devtools\build-session.ps1 -Session s500 -Target all
+    .\devtools\build-session.ps1 -Session s500 -Target tests
     .\devtools\build-session.ps1 -Session s500 -Target client -Clean
     .\devtools\build-session.ps1 -List
     .\devtools\build-session.ps1 -Remove -Session s500
@@ -17,7 +18,7 @@
 #>
 
 param(
-    [ValidateSet("client", "server", "all")]
+    [ValidateSet("client", "server", "tests", "all")]
     [string]$Target = "all",
 
     # Stable per-session identifier. Reuse it for incremental rebuilds inside

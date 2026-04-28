@@ -17,6 +17,10 @@
 
 #include "catch.hpp"
 
+#include <fstream>
+#include <sstream>
+#include <string>
+
 extern "C" {
 #include "scene_pure.h"
 #include "inputlayer_pure.h"
@@ -32,6 +36,15 @@ void resetWorld()
     spInstrumentReset(nullptr);
     ilpInit();
     spInit();
+}
+
+std::string readTextFile(const char *path)
+{
+    std::ifstream in(path, std::ios::binary);
+    REQUIRE(in.good());
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return ss.str();
 }
 
 } /* namespace */
@@ -251,4 +264,56 @@ TEST_CASE("scene: sceneCurrentLayer mirrors inputLayer top type", "[scene][query
     REQUIRE(spCurrentLayer() == ILP_LAYER_GAMEPLAY);
     spFire(SP_SCENE_EVENT_CUTSCENE_START, nullptr);
     REQUIRE(spCurrentLayer() == ILP_LAYER_CUTSCENE);
+}
+
+TEST_CASE("scene transition helper: centralizes manifest/menu cleanup before stage change",
+          "[scene][transition][static]")
+{
+    const std::string header = readTextFile("port/include/scene_transition.h");
+    const std::string impl = readTextFile("port/src/scene_transition.c");
+
+    REQUIRE(header.find("SCENE_STAGE_TRANSITION_CLEAR_CLIENT_MANIFEST") != std::string::npos);
+    REQUIRE(header.find("SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL") != std::string::npos);
+    REQUIRE(header.find("SCENE_STAGE_TRANSITION_DISCONNECT") != std::string::npos);
+    REQUIRE(header.find("sceneStageTransitionPrepare(u32 flags, const char *reason)") != std::string::npos);
+    REQUIRE(header.find("sceneStageChangeTo(s32 stagenum, u32 flags, const char *reason)") != std::string::npos);
+
+    const size_t clear = impl.find("manifestClear(&g_ClientManifest);");
+    const size_t change = impl.find("mainChangeToStage(stagenum);");
+    REQUIRE(clear != std::string::npos);
+    REQUIRE(change != std::string::npos);
+    REQUIRE(clear < change);
+
+    REQUIRE(impl.find("sceneFire(SCENE_EVENT_DISCONNECT, NULL);") != std::string::npos);
+    REQUIRE(impl.find("menupoolReleaseAll();") != std::string::npos);
+}
+
+TEST_CASE("scene transition helper: priority transition sites use shared cleanup",
+          "[scene][transition][static]")
+{
+    const std::string bridge = readTextFile("port/fast3d/pdgui_bridge.c");
+    const std::string net = readTextFile("port/src/net/net.c");
+    const std::string netmsg = readTextFile("port/src/net/netmsg.c");
+    const std::string match = readTextFile("port/src/net/matchsetup.c");
+    const std::string menutick = readTextFile("src/game/menutick.c");
+
+    REQUIRE(bridge.find("#include \"scene_transition.h\"") != std::string::npos);
+    REQUIRE(bridge.find("\"endscreen retry\"") != std::string::npos);
+    REQUIRE(bridge.find("\"endscreen next mission\"") != std::string::npos);
+    REQUIRE(bridge.find("\"endscreen exit to main menu\"") != std::string::npos);
+
+    REQUIRE(net.find("SCENE_STAGE_TRANSITION_DISCONNECT") != std::string::npos);
+    REQUIRE(net.find("\"netDisconnect lobby return\"") != std::string::npos);
+    REQUIRE(net.find("sceneStageChangeTo(STAGE_CITRAINING") != std::string::npos);
+
+    REQUIRE(netmsg.find("\"SVC_STAGE_START coop\"") != std::string::npos);
+    REQUIRE(netmsg.find("\"SVC_STAGE_START combat\"") != std::string::npos);
+
+    REQUIRE(match.find("\"matchStart\"") != std::string::npos);
+    REQUIRE(match.find("\"matchStartFromChallenge\"") != std::string::npos);
+
+    REQUIRE(menutick.find("\"menutick deep sea auto advance\"") != std::string::npos);
+    REQUIRE(menutick.find("\"menutick MPENDSCREEN restart\"") != std::string::npos);
+    REQUIRE(menutick.find("\"menutick MPENDSCREEN exit\"") != std::string::npos);
+    REQUIRE(menutick.find("\"menutick COOPCONTINUE exit\"") != std::string::npos);
 }

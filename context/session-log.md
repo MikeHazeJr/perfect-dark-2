@@ -1,8 +1,115 @@
 
 # Session Log (Active)
 
-> **S284-S572** (rolling window). Older sessions **S280-S241** -> [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240-S157** -> [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1-S119** -> [_archive/sessions/].
+> **S284-S575** (rolling window). Older sessions **S280-S241** -> [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240-S157** -> [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1-S119** -> [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S575 - 2026-04-28 - Client-hosted trust and protocol hardening
+
+Continued Server / Trust / Security work for current listen-host/client-hosted online shipping. Dedicated-server productization stayed deferred.
+
+### Outcome
+
+- `netbufReadStr()` now rejects unterminated wire strings without mutating inbound packet payload, while preserving the prior safe empty string behavior for zero-length wire strings.
+- `CLC_LOBBY_START` now drains over-cap bot config records after the `numSims` clamp and before parsing the embedded manifest, so stale or hostile bot counts cannot shift the manifest read boundary.
+- `CLC_SETTINGS` now sanitizes client-reported team changes before any match-state write: invalid team ids fall back to current/default team, and in-game team switches are ignored when the match is not team-enabled.
+- `CLC_ROOM_SETTINGS_UPDATE` and `CLC_ROOM_PLAYLIST_UPDATE` now rebuild their rebroadcast packet per room recipient because `netSend()` resets the source buffer after queueing. Room settings rebroadcast also uses the normal reliable buffer instead of the old 256-byte stack packet.
+- After `pd.ini` load, invalid internal `Net.Client.LastJoinAddr` values are cleared and invalid `Net.RecentServer.*` entries are compacted out. The modern server list now shows an invalid-entry placeholder instead of falling back to raw stored address text when connect-code conversion fails.
+- Added static/source coverage for the new string, lobby-drain, team-sanitize, and room-rebroadcast invariants.
+
+### Files
+
+- `port/src/net/netbuf.c`
+- `port/include/net/net.h`
+- `port/src/main.c`
+- `port/src/net/net.c`
+- `port/src/net/netmsg.c`
+- `port/fast3d/pdgui_menu_network.cpp`
+- `tests/test_connectcode.cpp`
+- `tests/test_netbuf.cpp`
+- `tests/test_net_lifecycle_static.cpp`
+- `CMakeLists.txt`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`, `context/build.md`, `context/bugs.md`
+
+### Verification
+
+- `git diff --check` passed for the trust/security touched source/test files, including the address-validation follow-up.
+- Isolated build session `sec575` was used, not shared `Build/`.
+- `.\devtools\build-session.ps1 -Session sec575 -Target all` completed configure, disabled ccache after the compiler-launch probe timed out, then client compilation ran until the Codex command timed out at 45 minutes without surfacing a compile diagnostic.
+- The stale `sec575` lock recorded PID 20428; that PID was gone. Cleanup used `.\devtools\build-session.ps1 -Remove -Session sec575 -Force`, and `-List` confirmed `sec575` was removed while other active sessions remained untouched.
+
+### Next
+
+- Re-run isolated verification when the current parallel build contention clears, preferably through the targeted test wrapper once that lane verifies.
+- Continue the current client-hosted trust audit with any remaining malformed packet length/count fields reachable from listen-host shipping paths.
+
+---
+
+## Session S574 - 2026-04-28 - Debug swarm black-scene launch fix
+
+Investigated Mike's Settings -> Debug -> Swarm CPU Bots black-scene report using `Build/pd-client.log`. Scope stayed on the Debug test scenario launch path and the catalog/provider miss visible in that same log.
+
+### Outcome
+
+- Root cause: Swarm CPU/GPU launched `base:mp_skedar` through the Grid/Forge direct stage handoff. That left `g_Vars.normmplayerisrunning` false, so setup.c loaded the SP setup/manifest for an MP arena and nulled invalid intro data.
+- Swarm CPU/GPU now launch through `matchStart()` with no-limit match settings, so MP arenas use the normal MP setup/manifest path. Empty Map still uses the Grid/Forge path.
+- Registered distinct first-person hand model files from `g_HeadsAndBodies[].handfilenum` as provider-backed `ASSET_MODEL` entries, covering the repeated `FILE_GCOMBATHANDSLOD` / filenum 1253 bgun catalog miss.
+- Added static source guards in `tests/test_catalog_provider_static.cpp` for the swarm launch invariant and hand-model provider handles.
+- Logged B-275.
+
+### Files
+
+- `port/src/testscenarios.c`
+- `port/include/testscenarios.h`
+- `port/src/assetcatalog_base_extended.c`
+- `tests/test_catalog_provider_static.cpp`
+- `context/bugs.md`
+- `context/tasks-current.md`
+- `context/session-log.md`
+- `context/designs/gpu-swarm-and-test-scenarios-2026-04-27.md`
+
+### Verification
+
+- `git diff --check` passed for touched runtime/test/context files.
+- Existing shared `Build/pd-tests.exe` was stale and did not contain the new test cases.
+- Isolated session `swarm275` configured but timed out in client compilation; direct isolated `pd-tests` also timed out without surfacing compiler output.
+- Mike directed to skip tests this time. Partial isolated session `swarm275` was removed with `-Force`; `-List` confirmed only other active sessions remained.
+
+### Next
+
+- Manual smoke Settings -> Debug -> Swarm CPU Bots and Swarm GPU Boids. Expected log: `TESTSCEN.LAUNCH ... via matchStart`, `MATCHSETUP: starting match`, setup load with `normmplay=1`, visible world render, and no repeated bgun `filenum=1253` catalog critical spam.
+- Re-run isolated build/tests later when the current build contention clears.
+
+---
+
+## Session S573 - 2026-04-28 - Targeted pd-tests pipeline
+
+Continued the Quality / Testing / Audits lane, pivoting from adding another invariant to improving how sessions run scoped verification.
+
+### Outcome
+
+- Added a `tests` target mode to `devtools/build-headless.ps1` and `devtools/build-session.ps1`, mapping to the existing CMake `pd-tests` target while leaving `-Target all` as the client/server build.
+- Added `devtools/run-pd-tests.ps1`, which builds `pd-tests` in `.claude/session-builds/<session-id>/`, prepends the MinGW runtime path, runs from the repository root, and forwards Catch2 selectors like `[manifest]` or `[catalog][provider][static]`.
+- Documented scoped examples and common selectors in `tests/README.md` and `context/designs/testing-framework-2026-04-26.md`.
+
+### Files
+
+- `devtools/build-headless.ps1`
+- `devtools/build-session.ps1`
+- `devtools/run-pd-tests.ps1`
+- `tests/README.md`
+- `context/designs/testing-framework-2026-04-26.md`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Pending: run the new wrapper in isolated session `t573` with a narrow selector, then clean up the session build directory.
+
+### Next
+
+- After the wrapper verifies, start the next recursive quality candidate: handler dispatch contract audit for remaining `srccl` assumptions.
+
+---
 
 ## Session S572 - 2026-04-28 - Quality pd-tests start/manifest lifecycle pass
 

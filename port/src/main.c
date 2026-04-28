@@ -195,6 +195,7 @@ int main(int argc, const char **argv)
 	/* M0.2 Phase B: register pd.ini keys BEFORE configLoad (called inside configInit) */
 	actionmapInit();
 	configInit();
+	netConfigSanitizeLoadedAddresses();
 	/* M0.2 Phase B: parse bind strings that configLoad just populated */
 	actionmapLoadBinds();
 	inputLayerInit();

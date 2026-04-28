@@ -163,6 +163,19 @@ Catch2 generates the `main()` function exactly once. All other test
 
 ### How to run
 
+Preferred for parallel AI/code sessions on Windows:
+
+```powershell
+.\devtools\run-pd-tests.ps1 -Session qnet1 -Selector "[netbuf]"
+.\devtools\run-pd-tests.ps1 -Session qcat1 -Selector "[catalog][provider][static]"
+.\devtools\run-pd-tests.ps1 -Session qall1
+.\devtools\build-session.ps1 -Remove -Session qnet1
+```
+
+This uses `.claude/session-builds/<session>/` instead of shared `Build/`,
+builds only the `pd-tests` target through `build-session.ps1 -Target tests`,
+and then runs `pd-tests.exe` with the supplied Catch2 selector.
+
 ```bash
 source devtools/build-env.sh
 ninja -C Build pd-tests
@@ -179,12 +192,19 @@ Useful flags:
 - `./Build/pd-tests -s` — show successful assertions too (default is
   failures only)
 
+PowerShell targeted equivalents:
+- `.\devtools\run-pd-tests.ps1 -Session qmanifest -Selector "[manifest]"`
+- `.\devtools\run-pd-tests.ps1 -Session qinput -Selector "[input]"`
+- `.\devtools\run-pd-tests.ps1 -Session qsave -Selector "[save][migration]"`
+- `.\devtools\run-pd-tests.ps1 -Session qtags -ListTags`
+
 ### Build-environment integration
 
 The `pd-tests` target uses the same MSYS2/MinGW toolchain as `pd` and
 `pd-server`. No new toolchain dependencies. `source devtools/build-env.sh`
-is the only setup needed. The `build-headless.ps1` script will also pick
-up the new target since it builds whatever ninja knows about.
+is the only setup needed. `build-headless.ps1` / `build-session.ps1` also
+accept `-Target tests` for the `pd-tests` target; `-Target all` remains the
+client/server build and does not implicitly run tests.
 
 ---
 
@@ -365,10 +385,29 @@ gate is a follow-up.
   unchanged. After this session: also `ninja -C Build pd-tests &&
   ./Build/pd-tests`, eyeball "All tests passed".
 
+### Targeted local runs (2026-04-28)
+
+`devtools/run-pd-tests.ps1` is now the scoped-test entry point for parallel
+sessions. It keeps each session in an isolated build directory, builds only
+`pd-tests`, then forwards one Catch2 selector to the binary. Use the narrowest
+selector that covers the current invariant, and run the full suite before
+handoff when the touched surface is shared.
+
+Common selectors:
+
+| Scope | Selector |
+|---|---|
+| Catalog/provider identity | `[catalog]`, `[catalog][provider][static]`, `[catalog][identity][static]` |
+| Input transitions and menu ownership | `[input]`, `[actionmap]`, `[inputctx]`, `[inputlayer]`, `[menu_graph]` |
+| Mode lifecycle and packet parsing | `[netbuf]`, `[connectcode]`, `[lifecycle]`, `[static]` with a narrower subsystem tag |
+| Manifest behavior | `[manifest]`, `[manifest][hash]`, `[manifest][diff]` |
+| Save migration | `[savebuffer]`, `[save][migration]`, `[versions]` |
+| Spawn weapon behavior | `[spawn-weapon]`, `[matchsetup][spawn-weapon]`, `[random-pool]` |
+
 ### Suggested next steps (not done in this session)
 
-1. Add a `pd-tests` invocation to `devtools/build-headless.ps1` so the
-   automated build pipeline runs the suite as a final gate.
+1. Decide whether pre-merge verification should run `pd-tests` as a final
+   gate automatically, or stay as an explicit scoped/full test command.
 2. Add a `tests` line to `dev-window-v2`'s status panel so Mike sees
    green/red without typing.
 3. If/when GitHub Actions is wired up, add a `tests` job that runs

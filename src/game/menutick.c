@@ -30,6 +30,7 @@
 #include "data.h"
 #include "types.h"
 #include "assetcatalog.h"
+#include "scene_transition.h"
 
 #include "system.h"
 #include "net/net.h"
@@ -615,7 +616,9 @@ void menuTick(void)
 									"GAMELOOP.COOP: Deep Sea auto-advance → stageindex=%d stagenum=0x%02x manifest=%d",
 									g_MissionConfig.stageindex, (u32)g_MissionConfig.stagenum,
 									g_ClientManifest.num_entries);
-								manifestClear(&g_ClientManifest);
+								sceneStageTransitionPrepare(
+									SCENE_STAGE_TRANSITION_CLEAR_CLIENT_MANIFEST,
+									"menutick deep sea auto advance");
 								mainChangeToStage(g_MissionConfig.stagenum);
 							} else {
 								s32 prevplayernum = g_Vars.currentplayernum;
@@ -720,7 +723,9 @@ void menuTick(void)
 						sysLogPrintf(LOG_NOTE,
 							"GAMELOOP.MANIFEST: restart-level clearing manifest (%d entries) before STAGE 0x%02x reload",
 							g_ClientManifest.num_entries, mainGetStageNum());
-						manifestClear(&g_ClientManifest);
+						sceneStageTransitionPrepare(
+							SCENE_STAGE_TRANSITION_CLEAR_CLIENT_MANIFEST,
+							"menutick MPENDSCREEN restart");
 					}
 					sysLogPrintf(LOG_NOTE,
 						"GAMELOOP.%s: MPENDSCREEN restart-level → mainChangeToStage(0x%02x)",
@@ -748,7 +753,9 @@ void menuTick(void)
 						sysLogPrintf(LOG_NOTE,
 							"GAMELOOP.MANIFEST: MPENDSCREEN exit clearing manifest (%d entries) before CITRAINING",
 							g_ClientManifest.num_entries);
-						manifestClear(&g_ClientManifest);
+						sceneStageTransitionPrepare(
+							SCENE_STAGE_TRANSITION_CLEAR_CLIENT_MANIFEST,
+							"menutick MPENDSCREEN exit");
 					}
 
 					sysLogPrintf(LOG_NOTE,
@@ -777,7 +784,9 @@ void menuTick(void)
 						sysLogPrintf(LOG_NOTE,
 							"GAMELOOP.MANIFEST: COOPCONTINUE clearing manifest (%d entries) before CITRAINING",
 							g_ClientManifest.num_entries);
-						manifestClear(&g_ClientManifest);
+						sceneStageTransitionPrepare(
+							SCENE_STAGE_TRANSITION_CLEAR_CLIENT_MANIFEST,
+							"menutick COOPCONTINUE exit");
 					}
 					sysLogPrintf(LOG_NOTE,
 						"GAMELOOP.COOP: COOPCONTINUE → CITRAINING lobby return");

@@ -32,6 +32,7 @@
 #include "system.h"
 #include "crashbreadcrumb.h"
 #include "romdata.h"
+#include "scene_transition.h"
 #include "lib/vi.h"
 #include "fs.h"
 #include "console.h"
@@ -1721,7 +1722,8 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		 * menupoolReleaseAll pops every owned ctx (including unregistered-
 		 * fallback after K-b1), so the legacy paired
 		 * inputCtxPopDeferred(&g_CtxImGuiMenu) is no longer needed. */
-		menupoolReleaseAll();
+		sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
+			"SVC_STAGE_START coop");
 #endif
 
 		g_NotLoadMod = true;
@@ -1874,7 +1876,8 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		/* Phase 2 / Priority K-b3: pool slot cleanup is sufficient -- bulk
 		 * release pops every owned ctx (incl. unregistered-fallback after
 		 * K-b1), so no paired direct ctx pop is needed. */
-		menupoolReleaseAll();
+		sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
+			"SVC_STAGE_START combat");
 		/* U-10: Notify server that this client's stage is loaded and ready for bot authority.
 		 * Sent here (after mpStartMatch + scenarioInitProps) as the earliest reliable point
 		 * where the client's stage geometry and pads are in flight.  The 60-frame gate in

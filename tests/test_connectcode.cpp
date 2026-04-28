@@ -201,13 +201,29 @@ TEST_CASE("connectcode UI: join surfaces stay connect-code only",
     };
 
     const std::string network = read_file("port/fast3d/pdgui_menu_network.cpp");
+    const std::string net = read_file("port/src/net/net.c");
+    const std::string main = read_file("port/src/main.c");
     const std::string mainmenu = read_file("port/fast3d/pdgui_menu_mainmenu.cpp");
     const std::string lobby = read_file("port/fast3d/pdgui_menu_lobby.cpp");
     const std::string netmenu = read_file("port/src/net/netmenu.c");
 
     REQUIRE(network.find("Enter IP:port") == std::string::npos);
     REQUIRE(network.find("strncpy(s_JoinAddress, g_NetLastJoinAddr") == std::string::npos);
+    REQUIRE(network.find("strncpy(addrCode, addr") == std::string::npos);
+    REQUIRE(network.find("Invalid saved address") != std::string::npos);
     REQUIRE(network.find("connectCodeDecodeWithPort(code, &ip, &port)") != std::string::npos);
+
+    REQUIRE(net.find("static s32 netStoredAddrIsValid") != std::string::npos);
+    REQUIRE(net.find("void netConfigSanitizeLoadedAddresses(void)") != std::string::npos);
+    REQUIRE(net.find("g_NetLastJoinAddr[0] = '\\0'") != std::string::npos);
+    REQUIRE(net.find("g_NetRecentServers[out] = g_NetRecentServers[i]") != std::string::npos);
+    REQUIRE(net.find("memset(&g_NetRecentServers[i], 0, sizeof(g_NetRecentServers[i]))") != std::string::npos);
+
+    const size_t config_init = main.find("configInit();");
+    const size_t sanitize = main.find("netConfigSanitizeLoadedAddresses();");
+    REQUIRE(config_init != std::string::npos);
+    REQUIRE(sanitize != std::string::npos);
+    REQUIRE(config_init < sanitize);
 
     REQUIRE(mainmenu.find("Join a server by connect code or direct IP") == std::string::npos);
     REQUIRE(mainmenu.find("connectCodeToAddrString(s_JoinCodeInput") != std::string::npos);

@@ -406,17 +406,20 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
             /* Server row: clickable to select address. Display as connect code
              * to avoid exposing raw IP in the UI. */
             char addrCode[CONNECT_CODE_MAX];
-            if (!addrStringToConnectCode(addr, addrCode, sizeof(addrCode))) {
-                strncpy(addrCode, addr, sizeof(addrCode) - 1);
+            bool hasAddrCode = addrStringToConnectCode(addr, addrCode, sizeof(addrCode));
+            if (!hasAddrCode) {
+                strncpy(addrCode, "Invalid saved address", sizeof(addrCode) - 1);
                 addrCode[sizeof(addrCode) - 1] = '\0';
             }
             char label[128];
             snprintf(label, sizeof(label), "%-30s", addrCode);
 
-            if (ImGui::Selectable(label, false)) {
+            if (hasAddrCode && ImGui::Selectable(label, false)) {
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                 strncpy(s_JoinAddress, addrCode, NET_MAX_ADDR);
                 s_JoinAddress[NET_MAX_ADDR] = '\0';
+            } else if (!hasAddrCode) {
+                ImGui::TextDisabled("%s", label);
             }
 
             ImGui::SameLine();

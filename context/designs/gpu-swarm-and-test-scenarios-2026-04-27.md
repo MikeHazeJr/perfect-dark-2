@@ -80,6 +80,13 @@ That function already does the right thing: resets `g_MatchConfig`, writes
 We add a sibling helper that writes a `g_TestScenarioActive` flag before the
 stage transition so the per-frame swarm runtime can latch on at session start.
 
+**Implementation correction, 2026-04-28 (S574 / B-275):** this is only safe for
+The Grid - Empty Map. Swarm CPU/GPU target MP arenas such as `base:mp_skedar`,
+so they must enter through `matchStart()` instead of `pdguiForgeStartSessionOn`.
+The direct Grid handoff leaves `normmplayerisrunning` false and setup.c selects
+the SP setup/manifest for the MP arena, producing invalid intro data and a
+black/empty scene. Empty Map continues to use the Grid path.
+
 ```c
 static struct {
     test_scenario_t scen;

@@ -444,6 +444,7 @@ void netServerRestorePreserved(struct netclient *cl, struct netpreservedplayer *
  * bytes drawn from SDL_GetPerformanceCounter mixed with a running hash.
  * Good enough for identity separation (not a KDF). */
 void netServerIssueCookie(u8 out[NET_AUTH_COOKIE_LEN]);
+void netConfigSanitizeLoadedAddresses(void);
 void netRecentServerAdd(const char *addr);
 void netRecentServerUpdate(const char *addr, const u8 *data, s32 len);
 void netQueryRecentServers(void);

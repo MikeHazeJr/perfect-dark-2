@@ -7,25 +7,53 @@
 
 ---
 
+## Open -- 2026-04-28 (Debug Test Scenarios / Swarm Launch)
+
+**Status: BLACK-SCENE ROOT CAUSE PATCHED / TESTS SKIPPED BY MIKE.** Scope stayed on Settings -> Debug -> Swarm CPU/GPU launch and the catalog load failures visible in `Build/pd-client.log`.
+
+**Done this slice:**
+- Diagnosed the black-scene symptom from the log: `base:mp_skedar` was launched through the Grid/Forge direct stage path, so setup load saw `normmplay=0`, selected the SP setup/manifest for an MP arena, nulled invalid intro data, and produced a visible HUD over a black/empty scene.
+- Changed Swarm CPU/GPU launch to enter through `matchStart()` with no-limit match settings, preserving MP setup/manifest ownership. Empty Map still uses the Grid/Forge path.
+- Registered distinct first-person hand model files from `g_HeadsAndBodies[].handfilenum` as provider-backed `ASSET_MODEL` entries. This covers the repeated `FILE_GCOMBATHANDSLOD` / filenum 1253 bgun catalog miss in the same log.
+- Added static `pd-tests` guards for both invariants: swarm scenarios must not call `pdguiForgeStartSessionOn(stagenum)`, and hand model files must populate RomProvider handles.
+- Logged B-275.
+
+**Verification:**
+- `git diff --check` passed for the touched runtime/test/context files.
+- The existing shared `Build/pd-tests.exe` did not contain the new test cases and is stale relative to the source.
+- Isolated build session `swarm275` configured, but the wrapper timed out during client compilation. A direct `pd-tests` attempt against the isolated tree also timed out without surfacing compiler output.
+- Mike then directed: skip tests this time. No further build or test verification was run. Partial isolated session `swarm275` was cleaned up with `-Remove -Session swarm275 -Force`; `-List` confirmed it was gone.
+
+**Next debug/playtest step:**
+1. Manual smoke Settings -> Debug -> Swarm CPU Bots and Swarm GPU Boids. Expected log: `TESTSCEN.LAUNCH ... via matchStart`, `MATCHSETUP: starting match`, and setup load with `normmplay=1`.
+2. Confirm the world renders visibly and `pd-client.log` does not spam `CATALOG_CRITICAL: bgun model filenum=1253 failed to load`.
+3. Re-run isolated build/tests later when the current build contention clears.
+
 ## Open -- 2026-04-28 (Server / Trust / Security)
 
-**Status: CLIENT-HOSTED TRUST PATCHED / ISOLATED BUILD CONFIGURE BLOCKED.** Dedicated-server product work remains deferred unless Mike explicitly revives it. Scope is listen-host/client-hosted online shipping only.
+**Status: CLIENT-HOSTED TRUST + LOW-RISK PROTOCOL HARDENING PATCHED / SOURCE-CHECKED / ISOLATED BUILD TIMED OUT IN CLIENT COMPILE.** Dedicated-server product work remains deferred unless Mike explicitly revives it. Scope is listen-host/client-hosted online shipping only.
 
 **Done this slice:**
 - Made mod distribution hashes mandatory on the actual `SVC_DISTRIB_BEGIN` transfer: v46 appends a 32-byte SHA-256 digest of the compressed PDCA archive bytes; clients reject zero/missing digests at BEGIN and verify the accumulated compressed bytes before decompress/extract at END.
-- Hardened malformed net string parsing: zero-length wire strings now return a safe empty string instead of a pointer into following payload bytes.
+- Hardened malformed net string parsing: zero-length wire strings now return a safe empty string instead of a pointer into following payload bytes, and unterminated wire strings are rejected without mutating inbound packet payload.
 - Tightened connect-code address validation: current join UIs no longer prefill or advertise raw IP input, decode 4-word/6-word connect codes through `connectCodeDecodeWithPort`, reject trailing garbage, validate stored raw address octets/ports before displaying as codes, and preserve custom listen ports in host lobby codes.
 - Started and completed the first stat-integrity slice: remote `CLC_MOVE` weapon-select requests are now server-side inventory-gated before the listen host applies `bgunEquipWeapon`, so a client cannot equip and score with a weapon the host has not observed them owning.
+- Added a second stat-integrity gate: `CLC_SETTINGS` team changes now reject team ids outside `MAX_TEAMS` and ignore in-game team switches when the match is not team-enabled, so the raw wire byte is never written directly into `srccl->config->base.team`.
+- Hardened `CLC_LOBBY_START` count parsing: when `numSims` is clamped, over-cap bot config records are drained before the embedded manifest is parsed, preventing manifest-boundary skew from stale or hostile bot counts.
+- Hardened room settings sync: `CLC_ROOM_SETTINGS_UPDATE` and `CLC_ROOM_PLAYLIST_UPDATE` now rebuild their rebroadcast packet per recipient because `netSend()` resets the source buffer after queueing; settings also use the normal reliable buffer instead of the old 256-byte stack packet.
+- Closed the loaded-address validation gap: after `pd.ini` load, invalid internal `Net.Client.LastJoinAddr` values are cleared and invalid `Net.RecentServer.*` entries are compacted out; the modern server list no longer falls back to displaying raw stored addresses when connect-code conversion fails.
 - Confirmed updater signing is already implemented: release zips require `.sha256` and `.sig`; the updater verifies Ed25519 over `sha256(zip)||tag` with the embedded public key and runs a self-test at init. No dedicated-server product work needed for this lane.
-- Added focused static/source tests for mandatory distribution digest, zero-length strings, strict connect-code parsing, connect-code-only UI invariants, and inventory-gated weapon-select packets.
+- Added focused static/source tests for mandatory distribution digest, zero/unterminated strings, strict connect-code parsing, connect-code-only UI invariants, loaded-address scrubbing, inventory-gated weapon-select packets, lobby over-cap bot draining, team sanitization, and per-recipient room rebroadcasts.
 
 **Verification:**
-- `git diff --check` passed for the trust/security touched files.
-- Isolated build wrapper was used as directed: `.\devtools\build-session.ps1 -Session sec507 -Target all`. It did not reach compilation; CMake configure spun for about 18 minutes and exited before producing a complete build. `.\devtools\build-session.ps1 -Remove -Session sec507` removed the partial directory. Later CMake/Ninja processes from another parallel session were visible and were left untouched.
+- `git diff --check` passed for the trust/security touched files, including the address-validation follow-up.
+- Earlier isolated build wrapper attempt `sec507` did not reach compilation; it was cleaned up and recorded in `context/build.md`.
+- This slice used the required isolated build wrapper: `.\devtools\build-session.ps1 -Session sec575 -Target all`. Configure completed in 1s, ccache was disabled after the compiler-launch probe timed out, and client compilation ran until the Codex command timed out at 45 minutes without surfacing a compiler diagnostic.
+- Cleanup was targeted to this session: stale lock PID 20428 was gone, `.\devtools\build-session.ps1 -Remove -Session sec575 -Force` removed the build directory and lock, and `-List` confirmed `sec575` was gone while `t573`, `ml53`, and `cat566` remained untouched.
 
 **Next recursive trust/security item:**
-1. After the build wrapper/configure issue is clear, rerun the isolated build/test pass.
-2. Then do one more low-risk protocol-hardening audit for malformed packet length/count fields that are reachable before auth or lobby readiness.
+1. Re-run isolated verification when current build contention clears, preferably through the targeted test wrapper once that lane verifies cleanly.
+2. Continue the low-risk client-hosted audit with any remaining malformed packet length/count fields reachable from current listen-host shipping paths.
 
 ## Open -- 2026-04-28 (Modern main menu / social shell)
 
@@ -54,9 +82,11 @@
 
 ## Open -- 2026-04-28 (Quality / Testing / Audits)
 
-**Status: RECURSIVE TEST EXPANSION COMPLETE FOR CURRENT SAFE START/MANIFEST LIFECYCLE PASS.** Mike requested recursive pd-tests expansion around the next highest-risk invariants after reading the testing framework, QC checklist, bugs, and current audits.
+**Status: TARGETED TEST PIPELINE PATCHED / VERIFY PENDING.** Mike requested scoped `pd-tests` runs so sessions can build and execute only the tests tied to their current invariant, without colliding in shared `Build/`.
 
 **Build infrastructure side quest complete (S504):** concurrent test builds now have `devtools/build-session.ps1`, which routes each session to `.claude/session-builds/<session-id>/` via the canonical headless build script and adds per-session locking plus cleanup commands. Use this instead of shared `Build/` when multiple sessions may build simultaneously.
+
+**Targeted test pipeline slice in progress (S573):** `devtools/build-headless.ps1` and `devtools/build-session.ps1` now accept `-Target tests` for the `pd-tests` CMake target, and `devtools/run-pd-tests.ps1` builds/runs `pd-tests.exe` from `.claude/session-builds/<session-id>/` with a Catch2 selector such as `[catalog][provider][static]`, `[input]`, `[manifest]`, `[save][migration]`, or `[netbuf]`. Documentation updated in `tests/README.md` and `context/designs/testing-framework-2026-04-26.md`. Verification and cleanup are still in progress for session id `t573`.
 
 **Dev Window v2 side quest complete (S570):** the Push button now stages, commits, pushes, and refreshes UI state; warm BUILD/RUN TESTS paths skip configure when the cache/version/Python tool are current, run CMake builds in parallel, and mirror addin data with `robocopy` when available. Verified with the PowerShell parser and `git diff --check` on the dev-window files; full build was not rerun because the Codex desktop build caveat still applies.
 
@@ -82,7 +112,7 @@
 
 **Completed slice 11 -- network packet parsing / SVC_STAGE_START source-client guard:** follow-up audit found `netmsgSvcStageStartRead()` logged `srccl` with null-safe formatting but then dereferenced `srccl->state` without rejecting a missing source client first. Patch adds an explicit null-source rejection before any `srccl->state` access or payload read. Added static coverage in `tests/test_net_lifecycle_static.cpp`. Bug logged as B-279. Verification: isolated `qlc566` affected `pd-tests` object relink passed the full suite, 347 cases / 19492 assertions, and the changed `netmsg.c` compiled for both client and server object targets.
 
-**Next follow-up:** the next recursion candidate is broader than this pass: audit handler dispatch contracts for other `srccl` assumptions (`CLC_*` server handlers and `SVC_*` client handlers) and decide whether to add shared dispatch-side null/source guards rather than patching dozens of handlers one by one. Keep it as a separate audit slice because it crosses many network message families.
+**Next follow-up:** after the targeted runner verifies, use it for the next broader quality recursion candidate: audit handler dispatch contracts for other `srccl` assumptions (`CLC_*` server handlers and `SVC_*` client handlers) and decide whether to add shared dispatch-side null/source guards rather than patching dozens of handlers one by one. Keep it as a separate audit slice because it crosses many network message families.
 
 ## Open -- 2026-04-28 (Input infrastructure: cutscene transition flush)
 

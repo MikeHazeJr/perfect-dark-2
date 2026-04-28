@@ -18,6 +18,21 @@ for the framework ADR, coverage roadmap, and decision log.
 
 ## How to run
 
+Preferred for parallel AI/code sessions on Windows:
+
+```powershell
+.\devtools\run-pd-tests.ps1 -Session qnet1 -Selector "[netbuf]"
+.\devtools\run-pd-tests.ps1 -Session qcat1 -Selector "[catalog][provider][static]"
+.\devtools\run-pd-tests.ps1 -Session qall1
+.\devtools\build-session.ps1 -Remove -Session qnet1
+```
+
+`run-pd-tests.ps1` builds only the `pd-tests` target in
+`.claude/session-builds/<session>/`, prepends the MinGW runtime path needed by
+`pd-tests.exe`, and runs from the repository root so static source guards use
+the same relative paths as the full suite. Use a short unique `-Session` per
+parallel session and reuse it only for that session's reruns.
+
 From bash:
 
 ```bash
@@ -55,6 +70,27 @@ read-past-end safety tests.)
 ./Build/pd-tests --reporter compact          # one-line-per-case format
 ./Build/pd-tests -? | less                   # full Catch2 v2 help
 ```
+
+The PowerShell wrapper forwards the same Catch2 selectors:
+
+```powershell
+.\devtools\run-pd-tests.ps1 -Session qmanifest -Selector "[manifest]"
+.\devtools\run-pd-tests.ps1 -Session qinput -Selector "[input]"
+.\devtools\run-pd-tests.ps1 -Session qsave -Selector "[save][migration]"
+.\devtools\run-pd-tests.ps1 -Session qtags -ListTags
+.\devtools\run-pd-tests.ps1 -Session qtests -ListTests -NoBuild
+```
+
+Common scope selectors:
+
+| Scope | Selector |
+|---|---|
+| Catalog/provider identity | `[catalog]`, `[catalog][provider][static]`, `[catalog][identity][static]` |
+| Input transitions and menu ownership | `[input]`, `[actionmap]`, `[inputctx]`, `[inputlayer]`, `[menu_graph]` |
+| Mode lifecycle and packet parsing | `[netbuf]`, `[connectcode]`, `[lifecycle]`, `[static]` with a narrower subsystem tag |
+| Manifest behavior | `[manifest]`, `[manifest][hash]`, `[manifest][diff]` |
+| Save migration | `[savebuffer]`, `[save][migration]`, `[versions]` |
+| Spawn weapon behavior | `[spawn-weapon]`, `[matchsetup][spawn-weapon]`, `[random-pool]` |
 
 ## Layout
 

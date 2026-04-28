@@ -33,6 +33,7 @@
 #include "input.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "scene_transition.h"
 #include "fs.h"
 #include "lib/rng.h"
 #include "net/netmanifest.h"
@@ -1087,7 +1088,8 @@ s32 matchStart(void)
 	 * transition.  menupoolReleaseAll pops every owned ctx (including
 	 * unregistered-fallback after K-b1), so the legacy paired
 	 * inputCtxPopDeferred(&g_CtxImGuiMenu) is no longer needed. */
-	menupoolReleaseAll();
+	sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
+		"matchStart");
 
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: match started successfully");
 	return 0;
@@ -1183,7 +1185,8 @@ s32 matchStartFromChallenge(s32 slot)
 
 	/* Phase 2 / Priority K-b3: release every pool slot — see matchStart for
 	 * rationale; menupoolReleaseAll already pops the ctx so no paired pop. */
-	menupoolReleaseAll();
+	sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
+		"matchStartFromChallenge");
 
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: challenge match started");
 	return 0;

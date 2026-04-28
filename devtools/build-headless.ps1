@@ -9,7 +9,7 @@
     Uses Ninja generator, unified Build/ directory, ccache, and mold linker.
 
 .PARAMETER Target
-    What to build: client, server, or all (default: all)
+    What to build: client, server, tests, or all (default: all)
 
 .PARAMETER Clean
     Remove the build directory before configuring (clean build).
@@ -37,6 +37,7 @@
     .\build-headless.ps1
     .\build-headless.ps1 -Target client -Clean
     .\build-headless.ps1 -Target server -Verbose
+    .\build-headless.ps1 -Target tests
     .\build-headless.ps1 -AutoCommit
     powershell -File build-headless.ps1 -Target all -Clean
     .\build-headless.ps1 -OutputDir "Cursor Build"
@@ -44,7 +45,7 @@
 #>
 
 param(
-    [ValidateSet("client", "server", "all")]
+    [ValidateSet("client", "server", "tests", "all")]
     [string]$Target = "all",
 
     # Version override in "X.Y.Z" format. If omitted, reads VERSION_SEM_* from CMakeLists.txt
@@ -625,11 +626,12 @@ if (-not $configOk) {
 $targets = switch ($Target) {
     "client" { @("client") }
     "server" { @("server") }
+    "tests"  { @("tests") }
     "all"    { @("client", "server") }
 }
 
-$cmakeTargetMap = @{ "client" = "pd"; "server" = "pd-server" }
-$exeNameMap     = @{ "client" = "PerfectDark.exe"; "server" = "PerfectDarkServer.exe" }
+$cmakeTargetMap = @{ "client" = "pd"; "server" = "pd-server"; "tests" = "pd-tests" }
+$exeNameMap     = @{ "client" = "PerfectDark.exe"; "server" = "PerfectDarkServer.exe"; "tests" = "pd-tests.exe" }
 
 $results  = @{}
 $anyFail  = $false

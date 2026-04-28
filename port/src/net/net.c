@@ -55,6 +55,7 @@
 #include "audio.h"
 #include "sha256.h"
 #include "server_bans.h"
+#include "scene_transition.h"
 #if defined(_WIN32)
 #include <windows.h>
 #include <bcrypt.h>
@@ -202,6 +203,69 @@ s32 netParseAddr(ENetAddress *out, const char *str)
 
 	// must be a domain name; do a lookup
 	return (enet_address_set_hostname(out, host) == 0);
+}
+
+static s32 netStoredAddrIsValid(const char *addr)
+{
+	unsigned a = 0, b = 0, c = 0, d = 0, port = NET_DEFAULT_PORT;
+	int consumed = 0;
+
+	if (!addr || !addr[0]) {
+		return false;
+	}
+
+	if (sscanf(addr, " %u.%u.%u.%u:%u %n", &a, &b, &c, &d, &port, &consumed) == 5) {
+		/* Parsed with explicit port. */
+	} else {
+		consumed = 0;
+		port = NET_DEFAULT_PORT;
+		if (sscanf(addr, " %u.%u.%u.%u %n", &a, &b, &c, &d, &consumed) != 4) {
+			return false;
+		}
+	}
+
+	if (addr[consumed] != '\0') {
+		return false;
+	}
+	if (a > 255 || b > 255 || c > 255 || d > 255) {
+		return false;
+	}
+	if (port == 0 || port > 65535) {
+		return false;
+	}
+	if (a == 0 && b == 0 && c == 0 && d == 0) {
+		return false;
+	}
+
+	return true;
+}
+
+void netConfigSanitizeLoadedAddresses(void)
+{
+	if (g_NetLastJoinAddr[0] && !netStoredAddrIsValid(g_NetLastJoinAddr)) {
+		sysLogPrintf(LOG_WARNING, "NET: clearing invalid stored LastJoinAddr");
+		g_NetLastJoinAddr[0] = '\0';
+	}
+
+	s32 out = 0;
+	for (s32 i = 0; i < g_NetNumRecentServers && i < NET_MAX_RECENT_SERVERS; i++) {
+		if (!netStoredAddrIsValid(g_NetRecentServers[i].addr)) {
+			if (g_NetRecentServers[i].addr[0]) {
+				sysLogPrintf(LOG_WARNING, "NET: dropping invalid stored recent server entry %d", i);
+			}
+			continue;
+		}
+
+		if (out != i) {
+			g_NetRecentServers[out] = g_NetRecentServers[i];
+		}
+		out++;
+	}
+
+	for (s32 i = out; i < NET_MAX_RECENT_SERVERS; i++) {
+		memset(&g_NetRecentServers[i], 0, sizeof(g_NetRecentServers[i]));
+	}
+	g_NetNumRecentServers = out;
 }
 
 static const char *netFormatAddr(const ENetAddress *addr)
@@ -1271,17 +1335,10 @@ s32 netDisconnect(void)
 
 	sysLogPrintf(LOG_CHAT, "NET: disconnected");
 
-#if !defined(PD_SERVER)
-	sceneFire(SCENE_EVENT_DISCONNECT, NULL);
-
-	/* M-23-A / Priority K-b3: cascade-close the menu pool on every disconnect
-	 * (lobby or in-game).  Disconnect paths don't go through menuPushRootDialog,
-	 * so pool slots from lobby/room/mp-setup would survive and block reopen of
-	 * the same type on return.  menupoolReleaseAll is idempotent and pops every
-	 * owned ctx (including the unregistered-fallback after K-b1), so the legacy
-	 * paired inputCtxPopDeferred(&g_CtxImGuiMenu) is no longer needed. */
-	menupoolReleaseAll();
-#endif
+	sceneStageTransitionPrepare(
+		SCENE_STAGE_TRANSITION_DISCONNECT |
+		SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
+		"netDisconnect");
 
 	if (wasingame && !g_AppQuitting) {
 		// skip the "want to save" dialog for all players
@@ -1311,8 +1368,9 @@ s32 netDisconnect(void)
 		 * whatever is loading for CI training, leading to an access violation
 		 * during the manifest apply.  Same fix pattern as F-0.4 in
 		 * pdguiEndscreenExitToMainMenu and L1-1 in netmsgSvcStageEndRead. */
-		manifestClear(&g_ClientManifest);
-		mainChangeToStage(STAGE_CITRAINING);
+		sceneStageChangeTo(STAGE_CITRAINING,
+			SCENE_STAGE_TRANSITION_CLEAR_CLIENT_MANIFEST,
+			"netDisconnect lobby return");
 	}
 
 	return 0;

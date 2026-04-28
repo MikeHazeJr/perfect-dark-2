@@ -39,6 +39,7 @@
 #include "modelcatalog.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "scene_transition.h"
 #include "config.h"
 #include "lib/vi.h"
 #include "game/activemenu.h"
@@ -861,7 +862,8 @@ void pdguiEndscreenStartMission(void)
      * unregistered-fallback ctx after K-b1).  No paired direct ctx pop
      * needed -- the prior defensive inputCtxPopDeferred(&g_CtxImGuiMenu)
      * here is now redundant. */
-    menupoolReleaseAll();
+    sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
+        "endscreen retry");
 }
 
 /**
@@ -887,7 +889,8 @@ void pdguiEndscreenNextMission(void)
     menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
     /* Phase 2 / Priority K-b3: see pdguiEndscreenStartMission for the
      * rationale on dropping the paired ctx pop. */
-    menupoolReleaseAll();
+    sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
+        "endscreen next mission");
 }
 
 /**
@@ -918,7 +921,8 @@ void pdguiEndscreenExitToMainMenu(void)
      * Clearing here ensures no stale match-specific entries persist when
      * returning to the room/menu.  manifestMenuTransition() in
      * mainChangeToStage will rebuild the menu manifest immediately. */
-    manifestClear(&g_ClientManifest);
+    sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_CLEAR_CLIENT_MANIFEST,
+        "endscreen exit to main menu");
     /* L1-4: Clear stale co-op player-netclient linkages on match end.
      * Server-side co-op/anti keeps ncl->player and ncl->config live after
      * SVC_STAGE_END for endscreen display.  These pointers become dangling
@@ -932,11 +936,8 @@ void pdguiEndscreenExitToMainMenu(void)
     }
     /* F-1.2: Reset solo mission menu state so re-entry starts clean. */
     pdguiSoloMissionReset();
-    /* Phase 2 / Priority K-b3: release all pool slots.  menupoolReleaseAll
-     * pops every owned ctx (including unregistered-fallback after K-b1),
-     * so the legacy paired inputCtxPopDeferred(&g_CtxImGuiMenu) here is
-     * redundant. */
-    menupoolReleaseAll();
+    sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
+        "endscreen exit to main menu");
     func0f0f8120();
 }
 
@@ -2040,4 +2041,3 @@ void pdguiDebugFormatLegacyMenuInfo(char *buf, size_t bufSz)
         }
     }
 }
-
