@@ -636,6 +636,31 @@ if ($SkipPush -or $DryRun) {
         }
     }
 
+    # Pre-rebase working-tree refresh + diagnostics (S481).
+    #
+    # Mike hit "error: cannot rebase: You have unstaged changes" on a release.
+    # Root cause: with core.autocrlf=true (Mike's local config) AND the
+    # 2026-04-25 .gitattributes change (`* text=auto eol=lf`), text files
+    # often have CRLF on disk while the index has LF. `git add -A` normalises
+    # CRLF -> LF for the index so `--cached --quiet` returns 0 (no commit
+    # needed), but the working-tree file still has CRLF. `git pull --rebase`
+    # then runs its own working-tree-vs-HEAD check on raw bytes and refuses
+    # to rebase because the file looks "modified."
+    #
+    # `git update-index --refresh` clears the stale modified flag for any
+    # file whose content matches HEAD after .gitattributes-driven
+    # normalisation. Idempotent and safe; it does not touch files that are
+    # genuinely modified.
+    git update-index --refresh -q --unmerged 2>&1 | Out-Null
+
+    # Capture working-tree state for the log so the next rebase failure has
+    # a clear paper trail showing exactly which file blocked the rebase.
+    $preRebaseStatus = git status --porcelain 2>&1
+    if ($preRebaseStatus -and $preRebaseStatus.Count -gt 0) {
+        Write-Host "  [pre-rebase status] working tree shows changes:" -ForegroundColor Yellow
+        foreach ($line in $preRebaseStatus) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
+    }
+
     # Sync with remote before pushing — code sessions may have pushed commits
     # that the local working copy doesn't have yet. Rebase keeps our release
     # commit on top. If a conflict occurs, rebase aborts and the push below
@@ -643,9 +668,36 @@ if ($SkipPush -or $DryRun) {
     Write-Host "  Syncing with remote (pull --rebase) ..." -ForegroundColor Gray
     $rebaseOut = git pull --rebase origin $currentBranch 2>&1
     $rebaseExit = $LASTEXITCODE
+
+    # Recovery: if the rebase failed specifically with "unstaged changes"
+    # (the autocrlf / .gitattributes drift class above) and the only
+    # difference is line-ending, force a clean checkout of those files
+    # from the index to bring the working tree byte-for-byte in sync.
+    # `git checkout-index -a -f` is safe here because we just ran
+    # `git add -A` and committed-or-confirmed-clean above, so the index
+    # holds the canonical content.
+    if ($rebaseExit -ne 0) {
+        $rebaseText = ($rebaseOut | ForEach-Object { $_.ToString() }) -join "`n"
+        if ($rebaseText -match 'unstaged changes|cannot rebase|would be overwritten') {
+            Write-Host "  Rebase blocked by working-tree drift; forcing checkout-index from staged state and retrying..." -ForegroundColor Yellow
+            git rebase --abort 2>&1 | Out-Null
+            git checkout-index -a -f 2>&1 | Out-Null
+            git update-index --refresh -q --unmerged 2>&1 | Out-Null
+            $postFix = git status --porcelain 2>&1
+            if ($postFix -and $postFix.Count -gt 0) {
+                Write-Host "  [post-fix status] still dirty after checkout-index:" -ForegroundColor Yellow
+                foreach ($line in $postFix) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
+            } else {
+                Write-Host "  Working tree clean after recovery; retrying rebase..." -ForegroundColor Gray
+            }
+            $rebaseOut = git pull --rebase origin $currentBranch 2>&1
+            $rebaseExit = $LASTEXITCODE
+        }
+    }
+
     foreach ($line in $rebaseOut) { Write-Host "    $($line.ToString())" -ForegroundColor Gray }
     if ($rebaseExit -ne 0) {
-        Write-Host "  WARNING: Rebase failed — aborting rebase and continuing with push." -ForegroundColor Yellow
+        Write-Host "  WARNING: Rebase failed -- aborting rebase and continuing with push." -ForegroundColor Yellow
         git rebase --abort 2>$null
     }
 

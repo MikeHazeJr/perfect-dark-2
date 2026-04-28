@@ -153,7 +153,11 @@ $evaluator = [System.Text.RegularExpressions.MatchEvaluator] { param($m) $block 
 $regex     = [System.Text.RegularExpressions.Regex]::new(
     $pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
 $header = $regex.Replace($header, $evaluator, 1)
-Set-Content -LiteralPath $headerPath -Value $header -NoNewline -Encoding UTF8
+# No-BOM UTF-8 write. PowerShell 5.1's `Set-Content -Encoding UTF8` always
+# emits a BOM regardless of -NoNewline; updater_pubkey.h is tracked, and
+# the BOM byte left it dirty in the working tree after every keygen run.
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($headerPath, $header, $utf8NoBom)
 
 Write-Host ""
 Write-Host "SUCCESS." -ForegroundColor Green

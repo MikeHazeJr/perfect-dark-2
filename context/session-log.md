@@ -192,6 +192,31 @@ Mike's directive (verbatim): "We so have Random, and Fiesta. Random will select 
 
 Pending playtest. Build verified via `pd` + `pd-tests` link path -- pre-existing local incremental build state.
 
+## Session S481 (`festive-hawking-49649b` follow-up #6) - 2026-04-27 - release rebase failure + remaining BOM writers
+
+Mike's release failure: `error: cannot rebase: You have unstaged changes. error: Please commit or stash them.`
+
+**Root cause**: combination of `core.autocrlf=true` (Mike's local git config) + the 2026-04-25 `.gitattributes` change (`* text=auto eol=lf` defaults). Text files often have CRLF on disk while the index has LF after .gitattributes-driven normalization. The auto-commit step in `release.ps1` Step 4 runs `git add -A` (stages CRLF -> LF normalized for index), then `git diff --cached --quiet` returns 0 (no actual index change vs HEAD), so no commit fires. Then `git pull --rebase` does its own working-tree-vs-HEAD check on raw bytes and refuses because the file looks "modified."
+
+**Fixes (all in `devtools/`)**:
+
+1. **`release.ps1` rebase robustness** -- between the auto-commit and the `git pull --rebase`:
+   - `git update-index --refresh -q --unmerged` clears stale modified flags for files whose content matches HEAD after .gitattributes normalization (idempotent and safe; doesn't touch genuinely modified files).
+   - Capture `git status --porcelain` and log it. Next time a release rebase fails the user has a clear paper trail of which file blocked it.
+   - Recovery branch: when rebase fails specifically with "unstaged changes / cannot rebase / would be overwritten", abort the partial rebase, run `git checkout-index -a -f` to forcefully sync the working tree byte-for-byte from the index (safe because `git add -A` ran moments before), refresh, log the post-fix status, and retry the rebase.
+
+2. **Remaining BOM-emitting `Set-Content -Encoding UTF8` writers to TRACKED files** (sibling class to the S477 `Set-ProjectVersion` fix):
+   - `keygen.ps1:156` writing `port/include/updater_pubkey.h` (TRACKED) -- swapped to `[System.IO.File]::WriteAllText` with `UTF8Encoding($false)`.
+   - `_dev-window.ps1:1293` writing `context/qc-tests.md` (TRACKED) -- swapped to `WriteAllText` with explicit LF line endings (`$out -join "`n"`) to match `.gitattributes` `*.md eol=lf`.
+
+**Why these matter even though the auto-commit catches them**: a BOM byte added by `Set-Content -Encoding UTF8` causes `git diff` to show the file as modified even when content is otherwise identical. After `git add -A`, the BOM gets stored in the index, so the file never re-converges to HEAD on subsequent operations. Future rebases / merges trip on the same byte.
+
+**Why this manifested only now**: the `.gitattributes` `* text=auto eol=lf` defaults landed 2026-04-25. Before that, line endings were left at OS-native CRLF on Windows, and `git pull --rebase` was happy. After that, the working-tree vs index drift exposed by the new normalization rules surfaced as "unstaged changes" on rebase.
+
+Verified: PowerShell parser passes on all five edited scripts (release.ps1, dev-window-v2.ps1, _dev-window.ps1, version-util.ps1, keygen.ps1). The pre-existing parser warnings on release.ps1 lines 623/647 cleared themselves -- my added pre-rebase block shifted the line numbers past whatever the parser was confused about (likely the `$()` inline interpolation in the SkipPush print).
+
+Files: `devtools/release.ps1`, `devtools/keygen.ps1`, `devtools/_dev-window.ps1`.
+
 ## Session S480 (`festive-hawking-49649b` follow-up #5) - 2026-04-27 - post-release latest refresh + build-tab clipping + PAT rename to REV
 
 Three Mike asks resolved in one merge:
