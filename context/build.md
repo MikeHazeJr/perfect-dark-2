@@ -27,17 +27,32 @@ while waiting; it prints queue position, active build elapsed time, estimated
 wait, and the current session wait time every 30 seconds. Do not pass
 `-NoQueue` unless Mike explicitly asks for a manual bypass.
 
-Queued builds have a 3-minute active-build watchdog by default
-(`-BuildTimeoutSeconds 180`). If the child build exceeds that runtime, the
+Queued builds have a 60-second active-build watchdog by default
+(`-BuildTimeoutSeconds 60`). If the child build exceeds that runtime, the
 wrapper stops the child process tree, records exit code `124`, clears the active
 queue slot, and lets the next queued session start. Use
 `-BuildTimeoutSeconds <seconds>` only when a specific slow clean build needs a
 longer window; `0` disables the watchdog and should be reserved for an explicit
 manual bypass.
 
+Queued builds also capture child stdout/stderr under the session build
+directory:
+
+```powershell
+.\devtools\build-session.ps1 -List
+.\devtools\build-session.ps1 -Tail              # active queued build
+.\devtools\build-session.ps1 -Tail -Session <short-session-id>
+.\devtools\build-session.ps1 -Tail -Follow      # follow active stdout
+```
+
+The log files are `.claude/session-builds/<session-id>/_build-session.out.log`
+and `_build-session.err.log`. `-List` prints the paths for builds launched by a
+wrapper new enough to capture output.
+
 Maintenance:
 ```powershell
 .\devtools\build-session.ps1 -List
+.\devtools\build-session.ps1 -Tail -Session <short-session-id>
 .\devtools\build-session.ps1 -Remove -Session <short-session-id>
 .\devtools\build-session.ps1 -RemoveAll   # only when no session build is running
 ```
@@ -108,7 +123,9 @@ Reuse the same `-Session` id only within the same AI session. Clean up afterward
 ```
 
 Observed path shape: `.claude/session-builds/<session-id>/`.
-The wrapper queues by default and applies the 3-minute active-build watchdog.
+The wrapper queues by default, applies the 60-second active-build watchdog, and
+captures stdout/stderr into `_build-session.out.log` / `_build-session.err.log`
+inside the session build directory.
 Watch the queue status/ETA while waiting, and do not pass `-NoQueue` unless
 Mike explicitly asks.
 

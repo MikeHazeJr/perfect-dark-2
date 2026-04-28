@@ -50,11 +50,15 @@ asks. Clean up after the session:
 .\devtools\build-session.ps1 -Remove -Session <short-session-id>
 ```
 
-Queued builds have a 3-minute active-build watchdog by default. If a build
+Queued builds have a 60-second active-build watchdog by default. If a build
 times out, treat exit code `124` as a hung-build failure, record it in context,
 and clean up the session directory with the same `-Remove -Session <id>`
 command. Use `-BuildTimeoutSeconds <seconds>` only for a specific slow clean
-build; use `0` only when Mike explicitly asks to disable the watchdog.
+build; use `0` only when Mike explicitly asks to disable the watchdog. New
+wrapper starts capture live stdout/stderr in
+`.claude/session-builds/<id>/_build-session.out.log` and
+`_build-session.err.log`; use `.\devtools\build-session.ps1 -Tail -Session <id>`
+or `-Tail -Follow` for the active build.
 
 ---
 

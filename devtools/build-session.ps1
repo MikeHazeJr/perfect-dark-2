@@ -12,8 +12,9 @@
     .\devtools\build-session.ps1 -Session s500 -Target all
     .\devtools\build-session.ps1 -Session s500 -Target tests
     .\devtools\build-session.ps1 -Session s500 -Target client -Clean
-    .\devtools\build-session.ps1 -Session s500 -Target all -BuildTimeoutSeconds 7200
+    .\devtools\build-session.ps1 -Session s500 -Target all -BuildTimeoutSeconds 120
     .\devtools\build-session.ps1 -List
+    .\devtools\build-session.ps1 -Tail -Session s500
     .\devtools\build-session.ps1 -Remove -Session s500
     .\devtools\build-session.ps1 -RemoveAll
 #>
@@ -34,10 +35,13 @@ param(
     [int]$QueueStatusSeconds = 30,
     # Queued builds that exceed this active runtime are treated as hung. Use 0
     # only for an intentional no-watchdog run.
-    [int]$BuildTimeoutSeconds = 7200,
+    [int]$BuildTimeoutSeconds = 60,
 
     # Maintenance modes.
     [switch]$List,
+    [switch]$Tail,
+    [int]$TailLines = 80,
+    [switch]$Follow,
     [switch]$Remove,
     [switch]$RemoveAll,
 
@@ -196,12 +200,12 @@ function Get-QueueRequestFiles {
 
 function Get-BuildDurationEstimateSeconds([string]$target) {
     $defaults = @{
-        client = 60
-        server = 60
-        tests  = 120
-        all    = 180
+        client = 45
+        server = 45
+        tests  = 60
+        all    = 60
     }
-    $fallback = if ($defaults.ContainsKey($target)) { [double]$defaults[$target] } else { 180.0 }
+    $fallback = if ($defaults.ContainsKey($target)) { [double]$defaults[$target] } else { 60.0 }
     $history = Read-QueueJson $QueueDurationsPath
     if ($null -eq $history) { return $fallback }
 
@@ -625,10 +629,19 @@ function Show-BuildQueue {
                 (Get-ObjectValue $active "WrapperPid" 0),
                 (Get-ObjectValue $active "ChildPid" 0),
                 $statusText) -ForegroundColor Yellow
+            $buildDir = [string](Get-ObjectValue $active "BuildDir" "")
             $stdoutLog = [string](Get-ObjectValue $active "StdoutLog" "")
             $stderrLog = [string](Get-ObjectValue $active "StderrLog" "")
-            if ($stdoutLog -ne "" -or $stderrLog -ne "") {
+            if ($stdoutLog -eq "" -and $buildDir -ne "") {
+                $stdoutLog = Get-BuildStdoutLogPath $buildDir
+            }
+            if ($stderrLog -eq "" -and $buildDir -ne "") {
+                $stderrLog = Get-BuildStderrLogPath $buildDir
+            }
+            if (($stdoutLog -ne "" -and (Test-Path -LiteralPath $stdoutLog)) -or ($stderrLog -ne "" -and (Test-Path -LiteralPath $stderrLog))) {
                 Write-Host ("          logs: out={0} err={1}" -f $stdoutLog, $stderrLog) -ForegroundColor DarkGray
+            } elseif ($buildDir -ne "") {
+                Write-Host "          logs: not captured (build was launched by an older wrapper)" -ForegroundColor DarkGray
             }
         } else {
             Write-Host "  Active: none" -ForegroundColor Gray
@@ -657,6 +670,73 @@ function Show-BuildQueue {
     }
 }
 
+function Show-BuildLogTail {
+    if ($TailLines -lt 1) { $TailLines = 80 }
+
+    $sessionName = ""
+    $buildDir = ""
+    $stdoutLog = ""
+    $stderrLog = ""
+
+    if ($Session -ne "") {
+        $sessionName = Get-SessionName $true
+        $buildDir = Get-SafeChildPath $sessionName
+        $stdoutLog = Get-BuildStdoutLogPath $buildDir
+        $stderrLog = Get-BuildStderrLogPath $buildDir
+    } else {
+        Ensure-QueueDir
+        $active = Read-QueueJson $QueueActivePath
+        if ($null -eq $active) {
+            Write-Info "No active queued build to tail. Pass -Session <id> to tail a completed session log."
+            return
+        }
+        $sessionName = [string](Get-ObjectValue $active "Session" "")
+        $buildDir = [string](Get-ObjectValue $active "BuildDir" "")
+        $stdoutLog = [string](Get-ObjectValue $active "StdoutLog" "")
+        $stderrLog = [string](Get-ObjectValue $active "StderrLog" "")
+        if ($stdoutLog -eq "" -and $buildDir -ne "") {
+            $stdoutLog = Get-BuildStdoutLogPath $buildDir
+        }
+        if ($stderrLog -eq "" -and $buildDir -ne "") {
+            $stderrLog = Get-BuildStderrLogPath $buildDir
+        }
+    }
+
+    Write-Host ""
+    Write-Host ("Build log tail: {0}" -f ($(if ($sessionName -ne "") { $sessionName } else { "unknown" }))) -ForegroundColor Cyan
+    Write-Host ("  stdout: {0}" -f $stdoutLog) -ForegroundColor DarkGray
+    Write-Host ("  stderr: {0}" -f $stderrLog) -ForegroundColor DarkGray
+
+    $hasStdout = $stdoutLog -ne "" -and (Test-Path -LiteralPath $stdoutLog)
+    $hasStderr = $stderrLog -ne "" -and (Test-Path -LiteralPath $stderrLog)
+    if (-not $hasStdout -and -not $hasStderr) {
+        Write-Warn "No captured build log exists for this session. It was probably launched before stdout/stderr capture was added."
+        return
+    }
+
+    if ($hasStdout) {
+        Write-Host ""
+        Write-Host "stdout:" -ForegroundColor Cyan
+        Get-Content -LiteralPath $stdoutLog -Tail $TailLines -ErrorAction SilentlyContinue
+    }
+
+    if ($hasStderr) {
+        Write-Host ""
+        Write-Host "stderr:" -ForegroundColor Cyan
+        Get-Content -LiteralPath $stderrLog -Tail $TailLines -ErrorAction SilentlyContinue
+    }
+
+    if ($Follow) {
+        if (-not $hasStdout) {
+            Write-Warn "Cannot follow stdout because the stdout log is missing."
+            return
+        }
+        Write-Host ""
+        Write-Host "Following stdout log. Press Ctrl+C to stop." -ForegroundColor Cyan
+        Get-Content -LiteralPath $stdoutLog -Tail 0 -Wait
+    }
+}
+
 function Remove-SessionBuild([string]$name) {
     $targetFull = Get-SafeChildPath $name
     $lockPath = Get-LockPath $name
@@ -677,6 +757,11 @@ function Remove-SessionBuild([string]$name) {
         Remove-Item -LiteralPath $lockPath -Force
         Write-Ok "Removed stale lock: $lockPath"
     }
+}
+
+if ($Tail) {
+    Show-BuildLogTail
+    exit 0
 }
 
 if ($List) {
@@ -748,7 +833,7 @@ try {
         & powershell.exe @childArgs
         $exitCode = $LASTEXITCODE
     } else {
-        $exitCode = Invoke-QueuedBuildChild $childArgs $queueToken $BuildTimeoutSeconds
+        $exitCode = Invoke-QueuedBuildChild $childArgs $queueToken $BuildTimeoutSeconds $buildDir
     }
 } finally {
     Exit-SessionBuildLock $lock

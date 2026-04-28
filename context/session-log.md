@@ -10,11 +10,12 @@ Followed up on the queued isolated-build pipeline after Mike asked whether queue
 
 ### Outcome
 
-- Added `-BuildTimeoutSeconds` to `devtools/build-session.ps1`, defaulting to 180 seconds for queued builds.
+- Added `-BuildTimeoutSeconds` to `devtools/build-session.ps1`, now defaulting to 60 seconds for queued builds after Mike clarified normal full builds are usually about 33 seconds.
 - Queued builds now record the timeout in active queue metadata, show it in `-List`, and return exit code `124` when the watchdog fires.
 - If a queued child build exceeds the timeout, the wrapper stops that child process tree, updates queue heartbeat/status, clears the active slot in `finally`, and lets the next queued session start.
 - Stale active queue cleanup can also stop an orphaned over-timeout child process tree after its wrapper has died.
-- Queue ETA defaults were tightened to match observed normal runtime expectations: `client`/`server` 60s, `tests` 120s, `all` 180s, with successful duration history still preferred when present.
+- Queue ETA defaults were tightened to match observed normal runtime expectations: `client`/`server` 45s, `tests` 60s, `all` 60s, with successful duration history still preferred when present.
+- Added live output capture for newly started queued builds: child stdout/stderr now go to `_build-session.out.log` and `_build-session.err.log` inside the session build directory, active queue metadata records those paths, `-List` prints them, and `-Tail` / `-Tail -Follow` can read them.
 - Checked the live queue: old active `ui568` was already gone by the time the stop command ran; a fresh queued `ui568` request briefly reappeared and was removed too aggressively. Mike clarified only the hung front-of-queue instance needed removal, and future `ui568` re-adds are normal queue entries.
 
 ### Files
@@ -28,12 +29,14 @@ Followed up on the queued isolated-build pipeline after Mike asked whether queue
 - PowerShell parser check passed for `devtools/build-session.ps1`.
 - `git diff --check` passed for `devtools/build-session.ps1`, `AGENTS.md`, and the touched context files.
 - `.\devtools\build-session.ps1 -List` passed and showed the new active timeout display.
-- After `ui568` cleanup, `tv573` became active with the 3-minute watchdog attached. It timed out and the queue advanced automatically to `swarm275`, confirming the watchdog path clears the active slot.
+- `.\devtools\build-session.ps1 -Tail` passed against an old-wrapper active build and correctly reported that no captured log existed because it was launched before stdout/stderr capture was added.
+- A tiny child-process redirection smoke test captured stdout and stderr into `_build-session.*.log` files, then the temporary `log-capture-smoke` session directory was removed.
+- After `ui568` cleanup, `tv573` became active with the then-current 3-minute watchdog attached. It timed out and the queue advanced automatically to `swarm275`, confirming the watchdog path clears the active slot.
 
 ### Next
 
 - Let the queued watchdog govern active builds going forward. A session that times out should treat exit code `124` as a hung-build failure, record it in context, and clean up its session directory with `.\devtools\build-session.ps1 -Remove -Session <id>`.
-- If normal clean builds prove to need more than 180 seconds on this machine, raise the timeout with `-BuildTimeoutSeconds <seconds>` for that specific verification rather than disabling the queue.
+- If a specific clean build genuinely needs more than 60 seconds on this machine, raise the timeout with `-BuildTimeoutSeconds <seconds>` for that verification rather than disabling the queue.
 
 ---
 
