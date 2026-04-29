@@ -89,3 +89,25 @@ TEST_CASE("F7: src/game/botinv.c has no g_AibotWeaponPreferences reads",
      * is the sole permitted mention. */
     REQUIRE(src.find("g_AibotWeaponPreferences[]") != std::string::npos);
 }
+
+TEST_CASE("F8: src/game/game_0b0fd0.c default fallbacks route through manager",
+          "[catalog-mgr-weapon][s484][f8]") {
+    std::string src = readFile("src/game/game_0b0fd0.c");
+    /* Manager-routed defaults must be present. */
+    REQUIRE(src.find("catalogManagerWeaponDefaultAimSettings") != std::string::npos);
+    REQUIRE(src.find("catalogManagerWeaponDefaultNoiseSettings") != std::string::npos);
+    /* Direct extern fallback addresses-of must be gone. */
+    REQUIRE(src.find("&invaimsettings_default") == std::string::npos);
+    REQUIRE(src.find("&invnoisesettings_silent") == std::string::npos);
+}
+
+TEST_CASE("F8 (I.1): currentPlayerSetWeaponPos removed",
+          "[catalog-mgr-weapon][s484][f8]") {
+    /* Mike's I.1 decision (2026-04-27): the dead-code position-offset
+     * mutator is removed. The function definition is gone from
+     * game_0b0fd0.c and from the public header. */
+    std::string src = readFile("src/game/game_0b0fd0.c");
+    REQUIRE(src.find("void currentPlayerSetWeaponPos(") == std::string::npos);
+    std::string hdr = readFile("src/include/game/game_0b0fd0.h");
+    REQUIRE(hdr.find("currentPlayerSetWeaponPos") == std::string::npos);
+}

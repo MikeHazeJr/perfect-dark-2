@@ -116,7 +116,8 @@ struct invaimsettings *gsetGetAimSettings(struct gset *gset)
 		return weapon->aimsettings;
 	}
 
-	return &invaimsettings_default;
+	/* S484 F8: default routes through manager. */
+	return (struct invaimsettings *)catalogManagerWeaponDefaultAimSettings();
 }
 
 struct inventory_ammo *weaponGetAmmoByFunction(u32 weaponnum, u32 funcnum)
@@ -142,16 +143,11 @@ void currentPlayerGetWeaponPos(struct coord *pos)
 	}
 }
 
-void currentPlayerSetWeaponPos(struct coord *pos)
-{
-	struct weapon *weapon = weaponFindById(bgunGetWeaponNum(HAND_RIGHT));
-
-	if (weapon) {
-		weapon->posx = pos->x;
-		weapon->posy = pos->y;
-		weapon->posz = pos->z;
-	}
-}
+/* S484 F8 (Mike I.1, 2026-04-27): currentPlayerSetWeaponPos removed.
+ * Was a debug / position-tuning hook; the audit found zero live
+ * callers in the active tree. The manager API does not expose a
+ * position-offset mutator; weapon position is read-only at runtime
+ * once .pdbase serves the data (F11+). */
 
 f32 handGetXShift(s32 handnum)
 {
@@ -660,7 +656,8 @@ void gsetGetNoiseSettings(struct gset *gset, struct noisesettings *dst)
 	}
 
 	if (settings == NULL) {
-		settings = &invnoisesettings_silent;
+		/* S484 F8: silent fallback routes through manager. */
+		settings = (struct noisesettings *)catalogManagerWeaponDefaultNoiseSettings();
 	}
 
 	dst->minradius = settings->minradius;
