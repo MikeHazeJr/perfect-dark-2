@@ -6,6 +6,7 @@
 #include "game/inv.h"
 #include "game/playerreset.h"
 #include "spawn_predicate.h"  /* INV-2: spawn-with-weapon mutual-exclusion gate */
+#include "catalog_mgr_weapons.h" /* S484 F5: EYESPY variant via manager */
 #include "game/chr.h"
 #include "game/body.h"
 #include "game/prop.h"
@@ -93,10 +94,14 @@ void playerInitEyespy(void)
 				playerchr = g_Vars.currentplayer->prop->chr;
 				propchr->team = playerchr->team;
 
+				/* S484 F5: route the EYESPY name/shortname/flags writes
+				 * through the catalog manager. The mode side-effect on
+				 * eyespy->mode stays inline because it owns runtime state,
+				 * not weapon data. */
+				catalogManagerWeaponSetEyespyForStage(stageGetIndex(g_Vars.stagenum));
+
 				if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_AIRBASE) {
 					g_Vars.currentplayer->eyespy->mode = EYESPYMODE_DRUGSPY;
-					g_Weapons[WEAPON_EYESPY]->name = L_GUN_061; // "DrugSpy"
-					g_Weapons[WEAPON_EYESPY]->shortname = L_GUN_061; // "DrugSpy"
 				} else if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_MBR || stageGetIndex(g_Vars.stagenum) == STAGEINDEX_CHICAGO) {
 					g_Vars.currentplayer->eyespy->mode = EYESPYMODE_BOMBSPY;
 				} else {

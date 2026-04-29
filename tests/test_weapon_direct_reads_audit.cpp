@@ -48,3 +48,13 @@ TEST_CASE("F4: src/game/bondgun.c has no direct g_Weapons[] reads",
           "[catalog-mgr-weapon][s484][f4]") {
     REQUIRE_FALSE(fileContainsGWeapons("src/game/bondgun.c"));
 }
+
+TEST_CASE("F5: src/game/bondgunreset.c has no direct g_Weapons[] reads",
+          "[catalog-mgr-weapon][s484][f5]") {
+    REQUIRE_FALSE(fileContainsGWeapons("src/game/bondgunreset.c"));
+}
+
+TEST_CASE("F5: src/game/playerreset.c has no direct g_Weapons[] reads",
+          "[catalog-mgr-weapon][s484][f5]") {
+    REQUIRE_FALSE(fileContainsGWeapons("src/game/playerreset.c"));
+}

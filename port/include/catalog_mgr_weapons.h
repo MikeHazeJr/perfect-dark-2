@@ -82,6 +82,11 @@ const struct noisesettings  *catalogManagerWeaponDefaultNoiseSettings(void);
  * g_Weapons[WEAPON_EYESPY]->name|shortname|flags writes. */
 void catalogManagerWeaponSetEyespyVariant(eyespy_variant_e variant);
 
+/* Convenience: map stage_index to the matching EYESPY variant per
+ * legacy bondgunreset rules and apply via SetEyespyVariant.
+ * Single call site for the bondgunreset.c / playerreset.c migration. */
+void catalogManagerWeaponSetEyespyForStage(s32 stage_index);
+
 /* Bot AI preference accessor. Replaces direct
  * g_AibotWeaponPreferences[i] reads in bot.c / botinv.c (S484 F7). */
 const struct aibotweaponpreference *catalogManagerGetWeaponBotPref(s32 weapon_id);

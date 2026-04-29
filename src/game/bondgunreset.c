@@ -9,6 +9,7 @@
 #include "types.h"
 #include "game/player.h"
 #include "system.h" /* B-246 round-6 instrumentation: sysLogPrintf for LOG.WPN.DIAG */
+#include "catalog_mgr_weapons.h" /* S484 F5: EYESPY variant via manager */
 
 void bgunReset(void)
 {
@@ -260,24 +261,12 @@ void bgunReset(void)
 	g_Vars.currentplayer->gunzoomfovs[1] = ADJUST_ZOOM_FOV(60);
 	g_Vars.currentplayer->gunzoomfovs[2] = ADJUST_ZOOM_FOV(30);
 
-	if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_AIRBASE) {
-		g_Weapons[WEAPON_EYESPY]->name = L_GUN_061; // "DrugSpy"
-		g_Weapons[WEAPON_EYESPY]->shortname = L_GUN_061; // "DrugSpy"
-		g_Weapons[WEAPON_EYESPY]->flags &= ~(WEAPONFLAG_DETERMINER_S_AN | WEAPONFLAG_DETERMINER_F_AN);
-	} else if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_CHICAGO
-			|| (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_MBR)) {
-		g_Weapons[WEAPON_EYESPY]->name = L_GUN_062; // "BombSpy"
-		g_Weapons[WEAPON_EYESPY]->shortname = L_GUN_062; // "BombSpy"
-		g_Weapons[WEAPON_EYESPY]->flags &= ~(WEAPONFLAG_DETERMINER_S_AN | WEAPONFLAG_DETERMINER_F_AN);
-	} else {
-		// This is setting the "an" determiner for the camspy which seems
-		// unusual at first. The theory is that during development it was called
-		// the eyespy, then the pickup message was changed to "your camspy"
-		// which made the determiner unused, hence no need to update it.
-		g_Weapons[WEAPON_EYESPY]->name = L_GUN_060; // "CamSpy"
-		g_Weapons[WEAPON_EYESPY]->shortname = L_GUN_060; // "CamSpy"
-		g_Weapons[WEAPON_EYESPY]->flags |= (WEAPONFLAG_DETERMINER_S_AN | WEAPONFLAG_DETERMINER_F_AN);
-	}
+	/* S484 F5: stage-keyed EYESPY variant routes through the manager.
+	 * AIRBASE -> DrugSpy, CHICAGO|MBR -> BombSpy, default -> CamSpy
+	 * (the "an" determiner re-application on the CamSpy default is a
+	 * historical artifact from when the weapon was called "eyespy"
+	 * with an "An eyespy" pickup message; preserved exactly). */
+	catalogManagerWeaponSetEyespyForStage(stageGetIndex(g_Vars.stagenum));
 
 	bgunInitHandAnims();
 }

@@ -138,6 +138,13 @@ void catalogManagerWeaponSetEyespyVariant(eyespy_variant_e variant)
 		(s32)variant, spec.name_langid, w->flags);
 }
 
+void catalogManagerWeaponSetEyespyForStage(s32 stage_index)
+{
+	eyespy_variant_pure_e v = catalogMgrWeaponEyespyFromStageIndexPure(
+		stage_index, STAGEINDEX_AIRBASE, STAGEINDEX_CHICAGO, STAGEINDEX_MBR);
+	catalogManagerWeaponSetEyespyVariant((eyespy_variant_e)v);
+}
+
 const struct aibotweaponpreference *catalogManagerGetWeaponBotPref(s32 weapon_id)
 {
 	/* Mirrors weaponFindById policy: negative is silent (legitimate
