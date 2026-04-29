@@ -934,6 +934,9 @@ set(SRC_TESTS
   # pd-tests stays globals-free.
   ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_weapons_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_mgr_weapons_api.cpp
+
+  # S484 F2: pin weaponFindById's migration to the catalog manager.
+  ${CMAKE_SOURCE_DIR}/tests/test_weapon_findbyid_migrated.cpp
 )
 
 add_executable(pd-tests ${SRC_TESTS})

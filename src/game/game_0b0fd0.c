@@ -15,23 +15,18 @@
 #include "bss.h"
 #include "data.h"
 #include "types.h"
+#include "catalog_mgr_weapons.h" /* S484 F2: route weaponFindById through catalog manager */
 
 /**
- * Canonical weapon accessor — all weapon lookups go through this function.
- * g_Weapons[] is the weapon data table; this is its single-point accessor
- * (equivalent to catalog accessors for heads/bodies). INTERNAL.
+ * Canonical weapon accessor.  S484 F2 (2026-04-27): routes through the
+ * Catalog Manager (port/src/catalog_mgr_weapons.c) so the migration to
+ * `.pdbase`-served weapon data in F11+ is transparent to all callers.
+ * The accessor signature is unchanged; tier-2 callers and cached
+ * `info->definition` reads inherit the migration without per-site edits.
  */
 struct weapon *weaponFindById(s32 itemid)
 {
-	if (itemid < 0) {
-		return NULL;
-	}
-
-	if (itemid >= ARRAYCOUNT(g_Weapons)) {
-		return NULL;
-	}
-
-	return g_Weapons[itemid];
+	return catalogManagerGetWeaponByIndex(itemid);
 }
 
 struct weaponfunc *weaponGetFunctionById(u32 weaponnum, u32 which)
