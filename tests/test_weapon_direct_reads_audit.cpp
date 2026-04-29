@@ -58,3 +58,8 @@ TEST_CASE("F5: src/game/playerreset.c has no direct g_Weapons[] reads",
           "[catalog-mgr-weapon][s484][f5]") {
     REQUIRE_FALSE(fileContainsGWeapons("src/game/playerreset.c"));
 }
+
+TEST_CASE("F6: src/game/modelmgrreset.c has no direct g_Weapons[] reads",
+          "[catalog-mgr-weapon][s484][f6]") {
+    REQUIRE_FALSE(fileContainsGWeapons("src/game/modelmgrreset.c"));
+}
