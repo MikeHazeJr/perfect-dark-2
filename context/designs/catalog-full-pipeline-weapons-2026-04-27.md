@@ -559,9 +559,36 @@ All four Section I decisions resolved per AI's recommendations. Mike's parent se
 - **I.3 RESOLVED:** JSON for `.pdbase` weapon record format. Authorable, ~45ms startup parse acceptable.
 - **I.4 RESOLVED:** Phase 2 scope this session = F1-F10 only (manager scaffold + accessor migration + 89-entry catalog extension, `g_Weapons[]` still alive as data source). F11-F13 data move to `.pdbase` JSON deferred to a follow-up session to reduce transcription-error risk.
 
-### J.2 Implementation-level decisions
+### J.2 Implementation-level decisions (S484 Phase 2 execution)
 
-(Filled during F1-F10 execution.)
+- **CATALOG_MGR_WEAPON_COUNT corrected from 89 to 86.** Audit Section A.7 / A.8 said "89 entries". The actual `g_Weapons[WEAPON_SUICIDEPILL + 1]` is sized 0x55 + 1 = 86. Pinned by `tests/test_catalog_mgr_weapons_api.cpp` constant + `WEAPON_SUICIDEPILL = 0x55` mirror.
+- **Manager parity policy: silent-on-negative, loud-on-over-positive.** F2 `weaponFindById` migration revealed that legacy callers pass -1 as a "no weapon equipped" sentinel (gunctrl.weaponnum, hand->gset.weaponnum during unarmed / between-weapon states). `catalogManagerGetWeaponByIndex` and `catalogManagerGetWeaponBotPref` therefore split: `weapon_id < 0` returns NULL silently (parity); `weapon_id >= count` returns NULL with `CATALOG.MGR.WEAPON.MISS:` log (B-263 sentinel-leakage class). The pure validator `catalogMgrWeaponIsInRangePure` keeps a single yes/no contract; live impl chose log policy independently. Adjustment landed in F3 commit (`5e929166`).
+- **Pure-layer split for testability.** The manager comes in two TUs: `port/src/catalog_mgr_weapons.c` (live router with globals dependencies, into `pd` only) + `port/src/catalog_mgr_weapons_pure.c` (pure validators + variant spec helpers, into `pd-tests` only). Tests pin the pure layer; runtime exercises the live layer. The directive's "manager API contract tests" land via the pure layer at F1.
+- **Eyespy variant handling: convenience accessor.** F5 added `catalogManagerWeaponSetEyespyForStage(s32 stage_index)` as a convenience wrapper combining `catalogMgrWeaponEyespyFromStageIndexPure` (pure spec) and `catalogManagerWeaponSetEyespyVariant` (live mutator). Single call site for both `bondgunreset.c::bgunReset` and `playerreset.c::playerInitEyespy` migrations. Mode side-effect on `eyespy->mode` stays inline because it owns runtime state, not weapon data.
+- **86-entry catalog row expansion deferred to F11+.** Section F's F9 row called for `s_BaseWeapons` extension to 86 entries this session. During execution the call was made to defer because: (a) the 39 non-MP rows would have empty `pdbase_path` until F11+ populates them, (b) no live consumer needs them until the data move, (c) adding now creates dead weight that complicates the audit. The `pdbase_path / pdbase_offset / pdbase_size` field scaffold landed in F9 (the structural change); the row population follows in F11+ as a paired-with-data-move step. Pinned via F9 pd-tests case [s484][f9].
+- **`fsFileExists` API absent.** F10 loader scaffold initially called `fsFileExists(dir)` to suppress a "no such directory" log. The fs API doesn't expose that primitive. Reverted to silent-zero behavior: missing dir is treated as "no archives available" with the standard OK log line. F11+ will use `fsFileLoad` / `fsFileSize` patterns for actual archive open / read.
+- **Bulk g_AibotWeaponPreferences migration via sed.** F7 ran `sed` over `bot.c` + `botinv.c` to replace 28 sites mechanically. The pattern `g_AibotWeaponPreferences[<expr>].<field>` -> `catalogManagerGetWeaponBotPref(<expr>)-><field>` is too uniform for 18+ Edit calls but too varied for a single replace_all. The sed pass plus a follow-up regex for nested-bracket subscripts (`weaponnums[i]`) caught all 28. The table definition `g_AibotWeaponPreferences[]` (empty subscript) stays in `botinv.c` as the canonical owner until F11+ retires it.
+- **Test framework: file-grep static audit.** Sites that are structurally migrated but functionally identical (same call graph behavior) are pinned via static grep tests in `tests/test_weapon_direct_reads_audit.cpp`. The test reads the source file at test time and asserts the absence of the legacy access pattern (`g_Weapons[`, `g_AibotWeaponPreferences[<expr>]`). This pins the *structural* migration without coupling to runtime semantics.
+- **Pre-existing test failures not regressions.** The full test suite shows 2 failures (`test_catalog_provider_static.cpp:580` and `test_cutscene_layer.cpp:330`). Both reference text in `port/src/testscenarios.c` and `port/src/net/net.c`. Neither file is touched by F1-F10. Failures are pre-existing in the dev tree and unrelated to S484.
+
+### J.3 Final commit ledger (S484 Phase 2)
+
+| Commit | Step | Files | Tests |
+|---|---|---|---|
+| 9961113a | Phase 1 design doc | `context/designs/catalog-full-pipeline-weapons-2026-04-27.md` | n/a |
+| 4dd6e486 | Section J Mike's decisions | design doc J.1 | n/a |
+| d7487736 | F1 Manager skeleton | `port/include/catalog_mgr_weapons.h` + `_pure.h`, `port/src/catalog_mgr_weapons.c` + `_pure.c`, CMakeLists | new `tests/test_catalog_mgr_weapons_api.cpp` (40/12) |
+| e67f1f66 | F2 weaponFindById migration | `src/game/game_0b0fd0.c` | new `tests/test_weapon_findbyid_migrated.cpp` (10/2) |
+| 5e929166 | F3 game_0b0fd0.c direct reads + parity policy fix | `src/game/game_0b0fd0.c`, `port/src/catalog_mgr_weapons.c` | new `tests/test_weapon_direct_reads_audit.cpp` (1/1) |
+| ecc9d880 | F4 bondgun.c direct reads | `src/game/bondgun.c` | extends audit (1) |
+| 3445de52 | F5 EYESPY mutators | `src/game/bondgunreset.c`, `src/game/playerreset.c`, manager | extends audit (2) |
+| a564aa03 | F6 modelmgrreset.c direct read | `src/game/modelmgrreset.c` | extends audit (1) |
+| 697ce338 | F7 g_AibotWeaponPreferences reads | `src/game/bot.c`, `src/game/botinv.c` | extends audit (2) |
+| 33ac09ee | F8 default fallbacks + I.1 mutator removal | `src/game/game_0b0fd0.c` | extends audit (3) |
+| a146d415 | F9 I.2 shadow drop + pdbase fields | `port/include/assetcatalog.h`, `port/src/assetcatalog.c`, `_base_extended.c`, `_scanner.c`, `port/src/net/netdistrib.c` | extends audit (3) |
+| 077ba241 | F10 .pdbase loader skeleton | `port/include/loader_pdbase.h`, `port/src/loader_pdbase.c` | new `tests/test_loader_pdbase_scan.cpp` (3/3) |
+
+Final tally: pd-tests `[s484]` tag, 107 assertions / 29 cases. Build clean across pd, pd-server, pd-tests.
 
 
 ---
