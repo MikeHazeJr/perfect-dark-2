@@ -941,6 +941,9 @@ set(SRC_TESTS
   # S484 F3+: pin per-file absence of direct g_Weapons[] reads. The
   # list of audited files grows as each F-step lands.
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_direct_reads_audit.cpp
+
+  # S484 F10: pin the .pdbase loader scaffold's static contract.
+  ${CMAKE_SOURCE_DIR}/tests/test_loader_pdbase_scan.cpp
 )
 
 add_executable(pd-tests ${SRC_TESTS})
