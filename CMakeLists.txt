@@ -926,6 +926,14 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/spawn_predicate.c
   ${CMAKE_SOURCE_DIR}/port/src/bodies_headcount.c
   ${CMAKE_SOURCE_DIR}/port/src/options_forced.c
+
+  # S484 F1: catalog manager for weapons (pure validators + variant spec).
+  # Live router lives in port/src/catalog_mgr_weapons.c and pulls in
+  # g_Weapons[]/g_AibotWeaponPreferences[]/invaimsettings_default/
+  # invnoisesettings_silent; only the pure layer is linked here so
+  # pd-tests stays globals-free.
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_weapons_pure.c
+  ${CMAKE_SOURCE_DIR}/tests/test_catalog_mgr_weapons_api.cpp
 )
 
 add_executable(pd-tests ${SRC_TESTS})
