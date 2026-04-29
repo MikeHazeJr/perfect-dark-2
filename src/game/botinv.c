@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "assetcatalog.h" /* SA-5e: catalogGetMpWeaponNum */
+#include "catalog_mgr_weapons.h" /* S484 F7: catalogManagerGetWeaponBotPref */
 #include "game/chraction.h"
 #include "game/debug.h"
 #include "game/chr.h"
@@ -464,14 +465,14 @@ void botinvScoreWeapon(struct chrdata *chr, s32 weaponnum, s32 funcnum, s32 arg3
 	// @dangerous: Array overflow can occur if more weapons are added to the
 	// game without extending the preferences table
 	if (arg3 < 0
-			|| (!funcnum && arg3 == g_AibotWeaponPreferences[weaponnum].haspriammogoal)
-			|| (funcnum && arg3 == g_AibotWeaponPreferences[weaponnum].hassecammogoal)) {
+			|| (!funcnum && arg3 == catalogManagerGetWeaponBotPref(weaponnum)->haspriammogoal)
+			|| (funcnum && arg3 == catalogManagerGetWeaponBotPref(weaponnum)->hassecammogoal)) {
 		if (arg4) {
-			score1 = g_AibotWeaponPreferences[weaponnum].unk02;
-			score2 = g_AibotWeaponPreferences[weaponnum].unk03;
+			score1 = catalogManagerGetWeaponBotPref(weaponnum)->unk02;
+			score2 = catalogManagerGetWeaponBotPref(weaponnum)->unk03;
 		} else {
-			score1 = g_AibotWeaponPreferences[weaponnum].unk00;
-			score2 = g_AibotWeaponPreferences[weaponnum].unk01;
+			score1 = catalogManagerGetWeaponBotPref(weaponnum)->unk00;
+			score2 = catalogManagerGetWeaponBotPref(weaponnum)->unk01;
 		}
 
 		if (chr && chr->aibot) {
@@ -824,10 +825,10 @@ void botinvScoreWeaponByItself(struct chrdata *chr, s32 weaponnum, s32 funcnum, 
 s32 botinvGetDistConfig(s32 weaponnum, s32 funcnum)
 {
 	if (funcnum != FUNC_PRIMARY) {
-		return g_AibotWeaponPreferences[weaponnum].secdistconfig;
+		return catalogManagerGetWeaponBotPref(weaponnum)->secdistconfig;
 	}
 
-	return g_AibotWeaponPreferences[weaponnum].pridistconfig;
+	return catalogManagerGetWeaponBotPref(weaponnum)->pridistconfig;
 }
 
 /**
@@ -840,11 +841,11 @@ bool botinvAllowsWeapon(struct chrdata *chr, s32 weaponnum, s32 funcnum)
 
 	if (chr->aibot->config->type == BOTTYPE_FIST) {
 		if (funcnum != FUNC_PRIMARY) {
-			if (g_AibotWeaponPreferences[weaponnum].secdistconfig != BOTDISTCFG_CLOSE) {
+			if (catalogManagerGetWeaponBotPref(weaponnum)->secdistconfig != BOTDISTCFG_CLOSE) {
 				allow = false;
 			}
 		} else {
-			if (g_AibotWeaponPreferences[weaponnum].pridistconfig != BOTDISTCFG_CLOSE) {
+			if (catalogManagerGetWeaponBotPref(weaponnum)->pridistconfig != BOTDISTCFG_CLOSE) {
 				allow = false;
 			}
 		}
@@ -958,9 +959,9 @@ void botinvTick(struct chrdata *chr)
 				if (weaponnum >= 0) {
 					for (j = 1; j >= 0; j--) {
 						if (j != FUNC_PRIMARY) {
-							canuse = g_AibotWeaponPreferences[weaponnum].hassecammogoal;
+							canuse = catalogManagerGetWeaponBotPref(weaponnum)->hassecammogoal;
 						} else {
-							canuse = g_AibotWeaponPreferences[weaponnum].haspriammogoal;
+							canuse = catalogManagerGetWeaponBotPref(weaponnum)->haspriammogoal;
 						}
 
 						if (canuse && botinvAllowsWeapon(chr, weaponnum, j)) {

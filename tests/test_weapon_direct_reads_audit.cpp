@@ -63,3 +63,29 @@ TEST_CASE("F6: src/game/modelmgrreset.c has no direct g_Weapons[] reads",
           "[catalog-mgr-weapon][s484][f6]") {
     REQUIRE_FALSE(fileContainsGWeapons("src/game/modelmgrreset.c"));
 }
+
+TEST_CASE("F7: src/game/bot.c has no direct g_AibotWeaponPreferences reads",
+          "[catalog-mgr-weapon][s484][f7]") {
+    /* All reads route through catalogManagerGetWeaponBotPref. The
+     * table definition `g_AibotWeaponPreferences[] = {...}` lives in
+     * botinv.c and is the only allowed mention site (until F11+). */
+    std::string src = readFile("src/game/bot.c");
+    REQUIRE(src.find("g_AibotWeaponPreferences") == std::string::npos);
+}
+
+TEST_CASE("F7: src/game/botinv.c has no g_AibotWeaponPreferences reads",
+          "[catalog-mgr-weapon][s484][f7]") {
+    /* Per F7: only the table definition is allowed in botinv.c.
+     * That's the line `struct aibotweaponpreference
+     * g_AibotWeaponPreferences[]`; any access pattern
+     * `g_AibotWeaponPreferences[<non-empty>]` is migrated. */
+    std::string src = readFile("src/game/botinv.c");
+    /* No subscripted access to the table. */
+    REQUIRE(src.find("g_AibotWeaponPreferences[w") == std::string::npos);
+    REQUIRE(src.find("g_AibotWeaponPreferences[c") == std::string::npos);
+    REQUIRE(src.find("g_AibotWeaponPreferences[i") == std::string::npos);
+    REQUIRE(src.find("g_AibotWeaponPreferences[0") == std::string::npos);
+    /* The table definition `g_AibotWeaponPreferences[]` (empty sub)
+     * is the sole permitted mention. */
+    REQUIRE(src.find("g_AibotWeaponPreferences[]") != std::string::npos);
+}
