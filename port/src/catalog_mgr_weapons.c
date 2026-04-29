@@ -40,7 +40,17 @@ s32 catalogManagerWeaponCount(void)
 
 struct weapon *catalogManagerGetWeaponByIndex(s32 weapon_id)
 {
-	if (!catalogMgrWeaponIsInRangePure(weapon_id)) {
+	/* Negative IDs are a normal "no weapon equipped" sentinel that
+	 * callers (gunctrl.weaponnum, hand->gset.weaponnum) pass during
+	 * unarmed / between-weapon states. Silent NULL preserves legacy
+	 * weaponFindById parity. */
+	if (weapon_id < 0) {
+		return NULL;
+	}
+	/* Over-positive (>= count) IS a bug surface. The B-263 / S483c
+	 * SPAWNWEAPON_FIESTA_SENTINEL class lives here; loud-fail per
+	 * INV-1 discipline. */
+	if (weapon_id >= CATALOG_MGR_WEAPON_COUNT) {
 		sysLogPrintf(LOG_WARNING,
 			"CATALOG.MGR.WEAPON.MISS: weapon_id=%d out of range [0, %d)",
 			weapon_id, CATALOG_MGR_WEAPON_COUNT);
@@ -51,7 +61,7 @@ struct weapon *catalogManagerGetWeaponByIndex(s32 weapon_id)
 
 struct weapon *catalogManagerGetWeaponAt(s32 iter_index)
 {
-	if (!catalogMgrWeaponIsInRangePure(iter_index)) {
+	if (iter_index < 0 || iter_index >= CATALOG_MGR_WEAPON_COUNT) {
 		return NULL;
 	}
 	return g_Weapons[iter_index];
@@ -130,7 +140,12 @@ void catalogManagerWeaponSetEyespyVariant(eyespy_variant_e variant)
 
 const struct aibotweaponpreference *catalogManagerGetWeaponBotPref(s32 weapon_id)
 {
-	if (!catalogMgrWeaponIsInRangePure(weapon_id)) {
+	/* Mirrors weaponFindById policy: negative is silent (legitimate
+	 * "no weapon" sentinel), over-positive is loud (bug surface). */
+	if (weapon_id < 0) {
+		return NULL;
+	}
+	if (weapon_id >= CATALOG_MGR_WEAPON_COUNT) {
 		sysLogPrintf(LOG_WARNING,
 			"CATALOG.MGR.WEAPON.MISS: bot_pref weapon_id=%d out of range [0, %d)",
 			weapon_id, CATALOG_MGR_WEAPON_COUNT);

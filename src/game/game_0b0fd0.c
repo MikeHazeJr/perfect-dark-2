@@ -53,7 +53,7 @@ struct weaponfunc *gsetGetWeaponFunction2(struct gset *gset)
 
 struct weaponfunc *gsetGetWeaponFunction(struct gset *gset)
 {
-	struct weapon *weapon = g_Weapons[gset->weaponnum];
+	struct weapon *weapon = weaponFindById(gset->weaponnum); /* S484 F3 */
 
 	if (weapon) {
 #ifdef AVOID_UB
@@ -70,7 +70,7 @@ struct weaponfunc *gsetGetWeaponFunction(struct gset *gset)
 
 struct weaponfunc *weaponGetFunction(struct gset *gset, s32 which)
 {
-	struct weapon *weapon = g_Weapons[gset->weaponnum];
+	struct weapon *weapon = weaponFindById(gset->weaponnum); /* S484 F3 */
 
 	if (weapon) {
 		return weapon->functions[which];
@@ -396,11 +396,9 @@ void currentPlayerSetDeviceActive(s32 weaponnum, bool active)
 
 u16 weaponGetFileNum(s32 weaponnum)
 {
-	struct weapon *weapon = NULL;
-
-	if (weaponnum != -1) {
-		weapon = g_Weapons[weaponnum];
-	}
+	/* S484 F3: route through manager. weaponFindById handles -1 silently
+	 * (legitimate "no weapon" sentinel) so the explicit guard collapses. */
+	struct weapon *weapon = weaponFindById(weaponnum);
 
 	if (weapon) {
 		return weapon->hi_model;
@@ -674,7 +672,7 @@ void gsetGetNoiseSettings(struct gset *gset, struct noisesettings *dst)
 
 struct guncmd *handGetEquipAnim(struct gset *gset)
 {
-	struct weapon *weapon = g_Weapons[gset->weaponnum];
+	struct weapon *weapon = weaponFindById(gset->weaponnum); /* S484 F3 */
 
 	if (weapon) {
 		return weapon->equip_animation;
@@ -685,7 +683,7 @@ struct guncmd *handGetEquipAnim(struct gset *gset)
 
 struct guncmd *handGetUnequipAnim(struct gset *gset)
 {
-	struct weapon *weapon = g_Weapons[gset->weaponnum];
+	struct weapon *weapon = weaponFindById(gset->weaponnum); /* S484 F3 */
 
 	if (weapon) {
 		return weapon->unequip_animation;
@@ -696,7 +694,7 @@ struct guncmd *handGetUnequipAnim(struct gset *gset)
 
 struct guncmd *gsetGetPriToSecAnim(struct gset *gset)
 {
-	struct weapon *weapon = g_Weapons[gset->weaponnum];
+	struct weapon *weapon = weaponFindById(gset->weaponnum); /* S484 F3 */
 
 	if (weapon) {
 		return weapon->pritosec_animation;
@@ -707,7 +705,7 @@ struct guncmd *gsetGetPriToSecAnim(struct gset *gset)
 
 struct guncmd *gsetGetSecToPriAnim(struct gset *gset)
 {
-	struct weapon *weapon = g_Weapons[gset->weaponnum];
+	struct weapon *weapon = weaponFindById(gset->weaponnum); /* S484 F3 */
 
 	if (weapon) {
 		return weapon->sectopri_animation;
