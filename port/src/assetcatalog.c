@@ -957,8 +957,7 @@ void assetCatalogSetLoadState(const char *id, asset_load_state_t state)
 asset_entry_t *assetCatalogRegisterWeapon(const char *id, s32 weapon_id,
                                            const char *name,
                                            const char *model_file,
-                                           f32 damage, f32 fire_rate,
-                                           s32 ammo_type, s32 dual_wieldable)
+                                           s32 dual_wieldable)
 {
     asset_entry_t *entry = assetCatalogRegister(id, ASSET_WEAPON);
     if (entry == NULL) {
@@ -975,10 +974,11 @@ asset_entry_t *assetCatalogRegisterWeapon(const char *id, s32 weapon_id,
         entry->ext.weapon.model_file[127] = '\0';
     }
     catalogSetPrimaryFile(entry, entry->ext.weapon.model_file);
-    entry->ext.weapon.damage = damage;
-    entry->ext.weapon.fire_rate = fire_rate;
-    entry->ext.weapon.ammo_type = ammo_type;
     entry->ext.weapon.dual_wieldable = dual_wieldable;
+    /* S484 F9: pdbase fields default empty until loader populates. */
+    entry->ext.weapon.pdbase_path[0] = '\0';
+    entry->ext.weapon.pdbase_offset = 0;
+    entry->ext.weapon.pdbase_size = 0;
 
     return entry;
 }

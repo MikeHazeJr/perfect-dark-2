@@ -417,7 +417,7 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			asset_entry_t *e = assetCatalogRegisterWeapon(
 				idbuf, s_BaseWeapons[i].weapon_id,
 				s_BaseWeapons[i].name,
-				"", 0.0f, 0.0f, 0,
+				"",
 				s_BaseWeapons[i].dual_wieldable);
 			if (!e) {
 				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register weapon %s", idbuf);

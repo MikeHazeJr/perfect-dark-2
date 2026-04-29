@@ -283,11 +283,22 @@ typedef struct asset_entry {
             s32 weapon_id;             /* MPWEAPON_* slot, not runtime WEAPON_* */
             char name[64];             /* human-readable display name */
             char model_file[128];      /* model file path (empty for base game) */
-            f32  damage;               /* base damage value (0 = unknown) */
-            f32  fire_rate;            /* rounds per second (0 = unknown) */
-            s32  ammo_type;            /* ammo category constant */
             s32  dual_wieldable;       /* bool: can be dual-wielded */
             u8   requirefeature;       /* unlock check (0 = always available) */
+            /* S484 F9 / Mike I.2 (2026-04-27): the legacy headline
+             * fields `damage`, `fire_rate`, `ammo_type` were dropped
+             * here. They had zero readers in the live tree and were
+             * shadow values without a single source of truth.
+             * Selectors that need damage / fire_rate / ammo type now
+             * route through the catalog manager
+             * (catalogManagerGetWeaponByIndex(weapon_num)->...) which
+             * is the single source of truth.
+             *
+             * S484 F9: pdbase file refs for F11+ data move. Empty
+             * until the loader populates them at startup. */
+            char pdbase_path[128];     /* path to .pdbase file inside namespace */
+            u32  pdbase_offset;        /* offset within the .pdbase to this record */
+            u32  pdbase_size;          /* record size in bytes (validation) */
         } weapon;
         struct {
             s32 anim_id;               /* animation table index */
@@ -559,13 +570,18 @@ void catalogSetHeadRigClass(asset_entry_t *entry, const char *rig_class);
  * Register a weapon asset.
  * Convenience wrapper that sets ext.weapon fields.
  * weapon_id should be an MPWEAPON_* slot, not a runtime WEAPON_* enum.
- * model_file, damage, fire_rate may be NULL/"" / 0.0f for base game entries.
+ * model_file may be NULL/"" for base game entries.
+ *
+ * S484 F9 / Mike I.2 (2026-04-27): the legacy `damage` / `fire_rate` /
+ * `ammo_type` shadow parameters were dropped. The catalog row no longer
+ * carries headline gameplay numbers; selectors route through the
+ * catalog manager (catalogManagerGetWeaponByIndex(weapon_num)->...)
+ * for the single source of truth.
  */
 asset_entry_t *assetCatalogRegisterWeapon(const char *id, s32 weapon_id,
                                            const char *name,
                                            const char *model_file,
-                                           f32 damage, f32 fire_rate,
-                                           s32 ammo_type, s32 dual_wieldable);
+                                           s32 dual_wieldable);
 
 /**
  * Register an MP bot profile asset.
@@ -1078,6 +1094,15 @@ const char *catalogHeadIdByHeadnum(s32 headnum);
 const char *catalogIdBySourceFilenum(asset_type_e type, s32 source_filenum);
 const char *catalogIdBySourceHandle(asset_type_e type, asset_data_handle_t handle);
 asset_data_handle_t catalogHandleBySourceFilenum(asset_type_e type, s32 source_filenum);
+
+/**
+ * Legacy model-source bridge: resolve a provider handle from a ROM model
+ * source filenum when the caller has not yet been migrated to a typed catalog
+ * identity. If preferred_type is not ASSET_NONE, that type is tried first;
+ * the catalog then owns the remaining model-source fallback order.
+ */
+asset_data_handle_t catalogHandleByModelSourceFilenum(asset_type_e preferred_type,
+		s32 source_filenum);
 
 /**
  * Body → default head catalog ID string.

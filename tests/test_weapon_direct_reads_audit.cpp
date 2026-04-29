@@ -111,3 +111,45 @@ TEST_CASE("F8 (I.1): currentPlayerSetWeaponPos removed",
     std::string hdr = readFile("src/include/game/game_0b0fd0.h");
     REQUIRE(hdr.find("currentPlayerSetWeaponPos") == std::string::npos);
 }
+
+TEST_CASE("F9 (I.2): ext.weapon shadow fields dropped",
+          "[catalog-mgr-weapon][s484][f9]") {
+    /* Mike's I.2 decision (2026-04-27): damage / fire_rate / ammo_type
+     * fields dropped from asset_entry.ext.weapon. The catalog manager
+     * (catalogManagerGetWeaponByIndex(weapon_num)->...) is the single
+     * source of truth for those gameplay numbers. */
+    std::string hdr = readFile("port/include/assetcatalog.h");
+    /* The struct definition no longer carries the legacy fields. The
+     * substring is pinned with the type prefix to avoid matching unrelated
+     * `damage` field names elsewhere. */
+    REQUIRE(hdr.find("f32  damage;") == std::string::npos);
+    REQUIRE(hdr.find("f32  fire_rate;") == std::string::npos);
+    REQUIRE(hdr.find("s32  ammo_type;") == std::string::npos);
+    /* New pdbase_* fields present (F11+ data move scaffold). */
+    REQUIRE(hdr.find("pdbase_path[128]") != std::string::npos);
+    REQUIRE(hdr.find("pdbase_offset") != std::string::npos);
+    REQUIRE(hdr.find("pdbase_size") != std::string::npos);
+}
+
+TEST_CASE("F9: assetCatalogRegisterWeapon signature dropped 3 args",
+          "[catalog-mgr-weapon][s484][f9]") {
+    std::string hdr = readFile("port/include/assetcatalog.h");
+    /* Old signature contained `f32 damage, f32 fire_rate, s32 ammo_type`
+     * comma-listed. New signature is just `s32 dual_wieldable` after
+     * `model_file`. */
+    REQUIRE(hdr.find("f32 damage, f32 fire_rate") == std::string::npos);
+    REQUIRE(hdr.find("s32 ammo_type, s32 dual_wieldable") == std::string::npos);
+}
+
+TEST_CASE("F9: setters for dropped fields removed from scanner + netdistrib",
+          "[catalog-mgr-weapon][s484][f9]") {
+    std::string sc = readFile("port/src/assetcatalog_scanner.c");
+    REQUIRE(sc.find("ext.weapon.damage") == std::string::npos);
+    REQUIRE(sc.find("ext.weapon.fire_rate") == std::string::npos);
+    REQUIRE(sc.find("ext.weapon.ammo_type") == std::string::npos);
+
+    std::string nd = readFile("port/src/net/netdistrib.c");
+    REQUIRE(nd.find("ext.weapon.damage") == std::string::npos);
+    REQUIRE(nd.find("ext.weapon.fire_rate") == std::string::npos);
+    REQUIRE(nd.find("ext.weapon.ammo_type") == std::string::npos);
+}

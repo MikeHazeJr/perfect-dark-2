@@ -1009,9 +1009,10 @@ static void populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *
         if (e->ext.weapon.model_file[0]) {
             distribSetPrimaryFromFile(e, dirpath, e->ext.weapon.model_file);
         }
-        e->ext.weapon.damage         = iniGetFloat(ini, "damage", 0.0f);
-        e->ext.weapon.fire_rate      = iniGetFloat(ini, "fire_rate", 0.0f);
-        e->ext.weapon.ammo_type      = iniGetInt(ini, "ammo_type", 0);
+        /* S484 F9 / Mike I.2 (2026-04-27): damage/fire_rate/ammo_type
+         * shadow fields dropped. Wire-delivered mod INIs that include
+         * those keys are now parsed-and-ignored; the manager is the
+         * single source of truth. */
         e->ext.weapon.dual_wieldable = iniGetInt(ini, "dual_wieldable", 0);
         break;
     case ASSET_PROP:

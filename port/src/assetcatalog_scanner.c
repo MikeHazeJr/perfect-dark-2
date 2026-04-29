@@ -406,9 +406,11 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		if (e->ext.weapon.model_file[0]) {
 			catalogSetPrimaryFile(e, e->ext.weapon.model_file);
 		}
-		e->ext.weapon.damage = iniGetFloat(ini, "damage", 0.0f);
-		e->ext.weapon.fire_rate = iniGetFloat(ini, "fire_rate", 0.0f);
-		e->ext.weapon.ammo_type = iniGetInt(ini, "ammo_type", 0);
+		/* S484 F9 / Mike I.2 (2026-04-27): damage/fire_rate/ammo_type
+		 * shadow fields dropped from ext.weapon. The catalog manager
+		 * is the single source of truth for those gameplay numbers
+		 * (catalogManagerGetWeaponByIndex(weapon_num)->...). The mod
+		 * INI parser ignores those keys silently if present. */
 		e->ext.weapon.dual_wieldable = iniGetInt(ini, "dual_wieldable", 0);
 		break;
 
