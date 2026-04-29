@@ -43,3 +43,8 @@ TEST_CASE("F3: src/game/game_0b0fd0.c has no direct g_Weapons[] reads",
           "[catalog-mgr-weapon][s484][f3]") {
     REQUIRE_FALSE(fileContainsGWeapons("src/game/game_0b0fd0.c"));
 }
+
+TEST_CASE("F4: src/game/bondgun.c has no direct g_Weapons[] reads",
+          "[catalog-mgr-weapon][s484][f4]") {
+    REQUIRE_FALSE(fileContainsGWeapons("src/game/bondgun.c"));
+}

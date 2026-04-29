@@ -1018,7 +1018,7 @@ void bgunGetWeaponInfo(struct handweaponinfo *info, s32 handnum)
 	s32 weaponnum = bgunGetWeaponNum2(handnum);
 
 	info->weaponnum = weaponnum;
-	info->definition = g_Weapons[weaponnum];
+	info->definition = weaponFindById(weaponnum); /* S484 F4 */
 	info->gunctrl = &g_Vars.currentplayer->gunctrl;
 }
 
@@ -4012,25 +4012,17 @@ static asset_data_handle_t bgunNullAssetHandle(void)
 
 static asset_data_handle_t bgunResolveQueuedModelHandle(s32 filenum)
 {
-	static const asset_type_e types[] = {
-		ASSET_MODEL,
-		ASSET_BODY,
-		ASSET_HEAD,
-		ASSET_WEAPON,
-	};
 	asset_data_handle_t null_handle = bgunNullAssetHandle();
-	s32 i;
+	asset_data_handle_t handle;
 
 	if (filenum <= 0) {
 		return null_handle;
 	}
 
-	for (i = 0; i < (s32)ARRAYCOUNT(types); i++) {
-		asset_data_handle_t handle = catalogHandleBySourceFilenum(types[i], filenum);
+	handle = catalogHandleByModelSourceFilenum(ASSET_NONE, filenum);
 
-		if (!assetHandleIsNull(handle)) {
-			return handle;
-		}
+	if (!assetHandleIsNull(handle)) {
+		return handle;
 	}
 
 	if (g_Vars.currentplayernum == 0) {
@@ -6508,7 +6500,7 @@ s32 bgunGetAttackType(s32 handnum)
 
 char *bgunGetName(s32 weaponnum)
 {
-	struct weapon *weapon = g_Weapons[weaponnum];
+	struct weapon *weapon = weaponFindById(weaponnum); /* S484 F4 */
 
 	if (weapon) {
 		return langGet(weapon->name);
@@ -6519,7 +6511,7 @@ char *bgunGetName(s32 weaponnum)
 
 u16 bgunGetNameId(s32 weaponnum)
 {
-	struct weapon *weapon = g_Weapons[weaponnum];
+	struct weapon *weapon = weaponFindById(weaponnum); /* S484 F4 */
 
 	if (weapon) {
 		return weapon->name;
@@ -6530,7 +6522,7 @@ u16 bgunGetNameId(s32 weaponnum)
 
 char *bgunGetShortName(s32 weaponnum)
 {
-	struct weapon *weapon = g_Weapons[weaponnum];
+	struct weapon *weapon = weaponFindById(weaponnum); /* S484 F4 */
 
 	if (weapon) {
 		return langGet(weapon->shortname);
