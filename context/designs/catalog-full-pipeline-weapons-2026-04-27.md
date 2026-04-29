@@ -550,7 +550,19 @@ F1-F10 land the manager + loader skeleton + catalog extension while preserving `
 
 ## J. Decisions Made During Execution
 
-(Empty until Phase 2 starts. Will be filled with concrete decisions surfaced during implementation that did not need Mike's call.)
+### J.1 Architectural decisions (decided 2026-04-27 by parent session per delegated authority)
+
+All four Section I decisions resolved per AI's recommendations. Mike's parent session approved all four with the standard "decided 2026-04-27 by parent session per delegated authority" framing.
+
+- **I.1 RESOLVED:** Remove the `currentPlayerSetWeaponPos` mutator dead-code hook. No live callers in active tree. Phase 2 deletes the function and its header declaration. Manager API does not expose a position-offset mutator.
+- **I.2 RESOLVED:** Drop the catalog row shadow fields (`damage`, `fire_rate`, `ammo_type` in `ext.weapon`). Selectors route through manager. Single source of truth. Phase 2 (F9) removes those three fields from `asset_entry_t.ext.weapon` and migrates any consumers.
+- **I.3 RESOLVED:** JSON for `.pdbase` weapon record format. Authorable, ~45ms startup parse acceptable.
+- **I.4 RESOLVED:** Phase 2 scope this session = F1-F10 only (manager scaffold + accessor migration + 89-entry catalog extension, `g_Weapons[]` still alive as data source). F11-F13 data move to `.pdbase` JSON deferred to a follow-up session to reduce transcription-error risk.
+
+### J.2 Implementation-level decisions
+
+(Filled during F1-F10 execution.)
+
 
 ---
 
