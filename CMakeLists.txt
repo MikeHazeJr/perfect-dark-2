@@ -827,16 +827,34 @@ if(NINTENDO_SWITCH)
   )
 endif()
 
-# S484 F12: deploy base/*.pdbase archives into the runtime data root.
+# S484 F12.4: deploy base/*.pdbase archives into the runtime data root.
 # fsFileLoad("base/weapons.pdbase", ...) resolves against fsGetBaseDir()
 # (typically "<BuildDir>/data"), so the source-tree base/ files have to
 # be copied into <BuildDir>/data/base/ for the loader to find them.
+#
+# Why per-file add_custom_command(OUTPUT ...) + custom_target(ALL ...) and
+# NOT add_custom_command(TARGET pd POST_BUILD ...): POST_BUILD only fires
+# when the target itself is relinked. An incremental rebuild that doesn't
+# touch any pd source skips POST_BUILD, leaving stale Build/data/base/
+# (this is what bit Mike's first F12 playtest -- pd was already linked,
+# POST_BUILD never ran, the .pdbase deploy was missed). The pattern
+# below makes ninja track each source file as a real dependency: the
+# copy fires whenever the source changes OR the destination is missing.
 if(EXISTS "${CMAKE_SOURCE_DIR}/base")
-  add_custom_command(TARGET pd POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/data/base"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/base" "${CMAKE_BINARY_DIR}/data/base"
-    COMMENT "Copying base/*.pdbase -> ${CMAKE_BINARY_DIR}/data/base"
-    VERBATIM)
+  file(GLOB_RECURSE PDBASE_SRC_FILES "${CMAKE_SOURCE_DIR}/base/*")
+  set(PDBASE_DEPLOYED_FILES)
+  foreach(src ${PDBASE_SRC_FILES})
+    file(RELATIVE_PATH rel "${CMAKE_SOURCE_DIR}/base" "${src}")
+    set(dst "${CMAKE_BINARY_DIR}/data/base/${rel}")
+    add_custom_command(OUTPUT "${dst}"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${src}" "${dst}"
+      DEPENDS "${src}"
+      COMMENT "Deploying base/${rel} -> Build/data/base/${rel}"
+      VERBATIM)
+    list(APPEND PDBASE_DEPLOYED_FILES "${dst}")
+  endforeach()
+  add_custom_target(pdbase_deploy ALL DEPENDS ${PDBASE_DEPLOYED_FILES})
+  add_dependencies(pd pdbase_deploy)
 endif()
 
 # Windows: no DLL copy step — all third-party libraries are statically linked.
