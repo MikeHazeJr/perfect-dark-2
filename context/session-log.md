@@ -1,7 +1,48 @@
 # Session Log (Active)
 
-> **S481-S591 + S482c** (rolling window of ~110 sessions; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
+> **S481-S591 + S482c + S592** (rolling window of ~110 sessions; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
+
+## Session S592 (`confident-bardeen-48bed6`) - 2026-04-30 PM - ROM extraction audit + .pdXXX taxonomy + ROM-as-bootstrap principle
+
+Mike's directive: "Ensure the rom extraction process is functional. Research how others have solved this problem and compare to what we are doing, as well as checking what we may improve."
+
+Three architectural directives accumulated mid-session:
+
+1. Per-asset-class file extensions (`.pdwep`, `.pdui`, `.pdmesh`, etc.) plus per-asset granularity (`weapon_farsight.pdwep`, name-suffix variants). Top-level dirs distinguish redistribution: `base/` ships, `data/` is BYOR-extracted.
+2. Single canonical schema per extension. Mod-tool output and extractor output are byte-identical for the same content (round-trip clean). Schema accommodates both extracted and mod-authored content. References by ID, not path. `parent:` field for partial overrides.
+3. Headline architectural principle: ROM is a one-time bootstrap input. Extracted base content is the runtime source of truth. The catalog reads only from `data/` plus `base/` plus `mods/`. Loader has zero ROM-specific code beyond bootstrap.
+
+**Phase 1 audit findings**:
+- One runtime ROM-to-disk extractor exists: `pdguiThemeExtractRomTextures` at `port/fast3d/pdgui_theme.cpp:2405` plus its trigger `pdguiThemeCheckExtract` at `:3162`. Materializes 14 UI textures into `mods/base-ui/textures/`.
+- Build-time extractor `tools/extract` (Python) is canonical for developer asset reconstruction; frozen upstream `fgsfdsfgs/perfect_dark` since 2022-12-04.
+- Build-time compilers `tools/assetmgr/mk*` produce headers from `src/assets/<romid>/` JSON manifests.
+- Runtime ROM model in `port/src/romdata.c` keeps the full 32 MB ROM mapped and routes file reads through `romdataFileLoad` plus per-loadtype `preprocessXxxFile` (endian / pointer fix at load time, not extraction).
+- Architectural mismatch: runtime UI extractor still writes to `mods/base-ui/textures/` (loose files) while the modding pipeline migrated `base-ui` to a `.pdmod` ZIP archive. The archive does not contain the extracted textures.
+- ROM SHA-256 hash validation scaffolding exists at `port/src/romdata.c:227-246` but the known-good hash arrays are `NULL`-only.
+- `--extract-ui-textures` and `--generate-modern-ui` are the only `--extract-*` / `--generate-*` CLI flags. Not in `--help`.
+
+**Phase 2 research**: surveyed N64 / classic-game decomp ecosystem. Two dominant patterns:
+- Pattern A (build-time, developer-only): fgsfdsfgs/perfect_dark, OoT decomp, MM decomp + ZAPD, SM64 decomp, MK64 decomp, BK decomp. PD2's existing `tools/extract` sits here.
+- Pattern B (runtime, end-user-facing): Ship of Harkinian, 2 Ship 2 Harkinian, Starship, Ghostship, SpaghettiKart. SHA1-keyed ROM detection, file-picker prompt, container archive output (`.otr` then `.o2r`).
+- Non-N64 parallels (no transcoding): OpenRCT2, ScummVM, fheroes2.
+- Extension conventions: format-extension (decomps), container-extension (SoH), and Mike's emerging asset-class-extension (.pdXXX) as a third path.
+- Base-vs-mod symmetry: SoH and OpenRCT2 maintain it; OoT / SM64 do not (build-time transform makes source format != runtime format). PD2 lines up with SoH / OpenRCT2.
+
+**Phase 3 recommendations** organized around Mike's principle. Highlights:
+- Document the principle in roadmap.md and pillars/catalog.md.
+- Migrate UI texture extractor's output from loose files to `data/ui/pd-original.pdui` (single ZIP archive, structurally identical to a modder-authored `.pdui`).
+- Define `.pdwep` schema and migrate F11-F13 monolithic `base/weapons.pdbase` to per-weapon `base/weapons/weapon_*.pdwep`.
+- Populate ROM SHA-256 known-good hash table.
+- Per-asset-class extension taxonomy with proposed `data/` placements for each.
+- Schema design principles per `.pdXXX`: one canonical shape, mod-tool output matches extractor output, references by ID not path, `parent:` field for partial overrides.
+- Convergence vs anti-pattern map: `tools/extract` plus `pdguiThemeExtractRomTextures` are convergent; `port/src/romdata.c` plus `port/src/preprocess/*` are anti-patterns under the principle and need migration.
+
+Deliverable: [audits/rom-extraction-audit-2026-04-30.md](audits/rom-extraction-audit-2026-04-30.md), 625 lines. Docs-only. No code shipped. Mike's call on which gaps and which migrations to actually pursue.
+
+Methodology: possibility framing on subjective judgments throughout, file:line plus URL evidence for every claim, no em-dashes, no code changes.
+
+---
 
 ## Session S482c (`festive-hawking-49649b` follow-up #7) - 2026-04-30 PM - Dev Window v2 blank-screen fix
 
