@@ -66,6 +66,19 @@ Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 Add-Type -AssemblyName System.Windows.Forms
 
+# S482: force WPF software rendering. Mike was hitting a blank-window state
+# where the WPF visual tree rendered correctly to RenderTargetBitmap (verified
+# in-process: BtnBuild 1255x104, TabControl 2564x723, all elements visible)
+# but PrintWindow + screen capture both returned pure blank white -- the
+# HWND composition / GPU pipeline path was silently dropping the visual tree.
+# RenderOptions.ProcessRenderMode = SoftwareOnly bypasses the GPU/DWM path
+# entirely and uses CPU rendering for the whole process. Slightly slower than
+# hardware-accelerated WPF on big windows but well within tolerance for a
+# developer tool with no animations. This is the standard WPF workaround for
+# composition-pipeline disconnection (driver state, DWM glitch, virtual
+# display surface mismatch). MUST be set before the first Window is built.
+[System.Windows.Media.RenderOptions]::ProcessRenderMode = [System.Windows.Interop.RenderMode]::SoftwareOnly
+
 # Perf: consolidated to a single Add-Type compile. Three separate Add-Type
 # -Language CSharp calls were costing ~2-4s extra on cold start (each runs the
 # C# compiler from scratch). Guard on the last type so the single compile only
