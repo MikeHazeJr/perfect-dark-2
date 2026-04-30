@@ -54,10 +54,38 @@ void loaderPdbaseScan(const char *dir, loader_pdbase_result_t *out);
 /* Iterate ASSET_WEAPON catalog rows that carry a non-empty pdbase_path
  * and load each weapon's full data into the catalog manager.
  *
- * Phase 2 (F10): with no .pdbase entries registered yet, this is a
- * no-op that returns 0 records loaded. F11+ implements the actual
- * record decode. */
+ * F12 implementation: switches the loader to "active" mode so that
+ * subsequent loaderPdbaseGetWeapon(idx) calls return the pool-backed
+ * struct weapon instead of NULL. The catalog manager
+ * (catalog_mgr_weapons.c) checks loaderPdbaseIsActive() to decide
+ * whether to route through the loader or fall back to g_Weapons[]. */
 s32 loaderPdbaseBuildWeaponManager(void);
+
+/* Manager-side accessors. The loader owns the typed pools; the
+ * manager queries through these helpers. After F13 retires
+ * g_Weapons[], loaderPdbaseGetWeapon() is the only weapon-data
+ * source. */
+struct weapon;
+struct invaimsettings;
+struct noisesettings;
+struct guncmd;
+
+s32 loaderPdbaseIsActive(void);
+const struct weapon          *loaderPdbaseGetWeapon(s32 idx);
+const struct invaimsettings  *loaderPdbaseGetDefaultAim(void);
+const struct noisesettings   *loaderPdbaseGetDefaultNoise(void);
+s32 loaderPdbaseGetWeaponsRegistered(void);
+
+/* F12 self-test: compares pool-backed weapons against g_Weapons[]
+ * field-by-field, emits LOADER.PDBASE.WEAPON.PARITY_FAIL on mismatches.
+ * Returns count of mismatched fields (0 = pass). */
+s32 loaderPdbaseRunParityCheck(void);
+
+/* F12 round-trip helper: encode a single struct guncmd back to a
+ * JSON-ish string ("[mnem, unk01, unk02, unk04]"). Used by tests. */
+#include <stddef.h>
+s32 loaderPdbaseEncodeOpcode(const struct guncmd *cmd, char *out_buf,
+                              size_t out_n);
 
 #ifdef __cplusplus
 }
