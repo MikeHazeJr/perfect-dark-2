@@ -157,6 +157,11 @@ static const MenuGraphEdge s_AgentSelectEdges[] = {
     EDGE_POP("back", ACTION_MENU_CANCEL, "Back"),
 };
 
+static const MenuGraphEdge s_FrDifficultyEdges[] = {
+    EDGE_PUSH("start", ACTION_MENU_ACCEPT, "Start Firing Range", MENU_TYPE_FR_INFO),
+    EDGE_POP("cancel", ACTION_MENU_CANCEL, "Cancel"),
+};
+
 static const MenuGraphEdge s_WarningModalEdges[] = {
     EDGE_POP("confirm", ACTION_MENU_ACCEPT, "Confirm"),
     EDGE_POP("cancel", ACTION_MENU_CANCEL, "Cancel"),
@@ -186,6 +191,7 @@ static const MenuGraphNode s_Nodes[] = {
     NODE(MENU_TYPE_SOCIAL_SHELL, "social_shell", s_SocialShellEdges),
     NODE(MENU_TYPE_NETWORK, "network", s_NetworkEdges),
     NODE(MENU_TYPE_AGENT_SELECT, "agent_select", s_AgentSelectEdges),
+    NODE(MENU_TYPE_FR_DIFFICULTY, "fr_difficulty", s_FrDifficultyEdges),
     NODE(MENU_TYPE_WARNING_MODAL, "warning_modal", s_WarningModalEdges),
 };
 

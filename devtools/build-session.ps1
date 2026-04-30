@@ -145,12 +145,89 @@ function Stop-ProcessTree([int]$rootPid) {
     }
 }
 
+function Show-ProcessTreeSnapshot([int]$rootPid) {
+    if ($rootPid -le 0) { return }
+
+    $ids = @($rootPid) + @(Get-ChildProcessIds $rootPid)
+    $rows = @()
+    foreach ($pidValue in $ids) {
+        try {
+            $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$pidValue" -ErrorAction Stop
+            $cmd = [string]$proc.CommandLine
+            if ($cmd -and $cmd.Length -gt 180) {
+                $cmd = $cmd.Substring(0, 177) + "..."
+            }
+            $rows += [PSCustomObject]@{
+                Pid = [int]$proc.ProcessId
+                Parent = [int]$proc.ParentProcessId
+                Name = [string]$proc.Name
+                Command = $cmd
+            }
+            continue
+        } catch {}
+
+        try {
+            $fallback = Get-Process -Id ([int]$pidValue) -ErrorAction Stop
+            $cmd = ""
+            try { $cmd = [string]$fallback.Path } catch {}
+            if ($cmd -eq "") { $cmd = "<command line unavailable>" }
+            if ($cmd.Length -gt 180) {
+                $cmd = $cmd.Substring(0, 177) + "..."
+            }
+            $rows += [PSCustomObject]@{
+                Pid = [int]$fallback.Id
+                Parent = -1
+                Name = [string]$fallback.ProcessName
+                Command = $cmd
+            }
+        } catch {}
+    }
+
+    Write-Host ""
+    Write-Host "Build process tree at timeout:" -ForegroundColor Cyan
+    if ($rows.Count -eq 0) {
+        Write-Host "  (no live child process rows could be collected; the child may have exited during watchdog cleanup)" -ForegroundColor DarkGray
+        return
+    }
+    $table = ($rows | Format-Table -AutoSize -Wrap | Out-String -Width 240)
+    foreach ($line in ($table -split "`r?`n")) {
+        if ($line.Trim() -ne "") {
+            Write-Host $line
+        }
+    }
+}
+
 function Get-BuildStdoutLogPath([string]$buildDir) {
     return Join-Path $buildDir "_build-session.out.log"
 }
 
 function Get-BuildStderrLogPath([string]$buildDir) {
     return Join-Path $buildDir "_build-session.err.log"
+}
+
+function Get-HeadlessStepLogFiles([string]$buildDir) {
+    if ($buildDir -eq "" -or -not (Test-Path -LiteralPath $buildDir)) { return @() }
+    return @(Get-ChildItem -LiteralPath $buildDir -Filter "_build-headless-*.log" -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending)
+}
+
+function Show-HeadlessStepLogTail([string]$buildDir, [int]$lines = 40, [int]$maxFiles = 4) {
+    $files = @(Get-HeadlessStepLogFiles $buildDir | Select-Object -First $maxFiles)
+    if ($files.Count -eq 0) { return }
+
+    Write-Host ""
+    Write-Host "Recent build step logs:" -ForegroundColor Cyan
+    foreach ($file in $files) {
+        Write-Host ("  {0}" -f $file.FullName) -ForegroundColor DarkGray
+        $content = @(Get-Content -LiteralPath $file.FullName -Tail $lines -ErrorAction SilentlyContinue)
+        if ($content.Count -eq 0) {
+            Write-Host "    (empty)" -ForegroundColor DarkGray
+            continue
+        }
+        foreach ($line in $content) {
+            Write-Host ("    {0}" -f $line)
+        }
+    }
 }
 
 function Write-JsonFile([string]$path, $value) {
@@ -483,8 +560,10 @@ function Invoke-QueuedBuildChild([string[]]$childArgs, $queueToken, [int]$timeou
                 $child.Id)
             Write-Warn "Build output log: $stdoutLog"
             Write-Warn "Build error log: $stderrLog"
+            Show-ProcessTreeSnapshot $child.Id
             Stop-ProcessTree $child.Id
             try { [void]$child.WaitForExit(10000) } catch {}
+            Show-HeadlessStepLogTail $buildDir 40 4
             Update-BuildQueueActive $queueToken $child.Id $stdoutLog $stderrLog
             return $QueueTimeoutExitCode
         }
@@ -725,6 +804,8 @@ function Show-BuildLogTail {
         Write-Host "stderr:" -ForegroundColor Cyan
         Get-Content -LiteralPath $stderrLog -Tail $TailLines -ErrorAction SilentlyContinue
     }
+
+    Show-HeadlessStepLogTail $buildDir $TailLines 4
 
     if ($Follow) {
         if (-not $hasStdout) {

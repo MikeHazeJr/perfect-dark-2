@@ -47,6 +47,7 @@ foreach ($p in $pathParts) {
     if ($p -ieq $mingwBin) { continue }
     if ($p -ieq $msysUsr) { continue }
     if ($p -ieq $gitCmd) { continue }
+    if ($p -match '(?i)\\devkitPro\\msys2\\usr\\bin\\?$') { continue }
     $filtered += $p
 }
 $env:PATH = "$mingwBin;$msysUsr"

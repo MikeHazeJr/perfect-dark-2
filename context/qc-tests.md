@@ -12,9 +12,9 @@
 | 2 | Server running a match: client opens Lobby | Room 0 shows "Match" state (blue), player count > 0 | [ ] |
 | 3 | Server in lobby (no match): client opens Lobby | Room 0 shows "Lobby" state (green) | [ ] |
 | 4 | Lobby shows phonetic code | Code displayed in sentence format when hosting ("fat vampire running to the park") | [ ] |
-| 5 | Main menu → Play → "Join by Code" | Menu view 4 appears with text input for phonetic or IP code | [ ] |
-| 6 | Enter a valid sentence code in Join by Code | Decoded IP:port shown; connect button becomes active | [ ] |
-| 7 | Enter direct IP:port in Join by Code | Accepted as-is; phonetic decode fails gracefully and falls back to IP:port | [ ] |
+| 5 | Main menu -> Online Play -> "Join Server" | Text input asks for a connect code only; no raw address/IP prompt is visible | [ ] |
+| 6 | Enter a valid 4-word or 6-word connect code | Connect starts or status advances; UI never displays the decoded raw IP:port | [ ] |
+| 7 | Enter direct IP:port in Join Server | Rejected as an invalid connect code; no fallback/raw-IP connect path is offered | [ ] |
 | 8 | Press Back from Join by Code screen | Returns to Play submenu (menu manager pop) | [ ] |
 
 ---

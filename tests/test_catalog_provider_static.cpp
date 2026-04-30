@@ -311,11 +311,28 @@ TEST_CASE("source-filenum provider handle reverse lookups stay catalog-owned", "
 		"src/game/menu.c",
 		"port/src/modelcatalog.c",
 	};
+	const std::string header = readTextFile("port/include/assetcatalog.h");
+	const std::string api = stripComments(readTextFile("port/src/assetcatalog_api.c"), true);
+	const size_t helperStart = api.find("catalogHandleByModelSourceFilenum");
+	REQUIRE(helperStart != std::string::npos);
+	const size_t helperEnd = api.find("static s32 s_catalogHandleEquals", helperStart);
+	REQUIRE(helperEnd != std::string::npos);
+	const std::string helperBlock = api.substr(helperStart, helperEnd - helperStart);
+
+	REQUIRE(header.find("catalogHandleByModelSourceFilenum") != std::string::npos);
+	REQUIRE(helperBlock.find("catalogHandleBySourceFilenum(") != std::string::npos);
+	REQUIRE(helperBlock.find("ASSET_MODEL") != std::string::npos);
+	REQUIRE(helperBlock.find("ASSET_BODY") != std::string::npos);
+	REQUIRE(helperBlock.find("ASSET_HEAD") != std::string::npos);
+	REQUIRE(helperBlock.find("ASSET_WEAPON") != std::string::npos);
+	REQUIRE(helperBlock.find("ASSET_PROP") != std::string::npos);
+	REQUIRE(helperBlock.find("ASSET_VEHICLE") != std::string::npos);
 
 	for (const char *path : files) {
 		const std::string stripped = stripComments(readTextFile(path), true);
 		INFO(path);
-		REQUIRE(stripped.find("catalogHandleBySourceFilenum(") != std::string::npos);
+		REQUIRE(stripped.find("catalogHandleByModelSourceFilenum(") != std::string::npos);
+		REQUIRE(stripped.find("catalogHandleBySourceFilenum(") == std::string::npos);
 		REQUIRE(stripped.find("catalogIdBySourceFilenum(") == std::string::npos);
 		REQUIRE(stripped.find("catalogEffectiveHandle(") == std::string::npos);
 	}
@@ -449,7 +466,7 @@ TEST_CASE("base first-person hand model files populate provider handles", "[cata
 	REQUIRE(baseExtended.find("e->runtime_index = -handfilenum") != std::string::npos);
 	REQUIRE(baseExtended.find("e->source_filenum = handfilenum") != std::string::npos);
 	REQUIRE(baseExtended.find("catalogSetPrimaryRomFilenum(e, e->source_filenum)") != std::string::npos);
-	REQUIRE(bondgun.find("catalogHandleBySourceFilenum(ASSET_MODEL, filenum)") != std::string::npos);
+	REQUIRE(bondgun.find("catalogHandleByModelSourceFilenum(ASSET_NONE, filenum)") != std::string::npos);
 }
 
 TEST_CASE("texture audio and hud file fields populate provider handles", "[catalog][provider][static]")

@@ -271,18 +271,20 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 					/* SA-5f: bodyCalculateHeadOffset modifies the modeldef in-place
 					 * (not idempotent) — must only run on first load.  Capture the
 					 * pre-load state before calling catalogGetHeadModeldef(). */
-					s32 head_needs_offset = (g_HeadsAndBodies[headnum].modeldef == NULL); /* SA-5f: pre-load check only */
-					headmodeldef = catalogGetHeadModeldef(headnum); /* SA-5f */
+					s32 head_needs_offset = headnum < ARRAYCOUNT(g_HeadsAndBodies)
+						&& g_HeadsAndBodies[headnum].modeldef == NULL; /* SA-5f: pre-load check only */
+					if (!catalogGetHeadModeldefChecked(headnum, &headmodeldef)) { /* SA-5f */
+						headmodeldef = NULL;
+					}
 					if (head_needs_offset && headmodeldef != NULL) {
 						bodyCalculateHeadOffset(headmodeldef, headnum, bodynum);
 					}
-
-					modelAllocateRwData(headmodeldef);
 
 					/* B-163: catalogGetHeadModeldef may return NULL (out-of-range,
 					 * torn asset, or HEAD_RANDOM_GENDER).  Skip merging rwdatalen
 					 * rather than dereferencing NULL. */
 					if (headmodeldef != NULL) {
+						modelAllocateRwData(headmodeldef);
 						bodymodeldef->rwdatalen += headmodeldef->rwdatalen;
 					} else {
 						sysLogPrintf(LOG_WARNING,
@@ -332,7 +334,7 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		modelSetScale(model, scale);
 		modelSetAnimScale(model, animscale);
 
-		if (headmodeldef && !catalogGetBodyIsComplete(bodynum)) { /* SA-5d */
+		if (headmodeldef && node != NULL && !catalogGetBodyIsComplete(bodynum)) { /* SA-5d */
 			bodymodeldef->rwdatalen -= headmodeldef->rwdatalen;
 
 			modelmgrAttachHead(model, node, headmodeldef);
@@ -356,6 +358,10 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 					rwdata->toggle.visible = false;
 				}
 			}
+		} else if (headmodeldef && node == NULL && !catalogGetBodyIsComplete(bodynum)) { /* SA-5d */
+			sysLogPrintf(LOG_WARNING,
+				"body0f02ce8c: missing headspot for bodynum %d headnum %d -- skipping head attach",
+				bodynum, headnum);
 		}
 	}
 

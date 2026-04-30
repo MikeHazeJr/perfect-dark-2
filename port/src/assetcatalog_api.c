@@ -621,7 +621,7 @@ asset_data_handle_t catalogHandleBySourceFilenum(asset_type_e type, s32 source_f
 	s32 i;
 	asset_data_handle_t null_handle = ASSET_HANDLE_NULL_INIT;
 
-	if (source_filenum < 0) {
+	if (source_filenum <= 0) {
 		return null_handle;
 	}
 
@@ -633,6 +633,46 @@ asset_data_handle_t catalogHandleBySourceFilenum(asset_type_e type, s32 source_f
 		if (e->source_filenum != source_filenum) continue;
 
 		return catalogEffectiveHandle(e);
+	}
+
+	return null_handle;
+}
+
+asset_data_handle_t catalogHandleByModelSourceFilenum(asset_type_e preferred_type, s32 source_filenum)
+{
+	static const asset_type_e model_source_types[] = {
+		ASSET_MODEL,
+		ASSET_BODY,
+		ASSET_HEAD,
+		ASSET_WEAPON,
+		ASSET_PROP,
+		ASSET_VEHICLE,
+	};
+	asset_data_handle_t null_handle = ASSET_HANDLE_NULL_INIT;
+	s32 i;
+
+	if (source_filenum <= 0) {
+		return null_handle;
+	}
+
+	if (preferred_type != ASSET_NONE) {
+		asset_data_handle_t handle = catalogHandleBySourceFilenum(preferred_type, source_filenum);
+
+		if (!assetHandleIsNull(handle)) {
+			return handle;
+		}
+	}
+
+	for (i = 0; i < (s32)(sizeof(model_source_types) / sizeof(model_source_types[0])); i++) {
+		if (model_source_types[i] == preferred_type) {
+			continue;
+		}
+
+		asset_data_handle_t handle = catalogHandleBySourceFilenum(model_source_types[i], source_filenum);
+
+		if (!assetHandleIsNull(handle)) {
+			return handle;
+		}
 	}
 
 	return null_handle;

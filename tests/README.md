@@ -83,6 +83,8 @@ The PowerShell wrapper forwards the same Catch2 selectors:
 .\devtools\run-pd-tests.ps1 -Session qinput -Selector "[input]"
 .\devtools\run-pd-tests.ps1 -Session qsave -Selector "[save][migration]"
 .\devtools\run-pd-tests.ps1 -Session qcat -Scope catalog-provider
+.\devtools\run-pd-tests.ps1 -Session qchecked -Selector "[catalog][checked][regression]"
+.\devtools\run-pd-tests.ps1 -Session qcat -Scope catalog-provider -BuildTimeoutSeconds 180
 .\devtools\run-pd-tests.ps1 -ListScopes
 .\devtools\run-pd-tests.ps1 -Session qtags -ListTags
 .\devtools\run-pd-tests.ps1 -Session qtests -ListTests -NoBuild
@@ -92,12 +94,13 @@ Common scope selectors:
 
 | Scope | Selector |
 |---|---|
-| Catalog/provider identity | `[catalog]`, `[catalog][provider][static]`, `[catalog][identity][static]` |
+| Catalog/provider identity | `[catalog]`, `[catalog][provider][static]`, `[catalog][identity][static]`, `[catalog][checked][regression]` |
 | Input transitions and menu ownership | `[input]`, `[actionmap]`, `[inputctx]`, `[inputlayer]`, `[menu_graph]` |
 | Mode lifecycle and packet parsing | `[netbuf]`, `[connectcode]`, `[lifecycle]`, `[static]` with a narrower subsystem tag |
 | Manifest behavior | `[manifest]`, `[manifest][hash]`, `[manifest][diff]` |
 | Save migration | `[savebuffer]`, `[save][migration]`, `[versions]` |
 | Spawn weapon behavior | `[spawn-weapon]`, `[matchsetup][spawn-weapon]`, `[random-pool]` |
+| QC/checklist alignment | `[connectcode][qc][static]` |
 
 Use `-Scope` for the common first-pass selectors and `-Selector` when a slice
 needs a more precise Catch2 expression.

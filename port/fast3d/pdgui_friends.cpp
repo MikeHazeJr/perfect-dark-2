@@ -37,6 +37,7 @@ extern "C" {
 #include "theater.h"
 #include "listening_room.h"
 #include "social_share.h"
+#include "modmgr.h"
 #include "voice.h"
 #include "net/p2p.h"
 #include "net/group_session.h"
@@ -1349,7 +1350,7 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 					ImGui::Spacing();
 					const s32 npub = shareModPublicCount();
 					if (npub == 0) {
-						ImGui::TextDisabled("None registered. Use the form below to flag a mod public.");
+						ImGui::TextDisabled("None registered. Select an installed mod below to flag it public.");
 					}
 					for (s32 i = 0; i < npub; i++) {
 						const char *id = shareModPublicIdAt(i);
@@ -1374,34 +1375,53 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 						ImGui::Spacing();
 					}
 
-					/* Inline add form. The mod_id is the internal id from
-					 * Priority M's mod registry; the user types it (no
-					 * dropdown to avoid pulling the mod loader's public
-					 * surface into this layer). */
-					static char s_AddPublicId[64];
-					static char s_AddPublicName[64];
-					static char s_AddPublicVer[16] = "1.0.0";
-					ImGui::Spacing();
-					ImGui::SetNextItemWidth(220.0f);
-					ImGui::InputTextWithHint("mod id", "creator.modname",
-					                          s_AddPublicId, sizeof(s_AddPublicId));
-					ImGui::SameLine();
-					ImGui::SetNextItemWidth(180.0f);
-					ImGui::InputTextWithHint("display name", "Display name",
-					                          s_AddPublicName, sizeof(s_AddPublicName));
-					ImGui::SameLine();
-					ImGui::SetNextItemWidth(80.0f);
-					ImGui::InputTextWithHint("ver", "1.0.0",
-					                          s_AddPublicVer, sizeof(s_AddPublicVer));
-					ImGui::SameLine();
-					if (ImGui::Button("Add##pubmodadd")) {
-						if (s_AddPublicId[0]) {
-							if (shareModPublicAdd(s_AddPublicId, s_AddPublicName,
-							                       s_AddPublicVer, 0) >= 0) {
-								s_AddPublicId[0] = '\0';
-								s_AddPublicName[0] = '\0';
+					static s32 s_AddPublicModIndex = -1;
+					const s32 mod_count = modmgrGetCount();
+					if (s_AddPublicModIndex < 0 ||
+					    s_AddPublicModIndex >= mod_count ||
+					    !modmgrGetModValid(s_AddPublicModIndex)) {
+						s_AddPublicModIndex = -1;
+						for (s32 i = 0; i < mod_count; i++) {
+							if (modmgrGetModValid(i)) {
+								s_AddPublicModIndex = i;
+								break;
 							}
 						}
+					}
+
+					ImGui::Spacing();
+					const char *preview = s_AddPublicModIndex >= 0
+					        ? modmgrGetModName(s_AddPublicModIndex)
+					        : "No valid installed mods";
+					ImGui::SetNextItemWidth(360.0f);
+					if (ImGui::BeginCombo("Installed mod", preview && *preview ? preview : "Unnamed mod")) {
+						for (s32 i = 0; i < mod_count; i++) {
+							if (!modmgrGetModValid(i)) continue;
+							const char *name = modmgrGetModName(i);
+							const char *id = modmgrGetModId(i);
+							ImGui::PushID(19000 + i);
+							const bool selected = (i == s_AddPublicModIndex);
+							char label[256];
+							snprintf(label, sizeof(label), "%s###installed_mod_%d",
+							         name && *name ? name : (id ? id : "Unnamed mod"), (int)i);
+							if (ImGui::Selectable(label, selected)) {
+								s_AddPublicModIndex = i;
+							}
+							if (id && *id && ImGui::IsItemHovered()) {
+								ImGui::SetTooltip("%s", id);
+							}
+							if (selected) ImGui::SetItemDefaultFocus();
+							ImGui::PopID();
+						}
+						ImGui::EndCombo();
+					}
+					ImGui::SameLine();
+					if (ImGui::Button("Add selected mod##pubmodadd") && s_AddPublicModIndex >= 0) {
+						const char *id = modmgrGetModId(s_AddPublicModIndex);
+						const char *name = modmgrGetModName(s_AddPublicModIndex);
+						const char *ver = modmgrGetModVersion(s_AddPublicModIndex);
+						const u32 size = modmgrGetModSizeBytes(s_AddPublicModIndex);
+						(void)shareModPublicAdd(id, name, ver, size);
 					}
 
 					ImGui::Spacing();

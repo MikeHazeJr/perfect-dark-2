@@ -29,8 +29,22 @@
 
 #include "catch.hpp"
 
+#include <fstream>
+#include <sstream>
+#include <string>
+
 extern "C" {
 #include "catalog_checked.h"
+}
+
+static std::string readTextFile(const char *path)
+{
+	std::ifstream in(path, std::ios::in | std::ios::binary);
+	REQUIRE(in.good());
+
+	std::ostringstream ss;
+	ss << in.rdbuf();
+	return ss.str();
 }
 
 TEST_CASE("catalogCheckedValidateIndex: in-bounds is OK",
@@ -132,4 +146,24 @@ TEST_CASE("catalogCheckedValidateSlot: spawn-critical body slot examples",
 	REQUIRE(catalogCheckedValidateSlot(100, BODY_ARRAY, 0)      == CATALOG_CHECKED_UNPOPULATED);
 	REQUIRE(catalogCheckedValidateSlot(152, BODY_ARRAY, 0x1234) == CATALOG_CHECKED_OOB);
 	REQUIRE(catalogCheckedValidateSlot(-1,  BODY_ARRAY, 0x1234) == CATALOG_CHECKED_OOB);
+}
+
+TEST_CASE("body0f02ce8c gates head catalog misses before rw allocation",
+          "[catalog][checked][static][regression]") {
+	const std::string body = readTextFile("src/game/body.c");
+
+	REQUIRE(body.find("catalogGetHeadModeldefChecked(headnum, &headmodeldef)") != std::string::npos);
+	REQUIRE(body.find("modelAllocateRwData(headmodeldef);\n\n\t\t\t\t\t/* B-163") == std::string::npos);
+	REQUIRE(body.find(
+		"if (headmodeldef != NULL) {\n"
+		"\t\t\t\t\t\tmodelAllocateRwData(headmodeldef);\n"
+		"\t\t\t\t\t\tbodymodeldef->rwdatalen += headmodeldef->rwdatalen;") != std::string::npos);
+}
+
+TEST_CASE("body0f02ce8c requires a headspot node before attaching a head",
+          "[catalog][checked][static][regression]") {
+	const std::string body = readTextFile("src/game/body.c");
+
+	REQUIRE(body.find("if (headmodeldef && node != NULL && !catalogGetBodyIsComplete(bodynum))") != std::string::npos);
+	REQUIRE(body.find("missing headspot for bodynum") != std::string::npos);
 }

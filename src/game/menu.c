@@ -1957,31 +1957,14 @@ void menuSetModelFileHandle(struct menumodel *menumodel, s32 source_filenum, ass
 
 static bool menuResolveModelHandleByFilenum(s32 source_filenum, asset_data_handle_t *handle)
 {
-	static const asset_type_e types[] = {
-		ASSET_MODEL,
-		ASSET_HEAD,
-		ASSET_BODY,
-		ASSET_PROP,
-		ASSET_VEHICLE,
-	};
-	s32 i;
-
 	*handle = menuNullModelHandle();
 
 	if (source_filenum <= 0) {
 		return false;
 	}
 
-	for (i = 0; i < (s32)(sizeof(types) / sizeof(types[0])); i++) {
-		asset_data_handle_t candidate = catalogHandleBySourceFilenum(types[i], source_filenum);
-
-		if (!assetHandleIsNull(candidate)) {
-			*handle = candidate;
-			return true;
-		}
-	}
-
-	return false;
+	*handle = catalogHandleByModelSourceFilenum(ASSET_NONE, source_filenum);
+	return !assetHandleIsNull(*handle);
 }
 
 void menuUnsetModel(struct menumodel *menumodel)

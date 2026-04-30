@@ -265,6 +265,28 @@ TEST_CASE("connectcode UI: join surfaces stay connect-code only",
     REQUIRE(netmenu.find("connectCodeDecodeWithPort(code, &ip, &port)") != std::string::npos);
 }
 
+TEST_CASE("connectcode QC gate: checklist does not reintroduce raw-IP join expectations",
+          "[connectcode][qc][static]") {
+    auto read_file = [](const char *path) {
+        std::ifstream in(path, std::ios::in | std::ios::binary);
+        REQUIRE(in.good());
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        return ss.str();
+    };
+
+    const std::string qc = read_file("context/qc-tests.md");
+
+    REQUIRE(qc.find("phonetic or IP code") == std::string::npos);
+    REQUIRE(qc.find("Decoded IP:port shown") == std::string::npos);
+    REQUIRE(qc.find("Accepted as-is") == std::string::npos);
+    REQUIRE(qc.find("falls back to IP:port") == std::string::npos);
+
+    REQUIRE(qc.find("connect code only") != std::string::npos);
+    REQUIRE(qc.find("UI never displays the decoded raw IP:port") != std::string::npos);
+    REQUIRE(qc.find("Rejected as an invalid connect code") != std::string::npos);
+}
+
 TEST_CASE("connectcode: byte 0 (LSB) drives adjective slot",
           "[connectcode]") {
     /* Pin the LSB convention. The encoder reads (ip >> 0) & 0xFF as

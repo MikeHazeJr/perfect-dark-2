@@ -61,7 +61,9 @@ param(
 
     [string]$OutputDir = "",
 
-    [switch]$UseNextVersion
+    [switch]$UseNextVersion,
+
+    [switch]$SelfTest
 )
 
 Set-StrictMode -Version Latest
@@ -129,10 +131,37 @@ $Generator  = "Ninja"
 $CcacheExe = "C:\msys64\mingw64\bin\ccache.exe"
 $CcacheLauncher = ""
 
+function Resolve-BuildGitExecutable {
+    $candidates = @(
+        "C:\Program Files\Git\cmd\git.exe",
+        "C:\Program Files\Git\bin\git.exe",
+        "C:\msys64\mingw64\bin\git.exe",
+        "C:\msys64\usr\bin\git.exe"
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            return $candidate
+        }
+    }
+    return ""
+}
+
+$GitExe = Resolve-BuildGitExecutable
+
 # Build environment -- self-configures TEMP/TMP, PATH (MinGW64), MSYSTEM, ccache.
 # Prelude is idempotent: safe to run multiple times or in nested script invocations.
 . (Join-Path $ScriptDir "_build-env-prelude.ps1")
 . (Join-Path $ScriptDir "version-util.ps1")
+
+if ($GitExe -ne "") {
+    Set-Alias -Name git -Value $GitExe -Scope Script
+    $env:GIT_CONFIG_COUNT = "1"
+    $env:GIT_CONFIG_KEY_0 = "safe.directory"
+    $env:GIT_CONFIG_VALUE_0 = ([System.IO.Path]::GetFullPath($ProjectDir) -replace '\\', '/')
+    $env:GIT_TERMINAL_PROMPT = "0"
+} else {
+    Write-Warning "Preferred Git executable not found; version metadata probes will fall back nonfatally."
+}
 
 if (Test-Path -LiteralPath $CcacheExe) {
     $probeOut = Join-Path $env:TEMP ("pd-ccache-probe-{0}.out" -f $PID)
@@ -157,14 +186,6 @@ if (Test-Path -LiteralPath $CcacheExe) {
 
     Remove-Item -LiteralPath $probeOut, $probeErr -Force -ErrorAction SilentlyContinue
 }
-
-$GitForWindows = "C:\Program Files\Git\cmd\git.exe"
-if (Test-Path -LiteralPath $GitForWindows) {
-    Set-Alias -Name git -Value $GitForWindows -Scope Script
-}
-$env:GIT_CONFIG_COUNT = "1"
-$env:GIT_CONFIG_KEY_0 = "safe.directory"
-$env:GIT_CONFIG_VALUE_0 = ([System.IO.Path]::GetFullPath($ProjectDir) -replace '\\', '/')
 
 $Cores = $env:NUMBER_OF_PROCESSORS
 if (-not $Cores) { $Cores = 4 }
@@ -207,6 +228,10 @@ if ($Version -ne "") {
 
 # SYNC: optional -DPD_STABLE_RELEASE=ON matches CMakeLists.txt (stable channel; omits PD_DEV_BUILD).
 $vFlags = " -DVERSION_SEM_MAJOR=$VerMajor -DVERSION_SEM_MINOR=$VerMinor -DVERSION_SEM_PATCH=$VerPatch"
+$gitFlag = ""
+if ($GitExe -ne "") {
+    $gitFlag = " -DPD_GIT_EXECUTABLE=`"$GitExe`""
+}
 
 # ============================================================================
 # Console helpers
@@ -224,6 +249,118 @@ function Write-Ok([string]$text)   { Write-Host $text -ForegroundColor Green }
 function Write-Err([string]$text)  { Write-Host $text -ForegroundColor Red }
 function Write-Info([string]$text) { Write-Host $text -ForegroundColor Gray }
 function Write-Warn([string]$text) { Write-Host $text -ForegroundColor Yellow }
+
+function Get-StepChildProcessIds([int]$parentPid) {
+    $result = @()
+    try {
+        $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$parentPid" -ErrorAction Stop)
+    } catch {
+        try {
+            $children = @(Get-WmiObject Win32_Process -Filter "ParentProcessId=$parentPid" -ErrorAction SilentlyContinue)
+        } catch {
+            $children = @()
+        }
+    }
+
+    foreach ($child in $children) {
+        $childPid = [int]$child.ProcessId
+        $result += $childPid
+        $result += Get-StepChildProcessIds $childPid
+    }
+    return $result
+}
+
+function Get-StepProcessRows([int]$rootPid) {
+    if ($rootPid -le 0) { return @() }
+
+    $ids = @($rootPid) + @(Get-StepChildProcessIds $rootPid)
+    $rows = @()
+    foreach ($pidValue in $ids) {
+        try {
+            $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$pidValue" -ErrorAction Stop
+            $cmd = [string]$proc.CommandLine
+            if ($cmd.Length -gt 220) {
+                $cmd = $cmd.Substring(0, 217) + "..."
+            }
+            $rows += [PSCustomObject]@{
+                Pid = [int]$proc.ProcessId
+                Parent = [int]$proc.ParentProcessId
+                Name = [string]$proc.Name
+                Command = $cmd
+            }
+            continue
+        } catch {}
+
+        try {
+            $fallback = Get-Process -Id ([int]$pidValue) -ErrorAction Stop
+            $cmd = ""
+            try { $cmd = [string]$fallback.Path } catch {}
+            if ($cmd -eq "") { $cmd = "<command line unavailable>" }
+            if ($cmd.Length -gt 220) {
+                $cmd = $cmd.Substring(0, 217) + "..."
+            }
+            $rows += [PSCustomObject]@{
+                Pid = [int]$fallback.Id
+                Parent = -1
+                Name = [string]$fallback.ProcessName
+                Command = $cmd
+            }
+        } catch {}
+    }
+    return $rows
+}
+
+function Write-BuildStepHeartbeat {
+    param(
+        [string]$StepName,
+        [int]$RootPid,
+        [DateTime]$Started,
+        [string]$StdoutLog,
+        [string]$StderrLog,
+        [string]$HeartbeatLog
+    )
+
+    $elapsed = [math]::Floor(([DateTime]::Now - $Started).TotalSeconds)
+    $stdoutBytes = if (Test-Path -LiteralPath $StdoutLog) { (Get-Item -LiteralPath $StdoutLog).Length } else { 0 }
+    $stderrBytes = if (Test-Path -LiteralPath $StderrLog) { (Get-Item -LiteralPath $StderrLog).Length } else { 0 }
+    $ninjaLog = Join-Path $BuildDir ".ninja_log"
+    $ninjaText = if (Test-Path -LiteralPath $ninjaLog) {
+        "ninja_log=$((Get-Item -LiteralPath $ninjaLog).Length)b"
+    } else {
+        "ninja_log=missing"
+    }
+
+    $header = "[{0}] {1} running {2}s pid={3} stdout={4}b stderr={5}b {6}" -f `
+        ([DateTime]::Now.ToString("s")),
+        $StepName,
+        $elapsed,
+        $RootPid,
+        $stdoutBytes,
+        $stderrBytes,
+        $ninjaText
+    Add-Content -LiteralPath $HeartbeatLog -Value $header -Encoding UTF8
+    Write-Info ("  [heartbeat] {0}" -f $header)
+
+    $rows = @(Get-StepProcessRows $RootPid)
+    if ($rows.Count -eq 0) {
+        Add-Content -LiteralPath $HeartbeatLog -Value "  (no live child process rows collected)" -Encoding UTF8
+        return
+    }
+
+    foreach ($row in ($rows | Select-Object -First 12)) {
+        Add-Content -LiteralPath $HeartbeatLog -Value ("  pid={0} ppid={1} {2} :: {3}" -f $row.Pid, $row.Parent, $row.Name, $row.Command) -Encoding UTF8
+    }
+    if ($rows.Count -gt 12) {
+        Add-Content -LiteralPath $HeartbeatLog -Value ("  ... {0} more process row(s)" -f ($rows.Count - 12)) -Encoding UTF8
+    }
+}
+
+function Get-SafeBuildStepLogName([string]$name) {
+    $safe = $name -replace '[^A-Za-z0-9._-]+', '-'
+    $safe = $safe.Trim([char[]]".-_")
+    if ($safe -eq "") { $safe = "step" }
+    return $safe.ToLowerInvariant()
+}
 
 # Returns $true if the line looks like a compiler/linker error
 function Is-ErrorLine([string]$line) {
@@ -245,47 +382,90 @@ function Invoke-BuildStep {
 
     Write-Header $StepName
 
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName               = $Exe
-    $psi.Arguments              = $ArgList
-    $psi.WorkingDirectory       = $WorkDir
-    $psi.UseShellExecute        = $false
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError  = $true
-    $psi.CreateNoWindow         = $true
-    $psi.EnvironmentVariables["PATH"]         = $env:PATH
-    $psi.EnvironmentVariables["MSYSTEM"]      = "MINGW64"
-    $psi.EnvironmentVariables["MINGW_PREFIX"] = "/mingw64"
     # Ensure GCC has a writable temp dir; the system TEMP may point to a
     # restricted location (e.g. C:\Windows) in some sandbox environments.
     $goodTemp = if ($env:TEMP -and (Test-Path $env:TEMP)) { $env:TEMP } `
                 else { "C:\Users\mikeh\AppData\Local\Temp" }
-    $psi.EnvironmentVariables["TEMP"]         = $goodTemp
-    $psi.EnvironmentVariables["TMP"]          = $goodTemp
 
-    $proc = New-Object System.Diagnostics.Process
-    $proc.StartInfo = $psi
+    if (-not (Test-Path -LiteralPath $BuildDir)) {
+        New-Item -ItemType Directory -Path $BuildDir -Force | Out-Null
+    }
+
+    $logStamp = [DateTime]::Now.ToString("yyyyMMdd-HHmmss")
+    $logName = Get-SafeBuildStepLogName $StepName
+    $stepStdoutLog = Join-Path $BuildDir ("_build-headless-{0}-{1}.out.log" -f $logStamp, $logName)
+    $stepStderrLog = Join-Path $BuildDir ("_build-headless-{0}-{1}.err.log" -f $logStamp, $logName)
+    $stepExitLog = Join-Path $BuildDir ("_build-headless-{0}-{1}.exit" -f $logStamp, $logName)
+    $stepHeartbeatLog = Join-Path $BuildDir ("_build-headless-{0}-{1}.heartbeat.log" -f $logStamp, $logName)
+    $stepCmdLineLog = Join-Path $BuildDir ("_build-headless-{0}-{1}.cmdline.txt" -f $logStamp, $logName)
+    Remove-Item -LiteralPath $stepStdoutLog, $stepStderrLog, $stepExitLog, $stepCmdLineLog -Force -ErrorAction SilentlyContinue
+    Set-Content -LiteralPath $stepHeartbeatLog -Value "" -Encoding UTF8
+    Write-Info "  [step-log] stdout: $stepStdoutLog"
+    Write-Info "  [step-log] stderr: $stepStderrLog"
+    Write-Info "  [step-log] heartbeat: $stepHeartbeatLog"
+    Write-Info "  [step-log] exit:   $stepExitLog"
+    Write-Info "  [step-log] cmdline: $stepCmdLineLog"
 
     $stdoutLines = @()
     $stderrLines = @()
     $errorLines  = [System.Collections.Generic.List[string]]::new()
 
     try {
-        [void]$proc.Start()
+        $cmdLines = @(
+            "WorkingDirectory=$WorkDir",
+            "Executable=$Exe",
+            "Arguments=$ArgList",
+            "PATH=$env:PATH",
+            "MSYSTEM=MINGW64",
+            "MINGW_PREFIX=/mingw64",
+            "TEMP=$goodTemp",
+            "TMP=$goodTemp",
+            "NINJA_STATUS=[%r/%f/%t] "
+        )
+        Set-Content -LiteralPath $stepCmdLineLog -Value $cmdLines -Encoding ASCII
+
+        $oldMsystem = $env:MSYSTEM
+        $oldMingwPrefix = $env:MINGW_PREFIX
+        $oldTemp = $env:TEMP
+        $oldTmp = $env:TMP
+        $oldNinjaStatus = $env:NINJA_STATUS
+
+        $env:MSYSTEM = "MINGW64"
+        $env:MINGW_PREFIX = "/mingw64"
+        $env:TEMP = $goodTemp
+        $env:TMP = $goodTemp
+        $env:NINJA_STATUS = "[%r/%f/%t] "
+
+        try {
+            $proc = Start-Process -FilePath $Exe `
+                                  -ArgumentList $ArgList `
+                                  -WorkingDirectory $WorkDir `
+                                  -RedirectStandardOutput $stepStdoutLog `
+                                  -RedirectStandardError $stepStderrLog `
+                                  -WindowStyle Hidden `
+                                  -PassThru
+        } finally {
+            $env:MSYSTEM = $oldMsystem
+            $env:MINGW_PREFIX = $oldMingwPrefix
+            $env:TEMP = $oldTemp
+            $env:TMP = $oldTmp
+            $env:NINJA_STATUS = $oldNinjaStatus
+        }
     } catch {
         Write-Err "Failed to launch: $Exe $ArgList"
         Write-Err $_.Exception.Message
         return $false
     }
 
-    # Read streams asynchronously via .NET tasks. Avoid PowerShell scriptblocks
-    # on background threads: this host can crash with "no Runspace available".
-    $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
-    $stderrTask = $proc.StandardError.ReadToEndAsync()
+    if ($null -eq $proc) {
+        Write-Err "Failed to launch: process handle was not created for $Exe $ArgList"
+        return $false
+    }
 
     $spinChars = @('|', '/', '-', '\')
     $spinIdx   = 0
     $lastSpin  = [DateTime]::Now
+    $lastHeartbeat = [DateTime]::MinValue
 
     while (-not $proc.WaitForExit(250)) {
         $now = [DateTime]::Now
@@ -296,16 +476,30 @@ function Invoke-BuildStep {
             Write-Host "`r  $spin  $StepName  (${elapsed}s)   " -NoNewline
             $lastSpin = $now
         }
+        if (($now - $lastHeartbeat).TotalSeconds -ge 15) {
+            Write-BuildStepHeartbeat -StepName $StepName `
+                                     -RootPid $proc.Id `
+                                     -Started $script:StepStart `
+                                     -StdoutLog $stepStdoutLog `
+                                     -StderrLog $stepStderrLog `
+                                     -HeartbeatLog $stepHeartbeatLog
+            $lastHeartbeat = $now
+        }
     }
 
     $proc.WaitForExit()
-    $stdoutText = $stdoutTask.Result
-    $stderrText = $stderrTask.Result
-    if ($stdoutText) {
-        $stdoutLines = $stdoutText -split "`r?`n" | Where-Object { $_ -ne "" }
+    try {
+        Set-Content -LiteralPath $stepExitLog -Value ([string][int]$proc.ExitCode) -Encoding ASCII
+    } catch {
+        Write-Warn "Could not write step exit file for '$StepName': $stepExitLog"
+        Write-Err $_.Exception.Message
     }
-    if ($stderrText) {
-        $stderrLines = $stderrText -split "`r?`n" | Where-Object { $_ -ne "" }
+
+    if (Test-Path -LiteralPath $stepStdoutLog) {
+        $stdoutLines = @(Get-Content -LiteralPath $stepStdoutLog -ErrorAction SilentlyContinue | Where-Object { $_ -ne "" })
+    }
+    if (Test-Path -LiteralPath $stepStderrLog) {
+        $stderrLines = @(Get-Content -LiteralPath $stepStderrLog -ErrorAction SilentlyContinue | Where-Object { $_ -ne "" })
     }
 
     foreach ($outLine in $stdoutLines) {
@@ -331,7 +525,27 @@ function Invoke-BuildStep {
     # Clear spinner line
     Write-Host "`r" + (" " * 72) + "`r" -NoNewline
 
-    $exitCode = $proc.ExitCode
+    $exitCode = $null
+    if (Test-Path -LiteralPath $stepExitLog) {
+        $exitText = (Get-Content -LiteralPath $stepExitLog -Raw -ErrorAction SilentlyContinue).Trim()
+        if ($exitText -match '^-?\d+$') {
+            $exitCode = [int]$exitText
+        }
+    }
+    if ($null -eq $exitCode) {
+        try {
+            $proc.Refresh()
+            if ($null -ne $proc.ExitCode) {
+                $exitCode = [int]$proc.ExitCode
+            }
+        } catch {}
+    }
+    if ($null -eq $exitCode) {
+        $hasExitedText = "<unknown>"
+        try { $hasExitedText = [string]$proc.HasExited } catch {}
+        Write-Warn "Step exit code was not recorded for '$StepName'; treating it as failed. hasExited=$hasExitedText exitLog=$stepExitLog cmdline=$stepCmdLineLog"
+        $exitCode = 1
+    }
     try { $proc.Dispose() } catch {}
 
     $elapsed = [math]::Floor(([DateTime]::Now - $script:StepStart).TotalSeconds)
@@ -376,6 +590,54 @@ function Invoke-BuildStep {
 
     Write-Ok ">>> $StepName OK (${elapsed}s) <<<"
     return $true
+}
+
+function Invoke-BuildHeadlessSelfTest {
+    Write-Header "Build Wrapper Self-Test"
+
+    if ($OutputDir -eq "") {
+        $script:BuildDir = Join-Path $ProjectDir ".claude\session-builds\build-headless-selftest-$PID"
+    }
+    if (Test-Path -LiteralPath $BuildDir) {
+        Remove-Item -LiteralPath $BuildDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    New-Item -ItemType Directory -Path $BuildDir -Force | Out-Null
+    Write-Info "  Self-test dir: $BuildDir"
+
+    $script:StepStart = [DateTime]::Now
+    $warnOk = Invoke-BuildStep -StepName "SelfTest Warning Exit Zero" `
+                               -Exe "$env:COMSPEC" `
+                               -ArgList "/d /c `"echo selftest stdout && echo CMake Warning: benign warning 1>&2 && exit /b 0`"" `
+                               -ShowAll $true
+
+    $script:StepStart = [DateTime]::Now
+    $failDetected = -not (Invoke-BuildStep -StepName "SelfTest Nonzero Exit" `
+                                           -Exe "$env:COMSPEC" `
+                                           -ArgList "/d /c `"echo fatal error: simulated failure 1>&2 && exit /b 7`"" `
+                                           -ShowAll $true)
+
+    $exitFiles = @(Get-ChildItem -LiteralPath $BuildDir -Filter "_build-headless-*.exit" -File -ErrorAction SilentlyContinue)
+    $exitCodes = @()
+    foreach ($file in $exitFiles) {
+        $exitCodes += (Get-Content -LiteralPath $file.FullName -Raw -ErrorAction SilentlyContinue).Trim()
+    }
+    $exitOk = ($exitCodes -contains "0") -and ($exitCodes -contains "7")
+
+    if ($warnOk -and $failDetected -and $exitOk) {
+        Write-Ok "  Build wrapper self-test passed."
+        return $true
+    }
+
+    Write-Err "  Build wrapper self-test failed."
+    Write-Err "  warnOk=$warnOk failDetected=$failDetected exitCodes=$($exitCodes -join ',')"
+    return $false
+}
+
+if ($SelfTest) {
+    if (Invoke-BuildHeadlessSelfTest) {
+        exit 0
+    }
+    exit 1
 }
 
 # ============================================================================
@@ -605,7 +867,7 @@ if (-not (Test-Path $devKeyPath)) {
 # CMake Configure (unified Build/ dir for both pd and pd-server)
 # ============================================================================
 
-$configArgs = "-G $Generator -DCMAKE_C_COMPILER=`"$CC`" -DCMAKE_CXX_COMPILER=`"$CXX`" -DCMAKE_C_COMPILER_FORCED=TRUE -DCMAKE_CXX_COMPILER_FORCED=TRUE -DPD_PYTHON_EXECUTABLE=`"$PythonExe`" -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY $CcacheLauncher -B `"$BuildDir`" -S `"$ProjectDir`"$vFlags"
+$configArgs = "-G $Generator -DCMAKE_C_COMPILER=`"$CC`" -DCMAKE_CXX_COMPILER=`"$CXX`" -DCMAKE_C_COMPILER_FORCED=TRUE -DCMAKE_CXX_COMPILER_FORCED=TRUE -DPD_PYTHON_EXECUTABLE=`"$PythonExe`" -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY $CcacheLauncher -B `"$BuildDir`" -S `"$ProjectDir`"$vFlags$gitFlag"
 
 $script:StepStart = [DateTime]::Now
 $configOk = Invoke-BuildStep -StepName "Configure (CMake - Ninja + ccache)" `
@@ -636,10 +898,21 @@ $exeNameMap     = @{ "client" = "PerfectDark.exe"; "server" = "PerfectDarkServer
 $results  = @{}
 $anyFail  = $false
 
+$script:StepStart = [DateTime]::Now
+$headersOk = Invoke-BuildStep -StepName "Generate Headers [pd_headers]" `
+                               -Exe $NinjaExe `
+                               -ArgList "-C `"$BuildDir`" -j1 -v pd_headers" `
+                               -ShowAll $Verbose.IsPresent
+if (-not $headersOk) {
+    Write-Err ""
+    Write-Err "Generated-header step failed. Check the step stdout/stderr/heartbeat logs above."
+    exit 1
+}
+
 foreach ($t in $targets) {
     $cmakeTarget = $cmakeTargetMap[$t]
     $label       = $t.Substring(0,1).ToUpper() + $t.Substring(1)
-    $buildArgs   = "--build `"$BuildDir`" --target $cmakeTarget"
+    $buildArgs   = "-C `"$BuildDir`" -v $cmakeTarget"
 
     Write-Host ""
     Write-Host "============================================================" -ForegroundColor DarkCyan
@@ -650,7 +923,7 @@ foreach ($t in $targets) {
     $tStart = [DateTime]::Now
     $script:StepStart = [DateTime]::Now
     $buildOk = Invoke-BuildStep -StepName "Compile [$label]" `
-                                 -Exe $CMakeExe `
+                                 -Exe $NinjaExe `
                                  -ArgList $buildArgs `
                                  -ShowAll $Verbose.IsPresent
     $tElapsed = [math]::Floor(([DateTime]::Now - $tStart).TotalSeconds)

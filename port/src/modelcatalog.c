@@ -139,18 +139,12 @@ static void catalogSigsegvHandler(int sig, siginfo_t *info, void *ucontext)
  */
 static asset_data_handle_t catalogValidateResolveHandle(s32 index, u8 category, u16 filenum)
 {
-	static const asset_type_e body_first[] = { ASSET_BODY, ASSET_HEAD };
-	static const asset_type_e head_first[] = { ASSET_HEAD, ASSET_BODY };
-	const asset_type_e *types = category == MODELCAT_HEAD ? head_first : body_first;
 	asset_data_handle_t null_handle = ASSET_HANDLE_NULL_INIT;
-	s32 i;
+	asset_type_e preferred = category == MODELCAT_HEAD ? ASSET_HEAD : ASSET_BODY;
+	asset_data_handle_t handle = catalogHandleByModelSourceFilenum(preferred, filenum);
 
-	for (i = 0; i < 2; i++) {
-		asset_data_handle_t handle = catalogHandleBySourceFilenum(types[i], filenum);
-
-		if (!assetHandleIsNull(handle)) {
-			return handle;
-		}
+	if (!assetHandleIsNull(handle)) {
+		return handle;
 	}
 
 	sysLogPrintf(LOG_WARNING,

@@ -21,9 +21,11 @@
 #include "listening_room.h"
 #include "playerstats.h"
 #include "file_transfer.h"
+#include "modmgr.h"
 #include "system.h"
 
 #include <SDL.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -309,6 +311,60 @@ static const char *modPublicPath(void)
 	return path;
 }
 
+static s32 shareModIdIsSafe(const char *mod_id)
+{
+	if (!mod_id || !mod_id[0]) return 0;
+
+	const size_t len = strnlen(mod_id, 64);
+	if (len == 0 || len >= 64) return 0;
+	if (mod_id[0] == '.' || mod_id[len - 1] == '.') return 0;
+
+	for (size_t i = 0; i < len; i++) {
+		const unsigned char ch = (unsigned char)mod_id[i];
+		if (ch == '.' && mod_id[i + 1] == '.') return 0;
+		if (isalnum(ch) || ch == '_' || ch == '-' || ch == '.') continue;
+		return 0;
+	}
+
+	return 1;
+}
+
+static mod_public_entry_t *findMyPublicMod(const char *mod_id)
+{
+	if (!mod_id) return NULL;
+	for (s32 i = 0; i < s_NumMyPublicMods; i++) {
+		if (!strcmp(s_MyPublicMods[i].mod_id, mod_id)) return &s_MyPublicMods[i];
+	}
+	return NULL;
+}
+
+static void writeJsonString(FILE *f, const char *s)
+{
+	fputc('"', f);
+	if (s) {
+		for (; *s; s++) {
+			const unsigned char ch = (unsigned char)*s;
+			switch (ch) {
+				case '\\': fputs("\\\\", f); break;
+				case '"':  fputs("\\\"", f); break;
+				case '\b': fputs("\\b", f); break;
+				case '\f': fputs("\\f", f); break;
+				case '\n': fputs("\\n", f); break;
+				case '\r': fputs("\\r", f); break;
+				case '\t': fputs("\\t", f); break;
+				default:
+					if (ch < 0x20) {
+						fprintf(f, "\\u%04x", (unsigned)ch);
+					} else {
+						fputc(ch, f);
+					}
+					break;
+			}
+		}
+	}
+	fputc('"', f);
+}
+
 static void saveMyPublicMods(void)
 {
 	const char *path = modPublicPath();
@@ -317,9 +373,13 @@ static void saveMyPublicMods(void)
 	fprintf(f, "{\n  \"version\": 1,\n  \"mods\": [");
 	for (s32 i = 0; i < s_NumMyPublicMods; i++) {
 		const mod_public_entry_t *m = &s_MyPublicMods[i];
-		fprintf(f, "%s\n    { \"id\": \"%s\", \"name\": \"%s\", \"version\": \"%s\", \"size\": %u }",
-		         i == 0 ? "" : ",",
-		         m->mod_id, m->display_name, m->version, (unsigned)m->size_bytes);
+		fprintf(f, "%s\n    { \"id\": ", i == 0 ? "" : ",");
+		writeJsonString(f, m->mod_id);
+		fprintf(f, ", \"name\": ");
+		writeJsonString(f, m->display_name);
+		fprintf(f, ", \"version\": ");
+		writeJsonString(f, m->version);
+		fprintf(f, ", \"size\": %u }", (unsigned)m->size_bytes);
 	}
 	fprintf(f, "\n  ]\n}\n");
 	fclose(f);
@@ -387,7 +447,9 @@ static void loadMyPublicMods(void)
 			}
 		}
 
-		if (s_NumMyPublicMods < MOD_PUBLIC_MAX && e.mod_id[0]) {
+		if (s_NumMyPublicMods < MOD_PUBLIC_MAX &&
+		    shareModIdIsSafe(e.mod_id) &&
+		    !findMyPublicMod(e.mod_id)) {
 			s_MyPublicMods[s_NumMyPublicMods++] = e;
 		}
 		p = q + 1;
@@ -399,7 +461,9 @@ static void loadMyPublicMods(void)
 s32 shareModPublicAdd(const char *mod_id, const char *display_name,
                       const char *version, u32 size_bytes)
 {
-	if (!mod_id || !*mod_id) return -1;
+	if (!shareModIdIsSafe(mod_id)) return -1;
+	modinfo_t *mod = modmgrFindMod(mod_id);
+	if (!mod || !mod->valid) return -1;
 	if (s_NumMyPublicMods >= MOD_PUBLIC_MAX) return -1;
 	for (s32 i = 0; i < s_NumMyPublicMods; i++) {
 		if (!strcmp(s_MyPublicMods[i].mod_id, mod_id)) return 0;
@@ -407,9 +471,11 @@ s32 shareModPublicAdd(const char *mod_id, const char *display_name,
 	mod_public_entry_t *e = &s_MyPublicMods[s_NumMyPublicMods++];
 	memset(e, 0, sizeof(*e));
 	strncpy(e->mod_id, mod_id, sizeof(e->mod_id) - 1);
-	if (display_name) strncpy(e->display_name, display_name, sizeof(e->display_name) - 1);
-	if (version)      strncpy(e->version, version, sizeof(e->version) - 1);
-	e->size_bytes = size_bytes;
+	strncpy(e->display_name, display_name && *display_name ? display_name : mod->name,
+	        sizeof(e->display_name) - 1);
+	strncpy(e->version, version && *version ? version : mod->version,
+	        sizeof(e->version) - 1);
+	e->size_bytes = size_bytes ? size_bytes : mod->size_bytes;
 	saveMyPublicMods();
 	return 1;
 }
@@ -450,10 +516,13 @@ void shareBroadcastPublicMods(void)
 	u8 payload[SHARE_PAYLOAD_MAX];
 	u8 *w = payload;
 	const u8 cap = (u8)(s_NumMyPublicMods > 32 ? 32 : s_NumMyPublicMods);
-	*w++ = cap;
+	u8 *count_slot = w++;
+	u8 count = 0;
 
 	for (u8 i = 0; i < cap; i++) {
 		const mod_public_entry_t *m = &s_MyPublicMods[i];
+		modinfo_t *mod = modmgrFindMod(m->mod_id);
+		if (!shareModIdIsSafe(m->mod_id) || !mod || !mod->valid) continue;
 		const size_t id_len = strnlen(m->mod_id, sizeof(m->mod_id));
 		const size_t nm_len = strnlen(m->display_name, sizeof(m->display_name));
 		const size_t vr_len = strnlen(m->version, sizeof(m->version));
@@ -467,12 +536,15 @@ void shareBroadcastPublicMods(void)
 		memcpy(w, m->version, vr_len); w += vr_len;
 		wU32(&w, m->size_bytes);
 		*w++ = 0; /* sha256_present (not yet computed at broadcast time) */
+		count++;
 	}
+	*count_slot = count;
+	if (count == 0) return;
 
 	const u16 plen = (u16)(w - payload);
 	broadcastToFriends(SHARE_KIND_MODS_MANIFEST, payload, plen);
-	sysLogPrintf(LOG_NOTE, "SHARE: public mods manifest broadcast (%d mods)",
-	             (int)s_NumMyPublicMods);
+	sysLogPrintf(LOG_NOTE, "SHARE: public mods manifest broadcast (%u/%d mods)",
+	             (unsigned)count, (int)s_NumMyPublicMods);
 }
 
 /* -------------------------------------------------------------------------
@@ -509,7 +581,7 @@ void shareBroadcastProfileStats(void)
 s32 shareSendModRequest(u32 friend_handle, const char *mod_id)
 {
 	if (!s_SocketReady) (void)ensureSocket();
-	if (!s_SocketReady || friend_handle == 0 || !mod_id || !*mod_id) return -1;
+	if (!s_SocketReady || friend_handle == 0 || !shareModIdIsSafe(mod_id)) return -1;
 	if (socialBlockIsHandle(friend_handle)) return -1;
 	const social_friend_t *f = socialFriendByHandle(friend_handle);
 	if (!f) return -1;
@@ -528,12 +600,10 @@ s32 shareSendModRequest(u32 friend_handle, const char *mod_id)
 	return 0;
 }
 
-/* When a mod request arrives, we look up the requested mod_id in our
- * mods/installed/<mod_id>/ folder and send the archive (or folder zip)
- * via the existing file_transfer pipe. For Phase 4 dual-support folder
- * mods are the on-disk form; Priority M's Phase M-3 auto-package will
- * convert these to .pdmod archives, and the file_transfer call simply
- * picks up whichever form exists. */
+/* When a mod request arrives, we serve only mods the local user explicitly
+ * marked public. Archive-backed mods can transfer the .pdmod directly; legacy
+ * folder mods still send mod.json as a manual-install hint until the public
+ * mods transfer path can package folders into .pdmod archives on demand. */
 static void handleModRequest(u32 from_handle, const u8 *payload, u32 payload_len)
 {
 	if (payload_len < 1) return;
@@ -545,21 +615,29 @@ static void handleModRequest(u32 from_handle, const u8 *payload, u32 payload_len
 	memcpy(mod_id, payload + 1, cap);
 	mod_id[cap] = '\0';
 
-	/* Resolve a path. Priority M stores mods at <home>/mods/installed/
-	 * <mod_id>.pdmod (archive form) or <home>/mods/installed/<mod_id>/
-	 * (folder form). We probe both -- pick whichever exists. */
-	char home[400];
-	sysGetHomePath(home, sizeof(home));
+	if (!shareModIdIsSafe(mod_id)) {
+		sysLogPrintf(LOG_WARNING, "SHARE: unsafe mod id request from 0x%08x",
+		             (unsigned)from_handle);
+		return;
+	}
 
-	char archive_path[600];
-	snprintf(archive_path, sizeof(archive_path), "%s/mods/installed/%s.pdmod",
-	          home, mod_id);
-	FILE *probe = fopen(archive_path, "rb");
-	if (probe) {
-		fclose(probe);
-		(void)fileTransferSendFile(from_handle, archive_path);
+	if (!findMyPublicMod(mod_id)) {
+		sysLogPrintf(LOG_WARNING, "SHARE: non-public mod \"%s\" requested from 0x%08x",
+		             mod_id, (unsigned)from_handle);
+		return;
+	}
+
+	modinfo_t *mod = modmgrFindMod(mod_id);
+	if (!mod || !mod->valid) {
+		sysLogPrintf(LOG_WARNING, "SHARE: public mod \"%s\" no longer valid; ignoring request from 0x%08x",
+		             mod_id, (unsigned)from_handle);
+		return;
+	}
+
+	if (mod->is_archive && mod->archive_path[0]) {
+		(void)fileTransferSendFile(from_handle, mod->archive_path);
 		sysLogPrintf(LOG_NOTE, "SHARE: mod offer -> 0x%08x archive=%s",
-		             (unsigned)from_handle, archive_path);
+		             (unsigned)from_handle, mod->archive_path);
 		return;
 	}
 
@@ -567,9 +645,15 @@ static void handleModRequest(u32 from_handle, const u8 *payload, u32 payload_len
 	 * the mod.json which they can use to ask the user to manually
 	 * fetch the rest. Sending the entire folder verbatim is a
 	 * follow-up that piggybacks on Priority M's archive packaging. */
-	char manifest_path[600];
-	snprintf(manifest_path, sizeof(manifest_path), "%s/mods/installed/%s/mod.json",
-	          home, mod_id);
+	if (!mod->dirpath[0]) {
+		sysLogPrintf(LOG_WARNING, "SHARE: public mod \"%s\" has no folder/archive path",
+		             mod_id);
+		return;
+	}
+
+	char manifest_path[FS_MAXPATH + 32];
+	snprintf(manifest_path, sizeof(manifest_path), "%s/mod.json", mod->dirpath);
+	FILE *probe = NULL;
 	probe = fopen(manifest_path, "rb");
 	if (probe) {
 		fclose(probe);

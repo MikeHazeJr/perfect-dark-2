@@ -1,8 +1,302 @@
 
 # Session Log (Active)
 
-> **S284-S582** (rolling window). Older sessions **S280-S241** -> [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240-S157** -> [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1-S119** -> [_archive/sessions/].
+> **S284-S590** (rolling window). Older sessions **S280-S241** -> [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240-S157** -> [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1-S119** -> [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S590 - 2026-04-29 - Maintainability drag: Firing Range menu graph transition
+
+Began Mike's "Reduce maintainability drag" request with the smallest concrete menu-graph cleanup still visible in Training Mode: the Firing Range difficulty dialog's pre-game push and cancel pop.
+
+### Outcome
+
+- Added `s_FrDifficultyEdges` in `menugraph.c` with a `start` push edge to `MENU_TYPE_FR_INFO` and a `cancel` pop edge.
+- Registered `MENU_TYPE_FR_DIFFICULTY` as `fr_difficulty` in the graph node table.
+- Added `frDifficultyOpenPreGame()` in `pdgui_menu_training.cpp` so difficulty selection keeps the legacy `frSetDifficulty()` side effect but delegates the dialog transition to `menuGraphFirePushDialog()`.
+- Routed Bronze/Silver/Gold difficulty buttons and Cancel through the graph helpers.
+- Added `[input][menu_graph][training][static]` coverage that guards the graph edges and prevents `renderFrDifficulty()` from reintroducing direct `menuPushDialog(&g_FrTrainingInfoPreGameMenuDialog)` or `menuPopDialog()`.
+
+### Files
+
+- `port/src/menugraph.c`
+- `port/fast3d/pdgui_menu_training.cpp`
+- `tests/test_menu_graph.cpp`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Source checks confirmed the FR difficulty graph edges/node, renderer helper, graph push/pop calls, and static guard are present in the live tree.
+- Git-for-Windows `diff --check` passed for the touched source/test files.
+- Wrapper-only binary verification is pending. `.\devtools\build-session.ps1 -Session mtg587b -Target tests -BuildTimeoutSeconds 600` queued normally, started after 14m33s, configured/generated CMake successfully, then hit the 600s watchdog in `Generate Headers [pd_headers]`.
+- Real logs: `_build-session.out.log` showed header-generation heartbeat through 589s; `_build-session.err.log` was empty; `_build-headless-...generate-headers-pd_headers.out.log` and `.err.log` were empty; heartbeat reported `pid=15236 stdout=0b stderr=0b ninja_log=missing` and no live child process rows. Configure output ended with `Configuring done`, `Generating done`, and the isolated build path.
+- No `pd-tests.exe` was produced, so `"[input][menu_graph][training][static]"` was not run.
+- Cleaned up `mtg587b` with `.\devtools\build-session.ps1 -Remove -Session mtg587b`; follow-up `-List` showed `mtg587b` gone and no active/waiting queue entries.
+
+### Next
+
+- Re-run wrapper-only tests when header generation is responsive, then run `.\.claude\session-builds\<id>\pd-tests.exe "[input][menu_graph][training][static]"` with `C:\msys64\mingw64\bin` on `PATH`.
+- Next maintainability candidate: continue with another narrow direct menu-transition cleanup only after this slice has binary/test verification or Mike accepts source-checked pending state.
+
+---
+
+## Session S589 - 2026-04-29 - Stability/content blockers: character head attach guard
+
+Began Mike's "Close stability/content blockers" track with a narrow B-182/B-183 character assembly crash guard.
+
+### Outcome
+
+- Found `src/game/body.c::body0f02ce8c()` still called `modelAllocateRwData(headmodeldef)` before confirming the catalog returned a non-NULL head modeldef.
+- Switched the positive-head path to `catalogGetHeadModeldefChecked(headnum, &headmodeldef)` so catalog misses are loud and OOB slots do not read `g_HeadsAndBodies[headnum]` first.
+- Moved head RW allocation inside the `headmodeldef != NULL` guard before adding `headmodeldef->rwdatalen`.
+- Added an explicit `node != NULL` requirement before `modelmgrAttachHead()` so bodies missing `MODELPART_CHR_HEADSPOT` log and skip attach instead of dereferencing the missing attach point.
+- Added static coverage in `tests/test_catalog_checked.cpp` for both invariants.
+
+### Files
+
+- `src/game/body.c`
+- `tests/test_catalog_checked.cpp`
+- Context updates: `context/bugs.md`, `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Git-for-Windows `diff --check` passed for `src/game/body.c` and `tests/test_catalog_checked.cpp`.
+- Source invariant check passed: checked head accessor present, old pre-guard RW allocation pattern absent, RW allocation guarded, head attach requires `node != NULL`, missing-headspot diagnostic present, and the regression tests are present.
+- Wrapper-only binary verification blocked: `.\devtools\build-session.ps1 -Session hguard589 -Target tests -BuildTimeoutSeconds 600` configured/generated CMake successfully, then stalled in `Generate Headers [pd_headers]`.
+- Real wrapper logs: `_build-session.out.log` showed heartbeat through 478s before this outer Codex tool call timed out; `_build-session.err.log` was empty; `_build-headless-...generate-headers-pd_headers.out.log` and `.err.log` were empty; heartbeat reported `pid=27984 stdout=0b stderr=0b ninja_log=missing` and `(no live child process rows collected)`. Configure stderr contained only the unused `CMAKE_TRY_COMPILE_TARGET_TYPE` warning.
+- No `pd-tests.exe` was produced, so `"[catalog][checked][static]"` could not run.
+
+### Next
+
+- Re-run wrapper-only tests after the `pd_headers` stall is cleared, then run the focused selector from the isolated tree with `C:\msys64\mingw64\bin` on `PATH`.
+- Manual playtest target remains Combat Sim / 30+ bots with Chris and the B-179 head set: no Chris client crash, no missing-head attach crash, and any remaining disconnected geometry should be logged separately under B-183.
+
+---
+
+## Session S588 - 2026-04-29 - Connect-code QC gate alignment
+
+Started Mike's "Expand test and QC gates" track with a narrow checklist/test-alignment gate.
+
+### Outcome
+
+- Found the old SPF-3 Join by Code checklist still expected direct IP acceptance and decoded IP:port display, which conflicts with the current no-raw-IP UI constraint.
+- Updated `context/qc-tests.md` so Join Server manual QC expects a connect-code-only prompt, no raw address/IP prompt, no decoded raw IP:port display, and direct IP:port rejection.
+- Added a `[connectcode][qc][static]` test in `tests/test_connectcode.cpp` that fails if the stale direct-IP QC language returns.
+- Documented the new selector in `tests/README.md`.
+
+### Files
+
+- `context/qc-tests.md`
+- `tests/test_connectcode.cpp`
+- `tests/README.md`
+- Context updates: `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Git-for-Windows `diff --check` passed for the touched files using a one-command safe-directory override.
+- Source-level QC invariant check passed: banned stale phrases were absent and required no-raw-IP phrases were present.
+- Wrapper-only binary verification is pending. `.\devtools\build-session.ps1 -Session qc584 -Target tests -BuildTimeoutSeconds 600` queued normally, started after 13m03s, configured/generated CMake successfully, then hit the 600s watchdog in `Generate Headers [pd_headers]`.
+- Real logs: `_build-session.out.log` showed header-generation heartbeat through 588s; `_build-session.err.log` was empty; `_build-headless-...generate-headers-pd_headers.out.log` and `.err.log` were empty; heartbeat reported `pid=3092 stdout=0b stderr=0b ninja_log=missing` and no live child process rows. Configure stderr contained only the unused `CMAKE_TRY_COMPILE_TARGET_TYPE` warning.
+- No `pd-tests.exe` was produced, so `"[connectcode][qc][static]"` was not run.
+- Cleaned up `qc584` with `.\devtools\build-session.ps1 -Remove -Session qc584`.
+
+### Next
+
+- Re-run wrapper-only tests when header generation/build queue pressure clears, then run `.\.claude\session-builds\<id>\pd-tests.exe "[connectcode][qc][static]"` with `C:\msys64\mingw64\bin` on `PATH`.
+- Next QC gate candidate: add/refresh a Swarm Debug Scenarios manual checklist section that tracks launch through `matchStart()` and CPU count-cycle despawn cleanup.
+
+---
+
+## Session S587 - 2026-04-29 - Public Mods publishing hardening
+
+Began Mike's "Ship public mods, Forge, Grid, and Studio tracks" request with the first public-mods shipping slice: registry-backed publishing and request hardening.
+
+### Outcome
+
+- Chose Public Mods as the first creator-track slice because it is the shared distribution surface for Forge, Grid, and Studio outputs.
+- Replaced the Social shell Public Mods tab's free-form add form with an installed-mod selector backed by `modmgr`.
+- Added safe public-mod ID validation in `social_share.c`.
+- Made `shareModPublicAdd()` require a valid installed mod and made broadcasts skip stale/invalid registry entries.
+- Made peer requests serve only explicitly published local mods, preferring `.pdmod` archive paths from `modmgr`; the old peer-supplied `$H/mods/installed/%s` path probe was removed.
+- Escaped strings when writing `mod-public.json`.
+- Added `[social][public_mods][static]` tests and wired them into `pd-tests`.
+- Logged B-294.
+
+### Files
+
+- `port/src/social_share.c`
+- `port/fast3d/pdgui_friends.cpp`
+- `CMakeLists.txt`
+- `tests/test_public_mods_static.cpp`
+- Context updates: `context/bugs.md`, `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Git-for-Windows `diff --check` passed for the production code/test-list files.
+- Source checks verified the changes are present in the live folder: safe-ID gate, registry-backed UI, static test file, and `CMakeLists.txt` entry.
+- Production source no longer contains the free-text Public Mods `mod id` input or old `mods/installed/%s` request-path pattern.
+- Build/test pending: wrapper-only `pm588` verification was queued behind other active test sessions and did not start before the 20-minute command window expired. `.\devtools\build-session.ps1 -List` then showed `qc584` active and other waiting sessions; `pm588` was no longer queued. No `pd-tests.exe` was produced for this slice.
+
+### Next
+
+- Re-run `.\devtools\build-session.ps1 -Session pm588 -Target tests -BuildTimeoutSeconds 600` when the queue is clear, then run `.\.claude\session-builds\pm588\pd-tests.exe "[social][public_mods][static]"`.
+- Next creator-track slice: package folder-backed Forge/Grid/Studio mods into `.pdmod` before public-mod transfer, then add the matching import/install UX.
+
+---
+
+## Session S586 - 2026-04-29 - Online interoperability proof: hole-punch handoffs
+
+Began Mike's "Prove online interoperability" track with the smallest concrete listen-host proof slice: ensure every remote player-facing handoff uses the same NAT-aware client connection waterfall.
+
+### Outcome
+
+- Confirmed active release scope is in-client/listen-host connectivity; dedicated-server productization stays deferred.
+- Found two remote handoff paths bypassing the NAT waterfall: group-session invite/p2p handoff and live spectator handoff called raw `netStartClient(addr)`.
+- Changed both paths to call `netStartClientWithHolePunch(addr)`.
+- Updated `group_session.h` comments and log text so handoff docs match behavior.
+- Added `[net][interoperability][static]` guards for remote handoff routing and listen-host NAT startup/cleanup.
+- Logged B-293.
+
+### Files
+
+- `port/src/net/group_session.c`
+- `port/include/net/group_session.h`
+- `port/src/spectator.c`
+- `tests/test_net_lifecycle_static.cpp`
+- Context updates: `context/bugs.md`, `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- Git-for-Windows `diff --check` passed for the touched source/test/context files.
+- Source-level PowerShell interop invariant check passed.
+- Fixed-wrapper binary verification is pending: `.\devtools\build-session.ps1 -Session int586 -Target tests -BuildTimeoutSeconds 600` queued normally, started after 12m44s, configured/generated CMake successfully, then hit the 600s watchdog in `Generate Headers [pd_headers]`.
+- Real logs: `_build-session.out.log` showed header generation heartbeat through 589s; `_build-session.err.log` was empty; `_build-headless-...generate-headers-pd_headers.out.log` and `.err.log` were empty; heartbeat reported `pid=12504 stdout=0b stderr=0b ninja_log=missing` and no live child process rows. Configure stderr contained only the unused `CMAKE_TRY_COMPILE_TARGET_TYPE` warning.
+- No `pd-tests.exe` was produced, so `"[net][interoperability][static]"` was not run.
+- Cleaned up `int586` with `.\devtools\build-session.ps1 -Remove -Session int586`.
+
+### Next
+
+- Re-run isolated tests with the fixed wrapper when header generation/build queue pressure clears, then run `.\.claude\session-builds\<id>\pd-tests.exe "[net][interoperability][static]"`.
+- Manual listen-host NAT smoke should cover direct connect-code join, invite/group-session handoff, and live spectator handoff; all should use/log `netStartClientWithHolePunch`.
+- Next proof candidate: source-level invariant across catalog distribution join flow (`SVC_CATALOG_INFO` -> `CLC_CATALOG_DIFF` -> mandatory digest `SVC_DISTRIB_BEGIN` -> chunk/end).
+
+---
+
+## Session S585 - 2026-04-29 - Catalog/provider model-source bridge ownership
+
+Began Mike's "finish catalog/provider ownership" push by moving legacy model-source filenum fallback ownership into the catalog API instead of leaving each bridge callsite to maintain its own asset-type probing order.
+
+### Outcome
+
+- Added `catalogHandleByModelSourceFilenum(preferred_type, source_filenum)` as the catalog-owned bridge for model-source filenum handle resolution.
+- The helper tries an explicit preferred type first when provided, then owns the fallback order across `ASSET_MODEL`, `ASSET_BODY`, `ASSET_HEAD`, `ASSET_WEAPON`, `ASSET_PROP`, and `ASSET_VEHICLE`.
+- Migrated `bgunResolveQueuedModelHandle`, `menuResolveModelHandleByFilenum`, and `modelcatalog.c::catalogValidateResolveHandle` off local fallback arrays and direct `catalogHandleBySourceFilenum()` probing.
+- Tightened `tests/test_catalog_provider_static.cpp` so these bridge callsites must use `catalogHandleByModelSourceFilenum()` and cannot reintroduce direct source-filenum/catalog-effective-handle logic.
+- Logged B-292 for the scoped `run-pd-tests.ps1` StrictMode helper failure discovered during verification; Mike then directed verification through the fixed isolated build wrapper only.
+
+### Files
+
+- `port/include/assetcatalog.h`
+- `port/src/assetcatalog_api.c`
+- `src/game/bondgun.c`
+- `src/game/menu.c`
+- `port/src/modelcatalog.c`
+- `tests/test_catalog_provider_static.cpp`
+- Context updates: `context/bugs.md`, `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- `git diff --check` passed for the touched code/test/context files.
+- Source guard check passed: `catalogHandleBySourceFilenum(` no longer appears in `src/game/bondgun.c`, `src/game/menu.c`, or `port/src/modelcatalog.c`.
+- Source guard check passed: the same callsites now route through `catalogHandleByModelSourceFilenum(`, and local model-source asset-type fallback arrays were removed.
+- Early `.\devtools\run-pd-tests.ps1 -Session cat584 -Scope catalog-provider` failed before build with B-292.
+- After Mike's fixed-wrapper instruction, `.\devtools\build-session.ps1 -Session cat585 -Target tests -BuildTimeoutSeconds 600` was used only through the isolated wrapper. The first attempt waited 14m49s, configured successfully, then the Codex command timeout killed the wrapper just after header generation started; stale lock PID 27740 and child PID 27428 were gone and `cat585` was cleaned with `-Remove -Force`.
+- A concurrent session moved the tree during verification, so the catalog code was reapplied against the current files and the source/static checks were rerun.
+- The second fixed-wrapper attempt reused `cat585` and waited 30 minutes behind other queued test sessions without becoming active before the Codex command timeout. Follow-up `.\devtools\build-session.ps1 -List` showed active `hguard589` and queued `det585` / `mtg587b`; `cat585` was absent from the session list and queue, had no session directory or lock, and produced no build log or `pd-tests.exe`.
+
+### Next
+
+- Re-run `.\devtools\build-session.ps1 -Session <id> -Target tests -BuildTimeoutSeconds 600` when queue pressure allows the build to complete, then run `.\.claude\session-builds\<id>\pd-tests.exe "[catalog][provider][static]"` with `C:\msys64\mingw64\bin` on `PATH`.
+- Once verification is responsive, continue the catalog ownership push by retiring or further confining the remaining deprecated source-filenum/modelnum compatibility bridges.
+
+---
+
+## Session S584 - 2026-04-29 - Isolated build/test pipeline fix
+
+Fixed the `headguard` build-wrapper failure class without touching gameplay/product code.
+
+### Outcome
+
+- Successful CMake configure steps with stderr warnings no longer become blank-exit configure failures; missing exit-code cases now name the `.exit` file and generated `.cmd` runner.
+- `devtools/_build-env-prelude.ps1` removes `devkitPro\msys2\usr\bin` from build PATH so version probes do not accidentally use devkitPro Git.
+- `CMakeLists.txt` resolves a preferred `PD_GIT_EXECUTABLE` and treats Git metadata probe failures as nonfatal warnings with clear fallbacks.
+- `devtools/build-headless.ps1` now runs generated headers as an explicit direct Ninja `pd_headers` step (`-j1 -v`) before target compilation, then runs requested targets through direct verbose Ninja.
+- Per-step heartbeat logs record elapsed time, process rows/command lines, stdout/stderr byte counts, and `.ninja_log` state so a silent generated-header or Ninja stall is observable.
+- Added `devtools/build-headless.ps1 -SelfTest` for the wrapper regression: stderr warnings with exit code 0 pass, real nonzero exits fail with recorded `.exit` files.
+- Logged B-291 for the build-system bug class.
+
+### Files
+
+- `CMakeLists.txt`
+- `devtools/_build-env-prelude.ps1`
+- `devtools/build-headless.ps1`
+- `devtools/build-session.ps1`
+- Context/docs: `context/build.md`, `context/tasks-current.md`, `context/session-log.md`, `context/bugs.md`, `tests/README.md`
+
+### Verification
+
+- PowerShell parser checks passed for `devtools/build-headless.ps1`, `devtools/build-session.ps1`, `devtools/run-pd-tests.ps1`, and `devtools/_build-env-prelude.ps1`.
+- `.\devtools\build-headless.ps1 -SelfTest -OutputDir .claude\session-builds\pipefix-selftest` passed.
+- `.\devtools\build-session.ps1 -Session pipefix -Target tests -BuildTimeoutSeconds 600` passed and produced `pd-tests.exe`; a final rerun after the `NINJA_STATUS` escape fix passed incrementally.
+- `.\devtools\build-session.ps1 -Tail -Session pipefix` surfaced wrapper stdout/stderr plus recent `_build-headless-*` stdout/stderr/heartbeat logs.
+- Direct requested selector `.\.claude\session-builds\pipefix\pd-tests.exe "[catalog][checked][static]"` matched no current tests.
+- Current checked selector `"[catalog][checked][regression]"` passed: 10 test cases / 36 assertions.
+- `.\devtools\run-pd-tests.ps1 -ListScopes` passed.
+- `git diff --check` passed with only Git line-ending warnings.
+- Cleaned `pipefix` and `pipefix-selftest`; `-List` confirmed no active/waiting queue entries and pre-existing sessions were untouched.
+
+### Next
+
+- Use the fixed wrapper for downstream Swarm, security, Social shell, and targeted-test lanes as their owning slices resume.
+- Optional cleanup: add a `catalog-checked` scope alias or update stale prompts that still ask for `[catalog][checked][static]`.
+
+---
+
+## Session S583 - 2026-04-29 - Deterministic verification telemetry
+
+Started the "Make verification deterministic" plan by targeting the most immediate failure mode: watchdog-killed builds were preserving wrapper logs but could still lose the useful CMake/Ninja step output or leave ambiguous empty stderr.
+
+### Outcome
+
+- `devtools/build-headless.ps1` now writes raw stdout/stderr for every configure/compile step directly into the isolated build directory before the parent wrapper sees the final result.
+- Each step now also writes an explicit `.exit` file, avoiding the blank `Start-Process` exit-code behavior observed in this sandbox after a successful CMake configure.
+- The step runner uses a generated `.cmd` file per step so CMake/Ninja output reaches disk even if the wrapper watchdog kills the child process.
+- `devtools/build-session.ps1` now prints recent `_build-headless-*.log` tails on watchdog timeout and when using `-Tail`.
+- `build-session.ps1` now attempts to print a process-tree snapshot before killing an over-timeout child; if the child exits during cleanup, it reports that no live process rows were collectible.
+- `devtools/run-pd-tests.ps1` now accepts `-BuildTimeoutSeconds <seconds>` and forwards it to the isolated `tests` build.
+- Documented the step logs in `context/build.md` and the targeted-test timeout flag in `tests/README.md`.
+
+### Files
+
+- `devtools/build-headless.ps1`
+- `devtools/build-session.ps1`
+- `devtools/run-pd-tests.ps1`
+- `tests/README.md`
+- Context updates: `context/build.md`, `context/tasks-current.md`, `context/session-log.md`
+
+### Verification
+
+- PowerShell parser checks passed for all three touched scripts.
+- `.\devtools\run-pd-tests.ps1 -ListScopes` passed.
+- `git diff --check` passed for the touched build/test files.
+- Timeout-path validation: `.\devtools\build-session.ps1 -Session det584d -Target tests -BuildTimeoutSeconds 10` intentionally timed out. The wrapper printed durable configure logs from `_build-headless-*.out.log` / `.err.log`, created compile-step log files, reported that no live process rows could be collected, and returned cleanup instructions.
+- Cleaned up validation sessions `det584`, `det584b`, `det584c`, and `det584d`. Pre-existing session builds were left untouched.
+- Full `pd`, `pd-server`, or `pd-tests` verification was not completed in this slice.
+
+### Next
+
+- Next deterministic-verification slice: make compile progress visible during long or hung Ninja runs. The likely path is direct Ninja invocation with explicit progress/status logging, or a lightweight heartbeat that records active child process names/commands while compile is running.
+
+---
 
 ## Session S582 - 2026-04-28 - Queued build hang watchdog
 

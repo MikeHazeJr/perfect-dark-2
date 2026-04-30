@@ -5,6 +5,131 @@
 > For phase status, see [infrastructure.md](infrastructure.md). For bugs, see [bugs.md](bugs.md).
 > Back to [index](README.md)
 
+## Open -- 2026-04-29 (Maintainability Drag / Training Menu Graph)
+
+**Status: FIRST TRAINING MENU-GRAPH CLEANUP PATCHED / SOURCE-CHECKED / BUILD PENDING.** Scope stayed on the Firing Range difficulty dialog transition only, without broad training-menu rewrites.
+
+**Done this slice:**
+- Added `MENU_TYPE_FR_DIFFICULTY` graph ownership in `menugraph.c` with `start` -> `MENU_TYPE_FR_INFO` and `cancel` -> parent-pop edges.
+- Routed Firing Range Bronze/Silver/Gold through `frDifficultyOpenPreGame()` and `menuGraphFirePushDialog(MENU_TYPE_FR_DIFFICULTY, "start", ...)`.
+- Routed Firing Range difficulty Cancel through `menuGraphFirePop(MENU_TYPE_FR_DIFFICULTY, "cancel")`.
+- Added `[input][menu_graph][training][static]` coverage in `tests/test_menu_graph.cpp` so `renderFrDifficulty()` cannot regress to direct `menuPushDialog(&g_FrTrainingInfoPreGameMenuDialog)` or `menuPopDialog()`.
+
+**Verification:**
+- Source checks confirmed `s_FrDifficultyEdges`, the `MENU_TYPE_FR_DIFFICULTY` node, `frDifficultyOpenPreGame()`, graph push/pop calls, and the new static guard are present.
+- Git-for-Windows `diff --check` passed for `port/src/menugraph.c`, `port/fast3d/pdgui_menu_training.cpp`, and `tests/test_menu_graph.cpp`.
+- Wrapper-only test build is pending: `.\devtools\build-session.ps1 -Session mtg587b -Target tests -BuildTimeoutSeconds 600` queued normally, started after 14m33s, configured/generated CMake successfully, then hit the 600s watchdog in `Generate Headers [pd_headers]`.
+- Real wrapper logs: `_build-session.out.log` showed header-generation heartbeat through 589s; `_build-session.err.log` was empty; `_build-headless-...generate-headers-pd_headers.out.log` and `.err.log` were empty; heartbeat reported `pid=15236 stdout=0b stderr=0b ninja_log=missing` and no live child process rows. Configure output ended with `Configuring done`, `Generating done`, and the isolated build path.
+- No `pd-tests.exe` was produced, so `"[input][menu_graph][training][static]"` was not run. Cleaned up `mtg587b` with `.\devtools\build-session.ps1 -Remove -Session mtg587b`; follow-up `-List` showed `mtg587b` gone and no active/waiting queue entries.
+
+**Next maintainability step:**
+1. Re-run wrapper-only tests when header generation is responsive, then run `.\.claude\session-builds\<id>\pd-tests.exe "[input][menu_graph][training][static]"` with `C:\msys64\mingw64\bin` on `PATH`.
+2. Continue maintainability drag reduction with the next narrow, structurally obvious menu transition cleanup only after this slice has binary/test verification or Mike explicitly accepts source-checked pending state.
+
+## Open -- 2026-04-29 (Stability / Content Blockers)
+
+**Status: FIRST CHARACTER-ASSEMBLY CRASH GUARD PATCHED / SOURCE-CHECKED / BUILD PENDING.** Scope is the B-182/B-183 character model assembly risk area; no broad renderer/model-loader rewrite in this slice.
+
+**Done this slice:**
+- Patched `src/game/body.c::body0f02ce8c()` so positive head catalog loads use `catalogGetHeadModeldefChecked(headnum, &headmodeldef)` instead of the raw accessor.
+- Removed the crash path where `modelAllocateRwData(headmodeldef)` ran before `headmodeldef != NULL` was checked.
+- Avoided an OOB pre-load read of `g_HeadsAndBodies[headnum]` by checking `headnum < ARRAYCOUNT(g_HeadsAndBodies)` before reading the slot.
+- Added `node != NULL` to the `modelmgrAttachHead()` gate, with a warning when a body has no headspot and head attach is skipped.
+- Added static coverage in `tests/test_catalog_checked.cpp` for guarded head RW allocation and headspot-gated attach.
+
+**Verification:**
+- Git-for-Windows `diff --check` passed for `src/game/body.c` and `tests/test_catalog_checked.cpp`.
+- Source invariant check passed for the exact guard shape and regression-test presence.
+- Fixed-wrapper test build pending: `.\devtools\build-session.ps1 -Session hguard589 -Target tests -BuildTimeoutSeconds 600` queued normally and configured CMake successfully, then stalled in `Generate Headers [pd_headers]`.
+- Real wrapper logs: `_build-session.out.log` showed header-generation heartbeat through 478s before the outer Codex tool call timed out; `_build-session.err.log` was empty; `_build-headless-...generate-headers-pd_headers.out.log` and `.err.log` were empty; heartbeat reported `pid=27984 stdout=0b stderr=0b ninja_log=missing` and no live child process rows. Configure stderr contained only the unused `CMAKE_TRY_COMPILE_TARGET_TYPE` warning.
+- No `pd-tests.exe` was produced, so `"[catalog][checked][static]"` did not run.
+
+**Next stability/content step:**
+1. Re-run wrapper-only verification once the `pd_headers` stall is cleared, then run `.\.claude\session-builds\<id>\pd-tests.exe "[catalog][checked][static]"` with `C:\msys64\mingw64\bin` on `PATH`.
+2. Manual Combat Sim smoke with 30+ bots and Chris/head-heavy selections: no client crash in character render/animation, no missing-headspot attach crash, and any remaining disconnected geometry should be captured separately under B-183.
+3. After this verifies, continue the stability/content lane by tightening the next concrete B-183 geometry fingerprint instead of doing a broad renderer rewrite.
+
+## Open -- 2026-04-29 (Public Mods / Creator Tracks)
+
+**Status: FIRST PUBLIC-MODS SHIPPING SLICE PATCHED / SOURCE-CHECKED / BUILD PENDING.** Scope is the public-mod publishing path shared by Forge, Grid, and Studio outputs; no broad editor rewrite in this slice.
+
+**Done this slice:**
+- Replaced the Public Mods tab's free-form add fields with an installed-mod selector backed by `modmgr`.
+- Added safe public-mod ID validation in `social_share.c`: IDs must be nonempty, shorter than the fixed ID buffer, cannot start/end with `.`, cannot contain `..`, and may only use alnum / `_` / `-` / `.`.
+- Made `shareModPublicAdd()` require a valid installed `modmgrFindMod()` entry.
+- Made public-mod broadcasts skip stale/invalid registry entries.
+- Closed the peer-supplied path probe: mod requests now serve only explicitly published local mods and use `modmgr` paths; `.pdmod` archives are served directly, while folder mods still send `mod.json` as a manual-install hint until the on-demand packaging slice lands.
+- Escaped JSON strings when writing `mod-public.json`.
+- Added `[social][public_mods][static]` coverage in `tests/test_public_mods_static.cpp` and wired it into `pd-tests`.
+- Logged B-294.
+
+**Verification:**
+- Git-for-Windows `diff --check` passed for `CMakeLists.txt`, `port/src/social_share.c`, and `port/fast3d/pdgui_friends.cpp`.
+- Source checks confirmed the live folder contains `shareModIdIsSafe`, `findMyPublicMod`, `writeJsonString`, registry-backed UI calls, the new static test file, and the `CMakeLists.txt` test entry.
+- Production source no longer contains the old free-text `InputTextWithHint("mod id"` path or the old `$H/mods/installed/%s` peer path-probe pattern.
+- Wrapper build/test pending: `.\devtools\build-session.ps1 -Session pm588 -Target tests -BuildTimeoutSeconds 600` queued behind other active test sessions and did not reach `pm588` before the 20-minute command window expired. `-List` showed `qc584` active and other sessions waiting; `pm588` was no longer queued afterward. No `pd-tests.exe` was produced for this slice.
+
+**Next creator-track step:**
+1. Re-run wrapper-only verification with `.\devtools\build-session.ps1 -Session pm588 -Target tests -BuildTimeoutSeconds 600` when the queue is clear, then run `.\.claude\session-builds\pm588\pd-tests.exe "[social][public_mods][static]"`.
+2. Complete the public-mod transfer loop by packaging folder-backed Forge/Grid/Studio mods into `.pdmod` before serving them, instead of sending only `mod.json` as a manual-install hint.
+3. Add the matching import/install UX so downloaded public mods land in the mod registry and can be enabled without raw file-path handling.
+
+## Open -- 2026-04-29 (Online Interoperability Proof)
+
+**Status: FIRST INTEROP PROOF SLICE PATCHED / SOURCE-CHECKED / BUILD PENDING.** Scope is listen-host/client-hosted online connectivity only; dedicated-server productization remains deferred.
+
+**Done this slice:**
+- Refreshed online context and confirmed the active proof target is in-client/listen-host connectivity, connect-code join, and NAT/UPnP/STUN/hole-punch behavior with no raw-IP UI.
+- Found that normal join UI paths already used `netStartClientWithHolePunch`, but group-session invite/p2p handoff and live spectator handoff still called raw `netStartClient(addr)` after endpoint resolution.
+- Routed `group_session.c::onPairOpen()` and `spectator.c::spectatorBeginLive()` through `netStartClientWithHolePunch()`, preserving their endpoint formatting and existing auth/lobby flow while sharing the direct-connect -> hole-punch waterfall.
+- Added `[net][interoperability][static]` guards in `tests/test_net_lifecycle_static.cpp` for remote handoff routing and listen-host NAT startup/cleanup wiring.
+- Logged B-293.
+
+**Verification:**
+- Git-for-Windows `diff --check` passed for the changed online source/test/context files.
+- Source-level PowerShell interop invariant check passed.
+- Fixed-wrapper test build pending: `.\devtools\build-session.ps1 -Session int586 -Target tests -BuildTimeoutSeconds 600` queued normally, started after 12m44s, configured/generated CMake successfully, then hit the 600s watchdog in `Generate Headers [pd_headers]`.
+- Real wrapper logs: `_build-session.out.log` showed header generation heartbeat through 589s; `_build-session.err.log` was empty; `_build-headless-...generate-headers-pd_headers.out.log` and `.err.log` were empty; heartbeat reported `pid=12504 stdout=0b stderr=0b ninja_log=missing` and no live child process rows. Configure stderr contained only the unused `CMAKE_TRY_COMPILE_TARGET_TYPE` warning.
+- No `pd-tests.exe` was produced, so the selector was not run. `int586` was cleaned up with `.\devtools\build-session.ps1 -Remove -Session int586`.
+
+**Next interop proof step:**
+1. Re-run `.\devtools\build-session.ps1 -Session <id> -Target tests -BuildTimeoutSeconds 600` when the header-generation stall/queue pressure clears, then run `.\.claude\session-builds\<id>\pd-tests.exe "[net][interoperability][static]"` with `C:\msys64\mingw64\bin` on `PATH`.
+2. Manual listen-host NAT smoke: host from client, join by connect code, accept a group invite path, and begin live spectating from cached friend endpoint. Expected: direct join, invite handoff, and spectate all log/use `netStartClientWithHolePunch` and surface NAT diagnostics on timeout.
+3. Next code proof candidate after verification: add an executable/static guard for catalog distribution interop across the listen-host join path, tying catalog info -> diff -> `SVC_DISTRIB_BEGIN` digest -> chunk -> end into one source-level invariant.
+
+## Open -- 2026-04-29 (Deterministic verification telemetry)
+
+**Status: BUILD/TEST PIPELINE FIXED AND VERIFIED.** Scope stayed on build infrastructure: reliable configure exit handling, Git/toolchain isolation, generated-header/Ninja observability, and queued isolated `tests` verification before rerunning the build-pending Swarm, security, Social shell, and targeted-test queues.
+
+**Done this slice:**
+- Changed `devtools/build-headless.ps1` so each configure/compile step writes raw stdout/stderr and an explicit exit-code file under the isolated build directory as `_build-headless-<timestamp>-<step>.*`.
+- `build-headless.ps1` now launches each step through a tiny generated `.cmd` runner so CMake/Ninja output reaches disk even if the parent wrapper is killed by the watchdog.
+- `devtools/build-session.ps1` now prints recent per-step log tails on `-Tail` and watchdog timeout, and attempts to capture a process-tree snapshot before killing an over-timeout child.
+- `devtools/run-pd-tests.ps1` now accepts `-BuildTimeoutSeconds <seconds>` and forwards it to the isolated `tests` build.
+- Documented the per-step logs and targeted-test timeout flag in `context/build.md` and `tests/README.md`.
+- Follow-up fixed the old `headguard` failure class: successful CMake configure warnings no longer become blank-exit failures, and blank exit-code cases name the `.exit` file and generated `.cmd` runner.
+- `CMakeLists.txt` now resolves `PD_GIT_EXECUTABLE` through preferred Git-for-Windows/MSYS2 paths and treats Git metadata failures as nonfatal warnings instead of letting PATH contamination invoke devkitPro Git during configure.
+- `_build-env-prelude.ps1` now removes `devkitPro\msys2\usr\bin` from build PATH; after sourcing, `where git` shows Git for Windows first and no devkitPro Git.
+- `build-headless.ps1` now runs generated headers as an explicit direct Ninja `pd_headers` step (`-j1 -v`) before the requested target, then builds targets through direct verbose Ninja. Each step also writes a heartbeat log with output sizes, `.ninja_log` state, and live child process command lines.
+- Added `build-headless.ps1 -SelfTest` to lock the wrapper regression: stderr warnings with exit code 0 pass, and real nonzero exits fail with recorded `.exit` files.
+- Logged B-291 for this build-system bug class.
+
+**Verification:**
+- PowerShell parser checks passed for `devtools/build-headless.ps1`, `devtools/build-session.ps1`, and `devtools/run-pd-tests.ps1`.
+- `.\devtools\run-pd-tests.ps1 -ListScopes` passed.
+- `git diff --check` passed for the touched build/test files.
+- Isolated timeout-path validation passed: `.\devtools\build-session.ps1 -Session det584d -Target tests -BuildTimeoutSeconds 10` timed out intentionally, preserved configure stdout/stderr step logs, created compile-step log files, reported the absent live process rows instead of staying silent, and printed cleanup instructions.
+- Validation session directories `det584`, `det584b`, `det584c`, and `det584d` were removed. Pre-existing session builds were left untouched.
+- `.\devtools\build-headless.ps1 -SelfTest -OutputDir .claude\session-builds\pipefix-selftest` passed.
+- Requested validation passed: `.\devtools\build-session.ps1 -Session pipefix -Target tests -BuildTimeoutSeconds 600` produced `pd-tests.exe` in 42s on the first clean pass; a final rerun after the `NINJA_STATUS` escape fix succeeded incrementally.
+- `.\devtools\build-session.ps1 -Tail -Session pipefix` surfaced wrapper stdout/stderr plus recent `_build-headless-*` stdout/stderr/heartbeat logs.
+- Direct requested selector `.\.claude\session-builds\pipefix\pd-tests.exe "[catalog][checked][static]"` matched no current tests. Current supported checked selector `"[catalog][checked][regression]"` passed: 10 test cases / 36 assertions.
+- Cleanup complete: `pipefix` and `pipefix-selftest` session directories were removed; `-List` confirmed only pre-existing `headguard`, `cat581`, `sec581`, and `swarm275` remain, with no active or waiting queue entries.
+
+**Next:**
+1. Build infrastructure has no known remaining blocker for `tests`; use the fixed wrapper to rerun the build-pending Swarm, security, Social shell, and targeted-test lanes as their owning slices resume.
+2. Optional cleanup: add a `catalog-checked` scope alias or update any stale prompt text that still asks for `[catalog][checked][static]`; the current checked tests use `[catalog][checked][regression]`.
+
 ## Open -- 2026-04-28 (Debug Test Scenarios / Swarm Launch)
 
 **Status: BLACK-SCENE ROOT CAUSE PATCHED / TESTS SKIPPED BY MIKE.** Scope stayed on Settings -> Debug -> Swarm CPU/GPU launch and the catalog load failures visible in `Build/pd-client.log`.
@@ -90,6 +215,8 @@
 ## Open -- 2026-04-28 (Quality / Testing / Audits)
 
 **Status: TARGETED TEST PIPELINE PATCHED / QUEUED BUILD VERIFY WAITING.** Mike requested scoped `pd-tests` runs so sessions can build and execute only the tests tied to their current invariant, without colliding in shared `Build/`.
+
+**Connect-code QC gate slice complete (S588, 2026-04-29):** expanded the test/QC gate by aligning the old Join by Code checklist with the current no-raw-IP constraint. `context/qc-tests.md` now expects a connect-code-only prompt, no decoded raw IP display, and direct IP:port rejection. Added `[connectcode][qc][static]` coverage in `tests/test_connectcode.cpp` so stale direct-IP QC language cannot return, and documented the selector in `tests/README.md`. Verification: Git-for-Windows `diff --check` passed for the touched files, and a source-level PowerShell invariant check passed. Wrapper-only binary verification is pending: `.\devtools\build-session.ps1 -Session qc584 -Target tests -BuildTimeoutSeconds 600` queued normally, started after 13m03s, configured/generated CMake successfully, then hit the 600s watchdog in `Generate Headers [pd_headers]`. Real wrapper logs: `_build-session.out.log` showed header-generation heartbeat through 588s; `_build-session.err.log` was empty; `_build-headless-...generate-headers-pd_headers.out.log` and `.err.log` were empty; heartbeat reported `pid=3092 stdout=0b stderr=0b ninja_log=missing` and no live child process rows. No `pd-tests.exe` was produced, so `"[connectcode][qc][static]"` was not run. `qc584` was cleaned up with `.\devtools\build-session.ps1 -Remove -Session qc584`.
 
 **Build infrastructure side quest complete (S504/S579/S582):** concurrent test builds now have `devtools/build-session.ps1`, which routes each session to `.claude/session-builds/<session-id>/` via the canonical headless build script and adds per-session locking plus cleanup commands. As of S579, the wrapper also queues builds by default: sessions keep isolated build trees, but only one heavy build runs at a time, and waiting sessions receive queue position, active elapsed time, estimated wait, and waited-time status. S582 added the active-build watchdog and observable logs: queued child builds default to a 60-second timeout, stop the child process tree on timeout, clear the active queue slot, and return exit code `124`; new wrapper starts also capture stdout/stderr to `_build-session.out.log` / `_build-session.err.log`, visible through `-List` and `-Tail`. Use this instead of shared `Build/` when multiple sessions may build; reserve `-NoQueue` or `-BuildTimeoutSeconds 0` for intentional manual bypass only.
 
@@ -484,6 +611,11 @@
     - Preserved warning-backed no-handle ROM fallbacks for uncataloged legacy sources as temporary migration bridges only.
     - Added a static guard to keep these source-filenum bridge callsites catalog-owned.
     - Made the remaining player weapon model no-handle fallback emit a throttled `CATALOG.MISS` warning before using the temporary ROM fallback, and added a source-wide guard so temporary ROM fallback wording stays confined to the known bridge files.
+  - Model-source fallback-order ownership follow-up:
+    - Added `catalogHandleByModelSourceFilenum(preferred_type, source_filenum)` so the catalog owns the remaining model-source fallback order for `ASSET_MODEL`, `ASSET_BODY`, `ASSET_HEAD`, `ASSET_WEAPON`, `ASSET_PROP`, and `ASSET_VEHICLE`.
+    - Migrated `bgunResolveQueuedModelHandle`, `menuResolveModelHandleByFilenum`, and `modelcatalog.c::catalogValidateResolveHandle` off local asset-type fallback arrays and direct `catalogHandleBySourceFilenum()` probing.
+    - Tightened static catalog/provider coverage so those callsites must use `catalogHandleByModelSourceFilenum()` and cannot reintroduce direct `catalogHandleBySourceFilenum()`, `catalogIdBySourceFilenum()`, or `catalogEffectiveHandle()` bridge logic.
+    - Verification status: source/static checks passed. Fixed-wrapper verification used `.\devtools\build-session.ps1 -Session cat585 -Target tests -BuildTimeoutSeconds 600` only. The first attempt was interrupted after queue wait/configure while a concurrent session had moved the tree; stale `cat585` lock state was cleaned. After reapplying the code against the current tree, the second attempt waited 30 minutes behind other queued test sessions and never reached the active build before the Codex command timeout; `cat585` was absent from `-List`, had no session dir/lock/queue entry, and produced no build log or `pd-tests.exe`.
   - Modelnum typed identity/API cleanup:
     - Added explicit modelnum APIs (`catalog_model_result_t`, `catalogResolveModel()`, `catalogResolveModelByModelnum()`, `catalogGetModelHandle()`, `catalogGetModelFilenumByModelnum()`) so `MODEL_*` / `g_ModelStates[]` identity no longer routes through prop-named public helpers.
     - Kept `catalogGetPropHandle()` and `catalogGetPropFilenumByIndex()` as compatibility wrappers while live callsites migrate.
@@ -502,7 +634,7 @@
 2. Public untyped lifecycle wrappers are retired; typed lifecycle APIs are now the only public retain/load/release surface.
 3. File-backed scanner/distribution primary source handles now route through the catalog helper; direct `fileProviderHandle()` use is confined to catalog/provider internals and stubs.
 4. ROM-backed base registration primary source handles now route through the catalog helper; direct `romProviderHandle()` use is confined to catalog/provider internals, assetload bridges, and stubs.
-5. Next step is verification for the S577/S578 code slices once builds resume. Further catalog/provider code work should wait until the skipped build/test pass catches up.
+5. Next step is verification for the S577/S578/S585 code slices once builds resume. Further catalog/provider code work should wait until the fixed-wrapper `tests` target can complete and the focused `[catalog][provider][static]` selector runs from the isolated `pd-tests.exe`.
 
 **Operator-side verification still owed:** in-game validation for Combat Sim setup weapon slots, Random/Fiesta spawn modes, weapon pads, stage transitions, and any mod weapon distribution path.
 

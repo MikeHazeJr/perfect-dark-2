@@ -847,6 +847,33 @@ TEST_CASE("menu graph: Agent Select load create and back use graph helpers", "[i
     REQUIRE(render.find("menuPopDialog()") == std::string::npos);
 }
 
+TEST_CASE("menu graph: Firing Range difficulty start and cancel use graph edges", "[input][menu_graph][training][static]")
+{
+    const std::string training = readTextFile("port/fast3d/pdgui_menu_training.cpp");
+    const std::string graph = readTextFile("port/src/menugraph.c");
+
+    REQUIRE_FALSE(training.empty());
+    REQUIRE_FALSE(graph.empty());
+    REQUIRE(training.find("#include \"menugraph.h\"") != std::string::npos);
+    REQUIRE(graph.find("EDGE_PUSH(\"start\", ACTION_MENU_ACCEPT, \"Start Firing Range\", MENU_TYPE_FR_INFO)") != std::string::npos);
+    REQUIRE(graph.find("EDGE_POP(\"cancel\", ACTION_MENU_CANCEL, \"Cancel\")") != std::string::npos);
+    REQUIRE(graph.find("NODE(MENU_TYPE_FR_DIFFICULTY, \"fr_difficulty\", s_FrDifficultyEdges)") != std::string::npos);
+
+    const std::string open = functionBlock(training, "frDifficultyOpenPreGame");
+    const std::string render = functionBlock(training, "renderFrDifficulty");
+    REQUIRE_FALSE(open.empty());
+    REQUIRE_FALSE(render.empty());
+
+    REQUIRE(open.find("frSetDifficulty(difficulty)") != std::string::npos);
+    REQUIRE(open.find("menuGraphFirePushDialog(MENU_TYPE_FR_DIFFICULTY, \"start\"") != std::string::npos);
+    REQUIRE(render.find("frDifficultyOpenPreGame(FRDIFFICULTY_BRONZE)") != std::string::npos);
+    REQUIRE(render.find("frDifficultyOpenPreGame(FRDIFFICULTY_SILVER)") != std::string::npos);
+    REQUIRE(render.find("frDifficultyOpenPreGame(FRDIFFICULTY_GOLD)") != std::string::npos);
+    REQUIRE(render.find("menuGraphFirePop(MENU_TYPE_FR_DIFFICULTY, \"cancel\")") != std::string::npos);
+    REQUIRE(render.find("menuPushDialog(&g_FrTrainingInfoPreGameMenuDialog)") == std::string::npos);
+    REQUIRE(render.find("menuPopDialog()") == std::string::npos);
+}
+
 TEST_CASE("menu graph: MP pause resume and End Game use graph helpers", "[input][menu_graph][pause][static]")
 {
     const std::string pause = readTextFile("port/fast3d/pdgui_menu_mppause.cpp");

@@ -49,6 +49,38 @@ The log files are `.claude/session-builds/<session-id>/_build-session.out.log`
 and `_build-session.err.log`. `-List` prints the paths for builds launched by a
 wrapper new enough to capture output.
 
+`build-headless.ps1` also records each configure/compile step directly in the
+same isolated build directory as:
+
+```text
+_build-headless-<timestamp>-<step>.out.log
+_build-headless-<timestamp>-<step>.err.log
+_build-headless-<timestamp>-<step>.exit
+_build-headless-<timestamp>-<step>.heartbeat.log
+```
+
+The step runner writes raw command output to those files before the parent
+wrapper sees the final result, so watchdog-killed builds still preserve the last
+durable configure/header/compile logs. Generated headers run as a direct verbose
+Ninja `pd_headers` step before target compilation, so a stall in the first
+generated-header command is isolated from normal compile work. Heartbeat logs
+record elapsed time, stdout/stderr byte counts, `.ninja_log` state, and live
+child process command lines. `build-session.ps1 -Tail` and watchdog timeout
+output include recent step-log tails. On timeout, the wrapper also attempts to
+print the child process tree before killing it; if the child exits during
+cleanup, it prints that no live process rows were collectible instead of staying
+silent. `run-pd-tests.ps1` accepts `-BuildTimeoutSeconds <seconds>` and forwards
+it to the isolated `tests` build.
+
+Wrapper regression self-test:
+
+```powershell
+.\devtools\build-headless.ps1 -SelfTest -OutputDir .claude\session-builds\build-wrapper-selftest
+```
+
+The self-test pins the failure mode where stderr warnings with exit code 0 must
+pass, while real nonzero exits fail with recorded `.exit` files.
+
 Maintenance:
 ```powershell
 .\devtools\build-session.ps1 -List
@@ -69,6 +101,15 @@ compilation; CMake configure spun for about 18 minutes and exited before a
 complete build was generated. `.\devtools\build-session.ps1 -Remove -Session sec507`
 removed the partial directory. Later CMake/Ninja processes from another
 parallel session were visible and were left untouched.
+
+S584 pipefix update (2026-04-29): `.\devtools\build-session.ps1 -Session pipefix -Target tests -BuildTimeoutSeconds 600`
+passed and produced `pd-tests.exe`; `.\devtools\build-session.ps1 -Tail -Session pipefix`
+surfaced wrapper logs and recent `_build-headless-*` stdout/stderr/heartbeat
+logs. The stale selector `"[catalog][checked][static]"` matched no tests; the
+current checked selector `"[catalog][checked][regression]"` passed 10 test cases
+/ 36 assertions. `pipefix` and `pipefix-selftest` were removed after
+verification. Full `-Target all` remains a separate validation pass for slices
+that need client/server binaries.
 
 ## Toolchain
 - **Compiler**: MinGW GCC (MSYS2), path: `C:\msys64\mingw64\bin\cc.exe`
@@ -145,8 +186,7 @@ In the Codex desktop sandbox, build capability is currently unreliable even thou
   - run `pd-tests.exe` with `C:\msys64\mingw64\bin` on `PATH` so `libwinpthread-1.dll` resolves; otherwise the process can appear to hang before Catch2 handles `--help` or test execution.
 - S571 `ui568` update: `.\devtools\build-session.ps1 -Session ui568 -Target all` got farther than `s501ui`; configure completed and ccache was disabled after the compiler-launch probe timed out. Client compilation then ran until the Codex command timeout at 15 minutes without a surfaced compiler diagnostic. Cleanup was: confirm the stale lock PID 6120 was gone, run `.\devtools\build-session.ps1 -Remove -Session ui568 -Force`, then confirm `ui568` no longer appeared in `-List`. Treat this as build-pending, not a compile failure.
 - S575 `sec575` update: `.\devtools\build-session.ps1 -Session sec575 -Target all` used the isolated session directory correctly. Configure completed in 1s, ccache was disabled after the compiler-launch probe timed out, and client compilation ran until the Codex command timeout at 45 minutes without surfacing a compiler diagnostic. Cleanup was: confirm the stale lock PID 20428 was gone, run `.\devtools\build-session.ps1 -Remove -Session sec575 -Force`, then confirm `sec575` no longer appeared in `-List` while `t573`, `ml53`, and `cat566` remained untouched. Treat this as build-pending, not a compile failure.
-
-Until Mike confirms the fix, AI sessions should avoid spending time rediscovering this. Run static checks (`git diff --check`, focused source scans) and report build as skipped by instruction rather than repeatedly retrying wrappers.
+- S584 `pipefix` update: the isolated `tests` target is verified through the queued wrapper. Configure warnings are no longer fatal by themselves, Git probing is pinned away from devkitPro Git, generated headers are an explicit verbose `pd_headers` step, and heartbeat logs expose silent Ninja stalls. Use the fixed wrapper for new verification instead of the old manual direct-command workaround. Full `-Target all` should still be run by any slice that needs fresh client/server binaries.
 
 ## Dev Window v2 Build/Push Notes (2026-04-28)
 

@@ -19,6 +19,9 @@
     .\devtools\run-pd-tests.ps1 -Session qcat1 -Scope catalog-provider
 
 .EXAMPLE
+    .\devtools\run-pd-tests.ps1 -Session qcat1 -Scope catalog-provider -BuildTimeoutSeconds 180
+
+.EXAMPLE
     .\devtools\run-pd-tests.ps1 -ListScopes
 
 .EXAMPLE
@@ -54,6 +57,7 @@ param(
     [switch]$NoBuild,
     [switch]$Clean,
     [switch]$BuildVerbose,
+    [int]$BuildTimeoutSeconds = 60,
 
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$CatchArgs = @()
@@ -137,7 +141,7 @@ $testsExe = Join-Path $buildDir "pd-tests.exe"
 $effectiveSelector = if ($Scope -ne "") { $ScopeSelectors[$Scope] } else { $Selector }
 
 if (-not $NoBuild) {
-    $buildArgs = @("-Session", $sessionName, "-Target", "tests")
+    $buildArgs = @("-Session", $sessionName, "-Target", "tests", "-BuildTimeoutSeconds", ([string]$BuildTimeoutSeconds))
     if ($Clean) { $buildArgs += "-Clean" }
     if ($BuildVerbose) { $buildArgs += "-Verbose" }
 

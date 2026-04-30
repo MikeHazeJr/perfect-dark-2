@@ -57,6 +57,7 @@
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
+#include "menugraph.h"
 
 /* =========================================================================
  * Forward declarations — game symbols (extern "C" to avoid types.h)
@@ -250,6 +251,13 @@ static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0, 0))
     return clicked;
 }
 
+static void frDifficultyOpenPreGame(s32 difficulty)
+{
+    frSetDifficulty(difficulty);
+    menuGraphFirePushDialog(MENU_TYPE_FR_DIFFICULTY, "start",
+                            &g_FrTrainingInfoPreGameMenuDialog);
+}
+
 /* Shared boilerplate: begin a standard-sized PD-styled dialog window.
  * Returns false if the window is collapsed; caller must End() and return. */
 static bool beginTrainingWindow(const char *id, const char *title,
@@ -378,8 +386,7 @@ static s32 renderFrDifficulty(struct menudialog *dialog,
     if (active)
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.5f, 0.3f, 0.1f, 1.0f));
     if (PdButton("Bronze", ImVec2(btnW, btnH))) {
-        frSetDifficulty(FRDIFFICULTY_BRONZE);
-        menuPushDialog(&g_FrTrainingInfoPreGameMenuDialog);
+        frDifficultyOpenPreGame(FRDIFFICULTY_BRONZE);
     }
     if (active) ImGui::PopStyleColor();
 
@@ -392,8 +399,7 @@ static s32 renderFrDifficulty(struct menudialog *dialog,
     if (active)
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.5f, 0.5f, 0.55f, 1.0f));
     if (PdButton("Silver", ImVec2(btnW, btnH))) {
-        frSetDifficulty(FRDIFFICULTY_SILVER);
-        menuPushDialog(&g_FrTrainingInfoPreGameMenuDialog);
+        frDifficultyOpenPreGame(FRDIFFICULTY_SILVER);
     }
     if (active) ImGui::PopStyleColor();
     if (locked) {
@@ -411,8 +417,7 @@ static s32 renderFrDifficulty(struct menudialog *dialog,
     if (active)
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.5f, 0.1f, 1.0f));
     if (PdButton("Gold", ImVec2(btnW, btnH))) {
-        frSetDifficulty(FRDIFFICULTY_GOLD);
-        menuPushDialog(&g_FrTrainingInfoPreGameMenuDialog);
+        frDifficultyOpenPreGame(FRDIFFICULTY_GOLD);
     }
     if (active) ImGui::PopStyleColor();
     if (locked) {
@@ -435,7 +440,7 @@ static s32 renderFrDifficulty(struct menudialog *dialog,
             || pdguiMenuCancelPressed())
         {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuPopDialog();
+            menuGraphFirePop(MENU_TYPE_FR_DIFFICULTY, "cancel");
         }
     }
 
