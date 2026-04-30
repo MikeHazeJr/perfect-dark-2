@@ -1,142 +1,130 @@
-# Perfect Dark 2 -- Project Context Index
+# Perfect Dark 2 - Project Context
 
-> **Last updated**: 2026-04-21 (P4-A `pd-server-plugin-abi-adr.md`; P5-A `interest-management-replication.md` SEC-8/9; prior 2026-04-18 daily maintenance audit — covers S358–S361 late Apr-17/early Apr-18 work: B-161 title/intro NULL-guards `be0935da`, B-163 secondary crash site `5122a663`, updater Mozilla CA bundle `23798916`, dev-window-v2 async RunspacePool `7d6ec8fb`; v0.0.117 → v0.0.120 release cadence). **Prior session**: S357 (`hopeful-payne-558fb2`) — B-112 root-cause investigation (no code change, participant pool + chr slot bounds all verified; recursive AI hypothesis ruled out). One S353 bug fixed: `NET_PROP_DIRTY_MAXSYNCID` 512→`NET_PROP_MAP_SIZE` (2048) in `netmsg.c` — dirty-flag array too small; props at slots 512–2047 silently skipped dirty marking, suppressing heartbeat CRC on large stages. S352 (Lobby Portraits) and S354 (Forge Wire-In) both CLEAN. Build clean 4/4 incremental post-merge. Prior: **S352** (`confident-brahmagupta-a3f5a3`) — D5 Phase 5: per-player portrait thumbnails in room screen player list. Per-slot baked GL textures via charpreview FBO, state badge dots, join fade-in alpha. Human rows taller (50px); bot rows unchanged. Build clean 585/585. Prior: **S349** (`ecstatic-cartwright-11459d`) — D7 Discord Rich Presence. Prior: **S341** (`exciting-meitner-bc8c70`) — B-12 Phase 3: removed `u64 chrslots` end-to-end; participant pool is sole slot store; `NET_PROTOCOL_VER 36 → 37`; `BOT_SLOT_OFFSET` / `CHRSLOTS_*_MASK` retired; server now links `participant.c` directly. Prior: **S318** (hopeful-rosalind-4f1033) — ROM hash cache path fix: `catalogCacheVerifyRom` now calls `fsFullPath(romPath)` before `sha256HashFile` so bare filenames resolve correctly when CWD ≠ data dir. Eliminates spurious "could not hash" WARNING on every boot with spaces in path. B-163 added (startup AV in CI Training bodiesReset — build `aee52a8a`, needs crash log + addr2line). Prior: **S316** (epic-mirzakhani-884cc2) — solo mission select UX: difficulty text fallbacks + Dark Agent row gated on Skedar PA completion; session-log archived S241–S280. Prior: **S315** (pedantic-austin-4a93bc → dev) — blue-tint palette sweep. Prior: **S313 marathon follow-up** (great-robinson-15f409, direct to dev) — FORGE→GRID log-prefix rename across all forge sources + `pdgui_forge_hud.cpp` header comment; audio volume layers migrated to per-agent `prefs_agent.ini` `[Audio]` block (`MasterVolume` / `MusicVolume` / `GameplayVolume` / `UIVolume`, applied via `audioSet*Volume` setters on Agent Select load); `prefsLoadForFile` now uses `gamefileGetOverview` so sidecar filenames match Agent Select display text (prior path could mismatch due to variable-length char-code encoding in `filelistfile::name[]`); **pd.ini audit cleanup** -- `configRegister` dropped for `Net.LerpTicks`, `Net.Client.{InRate,OutRate,UpdateFrames}`, `Net.Server.{Port,InRate,OutRate,UpdateFrames}`, `Update.ProtectedFolders` (tuning knobs, not user prefs; retained file-scope initializers + `-port` CLI override).  New doc `context/config-pd-ini-audit.md` catalogs every `configRegister*` call with a three-tier model (pd.ini / per-agent / compile-time) + decision flowchart for future settings.  Commits: `8057f064` / `1694d3ec` / `6aaf299f`.  **S311 UI polish marathon**: theme palette sweep (35+ hardcoded blue tints migrated to `pdguiImU32/Vec4TitleGlow/TintSuccess/TintDanger/TintInfo`), new `pdguiRgbaToImU32` helper + 4 semantic ImU32 accessors + C++-only ImVec4 inline companions in `port/include/pdgui_style.h`, warning.cpp:789 content-inset fix (MP End Game dialog now routes through `pdguiSetCursorBelowTitle`), `mainmenu.cpp` delete-confirm Cancel/Delete buttons now scale with `pdguiScale(120.0f)`. CS music picker S309 fix verified solid. Menu close paths + controller nav verified — `pdguiDriveImGuiNav()` translates action-map edges to keyboard nav keys (Enter/Escape/arrows/PageUp/Down) so controller A/B/D-pad/LB/RB work transparently. Build: PerfectDark.exe 52,288,651 / PerfectDarkServer.exe 22,838,513. **S307 Forge F0 merged to dev**: in-game editor mode toggle (Normal ↔ Freefly Dr. Carroll camera), HUD shell, main-menu "Forge" entry hard-wired to CI Training, `MOVEMODE_CUTSCENE` hijack so the player chr freezes during freefly while the freefly tick overrides `prop->pos + vv_theta + vv_verta`, five new `ACTION_FORGE_*` actions (F7 toggle / E ascend / Q descend / LSHIFT boost / LCTRL precision), session-exit watchdog. New modules: `src/game/forgemode.c`, `port/fast3d/pdgui_forge_hud.cpp`, `pdgui_menu_forge.cpp`. **S308**: Door-tick bbox crash + pause menu hardening (dev direct): fatal crash during Mission 1 Obj1→Obj2 transition playthrough (AV in `modelFindBboxNode` via `doorGetBbox → doorUpdateTiles → doorsCalcFrac → doorTick` chain) fixed defensively by NULL-guarding the entire bbox traversal chain in `src/game/propobj.c`, and `doorGetBbox` now zero-inits the output bbox + logs `DOOR.DIAG: doorGetBbox — no bbox for modelnum=...` WARNING (rate-limited). Pause menu (B-162): IsWindowAppearing now resets s_RestartConfirm + s_RestartSelectIdx, title falls back to "Mission N: Status" when langbank missing, button labels fall back to hard-coded English, `Options` → `Settings` user-facing rename, `soloMenuDialogPauseStatus` zeros the full objectivenames array before repopulating. **S306 (Mike multi-batch)**: new Settings → Interface tab consolidating Color Theme + Menu Style + Title Bar + Font with deep-link buttons to the Modding Hub tools (`feb5431c..affc61fa`); theme palette extended with 5 optional fields; Theme Editor rebuilt with grouped sections + per-row tooltips + "(auto)" derive-default button; Theme Editor also gained Menu Style + Font bundle dropdowns; **input mapping redesigned** — full 51-action coverage (was 23), grouped by Movement / Aim / Combat / Weapons / Vehicle / Menu Nav / C-Buttons / D-Pad / System Hotkeys, live search filter, per-column conflict detection; **delete theme + delete mod** via right-click or controller X-button; **X-button close fix** — new `pdguiConsumeTitleClose()` direct-signal channel. Prior: S305 — **Playtest batch**: P0 content-inset on main menu / Settings / CI redirect / Cinema; settings persistence fix; Nine-Slice → Menu Style rename; **Font Import as Mod** — new `pdgui_font_mod.*`; **Theme Bundling** plumbing — `theme.json` gained `"menuStyle"` + `"font"` keys. Prior: S304 — **CRITICAL menu pool slot leak fix** (focused-roentgen): B-160. Prior: S303 — **Campaign/Co-Op/Counter-Op full game loop sweep** (reverent-chatelet): 7 fixes. Prior: S300 — **Menu pool ctx migration + SP-14 + manifest audit** (peaceful-aryabhata). S302 **Spawn pool robustness** (quirky-mendeleev). S301 **Comprehensive diagnostic instrumentation** (confident-chaum). S299 Input Authority Phase 2 (trusting-banach). S298–S297 follow-up batches. S296 input/menu fixes, S295 collision/match-pipeline, Room max-bot/team hardening (S292), Nine-Slice Chrome creator + transforms (S288–S290), Select Tunes fix (S291), Mod Apply UX/hardening (S284–S287), Skin Editor fidelity + Dev Window v2 lock (S266–S273), gameplay audit + Counter-Op wire (S262–S265). Earlier: S258 context organization.
-> This file is the master hub. Read it first every session. Everything links from here.
-
-## Onboarding
-
-> **COLD START?** Read **[QUICKSTART.md](QUICKSTART.md)** first. Then come back here for deep dives.
-
-In **Cursor**, attach the project skill **[context-session-start](../.cursor/skills/context-session-start/SKILL.md)** at session start for a structured agent checklist aligned with onboarding below.
-
-**Project**: PC port of Perfect Dark (N64 FPS, Rare 2000). C11 codebase, CMake + MinGW/GCC.
-**Developer**: Mike (sole dev, builds on Windows). AI writes code, Mike compiles and tests.
-**Session start**: Read [QUICKSTART.md](QUICKSTART.md) → [constraints.md](constraints.md) → [session-log.md](session-log.md) (last few sessions) → [tasks-current.md](tasks-current.md). Optional map: [INDEX.md](INDEX.md).
+> **Skeleton, Phase 2B Step 1.** Pillar links and design index fill in as those files land. Final pass at Phase 2B Step 5.
 
 ---
 
-## Quick Status
+## What this project is
 
-| Area | Status | File |
-|------|--------|------|
-| **What to do next** | v0.1.0 release prep | [tasks-current.md](tasks-current.md) |
-| **What's done** | M0-M2, P1-P10, deep audit (47 bugs) | [roadmap.md](roadmap.md) |
-| **What we must respect** | Active/removed constraints | [constraints.md](constraints.md) |
-| **Infrastructure phases** | D1-D16 execution status | [infrastructure.md](infrastructure.md) |
-| **Long-term vision + release milestones** | v0.1.0 through v1.0.0 + dependency graph | [roadmap.md](roadmap.md) |
-| **Open bugs** | One-off issues (open/fixed) | [bugs.md](bugs.md) |
-| **Systemic patterns** | Architectural bug classes | [systemic-bugs.md](systemic-bugs.md) |
-| **QC test checklist** | In-game verification items per build | [qc-tests.md](qc-tests.md) |
+Perfect Dark 2 is a PC port and modernization of Rare's N64 Perfect Dark, evolved into a modding platform with networked multiplayer, an asset catalog, a unified input system, an ImGui menu system, and an in-game level editor (The Grid / Forge). PC-only target (Windows x86_64 via MSYS2/MinGW + CMake). Single developer (Mike); AI sessions write code, Mike compiles and tests.
 
 ---
 
-## Session History
+## Cold-start checklist
 
-**Active log** ([session-log.md](session-log.md)): sessions **S281–S361** (rolling window). **Next tier** ([_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md)): S280 through S241 (archived S316). **Prior tier** ([_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md)): S240 through S157. **S1–S119** chunked files in [_archive/sessions/](_archive/sessions/). Map: [INDEX.md](INDEX.md).
+Read in this order before doing any work in this project:
 
-| Sessions | Period | Focus |
-|----------|--------|-------|
-| S358–S361 | 2026-04-17 → 2026-04-18 | **Crash-proofing finale + dev-tool perf + updater SSL fix** (dev direct + `blissful-curie-2387ee` + `determined-austin-d54582`): S358 title/intro logo NULL-guards (`titleInitNintendoLogo/RareLogo/PdLogo` handle `modeldefLoad()` returning NULL; exit/render paths guard NULL `g_TitleModel*`), S359 B-163 secondary prop/chr crash-site fixes (`setupCreateObject`, `modelAllocateRwData`, `netmsg.c::laptopDeploy`, `body.c::bodyAllocateModel` — FIX-B.2 pattern applied to all unguarded `obj->model->scale` sites), S360 updater Mozilla CA bundle embed via `CURLOPT_CAINFO_BLOB` (SSL cert failures on testers with no winstore integration — fixed root cause: MSYS2 libcurl.a without `SSL_CTX_load_verify_store`), S361 dev-window-v2 async RunspacePool (persistent `BgPool` 1–3 threads, Update-StatusBar / Populate-DocList / Invoke-Git* all migrated to async — eliminates 2-s UI stutter from per-tick runspace creation). Release cadence v0.0.117 → v0.0.120. |
-| S352 | 2026-04-17 | **D5 Phase 5 — Lobby Player Portraits** (`confident-brahmagupta-a3f5a3` worktree → merged to dev): per-player character portrait thumbnails in the room screen player list. `LobbyPortrait` struct + `s_LobbyPortraits[8]` (baked GL textures via shared charpreview FBO, sequential one-per-frame, bot-modal guarded). Human rows taller (50px); portrait thumbnail (44px) with state badge dot (yellow/green/blue); join fade-in alpha ramp; initials circle fallback. Bot rows unchanged. `lobbyPortraitsReset()` called on room open + `pdguiRoomScreenReset()`. Build clean 585/585. `PerfectDark.exe` 52,770,947 / `PerfectDarkServer.exe` 22,922,823. |
-| S324 | 2026-04-17 | **B-12 Phase 3 — remove chrslots, protocol v37** (`exciting-meitner-bc8c70` worktree): retired the `u64 chrslots` bitmask end-to-end. The participant pool (`g_MpParticipants`) is now the sole source of match slot state on both client and server. Deleted `chrslots` field from `struct mpsetup`, removed `BOT_SLOT_OFFSET` / `CHRSLOTS_PLAYER_MASK` / `CHRSLOTS_BOT_MASK`, removed `MpParticipant.legacy_slot`, replaced the `mpParticipantsTo/FromLegacyChrslots` shims with wire helpers `mpParticipantsEncodeActiveMask` / `mpParticipantsDecodeActiveMask`. `NET_PROTOCOL_VER 36 → 37`. CMakeLists: `participant.c` now linked into `SRC_SERVER` directly. 44 `g_MpConfigs[]` initializers drop their chrslots placeholder; ROM `preprocessMpConfigs` loses its vestigial chrslots swap. 60+ runtime callsites migrated to `mpIsParticipantActive` / `mpAddParticipantAt` / `mpRemoveParticipant` (challenge.c, mplayer.c, mpscenarios, menutick.c, menuitem.c, menu.c, mainmenu.c, ingame.c, setup.c, lv.c, pdmain.c, net.c, netmsg.c, matchsetup.c, server_stubs.c, pdgui_bridge.c, lib/main.c). Build clean [474/474]: PerfectDark.exe 52,640,380 / PerfectDarkServer.exe 22,876,668. |
-| S313 | 2026-04-17 | **The Grid polish + missing features** (great-robinson-15f409 worktree → merged to dev): Forge → The Grid user-facing rename (HUD badge, editor title, tab labels), new **Bots tab** for live bot testing (add/remove/freeze on-the-fly + Spawn Near Me + Spawn Smart + configurable defaults), **Map Variant editing** (New Empty / Edit Stage / Edit Map variant modes + `from_base` flag + delta-delete / reset-to-base / count-delta API), **weapon pad Preview** line showing effective weapon-source behaviour per pad, **controller navigation** (PageUp/PageDown + L1/R1 bumper-cycle tabs + persistent tab index + hint footers), **mod dependency save modal** listing exact bundled mod IDs before commit, **placement ghost preview** (catalog click begins ghost; HUD reticle follows camera every frame; Place Here / Cancel (Esc) banner), **grid snap visualization** (HUD readout + 5x5 faint crosses), plus polish: `FittingPolicyScroll` tab bar, case-insensitive catalog search, expanded editor window 560→620px, `[BASE]` colour badge. Commits `da73273a` + merge `16cb6f7e`.  Build clean: PerfectDark.exe 52,217,169 / PerfectDarkServer.exe 22,854,403.  Engine botmgr wire + 3D gizmos + true world-space ghost mesh still deferred. |
-| S312 | 2026-04-17 | **Modeldef defensive guards + glyph system + net/input review** (amazing-mccarthy worktree): `modeldefFindBboxNode` / `modelFindBboxNode` (propobj.c) now reject torn modeldefs (NULL rootnode, numparts ∉ [1,500], scale ≤ 0) and cap the bbox walker at 10000 steps with a WARNING dump — a cyclic or dangling rootnode tree can no longer AV.  `manifestEnsureLoaded` (netmanifest.c) late-add path now logs `MANIFEST-SP: late-add ... post-load modeldef torn: parts=%d root=%p scale=%.3f` for body/head assets so the B-161 / sp_body_108 root-cause class leaves an explicit fingerprint in logs.  New `port/include/pdgui_glyphs.h` + `port/fast3d/pdgui_glyphs.cpp` — resolves any `InputAction` to its current primary VK through the active IMC stack, short-labels ("E", "Space", "LMB", "A", "LB", "D-Up"), and renders `[KEY] Label` pills on the foreground drawlist; auto-detects KBM vs gamepad via `actionmapGetLastDevice()` with the same 500 ms debounce.  Review pass on `roomLeave` / disconnect-time `g_NetMatchRoomId` reset + `inputCtxEndFrame` watchdog + `botSpawn` + ACTION_JUMP/CROUCH/USE wiring — all confirmed intact from prior sessions.  Build clean: PerfectDark.exe 52,400,200 / PerfectDarkServer.exe 22,840,561. |
-| S311 | 2026-04-17 | **UI polish marathon** (zen-poitras-f86b73 worktree): theme palette sweep migrating 35+ hardcoded blue tints to `pdguiImU32/Vec4TitleGlow` + `TintSuccess/Danger/Info`, new `pdguiRgbaToImU32` + 4 semantic ImU32 accessors + C++-only ImVec4 inline companions in `pdgui_style.h`, warning.cpp MP End Game dialog content-inset fix (now routes through `pdguiSetCursorBelowTitle`), `mainmenu.cpp` delete-confirm buttons scale with `pdguiScale(120.0f)`. CS music picker S309 fix re-verified. Menu close paths + controller nav audit: `pdguiDriveImGuiNav()` translates action-map to keyboard nav (Enter/Escape/arrows/PageUp/Down) — controller A/B/D-pad/LB/RB work transparently. |
-| S308 | 2026-04-17 | **Door-tick bbox crash fix + pause-menu hardening** (Mike parallel, dev direct): NULL-guards in `modelFindBboxNode` chain + `DOOR.DIAG` rate-limited WARNING + pause menu IsWindowAppearing resets s_RestartConfirm/s_RestartSelectIdx + langbank fallbacks + `Options` → `Settings` rename. Root cause of modeldef corruption not yet pinned — diagnostic instrumentation queued. |
-| S307 | 2026-04-17 | **Forge level editor F0 Foundation** (tender-sutherland worktree → merged to dev): in-game level editor mode toggle (Normal ↔ Freefly Dr. Carroll), 6DOF freefly camera (no collision), HUD shell with mode badge + reticle + camera readout + placeholder catalog panel + controls reminder, main-menu "Forge" entry hard-wired to CI Training, `MOVEMODE_CUTSCENE` hijack pattern for the player chr during freefly, session-exit watchdog on stage transitions away from gameplay. New module `src/{game,include/game}/forgemode.{c,h}`; UI shims `port/{include,fast3d}/pdgui_forge*.{h,cpp}` + `pdgui_menu_forge.cpp`; five new `ACTION_FORGE_*` action map entries (F7 toggle, E ascend, Q descend, LSHIFT boost, LCTRL precision). Build clean: PerfectDark.exe 51,780,176 / PerfectDarkServer.exe 22,840,512. |
-| S306 | 2026-04-16 / 17 | **Mike multi-batch — 6 commits, direct to dev**: `feb5431c` theme palette extensions (toolbar tint, lime/amber text, live checkmark, button hover/active — zero-default preserves built-ins); `a504f3e7` new **Settings → Interface tab** consolidating Color Theme + Menu Style + Title Bar + Font, plus delete scaffolding (`pdguiInterfaceRequestThemeDelete/ModDelete` + confirm modal); `ae4f2f50` **input mapping redesigned** for full 51-action coverage grouped by Movement / Aim / Combat / Weapons / Vehicle / Menu Nav / C-Buttons / D-Pad / System Hotkeys + live search filter + per-column conflict detection; `5840f28a` (absorbed) right-click + X-button "Delete Mod…" on Installed Mods tab; `db509d87` Theme Editor gained Menu Style + Font bundle dropdowns so theme.json `menuStyle` / `font` can be authored without hand-edit; `affc61fa` **X-button close fix** (`pdguiConsumeTitleClose()` replaces pure Escape-injection) + defensive `inputCtxPopDeferred(g_CtxImGuiMenu)` on main-menu close to catch the boot-time CI-redirect ctx leak. Per-agent prefs.ini deferred to its own session. Tab order now 0=Video 1=Interface 2=Audio 3=Controls 4=Game 5=Updates 6=Debug 7=Catalog. |
-| S305 | 2026-04-16 | **Playtest batch — 8 items, direct to dev**: P0 content-inset enforcement for main menu + CI redirect + Cinema (`pdgui_menu_mainmenu.cpp`), two-part settings-persistence fix (`port/src/config.c` pending-value replay + `port/fast3d/pdgui_theme_loader.cpp` mod-theme startup path), Nine-Slice → Menu Style rename, Theme Editor Save button docked with Reset/Close + auto-refresh of themes list on Save-as-Mod (P1+P2), Menu Style tool source preview scales UP + Advanced controls collapsed (P5+P6), **Font Import as Mod** (new `pdgui_font_mod.h`/`cpp` — `Video.FontId` pd.ini, Settings → Video Font dropdown, `mods/Fonts/<slug>/*.ttf` discovery, `AddFontFromFileTTF` at backend init), **Theme Bundling plumbing** (theme.json `menuStyle` + `font` keys, applied via `pdguiThemeSetUiChromeStyleId` + `pdguiFontModSetActiveId` in `apply_theme_def`), per-agent settings design doc. Playtest log analysis: Mike's pd-client.log is from a PRE-S304 build (`ctx=none(shared)` + no release line on close + no watchdog); he needs to rebuild. |
-| S304 | 2026-04-16 | **CRITICAL B-160 menu pool slot leak** (focused-roentgen): darkened/dead main menu on reopen traced to `menuPopDialog`'s underflow guard silently dropping `menupoolReleaseDialog`. Three-layer fix — underflow branch now calls `menupoolReleaseAll` on any active slots (`src/game/menu.c`), new per-frame `menuPoolConsistencyCheck()` watchdog in `menuTick` detects `legacy-stack-empty ∧ pool-slot-active` and auto-recovers with WARNING + `menupoolDumpActive`, `renderMainMenu` migrated to the S300 pool-owned ctx pattern (IsWindowAppearing uses `menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu)`, close drops the manual `inputCtxPopDeferred` and lets `menuPopDialog` cascade the ctx pop through `menuCloseDialog` → `menupoolReleaseDialog`). |
-| S303 | 2026-04-16 | **Campaign/Co-Op/Counter-Op full game loop sweep** (reverent-chatelet): end-to-end trace of all three gameplay modes + manifest pipeline + starting weapons + menu bookends. 7 fixes + new `GAMELOOP.{CAMPAIGN,COOP,COUNTEROP,MANIFEST,WEAPON}:` log taxonomy. Generalized S298 Deep Sea `manifestClear` pattern to three additional exit sites in `menutick.c` (MPENDSCREEN restart, MPENDSCREEN → CITRAINING, COOPCONTINUE). Counter-Op silent antiplayernum=1 fallback now WARNING. Stale MP manifest leak into SP transition now WARNING. `endscreenPushAnti` `g_Vars.bond` NULL guard. Co-op 1-pad telefrag (GAP-B) and server-side coop manifest rebuild (GAP-A) now auditable. Findings: `scratch/game-loop-sweep-2026-04-16.md`. |
-| S302 | 2026-04-16 | **Spawn pool robustness** (quirky-mendeleev): new `spawn_select_tier_t` enum (`SPAWN_TIER_{1_OPTIMAL,2_CYCLED,3_REUSED,4_LASTRESORT}`) + `spawnPoolSelectTiered()` cascade + `spawnPoolLastResort()` helper. `SPAWN.TIER:` log line at every spawn decision. Reservation bitset auto-retries via T2 when exhausted mid-burst. `playerTrySelectPoolSpawn` gate requires 1.5× pad margin so ties route through the pool. `spawn_needed` floors at 16 and uses `MAX_PLAYERS` ceiling in netplay. Every spawn call site (initial MP spawn, respawn, zero-pad path, bot spawn) now produces a non-void position via the tier cascade or synthesised radial fallback. |
-| S301 | 2026-04-16 | **Comprehensive diagnostic instrumentation** (confident-chaum): new `port/include/crashbreadcrumb.h` + `port/src/crashbreadcrumb.c` — 256-slot × 112-byte static ring dumped by VEH / UEF / SIGABRT / Linux `sigaction` paths; push sites in mainTick heartbeat, lvTick, chraTickBg, chraTick, bwalkTick, botSpawn, botmgrAllocateBot, mainChangeToStage, SVC_STAGE_START send/receive. Five DIAG tags layered on standard `sysLogPrintf`: `ENDSCREEN.DIAG:` (Bug C — fresh-entry + geometry + body-child + rankings-count + awards-path + actions, capped 80/match), `CHR.DIAG:` (Bug D — catalog-ID vs integer for body/head, invisible-state fingerprint at spawn), `MATCHSTART.DIAG:` (Airbase — every decision point from matchStart through SVC_STAGE_START read), `AUDIO.DIAG:` (B-141 — SDL spec log + nullProducer / mixBufOverflow / gap / queue-depth folded into 30s summary), `CRASH.DIAG:` (header for VEH breadcrumb dump). No fixes landed outright this session; next playtest logs determine direction. |
-| S300 | 2026-04-16 | **peaceful-aryabhata**: S299 ADR §6.1b follow-up — all ten ImGui renderers (`pdgui_menu_{cheats,mpsetup,mppause,mpadvanced,playerconfig,botsetup,agentselect,room,training,mpsettings}.cpp`) migrated off `s_*PushedCtx` bools to `menupoolAcquireDialog`/`menupoolReleaseDialog`. Pool API extended so `menupoolAcquire` attaches ctx to already-active slots (enables renderer attach after `menuPushDialog`'s pre-acquire). Three new `MENU_TYPE_MP_SOUNDTRACK` / `MP_TUNES` / `MP_TEAMNAMES` entries for the stacking mpsettings sub-dialogs. `menupoolDialogDef` C accessor added so C++ renderers can extract dialogdef without including types.h. Also: SP-14 defensive reset in `netDisconnect` + `netStartServer` for `g_NetMatchRoomId` / `g_NetCounterOpClientId`; manifest audit confirming `manifestBuildForMenu` + SP pre/post-load split shipped long ago, with new per-category diagnostic logs so Skin Editor mod coverage + cinematic spawn discovery are measurable. |
-| S299 | 2026-04-16 | **Input Authority Phase 2** (trusting-banach): new `port/include/menupool.h` + `port/src/menupool.c` — pre-allocated menu pool keyed by `menu_type_t` (29 identities). Wired into `menuPushDialog` (structural dedup after F-3.1 pointer scan) + nextsibling loop (`menupoolIsDialogActive` check + sibling slot acquire) + `menuCloseDialog` (per-sibling release) + `inputCtxInit/Shutdown` (startup init + nuclear-reset releaseAll) + force-close sites (`pdgui_bridge.c` endscreen paths, `matchsetup.c` match start, `netmsg.c` stage handlers). ImGui renderers' `s_*PushedCtx` pattern deliberately left intact — pool is identity-only this session; ctx ownership migration queued. |
-| S298 | 2026-04-16 | **stoic-proskuriakova**: seven S297/S295/S262 audit follow-ups in one batch — `pdguiThemeGetContentInset` wired into endscreen + pause menu (`resolveEndscreenPadding` helper, honours chrome nineslice corners); Theme Editor + Room Start Match migrated to docked-footer pattern; menutick Deep Sea OOB guard lower-bound; `endscreenSetCoopCompleted` SP-1 propagation (playernum + difficulty + stageindex shift safety); FIX-B.1 deep manifest scanner walks `g_StageSetup.intro` + `g_StageSetup.ailists` for cinematic / AI-script spawned assets; spawn pool residuals — same-tick reservation bitset (`s_SpawnReserved[]` auto-cleared on `lvframenum` change), wall-probe `angle_rad` stored at build, neighbour-room ground check in `spawnPoolValidateCandidate`. |
-| S297 (playtest triage) | 2026-04-16 | **silly-jepsen**: B-154 textbox keyboard leak to actionmap (WantCaptureKeyboard gate in `pdguiProcessEvent`); B-155 Nine-Slice chrome mod not in Mods list without restart (new `modmgrRescanDirectory` + chrome save wiring); B-156 chrome mod missing from Video dropdown (float tokenizer bug in `cjson_next` broke `s_parseChromeManifest` on the `chrome_authoring` block). |
-| S297 (UI polish) | 2026-04-16 | **elegant-mahavira**: Nine-Slice Chrome tool restructured to sidebar preview + scroll settings + docked Save/Reset footer; room member list grouped by team with humans-first + team-tinted row backgrounds + local-player accent bar; new `pdguiThemeGetContentInset` / `pdguiThemeApplyContentInset` API; five procedural title-bar styles (Classic / Solid / Vertical Bars / Scanlines / Diagonal Stripes) selectable in Settings → Video, persisted via `Video.UiTitleBarStyle`. |
-| S292 | 2026-04-16 | **Room max-bot/team hardening**: `matchConfigMaxBotsForHumans()` unified cap across room/scenario/sync; balanced default bot team assignment in team mode (`35a8daaf`). |
-| S288–S291 | 2026-04-15/16 | **Nine-Slice Chrome tool** added to Modding Hub (image import, ruler sliders, save-as-mod, S288); assembled frame preview + desaturation (S289); transform pipeline — trim, scale, center-cut + docked actions + Back parity (S290). **Select Tunes**: audio.ini textual category fix + playlist add path hardening for `modmgrRebuildCatalog` (S291). |
-| S284–S287 | 2026-04-15 | **Mod Apply UX**: in-place modal, no forced title restart (S284); updater-style centered progress popup (S285); green-tint success state (S286). **Release/build hardening**: force-commit fallback (`--no-verify`) + Build dir auto-creation in release.ps1 + dev-window + build-headless (S287). |
-| S274–S283 | 2026-04-15 | **Mod Apply + UI polish**: stop menu before apply transition (S274); audio.ini category parse hardening (S275); universal mouse-back via middle-click → ImGui Escape bridge (S276); Select Tunes Mod Tracks click-toggle fix (S277); Modding Hub + Skin Editor diagnostics + skin-capture largest-area texture (S278); global title-bar X close button (S279); Modding Hub popup close-state guard (S280); Skin Editor non-ready preview guard (S281); UI Chrome Style immediate persistence (S282); chrome style picker w/ mod discovery + `Video.UiChromeStyleId` persist (S283). |
-| S266–S273 | 2026-04-15 | **Skin Editor stability**: selector input-steal fix + hub tab-cycle suppression (S266); ImGui nav parity — action-driven PageUp/PageDown tab routing, Agent Select focus trap fix (S267); base-texture capture via source texture readback (S268). **Dev Window v2 git lock**: POSIX path conversion + MSYS rm (S269); single-exe consistency (S270); PowerShell here-string commit rule (S271); dev-root canonical lock path (S272); same-MSYS root path fidelity (S273). |
-| S262–S265 | 2026-04-15 | **Gameplay audit + remediation**: deep pipeline audit — campaign/MP/Counter-Op lifecycle (S262); Counter-Op anti-player wire authority + protocol v36 + double-transition fix + team endscreen (S263); countdown cancel authority + menu context ownership + SP-6/SP-8 guards + manifest hardening (S264); post-merge sanity pass (S265). |
-| S259–S261 | 2026-04-14/15 | **Dev Window v2**: git index.lock path cleanup + progress strip + no forced Log tab (S259). **Mod Apply rebuild**: catalog re-registration + theme root scanning + MP dialog input ownership (S260). **Build python pin + mod root compat** + `menuPopDialog` underflow guard + input stack warning (S261). |
-| S258 | 2026-04-14 | **Context organization**: `session-log.md` split (active S241–S258); S240→S157 → `_archive/session-log-archive-S240-and-older.md`; new `INDEX.md`. |
-| S257 | 2026-04-14 | **Git before build/release**: `dev-window-v2.ps1` runs commit+push before pipeline; `release.ps1` uses `git diff --cached` + failing commit exits before `pull --rebase`. CRITICAL-PROCEDURES § solo-dev git. |
-| S256 | 2026-04-14 | Dev Window v2: fix BUILD tab DockPanel fill (utility buttons no longer stretch full height); VERSION column `2*`/`*` + min widths + text wrap; status/build fonts 14. |
-| S255 | 2026-04-14 | Dev Window v2: utility-row **Pull** / **Push** (`git pull` / `git push`, log + status refresh; disabled during build/release). **Font scaling**: `SetProcessDPIAware` + `UseLayoutRounding` / `SnapsToDevicePixels` / `TextFormattingMode=Display` / `ClearTypeHint` on main window. |
-| S254 | 2026-04-14 | Bug B fix: countdown-cancel-on-room-close. `netReadyGateOnClientLeft()` + `netReadyGateAbortForRoom()` in `roomLeave()`; defensive room-missing guard in `readyGateTickCountdown()`. No protocol bump. SP-14 (room-bound server state must be cleaned on teardown) added to systemic-bugs.md; constraint added to constraints.md. Build-verified (pd + pd-server). Needs in-game playtest. v0.0.95 pre-release commit. |
-| S248-S253 | 2026-04-13 | MP lobby & mod stabilization drop. S248 mod persistence + room name + countdown + songs F-2.1 (B-135/B-136/B-137/B-138/B-139). S249 B-140 Issue A playlist auto-advance + B-134 spawn validator railing trap. S250 input authority Phase 1 (`gameplayInputSuppressed()` + focus handling). S251 B-141 audio telemetry (drop/underrun/hitch counters). S252 B-143 End-Game-Crash (`manifestClear` in netDisconnect) + B-142 false kills NULL-guard + modal confirm UX. S253 MP lobby residual — Issue 7 SVC_ROOM_SETTINGS, Weapons F-2.1, Issue 2/8 theme rescan, B-140 Issue B two-panel Select Tunes. Parallel: dev-window-v2 font/control polish. Forensic detail in `scratch/archive/2026-04-13/`. |
-| S245-S247 | 2026-04-13 | S245 L7 FIX-F updater robustness (B-99) + FIX-G mission headers (B-97). S246 gap-closure (M-7.x smoke test + tasks refresh; match_seed/B-19 DONE). S247 build-env self-heal (prelude.ps1 + build-env.sh + CLAUDE.md). |
-| S238-S244 | 2026-04-13 | S238 L2 universal spawn pool (L1-L4 fallback chain) + F-1.1/F-1.2/F-2.1 menu consistency. S239 spawn tracker. S240 L3 mod map import pipeline. S241/S242 L5 match lifecycle (co-op manifest, protocol v35, match_seed) + L6 rendering polish FIX-C.1/C.3 + menu polish tail. S243 FIX-C rendering tracker. S244 M-6 import UI. |
-| S231-S237 | 2026-04-13 | S231 L0-BUILD ccache sloppiness fix + L0-LINK verify. S232 dev-window-v2 overhaul + release hang fix. S233 L0 manifest safety (L1-1, FIX-B.2) + B-72/B-21 closed. S234 FIX-A chr tick isolation + crash handler hardening (B-112/B-126 mitigated). S236 L1 networking safety baseline + menu consistency. |
-| S221-S230 | 2026-04-12/13 | S221 9-issue playtest fix batch. S222 audio mod fixes. S223 S224 static-link DLL elimination + Ninja/ccache/PCH pipeline. S226-S229 architecture audits (match lifecycle, menu/input, spawn+import). S230 master orchestration plan (75 items, 8 layers). |
-| S202-S220 | 2026-04-11/12 | Batch 4-11 MP menu ports (+920KB ImGui menus). S208 Opus 1M playtest (6 bugs). S218 controller bindings. S220 B-133 charpreview GBI crash fix. |
-| S200-S201 | 2026-04-11 | S200 B-78/B-84 FIXED (chat size cap + dead tmp[1024]). S201 D5 P3 Batch 3 DONE: Sound Mode dropdown added to Settings → Audio; CI Options redirects verified complete. pdgui_menu_mainmenu.cpp 3100→3123. |
-| S199 | 2026-04-11 | Updater parse failure diagnosis (B-99/D13). per_page 30→100; HTTP code + raw response instrumentation in updater.c. Root cause likely GitHub rate-limit 403 error object. |
-| S196-S198 | 2026-04-10 | S196 Theme system: base-game template mod, nineslice pipeline, Settings → Video → UI Chrome Style toggle. S197a Input regressions post-S196 fixed. S198 B-129 agent save path FULLY FIXED (saveInit() wired in main.c + server_main.c); theme editor close lifecycle instrumentation (B-130). New bugs B-130/B-131 OPEN. |
-| S191-S195 | 2026-04-10 | S191 B-112/B-126 instrumentation (chr index tracker, SIGABRT handler, NET.WATCHDOG dump). S192 D5 P3 Batch 0 (pdgui_layout primitive). S193 1080p baseline flip + Batch 1. S194 Batch 2 (Co-op/Counter-Op flow). S195 Batch 3 redirect plumbing (CI Options → unified Settings). |
-| S189-S190 | 2026-04-10 | Input system complete: P0-only binding rework, usemask/B-door fix, unk14/canlookahead/FarSight/LSTICK fixes. B-128 sky tearing FIXED (sky.c:1244). B-129 mission-end crash partial fix (endscreen.c save path + filemgr noop dialogs); save path fully fixed in S198. SP-9 safeguard IMPLEMENTED in build-headless.ps1. |
-| S187-S188 | 2026-04-09 | Three-bug debug (B-127 WASD, B-125 weapons, B-126 silent crash); full menu replacement plan (254 dialogs, 11 batches) |
-| S185-S186 | 2026-04-09 | Deep audit (47 bug fixes: 5C+7H+10M+9L), context system overhaul |
-| S184 | 2026-04-08 | P10 D5.7: OG Menu Removal -- ImGui sole menu system |
-| S181-S183 | 2026-04-07/08 | M0.2 Input System Unification (action maps, CK_* deleted, -823 lines) |
-| S167-S180 | 2026-04-06/07 | M0.1a-f Catalog ID Migration, M1.1-M1.3, M2.1-M2.2, input bug fixes |
-| S155-S166 | 2026-04-06 | Catalog ID Migration Phases 0-7, D5.0 visual layer, B-119/B-120 fixes |
-| S140-S154 | 2026-04-04/06 | Lobby Unification U-1 to U-10, spawn stability, R-3 room networking |
-| S119-S139 | 2026-04-02/04 | Catalog Universality A-G, bug audit, systemic sweeps, D5.0-D5.5 |
+1. [README.md](README.md) - this file. Orientation.
+2. [working-preferences.md](working-preferences.md) - collaboration rules.
+3. [constraints.md](constraints.md) - active and removed invariants. Check before any complex work.
+4. [procedures.md](procedures.md) - build verify, git safety, worktree rules.
+5. [tasks.md](tasks.md) - what is open right now.
+6. [session-log.md](session-log.md) - last few sessions.
+7. [retention.md](retention.md) - the rules that keep this tree clean.
+
+Then load the pillar doc(s) for whatever you are touching.
 
 ---
 
-## Domain Files (load when working on that system)
+## Live state at a glance
 
-| File | System | When to load |
-|------|--------|-------------|
-| [collision.md](collision.md) | Capsule sweep, floor/ceiling, geometry types | Collision/physics work |
-| [movement.md](movement.md) | Jump physics, ground detection, airborne logic | Movement/jump work |
-| [networking.md](networking.md) | ENet protocol, message types, resync, damage authority (cheatsheet) | Netcode work |
-| [network-architecture.md](network-architecture.md) | **Consolidated** architecture (hub, rooms, connect codes, lobby UX, master server, profiles, federation) | Network design, any lobby/room work |
-| [network-system-audit.md](network-system-audit.md) | **Definitive** networking audit: 39 SVC + 10 CLC, lifecycle, tick model | Netcode debugging |
-| [imgui.md](imgui.md) | ImGui integration, PD-authentic styling, shimmer, palette | Menu/UI work |
-| [build.md](build.md) | CMake, MSYS2/MinGW, build tool GUI, static linking | Build system work |
-| [server-architecture.md](server-architecture.md) | Dedicated server: protocol, CLI, GUI, headless | Server work |
-| [update-system.md](update-system.md) | D13: versioning, GitHub API, SHA-256, save migration | Update system work |
-| [memory-modernization.md](memory-modernization.md) | Phase D-MEM: pool audit, stack->heap | Memory system work |
+- **Wire protocol**: v46 (per [pillars/save-wire-format.md](pillars/save-wire-format.md) [TBD] and `port/include/net/net.h:12`).
+- **Save format**: SAVE_VERSION=2, MPSETUP_VERSION=2.
+- **Build**: v0.0.175+ (per recent release tags). Build via `.\devtools\build-session.ps1 -Session <id> -Target all`.
+- **Active session range**: see [session-log.md](session-log.md).
+- **Critical path**: see [tasks.md](tasks.md). Post-rebuild queue: Catalog Weapons F11-F13 (retire `g_Weapons[]`), then Catalog Gate 3 migration (heads/bodies/arenas/audio + Manager + .pdbase pattern), then Input Controller Support (Branch 2 Cohorts 5-8 + menus + full controller).
+- **Long-term roadmap**: [roadmap.md](roadmap.md) [TBD].
 
-## Architecture Documents
+---
 
-| File | System | When to load |
-|------|--------|-------------|
-| [component-mod-architecture.md](component-mod-architecture.md) | D3R: Component mod system, asset catalog, INI format | Mod system work |
-| [b12-participant-system.md](b12-participant-system.md) | Dynamic participant pool (replaces chrslots) | Bot/player slot work |
-| [CRITICAL-PROCEDURES.md](CRITICAL-PROCEDURES.md) | Context management rules, build verification | Reference |
+## Pillars (live state per architectural subsystem)
 
-## Plan / Design Files (active)
+Each pillar doc captures the live state, current invariants, and the code that owns the pillar. Updated with the code that touches it.
 
-| File | Phase / scope | When to load |
-|------|---------------|-------------|
-| [designs/full-release-roadmap-2026-04-27.md](designs/full-release-roadmap-2026-04-27.md) | **Master roadmap to v1.0.0** -- 80+ pillars across 10 categories, 5-gate sequencing, 11 architectural decisions resolved 2026-04-27 (E.0 resolution table; Mike approved 5 direct, 6 delegated) | Release planning, scope/sequencing review |
-| [network-architecture.md](network-architecture.md) | Consolidated networking roadmap (replaces the former 5 plan files — multiplayer / master-server / join-flow / lobby-flow / room-architecture, all archived) | MP infrastructure, any room / lobby / join work |
-| [designs/d5-full-menu-overhaul.md](designs/d5-full-menu-overhaul.md) | 5 phases, binding UX guidelines | Menu work |
-| [designs/d5-ui-polish-plan.md](designs/d5-ui-polish-plan.md) | D5.0-D5.8 sub-phase plan | D5 work |
-| [designs/match-startup-pipeline.md](designs/match-startup-pipeline.md) | 8-phase match startup (Gather→Sync) | Match startup |
-| [designs/session-catalog-and-modular-api.md](designs/session-catalog-and-modular-api.md) | Session catalog + typed query functions | Asset loading |
-| [designs/menu-inventory.md](designs/menu-inventory.md) | 120 screens: status, file path, D5 phase | Menu QC |
-| [designs/manifest-architecture.md](designs/manifest-architecture.md) | Manifest inclusion policy, 3 paths, stage coverage | Manifest/asset loading |
-| [designs/nat-traversal-architecture.md](designs/nat-traversal-architecture.md) | STUN, hole-punch, relay design | NAT reference |
-| [designs/hosting-modes-listen-vs-dedicated.md](designs/hosting-modes-listen-vs-dedicated.md) | Listen host vs `PerfectDarkServer`: ROM/mod gates, RCON, traversal, connect codes | Server ops, security review, Tier 2 H-3 |
-| [designs/pd-server-plugin-abi-adr.md](designs/pd-server-plugin-abi-adr.md) | **ADR (Tier 4 C-1):** **manifest broker** + catalog IDs (no game content in server); per-client dynamic catalogs; host manifest + hashes/revision; Trust/Confirm First readiness; optional policy module; stub migration + CMake (P4-A doc; P4-B/C code) | Dedicated server architecture |
-| [designs/interest-management-replication.md](designs/interest-management-replication.md) | **P5-A / SEC-8–9:** interest management + broadcast narrowing — audit + phased design (`net.c` fan-out, `netdistrib` scope), protocol bump notes | Scaling, LAN / high player count |
-| [designs/implementation-plan-mods-and-d5.md](designs/implementation-plan-mods-and-d5.md) | P1-P6 dependency graph | Mod/UI roadmap |
-| [designs/input-authority-and-menu-pool-2026-04-13.md](designs/input-authority-and-menu-pool-2026-04-13.md) | ADR: input bleed-through + menu-pool discipline. Phase 1 shipped S250; Phase 2 queued. | Input/menu work |
-| [designs/spawn-system-architecture-2026-04-13.md](designs/spawn-system-architecture-2026-04-13.md) | L1-L4 spawn pool architecture + capsule-radius invariant | Spawn/MP-load work |
-| [designs/forge-level-editor-2026-04-16.md](designs/forge-level-editor-2026-04-16.md) | Forge → The Grid level editor design (freefly + catalog + placement + serialize; F0 shipped S307, polish S313) | Forge/Grid work |
-| [designs/gpu-swarm-and-test-scenarios-2026-04-27.md](designs/gpu-swarm-and-test-scenarios-2026-04-27.md) | **Phase 1 design (2026-04-27):** Test Scenarios dropdown in Settings > Debug + GPU compute boid swarm benchmark vs CPU bots, cycler 4-256 Skedars, 1 HP each, invincible player. **Pending Mike's call on F.1 (GL 4.3 vs transform feedback) before Phase 2.** | Benchmark / GPU compute / test mode work |
-| [designs/theme-bundle-and-per-agent-settings-2026-04-16.md](designs/theme-bundle-and-per-agent-settings-2026-04-16.md) | Theme bundle plumbing (theme.json menuStyle/font keys) + per-agent prefs_agent.ini sidecar (S305 P4 + S313 `[Audio]` block) | Theme bundle / per-agent settings work |
-| [designs/hud-layer-order.md](designs/hud-layer-order.md) | HUD render ordering + context-aware gating | HUD work |
-| [designs/pdgui-hold-ring.md](designs/pdgui-hold-ring.md) | Per-target use-hold tuning + shared hold-progress ring API | Interact prompt / future hold UI |
-| [designs/activemenu-radial-architecture.md](designs/activemenu-radial-architecture.md) | Weapon/gadget radial = active menu (`amRender`), not ImGui hold ring | Gameplay HUD / future radial port |
-| [designs/mod-enablement-policy.md](designs/mod-enablement-policy.md) | Mod loading policy | Mod system work |
-| [designs/studio-platform-design.md](designs/studio-platform-design.md) | v0.5.0 Studio feature set | Studio roadmap |
-| [designs/v
+| Pillar | Doc | When to load |
+|--------|-----|--------------|
+| Catalog system | [pillars/catalog.md](pillars/catalog.md) [TBD] | Asset identity, catalog IDs, manager pattern |
+| Input system | [pillars/input.md](pillars/input.md) [TBD] | Action map, IMC stack, layer system, dispatch |
+| Menus / UI / UX | [pillars/menus.md](pillars/menus.md) [TBD] | ImGui menu work, menu pool, menu graph |
+| Modding | [pillars/modding.md](pillars/modding.md) [TBD] | `.pdmod` format, scanner, distribution, registry |
+| Connectivity | [pillars/connectivity.md](pillars/connectivity.md) [TBD] | ENet, P2P 6-tier, presence, voice, room/lobby |
+| Save / wire format | [pillars/save-wire-format.md](pillars/save-wire-format.md) [TBD] | Versioning, migration framework, bit-pack primitives |
+| Server / hosting | [pillars/server.md](pillars/server.md) [TBD] | Listen vs dedicated, participant pool, RCON, bans |
+| Build / dev tooling | [pillars/build-dev-tooling.md](pillars/build-dev-tooling.md) [TBD] | CMake, MSYS2, build-session, release pipeline |
+| Tests | [pillars/tests.md](pillars/tests.md) [TBD] | pd-tests, Catch2, pure mirrors, scope aliases |
+| Rendering | [pillars/rendering.md](pillars/rendering.md) [TBD] | fast3d GBI translator, ImGui backend, theme system |
+| Physics / collision | [pillars/physics-collision.md](pillars/physics-collision.md) [TBD] | Capsule sweep, jump, ground detection |
+
+---
+
+## Active design references
+
+Sub-bucketed by pillar. Designs that have shipped move to `_old/designs-shipped/` per [retention.md](retention.md). [TBD list, fills in at Step 4.]
+
+- `designs/input/` - input universality, mapping rebuild, contextual schemes, authority methodology, controller constraints
+- `designs/catalog/` - full-pipeline weapons, asset provider future phases
+- `designs/menus/` - menu stack, flat navigation, inventory, hold ring, radial, HUD layer order
+- `designs/modding/` - `.pdmod` format, mod enablement policy, theme bundle + per-agent settings, Forge level editor
+- `designs/connectivity/` - modern main menu, plugin ABI, interest management, hosting modes, manifest architecture
+- `designs/platform/` - Studio platform, visual scripting node taxonomy
+- `designs/in-flight/` - GPU swarm + test scenarios, player init architectural fixes, issue-10 rigging-aware body/head linkage
+
+---
+
+## Recent audits
+
+[audits/](audits/) holds point-in-time assessments within a 14-day window. Older audits live in `_old/audits/` per [retention.md](retention.md).
+
+Currently active:
+- [audits/infrastructure-pillars-status-2026-04-27.md](audits/infrastructure-pillars-status-2026-04-27.md)
+- [audits/codebase-architecture-rating-2026-04-27.md](audits/codebase-architecture-rating-2026-04-27.md)
+- [audits/catalog-universality-sweep-2026-04-27.md](audits/catalog-universality-sweep-2026-04-27.md)
+- [audits/post-implementation-audit-2026-04-25.md](audits/post-implementation-audit-2026-04-25.md)
+- [audits/sp-stage-mp-readiness-2026-04-24.md](audits/sp-stage-mp-readiness-2026-04-24.md)
+- [audits/flat-menu-navigation-audit-2026-04-25.md](audits/flat-menu-navigation-audit-2026-04-25.md)
+- [audits/pdmod-verification-matrix-2026-04-25.md](audits/pdmod-verification-matrix-2026-04-25.md)
+
+---
+
+## Bug ledgers
+
+- [bugs.md](bugs.md) - open one-off bugs with severity, status, fix, verify command.
+- [systemic-bugs.md](systemic-bugs.md) - architectural bug pattern catalog (SP-1 through SP-15).
+
+---
+
+## Sessions and history
+
+- [session-log.md](session-log.md) - rolling chronological log, last ~100 sessions.
+- `_old/session-log/` - older session tiers preserved.
+
+---
+
+## How to make changes
+
+1. Read [working-preferences.md](working-preferences.md) and [procedures.md](procedures.md).
+2. Check [constraints.md](constraints.md) for any rule that touches your work.
+3. Load the relevant pillar doc(s) and any active design doc.
+4. Make the change in a worktree. Build verify with `.\devtools\build-session.ps1 -Session <id> -Target all`.
+5. Update the pillar doc if the change shifts a live invariant. Update [bugs.md](bugs.md) if you fixed a bug or [systemic-bugs.md](systemic-bugs.md) if the bug reveals a pattern. Add a session-log entry.
+6. Auto-merge to dev per the standing rule.
+
+---
+
+## Naming conventions
+
+Work titles (sessions, design subjects, task labels) follow `Pillar - Goal` format:
+- "Catalog - Weapons F11-F13 data move"
+- "Input - Controller Support Cohort 5"
+- "Menus - flat navigation enforcement"
+- "Modding - pdmod INI delivery from archive"
+
+File names stay human-readable and lowercase-with-hyphens. Folders provide pillar context, so `pillars/catalog.md` carries the pillar prefix structurally rather than in the filename.
+
+---
+
+## What is in `_old/`
+
+`_old/` at repo root contains the prior context tree (everything that was in `context/` before the 2026-04-30 rebuild). It is preserved for git history and forensic reference; it is not the live source of truth.
+
+Do not pull facts from `_old/` without verifying against current code or the live `context/` tree.
