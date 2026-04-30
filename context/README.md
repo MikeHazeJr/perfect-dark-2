@@ -1,6 +1,6 @@
 # Perfect Dark 2 - Project Context
 
-> **Skeleton, Phase 2B Step 1.** Pillar links and design index fill in as those files land. Final pass at Phase 2B Step 5.
+> **Live as of 2026-04-30 (rebuild Phase 2B Step 9).** All pillar docs in place, designs sub-bucketed, session-log cut to active rolling window, retention rules captured.
 
 ---
 
@@ -28,12 +28,12 @@ Then load the pillar doc(s) for whatever you are touching.
 
 ## Live state at a glance
 
-- **Wire protocol**: v46 (per [pillars/save-wire-format.md](pillars/save-wire-format.md) [TBD] and `port/include/net/net.h:12`).
+- **Wire protocol**: v46 (per [pillars/save-wire-format.md](pillars/save-wire-format.md) and `port/include/net/net.h:12`).
 - **Save format**: SAVE_VERSION=2, MPSETUP_VERSION=2.
 - **Build**: v0.0.175+ (per recent release tags). Build via `.\devtools\build-session.ps1 -Session <id> -Target all`.
 - **Active session range**: see [session-log.md](session-log.md).
 - **Critical path**: see [tasks.md](tasks.md). Post-rebuild queue: Catalog Weapons F11-F13 (retire `g_Weapons[]`), then Catalog Gate 3 migration (heads/bodies/arenas/audio + Manager + .pdbase pattern), then Input Controller Support (Branch 2 Cohorts 5-8 + menus + full controller).
-- **Long-term roadmap**: [roadmap.md](roadmap.md) [TBD].
+- **Long-term roadmap**: [roadmap.md](roadmap.md).
 
 ---
 
@@ -43,31 +43,65 @@ Each pillar doc captures the live state, current invariants, and the code that o
 
 | Pillar | Doc | When to load |
 |--------|-----|--------------|
-| Catalog system | [pillars/catalog.md](pillars/catalog.md) [TBD] | Asset identity, catalog IDs, manager pattern |
-| Input system | [pillars/input.md](pillars/input.md) [TBD] | Action map, IMC stack, layer system, dispatch |
-| Menus / UI / UX | [pillars/menus.md](pillars/menus.md) [TBD] | ImGui menu work, menu pool, menu graph |
-| Modding | [pillars/modding.md](pillars/modding.md) [TBD] | `.pdmod` format, scanner, distribution, registry |
-| Connectivity | [pillars/connectivity.md](pillars/connectivity.md) [TBD] | ENet, P2P 6-tier, presence, voice, room/lobby |
-| Save / wire format | [pillars/save-wire-format.md](pillars/save-wire-format.md) [TBD] | Versioning, migration framework, bit-pack primitives |
-| Server / hosting | [pillars/server.md](pillars/server.md) [TBD] | Listen vs dedicated, participant pool, RCON, bans |
-| Build / dev tooling | [pillars/build-dev-tooling.md](pillars/build-dev-tooling.md) [TBD] | CMake, MSYS2, build-session, release pipeline |
-| Tests | [pillars/tests.md](pillars/tests.md) [TBD] | pd-tests, Catch2, pure mirrors, scope aliases |
-| Rendering | [pillars/rendering.md](pillars/rendering.md) [TBD] | fast3d GBI translator, ImGui backend, theme system |
-| Physics / collision | [pillars/physics-collision.md](pillars/physics-collision.md) [TBD] | Capsule sweep, jump, ground detection |
+| Catalog system | [pillars/catalog.md](pillars/catalog.md) | Asset identity, catalog IDs, manager pattern, .pdbase loader |
+| Input system | [pillars/input.md](pillars/input.md) | Action map (103 actions), IMC stack, 7-layer system, suppression predicate |
+| Menus / UI / UX | [pillars/menus.md](pillars/menus.md) | ImGui menus (31 files), menu pool, menu graph, theme system |
+| Modding | [pillars/modding.md](pillars/modding.md) | `.pdmod` format, scanner, manifest, network distribution |
+| Connectivity | [pillars/connectivity.md](pillars/connectivity.md) | ENet, P2P 6-tier (LAN/DIRECT/STUN/UPnP/ICE/TURN), presence, voice |
+| Save / wire format | [pillars/save-wire-format.md](pillars/save-wire-format.md) | SAVE_VERSION=2, MPSETUP_VERSION=2, NET_PROTOCOL_VER=46, migration framework |
+| Server / hosting | [pillars/server.md](pillars/server.md) | Listen vs dedicated, participant pool, RCON, bans, room passwords |
+| Build / dev tooling | [pillars/build-dev-tooling.md](pillars/build-dev-tooling.md) | CMake + MSYS2, build-headless / build-session, release pipeline, updater |
+| Tests | [pillars/tests.md](pillars/tests.md) | pd-tests, Catch2, 35 test files, pure mirrors, scope aliases |
+| Rendering | [pillars/rendering.md](pillars/rendering.md) | fast3d GBI -> OpenGL, vtable backend, ImGui v1.91.8 |
+| Physics / collision | [pillars/physics-collision.md](pillars/physics-collision.md) | Capsule sweep over legacy primitives, jump, stair-step, movement modes |
 
 ---
 
 ## Active design references
 
-Sub-bucketed by pillar. Designs that have shipped move to `_old/designs-shipped/` per [retention.md](retention.md). [TBD list, fills in at Step 4.]
+Sub-bucketed by pillar. Designs that have shipped move to `_old/designs-shipped/` per [retention.md](retention.md).
 
-- `designs/input/` - input universality, mapping rebuild, contextual schemes, authority methodology, controller constraints
-- `designs/catalog/` - full-pipeline weapons, asset provider future phases
-- `designs/menus/` - menu stack, flat navigation, inventory, hold ring, radial, HUD layer order
-- `designs/modding/` - `.pdmod` format, mod enablement policy, theme bundle + per-agent settings, Forge level editor
-- `designs/connectivity/` - modern main menu, plugin ABI, interest management, hosting modes, manifest architecture
-- `designs/platform/` - Studio platform, visual scripting node taxonomy
-- `designs/in-flight/` - GPU swarm + test scenarios, player init architectural fixes, issue-10 rigging-aware body/head linkage
+**Catalog**
+- [designs/catalog/catalog-full-pipeline-weapons.md](designs/catalog/catalog-full-pipeline-weapons.md) - F1-F10 shipped, F11+ data move design
+
+**Input**
+- [designs/input/input-universality-and-transitions.md](designs/input/input-universality-and-transitions.md) - Phase 1 design, Cohorts 5-8 in flight
+- [designs/input/input-mapping-menu-rebuild.md](designs/input/input-mapping-menu-rebuild.md)
+- [designs/input/contextual-input-schemes.md](designs/input/contextual-input-schemes.md) - IMC architecture (J-1/2/3 landed)
+- [designs/input/input-authority-methodology.md](designs/input/input-authority-methodology.md)
+- [designs/input/menu-controller-input-constraints.md](designs/input/menu-controller-input-constraints.md)
+
+**Menus**
+- [designs/menus/menu-stack-architecture.md](designs/menus/menu-stack-architecture.md) - target spec
+- [designs/menus/flat-menu-navigation.md](designs/menus/flat-menu-navigation.md) - flat-traversal rule
+- [designs/menus/menu-inventory.md](designs/menus/menu-inventory.md) - 120 screens roster
+- [designs/menus/input-authority-and-menu-pool.md](designs/menus/input-authority-and-menu-pool.md) - Phase 1+2 implemented
+- [designs/menus/pdgui-hold-ring.md](designs/menus/pdgui-hold-ring.md)
+- [designs/menus/activemenu-radial-architecture.md](designs/menus/activemenu-radial-architecture.md) - legacy GBI radial
+- [designs/menus/hud-layer-order.md](designs/menus/hud-layer-order.md)
+
+**Modding**
+- [designs/modding/pdmod-format.md](designs/modding/pdmod-format.md) - unified mod format spec
+- [designs/modding/mod-enablement-policy.md](designs/modding/mod-enablement-policy.md)
+- [designs/modding/theme-bundle-and-per-agent-settings.md](designs/modding/theme-bundle-and-per-agent-settings.md)
+- [designs/modding/forge-level-editor.md](designs/modding/forge-level-editor.md) - Phase 0-1 shipped, future phases scoped
+
+**Connectivity**
+- [designs/connectivity/connectivity-and-modern-main-menu.md](designs/connectivity/connectivity-and-modern-main-menu.md) - Phase 1+2 shipped
+- [designs/connectivity/pd-server-plugin-abi.md](designs/connectivity/pd-server-plugin-abi.md) - ADR (deferred per S486)
+- [designs/connectivity/interest-management-replication.md](designs/connectivity/interest-management-replication.md) - P5-A scaling design
+- [designs/connectivity/hosting-modes-listen-vs-dedicated.md](designs/connectivity/hosting-modes-listen-vs-dedicated.md) - threat model
+- [designs/connectivity/manifest-architecture.md](designs/connectivity/manifest-architecture.md) - implemented
+
+**Platform (future)**
+- [designs/platform/studio-platform.md](designs/platform/studio-platform.md) - v0.5.0+
+- [designs/platform/visual-scripting-node-taxonomy.md](designs/platform/visual-scripting-node-taxonomy.md) - v0.5.0+
+
+**In-flight**
+- [designs/in-flight/gpu-swarm-and-test-scenarios.md](designs/in-flight/gpu-swarm-and-test-scenarios.md) - Phase 1 design, Phase 2 gated on Mike
+- [designs/in-flight/player-init-architectural-fixes.md](designs/in-flight/player-init-architectural-fixes.md)
+- [designs/in-flight/issue-10-rigging-aware-body-head-linkage.md](designs/in-flight/issue-10-rigging-aware-body-head-linkage.md)
+- [designs/in-flight/testing-framework.md](designs/in-flight/testing-framework.md) - Cohorts 1-2 shipped, Cohort 3 deferred
 
 ---
 
