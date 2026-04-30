@@ -42,6 +42,18 @@ Deliverable: [audits/rom-extraction-audit-2026-04-30.md](audits/rom-extraction-a
 
 Methodology: possibility framing on subjective judgments throughout, file:line plus URL evidence for every claim, no em-dashes, no code changes.
 
+**Pass 2 (same session, 2026-04-30 PM later)**: Mike read the audit and dictated 20 directives plus forward-looking notes. Doc rewritten to apply all directives plus surface independent extrapolations.
+
+Directives applied (numbered list maintained in audit footer): extension naming `.pdwpn` over `.pdwep` plus definitions for `.pdtiles` / `.pdseg` / `.pdmpconfig` / `.pdtexconfig` / `.pdfiringrange`; audio split into music / sfx / voice; `data/` vs `base/` canonical distinction; mods first-class symmetric with naming-disallow plus explicit override flag plus multi-override; variant naming as per-asset distinct identities; `.pdmodpack` architecture (contain vs reference question recommended as contain); hash-verify plus self-heal plus corruption quarantine; read-only `data/` with writable-during-extraction; LOUDFAIL log channel taxonomy; procedural fallback as loud failure; procedural chrome severity bumped to high; test coverage severity bumped to high; ROM hash validation enable plus offset selection; CLI extraction discoverability auto via launch flow; multi-ROM support expansion approved; `src/generated/` retirement TODO; JSON / INI usage with commented-out unused tags; AllInOne mod-override branch cleanup; `mods/base-ui.pdmod` retirement target; mod tools load any base content as template.
+
+Forward-looking notes tracked: accessories system, mod-driven character behavior, terrain editor in-client, bundled-with-release modpacks, logging-pipeline cleanup pass, ROM-free distribution.
+
+Self-extrapolations surfaced for Mike's review (E-1 through E-18 in audit Section 3.15): atomic extraction transaction (temp-then-rename), multi-mod override precedence default (load order), per-romid `data/<romid>/` subdir layout, variant catalog IDs as flat strings, modpack contain model, LOUDFAIL UI surface, `.pdcharacter` schema split from `.pdmesh`, accessories as attachable mini-meshes, in-client editor save path, `tools/assetmgr/mk*` retirement, per-tree manifest with hash table, `.pdwpn` references `.pdmesh` not contains, mods adding-vs-overriding distinction, `.pdtexconfig` retires, `.pdmpconfig` rolls into `.pdscenario`, `.pdfiringrange` rolls into `.pdscenario`, `.pdtiles` and `.pdseg` as split sub-resources of `.pdscenario`, override audit log on startup.
+
+Open questions logged for Mike's call: Q-1 modpack storage model, Q-2 multi-mod override precedence, Q-3 `.pdscenario` vs `.pdmission` extension name, Q-4 `.pdcharacter` extension split, Q-5 quarantine retention deeper than 1 snapshot, Q-6 multi-ROM data layout.
+
+Final audit dimensions: 1050 lines, zero em-dashes, sentinel marker intact, single `.pdwep` reference retained in directive-history footer to record the rename. The original `< 800 lines` stop condition no longer applies under the expanded scope.
+
 ---
 
 ## Session S482c (`festive-hawking-49649b` follow-up #7) - 2026-04-30 PM - Dev Window v2 blank-screen fix
