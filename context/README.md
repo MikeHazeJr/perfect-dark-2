@@ -110,6 +110,7 @@ Sub-bucketed by pillar. Designs that have shipped move to `_old/designs-shipped/
 [audits/](audits/) holds point-in-time assessments within a 14-day window. Older audits live in `_old/audits/` per [retention.md](retention.md).
 
 Currently active:
+- [audits/rom-extraction-audit-2026-04-30.md](audits/rom-extraction-audit-2026-04-30.md)
 - [audits/infrastructure-pillars-status-2026-04-27.md](audits/infrastructure-pillars-status-2026-04-27.md)
 - [audits/codebase-architecture-rating-2026-04-27.md](audits/codebase-architecture-rating-2026-04-27.md)
 - [audits/catalog-universality-sweep-2026-04-27.md](audits/catalog-universality-sweep-2026-04-27.md)
