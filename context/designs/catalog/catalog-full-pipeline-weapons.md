@@ -571,6 +571,30 @@ All four Section I decisions resolved per AI's recommendations. Mike's parent se
 - **Test framework: file-grep static audit.** Sites that are structurally migrated but functionally identical (same call graph behavior) are pinned via static grep tests in `tests/test_weapon_direct_reads_audit.cpp`. The test reads the source file at test time and asserts the absence of the legacy access pattern (`g_Weapons[`, `g_AibotWeaponPreferences[<expr>]`). This pins the *structural* migration without coupling to runtime semantics.
 - **Pre-existing test failures not regressions.** The full test suite shows 2 failures (`test_catalog_provider_static.cpp:580` and `test_cutscene_layer.cpp:330`). Both reference text in `port/src/testscenarios.c` and `port/src/net/net.c`. Neither file is touched by F1-F10. Failures are pre-existing in the dev tree and unrelated to S484.
 
+### J.4 Path B decision (2026-04-30, S591) - data-driven animations
+
+Mid-session F11 work, Mike clarified the long-term vision: "I do want data driven, because ultimately I want to convert certain anims to use IK." This supersedes the Path A (named C symbols) recommendation from earlier in the same session.
+
+- **Path B chosen.** Animation `guncmd[]` arrays are encoded as JSON opcode sequences in `base/weapons.pdbase` alongside weapon records. Each opcode is `[mnemonic, args...]` where mnemonic is the bare `gunscript_*` macro suffix (`playanimation`, `waittime`, `playsound`, `random`, `include`, etc.) and args carry the macro arguments with symbolic enum values (ANIM_*, SFX_*, MODELPART_*) preserved as JSON strings.
+- **Animation cross-references** (e.g., `gunscript_random(20, invanim_punch_type1)`) become bare-string anim refs in JSON. The future loader (F12) resolves them to runtime pointers via the same name table that holds all 110 animations.
+- **Future IK runway.** When IK animations land, they get a different record type (e.g., `"opcodes": [...]` becomes `"ik_goals": [...]`). Both flow through the same `.pdbase` data layer; the runtime selects an opcode-playback evaluator vs an IK evaluator per record type. No data-format upheaval needed.
+- **Path A (animations stay in C) was rejected.** It would have required a follow-up F-phase to actually move animations to data, defeating the IK runway purpose.
+
+### J.5 F11 implementation notes (2026-04-30, S591)
+
+- **Authoring strategy: Python extractor.** Hand-authoring 86 weapons + 110 animations of JSON would have been ~3700 lines of error-prone manual work. The extractor (`devtools/extract_weapons_pdbase.py`, 1329 lines) reads `invitems.c` directly with a state machine, resolves constants from `constants.h` + `gunscript.h`, and emits JSON deterministically. Same source -> same output bytes (checked by re-running the extractor).
+- **Constants resolution.** The extractor only resolves `#define`-style constants. Enum-style identifiers (ANIM_GUN_*, L_GUN_*, FILE_G*, SFX_*, MODELPART_*) live in generated headers (`src/generated/<rom>/animations.h`, `lang/gun.h`, etc.) as enums, not `#define`s, so they fall through to the "bare symbol -> JSON string" path. This is intentional per Path B: symbolic names stay readable in JSON; the runtime opcode decoder resolves them via the same enum tables at load time.
+- **Macro decoders.** `gunscript_*` and `gunviscmd_*` calls in struct-array bodies are decoded directly via regex against the macro names (the parser does not see them as struct-tuple initializers because they're macro CALLS, not struct LITERALS). The decoder maps each macro to a `(mnemonic, [arg_names])` table.
+- **Catalog ID uniqueness.** Several `invitem_*` symbols are reused across multiple `g_Weapons[]` slots (`invitem_keycard` x8, `invitem_hammer` x4, `invitem_rocket` x2). The extractor disambiguates by appending `_slot<N>` when a slug is repeated, so each of the 86 weapons has a unique catalog ID.
+- **VERSION resolution.** `#if VERSION >= VERSION_NTSC_1_0` blocks are evaluated against `VERSION=2`. JPN_FINAL and PAL_FINAL branches are dropped; the NTSC_1_0 (Mike's primary build target) content lands in the JSON.
+- **Per-element failure granularity not yet exercised.** All 86 weapons + 110 animations parsed cleanly with no `_unresolved` markers. F12's loader will exercise PER-ELEMENT failure (unknown flag, missing animation reference) when the `LOADER.PDBASE.WEAPON.FIELD_UNKNOWN:` channel actually fires.
+
+### J.6 F11 commit ledger (S591)
+
+| Commit | Step | Files | Tests |
+|---|---|---|---|
+| 41ccbfed | F11: extractor + archive + structure-pin tests | `devtools/extract_weapons_pdbase.py` (new, 1329 lines), `base/weapons.pdbase` (new, 12823 lines), `tests/test_loader_pdbase_scan.cpp` (extended) | 8 new cases / 35 assertions in `[catalog-mgr-weapon][s484][f11]` |
+
 ### J.3 Final commit ledger (S484 Phase 2)
 
 | Commit | Step | Files | Tests |

@@ -12,23 +12,30 @@ The queue has three lanes after the context rebuild lands. Lane order is sequent
 
 ### 1. Catalog - Weapons F11-F13 data move
 
-**Status**: F1-F10 shipped (manager skeleton, accessor migration, EYESPY mutators, default fallbacks, ext.weapon I.2 drop, .pdbase loader scaffold). F11+ data move is the immediate priority.
+**Status**: F1-F10 shipped (S484, manager skeleton + accessor migration + .pdbase loader scaffold). **F11 shipped 2026-04-30** (extractor + base/weapons.pdbase + structure-pin tests; Path B data-driven animations approved by Mike per IK runway). F12 + F13 are the next slices.
 
-**Scope**:
+**Scope (F12, next)**:
 
-- F11 implements `loaderPdbaseScan` filesystem walk and `loaderPdbaseBuildWeaponManager` decoder.
-- Move the 86 `invitem_*` struct definitions from [src/game/invitems.c:5700+](../../src/game/invitems.c) to a `base/weapons.pdbase` archive.
-- Populate `ext.weapon.pdbase_path / pdbase_offset / pdbase_size` on catalog entries.
-- Extend `catalogManagerGetWeaponByIndex` to serve from manager-owned data instead of `g_Weapons[]`.
-- F12 retires Layer A: `g_AibotWeaponPreferences[]`, `invaimsettings_default`, `invnoisesettings_silent`, the const-cast violation at [src/game/game_0b0fd0.c:120](../../src/game/game_0b0fd0.c:120).
-- F13 replaces shape-only [tests/test_loader_pdbase_scan.cpp](../../tests/test_loader_pdbase_scan.cpp) with behavioral coverage; round-trip test for `catalogManagerGetWeaponById("base:falcon2")`; zero-runtime_index loud-fail.
+- C-side JSON parser for `base/weapons.pdbase` (sized for ~13k-line archive, 86 weapons + 110 animations).
+- Opcode encoder/decoder: JSON mnemonics ↔ `GUNCMD_*` enum + struct guncmd field layouts; cross-references between animations resolved at load time.
+- Loader populates manager with weapons + animations + sub-records (functions, ammos, aim/noise/recoil settings, gunviscmds, modelpartvis, guncmds). Manager owns typed pools; `g_Weapons[]` parity stays through F12.
+- Expand `s_BaseWeapons` from 41 MP-only to 86 entries with `pdbase_path / pdbase_offset / pdbase_size` populated.
+- Field-equivalence regression test: load .pdbase, populate manager, compare every field per weapon against legacy `g_Weapons[i]`.
 
-**Companion cleanups within F11-F13**:
+**Scope (F13, final)**:
+
+- Delete `g_Weapons[]`, `g_AibotWeaponPreferences[]`, `invaimsettings_default`, `invnoisesettings_silent`, all `invitem_* / invfunc_* / invammo_* / invaimsettings_* / invnoisesettings_* / invrecoilsettings_*` static records, all 110 `invanim_*` arrays, and the per-weapon `gunviscmds_* / invpartvisibility_*` arrays from `src/game/invitems.c`.
+- Delete `g_AibotWeaponPreferences[]` from `src/game/botinv.c`.
+- Delete extern declarations in `src/include/data.h`, `src/include/game/inv.h`.
+- Manager + .pdbase becomes sole source of truth.
+- Grep-guard test: no symbol references remain.
+
+**Companion cleanups within F12-F13**:
 
 - Fix [tests/test_catalog_mgr_weapons_api.cpp:15](../../tests/test_catalog_mgr_weapons_api.cpp:15) stale comment (says 89, asserts 86).
 - Reconcile [port/include/loader_pdbase.h:49-51](../../port/include/loader_pdbase.h:49) header that lies to its `.c` body.
 
-**Design ref**: `designs/catalog/catalog-full-pipeline-weapons.md`.
+**Design ref**: [designs/catalog/catalog-full-pipeline-weapons.md](designs/catalog/catalog-full-pipeline-weapons.md) (F11 progress recorded in Section J.3 / J.4).
 **Pillar ref**: [pillars/catalog.md](pillars/catalog.md).
 
 ### 2. Catalog - Gate 3 Migration
