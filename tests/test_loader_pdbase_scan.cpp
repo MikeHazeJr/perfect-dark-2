@@ -187,7 +187,7 @@ TEST_CASE("F11: extractor script is committed alongside the archive",
 
 /* ---------- F12 loader API contract ---------- */
 
-TEST_CASE("F12: loader_pdbase.h declares pool + parity API",
+TEST_CASE("F12+F13: loader_pdbase.h declares pool API",
           "[catalog-mgr-weapon][s484][f12]") {
     std::string hdr = readFile("port/include/loader_pdbase.h");
     /* Pool accessor + activity probe pinned by the manager swap. */
@@ -195,23 +195,23 @@ TEST_CASE("F12: loader_pdbase.h declares pool + parity API",
     REQUIRE(hdr.find("loaderPdbaseGetWeapon") != std::string::npos);
     REQUIRE(hdr.find("loaderPdbaseGetDefaultAim") != std::string::npos);
     REQUIRE(hdr.find("loaderPdbaseGetDefaultNoise") != std::string::npos);
-    /* Parity self-test pinned so a future refactor doesn't drop it
-     * silently while parity is still being verified pre-F13. */
-    REQUIRE(hdr.find("loaderPdbaseRunParityCheck") != std::string::npos);
+    /* F13 added: bot_pref accessor (replaces g_AibotWeaponPreferences). */
+    REQUIRE(hdr.find("loaderPdbaseGetBotPref") != std::string::npos);
     /* Round-trip helper for opcode encoding (used by future tests). */
     REQUIRE(hdr.find("loaderPdbaseEncodeOpcode") != std::string::npos);
+    /* F13 retired: parity self-test (no g_Weapons[] to compare against). */
+    REQUIRE(hdr.find("loaderPdbaseRunParityCheck") == std::string::npos);
 }
 
-TEST_CASE("F12: loader implementation emits documented log channels",
+TEST_CASE("F12+F13: loader implementation emits documented log channels",
           "[catalog-mgr-weapon][s484][f12]") {
     std::string src = readFile("port/src/loader_pdbase.c");
-    /* All five hierarchical channels must be present in the source so
-     * runtime diagnostics are loud per directive. */
+    /* Four hierarchical channels remain after F13 (PARITY_FAIL gone with
+     * the parity-check function). */
     REQUIRE(src.find("LOADER.PDBASE.WEAPON.OK") != std::string::npos);
     REQUIRE(src.find("LOADER.PDBASE.WEAPON.SCAN_FAIL") != std::string::npos);
     REQUIRE(src.find("LOADER.PDBASE.WEAPON.RESOLVE_FAIL") != std::string::npos);
     REQUIRE(src.find("LOADER.PDBASE.WEAPON.POOL_FULL") != std::string::npos);
-    REQUIRE(src.find("LOADER.PDBASE.WEAPON.PARITY_FAIL") != std::string::npos);
 }
 
 TEST_CASE("F12: opcode codec covers all 12 GUNCMD_* mnemonics",
@@ -232,28 +232,32 @@ TEST_CASE("F12: opcode codec covers all 12 GUNCMD_* mnemonics",
     }
 }
 
-TEST_CASE("F12: manager accessor routes through loader when active",
+TEST_CASE("F12+F13: manager accessor routes through loader (no fallback)",
           "[catalog-mgr-weapon][s484][f12]") {
     std::string mgr = readFile("port/src/catalog_mgr_weapons.c");
-    /* The integer-index path must check loaderPdbaseIsActive() and
-     * return the pool-backed pointer. The fallback to g_Weapons[] is
-     * the F12 parity-period bridge; F13 deletes it. */
-    REQUIRE(mgr.find("loaderPdbaseIsActive") != std::string::npos);
+    /* The integer-index path returns loader-owned pointers. F13
+     * removed the parity-period fallback to g_Weapons[]: there must
+     * be NO references to g_Weapons in the manager source. */
     REQUIRE(mgr.find("loaderPdbaseGetWeapon") != std::string::npos);
     REQUIRE(mgr.find("loaderPdbaseGetDefaultAim") != std::string::npos);
     REQUIRE(mgr.find("loaderPdbaseGetDefaultNoise") != std::string::npos);
+    REQUIRE(mgr.find("loaderPdbaseGetBotPref") != std::string::npos);
+    /* F13: the legacy externs / fallback are gone. */
+    REQUIRE(mgr.find("g_Weapons[") == std::string::npos);
+    REQUIRE(mgr.find("g_AibotWeaponPreferences") == std::string::npos);
+    REQUIRE(mgr.find("invaimsettings_default") == std::string::npos);
+    REQUIRE(mgr.find("invnoisesettings_silent") == std::string::npos);
 }
 
-TEST_CASE("F12: loader is wired into client startup",
+TEST_CASE("F12+F13: loader is wired into client startup",
           "[catalog-mgr-weapon][s484][f12]") {
     std::string main_src = readFile("port/src/main.c");
-    /* main.c must call the loader scan + build + parity check
-     * sequence right after assetCatalogRegisterBaseGame(). The
-     * sequence makes the manager pool-backed before any other
-     * subsystem reads weapon data. */
+    /* main.c must call the loader scan + build sequence right after
+     * assetCatalogRegisterBaseGame(). F13 dropped the parity check
+     * call from this sequence (parity check function retired). */
     REQUIRE(main_src.find("loaderPdbaseScan") != std::string::npos);
     REQUIRE(main_src.find("loaderPdbaseBuildWeaponManager") != std::string::npos);
-    REQUIRE(main_src.find("loaderPdbaseRunParityCheck") != std::string::npos);
+    REQUIRE(main_src.find("loaderPdbaseRunParityCheck") == std::string::npos);
 }
 
 TEST_CASE("F12: enum lookup tables exist for ANIM/SFX/FILE/L_GUN",
@@ -269,4 +273,61 @@ TEST_CASE("F12: enum lookup tables exist for ANIM/SFX/FILE/L_GUN",
     REQUIRE(gen.find("k_SfxEnum[]") != std::string::npos);
     REQUIRE(gen.find("k_LangEnum[]") != std::string::npos);
     REQUIRE(gen.find("k_FileEnum[]") != std::string::npos);
+}
+
+/* ---------- F13 grep-guard: Layer A symbols are gone from source ---------- */
+
+TEST_CASE("F13: invitems.c no longer defines the static records",
+          "[catalog-mgr-weapon][s484][f13]") {
+    std::string src = readFile("src/game/invitems.c");
+    /* The file is reduced to a header comment after F13. None of the
+     * historical symbol definitions may remain. */
+    REQUIRE(src.find("g_Weapons[") == std::string::npos);
+    REQUIRE(src.find("struct weapon invitem_") == std::string::npos);
+    REQUIRE(src.find("invfunc_") == std::string::npos);
+    REQUIRE(src.find("invammo_") == std::string::npos);
+    REQUIRE(src.find("invaimsettings_default") == std::string::npos);
+    REQUIRE(src.find("invnoisesettings_silent") == std::string::npos);
+    REQUIRE(src.find("invrecoilsettings_") == std::string::npos);
+    REQUIRE(src.find("struct guncmd invanim_") == std::string::npos);
+    REQUIRE(src.find("struct gunviscmd gunviscmds_") == std::string::npos);
+    REQUIRE(src.find("invpartvisibility_") == std::string::npos);
+    REQUIRE(src.find("vibrationstart_") == std::string::npos);
+    REQUIRE(src.find("vibrationmax_") == std::string::npos);
+}
+
+TEST_CASE("F13: botinv.c no longer defines g_AibotWeaponPreferences",
+          "[catalog-mgr-weapon][s484][f13]") {
+    std::string src = readFile("src/game/botinv.c");
+    /* The table definition is fully removed. The header comment can
+     * mention the symbol name but cannot have the table definition. */
+    REQUIRE(src.find("g_AibotWeaponPreferences[]") == std::string::npos);
+    REQUIRE(src.find("BOTDISTCFG_PISTOL,") == std::string::npos);
+}
+
+TEST_CASE("F13: extern declarations are gone from headers",
+          "[catalog-mgr-weapon][s484][f13]") {
+    std::string inv_h  = readFile("src/include/game/inv.h");
+    std::string data_h = readFile("src/include/data.h");
+    REQUIRE(inv_h.find("extern struct weapon *g_Weapons[") == std::string::npos);
+    REQUIRE(inv_h.find("extern struct invaimsettings invaimsettings_default") == std::string::npos);
+    REQUIRE(inv_h.find("extern struct noisesettings invnoisesettings_silent") == std::string::npos);
+    REQUIRE(data_h.find("extern struct weapon *g_Weapons[") == std::string::npos);
+    REQUIRE(data_h.find("extern struct aibotweaponpreference g_AibotWeaponPreferences[") == std::string::npos);
+}
+
+TEST_CASE("F13: no consumer references remain in src/game or port/src",
+          "[catalog-mgr-weapon][s484][f13]") {
+    /* This pin doesn't grep the whole tree -- it samples the files
+     * known to have been consumers prior to F2-F8. The build itself
+     * is the most reliable guard (link errors if a symbol is referenced
+     * but undefined), but pinning specific files makes a regression
+     * obvious in the test diff. */
+    std::string player_c = readFile("src/game/player.c");
+    REQUIRE(player_c.find("ARRAYCOUNT(g_Weapons)") == std::string::npos);
+    REQUIRE(player_c.find("g_Weapons[") == std::string::npos);
+
+    std::string game_0b0fd0_c = readFile("src/game/game_0b0fd0.c");
+    /* Comments mentioning g_Weapons are fine; live references are not. */
+    REQUIRE(game_0b0fd0_c.find("g_Weapons[") == std::string::npos);
 }

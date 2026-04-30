@@ -303,15 +303,15 @@ int main(int argc, const char **argv)
 	}
 	sysLogPrintf(LOG_NOTE, "Asset Catalog: %d entries registered", assetCatalogGetCount());
 
-	// S484 F12: scan base/*.pdbase archives + populate the catalog manager's
-	// typed weapon pools. Manager accessors switch from g_Weapons[] to the
-	// pool-backed copies once loaderPdbaseBuildWeaponManager succeeds.
+	// S484 F13: scan base/*.pdbase + populate the catalog manager's typed
+	// weapon pools. Manager accessors are pool-backed once
+	// loaderPdbaseBuildWeaponManager succeeds. Parity check from F12 was
+	// retired -- g_Weapons[] no longer exists to compare against.
 	{
 		loader_pdbase_result_t pdb_result;
 		loaderPdbaseScan("base", &pdb_result);
 		if (pdb_result.weapons_registered > 0) {
 			loaderPdbaseBuildWeaponManager();
-			loaderPdbaseRunParityCheck();
 		}
 	}
 

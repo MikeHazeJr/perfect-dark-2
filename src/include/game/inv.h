@@ -4,9 +4,9 @@
 #include "data.h"
 #include "types.h"
 
-extern struct noisesettings invnoisesettings_silent;
-extern struct invaimsettings invaimsettings_default;
-extern struct weapon *g_Weapons[WEAPON_SUICIDEPILL + 1];
+/* S484 F13: invnoisesettings_silent / invaimsettings_default / g_Weapons[]
+ * retired 2026-04-30. Weapon data lives in base/weapons.pdbase, accessed
+ * via the catalog manager (port/include/catalog_mgr_weapons.h). */
 
 void invReset(void);
 void invInit(s32 numdoubles);

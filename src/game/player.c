@@ -6,6 +6,7 @@
 #include "game/chraction.h"
 #include "game/floor.h"
 #include "game/inv.h"
+#include "catalog_mgr_weapons.h"
 #include "game/nbomb.h"
 #include "game/title.h"
 #include "game/chr.h"
@@ -1535,7 +1536,7 @@ void playerStartNewLife(void)
 			ammotypesheld[i] = false;
 		}
 
-		for (i = 1; i != ARRAYCOUNT(g_Weapons); i++) {
+		for (i = 1; i != catalogManagerWeaponCount(); i++) {
 			if (invHasSingleWeaponOrProp(i)) {
 				s32 ammotype = bgunGetAmmoTypeForWeapon(i, FUNC_PRIMARY);
 

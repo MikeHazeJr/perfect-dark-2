@@ -52,9 +52,10 @@
 #include "system.h"
 #include "fs.h"
 
-extern struct weapon                *g_Weapons[];
-extern struct invaimsettings         invaimsettings_default;
-extern struct noisesettings          invnoisesettings_silent;
+/* S484 F13: g_Weapons[], invaimsettings_default, invnoisesettings_silent
+ * retired 2026-04-30. Default fallbacks now sourced from .pdbase metadata
+ * or hardcoded sentinels in this file. The parity self-test from F12
+ * also retires here -- there is nothing to compare against. */
 
 /* ------------------------------------------------------------------ */
 /* Pool storage                                                       */
@@ -88,18 +89,19 @@ typedef struct {
 	s32   cmd_count;
 } pdbase_anim_entry_t;
 
-static struct weapon              s_Weapons[CATALOG_MGR_WEAPON_COUNT];
-static struct guncmd              s_Guncmds[POOL_GUNCMDS];
-static struct gunviscmd           s_Gunviscmds[POOL_GUNVISCMDS];
-static struct modelpartvisibility s_Partvis[POOL_PARTVIS];
-static struct inventory_ammo      s_Ammos[POOL_AMMOS];
-static struct invaimsettings      s_AimSettings[POOL_AIMSETTINGS];
-static struct noisesettings       s_NoiseSettings[POOL_NOISESETTINGS];
-static struct recoilsettings      s_RecoilSettings[POOL_RECOILSETTINGS];
-static weaponfunc_any_t           s_WeaponFuncs[POOL_WEAPONFUNCS];
-static f32                        s_Vibrations[POOL_VIBRATIONS];
-static pdbase_anim_entry_t        s_Animations[POOL_ANIMATIONS];
-static struct invaimsettings      s_DefaultAim;
+static struct weapon                  s_Weapons[CATALOG_MGR_WEAPON_COUNT];
+static struct aibotweaponpreference   s_BotPrefs[CATALOG_MGR_WEAPON_COUNT];
+static struct guncmd                  s_Guncmds[POOL_GUNCMDS];
+static struct gunviscmd               s_Gunviscmds[POOL_GUNVISCMDS];
+static struct modelpartvisibility     s_Partvis[POOL_PARTVIS];
+static struct inventory_ammo          s_Ammos[POOL_AMMOS];
+static struct invaimsettings          s_AimSettings[POOL_AIMSETTINGS];
+static struct noisesettings           s_NoiseSettings[POOL_NOISESETTINGS];
+static struct recoilsettings          s_RecoilSettings[POOL_RECOILSETTINGS];
+static weaponfunc_any_t               s_WeaponFuncs[POOL_WEAPONFUNCS];
+static f32                            s_Vibrations[POOL_VIBRATIONS];
+static pdbase_anim_entry_t            s_Animations[POOL_ANIMATIONS];
+static struct invaimsettings          s_DefaultAim;
 static struct noisesettings       s_DefaultNoise;
 
 static s32 s_GuncmdsUsed;
@@ -137,6 +139,13 @@ const struct invaimsettings *loaderPdbaseGetDefaultAim(void)
 const struct noisesettings *loaderPdbaseGetDefaultNoise(void)
 {
 	return s_LoaderActive ? &s_DefaultNoise : NULL;
+}
+
+const struct aibotweaponpreference *loaderPdbaseGetBotPref(s32 idx)
+{
+	if (idx < 0 || idx >= CATALOG_MGR_WEAPON_COUNT) return NULL;
+	if (!s_LoaderActive) return NULL;
+	return &s_BotPrefs[idx];
 }
 
 s32 loaderPdbaseGetWeaponsRegistered(void) { return s_WeaponsRegistered; }
@@ -1082,7 +1091,10 @@ static void parseWeapon(jstream_t *s)
 
 	s32 weapon_id = -1;
 	struct weapon w;
+	struct aibotweaponpreference bp;
+	s32 bp_present = 0;
 	memset(&w, 0, sizeof(w));
+	memset(&bp, 0, sizeof(bp));
 	w.aimsettings = &s_DefaultAim;  /* default fallback */
 
 	while (s->cur.kind != JT_RBRACE && s->cur.kind != JT_EOF) {
@@ -1145,7 +1157,39 @@ static void parseWeapon(jstream_t *s)
 		else if (jstream_str_eq(&key, "manufacturer")) w.manufacturer = (u16)jread_enum_or_int(s, JREF_LANG, 0, "weapon.manufacturer");
 		else if (jstream_str_eq(&key, "description"))  w.description  = (u16)jread_enum_or_int(s, JREF_LANG, 0, "weapon.description");
 		else if (jstream_str_eq(&key, "flags"))        w.flags        = (u32)jread_int(s, 0);
-		else if (jstream_str_eq(&key, "bot_pref")) jstream_skip_value(s);  /* TODO: hook into AI prefs in F12.x */
+		else if (jstream_str_eq(&key, "bot_pref")) {
+			/* Parse the aibotweaponpreference sub-struct into a temp,
+			 * then commit at the same slot as the weapon below. */
+			if (s->cur.kind != JT_LBRACE) { jstream_skip_value(s); }
+			else {
+				jstream_advance(s);
+				while (s->cur.kind != JT_RBRACE && s->cur.kind != JT_EOF) {
+					if (s->cur.kind != JT_STRING) { jstream_advance(s); continue; }
+					jtok_t bk = s->cur;
+					jstream_advance(s);
+					if (s->cur.kind != JT_COLON) continue;
+					jstream_advance(s);
+					if      (jstream_str_eq(&bk, "unk00"))                  bp.unk00                  = (u8)jread_int(s, 0);
+					else if (jstream_str_eq(&bk, "unk01"))                  bp.unk01                  = (u8)jread_int(s, 0);
+					else if (jstream_str_eq(&bk, "unk02"))                  bp.unk02                  = (u8)jread_int(s, 0);
+					else if (jstream_str_eq(&bk, "unk03"))                  bp.unk03                  = (u8)jread_int(s, 0);
+					else if (jstream_str_eq(&bk, "haspriammogoal"))         bp.haspriammogoal         = (u16)jread_int(s, 0);
+					else if (jstream_str_eq(&bk, "hassecammogoal"))         bp.hassecammogoal         = (u16)jread_int(s, 0);
+					else if (jstream_str_eq(&bk, "pridistconfig"))          bp.pridistconfig          = (u16)jread_int(s, 0);
+					else if (jstream_str_eq(&bk, "secdistconfig"))          bp.secdistconfig          = (u16)jread_int(s, 0);
+					else if (jstream_str_eq(&bk, "targetammopri"))          bp.targetammopri          = (u16)jread_int(s, 0);
+					else if (jstream_str_eq(&bk, "targetammosec"))          bp.targetammosec          = (u16)jread_int(s, 0);
+					else if (jstream_str_eq(&bk, "criticalammopri"))        bp.criticalammopri        = (u16)jread_int(s, 0);
+					else if (jstream_str_eq(&bk, "criticalammosec"))        bp.criticalammosec        = (u16)jread_int(s, 0);
+					else if (jstream_str_eq(&bk, "reloaddelay"))            bp.reloaddelay            = (u16)jread_int(s, 0);
+					else if (jstream_str_eq(&bk, "allowpartialreloaddelay")) bp.allowpartialreloaddelay = (u16)jread_int(s, 0);
+					else jstream_skip_value(s);
+					if (s->cur.kind == JT_COMMA) jstream_advance(s);
+				}
+				if (s->cur.kind == JT_RBRACE) jstream_advance(s);
+				bp_present = 1;
+			}
+		}
 		else jstream_skip_value(s);
 		if (s->cur.kind == JT_COMMA) jstream_advance(s);
 	}
@@ -1153,6 +1197,7 @@ static void parseWeapon(jstream_t *s)
 
 	if (weapon_id >= 0 && weapon_id < CATALOG_MGR_WEAPON_COUNT) {
 		s_Weapons[weapon_id] = w;
+		if (bp_present) s_BotPrefs[weapon_id] = bp;
 		s_WeaponsRegistered++;
 	} else {
 		sysLogPrintf(LOG_WARNING,
@@ -1280,11 +1325,30 @@ s32 loaderPdbaseBuildWeaponManager(void)
 		return 0;
 	}
 
-	/* Defaults are still sourced from the legacy externs; F13 retires
-	 * those and the loader reads them from the pdbase metadata or
-	 * hardcoded fallbacks. For F12, parity is preserved. */
-	s_DefaultAim   = invaimsettings_default;
-	s_DefaultNoise = invnoisesettings_silent;
+	/* S484 F13: defaults are now hardcoded sentinels matching the
+	 * pre-retirement values. invaimsettings_default sourced from
+	 * src/game/invitems.c:90 (the historical struct literal); the
+	 * silent noise settings are zeroed (no audible noise). Keeping
+	 * them here keeps fallback semantics identical to the legacy
+	 * externs the manager defaulted to before F13. */
+	{
+		struct invaimsettings def_aim = {
+			0,                                   /* zoomfov */
+			3,                                   /* guntransup */
+			8,                                   /* guntransdown */
+			15,                                  /* guntransside */
+			0.9721f,                             /* aimdamppal */
+			0.9767f,                             /* aimdamp */
+			SIGHTTRACKTYPE_DEFAULT,              /* tracktype */
+			0,                                   /* unk18_04 */
+			INVAIMFLAG_AUTOAIM,                  /* flags */
+		};
+		s_DefaultAim = def_aim;
+	}
+	{
+		struct noisesettings def_noise = { 0, 0, 0, 1, 6 };
+		s_DefaultNoise = def_noise;
+	}
 
 	s_LoaderActive = 1;
 	sysLogPrintf(LOG_NOTE,
@@ -1294,72 +1358,17 @@ s32 loaderPdbaseBuildWeaponManager(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* Field-equivalence verifier (F12 self-test)                         */
+/* Field-equivalence verifier (RETIRED at F13)                        */
+/*                                                                    */
+/* The parity check was a one-shot diagnostic that compared the       */
+/* loader's pool-backed weapons against the legacy g_Weapons[] table  */
+/* during the F12 parity period. It served its purpose (verified the  */
+/* loader is correct on Mike's 2026-04-30 playtest -- "parity check   */
+/* PASS (86 weapons)") and is removed in F13 because g_Weapons[] no   */
+/* longer exists to compare against. Future regression coverage comes */
+/* from behavioral tests + the existing structure-pin tests in        */
+/* tests/test_loader_pdbase_scan.cpp.                                  */
 /* ------------------------------------------------------------------ */
-
-static s32 s_ParityFails;
-
-#define PARITY_FIELD_INT(WEAP_IDX, LIVE_FIELD, MGR_FIELD)                \
-	do {                                                                  \
-		if ((s64)(LIVE_FIELD) != (s64)(MGR_FIELD)) {                      \
-			sysLogPrintf(LOG_WARNING,                                      \
-				"LOADER.PDBASE.WEAPON.PARITY_FAIL: weap=%d field=%s "      \
-				"live=%lld mgr=%lld", WEAP_IDX, #MGR_FIELD,                \
-				(long long)(LIVE_FIELD), (long long)(MGR_FIELD));          \
-			s_ParityFails++;                                                \
-		}                                                                  \
-	} while (0)
-
-#define PARITY_FIELD_FLOAT(WEAP_IDX, LIVE_FIELD, MGR_FIELD)              \
-	do {                                                                  \
-		f32 _l = (LIVE_FIELD);                                            \
-		f32 _m = (MGR_FIELD);                                             \
-		f32 _d = _l - _m;                                                 \
-		if (_d < 0) _d = -_d;                                             \
-		if (_d > 0.0001f) {                                                \
-			sysLogPrintf(LOG_WARNING,                                      \
-				"LOADER.PDBASE.WEAPON.PARITY_FAIL: weap=%d field=%s "      \
-				"live=%g mgr=%g", WEAP_IDX, #MGR_FIELD, _l, _m);           \
-			s_ParityFails++;                                                \
-		}                                                                  \
-	} while (0)
-
-s32 loaderPdbaseRunParityCheck(void)
-{
-	if (!s_LoaderActive) {
-		sysLogPrintf(LOG_NOTE,
-			"LOADER.PDBASE.WEAPON.OK: parity check skipped (loader inactive)");
-		return 0;
-	}
-	s_ParityFails = 0;
-	for (s32 i = 0; i < CATALOG_MGR_WEAPON_COUNT; i++) {
-		const struct weapon *live = g_Weapons[i];
-		const struct weapon *mgr  = &s_Weapons[i];
-		if (live == NULL) continue;
-		PARITY_FIELD_INT(i, live->hi_model, mgr->hi_model);
-		PARITY_FIELD_INT(i, live->lo_model, mgr->lo_model);
-		PARITY_FIELD_INT(i, live->shortname, mgr->shortname);
-		PARITY_FIELD_INT(i, live->name, mgr->name);
-		PARITY_FIELD_INT(i, live->manufacturer, mgr->manufacturer);
-		PARITY_FIELD_INT(i, live->description, mgr->description);
-		PARITY_FIELD_INT(i, live->flags, mgr->flags);
-		PARITY_FIELD_FLOAT(i, live->muzzlez, mgr->muzzlez);
-		PARITY_FIELD_FLOAT(i, live->posx,    mgr->posx);
-		PARITY_FIELD_FLOAT(i, live->posy,    mgr->posy);
-		PARITY_FIELD_FLOAT(i, live->posz,    mgr->posz);
-		PARITY_FIELD_FLOAT(i, live->sway,    mgr->sway);
-	}
-	if (s_ParityFails == 0) {
-		sysLogPrintf(LOG_NOTE,
-			"LOADER.PDBASE.WEAPON.OK: parity check PASS (%d weapons)",
-			CATALOG_MGR_WEAPON_COUNT);
-	} else {
-		sysLogPrintf(LOG_WARNING,
-			"LOADER.PDBASE.WEAPON.PARITY_FAIL: %d field mismatches across %d weapons",
-			s_ParityFails, CATALOG_MGR_WEAPON_COUNT);
-	}
-	return s_ParityFails;
-}
 
 
 

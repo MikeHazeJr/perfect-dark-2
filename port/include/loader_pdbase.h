@@ -69,17 +69,14 @@ struct weapon;
 struct invaimsettings;
 struct noisesettings;
 struct guncmd;
+struct aibotweaponpreference;
 
 s32 loaderPdbaseIsActive(void);
-const struct weapon          *loaderPdbaseGetWeapon(s32 idx);
-const struct invaimsettings  *loaderPdbaseGetDefaultAim(void);
-const struct noisesettings   *loaderPdbaseGetDefaultNoise(void);
+const struct weapon                *loaderPdbaseGetWeapon(s32 idx);
+const struct invaimsettings        *loaderPdbaseGetDefaultAim(void);
+const struct noisesettings         *loaderPdbaseGetDefaultNoise(void);
+const struct aibotweaponpreference *loaderPdbaseGetBotPref(s32 idx);
 s32 loaderPdbaseGetWeaponsRegistered(void);
-
-/* F12 self-test: compares pool-backed weapons against g_Weapons[]
- * field-by-field, emits LOADER.PDBASE.WEAPON.PARITY_FAIL on mismatches.
- * Returns count of mismatched fields (0 = pass). */
-s32 loaderPdbaseRunParityCheck(void);
 
 /* F12 round-trip helper: encode a single struct guncmd back to a
  * JSON-ish string ("[mnem, unk01, unk02, unk04]"). Used by tests. */

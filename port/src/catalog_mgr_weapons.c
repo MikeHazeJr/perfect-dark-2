@@ -29,10 +29,11 @@
 #include "loader_pdbase.h"
 #include "lang.h"
 
-extern struct weapon                *g_Weapons[];
-extern struct aibotweaponpreference  g_AibotWeaponPreferences[];
-extern struct invaimsettings         invaimsettings_default;
-extern struct noisesettings          invnoisesettings_silent;
+/* S484 F13: g_Weapons[], g_AibotWeaponPreferences[],
+ * invaimsettings_default, and invnoisesettings_silent were retired in
+ * favour of the loader's typed pools (port/src/loader_pdbase.c).
+ * Every accessor below now goes through the loader. There is no
+ * legacy fallback any more -- the parity-period bridge lived in F12. */
 
 s32 catalogManagerWeaponCount(void)
 {
@@ -57,13 +58,10 @@ struct weapon *catalogManagerGetWeaponByIndex(s32 weapon_id)
 			weapon_id, CATALOG_MGR_WEAPON_COUNT);
 		return NULL;
 	}
-	/* F12: route through loader-owned pool when active; fall back to
-	 * the legacy g_Weapons[] table while parity is being verified.
-	 * F13 retires g_Weapons[] entirely. */
-	if (loaderPdbaseIsActive()) {
-		return (struct weapon *)loaderPdbaseGetWeapon(weapon_id);
-	}
-	return g_Weapons[weapon_id];
+	/* F13: loader-owned pool is the sole data source. Returns NULL
+	 * if the loader hasn't initialised yet (very early startup) -- the
+	 * caller's existing NULL handling kicks in. */
+	return (struct weapon *)loaderPdbaseGetWeapon(weapon_id);
 }
 
 struct weapon *catalogManagerGetWeaponAt(s32 iter_index)
@@ -71,10 +69,7 @@ struct weapon *catalogManagerGetWeaponAt(s32 iter_index)
 	if (iter_index < 0 || iter_index >= CATALOG_MGR_WEAPON_COUNT) {
 		return NULL;
 	}
-	if (loaderPdbaseIsActive()) {
-		return (struct weapon *)loaderPdbaseGetWeapon(iter_index);
-	}
-	return g_Weapons[iter_index];
+	return (struct weapon *)loaderPdbaseGetWeapon(iter_index);
 }
 
 struct weapon *catalogManagerGetWeaponById(const char *catalog_id)
@@ -108,20 +103,12 @@ struct weapon *catalogManagerGetWeaponById(const char *catalog_id)
 
 const struct invaimsettings *catalogManagerWeaponDefaultAimSettings(void)
 {
-	if (loaderPdbaseIsActive()) {
-		const struct invaimsettings *p = loaderPdbaseGetDefaultAim();
-		if (p != NULL) return p;
-	}
-	return &invaimsettings_default;
+	return loaderPdbaseGetDefaultAim();
 }
 
 const struct noisesettings *catalogManagerWeaponDefaultNoiseSettings(void)
 {
-	if (loaderPdbaseIsActive()) {
-		const struct noisesettings *p = loaderPdbaseGetDefaultNoise();
-		if (p != NULL) return p;
-	}
-	return &invnoisesettings_silent;
+	return loaderPdbaseGetDefaultNoise();
 }
 
 void catalogManagerWeaponSetEyespyVariant(eyespy_variant_e variant)
@@ -176,5 +163,5 @@ const struct aibotweaponpreference *catalogManagerGetWeaponBotPref(s32 weapon_id
 			weapon_id, CATALOG_MGR_WEAPON_COUNT);
 		return NULL;
 	}
-	return &g_AibotWeaponPreferences[weapon_id];
+	return loaderPdbaseGetBotPref(weapon_id);
 }
