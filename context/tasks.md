@@ -138,14 +138,6 @@ Per [pillars/save-wire-format.md](pillars/save-wire-format.md) Known Gaps:
 
 ---
 
-## Process / context follow-ups
-
-- Phase 3B of the rebuild: move old context to `_old/` after Mike approves the readiness brief at Step 6. See [audits/context-rebuild-proposal-2026-04-30.md](audits/context-rebuild-proposal-2026-04-30.md) Section 6.
-- Repoint `CLAUDE.md`, `AGENTS.md`, `.cursor/skills/context-session-start/` references to the new structure.
-- Self-archive the cleanup plan + rebuild proposal once the rebuild is fully landed.
-
----
-
 ## Where to look
 
 - For per-pillar live state and pillar-specific in-flight work: [pillars/](pillars/).
