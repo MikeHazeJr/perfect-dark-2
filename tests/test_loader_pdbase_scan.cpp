@@ -184,3 +184,89 @@ TEST_CASE("F11: extractor script is committed alongside the archive",
     REQUIRE(script.find("GUNSCRIPT_MACROS") != std::string::npos);
     REQUIRE(script.find("GUNVISCMD_MACROS") != std::string::npos);
 }
+
+/* ---------- F12 loader API contract ---------- */
+
+TEST_CASE("F12: loader_pdbase.h declares pool + parity API",
+          "[catalog-mgr-weapon][s484][f12]") {
+    std::string hdr = readFile("port/include/loader_pdbase.h");
+    /* Pool accessor + activity probe pinned by the manager swap. */
+    REQUIRE(hdr.find("loaderPdbaseIsActive") != std::string::npos);
+    REQUIRE(hdr.find("loaderPdbaseGetWeapon") != std::string::npos);
+    REQUIRE(hdr.find("loaderPdbaseGetDefaultAim") != std::string::npos);
+    REQUIRE(hdr.find("loaderPdbaseGetDefaultNoise") != std::string::npos);
+    /* Parity self-test pinned so a future refactor doesn't drop it
+     * silently while parity is still being verified pre-F13. */
+    REQUIRE(hdr.find("loaderPdbaseRunParityCheck") != std::string::npos);
+    /* Round-trip helper for opcode encoding (used by future tests). */
+    REQUIRE(hdr.find("loaderPdbaseEncodeOpcode") != std::string::npos);
+}
+
+TEST_CASE("F12: loader implementation emits documented log channels",
+          "[catalog-mgr-weapon][s484][f12]") {
+    std::string src = readFile("port/src/loader_pdbase.c");
+    /* All five hierarchical channels must be present in the source so
+     * runtime diagnostics are loud per directive. */
+    REQUIRE(src.find("LOADER.PDBASE.WEAPON.OK") != std::string::npos);
+    REQUIRE(src.find("LOADER.PDBASE.WEAPON.SCAN_FAIL") != std::string::npos);
+    REQUIRE(src.find("LOADER.PDBASE.WEAPON.RESOLVE_FAIL") != std::string::npos);
+    REQUIRE(src.find("LOADER.PDBASE.WEAPON.POOL_FULL") != std::string::npos);
+    REQUIRE(src.find("LOADER.PDBASE.WEAPON.PARITY_FAIL") != std::string::npos);
+}
+
+TEST_CASE("F12: opcode codec covers all 12 GUNCMD_* mnemonics",
+          "[catalog-mgr-weapon][s484][f12]") {
+    std::string src = readFile("port/src/loader_pdbase.c");
+    /* Every mnemonic in src/include/gunscript.h must round-trip. The
+     * encoder switch and decoder if-chain both name the mnemonic, so
+     * the literal is in the source twice per opcode. Pin it once
+     * here per opcode -- the decoder branch. */
+    const char *mnemonics[] = {
+        "\"end\"", "\"showpart\"", "\"hidepart\"", "\"waitforzreleased\"",
+        "\"waittime\"", "\"playsound\"", "\"include\"", "\"random\"",
+        "\"repeatuntilfull\"", "\"popoutsackofpills\"", "\"playanimation\"",
+        "\"setsoundspeed\"",
+    };
+    for (const char *m : mnemonics) {
+        REQUIRE(src.find(m) != std::string::npos);
+    }
+}
+
+TEST_CASE("F12: manager accessor routes through loader when active",
+          "[catalog-mgr-weapon][s484][f12]") {
+    std::string mgr = readFile("port/src/catalog_mgr_weapons.c");
+    /* The integer-index path must check loaderPdbaseIsActive() and
+     * return the pool-backed pointer. The fallback to g_Weapons[] is
+     * the F12 parity-period bridge; F13 deletes it. */
+    REQUIRE(mgr.find("loaderPdbaseIsActive") != std::string::npos);
+    REQUIRE(mgr.find("loaderPdbaseGetWeapon") != std::string::npos);
+    REQUIRE(mgr.find("loaderPdbaseGetDefaultAim") != std::string::npos);
+    REQUIRE(mgr.find("loaderPdbaseGetDefaultNoise") != std::string::npos);
+}
+
+TEST_CASE("F12: loader is wired into client startup",
+          "[catalog-mgr-weapon][s484][f12]") {
+    std::string main_src = readFile("port/src/main.c");
+    /* main.c must call the loader scan + build + parity check
+     * sequence right after assetCatalogRegisterBaseGame(). The
+     * sequence makes the manager pool-backed before any other
+     * subsystem reads weapon data. */
+    REQUIRE(main_src.find("loaderPdbaseScan") != std::string::npos);
+    REQUIRE(main_src.find("loaderPdbaseBuildWeaponManager") != std::string::npos);
+    REQUIRE(main_src.find("loaderPdbaseRunParityCheck") != std::string::npos);
+}
+
+TEST_CASE("F12: enum lookup tables exist for ANIM/SFX/FILE/L_GUN",
+          "[catalog-mgr-weapon][s484][f12]") {
+    std::string hdr = readFile("port/include/loader_pdbase_enums.h");
+    REQUIRE(hdr.find("loaderPdbaseResolveAnimEnum") != std::string::npos);
+    REQUIRE(hdr.find("loaderPdbaseResolveSfxEnum") != std::string::npos);
+    REQUIRE(hdr.find("loaderPdbaseResolveLangEnum") != std::string::npos);
+    REQUIRE(hdr.find("loaderPdbaseResolveFileEnum") != std::string::npos);
+    /* The generated table file must exist and carry sensible counts. */
+    std::string gen = readFile("port/src/loader_pdbase_enums.c");
+    REQUIRE(gen.find("k_AnimEnum[]") != std::string::npos);
+    REQUIRE(gen.find("k_SfxEnum[]") != std::string::npos);
+    REQUIRE(gen.find("k_LangEnum[]") != std::string::npos);
+    REQUIRE(gen.find("k_FileEnum[]") != std::string::npos);
+}
