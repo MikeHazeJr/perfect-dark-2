@@ -277,43 +277,75 @@ TEST_CASE("F12: enum lookup tables exist for ANIM/SFX/FILE/L_GUN",
 
 /* ---------- F13 grep-guard: Layer A symbols are gone from source ---------- */
 
+/* Helper: does the file contain a non-comment occurrence of `needle`?
+ * We approximate "non-comment" by stripping out lines whose first
+ * non-whitespace char is `//` or `*` and lines that include `* ` (a
+ * block-comment continuation marker). Imperfect but catches the
+ * comment-vs-definition split for the F13 grep guard. */
+static bool fileHasNonCommentOccurrence(const std::string &src,
+                                          const std::string &needle) {
+    size_t pos = 0;
+    while ((pos = src.find(needle, pos)) != std::string::npos) {
+        /* Find the start of this line. */
+        size_t lineStart = src.rfind('\n', pos);
+        lineStart = (lineStart == std::string::npos) ? 0 : lineStart + 1;
+        /* Walk forward to the first non-space char on this line. */
+        size_t i = lineStart;
+        while (i < src.size() && (src[i] == ' ' || src[i] == '\t')) i++;
+        bool isComment = false;
+        if (i + 1 < src.size()) {
+            if (src[i] == '/' && src[i + 1] == '/') isComment = true;
+            else if (src[i] == '*') isComment = true;
+            else if (src[i] == '/' && src[i + 1] == '*') isComment = true;
+        }
+        if (!isComment) return true;
+        pos += needle.size();
+    }
+    return false;
+}
+
 TEST_CASE("F13: invitems.c no longer defines the static records",
           "[catalog-mgr-weapon][s484][f13]") {
     std::string src = readFile("src/game/invitems.c");
-    /* The file is reduced to a header comment after F13. None of the
-     * historical symbol definitions may remain. */
-    REQUIRE(src.find("g_Weapons[") == std::string::npos);
-    REQUIRE(src.find("struct weapon invitem_") == std::string::npos);
-    REQUIRE(src.find("invfunc_") == std::string::npos);
-    REQUIRE(src.find("invammo_") == std::string::npos);
-    REQUIRE(src.find("invaimsettings_default") == std::string::npos);
-    REQUIRE(src.find("invnoisesettings_silent") == std::string::npos);
-    REQUIRE(src.find("invrecoilsettings_") == std::string::npos);
-    REQUIRE(src.find("struct guncmd invanim_") == std::string::npos);
-    REQUIRE(src.find("struct gunviscmd gunviscmds_") == std::string::npos);
-    REQUIRE(src.find("invpartvisibility_") == std::string::npos);
-    REQUIRE(src.find("vibrationstart_") == std::string::npos);
-    REQUIRE(src.find("vibrationmax_") == std::string::npos);
+    /* The file is reduced to a header comment after F13. Look for
+     * non-comment occurrences of the historical symbol patterns. */
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(src, "g_Weapons["));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(src, "struct weapon invitem_"));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(src, "invfunc_"));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(src, "invammo_"));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(src, "invaimsettings_default"));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(src, "invnoisesettings_silent"));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(src, "invrecoilsettings_"));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(src, "struct guncmd invanim_"));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(src, "struct gunviscmd gunviscmds_"));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(src, "invpartvisibility_"));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(src, "vibrationstart_"));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(src, "vibrationmax_"));
 }
 
 TEST_CASE("F13: botinv.c no longer defines g_AibotWeaponPreferences",
           "[catalog-mgr-weapon][s484][f13]") {
     std::string src = readFile("src/game/botinv.c");
-    /* The table definition is fully removed. The header comment can
-     * mention the symbol name but cannot have the table definition. */
-    REQUIRE(src.find("g_AibotWeaponPreferences[]") == std::string::npos);
-    REQUIRE(src.find("BOTDISTCFG_PISTOL,") == std::string::npos);
+    /* The table definition is fully removed. Header-comment mention of
+     * the symbol name is fine. */
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(src, "g_AibotWeaponPreferences["));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(src, "BOTDISTCFG_PISTOL,"));
 }
 
 TEST_CASE("F13: extern declarations are gone from headers",
           "[catalog-mgr-weapon][s484][f13]") {
     std::string inv_h  = readFile("src/include/game/inv.h");
     std::string data_h = readFile("src/include/data.h");
-    REQUIRE(inv_h.find("extern struct weapon *g_Weapons[") == std::string::npos);
-    REQUIRE(inv_h.find("extern struct invaimsettings invaimsettings_default") == std::string::npos);
-    REQUIRE(inv_h.find("extern struct noisesettings invnoisesettings_silent") == std::string::npos);
-    REQUIRE(data_h.find("extern struct weapon *g_Weapons[") == std::string::npos);
-    REQUIRE(data_h.find("extern struct aibotweaponpreference g_AibotWeaponPreferences[") == std::string::npos);
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(inv_h,
+        "extern struct weapon *g_Weapons["));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(inv_h,
+        "extern struct invaimsettings invaimsettings_default"));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(inv_h,
+        "extern struct noisesettings invnoisesettings_silent"));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(data_h,
+        "extern struct weapon *g_Weapons["));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(data_h,
+        "extern struct aibotweaponpreference g_AibotWeaponPreferences["));
 }
 
 TEST_CASE("F13: no consumer references remain in src/game or port/src",
@@ -324,10 +356,10 @@ TEST_CASE("F13: no consumer references remain in src/game or port/src",
      * but undefined), but pinning specific files makes a regression
      * obvious in the test diff. */
     std::string player_c = readFile("src/game/player.c");
-    REQUIRE(player_c.find("ARRAYCOUNT(g_Weapons)") == std::string::npos);
-    REQUIRE(player_c.find("g_Weapons[") == std::string::npos);
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(player_c, "ARRAYCOUNT(g_Weapons)"));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(player_c, "g_Weapons["));
 
     std::string game_0b0fd0_c = readFile("src/game/game_0b0fd0.c");
     /* Comments mentioning g_Weapons are fine; live references are not. */
-    REQUIRE(game_0b0fd0_c.find("g_Weapons[") == std::string::npos);
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(game_0b0fd0_c, "g_Weapons["));
 }
