@@ -1,8 +1,39 @@
 
 # Session Log (Active)
 
-> **S284–S481** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
+> **S284–S482c** (rolling window). Older sessions **S280–S241** → [_archive/session-log-archive-S280-and-older.md](_archive/session-log-archive-S280-and-older.md). Ancient **S240–S157** → [_archive/session-log-archive-S240-and-older.md](_archive/session-log-archive-S240-and-older.md). **S1–S119** → [_archive/sessions/].
 > Navigation hub: [INDEX.md](INDEX.md) · Back to [README.md](README.md)
+
+## Session S482c (`festive-hawking-49649b` follow-up #7) - 2026-04-30 - Dev Window v2 blank-screen fix
+
+Mike's blocker: "Dev Window v2 is broken -- opens to a blank white screen."
+
+**Diagnosis methodology** (progressive bisect with screen capture + in-process visual-tree introspection):
+
+1. Reproduced via PrintWindow + screen-coords screenshot: dev window opens, title bar visible, content area pure blank white. Mike's exact symptom.
+2. Tested S475 through S480 PS1 versions independently (extracted from git history). All rendered blank in my probe -- not a recent regression.
+3. Verified the XAML loads cleanly via `XamlReader.Load` -- no parse errors.
+4. **In-process visual-tree introspection** (DispatcherTimer + FindName + ActualWidth/Height inside the window's own process): elements rendered with correct dimensions: BtnBuild 1255x104, TabControl 2564x723, ScrollViewer 2564x644, all named labels visible. The WPF visual tree is fully constructed and laid out.
+5. **`RenderTargetBitmap`** (renders the visual tree directly to a bitmap, bypassing the HWND composition layer) produced a perfect screenshot of the Dev Window UI -- every button, tab, label, status row.
+6. **`PrintWindow`** with `PW_RENDERFULLCONTENT` (standard "ask the window to render itself onto an HDC" call) returned pure blank white.
+
+The contradiction (visual tree complete + RenderTargetBitmap renders correctly + PrintWindow + screen capture both blank) localised the bug to the **WPF HWND composition / GPU pipeline**: the visual tree exists and lays out correctly, but the GPU/DWM composition path that puts pixels on the HWND backbuffer was silently dropping the frame. Classic symptom of a composition disconnection (driver state, DWM glitch, virtual-display mismatch).
+
+**Fix**: one line, immediately after the WPF assemblies are loaded in `Section 1: Assembly loading`:
+
+```powershell
+[System.Windows.Media.RenderOptions]::ProcessRenderMode = [System.Windows.Interop.RenderMode]::SoftwareOnly
+```
+
+Forces WPF to render the entire process via the CPU software rasteriser, bypassing the broken GPU/DWM path. Slight performance cost (CPU-rendered 1500x940 with no animations and only periodic text-status updates is comfortably within tolerance for a dev tool). MUST be set before the first `Window` is constructed.
+
+**Verified**: re-ran the actual `dev-window-v2.ps1` with the fix in place. PrintWindow capture now shows the full UI: BUILD button (green hero), RELEASE button reading "Dev v0.0.175" (gold hero), tab strip BUILD / LOG / DOCS, utility row (GitHub / Project Folder / Clean Build / Pull / Push / Prune Worktrees / Check), STATUS card (client/tests rows), VERSION card with MAJ/MIN/REV spinners showing "0 0 175", `auth: ok`, `latest: v0.0.142 (stable)`, `Dev Latest: v0.0.175`, RUN TESTS / RUN GAME bottom bar, status bar `Idle | branch: dev | HEAD: f7a8562e | 1 uncommitted | worktrees: 1 | auth: ok | v0.0.175`.
+
+**Methodology learning**: when a WPF window opens but renders blank, do NOT assume layout / XAML / wiring. Three-step probe: (a) `XamlReader.Load` parses fine? (b) in-process `FindName` + `ActualWidth/Height` shows positive values? (c) `RenderTargetBitmap` produces correct content? If yes/yes/yes, the bug is below the WPF visual tree -- in HWND composition or GPU pipeline. Standard fix is `RenderOptions.ProcessRenderMode = SoftwareOnly`.
+
+**Why "S482c" not "S484"**: dev branch already shipped S482 / S483 / S483b / S483c from concurrent sessions in the parent project. This is the seventh follow-up on the `festive-hawking-49649b` dev-tool branch. Numbering as "S482c" preserves the worktree's session lineage (S475 -> S477 -> S478 -> S479 -> S480 -> S481 -> S482c).
+
+Files: `devtools/dev-window-v2/dev-window-v2.ps1` (13-line block added after the WPF `Add-Type` assembly loads).
 
 ## Session S481 (`festive-hawking-49649b` follow-up #6) - 2026-04-27 - release rebase failure + remaining BOM writers
 
