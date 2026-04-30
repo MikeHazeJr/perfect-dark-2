@@ -48,6 +48,7 @@
 #include "constants.h"
 #include "loader_pdbase.h"
 #include "loader_pdbase_enums.h"
+#include "catalog_mgr_weapons.h"
 #include "system.h"
 #include "fs.h"
 
