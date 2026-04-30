@@ -12,15 +12,13 @@ The queue has three lanes after the context rebuild lands. Lane order is sequent
 
 ### 1. Catalog - Weapons F11-F13 data move
 
-**Status**: F1-F10 shipped (S484, manager skeleton + accessor migration + .pdbase loader scaffold). **F11 shipped 2026-04-30** (extractor + base/weapons.pdbase + structure-pin tests; Path B data-driven animations approved by Mike per IK runway). F12 + F13 are the next slices.
+**Status**: F1-F10 (S484), F11 (S591), and **F12 (S591) shipped 2026-04-30**. F13 is the final slice; gated on Mike's playtest verification of the F12 runtime parity check.
 
-**Scope (F12, next)**:
+**F11 outcome (S591)**: extractor + base/weapons.pdbase + structure-pin tests. Path B (data-driven animations) approved by Mike for IK runway.
 
-- C-side JSON parser for `base/weapons.pdbase` (sized for ~13k-line archive, 86 weapons + 110 animations).
-- Opcode encoder/decoder: JSON mnemonics ↔ `GUNCMD_*` enum + struct guncmd field layouts; cross-references between animations resolved at load time.
-- Loader populates manager with weapons + animations + sub-records (functions, ammos, aim/noise/recoil settings, gunviscmds, modelpartvis, guncmds). Manager owns typed pools; `g_Weapons[]` parity stays through F12.
-- Expand `s_BaseWeapons` from 41 MP-only to 86 entries with `pdbase_path / pdbase_offset / pdbase_size` populated.
-- Field-equivalence regression test: load .pdbase, populate manager, compare every field per weapon against legacy `g_Weapons[i]`.
+**F12 outcome (S591)**: runtime loader + opcode codec + manager-owned typed pools + enum lookup tables + manager accessor swap + startup wiring + field-equivalence runtime self-test. Manager routes through pool-backed pointers when `loaderPdbaseIsActive()`; falls back to `g_Weapons[]` while parity is being verified.
+
+**F12 verification pending**: Mike launches PerfectDark.exe, confirms `LOADER.PDBASE.WEAPON.OK: parity check PASS` line in the playtest log + absence of `LOADER.PDBASE.WEAPON.PARITY_FAIL:` warnings. Once verified, F13 is unblocked.
 
 **Scope (F13, final)**:
 
@@ -30,12 +28,17 @@ The queue has three lanes after the context rebuild lands. Lane order is sequent
 - Manager + .pdbase becomes sole source of truth.
 - Grep-guard test: no symbol references remain.
 
-**Companion cleanups within F12-F13**:
+**Companion cleanups within F13**:
 
 - Fix [tests/test_catalog_mgr_weapons_api.cpp:15](../../tests/test_catalog_mgr_weapons_api.cpp:15) stale comment (says 89, asserts 86).
-- Reconcile [port/include/loader_pdbase.h:49-51](../../port/include/loader_pdbase.h:49) header that lies to its `.c` body.
+- Reconcile [port/include/loader_pdbase.h:49-51](../../port/include/loader_pdbase.h:49) header that lies to its `.c` body (now mostly fixed in F12 update).
 
-**Design ref**: [designs/catalog/catalog-full-pipeline-weapons.md](designs/catalog/catalog-full-pipeline-weapons.md) (F11 progress recorded in Section J.3 / J.4).
+**F12 follow-up (deferred)**:
+
+- Expand `s_BaseWeapons` from 41 MP-only to 86 entries with `pdbase_path` metadata. Per Mike's 2026-04-30 unlock-state clarification, registration is unconditional — registering all 86 catalog rows (not just MP-selectable) supports introspection / debugging / modder UX. Not blocking F13.
+- F12's parity self-test compares 12 scalar fields per weapon. Sub-record comparison (functions, ammos, gunviscmds, partvis) deferred; F13 surfaces any indirectly-mutated path that breaks.
+
+**Design ref**: [designs/catalog/catalog-full-pipeline-weapons.md](designs/catalog/catalog-full-pipeline-weapons.md) (F11 + F12 progress in Section J.4-J.7).
 **Pillar ref**: [pillars/catalog.md](pillars/catalog.md).
 
 ### 2. Catalog - Gate 3 Migration

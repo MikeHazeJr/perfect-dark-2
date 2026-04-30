@@ -595,6 +595,28 @@ Mid-session F11 work, Mike clarified the long-term vision: "I do want data drive
 |---|---|---|---|
 | 41ccbfed | F11: extractor + archive + structure-pin tests | `devtools/extract_weapons_pdbase.py` (new, 1329 lines), `base/weapons.pdbase` (new, 12823 lines), `tests/test_loader_pdbase_scan.cpp` (extended) | 8 new cases / 35 assertions in `[catalog-mgr-weapon][s484][f11]` |
 
+### J.7 F12 implementation notes (2026-04-30, S591)
+
+- **Loader implementation** lives entirely in `port/src/loader_pdbase.c` (~1400 lines): JSON tokenizer + recursive-descent parser, opcode codec for all 12 `gunscript_*` and 5 `gunviscmd_*` mnemonics, manager-owned typed pools, per-record parsers (weapon, weaponfunc with all 8 variants, ammo, settings, etc.), public scan + build + accessors.
+- **Pool sizing**: weapons[86], guncmd[3000], gunviscmd[500], modelpartvisibility[500], inventory_ammo[120], invaimsettings[120], noisesettings[120], recoilsettings[120], weaponfunc_any_t[256], f32 vibrations[256], anim name table[256]. POOL_FULL fires loud-fail per `LOADER.PDBASE.WEAPON.POOL_FULL:` if exceeded.
+- **Variant union** for weaponfunc: `weaponfunc_any_t` is a `union` of all 8 weaponfunc subclass types. Each pool slot accepts any subclass; the `_struct` JSON key tells the parser which fields to populate, and `base.type` (the standard `INVENTORYFUNCTYPE_*` discriminator) identifies the variant at runtime.
+- **Enum lookup tables generated** by the same Python extractor as the JSON archive (devtools/extract_weapons_pdbase.py with `--enum-tables-out`). Tables: ANIM (1208 entries from animations.h), SFX (1981 from sfx.h), L_GUN (237 from lang/gun.h), FILE (2007 from files.h + constants.h fallback). Resolution: linear scan at JSON parse time (~5400 entries total; fast enough for one-time startup load).
+- **Manager accessor swap**: `catalog_mgr_weapons.c` gates on `loaderPdbaseIsActive()`. When active, returns pool-backed pointers; otherwise falls back to `g_Weapons[]` (the parity-period bridge). F13 retires the fallback path.
+- **Server opts out**: `port/src/loader_pdbase.c` is in the auto-discovered `SRC_PORT` (pd target only) and not in the curated `SRC_SERVER` list. The dedicated server's weapon resolution stays on the catalog-row + session-ref pipeline; if a future server feature needs the typed weapon payload, add the loader + deps to `SRC_SERVER`.
+- **Field-equivalence verifier** (`loaderPdbaseRunParityCheck`): startup self-test compares 12 scalar fields per weapon (hi_model, lo_model, name, shortname, manufacturer, description, flags, muzzlez, posx/y/z, sway) against `g_Weapons[i]`. Logs `LOADER.PDBASE.WEAPON.PARITY_FAIL:` per mismatch, summary OK / FAIL line. Pin: pd-tests confirms the call site exists (`loaderPdbaseRunParityCheck` in `main.c`); runtime verification is pending Mike's playtest.
+- **Sub-record parity not yet checked**: functions, ammos, gunviscmds, partvis are reconstructed by the loader but not compared to legacy data. F13 surfaces any mismatch through indirect paths (e.g., a consumer that reads `weapon->functions[0]->base.damage` and gets a different value than legacy).
+- **Server-side compile gotcha**: my initial F12 commit referenced `loaderPdbase*` from `server_main.c`, which broke the link because `loader_pdbase.c` isn't in `SRC_SERVER`. Fixed in F12.1b by reverting the server call.
+- **Header include**: `loader_pdbase.c` needs `catalog_mgr_weapons.h` for `CATALOG_MGR_WEAPON_COUNT`. Initial commit missed this; fixed in F12.1b.
+
+### J.8 F12 commit ledger (S591)
+
+| Commit | Step | Files | Tests |
+|---|---|---|---|
+| d7994583 | F12.0 generate enum lookup tables | `devtools/extract_weapons_pdbase.py` (extended), `port/include/loader_pdbase_enums.h` (new), `port/src/loader_pdbase_enums.c` (new, generated) | implicit (no new test cases) |
+| 612e5d54 | F12.1 implement loader + manager pool routing | `port/src/loader_pdbase.c` (rewrote scaffold), `port/include/loader_pdbase.h` (extended), `port/src/catalog_mgr_weapons.c` (route), `port/src/main.c` (wire), `port/src/server_main.c` (initial wire, reverted) | none yet |
+| 57197d98 | F12.1b fix loader build | `port/src/loader_pdbase.c` (header include), `port/src/server_main.c` (revert + comment) | unblocks compile |
+| 69abadbd | F12.2 add pd-tests pins for loader API | `tests/test_loader_pdbase_scan.cpp` (extended) | 6 new cases / 45 assertions in `[catalog-mgr-weapon][s484][f12]` |
+
 ### J.3 Final commit ledger (S484 Phase 2)
 
 | Commit | Step | Files | Tests |
