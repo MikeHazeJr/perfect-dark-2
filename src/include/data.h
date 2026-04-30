@@ -233,7 +233,7 @@ extern bool g_ObjectiveChecksDisabled;
 extern u16 var8006ae90[];
 extern u16 var8006af0c[];
 extern u16 var8006af8c[];
-extern struct weapon *g_Weapons[];
+/* S484 F13: g_Weapons[] retired -- catalog manager via loader_pdbase. */
 extern bool g_CasingsActive;
 extern s32 g_MaxModels;
 extern s32 g_MaxAnims;
@@ -498,7 +498,7 @@ extern struct mppreset g_MpPresets[];
 extern u32 g_TeamColours[];
 extern u32 var80087ce4[];
 extern u8 g_BotCount;
-extern struct aibotweaponpreference g_AibotWeaponPreferences[];
+/* S484 F13: g_AibotWeaponPreferences[] retired -- catalogManagerGetWeaponBotPref. */
 extern u32 var80087eb4;
 extern struct challenge g_MpChallenges[30];
 extern u8 g_FrIsValidWeapon;
