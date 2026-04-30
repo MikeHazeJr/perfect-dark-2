@@ -1,6 +1,6 @@
 ---
 description: PD2 build scripts, Dev Window, CMake sync, PowerShell 5.1, MSYS2/MinGW tooling
-globs: devtools/**,CMakeLists.txt,context/CRITICAL-PROCEDURES.md,CLAUDE.md
+globs: devtools/**,CMakeLists.txt,context/procedures.md,context/pillars/build-dev-tooling.md,CLAUDE.md
 alwaysApply: false
 ---
 
@@ -11,7 +11,8 @@ Windows x86_64, MSYS2 MinGW, CMake + Ninja, PowerShell 5.1+.
 ## Read first (before behavioral changes)
 
 - `devtools/build-headless.ps1`
-- `context/CRITICAL-PROCEDURES.md` section 3 (build tool sync)
+- `context/procedures.md` "Build tool architecture" section (build tool sync rules)
+- `context/pillars/build-dev-tooling.md` (live state of the build pillar)
 - `CLAUDE.md` (build environment)
 
 ## Rules

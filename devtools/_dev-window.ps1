@@ -113,7 +113,7 @@ $script:ProjectRoot        = Split-Path -Parent $PSScriptRoot
 $script:BuildDir           = Join-Path $script:ProjectRoot "build"
 $script:ClientBuildDir     = Join-Path $script:BuildDir "client"
 $script:ServerBuildDir     = Join-Path $script:BuildDir "server"
-$script:QcFilePath         = Join-Path $script:ProjectRoot "context\qc-tests.md"
+$script:QcFilePath         = Join-Path $script:ProjectRoot "_old\qc-tests.md"
 $script:SettingsPath       = Join-Path $script:ProjectRoot "._dev-window-settings.json"
 $script:ReleaseCachePath   = Join-Path $script:ProjectRoot ".dev-window-release-cache.json"
 $script:AddinDir           = Join-Path $script:ProjectRoot "..\post-batch-addin"
@@ -1290,7 +1290,8 @@ function Save-QcFile {
         }
         $out += $line
     }
-    # No-BOM UTF-8 write. context/qc-tests.md is tracked; PS 5.1's
+    # No-BOM UTF-8 write. _old/qc-tests.md (was context/qc-tests.md
+    # before the 2026-04-30 context rebuild) is tracked; PS 5.1's
     # `Set-Content -Encoding UTF8` would emit a BOM byte that left the
     # working tree dirty after every QC update (S481).
     try {
