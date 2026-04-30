@@ -3,6 +3,66 @@
 > **S481-S591** (rolling window of ~110 sessions; S591 added 2026-04-30 for catalog weapons F11). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
 
+## Session S591 - 2026-04-30 - Catalog Weapons F12 (loader + manager pool routing + parity self-test)
+
+Continued the F11-F13 lane. F12 ships the runtime loader: a JSON parser, opcode codec, manager-owned typed pools, enum lookup tables, manager accessor swap, startup wiring, and field-equivalence runtime self-test.
+
+### Outcome
+
+- New `port/src/loader_pdbase.c` (~1400 lines) replaces the F10 stub with full implementation.
+  - JSON tokenizer + recursive-descent parser (~250 lines).
+  - Opcode codec for all 12 `gunscript_*` mnemonics + 5 `gunviscmd_*` mnemonics.
+  - Pools: `weapon[86]`, `guncmd[3000]`, `gunviscmd[500]`, `modelpartvisibility[500]`, `inventory_ammo[120]`, `invaimsettings[120]`, `noisesettings[120]`, `recoilsettings[120]`, `weaponfunc_any_t[256]`, `f32 vibrations[256]`, anim name table[256].
+  - Per-record parsers (weapon, weaponfunc with all 8 variants, ammo, aim/noise/recoil settings, gunviscmds, partvisibility, animation opcodes).
+  - Public API: `loaderPdbaseScan`, `loaderPdbaseBuildWeaponManager`, `loaderPdbaseIsActive`, `loaderPdbaseGetWeapon`, `loaderPdbaseGetDefaultAim/Noise`, `loaderPdbaseRunParityCheck`, `loaderPdbaseEncodeOpcode`.
+- New `port/include/loader_pdbase_enums.h` + `port/src/loader_pdbase_enums.c` (generated, ~1500 lines): ANIM (1208 entries), SFX (1981), L_GUN (237), FILE (2007). Total ~5400 entries. Linear scan resolution at startup; fast enough for one-time load.
+- Extractor extended: now also emits the enum lookup tables (`--enum-tables-out` arg). Same Python script handles JSON + enum-table generation deterministically.
+- Manager (`port/src/catalog_mgr_weapons.c`) gates accessors on `loaderPdbaseIsActive()`: returns pool-backed pointers when loader is active, falls back to `g_Weapons[]` while parity is verified. F13 retires the fallback.
+- Default fallbacks (`catalogManagerWeaponDefaultAimSettings`, `catalogManagerWeaponDefaultNoiseSettings`) prefer pool-backed copies when active.
+- `port/src/main.c` wires the loader call (`loaderPdbaseScan` -> `loaderPdbaseBuildWeaponManager` -> `loaderPdbaseRunParityCheck`) right after `assetCatalogRegisterBaseGame()`.
+- `port/src/server_main.c` opts out: dedicated server doesn't link `loader_pdbase.c` (not in curated `SRC_SERVER` list); server-side weapon resolution stays on the catalog-row + session-ref pipeline. Comment left for future activation.
+- Per Mike's 2026-04-30 unlock-state clarification: loader registration is unconditional on unlock state. Catalog row + manager always cover all 86 entries; selectors filter unlock state separately.
+- pd-tests: 6 new cases / 45 assertions in `[catalog-mgr-weapon][s484][f12]`. Pin: loader API surface (header decls), all 5 log channels in source, all 12 opcode mnemonics in source, manager accessor routes through loader, loader wired into client startup, enum lookup tables exist for all 4 families.
+- Field-equivalence runtime self-test (`loaderPdbaseRunParityCheck`) compares 12 scalar fields per weapon vs `g_Weapons[i]`; logs `LOADER.PDBASE.WEAPON.PARITY_FAIL:` on mismatch. Sub-record comparison (functions, ammos, gunviscmds, partvisibility) deferred to keep diff focused; F13 will surface those if any indirectly mutated path breaks.
+
+### Files
+
+- `port/src/loader_pdbase.c` (rewrote scaffold to full implementation)
+- `port/include/loader_pdbase.h` (extended with new public functions)
+- `port/include/loader_pdbase_enums.h` (new)
+- `port/src/loader_pdbase_enums.c` (new, generated)
+- `port/src/catalog_mgr_weapons.c` (route accessors through loader when active)
+- `port/src/main.c` (wire loader into startup)
+- `port/src/server_main.c` (opt out + comment)
+- `devtools/extract_weapons_pdbase.py` (extended to emit enum tables)
+- `tests/test_loader_pdbase_scan.cpp` (6 new F12 cases)
+- Context updates: `context/pillars/catalog.md`, `context/session-log.md`
+
+### Decisions
+
+- **Server opts out of loader** for F12: `port/src/loader_pdbase.c` lives in `SRC_PORT` (auto-discovered for pd) but not in `SRC_SERVER` (curated). Server uses catalog rows + session refs; no need for the typed weapon payload. If a future server feature needs it, add the loader + its deps to `SRC_SERVER`.
+- **Pool sizing** chosen with headroom: invitems.c has ~110 animations, ~80 ammos, etc. Pool caps are 1.5-2x observed counts. POOL_FULL fires loud-fail if exceeded; raise the cap, don't silently drop.
+- **Runtime parity check** is the F12 verifier (vs an in-process pd-tests case): pd-tests is globals-free and can't link `g_Weapons[]`. The loud-fail at startup is the canonical regression pin until F13 retires the legacy table entirely.
+- **s_BaseWeapons stays at 41 (MP-only)** for F12. The directive said "expand to 86" but that's catalog-row metadata; runtime weapon resolution by index works without the expansion. Marked as a deferred F12 follow-up (could land as F12.x if Mike wants the 45 SP-only weapon catalog rows for introspection / debugging UX, per the 2026-04-30 unlock-state clarification).
+
+### Verification
+
+- pd build: 9s, PerfectDark.exe 54.7 MB.
+- pd-server build: 1s, PerfectDarkServer.exe 22.3 MB.
+- pd-tests build: 18s baseline + ~2s incremental.
+- F12 selector: `pd-tests.exe "[catalog-mgr-weapon][s484][f12]"` -> 45 assertions / 6 cases pass.
+- F11+F12 selector: 80 assertions / 14 cases pass (F11 + F12 stacked).
+- Suite-wide: 403 cases / 19,995 assertions, same 3 pre-existing failures, zero regressions.
+- **Pending Mike's playtest verification**: launch PerfectDark.exe, observe `LOADER.PDBASE.WEAPON.OK:` summary line + absence of `PARITY_FAIL:` warnings in the playtest log. If parity passes, F13 is unblocked.
+- Pre/post merge line-count snapshot per `procedures.md`: all touched files line counts match across worktree-to-dev merges.
+
+### Next
+
+- Mike runs the game once, confirms `LOADER.PDBASE.WEAPON.OK:` parity check PASS line is present (no `PARITY_FAIL:` warnings).
+- F13: delete `g_Weapons[]`, the 110 `invanim_*` arrays, the per-weapon `gunviscmds_*` / `invpartvisibility_*` arrays, all `invitem_*` / `invfunc_*` / `invammo_*` / `invaimsettings_*` / `invnoisesettings_*` / `invrecoilsettings_*` static records from `src/game/invitems.c`. Delete `g_AibotWeaponPreferences[]` from `src/game/botinv.c`. Delete extern declarations in `src/include/data.h`, `src/include/game/inv.h`. Add grep-guard test. Manager + .pdbase becomes sole source.
+
+---
+
 ## Session S591 - 2026-04-30 - Catalog Weapons F11 (data-driven .pdbase + extractor)
 
 Continued the Catalog Full-Pipeline Weapons track. F1-F10 shipped at S484; F11 ships the first generated `base/weapons.pdbase` archive plus the Python extractor that produces it. Mike approved Path B (data-driven animations) mid-session over Path A (named C symbols) so a future IK evaluator can bolt onto the same archive without churning the data layer again.
