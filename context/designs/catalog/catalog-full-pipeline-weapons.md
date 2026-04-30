@@ -608,6 +608,53 @@ Mid-session F11 work, Mike clarified the long-term vision: "I do want data drive
 - **Server-side compile gotcha**: my initial F12 commit referenced `loaderPdbase*` from `server_main.c`, which broke the link because `loader_pdbase.c` isn't in `SRC_SERVER`. Fixed in F12.1b by reverting the server call.
 - **Header include**: `loader_pdbase.c` needs `catalog_mgr_weapons.h` for `CATALOG_MGR_WEAPON_COUNT`. Initial commit missed this; fixed in F12.1b.
 
+### J.9 F13 implementation notes (2026-04-30, S591)
+
+**Gate**: Mike's 2026-04-30 15:05 playtest confirmed `LOADER.PDBASE.WEAPON.OK: parity check PASS (86 weapons)`. F13 unblocked.
+
+**Deletion ledger**:
+
+| Site | Deleted | Replaced by |
+|---|---|---|
+| `src/game/invitems.c` | 5789 lines: g_Weapons[], 75+ invitem_*, 150+ invfunc_*, 80+ invammo_*, 13 invaimsettings_*, 8 invnoisesettings_*, 4 invrecoilsettings_*, 110 invanim_*, 14 gunviscmds_*, 14 invpartvisibility_*, vibrationstart/max_reaper | base/weapons.pdbase + loader pool |
+| `src/game/botinv.c` | g_AibotWeaponPreferences[] table (107 lines) | loader's s_BotPrefs[86] populated from JSON bot_pref sub-struct |
+| `src/include/game/inv.h` | extern decls for invnoisesettings_silent, invaimsettings_default, g_Weapons[] | header comment pointing to catalog manager |
+| `src/include/data.h` | extern decls for g_Weapons[], g_AibotWeaponPreferences[] | comment markers |
+| `src/game/player.c` | `ARRAYCOUNT(g_Weapons)` | `catalogManagerWeaponCount()` |
+| `port/src/catalog_mgr_weapons.c` | F12 parity-period fallback (`loaderPdbaseIsActive()` gate around g_Weapons[i] reads); legacy externs | direct `loaderPdbaseGetWeapon*()` calls; bot_pref via `loaderPdbaseGetBotPref()` |
+| `port/src/loader_pdbase.c` | `loaderPdbaseRunParityCheck()` function (~65 lines); `extern struct weapon *g_Weapons[]`; reads of `invaimsettings_default` / `invnoisesettings_silent` for default storage | hardcoded sentinel struct literals matching the historical extern values |
+| `port/include/loader_pdbase.h` | `loaderPdbaseRunParityCheck` decl | added `loaderPdbaseGetBotPref` decl |
+| `port/src/main.c` | `loaderPdbaseRunParityCheck()` call from startup | nothing (one less startup call) |
+
+**New code**:
+- `s_BotPrefs[CATALOG_MGR_WEAPON_COUNT]` pool in loader_pdbase.c (~1 KB static).
+- `bot_pref` JSON sub-struct parser in `parseWeapon()` (15 fields: unk00..unk03, has*ammogoal, *distconfig, target/critical*ammo*, reloaddelay, allowpartialreloaddelay).
+- `loaderPdbaseGetBotPref()` accessor.
+- Default aim/noise sentinel struct literals (replacing reads of the just-deleted externs).
+
+**Grep-guard test design**:
+- 4 cases under `[catalog-mgr-weapon][s484][f13]` checking that `g_Weapons[`, `invitem_`, `invfunc_`, `invammo_`, `invaimsettings_default`, `invnoisesettings_silent`, `invrecoilsettings_`, `invanim_`, `gunviscmds_`, `invpartvisibility_`, `vibrationstart_`, `vibrationmax_`, `g_AibotWeaponPreferences[`, `BOTDISTCFG_PISTOL,` (table-row marker) all do not appear as live (non-comment) occurrences in the relevant source files.
+- Helper `fileHasNonCommentOccurrence(src, needle)` parses each match's surrounding line: skips `//` line comments, `*` block-continuation lines, and `/*` block openers. Comment-only mentions of the symbol names are explicitly ALLOWED so the header-comment grep-trail in invitems.c / botinv.c / inv.h / data.h can stay (it documents what the manager replaces and where to look).
+
+**Binary impact**: PerfectDark.exe 54.7 MB -> 54.5 MB (200 KB shrink from removed static data).
+
+**Verification**:
+- pd build clean (24s).
+- pd-server build clean (7s).
+- F13 selector: 4 cases / 18 assertions, all PASS.
+- All catalog-mgr-weapon: 47 cases / 219 assertions PASS.
+- Suite: 413 cases / 20,072 assertions, 3 pre-existing failures unchanged, zero regressions from F11-F13 lane.
+
+**Bug class retired**: B-263 / `g_Weapons[254]` AV crash class is structurally impossible after F13. The defensive guard at `modelmgrLoadProjectileModeldefs` becomes belt-and-braces redundancy that stays for safety per the constraint in `context/constraints.md`.
+
+### J.10 F13 commit ledger (S591)
+
+| Commit | Step | Files | Tests |
+|---|---|---|---|
+| f670bd06 | F13 retire Layer A weapon data + parity bridge | invitems.c (5789->50), botinv.c (-117), player.c (1 sub), inv.h (-3+1), data.h (-2+2), catalog_mgr_weapons.c (rework), loader_pdbase.c (-65/+75), loader_pdbase.h (decls), main.c (-1) | 4 new F13 cases / 18 assertions |
+| 53826ea8 | F13 grep-guard tighten to non-comment matches only | tests/test_loader_pdbase_scan.cpp | helper allows comment grep-trail |
+| ebb7479a | tests(F13): hoist fileHasNonCommentOccurrence above first user | tests/test_loader_pdbase_scan.cpp | move-only |
+
 ### J.8 F12 commit ledger (S591)
 
 | Commit | Step | Files | Tests |

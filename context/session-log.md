@@ -34,6 +34,66 @@ Forces WPF to render the entire process via the CPU software rasteriser, bypassi
 
 Files: `devtools/dev-window-v2/dev-window-v2.ps1` (13-line block added after the WPF `Add-Type` assembly loads).
 
+---
+
+## Session S591 - 2026-04-30 - Catalog Weapons F13 (Layer A retired, lane CLOSED)
+
+Mike's playtest (run 15:05) confirmed F12's `LOADER.PDBASE.WEAPON.OK: parity check PASS (86 weapons)`. F13 retires Layer A on the back of that confirmation.
+
+### Outcome
+
+- `src/game/invitems.c`: 5789 lines -> ~50 line header comment. All 75+ invitem_*, 150+ invfunc_*, 80+ invammo_*, 13 invaimsettings_*, 8 invnoisesettings_* (incl. defaults), 4 invrecoilsettings_*, 110 invanim_* opcode arrays, 14 gunviscmds_* arrays, 14 invpartvisibility_* arrays, vibrationstart/max_reaper arrays, and `g_Weapons[]` removed.
+- `src/game/botinv.c`: `g_AibotWeaponPreferences[]` table removed; bot prefs now sourced from base/weapons.pdbase via the loader's `s_BotPrefs[86]` pool.
+- `src/include/game/inv.h` + `src/include/data.h`: extern declarations for `g_Weapons[]`, `g_AibotWeaponPreferences[]`, `invaimsettings_default`, `invnoisesettings_silent` removed.
+- `src/game/player.c`: `ARRAYCOUNT(g_Weapons)` -> `catalogManagerWeaponCount()` in the ammo-iteration loop (only live consumer outside the manager).
+- `port/src/catalog_mgr_weapons.c`: deleted F12 parity-period fallback (`loaderPdbaseIsActive()` gate -> just calls `loaderPdbaseGetWeapon` etc.). Bot pref accessor now routes to `loaderPdbaseGetBotPref()`.
+- `port/src/loader_pdbase.c`: added `s_BotPrefs[CATALOG_MGR_WEAPON_COUNT]` pool + `bot_pref` JSON sub-struct parser (was previously skipped). Hardcoded default aim/noise sentinel values (replacing reads of the now-deleted externs). Deleted `loaderPdbaseRunParityCheck()` -- nothing left to compare against.
+- `port/src/main.c`: dropped the parity check call from startup.
+- `tests/test_loader_pdbase_scan.cpp`: 4 new F13 grep-guard cases asserting the symbols do not return as live (non-comment) occurrences. Updated F12 cases that referenced the parity check or the legacy externs (now expected absent). Added `fileHasNonCommentOccurrence()` helper so comment mentions of the symbol names are allowed (grep-trail for archeologists).
+- Binary size: PerfectDark.exe 54.7 MB -> 54.5 MB (~200 KB shrink from removed static data). PerfectDarkServer.exe unchanged (server didn't link the static records).
+
+### Files
+
+- `src/game/invitems.c` (5789 -> 50 lines)
+- `src/game/botinv.c` (-117 lines)
+- `src/include/game/inv.h` (-3 lines, comment replacement)
+- `src/include/data.h` (-2 lines)
+- `src/game/player.c` (1 substitution)
+- `port/include/loader_pdbase.h` (-3 lines, +bot_pref accessor decl)
+- `port/src/catalog_mgr_weapons.c` (-13 lines manager swap)
+- `port/src/loader_pdbase.c` (-65 lines parity check, +75 lines bot_pref parser + sentinel defaults)
+- `port/src/main.c` (-1 line, comment update)
+- `tests/test_loader_pdbase_scan.cpp` (+86 lines new tests + helper)
+- Context updates: `context/pillars/catalog.md`, `context/tasks.md`, `context/session-log.md`, `context/designs/catalog/catalog-full-pipeline-weapons.md`
+
+### Decisions
+
+- **Header-comment grep-trail.** The deletions leave header comments in invitems.c / botinv.c / inv.h / data.h that explain what was removed and where the data went (file + commit pointer). Future archeologists who grep for `g_Weapons` find the breadcrumb. The grep-guard tests use `fileHasNonCommentOccurrence` so this trail doesn't fail the test.
+- **Hardcoded default aim/noise sentinels** in the loader (replacing reads of the legacy externs). Values match the historical struct literals exactly. F-future could move these to .pdbase metadata if mods need to override them.
+- **F12 parity check + parity-period fallback retired together.** They were two halves of the same transitional bridge; both go in F13.
+- **Server unchanged.** loader_pdbase.c still not in `SRC_SERVER` (curated list); server-side weapon resolution stays on catalog-row + session-ref pipeline. No behavior change.
+
+### Verification
+
+- pd build: 24s, PerfectDark.exe 54.5 MB.
+- pd-server build: 7s, PerfectDarkServer.exe 22.3 MB.
+- pd-tests build: clean.
+- F13 selector (`[catalog-mgr-weapon][s484][f13]`): 4 cases / 18 assertions, all PASS.
+- Full catalog-mgr-weapon (`[catalog-mgr-weapon]`): 47 cases / 219 assertions, all PASS.
+- Suite-wide: 413 cases / 20,072 assertions, **same 3 pre-existing failures** as before F11+F12+F13 (test_catalog_provider_static.cpp, test_cutscene_layer.cpp), **zero regressions** from the entire F11-F13 lane.
+- **Mike's playtest (15:05): F12 parity check PASS** -- the gate that unblocked F13.
+
+### Bug ledger note
+
+The OOB-read class (B-263 / `g_Weapons[254]` AV crash class) is now structurally impossible: there is no `g_Weapons[]` to index out of bounds. The defensive guard at `modelmgrLoadProjectileModeldefs` becomes belt-and-braces redundancy that stays for safety.
+
+### Next
+
+- Texture deployment + extraction investigation (Slice A: drop legacy `mods/` build deploy. Slice B: debug ROM texture extraction path correctness). Surfaced during F12 runtime debugging. Mike picks order.
+- Catalog Gate 3 migration (heads/bodies/arenas/audio + Manager + .pdbase pattern) per the original critical path lane 2.
+
+---
+
 ## Session S591 - 2026-04-30 - Catalog Weapons F12 (loader + manager pool routing + parity self-test)
 
 Continued the F11-F13 lane. F12 ships the runtime loader: a JSON parser, opcode codec, manager-owned typed pools, enum lookup tables, manager accessor swap, startup wiring, and field-equivalence runtime self-test.
