@@ -46,15 +46,17 @@ Context files in `context/` are project infrastructure, not optional documentati
 ### 2. Session Start — Always Read First, Then Confirm
 
 Before writing any code or making any changes:
-1. Read `context/README.md` (master index — links everything)
-2. Read `context/constraints.md` (what you must respect, what's been removed)
-3. Read `context/session-log.md` (last 2–3 sessions — what was done, what's next)
-4. Read `context/tasks-current.md` (active punch list — what needs doing)
-5. Summarize to the user: where we are, what's next, any blockers
-6. **Present all active work fronts** — don't assume the last task is the next task
-7. Confirm direction before starting work
+1. Read `context/README.md` (cold-start orientation, navigation hub)
+2. Read `context/working-preferences.md` (collaboration mode)
+3. Read `context/constraints.md` (active + removed invariants)
+4. Read `context/procedures.md` (build verify, git safety, worktree, truncation discipline)
+5. Read `context/tasks.md` (active punch list)
+6. Read `context/session-log.md` (last 2-3 sessions)
+7. Summarize to the user: where we are, what's next, any blockers
+8. **Present all active work fronts** - don't assume the last task is the next task
+9. Confirm direction before starting work
 
-**Only load domain files** (collision.md, networking.md, etc.) **when the current task requires them.** Don't waste context loading everything.
+**Only load pillar docs** (`context/pillars/<pillar>.md`) **when the current task requires them.** Don't waste context loading everything. The 11 pillars: catalog, input, menus, modding, connectivity, save-wire-format, server, build-dev-tooling, tests, rendering, physics-collision.
 
 ### 3. Constraint Check — Before Every Significant Change
 
@@ -65,12 +67,12 @@ Before implementing anything complex, check `context/constraints.md`:
 
 ### 4. Update As You Go — Not In a Batch
 
-- Decision made → update constraints.md or relevant domain file **immediately**
-- Bug found → add to `context/bugs.md` **immediately**
-- Bug reveals a pattern → add to `context/systemic-bugs.md`
-- Task completed → update `context/tasks-current.md` **immediately**
-- Phase status changed → update `context/infrastructure.md`
-- Constraint removed → add to Removed section of constraints.md with date and rationale
+- Decision made -> update `context/constraints.md` or relevant pillar doc **immediately**
+- Bug found -> add to `context/bugs.md` **immediately**
+- Bug reveals a pattern -> add to `context/systemic-bugs.md`
+- Task completed -> update `context/tasks.md` **immediately**
+- Pillar status changed -> update `context/pillars/<pillar>.md` in the same commit as the code change
+- Constraint removed -> add to Removed section of constraints.md with date and rationale
 
 **Do not defer context updates to the end of the session.** If the conversation is cleared mid-task, the next session must be able to pick up from the context files alone.
 
@@ -78,8 +80,8 @@ Before implementing anything complex, check `context/constraints.md`:
 
 When the user wraps up or a major task completes:
 1. Update `context/session-log.md` with: focus, what was done, decisions, next steps
-2. Update `context/tasks-current.md` with current status and any new blockers
-3. Update any domain files that were touched
+2. Update `context/tasks.md` with current status and any new blockers
+3. Update any pillar doc whose live state shifted
 4. Brief summary to the user of what was recorded
 
 ### 6. Bug Discipline
@@ -156,4 +158,4 @@ The goal: if context is cleared right now, the next session picks up in under a 
 
 Build targets include **`pd`** (game client) and **`pd-server`** (`PerfectDarkServer.exe`). **Listen** mode runs the server inside the game client (`g_NetDedicated == 0`); **dedicated** is headless or server-GUI only (`g_NetDedicated == 1`, `g_NetLocalClient == NULL`). Dedicated servers skip ROM/mod checks at `CLC_AUTH` because no ROM is loaded; connect codes hide raw IPs in UI per `context/constraints.md`.
 
-Threat model and operational notes: **`context/designs/hosting-modes-listen-vs-dedicated.md`**. Dedicated layout and GUI: **`context/server-architecture.md`**.
+Threat model and operational notes: **`context/designs/connectivity/hosting-modes-listen-vs-dedicated.md`**. Live server pillar: **`context/pillars/server.md`** (folds in the prior `context/server-architecture.md`).
