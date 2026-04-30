@@ -51,6 +51,31 @@ size_t countSubstring(const std::string &haystack, const std::string &needle) {
     return count;
 }
 
+/* Helper: does the file contain a non-comment occurrence of `needle`?
+ * Approximates "non-comment" by stripping out lines whose first
+ * non-whitespace char is `//` or `*` (block-comment continuation /
+ * Doxygen-style line) or `/*` (block-comment opener). Catches the
+ * comment-vs-definition split for the F13 grep guard. */
+bool fileHasNonCommentOccurrence(const std::string &src,
+                                  const std::string &needle) {
+    size_t pos = 0;
+    while ((pos = src.find(needle, pos)) != std::string::npos) {
+        size_t lineStart = src.rfind('\n', pos);
+        lineStart = (lineStart == std::string::npos) ? 0 : lineStart + 1;
+        size_t i = lineStart;
+        while (i < src.size() && (src[i] == ' ' || src[i] == '\t')) i++;
+        bool isComment = false;
+        if (i + 1 < src.size()) {
+            if (src[i] == '/' && src[i + 1] == '/') isComment = true;
+            else if (src[i] == '*') isComment = true;
+            else if (src[i] == '/' && src[i + 1] == '*') isComment = true;
+        }
+        if (!isComment) return true;
+        pos += needle.size();
+    }
+    return false;
+}
+
 }  /* anonymous namespace */
 
 /* ---------- F10 scaffold contract ---------- */
@@ -237,16 +262,18 @@ TEST_CASE("F12+F13: manager accessor routes through loader (no fallback)",
     std::string mgr = readFile("port/src/catalog_mgr_weapons.c");
     /* The integer-index path returns loader-owned pointers. F13
      * removed the parity-period fallback to g_Weapons[]: there must
-     * be NO references to g_Weapons in the manager source. */
+     * be NO live references to g_Weapons in the manager source.
+     * Header-comment mentions of the symbol are fine (they document
+     * what the manager replaces). */
     REQUIRE(mgr.find("loaderPdbaseGetWeapon") != std::string::npos);
     REQUIRE(mgr.find("loaderPdbaseGetDefaultAim") != std::string::npos);
     REQUIRE(mgr.find("loaderPdbaseGetDefaultNoise") != std::string::npos);
     REQUIRE(mgr.find("loaderPdbaseGetBotPref") != std::string::npos);
-    /* F13: the legacy externs / fallback are gone. */
-    REQUIRE(mgr.find("g_Weapons[") == std::string::npos);
-    REQUIRE(mgr.find("g_AibotWeaponPreferences") == std::string::npos);
-    REQUIRE(mgr.find("invaimsettings_default") == std::string::npos);
-    REQUIRE(mgr.find("invnoisesettings_silent") == std::string::npos);
+    /* F13: the legacy externs / fallback live-refs are gone. */
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(mgr, "g_Weapons["));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(mgr, "g_AibotWeaponPreferences"));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(mgr, "invaimsettings_default"));
+    REQUIRE_FALSE(fileHasNonCommentOccurrence(mgr, "invnoisesettings_silent"));
 }
 
 TEST_CASE("F12+F13: loader is wired into client startup",
@@ -276,33 +303,6 @@ TEST_CASE("F12: enum lookup tables exist for ANIM/SFX/FILE/L_GUN",
 }
 
 /* ---------- F13 grep-guard: Layer A symbols are gone from source ---------- */
-
-/* Helper: does the file contain a non-comment occurrence of `needle`?
- * We approximate "non-comment" by stripping out lines whose first
- * non-whitespace char is `//` or `*` and lines that include `* ` (a
- * block-comment continuation marker). Imperfect but catches the
- * comment-vs-definition split for the F13 grep guard. */
-static bool fileHasNonCommentOccurrence(const std::string &src,
-                                          const std::string &needle) {
-    size_t pos = 0;
-    while ((pos = src.find(needle, pos)) != std::string::npos) {
-        /* Find the start of this line. */
-        size_t lineStart = src.rfind('\n', pos);
-        lineStart = (lineStart == std::string::npos) ? 0 : lineStart + 1;
-        /* Walk forward to the first non-space char on this line. */
-        size_t i = lineStart;
-        while (i < src.size() && (src[i] == ' ' || src[i] == '\t')) i++;
-        bool isComment = false;
-        if (i + 1 < src.size()) {
-            if (src[i] == '/' && src[i + 1] == '/') isComment = true;
-            else if (src[i] == '*') isComment = true;
-            else if (src[i] == '/' && src[i + 1] == '*') isComment = true;
-        }
-        if (!isComment) return true;
-        pos += needle.size();
-    }
-    return false;
-}
 
 TEST_CASE("F13: invitems.c no longer defines the static records",
           "[catalog-mgr-weapon][s484][f13]") {
