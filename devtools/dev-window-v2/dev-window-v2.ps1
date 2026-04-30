@@ -1404,19 +1404,32 @@ $ui["DocList"].Add_SelectionChanged({
 # ============================================================================
 
 function Copy-AddinFiles {
+    # NON-DESTRUCTIVE addin deploy. Per Mike's BYOR (bring-your-own-ROM)
+    # distribution model: post-batch-addin/data holds the dev ROM + any
+    # author-bundled runtime files. We need it copied INTO the build dir
+    # so the client can find it, but we MUST NOT mirror-delete extras.
+    # Build/data/mods/ holds runtime-extracted UI textures populated by
+    # pdguiThemeExtractRomTextures() at first launch from the user's
+    # ROM. Mirroring would wipe those extracts every build, forcing a
+    # fresh extraction every launch. Switch to /E (preserve extras) +
+    # non-destructive Copy-Item fallback.
     $parentDir = Split-Path $script:ProjectRoot -Parent
     $srcData = Join-Path $parentDir "post-batch-addin" | Join-Path -ChildPath "data"
     $dstData = Join-Path $script:BuildDir "data"
     if (-not (Test-Path $srcData)) { return }
+    if (-not (Test-Path $dstData)) { New-Item -ItemType Directory -Path $dstData -Force | Out-Null }
     try {
         $robocopy = Get-Command robocopy.exe -ErrorAction SilentlyContinue
         if ($null -ne $robocopy) {
             $robocopyPath = if ($robocopy.Path) { $robocopy.Path } elseif ($robocopy.Source) { $robocopy.Source } else { "robocopy.exe" }
-            & $robocopyPath $srcData $dstData /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
+            # /E copies subdirs incl. empty (non-destructive); /XO skips
+            # files that already exist at dest with same/newer timestamp.
+            & $robocopyPath $srcData $dstData /E /XO /NFL /NDL /NJH /NJS /NP | Out-Null
             if ($LASTEXITCODE -le 7) { return }
         }
-        if (Test-Path $dstData) { Remove-Item $dstData -Recurse -Force -ErrorAction SilentlyContinue }
-        Copy-Item -Path $srcData -Destination $dstData -Recurse -Force -ErrorAction Stop
+        # Fallback (no robocopy): file-by-file copy that overwrites but
+        # does NOT delete extras at the destination.
+        Copy-Item -Path (Join-Path $srcData "*") -Destination $dstData -Recurse -Force -ErrorAction Stop
     } catch {}
 }
 

@@ -1676,11 +1676,18 @@ function Copy-AddinFiles {
     }
 
     try {
-        if (Test-Path $dstData) { Remove-Item $dstData -Recurse -Force -ErrorAction SilentlyContinue }
-        Copy-Item -Path $srcData -Destination $dstData -Recurse -Force -ErrorAction Stop
+        # NON-DESTRUCTIVE: do NOT Remove-Item the destination first.
+        # Build/data/mods/ holds client-side ROM-extracted UI textures
+        # (pdguiThemeExtractRomTextures, populated at first launch from
+        # the user's ROM under the BYOR distribution model). Wiping
+        # them every build forced re-extraction every launch. Copy-Item
+        # -Recurse -Force overwrites existing files but preserves
+        # extras at the destination -- which is exactly what we want.
+        if (-not (Test-Path $dstData)) { New-Item -ItemType Directory -Path $dstData -Force | Out-Null }
+        Copy-Item -Path (Join-Path $srcData "*") -Destination $dstData -Recurse -Force -ErrorAction Stop
         $fileCount = (Get-ChildItem $dstData -Recurse -File -ErrorAction SilentlyContinue).Count
         if ($null -ne $script:LblBuildActivity) {
-            $script:LblBuildActivity.Text = "Copied " + $fileCount + " file(s) to build\client\data\"
+            $script:LblBuildActivity.Text = "Copied " + $fileCount + " file(s) to build\client\data\ (non-destructive)"
         }
     } catch {
         $errMsg = "Failed to copy data:`n" + $_.Exception.Message + "`n`nFrom: " + $srcData + "`nTo: " + $dstData
