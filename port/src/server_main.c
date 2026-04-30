@@ -34,6 +34,7 @@
 #include "hub.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
+#include "loader_pdbase.h"
 #include "versioninfo.h"
 #include "updater.h"
 #include "updateversion.h"
@@ -304,6 +305,17 @@ int main(int argc, char **argv)
 
     assetCatalogInit();
     assetCatalogRegisterBaseGame();
+    /* S484 F12: dedicated server also benefits from manager-pool routing for
+     * weapon data lookups during AI / scenario evaluation, even though it
+     * doesn't render. Same load path as the client. */
+    {
+        loader_pdbase_result_t pdb_result;
+        loaderPdbaseScan("base", &pdb_result);
+        if (pdb_result.weapons_registered > 0) {
+            loaderPdbaseBuildWeaponManager();
+            loaderPdbaseRunParityCheck();
+        }
+    }
     if (!g_NetDedicated) {
         catalogBuildRuntimeCaches();
     }

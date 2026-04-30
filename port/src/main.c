@@ -53,6 +53,7 @@
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
 #include "assetcatalog_cache.h"
+#include "loader_pdbase.h"
 #include "game/stagetable.h"
 #include "game/chr.h"
 
@@ -301,6 +302,18 @@ int main(int argc, const char **argv)
 		}
 	}
 	sysLogPrintf(LOG_NOTE, "Asset Catalog: %d entries registered", assetCatalogGetCount());
+
+	// S484 F12: scan base/*.pdbase archives + populate the catalog manager's
+	// typed weapon pools. Manager accessors switch from g_Weapons[] to the
+	// pool-backed copies once loaderPdbaseBuildWeaponManager succeeds.
+	{
+		loader_pdbase_result_t pdb_result;
+		loaderPdbaseScan("base", &pdb_result);
+		if (pdb_result.weapons_registered > 0) {
+			loaderPdbaseBuildWeaponManager();
+			loaderPdbaseRunParityCheck();
+		}
+	}
 
 	// Phase 8: Build O(1) runtime→catalog-ID caches (mp body/head, stage, weapon, model).
 	// Must run after all catalog entries are registered.
