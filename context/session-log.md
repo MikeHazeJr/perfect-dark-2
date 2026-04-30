@@ -1,7 +1,49 @@
 # Session Log (Active)
 
-> **S481-S590** (rolling window of ~110 sessions; S590 added in dev between worktree fork and merge). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
+> **S481-S591** (rolling window of ~110 sessions; S591 added 2026-04-30 for catalog weapons F11). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
+
+## Session S591 - 2026-04-30 - Catalog Weapons F11 (data-driven .pdbase + extractor)
+
+Continued the Catalog Full-Pipeline Weapons track. F1-F10 shipped at S484; F11 ships the first generated `base/weapons.pdbase` archive plus the Python extractor that produces it. Mike approved Path B (data-driven animations) mid-session over Path A (named C symbols) so a future IK evaluator can bolt onto the same archive without churning the data layer again.
+
+### Outcome
+
+- New `devtools/extract_weapons_pdbase.py` (1329 lines) parses `src/game/invitems.c` + `src/game/botinv.c`, builds a constants table from `src/include/constants.h` + `src/include/gunscript.h`, resolves `#if VERSION` blocks to the NTSC_1_0 path, decodes `gunscript_*` and `gunviscmd_*` macro calls into JSON opcode arrays, and walks `g_Weapons[]` to emit per-weapon records with sub-records (functions, ammos, aimsettings, noise, recoil, gunviscmds, partvis) inlined per design Section C.
+- New `base/weapons.pdbase` (12,823 lines) holds 86 weapon records + 110 animation records, all 86 catalog IDs unique (`base:keycard`/`base:keycard_slot62`/... for the 8 keycard slots and similar for shared `invitem_hammer`/`invitem_rocket`).
+- `tests/test_loader_pdbase_scan.cpp` upgraded from F10 shape-only to F11 structure pins: 86 weapon records, 110 animation records, every gunscript mnemonic + sethidden present, no `unknown_macro` leaks, every weapon carries `bot_pref`, extractor script committed alongside. 8 cases / 35 assertions, all passing.
+- Symbolic enum values (ANIM_*, SFX_*, FILE_*, L_GUN_*, MODELPART_*) preserved as JSON strings; numeric flag bitfields ORed to integers per Mike's directive ("integers in JSON, strings can be added later").
+- Cross-references between animations (e.g., `invanim_punch` references `invanim_punch_type1..4` via `gunscript_random` / `gunscript_include`) preserved as bare-string anim refs; loader will resolve at load time.
+
+### Files
+
+- `devtools/extract_weapons_pdbase.py` (new)
+- `base/weapons.pdbase` (new, generated)
+- `tests/test_loader_pdbase_scan.cpp` (extended)
+- Context updates: `context/pillars/catalog.md`, `context/tasks.md`, `context/session-log.md`, `context/designs/catalog/catalog-full-pipeline-weapons.md`
+
+### Decisions
+
+- **Path B (data-driven animations) over Path A (named C symbols).** Mike's call: "ultimately I want to convert certain anims to use IK." Path B keeps the future IK migration in scope without disturbing the data layer.
+- **Inline-duplicate shared settings** (`invaimsettings_default` etc.) per weapon in JSON. Slightly bigger file, simpler loader, easier round-trip testing.
+- **Integers in JSON for flag bitfields**, strings for symbolic enum names where they're not pre-resolved (lang IDs, animation IDs, file/sound/modelpart IDs).
+- **Generated artifact** (`base/weapons.pdbase`) committed alongside the generator (`extract_weapons_pdbase.py`); rerunning the script must produce byte-identical output (deterministic by construction).
+- **Catalog ID format** for duplicate symbols: `base:<slug>` for the first slot, `base:<slug>_slot<N>` for subsequent slots (covers the 8 keycard slots, 4 hammer slots, 2 rocket slots).
+
+### Verification
+
+- Wrapper-only build passed (`devtools/build-session.ps1 -Session f11weap -Target tests`, 37s baseline + 2s incremental rebuild).
+- F11 selector all-green: `pd-tests.exe "[catalog-mgr-weapon][s484][f11]"` -> 35 assertions / 8 cases.
+- Suite-wide: 403 cases / 18,451 assertions, with the same 3 pre-existing failures (test_catalog_provider_static.cpp, test_cutscene_layer.cpp; documented as not-this-work) and zero regressions.
+- Pre/post merge line-count snapshot per `procedures.md`: extractor 1329 lines, archive 12823 lines, test file 186 lines unchanged across the worktree-to-dev merge.
+
+### Next
+
+- F12: implement C-side JSON parser + opcode codec, manager populates from `base/weapons.pdbase` (typed pools, parity test against `g_Weapons[]`).
+- F13: delete Layer A weapon data + animations + supporting records from `invitems.c` and `botinv.c`. Manager + `.pdbase` becomes sole source.
+
+---
+
 
 ## Session S590 - 2026-04-29 - Maintainability drag: Firing Range menu graph transition
 
