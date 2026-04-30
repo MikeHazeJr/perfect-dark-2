@@ -827,6 +827,18 @@ if(NINTENDO_SWITCH)
   )
 endif()
 
+# S484 F12: deploy base/*.pdbase archives into the runtime data root.
+# fsFileLoad("base/weapons.pdbase", ...) resolves against fsGetBaseDir()
+# (typically "<BuildDir>/data"), so the source-tree base/ files have to
+# be copied into <BuildDir>/data/base/ for the loader to find them.
+if(EXISTS "${CMAKE_SOURCE_DIR}/base")
+  add_custom_command(TARGET pd POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/data/base"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/base" "${CMAKE_BINARY_DIR}/data/base"
+    COMMENT "Copying base/*.pdbase -> ${CMAKE_BINARY_DIR}/data/base"
+    VERBATIM)
+endif()
+
 # Windows: no DLL copy step — all third-party libraries are statically linked.
 # SDL2, zlib, libcurl (+ full TLS chain), libgcc, libstdc++, and libwinpthread
 # are all compiled into PerfectDark.exe and PerfectDarkServer.exe.
