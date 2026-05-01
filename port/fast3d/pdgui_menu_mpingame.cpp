@@ -204,7 +204,13 @@ extern "C" void pdguiMpIngameRender(s32 winW, s32 winH)
     const float padX      = pdguiScale(10.0f);
     const float padY      = pdguiScale(6.0f);
     const float lineH     = pdguiScale(18.0f);
-    const float boxW      = pdguiScale(340.0f);
+    /* Phase 2 fix #8 (input-menu pillar, 2026-05-01, Issue H): width is
+     * computed from content (max attacker + "killed" + victim across
+     * active entries) instead of the prior fixed 340px. boxWmin / boxWmax
+     * keep the popup readable even when names are very short or very long. */
+    const float boxWmin   = pdguiScale(120.0f);
+    const float boxWmax   = pdguiScale(420.0f);
+    const float spacerX   = pdguiScale(4.0f);
     const float bottomGap = pdguiScale(28.0f);
 
     /* Collect + sort active entries newest-first. */
@@ -231,6 +237,32 @@ extern "C" void pdguiMpIngameRender(s32 winW, s32 winH)
         sorted[j + 1] = tmp;
     }
     if (activeCount == 0) return;
+
+    /* Phase 2 fix #8 (input-menu pillar, 2026-05-01, Issue H): compute
+     * content-fit width by measuring each visible row and picking the
+     * widest, then adding window padding. Multiplied by fontScale (the
+     * same scale applied below via SetWindowFontScale) so CalcTextSize
+     * matches the rendered glyph width. */
+    const float fontScaleForCalc = fontSize / ImGui::GetFontSize();
+    float widestRow = 0.0f;
+    for (int si = 0; si < activeCount; si++) {
+        KillfeedEntry &e = s_Killfeed[sorted[si].idx];
+        float rowW;
+        if (e.isSuicide) {
+            ImVec2 a = ImGui::CalcTextSize(e.victimName);
+            ImVec2 b = ImGui::CalcTextSize("suicided");
+            rowW = (a.x + b.x) * fontScaleForCalc + spacerX;
+        } else {
+            ImVec2 a = ImGui::CalcTextSize(e.attackerName);
+            ImVec2 b = ImGui::CalcTextSize("killed");
+            ImVec2 v = ImGui::CalcTextSize(e.victimName);
+            rowW = (a.x + b.x + v.x) * fontScaleForCalc + spacerX * 2.0f;
+        }
+        if (rowW > widestRow) widestRow = rowW;
+    }
+    float boxW = widestRow + padX * 2.0f;
+    if (boxW < boxWmin) boxW = boxWmin;
+    if (boxW > boxWmax) boxW = boxWmax;
 
     const float boxH = padY * 2.0f + lineH * (float)activeCount;
     const float baseX = padX;
