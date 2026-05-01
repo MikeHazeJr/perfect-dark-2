@@ -420,12 +420,20 @@ static struct chrdata *spawn_one_skedar(struct coord *pos, RoomNum *rooms)
 	 * collision while matching the 0.5x visual size. */
 	chr->radius = 30;
 
-	/* Half-scale model. modelSetScale multiplies the model's effective
-	 * scale used by the renderer, the per-node bbox builder, and the
-	 * bondwalk player-vs-chr perim test. 0.5 makes the swarm visibly
-	 * half-size and proportionally smaller for collision. */
+	/* Half-scale model. The scale stored on `model->scale` is NOT a
+	 * "0.5 = half size" multiplier on its own -- it's combined with
+	 * `model->definition->scale` (typically ~1000 for chr bodies) and
+	 * `bodyAllocateModel` initializes `model->scale` to a small value
+	 * (`scale = scaleRaw * 0.1` in body.c:204, then multiplied by
+	 * body-specific height variation) so the FINAL `model->scale` is
+	 * roughly 0.07-0.10 for a normal Skedar. Setting it to 0.5
+	 * directly (the prior implementation) produced ~7x natural size,
+	 * which Mike's playtest observed as "huge bots". The correct
+	 * "half normal size" is to multiply whatever `bodyAllocateModel`
+	 * left there by 0.5 -- preserves body-specific height variation
+	 * + skel-class scaling, just halves it. */
 	if (chr->model) {
-		modelSetScale(chr->model, 0.5f);
+		modelSetScale(chr->model, chr->model->scale * 0.5f);
 	}
 
 	if (method == SWARM_METHOD_CPU) {

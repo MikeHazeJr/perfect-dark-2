@@ -29,10 +29,15 @@
 /* PC port: Match increased pool sizes from modelmgr.c (KEEP IN SYNC).
  * 2026-04-30: NUMTYPE1 70->80, NUMTYPE2 50->320, NUMTYPE3 48->64 to
  * support the 256-bot Swarm benchmark scenario. See modelmgr.c for the
- * full sizing rationale. */
+ * full sizing rationale.
+ * 2026-05-01 (S593e): NUMTYPE3 64->320 because Skedar bodies (rwdatalen
+ * = 330 words) land in Type 3, and 64 was insufficient for the 256-bot
+ * swarm. Each over-cap chr fell through to a heap fallback that leaks
+ * across cycles (mempAlloc not freed by chrRemove), exhausting
+ * MEMPOOL_STAGE after a few cycles and crashing on the next allocate. */
 #define NUMTYPE1() 80
 #define NUMTYPE2() 320
-#define NUMTYPE3() 64
+#define NUMTYPE3() 320
 #define NUMSPARE() 80
 
 void modelmgrReset(void)

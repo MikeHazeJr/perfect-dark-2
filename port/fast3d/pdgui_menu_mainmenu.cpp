@@ -3887,9 +3887,19 @@ static void renderSettingsDebug(float scale)
 
         /* Arena picker -- catalog-enumerated ASSET_ARENA list. Built
          * once on first render and rebuilt if the list grows beyond
-         * the static cap (mods can add arenas at runtime). */
+         * the static cap (mods can add arenas at runtime).
+         *
+         * S593e (2026-05-01): we store the resolved STAGE id (not the
+         * arena id) per entry, because testScenarioLaunch's
+         * resolve_map_stagenum calls catalogResolveStage which only
+         * matches stage entries (id format `base:mp_*`), not arena
+         * entries (id format `base:arena_*`). Mike's playtest hit
+         * `TESTSCEN: failed to resolve map_id='base:arena_mp_carpark'
+         * via catalog` because we were passing the arena id. Now we
+         * convert via the stagenum on the arena entry to the matching
+         * stage id at collect time. */
         static const int kMaxArenas = 96;
-        static char  s_ArenaIds[kMaxArenas][64];
+        static char  s_ArenaStageIds[kMaxArenas][64];
         static char  s_ArenaNames[kMaxArenas][48];
         static const char *s_ArenaNamePtrs[kMaxArenas];
         static int   s_NumArenas = 0;
@@ -3905,7 +3915,7 @@ static void renderSettingsDebug(float scale)
             } ctx;
             ctx.count = &s_NumArenas;
             ctx.cap   = kMaxArenas;
-            ctx.ids   = s_ArenaIds;
+            ctx.ids   = s_ArenaStageIds;
             ctx.names = s_ArenaNames;
             s_NumArenas = 0;
 
@@ -3913,20 +3923,25 @@ static void renderSettingsDebug(float scale)
                 [](const asset_entry_t *e, void *userdata) {
                     auto *c = (collect_ctx *)userdata;
                     if (*c->count >= c->cap) return;
+                    /* Convert arena -> stage id via the linking stagenum.
+                     * Skip arenas whose stagenum has no matching stage
+                     * entry (defensive against broken catalog state). */
+                    const char *stage_id = catalogStageIdByStagenum((s32)e->ext.arena.stagenum);
+                    if (!stage_id || !stage_id[0]) return;
                     /* Arena name: prefer the localised display name from
                      * arenaGetName(); fall back to the catalog id when
                      * the langid isn't resolvable. */
                     const char *name = arenaGetName((u16)e->ext.arena.name_langid);
                     if (!name || !name[0]) name = e->id;
-                    strncpy(c->ids[*c->count],   e->id, 63); c->ids[*c->count][63] = '\0';
-                    strncpy(c->names[*c->count], name,  47); c->names[*c->count][47] = '\0';
+                    strncpy(c->ids[*c->count],   stage_id, 63); c->ids[*c->count][63] = '\0';
+                    strncpy(c->names[*c->count], name,     47); c->names[*c->count][47] = '\0';
                     (*c->count)++;
                 },
                 &ctx);
 
             for (int i = 0; i < s_NumArenas; i++) {
                 s_ArenaNamePtrs[i] = s_ArenaNames[i];
-                if (strcmp(s_ArenaIds[i], "base:mp_felicity") == 0) {
+                if (strcmp(s_ArenaStageIds[i], "base:mp_felicity") == 0) {
                     s_DefaultIdx = i;
                 }
             }
@@ -3964,11 +3979,11 @@ static void renderSettingsDebug(float scale)
             case 0: scen = TESTSCEN_EMPTY_MAP;  break;
             case 1: scen = TESTSCEN_SWARM_CPU;
                     if (s_TestScenArenaIdx >= 0 && s_TestScenArenaIdx < s_NumArenas)
-                        map_id = s_ArenaIds[s_TestScenArenaIdx];
+                        map_id = s_ArenaStageIds[s_TestScenArenaIdx];
                     break;
             case 2: scen = TESTSCEN_SWARM_GPU;
                     if (s_TestScenArenaIdx >= 0 && s_TestScenArenaIdx < s_NumArenas)
-                        map_id = s_ArenaIds[s_TestScenArenaIdx];
+                        map_id = s_ArenaStageIds[s_TestScenArenaIdx];
                     break;
             default: break;
             }
