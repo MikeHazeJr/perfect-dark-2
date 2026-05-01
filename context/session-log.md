@@ -70,6 +70,32 @@ Pass 3 self-extrapolations: E-19 `.pdprop` as third asset class; E-20 logic syst
 
 Final audit dimensions: 1440 lines (up from 1050; +390 lines for Pass 3 = ~30% growth on top of Pass 2). Zero em-dashes. Sentinel marker intact. Cumulative growth from Pass 1 origin: 625 to 1440 lines (+130%).
 
+**Pass 4 (same session, 2026-04-30 PM later still)**: Mike applied a substantial architectural refinement: compound-only on disk in `mods/`, plus no-overrides (mods are strictly additive), plus Q-5 counter clarification (streak-break reset semantics).
+
+Pass 4 changes applied:
+- New Section 3.16.0 (Compound-only on disk; internal catalog granularity) inserted as the foundational architectural shift. User's mods/ holds only `.pdmod` and `.pdmodpack` files; atomic assets bundled inside compound archives; one file equals one mod; hash-based deduplication at registration; mod authoring workflow (in-client tool copies cataloged content into new compound for self-containment).
+- Section 3.5 (Mod override semantics) rewritten as "Mods are additive (no overrides)". Override flag and multi-mod precedence rules removed. New invariants: catalog ID uniqueness across base + data + all enabled mods; LOUDFAIL on duplicate ID with first-loaded-wins resolution; total conversions become modpacks of additive compounds; load-order complexity collapses (Q-2 priority field documented as vestigial).
+- Section 3.16.1 (Modpack storage) updated for additive-only; constituent compounds surface in their respective UI lists.
+- Section 3.16.2 (Load order) rewritten as "vestigial under additive-only"; `priority:` field kept for forward compat but rarely needed.
+- Section 3.16.4 (`.pdcharacter` and `.pdprop` catalog asset types) clarified that the per-asset-class extensions describe the SHAPE of files inside compound archives, not user-facing files in mods/.
+- Sections 3.16.5 / 3.16.6 (reverse-dep manifest, optional+fallback deps) updated to operate at compound-on-compound level only; atomic-level dep tracking happens internally and via hash-dedupe.
+- Section 3.16.7 (cycle prevention) clarified for compound-on-compound graph.
+- Section 3.16.8 (Q-5 counter) rewritten with consecutive-streak semantics: counter persists in `data/.session-state.json` across launches; increments only on consecutive runs of self-heal for the same asset; resets on streak break (clean launch); LOUDFAIL.HEAL.PERSISTENT_CORRUPTION fires while streak > 0.
+- Section 3.4 (Directory taxonomy) updated to reflect compound-only mods/ and per-asset granularity for base/ and data/.
+- Section 3.13 (Mod-friendliness improvements) updated; M-9 (additive-only removes precedence complexity), M-10 (hash-dedupe removes duplicate-asset penalty), M-11 (provenance audit) added.
+- Section 3.17 (Halo fusion-coil worked example): 3.17.3 rewritten as "single self-contained compound" (default packaging); 3.17.4 rewritten as "compound depending on another compound" (variation for coordinated sets); 3.17.6 updated for compound-only and additive-only emphasis.
+
+Pass 4 self-extrapolations (E-23 through E-29):
+- E-23 provenance metadata in copied assets (origin: field).
+- E-24 compound archive layout convention (top-level mod.json plus inner per-asset-class directories).
+- E-25 first-loaded-wins resolution on duplicate ID (Mike said LOUDFAIL but did not specify; I chose first-wins-and-warn-second; open question).
+- E-26 hash-dedupe pool architecture (two-level lookup: bytes-by-hash plus ID-to-hash).
+- E-27 AllInOneMods migration framing (GEX, Kakariko, Goldfinger 64, Dark Noon need reauthor as additive collections under Pass 4; non-trivial migration pillar).
+- E-28 UX implication for additive curation (built-in header plus per-modpack groupings in pickers).
+- E-29 `data/.session-state.json` persistence shape (JSON with version, last_clean_launch, self_heal_streaks map).
+
+Final audit dimensions: 1654 lines (up from 1440; +214 lines for Pass 4 = ~15% growth on top of Pass 3). Zero em-dashes. Sentinel marker intact. Cumulative growth from Pass 1 origin: 625 to 1654 lines (+165%).
+
 ---
 
 ## Session S482c (`festive-hawking-49649b` follow-up #7) - 2026-04-30 PM - Dev Window v2 blank-screen fix

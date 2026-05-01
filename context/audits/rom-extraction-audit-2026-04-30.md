@@ -597,59 +597,60 @@ The exact schema for each is a follow-on design task. The audit's recommendation
 
 ### 3.4 Directory taxonomy
 
-Three top-level content trees. Same loader, same schema. The directory split tracks redistribution status (and authoring path), not loading mechanism:
+Three top-level content trees. Same loader, same schema. The directory split tracks redistribution status (and authoring path), not loading mechanism. Per-tree on-disk shape differs:
 
-| Tree | Purpose | Contents | Ships with release? | Authoring source |
+| Tree | Purpose | On-disk shape | Ships with release? | Authoring source |
 |---|---|---|---|---|
-| `base/` | Project-authored, redistributable, decompiled-source-derived | Per-asset `.pdXXX` files for content the project authors and is licensed to ship | Yes | PD2 contributors (in repo) |
-| `data/` | BYOR runtime-extracted from user's ROM | Per-asset `.pdXXX` files extracted at first launch from the user's pd.<romid>.z64 | No (gitignored) | First-launch extractor on user machine |
-| `mods/` | User-installed mods, bundled mods, and modpack-extracted contents | `.pdmod` archives, `.pdmodpack` archives, and (during install) extracted `.pdXXX` content | Sometimes (bundled mods like `bot-names.pdmod`) | Modders; PD2 (for bundled defaults) |
+| `base/` | Project-authored, redistributable, decompiled-source-derived | Per-asset `.pdXXX` files (per-asset granularity) | Yes | PD2 contributors (in repo) |
+| `data/` | BYOR runtime-extracted from user's ROM | Per-asset `.pdXXX` files (per-asset granularity) | No (gitignored) | First-launch extractor on user machine |
+| `mods/` | User-installed mods plus bundled mods plus extracted modpack contents | Compound-only: `.pdmod` archives and `.pdmodpack` archives at top level; extracted modpack contents in subdirs (`mods/<packname>/<inner>.pdmod`) | Sometimes (bundled mods like `bot-names.pdmod`) | Modders; PD2 (for bundled defaults) |
 
-**Catalog discovery:** the catalog walks all three trees on startup, builds a single asset registry, and applies override rules (Section 3.5).
+**On-disk shape distinction (Pass 4, per Section 3.16.0):**
 
-**Naming policy:** content in `mods/` cannot reuse names already present in `base/` or `data/` unless the mod explicitly declares the override (Section 3.5). This makes the override path a deliberate modder choice, not a side effect of file collision.
+- `base/` and `data/` keep per-asset granularity. Files like `base/weapons/weapon_falcon2.pdwpn`, `data/audio/sfx/sfx_falcon2_fire.pdsfx`. They are not subject to the "sharing" complexity that drives the compound-only model in mods/.
+- `mods/` contains compound-only files. Atomic assets (mesh, textures, audio, animations, behavior) are bundled INSIDE compound `.pdmod` archives, not loose. Per Section 3.16.0, this enforces "one file equals one mod" and eliminates user-facing dependency management for atomic assets.
+
+**Catalog discovery:** the catalog walks all three trees on startup. For `base/` and `data/` it loads each per-asset file directly. For `mods/` it parses each compound's `mod.json` and registers the declared internal atomic assets (Section 3.16.0). All registrations enter a single asset registry keyed by catalog ID.
+
+**Catalog ID uniqueness invariant (Section 3.5 D-2):** every catalog ID is unique across base, data, and all enabled mods. Duplicate IDs LOUDFAIL at registration (`LOUDFAIL.CATALOG.DUPLICATE_ID`). The naming-disallow rule (mods cannot reuse names already in base or data) is a special case of this invariant; the broader rule extends to mods cannot share IDs with each other either.
 
 **Multi-ROM consideration (extrapolation E-3):** PD2 supports six ROM versions in `tools/extract:321` `vals[]` (currently only NTSC-final at runtime per `port/src/romdata.c:42-62`). Per directive 15, expanding runtime support to all six is approved as future work. Recommendation: under the multi-ROM model, `data/` becomes `data/<romid>/` (or a top-level `data/_active/` symlink that the catalog points at after determining the active ROM via SHA-256 hash check at startup). Avoids cross-version contamination if a user swaps ROMs.
 
 Implication for existing content: `base/weapons.pdbase` (the F11-F13 monolith) is a transitional shape. Splitting into `base/weapons/weapon_*.pdwpn` is the convergent target.
 
-### 3.5 Mod override semantics
+### 3.5 Mods are additive (no overrides)
 
-Per directive 4, base content and mod content are effectively equal at the loader level; they differ only in location. The override mechanism makes mods a first-class overlay.
+> **Pass 4 architectural shift (2026-04-30):** Mike eliminated mod overrides as a first-class mechanism. Mods are strictly additive. The base game is permanent canonical content; mods extend it but never replace it.
 
-**Naming-disallow rule (D-1).** Content in `mods/` cannot reuse a name that already exists in `base/` or `data/` unless the mod explicitly declares the override. Example: a modder shipping `mods/<mymod>/weapons/weapon_falcon2.pdwpn` without an override declaration is a load-time error. The modder must either rename to `weapon_falcon2-mybuild.pdwpn` (a new asset, distinct catalog ID) or declare the override in the mod's manifest.
+The original draft of this section described an override flag and multi-mod precedence rules. Those mechanisms are removed. The new model:
 
-**Explicit override declaration (D-2).** The mod's `mod.json` (or the modpack's `pack.json`) carries an `overrides` block listing which base / data assets the mod intends to replace:
+**Additive-only invariant (D-1).** A mod's content is added to the catalog alongside base and data content. Total conversions are achieved by collections of additive mods (typically bundled in a `.pdmodpack`, see Section 3.16.1). Custom campaigns appear in the campaign menu alongside the base campaign; retextures appear as alternate selectable variants alongside the base; the user picks via existing curation UI surfaces (campaign picker, weapon picker, character selection, etc.).
 
-```json
-{
-    "id": "mymod_total_falcon_overhaul",
-    "version": "1.0.0",
-    "overrides": [
-        { "catalog_id": "weapon_falcon2", "with": "weapons/weapon_falcon2.pdwpn" },
-        { "catalog_id": "sfx_falcon2_fire", "with": "audio/sfx/sfx_falcon2_fire.pdsfx" },
-        { "catalog_id": "sfx_falcon2_reload", "with": "audio/sfx/sfx_falcon2_reload.pdsfx" }
-    ]
-}
+**Catalog ID uniqueness invariant (D-2).** Every catalog ID is unique across the entire registered set: base, data, and all enabled mods. No two registrations share an ID. Concrete consequences:
+
+- A mod that ships a retextured Falcon 2 names it `weapon_falcon2-hd-retexture` (distinct ID), not `weapon_falcon2` (which is base's ID).
+- A mod that adds an entirely new weapon names it however the modder likes (`weapon_my_custom_thing`) provided the ID is not already taken.
+- Variants per directive 5 (`weapon_plasmarifle-brute`) are independent assets with independent IDs; the suffix is human-readable provenance, not catalog hierarchy (extrapolation E-4).
+
+**LOUDFAIL on duplicate ID (D-3).** When two mods register the same catalog ID, the catalog hits `LOUDFAIL.CATALOG.DUPLICATE_ID` with a clear message:
+
+```
+LOUDFAIL.CATALOG.DUPLICATE_ID: catalog ID 'weapon_falcon2-hd' is registered by both mod 'mymod_falcon_pack' and mod 'othermod_hd_textures'. IDs must be unique. Rename one before re-enabling.
 ```
 
-The override block makes intent explicit and auditable (the catalog logs every active override at startup so modders can verify their work loaded).
+Both mods fail to register their conflicting entries (audit recommendation: the catalog reads them in load order, the first to register wins, the second LOUDFAILs and fails to register the conflicting asset; the rest of the second mod's content registers normally). Open question for Mike's call: hard-fail-both vs first-wins-and-warn-second; audit defaults to first-wins-and-warn-second since that lets the user keep both mods enabled and only the conflicting item is dropped.
 
-**Multiple simultaneous overrides (D-3).** A single mod can declare overrides for many assets at once. Mike's example: "all characters get the same skin" is one mod with N character-mesh overrides; "specific missions get this music track" is one mod with M scenario-music-id overrides. The override list has no cap.
+**No naming-disallow rule against base.** The earlier draft's rule "mods cannot reuse names that already exist in base or data" stays in effect: it is just a special case of D-2. A mod registering `weapon_falcon2` collides with base's `weapon_falcon2` and LOUDFAILs.
 
-**Multi-mod precedence (D-4, extrapolation E-2).** When two or more enabled mods declare overrides for the same `catalog_id`, the catalog needs a deterministic precedence rule. Possible models:
+**Total conversions become modpacks of additive compounds.** A "Halo total conversion" is a `.pdmodpack` bundling N compound `.pdmod` files that together form a cohesive experience: a custom campaign (selectable in campaign menu), custom weapons (selectable in loadout pickers), custom characters (selectable in character pickers), custom UI theme (toggleable in Settings). The modpack ships them all; the user installs the pack; each constituent mod surfaces in its appropriate UI list.
 
-- **Mod load order (recommended default).** The mod manager already orders mods (`port/src/modmgr.c`); the last-loaded mod wins. Existing UI surface (mod ordering in the modding hub) doubles as override-precedence control.
-- **Modder-declared priority.** Each override entry carries an optional `priority: <int>`; higher wins. Falls back to load order on tie. Allows finer control without forcing modders to reorder mods globally.
-- **Hard-fail.** Two mods overriding the same asset is a load-time error; the user resolves manually. Strict but high-friction.
+**Load-order complexity collapses.** Because no two mods target the same catalog ID, the load-order-as-override-precedence question (which the prior draft treated as Q-2) goes away. Load order matters only for `requires:` dependency resolution between compound mods (Section 3.16.5 to 3.16.7). The `priority:` field is kept for forward compatibility but documented as rarely needed (Section 3.16.2).
 
-Recommendation for default: load-order precedence (matches existing mod manager UX), with optional priority field for advanced cases. Open question for Mike's call (Section 3.15).
+**Override audit log retained as duplicate-ID audit log.** The earlier extrapolation about per-startup catalog logging applies in modified form: the catalog logs every registered ID at startup with `CATALOG: register <catalog_id> from <source>` (where source is `base`, `data:<romid>`, or `mod:<mod_id>`). Conflicts surface as `LOUDFAIL.CATALOG.DUPLICATE_ID` per D-3.
 
-**Variant overrides do not need overrides declarations (D-5).** Per directive 5, `weapon_falcon2-mybuild.pdwpn` is a distinct asset, not an override of `weapon_falcon2`. Modders shipping variants do not need an `overrides` block; their content is additive.
+**UX implications (extrapolation E-28).** The campaign menu, weapon-loadout picker, character selector, and other curation UIs become enriched with mod-introduced variants. Audit recommends: a "Built-in" header for base content, then a list of each enabled modpack's contributions grouped by source modpack. Out of scope for this audit; flagged for the future modding-hub UX pass.
 
-**Adding new assets (D-6).** Mods adding entirely new content (e.g. `weapon_my_custom_thing.pdwpn`) require no override declaration. The naming-disallow rule does not apply because the name does not collide.
-
-**Override audit log (extrapolation E-?).** The catalog should log every active override at startup with format: `CATALOG: override <catalog_id> base=<path> mod=<modname> at <path>`. Modders verify their overrides loaded; conflicts (multi-mod) are explicit; LOUDFAIL channel (Section 3.7) hits when an override declaration cannot be resolved (file missing, schema mismatch).
+**AllInOneMods legacy implication (extrapolation E-27).** The historical AllInOneMods (GEX, Kakariko, Goldfinger 64, Dark Noon) replaced base content. Under the additive-only model, those need to be reauthored as additive collections that appear as separate selectable options. Concretely: GEX becomes "GEX Campaign" in the campaign menu; the GEX weapons appear as `weapon_gex_pistol`, `weapon_gex_<x>` in the loadout picker; the user picks GEX as their campaign. The conversion is non-trivial (existing AllInOne content currently rebinds base IDs); flagged as a future migration pillar.
 
 ### 3.6 Hash-verify, self-heal, and corruption quarantine
 
@@ -885,23 +886,29 @@ Recommendations for tooling that does not exist today but would benefit from the
 
 ### 3.13 Mod-friendliness improvements
 
-Direct consequences of the symmetric-schema principle plus Mike's directives:
+Direct consequences of the symmetric-schema principle plus Mike's directives, updated for Pass 4 (compound-only plus additive-only):
 
 **M-1. Mod tools work without a ROM.** Because mods author against the same schema as extracted content, a modder can develop and test against community-shared extracted bundles without owning a ROM. (This is the single largest mod-ergonomics improvement of the entire architectural shift.)
 
-**M-2. Variant naming convention is human-readable (per directive 5).** `weapon_falcon2-silenced.pdwpn` reads as "Falcon 2 silenced variant" at a glance. `weapon_plasmarifle-brute.pdwpn` reads as "Plasma Rifle, brute variant." Modders can identify content from the file tree alone. Variant assets are independent catalog IDs, not flag toggles on a shared base (per directive 5).
+**M-2. Variant naming convention is human-readable (per directive 5).** `weapon_falcon2-silenced` reads as "Falcon 2 silenced variant" at a glance. `weapon_plasmarifle-brute` reads as "Plasma Rifle, brute variant." Modders can identify content by name alone. Variant assets are independent catalog IDs (Section 3.5 D-2), not flag toggles on a shared base.
 
 **M-3. Mod-from-extract round-trip enables reverse engineering.** A modder who wants to understand how the base game configures a weapon opens `data/weapons/weapon_falcon2.pdwpn` in a text editor (JSON surface schema) and reads the fields directly. No need to know ROM offsets, segment tables, or `preprocessGunFile`. The contract is the schema.
 
-**M-4. Modarchive (`.pdmod`) and modpack (`.pdmodpack`) become the bundling formats.** A standalone mod ships as `mod_name.pdmod` (ZIP archive of `.pdXXX` files plus `mod.json`). A modpack ships as `pack_name.pdmodpack` (ZIP archive of `.pdmod` files plus `pack.json`). Mod authors just package by directory.
+**M-4. One-file-equals-one-mod (Pass 4, Section 3.16.0).** Sharing a mod transmits everything it needs in a single `.pdmod` archive. No external dep-resolution at install time for atomic assets (the catalog dedupes by hash at registration). Modder ships one file; user installs one file; everything works.
 
-**M-5. Override declarations are explicit and audit-loggable (per directive 4 plus 9).** Every active override prints to log on startup; conflicts route to LOUDFAIL.CATALOG. Modders can diagnose "why is my mod not loading" without reading source.
+**M-5. Catalog ID uniqueness is explicit and audit-loggable.** Every registered ID prints to log on startup with `CATALOG: register <id> from <source>`. Duplicates fire `LOUDFAIL.CATALOG.DUPLICATE_ID` with a clear rename instruction (Section 3.5 D-3). Modders diagnose "why is my mod not loading" without reading source.
 
 **M-6. Quarantine preserves accidental edits (per directive 7).** A modder who edited `data/weapons/weapon_falcon2.pdwpn` in place (despite read-only) gets the file moved to `data/.quarantine/` rather than overwritten. The project is a safe haven.
 
 **M-7. INI for flat configs, JSON for nested (per directive 17).** `.9slice` (4 numbers) is INI; `.pdwpn` (nested fields) is JSON. Templates with all-fields-commented surface modder-discoverable capabilities without docs.
 
-**M-8. Mod tools load any base content as a starting template (per directive 20).** Missions, arenas, characters, skins, weapons, audio, vehicles all forkable from base content. Lowers the barrier from "study the format spec then author from scratch" to "open this thing, change two fields, save."
+**M-8. Mod tools load any base content as a starting template (per directive 20).** Missions, arenas, characters, skins, weapons, audio, vehicles all forkable from base content. The in-client tool COPIES the cataloged asset's bytes into the new compound's internal storage (Section 3.16.0 mod authoring workflow), so the result is fully self-contained. Lowers the barrier from "study the format spec then author from scratch" to "open this thing, change two fields, save."
+
+**M-9. Additive-only architecture removes override-precedence complexity (Pass 4).** Modders never have to worry about "will my mod conflict with another mod that also targets Falcon 2?" because no two mods can target the same catalog ID. A mod's content is added alongside base; the user picks via existing curation UIs. Modders focus on content, not conflict resolution.
+
+**M-10. Hash-dedupe at registration removes duplicate-asset penalty (Pass 4, Section 3.16.0).** A modder who self-contains everything (the default per Section 3.17.3) does not pay a runtime memory cost for redundancy with other mods. If two mods bundle the same texture, the catalog stores it once. The on-disk cost is duplicated; the runtime cost is not. Modders can ship self-contained without architecturally penalizing the user.
+
+**M-11. Provenance audit (extrapolation E-23).** When the in-client tool copies a cataloged asset into a new compound, it stamps an optional `origin:` field on the entry recording the source catalog ID. Lets collaborators trace lineage; supports credit attribution. Modder can opt out if they prefer not to disclose lineage.
 
 ### 3.14 Forward-looking work (track but not in scope)
 
@@ -957,37 +964,142 @@ This section surfaces points where Mike's directives left a question open or whe
 
 After Mike walked through a Halo fusion-coil prop-mod authoring flow, the open questions Q-1 through Q-6 were resolved with a set of architectural refinements. The compound-mod plus dependency-graph plus session-cache framing emerged from that walkthrough. Recording the resolutions here as authoritative; the prior open-question list (Section 3.15) has been updated to point here.
 
-#### 3.16.1 Modpack storage = contain (Q-1 resolved)
+#### 3.16.0 Compound-only on disk; internal catalog granularity (Pass 4 architectural shift)
 
-Confirmed default. `.pdmodpack` is a ZIP archive of `.pdmod` files plus a `pack.json` metadata file. On install, the mod manager extracts the constituent `.pdmod` files into `mods/<packname>/<modname>.pdmod` and writes a `mods/<packname>/pack.json` recording the constituent mod IDs. Reference model is rejected for v1.
+> **Pass 4 architectural shift (2026-04-30):** the user's `mods/` folder contains only compound files. Atomic assets (mesh, textures, audio, animations, behavior) are bundled inside compound `.pdmod` archives, not loose. One file equals one mod. No user-facing dependency management for atomic assets. Sharing a mod transmits everything it needs.
 
-Reasons restated: self-contained distribution (works offline), reversible install, no fetch-at-install fragility, matches `.zip`-based workflows everywhere else. Acceptable trade-off: duplicated bytes if a user has the same mod installed standalone and inside a pack.
+This is the foundational refinement that the rest of Section 3.16 cascades from. The prior atomic-vs-compound packaging matrix (Pass 3 Section 3.17.4) is collapsed: every mod is a compound; the on-disk surface in `mods/` is `.pdmod` (or `.pdmodpack`) only.
 
-#### 3.16.2 Load order with positional defaults (Q-2 resolved)
+**On-disk shape:**
 
-Mods declare partial-ordering hints in their `mod.json`:
+```
+mods/
+  halo_fusion_coil.pdmod                    # compound mod, ZIP archive
+  modern_ui.pdmod                           # compound mod, ZIP archive
+  goldfinger64.pdmodpack                    # modpack, ZIP archive of compounds
+    -> after install:
+       goldfinger64/                         # extracted directory
+         pack.json
+         goldfinger64-campaign.pdmod
+         goldfinger64-weapons.pdmod
+         goldfinger64-characters.pdmod
+         goldfinger64-music.pdmod
+```
+
+The mod manager scans only `.pdmod` files (top-level and inside extracted modpack directories) plus `.pdmodpack` files. No loose atomic files; no cross-mod sharing on disk.
+
+**Atomic assets remain a first-class concept inside the catalog.** A compound's manifest declares its internal atomic contents. Each contained atomic registers as its own catalog entry with its own ID. Other mods (or the gameplay engine) reference the atomic by its catalog ID; the catalog resolves to the bytes inside the compound.
+
+Compound manifest sketch (revised for Pass 4):
 
 ```json
 {
-    "id": "modder:my_falcon_overhaul",
+    "id": "modder:halo_fusion_coil",
     "version": "1.0.0",
-    "load_after": ["modder:base_combat_overhaul"],
-    "load_before": ["modder:experimental_falcon_replacement"],
+    "display_name": "Halo Fusion Coil",
+    "type": "compound",
+    "internal_assets": [
+        {
+            "catalog_id": "modder:prop_fusion_coil",
+            "type": "prop",
+            "path": "props/fusion_coil.pdprop"
+        },
+        {
+            "catalog_id": "modder:mesh_fusion_coil",
+            "type": "mesh",
+            "path": "meshes/fusion_coil.pdmesh"
+        },
+        {
+            "catalog_id": "modder:tex_fusion_coil_diffuse",
+            "type": "texture",
+            "path": "textures/coil_albedo.tga"
+        },
+        {
+            "catalog_id": "modder:sfx_fusion_coil_boom",
+            "type": "sfx",
+            "path": "audio/sfx/fusion_coil_boom.pdsfx"
+        }
+    ],
+    "requires": []
+}
+```
+
+The compound's archive holds the per-asset-class files (`.pdprop`, `.pdmesh`, `.pdsfx`, raw textures, etc.) at their declared paths. Each is registered into the catalog under its declared ID. Cross-asset references inside the compound use catalog IDs (the `.pdprop` references `modder:tex_fusion_coil_diffuse` for its texture; the catalog resolves to the bytes at `textures/coil_albedo.tga` inside this compound).
+
+**Hash-based deduplication at registration (Pass 4 mechanism):**
+
+When a compound's atomic asset registers into the catalog, the loader hashes the asset's bytes (SHA-256). The catalog maintains two structures:
+
+- An "asset bytes pool" keyed by hash. The bytes are stored once.
+- A "catalog ID to hash" mapping. Every registered ID points at a hash.
+
+If two compounds bundle the same texture (same SHA-256), the catalog stores the bytes once. Both compounds' declared IDs point at the single entry. Disk space is duplicated (each compound is self-contained on disk); runtime memory and catalog space dedupe.
+
+If two compounds declare different IDs for assets with the same hash, both IDs register and both point at the shared hash entry. This is the expected case when modder A and modder B independently bundle the same default explosion VFX; they each ship it inside their compound, and at runtime the catalog represents it once.
+
+If two compounds declare the same ID with different hashes, the catalog hits `LOUDFAIL.CATALOG.DUPLICATE_ID` (Section 3.5 D-3): the IDs collide; both fail to register their conflicting entries. The first-loaded compound wins by audit recommendation (load-order resolution), the second LOUDFAILs.
+
+**Mod authoring workflow (Pass 4 mechanism):**
+
+When the in-client mod tool authors a new compound mod, it can use any cataloged asset (from base, from data, from another enabled mod) as a starting point. Workflow:
+
+1. Modder opens the tool, picks "New compound mod."
+2. Tool scans the catalog and presents existing assets browseable by type (weapons, meshes, props, characters, audio, etc.).
+3. Modder selects assets to fork or extend (e.g. "use the base Falcon 2 mesh as my starting point; use this texture from another mod as my emissive layer").
+4. Tool COPIES the selected assets' bytes into the new compound's internal storage. Assigns new catalog IDs (the modder names them or accepts auto-suggested names with the modder's namespace prefix).
+5. Modder edits the copies in-place (rebinding texture references, adjusting numbers, etc.).
+6. Tool saves the result as `mods/<modname>.pdmod`. The compound is fully self-contained; sharing it transmits everything.
+
+Provenance metadata (extrapolation E-23): each copied asset's manifest entry carries an optional `origin:` field naming the source catalog ID (`base:weapon_falcon2`, `modder:other_mod:tex_diffuse`). For audit and credit, not enforcement. Modders can omit if they want their work to look entirely original; tool defaults to populating origin so collaborators can trace lineage.
+
+**Loading flow (Pass 4 sequence):**
+
+1. Mod manager walks `mods/*.pdmod` (top-level) and `mods/*/<inner>.pdmod` (extracted modpack contents).
+2. For each compound: parse `mod.json` manifest; for each entry in `internal_assets`, register the declared `catalog_id` into the catalog as that asset type, hash the bytes, dedupe per the mechanism above.
+3. Compound manifest also declares external dependencies (`requires:` block, see Section 3.16.5 / 3.16.6) on other compound mods.
+4. Topological sort across the compound dependency graph (Section 3.16.7); cycle detection fires `LOUDFAIL.CATALOG.CYCLE` if violated; missing deps fire `LOUDFAIL.CATALOG.MISSING_DEP`.
+5. Catalog is ready. Gameplay code looks up assets by ID; the catalog resolves to bytes by hash; bytes resolve from the relevant compound's archive (or `base/` / `data/` for non-mod content).
+
+**Implications for prior sections:**
+
+- The atomic-vs-compound packaging decision matrix (Pass 3 Section 3.17.4) collapses to a single recommendation: always compound. The mod-author choice becomes "self-contained vs depends-on-other-compound" (still real, see Sections 3.16.5 to 3.16.7), not "atomic file vs compound file."
+- The reverse-dependency manifest (Section 3.16.5) operates at the compound level only. Atomic deps are internal to a compound and the catalog handles them via hash-dedupe; they are not user-facing.
+- The mod manager UI never shows atomic-level mods (because they do not exist on disk). It shows compounds and modpacks only.
+
+#### 3.16.1 Modpack storage = contain (Q-1 resolved; updated for Pass 4)
+
+Confirmed default. `.pdmodpack` is a ZIP archive of compound `.pdmod` files plus a `pack.json` metadata file. On install, the mod manager extracts the constituent `.pdmod` files into `mods/<packname>/<modname>.pdmod` and writes a `mods/<packname>/pack.json` recording the constituent mod IDs. Reference model is rejected for v1.
+
+Under the Pass 4 additive-only-compound model, every mod inside a `.pdmodpack` is a compound that contributes additive content. A "Halo total conversion" pack contains compound mods like `halo-campaign.pdmod`, `halo-weapons.pdmod`, `halo-characters.pdmod`, `halo-ui.pdmod`. After install, each of those compounds surfaces in the mod manager and contributes its catalog entries; the user sees Halo content alongside base content (Halo campaign in the campaign picker, Halo weapons in the weapon list, etc.).
+
+Reasons restated: self-contained distribution (works offline), reversible install, no fetch-at-install fragility, matches `.zip`-based workflows everywhere else. Acceptable trade-off: duplicated bytes if a user has the same compound installed standalone and inside a pack (runtime hash-dedupe per Section 3.16.0 mitigates the memory cost; only the disk cost duplicates).
+
+#### 3.16.2 Load order: vestigial under additive-only model (Q-2 resolved; rewritten for Pass 4)
+
+Under the Pass 4 additive-only-compound model, load order matters only for `requires:` dependency resolution (compound A depends on compound B; B must register before A). The catalog handles this via topological sort over the dependency graph (Section 3.16.7); manual ordering is rarely needed.
+
+Vestigial fields kept for forward compatibility:
+
+```json
+{
+    "id": "modder:my_compound",
+    "version": "1.0.0",
+    "load_after": ["modder:other_compound"],
+    "load_before": ["modder:third_compound"],
     "priority": 100
 }
 ```
 
-The mod manager resolves all enabled mods' partial-ordering constraints into a load sequence via topological sort. Tie-break rule: explicit `priority:` field wins over positional defaults; ties on priority resolve by alphanumeric ID order (deterministic).
+When useful:
 
-User-facing override: drag-reorder UI in the modding hub. Reordering a mod manually pins it to that position regardless of the positional defaults declared by the mod author. The override persists across launches.
+- `load_after: [other_compound]` is a stronger declaration than `requires: [other_compound]`: it says "I want to load after this compound but I do not actually depend on it." Useful for ordering mods that interact via runtime conventions rather than catalog references.
+- `priority:` field is documented as rarely needed under additive-only. Reserved for future use cases where load order has a non-dependency-driven significance.
 
-Why positional defaults are better than absolute load order numbers:
+The original Pass 3 framing of `priority:` as a tie-breaker for override-precedence is moot: there are no overrides under Pass 4, so no precedence ties to break.
 
-- Modders cannot anticipate the absolute position of their mod in a user's load list (the user has N other mods installed).
-- `load_after: [other-mod]` expresses what the modder actually knows ("my mod overrides what `other-mod` does to weapons; load me after them").
-- The mod manager handles the global resolution; modders only need to declare local constraints.
+User-facing override: drag-reorder UI in the modding hub remains useful for the small minority of cases where load order matters. The override persists across launches.
 
-Cycle detection (Section 3.16.7) applies if `load_after` / `load_before` declarations form a cycle.
+Cycle detection (Section 3.16.7) applies if `load_after` / `load_before` or `requires:` declarations form a cycle.
 
 #### 3.16.3 SP-MP unification via game-mode block (Q-3 resolved)
 
@@ -1022,15 +1134,17 @@ Hardcoded MP spawn points for campaign maps live in the canonical scenario's `mo
 
 **Map variants are siblings via suffix naming (per directive 5).** A zombies-mode variant of Skedar Temple is `scenario_skedar_temple-zombies.pdscenario`, a distinct catalog ID. The variant inherits geometry / tiles / textures from the canonical scenario by reference (catalog ID lookups), but carries its own `modes:` block (or only the relevant mode entries). Treat as independent assets in the catalog; the suffix is human-readable provenance.
 
-#### 3.16.4 `.pdcharacter` as a compound asset (Q-4 resolved)
+#### 3.16.4 `.pdcharacter` and `.pdprop` as catalog asset types (Q-4 resolved)
 
-`.pdcharacter` is now a confirmed distinct extension and a distinct catalog asset type from `.pdmesh`. Definitions:
+`.pdcharacter` is a confirmed distinct catalog asset type from `.pdmesh`. `.pdprop` is a third asset type for spawnable props with logic. Definitions:
 
 | Extension | Asset type | Contains |
 |---|---|---|
 | `.pdmesh` | Static mesh (visual geometry only) | Vertices, materials, texture references. No skeleton, no behavior. Spawnable as a passive visual prop. |
 | `.pdcharacter` | Compound character | Skeletal mesh + animation references + audio references + attach points + behavior block. The full character, not just the geometry. |
 | `.pdprop` | Spawnable prop with logic | Geometry plus physics plus stats plus behavior block. See Section 3.17 worked example. |
+
+Important Pass 4 clarification: these extensions describe the SHAPE of files inside compound `.pdmod` archives (and inside `base/` and `data/` per-asset-granularity trees). They are not user-facing files in `mods/` (only `.pdmod` and `.pdmodpack` are visible there per Section 3.16.0). When a modder unzips a compound `.pdmod` for inspection, they see these per-asset-class extensions in the inner directory structure (`weapons/foo.pdwpn`, `meshes/foo.pdmesh`, etc.) and the catalog registers each as an atomic entry per the compound's manifest.
 
 Schema sketch for `.pdcharacter` (extrapolation from Mike's framing):
 
@@ -1071,75 +1185,127 @@ Differences from `.pdmesh` enforced by the catalog: a `.pdcharacter` registers a
 
 The behavior block uses the logic system (state machines: states, transitions, triggers, actions). Authoring tools in the client expose this declaratively. Logic system itself is out of scope for this audit; track as a future architectural pillar.
 
-#### 3.16.5 Reverse dependency manifest (Q-4 follow-up)
+#### 3.16.5 Reverse dependency manifest (Q-4 follow-up; updated for Pass 4)
 
-Each atomic mod's `mod.json` declares forward dependencies (`requires:` block, see 3.16.6). The catalog computes the reverse manifest at load time by walking all enabled compound mods' `requires:` blocks.
+Under the Pass 4 compound-only model, `requires:` blocks declare external dependencies on OTHER COMPOUND MODS, not on atomic assets (atomic assets live inside compounds and are deduplicated by hash per Section 3.16.0). The reverse manifest applies at the compound level.
 
-Each atomic mod's runtime state acquires a derived `required_by:` list:
+Use case: a custom map compound (`modder:halo_blood_gulch.pdmod`) requires a custom-prop compound (`modder:halo_props_pack.pdmod`) for the warthogs and weapons that spawn in the map. The map's `mod.json` declares:
+
+```json
+{
+    "id": "modder:halo_blood_gulch",
+    "version": "1.0.0",
+    "type": "compound",
+    "internal_assets": [...],
+    "requires": [
+        { "id": "modder:halo_props_pack", "kind": "compound" }
+    ]
+}
+```
+
+The catalog computes a reverse manifest at load time by walking all enabled compound mods' `requires:` blocks. Each compound mod's runtime state acquires a derived `required_by:` list:
 
 ```
-modder:fusion_coil_boom (atomic .pdsfx mod):
-  required_by: [modder:halo_fusion_coil, modder:halo_starter_pack, modder:demolition_set]
+modder:halo_props_pack (compound):
+  required_by: [modder:halo_blood_gulch, modder:halo_assault_pack, modder:halo_modpack]
 ```
 
 This is a runtime-derived field, not a stored manifest field. It cannot be authored; only consumed.
 
-UX consequence: disabling or removing an atomic mod with a non-empty `required_by:` list triggers a user prompt:
+UX consequence: disabling or removing a compound with a non-empty `required_by:` list triggers a user prompt:
 
 > "This mod is required by:
->   - modder:halo_fusion_coil
->   - modder:halo_starter_pack
->   - modder:demolition_set
+>   - modder:halo_blood_gulch
+>   - modder:halo_assault_pack
+>   - modder:halo_modpack
 > Disabling it will break those mods. Continue?"
 
-Modder cannot accidentally pull a foundational atomic that other compounds depend on without an explicit confirm.
+User cannot accidentally pull a foundational compound that other compounds depend on without an explicit confirm.
 
-#### 3.16.6 Optional plus fallback dependencies (Q-4 follow-up)
+Note: atomic-level dependency management does NOT exist as a user-facing concept under Pass 4. If two compounds happen to bundle the same texture (same SHA-256), the catalog dedupes silently per Section 3.16.0. Neither compound declares the other as a dep; each is self-contained. The user can disable either without breaking the other.
+
+#### 3.16.6 Optional plus fallback dependencies (Q-4 follow-up; updated for Pass 4)
 
 Compound mods can declare a dependency as optional, with a fallback. Schema sketch:
 
 ```json
 {
-    "id": "modder:halo_fusion_coil",
-    "type": "prop",
+    "id": "modder:halo_blood_gulch",
+    "type": "compound",
     "requires": [
-        { "id": "modder:fusion_coil_boom",   "kind": "audio" },
-        { "id": "modder:explosion_vfx_sphere", "kind": "vfx", "optional": true,
-          "fallback": "base:vfx_explosion_default" }
+        { "id": "modder:halo_props_pack", "kind": "compound" },
+        { "id": "modder:halo_vehicles_pack", "kind": "compound", "optional": true,
+          "fallback": null }
     ]
 }
 ```
 
-Loader rule: if an `optional: true` dep is missing at load time, the loader resolves the asset reference to the `fallback` ID instead. The compound mod loads cleanly with degraded visuals / audio.
+Loader rule for compound-on-compound deps:
 
-Use case: a Halo modpack ships a custom explosion VFX, but a user installing only the fusion-coil prop without the modpack falls back to the base explosion. The fusion-coil works in isolation.
+- **Required dep missing:** the compound fails to register entirely. LOUDFAIL.CATALOG.MISSING_DEP.
+- **Optional dep missing, no fallback:** the compound loads. Asset references inside the compound that point at the missing dep's catalog IDs resolve to `null` (or to a placeholder); gameplay code handles missing references gracefully (typically: skip the spawn, log warning).
+- **Optional dep missing, fallback provided:** asset references that would resolve through the missing dep instead resolve to the fallback ID. Audit recommendation: fallback IDs should resolve to base content, since base is always present.
 
-LOUDFAIL hits at `LOUDFAIL.CATALOG` when a non-optional dep is missing (the compound fails to register entirely).
+Use case: a Halo Blood Gulch map requires the props pack (warthogs are not optional for this map), but optionally uses the vehicles pack for additional spawnables. Without the vehicles pack, the map still loads with a degraded set of spawnables.
+
+LOUDFAIL hits at `LOUDFAIL.CATALOG.MISSING_DEP` when a required dep is missing. Optional deps that resolve to fallback log at `LOG_NOTE` (not LOUDFAIL): the modder declared the fallback intentionally; the substitution is expected behavior.
 
 #### 3.16.7 Circular dependency prevention (Q-4 follow-up)
 
-The catalog build performs topological sort on the dependency graph at startup:
+The catalog build performs topological sort on the compound dependency graph at startup:
 
-1. Build adjacency list from every enabled mod's `requires:` block (and `load_after:` / `load_before:` from 3.16.2).
+1. Build adjacency list from every enabled compound's `requires:` block (and `load_after:` / `load_before:` from Section 3.16.2).
 2. Run topological sort (Kahn's algorithm or DFS with white / grey / black coloring).
-3. On cycle detection, fire `LOUDFAIL.CATALOG` with the cycle path: "Cycle detected: A requires B, B requires C, C requires A. Mods refused to register: A, B, C."
-4. The cycle members fail to register entirely. The user sees a clear error and the catalog continues to build with the remaining (non-cyclic) mods.
+3. On cycle detection, fire `LOUDFAIL.CATALOG.CYCLE` with the cycle path: "Cycle detected: A requires B, B requires C, C requires A. Mods refused to register: A, B, C."
+4. The cycle members fail to register entirely. The user sees a clear error and the catalog continues to build with the remaining (non-cyclic) compounds.
 
 Cycles are pathological in the dependency graph (a normal mod ecosystem is a DAG). The detection exists to prevent silent infinite-loop or stack-blowout failure modes when a malformed mod ships.
 
-#### 3.16.8 Counter-based LOUDFAIL with session reset (Q-5 resolved)
+Hash-dedupe (Section 3.16.0) is independent of the dependency graph: deduping happens per-asset at registration time and does not generate cycles.
 
-When a quarantine overwrite happens (newer corruption replaces an older quarantined file), the runtime logs a distinct `LOUDFAIL.HEAL.QUARANTINE_OVERWRITE` message:
+#### 3.16.8 Consecutive-streak counter for self-heal events (Q-5 resolved; updated for Pass 4)
+
+The counter is for SUBSEQUENT SESSIONS, not within a session. It tracks PERSISTENT corruption (an architectural alarm signal that something is structurally wrong with extraction or storage), not one-off user accidents (intentional in-place edits that the user knows about and accepts).
+
+**Mechanics:**
+
+- Per-asset counter persisted in `data/.session-state.json` (or platform-equivalent persistent state file).
+- Counter starts at 0.
+- Counter increments by 1 each time the asset triggers self-heal (hash mismatch detected, quarantine, re-extraction) on a launch where the previous launch ALSO triggered self-heal for the same asset. In other words: only consecutive runs.
+- Counter resets to 0 when the streak breaks: a launch that loads the asset cleanly (hash verifies, no self-heal needed) resets the counter for that asset.
+- Logging is gated by streak: while counter > 0, every increment fires `LOUDFAIL.HEAL.PERSISTENT_CORRUPTION` with the count and the asset path. When the streak breaks, logging for that asset disables until the issue resumes.
 
 ```
-LOUDFAIL.HEAL.QUARANTINE_OVERWRITE: data/weapons/weapon_falcon2.pdwpn (count=3 this session): newer corruption detected; previous quarantine snapshot from 2026-04-29 14:22 has been overwritten
+LOUDFAIL.HEAL.PERSISTENT_CORRUPTION: data/weapons/weapon_falcon2.pdwpn re-extracted on 4 consecutive launches; previous quarantine from 2026-04-28 has been overwritten on each launch. This indicates persistent corruption in extraction or storage; investigate.
 ```
 
-A per-asset counter is incremented each time. Counter is persisted across launches (so users see the cumulative behavior pattern across sessions), but resets when the file is no longer being touched in subsequent runs. Specifically: if a launch verifies the file's hash without triggering self-heal, the counter resets to zero.
+**Distinction Mike drew (Pass 3 baseline, refined Pass 4):**
 
-Distinction Mike drew: this only matters if it can ruin Base Game experience. A user intentionally editing files in `data/` to mod the base game is not the alarm; the alarm is when self-heal repeatedly has to overwrite older quarantines because the user is unintentionally re-corrupting. The counter measures the architectural concern, not the user behavior concern.
+This only matters if it can ruin Base Game experience. A user intentionally editing files in `data/` to mod the base game is not the alarm; the alarm is when self-heal repeatedly has to overwrite older quarantines because the user is unintentionally re-corrupting (or extraction is producing different bytes each run, or storage is flaky). One-off edits are below the radar.
 
-UI consequence: the Settings panel can show a "self-heal events: <count> this session" indicator. When count > 0, modder is alerted that something unusual is happening with their `data/` tree.
+The streak-reset behavior is the key architectural distinction:
+
+- **One session of corruption:** logged at LOG_NOTE level (informational); no LOUDFAIL.
+- **Two or more consecutive sessions of corruption on the same asset:** LOUDFAIL.HEAL.PERSISTENT_CORRUPTION fires with the count.
+- **Streak breaks (clean launch):** counter for that asset resets; logging for that asset goes silent until the issue resumes.
+
+This way the alarm fires only on PERSISTENT architectural problems (a flaky extractor, a flaky storage layer, a botched migration). Modder activity does not generate noise; one-off corruption recovers silently.
+
+**Persistence file format (extrapolation E-?):** `data/.session-state.json` is a small JSON file recording per-asset counter state plus a "last clean launch timestamp" for bookkeeping:
+
+```json
+{
+    "version": 1,
+    "last_clean_launch": "2026-04-30T14:22:00Z",
+    "self_heal_streaks": {
+        "data/weapons/weapon_falcon2.pdwpn": { "count": 3, "last_event": "2026-04-30T15:02:00Z" }
+    }
+}
+```
+
+The state file is itself read-only with writable-during-extraction-or-self-heal semantics (Section 3.7), excluded from the manifest hash check (since its purpose is to track manifest events).
+
+**UI consequence:** the Settings panel can show a "self-heal streaks active: <N>" indicator when any counters are nonzero. When all counters are zero (no active streaks), no indicator. Click-through to a list of active streaks for diagnosis.
 
 #### 3.16.9 Priority-list ROM selection (Q-6 resolved)
 
@@ -1251,60 +1417,85 @@ Field anatomy:
 - **`stats`**: simple key-value record for the gameplay layer. Mod author's design choice; engine consumes generic field names.
 - **`behavior`**: state-machine block. `on_health_below` is a watcher that fires when the prop's health drops below a threshold; `on_destroyed` is an event handler firing when health hits zero. Actions inside (`spawn_vfx`, `spawn_audio`, `aoe_damage`, `remove_self`) are vocabulary the logic system understands.
 
-#### 3.17.3 Packaging recommendation: atomic
+#### 3.17.3 Packaging: a single self-contained compound (Pass 4 default)
 
-Recommend authoring this as an atomic mod: a self-contained `.pdprop` file that bundles its mesh, textures, and audio inline. The mod ships as a single `.pdmod` archive with this layout:
+Under Pass 4 (Section 3.16.0), every mod in `mods/` is a compound `.pdmod` archive. The fusion-coil mod ships as a single self-contained compound:
 
 ```
 modder_fusion_coil.pdmod                     # ZIP archive
-  mod.json                                    # standard mod manifest, type=prop
-  props/fusion_coil.pdprop                    # the manifest above
-  meshes/fusion_coil.glb                      # bundled mesh
-  textures/coil_albedo.tga
-  textures/coil_emit_0.tga
+  mod.json                                    # compound manifest
+  props/fusion_coil.pdprop                    # the prop record (manifest from 3.17.2)
+  meshes/fusion_coil.pdmesh                   # bundled mesh
+  textures/coil_albedo.tga                    # bundled diffuse texture
+  textures/coil_emit_0.tga                    # bundled emissive frames
   textures/coil_emit_1.tga
   textures/coil_emit_2.tga
-  audio/sfx/fusion_coil_boom.pdsfx            # bundled custom audio
-  audio/sfx/fusion_coil_boom.bin              # the audio sample data
+  audio/sfx/fusion_coil_boom.pdsfx            # bundled audio record
+  audio/sfx/fusion_coil_boom.bin              # bundled audio sample data
 ```
 
-The `mod.json` declares one external optional dependency (the explosion VFX, fallback to base):
+The compound's `mod.json` declares its internal atomic contents (each registers into the catalog with its own ID) and any external compound dependencies:
 
 ```json
 {
-    "id": "modder:fusion_coil",
+    "id": "modder:halo_fusion_coil",
     "version": "1.0.0",
     "display_name": "Halo Fusion Coil",
-    "type": "prop",
+    "type": "compound",
     "author": "MyModder",
-    "requires": [
-        { "id": "vfx:explosion_medium", "kind": "vfx", "optional": true,
-          "fallback": "base:vfx_explosion_default" }
-    ]
+    "internal_assets": [
+        { "catalog_id": "modder:prop_fusion_coil",
+          "type": "prop",
+          "path": "props/fusion_coil.pdprop" },
+        { "catalog_id": "modder:mesh_fusion_coil",
+          "type": "mesh",
+          "path": "meshes/fusion_coil.pdmesh" },
+        { "catalog_id": "modder:tex_coil_diffuse",
+          "type": "texture",
+          "path": "textures/coil_albedo.tga" },
+        { "catalog_id": "modder:tex_coil_emit_0",
+          "type": "texture",
+          "path": "textures/coil_emit_0.tga" },
+        { "catalog_id": "modder:tex_coil_emit_1",
+          "type": "texture",
+          "path": "textures/coil_emit_1.tga" },
+        { "catalog_id": "modder:tex_coil_emit_2",
+          "type": "texture",
+          "path": "textures/coil_emit_2.tga" },
+        { "catalog_id": "modder:sfx_coil_boom",
+          "type": "sfx",
+          "path": "audio/sfx/fusion_coil_boom.pdsfx" }
+    ],
+    "requires": []
 }
 ```
 
-Atomic packaging is the default recommendation because:
+Why this is the default packaging:
 
-- Self-contained. Modder ships one file; user installs one file; everything works.
-- Round-trip clean: the modder edits in the in-client tool, saves, the file is the canonical shape (per directive 3 from Pass 1).
-- No external dependency-resolution at install time. The catalog handles the optional VFX dep at load time.
+- **Self-contained.** Modder ships one file; user installs one file; everything works without external coordination.
+- **Round-trip clean** (per Pass 1 directive 3): the modder edits in the in-client tool, saves; the file is the canonical compound shape.
+- **Hash-dedupe at registration** (Section 3.16.0) handles any incidental duplication with other compounds at runtime. If the modder's emissive textures happen to match another mod's textures, both compounds keep them on disk but the catalog stores them once in memory.
+- **No external dep-resolution at install time.** Pass 4 architecture eliminates atomic-level dependencies. The optional VFX referenced in the prop's behavior block resolves via Section 3.16.6 (optional plus fallback) at load time.
+- **Additive-only invariant (Section 3.5)** is naturally satisfied: this compound declares unique catalog IDs (`modder:prop_fusion_coil`, etc.) and adds them alongside base content. The fusion coil appears in the prop picker as a new selectable entry.
 
-#### 3.17.4 Packaging alternative: compound
+#### 3.17.4 Packaging variation: compound depending on another compound
 
-Compound packaging is also viable when assets are genuinely shared across multiple mods. Example: a Halo modpack with shared explosion VFX as its own atomic dep:
+When a modder is publishing a coordinated set of related mods (e.g. a Halo modpack), they may split into multiple compounds with declared dependencies. Example:
 
-- `modder:halo_explosion_vfx` (atomic `.pdmod`): the shared VFX. Published independently.
-- `modder:fusion_coil_boom` (atomic `.pdmod`): the shared audio. Published independently.
-- `modder:halo_fusion_coil` (compound `.pdmod`): the prop. Declares `requires: [modder:halo_explosion_vfx, modder:fusion_coil_boom]`.
+- `modder:halo_shared_assets.pdmod` (compound): bundles shared VFX + audio + materials used across multiple Halo mods.
+- `modder:halo_fusion_coil.pdmod` (compound): the fusion-coil prop. Declares `requires: [modder:halo_shared_assets]`.
+- `modder:halo_warthog.pdmod` (compound): the warthog vehicle. Declares `requires: [modder:halo_shared_assets]`.
 
-The compound is smaller (does not duplicate VFX or audio); installs all three atomic mods together via a `.pdmodpack` (Section 3.16.1). Section 3.16.5 reverse-dep manifest applies: disabling `modder:fusion_coil_boom` while `modder:halo_fusion_coil` is enabled triggers the user-prompt warning.
+The shared compound carries assets used by both downstream compounds. Reverse-dep manifest (Section 3.16.5) lets the user know they cannot disable `modder:halo_shared_assets` without breaking the mods that depend on it.
 
-Decision matrix:
+Distribution: the modder bundles all three compounds in a `.pdmodpack` (Section 3.16.1) so users install everything in one operation.
 
-- Single mod, no shared dependencies, modder controls all assets: **atomic** (default).
-- Multiple mods sharing assets, want to publish modularly: **compound** with explicit `requires:` declarations.
-- Curated bundle of related mods for distribution: **modpack** (Section 3.16.1) wrapping multiple atomic / compound mods.
+When to use this variation vs the default self-contained packaging:
+
+- **Self-contained (3.17.3):** default. The mod is small, ships standalone, no coordinated set.
+- **Compound-on-compound (3.17.4):** the modder is publishing a coordinated set and wants to factor out shared content. Typical for total-conversion modpacks.
+
+Hash-dedupe (Section 3.16.0) softens this trade-off: a self-contained compound that happens to bundle the same textures as another self-contained compound dedupes at runtime. So even a "duplicate everything" approach is acceptable from a memory standpoint; the cost is disk, not RAM. Modders who do not want to manage compound-on-compound dependencies can simply self-contain everything.
 
 #### 3.17.5 Behavior block: the logic system
 
@@ -1316,11 +1507,13 @@ Implementation surface: the logic system itself is a future architectural pillar
 
 #### 3.17.6 What this example demonstrates
 
-- **Per-asset-class extensions** (`.pdprop`, `.pdsfx`, `.pdmod`) make file purpose self-evident. A glance at the mod archive shows what it contains.
-- **Catalog-mediated references** (`vfx:explosion_medium`, `modder:fusion_coil_boom`, `base:vfx_explosion_default`) decouple authoring from filesystem layout. The modder writes IDs, not paths; the catalog resolves at load time.
-- **Optional plus fallback dependencies** (Section 3.16.6) let the modder ship a self-contained mod that gracefully degrades when optional dependencies are absent.
-- **Compound vs atomic packaging** decision sits with the modder, supported by the catalog's dependency-graph (Sections 3.16.5 / 3.16.7).
-- **Symmetric schema** (per Mike's prior directive): the same `.pdprop` shape would describe a base-extracted prop (e.g. base PD's destructible barrels) and a modder-authored one. Loader has one parsing path.
+- **Compound-only on disk** (Section 3.16.0): the modder ships one `.pdmod` file; the user sees one file; sharing the file transmits everything needed.
+- **Internal catalog granularity**: the compound's manifest declares each contained atomic asset with its own catalog ID; gameplay code references them by ID; the catalog resolves to bytes inside the compound.
+- **Hash-dedupe at registration** (Section 3.16.0): if another mod bundles the same textures, the catalog stores the bytes once and points multiple IDs at the shared entry.
+- **Catalog-mediated references** (`modder:tex_coil_diffuse`, `modder:sfx_coil_boom`, `base:vfx_explosion_default`) decouple authoring from filesystem layout. The modder writes IDs, not paths; the catalog resolves at load time.
+- **Additive only** (Section 3.5): the fusion coil adds a new prop alongside base content. No override; no precedence ambiguity.
+- **Optional plus fallback dependencies** (Section 3.16.6) at the compound-on-compound level let coordinated sets gracefully degrade.
+- **Symmetric schema** (per Pass 1 directive 3): the same `.pdprop` shape describes a base-extracted prop (e.g. base PD's destructible barrels) and a modder-authored one. Loader has one parsing path.
 - **Behavior via state machine, not code**: the modder declares triggers and actions; the logic system executes. No programming required.
 
 ### 3.18 Priority order
@@ -1390,9 +1583,9 @@ Items 11+ are the asset-class-by-asset-class migration (mesh, audio split into m
 - `context/designs/catalog/catalog-full-pipeline-weapons.md` (F1-F10 plus F11-F13 weapons catalog work, F12-F13 lane CLOSED 2026-04-30)
 - `context/designs/modding/forge-level-editor.md` (FW-3 terrain editor reference)
 
-**Mike's directives applied (Pass 2 plus Pass 3, 2026-04-30)**
+**Mike's directives applied (Pass 2 plus Pass 3 plus Pass 4, 2026-04-30)**
 
-Twenty directives logged from Pass 2 plus six Q-resolution refinements from Pass 3 (Section 3.16) plus the worked example (Section 3.17):
+Twenty directives logged from Pass 2 plus six Q-resolution refinements from Pass 3 (Section 3.16) plus the worked example (Section 3.17) plus the compound-only-plus-no-overrides architectural shift from Pass 4:
 
 1. Extension naming (`.pdwpn` over `.pdwep`); definitions for `.pdtiles`, `.pdseg`, `.pdmpconfig`, `.pdtexconfig`, `.pdfiringrange`. (Sections 3.2)
 2. Audio extraction by category (music / sfx / voice). (Sections 3.2, 3.10 G-2)
@@ -1426,7 +1619,18 @@ Forward-looking notes tracked: accessories system (FW-1), mod-driven character b
 - Q-5 counter-based LOUDFAIL with session reset for quarantine overwrites (3.16.8).
 - Q-6 priority-list ROM selection at extraction time (3.16.9) plus session-cache for cross-region multiplayer (3.16.10).
 
-**Pass 3 worked example (Section 3.17):** end-to-end Halo fusion-coil prop mod authoring flow demonstrating per-asset-class extensions, catalog-mediated references, optional + fallback dependencies, atomic vs compound packaging trade-offs, and the behavior-as-state-machine model.
+**Pass 3 worked example (Section 3.17):** end-to-end Halo fusion-coil prop mod authoring flow demonstrating per-asset-class extensions, catalog-mediated references, optional + fallback dependencies, packaging trade-offs, and the behavior-as-state-machine model. Updated in Pass 4 for compound-only packaging (the atomic-vs-compound matrix collapsed; everything is compound now).
+
+**Pass 4 architectural shift (Section 3.16.0 plus Section 3.5 rewrite):**
+
+- Compound-only on disk in `mods/` (Section 3.16.0). Atomic assets live INSIDE compound `.pdmod` archives, not loose. One file equals one mod. No user-facing dependency management for atomic assets.
+- Internal catalog still gets per-asset granularity. Each compound's `internal_assets` block declares its contents; each registers as its own catalog entry with its own ID; gameplay code references by ID; catalog resolves to bytes inside the compound.
+- Hash-based deduplication at registration. Two compounds bundling the same texture (same SHA-256) cause the catalog to store the bytes once but register both declared IDs pointing at the shared entry. Disk space duplicates; runtime memory and catalog space dedupe.
+- No overrides. Mods are strictly additive. Catalog ID uniqueness invariant: every ID is unique across base, data, and all enabled mods. Duplicates LOUDFAIL at registration. Total conversions become modpacks of additive compounds. (Section 3.5 rewritten to reflect this.)
+- Q-2 load-order/priority becomes vestigial under additive-only (Section 3.16.2 rewritten).
+- Reverse-dep manifest (Section 3.16.5) and optional+fallback deps (Section 3.16.6) operate at the compound-on-compound level only; atomic-level dep tracking happens internally and via hash-dedupe.
+- Q-5 counter clarified (Section 3.16.8): tracks consecutive sessions of self-heal on the same asset; persists in `data/.session-state.json` across launches; resets on streak break (a clean launch).
+- Halo worked example rewritten (Section 3.17.3 / 3.17.4 / 3.17.6) for compound-only packaging.
 
 **Pass 3 self-extrapolations beyond Mike's explicit text:**
 
@@ -1434,6 +1638,16 @@ Forward-looking notes tracked: accessories system (FW-1), mod-driven character b
 - E-20. Logic system (state machine: triggers + actions) flagged as a future architectural pillar (Section 3.17.5). The behavior block schema sketches assume vocabulary the logic system understands; the system itself is out of scope for this audit.
 - E-21. `assetprovider_session_cache.c` as the third asset provider alongside ROM and data providers (Section 3.16.10). Networking-layer integration with the catalog. Out of scope; flagged for future networking-layer work.
 - E-22. ROM priority list ordering recommendation (NTSC-final > PAL-final > NTSC-1.0 > JPN-final > PAL-beta > NTSC-beta) per Section 3.16.9. Mike said "recommend" so I picked an order; flag if a different priority is preferred.
+
+**Pass 4 self-extrapolations (E-23 through E-29):**
+
+- E-23. **Provenance metadata in copied assets.** Section 3.16.0 mod authoring workflow says the in-client tool copies cataloged assets into the new compound. I added that each copied entry carries an optional `origin:` field naming the source catalog ID for audit and credit. Mike did not specify; I chose this because it lowers the friction of collaboration and credit-trail.
+- E-24. **Compound archive layout convention.** I prescribed a specific layout for `.pdmod` archives (top-level `mod.json` plus inner directories `weapons/`, `meshes/`, `audio/`, etc., with per-asset-class extensions on inner files). Mike did not specify; I chose this because a modder unzipping a compound for inspection sees a self-documenting tree.
+- E-25. **First-loaded wins on duplicate ID.** Section 3.5 D-3 specifies the catalog reads in load order and the first-to-register wins on conflict; the second LOUDFAILs and fails to register only the conflicting asset (the rest of its content registers normally). Mike said "LOUDFAIL on duplicate ID" but did not specify the resolution. I chose first-wins-and-warn-second because it lets the user keep both mods enabled and only the colliding item drops. Open question: hard-fail-both vs first-wins-and-warn-second.
+- E-26. **Hash-dedupe pool architecture.** Section 3.16.0 specifies the catalog maintains a "bytes by hash" pool plus a "catalog ID to hash" mapping. Mike said "hash-based deduplication at registration." I chose the two-level lookup as the implementation shape because it minimizes memory and keeps catalog operations independent of bytes storage.
+- E-27. **AllInOneMods migration framing.** Section 3.5 notes that the historical AllInOneMods (GEX, Kakariko, Goldfinger 64, Dark Noon) replaced base content and need to be reauthored as additive collections under Pass 4. I called this out as a non-trivial future migration pillar. Mike did not explicitly mention it in Pass 4; I extrapolated from his "no overrides" directive that this becomes a real migration concern.
+- E-28. **UX implication for additive curation.** Section 3.5 notes that the campaign menu, weapon-loadout picker, character selector, etc. become enriched with mod-introduced variants under additive-only. I sketched a "Built-in" header followed by per-modpack groupings as the modding-hub UX pattern. Mike said "user picks" but did not specify the curation UI; I chose this grouping as a reasonable default.
+- E-29. **`data/.session-state.json` persistence shape.** Section 3.16.8 specifies the streak counter file format. Mike said "store in `data/.session-state.json` or similar." I chose JSON with a `version`, `last_clean_launch`, and `self_heal_streaks` map structure. The file is itself read-only with writable-during-extraction-or-self-heal semantics, excluded from manifest hash check. Mike did not specify the exact format; I picked a shape consistent with the rest of the data tier.
 
 End of audit.
 
