@@ -1,7 +1,50 @@
 # Session Log (Active)
 
-> **S481-S595 + S593h + S482c + S593b** (rolling window of ~110 sessions; S595 added 2026-05-01 PM for B-303 post-exit Main Menu auto-pop on solo campaign + Forge end paths (Combat Sim path left intact per OG-canonical var80087260=3 mechanism); S593h added 2026-05-01 PM for swarm refinement bundle (random scale 0.2-0.6 weighted small, BOTDIFF_DARK + BOTTYPE_SPEED, per-frame player awareness + LOS short-circuit, no bot-bot collision via CHRHFLAG_00040000 swarm lock, power-weapon loadout for player + COMBATKNIFE for bots); S593g added 2026-05-01 PM for body.c integrated-head warning gate (suppressing 550 head_canon=NULL log spam during the swarm 4-256 cycle); S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
+> **S481-S597 + S593h + S482c + S593b** (rolling window of ~111 sessions; S597 added 2026-05-01 PM for B-304 default wireframe OFF in forge + Debug Rendering toggles in Level tab on the infallible-mestorf-8463b9 worktree; S596 added 2026-05-01 PM for Catalog Gate 3 Character Heads DATA migration F1-F13 ship on the catalog-gate3-heads-0501 worktree (manager + .pdbase loader pattern reused from weapons, 84 head records in base/heads.pdbase, no Layer A leakage; merged at dev a2ad421e); S595 added 2026-05-01 PM for B-303 post-exit Main Menu auto-pop on solo campaign + Forge end paths (Combat Sim path left intact per OG-canonical var80087260=3 mechanism); S593h added 2026-05-01 PM for swarm refinement bundle (random scale 0.2-0.6 weighted small, BOTDIFF_DARK + BOTTYPE_SPEED, per-frame player awareness + LOS short-circuit, no bot-bot collision via CHRHFLAG_00040000 swarm lock, power-weapon loadout for player + COMBATKNIFE for bots); S593g added 2026-05-01 PM for body.c integrated-head warning gate (suppressing 550 head_canon=NULL log spam during the swarm 4-256 cycle); S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
+
+## Session S597 (`infallible-mestorf-8463b9`) - 2026-05-01 PM - B-304 default wireframe OFF + visible Debug Rendering toggles
+
+Mike's 2026-05-01 observation (verbatim, hadn't tested current dev tip yet):
+
+> "I didn't test this version yet, but in the previous version when I started The Grid, it defaulted to Wireframe mode and I couldn't see how to toggle it"
+
+### Investigation
+
+Plumbing source: `forgeApplyDebugRenderEntry` at [src/game/forgemode.c:548](../../src/game/forgemode.c:548) called `gfxDebugWireframeSet(1)` unconditionally at every forge transition entry. Original rationale (per the inline comment): "show geometry edges so the freefly camera reads room boundaries while positioned outside rooms." Save / restore pair captured pre-forge state at entry and restored at exit.
+
+Existing toggle / discoverability surface:
+- Shift+F2 raw SDL handler at [port/fast3d/pdgui_backend.cpp:1456-1464](../../port/fast3d/pdgui_backend.cpp:1456). Calls `gfxDebugWireframeToggle()` and logs the flip.
+- Top-right indicator at [pdgui_backend.cpp:1135-1170](../../port/fast3d/pdgui_backend.cpp:1135) renders "[Shift+F2] Wireframe" when active. Visually competes with the editor window which sits at the right side too -- the indicator and the editor's title bar can blur together.
+
+So the toggle was functional, just hard to discover.
+
+### Two-part fix
+
+Per Mike's "default OFF or surface a clear toggle, either is acceptable" directive -- I'm doing both so the UX is robust regardless of which path the user takes.
+
+1. **Default OFF**. `forgeApplyDebugRenderEntry` no longer calls `gfxDebugWireframeSet(1)`. The save / restore mechanism stays intact: pre-forge wireframe + cull-mode state is captured at entry and restored at exit so any mid-session manual toggling (Shift+F2 / Shift+F1 / new editor UI) is scoped to the forge session. Authors who had wireframe ON before forge keep it ON; authors who had it OFF (most cases) keep it OFF.
+
+2. **Visible toggle in editor**. New "Debug Rendering" subsection at the end of `forgeDrawLevelExtras` (Level tab in the forge editor). Wireframe checkbox + cull mode 3-option dropdown. Both labelled with their keyboard shortcuts ("Shift+F2", "Shift+F1") so authors can flip them inline AND learn the shortcuts. TextDisabled hint clarifies state is session-local.
+
+### Files (2)
+
+- [`src/game/forgemode.c`](../../src/game/forgemode.c) -- remove `gfxDebugWireframeSet(1)` auto-enable, rewrite the comment to document the new default + the new in-editor surface, save/restore plumbing untouched. +12 -4 lines.
+- [`port/fast3d/pdgui_forge_editor.cpp`](../../port/fast3d/pdgui_forge_editor.cpp) -- append "Debug Rendering" section to `forgeDrawLevelExtras`. Wireframe checkbox, cull mode dropdown, both reading / writing through the existing extern "C" `gfxDebug*` API. +43 lines.
+
+### Build verification
+
+`build-session.ps1 -Session b304 -Target all` PASS (CLIENT 26s, UPDATER 2s, PerfectDark.exe 54.7 MB).
+
+### Auto-merge
+
+Worktree branch rebased onto dev tip pre-merge (dev had advanced 5 commits with Catalog Gate 3 work since the prior B-303 merge). Merge applied cleanly. Post-merge line counts of both changed files match worktree.
+
+### What this fix does NOT do
+
+- **Does not remove the Shift+F2 raw handler**. The keyboard shortcut still works for muscle-memory users.
+- **Does not remove the top-right indicator**. When wireframe is ON (toggled by any path), the indicator continues to show "[Shift+F2] Wireframe" so accidental enables are visible.
+- **Does not gate the Debug Rendering section behind PD_DEV_BUILD**. Mike's authoring use case is the primary user; release builds also benefit from inline render-debug visibility for end-user authoring in The Grid.
 
 ## Session S595 (`infallible-mestorf-8463b9`) - 2026-05-01 PM - B-303 post-exit Main Menu auto-pop (solo + Forge)
 
