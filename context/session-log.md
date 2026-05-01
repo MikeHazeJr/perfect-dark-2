@@ -133,14 +133,20 @@ Auto-chained from Slice 1+2 per Mike's directive ("Continue into Slice 3+ as pre
 - `src/game/chr.c` (chrSurfaceLocoTick call from chrTick tail; chrRender no longer re-samples)
 - `src/lib/model.c` (modelUpdateChrNodeMtx reads blended render-up via getter)
 
+### Follow-up: NET_PROTOCOL_VER test pin (Mike's catch, post-merge)
+
+Slice 3 bumped `NET_PROTOCOL_VER` 46 -> 47 in `port/include/net/net.h` but missed the test pin in `tests/test_versions.cpp:46`. Mike caught the regression on the next test run; pin updated to 47 with a comment block describing the v47 cause (surface_up vec3 sync) and re-routing detail to the canonical changelog. Build verified pin47 PASS. Lesson: when bumping `NET_PROTOCOL_VER`, also update `g_TestExpectedNetProtocolVer` in the same merge -- the pin guards against silent wire bumps and is part of the slice's "complete unit" surface.
+
 ### Session shape
 
-3 sequential merges to dev in one session, all auto-merged per Mike's standing rule:
+5 sequential merges to dev in one session, all auto-merged per Mike's standing rule:
 1. `0d08b4cc` Slice 1+2 (chr struct + visual tilt) + dev hotfix at swarm_test.c:718
 2. `5277c024` Slice 1+2 docs (session log + scope doc status)
 3. `ae705aa6` Slice 3 (per-tick + blend + wire v47)
+4. `fead5f63` Slice 3 docs (session log + scope doc status)
+5. `2be602ce` Slice 3 follow-up (`tests/test_versions.cpp` pin 46 -> 47)
 
-Worktree branch HEADs: `1e17810e` (Slice 1+2 code), `e9e691b5` (Slice 1+2 docs), `538240bb` (Slice 3).
+Worktree branch HEADs: `1e17810e` (Slice 1+2 code), `e9e691b5` (Slice 1+2 docs), `538240bb` (Slice 3 code), `8809188e` (Slice 3 docs), `014fa245` (pin 47 follow-up).
 
 ## Session S594h-B Slice 1+2 (`mystifying-bose-71f14a`) - 2026-05-01 PM - Surface-normal locomotion: chr-struct plumbing + visual tilt
 
