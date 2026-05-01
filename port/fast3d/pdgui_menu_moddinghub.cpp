@@ -332,7 +332,12 @@ static void iniRefreshEntries(void)
 
     for (int t = 0; t < s_NumAllTypes; t++) {
         int before = s_IniNumEntries;
-        assetCatalogIterateByType(s_AllTypes[t], iniCollectCallback, &s_IniNumEntries);
+        /* Modding Hub INI authoring -- modder needs to see disabled
+         * entries to re-enable / edit them.  See B-303 (catalog
+         * universality sweep). */
+        assetCatalogIterateByTypeIncludingDisabled(s_AllTypes[t],
+                                                    iniCollectCallback,
+                                                    &s_IniNumEntries);
         int added = s_IniNumEntries - before;
         if (added > 0) {
             sysLogPrintf(LOG_NOTE,
@@ -726,8 +731,14 @@ static void scaleCollectBodyCallback(const asset_entry_t *e, void *ud)
 static void scaleRefreshEntries(void)
 {
     s_ScaleNumEntries = 0;
-    assetCatalogIterateByType(ASSET_CHARACTER, scaleCollectCallback, &s_ScaleNumEntries);
-    assetCatalogIterateByType(ASSET_BODY, scaleCollectBodyCallback, &s_ScaleNumEntries);
+    /* Modding Hub Scale tool -- modder needs to see disabled entries to
+     * adjust scale on them.  See B-303 (catalog universality sweep). */
+    assetCatalogIterateByTypeIncludingDisabled(ASSET_CHARACTER,
+                                                scaleCollectCallback,
+                                                &s_ScaleNumEntries);
+    assetCatalogIterateByTypeIncludingDisabled(ASSET_BODY,
+                                                scaleCollectBodyCallback,
+                                                &s_ScaleNumEntries);
     s_ScaleSelected   = -1;
     s_ScaleValue      = 1.0f;
     s_ScaleOriginal   = 1.0f;
@@ -958,7 +969,12 @@ static void packRefreshEntries(void)
 {
     s_PackNumEntries = 0;
     for (int t = 0; t < s_NumAllTypes; t++) {
-        assetCatalogIterateByType(s_AllTypes[t], packCollectCallback, &s_PackNumEntries);
+        /* Modding Hub Pack tool -- modder needs to see disabled mod
+         * entries to bundle them.  See B-303 (catalog universality
+         * sweep). */
+        assetCatalogIterateByTypeIncludingDisabled(s_AllTypes[t],
+                                                    packCollectCallback,
+                                                    &s_PackNumEntries);
     }
     memset(s_PackSelected, 0, sizeof(s_PackSelected));
     s_PackStatusMsg[0]       = '\0';

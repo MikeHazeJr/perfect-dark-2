@@ -69,6 +69,12 @@ s32 assetCatalogHasEntry(const char *id);
 void assetCatalogIterateByType(asset_type_e type,
                                 void (*fn)(const asset_entry_t *, void *),
                                 void *userdata);
+/* B-303 (catalog universality sweep, 2026-05-01): variant that includes
+ * disabled entries.  Audio Mod authoring is a modder UI; the user wants
+ * to see disabled audio rows so they can re-enable them. */
+void assetCatalogIterateByTypeIncludingDisabled(asset_type_e type,
+                                                 void (*fn)(const asset_entry_t *, void *),
+                                                 void *userdata);
 
 /* modmgr.c — S309: register + enable newly-imported audio mods so they
  * survive restart. Without these calls the import writes audio.ini + a
@@ -216,8 +222,11 @@ extern "C" {
 void pdguiAudioModRefresh(void)
 {
     s_AudioNumEntries = 0;
-    assetCatalogIterateByType(ASSET_AUDIO, audioModCollectCallback,
-                              &s_AudioNumEntries);
+    /* Audio Mod authoring UI -- modder needs to see disabled audio mod
+     * entries to re-enable them.  See B-303 (catalog universality sweep). */
+    assetCatalogIterateByTypeIncludingDisabled(ASSET_AUDIO,
+                                                audioModCollectCallback,
+                                                &s_AudioNumEntries);
     /* Clear pack selection for current capacity */
     if (s_PackTrackSelected && s_AudioCapacity > 0) {
         memset(s_PackTrackSelected, 0, (size_t)s_AudioCapacity * sizeof(bool));

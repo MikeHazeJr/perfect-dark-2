@@ -279,7 +279,11 @@ static void refreshSnapshot(void)
 {
     s_NumEntries = 0;
     for (int t = 0; t < s_NumAllTypes; t++) {
-        assetCatalogIterateByType(s_AllTypes[t], populateCallback, &s_NumEntries);
+        /* Mod Manager UI -- intentionally lists disabled entries so the user
+         * can re-enable them.  See B-303 (catalog universality sweep). */
+        assetCatalogIterateByTypeIncludingDisabled(s_AllTypes[t],
+                                                    populateCallback,
+                                                    &s_NumEntries);
     }
 
     /* Reset type collapsed states (keep base collapsed by default) */

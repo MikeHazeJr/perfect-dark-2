@@ -763,6 +763,31 @@ const asset_entry_t *assetCatalogResolveByNetHash(u32 net_hash)
 void assetCatalogIterateByType(asset_type_e type, asset_iter_fn fn,
                                 void *userdata)
 {
+    /* B-303 (catalog universality sweep, 2026-05-01): respect entry->enabled
+     * so disabled mod entries do NOT leak into selectors.  Mirrors the
+     * resolve-by-ID semantic at line 697 above.  Modder UIs that legitimately
+     * need disabled entries in their listing call
+     * assetCatalogIterateByTypeIncludingDisabled below. */
+    if (fn == NULL || s_EntryPool == NULL) {
+        return;
+    }
+
+    for (s32 i = 0; i < s_EntryPoolSize; i++) {
+        if (s_EntryPool[i].occupied
+                && s_EntryPool[i].enabled
+                && s_EntryPool[i].type == type) {
+            fn(&s_EntryPool[i], userdata);
+        }
+    }
+}
+
+void assetCatalogIterateByTypeIncludingDisabled(asset_type_e type,
+                                                 asset_iter_fn fn,
+                                                 void *userdata)
+{
+    /* Variant for modder UIs (Mod Manager, Modding Hub, Audio Mod author)
+     * that need to LIST disabled entries so the user can re-enable them.
+     * All other callers must use assetCatalogIterateByType. */
     if (fn == NULL || s_EntryPool == NULL) {
         return;
     }
@@ -777,13 +802,15 @@ void assetCatalogIterateByType(asset_type_e type, asset_iter_fn fn,
 void assetCatalogIterateByCategory(const char *category, asset_iter_fn fn,
                                     void *userdata)
 {
+    /* Same enabled-filter discipline as IterateByType (B-303). */
     if (category == NULL || fn == NULL || s_EntryPool == NULL) {
         return;
     }
 
     for (s32 i = 0; i < s_EntryPoolSize; i++) {
-        if (s_EntryPool[i].occupied &&
-            strcmp(s_EntryPool[i].category, category) == 0) {
+        if (s_EntryPool[i].occupied
+                && s_EntryPool[i].enabled
+                && strcmp(s_EntryPool[i].category, category) == 0) {
             fn(&s_EntryPool[i], userdata);
         }
     }
