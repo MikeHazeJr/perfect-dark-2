@@ -3,6 +3,79 @@
 > **S481-S594 + S593h + S482c + S593b** (rolling window of ~110 sessions; S593h added 2026-05-01 PM for swarm refinement bundle (random scale 0.2-0.6 weighted small, BOTDIFF_DARK + BOTTYPE_SPEED, per-frame player awareness + LOS short-circuit, no bot-bot collision via CHRHFLAG_00040000 swarm lock, power-weapon loadout for player + COMBATKNIFE for bots); S593g added 2026-05-01 PM for body.c integrated-head warning gate (suppressing 550 head_canon=NULL log spam during the swarm 4-256 cycle); S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
 
+## Session S594h-B Slice 1+2 (`mystifying-bose-71f14a`) - 2026-05-01 PM - Surface-normal locomotion: chr-struct plumbing + visual tilt
+
+Mike's directive after S594h-A spawn correction shipped: implement surface-normal locomotion (Skedars walk on walls and ceilings, rotation aligned to surface normal). The prior session filed the scope doc at `context/designs/in-flight/skedar-surface-normal-locomotion.md` with 5 open questions; this session opened by proposing answers, Mike approved all 5 with refinements, and authorized auto-chaining of subsequent slices.
+
+### Mike's Q&A refinements (verbatim, 2026-05-01)
+
+1. Body opt-in: race default + per-chr flag override so a Grid spawn volume can mix Skedars-that-walk-walls with Maians-that-cannot, plus some Skedars-that-do-not.
+2. Threshold: none. Plus two safety items: bots must not fall out at level seams (extend ray + hold last-known surface for N frames before declaring airborne), and drop-from-wall must align to the new floor's normal on landing.
+3. Drop heuristic: combined cone + distance + LOS gate (per Q3). Plus: bots can JUMP from walls toward the player using act_skjump with gravity-along-local-up + slight homing toward target. Adds scare factor.
+4. Animation budget: 4096 bots scales to ~80us per frame (linear); proceed without caching, measure once Slices 1-3 land. CPU vs GPU mode parity tracked separately under the GPU bot pipeline scope.
+5. Wire two-stage rollout, no separate approval gate at stage 2: Slices 1+2 ship with no wire change; Slice 3 bundles the protocol bump in the same merge as the movement integration.
+
+### Slice 1 - chr-struct plumbing (commit 1e17810e, merged 0d08b4cc)
+
+Five new fields on `struct chrdata` (appended after `cutscene_protect`, no offset shift for existing fields):
+- `f32 surface_up[3]` / `surface_up_prev[3]` -- current and previous local-up vectors
+- `s16 surface_blend_frames` -- blend countdown timer
+- `u8 surface_loco_flags` -- bit field
+
+Bit layout in `surface_loco_flags`:
+- `SURFACE_LOCO_FLAG_PER_CHR_ENABLE` (0x01) -- per-chr opt-in (overrides race default to ON)
+- `SURFACE_LOCO_FLAG_PER_CHR_DISABLE` (0x02) -- per-chr opt-out (overrides race default to OFF)
+- `SURFACE_LOCO_FLAG_BLENDING` (0x04) -- internal: in blend window
+- `SURFACE_LOCO_FLAG_AIRBORNE` (0x08) -- internal: not currently on a surface
+
+New module `src/game/surface_loco.c` + `src/include/game/surface_loco.h`:
+- `chrSurfaceLocoInit(chr)` -- called from chrInit; sets surface_up to world-up, flags to 0
+- `chrSurfaceLocoIsEnabled(chr)` -- PER_CHR_DISABLE wins, then PER_CHR_ENABLE, else `chr->race == RACE_SKEDAR`
+- `chrSurfaceLocoForceEnabled(chr)` / `chrSurfaceLocoForceDisabled(chr)` / `chrSurfaceLocoClearOverride(chr)` -- spawn-time API for scenario / mod code
+
+Slice 1 alone is invisible: every chr's surface_up = (0, 1, 0), nothing reads it yet.
+
+### Slice 2 - render transform tilt (same commit)
+
+`chrSurfaceLocoSampleFloorNormal(chr, *out_up)` probes the floor surface normal under the chr via `cdFindFloorRoomYColourNormalPropAtPos` (one collision sweep, real geo-derived normal -- no triangulation, no extra raycasts vs. the chr's existing ground-find).
+
+`chrSurfaceLocoBuildTiltMtx(*surface_up, *out)` builds a Rodrigues rotation matrix that maps world-up (0,1,0) to surface_up. Identity within ~1.6deg cosine threshold (also serves as Mike's Q2 blend short-circuit so the renderer never pays the matrix-build cost on near-flat ground). Engine's row-major convention; verified surface_up=(1,0,0) maps world-up to (1,0,0) with v*M.
+
+`chrRender` (`src/game/chr.c:3656`) publishes `g_SurfaceLocoActiveChr` around the modelRender call (save/restore pattern for nested-render safety). For surface-loco chrs the floor sample is taken into `chr->surface_up` just before the render.
+
+`modelUpdateChrNodeMtx` (`src/lib/model.c:823`) reads `g_SurfaceLocoActiveChr->surface_up` and composes a tilt rotation into sp198's 3x3 block before the animation/yaw composition. ABSOLUTE_TRANSLATION animations skip the tilt (cutscene paths bake world-space positions and would break otherwise).
+
+### Wire / protocol
+
+Per Q5 two-stage rollout: Slices 1+2 ship with no protocol bump. NET_PROTOCOL_VER stays at 46. Client and server compute surface_up locally from the synced chr position. Slice 3 will bundle the wire change (12-byte surface_up on SVC_NPC_MOVE + SVC_BOT_AUTHORITY, bump to v47).
+
+### Hotfix bundled (pre-existing dev breakage)
+
+`port/src/swarm_test.c:718` was calling `spawn_one_skedar` with 2 args after commit `5bd83126` widened its signature to 4 (added `team_idx` + `out_scale`). The build verify failed on compile until the call site was updated to thread `team_idx` (alternating in TWO_TEAMS_PLUS_PLAYER mode, all 0 in SIMS_VS_PLAYERS) and capture the picked scale + spawn pos for the kill-respawn loop. Pre-existing dev breakage that landed in the auto-commit window between the scope-doc commit and this session.
+
+### Build verification
+
+`devtools\build-session.ps1 -Session slc12b -Target all` -- both `PerfectDark.exe` and `Updater.exe` build clean.
+
+### What the next playtest should show
+
+- Skedars in any arena (e.g., swarm test on Car Park) tilt their visual orientation to the floor surface normal. On flat ground: identical to current. On a slope: model leans with the slope. Wall normals not yet sampled (needs Slice 3 directional raycast); no movement change yet.
+- Other chrs (Maians, humans, Dr Carroll) unchanged -- the helper returns false for non-Skedar races.
+
+### Files touched
+
+- `src/include/types.h` (struct chrdata fields)
+- `src/include/constants.h` (SURFACE_LOCO_FLAG_*)
+- `src/include/game/surface_loco.h` (new)
+- `src/game/surface_loco.c` (new)
+- `src/game/chr.c` (chrInit + chrRender hooks)
+- `src/lib/model.c` (modelUpdateChrNodeMtx tilt block)
+- `port/src/swarm_test.c` (call-site fix)
+
+### Next slice
+
+Slice 3 (per-tick directional raycast + surface-plane velocity integration + gravity along -surface_up + wire change to v47) auto-chains in this same session per Mike's directive.
+
 ## Session S593h (`distracted-hamilton-430172` continuation #6) - 2026-05-01 PM - Swarm refinement bundle (6 items + parity + power loadout)
 
 Mike's S593g playtest got the bots small but surfaced 6 refinement requests + 1 carry-over, plus a follow-up loadout directive and a "must apply to both modes" parity directive.
