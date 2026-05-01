@@ -815,6 +815,91 @@ void forgePlaceCancel(void)
 }
 
 /* ============================================================
+ * Held object (Fix 8, 2026-05-01)
+ *
+ * One-shot select-spawn-attach UX: clicking a catalog entry (or pressing
+ * the sidebar Activate action while a catalog row is focused) spawns the
+ * object via forgePlaceBegin/Commit IMMEDIATELY and stores its uid in
+ * s_held_uid. The editor's per-tick update mirrors the camera-forward
+ * placement point onto the live object's pos[] so the user sees the
+ * object floating in front of them as they fly. A second Activate releases
+ * (clears s_held_uid; object stays where last seen).
+ *
+ * State is module-static. forgeRuntime / forgemode never read it; callers
+ * outside the editor should treat the object as a normal forge_object_t
+ * and ignore the held-ness (it has no on-disk effect; serialisation
+ * captures the final pos at save / playtest enter time).
+ * ============================================================ */
+
+static u32 s_held_uid = 0;
+
+u32 forgeHeldGetUid(void)
+{
+	return s_held_uid;
+}
+
+void forgeHeldSetUid(u32 uid)
+{
+	if (uid == 0) {
+		forgeHeldRelease();
+		return;
+	}
+	/* Defensive: drop the claim if the uid does not resolve to a live
+	 * object (e.g. concurrent delete via Undo). The caller's "spawn +
+	 * attach" path shouldn't hit this since it just allocated the uid. */
+	forge_object_t *o = forgeObjectFindByUid(uid);
+	if (!o) {
+		s_held_uid = 0;
+		return;
+	}
+	s_held_uid = uid;
+	sysLogPrintf(LOG_NOTE, "GRID: held attach uid=%u catalog='%s'",
+			uid, o->catalog_id);
+}
+
+void forgeHeldRelease(void)
+{
+	if (s_held_uid == 0) return;
+	forge_object_t *o = forgeObjectFindByUid(s_held_uid);
+	sysLogPrintf(LOG_NOTE, "GRID: held release uid=%u%s",
+			s_held_uid,
+			o ? "" : " (object already gone)");
+	s_held_uid = 0;
+}
+
+void forgeHeldUpdateFromCamera(const f32 cpos[3], f32 yaw_deg, f32 pitch_deg, f32 distance)
+{
+	if (s_held_uid == 0) return;
+	forge_object_t *o = forgeObjectFindByUid(s_held_uid);
+	if (!o) {
+		/* Underlying object disappeared (deleted via undo, etc.) -- clear
+		 * the held claim so the next Activate can spawn cleanly. */
+		s_held_uid = 0;
+		return;
+	}
+	const f32 DEG2RAD = 0.017453292519943f;
+	f32 yr = yaw_deg * DEG2RAD;
+	f32 pr = pitch_deg * DEG2RAD;
+	f32 fx = sinf(yr) * cosf(pr);
+	f32 fy = sinf(pr);
+	f32 fz = cosf(yr) * cosf(pr);
+
+	f32 px = cpos[0] + fx * distance;
+	f32 py = cpos[1] + fy * distance;
+	f32 pz = cpos[2] + fz * distance;
+
+	if (s_editor.snap_grid_enabled && s_editor.grid_size > 0.0f) {
+		px = forgeSnap(px, s_editor.grid_size);
+		py = forgeSnap(py, s_editor.grid_size);
+		pz = forgeSnap(pz, s_editor.grid_size);
+	}
+
+	o->pos[0] = px;
+	o->pos[1] = py;
+	o->pos[2] = pz;
+}
+
+/* ============================================================
  * Logic node / wire pools
  * ============================================================ */
 
