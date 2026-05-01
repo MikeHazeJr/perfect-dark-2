@@ -73,13 +73,9 @@ const s32 SWARM_TEST_CYCLE[SWARM_TEST_CYCLE_STEPS] = {
 	 2560, 2816, 3072, 3328, 3584, 3840, 4096
 };
 
-static s32 swarm_cycle_index(s32 count)
-{
-	for (s32 i = 0; i < SWARM_TEST_CYCLE_STEPS; i++) {
-		if (SWARM_TEST_CYCLE[i] == count) return i;
-	}
-	return 0;
-}
+/* swarm_cycle_index removed in S594h-Unit-C: the cycler now advances
+ * an explicit s_LadderIdx instead of inferring the position from the
+ * actual count, so the count-to-index lookup is no longer needed. */
 
 /* ------------------------------------------------------------------
  * Private chr table (escapes MAX_BOTS = 32)
@@ -113,6 +109,20 @@ static swarm_vis_mode_t  s_VisMode  = SWARM_VIS_ALWAYS_SEE;
 
 /* S594h-Unit-B (2026-05-01): spawn strategy module state. */
 static swarm_spawn_strategy_t s_SpawnStrategy = SWARM_SPAWN_RING;
+
+/* S594h-Unit-C (2026-05-01): explicit cycler index. The pre-fix path
+ * inferred the ladder index from testScenarioGetCurrentSwarmCount(),
+ * which returns the ACTUAL spawned count. When volume placement
+ * failed for some slots (e.g. target=64, actual=60), the actual count
+ * was not in the ladder, swarm_cycle_index returned 0 (fallback), and
+ * the next press jumped to idx=1 (=8) regardless of where the user
+ * actually was on the ladder. Mike's playtest log: 60 -> 8 (idx=1).
+ *
+ * The fix: track the LOGICAL ladder position directly, advance it on
+ * each press, look up the new target count from SWARM_TEST_CYCLE[].
+ * The actual spawned count is independent of the ladder position --
+ * it just reflects how many bots the placement loop fit. */
+static s32 s_LadderIdx = 0; /* 0 = lowest ladder count (4) */
 
 /* S594h-Unit-A.5 (2026-05-01): MPOPTION_TEAMSENABLED snapshot for
  * restore at session-end. The "team colors visible" feature toggles
@@ -464,6 +474,42 @@ static void apply_player_setup(void)
 		s_PlayerLoadoutGiven = 1;
 		sysLogPrintf(LOG_NOTE,
 			"TESTSCEN.SWARM: applied power-weapon loadout (FARSIGHT/REAPER/DEVASTATOR/SLAYER/MAULER/RCP120) + bottomless clip + invincible");
+
+		/* S594h-Unit-C (2026-05-01): post-equip diag to surface the
+		 * weapon master-load state for Mike's "I was spawning with
+		 * weapons but could only use melee" report. Hypothesis: the
+		 * master-load HANDS state isn't completing (hands[].inuse stays
+		 * false), so bgunGetWeaponNum returns WEAPON_NONE and the fire
+		 * path falls back to melee. The fields surfaced here let the
+		 * next playtest log identify whether the master-load is
+		 * progressing or stalled, and whether the hand model filenum
+		 * resolved cleanly through catalogGetBodyHandFilenum.
+		 *
+		 * NOTE: this is a CROSS-CUTTING regression that may not be
+		 * swarm-test-specific (Mike's hypothesis: "overall character
+		 * initialization issue, maybe related to our recent catalog
+		 * weapon work"). The actual fix likely lives in body.c /
+		 * bondgun.c / catalog* not here. This block is purely
+		 * diagnostic. */
+		struct player *p = g_Vars.currentplayer;
+		if (p) {
+			sysLogPrintf(LOG_NOTE,
+				"TESTSCEN.SWARM.WPN: post-equip player=0 cur_wpn=%d switchto=%d "
+				"masterload=%d gunloadstate=%d gunmemowner=%d gunmemtype=%d "
+				"hands[L].inuse=%d hands[R].inuse=%d hands[L].state=%d hands[R].state=%d "
+				"equipallguns=%d",
+				(s32)p->gunctrl.weaponnum,
+				(s32)p->gunctrl.switchtoweaponnum,
+				(s32)p->gunctrl.masterloadstate,
+				(s32)p->gunctrl.gunloadstate,
+				(s32)p->gunctrl.gunmemowner,
+				(s32)p->gunctrl.gunmemtype,
+				(s32)p->hands[HAND_LEFT].inuse,
+				(s32)p->hands[HAND_RIGHT].inuse,
+				(s32)p->hands[HAND_LEFT].state,
+				(s32)p->hands[HAND_RIGHT].state,
+				(s32)p->equipallguns);
+		}
 	}
 }
 
@@ -707,20 +753,44 @@ static void despawn_all(void)
 #define SWARM_VOLUME_HALF_X      2000.0f
 #define SWARM_VOLUME_HALF_Y       400.0f
 #define SWARM_VOLUME_HALF_Z      2000.0f
+/* S594h-Unit-C (2026-05-01): one-step volume growth on retry, per
+ * Mike's directive ("grow the parent spawn volume a little, maybe 20%,
+ * once"). Slots that fail at 1.0x get one second attempt at 1.2x;
+ * persistent failures stay empty and the per-frame
+ * death_poll_and_respawn path picks them up over subsequent ticks
+ * (streaming refill). */
+#define SWARM_VOLUME_RETRY_SCALE 1.2f
+
+/* Per-cycle placement diagnostic counters. Reset in respawn_swarm,
+ * surfaced via the cycle summary log so each playtest log shows
+ * placement-health at a glance: how many fit at base size, how many
+ * needed the 1.2x retry, how many fell through (left empty for the
+ * streaming fill). */
+static s32 s_PlacementOk;
+static s32 s_PlacementGrown;
+static s32 s_PlacementFailed;
 
 /* Forward decl: respawn_ring is defined below respawn_swarm but
  * respawn_swarm needs to call it. */
 static void respawn_ring(s32 count);
 
+/* Pick a uniform-random position within a box around `center`, scaled
+ * by `size_scale` (1.0 = base box, 1.2 = first growth, etc.), then
+ * run the standard wall-correction. Returns 1 on success, 0 if the
+ * candidate landed on a height failure or unfixable wall clip. */
 static s32 swarm_pick_volume_position(const struct coord *center,
                                       RoomNum center_room,
                                       f32 chr_radius, f32 chr_height,
+                                      f32 size_scale,
                                       struct coord *out_pos,
                                       RoomNum *out_room)
 {
-	const f32 rx = (RANDOMFRAC() * 2.0f - 1.0f) * SWARM_VOLUME_HALF_X;
-	const f32 ry = (RANDOMFRAC() * 2.0f - 1.0f) * SWARM_VOLUME_HALF_Y;
-	const f32 rz = (RANDOMFRAC() * 2.0f - 1.0f) * SWARM_VOLUME_HALF_Z;
+	const f32 hx = SWARM_VOLUME_HALF_X * size_scale;
+	const f32 hy = SWARM_VOLUME_HALF_Y * size_scale;
+	const f32 hz = SWARM_VOLUME_HALF_Z * size_scale;
+	const f32 rx = (RANDOMFRAC() * 2.0f - 1.0f) * hx;
+	const f32 ry = (RANDOMFRAC() * 2.0f - 1.0f) * hy;
+	const f32 rz = (RANDOMFRAC() * 2.0f - 1.0f) * hz;
 	struct coord pos = {
 		center->x + rx,
 		center->y + ry,
@@ -734,6 +804,32 @@ static s32 swarm_pick_volume_position(const struct coord *center,
 	*out_pos  = pos;
 	*out_room = corrected_room;
 	return 1;
+}
+
+/* Two-attempt volume pick: base 1.0x, then one growth to 1.2x on
+ * failure (per Mike's "grow once" directive). Tracks which path
+ * succeeded into the per-cycle counters so the placement-health
+ * log shows the breakdown. Returns 1 on success, 0 if both attempts
+ * failed (caller should skip / queue / leave empty for streaming). */
+static s32 swarm_pick_volume_with_retry(const struct coord *center,
+                                        RoomNum center_room,
+                                        f32 chr_radius, f32 chr_height,
+                                        struct coord *out_pos,
+                                        RoomNum *out_room)
+{
+	if (swarm_pick_volume_position(center, center_room,
+			chr_radius, chr_height, 1.0f, out_pos, out_room)) {
+		s_PlacementOk++;
+		return 1;
+	}
+	if (swarm_pick_volume_position(center, center_room,
+			chr_radius, chr_height,
+			SWARM_VOLUME_RETRY_SCALE, out_pos, out_room)) {
+		s_PlacementGrown++;
+		return 1;
+	}
+	s_PlacementFailed++;
+	return 0;
 }
 
 /* Volume spawn: parallel to respawn_ring but distributes positions
@@ -756,12 +852,36 @@ static void respawn_volume(s32 count)
 	if (count > TESTSCEN_SWARM_MAX_COUNT) count = TESTSCEN_SWARM_MAX_COUNT;
 	if (count < 0) count = 0;
 
+	/* Per-cycle placement counters: reset before the loop, surfaced
+	 * via the post-respawn diag log (and the post-cycle BENCHMARK
+	 * line) so future playtests show how many slots fit at base size,
+	 * how many needed the 1.2x growth retry, and how many fell
+	 * through to the streaming-fill path (kill-respawn empty-slot
+	 * retry). */
+	s_PlacementOk     = 0;
+	s_PlacementGrown  = 0;
+	s_PlacementFailed = 0;
+
 	s32 spawned = 0;
 	for (s32 i = 0; i < count; i++) {
 		struct coord pos;
 		RoomNum corrected_room;
-		if (!swarm_pick_volume_position(&ppos, proom,
+		if (!swarm_pick_volume_with_retry(&ppos, proom,
 				30.0f, 180.0f, &pos, &corrected_room)) {
+			/* Both attempts failed. Leave the slot empty -- the
+			 * per-frame death_poll_and_respawn path will pick it up
+			 * and try again next tick (streaming refill). */
+			s_Swarm[i].chr           = NULL;
+			s_Swarm[i].counted_kill  = 0;
+			s_Swarm[i].team_idx      = (u8)((s_TeamMode == SWARM_TEAMS_TWO_TEAMS_PLUS_PLAYER)
+				? (i & 1) : 0);
+			s_Swarm[i].respawn_delay = 0;
+			s_Swarm[i].scale_factor  = 0.5f;
+			/* Use player position as the fallback spawn anchor for
+			 * the streaming retry; the volume picker re-randomizes
+			 * around the player on each retry call regardless. */
+			s_Swarm[i].spawn_pos     = ppos;
+			s_Swarm[i].spawn_room    = proom;
 			continue;
 		}
 		RoomNum spawn_rooms[2] = { corrected_room, -1 };
@@ -781,12 +901,18 @@ static void respawn_volume(s32 count)
 			spawned++;
 		}
 	}
-	s_SwarmCount = spawned;
-	testScenarioSetCurrentSwarmCount(spawned);
+	/* s_SwarmCount = TARGET, not actual. Empty slots get filled by the
+	 * streaming-fill path; the cycler must not see "actual" because
+	 * the explicit s_LadderIdx is what advances the ladder. The HUD
+	 * derives in-play from a slot scan via swarmTestGetInPlayCount,
+	 * so it shows the streaming progression naturally. */
+	s_SwarmCount = count;
+	testScenarioSetCurrentSwarmCount(count);
 	s_SwarmRespawnsThisCycle = 0;
 	sysLogPrintf(LOG_NOTE,
-		"TESTSCEN.SWARM: respawn_volume count=%d (target=%d) at player (%.0f,%.0f,%.0f)",
-		spawned, count, ppos.x, ppos.y, ppos.z);
+		"TESTSCEN.SWARM: respawn_volume target=%d spawned=%d ok=%d grown=%d failed=%d at player (%.0f,%.0f,%.0f)",
+		count, spawned, s_PlacementOk, s_PlacementGrown,
+		s_PlacementFailed, ppos.x, ppos.y, ppos.z);
 }
 
 /* Strategy dispatcher. Used by swarmTestTick session-start and by
@@ -817,6 +943,12 @@ static void respawn_ring(s32 count)
 	if (count > TESTSCEN_SWARM_MAX_COUNT) count = TESTSCEN_SWARM_MAX_COUNT;
 	if (count < 0) count = 0;
 
+	/* S594h-Unit-C: per-cycle placement counters. Ring spawn doesn't
+	 * have a "growth" path (positions are pre-computed), so grown stays 0. */
+	s_PlacementOk     = 0;
+	s_PlacementGrown  = 0;
+	s_PlacementFailed = 0;
+
 	s32 spawned = 0;
 	for (s32 i = 0; i < count; i++) {
 		const s32 ring     = i / SWARM_PER_RING;
@@ -837,29 +969,34 @@ static void respawn_ring(s32 count)
 			ppos.z + r * sinf(ang),
 		};
 
+		const s32 team_idx = (s_TeamMode == SWARM_TEAMS_TWO_TEAMS_PLUS_PLAYER)
+			? (i & 1) : 0;
+
 		/* S594h-A (2026-05-01): active wall-correction. Push the ring
 		 * position out of any wall it lands in (along the wall's normal
 		 * by chr_radius), wiggle if a perpendicular wall blocks the
 		 * push, and skip this position entirely if the chr is too tall
-		 * for the spot (height failure). The chr_radius / chr_height
-		 * passed here are the SP593h post-half-scale defaults; spawn
-		 * uses these as a placeholder until the random scale is chosen
-		 * inside spawn_one_skedar. Slightly conservative -- the chr's
-		 * eventual radius might be smaller -- but rejecting a few good
-		 * spots is preferable to placing a chr inside a wall. */
+		 * for the spot (height failure). */
 		RoomNum corrected_room = prooms[0];
 		if (!spawnPoolCorrectPosition(&pos, &corrected_room, 30.0f, 180.0f)) {
-			/* Height failure or unfixable. Skip this slot; the swarm
-			 * count will be lower than requested but no chr ends up
-			 * inside a wall or vent. */
+			/* S594h-Unit-C: leave the slot empty for the streaming-fill
+			 * path. death_poll_and_respawn picks up empty slots over
+			 * subsequent ticks. Store the INTENDED ring position so
+			 * respawn_slot retries the same spot (geometry may have
+			 * shifted by then) -- if it never validates, the slot
+			 * stays empty (acceptable per Mike's "ok to skip one bot
+			 * spawn for a brief time" directive). */
+			s_Swarm[i].chr           = NULL;
+			s_Swarm[i].counted_kill  = 0;
+			s_Swarm[i].team_idx      = (u8)team_idx;
+			s_Swarm[i].respawn_delay = 0;
+			s_Swarm[i].scale_factor  = 0.5f;
+			s_Swarm[i].spawn_pos     = pos; /* pre-correction; retry will re-correct */
+			s_Swarm[i].spawn_room    = prooms[0];
+			s_PlacementFailed++;
 			continue;
 		}
 		RoomNum spawn_rooms[2] = { corrected_room, -1 };
-		/* Team alternation in TWO_TEAMS_PLUS_PLAYER mode (S594h-Unit-A item 6).
-		 * SIMS_VS_PLAYERS leaves every bot on team A (TEAM_ENEMY); the
-		 * 2-team mode flips even/odd indices so the swarm splits 50/50. */
-		const s32 team_idx = (s_TeamMode == SWARM_TEAMS_TWO_TEAMS_PLUS_PLAYER)
-			? (i & 1) : 0;
 		f32 chosen_scale = 0.5f;
 		struct chrdata *chr = spawn_one_skedar(&pos, spawn_rooms,
 			team_idx, &chosen_scale);
@@ -871,15 +1008,29 @@ static void respawn_ring(s32 count)
 			s_Swarm[i].scale_factor  = chosen_scale;
 			s_Swarm[i].spawn_pos     = pos;
 			s_Swarm[i].spawn_room    = corrected_room;
+			s_PlacementOk++;
 			spawned++;
+		} else {
+			/* Spawn allocator returned NULL (chr/model pool full). Same
+			 * empty-slot fallback as above. */
+			s_Swarm[i].chr           = NULL;
+			s_Swarm[i].counted_kill  = 0;
+			s_Swarm[i].team_idx      = (u8)team_idx;
+			s_Swarm[i].respawn_delay = 0;
+			s_Swarm[i].scale_factor  = chosen_scale;
+			s_Swarm[i].spawn_pos     = pos;
+			s_Swarm[i].spawn_room    = corrected_room;
+			s_PlacementFailed++;
 		}
 	}
-	s_SwarmCount = spawned;
-	testScenarioSetCurrentSwarmCount(spawned);
+	/* TARGET, not actual. See respawn_volume comment for rationale. */
+	s_SwarmCount = count;
+	testScenarioSetCurrentSwarmCount(count);
 	s_SwarmRespawnsThisCycle = 0;
 	sysLogPrintf(LOG_NOTE,
-		"TESTSCEN.SWARM: respawn count=%d (target=%d) at player (%.0f,%.0f,%.0f)",
-		spawned, count, ppos.x, ppos.y, ppos.z);
+		"TESTSCEN.SWARM: respawn_ring target=%d spawned=%d ok=%d failed=%d at player (%.0f,%.0f,%.0f)",
+		count, spawned, s_PlacementOk, s_PlacementFailed,
+		ppos.x, ppos.y, ppos.z);
 }
 
 /* ------------------------------------------------------------------
@@ -980,7 +1131,9 @@ static s32 respawn_slot(s32 i)
 		if (!g_Vars.currentplayer || !g_Vars.currentplayer->prop) return 0;
 		const struct coord ppos = g_Vars.currentplayer->prop->pos;
 		const RoomNum proom = g_Vars.currentplayer->prop->rooms[0];
-		if (!swarm_pick_volume_position(&ppos, proom,
+		/* S594h-Unit-C: two-attempt pick (base then 1.2x grown), then
+		 * give up for this tick. Counters track placement health. */
+		if (!swarm_pick_volume_with_retry(&ppos, proom,
 				30.0f, 180.0f, &pos, &corrected_room)) {
 			return 0;
 		}
@@ -992,8 +1145,10 @@ static s32 respawn_slot(s32 i)
 		 * Conservative chr_radius/height -- spawn_one_skedar picks the
 		 * actual scale, so this gates with a slight over-estimate. */
 		if (!spawnPoolCorrectPosition(&pos, &corrected_room, 30.0f, 180.0f)) {
+			s_PlacementFailed++;
 			return 0;
 		}
+		s_PlacementOk++;
 	}
 	RoomNum spawn_rooms[2] = { corrected_room, -1 };
 	const s32 team_idx = (s32)s_Swarm[i].team_idx;
@@ -1012,30 +1167,45 @@ static s32 respawn_slot(s32 i)
 }
 
 /* ------------------------------------------------------------------
- * Death poll + kill-respawn (S594h-Unit-A item 5).
+ * Death poll + kill-respawn + streaming refill (S594h-Unit-A item 5
+ * + S594h-Unit-C streaming flow).
  *
- * Two-phase per-slot state machine:
- *   Phase 1 (counted_kill = 0):
- *     Watch for chr->actiontype == ACT_DEAD/ACT_DIE. On transition, set
- *     counted_kill = 1, increment kill counter, set respawn_delay = 60
- *     (~1 second @ 60fps for the death anim to play).
- *   Phase 2 (counted_kill = 1, respawn_delay > 0):
- *     Decrement respawn_delay each frame. When it hits 1, despawn the
- *     dead chr and spawn a replacement at the slot's stored spawn pos.
- *     If the respawn fails (pool exhausted), leave the slot empty;
- *     it will retry next cycle when respawn_ring runs.
+ * Three concerns per slot:
+ *   1. Empty slot (chr == NULL): the last respawn attempt failed. Try
+ *      again, but only up to a per-frame budget so we don't burn raycast
+ *      budget on placement at high counts. The cycler's initial-spawn
+ *      loop deliberately leaves placement failures empty for this path
+ *      to fill over the next several ticks ("flow rather than all at
+ *      once" per Mike's S594h-Unit-C directive).
+ *   2. Dying chr (counted_kill = 0, actiontype = ACT_DEAD/ACT_DIE):
+ *      credit the kill, set respawn_delay = 60 (~1s anim time).
+ *   3. Awaiting respawn (counted_kill = 1, respawn_delay > 0):
+ *      decrement; at 1, despawn-free + respawn-fresh.
  *
- * The end result: as Mike kills bots the population auto-replenishes
- * back to the target count. He can dial up to 4096 and stay there.
+ * Per-frame retry budget: cap empty-slot respawn attempts at
+ * SWARM_REFILL_PER_FRAME. At target=4096 with all slots empty, the
+ * initial filler does 16/frame ~= 4 sec to fill -- visually feels
+ * like a streaming flow rather than an instant pop, and keeps
+ * spawnPoolCorrectPosition's ~18 raycasts/call to a sane budget.
+ * Kill-respawns run unconditionally (not budget-gated) since they
+ * occur sparsely once the population is steady-state.
  * ------------------------------------------------------------------ */
+#define SWARM_REFILL_PER_FRAME 16
+
 static void death_poll_and_respawn(void)
 {
+	s32 refill_budget = SWARM_REFILL_PER_FRAME;
 	for (s32 i = 0; i < s_SwarmCount; i++) {
 		struct chrdata *chr = s_Swarm[i].chr;
 		if (!chr) {
-			/* Slot already empty (last respawn failed). Try once more
-			 * per frame so a transient pool exhaustion self-heals. */
-			respawn_slot(i);
+			/* Streaming refill: spend budget on empty slots. When the
+			 * budget runs out for this frame, leave the rest for
+			 * subsequent ticks -- they wait silently in the empty
+			 * state. */
+			if (refill_budget > 0) {
+				if (respawn_slot(i)) refill_budget--;
+				else                 refill_budget--;
+			}
 			continue;
 		}
 
@@ -1045,9 +1215,6 @@ static void death_poll_and_respawn(void)
 					|| !chr->prop) {
 				s_Swarm[i].counted_kill = 1;
 				s_SwarmKills++;
-				/* 60-frame delay so the death anim plays before the
-				 * chr poofs out and a replacement appears. Tuned to
-				 * "feels natural" rather than measured. */
 				s_Swarm[i].respawn_delay = 60;
 			}
 			continue;
@@ -1092,14 +1259,18 @@ static void cycler_tick(void)
 	if (!next_pressed && !prev_pressed) return;
 
 	const s32 dir = next_pressed ? +1 : -1;
-	s32 idx = swarm_cycle_index(testScenarioGetCurrentSwarmCount());
 	const s32 N = SWARM_TEST_CYCLE_STEPS;
-	idx = ((idx + dir) % N + N) % N;
+	/* S594h-Unit-C (2026-05-01): advance the EXPLICIT ladder index, not
+	 * the count-derived one. See s_LadderIdx docblock for the bug this
+	 * fixes (placement failures masking the index lookup). */
+	s_LadderIdx = ((s_LadderIdx + dir) % N + N) % N;
+	const s32 idx  = s_LadderIdx;
 	const s32 next = SWARM_TEST_CYCLE[idx];
 
 	sysLogPrintf(LOG_NOTE,
-		"TESTSCEN.SWARM: cycle %s %d -> %d (idx=%d)",
-		(dir > 0) ? "NEXT" : "PREV", s_SwarmCount, next, idx);
+		"TESTSCEN.SWARM: cycle %s prev_idx=%d -> idx=%d target=%d (alive_was=%d)",
+		(dir > 0) ? "NEXT" : "PREV",
+		((idx - dir) % N + N) % N, idx, next, s_SwarmCount);
 
 	respawn_swarm(next);
 
@@ -1199,17 +1370,41 @@ void swarmTestTick(void)
 			g_MpSetup.options &= ~MPOPTION_TEAMSENABLED;
 		}
 
+		/* Reset ladder position to the initial-count entry (idx 0 = 4). */
+		s_LadderIdx = 0;
 		respawn_swarm(TESTSCEN_SWARM_INITIAL_COUNT);
 		s_SwarmInitialized = 1;
 		sysLogPrintf(LOG_NOTE,
-			"TESTSCEN.SWARM: session armed -- method=%s count=%d team=%s vis=%s",
+			"TESTSCEN.SWARM: session armed -- method=%s count=%d team=%s vis=%s spawn=%s",
 			(testScenarioActiveMethod() == SWARM_METHOD_GPU)
 				? "GPU" : "CPU",
 			s_SwarmCount,
 			(s_TeamMode == SWARM_TEAMS_TWO_TEAMS_PLUS_PLAYER)
 				? "2teams+player" : "sims_vs_players",
 			(s_VisMode == SWARM_VIS_INVISIBLE) ? "invisible"
-				: (s_VisMode == SWARM_VIS_NORMAL) ? "normal" : "always_see");
+				: (s_VisMode == SWARM_VIS_NORMAL) ? "normal" : "always_see",
+			(s_SpawnStrategy == SWARM_SPAWN_VOLUME) ? "volume" : "ring");
+
+		/* S594h-Unit-C (2026-05-01): dump the ladder array at session
+		 * start so playtest logs let us verify the actual binary's
+		 * ladder content. Mike's last playtest hypothesis was that
+		 * the ladder might have been a different length than claimed;
+		 * the dump answers that question without inspecting the .exe. */
+		{
+			char buf[256];
+			int off = 0;
+			off += snprintf(buf + off, sizeof(buf) - off,
+				"TESTSCEN.SWARM.LADDER: STEPS=%d entries=[",
+				SWARM_TEST_CYCLE_STEPS);
+			for (s32 li = 0; li < SWARM_TEST_CYCLE_STEPS
+					&& off < (s32)sizeof(buf) - 8; li++) {
+				off += snprintf(buf + off, sizeof(buf) - off,
+					"%s%d", (li > 0) ? "," : "",
+					(s32)SWARM_TEST_CYCLE[li]);
+			}
+			snprintf(buf + off, sizeof(buf) - off, "]");
+			sysLogPrintf(LOG_NOTE, "%s", buf);
+		}
 	}
 
 	/* Re-apply the full player setup every tick. cheatsReset, playerSpawn,
@@ -1350,11 +1545,58 @@ void swarmTestTick(void)
 	s_SwarmLogTickAcc++;
 	if (s_SwarmLogTickAcc >= 60) {
 		s_SwarmLogTickAcc = 0;
+		const s32 in_play = swarmTestGetInPlayCount();
+		const s32 pending = swarmTestGetPendingRespawnCount();
+		const s32 empty   = s_SwarmCount - in_play - pending;
 		sysLogPrintf(LOG_NOTE,
-			"BENCHMARK.SWARM.%s: count=%d kills=%d alive=%d",
+			"BENCHMARK.SWARM.%s: target=%d in_play=%d dying=%d empty=%d kills=%d",
 			(testScenarioActiveMethod() == SWARM_METHOD_GPU) ? "GPU" : "CPU",
-			s_SwarmCount, s_SwarmKills,
-			s_SwarmCount - s_SwarmKills);
+			s_SwarmCount, in_play, pending, empty, s_SwarmKills);
+
+		/* S594h-Unit-C diag: surface the first swarm bot's targeting
+		 * state so Mike's "bots not targeting me" report can be
+		 * diagnosed from the log alone. We pick the first slot with a
+		 * live aibot. The fields surfaced are exactly what bot.c reads
+		 * to decide whether to engage the player. */
+		if (testScenarioActiveMethod() == SWARM_METHOD_CPU
+				&& g_Vars.currentplayer && g_Vars.currentplayer->prop) {
+			const s32 player_propnum =
+				(s32)(g_Vars.currentplayer->prop - g_Vars.props);
+			s32 player_team = -1;
+			if (g_Vars.currentplayer->prop->chr) {
+				player_team = (s32)g_Vars.currentplayer->prop->chr->team;
+			}
+			struct chrdata *probe = NULL;
+			s32 probe_idx = -1;
+			for (s32 si = 0; si < s_SwarmCount; si++) {
+				if (s_Swarm[si].chr && s_Swarm[si].chr->aibot
+						&& s_Swarm[si].chr->chrnum >= 0) {
+					probe = s_Swarm[si].chr;
+					probe_idx = si;
+					break;
+				}
+			}
+			const s32 teams_enabled =
+				(g_MpSetup.options & MPOPTION_TEAMSENABLED) ? 1 : 0;
+			if (probe && probe->aibot) {
+				sysLogPrintf(LOG_NOTE,
+					"TESTSCEN.SWARM.PROBE: slot=%d chrnum=%d team=0x%02x "
+					"target=%d cmd=%d attackpropnum=%d targetinsight=%d "
+					"chrsinsight[0]=%d player_propnum=%d player_team=0x%02x "
+					"vis=%d teams_en=%d",
+					probe_idx, (s32)probe->chrnum, (u32)probe->team,
+					(s32)probe->target, (s32)probe->aibot->command,
+					(s32)probe->aibot->attackpropnum,
+					(s32)probe->aibot->targetinsight,
+					(s32)probe->aibot->chrsinsight[0],
+					player_propnum, (u32)player_team,
+					(s32)s_VisMode, teams_enabled);
+			} else {
+				sysLogPrintf(LOG_NOTE,
+					"TESTSCEN.SWARM.PROBE: no live swarm chr with aibot (count=%d)",
+					s_SwarmCount);
+			}
+		}
 	}
 }
 
