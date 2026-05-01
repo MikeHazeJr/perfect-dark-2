@@ -43,21 +43,23 @@ extern const u32 g_TestExpectedMpsetupVersion;
 extern const u32 g_TestLiveMpsetupVersion;
 }
 
-const u32 g_TestExpectedNetProtocolVer  = 46;
+const u32 g_TestExpectedNetProtocolVer  = 47;
 const u32 g_TestExpectedMpsetupVersion  = 2;
 
 TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written against",
           "[versions]") {
     /* If this fails, someone bumped NET_PROTOCOL_VER without updating the
-     * test pin. That bump should be deliberate — a wire-format change is
+     * test pin. That bump should be deliberate -- a wire-format change is
      * a coordinated event (see net.h block comment for the ledger). After
      * verifying the bump is intentional, update g_TestExpectedNetProtocolVer
      * to match and re-run.
      *
-     * As of 2026-04-28 the live value is 46. SVC_DISTRIB_BEGIN carries a
-     * trailing SHA-256 digest for mandatory mod-transfer verification,
-     * SVC_CUTSCENE carries a player mask, and CLC_CUTSCENE_SKIP carries
-     * the requesting player number. MPSETUP_VERSION stays at 2. */
+     * As of 2026-05-01 the live value is 47. S594h-B Slice 3 surface-normal
+     * locomotion: SVC_NPC_MOVE / SVC_CHR_MOVE / CLC_BOT_MOVE each gain a
+     * trailing 12-byte surface_up vec3 (3x f32) so chrs synced across the
+     * wire carry their authoritative local-up vector. v46 (SVC_DISTRIB_BEGIN
+     * SHA-256 digest, cutscene mask) and prior bumps remain documented in
+     * port/include/net/net.h. MPSETUP_VERSION stays at 2. */
     REQUIRE(g_TestLiveNetProtocolVer == g_TestExpectedNetProtocolVer);
 }
 
