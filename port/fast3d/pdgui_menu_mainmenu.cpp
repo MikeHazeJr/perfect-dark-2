@@ -67,6 +67,7 @@ extern "C" {
  * unmangled C definitions in port/src/net/matchsetup.c. */
 #include "net/matchsetup.h"
 #include "testscenarios.h"
+#include "swarm_test.h" /* S594h-Unit-A item 6 UI: team mode picker */
 }
 
 /* ========================================================================
@@ -3982,6 +3983,21 @@ static void renderSettingsDebug(float scale)
         }
         if (gridMode) ImGui::EndDisabled();
 
+        /* S594h-Unit-A item 6 UI: team-mode picker. Two presets:
+         *   "Sims vs Players"     -- one swarm-team hostile to player.
+         *   "2 Teams + Player"    -- swarm splits 50/50, three-way melee
+         *                            with team colors visible (A.5).
+         * Only relevant for swarm scenarios; greyed in Grid mode. */
+        static int s_TestScenTeamChoice = 0; /* 0 = sims-vs-players (default) */
+        ImGui::Text("Teams:");
+        ImGui::SameLine();
+        if (gridMode) ImGui::BeginDisabled();
+        ImGui::SetNextItemWidth(220.0f * scale);
+        const char *teamItems[] = { "Sims vs Players", "2 Teams + Player" };
+        ImGui::Combo("##testscen_teams", &s_TestScenTeamChoice,
+                teamItems, (int)(sizeof(teamItems)/sizeof(teamItems[0])));
+        if (gridMode) ImGui::EndDisabled();
+
         ImGui::SameLine();
 
         const bool launchOk = (testScenarioCanLaunch() != 0);
@@ -4004,6 +4020,12 @@ static void renderSettingsDebug(float scale)
             default: break;
             }
             if (scen != TESTSCEN_NONE) {
+                /* Apply the team-mode pick before the launch -- swarm_test.c
+                 * reads s_TeamMode at session-start when assigning team_idx
+                 * and toggling MPOPTION_TEAMSENABLED. */
+                swarmTestSetTeamMode((s_TestScenTeamChoice == 1)
+                    ? SWARM_TEAMS_TWO_TEAMS_PLUS_PLAYER
+                    : SWARM_TEAMS_SIMS_VS_PLAYERS);
                 testScenarioLaunch(scen, map_id);
             }
         }
@@ -4012,8 +4034,8 @@ static void renderSettingsDebug(float scale)
         if (gridMode) {
             ImGui::TextDisabled("Loads CI Training as a baseline empty session.");
         } else {
-            ImGui::TextDisabled("Bots: start at 4, cycle [0] / D-pad-Down through %s",
-                "4-8-16-32-48-64-128-256");
+            ImGui::TextDisabled("Bots cycle 4..256 then 512..4096 in 256 steps");
+            ImGui::TextDisabled("PgUp / [0] / D-pad-Down: next | PgDn / D-pad-Up: prev | I: visibility");
         }
         if (!launchOk && whyDisabled) {
             ImGui::TextDisabled("Disabled: %s", whyDisabled);

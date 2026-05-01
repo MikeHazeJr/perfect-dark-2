@@ -93,8 +93,10 @@ typedef struct {
 	struct chrdata *chr;          /* NULL means slot is empty */
 	u8              counted_kill; /* 1 once we've credited this slot's death */
 	u8              team_idx;     /* 0 = team A (TEAM_ENEMY), 1 = team B (2-team mode only) */
+	u16             respawn_delay;/* >0 means "respawn me in N frames"; 0 = idle */
 	f32             scale_factor; /* the per-bot scale picked at spawn */
 	struct coord    spawn_pos;    /* original ring position; reused on respawn */
+	RoomNum         spawn_room;   /* room of original ring position; reused on respawn */
 } swarm_slot_t;
 
 static swarm_slot_t s_Swarm[TESTSCEN_SWARM_MAX_COUNT];
@@ -108,6 +110,13 @@ static s32          s_SwarmRespawnsThisCycle; /* count of replacement spawns sin
 /* S594h-A2 (2026-05-01): team mode + visibility mode module state. */
 static swarm_team_mode_t s_TeamMode = SWARM_TEAMS_SIMS_VS_PLAYERS;
 static swarm_vis_mode_t  s_VisMode  = SWARM_VIS_ALWAYS_SEE;
+
+/* S594h-Unit-A.5 (2026-05-01): MPOPTION_TEAMSENABLED snapshot for
+ * restore at session-end. The "team colors visible" feature toggles
+ * the bit while a 2-team swarm session is active; we must restore the
+ * pre-session value when leaving so the user's normal MP setup is
+ * unchanged. 0xff = sentinel "not snapshotted yet". */
+static u8 s_PriorTeamsEnabledSnapshot = 0xff;
 
 /* Frame-time accumulators for the BENCHMARK.SWARM.* summary line. */
 static f32 s_FrameMsAcc;
@@ -715,20 +724,28 @@ static void respawn_ring(s32 count)
 			continue;
 		}
 		RoomNum spawn_rooms[2] = { corrected_room, -1 };
-		const s32 team_idx = (s_TeamMode == SWARM_TEAMS_TWO_TEAMS_PLUS_PLAYER) ? (i & 1) : 0;
-		f32 picked_scale = 0.0f;
-		struct chrdata *chr = spawn_one_skedar(&pos, spawn_rooms, team_idx, &picked_scale);
+		/* Team alternation in TWO_TEAMS_PLUS_PLAYER mode (S594h-Unit-A item 6).
+		 * SIMS_VS_PLAYERS leaves every bot on team A (TEAM_ENEMY); the
+		 * 2-team mode flips even/odd indices so the swarm splits 50/50. */
+		const s32 team_idx = (s_TeamMode == SWARM_TEAMS_TWO_TEAMS_PLUS_PLAYER)
+			? (i & 1) : 0;
+		f32 chosen_scale = 0.5f;
+		struct chrdata *chr = spawn_one_skedar(&pos, spawn_rooms,
+			team_idx, &chosen_scale);
 		if (chr) {
-			s_Swarm[i].chr = chr;
-			s_Swarm[i].counted_kill = 0;
-			s_Swarm[i].team_idx = (u8)team_idx;
-			s_Swarm[i].scale_factor = picked_scale;
-			s_Swarm[i].spawn_pos = pos;
+			s_Swarm[i].chr           = chr;
+			s_Swarm[i].counted_kill  = 0;
+			s_Swarm[i].team_idx      = (u8)team_idx;
+			s_Swarm[i].respawn_delay = 0;
+			s_Swarm[i].scale_factor  = chosen_scale;
+			s_Swarm[i].spawn_pos     = pos;
+			s_Swarm[i].spawn_room    = corrected_room;
 			spawned++;
 		}
 	}
 	s_SwarmCount = spawned;
 	testScenarioSetCurrentSwarmCount(spawned);
+	s_SwarmRespawnsThisCycle = 0;
 	sysLogPrintf(LOG_NOTE,
 		"TESTSCEN.SWARM: respawn count=%d (target=%d) at player (%.0f,%.0f,%.0f)",
 		spawned, count, ppos.x, ppos.y, ppos.z);
@@ -790,44 +807,174 @@ static void gpu_fallback_seek_tick(struct coord *player_pos)
 }
 
 /* ------------------------------------------------------------------
- * Death poll: count newly-dead swarm chrs as kills
+ * Despawn a single swarm slot (mirrors despawn_all's per-slot work).
+ * Used by the kill-respawn path (item 5) so we can free a single
+ * dead chr without disturbing the rest of the swarm.
  * ------------------------------------------------------------------ */
-static void death_poll(void)
+static void despawn_slot(s32 i)
+{
+	struct chrdata *chr = s_Swarm[i].chr;
+	if (chr && chr->prop) {
+		struct prop *prop = chr->prop;
+		if (chr->aibot) {
+			swarm_free_aibot(chr->aibot);
+			chr->aibot = NULL;
+		}
+		chrRemove(prop, true);
+		propDelist(prop);
+		propDisable(prop);
+		propFree(prop);
+	}
+	s_Swarm[i].chr = NULL;
+}
+
+/* ------------------------------------------------------------------
+ * Spawn a replacement Skedar for a slot whose previous chr was killed.
+ * Reuses the slot's stored spawn_pos / spawn_room / team_idx so the
+ * swarm population stays anchored at its original ring positions.
+ * Returns 1 on success, 0 if the spawn failed (chr/model pool full).
+ * ------------------------------------------------------------------ */
+static s32 respawn_slot(s32 i)
+{
+	struct coord pos = s_Swarm[i].spawn_pos;
+	RoomNum corrected_room = s_Swarm[i].spawn_room;
+	/* Re-validate the position. If the world changed (door closed,
+	 * geometry shifted) the original spot might now be inside a wall.
+	 * Conservative chr_radius/height -- spawn_one_skedar picks the
+	 * actual scale, so this gates with a slight over-estimate. */
+	if (!spawnPoolCorrectPosition(&pos, &corrected_room, 30.0f, 180.0f)) {
+		return 0;
+	}
+	RoomNum spawn_rooms[2] = { corrected_room, -1 };
+	const s32 team_idx = (s32)s_Swarm[i].team_idx;
+	f32 chosen_scale = 0.5f;
+	struct chrdata *chr = spawn_one_skedar(&pos, spawn_rooms,
+		team_idx, &chosen_scale);
+	if (!chr) return 0;
+	s_Swarm[i].chr           = chr;
+	s_Swarm[i].counted_kill  = 0;
+	s_Swarm[i].respawn_delay = 0;
+	s_Swarm[i].scale_factor  = chosen_scale;
+	s_Swarm[i].spawn_pos     = pos;
+	s_Swarm[i].spawn_room    = corrected_room;
+	s_SwarmRespawnsThisCycle++;
+	return 1;
+}
+
+/* ------------------------------------------------------------------
+ * Death poll + kill-respawn (S594h-Unit-A item 5).
+ *
+ * Two-phase per-slot state machine:
+ *   Phase 1 (counted_kill = 0):
+ *     Watch for chr->actiontype == ACT_DEAD/ACT_DIE. On transition, set
+ *     counted_kill = 1, increment kill counter, set respawn_delay = 60
+ *     (~1 second @ 60fps for the death anim to play).
+ *   Phase 2 (counted_kill = 1, respawn_delay > 0):
+ *     Decrement respawn_delay each frame. When it hits 1, despawn the
+ *     dead chr and spawn a replacement at the slot's stored spawn pos.
+ *     If the respawn fails (pool exhausted), leave the slot empty;
+ *     it will retry next cycle when respawn_ring runs.
+ *
+ * The end result: as Mike kills bots the population auto-replenishes
+ * back to the target count. He can dial up to 4096 and stay there.
+ * ------------------------------------------------------------------ */
+static void death_poll_and_respawn(void)
 {
 	for (s32 i = 0; i < s_SwarmCount; i++) {
 		struct chrdata *chr = s_Swarm[i].chr;
-		if (!chr) continue;
-		if (s_Swarm[i].counted_kill) continue;
-		if (chr->actiontype == ACT_DEAD || chr->actiontype == ACT_DIE
-				|| !chr->prop) {
-			s_Swarm[i].counted_kill = 1;
-			s_SwarmKills++;
+		if (!chr) {
+			/* Slot already empty (last respawn failed). Try once more
+			 * per frame so a transient pool exhaustion self-heals. */
+			respawn_slot(i);
+			continue;
+		}
+
+		/* Phase 1: detect newly-dead chr. */
+		if (!s_Swarm[i].counted_kill) {
+			if (chr->actiontype == ACT_DEAD || chr->actiontype == ACT_DIE
+					|| !chr->prop) {
+				s_Swarm[i].counted_kill = 1;
+				s_SwarmKills++;
+				/* 60-frame delay so the death anim plays before the
+				 * chr poofs out and a replacement appears. Tuned to
+				 * "feels natural" rather than measured. */
+				s_Swarm[i].respawn_delay = 60;
+			}
+			continue;
+		}
+
+		/* Phase 2: counted_kill == 1, waiting to respawn. */
+		if (s_Swarm[i].respawn_delay > 1) {
+			s_Swarm[i].respawn_delay--;
+			continue;
+		}
+		if (s_Swarm[i].respawn_delay == 1) {
+			s_Swarm[i].respawn_delay = 0;
+			despawn_slot(i);
+			respawn_slot(i);
 		}
 	}
 }
 
 /* ------------------------------------------------------------------
- * Cycler: D-pad-down or KEY_0 advances the cycle
+ * Bidirectional cycler (S594h-Unit-A items 1 + 2).
+ *
+ * NEXT (PgUp / DPAD_DOWN / KEY_0): advance to the next-higher count.
+ *   Wraps from the top of the ladder (4096) back to the bottom (4).
+ * PREV (PgDn / DPAD_UP):          retreat to the next-lower count.
+ *   Wraps from the bottom (4) back to the top (4096).
+ *
+ * Wrap-bug diagnostic (per Mike's bug report on the prior single-
+ * direction cycler): the post-cycle log surfaces target / actual /
+ * alive counts so any mismatch (e.g. despawn budget short, spawn
+ * loop bailout, off-by-one) shows up in the log immediately rather
+ * than as a visual "label says 4 but I see 256". Mismatch interpretation:
+ *   target != actual: respawn_ring spawned fewer than asked (pool
+ *     exhaustion / spawnPoolCorrectPosition rejection both increment
+ *     a "skipped" counter on the next tick).
+ *   actual != alive:  some chrs already counted dead at spawn time
+ *     (shouldn't happen this frame; would mean despawn ran late).
  * ------------------------------------------------------------------ */
 static void cycler_tick(void)
 {
-	if (!actionPressed(0, ACTION_TESTSCEN_CYCLE_COUNT)) return;
+	const s32 next_pressed = actionPressed(0, ACTION_TESTSCEN_CYCLE_COUNT);
+	const s32 prev_pressed = actionPressed(0, ACTION_TESTSCEN_CYCLE_PREV);
+	if (!next_pressed && !prev_pressed) return;
+
+	const s32 dir = next_pressed ? +1 : -1;
 	s32 idx = swarm_cycle_index(testScenarioGetCurrentSwarmCount());
-	idx = (idx + 1) % SWARM_TEST_CYCLE_STEPS;
-	s32 next = SWARM_TEST_CYCLE[idx];
+	const s32 N = SWARM_TEST_CYCLE_STEPS;
+	idx = ((idx + dir) % N + N) % N;
+	const s32 next = SWARM_TEST_CYCLE[idx];
+
 	sysLogPrintf(LOG_NOTE,
-		"TESTSCEN.SWARM: cycle %d -> %d", s_SwarmCount, next);
+		"TESTSCEN.SWARM: cycle %s %d -> %d (idx=%d)",
+		(dir > 0) ? "NEXT" : "PREV", s_SwarmCount, next, idx);
+
 	respawn_ring(next);
+
+	/* Post-respawn diagnostic: target / actual / alive. If target != actual
+	 * the respawn loop dropped some slots (height failure, pool exhausted,
+	 * spawnPoolCorrectPosition rejection); if actual != alive the death-
+	 * poll already credited some kills before the next frame ticks. Either
+	 * mismatch surfaces here so wrap-style bugs cannot hide. */
+	const s32 alive = s_SwarmCount - s_SwarmKills;
+	sysLogPrintf(LOG_NOTE,
+		"TESTSCEN.SWARM: post-cycle target=%d actual=%d alive=%d kills=%d",
+		next, s_SwarmCount, alive, s_SwarmKills);
+
 	/* End-of-cycle summary log for the just-finished count. */
 	sysLogPrintf(LOG_NOTE,
-		"BENCHMARK.SWARM.%s: SUMMARY count=%d kills=%d frame_avg_ms=%.3f",
+		"BENCHMARK.SWARM.%s: SUMMARY count=%d kills=%d frame_avg_ms=%.3f respawns=%d",
 		(testScenarioActiveMethod() == SWARM_METHOD_GPU) ? "GPU" : "CPU",
 		s_SwarmCount, s_SwarmKills,
 		(s_FrameMsSamples > 0)
-			? (s_FrameMsAcc / (f32)s_FrameMsSamples) : 0.0f);
+			? (s_FrameMsAcc / (f32)s_FrameMsSamples) : 0.0f,
+		s_SwarmRespawnsThisCycle);
 	s_FrameMsAcc = 0.0f;
 	s_FrameMsSamples = 0;
 	s_SwarmKills = 0;
+	s_SwarmRespawnsThisCycle = 0;
 }
 
 /* ------------------------------------------------------------------
@@ -887,19 +1034,56 @@ void swarmTestTick(void)
 		}
 		resolve_skedar_assets();
 		apply_player_setup();
+
+		/* S594h-Unit-A.5: snapshot + apply MPOPTION_TEAMSENABLED. The
+		 * bit drives team-colour overlays at activemenu.c:612 and the
+		 * team-aware AI checks in bot.c. Set it for 2-team mode (so
+		 * Mike sees the visual distinction); clear it for sims-vs-
+		 * players (so the radar/HUD treats the swarm as a single
+		 * hostile team). Snapshot is restored in swarmTestOnSessionEnd. */
+		s_PriorTeamsEnabledSnapshot =
+			(g_MpSetup.options & MPOPTION_TEAMSENABLED) ? 1 : 0;
+		if (s_TeamMode == SWARM_TEAMS_TWO_TEAMS_PLUS_PLAYER) {
+			g_MpSetup.options |= MPOPTION_TEAMSENABLED;
+		} else {
+			g_MpSetup.options &= ~MPOPTION_TEAMSENABLED;
+		}
+
 		respawn_ring(TESTSCEN_SWARM_INITIAL_COUNT);
 		s_SwarmInitialized = 1;
 		sysLogPrintf(LOG_NOTE,
-			"TESTSCEN.SWARM: session armed -- method=%s count=%d",
+			"TESTSCEN.SWARM: session armed -- method=%s count=%d team=%s vis=%s",
 			(testScenarioActiveMethod() == SWARM_METHOD_GPU)
 				? "GPU" : "CPU",
-			s_SwarmCount);
+			s_SwarmCount,
+			(s_TeamMode == SWARM_TEAMS_TWO_TEAMS_PLUS_PLAYER)
+				? "2teams+player" : "sims_vs_players",
+			(s_VisMode == SWARM_VIS_INVISIBLE) ? "invisible"
+				: (s_VisMode == SWARM_VIS_NORMAL) ? "normal" : "always_see");
 	}
 
 	/* Re-apply the full player setup every tick. cheatsReset, playerSpawn,
 	 * and inventory pickups can each clobber pieces of it. See
 	 * apply_player_setup() docblock for the full rationale. */
 	apply_player_setup();
+
+	/* S594h-Unit-A item 7: visibility-mode toggle. Cycles
+	 * NORMAL -> ALWAYS_SEE -> INVISIBLE on each press of
+	 * ACTION_TESTSCEN_VIS_TOGGLE (default I key). The mode is consumed
+	 * by chraction.c::chrHasLosToChr (3-way branch on the swarm-bot
+	 * marker) and by the per-frame target re-assertion below. */
+	if (actionPressed(0, ACTION_TESTSCEN_VIS_TOGGLE)) {
+		s_VisMode = (swarm_vis_mode_t)(((s32)s_VisMode + 1) % SWARM_VIS_COUNT);
+		const char *label = "?";
+		switch (s_VisMode) {
+		case SWARM_VIS_NORMAL:     label = "NORMAL";     break;
+		case SWARM_VIS_ALWAYS_SEE: label = "ALWAYS_SEE"; break;
+		case SWARM_VIS_INVISIBLE:  label = "INVISIBLE";  break;
+		default: break;
+		}
+		sysLogPrintf(LOG_NOTE,
+			"TESTSCEN.SWARM: visibility mode -> %s", label);
+	}
 
 	/* S593h (2026-05-01): force CPU-mode swarm bots to be aware of the
 	 * player every frame. Mike's playtest report:
@@ -919,6 +1103,12 @@ void swarmTestTick(void)
 	 * matches with one local human (PLAYERCOUNT()==1). The player's
 	 * prop index is `g_Vars.currentplayer->prop - g_Vars.props`.
 	 *
+	 * S594h-Unit-A item 7: the per-frame re-assertion is gated on
+	 * s_VisMode != SWARM_VIS_INVISIBLE. When invisible, swarm bots must
+	 * actually drop the player as their target so they wander instead
+	 * of homing in -- otherwise the LOS short-circuit becomes the only
+	 * gate and we'd need a second invisibility check there too.
+	 *
 	 * Applies only to CPU mode -- GPU bots have no aibot and run no AI
 	 * targeting, so this is a no-op for them. The directive that
 	 * "all changes apply to both modes" is satisfied for items 1, 5
@@ -926,7 +1116,8 @@ void swarmTestTick(void)
 	 * BOTDIFF_DARK / BOTTYPE_SPEED config) require the GPU bot pipeline
 	 * filed at context/designs/in-flight/gpu-swarm-bot-pipeline.md. */
 	if (testScenarioActiveMethod() == SWARM_METHOD_CPU
-			&& g_Vars.currentplayer && g_Vars.currentplayer->prop) {
+			&& g_Vars.currentplayer && g_Vars.currentplayer->prop
+			&& s_VisMode != SWARM_VIS_INVISIBLE) {
 		const s32 player_propnum = (s32)(g_Vars.currentplayer->prop - g_Vars.props);
 		const s32 lvframe = g_Vars.lvframe60;
 		for (s32 i = 0; i < s_SwarmCount; i++) {
@@ -950,6 +1141,24 @@ void swarmTestTick(void)
 			 * toggles the bit during its own push test; the chr.c gate
 			 * on 0x00040000 prevents the re-enable, but if some other
 			 * caller cleared the marker we restore it here too. */
+			chr->hidden |= 0x00040000;
+			chr->hidden |= CHRHFLAG_PERIMDISABLED;
+		}
+	} else if (testScenarioActiveMethod() == SWARM_METHOD_CPU
+			&& s_VisMode == SWARM_VIS_INVISIBLE) {
+		/* INVISIBLE mode: drop the player target so swarm bots stop
+		 * pursuing. They keep their AIBOTCMD_ATTACK config but with
+		 * attackpropnum=-1 the AI's target-walk falls through to its
+		 * idle/wander path. Still re-assert perim-disabled for the
+		 * stress-test reasons (bot-bot phasing). */
+		for (s32 i = 0; i < s_SwarmCount; i++) {
+			struct chrdata *chr = s_Swarm[i].chr;
+			if (!chr || !chr->aibot || chr->chrnum < 0) continue;
+			chr->target = -1;
+			chr->aibot->attackingplayernum = -1;
+			chr->aibot->attackpropnum = -1;
+			chr->aibot->targetinsight = 0;
+			chr->aibot->chrsinsight[0] = 0;
 			chr->hidden |= 0x00040000;
 			chr->hidden |= CHRHFLAG_PERIMDISABLED;
 		}
@@ -984,7 +1193,7 @@ void swarmTestTick(void)
 	}
 	/* CPU mode: AI handles everything; nothing to do here. */
 
-	death_poll();
+	death_poll_and_respawn();
 	cycler_tick();
 
 	/* Throttle per-frame log to ~1 line per 60 frames. */
@@ -1011,14 +1220,27 @@ void swarmTestOnSessionEnd(void)
 	 * themselves live in BSS so memset is a no-op here -- the bitmap
 	 * is the only state we need to clear. */
 	memset(s_SwarmAibotInUse, 0, sizeof(s_SwarmAibotInUse));
-	s_SwarmKills           = 0;
-	s_SwarmInitialized     = 0;
-	s_SwarmLastStage       = -1;
-	s_SwarmLogTickAcc      = 0;
-	s_PlayerLoadoutGiven   = 0; /* re-give power weapons on next session */
-	s_FrameMsAcc           = 0.0f;
-	s_FrameMsSamples       = 0;
-	s_LastFrameTick        = 0;
+
+	/* S594h-Unit-A.5: restore MPOPTION_TEAMSENABLED to its pre-session
+	 * value so the user's normal MP team config isn't perturbed. */
+	if (s_PriorTeamsEnabledSnapshot != 0xff) {
+		if (s_PriorTeamsEnabledSnapshot) {
+			g_MpSetup.options |= MPOPTION_TEAMSENABLED;
+		} else {
+			g_MpSetup.options &= ~MPOPTION_TEAMSENABLED;
+		}
+		s_PriorTeamsEnabledSnapshot = 0xff;
+	}
+
+	s_SwarmKills             = 0;
+	s_SwarmRespawnsThisCycle = 0;
+	s_SwarmInitialized       = 0;
+	s_SwarmLastStage         = -1;
+	s_SwarmLogTickAcc        = 0;
+	s_PlayerLoadoutGiven     = 0; /* re-give power weapons on next session */
+	s_FrameMsAcc             = 0.0f;
+	s_FrameMsSamples         = 0;
+	s_LastFrameTick          = 0;
 	testScenarioReset();
 }
 
@@ -1027,3 +1249,29 @@ void swarmTestOnSessionEnd(void)
  * ------------------------------------------------------------------ */
 s32 swarmTestGetActiveCount(void) { return s_SwarmCount; }
 s32 swarmTestGetKillCount(void)   { return s_SwarmKills; }
+
+s32 swarmTestGetInPlayCount(void)
+{
+	s32 n = 0;
+	for (s32 i = 0; i < s_SwarmCount; i++) {
+		if (s_Swarm[i].chr != NULL && !s_Swarm[i].counted_kill) n++;
+	}
+	return n;
+}
+
+s32 swarmTestGetPendingRespawnCount(void)
+{
+	s32 n = 0;
+	for (s32 i = 0; i < s_SwarmCount; i++) {
+		if (s_Swarm[i].counted_kill && s_Swarm[i].respawn_delay > 0) n++;
+	}
+	return n;
+}
+
+s32 swarmTestGetRespawnsThisCycle(void) { return s_SwarmRespawnsThisCycle; }
+
+/* swarmTestRenderHud is provided by the C++ side (port/fast3d/pdgui_backend.cpp);
+ * the actual ImGui rendering is inlined into the per-frame ImGui pass next to
+ * the other in-game banners. This C-side body is a no-op so any direct caller
+ * still links cleanly. */
+void swarmTestRenderHud(void) { /* C++-side inline render */ }

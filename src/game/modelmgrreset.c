@@ -34,10 +34,12 @@
  * = 330 words) land in Type 3, and 64 was insufficient for the 256-bot
  * swarm. Each over-cap chr fell through to a heap fallback that leaks
  * across cycles (mempAlloc not freed by chrRemove), exhausting
- * MEMPOOL_STAGE after a few cycles and crashing on the next allocate. */
+ * MEMPOOL_STAGE after a few cycles and crashing on the next allocate.
+ * 2026-05-01 (S594h-Unit-A): NUMTYPE3 320->4500 to fit the 4096-bot
+ * swarm cap (256 -> 4096 cycler ladder). See modelmgr.c for sizing. */
 #define NUMTYPE1() 80
 #define NUMTYPE2() 320
-#define NUMTYPE3() 320
+#define NUMTYPE3() 4500
 #define NUMSPARE() 80
 
 void modelmgrReset(void)

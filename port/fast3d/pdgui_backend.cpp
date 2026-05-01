@@ -993,16 +993,39 @@ void pdguiRender(void)
         ImGui::End();
     }
 
-    /* S483: Test Scenarios swarm benchmark HUD. Renders only when a swarm
-     * scenario is armed. Top-right corner so it doesn't overlap the F6 /
-     * F7 banners (top-center) and stays out of the gameplay sight line. */
+    /* S483 + S594h-Unit-A item 4: Test Scenarios swarm benchmark HUD.
+     * Top-right corner so it doesn't overlap the F6 / F7 banners
+     * (top-center). Renders only when a swarm scenario is armed.
+     * Surfaces target / in-play / pending / fallen counts plus the
+     * current team and visibility modes so Mike can see all the
+     * S594h-Unit-A toggles at a glance. */
     if (testScenarioIsSwarmActive()) {
         const s32 cur = testScenarioGetCurrentSwarmCount();
         s32 idx = 0;
         for (s32 i = 0; i < SWARM_TEST_CYCLE_STEPS; i++) {
             if (SWARM_TEST_CYCLE[i] == cur) { idx = i; break; }
         }
-        const s32 next_count = SWARM_TEST_CYCLE[(idx + 1) % SWARM_TEST_CYCLE_STEPS];
+        const s32 N = SWARM_TEST_CYCLE_STEPS;
+        const s32 next_count = SWARM_TEST_CYCLE[(idx + 1) % N];
+        const s32 prev_count = SWARM_TEST_CYCLE[((idx - 1) % N + N) % N];
+
+        const s32 in_play  = swarmTestGetInPlayCount();
+        const s32 pending  = swarmTestGetPendingRespawnCount();
+        const s32 fallen   = swarmTestGetKillCount();
+        const s32 respawns = swarmTestGetRespawnsThisCycle();
+
+        const swarm_team_mode_t teamMode = swarmTestGetTeamMode();
+        const swarm_vis_mode_t  visMode  = swarmTestGetVisMode();
+
+        const char *teamLbl = (teamMode == SWARM_TEAMS_TWO_TEAMS_PLUS_PLAYER)
+                ? "2 Teams + Player" : "Sims vs Players";
+        const char *visLbl  = "?";
+        switch (visMode) {
+        case SWARM_VIS_NORMAL:     visLbl = "Normal";     break;
+        case SWARM_VIS_ALWAYS_SEE: visLbl = "Always See"; break;
+        case SWARM_VIS_INVISIBLE:  visLbl = "Invisible";  break;
+        default: break;
+        }
 
         ImGui::SetNextWindowPos(ImVec2((float)winW - 12.0f, 22.0f),
                 ImGuiCond_Always, ImVec2(1.0f, 0.0f));
@@ -1016,12 +1039,18 @@ void pdguiRender(void)
                 (testScenarioActiveMethod() == SWARM_METHOD_GPU)
                     ? "GPU Boids" : "CPU Bots");
         ImGui::Separator();
-        ImGui::Text("Bots:    %d  (alive %d)",
-                swarmTestGetActiveCount(),
-                swarmTestGetActiveCount() - swarmTestGetKillCount());
-        ImGui::Text("Kills:   %d", swarmTestGetKillCount());
-        ImGui::Text("Next:    %d", next_count);
-        ImGui::TextDisabled("[0] / D-pad-Down: cycle");
+        ImGui::Text("Target:  %d", cur);
+        ImGui::Text("In play: %d", in_play);
+        if (pending > 0) ImGui::Text("Dying:   %d", pending);
+        ImGui::Text("Fallen:  %d", fallen);
+        if (respawns > 0) ImGui::Text("Respawns: %d", respawns);
+        ImGui::Separator();
+        ImGui::Text("Team:    %s", teamLbl);
+        ImGui::Text("Vis:     %s", visLbl);
+        ImGui::Separator();
+        ImGui::TextDisabled("PgUp/[0]/D-Down  next: %d", next_count);
+        ImGui::TextDisabled("PgDn/D-Up        prev: %d", prev_count);
+        ImGui::TextDisabled("I                vis cycle");
         ImGui::End();
     }
 #endif

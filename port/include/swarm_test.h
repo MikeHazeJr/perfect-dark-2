@@ -49,6 +49,10 @@ void swarmTestRenderHud(void);
 /* Read accessors for tests / external diagnostics. */
 s32 swarmTestGetActiveCount(void);
 s32 swarmTestGetKillCount(void);
+/* Counts derived from the swarm slot table (S594h-Unit-A item 4 HUD). */
+s32 swarmTestGetInPlayCount(void);          /* chrs alive right now */
+s32 swarmTestGetPendingRespawnCount(void);  /* chrs dying, waiting to respawn */
+s32 swarmTestGetRespawnsThisCycle(void);    /* replacement spawns since last cycler */
 
 /* Compile-time config. The ladder runs from 4 up to 4096. Two
  * regimes: small-step probe range (4..256) carried over from S593h,

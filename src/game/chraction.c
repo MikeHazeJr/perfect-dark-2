@@ -61,6 +61,7 @@
 #include "crashbreadcrumb.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "swarm_test.h" /* S594h-Unit-A item 7: swarmTestGetVisMode */
 
 s32 g_RecentQuipsPlayed[5];
 u32 var8009cd84;
@@ -6609,22 +6610,38 @@ bool chrHasLosToChr(struct chrdata *chr, struct chrdata *target, RoomNum *room)
 		return false;
 	}
 
-	/* S593h (2026-05-01): swarm-bot LOS short-circuit. Swarm bots
-	 * (chr->hidden bit 0x00040000) always have line-of-sight to any
-	 * target. This implements Mike's "they should also be aware of my
-	 * location" directive without depending on real BG raycasts that
-	 * fail when 256 chrs are clustered around the player or the arena
-	 * geometry occludes peer-to-peer rays. The player's LOS check is
-	 * UNAFFECTED -- only the bot's perspective short-circuits.
+	/* S593h + S594h-Unit-A item 7 (2026-05-01): swarm-bot LOS gate.
+	 * Swarm bots (chr->hidden bit 0x00040000) branch on the test-mode
+	 * visibility setting:
+	 *   SWARM_VIS_NORMAL     -> fall through to real LOS test below.
+	 *   SWARM_VIS_ALWAYS_SEE -> return true (S593h behaviour: bot can
+	 *     always see any target). Avoids spurious LOS failures when
+	 *     hundreds of chrs cluster around the player or arena geometry
+	 *     occludes peer-to-peer rays.
+	 *   SWARM_VIS_INVISIBLE  -> return false unconditionally for the
+	 *     bot's perspective. Combined with the per-frame target drop in
+	 *     swarm_test.c::swarmTestTick, swarm bots stop pursuing the
+	 *     player entirely.
 	 *
-	 * The marker is set in port/src/swarm_test.c::spawn_one_skedar.
-	 * The same bit also gates chr.c::chrSetPerimEnabled (swarm bots
-	 * stay perim-disabled regardless of caller intent). */
+	 * Only the SWARM BOT's perspective branches here. The player's LOS
+	 * check is unaffected. The marker is set in
+	 * port/src/swarm_test.c::spawn_one_skedar; chr.c::chrSetPerimEnabled
+	 * uses the same bit to keep the perim disabled. */
 	if (chr && (chr->hidden & 0x00040000)) {
-		if (room && chr->prop) {
-			*room = chr->prop->rooms[0];
+		const swarm_vis_mode_t vis = swarmTestGetVisMode();
+		if (vis == SWARM_VIS_ALWAYS_SEE) {
+			if (room && chr->prop) {
+				*room = chr->prop->rooms[0];
+			}
+			return true;
 		}
-		return true;
+		if (vis == SWARM_VIS_INVISIBLE) {
+			if (room) {
+				*room = sp88[0];
+			}
+			return false;
+		}
+		/* SWARM_VIS_NORMAL: fall through to standard LOS path. */
 	}
 
 	if (!botIsTargetInvisible(chr, target)) {

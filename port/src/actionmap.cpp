@@ -2446,8 +2446,10 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_TESTSCEN_CYCLE_PREV,  78);                       /* KEY_PAGEDOWN */
         addBind(imc, ACTION_TESTSCEN_CYCLE_PREV,  JOY_BTN(0, JBTN_DPAD_UP));
         /* Visibility-mode toggle. Cycles Normal -> AlwaysSee -> Invisible
-         * each press. Bound to V (SDL scan 25) on keyboard. */
-        addBind(imc, ACTION_TESTSCEN_VIS_TOGGLE, 25);                        /* KEY_V */
+         * each press. Bound to I (SDL scan 12) on keyboard -- chosen over
+         * V to avoid the existing VOICE_PTT bind. The 'I' is mnemonic for
+         * "Invisible" and is otherwise unused across IMCs. */
+        addBind(imc, ACTION_TESTSCEN_VIS_TOGGLE, 12);                        /* KEY_I */
     }
     /* Players 1-3: no default gamepad binds. MP slots start unbound.
      * The rebind UI is functional for all players — user configures manually. */

@@ -252,7 +252,7 @@ typedef enum InputAction {
      * (next-lower count) on PgDn / DPAD_UP. VIS_TOGGLE cycles the player's
      * visibility-to-bots state through Normal -> AlwaysSee -> Invisible. */
     ACTION_TESTSCEN_CYCLE_PREV,    /* = 103 Pg Dn / DPAD_UP -- previous bot count */
-    ACTION_TESTSCEN_VIS_TOGGLE,    /* = 104 V key -- cycle player visibility mode */
+    ACTION_TESTSCEN_VIS_TOGGLE,    /* = 104 I key -- cycle player visibility mode (V taken by VOICE_PTT) */
 
     ACTION_COUNT                /* = 105, sentinel - keep last */
 } InputAction;
