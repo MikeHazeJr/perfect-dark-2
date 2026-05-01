@@ -17,12 +17,14 @@
 #include <string.h>
 
 #include "constants.h"
+#include "memsizes.h"  /* AMMO_TYPE_COUNT */
 #include "system.h"
 #include "data.h"
 #include "bss.h"
 #include "types.h"
 #include "assetcatalog.h"
 #include "lib/main.h"
+#include "lib/memp.h"
 #include "lib/model.h"
 #include "lib/rng.h"
 #include "lib/ailist.h"
@@ -33,6 +35,7 @@
 #include "game/inv.h"
 #include "game/cheats.h"
 #include "game/atan2f.h"
+#include "game/botinvinit.h"
 #include "actionmap.h"
 #include "testscenarios.h"
 #include "swarm_test.h"
@@ -85,6 +88,136 @@ static s32          s_SwarmLogTickAcc;  /* throttle per-frame log to ~1 / 60 fra
 static f32 s_FrameMsAcc;
 static s32 s_FrameMsSamples;
 static u32 s_LastFrameTick;
+
+/* Private aibot pool -- escapes the MAX_BOTS=32 cap that gates the
+ * normal botmgr/match path. Each swarm Skedar gets its own aibot
+ * struct so chr->aibot is non-NULL and the bot AI in chraTick /
+ * chraiExecute / botTick can drive seek/attack/dodge behaviour.
+ *
+ * Why we don't go through botmgrAllocateBot:
+ *   - It gates on g_BotCount < MAX_BOTS=32 -- no path to 256.
+ *   - It registers the bot in g_MpBotChrPtrs / g_MpAllChrPtrs which
+ *     are match-scoring tables sized to MAX_MPCHRS=40. Beyond 40
+ *     entries those overflow.
+ *   - Our chrs are intentionally outside the match (no scoring, no
+ *     respawn-pad allocation, no spawn-pool participation).
+ *
+ * What we still get from real bot AI:
+ *   - Target selection (chr->target = player, set by chrInit).
+ *   - Action dispatch via chraTick: ACT_STAND -> ACT_RUNPOS -> ACT_ATTACK -> ...
+ *   - Collision-aware movement via chrTryStop / chrMoveAlongPath.
+ *   - Animation, weapons, dodge, gunfire, audio. */
+static struct aibot s_SwarmAibots[TESTSCEN_SWARM_MAX_COUNT];
+static u8           s_SwarmAibotInUse[TESTSCEN_SWARM_MAX_COUNT];
+
+/* Find an unused aibot slot. Returns NULL if all are taken. */
+static struct aibot *swarm_alloc_aibot(s32 *out_index)
+{
+	for (s32 i = 0; i < TESTSCEN_SWARM_MAX_COUNT; i++) {
+		if (!s_SwarmAibotInUse[i]) {
+			s_SwarmAibotInUse[i] = 1;
+			if (out_index) *out_index = i;
+			return &s_SwarmAibots[i];
+		}
+	}
+	return NULL;
+}
+
+/* Release an aibot slot back to the pool. The aibot's ammoheld
+ * pointer points to MEMPOOL_STAGE memory which is freed at level
+ * teardown -- we don't need to free it here. */
+static void swarm_free_aibot(struct aibot *aibot)
+{
+	if (!aibot) return;
+	uintptr_t base = (uintptr_t)&s_SwarmAibots[0];
+	uintptr_t end  = (uintptr_t)&s_SwarmAibots[TESTSCEN_SWARM_MAX_COUNT];
+	uintptr_t addr = (uintptr_t)aibot;
+	if (addr >= base && addr < end) {
+		s32 idx = (s32)((addr - base) / sizeof(struct aibot));
+		s_SwarmAibotInUse[idx] = 0;
+	}
+}
+
+/* Init an aibot struct so the bot AI can drive seek/attack/dodge.
+ * Mirrors botmgrAllocateBot's aibot init block (botmgr.c:163-351),
+ * minus the match-scoring registrations (g_MpBotChrPtrs etc.). The
+ * shared `mpbotconfig *config` pointer uses g_BotConfigsArray[0] --
+ * benign as long as the match-start code path has populated that
+ * slot, and it has by the time swarmTestTick first runs (matchStart
+ * runs before the first tick). */
+static void swarm_init_aibot(struct chrdata *chr, struct aibot *aibot)
+{
+	memset(aibot, 0, sizeof(struct aibot));
+
+	/* aibotnum = -1 signals "outside botmgr's slot management" so
+	 * any code that gates on aibotnum >= 0 / < MAX_BOTS skips us. */
+	aibot->aibotnum = -1;
+
+	/* Shared config -- the first MP bot config slot. Always allocated
+	 * once matchStart has run, and benign for our needs (we just need
+	 * a valid pointer, the AI reads difficulty/weapon-prefs etc.).
+	 * If the match has not allocated bots, the slot is still
+	 * default-initialized at memory-zero, which the AI tolerates. */
+	aibot->config = &g_BotConfigsArray[0];
+
+	aibot->ammoheld = mempAlloc(AMMO_TYPE_COUNT * sizeof(s32), MEMPOOL_STAGE);
+	if (aibot->ammoheld) {
+		for (s32 i = 0; i < AMMO_TYPE_COUNT; i++) {
+			aibot->ammoheld[i] = 0;
+		}
+	}
+
+	/* Difficulty / behaviour parameters. Use NORMAL difficulty defaults. */
+	aibot->followchance = 20;
+
+	/* Weapon: spawn unarmed; the AI's weapon-pick logic + invSetAllGuns
+	 * machinery on the bot side will choose. WEAPON_FALCON2 is a safe
+	 * default fallback if any path reads weaponnum before the AI runs. */
+	aibot->weaponnum = WEAPON_FALCON2;
+	aibot->ismeleeweapon = false;
+	aibot->gunfunc = FUNC_PRIMARY;
+
+	aibot->command = AIBOTCMD_NORMAL;
+
+	/* Sentinels for "no current target / no last-seen". */
+	aibot->attackingplayernum = -1;
+	aibot->followingplayernum = -1;
+	aibot->dangerouspropnum = -1;
+	aibot->distmode = -1;
+	aibot->lastkilledbyplayernum = -1;
+	aibot->feudplayernum = -1;
+	aibot->random3ttl60 = -1;
+	aibot->realignangleframe = -1;
+	aibot->targetlastseen60 = -1;
+	aibot->lastseenanytarget60 = -1;
+	aibot->punchtimer60[HAND_LEFT] = -1;
+	aibot->punchtimer60[HAND_RIGHT] = 0;
+
+	/* Per-chr distance/visibility tables. -1 / U32_MAX = unknown. */
+	for (s32 i = 0; i < MAX_MPCHRS; i++) {
+		aibot->chrnumsbydistanceasc[i] = -1;
+		aibot->chrdistances[i] = U32_MAX;
+		aibot->chrsinsight[i] = 0;
+		aibot->chrslastseen60[i] = -1;
+		aibot->chrrooms[i] = -1;
+	}
+
+	aibot->roty = chr->model ? modelGetChrRotY(chr->model) : 0.0f;
+	aibot->lookangle = aibot->roty;
+
+	aibot->random1 = rngRandom();
+	aibot->random2 = rngRandom();
+	aibot->randomfrac = RANDOMFRAC();
+
+	/* Defend-hold pos = spawn position, in case the AI ever falls
+	 * back to defend mode. */
+	if (chr->prop) {
+		aibot->defendholdpos = chr->prop->pos;
+	}
+	aibot->hillpadnum  = -1;
+	aibot->hillcovernum = -1;
+	aibot->lastknownhill = -1;
+}
 
 /* ------------------------------------------------------------------
  * Skedar body resolution (catalog ID -> bodynum / headnum).
@@ -171,9 +304,25 @@ static void apply_player_setup(void)
 
 /* ------------------------------------------------------------------
  * Spawn a single Skedar chr at a position
+ *
+ * CPU mode (SWARM_METHOD_CPU): the chr is allocated as a REAL bot with
+ *   chr->aibot pointing into our private pool, ailist =
+ *   GAILIST_AIBOT_INIT, and chr->myaction = MA_AIBOTMAINLOOP. The AI
+ *   then drives seek/attack/dodge/movement on the CPU. Position
+ *   updates flow through chrTryStop / chrMoveAlongPath which handle
+ *   collision, so chr-vs-chr and chr-vs-player no-clip is resolved
+ *   naturally without extra collision wiring on our side.
+ *
+ * GPU mode (SWARM_METHOD_GPU): the chr is allocated as a passive prop
+ *   with ailist = GAILIST_IDLE and no aibot. Position is driven by
+ *   swarmGpuStepAndApply via chrSetPos. This is the position-only
+ *   benchmark mode; full bot behaviour on GPU is a follow-up pillar
+ *   (see context/designs/in-flight/gpu-swarm-bot-pipeline.md).
  * ------------------------------------------------------------------ */
 static struct chrdata *spawn_one_skedar(struct coord *pos, RoomNum *rooms)
 {
+	const swarm_method_t method = testScenarioActiveMethod();
+
 	struct model *model = bodyAllocateModel(s_SkedarBodyNum,
 		(s_SkedarHeadNum >= 0) ? s_SkedarHeadNum : 0, 0);
 	if (model == NULL) {
@@ -181,8 +330,13 @@ static struct chrdata *spawn_one_skedar(struct coord *pos, RoomNum *rooms)
 			"TESTSCEN.SWARM: bodyAllocateModel returned NULL (skedar)");
 		return NULL;
 	}
+
+	const s32 ailist_id = (method == SWARM_METHOD_CPU)
+		? GAILIST_AIBOT_INIT
+		: GAILIST_IDLE;
+
 	struct prop *prop = chrAllocate(model, pos, rooms, 0.0f,
-		ailistFindById(GAILIST_IDLE));
+		ailistFindById(ailist_id));
 	if (prop == NULL) {
 		sysLogPrintf(LOG_WARNING,
 			"TESTSCEN.SWARM: chrAllocate returned NULL (chr pool exhausted?)");
@@ -198,8 +352,36 @@ static struct chrdata *spawn_one_skedar(struct coord *pos, RoomNum *rooms)
 	chr->team      = 1 << 7;          /* arbitrary non-default team */
 	chr->maxdamage = 1.0f;            /* 1 HP per the directive */
 	chr->damage    = 0.0f;
-	chr->myaction  = (testScenarioActiveMethod() == SWARM_METHOD_GPU)
-		? MA_SWARM_TEST_GPU_DRIVEN : MA_SWARM_TEST_SEEK;
+
+	/* Skedar collision radius -- chrInit defaults to 20, which is too
+	 * small for a Skedar warrior. Setting to 30 matches the player
+	 * capsule and gives a meaningful chr-vs-chr / chr-vs-player perim
+	 * for the collision system to act on. */
+	chr->radius = 30;
+
+	if (method == SWARM_METHOD_CPU) {
+		/* Real bot AI path. Allocate aibot from our private pool;
+		 * if the pool is exhausted we fall through to a no-AI chr
+		 * which will just stand around -- visible failure mode
+		 * rather than a crash. */
+		s32 ai_index = -1;
+		struct aibot *aibot = swarm_alloc_aibot(&ai_index);
+		if (aibot) {
+			swarm_init_aibot(chr, aibot);
+			chr->aibot = aibot;
+			chr->myaction = MA_AIBOTMAINLOOP;
+			botinvInit(chr, 10);
+		} else {
+			sysLogPrintf(LOG_WARNING,
+				"TESTSCEN.SWARM: aibot pool exhausted -- chr will be passive");
+			chr->myaction = MA_NONE;
+		}
+	} else {
+		/* GPU mode: chr is passive prop. Position is driven externally
+		 * by swarmGpuStepAndApply. */
+		chr->myaction = MA_NONE;
+	}
+
 	return chr;
 }
 
@@ -236,6 +418,14 @@ static void despawn_all(void)
 		struct chrdata *chr = s_Swarm[i].chr;
 		if (chr && chr->prop) {
 			struct prop *prop = chr->prop;
+			/* Release the aibot slot BEFORE chrRemove so we don't
+			 * lose the chr->aibot pointer needed to find our pool
+			 * index. ammoheld points into MEMPOOL_STAGE which is
+			 * freed at level teardown -- not our concern. */
+			if (chr->aibot) {
+				swarm_free_aibot(chr->aibot);
+				chr->aibot = NULL;
+			}
 			chrRemove(prop, true);
 			propDelist(prop);
 			propDisable(prop);
@@ -297,25 +487,21 @@ static void respawn_ring(s32 count)
 }
 
 /* ------------------------------------------------------------------
- * CPU seek-player tick (mirrors the GPU shader's per-boid step)
+ * GPU-mode position fallback
  *
- * Each tick we want each Skedar to advance up to SWARM_MAX_SPEED units
- * toward the player on the XZ plane (Y is ground-locked so they don't
- * float). The position update goes through chrSetPos() so the model's
- * root matrix, room registration, ground tracking, and chr->prevpos
- * all stay in sync with prop->pos -- writing prop->pos.x directly
- * (the prior implementation) updated the prop but the model continued
- * to render at the old root position because modelSetRootPosition
- * wasn't being called.  chrSetPos with findground=true does the right
- * thing on uneven floors; cdFindGroundInfoAtCyl is invoked once per
- * chr per tick, which is acceptable for a benchmark (the heavy load
- * is the point).
+ * Used ONLY when the active scenario is SWARM_METHOD_GPU but the GPU
+ * compute path is unavailable (no GL >= 4.3, compute shader compile
+ * failed, etc.). We need SOME source of motion in that case so the
+ * benchmark still produces visible activity, otherwise GPU mode shows
+ * a static ring of skedars and Mike has nothing to compare CPU mode
+ * against.
+ *
+ * The CPU-mode bots run real AI and don't need this -- their motion
+ * comes from chraTick / chraiExecute via the AIBOT_INIT ailist.
  * ------------------------------------------------------------------ */
 #define SWARM_MAX_SPEED      18.0f
-#define SWARM_SEEK_WEIGHT    0.0050f
-#define SWARM_DT             (1.0f / 60.0f)
 
-static void cpu_seek_tick(struct coord *player_pos)
+static void gpu_fallback_seek_tick(struct coord *player_pos)
 {
 	for (s32 i = 0; i < s_SwarmCount; i++) {
 		struct chrdata *chr = s_Swarm[i].chr;
@@ -340,8 +526,6 @@ static void cpu_seek_tick(struct coord *player_pos)
 		newpos.y = prop->pos.y;
 		newpos.z = prop->pos.z + vz;
 
-		/* Face toward player (theta in degrees per chrSetPos contract:
-		 * "BADDEG2RAD(360 - theta)").  Yaw atan2 of the look vector. */
 		f32 face_deg = atan2f(dx, dz) * (180.0f / 3.14159265f);
 		if (face_deg < 0.0f) face_deg += 360.0f;
 
@@ -465,24 +649,34 @@ void swarmTestTick(void)
 	 * apply_player_setup() docblock for the full rationale. */
 	apply_player_setup();
 
-	/* Drive per-method simulation. GPU path is delegated to swarm_gpu;
-	 * its availability is reported via swarmGpuAvailable() and falls
-	 * back to CPU seek when compute shaders are unavailable or the
-	 * module is not built yet. */
+	/* Drive per-method simulation.
+	 *
+	 * CPU mode -- bots run their own AI through chraTick (driven by
+	 * GAILIST_AIBOT_INIT + chr->aibot), so we don't drive positions
+	 * from here at all. Movement, attack, and collision are handled
+	 * by the bot AI naturally.
+	 *
+	 * GPU mode -- positions come from the compute shader if it's
+	 * available, otherwise we fall back to a simple seek so Mike
+	 * still gets motion to look at while the GPU pipeline is brought
+	 * online. The GPU path's "real bot behaviour" is a follow-up
+	 * pillar (see context/designs/in-flight/gpu-swarm-bot-pipeline.md). */
 	struct coord player_pos = {0, 0, 0};
 	if (g_Vars.currentplayer && g_Vars.currentplayer->prop) {
 		player_pos = g_Vars.currentplayer->prop->pos;
 	}
-	if (testScenarioActiveMethod() == SWARM_METHOD_GPU
-			&& swarmGpuAvailable()) {
-		struct chrdata *chrs[TESTSCEN_SWARM_MAX_COUNT];
-		for (s32 i = 0; i < TESTSCEN_SWARM_MAX_COUNT; i++) {
-			chrs[i] = s_Swarm[i].chr;
+	if (testScenarioActiveMethod() == SWARM_METHOD_GPU) {
+		if (swarmGpuAvailable()) {
+			struct chrdata *chrs[TESTSCEN_SWARM_MAX_COUNT];
+			for (s32 i = 0; i < TESTSCEN_SWARM_MAX_COUNT; i++) {
+				chrs[i] = s_Swarm[i].chr;
+			}
+			swarmGpuStepAndApply(&player_pos, chrs, s_SwarmCount);
+		} else {
+			gpu_fallback_seek_tick(&player_pos);
 		}
-		swarmGpuStepAndApply(&player_pos, chrs, s_SwarmCount);
-	} else {
-		cpu_seek_tick(&player_pos);
 	}
+	/* CPU mode: AI handles everything; nothing to do here. */
 
 	death_poll();
 	cycler_tick();
@@ -505,6 +699,12 @@ void swarmTestTick(void)
 void swarmTestOnSessionEnd(void)
 {
 	despawn_all();
+	/* Defensive: zero the in-use bitmap so a fresh session start (after
+	 * a stage transition that didn't go through despawn_all) cannot
+	 * inherit an old leak of "in use" markers. The aibot structs
+	 * themselves live in BSS so memset is a no-op here -- the bitmap
+	 * is the only state we need to clear. */
+	memset(s_SwarmAibotInUse, 0, sizeof(s_SwarmAibotInUse));
 	s_SwarmKills        = 0;
 	s_SwarmInitialized  = 0;
 	s_SwarmLastStage    = -1;

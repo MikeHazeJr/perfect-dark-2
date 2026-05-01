@@ -1666,6 +1666,26 @@ void setupCreateProps(s32 stagenum)
 					numchrs - (s32)setupCountCommandType(OBJTYPE_CHR), numchrs);
 			}
 
+			/* S593 follow-up (2026-05-01): swarm benchmark needs up to 256
+			 * chr slots in g_ChrSlots[] above whatever the stage and
+			 * normal MP simulants declare. The earlier modelmgr-side hook
+			 * (line 1575) sized the model/anim/prop pools for 256, but
+			 * chrmgrConfigure was missing the same hook -- result was
+			 * g_NumChrSlots = PLAYERCOUNT() + 0 + 10 = 11 on a
+			 * solo-with-no-simulants swarm session, which capped the cycle
+			 * ladder at ~10 chrs and explained Mike's "loops at 8 only"
+			 * symptom. Mirror the hook here so chr slot count matches the
+			 * model/anim sizing. */
+			{
+				s32 swarm_extra = testScenarioGetSwarmMaxCount();
+				if (swarm_extra > 0) {
+					numchrs += swarm_extra;
+					sysLogPrintf(LOG_NOTE,
+						"CHRSLOTS: added %d swarm chr slots for benchmark; numchrs=%d",
+						swarm_extra, numchrs);
+				}
+			}
+
 			chrmgrConfigure(numchrs);
 		} else {
 			chrmgrConfigure(0);
