@@ -1816,6 +1816,25 @@ s32 propGetActionUseHoldThresholdMs(void)
 	return t;
 }
 
+/* Phase 2 fix #5 (input-menu pillar, 2026-05-01): tunable interaction
+ * cast half-angle. Default = 15 degrees (30-degree full cone) per Mike's
+ * directive, tightened from the prior 22.5 degrees / 45-degree full cone
+ * literal at propobj.c:16434. Fix #6 will let Settings/Debug move this
+ * empirically alongside a 3D cone visualization. */
+static f32 s_InteractCastHalfAngleRad = 0.2617993878f; /* pi / 12 = 15 deg */
+
+f32 propGetInteractCastHalfAngleRad(void)
+{
+	return s_InteractCastHalfAngleRad;
+}
+
+void propSetInteractCastHalfAngleRad(f32 rad)
+{
+	if (rad < 0.0f) rad = 0.0f;
+	if (rad > 1.5707963268f) rad = 1.5707963268f; /* clamp to 90 deg half / 180 deg full */
+	s_InteractCastHalfAngleRad = rad;
+}
+
 
 
 /**
