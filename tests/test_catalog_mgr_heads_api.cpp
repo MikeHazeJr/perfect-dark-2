@@ -136,3 +136,92 @@ TEST_CASE("catalog-mgr-head: F2 catalogGetHead* routes through manager",
 	REQUIRE(src.find("g_HeadsAndBodies[headnum].type") == std::string::npos);
 	REQUIRE(src.find("g_HeadsAndBodies[headnum].height") == std::string::npos);
 }
+
+/* ===========================================================================
+ * F6 retirement pin: g_MpMaleHeads / g_MpFemaleHeads were retired from
+ * src/game/mplayer/mplayer.c. The retirement comment block stays in place
+ * but the array literals are gone.
+ * =========================================================================== */
+
+TEST_CASE("catalog-mgr-head: F6 g_MpMaleHeads / g_MpFemaleHeads retired",
+          "[catalog-mgr-head][gate3][f6]") {
+	const std::string src = readSourceFile("src/game/mplayer/mplayer.c");
+	REQUIRE(!src.empty());
+
+	/* The static array definitions are gone. */
+	REQUIRE(src.find("u32 g_MpMaleHeads[] = {") == std::string::npos);
+	REQUIRE(src.find("u32 g_MpFemaleHeads[] = {") == std::string::npos);
+
+	/* Manager helpers are referenced. */
+	REQUIRE(src.find("catalogManagerHeadPickRandomMale()") != std::string::npos);
+	REQUIRE(src.find("catalogManagerHeadPickRandomFemale()") != std::string::npos);
+}
+
+/* ===========================================================================
+ * F11 archive pin: base/heads.pdbase exists and parses as JSON with the
+ * expected envelope.
+ * =========================================================================== */
+
+TEST_CASE("catalog-mgr-head: F11 base/heads.pdbase has expected envelope",
+          "[catalog-mgr-head][gate3][f11]") {
+	const std::string src = readSourceFile("base/heads.pdbase");
+	REQUIRE(!src.empty());
+	REQUIRE(src.find("\"pdbase_version\": 1") != std::string::npos);
+	REQUIRE(src.find("\"type\": \"heads\"") != std::string::npos);
+	REQUIRE(src.find("\"heads\": [") != std::string::npos);
+	/* Two known head IDs from the canonical 75 + at least one sp_head_*
+	 * fallback indicate the extractor produced both branches. */
+	REQUIRE(src.find("\"id\": \"base:head_carrington\"") != std::string::npos);
+	REQUIRE(src.find("\"id\": \"base:head_dark_combat\"") != std::string::npos);
+	REQUIRE(src.find("\"id\": \"base:sp_head_") != std::string::npos);
+}
+
+/* ===========================================================================
+ * F13 grep-guard pin: live HEAD-data reads outside the catalog API and the
+ * manager's parity-period mirror are gone. Allowed sites:
+ *   - port/src/assetcatalog_api.c    (catalog API; bodies-side reads keep
+ *     direct g_HeadsAndBodies reads until bodies session migrates)
+ *   - port/src/assetcatalog_base.c   (registration; iterates g_HeadsAndBodies
+ *     and g_MpHeads at startup)
+ *   - port/src/catalog_mgr_heads.c   (manager pool; parity-period mirror)
+ *   - port/src/loader_pdbase.c       (loader pool; populates s_HeadsPool from
+ *     base/heads.pdbase)
+ *   - src/game/modeldata/robot.c     (data definition site)
+ *   - src/include/data.h             (extern decl)
+ *   - src/include/types.h            (struct headorbody decl)
+ *   - bounds-check sites in body.c, mplayer/setup.c, training.c
+ * Anywhere else reintroducing `g_HeadsAndBodies[h].<head-field>` is a
+ * regression.
+ * =========================================================================== */
+
+TEST_CASE("catalog-mgr-head: F13 no new direct head-field reads in selectors",
+          "[catalog-mgr-head][gate3][f13]") {
+	/* The set of files we expect to NEVER reintroduce a direct
+	 * g_HeadsAndBodies[h].<headfield> read. */
+	const char *files[] = {
+		"port/fast3d/pdgui_menu_agentcreate.cpp",
+		"port/fast3d/pdgui_menu_botsetup.cpp",
+		"port/fast3d/pdgui_menu_playerconfig.cpp",
+		"port/fast3d/pdgui_menu_room.cpp",
+		"src/game/chraction.c",
+		"src/game/player.c",
+		"port/src/net/netmanifest.c",
+	};
+	const char *bad_patterns[] = {
+		"g_HeadsAndBodies[headnum].ismale",
+		"g_HeadsAndBodies[headnum].type",
+		"g_HeadsAndBodies[headnum].height",
+		"g_HeadsAndBodies[headnum].scale",
+		"g_HeadsAndBodies[headnum].animscale",
+		"g_HeadsAndBodies[headnum].filenum",
+		"g_HeadsAndBodies[headnum].modeldef",
+	};
+	for (const char *path : files) {
+		const std::string src = readSourceFile(path);
+		REQUIRE(!src.empty());
+		for (const char *bad : bad_patterns) {
+			INFO("file=" << path << " pattern=" << bad);
+			REQUIRE(src.find(bad) == std::string::npos);
+		}
+	}
+}

@@ -31,6 +31,7 @@
 #include "assetcatalog.h"
 #include "catalog_mgr_heads.h"
 #include "catalog_mgr_heads_pure.h"
+#include "loader_pdbase.h"  /* Catalog Gate 3 F12: pool-backed source when active */
 
 extern struct headorbody g_HeadsAndBodies[];
 
@@ -73,11 +74,32 @@ static const head_data_t *s_get(s32 headnum)
 	if (!s_HeadsInited) {
 		catalogManagerHeadInit();
 	}
-	/* Always re-read from the legacy table during F1-F10 so any
-	 * out-of-band mutation (e.g. lazy modeldef cache writes from the
-	 * legacy catalogGetHeadModeldef path) stays observable through
-	 * the manager. F3/F4 own the modeldef cache; the rest of the
-	 * fields are read-only during the parity period. */
+#if !defined(PD_SERVER)
+	/* Catalog Gate 3 F12: when the loader is active, the .pdbase pool
+	 * is the source of truth.  Copy the loader-owned record into the
+	 * manager slot (preserving the modeldef cache pointer) so all
+	 * accessors continue to read from s_Heads[].  F13 retires the
+	 * legacy mirror entirely; for now we keep both paths so the
+	 * parity bridge can be exercised. */
+	if (loaderPdbaseHeadsActive()) {
+		const head_data_t *src = loaderPdbaseGetHead(headnum);
+		if (src) {
+			struct modeldef *md = s_Heads[headnum].modeldef;
+			s_Heads[headnum] = *src;
+			s_Heads[headnum].modeldef = md;
+			return &s_Heads[headnum];
+		}
+		/* Loader has no record for this slot (e.g. body slot or sentinel
+		 * entry that does not appear in heads.pdbase). Fall through to
+		 * the legacy mirror so manager iteration over the full 152-slot
+		 * range still produces consistent values for non-head slots. */
+	}
+#endif
+	/* Parity-period fallback: re-read from the legacy table so any
+	 * out-of-band mutation (e.g. lazy modeldef cache writes via the
+	 * legacy catalogGetHeadModeldef path that pre-dated F3) stays
+	 * observable. F3+ owns the modeldef cache; the rest of the fields
+	 * are read-only during the parity period. */
 	s_populateFromLegacy(headnum);
 	return &s_Heads[headnum];
 }
