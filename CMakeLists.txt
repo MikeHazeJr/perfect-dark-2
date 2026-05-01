@@ -929,6 +929,11 @@ set(SRC_TESTS
   # contract. ampWasTap mirrors actionWasTap; bondmove.c sites migrated.
   ${CMAKE_SOURCE_DIR}/tests/test_press_vs_hold.cpp
 
+  # Phase 2 fix #2 (input-menu pillar, 2026-05-01): innermost-scrollable
+  # walker for the right-stick scroll target.
+  ${CMAKE_SOURCE_DIR}/tests/nested_scroll_pure.c
+  ${CMAKE_SOURCE_DIR}/tests/test_nested_scroll.cpp
+
   # Cohort 2 (input universality and transitions, 2026-04-27): typed
   # Input Layer Stack. Push / pop / abort / exclusivity invariants via
   # pure-C mirror at tests/inputlayer_pure.{c,h}.
