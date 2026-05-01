@@ -1215,6 +1215,17 @@ void mainEndStage(void)
 	 * networked session (hosting or connected). */
 	extern s32 g_NetMode;
 
+	/* Fix 4 (2026-05-01): pulled in by extern so src/lib/main.c doesn't
+	 * drag forgemode.h or pdgui.h. forgeSessionIsActive() returns 1 when
+	 * the Grid editor session is in NORMAL or FREEFLY (state != INACTIVE);
+	 * the session-INACTIVE transition runs from forgeTick AFTER
+	 * mainEndStage so this check still sees an active session at end-of-
+	 * stage time. pdguiEndscreenExitToMainMenu is the canonical "back to
+	 * main menu" path used by every endscreen "Exit" button -- defined
+	 * in port/fast3d/pdgui_bridge.c, exported as a C symbol. */
+	extern s32 forgeSessionIsActive(void);
+	extern void pdguiEndscreenExitToMainMenu(void);
+
 	sndStopNosedive();
 
 	if (!g_MainIsEndscreen) {
@@ -1257,6 +1268,25 @@ void mainEndStage(void)
 			sysLogPrintf(LOG_WARNING,
 				"GAMELOOP.CAMPAIGN: mainEndStage in networked lobby (stage=0x%02x netmode=%d) — skipping endscreen, routing back to lobby",
 				(u32)g_Vars.stagenum, (s32)g_NetMode);
+			musicStartMenu();
+		} else if (forgeSessionIsActive()) {
+			/* Fix 4 (2026-05-01, Mike playtest): a Grid editor session is
+			 * not a campaign mission. Falling through to `endscreenPrepare`
+			 * pushes the solo-mission Completed/Failed dialog and routes
+			 * via `titleInitSkip` -> `mainChangeToStage(STAGE_CITRAINING)`
+			 * with no Main Menu overlay -- the user lands at CI without the
+			 * "back to main menu" UX they asked for. Reuse the canonical
+			 * Exit-to-Main-Menu bridge path (pdgui_bridge.c) so manifest /
+			 * menu pool / pause state are torn down the same way the
+			 * endscreen-button choice does, and the stage routes to CI
+			 * with the same cleanup lifecycle. forgeTransitionToInactive
+			 * still runs from forgeTick on the actual stage change, so the
+			 * editor's own state (IMC deactivation, observer layer exit,
+			 * pdguiClearImGuiFocusAndNav) drains naturally. */
+			sysLogPrintf(LOG_NOTE,
+				"GAMELOOP.GRID: mainEndStage routing through ExitToMainMenu (stage=0x%02x) -- skipping campaign endscreen",
+				(u32)g_Vars.stagenum);
+			pdguiEndscreenExitToMainMenu();
 			musicStartMenu();
 		} else {
 			endscreenPrepare();
