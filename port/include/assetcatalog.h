@@ -715,38 +715,64 @@ const asset_entry_t *assetCatalogResolveByNetHash(u32 net_hash);
 typedef void (*asset_iter_fn)(const asset_entry_t *entry, void *userdata);
 
 /**
- * Iterate all entries of a specific asset type.
- * Calls fn for each entry. userdata is passed through unchanged.
+ * Iterate ENABLED entries of a specific asset type.
+ * Calls fn for each entry where occupied, enabled, and type matches.
+ * Disabled entries (entry->enabled == 0, set via assetCatalogSetEnabled)
+ * are skipped per B-303 (catalog universality sweep, 2026-05-01) so that
+ * mod toggles surface in selectors immediately.  This mirrors the
+ * resolve-by-ID semantic which has always returned NULL for disabled
+ * entries.
+ *
+ * Modder UIs that need to LIST disabled entries (Mod Manager, Modding
+ * Hub, Audio Mod author) must call assetCatalogIterateByTypeIncludingDisabled
+ * below.
  */
 void assetCatalogIterateByType(asset_type_e type, asset_iter_fn fn,
                                 void *userdata);
 
 /**
- * Iterate all entries with a specific category string.
+ * Variant of assetCatalogIterateByType that includes disabled entries.
+ * Use ONLY in modder UIs (Mod Manager, Modding Hub, Audio Mod author)
+ * that need to render the disabled state for re-enable.  All gameplay
+ * selectors call assetCatalogIterateByType.
+ */
+void assetCatalogIterateByTypeIncludingDisabled(asset_type_e type,
+                                                 asset_iter_fn fn,
+                                                 void *userdata);
+
+/**
+ * Iterate all ENABLED entries with a specific category string.
+ * Same enabled-filter discipline as assetCatalogIterateByType (B-303).
  * Category matching is exact (case-sensitive).
  */
 void assetCatalogIterateByCategory(const char *category, asset_iter_fn fn,
                                     void *userdata);
 
 /**
- * Iterate entries of a specific asset type that are AVAILABLE to the local
- * player right now: catalog membership intersected with unlock-state. The
- * unlock filter consults `challengeIsFeatureUnlocked` against whichever
- * `requirefeature` field the type carries on its `ext` payload:
- *   ASSET_ARENA -> ext.arena.requirefeature
- *   ASSET_BODY  -> ext.body.requirefeature
- *   ASSET_HEAD  -> ext.head.requirefeature
- *   any other type -> no unlock gate (iterates identically to
- *                     assetCatalogIterateByType)
+ * Iterate ENABLED entries of a specific asset type that are AVAILABLE to
+ * the local player right now: catalog membership intersected with both
+ * the enabled flag and the unlock-state.  The unlock filter consults
+ * `challengeIsFeatureUnlocked` against whichever `requirefeature` field
+ * the type carries on its `ext` payload:
+ *   ASSET_ARENA       -> ext.arena.requirefeature
+ *   ASSET_BODY        -> ext.body.requirefeature
+ *   ASSET_HEAD        -> ext.head.requirefeature
+ *   ASSET_WEAPON      -> ext.weapon.requirefeature
+ *   ASSET_GAMEMODE    -> ext.gamemode.requirefeature
+ *   ASSET_BOT_PROFILE -> ext.bot_profile.requirefeature
+ *   any other type    -> no unlock gate (iterates identically to
+ *                        assetCatalogIterateByType modulo the unlock
+ *                        check; the enabled filter still applies)
  *
  * This is the canonical helper for selector pools. Per Mike's directive
- * "selector pool = catalog INTERSECT unlock-state": every UI that builds a
- * pickable list of arenas / bodies / heads should call this rather than
- * iterating the full catalog and filtering inline.
+ * "selector pool = catalog INTERSECT unlock-state": every UI that builds
+ * a pickable list of arenas / bodies / heads / weapons / gamemodes /
+ * bot profiles should call this rather than iterating the full catalog
+ * and filtering inline.  After B-303 the helper also respects
+ * `entry->enabled`, so a mod-toggled-off entry never reaches selectors.
  *
- * Server build: returns immediately for ASSET_ARENA / BODY / HEAD because
- * `assetCatalogRegisterBaseGame` is not called server-side, so no entries
- * exist to iterate.
+ * Server build: returns immediately because `assetCatalogRegisterBaseGame`
+ * is not called server-side, so no entries exist to iterate.
  */
 void assetCatalogIterateUnlockedByType(asset_type_e type, asset_iter_fn fn,
                                         void *userdata);
