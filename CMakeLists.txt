@@ -925,6 +925,10 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/actionmap_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_actionmap_flush.cpp
 
+  # Phase 2 fix #1 (input-menu pillar, 2026-05-01): canonical Press-vs-Hold
+  # contract. ampWasTap mirrors actionWasTap; bondmove.c sites migrated.
+  ${CMAKE_SOURCE_DIR}/tests/test_press_vs_hold.cpp
+
   # Cohort 2 (input universality and transitions, 2026-04-27): typed
   # Input Layer Stack. Push / pop / abort / exclusivity invariants via
   # pure-C mirror at tests/inputlayer_pure.{c,h}.
