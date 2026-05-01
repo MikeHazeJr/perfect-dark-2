@@ -212,6 +212,28 @@ u32 chrsGetVar80062980(void)
 void chrSetPerimEnabled(struct chrdata *chr, bool enable)
 {
 	if (chr) {
+		/* S593h (2026-05-01): swarm-bot perim-disabled lock.
+		 *
+		 * Bit 0x00040000 (formerly CHRHFLAG_00040000 "Not used") is
+		 * commandeered as a swarm-bot marker. Swarm bots have their
+		 * perim PERMANENTLY disabled so chr-vs-chr collision pairs
+		 * skip them (Mike's "Don't let them collide with each
+		 * other" directive). Without this gate, chrCalculatePushPos
+		 * toggles perim off then on around its own push test, and
+		 * the re-enable would let bot-vs-bot collision happen on
+		 * subsequent push queries within the same frame.
+		 *
+		 * Side effect: the player can also walk through swarm bots
+		 * (since the player's bondwalk perim test reads the same
+		 * flag). Acceptable trade-off for the 256-bot benchmark --
+		 * bullets and AI still work. World/BG collision is on a
+		 * separate path (cdFindGroundInfoAtCyl) and unaffected.
+		 *
+		 * The marker is set in port/src/swarm_test.c::spawn_one_skedar
+		 * and re-asserted each frame in swarmTestTick. */
+		if (enable && (chr->hidden & 0x00040000)) {
+			return;
+		}
 		if (enable) {
 			chr->hidden &= ~CHRHFLAG_PERIMDISABLED;
 		} else {

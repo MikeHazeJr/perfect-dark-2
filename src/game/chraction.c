@@ -6609,6 +6609,24 @@ bool chrHasLosToChr(struct chrdata *chr, struct chrdata *target, RoomNum *room)
 		return false;
 	}
 
+	/* S593h (2026-05-01): swarm-bot LOS short-circuit. Swarm bots
+	 * (chr->hidden bit 0x00040000) always have line-of-sight to any
+	 * target. This implements Mike's "they should also be aware of my
+	 * location" directive without depending on real BG raycasts that
+	 * fail when 256 chrs are clustered around the player or the arena
+	 * geometry occludes peer-to-peer rays. The player's LOS check is
+	 * UNAFFECTED -- only the bot's perspective short-circuits.
+	 *
+	 * The marker is set in port/src/swarm_test.c::spawn_one_skedar.
+	 * The same bit also gates chr.c::chrSetPerimEnabled (swarm bots
+	 * stay perim-disabled regardless of caller intent). */
+	if (chr && (chr->hidden & 0x00040000)) {
+		if (room && chr->prop) {
+			*room = chr->prop->rooms[0];
+		}
+		return true;
+	}
+
 	if (!botIsTargetInvisible(chr, target)) {
 		struct prop *prop = chr->prop;
 		struct coord pos;

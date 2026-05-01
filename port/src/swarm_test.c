@@ -34,6 +34,7 @@
 #include "game/prop.h"
 #include "game/inv.h"
 #include "game/cheats.h"
+#include "game/bondgun.h"  /* bgunEquipWeapon for power-weapon loadout */
 #include "game/atan2f.h"
 #include "game/botinvinit.h"
 #include "actionmap.h"
@@ -145,9 +146,41 @@ static void swarm_init_bot_config_once(void)
 	if (s_SwarmBotConfigInited) return;
 	memset(&s_SwarmBotConfig, 0, sizeof(s_SwarmBotConfig));
 	s_SwarmBotConfig.base.team = 1; /* -> chr->team = TEAM_ENEMY */
-	s_SwarmBotConfig.type       = BOTTYPE_KAZE;
-	s_SwarmBotConfig.difficulty = BOTDIFF_PERFECT;
+	/* S593h (2026-05-01): bumped from BOTTYPE_KAZE+BOTDIFF_PERFECT
+	 * to BOTTYPE_SPEED+BOTDIFF_DARK per Mike's directive. SPEED type
+	 * applies a 14x multiplier in botCalculateMaxSpeed (vs 7.6x for
+	 * NORMAL difficulty) -- bots noticeably zip toward the player.
+	 * BOTDIFF_DARK is the hardest AI difficulty preset (Dark Agent
+	 * tier), maxing reaction speed, accuracy, and aggression in
+	 * the AI-decision paths that read difficulty. */
+	s_SwarmBotConfig.type       = BOTTYPE_SPEED;
+	s_SwarmBotConfig.difficulty = BOTDIFF_DARK;
 	s_SwarmBotConfigInited = 1;
+}
+
+/* S593h (2026-05-01): per-spawn scale chooser. Returns a value in
+ * [0.2, 0.6) weighted toward the small end via (rand01)^2. The
+ * squaring of a uniform [0,1) random push the distribution low so
+ * most bots are tiny with occasional larger ones. Per Mike's
+ * directive: "I think it would be good to slightly randomize their
+ * scale between 0.2 and 0.6, weighted towards smaller." */
+static f32 swarm_pick_scale(void)
+{
+	f32 r = RANDOMFRAC();
+	return 0.2f + 0.4f * (r * r);
+}
+
+/* Public API: returns 1 if `chr` is a swarm bot (marked with the
+ * CHRHFLAG_00040000 swarm-lock bit at spawn). Used by chr.c and
+ * chraction.c to gate behaviour: chrSetPerimEnabled refuses to
+ * re-enable perim for swarm bots (so bot-bot collision stays off
+ * per Mike's directive), and chrHasLosToChr short-circuits to
+ * true for swarm-bot perspectives (so bots always know where the
+ * player is regardless of LOS occlusion). */
+s32 swarmTestIsSwarmChr(struct chrdata *chr)
+{
+	if (!chr) return 0;
+	return (chr->hidden & 0x00040000) ? 1 : 0;
 }
 
 /* Find an unused aibot slot. Returns NULL if all are taken. */
@@ -207,11 +240,14 @@ static void swarm_init_aibot(struct chrdata *chr, struct aibot *aibot)
 	/* Difficulty / behaviour parameters. Use NORMAL difficulty defaults. */
 	aibot->followchance = 20;
 
-	/* Weapon: spawn unarmed; the AI's weapon-pick logic + invSetAllGuns
-	 * machinery on the bot side will choose. WEAPON_FALCON2 is a safe
-	 * default fallback if any path reads weaponnum before the AI runs. */
-	aibot->weaponnum = WEAPON_FALCON2;
-	aibot->ismeleeweapon = false;
+	/* Weapon: combat knife per Mike's S593h directive ("give the bots
+	 * combat knife as a spawn weapon"). The bot AI sees ismeleeweapon=1
+	 * and adjusts engagement style accordingly -- bots close-range and
+	 * swing instead of trying to maintain ranged distance. Pairs well
+	 * with BOTTYPE_SPEED + BOTDIFF_DARK for a "horde of melee skedars"
+	 * feel. */
+	aibot->weaponnum = WEAPON_COMBATKNIFE;
+	aibot->ismeleeweapon = true;
 	aibot->gunfunc = FUNC_PRIMARY;
 
 	/* AIBOTCMD_ATTACK locks the bot into attack mode regardless of
@@ -300,52 +336,81 @@ static void resolve_skedar_assets(void)
 /* ------------------------------------------------------------------
  * Player setup
  *
- * Three pieces of per-player state must be active for the benchmark:
- *   1. Invincibility -- bots are aggressive, the player can't die.
- *   2. All guns       -- weapon-cycle the full arsenal under load.
- *   3. Bottomless ammo -- never reload, never run dry.
+ * Per-tick re-assertion of the swarm test mode's player state:
+ *   1. Invincibility (cheat bank + per-player flag).
+ *   2. Bottomless ammo (cheat bank).
+ *   3. Curated power-weapon loadout (one-shot at session start).
  *
- * Both the cheat banks AND the per-player flags are set, because
- * different code paths consult different sources:
- *   - chrDamage / playerDamage gate on g_Vars.currentplayer->invincible.
- *   - chrInflictDamage early-outs on cheatIsActive(CHEAT_INVINCIBLE).
- *   - bgun reload gates on cheatIsActive(CHEAT_UNLIMITEDAMMO).
- *   - inv current-weapon picker gates on equipallguns.
+ * S593h (2026-05-01): Mike's directive REPLACED the earlier
+ * "all guns" approach with "give bots combat knife as a spawn
+ * weapon. I will get power weapons, bottomless clip." `equipallguns`
+ * is now FALSE; we explicitly give Mike the power weapons one by
+ * one through invGiveSingleWeapon. This also addresses item 6
+ * (weapon visibility) because explicit single weapons drive the
+ * standard master-load path, which couples the gun model with the
+ * hand model -- the previous all-guns mode left the hand model
+ * unbound (visible only during punch/melee).
  *
- * S483-followup (2026-04-30): apply_player_setup is called from
- * EVERY swarmTestTick frame, not just the session-start tick.  Reasons:
- *   - cheatsReset() runs at level start AFTER our session-start tick
- *     would have run in the prior implementation, wiping the cheat bits.
- *   - playerSpawn / playerReset on death respawn re-initialises
- *     equipallguns and player->invincible.
- *   - Mid-frame inventory pickups / weapon switches can clear
- *     equipallguns transiently.
- * Re-asserting each tick is cheap (a handful of writes + a cached
- * invSetAllGuns no-op when equipallguns is already true) and is the
- * only way to keep the player benchmark-ready against the various
- * resets the engine performs.
+ * The curated power-weapon list:
+ *   FARSIGHT    -- through-wall scope rifle
+ *   REAPER      -- minigun
+ *   DEVASTATOR  -- 3-round grenade launcher
+ *   SLAYER      -- guided rocket launcher
+ *   MAULER      -- charging hand cannon
+ *   RCP120      -- silenced SMG with cloak
+ *
+ * Bots get WEAPON_COMBATKNIFE in swarm_init_aibot. With the player
+ * invincible and bottomless-clip on power weapons, the swarm's role
+ * is to converge melee-style on the player (benchmark stress, not a
+ * fair fight).
  * ------------------------------------------------------------------ */
+static const s32 s_PowerWeapons[] = {
+	WEAPON_FARSIGHT,
+	WEAPON_REAPER,
+	WEAPON_DEVASTATOR,
+	WEAPON_SLAYER,
+	WEAPON_MAULER,
+	WEAPON_RCP120,
+};
+
+static s32 s_PlayerLoadoutGiven = 0;
+
 static void apply_player_setup(void)
 {
 	if (!g_Vars.currentplayer) return;
 
 	/* Cheat banks first so anything queried via cheatIsActive sees the
-	 * right state. */
+	 * right state. UNLIMITEDAMMO -> bottomless clip per Mike's
+	 * directive; INVINCIBLE so 256 hostile bots don't kill him.
+	 * CHEAT_ALLGUNS is INTENTIONALLY OMITTED (S593h): we hand-pick
+	 * power weapons instead. */
 	g_CheatsActiveBank0 |= (1u << CHEAT_INVINCIBLE);
 	g_CheatsActiveBank0 |= (1u << CHEAT_UNLIMITEDAMMO);
-	g_CheatsActiveBank0 |= (1u << CHEAT_ALLGUNS);
-
-	/* Per-player invincibility. The g_Vars.currentplayer pointer is
-	 * the canonical "Player 0" pointer in single-local-player mode. */
 	g_Vars.currentplayer->invincible = 1;
 
-	/* Equip all guns. invSetAllGuns sets equipallguns=true,
-	 * recalculates the current-weapon index, and re-equips. The
-	 * cheats.c gate around CHEAT_ALLGUNS (PLAYERCOUNT()==1 && !normmp)
-	 * is bypassed by calling invSetAllGuns directly: the test mode is
-	 * by definition local-single-player, so this is safe. */
-	if (!g_Vars.currentplayer->equipallguns) {
-		invSetAllGuns(true);
+	/* Force equipallguns OFF so the weapon master-load runs through
+	 * the per-weapon path (which binds the hand model). The all-guns
+	 * mode was the suspect behind item 6 (weapon visible in UI but
+	 * not rendered). */
+	g_Vars.currentplayer->equipallguns = false;
+
+	/* One-shot power-weapon loadout. invGiveSingleWeapon is idempotent
+	 * (returns false if already present), but we still gate on
+	 * s_PlayerLoadoutGiven to skip the inventory-walk cost on every
+	 * tick. The flag resets at session end. */
+	if (!s_PlayerLoadoutGiven) {
+		const s32 n = (s32)(sizeof(s_PowerWeapons) / sizeof(s_PowerWeapons[0]));
+		for (s32 i = 0; i < n; i++) {
+			invGiveSingleWeapon(s_PowerWeapons[i]);
+		}
+		/* Equip the first power weapon (Farsight). bgunEquipWeapon
+		 * triggers the master-load state machine, which loads the
+		 * weapon model AND the hand model paired with the player's
+		 * body. */
+		bgunEquipWeapon(s_PowerWeapons[0]);
+		s_PlayerLoadoutGiven = 1;
+		sysLogPrintf(LOG_NOTE,
+			"TESTSCEN.SWARM: applied power-weapon loadout (FARSIGHT/REAPER/DEVASTATOR/SLAYER/MAULER/RCP120) + bottomless clip + invincible");
 	}
 }
 
@@ -413,42 +478,43 @@ static struct chrdata *spawn_one_skedar(struct coord *pos, RoomNum *rooms)
 	chr->maxdamage = 4.0f;
 	chr->damage    = 0.0f;
 
-	/* Half collision radius + height to match the half visual scale.
+	/* Per-spawn random scale weighted toward smaller. Mike's S593h
+	 * directive (2026-05-01): "randomize their scale between 0.2 and
+	 * 0.6, weighted towards smaller". `swarm_pick_scale()` returns a
+	 * value in [0.2, 0.6) using a squared-rand bias.
 	 *
-	 * S593f (2026-05-01): Mike's 2026-05-01 playtest after S593e
-	 * confirmed visual/collision scale mismatch -- "I think the tiny
-	 * skedar still had regular sized colliders." The collision system
-	 * reads `chr->radius` and `chr->height`, NOT `chr->model->scale`,
-	 * so halving the model's visual size left the collider at the
-	 * full body-level radius. With 256 chrs spawned at radius 600,
-	 * the per-chr arc length (600 * 2pi / 256 ~= 14.7) was less than
-	 * 2 * radius (60) -- every chr fully overlapped its neighbours,
-	 * the per-chr collision-resolution loop in chrCalculatePushPos
-	 * could not find a clear push direction, and the bots froze
-	 * exactly where they were spawned. Mike's "stuck inside each
-	 * other" hint pointed at this directly.
-	 *
-	 * Default chrInit radius is 20; body.c sets per-body overrides
-	 * (DRCAROLL=30, CHICROB=42; Skedar inherits chrInit's 20). For
-	 * half-size we use 15, paired with chr->height = 92 (half of
-	 * the chrInit default 185). These are the canonical collision
-	 * fields the engine consults regardless of model scale. */
-	chr->radius = 15;
-	chr->height = 92;
-
-	/* Half-scale model. The scale stored on `model->scale` is NOT a
-	 * "0.5 = half size" multiplier on its own -- it's combined with
-	 * `model->definition->scale` (~2293 for Skedar per the playtest
-	 * log line "modeldef->scale=2293.28"), and `bodyAllocateModel`
-	 * initializes `model->scale` to a small value (`scale = scaleRaw
-	 * * 0.1` in body.c:204, then multiplied by body-specific height
-	 * variation) so the FINAL `model->scale` is roughly 0.07-0.10
-	 * for a normal Skedar. The S593e fix multiplies by 0.5 instead
-	 * of replacing -- preserves body-specific height variation +
-	 * skel-class scaling, just halves it. */
+	 * The visual scale (chr->model->scale) and collision geometry
+	 * (chr->radius, chr->height) MUST stay in sync -- S593e/S593f
+	 * established that the engine reads chr->radius/height for
+	 * collision and chr->model->scale only for rendering. Applying
+	 * the same factor to all three keeps the visual and collider
+	 * footprints matched. */
+	const f32 rand_scale = swarm_pick_scale();
+	chr->radius = (s32)(30.0f * rand_scale);
+	if (chr->radius < 4) chr->radius = 4;
+	chr->height = (s32)(185.0f * rand_scale);
+	if (chr->height < 24) chr->height = 24;
 	if (chr->model) {
-		modelSetScale(chr->model, chr->model->scale * 0.5f);
+		modelSetScale(chr->model, chr->model->scale * rand_scale);
 	}
+
+	/* No bot-bot collision. Mike's directive: "Don't let them collide
+	 * with each other either." We mark the chr with bit 0x00040000
+	 * (formerly CHRHFLAG_00040000 "Not used"; commandeered as the
+	 * swarm-lock marker S593h). chrSetPerimEnabled in chr.c gates
+	 * the re-enable path on this bit, so the perim stays disabled
+	 * permanently for swarm bots even though the engine's
+	 * chrCalculatePushPos toggles enable/disable around its own push
+	 * tests. With perim disabled, chr-vs-chr collision queries skip
+	 * the swarm bot, so they can phase through each other.
+	 *
+	 * Side effect Mike accepted by directive: the player can also
+	 * walk through swarm bots (since the player's bondwalk perim
+	 * test reads the same flag). For a 256-bot swarm this is fine --
+	 * bullets still hit, AI still attacks. World/BG collision is
+	 * separate (cdFindGroundInfoAtCyl) and unaffected. */
+	chr->hidden |= 0x00040000;          /* swarm-lock marker */
+	chr->hidden |= CHRHFLAG_PERIMDISABLED; /* perim off (and stays off) */
 
 	if (method == SWARM_METHOD_CPU) {
 		/* Real bot AI path. Allocate aibot from our private pool;
@@ -775,6 +841,60 @@ void swarmTestTick(void)
 	 * apply_player_setup() docblock for the full rationale. */
 	apply_player_setup();
 
+	/* S593h (2026-05-01): force CPU-mode swarm bots to be aware of the
+	 * player every frame. Mike's playtest report:
+	 *   "They should also be aware of my location, and be set to perfect
+	 *    or dark agent mode."
+	 * Without this, the bot AI's targeting check at bot.c:2306 was
+	 * dropping target=player when chrHasLosToChr returned false (player
+	 * occluded by walls / bot peers / arena geometry). For a 256-bot
+	 * benchmark we want unconditional aggression on the player; the LOS
+	 * short-circuit in chraction.c::chrHasLosToChr (gated on the same
+	 * 0x00040000 swarm marker) makes any swarm bot's LOS check return
+	 * true. We additionally re-set chr->target and aibot->attackingplayernum
+	 * each frame as defence in depth -- if any code path drops the
+	 * target, the next frame restores it.
+	 *
+	 * Player is always at g_MpAllChrPtrs[0] in normmplayerisrunning
+	 * matches with one local human (PLAYERCOUNT()==1). The player's
+	 * prop index is `g_Vars.currentplayer->prop - g_Vars.props`.
+	 *
+	 * Applies only to CPU mode -- GPU bots have no aibot and run no AI
+	 * targeting, so this is a no-op for them. The directive that
+	 * "all changes apply to both modes" is satisfied for items 1, 5
+	 * (chr-level) at spawn. The AI-side refinements (this one + the
+	 * BOTDIFF_DARK / BOTTYPE_SPEED config) require the GPU bot pipeline
+	 * filed at context/designs/in-flight/gpu-swarm-bot-pipeline.md. */
+	if (testScenarioActiveMethod() == SWARM_METHOD_CPU
+			&& g_Vars.currentplayer && g_Vars.currentplayer->prop) {
+		const s32 player_propnum = (s32)(g_Vars.currentplayer->prop - g_Vars.props);
+		const s32 lvframe = g_Vars.lvframe60;
+		for (s32 i = 0; i < s_SwarmCount; i++) {
+			struct chrdata *chr = s_Swarm[i].chr;
+			if (!chr || !chr->aibot || chr->chrnum < 0) continue;
+			chr->target = player_propnum;
+			chr->aibot->attackingplayernum = 0;
+			chr->aibot->command = AIBOTCMD_ATTACK;
+			chr->aibot->attackpropnum = player_propnum;
+			chr->aibot->targetinsight = 1;
+			chr->aibot->targetlastseen60 = lvframe;
+			chr->aibot->lastseenanytarget60 = lvframe;
+			if (player_propnum >= 0) {
+				/* aibot->chrsinsight[] is sized to MAX_MPCHRS; index 0
+				 * is the local human player. Force "in sight" so the
+				 * cache-update pass at bot.c:2244 can't undo us. */
+				chr->aibot->chrsinsight[0] = 1;
+				chr->aibot->chrslastseen60[0] = lvframe;
+			}
+			/* Re-assert the perim-disabled lock. chrCalculatePushPos
+			 * toggles the bit during its own push test; the chr.c gate
+			 * on 0x00040000 prevents the re-enable, but if some other
+			 * caller cleared the marker we restore it here too. */
+			chr->hidden |= 0x00040000;
+			chr->hidden |= CHRHFLAG_PERIMDISABLED;
+		}
+	}
+
 	/* Drive per-method simulation.
 	 *
 	 * CPU mode -- bots run their own AI through chraTick (driven by
@@ -831,13 +951,14 @@ void swarmTestOnSessionEnd(void)
 	 * themselves live in BSS so memset is a no-op here -- the bitmap
 	 * is the only state we need to clear. */
 	memset(s_SwarmAibotInUse, 0, sizeof(s_SwarmAibotInUse));
-	s_SwarmKills        = 0;
-	s_SwarmInitialized  = 0;
-	s_SwarmLastStage    = -1;
-	s_SwarmLogTickAcc   = 0;
-	s_FrameMsAcc        = 0.0f;
-	s_FrameMsSamples    = 0;
-	s_LastFrameTick     = 0;
+	s_SwarmKills           = 0;
+	s_SwarmInitialized     = 0;
+	s_SwarmLastStage       = -1;
+	s_SwarmLogTickAcc      = 0;
+	s_PlayerLoadoutGiven   = 0; /* re-give power weapons on next session */
+	s_FrameMsAcc           = 0.0f;
+	s_FrameMsSamples       = 0;
+	s_LastFrameTick        = 0;
 	testScenarioReset();
 }
 
