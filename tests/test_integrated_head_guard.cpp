@@ -176,7 +176,7 @@ TEST_CASE("charpreview: request seam clears head for integrated body",
 	        != std::string::npos);
 }
 
-/* B-291 LOUDFAIL channel -- a silently-black preview FBO is a class of
+/* B-297 LOUDFAIL channel -- a silently-black preview FBO is a class of
  * "user reports preview is black on screen X" bugs that the warning
  * channels in `menu.c::menuRenderModel` already log per cause but that
  * required cross-referencing.  The `PREVIEW.FBO.BLACK:` channel surfaces
@@ -193,7 +193,7 @@ TEST_CASE("charpreview: LOUDFAIL channel for silent black FBO",
 	        != std::string::npos);
 }
 
-/* Agent Create initialization -- B-291 root-cause fix.  Seed the
+/* Agent Create initialization -- B-297 root-cause fix.  Seed the
  * carousel from the player's currently-saved body/head pair so the
  * opening selection is always rig-compatible (same baseline Player
  * Config uses).  The previous default (alphabetically-first body +

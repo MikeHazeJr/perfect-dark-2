@@ -406,7 +406,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         /* Force preview re-render on screen open */
         pdguiModelPreviewInvalidate();
 
-        /* B-291 (S593): seed body/head from the player's currently-saved
+        /* B-297 (S593): seed body/head from the player's currently-saved
          * config rather than the alphabetically-first unlocked entry.
          *
          * Why this matters: the previous default (s_SelectedBody=0,

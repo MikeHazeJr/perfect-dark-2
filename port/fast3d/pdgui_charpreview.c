@@ -868,7 +868,7 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
         gSPViewport(gdl++, viGetCurrentPlayerViewport());
     }
 
-    /* B-291 (S593) LOUDFAIL channel: detect the "FBO clear ran but model
+    /* B-297 (S593) LOUDFAIL channel: detect the "FBO clear ran but model
      * skipped" path that produces a silently-black preview.
      *
      * `menuRenderModel` clears `bodymodeldef` to NULL on any of these

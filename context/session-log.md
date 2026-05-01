@@ -1,7 +1,37 @@
 # Session Log (Active)
 
-> **S481-S591 + S482c + S592** (rolling window of ~110 sessions; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
+> **S481-S593 + S482c** (rolling window of ~110 sessions; S593 added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-291/B-297 New Agent black preview; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
+
+## Session S593 (`nostalgic-hamilton-f529e1`) - 2026-04-30 PM - menus H.5 universal integrated-head guard + B-297 New Agent black preview
+
+Mike playtest report (verbatim): "When I select a character with no head, such as Skedar, Dr Carroll, or EyeSpy, the head slot should simply be disabled. At this time, it seems to let me select an arbitrary head which admittedly doesn't spawn but it's bad UI to leave the jankiness in there. Additionally, the character customizer panel for the New Agent screen is just black. Nothing visible for preview."
+
+Two distinct bugs in the New Agent / character customizer screen.
+
+**Bug 1: H.5 universal integrated-head guard (B-296).** The c66b02fc / B-241 fix added the integrated-head guard at the agentcreate carousel (`s_bodyHasIntegratedHead`) AND at the renderer's request seam (`pdguiCharPreviewRequestEx` clears headnum when `catalogGetBodyIsComplete`). The renderer-side gate prevents the rig-mismatch crash class, but the THREE other body+head pickers (Player Config Character, Bot Setup Simulant Character, Room Change Character modal) never got the matching UI lock. Universal H.5 guard applied to all three:
+
+- `pdgui_menu_playerconfig.cpp::s_pcBodyHasIntegratedHead(committedBodyId)` -- carousel arrows wrapped in `BeginDisabled(integratedHead || !canCycle)`, label shows "(integrated)", tooltip "This character has an integrated head."
+- `pdgui_menu_botsetup.cpp::s_bsBodyHasIntegratedHead(curBodyMpIdx)` -- combo dropdown wrapped in `BeginDisabled(integratedHead)`, same label + tooltip; helper resolves mp_idx via `catalogMpBodyId` first.
+- `pdgui_menu_room.cpp` "Change Character (this match only)" modal -- body Selectable handler clears `s_PendingCharHeadId` when an integrated body is picked (so wire/save side never carries a stale head id); head Selectable list wrapped in `BeginDisabled(integratedHead)`; header reads "Head  (integrated)" with tooltip.
+
+The Set Character bot multi-select already uses `catalogPickRandomHeadIdForBody` which handles integrated bodies via rig-class compatibility -- no UI guard needed there.
+
+**Bug 2: B-297 New Agent black preview.** Root cause hypothesis: `pdgui_menu_agentcreate.cpp` initialised `s_SelectedBody = 0` and `s_SelectedHead = 0` -- alphabetically-first body and head from the unlocked pool, picked INDEPENDENTLY. On certain mod/unlock combinations the pair was rig-incompatible. The renderer's request seam handles rig mismatch by falling back to the body's default head (B-241), but the body itself could still hit a downstream load problem (catalog miss / file empty / invalid modeldef -- each emits a per-cause `LOG_WARNING` in `menu.c::menuRenderModel`). Result: FBO cleared to black, `s_PreviewReady` still flipped to 1, ImGui drew the black texture. Mike saw "just black, nothing visible for preview" -- not the "Loading..." silhouette fallback because IsReady was 1.
+
+Two-part fix:
+
+1. Seed the carousel from the player's currently-saved body/head pair (`mpPlayerConfigGetBodyId/HeadId`) so the OPENING selection is always rig-compatible. Mirrors Player Config's pattern, which doesn't have this bug. The user can still cycle to any unlocked body/head; only the OPENING selection changes.
+
+2. Add LOUDFAIL channel `PREVIEW.FBO.BLACK:` in `pdgui_charpreview.c::pdguiCharPreviewRenderGBI` that fires when the FBO render path completes but `mm->bodymodeldef == NULL` (the silent-fail signal from menu.c). Surfaces the symptom directly at the FBO seam so any future "preview is black on screen X" report lights up at this single channel without needing per-call-site grep.
+
+**Tests.** New file `tests/test_integrated_head_guard.cpp`: 7 cases / 40 assertions PASS. Static / source-text checks (same shape as `test_catalog_checked.cpp`'s body0f02ce8c source pins) so any future refactor that drops the guard from one of the four pickers fails CI loud rather than silently shipping a half-measure. Tags `[catalog][catalog-mgr-body][s593][integrated-head][...]` so they pick up under `-Scope catalog`.
+
+**Build verify.** `build-session.ps1 -Session s593 -Target all` PASS (CLIENT 30s, SERVER 8s; PerfectDark.exe 54.6 MB, PerfectDarkServer.exe 22.3 MB). `build-session.ps1 -Session s593 -Target tests` PASS (TESTS 18s, pd-tests.exe 23.2 MB). Pre-existing test failures in dev (test_catalog_provider_static.cpp:580 stale text-pin vs swarm fix; test_cutscene_layer.cpp:330; test_connectcode.cpp:272) are unrelated to this slice.
+
+**Methodology.** Possibility framing on findings -- did not binary-eliminate the black-preview cause; landed on the seed-init hypothesis as primary AND added the LOUDFAIL diagnostic so any other root cause lights up loud in the next playtest. Universal guard applied to ALL four picker sites in one slice (no half measures).
+
+**Auto-merge.** Worktree merged into dev as `Merge worktree: H.5 universal integrated-head guard + B-291 New Agent black preview (S593 nostalgic-hamilton-f529e1)`. Pre-merge HEAD `caf65bdeef3d54791f0cd0fbc52fcde40ab2fac9`; post-merge line counts of all 7 changed files match worktree exactly. The merge commit message used the older "B-291" labelling because the bug-id collision (B-291 was already taken by S584's build wrapper fix) was caught only after the merge -- a follow-up commit on the worktree renumbered all source comments to B-297 and added the bug entries; that follow-up will land via a second merge to dev.
 
 ## Session S592 (`confident-bardeen-48bed6`) - 2026-04-30 PM - ROM extraction audit + .pdXXX taxonomy + ROM-as-bootstrap principle
 
