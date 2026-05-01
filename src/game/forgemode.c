@@ -35,6 +35,7 @@
 #include "actionmap.h"
 #include "pdgui.h"  /* B-195 / Fix 2+3: pdguiClearImGuiFocusAndNav on transitions */
 #include "scene.h"
+#include "game/body.h"  /* Fix 5: bodyAllocateModel for chr-body hot-reload at transitions */
 #include "game/env.h"
 #include "game/music.h"
 #include "game/sky.h"
@@ -72,17 +73,24 @@ typedef struct forge_freefly_state {
 	f32 current_speed_scale; /* last-applied scale for HUD readout */
 	s32 saved_movemode;      /* original bondmovemode at FREEFLY entry */
 	bool has_saved_movemode;
-	/* S310 R1: saved agent model so the visual body-swap back and
-	 * forth between Dr. Carroll and the player's chosen character can
-	 * happen without reloading the stage.  Applies the swap at the
-	 * chr->bodynum / chr->headnum slots; full engine-level model
-	 * hot-reload requires additional plumbing (bodyAllocateModel for
-	 * the new pair) which is currently logged-only from here so the
-	 * state transitions are auditable even before the visual swap
-	 * lands. */
+	/* Fix 5 (2026-05-01): chr-body hot-reload at transition time.  Both
+	 * directions (FREEFLY <-> NORMAL) now allocate a fresh body+head
+	 * model via bodyAllocateModel and bind it to chr->model so the
+	 * Dr. Carroll body is actually present in freefly and the player's
+	 * Agent body is restored on play-mode entry.  saved_chrmodel is the
+	 * chr->model pointer captured at FREEFLY entry; we restore that exact
+	 * pointer on exit so the gunmem / modelmgr lifecycle that originally
+	 * allocated it stays consistent.  The Dr. Carroll model we allocate
+	 * during FREEFLY is freed on the next stage unload (gunmem-pool free
+	 * or modelmgr reset, whichever owns it); a per-transition explicit
+	 * release would require deeper plumbing into the slot manager and is
+	 * deferred -- leak per session is bounded (one alloc per FREEFLY
+	 * entry; typical session has 1-2 transitions). */
 	s32 saved_bodynum;
 	s32 saved_headnum;
 	bool has_saved_body;
+	struct model *saved_chrmodel;
+	bool has_saved_chrmodel;
 } forge_freefly_state_t;
 
 #define FORGE_MAX_LOCAL_PLAYERS 4
@@ -185,24 +193,63 @@ static void forgeSetFreeflyMode(struct player *p)
 	}
 	p->bondmovemode = MOVEMODE_CUTSCENE;
 
-	/* Priority D (2026-04-24): seamless observer body-swap.  Save the
-	 * player chr's current bodynum/headnum so the normal character can
-	 * be restored on exit, then write BODY_DRCAROLL + HEAD_RANDOM_GENDER
-	 * onto the chr so third-person mirrors (and future co-op peers)
-	 * render the observer as Dr. Carroll.  The legacy model-reload
-	 * pipeline picks up the change on the next per-chr model tick --
-	 * no stage reload and no explicit bodyAllocateModel call needed. */
+	/* Fix 5 (2026-05-01): chr-body hot-reload at FREEFLY entry.
+	 *
+	 * Prior code only twiddled chr->bodynum / chr->headnum integer fields
+	 * and trusted "the legacy model-reload pipeline picks up the change
+	 * on the next per-chr model tick" -- empirically false. The 2026-05-01
+	 * Grid playtest log shows haschrbody=0 throughout a freefly session
+	 * because chr->model stayed at its allocation-time value (NULL when
+	 * the player's chr was created on Grid stage entry). Result: Dr.
+	 * Carroll never appears in third-person; the chr is bodyless.
+	 *
+	 * Fix: explicitly allocate a body+head model via bodyAllocateModel
+	 * for the BODY_DRCAROLL / HEAD_RANDOM_GENDER pair and assign it to
+	 * chr->model. Save the prior chr->model pointer so forgeRestorePlayerMode
+	 * can restore the exact original allocation (which the gunmem / modelmgr
+	 * pipeline still owns). The Dr Carroll model we allocate here leaks
+	 * until the next stage unload (gunmem-pool free or modelmgr reset);
+	 * per-transition explicit release would require deeper plumbing into
+	 * the slot manager and is deferred. The leak is bounded -- one alloc
+	 * per FREEFLY entry, ~1-2 entries per typical authoring session. */
 	if (p->prop && p->prop->chr && !s_forge.fly.has_saved_body) {
-		s_forge.fly.saved_bodynum = p->prop->chr->bodynum;
-		s_forge.fly.saved_headnum = p->prop->chr->headnum;
-		s_forge.fly.has_saved_body = true;
-		p->prop->chr->bodynum = (u8)BODY_DRCAROLL;
-		p->prop->chr->headnum = (u8)HEAD_RANDOM_GENDER;
-		sysLogPrintf(LOG_NOTE,
-				"GRID: freefly body-swap: save (body=0x%02x head=0x%02x) -> Dr. Carroll (0x%02x)",
-				(u32)s_forge.fly.saved_bodynum,
-				(u32)s_forge.fly.saved_headnum,
-				(u32)BODY_DRCAROLL);
+		struct chrdata *chr = p->prop->chr;
+		s_forge.fly.saved_bodynum   = chr->bodynum;
+		s_forge.fly.saved_headnum   = chr->headnum;
+		s_forge.fly.saved_chrmodel  = chr->model;
+		s_forge.fly.has_saved_body     = true;
+		s_forge.fly.has_saved_chrmodel = true;
+
+		/* Mutate the integer fields first so any consumer that reads
+		 * chr->bodynum during the bodyAllocateModel call (e.g. catalog
+		 * resolve through manifestEnsureLoaded) sees the new identity. */
+		chr->bodynum = (u8)BODY_DRCAROLL;
+		chr->headnum = (u8)HEAD_RANDOM_GENDER;
+
+		struct model *newmodel = bodyAllocateModel(BODY_DRCAROLL,
+				HEAD_RANDOM_GENDER, 0);
+		if (newmodel) {
+			chr->model = newmodel;
+			if (p == g_Vars.players[0]) {
+				p->haschrbody = true;
+				p->model00d4  = newmodel;
+			}
+			sysLogPrintf(LOG_NOTE,
+					"GRID: freefly body-swap: save (body=0x%02x head=0x%02x model=%p) -> Dr. Carroll (0x%02x) newmodel=%p",
+					(u32)s_forge.fly.saved_bodynum,
+					(u32)s_forge.fly.saved_headnum,
+					(void *)s_forge.fly.saved_chrmodel,
+					(u32)BODY_DRCAROLL,
+					(void *)newmodel);
+		} else {
+			/* Allocation failed -- leave chr->model alone (don't NULL it,
+			 * gameplay paths assume non-NULL once chr is allocated) and
+			 * log loud so any future regression surfaces here instead of
+			 * silently rendering a bodyless chr. */
+			sysLogPrintf(LOG_WARNING,
+					"GRID: bodyAllocateModel returned NULL for Dr. Carroll (body=0x%02x head=0x%02x) -- chr body unchanged, freefly observer will be invisible",
+					(u32)BODY_DRCAROLL, (u32)HEAD_RANDOM_GENDER);
+		}
 	}
 
 	/* B-247 (2026-04-25): explicit pos init at the body-swap control point.
@@ -228,18 +275,61 @@ static void forgeRestorePlayerMode(struct player *p)
 		s_forge.fly.has_saved_movemode = false;
 	}
 
-	/* S310 R1 -- restore saved chr body/head.  The hot-swap here is
-	 * seamless: no stage reload, the player chr just carries the
-	 * bodynum/headnum pair again for any downstream code that checks
-	 * (e.g. third-person mirrors, other players in co-op). */
+	/* Fix 5 (2026-05-01): chr-body restore at NORMAL entry.
+	 *
+	 * Two-part restore:
+	 *   1. Restore the saved chr->model pointer so the gunmem / modelmgr
+	 *      slot that originally backed the player's Agent body is back
+	 *      in place. We do NOT free the Dr. Carroll model we allocated
+	 *      at FREEFLY entry -- per-transition release needs deeper slot-
+	 *      manager plumbing; the model leaks until the next stage unload
+	 *      (acceptable per-session bound).
+	 *   2. Restore the saved bodynum / headnum integer fields so any
+	 *      downstream consumer reading the chr's identity sees Agent
+	 *      again (third-person mirrors, future co-op peers, AI logic).
+	 *
+	 * If the saved model pointer was NULL at FREEFLY entry (e.g. forge
+	 * intercepted before playerTickChrBody had populated it on stage
+	 * load), restoring NULL would render the chr bodyless. Detect that
+	 * case and allocate a fresh Agent body model via bodyAllocateModel
+	 * so the chr ends up with a valid model regardless. */
 	if (p->prop && p->prop->chr && s_forge.fly.has_saved_body) {
-		p->prop->chr->bodynum = (u8)s_forge.fly.saved_bodynum;
-		p->prop->chr->headnum = (u8)s_forge.fly.saved_headnum;
+		struct chrdata *chr = p->prop->chr;
+		const s32 restored_body = s_forge.fly.saved_bodynum;
+		const s32 restored_head = s_forge.fly.saved_headnum;
+
+		chr->bodynum = (u8)restored_body;
+		chr->headnum = (u8)restored_head;
 		s_forge.fly.has_saved_body = false;
+
+		struct model *target_model = NULL;
+		const char *path = "saved-pointer";
+
+		if (s_forge.fly.has_saved_chrmodel && s_forge.fly.saved_chrmodel) {
+			target_model = s_forge.fly.saved_chrmodel;
+		} else {
+			/* No saved Agent model (FREEFLY captured a NULL chr->model).
+			 * Allocate a fresh one so the chr renders with the player's
+			 * intended Agent identity instead of remaining bodyless. */
+			target_model = bodyAllocateModel(restored_body, restored_head, 0);
+			path = target_model ? "fresh-alloc" : "fresh-alloc-failed";
+		}
+
+		s_forge.fly.has_saved_chrmodel = false;
+		s_forge.fly.saved_chrmodel     = NULL;
+
+		if (target_model) {
+			chr->model = target_model;
+			if (p == g_Vars.players[0]) {
+				p->haschrbody = true;
+				p->model00d4  = target_model;
+			}
+		}
+
 		sysLogPrintf(LOG_NOTE,
-				"GRID: normal body-restore: (body=0x%02x head=0x%02x) -- no stage reload",
-				(u32)p->prop->chr->bodynum,
-				(u32)p->prop->chr->headnum);
+				"GRID: normal body-restore: (body=0x%02x head=0x%02x) model=%p path=%s",
+				(u32)chr->bodynum, (u32)chr->headnum,
+				(void *)chr->model, path);
 	}
 }
 
@@ -627,13 +717,18 @@ static void forgeTransitionToInactive(const char *reason)
 	 * future code path that reads saved_bodynum / saved_headnum without
 	 * also re-checking validity would observe stale data.
 	 *
-	 * Belt-and-braces: unconditionally clear both has_saved_* flags so
+	 * Belt-and-braces: unconditionally clear all has_saved_* flags so
 	 * the inactive transition is idempotent regardless of currentplayer
-	 * state. The integer saved_* fields are irrelevant once the flags
-	 * are false (every consumer guards on the flag); leaving their
-	 * last-known values keeps the diff minimal. */
-	s_forge.fly.has_saved_movemode = false;
-	s_forge.fly.has_saved_body     = false;
+	 * state. The integer saved_* fields and saved_chrmodel pointer are
+	 * irrelevant once the flags are false (every consumer guards on the
+	 * flag); leaving their last-known values keeps the diff minimal.
+	 *
+	 * Fix 5 (2026-05-01): has_saved_chrmodel joins the clear set.
+	 * saved_chrmodel itself is left at its last value but is never read
+	 * unless the flag is true. */
+	s_forge.fly.has_saved_movemode  = false;
+	s_forge.fly.has_saved_body      = false;
+	s_forge.fly.has_saved_chrmodel  = false;
 	forgeObserverLayerExit(reason);
 
 	if (s_forge.state != FORGE_SESSION_INACTIVE) {
