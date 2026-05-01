@@ -54,6 +54,7 @@
 #include "assetcatalog_load.h"
 #include "assetcatalog_cache.h"
 #include "loader_pdbase.h"
+#include "catalog_mgr_heads.h"
 #include "game/stagetable.h"
 #include "game/chr.h"
 
@@ -302,6 +303,11 @@ int main(int argc, const char **argv)
 		}
 	}
 	sysLogPrintf(LOG_NOTE, "Asset Catalog: %d entries registered", assetCatalogGetCount());
+
+	// Catalog Gate 3 F1: head manager init. Builds the parallel
+	// s_Heads[152] mirror from g_HeadsAndBodies[] for the parity-period
+	// bridge. F12 swaps the data source to base/heads.pdbase pool.
+	catalogManagerHeadInit();
 
 	// S484 F13: scan base/*.pdbase + populate the catalog manager's typed
 	// weapon pools. Manager accessors are pool-backed once

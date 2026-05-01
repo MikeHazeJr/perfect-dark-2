@@ -653,6 +653,13 @@ set(SRC_SERVER
   # source link, pd-server fails at the linker stage.
   ${CMAKE_SOURCE_DIR}/port/src/catalog_checked.c
 
+  # Catalog Gate 3 F1: catalog manager for character heads.
+  # assetcatalog_api.c (F2) routes catalogGetHeadX accessors through the
+  # manager, so the server build needs this link too. Manager file is
+  # PD_SERVER-aware (random-gender pickers + modeldef lazy-load gated).
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_heads.c
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_heads_pure.c
+
   # INV-4: pure helpers for matchOptionsForceBit / matchOptionsRestoreUserOriginal.
   # matchsetup.c references them at matchStart restore; without this
   # source link pd-server would fail.
@@ -974,6 +981,13 @@ set(SRC_TESTS
   # pd-tests stays globals-free.
   ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_weapons_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_mgr_weapons_api.cpp
+
+  # Catalog Gate 3 F1: catalog manager for character heads (pure validators).
+  # Live router lives in port/src/catalog_mgr_heads.c and pulls in
+  # g_HeadsAndBodies[]; only the pure layer is linked here so pd-tests
+  # stays globals-free.
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_heads_pure.c
+  ${CMAKE_SOURCE_DIR}/tests/test_catalog_mgr_heads_api.cpp
 
   # S484 F2: pin weaponFindById's migration to the catalog manager.
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_findbyid_migrated.cpp

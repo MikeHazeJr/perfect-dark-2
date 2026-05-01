@@ -510,9 +510,34 @@ The catalog registers ALL g_HeadsAndBodies head entries -- not just the 76 in g_
 
 ---
 
-## Section J. Decisions Confirmed by Mike
+## Section J. Decisions Confirmed (2026-05-01, delegated by Mike via parent session)
 
-[To be populated when Mike responds to Section I.]
+All seven Section I items resolved per AI's recommendations.
+
+| # | Decision |
+|---|---|
+| **I.1** | Heads-only `head_data_t` struct. Drop bodies-side fields (`canvaryheight`, `handfilenum`). Bitfields unpacked into byte/short fields. ~5 bytes per head; 152 heads = ~760 bytes total. |
+| **I.2** | Migrate `g_MpMaleHeads[]` and `g_MpFemaleHeads[]` random-gender pools this session. New `catalogManagerHeadPickRandomMale/Female()` helpers iterate `s_Heads[]` filtered by `ismale && unk00_01`. Both static arrays retire. |
+| **I.3** | Defer `g_MpBeauHeads[]` (Photo / Beau Head pool). Vestigial; no live ImGui consumer. Tracked here for a future "retire legacy MP carousel" session that also retires `mpGetBeauHeadId` / `mpGetNumBeauHeads`. |
+| **I.4** | `catalogResetAllModeldefs()` calls manager-side reset first, then continues legacy walk for bodies-side. Single call site at `bodiesReset` keeps semantics intact. Bodies session removes the legacy walk wrapper when it retires the bodies-side cache. |
+| **I.5** | F1-F13 in this session. Heads schema is small enough to extract + parity-check + retire in one shot. Mirrors weapons S591 cadence. |
+| **I.6** | Separate `base/heads.pdbase` per asset class. Mirrors `base/weapons.pdbase` precedent. Enables independent versioning and clean per-asset-class boundary. |
+| **I.7** | All HEAD entries (including `base:sp_head_*` fallback registrations) go into `heads.pdbase`. Single source of truth. |
+
+Phase 2 plan:
+1. F1 manager skeleton + pure layer + tests
+2. F2 catalog accessor migration (6 functions reroute through manager)
+3. F3 modeldef lazy-load migration
+4. F4 modeldef reset split (heads-side + bodies-side)
+5. F5 body.c NULL-precheck via new `catalogManagerHeadIsModeldefLoaded`
+6. F6 random-gender pool migration; retire `g_MpMaleHeads` + `g_MpFemaleHeads`
+7. F7 catalog row pdbase scaffold fields
+8. F8 SKIP (no mutators / shadow fields to drop)
+9. F9 loader scaffold extends to heads section
+10. F10 SKIP (collapsed into F9)
+11. F11 Python extractor + `base/heads.pdbase` archive
+12. F12 loader implementation + manager pool routing + parity bridge
+13. F13 retire parity bridge + grep-guard tests
 
 ---
 
