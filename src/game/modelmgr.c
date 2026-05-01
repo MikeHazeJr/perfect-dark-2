@@ -60,17 +60,17 @@ s32 g_ModelMostAnims = 0;
 /* NUMTYPE3 holds chr body models (rwdatalen up to 256 words / 1024 bytes,
  * or 384 words / 1536 bytes on 64-bit due to the +128-word `extra` field
  * in modelmgrInstantiateModel). Skedar has rwdatalen=330 words which
- * lands here. The S593 bump 48 -> 64 was insufficient for the 256-bot
- * swarm: the playtest log at cycle 128 showed "All rwdata binding pools
- * exhausted ... heap fallback" warnings firing repeatedly because each
- * over-cap chr fell through to mempAlloc. The heap fallback works but
- * leaks across cycles (mempAlloc memory is stage-pool, not freed by
- * chrRemove), so cycling 256 -> 4 -> 256 multiple times exhausted
- * MEMPOOL_STAGE and crashed the next bodyAllocateModel. Bumping
- * NUMTYPE3 to 320 matches NUMTYPE2 and fits the full 256-bot swarm
- * within static bindings. Cost: 320 * (256+128 words * 4 bytes/word)
- * = ~492 KB rwdata. Acceptable for the PC build's stage-pool size. */
-#define NUMTYPE3() 320
+ * lands here. S593e bumped 64 -> 320 to fit the 256-bot swarm.
+ *
+ * S594h-Unit-A (2026-05-01): swarm cap raised 256 -> 4096 to probe
+ * heavy-load benchmark regimes per Mike's directive. NUMTYPE3 must
+ * scale with it or every over-cap chr falls through to a heap mempAlloc
+ * that leaks across cycles (chrRemove does not free those allocations),
+ * exhausting MEMPOOL_STAGE within a few count-cycles and crashing on
+ * the next bodyAllocateModel. Sizing: 4096 swarm + 32 MAX_BOTS + 16
+ * NPCs + ~356 headroom = 4500. Cost: 4500 * (256+128 words * 4 bytes)
+ * = ~6.75 MB rwdata. Acceptable on PC (stage-pool budget is ample). */
+#define NUMTYPE3() 4500
 
 bool modelmgrCanSlotFitRwdata(struct model *modelslot, struct modeldef *modeldef)
 {
