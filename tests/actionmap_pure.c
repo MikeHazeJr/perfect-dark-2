@@ -167,3 +167,62 @@ const AmpInputAction *ampCutsceneActionSet(int *out_count)
     }
     return s_CutsceneActionSet;
 }
+
+/* ----------------------------------------------------------------
+ * Tap-vs-hold helpers (mirror port/src/actionmap.cpp:1606-1659).
+ *
+ * Phase 2 fix #1: route every Tap-vs-Hold consumer in the codebase
+ * through actionWasTap so the contract is canonical and consistent.
+ * The pure-C mirror lets tests assert that contract.
+ * ---------------------------------------------------------------- */
+
+void ampSetGesture(int player, AmpInputAction a, unsigned down_ms, unsigned up_ms)
+{
+    if (player < 0 || player >= AMP_MAX_PLAYERS) return;
+    if (a < 0 || a >= AMP_ACTION_COUNT) return;
+    AmpActionState *st = &s_State[player][a];
+    st->held          = 0;
+    st->pressed       = 0;
+    st->released      = 1;
+    st->value         = 0.0f;
+    st->down_time_ms  = down_ms;
+    st->up_time_ms    = up_ms;
+    st->hold_consumed = 0;
+}
+
+int ampWasTap(int player, AmpInputAction a, int max_hold_ms)
+{
+    if (player < 0 || player >= AMP_MAX_PLAYERS) return 0;
+    if (a < 0 || a >= AMP_ACTION_COUNT) return 0;
+    const AmpActionState *st = &s_State[player][a];
+    if (!st->released) return 0;
+    if (st->hold_consumed) return 0;
+    if (st->down_time_ms == 0) return 0;
+    int elapsed = (int)(st->up_time_ms - st->down_time_ms);
+    return (elapsed >= 0 && elapsed < max_hold_ms) ? 1 : 0;
+}
+
+int ampHoldConsumed(int player, AmpInputAction a)
+{
+    if (player < 0 || player >= AMP_MAX_PLAYERS) return 0;
+    if (a < 0 || a >= AMP_ACTION_COUNT) return 0;
+    return s_State[player][a].hold_consumed ? 1 : 0;
+}
+
+void ampConsumeHold(int player, AmpInputAction a)
+{
+    if (player < 0 || player >= AMP_MAX_PLAYERS) return;
+    if (a < 0 || a >= AMP_ACTION_COUNT) return;
+    s_State[player][a].hold_consumed = 1;
+}
+
+int ampLastGestureHoldMs(int player, AmpInputAction a)
+{
+    if (player < 0 || player >= AMP_MAX_PLAYERS) return 0;
+    if (a < 0 || a >= AMP_ACTION_COUNT) return 0;
+    const AmpActionState *st = &s_State[player][a];
+    if (!st->released) return 0;
+    if (st->down_time_ms == 0) return 0;
+    int elapsed = (int)(st->up_time_ms - st->down_time_ms);
+    return elapsed >= 0 ? elapsed : 0;
+}

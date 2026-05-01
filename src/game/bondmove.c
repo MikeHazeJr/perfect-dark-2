@@ -1123,14 +1123,17 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 					}
 				}
 			}
-			/* Interact-first: USE release with no interact prompt — synthesize reload (X_BUTTON),
-			 * same as ACTION_RELOAD tap. Long-hold (consumed) always qualifies; shorter holds
-			 * need a minimum duration so a crisp tap-activate (doors) does not pair with reload
-			 * if the prompt clears on the same frame. */
+			/* Phase 2 fix #1 (Press/Hold canonicalization, 2026-05-01):
+			 * USE release with no interact prompt -> synthesize reload (X_BUTTON)
+			 * iff the gesture was a TAP (released before the hold threshold and
+			 * not consumed by a long-hold handler). Routed through
+			 * actionWasTap so every Tap consumer in the codebase shares one
+			 * primitive. Replaces the prior open-coded gate
+			 * (actionHoldConsumed || actionLastGestureHoldMs >= 80) which
+			 * fired X_BUTTON for long-hold-released too -- semantically wrong
+			 * per Mike's "Press XOR Hold" spec. */
 			if (actionReleased(pi, ACTION_USE) && propInteractPromptLabel() == NULL) {
-				const s32 minMs = 80;
-				if (actionHoldConsumed(pi, ACTION_USE)
-						|| actionLastGestureHoldMs(pi, ACTION_USE) >= minMs) {
+				if (actionWasTap(pi, ACTION_USE, propGetActionUseHoldThresholdMs())) {
 					c1buttons |= X_BUTTON;
 					c1buttonsthisframe |= X_BUTTON;
 				}
@@ -2342,17 +2345,17 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 
 	if (controlmode == CONTROLMODE_PC && g_Vars.currentplayer) {
 		s32 pi = actionPlayer;
-		/* B-221.3: short USE — dispatch activate after release so doors/taps and
-		 * hoverbike (propobjPcHoverbikeTapMountOnUseRelease) align with gesture. */
-		if (actionReleased(pi, ACTION_USE) && !actionHoldConsumed(pi, ACTION_USE)) {
-			s32 useThresh = propGetActionUseHoldThresholdMs();
-
-			if (actionLastGestureHoldMs(pi, ACTION_USE) < useThresh) {
-				propobjPcHoverbikeTapMountOnUseRelease(pi);
-				g_Vars.currentplayer->pcinteractusekind = 1;
-				g_Vars.currentplayer->bondactivateorreload |= JO_ACTION_ACTIVATE;
-				bmoveHandleActivate();
-			}
+		/* B-221.3: short USE -- dispatch activate after release so doors/taps and
+		 * hoverbike (propobjPcHoverbikeTapMountOnUseRelease) align with gesture.
+		 * Phase 2 fix #1 (2026-05-01): route through actionWasTap (canonical
+		 * Press primitive). Equivalent to the prior open-coded
+		 * actionReleased && !actionHoldConsumed && actionLastGestureHoldMs < useThresh,
+		 * with one primitive shared across every Tap-vs-Hold consumer. */
+		if (actionWasTap(pi, ACTION_USE, propGetActionUseHoldThresholdMs())) {
+			propobjPcHoverbikeTapMountOnUseRelease(pi);
+			g_Vars.currentplayer->pcinteractusekind = 1;
+			g_Vars.currentplayer->bondactivateorreload |= JO_ACTION_ACTIVATE;
+			bmoveHandleActivate();
 		}
 	}
 

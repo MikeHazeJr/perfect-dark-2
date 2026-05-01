@@ -163,6 +163,25 @@ void ampFlushActionSet(const AmpInputAction *actions, int action_count);
 /* Mirrors port/src/inputlayer.c:g_LayerCutscene.action_set. */
 const AmpInputAction *ampCutsceneActionSet(int *out_count);
 
+/* Test scaffolding for tap-vs-hold gestures. Writes down_time_ms /
+ * up_time_ms / held / released / hold_consumed directly so tests can
+ * simulate "press X for N ms then release" without a virtual clock. */
+void ampSetGesture(int player, AmpInputAction a, unsigned down_ms, unsigned up_ms);
+
+/* Mirrors port/src/actionmap.cpp:actionWasTap.
+ * Returns 1 iff: released this frame, not consumed, down_time != 0,
+ * and (up_time - down_time) < max_hold_ms. The canonical Tap primitive. */
+int ampWasTap(int player, AmpInputAction a, int max_hold_ms);
+
+/* Mirrors port/src/actionmap.cpp:actionHoldConsumed (read). */
+int ampHoldConsumed(int player, AmpInputAction a);
+
+/* Mirrors port/src/actionmap.cpp:actionConsumeHold (write). */
+void ampConsumeHold(int player, AmpInputAction a);
+
+/* Mirrors port/src/actionmap.cpp:actionLastGestureHoldMs. */
+int ampLastGestureHoldMs(int player, AmpInputAction a);
+
 #ifdef __cplusplus
 }
 #endif
