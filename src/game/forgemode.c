@@ -553,10 +553,18 @@ static void forgeApplyDebugRenderEntry(void)
 	s_GridSavedCullMode  = gfxDebugCullModeGet();
 	s_GridSavedWireframe = gfxDebugWireframeGet();
 
-	/* Auto-enable wireframe overlay so geometry edges read clearly
-	 * while the freefly camera is positioned outside rooms. User can
-	 * still override mid-session with Shift+F2. */
-	gfxDebugWireframeSet(1);
+	/* B-304 (2026-05-01): wireframe is no longer auto-enabled at session
+	 * start. Mike's playtest report: "in the previous version when I
+	 * started The Grid, it defaulted to Wireframe mode and I couldn't see
+	 * how to toggle it." The earlier rationale ("show geometry edges so
+	 * the freefly camera reads room boundaries") was a one-author
+	 * preference; defaulting other authors into a debug render mode they
+	 * have to discover Shift+F2 to escape is a UX trap. The save/restore
+	 * mechanism stays intact so mid-session manual toggles via Shift+F2
+	 * (or the new Level-tab Debug Rendering section) are scoped to the
+	 * session and the pre-forge state is restored on exit. Authors who
+	 * still want the wireframe view enable it explicitly via the Level
+	 * tab's "Debug Rendering" subsection or Shift+F2. */
 }
 
 static void forgeApplyDebugRenderExit(void)

@@ -1802,6 +1802,49 @@ static void forgeDrawLevelExtras(void)
 	ImGui::TextDisabled(
 		"Changes are session-local -- the original stage track resumes "
 		"on the next scene transition.");
+
+	/* -------------------------------------------------------------
+	 * Debug Rendering (B-304, 2026-05-01)
+	 *
+	 * Surface the wireframe + cull-mode debug toggles inline so authors
+	 * can flip them from the editor without hunting for Shift+F1 / F2.
+	 * The save/restore in forgeApplyDebugRender{Entry,Exit} ensures
+	 * any state set here is scoped to the forge session -- exit restores
+	 * the pre-forge values regardless of mid-session toggling.
+	 * ------------------------------------------------------------- */
+	ImGui::SeparatorText("Debug Rendering");
+	{
+		extern "C" int  gfxDebugWireframeGet(void);
+		extern "C" void gfxDebugWireframeSet(int on);
+		extern "C" int  gfxDebugCullModeGet(void);
+		extern "C" void gfxDebugCullModeSet(int mode);
+
+		bool wire = (gfxDebugWireframeGet() != 0);
+		if (ImGui::Checkbox("Wireframe overlay (Shift+F2)", &wire)) {
+			gfxDebugWireframeSet(wire ? 1 : 0);
+		}
+
+		int cull = gfxDebugCullModeGet();
+		const char *cullLabels[3] = {
+			"Cull None (default)",
+			"Cull Back (default winding)",
+			"Cull Front (show backfaces)",
+		};
+		if (ImGui::BeginCombo("Cull mode (Shift+F1)", cullLabels[cull & 3])) {
+			for (int i = 0; i < 3; i++) {
+				bool sel = (cull == i);
+				if (ImGui::Selectable(cullLabels[i], sel)) {
+					gfxDebugCullModeSet(i);
+				}
+				if (sel) ImGui::SetItemDefaultFocus();
+			}
+			ImGui::EndCombo();
+		}
+
+		ImGui::TextDisabled(
+			"Wireframe and cull state are session-local: pre-forge "
+			"values are restored when the session ends.");
+	}
 }
 
 static void forgeDrawActiveTab(int idx)
