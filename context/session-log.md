@@ -1,7 +1,48 @@
 # Session Log (Active)
 
-> **S481-S593e + S482c + S593b** (rolling window of ~110 sessions; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
+> **S481-S593f + S482c + S593b** (rolling window of ~110 sessions; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
+
+## Session S593f (`distracted-hamilton-430172` continuation #4) - 2026-05-01 - Swarm: half-collision radius + multi-ring spawn distribution
+
+Mike playtest after S593e (verbatim):
+
+> "Crashed after 256 on cpu, but the final wave (256) didn't seem to apply movement at all, just stuck where they were spawned. Maybe stuck inside each other though."
+> "Also, I think the tiny skedar still had regular sized colliders"
+
+### Smoking gun
+
+The S593e half-visual-scale fix scaled `chr->model` (the visual model) but not the chr collision geometry. The collision system reads `chr->radius` and `chr->height`, NOT `chr->model->scale`. So bots looked half-size but collided as full-size 30-unit chrs.
+
+The single-ring spawn at radius=600 fit ~64 chrs comfortably (per-chr arc 600 * 2pi / 64 = 59 vs footprint 60). At 256 chrs the per-chr arc dropped to 14.7 -- every chr fully overlapped its neighbours' collision volume. `chrCalculatePushPos` ran on each pair, found no clear push direction (every direction blocked by another overlapping chr), and the resolver failed to disentangle them. Bots froze where they spawned. The "stuck inside each other" hint pointed straight at this.
+
+Mike's playtest log (`Build/pd-client.log`) confirmed:
+- NUMTYPE3=320 bump from S593e is in place: `Pool sizes type1=80 type2=320 type3=320 spare=80`. No more "rwdata pools exhausted" warnings.
+- Cycle progressed: 4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128 -> 256 cleanly.
+- BENCHMARK lines at counts <= 64 showed `kills=1` etc. (Mike was killing bots), but the 128 and 256 cycles showed `kills=0` (he wasn't killing them, but also no "alive=0" -- they were just sitting there).
+- Skedar `bodymodeldef->scale = 2293.28` confirmed in the log. The visual scale fix is doing the right multiplication.
+- 256 head_canon=NULL warnings in rapid succession (one per spawn) -- benign noise from `s_SkedarHeadNum = -1` -> `headnum = 0` fallback (Skedar has integrated head; the head value is never consumed).
+
+### Fixes shipped (commit 3df6627a, S593f)
+
+| Issue | Where | Change |
+|------|-------|--------|
+| Half-collision radius | `swarm_test.c::spawn_one_skedar` | `chr->radius = 15` (was 30) and `chr->height = 92` (was the chrInit default 185). Matches the half visual scale. |
+| Multi-ring spawn | `swarm_test.c::respawn_ring` | New layout: `SWARM_PER_RING=24` chrs per ring at `radius_base=600 + ring_idx * 200`. At 256 chrs that's 11 rings reaching out to ~2600 units. Per-chr arc always larger than the chr footprint, so spawn never overlaps. The last ring distributes its remaining chrs evenly to keep spacing uniform when count isn't a multiple of SWARM_PER_RING. |
+
+### Why this should also fix the crash
+
+Without a crash trace in the log Mike attached, I can't confirm directly, but the most likely root cause is the collision-resolution loop running unbounded retries on 256 fully-overlapped chrs (each one's push attempt rejected by overlap with another, repeated for every pair). Spreading the chrs across rings so they never overlap at spawn removes that condition.
+
+### Build verification
+
+`devtools\build-session.ps1 -Session swfix5 -Target all` -- `PerfectDark.exe` (54.5 MB) and `Updater.exe` (12.3 MB) build clean.
+
+### What the next playtest should show
+
+- 256 bots actually move toward the player (no longer "stuck where spawned").
+- Bots visibly small AND have small collision (player can't be pushed by an invisibly-large hitbox).
+- Cycling 256 -> 4 -> 256 multiple times does not crash.
 
 ## Session S593e (`distracted-hamilton-430172` continuation #3) - 2026-05-01 - Swarm: scale semantics fix + NUMTYPE3 + arena selector ID
 
