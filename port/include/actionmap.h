@@ -245,7 +245,16 @@ typedef enum InputAction {
     ACTION_SKIN_REDO,              /* = 101 Ctrl+Y / Ctrl+Shift+Z */
     ACTION_SKIN_SAVE,              /* = 102 Ctrl+S */
 
-    ACTION_COUNT                /* = 103, sentinel - keep last */
+    /* ---- Test scenarios bidirectional cycler + visibility (S594h-A2, 2026-05-01) ----
+     * ACTION_TESTSCEN_CYCLE_COUNT (= 70) is the FORWARD cycle (next-higher
+     * bot count); kept for backward-compat with the prior single-direction
+     * binding on KEY_0 / DPAD_DOWN. CYCLE_PREV is the new BACKWARD cycle
+     * (next-lower count) on PgDn / DPAD_UP. VIS_TOGGLE cycles the player's
+     * visibility-to-bots state through Normal -> AlwaysSee -> Invisible. */
+    ACTION_TESTSCEN_CYCLE_PREV,    /* = 103 Pg Dn / DPAD_UP -- previous bot count */
+    ACTION_TESTSCEN_VIS_TOGGLE,    /* = 104 V key -- cycle player visibility mode */
+
+    ACTION_COUNT                /* = 105, sentinel - keep last */
 } InputAction;
 
 /* Backward-compat aliases */

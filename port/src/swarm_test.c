@@ -54,13 +54,23 @@ extern void swarmGpuStepAndApply(struct coord *player_pos,
                                  struct chrdata **chrs, s32 count);
 
 /* ------------------------------------------------------------------
- * Cycle ladder
- * 4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128 -> 256 -> 4 (wrap).
- * 48 was added 2026-04-30 per Mike's directive: it's the "one-third of 128"
- * step that lets us see where the curve bends before doubling further.
+ * Cycle ladder (S594h-Unit-A, 2026-05-01).
+ *
+ * Two regimes:
+ *  - Small-step probe range 4..256 (carried over from S593h, lets Mike
+ *    see the curve bend at low counts).
+ *  - 256-bot increments 512..4096 ("push the limits" per Mike's
+ *    directive).
+ *
+ * The cycler is bidirectional: ACTION_TESTSCEN_CYCLE_COUNT advances to
+ * the next-higher count; ACTION_TESTSCEN_CYCLE_PREV moves to the
+ * next-lower count. Wrap is directional (top wraps to bottom on next,
+ * bottom wraps to top on prev).
  * ------------------------------------------------------------------ */
 const s32 SWARM_TEST_CYCLE[SWARM_TEST_CYCLE_STEPS] = {
-	4, 8, 16, 32, 48, 64, 128, 256
+	    4,    8,   16,   32,   48,   64,  128,  256,
+	  512,  768, 1024, 1280, 1536, 1792, 2048, 2304,
+	 2560, 2816, 3072, 3328, 3584, 3840, 4096
 };
 
 static s32 swarm_cycle_index(s32 count)
@@ -73,10 +83,18 @@ static s32 swarm_cycle_index(s32 count)
 
 /* ------------------------------------------------------------------
  * Private chr table (escapes MAX_BOTS = 32)
+ *
+ * Each slot remembers the chosen scale + spawn ring position so the
+ * S594h-Unit-A kill-respawn path can reuse them when a chr is killed
+ * (replacement spawns at the same ring radius, with the same scale,
+ * keeping the population stable at the target count).
  * ------------------------------------------------------------------ */
 typedef struct {
-	struct chrdata *chr;        /* NULL means slot is empty */
+	struct chrdata *chr;          /* NULL means slot is empty */
 	u8              counted_kill; /* 1 once we've credited this slot's death */
+	u8              team_idx;     /* 0 = team A (TEAM_ENEMY), 1 = team B (2-team mode only) */
+	f32             scale_factor; /* the per-bot scale picked at spawn */
+	struct coord    spawn_pos;    /* original ring position; reused on respawn */
 } swarm_slot_t;
 
 static swarm_slot_t s_Swarm[TESTSCEN_SWARM_MAX_COUNT];
@@ -85,6 +103,11 @@ static s32          s_SwarmKills;       /* local kill counter */
 static s32          s_SwarmInitialized; /* 1 after session-start work done */
 static s32          s_SwarmLastStage;   /* detect stage transitions */
 static s32          s_SwarmLogTickAcc;  /* throttle per-frame log to ~1 / 60 frames */
+static s32          s_SwarmRespawnsThisCycle; /* count of replacement spawns since last cycle change */
+
+/* S594h-A2 (2026-05-01): team mode + visibility mode module state. */
+static swarm_team_mode_t s_TeamMode = SWARM_TEAMS_SIMS_VS_PLAYERS;
+static swarm_vis_mode_t  s_VisMode  = SWARM_VIS_ALWAYS_SEE;
 
 /* Frame-time accumulators for the BENCHMARK.SWARM.* summary line. */
 static f32 s_FrameMsAcc;
@@ -175,14 +198,23 @@ static f32 swarm_pick_scale(void)
  * CHRHFLAG_00040000 swarm-lock bit at spawn). Used by chr.c and
  * chraction.c to gate behaviour: chrSetPerimEnabled refuses to
  * re-enable perim for swarm bots (so bot-bot collision stays off
- * per Mike's directive), and chrHasLosToChr short-circuits to
- * true for swarm-bot perspectives (so bots always know where the
- * player is regardless of LOS occlusion). */
+ * per Mike's directive), and chrHasLosToChr branches on the
+ * S594h-A2 visibility mode for swarm-bot perspectives. */
 s32 swarmTestIsSwarmChr(struct chrdata *chr)
 {
 	if (!chr) return 0;
 	return (chr->hidden & 0x00040000) ? 1 : 0;
 }
+
+/* Team / visibility accessors (S594h-A2). Header-declared. */
+void swarmTestSetTeamMode(swarm_team_mode_t mode)
+{
+	if (mode < 0 || mode >= SWARM_TEAMS_COUNT) return;
+	s_TeamMode = mode;
+}
+
+swarm_team_mode_t swarmTestGetTeamMode(void) { return s_TeamMode; }
+swarm_vis_mode_t  swarmTestGetVisMode(void)  { return s_VisMode;  }
 
 /* Find an unused aibot slot. Returns NULL if all are taken. */
 static struct aibot *swarm_alloc_aibot(s32 *out_index)
@@ -432,7 +464,8 @@ static void apply_player_setup(void)
  *   benchmark mode; full bot behaviour on GPU is a follow-up pillar
  *   (see context/designs/in-flight/gpu-swarm-bot-pipeline.md).
  * ------------------------------------------------------------------ */
-static struct chrdata *spawn_one_skedar(struct coord *pos, RoomNum *rooms)
+static struct chrdata *spawn_one_skedar(struct coord *pos, RoomNum *rooms,
+                                        s32 team_idx, f32 *out_scale)
 {
 	const swarm_method_t method = testScenarioActiveMethod();
 
@@ -463,14 +496,15 @@ static struct chrdata *spawn_one_skedar(struct coord *pos, RoomNum *rooms)
 	chr->headnum   = (s_SkedarHeadNum >= 0) ? s_SkedarHeadNum : 0;
 	chr->race      = bodyGetRace(chr->bodynum);
 
-	/* Hostile team. Player chr is on TEAM_01 (1 << 0 = 0x01), set in
-	 * playerreset.c:647 from g_PlayerConfigsArray[mpindex].base.team.
-	 * We put swarm chrs on TEAM_ENEMY (1 << 1 = 0x02) so the bot AI's
-	 * `chr->team == other->team` ally check returns false against the
-	 * player and the bots aggress. The prior TEAM_NONCOMBAT (0x80)
-	 * was a "do not engage" flag and explained Mike's "running
-	 * aimlessly" report. */
-	chr->team = TEAM_ENEMY;
+	/* Team assignment depends on team_idx:
+	 *   team_idx=0 -> TEAM_ENEMY (0x02)
+	 *   team_idx=1 -> TEAM_04   (0x04)
+	 * Both are hostile to the player's TEAM_01 and to each other (the
+	 * bot AI's `chr->team == other->team` ally test returns false for
+	 * any pair of distinct combat-class teams). In SIMS_VS_PLAYERS
+	 * mode every bot is team_idx=0; in TWO_TEAMS_PLUS_PLAYER mode
+	 * respawn_ring alternates 0/1. */
+	chr->team = (team_idx == 1) ? TEAM_04 : TEAM_ENEMY;
 
 	/* Half normal MP-bot health (8.0). botmgrAllocateBot defaults to
 	 * 8.0 (botmgr.c:153) for MP simulants; halving gives 4.0. The
@@ -498,6 +532,7 @@ static struct chrdata *spawn_one_skedar(struct coord *pos, RoomNum *rooms)
 	if (chr->model) {
 		modelSetScale(chr->model, chr->model->scale * rand_scale);
 	}
+	if (out_scale) *out_scale = rand_scale;
 
 	/* No bot-bot collision. Mike's directive: "Don't let them collide
 	 * with each other either." We mark the chr with bit 0x00040000

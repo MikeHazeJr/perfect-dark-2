@@ -50,11 +50,46 @@ void swarmTestRenderHud(void);
 s32 swarmTestGetActiveCount(void);
 s32 swarmTestGetKillCount(void);
 
-/* Compile-time config. The cycle stops at 256 (top-of-cycle, per the
- * directive) and wraps back to 4. 48 added 2026-04-30 per Mike's
- * directive: it's the curve-bend probe between 32 and 64. */
-#define SWARM_TEST_CYCLE_STEPS    8
-extern const s32 SWARM_TEST_CYCLE[SWARM_TEST_CYCLE_STEPS];  /* 4,8,16,32,48,64,128,256 */
+/* Compile-time config. The ladder runs from 4 up to 4096. Two
+ * regimes: small-step probe range (4..256) carried over from S593h,
+ * then 256-bot increments up to 4096 per Mike's S594h-Unit-A
+ * directive ("push the limits and see what kind of load we get").
+ * Total: 8 small steps + 16 large steps = 24 entries. The cycler is
+ * BIDIRECTIONAL; PgUp = next-higher count, PgDn = next-lower count. */
+#define SWARM_TEST_CYCLE_STEPS    23  /* 4..256 (8) + 512..4096 in 256-step (15) */
+extern const s32 SWARM_TEST_CYCLE[SWARM_TEST_CYCLE_STEPS];
+
+/* Visibility mode for the player. Cycled by ACTION_TESTSCEN_VIS_TOGGLE.
+ * NORMAL: standard bot target acquisition (LOS / range / hostility apply).
+ * ALWAYS_SEE: swarm-mode override -- bots always know player's position.
+ * INVISIBLE: player is undetectable; bots ignore the player entirely. */
+typedef enum {
+    SWARM_VIS_NORMAL = 0,
+    SWARM_VIS_ALWAYS_SEE,
+    SWARM_VIS_INVISIBLE,
+    SWARM_VIS_COUNT
+} swarm_vis_mode_t;
+
+/* Team config. Set at session start by the Debug-menu picker.
+ * SIMS_VS_PLAYERS: all bots on TEAM_ENEMY, player on TEAM_01, bots
+ *   target the player. (Behavior carried over from S593h.)
+ * TWO_TEAMS_PLUS_PLAYER: bots split 50/50 across team A (TEAM_ENEMY)
+ *   and team B (a different combat team), all three teams hostile,
+ *   three-way melee. Player on TEAM_01. */
+typedef enum {
+    SWARM_TEAMS_SIMS_VS_PLAYERS = 0,
+    SWARM_TEAMS_TWO_TEAMS_PLUS_PLAYER,
+    SWARM_TEAMS_COUNT
+} swarm_team_mode_t;
+
+/* Set the team mode for the next session start. Reads default
+ * SIMS_VS_PLAYERS if never set. */
+void swarmTestSetTeamMode(swarm_team_mode_t mode);
+swarm_team_mode_t swarmTestGetTeamMode(void);
+
+/* Read accessor for the current visibility mode (used by chr.c /
+ * chraction.c overrides that gate on it). */
+swarm_vis_mode_t swarmTestGetVisMode(void);
 
 #ifdef __cplusplus
 } /* extern "C" */

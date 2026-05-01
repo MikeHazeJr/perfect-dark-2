@@ -37,10 +37,12 @@ typedef enum {
     SWARM_METHOD_GPU = 1,
 } swarm_method_t;
 
-/* Maximum swarm count across the cycle. The cycler steps
- * 4 -> 8 -> 16 -> 32 -> 64 -> 128 -> 256 -> 4. Used by setup.c to size the
- * model/prop/chr pool budget when a swarm scenario is active. */
-#define TESTSCEN_SWARM_MAX_COUNT 256
+/* Maximum swarm count across the cycle. S594h-Unit-A bumped this
+ * from 256 to 4096 (16x) so the benchmark can probe heavy-load
+ * regimes; the chr pool, model pool, and rwdata bindings size to
+ * this cap at level load. The cycler ladder is in
+ * port/include/swarm_test.h::SWARM_TEST_CYCLE. */
+#define TESTSCEN_SWARM_MAX_COUNT 4096
 
 /* Initial bot count when a swarm scenario starts. */
 #define TESTSCEN_SWARM_INITIAL_COUNT 4

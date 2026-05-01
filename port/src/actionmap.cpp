@@ -386,8 +386,10 @@ static const char * const s_ActionNames[ACTION_COUNT] = {
     "ScorecardHold",
     /* 69: connectivity sidebar toggle (S483b) -- menu IMCs only */
     "SocialToggle",
-    /* 70: test-scenarios swarm benchmark cycler (S483c) -- PD_DEV_BUILD only */
-    "TestScenCycleCount",
+    /* 70: test-scenarios swarm benchmark cycler (S483c) -- PD_DEV_BUILD only.
+     * Renamed semantically to "next-higher count" by S594h-A2; the PREV
+     * counterpart is at index 103. */
+    "TestScenCycleNext",
     /* 71: text-input paste-from-clipboard (Cohort 1) -- text-input IMC only */
     "TextPaste",
     /* 72: cutscene-skip (Cohort 4, K.2) -- g_ImcCutscene IMC only */
@@ -427,6 +429,9 @@ static const char * const s_ActionNames[ACTION_COUNT] = {
     "SkinUndo",
     "SkinRedo",
     "SkinSave",
+    /* 103-104: test-scenarios cycler reverse + visibility toggle (S594h-A2) */
+    "TestScenCyclePrev",
+    "TestScenVisToggle",
 };
 
 /* ============================================================
@@ -2431,8 +2436,18 @@ static void setupGameplayDefaults(s32 player)
          * binding is harmless during normal play. D-pad-down also drives
          * ACTION_FORGE_SIDEBAR_DOWN; that action is consumed only inside
          * forge freefly + sidebar visible, so the two coexist. */
-        addBind(imc, ACTION_TESTSCEN_CYCLE_COUNT, 39);                       /* KEY_0 (SDL scan) */
+        addBind(imc, ACTION_TESTSCEN_CYCLE_COUNT, 39);                       /* KEY_0 (SDL scan) -- legacy, equiv to PgUp */
         addBind(imc, ACTION_TESTSCEN_CYCLE_COUNT, JOY_BTN(0, JBTN_DPAD_DOWN));
+        /* S594h-A2 (2026-05-01): bidirectional cycler. PgUp / PgDn for
+         * keyboard, DPAD_UP for the reverse direction on gamepad (the
+         * existing DPAD_DOWN keeps the forward-direction binding). The
+         * SDL scan codes for PgUp/PgDn are 75 / 78 respectively. */
+        addBind(imc, ACTION_TESTSCEN_CYCLE_COUNT, 75);                       /* KEY_PAGEUP */
+        addBind(imc, ACTION_TESTSCEN_CYCLE_PREV,  78);                       /* KEY_PAGEDOWN */
+        addBind(imc, ACTION_TESTSCEN_CYCLE_PREV,  JOY_BTN(0, JBTN_DPAD_UP));
+        /* Visibility-mode toggle. Cycles Normal -> AlwaysSee -> Invisible
+         * each press. Bound to V (SDL scan 25) on keyboard. */
+        addBind(imc, ACTION_TESTSCEN_VIS_TOGGLE, 25);                        /* KEY_V */
     }
     /* Players 1-3: no default gamepad binds. MP slots start unbound.
      * The rebind UI is functional for all players — user configures manually. */
