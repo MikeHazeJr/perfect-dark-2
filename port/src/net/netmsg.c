@@ -3248,6 +3248,13 @@ u32 netmsgSvcChrMoveWrite(struct netbuf *dst, struct chrdata *chr)
 	netbufWriteS8(dst, chr->myaction);
 	netbufWriteU8(dst, chr->actiontype);
 
+	/* v47 (S594h-B Slice 3): surface_up vec3 for surface-normal
+	 * locomotion. Skedars on slopes/walls/ceilings sync their local-up
+	 * to clients so the model tilt matches host. Always 12 bytes. */
+	netbufWriteF32(dst, chr->surface_up[0]);
+	netbufWriteF32(dst, chr->surface_up[1]);
+	netbufWriteF32(dst, chr->surface_up[2]);
+
 	return dst->error;
 }
 
@@ -3273,6 +3280,9 @@ u32 netmsgSvcChrMoveRead(struct netbuf *src, struct netclient *srccl)
 	const f32 speedtheta = netbufReadF32(src);
 	const s8 myaction = netbufReadS8(src);
 	const u8 actiontype = netbufReadU8(src);
+	const f32 newsurface_x = netbufReadF32(src);
+	const f32 newsurface_y = netbufReadF32(src);
+	const f32 newsurface_z = netbufReadF32(src);
 
 	if (src->error || srccl->state < CLSTATE_GAME) {
 		return src->error;
@@ -3300,6 +3310,13 @@ u32 netmsgSvcChrMoveRead(struct netbuf *src, struct netclient *srccl)
 	aibot->speedmultforwards = speedmultfwd;
 	aibot->speedmultsideways = speedmultside;
 	aibot->speedtheta = speedtheta;
+
+	/* v47 (S594h-B Slice 3): apply server-authoritative surface_up.
+	 * Local chrSurfaceLocoTick continues to sample + blend so the
+	 * client renders smoothly between wire updates. */
+	chr->surface_up[0] = newsurface_x;
+	chr->surface_up[1] = newsurface_y;
+	chr->surface_up[2] = newsurface_z;
 
 	// Update rooms if provided
 	if (flags & (1 << 1)) {
@@ -4077,6 +4094,13 @@ u32 netmsgSvcNpcMoveWrite(struct netbuf *dst, struct chrdata *chr)
 	netbufWriteS8(dst, chr->myaction);
 	netbufWriteU8(dst, chr->actiontype);
 
+	/* v47 (S594h-B Slice 3): surface_up vec3. Always 12 bytes;
+	 * non-surface-loco chrs send the chrInit world-up default
+	 * (0, 1, 0). Cost ~3 KB/s outbound for typical NPC density. */
+	netbufWriteF32(dst, chr->surface_up[0]);
+	netbufWriteF32(dst, chr->surface_up[1]);
+	netbufWriteF32(dst, chr->surface_up[2]);
+
 	return dst->error;
 }
 
@@ -4090,6 +4114,9 @@ u32 netmsgSvcNpcMoveRead(struct netbuf *src, struct netclient *srccl)
 	netbufReadRooms(src, newrooms, ARRAYCOUNT(newrooms));
 	const s8 myaction = netbufReadS8(src);
 	const u8 actiontype = netbufReadU8(src);
+	const f32 newsurface_x = netbufReadF32(src);
+	const f32 newsurface_y = netbufReadF32(src);
+	const f32 newsurface_z = netbufReadF32(src);
 
 	if (src->error || srccl->state < CLSTATE_GAME) {
 		return src->error;
@@ -4107,6 +4134,15 @@ u32 netmsgSvcNpcMoveRead(struct netbuf *src, struct netclient *srccl)
 	chrSetLookAngle(chr, newangle);
 	chr->myaction = myaction;
 	chr->actiontype = actiontype;
+
+	/* Apply server-authoritative surface_up. The receiver still runs
+	 * its own per-tick sample + 8-frame blend (chrSurfaceLocoTick), so
+	 * a wire update either confirms what the local raycast computed
+	 * (no visible change) or steers the client toward the host's view
+	 * when they disagree (chr straddling a tile boundary, etc). */
+	chr->surface_up[0] = newsurface_x;
+	chr->surface_up[1] = newsurface_y;
+	chr->surface_up[2] = newsurface_z;
 
 	// Update rooms
 	for (s32 i = 0; i < ARRAYCOUNT(prop->rooms); ++i) {
@@ -6416,6 +6452,13 @@ u32 netmsgClcBotMoveWrite(struct netbuf *dst)
 		netbufWriteF32(dst, aibot->speedtheta);
 		netbufWriteS8(dst, (s8)chr->myaction);
 		netbufWriteU8(dst, (u8)chr->actiontype);
+
+		/* v47 (S594h-B Slice 3): surface_up vec3 from authority client.
+		 * Server stub stores it on chr->surface_up so SVC_CHR_MOVE
+		 * relays the same value to all other clients. */
+		netbufWriteF32(dst, chr->surface_up[0]);
+		netbufWriteF32(dst, chr->surface_up[1]);
+		netbufWriteF32(dst, chr->surface_up[2]);
 	}
 
 	return dst->error;
@@ -6456,6 +6499,10 @@ u32 netmsgClcBotMoveRead(struct netbuf *src, struct netclient *srccl)
 		const f32 speedtheta    = netbufReadF32(src);
 		const s8  myaction      = netbufReadS8(src);
 		const u8  actiontype    = netbufReadU8(src);
+		/* v47 (S594h-B Slice 3): surface_up vec3 from authority. */
+		const f32 newsurface_x  = netbufReadF32(src);
+		const f32 newsurface_y  = netbufReadF32(src);
+		const f32 newsurface_z  = netbufReadF32(src);
 
 		if (src->error) {
 			return src->error;
@@ -6487,6 +6534,11 @@ u32 netmsgClcBotMoveRead(struct netbuf *src, struct netclient *srccl)
 		aibot->speedmultforwards  = speedmultfwd;
 		aibot->speedmultsideways  = speedmultside;
 		aibot->speedtheta         = speedtheta;
+
+		/* v47 surface_up cache so SVC_CHR_MOVE relay carries it. */
+		chr->surface_up[0] = newsurface_x;
+		chr->surface_up[1] = newsurface_y;
+		chr->surface_up[2] = newsurface_z;
 
 		/* Rooms: copy until terminator */
 		for (s32 ri = 0; ri < 8; ri++) {
