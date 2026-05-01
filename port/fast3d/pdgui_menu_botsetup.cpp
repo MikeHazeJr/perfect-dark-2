@@ -97,6 +97,12 @@ char *mpGetBodyName(u8 mpbodynum);
 const char *catalogMpHeadId(s32 mpheadnum);
 const char *catalogMpBodyId(s32 mpbodynum);
 
+/* H.5 universal guard (S593): integrated-head bodies (Skedar, Dr Carroll,
+ * Eye Spy) carry their own head model; the head selector must lock when
+ * one is selected.  Reads via the catalog accessor that wraps the
+ * `unk00_01` flag on `g_HeadsAndBodies[]`. */
+s32 catalogGetBodyIsComplete(s32 bodynum);
+
 /* ---- MENUOP_* opcodes (declared locally per Batch 4 gotcha; values must
  * match src/include/constants.h exactly) ---- */
 #define MENUOP_GETOPTIONCOUNT      1
@@ -590,6 +596,21 @@ static s32 s_bsFindBodyIndexByMpIdx(s32 mp_idx)
         if (s_BsBodyList[i].mp_idx == mp_idx) return i;
     }
     return 0;
+}
+
+/* H.5 universal guard (S593): true if the body identified by mp_idx has an
+ * integrated head model.  Resolves catalog-id -> runtime_index and reads
+ * `catalogGetBodyIsComplete`.  When true, the bot's head dropdown must
+ * lock so the user can't pick an arbitrary head that the renderer would
+ * silently drop at the request seam. */
+static bool s_bsBodyHasIntegratedHead(s32 mp_idx)
+{
+    if (mp_idx < 0) return false;
+    const char *body_id = catalogMpBodyId(mp_idx);
+    if (!body_id || !body_id[0]) return false;
+    const asset_entry_t *be = assetCatalogResolve(body_id);
+    if (!be || be->type != ASSET_BODY) return false;
+    return catalogGetBodyIsComplete(be->runtime_index) ? true : false;
 }
 
 /* =========================================================================
@@ -1162,18 +1183,31 @@ static s32 renderMpSimulantCharacter(struct menudialog *dialog, struct menu *, s
              * matching legacy coverage; rig_class filter is a follow-up).
              * Selection commits via car_Set with the entry's mp_idx so the
              * legacy mpchrSetHeadByIndex writer keeps both head_id (PRIMARY)
-             * and mpheadnum (DEPRECATED) in sync. */
+             * and mpheadnum (DEPRECATED) in sync.
+             *
+             * H.5 universal guard (S593): bodies with an integrated head
+             * (Skedar, Dr Carroll, Eye Spy -- `unk00_01 == 1`) carry their
+             * own head model.  Lock the dropdown and show "(integrated)"
+             * so the user can't pick an arbitrary head that the renderer
+             * would silently drop at the request seam. */
+            bool integratedHead = s_bsBodyHasIntegratedHead(curBodyMpIdx);
             {
-                const char *curLabel = (curHeadListIdx >= 0 &&
-                                        curHeadListIdx < s_BsHeadListCount)
-                    ? s_BsHeadList[curHeadListIdx].display
-                    : "Head ???";
+                const char *curLabel;
+                if (integratedHead) {
+                    curLabel = "(integrated)";
+                } else {
+                    curLabel = (curHeadListIdx >= 0 &&
+                                curHeadListIdx < s_BsHeadListCount)
+                        ? s_BsHeadList[curHeadListIdx].display
+                        : "Head ???";
+                }
 
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextUnformatted("Head:");
                 ImGui::SameLine();
                 ImGui::PushID("##bs_head");
                 ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::BeginDisabled(integratedHead);
                 if (ImGui::BeginCombo("##bs_head_cb", curLabel)) {
                     for (s32 i = 0; i < s_BsHeadListCount; i++) {
                         bool sel = (i == curHeadListIdx);
@@ -1187,6 +1221,10 @@ static s32 renderMpSimulantCharacter(struct menudialog *dialog, struct menu *, s
                         ImGui::PopID();
                     }
                     ImGui::EndCombo();
+                }
+                ImGui::EndDisabled();
+                if (integratedHead && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip("This character has an integrated head.");
                 }
                 ImGui::PopID();
             }
