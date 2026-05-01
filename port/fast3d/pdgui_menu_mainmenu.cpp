@@ -1278,7 +1278,11 @@ static void renderSettingsInterface(float scale)
         ImGui::TextColored(warnCol, "Menu Style");
     }
     ImGui::Separator();
-    ImGui::TextDisabled("Nine-slice chrome artwork for window frames. Applies live.");
+    ImGui::TextDisabled(
+        "Procedural = animated four-edge body shimmer, classic gradient title,\n"
+        "rotating green haze, focus pulse on selected rows.\n"
+        "Static = nineslice frame artwork (modder-customizable), solid title,\n"
+        "no haze. Focus pulse stays in both. Applies live.");
     ImGui::Spacing();
     {
         const s32 styleCount = pdguiThemeGetChromeStyleCount();
@@ -1305,21 +1309,33 @@ static void renderSettingsInterface(float scale)
 
         if (PdCombo("Menu Style", &chromeIdx, chromeOpts, 1 + usedStyles)) {
             if (chromeIdx <= 0) {
+                /* Procedural preset: chrome off, classic gradient title bar.
+                 * Body draws solid + animated haze + 4-edge shimmer; title
+                 * uses the 3-color vertical gradient with shimmer on top
+                 * and bottom edges. The Title Bar Style picker below stays
+                 * available for users who want a different title look. */
                 pdguiThemeSetUiChromeEnabled(0);
                 pdguiChromeSetEnabled(0);
+                pdguiThemeSetTitleBarStyle(PDGUI_TITLEBAR_CLASSIC);
             } else {
+                /* Static preset: chrome on with the selected nineslice. Body
+                 * is replaced by the chrome artwork (no haze, no procedural
+                 * borders). Solid title bar reads cleaner against a static
+                 * frame than the animated gradient. */
                 const char *selectedId = pdguiThemeGetChromeStyleId(chromeIdx - 1);
                 pdguiThemeSetUiChromeStyleId(selectedId);
                 pdguiThemeSetUiChromeEnabled(1);
                 pdguiSetPanelNineSlice(selectedId);
                 pdguiChromeSetEnabled(1);
+                pdguiThemeSetTitleBarStyle(PDGUI_TITLEBAR_SOLID);
             }
             configSave("pd.ini");
             sysLogPrintf(LOG_NOTE,
-                "UI.CHROME: style changed to '%s' (id=%s)",
+                "UI.CHROME: style changed to '%s' (id=%s, title=%s)",
                 chromeOpts[chromeIdx],
                 chromeIdx <= 0 ? "procedural"
-                               : pdguiThemeGetChromeStyleId(chromeIdx - 1));
+                               : pdguiThemeGetChromeStyleId(chromeIdx - 1),
+                chromeIdx <= 0 ? "classic-gradient" : "solid");
         }
     }
     if (ImGui::Button("Open Menu Style Tool...", ImVec2(btnW * 2.0f, btnH))) {

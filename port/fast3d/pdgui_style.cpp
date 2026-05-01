@@ -602,10 +602,20 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
     }
 
     /* Title shimmer -- 40px width on top and bottom edges of title bar.
-     * The original passes the title bar's border1 alpha for shimmer intensity. */
+     * The original passes the title bar's border1 alpha for shimmer intensity.
+     *
+     * Strip thickness scaled from N64's 1px to 3px for PC pixel density. At
+     * 240p a 1px shimmer line was visible against the title gradient; at
+     * 1080p+ the eye does not pick up a single-pixel brightness sweep. 3px
+     * preserves the OG visual prominence without crossing into the title
+     * body area. Same spirit as pdguiDrawShimmerExact's existing 2x width
+     * scale for PC. */
     int titleShimmerAlpha = pal->dialog_border1 & 0xFF;
-    pdguiDrawShimmerExact(dl, x, y, x + w, y + 1, titleShimmerAlpha, 40, false);
-    pdguiDrawShimmerExact(dl, x, y + titleH - 1, x + w, y + titleH, titleShimmerAlpha, 40, true);
+    const float kTitleShimmerThickness = 3.0f;
+    pdguiDrawShimmerExact(dl, x, y, x + w, y + kTitleShimmerThickness,
+                          titleShimmerAlpha, 40, false);
+    pdguiDrawShimmerExact(dl, x, y + titleH - kTitleShimmerThickness, x + w, y + titleH,
+                          titleShimmerAlpha, 40, true);
 
     /* Universal mouse close affordance ("X") in the title bar.
      * Clicking this emits an Escape key edge so every menu uses its existing
@@ -693,37 +703,89 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
             ImVec2(x + w - 1, y + h),
             PdColor(pal->dialog_bodybg));
 
-        /* === Haze texture overlay ===
-         * OG PD composites a green IA8 noise texture (g_TexGeneralConfigs[6]) over
-         * the body fill at ~50% alpha via menugfxRenderBgGreenHaze(). We replicate
-         * this by drawing the base:ui_bg_haze texture from the base-ui mod.
-         * The texture is tinted green via the tint_col parameter (IA texture =
-         * greyscale intensity, tint provides the hue — matching N64 primitive color).
+        /* === Animated body haze (BgGreenHaze recipe) ===
+         * OG menugfxRenderBgGreenHaze (src/game/menugfx.c:226-341) renders
+         * two layers of g_TexGeneralConfigs[6] (the haze IA8 tile) at
+         * counter-rotating UVs, with an alpha fade-in/out envelope and a
+         * green primitive color. Recipe per layer i in {0, 1}:
          *
-         * Tile rate is driven by the actual texture dimensions (via
-         * pdguiThemeGetTextureSize) so HD haze replacements tile correctly. */
-        {
+         *   phase  = ((t / 20) + (i == 1 ? 0.5 : 0.0)) mod 1
+         *   angle  = (i == 1 ? -1 : +1) * 2*pi * phase
+         *   alpha  = phase < 0.2  -> phase / 0.2  * 0.5
+         *            phase > 0.9  -> (1 - phase) / 0.1 * 0.5
+         *            else         -> 0.5
+         *
+         * The two layers' phases are 0.5 apart so when one is fading in,
+         * the other is fading out, keeping total coverage roughly constant.
+         * The opposite rotation directions cross-fade into a non-repeating
+         * organic haze pattern instead of a static tile.
+         *
+         * ImGui::AddImage takes axis-aligned UVs only, so we use AddImageQuad
+         * with explicit per-vertex UVs computed from the rotation matrix.
+         * Each layer samples a 2x2 UV square centered at (0.5, 0.5) so the
+         * haze tiles at half the natural texture rate (matching OG's f20
+         * "zoom factor" centered around 15.0).
+         *
+         * Stage 0 of the procedural-theme dual-mode work: this is the "OG-
+         * faithful animated haze" mode. The static-tile-tint mode that this
+         * replaces is suppressed by the chrome-enabled branch above (when the
+         * user picks Classic chrome, the nineslice replaces the body and no
+         * haze draws -- the static chrome IS the body). */
+        if (pdguiThemeGetBgTexId()) {
             const char *bgTex = pdguiThemeGetBgTexId();
-            if (bgTex) {
-                void *texId = pdguiThemeGetTexture(bgTex);
-                if (texId) {
-                    float bw = (x + w - 1) - (x + 1);
-                    float bh = (y + h) - bodyTop;
+            void *texId = pdguiThemeGetTexture(bgTex);
+            if (texId) {
+                const float kTwoPi = 6.28318530717958647692f;
+                float t = (float)ImGui::GetTime();
+                float baseFrac = t / 20.0f;
+                baseFrac = baseFrac - (float)(int)baseFrac;
 
-                    u32 tw_px = 64, th_px = 64;
-                    pdguiThemeGetTextureSize(bgTex, &tw_px, &th_px);
-                    if (tw_px == 0) tw_px = 64;
-                    if (th_px == 0) th_px = 64;
+                ImVec2 c0(x + 1.0f, bodyTop);
+                ImVec2 c1(x + w - 1.0f, bodyTop);
+                ImVec2 c2(x + w - 1.0f, y + h);
+                ImVec2 c3(x + 1.0f, y + h);
 
-                    float tileU = bw / (float)tw_px;
-                    float tileV = bh / (float)th_px;
-                    dl->AddImage(
+                /* Sample a 2x2 UV square centered at (0.5, 0.5). The four
+                 * corner UVs are then rotated about the center per layer. */
+                const float kHalf = 1.0f;
+                ImVec2 uvBase[4] = {
+                    ImVec2(-kHalf, -kHalf),
+                    ImVec2(+kHalf, -kHalf),
+                    ImVec2(+kHalf, +kHalf),
+                    ImVec2(-kHalf, +kHalf),
+                };
+
+                for (int layer = 0; layer < 2; layer++) {
+                    float phase = baseFrac + (layer == 1 ? 0.5f : 0.0f);
+                    if (phase >= 1.0f) phase -= 1.0f;
+
+                    float dir = (layer == 1) ? -1.0f : +1.0f;
+                    float angle = dir * kTwoPi * phase;
+                    float ca = cosf(angle);
+                    float sa = sinf(angle);
+
+                    float a;
+                    if      (phase < 0.2f) a = (phase / 0.2f) * 0.5f;
+                    else if (phase > 0.9f) a = ((1.0f - phase) / 0.1f) * 0.5f;
+                    else                   a = 0.5f;
+                    if (a < 0.0f) a = 0.0f;
+                    if (a > 1.0f) a = 1.0f;
+
+                    /* Apply rotation matrix to each base UV, then translate
+                     * back to (0.5, 0.5) origin for sampling. */
+                    ImVec2 uv[4];
+                    for (int i = 0; i < 4; i++) {
+                        float u = uvBase[i].x * ca - uvBase[i].y * sa;
+                        float v = uvBase[i].x * sa + uvBase[i].y * ca;
+                        uv[i] = ImVec2(u + 0.5f, v + 0.5f);
+                    }
+
+                    ImU32 col = IM_COL32(0, 175, 0, (int)(a * 96.0f));
+                    dl->AddImageQuad(
                         (ImTextureID)texId,
-                        ImVec2(x + 1, bodyTop),
-                        ImVec2(x + w - 1, y + h),
-                        ImVec2(0.0f, 0.0f),
-                        ImVec2(tileU, tileV),
-                        IM_COL32(0, 80, 0, 32));
+                        c0, c1, c2, c3,
+                        uv[0], uv[1], uv[2], uv[3],
+                        col);
                 }
             }
         }
@@ -779,15 +841,56 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
 }
 
 /* -----------------------------------------------------------------------
- * Focus highlight -- PD draws focused items with a dark background
- * Uses item_focused_outer from the active palette.
+ * Focus highlight -- PD draws focused items with a pulsing background
+ *
+ * Stage 0b (2026-05-01): blends item_focused_inner with item_focused_outer
+ * at 2 Hz, matching the OG menu's selected-row breathing pulse. Previously
+ * the port drew a static item_focused_outer rect, so the focused row read
+ * as inert. The breathing pulse is one of PD's strongest identity cues.
+ *
+ * OG reference: menuitem.c:464,873,1157,1228,2317,2474,2498,2505,2736,
+ * 2905,3770 all call menuGetSinOscFrac(40) (= sin(40*frac*2pi)/2 + 0.5)
+ * with frac = g_20SecIntervalFrac (a 20s linear ramp), giving a 2 Hz
+ * oscillator that blends two palette entries on the focused row.
+ *
+ * Port equivalent: phase from ImGui::GetTime() in seconds; sin period
+ * collapses the freq + 20s-period composition into a direct angular freq:
+ *   weight = 0.5 + 0.5 * sin(t * 2*pi * 40 / 20)
+ *          = 0.5 + 0.5 * sin(t * 4*pi)
+ *
+ * Per-channel blend: result = outer + weight * (inner - outer). At weight=0
+ * we draw the darker item_focused_outer; at weight=1 we draw the brighter
+ * item_focused_inner. The pulse breathes the highlight from dim background
+ * tint up to bright accent tint twice per second.
  * ----------------------------------------------------------------------- */
 
 extern "C" void pdguiDrawItemHighlight(float x, float y, float w, float h)
 {
     ImDrawList *dl = ImGui::GetWindowDrawList();
+
+    const float kTwoPi = 6.28318530717958647692f;
+    float t = (float)ImGui::GetTime();
+    float weight = 0.5f + 0.5f * sinf(t * kTwoPi * 2.0f);  /* 2 Hz */
+
+    unsigned int outer = s_ActivePalette->item_focused_outer;
+    unsigned int inner = s_ActivePalette->item_focused_inner;
+
+    auto blendByte = [&](int shift) -> unsigned char {
+        int ob = (int)((outer >> shift) & 0xFF);
+        int ib = (int)((inner >> shift) & 0xFF);
+        int rb = ob + (int)((float)(ib - ob) * weight);
+        if (rb < 0)   rb = 0;
+        if (rb > 255) rb = 255;
+        return (unsigned char)rb;
+    };
+
+    unsigned char r = blendByte(24);
+    unsigned char g = blendByte(16);
+    unsigned char b = blendByte(8);
+    unsigned char a = blendByte(0);
+
     dl->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + h),
-                      PdColor(s_ActivePalette->item_focused_outer));
+                      IM_COL32(r, g, b, a));
 }
 
 /* -----------------------------------------------------------------------
