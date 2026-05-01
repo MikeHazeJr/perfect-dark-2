@@ -255,8 +255,17 @@ static GLuint s_uploadGLTex(const uint8_t *rgba32, uint32_t w, uint32_t h)
                  GL_RGBA, GL_UNSIGNED_BYTE, rgba32);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    /* Wrap mode: GL_REPEAT so the procedural body haze (pdgui_style.cpp's
+     * AddImageQuad with rotated UVs that span outside [0,1]) tiles
+     * correctly. Per-texture wrap intent in g_TcGeneralConfigs is mostly
+     * WRAP for these UI tiles (haze, particles, dot, nuke, bg_alt, deco,
+     * stars); icons and noise tiles are CLAMP/MIRROR but their consumers
+     * sample inside [0,1] only, so REPEAT vs CLAMP is visually identical
+     * in those cases. Future TODO: thread per-texture wrap mode through
+     * the loader if a use case ever needs MIRROR or strict CLAMP edge
+     * behaviour on a texture sampled outside [0,1]. */
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
     glBindTexture(GL_TEXTURE_2D, 0);
     return tex;
 }
@@ -2837,16 +2846,35 @@ static bool s_writeTgaFile(const char *path, uint32_t w, uint32_t h,
 
 /* Generate the 64x64 composite chrome frame texture as a BGRA buffer.
  *
- * PD-authentic look: metallic blue-cyan gradient border with bevel highlight
- * on outer edge, dark navy body interior, and subtle inner glow.  Matches the
- * PD N64 dialog chrome aesthetic (dialog_border1 / dialog_border2 colours from
- * the Blue palette with a specular highlight gradient).
+ * PD-styled look: metallic blue-cyan gradient border with bevel highlight on
+ * outer edge, dark navy body interior, and subtle inner glow. Uses the Blue
+ * palette's dialog_border1 / dialog_border2 colours with a specular highlight
+ * gradient.
  *
- * TODO(D5.CHROME): Replace with real ROM texture extraction once the specific
- * ROM addresses for PD's dialog chrome source art are identified.  The OG
- * chrome is assembled by menugfxRenderDialogBackground() compositing palette
- * colors + textured strips — there is no single source texture.  This
- * procedural version faithfully reconstructs that look.
+ * Role in the dual-mode theme architecture (decided 2026-05-01):
+ *
+ * This bake-once nineslice is the engine's STATIC body-art path. It is the
+ * canonical example of a modder-customizable "static" Menu Style preset; any
+ * mod that ships a custom chrome nineslice rides the same code path. A modder
+ * can replace this with a hand-painted PNG via pdguiSetPanelNineSlice and the
+ * Menu Style dropdown picks it up automatically (see
+ * pdgui_menu_mainmenu.cpp::"Menu Style" dropdown).
+ *
+ * The "Procedural (built-in)" Menu Style does NOT use this -- it draws solid
+ * body fill + animated counter-rotating haze + four-edge shimmer + classic
+ * gradient title via pdguiDrawPdDialog's procedural body branch. The two
+ * paths coexist because Mike's dual-mode directive (Q-A, 2026-04-30) requires
+ * the .pdui schema to support both procedural and static themes.
+ *
+ * PRIOR TODO (now retired): an earlier comment claimed this was a stopgap
+ * pending ROM-address identification for "PD's dialog chrome source art."
+ * That was based on a false premise: there is no source texture for chrome
+ * in the ROM. OG menugfxRenderDialogBackground (src/game/menugfx.c:187-218)
+ * draws procedural rectangles using palette colours, with shimmer overlaid
+ * per frame via menugfxDrawShimmer. The procedural body branch in
+ * pdguiDrawPdDialog (pdgui_style.cpp:688-738) is the OG-faithful equivalent;
+ * this static nineslice is the alternate-mode counterpart, intentionally
+ * kept for the modder-shipped-static-frame use case.
  *
  * Nine-slice layout (16px insets):
  *   Corners (0-16, 0-16 etc): rounded metallic bevel
