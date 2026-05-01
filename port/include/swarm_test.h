@@ -95,6 +95,23 @@ swarm_team_mode_t swarmTestGetTeamMode(void);
  * chraction.c overrides that gate on it). */
 swarm_vis_mode_t swarmTestGetVisMode(void);
 
+/* S594h-Unit-B (2026-05-01): spawn strategy. RING is the historical
+ * concentric-ring layout (S593f). VOLUME picks each spawn position
+ * uniformly within a box centered on the player, then runs the
+ * standard wall-correction (spawnPoolCorrectPosition). Both
+ * strategies share the kill-respawn machinery (Unit A item 5);
+ * VOLUME-strategy respawns pick a fresh box position rather than
+ * reusing the stored ring slot, giving a "horde keeps coming"
+ * feel rather than a static formation. */
+typedef enum {
+    SWARM_SPAWN_RING = 0,
+    SWARM_SPAWN_VOLUME,
+    SWARM_SPAWN_COUNT
+} swarm_spawn_strategy_t;
+
+void swarmTestSetSpawnStrategy(swarm_spawn_strategy_t strategy);
+swarm_spawn_strategy_t swarmTestGetSpawnStrategy(void);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
