@@ -1,7 +1,14 @@
 # Surface-Normal Locomotion for Skedars (S594h-B scope)
 
-> Status: SCOPED, not started. Filed 2026-05-01 PM after S593h refinement
-> bundle and S594h-A spawn-correction shipped.
+> Status: IN-PROGRESS. Slices 1, 2, 3 SHIPPED 2026-05-01 PM:
+>   - Slice 1+2: commit 1e17810e on worktree, merged 0d08b4cc on dev
+>   - Slice 3: commit 538240bb on worktree, merged ae705aa6 on dev
+> Slices 4+5 deferred to give Mike a playtest gate on the foundation
+> (visual tilt + MP sync) before the gravity-flip and aim-projection
+> heavy lifts. GPU parity (Slice 6) remains deferred to the
+> gpu-swarm-bot-pipeline scope.
+>
+> Mike's 5 Q&A refinements applied (see session-log entry for verbatim).
 
 ## Premise (from Mike)
 

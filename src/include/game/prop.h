@@ -50,6 +50,16 @@ s32 propInteractPromptPreferPressStyle(void);
  * otherwise actionmapGetEffectiveHoldMs(ACTION_USE).
  */
 s32 propGetActionUseHoldThresholdMs(void);
+
+/**
+ * Phase 2 fix #5 (input-menu pillar, 2026-05-01): tunable interaction cast
+ * half-angle (radians). Default 0.2617993878f = 15 degrees (30-degree full
+ * cone), down from prior 22.5 degrees / 45-degree full cone per Mike's
+ * directive. Fix #6 will expose this via Settings -> Debug for empirical
+ * dial-in alongside the visualization toggle.
+ */
+f32 propGetInteractCastHalfAngleRad(void);
+void propSetInteractCastHalfAngleRad(f32 rad);
 void propFindForUplink(void);
 bool currentPlayerInteract(bool eyespy);
 void propPause(struct prop *prop);

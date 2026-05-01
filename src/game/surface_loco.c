@@ -78,6 +78,101 @@ void chrSurfaceLocoClearOverride(struct chrdata *chr)
 	chr->surface_loco_flags &= ~(SURFACE_LOCO_FLAG_PER_CHR_ENABLE | SURFACE_LOCO_FLAG_PER_CHR_DISABLE);
 }
 
+/* Cosine threshold for kicking a blend. ~0.99 corresponds to ~8 deg.
+ * Below this we ignore the new sample (snap or do nothing); above this
+ * we save prev_up = current_up and start the 8-frame interpolation. */
+#define SURFACE_LOCO_BLEND_KICK_COS 0.99f
+
+void chrSurfaceLocoTick(struct chrdata *chr)
+{
+	if (!chr || !chr->prop) {
+		return;
+	}
+
+	if (!chrSurfaceLocoIsEnabled(chr)) {
+		return;
+	}
+
+	f32 sampled[3];
+	const bool ok = chrSurfaceLocoSampleFloorNormal(chr, sampled);
+
+	if (!ok) {
+		/* No surface under chr (vent over a pit, raycast missed). For
+		 * Slice 3 we hold the current surface_up; Slice 5 will add the
+		 * seam-safety hold-then-airborne logic with a frame counter. */
+		return;
+	}
+
+	const f32 dot = chr->surface_up[0] * sampled[0]
+			+ chr->surface_up[1] * sampled[1]
+			+ chr->surface_up[2] * sampled[2];
+
+	if (dot >= SURFACE_LOCO_BLEND_KICK_COS) {
+		/* Within blend-kick threshold: snap directly. Cheap, also
+		 * prevents constant blends from sub-degree normal jitter. */
+		chr->surface_up[0] = sampled[0];
+		chr->surface_up[1] = sampled[1];
+		chr->surface_up[2] = sampled[2];
+		if (chr->surface_blend_frames <= 0) {
+			chr->surface_loco_flags &= ~SURFACE_LOCO_FLAG_BLENDING;
+		}
+		return;
+	}
+
+	/* Larger delta: kick a blend. Save current as prev, target as new. */
+	chr->surface_up_prev[0] = chr->surface_up[0];
+	chr->surface_up_prev[1] = chr->surface_up[1];
+	chr->surface_up_prev[2] = chr->surface_up[2];
+	chr->surface_up[0] = sampled[0];
+	chr->surface_up[1] = sampled[1];
+	chr->surface_up[2] = sampled[2];
+	chr->surface_blend_frames = SURFACE_LOCO_BLEND_FRAMES;
+	chr->surface_loco_flags |= SURFACE_LOCO_FLAG_BLENDING;
+}
+
+void chrSurfaceLocoGetRenderUp(struct chrdata *chr, f32 *out_up)
+{
+	if (!out_up) {
+		return;
+	}
+
+	if (!chr) {
+		out_up[0] = 0.0f;
+		out_up[1] = 1.0f;
+		out_up[2] = 0.0f;
+		return;
+	}
+
+	if (chr->surface_blend_frames <= 0
+			|| (chr->surface_loco_flags & SURFACE_LOCO_FLAG_BLENDING) == 0) {
+		out_up[0] = chr->surface_up[0];
+		out_up[1] = chr->surface_up[1];
+		out_up[2] = chr->surface_up[2];
+		return;
+	}
+
+	/* Linear interpolation prev -> current, normalize at end so the
+	 * lerp stays unit-length. The interpolation parameter goes from 0
+	 * (just kicked) to 1 (blend complete) as surface_blend_frames
+	 * decrements from BLEND_FRAMES to 0. */
+	const f32 t = 1.0f - ((f32)chr->surface_blend_frames / (f32)SURFACE_LOCO_BLEND_FRAMES);
+	const f32 lx = chr->surface_up_prev[0] * (1.0f - t) + chr->surface_up[0] * t;
+	const f32 ly = chr->surface_up_prev[1] * (1.0f - t) + chr->surface_up[1] * t;
+	const f32 lz = chr->surface_up_prev[2] * (1.0f - t) + chr->surface_up[2] * t;
+
+	const f32 len_sq = lx * lx + ly * ly + lz * lz;
+	if (len_sq < 1.0e-6f) {
+		out_up[0] = 0.0f;
+		out_up[1] = 1.0f;
+		out_up[2] = 0.0f;
+		return;
+	}
+	const f32 inv = 1.0f / sqrtf(len_sq);
+	out_up[0] = lx * inv;
+	out_up[1] = ly * inv;
+	out_up[2] = lz * inv;
+}
+
 /* Sample the floor surface normal under the chr.
  *
  * cdFindFloorRoomYColourNormalPropAtPos collects the floor geometry the

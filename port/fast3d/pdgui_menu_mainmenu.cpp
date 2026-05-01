@@ -3998,6 +3998,22 @@ static void renderSettingsDebug(float scale)
                 teamItems, (int)(sizeof(teamItems)/sizeof(teamItems[0])));
         if (gridMode) ImGui::EndDisabled();
 
+        /* S594h-Unit-B UI: spawn-strategy picker. Two presets:
+         *   "Concentric Rings" -- S593f layout, static formation.
+         *   "Volume (box)"     -- uniform-random within a box around the
+         *                         player; kill-respawn picks a fresh
+         *                         position rather than reusing the
+         *                         original ring slot. */
+        static int s_TestScenSpawnChoice = 0; /* 0 = rings (default) */
+        ImGui::Text("Spawn:");
+        ImGui::SameLine();
+        if (gridMode) ImGui::BeginDisabled();
+        ImGui::SetNextItemWidth(220.0f * scale);
+        const char *spawnItems[] = { "Concentric Rings", "Volume (box)" };
+        ImGui::Combo("##testscen_spawn", &s_TestScenSpawnChoice,
+                spawnItems, (int)(sizeof(spawnItems)/sizeof(spawnItems[0])));
+        if (gridMode) ImGui::EndDisabled();
+
         ImGui::SameLine();
 
         const bool launchOk = (testScenarioCanLaunch() != 0);
@@ -4026,6 +4042,10 @@ static void renderSettingsDebug(float scale)
                 swarmTestSetTeamMode((s_TestScenTeamChoice == 1)
                     ? SWARM_TEAMS_TWO_TEAMS_PLUS_PLAYER
                     : SWARM_TEAMS_SIMS_VS_PLAYERS);
+                /* Apply the spawn-strategy pick (Unit B) before launch. */
+                swarmTestSetSpawnStrategy((s_TestScenSpawnChoice == 1)
+                    ? SWARM_SPAWN_VOLUME
+                    : SWARM_SPAWN_RING);
                 testScenarioLaunch(scen, map_id);
             }
         }
@@ -6405,6 +6425,28 @@ extern "C" {
 void pdguiMainMenuReset(void)
 {
     pdguiMainMenuSetView(0, "external-reset");
+}
+
+/* B-303 (2026-05-01): post-exit auto-pop of the Main Menu over CI. Called
+ * from menutick's CI-on-spawn block after a campaign "Exit to Main Menu" or
+ * a Forge "End Match" routes the player back to CITRAINING. Pushes the
+ * canonical g_CiMenuViaPauseMenuDialog (same dialog the Pause press opens)
+ * so menu pool dedup, input context attachment, and chrome rendering all
+ * match the manual path; then sets the inline view so the menu opens
+ * directly on Solo Play / Mission Select (view=1) for the campaign exit
+ * case, or on the top-level Main Menu (view=0) for the Forge exit case.
+ *
+ * Idempotent: if the dialog is already open (e.g. raced with a manual
+ * Pause press), menuPushRootDialog's pool dedup returns without
+ * duplicating; pdguiMainMenuSetView is unconditionally re-applied so the
+ * caller's view request still wins. */
+void pdguiMainMenuOpenAtView(s32 view, const char *reason)
+{
+    if (view < 0) view = 0;
+    extern struct menudialogdef g_CiMenuViaPauseMenuDialog;
+    extern void menuPushRootDialog(struct menudialogdef *def, s32 root);
+    menuPushRootDialog(&g_CiMenuViaPauseMenuDialog, MENUROOT_MAINMENU);
+    pdguiMainMenuSetView(view, reason ? reason : "ext-open-at-view");
 }
 
 void pdguiMenuMainMenuRegister(void)

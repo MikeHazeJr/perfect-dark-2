@@ -33,6 +33,7 @@
 #include "system.h"
 
 #include "actionmap.h"
+#include "inputctx.h"  /* Phase 2 fix #9: g_CtxForgeEditor push / pop on FREEFLY transitions */
 #include "pdgui.h"  /* B-195 / Fix 2+3: pdguiClearImGuiFocusAndNav on transitions */
 #include "scene.h"
 #include "game/body.h"  /* Fix 5: bodyAllocateModel for chr-body hot-reload at transitions */
@@ -650,6 +651,17 @@ static void forgeTransitionToNormal(const char *reason)
 	 * transition seam so the very first NORMAL-mode frame starts clean.
 	 * Idempotent: safe to call when ImGui has nothing focused. */
 	pdguiClearImGuiFocusAndNav();
+
+	/* Phase 2 fix #9 (2026-05-01, B-195 architectural close): pop the
+	 * forge_editor input context. Its on_pop hook also clears ImGui
+	 * nav as defense-in-depth; this closes the leak class through the
+	 * proper input-stack discipline rather than relying on the seam-
+	 * level pdguiClearImGuiFocusAndNav above. The seam-level call stays
+	 * for the case where forgeTransitionToNormal fires from a path that
+	 * had not previously pushed g_CtxForgeEditor. */
+	if (inputCtxIsActive(&g_CtxForgeEditor)) {
+		inputCtxPopDeferred(&g_CtxForgeEditor);
+	}
 }
 
 static void forgeTransitionToFreefly(const char *reason)
@@ -698,6 +710,18 @@ static void forgeTransitionToFreefly(const char *reason)
 	 * priority entirely, so the freefly camera keeps full stick
 	 * control even with the Forge IMC active. */
 	imcActivate(&g_ImcForge);
+
+	/* Phase 2 fix #9 (input-menu pillar, 2026-05-01, B-195 closure):
+	 * push the dedicated g_CtxForgeEditor InputContext. The push
+	 * routes the editor through the menu pipeline for cursor + ImGui
+	 * keyboard claim while exempting gameplay axes from suppression
+	 * (gameplayInputSuppressed checks for this context). The on_pop
+	 * hook clears ImGui nav state so the next frame after FREEFLY
+	 * exit cannot leak NavWindow / ActiveID into the gameplay
+	 * keyboard-capture gate. Idempotent push -- inputCtxPush dedups. */
+	if (!inputCtxIsActive(&g_CtxForgeEditor)) {
+		inputCtxPush(&g_CtxForgeEditor);
+	}
 }
 
 static void forgeTransitionToInactive(const char *reason)
@@ -730,6 +754,13 @@ static void forgeTransitionToInactive(const char *reason)
 	s_forge.fly.has_saved_body      = false;
 	s_forge.fly.has_saved_chrmodel  = false;
 	forgeObserverLayerExit(reason);
+
+	/* Phase 2 fix #9 (2026-05-01, B-195 closure): pop the forge_editor
+	 * input context if it was pushed (FREEFLY -> Inactive without going
+	 * through Normal). Idempotent. */
+	if (inputCtxIsActive(&g_CtxForgeEditor)) {
+		inputCtxPopDeferred(&g_CtxForgeEditor);
+	}
 
 	if (s_forge.state != FORGE_SESSION_INACTIVE) {
 		sysLogPrintf(LOG_NOTE, "GRID: -> INACTIVE (%s)", reason ? reason : "");

@@ -225,6 +225,17 @@ extern InputContext g_CtxPauseMenu;
  * Only pushed when debug overlay is active. */
 extern InputContext g_CtxDebugOverlay;
 
+/* Phase 2 fix #9 (input-menu pillar, 2026-05-01): Forge editor context.
+ * Hybrid -- cursor is visible + absolute (ImGui interaction works),
+ * keyboard is claimed by ImGui dialogs (B-195 leak class is contained
+ * via on_pop -> pdguiClearImGuiFocusAndNav), BUT gameplay axes stay
+ * live so the freefly camera can read controller sticks via
+ * actionValue(0, ACTION_AXIS_*). gameplayInputSuppressed exempts this
+ * context so action-map reads pass through. Pushed by
+ * forgeTransitionToFreefly, popped by forgeTransitionToNormal /
+ * forgeTransitionToInactive. */
+extern InputContext g_CtxForgeEditor;
+
 #ifdef __cplusplus
 }
 #endif

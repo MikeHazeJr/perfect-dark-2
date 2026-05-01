@@ -1,7 +1,219 @@
 # Session Log (Active)
 
-> **S481-S594 + S593h + S482c + S593b** (rolling window of ~110 sessions; S593h added 2026-05-01 PM for swarm refinement bundle (random scale 0.2-0.6 weighted small, BOTDIFF_DARK + BOTTYPE_SPEED, per-frame player awareness + LOS short-circuit, no bot-bot collision via CHRHFLAG_00040000 swarm lock, power-weapon loadout for player + COMBATKNIFE for bots); S593g added 2026-05-01 PM for body.c integrated-head warning gate (suppressing 550 head_canon=NULL log spam during the swarm 4-256 cycle); S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
+> **S481-S595 + S593h + S482c + S593b** (rolling window of ~110 sessions; S595 added 2026-05-01 PM for B-303 post-exit Main Menu auto-pop on solo campaign + Forge end paths (Combat Sim path left intact per OG-canonical var80087260=3 mechanism); S593h added 2026-05-01 PM for swarm refinement bundle (random scale 0.2-0.6 weighted small, BOTDIFF_DARK + BOTTYPE_SPEED, per-frame player awareness + LOS short-circuit, no bot-bot collision via CHRHFLAG_00040000 swarm lock, power-weapon loadout for player + COMBATKNIFE for bots); S593g added 2026-05-01 PM for body.c integrated-head warning gate (suppressing 550 head_canon=NULL log spam during the swarm 4-256 cycle); S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
+
+## Session S595 (`infallible-mestorf-8463b9`) - 2026-05-01 PM - B-303 post-exit Main Menu auto-pop (solo + Forge)
+
+Mike's 2026-05-01 playtest report (verbatim):
+
+> "We also need to fix the end-match flow because I can end a match but end up in a state with just an animated background and no menu, can't interact with anything or progress."
+
+Mike's routing spec (verbatim, after a refinement pass):
+
+> "Solo campaign 'Exit to Main Menu' -> Main Menu at CI (your original fix shape applies here). Combat Sim match end -> return to Combat Simulator Room with prior settings restored. ... Forge Grid 'End Match' -> already routes to Main Menu via B-299, no change."
+
+Plus: "Look at how the OG handled End Mission or End Match paths."
+
+### Investigation against `fgsfdsfgs/perfect_dark` port branch
+
+Pulled the upstream OG-port `src/game/menutick.c` and `src/game/endscreen.c` and traced each cleanup branch. Findings:
+
+- **MENUROOT_MPENDSCREEN cleanup** (Combat Sim end-match path) sets `var80087260 = 3` when `g_Vars.normmplayerisrunning` is true. The CI-on-spawn block in menutick reads `var80087260 > 0` and pushes `g_CombatSimulatorMenuDialog` over CI. The menu's data-bound items read `g_MpSetup.*` directly. **`g_MpSetup` is module-static in `src/game/mplayer/mplayer.c` and persists through the full match lifecycle** -- never torn down between match start and CI return. Settings restoration is automatic via the data binding; no snapshot or handback needed.
+
+- **MENUROOT_ENDSCREEN cleanup** (solo campaign endscreen "Main Menu" choice) goes to `STAGE_TITLE` then `titleInitSkip` routes to CITRAINING. **No menu auto-pushed at CI.** OG-canonical: the player walks to in-CI terminals (Combat Boss, Mission Select kiosk, etc.) to reach Solo Mission select.
+
+- **Local code matches upstream exactly** in these switch cases. No drift.
+
+### What Mike actually wants vs OG-canonical
+
+Combat Sim case is OG-canonical and structurally working in our port -- the var80087260=3 chain pops the right menu with persisted settings. **No code change touches it.**
+
+Solo campaign case is OG-canonical-but-PC-port-modernized: Mike wants the Main Menu to auto-pop on Solo Play view (Mission Select) so the player lands on the just-played mission and can advance / retry / back out without walking to a CI terminal. This is a NEW PC-port feature, not OG.
+
+Forge case (B-299 Fix 4): same gap as solo. Apply the same auto-pop with view 0 (top-level Main Menu) since Forge isn't a campaign or Combat Sim.
+
+### Implementation
+
+**One-shot view selector flag** parallels the existing `var80087260` mechanism but pops the canonical Main Menu rather than the Combat Simulator setup dialog:
+
+- `s32 g_PostExitMainMenuView = -1;` in [src/game/mplayer/mplayer.c](../../src/game/mplayer/mplayer.c) (next to var80087260). Values: -1 inactive, 0 top-level, 1 Solo Play / Mission Select, 2..6 reserved for the other Main Menu views (Settings, Modding, Online Play, Player Stats, The Grid).
+
+- Extern in [src/include/data.h](../../src/include/data.h).
+
+- Set sites (one-shot, cleared on consumption):
+  - [src/game/menutick.c MENUROOT_ENDSCREEN cleanup](../../src/game/menutick.c) -> `g_PostExitMainMenuView = 1` (Solo Play). Restart-level path skips because the same stage immediately reloads and the menu would close on the next stage load anyway.
+  - [src/lib/main.c mainEndStage forge-active branch (Fix 4)](../../src/lib/main.c) -> `g_PostExitMainMenuView = 0` (top-level). Forge isn't a campaign or Combat Sim, so neither MENUROOT_ENDSCREEN nor MENUROOT_MPENDSCREEN cleanup branches fire to set this -- arming explicitly here is the only signal the auto-pop has for the Forge case.
+
+- Consume site: new CI-on-spawn block in menutick.c parallel to the existing `var80087260 > 0` block. Reads the flag, calls the new public API `pdguiMainMenuOpenAtView(view, "post-exit")`, plays the canonical SFX, and `playerPause(MENUROOT_MAINMENU)` to finalize pause state. Mutual exclusion with var80087260 (Combat Sim wins; in practice they never overlap because MENUROOT_ENDSCREEN and MENUROOT_MPENDSCREEN are different cleanup branches that fire on different g_MenuData.root values).
+
+- New public C API [`pdguiMainMenuOpenAtView(s32 view, const char *reason)`](../../port/include/pdgui.h) in `port/include/pdgui.h` / `port/fast3d/pdgui_menu_mainmenu.cpp`:
+  - Pushes `g_CiMenuViaPauseMenuDialog` (the same dialog the in-game Pause press opens) so menu pool dedup, input ctx attachment, and chrome rendering all match the manual Pause-press path.
+  - Sets `s_MenuView` via the existing static `pdguiMainMenuSetView`.
+  - Idempotent against double-push (menu pool dedup) and re-applies the view unconditionally so the caller's request wins even if a manual Pause press raced.
+
+### Files touched (6)
+
+- [`port/include/pdgui.h`](../../port/include/pdgui.h) +16 lines: declare `pdguiMainMenuOpenAtView`.
+- [`port/fast3d/pdgui_menu_mainmenu.cpp`](../../port/fast3d/pdgui_menu_mainmenu.cpp) +22 lines: implement `pdguiMainMenuOpenAtView`.
+- [`src/include/data.h`](../../src/include/data.h) +3 lines: extern `g_PostExitMainMenuView`.
+- [`src/game/mplayer/mplayer.c`](../../src/game/mplayer/mplayer.c) +20 lines: define `g_PostExitMainMenuView = -1` with full semantics comment.
+- [`src/game/menutick.c`](../../src/game/menutick.c) +49 lines: arm in MENUROOT_ENDSCREEN cleanup branch; CI-on-spawn auto-pop block parallel to var80087260 block.
+- [`src/lib/main.c`](../../src/lib/main.c) +16 lines: arm in mainEndStage forge-active branch (Fix 4).
+
+Total +125 -1 lines across 6 files. Single coherent merge.
+
+### What I deliberately did NOT do
+
+- **No flag-based override for Combat Sim.** OG path intact; touching it risks regression and Mike's spec confirmed the existing var80087260=3 mechanism is the right destination. If a future playtest reveals it actually breaks, that's a separate diagnostic-then-fix follow-up.
+- **No snapshot / handback of Combat Sim settings.** g_MpSetup module-static persistence is the OG mechanism; no parallel snapshot needed.
+- **No auto-pop on Solo Continue / Retry / Next Mission paths.** Those route through their own logic (next mission load, current stage reload); the auto-pop is only for the "Main Menu" exit choice.
+
+### Build verification
+
+`build-session.ps1 -Session b303 -Target all` PASS (CLIENT 28s, UPDATER 1s, PerfectDark.exe 54.6 MB; second build after rebase onto dev tip was a 1s ccache hit, confirming no content drift).
+
+### Auto-merge
+
+Worktree branch rebased onto dev tip pre-merge (dev had advanced 8 commits since the prior S594 work) so the merge applied cleanly without resurrecting the session-log conflict pattern from S594. Merge commit: `Merge worktree: B-303 post-exit Main Menu auto-pop for solo + Forge (infallible-mestorf-8463b9)` at dev `a19df5bf`. Post-merge line counts of all 6 changed files match worktree exactly. Dev has since moved on with `5b75d52a` (Mike's interaction-cast fix #5 from `clever-montalcini-4902a1`) and a release auto-commit on top.
+
+### Caveats Mike's playtest will surface
+
+- **Solo Mission Select view focus**: relies on `s_MissionSelectIdx` defaulting from `g_MissionConfig.stageindex`. If Mike sees the menu open on the wrong mission, that's a small follow-up to explicitly seed `s_MissionSelectIdx = g_MissionConfig.stageindex` in the open-at-view path.
+- **Forge top-level vs Solo Play**: I picked top-level for Forge per Mike's "B-299 routes to Main Menu" framing. If Mike wants Forge to land on view 6 (The Grid) for re-entry parity with Combat Sim's room re-entry, the flag value in `mainEndStage` is the only line to flip.
+- **Combat Sim regression**: untouched, but the merge added a `var80087260 == 0` mutual-exclusion gate in the new CI-on-spawn block. The Combat Sim path runs first in menutick.c so the gate just blocks accidental double-fires. If Mike sees the Combat Simulator menu fail to open after a Combat Sim match, that's a pre-existing bug surfaced (not introduced by this fix) and needs separate diagnostics.
+
+### Methodology notes
+
+- Investigation referenced `fgsfdsfgs/perfect_dark` port branch via `gh api repos/.../contents/...` and `curl raw` for unsafe path. Cross-checked our local against the upstream switch-case structures.
+- Single coherent merge per Mike's "single coherent merge for the unit" rule. No piecemeal commits.
+- No em-dashes anywhere in source / commit message / docs (Windows tooling rule).
+- Auto-merge per standing rule, no `-NoQueue`, build-session wrapper.
+
+## Session S594h-B Slice 3 (`mystifying-bose-71f14a` continuation) - 2026-05-01 PM - Surface-normal locomotion: per-tick + blend + wire v47
+
+Auto-chained from Slice 1+2 per Mike's directive ("Continue into Slice 3+ as previous slices verify").
+
+### What changed (commit 538240bb, merged ae705aa6)
+
+**Per-tick surface_up update**:
+- `chrSurfaceLocoTick(chr)` runs once per chr per tick, called from the tail of `chrTick` after `chraTick` settles the chr's world position. Samples the floor surface normal and either snaps directly (delta < cosine 0.99 = ~8 deg) or kicks an 8-frame blend prev_up -> target_up.
+- Render path now consumes `chrSurfaceLocoGetRenderUp` instead of the raw `surface_up`. Lerps between `surface_up_prev` and `surface_up` based on `surface_blend_frames` so transitions across tile boundaries look smooth.
+- `chrRender` no longer re-samples per render pass; only publishes `g_SurfaceLocoActiveChr` around `modelRender`. Saves ~half the collision-collect cost on opaque/translucent two-pass renders.
+
+**Wire change (NET_PROTOCOL_VER 46 -> 47)**:
+- `SVC_NPC_MOVE` gains a trailing 12-byte `surface_up` vec3 (3x f32). Co-op MP NPCs sync their surface normal to clients.
+- `SVC_CHR_MOVE` same: bot/simulant move broadcast. Skedars in MP visibly tilt the same way on every client.
+- `CLC_BOT_MOVE` same: bot-authority client back-channel. Server stub stores into `chr->surface_up` so the SVC_CHR_MOVE relay carries it forward.
+- All three carry 12 bytes always; non-surface-loco chrs send the chrInit world-up default. Outbound cost ~3 KB/s for typical NPC density.
+- Mixed v46/v47 play rejected at the ENet auth handshake.
+
+### What's deferred to a future session
+
+- **Slice 4** (aim path projection + bgun render tilt): bot's aim direction is currently produced in world space (yaw/pitch around world-up). For walls/ceilings the bot would aim wrong. Held weapon also needs to tilt with chr->surface_up. Deferred because it depends on Slice 5 actually making walls/ceilings reachable (until then there's no surface_up steep enough to expose the issue).
+- **Slice 5** (gravity flip + wall transitions + drop heuristic + scary-jump + landing-normal): per Mike's Q3+Q4 refinements. The big gameplay deliverable. Deferred to give Mike a clean playtest of Slices 1+2+3 first (visual tilt + sync) before the heavy lift of replacing world-Y gravity with surface_up gravity for surface-loco chrs.
+
+### Build verification
+
+`devtools\build-session.ps1 -Session slc3 -Target all` -- both `PerfectDark.exe` and `Updater.exe` build clean (CLIENT 29s, UPDATER 1s).
+
+### What the next playtest should show (Slices 1+2+3 combined)
+
+- Skedars on slopes (e.g. swarm test on Car Park or any arena with ramps): visual tilt aligned to slope normal. Smooth transitions when crossing tile boundaries (8-frame blend).
+- Skedars on flat ground: identical to current behavior (render-up = world-up = identity tilt).
+- MP co-op or 2-team mode: surface_up syncs across host/client. Clients see the same tilt the host does.
+- Non-Skedar chrs (Maians, humans, Dr Carroll): unchanged. helper returns false for non-RACE_SKEDAR (and the per-chr override flag is unused so far).
+
+### Files touched
+
+- `port/include/net/net.h` (NET_PROTOCOL_VER 47 changelog)
+- `port/src/net/netmsg.c` (SVC_NPC_MOVE, SVC_CHR_MOVE, CLC_BOT_MOVE)
+- `src/include/game/surface_loco.h` (Slice 3 API: chrSurfaceLocoTick, chrSurfaceLocoGetRenderUp, SURFACE_LOCO_BLEND_FRAMES)
+- `src/game/surface_loco.c` (Slice 3 impl: tick + blend lerp)
+- `src/game/chr.c` (chrSurfaceLocoTick call from chrTick tail; chrRender no longer re-samples)
+- `src/lib/model.c` (modelUpdateChrNodeMtx reads blended render-up via getter)
+
+### Session shape
+
+3 sequential merges to dev in one session, all auto-merged per Mike's standing rule:
+1. `0d08b4cc` Slice 1+2 (chr struct + visual tilt) + dev hotfix at swarm_test.c:718
+2. `5277c024` Slice 1+2 docs (session log + scope doc status)
+3. `ae705aa6` Slice 3 (per-tick + blend + wire v47)
+
+Worktree branch HEADs: `1e17810e` (Slice 1+2 code), `e9e691b5` (Slice 1+2 docs), `538240bb` (Slice 3).
+
+## Session S594h-B Slice 1+2 (`mystifying-bose-71f14a`) - 2026-05-01 PM - Surface-normal locomotion: chr-struct plumbing + visual tilt
+
+Mike's directive after S594h-A spawn correction shipped: implement surface-normal locomotion (Skedars walk on walls and ceilings, rotation aligned to surface normal). The prior session filed the scope doc at `context/designs/in-flight/skedar-surface-normal-locomotion.md` with 5 open questions; this session opened by proposing answers, Mike approved all 5 with refinements, and authorized auto-chaining of subsequent slices.
+
+### Mike's Q&A refinements (verbatim, 2026-05-01)
+
+1. Body opt-in: race default + per-chr flag override so a Grid spawn volume can mix Skedars-that-walk-walls with Maians-that-cannot, plus some Skedars-that-do-not.
+2. Threshold: none. Plus two safety items: bots must not fall out at level seams (extend ray + hold last-known surface for N frames before declaring airborne), and drop-from-wall must align to the new floor's normal on landing.
+3. Drop heuristic: combined cone + distance + LOS gate (per Q3). Plus: bots can JUMP from walls toward the player using act_skjump with gravity-along-local-up + slight homing toward target. Adds scare factor.
+4. Animation budget: 4096 bots scales to ~80us per frame (linear); proceed without caching, measure once Slices 1-3 land. CPU vs GPU mode parity tracked separately under the GPU bot pipeline scope.
+5. Wire two-stage rollout, no separate approval gate at stage 2: Slices 1+2 ship with no wire change; Slice 3 bundles the protocol bump in the same merge as the movement integration.
+
+### Slice 1 - chr-struct plumbing (commit 1e17810e, merged 0d08b4cc)
+
+Five new fields on `struct chrdata` (appended after `cutscene_protect`, no offset shift for existing fields):
+- `f32 surface_up[3]` / `surface_up_prev[3]` -- current and previous local-up vectors
+- `s16 surface_blend_frames` -- blend countdown timer
+- `u8 surface_loco_flags` -- bit field
+
+Bit layout in `surface_loco_flags`:
+- `SURFACE_LOCO_FLAG_PER_CHR_ENABLE` (0x01) -- per-chr opt-in (overrides race default to ON)
+- `SURFACE_LOCO_FLAG_PER_CHR_DISABLE` (0x02) -- per-chr opt-out (overrides race default to OFF)
+- `SURFACE_LOCO_FLAG_BLENDING` (0x04) -- internal: in blend window
+- `SURFACE_LOCO_FLAG_AIRBORNE` (0x08) -- internal: not currently on a surface
+
+New module `src/game/surface_loco.c` + `src/include/game/surface_loco.h`:
+- `chrSurfaceLocoInit(chr)` -- called from chrInit; sets surface_up to world-up, flags to 0
+- `chrSurfaceLocoIsEnabled(chr)` -- PER_CHR_DISABLE wins, then PER_CHR_ENABLE, else `chr->race == RACE_SKEDAR`
+- `chrSurfaceLocoForceEnabled(chr)` / `chrSurfaceLocoForceDisabled(chr)` / `chrSurfaceLocoClearOverride(chr)` -- spawn-time API for scenario / mod code
+
+Slice 1 alone is invisible: every chr's surface_up = (0, 1, 0), nothing reads it yet.
+
+### Slice 2 - render transform tilt (same commit)
+
+`chrSurfaceLocoSampleFloorNormal(chr, *out_up)` probes the floor surface normal under the chr via `cdFindFloorRoomYColourNormalPropAtPos` (one collision sweep, real geo-derived normal -- no triangulation, no extra raycasts vs. the chr's existing ground-find).
+
+`chrSurfaceLocoBuildTiltMtx(*surface_up, *out)` builds a Rodrigues rotation matrix that maps world-up (0,1,0) to surface_up. Identity within ~1.6deg cosine threshold (also serves as Mike's Q2 blend short-circuit so the renderer never pays the matrix-build cost on near-flat ground). Engine's row-major convention; verified surface_up=(1,0,0) maps world-up to (1,0,0) with v*M.
+
+`chrRender` (`src/game/chr.c:3656`) publishes `g_SurfaceLocoActiveChr` around the modelRender call (save/restore pattern for nested-render safety). For surface-loco chrs the floor sample is taken into `chr->surface_up` just before the render.
+
+`modelUpdateChrNodeMtx` (`src/lib/model.c:823`) reads `g_SurfaceLocoActiveChr->surface_up` and composes a tilt rotation into sp198's 3x3 block before the animation/yaw composition. ABSOLUTE_TRANSLATION animations skip the tilt (cutscene paths bake world-space positions and would break otherwise).
+
+### Wire / protocol
+
+Per Q5 two-stage rollout: Slices 1+2 ship with no protocol bump. NET_PROTOCOL_VER stays at 46. Client and server compute surface_up locally from the synced chr position. Slice 3 will bundle the wire change (12-byte surface_up on SVC_NPC_MOVE + SVC_BOT_AUTHORITY, bump to v47).
+
+### Hotfix bundled (pre-existing dev breakage)
+
+`port/src/swarm_test.c:718` was calling `spawn_one_skedar` with 2 args after commit `5bd83126` widened its signature to 4 (added `team_idx` + `out_scale`). The build verify failed on compile until the call site was updated to thread `team_idx` (alternating in TWO_TEAMS_PLUS_PLAYER mode, all 0 in SIMS_VS_PLAYERS) and capture the picked scale + spawn pos for the kill-respawn loop. Pre-existing dev breakage that landed in the auto-commit window between the scope-doc commit and this session.
+
+### Build verification
+
+`devtools\build-session.ps1 -Session slc12b -Target all` -- both `PerfectDark.exe` and `Updater.exe` build clean.
+
+### What the next playtest should show
+
+- Skedars in any arena (e.g., swarm test on Car Park) tilt their visual orientation to the floor surface normal. On flat ground: identical to current. On a slope: model leans with the slope. Wall normals not yet sampled (needs Slice 3 directional raycast); no movement change yet.
+- Other chrs (Maians, humans, Dr Carroll) unchanged -- the helper returns false for non-Skedar races.
+
+### Files touched
+
+- `src/include/types.h` (struct chrdata fields)
+- `src/include/constants.h` (SURFACE_LOCO_FLAG_*)
+- `src/include/game/surface_loco.h` (new)
+- `src/game/surface_loco.c` (new)
+- `src/game/chr.c` (chrInit + chrRender hooks)
+- `src/lib/model.c` (modelUpdateChrNodeMtx tilt block)
+- `port/src/swarm_test.c` (call-site fix)
+
+### Next slice
+
+Slice 3 (per-tick directional raycast + surface-plane velocity integration + gravity along -surface_up + wire change to v47) auto-chains in this same session per Mike's directive.
 
 ## Session S593h (`distracted-hamilton-430172` continuation #6) - 2026-05-01 PM - Swarm refinement bundle (6 items + parity + power loadout)
 

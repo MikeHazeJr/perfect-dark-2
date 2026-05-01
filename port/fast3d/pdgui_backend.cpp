@@ -1014,8 +1014,9 @@ void pdguiRender(void)
         const s32 fallen   = swarmTestGetKillCount();
         const s32 respawns = swarmTestGetRespawnsThisCycle();
 
-        const swarm_team_mode_t teamMode = swarmTestGetTeamMode();
-        const swarm_vis_mode_t  visMode  = swarmTestGetVisMode();
+        const swarm_team_mode_t       teamMode    = swarmTestGetTeamMode();
+        const swarm_vis_mode_t        visMode     = swarmTestGetVisMode();
+        const swarm_spawn_strategy_t  spawnStrat  = swarmTestGetSpawnStrategy();
 
         const char *teamLbl = (teamMode == SWARM_TEAMS_TWO_TEAMS_PLUS_PLAYER)
                 ? "2 Teams + Player" : "Sims vs Players";
@@ -1026,6 +1027,8 @@ void pdguiRender(void)
         case SWARM_VIS_INVISIBLE:  visLbl = "Invisible";  break;
         default: break;
         }
+        const char *spawnLbl = (spawnStrat == SWARM_SPAWN_VOLUME)
+                ? "Volume (box)" : "Concentric Rings";
 
         ImGui::SetNextWindowPos(ImVec2((float)winW - 12.0f, 22.0f),
                 ImGuiCond_Always, ImVec2(1.0f, 0.0f));
@@ -1047,6 +1050,7 @@ void pdguiRender(void)
         ImGui::Separator();
         ImGui::Text("Team:    %s", teamLbl);
         ImGui::Text("Vis:     %s", visLbl);
+        ImGui::Text("Spawn:   %s", spawnLbl);
         ImGui::Separator();
         ImGui::TextDisabled("PgUp/[0]/D-Down  next: %d", next_count);
         ImGui::TextDisabled("PgDn/D-Up        prev: %d", prev_count);
@@ -1069,6 +1073,16 @@ void pdguiRender(void)
      * No-op when no interact target is tracked.  Drawn above the HUD so the
      * player sees the prompt beside the reticle. */
     pdguiInteractPromptRender((s32)winW, (s32)winH);
+
+    /* Phase 2 fix #6 (input-menu pillar, 2026-05-01): interaction cast
+     * debug overlay. Top-left readout of current cone angle + range,
+     * gated on Settings -> Debug -> Interact Cast Debug Draw. No-op when
+     * the toggle is off; called every frame so live slider tuning shows
+     * immediately. */
+    {
+        extern void pdguiInteractCastDebugRender(s32 winW, s32 winH);
+        pdguiInteractCastDebugRender((s32)winW, (s32)winH);
+    }
 
     /* D6 P3: achievement unlock toasts — slide in from the right edge.
      * No-op when the toast queue is empty; polled at MP/solo endscreen

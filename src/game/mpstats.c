@@ -170,10 +170,15 @@ void mpstatsRecordPlayerKill(void)
 	if (g_Vars.normmplayerisrunning) {
 		time = playerGetMissionTime();
 
-		// Show HUD message
-		// "Kill count: %d"
+		/* Phase 2 fix #8 (input-menu pillar, 2026-05-01, Issue H):
+		 * legacy hudmsg "Kill count: N" popup deleted per Mike. The
+		 * ImGui killfeed (pdguiKillfeedPush at line 419 below) is the
+		 * sole kill-event surface going forward, per imgui-replaces-
+		 * legacy. The kill counter itself stays in the scoreboard.
+		 * Kept the snprintf + text buffer in case a debug logger is
+		 * added later; the hudmsgCreate is the deleted call. */
 		snprintf(text, sizeof(text), "%s: %d\n", langGet(L_GUN_001), g_Vars.currentplayerstats->killcount);
-		hudmsgCreate(text, HUDMSGTYPE_DEFAULT);
+		(void)text;
 
 		// Update slowest/fastest two kills
 		if (g_Vars.currentplayerstats->killcount > 1) {
@@ -240,7 +245,11 @@ void mpstatsRecordPlayerDeath(void)
 					langGet(L_GUN_004)); // "times"
 		}
 
-		hudmsgCreate(buffer, HUDMSGTYPE_DEFAULT);
+		/* Phase 2 fix #8 (input-menu pillar, 2026-05-01, Issue H):
+		 * legacy hudmsg "Died N times" popup deleted per Mike. The
+		 * ImGui killfeed at line 419 already announces deaths. */
+		(void)buffer;
+		(void)text;
 	}
 }
 
@@ -259,10 +268,11 @@ void mpstatsRecordPlayerSuicide(void)
 
 		mpchr = MPCHR(mpindex);
 
-		// Show HUD message
-		// "Suicide count: %d"
+		/* Phase 2 fix #8 (input-menu pillar, 2026-05-01, Issue H):
+		 * legacy hudmsg "Suicide count: N" popup deleted per Mike. The
+		 * ImGui killfeed at line 348 already shows suicide events. */
 		snprintf(text, sizeof(text), "%s: %d\n", langGet(L_GUN_005), mpchr->killcounts[mpindex]);
-		hudmsgCreate(text, HUDMSGTYPE_DEFAULT);
+		(void)text;
 
 		// Update slowest/fastest two kills
 		if (g_Vars.currentplayerstats->killcount > 1) {
@@ -384,9 +394,14 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 				setCurrentPlayerNum(vplayernum);
 
 				if (g_Vars.normmplayerisrunning && aplayernum >= 0) {
-					// "Killed by %s"
+					/* Phase 2 fix #8 (input-menu pillar, 2026-05-01,
+					 * Issue H): legacy "Killed by NAME" hudmsg deleted
+					 * per Mike. The ImGui killfeed at line 419 already
+					 * renders kills with attacker / victim. Snprintf
+					 * retained in case a future debug logger wants
+					 * the formatted string. */
 					snprintf(text, sizeof(text), "%s %s", langGet(L_MISC_183), g_MpAllChrConfigPtrs[aplayernum]->name);
-					hudmsgCreate(text, HUDMSGTYPE_DEFAULT);
+					(void)text;
 				}
 
 				/* PC: track death in persistent stats */

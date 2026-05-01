@@ -111,6 +111,9 @@ static s32          s_SwarmRespawnsThisCycle; /* count of replacement spawns sin
 static swarm_team_mode_t s_TeamMode = SWARM_TEAMS_SIMS_VS_PLAYERS;
 static swarm_vis_mode_t  s_VisMode  = SWARM_VIS_ALWAYS_SEE;
 
+/* S594h-Unit-B (2026-05-01): spawn strategy module state. */
+static swarm_spawn_strategy_t s_SpawnStrategy = SWARM_SPAWN_RING;
+
 /* S594h-Unit-A.5 (2026-05-01): MPOPTION_TEAMSENABLED snapshot for
  * restore at session-end. The "team colors visible" feature toggles
  * the bit while a 2-team swarm session is active; we must restore the
@@ -224,6 +227,14 @@ void swarmTestSetTeamMode(swarm_team_mode_t mode)
 
 swarm_team_mode_t swarmTestGetTeamMode(void) { return s_TeamMode; }
 swarm_vis_mode_t  swarmTestGetVisMode(void)  { return s_VisMode;  }
+
+void swarmTestSetSpawnStrategy(swarm_spawn_strategy_t strategy)
+{
+	if (strategy < 0 || strategy >= SWARM_SPAWN_COUNT) return;
+	s_SpawnStrategy = strategy;
+}
+
+swarm_spawn_strategy_t swarmTestGetSpawnStrategy(void) { return s_SpawnStrategy; }
 
 /* Find an unused aibot slot. Returns NULL if all are taken. */
 static struct aibot *swarm_alloc_aibot(s32 *out_index)
@@ -670,6 +681,126 @@ static void despawn_all(void)
 #define SWARM_RING_STEP          200.0f
 #define SWARM_PER_RING           24
 
+/* ------------------------------------------------------------------
+ * Volume spawn (S594h-Unit-B).
+ *
+ * Picks a uniform-random position within a box centered on the player,
+ * then runs the standard wall-correction (spawnPoolCorrectPosition) to
+ * push it out of any wall it lands in. The box is sized to roughly
+ * match the SPAWNPOOL_RAY_RANGE (2000 units) so most positions stay
+ * within reachable arena geometry; at the cap they may be in dead-end
+ * rooms or stuck behind doors, which is fine for a benchmark (the bot
+ * AI just navigates from there).
+ *
+ * The volume is centered on the player's CURRENT position, captured
+ * once per respawn_volume call. Box dimensions are X +/- 2000 / Y +/- 400 /
+ * Z +/- 2000 in game units. Y range is small so spawns stay close to
+ * floor level rather than drifting up into ceiling space.
+ *
+ * Why uniform-in-box rather than a more sophisticated distribution:
+ * the kill-respawn loop calls swarm_pick_volume_position once per dead
+ * slot; doing 4096 calls with a sophisticated distribution would
+ * dominate the per-frame cost. Uniform-random + the existing 18-ray
+ * wall correction is fast enough and produces visually plausible
+ * scatter.
+ * ------------------------------------------------------------------ */
+#define SWARM_VOLUME_HALF_X      2000.0f
+#define SWARM_VOLUME_HALF_Y       400.0f
+#define SWARM_VOLUME_HALF_Z      2000.0f
+
+/* Forward decl: respawn_ring is defined below respawn_swarm but
+ * respawn_swarm needs to call it. */
+static void respawn_ring(s32 count);
+
+static s32 swarm_pick_volume_position(const struct coord *center,
+                                      RoomNum center_room,
+                                      f32 chr_radius, f32 chr_height,
+                                      struct coord *out_pos,
+                                      RoomNum *out_room)
+{
+	const f32 rx = (RANDOMFRAC() * 2.0f - 1.0f) * SWARM_VOLUME_HALF_X;
+	const f32 ry = (RANDOMFRAC() * 2.0f - 1.0f) * SWARM_VOLUME_HALF_Y;
+	const f32 rz = (RANDOMFRAC() * 2.0f - 1.0f) * SWARM_VOLUME_HALF_Z;
+	struct coord pos = {
+		center->x + rx,
+		center->y + ry,
+		center->z + rz,
+	};
+	RoomNum corrected_room = center_room;
+	if (!spawnPoolCorrectPosition(&pos, &corrected_room,
+			chr_radius, chr_height)) {
+		return 0;
+	}
+	*out_pos  = pos;
+	*out_room = corrected_room;
+	return 1;
+}
+
+/* Volume spawn: parallel to respawn_ring but distributes positions
+ * uniformly through a box rather than along concentric rings. Each
+ * candidate is wall-corrected; rejected candidates are skipped (the
+ * spawn count for that frame may be lower than asked, exactly as the
+ * ring path does). Kill-respawn (item 5) shares the same volume picker
+ * via the strategy switch in respawn_slot. */
+static void respawn_volume(s32 count)
+{
+	despawn_all();
+	if (!g_Vars.currentplayer || !g_Vars.currentplayer->prop) {
+		sysLogPrintf(LOG_WARNING,
+			"TESTSCEN.SWARM: respawn_volume -- no player; skipping");
+		return;
+	}
+	const struct coord ppos = g_Vars.currentplayer->prop->pos;
+	const RoomNum proom = g_Vars.currentplayer->prop->rooms[0];
+
+	if (count > TESTSCEN_SWARM_MAX_COUNT) count = TESTSCEN_SWARM_MAX_COUNT;
+	if (count < 0) count = 0;
+
+	s32 spawned = 0;
+	for (s32 i = 0; i < count; i++) {
+		struct coord pos;
+		RoomNum corrected_room;
+		if (!swarm_pick_volume_position(&ppos, proom,
+				30.0f, 180.0f, &pos, &corrected_room)) {
+			continue;
+		}
+		RoomNum spawn_rooms[2] = { corrected_room, -1 };
+		const s32 team_idx = (s_TeamMode == SWARM_TEAMS_TWO_TEAMS_PLUS_PLAYER)
+			? (i & 1) : 0;
+		f32 chosen_scale = 0.5f;
+		struct chrdata *chr = spawn_one_skedar(&pos, spawn_rooms,
+			team_idx, &chosen_scale);
+		if (chr) {
+			s_Swarm[i].chr           = chr;
+			s_Swarm[i].counted_kill  = 0;
+			s_Swarm[i].team_idx      = (u8)team_idx;
+			s_Swarm[i].respawn_delay = 0;
+			s_Swarm[i].scale_factor  = chosen_scale;
+			s_Swarm[i].spawn_pos     = pos;
+			s_Swarm[i].spawn_room    = corrected_room;
+			spawned++;
+		}
+	}
+	s_SwarmCount = spawned;
+	testScenarioSetCurrentSwarmCount(spawned);
+	s_SwarmRespawnsThisCycle = 0;
+	sysLogPrintf(LOG_NOTE,
+		"TESTSCEN.SWARM: respawn_volume count=%d (target=%d) at player (%.0f,%.0f,%.0f)",
+		spawned, count, ppos.x, ppos.y, ppos.z);
+}
+
+/* Strategy dispatcher. Used by swarmTestTick session-start and by
+ * cycler_tick. Single entry point for "respawn the swarm at the
+ * current target count". */
+static void respawn_swarm(s32 count)
+{
+	if (s_SpawnStrategy == SWARM_SPAWN_VOLUME) {
+		respawn_volume(count);
+	} else {
+		respawn_ring(count);
+	}
+}
+
 static void respawn_ring(s32 count)
 {
 	despawn_all();
@@ -830,20 +961,39 @@ static void despawn_slot(s32 i)
 
 /* ------------------------------------------------------------------
  * Spawn a replacement Skedar for a slot whose previous chr was killed.
- * Reuses the slot's stored spawn_pos / spawn_room / team_idx so the
- * swarm population stays anchored at its original ring positions.
- * Returns 1 on success, 0 if the spawn failed (chr/model pool full).
+ * Strategy-aware (S594h-Unit-B):
+ *   RING:   reuses the slot's stored spawn_pos / spawn_room so the
+ *           swarm population stays anchored at its original ring
+ *           positions (static formation, replenishing in place).
+ *   VOLUME: picks a fresh random box position via swarm_pick_volume_position,
+ *           giving a "horde keeps coming" feel rather than a static
+ *           formation -- new bots appear from anywhere in the volume.
+ * Returns 1 on success, 0 if the spawn failed (chr/model pool full or
+ * picker rejected every candidate).
  * ------------------------------------------------------------------ */
 static s32 respawn_slot(s32 i)
 {
-	struct coord pos = s_Swarm[i].spawn_pos;
-	RoomNum corrected_room = s_Swarm[i].spawn_room;
-	/* Re-validate the position. If the world changed (door closed,
-	 * geometry shifted) the original spot might now be inside a wall.
-	 * Conservative chr_radius/height -- spawn_one_skedar picks the
-	 * actual scale, so this gates with a slight over-estimate. */
-	if (!spawnPoolCorrectPosition(&pos, &corrected_room, 30.0f, 180.0f)) {
-		return 0;
+	struct coord pos;
+	RoomNum corrected_room;
+
+	if (s_SpawnStrategy == SWARM_SPAWN_VOLUME) {
+		if (!g_Vars.currentplayer || !g_Vars.currentplayer->prop) return 0;
+		const struct coord ppos = g_Vars.currentplayer->prop->pos;
+		const RoomNum proom = g_Vars.currentplayer->prop->rooms[0];
+		if (!swarm_pick_volume_position(&ppos, proom,
+				30.0f, 180.0f, &pos, &corrected_room)) {
+			return 0;
+		}
+	} else {
+		pos = s_Swarm[i].spawn_pos;
+		corrected_room = s_Swarm[i].spawn_room;
+		/* Re-validate the position. If the world changed (door closed,
+		 * geometry shifted) the original spot might now be inside a wall.
+		 * Conservative chr_radius/height -- spawn_one_skedar picks the
+		 * actual scale, so this gates with a slight over-estimate. */
+		if (!spawnPoolCorrectPosition(&pos, &corrected_room, 30.0f, 180.0f)) {
+			return 0;
+		}
 	}
 	RoomNum spawn_rooms[2] = { corrected_room, -1 };
 	const s32 team_idx = (s32)s_Swarm[i].team_idx;
@@ -951,7 +1101,7 @@ static void cycler_tick(void)
 		"TESTSCEN.SWARM: cycle %s %d -> %d (idx=%d)",
 		(dir > 0) ? "NEXT" : "PREV", s_SwarmCount, next, idx);
 
-	respawn_ring(next);
+	respawn_swarm(next);
 
 	/* Post-respawn diagnostic: target / actual / alive. If target != actual
 	 * the respawn loop dropped some slots (height failure, pool exhausted,
@@ -1049,7 +1199,7 @@ void swarmTestTick(void)
 			g_MpSetup.options &= ~MPOPTION_TEAMSENABLED;
 		}
 
-		respawn_ring(TESTSCEN_SWARM_INITIAL_COUNT);
+		respawn_swarm(TESTSCEN_SWARM_INITIAL_COUNT);
 		s_SwarmInitialized = 1;
 		sysLogPrintf(LOG_NOTE,
 			"TESTSCEN.SWARM: session armed -- method=%s count=%d team=%s vis=%s",

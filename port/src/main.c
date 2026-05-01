@@ -81,6 +81,12 @@ s32 g_SkipIntro = false;
 
 s32 g_JumpLoggingEnabled = 0;
 
+/* Phase 2 fix #6 (input-menu pillar, 2026-05-01): when set, the HUD draws
+ * an overlay showing the current interaction-cast half-angle (degrees)
+ * + range so Mike can dial fix #5's tightening empirically. Settings ->
+ * Debug Flags exposes the toggle + a slider. Default off. */
+s32 g_InteractCastDebugDraw = 0;
+
 s32 g_FileAutoSelect = -1;
 
 extern s32 g_StageNum;
@@ -429,6 +435,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Game.DisableMpDeathMusic", &g_MusicDisableMpDeath, 0, 1);
 	configRegisterInt("Game.GEMuzzleFlashes", &g_BgunGeMuzzleFlashes, 0, 1);
 	configRegisterInt("Debug.JumpLogging", &g_JumpLoggingEnabled, 0, 1);
+	configRegisterInt("Debug.InteractCastDebugDraw", &g_InteractCastDebugDraw, 0, 1);
 	for (s32 j = 0; j < MAX_LOCAL_PLAYERS; ++j) {
 		const s32 i = j + 1;
 		configRegisterFloat(strFmt("Game.Player%d.FovY", i), &g_PlayerExtCfg[j].fovy, 5.f, 175.f);
