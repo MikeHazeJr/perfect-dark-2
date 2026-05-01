@@ -413,23 +413,25 @@ Each ROM-derived asset category gets its own extension. The schema for each is i
 - **`.pdfiringrange`** (proposed): Firing range setup. Today extracted by `tools/extract:217`. **Recommendation**: roll into `.pdscenario`. Firing range is a stage; treating it as such removes a special case. `data/scenarios/setup_firingrange.pdscenario`.
 - **`.pdmpstrings`** (proposed): MP UI strings per locale. Today extracted by `tools/extract:204`. **Recommendation**: roll into `.pdlang`. MP strings are localized text; `.pdlang` already covers per-locale text. Use `data/lang/mp_<locale>.pdlang` (or fold into a global UI lang file).
 
-**Final extension list** after consolidation:
+**Final extension list** after consolidation (revised in Pass 3 to add `.pdprop` and `.pdcharacter`; see Section 3.16.4):
 
 | Extension | Purpose |
 |---|---|
 | `.pdwpn` | Weapon |
 | `.pdui` | UI texture bundle plus theme metadata |
-| `.pdmesh` | Mesh |
+| `.pdmesh` | Static mesh (visual geometry only; no skeleton, no behavior). Covers spawnable props that need only visual representation. |
+| `.pdcharacter` | Compound character (skeletal mesh plus animations plus audio plus attach points plus behavior). Distinct catalog asset type from `.pdmesh`. See Section 3.16.4. |
+| `.pdprop` | Spawnable prop with logic (visual geometry plus physics plus stats plus behavior block). Distinct from `.pdmesh` (which is visual-only). See Section 3.17 for the worked example. |
 | `.pdanim` | Animation |
 | `.pdsong` | Music track |
 | `.pdsfx` | Sound effect |
 | `.pdvoice` | Voice line |
-| `.pdscenario` | Stage / mission / firing range / MP map (carries scenario config inline) |
+| `.pdscenario` | Stage / mission / firing range / MP map (carries scenario config inline; modes block per Section 3.16.3) |
 | `.pdtiles` | Stage walkable-surface data |
 | `.pdseg` | Stage geometry segment |
 | `.pdfont` | Font face |
 | `.pdlang` | Language strings (any context: SP missions, MP UI, system messages) |
-| `.pdmod` | Mod archive (existing, ZIP container of `.pdXXX` files plus `mod.json`) |
+| `.pdmod` | Mod archive (ZIP container of `.pdXXX` files plus `mod.json`) |
 | `.pdmodpack` | Mod-pack archive (container of multiple `.pdmod`s, plus pack metadata) |
 
 Also retained for completeness, not extension-class:
@@ -921,14 +923,14 @@ Mike mentioned several features in flight or aspirational that align with the ar
 
 This section surfaces points where Mike's directives left a question open or where the audit author extrapolated something Mike did not explicitly say. Mike to review and confirm or correct.
 
-**Open questions (Mike to call):**
+**Open questions (resolved in Pass 3 walkthrough; see Section 3.16):**
 
-- **Q-1. `.pdmodpack` storage model.** Audit recommends contain (extract on install). Reference is the alternative. Mike's open question per directive 6.
-- **Q-2. Multi-mod override precedence.** When two enabled mods override the same `catalog_id`, who wins? Audit recommends load-order default plus optional `priority:` field. See Section 3.5 D-4.
-- **Q-3. `.pdscenario` vs `.pdmission` extension name.** Mike open per directive 1. Audit recommends `.pdscenario` for genre neutrality (covers SP missions, MP maps, firing range, future modes).
-- **Q-4. `.pdcharacter` as a separate extension from `.pdmesh`.** Extrapolation E-7. The visual layer (`.pdmesh`) and behavioral layer (animations, sprint integration, attach-point usage, voice-line triggers) may want a split. Surface for Mike's call.
-- **Q-5. Quarantine retention deeper than 1 snapshot.** Directive 7 specifies "up to 1 version." Audit honors that. Extrapolation: should LOUDFAIL fire when an existing quarantine entry is overwritten by a new corruption (the modder's older accidental edit is now lost)? Recommend yes; Mike to confirm.
-- **Q-6. Multi-ROM data layout: `data/<romid>/` subdirs vs single shared `data/`.** Extrapolation E-3 recommends per-romid subdirs. Mike's confirmation is needed for the runtime expansion (directive 15).
+- **Q-1. `.pdmodpack` storage model.** RESOLVED: contain (Section 3.16.1).
+- **Q-2. Multi-mod override precedence.** RESOLVED: positional defaults via `load_after:` / `load_before:` plus optional `priority:` field plus drag-reorder UI (Section 3.16.2).
+- **Q-3. `.pdscenario` vs `.pdmission` extension name.** RESOLVED: `.pdscenario` confirmed; SP-MP unified via `modes:` block in the schema, with map variants as suffix-named siblings (Section 3.16.3).
+- **Q-4. `.pdcharacter` as a separate extension from `.pdmesh`.** RESOLVED: yes, distinct extension and distinct catalog asset type. `.pdmesh` is now strictly static-mesh-visual-only (Section 3.16.4). The Q-4 walkthrough also produced refinements on dependency manifests, optional + fallback deps, and circular-dependency prevention (Sections 3.16.5 / 3.16.6 / 3.16.7).
+- **Q-5. Quarantine retention deeper than 1 snapshot.** RESOLVED: counter-based LOUDFAIL with session reset; one snapshot retained but distinct LOUDFAIL message when overwritten, with per-asset counter that resets when the file stops being touched (Section 3.16.8).
+- **Q-6. Multi-ROM data layout.** RESOLVED: per-romid subdirs with priority-list ROM selection at extraction time (NTSC-final preferred), plus session-cache for cross-region multiplayer (Sections 3.16.9, 3.16.10).
 
 **Self-extrapolations (independent additions; Mike to review):**
 
@@ -951,9 +953,379 @@ This section surfaces points where Mike's directives left a question open or whe
 - **E-17. `.pdtiles` and `.pdseg` are split sub-resources of `.pdscenario`.** Geometry (`.pdseg`) and walkable surfaces (`.pdtiles`) are sub-resources of a stage. Keep separate so they can be swapped independently. Each `.pdscenario` references both by catalog ID.
 - **E-18. Override audit log on startup.** Catalog logs every active override at startup with `CATALOG: override <catalog_id> base=<path> mod=<modname> at <path>`. Audit-loggable; LOUDFAIL when an override declaration cannot be resolved.
 
-### 3.16 Priority order
+### 3.16 Mod architecture refinements (Pass 3, 2026-04-30)
 
-Ranked by leverage (impact / cost) for the next 1 to 4 sessions, updated to reflect Mike's directives:
+After Mike walked through a Halo fusion-coil prop-mod authoring flow, the open questions Q-1 through Q-6 were resolved with a set of architectural refinements. The compound-mod plus dependency-graph plus session-cache framing emerged from that walkthrough. Recording the resolutions here as authoritative; the prior open-question list (Section 3.15) has been updated to point here.
+
+#### 3.16.1 Modpack storage = contain (Q-1 resolved)
+
+Confirmed default. `.pdmodpack` is a ZIP archive of `.pdmod` files plus a `pack.json` metadata file. On install, the mod manager extracts the constituent `.pdmod` files into `mods/<packname>/<modname>.pdmod` and writes a `mods/<packname>/pack.json` recording the constituent mod IDs. Reference model is rejected for v1.
+
+Reasons restated: self-contained distribution (works offline), reversible install, no fetch-at-install fragility, matches `.zip`-based workflows everywhere else. Acceptable trade-off: duplicated bytes if a user has the same mod installed standalone and inside a pack.
+
+#### 3.16.2 Load order with positional defaults (Q-2 resolved)
+
+Mods declare partial-ordering hints in their `mod.json`:
+
+```json
+{
+    "id": "modder:my_falcon_overhaul",
+    "version": "1.0.0",
+    "load_after": ["modder:base_combat_overhaul"],
+    "load_before": ["modder:experimental_falcon_replacement"],
+    "priority": 100
+}
+```
+
+The mod manager resolves all enabled mods' partial-ordering constraints into a load sequence via topological sort. Tie-break rule: explicit `priority:` field wins over positional defaults; ties on priority resolve by alphanumeric ID order (deterministic).
+
+User-facing override: drag-reorder UI in the modding hub. Reordering a mod manually pins it to that position regardless of the positional defaults declared by the mod author. The override persists across launches.
+
+Why positional defaults are better than absolute load order numbers:
+
+- Modders cannot anticipate the absolute position of their mod in a user's load list (the user has N other mods installed).
+- `load_after: [other-mod]` expresses what the modder actually knows ("my mod overrides what `other-mod` does to weapons; load me after them").
+- The mod manager handles the global resolution; modders only need to declare local constraints.
+
+Cycle detection (Section 3.16.7) applies if `load_after` / `load_before` declarations form a cycle.
+
+#### 3.16.3 SP-MP unification via game-mode block (Q-3 resolved)
+
+`.pdscenario` schema gains a `modes:` block. Each scene declares per-mode initialization. Loader picks the active mode's block at scene init.
+
+```json
+{
+    "catalog_id": "scenario_skedar_temple",
+    "display_name": "Skedar Temple",
+    "geometry_id": "geo_skedar_temple",
+    "tiles_id": "tiles_skedar_temple",
+    "modes": {
+        "campaign": {
+            "enemies": [...],
+            "objectives": [...],
+            "ai_paths": [...]
+        },
+        "combat_sim": {
+            "spawn_points": [...],
+            "default_weapon_set": "wepset_classic",
+            "supported_modes": ["combat", "kingofthehill", "capturetheflag"]
+        },
+        "forge": {
+            "editor_bounds": [...],
+            "default_player_position": [0, 0, 0]
+        }
+    }
+}
+```
+
+Hardcoded MP spawn points for campaign maps live in the canonical scenario's `modes.combat_sim` block. One scenario file, multiple game-mode initializations.
+
+**Map variants are siblings via suffix naming (per directive 5).** A zombies-mode variant of Skedar Temple is `scenario_skedar_temple-zombies.pdscenario`, a distinct catalog ID. The variant inherits geometry / tiles / textures from the canonical scenario by reference (catalog ID lookups), but carries its own `modes:` block (or only the relevant mode entries). Treat as independent assets in the catalog; the suffix is human-readable provenance.
+
+#### 3.16.4 `.pdcharacter` as a compound asset (Q-4 resolved)
+
+`.pdcharacter` is now a confirmed distinct extension and a distinct catalog asset type from `.pdmesh`. Definitions:
+
+| Extension | Asset type | Contains |
+|---|---|---|
+| `.pdmesh` | Static mesh (visual geometry only) | Vertices, materials, texture references. No skeleton, no behavior. Spawnable as a passive visual prop. |
+| `.pdcharacter` | Compound character | Skeletal mesh + animation references + audio references + attach points + behavior block. The full character, not just the geometry. |
+| `.pdprop` | Spawnable prop with logic | Geometry plus physics plus stats plus behavior block. See Section 3.17 worked example. |
+
+Schema sketch for `.pdcharacter` (extrapolation from Mike's framing):
+
+```json
+{
+    "catalog_id": "character_carrington",
+    "display_name": "Daniel Carrington",
+    "skeletal_mesh": "mesh_carrington_skeletal.pdmesh",
+    "skeleton": {
+        "bones": [...],
+        "rest_pose": {...}
+    },
+    "animations": [
+        { "ref": "anim_carrington_idle", "alias": "idle" },
+        { "ref": "anim_carrington_run",  "alias": "run" }
+    ],
+    "audio": {
+        "voice_lines": ["voice_carrington_intro_01", "voice_carrington_intro_02"],
+        "footstep_sfx": "sfx_footstep_default"
+    },
+    "attach_points": [
+        { "name": "HEAD_TOP", "bone": "HEAD",  "transform": [0, 0.2, 0] }
+    ],
+    "behavior": {
+        "default_state": "idle",
+        "states": [
+            { "id": "idle", "loop_anim": "idle" },
+            { "id": "running", "loop_anim": "run", "audio_loop": "sfx_running" }
+        ],
+        "transitions": [
+            { "from": "idle", "to": "running", "on": "input_sprint_pressed" }
+        ]
+    }
+}
+```
+
+Differences from `.pdmesh` enforced by the catalog: a `.pdcharacter` registers as `ASSET_CHARACTER`, a `.pdmesh` as `ASSET_MESH`, a `.pdprop` as `ASSET_PROP`. Spawn code paths differ (character spawn instantiates skeletal animator + AI hooks; mesh spawn instantiates visual-only; prop spawn instantiates physics + behavior).
+
+The behavior block uses the logic system (state machines: states, transitions, triggers, actions). Authoring tools in the client expose this declaratively. Logic system itself is out of scope for this audit; track as a future architectural pillar.
+
+#### 3.16.5 Reverse dependency manifest (Q-4 follow-up)
+
+Each atomic mod's `mod.json` declares forward dependencies (`requires:` block, see 3.16.6). The catalog computes the reverse manifest at load time by walking all enabled compound mods' `requires:` blocks.
+
+Each atomic mod's runtime state acquires a derived `required_by:` list:
+
+```
+modder:fusion_coil_boom (atomic .pdsfx mod):
+  required_by: [modder:halo_fusion_coil, modder:halo_starter_pack, modder:demolition_set]
+```
+
+This is a runtime-derived field, not a stored manifest field. It cannot be authored; only consumed.
+
+UX consequence: disabling or removing an atomic mod with a non-empty `required_by:` list triggers a user prompt:
+
+> "This mod is required by:
+>   - modder:halo_fusion_coil
+>   - modder:halo_starter_pack
+>   - modder:demolition_set
+> Disabling it will break those mods. Continue?"
+
+Modder cannot accidentally pull a foundational atomic that other compounds depend on without an explicit confirm.
+
+#### 3.16.6 Optional plus fallback dependencies (Q-4 follow-up)
+
+Compound mods can declare a dependency as optional, with a fallback. Schema sketch:
+
+```json
+{
+    "id": "modder:halo_fusion_coil",
+    "type": "prop",
+    "requires": [
+        { "id": "modder:fusion_coil_boom",   "kind": "audio" },
+        { "id": "modder:explosion_vfx_sphere", "kind": "vfx", "optional": true,
+          "fallback": "base:vfx_explosion_default" }
+    ]
+}
+```
+
+Loader rule: if an `optional: true` dep is missing at load time, the loader resolves the asset reference to the `fallback` ID instead. The compound mod loads cleanly with degraded visuals / audio.
+
+Use case: a Halo modpack ships a custom explosion VFX, but a user installing only the fusion-coil prop without the modpack falls back to the base explosion. The fusion-coil works in isolation.
+
+LOUDFAIL hits at `LOUDFAIL.CATALOG` when a non-optional dep is missing (the compound fails to register entirely).
+
+#### 3.16.7 Circular dependency prevention (Q-4 follow-up)
+
+The catalog build performs topological sort on the dependency graph at startup:
+
+1. Build adjacency list from every enabled mod's `requires:` block (and `load_after:` / `load_before:` from 3.16.2).
+2. Run topological sort (Kahn's algorithm or DFS with white / grey / black coloring).
+3. On cycle detection, fire `LOUDFAIL.CATALOG` with the cycle path: "Cycle detected: A requires B, B requires C, C requires A. Mods refused to register: A, B, C."
+4. The cycle members fail to register entirely. The user sees a clear error and the catalog continues to build with the remaining (non-cyclic) mods.
+
+Cycles are pathological in the dependency graph (a normal mod ecosystem is a DAG). The detection exists to prevent silent infinite-loop or stack-blowout failure modes when a malformed mod ships.
+
+#### 3.16.8 Counter-based LOUDFAIL with session reset (Q-5 resolved)
+
+When a quarantine overwrite happens (newer corruption replaces an older quarantined file), the runtime logs a distinct `LOUDFAIL.HEAL.QUARANTINE_OVERWRITE` message:
+
+```
+LOUDFAIL.HEAL.QUARANTINE_OVERWRITE: data/weapons/weapon_falcon2.pdwpn (count=3 this session): newer corruption detected; previous quarantine snapshot from 2026-04-29 14:22 has been overwritten
+```
+
+A per-asset counter is incremented each time. Counter is persisted across launches (so users see the cumulative behavior pattern across sessions), but resets when the file is no longer being touched in subsequent runs. Specifically: if a launch verifies the file's hash without triggering self-heal, the counter resets to zero.
+
+Distinction Mike drew: this only matters if it can ruin Base Game experience. A user intentionally editing files in `data/` to mod the base game is not the alarm; the alarm is when self-heal repeatedly has to overwrite older quarantines because the user is unintentionally re-corrupting. The counter measures the architectural concern, not the user behavior concern.
+
+UI consequence: the Settings panel can show a "self-heal events: <count> this session" indicator. When count > 0, modder is alerted that something unusual is happening with their `data/` tree.
+
+#### 3.16.9 Priority-list ROM selection (Q-6 resolved)
+
+When the user has multiple PD ROM files in `data/` (e.g. `pd.ntsc-final.z64` plus `pd.pal-final.z64`), the extractor uses an internal priority list to pick which one to extract from:
+
+| Priority | ROM ID |
+|---|---|
+| 1 | ntsc-final |
+| 2 | pal-final |
+| 3 | ntsc-1.0 |
+| 4 | jpn-final |
+| 5 | pal-beta |
+| 6 | ntsc-beta |
+
+Recommendation rationale: NTSC-final is the primary decompilation target; PAL-final is the next-most-tested; betas are last because they have the most quirks.
+
+Client uses the first detected match for extraction; ignores the others. Player UI in Settings can override the auto-selection (force a specific ROM ID even if a higher-priority ROM is present). Avoids extracting from multiple ROMs simultaneously, which would waste disk and create cross-version contamination.
+
+Implementation: at startup, the bootstrap extractor scans `data/` for `pd.<romid>.z64` files (or whatever per-ROM file naming the project uses), hashes each against `s_KnownRomHashes`, and picks the highest-priority validated match.
+
+#### 3.16.10 Cache-only base distribution to mismatched peers (Q-6 follow-up)
+
+Networking integration for the multi-ROM model. When a player joins a host whose extracted base content differs from the joining peer's (different region quirks, modded asset variants, different ROM version selected), the host can stream the differing base content into the joining peer's `data/.session-cache/` for the duration of the session.
+
+Mechanics:
+
+- Catalog computes the diff at session-join handshake (host sends asset-ID-plus-hash list; peer responds with which it has matching, which it lacks).
+- Host streams the lacking assets over the existing ENet protocol channel (or a dedicated "asset transfer" channel; out of scope for this audit).
+- Peer writes received assets to `data/.session-cache/<host_session_id>/`. This directory is NOT marked read-only (it is session-scratch, not extracted base).
+- Catalog routes asset lookups to `data/.session-cache/` first for the active host's content, falls back to local `data/` extracts otherwise.
+- On disconnect, `data/.session-cache/<host_session_id>/` is evicted entirely.
+- Session cache is ephemeral and local. Player does NOT accumulate ROM-derived content from other players' ROMs across sessions (that would be redistribution, not BYOR).
+
+Why this matters: a US-region player joins an EU-region host's match. Their ROMs differ subtly (PAL voice samples, different localized text, region-specific level tweaks). Without session-cache, the game has either silent desync (peer plays with their NTSC content while host plays PAL) or a hard ban on cross-region play. Session-cache lets the peer experience the host's content for that session without polluting their permanent extracts.
+
+Privacy / legal framing: the peer is not retaining or redistributing the host's content. The session-cache is functionally identical to streaming video: bits cross the wire for playback, then evict. Compare to OpenRCT2 cross-version play, which behaves similarly.
+
+Implementation surface: `port/src/net/` integration with the catalog. The catalog gets a third asset-provider (alongside `assetprovider_rom.c` and the future `assetprovider_data.c`): `assetprovider_session_cache.c`. Out of scope for this audit; flagged as a future networking-layer integration.
+
+### 3.17 Worked example: authoring a Halo fusion-coil prop mod
+
+To illustrate the per-asset-class extension model plus compound-mod plus dependency-graph framing in concrete terms, here is the end-to-end shape of a modder authoring a Halo-style fusion-coil prop mod.
+
+#### 3.17.1 Goal
+
+The modder wants to add a destructible fusion coil prop:
+
+- A pulsing-orange-emissive cylinder that spawns as a placeable object in arenas and missions.
+- Shootable. Damageable.
+- Below 25 percent health, the coil shakes and tints redder.
+- At zero health, explodes with VFX, spawns a custom boom audio cue, applies area-of-effect damage to nearby actors, removes itself.
+
+#### 3.17.2 Schema (the `.pdprop` file)
+
+```json
+{
+    "id": "modder:fusion_coil",
+    "type": "prop",
+    "geometry": {
+        "mesh": "fusion_coil.glb",
+        "skeleton": null
+    },
+    "textures": {
+        "diffuse": "coil_albedo.tga",
+        "emissive": {
+            "frames": ["coil_emit_0.tga", "coil_emit_1.tga", "coil_emit_2.tga"],
+            "fps": 12,
+            "loop": true
+        }
+    },
+    "physics": {
+        "shape": "cylinder",
+        "mass_kg": 8.0,
+        "shootable": true
+    },
+    "stats": {
+        "max_health": 50,
+        "spawn_health": 50
+    },
+    "behavior": {
+        "on_health_below": [
+            {
+                "threshold_pct": 25,
+                "tint": [1.0, 0.3, 0.2],
+                "loop_anim": "shake_warning"
+            }
+        ],
+        "on_destroyed": {
+            "spawn_vfx": "vfx:explosion_medium",
+            "spawn_audio": "modder:fusion_coil_boom",
+            "aoe_damage": {
+                "radius": 4.0,
+                "amount": 75,
+                "falloff": "linear"
+            },
+            "remove_self": true
+        }
+    }
+}
+```
+
+Field anatomy:
+
+- **`id`**: catalog ID, namespaced under the modder's namespace (`modder:`). Distinct from base namespace (`base:`) and ROM-extracted namespace (`data:` if needed; see Section 3.4).
+- **`type`**: `"prop"` registers the asset as `ASSET_PROP` in the catalog. Distinguishes from `ASSET_MESH` (visual-only) and `ASSET_CHARACTER` (skeletal plus behavior).
+- **`geometry`**: references the bundled `fusion_coil.glb` (binary mesh asset shipped inside the `.pdprop` archive alongside this manifest).
+- **`textures.emissive`**: animated texture with frame list and FPS, demonstrating that the schema accommodates non-trivial visual effects without engine-side hardcoding.
+- **`physics`**: shape, mass, shootable flag for the physics-collision pillar to ingest.
+- **`stats`**: simple key-value record for the gameplay layer. Mod author's design choice; engine consumes generic field names.
+- **`behavior`**: state-machine block. `on_health_below` is a watcher that fires when the prop's health drops below a threshold; `on_destroyed` is an event handler firing when health hits zero. Actions inside (`spawn_vfx`, `spawn_audio`, `aoe_damage`, `remove_self`) are vocabulary the logic system understands.
+
+#### 3.17.3 Packaging recommendation: atomic
+
+Recommend authoring this as an atomic mod: a self-contained `.pdprop` file that bundles its mesh, textures, and audio inline. The mod ships as a single `.pdmod` archive with this layout:
+
+```
+modder_fusion_coil.pdmod                     # ZIP archive
+  mod.json                                    # standard mod manifest, type=prop
+  props/fusion_coil.pdprop                    # the manifest above
+  meshes/fusion_coil.glb                      # bundled mesh
+  textures/coil_albedo.tga
+  textures/coil_emit_0.tga
+  textures/coil_emit_1.tga
+  textures/coil_emit_2.tga
+  audio/sfx/fusion_coil_boom.pdsfx            # bundled custom audio
+  audio/sfx/fusion_coil_boom.bin              # the audio sample data
+```
+
+The `mod.json` declares one external optional dependency (the explosion VFX, fallback to base):
+
+```json
+{
+    "id": "modder:fusion_coil",
+    "version": "1.0.0",
+    "display_name": "Halo Fusion Coil",
+    "type": "prop",
+    "author": "MyModder",
+    "requires": [
+        { "id": "vfx:explosion_medium", "kind": "vfx", "optional": true,
+          "fallback": "base:vfx_explosion_default" }
+    ]
+}
+```
+
+Atomic packaging is the default recommendation because:
+
+- Self-contained. Modder ships one file; user installs one file; everything works.
+- Round-trip clean: the modder edits in the in-client tool, saves, the file is the canonical shape (per directive 3 from Pass 1).
+- No external dependency-resolution at install time. The catalog handles the optional VFX dep at load time.
+
+#### 3.17.4 Packaging alternative: compound
+
+Compound packaging is also viable when assets are genuinely shared across multiple mods. Example: a Halo modpack with shared explosion VFX as its own atomic dep:
+
+- `modder:halo_explosion_vfx` (atomic `.pdmod`): the shared VFX. Published independently.
+- `modder:fusion_coil_boom` (atomic `.pdmod`): the shared audio. Published independently.
+- `modder:halo_fusion_coil` (compound `.pdmod`): the prop. Declares `requires: [modder:halo_explosion_vfx, modder:fusion_coil_boom]`.
+
+The compound is smaller (does not duplicate VFX or audio); installs all three atomic mods together via a `.pdmodpack` (Section 3.16.1). Section 3.16.5 reverse-dep manifest applies: disabling `modder:fusion_coil_boom` while `modder:halo_fusion_coil` is enabled triggers the user-prompt warning.
+
+Decision matrix:
+
+- Single mod, no shared dependencies, modder controls all assets: **atomic** (default).
+- Multiple mods sharing assets, want to publish modularly: **compound** with explicit `requires:` declarations.
+- Curated bundle of related mods for distribution: **modpack** (Section 3.16.1) wrapping multiple atomic / compound mods.
+
+#### 3.17.5 Behavior block: the logic system
+
+The `behavior` block uses the logic system: a state machine with triggers and actions. Triggers are events the engine fires (`on_health_below`, `on_destroyed`, `on_spawn`, `on_player_proximity`, etc.). Actions are operations the engine knows how to execute (`spawn_vfx`, `spawn_audio`, `aoe_damage`, `tint`, `loop_anim`, `remove_self`, etc.).
+
+Authoring tools in the client expose this declaratively. The modder picks triggers and actions from a UI palette; no code is required from the modder.
+
+Implementation surface: the logic system itself is a future architectural pillar (logic engine + trigger registry + action registry). Out of scope for this audit; flagged so that the schema sketch above is understood as forward-looking. The behavior block's exact vocabulary is a follow-on design task.
+
+#### 3.17.6 What this example demonstrates
+
+- **Per-asset-class extensions** (`.pdprop`, `.pdsfx`, `.pdmod`) make file purpose self-evident. A glance at the mod archive shows what it contains.
+- **Catalog-mediated references** (`vfx:explosion_medium`, `modder:fusion_coil_boom`, `base:vfx_explosion_default`) decouple authoring from filesystem layout. The modder writes IDs, not paths; the catalog resolves at load time.
+- **Optional plus fallback dependencies** (Section 3.16.6) let the modder ship a self-contained mod that gracefully degrades when optional dependencies are absent.
+- **Compound vs atomic packaging** decision sits with the modder, supported by the catalog's dependency-graph (Sections 3.16.5 / 3.16.7).
+- **Symmetric schema** (per Mike's prior directive): the same `.pdprop` shape would describe a base-extracted prop (e.g. base PD's destructible barrels) and a modder-authored one. Loader has one parsing path.
+- **Behavior via state machine, not code**: the modder declares triggers and actions; the logic system executes. No programming required.
+
+### 3.18 Priority order
+
+Ranked by leverage (impact / cost) for the next 1 to 4 sessions, updated to reflect Mike's directives plus the Pass 3 refinements (Section 3.16) and worked example (Section 3.17):
 
 1. **Document the architectural principle in `context/roadmap.md` and `context/pillars/catalog.md`.** Cost: zero code, one doc edit. Locks in the direction; future sessions cascade from it. (This audit is the first half of that documentation.)
 2. **Populate ROM SHA-256 known-good hashes (`port/src/romdata.c:227-246`).** Cost: trivial (one-time, capture from log on each ROM version). Per directive 13, this is the gate for correct offset selection in the extractor.
@@ -1018,9 +1390,9 @@ Items 11+ are the asset-class-by-asset-class migration (mesh, audio split into m
 - `context/designs/catalog/catalog-full-pipeline-weapons.md` (F1-F10 plus F11-F13 weapons catalog work, F12-F13 lane CLOSED 2026-04-30)
 - `context/designs/modding/forge-level-editor.md` (FW-3 terrain editor reference)
 
-**Mike's directives applied (2026-04-30 Pass 2)**
+**Mike's directives applied (Pass 2 plus Pass 3, 2026-04-30)**
 
-Twenty directives logged in this audit:
+Twenty directives logged from Pass 2 plus six Q-resolution refinements from Pass 3 (Section 3.16) plus the worked example (Section 3.17):
 
 1. Extension naming (`.pdwpn` over `.pdwep`); definitions for `.pdtiles`, `.pdseg`, `.pdmpconfig`, `.pdtexconfig`, `.pdfiringrange`. (Sections 3.2)
 2. Audio extraction by category (music / sfx / voice). (Sections 3.2, 3.10 G-2)
@@ -1044,6 +1416,24 @@ Twenty directives logged in this audit:
 20. Mod tools load any base content as template. (Section 3.11 A-4; 3.13 M-8)
 
 Forward-looking notes tracked: accessories system (FW-1), mod-driven character behavior (FW-2), terrain editor (FW-3), bundled-with-release modpacks (FW-4), logging-pipeline cleanup pass (FW-5), ROM-free distribution (FW-6).
+
+**Pass 3 Q-resolutions (Section 3.16):**
+
+- Q-1 modpack storage = contain (3.16.1).
+- Q-2 load order with `load_after:` / `load_before:` positional defaults plus `priority:` plus drag-reorder UI (3.16.2).
+- Q-3 SP-MP unified via `modes:` block in `.pdscenario`; map variants are siblings via suffix naming (3.16.3).
+- Q-4 `.pdcharacter` distinct extension and distinct catalog asset type from `.pdmesh`; `.pdprop` introduced as third asset type (3.16.4). Plus reverse-dependency manifest (3.16.5), optional + fallback dependencies (3.16.6), circular-dependency prevention via topological sort (3.16.7).
+- Q-5 counter-based LOUDFAIL with session reset for quarantine overwrites (3.16.8).
+- Q-6 priority-list ROM selection at extraction time (3.16.9) plus session-cache for cross-region multiplayer (3.16.10).
+
+**Pass 3 worked example (Section 3.17):** end-to-end Halo fusion-coil prop mod authoring flow demonstrating per-asset-class extensions, catalog-mediated references, optional + fallback dependencies, atomic vs compound packaging trade-offs, and the behavior-as-state-machine model.
+
+**Pass 3 self-extrapolations beyond Mike's explicit text:**
+
+- E-19. `.pdprop` introduced as a third asset class distinct from `.pdmesh` (visual-only) and `.pdcharacter` (skeletal compound). Required by the worked example; folded into Section 3.2 extension table.
+- E-20. Logic system (state machine: triggers + actions) flagged as a future architectural pillar (Section 3.17.5). The behavior block schema sketches assume vocabulary the logic system understands; the system itself is out of scope for this audit.
+- E-21. `assetprovider_session_cache.c` as the third asset provider alongside ROM and data providers (Section 3.16.10). Networking-layer integration with the catalog. Out of scope; flagged for future networking-layer work.
+- E-22. ROM priority list ordering recommendation (NTSC-final > PAL-final > NTSC-1.0 > JPN-final > PAL-beta > NTSC-beta) per Section 3.16.9. Mike said "recommend" so I picked an order; flag if a different priority is preferred.
 
 End of audit.
 

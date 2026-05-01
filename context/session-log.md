@@ -54,6 +54,22 @@ Open questions logged for Mike's call: Q-1 modpack storage model, Q-2 multi-mod 
 
 Final audit dimensions: 1050 lines, zero em-dashes, sentinel marker intact, single `.pdwep` reference retained in directive-history footer to record the rename. The original `< 800 lines` stop condition no longer applies under the expanded scope.
 
+**Pass 3 (same session, 2026-04-30 PM later still)**: Mike walked through a Halo fusion-coil prop-mod authoring example and dictated Q-resolutions for all six open questions plus several refinements that emerged from the walkthrough. Doc rewritten to add Section 3.16 (Mod architecture refinements) and Section 3.17 (Worked example: Halo fusion coil); Section 3.18 (Priority order) preserved as the closer. Section 3.2 extension table extended with `.pdprop` and `.pdcharacter` as distinct catalog asset types. Section 3.15 open-question list updated to point at Section 3.16 for resolutions.
+
+Pass 3 Q-resolutions:
+- Q-1 modpack storage = contain (confirmed default).
+- Q-2 load order with `load_after:` / `load_before:` positional defaults plus `priority:` field plus drag-reorder UI.
+- Q-3 SP-MP unification via `modes:` block in `.pdscenario`; map variants as siblings via suffix naming (zombies-mode = `scenario_skedar_temple-zombies.pdscenario`); hardcoded MP spawn points for campaign maps live in canonical scenario's `modes.combat_sim` block.
+- Q-4 `.pdcharacter` distinct extension and distinct catalog asset type. `.pdprop` introduced as third asset type (spawnable props with logic, distinct from `.pdmesh` static-mesh-visual-only). Plus three follow-on refinements: reverse-dependency manifest (computed `required_by:` list with disable-warning prompt), optional + fallback dependencies in `requires:` block, circular-dependency prevention via topological sort with LOUDFAIL on cycle.
+- Q-5 counter-based LOUDFAIL with session reset for quarantine overwrites; counter persists across launches but resets when the file stops being touched.
+- Q-6 priority-list ROM selection at extraction time (NTSC-final > PAL-final > NTSC-1.0 > JPN-final > PAL-beta > NTSC-beta), with player UI override; session-cache for cross-region multiplayer (`data/.session-cache/<host_session_id>/`, ephemeral, evicted on disconnect).
+
+Pass 3 worked example: end-to-end Halo fusion-coil `.pdprop` schema with diffuse/emissive textures, physics, stats, behavior block (`on_health_below`, `on_destroyed`, `aoe_damage`); atomic vs compound packaging decision matrix; logic system as future pillar.
+
+Pass 3 self-extrapolations: E-19 `.pdprop` as third asset class; E-20 logic system as future architectural pillar; E-21 `assetprovider_session_cache.c` as third asset provider; E-22 ROM priority list ordering recommendation (Mike said "recommend" so I picked).
+
+Final audit dimensions: 1440 lines (up from 1050; +390 lines for Pass 3 = ~30% growth on top of Pass 2). Zero em-dashes. Sentinel marker intact. Cumulative growth from Pass 1 origin: 625 to 1440 lines (+130%).
+
 ---
 
 ## Session S482c (`festive-hawking-49649b` follow-up #7) - 2026-04-30 PM - Dev Window v2 blank-screen fix
