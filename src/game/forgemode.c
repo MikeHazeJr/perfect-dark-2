@@ -33,6 +33,7 @@
 #include "system.h"
 
 #include "actionmap.h"
+#include "pdgui.h"  /* B-195 / Fix 2+3: pdguiClearImGuiFocusAndNav on transitions */
 #include "scene.h"
 #include "game/env.h"
 #include "game/music.h"
@@ -548,6 +549,17 @@ static void forgeTransitionToNormal(const char *reason)
 	 * (USE / WEAPON_PREV / WEAPON_NEXT / FIRE_MODE). Safe to call when
 	 * already inactive -- imcDeactivate no-ops in that case. */
 	imcDeactivate(&g_ImcForge);
+
+	/* Fix 2+3 (2026-05-01, B-195 follow-up): the Forge editor window
+	 * (pdgui_forge_editor.cpp) stops rendering on the next frame because
+	 * pdguiForgeEditorRender early-returns on !forgeIsFreefly(). Any ImGui
+	 * NavWindow / ActiveID still pointing at editor widgets persists across
+	 * the visibility flip and re-asserts WantCaptureKeyboard=true on the
+	 * next keypress while the input-context stack reports gameplay-on-top
+	 * -- exactly the B-195 leak class. Clear focus + active-id at the
+	 * transition seam so the very first NORMAL-mode frame starts clean.
+	 * Idempotent: safe to call when ImGui has nothing focused. */
+	pdguiClearImGuiFocusAndNav();
 }
 
 static void forgeTransitionToFreefly(const char *reason)
@@ -644,6 +656,12 @@ static void forgeTransitionToInactive(const char *reason)
 	 * FREEFLY scope. Both are idempotent on already-inactive. */
 	imcDeactivate(&g_ImcForge);
 	imcDeactivate(&g_ImcForgeSession);
+
+	/* Fix 2+3 (2026-05-01, B-195 follow-up): see forgeTransitionToNormal
+	 * for the rationale. INACTIVE means the editor will be hidden on every
+	 * subsequent frame; clear ImGui focus so any held NavWindow / ActiveID
+	 * doesn't outlive the session. */
+	pdguiClearImGuiFocusAndNav();
 
 	/* Cleanup (2026-04-24): the Playtest HUD's Freeze All toggle mirrors
 	 * bs->all_frozen into g_BotUpdatesDisabled every forgeRuntimeTick.
