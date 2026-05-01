@@ -19,6 +19,7 @@
 #include "data.h"
 #include "types.h"
 #include "model_rodata_guard.h" /* S483b: per-tick rodata-validity guard */
+#include "game/surface_loco.h"  /* S594h-B Slice 2: chr root tilt to surface up */
 
 /**
  * -- Model Definitions --
@@ -818,6 +819,37 @@ void modelUpdateChrNodeMtx(struct modelrenderdata *arg0, struct model *model, st
 		}
 
 		mtx4LoadYRotationWithTranslation(sp254, sp250, &sp198);
+	}
+
+	/* Surface-normal locomotion (S594h-B Slice 2). chrRender publishes
+	 * the active surface-loco chr around its modelRender call; we read
+	 * its surface_up and compose a tilt rotation into sp198's 3x3 block
+	 * so the chr's animated body renders aligned to the floor normal.
+	 * The translation row stays as-is, so the tilt happens about the
+	 * chr's local origin before world placement.
+	 *
+	 * Applied only in the yaw+translation branch. ABSOLUTE_TRANSLATION
+	 * animations bake world-space positions and are typically used by
+	 * cutscenes; tilting them would break authored content. */
+	if (g_SurfaceLocoActiveChr != NULL
+			&& chrSurfaceLocoIsEnabled(g_SurfaceLocoActiveChr)
+			&& (g_Anims[anim->animnum].flags & ANIMFLAG_ABSOLUTETRANSLATION) == 0) {
+		Mtxf tilt;
+		Mtxf yaw_only;
+		Mtxf yaw_then_tilt;
+		chrSurfaceLocoBuildTiltMtx(g_SurfaceLocoActiveChr->surface_up, &tilt);
+		mtx4LoadYRotation(sp250, &yaw_only);
+		mtx00015be4(&tilt, &yaw_only, &yaw_then_tilt);
+
+		sp198.m[0][0] = yaw_then_tilt.m[0][0];
+		sp198.m[0][1] = yaw_then_tilt.m[0][1];
+		sp198.m[0][2] = yaw_then_tilt.m[0][2];
+		sp198.m[1][0] = yaw_then_tilt.m[1][0];
+		sp198.m[1][1] = yaw_then_tilt.m[1][1];
+		sp198.m[1][2] = yaw_then_tilt.m[1][2];
+		sp198.m[2][0] = yaw_then_tilt.m[2][0];
+		sp198.m[2][1] = yaw_then_tilt.m[2][1];
+		sp198.m[2][2] = yaw_then_tilt.m[2][2];
 	}
 
 	mtx00015be4(&sp198, &sp1d8, &sp158);

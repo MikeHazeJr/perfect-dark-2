@@ -1350,6 +1350,17 @@ struct chrdata {
 	 */
 	/*0x368*/ u32 generation;
 	u8 cutscene_protect;
+
+	/* Surface-normal locomotion (S594h-B Slice 1).
+	 * Per-chr local-up vector for chrs that walk on walls/ceilings.
+	 * Defaults to world-up (0,1,0) at chrInit; population is gated by
+	 * chrSurfaceLocoIsEnabled() (race default, per-chr override flag).
+	 * Slice 1 plumbs these inert; Slice 2 reads surface_up in the chr
+	 * render path; Slice 3 drives gravity / movement off it. */
+	f32 surface_up[3];
+	f32 surface_up_prev[3];
+	s16 surface_blend_frames;
+	u8 surface_loco_flags;
 };
 
 // This appears to be misnamed. Not only is it projectiles such as grenades and
