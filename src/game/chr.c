@@ -2430,14 +2430,14 @@ s32 chrTick(struct prop *prop)
 {
 	struct modelrenderdata sp210 = {0, 1, 3};
 	struct chrdata *chr = prop->chr;
-	struct model *model = chr->model;
+	struct model *model;
 	bool needsupdate;
 	bool hatvisible = true;
 	s32 lvupdate240 = g_Vars.lvupdate240;
 	struct prop *child;
 	struct prop *next;
 	bool fulltick = false;
-	s32 race = CHRRACE(chr);
+	s32 race;
 	s32 sp1e8;
 	Mtxf sp1a8;
 	s32 sp1a4;
@@ -2450,6 +2450,26 @@ s32 chrTick(struct prop *prop)
 	f32 sp178;
 	struct hoverbikeobj *bike;
 	u8 stack[0x28];
+
+	/* B-264 (2026-04-30): defense-in-depth.  A chr that has been through
+	 * chrRemove (chrnum=-1, model=NULL) but whose prop was NOT freed
+	 * stays in the activeprops list and arrives here next frame. Touching
+	 * chr->model in any callee AVs.  The canonical fix is at the despawn
+	 * site (chrRemove + propDelist + propDisable + propFree) -- this
+	 * guard is the safety net for any future caller that follows the
+	 * old chrRemove-only pattern.  Returning TICKOP_FREE makes the prop
+	 * tick dispatcher run the proper free path on the prop. */
+	if (chr == NULL || chr->chrnum < 0 || chr->model == NULL) {
+		sysLogPrintf(LOG_WARNING,
+			"CHR.STALE.MISS: chrTick on stale chr prop=%p chr=%p chrnum=%d model=%p -- requesting free",
+			(void *)prop, (void *)chr,
+			(chr ? (int)chr->chrnum : -2),
+			(void *)(chr ? chr->model : NULL));
+		return TICKOP_FREE;
+	}
+
+	model = chr->model;
+	race = CHRRACE(chr);
 
 	if (prop->flags & PROPFLAG_NOTYETTICKED) {
 		fulltick = true;

@@ -52,7 +52,18 @@
 #include <string.h>
 #include <math.h>
 
+/* Forward declare so that atan2f resolves in C++ context. <math.h> exposes
+ * it as ::atan2f in the global namespace on MinGW; redeclaring with the
+ * same C linkage is harmless and avoids a build break if a future header
+ * order change hides it. */
+extern "C" float atan2f(float y, float x);
+
 extern "C" {
+
+/* From src/game/chraction.c -- proper chr position update that syncs
+ * model root, room registration, and ground tracking. */
+extern bool chrSetPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms,
+	f32 theta, bool findground);
 
 /* ------------------------------------------------------------------
  * GL 4.3 compute symbols loaded on demand
@@ -334,14 +345,35 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 		sizeof(boid_record) * count, s_BoidScratch);
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-	/* Apply to chr positions */
+	/* Apply to chr positions via chrSetPos so the model root, ground
+	 * tracking, and room registration stay in sync with the new
+	 * position. Direct prop->pos writes leave the model rendering at
+	 * the old root location. Heading is derived from the velocity
+	 * vector the shader produced; idle (vel ~ 0) keeps the existing
+	 * yaw. findground=true so chrs follow uneven floors. */
 	for (s32 i = 0; i < count; i++) {
 		struct chrdata *chr = chrs[i];
-		if (chr && chr->prop) {
-			chr->prop->pos.x = s_BoidScratch[i].px;
-			chr->prop->pos.y = s_BoidScratch[i].py;
-			chr->prop->pos.z = s_BoidScratch[i].pz;
+		if (!chr || !chr->prop || chr->chrnum < 0 || chr->model == NULL) {
+			continue;
 		}
+		struct coord newpos;
+		newpos.x = s_BoidScratch[i].px;
+		newpos.y = s_BoidScratch[i].py;
+		newpos.z = s_BoidScratch[i].pz;
+
+		float vx = s_BoidScratch[i].vx;
+		float vz = s_BoidScratch[i].vz;
+		f32 face_deg = 0.0f;
+		if (vx * vx + vz * vz > 0.001f) {
+			face_deg = atan2f(vx, vz) * (180.0f / 3.14159265f);
+			if (face_deg < 0.0f) face_deg += 360.0f;
+		}
+
+		RoomNum rooms[8];
+		for (s32 r = 0; r < 8; r++) {
+			rooms[r] = chr->prop->rooms[r];
+		}
+		chrSetPos(chr, &newpos, rooms, face_deg, true);
 	}
 }
 

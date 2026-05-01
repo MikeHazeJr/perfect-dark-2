@@ -51,9 +51,10 @@ s32 swarmTestGetActiveCount(void);
 s32 swarmTestGetKillCount(void);
 
 /* Compile-time config. The cycle stops at 256 (top-of-cycle, per the
- * directive) and wraps back to 4. */
-#define SWARM_TEST_CYCLE_STEPS    7
-extern const s32 SWARM_TEST_CYCLE[SWARM_TEST_CYCLE_STEPS];  /* 4,8,16,32,64,128,256 */
+ * directive) and wraps back to 4. 48 added 2026-04-30 per Mike's
+ * directive: it's the curve-bend probe between 32 and 64. */
+#define SWARM_TEST_CYCLE_STEPS    8
+extern const s32 SWARM_TEST_CYCLE[SWARM_TEST_CYCLE_STEPS];  /* 4,8,16,32,48,64,128,256 */
 
 #ifdef __cplusplus
 } /* extern "C" */
