@@ -402,7 +402,16 @@ struct model *bodyAllocateModel(s32 bodynum, s32 headnum, u32 spawnflags)
 			"-- catalog not registered, body model will be missing",
 			bodynum);
 	}
-	if (headnum >= 0 && headnum != HEAD_RANDOM_GENDER && !head_canon) {
+	/* Integrated-head bodies (Skedar, Dr Caroll, EyeSpy) carry their head
+	 * geometry inside the body model itself; the headnum slot is unused
+	 * by the body alloc path. The S593g gate below skips the warning for
+	 * those bodies so a swarm-test session (which spawns 256 Skedars in
+	 * one frame) does not flood the log with 256 head-canon misses that
+	 * are structurally meaningless. The warning still fires for normal
+	 * (separate-head) bodies where a missing catalog head IS a real
+	 * load-time problem. */
+	if (headnum >= 0 && headnum != HEAD_RANDOM_GENDER && !head_canon
+			&& !catalogGetBodyIsComplete(bodynum)) {
 		sysLogPrintf(LOG_WARNING,
 			"CHR.DIAG: bodyAllocateModel head_canon=NULL for headnum=%d "
 			"-- catalog not registered, head model will be missing",
