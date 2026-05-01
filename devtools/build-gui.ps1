@@ -115,7 +115,7 @@ $cbTarget = New-Object System.Windows.Forms.ComboBox
 $cbTarget.Location = New-Object System.Drawing.Point(320, 28)
 $cbTarget.Width = 120
 $cbTarget.DropDownStyle = "DropDownList"
-[void]$cbTarget.Items.AddRange(@("all", "client", "server"))
+[void]$cbTarget.Items.AddRange(@("all", "client", "server", "updater"))
 $cbTarget.SelectedIndex = 0
 
 $chkClean = New-Object System.Windows.Forms.CheckBox

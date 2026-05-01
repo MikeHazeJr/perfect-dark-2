@@ -20,7 +20,7 @@
 #>
 
 param(
-    [ValidateSet("client", "server", "tests", "all")]
+    [ValidateSet("client", "server", "updater", "tests", "all")]
     [string]$Target = "all",
 
     # Stable per-session identifier. Reuse it for incremental rebuilds inside

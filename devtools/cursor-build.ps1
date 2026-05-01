@@ -33,7 +33,7 @@
 #>
 
 param(
-    [ValidateSet("client", "server", "all")]
+    [ValidateSet("client", "server", "updater", "all")]
     [string]$Target = "all",
 
     [string]$Version = "",
