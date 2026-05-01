@@ -413,25 +413,39 @@ static struct chrdata *spawn_one_skedar(struct coord *pos, RoomNum *rooms)
 	chr->maxdamage = 4.0f;
 	chr->damage    = 0.0f;
 
-	/* Skedar collision radius -- chrInit defaults to 20, halved by
-	 * the 0.5x scale below this gives a 10-unit perim. Set to 30
-	 * (player capsule size) before scaling so the half-scale chr ends
-	 * up with a 15-unit perim, still meaningful for player + chr-vs-chr
-	 * collision while matching the 0.5x visual size. */
-	chr->radius = 30;
+	/* Half collision radius + height to match the half visual scale.
+	 *
+	 * S593f (2026-05-01): Mike's 2026-05-01 playtest after S593e
+	 * confirmed visual/collision scale mismatch -- "I think the tiny
+	 * skedar still had regular sized colliders." The collision system
+	 * reads `chr->radius` and `chr->height`, NOT `chr->model->scale`,
+	 * so halving the model's visual size left the collider at the
+	 * full body-level radius. With 256 chrs spawned at radius 600,
+	 * the per-chr arc length (600 * 2pi / 256 ~= 14.7) was less than
+	 * 2 * radius (60) -- every chr fully overlapped its neighbours,
+	 * the per-chr collision-resolution loop in chrCalculatePushPos
+	 * could not find a clear push direction, and the bots froze
+	 * exactly where they were spawned. Mike's "stuck inside each
+	 * other" hint pointed at this directly.
+	 *
+	 * Default chrInit radius is 20; body.c sets per-body overrides
+	 * (DRCAROLL=30, CHICROB=42; Skedar inherits chrInit's 20). For
+	 * half-size we use 15, paired with chr->height = 92 (half of
+	 * the chrInit default 185). These are the canonical collision
+	 * fields the engine consults regardless of model scale. */
+	chr->radius = 15;
+	chr->height = 92;
 
 	/* Half-scale model. The scale stored on `model->scale` is NOT a
 	 * "0.5 = half size" multiplier on its own -- it's combined with
-	 * `model->definition->scale` (typically ~1000 for chr bodies) and
-	 * `bodyAllocateModel` initializes `model->scale` to a small value
-	 * (`scale = scaleRaw * 0.1` in body.c:204, then multiplied by
-	 * body-specific height variation) so the FINAL `model->scale` is
-	 * roughly 0.07-0.10 for a normal Skedar. Setting it to 0.5
-	 * directly (the prior implementation) produced ~7x natural size,
-	 * which Mike's playtest observed as "huge bots". The correct
-	 * "half normal size" is to multiply whatever `bodyAllocateModel`
-	 * left there by 0.5 -- preserves body-specific height variation
-	 * + skel-class scaling, just halves it. */
+	 * `model->definition->scale` (~2293 for Skedar per the playtest
+	 * log line "modeldef->scale=2293.28"), and `bodyAllocateModel`
+	 * initializes `model->scale` to a small value (`scale = scaleRaw
+	 * * 0.1` in body.c:204, then multiplied by body-specific height
+	 * variation) so the FINAL `model->scale` is roughly 0.07-0.10
+	 * for a normal Skedar. The S593e fix multiplies by 0.5 instead
+	 * of replacing -- preserves body-specific height variation +
+	 * skel-class scaling, just halves it. */
 	if (chr->model) {
 		modelSetScale(chr->model, chr->model->scale * 0.5f);
 	}
@@ -521,9 +535,29 @@ static void despawn_all(void)
 }
 
 /* ------------------------------------------------------------------
- * Spawn N skedars in a ring around the player
+ * Spawn N skedars in concentric rings around the player.
+ *
+ * S593f (2026-05-01): the prior single-ring implementation packed
+ * every chr at radius=600 regardless of count. With 256 chrs and a
+ * collision diameter of 30 (post-half-scale), the per-chr arc length
+ * (600 * 2pi / 256 ~= 14.7) was less than the chr's footprint, and
+ * every chr spawned overlapping its neighbours. The collision
+ * resolver then could not find a non-overlap push direction, and
+ * the bots froze in place -- Mike's "256 wave didn't apply
+ * movement at all, just stuck where they were spawned" symptom.
+ *
+ * Multi-ring layout: each ring carries up to SWARM_PER_RING chrs at
+ * a radius that grows in fixed steps. SWARM_PER_RING = 24 leaves
+ * generous arc spacing (600 * 2pi / 24 ~= 157 per chr) for the
+ * first ring; each subsequent ring is 200 units further out. At 256
+ * chrs that gives 11 rings reaching out to ~2600 units, with
+ * spacing always larger than the chr footprint. Bots from the
+ * outer rings have farther to travel but the AI handles that
+ * natively (chrTryStop / chrMoveAlongPath).
  * ------------------------------------------------------------------ */
-#define SWARM_RING_RADIUS  600.0f
+#define SWARM_RING_RADIUS_BASE   600.0f
+#define SWARM_RING_STEP          200.0f
+#define SWARM_PER_RING           24
 
 static void respawn_ring(s32 count)
 {
@@ -543,11 +577,22 @@ static void respawn_ring(s32 count)
 
 	s32 spawned = 0;
 	for (s32 i = 0; i < count; i++) {
-		f32 ang = (2.0f * 3.14159265f) * ((f32)i / (f32)count);
+		const s32 ring     = i / SWARM_PER_RING;
+		const s32 in_ring  = i % SWARM_PER_RING;
+		/* Distribute the LAST ring's chrs evenly when the ring isn't
+		 * full; otherwise lock to SWARM_PER_RING positions. */
+		s32 ring_size = SWARM_PER_RING;
+		const s32 last_ring = (count - 1) / SWARM_PER_RING;
+		if (ring == last_ring) {
+			const s32 rem = count - ring * SWARM_PER_RING;
+			if (rem > 0) ring_size = rem;
+		}
+		const f32 r   = SWARM_RING_RADIUS_BASE + (f32)ring * SWARM_RING_STEP;
+		const f32 ang = (2.0f * 3.14159265f) * ((f32)in_ring / (f32)ring_size);
 		struct coord pos = {
-			ppos.x + SWARM_RING_RADIUS * cosf(ang),
+			ppos.x + r * cosf(ang),
 			ppos.y,
-			ppos.z + SWARM_RING_RADIUS * sinf(ang),
+			ppos.z + r * sinf(ang),
 		};
 		struct chrdata *chr = spawn_one_skedar(&pos, prooms);
 		if (chr) {
