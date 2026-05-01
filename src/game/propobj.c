@@ -16431,7 +16431,14 @@ bool objTestForInteract(struct prop *prop)
 				angle = M_BADTAU - angle;
 			}
 
-			if (angle <= 0.3926365673542f) {
+			/* Phase 2 fix #5 (input-menu pillar, 2026-05-01):
+			 * tightened from 22.5 degrees half-angle (45-degree full
+			 * cone, prior literal 0.3926365673542f) to 15 degrees
+			 * half-angle (30-degree full cone) per Mike's directive.
+			 * Lookup constant in propGetInteractCastHalfAngleRad()
+			 * so fix #6's debug visualization can display the
+			 * current value. */
+			if (angle <= propGetInteractCastHalfAngleRad()) {
 				if ((obj->flags2 & OBJFLAG2_INTERACTCHECKLOS) == 0
 						|| cdTestLos06(&playerprop->pos, playerprop->rooms, &prop->pos, prop->rooms, CDTYPE_BG)) {
 					g_InteractProp = prop;
