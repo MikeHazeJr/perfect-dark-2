@@ -326,14 +326,39 @@ static void forgeDrawCatalogTab(void)
 				ImGui::EndTooltip();
 			}
 			if (pressed) {
-				/* S313 -- begin a ghost placement session; the editor tick
-				 * updates the ghost position every frame from the freefly
-				 * camera, the HUD draws the ghost preview + valid/invalid
-				 * tint, and the user commits via "Place Here" (below) or
-				 * cancels via "Cancel Placement" / Escape.  This
-				 * decoupling is what makes the §4.1 ghost reticle flow
-				 * work end-to-end in-session. */
+				/* Fix 8 (2026-05-01, Mike playtest): one-shot select-spawn-
+				 * attach replaces the prior ghost-only flow. Picking a
+				 * catalog entry now spawns the real object IMMEDIATELY at
+				 * the freefly reticle and attaches it to the camera as
+				 * the held object. The user can fly the object into place
+				 * and press Activate (A on pad / D-pad RIGHT) to release,
+				 * or Toggle (X / Tab) to switch to its Properties context.
+				 *
+				 * Old flow kept available as a fallback for edge cases:
+				 * if the spawn-and-attach fails (budget hard-cap, OOM
+				 * from forgeObjectAllocate, etc.) we fall back to the
+				 * ghost flow so the user still sees a Cancel/Place Here
+				 * banner instead of the click silently doing nothing. */
 				forgePlaceBegin(e->id);
+
+				/* Seed the ghost position from the camera so the very
+				 * first commit lands at a sensible spot rather than
+				 * at the origin (forgePlaceUpdate writes ghost_pos but
+				 * is otherwise driven by the editor tick which fires
+				 * AFTER this click has already committed). */
+				struct forge_editor_coord { f32 x, y, z; } cpos = { 0.0f, 0.0f, 0.0f };
+				forgeGetCameraPos((struct coord *)&cpos);
+				f32 camera_pos[3] = { cpos.x, cpos.y, cpos.z };
+				forgePlaceUpdate(camera_pos,
+				                 forgeGetCameraYawDeg(),
+				                 forgeGetCameraPitchDeg(),
+				                 400.0f);
+				s32 uid = forgePlaceCommit();
+				forgePlaceCancel();  /* clear ghost state regardless of outcome */
+				if (uid > 0) {
+					forgeHeldSetUid((u32)uid);
+					forgeSelectionSelectOnly((u32)uid);
+				}
 			}
 			ImGui::PopID();
 		}
@@ -1842,21 +1867,62 @@ static void forgeDrawActiveTab(int idx)
  * navigation on a short list is seamless. */
 static void forgeSidebarHandleInput(void)
 {
+	/* Fix 8 (2026-05-01): the sidebar Toggle / Activate actions are
+	 * context-sensitive when the user is holding an object (select-spawn-
+	 * attach flow). Toggle on a held object opens its Properties context
+	 * (Objects tab + selection set) instead of toggling editor visibility;
+	 * Activate on a held object releases it (object stays where it last
+	 * tracked the camera). Tab-cycle and D-pad navigation are unchanged. */
+	const u32 held_uid = forgeHeldGetUid();
+
 	/* Fix 2+3 (2026-05-01): the sidebar-toggle action now shows / hides
-	 * the entire editor window. On hide, clear ImGui focus / active-id /
-	 * nav-window so any focused widget releases the keyboard before the
-	 * editor's Begin/End is skipped on the next frame. Without this clear
-	 * the editor's child widget can keep WantCaptureKeyboard=true while
-	 * the input-context stack thinks gameplay is on top, and B-195 fires
-	 * on every subsequent keypress (verified in 2026-05-01 playtest log:
-	 * sym=0x40000044 / 0x0065 / 0x0071 swallowed for ~2 minutes after a
-	 * mid-session forge re-entry). */
+	 * the entire editor window when nothing is held. On hide, clear ImGui
+	 * focus / active-id / nav-window so any focused widget releases the
+	 * keyboard before the editor's Begin/End is skipped on the next frame.
+	 * Without this clear the editor's child widget can keep
+	 * WantCaptureKeyboard=true while the input-context stack thinks
+	 * gameplay is on top, and B-195 fires on every subsequent keypress
+	 * (verified in 2026-05-01 playtest log: sym=0x40000044 / 0x0065 /
+	 * 0x0071 swallowed for ~2 minutes after a mid-session forge
+	 * re-entry).
+	 *
+	 * Fix 8 (2026-05-01): when an object is held, Toggle instead opens
+	 * the Properties context for that object. The user can then modify
+	 * traits and pick the object back up via the catalog list -- or the
+	 * release flow below -- without losing the in-flight placement. */
 	if (actionPressed(0, ACTION_FORGE_SIDEBAR_TOGGLE)) {
-		bool was_visible = s_EditorVisible;
-		s_EditorVisible = !s_EditorVisible;
-		if (was_visible && !s_EditorVisible) {
-			pdguiClearImGuiFocusAndNav();
+		if (held_uid != 0) {
+			/* Make sure the editor is visible so Properties is on screen. */
+			if (!s_EditorVisible) {
+				s_EditorVisible = true;
+			}
+			/* The Objects tab embeds the Properties pane (forgeDrawActiveTab
+			 * dispatches FGT_OBJECTS to Catalog + Properties). Selection
+			 * is what scopes Properties' fields. Use SelectOnly so the
+			 * pane reflects exactly the held object regardless of any
+			 * prior multi-select state. */
+			s_forge_active_tab      = FGT_OBJECTS;
+			s_forge_tab_set_request = FGT_OBJECTS;
+			forgeSelectionSelectOnly(held_uid);
+		} else {
+			bool was_visible = s_EditorVisible;
+			s_EditorVisible = !s_EditorVisible;
+			if (was_visible && !s_EditorVisible) {
+				pdguiClearImGuiFocusAndNav();
+			}
 		}
+	}
+
+	/* Activate (A on pad / D-pad RIGHT / Right arrow) while holding a
+	 * live object releases it -- object stays at its last camera-tracked
+	 * pos. Catalog-list spawn-and-attach happens on the catalog Button
+	 * click path in forgeDrawCatalogTab (not from this action), so this
+	 * branch is dedicated to the release half of the held lifecycle. */
+	if (held_uid != 0 && actionPressed(0, ACTION_FORGE_SIDEBAR_ACTIVATE)) {
+		forgeHeldRelease();
+		/* Skip the rest of sidebar handling this tick so the same press
+		 * doesn't also fire the catalog-row activate. */
+		return;
 	}
 
 	/* Tab-cycle and per-tab row navigation only run while the editor is
@@ -2059,11 +2125,16 @@ void pdguiForgeEditorTick(void)
 	 * world-space spot (translated to screen-center crosshair).  The
 	 * distance (400u) is the default placement reach; a later polish
 	 * pass can add a scroll-wheel / D-pad adjuster bound to the
-	 * editor's tool-mode. */
-	if (!forgeSessionIsActive())    return;
-	if (!forgeIsFreefly())          return;
-	forge_placement_state_t *pp = forgeGetPlacement();
-	if (!pp || !pp->ghost_active)   return;
+	 * editor's tool-mode.
+	 *
+	 * Fix 8 (2026-05-01): when an object is "held" (forgeHeldGetUid
+	 * non-zero), its real pos[] is updated from the same camera-forward
+	 * formula every tick. Holding and ghost-placing are mutually
+	 * exclusive on the catalog flow, but kept independent here so a
+	 * future tool-mode that re-engages ghost placement on top of a
+	 * held object still works. */
+	if (!forgeSessionIsActive()) return;
+	if (!forgeIsFreefly())       return;
 
 	/* Reach into the forge freefly camera via its C-API (struct coord
 	 * is forward-declared in forgemode.h to avoid including types.h
@@ -2071,8 +2142,16 @@ void pdguiForgeEditorTick(void)
 	struct forge_editor_coord { f32 x, y, z; } cpos = { 0.0f, 0.0f, 0.0f };
 	forgeGetCameraPos((struct coord *)&cpos);
 	f32 camera_pos[3] = { cpos.x, cpos.y, cpos.z };
-	forgePlaceUpdate(camera_pos,
-	                 forgeGetCameraYawDeg(),
-	                 forgeGetCameraPitchDeg(),
-	                 400.0f);
+	const f32 yaw_deg   = forgeGetCameraYawDeg();
+	const f32 pitch_deg = forgeGetCameraPitchDeg();
+	const f32 reach     = 400.0f;
+
+	forge_placement_state_t *pp = forgeGetPlacement();
+	if (pp && pp->ghost_active) {
+		forgePlaceUpdate(camera_pos, yaw_deg, pitch_deg, reach);
+	}
+
+	if (forgeHeldGetUid() != 0) {
+		forgeHeldUpdateFromCamera(camera_pos, yaw_deg, pitch_deg, reach);
+	}
 }

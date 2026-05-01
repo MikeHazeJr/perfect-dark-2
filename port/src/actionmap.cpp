@@ -2570,6 +2570,14 @@ static void setupForgeDefaults(s32 player)
     addBind(imc, ACTION_FORGE_SIDEBAR_UP,       JOY_BTN(0, JBTN_DPAD_UP));
     addBind(imc, ACTION_FORGE_SIDEBAR_DOWN,     JOY_BTN(0, JBTN_DPAD_DOWN));
     addBind(imc, ACTION_FORGE_SIDEBAR_ACTIVATE, JOY_BTN(0, JBTN_DPAD_RIGHT));
+    /* Fix 8 (2026-05-01, Mike playtest): A on the gamepad shadows
+     * gameplay's JUMP while g_ImcForge (priority 7) is active in FREEFLY,
+     * so authors can release a held object with the same A button used
+     * to confirm everywhere else in the editor. The select-spawn-attach
+     * path lives on the catalog list's mouse-click handler; the release
+     * half of the lifecycle is what this binding drives. D-pad RIGHT
+     * stays bound for keyboard-arrow + dpad parity. */
+    addBind(imc, ACTION_FORGE_SIDEBAR_ACTIVATE, JOY_BTN(0, JBTN_A));
 
     /* ---- Editor sidebar + tabs (keyboard) ---- */
     /* Scancodes follow the SDL_SCANCODE_* enum mirrored in s_VkNames

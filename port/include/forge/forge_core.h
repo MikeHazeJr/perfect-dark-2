@@ -849,6 +849,18 @@ void forgePlaceUpdate(const f32 camera_pos[3], f32 camera_yaw_deg, f32 camera_pi
 s32  forgePlaceCommit(void);                      /* returns uid (0 on failure) */
 void forgePlaceCancel(void);
 
+/* Held object (Fix 8, 2026-05-01).  When the user picks a catalog entry the
+ * object spawns immediately and is "held" -- its position tracks the freefly
+ * camera every tick (camera + forward * distance) until the user presses
+ * Activate (A on pad / D-pad RIGHT) again, which releases it.  X / Tab while
+ * holding switches the editor to the Properties context for the held object
+ * instead of toggling editor visibility.  forgeHeldGetUid returns 0 when
+ * nothing is held; otherwise the uid of the live forge_object_t. */
+u32  forgeHeldGetUid(void);
+void forgeHeldSetUid(u32 uid);
+void forgeHeldRelease(void);
+void forgeHeldUpdateFromCamera(const f32 camera_pos[3], f32 camera_yaw_deg, f32 camera_pitch_deg, f32 distance);
+
 /* Editor state (F1+) */
 forge_editor_state_t *forgeGetEditor(void);
 
