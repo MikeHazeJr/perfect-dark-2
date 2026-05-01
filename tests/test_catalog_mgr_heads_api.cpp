@@ -94,3 +94,45 @@ TEST_CASE("catalog-mgr-head: gender-pool excludes body slots (unk00_01==0)",
 	REQUIRE(catalogMgrHeadIsGenderPoolEligiblePure(1, 0, 0) == 0);
 	REQUIRE(catalogMgrHeadIsGenderPoolEligiblePure(0, 0, 0) == 0);
 }
+
+/* ===========================================================================
+ * F2 routing pin: assetcatalog_api.c::catalogGetHeadIsMale/Type/Height now
+ * route through catalogManagerGetHeadByIndex. Static-text grep against the
+ * source file confirms the legacy direct-read pattern is gone for HEAD
+ * accessors, while body accessors keep the legacy pattern (bodies session
+ * migrates them later).
+ *
+ * Path is relative to the project root (matches the weapons audit test
+ * pattern at tests/test_weapon_direct_reads_audit.cpp). pd-tests is run
+ * from the project root so the relative path resolves regardless of
+ * worktree vs. main-copy build location.
+ * =========================================================================== */
+
+#include <fstream>
+#include <sstream>
+#include <string>
+
+namespace {
+std::string readSourceFile(const char *path) {
+	std::ifstream in(path, std::ios::in | std::ios::binary);
+	std::stringstream ss;
+	ss << in.rdbuf();
+	return ss.str();
+}
+}  /* anonymous namespace */
+
+TEST_CASE("catalog-mgr-head: F2 catalogGetHead* routes through manager",
+          "[catalog-mgr-head][gate3][f2]") {
+	const std::string src = readSourceFile("port/src/assetcatalog_api.c");
+	REQUIRE(!src.empty());
+
+	/* The F2 migration replaced three direct-read sites with manager calls.
+	 * Grep for the routed pattern. */
+	REQUIRE(src.find("catalogManagerGetHeadByIndex(headnum)") != std::string::npos);
+
+	/* The legacy direct-read patterns for HEAD accessors are gone.  Body
+	 * counterparts keep the legacy pattern (bodies session migrates them). */
+	REQUIRE(src.find("g_HeadsAndBodies[headnum].ismale") == std::string::npos);
+	REQUIRE(src.find("g_HeadsAndBodies[headnum].type") == std::string::npos);
+	REQUIRE(src.find("g_HeadsAndBodies[headnum].height") == std::string::npos);
+}

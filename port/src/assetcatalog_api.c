@@ -36,6 +36,7 @@
 #include "modmgr.h"
 #include "game/challenge.h"  /* unlock-state filter for assetCatalogIterateUnlockedByType */
 #include "catalog_checked.h"  /* INV-1: pure validators backing _Checked accessors */
+#include "catalog_mgr_heads.h"  /* Catalog Gate 3 F2: head accessors route through manager */
 #if !defined(PD_SERVER)
 #include "game/modeldef.h"
 #include "lib/rng.h"  /* P3: rngRandom for catalogPickRandomHeadIdForBody (client-only) */
@@ -1353,22 +1354,29 @@ s32 catalogGetBodyHandFilenum(s32 bodynum)
     return (s32)g_HeadsAndBodies[bodynum].handfilenum;
 }
 
+/* Catalog Gate 3 F2: route head field reads through the manager.
+ * The manager pool (s_Heads[]) mirrors g_HeadsAndBodies[] during the
+ * F1-F12 parity period; F12 swaps the data source to base/heads.pdbase.
+ * Tier-2 callers (body.c HEADBODYTYPE checks, chraction.c, player.c
+ * vv_headheight, netmanifest.c) inherit through these accessors without
+ * source changes. */
+
 s32 catalogGetHeadIsMale(s32 headnum)
 {
-    if (headnum < 0 || headnum >= 152) { return 0; }
-    return (s32)g_HeadsAndBodies[headnum].ismale;
+    const head_data_t *h = catalogManagerGetHeadByIndex(headnum);
+    return h ? (s32)h->ismale : 0;
 }
 
 s32 catalogGetHeadType(s32 headnum)
 {
-    if (headnum < 0 || headnum >= 152) { return 0; }
-    return (s32)g_HeadsAndBodies[headnum].type;
+    const head_data_t *h = catalogManagerGetHeadByIndex(headnum);
+    return h ? (s32)h->type : 0;
 }
 
 s32 catalogGetHeadHeight(s32 headnum)
 {
-    if (headnum < 0 || headnum >= 152) { return 0; }
-    return (s32)g_HeadsAndBodies[headnum].height;
+    const head_data_t *h = catalogManagerGetHeadByIndex(headnum);
+    return h ? (s32)h->height : 0;
 }
 
 /* -------------------------------------------------------------------------
