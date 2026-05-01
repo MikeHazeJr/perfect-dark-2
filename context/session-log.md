@@ -1,7 +1,50 @@
 # Session Log (Active)
 
-> **S481-S591 + S482c + S592** (rolling window of ~110 sessions; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
+> **S481-S593 + S482c + S592** (rolling window of ~110 sessions; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
+
+## Session S593 (`distracted-hamilton-430172`) - 2026-04-30 PM - Swarm benchmark crash + correctness pass (B-295)
+
+Mike playtest report on the Skedar swarm test mode (introduced via S483c GPU swarm benchmark). Crash + multi-symptom bundle.
+
+**Crash trace** (preserved as worktree file `swarm-test-crash-2026-04-30.md` because the original `Build/pd-client.log` was wiped by a clean rebuild moments after the report):
+- `EXCEPTION: 0xc0000005` at `PC=0x00007ff6cc17b39f` -- offset `0x3ab39f` from `MAIN MODULE 0x7ff6cbdd0000`.
+- Last breadcrumb: `CHR.TICK slot=9 chrnum=-1 action=1 race=1 model=0000000000000000`.
+- Frame `LVTICK=781`, stage `0x32` (`base:mp_skedar`), bg slots=11. Just before the crash the breadcrumb shows 8 freshly-spawned Skedars (chrnums 5024-5031) AND a stale slot 9 with `chrnum=-1 model=NULL` -- the chr that triggered the AV.
+
+**Symptoms reported by Mike** (all explained by the same root cause class):
+- Crash on count change.
+- Bots not moving (CPU + GPU paths).
+- Bots "spawn inside player" with greenish texture clipping.
+- Bots not cleared on count cycle (old bots persisting).
+- Player not invincible / no all-guns / no bottomless ammo.
+- Bots invisible after a few count cycles (chr/model pool exhaustion).
+- Cycle ladder needs `48` between `32` and `64`.
+
+**Root cause** (B-295): `swarm_test.c::despawn_all()` called `chrRemove(prop, true)` only. `chrRemove` clears `chr->model = NULL` and `chr->chrnum = -1` but does not free the prop or remove it from `activeprops`. Next frame's `propsTickPlayer()` walked the dead prop, called `chrTick`, which deref'd the NULL model deep inside chraTick or its callees and AVed. The accumulated stale chrs also exhausted the chr / model rwdata pools after several cycles, causing the "bots invisible" symptom; the lingering chrs near the player explained the "spawn inside me" greenish clipping.
+
+**Fix bundle**:
+1. **Despawn correctness** (the crash). `despawn_all()` now uses the canonical chrmgrStop pattern: `chrRemove + propDelist + propDisable + propFree`. Reference site: `src/game/chrmgrstop.c:14-23`. Added a `freed=N` log line per despawn.
+2. **chrTick defense-in-depth**. New early-out at the top of `chr.c::chrTick`: if `chr == NULL || chr->chrnum < 0 || chr->model == NULL`, log `CHR.STALE.MISS:` and return `TICKOP_FREE`. Catches any future caller that resurrects the old chrRemove-only pattern, and the prop tick dispatcher then runs the proper free path on the stale prop.
+3. **Movement** (CPU + GPU). Both paths now use `chrSetPos(chr, &newpos, rooms, face_deg, true)` instead of writing `chr->prop->pos.x` directly. `chrSetPos` syncs the model root matrix, ground tracking, and room registration; the prior direct writes left the model rendering at the spawn position. Heading is computed from the seek velocity vector (`atan2f(vx, vz)`).
+4. **Player setup**. `apply_player_setup()` is now called from every `swarmTestTick` frame, not just session-start. `cheatsReset()` (level start) and `playerSpawn()` (death respawn) each used to wipe the cheat banks / equipallguns / `player->invincible` after the prior single-shot apply ran. Re-asserting each tick is cheap and idempotent.
+5. **NUMTYPE2 ceiling**. `modelmgr.c` + `modelmgrreset.c` bumped: NUMTYPE1 70 -> 80, NUMTYPE2 50 -> 320, NUMTYPE3 48 -> 64. The 256-bot Swarm scenario plus baseline gameplay chrs needs at least 256 type-2 chrinfo bindings; prior 50 was exhausted after ~50 concurrent chrs and explained the "bots invisible" symptom directly. Cost at 320 type-2: ~83 KB rwdata, negligible on PC.
+6. **Cycle ladder**. `SWARM_TEST_CYCLE` is now `{4, 8, 16, 32, 48, 64, 128, 256}` (steps 7 -> 8). Adds the `48` curve-bend probe per Mike's directive.
+
+**Caps surfaced for Mike** (per directive):
+- chr pool: `g_NumChrSlots = PLAYERCOUNT() + numchrs + 10`. setup.c already adds `testScenarioGetSwarmMaxCount()` (256) into `numchrs` when a swarm scenario is active, so the chr pool comfortably fits 256 + headroom. No change needed.
+- Model pool (`g_MaxModels = numobjs + numspare + numchrs + 20`): same path -- swarm hook already pulls 256 in. No change needed.
+- Anim pool (`g_MaxAnims = numchrs + 20`): same. No change needed.
+- Prop pool (`g_Vars.maxprops = numobjs + numchrs + extra + 40`): same. No change needed.
+- NUMTYPE1/2/3: bumped (point 5 above) -- these were the bottleneck.
+- Render draw list (`g_Vars.onscreenprops`): per-frame visible-prop list, sized at level init from `maxprops`. No change needed once the pools above scale.
+- Swarm-specific (`s_Swarm[TESTSCEN_SWARM_MAX_COUNT=256]`): already sized for the cap. Static.
+
+**Crash function not symbol-resolved**: `Build/PerfectDark.exe` was wiped by Mike's clean rebuild before `addr2line` could be run against it. The new build has different code layout. Breadcrumb log gives us the chr identity (slot 9, chrnum=-1, model=NULL) which is enough to identify the class of crash and confirm the fix.
+
+**Build verify**: clean build at `.claude/session-builds/swarmfix/` -- both `PerfectDark.exe` (54.5 MB) and `PerfectDarkServer.exe` (22.3 MB) link cleanly. `strings PerfectDark.exe | grep CHR.STALE.MISS` confirms the new defense-in-depth path is in the binary.
+
+**Files touched**: `port/src/swarm_test.c`, `port/include/swarm_test.h`, `port/fast3d/swarm_gpu.cpp`, `src/game/chr.c`, `src/game/modelmgr.c`, `src/game/modelmgrreset.c`, `context/bugs.md`, `swarm-test-crash-2026-04-30.md` (worktree-local crash preservation).
 
 ## Session S592 (`confident-bardeen-48bed6`) - 2026-04-30 PM - ROM extraction audit + .pdXXX taxonomy + ROM-as-bootstrap principle
 

@@ -26,10 +26,13 @@
 #include "types.h"
 #include "system.h"
 
-/* PC port: Match increased pool sizes from modelmgr.c */
-#define NUMTYPE1() 70
-#define NUMTYPE2() 50
-#define NUMTYPE3() 48
+/* PC port: Match increased pool sizes from modelmgr.c (KEEP IN SYNC).
+ * 2026-04-30: NUMTYPE1 70->80, NUMTYPE2 50->320, NUMTYPE3 48->64 to
+ * support the 256-bot Swarm benchmark scenario. See modelmgr.c for the
+ * full sizing rationale. */
+#define NUMTYPE1() 80
+#define NUMTYPE2() 320
+#define NUMTYPE3() 64
 #define NUMSPARE() 80
 
 void modelmgrReset(void)

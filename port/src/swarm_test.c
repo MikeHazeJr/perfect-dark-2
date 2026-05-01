@@ -32,9 +32,15 @@
 #include "game/prop.h"
 #include "game/inv.h"
 #include "game/cheats.h"
+#include "game/atan2f.h"
 #include "actionmap.h"
 #include "testscenarios.h"
 #include "swarm_test.h"
+
+/* Forward decls -- these come from src/game (no public header includes them
+ * with the right linkage from C++/legacy headers). */
+extern bool chrSetPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms,
+	f32 theta, bool findground);
 
 /* GPU swarm module (port/fast3d/swarm_gpu.cpp). When that module is not
  * yet built, the stub below is used and swarmGpuAvailable() returns 0. */
@@ -44,9 +50,12 @@ extern void swarmGpuStepAndApply(struct coord *player_pos,
 
 /* ------------------------------------------------------------------
  * Cycle ladder
+ * 4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128 -> 256 -> 4 (wrap).
+ * 48 was added 2026-04-30 per Mike's directive: it's the "one-third of 128"
+ * step that lets us see where the curve bends before doubling further.
  * ------------------------------------------------------------------ */
 const s32 SWARM_TEST_CYCLE[SWARM_TEST_CYCLE_STEPS] = {
-	4, 8, 16, 32, 64, 128, 256
+	4, 8, 16, 32, 48, 64, 128, 256
 };
 
 static s32 swarm_cycle_index(s32 count)
@@ -110,27 +119,54 @@ static void resolve_skedar_assets(void)
 
 /* ------------------------------------------------------------------
  * Player setup
+ *
+ * Three pieces of per-player state must be active for the benchmark:
+ *   1. Invincibility -- bots are aggressive, the player can't die.
+ *   2. All guns       -- weapon-cycle the full arsenal under load.
+ *   3. Bottomless ammo -- never reload, never run dry.
+ *
+ * Both the cheat banks AND the per-player flags are set, because
+ * different code paths consult different sources:
+ *   - chrDamage / playerDamage gate on g_Vars.currentplayer->invincible.
+ *   - chrInflictDamage early-outs on cheatIsActive(CHEAT_INVINCIBLE).
+ *   - bgun reload gates on cheatIsActive(CHEAT_UNLIMITEDAMMO).
+ *   - inv current-weapon picker gates on equipallguns.
+ *
+ * S483-followup (2026-04-30): apply_player_setup is called from
+ * EVERY swarmTestTick frame, not just the session-start tick.  Reasons:
+ *   - cheatsReset() runs at level start AFTER our session-start tick
+ *     would have run in the prior implementation, wiping the cheat bits.
+ *   - playerSpawn / playerReset on death respawn re-initialises
+ *     equipallguns and player->invincible.
+ *   - Mid-frame inventory pickups / weapon switches can clear
+ *     equipallguns transiently.
+ * Re-asserting each tick is cheap (a handful of writes + a cached
+ * invSetAllGuns no-op when equipallguns is already true) and is the
+ * only way to keep the player benchmark-ready against the various
+ * resets the engine performs.
  * ------------------------------------------------------------------ */
 static void apply_player_setup(void)
 {
 	if (!g_Vars.currentplayer) return;
 
-	/* Invincible. Done both via the cheat bank (so any code path that
-	 * reads cheatIsActive sees it) and via the per-player flag (the
-	 * fast path for chraction.c::chrDamage gating). */
+	/* Cheat banks first so anything queried via cheatIsActive sees the
+	 * right state. */
 	g_CheatsActiveBank0 |= (1u << CHEAT_INVINCIBLE);
 	g_CheatsActiveBank0 |= (1u << CHEAT_UNLIMITEDAMMO);
 	g_CheatsActiveBank0 |= (1u << CHEAT_ALLGUNS);
+
+	/* Per-player invincibility. The g_Vars.currentplayer pointer is
+	 * the canonical "Player 0" pointer in single-local-player mode. */
 	g_Vars.currentplayer->invincible = 1;
 
-	/* Direct invSetAllGuns; the cheats.c gating around CHEAT_ALLGUNS
-	 * requires PLAYERCOUNT() == 1 and !normmplayerisrunning, both of
-	 * which are true for a local-only test scenario. We call it
-	 * directly so the test mode is robust to the gate. */
-	invSetAllGuns(true);
-
-	sysLogPrintf(LOG_NOTE,
-		"TESTSCEN.SWARM: player setup applied -- invincible, all guns, infinite ammo");
+	/* Equip all guns. invSetAllGuns sets equipallguns=true,
+	 * recalculates the current-weapon index, and re-equips. The
+	 * cheats.c gate around CHEAT_ALLGUNS (PLAYERCOUNT()==1 && !normmp)
+	 * is bypassed by calling invSetAllGuns directly: the test mode is
+	 * by definition local-single-player, so this is safe. */
+	if (!g_Vars.currentplayer->equipallguns) {
+		invSetAllGuns(true);
+	}
 }
 
 /* ------------------------------------------------------------------
@@ -169,15 +205,50 @@ static struct chrdata *spawn_one_skedar(struct coord *pos, RoomNum *rooms)
 
 /* ------------------------------------------------------------------
  * Despawn all swarm chrs
+ *
+ * S483-followup (2026-04-30, B-264): chrRemove() alone is NOT enough.
+ * It clears chr->model = NULL and chr->chrnum = -1, but leaves the
+ * prop on the activeprops linked list and on the prop pool. The next
+ * frame's propsTickPlayer iterates activeprops, calls chrTick on this
+ * dead prop, chrTick reads chr->model (NULL) -> AV.
+ *
+ * The canonical full-free pattern (per chrmgrStop in chrmgrstop.c:21)
+ * is:  chrRemove + propDelist + propDisable + propFree.  This removes
+ * the prop from activeprops (delist), marks it inactive (disable), and
+ * returns it to the freeprops pool (free) so a future propAllocate can
+ * reuse it.
+ *
+ * Side effect this fixes:
+ * - The crash at PC offset 0x3ab39f on slot=9 chrnum=-1 model=NULL.
+ * - "Bots not cleared on count change" -- they were "cleared" from
+ *   our s_Swarm slot table but the props/chrs still ticked.
+ * - "Bots spawn inside player" -- new spawns picked fresh slots, but
+ *   the OLD chrs lingered visually wherever they last were (often near
+ *   the player from the previous seek frame), creating the impression
+ *   of "stuck-to-me" overlap and greenish texture clipping.
+ * - "Bots invisible after a few count cycles" -- accumulated stale
+ *   chrs eventually exhausted the chr/model pools for new spawns.
  * ------------------------------------------------------------------ */
 static void despawn_all(void)
 {
+	s32 freed = 0;
 	for (s32 i = 0; i < TESTSCEN_SWARM_MAX_COUNT; i++) {
-		if (s_Swarm[i].chr && s_Swarm[i].chr->prop) {
-			chrRemove(s_Swarm[i].chr->prop, true);
+		struct chrdata *chr = s_Swarm[i].chr;
+		if (chr && chr->prop) {
+			struct prop *prop = chr->prop;
+			chrRemove(prop, true);
+			propDelist(prop);
+			propDisable(prop);
+			propFree(prop);
+			freed++;
 		}
 		s_Swarm[i].chr = NULL;
 		s_Swarm[i].counted_kill = 0;
+	}
+	if (freed > 0) {
+		sysLogPrintf(LOG_NOTE,
+			"TESTSCEN.SWARM: despawn_all freed %d chrs (was count=%d)",
+			freed, s_SwarmCount);
 	}
 	s_SwarmCount = 0;
 }
@@ -227,6 +298,18 @@ static void respawn_ring(s32 count)
 
 /* ------------------------------------------------------------------
  * CPU seek-player tick (mirrors the GPU shader's per-boid step)
+ *
+ * Each tick we want each Skedar to advance up to SWARM_MAX_SPEED units
+ * toward the player on the XZ plane (Y is ground-locked so they don't
+ * float). The position update goes through chrSetPos() so the model's
+ * root matrix, room registration, ground tracking, and chr->prevpos
+ * all stay in sync with prop->pos -- writing prop->pos.x directly
+ * (the prior implementation) updated the prop but the model continued
+ * to render at the old root position because modelSetRootPosition
+ * wasn't being called.  chrSetPos with findground=true does the right
+ * thing on uneven floors; cdFindGroundInfoAtCyl is invoked once per
+ * chr per tick, which is acceptable for a benchmark (the heavy load
+ * is the point).
  * ------------------------------------------------------------------ */
 #define SWARM_MAX_SPEED      18.0f
 #define SWARM_SEEK_WEIGHT    0.0050f
@@ -236,27 +319,37 @@ static void cpu_seek_tick(struct coord *player_pos)
 {
 	for (s32 i = 0; i < s_SwarmCount; i++) {
 		struct chrdata *chr = s_Swarm[i].chr;
-		if (!chr || !chr->prop || chr->actiontype == ACT_DEAD
+		if (!chr || !chr->prop || chr->chrnum < 0 || chr->model == NULL
+				|| chr->actiontype == ACT_DEAD
 				|| chr->actiontype == ACT_DIE) {
 			continue;
 		}
 		struct prop *prop = chr->prop;
 		f32 dx = player_pos->x - prop->pos.x;
-		f32 dy = 0.0f; /* keep ground-locked; no Y seek */
 		f32 dz = player_pos->z - prop->pos.z;
 		f32 d2 = dx * dx + dz * dz;
 		if (d2 < 1.0f) continue;
 		f32 d = sqrtf(d2);
-		f32 step = SWARM_MAX_SPEED * (60.0f * SWARM_DT);
-		f32 speed = SWARM_MAX_SPEED;
-		if (step > d) {
-			speed = d / (60.0f * SWARM_DT);
+		f32 step = SWARM_MAX_SPEED;
+		if (step > d) step = d;
+		f32 vx = (dx / d) * step;
+		f32 vz = (dz / d) * step;
+
+		struct coord newpos;
+		newpos.x = prop->pos.x + vx;
+		newpos.y = prop->pos.y;
+		newpos.z = prop->pos.z + vz;
+
+		/* Face toward player (theta in degrees per chrSetPos contract:
+		 * "BADDEG2RAD(360 - theta)").  Yaw atan2 of the look vector. */
+		f32 face_deg = atan2f(dx, dz) * (180.0f / 3.14159265f);
+		if (face_deg < 0.0f) face_deg += 360.0f;
+
+		RoomNum rooms[8];
+		for (s32 r = 0; r < 8; r++) {
+			rooms[r] = prop->rooms[r];
 		}
-		f32 vx = (dx / d) * speed;
-		f32 vz = (dz / d) * speed;
-		prop->pos.x += vx * (60.0f * SWARM_DT);
-		prop->pos.y += dy;
-		prop->pos.z += vz * (60.0f * SWARM_DT);
+		chrSetPos(chr, &newpos, rooms, face_deg, true);
 	}
 }
 
@@ -367,11 +460,10 @@ void swarmTestTick(void)
 			s_SwarmCount);
 	}
 
-	/* Player invincibility re-asserted each tick (mid-game inventory
-	 * pickup or other path could clear it). */
-	if (g_Vars.currentplayer) {
-		g_Vars.currentplayer->invincible = 1;
-	}
+	/* Re-apply the full player setup every tick. cheatsReset, playerSpawn,
+	 * and inventory pickups can each clobber pieces of it. See
+	 * apply_player_setup() docblock for the full rationale. */
+	apply_player_setup();
 
 	/* Drive per-method simulation. GPU path is delegated to swarm_gpu;
 	 * its availability is reported via swarmGpuAvailable() and falls

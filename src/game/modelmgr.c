@@ -33,9 +33,31 @@ s32 g_ModelMostAnims = 0;
  * Type 2: medium rwdata (<=52 words / 0xD0 bytes) - weapons, animated objects
  * Type 3: large rwdata (<=256 words / 0x400 bytes) - character body models
  */
-#define NUMTYPE1() 70
-#define NUMTYPE2() 50
-#define NUMTYPE3() 48
+/* PC port: pool sizes selected to fit the heaviest concurrent-chr workload
+ * the port supports.
+ *
+ * Originally NUMTYPE1=70 / NUMTYPE2=50 / NUMTYPE3=48 (N64 budget). The
+ * Swarm benchmark scenario (S483) spawns up to 256 Skedars at once, each
+ * needing a Type 2 chrinfo binding (rwdata ~= 0xd0 bytes). 50 was wildly
+ * insufficient: at >50 simultaneously alive chrs, modelmgr falls back to
+ * Type 3 dynamic alloc which itself caps at NUMTYPE3=48, so beyond ~98
+ * chrs the next bodyAllocateModel returns NULL or the partial init goes
+ * on to render incorrectly -- exactly Mike's "bots go invisible after a
+ * few count cycles" symptom.
+ *
+ * The cap is shared with normal gameplay; bumping is safe because the
+ * arrays are sized once at level init (mempAlloc out of MEMPOOL_STAGE).
+ * Cost at 320 type2: 320 * 0xd0 = 53.25 KB rwdata + 320 * sizeof(binding)
+ * for the binding table -- negligible on PC.
+ *
+ * Sizing margin: 256 (swarm cap) + 32 (MAX_BOTS) + 16 (NPCs in CO/AT
+ * stages worst case) + 16 headroom = 320.  See also S483c F.2 for the
+ * earlier 50 -> 50 "no change" decision; that was a sizing miss for the
+ * benchmark workload and is corrected here.
+ */
+#define NUMTYPE1() 80
+#define NUMTYPE2() 320
+#define NUMTYPE3() 64
 
 bool modelmgrCanSlotFitRwdata(struct model *modelslot, struct modeldef *modeldef)
 {
