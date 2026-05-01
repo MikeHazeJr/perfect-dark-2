@@ -518,7 +518,12 @@ static ImU32 themeEditorU32FromRgba(u32 rgba)
 
 static void renderLivePreview(float h, float scale)
 {
-    ImGui::BeginChild("##theme_preview", ImVec2(0, h), true,
+    /* Phase 2 fix #3 (input-menu pillar, 2026-05-01): NavFlattened so
+     * D-pad LEFT/RIGHT can move focus between the preview column and
+     * the palette column. Without NavFlattened, ImGui treats each
+     * child as its own nav root and gamepad arrows do not cross. */
+    ImGui::BeginChild("##theme_preview", ImVec2(0, h),
+                      ImGuiChildFlags_Border | ImGuiChildFlags_NavFlattened,
                       ImGuiWindowFlags_NoScrollbar);
 
     /* Mini header that mirrors the PD dialog title strip so the user can
@@ -670,7 +675,11 @@ static void renderThemeEditor(s32 winW, s32 winH)
         float previewW = 320.0f * scale;
         if (previewW > availW * 0.5f) previewW = availW * 0.5f;
         float pickerW = availW - previewW - 8.0f * scale;
-        ImGui::BeginChild("PaletteScroll", ImVec2(pickerW, -footerH), true);
+        /* Phase 2 fix #3 (input-menu pillar, 2026-05-01): NavFlattened
+         * pairs with ##theme_preview so D-pad LEFT/RIGHT crosses the
+         * preview / palette column boundary on gamepad. */
+        ImGui::BeginChild("PaletteScroll", ImVec2(pickerW, -footerH),
+                          ImGuiChildFlags_Border | ImGuiChildFlags_NavFlattened);
 
         static const struct { int group; const char *header; const char *blurb; } k_Groups[] = {
             { PFG_FRAME,    "Window Frame",
