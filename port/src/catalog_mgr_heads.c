@@ -59,7 +59,10 @@ static void s_populateFromLegacy(s32 headnum)
 	dst->filenum = src->filenum;
 	dst->scale = src->scale;
 	dst->animscale = src->animscale;
-	dst->modeldef = src->modeldef;
+	/* F3: manager owns the modeldef cache slot. Do NOT copy from
+	 * src->modeldef -- the manager's lazy-load + cache lives on
+	 * dst->modeldef from F3 onward. The legacy g_HeadsAndBodies[].modeldef
+	 * slot is orphaned for HEAD entries; bodies session retires it. */
 }
 
 static const head_data_t *s_get(s32 headnum)
@@ -166,20 +169,24 @@ struct modeldef *catalogManagerGetHeadModeldef(s32 headnum)
 	/* Server has no model data; modeldef calls always return NULL. */
 	return NULL;
 #else
-	/* F1 parity: read + write the legacy g_HeadsAndBodies[].modeldef
-	 * cache slot directly so F2 can route the assetcatalog_api accessor
-	 * through us without circular calls. F3 moves the cache to
-	 * s_Heads[].modeldef and uses the manager pool slot. */
+	/* F3: manager owns the modeldef cache slot.  Lazy-load on first
+	 * call into s_Heads[h].modeldef, return the cached pointer
+	 * thereafter.  The legacy g_HeadsAndBodies[].modeldef slot is
+	 * orphaned for HEAD entries; bodies session retires it when the
+	 * bodies migration moves the bodies-side cache too. */
 	if (!catalogMgrHeadIsInRangePure(headnum)) {
 		return NULL;
 	}
-	if (!g_HeadsAndBodies[headnum].modeldef) {
+	if (!s_HeadsInited) {
+		catalogManagerHeadInit();
+	}
+	if (!s_Heads[headnum].modeldef) {
 		s32 filenum = catalogGetHeadFilenumByIndex(headnum);
-		g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNewFromHandle(
+		s_Heads[headnum].modeldef = modeldefLoadToNewFromHandle(
 			catalogGetHeadHandle(headnum),
 			(u16)filenum);
 	}
-	return g_HeadsAndBodies[headnum].modeldef;
+	return s_Heads[headnum].modeldef;
 #endif
 }
 
@@ -188,9 +195,13 @@ s32 catalogManagerHeadIsModeldefLoaded(s32 headnum)
 	if (!catalogMgrHeadIsInRangePure(headnum)) {
 		return 0;
 	}
-	/* F1 parity: probe the legacy slot directly. F3 swaps to the
-	 * manager pool slot. */
-	return g_HeadsAndBodies[headnum].modeldef != NULL ? 1 : 0;
+	if (!s_HeadsInited) {
+		return 0;
+	}
+	/* F3: probe the manager pool slot.  Replaces the legacy
+	 * g_HeadsAndBodies[h].modeldef NULL pre-check pattern in
+	 * src/game/body.c (F5 migrates the call site). */
+	return s_Heads[headnum].modeldef != NULL ? 1 : 0;
 }
 
 void catalogManagerResetHeadModeldef(s32 headnum)
@@ -198,8 +209,11 @@ void catalogManagerResetHeadModeldef(s32 headnum)
 	if (!catalogMgrHeadIsInRangePure(headnum)) {
 		return;
 	}
-	/* F1 parity: clear the legacy slot. F3 swaps to manager pool slot. */
-	g_HeadsAndBodies[headnum].modeldef = NULL;
+	if (!s_HeadsInited) {
+		return;
+	}
+	/* F3: clear the manager pool slot. */
+	s_Heads[headnum].modeldef = NULL;
 }
 
 void catalogManagerResetAllHeadModeldefs(void)

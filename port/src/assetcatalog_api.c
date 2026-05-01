@@ -1449,18 +1449,12 @@ struct modeldef *catalogGetBodyModeldef(s32 bodynum)
 
 struct modeldef *catalogGetHeadModeldef(s32 headnum)
 {
-    const char *id;
-    const asset_entry_t *e;
-    if (headnum < 0 || headnum >= 152) { return NULL; }
-    if (headnum == HEAD_RANDOM_GENDER) { return NULL; }
-    if (!g_HeadsAndBodies[headnum].modeldef) {
-        id = catalogHeadIdByHeadnum(headnum);
-        e = id ? assetCatalogResolve(id) : NULL;
-        g_HeadsAndBodies[headnum].modeldef = modeldefLoadToNewFromHandle(
-                catalogGetHeadHandle(headnum),
-                e ? e->source_filenum : -1);
-    }
-    return g_HeadsAndBodies[headnum].modeldef;
+    /* Catalog Gate 3 F3: manager owns the head modeldef cache.
+     * The pool slot s_Heads[headnum].modeldef holds the lazy-loaded
+     * pointer; manager handles the bounds + sentinel checks.  This
+     * accessor is the legacy entry point kept for caller compatibility
+     * (body.c, player.c, netmanifest.c). */
+    return catalogManagerGetHeadModeldef(headnum);
 }
 #endif /* !PD_SERVER */
 
@@ -1473,14 +1467,20 @@ void catalogResetBodyModeldef(s32 bodynum)
 
 void catalogResetHeadModeldef(s32 headnum)
 {
-    if (headnum >= 0 && headnum < 152) {
-        g_HeadsAndBodies[headnum].modeldef = NULL;
-    }
+    /* Catalog Gate 3 F3: manager owns the head modeldef cache slot.
+     * Routes through catalogManagerResetHeadModeldef which clears the
+     * pool slot s_Heads[headnum].modeldef. */
+    catalogManagerResetHeadModeldef(headnum);
 }
 
 void catalogResetAllModeldefs(void)
 {
     s32 i;
+    /* Catalog Gate 3 F4 (decision I.4 Option B): reset manager-owned
+     * head modeldef caches first, then continue the legacy walk for
+     * bodies-side caches.  Bodies session removes the legacy walk
+     * once the bodies-side cache also lives in a manager pool. */
+    catalogManagerResetAllHeadModeldefs();
     for (i = 0; g_HeadsAndBodies[i].filenum != 0; i++) {
         g_HeadsAndBodies[i].modeldef = NULL;
     }
