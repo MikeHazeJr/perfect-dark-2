@@ -1,7 +1,64 @@
 # Session Log (Active)
 
-> **S481-S593f + S482c + S593b** (rolling window of ~110 sessions; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
+> **S481-S594 + S482c + S593b** (rolling window of ~110 sessions; S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
+
+## Session S594 (`infallible-mestorf-8463b9`) - 2026-05-01 - Grid playtest triage: 4 sequential fixes + B-298 vehicle gap filed
+
+Mike's 2026-05-01 Grid playtest report (verbatim):
+
+> "I started The Grid, couldn't visually see my character moving in Dr Carroll mode, and can't interact with anything beyond the left sidebar of the context menu, which doesn't seem to actually disappear etc when toggling with the controller X. I was able to cheat and hold my RMB to interact with the menus with an invisible cursor. Changing lighting and fog and trying to spawn an object didn't seem to work either, though it's possible the screen just wasn't updating. ... I was able to press F11 (what is the default controller input for that) to leave Dr Carroll mode and go into play mode, but I couldn't jump and didn't have a weapon, (which may be intended). ... Leaving the match, I ended up back in the Carrington Institute. Main Menu didn't pop up at spawn like it should, since I technically 'return to main menu'-d. ... I jumped through the wall with a glitch in our jump system (I already knew about it, the fix is deferred for now) and jumped on the Hoverbike. I was unable to operate it or exit it."
+
+Mike's reframing for chr-init:
+
+> "The mode transition in The Grid needs to initialize player character going both ways. Character with the players Agent character loaded, or Dr Carroll for the forge/halo monitor mode."
+
+Mike's reframing for object placement UX:
+
+> "I select it, it spawns, I have control over it and it moves relative to me while I have it held. I can press A again to let go of it, and it will stay where I set it. Or I can press X while the object is held to get its context menu and modify its traits."
+
+### Triage findings (file:line evidence)
+
+7-issue table built from the actual playtest log (`C:\Users\mikeh\Downloads\Perfect Dark 2.0\pd-client.log`, 5842 lines, 2026-05-01 00:34) and code-side cross-checks:
+
+| # | Issue | Anchor | File:line |
+|---|-------|--------|-----------|
+| 1 | Forge transitions don't load chr body model | log:1940 / log:2563 -- haschrbody=0 handmodeldef=NULL both directions | `src/game/forgemode.c:78-81` (documented gap), `forgeSetFreeflyMode:179`, `forgeRestorePlayerMode:223` |
+| 2 | B-195 ImGui WantCaptureKeyboard leak in forge editor | log:2625 / 2633 / 2647 / ... 12 hits across session | `port/fast3d/pdgui_backend.cpp:1417-1434` (diagnostic), root cause = forge editor widgets retain focus past Begin/End |
+| 3 | X / Tab toggle hides only sub-rail, not whole editor | log:2461 ToggleSidebar fires but editor stays visible | `port/fast3d/pdgui_forge_editor.cpp:1934` (outer Begin always renders), `s_SidebarVisible:1541` (gate too narrow) |
+| 4 | No jump / no weapon in play mode | downstream of Issue 1 / camera mode | `src/game/player.c:5205` (TICKMODE_NORMAL calls `playerRemoveChrBody` every frame) |
+| 5 | Match end routes through campaign endscreen, not main menu | log:3477 endscreenPrepare -> log:4115 mainChangeToStage(0x26) | `src/lib/main.c:1248-1264` (mainEndStage routing) |
+| 6 | Vehicle IMC actions fire but no consumer | log:5705/5712/5716 VehicleExit DOWN, no dismount | `src/game/bondbike.c:840` reads legacy bondmove channel, not actionmap |
+| 7 | F11 / Back default forge toggle binding | docs were stale (audit said F7) | `port/src/actionmap.cpp:2423` (VKL_F11), `port/src/actionmap.cpp:2524` (JBTN_BACK) -- Mike was right |
+
+### Fix order shipped (5 merges, sequential auto-merge per the standing rule)
+
+**Fix 2+3 bundle** (B-302) -- editor visibility + ImGui focus clear. Promote `s_SidebarVisible` -> `s_EditorVisible`, gate the entire `pdguiForgeEditorRender` body, call `pdguiClearImGuiFocusAndNav()` on toggle-off. Defense in depth: same call from `forgeTransitionToNormal` and `forgeTransitionToInactive` so freefly-entry races and session teardowns can't leak stale ImGui focus. Footer hint: "X / Tab: hide editor". Files: `port/fast3d/pdgui_forge_editor.cpp` + `src/game/forgemode.c`. Build verify: `f23` PASS (CLIENT 28s).
+
+**Fix 4** (B-299) -- Grid exit routes through ExitToMainMenu, not campaign endscreen. New branch in `mainEndStage` between netmode>0 and the campaign-else: when `forgeSessionIsActive()` returns true, call `pdguiEndscreenExitToMainMenu()` (the canonical exit-to-main-menu bridge that every endscreen "Exit" button uses). Forward-declared via extern so `src/lib/main.c` doesn't grow header dependencies. `forgeTransitionToInactive` still drains naturally from `forgeTick` on the actual stage change. Files: `src/lib/main.c`. Build verify: `f4` PASS (CLIENT 27s).
+
+**Fix 8** (B-300) -- one-shot select-spawn-attach object UX. Old flow: catalog click -> ghost only -> separate "Place Here" click. New flow: catalog click runs `forgePlaceBegin + Update + Commit + Cancel` immediately and stores the new uid via `forgeHeldSetUid`. Held object's `pos[]` is rewritten every editor tick from the freefly camera. `ACTION_FORGE_SIDEBAR_ACTIVATE` while holding releases. `ACTION_FORGE_SIDEBAR_TOGGLE` while holding switches to the Objects tab + selects the held object (Properties pane lives there). New gamepad bind: `JBTN_A` also fires `ACTION_FORGE_SIDEBAR_ACTIVATE` so Mike's "press A to let go" intuition works on controller (shadows gameplay's JUMP via g_ImcForge priority 7 during FREEFLY only). Files: `port/include/forge/forge_core.h` + `port/src/forge/forge_core.c` (new s_held_uid + 4 accessor functions) + `port/fast3d/pdgui_forge_editor.cpp` + `port/src/actionmap.cpp`. Build verify: `f8` PASS (CLIENT 27s).
+
+**Fix 5** (B-301) -- chr-body hot-reload at FREEFLY/NORMAL transitions via bodyAllocateModel. Documented gap at `forgemode.c:78` ("hot-reload requires additional plumbing -- bodyAllocateModel for the new pair") finally addressed. Extend `forge_freefly_state_t` with `saved_chrmodel` + `has_saved_chrmodel`. `forgeSetFreeflyMode` calls `bodyAllocateModel(BODY_DRCAROLL, HEAD_RANDOM_GENDER, 0)` after the bodynum/headnum write and assigns the result to `chr->model`; player 0 also gets `p->haschrbody=true` and `p->model00d4=newmodel`. `forgeRestorePlayerMode` restores the saved chr->model pointer (gunmem/modelmgr-owned Agent allocation) plus integer fields; fallback to `bodyAllocateModel` if the saved pointer was NULL (forge intercepted before `playerTickChrBody` had populated it). Bounded leak: Dr Carroll model not explicitly freed on transition exit -- per-transition slot release would require deeper modelmgr/gunmem plumbing; memory growth bounded to one alloc per FREEFLY entry, reclaimed at next stage unload. Visibility from camera: chr body MODEL is now loaded; whether the freefly user SEES Dr Carroll locally depends on camera mode (freefly camera is positioned AT the chr, so user is effectively inside Dr Carroll). Camera-mode flip is a separate concern -- left for a future joint Menu Stacking + Input pillar slice if Mike's playtest reveals it's needed. Files: `src/game/forgemode.c`. Build verify: `f5` PASS (CLIENT 29s).
+
+### Filed for follow-up (NOT fixed in this session)
+
+**B-298** -- Vehicle IMC action consumers missing. Bindings exist (W/S/A/D + RT/LT/sticks + F/X) and fire correctly per playtest log, but `grep -r "ACTION_VEHICLE" src/game/` returns ZERO -- `bbikeTick` reads from the legacy bondmove channel (`g_Vars.currentplayer->speedforwards/sideways/theta`), not the actionmap. Same for `bbikeExit`: dismount path is wired to legacy input, not `actionPressed(ACTION_VEHICLE_EXIT)`. Mike confirmed in scope update: "Input may be broken still for that as we were doing infrastructural work on that, that was interrupted by having to fix the Catalog system." Defer fix to the joint Menu Stacking + Input pillar session per Mike's directive.
+
+### Methodology notes
+
+- All fixes shipped via queued isolated build (`build-session.ps1 -Session <id> -Target all`) per Mike's preference. Each session ID was unique (`f23`, `f4`, `f8`, `f5`).
+- All merges were no-fast-forward with explicit "Merge worktree: ..." commit messages matching the project pattern. Pre-merge HEAD captured + post-merge line-count verified for every merge per `feedback_worktree_truncation`.
+- No em-dashes anywhere in source / commit messages / docs (Windows tooling rule). All B-IDs assigned correctly (B-298 reserved for vehicle, B-299 / B-300 / B-301 / B-302 for the four code fixes).
+- Auto-merges sequenced: each fix's merge landed on dev before the next fix started, so any post-merge line-count regression would have been caught immediately.
+- Wall-jump glitch (separate B-ID, deferred per Mike) noted but untouched.
+
+### Caveats (Mike's playtest will surface what stuck)
+
+- **Fix 5 visibility**: Dr Carroll body loads but local-user visibility depends on camera mode. If Mike still doesn't see his Dr Carroll body locally during freefly, the next slice should flip camera mode to third-person during freefly (handled in joint Menu/Input pillar or a separate forge UX slice).
+- **Fix 4 Main Menu pop**: routing now targets the canonical exit-to-main-menu path. Whether the Main Menu auto-pops over CI on first frame after that route is a separate downstream concern (CI-on-spawn handler) that this fix doesn't touch.
+- **Fix 8 catalog click**: the spawn-and-attach happens on mouse click of the catalog Button. Mike's spec used the word "select" which I interpreted as catalog click. If he actually means D-pad-Right Activate on a sidebar row should also spawn, that's a small follow-up.
+- **B-301 unbounded model leak in long sessions**: per-transition slot release deferred. If Mike runs many freefly toggles in one stage, memory grows linearly. Next slice should add explicit slot release using the modelmgr / gunmem path.
 
 ## Session S593f (`distracted-hamilton-430172` continuation #4) - 2026-05-01 - Swarm: half-collision radius + multi-ring spawn distribution
 
