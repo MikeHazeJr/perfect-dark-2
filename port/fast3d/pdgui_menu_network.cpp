@@ -17,6 +17,7 @@
 #include <string.h>
 
 #include "imgui/imgui.h"
+#include "actionmap.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
@@ -445,13 +446,22 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
     bool enterPressed = ImGui::InputText("##address", s_JoinAddress,
                                           sizeof(s_JoinAddress), inputFlags);
 
-    /* Right-click the address field to paste the system clipboard. Connect
-     * codes are short 4-word sentences users share via Discord/Slack — the
-     * classic paste affordance matters here. SDL owns the clipboard even
-     * though ImGui has its own textbox. Strip trailing whitespace/newlines
-     * so pastes from chat clients don't carry a stray '\n' that would
-     * reject the decode. */
-    if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+    /* Right-click OR controller Y the address field to paste the system
+     * clipboard. Connect codes are short 4-word sentences users share via
+     * Discord/Slack -- the classic paste affordance matters here. SDL
+     * owns the clipboard even though ImGui has its own textbox. Strip
+     * trailing whitespace/newlines so pastes from chat clients don't
+     * carry a stray newline that would reject the decode.
+     *
+     * Phase 2 fix #4 (input-menu pillar, 2026-05-01): route through
+     * actionPressed(ACTION_TEXT_PASTE) so gamepad Y on g_ImcTextInput
+     * also pastes. Mouse path retained for kbm users who hover the
+     * field without focusing it. */
+    bool wantPaste = (ImGui::IsItemHovered()
+            && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+        || (ImGui::IsItemFocused()
+            && actionPressed(0, ACTION_TEXT_PASTE));
+    if (wantPaste) {
         char *clip = SDL_GetClipboardText();
         if (clip) {
             strncpy(s_JoinAddress, clip, sizeof(s_JoinAddress) - 1);

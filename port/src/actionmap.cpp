@@ -2764,6 +2764,7 @@ static void setupTextInputDefaults(void)
     addBind(imc, ACTION_CANCEL_USE,  JOY_BTN(0, JBTN_B));  /* cancel — gamepad */
     addBind(imc, ACTION_CHEAT_ENTER, VK_RETURN);
     addBind(imc, ACTION_TEXT_PASTE,  VK_MOUSE_RIGHT);      /* RMB paste-from-clipboard (Cohort 1) */
+    addBind(imc, ACTION_TEXT_PASTE,  JOY_BTN(0, JBTN_Y));  /* Phase 2 fix #4 (2026-05-01): controller Y also pastes */
 }
 
 /** Build default bind strings from the freshly populated IMC mappings. */
