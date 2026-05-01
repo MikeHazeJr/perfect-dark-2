@@ -715,9 +715,15 @@ s32 inputCtxDebugCopyHistory(InputCtxDebugHistoryEntry *dst, s32 max_entries)
 
 s32 gameplayInputSuppressed(void)
 {
-    /* (a) non-gameplay context on top */
+    /* (a) non-gameplay context on top.
+     *
+     * Phase 2 fix #9 (input-menu pillar, 2026-05-01): g_CtxForgeEditor
+     * is a hybrid context that wants ImGui keyboard claim + visible
+     * cursor BUT keeps gameplay axes (sticks/movement) live so the
+     * freefly camera can read them via actionValue(0, ACTION_AXIS_*).
+     * Exempt it from suppression so action-map reads pass through. */
     InputContext *top = inputCtxGetTop();
-    if (top && top != &g_CtxGameplay) {
+    if (top && top != &g_CtxGameplay && top != &g_CtxForgeEditor) {
         return 1;
     }
 
@@ -904,6 +910,86 @@ InputContext g_CtxPauseMenu = {
     .on_poll     = NULL,
     .on_push     = pauseMenuOnPush,
     .on_pop      = pauseMenuOnPop,
+    .active      = 0,
+    .marked_for_removal = 0,
+};
+
+/* ---- g_CtxForgeEditor (Phase 2 fix #9, B-195 architectural close) ----
+ *
+ * Hybrid: visible cursor + ImGui kbd claim (so editor dialogs work),
+ * but gameplay axes pass through (so freefly camera reads sticks).
+ *
+ * - on_push: clears any stale ImGui nav state so the editor's
+ *   subsequent Begin calls do not inherit a leaked NavWindow / ActiveId
+ *   from a prior menu close. The gameplayInputSuppressed exemption
+ *   above keeps action-map reads live for ACTION_AXIS_AIM_X/Y and
+ *   friends.
+ * - on_pop: same defensive nav clear so the next gameplay tick is not
+ *   left with a phantom keyboard claim.
+ * - can_consume: keyboard, mouse, mouse-wheel, controller buttons,
+ *   text events. NOT axis-motion events -- those pass through to
+ *   gameplay so the freefly camera receives them.
+ * - on_event: returns 1 (consumed by ImGui in pdgui_backend.cpp).
+ * ---------------------------------------------------------------- */
+
+static void forgeEditorOnPush(InputContext *self)
+{
+    (void)self;
+    extern void pdguiClearImGuiFocusAndNav(void);
+    pdguiClearImGuiFocusAndNav();
+    sysLogPrintf(LOG_NOTE, "INPUTCTX: forge_editor on_push -- nav cleared");
+}
+
+static void forgeEditorOnPop(InputContext *self)
+{
+    (void)self;
+    extern void pdguiClearImGuiFocusAndNav(void);
+    pdguiClearImGuiFocusAndNav();
+    sysLogPrintf(LOG_NOTE, "INPUTCTX: forge_editor on_pop -- nav cleared");
+}
+
+static s32 forgeEditorCanConsume(InputContext *self, const SDL_Event *ev)
+{
+    (void)self;
+    switch (ev->type) {
+    case SDL_KEYDOWN:
+    case SDL_KEYUP:
+    case SDL_TEXTINPUT:
+    case SDL_TEXTEDITING:
+    case SDL_MOUSEMOTION:
+    case SDL_MOUSEBUTTONDOWN:
+    case SDL_MOUSEBUTTONUP:
+    case SDL_MOUSEWHEEL:
+    case SDL_CONTROLLERBUTTONDOWN:
+    case SDL_CONTROLLERBUTTONUP:
+    case SDL_JOYBUTTONDOWN:
+    case SDL_JOYBUTTONUP:
+        return 1;
+    /* Axis events pass through to the gameplay context underneath so
+     * freefly camera reads sticks via actionValue(ACTION_AXIS_*). */
+    case SDL_CONTROLLERAXISMOTION:
+    case SDL_JOYAXISMOTION:
+        return 0;
+    default:
+        return 0;
+    }
+}
+
+static s32 forgeEditorOnEvent(InputContext *self, const SDL_Event *ev)
+{
+    (void)self;
+    (void)ev;
+    /* Consumed by ImGui in pdgui_backend.cpp. */
+    return 1;
+}
+
+InputContext g_CtxForgeEditor = {
+    .name        = "forge_editor",
+    .can_consume = forgeEditorCanConsume,
+    .on_event    = forgeEditorOnEvent,
+    .on_poll     = NULL,
+    .on_push     = forgeEditorOnPush,
+    .on_pop      = forgeEditorOnPop,
     .active      = 0,
     .marked_for_removal = 0,
 };
