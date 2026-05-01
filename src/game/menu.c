@@ -58,6 +58,13 @@
 #include "net/net.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_charpreview.h"
+
+/* Phase 2 fix #7 (input-menu pillar, 2026-05-01): forward-decl. Gates the
+ * legacy MENUBG_BLACK / MENUBG_8 / MENUBG_SUCCESS opaque-black-fill paths
+ * so they do not fire while ImGui menus own the screen chrome (per the
+ * `imgui-menus-replace-legacy` policy from P10 D5.7). Defined in
+ * port/fast3d/pdgui_backend.cpp. */
+extern s32 pdguiIsActive(void);
 #include "assetcatalog.h"
 #include "assetload.h"
 #include "menupool.h"
@@ -5615,6 +5622,18 @@ Gfx *menuRenderBackgroundLayer1(Gfx *gdl, u8 bg, f32 frac)
 		break;
 	case MENUBG_BLACK:
 	case MENUBG_8:
+		/* Phase 2 fix #7 (input-menu pillar, 2026-05-01, Issue G):
+		 * skip the legacy opaque viewport-spanning black fill while
+		 * ImGui menus own the screen chrome. ImGui dialogs (endscreen,
+		 * pause menu, etc.) draw their own backgrounds, and overlaying
+		 * legacy MENUBG_BLACK underneath produced the perceived "black
+		 * box behind menus" (the layer beneath the healthbar that Mike
+		 * has been seeing). The legacy state machine still advances
+		 * since MENUBG_8 is a transition step in the legacy endscreen
+		 * sequence; only the rendering is skipped. */
+		if (pdguiIsActive()) {
+			break;
+		}
 		{
 			u32 colour = 255 * frac;
 			gSPDisplayList(gdl++, var800613a0);
