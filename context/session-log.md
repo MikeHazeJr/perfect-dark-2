@@ -1,7 +1,55 @@
 # Session Log (Active)
 
-> **S481-S593c + S482c + S593b** (rolling window of ~110 sessions; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
+> **S481-S593d + S482c + S593b** (rolling window of ~110 sessions; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
+
+## Session S593d (`distracted-hamilton-430172` continuation #2) - 2026-05-01 - Swarm: hostile teams + aggressive AI + scale/health/speed + Debug Menu UX
+
+Mike playtest after S593c (verbatim):
+
+> "The bot behavior was updated on the CPU version, but not the boid version. Also, all the bots seemed to be running aimlessly. Maybe they didn't see me as an enemy? Ultimately, they should all be on one team, and me on the other. No team highlights. Also, make them 1/2 scale and 1/2 their normal health, 1.5x their normal move speed. This should be for both game modes. And put me on a more open level."
+
+### Smoking gun
+
+Investigation walked the bot AI's hostility check (`bot.c::botGetTeamSize` and similar use `chr->team == other->team` for ally detection). Cycle ladder confirmed in playtest binary at rdata offset 0x72800. Then the swarm chr team value: `chr->team = 1 << 7 = 0x80 = TEAM_NONCOMBAT`. That single field explained all of "running aimlessly" -- TEAM_NONCOMBAT is literally a "do not engage" flag in the engine's team taxonomy. The bots had real AI ticks running per S593c, but the AI's hostility test correctly classified them as non-combatants and they never aggressed.
+
+### Fixes shipped (commit 1d87613f, S593d)
+
+| What | Where | Change |
+|------|-------|--------|
+| Hostile team | `swarm_test.c::spawn_one_skedar` | `chr->team = TEAM_ENEMY` (was `1 << 7` = TEAM_NONCOMBAT). Player chr is on TEAM_01; different combat-class team -> AI engages. |
+| Forced aggression | `swarm_test.c::swarm_init_aibot` | `aibot->command = AIBOTCMD_ATTACK`, `aibot->attackpropnum = player_prop_index`. Locks the bot into attack mode regardless of tactical pick. |
+| Aggressive bot type | `swarm_test.c::s_SwarmBotConfig` | New dedicated bot config: `BOTTYPE_KAZE` (does not keep distance), `BOTDIFF_PERFECT` (~1.47x speed). Replaces the shared `g_BotConfigsArray[0]` reference. |
+| Half scale | `swarm_test.c::spawn_one_skedar` | `modelSetScale(chr->model, 0.5f)`. Visual size + bondwalk perim test scale together. |
+| Half health | `swarm_test.c::spawn_one_skedar` | `chr->maxdamage = 4.0f` (was 1.0f, target was 1/2 of normal MP-bot 8.0). |
+| 1.5x speed (CPU) | `swarm_test.c::s_SwarmBotConfig` | BOTDIFF_PERFECT in `botCalculateMaxSpeed` -> 11.2x base vs NORMAL 7.6x = ~1.47x. |
+| 1.5x speed (GPU) | `swarm_gpu.cpp::s_Params.max_speed` | 18.0 -> 27.0. Plus `gpu_fallback_seek_tick::SWARM_MAX_SPEED` 18.0 -> 27.0 to match. |
+| Default arena | `testscenarios.c::TESTSCEN_DEFAULT_SWARM_MAP` | `base:mp_skedar` -> `base:mp_felicity`. Open beach instead of cramped temple. |
+| Debug Menu UX | `pdgui_menu_mainmenu.cpp::renderSettingsDebug` | Replaced Combo dropdown + Launch with 3 radios (The Grid / CPU Bots / GPU Bots) + arena selector (catalog-enumerated `ASSET_ARENA`) + Start button. Grid mode greys out the arena selector. Default arena: Felicity. Default mode: CPU Bots. |
+
+### Team highlights
+
+Mike asked for "no team highlights." `MPOPTION_TEAMSENABLED` is the toggle for radar/HUD team-colour overlays in `g_MpSetup.options`. Our test scenario calls `matchConfigInit` and sets `scenario_id = "base:combat"` without enabling teams, so team highlights are already suppressed even though chr->team is now TEAM_ENEMY. No additional gating needed.
+
+### GPU mode in S593d
+
+GPU compute path stays position-only -- bots seek the player at 1.5x speed but don't have AI on the GPU side. Mike's directive ("don't try to ship full GPU bot AI in this session if the gap is large") was explicit; the doc at [context/designs/in-flight/gpu-swarm-bot-pipeline.md](designs/in-flight/gpu-swarm-bot-pipeline.md) was updated this session to record the concrete behavioural gap GPU mode still shows (no attack, no dodge, no chr-vs-chr collision in motion, no BG geometry awareness past the spawn-time ground snap).
+
+### Build verification
+
+`devtools\build-session.ps1 -Session swfix3 -Target all` -- both `PerfectDark.exe` (54.5 MB) and `PerfectDarkServer.exe` (22.3 MB) build clean. `strings PerfectDark.exe | grep "CPU Bots##testscen_mode"` confirms the new Debug Menu UI is in the binary.
+
+### Files touched
+
+- `port/src/swarm_test.c` -- s_SwarmBotConfig + swarm_init_bot_config_once + chr->team / model scale / health / aibot->command / attackpropnum updates.
+- `port/fast3d/swarm_gpu.cpp` -- max_speed bump.
+- `port/src/testscenarios.c` -- default arena.
+- `port/fast3d/pdgui_menu_mainmenu.cpp` -- Debug Menu UX redesign with arena selector.
+- `context/designs/in-flight/gpu-swarm-bot-pipeline.md` -- concrete-gap section + S593d update.
+- `context/bugs.md` -- B-295 status update.
+- `context/session-log.md` -- this entry.
+
+
 
 ## Session S593c (`distracted-hamilton-430172` continuation) - 2026-05-01 - Swarm benchmark follow-up: real bot AI + chr pool fix
 

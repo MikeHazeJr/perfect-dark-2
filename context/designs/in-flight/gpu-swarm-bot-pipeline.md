@@ -2,6 +2,11 @@
 
 > Status: SCOPED, not started. Filed 2026-05-01 as a follow-up after the
 > S593 pass that brought CPU-mode swarm bots up to real-bot behaviour.
+> Update 2026-05-01 (S593d): the bug-fix pass landed CPU bots with
+> hostile team / AIBOTCMD_ATTACK / 1.5x speed / half scale / half
+> health, plus a Debug Menu UX redesign with arena selector. GPU
+> mode kept the position-only behaviour and remains the work-item
+> this doc scopes.
 
 ## Premise (from Mike, 2026-05-01)
 
@@ -21,18 +26,37 @@ This doc scopes the work to make GPU mode run real bot behaviour on the
 GPU side, so the benchmark crossover is meaningful and the long-term
 "always run bots on GPU" question is answerable.
 
-## Where things stand after S593 (2026-05-01)
+## Where things stand after S593d (2026-05-01)
 
-- `port/src/swarm_test.c` -- CPU mode now uses `GAILIST_AIBOT_INIT` and
-  a private 256-slot `aibot` pool, so each Skedar runs the real bot AI
-  through `chraTick`/`chraiExecute`. CPU-mode bots seek/attack/collide
-  like a normal MP simulant.
+- `port/src/swarm_test.c` -- CPU mode uses `GAILIST_AIBOT_INIT` and a
+  private 256-slot `aibot` pool, plus a dedicated swarm bot config
+  (`s_SwarmBotConfig`: BOTTYPE_KAZE / BOTDIFF_PERFECT). Each Skedar
+  runs the real bot AI through `chraTick`/`chraiExecute`. CPU-mode
+  bots seek/attack/collide like a normal MP simulant, on TEAM_ENEMY,
+  forced into AIBOTCMD_ATTACK with `attackpropnum` = player.
 - `port/fast3d/swarm_gpu.cpp` -- GPU mode runs a tiny GLSL 4.3 compute
   shader (`kSwarmCs`) that does pure seek-toward-player position
-  update. The shader has no notion of: target, weapon, animation,
-  state machine, line-of-sight, room/floor info, other chrs.
-- GPU-mode chrs are spawned with `GAILIST_IDLE` and **no** `aibot`, so
-  the CPU side is doing the bare minimum (animation + render only).
+  update at 1.5x normal speed (max_speed=27). The shader has no notion
+  of: target acquisition, weapon firing, animation, state machine,
+  line-of-sight, room/floor info, other chrs. It moves chrs toward
+  the player and that is all.
+- GPU-mode chrs are spawned with `GAILIST_IDLE` and **no** `aibot`,
+  so the CPU side is doing the bare minimum (animation + render
+  only). They have TEAM_ENEMY set on the chr, but no AI consumes it
+  so the team is decorative.
+
+## Concrete behavioural gap GPU mode shows in playtest (S593d)
+
+- Bots do not attack the player.
+- Bots do not dodge or animate combat poses.
+- Bots do not collide with each other in motion (the GPU shader is
+  state-free and doesn't know about peer positions; it just integrates
+  toward the player).
+- Bots do not respect rooms, floor heights, or BG geometry past the
+  spawn-time `cdFindGroundInfoAtCyl` snap.
+
+These are exactly the parity-with-CPU items the GPU bot pipeline has
+to address.
 
 ## Work breakdown
 
