@@ -1,7 +1,43 @@
 # Session Log (Active)
 
-> **S481-S594 + S482c + S593b** (rolling window of ~110 sessions; S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
+> **S481-S594 + S593g + S482c + S593b** (rolling window of ~110 sessions; S593g added 2026-05-01 PM for body.c integrated-head warning gate (suppressing 550 head_canon=NULL log spam during the swarm 4-256 cycle); S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
+
+## Session S593g (`distracted-hamilton-430172` continuation #5) - 2026-05-01 PM - body.c integrated-head warning gate
+
+Mike sent the user-side release log (`C:/Users/Mike Hays Jr/Downloads/Perfect Dark/data/`, build `dev 90197956`).
+
+### What the log showed
+
+- 550 `WARNING: CHR.DIAG: bodyAllocateModel head_canon=NULL for headnum=0 -- catalog not registered, head model will be missing` lines.
+- Each warning paired with `body0f02ce8c: bodynum 92 (file 0x0053) modeldef->scale=2293.28` -- bodynum 92 is Skedar.
+- The 550 warnings cluster at 8 cycle-change timestamps:
+  - 01:20.62 (4 spawns), 01:32.00 (8), 01:33.17 (16), 01:34.67-68 (32), 01:36.37-39 (48), 01:37.36-38 (64), 01:40.15-18 (128), 02:10.65-72 (256).
+  - Total: 4+8+16+32+48+64+128+256 = 556. Matches the swarm cycle ladder exactly.
+- Log ended abruptly at 02:10.72 mid-spawn-flood (no FATAL/EXCEPTION written).
+- No `TESTSCEN.SWARM:` log lines in the file -- the user's release build dropped LOG_NOTE messages from `swarm_test.c` for an unknown reason. The cycle pattern in the warning timestamps is unambiguous evidence that the swarm IS running.
+
+### Smoking gun
+
+Skedar is an integrated-head body (catalogGetBodyIsComplete returns true): the head geometry is part of the body model and the headnum slot is unused by the body alloc path. The warning at `body.c:405` was firing unconditionally for any `headnum >= 0 && head_canon == NULL` combination regardless of body type, so each Skedar spawn triggered a meaningless head_canon miss. With 256 bots spawned in one frame at the top of the cycle, that produced 256 fopen/fwrite/fclose calls into the log file inside a single tick -- a plausible contributor to the abrupt log end (file-flush stall under spawn pressure).
+
+### Fix shipped (commit 53233734, S593g)
+
+Single edit in `src/game/body.c::bodyAllocateModel`: extend the warning gate from `if (headnum >= 0 && headnum != HEAD_RANDOM_GENDER && !head_canon)` to also include `&& !catalogGetBodyIsComplete(bodynum)`. The warning still fires for separate-head bodies where a missing catalog head IS a real load-time problem; integrated-head bodies (Skedar, Dr Caroll, EyeSpy) skip cleanly.
+
+### Build verification
+
+`devtools\build-session.ps1 -Session swfix6 -Target all` -- `PerfectDark.exe` (54.6 MB) and `Updater.exe` (12.3 MB) build clean.
+
+### What the next playtest should show
+
+- Zero `head_canon=NULL` warnings during swarm cycle (Skedar / Dr Caroll / EyeSpy spawns).
+- Log file no longer terminates abruptly during the 256-bot spawn batch.
+- Cycler reaches 256 cleanly with subsequent cycles back to 4 also working.
+
+### Open question for the next session
+
+The user's release build emits LOG_NOTE messages from other subsystems (LOG.WPN.DIAG, MANIFEST-SP) but `TESTSCEN.SWARM:` lines from `swarm_test.c` never appear, despite the cycle ladder pattern proving the runtime is active. Possibilities to investigate if it persists: log channel classifier (`sysLogClassifyMessage` at `port/src/system.c:119`) eats the TESTSCEN prefix as a misclassified channel; or compile-time stripping of LOG_NOTE in release; or some other sysLogPrintf gate. Not in scope for S593g -- the integrated-head warning fix is independent -- but flagged so a future session can chase it.
 
 ## Session S594 (`infallible-mestorf-8463b9`) - 2026-05-01 - Grid playtest triage: 4 sequential fixes + B-298 vehicle gap filed
 
