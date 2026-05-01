@@ -181,42 +181,143 @@ MenuItemHandlerResult menuhandlerNetCoopRadar(s32 operation, struct menuitem *it
 	return 0;
 }
 
+/* ------------------------------------------------------------------------
+ * Catalog-driven body picker cache (B-303 follow-up, catalog universality
+ * sweep, 2026-05-01).
+ *
+ * Replaces the previous integer-indexed iteration over g_MpBodies[] in the
+ * co-op + join character pickers.  The list now sources from
+ * assetCatalogIterateUnlockedByType(ASSET_BODY, ...) so:
+ *   - locked SP-only bodies are filtered out
+ *   - mod bodies appear automatically
+ *   - a Mod-Manager-disabled body never reaches the dropdown (B-303 gate)
+ *
+ * UI shape: index 0 = "Default (Joanna)" sentinel; indices 1..N = catalog
+ * entries in mp_index order with display names from mpGetBodyName.  The
+ * cache invalidates on catalog generation change (mod toggle / rescan).
+ * ------------------------------------------------------------------------ */
+
+#define NETMENU_CHAR_PICKER_MAX_BODIES 256
+
+typedef struct {
+	char id[CATALOG_ID_LEN];
+	s16  mp_index;          /* g_MpBodies[] position; -1 for SP / mod */
+	const char *display;    /* langbank-resolved or catalog-id fallback */
+} netmenu_char_body_entry_t;
+
+static netmenu_char_body_entry_t s_NetMenuBodies[NETMENU_CHAR_PICKER_MAX_BODIES];
+static s32 s_NetMenuBodyCount = 0;
+static u32 s_NetMenuBodyCatGen = 0xFFFFFFFFu;
+
+static void netMenuCharBodyCollect(const asset_entry_t *e, void *userdata)
+{
+	(void)userdata;
+	if (!e || e->type != ASSET_BODY) return;
+	if (s_NetMenuBodyCount >= NETMENU_CHAR_PICKER_MAX_BODIES) return;
+	netmenu_char_body_entry_t *be = &s_NetMenuBodies[s_NetMenuBodyCount];
+	strncpy(be->id, e->id, CATALOG_ID_LEN - 1);
+	be->id[CATALOG_ID_LEN - 1] = '\0';
+	be->mp_index = e->mp_index;
+	if (be->mp_index >= 0) {
+		be->display = mpGetBodyName((u8)be->mp_index);
+	} else {
+		be->display = NULL;
+	}
+	if (!be->display || !be->display[0]) {
+		be->display = be->id;
+	}
+	s_NetMenuBodyCount++;
+}
+
+static void netMenuCharBodyEnsureCache(void)
+{
+	u32 gen = assetCatalogGetGeneration();
+	if (gen == s_NetMenuBodyCatGen && s_NetMenuBodyCount > 0) {
+		return;
+	}
+	s_NetMenuBodyCount = 0;
+	assetCatalogIterateUnlockedByType(ASSET_BODY,
+	                                   netMenuCharBodyCollect, NULL);
+	s_NetMenuBodyCatGen = gen;
+}
+
+/* Find UI dropdown index for a given mp_index (1-based; 0 = Default). */
+static s32 netMenuCharBodyUiIdxForMpIdx(s32 mpidx)
+{
+	netMenuCharBodyEnsureCache();
+	for (s32 i = 0; i < s_NetMenuBodyCount; i++) {
+		if (s_NetMenuBodies[i].mp_index == mpidx) {
+			return i + 1;
+		}
+	}
+	return 0;
+}
+
+/* Apply the picker selection to the player config.  ui_idx == 0 resets to
+ * the Default (Joanna) sentinel; any other index commits the catalog ID via
+ * mpchrSetBodyById and resolves a default head for that body. */
+static void netMenuCharBodyApplySelection(s32 ui_idx)
+{
+	netMenuCharBodyEnsureCache();
+	if (ui_idx <= 0) {
+		mpchrSetBodyByIndex(&g_PlayerConfigsArray[0].base, 0);
+		mpchrSetHeadByIndex(&g_PlayerConfigsArray[0].base, 0);
+		return;
+	}
+	s32 i = ui_idx - 1;
+	if (i < 0 || i >= s_NetMenuBodyCount) return;
+
+	const netmenu_char_body_entry_t *be = &s_NetMenuBodies[i];
+	mpchrSetBodyById(&g_PlayerConfigsArray[0].base, be->id);
+
+	/* Default-head resolution: prefer catalog ID string for SP / mod bodies
+	 * (mp_index < 0) so non-MP characters get their authored default head;
+	 * fall back to the integer mp_index path for MP-table bodies. */
+	const char *dhid = catalogGetBodyDefaultHead(be->id);
+	if (dhid && dhid[0]) {
+		mpchrSetHeadById(&g_PlayerConfigsArray[0].base, dhid);
+	} else if (be->mp_index >= 0) {
+		s32 dh = catalogGetBodyDefaultMpHeadIdx(be->mp_index);
+		mpchrSetHeadByIndex(&g_PlayerConfigsArray[0].base, dh >= 0 ? dh : 0);
+	} else {
+		mpchrSetHeadByIndex(&g_PlayerConfigsArray[0].base, 0);
+	}
+}
+
 static MenuItemHandlerResult menuhandlerCoopCharacter(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	/* Character body selection for co-op — uses local player config (index 0) */
+	/* Character body selection for co-op -- uses local player config (index 0).
+	 * Catalog-driven post-B-303: dropdown lists every unlocked + enabled body
+	 * (base + mod), gated by the Path-A enabled filter on the iterator. */
+	netMenuCharBodyEnsureCache();
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = ARRAYCOUNT(g_MpBodies) + 1;
+		data->dropdown.value = s_NetMenuBodyCount + 1;
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		if (data->dropdown.value == 0) {
 			return (uintptr_t)"Default (Joanna)";
 		}
-		if (data->dropdown.value > 0 && data->dropdown.value <= (s32)ARRAYCOUNT(g_MpBodies)) {
-			return (uintptr_t)mpGetBodyName(data->dropdown.value - 1);
+		if (data->dropdown.value > 0 && data->dropdown.value <= s_NetMenuBodyCount) {
+			const char *n = s_NetMenuBodies[data->dropdown.value - 1].display;
+			return (uintptr_t)(n ? n : "???");
 		}
 		return (uintptr_t)"???";
 	case MENUOP_GETSELECTEDINDEX: {
 		u8 mpbody = g_PlayerConfigsArray[0].base.mpbodynum;
 		u8 mphead = g_PlayerConfigsArray[0].base.mpheadnum;
-		data->dropdown.value = (mpbody == 0 && mphead == 0) ? 0 : (mpbody + 1);
+		if (mpbody == 0 && mphead == 0) {
+			data->dropdown.value = 0;
+		} else {
+			data->dropdown.value = netMenuCharBodyUiIdxForMpIdx((s32)mpbody);
+		}
 		break;
 	}
 	case MENUOP_SET:
-		/* FIX-23: Legacy N64 dropdown character picker.
-		 * Sets mpbodynum/mpheadnum via the centralized setters which keep
-		 * both catalog ID strings and deprecated integer fields in sync. */
-		if (data->dropdown.value == 0) {
-			mpchrSetBodyByIndex(&g_PlayerConfigsArray[0].base, 0);
-			mpchrSetHeadByIndex(&g_PlayerConfigsArray[0].base, 0);
-		} else if (data->dropdown.value > 0 && data->dropdown.value <= (s32)ARRAYCOUNT(g_MpBodies)) {
-			s32 mpbodynum = data->dropdown.value - 1;
-			mpchrSetBodyByIndex(&g_PlayerConfigsArray[0].base, mpbodynum);
-			{ s32 dh = catalogGetBodyDefaultMpHeadIdx(mpbodynum); mpchrSetHeadByIndex(&g_PlayerConfigsArray[0].base, dh >= 0 ? dh : 0); }
-		}
+		netMenuCharBodyApplySelection(data->dropdown.value);
 		sysLogPrintf(LOG_NOTE, "NET: co-op character set: body=%u head=%u",
 			g_PlayerConfigsArray[0].base.mpbodynum, g_PlayerConfigsArray[0].base.mpheadnum);
-		/* Notify server of updated settings — triggers catalog ID conversion */
+		/* Notify server of updated settings -- triggers catalog ID conversion */
 		if (g_NetMode == NETMODE_CLIENT) {
 			netClientSettingsChanged();
 		}
@@ -412,35 +513,35 @@ static MenuItemHandlerResult menuhandlerJoining(s32 operation, struct menuitem *
 
 static MenuItemHandlerResult menuhandlerJoinCharacter(s32 operation, struct menuitem *item, union handlerdata *data)
 {
+	/* Catalog-driven post-B-303: shares the netMenuCharBody* helpers with
+	 * the co-op picker so both surfaces filter on the same enabled +
+	 * unlock predicate. */
+	netMenuCharBodyEnsureCache();
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = ARRAYCOUNT(g_MpBodies) + 1;
+		data->dropdown.value = s_NetMenuBodyCount + 1;
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		if (data->dropdown.value == 0) {
 			return (uintptr_t)"Default (Joanna)";
 		}
-		if (data->dropdown.value > 0 && data->dropdown.value <= (s32)ARRAYCOUNT(g_MpBodies)) {
-			return (uintptr_t)mpGetBodyName(data->dropdown.value - 1);
+		if (data->dropdown.value > 0 && data->dropdown.value <= s_NetMenuBodyCount) {
+			const char *n = s_NetMenuBodies[data->dropdown.value - 1].display;
+			return (uintptr_t)(n ? n : "???");
 		}
 		return (uintptr_t)"???";
 	case MENUOP_GETSELECTEDINDEX: {
 		u8 mpbody = g_PlayerConfigsArray[0].base.mpbodynum;
 		u8 mphead = g_PlayerConfigsArray[0].base.mpheadnum;
-		data->dropdown.value = (mpbody == 0 && mphead == 0) ? 0 : (mpbody + 1);
+		if (mpbody == 0 && mphead == 0) {
+			data->dropdown.value = 0;
+		} else {
+			data->dropdown.value = netMenuCharBodyUiIdxForMpIdx((s32)mpbody);
+		}
 		break;
 	}
 	case MENUOP_SET:
-		/* FIX-23 (second dropdown instance): same catalog conversion as co-op handler above.
-		 * mpbodynum → body_id conversion happens in netClientSettingsChanged(). */
-		if (data->dropdown.value == 0) {
-			mpchrSetBodyByIndex(&g_PlayerConfigsArray[0].base, 0);
-			mpchrSetHeadByIndex(&g_PlayerConfigsArray[0].base, 0);
-		} else if (data->dropdown.value > 0 && data->dropdown.value <= (s32)ARRAYCOUNT(g_MpBodies)) {
-			s32 mpbodynum = data->dropdown.value - 1;
-			mpchrSetBodyByIndex(&g_PlayerConfigsArray[0].base, mpbodynum);
-			{ s32 dh = catalogGetBodyDefaultMpHeadIdx(mpbodynum); mpchrSetHeadByIndex(&g_PlayerConfigsArray[0].base, dh >= 0 ? dh : 0); }
-		}
+		netMenuCharBodyApplySelection(data->dropdown.value);
 		sysLogPrintf(LOG_NOTE, "NET: client character set: body=%u head=%u",
 			g_PlayerConfigsArray[0].base.mpbodynum, g_PlayerConfigsArray[0].base.mpheadnum);
 		netClientSettingsChanged();
