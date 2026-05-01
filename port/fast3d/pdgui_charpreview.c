@@ -868,6 +868,35 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
         gSPViewport(gdl++, viGetCurrentPlayerViewport());
     }
 
+    /* B-291 (S593) LOUDFAIL channel: detect the "FBO clear ran but model
+     * skipped" path that produces a silently-black preview.
+     *
+     * `menuRenderModel` clears `bodymodeldef` to NULL on any of these
+     * silent fail paths (`menu.c`):
+     *   - body catalog resolve failed (line 2109-2118)
+     *   - body model file empty (line 2122-2132)
+     *   - bodymodeldef invalid post-load (line 2166-2182)
+     *   - raw filenum has no provider handle (line 2228-2237)
+     *
+     * Each of those paths emits a LOG_WARNING individually but the
+     * resulting blank preview is silent.  Surface a single
+     * `PREVIEW.FBO.BLACK:` channel here so any "preview is black on
+     * screen X" report (Mike's playtest of New Agent screen, etc.)
+     * lights up at this seam without needing per-call-site grep.  The
+     * diagnostic is gated by `s_PreviewReady=1 && bodymodeldef==NULL`
+     * so it only fires when the user is actually about to see a black
+     * panel; routine loading frames stay quiet. */
+    if (mm->bodymodeldef == NULL) {
+        sysLogPrintf(LOG_WARNING,
+                     "PREVIEW.FBO.BLACK: type=%d head=%u body=%u file=0x%08x params=0x%08x -- "
+                     "model render skipped, FBO will display black",
+                     s_PreviewType,
+                     (unsigned)s_PreviewHeadnum,
+                     (unsigned)s_PreviewBodynum,
+                     (unsigned)s_PreviewFilenum,
+                     (unsigned)mm->curparams);
+    }
+
     /* Mark preview as ready. The texture ID was cached at init time.
      * The GBI commands above will be processed by gfx_run_dl before
      * the ImGui phase, so the texture will have valid content. */

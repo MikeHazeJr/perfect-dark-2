@@ -140,6 +140,12 @@ const char *mpPlayerConfigGetHeadId(s32 playernum);
 void mpPlayerConfigSetHeadBody(s32 playernum, const char *head_id, const char *body_id);
 const char *catalogGetBodyDefaultHead(const char *body_id);
 
+/* H.5 universal guard (S593): integrated-head bodies (Skedar, Dr Carroll,
+ * Eye Spy) carry their own head model; the head selector must lock when
+ * one is selected.  Reads via the catalog accessor that wraps the
+ * `unk00_01` flag on `g_HeadsAndBodies[]`. */
+s32 catalogGetBodyIsComplete(s32 bodynum);
+
 /* Weapon sets (mplayer.c) */
 void mpSetWeaponSet(s32 weaponsetnum);
 s32 mpGetWeaponSet(void);
@@ -2718,27 +2724,59 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                     strncpy(s_PendingCharBodyId, s_ModalBodies[i].id,
                             sizeof(s_PendingCharBodyId) - 1);
                     s_PendingCharBodyId[sizeof(s_PendingCharBodyId) - 1] = '\0';
-                    /* Auto-pick the body's declared default head so the
-                     * common "I want body X with its canonical face"
-                     * case works in one click. The user can still pick
-                     * a different head from the list below. */
-                    const char *def = catalogGetBodyDefaultHead(s_PendingCharBodyId);
-                    if (def && def[0]) {
-                        strncpy(s_PendingCharHeadId, def,
-                                sizeof(s_PendingCharHeadId) - 1);
-                        s_PendingCharHeadId[sizeof(s_PendingCharHeadId) - 1] = '\0';
+                    /* H.5 universal guard (S593): integrated-head bodies
+                     * carry their own head -- clear the pending head id
+                     * so the wire/save side never carries a stale head
+                     * the renderer would silently drop. */
+                    const asset_entry_t *be = assetCatalogResolve(s_PendingCharBodyId);
+                    bool integrated = (be && be->type == ASSET_BODY
+                                       && catalogGetBodyIsComplete(be->runtime_index));
+                    if (integrated) {
+                        s_PendingCharHeadId[0] = '\0';
+                    } else {
+                        /* Auto-pick the body's declared default head so the
+                         * common "I want body X with its canonical face"
+                         * case works in one click. The user can still pick
+                         * a different head from the list below. */
+                        const char *def = catalogGetBodyDefaultHead(s_PendingCharBodyId);
+                        if (def && def[0]) {
+                            strncpy(s_PendingCharHeadId, def,
+                                    sizeof(s_PendingCharHeadId) - 1);
+                            s_PendingCharHeadId[sizeof(s_PendingCharHeadId) - 1] = '\0';
+                        }
                     }
                 }
                 if (sel) ImGui::SetItemDefaultFocus();
             }
             ImGui::EndChild();
 
-            ImGui::Text("Head");
+            /* H.5 universal guard (S593): if the pending body is an
+             * integrated-head character, lock the entire head list and
+             * surface the lock state with a header annotation + tooltip. */
+            bool integratedHead = false;
+            {
+                const asset_entry_t *be = assetCatalogResolve(s_PendingCharBodyId);
+                if (be && be->type == ASSET_BODY
+                        && catalogGetBodyIsComplete(be->runtime_index)) {
+                    integratedHead = true;
+                }
+            }
+
+            if (integratedHead) {
+                ImGui::Text("Head  (integrated)");
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("This character has an integrated head.");
+                }
+            } else {
+                ImGui::Text("Head");
+            }
             ImGui::BeginChild("##char_head_list",
                               ImVec2(pdguiScale(380.0f), pdguiScale(140.0f)),
                               true);
+            ImGui::BeginDisabled(integratedHead);
             for (s32 i = 0; i < s_ModalHeadCount; i++) {
-                bool sel = (strcmp(s_ModalHeads[i].id, s_PendingCharHeadId) == 0);
+                bool sel = (!integratedHead
+                            && strcmp(s_ModalHeads[i].id, s_PendingCharHeadId) == 0);
                 if (ImGui::Selectable(s_ModalHeads[i].name, sel)) {
                     strncpy(s_PendingCharHeadId, s_ModalHeads[i].id,
                             sizeof(s_PendingCharHeadId) - 1);
@@ -2746,6 +2784,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                 }
                 if (sel) ImGui::SetItemDefaultFocus();
             }
+            ImGui::EndDisabled();
             ImGui::EndChild();
 
             ImGui::Separator();

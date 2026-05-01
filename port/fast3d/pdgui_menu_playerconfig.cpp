@@ -129,6 +129,12 @@ const char *catalogMpHeadId(s32 mpheadnum);
 const char *catalogGetBodyDefaultHead(const char *body_id);
 char       *mpGetBodyName(u8 mpbodynum);
 
+/* H.5 universal guard (S593): integrated-head bodies (Skedar, Dr Carroll,
+ * Eye Spy) carry their own head model; the head selector must lock when
+ * one is selected.  Reads via the catalog accessor that wraps the
+ * `unk00_01` flag on `g_HeadsAndBodies[]`. */
+s32 catalogGetBodyIsComplete(s32 bodynum);
+
 /* ---- Head/body selector commit (writes head_id/body_id PRIMARY +
  *      DEPRECATED mpheadnum/mpbodynum via mpchrSetHead/BodyById). Defined
  *      in pdgui_bridge.c. ---- */
@@ -645,6 +651,18 @@ static void s_pcRebuildBodyList(void)
     s_PcBodyListCountKnown = s_PcBodyListCount;
 }
 
+/* H.5 universal guard (S593): true if the catalog body identified by
+ * body_id has an integrated head model (`unk00_01 == 1`) -- e.g. Skedar,
+ * Dr Carroll, Eye Spy.  These bodies cannot accept a separate head; the
+ * picker UI must lock the head selector when one is selected. */
+static bool s_pcBodyHasIntegratedHead(const char *body_id)
+{
+    if (!body_id || !body_id[0]) return false;
+    const asset_entry_t *be = assetCatalogResolve(body_id);
+    if (!be || be->type != ASSET_BODY) return false;
+    return catalogGetBodyIsComplete(be->runtime_index) ? true : false;
+}
+
 /* Find list position for the player's currently-equipped body_id.  Returns
  * 0 if the equipped body is not in the unlocked list (locked-after-unlock
  * or mod-removed). */
@@ -804,13 +822,17 @@ static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
 
             /* Step 4 -- carousel reads from the unlocked-pool list.  Steps
              * commit via mpPlayerConfigSetHeadId which updates head_id
-             * (PRIMARY) and DEPRECATED mpheadnum together.  Bodies with
-             * an integrated head have no rig-compatible head pool entries
-             * for swapping in this UI today; if Mike wants the integrated-
-             * head guard here too, follow the agentcreate pattern. */
+             * (PRIMARY) and DEPRECATED mpheadnum together.
+             *
+             * H.5 universal guard (S593): bodies with an integrated head
+             * (Skedar, Dr Carroll, Eye Spy -- `unk00_01 == 1`) carry their
+             * own head model.  Lock the carousel and show "(integrated)"
+             * so the user can't pick an arbitrary head that the renderer
+             * would silently drop at the request seam. */
+            bool integratedHead = s_pcBodyHasIntegratedHead(committedBodyId);
             bool canCycle = (s_PcHeadListCount > 1);
 
-            ImGui::BeginDisabled(!canCycle);
+            ImGui::BeginDisabled(integratedHead || !canCycle);
             if (ImGui::ArrowButton("##pc_char_head_prev", ImGuiDir_Left)) {
                 s32 next = (curHead - 1 + s_PcHeadListCount) % s_PcHeadListCount;
                 mpPlayerConfigSetHeadId(g_MpPlayerNum, s_PcHeadList[next].id);
@@ -819,13 +841,19 @@ static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
             ImGui::SameLine();
 
             /* Show "i / N (display_name)" -- catalog display name beats
-             * the raw catalog ID hint that previously shipped here. */
+             * the raw catalog ID hint that previously shipped here.
+             * Integrated-head bodies show "(integrated)" instead of a
+             * head name to make the lock state obvious. */
             char headLbl[96];
-            const char *curHeadDisplay = (curHead >= 0 && curHead < s_PcHeadListCount)
-                ? s_PcHeadList[curHead].display
-                : "???";
-            snprintf(headLbl, sizeof(headLbl), "%d / %d  (%s)",
-                     (int)(curHead + 1), (int)s_PcHeadListCount, curHeadDisplay);
+            if (integratedHead) {
+                snprintf(headLbl, sizeof(headLbl), "(integrated)");
+            } else {
+                const char *curHeadDisplay = (curHead >= 0 && curHead < s_PcHeadListCount)
+                    ? s_PcHeadList[curHead].display
+                    : "???";
+                snprintf(headLbl, sizeof(headLbl), "%d / %d  (%s)",
+                         (int)(curHead + 1), (int)s_PcHeadListCount, curHeadDisplay);
+            }
             ImGui::TextUnformatted(headLbl);
 
             ImGui::SameLine();
@@ -835,6 +863,9 @@ static s32 renderMpCharacter(struct menudialog *dialog, struct menu *, s32, s32)
                 pdguiPlaySound(PDGUI_SND_SELECT);
             }
             ImGui::EndDisabled();
+            if (integratedHead && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                ImGui::SetTooltip("This character has an integrated head.");
+            }
         }
         ImGui::EndGroup();
 

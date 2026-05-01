@@ -69,6 +69,8 @@ void gamefileLoadDefaults(struct gamefile *file);
  * safe accessor functions that handle struct layout correctly. */
 void mpPlayerConfigSetName(s32 playernum, const char *name);
 void mpPlayerConfigSetHeadBody(s32 playernum, const char *head_id, const char *body_id);
+const char *mpPlayerConfigGetBodyId(s32 playernum);
+const char *mpPlayerConfigGetHeadId(s32 playernum);
 
 extern s32 g_MpPlayerNum;
 
@@ -403,6 +405,47 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         s_FirstFrame = true;
         /* Force preview re-render on screen open */
         pdguiModelPreviewInvalidate();
+
+        /* B-291 (S593): seed body/head from the player's currently-saved
+         * config rather than the alphabetically-first unlocked entry.
+         *
+         * Why this matters: the previous default (s_SelectedBody=0,
+         * s_SelectedHead=0) picked alphabetically-first body and head
+         * from the unlocked pool.  Those two are picked INDEPENDENTLY,
+         * so on certain mod / unlock combinations the pair could be
+         * rig-incompatible (e.g. integrated-head body + non-integrated
+         * head, or maian body + human head).  When that happened the
+         * preview's request seam (`pdguiCharPreviewRequestEx`) would
+         * apply rig fallback or integrated-head clearing -- valid for
+         * the renderer, but the body itself could still hit a load
+         * problem and `body0f02ce8c` would log a WARNING and skip the
+         * model.  Result: FBO cleared to black, `s_PreviewReady` still
+         * goes to 1, ImGui drew the black texture and Mike saw "just
+         * black, nothing visible for preview".
+         *
+         * The Player Config menu (`pdgui_menu_playerconfig.cpp`) starts
+         * from `mpPlayerConfigGetBodyId/HeadId` -- a known-valid pair
+         * (it's what the player is currently using in MP) -- and its
+         * preview always renders correctly.  Mirror that pattern here
+         * so Agent Create starts from the same known-good baseline.
+         * The user can still cycle to any unlocked body/head; this
+         * just changes the OPENING selection. */
+        s32 pnum = g_MpPlayerNum;
+        if (pnum < 0) pnum = 0;
+        const char *playerBodyId = mpPlayerConfigGetBodyId(pnum);
+        const char *playerHeadId = mpPlayerConfigGetHeadId(pnum);
+        if (playerBodyId && playerBodyId[0]) {
+            s_SelectedBody = findBodyIndexById(playerBodyId);
+        }
+        if (playerHeadId && playerHeadId[0]) {
+            s_SelectedHead = findHeadIndexById(playerHeadId);
+        }
+        /* Treat the seed as user-implicit so autoSelectHead does NOT
+         * override head choice on the next body cycle.  Once the user
+         * cycles bodies the head will auto-pair from the new body's
+         * default head per the existing `s_HeadOverridden = false`
+         * branch in the body carousel. */
+        s_HeadOverridden = (playerHeadId && playerHeadId[0]) ? true : false;
     }
 
     /* Opaque backdrop — this dialog overlays Agent Select, so the body
