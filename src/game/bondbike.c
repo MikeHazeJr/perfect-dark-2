@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "actionmap.h"
 #include "game/bondbike.h"
 #include "game/bondmove.h"
 #include "game/camera.h"
@@ -231,6 +232,44 @@ void bbikeApplyMoveData(struct movedata *data)
 	f32 value1;
 	f32 tmp;
 	s32 contmode = optionsGetControlMode(g_Vars.currentplayerstats->mpindex);
+
+	/* Phase 2 fix #4 (input-menu pillar, B-298, 2026-05-01):
+	 * vehicle IMC bindings (ACTION_VEHICLE_*) shadow the gameplay
+	 * IMC's WASD when mounted, so ACTION_AXIS_MOVE_X/Y stays at 0
+	 * and the legacy analogwalk/analogstrafe channel that drives
+	 * speedforwards/sideways receives nothing. Read the vehicle
+	 * actions directly here and override movedata so the existing
+	 * speedforwards/sideways logic below (lines 270-313) drives
+	 * the bike correctly. Same approach for ACTION_VEHICLE_EXIT
+	 * (F / X-button) which fires the dismount cascade via
+	 * bmoveSetMode(MOVEMODE_WALK). */
+	if (contmode == CONTROLMODE_PC) {
+		if (actionPressed(0, ACTION_VEHICLE_EXIT)) {
+			bmoveSetMode(MOVEMODE_WALK);
+			return;
+		}
+
+		f32 vAccel  = actionValue(0, ACTION_VEHICLE_ACCELERATE);
+		f32 vBrake  = actionValue(0, ACTION_VEHICLE_BRAKE);
+		f32 vLeft   = actionValue(0, ACTION_VEHICLE_STEER_LEFT);
+		f32 vRight  = actionValue(0, ACTION_VEHICLE_STEER_RIGHT);
+		bool vehicleInputs = (vAccel > 0.0f || vBrake > 0.0f
+				|| vLeft > 0.0f || vRight > 0.0f);
+		if (vehicleInputs) {
+			/* Map [0..1] to the [-70..70] range bbikeApplyMoveData
+			 * expects (line 271 divides by 70 and clamps to [-1, 1]). */
+			data->analogwalk    = (vAccel - vBrake) * 70.0f;
+			data->analogstrafe  = (vRight - vLeft)  * 70.0f;
+			data->canlookahead  = 1;
+			data->unk14         = 1;
+			/* Suppress digital steps so the analog branches at lines
+			 * 270 / 301 win unconditionally. */
+			data->digitalstepforward = 0;
+			data->digitalstepback    = 0;
+			data->digitalstepleft    = 0;
+			data->digitalstepright   = 0;
+		}
+	}
 
 	if ((contmode == CONTROLMODE_12
 				|| contmode == CONTROLMODE_14
