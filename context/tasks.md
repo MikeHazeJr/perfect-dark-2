@@ -42,11 +42,14 @@ Surfaced during F12 runtime debugging. Two parallel slices:
 
 ### 2. Catalog - Gate 3 Migration
 
-**Status**: queued behind F11-F13. Applies the proven Manager + .pdbase pattern from weapons to other asset types.
+**Status**: in-flight, sequential auto-merge per asset type. Applies the proven Manager + .pdbase pattern from weapons (S591) to other asset types.
 
-**Scope**: per asset type, define a `catalog_mgr_<type>.c` + `<type>.pdbase` archive. Order by impact / risk:
+**Heads** -- shipped 2026-05-01 as S596 at dev `a2ad421e`. F1-F13 landed: manager (`port/src/catalog_mgr_heads.c`), pure validators, `base/heads.pdbase` (84 records: 75 named + 9 SP fallback), loader integration, F2 catalogGetHead* routing, F3+F4 modeldef cache, F5 body.c modeldef NULL check via manager, F6 retire `g_MpMaleHeads` / `g_MpFemaleHeads`, F11 startup wiring (`catalogManagerHeadInit` + `loaderPdbaseBuildHeadManager`), F13 grep-guard test (12 cases / 96 assertions). Body reads keep the legacy `g_HeadsAndBodies` pattern until bodies migrates. S593g `head_canon=NULL` warning gate preserved.
 
-- Heads + bodies (high-traffic, high-risk; selectors and avatars).
+**Bodies** -- next up. Auto-spawning per Mike's "don't wait on me; sequential auto-merge per asset migration" standing rule. The migration template is parallel to heads: `catalog_mgr_bodies.c` + bodies.pdbase + retire `g_HeadsAndBodies` body fields. The `g_HeadsAndBodies[]` array can finally retire after bodies lands (heads owns its `s_Heads[152]` mirror; bodies will own its own pool too).
+
+**Remaining queue** (post-bodies, sequential):
+
 - Arenas (medium; static metadata).
 - Audio (medium; ASSET_AUDIO already has runtime activation; data move follows).
 - Scenarios / game modes.
