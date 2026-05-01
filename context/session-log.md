@@ -1,7 +1,56 @@
 # Session Log (Active)
 
-> **S481-S593 + S482c + S593b** (rolling window of ~110 sessions; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
+> **S481-S593c + S482c + S593b** (rolling window of ~110 sessions; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
+
+## Session S593c (`distracted-hamilton-430172` continuation) - 2026-05-01 - Swarm benchmark follow-up: real bot AI + chr pool fix
+
+Mike playtest after S593's first-pass fix surfaced three remaining swarm-test symptoms (verbatim):
+
+> "Swarm still seems to loop to 16 only..." (later corrected: "actually doesn't go to 16. It goes to 8, and also shows '8' but '10' loaded also")
+> "Skedar guys move now, but not like bots, just a moving prop. It should have actual bot behavior. That goes for CPU and BOID versions"
+> "they should have collision, currently they can go inside me and each other, making me unable to move"
+
+**Architectural clarification from Mike (mid-session)**: the GPU/BOID path is ultimately supposed to run **full bot behaviour** on GPU compute (parallelized), not just position updates. Today the GPU shader only does pure seek-toward-player; bot state machine, target selection, attack decisions, LOS, weapon firing all stay on CPU. The benchmark's job is to find the CPU-vs-GPU crossover, but it can only do that when both modes do equivalent work. Filed as follow-up pillar ([context/designs/in-flight/gpu-swarm-bot-pipeline.md](designs/in-flight/gpu-swarm-bot-pipeline.md)) since the gap is large (~3-5 sessions of focused effort).
+
+### Three issues, two distinct root causes
+
+**Issue 1 (cycler stuck at 8) root cause**: `src/game/setup.c` had the swarm-extra hook for `modelmgrAllocateSlots` (sized model/anim/prop pools to 256), but the same hook was MISSING for `chrmgrConfigure(numchrs)`. On a solo-no-simulants swarm session the chr pool sized to `g_NumChrSlots = PLAYERCOUNT() + 0 + 10 = 11`, so after player + ~10 swarm chrs the chr pool was full. The cycler couldn't progress past 8 because spawn-16 hit the cap mid-loop. Fix: mirror the `testScenarioGetSwarmMaxCount()` hook in the chrmgr path (`setup.c:1669`).
+
+**Issue 2 + 3 (no real bot AI, no collision) root cause**: swarm chrs were allocated with `ailist=GAILIST_IDLE` and `chr->aibot=NULL`. The chrs ticked through `chraTick`'s passive paths -- no target acquisition (no AI script chasing), no `chrTryStop` collision-aware movement, no weapon firing. The S593 fix used `chrSetPos` to make their visible motion work, but that bypassed exactly the AI machinery that gives bots collision-aware movement. So even though the engine HAS chr-vs-chr collision, swarm chrs were teleporting through it.
+
+**Fix**: CPU mode now spawns each chr as a real bot:
+- `ailist = GAILIST_AIBOT_INIT` (the bot AI script).
+- `chr->aibot` points into a private 256-slot aibot pool in `swarm_test.c` (`s_SwarmAibots[256]` + `s_SwarmAibotInUse[256]` bitmap). This escapes `botmgrAllocateBot`'s `MAX_BOTS=32` gate and skips its match-scoring registrations (`g_MpBotChrPtrs[]`, `g_MpAllChrPtrs[]`) that overflow at MAX_MPCHRS=40.
+- `chr->myaction = MA_AIBOTMAINLOOP`.
+- `botinvInit(chr, 10)` for weapons/ammo.
+- New helper `swarm_init_aibot()` mirrors `botmgrAllocateBot`'s aibot init block (botmgr.c:163-351) minus the match-scoring side-effects.
+- `chr->radius = 30` so the perim has a meaningful size for chr-vs-chr / chr-vs-player collision.
+
+CPU bots now run real bot AI: chase, attack, dodge, fire weapons, with collision-aware movement that prevents chr-vs-chr no-clip.
+
+**GPU mode** keeps the position-only behaviour. `cpu_seek_tick` was renamed to `gpu_fallback_seek_tick` (only runs when GL compute is unavailable in GPU mode). The dispatch in `swarmTestTick` now skips the seek tick entirely in CPU mode (AI handles motion) and only invokes `swarmGpuStepAndApply` or the fallback in GPU mode.
+
+### Caps surfaced
+
+- **chr pool**: now correctly sized via the new `setup.c::chrmgrConfigure` swarm hook -- `g_NumChrSlots = PLAYERCOUNT() + numchrs + 10` where numchrs includes 256 swarm extras.
+- **Aibot pool (NEW)**: 256 entries in `s_SwarmAibots[]`. Each is ~700 bytes static BSS, so ~178 KB total. `s_SwarmAibotInUse[256]` 1-byte bitmap. ammoheld arrays per aibot are mempAlloc'd from MEMPOOL_STAGE.
+- **NUMTYPE1/2/3** (S593): 80/320/64 -- unchanged.
+- **MAX_MPCHRS = 40**: still applies to the bot AI's per-chr tracking arrays (`chrnumsbydistanceasc[40]`, etc.). Each swarm bot only "sees" 40 closest chrs through these tables. In practice the player is always one of the closest so target acquisition still works.
+
+### Build verification
+
+`devtools\build-session.ps1 -Session swfix2 -Target all` (queued tool, per Mike's preference) -- both `PerfectDark.exe` (54.5 MB) and `PerfectDarkServer.exe` (22.3 MB) build clean. `strings PerfectDark.exe | grep CHRSLOTS` confirms the new `CHRSLOTS: added %d swarm chr slots` log line is in the binary, and `grep "aibot pool exhausted"` confirms the new bot allocation path is linked.
+
+### Files touched
+
+- `port/src/swarm_test.c` -- swarm aibot pool, swarm_init_aibot helper, GAILIST_AIBOT_INIT path for CPU mode, gpu_fallback_seek_tick rename, dispatch refactor, despawn frees aibots.
+- `src/game/setup.c` -- chrmgrConfigure swarm hook (the actual cycler-stuck-at-8 fix).
+- `context/designs/in-flight/gpu-swarm-bot-pipeline.md` (NEW) -- scope for follow-up pillar.
+- `context/bugs.md` -- B-295 status update with S593c continuation.
+- `context/session-log.md` -- this entry.
+
+
 
 ## Session S593b (`nostalgic-hamilton-f529e1`) - 2026-04-30 PM - menus H.5 universal integrated-head guard + B-297 New Agent black preview
 
