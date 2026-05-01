@@ -3998,6 +3998,22 @@ static void renderSettingsDebug(float scale)
                 teamItems, (int)(sizeof(teamItems)/sizeof(teamItems[0])));
         if (gridMode) ImGui::EndDisabled();
 
+        /* S594h-Unit-B UI: spawn-strategy picker. Two presets:
+         *   "Concentric Rings" -- S593f layout, static formation.
+         *   "Volume (box)"     -- uniform-random within a box around the
+         *                         player; kill-respawn picks a fresh
+         *                         position rather than reusing the
+         *                         original ring slot. */
+        static int s_TestScenSpawnChoice = 0; /* 0 = rings (default) */
+        ImGui::Text("Spawn:");
+        ImGui::SameLine();
+        if (gridMode) ImGui::BeginDisabled();
+        ImGui::SetNextItemWidth(220.0f * scale);
+        const char *spawnItems[] = { "Concentric Rings", "Volume (box)" };
+        ImGui::Combo("##testscen_spawn", &s_TestScenSpawnChoice,
+                spawnItems, (int)(sizeof(spawnItems)/sizeof(spawnItems[0])));
+        if (gridMode) ImGui::EndDisabled();
+
         ImGui::SameLine();
 
         const bool launchOk = (testScenarioCanLaunch() != 0);
@@ -4026,6 +4042,10 @@ static void renderSettingsDebug(float scale)
                 swarmTestSetTeamMode((s_TestScenTeamChoice == 1)
                     ? SWARM_TEAMS_TWO_TEAMS_PLUS_PLAYER
                     : SWARM_TEAMS_SIMS_VS_PLAYERS);
+                /* Apply the spawn-strategy pick (Unit B) before launch. */
+                swarmTestSetSpawnStrategy((s_TestScenSpawnChoice == 1)
+                    ? SWARM_SPAWN_VOLUME
+                    : SWARM_SPAWN_RING);
                 testScenarioLaunch(scen, map_id);
             }
         }
