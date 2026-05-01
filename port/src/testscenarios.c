@@ -182,6 +182,44 @@ s32 testScenarioLaunch(test_scenario_t scen, const char *map_id)
 			}
 		}
 
+		/* S594h-Unit-C (2026-05-01): refuse to launch swarm on canvas-
+		 * loadmode arenas (solo mission stages used as Grid build
+		 * canvases). Mike's playtest crashed when launching swarm on
+		 * Chicago (stage 0x1d, idx 13-26 = canvas-flagged). The MP
+		 * matchStart path conflicts with the solo mission setup
+		 * (mission scripts, NPCs, intros) baked into those stages,
+		 * leading to crashes downstream. Until canvas-mode-aware
+		 * swarm setup lands, reject at launch with a clear log. */
+		s32 is_canvas = 0;
+		const asset_entry_t *via_arena = assetCatalogResolve(resolved_id);
+		if (via_arena && via_arena->type == ASSET_ARENA
+				&& via_arena->ext.arena.load_mode == ARENA_LOADMODE_CANVAS) {
+			is_canvas = 1;
+		} else {
+			/* Resolve via stagenum scan -- the dropdown supplies stage
+			 * ids ("base:mp_*"), not arena ids ("base:arena_*"), so the
+			 * direct resolve typically returns an ASSET_STAGE entry
+			 * (no load_mode). The arena entry holds load_mode and
+			 * carries stagenum, so we walk arenas to find the match. */
+			s32 pool_size = assetCatalogGetPoolSize();
+			for (s32 ai = 0; ai < pool_size; ai++) {
+				const asset_entry_t *ae = assetCatalogGetByIndex(ai);
+				if (ae && ae->type == ASSET_ARENA
+						&& (s32)ae->ext.arena.stagenum == stagenum
+						&& ae->ext.arena.load_mode == ARENA_LOADMODE_CANVAS) {
+					is_canvas = 1;
+					break;
+				}
+			}
+		}
+		if (is_canvas) {
+			sysLogPrintf(LOG_WARNING,
+				"TESTSCEN: launch refused -- arena '%s' (stagenum=0x%02x) is canvas-loadmode "
+				"(solo mission stage). Pick an MP arena instead.",
+				resolved_id, (u32)stagenum);
+			return 0;
+		}
+
 		s_State.scen          = scen;
 		s_State.method        = (scen == TESTSCEN_SWARM_GPU)
 			? SWARM_METHOD_GPU : SWARM_METHOD_CPU;
