@@ -27,6 +27,7 @@
 #include "data.h"
 #include "types.h"
 #include "assetcatalog.h"
+#include "catalog_mgr_heads.h"  /* Catalog Gate 3 F5: catalogManagerHeadIsModeldefLoaded */
 #include "net/netmanifest.h"
 
 s32 g_NumActiveHeadsPerGender;
@@ -269,10 +270,12 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 					}
 				} else if (headnum > 0) {
 					/* SA-5f: bodyCalculateHeadOffset modifies the modeldef in-place
-					 * (not idempotent) — must only run on first load.  Capture the
-					 * pre-load state before calling catalogGetHeadModeldef(). */
-					s32 head_needs_offset = headnum < ARRAYCOUNT(g_HeadsAndBodies)
-						&& g_HeadsAndBodies[headnum].modeldef == NULL; /* SA-5f: pre-load check only */
+					 * (not idempotent) -- must only run on first load.  Capture the
+					 * pre-load state before calling catalogGetHeadModeldef().
+					 * Catalog Gate 3 F5: probe via catalogManagerHeadIsModeldefLoaded
+					 * which checks the manager pool slot s_Heads[h].modeldef
+					 * (where the cache lives from F3 onward). */
+					s32 head_needs_offset = !catalogManagerHeadIsModeldefLoaded(headnum);
 					if (!catalogGetHeadModeldefChecked(headnum, &headmodeldef)) { /* SA-5f */
 						headmodeldef = NULL;
 					}

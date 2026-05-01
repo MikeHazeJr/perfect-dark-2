@@ -247,7 +247,12 @@ void mpstatsRecordPlayerDeath(void)
 
 		/* Phase 2 fix #8 (input-menu pillar, 2026-05-01, Issue H):
 		 * legacy hudmsg "Died N times" popup deleted per Mike. The
-		 * ImGui killfeed at line 419 already announces deaths. */
+		 * ImGui killfeed at line 419 already announces deaths.
+		 *
+		 * Catalog Gate 3 merge fixup (2026-05-01): the dangling
+		 * `(void)text;` left here by fix #8 referenced a variable
+		 * scoped to a sibling function (mpstatsRecordPlayerKill at
+		 * line 162). This function only declares `buffer`. */
 		(void)buffer;
 	}
 }

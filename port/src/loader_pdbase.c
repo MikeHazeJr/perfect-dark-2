@@ -49,6 +49,7 @@
 #include "loader_pdbase.h"
 #include "loader_pdbase_enums.h"
 #include "catalog_mgr_weapons.h"
+#include "catalog_mgr_heads.h"  /* Catalog Gate 3 F9: heads pool integration */
 #include "system.h"
 #include "fs.h"
 
@@ -117,6 +118,19 @@ static s32 s_AnimationsUsed;
 
 static s32 s_LoaderActive;
 static s32 s_WeaponsRegistered;
+
+/* ------------------------------------------------------------------ */
+/* Catalog Gate 3 F9: heads pool                                       */
+/*                                                                    */
+/* Parallel to the weapons pool. Heads live in their own archive       */
+/* base/heads.pdbase per audit decision I.6. F9 ships the pool +       */
+/* accessors as a scaffold; F11 ships the extractor + archive; F12     */
+/* implements parseHead() and toggles s_HeadsLoaderActive on success.  */
+/* ------------------------------------------------------------------ */
+
+static head_data_t s_HeadsPool[CATALOG_MGR_HEAD_COUNT];
+static s32 s_HeadsLoaderActive;
+static s32 s_HeadsRegistered;
 
 /* ------------------------------------------------------------------ */
 /* Public accessors (consumed by catalog_mgr_weapons.c)               */
@@ -1207,6 +1221,87 @@ static void parseWeapon(jstream_t *s)
 }
 
 /* ------------------------------------------------------------------ */
+/* Catalog Gate 3 F12: head record parser                              */
+/* ------------------------------------------------------------------ */
+
+/* HEADBODYTYPE_* is a small (6-entry) enum.  The values are stable
+ * per src/include/constants.h.  We resolve symbolic names inline so
+ * loader_pdbase_enums.c does not need to grow another table. */
+static s32 s_resolveHeadbodyType(const char *name)
+{
+	if (!name || !name[0]) return 0;
+	if (strcmp(name, "HEADBODYTYPE_DEFAULT")     == 0) return 0;
+	if (strcmp(name, "HEADBODYTYPE_FEMALE")      == 0) return 1;
+	if (strcmp(name, "HEADBODYTYPE_FEMALEGUARD") == 0) return 2;
+	if (strcmp(name, "HEADBODYTYPE_CASS")        == 0) return 3;
+	if (strcmp(name, "HEADBODYTYPE_MAIAN")       == 0) return 4;
+	if (strcmp(name, "HEADBODYTYPE_MRBLONDE")    == 0) return 5;
+	return -1;
+}
+
+static s32 jread_headbodytype(jstream_t *s)
+{
+	if (s->cur.kind == JT_STRING) {
+		char buf[64];
+		jread_string_buf(s, buf, sizeof(buf));
+		s32 v = s_resolveHeadbodyType(buf);
+		if (v < 0) {
+			sysLogPrintf(LOG_NOTE,
+				"LOADER.PDBASE.HEAD.FIELD_UNKNOWN: type=\"%s\" (defaulting to 0)",
+				buf);
+			return 0;
+		}
+		return v;
+	}
+	return jread_int(s, 0);
+}
+
+static void parseHead(jstream_t *s)
+{
+	if (s->cur.kind != JT_LBRACE) { jstream_skip_value(s); return; }
+	jstream_advance(s);
+
+	head_data_t h;
+	memset(&h, 0, sizeof(h));
+	h.scale = 1.0f;
+	h.animscale = 1.0f;
+	s32 headnum = -1;
+
+	while (s->cur.kind != JT_RBRACE && s->cur.kind != JT_EOF) {
+		if (s->cur.kind != JT_STRING) { jstream_advance(s); continue; }
+		jtok_t key = s->cur;
+		jstream_advance(s);
+		if (s->cur.kind != JT_COLON) continue;
+		jstream_advance(s);
+
+		if      (jstream_str_eq(&key, "id")) {
+			jread_string_buf(s, h.catalog_id, sizeof(h.catalog_id));
+		}
+		else if (jstream_str_eq(&key, "headnum"))   headnum = jread_int(s, -1);
+		else if (jstream_str_eq(&key, "ismale"))    h.ismale    = (u8)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "unk00_01"))  h.unk00_01  = (u8)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "type"))      h.type      = (u8)jread_headbodytype(s);
+		else if (jstream_str_eq(&key, "height"))    h.height    = (u16)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "filenum"))   h.filenum   = (u16)jread_enum_or_int(s, JREF_FILE, 0, "head.filenum");
+		else if (jstream_str_eq(&key, "scale"))     h.scale     = jread_float(s, 1.0f);
+		else if (jstream_str_eq(&key, "animscale")) h.animscale = jread_float(s, 1.0f);
+		else jstream_skip_value(s);
+		if (s->cur.kind == JT_COMMA) jstream_advance(s);
+	}
+	if (s->cur.kind == JT_RBRACE) jstream_advance(s);
+
+	if (headnum < 0 || headnum >= CATALOG_MGR_HEAD_COUNT) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.HEAD.RESOLVE_FAIL: headnum=%d out of range [0,%d)",
+			headnum, CATALOG_MGR_HEAD_COUNT);
+		return;
+	}
+	h.headnum = (s16)headnum;
+	s_HeadsPool[headnum] = h;
+	s_HeadsRegistered++;
+}
+
+/* ------------------------------------------------------------------ */
 /* Top-level parser                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -1240,6 +1335,18 @@ static void parseTopLevel(jstream_t *s)
 				jstream_advance(s);
 				while (s->cur.kind != JT_RBRACK && s->cur.kind != JT_EOF) {
 					parseWeapon(s);
+					if (s->cur.kind == JT_COMMA) jstream_advance(s);
+				}
+				if (s->cur.kind == JT_RBRACK) jstream_advance(s);
+			}
+		}
+		else if (jstream_str_eq(&key, "heads")) {
+			/* Catalog Gate 3 F12: heads section in base/heads.pdbase. */
+			if (s->cur.kind != JT_LBRACK) { jstream_skip_value(s); }
+			else {
+				jstream_advance(s);
+				while (s->cur.kind != JT_RBRACK && s->cur.kind != JT_EOF) {
+					parseHead(s);
 					if (s->cur.kind == JT_COMMA) jstream_advance(s);
 				}
 				if (s->cur.kind == JT_RBRACK) jstream_advance(s);
@@ -1314,6 +1421,44 @@ void loaderPdbaseScan(const char *dir, loader_pdbase_result_t *out)
 	/* fsFileLoad returns a buffer we can free. */
 	sysMemFree(src);
 
+	/* Catalog Gate 3 F12: scan + parse base/heads.pdbase. Reads the
+	 * generated JSON archive (F11), populates s_HeadsPool[], and lets
+	 * loaderPdbaseBuildHeadManager flip the active flag. */
+	{
+		char head_path[512];
+		snprintf(head_path, sizeof(head_path), "%s/heads.pdbase", dir);
+		s32 head_size = 0;
+		char *head_src = (char *)fsFileLoad(head_path, (u32 *)&head_size);
+		if (head_src != NULL) {
+			jstream_t hs;
+			memset(&hs, 0, sizeof(hs));
+			hs.src = head_src;
+			hs.pos = head_src;
+			hs.end = head_src + head_size;
+			hs.line = 1;
+			jstream_advance(&hs);
+			parseTopLevel(&hs);
+
+			if (hs.error) {
+				sysLogPrintf(LOG_WARNING,
+					"LOADER.PDBASE.HEAD.SCAN_FAIL: parse error in %s near line %d",
+					head_path, hs.line);
+				local.scan_failures++;
+			}
+
+			sysLogPrintf(LOG_NOTE,
+				"LOADER.PDBASE.HEAD.OK: dir=%s heads=%d size=%d",
+				dir, s_HeadsRegistered, head_size);
+			local.archives_scanned++;
+			sysMemFree(head_src);
+		} else {
+			sysLogPrintf(LOG_NOTE,
+				"LOADER.PDBASE.HEAD.OK: dir=%s no heads.pdbase (parity period)",
+				dir);
+		}
+		local.heads_registered = s_HeadsRegistered;
+	}
+
 	if (out) *out = local;
 }
 
@@ -1369,6 +1514,51 @@ s32 loaderPdbaseBuildWeaponManager(void)
 /* from behavioral tests + the existing structure-pin tests in        */
 /* tests/test_loader_pdbase_scan.cpp.                                  */
 /* ------------------------------------------------------------------ */
+
+/* ================================================================== */
+/* Catalog Gate 3 F9 / F11 / F12: heads-side loader                    */
+/*                                                                    */
+/* Parallel to the weapons loader above. F9 ships these accessors as  */
+/* scaffold (active flag stays 0, all accessors return NULL until F12 */
+/* implements parseHead + flips the flag).                             */
+/* ================================================================== */
+
+s32 loaderPdbaseHeadsActive(void)
+{
+	return s_HeadsLoaderActive;
+}
+
+const head_data_t *loaderPdbaseGetHead(s32 idx)
+{
+	if (idx < 0 || idx >= CATALOG_MGR_HEAD_COUNT) return NULL;
+	if (!s_HeadsLoaderActive) return NULL;
+	return &s_HeadsPool[idx];
+}
+
+s32 loaderPdbaseGetHeadsRegistered(void)
+{
+	return s_HeadsRegistered;
+}
+
+s32 loaderPdbaseBuildHeadManager(void)
+{
+	/* F9: scaffold returns 0 (no records loaded). F12 walks
+	 * ASSET_HEAD catalog rows with non-empty pdbase_path, copies the
+	 * loaded head_data_t into s_HeadsPool[runtime_index], increments
+	 * s_HeadsRegistered, then sets s_HeadsLoaderActive = 1.
+	 * Until F12, the manager keeps reading the legacy parity-period
+	 * mirror via s_populateFromLegacy() in catalog_mgr_heads.c. */
+	if (s_HeadsRegistered <= 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOADER.PDBASE.HEAD.OK: build skipped (no records loaded -- F9 scaffold)");
+		return 0;
+	}
+	s_HeadsLoaderActive = 1;
+	sysLogPrintf(LOG_NOTE,
+		"LOADER.PDBASE.HEAD.OK: manager active, heads=%d (expected=%d)",
+		s_HeadsRegistered, CATALOG_MGR_HEAD_COUNT);
+	return s_HeadsRegistered;
+}
 
 
 

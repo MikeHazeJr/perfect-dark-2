@@ -278,6 +278,14 @@ typedef struct asset_entry {
              * -- equality match with a body's rig_class = physically
              * compatible pair. */
             char rig_class[32];
+            /* Catalog Gate 3 F7: pdbase file refs for F11+ data move.
+             * Empty until the loader populates them at startup.  The
+             * manager pool (s_Heads[]) holds the typed payload; these
+             * fields let mod overlays + tooling locate the source
+             * record inside base/heads.pdbase or modid:heads.pdmod. */
+            char pdbase_path[128];     /* path to .pdbase file inside namespace */
+            u32  pdbase_offset;        /* offset within the .pdbase to this record */
+            u32  pdbase_size;          /* record size in bytes (validation) */
         } head;
         struct {
             s32 weapon_id;             /* MPWEAPON_* slot, not runtime WEAPON_* */
