@@ -35,6 +35,7 @@
 #include "modmgr.h"
 #include "mpsetups.h"
 #include "assetcatalog.h"
+#include "catalog_mgr_heads.h"  /* Catalog Gate 3 F6: random-gender pool helpers */
 #include "modelcatalog.h"
 #include "audio.h"
 #include "modmusic.h"
@@ -2278,64 +2279,13 @@ struct mpbody g_MpBodies[] = {
 	/*0x3e*/ { BODY_DRCAROLL,         L_OPTIONS_355,   1000,             0                          },
 };
 
-u32 g_MpMaleHeads[] = {
-	HEAD_JON,
-	HEAD_BEAU1,
-	HEAD_ROSS,
-	HEAD_MARK2,
-	HEAD_CHRIST,
-	HEAD_RUSS,
-	HEAD_DARLING,
-	HEAD_BRIAN,
-	HEAD_JAMIE,
-	HEAD_DUNCAN2,
-	HEAD_KEITH,
-	HEAD_STEVEM,
-	HEAD_GRANT,
-	HEAD_PENNY,
-	HEAD_DAVEC,
-	HEAD_JONES,
-	HEAD_GRAHAM,
-	HEAD_NEIL2,
-	HEAD_SHAUN,
-	HEAD_ROBIN,
-	HEAD_COOK,
-	HEAD_PRYCE,
-	HEAD_SILKE,
-	HEAD_SMITH,
-	HEAD_GARETH,
-	HEAD_MURCHIE,
-	HEAD_WONG,
-	HEAD_CARTER,
-	HEAD_TINTIN,
-	HEAD_MUNTON,
-	HEAD_STAMPER,
-	HEAD_PHELPS,
-	HEAD_EDMCG,
-	HEAD_MATT_C,
-	HEAD_PEER_S,
-	HEAD_ANDY_R,
-	HEAD_BEN_R,
-	HEAD_STEVE_K,
-	HEAD_SANCHEZ,
-	HEAD_TIM,
-	HEAD_KEN,
-	HEAD_SCOTT_H,
-	HEAD_JOEL,
-#if VERSION != VERSION_JPN_FINAL
-	HEAD_MOTO,
-#endif
-};
-
-u32 g_MpFemaleHeads[] = {
-	HEAD_ALEX,
-	HEAD_JULIANNE,
-	HEAD_LAURA,
-	HEAD_ANKA,
-	HEAD_LESLIE_S,
-	HEAD_EILEEN_T,
-	HEAD_EILEEN_H,
-};
+/* g_MpMaleHeads[] / g_MpFemaleHeads[] retired Catalog Gate 3 F6 (decision
+ * I.2). The hand-curated random-gender pools are replaced by manager-side
+ * iteration over s_Heads[] filtered by `ismale && unk00_01`. The pool is
+ * built from the live catalog so mod-supplied heads with matching gender
+ * enter automatically. See port/src/catalog_mgr_heads.c
+ * ::s_pickRandomByGender / ::catalogManagerHeadPickRandomMale / Female
+ * and the migration site in mpDefaultHeadForBody above. */
 
 /**
  * Calculate player awards, medals, and update character statistics.
@@ -2996,10 +2946,15 @@ s32 mpDefaultHeadForBody(s32 mpbodynum)
 	s32 headnum = body->headnum;
 
 	if (headnum == HEAD_RANDOM_GENDER) {
+		/* Catalog Gate 3 F6: random-gender pool sourced from the manager
+		 * (iterates s_Heads[] filtered by ismale && unk00_01).  Replaces
+		 * the static g_MpMaleHeads / g_MpFemaleHeads enum lists.  The
+		 * pool is built from the live catalog so mod heads with
+		 * matching gender enter automatically. */
 		if (catalogGetBodyIsMale(body->bodynum)) { /* SA-5d */
-			headnum = g_MpMaleHeads[rngRandom() % ARRAYCOUNT(g_MpMaleHeads)];
+			headnum = catalogManagerHeadPickRandomMale();
 		} else {
-			headnum = g_MpFemaleHeads[rngRandom() % ARRAYCOUNT(g_MpFemaleHeads)];
+			headnum = catalogManagerHeadPickRandomFemale();
 		}
 	}
 
