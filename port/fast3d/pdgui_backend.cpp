@@ -482,6 +482,54 @@ void pdguiInit(void *sdlWindow)
  * NavEnableGamepad is disabled. ImGui ignores all Gamepad* keys when
  * that flag is off. NavEnableKeyboard IS enabled, so keyboard nav keys
  * work for controller-driven navigation too. */
+
+/* Phase 2 fix #2 (input-menu pillar, 2026-05-01): pick the innermost
+ * scrollable visible descendant of NavWindow for the right-stick scroll
+ * target. Mirrors the algorithm in tests/nested_scroll_pure.{c,h}. The
+ * walker descends through Window->DC.ChildWindows depth-first and
+ * returns the deepest visible scrollable. Falls back to the first
+ * scrollable ancestor via Window->ParentWindow when no descendant is
+ * scrollable.
+ *
+ * Why this matters: ImGuiChildFlags_NavFlattened (used pervasively
+ * for cross-panel nav) collapses NavWindow to the OUTER root, but the
+ * actual scrollbox is one or more BeginChild levels deeper. The prior
+ * code scrolled NavWindow directly, so the inner scrollable never
+ * received the delta. */
+static ImGuiWindow *pdguiInnermostScrollableForNav(ImGuiWindow *root)
+{
+    if (!root || !root->Active) {
+        return NULL;
+    }
+
+    ImGuiWindow *best = (root->ScrollMax.y > 0.0f) ? root : NULL;
+
+    for (int i = 0; i < root->DC.ChildWindows.Size; i++) {
+        ImGuiWindow *child = root->DC.ChildWindows[i];
+        if (!child || !child->Active) continue;
+        ImGuiWindow *deeper = pdguiInnermostScrollableForNav(child);
+        if (deeper) {
+            best = deeper; /* prefer descendants over ancestors */
+        }
+    }
+
+    if (best) {
+        return best;
+    }
+
+    /* No scrollable descendant -- fall back to first scrollable
+     * ancestor. Covers cases where NavWindow itself is a non-flattened
+     * leaf inside a scrollable wrapper. */
+    ImGuiWindow *anc = root->ParentWindow;
+    while (anc) {
+        if (anc->Active && anc->ScrollMax.y > 0.0f) {
+            return anc;
+        }
+        anc = anc->ParentWindow;
+    }
+    return NULL;
+}
+
 static void pdguiDriveImGuiNav(void)
 {
     ImGuiIO &io = ImGui::GetIO();
@@ -523,16 +571,21 @@ static void pdguiDriveImGuiNav(void)
         }
     }
 
-    /* Priority L Rule 7 (2026-04-25): right-stick Y smoothly scrolls the
-     * focused (NavWindow) scrollable region in any menu.  Reads the
-     * analog right-stick Y axis via the actionmap, applies deadzone +
-     * non-linear response, and writes directly to the NavWindow's
-     * Scroll.y via the ImGui internal API.
+    /* Priority L Rule 7 (2026-04-25): right-stick Y smoothly scrolls a
+     * scrollable region in any menu. Reads the analog right-stick Y
+     * axis via the actionmap, applies deadzone + non-linear response,
+     * and writes the chosen target window's Scroll.y via SetScrollY.
      *
-     * - Smooth: scroll delta is proportional to deflection (analog) and
-     *   to the frame's lvupdate60 (frame-rate independent).
+     * Phase 2 fix #2 (2026-05-01): the target is the INNERMOST visible
+     * scrollable descendant of NavWindow rather than NavWindow itself,
+     * picked by pdguiInnermostScrollableForNav above. Under
+     * NavFlattened (the dominant cross-panel nav pattern in this
+     * codebase), NavWindow points at the OUTER root; the actual
+     * scrollbox is a deeper BeginChild. The walker resolves it.
+     *
+     * - Smooth: scroll delta is proportional to deflection (analog).
      * - System-wide: applies to any menu with a scrollable region as
-     *   long as ImGui's nav has settled on that window.
+     *   long as ImGui's nav has settled on a window in the same tree.
      * - Stick X-axis: not consumed here (left for menu-specific
      *   horizontal nav, otherwise no-op).
      *
@@ -554,8 +607,8 @@ static void pdguiDriveImGuiNav(void)
             const f32 maxPxPerFrame = 28.0f;
             f32 deltaY = dir * t * t * maxPxPerFrame;
             ImGuiContext *ctx = ImGui::GetCurrentContext();
-            if (ctx && ctx->NavWindow && ctx->NavWindow->ScrollMax.y > 0.0f) {
-                ImGuiWindow *w = ctx->NavWindow;
+            ImGuiWindow *w = pdguiInnermostScrollableForNav(ctx ? ctx->NavWindow : NULL);
+            if (w && w->ScrollMax.y > 0.0f) {
                 f32 newY = w->Scroll.y + deltaY;
                 if (newY < 0.0f) newY = 0.0f;
                 if (newY > w->ScrollMax.y) newY = w->ScrollMax.y;
