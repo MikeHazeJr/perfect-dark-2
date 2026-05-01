@@ -1,7 +1,45 @@
 # Session Log (Active)
 
-> **S481-S594 + S593g + S482c + S593b** (rolling window of ~110 sessions; S593g added 2026-05-01 PM for body.c integrated-head warning gate (suppressing 550 head_canon=NULL log spam during the swarm 4-256 cycle); S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
+> **S481-S594 + S593h + S482c + S593b** (rolling window of ~110 sessions; S593h added 2026-05-01 PM for swarm refinement bundle (random scale 0.2-0.6 weighted small, BOTDIFF_DARK + BOTTYPE_SPEED, per-frame player awareness + LOS short-circuit, no bot-bot collision via CHRHFLAG_00040000 swarm lock, power-weapon loadout for player + COMBATKNIFE for bots); S593g added 2026-05-01 PM for body.c integrated-head warning gate (suppressing 550 head_canon=NULL log spam during the swarm 4-256 cycle); S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
+
+## Session S593h (`distracted-hamilton-430172` continuation #6) - 2026-05-01 PM - Swarm refinement bundle (6 items + parity + power loadout)
+
+Mike's S593g playtest got the bots small but surfaced 6 refinement requests + 1 carry-over, plus a follow-up loadout directive and a "must apply to both modes" parity directive.
+
+### Refinements shipped (commit 7f1b4e55, S593h)
+
+| Item | Change | Where | Notes |
+|------|--------|-------|-------|
+| 1. Random scale | per-spawn pick `0.2 + 0.4 * rand01^2` weighted small. Apply to chr->model->scale, chr->radius, chr->height. | `swarm_test.c::swarm_pick_scale` + `spawn_one_skedar` | Squared-rand bias pushes most bots tiny with occasional larger ones. Visual + collision parity invariant from S593f preserved per-bot. |
+| 2. Speed | BOTTYPE_SPEED + BOTDIFF_DARK in s_SwarmBotConfig | swarm_test.c | SPEED type = 14x base in botCalculateMaxSpeed (vs 7.6x for NORMAL). DARK = hardest AI difficulty preset. Replaces S593d's KAZE/PERFECT. Mike said "perfect or dark agent mode"; we picked DARK. |
+| 3. Always aware of player | per-frame post-pass forces chr->target / aibot->attackingplayernum / chrsinsight[0] / targetinsight / lastseen60 fields. + `chrHasLosToChr` short-circuit for swarm chrs | `swarmTestTick` + `chraction.c::chrHasLosToChr` | Defence-in-depth: per-frame force handles state validity, LOS short-circuit handles the cache-update path. |
+| 4. Dark Agent difficulty | BOTDIFF_DARK in s_SwarmBotConfig | swarm_test.c | Bundled with item 2. |
+| 5. No bot-bot collision | swarm chrs marked with bit 0x00040000 + CHRHFLAG_PERIMDISABLED at spawn. `chr.c::chrSetPerimEnabled` refuses to clear PERIMDISABLED for marked chrs. | swarm_test.c + chr.c | Side effect: player walks through swarm bots too (same flag is read by player's bondwalk perim test). Acceptable per Mike's directive "Don't let them collide with each other". World/BG collision unaffected. |
+| 6. Power loadout | Player gets FARSIGHT/REAPER/DEVASTATOR/SLAYER/MAULER/RCP120 via invGiveSingleWeapon + bgunEquipWeapon(FARSIGHT). equipallguns FORCED FALSE. CHEAT_UNLIMITEDAMMO stays. Bots get WEAPON_COMBATKNIFE + ismeleeweapon=true. | `apply_player_setup` + `swarm_init_aibot` | Mike: "Disable weapon spawn for our test mode, and give the bots combat knife as a spawn weapon. I will get power weapons, bottomless clip." Single-weapon equip drives the standard master-load that pairs gun + hand model -- addresses the S593g item 6 "weapon visible in UI but not rendered" report (the all-guns mode left the hand model unbound, visible only during punch). |
+| 7. TESTSCEN log mystery | DEFERRED | -- | The user's release-log filter still drops TESTSCEN.SWARM messages for an unknown reason. Doesn't block S593h. Will revisit when next playtest log surfaces. |
+
+### CPU/GPU parity
+
+Mike's directive: "Ensure that all the changes apply to both modes, CPU and GPU." Resolution per option (b) of the parity scoping:
+
+- **Both modes**: items 1 (chr-level scale + collision) and 5 (chr-level perim disable) apply unconditionally at spawn, BEFORE the CPU/GPU branch. GPU mode bots get the random scale and the no-bot-bot-collision marker just like CPU bots.
+- **CPU only**: items 2, 3, 4, 6 require the bot AI / aibot path. GPU bots have no aibot and no AI tick. The parity gap is the existing GPU bot pipeline scope at `context/designs/in-flight/gpu-swarm-bot-pipeline.md` -- not bundleable with the S593h tuning, must be its own session.
+
+### Build verification
+
+`devtools\build-session.ps1 -Session swfix7 -Target all` -- both `PerfectDark.exe` (54.6 MB) and `Updater.exe` (12.3 MB) build clean.
+
+### Files touched
+
+- `port/src/swarm_test.c` -- random scale, swarm marker, bot config switch, per-frame player awareness, power-weapon loadout, COMBATKNIFE for bots, swarmTestIsSwarmChr accessor.
+- `src/game/chr.c` -- chrSetPerimEnabled gate on bit 0x00040000.
+- `src/game/chraction.c` -- chrHasLosToChr short-circuit on bit 0x00040000.
+- `context/session-log.md` -- this entry.
+
+### Next session continues
+
+Items A (spawn algorithm wall-correction + height-failure rejection, general engine fix) and B (surface-normal locomotion for Skedars) are queued as separate merges per Mike's ordering directive. Item A first because spawn placement is foundational; item B second because the locomotion work needs spawns to land cleanly.
 
 ## Session S593g (`distracted-hamilton-430172` continuation #5) - 2026-05-01 PM - body.c integrated-head warning gate
 
