@@ -38,6 +38,16 @@ extern "C" {
  * sidebar / tab-cycle actions. The enum and query API are extern "C"
  * in actionmap.h; including it here is safe (no types.h drag). */
 #include "actionmap.h"
+
+/* B-304 hotfix (2026-05-01): gfx debug toggles consumed by the Level
+ * tab's Debug Rendering subsection in forgeDrawLevelExtras. Defined as
+ * extern "C" in port/fast3d/gfx_opengl.cpp; declared here at file scope
+ * (NOT inside a function body, which is not a valid scope for linkage
+ * specifications in C++). */
+int  gfxDebugWireframeGet(void);
+void gfxDebugWireframeSet(int on);
+int  gfxDebugCullModeGet(void);
+void gfxDebugCullModeSet(int mode);
 }
 
 /* Issue 8b (2026-04-24): tab ids moved here from their later declaration
@@ -1814,11 +1824,10 @@ static void forgeDrawLevelExtras(void)
 	 * ------------------------------------------------------------- */
 	ImGui::SeparatorText("Debug Rendering");
 	{
-		extern "C" int  gfxDebugWireframeGet(void);
-		extern "C" void gfxDebugWireframeSet(int on);
-		extern "C" int  gfxDebugCullModeGet(void);
-		extern "C" void gfxDebugCullModeSet(int mode);
-
+		/* B-304 hotfix (2026-05-01): gfxDebug* extern "C" decls live at
+		 * file scope (top of TU) -- linkage specifications inside a
+		 * function-body block are not valid C++ and were the cause of
+		 * the original B-304 merge build break. */
 		bool wire = (gfxDebugWireframeGet() != 0);
 		if (ImGui::Checkbox("Wireframe overlay (Shift+F2)", &wire)) {
 			gfxDebugWireframeSet(wire ? 1 : 0);
