@@ -424,6 +424,229 @@ f32 spawnPoolValidateCandidate(const struct coord *pos, RoomNum room,
 }
 
 /* ========================================================================
+ * S594h-A (2026-05-01): active wall-correction + height-failure rejection
+ *
+ * Mike's directive: detect if a spawn is going to be inside a wall, find
+ * the wall's normal, use the chr's collision radius to push them to the
+ * correct side of the wall, wiggle if a perpendicular wall blocks the
+ * push, and reject HEIGHT failures outright (don't spawn tall chrs in
+ * vents). General-purpose helper -- not swarm-specific. See header docs.
+ * ======================================================================== */
+
+/* Up direction = ray index 2 (+Y) in s_RayDirs. Down = ray index 3 (-Y). */
+#define SPAWN_RAY_UP_INDEX        2
+#define SPAWN_RAY_DOWN_INDEX      3
+
+/* Tangent wiggle: 4 offsets in the wall's tangent plane. */
+#define SPAWN_WIGGLE_OFFSETS      4
+#define SPAWN_WIGGLE_DISTANCE     20.0f
+
+/* Headroom safety margin above chr_height. A chr 180 tall in a 200-tall
+ * vent is acceptable; in a 185-tall vent it's a height failure. */
+#define SPAWN_HEIGHT_SAFETY       16.0f
+
+/* Helper: cast one ray, return distance hit or SPAWNPOOL_RAY_RANGE if
+ * nothing hit. */
+static f32 s_castRayDist(const struct coord *pos, RoomNum room,
+                         const struct coord *dir)
+{
+	struct coord endpoint;
+	struct hitthing hit;
+
+	endpoint.x = pos->x + dir->x * SPAWNPOOL_RAY_RANGE;
+	endpoint.y = pos->y + dir->y * SPAWNPOOL_RAY_RANGE;
+	endpoint.z = pos->z + dir->z * SPAWNPOOL_RAY_RANGE;
+
+	memset(&hit, 0, sizeof(hit));
+	if (bgTestHitInRoom((struct coord *)pos, &endpoint, room, &hit)) {
+		f32 dx = hit.pos.x - pos->x;
+		f32 dy = hit.pos.y - pos->y;
+		f32 dz = hit.pos.z - pos->z;
+		return sqrtf(dx * dx + dy * dy + dz * dz);
+	}
+	return SPAWNPOOL_RAY_RANGE;
+}
+
+/* Helper: try one position; returns 1 if it has clearance > chr_radius
+ * on every non-vertical ray AND headroom > chr_height + safety. Doesn't
+ * mutate. */
+static s32 s_positionIsClear(const struct coord *pos, RoomNum room,
+                             f32 chr_radius, f32 chr_height)
+{
+	if (room < 0) return 0;
+
+	for (s32 i = 0; i < SPAWNPOOL_RAY_COUNT; i++) {
+		const f32 dist = s_castRayDist(pos, room, &s_RayDirs[i]);
+
+		if (i == SPAWN_RAY_UP_INDEX) {
+			/* Headroom check: if upward ray hit closer than the chr's
+			 * full height + safety, the spot is too short. */
+			if (dist < chr_height + SPAWN_HEIGHT_SAFETY) return 0;
+			continue;
+		}
+		if (i == SPAWN_RAY_DOWN_INDEX) {
+			/* Downward ray: a close hit is GOOD (ground right below).
+			 * The ground-clearance check in spawnPoolValidateCandidate
+			 * already gates ground sentinels; here we just skip. */
+			continue;
+		}
+		/* Non-vertical ray: if hit within chr_radius the chr clips
+		 * into / against geometry. */
+		if (dist < chr_radius) return 0;
+	}
+	return 1;
+}
+
+/* Helper: compute outward normal as the weighted-average of inverse-hit
+ * directions for rays that came in too close. Returns 1 if a normal was
+ * produced (and writes it to out_normal); 0 if no short hits found. */
+static s32 s_computeOutwardNormal(const struct coord *pos, RoomNum room,
+                                  f32 chr_radius, struct coord *out_normal,
+                                  f32 *out_shortest_dist)
+{
+	struct coord acc = {0.0f, 0.0f, 0.0f};
+	f32 weight_total = 0.0f;
+	f32 shortest = chr_radius;
+
+	for (s32 i = 0; i < SPAWNPOOL_RAY_COUNT; i++) {
+		if (i == SPAWN_RAY_UP_INDEX || i == SPAWN_RAY_DOWN_INDEX) continue;
+		const f32 dist = s_castRayDist(pos, room, &s_RayDirs[i]);
+		if (dist >= chr_radius) continue;
+
+		/* The wall is in the direction of s_RayDirs[i]. Outward normal
+		 * is the OPPOSITE direction, weighted by closeness. */
+		const f32 closeness = chr_radius - dist; /* larger when closer */
+		acc.x -= s_RayDirs[i].x * closeness;
+		acc.y -= s_RayDirs[i].y * closeness;
+		acc.z -= s_RayDirs[i].z * closeness;
+		weight_total += closeness;
+		if (dist < shortest) shortest = dist;
+	}
+
+	if (weight_total <= 0.0f) return 0;
+
+	const f32 mag = sqrtf(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
+	if (mag <= 0.0f) return 0;
+
+	out_normal->x = acc.x / mag;
+	out_normal->y = acc.y / mag;
+	out_normal->z = acc.z / mag;
+	*out_shortest_dist = shortest;
+	return 1;
+}
+
+s32 spawnPoolCorrectPosition(struct coord *pos, RoomNum *room,
+                             f32 chr_radius, f32 chr_height)
+{
+	if (!pos || !room || *room < 0) return 0;
+
+	/* Sane defaults. chrInit's default radius is 20, height 185. */
+	if (chr_radius <= 0.0f) chr_radius = SPAWNPOOL_CAPSULE_RADIUS;
+	if (chr_height <= 0.0f) chr_height = 180.0f;
+
+	/* Step 1: headroom check first -- height failures are not fixable. */
+	{
+		const f32 up_dist = s_castRayDist(pos, *room, &s_RayDirs[SPAWN_RAY_UP_INDEX]);
+		if (up_dist < chr_height + SPAWN_HEIGHT_SAFETY) {
+			/* HEIGHT FAILURE: chr is too tall for this spot. Reject. */
+			return 0;
+		}
+	}
+
+	/* Step 2: was the candidate already clear? Common fast path. */
+	if (s_positionIsClear(pos, *room, chr_radius, chr_height)) {
+		return 1;
+	}
+
+	/* Step 3: width failure -- compute wall normal and push. */
+	struct coord normal;
+	f32 shortest;
+	if (!s_computeOutwardNormal(pos, *room, chr_radius, &normal, &shortest)) {
+		/* No short non-vertical hits AND not clear = some other check
+		 * failed (height bumped through here too maybe). Reject. */
+		return 0;
+	}
+
+	const f32 push_dist = (chr_radius - shortest) + 4.0f; /* +4u epsilon */
+	struct coord pushed;
+	pushed.x = pos->x + normal.x * push_dist;
+	pushed.y = pos->y + normal.y * push_dist;
+	pushed.z = pos->z + normal.z * push_dist;
+
+	/* Validate the pushed position. Re-resolve room if we crossed a
+	 * portal (the simple bgTestPosInRoom on the original room may
+	 * fail if push moved us into a neighbour). */
+	RoomNum pushed_room = *room;
+	if (!bgTestPosInRoom(&pushed, pushed_room)) {
+		RoomNum inrooms[21];
+		RoomNum aboverooms[21];
+		RoomNum bestroom = -1;
+		bgFindRoomsByPos(&pushed, inrooms, aboverooms, 20, &bestroom);
+		if (inrooms[0] >= 0) pushed_room = inrooms[0];
+		else if (bestroom >= 0) pushed_room = bestroom;
+		else return 0; /* pushed into void */
+	}
+
+	if (s_positionIsClear(&pushed, pushed_room, chr_radius, chr_height)) {
+		*pos = pushed;
+		*room = pushed_room;
+		return 1;
+	}
+
+	/* Step 4: wiggle in tangent plane. The tangent of `normal` is
+	 * any vector perpendicular to it; we use the cross with world-up
+	 * (0,1,0) to get a horizontal tangent that won't move the chr
+	 * vertically. If `normal` is itself near-vertical (rare for wall
+	 * pushes), fall back to world-X. */
+	struct coord tangent;
+	if (fabsf(normal.y) < 0.9f) {
+		/* tangent = normal X up (gives a horizontal tangent) */
+		tangent.x =  normal.z;
+		tangent.y =  0.0f;
+		tangent.z = -normal.x;
+		const f32 tmag = sqrtf(tangent.x * tangent.x + tangent.z * tangent.z);
+		if (tmag > 0.001f) {
+			tangent.x /= tmag;
+			tangent.z /= tmag;
+		} else {
+			tangent.x = 1.0f; tangent.z = 0.0f;
+		}
+	} else {
+		tangent.x = 1.0f; tangent.y = 0.0f; tangent.z = 0.0f;
+	}
+
+	for (s32 w = 0; w < SPAWN_WIGGLE_OFFSETS; w++) {
+		const f32 sign = (w & 1) ? -1.0f : 1.0f;
+		const f32 mag  = (w < 2) ? SPAWN_WIGGLE_DISTANCE
+		                         : SPAWN_WIGGLE_DISTANCE * 2.0f;
+		struct coord wig;
+		wig.x = pushed.x + tangent.x * sign * mag;
+		wig.y = pushed.y;
+		wig.z = pushed.z + tangent.z * sign * mag;
+
+		RoomNum wig_room = pushed_room;
+		if (!bgTestPosInRoom(&wig, wig_room)) {
+			RoomNum inrooms[21];
+			RoomNum aboverooms[21];
+			RoomNum bestroom = -1;
+			bgFindRoomsByPos(&wig, inrooms, aboverooms, 20, &bestroom);
+			if (inrooms[0] >= 0) wig_room = inrooms[0];
+			else if (bestroom >= 0) wig_room = bestroom;
+			else continue;
+		}
+
+		if (s_positionIsClear(&wig, wig_room, chr_radius, chr_height)) {
+			*pos  = wig;
+			*room = wig_room;
+			return 1;
+		}
+	}
+
+	/* Step 5: unfixable. Caller should pick a different candidate. */
+	return 0;
+}
+
+/* ========================================================================
  * B-242 (Priority O): Post-pick capsule clip check + radial sweep
  *
  * The pool-build validation above is best-effort, but a chosen spawn pad

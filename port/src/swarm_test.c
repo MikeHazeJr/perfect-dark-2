@@ -28,6 +28,7 @@
 #include "lib/model.h"
 #include "lib/rng.h"
 #include "lib/ailist.h"
+#include "game/spawnpool.h"  /* spawnPoolCorrectPosition for ring spawn fix-up */
 #include "game/chr.h"
 #include "game/chraction.h"
 #include "game/body.h"
@@ -660,7 +661,26 @@ static void respawn_ring(s32 count)
 			ppos.y,
 			ppos.z + r * sinf(ang),
 		};
-		struct chrdata *chr = spawn_one_skedar(&pos, prooms);
+
+		/* S594h-A (2026-05-01): active wall-correction. Push the ring
+		 * position out of any wall it lands in (along the wall's normal
+		 * by chr_radius), wiggle if a perpendicular wall blocks the
+		 * push, and skip this position entirely if the chr is too tall
+		 * for the spot (height failure). The chr_radius / chr_height
+		 * passed here are the SP593h post-half-scale defaults; spawn
+		 * uses these as a placeholder until the random scale is chosen
+		 * inside spawn_one_skedar. Slightly conservative -- the chr's
+		 * eventual radius might be smaller -- but rejecting a few good
+		 * spots is preferable to placing a chr inside a wall. */
+		RoomNum corrected_room = prooms[0];
+		if (!spawnPoolCorrectPosition(&pos, &corrected_room, 30.0f, 180.0f)) {
+			/* Height failure or unfixable. Skip this slot; the swarm
+			 * count will be lower than requested but no chr ends up
+			 * inside a wall or vent. */
+			continue;
+		}
+		RoomNum spawn_rooms[2] = { corrected_room, -1 };
+		struct chrdata *chr = spawn_one_skedar(&pos, spawn_rooms);
 		if (chr) {
 			s_Swarm[i].chr = chr;
 			s_Swarm[i].counted_kill = 0;

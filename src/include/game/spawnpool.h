@@ -141,6 +141,46 @@ f32 spawnPoolValidateCandidate(const struct coord *pos, RoomNum room,
                                const spawn_point_t *existing, s32 num_existing,
                                f32 min_spacing);
 
+/*
+ * S594h-A (2026-05-01): active wall-correction with wiggle, and
+ * height-failure rejection.
+ *
+ * Mike's directive: "we should detect if a spawn is going to be inside
+ * a wall, find that wall's normal, use the character's current
+ * collision radius to move them to the correct side of the wall,
+ * wiggling them if needed to avoid placing in a perpendicular wall
+ * or prop. If the failure is a height failure rather than a width
+ * failure, consider that spawn point invalid (don't spawn tall
+ * characters inside vents and such)."
+ *
+ * Algorithm:
+ *   1. Cast 18 rays (cardinal + diagonals + upper/lower diagonals).
+ *   2. If the upward ray hits within `chr_height + safety`, the spot
+ *      is too short for the chr -- HEIGHT FAILURE. Return 0 (reject).
+ *   3. If any non-vertical ray hits within `chr_radius`, the chr
+ *      would clip into a wall -- WIDTH FAILURE.
+ *      - Compute outward normal: weighted average of inverse hit
+ *        directions for short hits (rays whose inward end is too close).
+ *      - Push the candidate position along that normal by
+ *        `(chr_radius - shortest_hit) + epsilon`.
+ *      - Re-test from the new position. If clear, return 1 (corrected).
+ *      - If still inside geometry on a perpendicular axis, wiggle
+ *        through 4 small tangent offsets and accept the first that
+ *        passes. Return 1 if wiggle succeeded, 0 otherwise.
+ *
+ * Mutates pos and room in-place when correction succeeds.
+ *
+ * Returns:
+ *   1 -- position is now valid (either was valid, or pushed/wiggled).
+ *   0 -- height failure or unfixable; caller should reject this candidate
+ *        and pick another.
+ *
+ * General-purpose: not swarm-specific. Any spawn pipeline can use this
+ * to actively correct candidates instead of just filtering them.
+ */
+s32 spawnPoolCorrectPosition(struct coord *pos, RoomNum *room,
+                             f32 chr_radius, f32 chr_height);
+
 /* Get the global spawn pool (built by spawnPoolBuild, lives until next build) */
 const spawn_pool_t *spawnPoolGet(void);
 
