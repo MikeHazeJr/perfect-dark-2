@@ -1,7 +1,94 @@
 # Session Log (Active)
 
-> **S481-S594 + S593h + S482c + S593b** (rolling window of ~110 sessions; S593h added 2026-05-01 PM for swarm refinement bundle (random scale 0.2-0.6 weighted small, BOTDIFF_DARK + BOTTYPE_SPEED, per-frame player awareness + LOS short-circuit, no bot-bot collision via CHRHFLAG_00040000 swarm lock, power-weapon loadout for player + COMBATKNIFE for bots); S593g added 2026-05-01 PM for body.c integrated-head warning gate (suppressing 550 head_canon=NULL log spam during the swarm 4-256 cycle); S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
+> **S481-S595 + S593h + S482c + S593b** (rolling window of ~110 sessions; S595 added 2026-05-01 PM for B-303 post-exit Main Menu auto-pop on solo campaign + Forge end paths (Combat Sim path left intact per OG-canonical var80087260=3 mechanism); S593h added 2026-05-01 PM for swarm refinement bundle (random scale 0.2-0.6 weighted small, BOTDIFF_DARK + BOTTYPE_SPEED, per-frame player awareness + LOS short-circuit, no bot-bot collision via CHRHFLAG_00040000 swarm lock, power-weapon loadout for player + COMBATKNIFE for bots); S593g added 2026-05-01 PM for body.c integrated-head warning gate (suppressing 550 head_canon=NULL log spam during the swarm 4-256 cycle); S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
+
+## Session S595 (`infallible-mestorf-8463b9`) - 2026-05-01 PM - B-303 post-exit Main Menu auto-pop (solo + Forge)
+
+Mike's 2026-05-01 playtest report (verbatim):
+
+> "We also need to fix the end-match flow because I can end a match but end up in a state with just an animated background and no menu, can't interact with anything or progress."
+
+Mike's routing spec (verbatim, after a refinement pass):
+
+> "Solo campaign 'Exit to Main Menu' -> Main Menu at CI (your original fix shape applies here). Combat Sim match end -> return to Combat Simulator Room with prior settings restored. ... Forge Grid 'End Match' -> already routes to Main Menu via B-299, no change."
+
+Plus: "Look at how the OG handled End Mission or End Match paths."
+
+### Investigation against `fgsfdsfgs/perfect_dark` port branch
+
+Pulled the upstream OG-port `src/game/menutick.c` and `src/game/endscreen.c` and traced each cleanup branch. Findings:
+
+- **MENUROOT_MPENDSCREEN cleanup** (Combat Sim end-match path) sets `var80087260 = 3` when `g_Vars.normmplayerisrunning` is true. The CI-on-spawn block in menutick reads `var80087260 > 0` and pushes `g_CombatSimulatorMenuDialog` over CI. The menu's data-bound items read `g_MpSetup.*` directly. **`g_MpSetup` is module-static in `src/game/mplayer/mplayer.c` and persists through the full match lifecycle** -- never torn down between match start and CI return. Settings restoration is automatic via the data binding; no snapshot or handback needed.
+
+- **MENUROOT_ENDSCREEN cleanup** (solo campaign endscreen "Main Menu" choice) goes to `STAGE_TITLE` then `titleInitSkip` routes to CITRAINING. **No menu auto-pushed at CI.** OG-canonical: the player walks to in-CI terminals (Combat Boss, Mission Select kiosk, etc.) to reach Solo Mission select.
+
+- **Local code matches upstream exactly** in these switch cases. No drift.
+
+### What Mike actually wants vs OG-canonical
+
+Combat Sim case is OG-canonical and structurally working in our port -- the var80087260=3 chain pops the right menu with persisted settings. **No code change touches it.**
+
+Solo campaign case is OG-canonical-but-PC-port-modernized: Mike wants the Main Menu to auto-pop on Solo Play view (Mission Select) so the player lands on the just-played mission and can advance / retry / back out without walking to a CI terminal. This is a NEW PC-port feature, not OG.
+
+Forge case (B-299 Fix 4): same gap as solo. Apply the same auto-pop with view 0 (top-level Main Menu) since Forge isn't a campaign or Combat Sim.
+
+### Implementation
+
+**One-shot view selector flag** parallels the existing `var80087260` mechanism but pops the canonical Main Menu rather than the Combat Simulator setup dialog:
+
+- `s32 g_PostExitMainMenuView = -1;` in [src/game/mplayer/mplayer.c](../../src/game/mplayer/mplayer.c) (next to var80087260). Values: -1 inactive, 0 top-level, 1 Solo Play / Mission Select, 2..6 reserved for the other Main Menu views (Settings, Modding, Online Play, Player Stats, The Grid).
+
+- Extern in [src/include/data.h](../../src/include/data.h).
+
+- Set sites (one-shot, cleared on consumption):
+  - [src/game/menutick.c MENUROOT_ENDSCREEN cleanup](../../src/game/menutick.c) -> `g_PostExitMainMenuView = 1` (Solo Play). Restart-level path skips because the same stage immediately reloads and the menu would close on the next stage load anyway.
+  - [src/lib/main.c mainEndStage forge-active branch (Fix 4)](../../src/lib/main.c) -> `g_PostExitMainMenuView = 0` (top-level). Forge isn't a campaign or Combat Sim, so neither MENUROOT_ENDSCREEN nor MENUROOT_MPENDSCREEN cleanup branches fire to set this -- arming explicitly here is the only signal the auto-pop has for the Forge case.
+
+- Consume site: new CI-on-spawn block in menutick.c parallel to the existing `var80087260 > 0` block. Reads the flag, calls the new public API `pdguiMainMenuOpenAtView(view, "post-exit")`, plays the canonical SFX, and `playerPause(MENUROOT_MAINMENU)` to finalize pause state. Mutual exclusion with var80087260 (Combat Sim wins; in practice they never overlap because MENUROOT_ENDSCREEN and MENUROOT_MPENDSCREEN are different cleanup branches that fire on different g_MenuData.root values).
+
+- New public C API [`pdguiMainMenuOpenAtView(s32 view, const char *reason)`](../../port/include/pdgui.h) in `port/include/pdgui.h` / `port/fast3d/pdgui_menu_mainmenu.cpp`:
+  - Pushes `g_CiMenuViaPauseMenuDialog` (the same dialog the in-game Pause press opens) so menu pool dedup, input ctx attachment, and chrome rendering all match the manual Pause-press path.
+  - Sets `s_MenuView` via the existing static `pdguiMainMenuSetView`.
+  - Idempotent against double-push (menu pool dedup) and re-applies the view unconditionally so the caller's request wins even if a manual Pause press raced.
+
+### Files touched (6)
+
+- [`port/include/pdgui.h`](../../port/include/pdgui.h) +16 lines: declare `pdguiMainMenuOpenAtView`.
+- [`port/fast3d/pdgui_menu_mainmenu.cpp`](../../port/fast3d/pdgui_menu_mainmenu.cpp) +22 lines: implement `pdguiMainMenuOpenAtView`.
+- [`src/include/data.h`](../../src/include/data.h) +3 lines: extern `g_PostExitMainMenuView`.
+- [`src/game/mplayer/mplayer.c`](../../src/game/mplayer/mplayer.c) +20 lines: define `g_PostExitMainMenuView = -1` with full semantics comment.
+- [`src/game/menutick.c`](../../src/game/menutick.c) +49 lines: arm in MENUROOT_ENDSCREEN cleanup branch; CI-on-spawn auto-pop block parallel to var80087260 block.
+- [`src/lib/main.c`](../../src/lib/main.c) +16 lines: arm in mainEndStage forge-active branch (Fix 4).
+
+Total +125 -1 lines across 6 files. Single coherent merge.
+
+### What I deliberately did NOT do
+
+- **No flag-based override for Combat Sim.** OG path intact; touching it risks regression and Mike's spec confirmed the existing var80087260=3 mechanism is the right destination. If a future playtest reveals it actually breaks, that's a separate diagnostic-then-fix follow-up.
+- **No snapshot / handback of Combat Sim settings.** g_MpSetup module-static persistence is the OG mechanism; no parallel snapshot needed.
+- **No auto-pop on Solo Continue / Retry / Next Mission paths.** Those route through their own logic (next mission load, current stage reload); the auto-pop is only for the "Main Menu" exit choice.
+
+### Build verification
+
+`build-session.ps1 -Session b303 -Target all` PASS (CLIENT 28s, UPDATER 1s, PerfectDark.exe 54.6 MB; second build after rebase onto dev tip was a 1s ccache hit, confirming no content drift).
+
+### Auto-merge
+
+Worktree branch rebased onto dev tip pre-merge (dev had advanced 8 commits since the prior S594 work) so the merge applied cleanly without resurrecting the session-log conflict pattern from S594. Merge commit: `Merge worktree: B-303 post-exit Main Menu auto-pop for solo + Forge (infallible-mestorf-8463b9)` at dev `a19df5bf`. Post-merge line counts of all 6 changed files match worktree exactly. Dev has since moved on with `5b75d52a` (Mike's interaction-cast fix #5 from `clever-montalcini-4902a1`) and a release auto-commit on top.
+
+### Caveats Mike's playtest will surface
+
+- **Solo Mission Select view focus**: relies on `s_MissionSelectIdx` defaulting from `g_MissionConfig.stageindex`. If Mike sees the menu open on the wrong mission, that's a small follow-up to explicitly seed `s_MissionSelectIdx = g_MissionConfig.stageindex` in the open-at-view path.
+- **Forge top-level vs Solo Play**: I picked top-level for Forge per Mike's "B-299 routes to Main Menu" framing. If Mike wants Forge to land on view 6 (The Grid) for re-entry parity with Combat Sim's room re-entry, the flag value in `mainEndStage` is the only line to flip.
+- **Combat Sim regression**: untouched, but the merge added a `var80087260 == 0` mutual-exclusion gate in the new CI-on-spawn block. The Combat Sim path runs first in menutick.c so the gate just blocks accidental double-fires. If Mike sees the Combat Simulator menu fail to open after a Combat Sim match, that's a pre-existing bug surfaced (not introduced by this fix) and needs separate diagnostics.
+
+### Methodology notes
+
+- Investigation referenced `fgsfdsfgs/perfect_dark` port branch via `gh api repos/.../contents/...` and `curl raw` for unsafe path. Cross-checked our local against the upstream switch-case structures.
+- Single coherent merge per Mike's "single coherent merge for the unit" rule. No piecemeal commits.
+- No em-dashes anywhere in source / commit message / docs (Windows tooling rule).
+- Auto-merge per standing rule, no `-NoQueue`, build-session wrapper.
 
 ## Session S594h-B Slice 3 (`mystifying-bose-71f14a` continuation) - 2026-05-01 PM - Surface-normal locomotion: per-tick + blend + wire v47
 
