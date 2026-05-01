@@ -313,11 +313,17 @@ int main(int argc, const char **argv)
 	// weapon pools. Manager accessors are pool-backed once
 	// loaderPdbaseBuildWeaponManager succeeds. Parity check from F12 was
 	// retired -- g_Weapons[] no longer exists to compare against.
+	//
+	// Catalog Gate 3 F9: loaderPdbaseScan also looks for heads.pdbase
+	// in the same dir; F12 makes this populate the heads pool too.
 	{
 		loader_pdbase_result_t pdb_result;
 		loaderPdbaseScan("base", &pdb_result);
 		if (pdb_result.weapons_registered > 0) {
 			loaderPdbaseBuildWeaponManager();
+		}
+		if (pdb_result.heads_registered > 0) {
+			loaderPdbaseBuildHeadManager();
 		}
 	}
 

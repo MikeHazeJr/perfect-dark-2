@@ -49,6 +49,7 @@
 #include "loader_pdbase.h"
 #include "loader_pdbase_enums.h"
 #include "catalog_mgr_weapons.h"
+#include "catalog_mgr_heads.h"  /* Catalog Gate 3 F9: heads pool integration */
 #include "system.h"
 #include "fs.h"
 
@@ -117,6 +118,19 @@ static s32 s_AnimationsUsed;
 
 static s32 s_LoaderActive;
 static s32 s_WeaponsRegistered;
+
+/* ------------------------------------------------------------------ */
+/* Catalog Gate 3 F9: heads pool                                       */
+/*                                                                    */
+/* Parallel to the weapons pool. Heads live in their own archive       */
+/* base/heads.pdbase per audit decision I.6. F9 ships the pool +       */
+/* accessors as a scaffold; F11 ships the extractor + archive; F12     */
+/* implements parseHead() and toggles s_HeadsLoaderActive on success.  */
+/* ------------------------------------------------------------------ */
+
+static head_data_t s_HeadsPool[CATALOG_MGR_HEAD_COUNT];
+static s32 s_HeadsLoaderActive;
+static s32 s_HeadsRegistered;
 
 /* ------------------------------------------------------------------ */
 /* Public accessors (consumed by catalog_mgr_weapons.c)               */
@@ -1314,6 +1328,31 @@ void loaderPdbaseScan(const char *dir, loader_pdbase_result_t *out)
 	/* fsFileLoad returns a buffer we can free. */
 	sysMemFree(src);
 
+	/* Catalog Gate 3 F9: also scan base/heads.pdbase if present. F11
+	 * ships the archive; F12 wires up parseHead. Until F11 the file
+	 * does not exist and this returns silently. */
+	{
+		char head_path[512];
+		snprintf(head_path, sizeof(head_path), "%s/heads.pdbase", dir);
+		s32 head_size = 0;
+		char *head_src = (char *)fsFileLoad(head_path, (u32 *)&head_size);
+		if (head_src != NULL) {
+			/* F12 inserts the JSON parse here. F9 scaffold just notes
+			 * the archive's existence and frees the buffer. */
+			sysLogPrintf(LOG_NOTE,
+				"LOADER.PDBASE.HEAD.OK: dir=%s heads.pdbase found size=%d "
+				"(F9 scaffold; parser lands at F12)",
+				dir, head_size);
+			local.archives_scanned++;
+			sysMemFree(head_src);
+		} else {
+			sysLogPrintf(LOG_NOTE,
+				"LOADER.PDBASE.HEAD.OK: dir=%s no heads.pdbase (parity period)",
+				dir);
+		}
+		local.heads_registered = s_HeadsRegistered;
+	}
+
 	if (out) *out = local;
 }
 
@@ -1369,6 +1408,51 @@ s32 loaderPdbaseBuildWeaponManager(void)
 /* from behavioral tests + the existing structure-pin tests in        */
 /* tests/test_loader_pdbase_scan.cpp.                                  */
 /* ------------------------------------------------------------------ */
+
+/* ================================================================== */
+/* Catalog Gate 3 F9 / F11 / F12: heads-side loader                    */
+/*                                                                    */
+/* Parallel to the weapons loader above. F9 ships these accessors as  */
+/* scaffold (active flag stays 0, all accessors return NULL until F12 */
+/* implements parseHead + flips the flag).                             */
+/* ================================================================== */
+
+s32 loaderPdbaseHeadsActive(void)
+{
+	return s_HeadsLoaderActive;
+}
+
+const head_data_t *loaderPdbaseGetHead(s32 idx)
+{
+	if (idx < 0 || idx >= CATALOG_MGR_HEAD_COUNT) return NULL;
+	if (!s_HeadsLoaderActive) return NULL;
+	return &s_HeadsPool[idx];
+}
+
+s32 loaderPdbaseGetHeadsRegistered(void)
+{
+	return s_HeadsRegistered;
+}
+
+s32 loaderPdbaseBuildHeadManager(void)
+{
+	/* F9: scaffold returns 0 (no records loaded). F12 walks
+	 * ASSET_HEAD catalog rows with non-empty pdbase_path, copies the
+	 * loaded head_data_t into s_HeadsPool[runtime_index], increments
+	 * s_HeadsRegistered, then sets s_HeadsLoaderActive = 1.
+	 * Until F12, the manager keeps reading the legacy parity-period
+	 * mirror via s_populateFromLegacy() in catalog_mgr_heads.c. */
+	if (s_HeadsRegistered <= 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOADER.PDBASE.HEAD.OK: build skipped (no records loaded -- F9 scaffold)");
+		return 0;
+	}
+	s_HeadsLoaderActive = 1;
+	sysLogPrintf(LOG_NOTE,
+		"LOADER.PDBASE.HEAD.OK: manager active, heads=%d (expected=%d)",
+		s_HeadsRegistered, CATALOG_MGR_HEAD_COUNT);
+	return s_HeadsRegistered;
+}
 
 
 

@@ -36,7 +36,8 @@ extern "C" {
  * caller can print a single OK summary. */
 typedef struct {
     s32 archives_scanned;     /* number of .pdbase archives examined */
-    s32 weapons_registered;   /* successfully registered records */
+    s32 weapons_registered;   /* successfully registered weapon records */
+    s32 heads_registered;     /* successfully registered head records (Catalog Gate 3 F9) */
     s32 scan_failures;        /* parse / open errors per record */
     s32 resolve_failures;     /* model / anim / ammo ref unresolvable */
     s32 field_unknown;        /* PER-ELEMENT field-unknown notes */
@@ -83,6 +84,41 @@ s32 loaderPdbaseGetWeaponsRegistered(void);
 #include <stddef.h>
 s32 loaderPdbaseEncodeOpcode(const struct guncmd *cmd, char *out_buf,
                               size_t out_n);
+
+/* ========================================================================
+ * Catalog Gate 3 F9: heads-side loader scaffold.
+ *
+ * Parallels the weapons accessors above. Heads live in their own archive
+ * (base/heads.pdbase) per audit decision I.6, and have their own typed
+ * pool s_Heads_loader[CATALOG_MGR_HEAD_COUNT] of head_data_t records.
+ *
+ * F9 ships the scaffold (zero records); F11 ships the Python extractor +
+ * archive; F12 implements the parser + parity bridge; F13 retires the
+ * parity bridge.
+ *
+ * Logging channels:
+ *   LOADER.PDBASE.HEAD.SCAN_FAIL
+ *   LOADER.PDBASE.HEAD.RESOLVE_FAIL
+ *   LOADER.PDBASE.HEAD.FIELD_UNKNOWN
+ *   LOADER.PDBASE.HEAD.OK
+ * ======================================================================== */
+
+/* Forward-declare to avoid pulling in catalog_mgr_heads.h from this header. */
+typedef struct head_data head_data_t;
+
+/* Manager-side accessors. The catalog manager
+ * (catalog_mgr_heads.c::s_get) checks loaderPdbaseHeadsActive() to
+ * decide whether to route through the loader pool or fall back to
+ * g_HeadsAndBodies[]. */
+s32 loaderPdbaseHeadsActive(void);
+const head_data_t *loaderPdbaseGetHead(s32 idx);
+s32 loaderPdbaseGetHeadsRegistered(void);
+
+/* Iterate ASSET_HEAD catalog rows that carry a non-empty pdbase_path
+ * and load each head's full data into the loader pool.  After this
+ * call, loaderPdbaseHeadsActive() returns 1 and the manager routes
+ * through loaderPdbaseGetHead(). */
+s32 loaderPdbaseBuildHeadManager(void);
 
 #ifdef __cplusplus
 }
