@@ -413,11 +413,12 @@ Each ROM-derived asset category gets its own extension. The schema for each is i
 - **`.pdfiringrange`** (proposed): Firing range setup. Today extracted by `tools/extract:217`. **Recommendation**: roll into `.pdscenario`. Firing range is a stage; treating it as such removes a special case. `data/scenarios/setup_firingrange.pdscenario`.
 - **`.pdmpstrings`** (proposed): MP UI strings per locale. Today extracted by `tools/extract:204`. **Recommendation**: roll into `.pdlang`. MP strings are localized text; `.pdlang` already covers per-locale text. Use `data/lang/mp_<locale>.pdlang` (or fold into a global UI lang file).
 
-**Final extension list** after consolidation (revised in Pass 3 to add `.pdprop` and `.pdcharacter`; see Section 3.16.4):
+**Final extension list** after consolidation (revised in Pass 3 to add `.pdprop` and `.pdcharacter`; revised in Pass 5 to add `.pdwepset`):
 
 | Extension | Purpose |
 |---|---|
 | `.pdwpn` | Weapon |
+| `.pdwepset` | Weapon set (compound: a curated list of weapon catalog IDs plus spawn metadata; surfaces in MP setup's weapon-set picker; see Section 3.16.11) |
 | `.pdui` | UI texture bundle plus theme metadata |
 | `.pdmesh` | Static mesh (visual geometry only; no skeleton, no behavior). Covers spawnable props that need only visual representation. |
 | `.pdcharacter` | Compound character (skeletal mesh plus animations plus audio plus attach points plus behavior). Distinct catalog asset type from `.pdmesh`. See Section 3.16.4. |
@@ -426,7 +427,7 @@ Each ROM-derived asset category gets its own extension. The schema for each is i
 | `.pdsong` | Music track |
 | `.pdsfx` | Sound effect |
 | `.pdvoice` | Voice line |
-| `.pdscenario` | Stage / mission / firing range / MP map (carries scenario config inline; modes block per Section 3.16.3) |
+| `.pdscenario` | Stage / mission / firing range / MP map (carries scenario config inline; modes block per Section 3.16.3; per-spawn-point weapon and pickup catalog IDs declared in scenario data per Section 3.3) |
 | `.pdtiles` | Stage walkable-surface data |
 | `.pdseg` | Stage geometry segment |
 | `.pdfont` | Font face |
@@ -573,7 +574,7 @@ themes/<theme>.json                  # theme palette / scanlines / tint
 }
 ```
 
-**`.pdscenario`** sketch:
+**`.pdscenario`** sketch (Pass 5: explicit per-spawn-point weapon and pickup declarations):
 
 ```json
 {
@@ -583,17 +584,79 @@ themes/<theme>.json                  # theme palette / scanlines / tint
     "kind": "solo",                     // "solo" | "mp" | "firingrange" | "coop"
     "geometry_id": "bg_villa",          // ref to .pdseg
     "tiles_id": "tiles_villa",          // ref to .pdtiles
-    "props": [...],                     // objects, lifts, doors
-    "ai": [...],                        // spawn points, paths
+    "props": [
+        {
+            "spawn_id": "prop_001",
+            "asset_id": "base:prop_crate_metal",  // ref to .pdprop
+            "transform": {"pos": [10, 0, 5], "rot": [0, 90, 0]}
+        }
+    ],
+    "weapon_spawns": [                  // per-location weapon pickups
+        {
+            "spawn_id": "wpn_001",
+            "asset_id": "base:weapon_falcon2",     // ref to .pdwpn (catalog ID)
+            "transform": {"pos": [12, 0, 8], "rot": [0, 0, 0]},
+            "ammo_count": 24,
+            "respawn_seconds": 30
+        },
+        {
+            "spawn_id": "wpn_002",
+            "asset_id": "base:weapon_cmp150",
+            "transform": {"pos": [-5, 0, 12], "rot": [0, 180, 0]},
+            "ammo_count": 60,
+            "respawn_seconds": 45
+        }
+    ],
+    "pickup_spawns": [                  // per-location item pickups (ammo, armor, etc.)
+        {
+            "spawn_id": "pkup_001",
+            "asset_id": "base:pickup_armor_full",
+            "transform": {"pos": [0, 0, 0], "rot": [0, 0, 0]},
+            "respawn_seconds": 60
+        }
+    ],
+    "ai": [...],                        // AI spawn points, patrol paths
     "events": [...],                    // objective triggers, scripted events
     "music_id": "song_villa",           // ref to .pdsong
     "ambient_sfx_ids": ["sfx_villa_amb"],
     "lang_id": "lang_villa",
-    "mp_config": null                   // populated for "mp" stages
+    "modes": {                          // per-mode initialization (Section 3.16.3)
+        "campaign": {...},
+        "combat_sim": {
+            "spawn_points": [...],
+            "default_weapon_set_id": "base:wepset_classic",   // ref to .pdwepset
+            "supported_modes": ["combat", "kingofthehill"]
+        }
+    }
 }
 ```
 
-The exact schema for each is a follow-on design task. The audit's recommendation is to commit to the principle and design the schemas one asset class at a time, starting with `.pdwpn` (the F11-F13 catalog work just shipped weapons; this is the natural next step).
+Note on the `weapon_spawns` and `pickup_spawns` arrays: these are per-location declarations using catalog IDs. Modders can replace the spawn list (via a custom scenario for the same map, or via per-location overrides through a future scenario-edit tool); the schema explicitly carries asset references so the data is portable.
+
+**`.pdwepset`** sketch (Pass 5: weapon set as a compound mod type):
+
+```json
+{
+    "catalog_id": "modder:halo_power_weapons",
+    "type": "weapon_set",
+    "display_name": "Halo Power Weapons",
+    "description": "High-tier Halo weaponry",
+    "weapons": [
+        "modder:halo_rocket_launcher",
+        "modder:halo_sniper_rifle",
+        "modder:halo_energy_sword"
+    ],
+    "spawn_density": "low",             // "low" | "medium" | "high"; affects MP map distribution
+    "respawn_seconds": 60,              // default respawn for set members in MP
+    "tags": ["mp", "power"]             // discoverable categorization in MP setup picker
+}
+```
+
+A `.pdwepset` registers as `ASSET_WEAPON_SET` in the catalog. It is a compound asset (carries references to other catalog IDs, not raw bytes). MP setup's weapon-set picker lists all enabled `.pdwepset` entries; selecting one establishes the spawn pool for the match. The `random_source:` field on MP weapon-setup config (Section 3.16.3) accepts `weapon_set:<catalog_id>` to scope random selection to a specific set.
+
+Validation at registration: each `weapons:` entry must resolve to an enabled `.pdwpn` catalog ID. If any reference is unresolvable or disabled (Section 3.16.11), the set fails registration with `LOUDFAIL.CATALOG.WEPSET_INVALID` listing the unresolvable references. (Extrapolation E-34: this validates at registration time, after all enabled mods have registered, so the set author sees clear errors when their referenced weapons are not present.)
+
+The exact schema for each asset class is a follow-on design task. The audit's recommendation is to commit to the principle and design the schemas one asset class at a time, starting with `.pdwpn` (the F11-F13 catalog work just shipped weapons; this is the natural next step).
 
 ### 3.4 Directory taxonomy
 
@@ -651,6 +714,17 @@ Both mods fail to register their conflicting entries (audit recommendation: the 
 **UX implications (extrapolation E-28).** The campaign menu, weapon-loadout picker, character selector, and other curation UIs become enriched with mod-introduced variants. Audit recommends: a "Built-in" header for base content, then a list of each enabled modpack's contributions grouped by source modpack. Out of scope for this audit; flagged for the future modding-hub UX pass.
 
 **AllInOneMods legacy implication (extrapolation E-27).** The historical AllInOneMods (GEX, Kakariko, Goldfinger 64, Dark Noon) replaced base content. Under the additive-only model, those need to be reauthored as additive collections that appear as separate selectable options. Concretely: GEX becomes "GEX Campaign" in the campaign menu; the GEX weapons appear as `weapon_gex_pistol`, `weapon_gex_<x>` in the loadout picker; the user picks GEX as their campaign. The conversion is non-trivial (existing AllInOne content currently rebinds base IDs); flagged as a future migration pillar.
+
+**Pass 5 refinement: presentation-layer disable for total conversions.** Pass 4 established mods are strictly additive; Pass 5 adds a complementary mechanism that lets total-conversion mods hide base content from selectors WITHOUT replacing it. See Section 3.16.11 for the full mechanism. Summary:
+
+- Each catalog entry has an `enabled: true / false` flag (default true).
+- Mods declare `disable_base: [list_of_catalog_ids]` in their metadata; when the mod is enabled, those base IDs are filtered from selectors.
+- User UI can flip `enabled` independently for per-content visibility control.
+- Direct catalog lookup by ID still works regardless of `enabled` (so cross-references from other mods do not break).
+
+This is NOT an override. Base content stays canonical and untouched. The catalog never rewrites a base entry; it just hides it from UI selectors when a filter says so. A "Halo total conversion" mod declares `disable_base:` listing all base PD weapons / characters / vehicles / maps and adds Halo content as additive entries; when the mod is enabled, the user sees only Halo content; when disabled, base PD returns. Both can coexist (`enabled: false` on PD content + Halo additive content = pure Halo experience).
+
+The presentation-layer mechanism preserves the additive-only invariant (no two mods register the same catalog ID) while still enabling the total-conversion UX. Both AllInOne-style total conversions and surgical "use my variant instead" selective replacements compose cleanly under this model.
 
 ### 3.6 Hash-verify, self-heal, and corruption quarantine
 
@@ -910,6 +984,8 @@ Direct consequences of the symmetric-schema principle plus Mike's directives, up
 
 **M-11. Provenance audit (extrapolation E-23).** When the in-client tool copies a cataloged asset into a new compound, it stamps an optional `origin:` field on the entry recording the source catalog ID. Lets collaborators trace lineage; supports credit attribution. Modder can opt out if they prefer not to disclose lineage.
 
+**M-12. Total conversions become genuinely composable (Pass 5).** The presentation-layer disable mechanism (Section 3.16.11) plus additive-only invariant (Section 3.5) plus modpack architecture (Section 3.16.1) compose cleanly: a Halo total conversion enables when the user installs the pack, hides base content from selectors, exposes Halo content additively. When the user wants to play base PD again, they disable the modpack and base content reappears. Coexistence is trivial. AllInOne-style total conversions and surgical-replacement variants both compose under this model without conflicting.
+
 ### 3.14 Forward-looking work (track but not in scope)
 
 Mike mentioned several features in flight or aspirational that align with the architectural direction. Document in this audit so they are recorded; design out of scope.
@@ -925,6 +1001,12 @@ Mike mentioned several features in flight or aspirational that align with the ar
 **FW-5. Logging-pipeline cleanup pass (per directive 9).** Comparable in scale to the recently-shipped context-system rebuild. Fold the LOUDFAIL channel introduction into a broader logging refactor (channel taxonomy, levels, in-game LOUDFAIL UI surface, log file rotation, telemetry export). Track as a future architectural pillar; not in scope for this audit.
 
 **FW-6. ROM-free distribution (long-term, per Principle 1 unlocks).** A community-shared `data-bundle.zip` with hash-validated extracts could ship without the ROM. Architecturally feasible once `data/` is the runtime source. Legal / policy questions out of scope here; flag as a future capability gate.
+
+**FW-7. The Grid as Forge-extensible (Pass 5).** The Grid's observer character (currently Dr Carroll) becomes a `.pdcharacter` with a flag `observer_capable: true`. Modders authoring replacement observer characters (e.g. Halo Monitor) register `.pdcharacter` entries with the flag set; The Grid's setup picker filters by the flag. When The Grid loads, the player picks which registered observer character to use. Extends the player-character-selection plumbing already in place to The Grid context.
+
+**FW-8. Catalog-driven prop palette in The Grid (Pass 5).** The Grid's prop palette is auto-populated from the catalog: every entry of type `ASSET_PROP` (i.e. every `.pdprop` registration, base + data + mods) appears in the prop palette UI, filtered by `enabled` and any context filter The Grid applies. Mods adding props extend the palette automatically, no Grid-side code change. Search and category-tag filtering already supported by the catalog universality sweep.
+
+**FW-9. Logic-system mods extending The Grid (Pass 5).** When the logic system pillar (Section 3.17.5 forward-looking note) lands, mods can register custom triggers (events the engine fires) and custom actions (operations the engine can execute) into the trigger / action registry. The Grid's interaction-tool palette consumes the registry to expose the available triggers and actions for users to compose into Forge-style interactive scenes. The combination (FW-7 plus FW-8 plus FW-9) makes The Grid effectively Forge-from-Halo with PD's renderer. Substantial future pillar; track separately from this audit.
 
 ### 3.15 Open questions and self-extrapolations
 
@@ -990,7 +1072,7 @@ The mod manager scans only `.pdmod` files (top-level and inside extracted modpac
 
 **Atomic assets remain a first-class concept inside the catalog.** A compound's manifest declares its internal atomic contents. Each contained atomic registers as its own catalog entry with its own ID. Other mods (or the gameplay engine) reference the atomic by its catalog ID; the catalog resolves to the bytes inside the compound.
 
-Compound manifest sketch (revised for Pass 4):
+Compound manifest sketch (revised for Pass 4; updated for Pass 5 with optional `disable_base:` field):
 
 ```json
 {
@@ -1020,9 +1102,34 @@ Compound manifest sketch (revised for Pass 4):
             "path": "audio/sfx/fusion_coil_boom.pdsfx"
         }
     ],
-    "requires": []
+    "requires": [],
+    "disable_base": []                     // Pass 5: optional list of base catalog IDs to hide from selectors when this mod is enabled (Section 3.16.11)
 }
 ```
+
+The `disable_base:` field is empty for this compound (the fusion-coil mod is purely additive). For a Halo total-conversion compound, the field would list all base PD weapons / characters / vehicles / maps it wants to hide from selectors:
+
+```json
+{
+    "id": "modder:halo_total_conversion",
+    "version": "1.0.0",
+    "type": "compound",
+    "internal_assets": [...],
+    "requires": [...],
+    "disable_base": [
+        "base:weapon_falcon2",
+        "base:weapon_cmp150",
+        "base:weapon_dy357magnum",
+        // ... full base weapon list
+        "base:character_carrington",
+        // ... full base character list
+        "base:scenario_villa",
+        // ... full base scenario list
+    ]
+}
+```
+
+When this mod is enabled, the catalog flips `enabled: false` on each listed base entry. The base entries are still present in the catalog (lookups by ID still resolve, so cross-references from other mods do not break); they are just filtered from selector UIs. When the mod is disabled, the catalog flips `enabled` back to true and the base content reappears in selectors.
 
 The compound's archive holds the per-asset-class files (`.pdprop`, `.pdmesh`, `.pdsfx`, raw textures, etc.) at their declared paths. Each is registered into the catalog under its declared ID. Cross-asset references inside the compound use catalog IDs (the `.pdprop` references `modder:tex_fusion_coil_diffuse` for its texture; the catalog resolves to the bytes at `textures/coil_albedo.tga` inside this compound).
 
@@ -1133,6 +1240,34 @@ Cycle detection (Section 3.16.7) applies if `load_after` / `load_before` or `req
 Hardcoded MP spawn points for campaign maps live in the canonical scenario's `modes.combat_sim` block. One scenario file, multiple game-mode initializations.
 
 **Map variants are siblings via suffix naming (per directive 5).** A zombies-mode variant of Skedar Temple is `scenario_skedar_temple-zombies.pdscenario`, a distinct catalog ID. The variant inherits geometry / tiles / textures from the canonical scenario by reference (catalog ID lookups), but carries its own `modes:` block (or only the relevant mode entries). Treat as independent assets in the catalog; the suffix is human-readable provenance.
+
+**MP weapon-source scoping (Pass 5 addition).** MP setup config gains a `random_source:` field that scopes random-weapon selection to a specific pool. Schema sketch for the MP setup config (lives in the host's match-setup state, not in the scenario itself):
+
+```json
+{
+    "match_id": "mp_session_001",
+    "scenario_id": "scenario_skedar_temple",
+    "mode": "combatsim_combat",
+    "weapon_set_id": "base:wepset_classic",     // ref to .pdwepset (Section 3.16.11)
+    "random_source": "all_enabled",              // see options below
+    "fiesta_enabled": false,
+    "score_limit": 25,
+    "time_limit_minutes": 10
+}
+```
+
+`random_source:` accepted values:
+
+- `"all_enabled"` (default; current behavior) - random from any enabled weapon registered in the catalog.
+- `"base_only"` - random from base game weapons only. Useful for purist matches.
+- `"modpack:<modpack_id>"` - random from weapons registered by mods belonging to the named modpack. e.g. `"modpack:halo-tc-1.0"` for a Halo-only match.
+- `"weapon_set:<catalog_id>"` - random from a specific weapon set. e.g. `"weapon_set:modder:halo_power_weapons"`.
+
+Random selection iterates the scope, applies the universal selector filter (`catalog ∩ enabled ∩ unlocked ∩ context_filter`; Section 3.16.11), picks uniformly. Existing Random and Fiesta semantics still apply; `random_source:` just narrows the pool.
+
+If the resolved random pool is empty (all candidates are disabled or context-filtered out), the runtime fires `LOUDFAIL.RANDOM.EMPTY_POOL` and falls back to a default base weapon (extrapolation E-35: base entries are always present in the catalog even when `enabled: false`, so direct lookup still resolves and the fallback always works).
+
+Weapon set assets (`.pdwepset`, Section 3.16.11) referenced by `random_source: "weapon_set:..."` are themselves catalog entries; their members must resolve to enabled `.pdwpn` entries at registration time, or the set itself fails to register.
 
 #### 3.16.4 `.pdcharacter` and `.pdprop` as catalog asset types (Q-4 resolved)
 
@@ -1344,6 +1479,99 @@ Why this matters: a US-region player joins an EU-region host's match. Their ROMs
 Privacy / legal framing: the peer is not retaining or redistributing the host's content. The session-cache is functionally identical to streaming video: bits cross the wire for playback, then evict. Compare to OpenRCT2 cross-version play, which behaves similarly.
 
 Implementation surface: `port/src/net/` integration with the catalog. The catalog gets a third asset-provider (alongside `assetprovider_rom.c` and the future `assetprovider_data.c`): `assetprovider_session_cache.c`. Out of scope for this audit; flagged as a future networking-layer integration.
+
+#### 3.16.11 Disabling base content (presentation-layer; Pass 5 architectural mechanism)
+
+> **Pass 5 architectural extension (2026-04-30):** total-conversion mods need a way to hide base content from selectors without overriding it. The mechanism is a per-catalog-entry `enabled` flag plus a `disable_base:` field on compound mods. Base content stays canonical and is never replaced; only its visibility in selector UIs is filtered.
+
+This is the complement to Pass 4's no-overrides invariant. Pass 4 says no two registrations share a catalog ID; Pass 5 says base entries can be hidden from selectors via a presentation filter without violating the no-overrides invariant. Both compose cleanly.
+
+**Catalog entry shape (extrapolation E-31):**
+
+Every registered catalog entry has a runtime `enabled: true / false` flag (default true). The flag is mutated by:
+
+1. **Mod-driven disable.** A compound mod declares `disable_base: [catalog_id, ...]` in its `mod.json`. When the mod is enabled, the catalog flips `enabled: false` on each listed ID. When the mod is disabled, the catalog flips `enabled: true` back (releasing the filter).
+2. **User-driven disable.** The mod manager UI (or a dedicated content-visibility panel) lets the user toggle `enabled` per-content independently of any mod. Persists across launches.
+3. **Multiple flippers stack.** If two mods both list the same base ID in their `disable_base:`, the catalog tracks both flippers; the entry stays disabled until BOTH mods are disabled (or the user manually overrides). Logged via `CATALOG: <id> disabled by [mod_a, mod_b]` for audit clarity.
+
+**Direct lookup vs selector filter:**
+
+- **Direct lookup by ID** (e.g. catalog API `assetCatalogGet("base:weapon_falcon2")`) returns the entry regardless of `enabled` state. Cross-references from other mods or scenarios resolve cleanly.
+- **Selector filter** (e.g. CS weapon picker, campaign menu, character selection) applies the universal filter: `selector_pool = catalog ∩ enabled ∩ unlocked ∩ context_filter`. Disabled entries are absent from the picker UI.
+
+This split is the architectural payoff: the catalog stays a single source of truth (every base ID always exists), while selector UIs respect the filter (modder controls what the user sees in the picker).
+
+**Selector pool composition (Pass 5 formalization):**
+
+The selector pool concept already partially shipped via the catalog universality sweep (`context/audits/catalog-universality-sweep-2026-04-27.md`). Pass 5 grows it to include the `enabled` filter:
+
+```
+selector_pool(context) = {
+    entry in catalog
+    where entry.enabled == true
+    AND entry.unlocked_for(context)
+    AND entry.matches(context_filter)
+}
+```
+
+The four filters compose by intersection. Disabling any one excludes the entry. Examples:
+
+- CS weapon picker for player 1 in a casual match: filter is `(entry.type == weapon) AND (entry.context_includes("mp")) AND entry.enabled AND entry.unlocked`. A disabled base weapon does not appear; an enabled mod weapon does.
+- Campaign menu: filter is `(entry.type == scenario) AND (entry.context_includes("campaign")) AND entry.enabled`. A disabled base campaign mission does not appear; an enabled Halo campaign mission does.
+
+**`disable_base:` field semantics:**
+
+```json
+{
+    "id": "modder:halo_total_conversion",
+    "type": "compound",
+    "internal_assets": [...],
+    "disable_base": [
+        "base:weapon_falcon2",
+        "base:weapon_cmp150",
+        "base:weapon_dy357magnum"
+    ]
+}
+```
+
+Validation (extrapolation E-32): each entry in `disable_base:` must resolve to an existing catalog ID at registration time. Misnamed or unknown IDs fire `LOUDFAIL.CATALOG.UNKNOWN_DISABLE_TARGET` with a clear message:
+
+```
+LOUDFAIL.CATALOG.UNKNOWN_DISABLE_TARGET: mod 'modder:halo_total_conversion' declares disable_base entry 'base:weapon_xxxxxxx' which is not present in the catalog. Check spelling.
+```
+
+The mod still registers; only the unknown disable entry is dropped. Other valid entries still apply.
+
+**Total conversion use case (Mike's Halo example):**
+
+A "Halo total conversion" `.pdmodpack` contains compound mods that:
+
+1. List all base PD weapons / characters / vehicles / maps in `disable_base:` arrays.
+2. Add Halo content as additive entries via `internal_assets:`.
+
+When the modpack is enabled, the catalog has Halo content visible in selectors and base PD content hidden. When the modpack is disabled, base PD reappears. Both can coexist (`enabled: false` on PD content + Halo additive content = pure Halo experience).
+
+**User UI for content visibility (extrapolation E-?):**
+
+The mod manager UI gains a "Content visibility" panel listing all catalog entries with per-entry toggles. Users can:
+
+- Disable individual base content (e.g. "I never want to see the firing range in the campaign menu").
+- Re-enable base content that a mod hid (override the mod's `disable_base:` list for specific IDs).
+- View which mods are currently flipping each base entry's `enabled` state.
+
+Out of scope for the audit; tracked as future modding-hub UX work. The architecture supports it; the UI surface is the implementation question.
+
+**Interaction with `.pdwepset` (Section 3.3 / extension table):**
+
+A `.pdwepset` references weapon catalog IDs in its `weapons:` array. When the set registers, each reference must resolve to an enabled `.pdwpn`. If a referenced weapon is disabled (by a `disable_base:` from any other mod), the set fails registration with `LOUDFAIL.CATALOG.WEPSET_INVALID`. (Extrapolation E-34: validation runs after all enabled mods have registered, so the modder sees the actual conflict.)
+
+This means: a modder authoring a weapon set that references base weapons should be aware that any total-conversion mod the user enables alongside their set may invalidate the set. Audit recommendation: document this clearly in the mod-authoring guide; weapon set authors should reference content from the same modpack (or with explicit `requires:` declarations) so the set composes well.
+
+**Interaction with `random_source:` (Section 3.16.3):**
+
+`random_source: "all_enabled"` automatically respects the `enabled` filter (random selection iterates the catalog and filters by `enabled`). `random_source: "base_only"` selects from base entries that are currently enabled (so a disabled base weapon does not appear in random). `random_source: "weapon_set:<id>"` selects from the set's members, filtered by enabled.
+
+Empty random pool (all candidates filtered out) fires `LOUDFAIL.RANDOM.EMPTY_POOL` with the resolved scope and falls back to a default base weapon (which is always reachable via direct lookup even if `enabled: false`).
 
 ### 3.17 Worked example: authoring a Halo fusion-coil prop mod
 
@@ -1583,9 +1811,9 @@ Items 11+ are the asset-class-by-asset-class migration (mesh, audio split into m
 - `context/designs/catalog/catalog-full-pipeline-weapons.md` (F1-F10 plus F11-F13 weapons catalog work, F12-F13 lane CLOSED 2026-04-30)
 - `context/designs/modding/forge-level-editor.md` (FW-3 terrain editor reference)
 
-**Mike's directives applied (Pass 2 plus Pass 3 plus Pass 4, 2026-04-30)**
+**Mike's directives applied (Pass 2 plus Pass 3 plus Pass 4 plus Pass 5, 2026-04-30)**
 
-Twenty directives logged from Pass 2 plus six Q-resolution refinements from Pass 3 (Section 3.16) plus the worked example (Section 3.17) plus the compound-only-plus-no-overrides architectural shift from Pass 4:
+Twenty directives logged from Pass 2 plus six Q-resolution refinements from Pass 3 (Section 3.16) plus the worked example (Section 3.17) plus the compound-only-plus-no-overrides architectural shift from Pass 4 plus the presentation-layer disable mechanism plus weapon-set extension plus Grid forward-looking notes from Pass 5:
 
 1. Extension naming (`.pdwpn` over `.pdwep`); definitions for `.pdtiles`, `.pdseg`, `.pdmpconfig`, `.pdtexconfig`, `.pdfiringrange`. (Sections 3.2)
 2. Audio extraction by category (music / sfx / voice). (Sections 3.2, 3.10 G-2)
@@ -1648,6 +1876,28 @@ Forward-looking notes tracked: accessories system (FW-1), mod-driven character b
 - E-27. **AllInOneMods migration framing.** Section 3.5 notes that the historical AllInOneMods (GEX, Kakariko, Goldfinger 64, Dark Noon) replaced base content and need to be reauthored as additive collections under Pass 4. I called this out as a non-trivial future migration pillar. Mike did not explicitly mention it in Pass 4; I extrapolated from his "no overrides" directive that this becomes a real migration concern.
 - E-28. **UX implication for additive curation.** Section 3.5 notes that the campaign menu, weapon-loadout picker, character selector, etc. become enriched with mod-introduced variants under additive-only. I sketched a "Built-in" header followed by per-modpack groupings as the modding-hub UX pattern. Mike said "user picks" but did not specify the curation UI; I chose this grouping as a reasonable default.
 - E-29. **`data/.session-state.json` persistence shape.** Section 3.16.8 specifies the streak counter file format. Mike said "store in `data/.session-state.json` or similar." I chose JSON with a `version`, `last_clean_launch`, and `self_heal_streaks` map structure. The file is itself read-only with writable-during-extraction-or-self-heal semantics, excluded from manifest hash check. Mike did not specify the exact format; I picked a shape consistent with the rest of the data tier.
+
+**Pass 5 changes:**
+
+- Added Section 3.16.11 (Disabling base content; presentation-layer mechanism) with full architectural detail: catalog `enabled` flag, `disable_base:` field on compound mods, multi-flipper stacking, validation, selector pool composition, interaction with `.pdwepset` and `random_source:`.
+- Updated Section 3.5 (Mods are additive) with a Pass 5 refinement subsection bridging to 3.16.11.
+- Updated Section 3.16.0 compound-manifest sketch with the `disable_base:` field and a Halo total-conversion example.
+- Updated Section 3.16.3 (SP-MP unification) with the `random_source:` field on MP setup config (`all_enabled`, `base_only`, `modpack:<id>`, `weapon_set:<catalog_id>` options).
+- Added `.pdwepset` to Section 3.2 extension table and Section 3.3 schema sketches.
+- Updated `.pdscenario` schema sketch in Section 3.3 with explicit `weapon_spawns` and `pickup_spawns` arrays carrying per-location catalog IDs.
+- Added M-12 (Total conversions become genuinely composable) to Section 3.13.
+- Added FW-7 (Grid as Forge-extensible via observer character flag), FW-8 (catalog-driven prop palette), FW-9 (logic-system mods extending Grid) to Section 3.14.
+
+**Pass 5 self-extrapolations (E-30 through E-37):**
+
+- E-30. **Selector pool composition formalized.** Section 3.16.11 formalizes `selector_pool = catalog ∩ enabled ∩ unlocked ∩ context_filter` as a four-way intersection. Mike said the universal selector filter pattern "is already shipped via the catalog universality sweep; now grows to include the `enabled` filter." I formalized the four-way intersection in the doc to make the pattern explicit for future implementers.
+- E-31. **Catalog entry `enabled` flag and disable-reason tracking.** Section 3.16.11 specifies the catalog tracks WHICH mod or user setting flipped `enabled` so the audit-log line can list the flipper(s). When multiple mods disable the same base ID, the entry stays disabled until both are disabled. Mike said `enabled` flag with default true; I extrapolated multi-flipper stacking and audit-log shape.
+- E-32. **`disable_base:` validation with `LOUDFAIL.CATALOG.UNKNOWN_DISABLE_TARGET`.** Mike said `disable_base:` declares base IDs to filter; I added that misnamed IDs in the list LOUDFAIL with a clear message and the mod still registers (only the unknown disable entry is dropped).
+- E-33. **Compound mods can disable AND add simultaneously.** A compound mod's `disable_base:` and `internal_assets:` are independent mechanisms; the Halo total-conversion example uses both. Mike's framing implied this; I made it explicit.
+- E-34. **`.pdwepset` validation against currently-disabled weapons.** A weapon set referencing a base weapon that any total-conversion mod has disabled fails registration with `LOUDFAIL.CATALOG.WEPSET_INVALID`. Validation runs after all enabled mods have registered. Mike said sets validating disabled weapons fail; I added the timing detail (post-registration validation).
+- E-35. **Empty random pool fallback.** Section 3.16.3 specifies `LOUDFAIL.RANDOM.EMPTY_POOL` plus fallback to a default base weapon (always reachable via direct lookup even if `enabled: false`). Mike did not specify the empty-pool case; I picked LOUDFAIL plus base-weapon fallback as the safe default.
+- E-36. **`.pdwepset` registers as `ASSET_WEAPON_SET` in the catalog.** Sets are catalog entries with their own IDs; they can be referenced from `.pdscenario` `default_weapon_set_id` and from MP setup `random_source: weapon_set:<id>`. Mike said sets surface in MP setup picker; I extended to mean they are catalog-registered in the same way as other compound assets.
+- E-37. **Per-spawn-point weapon and pickup arrays in `.pdscenario`.** Mike asked the schema sketch to "explicitly document per-location weapon/pickup spawn declarations." I added `weapon_spawns` and `pickup_spawns` arrays with per-spawn `asset_id` (catalog ID), transform, ammo count, and respawn timer. Mike did not specify the field names; I picked these for clarity.
 
 End of audit.
 
