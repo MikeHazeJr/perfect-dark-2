@@ -1074,6 +1074,16 @@ void pdguiRender(void)
      * player sees the prompt beside the reticle. */
     pdguiInteractPromptRender((s32)winW, (s32)winH);
 
+    /* Phase 2 fix #6 (input-menu pillar, 2026-05-01): interaction cast
+     * debug overlay. Top-left readout of current cone angle + range,
+     * gated on Settings -> Debug -> Interact Cast Debug Draw. No-op when
+     * the toggle is off; called every frame so live slider tuning shows
+     * immediately. */
+    {
+        extern void pdguiInteractCastDebugRender(s32 winW, s32 winH);
+        pdguiInteractCastDebugRender((s32)winW, (s32)winH);
+    }
+
     /* D6 P3: achievement unlock toasts — slide in from the right edge.
      * No-op when the toast queue is empty; polled at MP/solo endscreen
      * entry via pdguiAchievementToastPollUnlocks. */

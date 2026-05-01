@@ -86,6 +86,13 @@ extern void *g_NetLocalClient; /* actually struct netclient* */
 extern s32 g_StageNum;
 extern s32 g_OsMemSizeMb;
 extern s32 g_JumpLoggingEnabled;
+extern s32 g_InteractCastDebugDraw;
+
+/* Phase 2 fix #6 (2026-05-01): forward-declare prop accessors for the
+ * interaction-cast slider in the Debug Flags section. Defined in
+ * src/game/prop.c. */
+f32 propGetInteractCastHalfAngleRad(void);
+void propSetInteractCastHalfAngleRad(f32 rad);
 
 s32 configSave(const char *fname);
 
@@ -388,6 +395,70 @@ static void pdguiDebugFlagsSection(void)
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
     ImGui::TextWrapped("Gates JUMP_DEBUG/JUMP_MOVE log spam in bwalkUpdateVertical");
     ImGui::PopStyleColor();
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* Phase 2 fix #6 (input-menu pillar, 2026-05-01): interaction cast
+     * visualisation toggle + half-angle slider. The toggle drives a HUD
+     * overlay (top-left readout) so Mike can see the current cast width
+     * without leaving Settings. The slider live-tunes
+     * propGetInteractCastHalfAngleRad() so the cast tightens/widens in
+     * real time and Mike can settle on a number empirically (fix #5
+     * default: 30 degrees full cone = 15 degrees half-angle). */
+    bool castDebug = g_InteractCastDebugDraw != 0;
+    if (ImGui::Checkbox("Interact Cast Debug Draw", &castDebug)) {
+        g_InteractCastDebugDraw = castDebug ? 1 : 0;
+        configSave(PDGUI_CONFIG_PATH);
+        sysLogPrintf(LOG_NOTE, "DEBUG_MENU: InteractCastDebugDraw -> %d", g_InteractCastDebugDraw);
+    }
+
+    f32 currentRad = propGetInteractCastHalfAngleRad();
+    f32 fullDeg = currentRad * (360.0f / 6.2831853072f);
+    f32 fullDegPrev = fullDeg;
+    if (ImGui::SliderFloat("Cast full angle (deg)", &fullDeg, 5.0f, 90.0f, "%.1f")) {
+        if (fullDeg != fullDegPrev) {
+            f32 halfRad = (fullDeg * 0.5f) * (6.2831853072f / 360.0f);
+            propSetInteractCastHalfAngleRad(halfRad);
+            sysLogPrintf(LOG_NOTE, "DEBUG_MENU: InteractCastFullAngleDeg -> %.2f", fullDeg);
+        }
+    }
+
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+    ImGui::TextWrapped("HUD overlay top-left shows current angle when toggle is on. Default 30 deg per fix #5.");
+    ImGui::PopStyleColor();
+}
+
+/* -----------------------------------------------------------------------
+ * Phase 2 fix #6 HUD overlay -- runs every frame from pdgui_backend.cpp
+ * after the interact prompt. Top-left readout when enabled.
+ * ----------------------------------------------------------------------- */
+
+extern "C" void pdguiInteractCastDebugRender(s32 winW, s32 winH)
+{
+    (void)winW; (void)winH;
+    if (g_InteractCastDebugDraw == 0) return;
+
+    ImDrawList *fg = ImGui::GetForegroundDrawList();
+    if (!fg) return;
+
+    f32 halfRad = propGetInteractCastHalfAngleRad();
+    f32 fullDeg = halfRad * (360.0f / 6.2831853072f) * 2.0f;
+
+    char text[96];
+    snprintf(text, sizeof(text),
+             "Interact cast: %.1f deg full / %.2f rad half / range 200u",
+             (double)fullDeg, (double)halfRad);
+
+    ImVec2 origin = ImVec2(12.0f, 12.0f);
+    ImVec2 sz = ImGui::CalcTextSize(text);
+    ImU32 bg = IM_COL32(0, 0, 0, 180);
+    ImU32 fc = IM_COL32(255, 240, 96, 255);
+    fg->AddRectFilled(origin,
+                      ImVec2(origin.x + sz.x + 12.0f, origin.y + sz.y + 8.0f),
+                      bg);
+    fg->AddText(ImVec2(origin.x + 6.0f, origin.y + 4.0f), fc, text);
 }
 
 /* -----------------------------------------------------------------------
