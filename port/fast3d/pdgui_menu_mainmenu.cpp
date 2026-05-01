@@ -3853,51 +3853,136 @@ static void renderSettingsDebug(float scale)
     ImGui::Spacing();
     ImGui::Spacing();
 
-    /* ------ Test Scenarios (S483) ------
-     * Dropdown that launches one of three benchmark scenarios:
-     * Empty Map, Swarm CPU, Swarm GPU. Disabled in any net mode != NONE
-     * since these run as local-only sessions. Default map for the swarm
-     * scenarios is base:mp_skedar; v1 ships default-only, an explicit
-     * selector lands later if first-run feedback warrants it. */
+    /* ------ Test Scenarios (S483, redesigned S593d 2026-05-01) ------
+     * Three radio modes -- The Grid (empty map), CPU Bots (swarm CPU),
+     * GPU Bots (swarm GPU). Arena selector enumerates ASSET_ARENA from
+     * the catalog so any registered arena is selectable. One Start
+     * button launches the chosen mode on the chosen arena.
+     *
+     * The Grid mode ignores the arena selector (it has its own fixed
+     * stage entry, STAGE_CITRAINING, and the selector greys out for
+     * that mode). CPU Bots / GPU Bots both use the selected arena.
+     *
+     * Disabled in any net mode != NONE since these run as local-only
+     * sessions (the local-stage transition would desync a net match).
+     */
     ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Test Scenarios");
     ImGui::Separator();
     ImGui::Spacing();
 
+    /* Forward declaration -- defined non-static in pdgui_menu_room.cpp,
+     * used here for the arena selector localized names. */
+    extern const char *arenaGetName(u16 textId);
+
     {
-        static int s_TestScenChoice = 0;
-        const char *items[] = {
-            "The Grid - Empty Map",
-            "Swarm - CPU Bots",
-            "Swarm - GPU Boids",
-        };
-        const int item_count = (int)(sizeof(items) / sizeof(items[0]));
+        /* Mode picker -- 3 radios */
+        static int s_TestScenChoice = 1; /* default to CPU Bots; first-run friendly for benchmark */
+        ImGui::Text("Mode:");
+        ImGui::SameLine();
+        ImGui::RadioButton("The Grid##testscen_mode", &s_TestScenChoice, 0);
+        ImGui::SameLine();
+        ImGui::RadioButton("CPU Bots##testscen_mode", &s_TestScenChoice, 1);
+        ImGui::SameLine();
+        ImGui::RadioButton("GPU Bots##testscen_mode", &s_TestScenChoice, 2);
+
+        /* Arena picker -- catalog-enumerated ASSET_ARENA list. Built
+         * once on first render and rebuilt if the list grows beyond
+         * the static cap (mods can add arenas at runtime). */
+        static const int kMaxArenas = 96;
+        static char  s_ArenaIds[kMaxArenas][64];
+        static char  s_ArenaNames[kMaxArenas][48];
+        static const char *s_ArenaNamePtrs[kMaxArenas];
+        static int   s_NumArenas = 0;
+        static int   s_DefaultIdx = 0;
+        static bool  s_ArenasBuilt = false;
+
+        if (!s_ArenasBuilt) {
+            struct collect_ctx {
+                int *count;
+                int  cap;
+                char (*ids)[64];
+                char (*names)[48];
+            } ctx;
+            ctx.count = &s_NumArenas;
+            ctx.cap   = kMaxArenas;
+            ctx.ids   = s_ArenaIds;
+            ctx.names = s_ArenaNames;
+            s_NumArenas = 0;
+
+            assetCatalogIterateByType(ASSET_ARENA,
+                [](const asset_entry_t *e, void *userdata) {
+                    auto *c = (collect_ctx *)userdata;
+                    if (*c->count >= c->cap) return;
+                    /* Arena name: prefer the localised display name from
+                     * arenaGetName(); fall back to the catalog id when
+                     * the langid isn't resolvable. */
+                    const char *name = arenaGetName((u16)e->ext.arena.name_langid);
+                    if (!name || !name[0]) name = e->id;
+                    strncpy(c->ids[*c->count],   e->id, 63); c->ids[*c->count][63] = '\0';
+                    strncpy(c->names[*c->count], name,  47); c->names[*c->count][47] = '\0';
+                    (*c->count)++;
+                },
+                &ctx);
+
+            for (int i = 0; i < s_NumArenas; i++) {
+                s_ArenaNamePtrs[i] = s_ArenaNames[i];
+                if (strcmp(s_ArenaIds[i], "base:mp_felicity") == 0) {
+                    s_DefaultIdx = i;
+                }
+            }
+            s_ArenasBuilt = true;
+        }
+
+        static int s_TestScenArenaIdx = -1;
+        if (s_TestScenArenaIdx < 0 && s_NumArenas > 0) {
+            s_TestScenArenaIdx = s_DefaultIdx;
+        }
+
+        const bool gridMode = (s_TestScenChoice == 0);
+
+        ImGui::Text("Arena:");
+        ImGui::SameLine();
+        if (gridMode) ImGui::BeginDisabled();
+        ImGui::SetNextItemWidth(220.0f * scale);
+        if (s_NumArenas > 0) {
+            ImGui::Combo("##testscen_arena", &s_TestScenArenaIdx, s_ArenaNamePtrs, s_NumArenas);
+        } else {
+            ImGui::TextDisabled("(no arenas registered)");
+        }
+        if (gridMode) ImGui::EndDisabled();
+
+        ImGui::SameLine();
 
         const bool launchOk = (testScenarioCanLaunch() != 0);
         const char *whyDisabled = testScenarioWhyDisabled();
 
-        ImGui::SetNextItemWidth(260.0f * scale);
-        ImGui::Combo("##testscen_choice", &s_TestScenChoice, items, item_count);
-        ImGui::SameLine();
         if (!launchOk) ImGui::BeginDisabled();
-        if (ImGui::Button("Launch##testscen", ImVec2(btnW, btnH))) {
+        if (ImGui::Button("Start##testscen", ImVec2(btnW, btnH))) {
             test_scenario_t scen = TESTSCEN_NONE;
+            const char *map_id = NULL;
             switch (s_TestScenChoice) {
             case 0: scen = TESTSCEN_EMPTY_MAP;  break;
-            case 1: scen = TESTSCEN_SWARM_CPU;  break;
-            case 2: scen = TESTSCEN_SWARM_GPU;  break;
+            case 1: scen = TESTSCEN_SWARM_CPU;
+                    if (s_TestScenArenaIdx >= 0 && s_TestScenArenaIdx < s_NumArenas)
+                        map_id = s_ArenaIds[s_TestScenArenaIdx];
+                    break;
+            case 2: scen = TESTSCEN_SWARM_GPU;
+                    if (s_TestScenArenaIdx >= 0 && s_TestScenArenaIdx < s_NumArenas)
+                        map_id = s_ArenaIds[s_TestScenArenaIdx];
+                    break;
             default: break;
             }
             if (scen != TESTSCEN_NONE) {
-                testScenarioLaunch(scen, NULL);
+                testScenarioLaunch(scen, map_id);
             }
         }
         if (!launchOk) ImGui::EndDisabled();
 
-        if (s_TestScenChoice == 1 || s_TestScenChoice == 2) {
-            ImGui::TextDisabled("Map:    Skedar Ruins (base:mp_skedar)");
-            ImGui::TextDisabled("Bots:   start at 4, cycle [0] / D-pad-Down");
-        } else {
+        if (gridMode) {
             ImGui::TextDisabled("Loads CI Training as a baseline empty session.");
+        } else {
+            ImGui::TextDisabled("Bots: start at 4, cycle [0] / D-pad-Down through %s",
+                "4-8-16-32-48-64-128-256");
         }
         if (!launchOk && whyDisabled) {
             ImGui::TextDisabled("Disabled: %s", whyDisabled);

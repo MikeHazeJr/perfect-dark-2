@@ -324,7 +324,11 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 	s_Params.player_y  = player_pos ? player_pos->y : 0.0f;
 	s_Params.player_z  = player_pos ? player_pos->z : 0.0f;
 	s_Params.count     = count;
-	s_Params.max_speed = 18.0f;
+	/* 1.5x normal seek speed (S593d 2026-05-01). 18.0 * 1.5 = 27.0.
+	 * Matches the CPU-side BOTDIFF_PERFECT 1.47x bump in
+	 * swarm_test.c::s_SwarmBotConfig and the
+	 * gpu_fallback_seek_tick SWARM_MAX_SPEED constant. */
+	s_Params.max_speed = 27.0f;
 	s_Params.dt        = 1.0f / 60.0f;
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_ParamsSsbo);
 	glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0,

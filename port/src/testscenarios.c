@@ -104,9 +104,12 @@ static s32 resolve_map_stagenum(const char *map_id)
  * Launch dispatch
  * ------------------------------------------------------------------ */
 
-/* Default map for the Swarm scenarios. The directive specifies Skedar
- * Ruins as the default but allows a selector. */
-#define TESTSCEN_DEFAULT_SWARM_MAP "base:mp_skedar"
+/* Default map for the Swarm scenarios. Felicity is the open beach
+ * arena -- significantly more open than Skedar Ruins, which Mike
+ * playtested as too cramped for a 256-bot swarm. The Debug Menu now
+ * exposes an explicit arena selector (S593d, 2026-05-01) so this
+ * default applies only when the caller passes NULL/empty map_id. */
+#define TESTSCEN_DEFAULT_SWARM_MAP "base:mp_felicity"
 
 s32 testScenarioLaunch(test_scenario_t scen, const char *map_id)
 {

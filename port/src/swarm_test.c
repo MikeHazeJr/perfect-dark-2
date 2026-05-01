@@ -110,6 +110,46 @@ static u32 s_LastFrameTick;
 static struct aibot s_SwarmAibots[TESTSCEN_SWARM_MAX_COUNT];
 static u8           s_SwarmAibotInUse[TESTSCEN_SWARM_MAX_COUNT];
 
+/* Dedicated swarm bot config -- shared by every swarm aibot.
+ *
+ * Mike's playtest 2026-05-01 surfaced that swarm bots ran "aimlessly"
+ * because the prior implementation set chr->team = 1 << 7 (TEAM_NONCOMBAT,
+ * 0x80) AND used g_BotConfigsArray[0] as a shared config. The
+ * non-combat team flag is a hard "do not engage" signal to the bot
+ * AI; that single bit explained the no-aggression bug.
+ *
+ * The fix:
+ *   1. swarm bots get their own config struct (this one), so we can
+ *      set type/difficulty without polluting the match's bot configs.
+ *   2. base.team = 1 -- becomes chr->team = 1 << 1 = 0x02 = TEAM_ENEMY,
+ *      which is DIFFERENT from the player's TEAM_01 (the player chr is
+ *      assigned 1 << g_PlayerConfigsArray[0].base.team = 1 << 0 = 0x01
+ *      in playerreset.c:647). Different team -> AI engages.
+ *   3. type = BOTTYPE_KAZE -- "does not keep distance" -- aggressive
+ *      rusher AI. Closest match to Mike's "always aggressive" directive.
+ *   4. difficulty = BOTDIFF_PERFECT -- gives 11.2x base speed in
+ *      botCalculateMaxSpeed (vs 7.6x for NORMAL), i.e. ~1.47x normal
+ *      speed. Closest standard bracket to Mike's "1.5x normal speed"
+ *      directive without per-frame post-processing.
+ *
+ * MPOPTION_TEAMSENABLED stays unset in g_MpSetup.options for swarm
+ * scenarios, which is what suppresses the radar/HUD team-colour
+ * highlights Mike asked us to remove. Different team IDs still drive
+ * AI hostility, but no UI surfaces the difference.
+ */
+static struct mpbotconfig s_SwarmBotConfig;
+static s32                s_SwarmBotConfigInited;
+
+static void swarm_init_bot_config_once(void)
+{
+	if (s_SwarmBotConfigInited) return;
+	memset(&s_SwarmBotConfig, 0, sizeof(s_SwarmBotConfig));
+	s_SwarmBotConfig.base.team = 1; /* -> chr->team = TEAM_ENEMY */
+	s_SwarmBotConfig.type       = BOTTYPE_KAZE;
+	s_SwarmBotConfig.difficulty = BOTDIFF_PERFECT;
+	s_SwarmBotConfigInited = 1;
+}
+
 /* Find an unused aibot slot. Returns NULL if all are taken. */
 static struct aibot *swarm_alloc_aibot(s32 *out_index)
 {
@@ -140,25 +180,22 @@ static void swarm_free_aibot(struct aibot *aibot)
 
 /* Init an aibot struct so the bot AI can drive seek/attack/dodge.
  * Mirrors botmgrAllocateBot's aibot init block (botmgr.c:163-351),
- * minus the match-scoring registrations (g_MpBotChrPtrs etc.). The
- * shared `mpbotconfig *config` pointer uses g_BotConfigsArray[0] --
- * benign as long as the match-start code path has populated that
- * slot, and it has by the time swarmTestTick first runs (matchStart
- * runs before the first tick). */
+ * minus the match-scoring registrations (g_MpBotChrPtrs etc.). Uses
+ * the dedicated swarm config (BOTTYPE_KAZE / BOTDIFF_PERFECT) so we
+ * get aggressive rusher behaviour at ~1.5x base speed without
+ * polluting the match's g_BotConfigsArray[]. */
 static void swarm_init_aibot(struct chrdata *chr, struct aibot *aibot)
 {
+	swarm_init_bot_config_once();
 	memset(aibot, 0, sizeof(struct aibot));
 
 	/* aibotnum = -1 signals "outside botmgr's slot management" so
 	 * any code that gates on aibotnum >= 0 / < MAX_BOTS skips us. */
 	aibot->aibotnum = -1;
 
-	/* Shared config -- the first MP bot config slot. Always allocated
-	 * once matchStart has run, and benign for our needs (we just need
-	 * a valid pointer, the AI reads difficulty/weapon-prefs etc.).
-	 * If the match has not allocated bots, the slot is still
-	 * default-initialized at memory-zero, which the AI tolerates. */
-	aibot->config = &g_BotConfigsArray[0];
+	/* Dedicated swarm bot config -- BOTTYPE_KAZE + BOTDIFF_PERFECT.
+	 * See `s_SwarmBotConfig` block above for the full rationale. */
+	aibot->config = &s_SwarmBotConfig;
 
 	aibot->ammoheld = mempAlloc(AMMO_TYPE_COUNT * sizeof(s32), MEMPOOL_STAGE);
 	if (aibot->ammoheld) {
@@ -177,7 +214,17 @@ static void swarm_init_aibot(struct chrdata *chr, struct aibot *aibot)
 	aibot->ismeleeweapon = false;
 	aibot->gunfunc = FUNC_PRIMARY;
 
-	aibot->command = AIBOTCMD_NORMAL;
+	/* AIBOTCMD_ATTACK locks the bot into attack mode regardless of
+	 * the AI's tactical pick (defend / follow / hold). Mike's
+	 * 2026-05-01 directive: "ensure the bots are angry at me." Setting
+	 * attackpropnum to the player is the directive's target -- the
+	 * bot AI walks attackpropnum and commits to closing on it. */
+	aibot->command = AIBOTCMD_ATTACK;
+	if (g_Vars.currentplayer && g_Vars.currentplayer->prop) {
+		aibot->attackpropnum = (s32)(g_Vars.currentplayer->prop - g_Vars.props);
+	} else {
+		aibot->attackpropnum = -1;
+	}
 
 	/* Sentinels for "no current target / no last-seen". */
 	aibot->attackingplayernum = -1;
@@ -349,15 +396,37 @@ static struct chrdata *spawn_one_skedar(struct coord *pos, RoomNum *rooms)
 	chr->bodynum   = s_SkedarBodyNum;
 	chr->headnum   = (s_SkedarHeadNum >= 0) ? s_SkedarHeadNum : 0;
 	chr->race      = bodyGetRace(chr->bodynum);
-	chr->team      = 1 << 7;          /* arbitrary non-default team */
-	chr->maxdamage = 1.0f;            /* 1 HP per the directive */
+
+	/* Hostile team. Player chr is on TEAM_01 (1 << 0 = 0x01), set in
+	 * playerreset.c:647 from g_PlayerConfigsArray[mpindex].base.team.
+	 * We put swarm chrs on TEAM_ENEMY (1 << 1 = 0x02) so the bot AI's
+	 * `chr->team == other->team` ally check returns false against the
+	 * player and the bots aggress. The prior TEAM_NONCOMBAT (0x80)
+	 * was a "do not engage" flag and explained Mike's "running
+	 * aimlessly" report. */
+	chr->team = TEAM_ENEMY;
+
+	/* Half normal MP-bot health (8.0). botmgrAllocateBot defaults to
+	 * 8.0 (botmgr.c:153) for MP simulants; halving gives 4.0. The
+	 * S593 config used 1.0 ("1 HP per the directive") but Mike's
+	 * 2026-05-01 directive supersedes that with "1/2 normal health". */
+	chr->maxdamage = 4.0f;
 	chr->damage    = 0.0f;
 
-	/* Skedar collision radius -- chrInit defaults to 20, which is too
-	 * small for a Skedar warrior. Setting to 30 matches the player
-	 * capsule and gives a meaningful chr-vs-chr / chr-vs-player perim
-	 * for the collision system to act on. */
+	/* Skedar collision radius -- chrInit defaults to 20, halved by
+	 * the 0.5x scale below this gives a 10-unit perim. Set to 30
+	 * (player capsule size) before scaling so the half-scale chr ends
+	 * up with a 15-unit perim, still meaningful for player + chr-vs-chr
+	 * collision while matching the 0.5x visual size. */
 	chr->radius = 30;
+
+	/* Half-scale model. modelSetScale multiplies the model's effective
+	 * scale used by the renderer, the per-node bbox builder, and the
+	 * bondwalk player-vs-chr perim test. 0.5 makes the swarm visibly
+	 * half-size and proportionally smaller for collision. */
+	if (chr->model) {
+		modelSetScale(chr->model, 0.5f);
+	}
 
 	if (method == SWARM_METHOD_CPU) {
 		/* Real bot AI path. Allocate aibot from our private pool;
@@ -499,7 +568,11 @@ static void respawn_ring(s32 count)
  * The CPU-mode bots run real AI and don't need this -- their motion
  * comes from chraTick / chraiExecute via the AIBOT_INIT ailist.
  * ------------------------------------------------------------------ */
-#define SWARM_MAX_SPEED      18.0f
+/* 1.5x normal seek-toward-player speed for the GPU-fallback path.
+ * Matches the BOTDIFF_PERFECT speed bump for CPU-mode bots
+ * (botCalculateMaxSpeed multiplies by 11.2 for PERFECT vs 7.6 for
+ * NORMAL; ratio 1.47 ~= 1.5x). 27 = 18 * 1.5. */
+#define SWARM_MAX_SPEED      27.0f
 
 static void gpu_fallback_seek_tick(struct coord *player_pos)
 {
