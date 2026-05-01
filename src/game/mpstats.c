@@ -249,7 +249,6 @@ void mpstatsRecordPlayerDeath(void)
 		 * legacy hudmsg "Died N times" popup deleted per Mike. The
 		 * ImGui killfeed at line 419 already announces deaths. */
 		(void)buffer;
-		(void)text;
 	}
 }
 
