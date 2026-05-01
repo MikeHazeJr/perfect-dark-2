@@ -96,6 +96,30 @@ Pass 4 self-extrapolations (E-23 through E-29):
 
 Final audit dimensions: 1654 lines (up from 1440; +214 lines for Pass 4 = ~15% growth on top of Pass 3). Zero em-dashes. Sentinel marker intact. Cumulative growth from Pass 1 origin: 625 to 1654 lines (+165%).
 
+**Pass 5 (same session, 2026-04-30 PM later still)**: Mike extended the Pass 4 model with: (1) presentation-layer disable mechanism for total conversions, (2) `.pdwepset` weapon-set extension type, (3) `random_source:` MP setup field, (4) explicit per-spawn-point weapon/pickup declarations in `.pdscenario`, (5) The Grid as Forge-extensible (FW-7 to FW-9 forward-looking notes).
+
+Pass 5 changes applied:
+- New Section 3.16.11 (Disabling base content; presentation-layer mechanism). Catalog entries get an `enabled: true/false` flag (default true). Compound mods declare `disable_base: [catalog_ids]` to filter from selectors. Direct lookup by ID still resolves (cross-references unaffected). Multi-flipper stacking. `selector_pool = catalog ∩ enabled ∩ unlocked ∩ context_filter` formalization. Total-conversion UX mechanism: Halo TC mod hides PD content from selectors, adds Halo additively; coexistence is trivial.
+- Section 3.5 (Mods are additive) gets a Pass 5 refinement subsection bridging to 3.16.11. Disable mechanism is NOT an override; base stays canonical; only selector visibility filters.
+- Section 3.16.0 compound-manifest sketch updated with `disable_base:` field; Halo total-conversion example added.
+- Section 3.16.3 (SP-MP unification) extended with `random_source:` field on MP setup config. Options: `all_enabled`, `base_only`, `modpack:<id>`, `weapon_set:<catalog_id>`. Empty random pool fires LOUDFAIL.RANDOM.EMPTY_POOL and falls back to default base weapon.
+- Section 3.2 extension table: `.pdwepset` row added for weapon sets.
+- Section 3.3 schema sketches: `.pdwepset` schema added; `.pdscenario` schema updated with explicit `weapon_spawns` and `pickup_spawns` arrays carrying per-location asset IDs (catalog references) plus ammo / respawn metadata.
+- Section 3.13 (Mod-friendliness): M-12 added (total conversions become genuinely composable under disable + additive + modpack model).
+- Section 3.14 (Forward-looking work): FW-7 (Grid observer character via `observer_capable: true` flag), FW-8 (catalog-driven prop palette in The Grid auto-populated from ASSET_PROP entries), FW-9 (logic-system mods extending The Grid via custom triggers and actions). Combined: The Grid becomes effectively Forge-from-Halo with PD's renderer.
+
+Pass 5 self-extrapolations (E-30 through E-37):
+- E-30 selector pool formalization (4-way intersection).
+- E-31 catalog entry `enabled` flag with disable-reason tracking (multi-flipper stacking, audit log line listing all flippers).
+- E-32 `disable_base:` validation with LOUDFAIL.CATALOG.UNKNOWN_DISABLE_TARGET on misnamed targets.
+- E-33 compound mods can disable AND add simultaneously (Halo TC example).
+- E-34 `.pdwepset` post-registration validation against currently-disabled weapons (timing detail).
+- E-35 empty random pool LOUDFAIL plus base-weapon fallback (always reachable via direct lookup even when disabled).
+- E-36 `.pdwepset` registers as ASSET_WEAPON_SET catalog asset type; referenceable from `.pdscenario` and `random_source:`.
+- E-37 per-spawn-point `weapon_spawns` and `pickup_spawns` arrays with `asset_id` (catalog ID), transform, ammo, respawn fields.
+
+Final audit dimensions: 1904 lines (up from 1654; +250 lines for Pass 5 = ~15% growth on top of Pass 4). Zero em-dashes. Sentinel marker intact. Cumulative growth from Pass 1 origin: 625 to 1904 lines (+205%).
+
 ---
 
 ## Session S482c (`festive-hawking-49649b` follow-up #7) - 2026-04-30 PM - Dev Window v2 blank-screen fix
