@@ -1,7 +1,201 @@
 # Session Log (Active)
 
-> **S481-S593c + S482c + S593b** (rolling window of ~110 sessions; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
+> **S481-S594 + S482c + S593b** (rolling window of ~110 sessions; S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
+
+## Session S594 (`infallible-mestorf-8463b9`) - 2026-05-01 - Grid playtest triage: 4 sequential fixes + B-298 vehicle gap filed
+
+Mike's 2026-05-01 Grid playtest report (verbatim):
+
+> "I started The Grid, couldn't visually see my character moving in Dr Carroll mode, and can't interact with anything beyond the left sidebar of the context menu, which doesn't seem to actually disappear etc when toggling with the controller X. I was able to cheat and hold my RMB to interact with the menus with an invisible cursor. Changing lighting and fog and trying to spawn an object didn't seem to work either, though it's possible the screen just wasn't updating. ... I was able to press F11 (what is the default controller input for that) to leave Dr Carroll mode and go into play mode, but I couldn't jump and didn't have a weapon, (which may be intended). ... Leaving the match, I ended up back in the Carrington Institute. Main Menu didn't pop up at spawn like it should, since I technically 'return to main menu'-d. ... I jumped through the wall with a glitch in our jump system (I already knew about it, the fix is deferred for now) and jumped on the Hoverbike. I was unable to operate it or exit it."
+
+Mike's reframing for chr-init:
+
+> "The mode transition in The Grid needs to initialize player character going both ways. Character with the players Agent character loaded, or Dr Carroll for the forge/halo monitor mode."
+
+Mike's reframing for object placement UX:
+
+> "I select it, it spawns, I have control over it and it moves relative to me while I have it held. I can press A again to let go of it, and it will stay where I set it. Or I can press X while the object is held to get its context menu and modify its traits."
+
+### Triage findings (file:line evidence)
+
+7-issue table built from the actual playtest log (`C:\Users\mikeh\Downloads\Perfect Dark 2.0\pd-client.log`, 5842 lines, 2026-05-01 00:34) and code-side cross-checks:
+
+| # | Issue | Anchor | File:line |
+|---|-------|--------|-----------|
+| 1 | Forge transitions don't load chr body model | log:1940 / log:2563 -- haschrbody=0 handmodeldef=NULL both directions | `src/game/forgemode.c:78-81` (documented gap), `forgeSetFreeflyMode:179`, `forgeRestorePlayerMode:223` |
+| 2 | B-195 ImGui WantCaptureKeyboard leak in forge editor | log:2625 / 2633 / 2647 / ... 12 hits across session | `port/fast3d/pdgui_backend.cpp:1417-1434` (diagnostic), root cause = forge editor widgets retain focus past Begin/End |
+| 3 | X / Tab toggle hides only sub-rail, not whole editor | log:2461 ToggleSidebar fires but editor stays visible | `port/fast3d/pdgui_forge_editor.cpp:1934` (outer Begin always renders), `s_SidebarVisible:1541` (gate too narrow) |
+| 4 | No jump / no weapon in play mode | downstream of Issue 1 / camera mode | `src/game/player.c:5205` (TICKMODE_NORMAL calls `playerRemoveChrBody` every frame) |
+| 5 | Match end routes through campaign endscreen, not main menu | log:3477 endscreenPrepare -> log:4115 mainChangeToStage(0x26) | `src/lib/main.c:1248-1264` (mainEndStage routing) |
+| 6 | Vehicle IMC actions fire but no consumer | log:5705/5712/5716 VehicleExit DOWN, no dismount | `src/game/bondbike.c:840` reads legacy bondmove channel, not actionmap |
+| 7 | F11 / Back default forge toggle binding | docs were stale (audit said F7) | `port/src/actionmap.cpp:2423` (VKL_F11), `port/src/actionmap.cpp:2524` (JBTN_BACK) -- Mike was right |
+
+### Fix order shipped (5 merges, sequential auto-merge per the standing rule)
+
+**Fix 2+3 bundle** (B-302) -- editor visibility + ImGui focus clear. Promote `s_SidebarVisible` -> `s_EditorVisible`, gate the entire `pdguiForgeEditorRender` body, call `pdguiClearImGuiFocusAndNav()` on toggle-off. Defense in depth: same call from `forgeTransitionToNormal` and `forgeTransitionToInactive` so freefly-entry races and session teardowns can't leak stale ImGui focus. Footer hint: "X / Tab: hide editor". Files: `port/fast3d/pdgui_forge_editor.cpp` + `src/game/forgemode.c`. Build verify: `f23` PASS (CLIENT 28s).
+
+**Fix 4** (B-299) -- Grid exit routes through ExitToMainMenu, not campaign endscreen. New branch in `mainEndStage` between netmode>0 and the campaign-else: when `forgeSessionIsActive()` returns true, call `pdguiEndscreenExitToMainMenu()` (the canonical exit-to-main-menu bridge that every endscreen "Exit" button uses). Forward-declared via extern so `src/lib/main.c` doesn't grow header dependencies. `forgeTransitionToInactive` still drains naturally from `forgeTick` on the actual stage change. Files: `src/lib/main.c`. Build verify: `f4` PASS (CLIENT 27s).
+
+**Fix 8** (B-300) -- one-shot select-spawn-attach object UX. Old flow: catalog click -> ghost only -> separate "Place Here" click. New flow: catalog click runs `forgePlaceBegin + Update + Commit + Cancel` immediately and stores the new uid via `forgeHeldSetUid`. Held object's `pos[]` is rewritten every editor tick from the freefly camera. `ACTION_FORGE_SIDEBAR_ACTIVATE` while holding releases. `ACTION_FORGE_SIDEBAR_TOGGLE` while holding switches to the Objects tab + selects the held object (Properties pane lives there). New gamepad bind: `JBTN_A` also fires `ACTION_FORGE_SIDEBAR_ACTIVATE` so Mike's "press A to let go" intuition works on controller (shadows gameplay's JUMP via g_ImcForge priority 7 during FREEFLY only). Files: `port/include/forge/forge_core.h` + `port/src/forge/forge_core.c` (new s_held_uid + 4 accessor functions) + `port/fast3d/pdgui_forge_editor.cpp` + `port/src/actionmap.cpp`. Build verify: `f8` PASS (CLIENT 27s).
+
+**Fix 5** (B-301) -- chr-body hot-reload at FREEFLY/NORMAL transitions via bodyAllocateModel. Documented gap at `forgemode.c:78` ("hot-reload requires additional plumbing -- bodyAllocateModel for the new pair") finally addressed. Extend `forge_freefly_state_t` with `saved_chrmodel` + `has_saved_chrmodel`. `forgeSetFreeflyMode` calls `bodyAllocateModel(BODY_DRCAROLL, HEAD_RANDOM_GENDER, 0)` after the bodynum/headnum write and assigns the result to `chr->model`; player 0 also gets `p->haschrbody=true` and `p->model00d4=newmodel`. `forgeRestorePlayerMode` restores the saved chr->model pointer (gunmem/modelmgr-owned Agent allocation) plus integer fields; fallback to `bodyAllocateModel` if the saved pointer was NULL (forge intercepted before `playerTickChrBody` had populated it). Bounded leak: Dr Carroll model not explicitly freed on transition exit -- per-transition slot release would require deeper modelmgr/gunmem plumbing; memory growth bounded to one alloc per FREEFLY entry, reclaimed at next stage unload. Visibility from camera: chr body MODEL is now loaded; whether the freefly user SEES Dr Carroll locally depends on camera mode (freefly camera is positioned AT the chr, so user is effectively inside Dr Carroll). Camera-mode flip is a separate concern -- left for a future joint Menu Stacking + Input pillar slice if Mike's playtest reveals it's needed. Files: `src/game/forgemode.c`. Build verify: `f5` PASS (CLIENT 29s).
+
+### Filed for follow-up (NOT fixed in this session)
+
+**B-298** -- Vehicle IMC action consumers missing. Bindings exist (W/S/A/D + RT/LT/sticks + F/X) and fire correctly per playtest log, but `grep -r "ACTION_VEHICLE" src/game/` returns ZERO -- `bbikeTick` reads from the legacy bondmove channel (`g_Vars.currentplayer->speedforwards/sideways/theta`), not the actionmap. Same for `bbikeExit`: dismount path is wired to legacy input, not `actionPressed(ACTION_VEHICLE_EXIT)`. Mike confirmed in scope update: "Input may be broken still for that as we were doing infrastructural work on that, that was interrupted by having to fix the Catalog system." Defer fix to the joint Menu Stacking + Input pillar session per Mike's directive.
+
+### Methodology notes
+
+- All fixes shipped via queued isolated build (`build-session.ps1 -Session <id> -Target all`) per Mike's preference. Each session ID was unique (`f23`, `f4`, `f8`, `f5`).
+- All merges were no-fast-forward with explicit "Merge worktree: ..." commit messages matching the project pattern. Pre-merge HEAD captured + post-merge line-count verified for every merge per `feedback_worktree_truncation`.
+- No em-dashes anywhere in source / commit messages / docs (Windows tooling rule). All B-IDs assigned correctly (B-298 reserved for vehicle, B-299 / B-300 / B-301 / B-302 for the four code fixes).
+- Auto-merges sequenced: each fix's merge landed on dev before the next fix started, so any post-merge line-count regression would have been caught immediately.
+- Wall-jump glitch (separate B-ID, deferred per Mike) noted but untouched.
+
+### Caveats (Mike's playtest will surface what stuck)
+
+- **Fix 5 visibility**: Dr Carroll body loads but local-user visibility depends on camera mode. If Mike still doesn't see his Dr Carroll body locally during freefly, the next slice should flip camera mode to third-person during freefly (handled in joint Menu/Input pillar or a separate forge UX slice).
+- **Fix 4 Main Menu pop**: routing now targets the canonical exit-to-main-menu path. Whether the Main Menu auto-pops over CI on first frame after that route is a separate downstream concern (CI-on-spawn handler) that this fix doesn't touch.
+- **Fix 8 catalog click**: the spawn-and-attach happens on mouse click of the catalog Button. Mike's spec used the word "select" which I interpreted as catalog click. If he actually means D-pad-Right Activate on a sidebar row should also spawn, that's a small follow-up.
+- **B-301 unbounded model leak in long sessions**: per-transition slot release deferred. If Mike runs many freefly toggles in one stage, memory grows linearly. Next slice should add explicit slot release using the modelmgr / gunmem path.
+
+## Session S593f (`distracted-hamilton-430172` continuation #4) - 2026-05-01 - Swarm: half-collision radius + multi-ring spawn distribution
+
+Mike playtest after S593e (verbatim):
+
+> "Crashed after 256 on cpu, but the final wave (256) didn't seem to apply movement at all, just stuck where they were spawned. Maybe stuck inside each other though."
+> "Also, I think the tiny skedar still had regular sized colliders"
+
+### Smoking gun
+
+The S593e half-visual-scale fix scaled `chr->model` (the visual model) but not the chr collision geometry. The collision system reads `chr->radius` and `chr->height`, NOT `chr->model->scale`. So bots looked half-size but collided as full-size 30-unit chrs.
+
+The single-ring spawn at radius=600 fit ~64 chrs comfortably (per-chr arc 600 * 2pi / 64 = 59 vs footprint 60). At 256 chrs the per-chr arc dropped to 14.7 -- every chr fully overlapped its neighbours' collision volume. `chrCalculatePushPos` ran on each pair, found no clear push direction (every direction blocked by another overlapping chr), and the resolver failed to disentangle them. Bots froze where they spawned. The "stuck inside each other" hint pointed straight at this.
+
+Mike's playtest log (`Build/pd-client.log`) confirmed:
+- NUMTYPE3=320 bump from S593e is in place: `Pool sizes type1=80 type2=320 type3=320 spare=80`. No more "rwdata pools exhausted" warnings.
+- Cycle progressed: 4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128 -> 256 cleanly.
+- BENCHMARK lines at counts <= 64 showed `kills=1` etc. (Mike was killing bots), but the 128 and 256 cycles showed `kills=0` (he wasn't killing them, but also no "alive=0" -- they were just sitting there).
+- Skedar `bodymodeldef->scale = 2293.28` confirmed in the log. The visual scale fix is doing the right multiplication.
+- 256 head_canon=NULL warnings in rapid succession (one per spawn) -- benign noise from `s_SkedarHeadNum = -1` -> `headnum = 0` fallback (Skedar has integrated head; the head value is never consumed).
+
+### Fixes shipped (commit 3df6627a, S593f)
+
+| Issue | Where | Change |
+|------|-------|--------|
+| Half-collision radius | `swarm_test.c::spawn_one_skedar` | `chr->radius = 15` (was 30) and `chr->height = 92` (was the chrInit default 185). Matches the half visual scale. |
+| Multi-ring spawn | `swarm_test.c::respawn_ring` | New layout: `SWARM_PER_RING=24` chrs per ring at `radius_base=600 + ring_idx * 200`. At 256 chrs that's 11 rings reaching out to ~2600 units. Per-chr arc always larger than the chr footprint, so spawn never overlaps. The last ring distributes its remaining chrs evenly to keep spacing uniform when count isn't a multiple of SWARM_PER_RING. |
+
+### Why this should also fix the crash
+
+Without a crash trace in the log Mike attached, I can't confirm directly, but the most likely root cause is the collision-resolution loop running unbounded retries on 256 fully-overlapped chrs (each one's push attempt rejected by overlap with another, repeated for every pair). Spreading the chrs across rings so they never overlap at spawn removes that condition.
+
+### Build verification
+
+`devtools\build-session.ps1 -Session swfix5 -Target all` -- `PerfectDark.exe` (54.5 MB) and `Updater.exe` (12.3 MB) build clean.
+
+### What the next playtest should show
+
+- 256 bots actually move toward the player (no longer "stuck where spawned").
+- Bots visibly small AND have small collision (player can't be pushed by an invisibly-large hitbox).
+- Cycling 256 -> 4 -> 256 multiple times does not crash.
+
+## Session S593e (`distracted-hamilton-430172` continuation #3) - 2026-05-01 - Swarm: scale semantics fix + NUMTYPE3 + arena selector ID
+
+Mike playtest after S593d (verbatim):
+
+> "I got a crash in the CPU Bots test, on Car Park. The bots were huge instead of tiny, and therefore were stuck in the ceilings / walls. I also got a crash after pressing down once I was at 256 already."
+
+Three issues, two distinct root causes.
+
+### Smoking guns
+
+Walked the build's playtest log (Mike's `Build/pd-client.log`):
+
+1. **Cycle ladder confirmed working**: 4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128 -> 256 all logged cleanly with "TESTSCEN.SWARM: cycle X -> Y" + "despawn_all freed N chrs" pairs.
+2. **Heap-fallback warnings starting at cycle 128**: `WARNING: MODELMGR: All rwdata binding pools exhausted (type1=80 type2=320 type3=64) for rwdatalen=330 - heap fallback` repeated many times.
+3. **Arena id mismatch warning**: `WARNING: TESTSCEN: failed to resolve map_id='base:arena_mp_carpark' via catalog` with fallback to `base:mp_felicity`.
+4. **No FATAL/EXCEPTION trace** in the log Mike attached (the crash he reported happened either after the log window or in a separate session).
+
+### Fixes shipped (commit 906431b8, S593e)
+
+| Issue | Where | Change |
+|------|-------|--------|
+| Huge bots | `swarm_test.c::spawn_one_skedar` | `modelSetScale(chr->model, chr->model->scale * 0.5f)` instead of replacing with 0.5. The `model->scale` field is a multiplier on `model->definition->scale` (~1000 for chr bodies). bodyAllocateModel initialises model->scale to ~0.07 for a normal Skedar (`scaleRaw * 0.1` in body.c:204 plus per-body height variation). Setting it to 0.5 directly = ~7x natural size, what Mike saw as "huge". The correct half-of-natural is to multiply by 0.5. |
+| 256-cycle crash | `modelmgr.c` + `modelmgrreset.c` | NUMTYPE3 64 -> 320 (KEEP IN SYNC). Skedar bodies have rwdatalen=330 words which lands in Type 3, and 64 was insufficient for 256 chrs. Over-cap chrs fell through to mempAlloc which is NOT freed by chrRemove, leaking heap chunks across cycles and exhausting MEMPOOL_STAGE after cycling 256 -> 4 -> 256 a few times. Bumping to 320 keeps all 256 swarm chrs in static bindings, no heap fallback. Cost ~492 KB rwdata. |
+| Arena selector | `pdgui_menu_mainmenu.cpp::renderSettingsDebug` | `catalogStageIdByStagenum(arena_entry.stagenum)` at collect time, so we store the linked STAGE id (format `base:mp_*`) instead of the ARENA id (format `base:arena_*`). testScenarioLaunch's `resolve_map_stagenum` calls `catalogResolveStage` which only matches stage entries. |
+
+### Why "Issue A and Issue C" share the playtest narrative
+
+Mike said "I got a crash in the CPU Bots test, on Car Park". Two things: (a) Car Park selection actually fell back to Felicity due to the arena id mismatch (Issue C), so Mike was playing on Felicity. (b) The "huge bots stuck in ceilings" were on Felicity. The Car Park label in his report came from the dropdown selection, not the actual scene. Both issues compound -- arena selector pretends to give choice but always falls back, and the bots that DO spawn on the fallback are huge.
+
+### Build verification
+
+`devtools\build-session.ps1 -Session swfix4 -Target all` -- both `PerfectDark.exe` (54.5 MB) and `Updater.exe` (12.3 MB) build clean. Server target wasn't part of "all" after the recent c32bc334 change.
+
+### Files touched
+
+- `port/src/swarm_test.c` -- modelSetScale multiply-not-replace.
+- `src/game/modelmgr.c` + `modelmgrreset.c` -- NUMTYPE3 64 -> 320.
+- `port/fast3d/pdgui_menu_mainmenu.cpp` -- catalogStageIdByStagenum at arena collect.
+- `context/bugs.md` -- B-295 status update.
+- `context/session-log.md` -- this entry.
+
+### What the next playtest should show
+
+- Bots are visibly half-size (small Skedars, not towering).
+- Arena selector picks ACTUALLY launch the chosen arena (no Felicity fallback unless intended).
+- No "rwdata binding pools exhausted" warnings in the log at any cycle count.
+- Cycling 256 -> 4 -> 256 -> 4 multiple times does not crash.
+
+## Session S593d (`distracted-hamilton-430172` continuation #2) - 2026-05-01 - Swarm: hostile teams + aggressive AI + scale/health/speed + Debug Menu UX
+
+Mike playtest after S593c (verbatim):
+
+> "The bot behavior was updated on the CPU version, but not the boid version. Also, all the bots seemed to be running aimlessly. Maybe they didn't see me as an enemy? Ultimately, they should all be on one team, and me on the other. No team highlights. Also, make them 1/2 scale and 1/2 their normal health, 1.5x their normal move speed. This should be for both game modes. And put me on a more open level."
+
+### Smoking gun
+
+Investigation walked the bot AI's hostility check (`bot.c::botGetTeamSize` and similar use `chr->team == other->team` for ally detection). Cycle ladder confirmed in playtest binary at rdata offset 0x72800. Then the swarm chr team value: `chr->team = 1 << 7 = 0x80 = TEAM_NONCOMBAT`. That single field explained all of "running aimlessly" -- TEAM_NONCOMBAT is literally a "do not engage" flag in the engine's team taxonomy. The bots had real AI ticks running per S593c, but the AI's hostility test correctly classified them as non-combatants and they never aggressed.
+
+### Fixes shipped (commit 1d87613f, S593d)
+
+| What | Where | Change |
+|------|-------|--------|
+| Hostile team | `swarm_test.c::spawn_one_skedar` | `chr->team = TEAM_ENEMY` (was `1 << 7` = TEAM_NONCOMBAT). Player chr is on TEAM_01; different combat-class team -> AI engages. |
+| Forced aggression | `swarm_test.c::swarm_init_aibot` | `aibot->command = AIBOTCMD_ATTACK`, `aibot->attackpropnum = player_prop_index`. Locks the bot into attack mode regardless of tactical pick. |
+| Aggressive bot type | `swarm_test.c::s_SwarmBotConfig` | New dedicated bot config: `BOTTYPE_KAZE` (does not keep distance), `BOTDIFF_PERFECT` (~1.47x speed). Replaces the shared `g_BotConfigsArray[0]` reference. |
+| Half scale | `swarm_test.c::spawn_one_skedar` | `modelSetScale(chr->model, 0.5f)`. Visual size + bondwalk perim test scale together. |
+| Half health | `swarm_test.c::spawn_one_skedar` | `chr->maxdamage = 4.0f` (was 1.0f, target was 1/2 of normal MP-bot 8.0). |
+| 1.5x speed (CPU) | `swarm_test.c::s_SwarmBotConfig` | BOTDIFF_PERFECT in `botCalculateMaxSpeed` -> 11.2x base vs NORMAL 7.6x = ~1.47x. |
+| 1.5x speed (GPU) | `swarm_gpu.cpp::s_Params.max_speed` | 18.0 -> 27.0. Plus `gpu_fallback_seek_tick::SWARM_MAX_SPEED` 18.0 -> 27.0 to match. |
+| Default arena | `testscenarios.c::TESTSCEN_DEFAULT_SWARM_MAP` | `base:mp_skedar` -> `base:mp_felicity`. Open beach instead of cramped temple. |
+| Debug Menu UX | `pdgui_menu_mainmenu.cpp::renderSettingsDebug` | Replaced Combo dropdown + Launch with 3 radios (The Grid / CPU Bots / GPU Bots) + arena selector (catalog-enumerated `ASSET_ARENA`) + Start button. Grid mode greys out the arena selector. Default arena: Felicity. Default mode: CPU Bots. |
+
+### Team highlights
+
+Mike asked for "no team highlights." `MPOPTION_TEAMSENABLED` is the toggle for radar/HUD team-colour overlays in `g_MpSetup.options`. Our test scenario calls `matchConfigInit` and sets `scenario_id = "base:combat"` without enabling teams, so team highlights are already suppressed even though chr->team is now TEAM_ENEMY. No additional gating needed.
+
+### GPU mode in S593d
+
+GPU compute path stays position-only -- bots seek the player at 1.5x speed but don't have AI on the GPU side. Mike's directive ("don't try to ship full GPU bot AI in this session if the gap is large") was explicit; the doc at [context/designs/in-flight/gpu-swarm-bot-pipeline.md](designs/in-flight/gpu-swarm-bot-pipeline.md) was updated this session to record the concrete behavioural gap GPU mode still shows (no attack, no dodge, no chr-vs-chr collision in motion, no BG geometry awareness past the spawn-time ground snap).
+
+### Build verification
+
+`devtools\build-session.ps1 -Session swfix3 -Target all` -- both `PerfectDark.exe` (54.5 MB) and `PerfectDarkServer.exe` (22.3 MB) build clean. `strings PerfectDark.exe | grep "CPU Bots##testscen_mode"` confirms the new Debug Menu UI is in the binary.
+
+### Files touched
+
+- `port/src/swarm_test.c` -- s_SwarmBotConfig + swarm_init_bot_config_once + chr->team / model scale / health / aibot->command / attackpropnum updates.
+- `port/fast3d/swarm_gpu.cpp` -- max_speed bump.
+- `port/src/testscenarios.c` -- default arena.
+- `port/fast3d/pdgui_menu_mainmenu.cpp` -- Debug Menu UX redesign with arena selector.
+- `context/designs/in-flight/gpu-swarm-bot-pipeline.md` -- concrete-gap section + S593d update.
+- `context/bugs.md` -- B-295 status update.
+- `context/session-log.md` -- this entry.
+
+
 
 ## Session S593c (`distracted-hamilton-430172` continuation) - 2026-05-01 - Swarm benchmark follow-up: real bot AI + chr pool fix
 
