@@ -3,6 +3,58 @@
 > **S481-S594 + S593h + S482c + S593b** (rolling window of ~110 sessions; S593h added 2026-05-01 PM for swarm refinement bundle (random scale 0.2-0.6 weighted small, BOTDIFF_DARK + BOTTYPE_SPEED, per-frame player awareness + LOS short-circuit, no bot-bot collision via CHRHFLAG_00040000 swarm lock, power-weapon loadout for player + COMBATKNIFE for bots); S593g added 2026-05-01 PM for body.c integrated-head warning gate (suppressing 550 head_canon=NULL log spam during the swarm 4-256 cycle); S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
 
+## Session S594h-B Slice 3 (`mystifying-bose-71f14a` continuation) - 2026-05-01 PM - Surface-normal locomotion: per-tick + blend + wire v47
+
+Auto-chained from Slice 1+2 per Mike's directive ("Continue into Slice 3+ as previous slices verify").
+
+### What changed (commit 538240bb, merged ae705aa6)
+
+**Per-tick surface_up update**:
+- `chrSurfaceLocoTick(chr)` runs once per chr per tick, called from the tail of `chrTick` after `chraTick` settles the chr's world position. Samples the floor surface normal and either snaps directly (delta < cosine 0.99 = ~8 deg) or kicks an 8-frame blend prev_up -> target_up.
+- Render path now consumes `chrSurfaceLocoGetRenderUp` instead of the raw `surface_up`. Lerps between `surface_up_prev` and `surface_up` based on `surface_blend_frames` so transitions across tile boundaries look smooth.
+- `chrRender` no longer re-samples per render pass; only publishes `g_SurfaceLocoActiveChr` around `modelRender`. Saves ~half the collision-collect cost on opaque/translucent two-pass renders.
+
+**Wire change (NET_PROTOCOL_VER 46 -> 47)**:
+- `SVC_NPC_MOVE` gains a trailing 12-byte `surface_up` vec3 (3x f32). Co-op MP NPCs sync their surface normal to clients.
+- `SVC_CHR_MOVE` same: bot/simulant move broadcast. Skedars in MP visibly tilt the same way on every client.
+- `CLC_BOT_MOVE` same: bot-authority client back-channel. Server stub stores into `chr->surface_up` so the SVC_CHR_MOVE relay carries it forward.
+- All three carry 12 bytes always; non-surface-loco chrs send the chrInit world-up default. Outbound cost ~3 KB/s for typical NPC density.
+- Mixed v46/v47 play rejected at the ENet auth handshake.
+
+### What's deferred to a future session
+
+- **Slice 4** (aim path projection + bgun render tilt): bot's aim direction is currently produced in world space (yaw/pitch around world-up). For walls/ceilings the bot would aim wrong. Held weapon also needs to tilt with chr->surface_up. Deferred because it depends on Slice 5 actually making walls/ceilings reachable (until then there's no surface_up steep enough to expose the issue).
+- **Slice 5** (gravity flip + wall transitions + drop heuristic + scary-jump + landing-normal): per Mike's Q3+Q4 refinements. The big gameplay deliverable. Deferred to give Mike a clean playtest of Slices 1+2+3 first (visual tilt + sync) before the heavy lift of replacing world-Y gravity with surface_up gravity for surface-loco chrs.
+
+### Build verification
+
+`devtools\build-session.ps1 -Session slc3 -Target all` -- both `PerfectDark.exe` and `Updater.exe` build clean (CLIENT 29s, UPDATER 1s).
+
+### What the next playtest should show (Slices 1+2+3 combined)
+
+- Skedars on slopes (e.g. swarm test on Car Park or any arena with ramps): visual tilt aligned to slope normal. Smooth transitions when crossing tile boundaries (8-frame blend).
+- Skedars on flat ground: identical to current behavior (render-up = world-up = identity tilt).
+- MP co-op or 2-team mode: surface_up syncs across host/client. Clients see the same tilt the host does.
+- Non-Skedar chrs (Maians, humans, Dr Carroll): unchanged. helper returns false for non-RACE_SKEDAR (and the per-chr override flag is unused so far).
+
+### Files touched
+
+- `port/include/net/net.h` (NET_PROTOCOL_VER 47 changelog)
+- `port/src/net/netmsg.c` (SVC_NPC_MOVE, SVC_CHR_MOVE, CLC_BOT_MOVE)
+- `src/include/game/surface_loco.h` (Slice 3 API: chrSurfaceLocoTick, chrSurfaceLocoGetRenderUp, SURFACE_LOCO_BLEND_FRAMES)
+- `src/game/surface_loco.c` (Slice 3 impl: tick + blend lerp)
+- `src/game/chr.c` (chrSurfaceLocoTick call from chrTick tail; chrRender no longer re-samples)
+- `src/lib/model.c` (modelUpdateChrNodeMtx reads blended render-up via getter)
+
+### Session shape
+
+3 sequential merges to dev in one session, all auto-merged per Mike's standing rule:
+1. `0d08b4cc` Slice 1+2 (chr struct + visual tilt) + dev hotfix at swarm_test.c:718
+2. `5277c024` Slice 1+2 docs (session log + scope doc status)
+3. `ae705aa6` Slice 3 (per-tick + blend + wire v47)
+
+Worktree branch HEADs: `1e17810e` (Slice 1+2 code), `e9e691b5` (Slice 1+2 docs), `538240bb` (Slice 3).
+
 ## Session S594h-B Slice 1+2 (`mystifying-bose-71f14a`) - 2026-05-01 PM - Surface-normal locomotion: chr-struct plumbing + visual tilt
 
 Mike's directive after S594h-A spawn correction shipped: implement surface-normal locomotion (Skedars walk on walls and ceilings, rotation aligned to surface normal). The prior session filed the scope doc at `context/designs/in-flight/skedar-surface-normal-locomotion.md` with 5 open questions; this session opened by proposing answers, Mike approved all 5 with refinements, and authorized auto-chaining of subsequent slices.
