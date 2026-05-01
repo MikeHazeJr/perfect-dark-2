@@ -1,7 +1,55 @@
 # Session Log (Active)
 
-> **S481-S593d + S482c + S593b** (rolling window of ~110 sessions; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
+> **S481-S593e + S482c + S593b** (rolling window of ~110 sessions; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
+
+## Session S593e (`distracted-hamilton-430172` continuation #3) - 2026-05-01 - Swarm: scale semantics fix + NUMTYPE3 + arena selector ID
+
+Mike playtest after S593d (verbatim):
+
+> "I got a crash in the CPU Bots test, on Car Park. The bots were huge instead of tiny, and therefore were stuck in the ceilings / walls. I also got a crash after pressing down once I was at 256 already."
+
+Three issues, two distinct root causes.
+
+### Smoking guns
+
+Walked the build's playtest log (Mike's `Build/pd-client.log`):
+
+1. **Cycle ladder confirmed working**: 4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128 -> 256 all logged cleanly with "TESTSCEN.SWARM: cycle X -> Y" + "despawn_all freed N chrs" pairs.
+2. **Heap-fallback warnings starting at cycle 128**: `WARNING: MODELMGR: All rwdata binding pools exhausted (type1=80 type2=320 type3=64) for rwdatalen=330 - heap fallback` repeated many times.
+3. **Arena id mismatch warning**: `WARNING: TESTSCEN: failed to resolve map_id='base:arena_mp_carpark' via catalog` with fallback to `base:mp_felicity`.
+4. **No FATAL/EXCEPTION trace** in the log Mike attached (the crash he reported happened either after the log window or in a separate session).
+
+### Fixes shipped (commit 906431b8, S593e)
+
+| Issue | Where | Change |
+|------|-------|--------|
+| Huge bots | `swarm_test.c::spawn_one_skedar` | `modelSetScale(chr->model, chr->model->scale * 0.5f)` instead of replacing with 0.5. The `model->scale` field is a multiplier on `model->definition->scale` (~1000 for chr bodies). bodyAllocateModel initialises model->scale to ~0.07 for a normal Skedar (`scaleRaw * 0.1` in body.c:204 plus per-body height variation). Setting it to 0.5 directly = ~7x natural size, what Mike saw as "huge". The correct half-of-natural is to multiply by 0.5. |
+| 256-cycle crash | `modelmgr.c` + `modelmgrreset.c` | NUMTYPE3 64 -> 320 (KEEP IN SYNC). Skedar bodies have rwdatalen=330 words which lands in Type 3, and 64 was insufficient for 256 chrs. Over-cap chrs fell through to mempAlloc which is NOT freed by chrRemove, leaking heap chunks across cycles and exhausting MEMPOOL_STAGE after cycling 256 -> 4 -> 256 a few times. Bumping to 320 keeps all 256 swarm chrs in static bindings, no heap fallback. Cost ~492 KB rwdata. |
+| Arena selector | `pdgui_menu_mainmenu.cpp::renderSettingsDebug` | `catalogStageIdByStagenum(arena_entry.stagenum)` at collect time, so we store the linked STAGE id (format `base:mp_*`) instead of the ARENA id (format `base:arena_*`). testScenarioLaunch's `resolve_map_stagenum` calls `catalogResolveStage` which only matches stage entries. |
+
+### Why "Issue A and Issue C" share the playtest narrative
+
+Mike said "I got a crash in the CPU Bots test, on Car Park". Two things: (a) Car Park selection actually fell back to Felicity due to the arena id mismatch (Issue C), so Mike was playing on Felicity. (b) The "huge bots stuck in ceilings" were on Felicity. The Car Park label in his report came from the dropdown selection, not the actual scene. Both issues compound -- arena selector pretends to give choice but always falls back, and the bots that DO spawn on the fallback are huge.
+
+### Build verification
+
+`devtools\build-session.ps1 -Session swfix4 -Target all` -- both `PerfectDark.exe` (54.5 MB) and `Updater.exe` (12.3 MB) build clean. Server target wasn't part of "all" after the recent c32bc334 change.
+
+### Files touched
+
+- `port/src/swarm_test.c` -- modelSetScale multiply-not-replace.
+- `src/game/modelmgr.c` + `modelmgrreset.c` -- NUMTYPE3 64 -> 320.
+- `port/fast3d/pdgui_menu_mainmenu.cpp` -- catalogStageIdByStagenum at arena collect.
+- `context/bugs.md` -- B-295 status update.
+- `context/session-log.md` -- this entry.
+
+### What the next playtest should show
+
+- Bots are visibly half-size (small Skedars, not towering).
+- Arena selector picks ACTUALLY launch the chosen arena (no Felicity fallback unless intended).
+- No "rwdata binding pools exhausted" warnings in the log at any cycle count.
+- Cycling 256 -> 4 -> 256 -> 4 multiple times does not crash.
 
 ## Session S593d (`distracted-hamilton-430172` continuation #2) - 2026-05-01 - Swarm: hostile teams + aggressive AI + scale/health/speed + Debug Menu UX
 
