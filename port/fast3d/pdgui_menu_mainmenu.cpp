@@ -6427,6 +6427,28 @@ void pdguiMainMenuReset(void)
     pdguiMainMenuSetView(0, "external-reset");
 }
 
+/* B-303 (2026-05-01): post-exit auto-pop of the Main Menu over CI. Called
+ * from menutick's CI-on-spawn block after a campaign "Exit to Main Menu" or
+ * a Forge "End Match" routes the player back to CITRAINING. Pushes the
+ * canonical g_CiMenuViaPauseMenuDialog (same dialog the Pause press opens)
+ * so menu pool dedup, input context attachment, and chrome rendering all
+ * match the manual path; then sets the inline view so the menu opens
+ * directly on Solo Play / Mission Select (view=1) for the campaign exit
+ * case, or on the top-level Main Menu (view=0) for the Forge exit case.
+ *
+ * Idempotent: if the dialog is already open (e.g. raced with a manual
+ * Pause press), menuPushRootDialog's pool dedup returns without
+ * duplicating; pdguiMainMenuSetView is unconditionally re-applied so the
+ * caller's view request still wins. */
+void pdguiMainMenuOpenAtView(s32 view, const char *reason)
+{
+    if (view < 0) view = 0;
+    extern struct menudialogdef g_CiMenuViaPauseMenuDialog;
+    extern void menuPushRootDialog(struct menudialogdef *def, s32 root);
+    menuPushRootDialog(&g_CiMenuViaPauseMenuDialog, MENUROOT_MAINMENU);
+    pdguiMainMenuSetView(view, reason ? reason : "ext-open-at-view");
+}
+
 void pdguiMenuMainMenuRegister(void)
 {
     if (!s_RegisteredPc) {

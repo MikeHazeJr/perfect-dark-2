@@ -489,6 +489,9 @@ extern struct menudialogdef g_PacOptionsMenuDialog;
 extern struct menudialogdef g_MpScenarioMenuDialog;
 extern struct menudialogdef g_MpQuickTeamScenarioMenuDialog;
 extern s32 var80087260;
+/* B-303 (2026-05-01): post-exit Main Menu auto-pop view selector.
+ * See definition in src/game/mplayer/mplayer.c for full semantics. */
+extern s32 g_PostExitMainMenuView;
 extern bool g_MpEnableMusicSwitching;
 extern struct mpweapon g_MpWeapons[NUM_MPWEAPONS];
 extern struct mphead g_MpHeads[VERSION == VERSION_JPN_FINAL ? 75 : 76];

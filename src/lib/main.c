@@ -1225,6 +1225,11 @@ void mainEndStage(void)
 	 * in port/fast3d/pdgui_bridge.c, exported as a C symbol. */
 	extern s32 forgeSessionIsActive(void);
 	extern void pdguiEndscreenExitToMainMenu(void);
+	/* B-303 (2026-05-01): post-exit Main Menu auto-pop view selector. The
+	 * forge-active branch below sets this so menutick's CI-on-spawn block
+	 * pops the canonical Main Menu (top-level view 0) over CI after the
+	 * Forge end-match teardown. Defined in src/game/mplayer/mplayer.c. */
+	extern s32 g_PostExitMainMenuView;
 
 	sndStopNosedive();
 
@@ -1282,7 +1287,16 @@ void mainEndStage(void)
 			 * with the same cleanup lifecycle. forgeTransitionToInactive
 			 * still runs from forgeTick on the actual stage change, so the
 			 * editor's own state (IMC deactivation, observer layer exit,
-			 * pdguiClearImGuiFocusAndNav) drains naturally. */
+			 * pdguiClearImGuiFocusAndNav) drains naturally.
+			 *
+			 * B-303 (2026-05-01): arm the post-exit auto-pop so menutick's
+			 * CI-on-spawn block pushes the top-level Main Menu over CI
+			 * once the stage transition completes. Forge isn't a campaign
+			 * mission or Combat Sim match, so neither MENUROOT_ENDSCREEN
+			 * nor MENUROOT_MPENDSCREEN cleanup branches fire to set this --
+			 * arming explicitly here is the only signal the auto-pop has
+			 * for the Forge exit case. View 0 = top-level Main Menu. */
+			g_PostExitMainMenuView = 0;
 			sysLogPrintf(LOG_NOTE,
 				"GAMELOOP.GRID: mainEndStage routing through ExitToMainMenu (stage=0x%02x) -- skipping campaign endscreen",
 				(u32)g_Vars.stagenum);

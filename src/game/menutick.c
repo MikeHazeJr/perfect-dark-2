@@ -308,6 +308,41 @@ void menuTick(void)
 		}
 	}
 
+	/* B-303 (2026-05-01): post-exit Main Menu auto-pop, parallel to the
+	 * var80087260=3 Combat Simulator path above.
+	 *
+	 * Sources that arm g_PostExitMainMenuView:
+	 *   - menutick MENUROOT_ENDSCREEN cleanup (campaign mission "Exit to
+	 *     Main Menu") -> view 1 (Solo Play / Mission Select).
+	 *   - mainEndStage's forge-active branch (Forge "End Match" via Fix 4)
+	 *     -> view 0 (top-level Main Menu).
+	 *
+	 * Mutual exclusion with var80087260: if both fire on the same return
+	 * (extremely unusual -- would require a Combat Sim match end AND a
+	 * solo-mission cleanup arming on the same tick), the Combat Sim path
+	 * wins because g_MpSetup persistence is lossier on the wrong-menu pop.
+	 * In practice they never overlap because MENUROOT_ENDSCREEN and
+	 * MENUROOT_MPENDSCREEN are different g_MenuData.root values that fire
+	 * different cleanup branches.
+	 *
+	 * One-shot: cleared on consumption so a subsequent re-entry to CI from
+	 * any path doesn't accidentally re-open the Main Menu. Same lvframenum
+	 * >= 4 + STAGE_CITRAINING gates as the Combat Sim block to ride out
+	 * the post-load black frame and ensure the chr is alive before pause. */
+	if (g_PostExitMainMenuView >= 0
+			&& var80087260 == 0
+			&& g_Vars.lvframenum >= 4
+			&& g_Vars.stagenum == STAGE_CITRAINING) {
+		extern void pdguiMainMenuOpenAtView(s32 view, const char *reason);
+		const s32 view = g_PostExitMainMenuView;
+		g_PostExitMainMenuView = -1; /* one-shot, clear before push so a
+		                                push-side reentrance doesn't loop. */
+		viBlack(false);
+		pdguiMainMenuOpenAtView(view, "post-exit");
+		sndStart(var80095200, SFX_EXPLOSION_8098, 0, -1, -1, -1, -1, -1);
+		playerPause(MENUROOT_MAINMENU);
+	}
+
 	// If a game file hasn't been selected (ie. just powered on),
 	// force the file select menu open
 	if (g_FileState == FILESTATE_UNSELECTED && g_Vars.stagenum == STAGE_CITRAINING) {
@@ -693,9 +728,23 @@ void menuTick(void)
 		} else {
 			switch (g_MenuData.root) {
 			case MENUROOT_ENDSCREEN:
+				/* B-303 (2026-05-01): post-exit auto-pop. After a campaign
+				 * "Exit to Main Menu" the OG path drops the player at CI in
+				 * free-roam (no menu). The PC port modernization auto-pops
+				 * the Main Menu on Solo Play (Mission Select) view so the
+				 * just-played mission is the focused row and the user can
+				 * re-enter / advance / back to Main Menu without walking to
+				 * an in-CI terminal. Only fires on the "Main Menu" choice
+				 * path (this MENUROOT_ENDSCREEN cleanup); restart-level skips
+				 * the auto-pop because the same stage immediately reloads
+				 * and the menu would close on the next stage load anyway.
+				 * Combat Sim's "Quit" path does NOT use this -- it goes
+				 * through MENUROOT_MPENDSCREEN's var80087260=3 which pops
+				 * g_CombatSimulatorMenuDialog with persisted g_MpSetup. */
 				if (g_Vars.restartlevel) {
 					mainChangeToStage(mainGetStageNum());
 				} else {
+					g_PostExitMainMenuView = 1; /* MainMenu view 1 = Solo Play */
 					mainChangeToStage(STAGE_TITLE);
 				}
 				break;
