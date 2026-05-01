@@ -737,106 +737,34 @@ extern "C" void pdguiDrawPdDialog(float x, float y, float w, float h,
         dl->AddRectFilled(ImVec2(x, y + h - 1), ImVec2(x + w, y + h), PdColor(pal->dialog_border1));
     } /* end else (procedural body path) */
 
-    /* === Perimeter-aware shimmer ===
-     * Runs in both chrome and procedural modes — the animated shimmer
-     * sweeping the border is part of PD's visual identity and looks
-     * coherent passing over chrome just as over the procedural border.
+    /* === Per-edge body shimmer (four-edge OG cadence) ===
+     * Stage 0a (2026-04-30): replaces the prior single perimeter walker.
+     * Per Mike's empirical playtest the perimeter variant ran one rectangle
+     * every 5s and read as "static and blue, no animation" -- significantly
+     * less dense than the OG which ran four independent edge sweeps each
+     * cycling ~3.33s with bright alpha. menugfxDrawDialogBorderLine in OG
+     * (src/game/menugfx.c:1121-1127) calls menugfxDrawShimmer per edge with
+     * width=10, reverse=false. Phase desync comes from (y1+x1) inside the
+     * shimmer math itself, so each edge naturally offsets by its position.
      *
-     * Instead of independent per-edge shimmers, compute a single shimmer
-     * position that travels the full perimeter. Each edge renders its
-     * portion of that perimeter shimmer, so when one exits a corner the
-     * next edge picks up seamlessly.
+     * Runs in BOTH chrome and procedural body paths. When chrome is on, the
+     * shimmer overlays the chrome nineslice's outer pixels. When chrome is
+     * off, it overlays the 1px border lines drawn above. Either way the
+     * sweep is part of PD's visual identity and stays coherent.
      *
-     * Perimeter path (clockwise from top-left of body):
-     *   Segment 0: Left border   (top→bottom)  length = bodyH
-     *   Segment 1: Bottom border (left→right)   length = w
-     *   Segment 2: Right border  (bottom→top)   length = bodyH
-     * Total perimeter = 2*bodyH + w */
+     * pdguiDrawShimmerExact above (used by the title bar) already matches
+     * menugfxDrawShimmer one-for-one: freq=6 cycles per 20s, edge-length-
+     * aware modulo replacing N64's hardcoded 600px, alpha boosted 1.8x and
+     * width scaled 2x to compensate for higher PC pixel density. */
     {
-        float bodyH = (y + h) - bodyTop;
-        float perim = 2.0f * bodyH + w;
-        if (perim < 100.0f) perim = 100.0f;
-
-        /* Shimmer position: travels full perimeter in ~5 seconds */
-        float frac = (float)fmod(ImGui::GetTime() / 5.0, 1.0);
-        float shimPos = frac * perim;  /* 0..perim */
-
-        int shimWidth = 20;  /* pixels */
         int borderAlpha = pal->dialog_border1 & 0xFF;
-        int boostedAlpha = (borderAlpha * 180) / 100;
-        if (boostedAlpha > 255) boostedAlpha = 255;
 
-        /* Segment 0: Left border (top→bottom), offset 0..bodyH */
-        {
-            float segStart = 0.0f;
-            float segLen = bodyH;
-            /* shimPos relative to this segment */
-            float localPos = shimPos - segStart;
-            /* Also check wrapped position (shimmer may straddle the seam) */
-            float localPosWrap = (shimPos + perim) - segStart;
-            /* Use fmod for wrap */
-            float lp = fmodf(shimPos - segStart + perim, perim);
-
-            float shimTop = bodyTop + lp - (float)shimWidth;
-            float shimBot = shimTop + (float)shimWidth;
-
-            /* Clip to segment bounds */
-            if (shimBot > bodyTop && shimTop < bodyTop + segLen) {
-                if (shimTop < bodyTop) shimTop = bodyTop;
-                if (shimBot > bodyTop + segLen) shimBot = bodyTop + segLen;
-
-                float fracInShim = 1.0f;
-                ImU32 bright = IM_COL32(255, 255, 255, (unsigned char)(boostedAlpha * fracInShim));
-                ImU32 dim    = IM_COL32(255, 255, 255, 0);
-
-                dl->AddRectFilledMultiColor(
-                    ImVec2(x, shimTop), ImVec2(x + 1, shimBot),
-                    bright, bright, dim, dim);
-            }
-        }
-
-        /* Segment 1: Bottom border (left→right), offset bodyH..(bodyH+w) */
-        {
-            float segStart = bodyH;
-            float lp = fmodf(shimPos - segStart + perim, perim);
-
-            float shimLeft = x + lp - (float)shimWidth;
-            float shimRight = shimLeft + (float)shimWidth;
-
-            if (shimRight > x && shimLeft < x + w) {
-                if (shimLeft < x) shimLeft = x;
-                if (shimRight > x + w) shimRight = x + w;
-
-                ImU32 bright = IM_COL32(255, 255, 255, (unsigned char)boostedAlpha);
-                ImU32 dim    = IM_COL32(255, 255, 255, 0);
-
-                dl->AddRectFilledMultiColor(
-                    ImVec2(shimLeft, y + h - 1), ImVec2(shimRight, y + h),
-                    bright, dim, dim, bright);
-            }
-        }
-
-        /* Segment 2: Right border (bottom→top), offset (bodyH+w)..(2*bodyH+w) */
-        {
-            float segStart = bodyH + w;
-            float lp = fmodf(shimPos - segStart + perim, perim);
-
-            /* This segment goes bottom→top, so position is measured from bottom */
-            float shimBot = (y + h) - lp + (float)shimWidth;
-            float shimTop = shimBot - (float)shimWidth;
-
-            if (shimBot > bodyTop && shimTop < y + h) {
-                if (shimTop < bodyTop) shimTop = bodyTop;
-                if (shimBot > y + h) shimBot = y + h;
-
-                ImU32 bright = IM_COL32(255, 255, 255, (unsigned char)boostedAlpha);
-                ImU32 dim    = IM_COL32(255, 255, 255, 0);
-
-                dl->AddRectFilledMultiColor(
-                    ImVec2(x + w - 1, shimTop), ImVec2(x + w, shimBot),
-                    dim, dim, bright, bright);
-            }
-        }
+        /* Left border edge (vertical sweep, x..x+1, bodyTop..y+h) */
+        pdguiDrawShimmerExact(dl, x,         bodyTop,   x + 1, y + h, borderAlpha, 10, false);
+        /* Right border edge (vertical sweep, x+w-1..x+w, bodyTop..y+h) */
+        pdguiDrawShimmerExact(dl, x + w - 1, bodyTop,   x + w, y + h, borderAlpha, 10, false);
+        /* Bottom border edge (horizontal sweep, x..x+w, y+h-1..y+h) */
+        pdguiDrawShimmerExact(dl, x,         y + h - 1, x + w, y + h, borderAlpha, 10, false);
     }
 
     /* === P4: Caustic overlay (optional) ===

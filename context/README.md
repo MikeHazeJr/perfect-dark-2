@@ -111,6 +111,7 @@ Sub-bucketed by pillar. Designs that have shipped move to `_old/designs-shipped/
 
 Currently active:
 - [audits/rom-extraction-audit-2026-04-30.md](audits/rom-extraction-audit-2026-04-30.md)
+- [audits/ui-asset-pipeline-investigation-2026-04-30.md](audits/ui-asset-pipeline-investigation-2026-04-30.md) (Phase 1 findings + Phase 2 .pdui schema sketch)
 - [audits/infrastructure-pillars-status-2026-04-27.md](audits/infrastructure-pillars-status-2026-04-27.md)
 - [audits/codebase-architecture-rating-2026-04-27.md](audits/codebase-architecture-rating-2026-04-27.md)
 - [audits/catalog-universality-sweep-2026-04-27.md](audits/catalog-universality-sweep-2026-04-27.md)
