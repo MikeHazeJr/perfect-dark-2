@@ -20,6 +20,7 @@
 #include "game/tex.h"
 #include "game/camera.h"
 #include "game/player.h"
+#include "game/surface_loco.h"
 #include "game/mtxf2lbulk.h"
 #include "game/playermgr.h"
 #include "game/rng2.h"
@@ -1198,6 +1199,9 @@ void chrInit(struct prop *prop, u8 *ailist)
 	chr->prevpos.y = 0;
 	chr->prevpos.z = 0;
 	chr->hearingscale = 1;
+
+	chrSurfaceLocoInit(chr);
+
 	chr->maxdamage = 4;
 
 	chr->lastseetarget60 = 0;
@@ -3649,8 +3653,20 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 			var8005efc4 = chr0f024b18;
 		}
 
+		/* Surface-normal locomotion (Slice 2): sample floor normal for
+		 * surface-loco chrs and stash a pointer for modelUpdateChrNodeMtx
+		 * to consume during the per-chr root-matrix build. Save/restore
+		 * the previous active chr so nested renders are safe. */
+		struct chrdata *prev_loco_chr = g_SurfaceLocoActiveChr;
+		if (chrSurfaceLocoIsEnabled(chr)) {
+			chrSurfaceLocoSampleFloorNormal(chr, chr->surface_up);
+			g_SurfaceLocoActiveChr = chr;
+		}
+
 		// Render the chr's model
 		modelRender(&renderdata, model);
+
+		g_SurfaceLocoActiveChr = prev_loco_chr;
 
 		// Render attached props (eg. held guns and attached mines/knives/bolts)
 		child = prop->child;

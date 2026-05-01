@@ -715,10 +715,15 @@ static void respawn_ring(s32 count)
 			continue;
 		}
 		RoomNum spawn_rooms[2] = { corrected_room, -1 };
-		struct chrdata *chr = spawn_one_skedar(&pos, spawn_rooms);
+		const s32 team_idx = (s_TeamMode == SWARM_TEAMS_TWO_TEAMS_PLUS_PLAYER) ? (i & 1) : 0;
+		f32 picked_scale = 0.0f;
+		struct chrdata *chr = spawn_one_skedar(&pos, spawn_rooms, team_idx, &picked_scale);
 		if (chr) {
 			s_Swarm[i].chr = chr;
 			s_Swarm[i].counted_kill = 0;
+			s_Swarm[i].team_idx = (u8)team_idx;
+			s_Swarm[i].scale_factor = picked_scale;
+			s_Swarm[i].spawn_pos = pos;
 			spawned++;
 		}
 	}

@@ -1397,6 +1397,15 @@
 #define HEADBODYTYPE_CASS        4
 #define HEADBODYTYPE_MRBLONDE    5
 
+/* Surface-normal locomotion flags on chrdata.surface_loco_flags. (S594h-B)
+ * Per-chr override: PER_CHR_ENABLE forces on, PER_CHR_DISABLE forces off,
+ * neither set means "fall back to race default" (RACE_SKEDAR is on).
+ * Internal state bits (BLENDING / AIRBORNE) are runtime markers. */
+#define SURFACE_LOCO_FLAG_PER_CHR_ENABLE  0x01
+#define SURFACE_LOCO_FLAG_PER_CHR_DISABLE 0x02
+#define SURFACE_LOCO_FLAG_BLENDING        0x04
+#define SURFACE_LOCO_FLAG_AIRBORNE        0x08
+
 #define HEALTHSHOWMODE_HIDDEN   0 // health bar not visible
 #define HEALTHSHOWMODE_OPENING  1 // height expanding
 #define HEALTHSHOWMODE_PREVIOUS 2 // full height, showing previous health amount
