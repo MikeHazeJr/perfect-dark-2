@@ -63,4 +63,31 @@ void chrSurfaceLocoBuildTiltMtx(const f32 *surface_up, Mtxf *out);
  * surface_up. NULL when no surface-loco chr is being rendered. */
 extern struct chrdata *g_SurfaceLocoActiveChr;
 
+/* Slice 3: per-tick surface_up update. Called from chrTick once per
+ * frame for every active chr. Samples the floor surface normal under
+ * the chr (via chrSurfaceLocoSampleFloorNormal), compares to the chr's
+ * current surface_up, and kicks an 8-frame blend if the delta exceeds
+ * the cosine threshold (~5deg).
+ *
+ * Idempotent for chrs with surface-loco disabled (returns immediately).
+ * For surface-loco chrs the function maintains:
+ *   - chr->surface_up (current authoritative value)
+ *   - chr->surface_up_prev (start of blend, copied at blend start)
+ *   - chr->surface_blend_frames (countdown; render uses lerp prev->up)
+ *   - chr->surface_loco_flags BLENDING / AIRBORNE bits
+ */
+void chrSurfaceLocoTick(struct chrdata *chr);
+
+/* Slice 3: render-path getter. Returns the interpolated surface-up
+ * vector that the renderer should use for this frame. Lerps between
+ * surface_up_prev and surface_up based on surface_blend_frames; drops
+ * to chr->surface_up when no blend is active. Caller-allocated 3-float
+ * output. */
+void chrSurfaceLocoGetRenderUp(struct chrdata *chr, f32 *out_up);
+
+/* Slice 3: blend window length. 8 frames at 60Hz = ~133ms. Tuned from
+ * the design doc; revisit during playtest if transitions feel too
+ * snappy (raise) or too rubbery (lower). */
+#define SURFACE_LOCO_BLEND_FRAMES 8
+
 #endif

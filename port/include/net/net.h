@@ -9,7 +9,24 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 46  /* v46 (2026-04-28): SEC-5 mandatory mod-transfer
+#define NET_PROTOCOL_VER 47  /* v47 (2026-05-01): S594h-B Slice 3 surface-normal
+                              * locomotion wire sync. SVC_NPC_MOVE and
+                              * SVC_BOT_AUTHORITY each gain a trailing
+                              * 12-byte surface_up vec3 (3 x f32) carrying the
+                              * authoritative chr local-up vector. Skedars
+                              * (RACE_SKEDAR) and any chr with the per-chr
+                              * SURFACE_LOCO_FLAG_PER_CHR_ENABLE override use
+                              * this to align their model rotation to the
+                              * floor surface normal across host/client.
+                              * Receiver writes the wire vec3 directly into
+                              * chr->surface_up; the per-tick sample +
+                              * 8-frame blend continues to run locally so
+                              * normal-change transitions look smooth even
+                              * on packet-loss. Mixed v46/v47 play is rejected
+                              * at the ENet auth handshake -- v46 readers do
+                              * not consume the trailing 12 bytes and would
+                              * mis-parse subsequent fields.
+                              * v46 (2026-04-28): SEC-5 mandatory mod-transfer
                               * hash on SVC_DISTRIB_BEGIN, plus cutscene
                               * authority wire cleanup. SVC_DISTRIB_BEGIN now
                               * appends a 32-byte SHA-256 digest of the exact

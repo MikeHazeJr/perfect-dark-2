@@ -2973,6 +2973,19 @@ s32 chrTick(struct prop *prop)
 		func0f041a74(chr);
 	}
 
+	/* Surface-normal locomotion (S594h-B Slice 3): per-tick sample +
+	 * blend update. After the chr's AI/movement has settled the chr's
+	 * world position for this frame, sample the surface normal under
+	 * the new pos and roll the blend timer. The renderer reads the
+	 * interpolated value via chrSurfaceLocoGetRenderUp. */
+	if (chr->surface_blend_frames > 0) {
+		chr->surface_blend_frames--;
+		if (chr->surface_blend_frames == 0) {
+			chr->surface_loco_flags &= ~SURFACE_LOCO_FLAG_BLENDING;
+		}
+	}
+	chrSurfaceLocoTick(chr);
+
 	return TICKOP_NONE;
 }
 
@@ -3653,13 +3666,14 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 			var8005efc4 = chr0f024b18;
 		}
 
-		/* Surface-normal locomotion (Slice 2): sample floor normal for
-		 * surface-loco chrs and stash a pointer for modelUpdateChrNodeMtx
-		 * to consume during the per-chr root-matrix build. Save/restore
+		/* Surface-normal locomotion (S594h-B Slice 2 + Slice 3 update):
+		 * publish the active surface-loco chr around modelRender so the
+		 * matrix builder reads its blended render-up. The actual sample
+		 * + blend now run once per tick in chrSurfaceLocoTick (Slice 3);
+		 * chrRender no longer re-samples per render pass. Save/restore
 		 * the previous active chr so nested renders are safe. */
 		struct chrdata *prev_loco_chr = g_SurfaceLocoActiveChr;
 		if (chrSurfaceLocoIsEnabled(chr)) {
-			chrSurfaceLocoSampleFloorNormal(chr, chr->surface_up);
 			g_SurfaceLocoActiveChr = chr;
 		}
 
