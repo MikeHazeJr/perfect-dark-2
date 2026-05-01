@@ -28,6 +28,7 @@
 #include "pdgui_forge.h"
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
+#include "pdgui.h"   /* B-195 / Fix 2+3 (2026-05-01): pdguiClearImGuiFocusAndNav */
 #include "system.h"  /* Issue 9 placeholder TODO log lines */
 
 extern "C" {
@@ -1536,9 +1537,20 @@ static ForgeSidebarList forgeSidebarForTab(int tab)
 }
 
 /* Per-session state. All defaults chosen so the editor opens in a
- * sensible spot: sidebar visible, first row focused on each tab,
- * no pending scroll-anchor request. */
-static bool s_SidebarVisible            = true;
+ * sensible spot: editor visible (with sidebar), first row focused
+ * on each tab, no pending scroll-anchor request.
+ *
+ * Fix 2+3 (2026-05-01, playtest 2026-05-01): s_EditorVisible (formerly
+ * s_SidebarVisible) gates the entire editor window, not just the
+ * left rail. ACTION_FORGE_SIDEBAR_TOGGLE (X on pad, Tab on key) now
+ * shows / hides the whole "The Grid -- Editor" panel. Promoting the
+ * gate to the outer Begin call is what Mike's mental model expects
+ * (one toggle, one visible thing) and is also where the B-195 leak
+ * surfaces: when the editor closes, child widgets that held
+ * keyboard focus retain it past Begin/End teardown. We pair the
+ * visibility flip with pdguiClearImGuiFocusAndNav so WantCapture-
+ * Keyboard drops back to false on close. */
+static bool s_EditorVisible             = true;
 static int  s_SidebarSelection[FGT_COUNT] = { 0, 0, 0, 0, 0 };
 static int  s_SidebarScrollRequest[FGT_COUNT] = { -1, -1, -1, -1, -1 };
 
@@ -1830,9 +1842,31 @@ static void forgeDrawActiveTab(int idx)
  * navigation on a short list is seamless. */
 static void forgeSidebarHandleInput(void)
 {
+	/* Fix 2+3 (2026-05-01): the sidebar-toggle action now shows / hides
+	 * the entire editor window. On hide, clear ImGui focus / active-id /
+	 * nav-window so any focused widget releases the keyboard before the
+	 * editor's Begin/End is skipped on the next frame. Without this clear
+	 * the editor's child widget can keep WantCaptureKeyboard=true while
+	 * the input-context stack thinks gameplay is on top, and B-195 fires
+	 * on every subsequent keypress (verified in 2026-05-01 playtest log:
+	 * sym=0x40000044 / 0x0065 / 0x0071 swallowed for ~2 minutes after a
+	 * mid-session forge re-entry). */
 	if (actionPressed(0, ACTION_FORGE_SIDEBAR_TOGGLE)) {
-		s_SidebarVisible = !s_SidebarVisible;
+		bool was_visible = s_EditorVisible;
+		s_EditorVisible = !s_EditorVisible;
+		if (was_visible && !s_EditorVisible) {
+			pdguiClearImGuiFocusAndNav();
+		}
 	}
+
+	/* Tab-cycle and per-tab row navigation only run while the editor is
+	 * on-screen. When the editor is hidden the only meaningful key is the
+	 * toggle above; everything else is a no-op so a held button doesn't
+	 * silently advance hidden state. */
+	if (!s_EditorVisible) {
+		return;
+	}
+
 	if (actionPressed(0, ACTION_FORGE_TAB_PREV)) {
 		s_forge_active_tab = (s_forge_active_tab + FGT_COUNT - 1) % FGT_COUNT;
 		s_forge_tab_set_request = s_forge_active_tab;
@@ -1841,31 +1875,32 @@ static void forgeSidebarHandleInput(void)
 		s_forge_active_tab = (s_forge_active_tab + 1) % FGT_COUNT;
 		s_forge_tab_set_request = s_forge_active_tab;
 	}
-	/* Per-tab row selection only when the sidebar is on-screen. */
-	if (s_SidebarVisible) {
-		ForgeSidebarList lst = forgeSidebarForTab(s_forge_active_tab);
-		if (lst.count > 0) {
-			int *sel = &s_SidebarSelection[s_forge_active_tab];
-			if (*sel < 0 || *sel >= lst.count) *sel = 0;
-			if (actionPressed(0, ACTION_FORGE_SIDEBAR_UP)) {
-				*sel = (*sel + lst.count - 1) % lst.count;
-			}
-			if (actionPressed(0, ACTION_FORGE_SIDEBAR_DOWN)) {
-				*sel = (*sel + 1) % lst.count;
-			}
-			if (actionPressed(0, ACTION_FORGE_SIDEBAR_ACTIVATE)) {
-				forgeSidebarActivate(s_forge_active_tab, *sel);
-			}
+
+	ForgeSidebarList lst = forgeSidebarForTab(s_forge_active_tab);
+	if (lst.count > 0) {
+		int *sel = &s_SidebarSelection[s_forge_active_tab];
+		if (*sel < 0 || *sel >= lst.count) *sel = 0;
+		if (actionPressed(0, ACTION_FORGE_SIDEBAR_UP)) {
+			*sel = (*sel + lst.count - 1) % lst.count;
+		}
+		if (actionPressed(0, ACTION_FORGE_SIDEBAR_DOWN)) {
+			*sel = (*sel + 1) % lst.count;
+		}
+		if (actionPressed(0, ACTION_FORGE_SIDEBAR_ACTIVATE)) {
+			forgeSidebarActivate(s_forge_active_tab, *sel);
 		}
 	}
 }
 
 /* Draw the sidebar as a left-anchored BeginChild inside the editor
- * window. Uses a fixed width; the tab area fills the remaining space. */
+ * window. Uses a fixed width; the tab area fills the remaining space.
+ *
+ * Fix 2+3 (2026-05-01): the visibility gate moved up to the editor's
+ * outer Begin in pdguiForgeEditorRender. This function only runs while
+ * the editor is on-screen, so the sidebar is always shown alongside
+ * the tab area. */
 static void forgeSidebarDraw(void)
 {
-	if (!s_SidebarVisible) return;
-
 	ForgeSidebarList lst = forgeSidebarForTab(s_forge_active_tab);
 	int sel = s_SidebarSelection[s_forge_active_tab];
 
@@ -1893,7 +1928,7 @@ static void forgeSidebarDraw(void)
 	}
 
 	ImGui::Separator();
-	ImGui::TextDisabled("X / Tab: close");
+	ImGui::TextDisabled("X / Tab: hide editor");
 	ImGui::TextDisabled("D-pad ^v: move");
 	ImGui::TextDisabled("D-pad >: apply");
 
@@ -1924,8 +1959,15 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 	/* Issue 8b (2026-04-24): consume the six ACTION_FORGE_* sidebar /
 	 * tab-cycle actions before the ImGui window renders. Bindings live
 	 * in g_ImcForge (priority 7, active only in FREEFLY) so these reads
-	 * cannot fire outside the editor. */
+	 * cannot fire outside the editor.
+	 *
+	 * Fix 2+3 (2026-05-01): the toggle action now flips s_EditorVisible
+	 * (whole window visibility). Run it unconditionally so X / Tab can
+	 * bring the editor BACK on screen; the early-return below skips the
+	 * Begin/End block while hidden. */
 	forgeSidebarHandleInput();
+
+	if (!s_EditorVisible) return;
 
 	const float scale = pdguiScale(1.0f);
 	ImGui::SetNextWindowSize(ImVec2(620.0f * scale, 620.0f * scale), ImGuiCond_FirstUseEver);
@@ -2004,7 +2046,7 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 	 * drive the editor.  Always on so it's visible from any tab. */
 	ImGui::Separator();
 	ImGui::TextDisabled(
-		"Sidebar: X / Tab   Tabs: LB/RB or PgUp/PgDn or Ctrl+Tab   "
+		"Editor: X / Tab   Tabs: LB/RB or PgUp/PgDn or Ctrl+Tab   "
 		"D-pad: sidebar nav   Sticks: fly   LT/RT: raise/lower");
 
 	ImGui::End();
