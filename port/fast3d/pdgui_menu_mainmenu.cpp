@@ -6445,7 +6445,13 @@ void pdguiMainMenuOpenAtView(s32 view, const char *reason)
     if (view < 0) view = 0;
     extern struct menudialogdef g_CiMenuViaPauseMenuDialog;
     extern void menuPushRootDialog(struct menudialogdef *def, s32 root);
-    menuPushRootDialog(&g_CiMenuViaPauseMenuDialog, MENUROOT_MAINMENU);
+    /* MENUROOT_MAINMENU = 2 per src/include/constants.h:1818. Mirrored
+     * inline because constants.h pulls in types.h whose `#define bool s32`
+     * collides with the C++ ABI in this TU. Catalog Gate 3 merge fixup
+     * (2026-05-01): added missing constant after dev's input fix #9
+     * landed without it. */
+    enum { MAINMENU_MENUROOT = 2 };
+    menuPushRootDialog(&g_CiMenuViaPauseMenuDialog, MAINMENU_MENUROOT);
     pdguiMainMenuSetView(view, reason ? reason : "ext-open-at-view");
 }
 
