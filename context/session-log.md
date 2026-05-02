@@ -1,5 +1,62 @@
 # Session Log (Active)
 
+## Session S602 (`catalog-pass-b-slice13-uichrome`) - 2026-05-02 PM - Phase 3 Pass B Slice 13 UI chrome migration
+
+Mike's brief carried over from the bodies migration session: pivot to Phase 3 Pass B Slice 13, the largest remaining Pass B item. UI chrome textures move from the legacy `mods/base-ui/textures/` tier to the project-canonical `base/ui/textures/` tier. Per Mike's directive: project-authored content lives under `base/`, not under `mods/`. Coordinates with the parallel Slice 10 voice-retag session (different file scope, no conflict).
+
+### Outcome
+
+13 catalog entry paths + 14 extraction destinations + 13 existence-check paths + directory-creation triple all rewritten to `base/ui/textures/`. The `mods/base-ui/mod.json` autogen block (~50 lines) deleted: `base/` is not a mod tier, the catalog ID -> path mapping in `k_UiTextures[]` is the single source of truth. Single file pair touched (`port/fast3d/pdgui_theme.cpp` + `port/include/pdgui_theme.h`, 49 string-literal hits). Server build unaffected (`pdgui_theme.cpp` is `pd`-only).
+
+`pd` 54.8 MB / `pd-server` 22.4 MB / `pd-tests` 24.7 MB; all link clean. New `[uichrome]` test pin: **6 cases / 47 assertions** all pass. No protocol bump, no save migration, no catalog ID format change.
+
+### Audit doc
+
+[`context/audits/catalog-phase3-passb-slice13-uichrome-2026-05-02.md`](audits/catalog-phase3-passb-slice13-uichrome-2026-05-02.md). Sections A (surfaces), B (decisions), C (migration delta), D (boundary checks), E (stop conditions). Notes the pre-existing 13/14 asymmetry: 14 textures extracted (`k_Extracts[]` includes `ui_stars`), 13 registered as `ASSET_UI` (`k_UiTextures[]` omits it). Slice 13 preserves the asymmetry; surfacing `ui_stars` is a separate decision.
+
+### Decision deltas vs the rom-extraction-audit recommendation
+
+The earlier rom-extraction-audit (S592, 2026-04-30) recommended `data/ui/pd-original.pdui` (a `.pdui` archive in the BYOR `data/` tier). Mike's Slice 13 brief overrides: `base/ui/textures/` (loose TGA + PNG + 9-slice JSON files in the project-authored `base/` tier). The `.pdXXX` archive taxonomy work remains a separate later track. No `.pdui` archive in this slice.
+
+### "No ROM-direct fallback for UI chrome" verified
+
+`pdguiThemeLateInit` only does `s_loadTgaTexture` disk reads. ROM access is confined to `pdguiThemeExtractRomTextures` (the bootstrap path), not a runtime fallback. Boot ordering: extraction runs at frame 0 if any TGAs missing, theme reload picks up the new files. First-launch behaviour identical -- only the destination directory changed.
+
+### Test pin
+
+`tests/test_uichrome_paths_pin.cpp` (new): static-text grep against `pdgui_theme.cpp` + `pdgui_theme.h`. Six cases:
+
+1. Catalog entries point at `base/ui/textures` (13 paths pinned).
+2. Extraction destination format strings (TGA + PNG + 9slice).
+3. Directory creation triple targets `base/`, `base/ui/`, `base/ui/textures/`.
+4. Legacy `mods/base-ui/` paths fully retired in code.
+5. `mod.json` autogen retired (literal path + marker comment gone).
+6. Counts pinned: 13 catalog rows + 14 extraction filenames.
+
+### Files touched (5)
+
+- `port/fast3d/pdgui_theme.cpp` (-109 / +56): path rewrite + `mod_path` -> `disk_path` field rename + `mod.json` autogen deletion + comment scrub.
+- `port/include/pdgui_theme.h` (-6 / +7): three docblock comments rewritten.
+- `tests/test_uichrome_paths_pin.cpp` (+150): new static pin.
+- `context/audits/catalog-phase3-passb-slice13-uichrome-2026-05-02.md` (+103): audit.
+- `CMakeLists.txt` (+5): wire test into `SRC_TESTS`.
+
+Total: 327 insertions, 109 deletions across 5 files.
+
+### Auto-merge
+
+Per standing rule. Pre-merge HEAD `b2122749` (after rebase onto Slice 10). Worktree commit `4597cd18`. Post-merge `f54959d1`. Post-merge file line counts match worktree exactly. No conflicts (Slice 10 voice retag and Slice 13 UI chrome touched disjoint file sets).
+
+### Pass B status
+
+Slices 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13 shipped. **12 of 13 Pass B slices closed**. Slice 12 (SFX residual / `g_AudioRussMappings` cleanup) is the last item. After Slice 12, Pass C (drop RomProvider from runtime) is the final coordinated change.
+
+### What this session did NOT do
+
+- No `.pdui` archive packaging. The `.pdXXX` taxonomy is a separate later track.
+- No physical move of legacy `mods/base-ui/textures/` files. The directory does not exist on a clean checkout (extraction creates it on first launch); on populated installs the legacy directory becomes inert and the new code re-extracts to `base/ui/textures/`.
+- No surfacing of `ui_stars` as `ASSET_UI` (pre-existing 13/14 asymmetry preserved).
+
 ## Session S601 (`condescending-ellis-248824`) - 2026-05-02 PM - Phase 3 Pass B Slice 10 voice retag
 
 Mike repurposed the post-arenas worktree for the next Phase 3 lane: Slice 10 voice retag in `g_AudioConfigs`. The Coverage Audit Section 3.H named the gap (no base-game ASSET_AUDIO entries register with `category = AUDIO_CAT_VOICE`); Slice 10 closes it via taxonomy classification rather than data move.
