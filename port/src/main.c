@@ -17,6 +17,7 @@
 #include "inputctx.h"
 #include "fs.h"
 #include "romdata.h"
+#include "romextract.h"
 #include "config.h"
 #include "modmgr.h"
 #include "modelcatalog.h"
@@ -276,6 +277,21 @@ int main(int argc, const char **argv)
 	// Returns 1=verified/first-run, 0=hash changed, -1=I/O error.
 	// We proceed in all cases; this is an integrity check, not a gate.
 	catalogCacheVerifyRom(g_RomName, NULL);
+
+	/* Phase 3 Pass A.2 (2026-05-02): first-launch ROM file extraction.
+	 * Walks the ROM file table and writes each non-empty file slot to
+	 * data/<romid>/files/<name>.bin.  Idempotent (skips files already
+	 * extracted with matching size).  Subsequent Phase 3 slices migrate
+	 * per-class catalog bindings from RomProvider to FileProvider so
+	 * the runtime reads from disk; once every class is on disk Pass C
+	 * retires the runtime ROM mapping entirely.
+	 *
+	 * Order: AFTER romdataInit (g_RomFile + fileSlots populated) and
+	 * BEFORE assetCatalogScanComponents (so extracted bytes are pure
+	 * ROM, not mod-overridden).  Pass A.4 will add SHA-256 verification
+	 * + quarantine + re-extract on top of the size-only idempotency
+	 * check that ships here. */
+	romExtractAllFiles();
 
 	netInit();
 
