@@ -39,6 +39,7 @@ typedef struct {
     s32 weapons_registered;   /* successfully registered weapon records */
     s32 heads_registered;     /* successfully registered head records (Catalog Gate 3 F9) */
     s32 bodies_registered;    /* successfully registered body records (Catalog Gate 3 Bodies F9) */
+    s32 arenas_registered;    /* successfully registered arena records (Catalog Gate 3 Arenas F9) */
     s32 scan_failures;        /* parse / open errors per record */
     s32 resolve_failures;     /* model / anim / ammo ref unresolvable */
     s32 field_unknown;        /* PER-ELEMENT field-unknown notes */
@@ -166,6 +167,42 @@ s32 loaderPdbaseGetBodiesRegistered(void);
  * call, loaderPdbaseBodiesActive() returns 1 and the manager routes
  * through loaderPdbaseGetBody(). */
 s32 loaderPdbaseBuildBodyManager(void);
+
+/* ========================================================================
+ * Catalog Gate 3 Arenas F9: arenas-side loader scaffold.
+ *
+ * Parallels the heads / bodies accessors above. Arenas live in their own
+ * archive (base/arenas.pdbase) per audit decision I.6, and have their
+ * own typed pool s_ArenasPool[CATALOG_MGR_ARENA_COUNT] of arena_data_t
+ * records.
+ *
+ * F9 ships the scaffold (zero records); F11 ships the Python extractor +
+ * archive; F12 implements the parser + parity bridge; F13 retires the
+ * parity bridge.
+ *
+ * Logging channels:
+ *   LOADER.PDBASE.ARENA.SCAN_FAIL
+ *   LOADER.PDBASE.ARENA.RESOLVE_FAIL
+ *   LOADER.PDBASE.ARENA.FIELD_UNKNOWN
+ *   LOADER.PDBASE.ARENA.OK
+ * ======================================================================== */
+
+/* Forward-declare to avoid pulling in catalog_mgr_arenas.h from this header. */
+typedef struct arena_data arena_data_t;
+
+/* Manager-side accessors. The catalog manager
+ * (catalog_mgr_arenas.c::s_get) checks loaderPdbaseArenasActive() to
+ * decide whether to route through the loader pool or fall back to the
+ * catalog-row-derived mirror. */
+s32 loaderPdbaseArenasActive(void);
+const arena_data_t *loaderPdbaseGetArena(s32 idx);
+s32 loaderPdbaseGetArenasRegistered(void);
+
+/* Iterate ASSET_ARENA catalog rows that carry a non-empty pdbase_path
+ * and load each arena's full data into the loader pool.  After this
+ * call, loaderPdbaseArenasActive() returns 1 and the manager routes
+ * through loaderPdbaseGetArena(). */
+s32 loaderPdbaseBuildArenaManager(void);
 
 #ifdef __cplusplus
 }

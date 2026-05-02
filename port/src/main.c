@@ -57,6 +57,7 @@
 #include "loader_pdbase.h"
 #include "catalog_mgr_heads.h"
 #include "catalog_mgr_bodies.h"
+#include "catalog_mgr_arenas.h"
 #include "game/stagetable.h"
 #include "game/chr.h"
 
@@ -359,6 +360,11 @@ int main(int argc, const char **argv)
 	// bridge. F12 swaps the data source to base/bodies.pdbase pool.
 	catalogManagerBodyInit();
 
+	// Catalog Gate 3 Arenas F1: arena manager init. Walks ASSET_ARENA
+	// catalog rows and populates s_Arenas[47] for the parity-period
+	// bridge. F12 swaps the data source to base/arenas.pdbase pool.
+	catalogManagerArenaInit();
+
 	// S484 F13: scan base/*.pdbase + populate the catalog manager's typed
 	// weapon pools. Manager accessors are pool-backed once
 	// loaderPdbaseBuildWeaponManager succeeds. Parity check from F12 was
@@ -386,6 +392,9 @@ int main(int argc, const char **argv)
 		}
 		if (pdb_result.bodies_registered > 0) {
 			loaderPdbaseBuildBodyManager();
+		}
+		if (pdb_result.arenas_registered > 0) {
+			loaderPdbaseBuildArenaManager();
 		}
 	}
 

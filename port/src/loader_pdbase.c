@@ -51,6 +51,7 @@
 #include "catalog_mgr_weapons.h"
 #include "catalog_mgr_heads.h"  /* Catalog Gate 3 F9: heads pool integration */
 #include "catalog_mgr_bodies.h"  /* Catalog Gate 3 Bodies F9: bodies pool integration */
+#include "catalog_mgr_arenas.h"  /* Catalog Gate 3 Arenas F9: arenas pool integration */
 #include "system.h"
 #include "fs.h"
 
@@ -156,6 +157,17 @@ static s32 s_HeadsRegistered;
 static body_data_t s_BodiesPool[CATALOG_MGR_BODY_COUNT];
 static s32 s_BodiesLoaderActive;
 static s32 s_BodiesRegistered;
+
+/* ------------------------------------------------------------------ */
+/* Catalog Gate 3 Arenas F9: arenas-side pool, parallel to heads + bodies. */
+/* base/arenas.pdbase per audit decision I.6. F9 ships the pool +     */
+/* accessors as a scaffold; F11 ships the extractor + archive; F12    */
+/* implements parseArena() and toggles s_ArenasLoaderActive on success. */
+/* ------------------------------------------------------------------ */
+
+static arena_data_t s_ArenasPool[CATALOG_MGR_ARENA_COUNT];
+static s32 s_ArenasLoaderActive;
+static s32 s_ArenasRegistered;
 
 /* ------------------------------------------------------------------ */
 /* Public accessors (consumed by catalog_mgr_weapons.c)               */
@@ -1895,6 +1907,42 @@ void loaderPdbaseScan(const char *dir, loader_pdbase_result_t *out)
 		local.bodies_registered = s_BodiesRegistered;
 	}
 
+	/* Catalog Gate 3 Arenas F12: scan + parse base/arenas.pdbase. */
+	{
+		char arena_path[512];
+		snprintf(arena_path, sizeof(arena_path), "%s/arenas.pdbase", dir);
+		s32 arena_size = 0;
+		char *arena_src = (char *)fsFileLoad(arena_path, (u32 *)&arena_size);
+		if (arena_src != NULL) {
+			jstream_t as;
+			memset(&as, 0, sizeof(as));
+			as.src = arena_src;
+			as.pos = arena_src;
+			as.end = arena_src + arena_size;
+			as.line = 1;
+			jstream_advance(&as);
+			parseTopLevel(&as);
+
+			if (as.error) {
+				sysLogPrintf(LOG_WARNING,
+					"LOADER.PDBASE.ARENA.SCAN_FAIL: parse error in %s near line %d",
+					arena_path, as.line);
+				local.scan_failures++;
+			}
+
+			sysLogPrintf(LOG_NOTE,
+				"LOADER.PDBASE.ARENA.OK: dir=%s arenas=%d size=%d",
+				dir, s_ArenasRegistered, arena_size);
+			local.archives_scanned++;
+			sysMemFree(arena_src);
+		} else {
+			sysLogPrintf(LOG_NOTE,
+				"LOADER.PDBASE.ARENA.OK: dir=%s no arenas.pdbase (parity period)",
+				dir);
+		}
+		local.arenas_registered = s_ArenasRegistered;
+	}
+
 	if (out) *out = local;
 }
 
@@ -2033,6 +2081,45 @@ s32 loaderPdbaseBuildBodyManager(void)
 		"LOADER.PDBASE.BODY.OK: manager active, bodies=%d (expected=%d)",
 		s_BodiesRegistered, CATALOG_MGR_BODY_COUNT);
 	return s_BodiesRegistered;
+}
+
+/* ================================================================== */
+/* Catalog Gate 3 Arenas F9 / F11 / F12: arenas-side loader            */
+/*                                                                    */
+/* Parallel to the heads / bodies loaders above. F9 ships these       */
+/* accessors as scaffold (active flag stays 0, all accessors return    */
+/* NULL until F12 implements parseArena + flips the flag).             */
+/* ================================================================== */
+
+s32 loaderPdbaseArenasActive(void)
+{
+	return s_ArenasLoaderActive;
+}
+
+const arena_data_t *loaderPdbaseGetArena(s32 idx)
+{
+	if (idx < 0 || idx >= CATALOG_MGR_ARENA_COUNT) return NULL;
+	if (!s_ArenasLoaderActive) return NULL;
+	return &s_ArenasPool[idx];
+}
+
+s32 loaderPdbaseGetArenasRegistered(void)
+{
+	return s_ArenasRegistered;
+}
+
+s32 loaderPdbaseBuildArenaManager(void)
+{
+	if (s_ArenasRegistered <= 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOADER.PDBASE.ARENA.OK: build skipped (no records loaded -- F9 scaffold)");
+		return 0;
+	}
+	s_ArenasLoaderActive = 1;
+	sysLogPrintf(LOG_NOTE,
+		"LOADER.PDBASE.ARENA.OK: manager active, arenas=%d (expected=%d)",
+		s_ArenasRegistered, CATALOG_MGR_ARENA_COUNT);
+	return s_ArenasRegistered;
 }
 
 
