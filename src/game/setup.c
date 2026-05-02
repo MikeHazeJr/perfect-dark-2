@@ -191,6 +191,35 @@ void propsReset(void)
 {
 	s32 i;
 
+	/* S311-followup (2026-05-01): clear g_InteractProp on stage reset.
+	 *
+	 * g_InteractProp is a global pointer to whichever interactable prop
+	 * is currently in the player's reticle. propFindForInteract resets
+	 * it to NULL at the top of every per-frame call (prop.c:1602), but
+	 * that per-frame call happens AFTER bmoveTick in the lvTickPlayer
+	 * pipeline. On the FIRST frame after a stage transition the prop
+	 * pool has been freed (mempResetPool(STAGE)) but g_InteractProp
+	 * still points to whichever prop was the player's interact target
+	 * in the PREVIOUS stage -- now a dangling pointer to freed memory.
+	 *
+	 * bmoveProcessInput -> propGetActionUseHoldThresholdMs ->
+	 * propInteractPromptLabel reads `prop->obj->type` (prop.c:1735) and
+	 * crashes on the dereference. The prop->obj NULL check at prop.c:1724
+	 * passes because obj happens to be non-zero garbage in the freed slot.
+	 *
+	 * Reproduced in Mike's playtest log (`0c9d7d73-pdclient.log`) on the
+	 * first frame of stage 0x47 (mp_grid) entered from Main Menu after
+	 * being on stage 0x26 (CI Training). Crash signature: PC +0x130d99
+	 * in propInteractPromptLabel.
+	 *
+	 * The fix is to clear g_InteractProp here so the FIRST bmoveTick of
+	 * the new stage sees NULL and the propInteractPromptLabel NULL guard
+	 * works correctly. propFindForInteract still resets it every
+	 * subsequent frame as before. No defensive null-check shim added in
+	 * the read sites -- the actual broken state (stale global) gets
+	 * fixed at the source. */
+	g_InteractProp = NULL;
+
 	for (i = 0; i < ARRAYCOUNT(g_Lifts); i++) {
 		g_Lifts[i] = NULL;
 	}
