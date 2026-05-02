@@ -1,5 +1,54 @@
 # Session Log (Active)
 
+## Session S603 (`catalog-slice12-passc`) - 2026-05-02 PM - Slice 12 close-out + Pass C RomProvider drop
+
+Mike's directive: wrap the catalog migration today. Slice 12 (SFX residual / `g_AudioRussMappings` ACCEPTED LIMIT) was the last open Pass B item, then Pass C dropped the in-memory ROM mapping in the same session. Worktree `catalog-slice12-passc` covered both close-outs sequentially.
+
+### Slice 12 -- SFX residual ACCEPTED LIMIT close-out
+
+Doc-only. Per coverage audit Section 3.D: alias-range SFX IDs (0x8000+) decode to `(confignum, russ-mapping)` inside `snd.c::sndStart` BEFORE `catalogResolveSound` runs, so leaf-level mod overrides via the 1545 `ASSET_AUDIO` entries already cover alias-IDed plays. Direct alias override would require growing `LOAD_MAX_SOUNDS` from 4096 to 65536 (256 KB array) plus parallel-index plumbing for marginal value, and Mike's "Farsight fire SFX plays a voiceline" regression closed earlier via Phase 2 Commit 4 + S484-followup-5. The 16-line architectural rationale block lands above [`port/src/assetcatalog_base_extended.c:230`](../port/src/assetcatalog_base_extended.c:230) cross-referencing the audit + plan. Pre-merge HEAD `3f25809b`. Worktree commit `fa4097bb`. Post-merge `f52cf660`. Audit: [`context/audits/catalog-phase3-passb-slice12-sfx-residual-2026-05-02.md`](audits/catalog-phase3-passb-slice12-sfx-residual-2026-05-02.md).
+
+### Pass C -- RomProvider drop / `g_RomFile` released
+
+Architectural finish line for the catalog migration. After Pass A.2/A.4 (file extract+verify) and Pass B Slices 1-13 (per-class catalog migration + segment extract+verify), every byte the runtime needs is on disk under `data/<romid>/`. New `romdataReleaseRom()` runs once after `romExtractVerifyAllSegments()` and:
+
+1. Reloads `SRC_ROM` segments from `data/<romid>/segs/<name>.bin` into heap buffers via `romExtractSegmentRelPath` + `fsFileLoad`. Pointer comparison `[g_RomFile, g_RomFile+size)` distinguishes truly ROM-pointing segments from preprocess()-output heap buffers (the latter survive ROM free; just normalised to `SRC_EXTERNAL`).
+2. Walks `fileSlots[]`, NULLs the data pointer for every slot whose pointer falls inside the ROM range. Heap-backed `SRC_EXTERNAL` slots (mod overrides, prior Pass C disk-loads) survive untouched.
+3. `sysMemFree(g_RomFile)`, sets `NULL`, zeroes `g_RomFileSize`.
+
+LOUD-FAIL via `sysFatalError` if any segment can't reload from disk -- never half-release. Server build (`g_RomFile` already `NULL`) is a no-op early-return. `romdataFileLoad` gains a per-romid disk fallback (`data/<romid>/files/<name>.bin`) BEFORE the legacy `SRC_ROM` set; if both miss with `g_RomFile == NULL`, LOUD-FAIL `LOAD.PASSC`. `romdataResetFile` NULLs the data pointer when `g_RomFile` has been released so the next load takes the disk path. `main.c` boot banner branches: "rom file released (Phase 3 Pass C): runtime reads disk-only" replaces the pre-release pointer log when `g_RomFile == NULL`.
+
+### Outcome
+
+`pd` 54.8 MB / `pd-server` 22.4 MB / `pd-tests` 24.7 MB, all link clean. Test suite: 510 cases / 5 pre-existing failures in files **outside** the Pass C touch surface:
+
+- `test_loader_pdbase_scan.cpp:228, 287` -- expects `loaderPdbaseRunParityCheck` retired from header + `main.c`. Function name still present (parity check retirement was incomplete in F13).
+- `test_catalog_provider_static.cpp:468, 537` -- expects `catalogSetPrimaryRomFilenum(e, e->source_filenum)` calls in `assetcatalog_base.c` (>=4) and `assetcatalog_base_extended.c` (>=2). Pass B FileProvider migration retired the calls; test thresholds were not lowered to match.
+- `test_catalog_provider_static.cpp:580` -- expects `MP setup/manifest path` string in setup.c; not present.
+- `test_cutscene_layer.cpp:330` -- expects `sceneFire(SCENE_EVENT_DISCONNECT, NULL)` in disconnect path; not present.
+
+All failures are static-text grep mismatches in source files that Pass C did not modify (`assetcatalog_base.c`, `loader_pdbase.h`, `setup.c`, `cutscene_layer.c`). They are pre-existing test rot from prior Pass B / weapons retirement work where calls were removed but pins not lowered. `[catalog-mgr-body]` 16/190, `[catalog-mgr-arena]` 31, `[catalog-mgr-head]` 12, `[catalog-mgr-weapon]` 47, `[uichrome]` 7/56 -- all pass green for the current-track tag groups. No new failures introduced by Slice 12 or Pass C.
+
+### Files touched
+
+**Slice 12** (2 files, +100 lines):
+- [`port/src/assetcatalog_base_extended.c`](../port/src/assetcatalog_base_extended.c) (+16): SFX table comment block extension above line 230.
+- [`context/audits/catalog-phase3-passb-slice12-sfx-residual-2026-05-02.md`](audits/catalog-phase3-passb-slice12-sfx-residual-2026-05-02.md) (+84).
+
+**Pass C** (4 files, +405 / -2 lines):
+- [`port/include/romdata.h`](../port/include/romdata.h) (+34): `romdataReleaseRom` declaration + post-release invariants docblock.
+- [`port/src/romdata.c`](../port/src/romdata.c) (+196 / -2): `romdataPtrInRom` helper, `romdataReleaseRom` definition, per-romid disk fallback in `romdataFileLoad`, NULL-`g_RomFile` handling in `romdataResetFile`, `romextract.h` include.
+- [`port/src/main.c`](../port/src/main.c) (+17 / -1): wire `romdataReleaseRom()` post-`romExtractVerifyAllSegments`; banner branches on `g_RomFile != NULL`.
+- [`context/audits/catalog-phase3-passc-romprovider-drop-2026-05-02.md`](audits/catalog-phase3-passc-romprovider-drop-2026-05-02.md) (+158).
+
+### Auto-merge
+
+Per standing rule. Slice 12: pre-merge HEAD `3f25809b`, worktree `fa4097bb`, post-merge `f52cf660` (clean fast-forward equivalent). Pass C: pre-merge HEAD `f52cf660`, worktree `6fe89c7a`, post-merge `b15cc701`. Both merges no-conflict; post-merge file line counts match worktree exactly per the worktree-truncation discipline.
+
+### Catalog migration lane status
+
+**CLOSED** for Pass A.1 / A.2 / A.3 / A.4 / Pass B Slices 1-13 / Pass C. Pass D (self-heal hardening on top of `romdataReleaseRom`'s LOUD-FAIL) is queued in a parallel session per Mike's "Pass D in the fresh session" directive. The runtime never reads from `g_RomFile` after this commit ships; that is the architectural finish line.
+
 ## Session S602b (`catalog-pass-b-slice13-uichrome`) - 2026-05-02 PM - Slice 13 correction (base/ -> data/)
 
 Mike's same-day course-correction: the initial Slice 13 commit (`f54959d1`) misclassified UI chrome textures as project-authored content under `base/ui/textures/`. They are extracted from the user-supplied ROM at first launch and never ship with the project, so they belong in the BYOR `data/` tier alongside per-romid segments populated by Pass A.2 + Slices 2/5/6/8/11. The corrected location aligns with the original rom-extraction-audit-2026-04-30 recommendation.

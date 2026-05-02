@@ -40,23 +40,25 @@ Surfaced during F12 runtime debugging. Two parallel slices:
 
 **Slice B: client-side ROM texture extraction debug.** `pdguiThemeExtractRomTextures()` writes 14 UI textures from ROM data to `Build/data/mods/base-ui/textures/X.tga`. Latest playtest (Mike's 15:05 run) showed all 13 .tgas loading from mod file at correct dimensions (no procedural fallback). The "plagued for weeks" symptom Mike described was deployment fragility (clean build wipes Build/data/mods/, extract regenerates them at startup, but if that path failed the procedural fallback fired). After Slice A removes the legacy deploy, only the extraction path matters. Audit + fix the extraction path correctness; relocate output to source `base/ui/textures/` so they ship with the build (CMake POST_BUILD already covers `base/`).
 
-### 2. Catalog - Gate 3 Migration
+### 2. Catalog - Gate 3 Migration + Phase 3 Rom-once disk-back
 
-**Status**: in-flight, sequential auto-merge per asset type. Applies the proven Manager + .pdbase pattern from weapons (S591) to other asset types.
+**Status**: LANE CLOSED 2026-05-02. Pass C (RomProvider drop) shipped at dev `b15cc701`; the runtime never touches `g_RomFile` after extraction. Pass D (self-heal hardening on top of Pass C's LOUD-FAIL) is queued in a parallel session per Mike's "Pass D in the fresh session" directive -- not blocking.
 
 **Heads** -- shipped 2026-05-01 as S596 at dev `a2ad421e`. F1-F13 landed: manager (`port/src/catalog_mgr_heads.c`), pure validators, `base/heads.pdbase` (84 records: 75 named + 9 SP fallback), loader integration, F2 catalogGetHead* routing, F3+F4 modeldef cache, F5 body.c modeldef NULL check via manager, F6 retire `g_MpMaleHeads` / `g_MpFemaleHeads`, F11 startup wiring (`catalogManagerHeadInit` + `loaderPdbaseBuildHeadManager`), F13 grep-guard test (12 cases / 96 assertions). Body reads keep the legacy `g_HeadsAndBodies` pattern until bodies migrates. S593g `head_canon=NULL` warning gate preserved.
 
-**Bodies** -- shipped 2026-05-02 as S598 at dev `64af7e0c` (bodies F1-F13) + `47f837d5` (pd-server stubs close-out). F1-F13 landed: manager (`port/src/catalog_mgr_bodies.c` 305 lines), pure validators (25 lines), `base/bodies.pdbase` (890 lines, 68 records: 63 named + 5 SP fallback), loader integration, F2 catalogGetBody* + `_Checked` accessor routing, F3 modeldef accessor migration, F4 catalogResetAllModeldefs legacy walk removed (audit Section J Concern 1 closed), F5 body.c verification (S593g warning gate preserved via manager-routed `catalogGetBodyIsComplete`), F11 startup wiring (`catalogManagerBodyInit` + `loaderPdbaseBuildBodyManager`), F12 parser, F13 grep-guard test (16 cases / 190 assertions; 21 cases / 246 assertions for `[gate3]` covering heads + bodies). Build clean across pd (54.8 MB) + pd-server (22.3 MB) + pd-tests (23.9 MB). pd-server stub fix added 5 client-only refs to `port/src/server_stubs.c` (cumulative drift from S591 weapons + Phase 3 Pass B Slices + S596 heads + S598 bodies).
+**Bodies** -- shipped 2026-05-02 as S598 at dev `64af7e0c` (bodies F1-F13) + `47f837d5` (pd-server stubs close-out). F1-F13 landed: manager (`port/src/catalog_mgr_bodies.c` 305 lines), pure validators (25 lines), `base/bodies.pdbase` (890 lines, 68 records: 63 named + 5 SP fallback), loader integration, F2 catalogGetBody* + `_Checked` accessor routing, F3 modeldef accessor migration, F4 catalogResetAllModeldefs legacy walk removed, F5 body.c verification (S593g warning gate preserved via manager-routed `catalogGetBodyIsComplete`), F11 startup wiring, F12 parser, F13 grep-guard test (16 cases / 190 assertions; 21 cases / 246 assertions for `[gate3]` covering heads + bodies). Build clean across pd (54.8 MB) + pd-server (22.3 MB) + pd-tests (23.9 MB). pd-server stub fix added 5 client-only refs to `port/src/server_stubs.c`.
 
-**Arenas** -- next up. Auto-spawning per Mike's "don't wait on me; sequential auto-merge per asset migration" standing rule. Apply the validated F1-F13 Manager + .pdbase + grep-guard template (heads / bodies / weapons reuse) to the static arena metadata table. Likely `g_MpStages[]` or arena-equivalent in `mplayer/setup.c`.
+**Maps + Arenas** -- shipped 2026-05-02 as S599 at dev `6d3bf4c9`. F1-F13 Manager + `.pdbase` + grep-guard template applied; static arena metadata moved to `base/arenas.pdbase`.
 
-**Remaining queue** (post-arenas, sequential):
+**Phase 3 Pass A/B/C (Rom-once + disk-backed catalog)**:
 
-- Audio (medium; ASSET_AUDIO already has runtime activation; data move follows).
-- Scenarios / game modes.
-- Bot profiles + bot variants.
+- **Pass A.1** (data tier accessors), **A.2** (first-launch ROM extraction to `data/<romid>/files/`), **A.3** (BYOR SHA-256 known-good gate), **A.4** (hash-verify-on-launch self-heal): all shipped.
+- **Pass B Slices 1-13**: per-class catalog migration from RomProvider to FileProvider + segment extraction to `data/<romid>/segs/`. All shipped 2026-05-02. Slice 12 (SFX residual ACCEPTED LIMIT) close-out at `f52cf660`. Alias-range SFX IDs (0x8000+) deliberately unregistered -- leaf-level overrides via the 1545 `ASSET_AUDIO` entries cover alias-IDed plays after the `snd.c::sndStart` decode.
+- **Pass C** (RomProvider drop) shipped 2026-05-02 at `b15cc701`. `romdataReleaseRom()` migrates SRC_ROM segments to disk-backed copies after extract+verify, NULLs lazy fileSlot pointers into ROM range, frees `g_RomFile`. `romdataFileLoad` gains a per-romid disk fallback before the legacy SRC_ROM set; LOUD-FAIL `LOAD.PASSC` if both miss with `g_RomFile == NULL`. `romdataResetFile` handles the released-ROM case. Audit: [`audits/catalog-phase3-passc-romprovider-drop-2026-05-02.md`](audits/catalog-phase3-passc-romprovider-drop-2026-05-02.md).
 
-For each: design pass + audit + migrate + retire Layer A.
+**Pass D (queued, parallel session)**: self-heal hardening. Pass C LOUD-FAILs if a segment/file is missing on disk; Pass D layers recovery (catch the missing case, re-derive from a backup source if available, re-extract on the fly so the next boot is clean). Held until Pass C bakes. Brief lives in a parallel worktree per Mike's directive.
+
+**Remaining catalog queue** (post-Pass-D, sequential): scenarios / game modes, bot profiles + bot variants. Each: design pass + audit + migrate + retire Layer A.
 
 **Pillar ref**: [pillars/catalog.md](pillars/catalog.md).
 
