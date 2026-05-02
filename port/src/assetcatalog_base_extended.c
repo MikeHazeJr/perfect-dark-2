@@ -773,7 +773,22 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 		count += n;
 	}
 
-	/* ---- lang banks (Phase 3: manifest-based lang loading) ---- */
+	/* ---- lang banks (Phase 3: manifest-based lang loading) ----
+	 *
+	 * Catalog coverage audit (2026-05-01) Section 3.E closure: bind
+	 * each ASSET_LANG entry to its ROM source filenum via
+	 * langGetFileId(bank_id) so catalogResolveFile picks them up in
+	 * the s_FilenumOverride[] reverse index.  Without this, mods
+	 * cannot override language banks: a mod that ships a replacement
+	 * weapon-name string table or scenario briefing translation has
+	 * no way to redirect lang.c's assetLoadRomToNew(langGetFileId(...))
+	 * call to a mod-supplied file.
+	 *
+	 * The bank_id-to-filenum map (g_LangFiles[bank] + JPN offset)
+	 * lives in src/game/lang.c.  Calling langGetFileId at registration
+	 * time pins the binding.  langGetFileNumOffset depends on g_Jpn
+	 * which is decided before assetCatalogRegisterBaseGameExtended
+	 * runs, so the offset is stable here. */
 	{
 		s32 n = 0;
 		s32 i;
@@ -790,9 +805,17 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->ext.lang.bank_id = s_BaseLangBanks[i].bank_id;
 			/* ENABLED not LOADED: langLoad() must be called explicitly */
 			e->load_state = ASSET_STATE_ENABLED; e->ref_count = 0;
+			/* Section 3.E closure: bind to ROM filenum so mods can
+			 * override individual language banks via the standard
+			 * romdataFileLoad mod-override path. */
+			s32 fnum = langGetFileId(s_BaseLangBanks[i].bank_id);
+			if (fnum > 0) {
+				e->source_filenum = fnum;
+				catalogSetPrimaryRomFilenum(e, fnum);
+			}
 			n++;
 		}
-		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base lang banks", n);
+		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base lang banks (with source_filenum)", n);
 		count += n;
 	}
 
