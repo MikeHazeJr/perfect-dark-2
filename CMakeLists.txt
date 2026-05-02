@@ -667,6 +667,13 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_bodies.c
   ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_bodies_pure.c
 
+  # Catalog Gate 3 Arenas F1: catalog manager for MP arenas.
+  # The pd-server build includes the manager so loader_pdbase.c
+  # (which links into pd-server's manager-side accessors) compiles
+  # cleanly. Manager has no modeldef cache, no rng dependency.
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_arenas.c
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_arenas_pure.c
+
   # INV-4: pure helpers for matchOptionsForceBit / matchOptionsRestoreUserOriginal.
   # matchsetup.c references them at matchStart restore; without this
   # source link pd-server would fail.
@@ -1002,6 +1009,27 @@ set(SRC_TESTS
   # stays globals-free.
   ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_bodies_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_mgr_bodies_api.cpp
+
+  # Catalog Gate 3 Arenas F1: catalog manager for MP arenas (pure validators).
+  # Live router lives in port/src/catalog_mgr_arenas.c and walks
+  # ASSET_ARENA catalog rows; only the pure layer is linked here so
+  # pd-tests stays globals-free.
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_arenas_pure.c
+  ${CMAKE_SOURCE_DIR}/tests/test_catalog_mgr_arenas_api.cpp
+
+  # Catalog Gate 3 Arenas F11 + F12: pin the .pdbase archive shape +
+  # the parser / parity-check static contract. Static-text grep against
+  # base/arenas.pdbase + port/src/loader_pdbase.c + catalog_mgr_arenas.c
+  # + main.c.
+  ${CMAKE_SOURCE_DIR}/tests/test_loader_pdbase_arenas.cpp
+
+  # Catalog Gate 3 Arenas F13: grep-guard test. Pins that no NEW
+  # direct g_MpArenas[idx].field reads exist outside the registration
+  # loop in assetcatalog_base.c and the static literal definitions
+  # (setup.c + server_stubs.c). The 2026-04-26 selector-pool migration
+  # eliminated the live-UI consumers; the 2026-05-02 Gate 3 data
+  # migration retired the parity bridge.
+  ${CMAKE_SOURCE_DIR}/tests/test_arena_direct_reads_audit.cpp
 
   # S484 F2: pin weaponFindById's migration to the catalog manager.
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_findbyid_migrated.cpp

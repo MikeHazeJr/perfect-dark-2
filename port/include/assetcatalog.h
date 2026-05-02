@@ -243,6 +243,16 @@ typedef struct asset_entry {
              *      arenas so the user can fly around without anything
              *      triggering / dying / cutscenes playing. */
             u8  load_mode;
+            /* Catalog Gate 3 Arenas F7: archive-relative resolution.
+             * Empty until the loader populates them at startup. Non-empty
+             * means the arena record lives in base/arenas.pdbase at the
+             * given offset/size; loader_pdbase populates these at scan
+             * time and the manager s_get checks loaderPdbaseArenasActive
+             * to decide which source to read. Mirrors the heads / bodies
+             * F7 fields. */
+            char pdbase_path[128];
+            u32  pdbase_offset;
+            u32  pdbase_size;
         } arena;
         struct {
             s16 bodynum;               /* global body ID in g_HeadsAndBodies[] */
