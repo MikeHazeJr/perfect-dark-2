@@ -1,17 +1,22 @@
 /*
  * tests/test_uichrome_paths_pin.cpp -- Phase 3 Pass B Slice 13 path pin.
  *
- * Locks the migration of UI chrome textures from mods/base-ui/textures/
- * (legacy mod tier) to base/ui/textures/ (project-canonical tier) per
- * Mike's Slice 13 directive (2026-05-02).
+ * Locks the migration of UI chrome textures to data/ui/textures/ (the
+ * BYOR tier alongside per-romid segs).  Pre-Slice-13 they lived under
+ * mods/base-ui/textures/ (the user-overlay tier); the initial Slice 13
+ * commit moved them to base/ui/textures/ but that was a misclassi-
+ * fication -- the textures are extracted from the user-supplied ROM,
+ * never ship with the project, and therefore belong in the BYOR data/
+ * tier.  This pin enforces the corrected destination.
  *
  * Static text grep against port/fast3d/pdgui_theme.cpp + port/include/
  * pdgui_theme.h.  The audit is at
  * context/audits/catalog-phase3-passb-slice13-uichrome-2026-05-02.md.
  *
  * @SYNC: any future restructuring of pdgui_theme.cpp must keep the
- *        base/ui/textures/ path canonical.  Mods may overlay via the
- *        modvfs path but the catalog source-of-truth lives under base/.
+ *        data/ui/textures/ path canonical.  Mods may overlay via the
+ *        modvfs path but the runtime extraction destination + catalog
+ *        source-of-truth lives under data/.
  */
 
 #include "catch.hpp"
@@ -42,26 +47,26 @@ unsigned countOccurrences(const std::string &haystack, const std::string &needle
 
 } /* anonymous namespace */
 
-TEST_CASE("uichrome-paths: catalog entries point at base/ui/textures",
+TEST_CASE("uichrome-paths: catalog entries point at data/ui/textures",
           "[catalog][uichrome][slice13][pass-b]") {
 	const std::string src = readSourceFile("port/fast3d/pdgui_theme.cpp");
 	REQUIRE(!src.empty());
 
 	/* k_UiTextures[] entries -- 13 distinct catalog id / path pairs */
 	const char *expected_paths[] = {
-		"base/ui/textures/ui_bg_haze.tga",
-		"base/ui/textures/ui_particles.tga",
-		"base/ui/textures/ui_noise_sm.tga",
-		"base/ui/textures/ui_noise_lg.tga",
-		"base/ui/textures/ui_grad_bar.tga",
-		"base/ui/textures/ui_mirror_tile.tga",
-		"base/ui/textures/ui_dot_tile.tga",
-		"base/ui/textures/ui_nuke.tga",
-		"base/ui/textures/ui_bg_alt.tga",
-		"base/ui/textures/ui_deco.tga",
-		"base/ui/textures/ui_icon_a.tga",
-		"base/ui/textures/ui_icon_b.tga",
-		"base/ui/textures/ui_icon_c.tga",
+		"data/ui/textures/ui_bg_haze.tga",
+		"data/ui/textures/ui_particles.tga",
+		"data/ui/textures/ui_noise_sm.tga",
+		"data/ui/textures/ui_noise_lg.tga",
+		"data/ui/textures/ui_grad_bar.tga",
+		"data/ui/textures/ui_mirror_tile.tga",
+		"data/ui/textures/ui_dot_tile.tga",
+		"data/ui/textures/ui_nuke.tga",
+		"data/ui/textures/ui_bg_alt.tga",
+		"data/ui/textures/ui_deco.tga",
+		"data/ui/textures/ui_icon_a.tga",
+		"data/ui/textures/ui_icon_b.tga",
+		"data/ui/textures/ui_icon_c.tga",
 	};
 	for (const char *p : expected_paths) {
 		INFO("expected catalog path: " << p);
@@ -69,26 +74,26 @@ TEST_CASE("uichrome-paths: catalog entries point at base/ui/textures",
 	}
 }
 
-TEST_CASE("uichrome-paths: extraction destination writes to base/ui/textures",
+TEST_CASE("uichrome-paths: extraction destination writes to data/ui/textures",
           "[catalog][uichrome][slice13][pass-b]") {
 	const std::string src = readSourceFile("port/fast3d/pdgui_theme.cpp");
 	REQUIRE(!src.empty());
 
 	/* TGA + PNG + 9slice JSON destination format strings.
 	 * Each appears at least once in the extraction code path. */
-	REQUIRE(src.find("base/ui/textures/%s.tga") != std::string::npos);
-	REQUIRE(src.find("base/ui/textures/%s.png") != std::string::npos);
-	REQUIRE(src.find("base/ui/textures/%s.9slice.json") != std::string::npos);
+	REQUIRE(src.find("data/ui/textures/%s.tga") != std::string::npos);
+	REQUIRE(src.find("data/ui/textures/%s.png") != std::string::npos);
+	REQUIRE(src.find("data/ui/textures/%s.9slice.json") != std::string::npos);
 }
 
-TEST_CASE("uichrome-paths: directory creation targets base/ui/textures",
+TEST_CASE("uichrome-paths: directory creation targets data/ui/textures",
           "[catalog][uichrome][slice13][pass-b]") {
 	const std::string src = readSourceFile("port/fast3d/pdgui_theme.cpp");
 	REQUIRE(!src.empty());
 
-	REQUIRE(src.find("fsCreateDir(\"base\")") != std::string::npos);
-	REQUIRE(src.find("fsCreateDir(\"base/ui\")") != std::string::npos);
-	REQUIRE(src.find("fsCreateDir(\"base/ui/textures\")") != std::string::npos);
+	REQUIRE(src.find("fsCreateDir(\"data\")") != std::string::npos);
+	REQUIRE(src.find("fsCreateDir(\"data/ui\")") != std::string::npos);
+	REQUIRE(src.find("fsCreateDir(\"data/ui/textures\")") != std::string::npos);
 }
 
 TEST_CASE("uichrome-paths: legacy mods/base-ui paths fully retired in code",
@@ -103,6 +108,27 @@ TEST_CASE("uichrome-paths: legacy mods/base-ui paths fully retired in code",
 	REQUIRE(cpp.find("mods/base-ui/") == std::string::npos);
 	REQUIRE(hdr.find("mods/base-ui/textures/") == std::string::npos);
 	REQUIRE(hdr.find("mods/base-ui/") == std::string::npos);
+}
+
+TEST_CASE("uichrome-paths: base/ui/textures misclassification fully retired",
+          "[catalog][uichrome][slice13][pass-b]") {
+	const std::string cpp = readSourceFile("port/fast3d/pdgui_theme.cpp");
+	const std::string hdr = readSourceFile("port/include/pdgui_theme.h");
+	REQUIRE(!cpp.empty());
+	REQUIRE(!hdr.empty());
+
+	/* The interim base/ui/textures destination from the initial Slice
+	 * 13 commit must not reappear: ROM-extracted content lives in the
+	 * BYOR data/ tier, never in the project-authored base/ tier. */
+	REQUIRE(cpp.find("base/ui/textures/") == std::string::npos);
+	REQUIRE(cpp.find("base/ui/textures") == std::string::npos);
+	REQUIRE(hdr.find("base/ui/textures/") == std::string::npos);
+	REQUIRE(hdr.find("base/ui/textures") == std::string::npos);
+
+	/* Defensive: no fsCreateDir("base/...") for ui chrome. */
+	REQUIRE(cpp.find("fsCreateDir(\"base\")") == std::string::npos);
+	REQUIRE(cpp.find("fsCreateDir(\"base/ui\")") == std::string::npos);
+	REQUIRE(cpp.find("fsCreateDir(\"base/ui/textures\")") == std::string::npos);
 }
 
 TEST_CASE("uichrome-paths: mod.json autogen retired",

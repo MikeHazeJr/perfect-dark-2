@@ -6,10 +6,10 @@
  *
  * Two-stage lifecycle:
  *   1. pdguiThemeInit()      -- early init, called from pdguiInit()
- *   2. pdguiThemeLateInit()  -- loads textures from base/ui/textures or
+ *   2. pdguiThemeLateInit()  -- loads textures from data/ui/textures or
  *                               procedural fallbacks, called after texInit()/texReset()
  *
- * Texture pipeline: on-disk TGA files (base/ui/textures/*.tga) -> GL upload
+ * Texture pipeline: on-disk TGA files (data/ui/textures/*.tga) -> GL upload
  *   -> s_ThemeTexCache -> draw funcs
  * Procedural fallback: generate noise/solid textures when on-disk files missing
  *
@@ -31,7 +31,7 @@ extern "C" {
  *  Called from pdguiInit() after OpenGL context is ready. */
 void pdguiThemeInit(void);
 
-/** Late init: loads UI textures from base/ui/textures TGA files, or generates
+/** Late init: loads UI textures from data/ui/textures TGA files, or generates
  *  procedural fallbacks. Called after texInit()/texReset() have run.
  *  Safe to call more than once (no-op after first call). */
 void pdguiThemeLateInit(void);
@@ -116,7 +116,7 @@ void pdguiThemeDrawScanlineFg(float x, float y, float w, float h);
  * ROM Texture Extraction Tool
  * --------------------------------------------------------------------- */
 
-/** Extract ROM UI textures to base/ui/textures/ as TGA files.
+/** Extract ROM UI textures to data/ui/textures/ as TGA files.
  *  Must be called after texReset() has run. Triggered by --extract-ui-textures. */
 void pdguiThemeExtractRomTextures(void);
 
