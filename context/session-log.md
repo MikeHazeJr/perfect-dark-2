@@ -1,5 +1,45 @@
 # Session Log (Active)
 
+## Session S606 (`catalog-slice12-passc`) - 2026-05-02 PM - B-306 Pass C FileProvider preprocess gap
+
+Mike's playtest of the B-305 fix #2 binary unblocked catalog init but surfaced a second crash one boot phase later: `0xc0000005` at PC offset `+0x3ba918` inside `modelPromoteNodeOffsetsToPointers`, called from `setupCreateDoor -> setupLoadModeldef -> modeldefLoadToNewFromHandle -> modeldefLoadFromHandle -> assetLoadToNew`.  Decoded via objdump on the live binary; full stack: `+0x3bab11 modelPromoteOffsetsToPointers`, `+0xf05f9 modeldefFinalizeLoadedWithSizes`, `+0xf07a3 modeldefLoadFromHandle`, `+0xf0993 modeldefLoadToNewFromHandle`, `+0x16e2fd setupLoadModeldef`, `+0x169ddd setupCreateDoor`, `+0x16b4a3 setupCreateProps`, `+0xcaf28 lvReset`.
+
+### Root-cause class
+
+NEW class, not a dangling pointer.  Mike's expanded scope ("if same class, sweep") had me audit every struct field that holds ROM-relative pointers; every class is already covered by Fix #1 + Fix #2:
+
+- `fileSlots[i].name` -- migrated to heap copies before `sysMemFree(g_RomFile)` (Fix #2 `d8ada1a3`).
+- `fileSlots[i].data` -- NULLed for ROM-pointing slots; per-romid disk path re-resolves on next load (Fix #2 + Pass C `968fe031`).
+- `romSegs[i].data` -- migrated to heap-from-disk (Pass C original `6fe89c7a`).
+- `romSegs[i].segstart` / `segend` extern mirrors -- refreshed via `romdataUpdateSegStartEnd` after migration (Pass C original).
+- `_animationsTableRomStart` / `_animationsTableRomEnd` -- migrated when the animations segment is migrated (Fix #1 `968fe031`).
+- `g_FileTable` -- legacy N64 stub, all zeros on PC; no dangle.
+- All other preprocesses either return a heap buffer (`preprocessFont`, `preprocessALBankFile`) or do not publish ROM-relative externs (`preprocessSequences`, `preprocessJpnFont`, `preprocessTexturesList`, `preprocessMpConfigs`, `preprocessALCMidiHdr`).
+
+The current crash is a different class entirely: a provider-pipeline mismatch.  `assetLoadToNew`'s FileProvider dispatch path (`port/src/assetload.c`, lines 105-135) does NOT apply `rzipInflate` or `LOADTYPE_x` preprocess -- it just `memcpy`s raw bytes from disk into a fresh buffer.  RomProvider gets a documented short-circuit that calls `fileLoadRomToNew` (full legacy pipeline with inflate + preprocess).  Pass B's `catalogBindPrimaryFromDiskOrRom` migrated every base-game entry to FileProvider via `catalogSetPrimaryFile`, exposing the latent gap.  Pre-Pass-C the bug was already there; B-305 just blocked the boot sequence so deeply that no door modeldef load ever fired.
+
+Mike's log also surfaced an unrelated symptom of the same migration: `FileProvider: path intern pool exhausted (820 paths, 32751 bytes used, need 37 more)`.  The pool is sized for `MAX_PATHS = 1024` and `POOL_BYTES = 32 KB`; ~2000 base-game per-romid paths overran both caps and entries beyond ~820 silently got null handles.
+
+### Fix
+
+`catalogBindPrimaryFromDiskOrRom` now always binds RomProvider with the source filenum.  Disk probe + FileProvider binding removed.  Pass C's `romdataFileLoad` per-romid disk fallback already reads from `data/<romid>/files/<name>.bin` when `g_RomFile` is released, so the legacy pipeline (`assetLoadToNew(romHandle)` short-circuits to `fileLoadRomToNew -> fileLoad -> romdataFileLoad`) gets disk bytes with `rzip inflate` + `LOADTYPE_x` preprocess intact.
+
+Mod overrides keep working via `romdataFileLoad`'s catalog override branch (entries with `!e->bundled` and `ext.character.bodyfile` et al populated by `assetCatalogScanComponents`).  Mod authoring is unchanged.
+
+Stage scene file loads (`stage.setup_handle`, `stage.tile_handle`, `stage.pads_handle`, `stage.mpsetup_handle`) were never affected because `s_fillStageResult` populates handles directly via `romProviderHandle(fileid)`, bypassing the catalog primary handle path.
+
+### Build verify
+
+`pd` 54.8 MB clean (CLIENT 23s).  Binary refreshed at `Build/PerfectDark.exe` (timestamp 19:43).
+
+### Files touched
+
+- [`port/src/assetcatalog.c`](../port/src/assetcatalog.c) (+51 / -19): `catalogBindPrimaryFromDiskOrRom` now always binds RomProvider with the source filenum.  Disk probe + FileProvider binding removed.
+
+### Auto-merge
+
+Per standing rule.  Pre-merge HEAD `1a336955`.  Worktree `92472f2d`.  Merged `54f103eb`.  Post-merge file line counts match worktree exactly.
+
 ## Session S605 (`catalog-slice12-passc`) - 2026-05-02 PM - B-305 Pass C dangling-pointer hotfix
 
 Mike's `89376df7` build crashed at startup with `0xc0000005` at `+0x23cac2`. Decoded the offset to `romExtractBuildRelPath` on `cmpb (%rax)` after `call romdataFileGetName`. The `name` field of every `fileSlots[i]` was set in `romdataInitFiles` as `(const char *)nameOffsets + ofs` where `nameOffsets = g_RomFile + PD_BE32(offsets[i - 1])` -- a pointer into the ROM-resident name table. Pass C (`b15cc701`) freed `g_RomFile` but never migrated the name pointers. Catalog base-game registration calls `catalogBindPrimaryFromDiskOrRom -> romExtractRelPathForFilenum -> romExtractBuildRelPath -> romdataFileGetName` which returned the dangling pointer; the next `romName[0]` deref crashed the process before the title screen rendered.
