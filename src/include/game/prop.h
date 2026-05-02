@@ -5,6 +5,12 @@
 #include "types.h"
 
 extern f32 g_AutoAimScale;
+/* S311: pointer to whichever interactable prop the player is currently
+ * looking at, or NULL. Set by propFindForInteract per frame and read by
+ * the bondmove interact-prompt path + the pdgui prompt overlay. Cleared
+ * by propsReset on stage transition (S311-followup, 2026-05-01) so it
+ * cannot dangle into a freed prop slot from the prior stage. */
+extern struct prop *g_InteractProp;
 
 void propsTick(void);
 
