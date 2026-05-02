@@ -3919,6 +3919,15 @@ static void renderSettingsDebug(float scale)
         static char  s_ArenaStageIds[kMaxArenas][64];
         static char  s_ArenaNames[kMaxArenas][48];
         static const char *s_ArenaNamePtrs[kMaxArenas];
+        /* S594h-Unit-C-followup (2026-05-01): track canvas-loadmode per
+         * arena so the swarm path can grey out / filter solo mission
+         * stages. The runtime guard in testScenarioLaunch already
+         * refuses canvas arenas with a log line, but Mike's playtest
+         * showed that's invisible in the UI -- click Start, nothing
+         * appears to happen. The picker now annotates canvas arenas
+         * and disables Start when a canvas arena is selected for
+         * swarm mode. */
+        static u8    s_ArenaIsCanvas[kMaxArenas];
         static int   s_NumArenas = 0;
         static int   s_DefaultIdx = 0;
         static bool  s_ArenasBuilt = false;
@@ -3929,11 +3938,13 @@ static void renderSettingsDebug(float scale)
                 int  cap;
                 char (*ids)[64];
                 char (*names)[48];
+                u8  *is_canvas;
             } ctx;
-            ctx.count = &s_NumArenas;
-            ctx.cap   = kMaxArenas;
-            ctx.ids   = s_ArenaStageIds;
-            ctx.names = s_ArenaNames;
+            ctx.count     = &s_NumArenas;
+            ctx.cap       = kMaxArenas;
+            ctx.ids       = s_ArenaStageIds;
+            ctx.names     = s_ArenaNames;
+            ctx.is_canvas = s_ArenaIsCanvas;
             s_NumArenas = 0;
 
             assetCatalogIterateByType(ASSET_ARENA,
@@ -3947,11 +3958,22 @@ static void renderSettingsDebug(float scale)
                     if (!stage_id || !stage_id[0]) return;
                     /* Arena name: prefer the localised display name from
                      * arenaGetName(); fall back to the catalog id when
-                     * the langid isn't resolvable. */
+                     * the langid isn't resolvable. Append "(solo)" to
+                     * canvas-loadmode arenas so the user sees they're
+                     * not swarm-compatible. */
                     const char *name = arenaGetName((u16)e->ext.arena.name_langid);
                     if (!name || !name[0]) name = e->id;
-                    strncpy(c->ids[*c->count],   stage_id, 63); c->ids[*c->count][63] = '\0';
-                    strncpy(c->names[*c->count], name,     47); c->names[*c->count][47] = '\0';
+                    const u8 is_canvas =
+                        (e->ext.arena.load_mode == ARENA_LOADMODE_CANVAS) ? 1 : 0;
+                    strncpy(c->ids[*c->count], stage_id, 63);
+                    c->ids[*c->count][63] = '\0';
+                    if (is_canvas) {
+                        snprintf(c->names[*c->count], 48, "%s (solo)", name);
+                    } else {
+                        strncpy(c->names[*c->count], name, 47);
+                        c->names[*c->count][47] = '\0';
+                    }
+                    c->is_canvas[*c->count] = is_canvas;
                     (*c->count)++;
                 },
                 &ctx);
@@ -4019,7 +4041,21 @@ static void renderSettingsDebug(float scale)
         const bool launchOk = (testScenarioCanLaunch() != 0);
         const char *whyDisabled = testScenarioWhyDisabled();
 
-        if (!launchOk) ImGui::BeginDisabled();
+        /* S594h-Unit-C-followup: gate the Start button when a canvas
+         * arena is selected for a swarm scenario. Mike's playtest
+         * picked Chicago / Skedar Ruins (campaign), the runtime guard
+         * refused with a log line, but from the UI the click looked
+         * like a no-op. Greying Start + showing a status string makes
+         * the rejection visible. The runtime guard stays in place as
+         * a backstop. */
+        const bool selectedIsValidIdx =
+            (s_TestScenArenaIdx >= 0 && s_TestScenArenaIdx < s_NumArenas);
+        const bool selectedIsCanvas = selectedIsValidIdx
+            && s_ArenaIsCanvas[s_TestScenArenaIdx];
+        const bool canvasBlocksLaunch = !gridMode && selectedIsCanvas;
+        const bool startEnabled = launchOk && !canvasBlocksLaunch;
+
+        if (!startEnabled) ImGui::BeginDisabled();
         if (ImGui::Button("Start##testscen", ImVec2(btnW, btnH))) {
             test_scenario_t scen = TESTSCEN_NONE;
             const char *map_id = NULL;
@@ -4049,7 +4085,7 @@ static void renderSettingsDebug(float scale)
                 testScenarioLaunch(scen, map_id);
             }
         }
-        if (!launchOk) ImGui::EndDisabled();
+        if (!startEnabled) ImGui::EndDisabled();
 
         if (gridMode) {
             ImGui::TextDisabled("Loads CI Training as a baseline empty session.");
@@ -4059,6 +4095,10 @@ static void renderSettingsDebug(float scale)
         }
         if (!launchOk && whyDisabled) {
             ImGui::TextDisabled("Disabled: %s", whyDisabled);
+        }
+        if (canvasBlocksLaunch) {
+            ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.30f, 1.0f),
+                "Disabled: '(solo)' arenas are solo-mission canvases. Pick an MP arena.");
         }
     }
 
