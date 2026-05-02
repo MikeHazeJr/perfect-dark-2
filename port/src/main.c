@@ -319,6 +319,18 @@ int main(int argc, const char **argv)
 	romExtractAllSegments();
 	romExtractVerifyAllSegments();
 
+	/* Phase 3 Pass C (2026-05-02): drop the in-memory ROM mapping.
+	 * Pass A.2/A.4 + Pass B segment extract/verify guarantee every byte
+	 * needed by the runtime is already on disk under data/<romid>/.
+	 * romdataReleaseRom migrates SRC_ROM segments to heap-backed copies
+	 * loaded from disk, NULLs out the lazy fileSlot pointers that
+	 * referenced g_RomFile + ofs, then frees g_RomFile.  Subsequent
+	 * romdataFileLoad calls route SRC_UNLOADED slots through the
+	 * per-romid extracted file path; the legacy SRC_ROM fallback
+	 * LOUD-FAILs because g_RomFile is NULL.  Architectural finish line
+	 * for catalog migration: the runtime never touches the ROM directly. */
+	romdataReleaseRom();
+
 	netInit();
 
 	g_ValidGbcRomFound = romdataCheckGbcRom();
@@ -451,7 +463,11 @@ int main(int argc, const char **argv)
 	}
 
 	sysLogPrintf(LOG_NOTE, "memp heap at %p - %p", g_MempHeap, g_MempHeap + g_MempHeapSize);
-	sysLogPrintf(LOG_NOTE, "rom  file at %p - %p", g_RomFile, g_RomFile + g_RomFileSize);
+	if (g_RomFile) {
+		sysLogPrintf(LOG_NOTE, "rom  file at %p - %p", g_RomFile, g_RomFile + g_RomFileSize);
+	} else {
+		sysLogPrintf(LOG_NOTE, "rom  file released (Phase 3 Pass C): runtime reads disk-only");
+	}
 
 	/* NOTE: catalogValidateAll() was previously here, but it calls
 	 * modeldefLoadToNew() -> mempAlloc() which requires the pool system.
