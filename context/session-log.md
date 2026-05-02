@@ -3,6 +3,59 @@
 > **S481-S597 + S593h + S482c + S593b** (rolling window of ~111 sessions; S597 added 2026-05-01 PM for B-304 default wireframe OFF in forge + Debug Rendering toggles in Level tab on the infallible-mestorf-8463b9 worktree; S596 added 2026-05-01 PM for Catalog Gate 3 Character Heads DATA migration F1-F13 ship on the catalog-gate3-heads-0501 worktree (manager + .pdbase loader pattern reused from weapons, 84 head records in base/heads.pdbase, no Layer A leakage; merged at dev a2ad421e); S595 added 2026-05-01 PM for B-303 post-exit Main Menu auto-pop on solo campaign + Forge end paths (Combat Sim path left intact per OG-canonical var80087260=3 mechanism); S593h added 2026-05-01 PM for swarm refinement bundle (random scale 0.2-0.6 weighted small, BOTDIFF_DARK + BOTTYPE_SPEED, per-frame player awareness + LOS short-circuit, no bot-bot collision via CHRHFLAG_00040000 swarm lock, power-weapon loadout for player + COMBATKNIFE for bots); S593g added 2026-05-01 PM for body.c integrated-head warning gate (suppressing 550 head_canon=NULL log spam during the swarm 4-256 cycle); S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
 
+## Session S484-followup-5 (`distracted-hamilton-430172` continuation) - 2026-05-01 PM - SFX enum drift fix: Farsight gun voiceline
+
+Mike's playtest report (verbatim, 2026-05-01):
+
+> "Check the log in the build folder. Weapon SFX are wrong, the Farsight weapon fire sound was a voiceline (I think it said 'damn, missed again', but not 100% sure). Probably related to the same catalog issue."
+
+### Investigation
+
+The Farsight ROM-fires-fine sound is `SFX_813E` (raw enum value 0x813E). At runtime, `sndStart` unpacks the `soundnumhack` packed bitfield where `confignum = bits 0-14` and indexes `g_AudioRussMappings[confignum]`. With the value the loader was actually serving, confignum landed at `0x0136` -> `AudioRussMappings[310] = { 0x83f3, AUDIOCONFIG_02 } // "Damn, missed again"` (a Carrington dialogue voiceline, [src/lib/snd.c:505](../../src/lib/snd.c:505)). The intended index was `0x013E` -> `AudioRussMappings[318] = { 0x8432, AUDIOCONFIG_33 }` (the actual Farsight gun report, [src/lib/snd.c:515](../../src/lib/snd.c:515)).
+
+That's a drift of 8 between expected and observed enum values. Searched [src/include/sfx.h:1822-1928](../../src/include/sfx.h:1822) for `#if VERSION` blocks before `SFX_813E`: there are exactly 4, each with one entry inside.
+
+### Root cause
+
+[devtools/extract_weapons_pdbase.py:786](../../devtools/extract_weapons_pdbase.py:786) `parse_enum_header` was splitting the enum body by commas, then matching each part against `^\s*([A-Za-z_]\w*)`. Lines containing `#if` / `#endif` start with `#`, so they fail the regex. But the same comma-split groups the *next* enum entry into the same chunk as the `#endif` directive, so that entry is dropped too. Each `#if X\nIDENT,\n#endif\nNEXT_IDENT` therefore costs **2 cur_value increments** (the IDENT inside #if AND the NEXT_IDENT line that's stuck to #endif). 4 #if blocks before SFX_813E -> 8 missed increments -> SFX_813E=0x813E - 8 = 0x8136. Exact match for the observed drift.
+
+### Fix
+
+`parse_enum_header` now takes the constant table and runs `resolve_ifdefs` (already defined in the same file, used elsewhere on invitems.c but never on enum headers) before splitting. With `VERSION = VERSION_NTSC_1_0 = 2` injected, all `#if VERSION >= VERSION_NTSC_1_0` blocks evaluate true and the bodies are kept intact.
+
+### Tooling
+
+After the F13 weapons migration retired `g_Weapons[]` from invitems.c, the original full-extract pass errors with `g_Weapons[] not found in invitems.c`. Added `--enums-only` flag to `extract_weapons_pdbase.py` so the loader_pdbase_enums.c lookup tables can be regenerated in isolation. Future SFX / ANIM / FILE / L_GUN drift can be patched without re-running the JSON extractor.
+
+### Verification
+
+Regenerated `port/src/loader_pdbase_enums.c`:
+- k_SfxEnum count: 1981 -> 1991 (+10 entries previously dropped by the regression)
+- SFX_813E:                33078 (0x8136) -> 33086 (0x813E)  CORRECT
+- SFX_813B:                missing        -> 33083 (0x813B)  CORRECT
+- SFX_M2_OH_GOD_IM_DYING:  missing        -> 33084 (0x813C)  CORRECT
+
+### Files (2)
+
+- [devtools/extract_weapons_pdbase.py](../../devtools/extract_weapons_pdbase.py) (parse_enum_header takes defs, runs resolve_ifdefs; --enums-only flag added; main() short-circuits to _emit_enum_tables when --enums-only)
+- [port/src/loader_pdbase_enums.c](../../port/src/loader_pdbase_enums.c) (regenerated; 1991 SFX entries, 8x SFX drift corrected)
+
+### Build verify (queued via build-session.ps1 -Session swfix9)
+
+- CLIENT  PASS  28s  PerfectDark.exe  54.7 MB
+- UPDATER PASS   1s  Updater.exe      12.3 MB
+- TESTS   PASS  23s  pd-tests.exe     (F12 enum-table presence test unaffected by value changes)
+- SERVER  pre-existing link breakage from 8948d23c -- assetCatalogRegisterWeaponModelFiles in port/src/assetcatalog_base_extended.c references catalogManagerWeaponCount / GetWeaponByIndex / g_CartFileNums but these symbols are not in the server source list. Spawned as a separate task; not in scope for the SFX fix.
+
+### Commits
+
+- 6aaabf44 fix(loader): SFX enum drift -- regen loader_pdbase_enums.c (S484-followup-5)
+- 614d6484 Merge worktree: SFX enum drift fix -- Farsight gun voiceline (S484-followup-5)
+
+### Next
+
+Awaiting Mike's playtest log to confirm Farsight + other weapons now play correct fire SFX. If the same #if-block regression has caused drift in ANIM_*, FILE_*, or L_GUN_* enum values (those headers also have #if blocks), the regenerated lookup tables should already pick up corrected values across the board (see "k_SfxEnum count: 1981 -> 1991" -- the +10 may include non-SFX-only fixes if other tables were similarly affected; checked at next playtest signal).
+
 ## Session S597 (`infallible-mestorf-8463b9`) - 2026-05-01 PM - B-304 default wireframe OFF + visible Debug Rendering toggles
 
 Mike's 2026-05-01 observation (verbatim, hadn't tested current dev tip yet):
