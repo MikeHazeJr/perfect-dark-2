@@ -42,7 +42,7 @@ Surfaced during F12 runtime debugging. Two parallel slices:
 
 ### 2. Catalog - Gate 3 Migration + Phase 3 Rom-once disk-back
 
-**Status**: LANE CLOSED 2026-05-02. Pass C (RomProvider drop) shipped at dev `b15cc701`; the runtime never touches `g_RomFile` after extraction. Pass D (self-heal hardening on top of Pass C's LOUD-FAIL) is queued in a parallel session per Mike's "Pass D in the fresh session" directive -- not blocking.
+**Status**: LANE CLOSED 2026-05-02. Pass C (RomProvider drop) shipped at dev `b15cc701`. Pass D (self-heal hardening) shipped 2026-05-02 in worktree `sharp-zhukovsky-116f03` (S604). The Catalog migration is COMPLETE; Mike's 2026-05-01 ROM-once-then-disk directive is fully satisfied. The runtime never touches `g_RomFile` after extraction; corruption is detected via SHA-256 sidecars on every boot, recovered via re-extract from the in-memory ROM during verify, surfaced via LOUDFAIL.LOAD log channel + per-file UI toasts + aggregate boot integrity report.
 
 **Heads** -- shipped 2026-05-01 as S596 at dev `a2ad421e`. F1-F13 landed: manager (`port/src/catalog_mgr_heads.c`), pure validators, `base/heads.pdbase` (84 records: 75 named + 9 SP fallback), loader integration, F2 catalogGetHead* routing, F3+F4 modeldef cache, F5 body.c modeldef NULL check via manager, F6 retire `g_MpMaleHeads` / `g_MpFemaleHeads`, F11 startup wiring (`catalogManagerHeadInit` + `loaderPdbaseBuildHeadManager`), F13 grep-guard test (12 cases / 96 assertions). Body reads keep the legacy `g_HeadsAndBodies` pattern until bodies migrates. S593g `head_canon=NULL` warning gate preserved.
 
@@ -56,9 +56,17 @@ Surfaced during F12 runtime debugging. Two parallel slices:
 - **Pass B Slices 1-13**: per-class catalog migration from RomProvider to FileProvider + segment extraction to `data/<romid>/segs/`. All shipped 2026-05-02. Slice 12 (SFX residual ACCEPTED LIMIT) close-out at `f52cf660`. Alias-range SFX IDs (0x8000+) deliberately unregistered -- leaf-level overrides via the 1545 `ASSET_AUDIO` entries cover alias-IDed plays after the `snd.c::sndStart` decode.
 - **Pass C** (RomProvider drop) shipped 2026-05-02 at `b15cc701`. `romdataReleaseRom()` migrates SRC_ROM segments to disk-backed copies after extract+verify, NULLs lazy fileSlot pointers into ROM range, frees `g_RomFile`. `romdataFileLoad` gains a per-romid disk fallback before the legacy SRC_ROM set; LOUD-FAIL `LOAD.PASSC` if both miss with `g_RomFile == NULL`. `romdataResetFile` handles the released-ROM case. Audit: [`audits/catalog-phase3-passc-romprovider-drop-2026-05-02.md`](audits/catalog-phase3-passc-romprovider-drop-2026-05-02.md).
 
-**Pass D (queued, parallel session)**: self-heal hardening. Pass C LOUD-FAILs if a segment/file is missing on disk; Pass D layers recovery (catch the missing case, re-derive from a backup source if available, re-extract on the fly so the next boot is clean). Held until Pass C bakes. Brief lives in a parallel worktree per Mike's directive.
+**Pass D** -- shipped 2026-05-02 (S604) in worktree `sharp-zhukovsky-116f03`. Self-heal hardening on top of Pass A.4 + segment verify. Three surfaces:
 
-**Remaining catalog queue** (post-Pass-D, sequential): scenarios / game modes, bot profiles + bot variants. Each: design pass + audit + migrate + retire Layer A.
+1. Per-file system toasts on `corrected` / `failed` outcomes (5-cap to prevent queue flooding).
+2. Aggregated boot integrity report: `LOG_NOTE: DATA INTEGRITY: V validated, R re-extracted, U unrecoverable` plus `LOG_WARNING` + danger toast if `U > 0` and info toast if `R > 0`.
+3. Deferred toast queue + drain (toasts queued during boot replay with fresh timestamps after `gameInit` so the renderer sees them as new).
+
+Plus: quarantine path migrated to user-visible `data/_quarantine/<romid>/<unixtime>_<basename>` (was `data/<romid>/.quarantine/`).
+
+Test pin: 9 cases / ~25 assertions in `[catalog][passd]` (`tests/test_romextract_passd.cpp`). Audit: [`audits/catalog-phase3-passd-self-heal-2026-05-02.md`](audits/catalog-phase3-passd-self-heal-2026-05-02.md).
+
+**Remaining catalog queue** (catalog migration COMPLETE; these are post-migration polish, not blocking the lane closure): scenarios / game modes, bot profiles + bot variants -- each gets a design pass + audit + migrate + retire Layer A when scope permits, but the architectural ROM-once-then-disk endpoint is achieved.
 
 **Pillar ref**: [pillars/catalog.md](pillars/catalog.md).
 

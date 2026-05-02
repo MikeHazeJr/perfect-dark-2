@@ -108,6 +108,59 @@ s32 romExtractVerifyAllSegments(void);
  */
 s32 romExtractSegmentRelPath(const char *segName, char *outRel, s32 outRelLen);
 
+/**
+ * Phase 3 Pass D (2026-05-02): self-heal hardening surfaces.
+ *
+ * Toast queue drain.  romExtractVerifyAll / romExtractVerifyAllSegments
+ * defer per-file/per-seg system toasts during boot because the renderer
+ * has not started yet (toasts enqueued during boot would fade out
+ * before the first frame).  romExtractToastDrain replays the queued
+ * toasts via pdguiToastEnqueue with fresh timestamps so the player
+ * actually sees them.  Idempotent: subsequent calls drain an empty
+ * queue.  Server build: no-op (PD_SERVER guard).
+ *
+ * Caller: main.c, AFTER gameInit so the toast renderer is ready.
+ */
+void romExtractToastDrain(void);
+
+/**
+ * Phase 3 Pass D (2026-05-02): boot-time data integrity report.
+ *
+ * Aggregates the file + segment verify counters into one LOG_NOTE line:
+ *   "DATA INTEGRITY: <V> validated, <R> re-extracted, <U> unrecoverable"
+ *
+ * If R > 0 (any re-extract happened) defers an info system toast with
+ * the count.  If U > 0 (any unrecoverable) emits LOG_WARNING and
+ * defers a danger system toast directing the user to verify their ROM.
+ *
+ * Idempotent: subsequent calls within the same boot are no-ops.
+ *
+ * Caller: main.c, AFTER both verify pairs and BEFORE romdataReleaseRom
+ * (the report does not depend on g_RomFile but should run before any
+ * destructive boot step that might confuse the counters).
+ *
+ * Server build: counters stay zero (verify funcs early-return), so the
+ * report logs "0 validated, 0 re-extracted, 0 unrecoverable" and skips
+ * the toast.  Cheap and harmless.
+ */
+void romExtractEmitBootIntegrityReport(void);
+
+/**
+ * Phase 3 Pass D (2026-05-02): test accessor for the boot integrity
+ * counters.  Each pointer may be NULL.
+ *
+ *   validated     = files+segments that hashed clean (verified +
+ *                   baselined sidecars)
+ *   recovered     = files+segments re-extracted successfully after
+ *                   sha-mismatch quarantine
+ *   unrecoverable = files+segments whose re-extract write failed
+ *                   (these stay quarantined; user must verify ROM)
+ *
+ * Returns the sum (validated + recovered + unrecoverable).
+ */
+s32 romExtractGetBootIntegrity(s32 *validated, s32 *recovered,
+                               s32 *unrecoverable);
+
 #ifdef __cplusplus
 }
 #endif

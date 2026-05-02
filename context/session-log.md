@@ -1,5 +1,66 @@
 # Session Log (Active)
 
+## Session S604 (`sharp-zhukovsky-116f03`) - 2026-05-02 PM - Phase 3 Pass D self-heal hardening (CATALOG LANE CLOSED)
+
+Mike's directive: wrap catalog today. Pass D was the last item. Worktree spawned parallel to the Bodies session that delivered Slice 12 + Pass C; held until those landed (`f52cf660`, `b15cc701`, `dcfc5989`). Mike greenlit Pass D after sync confirming dev tip at `dcfc5989`.
+
+### Outcome
+
+Self-heal hardening shipped. Three user-facing surfaces layered on top of the existing Pass A.4 + segment verify mechanism:
+
+1. **Per-file UI toasts on hash-mismatch outcomes.** `romExtractVerifyAll` and `romExtractVerifyAllSegments` defer system-tier toasts on `corrected` (recovered from corruption) and `failed` (unrecoverable) branches. Title prefix distinguishes asset class: `File recovered` / `File unrecoverable` / `Segment recovered` / `Segment unrecoverable`. Per-file emit capped at `ROMEXTRACT_TOAST_PERFILE_CAP = 5` to prevent queue-flooding on wholesale corruption; aggregate toast covers totals beyond the cap.
+2. **Aggregated boot integrity report.** New `romExtractEmitBootIntegrityReport()` emits one `LOG_NOTE` summary line `DATA INTEGRITY: V validated, R re-extracted, U unrecoverable` plus `LOG_WARNING` + danger system toast if `U > 0`, info system toast if `R > 0` and `U == 0`, silent if all clean.
+3. **Deferred toast queue + drain.** Toasts queued during boot would have stale `enqueued_ms` by the time the render loop kicks in (5s hold expires before first frame). Pass D adds `s_BootToasts[16]` private buffer in `romextract.c`; `main.c` calls `romExtractToastDrain()` right before `mainProc()` to replay with fresh timestamps.
+4. **Quarantine path migrated.** Old `data/<romid>/.quarantine/<unixtime>_<basename>` (per-romid hidden) -> new `data/_quarantine/<romid>/<unixtime>_<basename>` (top-level visible, per-romid grouped). Windows file managers no longer hide the dir; user can find quarantined bytes for forensic inspection.
+
+`pd` 54.9 MB / `pd-server` build queued / `pd-tests` build queued. Pass D test pin: 9 cases / ~25 assertions in `[catalog][passd]` tag set.
+
+### Audit doc
+
+[`context/audits/catalog-phase3-passd-self-heal-2026-05-02.md`](audits/catalog-phase3-passd-self-heal-2026-05-02.md). Sections A through D (additions) + boot ordering + server build + test surface + files touched + Pass A through Pass D summary table + low-priority hypotheses left open (sticky toasts, quarantine retention, mid-session detection, ROM-bytes-corrupted re-extract verify loop).
+
+### Server build
+
+`g_RomFile` is `NULL` server-side. Both verify funcs early-return with no counter updates, so `s_AggValidated/Recovered/Unrecoverable` stay zero; the boot integrity report logs `0 validated, 0 re-extracted, 0 unrecoverable` and skips the toast block. `romExtractToastDrain` is `PD_SERVER`-guarded and is a no-op. No new server stubs needed.
+
+### Files touched (5)
+
+- `port/include/romextract.h` (+62 / -0): declare `romExtractToastDrain`, `romExtractEmitBootIntegrityReport`, `romExtractGetBootIntegrity` with Pass D docblocks.
+- `port/src/romextract.c` (+225 / -8): PD_SERVER-guarded `pdgui_toast.h` include; quarantine path migration; Pass D state + helpers; per-file toast emit on corrected / failed branches in BOTH verify functions; aggregate counter updates; public Pass D functions appended.
+- `port/src/main.c` (+18 / -0): wire report after verify pair (before Pass C release); wire drain after `gameInit` (before `mainProc`).
+- `tests/test_romextract_passd.cpp` (+186): new static-text grep pin (9 cases / ~25 assertions): LOUDFAIL.LOAD channel, DATA INTEGRITY format, quarantine migration, PD_SERVER guards, per-file cap, recover/fail emit sites, aggregate counter updates, public API surface, main.c wiring order.
+- `CMakeLists.txt` (+6): wire test into SRC_TESTS.
+- `context/audits/catalog-phase3-passd-self-heal-2026-05-02.md` (+289): audit.
+
+Total: ~786 insertions, 8 deletions across 6 files (audit + session-log + tasks-update follow).
+
+### Hypotheses left open (low priority)
+
+Documented in audit Section "Hypotheses left open":
+
+- Sticky toast for unrecoverable -- `pdgui_toast.cpp` has fixed 5s hold; LOG_WARNING + replay-each-launch covers persistence. Possibility: extend toast.cpp with TOAST_FLAG_STICKY.
+- Quarantine retention -- accumulates forever today. Possibility: cap at N most-recent or M MB.
+- Mid-session corruption detection -- Pass A.4 verifies at boot only. Possibility: re-verify on asset load when decode fails.
+- Re-extract verify loop -- if g_RomFile itself has flipped bits, re-extract "succeeds" structurally but produces wrong bytes. Detection requires external known-good hash table; Pass A.3 SHA-256 known-good gate is the venue.
+
+### Catalog migration COMPLETE
+
+After Pass D lands the catalog migration closes. Mike's 2026-05-01 directive ("ROM is an initial asset source and then we use the extracted assets for loading, sans ROM") is fully satisfied:
+
+- ROM consumed once on first launch (Pass A.2 + A.5 segment extract).
+- Extracted bytes verified at every boot with self-heal (Pass A.4 + segment verify).
+- Hash mismatches loud-fail via LOUDFAIL.LOAD + UI toast + aggregate report (Pass D).
+- Runtime never touches ROM mapping after extraction (Pass C).
+- Per-class consumer migration completed (Pass B Slices 1-13).
+
+The Catalog lane is now CLOSED. Next critical-path lanes: Input Controller Support (Branch 2 Cohorts 5-8) and any opportunistic catalog-adjacent work that surfaces from playtest.
+
+### Auto-merge
+
+Per standing rule. Pre-merge HEAD `dcfc5989`. Worktree commits to follow. Auto-merge to dev with line-count post-merge verification.
+
+[CONTEXT STATE: turns=mid-flight, compactions=0, self-assessment=mid-flight, recall-gaps=Pass D shipping; audit + session log committed pre-merge]
+
 ## Session S603 (`catalog-slice12-passc`) - 2026-05-02 PM - Slice 12 close-out + Pass C RomProvider drop
 
 Mike's directive: wrap the catalog migration today. Slice 12 (SFX residual / `g_AudioRussMappings` ACCEPTED LIMIT) was the last open Pass B item, then Pass C dropped the in-memory ROM mapping in the same session. Worktree `catalog-slice12-passc` covered both close-outs sequentially.

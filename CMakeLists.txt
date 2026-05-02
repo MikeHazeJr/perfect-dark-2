@@ -1051,6 +1051,13 @@ set(SRC_TESTS
   # Static-text grep against pdgui_theme.cpp + pdgui_theme.h.  Audit at
   # context/audits/catalog-phase3-passb-slice13-uichrome-2026-05-02.md.
   ${CMAKE_SOURCE_DIR}/tests/test_uichrome_paths_pin.cpp
+
+  # Phase 3 Pass D: pin self-heal hardening surfaces.  Static-text grep
+  # against romextract.{c,h} + main.c locks the LOUDFAIL.LOAD channel,
+  # the DATA INTEGRITY summary line, the data/_quarantine/ migration,
+  # the toast-emit cap, and the boot wiring order.  Audit at
+  # context/audits/catalog-phase3-passd-self-heal-2026-05-02.md.
+  ${CMAKE_SOURCE_DIR}/tests/test_romextract_passd.cpp
 )
 
 add_executable(pd-tests ${SRC_TESTS})

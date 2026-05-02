@@ -38,6 +38,14 @@
 #include "system.h"
 #include "versioninfo.h"
 
+/* Pass D (2026-05-02): self-heal hardening surfaces user-facing toasts
+ * for hash-mismatch quarantine + recovery outcomes.  Toast headers live
+ * in port/fast3d and are not linked into pd-server, so the include
+ * follows the established netmsg.c pattern. */
+#if !defined(PD_SERVER)
+#include "pdgui_toast.h"
+#endif
+
 /* Match ROMDATA_MAX_FILES from romdata.c.  If that bound changes,
  * update both. */
 #define ROMEXTRACT_MAX_FILES 2048
@@ -175,14 +183,26 @@ static s32 romExtractReadSidecar(const char *binRel, char dst[SHA256_HEX_SIZE])
 }
 
 /* Move a corrupted extracted file to the quarantine area before
- * re-extracting it.  Quarantine path layout:
- *   data/<romid>/.quarantine/<unixtime>_<basename>
+ * re-extracting it.  Quarantine path layout (Pass D, 2026-05-02):
+ *   data/_quarantine/<romid>/<unixtime>_<basename>
+ *
+ * The top-level `data/_quarantine/` directory keeps quarantined files
+ * visible to the user (no leading dot to hide on Windows file managers)
+ * and outside any per-romid tree that gets wiped on a clean re-extract.
+ * The per-romid sub-tier preserves cross-version isolation so a JPN
+ * quarantine never collides with an NTSC one.
+ *
  * Best-effort: failure to move logs LOUDFAIL but does not block the
  * re-extract that follows. */
 static void romExtractQuarantine(const char *binRel, const char *binFull)
 {
+    char quarTopRel[ROMEXTRACT_PATH_LEN];
+    snprintf(quarTopRel, sizeof(quarTopRel), "data/_quarantine");
+    fsCreateDir(quarTopRel);
+
     char quarRel[ROMEXTRACT_PATH_LEN];
-    snprintf(quarRel, sizeof(quarRel), "data/%s/.quarantine", VERSION_ROMID);
+    snprintf(quarRel, sizeof(quarRel),
+        "data/_quarantine/%s", VERSION_ROMID);
     fsCreateDir(quarRel);
 
     /* Take basename of binRel (everything after the last slash). */
@@ -193,7 +213,7 @@ static void romExtractQuarantine(const char *binRel, const char *binFull)
 
     char destRel[ROMEXTRACT_PATH_LEN];
     snprintf(destRel, sizeof(destRel),
-        "data/%s/.quarantine/%lld_%s",
+        "data/_quarantine/%s/%lld_%s",
         VERSION_ROMID, (long long)time(NULL), base);
 
     const char *destFull = fsFullPath(destRel);
@@ -210,6 +230,136 @@ static void romExtractQuarantine(const char *binRel, const char *binFull)
         remove(binFull);
     }
 }
+
+/* ========================================================================
+ * Phase 3 Pass D (2026-05-02): self-heal hardening surfaces.
+ *
+ * Pass A.4 + the segment verify pair already do hash-verify-on-launch
+ * with quarantine + re-extract on mismatch.  Pass D layers user-facing
+ * polish on top:
+ *   1. Per-file UI toasts on recovery / unrecoverable outcomes.
+ *   2. Aggregated boot integrity report (single LOG_NOTE + system toast).
+ *   3. Toast queue drained from the render-ready phase of boot so
+ *      pdguiToastEnqueue timestamps are fresh enough to be visible.
+ *
+ * pdguiToastInit runs at main.c:233 (well before the verify pair), so
+ * the toast array is live during verify.  However, pdguiToastTick /
+ * pdguiToastRender don't run until the main game loop is up.  Direct
+ * enqueues during boot would stamp `enqueued_ms` with SDL_GetTicks at
+ * boot time; by the time the render loop rolls, the toast hold (5 s)
+ * has typically expired and the toast fades out before the first frame.
+ * Pass D queues toasts in a private buffer; main.c drains the queue
+ * with fresh timestamps after gameInit so the player actually sees the
+ * notification.
+ *
+ * Server build: PD_SERVER guard around the queue + pdgui call.  The
+ * counter aggregates and the boot-integrity LOG_NOTE compile in both
+ * builds (verify functions early-return server-side, so counters stay
+ * zero and the report is a no-op summary).
+ * ====================================================================== */
+
+#define ROMEXTRACT_TOAST_TITLE_LEN 96
+#define ROMEXTRACT_TOAST_BODY_LEN 192
+#define ROMEXTRACT_TOAST_QUEUE_MAX 16
+
+/* Cap per-file toasts so wholesale corruption (e.g. user wiped data/
+ * mid-session) does not flood the queue.  The aggregate boot-integrity
+ * toast carries the totals beyond the cap. */
+#define ROMEXTRACT_TOAST_PERFILE_CAP 5
+
+#if !defined(PD_SERVER)
+typedef struct {
+    u32  category;
+    char title[ROMEXTRACT_TOAST_TITLE_LEN];
+    char body[ROMEXTRACT_TOAST_BODY_LEN];
+} romextract_deferred_toast_t;
+
+static romextract_deferred_toast_t s_BootToasts[ROMEXTRACT_TOAST_QUEUE_MAX];
+static s32 s_NumBootToasts = 0;
+static s32 s_PerFileToastsEmitted = 0;
+#endif
+
+/* Aggregated counters across files + segments.  Set by the verify
+ * funcs as they run; consumed by romExtractEmitBootIntegrityReport. */
+static s32 s_AggValidated = 0;
+static s32 s_AggRecovered = 0;
+static s32 s_AggUnrecoverable = 0;
+static s32 s_AggReportEmitted = 0;
+
+/* Extract the basename of a relative path (everything after the final
+ * separator).  Stable buffer: caller may copy out of the returned
+ * pointer because it points into the input string. */
+static const char *romExtractBasename(const char *rel)
+{
+    const char *base = rel;
+    if (rel == NULL) return "";
+    for (const char *p = rel; *p; p++) {
+        if (*p == '/' || *p == '\\') base = p + 1;
+    }
+    return base;
+}
+
+#if !defined(PD_SERVER)
+/* Append a deferred toast to the boot queue.  Drops the oldest entry
+ * if the queue is full so the most-recent corruption events are the
+ * ones the player sees.  Truncates strings safely. */
+static void s_deferBootToast(u32 category, const char *title, const char *body)
+{
+    if (s_NumBootToasts >= ROMEXTRACT_TOAST_QUEUE_MAX) {
+        memmove(&s_BootToasts[0], &s_BootToasts[1],
+            (size_t)(ROMEXTRACT_TOAST_QUEUE_MAX - 1)
+            * sizeof(s_BootToasts[0]));
+        s_NumBootToasts = ROMEXTRACT_TOAST_QUEUE_MAX - 1;
+    }
+    romextract_deferred_toast_t *t = &s_BootToasts[s_NumBootToasts++];
+    t->category = category;
+    if (title) {
+        strncpy(t->title, title, ROMEXTRACT_TOAST_TITLE_LEN - 1);
+        t->title[ROMEXTRACT_TOAST_TITLE_LEN - 1] = '\0';
+    } else {
+        t->title[0] = '\0';
+    }
+    if (body) {
+        strncpy(t->body, body, ROMEXTRACT_TOAST_BODY_LEN - 1);
+        t->body[ROMEXTRACT_TOAST_BODY_LEN - 1] = '\0';
+    } else {
+        t->body[0] = '\0';
+    }
+}
+
+static void s_emitPerFileRecoverToast(const char *kind, const char *name)
+{
+    if (s_PerFileToastsEmitted >= ROMEXTRACT_TOAST_PERFILE_CAP) return;
+    char title[ROMEXTRACT_TOAST_TITLE_LEN];
+    char body[ROMEXTRACT_TOAST_BODY_LEN];
+    snprintf(title, sizeof(title), "%s recovered", kind);
+    snprintf(body, sizeof(body),
+        "Re-extracted %s from ROM after corruption.", name);
+    s_deferBootToast(TOAST_CATEGORY_SYSTEM, title, body);
+    s_PerFileToastsEmitted++;
+}
+
+static void s_emitPerFileFailToast(const char *kind, const char *name)
+{
+    if (s_PerFileToastsEmitted >= ROMEXTRACT_TOAST_PERFILE_CAP) return;
+    char title[ROMEXTRACT_TOAST_TITLE_LEN];
+    char body[ROMEXTRACT_TOAST_BODY_LEN];
+    snprintf(title, sizeof(title), "%s unrecoverable", kind);
+    snprintf(body, sizeof(body),
+        "Could not recover %s. Verify your ROM.", name);
+    s_deferBootToast(TOAST_CATEGORY_SYSTEM, title, body);
+    s_PerFileToastsEmitted++;
+}
+#else  /* PD_SERVER */
+static void s_emitPerFileRecoverToast(const char *kind, const char *name)
+{
+    (void)kind; (void)name;
+}
+static void s_emitPerFileFailToast(const char *kind, const char *name)
+{
+    (void)kind; (void)name;
+}
+#endif
 
 s32 romExtractAllFiles(void)
 {
@@ -392,8 +542,12 @@ s32 romExtractVerifyAll(void)
                 fclose(f);
                 romExtractWriteSidecar(outRel, romData, (u32)romSize);
                 corrected++;
+                s_emitPerFileRecoverToast("File",
+                    romExtractBasename(outRel));
             } else {
                 failed++;
+                s_emitPerFileFailToast("File",
+                    romExtractBasename(outRel));
             }
             continue;
         }
@@ -421,6 +575,8 @@ s32 romExtractVerifyAll(void)
                 sysLoudFailf("LOAD",
                     "re-extract fopen failed for \"%s\"", outFull);
                 failed++;
+                s_emitPerFileFailToast("File",
+                    romExtractBasename(outRel));
                 continue;
             }
             size_t wrote = fwrite(romData, 1, (size_t)romSize, f);
@@ -429,10 +585,14 @@ s32 romExtractVerifyAll(void)
                 sysLoudFailf("LOAD",
                     "re-extract short write for \"%s\"", outFull);
                 failed++;
+                s_emitPerFileFailToast("File",
+                    romExtractBasename(outRel));
                 continue;
             }
             romExtractWriteSidecar(outRel, romData, (u32)romSize);
             corrected++;
+            s_emitPerFileRecoverToast("File",
+                romExtractBasename(outRel));
             continue;
         }
 
@@ -443,6 +603,13 @@ s32 romExtractVerifyAll(void)
         "ROMEXTRACT.VERIFY: verified=%d, corrected=%d, baselined=%d, "
         "skipped_empty=%d, failed=%d",
         verified, corrected, baselined, skippedEmpty, failed);
+
+    /* Pass D aggregates: validated = verified + baselined (both clean
+     * from the user's perspective; baselined is a one-shot legacy
+     * upgrade); recovered = corrected; unrecoverable = failed. */
+    s_AggValidated += verified + baselined;
+    s_AggRecovered += corrected;
+    s_AggUnrecoverable += failed;
 
     return corrected;
 }
@@ -634,8 +801,12 @@ s32 romExtractVerifyAllSegments(void)
                 fclose(f);
                 romExtractWriteSidecar(outRel, segData, segSize);
                 corrected++;
+                s_emitPerFileRecoverToast("Segment",
+                    romExtractBasename(outRel));
             } else {
                 failed++;
+                s_emitPerFileFailToast("Segment",
+                    romExtractBasename(outRel));
             }
             continue;
         }
@@ -665,6 +836,8 @@ s32 romExtractVerifyAllSegments(void)
                 sysLoudFailf("LOAD",
                     "re-extract fopen failed for seg \"%s\"", outFull);
                 failed++;
+                s_emitPerFileFailToast("Segment",
+                    romExtractBasename(outRel));
                 continue;
             }
             size_t wrote = fwrite(segData, 1, (size_t)segSize, f);
@@ -673,10 +846,14 @@ s32 romExtractVerifyAllSegments(void)
                 sysLoudFailf("LOAD",
                     "re-extract short write for seg \"%s\"", outFull);
                 failed++;
+                s_emitPerFileFailToast("Segment",
+                    romExtractBasename(outRel));
                 continue;
             }
             romExtractWriteSidecar(outRel, segData, segSize);
             corrected++;
+            s_emitPerFileRecoverToast("Segment",
+                romExtractBasename(outRel));
             continue;
         }
 
@@ -688,5 +865,80 @@ s32 romExtractVerifyAllSegments(void)
         "skipped_empty=%d, failed=%d",
         verified, corrected, baselined, skippedEmpty, failed);
 
+    /* Pass D aggregates -- shared with the file-side verify counters. */
+    s_AggValidated += verified + baselined;
+    s_AggRecovered += corrected;
+    s_AggUnrecoverable += failed;
+
     return corrected;
+}
+
+/* ========================================================================
+ * Phase 3 Pass D (2026-05-02): public surfaces.
+ * ======================================================================== */
+
+void romExtractToastDrain(void)
+{
+#if !defined(PD_SERVER)
+    if (s_NumBootToasts == 0) return;
+
+    s32 drained = 0;
+    for (s32 i = 0; i < s_NumBootToasts; i++) {
+        const romextract_deferred_toast_t *t = &s_BootToasts[i];
+        if (pdguiToastEnqueue(0, t->category, t->title, t->body)) {
+            drained++;
+        }
+    }
+    sysLogPrintf(LOG_NOTE,
+        "ROMEXTRACT.TOAST: drained %d/%d deferred boot toast(s).",
+        drained, s_NumBootToasts);
+    s_NumBootToasts = 0;
+#endif
+}
+
+void romExtractEmitBootIntegrityReport(void)
+{
+    if (s_AggReportEmitted) return;
+    s_AggReportEmitted = 1;
+
+    sysLogPrintf(LOG_NOTE,
+        "DATA INTEGRITY: %d validated, %d re-extracted, %d unrecoverable",
+        s_AggValidated, s_AggRecovered, s_AggUnrecoverable);
+
+    if (s_AggUnrecoverable > 0) {
+        sysLogPrintf(LOG_WARNING,
+            "DATA INTEGRITY: %d unrecoverable file(s)/segment(s); the "
+            "user's ROM may be corrupted or different from the original "
+            "extraction. Verify the ROM and the data/_quarantine/ "
+            "subdirectory.",
+            s_AggUnrecoverable);
+#if !defined(PD_SERVER)
+        char body[ROMEXTRACT_TOAST_BODY_LEN];
+        snprintf(body, sizeof(body),
+            "%d asset(s) could not be recovered. Verify your ROM.",
+            s_AggUnrecoverable);
+        s_deferBootToast(TOAST_CATEGORY_SYSTEM,
+            "ROM integrity check failed", body);
+#endif
+    } else if (s_AggRecovered > 0) {
+#if !defined(PD_SERVER)
+        char body[ROMEXTRACT_TOAST_BODY_LEN];
+        snprintf(body, sizeof(body),
+            "%d asset(s) re-extracted from ROM after corruption.",
+            s_AggRecovered);
+        s_deferBootToast(TOAST_CATEGORY_SYSTEM,
+            "Boot data integrity recovered", body);
+#endif
+    }
+    /* All clean -- the LOG_NOTE line is the silent confirmation; no
+     * toast is shown so the player is not nagged on every boot. */
+}
+
+s32 romExtractGetBootIntegrity(s32 *validated, s32 *recovered,
+                               s32 *unrecoverable)
+{
+    if (validated) *validated = s_AggValidated;
+    if (recovered) *recovered = s_AggRecovered;
+    if (unrecoverable) *unrecoverable = s_AggUnrecoverable;
+    return s_AggValidated + s_AggRecovered + s_AggUnrecoverable;
 }

@@ -319,6 +319,15 @@ int main(int argc, const char **argv)
 	romExtractAllSegments();
 	romExtractVerifyAllSegments();
 
+	/* Phase 3 Pass D (2026-05-02): emit the aggregated boot integrity
+	 * report.  Single LOG_NOTE line summarising files+segs verified,
+	 * re-extracted, and unrecoverable.  If non-zero corruption was
+	 * found, defers a system toast that romExtractToastDrain (called
+	 * after gameInit) will surface to the player.  Pure read of the
+	 * counters populated by the verify pair above; safe to run before
+	 * the Pass C ROM release. */
+	romExtractEmitBootIntegrityReport();
+
 	/* Phase 3 Pass C (2026-05-02): drop the in-memory ROM mapping.
 	 * Pass A.2/A.4 + Pass B segment extract/verify guarantee every byte
 	 * needed by the runtime is already on disk under data/<romid>/.
@@ -521,6 +530,16 @@ int main(int argc, const char **argv)
 			g_PlayerConfigsArray[i].options |= OPTION_FORWARDPITCH;
 		}
 	}
+
+	/* Phase 3 Pass D (2026-05-02): drain the boot-deferred toast queue.
+	 * romExtractVerifyAll / romExtractVerifyAllSegments populated the
+	 * queue if they detected hash-mismatch + recovery / unrecoverable
+	 * outcomes earlier in boot.  romExtractEmitBootIntegrityReport may
+	 * have queued an aggregate toast as well.  Replay them now with
+	 * fresh enqueued_ms timestamps so the toast renderer (kicks in once
+	 * mainProc enters its loop) shows them as fresh notifications.
+	 * Server build: no-op. */
+	romExtractToastDrain();
 
 	mainProc();
 
