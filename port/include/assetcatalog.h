@@ -869,6 +869,25 @@ void catalogSetPrimaryRomFilenum(asset_entry_t *entry, s32 filenum);
 void catalogSetOverride(asset_entry_t *entry, asset_data_handle_t handle);
 void catalogClearOverride(asset_entry_t *entry);
 
+/* Phase 3 Pass B (2026-05-02): convenience binder for every Phase 3
+ * slice that migrates a base-game ASSET_* entry from RomProvider to
+ * FileProvider.
+ *
+ * Behaviour:
+ *   1. Compute the canonical extracted-file relative path for the
+ *      given ROM filenum via romExtractRelPathForFilenum.
+ *   2. Probe whether the file actually exists on disk now.
+ *   3. If yes: bind FileProvider via catalogSetPrimaryFile.
+ *   4. If no:  fall back to RomProvider via catalogSetPrimaryRomFilenum
+ *      (defensive -- pre-A.2 boot or server build with NULL g_RomFile).
+ *
+ * Pass A.4 self-heal guarantees the file exists with valid SHA-256
+ * by the time gameplay loads run, so the FileProvider branch wins
+ * on every steady-state boot.  RomProvider fallback is only used
+ * during the transient pre-A.2 cohort or in server builds.
+ */
+void catalogBindPrimaryFromDiskOrRom(asset_entry_t *entry, s32 filenum);
+
 /**
  * Effective load source for an entry — `override` if non-null, otherwise
  * `primary`. Returns a null handle if `entry` is NULL or both fields

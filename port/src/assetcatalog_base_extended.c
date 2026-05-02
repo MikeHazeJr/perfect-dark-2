@@ -709,9 +709,9 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = i;
 			e->source_filenum = (s32)g_ModelStates[i].fileid;
-			/* Asset Provider: base prop models are served by RomProvider. */
+			/* Phase 3 Pass B Slice 7: disk-or-ROM bind for prop models. */
 			if (e->source_filenum > 0) {
-				catalogSetPrimaryRomFilenum(e, e->source_filenum);
+				catalogBindPrimaryFromDiskOrRom(e, e->source_filenum);
 			}
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
@@ -765,7 +765,8 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = -handfilenum;
 			e->source_filenum = handfilenum;
-			catalogSetPrimaryRomFilenum(e, e->source_filenum);
+			/* Phase 3 Pass B Slice 4 (hand model variant): disk-or-ROM bind. */
+			catalogBindPrimaryFromDiskOrRom(e, e->source_filenum);
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;
 		}
@@ -812,8 +813,8 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			 * romdataFileLoad mod-override path. */
 			s32 fnum = langGetFileId(s_BaseLangBanks[i].bank_id);
 			if (fnum > 0) {
-				e->source_filenum = fnum;
-				catalogSetPrimaryRomFilenum(e, fnum);
+				/* Phase 3 Pass B Slice 3: disk-or-ROM bind for lang banks. */
+				catalogBindPrimaryFromDiskOrRom(e, fnum);
 			}
 			n++;
 		}
@@ -947,7 +948,9 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 			 * -handfilenum, max ~16-bit) untouched. */
 			e->runtime_index = -(100000 + fnum);
 			e->source_filenum = fnum;
-			catalogSetPrimaryRomFilenum(e, fnum);
+			/* Phase 3 Pass B Slice 1: disk-or-ROM bind for weapon /
+			 * cart model files. */
+			catalogBindPrimaryFromDiskOrRom(e, fnum);
 			e->load_state = ASSET_STATE_LOADED;
 			e->ref_count = ASSET_REF_BUNDLED;
 			registered++;
@@ -988,7 +991,9 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 			e->enabled = 1;
 			e->runtime_index = -(100000 + fnum);
 			e->source_filenum = fnum;
-			catalogSetPrimaryRomFilenum(e, fnum);
+			/* Phase 3 Pass B Slice 1: disk-or-ROM bind for weapon /
+			 * cart model files. */
+			catalogBindPrimaryFromDiskOrRom(e, fnum);
 			e->load_state = ASSET_STATE_LOADED;
 			e->ref_count = ASSET_REF_BUNDLED;
 			registered++;
@@ -1102,30 +1107,9 @@ s32 assetCatalogRegisterStageSceneFiles(void)
 			e->bundled = 1;
 			e->enabled = 1;
 			e->runtime_index = -(200000 + fnum);
-			e->source_filenum = fnum;
-			/* Phase 3 Pass B Slice 9 (2026-05-02): bind primary handle
-			 * to the extracted disk file under data/<romid>/files/.
-			 * Falls back to RomProvider if the extractor did not
-			 * write the file (e.g. server build with NULL g_RomFile).
-			 * The Pass A.4 self-heal verifier ensures the file exists
-			 * with valid SHA-256 by the time gameplay loads run. */
-			char diskRel[1024];
-			s32 dn = romExtractRelPathForFilenum(fnum, diskRel, (s32)sizeof(diskRel));
-			if (dn > 0) {
-				/* Honour the bind only when the file actually exists
-				 * on disk now.  This guards against pre-A.2 boots
-				 * where extraction has not produced files yet. */
-				const char *full = fsFullPath(diskRel);
-				FILE *probe = full ? fopen(full, "rb") : NULL;
-				if (probe) {
-					fclose(probe);
-					catalogSetPrimaryFile(e, diskRel);
-				} else {
-					catalogSetPrimaryRomFilenum(e, fnum);
-				}
-			} else {
-				catalogSetPrimaryRomFilenum(e, fnum);
-			}
+			/* Phase 3 Pass B Slice 9: disk-or-ROM bind for stage
+			 * scene files (bg / tile / pads / setup / mpsetup). */
+			catalogBindPrimaryFromDiskOrRom(e, fnum);
 			e->load_state = ASSET_STATE_LOADED;
 			e->ref_count = ASSET_REF_BUNDLED;
 			registered++;

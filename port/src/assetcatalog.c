@@ -27,6 +27,8 @@
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 #include "assetprovider_internal.h"
+#include "fs.h"          /* Phase 3 Pass B: catalogBindPrimaryFromDiskOrRom probe */
+#include "romextract.h"  /* Phase 3 Pass B: romExtractRelPathForFilenum */
 #include "system.h"
 
 /* ========================================================================
@@ -1228,6 +1230,35 @@ void catalogSetPrimaryRomFilenum(asset_entry_t *entry, s32 filenum)
     }
 
     catalogSetPrimary(entry, romProviderHandle(filenum));
+}
+
+void catalogBindPrimaryFromDiskOrRom(asset_entry_t *entry, s32 filenum)
+{
+    if (entry == NULL || filenum <= 0) {
+        return;
+    }
+
+    char relPath[FS_MAXPATH];
+    s32 relLen = romExtractRelPathForFilenum(filenum, relPath, (s32)sizeof(relPath));
+    if (relLen > 0) {
+        const char *full = fsFullPath(relPath);
+        if (full && full[0]) {
+            FILE *probe = fopen(full, "rb");
+            if (probe) {
+                fclose(probe);
+                catalogSetPrimaryFile(entry, relPath);
+                /* Keep source_filenum so reverse-index lookup still
+                 * works for legacy callers; the disk-path bind takes
+                 * precedence at resolve time. */
+                entry->source_filenum = filenum;
+                return;
+            }
+        }
+    }
+
+    /* Fall back to RomProvider for pre-A.2 boots or server builds. */
+    catalogSetPrimaryRomFilenum(entry, filenum);
+    entry->source_filenum = filenum;
 }
 
 void catalogSetOverride(asset_entry_t *entry, asset_data_handle_t handle)
