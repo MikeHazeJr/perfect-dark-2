@@ -300,6 +300,20 @@ int main(int argc, const char **argv)
 	// 3. Scan mod _components/ directories and register INI-described assets
 	assetCatalogInit();
 	assetCatalogRegisterBaseGame();
+	/* Catalog coverage audit (2026-05-01) Section 3.A closure: register
+	 * the per-stage scene file IDs (bg / tile / pads / setup / mpsetup)
+	 * carried on g_Stages[] as ASSET_MODEL entries with source_filenum
+	 * binding. Without this, romdataFileLoad's catalogResolveFile path
+	 * cannot route mod overrides for stage scene files (a player ship
+	 * a custom map cannot replace its BG geometry, collision data, or
+	 * mission setup script through the standard mod mechanism). See
+	 * assetCatalogRegisterStageSceneFiles docblock for full rationale.
+	 *
+	 * Order: AFTER assetCatalogRegisterBaseGame so g_Stages is populated
+	 * AND ASSET_MAP entries exist; BEFORE catalogLoadInit so the new
+	 * source_filenum bindings land in the s_FilenumOverride[] reverse
+	 * index on its single build pass. */
+	assetCatalogRegisterStageSceneFiles();
 	{
 		const char *modsdir = modmgrGetModsDir();
 		if (modsdir) {
