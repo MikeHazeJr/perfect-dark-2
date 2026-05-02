@@ -59,6 +59,55 @@ s32 romExtractVerifyAll(void);
  */
 s32 romExtractRelPathForFilenum(s32 fileNum, char *outRel, s32 outRelLen);
 
+/**
+ * Phase 3 Pass B Slices 2/5/6/8/11 (2026-05-02): segment extraction.
+ *
+ * Walks every loaded ROM segment (sfxctl, sfxtbl, seqctl, seqtbl,
+ * sequences, animations, fonts, mp* tables, textures, etc.) and
+ * writes the in-memory bytes to data/<romid>/segs/<segname>.bin
+ * (no extension suffix beyond .bin; segment names already disambiguate).
+ *
+ * Idempotent: skips segments whose on-disk size matches the in-memory
+ * size.  Sidecar (.bin.sha256) written next to each segment for the
+ * Pass A.4-equivalent self-heal verify step.
+ *
+ * Must be called AFTER romdataInit (segments populated in memory) and
+ * BEFORE any consumer reads segment bytes (so the disk image matches
+ * what the in-memory loader would have served from ROM).
+ *
+ * Server build: returns 0 immediately (g_RomFile is NULL server-side
+ * and segments are never loaded).
+ *
+ * Returns: number of segments newly written.  -1 on infrastructure
+ * failure (e.g. data dir creation failed).  Per-segment failures emit
+ * LOUDFAIL.EXTRACT but do not abort the walk.
+ */
+s32 romExtractAllSegments(void);
+
+/**
+ * Verify each previously-extracted segment against its sidecar; on
+ * mismatch quarantine the corrupted file and re-extract from the
+ * in-memory segment buffer.  Mirrors romExtractVerifyAll for
+ * per-file extraction.
+ *
+ * Server build: returns 0 immediately.
+ *
+ * Returns: number of segments self-healed (corrected via re-extract).
+ */
+s32 romExtractVerifyAllSegments(void);
+
+/**
+ * Build the canonical relative on-disk path for a given segment name,
+ * matching the layout written by romExtractAllSegments.  Output:
+ *   data/<romid>/segs/<segname>.bin
+ *
+ * Used by romdataInitSegment to check the per-romid path before the
+ * legacy `data/segs/<segname>` mod-override path.
+ *
+ * Returns the length written, or 0 on failure.
+ */
+s32 romExtractSegmentRelPath(const char *segName, char *outRel, s32 outRelLen);
+
 #ifdef __cplusplus
 }
 #endif

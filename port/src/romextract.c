@@ -446,3 +446,247 @@ s32 romExtractVerifyAll(void)
 
     return corrected;
 }
+
+/* ========================================================================
+ * Phase 3 Pass B Slices 2/5/6/8/11 (2026-05-02): segment extraction.
+ * Mirror of romExtractAllFiles + romExtractVerifyAll for ROM segments.
+ * Segments live at fixed ROM offsets and are loaded into memory by
+ * romdataInitSegment; we walk the loaded buffers and dump them to
+ * data/<romid>/segs/<segname>.bin so subsequent boots can read from
+ * disk via the per-romid path the segment loader checks first.
+ * ======================================================================== */
+
+static s32 romExtractBuildSegRelPath(const char *segName, char *outRel, s32 outRelLen)
+{
+    char nameBuf[128];
+    if (segName == NULL || segName[0] == '\0') {
+        return 0;
+    }
+    romExtractSanitizeName(segName, nameBuf, (s32)sizeof(nameBuf));
+    return snprintf(outRel, (size_t)outRelLen,
+                    "data/%s/segs/%s.bin", VERSION_ROMID, nameBuf);
+}
+
+s32 romExtractSegmentRelPath(const char *segName, char *outRel, s32 outRelLen)
+{
+    if (outRel == NULL || outRelLen <= 0) return 0;
+    s32 len = romExtractBuildSegRelPath(segName, outRel, outRelLen);
+    if (len <= 0 || len >= outRelLen) {
+        outRel[0] = '\0';
+        return 0;
+    }
+    return len;
+}
+
+s32 romExtractAllSegments(void)
+{
+    s32 written = 0;
+    s32 skippedExisting = 0;
+    s32 skippedEmpty = 0;
+    s32 failed = 0;
+
+    if (g_RomFile == NULL || g_RomFileSize == 0) {
+        sysLogPrintf(LOG_NOTE,
+            "ROMEXTRACT.SEGS: g_RomFile not loaded (server build or "
+            "pre-romdata-init); skipping segment extraction.");
+        return 0;
+    }
+
+    if (!fsDataDirEnsure()) {
+        return -1;
+    }
+
+    /* Ensure data/<romid>/segs/ exists. */
+    {
+        char segsRel[ROMEXTRACT_PATH_LEN];
+        snprintf(segsRel, sizeof(segsRel),
+            "data/%s/segs", VERSION_ROMID);
+        fsCreateDir(segsRel);
+    }
+
+    s32 segCount = romdataSegmentCount();
+    sysLogPrintf(LOG_NOTE,
+        "ROMEXTRACT.SEGS: starting first-launch segment extraction "
+        "(segments=%d, target=data/%s/segs/)",
+        segCount, VERSION_ROMID);
+
+    for (s32 idx = 0; idx < segCount; idx++) {
+        const u8   *data = romdataSegmentGetData(idx);
+        u32         size = romdataSegmentGetSize(idx);
+        const char *name = romdataSegmentGetName(idx);
+
+        if (data == NULL || size == 0 || name == NULL || name[0] == '\0') {
+            skippedEmpty++;
+            continue;
+        }
+
+        char outRel[ROMEXTRACT_PATH_LEN];
+        s32  relLen = romExtractBuildSegRelPath(name, outRel, (s32)sizeof(outRel));
+        if (relLen <= 0 || relLen >= (s32)sizeof(outRel)) {
+            sysLoudFailf("EXTRACT",
+                "seg path build failed for \"%s\" (relLen=%d)", name, relLen);
+            failed++;
+            continue;
+        }
+
+        const char *outFull = fsFullPath(outRel);
+        if (outFull == NULL || outFull[0] == '\0') {
+            sysLoudFailf("EXTRACT",
+                "fsFullPath returned empty for seg \"%s\"", outRel);
+            failed++;
+            continue;
+        }
+
+        if (romExtractFileMatchesSize(outFull, size)) {
+            skippedExisting++;
+            continue;
+        }
+
+        FILE *f = fsFileOpenWrite(outRel);
+        if (f == NULL) {
+            sysLoudFailf("EXTRACT",
+                "fsFileOpenWrite failed for seg \"%s\" (size=%u)",
+                outFull, size);
+            failed++;
+            continue;
+        }
+
+        size_t wrote = fwrite(data, 1, (size_t)size, f);
+        fclose(f);
+
+        if (wrote != (size_t)size) {
+            sysLoudFailf("EXTRACT",
+                "short write for seg \"%s\" (wrote=%zu, expected=%u)",
+                outFull, wrote, size);
+            failed++;
+            continue;
+        }
+
+        romExtractWriteSidecar(outRel, data, size);
+        written++;
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "ROMEXTRACT.SEGS: complete. wrote=%d, skipped_existing=%d, "
+        "skipped_empty=%d, failed=%d",
+        written, skippedExisting, skippedEmpty, failed);
+
+    return written;
+}
+
+s32 romExtractVerifyAllSegments(void)
+{
+    s32 verified = 0;
+    s32 corrected = 0;
+    s32 skippedEmpty = 0;
+    s32 baselined = 0;
+    s32 failed = 0;
+
+    if (g_RomFile == NULL || g_RomFileSize == 0) {
+        sysLogPrintf(LOG_NOTE,
+            "ROMEXTRACT.SEGS.VERIFY: g_RomFile not loaded; skipping.");
+        return 0;
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "ROMEXTRACT.SEGS.VERIFY: scanning data/%s/segs/", VERSION_ROMID);
+
+    s32 segCount = romdataSegmentCount();
+    for (s32 idx = 0; idx < segCount; idx++) {
+        const u8   *segData = romdataSegmentGetData(idx);
+        u32         segSize = romdataSegmentGetSize(idx);
+        const char *segName = romdataSegmentGetName(idx);
+
+        if (segData == NULL || segSize == 0 || segName == NULL || segName[0] == '\0') {
+            skippedEmpty++;
+            continue;
+        }
+
+        char outRel[ROMEXTRACT_PATH_LEN];
+        s32  relLen = romExtractBuildSegRelPath(segName, outRel, (s32)sizeof(outRel));
+        if (relLen <= 0 || relLen >= (s32)sizeof(outRel)) {
+            failed++;
+            continue;
+        }
+
+        const char *outFull = fsFullPath(outRel);
+        if (outFull == NULL || outFull[0] == '\0') {
+            failed++;
+            continue;
+        }
+
+        struct stat st;
+        if (stat(outFull, &st) != 0) {
+            /* Segment not yet on disk -- caller should have run
+             * romExtractAllSegments first; not a verify failure. */
+            skippedEmpty++;
+            continue;
+        }
+
+        u8 diskDigest[SHA256_DIGEST_SIZE];
+        if (sha256HashFile(outFull, diskDigest) != 0) {
+            sysLoudFailf("LOAD",
+                "sha256HashFile failed for seg \"%s\"; re-extracting", outFull);
+            romExtractQuarantine(outRel, outFull);
+            FILE *f = fsFileOpenWrite(outRel);
+            if (f) {
+                fwrite(segData, 1, (size_t)segSize, f);
+                fclose(f);
+                romExtractWriteSidecar(outRel, segData, segSize);
+                corrected++;
+            } else {
+                failed++;
+            }
+            continue;
+        }
+
+        char sideHex[SHA256_HEX_SIZE];
+        if (romExtractReadSidecar(outRel, sideHex) == 0) {
+            /* No sidecar -- baseline from on-disk content's hash. */
+            romExtractWriteSidecar(outRel, segData, segSize);
+            baselined++;
+            continue;
+        }
+
+        char diskHex[SHA256_HEX_SIZE];
+        for (s32 i = 0; i < SHA256_DIGEST_SIZE; i++) {
+            snprintf(diskHex + i * 2, 3, "%02x", diskDigest[i]);
+        }
+
+        if (strncmp(diskHex, sideHex, 64) != 0) {
+            sysLoudFailf("LOAD",
+                "SHA-256 mismatch on seg \"%s\" (expected %s, got %s); "
+                "quarantining + re-extracting",
+                outFull, sideHex, diskHex);
+            romExtractQuarantine(outRel, outFull);
+
+            FILE *f = fsFileOpenWrite(outRel);
+            if (f == NULL) {
+                sysLoudFailf("LOAD",
+                    "re-extract fopen failed for seg \"%s\"", outFull);
+                failed++;
+                continue;
+            }
+            size_t wrote = fwrite(segData, 1, (size_t)segSize, f);
+            fclose(f);
+            if (wrote != (size_t)segSize) {
+                sysLoudFailf("LOAD",
+                    "re-extract short write for seg \"%s\"", outFull);
+                failed++;
+                continue;
+            }
+            romExtractWriteSidecar(outRel, segData, segSize);
+            corrected++;
+            continue;
+        }
+
+        verified++;
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "ROMEXTRACT.SEGS.VERIFY: verified=%d, corrected=%d, baselined=%d, "
+        "skipped_empty=%d, failed=%d",
+        verified, corrected, baselined, skippedEmpty, failed);
+
+    return corrected;
+}
