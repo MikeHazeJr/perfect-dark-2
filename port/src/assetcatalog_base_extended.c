@@ -239,6 +239,22 @@ static const struct {
  * register as AUDIO_CAT_SFX (category = 0). See
  * context/audits/catalog-phase3-slice10-voice-retag-2026-05-02.md
  * for the full inventory + the criteria.
+ *
+ * Phase 3 Pass B Slice 12 close-out (2026-05-02): the SFX alias range
+ * (0x8000+) deliberately stays unregistered.  Mods can already override
+ * leaf-level SFX through the 1545 ASSET_AUDIO entries below; alias-
+ * range IDs decode to (confignum + russ-mapping) inside snd.c
+ * BEFORE catalogResolveSound runs, so leaf-level overrides automati-
+ * cally apply to the post-mapping result.  Direct alias override
+ * would require growing LOAD_MAX_SOUNDS from 4096 to 65536 (256 KB
+ * array) plus parallel-index plumbing for marginal value with no
+ * live use case.  Mike's named "Farsight fire SFX plays a voiceline"
+ * regression closed via Phase 2 Commit 4 (L_GUN regen, dev 68fb0ae3)
+ * + S484-followup-5 (SFX enum drift).  See coverage audit
+ * context/audits/catalog-coverage-audit-2026-05-01.md Section 3.D
+ * (ACCEPTED LIMIT) and Phase 3 plan
+ * context/designs/catalog/catalog-rom-once-phase3-plan-2026-05-02.md
+ * Slice 12 for the architectural rationale.
  */
 #define NUM_BASE_SFX_ENTRIES 1545
 
