@@ -763,6 +763,30 @@ s32 romdataReleaseRom(void)
 		seg->data = diskData;
 		seg->source = SRC_EXTERNAL;
 		romdataUpdateSegStartEnd(seg);
+
+		/* preprocessAnimations (port/src/preprocess/misc.c) sets the global
+		 * _animationsTableRomStart / _animationsTableRomEnd pointers to
+		 * (segData + size - 0x38a0) and (segData + size) at romdataInit
+		 * time.  Both pointed into g_RomFile pre-Pass-C; without this remap
+		 * they dangle and animsInit (called later in mainInit) would crash
+		 * inside dmaExec (memcpy from freed memory).  No other preprocess
+		 * publishes ROM-relative externs, so the special case is bounded
+		 * to "animations" by name. */
+		if (strcmp(seg->name, "animations") == 0) {
+			extern u8 *_animationsTableRomStart;
+			extern u8 *_animationsTableRomEnd;
+			if (seg->size >= 0x38a0) {
+				_animationsTableRomStart = diskData + (seg->size - 0x38a0);
+			} else {
+				_animationsTableRomStart = diskData;
+			}
+			_animationsTableRomEnd = diskData + seg->size;
+			sysLogPrintf(LOG_VERBOSE,
+			             "ROMRELEASE: animations table externs remapped "
+			             "(start=%p, end=%p)",
+			             _animationsTableRomStart, _animationsTableRomEnd);
+		}
+
 		segMigrated++;
 
 		sysLogPrintf(LOG_VERBOSE,
@@ -770,15 +794,37 @@ s32 romdataReleaseRom(void)
 		             seg->name, diskSize, diskData);
 	}
 
-	/* Walk every fileSlot.  The romdataInitFiles loop set
-	 * fileSlots[i].data = g_RomFile + ofs for live slots; those are the
-	 * pointers that would dangle after the free.  romdataFileLoad's Pass C
-	 * disk fallback will reload from data/<romid>/files/<name>.bin when
-	 * a NULL'd slot is next requested. */
+	/* Walk every fileSlot.  Two responsibilities:
+	 *
+	 *  (a) NULL the .data pointer of slots that reference g_RomFile + ofs.
+	 *      romdataInitFiles set those up as lazy "ROM offset" pointers, and
+	 *      romExtractAllFiles + romExtractVerifyAll converted some to
+	 *      SRC_ROM as a side effect of walking the table.  Either way the
+	 *      pointer would dangle after the free; romdataFileLoad's Pass C
+	 *      disk fallback re-resolves to data/<romid>/files/<name>.bin on
+	 *      the next request.
+	 *
+	 *  (b) Migrate the .name string when it points into g_RomFile.
+	 *      romdataInitFiles set fileSlots[i].name to a pointer inside the
+	 *      ROM-resident name table (`(const char *)nameOffsets + ofs`
+	 *      where nameOffsets = g_RomFile + ...).  Many post-release
+	 *      consumers still need the name -- catalogBindPrimaryFromDiskOrRom
+	 *      via romExtractRelPathForFilenum + romdataFileGetName,
+	 *      romdataFileGetNumForName, the romdataFileLoad Pass C disk
+	 *      fallback that builds data/<romid>/files/<name>.bin, etc.
+	 *      Without this migration, every such call dereferences freed
+	 *      memory and crashes (observed: catalog base game registration
+	 *      AV at romExtractBuildRelPath cmpb (%rax) on commit b15cc701).
+	 *      We strdup-equivalent each ROM-resident name into a small heap
+	 *      copy via sysMemAlloc; literal-string names (CDRCARROLL2 etc.
+	 *      set up as compile-time string literals in romdataInitFiles)
+	 *      stay as-is because they live in .rdata, not g_RomFile. */
+	s32 namesMigrated = 0;
 	for (s32 i = 1; i < ROMDATA_MAX_FILES; i++) {
 		if (fileSlots[i].source == SRC_EXTERNAL) {
 			/* Mod override or earlier Pass C disk-load already adopted a
-			 * heap buffer; survives g_RomFile free. */
+			 * heap buffer; survives g_RomFile free.  Names for these
+			 * slots are heap-owned via the registration path. */
 			continue;
 		}
 
@@ -795,6 +841,21 @@ s32 romdataReleaseRom(void)
 			fileSlots[i].source = SRC_UNLOADED;
 			fileSlotsCleared++;
 		}
+
+		if (fileSlots[i].name != NULL
+		        && romdataPtrInRom((const u8 *)fileSlots[i].name)) {
+			const size_t len = strlen(fileSlots[i].name);
+			char *copy = sysMemAlloc((u32)(len + 1));
+			if (copy == NULL) {
+				sysFatalError("ROMRELEASE: out of memory migrating name "
+				              "for fileSlots[%d] (\"%.32s\")",
+				              i, fileSlots[i].name);
+				return -1;
+			}
+			memcpy(copy, fileSlots[i].name, len + 1);
+			fileSlots[i].name = copy;
+			namesMigrated++;
+		}
 	}
 
 	sysMemFree(g_RomFile);
@@ -803,8 +864,8 @@ s32 romdataReleaseRom(void)
 
 	sysLogPrintf(LOG_NOTE,
 	             "ROMRELEASE: g_RomFile released. segs migrated=%d normalised=%d skipped=%d, "
-	             "fileSlots cleared=%d",
-	             segMigrated, segNormalised, segSkipped, fileSlotsCleared);
+	             "fileSlots cleared=%d, names migrated=%d",
+	             segMigrated, segNormalised, segSkipped, fileSlotsCleared, namesMigrated);
 
 	return segMigrated;
 }
