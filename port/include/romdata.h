@@ -48,4 +48,38 @@ const char *romdataSegmentGetName(s32 idx);
 
 s32 romdataCheckGbcRom(void);
 
+/**
+ * Phase 3 Pass C (2026-05-02): drop the in-memory ROM mapping.
+ *
+ * Called once after romExtractAllSegments + romExtractVerifyAllSegments
+ * complete (boot ordering in port/src/main.c).  Migrates every ROM
+ * segment whose data still points into g_RomFile (`seg->source ==
+ * SRC_ROM`) to a heap-backed copy loaded from
+ * data/<romid>/segs/<name>.bin.  NULLs out the .data pointer for
+ * every fileSlot still in SRC_UNLOADED (those were "lazy" pointers
+ * into g_RomFile + ofs).  Then frees g_RomFile, sets it NULL, and
+ * zeros g_RomFileSize.
+ *
+ * After this call:
+ *   - g_RomFile == NULL, g_RomFileSize == 0
+ *   - Every romfile segment has seg->source == SRC_EXTERNAL (or its
+ *     data was NULL to start with and stays NULL).
+ *   - Every fileSlot is SRC_UNLOADED with .data NULL OR SRC_EXTERNAL
+ *     with .data on the heap.
+ *   - romdataFileLoad routes SRC_UNLOADED slots through the per-romid
+ *     extracted disk path (data/<romid>/files/<name>.bin) before the
+ *     legacy SRC_ROM fallback fires; with g_RomFile NULL, that
+ *     fallback LOUD-FAILs via sysFatalError.
+ *
+ * LOUD-FAIL: any segment with SRC_ROM whose disk-backed file is
+ * missing/short triggers sysFatalError before g_RomFile is freed
+ * (we never half-release).
+ *
+ * Server build (g_RomFile already NULL): early-returns 0.
+ *
+ * Returns: number of segments migrated to disk.  -1 on infrastructure
+ * failure (LOUD-FAIL already emitted).
+ */
+s32 romdataReleaseRom(void);
+
 #endif

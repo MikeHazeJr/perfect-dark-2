@@ -14,6 +14,7 @@
 #include "lib/rzip.h"
 #include "versioninfo.h"
 #include "romdata.h"
+#include "romextract.h"
 #include "sha256.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
@@ -659,6 +660,155 @@ s32 romdataInit(void)
 	return 0;
 }
 
+/* ========================================================================
+ * Phase 3 Pass C (2026-05-02): drop the in-memory ROM mapping.
+ *
+ * Boot sequence: romdataInit -> Pass A.2 extract files -> Pass A.4 verify
+ * files -> Pass B segment extract -> Pass B segment verify -> Pass C
+ * release.  After release the runtime never reads from g_RomFile again;
+ * every byte that was resident in g_RomFile is already on disk under
+ * data/<romid>/files/ and data/<romid>/segs/, with SHA-256 sidecars.
+ *
+ * Migration rules:
+ *   - SRC_ROM segments with seg->data inside [g_RomFile, g_RomFile+size)
+ *     are reloaded from data/<romid>/segs/<name>.bin into a heap buffer.
+ *     Pointer adjusted, source flipped to SRC_EXTERNAL.  segstart/segend
+ *     mirrors are refreshed via romdataUpdateSegStartEnd.
+ *   - SRC_ROM segments whose preprocess function already produced a heap
+ *     buffer (seg->data outside g_RomFile range) are left alone -- they
+ *     don't dangle when g_RomFile is freed.  Source is normalised to
+ *     SRC_EXTERNAL so post-release callers see a uniform state.
+ *   - SRC_EXTERNAL segments are left alone.
+ *   - Segments with NULL data (unused on this ROM version) are skipped.
+ *   - fileSlots[i] in SRC_UNLOADED with .data inside g_RomFile range have
+ *     .data NULLed.  romdataFileLoad's per-romid disk fallback (added in
+ *     Pass C) takes over the next time that slot is requested.
+ *   - fileSlots[i] in SRC_EXTERNAL keep their heap buffer.
+ *
+ * LOUD-FAIL (sysFatalError) before freeing g_RomFile if any segment can't
+ * migrate -- we never half-release.
+ * ======================================================================== */
+
+static inline bool romdataPtrInRom(const u8 *p)
+{
+	if (g_RomFile == NULL || g_RomFileSize == 0 || p == NULL) {
+		return false;
+	}
+	return (p >= g_RomFile) && (p < g_RomFile + g_RomFileSize);
+}
+
+s32 romdataReleaseRom(void)
+{
+	if (g_RomFile == NULL) {
+		sysLogPrintf(LOG_NOTE, "ROMRELEASE: g_RomFile already NULL (server build); skipping.");
+		return 0;
+	}
+
+	s32 segMigrated = 0;
+	s32 segNormalised = 0;
+	s32 segSkipped = 0;
+	s32 fileSlotsCleared = 0;
+
+	for (struct romfile *seg = romSegs; seg->name; ++seg) {
+		if (seg->data == NULL) {
+			segSkipped++;
+			continue;
+		}
+
+		if (seg->source == SRC_EXTERNAL) {
+			/* Already heap-backed via external file load. Nothing to do. */
+			continue;
+		}
+
+		if (!romdataPtrInRom(seg->data)) {
+			/* SRC_ROM segment with a preprocess() output that returned a
+			 * heap buffer -- the pointer survives g_RomFile free.  Just
+			 * normalise the source flag so callers see a uniform post-release
+			 * state. */
+			seg->source = SRC_EXTERNAL;
+			segNormalised++;
+			continue;
+		}
+
+		/* SRC_ROM segment whose data still points into g_RomFile.  Reload
+		 * from disk -- the disk image was written by romExtractAllSegments
+		 * and verified by romExtractVerifyAllSegments earlier in boot. */
+		char segPath[FS_MAXPATH];
+		if (romExtractSegmentRelPath(seg->name, segPath, (s32)sizeof(segPath)) <= 0) {
+			sysFatalError("LOAD.PASSC: segment \"%s\" path build failed", seg->name);
+			return -1;
+		}
+
+		u32 diskSize = 0;
+		u8 *diskData = fsFileLoad(segPath, &diskSize);
+		if (diskData == NULL || diskSize == 0) {
+			sysFatalError("LOAD.PASSC: segment \"%s\" cannot reload from \"%s\" -- "
+			              "first-launch extraction did not produce this file. "
+			              "Reinstall data/%s/segs/.",
+			              seg->name, segPath, VERSION_ROMID);
+			return -1;
+		}
+
+		if (diskSize != seg->size) {
+			/* Pre-Pass-C the segment may have been preprocess()'d to a
+			 * different size; the disk-write captured the post-preprocess
+			 * size.  Trust the disk size as the new authoritative size. */
+			sysLogPrintf(LOG_NOTE,
+			             "ROMRELEASE: segment \"%s\" disk size=%u differs from "
+			             "in-memory size=%u; adopting disk size",
+			             seg->name, diskSize, seg->size);
+			seg->size = diskSize;
+		}
+
+		seg->data = diskData;
+		seg->source = SRC_EXTERNAL;
+		romdataUpdateSegStartEnd(seg);
+		segMigrated++;
+
+		sysLogPrintf(LOG_VERBOSE,
+		             "ROMRELEASE: segment \"%s\" migrated to disk (size=%u, ptr=%p)",
+		             seg->name, diskSize, diskData);
+	}
+
+	/* Walk every fileSlot.  The romdataInitFiles loop set
+	 * fileSlots[i].data = g_RomFile + ofs for live slots; those are the
+	 * pointers that would dangle after the free.  romdataFileLoad's Pass C
+	 * disk fallback will reload from data/<romid>/files/<name>.bin when
+	 * a NULL'd slot is next requested. */
+	for (s32 i = 1; i < ROMDATA_MAX_FILES; i++) {
+		if (fileSlots[i].source == SRC_EXTERNAL) {
+			/* Mod override or earlier Pass C disk-load already adopted a
+			 * heap buffer; survives g_RomFile free. */
+			continue;
+		}
+
+		if (fileSlots[i].data && romdataPtrInRom(fileSlots[i].data)) {
+			fileSlots[i].data = NULL;
+			fileSlots[i].source = SRC_UNLOADED;
+			fileSlotsCleared++;
+		} else if (fileSlots[i].source == SRC_ROM) {
+			/* Defensive: SRC_ROM with data outside ROM range shouldn't
+			 * happen at Pass C time (no game code has run yet), but if it
+			 * does, normalise to SRC_UNLOADED so the next load takes the
+			 * disk path. */
+			fileSlots[i].data = NULL;
+			fileSlots[i].source = SRC_UNLOADED;
+			fileSlotsCleared++;
+		}
+	}
+
+	sysMemFree(g_RomFile);
+	g_RomFile = NULL;
+	g_RomFileSize = 0;
+
+	sysLogPrintf(LOG_NOTE,
+	             "ROMRELEASE: g_RomFile released. segs migrated=%d normalised=%d skipped=%d, "
+	             "fileSlots cleared=%d",
+	             segMigrated, segNormalised, segSkipped, fileSlotsCleared);
+
+	return segMigrated;
+}
+
 static inline bool romdataCheckGbcRomContents(const u8 *gbcRomFile, const u32 gbcRomSize)
 {
 	if (gbcRomSize != GBC_ROM_SIZE) {
@@ -791,7 +941,48 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 			}
 		}
 
+		/* Phase 3 Pass C (2026-05-02): with g_RomFile released after
+		 * extraction, fall through to the per-romid extracted disk
+		 * file before declaring SRC_ROM.  Pass A.2 + A.4 guarantee
+		 * data/<romid>/files/<name>.bin exists with verified bytes
+		 * by the time gameplay loads run.  Patches are still applied
+		 * at romdataFilePreprocess time because the extracted bytes
+		 * are pre-patch (raw ROM); numpatches is left untouched. */
 		if (fileSlots[fileNum].source == SRC_UNLOADED) {
+			char passcPath[FS_MAXPATH];
+			if (romExtractRelPathForFilenum(fileNum, passcPath, (s32)sizeof(passcPath)) > 0) {
+				const s32 extSize = fsFileSize(passcPath);
+				if (extSize > 0) {
+					u32 size = 0;
+					u8 *passcOut = fsFileLoad(passcPath, &size);
+					if (passcOut && size) {
+						sysLogPrintf(LOG_NOTE,
+						             "file %d (%s) loaded from per-romid disk \"%s\"",
+						             fileNum, fileSlots[fileNum].name, passcPath);
+						fileSlots[fileNum].data = passcOut;
+						fileSlots[fileNum].size = size;
+						fileSlots[fileNum].source = SRC_EXTERNAL;
+						/* numpatches kept as-is: pre-patch ROM bytes. */
+						out = passcOut;
+					}
+				}
+			}
+		}
+
+		if (fileSlots[fileNum].source == SRC_UNLOADED) {
+			/* Phase 3 Pass C: g_RomFile may have been released; if so,
+			 * neither the catalog override, the legacy mod path, nor
+			 * the per-romid extracted file produced bytes.  LOUD-FAIL
+			 * because returning NULL would just defer the crash. */
+			if (g_RomFile == NULL) {
+				sysFatalError("LOAD.PASSC: file %d (%s) has no source -- "
+				              "g_RomFile released, no override, no per-romid "
+				              "disk file.  Reinstall data/%s/files/.",
+				              fileNum,
+				              fileSlots[fileNum].name ? fileSlots[fileNum].name : "?",
+				              VERSION_ROMID);
+				return NULL;
+			}
 			// tried and failed, fall back to ROM
 			fileSlots[fileNum].source = SRC_ROM;
 		}
@@ -853,7 +1044,11 @@ static inline void romdataResetFile(s32 fileNum)
 	if (offsets + fileNum + 1 < (u32 *)(romDataSeg + romDataSegSize)) {
 		const u32 nextofs = PD_BE32(offsets[fileNum + 1]);
 		const u32 ofs = PD_BE32(offsets[fileNum]);
-		fileSlots[fileNum].data = g_RomFile + ofs;
+		/* Phase 3 Pass C: when g_RomFile has been released, NULL the
+		 * data pointer so the next romdataFileLoad takes the
+		 * per-romid extracted disk path.  Pre-Pass-C path repoints
+		 * into g_RomFile + ofs as before. */
+		fileSlots[fileNum].data = g_RomFile ? (g_RomFile + ofs) : NULL;
 		fileSlots[fileNum].size = nextofs - ofs;
 		fileSlots[fileNum].source = SRC_UNLOADED;
 		fileSlots[fileNum].preprocessed = 0;
