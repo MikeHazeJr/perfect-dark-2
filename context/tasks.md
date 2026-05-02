@@ -46,11 +46,12 @@ Surfaced during F12 runtime debugging. Two parallel slices:
 
 **Heads** -- shipped 2026-05-01 as S596 at dev `a2ad421e`. F1-F13 landed: manager (`port/src/catalog_mgr_heads.c`), pure validators, `base/heads.pdbase` (84 records: 75 named + 9 SP fallback), loader integration, F2 catalogGetHead* routing, F3+F4 modeldef cache, F5 body.c modeldef NULL check via manager, F6 retire `g_MpMaleHeads` / `g_MpFemaleHeads`, F11 startup wiring (`catalogManagerHeadInit` + `loaderPdbaseBuildHeadManager`), F13 grep-guard test (12 cases / 96 assertions). Body reads keep the legacy `g_HeadsAndBodies` pattern until bodies migrates. S593g `head_canon=NULL` warning gate preserved.
 
-**Bodies** -- next up. Auto-spawning per Mike's "don't wait on me; sequential auto-merge per asset migration" standing rule. The migration template is parallel to heads: `catalog_mgr_bodies.c` + bodies.pdbase + retire `g_HeadsAndBodies` body fields. The `g_HeadsAndBodies[]` array can finally retire after bodies lands (heads owns its `s_Heads[152]` mirror; bodies will own its own pool too).
+**Bodies** -- shipped 2026-05-02 as S598 at dev `64af7e0c` (bodies F1-F13) + `47f837d5` (pd-server stubs close-out). F1-F13 landed: manager (`port/src/catalog_mgr_bodies.c` 305 lines), pure validators (25 lines), `base/bodies.pdbase` (890 lines, 68 records: 63 named + 5 SP fallback), loader integration, F2 catalogGetBody* + `_Checked` accessor routing, F3 modeldef accessor migration, F4 catalogResetAllModeldefs legacy walk removed (audit Section J Concern 1 closed), F5 body.c verification (S593g warning gate preserved via manager-routed `catalogGetBodyIsComplete`), F11 startup wiring (`catalogManagerBodyInit` + `loaderPdbaseBuildBodyManager`), F12 parser, F13 grep-guard test (16 cases / 190 assertions; 21 cases / 246 assertions for `[gate3]` covering heads + bodies). Build clean across pd (54.8 MB) + pd-server (22.3 MB) + pd-tests (23.9 MB). pd-server stub fix added 5 client-only refs to `port/src/server_stubs.c` (cumulative drift from S591 weapons + Phase 3 Pass B Slices + S596 heads + S598 bodies).
 
-**Remaining queue** (post-bodies, sequential):
+**Arenas** -- next up. Auto-spawning per Mike's "don't wait on me; sequential auto-merge per asset migration" standing rule. Apply the validated F1-F13 Manager + .pdbase + grep-guard template (heads / bodies / weapons reuse) to the static arena metadata table. Likely `g_MpStages[]` or arena-equivalent in `mplayer/setup.c`.
 
-- Arenas (medium; static metadata).
+**Remaining queue** (post-arenas, sequential):
+
 - Audio (medium; ASSET_AUDIO already has runtime activation; data move follows).
 - Scenarios / game modes.
 - Bot profiles + bot variants.

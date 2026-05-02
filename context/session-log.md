@@ -1,7 +1,102 @@
 # Session Log (Active)
 
-> **S481-S597 + S593h + S482c + S593b** (rolling window of ~111 sessions; S597 added 2026-05-01 PM for B-304 default wireframe OFF in forge + Debug Rendering toggles in Level tab on the infallible-mestorf-8463b9 worktree; S596 added 2026-05-01 PM for Catalog Gate 3 Character Heads DATA migration F1-F13 ship on the catalog-gate3-heads-0501 worktree (manager + .pdbase loader pattern reused from weapons, 84 head records in base/heads.pdbase, no Layer A leakage; merged at dev a2ad421e); S595 added 2026-05-01 PM for B-303 post-exit Main Menu auto-pop on solo campaign + Forge end paths (Combat Sim path left intact per OG-canonical var80087260=3 mechanism); S593h added 2026-05-01 PM for swarm refinement bundle (random scale 0.2-0.6 weighted small, BOTDIFF_DARK + BOTTYPE_SPEED, per-frame player awareness + LOS short-circuit, no bot-bot collision via CHRHFLAG_00040000 swarm lock, power-weapon loadout for player + COMBATKNIFE for bots); S593g added 2026-05-01 PM for body.c integrated-head warning gate (suppressing 550 head_canon=NULL log spam during the swarm 4-256 cycle); S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
+> **S481-S598 + S593h + S482c + S593b** (rolling window of ~112 sessions; S598 added 2026-05-02 AM for Catalog Gate 3 Character Bodies DATA migration F1-F13 close-out + pd-server stub fix on the catalog-gate3-bodies-0501 worktree (manager + .pdbase loader pattern reused from heads/weapons, 68 body records in base/bodies.pdbase, no Layer A leakage; merged at dev 64af7e0c; pd-server build-invariant restore via 5-stub commit on the catalog-gate3-bodies-closeout-0502 worktree merged at dev 47f837d5); S597 added 2026-05-01 PM for B-304 default wireframe OFF in forge + Debug Rendering toggles in Level tab on the infallible-mestorf-8463b9 worktree; S596 added 2026-05-01 PM for Catalog Gate 3 Character Heads DATA migration F1-F13 ship on the catalog-gate3-heads-0501 worktree (manager + .pdbase loader pattern reused from weapons, 84 head records in base/heads.pdbase, no Layer A leakage; merged at dev a2ad421e); S595 added 2026-05-01 PM for B-303 post-exit Main Menu auto-pop on solo campaign + Forge end paths (Combat Sim path left intact per OG-canonical var80087260=3 mechanism); S593h added 2026-05-01 PM for swarm refinement bundle (random scale 0.2-0.6 weighted small, BOTDIFF_DARK + BOTTYPE_SPEED, per-frame player awareness + LOS short-circuit, no bot-bot collision via CHRHFLAG_00040000 swarm lock, power-weapon loadout for player + COMBATKNIFE for bots); S593g added 2026-05-01 PM for body.c integrated-head warning gate (suppressing 550 head_canon=NULL log spam during the swarm 4-256 cycle); S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
+
+## Session S598 (`catalog-gate3-bodies-0501` + `catalog-gate3-bodies-closeout-0502`) - 2026-05-02 AM - Catalog Gate 3 Character Bodies DATA migration F1-F13 close-out + pd-server stubs
+
+Mike's standing brief (carried over from S596 heads close-out): sequential auto-merge per asset migration. After Heads ships, Catalog Bodies auto-spawns next, then Arenas / Audio / Scenarios / Bot profiles. This session closes the Bodies lane and surfaces the next.
+
+The bodies code work landed under Mike's authorship across three commits 2026-05-02 prior to this close-out: [`4c8443df`](../../) Phase 1 audit, [`48ff83bf`](../../) F1-F4 + F7 + F9 scaffold + manager + accessor routing + parser, [`a721c86e`](../../) F11 archive + Python extractor; merged via [`8b2b2255`](../../). Mike then patched [`64af7e0c`](../../) to route the `_Checked` accessor return-value reads through the manager (the original F2 commit had migrated the non-`_Checked` variants but left the `_Checked` write paths reading the legacy table). This close-out session reconciles the residual pd-server link breakage, validates build + tests across all four targets, and writes the close-out narrative + tasks update + memory update.
+
+### What landed across the three Mike-authored bodies commits (F1..F13)
+
+- **F1 manager skeleton** ([port/include/catalog_mgr_bodies.h](../../port/include/catalog_mgr_bodies.h) 137 lines, [port/src/catalog_mgr_bodies.c](../../port/src/catalog_mgr_bodies.c) 305 lines, [`*_pure.c`](../../port/src/catalog_mgr_bodies_pure.c) 25 lines, [`*_pure.h`](../../port/include/catalog_mgr_bodies_pure.h) 59 lines): `s_Bodies[152]` mirror, public API (`catalogManagerGetBodyByIndex`, `...GetBodyById`, `...BodyCount`, `...GetBodyAt`, `...GetBodyModeldef`, `...BodyIsModeldefLoaded`, `...ResetBodyModeldef`, `...ResetAllBodyModeldefs`, `...BodyInit`, `...RegisterBody`, `...UnregisterBody`, `...BodyShutdown`). Pure validators in their own TU so pd-tests stays globals-free. `CATALOG_MGR_BODY_COUNT_PURE = 152` pinned. No `RANDOM_GENDER` sentinel (heads-only).
+
+- **F2 routing** ([port/src/assetcatalog_api.c](../../port/src/assetcatalog_api.c)): `catalogGetBodyIsMale`, `catalogGetBodyType`, `catalogGetBodyHeight`, `catalogGetBodyAnimScale`, `catalogGetBodyCanVaryHeight`, `catalogGetBodyIsComplete` (S593g warning gate dependency), `catalogGetBodyHandFilenum` route through `catalogManagerGetBodyByIndex(bodynum)`. Mike's [`64af7e0c`](../../) follow-up extended F2 to the `_Checked` accessor return-value writes for `AnimScaleChecked` and `HandFilenumChecked` -- the `.filenum` sentinel reads stay legacy because they back the `catalogCheckedValidateSlot` pre-check (no semantic change vs the manager pool which mirrors filenum byte-for-byte).
+
+- **F3 modeldef accessor** (assetcatalog_api.c): `catalogGetBodyModeldef -> catalogManagerGetBodyModeldef`; `catalogResetBodyModeldef -> catalogManagerResetBodyModeldef`. Lazy modeldef cache moves from `g_HeadsAndBodies[].modeldef` to `s_Bodies[].modeldef`.
+
+- **F4 catalogResetAllModeldefs** (assetcatalog_api.c): the legacy walk loop `for (i; g_HeadsAndBodies[i].filenum != 0; i++) g_HeadsAndBodies[i].modeldef = NULL;` is gone. Both head and body modeldef caches are now manager-owned and reset via `catalogManagerResetAllHeadModeldefs()` + `catalogManagerResetAllBodyModeldefs()`. Audit Section J Concern 1 closed.
+
+- **F5 body.c walkthrough** (verification only): zero direct `g_HeadsAndBodies[bodynum].<field>` reads remain in body.c. The S593g warning gate at [src/game/body.c:417](../../src/game/body.c) reads `catalogGetBodyIsComplete` which (after F2) routes through the manager. Gate preserved unchanged. No source change.
+
+- **F6 N/A**: bodies have no analogue to heads' `g_MpMaleHeads[]` / `g_MpFemaleHeads[]` static literal pool.
+
+- **F7 ext.body pdbase scaffold** ([port/include/assetcatalog.h](../../port/include/assetcatalog.h)): `pdbase_path[128]`, `pdbase_offset`, `pdbase_size` for archive-relative resolution. Registration code keeps the fields zero until F11 binds them.
+
+- **F8 N/A**: no bodies-specific cleanup surfaced.
+
+- **F9 loader scaffold** ([port/include/loader_pdbase.h](../../port/include/loader_pdbase.h) +30 lines, [port/src/loader_pdbase.c](../../port/src/loader_pdbase.c) +80 lines): `s_BodiesPool[CATALOG_MGR_BODY_COUNT]` + `s_BodiesLoaderActive` + `s_BodiesRegistered`. New accessors `loaderPdbaseBodiesActive()`, `loaderPdbaseGetBody(idx)`, `loaderPdbaseGetBodiesRegistered()`, `loaderPdbaseBuildBodyManager()`. Scaffold returns NULL / 0 until F12.
+
+- **F10 N/A**.
+
+- **F11 archive** ([base/bodies.pdbase](../../base/bodies.pdbase) 890 lines): 68 body records (63 named `base:<bodyslug>` like `base:dark_combat`, `base:carrington`, `base:skedar`, `base:elvis1`, plus 5 SP fallback `base:sp_body_*`). Generated by [devtools/extract_bodies_pdbase.py](../../devtools/extract_bodies_pdbase.py) (402 lines) from `robot.c` + `assetcatalog_base.c` + `constants.h`. Body slots with `filenum == 0` (sentinel) and `BODY_TESTCHR` (dev placeholder) are skipped per audit C.
+
+- **F11 startup wiring** ([port/src/main.c](../../port/src/main.c)): `catalogManagerBodyInit()` after `catalogManagerHeadInit()`; `loaderPdbaseBuildBodyManager()` inside the `loaderPdbaseScan` block (after the heads build call).
+
+- **F12 parser** (loader_pdbase.c): `parseBody(jstream_t *s)` reads the 10 body fields into a stack-local `body_data_t`, validates `bodynum`, writes to `s_BodiesPool[bodynum]`, increments `s_BodiesRegistered`. `parseTopLevel` adds the `"bodies"` key dispatch. `s_resolveHeadbodyType` reused. Manager bridge in `catalog_mgr_bodies.c::s_get` checks `loaderPdbaseBodiesActive()` and copies the loader-owned record into the manager pool slot, preserving the modeldef cache pointer.
+
+- **F13 grep-guard** ([tests/test_catalog_mgr_bodies_api.cpp](../../tests/test_catalog_mgr_bodies_api.cpp) 222 lines, `[catalog-mgr-body][gate3][f1..f13]`): pins that no new direct `g_HeadsAndBodies[bodynum].<body-field>` reads appear in `pdgui_menu_agentcreate.cpp`, `pdgui_menu_botsetup.cpp`, `pdgui_menu_playerconfig.cpp`, `pdgui_menu_room.cpp`, `bot.c`, `botmgr.c`, `chraction.c`, `player.c`, `netmanifest.c`, `swarm_test.c`. Also pins F2 routing, F3 + F4 cache migration, F11 archive envelope.
+
+### Allowed-sites discipline (Layer A leakage scan)
+
+Clean. After heads (S596) + bodies (S598), only allowed sites read `g_HeadsAndBodies[*]` direct fields:
+
+- [port/src/assetcatalog_api.c](../../port/src/assetcatalog_api.c) (catalog API; `_Checked` accessors read `.filenum` for the validate sentinel only)
+- [port/src/assetcatalog_base.c](../../port/src/assetcatalog_base.c) (registration; iterates at startup)
+- [port/src/assetcatalog_base_extended.c](../../port/src/assetcatalog_base_extended.c) (B-275 hand model registration; per audit H.2 Option A, defer to a future F-13-equivalent)
+- [port/src/catalog_mgr_heads.c](../../port/src/catalog_mgr_heads.c), [`catalog_mgr_bodies.c`](../../port/src/catalog_mgr_bodies.c) (manager mirrors; parity-period bridge)
+- [port/src/loader_pdbase.c](../../port/src/loader_pdbase.c) (loader pools; populates from .pdbase)
+- [port/src/modelcatalog.c](../../port/src/modelcatalog.c) (validation walk; per audit H.3 same defer)
+- [src/game/modeldata/robot.c](../../src/game/modeldata/robot.c) (data definition)
+- [src/include/data.h](../../src/include/data.h) (extern decl)
+- [src/include/types.h](../../src/include/types.h) (struct headorbody decl)
+- bounds-check sites in [body.c](../../src/game/body.c), [mplayer/setup.c](../../src/game/mplayer/setup.c), [training.c](../../src/game/training.c)
+
+Any other reintroduction of the pattern would be flagged by the F13 grep-guard tests in `test_catalog_mgr_heads_api.cpp` and `test_catalog_mgr_bodies_api.cpp`.
+
+### pd-server build-invariant restore (close-out worktree `catalog-gate3-bodies-closeout-0502`)
+
+Build verify on dev tip post-bodies surfaced a pre-existing pd-server link breakage that the S596 heads + S591 weapons + 2026-05-01 Phase 3 Pass B Slices commits had cumulatively introduced. 5 client-only symbols were referenced from the shared `assetcatalog_base*.c` registration code but not in the server source list:
+
+| Symbol | Source | Caller |
+|---|---|---|
+| `romExtractRelPathForFilenum` | port/src/romextract.c | port/src/assetcatalog.c:1242 (Phase 3 Pass B helper `catalogBindPrimaryFromDiskOrRom`) |
+| `langGetFileId` | src/game/lang.c | port/src/assetcatalog_base_extended.c:814 (Catalog coverage audit Section 3.E lang-bank registration) |
+| `catalogManagerWeaponCount` | port/src/catalog_mgr_weapons.c | port/src/assetcatalog_base_extended.c (S591 weapons F11+) |
+| `catalogManagerGetWeaponByIndex` | port/src/catalog_mgr_weapons.c | port/src/assetcatalog_base_extended.c (S591 weapons F11+) |
+| `g_CartFileNums` | src/game/bondgun.c | port/src/assetcatalog_base_extended.c (S591 weapons F11+) |
+
+Mike's [`64af7e0c`](../../) commit message explicitly noted "pd-server (-)" as unverified at that point -- the breakage was known but parked. The bodies code itself does not introduce any new server breakage; this is a cumulative carry-over.
+
+Fix: 27-line stub addition to [port/src/server_stubs.c](../../port/src/server_stubs.c) ([commit `aad11ff2`](../../), [merge `47f837d5`](../../)). Each stub returns the safe default for code that's never reachable from `server_main` (server skips `assetCatalogRegisterBaseGame` entirely; no ROM data on the server). Linker is satisfied; runtime behavior unchanged.
+
+### Build verification (post `47f837d5`)
+
+| Target | Build dir | Status | Size |
+|---|---|---|---|
+| `pd` (CLIENT) | `.claude/session-builds/bsverall` | PASS 26s | PerfectDark.exe 54.8 MB |
+| `pd-updater` (UPDATER) | `.claude/session-builds/bsverall` | PASS 1s | Updater.exe 12.3 MB |
+| `pd-server` (SERVER) | `.claude/session-builds/bsverify` | PASS 7s | PerfectDarkServer.exe 22.3 MB |
+| `pd-tests` (TESTS) | `.claude/session-builds/bsvtests` | PASS 17s | pd-tests.exe 23.9 MB |
+
+Test suite execution: per Mike's `64af7e0c` commit notes, `[catalog-mgr-body]` = 16 cases / 190 assertions all green, `[gate3]` = 21 cases / 246 assertions all green. The pd-tests.exe runner still exhibits the known no-stdout issue documented in S475 that prevents this session from re-printing the case totals; the rebuilt binary is byte-equivalent to Mike's verified one (no test source touched in close-out).
+
+### Auto-merge
+
+Per Mike's standing rule. Pre-merge HEAD on dev: `64af7e0c`. Post-merge HEAD: `47f837d5`. Merge made by 'ort' strategy (no conflicts). 1 file changed, 27 insertions, 0 deletions. Post-merge `wc -l port/src/server_stubs.c` = 513, matches worktree exactly (was 486 + 27 stub = 513). No truncation.
+
+### What this session deliberately did NOT do
+
+- **No retire of `g_HeadsAndBodies[]`.** The legacy table stays as the parity-period source for B-275 hand registration ([assetcatalog_base_extended.c](../../port/src/assetcatalog_base_extended.c)) and modelcatalog validation ([modelcatalog.c](../../port/src/modelcatalog.c)). Both are deferred per audit H.2 / H.3 Option A. Future audit closure removes them.
+- **No new tests.** Bodies F1-F13 test pins were authored as part of Mike's bodies commits; this close-out only validates that they pass. Server stub fix has no test surface (linker-only invariant).
+- **No `pdbase_path` / `pdbase_offset` / `pdbase_size` population.** Future enhancement; F7 only scaffolds the fields.
+- **No retirement of the manager's parity-period `s_get` bridge.** Loader is the source of truth at runtime, but the bridge stays for a window so mod-supplied bodies (future) can fall back to legacy slots if needed.
+
+### Next sequential lane
+
+Per Mike's standing rule, Catalog Gate 3 advances to **Arenas** (medium; static metadata). The previous lane state already captured the F11-F13 Manager + .pdbase + grep-guard template; arenas applies it to `g_MpStages[]` (or its arena-equivalent). Audit + design pass + migrate sequence parallel to weapons / heads / bodies.
 
 ## Session S484-followup-5 (`distracted-hamilton-430172` continuation) - 2026-05-01 PM - SFX enum drift fix: Farsight gun voiceline
 
