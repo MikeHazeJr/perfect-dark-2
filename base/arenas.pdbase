@@ -1,0 +1,476 @@
+{
+  "pdbase_version": 1,
+  "type": "arenas",
+  "arenas": [
+    {
+      "id": "base:arena_mp_skedar",
+      "arena_index": 0,
+      "slug": "mp_skedar",
+      "category": "Dark",
+      "stagenum": "STAGE_MP_SKEDAR",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_119",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_mp_pipes",
+      "arena_index": 1,
+      "slug": "mp_pipes",
+      "category": "Dark",
+      "stagenum": "STAGE_MP_PIPES",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_120",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_mp_ravine",
+      "arena_index": 2,
+      "slug": "mp_ravine",
+      "category": "Dark",
+      "stagenum": "STAGE_MP_RAVINE",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_121",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_mp_g5building",
+      "arena_index": 3,
+      "slug": "mp_g5building",
+      "category": "Dark",
+      "stagenum": "STAGE_MP_G5BUILDING",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_122",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_mp_sewers",
+      "arena_index": 4,
+      "slug": "mp_sewers",
+      "category": "Dark",
+      "stagenum": "STAGE_MP_SEWERS",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_123",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_mp_warehouse",
+      "arena_index": 5,
+      "slug": "mp_warehouse",
+      "category": "Dark",
+      "stagenum": "STAGE_MP_WAREHOUSE",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_124",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_mp_grid",
+      "arena_index": 6,
+      "slug": "mp_grid",
+      "category": "Dark",
+      "stagenum": "STAGE_MP_GRID",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_125",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_mp_ruins",
+      "arena_index": 7,
+      "slug": "mp_ruins",
+      "category": "Dark",
+      "stagenum": "STAGE_MP_RUINS",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_126",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_mp_area52",
+      "arena_index": 8,
+      "slug": "mp_area52",
+      "category": "Dark",
+      "stagenum": "STAGE_MP_AREA52",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_127",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_mp_base",
+      "arena_index": 9,
+      "slug": "mp_base",
+      "category": "Dark",
+      "stagenum": "STAGE_MP_BASE",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_128",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_mp_fortress",
+      "arena_index": 10,
+      "slug": "mp_fortress",
+      "category": "Dark",
+      "stagenum": "STAGE_MP_FORTRESS",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_130",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_mp_villa",
+      "arena_index": 11,
+      "slug": "mp_villa",
+      "category": "Dark",
+      "stagenum": "STAGE_MP_VILLA",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_131",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_mp_carpark",
+      "arena_index": 12,
+      "slug": "mp_carpark",
+      "category": "Dark",
+      "stagenum": "STAGE_MP_CARPARK",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_132",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_defection",
+      "arena_index": 13,
+      "slug": "defection",
+      "category": "Solo Missions",
+      "stagenum": "STAGE_DEFECTION",
+      "requirefeature": 0,
+      "name_langid": "L_OPTIONS_133",
+      "load_mode": "ARENA_LOADMODE_CANVAS"
+    },
+    {
+      "id": "base:arena_investigation",
+      "arena_index": 14,
+      "slug": "investigation",
+      "category": "Solo Missions",
+      "stagenum": "STAGE_INVESTIGATION",
+      "requirefeature": 0,
+      "name_langid": "L_OPTIONS_135",
+      "load_mode": "ARENA_LOADMODE_CANVAS"
+    },
+    {
+      "id": "base:arena_villa",
+      "arena_index": 15,
+      "slug": "villa",
+      "category": "Solo Missions",
+      "stagenum": "STAGE_VILLA",
+      "requirefeature": 0,
+      "name_langid": "L_OPTIONS_139",
+      "load_mode": "ARENA_LOADMODE_CANVAS"
+    },
+    {
+      "id": "base:arena_chicago",
+      "arena_index": 16,
+      "slug": "chicago",
+      "category": "Solo Missions",
+      "stagenum": "STAGE_CHICAGO",
+      "requirefeature": 0,
+      "name_langid": "L_OPTIONS_141",
+      "load_mode": "ARENA_LOADMODE_CANVAS"
+    },
+    {
+      "id": "base:arena_g5building",
+      "arena_index": 17,
+      "slug": "g5building",
+      "category": "Solo Missions",
+      "stagenum": "STAGE_G5BUILDING",
+      "requirefeature": 0,
+      "name_langid": "L_OPTIONS_143",
+      "load_mode": "ARENA_LOADMODE_CANVAS"
+    },
+    {
+      "id": "base:arena_infiltration",
+      "arena_index": 18,
+      "slug": "infiltration",
+      "category": "Solo Missions",
+      "stagenum": "STAGE_INFILTRATION",
+      "requirefeature": 0,
+      "name_langid": "L_OPTIONS_145",
+      "load_mode": "ARENA_LOADMODE_CANVAS"
+    },
+    {
+      "id": "base:arena_airbase",
+      "arena_index": 19,
+      "slug": "airbase",
+      "category": "Solo Missions",
+      "stagenum": "STAGE_AIRBASE",
+      "requirefeature": 0,
+      "name_langid": "L_OPTIONS_151",
+      "load_mode": "ARENA_LOADMODE_CANVAS"
+    },
+    {
+      "id": "base:arena_airforceone",
+      "arena_index": 20,
+      "slug": "airforceone",
+      "category": "Solo Missions",
+      "stagenum": "STAGE_AIRFORCEONE",
+      "requirefeature": 0,
+      "name_langid": "L_OPTIONS_153",
+      "load_mode": "ARENA_LOADMODE_CANVAS"
+    },
+    {
+      "id": "base:arena_crashsite",
+      "arena_index": 21,
+      "slug": "crashsite",
+      "category": "Solo Missions",
+      "stagenum": "STAGE_CRASHSITE",
+      "requirefeature": 0,
+      "name_langid": "L_OPTIONS_155",
+      "load_mode": "ARENA_LOADMODE_CANVAS"
+    },
+    {
+      "id": "base:arena_pelagic",
+      "arena_index": 22,
+      "slug": "pelagic",
+      "category": "Solo Missions",
+      "stagenum": "STAGE_PELAGIC",
+      "requirefeature": 0,
+      "name_langid": "L_OPTIONS_157",
+      "load_mode": "ARENA_LOADMODE_CANVAS"
+    },
+    {
+      "id": "base:arena_deepsea",
+      "arena_index": 23,
+      "slug": "deepsea",
+      "category": "Solo Missions",
+      "stagenum": "STAGE_DEEPSEA",
+      "requirefeature": 0,
+      "name_langid": "L_OPTIONS_159",
+      "load_mode": "ARENA_LOADMODE_CANVAS"
+    },
+    {
+      "id": "base:arena_defense",
+      "arena_index": 24,
+      "slug": "defense",
+      "category": "Solo Missions",
+      "stagenum": "STAGE_DEFENSE",
+      "requirefeature": 0,
+      "name_langid": "L_OPTIONS_161",
+      "load_mode": "ARENA_LOADMODE_CANVAS"
+    },
+    {
+      "id": "base:arena_attackship",
+      "arena_index": 25,
+      "slug": "attackship",
+      "category": "Solo Missions",
+      "stagenum": "STAGE_ATTACKSHIP",
+      "requirefeature": 0,
+      "name_langid": "L_OPTIONS_163",
+      "load_mode": "ARENA_LOADMODE_CANVAS"
+    },
+    {
+      "id": "base:arena_skedarruins",
+      "arena_index": 26,
+      "slug": "skedarruins",
+      "category": "Solo Missions",
+      "stagenum": "STAGE_SKEDARRUINS",
+      "requirefeature": 0,
+      "name_langid": "L_OPTIONS_165",
+      "load_mode": "ARENA_LOADMODE_CANVAS"
+    },
+    {
+      "id": "base:arena_mp_temple",
+      "arena_index": 27,
+      "slug": "mp_temple",
+      "category": "Classic",
+      "stagenum": "STAGE_MP_TEMPLE",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_133",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_mp_complex",
+      "arena_index": 28,
+      "slug": "mp_complex",
+      "category": "Classic",
+      "stagenum": "STAGE_MP_COMPLEX",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_134",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_mp_grid6",
+      "arena_index": 29,
+      "slug": "mp_grid6",
+      "category": "Classic",
+      "stagenum": "STAGE_TEST_MP6",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_306",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_mp_grid2",
+      "arena_index": 30,
+      "slug": "mp_grid2",
+      "category": "Classic",
+      "stagenum": "STAGE_TEST_MP2",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_129",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_mp_felicity",
+      "arena_index": 31,
+      "slug": "mp_felicity",
+      "category": "Classic",
+      "stagenum": "STAGE_MP_FELICITY",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_135",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_test_arch",
+      "arena_index": 32,
+      "slug": "test_arch",
+      "category": "Bonus",
+      "stagenum": "STAGE_TEST_ARCH",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_324",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_test_dest",
+      "arena_index": 33,
+      "slug": "test_dest",
+      "category": "Bonus",
+      "stagenum": "STAGE_TEST_DEST",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_325",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_extra16",
+      "arena_index": 34,
+      "slug": "extra16",
+      "category": "Bonus",
+      "stagenum": "STAGE_EXTRA16",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_327",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_extra17",
+      "arena_index": 35,
+      "slug": "extra17",
+      "category": "Bonus",
+      "stagenum": "STAGE_EXTRA17",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_328",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_extra18",
+      "arena_index": 36,
+      "slug": "extra18",
+      "category": "Bonus",
+      "stagenum": "STAGE_EXTRA18",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_329",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_extra19",
+      "arena_index": 37,
+      "slug": "extra19",
+      "category": "Bonus",
+      "stagenum": "STAGE_EXTRA19",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_330",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_extra20",
+      "arena_index": 38,
+      "slug": "extra20",
+      "category": "Bonus",
+      "stagenum": "STAGE_EXTRA20",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_331",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_extra21",
+      "arena_index": 39,
+      "slug": "extra21",
+      "category": "Bonus",
+      "stagenum": "STAGE_EXTRA21",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_332",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_extra22",
+      "arena_index": 40,
+      "slug": "extra22",
+      "category": "Bonus",
+      "stagenum": "STAGE_EXTRA22",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_333",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_extra23",
+      "arena_index": 41,
+      "slug": "extra23",
+      "category": "Bonus",
+      "stagenum": "STAGE_EXTRA23",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_334",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_extra24",
+      "arena_index": 42,
+      "slug": "extra24",
+      "category": "Bonus",
+      "stagenum": "STAGE_EXTRA24",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_335",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_extra26",
+      "arena_index": 43,
+      "slug": "extra26",
+      "category": "Bonus",
+      "stagenum": "STAGE_EXTRA26",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_337",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_test_lam",
+      "arena_index": 44,
+      "slug": "test_lam",
+      "category": "Bonus",
+      "stagenum": "STAGE_TEST_LAM",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_338",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_mp_random_multi",
+      "arena_index": 45,
+      "slug": "mp_random_multi",
+      "category": "Random",
+      "stagenum": "STAGE_MP_RANDOM_MULTI",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_294",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    },
+    {
+      "id": "base:arena_mp_random_solo",
+      "arena_index": 46,
+      "slug": "mp_random_solo",
+      "category": "Random",
+      "stagenum": "STAGE_MP_RANDOM_SOLO",
+      "requirefeature": 0,
+      "name_langid": "L_MPMENU_295",
+      "load_mode": "ARENA_LOADMODE_PLAYABLE"
+    }
+  ]
+}
