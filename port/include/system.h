@@ -100,6 +100,32 @@ s32 sysLogIsOpen(void);
 const char *sysLogGetPath(void);
 void sysLogPrintf(s32 level, const char *fmt, ...);
 
+/* -----------------------------------------------------------------------
+ * LOUDFAIL convention (Phase 3 Pass A.5, 2026-05-02).
+ *
+ * Any silent recovery from a missing or corrupt asset MUST emit a
+ * LOUDFAIL log line BEFORE the substitute is applied so a player who
+ * notices something wrong has a clear breadcrumb.  Examples:
+ *   - Procedural noise texture substituted when ROM extraction fails
+ *   - Default model loaded when catalogResolveFile returns nothing
+ *   - Hash mismatch quarantine + re-extract
+ *
+ * Convention: prefix the message with "LOUDFAIL.<CLASS>:" so the log
+ * filter system (sysLogClassifyMessage) can route to LOG_CH_SYSTEM.
+ * Examples:
+ *   LOUDFAIL.EXTRACT: failed to extract file 907 (Farsight hi_model)
+ *                     from ROM; falling back to procedural model
+ *   LOUDFAIL.CATALOG: bgun model filenum=907 has no catalog entry
+ *   LOUDFAIL.LOAD:    SHA-256 mismatch on data/ntsc-final/files/G_0907.bin
+ *                     (expected ABC..., got DEF...); quarantining and
+ *                     re-extracting from ROM
+ *
+ * Use the macro when emitting; it expands to LOG_WARNING with the
+ * standardised prefix so future tooling (log filters, automated bug
+ * reports) can find every silent recovery in one query. */
+#define sysLoudFailf(klass, ...) \
+    sysLogPrintf(LOG_WARNING, "LOUDFAIL." klass ": " __VA_ARGS__)
+
 void sysGetExecutablePath(char *outPath, const u32 outLen);
 void sysGetHomePath(char *outPath, const u32 outLen);
 
