@@ -1023,6 +1023,14 @@ set(SRC_TESTS
   # + main.c.
   ${CMAKE_SOURCE_DIR}/tests/test_loader_pdbase_arenas.cpp
 
+  # Catalog Gate 3 Arenas F13: grep-guard test. Pins that no NEW
+  # direct g_MpArenas[idx].field reads exist outside the registration
+  # loop in assetcatalog_base.c and the static literal definitions
+  # (setup.c + server_stubs.c). The 2026-04-26 selector-pool migration
+  # eliminated the live-UI consumers; the 2026-05-02 Gate 3 data
+  # migration retired the parity bridge.
+  ${CMAKE_SOURCE_DIR}/tests/test_arena_direct_reads_audit.cpp
+
   # S484 F2: pin weaponFindById's migration to the catalog manager.
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_findbyid_migrated.cpp
 
