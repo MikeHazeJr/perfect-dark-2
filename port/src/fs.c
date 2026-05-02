@@ -14,6 +14,7 @@
 #include "utils.h"
 #include "fs.h"
 #include "modmgr.h"
+#include "versioninfo.h"  /* VERSION_ROMID for fsDataDir / fsDataPathFor */
 #ifndef PD_SERVER
 #include "modvfs.h"  /* Priority M / B-238: VFS-backed .pdmod mounts */
 #endif
@@ -460,4 +461,53 @@ s32 fsCreateDir(const char *path)
 #else
 	return mkdir(fsFullPath(path), 0777);
 #endif
+}
+
+/* Phase 3 Pass A.1 (2026-05-02): data/<romid>/ tier accessors. */
+
+const char *fsDataDir(void)
+{
+	static char buf[FS_MAXPATH + 1];
+	snprintf(buf, sizeof(buf), "data/%s", VERSION_ROMID);
+	return buf;
+}
+
+const char *fsDataPathFor(const char *rel)
+{
+	static char buf[FS_MAXPATH + 1];
+	if (rel == NULL || rel[0] == '\0') {
+		return fsDataDir();
+	}
+	/* Strip leading slash so callers can pass either "files/foo" or
+	 * "/files/foo" and get a consistent result. */
+	while (rel[0] == '/' || rel[0] == '\\') {
+		rel++;
+	}
+	snprintf(buf, sizeof(buf), "data/%s/%s", VERSION_ROMID, rel);
+	return buf;
+}
+
+s32 fsDataDirEnsure(void)
+{
+	/* Two-step create: parent "data" first, then "data/<romid>" so the
+	 * second mkdir succeeds even on platforms where mkdir does not
+	 * create intermediate directories.  Both steps are idempotent --
+	 * an existing directory returns success in spirit (errno EEXIST is
+	 * acceptable; we treat the final-path existence as the outcome). */
+	const char *parentRel = "data";
+	const char *romidRel = fsDataDir();
+	s32 r1 = fsCreateDir(parentRel);
+	s32 r2 = fsCreateDir(romidRel);
+	(void)r1;
+	(void)r2;
+	/* Confirm via stat on the resolved path. */
+	const char *full = fsFullPath(romidRel);
+	struct stat st;
+	if (stat(full, &st) == 0 && S_ISDIR(st.st_mode)) {
+		return 1;
+	}
+	sysLoudFailf("DATA",
+		"failed to create or stat data dir \"%s\" (errno will appear in next syscall)",
+		full ? full : romidRel);
+	return 0;
 }
