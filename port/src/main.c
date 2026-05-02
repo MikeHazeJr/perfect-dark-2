@@ -293,6 +293,14 @@ int main(int argc, const char **argv)
 	 * check that ships here. */
 	romExtractAllFiles();
 
+	/* Phase 3 Pass A.4 (2026-05-02): hash-verify-on-launch self-heal.
+	 * Scans data/<romid>/files/ sidecars, checks each .bin against its
+	 * stored SHA-256, quarantines + re-extracts mismatches.  Emits
+	 * LOUDFAIL.LOAD on any corruption found.  Idempotent and cheap on
+	 * a clean install. */
+	romExtractVerifyAll();
+
+
 	netInit();
 
 	g_ValidGbcRomFound = romdataCheckGbcRom();

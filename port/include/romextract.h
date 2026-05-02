@@ -28,6 +28,23 @@ extern "C" {
  */
 s32 romExtractAllFiles(void);
 
+/**
+ * Phase 3 Pass A.4 (2026-05-02): hash-verify-on-launch self-heal.
+ *
+ * Walks every previously-extracted file under data/<romid>/files/
+ * and verifies SHA-256 against the sidecar written at extraction
+ * time.  On mismatch: emit LOUDFAIL.LOAD, quarantine the corrupted
+ * file to data/<romid>/.quarantine/<unixtime>_<name>, re-extract
+ * from g_RomFile, write fresh sidecar.
+ *
+ * Server build: returns 0 immediately.
+ *
+ * Returns: number of files self-healed (corrected via re-extract);
+ * legacy/baselined entries count separately in the LOG_NOTE summary
+ * but not in the return value.
+ */
+s32 romExtractVerifyAll(void);
+
 #ifdef __cplusplus
 }
 #endif
