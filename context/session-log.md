@@ -1,6 +1,110 @@
 # Session Log (Active)
 
-> **S481-S598 + S593h + S482c + S593b** (rolling window of ~112 sessions; S598 added 2026-05-02 AM for Catalog Gate 3 Character Bodies DATA migration F1-F13 close-out + pd-server stub fix on the catalog-gate3-bodies-0501 worktree (manager + .pdbase loader pattern reused from heads/weapons, 68 body records in base/bodies.pdbase, no Layer A leakage; merged at dev 64af7e0c; pd-server build-invariant restore via 5-stub commit on the catalog-gate3-bodies-closeout-0502 worktree merged at dev 47f837d5); S597 added 2026-05-01 PM for B-304 default wireframe OFF in forge + Debug Rendering toggles in Level tab on the infallible-mestorf-8463b9 worktree; S596 added 2026-05-01 PM for Catalog Gate 3 Character Heads DATA migration F1-F13 ship on the catalog-gate3-heads-0501 worktree (manager + .pdbase loader pattern reused from weapons, 84 head records in base/heads.pdbase, no Layer A leakage; merged at dev a2ad421e); S595 added 2026-05-01 PM for B-303 post-exit Main Menu auto-pop on solo campaign + Forge end paths (Combat Sim path left intact per OG-canonical var80087260=3 mechanism); S593h added 2026-05-01 PM for swarm refinement bundle (random scale 0.2-0.6 weighted small, BOTDIFF_DARK + BOTTYPE_SPEED, per-frame player awareness + LOS short-circuit, no bot-bot collision via CHRHFLAG_00040000 swarm lock, power-weapon loadout for player + COMBATKNIFE for bots); S593g added 2026-05-01 PM for body.c integrated-head warning gate (suppressing 550 head_canon=NULL log spam during the swarm 4-256 cycle); S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
+## Session S599 (`condescending-ellis-248824`) - 2026-05-02 PM - Catalog Gate 3 Maps + Arenas DATA migration F1-F13
+
+Mike's activation brief: arenas are ALREADY accessor-migrated (modmgr.c:2876-2878 pulls every field from `ext.arena`). Only the data move remains. Mirror heads I.1-I.7 / bodies migration shape unless arena-specific concerns surface. Coordinate with the Universality Sweep + Phase 3 ROM-once Pass B Slice 9 work (in flight on a parallel session); surface immediately if conflicts.
+
+Final selector-pool + data migration in the catalog chain after Weapons (S484/S591), Heads (S596/`a2ad421e`), Bodies (S598/`47f837d5`).
+
+### Outcome
+
+Maps + Arenas catalog migration F1-F13 shipped. Manager pool + `.pdbase` loader + parity bridge in place. 47 arena records in `base/arenas.pdbase` mirror the 47-entry `g_MpArenas[]` post-AllInOne / GEX cull. Loader populates the manager pool at startup; parity check confirms the pool matches the catalog row data populated from the legacy tables. Selectors + random meta resolvers (already migrated 2026-04-26) inherit unchanged. No protocol bump, no save format change.
+
+`pd` 57.6 MB / `pd-server` 23.4 MB / `pd-tests` 25.6 MB; all link clean. Arena tests: **31 cases / 112 assertions** in `[catalog-mgr-arena]` all pass. Pre-existing test failures + segfault unchanged (test_catalog_provider_static.cpp + test_cutscene_layer.cpp; same status as bodies S598 close-out).
+
+### Audit doc
+
+[`context/audits/catalog-gate3-arenas-data-2026-05-02.md`](audits/catalog-gate3-arenas-data-2026-05-02.md) -- 604 lines, Sections A-K mirroring the heads + bodies template. Findings:
+
+- Layer A surface: `g_MpArenas[47]` (client + server stub) + `s_ArenaNames[47]` (slug shadow) + `s_ArenaGroupMap[5]` (group definitions) + vestigial `g_ArenaGroupDefs[7]`. Three fields per row + slug + category.
+- ZERO direct `g_MpArenas` reads outside the registration loop in `assetcatalog_base.c:691-705`. The 2026-04-26 selector-pool migration eliminated all live UI consumers; indirect consumers via `modmgrGetArena()` read `s_CatalogArenas[]` which is already catalog-fronted.
+- `arena_data_t` typed payload mirrors `ext.arena` (4 fields) plus identity (`catalog_id`, `slug`, `category`, `arena_index`). 8 fields, ~116 bytes per arena, 47 arenas = ~5.5 KB pool overhead.
+- Manager API simpler than heads/bodies: no modeldef cache, no mutators, no random-gender pool helpers.
+- Phase 3 ROM-once Slice 9 (stage scene files, ASSET_MODEL) is orthogonal to this migration (ASSET_ARENA). Different functions in same file, no conflict.
+- Universality Sweep B-303 enabled-filter inherits via the catalog API (manager iterator returns all slots; consumers filter via catalog row when needed).
+
+### Phase 2 commit ladder (5 commits + audit)
+
+| SHA | Scope |
+|---|---|
+| [`1cf59274`](../../) | Phase 1 audit |
+| [`abacab0a`](../../) | F1+F7+F9 scaffold (manager + loader hooks + ext.arena pdbase fields + tests) |
+| [`56faaf12`](../../) | F11 base/arenas.pdbase + Python extractor (47 records) |
+| [`995ba642`](../../) | F11 fix-up: resolve STAGE_* / L_* to integers (Path B for these large families) |
+| [`371a66ad`](../../) | F12 parseArena + parseTopLevel "arenas" dispatch + parity check + manager pool routing |
+| [`9c290f2a`](../../) | F13 grep-guard test (no direct g_MpArenas reads outside allowed sites) |
+
+### Files touched
+
+- `context/audits/catalog-gate3-arenas-data-2026-05-02.md` (+604): audit
+- `port/include/catalog_mgr_arenas.h` (+106): public manager API + `arena_data_t`
+- `port/include/catalog_mgr_arenas_pure.h` (+78): pure validators
+- `port/src/catalog_mgr_arenas.c` (+254): live router + parity-period bridge
+- `port/src/catalog_mgr_arenas_pure.c` (+72): pure validator implementation
+- `port/include/loader_pdbase.h` (+49): arenas-side loader API (active flag, get, register, parity)
+- `port/src/loader_pdbase.c` (+295): s_ArenasPool + parseArena + parseTopLevel "arenas" dispatch + RunParityCheckArenas + scan block
+- `port/include/assetcatalog.h` (+11): ext.arena gains pdbase_path / pdbase_offset / pdbase_size scaffold fields
+- `port/src/main.c` (+11): catalogManagerArenaInit + loaderPdbaseBuildArenaManager + RunParityCheckArenas wiring
+- `tests/test_catalog_mgr_arenas_api.cpp` (+143): F1 pure-layer pin (count / bounds / category-mask / slug extractor)
+- `tests/test_loader_pdbase_arenas.cpp` (+170): F11 archive structural pins + F12 parser + parity check static contract
+- `tests/test_arena_direct_reads_audit.cpp` (+126): F13 grep-guard
+- `devtools/extract_arenas_pdbase.py` (+316): Python extractor (parses g_MpArenas + s_ArenaNames + s_ArenaGroupMap + STAGE_/L_ via constants.h + base+offset)
+- `base/arenas.pdbase` (+676): 47 arena records
+- `CMakeLists.txt` (+22): wire managers + tests
+- `context/session-log.md` (this entry)
+
+### Migration shape
+
+F1+F7+F9 (bundled): manager scaffold + ext.arena pdbase scaffold fields + loader-side stubs.
+- `arena_data_t` 8-field typed payload (4 `ext.arena` mirror + 4 identity).
+- Pure layer: `IsInRangePure(idx)`, `CategoryToMaskPure(category)`, `SlugFromIdPure(catalog_id)`.
+- Manager init walks ASSET_ARENA catalog rows, populates `s_Arenas[47]` from `e->ext.arena` + `e->category` + `e->id` (slug parsed via pure helper).
+- Loader scaffold: `s_ArenasPool[47]` + `loaderPdbaseArenasActive/GetArena/GetArenasRegistered/BuildArenaManager` (no parser yet; flips active flag if records appear).
+- Manager `s_get` checks `loaderPdbaseArenasActive` first (PD_SERVER-guarded, server doesn't link loader_pdbase.c), copies pool record to s_Arenas slot. Falls through to catalog-row-derived mirror when loader inactive.
+
+F11: Python extractor + base/arenas.pdbase.
+- Reads `src/game/mplayer/setup.c::g_MpArenas[]` (3 fields per row) + `port/src/assetcatalog_base.c::s_ArenaNames[]` (slug) + `s_ArenaGroupMap[5]` (group bounds + category).
+- Resolves VERSION_JPN_FINAL ternaries via NTSC branch.
+- Computes load_mode per arena: ARENA_LOADMODE_CANVAS for "Solo Missions" group (B-254 invariant), PLAYABLE otherwise.
+- F11 fix-up commit: STAGE_* and L_MPMENU_* / L_OPTIONS_* resolve to integers at extract time (Path B for these large families). STAGE_* via `build_constant_table` from `constants.h`; L_* via base+offset rule (`L_MPMENU_NNN = 0x5000 + NNN`, `L_OPTIONS_NNN = 0x5600 + NNN`, both auto-generated by mklang). ARENA_LOADMODE_* stays symbolic with a 3-entry inline resolver.
+- Determinism: same source bytes -> same output bytes.
+
+F12: parseArena + parity bridge.
+- `parseArena(jstream_t *s)` reads 8 fields from the JSON record (`id`, `arena_index`, `slug`, `category`, `stagenum` int, `requirefeature` int, `name_langid` int, `load_mode` symbolic with 3-entry inline resolver). Out-of-range arena_index emits `LOADER.PDBASE.ARENA.RESOLVE_FAIL:` and skips.
+- `parseTopLevel` adds the `"arenas"` array dispatch alongside the existing `"weapons"` / `"heads"` / `"bodies"` keys.
+- `loaderPdbaseRunParityCheckArenas` walks ASSET_ARENA catalog rows, compares each row's data against `s_ArenasPool[runtime_index]` (id / stagenum / requirefeature / name_langid / load_mode / category). Mismatches log `LOADER.PDBASE.ARENA.PARITY_FAIL:` per field. Returns mismatch count (0 = pass).
+- main.c init order: `loaderPdbaseScan` -> `loaderPdbaseBuildArenaManager` -> `loaderPdbaseRunParityCheckArenas` (after the heads + bodies build calls).
+
+F13: grep-guard test.
+- `tests/test_arena_direct_reads_audit.cpp` pins zero `g_MpArenas[` substrings in `port/src/modmgr.c`, `src/game/challenge.c`, `port/fast3d/pdgui_menu_room.cpp`, `port/fast3d/pdgui_menu_mainmenu.cpp`, `port/fast3d/pdgui_menu_mpsetup.cpp`, `port/fast3d/pdgui_bridge.c`.
+- Positively pins that the table definitions + registration loop are still intact in `setup.c` + `server_stubs.c` + `assetcatalog_base.c`.
+
+### Decisions confirmed by default (Section J)
+
+| # | Decision |
+|---|---|
+| Ia.1 | Pure-layer category-mask helper shipped (`catalogMgrArenaCategoryToMaskPure`); live consumer in `setup.c::randomPoolCollect` left as-is for follow-up. |
+| Ia.2 | Three-table cleanup deferred (J.1). F13 retired the parity bridge but kept the legacy tables as registration seed. |
+| Ia.3 | Single-session F1-F13. |
+| Ia.4 | `arena_data_t` includes slug + category strings (~116 bytes per arena, ~5.5 KB total). |
+| Ia.5 | Extractor parses three source files and joins on `arena_index`. Determinism guaranteed. |
+| Ia.6 | Universality Sweep + Phase 3 Slice 9 surface: orthogonal (ASSET_ARENA vs ASSET_MODEL stage scene files). No conflict. |
+
+### Coverage NOT migrated
+
+- `g_ArenaGroupDefs[7]` (vestigial legacy carousel offsets in `setup.c:350`) -- post-selector-pool-migration leftover; consulted only by `mpArenaMenuHandler` + helpers which the live ImGui pickers no longer call. Out of scope per heads I.6 / bodies disposition.
+- True three-table retirement (`g_MpArenas[]` client + server stub + `s_ArenaNames` + `s_ArenaGroupMap` + vestigial `g_ArenaGroupDefs`): defer to follow-up session that re-orders init so the loader populates catalog rows directly. Audit Section J.1 prescribes this; same constraint as heads + bodies. The future session also implements the structural-note's data-driven probe (per-arena `.available` bit set by walking `catalogResolveFile` for each stage's required files).
+- Mod-authored arenas continue to register through `assetcatalog_scanner.c` + `.pdmod` paths (orthogonal to `base/arenas.pdbase`).
+
+### Next steps
+
+The selector-pool + data-migration chain (heads + bodies + maps/arenas + weapons) is COMPLETE. Optional follow-ups remain:
+
+- **J.1 init-order refactor** for ALL three asset classes (heads + bodies + arenas): re-order `assetCatalogRegisterBaseGame` after `loaderPdbaseScan`, retire the three legacy tables, implement the data-driven probe.
+- Catalog Gate 3 next assets per Mike's queue: Audio / Scenarios / Bot profiles / Bot variants. Same pattern.
+- Phase 3 ROM-once continues independently (Slices 1, 3, 4, 7, 9 already shipped; Slices 2 / 5 / 6 / 8 / 10 / 11 / 12 / 13 in flight).
+
+> **S481-S598 + S593h + S482c + S593b** (rolling window of ~113 sessions; S599 added 2026-05-02 PM for Catalog Gate 3 Maps + Arenas DATA migration F1-F13 ship on the condescending-ellis-248824 worktree (manager + .pdbase loader pattern reused from heads/bodies/weapons, 47 arena records in base/arenas.pdbase, no Layer A leakage; loader pool + parity bridge + grep-guard test; J.1 init-order refactor + per-arena availability probe deferred); S598 added 2026-05-02 AM for Catalog Gate 3 Character Bodies DATA migration F1-F13 close-out + pd-server stub fix on the catalog-gate3-bodies-0501 worktree (manager + .pdbase loader pattern reused from heads/weapons, 68 body records in base/bodies.pdbase, no Layer A leakage; merged at dev 64af7e0c; pd-server build-invariant restore via 5-stub commit on the catalog-gate3-bodies-closeout-0502 worktree merged at dev 47f837d5); S597 added 2026-05-01 PM for B-304 default wireframe OFF in forge + Debug Rendering toggles in Level tab on the infallible-mestorf-8463b9 worktree; S596 added 2026-05-01 PM for Catalog Gate 3 Character Heads DATA migration F1-F13 ship on the catalog-gate3-heads-0501 worktree (manager + .pdbase loader pattern reused from weapons, 84 head records in base/heads.pdbase, no Layer A leakage; merged at dev a2ad421e); S595 added 2026-05-01 PM for B-303 post-exit Main Menu auto-pop on solo campaign + Forge end paths (Combat Sim path left intact per OG-canonical var80087260=3 mechanism); S593h added 2026-05-01 PM for swarm refinement bundle (random scale 0.2-0.6 weighted small, BOTDIFF_DARK + BOTTYPE_SPEED, per-frame player awareness + LOS short-circuit, no bot-bot collision via CHRHFLAG_00040000 swarm lock, power-weapon loadout for player + COMBATKNIFE for bots); S593g added 2026-05-01 PM for body.c integrated-head warning gate (suppressing 550 head_canon=NULL log spam during the swarm 4-256 cycle); S594 added 2026-05-01 for Grid playtest triage + 5 sequential merges (Fix 2+3 / Fix 4 / Fix 8 / Fix 5) on the infallible-mestorf-8463b9 worktree, plus B-298 vehicle gap filed for joint Menu/Input pillar; S593f added 2026-05-01 for swarm half-collision radius + multi-ring spawn distribution; S593e added 2026-05-01 for swarm half-scale semantics fix + NUMTYPE3 64->320 bump + arena selector ID format; S593d added 2026-05-01 for swarm bot hostile teams + aggressive AI + 1.5x speed + half scale + half health + Debug Menu UX redesign with arena selector; S593c added 2026-05-01 for swarm benchmark follow-up -- chr pool sizing in chrmgr path, real bot AI for CPU mode, GPU pipeline scoped as follow-up; S593b added 2026-04-30 PM for menus H.5 universal integrated-head guard + B-296/B-297 New Agent black preview, ran in parallel with S593; S593 added 2026-04-30 PM for swarm-test crash + correctness pass B-295; S592 added 2026-04-30 PM for ROM extraction audit + Mike's `.pdXXX` taxonomy + ROM-as-bootstrap-only architectural principle; S591 added 2026-04-30 for catalog weapons F11; S482c added 2026-04-30 PM for Dev Window v2 blank-screen fix on the festive-hawking worktree lineage). S281-S480 archived to [`_old/session-log/sessions-S281-S480.md`](../_old/session-log/sessions-S281-S480.md) on 2026-04-30 per the context rebuild + [retention.md](retention.md). Older tiers (S280-S241, S240-S157, S1-S119) all live under `_old/`.
 > Master index: [README.md](README.md).
 
 ## Session S598 (`catalog-gate3-bodies-0501` + `catalog-gate3-bodies-closeout-0502`) - 2026-05-02 AM - Catalog Gate 3 Character Bodies DATA migration F1-F13 close-out + pd-server stubs
