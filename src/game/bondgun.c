@@ -4056,12 +4056,48 @@ static bool bgunQueuedLoadCanUseHandle(struct player *player)
 	return !assetHandleIsNull(player->gunctrl.loadhandle);
 }
 
+/*
+ * S484-followup (2026-05-01): ROM-filenum fallback for the bgunQueued*
+ * helpers.
+ *
+ * Background: the S484 F4 refactor (commit ecc9d880) routed bgun model
+ * loads through the catalog handle resolved by bgunResolveQueuedModelHandle.
+ * The legacy fallback `assetLoadRomToAddr(loadfilenum, ...)` was removed
+ * on the assumption that every gun model file would be catalog-registered.
+ *
+ * That assumption does not hold for gun hi_model files (FILE_GZ2020,
+ * FILE_GFARSIGHT, FILE_GREAPER, etc.). The catalog's ASSET_MODEL
+ * registration walks g_ModelStates[] (covers MODEL_CHRZ2020 = FILE_PCHRZ2020,
+ * the chr-side prop model) and the hand-model loop, but neither covers
+ * the gun-side hi_model files. Result: every weapon-switch attempts to
+ * resolve the gun's hi_model filenum through the catalog, gets null,
+ * fails the load, gunloadstate flips back to FLUX, and the master-load
+ * retries next tick. Mike's playtest log was flooded with
+ *   ERROR: CATALOG_CRITICAL: bgun model filenum=907 failed to load
+ * (FILE_GZ2020 = Farsight). Symptomatically, weapons appear in inventory
+ * but the gun model never finishes loading, hands[].inuse stays false,
+ * bgunGetWeaponNum returns WEAPON_NONE, and the fire path falls through
+ * to melee.
+ *
+ * Fix: when the catalog lookup misses (loadhandle is null), fall back to
+ * the legacy direct-from-ROM path (assetLoadRomToAddr / fileGetInflatedSize
+ * / fileGetLoadedSize) using loadfilenum. This restores the pre-F4
+ * behaviour for unregistered gun models without re-introducing the F4
+ * refactor's regression. The CATALOG.MISS warning at
+ * bgunResolveQueuedModelHandle still fires (once per missing filenum),
+ * surfacing the registration gap so a forward-looking ASSET_MODEL
+ * registration of weapon hi_model / lo_model can replace this fallback
+ * cleanly later.
+ */
 static s32 bgunQueuedGetInflatedSize(struct player *player)
 {
 	if (bgunQueuedLoadCanUseHandle(player)) {
 		return assetLoadGetInflatedSize(player->gunctrl.loadhandle, LOADTYPE_MODEL);
 	}
-
+	if (player->gunctrl.loadfilenum > 0) {
+		return (s32)fileGetInflatedSize(
+			(s32)player->gunctrl.loadfilenum, LOADTYPE_MODEL);
+	}
 	return 0;
 }
 
@@ -4070,7 +4106,9 @@ static s32 bgunQueuedGetLoadedSize(struct player *player)
 	if (bgunQueuedLoadCanUseHandle(player)) {
 		return assetLoadGetLoadedSize(player->gunctrl.loadhandle);
 	}
-
+	if (player->gunctrl.loadfilenum > 0) {
+		return (s32)fileGetLoadedSize((s32)player->gunctrl.loadfilenum);
+	}
 	return 0;
 }
 
@@ -4079,7 +4117,11 @@ static struct modeldef *bgunQueuedLoadToAddr(struct player *player, void *ptr, u
 	if (bgunQueuedLoadCanUseHandle(player)) {
 		return assetLoadToAddr(player->gunctrl.loadhandle, FILELOADMETHOD_EXTRAMEM, ptr, loadsize);
 	}
-
+	if (player->gunctrl.loadfilenum > 0) {
+		return (struct modeldef *)assetLoadRomToAddr(
+			(s32)player->gunctrl.loadfilenum,
+			FILELOADMETHOD_EXTRAMEM, ptr, loadsize);
+	}
 	return NULL;
 }
 
