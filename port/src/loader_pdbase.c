@@ -50,6 +50,7 @@
 #include "loader_pdbase_enums.h"
 #include "catalog_mgr_weapons.h"
 #include "catalog_mgr_heads.h"  /* Catalog Gate 3 F9: heads pool integration */
+#include "catalog_mgr_bodies.h"  /* Catalog Gate 3 Bodies F9: bodies pool integration */
 #include "system.h"
 #include "fs.h"
 
@@ -144,6 +145,17 @@ static s32 s_WeaponsRegistered;
 static head_data_t s_HeadsPool[CATALOG_MGR_HEAD_COUNT];
 static s32 s_HeadsLoaderActive;
 static s32 s_HeadsRegistered;
+
+/* ------------------------------------------------------------------ */
+/* Catalog Gate 3 Bodies F9: bodies-side pool, parallel to heads.     */
+/* base/bodies.pdbase per audit decision I.6. F9 ships the pool +     */
+/* accessors as a scaffold; F11 ships the extractor + archive; F12    */
+/* implements parseBody() and toggles s_BodiesLoaderActive on success. */
+/* ------------------------------------------------------------------ */
+
+static body_data_t s_BodiesPool[CATALOG_MGR_BODY_COUNT];
+static s32 s_BodiesLoaderActive;
+static s32 s_BodiesRegistered;
 
 /* ------------------------------------------------------------------ */
 /* Public accessors (consumed by catalog_mgr_weapons.c)               */
@@ -1627,6 +1639,57 @@ static void parseHead(jstream_t *s)
 }
 
 /* ------------------------------------------------------------------ */
+/* Catalog Gate 3 Bodies F12: body record parser.  Parallels parseHead. */
+/* ------------------------------------------------------------------ */
+
+static void parseBody(jstream_t *s)
+{
+	if (s->cur.kind != JT_LBRACE) { jstream_skip_value(s); return; }
+	jstream_advance(s);
+
+	body_data_t b;
+	memset(&b, 0, sizeof(b));
+	b.scale = 1.0f;
+	b.animscale = 1.0f;
+	s32 bodynum = -1;
+
+	while (s->cur.kind != JT_RBRACE && s->cur.kind != JT_EOF) {
+		if (s->cur.kind != JT_STRING) { jstream_advance(s); continue; }
+		jtok_t key = s->cur;
+		jstream_advance(s);
+		if (s->cur.kind != JT_COLON) continue;
+		jstream_advance(s);
+
+		if      (jstream_str_eq(&key, "id")) {
+			jread_string_buf(s, b.catalog_id, sizeof(b.catalog_id));
+		}
+		else if (jstream_str_eq(&key, "bodynum"))       bodynum = jread_int(s, -1);
+		else if (jstream_str_eq(&key, "ismale"))        b.ismale        = (u8)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "unk00_01"))      b.unk00_01      = (u8)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "canvaryheight")) b.canvaryheight = (u8)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "type"))          b.type          = (u8)jread_headbodytype(s);
+		else if (jstream_str_eq(&key, "height"))        b.height        = (u16)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "filenum"))       b.filenum       = (u16)jread_enum_or_int(s, JREF_FILE, 0, "body.filenum");
+		else if (jstream_str_eq(&key, "scale"))         b.scale         = jread_float(s, 1.0f);
+		else if (jstream_str_eq(&key, "animscale"))     b.animscale     = jread_float(s, 1.0f);
+		else if (jstream_str_eq(&key, "handfilenum"))   b.handfilenum   = (u16)jread_enum_or_int(s, JREF_FILE, 0, "body.handfilenum");
+		else jstream_skip_value(s);
+		if (s->cur.kind == JT_COMMA) jstream_advance(s);
+	}
+	if (s->cur.kind == JT_RBRACE) jstream_advance(s);
+
+	if (bodynum < 0 || bodynum >= CATALOG_MGR_BODY_COUNT) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.BODY.RESOLVE_FAIL: bodynum=%d out of range [0,%d)",
+			bodynum, CATALOG_MGR_BODY_COUNT);
+		return;
+	}
+	b.bodynum = (s16)bodynum;
+	s_BodiesPool[bodynum] = b;
+	s_BodiesRegistered++;
+}
+
+/* ------------------------------------------------------------------ */
 /* Top-level parser                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -1672,6 +1735,18 @@ static void parseTopLevel(jstream_t *s)
 				jstream_advance(s);
 				while (s->cur.kind != JT_RBRACK && s->cur.kind != JT_EOF) {
 					parseHead(s);
+					if (s->cur.kind == JT_COMMA) jstream_advance(s);
+				}
+				if (s->cur.kind == JT_RBRACK) jstream_advance(s);
+			}
+		}
+		else if (jstream_str_eq(&key, "bodies")) {
+			/* Catalog Gate 3 Bodies F12: bodies section in base/bodies.pdbase. */
+			if (s->cur.kind != JT_LBRACK) { jstream_skip_value(s); }
+			else {
+				jstream_advance(s);
+				while (s->cur.kind != JT_RBRACK && s->cur.kind != JT_EOF) {
+					parseBody(s);
 					if (s->cur.kind == JT_COMMA) jstream_advance(s);
 				}
 				if (s->cur.kind == JT_RBRACK) jstream_advance(s);
@@ -1784,6 +1859,42 @@ void loaderPdbaseScan(const char *dir, loader_pdbase_result_t *out)
 		local.heads_registered = s_HeadsRegistered;
 	}
 
+	/* Catalog Gate 3 Bodies F12: scan + parse base/bodies.pdbase. */
+	{
+		char body_path[512];
+		snprintf(body_path, sizeof(body_path), "%s/bodies.pdbase", dir);
+		s32 body_size = 0;
+		char *body_src = (char *)fsFileLoad(body_path, (u32 *)&body_size);
+		if (body_src != NULL) {
+			jstream_t bs;
+			memset(&bs, 0, sizeof(bs));
+			bs.src = body_src;
+			bs.pos = body_src;
+			bs.end = body_src + body_size;
+			bs.line = 1;
+			jstream_advance(&bs);
+			parseTopLevel(&bs);
+
+			if (bs.error) {
+				sysLogPrintf(LOG_WARNING,
+					"LOADER.PDBASE.BODY.SCAN_FAIL: parse error in %s near line %d",
+					body_path, bs.line);
+				local.scan_failures++;
+			}
+
+			sysLogPrintf(LOG_NOTE,
+				"LOADER.PDBASE.BODY.OK: dir=%s bodies=%d size=%d",
+				dir, s_BodiesRegistered, body_size);
+			local.archives_scanned++;
+			sysMemFree(body_src);
+		} else {
+			sysLogPrintf(LOG_NOTE,
+				"LOADER.PDBASE.BODY.OK: dir=%s no bodies.pdbase (parity period)",
+				dir);
+		}
+		local.bodies_registered = s_BodiesRegistered;
+	}
+
 	if (out) *out = local;
 }
 
@@ -1883,6 +1994,45 @@ s32 loaderPdbaseBuildHeadManager(void)
 		"LOADER.PDBASE.HEAD.OK: manager active, heads=%d (expected=%d)",
 		s_HeadsRegistered, CATALOG_MGR_HEAD_COUNT);
 	return s_HeadsRegistered;
+}
+
+/* ================================================================== */
+/* Catalog Gate 3 Bodies F9 / F11 / F12: bodies-side loader            */
+/*                                                                    */
+/* Parallel to the heads loader above. F9 ships these accessors as    */
+/* scaffold (active flag stays 0, all accessors return NULL until F12 */
+/* implements parseBody + flips the flag).                             */
+/* ================================================================== */
+
+s32 loaderPdbaseBodiesActive(void)
+{
+	return s_BodiesLoaderActive;
+}
+
+const body_data_t *loaderPdbaseGetBody(s32 idx)
+{
+	if (idx < 0 || idx >= CATALOG_MGR_BODY_COUNT) return NULL;
+	if (!s_BodiesLoaderActive) return NULL;
+	return &s_BodiesPool[idx];
+}
+
+s32 loaderPdbaseGetBodiesRegistered(void)
+{
+	return s_BodiesRegistered;
+}
+
+s32 loaderPdbaseBuildBodyManager(void)
+{
+	if (s_BodiesRegistered <= 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOADER.PDBASE.BODY.OK: build skipped (no records loaded -- F9 scaffold)");
+		return 0;
+	}
+	s_BodiesLoaderActive = 1;
+	sysLogPrintf(LOG_NOTE,
+		"LOADER.PDBASE.BODY.OK: manager active, bodies=%d (expected=%d)",
+		s_BodiesRegistered, CATALOG_MGR_BODY_COUNT);
+	return s_BodiesRegistered;
 }
 
 

@@ -56,6 +56,7 @@
 #include "assetcatalog_cache.h"
 #include "loader_pdbase.h"
 #include "catalog_mgr_heads.h"
+#include "catalog_mgr_bodies.h"
 #include "game/stagetable.h"
 #include "game/chr.h"
 
@@ -353,6 +354,11 @@ int main(int argc, const char **argv)
 	// bridge. F12 swaps the data source to base/heads.pdbase pool.
 	catalogManagerHeadInit();
 
+	// Catalog Gate 3 Bodies F1: body manager init. Builds the parallel
+	// s_Bodies[152] mirror from g_HeadsAndBodies[] for the parity-period
+	// bridge. F12 swaps the data source to base/bodies.pdbase pool.
+	catalogManagerBodyInit();
+
 	// S484 F13: scan base/*.pdbase + populate the catalog manager's typed
 	// weapon pools. Manager accessors are pool-backed once
 	// loaderPdbaseBuildWeaponManager succeeds. Parity check from F12 was
@@ -377,6 +383,9 @@ int main(int argc, const char **argv)
 		}
 		if (pdb_result.heads_registered > 0) {
 			loaderPdbaseBuildHeadManager();
+		}
+		if (pdb_result.bodies_registered > 0) {
+			loaderPdbaseBuildBodyManager();
 		}
 	}
 
