@@ -856,6 +856,28 @@ static struct inventory_ammo *parseAmmoIfPresent(jstream_t *s)
 	return out;
 }
 
+/* True iff struct_name is in the shoot-subclass family (or empty,
+ * meaning "_struct" was omitted in the JSON and the writer trusts
+ * the field set to imply variant). The shoot subclasses share the
+ * weaponfunc_shoot byte layout from offset 0x14 onward; writes to
+ * out->ss.base.* are byte-correct for any of them. Non-shoot
+ * variants (throw / melee / special / device) have unrelated layouts
+ * past the shared weaponfunc base struct, so a write through the
+ * shoot view would corrupt their fields.
+ *
+ * S484-followup-4 fixed the recoverytime60 / damage / unk24 /
+ * projectilemodelnum / unk44 / speed cross-variant writes; this
+ * helper extends the same discipline to every remaining shoot-only
+ * field write inside parseWeaponFunc. */
+static int weaponFuncStructIsShootFamily(const char *struct_name)
+{
+	if (struct_name[0] == '\0') return 1;
+	if (strcmp(struct_name, "weaponfunc_shootsingle") == 0) return 1;
+	if (strcmp(struct_name, "weaponfunc_shootauto") == 0) return 1;
+	if (strcmp(struct_name, "weaponfunc_shootprojectile") == 0) return 1;
+	return 0;
+}
+
 /* Parse a function record. The "_struct" key tells us which subclass
  * to populate. Returns a pointer (cast to void*) suitable for
  * struct weapon's functions[i] slot. */
@@ -979,35 +1001,104 @@ static void *parseWeaponFunc(jstream_t *s)
 				out->me.damage = v;
 			}
 		}
-		else if (jstream_str_eq(&key, "spread"))      out->ss.base.spread       = jread_float(s, 0);
+		else if (jstream_str_eq(&key, "spread")) {
+			f32 v = jread_float(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.spread = v;
+			}
+		}
 		else if (jstream_str_eq(&key, "unk24")) {
 			/* S484-followup-4: variant-specific offsets.
 			 *   weaponfunc_shoot.unk24  @ 0x34 (s8)
 			 *   weaponfunc_melee.unk24  @ 0x30 (u32)
 			 * Different fields, different offsets, different sizes. */
 			s32 v = jread_int(s, 0);
-			if (struct_name[0] == '\0'
-					|| strcmp(struct_name, "weaponfunc_shootsingle") == 0
-					|| strcmp(struct_name, "weaponfunc_shootauto") == 0
-					|| strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+			if (weaponFuncStructIsShootFamily(struct_name)) {
 				out->ss.base.unk24 = (s8)v;
 			} else if (strcmp(struct_name, "weaponfunc_melee") == 0) {
 				out->me.unk24 = (u32)v;
 			}
 		}
-		else if (jstream_str_eq(&key, "unk25")) out->ss.base.unk25 = (s8)jread_int(s, 0);
-		else if (jstream_str_eq(&key, "unk26")) out->ss.base.unk26 = (s8)jread_int(s, 0);
-		else if (jstream_str_eq(&key, "unk27")) out->ss.base.unk27 = (s8)jread_int(s, 0);
-		else if (jstream_str_eq(&key, "recoildist"))  out->ss.base.recoildist  = jread_float(s, 0);
-		else if (jstream_str_eq(&key, "recoilangle")) out->ss.base.recoilangle = jread_float(s, 0);
-		else if (jstream_str_eq(&key, "slidemax"))    out->ss.base.slidemax    = jread_float(s, 0);
-		else if (jstream_str_eq(&key, "impactforce")) out->ss.base.impactforce = jread_float(s, 0);
-		else if (jstream_str_eq(&key, "duration60"))  out->ss.base.duration60  = (u8)jread_int(s, 0);
-		else if (jstream_str_eq(&key, "shootsound"))  out->ss.base.shootsound  = (u16)jread_enum_or_int(s, JREF_SFX, 0, "weaponfunc.shootsound");
-		else if (jstream_str_eq(&key, "penetration")) out->ss.base.penetration = (u8)jread_int(s, 0);
-		/* shootauto extension */
-		else if (jstream_str_eq(&key, "initialrpm"))  out->sa.initialrpm = jread_float(s, 0);
-		else if (jstream_str_eq(&key, "maxrpm"))      out->sa.maxrpm     = jread_float(s, 0);
+		/* Catalog coverage audit (2026-05-01) Section 4.4 closure:
+		 * gate the remaining shoot-only field writes on struct_name so a
+		 * non-shoot variant's JSON cannot corrupt fields at the same
+		 * byte offset in another union member. Same discipline as
+		 * unk24 / recoverytime60 / damage from S484-followup-4. */
+		else if (jstream_str_eq(&key, "unk25")) {
+			s32 v = jread_int(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.unk25 = (s8)v;
+			}
+		}
+		else if (jstream_str_eq(&key, "unk26")) {
+			s32 v = jread_int(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.unk26 = (s8)v;
+			}
+		}
+		else if (jstream_str_eq(&key, "unk27")) {
+			s32 v = jread_int(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.unk27 = (s8)v;
+			}
+		}
+		else if (jstream_str_eq(&key, "recoildist")) {
+			f32 v = jread_float(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.recoildist = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "recoilangle")) {
+			f32 v = jread_float(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.recoilangle = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "slidemax")) {
+			f32 v = jread_float(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.slidemax = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "impactforce")) {
+			f32 v = jread_float(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.impactforce = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "duration60")) {
+			s32 v = jread_int(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.duration60 = (u8)v;
+			}
+		}
+		else if (jstream_str_eq(&key, "shootsound")) {
+			s32 v = jread_enum_or_int(s, JREF_SFX, 0, "weaponfunc.shootsound");
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.shootsound = (u16)v;
+			}
+		}
+		else if (jstream_str_eq(&key, "penetration")) {
+			s32 v = jread_int(s, 0);
+			if (weaponFuncStructIsShootFamily(struct_name)) {
+				out->ss.base.penetration = (u8)v;
+			}
+		}
+		/* shootauto extension -- gated on weaponfunc_shootauto so a
+		 * non-shootauto JSON record cannot stomp on offsets 0x40-0x51
+		 * of another union variant (Section 4.4 closure). */
+		else if (jstream_str_eq(&key, "initialrpm")) {
+			f32 v = jread_float(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootauto") == 0) {
+				out->sa.initialrpm = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "maxrpm")) {
+			f32 v = jread_float(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootauto") == 0) {
+				out->sa.maxrpm = v;
+			}
+		}
 		else if (jstream_str_eq(&key, "vibrationstart") || jstream_str_eq(&key, "vibrationmax")) {
 			s32 is_max = jstream_str_eq(&key, "vibrationmax");
 			if (s->cur.kind == JT_NULL) { jstream_advance(s); }
@@ -1024,7 +1115,9 @@ static void *parseWeaponFunc(jstream_t *s)
 					if (s->cur.kind == JT_COMMA) jstream_advance(s);
 				}
 				if (s->cur.kind == JT_RBRACK) jstream_advance(s);
-				if (s_VibrationsUsed > reserved) {
+				if (s_VibrationsUsed > reserved
+						&& (struct_name[0] == '\0'
+							|| strcmp(struct_name, "weaponfunc_shootauto") == 0)) {
 					if (is_max) out->sa.vibrationmax = arr;
 					else        out->sa.vibrationstart = arr;
 				}
@@ -1032,8 +1125,18 @@ static void *parseWeaponFunc(jstream_t *s)
 				jstream_skip_value(s);
 			}
 		}
-		else if (jstream_str_eq(&key, "turretaccel")) out->sa.turretaccel = (s8)jread_int(s, 0);
-		else if (jstream_str_eq(&key, "turretdecel")) out->sa.turretdecel = (s8)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "turretaccel")) {
+			s32 v = jread_int(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootauto") == 0) {
+				out->sa.turretaccel = (s8)v;
+			}
+		}
+		else if (jstream_str_eq(&key, "turretdecel")) {
+			s32 v = jread_int(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootauto") == 0) {
+				out->sa.turretdecel = (s8)v;
+			}
+		}
 		/* shootprojectile extension */
 		else if (jstream_str_eq(&key, "projectilemodelnum")) {
 			/* S484-followup-4: variant-specific offsets.
@@ -1055,24 +1158,91 @@ static void *parseWeaponFunc(jstream_t *s)
 			else if (strcmp(struct_name, "weaponfunc_melee") == 0) out->me.unk44 = jread_float(s, 0);
 			else jstream_skip_value(s);
 		}
-		else if (jstream_str_eq(&key, "scale"))         out->sp.scale       = jread_float(s, 0);
+		/* shootprojectile-only fields (Section 4.4): gate so a non-sp
+		 * variant's JSON cannot stomp other variants' fields at the
+		 * same offsets in the union. */
+		else if (jstream_str_eq(&key, "scale")) {
+			f32 v = jread_float(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+				out->sp.scale = v;
+			}
+		}
 		else if (jstream_str_eq(&key, "speed") && struct_name[0]) {
 			if (strcmp(struct_name, "weaponfunc_shootprojectile") == 0) out->sp.speed = jread_int(s, 0);
 			else jstream_skip_value(s);
 		}
-		else if (jstream_str_eq(&key, "unk50"))         out->sp.unk50       = jread_float(s, 0);
-		else if (jstream_str_eq(&key, "traveldist"))    out->sp.traveldist  = jread_int(s, 0);
-		else if (jstream_str_eq(&key, "timer60"))       out->sp.timer60     = jread_int(s, 0);
-		else if (jstream_str_eq(&key, "reflectangle"))  out->sp.reflectangle = jread_float(s, 0);
-		else if (jstream_str_eq(&key, "soundnum"))      out->sp.soundnum    = (s16)jread_enum_or_int(s, JREF_SFX, 0, "weaponfunc.soundnum");
+		else if (jstream_str_eq(&key, "unk50")) {
+			f32 v = jread_float(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+				out->sp.unk50 = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "traveldist")) {
+			s32 v = jread_int(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+				out->sp.traveldist = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "timer60")) {
+			s32 v = jread_int(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+				out->sp.timer60 = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "reflectangle")) {
+			f32 v = jread_float(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+				out->sp.reflectangle = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "soundnum")) {
+			/* shootprojectile.soundnum @ 0x60 (s16) vs special.soundnum
+			 * @ 0x1c (u16). Special variant is matched explicitly below
+			 * with a stricter else-if; this branch handles shootprojectile
+			 * (and any unspecified variant for backwards compat). */
+			s32 v = jread_enum_or_int(s, JREF_SFX, 0, "weaponfunc.soundnum");
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+				out->sp.soundnum = (s16)v;
+			}
+		}
 		/* throw extension */
-		else if (jstream_str_eq(&key, "activatetime60")) out->tw.activatetime60 = (s16)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "activatetime60")) {
+			s32 v = jread_int(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_throw") == 0) {
+				out->tw.activatetime60 = (s16)v;
+			}
+		}
 		/* melee extension */
-		else if (jstream_str_eq(&key, "range"))         out->me.range  = jread_float(s, 0);
-		else if (jstream_str_eq(&key, "unk1c"))         out->me.unk1c  = (u32)jread_int(s, 0);
-		else if (jstream_str_eq(&key, "unk20"))         out->me.unk20  = (u32)jread_int(s, 0);
-		else if (jstream_str_eq(&key, "unk28"))         out->me.unk28  = jread_float(s, 0);
-		else if (jstream_str_eq(&key, "unk2c"))         out->me.unk2c  = jread_float(s, 0);
+		else if (jstream_str_eq(&key, "range")) {
+			f32 v = jread_float(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_melee") == 0) {
+				out->me.range = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "unk1c")) {
+			s32 v = jread_int(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_melee") == 0) {
+				out->me.unk1c = (u32)v;
+			}
+		}
+		else if (jstream_str_eq(&key, "unk20")) {
+			s32 v = jread_int(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_melee") == 0) {
+				out->me.unk20 = (u32)v;
+			}
+		}
+		else if (jstream_str_eq(&key, "unk28")) {
+			f32 v = jread_float(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_melee") == 0) {
+				out->me.unk28 = v;
+			}
+		}
+		else if (jstream_str_eq(&key, "unk2c")) {
+			f32 v = jread_float(s, 0);
+			if (struct_name[0] == '\0' || strcmp(struct_name, "weaponfunc_melee") == 0) {
+				out->me.unk2c = v;
+			}
+		}
 		else if (jstream_str_eq(&key, "unk30"))         out->me.unk30  = jread_float(s, 0);
 		else if (jstream_str_eq(&key, "unk34"))         out->me.unk34  = jread_float(s, 0);
 		else if (jstream_str_eq(&key, "unk38"))         out->me.unk38  = jread_float(s, 0);
