@@ -232,9 +232,64 @@ static const struct {
  * Per sfx.h comment: "There are 1545 (0x609) sound effects in the bank."
  * The high-bit mapped entries (SFX_8000+) are internal aliases remapped by
  * snd.c and are not registered as separate catalog entries.
- * category = 0 (AUDIO_CAT_SFX) for all base SFX entries.
+ *
+ * Per Phase 3 Pass B Slice 10 (2026-05-02), entries whose russ-id falls
+ * inside g_AudioRussMappings[] AND whose audioconfig is one of the seven
+ * voice-only slots register as AUDIO_CAT_VOICE; remaining base SFX
+ * register as AUDIO_CAT_SFX (category = 0). See
+ * context/audits/catalog-phase3-slice10-voice-retag-2026-05-02.md
+ * for the full inventory + the criteria.
  */
 #define NUM_BASE_SFX_ENTRIES 1545
+
+/* ========================================================================
+ * Phase 3 Pass B Slice 10 (2026-05-02): voice retag predicate.
+ *
+ * The russ table at src/lib/snd.c:178 maps russ-id (0..0x01bc) to
+ * { soundnum, audioconfig_index }. Seven of the audioconfig slots are
+ * exclusively used by voice content (per the russ-table inline comments
+ * and config-flag patterns; see audit Section B.2). Catalog SFX entries
+ * whose runtime_index lies in the russ-table range AND whose paired
+ * audioconfig is one of these seven slots get tagged AUDIO_CAT_VOICE
+ * instead of the default AUDIO_CAT_SFX.
+ *
+ * The slot enumerator names live in src/lib/snd.c::enum audioconfig_e
+ * which is file-local; this TU mirrors the integer literals here. The
+ * enum is dense sequential and stable per snd.c:105-176.
+ *
+ * AUDIOCONFIG_62 only exists on NTSC-1.0+ builds; the russ entries
+ * that reference it are gated on the same VERSION macro, so the
+ * predicate's #if guard keeps version determinism.
+ * ======================================================================== */
+#if !defined(PD_SERVER)
+#ifndef AUDIOCONFIG_01
+#define AUDIOCONFIG_01 1
+#define AUDIOCONFIG_02 2
+#define AUDIOCONFIG_03 3
+#define AUDIOCONFIG_47 47
+#define AUDIOCONFIG_48 48
+#define AUDIOCONFIG_60 60
+#define AUDIOCONFIG_62 62
+#endif
+
+static s32 s_audioConfigIsVoice(s32 audioconfig_idx)
+{
+	switch (audioconfig_idx) {
+	case AUDIOCONFIG_01:
+	case AUDIOCONFIG_02:
+	case AUDIOCONFIG_03:
+	case AUDIOCONFIG_47:
+	case AUDIOCONFIG_48:
+	case AUDIOCONFIG_60:
+#if VERSION >= VERSION_NTSC_1_0
+	case AUDIOCONFIG_62:
+#endif
+		return 1;
+	default:
+		return 0;
+	}
+}
+#endif /* !PD_SERVER */
 
 /* ========================================================================
  * Music Track Table (base game)
@@ -547,13 +602,32 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 		count += n;
 	}
 
-	/* ---- audio ---- */
+	/* ---- audio (SFX + Phase 3 Slice 10 voice retag) ---- */
 	{
-		s32 n = 0;
+#if !defined(PD_SERVER)
+		/* The russ table lives in src/lib/snd.c which is client-only.
+		 * Server builds get plain SFX classification for every entry;
+		 * pd-server has no audio runtime and never consults the
+		 * voice/SFX distinction. */
+		const s32 russCount = g_NumAudioRussMappings;
+#else
+		const s32 russCount = 0;
+#endif
+		s32 sfx_n = 0;
+		s32 voice_n = 0;
 		for (s32 i = 0; i < NUM_BASE_SFX_ENTRIES; i++) {
 			snprintf(idbuf, sizeof(idbuf), "base:sfx_%04x", i);
+			s32 category = AUDIO_CAT_SFX;
+#if !defined(PD_SERVER)
+			if (i < russCount &&
+				s_audioConfigIsVoice((s32)g_AudioRussMappings[i].audioconfig_index)) {
+				category = AUDIO_CAT_VOICE;
+			}
+#else
+			(void)russCount;
+#endif
 			asset_entry_t *e = assetCatalogRegisterAudio(
-				idbuf, i, "", 0, 0, "");
+				idbuf, i, "", category, 0, "");
 			if (!e) {
 				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register audio %s", idbuf);
 				continue;
@@ -562,10 +636,13 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = i;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
-			n++;
+			if (category == AUDIO_CAT_VOICE) voice_n++;
+			else                              sfx_n++;
 		}
-		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base audio entries (SFX)", n);
-		count += n;
+		sysLogPrintf(LOG_NOTE,
+			"assetcatalog: registered %d base audio entries (%d SFX + %d VOICE)",
+			sfx_n + voice_n, sfx_n, voice_n);
+		count += sfx_n + voice_n;
 	}
 
 	/* ---- music tracks (AUDIO_CAT_MUSIC) ---- */
