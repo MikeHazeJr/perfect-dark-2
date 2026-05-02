@@ -79,6 +79,17 @@ const struct noisesettings         *loaderPdbaseGetDefaultNoise(void);
 const struct aibotweaponpreference *loaderPdbaseGetBotPref(s32 idx);
 s32 loaderPdbaseGetWeaponsRegistered(void);
 
+/* S484-followup-3 (2026-05-01): pool-range + canary accessors for the
+ * fire-time recoil crash investigation. See loader_pdbase.c for full
+ * rationale; bondgun.c's recoil-block instrumentation uses these to
+ * detect a wild shootfunc / recoilsettings pointer or a buffer-overrun
+ * canary trip before the dereference faults. */
+const void *loaderPdbaseGetRecoilSettingsBase(void);
+const void *loaderPdbaseGetRecoilSettingsEnd(void);
+const void *loaderPdbaseGetWeaponFuncsBase(void);
+const void *loaderPdbaseGetWeaponFuncsEnd(void);
+u32 loaderPdbaseCheckCanaries(void);
+
 /* F12 round-trip helper: encode a single struct guncmd back to a
  * JSON-ish string ("[mnem, unk01, unk02, unk04]"). Used by tests. */
 #include <stddef.h>

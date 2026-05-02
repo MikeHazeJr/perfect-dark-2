@@ -42,6 +42,9 @@
 #include "game/pak.h"
 #include "game/options.h"
 #include "game/propobj.h"
+/* S484-followup-3 (2026-05-01): pool-range + canary accessors for the
+ * fire-time recoil crash instrumentation in bgun0f0a5550. */
+#include "loader_pdbase.h"
 #include "game/objectives.h"
 #include "bss.h"
 #include "lib/collision.h"
@@ -8226,9 +8229,90 @@ void bgun0f0a5550(s32 handnum)
 	sp274.z += bgunGetFovOffsetZ();
 
 	if (hand->firing && shootfunc && g_Vars.lvupdate240 != 0 && shootfunc->recoilsettings != NULL) {
-		sp274.x += (RANDOMFRAC() - 0.5f) * shootfunc->recoilsettings->xrange * hand->finalmult[0];
-		sp274.y += (RANDOMFRAC() - 0.5f) * shootfunc->recoilsettings->yrange * hand->finalmult[0];
-		sp274.z += (RANDOMFRAC() - 0.5f) * shootfunc->recoilsettings->zrange * hand->finalmult[0];
+		/* S484-followup-3 (2026-05-01): runtime instrumentation for the
+		 * fire-time recoil crash. Mike's playtest reproduced 4 times
+		 * (PCs +0x2ac87 / +0x2ac07, all on this exact dereference)
+		 * despite the != NULL guard above passing. The pointer is
+		 * non-NULL but invalid -- a wild pointer or pool-overrun
+		 * corruption.
+		 *
+		 * Cross-check shootfunc against the s_WeaponFuncs pool range
+		 * and recoilsettings against the s_RecoilSettings pool range.
+		 * If either is out of range, log the addresses and SKIP the
+		 * dereference so Mike can keep playing and accumulate diag
+		 * data instead of crashing. This is INSTRUMENTATION ONLY --
+		 * not a fix. Once the corruption source is identified the
+		 * skip + log come out and the actual fix lands at the source.
+		 *
+		 * Also dump canary state: if any canary tripped, somebody is
+		 * writing past one of the loader pools, which is the most
+		 * likely corruption source for an "in-range but garbage"
+		 * pointer chain. */
+		const void *sf_lo = loaderPdbaseGetWeaponFuncsBase();
+		const void *sf_hi = loaderPdbaseGetWeaponFuncsEnd();
+		const void *rs_lo = loaderPdbaseGetRecoilSettingsBase();
+		const void *rs_hi = loaderPdbaseGetRecoilSettingsEnd();
+		const void *sf_p  = (const void *)shootfunc;
+		const void *rs_p  = (const void *)shootfunc->recoilsettings;
+		const s32 sf_in_pool = (sf_p >= sf_lo && sf_p < sf_hi) ? 1 : 0;
+		const s32 rs_in_pool = (rs_p >= rs_lo && rs_p < rs_hi) ? 1 : 0;
+		const u32 canaries = loaderPdbaseCheckCanaries();
+		const s32 wpn_for_log = bgunGetWeaponNum2(handnum);
+		const struct weapon *w = weaponFindById(wpn_for_log);
+		const void *fn0 = w ? w->functions[0] : NULL;
+		const void *fn1 = w ? w->functions[1] : NULL;
+
+		if (!sf_in_pool || !rs_in_pool || canaries != 0u) {
+			/* Throttle: log once per (weaponnum, hand) tuple via a
+			 * tiny static cache so we don't flood the log if the
+			 * corruption persists across many fires. */
+			if (g_Vars.currentplayernum == 0) {
+				static s32 s_last_wpn = -1;
+				static s32 s_last_hand = -1;
+				if (s_last_wpn != wpn_for_log || s_last_hand != handnum) {
+					s_last_wpn = wpn_for_log;
+					s_last_hand = handnum;
+					sysLogPrintf(LOG_ERROR,
+						"LOG.WPN.DIAG.RECOIL.CORRUPT player=0 hand=%d wpn=%d "
+						"shootfunc=%p (in_pool=%d range=[%p..%p)) "
+						"recoilsettings=%p (in_pool=%d range=[%p..%p)) "
+						"canaries=0x%08x funcs[0]=%p funcs[1]=%p weaponfunc_idx=%d frame=%d",
+						handnum, wpn_for_log,
+						sf_p, sf_in_pool, sf_lo, sf_hi,
+						rs_p, rs_in_pool, rs_lo, rs_hi,
+						canaries, fn0, fn1,
+						(s32)hand->gset.weaponfunc,
+						(s32)g_Vars.lvframenum);
+				}
+			}
+			/* Skip the dereference -- the diag log captured the state
+			 * already; crashing serves no further purpose. */
+		} else {
+			/* Normal path: pool-checks passed and canaries intact.
+			 * One-shot per-weapon "first fire" log so we have the
+			 * GOOD pointer values for cross-reference if a later fire
+			 * trips the corrupt branch. */
+			if (g_Vars.currentplayernum == 0) {
+				static s32 s_last_first_fire_wpn = -1;
+				if (s_last_first_fire_wpn != wpn_for_log) {
+					s_last_first_fire_wpn = wpn_for_log;
+					sysLogPrintf(LOG_NOTE,
+						"LOG.WPN.DIAG.RECOIL.OK player=0 hand=%d wpn=%d "
+						"shootfunc=%p recoilsettings=%p funcs[0]=%p funcs[1]=%p "
+						"weaponfunc_idx=%d xrange=%.3f yrange=%.3f zrange=%.3f frame=%d",
+						handnum, wpn_for_log,
+						sf_p, rs_p, fn0, fn1,
+						(s32)hand->gset.weaponfunc,
+						shootfunc->recoilsettings->xrange,
+						shootfunc->recoilsettings->yrange,
+						shootfunc->recoilsettings->zrange,
+						(s32)g_Vars.lvframenum);
+				}
+			}
+			sp274.x += (RANDOMFRAC() - 0.5f) * shootfunc->recoilsettings->xrange * hand->finalmult[0];
+			sp274.y += (RANDOMFRAC() - 0.5f) * shootfunc->recoilsettings->yrange * hand->finalmult[0];
+			sp274.z += (RANDOMFRAC() - 0.5f) * shootfunc->recoilsettings->zrange * hand->finalmult[0];
+		}
 	}
 
 	hand->fspare1 = (player->crosspos2[0] - camGetScreenLeft() - camGetScreenWidth() * 0.5f) * weapondef->aimsettings->guntransside / (camGetScreenWidth() * 0.5f);
