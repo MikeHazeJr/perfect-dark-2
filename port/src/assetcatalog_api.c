@@ -1609,7 +1609,8 @@ s32 catalogGetBodyAnimScaleChecked(s32 bodynum, f32 *out_value)
         }
         return 0;
     }
-    if (out_value) { *out_value = g_HeadsAndBodies[bodynum].animscale; }
+    /* Catalog Gate 3 Bodies F2: route through manager. */
+    if (out_value) { *out_value = catalogGetBodyAnimScale(bodynum); }
     return 1;
 }
 
@@ -1629,7 +1630,8 @@ s32 catalogGetBodyHandFilenumChecked(s32 bodynum, s32 *out_value)
         }
         return 0;
     }
-    if (out_value) { *out_value = (s32)g_HeadsAndBodies[bodynum].handfilenum; }
+    /* Catalog Gate 3 Bodies F2: route through manager. */
+    if (out_value) { *out_value = catalogGetBodyHandFilenum(bodynum); }
     return 1;
 }
 
