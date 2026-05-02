@@ -469,7 +469,8 @@ s32 romExtractAllFiles(void)
  * digest against the sidecar written at extraction time.  On
  * mismatch:
  *   1. Emit LOUDFAIL.LOAD with file path + expected/actual hashes
- *   2. Move the corrupted file to data/<romid>/.quarantine/<ts>_<name>
+ *   2. Move the corrupted file to data/_quarantine/<romid>/<ts>_<name>
+ *      (Pass D path, 2026-05-02; see romExtractQuarantine docblock)
  *   3. Re-extract from g_RomFile via romdataFileGetData(filenum) and
  *      rewrite the sidecar
  *
