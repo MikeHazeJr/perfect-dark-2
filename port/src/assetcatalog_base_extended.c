@@ -802,32 +802,44 @@ s32 assetCatalogRegisterBaseGameExtended(void)
  * Why this exists:
  *
  * The base game's weapon-fire path (bgunTickGunLoad in src/game/bondgun.c)
- * loads gun model files by filenum. Pre-S484 F4 the load went through
- * assetLoadRomToAddr(filenum, ...) directly. The F4 refactor (commit
- * ecc9d880) routed the load through the catalog's source-filenum lookup
- * (catalogHandleByModelSourceFilenum), on the assumption that every gun
- * model file would be catalog-registered.
+ * loads three classes of model files by filenum:
+ *   1. HAND models   -- bgunQueueModelLoad(handfilenum) at line 4477.
+ *                       handfilenum comes from catalogGetBodyHandFilenum,
+ *                       sourced from g_HeadsAndBodies[bodynum].handfilenum.
+ *                       Already covered by the hand-model registration loop
+ *                       above (registerHandModels).
+ *   2. GUN models    -- bgunQueueModelLoad(weaponGetFileNum(weaponnum)) at
+ *                       line 4512. The filenum comes from
+ *                       struct weapon::hi_model loaded from weapons.pdbase.
+ *                       Covered by this function's hi_model + lo_model loop.
+ *   3. CARTRIDGE     -- bgunQueueModelLoad(g_CartFileNums[casingindex]) at
+ *      models          line 4562. The filenums come from
+ *                       g_CartFileNums[] (FILE_GCARTRIDGE / FILE_GCARTRIFLE
+ *                       / FILE_GCARTBLUE / FILE_GCARTSHELL).
+ *                       Covered by this function's cartridge loop.
  *
- * That assumption did not hold. The ASSET_MODEL registration above walks
- * g_ModelStates[] (covers chr-side prop models like FILE_PCHRZ2020) and
- * the hand-model loop (covers handfilenum from g_HeadsAndBodies). Neither
- * covers the gun-side hi_model / lo_model files like FILE_GZ2020 (Farsight
- * gun model = filenum 907) or FILE_GREAPER, FILE_GFARSIGHT, etc. Those
- * files are referenced only by struct weapon::hi_model / lo_model loaded
- * from weapons.pdbase JSON; nothing translated those filenums into
- * ASSET_MODEL catalog entries.
+ * Pre-S484 F4 the bgun load went through assetLoadRomToAddr(filenum, ...)
+ * directly. The F4 refactor (commit ecc9d880) routed the load through
+ * the catalog's source-filenum lookup (catalogHandleByModelSourceFilenum)
+ * on the assumption that every model file involved would already be
+ * catalog-registered. That assumption held only for hand models (the
+ * existing hand-model loop) and chr-side prop models (g_ModelStates[]).
  *
- * Result on Mike's playtest log (S594h-Unit-C-followup): every weapon
- * switch attempted to resolve hi_model through the catalog, the lookup
- * missed, and bondgun.c flooded the log with
+ * Mike's playtest log (S594h-Unit-C-followup) showed
  *   ERROR: CATALOG_CRITICAL: bgun model filenum=907 failed to load
- * Master-load never reached LOADED, hands[].inuse stayed false, the fire
- * path returned WEAPON_NONE, fire fell back to melee.
+ * (FILE_GZ2020 = Farsight hi_model). Cartridge model loads would fail
+ * the same way the moment any weapon with a casing tried to fire.
  *
- * This function closes the gap by walking the loader's weapon pool and
- * registering each unique hi_model / lo_model filenum as an ASSET_MODEL
- * entry with source_filenum binding. Idempotent: skips files already
- * registered (catches overlap with g_ModelStates entries and prior calls).
+ * Resolution per Mike's no-half-measures directive (2026-05-01):
+ *   "The correct solution is not to fallback to legacy, but to
+ *    strengthen our initial cataloging to be full, correct, and
+ *    complete."
+ *
+ * This function walks the loader-populated weapon pool and the
+ * g_CartFileNums[] cartridge table, and registers each unique filenum as
+ * an ASSET_MODEL entry with source_filenum binding. Idempotent: skips
+ * files already registered (overlap with g_ModelStates / hand-model /
+ * prior weapon iterations).
  *
  * Why a separate function rather than baking into the body of
  * assetCatalogRegisterBaseGameExtended: the loader (loaderPdbase) is
@@ -836,12 +848,14 @@ s32 assetCatalogRegisterBaseGameExtended(void)
  * during base-game registration. Caller (main.c) invokes this function
  * AFTER loaderPdbaseBuildWeaponManager so weapon data is available.
  *
- * ROM-fallback in bondgun.c (S484-followup commit fbb650a0) remains as
- * a defensive backstop -- if a future weapon ships with a hi_model
- * filenum we somehow miss, the load still works through the legacy
- * direct-from-ROM path. The CATALOG.MISS warning continues to surface
- * any such miss for cleanup.
+ * No legacy ROM fallback in bondgun.c. Catalog is the sole pipeline.
+ * If any future weapon ships with a model file we miss here, the load
+ * fails LOUD via CATALOG_CRITICAL (one ERROR per missing filenum thanks
+ * to the bondgun.c throttle), not silently routed through ROM. Pressure
+ * stays on the registration side to be complete.
  */
+extern u16 g_CartFileNums[];
+
 s32 assetCatalogRegisterWeaponModelFiles(void)
 {
 	char idbuf[CATALOG_ID_LEN];
@@ -849,6 +863,7 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 	s32 skipped_dup = 0;
 	s32 skipped_zero = 0;
 
+	/* ---- weapon hi_model / lo_model ---- */
 	const s32 weapon_count = catalogManagerWeaponCount();
 	for (s32 wi = 0; wi < weapon_count; wi++) {
 		const struct weapon *w = catalogManagerGetWeaponByIndex(wi);
@@ -904,8 +919,49 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 		}
 	}
 
+	/* ---- cartridge / casing model files ----
+	 * Loaded by bgunTickMasterLoad (bondgun.c:4562) when a weapon's
+	 * ammo definition has a casing. Same load path as gun / hand models. */
+	{
+		static const s32 kCartCount = 4; /* matches array length in bondgun.c */
+		const char *cart_slugs[4] = { "rifle", "rifle_alt", "blue", "shell" };
+		for (s32 ci = 0; ci < kCartCount; ci++) {
+			const s32 fnum = (s32)g_CartFileNums[ci];
+			if (fnum <= 0) {
+				skipped_zero++;
+				continue;
+			}
+
+			asset_data_handle_t existing =
+				catalogHandleBySourceFilenum(ASSET_MODEL, fnum);
+			if (!assetHandleIsNull(existing)) {
+				skipped_dup++;
+				continue;
+			}
+
+			snprintf(idbuf, sizeof(idbuf),
+				"base:cart_model_%s_%04x", cart_slugs[ci], (u32)fnum);
+			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_MODEL);
+			if (!e) {
+				sysLogPrintf(LOG_ERROR,
+					"assetcatalog: failed to register cartridge model %s",
+					idbuf);
+				continue;
+			}
+			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
+			e->bundled = 1;
+			e->enabled = 1;
+			e->runtime_index = -(100000 + fnum);
+			e->source_filenum = fnum;
+			catalogSetPrimaryRomFilenum(e, fnum);
+			e->load_state = ASSET_STATE_LOADED;
+			e->ref_count = ASSET_REF_BUNDLED;
+			registered++;
+		}
+	}
+
 	sysLogPrintf(LOG_NOTE,
-		"assetcatalog: registered %d weapon model files (ASSET_MODEL); "
+		"assetcatalog: registered %d weapon-pipeline model files (ASSET_MODEL); "
 		"skipped %d already-registered, %d zero filenums",
 		registered, skipped_dup, skipped_zero);
 	return registered;
