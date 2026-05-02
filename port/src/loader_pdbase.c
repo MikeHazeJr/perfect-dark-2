@@ -98,8 +98,21 @@ static struct modelpartvisibility     s_Partvis[POOL_PARTVIS];
 static struct inventory_ammo          s_Ammos[POOL_AMMOS];
 static struct invaimsettings          s_AimSettings[POOL_AIMSETTINGS];
 static struct noisesettings           s_NoiseSettings[POOL_NOISESETTINGS];
+/* S484-followup-3 (2026-05-01): canary words straddle the
+ * s_RecoilSettings and s_WeaponFuncs pools so that a buffer overrun
+ * either side leaves a fingerprint we can detect. The pre/post
+ * canaries seed at compile time with distinct magic values; if either
+ * is corrupt at any check point, we know somebody wrote past the
+ * pool boundary. The fire-time recoil crash at bondgun.c:8229
+ * dereferences shootfunc->recoilsettings to a non-NULL but invalid
+ * pointer; if a writer corrupts the pool, recoilsettings could end up
+ * pointing into garbage that reads as non-NULL but accesses fault. */
+static u32 s_RecoilCanaryPre  = 0xDEADBEEFu;
 static struct recoilsettings          s_RecoilSettings[POOL_RECOILSETTINGS];
+static u32 s_RecoilCanaryPost = 0xCAFEBABEu;
+static u32 s_WeaponFuncsCanaryPre  = 0xFEEDFACEu;
 static weaponfunc_any_t               s_WeaponFuncs[POOL_WEAPONFUNCS];
+static u32 s_WeaponFuncsCanaryPost = 0xBADC0FFEu;
 static f32                            s_Vibrations[POOL_VIBRATIONS];
 static pdbase_anim_entry_t            s_Animations[POOL_ANIMATIONS];
 static struct invaimsettings          s_DefaultAim;
@@ -163,6 +176,50 @@ const struct aibotweaponpreference *loaderPdbaseGetBotPref(s32 idx)
 }
 
 s32 loaderPdbaseGetWeaponsRegistered(void) { return s_WeaponsRegistered; }
+
+/* S484-followup-3 (2026-05-01): pool-range accessors for the
+ * fire-time recoil crash investigation. Bondgun's recoil-block
+ * instrumentation cross-checks shootfunc / recoilsettings pointers
+ * against these ranges so a wild pointer (out-of-pool) gets caught
+ * and surfaced before the dereference faults. */
+const void *loaderPdbaseGetRecoilSettingsBase(void)
+{
+	return (const void *)&s_RecoilSettings[0];
+}
+
+const void *loaderPdbaseGetRecoilSettingsEnd(void)
+{
+	return (const void *)&s_RecoilSettings[POOL_RECOILSETTINGS];
+}
+
+const void *loaderPdbaseGetWeaponFuncsBase(void)
+{
+	return (const void *)&s_WeaponFuncs[0];
+}
+
+const void *loaderPdbaseGetWeaponFuncsEnd(void)
+{
+	return (const void *)&s_WeaponFuncs[POOL_WEAPONFUNCS];
+}
+
+/* Canary check: returns 0 if all canaries are intact. Non-zero bits
+ * indicate which canary tripped:
+ *   bit 0: s_RecoilCanaryPre (overrun BEFORE s_RecoilSettings[0])
+ *   bit 1: s_RecoilCanaryPost (overrun AFTER s_RecoilSettings[N-1])
+ *   bit 2: s_WeaponFuncsCanaryPre
+ *   bit 3: s_WeaponFuncsCanaryPost
+ * Caller (bondgun.c) logs the bitmask before each per-fire pointer
+ * read so the next playtest log shows whether a buffer overrun is
+ * the corruption source. */
+u32 loaderPdbaseCheckCanaries(void)
+{
+	u32 mask = 0;
+	if (s_RecoilCanaryPre  != 0xDEADBEEFu) mask |= 0x01u;
+	if (s_RecoilCanaryPost != 0xCAFEBABEu) mask |= 0x02u;
+	if (s_WeaponFuncsCanaryPre  != 0xFEEDFACEu) mask |= 0x04u;
+	if (s_WeaponFuncsCanaryPost != 0xBADC0FFEu) mask |= 0x08u;
+	return mask;
+}
 
 static struct guncmd *resolveAnimByName(const char *name)
 {
