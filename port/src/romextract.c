@@ -72,7 +72,9 @@ static void romExtractSanitizeName(const char *src, char *dst, s32 dstLen)
 
 /* Build the on-disk relative path for a given ROM file.  Returns the
  * length written, or 0 on failure.  The caller's buffer must hold
- * at least ROMEXTRACT_PATH_LEN bytes. */
+ * at least ROMEXTRACT_PATH_LEN bytes.  Public alias is
+ * `romExtractRelPathForFilenum` (Pass B slices call this to bind
+ * catalog entries to disk). */
 static s32 romExtractBuildRelPath(s32 fileNum, char *outRel, s32 outRelLen)
 {
     char nameBuf[128];
@@ -86,6 +88,17 @@ static s32 romExtractBuildRelPath(s32 fileNum, char *outRel, s32 outRelLen)
 
     return snprintf(outRel, (size_t)outRelLen,
                     "data/%s/files/G_%04x.bin", VERSION_ROMID, (u32)fileNum);
+}
+
+s32 romExtractRelPathForFilenum(s32 fileNum, char *outRel, s32 outRelLen)
+{
+    if (outRel == NULL || outRelLen <= 0) return 0;
+    s32 len = romExtractBuildRelPath(fileNum, outRel, outRelLen);
+    if (len <= 0 || len >= outRelLen) {
+        outRel[0] = '\0';
+        return 0;
+    }
+    return len;
 }
 
 /* Test whether a path already exists on disk with the requested size.
