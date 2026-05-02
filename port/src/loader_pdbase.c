@@ -1341,6 +1341,33 @@ static void parseWeapon(jstream_t *s)
 		s_Weapons[weapon_id] = w;
 		if (bp_present) s_BotPrefs[weapon_id] = bp;
 		s_WeaponsRegistered++;
+
+		/* S484-followup-4 diag (2026-05-01): per-weapon name dump.
+		 * Mike's playtest log surfaced a UI mismatch where Falcon 2
+		 * Silencer's secondary fire label said "Rapid Fire"
+		 * (L_GUN_086 = 19534) when the JSON specifies "Pistol Whip"
+		 * (L_GUN_094 = 19542). The dispatch path was correct -- the
+		 * actual fire mechanic used the right secondary -- but the
+		 * label-side lookup of weapon->functions[1]->name returned a
+		 * different langid than the JSON had. Surfacing the values
+		 * stored in the manager pool right after parse so the next
+		 * playtest log shows whether the parser stored the right
+		 * langid (parser-side bug) or the UI is reading from a stale
+		 * source (consumer-side bug). */
+		const struct weaponfunc *fn0 =
+			(const struct weaponfunc *)w.functions[0];
+		const struct weaponfunc *fn1 =
+			(const struct weaponfunc *)w.functions[1];
+		const u32 fn0_name = fn0 ? (u32)fn0->name : 0u;
+		const u32 fn1_name = fn1 ? (u32)fn1->name : 0u;
+		const u32 fn0_type = fn0 ? (u32)fn0->type : 0u;
+		const u32 fn1_type = fn1 ? (u32)fn1->type : 0u;
+		sysLogPrintf(LOG_NOTE,
+			"LOADER.PDBASE.WEAPON.STORED: weapon_id=%d "
+			"functions[0]=%p name=%u type=%u "
+			"functions[1]=%p name=%u type=%u",
+			weapon_id, (const void *)fn0, fn0_name, fn0_type,
+			(const void *)fn1, fn1_name, fn1_type);
 	} else {
 		sysLogPrintf(LOG_WARNING,
 			"LOADER.PDBASE.WEAPON.RESOLVE_FAIL: weapon_id=%d out of range",
