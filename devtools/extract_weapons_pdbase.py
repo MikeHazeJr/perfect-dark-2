@@ -783,16 +783,31 @@ def map_schema(children, schema, table):
 # Driver
 # ---------------------------------------------------------------------------
 
-def parse_enum_header(path):
+def parse_enum_header(path, defs=None):
     """Parse C `enum NAME { IDENT [= V], ... };` blocks from a header.
 
     Returns dict ident -> int. The first ident defaults to 0; subsequent
-    idents without explicit values increment by 1 from the previous."""
+    idents without explicit values increment by 1 from the previous.
+
+    If `defs` is provided, #if/#endif/#else/#ifdef/#ifndef blocks are
+    resolved using it as the constant table. Without that pass, lines
+    like `#if VERSION >= VERSION_NTSC_1_0\nIDENT,\n#endif` cause the
+    entry-splitting + per-entry regex to drop two enum entries per
+    block (the one attached to `#if` and the one attached to `#endif`)
+    AND skip cur_value increment for the dropped entries -- so all
+    subsequent enum entries get values lower than the C compiler
+    actually computes. This was the root cause of S484-followup-5
+    Farsight-fires-voiceline: SFX_813E drifted to 0x8136, confignum
+    0x0136 indexed AudioRussMappings[310] which holds the
+    "Damn missed again" voiceline.
+    """
     if not os.path.isfile(path):
         return {}
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         src = f.read()
     src = strip_comments(src)
+    if defs is not None:
+        src = resolve_ifdefs(src, defs)
     out = {}
     # Find each `enum NAME { ... };` block.
     for m in re.finditer(r"\benum\s+\w*\s*\{([^}]*)\}\s*;", src, re.DOTALL):
@@ -849,13 +864,13 @@ def emit_enum_lookup_c(path, table_name, entries, header_guard, includes):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--invitems", required=True)
+    ap.add_argument("--invitems", required=False)
     ap.add_argument("--constants", required=True)
     ap.add_argument("--gunscript", required=True)
-    ap.add_argument("--types", required=True)
-    ap.add_argument("--botinv", required=True,
+    ap.add_argument("--types", required=False)
+    ap.add_argument("--botinv", required=False,
                     help="src/game/botinv.c for g_AibotWeaponPreferences[]")
-    ap.add_argument("--output", required=True)
+    ap.add_argument("--output", required=False)
     ap.add_argument("--enum-tables-out", required=False,
                     help="Optional: emit C lookup tables for ANIM_*, SFX_*, "
                          "FILE_*, L_GUN_* enum families to this .c path.")
@@ -867,7 +882,28 @@ def main():
                     help="src/generated/<rom>/lang/gun.h for L_GUN_* enum")
     ap.add_argument("--enum-files-header", required=False,
                     help="header containing FILE_* enum (typically files.h)")
+    ap.add_argument("--enums-only", action="store_true",
+                    help="Skip invitems.c / botinv.c / weapons.pdbase emission "
+                         "and only emit --enum-tables-out. Use this after the "
+                         "weapons migration retired g_Weapons[] from invitems.c "
+                         "(S484 F13, 2026-04-30) when only enum tables need "
+                         "regenerating.")
     args = ap.parse_args()
+
+    # Validate args based on mode.
+    if args.enums_only:
+        if not args.enum_tables_out:
+            sys.stderr.write("ERROR: --enums-only requires --enum-tables-out\n")
+            sys.exit(2)
+    else:
+        missing = [n for n, v in (("--invitems", args.invitems),
+                                  ("--types", args.types),
+                                  ("--botinv", args.botinv),
+                                  ("--output", args.output)) if not v]
+        if missing:
+            sys.stderr.write("ERROR: missing required args: %s\n"
+                             % ", ".join(missing))
+            sys.exit(2)
 
     # Build constant table from constants.h, gunscript.h, types.h, and any
     # other headers we end up needing. The script's correctness depends on
@@ -882,6 +918,16 @@ def main():
     const_table.setdefault("VERSION_PAL_FINAL", 3)
     const_table.setdefault("VERSION_JPN_FINAL", 4)
     const_table.setdefault("VERSION", 2)
+
+    if args.enums_only:
+        # Skip straight to enum table emission. The weapons.pdbase JSON is
+        # already authoritative; we only need to regenerate the enum
+        # lookup tables (e.g. after fixing parse_enum_header for
+        # #if-guarded entries).
+        animations = []
+        weapons = []
+        _emit_enum_tables(args, const_table)
+        return
 
     # Load invitems.c
     with open(args.invitems, "r", encoding="utf-8", errors="replace") as f:
@@ -961,97 +1007,110 @@ def main():
 
     # Optional: emit enum lookup tables for the loader.
     if args.enum_tables_out:
-        # Enum-style identifiers come from `enum NAME { IDENT, ... };` blocks.
-        anim_enum = parse_enum_header(args.enum_anim_header) if args.enum_anim_header else {}
-        sfx_enum  = parse_enum_header(args.enum_sequences_header) if args.enum_sequences_header else {}
-        lang_enum = parse_enum_header(args.enum_lang_gun_header) if args.enum_lang_gun_header else {}
-        file_enum = parse_enum_header(args.enum_files_header) if args.enum_files_header else {}
+        _emit_enum_tables(args, const_table)
 
-        # #define-style identifiers come from build_constant_table (constants.h
-        # + gunscript.h scan). Pull FILE_*, ANIM_*, SFX_*, L_GUN_* from there too
-        # since some headers (e.g. files.h) use `#define` rather than `enum`.
-        anim_table = dict(anim_enum)
-        sfx_table = dict(sfx_enum)
-        lang_table = dict(lang_enum)
-        file_table = dict(file_enum)
-        for k, v in const_table.items():
-            if k.startswith("ANIM_") and k not in anim_table:
-                anim_table[k] = v
-            elif k.startswith("SFX_") and k not in sfx_table:
-                sfx_table[k] = v
-            elif k.startswith("L_GUN_") and k not in lang_table:
-                lang_table[k] = v
-            elif k.startswith("FILE_") and k not in file_table:
+
+def _emit_enum_tables(args, const_table):
+    """Emit C lookup tables for ANIM_*, SFX_*, L_GUN_*, FILE_* enums.
+
+    Pulled out of main() so --enums-only mode can reuse it without
+    needing the now-retired g_Weapons[] in invitems.c.
+    """
+    # Enum-style identifiers come from `enum NAME { IDENT, ... };` blocks.
+    # S484-followup-5: pass const_table to enable #if/#endif
+    # resolution inside enum bodies. Without it, entries inside
+    # version-conditional blocks get dropped from the enum AND
+    # offset all subsequent values.
+    anim_enum = parse_enum_header(args.enum_anim_header, const_table) if args.enum_anim_header else {}
+    sfx_enum  = parse_enum_header(args.enum_sequences_header, const_table) if args.enum_sequences_header else {}
+    lang_enum = parse_enum_header(args.enum_lang_gun_header, const_table) if args.enum_lang_gun_header else {}
+    file_enum = parse_enum_header(args.enum_files_header, const_table) if args.enum_files_header else {}
+
+    # #define-style identifiers come from build_constant_table (constants.h
+    # + gunscript.h scan). Pull FILE_*, ANIM_*, SFX_*, L_GUN_* from there too
+    # since some headers (e.g. files.h) use `#define` rather than `enum`.
+    anim_table = dict(anim_enum)
+    sfx_table = dict(sfx_enum)
+    lang_table = dict(lang_enum)
+    file_table = dict(file_enum)
+    for k, v in const_table.items():
+        if k.startswith("ANIM_") and k not in anim_table:
+            anim_table[k] = v
+        elif k.startswith("SFX_") and k not in sfx_table:
+            sfx_table[k] = v
+        elif k.startswith("L_GUN_") and k not in lang_table:
+            lang_table[k] = v
+        elif k.startswith("FILE_") and k not in file_table:
+            file_table[k] = v
+    # Also pick up FILE_* from the dedicated header even if it's #define-based.
+    if args.enum_files_header and os.path.isfile(args.enum_files_header):
+        file_const_table = build_constant_table(args.enum_files_header)
+        for k, v in file_const_table.items():
+            if k.startswith("FILE_") and k not in file_table:
                 file_table[k] = v
-        # Also pick up FILE_* from the dedicated header even if it's #define-based.
-        if args.enum_files_header and os.path.isfile(args.enum_files_header):
-            file_const_table = build_constant_table(args.enum_files_header)
-            for k, v in file_const_table.items():
-                if k.startswith("FILE_") and k not in file_table:
-                    file_table[k] = v
 
-        chunks = [
-            "/* Generated enum lookup tables for the .pdbase loader.\n"
-            " * Source: devtools/extract_weapons_pdbase.py\n"
-            " *\n"
-            " * Tables are sorted by name for binary-search lookups; the\n"
-            " * loader does linear scans instead since loading is one-time\n"
-            " * at startup and the tables (~3-5k entries total) fit easily\n"
-            " * in cache. Switch to bsearch if it ever shows up in profiles. */\n\n",
-            "#include <stddef.h>\n",
-            "#include <string.h>\n",
-            "#include <PR/ultratypes.h>\n",
-            "#include \"loader_pdbase_enums.h\"\n\n",
-            "typedef struct { const char *name; s32 value; } pdbase_enum_entry_t;\n\n",
-        ]
+    chunks = [
+        "/* Generated enum lookup tables for the .pdbase loader.\n"
+        " * Source: devtools/extract_weapons_pdbase.py\n"
+        " *\n"
+        " * Tables are sorted by name for binary-search lookups; the\n"
+        " * loader does linear scans instead since loading is one-time\n"
+        " * at startup and the tables (~3-5k entries total) fit easily\n"
+        " * in cache. Switch to bsearch if it ever shows up in profiles. */\n\n",
+        "#include <stddef.h>\n",
+        "#include <string.h>\n",
+        "#include <PR/ultratypes.h>\n",
+        "#include \"loader_pdbase_enums.h\"\n\n",
+        "typedef struct { const char *name; s32 value; } pdbase_enum_entry_t;\n\n",
+    ]
 
-        def emit_table(table_name, entries):
-            sorted_entries = sorted(entries.items())
-            out = ["static const pdbase_enum_entry_t %s[] = {\n" % table_name]
-            for name, value in sorted_entries:
-                out.append("    { \"%s\", %d },\n" % (name, value))
-            out.append("};\n")
-            out.append("static const size_t %s_count = sizeof(%s) / sizeof(%s[0]);\n\n"
-                       % (table_name, table_name, table_name))
-            return "".join(out)
+    def emit_table(table_name, entries):
+        sorted_entries = sorted(entries.items())
+        out = ["static const pdbase_enum_entry_t %s[] = {\n" % table_name]
+        for name, value in sorted_entries:
+            out.append("    { \"%s\", %d },\n" % (name, value))
+        out.append("};\n")
+        out.append("static const size_t %s_count = sizeof(%s) / sizeof(%s[0]);\n\n"
+                   % (table_name, table_name, table_name))
+        return "".join(out)
 
-        chunks.append(emit_table("k_AnimEnum",  anim_table))
-        chunks.append(emit_table("k_SfxEnum",   sfx_table))
-        chunks.append(emit_table("k_LangEnum",  lang_table))
-        chunks.append(emit_table("k_FileEnum",  file_table))
+    chunks.append(emit_table("k_AnimEnum",  anim_table))
+    chunks.append(emit_table("k_SfxEnum",   sfx_table))
+    chunks.append(emit_table("k_LangEnum",  lang_table))
+    chunks.append(emit_table("k_FileEnum",  file_table))
 
-        # Lookup helper.
-        chunks.append(
-            "static s32 lookup_enum(const pdbase_enum_entry_t *table,\n"
-            "                       size_t count,\n"
-            "                       const char *name,\n"
-            "                       s32 fallback)\n"
-            "{\n"
-            "    if (name == NULL) return fallback;\n"
-            "    for (size_t i = 0; i < count; i++) {\n"
-            "        if (strcmp(table[i].name, name) == 0) {\n"
-            "            return table[i].value;\n"
-            "        }\n"
-            "    }\n"
-            "    return fallback;\n"
-            "}\n\n"
-            "s32 loaderPdbaseResolveAnimEnum(const char *name, s32 fallback)\n"
-            "{ return lookup_enum(k_AnimEnum, k_AnimEnum_count, name, fallback); }\n\n"
-            "s32 loaderPdbaseResolveSfxEnum(const char *name, s32 fallback)\n"
-            "{ return lookup_enum(k_SfxEnum, k_SfxEnum_count, name, fallback); }\n\n"
-            "s32 loaderPdbaseResolveLangEnum(const char *name, s32 fallback)\n"
-            "{ return lookup_enum(k_LangEnum, k_LangEnum_count, name, fallback); }\n\n"
-            "s32 loaderPdbaseResolveFileEnum(const char *name, s32 fallback)\n"
-            "{ return lookup_enum(k_FileEnum, k_FileEnum_count, name, fallback); }\n"
-        )
+    # Lookup helper.
+    chunks.append(
+        "static s32 lookup_enum(const pdbase_enum_entry_t *table,\n"
+        "                       size_t count,\n"
+        "                       const char *name,\n"
+        "                       s32 fallback)\n"
+        "{\n"
+        "    if (name == NULL) return fallback;\n"
+        "    for (size_t i = 0; i < count; i++) {\n"
+        "        if (strcmp(table[i].name, name) == 0) {\n"
+        "            return table[i].value;\n"
+        "        }\n"
+        "    }\n"
+        "    return fallback;\n"
+        "}\n\n"
+        "s32 loaderPdbaseResolveAnimEnum(const char *name, s32 fallback)\n"
+        "{ return lookup_enum(k_AnimEnum, k_AnimEnum_count, name, fallback); }\n\n"
+        "s32 loaderPdbaseResolveSfxEnum(const char *name, s32 fallback)\n"
+        "{ return lookup_enum(k_SfxEnum, k_SfxEnum_count, name, fallback); }\n\n"
+        "s32 loaderPdbaseResolveLangEnum(const char *name, s32 fallback)\n"
+        "{ return lookup_enum(k_LangEnum, k_LangEnum_count, name, fallback); }\n\n"
+        "s32 loaderPdbaseResolveFileEnum(const char *name, s32 fallback)\n"
+        "{ return lookup_enum(k_FileEnum, k_FileEnum_count, name, fallback); }\n"
+    )
 
-        os.makedirs(os.path.dirname(args.enum_tables_out) or ".", exist_ok=True)
-        with open(args.enum_tables_out, "w", encoding="utf-8", newline="\n") as f:
-            f.write("".join(chunks))
-        sys.stderr.write(
-            "OK: wrote %s (anim=%d sfx=%d lang=%d file=%d)\n"
-            % (args.enum_tables_out, len(anim_table), len(sfx_table),
-               len(lang_table), len(file_table)))
+    os.makedirs(os.path.dirname(args.enum_tables_out) or ".", exist_ok=True)
+    with open(args.enum_tables_out, "w", encoding="utf-8", newline="\n") as f:
+        f.write("".join(chunks))
+    sys.stderr.write(
+        "OK: wrote %s (anim=%d sfx=%d lang=%d file=%d)\n"
+        % (args.enum_tables_out, len(anim_table), len(sfx_table),
+           len(lang_table), len(file_table)))
 
 
 def _flatten_to_tokens(node):
