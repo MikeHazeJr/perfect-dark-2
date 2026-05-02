@@ -1,5 +1,32 @@
 # Session Log (Active)
 
+## Session S602b (`catalog-pass-b-slice13-uichrome`) - 2026-05-02 PM - Slice 13 correction (base/ -> data/)
+
+Mike's same-day course-correction: the initial Slice 13 commit (`f54959d1`) misclassified UI chrome textures as project-authored content under `base/ui/textures/`. They are extracted from the user-supplied ROM at first launch and never ship with the project, so they belong in the BYOR `data/` tier alongside per-romid segments populated by Pass A.2 + Slices 2/5/6/8/11. The corrected location aligns with the original rom-extraction-audit-2026-04-30 recommendation.
+
+### Outcome
+
+All 14 extraction destinations + 13 catalog entry paths + 13 existence-check paths + 3 `fsCreateDir` calls now target `data/ui/textures/`. The `[uichrome]` test pin gains an explicit "no `base/ui/textures` references" assertion (test case 5 in the now-7-case suite) so any future regression is caught at compile time. Audit doc gains a "Decision corrected" section documenting the BYOR convention: `base/` for shipped content, `data/` for BYOR-extracted runtime content, `mods/` for user overlays.
+
+`pd` 54.8 MB / `pd-server` 22.4 MB / `pd-tests` 24.7 MB; all link clean. `[uichrome]` test pin: **7 cases / 56 assertions** all pass (up from 6 / 47 in the initial commit).
+
+### Files touched (4)
+
+- `port/fast3d/pdgui_theme.cpp` (-58 / +52): path rewrite from `base/ui/textures/` to `data/ui/textures/`; `fsCreateDir` triple updated; Slice 13 marker comment now documents the BYOR rationale + the corrected misclassification.
+- `port/include/pdgui_theme.h` (-4 / +4): three docblock comments updated.
+- `tests/test_uichrome_paths_pin.cpp` (+27 / -16): new "base/ui/textures misclassification fully retired" test case; existing pins updated.
+- `context/audits/catalog-phase3-passb-slice13-uichrome-2026-05-02.md` (+44 / -23): "Decision corrected" section + BYOR convention documented + B.1 / B.2 / B.7 reworded.
+
+Total: 175 insertions, 107 deletions across 4 files.
+
+### Auto-merge
+
+Per standing rule. Pre-merge HEAD `814e7c4f`. Worktree commit `70643056`. Post-merge `e00927a2`. Post-merge file line counts match worktree exactly.  No conflicts.
+
+### Pass B status
+
+Slices 1-11 + 13 shipped (12 of 13). Slice 12 (SFX residual / `g_AudioRussMappings` cleanup) is the last item; then Pass C (drop RomProvider from runtime).
+
 ## Session S602 (`catalog-pass-b-slice13-uichrome`) - 2026-05-02 PM - Phase 3 Pass B Slice 13 UI chrome migration
 
 Mike's brief carried over from the bodies migration session: pivot to Phase 3 Pass B Slice 13, the largest remaining Pass B item. UI chrome textures move from the legacy `mods/base-ui/textures/` tier to the project-canonical `base/ui/textures/` tier. Per Mike's directive: project-authored content lives under `base/`, not under `mods/`. Coordinates with the parallel Slice 10 voice-retag session (different file scope, no conflict).
