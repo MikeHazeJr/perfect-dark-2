@@ -270,6 +270,17 @@ typedef struct asset_entry {
              * Future subdivisions (e.g. splitting DEFAULT into neck-variant
              * sub-buckets) land as data edits here; no code changes needed. */
             char rig_class[32];
+            /* Catalog Gate 3 Bodies F7: archive-relative resolution.
+             * Empty string means the body lives in the legacy
+             * g_HeadsAndBodies[] table (parity-period source). Non-empty
+             * means the body record lives in base/bodies.pdbase at the
+             * given offset/size; loader_pdbase populates these at scan
+             * time and the manager s_get checks loaderPdbaseBodiesActive
+             * to decide which source to read.  Mirrors the heads F7
+             * fields. */
+            char pdbase_path[128];
+            u32  pdbase_offset;
+            u32  pdbase_size;
         } body;
         struct {
             s16 headnum;               /* global head ID in g_HeadsAndBodies[] */
