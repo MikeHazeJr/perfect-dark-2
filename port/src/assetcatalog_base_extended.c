@@ -26,6 +26,7 @@
  */
 
 #include <PR/ultratypes.h>
+#include <stddef.h>
 #include <string.h>
 #include <stdio.h>
 #include "types.h"
@@ -976,3 +977,117 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 	return registered;
 }
 #endif /* !PD_SERVER */
+
+/* ========================================================================
+ * Catalog coverage audit (2026-05-01) Section 3.A:
+ * stage scene file registration
+ * ========================================================================
+ *
+ * The stagetableentry struct carries five per-stage file IDs:
+ *   bgfileid       -- BG geometry segment (read by bg.c::bgLoadFile)
+ *   tilefileid     -- collision tile data (read by tilesreset.c)
+ *   padsfileid     -- collision pad placement (read by setup.c)
+ *   setupfileid    -- SP mission setup script (read by setup.c)
+ *   mpsetupfileid  -- MP setup script (read by setup.c, MP-class stages)
+ *
+ * Each is a ROM filenum. Pre-this-pass none had a catalog entry, so
+ * `catalogResolveFile(filenum)` returned no override and mods could
+ * not redirect any of these per-stage scene assets.
+ *
+ * Closure: walk g_Stages[] and register each non-zero scene-file ID
+ * as ASSET_MODEL with `source_filenum` binding plus
+ * `catalogSetPrimaryRomFilenum`. Same pattern as
+ * assetCatalogRegisterWeaponModelFiles (cartridge / hand / hi+lo
+ * model files). The discriminator is the catalog ID slug
+ * ("base:stage_<class>_<filenum>") so a future migration to dedicated
+ * ASSET_BG / ASSET_TILES / ASSET_PADS / ASSET_SETUP types can rename
+ * without breaking on-wire identity (these IDs are not referenced from
+ * mods or saves today).
+ *
+ * Negative `runtime_index` keeps clear of g_ModelStates[] MODEL_*
+ * indices and the hand / weapon / cart model schemes (which already
+ * use -(100000 + fnum)). Stage scene files use -(200000 + fnum) to
+ * separate the namespace.
+ *
+ * Idempotent: dedup against any existing ASSET_MODEL with same
+ * source_filenum. Multiple stages may share files (e.g. mod stages
+ * pointing at base BG); the first registration wins, subsequent
+ * stages see the existing entry and skip.
+ *
+ * Server build: g_NumStages == 0 server-side per stageTableInit guard,
+ * so the function returns early with zero registrations.
+ *
+ * No legacy ROM fallback in consumers. The existing romdataFileLoad
+ * plumbing already consults catalogResolveFile, so this registration
+ * alone is sufficient to enable mod overrides for stage scene files.
+ * Strict-handle migration of the five consumer call sites is a
+ * separate hardening pass tracked in the audit doc.
+ */
+s32 assetCatalogRegisterStageSceneFiles(void)
+{
+	char idbuf[CATALOG_ID_LEN];
+	s32 registered = 0;
+	s32 skipped_dup = 0;
+	s32 skipped_zero = 0;
+
+	if (g_NumStages <= 0) {
+		/* Server build (no ROM data) or stage table not yet built. */
+		return 0;
+	}
+
+	struct {
+		const char *slug;
+		size_t      offset; /* offsetof in stagetableentry, declared inline below */
+	} kFileSlots[5] = {
+		{ "bg",      offsetof(struct stagetableentry, bgfileid)      },
+		{ "tile",    offsetof(struct stagetableentry, tilefileid)    },
+		{ "pads",    offsetof(struct stagetableentry, padsfileid)    },
+		{ "setup",   offsetof(struct stagetableentry, setupfileid)   },
+		{ "mpsetup", offsetof(struct stagetableentry, mpsetupfileid) },
+	};
+
+	for (s32 si = 0; si < g_NumStages; si++) {
+		const struct stagetableentry *st = &g_Stages[si];
+		for (s32 fi = 0; fi < 5; fi++) {
+			const u16 *p = (const u16 *)((const u8 *)st + kFileSlots[fi].offset);
+			const s32 fnum = (s32)*p;
+
+			if (fnum <= 0) {
+				skipped_zero++;
+				continue;
+			}
+
+			asset_data_handle_t existing =
+				catalogHandleBySourceFilenum(ASSET_MODEL, fnum);
+			if (!assetHandleIsNull(existing)) {
+				skipped_dup++;
+				continue;
+			}
+
+			snprintf(idbuf, sizeof(idbuf),
+				"base:stage_%s_%04x", kFileSlots[fi].slug, (u32)fnum);
+			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_MODEL);
+			if (!e) {
+				sysLogPrintf(LOG_ERROR,
+					"assetcatalog: failed to register stage scene file %s",
+					idbuf);
+				continue;
+			}
+			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
+			e->bundled = 1;
+			e->enabled = 1;
+			e->runtime_index = -(200000 + fnum);
+			e->source_filenum = fnum;
+			catalogSetPrimaryRomFilenum(e, fnum);
+			e->load_state = ASSET_STATE_LOADED;
+			e->ref_count = ASSET_REF_BUNDLED;
+			registered++;
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"assetcatalog: registered %d stage scene files across %d stages "
+		"(ASSET_MODEL); skipped %d already-registered, %d zero filenums",
+		registered, g_NumStages, skipped_dup, skipped_zero);
+	return registered;
+}

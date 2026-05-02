@@ -60,6 +60,34 @@ s32 assetCatalogRegisterBaseGameExtended(void);
  */
 s32 assetCatalogRegisterWeaponModelFiles(void);
 
+/**
+ * Catalog coverage audit (2026-05-01) Section 3.A closure: register the
+ * five per-stage scene file IDs (bgfileid, tilefileid, padsfileid,
+ * setupfileid, mpsetupfileid) carried on each `g_Stages[]` entry as
+ * ASSET_MODEL catalog rows with `source_filenum` binding.
+ *
+ * Without this, `catalogResolveFile(stage.bgfileid)` etc. return no
+ * catalog entry, so the existing `romdataFileLoad` mod-override path
+ * cannot redirect a stage's BG / collision / setup script load to a
+ * mod-supplied file. After this registration lands, mods that ship a
+ * replacement file for any stage scene asset get picked up
+ * automatically through the existing `romdataFileLoad` plumbing (which
+ * already consults `catalogResolveFile`).
+ *
+ * Idempotent and dedupe-safe (skips any filenum already present as
+ * ASSET_MODEL via `g_ModelStates[]`, hand model loop, weapon model
+ * registration, etc.).
+ *
+ * Must be called AFTER `assetCatalogRegisterBaseGame()` so the
+ * `g_Stages[]` heap table is populated, AND BEFORE `catalogLoadInit()`
+ * so the `s_FilenumOverride[]` reverse-index picks the new entries up
+ * on its single build pass. Server build is a no-op (g_NumStages == 0
+ * server-side per stageTableInit guard).
+ *
+ * Returns count of newly-registered stage scene file entries.
+ */
+s32 assetCatalogRegisterStageSceneFiles(void);
+
 /* ========================================================================
  * D3R-4: Component Scanner
  * ======================================================================== */
