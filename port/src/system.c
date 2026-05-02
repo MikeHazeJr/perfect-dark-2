@@ -205,17 +205,51 @@ static u32 sysLogClassifyMessage(const char *msg)
 	return 0;
 }
 
+#define LOG_ROTATE_COUNT 5
+
+static void sysLogRotate(const char *dir, const char *fname)
+{
+	char oldpath[2048], newpath[2048];
+	const char *dot = strrchr(fname, '.');
+	char stem[256], ext[64];
+
+	if (dot && dot != fname) {
+		int stemlen = (int)(dot - fname);
+		if (stemlen >= (int)sizeof(stem)) stemlen = (int)sizeof(stem) - 1;
+		memcpy(stem, fname, stemlen);
+		stem[stemlen] = '\0';
+		snprintf(ext, sizeof(ext), "%s", dot);
+	} else {
+		snprintf(stem, sizeof(stem), "%s", fname);
+		ext[0] = '\0';
+	}
+
+	snprintf(oldpath, sizeof(oldpath), "%s/%s.%d%s", dir, stem, LOG_ROTATE_COUNT - 1, ext);
+	remove(oldpath);
+
+	for (int i = LOG_ROTATE_COUNT - 2; i >= 1; i--) {
+		snprintf(oldpath, sizeof(oldpath), "%s/%s.%d%s", dir, stem, i, ext);
+		snprintf(newpath, sizeof(newpath), "%s/%s.%d%s", dir, stem, i + 1, ext);
+		rename(oldpath, newpath);
+	}
+
+	snprintf(oldpath, sizeof(oldpath), "%s/%s", dir, fname);
+	snprintf(newpath, sizeof(newpath), "%s/%s.1%s", dir, stem, ext);
+	rename(oldpath, newpath);
+}
+
 static inline void sysLogSetPath(const char *fname)
 {
-	// figure out where the log is and clear it
-	// try working dir first
 	snprintf(logPath, sizeof(logPath), "./%s", fname);
+	sysLogRotate(".", fname);
 	FILE *f = fopen(logPath, "wb");
 	if (!f) {
-		// try home dir
+		char homeDir[2048];
+		sysGetHomePath(homeDir, sizeof(homeDir) - 1);
 		sysGetHomePath(logPath, sizeof(logPath) - 1);
 		strncat(logPath, "/", sizeof(logPath) - 1);
 		strncat(logPath, fname, sizeof(logPath) - 1);
+		sysLogRotate(homeDir, fname);
 		f = fopen(logPath, "wb");
 	}
 	if (f) {
