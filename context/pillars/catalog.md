@@ -155,11 +155,25 @@ These are pulled from [constraints.md](../constraints.md). Any change to a catal
 
 ---
 
+## Phase 3 ROM-once-then-disk migration (CLOSED 2026-05-02)
+
+Mike's 2026-05-01 directive: "ROM is an initial asset source and then we use the extracted assets for loading, sans ROM." Shipped 2026-05-02 across Passes A through D.
+
+- **Pass A.1-A.5**: `data/<romid>/` tier accessors, first-launch ROM extraction (`romExtractAllFiles` + `romExtractAllSegments`), SHA-256 sidecars + verify (`romExtractVerifyAll` + `romExtractVerifyAllSegments`), `LOUDFAIL` log channel convention.
+- **Pass B Slices 1-13**: per-asset-class catalog migration from RomProvider to FileProvider (weapon models, sfx/music banks, lang, character models, animations, props, stage scenes, voice retag, music sequences, SFX residual ACCEPTED LIMIT, UI chrome). All shipped sequentially.
+- **Pass C** (`b15cc701`): `romdataReleaseRom()` frees `g_RomFile` after the verify pair, migrates SRC_ROM segments to disk-backed buffers, NULLs lazy fileSlot pointers into ROM range, emits `LOAD.PASSC` LOUD-FAIL on any missing fallback. Runtime never touches the ROM mapping post-extraction.
+- **Pass D** (S604, this commit lane): self-heal hardening on top of Pass A.4 + segment verify. Per-file system toasts on `corrected` / `failed` outcomes (5-cap), aggregated boot integrity report (`DATA INTEGRITY: V validated, R re-extracted, U unrecoverable`), deferred toast queue + drain (`romExtractToastDrain` after `gameInit`), quarantine path migrated to user-visible `data/_quarantine/<romid>/<unixtime>_<basename>`.
+
+Test surface: `[catalog][passd]` 9 cases / ~25 assertions in `tests/test_romextract_passd.cpp` plus the existing Pass A / Pass B pins.
+
+Audit: [audits/catalog-phase3-passd-self-heal-2026-05-02.md](../audits/catalog-phase3-passd-self-heal-2026-05-02.md). Plan: [designs/catalog/catalog-rom-once-phase3-plan-2026-05-02.md](../designs/catalog/catalog-rom-once-phase3-plan-2026-05-02.md).
+
+---
+
 ## What is in flight
 
-- **F11-F13 catalog full-pipeline weapons data move.** Implements `loaderPdbaseScan` filesystem walk, `loaderPdbaseBuildWeaponManager` decoder, moves the 86 `invitem_*` struct definitions to `base/weapons.pdbase`, populates `ext.weapon.pdbase_path/offset/size`, retires the weapon part of Layer A. Design at [designs/catalog/catalog-full-pipeline-weapons.md](../designs/catalog/catalog-full-pipeline-weapons.md). This is the immediate post-context-rebuild priority per [tasks.md](../tasks.md).
 - **Asset Provider Phase 4.** Filenum retirement (~23 game-code sites). Blocked on three prerequisite API migrations: handle-aware `assetGetSize`, handle-aware `modeldefLoad`, `MENUMODELPARAMS_SET_HANDLE`. Design at [designs/catalog/catalog-asset-provider-future-phases.md](../designs/catalog/catalog-asset-provider-future-phases.md) [TBD doc].
-- **Gate 3 catalog migration.** After weapons proves the Manager + .pdbase pattern, apply to bodies, heads, arenas, audio, scenarios, bot profiles. Each pillar gets its own `catalog_mgr_<type>.c` + `<type>.pdbase` archive. Tracked in roadmap.
+- **Catalog post-migration polish (non-blocking).** Scenarios / game modes and bot profiles + bot variants do not yet have a typed manager + `.pdbase`. Each is a future micro-lane following the F1-F13 template proven by weapons / heads / bodies / arenas. The architectural endpoint (ROM-once-then-disk + catalog-fronted accessors) is achieved without these.
 
 ---
 
