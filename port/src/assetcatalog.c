@@ -1238,25 +1238,57 @@ void catalogBindPrimaryFromDiskOrRom(asset_entry_t *entry, s32 filenum)
         return;
     }
 
-    char relPath[FS_MAXPATH];
-    s32 relLen = romExtractRelPathForFilenum(filenum, relPath, (s32)sizeof(relPath));
-    if (relLen > 0) {
-        const char *full = fsFullPath(relPath);
-        if (full && full[0]) {
-            FILE *probe = fopen(full, "rb");
-            if (probe) {
-                fclose(probe);
-                catalogSetPrimaryFile(entry, relPath);
-                /* Keep source_filenum so reverse-index lookup still
-                 * works for legacy callers; the disk-path bind takes
-                 * precedence at resolve time. */
-                entry->source_filenum = filenum;
-                return;
-            }
-        }
-    }
-
-    /* Fall back to RomProvider for pre-A.2 boots or server builds. */
+    /* Phase 3 Pass C close (S606, 2026-05-02): always bind RomProvider.
+     *
+     * Background: Pass B Slices 1+3+4+7+9 introduced this helper to probe
+     * the per-romid extracted file and bind FileProvider directly via
+     * catalogSetPrimaryFile so consumers reading the primary handle could
+     * load from disk.  But assetLoadToNew's FileProvider dispatch path
+     * (port/src/assetload.c) does NOT apply rzip inflate or LOADTYPE_x
+     * preprocess -- it just memcpys raw bytes into the caller's buffer
+     * (documented "FileProvider assets are not exercised through this
+     * path yet" comment in assetload.c).  When Pass B routed every base-
+     * game model / setup / pads / tile / lang / hand entry through this
+     * helper, all those loads ended up with raw compressed bytes instead
+     * of preprocessed structures.  Manifested post-Pass-C as
+     *   AV at +0x3ba918 inside modelPromoteNodeOffsetsToPointers
+     * because the legacy pipeline (which used to receive ROM bytes via
+     * fileLoad's inflate path) was bypassed in favour of the new
+     * provider dispatch.
+     *
+     * Pass C's romdataReleaseRom + romdataFileLoad's per-romid disk
+     * fallback now make the legacy pipeline (assetLoadToNew(romHandle) ->
+     * fileLoadRomToNew -> fileLoad -> romdataFileLoad) read from
+     * data/<romid>/files/<name>.bin automatically, with rzip inflate +
+     * LOADTYPE_x preprocess intact.  Binding RomProvider here gives the
+     * legacy pipeline first crack and preserves all prior preprocess
+     * invariants for door modeldefs, prop models, weapon models, setup
+     * files, pads, tiles, lang banks, hand models -- everything that
+     * goes through the assetLoad* dispatch with a non-NONE loadtype.
+     *
+     * Mod overrides still route through romdataFileLoad's catalog
+     * override branch when assetCatalogScanComponents sets ext.character.
+     * bodyfile / ext.texture.file_path / ext.audio.file_path on entries
+     * with !e->bundled.  Those callers populate the override before this
+     * helper runs and entryGetFilePath returns the populated ext.* field
+     * even though primary is now RomProvider.  Mod authoring stays
+     * unchanged.
+     *
+     * Side benefits:
+     *   - Removes the FileProvider intern-pool exhaustion warning
+     *     ("path intern pool exhausted (820 paths, 32751 bytes used)")
+     *     because base-game entries no longer intern paths.  Pre-fix,
+     *     ~2000 base entries hit the 1024-entry / 32-KB cap and any
+     *     entry registered after the cap returned a null handle,
+     *     silently dropping the primary binding.
+     *   - Single canonical load pipeline (fileLoad) for all base-game
+     *     assets regardless of whether bytes live in g_RomFile (boot)
+     *     or data/<romid>/files/ (post-Pass-C release).
+     *
+     * romExtractRelPathForFilenum + the disk probe stay reachable via
+     * the public API in romextract.h for future tooling that wants to
+     * surface the disk path independently of the catalog handle.
+     */
     catalogSetPrimaryRomFilenum(entry, filenum);
     entry->source_filenum = filenum;
 }
