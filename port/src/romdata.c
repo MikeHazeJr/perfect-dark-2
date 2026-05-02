@@ -484,13 +484,30 @@ static inline void romdataInitSegment(struct romfile *seg)
 		}
 	}
 
-	// check if we have an external replacement and load it if so
+	// check if we have an external replacement and load it if so.
+	// Phase 3 Pass B Slices 2/5/6/8/11 (2026-05-02): prefer the
+	// per-romid extracted path data/<romid>/segs/<name>.bin first;
+	// fall back to the legacy data/segs/<name> mod-override path so
+	// existing mods that drop a replacement segment continue to work.
 	char tmp[FS_MAXPATH];
-	snprintf(tmp, sizeof(tmp), ROMDATA_SEGDIR "/%s", seg->name);
 	u8 *newData = NULL;
-	const s32 extFileSize = fsFileSize(tmp);
-	if (extFileSize > 0) {
-		newData = fsFileLoad(tmp, &seg->size);
+
+	// Per-romid path: data/<romid>/segs/<name>.bin
+	snprintf(tmp, sizeof(tmp), "%s/segs/%s.bin", VERSION_ROMID, seg->name);
+	{
+		const s32 extSize = fsFileSize(tmp);
+		if (extSize > 0) {
+			newData = fsFileLoad(tmp, &seg->size);
+		}
+	}
+
+	// Legacy mod-override path: <basedir>/segs/<name>
+	if (newData == NULL) {
+		snprintf(tmp, sizeof(tmp), ROMDATA_SEGDIR "/%s", seg->name);
+		const s32 extFileSize = fsFileSize(tmp);
+		if (extFileSize > 0) {
+			newData = fsFileLoad(tmp, &seg->size);
+		}
 	}
 
 	if (!newData) {
@@ -927,6 +944,53 @@ u8 *romdataSegGetDataEnd(const char *segName)
 u32 romdataSegGetSize(const char *segName)
 {
 	return romdataGetSeg(segName)->size;
+}
+
+/* ========================================================================
+ * Phase 3 Pass B Slices 2/5/6/8/11 (2026-05-02): segment iterator API.
+ * romextract.c walks every loaded segment to dump bytes to disk so
+ * subsequent boots can skip the ROM mapping for segment loads.
+ * ======================================================================== */
+
+s32 romdataSegmentCount(void)
+{
+	/* romSegs[] is NULL-terminated by the trailing { NULL, NULL, NULL,
+	 * NULL, 0, NULL } sentinel.  Count the live entries. */
+	s32 n = 0;
+	for (struct romfile *seg = romSegs; seg->name; ++seg) {
+		n++;
+	}
+	return n;
+}
+
+const u8 *romdataSegmentGetData(s32 idx)
+{
+	if (idx < 0) return NULL;
+	s32 i = 0;
+	for (struct romfile *seg = romSegs; seg->name; ++seg, ++i) {
+		if (i == idx) return seg->data;
+	}
+	return NULL;
+}
+
+u32 romdataSegmentGetSize(s32 idx)
+{
+	if (idx < 0) return 0;
+	s32 i = 0;
+	for (struct romfile *seg = romSegs; seg->name; ++seg, ++i) {
+		if (i == idx) return seg->size;
+	}
+	return 0;
+}
+
+const char *romdataSegmentGetName(s32 idx)
+{
+	if (idx < 0) return "";
+	s32 i = 0;
+	for (struct romfile *seg = romSegs; seg->name; ++seg, ++i) {
+		if (i == idx) return seg->name;
+	}
+	return "";
 }
 
 u32 romdataFileGetEstimatedSize(const u32 size, const u32 loadtype)

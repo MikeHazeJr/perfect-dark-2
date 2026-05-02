@@ -302,6 +302,22 @@ int main(int argc, const char **argv)
 	 * a clean install. */
 	romExtractVerifyAll();
 
+	/* Phase 3 Pass B Slices 2/5/6/8/11 (2026-05-02): segment extraction.
+	 * Walk every loaded ROM segment (sfxctl/sfxtbl, seqctl/seqtbl,
+	 * sequences, animations, fonts, mp* tables, textures, copyright)
+	 * and write to data/<romid>/segs/<name>.bin.  romdataInitSegment
+	 * already prefers the per-romid path on subsequent boots so the
+	 * runtime reads segments from disk.  This covers Slice 2 (SFX
+	 * bank), Slice 5 (character sounds), Slice 6 (animations), Slice 8
+	 * (prop sounds), Slice 11 (music sequences) in one infrastructure
+	 * push because they all share the segment loader path.
+	 *
+	 * Note: must run AFTER romdataInit (segments populated) but the
+	 * order vs assetCatalogRegisterBaseGame doesn't matter for segments
+	 * because segments are not catalog-bound at the per-asset level
+	 * (they're loaded en bloc by the segment loader). */
+	romExtractAllSegments();
+	romExtractVerifyAllSegments();
 
 	netInit();
 

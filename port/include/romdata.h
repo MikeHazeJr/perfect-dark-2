@@ -25,6 +25,27 @@ u8 *romdataSegGetDataEnd(const char *segName);
 u32 romdataSegGetSize(const char *segName);
 u32 romdataFileGetEstimatedSize(const u32 size, const u32 loadtype);
 
+/**
+ * Phase 3 Pass B Slices 2/5/6/8/11 (2026-05-02): segment iterator API.
+ *
+ * Used by romextract.c::romExtractAllSegments to walk every loaded
+ * ROM segment after romdataInit and dump the in-memory bytes to
+ * data/<romid>/segs/<name>.bin so subsequent boots can read segments
+ * from disk and skip the ROM mapping.
+ *
+ * Iterator semantics: indexes are dense in [0, romdataSegmentCount()).
+ * Per-index getters return data/size/name for that slot, or NULL/0/""
+ * if the slot is past the end or its data was never resolved (segment
+ * absent on this ROM version).
+ *
+ * The underlying romSegs[] table stays static; these accessors are the
+ * only public window onto it.
+ */
+s32 romdataSegmentCount(void);
+const u8 *romdataSegmentGetData(s32 idx);
+u32 romdataSegmentGetSize(s32 idx);
+const char *romdataSegmentGetName(s32 idx);
+
 s32 romdataCheckGbcRom(void);
 
 #endif
