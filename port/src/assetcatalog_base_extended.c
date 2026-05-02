@@ -36,8 +36,12 @@
 #include "game/mplayer/scenarios.h"
 #include "game/lang.h"
 /* S484-followup (2026-05-01): weapon model file registration reads
- * hi_model / lo_model out of the loader-populated weapon pool. */
+ * hi_model / lo_model out of the loader-populated weapon pool.
+ * Client-only: pd-server doesn't link catalog_mgr_weapons.c (the loader
+ * pool is never populated server-side), so guard the include too. */
+#if !defined(PD_SERVER)
 #include "catalog_mgr_weapons.h"
+#endif
 
 /* Catalog universality sweep (2026-04-27): externs for sources that
  * carry the unlock-state fields the catalog now mirrors.  Layer A
@@ -854,6 +858,11 @@ s32 assetCatalogRegisterBaseGameExtended(void)
  * to the bondgun.c throttle), not silently routed through ROM. Pressure
  * stays on the registration side to be complete.
  */
+/* Client-only: depends on catalogManager* (catalog_mgr_weapons.c) and
+ * g_CartFileNums (bondgun.c), neither of which is in the pd-server source
+ * list. The function is called only from port/src/main.c after the loader
+ * populates the weapon pool, which never happens on a dedicated server. */
+#if !defined(PD_SERVER)
 extern u16 g_CartFileNums[];
 
 s32 assetCatalogRegisterWeaponModelFiles(void)
@@ -966,3 +975,4 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 		registered, skipped_dup, skipped_zero);
 	return registered;
 }
+#endif /* !PD_SERVER */
