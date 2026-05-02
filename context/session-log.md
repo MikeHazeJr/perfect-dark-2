@@ -20,7 +20,7 @@ In `romdataReleaseRom`, walk every `fileSlots[i]` whose `.name` falls inside `[g
 
 ### Auto-merge
 
-Per standing rule. Pre-merge HEAD `f20ccec5`. Worktree commit `968fe031`. Post-merge `486cc318`. Post-merge file line counts match worktree exactly.
+Per standing rule. First fix: pre-merge HEAD `f20ccec5`, worktree `968fe031`, merged `486cc318`. Mike's playtest of `486cc318` reproduced the same AV at `+0x23cc02` because the name migration block was gated on `source != SRC_EXTERNAL`; the Pass C disk fallback in `romdataFileLoad` fires during `romExtractAllFiles`' initial walk and flips ~2011 slots to SRC_EXTERNAL before Pass C release runs, so only 2 names migrated (the ROMRELEASE log reported `cleared=36, names migrated=2`). Final fix `d8ada1a3` decouples the data clear and name migration into independent gates so SRC_EXTERNAL slots also get their `.name` walked. Merged at `25a75746`. Post-merge file line counts match worktree exactly.
 
 ### Side note: pre-existing 0/1 catalog count anomaly
 
