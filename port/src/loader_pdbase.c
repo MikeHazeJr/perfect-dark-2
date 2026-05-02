@@ -916,23 +916,84 @@ static void *parseWeaponFunc(jstream_t *s)
 		}
 		/* shoot-base extension fields */
 		else if (jstream_str_eq(&key, "recoverytime60")) {
-			/* throw uses s32, others use s8 -- keep both views in sync. */
+			/* S484-followup-4 (2026-05-01): variant-specific offsets.
+			 *
+			 * On 64-bit ABI the recoverytime60 field lands at different
+			 * byte offsets depending on which weaponfunc variant is
+			 * active, because earlier fields (pointers) grew from 4 to
+			 * 8 bytes:
+			 *   weaponfunc_shoot.recoverytime60   @ 0x28 (s8)
+			 *   weaponfunc_throw.recoverytime60   @ 0x28 (s32)
+			 *   weaponfunc_special.recoverytime60 @ 0x24 (s32)
+			 *
+			 * The pre-fix loader wrote to all three views unconditionally
+			 * "to keep all views in sync." For a SHOOT variant that
+			 * overwrote bytes 0x24-0x27 of the slot via the sx write --
+			 * which is the HIGH 4 BYTES OF THE recoilsettings POINTER
+			 * (recoilsettings is at 0x20-0x27 in weaponfunc_shoot). The
+			 * pointer became invalid; bgun's recoil-block dereference
+			 * crashed (Mike's reproduced 5x fire-time crashes).
+			 *
+			 * Diagnosed via the canary + range instrumentation in
+			 * S484-followup-3: shootfunc was in-pool, recoilsettings
+			 * was OUT-OF-POOL with value 0x000000103f800000. Low 4
+			 * bytes = float 1.0 (= damage=1.0 from the parallel
+			 * "damage" cross-variant bug), high 4 bytes = int 16
+			 * (= recoverytime60=16 from this special-variant write).
+			 *
+			 * Fix: gate each write on struct_name so only the ACTIVE
+			 * variant's field is written. Any non-matching variant's
+			 * write would land at an offset that belongs to a
+			 * different field of the active variant -- corruption. */
 			s32 v = jread_int(s, 0);
-			out->ss.base.recoverytime60 = (s8)v;
-			out->tw.recoverytime60 = v;
-			out->sx.recoverytime60 = v;
+			if (struct_name[0] == '\0'
+					|| strcmp(struct_name, "weaponfunc_shootsingle") == 0
+					|| strcmp(struct_name, "weaponfunc_shootauto") == 0
+					|| strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+				out->ss.base.recoverytime60 = (s8)v;
+			} else if (strcmp(struct_name, "weaponfunc_throw") == 0) {
+				out->tw.recoverytime60 = v;
+			} else if (strcmp(struct_name, "weaponfunc_special") == 0) {
+				out->sx.recoverytime60 = v;
+			}
+			/* Other variants (melee, device) have no recoverytime60. */
 		}
 		else if (jstream_str_eq(&key, "damage")) {
+			/* S484-followup-4: variant-specific offsets.
+			 *   weaponfunc_shoot.damage  @ 0x2c (f32)
+			 *   weaponfunc_throw.damage  @ 0x2c (f32) [same offset]
+			 *   weaponfunc_melee.damage  @ 0x20 (f32)
+			 *
+			 * Pre-fix wrote all three; the me write corrupted byte
+			 * 0x20-0x23 of shoot variants' recoilsettings (low 4
+			 * bytes). See recoverytime60 above for full rationale. */
 			f32 v = jread_float(s, 0);
-			out->ss.base.damage = v;
-			out->tw.damage = v;
-			out->me.damage = v;
+			if (struct_name[0] == '\0'
+					|| strcmp(struct_name, "weaponfunc_shootsingle") == 0
+					|| strcmp(struct_name, "weaponfunc_shootauto") == 0
+					|| strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+				out->ss.base.damage = v;
+			} else if (strcmp(struct_name, "weaponfunc_throw") == 0) {
+				out->tw.damage = v;
+			} else if (strcmp(struct_name, "weaponfunc_melee") == 0) {
+				out->me.damage = v;
+			}
 		}
 		else if (jstream_str_eq(&key, "spread"))      out->ss.base.spread       = jread_float(s, 0);
 		else if (jstream_str_eq(&key, "unk24")) {
+			/* S484-followup-4: variant-specific offsets.
+			 *   weaponfunc_shoot.unk24  @ 0x34 (s8)
+			 *   weaponfunc_melee.unk24  @ 0x30 (u32)
+			 * Different fields, different offsets, different sizes. */
 			s32 v = jread_int(s, 0);
-			out->ss.base.unk24 = (s8)v;
-			out->me.unk24 = (u32)v;
+			if (struct_name[0] == '\0'
+					|| strcmp(struct_name, "weaponfunc_shootsingle") == 0
+					|| strcmp(struct_name, "weaponfunc_shootauto") == 0
+					|| strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+				out->ss.base.unk24 = (s8)v;
+			} else if (strcmp(struct_name, "weaponfunc_melee") == 0) {
+				out->me.unk24 = (u32)v;
+			}
 		}
 		else if (jstream_str_eq(&key, "unk25")) out->ss.base.unk25 = (s8)jread_int(s, 0);
 		else if (jstream_str_eq(&key, "unk26")) out->ss.base.unk26 = (s8)jread_int(s, 0);
@@ -975,9 +1036,19 @@ static void *parseWeaponFunc(jstream_t *s)
 		else if (jstream_str_eq(&key, "turretdecel")) out->sa.turretdecel = (s8)jread_int(s, 0);
 		/* shootprojectile extension */
 		else if (jstream_str_eq(&key, "projectilemodelnum")) {
+			/* S484-followup-4: variant-specific offsets.
+			 *   weaponfunc_shootprojectile.projectilemodelnum @ 0x50
+			 *   weaponfunc_throw.projectilemodelnum           @ 0x20
+			 * The throw write at 0x20 corrupted recoilsettings on
+			 * shootprojectile variants. */
 			s32 v = jread_enum_or_int(s, JREF_FILE, 0, "weaponfunc.projectilemodelnum");
-			out->sp.projectilemodelnum = v;
-			out->tw.projectilemodelnum = v;
+			if (struct_name[0] != '\0'
+					&& strcmp(struct_name, "weaponfunc_shootprojectile") == 0) {
+				out->sp.projectilemodelnum = v;
+			} else if (struct_name[0] != '\0'
+					&& strcmp(struct_name, "weaponfunc_throw") == 0) {
+				out->tw.projectilemodelnum = v;
+			}
 		}
 		else if (jstream_str_eq(&key, "unk44") && struct_name[0]) {
 			if (strcmp(struct_name, "weaponfunc_shootprojectile") == 0) out->sp.unk44 = (u32)jread_int(s, 0);
