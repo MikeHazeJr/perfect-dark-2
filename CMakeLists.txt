@@ -1017,6 +1017,12 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_arenas_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_mgr_arenas_api.cpp
 
+  # Catalog Gate 3 Arenas F11 + F12: pin the .pdbase archive shape +
+  # the parser / parity-check static contract. Static-text grep against
+  # base/arenas.pdbase + port/src/loader_pdbase.c + catalog_mgr_arenas.c
+  # + main.c.
+  ${CMAKE_SOURCE_DIR}/tests/test_loader_pdbase_arenas.cpp
+
   # S484 F2: pin weaponFindById's migration to the catalog manager.
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_findbyid_migrated.cpp
 

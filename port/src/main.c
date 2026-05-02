@@ -395,6 +395,13 @@ int main(int argc, const char **argv)
 		}
 		if (pdb_result.arenas_registered > 0) {
 			loaderPdbaseBuildArenaManager();
+			/* Catalog Gate 3 Arenas F12: compare loader pool fields
+			 * against ASSET_ARENA catalog rows (which were populated
+			 * from g_MpArenas[] + s_ArenaNames[] + s_ArenaGroupMap[]).
+			 * Mismatches log LOADER.PDBASE.ARENA.PARITY_FAIL: lines.
+			 * F13 retires the parity bridge once Mike's playtest
+			 * confirms PASS. */
+			loaderPdbaseRunParityCheckArenas();
 		}
 	}
 

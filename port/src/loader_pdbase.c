@@ -48,6 +48,7 @@
 #include "constants.h"
 #include "loader_pdbase.h"
 #include "loader_pdbase_enums.h"
+#include "assetcatalog.h"  /* Catalog Gate 3 Arenas F12: parity check walks ASSET_ARENA rows */
 #include "catalog_mgr_weapons.h"
 #include "catalog_mgr_heads.h"  /* Catalog Gate 3 F9: heads pool integration */
 #include "catalog_mgr_bodies.h"  /* Catalog Gate 3 Bodies F9: bodies pool integration */
@@ -1702,6 +1703,84 @@ static void parseBody(jstream_t *s)
 }
 
 /* ------------------------------------------------------------------ */
+/* Catalog Gate 3 Arenas F12: arena record parser. Parallels parseHead /  */
+/* parseBody. The .pdbase archive emits stagenum / name_langid as       */
+/* integers (Path B for these large enum families); load_mode stays      */
+/* symbolic and is resolved via the inline 3-entry helper.               */
+/* ------------------------------------------------------------------ */
+
+static s32 s_resolveArenaLoadMode(const char *name)
+{
+	if (!name || !name[0]) return 0;
+	if (strcmp(name, "ARENA_LOADMODE_PLAYABLE") == 0) return 0;
+	if (strcmp(name, "ARENA_LOADMODE_CANVAS")   == 0) return 1;
+	return -1;
+}
+
+static s32 jread_arena_load_mode(jstream_t *s)
+{
+	if (s->cur.kind == JT_STRING) {
+		char buf[64];
+		jread_string_buf(s, buf, sizeof(buf));
+		s32 v = s_resolveArenaLoadMode(buf);
+		if (v < 0) {
+			sysLogPrintf(LOG_NOTE,
+				"LOADER.PDBASE.ARENA.FIELD_UNKNOWN: load_mode=\"%s\" (defaulting to 0)",
+				buf);
+			return 0;
+		}
+		return v;
+	}
+	return jread_int(s, 0);
+}
+
+static void parseArena(jstream_t *s)
+{
+	if (s->cur.kind != JT_LBRACE) { jstream_skip_value(s); return; }
+	jstream_advance(s);
+
+	arena_data_t a;
+	memset(&a, 0, sizeof(a));
+	s32 arena_index = -1;
+
+	while (s->cur.kind != JT_RBRACE && s->cur.kind != JT_EOF) {
+		if (s->cur.kind != JT_STRING) { jstream_advance(s); continue; }
+		jtok_t key = s->cur;
+		jstream_advance(s);
+		if (s->cur.kind != JT_COLON) continue;
+		jstream_advance(s);
+
+		if      (jstream_str_eq(&key, "id")) {
+			jread_string_buf(s, a.catalog_id, sizeof(a.catalog_id));
+		}
+		else if (jstream_str_eq(&key, "arena_index"))     arena_index       = jread_int(s, -1);
+		else if (jstream_str_eq(&key, "slug")) {
+			jread_string_buf(s, a.slug, sizeof(a.slug));
+		}
+		else if (jstream_str_eq(&key, "category")) {
+			jread_string_buf(s, a.category, sizeof(a.category));
+		}
+		else if (jstream_str_eq(&key, "stagenum"))        a.stagenum        = (s16)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "requirefeature"))  a.requirefeature  = (u8)jread_int(s, 0);
+		else if (jstream_str_eq(&key, "name_langid"))     a.name_langid     = jread_int(s, 0);
+		else if (jstream_str_eq(&key, "load_mode"))       a.load_mode       = (u8)jread_arena_load_mode(s);
+		else jstream_skip_value(s);
+		if (s->cur.kind == JT_COMMA) jstream_advance(s);
+	}
+	if (s->cur.kind == JT_RBRACE) jstream_advance(s);
+
+	if (arena_index < 0 || arena_index >= CATALOG_MGR_ARENA_COUNT) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.ARENA.RESOLVE_FAIL: arena_index=%d out of range [0,%d)",
+			arena_index, CATALOG_MGR_ARENA_COUNT);
+		return;
+	}
+	a.arena_index = (s16)arena_index;
+	s_ArenasPool[arena_index] = a;
+	s_ArenasRegistered++;
+}
+
+/* ------------------------------------------------------------------ */
 /* Top-level parser                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -1759,6 +1838,18 @@ static void parseTopLevel(jstream_t *s)
 				jstream_advance(s);
 				while (s->cur.kind != JT_RBRACK && s->cur.kind != JT_EOF) {
 					parseBody(s);
+					if (s->cur.kind == JT_COMMA) jstream_advance(s);
+				}
+				if (s->cur.kind == JT_RBRACK) jstream_advance(s);
+			}
+		}
+		else if (jstream_str_eq(&key, "arenas")) {
+			/* Catalog Gate 3 Arenas F12: arenas section in base/arenas.pdbase. */
+			if (s->cur.kind != JT_LBRACK) { jstream_skip_value(s); }
+			else {
+				jstream_advance(s);
+				while (s->cur.kind != JT_RBRACK && s->cur.kind != JT_EOF) {
+					parseArena(s);
 					if (s->cur.kind == JT_COMMA) jstream_advance(s);
 				}
 				if (s->cur.kind == JT_RBRACK) jstream_advance(s);
@@ -2120,6 +2211,123 @@ s32 loaderPdbaseBuildArenaManager(void)
 		"LOADER.PDBASE.ARENA.OK: manager active, arenas=%d (expected=%d)",
 		s_ArenasRegistered, CATALOG_MGR_ARENA_COUNT);
 	return s_ArenasRegistered;
+}
+
+/* Catalog Gate 3 Arenas F12: parity check.
+ *
+ * Walks ASSET_ARENA catalog rows (populated from g_MpArenas[] +
+ * s_ArenaNames[] + s_ArenaGroupMap[] at registration time) and compares
+ * each row's data to the corresponding loader pool slot. Mismatches log
+ * LOADER.PDBASE.ARENA.PARITY_FAIL: with the field that differed; the
+ * function returns the count of failing arenas so callers can decide
+ * whether to abort.
+ *
+ * Runs at startup after loaderPdbaseBuildArenaManager. F13 retires the
+ * parity bridge and this check becomes redundant -- but for the F12
+ * parity period it is the canonical "loader output matches legacy
+ * authoring data" test.
+ */
+struct s_ArenaParityCtx {
+	s32 mismatch_count;
+	s32 row_count;
+};
+
+static void s_arenaParityCheckCb(const asset_entry_t *e, void *userdata)
+{
+	struct s_ArenaParityCtx *ctx = (struct s_ArenaParityCtx *)userdata;
+	s32 idx;
+	const arena_data_t *pool;
+	const char *catalog_slug;
+
+	if (e == NULL || e->type != ASSET_ARENA) return;
+	idx = e->runtime_index;
+	if (idx < 0 || idx >= CATALOG_MGR_ARENA_COUNT) return;
+
+	ctx->row_count++;
+	pool = &s_ArenasPool[idx];
+
+	/* Pool slot must have been populated by parseArena. If it wasn't,
+	 * the catalog has an arena row that the .pdbase did not cover. */
+	if (pool->catalog_id[0] == '\0') {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.ARENA.PARITY_FAIL: catalog row id=\"%s\" idx=%d "
+			"has no matching .pdbase record",
+			e->id, idx);
+		ctx->mismatch_count++;
+		return;
+	}
+
+	if (strcmp(pool->catalog_id, e->id) != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.ARENA.PARITY_FAIL: idx=%d id mismatch "
+			"catalog=\"%s\" pool=\"%s\"",
+			idx, e->id, pool->catalog_id);
+		ctx->mismatch_count++;
+	}
+	if ((s32)pool->stagenum != (s32)e->ext.arena.stagenum) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.ARENA.PARITY_FAIL: idx=%d stagenum mismatch "
+			"catalog=0x%02x pool=0x%02x",
+			idx, e->ext.arena.stagenum, pool->stagenum);
+		ctx->mismatch_count++;
+	}
+	if ((u32)pool->requirefeature != (u32)e->ext.arena.requirefeature) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.ARENA.PARITY_FAIL: idx=%d requirefeature mismatch "
+			"catalog=%u pool=%u",
+			idx, (u32)e->ext.arena.requirefeature, (u32)pool->requirefeature);
+		ctx->mismatch_count++;
+	}
+	if ((s32)pool->name_langid != (s32)e->ext.arena.name_langid) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.ARENA.PARITY_FAIL: idx=%d name_langid mismatch "
+			"catalog=0x%04x pool=0x%04x",
+			idx, e->ext.arena.name_langid, pool->name_langid);
+		ctx->mismatch_count++;
+	}
+	if ((u32)pool->load_mode != (u32)e->ext.arena.load_mode) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.ARENA.PARITY_FAIL: idx=%d load_mode mismatch "
+			"catalog=%u pool=%u",
+			idx, (u32)e->ext.arena.load_mode, (u32)pool->load_mode);
+		ctx->mismatch_count++;
+	}
+	if (strcmp(pool->category, e->category) != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.ARENA.PARITY_FAIL: idx=%d category mismatch "
+			"catalog=\"%s\" pool=\"%s\"",
+			idx, e->category, pool->category);
+		ctx->mismatch_count++;
+	}
+	/* Slug parity: the slug component of the catalog ID must equal the
+	 * pool's stored slug. Comparing the full catalog_id already covers
+	 * this implicitly, so we skip the explicit slug comparison to avoid
+	 * double-reporting. */
+}
+
+s32 loaderPdbaseRunParityCheckArenas(void)
+{
+	struct s_ArenaParityCtx ctx;
+
+	if (!s_ArenasLoaderActive) {
+		sysLogPrintf(LOG_NOTE,
+			"LOADER.PDBASE.ARENA.OK: parity check skipped (loader not active)");
+		return 0;
+	}
+	ctx.mismatch_count = 0;
+	ctx.row_count = 0;
+	assetCatalogIterateByType(ASSET_ARENA, s_arenaParityCheckCb, &ctx);
+
+	if (ctx.mismatch_count == 0) {
+		sysLogPrintf(LOG_NOTE,
+			"LOADER.PDBASE.ARENA.OK: parity check PASS (%d arenas)",
+			ctx.row_count);
+	} else {
+		sysLogPrintf(LOG_WARNING,
+			"LOADER.PDBASE.ARENA.PARITY_FAIL: %d mismatches across %d arenas",
+			ctx.mismatch_count, ctx.row_count);
+	}
+	return ctx.mismatch_count;
 }
 
 

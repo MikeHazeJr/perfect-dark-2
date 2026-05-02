@@ -204,6 +204,18 @@ s32 loaderPdbaseGetArenasRegistered(void);
  * through loaderPdbaseGetArena(). */
 s32 loaderPdbaseBuildArenaManager(void);
 
+/* Catalog Gate 3 Arenas F12: parity check helper.
+ *
+ * Walks every ASSET_ARENA catalog row and compares its data fields
+ * (id / stagenum / requirefeature / name_langid / load_mode /
+ * category) against the loader pool slot at the matching
+ * runtime_index. Logs LOADER.PDBASE.ARENA.PARITY_FAIL: per
+ * mismatching field. Returns the count of failing arenas (0 = pass).
+ *
+ * Runs at startup right after loaderPdbaseBuildArenaManager during
+ * the F12 parity period. F13 retires the parity bridge entirely. */
+s32 loaderPdbaseRunParityCheckArenas(void);
+
 #ifdef __cplusplus
 }
 #endif
