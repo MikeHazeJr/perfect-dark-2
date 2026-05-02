@@ -27,12 +27,14 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <sys/stat.h>
 #include <PR/ultratypes.h>
 
 #include "fs.h"
 #include "romdata.h"
 #include "romextract.h"
+#include "sha256.h"
 #include "system.h"
 #include "versioninfo.h"
 
@@ -87,8 +89,8 @@ static s32 romExtractBuildRelPath(s32 fileNum, char *outRel, s32 outRelLen)
 }
 
 /* Test whether a path already exists on disk with the requested size.
- * Pass A.2 uses size-only as the idempotency check; Pass A.4 will
- * upgrade this to SHA-256 verification with quarantine + re-extract. */
+ * Used as the cheap pre-check inside the extraction walk; Pass A.4
+ * verify path consults the SHA-256 sidecar for actual integrity. */
 static s32 romExtractFileMatchesSize(const char *fullPath, u32 expectedSize)
 {
     struct stat st;
@@ -96,6 +98,104 @@ static s32 romExtractFileMatchesSize(const char *fullPath, u32 expectedSize)
         return 0;
     }
     return (st.st_size == (long long)expectedSize) ? 1 : 0;
+}
+
+/* Write a SHA-256 sidecar next to an extracted file.  Format: a
+ * single line of 64 hex characters followed by a newline (matches
+ * the standard `sha256sum` output minus the filename column).  On
+ * failure logs LOUDFAIL.EXTRACT and returns 0; sidecar absence does
+ * not block extraction since the size check still gates re-write. */
+static s32 romExtractWriteSidecar(const char *binRel, const u8 *data, u32 size)
+{
+    char sidecarRel[ROMEXTRACT_PATH_LEN];
+    if (binRel == NULL) return 0;
+    snprintf(sidecarRel, sizeof(sidecarRel), "%s.sha256", binRel);
+
+    u8 digest[SHA256_DIGEST_SIZE];
+    sha256Hash(data, (size_t)size, digest);
+
+    char hex[SHA256_HEX_SIZE];
+    sha256ToHex(digest, hex);
+
+    FILE *f = fsFileOpenWrite(sidecarRel);
+    if (f == NULL) {
+        sysLoudFailf("EXTRACT",
+            "fsFileOpenWrite failed for sidecar \"%s\"", sidecarRel);
+        return 0;
+    }
+    /* 64 hex chars + newline. */
+    if (fwrite(hex, 1, 64, f) != 64 || fputc('\n', f) == EOF) {
+        sysLoudFailf("EXTRACT", "short write on sidecar \"%s\"", sidecarRel);
+        fclose(f);
+        return 0;
+    }
+    fclose(f);
+    return 1;
+}
+
+/* Read a SHA-256 sidecar (if present) and parse its hex digest into
+ * dst[SHA256_HEX_SIZE].  Returns 1 on success, 0 if missing or
+ * malformed.  Trailing newline tolerated. */
+static s32 romExtractReadSidecar(const char *binRel, char dst[SHA256_HEX_SIZE])
+{
+    char sidecarRel[ROMEXTRACT_PATH_LEN];
+    snprintf(sidecarRel, sizeof(sidecarRel), "%s.sha256", binRel);
+
+    u32 size = 0;
+    void *bytes = fsFileLoad(sidecarRel, &size);
+    if (bytes == NULL || size < 64) {
+        if (bytes) sysMemFree(bytes);
+        return 0;
+    }
+    memcpy(dst, bytes, 64);
+    dst[64] = '\0';
+    sysMemFree(bytes);
+
+    /* Validate hex; reject if any non-hex char in the leading 64. */
+    for (s32 i = 0; i < 64; i++) {
+        char c = dst[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Move a corrupted extracted file to the quarantine area before
+ * re-extracting it.  Quarantine path layout:
+ *   data/<romid>/.quarantine/<unixtime>_<basename>
+ * Best-effort: failure to move logs LOUDFAIL but does not block the
+ * re-extract that follows. */
+static void romExtractQuarantine(const char *binRel, const char *binFull)
+{
+    char quarRel[ROMEXTRACT_PATH_LEN];
+    snprintf(quarRel, sizeof(quarRel), "data/%s/.quarantine", VERSION_ROMID);
+    fsCreateDir(quarRel);
+
+    /* Take basename of binRel (everything after the last slash). */
+    const char *base = binRel;
+    for (const char *p = binRel; *p; p++) {
+        if (*p == '/' || *p == '\\') base = p + 1;
+    }
+
+    char destRel[ROMEXTRACT_PATH_LEN];
+    snprintf(destRel, sizeof(destRel),
+        "data/%s/.quarantine/%lld_%s",
+        VERSION_ROMID, (long long)time(NULL), base);
+
+    const char *destFull = fsFullPath(destRel);
+    if (destFull == NULL || destFull[0] == '\0') {
+        sysLoudFailf("LOAD",
+            "quarantine path resolution failed for \"%s\"", destRel);
+        return;
+    }
+
+    if (rename(binFull, destFull) != 0) {
+        sysLoudFailf("LOAD",
+            "rename(\"%s\" -> \"%s\") failed; deleting in place instead",
+            binFull, destFull);
+        remove(binFull);
+    }
 }
 
 s32 romExtractAllFiles(void)
@@ -181,6 +281,12 @@ s32 romExtractAllFiles(void)
             continue;
         }
 
+        /* Pass A.4: write a SHA-256 sidecar so romExtractVerifyAll can
+         * detect corruption on subsequent boots and self-heal.  Sidecar
+         * write failure is non-fatal (file is still valid; verify will
+         * just re-write the sidecar from the file's hash next boot). */
+        romExtractWriteSidecar(outRel, data, (u32)size);
+
         written++;
     }
 
@@ -190,4 +296,140 @@ s32 romExtractAllFiles(void)
         written, skippedExisting, skippedEmpty, failed);
 
     return written;
+}
+
+/* ========================================================================
+ * Pass A.4 (2026-05-02): hash-verify-on-launch self-heal
+ * ========================================================================
+ *
+ * Walks every previously-extracted file and verifies its SHA-256
+ * digest against the sidecar written at extraction time.  On
+ * mismatch:
+ *   1. Emit LOUDFAIL.LOAD with file path + expected/actual hashes
+ *   2. Move the corrupted file to data/<romid>/.quarantine/<ts>_<name>
+ *   3. Re-extract from g_RomFile via romdataFileGetData(filenum) and
+ *      rewrite the sidecar
+ *
+ * Self-heal failure (e.g. ROM no longer available, disk full) does
+ * not abort boot.  The corrupted file remains quarantined and the
+ * caller (subsequent runtime load) gets a clear diagnostic.
+ *
+ * Idempotent: if a file's sidecar matches, no work happens.  Files
+ * without sidecars (legacy from a pre-A.4 extraction) get a sidecar
+ * written from the on-disk content's hash on first verify -- this
+ * is a best-effort baseline; if the on-disk content was corrupted
+ * BEFORE A.4 shipped, the baseline pins the corruption and only
+ * a forced re-extract (e.g. delete `data/<romid>/files/`) recovers.
+ */
+s32 romExtractVerifyAll(void)
+{
+    s32 verified = 0;
+    s32 corrected = 0;
+    s32 skippedEmpty = 0;
+    s32 baselined = 0;
+    s32 failed = 0;
+
+    if (g_RomFile == NULL || g_RomFileSize == 0) {
+        sysLogPrintf(LOG_NOTE,
+            "ROMEXTRACT.VERIFY: g_RomFile not loaded (server build); skipping.");
+        return 0;
+    }
+
+    sysLogPrintf(LOG_NOTE, "ROMEXTRACT.VERIFY: scanning data/%s/files/",
+                 VERSION_ROMID);
+
+    for (s32 fileNum = 1; fileNum < ROMEXTRACT_MAX_FILES; fileNum++) {
+        u8  *romData = romdataFileGetData(fileNum);
+        s32  romSize = romdataFileGetSize(fileNum);
+        if (romData == NULL || romSize <= 0) {
+            skippedEmpty++;
+            continue;
+        }
+
+        char outRel[ROMEXTRACT_PATH_LEN];
+        s32  relLen = romExtractBuildRelPath(fileNum, outRel, (s32)sizeof(outRel));
+        if (relLen <= 0 || relLen >= (s32)sizeof(outRel)) {
+            failed++;
+            continue;
+        }
+
+        const char *outFull = fsFullPath(outRel);
+        if (outFull == NULL || outFull[0] == '\0') {
+            failed++;
+            continue;
+        }
+
+        /* Skip files that don't exist on disk yet (caller should run
+         * romExtractAllFiles first; verify is per-file, not first-run). */
+        struct stat st;
+        if (stat(outFull, &st) != 0) {
+            skippedEmpty++;
+            continue;
+        }
+
+        /* Hash the on-disk file. */
+        u8 diskDigest[SHA256_DIGEST_SIZE];
+        if (sha256HashFile(outFull, diskDigest) != 0) {
+            sysLoudFailf("LOAD",
+                "sha256HashFile failed for \"%s\"; re-extracting", outFull);
+            romExtractQuarantine(outRel, outFull);
+            FILE *f = fsFileOpenWrite(outRel);
+            if (f) {
+                fwrite(romData, 1, (size_t)romSize, f);
+                fclose(f);
+                romExtractWriteSidecar(outRel, romData, (u32)romSize);
+                corrected++;
+            } else {
+                failed++;
+            }
+            continue;
+        }
+        char diskHex[SHA256_HEX_SIZE];
+        sha256ToHex(diskDigest, diskHex);
+
+        char sideHex[SHA256_HEX_SIZE];
+        if (!romExtractReadSidecar(outRel, sideHex)) {
+            /* Legacy file from pre-A.4 extraction: write a baseline
+             * sidecar from the current on-disk content's hash. */
+            romExtractWriteSidecar(outRel, romData, (u32)romSize);
+            baselined++;
+            continue;
+        }
+
+        if (strncmp(diskHex, sideHex, 64) != 0) {
+            sysLoudFailf("LOAD",
+                "SHA-256 mismatch on \"%s\" (expected %s, got %s); "
+                "quarantining + re-extracting",
+                outFull, sideHex, diskHex);
+            romExtractQuarantine(outRel, outFull);
+
+            FILE *f = fsFileOpenWrite(outRel);
+            if (f == NULL) {
+                sysLoudFailf("LOAD",
+                    "re-extract fopen failed for \"%s\"", outFull);
+                failed++;
+                continue;
+            }
+            size_t wrote = fwrite(romData, 1, (size_t)romSize, f);
+            fclose(f);
+            if (wrote != (size_t)romSize) {
+                sysLoudFailf("LOAD",
+                    "re-extract short write for \"%s\"", outFull);
+                failed++;
+                continue;
+            }
+            romExtractWriteSidecar(outRel, romData, (u32)romSize);
+            corrected++;
+            continue;
+        }
+
+        verified++;
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "ROMEXTRACT.VERIFY: verified=%d, corrected=%d, baselined=%d, "
+        "skipped_empty=%d, failed=%d",
+        verified, corrected, baselined, skippedEmpty, failed);
+
+    return corrected;
 }

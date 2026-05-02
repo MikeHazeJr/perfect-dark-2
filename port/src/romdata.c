@@ -224,6 +224,28 @@ static inline void romdataWrongRomError(const char *fmt, ...)
  *   FILES_OFS and game data — each requires its own binary build.
  * ======================================================================== */
 
+/*
+ * Phase 3 Pass A.3 (2026-05-02): SHA-256 hash table population.
+ *
+ * STATUS: data-side population is BYOR.  The arrays below stay
+ * NULL-only in the public source tree; Mike (or any user with a
+ * verified ROM) captures the SHA-256 from the "ROM: SHA-256 ..."
+ * LOG_NOTE on first launch and pastes the value into the matching
+ * region's array.  Once populated, romdataVerifyRomHash matches
+ * against the known-good list and emits a quiet "hash verified"
+ * line; mismatches surface as LOG_WARNING.
+ *
+ * The Phase 3 Pass A.4 self-heal path
+ * (romextract.c::romExtractVerifyAll) operates per-extracted-file
+ * and is independent of the ROM-level hash list -- per-file
+ * sidecars catch corruption regardless of whether the parent ROM
+ * hash is in this table.  Pass A.3 is purely a "did the user
+ * provide the right ROM?" gate; Pass A.4 is "is the extracted disk
+ * content intact?".
+ *
+ * Companion plan:
+ *   context/designs/catalog/catalog-rom-once-phase3-plan-2026-05-02.md
+ */
 #if VERSION == VERSION_NTSC_FINAL
 static const char *const s_KnownRomHashes[] = {
 	/* Perfect Dark (U) (V1.1) NTSC — primary decompilation target.
