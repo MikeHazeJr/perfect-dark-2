@@ -40,6 +40,7 @@ extern u16 g_SfxVolume;
 extern s32 g_SoundMode;
 extern s32 g_SndNumPlaying;
 extern struct audiorussmapping g_AudioRussMappings[];
+extern const s32 g_NumAudioRussMappings;  /* Phase 3 Slice 10: russ-table entry count */
 extern struct audioconfig g_AudioConfigs[];
 extern bool g_JoyPfsPollMasterEnabled;
 extern f32 var8005ef10[2];

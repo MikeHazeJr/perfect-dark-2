@@ -1031,6 +1031,12 @@ set(SRC_TESTS
   # migration retired the parity bridge.
   ${CMAKE_SOURCE_DIR}/tests/test_arena_direct_reads_audit.cpp
 
+  # Catalog Phase 3 Pass B Slice 10 (2026-05-02): voice retag
+  # static-text pins. Verifies the seven voice-config slot set,
+  # the registration loop's category-passing shape, the PD_SERVER
+  # guard, and the g_NumAudioRussMappings symbol surface.
+  ${CMAKE_SOURCE_DIR}/tests/test_audio_voice_retag.cpp
+
   # S484 F2: pin weaponFindById's migration to the catalog manager.
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_findbyid_migrated.cpp
 

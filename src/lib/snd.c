@@ -650,6 +650,14 @@ struct audiorussmapping g_AudioRussMappings[] = {
 	/*0x01bc*/ { 0x0000, AUDIOCONFIG_00 },
 };
 
+/* Phase 3 Pass B Slice 10 (2026-05-02): expose the russ-table entry
+ * count so external TUs (e.g. assetcatalog_base_extended.c voice retag)
+ * can iterate without needing the array's complete type via a sized
+ * extern. The count is computed at compile time from the array literal
+ * above. */
+const s32 g_NumAudioRussMappings =
+	(s32)(sizeof(g_AudioRussMappings) / sizeof(g_AudioRussMappings[0]));
+
 struct audioconfig g_AudioConfigs[] = {
 	{ /* 0*/  200, 1000, 1200, -1, 100, -1,   0, 0 },
 	{ /* 1*/  400, 2500, 3000, -1, 100, 48,   0, AUDIOCONFIGFLAG_20 },
