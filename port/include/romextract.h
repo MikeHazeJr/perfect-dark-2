@@ -45,6 +45,20 @@ s32 romExtractAllFiles(void);
  */
 s32 romExtractVerifyAll(void);
 
+/**
+ * Build the canonical relative on-disk path for a given ROM filenum,
+ * matching the layout written by romExtractAllFiles.  Output:
+ *   data/<romid>/files/<sanitized_rom_name>.bin
+ *   (or G_<XXXX>.bin if the ROM file slot has no name)
+ *
+ * Used by Pass B slices to bind catalog entries to disk via
+ * catalogSetPrimaryFile after extraction.
+ *
+ * Returns the length written, or 0 on failure.  Caller buffer must
+ * hold at least 1024 bytes.
+ */
+s32 romExtractRelPathForFilenum(s32 fileNum, char *outRel, s32 outRelLen);
+
 #ifdef __cplusplus
 }
 #endif
