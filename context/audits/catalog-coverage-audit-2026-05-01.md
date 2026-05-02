@@ -540,20 +540,20 @@ Commits 2-5. Commit 6 is its own larger track and can land later.
 
 | # | Item | Status |
 |---|---|---|
-| 3.A | Stage scene files (bg/tile/pads/setup/mpsetup) | OPEN -- Phase 2 Commit 1 |
+| 3.A | Stage scene files (bg/tile/pads/setup/mpsetup) | CLOSED Phase 2 Commit 1 (dev `8df41e59`) |
 | 3.B | Animation file binding | NOT APPLICABLE (one ROM segment, no per-anim filenum) |
 | 3.C | Prop instance vs category | NOT APPLICABLE (instances ride ASSET_MODEL) |
-| 3.D | SFX alias range | OPEN -- Phase 2 Commit 6 (or accept as known limit) |
-| 3.E | Lang bank file binding | OPEN -- Phase 2 Commit 2 |
+| 3.D | SFX alias range | ACCEPTED LIMIT (Phase 2 Commit 6 deliberation, 2026-05-02). Catalog already supports leaf-level overrides via the existing 1545 ASSET_AUDIO base entries (sound_id 0..0x608 -> source_soundnum -> s_SoundnumOverride). Alias-range IDs (0x8000+) decode to confignum + russ-mapping inside snd.c BEFORE catalogResolveSound runs, so mods can already override the post-mapping leaf. Direct alias override would require growing LOAD_MAX_SOUNDS from 4096 to 65536 (256KB array) plus parallel-index plumbing for marginal value. The user-visible Farsight bug closed via Commit 4 (L_GUN regen) and S484-followup-5 (SFX enum drift); no live alias-override use case requested. Phase 3 (data-on-disk migration) is the better venue if/when alias-level mod control becomes a use case. |
+| 3.E | Lang bank file binding | CLOSED Phase 2 Commit 2 (dev `7034b115`) |
 | 3.F | Body / head LOD | NOT APPLICABLE |
 | 3.G | Casing / muzzle flash | COVERED (cartridges) + N/A (muzzle = GBI synth) |
 | 3.H | Voice lines | OPEN (low priority) -- defer or accept SFX bank ownership |
 | 3.I | UI chrome assets | TRACKED ELSEWHERE (rom-extraction-audit-2026-04-30 Section 3) |
 | 3.J | Effect / particle defs | NOT APPLICABLE (imperative pipeline today) |
 | 4.1 | Farsight 907 | CLOSED (S484-followup-2) |
-| 4.2 | Falcon 2 sec text | DIAG SHIPPED -- Phase 2 Commit 4 (post-log) |
-| 4.3 | Farsight SFX | OPEN -- Phase 2 Commit 5 |
-| 4.4 | Recoil crash | CLOSED (S484-followup-4) -- latent variant-gating in Phase 2 Commit 3 |
+| 4.2 | Falcon 2 sec text | CLOSED Phase 2 Commit 4 (dev `68fb0ae3`) -- L_GUN enum table regenerated, 8 phantom L_GUN_050..057 entries removed, L_GUN_058+ values restored to source-of-truth gun.h |
+| 4.3 | Farsight SFX | CLOSED (S484-followup-5 commit `6aaabf44` + Phase 2 Commit 4 verification) -- SFX_813E correct at 33086 in current loader_pdbase_enums.c |
+| 4.4 | Recoil crash | CLOSED (S484-followup-4) + latent variant-gating CLOSED Phase 2 Commit 3 (dev `5a12c1c5`) |
 | 5.1 | Heads migration parser discipline | RECOMMEND review before Gate 3 Heads ships |
 | 5.2 | g_HeadsAndBodies raw reads | RECOMMEND grep audit in Phase 2 |
 | 5.3 | Boot-order pinning | RECOMMEND comment-only |
