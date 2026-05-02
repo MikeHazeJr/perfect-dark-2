@@ -821,27 +821,36 @@ s32 romdataReleaseRom(void)
 	 *      stay as-is because they live in .rdata, not g_RomFile. */
 	s32 namesMigrated = 0;
 	for (s32 i = 1; i < ROMDATA_MAX_FILES; i++) {
-		if (fileSlots[i].source == SRC_EXTERNAL) {
-			/* Mod override or earlier Pass C disk-load already adopted a
-			 * heap buffer; survives g_RomFile free.  Names for these
-			 * slots are heap-owned via the registration path. */
-			continue;
+		/* Data field: only SRC_EXTERNAL slots are guaranteed heap-backed.
+		 * SRC_UNLOADED / SRC_ROM slots that point into g_RomFile must be
+		 * NULLed so romdataFileLoad re-resolves through the per-romid
+		 * disk path on the next request. */
+		if (fileSlots[i].source != SRC_EXTERNAL) {
+			if (fileSlots[i].data && romdataPtrInRom(fileSlots[i].data)) {
+				fileSlots[i].data = NULL;
+				fileSlots[i].source = SRC_UNLOADED;
+				fileSlotsCleared++;
+			} else if (fileSlots[i].source == SRC_ROM) {
+				/* Defensive: SRC_ROM with data outside ROM range shouldn't
+				 * happen at Pass C time (no game code has run yet), but if
+				 * it does, normalise to SRC_UNLOADED so the next load
+				 * takes the disk path. */
+				fileSlots[i].data = NULL;
+				fileSlots[i].source = SRC_UNLOADED;
+				fileSlotsCleared++;
+			}
 		}
 
-		if (fileSlots[i].data && romdataPtrInRom(fileSlots[i].data)) {
-			fileSlots[i].data = NULL;
-			fileSlots[i].source = SRC_UNLOADED;
-			fileSlotsCleared++;
-		} else if (fileSlots[i].source == SRC_ROM) {
-			/* Defensive: SRC_ROM with data outside ROM range shouldn't
-			 * happen at Pass C time (no game code has run yet), but if it
-			 * does, normalise to SRC_UNLOADED so the next load takes the
-			 * disk path. */
-			fileSlots[i].data = NULL;
-			fileSlots[i].source = SRC_UNLOADED;
-			fileSlotsCleared++;
-		}
-
+		/* Name field: unconditional check.  Even SRC_EXTERNAL slots whose
+		 * .data was migrated to a heap buffer (via Pass A.2 mod load,
+		 * legacy files/<name> mod-override, or the Pass C per-romid disk
+		 * fallback that fires inside romdataFileLoad during
+		 * romExtractAllFiles' initial walk) keep their .name pointing
+		 * into the ROM-resident name table set up by romdataInitFiles --
+		 * the load path replaces .data but never .name.  Migrate every
+		 * ROM-resident name so post-release readers (catalogBindPrimary
+		 * FromDiskOrRom -> romExtractRelPathForFilenum -> romdataFileGet
+		 * Name) see heap-owned strings. */
 		if (fileSlots[i].name != NULL
 		        && romdataPtrInRom((const u8 *)fileSlots[i].name)) {
 			const size_t len = strlen(fileSlots[i].name);
