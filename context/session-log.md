@@ -1,5 +1,31 @@
 # Session Log (Active)
 
+## Session S605 (`catalog-slice12-passc`) - 2026-05-02 PM - B-305 Pass C dangling-pointer hotfix
+
+Mike's `89376df7` build crashed at startup with `0xc0000005` at `+0x23cac2`. Decoded the offset to `romExtractBuildRelPath` on `cmpb (%rax)` after `call romdataFileGetName`. The `name` field of every `fileSlots[i]` was set in `romdataInitFiles` as `(const char *)nameOffsets + ofs` where `nameOffsets = g_RomFile + PD_BE32(offsets[i - 1])` -- a pointer into the ROM-resident name table. Pass C (`b15cc701`) freed `g_RomFile` but never migrated the name pointers. Catalog base-game registration calls `catalogBindPrimaryFromDiskOrRom -> romExtractRelPathForFilenum -> romExtractBuildRelPath -> romdataFileGetName` which returned the dangling pointer; the next `romName[0]` deref crashed the process before the title screen rendered.
+
+Audit also surfaced a second hazard one boot phase later: `preprocessAnimations` (`port/src/preprocess/misc.c:24-25`) sets globals `_animationsTableRomStart = data + size - 0x38a0` and `_animationsTableRomEnd = data + size`. Pre-Pass-C those pointed into `g_RomFile`. After Pass C migrated the animations segment to a heap copy, the externs still pointed at the freed memory. `animsInit` (called later from `pdmain.c::mainInit`) would `dmaExec` (memcpy) from the freed range and crash on the second wave. Other preprocesses either return a heap buffer already (`preprocessFont`, `preprocessALBankFile`) or do not publish ROM-relative externs (`preprocessSequences`, `preprocessJpnFont`, `preprocessTexturesList`, `preprocessMpConfigs`, `preprocessALCMidiHdr`).
+
+### Fix
+
+In `romdataReleaseRom`, walk every `fileSlots[i]` whose `.name` falls inside `[g_RomFile, g_RomFile + g_RomFileSize)` and `sysMemAlloc + memcpy + null-terminate` a heap copy before `sysMemFree(g_RomFile)`. Literal-string names (CDRCARROLL2 / CSKEDAR2 / GHAND_DRCARROLL / GHAND_SKEDAR set as compile-time string literals in `.rdata`) stay untouched because they don't fall in the ROM range check. After the segment migration step processes the segment named "animations", recompute `_animationsTableRomStart` / `_animationsTableRomEnd` to point at the new heap buffer at the same `(seg->size - 0x38a0)` / `seg->size` offsets. `ROMRELEASE` log line gains a `names migrated=N` counter alongside the existing seg / fileSlot counters.
+
+### Build verify
+
+`pd` 54.8 MB / `pd-server` 22.4 MB / `pd-tests` 24.9 MB all link clean. Targeted test pins green: `[catalog-mgr-body]` 16/190, `[catalog-mgr-arena]`, `[catalog-mgr-head]` 12/96, `[catalog-mgr-weapon]` 47, `[uichrome]` 7/56, `[passd]`, `[gate3]` 21/246. Total failed assertions unchanged at 6 -- same set of pre-existing static-text grep mismatches in files outside the Pass C touch surface (`test_loader_pdbase_scan.cpp:228, 287` for retired `loaderPdbaseRunParityCheck`; `test_catalog_provider_static.cpp:468, 537` for retired `catalogSetPrimaryRomFilenum` calls; `test_catalog_provider_static.cpp:580` swarmBlock; `test_cutscene_layer.cpp:330`).
+
+### Files touched
+
+- [`port/src/romdata.c`](../port/src/romdata.c) (+69 / -8): name migration loop, animations table extern remap, augmented ROMRELEASE log.
+
+### Auto-merge
+
+Per standing rule. Pre-merge HEAD `f20ccec5`. Worktree commit `968fe031`. Post-merge `486cc318`. Post-merge file line counts match worktree exactly.
+
+### Side note: pre-existing 0/1 catalog count anomaly
+
+Mike's log: `modmgr: rebuilt catalog caches -- bodies=0 heads=0 arenas=0` then `CATALOG: metadata cached -- 151 entries, 0 bodies, 1 heads (validation deferred)`. NOT Pass-C related. `modmgrInit` runs at `port/src/main.c:350`; the cache rebuild calls `assetCatalogIterateByType(ASSET_BODY/HEAD/ARENA, ...)` BEFORE `assetCatalogRegisterBaseGame` (line 365). The catalog is empty at modmgrInit time so the cache stays at zero. `modmgrGetTotalBodies` returns the `MODMGR_BASE_BODIES = 63` fallback when the cache is empty, but `modmgrGetBody(i)` returns `&s_CatalogBodies[0]` (zero-init) for any non-zero index. `catalogInit` then walks 151 entries against zero-init `bodynum`/`headnum=0` slots; only entry index 0 matches and only on the head pass (`langGet(b->name)` for the body returns empty for index 0 so the body match fails, then the head pass matches index 0 unconditionally). Logging artifact only -- the system self-corrects once the catalog populates and `modmgrEnsureCaches` rebuilds. Logged in B-305 verify column for future cleanup; not blocking gameplay.
+
 ## Session S604 (`sharp-zhukovsky-116f03`) - 2026-05-02 PM - Phase 3 Pass D self-heal hardening (CATALOG LANE CLOSED)
 
 Mike's directive: wrap catalog today. Pass D was the last item. Worktree spawned parallel to the Bodies session that delivered Slice 12 + Pass C; held until those landed (`f52cf660`, `b15cc701`, `dcfc5989`). Mike greenlit Pass D after sync confirming dev tip at `dcfc5989`.
