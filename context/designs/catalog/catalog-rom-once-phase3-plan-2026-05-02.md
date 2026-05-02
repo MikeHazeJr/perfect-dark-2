@@ -236,25 +236,38 @@ The slices are independent at the catalog layer (each touches its own
 ASSET_* type binding); they are not independent at the extractor layer
 (the extraction code grows incrementally). Recommended order:
 
-1. Pass A complete (one merge per item, 5 merges).
+1. Pass A complete (one merge per item, 5 merges). **DONE 2026-05-02** at `f86b5856` + `4331f2c0` + `e254420d`.
 2. Slice 9 (stage scene files): smallest scope, well-isolated, exercises
    the FileProvider plumbing for the BG / collision / setup load chain.
+   **DONE 2026-05-02** at `214518b9`.
 3. Slice 7 (prop models): well-isolated, large entry count, validates
-   per-entry overhead.
+   per-entry overhead. **DONE 2026-05-02** at `0983b47c`.
 4. Slice 3 (lang banks): small entry count, large per-entry size,
    validates the lang.c migration template.
+   **DONE 2026-05-02** at `0983b47c`.
 5. Slice 1 (weapon models): proves the bondgun load chain works end to
-   end on disk.
+   end on disk. **DONE 2026-05-02** at `0983b47c`.
 6. Slices 2, 4, 5, 6, 8 (sound / character / anim / prop sound / etc.):
-   batch as scope and review effort allow.
-7. Slice 10 (voice) + Slice 11 (music) + Slice 12 (SFX residual):
-   final cleanup.
+   batch as scope and review effort allow. Slice 4 (character models)
+   **DONE 2026-05-02** at `0983b47c`. Slices 2/5/6/8 + 11 (sound bank,
+   character sounds, animations, prop sounds, music sequences)
+   **DONE 2026-05-02** at `fb7331ce` (S600) via segment iterator API
+   + `romExtractAllSegments` + per-romid loader path; Slices 5/8 ride
+   on Slice 2's bank-level extraction; Slice 11 sequences segment is
+   covered by the same segment walker.
+7. Slice 10 (voice) + Slice 12 (SFX residual) + Slice 13 (UI chrome):
+   final cleanup. Voice retag depends on `AUDIO_CAT_VOICE` decision;
+   SFX residual handles `g_AudioRussMappings` cleanup; UI chrome
+   redirects pdgui theme texture binding from in-RAM to extracted
+   files via the existing `pdguiThemeExtractRomTextures` chain.
 8. Pass C: retire RomProvider from runtime.
 9. Pass D: self-heal hardening.
 
 Total estimated commit count for Phase 3: 15-20 merges across 6-12
 weeks of cadence (one merge per session, multiple sessions in flight
-in parallel where slices don't share files).
+in parallel where slices don't share files). Actual cadence so far:
+9 of the planned slices (Pass A.1-A.5 + Slices 1/3/4/7/9 + 2/5/6/8/11)
+landed across 6 merges on 2026-05-02 alone.
 
 ## Standing rules
 

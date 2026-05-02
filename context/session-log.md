@@ -1,5 +1,77 @@
 # Session Log (Active)
 
+## Session S600 (`catalog-phase3-segs-0502`) - 2026-05-02 PM - Phase 3 Pass B Slices 2/5/6/8/11 segment extraction infra
+
+Mike's status check pivot: bodies + arenas + maps shipped sequentially across S598/S599; pivot to Phase 3 ROM-once-then-disk runtime conversion. Pass A (extraction infra: data/ helper, first-launch extractor, sidecars, self-heal, LOUDFAIL) shipped 2026-05-02 across `f86b5856` + `4331f2c0` + `e254420d`. Pass B Slices 9/7/3/1/4 (stage scene / props / lang / weapon models / character models) shipped via `0983b47c` + `214518b9`. Five Pass B slices remain unshipped and group naturally by mechanism: Slices 2/5/6/8/11 all share the segment loader path (sound bank + character sounds + animations + prop sounds + music sequences). One infrastructure push covers them; per-slice catalog binding is unnecessary because segments are loaded en bloc by `romdataInitSegment`, not per-asset.
+
+Per Mike's Q1 decision (bank-level SFX granularity, not 1545 per-SFX files): bank-level extraction is correct.
+
+### What landed (one infrastructure commit covering 5 plan slices)
+
+- **`port/include/romdata.h` + `port/src/romdata.c`**: new segment iterator API.
+  - `romdataSegmentCount()` walks the NULL-terminated `romSegs[]` table at [port/src/romdata.c:173](../../port/src/romdata.c) and returns the live entry count.
+  - `romdataSegmentGetData(idx)` / `GetSize` / `GetName` per-index getters. Replace the `static struct romfile romSegs[]` opacity with a public window suitable for the extraction walker without exposing the struct itself.
+
+- **`port/include/romextract.h` + `port/src/romextract.c`**: segment extraction mirror of the per-file extractor.
+  - `romExtractAllSegments()` walks every loaded segment and writes the in-memory bytes to `data/<romid>/segs/<segname>.bin` with a SHA-256 sidecar. Idempotent (size pre-check, sidecar verify on subsequent boots). Server build returns 0 immediately (g_RomFile is NULL).
+  - `romExtractVerifyAllSegments()` mirrors `romExtractVerifyAll`: walks each segment, hashes vs sidecar, quarantines + re-extracts mismatches via the existing `romExtractQuarantine` helper.
+  - `romExtractSegmentRelPath(segName, ...)` public path-builder used by other modules that need to bind catalog entries to disk (parallel to `romExtractRelPathForFilenum` for files).
+
+- **`port/src/romdata.c::romdataInitSegment` ([port/src/romdata.c:486-510](../../port/src/romdata.c))**: load priority extended.
+  1. NEW: try `data/<romid>/segs/<name>.bin` first (per-romid extracted path).
+  2. Existing: try `data/segs/<name>` (legacy mod-override path; preserved so existing mods keep working without renaming files).
+  3. Existing: fall back to `g_RomFile + offset` (ROM mapping, used on first boot before extraction).
+
+- **`port/src/main.c`**: extraction wired after `romdataInit` + after the per-file extract+verify pair.
+  ```c
+  romdataInit();
+  catalogCacheVerifyRom(g_RomName, NULL);
+  romExtractAllFiles();      // Pass A.2
+  romExtractVerifyAll();     // Pass A.4
+  romExtractAllSegments();   // Pass B Slices 2/5/6/8/11
+  romExtractVerifyAllSegments();
+  ```
+
+### Plan slice mapping
+
+| Plan slice | Asset class | Segment(s) extracted | Coverage path |
+|---|---|---|---|
+| Slice 2 | Weapon SFX banks | sfxctl + sfxtbl | `data/<romid>/segs/sfxctl.bin` + `sfxtbl.bin` |
+| Slice 5 | Character sounds | (lives in same SFX bank) | Slice 2 covers it |
+| Slice 6 | Animations | animations | `data/<romid>/segs/animations.bin` |
+| Slice 8 | Prop sounds | (lives in same SFX bank) | Slice 2 covers it |
+| Slice 11 | Music sequences | seqctl + seqtbl + sequences | `data/<romid>/segs/{seq*,sequences}.bin` |
+
+Plus every other ROM segment (mp* tables, fonts, textures, copyright, fontjpn, firingrange) gets the same disk-image treatment as a side effect because the extraction walker is segment-table-wide. This brings the runtime closer to the Pass C goal (g_RomFile no longer touched) by reducing the remaining ROM-only access surface.
+
+### Server build
+
+Server skips `romdataInit` entirely ([port/src/server_main.c:296](../../port/src/server_main.c)). No segment-extraction calls reach the server linker. No new server stubs needed (verified via the post-merge `pd-server` link).
+
+### Build verification (post-merge dev tip `fb7331ce`)
+
+| Target | Build dir | Status | Size |
+|---|---|---|---|
+| `pd` (CLIENT) | `.claude/session-builds/p3sg` | PASS 22s | PerfectDark.exe 54.8 MB |
+| `pd-updater` (UPDATER) | `.claude/session-builds/p3sg` | PASS 1s | Updater.exe 12.3 MB |
+| `pd-server` (SERVER) | `.claude/session-builds/p3sgs` | PASS 7s | PerfectDarkServer.exe 22.4 MB |
+| `pd-tests` (TESTS) | `.claude/session-builds/p3sgt` | PASS 16s | pd-tests.exe 24.4 MB |
+
+### Auto-merge
+
+Per standing rule. Pre-merge HEAD `6d3bf4c9`. Worktree commit `35d3eb7c`. Post-merge `fb7331ce` (ort strategy, no conflicts). 5 files, +399 / -5. Post-merge line counts of every changed file match worktree exactly.
+
+### What this session deliberately did NOT do
+
+- **No catalog-side binding for segment-backed assets.** ASSET_AUDIO + ASSET_ANIMATION entries do not gain `source.primary` bindings to the disk segments because segment loads are en bloc, not per-asset. Per-asset granularity for sounds is decided as out-of-scope (Q1 bank-level).
+- **No removal of the legacy `data/segs/<name>` mod-override path.** Mod compatibility kept. Pass C will revisit if the architectural endpoint requires removing the legacy path.
+- **No reload-on-disk-change.** Segments load once at boot; if the user manually edits `data/<romid>/segs/<name>.bin` mid-session, no live reload. The verify path covers boot-time corruption; mid-session is out of scope.
+- **No Slice 10 voice / Slice 12 SFX residual / Slice 13 UI chrome.** Surfaced for the next session; tracked in the Phase 3 plan.
+
+### Next sequential lane
+
+Per Phase 3 plan, Slices 10/11/12/13 + Pass C (drop RomProvider from runtime) + Pass D (hash-verify steady-state hardening). Slice 11 (music sequences) is structurally complete with this commit; the per-track override path may need a follow-up if `audioPlayFileSound` doesn't already pick up the disk segments transparently. Worth a Slice 10/12/13 batch next.
+
 ## Session S599 (`condescending-ellis-248824`) - 2026-05-02 PM - Catalog Gate 3 Maps + Arenas DATA migration F1-F13
 
 Mike's activation brief: arenas are ALREADY accessor-migrated (modmgr.c:2876-2878 pulls every field from `ext.arena`). Only the data move remains. Mirror heads I.1-I.7 / bodies migration shape unless arena-specific concerns surface. Coordinate with the Universality Sweep + Phase 3 ROM-once Pass B Slice 9 work (in flight on a parallel session); surface immediately if conflicts.
