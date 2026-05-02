@@ -1,5 +1,5 @@
 # Perfect Dark 2 -- Release Script
-# Packages and pushes builds for both client and dedicated server.
+# Packages client + updater for distribution.
 #
 # Usage:
 #   .\release.ps1                    # Version = max(CMakeLists, v* git tags) + 1 patch; updates CMakeLists.txt
@@ -10,11 +10,11 @@
 #
 # Package contents (game zip -- "PerfectDark-v{X.Y.Z}-win64.zip"):
 #   - PerfectDark.exe (game client, fully static -- no runtime DLLs required)
-#   - PerfectDarkServer.exe (dedicated server, fully static)
 #   - Updater.exe (standalone GUI updater; recovery path if client self-update breaks)
-#   - data/ folder (game data, EXCLUDING *.z64 ROM files)
-#   - mods/ folder (mod content)
+#   - data/ folder (skeleton for first-launch ROM extraction, with README.txt)
+#   - base/ folder (project-canonical content: .pdbase files)
 #
+# NOT included: pd-server (deprecated), pd-tests (dev-only), ROM files (.z64).
 # Source code is NOT included -- GitHub auto-generates source archives.
 #
 # Post-release housekeeping:
@@ -23,7 +23,7 @@
 #
 # Prerequisites:
 #   - gh CLI installed and authenticated (gh auth login)
-#   - Successful build of both client and server
+#   - Successful build of client (+ updater)
 #   - Git working tree clean (all changes committed)
 
 param(
@@ -160,7 +160,7 @@ function Invoke-ReleaseCommit {
 # Mirror dev-window-v2's Copy-AddinFiles: copies post-batch-addin/data into
 # Build/data so the game can find pd.{ROMID}.z64 at $E/data/pd.*.z64. Runs
 # right after the client build succeeds, so Mike can test the built exe
-# locally even if a subsequent release step (server build, push, gh release)
+# locally even if a subsequent release step (updater build, push, gh release)
 # fails. Safe to call multiple times; overwrite-on-copy.
 function Copy-RomAddinIntoBuild {
     $addinData = Join-Path $ProjectRoot "..\post-batch-addin\data"
@@ -215,7 +215,7 @@ if ($SkipBuild) {
     }
 
     # Also build the standalone Updater if it's missing (dev-window-v2 builds
-    # only client+server). A missing Updater is a warning, not a release
+    # only client). A missing Updater is a warning, not a release
     # blocker — the zip will simply omit it.
     $updaterExePath = Join-Path $BuildDir "Updater.exe"
     if (-not (Test-Path $updaterExePath)) {
@@ -286,11 +286,6 @@ if ($SkipBuild) {
         # Client must be first so Copy-RomAddinIntoBuild (below) only runs once
         # the client exe is known-good. Updater is optional — its failure only
         # drops it from the release, not the whole pipeline.
-        # Server target retired from the release pipeline 2026-04-27.
-        # Connectivity now lives in-client via listen-host mode; pd-server is
-        # no longer shipped. The cmake target itself remains defined for
-        # pd-tests linkage and ad-hoc dev runs, but releases skip building it
-        # (saves ~6-10 s per release).
         $targets = @(
             @{ Name="client";  Target="pd";         Optional=$false },
             @{ Name="updater"; Target="pd-updater"; Optional=$true  }
@@ -315,7 +310,7 @@ if ($SkipBuild) {
 
             # Client is now on disk and known-good. Drop the ROM into Build/data/
             # immediately so Mike can launch Build/PerfectDark.exe locally even
-            # if the server/updater build or any later release step fails.
+            # if the updater build or any later release step fails.
             if ($t.Name -eq "client") {
                 Copy-RomAddinIntoBuild
             }
@@ -332,18 +327,15 @@ if ($SkipBuild) {
 
 # Build artifact paths -- unified Build/ directory
 $ClientExe  = $(if (Test-Path (Join-Path $BuildDir "PerfectDark.exe"))       { Join-Path $BuildDir "PerfectDark.exe" }       else { "" })
-# pd-server is no longer built/shipped (see Step 0 -- connectivity is in-client
-# via listen-host mode). $ServerExe stays "" so the assembly + asset-upload
-# branches below skip cleanly.
-$ServerExe  = ""
 $UpdaterExe = $(if (Test-Path (Join-Path $BuildDir "Updater.exe"))           { Join-Path $BuildDir "Updater.exe" }           else { "" })
 
-# Data and mods -- prefer Build/ copies, fall back to post-batch-addin
+# Data -- prefer Build/ copy, fall back to post-batch-addin
 $DataSource = $(if (Test-Path (Join-Path $BuildDir "data"))  { Join-Path $BuildDir "data" }
                 elseif (Test-Path "../post-batch-addin/data") { "../post-batch-addin/data" }
                 else { "" })
-$ModsSource = $(if (Test-Path (Join-Path $BuildDir "mods"))  { Join-Path $BuildDir "mods" }
-                elseif (Test-Path "../post-batch-addin/mods") { "../post-batch-addin/mods" }
+
+# Base -- project-canonical content (.pdbase files) from repo root
+$BaseSource = $(if (Test-Path (Join-Path $ProjectRoot "base")) { Join-Path $ProjectRoot "base" }
                 else { "" })
 
 Write-Host ""
@@ -381,10 +373,9 @@ if (-not $ghCmd) {
 }
 $hasGh = [bool]$ghCmd
 $hasClient  = $ClientExe  -ne ""
-$hasServer  = $ServerExe  -ne ""
 $hasUpdater = $UpdaterExe -ne ""
 $hasData    = $DataSource -ne ""
-$hasMods    = $ModsSource -ne ""
+$hasBase    = $BaseSource -ne ""
 $hasNotes   = Test-Path $ReleaseNotes
 
 if ($hasGh) {
@@ -408,17 +399,14 @@ $env:GIT_TERMINAL_PROMPT = "0"
 if ($hasClient) { Write-Host "  Client:      FOUND ($ClientExe)" -ForegroundColor Green }
 else            { Write-Host "  Client:      MISSING" -ForegroundColor Yellow }
 
-# pd-server retired from the release pipeline (in-client listen host).
-# Skip the FOUND/MISSING line entirely so the preflight isn't noisy.
-
 if ($hasUpdater) { Write-Host "  Updater:     FOUND ($UpdaterExe)" -ForegroundColor Green }
 else             { Write-Host "  Updater:     MISSING (release will omit Updater.exe)" -ForegroundColor Yellow }
 
 if ($hasData)   { Write-Host "  Data:        FOUND ($DataSource)" -ForegroundColor Green }
 else            { Write-Host "  Data:        MISSING" -ForegroundColor Yellow }
 
-if ($hasMods)   { Write-Host "  Mods:        FOUND ($ModsSource)" -ForegroundColor Green }
-else            { Write-Host "  Mods:        MISSING" -ForegroundColor Yellow }
+if ($hasBase)   { Write-Host "  Base:        FOUND ($BaseSource)" -ForegroundColor Green }
+else            { Write-Host "  Base:        MISSING (release will omit base/)" -ForegroundColor Yellow }
 
 Write-Host "  Notes:       $(if ($hasNotes) { 'FOUND' } else { 'MISSING (will auto-generate)' })" -ForegroundColor $(if ($hasNotes) { 'Green' } else { 'Yellow' })
 Write-Host "  Source:      GitHub auto-generates source archives" -ForegroundColor Gray
@@ -447,11 +435,6 @@ New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
 if ($hasClient) {
     Copy-Item $ClientExe "$DistDir/PerfectDark.exe"
     Write-Host "  PerfectDark.exe" -ForegroundColor Gray
-}
-
-if ($hasServer) {
-    Copy-Item $ServerExe "$DistDir/PerfectDarkServer.exe"
-    Write-Host "  PerfectDarkServer.exe" -ForegroundColor Gray
 }
 
 if ($hasUpdater) {
@@ -490,14 +473,68 @@ if ($hasData) {
     Write-Host "  data/ -- NOT FOUND (skipped)" -ForegroundColor Yellow
 }
 
-# --- Mods folder ---
+# --- Base folder (.pdbase files) ---
 
-if ($hasMods) {
-    Write-Host "  Copying mods/ ..." -ForegroundColor Gray
-    Copy-Item $ModsSource "$DistDir/mods" -Recurse -Force
+if ($hasBase) {
+    $baseCount = (Get-ChildItem $BaseSource -Recurse -File).Count
+    Write-Host "  Copying base/ ($baseCount files) ..." -ForegroundColor Gray
+    Copy-Item $BaseSource "$DistDir/base" -Recurse -Force
 } else {
-    Write-Host "  mods/ -- NOT FOUND (skipped)" -ForegroundColor Yellow
+    Write-Host "  base/ -- NOT FOUND (skipped)" -ForegroundColor Yellow
 }
+
+# --- data/README.txt (ROM instructions for end users) ---
+
+$readmePath = "$DistDir/data/README.txt"
+if (-not (Test-Path "$DistDir/data")) {
+    New-Item -ItemType Directory -Path "$DistDir/data" -Force | Out-Null
+}
+$readmeContent = @"
+Perfect Dark 2 -- Data Folder
+==============================
+
+This folder is used by the game on first launch to extract assets from
+your legally obtained ROM file.
+
+REQUIRED ROM FILE
+-----------------
+Place your ROM file in this folder with the exact name:
+
+    pd.ntsc-final.z64
+
+The ROM must be a .z64 (big-endian) format NTSC-Final ROM. If you have
+a .n64 or .v64 format ROM, convert it to .z64 first using a tool like
+Tool64 or the built-in converter (the game will attempt auto-conversion
+on launch).
+
+FIRST LAUNCH
+------------
+When you run PerfectDark.exe for the first time, the game will detect
+the ROM file in this folder and automatically extract the assets it
+needs. This is a one-time process that takes a few seconds.
+
+After extraction completes, the ROM file is no longer needed for normal
+gameplay (but keep it around for re-extraction if you ever need to
+reset your data).
+
+BRING YOUR OWN ROM (BYOR)
+--------------------------
+Perfect Dark 2 does not include any copyrighted ROM data. You must
+supply your own legally obtained copy of Perfect Dark (N64, NTSC-Final).
+
+TROUBLESHOOTING
+---------------
+- Game won't start: Make sure the ROM file is named exactly
+  "pd.ntsc-final.z64" and placed in this data/ folder.
+- Extraction fails: Verify your ROM is the correct region (NTSC-Final)
+  and format (.z64 big-endian). PAL and JPN ROMs are not supported.
+- Missing assets after update: Re-run extraction by placing the ROM
+  back in this folder and relaunching.
+- Updater issues: Run Updater.exe (included in this release) to
+  download the latest version if in-game self-update fails.
+"@
+Set-Content -LiteralPath $readmePath -Value $readmeContent -Encoding UTF8
+Write-Host "  data/README.txt (ROM instructions)" -ForegroundColor Gray
 
 # ============================================================================
 # Step 2: Create zip archive
@@ -818,7 +855,6 @@ if ($SkipPush -or $DryRun -or -not $hasGh) {
     # (updater.c) can find them by exact filename.
     # Updater.exe ships alongside so users can fall back to the standalone recovery tool
     # if a bad release breaks PerfectDark.exe's self-update path.
-    # pd-server / PerfectDarkServer.exe retired 2026-04-27 -- see Step 0.
     # GitHub auto-generates source archives.
     Write-Host "  Creating release ($ReleaseTag) ..." -ForegroundColor Cyan
     $assets = @()
