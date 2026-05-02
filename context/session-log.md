@@ -1,5 +1,78 @@
 # Session Log (Active)
 
+## Session S601 (`condescending-ellis-248824`) - 2026-05-02 PM - Phase 3 Pass B Slice 10 voice retag
+
+Mike repurposed the post-arenas worktree for the next Phase 3 lane: Slice 10 voice retag in `g_AudioConfigs`. The Coverage Audit Section 3.H named the gap (no base-game ASSET_AUDIO entries register with `category = AUDIO_CAT_VOICE`); Slice 10 closes it via taxonomy classification rather than data move.
+
+### Outcome
+
+144 of 1545 catalog SFX entries now register as `AUDIO_CAT_VOICE` instead of the default `AUDIO_CAT_SFX`. The retag is a pure category re-classification: no SFX bank layout change, no extraction work, no mod data shift. Audio mod manager UI's Voice tab (formerly empty) now surfaces the base-game voice content; modder voice-pack overrides have something to target.
+
+`pd` 57.6 MB / `pd-server` 23.4 MB / `pd-tests` 25.6 MB all link clean. New voice tests: **8 cases / 32 assertions** in `[catalog-audio-voice]` all pass.
+
+### Audit doc
+
+[`context/audits/catalog-phase3-slice10-voice-retag-2026-05-02.md`](audits/catalog-phase3-slice10-voice-retag-2026-05-02.md) -- 259 lines, Sections A-I. Findings:
+
+- `struct audioconfig` has no explicit voice flag. `RESPONDHELLO` (0x04) and `OFFENSIVE` (0x10) are necessary but not sufficient signals (gunshots use OFFENSIVE without being voice).
+- The reliable signal is the **audioconfig SLOT NUMBER**. Inspection of `g_AudioRussMappings` inline comments + flag patterns identifies seven slots that exclusively carry voice content:
+  | Slot | Flag set | Russ uses | Examples |
+  |---|---|---|---|
+  | AUDIOCONFIG_01 | none | 44 | Mission briefings (Carrington, Grimshaw, Jonathan, Elvis radio) |
+  | AUDIOCONFIG_02 | OFFENSIVE | 44 | NPC combat barks ("Oh god I'm hit", "What the hell?") |
+  | AUDIOCONFIG_03 | OFFENSIVE \| 0x20 | 1 | Carrington urgent ("Damn it, my office...") |
+  | AUDIOCONFIG_47 | none | 22 | Scripted dialogue (Cass, receptionist, programmer, Elvis on Attack Ship) |
+  | AUDIOCONFIG_48 | none | 5 | Programmer multi-line cluster (Skedar Ruins) |
+  | AUDIOCONFIG_60 | RESPONDHELLO | 25 | NPC greetings ("Hi there", "Hello Joanna") |
+  | AUDIOCONFIG_62 | none | 3 | Death scream / "Noooo!" (NTSC-1.0+ only) |
+- Russ-id space (0..0x01bc, 444 entries) corresponds 1:1 to catalog `runtime_index` for the same range; positions 0x01bd..0x0608 are SFX (no russ entry, default config).
+- AUDIOCONFIG_62 is gated on `VERSION >= VERSION_NTSC_1_0` because the russ entries that reference it are also so gated.
+
+### Phase 2 commit
+
+| SHA | Scope |
+|---|---|
+| [`176dba44`](../../) | Phase 1 audit (259 lines, Sections A-I) |
+| [`be78919d`](../../) | Phase 2 retag + test (5 files, 223 lines) |
+
+### Files touched
+
+- `context/audits/catalog-phase3-slice10-voice-retag-2026-05-02.md` (+259): audit
+- `port/src/assetcatalog_base_extended.c` (+91 / -7): voice retag in registration loop + s_audioConfigIsVoice helper (PD_SERVER-guarded)
+- `src/lib/snd.c` (+8): new `g_NumAudioRussMappings` const symbol exposing the russ-table count
+- `src/include/data.h` (+1): extern decl for the count
+- `tests/test_audio_voice_retag.cpp` (+121): 8 cases / 32 assertions pinning the retag's static contract
+- `CMakeLists.txt` (+6): wire the test into pd-tests
+
+### Implementation shape
+
+The retag lives in the existing SFX registration loop. Adding a single helper + an `if` branch keeps the diff minimal:
+
+1. `s_audioConfigIsVoice(audioconfig_idx)` -- file-static switch, 7 cases. AUDIOCONFIG_62 is `#if VERSION >= VERSION_NTSC_1_0` guarded.
+2. Loop body now defaults `category = AUDIO_CAT_SFX`, upgrades to `AUDIO_CAT_VOICE` if russ-table lookup matches a voice slot.
+3. `assetCatalogRegisterAudio(idbuf, i, "", category, 0, "")` -- the existing call gains a variable category instead of hardcoded 0.
+4. LOG_NOTE summary splits the count: "registered N base audio entries (M SFX + K VOICE)".
+5. `extern struct audiorussmapping g_AudioRussMappings[]` was already in `data.h`; added `extern const s32 g_NumAudioRussMappings;` because `sizeof` on an extern[] is invalid.
+
+PD_SERVER guard: server build doesn't link `snd.c`, so the russ table is unreachable. Server registers everything as SFX (correct: no audio runtime).
+
+### Coverage NOT migrated
+
+- Per-russ-id retag table dump (alternative to the slot-based predicate) -- the audit considered this and rejected because the slot predicate is structurally simpler and captures the same set with less data.
+- SFX alias range (0x8000+) -- per Coverage Audit Section 3.D ACCEPTED LIMIT (out of scope for Slice 10; folded into Slice 12 SFX residual).
+- Mod-supplied audio entries -- already use the modder-specified category via `assetcatalog_scanner.c` INI parser (which already maps "voice" -> AUDIO_CAT_VOICE).
+
+### Cross-cuts (audit Section G)
+
+- Wire / save: voice category is local catalog metadata. No NET_PROTOCOL_VER bump, no save migration.
+- pd-server build: PD_SERVER guard makes the retag client-only; server registers everything as SFX.
+- Mod loading path: unaffected. Modders can already declare `category=voice`; this commit aligns base-game entries with that declaration space.
+- Audio mod manager UI: Voice tab (`pdgui_menu_audiomod.cpp`) now populates with ~144 base entries that modders can target.
+
+### Next sequential lane
+
+Per Phase 3 plan Slices 12 (SFX residual) + 13 (UI chrome) + Pass C (drop RomProvider from runtime) + Pass D (hash-verify steady state). The Catalog Bodies session reactivated in parallel for Slice 13 per Mike's directive.
+
 ## Session S600 (`catalog-phase3-segs-0502`) - 2026-05-02 PM - Phase 3 Pass B Slices 2/5/6/8/11 segment extraction infra
 
 Mike's status check pivot: bodies + arenas + maps shipped sequentially across S598/S599; pivot to Phase 3 ROM-once-then-disk runtime conversion. Pass A (extraction infra: data/ helper, first-launch extractor, sidecars, self-heal, LOUDFAIL) shipped 2026-05-02 across `f86b5856` + `4331f2c0` + `e254420d`. Pass B Slices 9/7/3/1/4 (stage scene / props / lang / weapon models / character models) shipped via `0983b47c` + `214518b9`. Five Pass B slices remain unshipped and group naturally by mechanism: Slices 2/5/6/8/11 all share the segment loader path (sound bank + character sounds + animations + prop sounds + music sequences). One infrastructure push covers them; per-slice catalog binding is unnecessary because segments are loaded en bloc by `romdataInitSegment`, not per-asset.
