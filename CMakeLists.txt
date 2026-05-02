@@ -1046,6 +1046,11 @@ set(SRC_TESTS
 
   # S484 F10: pin the .pdbase loader scaffold's static contract.
   ${CMAKE_SOURCE_DIR}/tests/test_loader_pdbase_scan.cpp
+
+  # Phase 3 Pass B Slice 13: pin UI chrome paths to base/ui/textures.
+  # Static-text grep against pdgui_theme.cpp + pdgui_theme.h.  Audit at
+  # context/audits/catalog-phase3-passb-slice13-uichrome-2026-05-02.md.
+  ${CMAKE_SOURCE_DIR}/tests/test_uichrome_paths_pin.cpp
 )
 
 add_executable(pd-tests ${SRC_TESTS})
