@@ -7,9 +7,9 @@
       "arena_index": 0,
       "slug": "mp_skedar",
       "category": "Dark",
-      "stagenum": "STAGE_MP_SKEDAR",
+      "stagenum": 50,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_119",
+      "name_langid": 20599,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -17,9 +17,9 @@
       "arena_index": 1,
       "slug": "mp_pipes",
       "category": "Dark",
-      "stagenum": "STAGE_MP_PIPES",
+      "stagenum": 41,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_120",
+      "name_langid": 20600,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -27,9 +27,9 @@
       "arena_index": 2,
       "slug": "mp_ravine",
       "category": "Dark",
-      "stagenum": "STAGE_MP_RAVINE",
+      "stagenum": 23,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_121",
+      "name_langid": 20601,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -37,9 +37,9 @@
       "arena_index": 3,
       "slug": "mp_g5building",
       "category": "Dark",
-      "stagenum": "STAGE_MP_G5BUILDING",
+      "stagenum": 32,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_122",
+      "name_langid": 20602,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -47,9 +47,9 @@
       "arena_index": 4,
       "slug": "mp_sewers",
       "category": "Dark",
-      "stagenum": "STAGE_MP_SEWERS",
+      "stagenum": 66,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_123",
+      "name_langid": 20603,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -57,9 +57,9 @@
       "arena_index": 5,
       "slug": "mp_warehouse",
       "category": "Dark",
-      "stagenum": "STAGE_MP_WAREHOUSE",
+      "stagenum": 60,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_124",
+      "name_langid": 20604,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -67,9 +67,9 @@
       "arena_index": 6,
       "slug": "mp_grid",
       "category": "Dark",
-      "stagenum": "STAGE_MP_GRID",
+      "stagenum": 71,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_125",
+      "name_langid": 20605,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -77,9 +77,9 @@
       "arena_index": 7,
       "slug": "mp_ruins",
       "category": "Dark",
-      "stagenum": "STAGE_MP_RUINS",
+      "stagenum": 65,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_126",
+      "name_langid": 20606,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -87,9 +87,9 @@
       "arena_index": 8,
       "slug": "mp_area52",
       "category": "Dark",
-      "stagenum": "STAGE_MP_AREA52",
+      "stagenum": 59,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_127",
+      "name_langid": 20607,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -97,9 +97,9 @@
       "arena_index": 9,
       "slug": "mp_base",
       "category": "Dark",
-      "stagenum": "STAGE_MP_BASE",
+      "stagenum": 57,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_128",
+      "name_langid": 20608,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -107,9 +107,9 @@
       "arena_index": 10,
       "slug": "mp_fortress",
       "category": "Dark",
-      "stagenum": "STAGE_MP_FORTRESS",
+      "stagenum": 68,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_130",
+      "name_langid": 20610,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -117,9 +117,9 @@
       "arena_index": 11,
       "slug": "mp_villa",
       "category": "Dark",
-      "stagenum": "STAGE_MP_VILLA",
+      "stagenum": 69,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_131",
+      "name_langid": 20611,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -127,9 +127,9 @@
       "arena_index": 12,
       "slug": "mp_carpark",
       "category": "Dark",
-      "stagenum": "STAGE_MP_CARPARK",
+      "stagenum": 61,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_132",
+      "name_langid": 20612,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -137,9 +137,9 @@
       "arena_index": 13,
       "slug": "defection",
       "category": "Solo Missions",
-      "stagenum": "STAGE_DEFECTION",
+      "stagenum": 48,
       "requirefeature": 0,
-      "name_langid": "L_OPTIONS_133",
+      "name_langid": 22149,
       "load_mode": "ARENA_LOADMODE_CANVAS"
     },
     {
@@ -147,9 +147,9 @@
       "arena_index": 14,
       "slug": "investigation",
       "category": "Solo Missions",
-      "stagenum": "STAGE_INVESTIGATION",
+      "stagenum": 51,
       "requirefeature": 0,
-      "name_langid": "L_OPTIONS_135",
+      "name_langid": 22151,
       "load_mode": "ARENA_LOADMODE_CANVAS"
     },
     {
@@ -157,9 +157,9 @@
       "arena_index": 15,
       "slug": "villa",
       "category": "Solo Missions",
-      "stagenum": "STAGE_VILLA",
+      "stagenum": 44,
       "requirefeature": 0,
-      "name_langid": "L_OPTIONS_139",
+      "name_langid": 22155,
       "load_mode": "ARENA_LOADMODE_CANVAS"
     },
     {
@@ -167,9 +167,9 @@
       "arena_index": 16,
       "slug": "chicago",
       "category": "Solo Missions",
-      "stagenum": "STAGE_CHICAGO",
+      "stagenum": 29,
       "requirefeature": 0,
-      "name_langid": "L_OPTIONS_141",
+      "name_langid": 22157,
       "load_mode": "ARENA_LOADMODE_CANVAS"
     },
     {
@@ -177,9 +177,9 @@
       "arena_index": 17,
       "slug": "g5building",
       "category": "Solo Missions",
-      "stagenum": "STAGE_G5BUILDING",
+      "stagenum": 30,
       "requirefeature": 0,
-      "name_langid": "L_OPTIONS_143",
+      "name_langid": 22159,
       "load_mode": "ARENA_LOADMODE_CANVAS"
     },
     {
@@ -187,9 +187,9 @@
       "arena_index": 18,
       "slug": "infiltration",
       "category": "Solo Missions",
-      "stagenum": "STAGE_INFILTRATION",
+      "stagenum": 47,
       "requirefeature": 0,
-      "name_langid": "L_OPTIONS_145",
+      "name_langid": 22161,
       "load_mode": "ARENA_LOADMODE_CANVAS"
     },
     {
@@ -197,9 +197,9 @@
       "arena_index": 19,
       "slug": "airbase",
       "category": "Solo Missions",
-      "stagenum": "STAGE_AIRBASE",
+      "stagenum": 39,
       "requirefeature": 0,
-      "name_langid": "L_OPTIONS_151",
+      "name_langid": 22167,
       "load_mode": "ARENA_LOADMODE_CANVAS"
     },
     {
@@ -207,9 +207,9 @@
       "arena_index": 20,
       "slug": "airforceone",
       "category": "Solo Missions",
-      "stagenum": "STAGE_AIRFORCEONE",
+      "stagenum": 49,
       "requirefeature": 0,
-      "name_langid": "L_OPTIONS_153",
+      "name_langid": 22169,
       "load_mode": "ARENA_LOADMODE_CANVAS"
     },
     {
@@ -217,9 +217,9 @@
       "arena_index": 21,
       "slug": "crashsite",
       "category": "Solo Missions",
-      "stagenum": "STAGE_CRASHSITE",
+      "stagenum": 28,
       "requirefeature": 0,
-      "name_langid": "L_OPTIONS_155",
+      "name_langid": 22171,
       "load_mode": "ARENA_LOADMODE_CANVAS"
     },
     {
@@ -227,9 +227,9 @@
       "arena_index": 22,
       "slug": "pelagic",
       "category": "Solo Missions",
-      "stagenum": "STAGE_PELAGIC",
+      "stagenum": 33,
       "requirefeature": 0,
-      "name_langid": "L_OPTIONS_157",
+      "name_langid": 22173,
       "load_mode": "ARENA_LOADMODE_CANVAS"
     },
     {
@@ -237,9 +237,9 @@
       "arena_index": 23,
       "slug": "deepsea",
       "category": "Solo Missions",
-      "stagenum": "STAGE_DEEPSEA",
+      "stagenum": 56,
       "requirefeature": 0,
-      "name_langid": "L_OPTIONS_159",
+      "name_langid": 22175,
       "load_mode": "ARENA_LOADMODE_CANVAS"
     },
     {
@@ -247,9 +247,9 @@
       "arena_index": 24,
       "slug": "defense",
       "category": "Solo Missions",
-      "stagenum": "STAGE_DEFENSE",
+      "stagenum": 45,
       "requirefeature": 0,
-      "name_langid": "L_OPTIONS_161",
+      "name_langid": 22177,
       "load_mode": "ARENA_LOADMODE_CANVAS"
     },
     {
@@ -257,9 +257,9 @@
       "arena_index": 25,
       "slug": "attackship",
       "category": "Solo Missions",
-      "stagenum": "STAGE_ATTACKSHIP",
+      "stagenum": 52,
       "requirefeature": 0,
-      "name_langid": "L_OPTIONS_163",
+      "name_langid": 22179,
       "load_mode": "ARENA_LOADMODE_CANVAS"
     },
     {
@@ -267,9 +267,9 @@
       "arena_index": 26,
       "slug": "skedarruins",
       "category": "Solo Missions",
-      "stagenum": "STAGE_SKEDARRUINS",
+      "stagenum": 42,
       "requirefeature": 0,
-      "name_langid": "L_OPTIONS_165",
+      "name_langid": 22181,
       "load_mode": "ARENA_LOADMODE_CANVAS"
     },
     {
@@ -277,9 +277,9 @@
       "arena_index": 27,
       "slug": "mp_temple",
       "category": "Classic",
-      "stagenum": "STAGE_MP_TEMPLE",
+      "stagenum": 37,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_133",
+      "name_langid": 20613,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -287,9 +287,9 @@
       "arena_index": 28,
       "slug": "mp_complex",
       "category": "Classic",
-      "stagenum": "STAGE_MP_COMPLEX",
+      "stagenum": 31,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_134",
+      "name_langid": 20614,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -297,9 +297,9 @@
       "arena_index": 29,
       "slug": "mp_grid6",
       "category": "Classic",
-      "stagenum": "STAGE_TEST_MP6",
+      "stagenum": 62,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_306",
+      "name_langid": 20786,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -307,9 +307,9 @@
       "arena_index": 30,
       "slug": "mp_grid2",
       "category": "Classic",
-      "stagenum": "STAGE_TEST_MP2",
+      "stagenum": 58,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_129",
+      "name_langid": 20609,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -317,9 +317,9 @@
       "arena_index": 31,
       "slug": "mp_felicity",
       "category": "Classic",
-      "stagenum": "STAGE_MP_FELICITY",
+      "stagenum": 67,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_135",
+      "name_langid": 20615,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -327,9 +327,9 @@
       "arena_index": 32,
       "slug": "test_arch",
       "category": "Bonus",
-      "stagenum": "STAGE_TEST_ARCH",
+      "stagenum": 24,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_324",
+      "name_langid": 20804,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -337,9 +337,9 @@
       "arena_index": 33,
       "slug": "test_dest",
       "category": "Bonus",
-      "stagenum": "STAGE_TEST_DEST",
+      "stagenum": 26,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_325",
+      "name_langid": 20805,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -347,9 +347,9 @@
       "arena_index": 34,
       "slug": "extra16",
       "category": "Bonus",
-      "stagenum": "STAGE_EXTRA16",
+      "stagenum": 81,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_327",
+      "name_langid": 20807,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -357,9 +357,9 @@
       "arena_index": 35,
       "slug": "extra17",
       "category": "Bonus",
-      "stagenum": "STAGE_EXTRA17",
+      "stagenum": 82,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_328",
+      "name_langid": 20808,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -367,9 +367,9 @@
       "arena_index": 36,
       "slug": "extra18",
       "category": "Bonus",
-      "stagenum": "STAGE_EXTRA18",
+      "stagenum": 83,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_329",
+      "name_langid": 20809,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -377,9 +377,9 @@
       "arena_index": 37,
       "slug": "extra19",
       "category": "Bonus",
-      "stagenum": "STAGE_EXTRA19",
+      "stagenum": 84,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_330",
+      "name_langid": 20810,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -387,9 +387,9 @@
       "arena_index": 38,
       "slug": "extra20",
       "category": "Bonus",
-      "stagenum": "STAGE_EXTRA20",
+      "stagenum": 85,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_331",
+      "name_langid": 20811,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -397,9 +397,9 @@
       "arena_index": 39,
       "slug": "extra21",
       "category": "Bonus",
-      "stagenum": "STAGE_EXTRA21",
+      "stagenum": 86,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_332",
+      "name_langid": 20812,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -407,9 +407,9 @@
       "arena_index": 40,
       "slug": "extra22",
       "category": "Bonus",
-      "stagenum": "STAGE_EXTRA22",
+      "stagenum": 87,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_333",
+      "name_langid": 20813,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -417,9 +417,9 @@
       "arena_index": 41,
       "slug": "extra23",
       "category": "Bonus",
-      "stagenum": "STAGE_EXTRA23",
+      "stagenum": 88,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_334",
+      "name_langid": 20814,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -427,9 +427,9 @@
       "arena_index": 42,
       "slug": "extra24",
       "category": "Bonus",
-      "stagenum": "STAGE_EXTRA24",
+      "stagenum": 89,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_335",
+      "name_langid": 20815,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -437,9 +437,9 @@
       "arena_index": 43,
       "slug": "extra26",
       "category": "Bonus",
-      "stagenum": "STAGE_EXTRA26",
+      "stagenum": 95,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_337",
+      "name_langid": 20817,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -447,9 +447,9 @@
       "arena_index": 44,
       "slug": "test_lam",
       "category": "Bonus",
-      "stagenum": "STAGE_TEST_LAM",
+      "stagenum": 80,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_338",
+      "name_langid": 20818,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -457,9 +457,9 @@
       "arena_index": 45,
       "slug": "mp_random_multi",
       "category": "Random",
-      "stagenum": "STAGE_MP_RANDOM_MULTI",
+      "stagenum": 2,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_294",
+      "name_langid": 20774,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     },
     {
@@ -467,9 +467,9 @@
       "arena_index": 46,
       "slug": "mp_random_solo",
       "category": "Random",
-      "stagenum": "STAGE_MP_RANDOM_SOLO",
+      "stagenum": 3,
       "requirefeature": 0,
-      "name_langid": "L_MPMENU_295",
+      "name_langid": 20775,
       "load_mode": "ARENA_LOADMODE_PLAYABLE"
     }
   ]
