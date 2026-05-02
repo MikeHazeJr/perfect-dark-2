@@ -35,6 +35,9 @@
 #include "data.h"
 #include "game/mplayer/scenarios.h"
 #include "game/lang.h"
+/* S484-followup (2026-05-01): weapon model file registration reads
+ * hi_model / lo_model out of the loader-populated weapon pool. */
+#include "catalog_mgr_weapons.h"
 
 /* Catalog universality sweep (2026-04-27): externs for sources that
  * carry the unlock-state fields the catalog now mirrors.  Layer A
@@ -790,4 +793,120 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 
 	sysLogPrintf(LOG_NOTE, "assetcatalog: T3/T4/T5 extended registration complete (%d entries)", count);
 	return count;
+}
+
+/* ========================================================================
+ * S484-followup (2026-05-01): weapon model file registration
+ * ========================================================================
+ *
+ * Why this exists:
+ *
+ * The base game's weapon-fire path (bgunTickGunLoad in src/game/bondgun.c)
+ * loads gun model files by filenum. Pre-S484 F4 the load went through
+ * assetLoadRomToAddr(filenum, ...) directly. The F4 refactor (commit
+ * ecc9d880) routed the load through the catalog's source-filenum lookup
+ * (catalogHandleByModelSourceFilenum), on the assumption that every gun
+ * model file would be catalog-registered.
+ *
+ * That assumption did not hold. The ASSET_MODEL registration above walks
+ * g_ModelStates[] (covers chr-side prop models like FILE_PCHRZ2020) and
+ * the hand-model loop (covers handfilenum from g_HeadsAndBodies). Neither
+ * covers the gun-side hi_model / lo_model files like FILE_GZ2020 (Farsight
+ * gun model = filenum 907) or FILE_GREAPER, FILE_GFARSIGHT, etc. Those
+ * files are referenced only by struct weapon::hi_model / lo_model loaded
+ * from weapons.pdbase JSON; nothing translated those filenums into
+ * ASSET_MODEL catalog entries.
+ *
+ * Result on Mike's playtest log (S594h-Unit-C-followup): every weapon
+ * switch attempted to resolve hi_model through the catalog, the lookup
+ * missed, and bondgun.c flooded the log with
+ *   ERROR: CATALOG_CRITICAL: bgun model filenum=907 failed to load
+ * Master-load never reached LOADED, hands[].inuse stayed false, the fire
+ * path returned WEAPON_NONE, fire fell back to melee.
+ *
+ * This function closes the gap by walking the loader's weapon pool and
+ * registering each unique hi_model / lo_model filenum as an ASSET_MODEL
+ * entry with source_filenum binding. Idempotent: skips files already
+ * registered (catches overlap with g_ModelStates entries and prior calls).
+ *
+ * Why a separate function rather than baking into the body of
+ * assetCatalogRegisterBaseGameExtended: the loader (loaderPdbase) is
+ * scanned and its weapon pool populated AFTER the base-game catalog
+ * registration runs. catalogManagerGetWeaponByIndex(i) returns NULL
+ * during base-game registration. Caller (main.c) invokes this function
+ * AFTER loaderPdbaseBuildWeaponManager so weapon data is available.
+ *
+ * ROM-fallback in bondgun.c (S484-followup commit fbb650a0) remains as
+ * a defensive backstop -- if a future weapon ships with a hi_model
+ * filenum we somehow miss, the load still works through the legacy
+ * direct-from-ROM path. The CATALOG.MISS warning continues to surface
+ * any such miss for cleanup.
+ */
+s32 assetCatalogRegisterWeaponModelFiles(void)
+{
+	char idbuf[CATALOG_ID_LEN];
+	s32 registered = 0;
+	s32 skipped_dup = 0;
+	s32 skipped_zero = 0;
+
+	const s32 weapon_count = catalogManagerWeaponCount();
+	for (s32 wi = 0; wi < weapon_count; wi++) {
+		const struct weapon *w = catalogManagerGetWeaponByIndex(wi);
+		if (!w) continue;
+
+		const s32 filenums[2] = {
+			(s32)w->hi_model,
+			(s32)w->lo_model,
+		};
+		const char *suffixes[2] = { "hi", "lo" };
+
+		for (s32 fi = 0; fi < 2; fi++) {
+			const s32 fnum = filenums[fi];
+			if (fnum <= 0) {
+				skipped_zero++;
+				continue;
+			}
+
+			/* Dedup: skip if any existing ASSET_MODEL entry already
+			 * has this source_filenum (e.g. g_ModelStates path covers
+			 * a CHR-side model that happens to share a filenum, or
+			 * a prior weapon's hi_model already registered the same
+			 * shared model file). */
+			asset_data_handle_t existing =
+				catalogHandleBySourceFilenum(ASSET_MODEL, fnum);
+			if (!assetHandleIsNull(existing)) {
+				skipped_dup++;
+				continue;
+			}
+
+			snprintf(idbuf, sizeof(idbuf),
+				"base:weapon_model_%04x_%s", (u32)fnum, suffixes[fi]);
+			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_MODEL);
+			if (!e) {
+				sysLogPrintf(LOG_ERROR,
+					"assetcatalog: failed to register weapon model %s",
+					idbuf);
+				continue;
+			}
+			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
+			e->bundled = 1;
+			e->enabled = 1;
+			/* Negative runtime_index keeps clear of g_ModelStates[]
+			 * MODEL_* indices and the hand-model -handfilenum scheme.
+			 * Subtract 100000 to leave the hand-model range (which uses
+			 * -handfilenum, max ~16-bit) untouched. */
+			e->runtime_index = -(100000 + fnum);
+			e->source_filenum = fnum;
+			catalogSetPrimaryRomFilenum(e, fnum);
+			e->load_state = ASSET_STATE_LOADED;
+			e->ref_count = ASSET_REF_BUNDLED;
+			registered++;
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"assetcatalog: registered %d weapon model files (ASSET_MODEL); "
+		"skipped %d already-registered, %d zero filenums",
+		registered, skipped_dup, skipped_zero);
+	return registered;
 }

@@ -327,6 +327,15 @@ int main(int argc, const char **argv)
 		loaderPdbaseScan("base", &pdb_result);
 		if (pdb_result.weapons_registered > 0) {
 			loaderPdbaseBuildWeaponManager();
+			/* S484-followup (2026-05-01): now that the loader has populated
+			 * the weapon pool, register each weapon's hi_model / lo_model
+			 * filenum as ASSET_MODEL so the bgun load chain's catalog
+			 * lookup (catalogHandleByModelSourceFilenum) actually finds
+			 * them. Without this, weapon-switch loads stall in FLUX
+			 * forever and the fire path falls through to melee. See
+			 * assetCatalogRegisterWeaponModelFiles docblock for full
+			 * rationale. */
+			assetCatalogRegisterWeaponModelFiles();
 		}
 		if (pdb_result.heads_registered > 0) {
 			loaderPdbaseBuildHeadManager();

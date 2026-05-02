@@ -4196,9 +4196,19 @@ void bgunTickGunLoad(void)
 
 		if (modeldef == NULL) {
 			g_LoadType = LOADTYPE_NONE;
-			sysLogPrintf(LOG_ERROR,
-				"CATALOG_CRITICAL: bgun model filenum=%d failed to load",
-				(s32)player->gunctrl.loadfilenum);
+			/* Throttle: log once per failing filenum. Without throttle the
+			 * gunloadstate flips back to FLUX and the master-load retries
+			 * the same miss next tick, flooding the log at 60 lines/sec.
+			 * One ERROR is the visibility we need; the GUNLOADSTATE_FLUX
+			 * retry stays in case a transient resource pressure clears
+			 * up later. */
+			static s32 s_last_critical_filenum = -1;
+			if (s_last_critical_filenum != (s32)player->gunctrl.loadfilenum) {
+				s_last_critical_filenum = (s32)player->gunctrl.loadfilenum;
+				sysLogPrintf(LOG_ERROR,
+					"CATALOG_CRITICAL: bgun model filenum=%d failed to load",
+					(s32)player->gunctrl.loadfilenum);
+			}
 			player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
 			return;
 		}

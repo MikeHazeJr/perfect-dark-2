@@ -47,6 +47,19 @@ s32 assetCatalogRegisterBaseGame(void);
  */
 s32 assetCatalogRegisterBaseGameExtended(void);
 
+/**
+ * S484-followup (2026-05-01): register weapon hi_model / lo_model files
+ * as ASSET_MODEL catalog entries with source_filenum binding so the
+ * bgun load path's catalog lookup resolves them.
+ *
+ * Must be called AFTER loaderPdbaseBuildWeaponManager populates the
+ * catalog manager's weapon pool. Idempotent and dedupe-safe (skips
+ * any filenum already present as ASSET_MODEL).
+ *
+ * Returns count of newly-registered weapon model file entries.
+ */
+s32 assetCatalogRegisterWeaponModelFiles(void);
+
 /* ========================================================================
  * D3R-4: Component Scanner
  * ======================================================================== */
