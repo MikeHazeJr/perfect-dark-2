@@ -22,7 +22,7 @@ The relationship to the existing input layers:
 
 The Combat Simulator per-element JSON manifest at [combat-simulator-bindings-v2.json](combat-simulator-bindings-v2.json) is the data; this document is the abstract pattern it implements; [combat-simulator-binding-doc.md](combat-simulator-binding-doc.md) is the per-element implementation spec with each cell of the verbatim JSON transcribed and reconciled against this grammar.
 
-## Universal grammar (9 rules)
+## Universal grammar (10 rules)
 
 Every binding below applies to the menu layer (`LAYER_MENU` per `port/include/inputlayer.h`). KB&M produces equivalent semantics through the action map.
 
@@ -215,6 +215,37 @@ The remaining four inputs are mostly reserved, with one designed exception:
 **Combat Simulator application:** Start jumps to Start Match Button from any right-panel focus. Left-panel rows and tabs leave Start empty (the user is expected to D-pad through the configuration before reaching for Start).
 
 **Universal application.** Mandatory for stick clicks and Select. Start is opt-in: any menu with a clear primary commit action MAY register a Start handler that sets focus to that widget; menus without a primary commit MUST leave Start unbound.
+
+### Rule 10 -- Skip empty bindings: focus does not stop on undefined-action elements
+
+**Mike's directive (2026-05-03), CANONICAL:** "The things where I didn't put input should be skipped when navigating." A focusable element whose binding cells are empty for the active directional input MUST be SKIPPED during focus traversal -- the next focusable element in the traversal direction receives focus instead. Focus does not stop on a widget that has no defined action for the input the user just pressed.
+
+**Why this is a universal rule, not a Rule 1 footnote.** Rule 1 names the column-traversal contract (D-pad / L-stick = focus up/down within panel, left/right = cross-panel). It does not say what happens when a widget has no defined action for that direction. The naive ImGui default is to LAND focus on every focusable widget regardless of binding completeness, producing dead stops where the user presses D-pad and the focused widget responds to nothing. Rule 10 closes that gap: the binding manifest is the source of truth for which elements participate in which directional flows. An element with no D-pad Up binding is invisible to upward traversal; an element with no LT/RT binding is invisible to section-jump traversal; etc.
+
+**Scope.** Every focusable element. Every directional input class.
+
+**Implementation strategies (pick one per element type, document inline):**
+
+1. **Mark element non-focusable** when it has no bindings at all -- e.g. section headers, dividers, decorative labels (CC1 generalised). `ImGuiSelectableFlags_Disabled` or the shared `pdguiSectionHeader(...)` helper.
+2. **Per-direction NoNav** when the element is focusable for SOME directions but not others -- the renderer suppresses focus arrival from a direction the element does not respond to. Implementation through an opt-out predicate the menu checks before `ImGui::SetItemDefaultFocus()` / before consuming a navigation event.
+3. **Bindings manifest gate** when the element type has many instances and the empty cells are consistent across instances -- the menu's group-iterator (Rule 8 Decision B) consults the manifest and routes traversal around empty cells.
+
+**Combat Simulator examples (verbatim, post-Q1+Q2):**
+
+- Section headers (sec.arena, sec.gametype, sec.limits, sec.weapons, sec.options, sec.players): every binding cell empty -> implementation strategy 1 (CC1 already covers this).
+- Team dividers (team.1, team.2): every binding cell empty -> strategy 1 (CC1).
+- Footer Back link: D-pad U/D/L/R all empty (it is the final destination) -> strategy 2 (the link is focusable for A/B/Y but absorbs no D-pad input). D-pad pressed while focused on the link is no-op rather than landing on a phantom successor.
+- Add Bot Button when no bots are present and no team to step back into: LT empty -> strategy 3 (LT no-ops at the boundary). Currently encoded by Rule 8's "stays on boundary, does not wrap" clause.
+
+**Edge cases.**
+
+- An element with NO defined directional bindings AND no A action is degenerate; it should not be focusable at all (strategy 1 + remove from layout).
+- A direction with EXPLICIT no-op semantics (Rule 8 boundary "stays on boundary, does not wrap") is not the same as "skip" -- the boundary case keeps focus on the current element. Rule 10 applies when the element does not own the input at all.
+- Mouse focus / hover is unaffected -- Rule 10 is about controller / keyboard navigation only.
+
+**Universal application.** Mandatory. New menus default to "if a cell is empty in the binding manifest for a focusable element, focus does not arrive on that element from that direction." Existing menus audit their focusable widgets against the binding manifest; gaps file as bugs in `context/bugs.md` per CC3 audit pattern.
+
+**Relation to Rule 1.** Rule 1 names the traversal contract (where focus goes when the user presses a direction). Rule 10 names the participation contract (which elements receive focus from which directions). Together: Rule 1 is the path, Rule 10 is the membership predicate. A menu satisfies Rule 1 only after it satisfies Rule 10 -- otherwise traversal lands on dead nodes that violate Rule 1's "focus moves to a control that responds to the user's intent" semantic.
 
 ## Cross-cutting invariants
 

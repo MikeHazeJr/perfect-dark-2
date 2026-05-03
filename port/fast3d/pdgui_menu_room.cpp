@@ -55,6 +55,14 @@ char *langGet(s32 textid);
 char *langSafe(s32 textid);
 s32 challengeIsFeatureUnlocked(u32 feature);
 
+/* Rule 6 (2026-05-03): Y on any menu opens the Social overlay (friends,
+ * party invites, voice, recent players) as top-of-stack without unwinding
+ * the underlying menu. The action is wired through ACTION_MENU_SOCIAL
+ * (alias of ACTION_MENU_TERTIARY) per Mike's Q3 directive. The actual
+ * surface lives in pdgui_friends.cpp. */
+void pdguiFriendsSocialOpen(void);
+s32  pdguiFriendsSocialIsOpen(void);
+
 /* Network mode */
 #define NETMODE_NONE   0
 #define NETMODE_SERVER 1
@@ -590,6 +598,21 @@ static bool s_IsSoloMode = false;
 
 /* Track if we've initialized g_MatchConfig for this lobby session */
 static bool s_MatchConfigInited = false;
+
+/* Rule 8 (2026-05-03): pending team-jump in the player panel.
+ *
+ * Set by the LT/RT poll at the top of pdguiRoomScreenRender when the
+ * Combat Sim tab is active; consumed by renderPlayerPanel which sets
+ * keyboard focus on the first row of the target team. Direction:
+ *   -1 = previous team's first player
+ *   +1 = next team's first player
+ *    0 = idle (no pending jump)
+ *
+ * The renderer clears the flag after consuming so the jump is one-shot.
+ * Implementation is the v1 cut: jumps only within the player panel and
+ * only when teams are enabled. Left-panel section-jump (arena -> gametype
+ * -> ...) is downstream work tracked in the kanban under the same card. */
+static int s_RoomPlayerSectionJumpPending = 0;
 
 /* R-5: set true whenever the leader changes settings; cleared after CLC_ROOM_SETTINGS_UPDATE send */
 static bool s_RoomSettingsDirty = false;
@@ -1929,6 +1952,46 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
         ImGui::TextDisabled("Waiting for players...");
     }
 
+    /* Rule 8 (2026-05-03): consume pending team jump for the player panel.
+     *
+     * When teams are enabled and LT/RT was pressed this frame, walk the
+     * sorted rows to find the first-row index for each team, locate the
+     * currently-focused team via the cached value below, compute the
+     * target team (current +/- direction; clamp to first/last per the
+     * Rule 1 + Rule 8 no-wrap boundary rule), and arm a focus pending
+     * row index that the row loop consumes via SetKeyboardFocusHere
+     * BEFORE its Selectable. When teams are off the jump is a no-op
+     * (no grouping unit larger than "row"). */
+    static s32 s_FocusedTeamCached = -1; /* updated by the row loop below */
+    s32 sectionJumpTargetRowIdx = -1;
+    if (teamsOn && rowCount > 0 && s_RoomPlayerSectionJumpPending != 0) {
+        s32 firstRowOfTeam[16];
+        s32 teamCount = 0;
+        s32 prevTeam = -1;
+        for (s32 ri = 0; ri < rowCount && teamCount < 16; ri++) {
+            if (rows[ri].team != prevTeam) {
+                firstRowOfTeam[teamCount++] = ri;
+                prevTeam = rows[ri].team;
+            }
+        }
+        if (teamCount >= 2) {
+            s32 currentTeamSlot = 0;
+            for (s32 t = 0; t < teamCount; t++) {
+                if ((s32)rows[firstRowOfTeam[t]].team == s_FocusedTeamCached) {
+                    currentTeamSlot = t;
+                    break;
+                }
+            }
+            s32 targetSlot = currentTeamSlot + s_RoomPlayerSectionJumpPending;
+            if (targetSlot < 0) targetSlot = 0;
+            if (targetSlot >= teamCount) targetSlot = teamCount - 1;
+            if (targetSlot != currentTeamSlot) {
+                sectionJumpTargetRowIdx = firstRowOfTeam[targetSlot];
+            }
+        }
+    }
+    s_RoomPlayerSectionJumpPending = 0; /* one-shot consume */
+
     float rowW = panelW - ImGui::GetStyle().WindowPadding.x * 2.0f - 4.0f;
     s32 lastTeam = -1;
     ImDrawList *dl = ImGui::GetWindowDrawList();
@@ -1947,6 +2010,14 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
         }
 
         ImGui::PushID(r.isBot ? (2000 + r.slotIdx) : (1000 + r.lobbyIdx));
+
+        /* Rule 8 (2026-05-03): consume pending team jump on the matching row.
+         * SetKeyboardFocusHere(0) targets the next widget submitted (the
+         * Selectable below). Placed inside PushID so the focus request is
+         * scoped correctly to the row's ImGui ID. */
+        if (sectionJumpTargetRowIdx == ri) {
+            ImGui::SetKeyboardFocusHere(0);
+        }
 
         /* Row height: human rows are taller to fit the portrait thumbnail.
          * Bot rows keep the original single-line height. */
@@ -2581,6 +2652,16 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
             ImGui::EndPopup();
         }
         } /* end if (r.isBot) — bot context popup scope */
+
+        /* Rule 8 (2026-05-03): track focused team for the next LT/RT jump.
+         * When ANY widget within this row has focus (the Selectable, the
+         * popup, etc.), cache the row's team so the next section-jump
+         * computes the next/prev relative to the user's current location.
+         * Falls back to team 0 when no row has had focus yet (e.g. fresh
+         * panel entry). */
+        if (ImGui::IsItemFocused()) {
+            s_FocusedTeamCached = (s32)r.team;
+        }
 
         ImGui::PopID();
     } /* end for (s32 ri = 0; ri < rowCount; ri++) */
@@ -3674,6 +3755,39 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         if (s_ActiveTab >= s_NumTabs) s_ActiveTab = 0;
         s_BumperPendingTab = s_ActiveTab;
         pdguiPlaySound(PDGUI_SND_SWIPE);
+    }
+
+    /* Rule 6 (2026-05-03): Y opens Social overlay from any menu surface.
+     * Source: menu-input-interaction-grammar.md Rule 6 + Q3 naming. The
+     * Combat Sim binding spec v2 binds Y to "open social menu to allow
+     * for invites and whatnot" on every focusable element; routing the
+     * single Y press at the screen level matches that universal pattern
+     * (no per-element handler required). Idempotent: pdguiFriendsSocialOpen
+     * is a no-op when the social surface is already open. */
+    if (pdguiMenuTertiaryPressed() && !pdguiFriendsSocialIsOpen()) {
+        pdguiFriendsSocialOpen();
+        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+    }
+
+    /* Rule 8 (2026-05-03): LT/RT section/team/page jump.
+     * Per Mike's Q2 inversion: LT/RT is the "next-larger-than-row grouping
+     * unit" advance, not absolute list bounds. In the Combat Sim Room the
+     * grouping unit varies by panel:
+     *   - Player panel (right):   previous/next team's first player.
+     *   - Left settings panel:    previous/next section header (downstream).
+     * For v1 of this rollout LT/RT arms a player-panel team jump that
+     * renderPlayerPanel consumes via SetKeyboardFocusHere. Left-panel
+     * section-jump tracks as the next iteration in the same kanban card
+     * because it requires an anchored layout pass that the current single-
+     * BeginChild render does not surface. */
+    if (s_ActiveTab == 0) {
+        if (pdguiMenuSectionPrevPressed()) {
+            s_RoomPlayerSectionJumpPending = -1;
+            pdguiPlaySound(PDGUI_SND_SWIPE);
+        } else if (pdguiMenuSectionNextPressed()) {
+            s_RoomPlayerSectionJumpPending = +1;
+            pdguiPlaySound(PDGUI_SND_SWIPE);
+        }
     }
 
     ImGui::PushStyleColor(ImGuiCol_Tab,        ImVec4(0.10f, 0.15f, 0.30f, 1.0f));

@@ -507,3 +507,85 @@ This audit's Open Decisions list (items 1-5) is now resolved by the grammar doc;
 The Queue Match feature (X on Start Match per Rule 5) is logged as kanban card c081 (Input pillar, backlog) for P3 design pass post-grammar-rollout.
 
 Action-map additions confirmed by Mike Q3: `ACTION_MENU_CONTEXT` (X), `ACTION_MENU_SOCIAL` (Y). Recommended for Rule 8: `ACTION_MENU_SECTION_PREV` / `ACTION_MENU_SECTION_NEXT` (Mike to confirm).
+
+---
+
+## Implementation arrives: B-315 fix + B-317 foundation pass (2026-05-03, S609-trifecta `goofy-knuth-0ef04f`)
+
+After the `403e7f1f` doc-only landing, Mike's playtest surfaced a trifecta. Two of the three landed in this session as one coherent unit; the third blocked on missing crash log evidence.
+
+### Trifecta resolution
+
+| Bug | Status | What |
+|-----|--------|------|
+| **B-315** Combat Sim auto-pushes "Game Setup" modal on entry; B does not dismiss; z-order broken | FIXED | Sticky `g_Vars.usingadvsetup` cleared in `menuhandlerMainMenuCombatSimulator` at [src/game/mainmenu.c:4937](../../src/game/mainmenu.c:4937). Full root-cause + repro recorded in `bugs.md` B-315. |
+| **B-316** Exception starting a match in Combat Sim | OPEN -- BLOCKED | `Build/pd-client.log` (May 3 04:56) is a clean swarm benchmark with NO FATAL/AV. Cannot root-cause from missing evidence. Surfaced via kanban c083 + bugs.md B-316 with three hypothesis classes ranked. |
+| **B-317** Combat Sim controller input does not match v2 grammar (doc-only at `403e7f1f`) | FOUNDATION FIXED | This audit section. Per-element CS bindings tracked in kanban c086. |
+
+### Rule 10 lift -- skip-empty-bindings becomes a universal rule
+
+Mike's verbatim 2026-05-03: "The things where I didn't put input should be skipped when navigating." Codified as **Rule 10** in [menu-input-interaction-grammar.md](../designs/input-menu/menu-input-interaction-grammar.md):
+
+> Focusable elements with no defined directional binding for an axis are SKIPPED during focus traversal in that axis. Focus does not stop on dead nodes.
+
+Three implementation strategies documented (mark non-focusable, per-direction NoNav, bindings-manifest gate). Generalises CC1 (section headers / dividers non-focusable) into a per-direction membership predicate. Rule 1 names the traversal contract; Rule 10 names the participation contract; together they define when focus arrives at which element from which direction.
+
+### Q1+Q2 inversions arrive in implementation form
+
+The grammar doc's Q1 (LB/RB universal tab cycle) and Q2 (LT/RT universal section/team/page jump) shipped as spec at `403e7f1f`. This session implements the foundation in the action map and Combat Sim Room renderer:
+
+| Q rule | Foundation piece | File:line |
+|--------|--------------------|-----------|
+| Q1 LB/RB tab cycle | Already conformant via `pdguiMenuTabPrevPressed` / `pdguiMenuTabNextPressed` | [pdgui_menu_room.cpp:3666](../../port/fast3d/pdgui_menu_room.cpp:3666) |
+| Q2 LT/RT section jump | New `ACTION_MENU_SECTION_PREV/NEXT` enums (=105/106) | [actionmap.h](../../port/include/actionmap.h) (after `ACTION_TESTSCEN_VIS_TOGGLE`) |
+| Q2 LT bind | `JOFS_LTRIG` on `g_ImcMenu` + `g_ImcPauseMenu` | [actionmap.cpp](../../port/src/actionmap.cpp) (in `setupMenuDefaults` + `setupPauseMenuDefaults`) |
+| Q2 RT bind | `JOFS_RTRIG` on same IMCs | same |
+| Q2 KB&M fallback | `VKL_HOME` / `VKL_END` on same IMCs | same |
+| Q3 X alias | `#define ACTION_MENU_CONTEXT ACTION_MENU_SECONDARY` | [actionmap.h](../../port/include/actionmap.h) (after backward-compat aliases) |
+| Q3 Y alias | `#define ACTION_MENU_SOCIAL ACTION_MENU_TERTIARY` | same |
+| Y -> Social wiring | `pdguiMenuTertiaryPressed()` -> `pdguiFriendsSocialOpen()` | [pdgui_menu_room.cpp](../../port/fast3d/pdgui_menu_room.cpp) (top of `pdguiRoomScreenRender`, after LB/RB tab cycle) |
+| LT/RT -> team-jump arming | `s_RoomPlayerSectionJumpPending` (= -1 / +1) | same |
+| LT/RT -> team-jump consume | `renderPlayerPanel` walks rows for team boundaries, computes target via `s_FocusedTeamCached` (no-wrap clamp), arms `ImGui::SetKeyboardFocusHere(0)` on first row of target team | [pdgui_menu_room.cpp](../../port/fast3d/pdgui_menu_room.cpp) (`renderPlayerPanel`) |
+
+### Helper additions
+
+- `pdguiMenuSectionPrevPressed()` -- wraps `actionPressed(0, ACTION_MENU_SECTION_PREV)`. Declared in [pdgui_nav.h](../../port/include/pdgui_nav.h); implemented in [pdgui_nav.c](../../port/src/pdgui_nav.c).
+- `pdguiMenuSectionNextPressed()` -- wraps `actionPressed(0, ACTION_MENU_SECTION_NEXT)`. Same pair.
+
+### Per-element CS bindings tracked separately (kanban c086)
+
+Mike's directive included "Implement the per-element bindings from `combat-simulator-binding-doc.md`" -- the binding doc has 30 controls across 8 categories with up to 18 input cells each. The foundation pass delivers the cross-cutting machinery; the per-element pass is downstream:
+
+- Per-row X context popups (player rows -> "Change team / Set temp character / Bot settings / Remove bot"; Add Bot -> "Fill / Remove all").
+- Left-panel LT/RT section-jump (arena -> gametype -> limits -> weapons -> options).
+- Start jump-to-Start-Match for right-panel rows + Add Bot.
+- A+B convergence on Back to Menu link (Rule 4 special case).
+- CC4 Y-Social glyph chrome (`pdguiSocialGlyph()` helper + per-menu opt-in rollout).
+- CC2 NavFlattened audit on theme editor (audit A.2 row 7).
+- CC5 shared popup builder for right-click + X (room.cpp / mpsettings.cpp / network.cpp / agentselect.cpp).
+- Validate Rule 10 skip-empty traversal across every focusable widget in CS.
+
+### Per-element bindings status snapshot
+
+| Element category | Universal rule | Status today |
+|--------------------|-----------------|----------------|
+| Tabs | Rule 7 LB/RB cycle | DONE (existing convention) |
+| Section headers / dividers | CC1 non-focusable | Partial -- audit needed for which use disabled-Selectable vs decorative-Text |
+| Left-panel rows (12) | Rule 1 + Rule 7 + B Rule 4 | DONE for Rule 1 (D-pad), Rule 7 (LB/RB tab cycle universal); Rule 8 LT/RT section-jump = c086 follow-up |
+| Right-panel sort dropdown | Rule 7 + Y Rule 6 | DONE for Y (this session); Rule 7 inherited |
+| Player rows (8) | Rule 1 + Rule 2 + Rule 5 + Rule 8 + Y Rule 6 + Start nav | THIS SESSION delivers Rule 8 LT/RT team-jump + Y Rule 6 social. Rule 5 X-context-menu = c086. Start jump-to-Start-Match = c086. |
+| Add Bot button | Rule 1 + Rule 5 + Rule 8 + Y + Start | THIS SESSION delivers Y. Rule 8 LT (jump to last team's first player) inherited from player-panel pending consume. Rule 5 X-context-menu (Fill / Remove all) = c086. Start = c086. |
+| Footer.start | Rule 3 (existing) + Y + LB/RB | DONE for Y + LB/RB (universal). X = Queue Match deferred (c081). |
+| Footer.back link | Rule 4 A+B convergence + Y + LB/RB | DONE for Y + LB/RB. A+B convergence partially via existing button -> c086 audit. |
+
+### Files (9 total, +247 / -10)
+
+- [`context/designs/input-menu/menu-input-interaction-grammar.md`](../designs/input-menu/menu-input-interaction-grammar.md) +33/-1 (Rule 10 lift)
+- [`port/include/actionmap.h`](../../port/include/actionmap.h) +21/-2 (section enums + Q3 aliases)
+- [`port/src/actionmap.cpp`](../../port/src/actionmap.cpp) +33/-4 (LT/RT bindings + classifier)
+- [`port/include/pdgui_nav.h`](../../port/include/pdgui_nav.h) +9 (helper decls)
+- [`port/src/pdgui_nav.c`](../../port/src/pdgui_nav.c) +10 (helper impls)
+- [`port/fast3d/pdgui_menu_room.cpp`](../../port/fast3d/pdgui_menu_room.cpp) +114 (Y/LT/RT poll + team-jump consumer)
+- [`src/game/mainmenu.c`](../../src/game/mainmenu.c) +27 (B-315 fix)
+- [`tests/actionmap_pure.h`](../../tests/actionmap_pure.h) +2 (mirror enum)
+- [`tests/actionmap_pure.c`](../../tests/actionmap_pure.c) +2 (mirror classifier)

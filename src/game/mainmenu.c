@@ -4942,6 +4942,33 @@ MenuItemHandlerResult menuhandlerMainMenuCombatSimulator(s32 operation, struct m
 		g_Vars.antiplayernum = -1;
 		challengeDetermineUnlockedFeatures();
 		g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
+		/* B-315 (2026-05-03): clear sticky Adv Setup flag.
+		 *
+		 * menudialogMpGameSetup (setup.c:5537) sets g_Vars.usingadvsetup=true
+		 * on MENUOP_OPEN of g_MpAdvancedSetupMenuDialog and only the legacy
+		 * g_CombatSimulatorMenuDialog tick handler (setup.c:5857) clears it.
+		 * The legacy CS dialog has no ImGui hotswap renderer (the modern
+		 * Room overlay replaced it), so its tick handler never runs as the
+		 * active dialog -- the flag stays sticky between sessions.
+		 *
+		 * On the next CS entry the menutick.c CITRAINING block (line 255)
+		 * sees usingadvsetup=true, sets mpsetupmenu=ADVSETUP, and the loop
+		 * at line 276 calls func0f17fcb0() which menuPushRootDialog's
+		 * g_MpAdvancedSetupMenuDialog ON TOP of the Room overlay. Result:
+		 * a stale "Game Setup" modal sits over the Combat Sim Room screen,
+		 * B does not dismiss it (z-order race with Room input ctx), and
+		 * controller nav gets stuck. Fix: explicitly reset the flag here
+		 * because a fresh "Combat Simulator" main-menu click is the user's
+		 * statement of intent for a clean entry through the modern Room.
+		 *
+		 * Also clear mpquickteam for symmetry: the legacy CS dialog tick
+		 * resets it too (setup.c:5856), so a sticky QUICKTEAM_PLAYERSONLY /
+		 * QUICKTEAM_PLAYERSANDSIMS from a prior session would similarly
+		 * trigger the QUICKGO branch in menutick.c if it ever fires from
+		 * this entry path. Setting it here is belt-and-braces -- the GENERAL
+		 * mpsetupmenu above is the direct gate, but state hygiene matters. */
+		g_Vars.usingadvsetup = false;
+		g_Vars.mpquickteam = MPQUICKTEAM_NONE;
 		g_NotLoadMod = false;
 		romdataFileFreeForSolo();
 		func0f0f820c(&g_CombatSimulatorMenuDialog, MENUROOT_MPSETUP);

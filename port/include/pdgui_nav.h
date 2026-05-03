@@ -54,6 +54,15 @@ s32 pdguiMenuTabNextPressed(void);
 s32 pdguiMenuSecondaryPressed(void);
 s32 pdguiMenuTertiaryPressed(void);
 s32 pdguiMenuDeletePressed(void);
+/* Rule 8 (2026-05-03): LT/RT section/group/team/page jump.
+ * Per menu-input-interaction-grammar.md Rule 8 + Combat Sim binding spec
+ * v2 Q2 inversion. Bound to LT/RT (gamepad) and Home/End (kbd) on the
+ * menu and pause-menu IMCs in actionmap.cpp. The "section" semantic is
+ * per-menu: previous/next team's first player in player rosters,
+ * previous/next section header in long flat lists, page-jump in
+ * paginated content. Boundary case: stays on boundary, no wrap. */
+s32 pdguiMenuSectionPrevPressed(void);
+s32 pdguiMenuSectionNextPressed(void);
 s32 pdguiMenuUpRepeat(void);
 s32 pdguiMenuDownRepeat(void);
 s32 pdguiMenuLeftRepeat(void);

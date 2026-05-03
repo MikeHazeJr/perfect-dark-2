@@ -254,13 +254,34 @@ typedef enum InputAction {
     ACTION_TESTSCEN_CYCLE_PREV,    /* = 103 Pg Dn / DPAD_UP -- previous bot count */
     ACTION_TESTSCEN_VIS_TOGGLE,    /* = 104 I key -- cycle player visibility mode (V taken by VOICE_PTT) */
 
-    ACTION_COUNT                /* = 105, sentinel - keep last */
+    /* ---- Menu section / group jump (Rule 8, 2026-05-03) ----
+     * Bound only on menu / pause IMCs to gamepad LT/RT. The menu's
+     * group-iterator (Rule 8 Decision B) determines what "section" means
+     * per screen: previous/next team's first player in player rosters,
+     * previous/next section header in long flat lists, page-jump in
+     * paginated content. Boundary case: stays on boundary, does not wrap
+     * (mirrors Rule 1 D-pad U/D no-wrap). Idle on screens with no grouping
+     * unit larger than "row". Source: menu-input-interaction-grammar.md
+     * Rule 8 + Q1+Q2 inversion of the verbatim Combat Sim binding spec
+     * (LB/RB stays universal tab cycle; LT/RT becomes group jump). */
+    ACTION_MENU_SECTION_PREV,      /* = 105 LT trigger (gamepad) -- previous group */
+    ACTION_MENU_SECTION_NEXT,      /* = 106 RT trigger (gamepad) -- next group */
+
+    ACTION_COUNT                /* = 107, sentinel - keep last */
 } InputAction;
 
 /* Backward-compat aliases */
 #define ACTION_INTERACT     ACTION_USE        /* A_BUTTON was ACTION_INTERACT, now ACTION_USE */
 #define ACTION_MENU_ACCEPT  ACTION_USE        /* Consolidated: menu accept = gameplay use */
 #define ACTION_MENU_CANCEL  ACTION_CANCEL_USE /* Consolidated: menu cancel = gameplay cancel */
+
+/* Universal grammar v2 aliases (Q3, 2026-05-03). The grammar doc refers to
+ * the per-rule semantic names; these aliases let source cite the rule by
+ * name (Rule 5 = X = context menu; Rule 6 = Y = social) without a hard
+ * rename of the underlying enum (which would touch tests + pure-C mirror).
+ * Source: menu-input-interaction-grammar.md Rule 5 + Rule 6. */
+#define ACTION_MENU_CONTEXT ACTION_MENU_SECONDARY /* Rule 5: X opens context menu */
+#define ACTION_MENU_SOCIAL  ACTION_MENU_TERTIARY  /* Rule 6: Y opens social overlay */
 
 /* ============================================================
  * Core structs
