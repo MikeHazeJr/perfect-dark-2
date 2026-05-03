@@ -701,20 +701,20 @@
     },
     {
       "id": "c110", "title": "Engine Phase 4: walker + emitter structural concurrency",
-      "description": "Per Mike Q4 2026-05-03 'parallel, built appropriately' (no half-measures). Structural fix to assetCatalog: add fine-grained mutex (or RW lock decided post-audit) around assetCatalogRegister* in port/src/assetcatalog.c. Structural fix to loader_pool: refactor module-scope s_*Used counters + shared scratch into per-thread arena or explicit (ctx) parameter; rewrite loader_pool.c:26 single-thread invariant docblock. Walker fully parallel: per-file parse + register + pool populate runs across all N-2 workers concurrently. Per-asset emitter parallelization within one kind, then kinds in parallel where decoders allow. Audio decoders stay serial at the audio engine. Impact grows after B-318 lands (emitters early-return today).",
-      "pillar": "engine", "column": "backlog", "order": 123000,
-      "ready": true,
+      "description": "SHIPPED 2026-05-03 (hardcore-leavitt-20fefd). Generic bootPoolForRangeBlocking helper in port/src/boot_pool.c: shared mutex-cursor + manager-runs-inline pattern from Phase 3 verify, exposed as a per-index fan-out API. Catalog mutex (single SDL_mutex in port/src/assetcatalog.c) wraps every public hot path that touches s_HashTable / s_EntryPool: register*, resolve, getMutable, hasEntry, isEnabled, set*, iterate*, getCount*, getByIndex, clear*, refresh. Typed register wrappers refactored to call new s_registerLocked under one critical section so the entry pointer + type-specific field fill stay valid across concurrent realloc. New helper assetCatalogSetCategoryById() for walker callbacks that fill e->category after register. loader_pool gets a single SDL_mutex around all parse* helpers + reset/finalize so concurrent walker callbacks serialize correctly into the shared arenas (s_GuncmdsUsed, s_AmmosUsed, etc.). loaderWalkerScanKind: collect-then-fan-out -- Phase 1 readdir + collect filenames into a heap array; Phase 2 fans per-file work across the boot pool, counters merge under a batch mutex. 12 emitters parallelized via bootPoolForRangeBlocking on their inner per-asset loops: pdwpn (86), pdmesh (two-phase upstream dedup, ~512 unique), pdanim (110), pdanim_chr (1208), pdhead (84), pdbody (68), pdarena (47, dual emit -> .pdarena + .pdscenario), pdsfx (1545), pdvoice (1545 filtered), pdsong (~119), pdfont (10), pdlang (68). The pdui emitter stays serial (GL render-loop trigger, not on the catalog work thread). Build verify clean four-target via build-session.ps1 -Session phase4: client 55.5 MB / updater 12.3 MB / server 22.4 MB / tests 24.6 MB.",
+      "pillar": "engine", "column": "done", "order": 123000,
       "priority": 2,
-      "notes": "Sequential after Phase 3 lands on dev (Mike Q6 2026-05-03). Phase 3 SHIPPED 2026-05-03 at dev SHA 8554b4ea -- ready to start. Q4 mandates structural fix not tactical patch. Spec at context/designs/engine/startup-acceleration.md Phase 4.", "flag": null, "flagged_at": null,
-      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T18:55:00Z"
+      "notes": "Worktree hardcore-leavitt-20fefd. Merged to dev at SHA 55392850. Audit at context/audits/engine-phase4-walker-emitter-concurrency-2026-05-03.md. Phase 5 (c111) ready after this lands.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T19:50:00Z"
     },
     {
       "id": "c111", "title": "Engine Phase 5: polish + measurements",
       "description": "Wire timing telemetry into boot_progress so next launch's weights come from previous launch's actual timings. Tune worker count (test 4, 6, 8 on Mike's machine; auto-scaling holds but verify default behavior). Status label polish per feedback_human_readable_ids. Progress bar PD-theme polish via pdgui_theme tokens. Add shutdown log line summarizing boot timing breakdown for telemetry. Append context/audits/startup-acceleration-<date>.md with before/after timing.",
       "pillar": "engine", "column": "backlog", "order": 124000,
+      "ready": true,
       "priority": 3,
-      "notes": "Sequential after Phase 4 lands on dev (Mike Q6 2026-05-03). Spec at context/designs/engine/startup-acceleration.md Phase 5.", "flag": null, "flagged_at": null,
-      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+      "notes": "Sequential after Phase 4 lands on dev (Mike Q6 2026-05-03). Phase 4 SHIPPED 2026-05-03 at dev SHA 55392850 -- ready to start. Spec at context/designs/engine/startup-acceleration.md Phase 5.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T19:50:00Z"
     },
     {
       "id": "c112", "title": "B-323 post-boot AV in challengesInit (Pass C side-effect, N64-vs-PC stride)",
