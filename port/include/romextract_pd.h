@@ -152,6 +152,60 @@ s32 romExtractParityCheckPdhead(void);
 s32 romExtractParityCheckPdbody(void);
 s32 romExtractParityCheckPdarena(void);
 
+/* ============================================================
+ * Catalog universality pivot Step 3a (2026-05-03).
+ *
+ * Character-animation emitter. Companion to romExtractAllPdanim
+ * (Step 1, weapon-animation gunscript opcodes). Walks the
+ * chr-animation lump exposed via _animationsTableRomStart /
+ * _animationsTableRomEnd (post-preprocessAnimations, byte-swapped
+ * native-endian) and emits one .pdanim ZIP compound per registered
+ * chr animation at data/<romid>/animations/<id>.pdanim.
+ *
+ * Compound layout per universality-pivot-schemas.md Section 2.6:
+ *   manifest.json     envelope + animation metadata + provenance
+ *   frames.bin        contiguous header + frame bytes
+ *                     (length = headerlen + numframes * bytesperframe)
+ *   frames.bin.sha256 outer-file SHA-256 sidecar
+ *
+ * Catalog IDs derive from the loaderPdbaseNameForAnimEnum reverse
+ * lookup over k_AnimEnum (port/src/loader_pdbase_enums.c). For named
+ * animations (e.g. "ANIM_HEROHIT") the ID is "base:anim_herohit". For
+ * unnamed slots (auto-named "ANIM_NNNN" hex) the ID is "base:anim_NNNN".
+ *
+ * Boot order requirement: must run AFTER romdataInit (which calls
+ * preprocessAnimations and remaps _animationsTableRomStart/End to the
+ * disk-migrated buffer per romdata.c::romdataReleaseRom, OR points
+ * them into g_RomFile pre-Pass-C). EITHER pointer state is fine here:
+ * the table bytes are byte-swapped at preprocess time before this
+ * emitter sees them.
+ *
+ * Server build: returns 0 immediately (no segments populated; ROM not
+ * loaded; nothing to extract).
+ *
+ * Per Mike's Q-3 ruling (2026-05-02): "DO NOT DEFER beyond the scope
+ * of the catalog work. Catalog is not complete unless it is COMPLETE."
+ * Step 3a closes that ruling -- the chr-animation lump becomes
+ * per-asset .pdanim files alongside the Step 1 weapon-animation files.
+ * ============================================================ */
+
+/* Step 3a: emit one .pdanim ZIP compound per chr animation entry in
+ * the segs/animations.bin lump.  Idempotent: skips files that already
+ * exist with non-zero size unless force_rewrite is non-zero.  Per-file
+ * failures emit LOUDFAIL.EXTRACT.PDANIM_CHR but do not abort the walk.
+ *
+ * Returns: count of compounds newly written; -1 on infrastructure
+ * failure (data dir creation, segment lookup, etc.). */
+s32 romExtractAllPdanimChr(s32 force_rewrite);
+
+/* Step 3a parity check (Q-5 ruling). Re-reads each emitted compound's
+ * manifest.json envelope + key scalar fields and verifies they round-
+ * trip the source table entry. Structural integrity check; full
+ * round-trip arrives at Step 4 with the universal loader.
+ *
+ * Returns: count of chr animations that failed parity (0 = pass). */
+s32 romExtractParityCheckPdanimChr(void);
+
 #ifdef __cplusplus
 }
 #endif

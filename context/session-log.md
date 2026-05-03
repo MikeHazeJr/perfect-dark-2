@@ -1,5 +1,61 @@
 # Session Log (Active)
 
+## Session S603-step3a (`amazing-torvalds-eadac6`) - 2026-05-03 - Catalog Universality Pivot Step 3a (character animations)
+
+Per Mike's "Catalog is not complete unless it is COMPLETE. IT IS FOUNDATIONAL TO EVERYTHING." directive: closes Q-3 by emitting one `.pdanim` ZIP compound per chr animation entry in `data/<romid>/segs/animations.bin`. Companion to Step 1 (weapon-animation gunscript opcodes, plain JSON). Both share the `pd_kind: "animation"` envelope; the `category` field discriminates -- `"weapon_animation"` for opcodes, `"character_animation"` for frame data.
+
+### What landed
+
+- New `port/src/romextract_pdanim_chr.c` (`romExtractAllPdanimChr`). Walks the chr-animation table at the tail of the in-memory animations segment (last 0x38a0 bytes; pointers established by `preprocessAnimations` during `romdataInit`). For each non-empty entry emits a ZIP at `data/<romid>/animations/<id>.pdanim` containing:
+  - `manifest.json`: envelope + `category: "character_animation"` + `frames` ref + `frame_count` / `bytes_per_frame` / `header_len` / `framelen` / `flags` + provenance (`source_index`, `source_offset`, `source_symbol`).
+  - `frames.bin`: contiguous header + frame payload (length = `headerlen + numframes * bytesperframe`, sourced from segment buffer at `entry->data` offset).
+  - `frames.bin.sha256`: outer-file digest sidecar (matches `.pdmesh` pattern).
+- Catalog ID convention: reuse `loaderPdbaseNameForAnimEnum` reverse lookup over `k_AnimEnum` (1208 entries; 580 symbolic + 628 auto-named `ANIM_NNNN`). Symbolic names lowercase to `base:<lowered>` (e.g. `ANIM_HEROHIT` -> `base:anim_herohit`); unnamed slots fall back to `base:anim_chr_<NNNN>` per Q-4 Bucket 2.
+- New `port/src/romextract_parity_pdanim_chr.c` (`romExtractParityCheckPdanimChr`). Re-opens each emitted ZIP, parses `manifest.json` envelope + scalar fields, verifies `pd_kind == "animation"` + `category == "character_animation"` + `id` matches + `source_index` / `frame_count` / `bytes_per_frame` / `header_len` round-trip + `frames.bin` entry size matches expected `headerlen + numframes * bytesperframe`. Failures emit `LOADER.UNIVERSAL.PARITY_FAIL: pdanim_chr ...`.
+- Boot wiring in `port/src/main.c` after the Step 2 head/body/arena/scenario block: emit then parity check, both idempotent on subsequent boots.
+- Header declarations in `port/include/romextract_pd.h` follow the Step 2 commenting style.
+
+### Validated assumptions
+
+- **Per-anim layout**: `entry->data` is the segment-relative offset; `headerlen` bytes of header followed by `numframes * bytesperframe` frame bytes. Validated against `src/lib/anim.c::animLoadFrame` line 312 (`offset = bytesperframe * loadframenum + (data + headerlen)`).
+- **Byte-swap state**: `preprocessAnimations` byte-swaps the count + entry fields (numframes / bytesperframe / data / headerlen) at `romdataInit` time; the emitter sees native-endian values directly.
+- **Mod-override marker**: `entry->data == 0xffffffff` indicates a mod hooked the slot via `modAnimationLoadDescriptor`. Mod scan runs LATER than the emitter in main.c boot order, so this state should never appear at extract time -- defensive log + skip if it does.
+- **Empty slots**: `numframes == 0 && headerlen == 0` is a reserved-but-unauthored entry in the legacy ROM table; emitter skips silently.
+
+### Build verify
+
+All 4 targets PASS via `devtools\build-session.ps1`:
+
+| Target | Session | Time | Size |
+|--------|---------|------|------|
+| Client (`pd`) | `pivot-step3a` | 29s | 55.1 MB |
+| Updater (`pd-updater`) | `pivot-step3a` | 1s | 12.3 MB |
+| Server (`pd-server`) | `pivot-step3a-server` | 9s | 22.4 MB |
+| Tests (`pd-tests`) | `pivot-step3a-tests` | 20s | 24.9 MB |
+
+No new test failures observed; the 5 pre-existing test rot failures from Pass C remain unchanged (outside Step 3a touch surface).
+
+### Files changed
+
+| File | Lines | What |
+|------|-------|------|
+| `port/include/romextract_pd.h` | +57 | Step 3a header declarations + boot-order doc |
+| `port/src/romextract_pdanim_chr.c` | +279 (new) | Chr-anim ZIP compound emitter |
+| `port/src/romextract_parity_pdanim_chr.c` | +274 (new) | Chr-anim parity check |
+| `port/src/main.c` | +18 | Boot wiring (Step 3a block after Step 2) |
+| `context/tasks.md` | +/- | Step 2a status moved to "Step 3a status" |
+| `context/session-log.md` | +section | This entry |
+
+### Step 3a closes Q-3 ruling
+
+Mike's 2026-05-02 directive: "Weapon anims first, other anims to follow but DO NOT DEFER beyond the scope of the catalog work. Catalog is not complete unless it is COMPLETE." Status now: 7 of 13 kinds emitted (`weapon`, `mesh`, `animation` (both categories), `head`, `body`, `arena`, `scenario`). Step 3a does not add a new kind -- it completes the `animation` kind that Step 1 partially landed (weapon-anim only). Remaining 6 (`sfx`, `voice`, `song`, `ui`, `font`, `lang`) are Step 3 (byte-payload classes) -- distinct from Step 3a per the audit lock-down.
+
+### Next step
+
+Step 3 (byte-payload classes): `.pdsfx` / `.pdvoice` / `.pdsong` / `.pdui` / `.pdfont` / `.pdlang`. Hardest piece is `.pdui` (retires `pdguiThemeExtractRomTextures`).
+
+---
+
 ## Session S593h-followup-4 (`distracted-hamilton-430172` continuation) - 2026-05-03 - log message audit + B-311 second repro + B-314 chic-robot bot crash
 
 Mike's three-part directive based on the May-03 playtest of two swarm benchmark runs (`first log.log` CPU, `second log.log` GPU) plus a Combat Sim run (`third log.log`). Investigation found Mike's "head_canon flood" framing was off; the actual issues were different. Two coherent merges shipped today.

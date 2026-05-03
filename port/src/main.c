@@ -490,6 +490,28 @@ int main(int argc, const char **argv)
 		(void)head_failures; (void)body_failures; (void)arena_failures;
 	}
 
+	/* Catalog universality pivot Step 3a (2026-05-03): emit one .pdanim
+	 * ZIP compound per chr animation entry in the segs/animations.bin
+	 * lump, alongside the Step 1 weapon-animation .pdanim files (those
+	 * are plain JSON, category="weapon_animation"; chr anims are ZIPs,
+	 * category="character_animation").
+	 *
+	 * Reads from the byte-swapped in-memory animation segment + table
+	 * pointers established by preprocessAnimations during romdataInit.
+	 * Idempotent on subsequent boots (existing files skipped via size
+	 * check). Per Mike's Q-3 ruling (2026-05-02): "Catalog is not
+	 * complete unless it is COMPLETE. IT IS FOUNDATIONAL TO EVERYTHING."
+	 *
+	 * Boot order: must run AFTER romdataInit (segments + table pointers
+	 * populated and byte-swapped) and AFTER romExtractAllSegments (so
+	 * data/<romid>/segs/animations.bin exists on disk for self-heal
+	 * round trips). Both conditions hold here. */
+	{
+		s32 chr_anim_emitted  = romExtractAllPdanimChr(0);
+		s32 chr_anim_failures = romExtractParityCheckPdanimChr();
+		(void)chr_anim_emitted; (void)chr_anim_failures;
+	}
+
 	// Phase 8: Build O(1) runtime→catalog-ID caches (mp body/head, stage, weapon, model).
 	// Must run after all catalog entries are registered.
 	catalogBuildRuntimeCaches();
