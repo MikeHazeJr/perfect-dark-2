@@ -248,8 +248,8 @@ s32 testScenarioLaunch(test_scenario_t scen, const char *map_id)
 		/* Swarm scenarios target MP arenas. The Grid/Forge handoff loads
 		 * a stage directly, which leaves normmplayerisrunning false and
 		 * setup.c selects the SP setup/manifest for arenas like
-		 * base:mp_skedar. Use the normal match path so the MP
-		 * setup/manifest path owns the load. */
+		 * base:mp_skedar. Use the normal match path so the
+		 * MP setup/manifest path owns the load. */
 		if (matchStart() != 0) {
 			sysLogPrintf(LOG_WARNING,
 				"TESTSCEN: Swarm matchStart failed; resetting state");
