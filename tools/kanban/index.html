@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PD2 Task Board</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e293b;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* Header */
+#header{background:#1e293b;color:#f1f5f9;padding:10px 18px;display:flex;align-items:center;gap:14px;border-bottom:2px solid #334155;flex-shrink:0}
+#header h1{font-size:0.95rem;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;color:#38bdf8}
+#save-status{font-size:0.72rem;color:#64748b;min-width:60px;transition:color 0.2s}
+#save-status.saving{color:#f59e0b}
+#save-status.saved{color:#22c55e}
+#header-right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.btn{padding:5px 13px;border-radius:6px;border:none;cursor:pointer;font-size:0.8rem;font-weight:600;font-family:inherit;transition:background 0.15s,color 0.15s;line-height:1.4}
+.btn-ghost{background:transparent;color:#94a3b8;border:1px solid #334155}
+.btn-ghost:hover{background:#334155;color:#f1f5f9}
+.btn-primary{background:#3b82f6;color:white}
+.btn-primary:hover{background:#2563eb}
+.btn-danger{background:#ef4444;color:white}
+.btn-danger:hover{background:#dc2626}
+.btn-sm{padding:3px 9px;font-size:0.72rem}
+
+/* Filters */
+#filters{background:#1e293b;padding:7px 18px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;border-bottom:1px solid #1e293b;flex-shrink:0}
+.filter-label{font-size:0.68rem;color:#475569;text-transform:uppercase;letter-spacing:0.05em;margin-right:4px;white-space:nowrap}
+.pillar-btn{padding:3px 10px;border-radius:12px;border:2px solid;cursor:pointer;font-size:0.7rem;font-weight:700;transition:opacity 0.15s,box-shadow 0.15s;background:transparent;opacity:0.45;font-family:inherit}
+.pillar-btn.active{opacity:1;box-shadow:0 0 0 2px rgba(255,255,255,0.2)}
+.btn-clear-filter{padding:3px 10px;border-radius:12px;border:1px solid #334155;cursor:pointer;font-size:0.7rem;background:transparent;color:#475569;font-family:inherit}
+.btn-clear-filter:hover{color:#94a3b8;border-color:#475569}
+
+/* Board */
+#board{display:flex;gap:14px;padding:14px 18px 14px;overflow-x:auto;overflow-y:hidden;flex:1;align-items:flex-start}
+
+/* Column */
+.column{border-radius:10px;min-width:275px;width:275px;flex-shrink:0;display:flex;flex-direction:column;max-height:calc(100vh - 110px)}
+.column[data-col="backlog"]{background:#f1f5f9}
+.column[data-col="active"] {background:#eff6ff}
+.column[data-col="blocked"]{background:#fff1f2}
+.column[data-col="done"]   {background:#f0fdf4}
+.col-header{padding:10px 12px;border-radius:10px 10px 0 0;display:flex;align-items:center;gap:8px}
+.column[data-col="backlog"] .col-header{background:#475569}
+.column[data-col="active"]  .col-header{background:#1d4ed8}
+.column[data-col="blocked"] .col-header{background:#dc2626}
+.column[data-col="done"]    .col-header{background:#16a34a}
+.col-title{font-size:0.72rem;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:white;flex:1}
+.col-count{background:rgba(255,255,255,0.22);color:white;font-size:0.67rem;font-weight:700;padding:1px 7px;border-radius:10px}
+.col-collapse{background:transparent;border:none;color:rgba(255,255,255,0.65);cursor:pointer;font-size:1rem;line-height:1;padding:0 2px}
+.col-collapse:hover{color:white}
+.card-list-wrap{flex:1;overflow-y:auto;padding:7px;display:flex;flex-direction:column;gap:5px;min-height:50px}
+.column.collapsed .card-list-wrap{display:none}
+.col-footer{padding:6px 7px}
+.add-card-btn{width:100%;padding:6px;background:transparent;border:1px dashed #94a3b8;border-radius:6px;cursor:pointer;font-size:0.75rem;color:#64748b;text-align:center;transition:all 0.15s;font-family:inherit}
+.add-card-btn:hover{background:rgba(0,0,0,0.04);border-color:#475569;color:#334155}
+
+/* Card */
+.card{background:white;border-radius:7px;border-left:4px solid #94a3b8;padding:9px 11px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.08);transition:box-shadow 0.15s,transform 0.1s,opacity 0.15s;user-select:none;draggable:true}
+.card:hover{box-shadow:0 4px 10px rgba(0,0,0,0.13);transform:translateY(-1px)}
+.card.dragging{opacity:0.3;transform:scale(0.97)}
+.card.filtered-out{display:none}
+.card-title{font-size:0.82rem;font-weight:600;color:#1e293b;line-height:1.35}
+.card-meta{display:flex;align-items:center;gap:5px;margin-top:6px;flex-wrap:wrap}
+.pillar-tag{font-size:0.62rem;font-weight:700;padding:2px 7px;border-radius:8px;color:white;white-space:nowrap}
+.card-notes{font-size:0.7rem;color:#64748b;font-style:italic;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:228px}
+.column[data-col="done"] .card{opacity:0.72}
+
+/* Drop indicator */
+.drop-line{height:3px;background:#3b82f6;border-radius:2px;margin:1px 0;flex-shrink:0;pointer-events:none}
+
+/* Modal */
+#modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:200;padding:16px}
+#modal-overlay.hidden{display:none}
+#modal{background:white;border-radius:12px;padding:22px;width:100%;max-width:480px;box-shadow:0 24px 64px rgba(0,0,0,0.35);max-height:calc(100vh - 40px);overflow-y:auto}
+#modal h3{font-size:0.95rem;font-weight:700;margin-bottom:16px;color:#1e293b}
+.form-row{margin-bottom:13px}
+.form-row label{display:block;font-size:0.68rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px}
+.form-row input[type="text"],.form-row textarea,.form-row select{width:100%;padding:7px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.875rem;font-family:inherit;color:#1e293b;transition:border-color 0.15s;background:white}
+.form-row input[type="text"]:focus,.form-row textarea:focus,.form-row select:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.12)}
+.form-row textarea{resize:vertical;min-height:65px}
+.form-two-col{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:13px}
+.modal-actions{display:flex;gap:8px;margin-top:18px;align-items:center}
+.modal-spacer{flex:1}
+
+/* Settings panel */
+#settings-panel{position:fixed;right:0;top:0;height:100%;width:310px;background:white;box-shadow:-6px 0 28px rgba(0,0,0,0.18);transform:translateX(100%);transition:transform 0.22s ease;z-index:150;display:flex;flex-direction:column}
+#settings-panel.open{transform:translateX(0)}
+.settings-head{padding:16px 18px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.settings-head h3{font-size:0.9rem;font-weight:700;color:#1e293b}
+.settings-close{background:none;border:none;font-size:1.25rem;cursor:pointer;color:#64748b;line-height:1;padding:0 2px}
+.settings-close:hover{color:#1e293b}
+.pillar-list{flex:1;overflow-y:auto;padding:10px}
+.pillar-row{display:flex;align-items:center;gap:9px;padding:7px 6px;border-radius:6px;transition:background 0.1s}
+.pillar-row:hover{background:#f8fafc}
+.pillar-swatch{width:13px;height:13px;border-radius:3px;flex-shrink:0}
+.pillar-row-name{flex:1;font-size:0.85rem;font-weight:500;color:#1e293b}
+.pillar-row-count{font-size:0.7rem;color:#94a3b8;margin-right:4px}
+.pillar-edit-btn{background:none;border:1px solid #e2e8f0;color:#64748b;border-radius:4px;padding:2px 8px;font-size:0.7rem;cursor:pointer;font-family:inherit}
+.pillar-edit-btn:hover{border-color:#94a3b8;color:#1e293b}
+.pillar-inline-edit{background:#f8fafc;border-radius:8px;padding:10px;margin:4px 0}
+.pillar-inline-edit input[type="text"]{width:100%;padding:6px 8px;border:1px solid #cbd5e1;border-radius:5px;font-size:0.82rem;margin-bottom:8px;font-family:inherit;display:block}
+.inline-edit-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.inline-edit-row label{font-size:0.72rem;color:#64748b;white-space:nowrap}
+.inline-edit-row input[type="color"]{width:38px;height:28px;border:1px solid #cbd5e1;border-radius:4px;cursor:pointer;padding:2px}
+.inline-edit-actions{display:flex;gap:6px}
+.settings-foot{padding:14px;border-top:1px solid #e2e8f0;flex-shrink:0}
+.settings-foot h4{font-size:0.72rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:9px}
+.add-pillar-form input[type="text"]{width:100%;padding:6px 9px;border:1px solid #cbd5e1;border-radius:5px;font-size:0.82rem;margin-bottom:8px;font-family:inherit;display:block}
+.add-pillar-row{display:flex;align-items:center;gap:9px}
+.add-pillar-row input[type="color"]{width:38px;height:32px;border:1px solid #cbd5e1;border-radius:4px;padding:2px;cursor:pointer}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>PD2 Board</h1>
+  <span id="save-status"></span>
+  <div id="header-right">
+    <button class="btn btn-ghost" onclick="openSettings()">Pillars</button>
+  </div>
+</div>
+
+<div id="filters"></div>
+<div id="board"></div>
+
+<!-- Card modal -->
+<div id="modal-overlay" class="hidden" onclick="onOverlayClick(event)">
+  <div id="modal">
+    <h3 id="modal-title">Edit card</h3>
+    <div class="form-row">
+      <label>Title</label>
+      <input type="text" id="f-title" placeholder="Card title" autocomplete="off">
+    </div>
+    <div class="form-row">
+      <label>Description</label>
+      <textarea id="f-desc" placeholder="Optional description"></textarea>
+    </div>
+    <div class="form-two-col">
+      <div class="form-row" style="margin:0">
+        <label>Pillar</label>
+        <select id="f-pillar"></select>
+      </div>
+      <div class="form-row" style="margin:0">
+        <label>Column</label>
+        <select id="f-col">
+          <option value="backlog">Backlog</option>
+          <option value="active">Active</option>
+          <option value="blocked">Blocked</option>
+          <option value="done">Done</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row" style="margin-top:13px">
+      <label>Notes</label>
+      <textarea id="f-notes" placeholder="Short notes or links" style="min-height:50px"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-danger btn-sm" id="modal-delete-btn" onclick="deleteCard()">Delete</button>
+      <span class="modal-spacer"></span>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="saveCard()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Settings panel -->
+<div id="settings-panel">
+  <div class="settings-head">
+    <h3>Pillars</h3>
+    <button class="settings-close" onclick="closeSettings()">x</button>
+  </div>
+  <div class="pillar-list" id="pillar-list"></div>
+  <div class="settings-foot">
+    <h4>Add Pillar</h4>
+    <div class="add-pillar-form">
+      <input type="text" id="new-pillar-name" placeholder="Pillar name" autocomplete="off">
+      <div class="add-pillar-row">
+        <input type="color" id="new-pillar-color" value="#6366f1">
+        <button class="btn btn-primary btn-sm" onclick="addPillar()">Add</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+let state = null;
+let draggedId = null;
+let dropTarget = null;
+let filterPillars = new Set();
+let editingCardId = null;
+let saveTimer = null;
+let inlineEditingPillarId = null;
+
+const COLS = {
+  backlog: 'Backlog',
+  active:  'Active',
+  blocked: 'Blocked',
+  done:    'Done'
+};
+
+const collapseState = (() => {
+  try { return JSON.parse(localStorage.getItem('pd2kb-collapse') || '{}'); }
+  catch { return {}; }
+})();
+
+// ---------- utils ----------
+
+function newId() {
+  return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function getPillar(id) {
+  return state.pillars.find(p => p.id === id) || null;
+}
+
+function pillarColor(id) {
+  const p = getPillar(id);
+  return p ? p.color : '#94a3b8';
+}
+
+function now() { return new Date().toISOString(); }
+
+// ---------- API ----------
+
+async function loadState() {
+  const r = await fetch('/api/state');
+  state = await r.json();
+  render();
+}
+
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  setSaveStatus('saving', 'saving...');
+  saveTimer = setTimeout(async () => {
+    try {
+      await fetch('/api/state', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(state, null, 2)
+      });
+      setSaveStatus('saved', 'saved');
+      setTimeout(() => setSaveStatus('', ''), 1800);
+    } catch (e) {
+      setSaveStatus('', 'save failed');
+    }
+  }, 400);
+}
+
+function setSaveStatus(cls, msg) {
+  const el = document.getElementById('save-status');
+  el.className = cls;
+  el.textContent = msg;
+}
+
+// ---------- render ----------
+
+function render() {
+  renderFilters();
+  renderBoard();
+  renderPillarList();
+}
+
+function renderFilters() {
+  const bar = document.getElementById('filters');
+  bar.innerHTML = '';
+
+  const lbl = document.createElement('span');
+  lbl.className = 'filter-label';
+  lbl.textContent = 'Pillar:';
+  bar.appendChild(lbl);
+
+  for (const p of state.pillars) {
+    const btn = document.createElement('button');
+    btn.className = 'pillar-btn' + (filterPillars.has(p.id) ? ' active' : '');
+    btn.textContent = p.name;
+    btn.style.borderColor = p.color;
+    btn.style.color = filterPillars.has(p.id) ? 'white' : p.color;
+    btn.style.background = filterPillars.has(p.id) ? p.color : 'transparent';
+    btn.onclick = () => toggleFilter(p.id);
+    bar.appendChild(btn);
+  }
+
+  if (filterPillars.size > 0) {
+    const clr = document.createElement('button');
+    clr.className = 'btn-clear-filter';
+    clr.textContent = 'Clear';
+    clr.onclick = () => { filterPillars.clear(); render(); };
+    bar.appendChild(clr);
+  }
+}
+
+function renderBoard() {
+  const board = document.getElementById('board');
+  board.innerHTML = '';
+  for (const colId of state.columns) {
+    board.appendChild(buildColumn(colId));
+  }
+}
+
+function buildColumn(colId) {
+  const colCards = state.cards
+    .filter(c => c.column === colId)
+    .sort((a, b) => a.order - b.order);
+
+  const visibleCards = colCards.filter(c =>
+    filterPillars.size === 0 || filterPillars.has(c.pillar)
+  );
+
+  const col = document.createElement('div');
+  col.className = 'column' + (collapseState[colId] ? ' collapsed' : '');
+  col.dataset.col = colId;
+
+  // Header
+  const hd = document.createElement('div');
+  hd.className = 'col-header';
+
+  const title = document.createElement('span');
+  title.className = 'col-title';
+  title.textContent = COLS[colId] || colId;
+  hd.appendChild(title);
+
+  const cnt = document.createElement('span');
+  cnt.className = 'col-count';
+  cnt.textContent = visibleCards.length;
+  hd.appendChild(cnt);
+
+  const tog = document.createElement('button');
+  tog.className = 'col-collapse';
+  tog.title = collapseState[colId] ? 'Expand' : 'Collapse';
+  tog.textContent = collapseState[colId] ? '+' : '-';
+  tog.onclick = () => {
+    collapseState[colId] = !collapseState[colId];
+    localStorage.setItem('pd2kb-collapse', JSON.stringify(collapseState));
+    col.classList.toggle('collapsed', !!collapseState[colId]);
+    tog.textContent = collapseState[colId] ? '+' : '-';
+    tog.title = collapseState[colId] ? 'Expand' : 'Collapse';
+    cnt.textContent = visibleCards.length;
+  };
+  hd.appendChild(tog);
+  col.appendChild(hd);
+
+  // Card list
+  const wrap = document.createElement('div');
+  wrap.className = 'card-list-wrap';
+  wrap.addEventListener('dragover', e => onDragOver(e, colId, wrap));
+  wrap.addEventListener('drop', e => onDrop(e, colId));
+  wrap.addEventListener('dragleave', e => {
+    if (!wrap.contains(e.relatedTarget)) clearDropLines(wrap);
+  });
+
+  for (const card of colCards) {
+    const cardEl = buildCard(card);
+    if (filterPillars.size > 0 && !filterPillars.has(card.pillar)) {
+      cardEl.classList.add('filtered-out');
+    }
+    wrap.appendChild(cardEl);
+  }
+  col.appendChild(wrap);
+
+  // Footer
+  const ft = document.createElement('div');
+  ft.className = 'col-footer';
+  const addBtn = document.createElement('button');
+  addBtn.className = 'add-card-btn';
+  addBtn.textContent = '+ Add card';
+  addBtn.onclick = () => openModal(null, colId);
+  ft.appendChild(addBtn);
+  col.appendChild(ft);
+
+  return col;
+}
+
+function buildCard(card) {
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.dataset.id = card.id;
+  el.draggable = true;
+  el.style.borderLeftColor = pillarColor(card.pillar);
+
+  const t = document.createElement('div');
+  t.className = 'card-title';
+  t.textContent = card.title;
+  el.appendChild(t);
+
+  const meta = document.createElement('div');
+  meta.className = 'card-meta';
+  const p = getPillar(card.pillar);
+  if (p) {
+    const tag = document.createElement('span');
+    tag.className = 'pillar-tag';
+    tag.style.background = p.color;
+    tag.textContent = p.name;
+    meta.appendChild(tag);
+  }
+  el.appendChild(meta);
+
+  if (card.notes) {
+    const n = document.createElement('div');
+    n.className = 'card-notes';
+    n.textContent = card.notes;
+    el.appendChild(n);
+  }
+
+  el.onclick = () => openModal(card.id, null);
+
+  el.addEventListener('dragstart', e => {
+    draggedId = card.id;
+    el.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', card.id);
+  });
+
+  el.addEventListener('dragend', () => {
+    el.classList.remove('dragging');
+    draggedId = null;
+    dropTarget = null;
+    document.querySelectorAll('.drop-line').forEach(d => d.remove());
+  });
+
+  return el;
+}
+
+// ---------- drag and drop ----------
+
+function onDragOver(e, colId, wrap) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+
+  const cards = [...wrap.querySelectorAll('.card:not(.dragging):not(.filtered-out)')];
+  let beforeId = null;
+  let insertBefore = null;
+
+  for (const c of cards) {
+    const rect = c.getBoundingClientRect();
+    if (e.clientY < rect.top + rect.height / 2) {
+      beforeId = c.dataset.id;
+      insertBefore = c;
+      break;
+    }
+  }
+
+  dropTarget = {colId, beforeId};
+  clearDropLines(wrap);
+
+  const line = document.createElement('div');
+  line.className = 'drop-line';
+  if (insertBefore) {
+    wrap.insertBefore(line, insertBefore);
+  } else {
+    wrap.appendChild(line);
+  }
+}
+
+function onDrop(e, colId) {
+  e.preventDefault();
+  if (!draggedId || !dropTarget) return;
+  moveCard(draggedId, dropTarget.colId, dropTarget.beforeId);
+  clearDropLines(null);
+  draggedId = null;
+  dropTarget = null;
+}
+
+function clearDropLines(wrap) {
+  const scope = wrap || document;
+  scope.querySelectorAll('.drop-line').forEach(d => d.remove());
+}
+
+function moveCard(cardId, toCol, beforeId) {
+  const card = state.cards.find(c => c.id === cardId);
+  if (!card) return;
+
+  card.column = toCol;
+
+  const colCards = state.cards
+    .filter(c => c.id !== cardId && c.column === toCol)
+    .sort((a, b) => a.order - b.order);
+
+  if (beforeId === null) {
+    card.order = colCards.length > 0 ? colCards[colCards.length - 1].order + 1000 : 1000;
+  } else {
+    const idx = colCards.findIndex(c => c.id === beforeId);
+    const before = colCards[idx];
+    const prev = idx > 0 ? colCards[idx - 1] : null;
+    card.order = prev ? (prev.order + before.order) / 2 : before.order / 2;
+  }
+
+  card.updated = now();
+  renderBoard();
+  scheduleSave();
+}
+
+// ---------- filter ----------
+
+function toggleFilter(pillarId) {
+  if (filterPillars.has(pillarId)) {
+    filterPillars.delete(pillarId);
+  } else {
+    filterPillars.add(pillarId);
+  }
+  render();
+}
+
+// ---------- modal ----------
+
+function openModal(cardId, defaultColId) {
+  editingCardId = cardId;
+
+  const overlay = document.getElementById('modal-overlay');
+  const isNew = cardId === null;
+
+  document.getElementById('modal-title').textContent = isNew ? 'New card' : 'Edit card';
+  document.getElementById('modal-delete-btn').style.display = isNew ? 'none' : '';
+
+  // Populate pillar select
+  const sel = document.getElementById('f-pillar');
+  sel.innerHTML = '';
+  for (const p of state.pillars) {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name;
+    sel.appendChild(opt);
+  }
+
+  if (isNew) {
+    document.getElementById('f-title').value = '';
+    document.getElementById('f-desc').value = '';
+    document.getElementById('f-notes').value = '';
+    document.getElementById('f-col').value = defaultColId || 'backlog';
+    sel.value = state.pillars.length > 0 ? state.pillars[0].id : '';
+  } else {
+    const card = state.cards.find(c => c.id === cardId);
+    document.getElementById('f-title').value = card.title;
+    document.getElementById('f-desc').value = card.description || '';
+    document.getElementById('f-notes').value = card.notes || '';
+    document.getElementById('f-col').value = card.column;
+    sel.value = card.pillar;
+  }
+
+  overlay.classList.remove('hidden');
+  setTimeout(() => document.getElementById('f-title').focus(), 50);
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.add('hidden');
+  editingCardId = null;
+}
+
+function onOverlayClick(e) {
+  if (e.target === document.getElementById('modal-overlay')) closeModal();
+}
+
+function saveCard() {
+  const title = document.getElementById('f-title').value.trim();
+  if (!title) {
+    document.getElementById('f-title').focus();
+    return;
+  }
+
+  const colVal = document.getElementById('f-col').value;
+  const pillarVal = document.getElementById('f-pillar').value;
+  const desc = document.getElementById('f-desc').value.trim();
+  const notes = document.getElementById('f-notes').value.trim();
+
+  if (editingCardId) {
+    const card = state.cards.find(c => c.id === editingCardId);
+    const prevCol = card.column;
+    card.title = title;
+    card.description = desc;
+    card.notes = notes;
+    card.pillar = pillarVal;
+    card.column = colVal;
+    card.updated = now();
+    if (colVal !== prevCol) {
+      const colCards = state.cards
+        .filter(c => c.id !== card.id && c.column === colVal)
+        .sort((a, b) => a.order - b.order);
+      card.order = colCards.length > 0 ? colCards[colCards.length - 1].order + 1000 : 1000;
+    }
+  } else {
+    const colCards = state.cards
+      .filter(c => c.column === colVal)
+      .sort((a, b) => a.order - b.order);
+    const order = colCards.length > 0 ? colCards[colCards.length - 1].order + 1000 : 1000;
+    const n = now();
+    state.cards.push({
+      id: newId(),
+      title,
+      description: desc,
+      pillar: pillarVal,
+      column: colVal,
+      order,
+      notes,
+      created: n,
+      updated: n
+    });
+  }
+
+  closeModal();
+  render();
+  scheduleSave();
+}
+
+function deleteCard() {
+  if (!editingCardId) return;
+  if (!confirm('Delete this card?')) return;
+  state.cards = state.cards.filter(c => c.id !== editingCardId);
+  closeModal();
+  render();
+  scheduleSave();
+}
+
+// ---------- settings ----------
+
+function openSettings() {
+  renderPillarList();
+  document.getElementById('settings-panel').classList.add('open');
+}
+
+function closeSettings() {
+  document.getElementById('settings-panel').classList.remove('open');
+  inlineEditingPillarId = null;
+}
+
+function renderPillarList() {
+  const list = document.getElementById('pillar-list');
+  if (!list || !state) return;
+  list.innerHTML = '';
+
+  for (const p of state.pillars) {
+    if (inlineEditingPillarId === p.id) {
+      const form = document.createElement('div');
+      form.className = 'pillar-inline-edit';
+
+      const nameIn = document.createElement('input');
+      nameIn.type = 'text';
+      nameIn.value = p.name;
+      nameIn.id = 'edit-pname-' + p.id;
+      form.appendChild(nameIn);
+
+      const row = document.createElement('div');
+      row.className = 'inline-edit-row';
+      const cLbl = document.createElement('label');
+      cLbl.textContent = 'Color';
+      const cIn = document.createElement('input');
+      cIn.type = 'color';
+      cIn.value = p.color;
+      cIn.id = 'edit-pcolor-' + p.id;
+      row.appendChild(cLbl);
+      row.appendChild(cIn);
+      form.appendChild(row);
+
+      const actions = document.createElement('div');
+      actions.className = 'inline-edit-actions';
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'btn btn-primary btn-sm';
+      saveBtn.textContent = 'Save';
+      saveBtn.onclick = () => savePillarEdit(p.id);
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn btn-ghost btn-sm';
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.onclick = () => { inlineEditingPillarId = null; renderPillarList(); };
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn btn-danger btn-sm';
+      delBtn.textContent = 'Delete';
+      delBtn.onclick = () => deletePillar(p.id);
+      actions.appendChild(saveBtn);
+      actions.appendChild(cancelBtn);
+      actions.appendChild(delBtn);
+      form.appendChild(actions);
+      list.appendChild(form);
+      setTimeout(() => nameIn.focus(), 30);
+    } else {
+      const cardCount = state.cards.filter(c => c.pillar === p.id).length;
+      const row = document.createElement('div');
+      row.className = 'pillar-row';
+
+      const sw = document.createElement('div');
+      sw.className = 'pillar-swatch';
+      sw.style.background = p.color;
+      row.appendChild(sw);
+
+      const nm = document.createElement('span');
+      nm.className = 'pillar-row-name';
+      nm.textContent = p.name;
+      row.appendChild(nm);
+
+      const cnt = document.createElement('span');
+      cnt.className = 'pillar-row-count';
+      cnt.textContent = cardCount;
+      row.appendChild(cnt);
+
+      const editBtn = document.createElement('button');
+      editBtn.className = 'pillar-edit-btn';
+      editBtn.textContent = 'Edit';
+      editBtn.onclick = () => { inlineEditingPillarId = p.id; renderPillarList(); };
+      row.appendChild(editBtn);
+
+      list.appendChild(row);
+    }
+  }
+}
+
+function savePillarEdit(pillarId) {
+  const p = getPillar(pillarId);
+  if (!p) return;
+  const name = document.getElementById('edit-pname-' + pillarId).value.trim();
+  const color = document.getElementById('edit-pcolor-' + pillarId).value;
+  if (!name) return;
+  p.name = name;
+  p.color = color;
+  inlineEditingPillarId = null;
+  render();
+  scheduleSave();
+}
+
+function deletePillar(pillarId) {
+  const count = state.cards.filter(c => c.pillar === pillarId).length;
+  if (count > 0 && !confirm(`Delete pillar? ${count} card(s) will lose their pillar assignment.`)) return;
+  state.pillars = state.pillars.filter(p => p.id !== pillarId);
+  state.cards.forEach(c => { if (c.pillar === pillarId) c.pillar = ''; });
+  filterPillars.delete(pillarId);
+  inlineEditingPillarId = null;
+  render();
+  scheduleSave();
+}
+
+function addPillar() {
+  const nameEl = document.getElementById('new-pillar-name');
+  const colorEl = document.getElementById('new-pillar-color');
+  const name = nameEl.value.trim();
+  if (!name) { nameEl.focus(); return; }
+
+  const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  if (state.pillars.find(p => p.id === id)) {
+    alert('A pillar with that name already exists.');
+    return;
+  }
+
+  state.pillars.push({ id, name, color: colorEl.value });
+  nameEl.value = '';
+  render();
+  scheduleSave();
+}
+
+// ---------- keyboard ----------
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (!document.getElementById('modal-overlay').classList.contains('hidden')) {
+      closeModal();
+    } else {
+      closeSettings();
+    }
+  }
+  if ((e.key === 'Enter') && !document.getElementById('modal-overlay').classList.contains('hidden')) {
+    if (e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'SELECT') {
+      e.preventDefault();
+      saveCard();
+    }
+  }
+});
+
+// ---------- boot ----------
+
+loadState().catch(err => {
+  document.getElementById('board').innerHTML =
+    '<p style="color:#ef4444;padding:20px">Failed to load state: ' + err.message +
+    '. Is server.py running on port 7531?</p>';
+});
+</script>
+</body>
+</html>
