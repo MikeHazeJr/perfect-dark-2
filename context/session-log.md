@@ -1,5 +1,75 @@
 # Session Log (Active)
 
+## Session (`hardcore-leavitt-20fefd`) - 2026-05-03 - Engine Phase 4: walker + emitter structural concurrency
+
+Mike's directive: "Do 4 + 5 and the triage in one go." Phase 4 is the structural concurrency layer that makes the universal walker + per-asset emitters parallel. Phase 5 (polish + telemetry) ships separately but in the same session.
+
+### Outcome
+
+Three layered changes:
+
+1. **Generic per-index fan-out helper**: `bootPoolForRangeBlocking(begin, end, fn, ctx)` in [port/include/boot_pool.h](../../port/include/boot_pool.h) + [port/src/boot_pool.c](../../port/src/boot_pool.c). Lifts the Phase 3 verify pattern (shared mutex-cursor + manager-inline) into a reusable callback API. 1-worker hardware degrades to serial inline execution.
+
+2. **Catalog + loader_pool mutexes**: single `SDL_mutex` in each of [port/src/assetcatalog.c](../../port/src/assetcatalog.c) and [port/src/loader_pool.c](../../port/src/loader_pool.c). Catalog mutex wraps every public hot path (register*, resolve, getMutable, hasEntry, isEnabled, set*, iterate*, getCount*, clear*, refresh). Typed `assetCatalogRegister*` wrappers refactored to call new static `s_registerLocked` under one critical section so the entry pointer + type-specific field fill stay valid across concurrent realloc. New helper `assetCatalogSetCategoryById()` for walker callbacks (anim / font / lang) that fill `entry->category` after register; re-resolves under-lock to keep the field write safe. Loader pool mutex wraps every parse* helper + reset/finalize so concurrent walker callbacks serialize correctly into the shared arenas (s_GuncmdsUsed, s_AmmosUsed, etc.).
+
+3. **Walker + 12 emitter inner loops parallelized**: `loaderWalkerScanKind` is now collect-then-fan-out (Phase 1 readdir + collect filenames; Phase 2 per-file work via the boot pool with batch-mutex counter merge). 12 emitters each refactored to use `bootPoolForRangeBlocking` on their inner per-asset loop:
+
+| Emitter | Asset count | Notes |
+|---|---:|---|
+| pdwpn | 86 | walks `g_WeaponData[]` |
+| pdmesh | ~512 unique filenums | two-phase upstream dedup |
+| pdanim | 110 | walks authoring table |
+| pdanim_chr | up to 1208 | walks chr anim segment |
+| pdhead | 84 | walks authoring table |
+| pdbody | 68 | walks authoring table |
+| pdarena | 47 (dual emit) | writes both .pdarena + .pdscenario per record |
+| pdsfx | 1545 | shared bank walker |
+| pdvoice | 1545 filtered | same walker, want_voice flip |
+| pdsong | ~119 | walks sequences segment |
+| pdfont | 10 | gated `!PD_SERVER` |
+| pdlang | 68 | gated `!PD_SERVER` |
+
+The pdui emitter stays serial (GL render-loop trigger post-mainProc, not on the catalog work thread).
+
+### Build verify
+
+Clean four-target via `devtools\build-session.ps1 -Session phase4`:
+
+- Client (pd, PerfectDark.exe): **PASS, 55.5 MB (31s)**
+- Updater (pd-updater, Updater.exe): **PASS, 12.3 MB (1s)**
+- Server (pd-server, PerfectDarkServer.exe): **PASS, 22.4 MB (9s)**
+- Tests (pd-tests, pd-tests.exe): **PASS, 24.6 MB (18s)**
+
+No new compile warnings.
+
+### Files modified
+
+- `port/include/boot_pool.h`, `port/src/boot_pool.c` (helper API + body, +100 lines).
+- `port/include/assetcatalog.h`, `port/src/assetcatalog.c` (mutex + locked variants + setCategoryById, +280 net).
+- `port/src/loader_pool.c` (mutex + parser wrappers, +60 net).
+- `port/src/loader_walker_common.c` (collect-then-fan-out scaffold, +130 net).
+- `port/src/loader_walker_anim.c`, `port/src/loader_walker_font.c`, `port/src/loader_walker_lang.c` (use new helper for category fill).
+- 12 emitters: `port/src/romextract_pd{wpn,mesh,anim,anim_chr,head,body,arena,sfx,song,font,lang}.c` (+~50 each for fan-out ctx + worker + the call).
+- `tools/kanban/state.json` (c110 -> done with SHA, c111 -> ready with SHA).
+- `context/audits/engine-phase4-walker-emitter-concurrency-2026-05-03.md` (new audit, +185 lines).
+
+### Merge trail
+
+- Phase 4 WIP commit + merge to dev: `55392850` (worktree `hardcore-leavitt-20fefd`).
+- Phase 4 audit + kanban + session-log + tasks merge: pending.
+
+### What is now possible
+
+- **Phase 5 (polish + telemetry) unblocked**. Spec: per-launch weight caching for `boot_progress`, pool-tuning verification on Mike's 16-core box, overlay polish if discoverable, optional `Boot.Telemetry` flag for diagnostic counters. c111 marked ready in kanban.
+- **Walker concurrency safety net**: any future kind-walker addition automatically picks up the fan-out + mutex serialization. New walkers just call `loaderWalkerScanKind` with their `_register` callback.
+- **Per-asset emitter speedup grows with asset count**. Audio (1545 + 1545) and chr anims (1208) are the headliners; first-launch cost drops hardest where pool depth is highest.
+
+### Coordination notes
+
+Phase 3 (`f1d670e3`) is the structural ancestor: its `s_verifyWorkerFn` shape is now generalized as `bootPoolForRangeBlocking`. B-323 challenge AV (`8554b4ea`) is independent and stayed unchanged.
+
+---
+
 ## Session (`exciting-wozniak-fe0cac`) - 2026-05-03 - Engine Phase 3: parallel verify pass
 
 Mike's directive (continuing the startup-acceleration arc): "Phase 3 of startup acceleration. Mike green-lit 2026-05-03 18:20 ET." Phase 2 (thread pool + progress channel + boot overlay) shipped at dev `78b5008a` with 14 workers spawning + overlay visible 5.98s on Mike's machine. Phase 3 is the verify-pass parallelization itself: replace the serial 2011-file SHA-256 loop with fan-out across the boot pool's worker threads. Single coherent unit per `complete-unit-shipping`.
