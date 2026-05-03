@@ -88,31 +88,32 @@ TEST_CASE("F13: port/fast3d/pdgui_bridge.c has no direct g_MpArenas[] reads",
  * accidentally drops the registration loop or the server stub does
  * not silently land. */
 
-TEST_CASE("F13: src/game/mplayer/setup.c retains g_MpArenas[] table definition",
-          "[catalog-mgr-arena][gate3][f13]") {
+/* BYOR completion (2026-05-03): g_MpArenas[] retired entirely; data
+ * moved to port/src/arenadata_authored.c with the slug + category +
+ * load_mode columns inlined per record. The pins below now positively
+ * lock the new authoring table location and the arena registration
+ * loop's authoring-table walk. */
+
+TEST_CASE("BYOR: port/src/arenadata_authored.c carries the arena authoring table",
+          "[catalog-mgr-arena][byor]") {
+	std::string src = readFile("port/src/arenadata_authored.c");
+	REQUIRE(src.find("g_ArenaData[]") != std::string::npos);
+	REQUIRE(src.find("g_ArenaDataCount") != std::string::npos);
+	REQUIRE(src.find("\"base:arena_mp_skedar\"") != std::string::npos);
+	REQUIRE(src.find("\"Solo Missions\"") != std::string::npos);
+}
+
+TEST_CASE("BYOR: port/src/assetcatalog_base.c walks g_ArenaData",
+          "[catalog-mgr-arena][byor]") {
+	std::string src = readFile("port/src/assetcatalog_base.c");
+	REQUIRE(src.find("g_ArenaData[i]") != std::string::npos);
+	REQUIRE(src.find("g_ArenaDataCount") != std::string::npos);
+	REQUIRE(src.find("ad->load_mode") != std::string::npos);
+}
+
+TEST_CASE("BYOR: src/game/mplayer/setup.c carries the g_MpArenas retirement marker",
+          "[catalog-mgr-arena][byor]") {
 	std::string src = readFile("src/game/mplayer/setup.c");
-	REQUIRE(src.find("struct mparena g_MpArenas[]") != std::string::npos);
-}
-
-TEST_CASE("F13: port/src/server_stubs.c retains g_MpArenas[] server stub",
-          "[catalog-mgr-arena][gate3][f13]") {
-	std::string src = readFile("port/src/server_stubs.c");
-	REQUIRE(src.find("struct mparena g_MpArenas[]") != std::string::npos);
-}
-
-TEST_CASE("F13: port/src/assetcatalog_base.c retains arena registration loop",
-          "[catalog-mgr-arena][gate3][f13]") {
-	std::string src = readFile("port/src/assetcatalog_base.c");
-	/* Registration reads each arena's three g_MpArenas fields; pin all
-	 * three to detect accidental partial rewrites. */
-	REQUIRE(src.find("g_MpArenas[idx].stagenum") != std::string::npos);
-	REQUIRE(src.find("g_MpArenas[idx].requirefeature") != std::string::npos);
-	REQUIRE(src.find("g_MpArenas[idx].name") != std::string::npos);
-}
-
-TEST_CASE("F13: port/src/assetcatalog_base.c retains s_ArenaNames + s_ArenaGroupMap",
-          "[catalog-mgr-arena][gate3][f13]") {
-	std::string src = readFile("port/src/assetcatalog_base.c");
-	REQUIRE(src.find("s_ArenaNames[") != std::string::npos);
-	REQUIRE(src.find("s_ArenaGroupMap[") != std::string::npos);
+	REQUIRE(src.find("g_MpArenas[47] retired") != std::string::npos);
+	REQUIRE(src.find("arenadata_authored.c") != std::string::npos);
 }

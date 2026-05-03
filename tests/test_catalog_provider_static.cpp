@@ -461,11 +461,14 @@ TEST_CASE("base first-person hand model files populate provider handles", "[cata
 	const std::string baseExtended = readTextFile("port/src/assetcatalog_base_extended.c");
 	const std::string bondgun = readTextFile("src/game/bondgun.c");
 
-	REQUIRE(baseExtended.find("g_HeadsAndBodies[i].handfilenum") != std::string::npos);
+	/* BYOR completion (2026-05-03): hand-model probe migrated from
+	 * g_HeadsAndBodies[i].handfilenum -> g_BodyData[i].handfilenum
+	 * (authoring table). Pin updated to match the new source. */
+	REQUIRE(baseExtended.find("g_BodyData[i].handfilenum") != std::string::npos);
 	REQUIRE(baseExtended.find("base:hand_model_%04x") != std::string::npos);
 	REQUIRE(baseExtended.find("e->runtime_index = -handfilenum") != std::string::npos);
 	REQUIRE(baseExtended.find("e->source_filenum = handfilenum") != std::string::npos);
-	REQUIRE(baseExtended.find("catalogSetPrimaryRomFilenum(e, e->source_filenum)") != std::string::npos);
+	REQUIRE(baseExtended.find("catalogBindPrimaryFromDiskOrRom(e, e->source_filenum)") != std::string::npos);
 	REQUIRE(bondgun.find("catalogHandleByModelSourceFilenum(ASSET_NONE, filenum)") != std::string::npos);
 }
 

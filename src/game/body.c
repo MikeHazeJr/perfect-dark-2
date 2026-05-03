@@ -210,11 +210,13 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 	 * with full context, plus a one-shot HUD message during active
 	 * gameplay so the player can see WHY their selected body appears as
 	 * DJ Bond rather than silently wondering. Per Opus H-6 + design D-X. */
-	if (bodynum < 0 || bodynum >= ARRAYCOUNT(g_HeadsAndBodies)) {
+	/* BYOR completion (2026-05-03): historical g_HeadsAndBodies[152]
+	 * retired; the headnum/bodynum index space remains [0,152). */
+	if (bodynum < 0 || bodynum >= 152) {
 		sysLogPrintf(LOG_ERROR,
-			"BODY.IDENTITY: bodynum=%d OOB [0,%d), substituting bodynum=0 "
+			"BODY.IDENTITY: bodynum=%d OOB [0,152), substituting bodynum=0 "
 			"(DJ Bond) -- chr will appear as wrong character (isplayer=%d headnum=%d)",
-			bodynum, ARRAYCOUNT(g_HeadsAndBodies), isplayer, headnum);
+			bodynum, isplayer, headnum);
 		if (isplayer && g_Vars.currentplayer != NULL && g_Vars.currentplayer->prop != NULL) {
 			hudmsgCreate("Character load failed -- using fallback body", HUDMSGTYPE_DEFAULT);
 		}

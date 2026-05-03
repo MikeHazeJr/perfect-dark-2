@@ -112,8 +112,30 @@ Five-bug coherent ship from Mike's playtest of the Step-5 build (`pd-client.log`
 Build verify clean four-target via `build-session.ps1 -Session b318 -Target all/server/tests`: client 55.1 MB, updater 12.3 MB, server 22.4 MB, tests 24.6 MB. Audit: [audits/catalog-universality-pivot-plan-2026-05-02.md](audits/catalog-universality-pivot-plan-2026-05-02.md) "Post-pivot triage SHIPPED" section. Bug ledger entries B-318 through B-322 in [bugs.md](bugs.md).
 
 **Followups (out of scope for this ship):**
-- Empty-pool-on-clean-BYOR root-cause fix (pre-ship `.pd<ext>` files OR add ROM-direct extraction path).
+- ~~Empty-pool-on-clean-BYOR root-cause fix~~ -- SHIPPED at section 2c (BYOR completion via Option B authoring tables).
 - `pdvoice skipped=1545` investigation (every sound classified as is_voice=0 -- russ-table read issue independent of parent-dir).
+
+### 2c. BYOR Completion SHIPPED (2026-05-03, focused-poitras-97c1d4)
+
+Closes the "Empty-pool-on-clean-BYOR" followup from section 2b. Per Mike's hard constraint: BYOR is non-negotiable, never tradeoff. Ship as ONE coherent unit covering all metadata kinds via Option B (authoring source-of-truth files in `port/src/*data_authored.c`). No mixed pattern; no pre-shipped extracts.
+
+**5 authoring files** (`port/src/*data_authored.c` + `port/include/*data_authored.h`): `weapondata` (86 weapons + 87 bot prefs + slug table, 6037 lines), `animdata` (110 anims iteration table), `headdata` (84 heads), `bodydata` (68 bodies), `arenadata` (47 arenas with slug + category + load_mode columns). Engine never includes these headers; reads route through the catalog managers.
+
+**6 emitters refactored** to walk authoring tables: `pdwpn`, `pdanim` (non-chr), `pdhead`, `pdbody`, `pdarena` (also feeds `.pdscenario` ZIPs unchanged), and `pdmesh` extended to walk weapon hi/lo + head + body + body hand mesh refs (closes the schema 2.5 cross-ref coverage gap).
+
+**6 catalog files migrated** (catalog internals only; perimeter outside catalog already routed): `assetcatalog_base.c` (registration loops + SP loop), `assetcatalog_api.c` (handfilenum sentinels), `assetcatalog_base_extended.c` (hand-model probe), `catalog_mgr_heads.c` + `catalog_mgr_bodies.c` (mirror init via lookup helpers), `modelcatalog.c` (validation-time data source).
+
+**Engine retirements**: `g_HeadsAndBodies[152]` body retired in `src/game/modeldata/robot.c`; `g_MpArenas[47]` body retired in `src/game/mplayer/setup.c`; `data.h` externs retired; `server_stubs.c` mirrors retired (server links the head/body/arena authoring files explicitly via `SRC_SERVER` list update).
+
+**Build verify clean four-target** via `build-session.ps1 -Session byor1`: client 55.2 MB, updater 12.3 MB, server PASS (7s), tests PASS (16s). No new compile warnings.
+
+**Test pin updates**: `test_catalog_provider_static.cpp` hand-model probe pin updated to `g_BodyData[i].handfilenum`. `test_arena_direct_reads_audit.cpp` rewritten as positive pins on the new authoring file + walk pattern.
+
+**Pipeline**: ROM -> disk segments (Pass A.2/B/C) + binary-baked `g_*Data[]` -> emitters write per-asset `.pd<ext>` -> walker registers in catalog -> catalog serves engine. No `.pdbase`, no pre-shipped extracts, no engine-side direct reads of authoring tables. BYOR contract holds end-to-end.
+
+**Smoke verify (Mike-runnable)**: `rm -rf <install>/data/<romid>/`, run client, verify `LOADER.UNIVERSAL.SUMMARY: scanned > 0 registered > 0` for all 13 kinds, verify per-kind dirs populated with expected counts, verify stage load proceeds without AV.
+
+**Audit**: [audits/catalog-universality-pivot-plan-2026-05-02.md](audits/catalog-universality-pivot-plan-2026-05-02.md) "BYOR Completion SHIPPED" section.
 
 ### 3. Input - Controller Support (Branch 2 Cohorts 5-8)
 

@@ -112,64 +112,17 @@ struct menudialogdef g_MpDropOutMenuDialog = {
 	NULL,
 };
 
-struct mparena g_MpArenas[] = {
-	// Stage, unlock, name
-	{ STAGE_MP_SKEDAR,     0,                          L_MPMENU_119 },
-	{ STAGE_MP_PIPES,      0,                          L_MPMENU_120 },
-	{ STAGE_MP_RAVINE,       0, L_MPMENU_121  },
-	{ STAGE_MP_G5BUILDING,   0, L_MPMENU_122  },
-	{ STAGE_MP_SEWERS,       0, L_MPMENU_123  },
-	{ STAGE_MP_WAREHOUSE,    0, L_MPMENU_124  },
-	{ STAGE_MP_GRID,         0, L_MPMENU_125  },
-	{ STAGE_MP_RUINS,        0, L_MPMENU_126  },
-	{ STAGE_MP_AREA52,       0, L_MPMENU_127  },
-	{ STAGE_MP_BASE,         0, L_MPMENU_128  },
-	{ STAGE_MP_FORTRESS,     0, L_MPMENU_130  },
-	{ STAGE_MP_VILLA,        0, L_MPMENU_131  },
-	{ STAGE_MP_CARPARK,      0, L_MPMENU_132  },
-	{ STAGE_DEFECTION,       0, (VERSION == VERSION_JPN_FINAL ? L_OPTIONS_134 : L_OPTIONS_133) }, // dataDyne Central
-	{ STAGE_INVESTIGATION,   0, (VERSION == VERSION_JPN_FINAL ? L_OPTIONS_136 : L_OPTIONS_135) }, // dataDyne Research
-	{ STAGE_VILLA,           0, (VERSION == VERSION_JPN_FINAL ? L_OPTIONS_140 : L_OPTIONS_139) }, // Carrington Villa
-	{ STAGE_CHICAGO,         0, (VERSION == VERSION_JPN_FINAL ? L_OPTIONS_142 : L_OPTIONS_141) }, // Chicago
-	{ STAGE_G5BUILDING,      0, (VERSION == VERSION_JPN_FINAL ? L_OPTIONS_144 : L_OPTIONS_143) }, // G5 Building
-	{ STAGE_INFILTRATION,    0, (VERSION == VERSION_JPN_FINAL ? L_OPTIONS_146 : L_OPTIONS_145) }, // Area 51
-	{ STAGE_AIRBASE,         0, (VERSION == VERSION_JPN_FINAL ? L_OPTIONS_152 : L_OPTIONS_151) }, // Air Base
-	{ STAGE_AIRFORCEONE,     0, (VERSION == VERSION_JPN_FINAL ? L_OPTIONS_154 : L_OPTIONS_153) }, // Air Force One
-	{ STAGE_CRASHSITE,       0, (VERSION == VERSION_JPN_FINAL ? L_OPTIONS_156 : L_OPTIONS_155) }, // Crash Site
-	{ STAGE_PELAGIC,         0, (VERSION == VERSION_JPN_FINAL ? L_OPTIONS_158 : L_OPTIONS_157) }, // Pelagic II
-	{ STAGE_DEEPSEA,         0, (VERSION == VERSION_JPN_FINAL ? L_OPTIONS_160 : L_OPTIONS_159) }, // Deep Sea
-	{ STAGE_DEFENSE,         0, (VERSION == VERSION_JPN_FINAL ? L_OPTIONS_162 : L_OPTIONS_161) }, // Carrington Institute
-	{ STAGE_ATTACKSHIP,      0, (VERSION == VERSION_JPN_FINAL ? L_OPTIONS_164 : L_OPTIONS_163) }, // Attack Ship
-	{ STAGE_SKEDARRUINS,     0, (VERSION == VERSION_JPN_FINAL ? L_OPTIONS_166 : L_OPTIONS_165) }, // Skedar Ruins
-	{ STAGE_MP_TEMPLE,       0, L_MPMENU_133  }, // Temple
-	{ STAGE_MP_COMPLEX,      0, L_MPMENU_134  }, // Complex
-	{ STAGE_TEST_MP6,        0, L_MPMENU_306  }, // Caves (PD Plus)
-	{ STAGE_TEST_MP2,        0, L_MPMENU_129  }, // Stack (PD Plus)
-	{ STAGE_MP_FELICITY,     0, L_MPMENU_135  }, // Felicity
-	// GoldenEye X (32-54), Kakariko (was 55), Dark Noon (was 56),
-	// Paradox (was 70), Random GoldenEye X (was 73), and the trailing
-	// junk slot (was 74) all removed 2026-04-26 with the AllInOne /
-	// Goldfinger / GEX content cull. The 13 remaining "Bonus" arenas
-	// (Suburb..Grand Library) are real PD2 Grid bonus stages -- noted
-	// as such in port/src/assetcatalog_base.c Priority F.
-	// Bonus
-	{ STAGE_TEST_ARCH,       0, L_MPMENU_324 }, // Suburb
-	{ STAGE_TEST_DEST,       0, L_MPMENU_325 }, // Training Day (Forge Blank Map target)
-	{ STAGE_EXTRA16,         0, L_MPMENU_327 }, // Runway
-	{ STAGE_EXTRA17,         0, L_MPMENU_328 }, // Control
-	{ STAGE_EXTRA18,         0, L_MPMENU_329 }, // Tawfret Ruins
-	{ STAGE_EXTRA19,         0, L_MPMENU_330 }, // Targitzan's Temple
-	{ STAGE_EXTRA20,         0, L_MPMENU_331 }, // Junkyard
-	{ STAGE_EXTRA21,         0, L_MPMENU_332 }, // Steel Mill
-	{ STAGE_EXTRA22,         0, L_MPMENU_333 }, // Mall
-	{ STAGE_EXTRA23,         0, L_MPMENU_334 }, // Tunnels
-	{ STAGE_EXTRA24,         0, L_MPMENU_335 }, // Rogue
-	{ STAGE_EXTRA26,         0, L_MPMENU_337 }, // War Colors
-	{ STAGE_TEST_LAM,        0, L_MPMENU_338 }, // Grand Library
-	// Random
-	{ STAGE_MP_RANDOM_MULTI, 0, L_MPMENU_294 }, // Random Multi
-	{ STAGE_MP_RANDOM_SOLO,  0, L_MPMENU_295 }, // Random Solo
-};
+/*
+ * g_MpArenas[47] retired here at the BYOR completion ship (2026-05-03).
+ * Data moved to port/src/arenadata_authored.c + arenadata_authored.h.
+ * Engine reads route through the asset catalog (catalog_mgr_arenas);
+ * the runtime per-asset emitter (port/src/romextract_pdarena.c) reads
+ * the authoring table directly and writes per-asset .pdarena +
+ * .pdscenario files for the catalog walker.
+ *
+ * @see context/audits/catalog-universality-pivot-plan-2026-05-02.md
+ *      "BYOR completion SHIPPED" section.
+ */
 
 s32 mpGetNumStages(void)
 {
@@ -2462,8 +2415,9 @@ static bool mpBodyHasIntegratedHead(s32 mpbodynum)
 
 	s32 bodyid = modmgrGetBody(mpbodynum)->bodynum;
 
-	if (bodyid < 0 || bodyid >= (s32)ARRAYCOUNT(g_HeadsAndBodies)) {
-		return true; // Out of bounds — treat as integrated to be safe
+	/* BYOR completion: g_HeadsAndBodies retired; bodyid index space [0,152). */
+	if (bodyid < 0 || bodyid >= 152) {
+		return true; // Out of bounds -- treat as integrated to be safe
 	}
 
 	return catalogGetBodyIsComplete(bodyid) ? true : false; /* SA-5d */

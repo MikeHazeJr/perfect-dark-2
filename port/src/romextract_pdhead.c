@@ -27,11 +27,10 @@
 #include "types.h"
 #include "constants.h"
 #include "fs.h"
-#include "catalog_mgr_heads.h"
-#include "loader_pool.h"
 #include "loader_enum_reverse.h"
 #include "romextract_pd.h"
 #include "system.h"
+#include "headdata_authored.h"
 
 /* Convert a catalog ID like "base:head_carrington" to a filename slug
  * "base_head_carrington". Caller buffer must hold at least 64 bytes. */
@@ -46,18 +45,11 @@ static void s_idToFilename(const char *id, char *out, size_t n)
 }
 
 /* Emit one .pdhead. Returns 1 written, 0 skipped, -1 failed. */
-static s32 s_emitOneHead(s32 headnum, const head_data_t *h,
+static s32 s_emitOneHead(const head_authored_record_t *h,
                           const char *out_dir, s32 force_rewrite)
 {
 	const char *catalog_id = h->catalog_id;
-	if (!catalog_id || !catalog_id[0]) {
-		/* Pool slot is populated but no catalog ID was captured.
-		 * Skip silently; loader_pool only fills catalog_id from the
-		 * the per-asset envelope `id` field, so an empty value means the slot
-		 * is a body-side row (unk00_01 == 0 + body filenum) that does
-		 * not have a headsper-asset envelope. */
-		return 0;
-	}
+	if (!catalog_id || !catalog_id[0]) return 0;
 
 	char filename[128];
 	s_idToFilename(catalog_id, filename, sizeof(filename));
@@ -98,10 +90,8 @@ static s32 s_emitOneHead(s32 headnum, const head_data_t *h,
 
 s32 romExtractAllPdhead(s32 force_rewrite)
 {
-	/* B-318 (2026-05-03): unconditional run with skip-on-existing.
-	 * See romextract_pdwpn.c for rationale. loaderPoolGetHead returns
-	 * NULL when the heads pool is inactive, so the inner loop emits
-	 * 0 files when there is no source data. */
+	/* BYOR completion (2026-05-03): walks g_HeadData[] from the
+	 * authoring source-of-truth (port/src/headdata_authored.c). */
 
 	if (!fsDataDirEnsure()) {
 		sysLoudFailf("EXTRACT.PDHEAD",
@@ -122,21 +112,17 @@ s32 romExtractAllPdhead(s32 force_rewrite)
 	s32 written = 0;
 	s32 skipped = 0;
 	s32 failed = 0;
-	s32 total = loaderPoolGetHeadsRegistered();
 
-	for (s32 i = 0; i < CATALOG_MGR_HEAD_COUNT; i++) {
-		const head_data_t *h = loaderPoolGetHead(i);
-		if (!h) continue;
-		if (h->catalog_id[0] == '\0') continue;
-		s32 r = s_emitOneHead(i, h, heads_dir, force_rewrite);
-		if (r > 0)      written++;
+	for (s32 i = 0; i < g_HeadDataCount; i++) {
+		s32 r = s_emitOneHead(&g_HeadData[i], heads_dir, force_rewrite);
+		if (r > 0)       written++;
 		else if (r == 0) skipped++;
-		else              failed++;
+		else             failed++;
 	}
 
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdhead: written=%d skipped=%d failed=%d total=%d",
-		written, skipped, failed, total);
+		written, skipped, failed, g_HeadDataCount);
 
 	return written;
 }

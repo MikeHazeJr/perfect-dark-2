@@ -31,40 +31,50 @@
 #include "catalog_mgr_bodies.h"
 #include "catalog_mgr_bodies_pure.h"
 #include "loader_pool.h"  /* Catalog Gate 3 Bodies F12: pool-backed source when active */
+/* BYOR completion (2026-05-03): manager seeds from authoring table
+ * instead of g_HeadsAndBodies[]. */
+#include "bodydata_authored.h"
 
-extern struct headorbody g_HeadsAndBodies[];
-
-/* F1 backing pool: a parallel mirror that the manager owns. Populated
- * lazily from g_HeadsAndBodies[] during F1-F11 (parity period); F12
- * switches to loader-owned source. */
+/* F1 backing pool: parallel mirror that the manager owns. Populated
+ * at init from g_BodyData[] (BYOR completion 2026-05-03; was
+ * g_HeadsAndBodies[] pre-pivot). Loader pool overrides on the F12 path. */
 static body_data_t s_Bodies[CATALOG_MGR_BODY_COUNT];
 static s32 s_BodiesInited = 0;
 
-static void s_populateFromLegacy(s32 bodynum)
+static void s_populateFromAuthored(s32 bodynum)
 {
-	struct headorbody *src;
+	const body_authored_record_t *src;
 	body_data_t *dst;
 
 	if (bodynum < 0 || bodynum >= CATALOG_MGR_BODY_COUNT) {
 		return;
 	}
-	src = &g_HeadsAndBodies[bodynum];
+	src = bodyDataLookupByBodynum(bodynum);
 	dst = &s_Bodies[bodynum];
 	dst->bodynum = (s16)bodynum;
 	dst->catalog_id[0] = '\0';
-	dst->ismale = (u8)src->ismale;
-	dst->unk00_01 = (u8)src->unk00_01;
-	dst->canvaryheight = (u8)src->canvaryheight;
-	dst->type = (u8)src->type;
-	dst->height = (u16)src->height;
-	dst->filenum = src->filenum;
-	dst->scale = src->scale;
-	dst->animscale = src->animscale;
-	dst->handfilenum = src->handfilenum;
-	/* F3: manager owns the modeldef cache slot.  Do NOT copy from
-	 * src->modeldef -- the manager's lazy-load + cache lives on
-	 * dst->modeldef from F3 onward. The legacy g_HeadsAndBodies[].modeldef
-	 * slot is orphaned for BODY entries after F3. */
+	if (!src) {
+		dst->ismale = 0;
+		dst->unk00_01 = 0;
+		dst->canvaryheight = 0;
+		dst->type = 0;
+		dst->height = 0;
+		dst->filenum = 0;
+		dst->scale = 0.0f;
+		dst->animscale = 0.0f;
+		dst->handfilenum = 0;
+		return;
+	}
+	dst->ismale       = src->ismale;
+	dst->unk00_01     = src->unk00_01;
+	dst->canvaryheight= src->canvaryheight;
+	dst->type         = src->type;
+	dst->height       = src->height;
+	dst->filenum      = src->filenum;
+	dst->scale        = src->scale;
+	dst->animscale    = src->animscale;
+	dst->handfilenum  = src->handfilenum;
+	/* Modeldef cache stays manager-owned -- no copy from src. */
 }
 
 static const body_data_t *s_get(s32 bodynum)
@@ -99,7 +109,7 @@ static const body_data_t *s_get(s32 bodynum)
 	 * out-of-band mutation stays observable. F3+ owns the modeldef
 	 * cache; the rest of the fields are read-only during the parity
 	 * period. */
-	s_populateFromLegacy(bodynum);
+	s_populateFromAuthored(bodynum);
 	return &s_Bodies[bodynum];
 }
 
@@ -112,7 +122,7 @@ void catalogManagerBodyInit(void)
 		s_Bodies[i].bodynum = (s16)i;
 	}
 	for (i = 0; i < CATALOG_MGR_BODY_COUNT; i++) {
-		s_populateFromLegacy(i);
+		s_populateFromAuthored(i);
 	}
 	s_BodiesInited = 1;
 	sysLogPrintf(LOG_NOTE,
@@ -296,7 +306,7 @@ void catalogManagerUnregisterBody(const char *id)
 	}
 	/* Revert to legacy-table values (F1 parity). F12 reverts to base
 	 * pool entry instead. */
-	s_populateFromLegacy(bodynum);
+	s_populateFromAuthored(bodynum);
 }
 
 void catalogManagerBodyShutdown(void)

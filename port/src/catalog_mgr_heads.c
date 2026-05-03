@@ -32,38 +32,48 @@
 #include "catalog_mgr_heads.h"
 #include "catalog_mgr_heads_pure.h"
 #include "loader_pool.h"  /* Catalog Gate 3 F12: pool-backed source when active */
+/* BYOR completion (2026-05-03): manager seeds from authoring table
+ * instead of g_HeadsAndBodies[]. */
+#include "headdata_authored.h"
 
-extern struct headorbody g_HeadsAndBodies[];
-
-/* F1 backing pool: a parallel mirror that the manager owns. Populated
- * lazily from g_HeadsAndBodies[] during F1-F10 (parity period); F12
- * switches to loader-owned source. */
+/* F1 backing pool: parallel mirror that the manager owns. Populated
+ * at init from g_HeadData[] (BYOR completion 2026-05-03; was
+ * g_HeadsAndBodies[] pre-pivot). Loader pool overrides on the F12 path. */
 static head_data_t s_Heads[CATALOG_MGR_HEAD_COUNT];
 static s32 s_HeadsInited = 0;
 
-static void s_populateFromLegacy(s32 headnum)
+static void s_populateFromAuthored(s32 headnum)
 {
-	struct headorbody *src;
+	const head_authored_record_t *src;
 	head_data_t *dst;
 
 	if (headnum < 0 || headnum >= CATALOG_MGR_HEAD_COUNT) {
 		return;
 	}
-	src = &g_HeadsAndBodies[headnum];
+	src = headDataLookupByHeadnum(headnum);
 	dst = &s_Heads[headnum];
 	dst->headnum = (s16)headnum;
 	dst->catalog_id[0] = '\0';
-	dst->ismale = (u8)src->ismale;
-	dst->unk00_01 = (u8)src->unk00_01;
-	dst->type = (u8)src->type;
-	dst->height = (u16)src->height;
-	dst->filenum = src->filenum;
-	dst->scale = src->scale;
-	dst->animscale = src->animscale;
-	/* F3: manager owns the modeldef cache slot. Do NOT copy from
-	 * src->modeldef -- the manager's lazy-load + cache lives on
-	 * dst->modeldef from F3 onward. The legacy g_HeadsAndBodies[].modeldef
-	 * slot is orphaned for HEAD entries; bodies session retires it. */
+	if (!src) {
+		/* Slot has no authored head (was a body slot or sentinel). Leave
+		 * the rest of dst zeroed (already memset in init). */
+		dst->ismale = 0;
+		dst->unk00_01 = 0;
+		dst->type = 0;
+		dst->height = 0;
+		dst->filenum = 0;
+		dst->scale = 0.0f;
+		dst->animscale = 0.0f;
+		return;
+	}
+	dst->ismale   = src->ismale;
+	dst->unk00_01 = src->unk00_01;
+	dst->type     = src->type;
+	dst->height   = src->height;
+	dst->filenum  = src->filenum;
+	dst->scale    = src->scale;
+	dst->animscale= src->animscale;
+	/* Modeldef cache stays manager-owned -- no copy from src. */
 }
 
 static const head_data_t *s_get(s32 headnum)
@@ -100,7 +110,7 @@ static const head_data_t *s_get(s32 headnum)
 	 * legacy catalogGetHeadModeldef path that pre-dated F3) stays
 	 * observable. F3+ owns the modeldef cache; the rest of the fields
 	 * are read-only during the parity period. */
-	s_populateFromLegacy(headnum);
+	s_populateFromAuthored(headnum);
 	return &s_Heads[headnum];
 }
 
@@ -113,7 +123,7 @@ void catalogManagerHeadInit(void)
 		s_Heads[i].headnum = (s16)i;
 	}
 	for (i = 0; i < CATALOG_MGR_HEAD_COUNT; i++) {
-		s_populateFromLegacy(i);
+		s_populateFromAuthored(i);
 	}
 	s_HeadsInited = 1;
 	sysLogPrintf(LOG_NOTE,
@@ -374,7 +384,7 @@ void catalogManagerUnregisterHead(const char *id)
 	}
 	/* Revert to legacy-table values (F1 parity). F12 reverts to base
 	 * pool entry instead. */
-	s_populateFromLegacy(headnum);
+	s_populateFromAuthored(headnum);
 }
 
 void catalogManagerHeadShutdown(void)

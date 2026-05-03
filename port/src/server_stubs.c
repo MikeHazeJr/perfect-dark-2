@@ -106,49 +106,13 @@ struct filelist *g_FileLists[MAX_PLAYERS];      /* data.h:301 */
 struct gamefile g_GameFile;
 struct fileguid g_GameFileGuid;
 
-/* MP bodies/heads/arenas */
+/* MP bodies/heads (server-only zero-initialised mirrors). */
 struct mpbody g_MpBodies[63];
 struct mphead g_MpHeads[76];
-/* Full arena table — stagenum values must match setup.c g_MpArenas[].
- * requirefeature and name are unused server-side; only stagenum matters
- * for catalog registration and match dispatch. */
-struct mparena g_MpArenas[] = {
-    /* Dark (0-12) */
-    { STAGE_MP_SKEDAR,      0, 0 }, { STAGE_MP_PIPES,       0, 0 },
-    { STAGE_MP_RAVINE,      0, 0 }, { STAGE_MP_G5BUILDING,  0, 0 },
-    { STAGE_MP_SEWERS,      0, 0 }, { STAGE_MP_WAREHOUSE,   0, 0 },
-    { STAGE_MP_GRID,        0, 0 }, { STAGE_MP_RUINS,       0, 0 },
-    { STAGE_MP_AREA52,      0, 0 }, { STAGE_MP_BASE,        0, 0 },
-    { STAGE_MP_FORTRESS,    0, 0 }, { STAGE_MP_VILLA,       0, 0 },
-    { STAGE_MP_CARPARK,     0, 0 },
-    /* Solo Missions (13-26) */
-    { STAGE_DEFECTION,      0, 0 }, { STAGE_INVESTIGATION,  0, 0 },
-    { STAGE_VILLA,          0, 0 }, { STAGE_CHICAGO,        0, 0 },
-    { STAGE_G5BUILDING,     0, 0 }, { STAGE_INFILTRATION,   0, 0 },
-    { STAGE_AIRBASE,        0, 0 }, { STAGE_AIRFORCEONE,    0, 0 },
-    { STAGE_CRASHSITE,      0, 0 }, { STAGE_PELAGIC,        0, 0 },
-    { STAGE_DEEPSEA,        0, 0 }, { STAGE_DEFENSE,        0, 0 },
-    { STAGE_ATTACKSHIP,     0, 0 }, { STAGE_SKEDARRUINS,    0, 0 },
-    /* Classic (27-31) */
-    { STAGE_MP_TEMPLE,      0, 0 }, { STAGE_MP_COMPLEX,     0, 0 },
-    { STAGE_TEST_MP6,       0, 0 }, { STAGE_TEST_MP2,       0, 0 },
-    { STAGE_MP_FELICITY,    0, 0 },
-    /* GoldenEye X (was 32-54), Kakariko (was 55), Dark Noon (was 56),
-     * Paradox (was 70), Random GoldenEye X (was 73), and trailing
-     * junk slot (was 74) all removed 2026-04-26 with the AllInOne /
-     * Goldfinger / GEX content cull. Indices renumbered. Must agree
-     * with src/game/mplayer/setup.c g_MpArenas[]. */
-    /* Bonus (32-44) */
-    { STAGE_TEST_ARCH,      0, 0 }, { STAGE_TEST_DEST,      0, 0 },
-    { STAGE_EXTRA16,        0, 0 }, { STAGE_EXTRA17,        0, 0 },
-    { STAGE_EXTRA18,        0, 0 }, { STAGE_EXTRA19,        0, 0 },
-    { STAGE_EXTRA20,        0, 0 }, { STAGE_EXTRA21,        0, 0 },
-    { STAGE_EXTRA22,        0, 0 }, { STAGE_EXTRA23,        0, 0 },
-    { STAGE_EXTRA24,        0, 0 }, { STAGE_EXTRA26,        0, 0 },
-    { STAGE_TEST_LAM,       0, 0 },
-    /* Random (45-46) */
-    { STAGE_MP_RANDOM_MULTI,0, 0 }, { STAGE_MP_RANDOM_SOLO, 0, 0 },
-};
+/* g_MpArenas[] retired at BYOR completion (2026-05-03). The server
+ * builds with arenadata_authored.c (auto-discovered by CMake glob); no
+ * separate server stub needed. The single source-of-truth arena table
+ * lives in port/src/arenadata_authored.c. */
 
 /* Solo stages */
 struct solostage g_SoloStages[21];
@@ -416,7 +380,9 @@ void conInit(void) {}
 void conPrintLn(s32 showmsg, const char *text) { if (text) printf("%s\n", text); }
 
 /* --- Game data tables (assetcatalog_base needs these; server has no real data) --- */
-struct headorbody g_HeadsAndBodies[152];    /* zero-initialised; no model data on server */
+/* g_HeadsAndBodies[152] retired at BYOR completion (2026-05-03). The
+ * server builds with headdata_authored.c + bodydata_authored.c
+ * (auto-discovered by CMake glob); no separate server stub needed. */
 struct mpweapon   g_MpWeapons[NUM_MPWEAPONS]; /* zero-initialised; no weapon data on server */
 struct stagetableentry *g_Stages = NULL;    /* no stage table on server */
 s32 g_NumStages = 0;

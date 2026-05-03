@@ -388,7 +388,9 @@ extern struct skeleton g_SkelSkedar;
 extern struct skeleton g_SkelDrCaroll;
 extern struct skeleton g_Skel22;
 extern struct skeleton g_SkelRobot;
-extern struct headorbody g_HeadsAndBodies[152];
+/* g_HeadsAndBodies[152] retired at BYOR completion (2026-05-03).
+ * Data moved to port/src/headdata_authored.c + bodydata_authored.c.
+ * Engine reads route through catalog_mgr_heads / catalog_mgr_bodies. */
 extern struct hatposition var8007dae4[1][6];
 extern f32 g_SkyCloudOffset;
 extern f32 g_SkyWindSpeed;
@@ -456,7 +458,9 @@ extern struct menudialogdef g_2PMissionInventoryVMenuDialog;
 extern struct menudialogdef g_MpEndscreenChallengeCheatedMenuDialog;
 extern struct menudialogdef g_MpEndscreenChallengeFailedMenuDialog;
 extern struct menudialogdef g_MpDropOutMenuDialog;
-extern struct mparena g_MpArenas[];
+/* g_MpArenas[] retired at BYOR completion (2026-05-03).
+ * Data moved to port/src/arenadata_authored.c. Engine reads route
+ * through the catalog (catalog_mgr_arenas). */
 extern struct menudialogdef g_MpWeaponsMenuDialog;
 extern struct menudialogdef g_MpPlayerOptionsMenuDialog;
 extern struct menudialogdef g_MpControlMenuDialog;

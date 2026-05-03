@@ -680,6 +680,16 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_arenas.c
   ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_arenas_pure.c
 
+  # BYOR completion (2026-05-03): authoring source-of-truth for the
+  # catalog kinds the server registers. The server links the head/body
+  # tables (assetcatalog_base + catalog_mgr_heads / bodies need them)
+  # and the arena table (assetcatalog_base + catalog_mgr_arenas).
+  # Weapon/anim authoring files stay client-only (server doesn't link
+  # invitems-class structs or guncmd opcodes).
+  ${CMAKE_SOURCE_DIR}/port/src/headdata_authored.c
+  ${CMAKE_SOURCE_DIR}/port/src/bodydata_authored.c
+  ${CMAKE_SOURCE_DIR}/port/src/arenadata_authored.c
+
   # INV-4: pure helpers for matchOptionsForceBit / matchOptionsRestoreUserOriginal.
   # matchsetup.c references them at matchStart restore; without this
   # source link pd-server would fail.

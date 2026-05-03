@@ -2376,7 +2376,8 @@ static void chrbioCountCb(const asset_entry_t *e, void *userdata)
 {
 	struct chrbio_pick_ctx *ctx = (struct chrbio_pick_ctx *)userdata;
 	s32 bodynum = e->runtime_index;
-	if (bodynum < 0 || bodynum >= (s32)ARRAYCOUNT(g_HeadsAndBodies) - 1) return;
+	/* BYOR completion: g_HeadsAndBodies retired; bodynum range stays [0,151). */
+	if (bodynum < 0 || bodynum >= 151) return;
 	if (ciIsChrBioUnlocked(bodynum)) {
 		ctx->count++;
 	}
@@ -2388,7 +2389,8 @@ static void chrbioPickByIndexCb(const asset_entry_t *e, void *userdata)
 	s32 bodynum;
 	if (ctx->result_bodynum >= 0) return;
 	bodynum = e->runtime_index;
-	if (bodynum < 0 || bodynum >= (s32)ARRAYCOUNT(g_HeadsAndBodies) - 1) return;
+	/* BYOR completion: g_HeadsAndBodies retired; bodynum range stays [0,151). */
+	if (bodynum < 0 || bodynum >= 151) return;
 	if (!ciIsChrBioUnlocked(bodynum)) return;
 	if (ctx->cur == ctx->needle_slot) {
 		ctx->result_bodynum = bodynum;

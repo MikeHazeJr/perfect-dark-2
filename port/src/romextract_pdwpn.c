@@ -1,21 +1,19 @@
 /**
- * romextract_pdwpn.c -- Catalog universality pivot Step 1 (2026-05-02).
+ * romextract_pdwpn.c -- Catalog Universality BYOR Completion (2026-05-03).
  *
- * Walks the loader_pool weapon pool and emits one .pdwpn JSON file
- * per registered weapon at data/<romid>/weapons/<id>.pdwpn.
+ * Walks g_WeaponData[] from port/src/weapondata_authored.c and emits
+ * one .pdwpn JSON file per weapon at data/<romid>/weapons/<id>.pdwpn.
  *
  * Schema lock-down: context/designs/catalog/universality-pivot-schemas.md
  * Section 2.1 (.pdwpn).
  *
- * Cross-reference convention for Step 1: hi_model / lo_model / animation
- * fields preserve the original FILE_* and ANIM_* enum strings (resolved
- * via reverse lookup against loader_enum_reverse.c). Step 4 (universal
- * loader) will swap these to catalog IDs once the directory walker is
- * minting the universal mapping. The Step 1 emit format is therefore
- * intermediate and identical to the per-record envelope content; this is
- * intentional so the parity check at Step 1 is clean.
+ * Source: the historical weapon static records were retired from
+ * src/game/invitems.c at S484 F13. They live in port/src/weapondata_authored.c
+ * as the authored source-of-truth for the runtime emitter. The engine
+ * never reads g_WeaponData[] -- it goes through the catalog after this
+ * emitter writes the .pdwpn files and the walker registers them.
  *
- * Server build: emitter early-returns 0 (loader not active server-side).
+ * Server build: emitter early-returns 0 (weapondata not linked server-side).
  */
 
 #include <stdio.h>
@@ -27,11 +25,11 @@
 #include "types.h"
 #include "constants.h"
 #include "fs.h"
-#include "catalog_mgr_weapons.h"
-#include "loader_pool.h"
 #include "loader_enum_reverse.h"
 #include "romextract_pd.h"
 #include "system.h"
+#include "weapondata_authored.h"
+#include "animdata_authored.h"
 
 /* Convert a catalog ID like "base:falcon2" to a filename slug
  * "base_falcon2". Caller buffer must hold at least 64 bytes. */
@@ -125,11 +123,22 @@ static void jw_field_lang_or_int(jw_t *w, const char *key, s32 val, s32 last)
 	else      jw_field_int(w, key, val, last);
 }
 
+/* Resolve a guncmd* anim pointer to its "invanim_*" name via the
+ * g_AnimData[] iteration table. Returns NULL when not found. */
+static const char *s_animNameForCmds(const struct guncmd *cmds)
+{
+	if (!cmds) return NULL;
+	for (s32 i = 0; i < g_AnimDataCount; i++) {
+		if (g_AnimData[i].cmds == cmds) return g_AnimData[i].name;
+	}
+	return NULL;
+}
+
 /* Resolve a guncmd* anim pointer to its "invanim_*" name, emit string or null. */
 static void jw_field_anim_ref(jw_t *w, const char *key,
                                const struct guncmd *cmds, s32 last)
 {
-	const char *name = loaderPoolAnimationNameForCmds(cmds);
+	const char *name = s_animNameForCmds(cmds);
 	jw_field_str(w, key, name, last);
 }
 
@@ -539,13 +548,10 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 
 s32 romExtractAllPdwpn(s32 force_rewrite)
 {
-	/* B-318 (2026-05-03): unconditional run with skip-on-existing.
-	 * Was previously gated on loaderPoolIsActive() which only flips true
-	 * after the walker registers >=1 weapon -- a deadlock when the walker
-	 * finds an empty data/<romid>/weapons/ on clean install. Inner loop
-	 * gracefully handles NULL pool slots (loaderPoolGetWeapon returns NULL
-	 * when pool is inactive), so this emits 0 files when there is no source
-	 * data and round-trips when the walker has populated the pool. */
+	/* BYOR completion (2026-05-03): walks g_WeaponData[] from the
+	 * authoring source-of-truth (port/src/weapondata_authored.c). The
+	 * pool path is gone -- the walker downstream registers .pdwpn files
+	 * we emit here into the catalog row layer. */
 
 	if (!fsDataDirEnsure()) {
 		sysLoudFailf("EXTRACT.PDWPN",
@@ -553,7 +559,6 @@ s32 romExtractAllPdwpn(s32 force_rewrite)
 		return -1;
 	}
 
-	/* Ensure data/<romid>/weapons/ exists. */
 	char dataDirBuf[FS_MAXPATH + 1];
 	char weapons_dir[FS_MAXPATH];
 	snprintf(weapons_dir, sizeof(weapons_dir), "%s/weapons",
@@ -567,34 +572,25 @@ s32 romExtractAllPdwpn(s32 force_rewrite)
 	s32 written = 0;
 	s32 skipped = 0;
 	s32 failed = 0;
-	s32 total = loaderPoolGetWeaponsRegistered();
 
-	for (s32 i = 0; i < CATALOG_MGR_WEAPON_COUNT; i++) {
-		const struct weapon *wpn = loaderPoolGetWeapon(i);
+	for (s32 i = 0; i < g_WeaponDataCount; i++) {
+		const struct weapon *wpn = g_WeaponData[i];
 		if (!wpn) continue;
 
-		const char *catalog_id = loaderPoolGetWeaponCatalogId(i);
-		if (!catalog_id) {
-			/* Pool slot is populated but no catalog ID was captured.
-			 * Fall back to a synthetic ID so emit still produces a
-			 * file; future investigation can decide whether the slot
-			 * is canonical content or pool padding. */
-			static char synth[64];
-			snprintf(synth, sizeof(synth), "base:weapon_%03d", i);
-			catalog_id = synth;
-		}
+		const char *catalog_id = g_WeaponDataCatalogIds[i];
+		const struct aibotweaponpreference *bp = (i < g_BotPrefDataCount)
+			? &g_BotPrefData[i] : NULL;
 
-		const struct aibotweaponpreference *bp = loaderPoolGetBotPref(i);
 		s32 r = s_emitOneWeapon(i, wpn, bp, catalog_id,
 		                        weapons_dir, force_rewrite);
-		if (r > 0)      written++;
+		if (r > 0)       written++;
 		else if (r == 0) skipped++;
-		else              failed++;
+		else             failed++;
 	}
 
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdwpn: written=%d skipped=%d failed=%d total=%d",
-		written, skipped, failed, total);
+		written, skipped, failed, g_WeaponDataCount);
 
 	return written;
 }

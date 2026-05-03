@@ -408,8 +408,14 @@ static const struct {
 /* g_Stages / g_NumStages declared in data.h (included above) */
 extern struct mpbody g_MpBodies[];
 extern struct mphead g_MpHeads[];
-extern struct mparena g_MpArenas[];
-extern struct headorbody g_HeadsAndBodies[];
+
+/* BYOR completion (2026-05-03): legacy g_HeadsAndBodies[] / g_MpArenas[]
+ * direct-reads migrated to authoring tables under port/src/*data_authored.c
+ * via the headDataLookupByHeadnum / bodyDataLookupByBodynum / g_ArenaData
+ * accessors below. */
+#include "headdata_authored.h"
+#include "bodydata_authored.h"
+#include "arenadata_authored.h"
 
 /* Issue 10 (2026-04-24): map a HEADBODYTYPE_* value to the canonical
  * rig_class slug used for body <-> head compatibility. FEMALE and
@@ -505,12 +511,14 @@ s32 assetCatalogRegisterBaseGame(void)
 		strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 		e->bundled = 1;
 		e->enabled = 1;
-		e->runtime_index = g_MpBodies[idx].bodynum;  /* g_HeadsAndBodies[] index, not g_MpBodies[] index */
+		e->runtime_index = g_MpBodies[idx].bodynum;  /* historical g_HeadsAndBodies[] index, not g_MpBodies[] index */
 		e->model_scale = 1.0f;
 		e->load_state = ASSET_STATE_LOADED;
 		e->ref_count = ASSET_REF_BUNDLED;
-		/* C-2-ext: record the ROM filenum for this body model */
-		e->source_filenum = (s32)g_HeadsAndBodies[g_MpBodies[idx].bodynum].filenum;
+		/* BYOR completion: filenum + type sourced from bodydata_authored.c
+		 * (was direct g_HeadsAndBodies[] read pre-pivot). */
+		const body_authored_record_t *bd = bodyDataLookupByBodynum(g_MpBodies[idx].bodynum);
+		e->source_filenum = bd ? (s32)bd->filenum : 0;
 		/* Phase 3 Pass B: bind to extracted disk file when available,
 		 * fall back to RomProvider during pre-A.2 boot or server build. */
 		catalogBindPrimaryFromDiskOrRom(e, e->source_filenum);
@@ -521,7 +529,7 @@ s32 assetCatalogRegisterBaseGame(void)
 		 * when audit reveals drift) land as data edits here -- no code
 		 * changes needed. */
 		catalogSetBodyRigClass(e, rigClassForHeadBodyType(
-			g_HeadsAndBodies[g_MpBodies[idx].bodynum].type));
+			bd ? bd->type : 0));
 		/* P4 (2026-04-24): promote the catalog display_name to authoritative
 		 * for every base body.  B-226 fixed only indices 57-62 (bodies with
 		 * junk/shared langids); generalising retires the whole "langid drift
@@ -592,17 +600,19 @@ s32 assetCatalogRegisterBaseGame(void)
 		strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 		e->bundled = 1;
 		e->enabled = 1;
-		e->runtime_index = g_MpHeads[mpidx].headnum;  /* g_HeadsAndBodies[] index */
+		e->runtime_index = g_MpHeads[mpidx].headnum;  /* historical g_HeadsAndBodies[] index */
 		e->model_scale = 1.0f;
 		e->load_state = ASSET_STATE_LOADED;
 		e->ref_count = ASSET_REF_BUNDLED;
-		/* C-2-ext: record the ROM filenum for this head model */
-		e->source_filenum = (s32)g_HeadsAndBodies[g_MpHeads[mpidx].headnum].filenum;
+		/* BYOR completion: filenum + type sourced from headdata_authored.c
+		 * (was direct g_HeadsAndBodies[] read pre-pivot). */
+		const head_authored_record_t *hd = headDataLookupByHeadnum(g_MpHeads[mpidx].headnum);
+		e->source_filenum = hd ? (s32)hd->filenum : 0;
 		/* Phase 3 Pass B: disk-or-ROM bind. */
 		catalogBindPrimaryFromDiskOrRom(e, e->source_filenum);
 		/* Issue 10: rig_class for this head from HEADBODYTYPE bucket. */
 		catalogSetHeadRigClass(e, rigClassForHeadBodyType(
-			g_HeadsAndBodies[g_MpHeads[mpidx].headnum].type));
+			hd ? hd->type : 0));
 		head_count++;
 	}
 
@@ -611,154 +621,68 @@ s32 assetCatalogRegisterBaseGame(void)
 
 	/* ---- Register arenas ---- */
 	/*
-	 * Arenas are stage references for the MP arena selection menu.
-	 * Group mapping reads stagenum, requirefeature, and name directly
-	 * from g_MpArenas[] (preserves VERSION-conditional lang IDs).
-	 * Category field stores the arena group name for dropdown grouping.
+	 * BYOR completion (2026-05-03): walk the arenadata_authored.c table.
+	 * Schema-stable: each authoring entry carries catalog_id, slug,
+	 * category, stagenum, requirefeature, name_langid, load_mode.
+	 * Solo Missions auto-marked CANVAS in the authoring file (B-254
+	 * invariant lives at the data level now).
 	 *
-	 * Human-readable arena names. Maps g_MpArenas[] index to slug used
-	 * in "base:arena_<slug>" catalog ID.
-	 *
-	 * 2026-04-26: AllInOne / Goldfinger / GEX content cull. Removed the
-	 * GEX block (was 32-54), Kakariko shell (was 55), Dark Noon shell
-	 * (was 56), Paradox (was 70), Random GEX (was 73) and the trailing
-	 * junk slot (was 74). Surviving indices renumbered down. The 13
-	 * remaining "Bonus" arenas (Suburb..Grand Library) ARE valid PD2
-	 * Grid bonus stages with shipped data and proper langbank names;
-	 * STAGE_TEST_DEST is the Forge Blank Map target (see
-	 * GRID_BLANK_STAGE in port/include/pdgui_menu_grid.h). Total slot
-	 * count: 47 (was 75).
+	 * 2026-04-26: AllInOne / Goldfinger / GEX content cull culled the
+	 * historical g_MpArenas[] table to 47 entries; the authoring file
+	 * mirrors that count and slot order so historical refs survive.
 	 */
-	static const char *const s_ArenaNames[47] = {
-		/* Dark MP arenas (0-12) */
-		"mp_skedar",    "mp_pipes",     "mp_ravine",    "mp_g5building",
-		"mp_sewers",    "mp_warehouse", "mp_grid",      "mp_ruins",
-		"mp_area52",    "mp_base",      "mp_fortress",  "mp_villa",
-		"mp_carpark",
-		/* Solo Mission arenas (13-26) */
-		"defection",    "investigation","villa",        "chicago",
-		"g5building",   "infiltration", "airbase",      "airforceone",
-		"crashsite",    "pelagic",      "deepsea",      "defense",
-		"attackship",   "skedarruins",
-		/* Classic arenas (27-31) */
-		"mp_temple",    "mp_complex",   "mp_grid6",     "mp_grid2",
-		"mp_felicity",
-		/* Bonus arenas (32-44) */
-		"test_arch",                       /* index 32: STAGE_TEST_ARCH "Suburb" */
-		"test_dest",                       /* index 33: STAGE_TEST_DEST "Training Day" / Forge Blank Map */
-		"extra16",                         /* index 34: STAGE_EXTRA16  "Runway" */
-		"extra17",                         /* index 35: STAGE_EXTRA17  "Control" */
-		"extra18",                         /* index 36: STAGE_EXTRA18  "Tawfret Ruins" */
-		"extra19",                         /* index 37: STAGE_EXTRA19  "Targitzan's Temple" */
-		"extra20",                         /* index 38: STAGE_EXTRA20  "Junkyard" */
-		"extra21",                         /* index 39: STAGE_EXTRA21  "Steel Mill" */
-		"extra22",      "extra23",
-		"extra24",      "extra26",
-		"test_lam",                        /* index 44: STAGE_TEST_LAM "Grand Library" */
-		/* Random (45-46) */
-		"mp_random_multi", "mp_random_solo",
-	};
-	static const struct {
-		s32 first;           /* first index in g_MpArenas[] */
-		s32 count;           /* number of arenas in this group */
-		const char *category;
-	} s_ArenaGroupMap[] = {
-		{  0, 13, "Dark" },
-		{ 13, 14, "Solo Missions" },
-		{ 27,  5, "Classic" },
-		{ 32, 13, "Bonus" },
-		{ 45,  2, "Random" },
-	};
-	#define NUM_ARENA_GROUPS (sizeof(s_ArenaGroupMap) / sizeof(s_ArenaGroupMap[0]))
-
 	s32 arena_count = 0;
-	for (s32 g = 0; g < (s32)NUM_ARENA_GROUPS; g++) {
-		for (s32 j = 0; j < s_ArenaGroupMap[g].count; j++) {
-			s32 idx = s_ArenaGroupMap[g].first + j;
-			if (idx < 0 || idx >= (s32)(sizeof(s_ArenaNames) / sizeof(s_ArenaNames[0]))) {
-				continue;
-			}
+	for (s32 i = 0; i < g_ArenaDataCount; i++) {
+		const arena_authored_record_t *ad = &g_ArenaData[i];
 
-			/* Skip any arena whose name entry is NULL. The NULL slots are the
-			 * canonical "not in catalog" marker -- see s_ArenaNames[] above
-			 * for which indices are excluded and why. */
-			if (!s_ArenaNames[idx]) {
-				continue;
-			}
+		asset_entry_t *e = assetCatalogRegisterArena(
+			ad->catalog_id,
+			ad->stagenum,
+			ad->requirefeature,
+			ad->name_langid
+		);
 
-			snprintf(idbuf, sizeof(idbuf), "base:arena_%s", s_ArenaNames[idx]);
-
-			asset_entry_t *e = assetCatalogRegisterArena(
-				idbuf,
-				g_MpArenas[idx].stagenum,
-				g_MpArenas[idx].requirefeature,
-				(s32)g_MpArenas[idx].name
-			);
-
-			if (!e) {
-				sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register base arena %s", idbuf);
-				continue;
-			}
-
-			strncpy(e->category, s_ArenaGroupMap[g].category, CATALOG_CATEGORY_LEN - 1);
-			e->bundled = 1;
-			e->enabled = 1;
-			e->runtime_index = idx;
-			e->load_state = ASSET_STATE_LOADED;
-			e->ref_count = ASSET_REF_BUNDLED;
-			/* B-254 (2026-04-25): SP campaign stages (Solo Missions group at
-			 * idx 13-26) carry NPCs / mission scripts / cutscene intros in
-			 * their authored stage data.  When entered via Grid (which
-			 * always launches in Forge / observer mode) the user wants the
-			 * geometry as a build canvas, not a playable mission.  Mark the
-			 * Solo Missions group with ARENA_LOADMODE_CANVAS so Grid's
-			 * arena commit dispatches through pdguiForgeStartSessionOnCanvas,
-			 * which sets the runtime canvas-mode flag that setup-time chr /
-			 * AI / script paths consult to short-circuit.
-			 *
-			 * MP-class groups ("Dark", "Classic", "Bonus", "Random") keep
-			 * the default ARENA_LOADMODE_PLAYABLE set in
-			 * assetCatalogRegisterArena -- their authored MP setup is
-			 * already free of mission state, no canvas suppression needed. */
-			if (idx >= 13 && idx <= 26) {
-				e->ext.arena.load_mode = ARENA_LOADMODE_CANVAS;
-			}
-			sysLogPrintf(LOG_NOTE, "assetcatalog: arena[%d] id=\"%s\" stagenum=0x%02x langid=0x%04x cat=\"%s\" loadmode=%s",
-				idx, idbuf, g_MpArenas[idx].stagenum, (s32)g_MpArenas[idx].name,
-				s_ArenaGroupMap[g].category,
-				e->ext.arena.load_mode == ARENA_LOADMODE_CANVAS ? "canvas" : "playable");
-			arena_count++;
+		if (!e) {
+			sysLogPrintf(LOG_ERROR, "assetcatalog: failed to register base arena %s", ad->catalog_id);
+			continue;
 		}
+
+		strncpy(e->category, ad->category, CATALOG_CATEGORY_LEN - 1);
+		e->bundled = 1;
+		e->enabled = 1;
+		e->runtime_index = i;
+		e->load_state = ASSET_STATE_LOADED;
+		e->ref_count = ASSET_REF_BUNDLED;
+		/* load_mode is per-entry in the authoring table now (was
+		 * derived from idx range pre-pivot). */
+		e->ext.arena.load_mode = ad->load_mode;
+		sysLogPrintf(LOG_NOTE, "assetcatalog: arena[%d] id=\"%s\" stagenum=0x%02x langid=0x%04x cat=\"%s\" loadmode=%s",
+			i, ad->catalog_id, ad->stagenum, ad->name_langid,
+			ad->category,
+			ad->load_mode == ARENA_LOADMODE_CANVAS ? "canvas" : "playable");
+		arena_count++;
 	}
 
 	sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d base arenas", arena_count);
 	count += arena_count;
 
-	#undef NUM_ARENA_GROUPS
-
 	/* ---- Register full-game bodies/heads not covered by MP arrays ---- */
 	/*
-	 * g_HeadsAndBodies[152] contains every character model in the game.
-	 * g_MpBodies[]/g_MpHeads[] are the MP-selectable subsets. Build a
-	 * coverage mask to find entries not yet registered, then register them
-	 * as "base:sp_body_N" / "base:sp_head_N" so the manifest pipeline and
-	 * future character selectors can reference any base-game model.
+	 * BYOR completion (2026-05-03): walk the authoring tables
+	 * g_HeadData[] / g_BodyData[] directly. The tables already include
+	 * the SP entries with catalog IDs of the form "base:sp_head_<n>" /
+	 * "base:sp_body_<n>". Skip entries already covered by g_MpHeads /
+	 * g_MpBodies (registered above with their MP-specific IDs and
+	 * unlock requirefeature gates).
 	 *
-	 * unk00_01 == 1 means the entry is a standalone head model;
-	 * unk00_01 == 0 means it is a full body model.
-	 * filenum == 0 marks the null sentinel at index 0x97 — skip it.
-	 * BODY_TESTCHR (0x70) is a dev placeholder — skip it.
+	 * BODY_TESTCHR (0x70) is a dev placeholder -- skipped at the
+	 * authoring-file level (not present in g_BodyData).
 	 */
 	{
 		s32 sp_body_count = 0;
 		s32 sp_head_count = 0;
 		u8 covered[152] = {0};
 
-		/* Mark only indices that were ACTUALLY registered by the MP loops above.
-		 * Previously this loop iterated all 63/76 entries of g_MpBodies[]/g_MpHeads[],
-		 * but the MP registration loop only covers entries present in s_BaseBodies[]/
-		 * s_BaseHeads[].  Any g_MpBodies[]/g_MpHeads[] entry not in those tables would
-		 * be marked "covered" here without ever being registered — FIX-24. */
 		for (s32 i = 0; i < (s32)NUM_BASE_BODIES; i++) {
 			s32 idx = s_BaseBodies[i].index;
 			if (idx >= 0 && idx < 63) {
@@ -774,64 +698,54 @@ s32 assetCatalogRegisterBaseGame(void)
 			}
 		}
 
-		for (s32 i = 0; i < 152; i++) {
-			if (covered[i]) {
-				continue;
-			}
-			if (g_HeadsAndBodies[i].filenum == 0) {
-				continue; /* null sentinel */
-			}
-			if (i == BODY_TESTCHR) {
-				continue; /* dev placeholder */
-			}
+		/* Walk authored heads. */
+		for (s32 i = 0; i < g_HeadDataCount; i++) {
+			const head_authored_record_t *hd = &g_HeadData[i];
+			s32 idx = (s32)hd->headnum;
+			if (idx <= 0 || idx >= 152) continue;
+			if (covered[idx]) continue;
+			if (idx == BODY_TESTCHR) continue;
+			if (hd->filenum == 0) continue;
 
-			if (g_HeadsAndBodies[i].unk00_01) {
-				/* Standalone head model */
-				snprintf(idbuf, sizeof(idbuf), "base:sp_head_%d", i);
-				asset_entry_t *e = assetCatalogRegisterHead(idbuf, (s16)i, 0);
-				if (e) {
-					strncpy(e->category, "sp", CATALOG_CATEGORY_LEN - 1);
-					e->bundled = 1;
-					e->enabled = 1;
-					e->runtime_index = i;
-					e->load_state = ASSET_STATE_LOADED;
-					e->ref_count = ASSET_REF_BUNDLED;
-					e->source_filenum = (s32)g_HeadsAndBodies[i].filenum;
-					/* Phase 3 Pass B: disk-or-ROM bind. */
-					catalogBindPrimaryFromDiskOrRom(e, e->source_filenum);
-					/* Issue 10: SP heads pick rig_class from the same
-					 * HEADBODYTYPE bucket as MP heads. An SP head and MP
-					 * body (or vice versa) with matching rig_class is a
-					 * valid pairing -- SP status is a category tag, not
-					 * a compatibility gate. */
-					catalogSetHeadRigClass(e, rigClassForHeadBodyType(
-						g_HeadsAndBodies[i].type));
-					sp_head_count++;
-				}
-			} else {
-				/* Full body model */
-				snprintf(idbuf, sizeof(idbuf), "base:sp_body_%d", i);
-				asset_entry_t *e = assetCatalogRegisterBody(idbuf, (s16)i, 0, -1, 0);
-				if (e) {
-					strncpy(e->category, "sp", CATALOG_CATEGORY_LEN - 1);
-					e->bundled = 1;
-					e->enabled = 1;
-					e->runtime_index = i;
-					e->load_state = ASSET_STATE_LOADED;
-					e->ref_count = ASSET_REF_BUNDLED;
-					e->source_filenum = (s32)g_HeadsAndBodies[i].filenum;
-					/* Phase 3 Pass B: disk-or-ROM bind. */
-					catalogBindPrimaryFromDiskOrRom(e, e->source_filenum);
-					/* Issue 10: SP bodies participate in the rig_class
-					 * compatibility system the same way MP bodies do. */
-					catalogSetBodyRigClass(e, rigClassForHeadBodyType(
-						g_HeadsAndBodies[i].type));
-					sp_body_count++;
-				}
+			asset_entry_t *e = assetCatalogRegisterHead(hd->catalog_id, (s16)idx, 0);
+			if (e) {
+				strncpy(e->category, "sp", CATALOG_CATEGORY_LEN - 1);
+				e->bundled = 1;
+				e->enabled = 1;
+				e->runtime_index = idx;
+				e->load_state = ASSET_STATE_LOADED;
+				e->ref_count = ASSET_REF_BUNDLED;
+				e->source_filenum = (s32)hd->filenum;
+				catalogBindPrimaryFromDiskOrRom(e, e->source_filenum);
+				catalogSetHeadRigClass(e, rigClassForHeadBodyType(hd->type));
+				sp_head_count++;
+			}
+		}
+		/* Walk authored bodies. */
+		for (s32 i = 0; i < g_BodyDataCount; i++) {
+			const body_authored_record_t *bd = &g_BodyData[i];
+			s32 idx = (s32)bd->bodynum;
+			if (idx <= 0 || idx >= 152) continue;
+			if (covered[idx]) continue;
+			if (idx == BODY_TESTCHR) continue;
+			if (bd->filenum == 0) continue;
+
+			asset_entry_t *e = assetCatalogRegisterBody(bd->catalog_id, (s16)idx, 0, -1, 0);
+			if (e) {
+				strncpy(e->category, "sp", CATALOG_CATEGORY_LEN - 1);
+				e->bundled = 1;
+				e->enabled = 1;
+				e->runtime_index = idx;
+				e->load_state = ASSET_STATE_LOADED;
+				e->ref_count = ASSET_REF_BUNDLED;
+				e->source_filenum = (s32)bd->filenum;
+				catalogBindPrimaryFromDiskOrRom(e, e->source_filenum);
+				catalogSetBodyRigClass(e, rigClassForHeadBodyType(bd->type));
+				sp_body_count++;
 			}
 		}
 
-		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d sp bodies, %d sp heads from g_HeadsAndBodies[152]",
+		sysLogPrintf(LOG_NOTE, "assetcatalog: registered %d sp bodies, %d sp heads from authoring tables",
 			sp_body_count, sp_head_count);
 		count += sp_body_count + sp_head_count;
 	}
