@@ -1782,18 +1782,23 @@ f32 botCalculateMaxSpeed(struct chrdata *chr)
 	 * Swarm bots use BOTTYPE_SPEED for the AI hostility profile,
 	 * which lands them at ~14x natural speed. Combined with the
 	 * small body scale (0.35-0.65 weighted toward small) the visual
-	 * speed feels insane. Cap swarm-locked bots to ~5x while
-	 * leaving the OG MP "Speed Simulant" preset
-	 * (mplayer.c:2230 g_BotProfiles entry that also uses
-	 * BOTTYPE_SPEED) at its original 14x balance.
+	 * speed feels insane. Cap swarm-locked bots while leaving the
+	 * OG MP "Speed Simulant" preset (mplayer.c:2230 g_BotProfiles
+	 * entry that also uses BOTTYPE_SPEED) at its original 14x balance.
+	 *
+	 * S593h-followup-3 (2026-05-02): Mike playtest "It did slow them
+	 * down, but too much. They should be about 30% of the way between
+	 * the two faster (So if it was at 100 and is now at 50, it should
+	 * be 65-ish)." Bumped from 5.0f -> 7.5f (the 5.0 -> 14.0 span is
+	 * 9 units; +30% = +2.7; landing ~7.7, rounded to 7.5).
 	 *
 	 * Gated on the CHRHFLAG 0x00040000 swarm-lock marker set by
 	 * port/src/swarm_test.c at spawn. The cap is a hard ceiling
-	 * (min(speed, 5.0)) rather than a multiplier so the
+	 * (min(speed, 7.5)) rather than a multiplier so the
 	 * downstream crouch / near-waypoint reductions below still
 	 * scale relative to a sane base. */
-	if ((chr->hidden & 0x00040000) && speed > 5.0f) {
-		speed = 5.0f;
+	if ((chr->hidden & 0x00040000) && speed > 7.5f) {
+		speed = 7.5f;
 	}
 
 	if (botGuessCrouchPos(chr) == CROUCHPOS_SQUAT) {
