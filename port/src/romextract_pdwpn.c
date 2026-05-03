@@ -27,6 +27,7 @@
 #include "types.h"
 #include "constants.h"
 #include "fs.h"
+#include "catalog_mgr_weapons.h"
 #include "loader_pdbase.h"
 #include "loader_pdbase_enums.h"
 #include "romextract_pd.h"
@@ -272,7 +273,7 @@ static void s_emitWeaponFunc(jw_t *w, const void *func_ptr, s32 last)
 		jw_field_uint(w, "penetration", sh->penetration, 1);
 		break;
 	}
-	case INVENTORYFUNCTYPE_SHOOT_AUTO: {
+	case INVENTORYFUNCTYPE_SHOOT_AUTOMATIC: {
 		const struct weaponfunc_shootauto *sa =
 			(const struct weaponfunc_shootauto *)f;
 		const struct weaponfunc_shoot *sh = &sa->base;
@@ -349,13 +350,15 @@ static void s_emitWeaponFunc(jw_t *w, const void *func_ptr, s32 last)
 		jw_field_int(w, "soundnum", sx->soundnum, 1);
 		break;
 	}
-	case INVENTORYFUNCTYPE_VISUAL:    /* device variant uses VISUAL slot */
+	case INVENTORYFUNCTYPE_DEVICE: {
+		const struct weaponfunc_device *dv =
+			(const struct weaponfunc_device *)f;
+		jw_field_uint(w, "device", dv->device, 1);
+		break;
+	}
 	default: {
-		/* Generic / device fallback: emit base fields only. Replace
-		 * trailing comma on flags by treating it as the last field. */
-		/* Note: we already emitted base fields above; the trailing
-		 * comma after flags is wrong if no per-type fields followed.
-		 * Emit a "_unk" marker that schema parsers can skip. */
+		/* Unknown subtype. Base fields already emitted above; emit a
+		 * sentinel marker so schema parsers can skip cleanly. */
 		jw_field_uint(w, "_no_subtype_fields", 0, 1);
 		break;
 	}

@@ -31,6 +31,7 @@
 #include "types.h"
 #include "constants.h"
 #include "fs.h"
+#include "catalog_mgr_weapons.h"
 #include "loader_pdbase.h"
 #include "romextract_pd.h"
 #include "system.h"

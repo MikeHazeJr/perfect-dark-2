@@ -30,6 +30,7 @@
 #include "types.h"
 #include "constants.h"
 #include "fs.h"
+#include "catalog_mgr_weapons.h"
 #include "loader_pdbase.h"
 #include "loader_pdbase_enums.h"
 #include "modarchive.h"
