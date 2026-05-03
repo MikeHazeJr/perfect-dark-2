@@ -56,6 +56,7 @@
 #include "assetcatalog_load.h"
 #include "assetcatalog_cache.h"
 #include "loader_pdbase.h"
+#include "loader_walker.h"
 #include "catalog_mgr_heads.h"
 #include "catalog_mgr_bodies.h"
 #include "catalog_mgr_arenas.h"
@@ -410,6 +411,14 @@ int main(int argc, const char **argv)
 	//
 	// Catalog Gate 3 F9: loaderPdbaseScan also looks for heads.pdbase
 	// in the same dir; F12 makes this populate the heads pool too.
+	//
+	// Step 4 positioning (2026-05-03): this loaderPdbaseScan + the four
+	// loaderPdbaseBuild*Manager calls below are the parity-bounded fallback
+	// for the heavyweight loader_pdbase pool population (s_Weapons[] full
+	// records, s_HeadsPool[], s_BodiesPool[], s_ArenasPool[]). Catalog row
+	// registration moves onto the universal walker (loaderWalkerLoadAll)
+	// later in this boot path; this block stays primary for pool fill until
+	// Step 5 retires the .pdbase tier entirely.
 	{
 		loader_pdbase_result_t pdb_result;
 		loaderPdbaseScan("base", &pdb_result);
@@ -596,6 +605,40 @@ int main(int argc, const char **argv)
 		s32 ui_failures  = romExtractParityCheckPdui();
 		(void)ui_emitted;
 		(void)ui_failures;
+	}
+
+	/* Catalog universality pivot Step 4 (2026-05-03): universal directory
+	 * walker. Now that every per-asset emitter has fired (Steps 1 / 2 / 3a /
+	 * 3 / 3b parts 1+2), data/<romid>/<class>/*.pd<ext> holds the canonical
+	 * per-asset content for all 13 universality kinds.  loaderWalkerLoadAll
+	 * walks each per-class subdirectory, opens each .pd* file (auto-detecting
+	 * plain JSON vs ZIP compound), parses the manifest envelope, and ensures
+	 * a catalog row exists for every disk-registered ID via the existing
+	 * assetCatalogRegister* API.
+	 *
+	 * Non-destructive overlay (Step 4 scope): the scaffold short-circuits
+	 * via assetCatalogResolve before re-registering, so entries already
+	 * created by assetCatalogRegisterBaseGame + RegisterStageSceneFiles +
+	 * RegisterWeaponModelFiles + ScanComponents above are counted as
+	 * "registered" without touching their existing fields. New entries (the
+	 * ~1208 chr animations + any disk-only IDs) get fresh registrations.
+	 *
+	 * .pdbase parser positioning: loaderPdbaseScan + loaderPdbaseBuild*Manager
+	 * earlier in this boot path remain the parity-bounded fallback for the
+	 * heavyweight loader_pdbase pool population (s_Weapons[] full records,
+	 * s_HeadsPool[], s_BodiesPool[], s_ArenasPool[]). The walker handles row
+	 * registration here; pool population stays on .pdbase until Step 5 also
+	 * migrates pool fill onto a per-asset path.
+	 *
+	 * Boot order requirement: AFTER all romExtractAllPd* emitters fire on
+	 * first boot (so the .pd* files exist on disk when the walker scans),
+	 * AFTER assetCatalogRegisterBaseGame (so existing in-binary entries are
+	 * the bootstrap fallback), and BEFORE catalogBuildRuntimeCaches (so the
+	 * O(1) caches see any walker-added rows). */
+	{
+		loader_walker_result_t walker_result;
+		loaderWalkerLoadAll(&walker_result);
+		(void)walker_result;
 	}
 
 	// Phase 8: Build O(1) runtime→catalog-ID caches (mp body/head, stage, weapon, model).
