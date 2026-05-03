@@ -137,6 +137,22 @@ Closes the "Empty-pool-on-clean-BYOR" followup from section 2b. Per Mike's hard 
 
 **Audit**: [audits/catalog-universality-pivot-plan-2026-05-02.md](audits/catalog-universality-pivot-plan-2026-05-02.md) "BYOR Completion SHIPPED" section.
 
+### 2d. BYOR post-boot AV (B-323) SHIPPED (2026-05-03, competent-saha-a202bb)
+
+Mike's playtest of the current install AVs at boot inside `challengesInit()` -- `bcopy/memcpy+146` from a `dmaExecWithAutoAlign` over-read in [src/game/challenge.c::challengeLoadConfig](../../src/game/challenge.c). Note: this AV exists in BOTH pre-BYOR and post-BYOR builds; the user's prompt framing that "BYOR completion was supposed to fully resolve" the AV was inaccurate. The actual ancestor is Pass C (S607, dev `b15cc701`, 2026-05-02), which moved each ROM segment to its own heap allocation -- exposing a long-latent N64-vs-PC struct-stride mismatch that pre-Pass-C had hidden inside the contiguous 32 MB g_RomFile.
+
+**Root cause**: PC `MAX_BOTS` grew from 8 to 32 over the port's life. `sizeof(struct mpconfig)` and `sizeof(struct mpstrings)` both grew with it (4596 and 680 bytes per entry on PC). The on-disk segment layout is the unchanged N64 binary format, so per-entry stride is 320 bytes (mpstrings) or smaller (mpconfig). The PC code was iterating using PC sizeof for both stride and read length: `confignum * sizeof(struct mpconfig)`. With `g_MpChallenges[0].confignum = 14`, the very first iteration tried to memcpy 4596 bytes from segment offset `14 * 4596 = 64344`, ~60 KB past the 4576-byte segment. AV.
+
+**Fix** ([src/game/challenge.c:374-469](../../src/game/challenge.c)):
+1. Remove the mpconfigs `dmaExec` -- the data was always overwritten by `mpconfig->config = g_MpConfigs[confignum]` so the read was dead code. Buffer is now aligned via `ALIGN16((uintptr_t)buffer)` directly.
+2. Replace the mpstrings `dmaExec` with a `bcopy` of N64-sized 320-byte chunks at N64-spaced offsets (`confignum * 320`) into the head of the PC mpstrings struct (description[200] + aibotnames[0..7] = 320 bytes -- matches N64 layout exactly), with `bzero` of the whole PC struct first to leave aibotnames[8..31] zeroed.
+
+**Build verify clean four-target** via `build-session.ps1 -Session b323`: client 55.5 MB / updater 12.3 MB / server 22.4 MB / tests 24.6 MB. No new compile warnings.
+
+**Smoke verify (Mike-runnable)**: launch a fresh build over the existing install (no need to wipe `data/<romid>/`); the AV in `challengesInit` should be gone. Boot log expected: `VERBOSE: INIT: challengesInit...` followed by `VERBOSE: INIT: utilsInit...` with no AV between. All 30 challenges should render their description text and the first 8 bot names per challenge.
+
+**Audit**: [audits/catalog-universality-pivot-plan-2026-05-02.md](audits/catalog-universality-pivot-plan-2026-05-02.md) "BYOR post-boot AV triaged" section.
+
 ### 3. Input - Controller Support (Branch 2 Cohorts 5-8)
 
 **Status**: queued after Catalog Gate 3. Per [designs/input/input-universality-and-transitions.md](designs/input/input-universality-and-transitions.md), Cohorts 1-4 shipped (layer types + scene events, layer push/pop, IMC ownership migration, per-player cutscene state). Cohorts 5-8 cover full controller support, menu graph completion, remaining transitional shim retirement.

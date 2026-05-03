@@ -1,5 +1,80 @@
 # Session Log (Active)
 
+## Session S616 (`competent-saha-a202bb`) - 2026-05-03 - B-323 post-boot AV in challengesInit (Pass C side-effect)
+
+Mike's directive: triage the post-boot AV from his playtest of `dev 1363ee75`. Prompt framed it as "BYOR completion build still crashes" and pointed at `setupCreateProps -> reset functions`. Both framings were off: the AV is in `challengesInit` (well before any stage load), and Mike's installed binary is PRE-BYOR-completion -- BYOR completion at `ab0a6fe7` did not touch the path that AVs.
+
+### Outcome
+
+Single-file structural fix in [src/game/challenge.c](../../src/game/challenge.c). Net delta +49 / -9 lines.
+
+### Root cause
+
+`challengeLoadConfig` read both the `mpconfigs` ROM segment (4576 bytes total) and the `mpstrings` ROM segment (14080 bytes) using PC `sizeof` for both per-entry stride and per-entry read length. The on-disk segment data is laid out using the original N64 binary struct sizes:
+
+| Struct        | N64 sizeof | PC sizeof | Drift driver |
+|---|---|---|---|
+| `struct mpconfig`  | ~152 bytes (8 bots)  | 0x11f4 = 4596 (32 bots) | `MAX_BOTS` 8 -> 32 |
+| `struct mpstrings` | 320 bytes (200 + 8*15) | 680 bytes (200 + 32*15) | `aibotnames[MAX_BOTS][15]` |
+
+Pre-Pass-C the over-read landed inside the contiguous 32 MB g_RomFile blob -- garbage that was harmlessly overwritten by `mpconfig->config = g_MpConfigs[confignum]` on the next line. Pass C (S607, dev `b15cc701`, 2026-05-02) migrated each segment to its own heap allocation with 64 bytes of read-ahead padding; the over-read now walks off the end of an isolated buffer and AVs in `memcpy`.
+
+`g_MpChallenges[0].confignum = MPCONFIG_CHALLENGE01 = 0x0e = 14`, so the very first call from `challengesInit` computes `_mpconfigsSegmentRomStart + 14 * 4596 = +64344` -- ~60 KB past the segment end. memcpy from invalid memory. AV at `bcopy/memcpy+146`, no breadcrumb (first iteration).
+
+### Fix
+
+1. Remove the `dmaExec` for `mpconfigs` entirely. The call site overwrites `mpconfig->config = g_MpConfigs[confignum]` immediately after, so the read was dead code. The buffer is now aligned via `ALIGN16((uintptr_t)buffer)` directly to back the returned `struct mpconfigfull *`.
+
+2. Replace the `dmaExec` for `mpstrings` with `bzero` + `bcopy` of `N64_MPSTRINGS_SIZE = 320` bytes from `bank + confignum * 320` into the head of the PC mpstrings struct. The first 320 bytes of the PC layout are description[200] + aibotnames[0..7] (positions 0..7 at offsets 200, 215, 230, ... 305 -- aibotnames[i] is at offset 200 + i*15), matching the N64 layout exactly. The trailing aibotnames[8..31] stay zero from the bzero. Bots 9..32 fall back to legacy `g_BotConfigsArray` naming when no segment-sourced name is supplied.
+
+The mpconfigs segment is now structurally unused; future cleanup can retire it from `port/src/romdata.c::ROMSEG_LIST` if desired (left in place this session to avoid scope creep).
+
+### Propagation check
+
+Three other `dmaExecWithAutoAlign` callers checked against the same N64-vs-PC sizing pattern:
+
+- [src/game/training.c:422](../../src/game/training.c:422) reads firingrange with `len = end - start` (actual segment length). No PC-vs-N64 stride mismatch.
+- [src/lib/anim.c:148](../../src/lib/anim.c:148) reads animations with caller-supplied `len`. Animation frame data sizing is not affected by `MAX_BOTS` or any other PC-grown constant.
+- `port/src/romdata.c:744` is just a comment, no actual call.
+
+AV class is bounded to `challengeLoadConfig`.
+
+### Why pre-BYOR vs BYOR completion is irrelevant for this AV
+
+Mike's installed binary (`dev 1363ee75` per pd-client.log line 1) is PRE-BYOR completion. The BYOR completion ship at `ab0a6fe7` did not touch `src/game/challenge.c` -- this AV exists in BOTH pre-BYOR and post-BYOR builds. The triage prompt's framing that "BYOR completion was supposed to fully resolve" the AV was inaccurate; BYOR completion only addressed the empty-pool-on-clean-BYOR issue (closed at section 2c of tasks.md), not the challenge segment overflow. The Pass C SHA from S607 (`b15cc701`) is the actual ancestor that introduced the AV.
+
+### Build verify
+
+Clean four-target via `devtools/build-session.ps1 -Session b323`:
+
+- Client (pd, PerfectDark.exe): PASS, **55.5 MB** (35s)
+- Updater (pd-updater, Updater.exe): PASS, **12.3 MB** (2s)
+- Server (pd-server, PerfectDarkServer.exe): PASS, **22.4 MB** (9s)
+- Tests (pd-tests, pd-tests.exe): PASS, **24.6 MB** (28s)
+
+No new compile warnings.
+
+### Files modified
+
+- `src/game/challenge.c` (+49 / -9 lines).
+- `context/audits/catalog-universality-pivot-plan-2026-05-02.md` (BYOR post-boot AV triaged section appended).
+- `context/bugs.md` (B-323 entry added at top).
+- `context/tasks.md` (section 2d added for B-323 ship; section 2c BYOR completion left intact).
+- `tools/kanban/state.json` (c105 closed -- BYOR completion at ab0a6fe7; c112 added for B-323 ship).
+- `~/.claude/projects/.../memory/feedback_n64_vs_pc_struct_stride.md` (new feedback memory).
+- `~/.claude/projects/.../memory/MEMORY.md` (index updated).
+- `~/.claude/projects/.../memory/project_status.md` (current state updated).
+
+### Smoke verify (Mike-runnable)
+
+Launch a fresh build over the existing install (no need to wipe `data/<romid>/` -- the segment contents are unchanged; this fix is in the reader path). Boot log expected: `VERBOSE: INIT: challengesInit...` followed by `VERBOSE: INIT: utilsInit...` with no AV between. All 30 challenges should render their description text and the first 8 bot names per challenge.
+
+### `[CONTEXT STATE]` (post-merge)
+
+Catalog universality + BYOR complete. B-323 challengesInit AV fixed structurally (Pass C side-effect of N64-vs-PC struct stride drift). Build clean four-target. Smoke verify pending Mike's playtest. Engine Phase 3 (parallel verify pass, c109) ready to start sequentially after this lands.
+
+---
+
 ## Session S615 (`bold-chaplygin-e3b96e`) - 2026-05-03 - Engine Phase 1: fs.c path-buffer refactor
 
 Mike's directive: "See what we can do about speeding up our startup ... Any reason we can't multi-thread the process?" After Q1 to Q6 resolution, this session delivers Phase 1 of the startup-acceleration design: the prerequisite refactor for any boot-pipeline parallelization. Lands in parallel with S614 (B-318/319/320/321/322 triage) per Mike Q5; merge resolved 5 conflicts (fs.c B-319, pdsfx + pdsong B-320, kanban renumber c107-c111, session-log).
