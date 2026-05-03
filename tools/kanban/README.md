@@ -59,6 +59,8 @@ Write state: edit `state.json` directly (server must not be mid-write), or POST 
   "order":       1000,
   "priority":    2,
   "notes":       "Short notes or reference links",
+  "flag":        "star",
+  "flagged_at":  "2026-05-02T00:00:00Z",
   "subtasks":    [...],
   "created":     "2026-05-02T00:00:00Z",
   "updated":     "2026-05-03T00:00:00Z"
@@ -75,6 +77,19 @@ Write state: edit `state.json` directly (server must not be mid-write), or POST 
 | 4     | Low      | blue   | Nice to have, no deadline pressure       |
 | 5     | Someday  | gray   | Deferred - not on the active horizon     |
 | unset | -        | none   | Treated as Medium (3) when auto-sorting  |
+
+**`flag`** (optional string): attention marker set by Mike in the browser. Values:
+
+| Value   | Icon | Color  | Meaning                              |
+|---------|------|--------|--------------------------------------|
+| `null`  | -    | none   | No flag                              |
+| `star`  | ★    | amber  | Needs attention / Mike is watching   |
+| `alert` | !    | red    | Urgent / blocking something          |
+| `watch` | ●    | purple | Monitor / may need action soon       |
+
+**`flagged_at`** (optional ISO string): timestamp when flag was last set. `null` when `flag` is `null`.
+
+The browser cycles `null -> star -> alert -> watch -> null` on badge click. The PATCH endpoint (`PATCH /api/cards/:id`) updates only `flag`, `flagged_at`, and `updated` without a full state rewrite.
 
 **`order`** (integer): relative position within the column. Lower = higher in the list. The UI assigns midpoint values on drag-drop so exact integers stay stable.
 

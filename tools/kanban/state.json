@@ -12,7 +12,8 @@
     {"id": "tooling",           "name": "Tooling",           "color": "#6b7280"},
     {"id": "networking",        "name": "Networking",        "color": "#ef4444"},
     {"id": "campaign",          "name": "Campaign",          "color": "#a16207"},
-    {"id": "social",            "name": "Social",            "color": "#ec4899"}
+    {"id": "social",            "name": "Social",            "color": "#ec4899"},
+    {"id": "tests",             "name": "Tests",             "color": "#10b981"}
   ],
   "columns": ["backlog", "active", "blocked", "done"],
   "columnLabels": {
@@ -26,141 +27,164 @@
       "id": "c001", "title": "Catalog Phase 2 commits 1-6 + audit",
       "description": "Shipped audit + Phase 2 commits 1-6.",
       "pillar": "catalog", "column": "done", "order": 1000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
       "id": "c002", "title": "Phase 3 Pass A - ROM extraction data tier",
       "description": "Data tier accessors, first-launch ROM extraction to data/<romid>/files/, BYOR SHA-256 gate, hash-verify-on-launch self-heal. All Pass A slices shipped.",
       "pillar": "catalog", "column": "done", "order": 2000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
       "id": "c003", "title": "Pass B Slices 1-13 - per-class catalog migration",
       "description": "Per-class migration from RomProvider to FileProvider. Segment extraction to data/<romid>/segs/. All 13 slices shipped. Slice 12 SFX residual: accepted limit at dev f52cf660.",
       "pillar": "catalog", "column": "done", "order": 3000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
       "id": "c004", "title": "Pass C - Drop ROM access (RomProvider)",
       "description": "romdataReleaseRom() migrates SRC_ROM segments to disk, NULLs lazy fileSlot pointers, frees g_RomFile. Shipped at dev b15cc701.",
       "pillar": "catalog", "column": "done", "order": 4000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
       "id": "c005", "title": "Pass D - Self-heal hardening",
       "description": "Per-file system toasts on corrected/failed. Boot integrity report. Quarantine path to data/_quarantine/<romid>/. Deferred toast queue drain. Shipped S604.",
       "pillar": "catalog", "column": "done", "order": 5000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
       "id": "c010", "title": "B-305: ROM pointer fix",
-      "description": "ROM pointer safety fix.",
+      "description": "ROM pointer safety fix - dangling pointer after g_RomFile free patched.",
       "pillar": "catalog", "column": "done", "order": 6000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c011", "title": "B-306: FileProvider preprocess",
-      "description": "FileProvider preprocess fix.",
+      "id": "c011", "title": "B-306: FileProvider preprocess crash",
+      "description": "FileProvider preprocess crash on startup - NULL guard + early-exit path added.",
       "pillar": "catalog", "column": "done", "order": 7000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c012", "title": "Recoil crash fix",
+      "id": "c012", "title": "Benchmarking: recoil crash fix",
       "description": "Benchmarking: recoil crash resolved.",
       "pillar": "benchmarking", "column": "done", "order": 8000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c013", "title": "Farsight SFX",
+      "id": "c013", "title": "Benchmarking: Farsight SFX",
       "description": "Benchmarking: Farsight SFX fix shipped.",
       "pillar": "benchmarking", "column": "done", "order": 9000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c014", "title": "Falcon 2 sec text fix",
+      "id": "c014", "title": "Benchmarking: Falcon 2 sec text fix",
       "description": "Benchmarking: Falcon 2 second text rendering fix.",
       "pillar": "benchmarking", "column": "done", "order": 10000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c015", "title": "Cycle wrap fix",
+      "id": "c015", "title": "Benchmarking: cycle wrap fix",
       "description": "Benchmarking: cycle wrap edge case resolved.",
       "pillar": "benchmarking", "column": "done", "order": 11000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c016", "title": "B-303: Main Menu auto-pop (Forge)",
-      "description": "Forge: fixed main menu auto-pop behavior. B-303.",
+      "id": "c016", "title": "B-303: Main menu auto-pop (Forge)",
+      "description": "Forge: fixed main menu auto-pop behavior after match end. B-303.",
       "pillar": "ui", "column": "done", "order": 12000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c017", "title": "B-304: Wireframe Debug Rendering (Forge)",
-      "description": "Forge: wireframe debug rendering mode. B-304.",
+      "id": "c017", "title": "B-304: Forge wireframe default OFF",
+      "description": "Forge: wireframe debug rendering defaulted to OFF. B-304.",
       "pillar": "ui", "column": "done", "order": 13000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
       "id": "c018", "title": "Input + Menu Phase 2: 9 fixes",
       "description": "Nine input and menu Phase 2 fixes shipped.",
       "pillar": "ui", "column": "done", "order": 14000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c019", "title": "Menu UI Extraction: full chrome",
+      "id": "c019", "title": "Menu UI extraction: full chrome",
       "description": "Full chrome pass on menu UI extraction.",
       "pillar": "ui", "column": "done", "order": 15000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c020", "title": "Press/Hold canonical input",
-      "description": "Press/Hold canonical action handling.",
+      "id": "c020", "title": "Input: press/hold canonical actions",
+      "description": "Press/Hold canonical action handling in actionmap. Hold/tap first-class with actionHeldForMs, actionWasTap, actionConsumeHold, actionHoldProgress.",
       "pillar": "input", "column": "done", "order": 16000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c021", "title": "Nested scroll input",
+      "id": "c021", "title": "Input: nested scroll",
       "description": "Nested scroll handling in input layer.",
       "pillar": "input", "column": "done", "order": 17000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c022", "title": "Interaction cone tighten + viz",
+      "id": "c022", "title": "Input: interaction cone tighten + viz",
       "description": "Interaction cone tightened and visualization added.",
       "pillar": "input", "column": "done", "order": 18000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c023", "title": "Vehicle action consumers",
+      "id": "c023", "title": "Input: vehicle action consumers",
       "description": "Vehicle action consumers wired into input system.",
       "pillar": "input", "column": "done", "order": 19000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c024", "title": "Build Parity: client + updater",
+      "id": "c024", "title": "Build: client + updater parity",
       "description": "Build parity confirmed between client and updater.",
       "pillar": "tooling", "column": "done", "order": 20000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c025", "title": "Release packaging update",
+      "id": "c025", "title": "Build: release packaging update",
       "description": "Release zip updated: client + updater + data/ + base/ (.pdbase). Server binary excluded (deprecated).",
       "pillar": "tooling", "column": "done", "order": 21000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c026", "title": "Log rotation (5 rolling)",
+      "id": "c026", "title": "Build: log rotation (5 rolling)",
       "description": "Log rotation implemented: 5 rolling log files.",
       "pillar": "tooling", "column": "done", "order": 22000,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
       "id": "c050",
       "title": "Migrate Catalog System",
-      "description": "Complete migration of all game assets from legacy ROM-bound arrays to FileProvider-backed .pdbase catalog. ROM-once-then-disk architecture: g_RomFile freed after extraction, all asset reads go through catalog managers.",
+      "description": "Complete migration of all game assets from legacy ROM-bound arrays to FileProvider-backed .pdbase catalog. ROM-once-then-disk: g_RomFile freed after extraction; all asset reads go through catalog managers.",
       "pillar": "catalog", "column": "active", "order": 500,
       "priority": 1,
       "notes": "Pillar ref: context/pillars/catalog.md",
+      "flag": null, "flagged_at": null,
       "created": "2026-05-02T00:00:00Z", "updated": "2026-05-03T00:00:00Z",
       "subtasks": [
         {"id": "s050-01", "title": "Migrate weapons (F1-F13)", "status": "done", "order": 1000, "notes": "catalog_mgr_weapons.c + base/weapons.pdbase. g_Weapons[] retired. Shipped."},
@@ -178,112 +202,340 @@
       "description": "Steps 4-9 of the catalog universality pivot. Post-Phase-3 migration cleanup pass.",
       "pillar": "catalog", "column": "active", "order": 1000,
       "priority": 2,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
       "id": "c028", "title": "Pre-existing test failure triage",
       "description": "5 pre-existing test rot failures outside Pass C touch surface logged. Need triage to determine root cause vs accepted limit.",
-      "pillar": "catalog", "column": "active", "order": 2000,
+      "pillar": "tests", "column": "active", "order": 2000,
       "priority": 3,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c029", "title": "Speed tune + 128-256 crash",
-      "description": "Benchmarking: speed tune work plus 128-256 bot count crash investigation.",
+      "id": "c029", "title": "Benchmarking: speed tune + B-307 256-bot crash",
+      "description": "Speed tune work plus B-307 investigation: CPU crash at 128->256 bot spawn, first frame after spawn. Need root cause before GPU pipeline work.",
       "pillar": "benchmarking", "column": "active", "order": 3000,
       "priority": 2,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "B-307 open in bugs.md", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c030", "title": "Universality pivot schema (.pdwpn etc)",
+      "id": "c030", "title": "Mod Infrastructure: universality pivot schema",
       "description": "Define and implement universality pivot schema for mod infrastructure file types: .pdwpn and similar.",
       "pillar": "mod-infrastructure", "column": "active", "order": 4000,
       "priority": 2,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c036", "title": "Input - Controller Support Cohorts 5-8",
-      "description": "Branch 2 Cohorts 5-8: full controller support, menu graph completion, remaining transitional shim retirement. Queued after Catalog Gate 3.",
+      "id": "c036",
+      "title": "Input - Controller Support Cohorts 5-8",
+      "description": "Branch 2 Cohorts 5-8: full controller support, menu graph completion, remaining transitional shim retirement. Next major lane after Catalog Gate 3.",
       "pillar": "input", "column": "backlog", "order": 1000,
       "priority": 2,
-      "notes": "Design ref: designs/input/input-universality-and-transitions.md", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "Design ref: designs/input/input-universality-and-transitions.md",
+      "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z",
+      "subtasks": [
+        {"id": "s036-01", "title": "Wire g_LayerGameplay.imc / g_LayerMenu.imc lifecycle", "status": "backlog", "order": 1000, "notes": "inputlayer.c:210,237 have .imc = NULL stubs (Cohort 3 deferred)"},
+        {"id": "s036-02", "title": "Migrate 10 F-key handlers to g_ImcDebugOverlay actionmap", "status": "backlog", "order": 2000, "notes": "pdgui_backend.cpp:1288-1379 - 10 raw SDLK_Fxx blocks before actionmapDispatch"},
+        {"id": "s036-03", "title": "Migrate gfx_sdl2.cpp raw hotkeys (Alt+Enter, F10, backquote)", "status": "backlog", "order": 3000, "notes": "gfx_sdl2.cpp:335-345 - backquote duplicates ACTION_CONSOLE_TOGGLE"},
+        {"id": "s036-04", "title": "Audit and retire inputKeyPressed() direct controller polling", "status": "backlog", "order": 4000, "notes": "input.c:1075-1099 DEPRECATED path - narrow to mouse buttons only after full controller migration"},
+        {"id": "s036-05", "title": "Replace WantCaptureKeyboard with gameplayInputSuppressed()", "status": "backlog", "order": 5000, "notes": "pdgui_spectator.cpp:162 uses wrong gate"},
+        {"id": "s036-06", "title": "Fix observer push/pop IMC asymmetry", "status": "backlog", "order": 6000, "notes": "inputlayer.c:157-183 - onObserverPop deactivates unconditionally regardless of source"},
+        {"id": "s036-07", "title": "Add right-stick scroll static test linking runtime to spec constants", "status": "backlog", "order": 7000, "notes": "test_right_stick_scroll.cpp:14-18 is spec; pdguiDriveImGuiNav is runtime - drift undetected"},
+        {"id": "s036-08", "title": "Menu graph completion: 127 raw menuPushDialog calls -> menuGraphFire*", "status": "backlog", "order": 8000, "notes": "127 raw calls in 15 files; add graph-completeness test"}
+      ]
     },
     {
-      "id": "c034", "title": "Mike playtest validation",
-      "description": "Mike full playtest validation pass after benchmarking pipeline work.",
+      "id": "c034", "title": "Benchmarking: Mike playtest validation",
+      "description": "Mike full playtest validation pass after benchmarking pipeline work completes.",
       "pillar": "benchmarking", "column": "backlog", "order": 2000,
       "priority": 2,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c031", "title": "GPU bot behavior pipeline (post-catalog)",
-      "description": "GPU-side bot behavior pipeline design + implementation. Gated on Mike playtest after catalog lands.",
+      "id": "c031", "title": "Benchmarking: GPU bot behavior pipeline",
+      "description": "GPU-side bot behavior pipeline design + implementation. Gated on Mike playtest after catalog lands. B-308: GPU bot AI not migrated.",
       "pillar": "benchmarking", "column": "backlog", "order": 3000,
       "priority": 3,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "B-308 open in bugs.md", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c032", "title": "GPU collision migration",
-      "description": "Migrate collision queries to GPU-side compute.",
+      "id": "c032", "title": "Benchmarking: GPU collision migration",
+      "description": "Migrate collision queries to GPU-side compute. B-309: GPU collision constraints not applied.",
       "pillar": "benchmarking", "column": "backlog", "order": 4000,
       "priority": 3,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "B-309 open in bugs.md", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c033", "title": "GPU spawn upgrades migration",
-      "description": "Migrate spawn upgrade logic to GPU-side compute.",
+      "id": "c033", "title": "Benchmarking: GPU spawn upgrades migration",
+      "description": "Migrate spawn upgrade logic to GPU-side compute. B-310: GPU spawn upgrades not migrated.",
       "pillar": "benchmarking", "column": "backlog", "order": 5000,
       "priority": 3,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "B-310 open in bugs.md", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c041", "title": "Audit grooming",
+      "id": "c080", "title": "Benchmarking: B-311 GPU swarm crash at 128-bot cycle",
+      "description": "FATAL GBI opcode crash at 128-bot cycle in GPU swarm. Happens during swarm iteration when bot count crosses 128. Post-catalog investigation.",
+      "pillar": "benchmarking", "column": "backlog", "order": 5500,
+      "priority": 3,
+      "notes": "B-311 open in bugs.md", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c051", "title": "Catalog: drop legacy mods/ build-time deploy (Slice A)",
+      "description": "Find and remove the build step copying mods/ -> Build/data/mods/ at build time. The copied mods do not conform to the new file format. Ensure Build/data/ ships alongside the ROM at release time.",
+      "pillar": "catalog", "column": "backlog", "order": 6000,
+      "priority": 3,
+      "notes": "Surfaced during F12 runtime debugging (tasks.md 1a Slice A)", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c052", "title": "Catalog: fix ROM texture extraction path (Slice B)",
+      "description": "pdguiThemeExtractRomTextures() writes 14 UI textures to Build/data/mods/base-ui/textures/ but clean builds wipe that path. Audit extraction correctness; relocate output to source base/ui/textures/ so CMake POST_BUILD covers it.",
+      "pillar": "catalog", "column": "backlog", "order": 6500,
+      "priority": 3,
+      "notes": "Surfaced during F12 runtime debugging (tasks.md 1a Slice B)", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c053", "title": "Catalog: expand s_BaseWeapons from 41 to 86 entries",
+      "description": "s_BaseWeapons currently has 41 MP-only entries. Expand to all 86 weapons with pdbase_path metadata. Registration is unconditional per Mike's 2026-04-30 clarification.",
+      "pillar": "catalog", "column": "backlog", "order": 7000,
+      "priority": 4,
+      "notes": "F12 follow-up from tasks.md", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c076", "title": "Catalog: scenarios + game modes migration",
+      "description": "Post-migration polish: migrate scenarios and game modes to .pdbase catalog format. Not blocking the lane closure but needed for completeness.",
+      "pillar": "catalog", "column": "backlog", "order": 7500,
+      "priority": 4,
+      "notes": "tasks.md: remaining catalog queue", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c041", "title": "Tooling: audit grooming",
       "description": "Groom and archive stale audits. Move shipped audits to _old/audits/ per retention.md.",
-      "pillar": "tooling", "column": "backlog", "order": 6000,
+      "pillar": "tooling", "column": "backlog", "order": 8000,
       "priority": 3,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c042", "title": "GitHub Actions CI workflow",
+      "id": "c042", "title": "Tooling: GitHub Actions CI workflow",
       "description": "Set up GitHub Actions CI for automated build verification on push/PR.",
-      "pillar": "tooling", "column": "backlog", "order": 7000,
+      "pillar": "tooling", "column": "backlog", "order": 9000,
       "priority": 3,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c035", "title": "Surface-Normal Slices 4+5",
-      "description": "UI surface-normal rendering slices 4 and 5.",
-      "pillar": "ui", "column": "backlog", "order": 8000,
+      "id": "c068", "title": "Build: investigate pd_headers 600s watchdog stall",
+      "description": "Multiple sessions (S587-S590) report pd_headers ninja step running 478-589s against a 600s watchdog. Invoked with -j1 -v intentionally. Suspect Python or Git probe blocking. Investigate; surface real progress in heartbeat.",
+      "pillar": "tooling", "column": "backlog", "order": 9500,
+      "priority": 2,
+      "notes": "build-headless.ps1:902-910", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c069", "title": "Build: factor SP-9 truncation guard into helper",
+      "description": "SP-9 guard is inlined at build-headless.ps1:763-804. Factor into version-util.ps1 or new _build-safety.ps1 so it can be unit-tested. Future regex bug would silently change guard behavior.",
+      "pillar": "tooling", "column": "backlog", "order": 10000,
       "priority": 4,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c037", "title": "Hoverbike full operability validation",
-      "description": "Full hoverbike vehicle operability validation pass.",
-      "pillar": "vehicles", "column": "backlog", "order": 9000,
+      "id": "c070", "title": "Build: centralize worktree-redirect logic",
+      "description": "Worktree-redirect logic (redirecting worktree builds to main project) is duplicated in 3 scripts. Centralize into one helper called by every script.",
+      "pillar": "tooling", "column": "backlog", "order": 10500,
       "priority": 4,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c039", "title": "Skin Editor canvas D-pad mode (post-catalog)",
-      "description": "D-pad navigation mode for Skin Editor canvas. Gated on catalog lane closure.",
-      "pillar": "mod-infrastructure", "column": "backlog", "order": 10000,
-      "priority": 4,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
-    },
-    {
-      "id": "c040", "title": "Dev Window worktree-aware cleanup",
+      "id": "c040", "title": "Tooling: Dev Window worktree-aware cleanup",
       "description": "Make Dev Window aware of active worktrees for cleaner status display.",
       "pillar": "tooling", "column": "backlog", "order": 11000,
       "priority": 4,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     },
     {
-      "id": "c038", "title": "Wall-jump glitch (deferred)",
+      "id": "c054", "title": "Networking: wire ICE peer candidate exchange",
+      "description": "p2pIceAddPeerCandidate exists at p2p_ice.c:260 but is never called from presence or invite layer. Without it ICE tier functions as a slower Tier 1. Wire from presence delivery.",
+      "pillar": "networking", "column": "backlog", "order": 11500,
+      "priority": 3,
+      "notes": "connectivity.md Known Gaps", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c055", "title": "Networking: publish STUN reflexive to peer",
+      "description": "p2p_stun.c:125-131 reports success with local reflexive but does not coordinate with remote. Presence packet has listen_ipv4/listen_port fields but bridge from p2pPublishMyReflexive to presence outbound is missing.",
+      "pillar": "networking", "column": "backlog", "order": 12000,
+      "priority": 3,
+      "notes": "connectivity.md Known Gaps", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c056", "title": "Networking: auto-detect Opus via CMake find_package",
+      "description": "HAVE_OPUS currently requires manual pacman -S step documented only in a code comment (voice.c:16-19). Build script does not check or auto-set the flag. Detect via CMake find_package and auto-set.",
+      "pillar": "networking", "column": "backlog", "order": 12500,
+      "priority": 3,
+      "notes": "connectivity.md Known Gaps", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c057", "title": "Networking: UPnP map p2p probe ports",
+      "description": "p2p_upnp.c:75-76 only maps the ENet port. Direct probe (27102), ICE (27103), TURN (27104) sockets remain unmapped. Tier 3 UPnP success is partial.",
+      "pillar": "networking", "column": "backlog", "order": 13000,
+      "priority": 4,
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c058", "title": "Networking: replace kbps placeholder measurement",
+      "description": "groupSessionRecomputeAuthority at group_session.c:136 has a placeholder comment for local kbps. Local kbps initializes to 0; first non-zero reporter wins authority. Replace with real measurement.",
+      "pillar": "networking", "column": "backlog", "order": 13500,
+      "priority": 4,
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c059", "title": "Networking: add TURN public relay fallback",
+      "description": "p2p_turn.c:211-213 reports 'no relay available' when s_Cands is empty. A brand-new server with no players in group session fails at tier 5. Add a configurable public TURN fallback.",
+      "pillar": "networking", "column": "backlog", "order": 14000,
+      "priority": 4,
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c060", "title": "Networking: unify legacy hole-punch with tier machine",
+      "description": "netholepunch.c legacy path runs in parallel with the 6-tier orchestrator. Handoff from p2pPairGetEndpoint to enet_host_connect is not visible. Two systems overlap; unify.",
+      "pillar": "networking", "column": "backlog", "order": 14500,
+      "priority": 4,
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c061", "title": "Modding: enable INI components inside .pdmod archives",
+      "description": "INI scanner uses fopen/stat/opendir expecting on-disk files. A .pdmod containing maps/ with map.ini + geometry does not appear in catalog. Extend modmgrLoadMod for archive mods to drive assetCatalogScanComponentsFromArchive.",
+      "pillar": "mod-infrastructure", "column": "backlog", "order": 15000,
+      "priority": 3,
+      "notes": "modding.md What is in flight", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c062", "title": "Modding: fix SHA-256 mismatch (archive vs folder)",
+      "description": "Archive mods digest entire archive file; folder mods digest only mod.json. manifestCheck compares them as equal so client-folder vs server-archive (same content) always disagrees, triggering unnecessary NEED_ASSETS. Unify to mod.json bytes only.",
+      "pillar": "mod-infrastructure", "column": "backlog", "order": 15500,
+      "priority": 3,
+      "notes": "modmgr.c:1331 vs modmgr.c:1074", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c063", "title": "Modding: hot-register distributed mods in g_ModRegistry",
+      "description": "netdistrib.c:1200 calls assetCatalogRegister directly. Component appears in catalog but g_ModRegistry is not updated, so Mod Manager UI does not show distributed mods until next launch. Call modmgrRescanDirectory after SVC_DISTRIB_END.",
+      "pillar": "mod-infrastructure", "column": "backlog", "order": 16000,
+      "priority": 3,
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c064", "title": "Modding: audit/remove dead manifest serializer",
+      "description": "modmgrWriteManifest/ReadManifest at modmgr.c:2456-2554 implement a custom binary format predating match_manifest_t. No live netplay caller. CRC32-based hash weaker than SHA-256 path. Audit and remove or wire.",
+      "pillar": "mod-infrastructure", "column": "backlog", "order": 16500,
+      "priority": 4,
+      "notes": "modding.md Known Gaps", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c065", "title": "Tests: replace pure mirror hand-sync with compile-boundary",
+      "description": "7 pure mirror files (*_pure.c) carry manual @SYNC comments for drift audit. Drift is not enforced by CI. Factor algorithm TUs to import no globals and link both production and test against the same TU.",
+      "pillar": "tests", "column": "backlog", "order": 17000,
+      "priority": 3,
+      "notes": "Affects: actionmap_pure, inputctx_pure, inputlayer_pure, manifest_pure, menupool_pure, savebuffer_pure, scene_pure", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c066", "title": "Tests: add behavioral coverage for F10 .pdbase loader",
+      "description": "test_loader_pdbase_scan.cpp has 3 cases, all static-text checks. None call loaderPdbaseScan or assert returns. Tests would pass even if implementation were stripped. Needs behavioral coverage now that F11 has landed.",
+      "pillar": "tests", "column": "backlog", "order": 17500,
+      "priority": 3,
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c073", "title": "Tests: B-312 pd-tests SIGSEGV on inputlayer sequence",
+      "description": "pd-tests crashes with SIGSEGV when running [inputlayer] test sequence. Discovered in S606b test triage. Root cause not yet identified.",
+      "pillar": "tests", "column": "backlog", "order": 18000,
+      "priority": 2,
+      "notes": "B-312 open in bugs.md; discovered S606b", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c067", "title": "Tests: cover Forge editor, social shell, voice, updater",
+      "description": "No test files exist for Forge editor (port/src/forge/*.c, 7 files), social shell, updater, voice, spectator, lobby portrait baking, theme decode, or pdgui_menu_*.cpp. Add per-domain coverage as those modules see active changes.",
+      "pillar": "tests", "column": "backlog", "order": 18500,
+      "priority": 4,
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c074", "title": "Save/Wire: chained migration behavioral test",
+      "description": "Add chained-migration behavioral test: set up SAVE_VERSION=4 fixture, register dummy 1->2, 2->3, 3->4 migrations, assert each ran in order. Currently only a static text pin exists.",
+      "pillar": "tooling", "column": "backlog", "order": 19000,
+      "priority": 4,
+      "notes": "tasks.md save/wire follow-ups", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c035", "title": "UI: surface-normal slices 4+5",
+      "description": "UI surface-normal rendering slices 4 and 5.",
+      "pillar": "ui", "column": "backlog", "order": 19500,
+      "priority": 4,
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c039", "title": "Mod Infrastructure: Skin Editor canvas D-pad mode",
+      "description": "D-pad navigation mode for Skin Editor canvas. Gated on catalog lane closure and Input Cohorts 5-8.",
+      "pillar": "mod-infrastructure", "column": "backlog", "order": 20000,
+      "priority": 4,
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c071", "title": "B-298: Hoverbike input broken",
+      "description": "Hoverbike input broken - deferred to Input+Menu session. Likely related to IMC lifecycle gap for LAYER_VEHICLE_DRIVER before Cohorts 5-8 land.",
+      "pillar": "vehicles", "column": "blocked", "order": 1000,
+      "priority": 2,
+      "notes": "B-298 open in bugs.md; blocked pending Input Cohorts 5-8", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c037", "title": "Vehicles: hoverbike full operability validation",
+      "description": "Full hoverbike vehicle operability validation pass. Gated on B-298 fix (Input Cohorts 5-8).",
+      "pillar": "vehicles", "column": "backlog", "order": 20500,
+      "priority": 4,
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c038", "title": "Vehicles: wall-jump glitch (deferred)",
       "description": "Wall-jump glitch: deferred, not on critical path.",
-      "pillar": "vehicles", "column": "backlog", "order": 12000,
+      "pillar": "vehicles", "column": "backlog", "order": 21000,
       "priority": 5,
-      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
     }
   ]
 }
