@@ -1,12 +1,12 @@
 /*
- * tests/test_weapon_direct_reads_audit.cpp -- S484 F3+: pin that
- * specific files no longer perform direct g_Weapons[] indexing.
+ * tests/test_weapon_direct_reads_audit.cpp -- pin that specific files
+ * no longer perform direct g_Weapons[] indexing.
  *
  * Static-grep test. Reads each target source file and asserts the
  * file contains no `g_Weapons[` substring. The migration funnels
  * every weapon-data read through weaponFindById /
- * catalogManagerGetWeaponByIndex so the migration to .pdbase-served
- * data in F11+ is transparent.
+ * catalogManagerGetWeaponByIndex so the migration to loader_pool-
+ * served data is transparent.
  *
  * Files in scope land here as their corresponding F-step commits add
  * them. Tag list grows with the migration.
@@ -125,10 +125,6 @@ TEST_CASE("F9 (I.2): ext.weapon shadow fields dropped",
     REQUIRE(hdr.find("f32  damage;") == std::string::npos);
     REQUIRE(hdr.find("f32  fire_rate;") == std::string::npos);
     REQUIRE(hdr.find("s32  ammo_type;") == std::string::npos);
-    /* New pdbase_* fields present (F11+ data move scaffold). */
-    REQUIRE(hdr.find("pdbase_path[128]") != std::string::npos);
-    REQUIRE(hdr.find("pdbase_offset") != std::string::npos);
-    REQUIRE(hdr.find("pdbase_size") != std::string::npos);
 }
 
 TEST_CASE("F9: assetCatalogRegisterWeapon signature dropped 3 args",

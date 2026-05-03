@@ -158,25 +158,6 @@ TEST_CASE("catalog-mgr-head: F6 g_MpMaleHeads / g_MpFemaleHeads retired",
 }
 
 /* ===========================================================================
- * F11 archive pin: base/heads.pdbase exists and parses as JSON with the
- * expected envelope.
- * =========================================================================== */
-
-TEST_CASE("catalog-mgr-head: F11 base/heads.pdbase has expected envelope",
-          "[catalog-mgr-head][gate3][f11]") {
-	const std::string src = readSourceFile("base/heads.pdbase");
-	REQUIRE(!src.empty());
-	REQUIRE(src.find("\"pdbase_version\": 1") != std::string::npos);
-	REQUIRE(src.find("\"type\": \"heads\"") != std::string::npos);
-	REQUIRE(src.find("\"heads\": [") != std::string::npos);
-	/* Two known head IDs from the canonical 75 + at least one sp_head_*
-	 * fallback indicate the extractor produced both branches. */
-	REQUIRE(src.find("\"id\": \"base:head_carrington\"") != std::string::npos);
-	REQUIRE(src.find("\"id\": \"base:head_dark_combat\"") != std::string::npos);
-	REQUIRE(src.find("\"id\": \"base:sp_head_") != std::string::npos);
-}
-
-/* ===========================================================================
  * F13 grep-guard pin: live HEAD-data reads outside the catalog API and the
  * manager's parity-period mirror are gone. Allowed sites:
  *   - port/src/assetcatalog_api.c    (catalog API; bodies-side reads keep
@@ -184,8 +165,7 @@ TEST_CASE("catalog-mgr-head: F11 base/heads.pdbase has expected envelope",
  *   - port/src/assetcatalog_base.c   (registration; iterates g_HeadsAndBodies
  *     and g_MpHeads at startup)
  *   - port/src/catalog_mgr_heads.c   (manager pool; parity-period mirror)
- *   - port/src/loader_pdbase.c       (loader pool; populates s_HeadsPool from
- *     base/heads.pdbase)
+ *   - port/src/loader_pool.c         (loader pool; populates s_HeadsPool)
  *   - src/game/modeldata/robot.c     (data definition site)
  *   - src/include/data.h             (extern decl)
  *   - src/include/types.h            (struct headorbody decl)

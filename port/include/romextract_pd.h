@@ -1,8 +1,8 @@
 /**
  * romextract_pd.h -- Catalog universality pivot Step 1 (2026-05-02).
  *
- * Per-asset .pd* compound emitters. Walks the loader_pdbase pool
- * (populated by loaderPdbaseScan from base/weapons.pdbase) and writes
+ * Per-asset .pd* compound emitters. Walks the loader_pool pool
+ * (populated by loaderWalkerLoadAll from the per-asset envelope) and writes
  * one .pdwpn JSON file per weapon, one .pdmesh ZIP compound per unique
  * weapon mesh, and one .pdanim JSON file per registered animation.
  *
@@ -14,10 +14,10 @@
  * Where <id> is the catalog ID with the colon replaced by underscore.
  * For example "base:falcon2" -> "base_falcon2.pdwpn".
  *
- * Boot order requirement: must run AFTER loaderPdbaseBuildWeaponManager
+ * Boot order requirement: must run AFTER loaderPoolFinalize
  * (so loader pools are populated) AND AFTER romExtractAllFiles (so the
  * source .bin files exist on disk for .pdmesh repackaging).  See
- * port/src/main.c wiring near the loaderPdbaseScan block.
+ * port/src/main.c wiring near the loaderWalkerLoadAll block.
  *
  * Server build: each function returns 0 immediately (no client weapon
  * data on the server side; loader is not active).
@@ -66,18 +66,6 @@ s32 romExtractAllPdmesh(s32 force_rewrite);
  */
 s32 romExtractAllPdanim(s32 force_rewrite);
 
-/**
- * Step 1 parity check (Q-5 ruling).  After emission, re-parses each
- * .pdwpn file's envelope and key scalar fields, compares against the
- * loader pool that produced it, and emits LOADER.UNIVERSAL.PARITY_FAIL
- * on any disagreement.  This is a structural integrity check, not a
- * full round-trip test (full round-trip arrives at Step 4 with the
- * universal loader).
- *
- * Returns: count of weapons that failed parity (0 = pass).
- */
-s32 romExtractParityCheckPdwpn(void);
-
 /* ============================================================
  * Catalog universality pivot Step 2 (2026-05-03).
  *
@@ -99,8 +87,8 @@ s32 romExtractParityCheckPdwpn(void);
  * Where <id> is the catalog ID with the colon replaced by underscore.
  * For example "base:head_carrington" -> "base_head_carrington.pdhead".
  *
- * Boot order requirement: must run AFTER loaderPdbaseScan +
- * loaderPdbaseBuildHeadManager / BuildBodyManager / BuildArenaManager
+ * Boot order requirement: must run AFTER loaderWalkerLoadAll +
+ * loaderPoolFinalize / BuildBodyManager / BuildArenaManager
  * (so the typed pools are populated) AND AFTER stageTableInit (so
  * g_Stages[] is populated for the .pdscenario emitter to read per-stage
  * file IDs from). Wire alongside Step 1 in port/src/main.c.
@@ -110,7 +98,7 @@ s32 romExtractParityCheckPdwpn(void);
  * ============================================================ */
 
 /* Step 2: emit one .pdhead JSON file per registered head (152 slots,
- * ~30-40 standalone heads expected based on .pdbase contents).
+ * ~30-40 standalone heads expected based on per-asset envelope contents).
  * Idempotent: skips files that already exist with non-zero size unless
  * force_rewrite is non-zero. Per-file failures emit
  * LOUDFAIL.EXTRACT.PDHEAD but do not abort the walk.
@@ -120,7 +108,7 @@ s32 romExtractParityCheckPdwpn(void);
 s32 romExtractAllPdhead(s32 force_rewrite);
 
 /* Step 2: emit one .pdbody JSON file per registered body (152 slots,
- * 68 expected based on .pdbase: 63 named bodies + 5 SP fallbacks).
+ * 68 expected from the in-binary baseline: 63 named bodies + 5 SP fallbacks).
  * Idempotent. Returns: count of files newly written; -1 on
  * infrastructure failure. */
 s32 romExtractAllPdbody(s32 force_rewrite);
@@ -143,15 +131,6 @@ s32 romExtractAllPdbody(s32 force_rewrite);
  * (.pdarena + .pdscenario both count); -1 on infrastructure failure. */
 s32 romExtractAllPdarena(s32 force_rewrite);
 
-/* Step 2 parity checks (Q-5 ruling). Re-read each emitted file,
- * verify envelope + key scalar fields against the source loader pool,
- * emit LOADER.UNIVERSAL.PARITY_FAIL on any disagreement. Same
- * structural-integrity-only contract as romExtractParityCheckPdwpn;
- * full field-by-field round-trip arrives at Step 4. */
-s32 romExtractParityCheckPdhead(void);
-s32 romExtractParityCheckPdbody(void);
-s32 romExtractParityCheckPdarena(void);
-
 /* ============================================================
  * Catalog universality pivot Step 3a (2026-05-03).
  *
@@ -168,8 +147,8 @@ s32 romExtractParityCheckPdarena(void);
  *                     (length = headerlen + numframes * bytesperframe)
  *   frames.bin.sha256 outer-file SHA-256 sidecar
  *
- * Catalog IDs derive from the loaderPdbaseNameForAnimEnum reverse
- * lookup over k_AnimEnum (port/src/loader_pdbase_enums.c). For named
+ * Catalog IDs derive from the loaderEnumNameForAnimEnum reverse
+ * lookup over k_AnimEnum (port/src/loader_enum_reverse.c). For named
  * animations (e.g. "ANIM_HEROHIT") the ID is "base:anim_herohit". For
  * unnamed slots (auto-named "ANIM_NNNN" hex) the ID is "base:anim_NNNN".
  *
@@ -197,14 +176,6 @@ s32 romExtractParityCheckPdarena(void);
  * Returns: count of compounds newly written; -1 on infrastructure
  * failure (data dir creation, segment lookup, etc.). */
 s32 romExtractAllPdanimChr(s32 force_rewrite);
-
-/* Step 3a parity check (Q-5 ruling). Re-reads each emitted compound's
- * manifest.json envelope + key scalar fields and verifies they round-
- * trip the source table entry. Structural integrity check; full
- * round-trip arrives at Step 4 with the universal loader.
- *
- * Returns: count of chr animations that failed parity (0 = pass). */
-s32 romExtractParityCheckPdanimChr(void);
 
 /* ============================================================
  * Catalog universality pivot Step 3 audio half (2026-05-03).
@@ -290,14 +261,9 @@ s32 romExtractAllPdvoice(s32 force_rewrite);
  * Returns: count of files newly written; -1 on infrastructure failure. */
 s32 romExtractAllPdsong(s32 force_rewrite);
 
-/* Step 3 audio parity checks (Q-5 ruling). Re-read each emitted ZIP,
- * verify envelope (pd_kind / pd_schema_version / id) + key scalar
- * fields (source_index / sample_rate_hz / data_size) round-trip the
- * source bank/table entry. Failures emit LOADER.UNIVERSAL.PARITY_FAIL
- * with diagnostic detail. Same structural integrity contract as
- * romExtractParityCheckPdanimChr; full field-by-field round-trip is
- * Step 4. Returns: count of files that failed parity (0 = pass). */
-s32 romExtractParityCheckPdsfx(void);
+/* Voice + song parity checks (byte-level structural integrity). The
+ * sfx parity check retired with the loader_pool migration; voice +
+ * song are byte-stream-only and their parity is preserved. */
 s32 romExtractParityCheckPdvoice(void);
 s32 romExtractParityCheckPdsong(void);
 
@@ -362,11 +328,10 @@ s32 romExtractAllPdfont(s32 force_rewrite);
  * failure. */
 s32 romExtractAllPdlang(s32 force_rewrite);
 
-/* Step 3b part 1 parity checks (Q-5 ruling). Re-read each emitted
- * ZIP, verify envelope + key scalar fields round-trip the source.
- * Same structural integrity contract as the audio half. */
+/* Font parity check (byte-level structural integrity). The lang parity
+ * check retired with the loader_pool migration; font remains as the
+ * byte-stream-only check. */
 s32 romExtractParityCheckPdfont(void);
-s32 romExtractParityCheckPdlang(void);
 
 /* ============================================================
  * Catalog universality pivot Step 3b part 2 (2026-05-03).

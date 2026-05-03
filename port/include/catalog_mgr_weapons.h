@@ -15,7 +15,7 @@
  * weaponFindById to call catalogManagerGetWeaponByIndex; F3-F8 migrate
  * remaining direct table accesses through the manager. F11-F13 (next
  * session) replace the legacy backing tables with manager-owned data
- * sourced from .pdbase JSON files.
+ * sourced from the per-asset envelope files.
  *
  * Logging: every miss path emits a CATALOG.MGR.WEAPON.MISS: warning so
  * upstream callers can be diagnosed. Every mutation emits

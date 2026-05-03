@@ -12,7 +12,6 @@
 #   - PerfectDark.exe (game client, fully static -- no runtime DLLs required)
 #   - Updater.exe (standalone GUI updater; recovery path if client self-update breaks)
 #   - data/ folder (skeleton for first-launch ROM extraction, with README.txt)
-#   - base/ folder (project-canonical content: .pdbase files)
 #
 # NOT included: pd-server (deprecated), pd-tests (dev-only), ROM files (.z64).
 # Source code is NOT included -- GitHub auto-generates source archives.
@@ -334,10 +333,6 @@ $DataSource = $(if (Test-Path (Join-Path $BuildDir "data"))  { Join-Path $BuildD
                 elseif (Test-Path "../post-batch-addin/data") { "../post-batch-addin/data" }
                 else { "" })
 
-# Base -- project-canonical content (.pdbase files) from repo root
-$BaseSource = $(if (Test-Path (Join-Path $ProjectRoot "base")) { Join-Path $ProjectRoot "base" }
-                else { "" })
-
 Write-Host ""
 Write-Host ("=" * 70) -ForegroundColor Cyan
 Write-Host "  Perfect Dark 2 -- $ReleaseTitle" -ForegroundColor Cyan
@@ -375,7 +370,6 @@ $hasGh = [bool]$ghCmd
 $hasClient  = $ClientExe  -ne ""
 $hasUpdater = $UpdaterExe -ne ""
 $hasData    = $DataSource -ne ""
-$hasBase    = $BaseSource -ne ""
 $hasNotes   = Test-Path $ReleaseNotes
 
 if ($hasGh) {
@@ -404,9 +398,6 @@ else             { Write-Host "  Updater:     MISSING (release will omit Updater
 
 if ($hasData)   { Write-Host "  Data:        FOUND ($DataSource)" -ForegroundColor Green }
 else            { Write-Host "  Data:        MISSING" -ForegroundColor Yellow }
-
-if ($hasBase)   { Write-Host "  Base:        FOUND ($BaseSource)" -ForegroundColor Green }
-else            { Write-Host "  Base:        MISSING (release will omit base/)" -ForegroundColor Yellow }
 
 Write-Host "  Notes:       $(if ($hasNotes) { 'FOUND' } else { 'MISSING (will auto-generate)' })" -ForegroundColor $(if ($hasNotes) { 'Green' } else { 'Yellow' })
 Write-Host "  Source:      GitHub auto-generates source archives" -ForegroundColor Gray
@@ -471,16 +462,6 @@ if ($hasData) {
     }
 } else {
     Write-Host "  data/ -- NOT FOUND (skipped)" -ForegroundColor Yellow
-}
-
-# --- Base folder (.pdbase files) ---
-
-if ($hasBase) {
-    $baseCount = (Get-ChildItem $BaseSource -Recurse -File).Count
-    Write-Host "  Copying base/ ($baseCount files) ..." -ForegroundColor Gray
-    Copy-Item $BaseSource "$DistDir/base" -Recurse -Force
-} else {
-    Write-Host "  base/ -- NOT FOUND (skipped)" -ForegroundColor Yellow
 }
 
 # --- data/README.txt (ROM instructions for end users) ---

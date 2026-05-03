@@ -934,7 +934,7 @@ s32 assetCatalogRegisterBaseGameExtended(void)
  *                       above (registerHandModels).
  *   2. GUN models    -- bgunQueueModelLoad(weaponGetFileNum(weaponnum)) at
  *                       line 4512. The filenum comes from
- *                       struct weapon::hi_model loaded from weapons.pdbase.
+ *                       struct weapon::hi_model loaded from the loader_pool.
  *                       Covered by this function's hi_model + lo_model loop.
  *   3. CARTRIDGE     -- bgunQueueModelLoad(g_CartFileNums[casingindex]) at
  *      models          line 4562. The filenums come from
@@ -966,11 +966,11 @@ s32 assetCatalogRegisterBaseGameExtended(void)
  * prior weapon iterations).
  *
  * Why a separate function rather than baking into the body of
- * assetCatalogRegisterBaseGameExtended: the loader (loaderPdbase) is
+ * assetCatalogRegisterBaseGameExtended: the loader (loaderPool) is
  * scanned and its weapon pool populated AFTER the base-game catalog
  * registration runs. catalogManagerGetWeaponByIndex(i) returns NULL
  * during base-game registration. Caller (main.c) invokes this function
- * AFTER loaderPdbaseBuildWeaponManager so weapon data is available.
+ * AFTER loaderPoolFinalize so weapon data is available.
  *
  * No legacy ROM fallback in bondgun.c. Catalog is the sole pipeline.
  * If any future weapon ships with a model file we miss here, the load

@@ -22,6 +22,7 @@
 #include <PR/ultratypes.h>
 
 #include "fs.h"
+#include "loader_pool.h"
 #include "loader_walker.h"
 #include "loader_walker_common.h"
 #include "system.h"
@@ -55,6 +56,13 @@ s32 loaderWalkerLoadAll(loader_walker_result_t *out)
     sysLogPrintf(LOG_NOTE,
         "LOADER.UNIVERSAL.OK: walking %s/<kind>/*.pd<ext> for 13 universality kinds",
         data_root);
+
+    /* Step 5: clear loader_pool before re-scanning so re-runs (or
+     * forced re-extracts) start from a known-zero state. The four
+     * pool-kind walkers (weapon/head/body/arena + animation) populate
+     * typed payload via loaderPoolParse*Json during the scan; the
+     * matching loaderPoolFinalize at the end flips the active flags. */
+    loaderPoolReset();
 
     loader_walker_kind_result_t kr;
 
@@ -151,6 +159,11 @@ s32 loaderWalkerLoadAll(loader_walker_result_t *out)
     if (total_registered > 0) {
         s_walkerActive = 1;
     }
+
+    /* Step 5: seed default aim/noise sentinels and flip the per-kind
+     * active flags so catalog managers route through the populated
+     * loader_pool slots. */
+    loaderPoolFinalize();
 
     sysLogPrintf(LOG_NOTE,
         "LOADER.UNIVERSAL.SUMMARY: scanned=%d registered=%d "

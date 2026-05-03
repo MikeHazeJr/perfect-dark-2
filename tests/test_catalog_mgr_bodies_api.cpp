@@ -146,25 +146,6 @@ TEST_CASE("catalog-mgr-body: F4 catalogResetAllModeldefs uses manager calls",
 }
 
 /* ===========================================================================
- * F11 archive pin: base/bodies.pdbase exists and parses as JSON with the
- * expected envelope.
- * =========================================================================== */
-
-TEST_CASE("catalog-mgr-body: F11 base/bodies.pdbase has expected envelope",
-          "[catalog-mgr-body][gate3][f11]") {
-	const std::string src = readSourceFile("base/bodies.pdbase");
-	REQUIRE(!src.empty());
-	REQUIRE(src.find("\"pdbase_version\": 1") != std::string::npos);
-	REQUIRE(src.find("\"type\": \"bodies\"") != std::string::npos);
-	REQUIRE(src.find("\"bodies\": [") != std::string::npos);
-	/* Two known body IDs from the canonical 63 + at least one sp_body_*
-	 * fallback indicate the extractor produced both branches. */
-	REQUIRE(src.find("\"id\": \"base:dark_combat\"") != std::string::npos);
-	REQUIRE(src.find("\"id\": \"base:carrington\"") != std::string::npos);
-	REQUIRE(src.find("\"id\": \"base:sp_body_") != std::string::npos);
-}
-
-/* ===========================================================================
  * F13 grep-guard pin: live BODY-data reads outside the catalog API and the
  * manager's parity-period mirror are gone. Allowed sites:
  *   - port/src/assetcatalog_api.c    (catalog API)
@@ -173,7 +154,7 @@ TEST_CASE("catalog-mgr-body: F11 base/bodies.pdbase has expected envelope",
  *   - port/src/assetcatalog_base_extended.c (B-275 hand model registration;
  *     reads g_HeadsAndBodies[i].handfilenum directly per audit H.2)
  *   - port/src/catalog_mgr_bodies.c  (manager pool; parity-period mirror)
- *   - port/src/loader_pdbase.c       (loader pool; populates s_BodiesPool)
+ *   - port/src/loader_pool.c         (loader pool; populates s_BodiesPool)
  *   - port/src/modelcatalog.c        (validation walk; per audit H.3)
  *   - src/game/modeldata/robot.c     (data definition site)
  *   - src/include/data.h             (extern decl)

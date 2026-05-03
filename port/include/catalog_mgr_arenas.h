@@ -14,7 +14,7 @@
  * catalog_mgr_bodies.h) and the F11-F13 weapons template. Phase 2
  * (F1-F11) status: this manager is a thin pass-through router that
  * mirrors the catalog row layer for ASSET_ARENA entries during the
- * parity period. F11 ships base/arenas.pdbase + Python extractor;
+ * parity period. F11 ships the per-asset envelope + Python extractor;
  * F12 wires the loader through s_get when active; F13 retires the
  * parity bridge.
  *

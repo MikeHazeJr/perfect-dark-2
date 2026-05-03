@@ -180,21 +180,21 @@
     {
       "id": "c050",
       "title": "Migrate Catalog System",
-      "description": "Complete migration of all game assets from legacy ROM-bound arrays to FileProvider-backed .pdbase catalog. ROM-once-then-disk: g_RomFile freed after extraction; all asset reads go through catalog managers.",
-      "pillar": "catalog", "column": "active", "order": 500,
+      "description": "Complete migration of all game assets from legacy ROM-bound arrays to FileProvider-backed per-asset catalog. ROM-once-then-disk: g_RomFile freed after extraction; all asset reads go through catalog managers + loader_pool.",
+      "pillar": "catalog", "column": "done", "order": 500,
       "priority": 1,
-      "notes": "Pillar ref: context/pillars/catalog.md",
+      "notes": "DONE 2026-05-03. Catalog universality COMPLETE. Pillar ref: context/pillars/catalog.md",
       "flag": null, "flagged_at": null,
       "created": "2026-05-02T00:00:00Z", "updated": "2026-05-03T00:00:00Z",
       "subtasks": [
-        {"id": "s050-01", "title": "Migrate weapons (F1-F13)", "status": "done", "order": 1000, "notes": "catalog_mgr_weapons.c + base/weapons.pdbase. g_Weapons[] retired. Shipped."},
-        {"id": "s050-02", "title": "Migrate heads (F1-F13)", "status": "done", "order": 2000, "notes": "catalog_mgr_heads.c + base/heads.pdbase (84 records). Shipped S596."},
-        {"id": "s050-03", "title": "Migrate bodies (F1-F13)", "status": "done", "order": 3000, "notes": "catalog_mgr_bodies.c + base/bodies.pdbase (68 records). Shipped S598."},
-        {"id": "s050-04", "title": "Migrate arenas + maps (F1-F13)", "status": "done", "order": 4000, "notes": "Manager + base/arenas.pdbase. Shipped S599."},
-        {"id": "s050-05", "title": "Step 3a: Character animations", "status": "done", "order": 5000, "notes": "romextract_pdanim_chr.c + parity. Shipped 2026-05-03 (worktree amazing-torvalds-eadac6)."},
-        {"id": "s050-06", "title": "Step 3: Audio + scenarios + UI + fonts + lang", "status": "done", "order": 6000, "notes": "All 13 of 13 universality kinds emitted. Step 3 audio half (sfx/voice/song) + Step 3b part 1 (font/lang) + Step 3b part 2 (ui) shipped 2026-05-03 across worktrees frosty-antonelli-fd537f and gifted-benz-cad936. Catalog universality writer-side COMPLETE."},
-        {"id": "s050-07", "title": "Step 4: Loader directory walker", "status": "done", "order": 7000, "notes": "Universal directory walker (loaderWalkerLoadAll) shipped 2026-05-03 in worktree affectionate-hawking-f01503. Walks data/<romid>/<class>/*.pd<ext> for all 13 kinds and registers catalog rows via existing assetCatalogRegister* API. Per-kind walker functions sharing loader_walker_common.{h,c} scaffold (iterate dir + auto-detect ZIP vs JSON + parse manifest envelope + dispatch). Non-destructive overlay via assetCatalogResolve short-circuit -- preserves bootstrap fields like model_file from in-binary registration. .pdbase parser stays primary for pool population (parity-bounded fallback for Step 5 retirement). 17 new files (~1100 lines)."},
-        {"id": "s050-08", "title": "Step 5: Retire .pdbase + parity check + dead helpers", "status": "ready", "order": 8000, "notes": "Next ship. Delete base/*.pdbase + extractor scripts. Migrate pool population from loaderPdbaseScan onto the walker (parse weapon functions / ammos / aim/noise/recoil / partvis from .pdwpn content). Drop pdgui_theme.cpp legacy writers (s_writePng, s_writeNinesliceJson, CRC32 helpers) now unreferenced after .pdui migration. Add grep-guard test pinning."}
+        {"id": "s050-01", "title": "Migrate weapons (F1-F13)", "status": "done", "order": 1000, "notes": "catalog_mgr_weapons.c + per-asset envelopes. g_Weapons[] retired. Shipped."},
+        {"id": "s050-02", "title": "Migrate heads (F1-F13)", "status": "done", "order": 2000, "notes": "catalog_mgr_heads.c + 84 head records. Shipped S596."},
+        {"id": "s050-03", "title": "Migrate bodies (F1-F13)", "status": "done", "order": 3000, "notes": "catalog_mgr_bodies.c + 68 body records. Shipped S598."},
+        {"id": "s050-04", "title": "Migrate arenas + maps (F1-F13)", "status": "done", "order": 4000, "notes": "catalog_mgr_arenas.c + 47 arena records. Shipped S599."},
+        {"id": "s050-05", "title": "Step 3a: Character animations", "status": "done", "order": 5000, "notes": "romextract_pdanim_chr.c. Shipped 2026-05-03 (worktree amazing-torvalds-eadac6)."},
+        {"id": "s050-06", "title": "Step 3: Audio + scenarios + UI + fonts + lang", "status": "done", "order": 6000, "notes": "All 13 of 13 universality kinds emitted. Shipped 2026-05-03 across frosty-antonelli-fd537f + gifted-benz-cad936."},
+        {"id": "s050-07", "title": "Step 4: Loader directory walker", "status": "done", "order": 7000, "notes": "loaderWalkerLoadAll shipped 2026-05-03 in worktree affectionate-hawking-f01503. Sole catalog row registration path. 17 new files (~1100 lines)."},
+        {"id": "s050-08", "title": "Step 5: Retire legacy aggregate tier + dead helpers", "status": "done", "order": 8000, "notes": "Shipped 2026-05-03 in worktree hungry-elgamal-e991de. Aggregate parser + 4 BuildManagers + arena parity check retired into the universal walker. loaderPool* + loaderEnum* renamed from loaderPdbase*. asset_entry_t pdbase_path/offset/size fields dropped. bondgun canary instrumentation + pdgui_theme legacy writers retired. base/ archives + 4 extractor scripts deleted. 7 parity emitter sources retired. Grep-guard test pinned (test_pdbase_retired_audit.cpp). Build verify clean: pd 55.3 MB / pd-updater 12.3 MB / pd-server 22.4 MB / pd-tests 24.9 MB."}
       ]
     },
     {

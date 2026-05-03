@@ -1004,10 +1004,6 @@ asset_entry_t *assetCatalogRegisterWeapon(const char *id, s32 weapon_id,
     }
     catalogSetPrimaryFile(entry, entry->ext.weapon.model_file);
     entry->ext.weapon.dual_wieldable = dual_wieldable;
-    /* S484 F9: pdbase fields default empty until loader populates. */
-    entry->ext.weapon.pdbase_path[0] = '\0';
-    entry->ext.weapon.pdbase_offset = 0;
-    entry->ext.weapon.pdbase_size = 0;
 
     return entry;
 }

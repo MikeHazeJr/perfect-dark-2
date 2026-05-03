@@ -1,41 +1,39 @@
 /*
- * port/src/loader_pdbase.c -- S484 F12: .pdbase loader implementation.
+ * port/src/loader_pool.c -- Catalog universality pivot Step 5
+ * (2026-05-03). Heavyweight typed pool for weapon / head / body / arena
+ * runtime payloads, populated from per-asset .pdwpn / .pdhead / .pdbody /
+ * .pdarena content delivered by the universal directory walker.
  *
- * F10 (S484) shipped the scaffold; F11 (S591) shipped the generated
- * base/weapons.pdbase archive + the Python extractor. This file is the
- * F12 runtime: a JSON parser + opcode codec + manager-owned pools that
- * are populated at startup from the JSON archive.
+ * Pre-Step-5 history (retired): this TU previously parsed an aggregate
+ * JSON archive at base/{weapons,heads,bodies,arenas}.pd-base. Step 5
+ * retires that tier: the per-asset envelope shape inside .pd* files is
+ * identical to the per-record shape the legacy archive used, so the
+ * parsers below carry over unchanged; only the file-iteration layer
+ * moved into loader_walker_{weapon,head,body,arena}.c which call the
+ * loaderPoolParse*Json entrypoints below per file.
  *
- * Design ref: context/designs/catalog/catalog-full-pipeline-weapons.md
- *             Sections C, D, E (loader integration).
- *
- * Memory model (per Mike's 2026-04-30 unlock-state clarification):
+ * Memory model:
  *   - The catalog row layer (assetcatalog) stores per-row identity +
  *     unlock metadata. Registration is unconditional: every parseable
- *     .pdbase entry registers, regardless of unlock state. Selectors
+ *     .pd* entry registers, regardless of unlock state. Selectors
  *     filter `catalog union unlocked` separately.
- *   - The manager-owned pools below hold the typed runtime payload:
- *     struct weapon, struct weaponfunc_*, struct inventory_ammo, etc.
- *     One pool per record type; arena-style allocation; populated
- *     once at startup, freed at shutdown. The pools are reachable by
- *     loaderPdbaseGetWeapon(idx) and the catalog manager routes
- *     accessors through them after loaderPdbaseBuildWeaponManager.
+ *   - The pools below hold the typed runtime payload (struct weapon,
+ *     struct weaponfunc_*, struct inventory_ammo, head_data_t, etc.).
+ *     One pool per record type; arena-style allocation; populated once
+ *     at startup. Catalog managers route through loaderPoolGet* once
+ *     loaderPoolFinalize flips s_LoaderActive.
  *
- * Single-thread invariant: the loader runs on the main thread at
- * startup, before any other system can read weapon data. No locking.
- * Future multi-threaded loading would gate the pools behind an
- * acquire/release fence on s_LoaderActive.
+ * Single-thread invariant: parses run on the main thread at startup
+ * before any other system can read pool data. No locking. Future
+ * multi-threaded loading would gate the pools behind an acquire/
+ * release fence on s_LoaderActive.
  *
- * Logging channels (per directive):
- *   LOADER.PDBASE.WEAPON.OK:           summary at end of load
- *   LOADER.PDBASE.WEAPON.SCAN_FAIL:    archive open / JSON parse error
- *   LOADER.PDBASE.WEAPON.RESOLVE_FAIL: required reference unresolvable
- *                                       (animation name, enum string)
- *   LOADER.PDBASE.WEAPON.FIELD_UNKNOWN: tolerated but logged
- *   LOADER.PDBASE.WEAPON.PARITY_FAIL:  field-equivalence mismatch vs
- *                                       g_Weapons[] (F12 self-test)
- *   LOADER.PDBASE.WEAPON.POOL_FULL:    pool capacity exhausted (treat
- *                                       as a sizing bug; raise the cap)
+ * Logging channels:
+ *   LOADER.POOL.WEAPON.OK / RESOLVE_FAIL / FIELD_UNKNOWN / POOL_FULL /
+ *     STORED
+ *   LOADER.POOL.HEAD.OK / RESOLVE_FAIL / FIELD_UNKNOWN
+ *   LOADER.POOL.BODY.OK / RESOLVE_FAIL / FIELD_UNKNOWN
+ *   LOADER.POOL.ARENA.OK / RESOLVE_FAIL / FIELD_UNKNOWN
  */
 
 #include <ultra64.h>
@@ -46,20 +44,19 @@
 #include "data.h"
 #include "types.h"
 #include "constants.h"
-#include "loader_pdbase.h"
-#include "loader_pdbase_enums.h"
-#include "assetcatalog.h"  /* Catalog Gate 3 Arenas F12: parity check walks ASSET_ARENA rows */
+#include "loader_pool.h"
+#include "loader_enum_reverse.h"
+#include "assetcatalog.h"
 #include "catalog_mgr_weapons.h"
-#include "catalog_mgr_heads.h"  /* Catalog Gate 3 F9: heads pool integration */
-#include "catalog_mgr_bodies.h"  /* Catalog Gate 3 Bodies F9: bodies pool integration */
-#include "catalog_mgr_arenas.h"  /* Catalog Gate 3 Arenas F9: arenas pool integration */
+#include "catalog_mgr_heads.h"
+#include "catalog_mgr_bodies.h"
+#include "catalog_mgr_arenas.h"
 #include "system.h"
 #include "fs.h"
 
-/* S484 F13: g_Weapons[], invaimsettings_default, invnoisesettings_silent
- * retired 2026-04-30. Default fallbacks now sourced from .pdbase metadata
- * or hardcoded sentinels in this file. The parity self-test from F12
- * also retires here -- there is nothing to compare against. */
+/* g_Weapons[], invaimsettings_default, invnoisesettings_silent retired
+ * 2026-04-30 (S484 F13). Default fallbacks (loaderPoolFinalize) now seed
+ * inline sentinels matching the historical struct literals. */
 
 /* ------------------------------------------------------------------ */
 /* Pool storage                                                       */
@@ -91,13 +88,12 @@ typedef struct {
 	char  name[64];
 	s32   cmd_offset;
 	s32   cmd_count;
-} pdbase_anim_entry_t;
+} pool_anim_entry_t;
 
 static struct weapon                  s_Weapons[CATALOG_MGR_WEAPON_COUNT];
 static struct aibotweaponpreference   s_BotPrefs[CATALOG_MGR_WEAPON_COUNT];
-/* Catalog universality pivot Step 1: per-weapon catalog ID captured
- * from the .pdbase JSON "id" field. Used by the .pdwpn emitter to
- * stamp per-asset filenames + envelope `id`. Populated in parseWeapon. */
+/* Per-weapon catalog ID captured from the per-asset envelope `id` field.
+ * Used by the .pdwpn emitter when round-tripping the pool back to disk. */
 static char                           s_WeaponCatalogIds[CATALOG_MGR_WEAPON_COUNT][64];
 static struct guncmd                  s_Guncmds[POOL_GUNCMDS];
 static struct gunviscmd               s_Gunviscmds[POOL_GUNVISCMDS];
@@ -105,23 +101,10 @@ static struct modelpartvisibility     s_Partvis[POOL_PARTVIS];
 static struct inventory_ammo          s_Ammos[POOL_AMMOS];
 static struct invaimsettings          s_AimSettings[POOL_AIMSETTINGS];
 static struct noisesettings           s_NoiseSettings[POOL_NOISESETTINGS];
-/* S484-followup-3 (2026-05-01): canary words straddle the
- * s_RecoilSettings and s_WeaponFuncs pools so that a buffer overrun
- * either side leaves a fingerprint we can detect. The pre/post
- * canaries seed at compile time with distinct magic values; if either
- * is corrupt at any check point, we know somebody wrote past the
- * pool boundary. The fire-time recoil crash at bondgun.c:8229
- * dereferences shootfunc->recoilsettings to a non-NULL but invalid
- * pointer; if a writer corrupts the pool, recoilsettings could end up
- * pointing into garbage that reads as non-NULL but accesses fault. */
-static u32 s_RecoilCanaryPre  = 0xDEADBEEFu;
 static struct recoilsettings          s_RecoilSettings[POOL_RECOILSETTINGS];
-static u32 s_RecoilCanaryPost = 0xCAFEBABEu;
-static u32 s_WeaponFuncsCanaryPre  = 0xFEEDFACEu;
 static weaponfunc_any_t               s_WeaponFuncs[POOL_WEAPONFUNCS];
-static u32 s_WeaponFuncsCanaryPost = 0xBADC0FFEu;
 static f32                            s_Vibrations[POOL_VIBRATIONS];
-static pdbase_anim_entry_t            s_Animations[POOL_ANIMATIONS];
+static pool_anim_entry_t              s_Animations[POOL_ANIMATIONS];
 static struct invaimsettings          s_DefaultAim;
 static struct noisesettings       s_DefaultNoise;
 
@@ -139,77 +122,56 @@ static s32 s_AnimationsUsed;
 static s32 s_LoaderActive;
 static s32 s_WeaponsRegistered;
 
-/* ------------------------------------------------------------------ */
-/* Catalog Gate 3 F9: heads pool                                       */
-/*                                                                    */
-/* Parallel to the weapons pool. Heads live in their own archive       */
-/* base/heads.pdbase per audit decision I.6. F9 ships the pool +       */
-/* accessors as a scaffold; F11 ships the extractor + archive; F12     */
-/* implements parseHead() and toggles s_HeadsLoaderActive on success.  */
-/* ------------------------------------------------------------------ */
-
-static head_data_t s_HeadsPool[CATALOG_MGR_HEAD_COUNT];
-static s32 s_HeadsLoaderActive;
-static s32 s_HeadsRegistered;
-
-/* ------------------------------------------------------------------ */
-/* Catalog Gate 3 Bodies F9: bodies-side pool, parallel to heads.     */
-/* base/bodies.pdbase per audit decision I.6. F9 ships the pool +     */
-/* accessors as a scaffold; F11 ships the extractor + archive; F12    */
-/* implements parseBody() and toggles s_BodiesLoaderActive on success. */
-/* ------------------------------------------------------------------ */
-
-static body_data_t s_BodiesPool[CATALOG_MGR_BODY_COUNT];
-static s32 s_BodiesLoaderActive;
-static s32 s_BodiesRegistered;
-
-/* ------------------------------------------------------------------ */
-/* Catalog Gate 3 Arenas F9: arenas-side pool, parallel to heads + bodies. */
-/* base/arenas.pdbase per audit decision I.6. F9 ships the pool +     */
-/* accessors as a scaffold; F11 ships the extractor + archive; F12    */
-/* implements parseArena() and toggles s_ArenasLoaderActive on success. */
-/* ------------------------------------------------------------------ */
-
+/* Heads / bodies / arenas pools. Populated from per-asset .pdhead /
+ * .pdbody / .pdarena envelopes via loaderPoolParse*Json; the catalog
+ * managers (catalog_mgr_heads.c / _bodies.c / _arenas.c) gate their
+ * pool reads on the matching loaderPool*Active() flag. */
+static head_data_t  s_HeadsPool[CATALOG_MGR_HEAD_COUNT];
+static s32          s_HeadsLoaderActive;
+static s32          s_HeadsRegistered;
+static body_data_t  s_BodiesPool[CATALOG_MGR_BODY_COUNT];
+static s32          s_BodiesLoaderActive;
+static s32          s_BodiesRegistered;
 static arena_data_t s_ArenasPool[CATALOG_MGR_ARENA_COUNT];
-static s32 s_ArenasLoaderActive;
-static s32 s_ArenasRegistered;
+static s32          s_ArenasLoaderActive;
+static s32          s_ArenasRegistered;
 
 /* ------------------------------------------------------------------ */
 /* Public accessors (consumed by catalog_mgr_weapons.c)               */
 /* ------------------------------------------------------------------ */
 
-s32 loaderPdbaseIsActive(void) { return s_LoaderActive; }
+s32 loaderPoolIsActive(void) { return s_LoaderActive; }
 
-const struct weapon *loaderPdbaseGetWeapon(s32 idx)
+const struct weapon *loaderPoolGetWeapon(s32 idx)
 {
 	if (idx < 0 || idx >= CATALOG_MGR_WEAPON_COUNT) return NULL;
 	if (!s_LoaderActive) return NULL;
 	return &s_Weapons[idx];
 }
 
-const struct invaimsettings *loaderPdbaseGetDefaultAim(void)
+const struct invaimsettings *loaderPoolGetDefaultAim(void)
 {
 	return s_LoaderActive ? &s_DefaultAim : NULL;
 }
 
-const struct noisesettings *loaderPdbaseGetDefaultNoise(void)
+const struct noisesettings *loaderPoolGetDefaultNoise(void)
 {
 	return s_LoaderActive ? &s_DefaultNoise : NULL;
 }
 
-const struct aibotweaponpreference *loaderPdbaseGetBotPref(s32 idx)
+const struct aibotweaponpreference *loaderPoolGetBotPref(s32 idx)
 {
 	if (idx < 0 || idx >= CATALOG_MGR_WEAPON_COUNT) return NULL;
 	if (!s_LoaderActive) return NULL;
 	return &s_BotPrefs[idx];
 }
 
-s32 loaderPdbaseGetWeaponsRegistered(void) { return s_WeaponsRegistered; }
+s32 loaderPoolGetWeaponsRegistered(void) { return s_WeaponsRegistered; }
 
-/* Catalog universality pivot Step 1: per-weapon catalog ID getter.
- * Returns the string captured from the .pdbase JSON `id` field, or
- * NULL if loader is inactive / idx out of range / no id was set. */
-const char *loaderPdbaseGetWeaponCatalogId(s32 idx)
+/* Per-weapon catalog ID getter. Returns the string captured from the
+ * per-asset envelope `id` field, or NULL if the loader is inactive,
+ * the index is out of range, or no id was set. */
+const char *loaderPoolGetWeaponCatalogId(s32 idx)
 {
 	if (!s_LoaderActive) return NULL;
 	if (idx < 0 || idx >= CATALOG_MGR_WEAPON_COUNT) return NULL;
@@ -223,19 +185,19 @@ const char *loaderPdbaseGetWeaponCatalogId(s32 idx)
  * Index 0..count-1; out_cmds points into the pool, out_count is
  * the opcode array length. Returns 1 on success, 0 if loader is
  * inactive or idx is out of range. */
-s32 loaderPdbaseGetAnimationCount(void)
+s32 loaderPoolGetAnimationCount(void)
 {
 	return s_LoaderActive ? s_AnimationsUsed : 0;
 }
 
-const char *loaderPdbaseGetAnimationName(s32 idx)
+const char *loaderPoolGetAnimationName(s32 idx)
 {
 	if (!s_LoaderActive) return NULL;
 	if (idx < 0 || idx >= s_AnimationsUsed) return NULL;
 	return s_Animations[idx].name;
 }
 
-s32 loaderPdbaseGetAnimationOpcodes(s32 idx, const struct guncmd **out_cmds,
+s32 loaderPoolGetAnimationOpcodes(s32 idx, const struct guncmd **out_cmds,
                                      s32 *out_count)
 {
 	if (!s_LoaderActive) return 0;
@@ -250,7 +212,7 @@ s32 loaderPdbaseGetAnimationOpcodes(s32 idx, const struct guncmd **out_cmds,
  * (equip_animation, unequip_animation, etc.) to symbolic catalog IDs.
  * Returns the name (not a copy) on success, or NULL if the pointer
  * does not match any registered animation start. */
-const char *loaderPdbaseAnimationNameForCmds(const struct guncmd *cmds)
+const char *loaderPoolAnimationNameForCmds(const struct guncmd *cmds)
 {
 	s32 i;
 	if (!s_LoaderActive || cmds == NULL) return NULL;
@@ -260,50 +222,6 @@ const char *loaderPdbaseAnimationNameForCmds(const struct guncmd *cmds)
 		}
 	}
 	return NULL;
-}
-
-/* S484-followup-3 (2026-05-01): pool-range accessors for the
- * fire-time recoil crash investigation. Bondgun's recoil-block
- * instrumentation cross-checks shootfunc / recoilsettings pointers
- * against these ranges so a wild pointer (out-of-pool) gets caught
- * and surfaced before the dereference faults. */
-const void *loaderPdbaseGetRecoilSettingsBase(void)
-{
-	return (const void *)&s_RecoilSettings[0];
-}
-
-const void *loaderPdbaseGetRecoilSettingsEnd(void)
-{
-	return (const void *)&s_RecoilSettings[POOL_RECOILSETTINGS];
-}
-
-const void *loaderPdbaseGetWeaponFuncsBase(void)
-{
-	return (const void *)&s_WeaponFuncs[0];
-}
-
-const void *loaderPdbaseGetWeaponFuncsEnd(void)
-{
-	return (const void *)&s_WeaponFuncs[POOL_WEAPONFUNCS];
-}
-
-/* Canary check: returns 0 if all canaries are intact. Non-zero bits
- * indicate which canary tripped:
- *   bit 0: s_RecoilCanaryPre (overrun BEFORE s_RecoilSettings[0])
- *   bit 1: s_RecoilCanaryPost (overrun AFTER s_RecoilSettings[N-1])
- *   bit 2: s_WeaponFuncsCanaryPre
- *   bit 3: s_WeaponFuncsCanaryPost
- * Caller (bondgun.c) logs the bitmask before each per-fire pointer
- * read so the next playtest log shows whether a buffer overrun is
- * the corruption source. */
-u32 loaderPdbaseCheckCanaries(void)
-{
-	u32 mask = 0;
-	if (s_RecoilCanaryPre  != 0xDEADBEEFu) mask |= 0x01u;
-	if (s_RecoilCanaryPost != 0xCAFEBABEu) mask |= 0x02u;
-	if (s_WeaponFuncsCanaryPre  != 0xFEEDFACEu) mask |= 0x04u;
-	if (s_WeaponFuncsCanaryPost != 0xBADC0FFEu) mask |= 0x08u;
-	return mask;
 }
 
 static struct guncmd *resolveAnimByName(const char *name)
@@ -518,7 +436,7 @@ static void jstream_skip_value(jstream_t *s)
 		if (count <= 0) return NULL;                                  \
 		if (USED + count > CAP) {                                     \
 			sysLogPrintf(LOG_WARNING,                                  \
-				"LOADER.PDBASE.WEAPON.POOL_FULL: %s wants %d, "        \
+				"LOADER.POOL.WEAPON.POOL_FULL: %s wants %d, "        \
 				"used=%d cap=%d", who, count, USED, CAP);              \
 			return NULL;                                               \
 		}                                                              \
@@ -607,21 +525,21 @@ static s32 jread_enum_or_int(jstream_t *s, jref_kind_t kind, s32 fallback,
 		jstream_advance(s);
 		s32 v = fallback;
 		switch (kind) {
-		case JREF_ANIM: v = loaderPdbaseResolveAnimEnum(buf, fallback); break;
-		case JREF_SFX:  v = loaderPdbaseResolveSfxEnum(buf, fallback); break;
-		case JREF_FILE: v = loaderPdbaseResolveFileEnum(buf, fallback); break;
-		case JREF_LANG: v = loaderPdbaseResolveLangEnum(buf, fallback); break;
+		case JREF_ANIM: v = loaderEnumResolveAnimEnum(buf, fallback); break;
+		case JREF_SFX:  v = loaderEnumResolveSfxEnum(buf, fallback); break;
+		case JREF_FILE: v = loaderEnumResolveFileEnum(buf, fallback); break;
+		case JREF_LANG: v = loaderEnumResolveLangEnum(buf, fallback); break;
 		default:
 			/* Try each table in turn, accept the first hit. */
-			v = loaderPdbaseResolveLangEnum(buf, -1);
-			if (v < 0) v = loaderPdbaseResolveAnimEnum(buf, -1);
-			if (v < 0) v = loaderPdbaseResolveSfxEnum(buf, -1);
-			if (v < 0) v = loaderPdbaseResolveFileEnum(buf, fallback);
+			v = loaderEnumResolveLangEnum(buf, -1);
+			if (v < 0) v = loaderEnumResolveAnimEnum(buf, -1);
+			if (v < 0) v = loaderEnumResolveSfxEnum(buf, -1);
+			if (v < 0) v = loaderEnumResolveFileEnum(buf, fallback);
 			break;
 		}
 		if (v == fallback && buf[0] != '\0') {
 			sysLogPrintf(LOG_WARNING,
-				"LOADER.PDBASE.WEAPON.RESOLVE_FAIL: %s name=\"%s\"",
+				"LOADER.POOL.WEAPON.RESOLVE_FAIL: %s name=\"%s\"",
 				site ? site : "(?)", buf);
 		}
 		return v;
@@ -644,7 +562,7 @@ static s32 decodeOpcode(jstream_t *s, struct guncmd *out)
 {
 	if (s->cur.kind != JT_LBRACK) {
 		sysLogPrintf(LOG_WARNING,
-			"LOADER.PDBASE.WEAPON.SCAN_FAIL: opcode not an array");
+			"LOADER.POOL.WEAPON.SCAN_FAIL: opcode not an array");
 		jstream_skip_value(s);
 		return 0;
 	}
@@ -738,7 +656,7 @@ static s32 decodeOpcode(jstream_t *s, struct guncmd *out)
 		out->unk04 = (intptr_t)jread_int(s, 0);
 	} else {
 		sysLogPrintf(LOG_WARNING,
-			"LOADER.PDBASE.WEAPON.RESOLVE_FAIL: unknown opcode mnem=\"%s\"",
+			"LOADER.POOL.WEAPON.RESOLVE_FAIL: unknown opcode mnem=\"%s\"",
 			mnem);
 		/* skip remaining arg values until RBRACK */
 	}
@@ -754,7 +672,7 @@ static s32 decodeOpcode(jstream_t *s, struct guncmd *out)
 /* Reverse of decodeOpcode: encode a struct guncmd back to a JSON-ish
  * representation used only by the F12 round-trip self-test. Returns
  * 1 on success and writes to `out_buf` (NUL-terminated). */
-s32 loaderPdbaseEncodeOpcode(const struct guncmd *cmd, char *out_buf,
+s32 loaderPoolEncodeOpcode(const struct guncmd *cmd, char *out_buf,
                               size_t out_n)
 {
 	if (cmd == NULL || out_buf == NULL || out_n == 0) return 0;
@@ -810,7 +728,7 @@ static void parseAnimation(jstream_t *s)
 				while (s->cur.kind != JT_RBRACK && s->cur.kind != JT_EOF) {
 					if (s_GuncmdsUsed >= POOL_GUNCMDS) {
 						sysLogPrintf(LOG_WARNING,
-							"LOADER.PDBASE.WEAPON.POOL_FULL: guncmds while "
+							"LOADER.POOL.WEAPON.POOL_FULL: guncmds while "
 							"parsing %s", anim_name);
 						jstream_skip_value(s);
 						if (s->cur.kind == JT_COMMA) jstream_advance(s);
@@ -832,7 +750,7 @@ static void parseAnimation(jstream_t *s)
 	if (s->cur.kind == JT_RBRACE) jstream_advance(s);
 
 	if (anim_name[0] != '\0' && s_AnimationsUsed < POOL_ANIMATIONS) {
-		pdbase_anim_entry_t *e = &s_Animations[s_AnimationsUsed++];
+		pool_anim_entry_t *e = &s_Animations[s_AnimationsUsed++];
 		size_t n = strlen(anim_name);
 		if (n >= sizeof(e->name)) n = sizeof(e->name) - 1;
 		memcpy(e->name, anim_name, n);
@@ -1384,7 +1302,7 @@ static struct gunviscmd *parseGunviscmdsArray(jstream_t *s)
 	s32 reserved = s_GunviscmdsUsed;
 	while (s->cur.kind != JT_RBRACK && s->cur.kind != JT_EOF) {
 		if (s_GunviscmdsUsed >= POOL_GUNVISCMDS) {
-			sysLogPrintf(LOG_WARNING, "LOADER.PDBASE.WEAPON.POOL_FULL: gunviscmds");
+			sysLogPrintf(LOG_WARNING, "LOADER.POOL.WEAPON.POOL_FULL: gunviscmds");
 			jstream_skip_value(s);
 			if (s->cur.kind == JT_COMMA) jstream_advance(s);
 			continue;
@@ -1449,7 +1367,7 @@ static struct modelpartvisibility *parsePartvisArray(jstream_t *s)
 	s32 reserved = s_PartvisUsed;
 	while (s->cur.kind != JT_RBRACK && s->cur.kind != JT_EOF) {
 		if (s_PartvisUsed >= POOL_PARTVIS) {
-			sysLogPrintf(LOG_WARNING, "LOADER.PDBASE.WEAPON.POOL_FULL: partvis");
+			sysLogPrintf(LOG_WARNING, "LOADER.POOL.WEAPON.POOL_FULL: partvis");
 			jstream_skip_value(s);
 			if (s->cur.kind == JT_COMMA) jstream_advance(s);
 			continue;
@@ -1622,14 +1540,14 @@ static void parseWeapon(jstream_t *s)
 		const u32 fn0_type = fn0 ? (u32)fn0->type : 0u;
 		const u32 fn1_type = fn1 ? (u32)fn1->type : 0u;
 		sysLogPrintf(LOG_NOTE,
-			"LOADER.PDBASE.WEAPON.STORED: weapon_id=%d "
+			"LOADER.POOL.WEAPON.STORED: weapon_id=%d "
 			"functions[0]=%p name=%u type=%u "
 			"functions[1]=%p name=%u type=%u",
 			weapon_id, (const void *)fn0, fn0_name, fn0_type,
 			(const void *)fn1, fn1_name, fn1_type);
 	} else {
 		sysLogPrintf(LOG_WARNING,
-			"LOADER.PDBASE.WEAPON.RESOLVE_FAIL: weapon_id=%d out of range",
+			"LOADER.POOL.WEAPON.RESOLVE_FAIL: weapon_id=%d out of range",
 			weapon_id);
 	}
 }
@@ -1638,9 +1556,10 @@ static void parseWeapon(jstream_t *s)
 /* Catalog Gate 3 F12: head record parser                              */
 /* ------------------------------------------------------------------ */
 
-/* HEADBODYTYPE_* is a small (6-entry) enum.  The values are stable
- * per src/include/constants.h.  We resolve symbolic names inline so
- * loader_pdbase_enums.c does not need to grow another table. */
+/* HEADBODYTYPE_* is a small (6-entry) enum. The values are stable
+ * per src/include/constants.h. Resolved inline so loader_enum_reverse.c
+ * does not need to grow another table; the matching reverse lookup at
+ * loaderEnumNameForHeadbodyType keeps emit/parse round-trip in sync. */
 static s32 s_resolveHeadbodyType(const char *name)
 {
 	if (!name || !name[0]) return 0;
@@ -1661,7 +1580,7 @@ static s32 jread_headbodytype(jstream_t *s)
 		s32 v = s_resolveHeadbodyType(buf);
 		if (v < 0) {
 			sysLogPrintf(LOG_NOTE,
-				"LOADER.PDBASE.HEAD.FIELD_UNKNOWN: type=\"%s\" (defaulting to 0)",
+				"LOADER.POOL.HEAD.FIELD_UNKNOWN: type=\"%s\" (defaulting to 0)",
 				buf);
 			return 0;
 		}
@@ -1706,7 +1625,7 @@ static void parseHead(jstream_t *s)
 
 	if (headnum < 0 || headnum >= CATALOG_MGR_HEAD_COUNT) {
 		sysLogPrintf(LOG_WARNING,
-			"LOADER.PDBASE.HEAD.RESOLVE_FAIL: headnum=%d out of range [0,%d)",
+			"LOADER.POOL.HEAD.RESOLVE_FAIL: headnum=%d out of range [0,%d)",
 			headnum, CATALOG_MGR_HEAD_COUNT);
 		return;
 	}
@@ -1757,7 +1676,7 @@ static void parseBody(jstream_t *s)
 
 	if (bodynum < 0 || bodynum >= CATALOG_MGR_BODY_COUNT) {
 		sysLogPrintf(LOG_WARNING,
-			"LOADER.PDBASE.BODY.RESOLVE_FAIL: bodynum=%d out of range [0,%d)",
+			"LOADER.POOL.BODY.RESOLVE_FAIL: bodynum=%d out of range [0,%d)",
 			bodynum, CATALOG_MGR_BODY_COUNT);
 		return;
 	}
@@ -1767,10 +1686,10 @@ static void parseBody(jstream_t *s)
 }
 
 /* ------------------------------------------------------------------ */
-/* Catalog Gate 3 Arenas F12: arena record parser. Parallels parseHead /  */
-/* parseBody. The .pdbase archive emits stagenum / name_langid as       */
-/* integers (Path B for these large enum families); load_mode stays      */
-/* symbolic and is resolved via the inline 3-entry helper.               */
+/* Arena record parser. Parallels parseHead / parseBody. The per-asset */
+/* envelope emits stagenum / name_langid as integers (Path B for these */
+/* large enum families); load_mode stays symbolic and is resolved via  */
+/* the inline 3-entry helper.                                          */
 /* ------------------------------------------------------------------ */
 
 static s32 s_resolveArenaLoadMode(const char *name)
@@ -1789,7 +1708,7 @@ static s32 jread_arena_load_mode(jstream_t *s)
 		s32 v = s_resolveArenaLoadMode(buf);
 		if (v < 0) {
 			sysLogPrintf(LOG_NOTE,
-				"LOADER.PDBASE.ARENA.FIELD_UNKNOWN: load_mode=\"%s\" (defaulting to 0)",
+				"LOADER.POOL.ARENA.FIELD_UNKNOWN: load_mode=\"%s\" (defaulting to 0)",
 				buf);
 			return 0;
 		}
@@ -1835,7 +1754,7 @@ static void parseArena(jstream_t *s)
 
 	if (arena_index < 0 || arena_index >= CATALOG_MGR_ARENA_COUNT) {
 		sysLogPrintf(LOG_WARNING,
-			"LOADER.PDBASE.ARENA.RESOLVE_FAIL: arena_index=%d out of range [0,%d)",
+			"LOADER.POOL.ARENA.RESOLVE_FAIL: arena_index=%d out of range [0,%d)",
 			arena_index, CATALOG_MGR_ARENA_COUNT);
 		return;
 	}
@@ -1845,276 +1764,101 @@ static void parseArena(jstream_t *s)
 }
 
 /* ------------------------------------------------------------------ */
-/* Top-level parser                                                   */
+/* Public per-asset entry points                                       */
 /* ------------------------------------------------------------------ */
 
-static void parseTopLevel(jstream_t *s)
+/* Drive a parse over `json` (NUL-terminated) using the per-record
+ * parser supplied by the caller. The walker scaffold passes plain
+ * .pdwpn JSON or the manifest.json extracted from a .pdhead /
+ * .pdbody / .pdarena ZIP -- both shapes carry the per-record fields
+ * at the top level, so the same parser handles them. Returns 1 on
+ * success (parser reached an end-of-record), 0 if the JSON could not
+ * even be opened (caller logs at the walker layer). */
+static s32 s_parseOneRecord(const char *json, size_t json_len,
+                             void (*parse_one)(jstream_t *))
 {
-	if (s->cur.kind != JT_LBRACE) {
-		s->error = 1;
-		return;
-	}
-	jstream_advance(s);
-	while (s->cur.kind != JT_RBRACE && s->cur.kind != JT_EOF) {
-		if (s->cur.kind != JT_STRING) { jstream_advance(s); continue; }
-		jtok_t key = s->cur;
-		jstream_advance(s);
-		if (s->cur.kind != JT_COLON) continue;
-		jstream_advance(s);
-		if (jstream_str_eq(&key, "animations")) {
-			if (s->cur.kind != JT_LBRACK) { jstream_skip_value(s); }
-			else {
-				jstream_advance(s);
-				while (s->cur.kind != JT_RBRACK && s->cur.kind != JT_EOF) {
-					parseAnimation(s);
-					if (s->cur.kind == JT_COMMA) jstream_advance(s);
-				}
-				if (s->cur.kind == JT_RBRACK) jstream_advance(s);
-			}
-		}
-		else if (jstream_str_eq(&key, "weapons")) {
-			if (s->cur.kind != JT_LBRACK) { jstream_skip_value(s); }
-			else {
-				jstream_advance(s);
-				while (s->cur.kind != JT_RBRACK && s->cur.kind != JT_EOF) {
-					parseWeapon(s);
-					if (s->cur.kind == JT_COMMA) jstream_advance(s);
-				}
-				if (s->cur.kind == JT_RBRACK) jstream_advance(s);
-			}
-		}
-		else if (jstream_str_eq(&key, "heads")) {
-			/* Catalog Gate 3 F12: heads section in base/heads.pdbase. */
-			if (s->cur.kind != JT_LBRACK) { jstream_skip_value(s); }
-			else {
-				jstream_advance(s);
-				while (s->cur.kind != JT_RBRACK && s->cur.kind != JT_EOF) {
-					parseHead(s);
-					if (s->cur.kind == JT_COMMA) jstream_advance(s);
-				}
-				if (s->cur.kind == JT_RBRACK) jstream_advance(s);
-			}
-		}
-		else if (jstream_str_eq(&key, "bodies")) {
-			/* Catalog Gate 3 Bodies F12: bodies section in base/bodies.pdbase. */
-			if (s->cur.kind != JT_LBRACK) { jstream_skip_value(s); }
-			else {
-				jstream_advance(s);
-				while (s->cur.kind != JT_RBRACK && s->cur.kind != JT_EOF) {
-					parseBody(s);
-					if (s->cur.kind == JT_COMMA) jstream_advance(s);
-				}
-				if (s->cur.kind == JT_RBRACK) jstream_advance(s);
-			}
-		}
-		else if (jstream_str_eq(&key, "arenas")) {
-			/* Catalog Gate 3 Arenas F12: arenas section in base/arenas.pdbase. */
-			if (s->cur.kind != JT_LBRACK) { jstream_skip_value(s); }
-			else {
-				jstream_advance(s);
-				while (s->cur.kind != JT_RBRACK && s->cur.kind != JT_EOF) {
-					parseArena(s);
-					if (s->cur.kind == JT_COMMA) jstream_advance(s);
-				}
-				if (s->cur.kind == JT_RBRACK) jstream_advance(s);
-			}
-		}
-		else {
-			jstream_skip_value(s);
-		}
-		if (s->cur.kind == JT_COMMA) jstream_advance(s);
-	}
-}
-
-/* ------------------------------------------------------------------ */
-/* Public scan + build                                                */
-/* ------------------------------------------------------------------ */
-
-void loaderPdbaseScan(const char *dir, loader_pdbase_result_t *out)
-{
-	loader_pdbase_result_t local = {0};
-	if (out != NULL) memset(out, 0, sizeof(*out));
-
-	if (dir == NULL || dir[0] == '\0') {
-		sysLogPrintf(LOG_NOTE,
-			"LOADER.PDBASE.WEAPON.OK: scan skipped (no dir specified)");
-		if (out) *out = local;
-		return;
-	}
-
-	/* For the proving domain we know the single archive name. F13+ will
-	 * generalise to walking the dir for all *.pdbase files. */
-	char path[512];
-	snprintf(path, sizeof(path), "%s/weapons.pdbase", dir);
-
-	char *src = NULL;
-	s32 size = 0;
-	src = (char *)fsFileLoad(path, (u32 *)&size);
-	if (src == NULL) {
-		sysLogPrintf(LOG_NOTE,
-			"LOADER.PDBASE.WEAPON.OK: dir=%s no archives found", dir);
-		if (out) *out = local;
-		return;
-	}
-
+	if (json == NULL || json_len == 0 || parse_one == NULL) return 0;
 	jstream_t st;
 	memset(&st, 0, sizeof(st));
-	st.src = src;
-	st.pos = src;
-	st.end = src + size;
+	st.src = json;
+	st.pos = json;
+	st.end = json + json_len;
 	st.line = 1;
 	jstream_advance(&st);
-	parseTopLevel(&st);
-
-	if (st.error) {
-		sysLogPrintf(LOG_WARNING,
-			"LOADER.PDBASE.WEAPON.SCAN_FAIL: parse error in %s near line %d",
-			path, st.line);
-		local.scan_failures++;
-	}
-
-	local.archives_scanned = 1;
-	local.weapons_registered = s_WeaponsRegistered;
-
-	sysLogPrintf(LOG_NOTE,
-		"LOADER.PDBASE.WEAPON.OK: dir=%s archives=%d weapons=%d animations=%d "
-		"funcs=%d ammos=%d aim=%d noise=%d recoil=%d guncmds=%d gunvis=%d "
-		"partvis=%d vibrations=%d",
-		dir, local.archives_scanned, local.weapons_registered,
-		s_AnimationsUsed, s_WeaponFuncsUsed, s_AmmosUsed, s_AimSettingsUsed,
-		s_NoiseSettingsUsed, s_RecoilSettingsUsed, s_GuncmdsUsed,
-		s_GunviscmdsUsed, s_PartvisUsed, s_VibrationsUsed);
-
-	/* fsFileLoad returns a buffer we can free. */
-	sysMemFree(src);
-
-	/* Catalog Gate 3 F12: scan + parse base/heads.pdbase. Reads the
-	 * generated JSON archive (F11), populates s_HeadsPool[], and lets
-	 * loaderPdbaseBuildHeadManager flip the active flag. */
-	{
-		char head_path[512];
-		snprintf(head_path, sizeof(head_path), "%s/heads.pdbase", dir);
-		s32 head_size = 0;
-		char *head_src = (char *)fsFileLoad(head_path, (u32 *)&head_size);
-		if (head_src != NULL) {
-			jstream_t hs;
-			memset(&hs, 0, sizeof(hs));
-			hs.src = head_src;
-			hs.pos = head_src;
-			hs.end = head_src + head_size;
-			hs.line = 1;
-			jstream_advance(&hs);
-			parseTopLevel(&hs);
-
-			if (hs.error) {
-				sysLogPrintf(LOG_WARNING,
-					"LOADER.PDBASE.HEAD.SCAN_FAIL: parse error in %s near line %d",
-					head_path, hs.line);
-				local.scan_failures++;
-			}
-
-			sysLogPrintf(LOG_NOTE,
-				"LOADER.PDBASE.HEAD.OK: dir=%s heads=%d size=%d",
-				dir, s_HeadsRegistered, head_size);
-			local.archives_scanned++;
-			sysMemFree(head_src);
-		} else {
-			sysLogPrintf(LOG_NOTE,
-				"LOADER.PDBASE.HEAD.OK: dir=%s no heads.pdbase (parity period)",
-				dir);
-		}
-		local.heads_registered = s_HeadsRegistered;
-	}
-
-	/* Catalog Gate 3 Bodies F12: scan + parse base/bodies.pdbase. */
-	{
-		char body_path[512];
-		snprintf(body_path, sizeof(body_path), "%s/bodies.pdbase", dir);
-		s32 body_size = 0;
-		char *body_src = (char *)fsFileLoad(body_path, (u32 *)&body_size);
-		if (body_src != NULL) {
-			jstream_t bs;
-			memset(&bs, 0, sizeof(bs));
-			bs.src = body_src;
-			bs.pos = body_src;
-			bs.end = body_src + body_size;
-			bs.line = 1;
-			jstream_advance(&bs);
-			parseTopLevel(&bs);
-
-			if (bs.error) {
-				sysLogPrintf(LOG_WARNING,
-					"LOADER.PDBASE.BODY.SCAN_FAIL: parse error in %s near line %d",
-					body_path, bs.line);
-				local.scan_failures++;
-			}
-
-			sysLogPrintf(LOG_NOTE,
-				"LOADER.PDBASE.BODY.OK: dir=%s bodies=%d size=%d",
-				dir, s_BodiesRegistered, body_size);
-			local.archives_scanned++;
-			sysMemFree(body_src);
-		} else {
-			sysLogPrintf(LOG_NOTE,
-				"LOADER.PDBASE.BODY.OK: dir=%s no bodies.pdbase (parity period)",
-				dir);
-		}
-		local.bodies_registered = s_BodiesRegistered;
-	}
-
-	/* Catalog Gate 3 Arenas F12: scan + parse base/arenas.pdbase. */
-	{
-		char arena_path[512];
-		snprintf(arena_path, sizeof(arena_path), "%s/arenas.pdbase", dir);
-		s32 arena_size = 0;
-		char *arena_src = (char *)fsFileLoad(arena_path, (u32 *)&arena_size);
-		if (arena_src != NULL) {
-			jstream_t as;
-			memset(&as, 0, sizeof(as));
-			as.src = arena_src;
-			as.pos = arena_src;
-			as.end = arena_src + arena_size;
-			as.line = 1;
-			jstream_advance(&as);
-			parseTopLevel(&as);
-
-			if (as.error) {
-				sysLogPrintf(LOG_WARNING,
-					"LOADER.PDBASE.ARENA.SCAN_FAIL: parse error in %s near line %d",
-					arena_path, as.line);
-				local.scan_failures++;
-			}
-
-			sysLogPrintf(LOG_NOTE,
-				"LOADER.PDBASE.ARENA.OK: dir=%s arenas=%d size=%d",
-				dir, s_ArenasRegistered, arena_size);
-			local.archives_scanned++;
-			sysMemFree(arena_src);
-		} else {
-			sysLogPrintf(LOG_NOTE,
-				"LOADER.PDBASE.ARENA.OK: dir=%s no arenas.pdbase (parity period)",
-				dir);
-		}
-		local.arenas_registered = s_ArenasRegistered;
-	}
-
-	if (out) *out = local;
+	parse_one(&st);
+	return st.error ? 0 : 1;
 }
 
-s32 loaderPdbaseBuildWeaponManager(void)
+void loaderPoolReset(void)
 {
-	if (s_WeaponsRegistered <= 0) {
-		sysLogPrintf(LOG_NOTE,
-			"LOADER.PDBASE.WEAPON.OK: build skipped (no records loaded)");
-		return 0;
-	}
+	memset(s_Weapons, 0, sizeof(s_Weapons));
+	memset(s_BotPrefs, 0, sizeof(s_BotPrefs));
+	memset(s_WeaponCatalogIds, 0, sizeof(s_WeaponCatalogIds));
+	memset(s_Guncmds, 0, sizeof(s_Guncmds));
+	memset(s_Gunviscmds, 0, sizeof(s_Gunviscmds));
+	memset(s_Partvis, 0, sizeof(s_Partvis));
+	memset(s_Ammos, 0, sizeof(s_Ammos));
+	memset(s_AimSettings, 0, sizeof(s_AimSettings));
+	memset(s_NoiseSettings, 0, sizeof(s_NoiseSettings));
+	memset(s_RecoilSettings, 0, sizeof(s_RecoilSettings));
+	memset(s_WeaponFuncs, 0, sizeof(s_WeaponFuncs));
+	memset(s_Vibrations, 0, sizeof(s_Vibrations));
+	memset(s_Animations, 0, sizeof(s_Animations));
+	memset(s_HeadsPool, 0, sizeof(s_HeadsPool));
+	memset(s_BodiesPool, 0, sizeof(s_BodiesPool));
+	memset(s_ArenasPool, 0, sizeof(s_ArenasPool));
+	s_GuncmdsUsed = 0;
+	s_GunviscmdsUsed = 0;
+	s_PartvisUsed = 0;
+	s_AmmosUsed = 0;
+	s_AimSettingsUsed = 0;
+	s_NoiseSettingsUsed = 0;
+	s_RecoilSettingsUsed = 0;
+	s_WeaponFuncsUsed = 0;
+	s_VibrationsUsed = 0;
+	s_AnimationsUsed = 0;
+	s_LoaderActive = 0;
+	s_WeaponsRegistered = 0;
+	s_HeadsLoaderActive = 0;
+	s_HeadsRegistered = 0;
+	s_BodiesLoaderActive = 0;
+	s_BodiesRegistered = 0;
+	s_ArenasLoaderActive = 0;
+	s_ArenasRegistered = 0;
+}
 
-	/* S484 F13: defaults are now hardcoded sentinels matching the
-	 * pre-retirement values. invaimsettings_default sourced from
-	 * src/game/invitems.c:90 (the historical struct literal); the
-	 * silent noise settings are zeroed (no audible noise). Keeping
-	 * them here keeps fallback semantics identical to the legacy
-	 * externs the manager defaulted to before F13. */
+s32 loaderPoolParseWeaponJson(const char *json, size_t json_len)
+{
+	return s_parseOneRecord(json, json_len, parseWeapon);
+}
+
+s32 loaderPoolParseHeadJson(const char *json, size_t json_len)
+{
+	return s_parseOneRecord(json, json_len, parseHead);
+}
+
+s32 loaderPoolParseBodyJson(const char *json, size_t json_len)
+{
+	return s_parseOneRecord(json, json_len, parseBody);
+}
+
+s32 loaderPoolParseArenaJson(const char *json, size_t json_len)
+{
+	return s_parseOneRecord(json, json_len, parseArena);
+}
+
+s32 loaderPoolParseAnimationJson(const char *json, size_t json_len)
+{
+	return s_parseOneRecord(json, json_len, parseAnimation);
+}
+
+void loaderPoolFinalize(void)
+{
+	/* Seed default fallback aim / noise sentinels (historical
+	 * invaimsettings_default + invnoisesettings_silent values) so
+	 * weapons that did not supply their own settings still have
+	 * a non-NULL pointer. Pre-Step-5 these were per-extern globals;
+	 * post-Step-5 the loader owns them inline. */
 	{
 		struct invaimsettings def_aim = {
 			0,                                   /* zoomfov */
@@ -2134,265 +1878,97 @@ s32 loaderPdbaseBuildWeaponManager(void)
 		s_DefaultNoise = def_noise;
 	}
 
-	s_LoaderActive = 1;
+	if (s_WeaponsRegistered > 0)  s_LoaderActive       = 1;
+	if (s_HeadsRegistered > 0)    s_HeadsLoaderActive  = 1;
+	if (s_BodiesRegistered > 0)   s_BodiesLoaderActive = 1;
+	if (s_ArenasRegistered > 0)   s_ArenasLoaderActive = 1;
+
 	sysLogPrintf(LOG_NOTE,
-		"LOADER.PDBASE.WEAPON.OK: manager active, weapons=%d (expected=%d)",
-		s_WeaponsRegistered, CATALOG_MGR_WEAPON_COUNT);
-	return s_WeaponsRegistered;
+		"LOADER.POOL.WEAPON.OK: active=%d weapons=%d animations=%d funcs=%d "
+		"ammos=%d aim=%d noise=%d recoil=%d guncmds=%d gunvis=%d partvis=%d "
+		"vibrations=%d",
+		s_LoaderActive, s_WeaponsRegistered, s_AnimationsUsed,
+		s_WeaponFuncsUsed, s_AmmosUsed, s_AimSettingsUsed,
+		s_NoiseSettingsUsed, s_RecoilSettingsUsed, s_GuncmdsUsed,
+		s_GunviscmdsUsed, s_PartvisUsed, s_VibrationsUsed);
+	sysLogPrintf(LOG_NOTE,
+		"LOADER.POOL.HEAD.OK: active=%d heads=%d (expected=%d)",
+		s_HeadsLoaderActive, s_HeadsRegistered, CATALOG_MGR_HEAD_COUNT);
+	sysLogPrintf(LOG_NOTE,
+		"LOADER.POOL.BODY.OK: active=%d bodies=%d (expected=%d)",
+		s_BodiesLoaderActive, s_BodiesRegistered, CATALOG_MGR_BODY_COUNT);
+	sysLogPrintf(LOG_NOTE,
+		"LOADER.POOL.ARENA.OK: active=%d arenas=%d (expected=%d)",
+		s_ArenasLoaderActive, s_ArenasRegistered, CATALOG_MGR_ARENA_COUNT);
 }
 
-/* ------------------------------------------------------------------ */
-/* Field-equivalence verifier (RETIRED at F13)                        */
-/*                                                                    */
-/* The parity check was a one-shot diagnostic that compared the       */
-/* loader's pool-backed weapons against the legacy g_Weapons[] table  */
-/* during the F12 parity period. It served its purpose (verified the  */
-/* loader is correct on Mike's 2026-04-30 playtest -- "parity check   */
-/* PASS (86 weapons)") and is removed in F13 because g_Weapons[] no   */
-/* longer exists to compare against. Future regression coverage comes */
-/* from behavioral tests + the existing structure-pin tests in        */
-/* tests/test_loader_pdbase_scan.cpp.                                  */
-/* ------------------------------------------------------------------ */
+/* The pre-Step-5 aggregate-archive scan + per-kind BuildManager helpers
+ * + arena parity check are retired. The walker drives parsing per asset;
+ * loaderPoolFinalize flips the active flags. The walker is the sole
+ * source for both rows and pool slots, so there is no second source
+ * left to compare against. */
 
 /* ================================================================== */
-/* Catalog Gate 3 F9 / F11 / F12: heads-side loader                    */
-/*                                                                    */
-/* Parallel to the weapons loader above. F9 ships these accessors as  */
-/* scaffold (active flag stays 0, all accessors return NULL until F12 */
-/* implements parseHead + flips the flag).                             */
+/* Heads pool accessors                                                 */
 /* ================================================================== */
 
-s32 loaderPdbaseHeadsActive(void)
+s32 loaderPoolHeadsActive(void)
 {
 	return s_HeadsLoaderActive;
 }
 
-const head_data_t *loaderPdbaseGetHead(s32 idx)
+const head_data_t *loaderPoolGetHead(s32 idx)
 {
 	if (idx < 0 || idx >= CATALOG_MGR_HEAD_COUNT) return NULL;
 	if (!s_HeadsLoaderActive) return NULL;
 	return &s_HeadsPool[idx];
 }
 
-s32 loaderPdbaseGetHeadsRegistered(void)
+s32 loaderPoolGetHeadsRegistered(void)
 {
 	return s_HeadsRegistered;
 }
 
-s32 loaderPdbaseBuildHeadManager(void)
-{
-	/* F9: scaffold returns 0 (no records loaded). F12 walks
-	 * ASSET_HEAD catalog rows with non-empty pdbase_path, copies the
-	 * loaded head_data_t into s_HeadsPool[runtime_index], increments
-	 * s_HeadsRegistered, then sets s_HeadsLoaderActive = 1.
-	 * Until F12, the manager keeps reading the legacy parity-period
-	 * mirror via s_populateFromLegacy() in catalog_mgr_heads.c. */
-	if (s_HeadsRegistered <= 0) {
-		sysLogPrintf(LOG_NOTE,
-			"LOADER.PDBASE.HEAD.OK: build skipped (no records loaded -- F9 scaffold)");
-		return 0;
-	}
-	s_HeadsLoaderActive = 1;
-	sysLogPrintf(LOG_NOTE,
-		"LOADER.PDBASE.HEAD.OK: manager active, heads=%d (expected=%d)",
-		s_HeadsRegistered, CATALOG_MGR_HEAD_COUNT);
-	return s_HeadsRegistered;
-}
-
 /* ================================================================== */
-/* Catalog Gate 3 Bodies F9 / F11 / F12: bodies-side loader            */
-/*                                                                    */
-/* Parallel to the heads loader above. F9 ships these accessors as    */
-/* scaffold (active flag stays 0, all accessors return NULL until F12 */
-/* implements parseBody + flips the flag).                             */
+/* Bodies pool accessors                                                */
 /* ================================================================== */
 
-s32 loaderPdbaseBodiesActive(void)
+s32 loaderPoolBodiesActive(void)
 {
 	return s_BodiesLoaderActive;
 }
 
-const body_data_t *loaderPdbaseGetBody(s32 idx)
+const body_data_t *loaderPoolGetBody(s32 idx)
 {
 	if (idx < 0 || idx >= CATALOG_MGR_BODY_COUNT) return NULL;
 	if (!s_BodiesLoaderActive) return NULL;
 	return &s_BodiesPool[idx];
 }
 
-s32 loaderPdbaseGetBodiesRegistered(void)
+s32 loaderPoolGetBodiesRegistered(void)
 {
 	return s_BodiesRegistered;
 }
 
-s32 loaderPdbaseBuildBodyManager(void)
-{
-	if (s_BodiesRegistered <= 0) {
-		sysLogPrintf(LOG_NOTE,
-			"LOADER.PDBASE.BODY.OK: build skipped (no records loaded -- F9 scaffold)");
-		return 0;
-	}
-	s_BodiesLoaderActive = 1;
-	sysLogPrintf(LOG_NOTE,
-		"LOADER.PDBASE.BODY.OK: manager active, bodies=%d (expected=%d)",
-		s_BodiesRegistered, CATALOG_MGR_BODY_COUNT);
-	return s_BodiesRegistered;
-}
-
 /* ================================================================== */
-/* Catalog Gate 3 Arenas F9 / F11 / F12: arenas-side loader            */
-/*                                                                    */
-/* Parallel to the heads / bodies loaders above. F9 ships these       */
-/* accessors as scaffold (active flag stays 0, all accessors return    */
-/* NULL until F12 implements parseArena + flips the flag).             */
+/* Arenas pool accessors                                                */
 /* ================================================================== */
 
-s32 loaderPdbaseArenasActive(void)
+s32 loaderPoolArenasActive(void)
 {
 	return s_ArenasLoaderActive;
 }
 
-const arena_data_t *loaderPdbaseGetArena(s32 idx)
+const arena_data_t *loaderPoolGetArena(s32 idx)
 {
 	if (idx < 0 || idx >= CATALOG_MGR_ARENA_COUNT) return NULL;
 	if (!s_ArenasLoaderActive) return NULL;
 	return &s_ArenasPool[idx];
 }
 
-s32 loaderPdbaseGetArenasRegistered(void)
+s32 loaderPoolGetArenasRegistered(void)
 {
 	return s_ArenasRegistered;
 }
-
-s32 loaderPdbaseBuildArenaManager(void)
-{
-	if (s_ArenasRegistered <= 0) {
-		sysLogPrintf(LOG_NOTE,
-			"LOADER.PDBASE.ARENA.OK: build skipped (no records loaded -- F9 scaffold)");
-		return 0;
-	}
-	s_ArenasLoaderActive = 1;
-	sysLogPrintf(LOG_NOTE,
-		"LOADER.PDBASE.ARENA.OK: manager active, arenas=%d (expected=%d)",
-		s_ArenasRegistered, CATALOG_MGR_ARENA_COUNT);
-	return s_ArenasRegistered;
-}
-
-/* Catalog Gate 3 Arenas F12: parity check.
- *
- * Walks ASSET_ARENA catalog rows (populated from g_MpArenas[] +
- * s_ArenaNames[] + s_ArenaGroupMap[] at registration time) and compares
- * each row's data to the corresponding loader pool slot. Mismatches log
- * LOADER.PDBASE.ARENA.PARITY_FAIL: with the field that differed; the
- * function returns the count of failing arenas so callers can decide
- * whether to abort.
- *
- * Runs at startup after loaderPdbaseBuildArenaManager. F13 retires the
- * parity bridge and this check becomes redundant -- but for the F12
- * parity period it is the canonical "loader output matches legacy
- * authoring data" test.
- */
-struct s_ArenaParityCtx {
-	s32 mismatch_count;
-	s32 row_count;
-};
-
-static void s_arenaParityCheckCb(const asset_entry_t *e, void *userdata)
-{
-	struct s_ArenaParityCtx *ctx = (struct s_ArenaParityCtx *)userdata;
-	s32 idx;
-	const arena_data_t *pool;
-	const char *catalog_slug;
-
-	if (e == NULL || e->type != ASSET_ARENA) return;
-	idx = e->runtime_index;
-	if (idx < 0 || idx >= CATALOG_MGR_ARENA_COUNT) return;
-
-	ctx->row_count++;
-	pool = &s_ArenasPool[idx];
-
-	/* Pool slot must have been populated by parseArena. If it wasn't,
-	 * the catalog has an arena row that the .pdbase did not cover. */
-	if (pool->catalog_id[0] == '\0') {
-		sysLogPrintf(LOG_WARNING,
-			"LOADER.PDBASE.ARENA.PARITY_FAIL: catalog row id=\"%s\" idx=%d "
-			"has no matching .pdbase record",
-			e->id, idx);
-		ctx->mismatch_count++;
-		return;
-	}
-
-	if (strcmp(pool->catalog_id, e->id) != 0) {
-		sysLogPrintf(LOG_WARNING,
-			"LOADER.PDBASE.ARENA.PARITY_FAIL: idx=%d id mismatch "
-			"catalog=\"%s\" pool=\"%s\"",
-			idx, e->id, pool->catalog_id);
-		ctx->mismatch_count++;
-	}
-	if ((s32)pool->stagenum != (s32)e->ext.arena.stagenum) {
-		sysLogPrintf(LOG_WARNING,
-			"LOADER.PDBASE.ARENA.PARITY_FAIL: idx=%d stagenum mismatch "
-			"catalog=0x%02x pool=0x%02x",
-			idx, e->ext.arena.stagenum, pool->stagenum);
-		ctx->mismatch_count++;
-	}
-	if ((u32)pool->requirefeature != (u32)e->ext.arena.requirefeature) {
-		sysLogPrintf(LOG_WARNING,
-			"LOADER.PDBASE.ARENA.PARITY_FAIL: idx=%d requirefeature mismatch "
-			"catalog=%u pool=%u",
-			idx, (u32)e->ext.arena.requirefeature, (u32)pool->requirefeature);
-		ctx->mismatch_count++;
-	}
-	if ((s32)pool->name_langid != (s32)e->ext.arena.name_langid) {
-		sysLogPrintf(LOG_WARNING,
-			"LOADER.PDBASE.ARENA.PARITY_FAIL: idx=%d name_langid mismatch "
-			"catalog=0x%04x pool=0x%04x",
-			idx, e->ext.arena.name_langid, pool->name_langid);
-		ctx->mismatch_count++;
-	}
-	if ((u32)pool->load_mode != (u32)e->ext.arena.load_mode) {
-		sysLogPrintf(LOG_WARNING,
-			"LOADER.PDBASE.ARENA.PARITY_FAIL: idx=%d load_mode mismatch "
-			"catalog=%u pool=%u",
-			idx, (u32)e->ext.arena.load_mode, (u32)pool->load_mode);
-		ctx->mismatch_count++;
-	}
-	if (strcmp(pool->category, e->category) != 0) {
-		sysLogPrintf(LOG_WARNING,
-			"LOADER.PDBASE.ARENA.PARITY_FAIL: idx=%d category mismatch "
-			"catalog=\"%s\" pool=\"%s\"",
-			idx, e->category, pool->category);
-		ctx->mismatch_count++;
-	}
-	/* Slug parity: the slug component of the catalog ID must equal the
-	 * pool's stored slug. Comparing the full catalog_id already covers
-	 * this implicitly, so we skip the explicit slug comparison to avoid
-	 * double-reporting. */
-}
-
-s32 loaderPdbaseRunParityCheckArenas(void)
-{
-	struct s_ArenaParityCtx ctx;
-
-	if (!s_ArenasLoaderActive) {
-		sysLogPrintf(LOG_NOTE,
-			"LOADER.PDBASE.ARENA.OK: parity check skipped (loader not active)");
-		return 0;
-	}
-	ctx.mismatch_count = 0;
-	ctx.row_count = 0;
-	assetCatalogIterateByType(ASSET_ARENA, s_arenaParityCheckCb, &ctx);
-
-	if (ctx.mismatch_count == 0) {
-		sysLogPrintf(LOG_NOTE,
-			"LOADER.PDBASE.ARENA.OK: parity check PASS (%d arenas)",
-			ctx.row_count);
-	} else {
-		sysLogPrintf(LOG_WARNING,
-			"LOADER.PDBASE.ARENA.PARITY_FAIL: %d mismatches across %d arenas",
-			ctx.mismatch_count, ctx.row_count);
-	}
-	return ctx.mismatch_count;
-}
-
 
 

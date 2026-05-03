@@ -14,7 +14,7 @@
  *   sample.bin.sha256 outer-file SHA-256 sidecar
  *
  * Catalog ID convention (Q-4 buckets):
- *   .pdsfx    base:<lowered_sym>   when loaderPdbaseNameForSfxEnum
+ *   .pdsfx    base:<lowered_sym>   when loaderEnumNameForSfxEnum
  *                                  returns a symbolic name, e.g.
  *                                  base:sfx_launch_rocket
  *             base:sfx_<NNNN>      4-digit hex fallback, e.g.
@@ -49,7 +49,7 @@
 #include "types.h"
 #include "constants.h"
 #include "fs.h"
-#include "loader_pdbase_enums.h"
+#include "loader_enum_reverse.h"
 #include "modarchive.h"
 #include "romdata.h"
 #include "romextract.h"
@@ -168,7 +168,7 @@ static void s_lowerSfxSymbol(const char *src, char *out, size_t out_n)
 static s32 s_buildSfxCatalogId(s32 sfx_idx, pdaudio_walk_mode_t mode,
                                 char *out, size_t out_n)
 {
-	const char *sym = loaderPdbaseNameForSfxEnum(sfx_idx);
+	const char *sym = loaderEnumNameForSfxEnum(sfx_idx);
 	if (mode == PDAUDIO_WALK_SFX) {
 		if (sym && sym[0]) {
 			char lowered[96];
@@ -327,7 +327,7 @@ static s32 s_emitOneSound(s32 sfx_idx,
 	 * sentinel). */
 	const char *pd_kind = (mode == PDAUDIO_WALK_VOICE) ? "voice" : "sfx";
 	const char *fmt_str = s_waveFormatString(wt->type);
-	const char *sym = loaderPdbaseNameForSfxEnum(sfx_idx);
+	const char *sym = loaderEnumNameForSfxEnum(sfx_idx);
 
 	char manifest_buf[1536];
 	int manifest_len;

@@ -18,11 +18,11 @@
 #include "catalog_mgr_weapons.h" /* S484 F2: route weaponFindById through catalog manager */
 
 /**
- * Canonical weapon accessor.  S484 F2 (2026-04-27): routes through the
- * Catalog Manager (port/src/catalog_mgr_weapons.c) so the migration to
- * `.pdbase`-served weapon data in F11+ is transparent to all callers.
- * The accessor signature is unchanged; tier-2 callers and cached
- * `info->definition` reads inherit the migration without per-site edits.
+ * Canonical weapon accessor. Routes through the Catalog Manager
+ * (port/src/catalog_mgr_weapons.c) so the migration to loader_pool-
+ * served weapon data is transparent to all callers. The accessor
+ * signature is unchanged; tier-2 callers and cached `info->definition`
+ * reads inherit the migration without per-site edits.
  */
 struct weapon *weaponFindById(s32 itemid)
 {
@@ -147,7 +147,7 @@ void currentPlayerGetWeaponPos(struct coord *pos)
  * Was a debug / position-tuning hook; the audit found zero live
  * callers in the active tree. The manager API does not expose a
  * position-offset mutator; weapon position is read-only at runtime
- * once .pdbase serves the data (F11+). */
+ * once loader_pool serves the data (F11+). */
 
 f32 handGetXShift(s32 handnum)
 {

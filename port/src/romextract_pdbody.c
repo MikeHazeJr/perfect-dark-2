@@ -1,7 +1,7 @@
 /**
  * romextract_pdbody.c -- Catalog universality pivot Step 2 (2026-05-03).
  *
- * Walks the loader_pdbase body pool and emits one .pdbody JSON file
+ * Walks the loader_pool body pool and emits one .pdbody JSON file
  * per registered body at data/<romid>/bodies/<id>.pdbody.
  *
  * Schema lock-down: context/designs/catalog/universality-pivot-schemas.md
@@ -9,10 +9,10 @@
  *
  * Cross-reference convention for Step 2: `mesh` and `hand` fields
  * preserve the original FILE_* enum strings (resolved via reverse
- * lookup against loader_pdbase_enums.c). Step 4 (universal loader) will
+ * lookup against loader_enum_reverse.c). Step 4 (universal loader) will
  * swap these to catalog IDs once the directory walker is minting the
  * universal mapping. The Step 2 emit format is therefore intermediate
- * and identical to the .pdbase per-row content; this is intentional so
+ * and identical to the per-record envelope content; this is intentional so
  * the parity check at Step 2 is clean.
  *
  * Bodies-only fields preserved per audit: canvaryheight (Skedar's
@@ -34,8 +34,8 @@
 #include "constants.h"
 #include "fs.h"
 #include "catalog_mgr_bodies.h"
-#include "loader_pdbase.h"
-#include "loader_pdbase_enums.h"
+#include "loader_pool.h"
+#include "loader_enum_reverse.h"
 #include "romextract_pd.h"
 #include "system.h"
 
@@ -72,9 +72,9 @@ static s32 s_emitOneBody(s32 bodynum, const body_data_t *b,
 		return -1;
 	}
 
-	const char *type_str = loaderPdbaseNameForHeadbodyType(b->type);
-	const char *mesh_str = loaderPdbaseNameForFileEnum(b->filenum);
-	const char *hand_str = loaderPdbaseNameForFileEnum(b->handfilenum);
+	const char *type_str = loaderEnumNameForHeadbodyType(b->type);
+	const char *mesh_str = loaderEnumNameForFileEnum(b->filenum);
+	const char *hand_str = loaderEnumNameForFileEnum(b->handfilenum);
 
 	fputs("{\n", fp);
 	fputs("  \"pd_kind\": \"body\",\n", fp);
@@ -104,7 +104,7 @@ static s32 s_emitOneBody(s32 bodynum, const body_data_t *b,
 
 s32 romExtractAllPdbody(s32 force_rewrite)
 {
-	if (!loaderPdbaseBodiesActive()) {
+	if (!loaderPoolBodiesActive()) {
 		sysLogPrintf(LOG_NOTE,
 			"romextract pdbody: bodies loader not active, skipping");
 		return 0;
@@ -127,10 +127,10 @@ s32 romExtractAllPdbody(s32 force_rewrite)
 	s32 written = 0;
 	s32 skipped = 0;
 	s32 failed = 0;
-	s32 total = loaderPdbaseGetBodiesRegistered();
+	s32 total = loaderPoolGetBodiesRegistered();
 
 	for (s32 i = 0; i < CATALOG_MGR_BODY_COUNT; i++) {
-		const body_data_t *b = loaderPdbaseGetBody(i);
+		const body_data_t *b = loaderPoolGetBody(i);
 		if (!b) continue;
 		if (b->catalog_id[0] == '\0') continue;
 		s32 r = s_emitOneBody(i, b, bodies_dir, force_rewrite);

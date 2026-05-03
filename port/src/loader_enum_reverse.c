@@ -1,19 +1,22 @@
-/* Generated enum lookup tables for the .pdbase loader.
- * Source: devtools/extract_weapons_pdbase.py
+/* port/src/loader_enum_reverse.c -- Catalog universality pivot Step 5
+ * (2026-05-03). Symbolic <-> integer lookup tables for the ANIM_*,
+ * SFX_*, FILE_*, L_GUN_* (lang) enum families.
  *
- * Tables are sorted by name for binary-search lookups; the
- * loader does linear scans instead since loading is one-time
- * at startup and the tables (~3-5k entries total) fit easily
- * in cache. Switch to bsearch if it ever shows up in profiles. */
+ * Tables were one-shot generated from the relevant headers (the
+ * historical the legacy aggregate extractor (retired) originally maintained this
+ * file; both that script and the the pre-Step-5 aggregate format that
+ * targeted retired at Step 5). Forward resolvers feed loader_pool.c's
+ * per-asset .pd<ext> JSON parser; reverse lookups feed the romextract
+ * per-asset emitters. Linear scan is fine -- one-time at startup. */
 
 #include <stddef.h>
 #include <string.h>
 #include <PR/ultratypes.h>
-#include "loader_pdbase_enums.h"
+#include "loader_enum_reverse.h"
 
-typedef struct { const char *name; s32 value; } pdbase_enum_entry_t;
+typedef struct { const char *name; s32 value; } enum_reverse_entry_t;
 
-static const pdbase_enum_entry_t k_AnimEnum[] = {
+static const enum_reverse_entry_t k_AnimEnum[] = {
     { "ANIM_0002", 2 },
     { "ANIM_0003", 3 },
     { "ANIM_0004", 4 },
@@ -1225,7 +1228,7 @@ static const pdbase_enum_entry_t k_AnimEnum[] = {
 };
 static const size_t k_AnimEnum_count = sizeof(k_AnimEnum) / sizeof(k_AnimEnum[0]);
 
-static const pdbase_enum_entry_t k_SfxEnum[] = {
+static const enum_reverse_entry_t k_SfxEnum[] = {
     { "SFX_0000", 0 },
     { "SFX_0003", 3 },
     { "SFX_0004", 4 },
@@ -3220,7 +3223,7 @@ static const pdbase_enum_entry_t k_SfxEnum[] = {
 };
 static const size_t k_SfxEnum_count = sizeof(k_SfxEnum) / sizeof(k_SfxEnum[0]);
 
-static const pdbase_enum_entry_t k_LangEnum[] = {
+static const enum_reverse_entry_t k_LangEnum[] = {
     { "L_GUN_000", 19456 },
     { "L_GUN_001", 19457 },
     { "L_GUN_002", 19458 },
@@ -3461,7 +3464,7 @@ static const pdbase_enum_entry_t k_LangEnum[] = {
 };
 static const size_t k_LangEnum_count = sizeof(k_LangEnum) / sizeof(k_LangEnum[0]);
 
-static const pdbase_enum_entry_t k_FileEnum[] = {
+static const enum_reverse_entry_t k_FileEnum[] = {
     { "FILE_AA51ELV01M", 666 },
     { "FILE_AA51ELV02M", 667 },
     { "FILE_AA51ELV03M", 668 },
@@ -5472,7 +5475,7 @@ static const pdbase_enum_entry_t k_FileEnum[] = {
 };
 static const size_t k_FileEnum_count = sizeof(k_FileEnum) / sizeof(k_FileEnum[0]);
 
-static s32 lookup_enum(const pdbase_enum_entry_t *table,
+static s32 lookup_enum(const enum_reverse_entry_t *table,
                        size_t count,
                        const char *name,
                        s32 fallback)
@@ -5486,16 +5489,16 @@ static s32 lookup_enum(const pdbase_enum_entry_t *table,
     return fallback;
 }
 
-s32 loaderPdbaseResolveAnimEnum(const char *name, s32 fallback)
+s32 loaderEnumResolveAnimEnum(const char *name, s32 fallback)
 { return lookup_enum(k_AnimEnum, k_AnimEnum_count, name, fallback); }
 
-s32 loaderPdbaseResolveSfxEnum(const char *name, s32 fallback)
+s32 loaderEnumResolveSfxEnum(const char *name, s32 fallback)
 { return lookup_enum(k_SfxEnum, k_SfxEnum_count, name, fallback); }
 
-s32 loaderPdbaseResolveLangEnum(const char *name, s32 fallback)
+s32 loaderEnumResolveLangEnum(const char *name, s32 fallback)
 { return lookup_enum(k_LangEnum, k_LangEnum_count, name, fallback); }
 
-s32 loaderPdbaseResolveFileEnum(const char *name, s32 fallback)
+s32 loaderEnumResolveFileEnum(const char *name, s32 fallback)
 { return lookup_enum(k_FileEnum, k_FileEnum_count, name, fallback); }
 
 /* Catalog universality pivot Step 1: reverse lookup (value -> name).
@@ -5507,7 +5510,7 @@ s32 loaderPdbaseResolveFileEnum(const char *name, s32 fallback)
  * The forward tables are sorted by NAME, not by value, so this is
  * O(N) per call; with 86 weapons each touching maybe 30 fields on
  * average, total scan cost across the emit pass is bounded. */
-static const char *reverse_lookup(const pdbase_enum_entry_t *table,
+static const char *reverse_lookup(const enum_reverse_entry_t *table,
                                   size_t count, s32 value)
 {
     for (size_t i = 0; i < count; i++) {
@@ -5518,29 +5521,25 @@ static const char *reverse_lookup(const pdbase_enum_entry_t *table,
     return NULL;
 }
 
-const char *loaderPdbaseNameForAnimEnum(s32 value)
+const char *loaderEnumNameForAnimEnum(s32 value)
 { return reverse_lookup(k_AnimEnum, k_AnimEnum_count, value); }
 
-const char *loaderPdbaseNameForSfxEnum(s32 value)
+const char *loaderEnumNameForSfxEnum(s32 value)
 { return reverse_lookup(k_SfxEnum, k_SfxEnum_count, value); }
 
-const char *loaderPdbaseNameForLangEnum(s32 value)
+const char *loaderEnumNameForLangEnum(s32 value)
 { return reverse_lookup(k_LangEnum, k_LangEnum_count, value); }
 
-const char *loaderPdbaseNameForFileEnum(s32 value)
+const char *loaderEnumNameForFileEnum(s32 value)
 { return reverse_lookup(k_FileEnum, k_FileEnum_count, value); }
 
-/* Catalog universality pivot Step 2 (2026-05-03).
- *
- * The HEADBODYTYPE_* / ARENA_LOADMODE_* enum families have small fixed
- * cardinalities and the .pdbase parser (loader_pdbase.c::s_resolveHeadbodyType,
- * s_resolveArenaLoadMode) carries the forward mapping inline. We replicate
- * the same mapping here for the reverse direction so the .pdhead / .pdbody /
- * .pdarena emitters can stamp symbolic strings into JSON without bridging
- * back through a header constant table -- the constants.h numbering for
- * HEADBODYTYPE_MAIAN / _CASS does not match what the .pdbase JSON encodes,
- * so the emitter MUST use the loader's tables, not constants.h, for parity. */
-const char *loaderPdbaseNameForHeadbodyType(s32 value)
+/* Small-cardinality reverse lookups for HEADBODYTYPE_* / ARENA_LOADMODE_*.
+ * Forward mapping lives inline in port/src/loader_pool.c
+ * (s_resolveHeadbodyType, s_resolveArenaLoadMode). Both halves replicate
+ * the same table because constants.h numbering for HEADBODYTYPE_MAIAN /
+ * _CASS does not match what the per-asset JSON encodes; emitters MUST use
+ * this table, not constants.h, for parity with the parser. */
+const char *loaderEnumNameForHeadbodyType(s32 value)
 {
     switch (value) {
     case 0: return "HEADBODYTYPE_DEFAULT";
@@ -5553,7 +5552,7 @@ const char *loaderPdbaseNameForHeadbodyType(s32 value)
     }
 }
 
-const char *loaderPdbaseNameForArenaLoadMode(s32 value)
+const char *loaderEnumNameForArenaLoadMode(s32 value)
 {
     switch (value) {
     case 0: return "ARENA_LOADMODE_PLAYABLE";

@@ -1,5 +1,100 @@
 # Session Log (Active)
 
+## Session S613 (`hungry-elgamal-e991de`) - 2026-05-03 - Catalog Universality Pivot Step 5 (FINAL: retire legacy aggregate tier)
+
+Mike's directive: "Get us to completion." This is the final step of the catalog universality pivot.
+
+### Outcome
+
+**Catalog Universality COMPLETE.** The pre-Step-5 aggregate-archive tier retired entirely. The universal directory walker (`loaderWalkerLoadAll`) is now the SOLE catalog row + heavyweight pool source: it walks `data/<romid>/<class>/*.pd<ext>` for every emitted class, registers a catalog row for every disk-registered ID, AND populates the typed `loader_pool` payload (struct weapon, head_data_t, body_data_t, arena_data_t, gunscript opcodes) by handing each manifest envelope to `loaderPoolParse{Weapon,Head,Body,Arena,Animation}Json`. The per-asset envelope IS the canonical authoring format end-to-end; there is no second source of truth left to keep in sync.
+
+### Architecture
+
+The pivot's two layers (catalog row + heavyweight pool) now share ONE iteration. `loader_walker_common.h` gained an `always_invoke` flag on `loader_walker_kind_desc_t`; the four pool kinds (weapon/head/body/arena) + the animation kind set it so the scaffold calls per-kind `register_fn` even for IDs already in the catalog (lets `loader_pool` populate the typed payload regardless). The nine row-only kinds keep the original Step 4 short-circuit. Per-kind callbacks gate against destructive catalog row overwrite via `assetCatalogResolve` so bootstrap fields like `model_file` set by `assetCatalogRegisterBaseGame` survive.
+
+`loader_walker.c::loaderWalkerLoadAll` brackets the per-kind scan with `loaderPoolReset` (clears pools, drops active flags) and `loaderPoolFinalize` (seeds default aim/noise sentinels, flips per-kind active flags, emits `LOADER.POOL.{WEAPON,HEAD,BODY,ARENA}.OK` summary lines).
+
+### Boot wiring (post-Step-5, port/src/main.c)
+
+1. `assetCatalogRegisterBaseGame` + scene + weapon-model + mod component scan registers in-binary catalog baseline.
+2. `catalogManagerHeadInit` + `catalogManagerBodyInit` + `catalogManagerArenaInit` populate parity-period legacy mirrors.
+3. **`loaderWalkerLoadAll`**: walks per-asset envelopes, registers catalog rows + populates `loader_pool` typed payload via `loaderPoolParse*Json`, finalizes pool active flags.
+4. `assetCatalogRegisterWeaponModelFiles` (only when `loaderPoolIsActive`).
+5. Per-asset emitters re-fire as round-trip (idempotent skip via size check; clean early-return when pool inactive).
+6. Step 3a chr-anim emitter + Step 3 audio + Step 3b font/lang/ui emitters fire.
+
+### What retired
+
+- `port/include/loader_pdbase.h` (236 lines), `port/src/loader_pdbase.c` (~2400 lines) -> `loader_pool.{h,c}`.
+- `port/include/loader_pdbase_enums.h` (66 lines), `port/src/loader_pdbase_enums.c` (~5500 lines) -> `loader_enum_reverse.{h,c}`.
+- 7 parity emitter sources: `romextract_parity_pd{wpn,head,body,arena,sfx,lang,anim_chr}.c`.
+- 4 legacy `base/*.pdbase` aggregate archives + 4 Python extractor scripts.
+- `pdgui_theme.cpp` legacy writers: `s_writePng`, `s_writeNinesliceJson`, `s_initCrc32`, `s_crc32`, `s_writeBE32`, `s_writeLE16` (~200 lines).
+- `bondgun.c` canary instrumentation (~85 lines) + the loader_pool canary words.
+- `asset_entry_t.ext.{weapon,head,body,arena}.pdbase_path/offset/size` fields (12 fields, ~70 KB row overhead at scale) + zero-init code in `assetCatalogRegisterWeapon`.
+- `tests/test_loader_pdbase_{arenas,scan}.cpp` (523 lines).
+- `CMakeLists.txt::pdbase_deploy` build-time copy target.
+- `devtools/release.ps1` `base/` copy section.
+
+### What was added
+
+- `port/include/loader_pool.h` (~120 lines): `loaderPoolReset` / `loaderPoolParse{Weapon,Head,Body,Arena,Animation}Json` / `loaderPoolFinalize` / accessors.
+- `port/src/loader_pool.c` (~1900 lines): pool storage + parser logic (lifted from loader_pdbase.c); iteration layer replaced by walker-driven Parse* calls + Finalize.
+- `port/include/loader_enum_reverse.h` + `port/src/loader_enum_reverse.c`: enum lookup tables, function names `loaderEnum{Resolve,NameFor}*`.
+- `tests/test_pdbase_retired_audit.cpp` (~160 lines): Step 5 grep-guard. Walks `port/` + `src/game/` + `devtools/` for `pdbase` / `loaderPdbase` / `loader_pdbase` substrings; asserts no `base/*.pdbase` archive exists.
+
+### Build verify
+
+Clean four-target build via `devtools/build-session.ps1`:
+- Client (pd, PerfectDark.exe): PASS, **55.3 MB**
+- Updater (pd-updater, Updater.exe): PASS, **12.3 MB**
+- Server (pd-server, PerfectDarkServer.exe): PASS, **22.4 MB**
+- Tests (pd-tests, pd-tests.exe): PASS, **24.9 MB**
+
+No new compile warnings.
+
+### Files modified
+
+- `context/audits/catalog-universality-pivot-plan-2026-05-02.md` -- Step 5 SHIPPED entry.
+- `context/tasks.md` -- Section 2a Step 5 SHIPPED block.
+- `context/session-log.md` -- this entry (S613 added at top).
+- `tools/kanban/state.json` -- subtask `s050-08` marked `done`; parent card `c050` moved to `done` column.
+- `port/include/loader_pool.h` (new), `port/include/loader_enum_reverse.h` (new), `port/src/loader_pool.c` (new), `port/src/loader_enum_reverse.c` (new).
+- `port/include/loader_walker_common.h` (always_invoke flag), `port/src/loader_walker_common.c` (always_invoke wiring), `port/src/loader_walker.c` (Reset/Finalize bracket), `port/src/loader_walker_{weapon,head,body,arena,anim}.c` (pool population callbacks).
+- `port/src/main.c` (boot flow rewrite: dropped pdbase block, walker is sole pool source).
+- `port/src/catalog_mgr_{weapons,heads,bodies,arenas}.c` (function rename loaderPdbase* -> loaderPool*).
+- `port/src/romextract_pd{wpn,mesh,anim,head,body,arena,sfx,lang}.c` + `port/src/romextract_pdanim_chr.c` (function rename loaderPdbaseNameFor* -> loaderEnumNameFor*).
+- `port/include/assetcatalog.h` (dropped pdbase_path/offset/size fields), `port/src/assetcatalog.c` (dropped zero-init).
+- `port/fast3d/pdgui_theme.cpp` (dropped legacy writers).
+- `src/game/bondgun.c` (dropped canary instrumentation), `src/game/{botinv,invitems,game_0b0fd0}.c` (comment scrubs), `src/include/{data,inv}.h` (comment scrubs).
+- `tests/test_catalog_mgr_{heads,bodies}_api.cpp` + `test_weapon_direct_reads_audit.cpp` (drop deleted-test refs + pdbase comment scrubs).
+- `CMakeLists.txt` (dropped pdbase_deploy + test_loader_pdbase_*.cpp; added test_pdbase_retired_audit.cpp).
+- `devtools/release.ps1` (dropped base/ copy section).
+
+### What is now possible architecturally
+
+- Modders deliver `.pd*` files into `data/<romid>/<class>/` (or via `.pdmod` archive) and the walker registers + populates them identically to base content (Step 6 prerequisite landed).
+- In-client mod authoring can copy a `data/<romid>/<class>/<id>.pd<ext>` file as a starter template (Step 7 prerequisite landed).
+- The release pipeline ships the per-asset `data/<romid>/` payload directly; the seed-archive intermediate is gone.
+- The per-asset envelope IS the canonical authoring format end-to-end; one source of truth, walker reads from it for both catalog rows and pool fill.
+
+### First-boot regression note (accepted)
+
+Genuine pure-source-fresh first BYOR install with no `data/<romid>/<class>/*.pd<ext>` content leaves `loaderPool*Active` returning 0; weapon access through `catalogManagerGetWeaponByIndex` returns NULL. Mike's existing dev install + the release-bundled `data/` skeleton both carry the per-asset content, so this only affects strict pure-source-fresh users. Future BYOR-from-scratch path can re-architect the per-asset emitters to source from ROM directly.
+
+### Pivot arc summary (Step 0 through Step 5)
+
+- **Step 0** (schema lock-down): 13-kind universality schema doc at `context/designs/catalog/universality-pivot-schemas.md`.
+- **Step 1** (weapon proving ground): `.pdwpn` emitter + parity check.
+- **Step 2** (heads/bodies/arenas/scenarios): per-asset emitters for the metadata-class kinds + the unified `.pdscenario` ZIP.
+- **Step 3** (audio + chr-animation + font/lang/ui): the byte-payload classes round out 13 of 13 universality kinds emitted.
+- **Step 4** (universal directory walker, SHA `bf881e26`): catalog row registration moves onto `loaderWalkerLoadAll`.
+- **Step 5** (retirement, this session): legacy aggregate tier retired; walker is the SOLE catalog row + pool source.
+
+**Catalog Universality COMPLETE.**
+
+---
+
 ## Session S612-step4 (`affectionate-hawking-f01503`) - 2026-05-03 - Catalog Universality Pivot Step 4 (universal directory walker)
 
 Mike's directive: "Get us to completion. Step 5 follows immediately." Closes the catalog universality writer-side AND reader-side at the row layer. The .pdbase parser is no longer the catalog row registration authority; the universal directory walker takes that role.
