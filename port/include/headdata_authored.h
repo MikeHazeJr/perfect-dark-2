@@ -47,4 +47,11 @@ typedef struct {
 extern const head_authored_record_t g_HeadData[];
 extern const s32 g_HeadDataCount;
 
+/*
+ * Lookup by historical g_HeadsAndBodies[] index. Linear scan; called
+ * O(N_heads) times at catalog registration only. Returns NULL when no
+ * head exists at that index (the legacy slot was a body or a sentinel).
+ */
+const head_authored_record_t *headDataLookupByHeadnum(s32 headnum);
+
 #endif /* PD_HEADDATA_AUTHORED_H */

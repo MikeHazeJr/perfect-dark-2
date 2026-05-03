@@ -96,3 +96,13 @@ const body_authored_record_t g_BodyData[] = {
 };
 
 const s32 g_BodyDataCount = (s32)(sizeof(g_BodyData) / sizeof(g_BodyData[0]));
+
+const body_authored_record_t *bodyDataLookupByBodynum(s32 bodynum)
+{
+	for (s32 i = 0; i < g_BodyDataCount; i++) {
+		if ((s32)g_BodyData[i].bodynum == bodynum) {
+			return &g_BodyData[i];
+		}
+	}
+	return 0;
+}

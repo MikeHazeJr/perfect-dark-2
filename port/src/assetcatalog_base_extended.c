@@ -45,6 +45,9 @@
 #if !defined(PD_SERVER)
 #include "catalog_mgr_weapons.h"
 #endif
+/* BYOR completion (2026-05-03): hand-model probe reads from
+ * bodydata_authored.c instead of g_HeadsAndBodies[]. */
+#include "bodydata_authored.h"
 
 /* Catalog universality sweep (2026-04-27): externs for sources that
  * carry the unlock-state fields the catalog now mirrors.  Layer A
@@ -816,23 +819,21 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 	/* ---- first-person hand models (B-275/S483 runtime coverage) ---- */
 	/*
 	 * bgun queues hand models by raw FILE_* filenum from the active body.
-	 * Those files live in g_HeadsAndBodies[].handfilenum rather than
-	 * g_ModelStates[], so register the distinct hand files as ASSET_MODEL
-	 * provider-backed catalog entries. They intentionally use negative
-	 * runtime_index values: catalogModelIdByModelnum() remains reserved for
-	 * g_ModelStates[] MODEL_* indices, while source-filenum lookups can now
-	 * resolve files such as FILE_GCOMBATHANDSLOD.
+	 * Hand filenums are now sourced from bodydata_authored.c (was direct
+	 * g_HeadsAndBodies[] read pre-pivot). Register distinct hand files
+	 * as ASSET_MODEL provider-backed catalog entries with negative
+	 * runtime_index so they don't collide with g_ModelStates[] MODEL_*.
 	 */
 	{
 		u16 seen[152];
 		s32 seen_count = 0;
 		s32 n = 0;
 
-		for (s32 i = 0; i < 152; i++) {
-			s32 handfilenum = (s32)g_HeadsAndBodies[i].handfilenum;
+		for (s32 i = 0; i < g_BodyDataCount; i++) {
+			s32 handfilenum = (s32)g_BodyData[i].handfilenum;
 			s32 duplicate = 0;
 
-			if (g_HeadsAndBodies[i].filenum == 0 || handfilenum <= 0) {
+			if (g_BodyData[i].filenum == 0 || handfilenum <= 0) {
 				continue;
 			}
 

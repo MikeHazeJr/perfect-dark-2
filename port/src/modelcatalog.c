@@ -36,6 +36,9 @@
 #include "modelcatalog.h"
 #include "modmgr.h"
 #include "assetcatalog.h"
+/* BYOR completion (2026-05-03): catalog reads come from authoring tables. */
+#include "headdata_authored.h"
+#include "bodydata_authored.h"
 #include "assetload.h"
 #include "game/modeldef.h"
 #include "game/lang.h"
@@ -359,8 +362,8 @@ static void getDisplayName(struct catalogentry *entry)
 void catalogInit(void)
 {
 	sysLogPrintf(LOG_NOTE, "CATALOG: initializing model catalog (metadata only)...");
-	sysLogPrintf(LOG_NOTE, "CATALOG: g_HeadsAndBodies at %p, sizeof(headorbody)=%d",
-	             (void *)g_HeadsAndBodies, (s32)sizeof(struct headorbody));
+	sysLogPrintf(LOG_NOTE, "CATALOG: head+body authoring tables: heads=%d bodies=%d",
+	             g_HeadDataCount, g_BodyDataCount);
 
 	memset(s_Catalog, 0, sizeof(s_Catalog));
 	memset(s_BodyMpToCatalog, -1, sizeof(s_BodyMpToCatalog));
@@ -369,67 +372,55 @@ void catalogInit(void)
 	s_NumValidBodies = 0;
 	s_NumValidHeads = 0;
 
-	/* Defensive: verify g_HeadsAndBodies is not NULL */
-	if (g_HeadsAndBodies == NULL) {
-		sysLogPrintf(LOG_WARNING, "CATALOG: g_HeadsAndBodies is NULL — cannot initialize catalog");
-		s_Initialized = 1;
-		return;
-	}
-
-	/* Count entries in g_HeadsAndBodies (terminated by filenum == 0) */
+	/* BYOR completion (2026-05-03): walk authored head + body tables.
+	 * Each entry is keyed by its historical g_HeadsAndBodies[] index
+	 * (preserved as headnum/bodynum on the authored record). The catalog
+	 * stays sparse-keyed by that index so consumers like
+	 * s_Catalog[bodynum] / s_Catalog[headnum] keep working. */
 	s32 numEntries = 0;
-	while (numEntries < CATALOG_MAX_ENTRIES && g_HeadsAndBodies[numEntries].filenum != 0) {
-		numEntries++;
-	}
 
-	if (numEntries == 0) {
-		sysLogPrintf(LOG_WARNING, "CATALOG: g_HeadsAndBodies has 0 entries — is ROM data loaded?");
-		s_Initialized = 1;
-		return;
-	}
+	for (s32 i = 0; i < CATALOG_MAX_ENTRIES; i++) {
+		const head_authored_record_t *hd = headDataLookupByHeadnum(i);
+		const body_authored_record_t *bd = bodyDataLookupByBodynum(i);
 
-	sysLogPrintf(LOG_NOTE, "CATALOG: found %d head/body entries", numEntries);
+		if (!hd && !bd) continue;
+		if (i >= CATALOG_MAX_ENTRIES) break;
 
-	/* Log MP body/head counts from modmgr for cross-reference */
-	s32 totalBodiesMgr = modmgrGetTotalBodies();
-	s32 totalHeadsMgr = modmgrGetTotalHeads();
-	sysLogPrintf(LOG_NOTE, "CATALOG: modmgr reports %d MP bodies, %d MP heads",
-	             totalBodiesMgr, totalHeadsMgr);
-
-	for (s32 i = 0; i < numEntries; i++) {
-		struct headorbody *hb = &g_HeadsAndBodies[i];
 		struct catalogentry *ce = &s_Catalog[i];
-
-		/* Copy static metadata from the compiled array — no heap needed */
 		ce->index = i;
-		ce->filenum = hb->filenum;
-		ce->ismale = hb->ismale;
-		ce->type = hb->type;
-		ce->canvaryheight = hb->canvaryheight;
-		ce->height = hb->height;
-		ce->scale = hb->scale;
-		ce->correctedScale = hb->scale;
-		ce->animscale = hb->animscale;
-		ce->handfilenum = hb->handfilenum;
-		ce->thumbnailTexId = 0;
-		ce->thumbnailReady = 0;
-
-		/* Mark as not-yet-validated (models load lazily when heap is ready) */
-		ce->status = MODELSTATUS_UNKNOWN;
-
-		/* Classify as head or body */
-		ce->category = classifyEntry(i);
-
-		/* Get display name and MP index */
+		if (hd) {
+			ce->filenum       = hd->filenum;
+			ce->ismale        = hd->ismale;
+			ce->type          = hd->type;
+			ce->canvaryheight = 0;
+			ce->height        = hd->height;
+			ce->scale         = hd->scale;
+			ce->correctedScale= hd->scale;
+			ce->animscale     = hd->animscale;
+			ce->handfilenum   = 0;
+		} else {
+			ce->filenum       = bd->filenum;
+			ce->ismale        = bd->ismale;
+			ce->type          = bd->type;
+			ce->canvaryheight = bd->canvaryheight;
+			ce->height        = bd->height;
+			ce->scale         = bd->scale;
+			ce->correctedScale= bd->scale;
+			ce->animscale     = bd->animscale;
+			ce->handfilenum   = bd->handfilenum;
+		}
+		ce->thumbnailTexId  = 0;
+		ce->thumbnailReady  = 0;
+		ce->status          = MODELSTATUS_UNKNOWN;
+		ce->category        = classifyEntry(i);
 		getDisplayName(ce);
 
-		/* Build reverse maps */
 		if (ce->mpIndex >= 0) {
 			if (ce->category == MODELCAT_BODY) {
 				if (ce->mpIndex < CATALOG_MAX_ENTRIES) {
 					s_BodyMpToCatalog[ce->mpIndex] = i;
 				}
-				s_NumValidBodies++; /* Assume valid until proven otherwise */
+				s_NumValidBodies++;
 			} else {
 				if (ce->mpIndex < CATALOG_MAX_ENTRIES) {
 					s_HeadMpToCatalog[ce->mpIndex] = i;
@@ -437,7 +428,21 @@ void catalogInit(void)
 				s_NumValidHeads++;
 			}
 		}
+		if (i + 1 > numEntries) numEntries = i + 1;
 	}
+
+	if (numEntries == 0) {
+		sysLogPrintf(LOG_WARNING, "CATALOG: head+body authoring tables empty -- check headdata_authored.c / bodydata_authored.c");
+		s_Initialized = 1;
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE, "CATALOG: found %d head/body entries (max index)", numEntries);
+
+	s32 totalBodiesMgr = modmgrGetTotalBodies();
+	s32 totalHeadsMgr = modmgrGetTotalHeads();
+	sysLogPrintf(LOG_NOTE, "CATALOG: modmgr reports %d MP bodies, %d MP heads",
+	             totalBodiesMgr, totalHeadsMgr);
 
 	s_CatalogCount = numEntries;
 	s_Initialized = 1;
@@ -457,38 +462,37 @@ static void catalogValidateOne(s32 index)
 	struct catalogentry *ce = &s_Catalog[index];
 	if (ce->status != MODELSTATUS_UNKNOWN) return; /* Already validated */
 
-	struct headorbody *hb = &g_HeadsAndBodies[index];
-	asset_data_handle_t handle = catalogValidateResolveHandle(index, ce->category, hb->filenum);
+	/* BYOR completion: filenum sourced from the cached ce->filenum
+	 * (populated by catalogInit from authoring tables). */
+	u16 filenum = ce->filenum;
+	asset_data_handle_t handle = catalogValidateResolveHandle(index, ce->category, filenum);
 
 	/* Quick pre-check: if the file doesn't exist in ROM data, mark it
 	 * MISSING immediately. This avoids the overhead of VEH setup/teardown
 	 * and mempAlloc for every non-existent model file. The deeper fix in
 	 * fileLoadRomToNew also returns NULL for missing files, but catching it
 	 * here produces a cleaner log and skips unnecessary work entirely. */
-	if (catalogValidateSourceMissing(handle, hb->filenum)) {
+	if (catalogValidateSourceMissing(handle, filenum)) {
 		ce->status = MODELSTATUS_MISSING;
-		sysLogPrintf(LOG_WARNING, "CATALOG: [%3d] file 0x%04x — not in ROM data (MISSING)",
-		             index, hb->filenum);
+		sysLogPrintf(LOG_WARNING, "CATALOG: [%3d] file 0x%04x -- not in ROM data (MISSING)",
+		             index, filenum);
 		return;
 	}
 
-	/* Load the modeldef if not already cached (requires heap to be ready).
-	 * Use safeModeldefLoad() so a corrupt model file causes an INVALID
-	 * status rather than crashing the entire game. */
-	if (hb->modeldef == NULL) {
-		hb->modeldef = safeModeldefLoad(hb->filenum, handle, index);
-	}
+	/* BYOR completion (2026-05-03): legacy g_HeadsAndBodies[idx].modeldef
+	 * cache is retired. Load locally for validation -- modeldef lives
+	 * stage-pool until it gets re-cached by the catalog manager on first
+	 * lookup via catalogManagerGetHeadModeldef / *BodyModeldef. */
+	struct modeldef *md = safeModeldefLoad(filenum, handle, index);
 
-	f32 corrected = hb->scale;
-	ce->status = validateModeldef(hb->modeldef, index, hb->filenum, ce->category, &corrected);
+	f32 corrected = ce->scale;
+	ce->status = validateModeldef(md, index, filenum, ce->category, &corrected);
 	ce->correctedScale = corrected;
 
-	/* Log each validation result at NOTE level for the summary,
-	 * but only non-VALID results get WARNING-level detail above */
 	if (ce->status == MODELSTATUS_VALID) {
-		sysLogPrintf(LOG_NOTE, "CATALOG: [%3d] file 0x%04x — OK (scale=%.2f, parts=%d)",
-		             index, hb->filenum, hb->modeldef ? hb->modeldef->scale : 0.0f,
-		             hb->modeldef ? hb->modeldef->numparts : 0);
+		sysLogPrintf(LOG_NOTE, "CATALOG: [%3d] file 0x%04x -- OK (scale=%.2f, parts=%d)",
+		             index, filenum, md ? md->scale : 0.0f,
+		             md ? md->numparts : 0);
 	}
 }
 

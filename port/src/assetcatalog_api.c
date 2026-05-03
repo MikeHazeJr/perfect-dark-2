@@ -28,6 +28,10 @@
 #include "types.h"
 #include "system.h"
 #include "data.h"
+/* BYOR completion (2026-05-03): bodynum/headnum sentinel checks read
+ * from authoring tables instead of g_HeadsAndBodies[]. */
+#include "headdata_authored.h"
+#include "bodydata_authored.h"
 #include "assetcatalog.h"
 #include "assetprovider_internal.h"
 #include "modelcatalog.h"
@@ -1580,7 +1584,10 @@ s32 catalogGetBodyScaleChecked(s32 bodynum, f32 *out_value)
     s32 sentinel;
 
     if (out_value) { *out_value = 1.0f; }
-    sentinel = (bodynum >= 0 && bodynum < 152) ? (s32)g_HeadsAndBodies[bodynum].filenum : 0;
+    {
+        const body_authored_record_t *bd = (bodynum >= 0 && bodynum < 152) ? bodyDataLookupByBodynum(bodynum) : 0;
+        sentinel = bd ? (s32)bd->filenum : 0;
+    }
     r = catalogCheckedValidateSlot(bodynum, 152, sentinel);
     if (r != CATALOG_CHECKED_OK) {
         if (bodynum != s_lastBadIdx) {
@@ -1600,7 +1607,10 @@ s32 catalogGetBodyAnimScaleChecked(s32 bodynum, f32 *out_value)
     s32 sentinel;
 
     if (out_value) { *out_value = 1.0f; }
-    sentinel = (bodynum >= 0 && bodynum < 152) ? (s32)g_HeadsAndBodies[bodynum].filenum : 0;
+    {
+        const body_authored_record_t *bd = (bodynum >= 0 && bodynum < 152) ? bodyDataLookupByBodynum(bodynum) : 0;
+        sentinel = bd ? (s32)bd->filenum : 0;
+    }
     r = catalogCheckedValidateSlot(bodynum, 152, sentinel);
     if (r != CATALOG_CHECKED_OK) {
         if (bodynum != s_lastBadIdx) {
@@ -1621,7 +1631,10 @@ s32 catalogGetBodyHandFilenumChecked(s32 bodynum, s32 *out_value)
     s32 sentinel;
 
     if (out_value) { *out_value = 0; }
-    sentinel = (bodynum >= 0 && bodynum < 152) ? (s32)g_HeadsAndBodies[bodynum].filenum : 0;
+    {
+        const body_authored_record_t *bd = (bodynum >= 0 && bodynum < 152) ? bodyDataLookupByBodynum(bodynum) : 0;
+        sentinel = bd ? (s32)bd->filenum : 0;
+    }
     r = catalogCheckedValidateSlot(bodynum, 152, sentinel);
     if (r != CATALOG_CHECKED_OK) {
         if (bodynum != s_lastBadIdx) {
@@ -1644,7 +1657,10 @@ s32 catalogGetBodyModeldefChecked(s32 bodynum, struct modeldef **out_md)
     struct modeldef *md;
 
     if (out_md) { *out_md = NULL; }
-    sentinel = (bodynum >= 0 && bodynum < 152) ? (s32)g_HeadsAndBodies[bodynum].filenum : 0;
+    {
+        const body_authored_record_t *bd = (bodynum >= 0 && bodynum < 152) ? bodyDataLookupByBodynum(bodynum) : 0;
+        sentinel = bd ? (s32)bd->filenum : 0;
+    }
     r = catalogCheckedValidateSlot(bodynum, 152, sentinel);
     if (r != CATALOG_CHECKED_OK) {
         if (bodynum != s_lastBadIdx) {
@@ -1679,7 +1695,10 @@ s32 catalogGetHeadModeldefChecked(s32 headnum, struct modeldef **out_md)
     if (out_md) { *out_md = NULL; }
     /* HEAD_RANDOM_GENDER is a sentinel-out-of-band, not a miss. */
     if (headnum == HEAD_RANDOM_GENDER) { return 0; }
-    sentinel = (headnum >= 0 && headnum < 152) ? (s32)g_HeadsAndBodies[headnum].filenum : 0;
+    {
+        const head_authored_record_t *hd = (headnum >= 0 && headnum < 152) ? headDataLookupByHeadnum(headnum) : 0;
+        sentinel = hd ? (s32)hd->filenum : 0;
+    }
     r = catalogCheckedValidateSlot(headnum, 152, sentinel);
     if (r != CATALOG_CHECKED_OK) {
         if (headnum != s_lastBadIdx) {

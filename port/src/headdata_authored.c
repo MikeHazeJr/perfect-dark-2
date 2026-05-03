@@ -113,3 +113,13 @@ const head_authored_record_t g_HeadData[] = {
 };
 
 const s32 g_HeadDataCount = (s32)(sizeof(g_HeadData) / sizeof(g_HeadData[0]));
+
+const head_authored_record_t *headDataLookupByHeadnum(s32 headnum)
+{
+	for (s32 i = 0; i < g_HeadDataCount; i++) {
+		if ((s32)g_HeadData[i].headnum == headnum) {
+			return &g_HeadData[i];
+		}
+	}
+	return 0;
+}
