@@ -1,0 +1,275 @@
+{
+  "pillars": [
+    {"id": "catalog",           "name": "Catalog",           "color": "#8b5cf6"},
+    {"id": "benchmarking",      "name": "Benchmarking",      "color": "#f97316"},
+    {"id": "ui",                "name": "UI",                "color": "#3b82f6"},
+    {"id": "input",             "name": "Input",             "color": "#14b8a6"},
+    {"id": "vehicles",          "name": "Vehicles",          "color": "#22c55e"},
+    {"id": "mod-infrastructure","name": "Mod Infrastructure","color": "#eab308"},
+    {"id": "tooling",           "name": "Tooling",           "color": "#6b7280"},
+    {"id": "networking",        "name": "Networking",        "color": "#ef4444"},
+    {"id": "campaign",          "name": "Campaign",          "color": "#a16207"},
+    {"id": "social",            "name": "Social",            "color": "#ec4899"}
+  ],
+  "columns": ["backlog", "active", "blocked", "done"],
+  "columnLabels": {
+    "backlog": "Backlog",
+    "active":  "Active",
+    "blocked": "Blocked",
+    "done":    "Done"
+  },
+  "cards": [
+    {
+      "id": "c001", "title": "Catalog Phase 2 commits 1-6 + audit",
+      "description": "Shipped audit + Phase 2 commits 1-6.",
+      "pillar": "catalog", "column": "done", "order": 1000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c002", "title": "Phase 3 Pass A - ROM extraction data tier",
+      "description": "Data tier accessors, first-launch ROM extraction to data/<romid>/files/, BYOR SHA-256 gate, hash-verify-on-launch self-heal. All Pass A slices shipped.",
+      "pillar": "catalog", "column": "done", "order": 2000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c003", "title": "Pass B Slices 1-13 - per-class catalog migration",
+      "description": "Per-class migration from RomProvider to FileProvider. Segment extraction to data/<romid>/segs/. All 13 slices shipped. Slice 12 SFX residual: accepted limit at dev f52cf660.",
+      "pillar": "catalog", "column": "done", "order": 3000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c004", "title": "Pass C - Drop ROM access (RomProvider)",
+      "description": "romdataReleaseRom() migrates SRC_ROM segments to disk, NULLs lazy fileSlot pointers, frees g_RomFile. Shipped at dev b15cc701.",
+      "pillar": "catalog", "column": "done", "order": 4000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c005", "title": "Pass D - Self-heal hardening",
+      "description": "Per-file system toasts on corrected/failed. Boot integrity report. Quarantine path to data/_quarantine/<romid>/. Deferred toast queue drain. Shipped S604.",
+      "pillar": "catalog", "column": "done", "order": 5000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c006", "title": "Gate 3 - Weapons migration F1-F13",
+      "description": "catalog_mgr_weapons.c + base/weapons.pdbase (12,823 lines). g_Weapons[] retired. invitems.c reduced to 50-line header comment. F13 grep-guard. Binary -200 KB.",
+      "pillar": "catalog", "column": "done", "order": 6000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c007", "title": "Gate 3 - Heads migration F1-F13",
+      "description": "catalog_mgr_heads.c + base/heads.pdbase (84 records). g_MpMaleHeads / g_MpFemaleHeads retired. F13 grep-guard: 12 cases / 96 assertions. Shipped S596 at dev a2ad421e.",
+      "pillar": "catalog", "column": "done", "order": 7000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c008", "title": "Gate 3 - Bodies migration F1-F13",
+      "description": "catalog_mgr_bodies.c (305 lines) + base/bodies.pdbase (890 lines, 68 records). F13 grep-guard: 16 cases / 190 assertions. Shipped S598 at dev 64af7e0c.",
+      "pillar": "catalog", "column": "done", "order": 8000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c009", "title": "Gate 3 - Arenas + Maps migration F1-F13",
+      "description": "Manager + base/arenas.pdbase + grep-guard template applied. Shipped S599 at dev 6d3bf4c9.",
+      "pillar": "catalog", "column": "done", "order": 9000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c010", "title": "B-305: ROM pointer fix",
+      "description": "ROM pointer safety fix.",
+      "pillar": "catalog", "column": "done", "order": 10000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c011", "title": "B-306: FileProvider preprocess",
+      "description": "FileProvider preprocess fix.",
+      "pillar": "catalog", "column": "done", "order": 11000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c012", "title": "Recoil crash fix",
+      "description": "Benchmarking: recoil crash resolved.",
+      "pillar": "benchmarking", "column": "done", "order": 12000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c013", "title": "Farsight SFX",
+      "description": "Benchmarking: Farsight SFX fix shipped.",
+      "pillar": "benchmarking", "column": "done", "order": 13000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c014", "title": "Falcon 2 sec text fix",
+      "description": "Benchmarking: Falcon 2 second text rendering fix.",
+      "pillar": "benchmarking", "column": "done", "order": 14000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c015", "title": "Cycle wrap fix",
+      "description": "Benchmarking: cycle wrap edge case resolved.",
+      "pillar": "benchmarking", "column": "done", "order": 15000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c016", "title": "B-303: Main Menu auto-pop (Forge)",
+      "description": "Forge: fixed main menu auto-pop behavior. B-303.",
+      "pillar": "ui", "column": "done", "order": 16000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c017", "title": "B-304: Wireframe Debug Rendering (Forge)",
+      "description": "Forge: wireframe debug rendering mode. B-304.",
+      "pillar": "ui", "column": "done", "order": 17000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c018", "title": "Input + Menu Phase 2: 9 fixes",
+      "description": "Nine input and menu Phase 2 fixes shipped.",
+      "pillar": "ui", "column": "done", "order": 18000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c019", "title": "Menu UI Extraction: full chrome",
+      "description": "Full chrome pass on menu UI extraction.",
+      "pillar": "ui", "column": "done", "order": 19000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c020", "title": "Press/Hold canonical input",
+      "description": "Press/Hold canonical action handling.",
+      "pillar": "input", "column": "done", "order": 20000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c021", "title": "Nested scroll input",
+      "description": "Nested scroll handling in input layer.",
+      "pillar": "input", "column": "done", "order": 21000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c022", "title": "Interaction cone tighten + viz",
+      "description": "Interaction cone tightened and visualization added.",
+      "pillar": "input", "column": "done", "order": 22000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c023", "title": "Vehicle action consumers",
+      "description": "Vehicle action consumers wired into input system.",
+      "pillar": "input", "column": "done", "order": 23000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c024", "title": "Build Parity: client + updater",
+      "description": "Build parity confirmed between client and updater.",
+      "pillar": "tooling", "column": "done", "order": 24000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c025", "title": "Release packaging update",
+      "description": "Release zip updated: client + updater + data/ + base/ (.pdbase). Server binary excluded (deprecated).",
+      "pillar": "tooling", "column": "done", "order": 25000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c026", "title": "Log rotation (5 rolling)",
+      "description": "Log rotation implemented: 5 rolling log files.",
+      "pillar": "tooling", "column": "done", "order": 26000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c027", "title": "Catalog universality pivot Steps 4-9",
+      "description": "Steps 4-9 of the catalog universality pivot. Pillar: Catalog. Post-Phase-3 migration cleanup pass.",
+      "pillar": "catalog", "column": "active", "order": 1000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c028", "title": "Pre-existing test failure triage",
+      "description": "5 pre-existing test rot failures outside Pass C touch surface logged. Need triage to determine root cause vs accepted limit.",
+      "pillar": "catalog", "column": "active", "order": 2000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c029", "title": "Speed tune + 128-256 crash",
+      "description": "Benchmarking: speed tune work plus 128-256 bot count crash investigation.",
+      "pillar": "benchmarking", "column": "active", "order": 3000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c030", "title": "Universality pivot schema (.pdwpn etc)",
+      "description": "Define and implement universality pivot schema for mod infrastructure file types: .pdwpn and similar.",
+      "pillar": "mod-infrastructure", "column": "active", "order": 4000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c031", "title": "GPU bot behavior pipeline (post-catalog)",
+      "description": "GPU-side bot behavior pipeline design + implementation. Gated on Mike playtest after catalog lands.",
+      "pillar": "benchmarking", "column": "backlog", "order": 1000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c032", "title": "GPU collision migration",
+      "description": "Migrate collision queries to GPU-side compute.",
+      "pillar": "benchmarking", "column": "backlog", "order": 2000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c033", "title": "GPU spawn upgrades migration",
+      "description": "Migrate spawn upgrade logic to GPU-side compute.",
+      "pillar": "benchmarking", "column": "backlog", "order": 3000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c034", "title": "Mike playtest validation",
+      "description": "Mike full playtest validation pass after benchmarking pipeline work.",
+      "pillar": "benchmarking", "column": "backlog", "order": 4000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c035", "title": "Surface-Normal Slices 4+5",
+      "description": "UI surface-normal rendering slices 4 and 5.",
+      "pillar": "ui", "column": "backlog", "order": 5000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c036", "title": "Input - Controller Support Cohorts 5-8",
+      "description": "Branch 2 Cohorts 5-8: full controller support, menu graph completion, remaining transitional shim retirement. Queued after Catalog Gate 3.",
+      "pillar": "input", "column": "backlog", "order": 6000,
+      "notes": "Design ref: designs/input/input-universality-and-transitions.md", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c037", "title": "Hoverbike full operability validation",
+      "description": "Full hoverbike vehicle operability validation pass.",
+      "pillar": "vehicles", "column": "backlog", "order": 7000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c038", "title": "Wall-jump glitch (deferred)",
+      "description": "Wall-jump glitch: deferred, not on critical path.",
+      "pillar": "vehicles", "column": "backlog", "order": 8000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c039", "title": "Skin Editor canvas D-pad mode (post-catalog)",
+      "description": "D-pad navigation mode for Skin Editor canvas. Gated on catalog lane closure.",
+      "pillar": "mod-infrastructure", "column": "backlog", "order": 9000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c040", "title": "Dev Window worktree-aware cleanup",
+      "description": "Make Dev Window aware of active worktrees for cleaner status display.",
+      "pillar": "tooling", "column": "backlog", "order": 10000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c041", "title": "Audit grooming",
+      "description": "Groom and archive stale audits. Move shipped audits to _old/audits/ per retention.md.",
+      "pillar": "tooling", "column": "backlog", "order": 11000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c042", "title": "GitHub Actions CI workflow",
+      "description": "Set up GitHub Actions CI for automated build verification on push/PR.",
+      "pillar": "tooling", "column": "backlog", "order": 12000,
+      "notes": "", "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    }
+  ]
+}
