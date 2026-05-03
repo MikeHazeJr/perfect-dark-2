@@ -63,6 +63,11 @@
 #include "game/stagetable.h"
 #include "game/chr.h"
 
+/* Engine Phase 2: thread pool + progress channel + boot overlay UI. */
+#include "boot_pool.h"
+#include "boot_progress.h"
+#include "pdgui_bootoverlay.h"
+
 u32 g_OsMemSize = 0;
 s32 g_OsMemSizeMb = 64;
 s8 g_Resetting = false;
@@ -133,6 +138,141 @@ static void gameInit(void)
 		g_HudAlignModeL = G_ASPECT_LEFT_EXT | G_ASPECT_WIDE_EXT;
 		g_HudAlignModeR = G_ASPECT_RIGHT_EXT | G_ASPECT_WIDE_EXT;
 	}
+}
+
+/* Engine Phase 2 boot orchestrator (2026-05-03).
+ *
+ * Runs the full catalog / extract / verify / walker / emitter sequence
+ * on a boot-pool worker thread while the main thread renders the boot
+ * overlay.  Phase boundaries push begin / end events into the progress
+ * channel; per-file updates inside romExtract* drive the bar fill.
+ *
+ * Single-worker enqueue per the Phase 2 plan (see
+ * context/designs/engine/startup-acceleration.md): one job runs the
+ * entire sequence serially.  Phase 3 will rewrite romExtractVerifyAll
+ * to fan out per-file SHA-256 across the pool's worker threads. */
+static void bootRunCatalogWork(void *arg)
+{
+	(void)arg;
+
+	bootProgressBeginPhase(BOOT_PHASE_EXTRACT_FILES);
+	romdataInit();
+	catalogCacheVerifyRom(g_RomName, NULL);
+	romExtractAllFiles();
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_VERIFY_FILES);
+	romExtractVerifyAll();
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EXTRACT_SEGS);
+	romExtractAllSegments();
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_VERIFY_SEGS);
+	romExtractVerifyAllSegments();
+	romExtractEmitBootIntegrityReport();
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_RELEASE_ROM);
+	romdataReleaseRom();
+	bootProgressEndPhase();
+
+	netInit();
+	g_ValidGbcRomFound = romdataCheckGbcRom();
+	gameInit();
+	modmgrInit();
+
+	bootProgressBeginPhase(BOOT_PHASE_CATALOG_INIT);
+	catalogInit();
+	stageTableInit();
+	assetCatalogInit();
+	assetCatalogRegisterBaseGame();
+	assetCatalogRegisterStageSceneFiles();
+	{
+		const char *modsdir = modmgrGetModsDir();
+		if (modsdir) {
+			assetCatalogScanComponents(modsdir);
+			assetCatalogScanBotVariants(modsdir);
+		}
+	}
+	sysLogPrintf(LOG_NOTE, "Asset Catalog: %d entries registered", assetCatalogGetCount());
+	catalogManagerHeadInit();
+	catalogManagerBodyInit();
+	catalogManagerArenaInit();
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_WALKER);
+	{
+		loader_walker_result_t walker_result;
+		loaderWalkerLoadAll(&walker_result);
+		(void)walker_result;
+		if (loaderPoolIsActive()) {
+			assetCatalogRegisterWeaponModelFiles();
+		}
+	}
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_WPN);
+	(void)romExtractAllPdwpn(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_MESH);
+	(void)romExtractAllPdmesh(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_ANIM);
+	(void)romExtractAllPdanim(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_HEAD);
+	(void)romExtractAllPdhead(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_BODY);
+	(void)romExtractAllPdbody(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_ARENA);
+	(void)romExtractAllPdarena(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_ANIMCHR);
+	(void)romExtractAllPdanimChr(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_SFX);
+	(void)romExtractAllPdsfx(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_VOICE);
+	(void)romExtractAllPdvoice(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_SONG);
+	(void)romExtractAllPdsong(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_FONT);
+	(void)romExtractAllPdfont(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_LANG);
+	(void)romExtractAllPdlang(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_EMIT_UI);
+	(void)romExtractAllPdui(0);
+	bootProgressEndPhase();
+
+	bootProgressBeginPhase(BOOT_PHASE_BUILD_CACHES);
+	catalogBuildRuntimeCaches();
+	catalogLoadInit();
+	modmgrLoadComponentState();
+	modmgrCatalogChanged();
+	bootProgressEndPhase();
+
+	bootProgressMarkComplete();
 }
 
 static void cleanup(void)
@@ -274,236 +414,33 @@ int main(int argc, const char **argv)
 		sndSetSfxVolume(0);
 	}
 
-	romdataInit();
-
-	// C-1: ROM hash cache — verify ROM integrity and cache the hash so
-	// mismatches (ROM replaced or corrupted) are logged on future boots.
-	// Returns 1=verified/first-run, 0=hash changed, -1=I/O error.
-	// We proceed in all cases; this is an integrity check, not a gate.
-	catalogCacheVerifyRom(g_RomName, NULL);
-
-	/* Phase 3 Pass A.2 (2026-05-02): first-launch ROM file extraction.
-	 * Walks the ROM file table and writes each non-empty file slot to
-	 * data/<romid>/files/<name>.bin.  Idempotent (skips files already
-	 * extracted with matching size).  Subsequent Phase 3 slices migrate
-	 * per-class catalog bindings from RomProvider to FileProvider so
-	 * the runtime reads from disk; once every class is on disk Pass C
-	 * retires the runtime ROM mapping entirely.
+	/* Engine Phase 2 boot orchestrator (2026-05-03): the catalog work
+	 * block (romdataInit through modmgrCatalogChanged) runs on a worker
+	 * thread inside bootRunCatalogWork while the main thread drives the
+	 * boot overlay's render loop.  Window stays responsive throughout.
 	 *
-	 * Order: AFTER romdataInit (g_RomFile + fileSlots populated) and
-	 * BEFORE assetCatalogScanComponents (so extracted bytes are pure
-	 * ROM, not mod-overridden).  Pass A.4 will add SHA-256 verification
-	 * + quarantine + re-extract on top of the size-only idempotency
-	 * check that ships here. */
-	romExtractAllFiles();
-
-	/* Phase 3 Pass A.4 (2026-05-02): hash-verify-on-launch self-heal.
-	 * Scans data/<romid>/files/ sidecars, checks each .bin against its
-	 * stored SHA-256, quarantines + re-extracts mismatches.  Emits
-	 * LOUDFAIL.LOAD on any corruption found.  Idempotent and cheap on
-	 * a clean install. */
-	romExtractVerifyAll();
-
-	/* Phase 3 Pass B Slices 2/5/6/8/11 (2026-05-02): segment extraction.
-	 * Walk every loaded ROM segment (sfxctl/sfxtbl, seqctl/seqtbl,
-	 * sequences, animations, fonts, mp* tables, textures, copyright)
-	 * and write to data/<romid>/segs/<name>.bin.  romdataInitSegment
-	 * already prefers the per-romid path on subsequent boots so the
-	 * runtime reads segments from disk.  This covers Slice 2 (SFX
-	 * bank), Slice 5 (character sounds), Slice 6 (animations), Slice 8
-	 * (prop sounds), Slice 11 (music sequences) in one infrastructure
-	 * push because they all share the segment loader path.
+	 * Single-worker enqueue per Phase 2 design: one job runs the full
+	 * sequence serially.  Phase 3 will fan out the verify pass per file.
 	 *
-	 * Note: must run AFTER romdataInit (segments populated) but the
-	 * order vs assetCatalogRegisterBaseGame doesn't matter for segments
-	 * because segments are not catalog-bound at the per-asset level
-	 * (they're loaded en bloc by the segment loader). */
-	romExtractAllSegments();
-	romExtractVerifyAllSegments();
+	 * Server build path is the same; bootPumpOverlay no-ops on
+	 * g_NetDedicated and the worker still runs through the orchestrator. */
+	bootProgressInit();
+	bootPoolInit();
+	pdguiBootOverlayInit();
 
-	/* Phase 3 Pass D (2026-05-02): emit the aggregated boot integrity
-	 * report.  Single LOG_NOTE line summarising files+segs verified,
-	 * re-extracted, and unrecoverable.  If non-zero corruption was
-	 * found, defers a system toast that romExtractToastDrain (called
-	 * after gameInit) will surface to the player.  Pure read of the
-	 * counters populated by the verify pair above; safe to run before
-	 * the Pass C ROM release. */
-	romExtractEmitBootIntegrityReport();
+	bootPoolEnqueue(bootRunCatalogWork, NULL);
 
-	/* Phase 3 Pass C (2026-05-02): drop the in-memory ROM mapping.
-	 * Pass A.2/A.4 + Pass B segment extract/verify guarantee every byte
-	 * needed by the runtime is already on disk under data/<romid>/.
-	 * romdataReleaseRom migrates SRC_ROM segments to heap-backed copies
-	 * loaded from disk, NULLs out the lazy fileSlot pointers that
-	 * referenced g_RomFile + ofs, then frees g_RomFile.  Subsequent
-	 * romdataFileLoad calls route SRC_UNLOADED slots through the
-	 * per-romid extracted file path; the legacy SRC_ROM fallback
-	 * LOUD-FAILs because g_RomFile is NULL.  Architectural finish line
-	 * for catalog migration: the runtime never touches the ROM directly. */
-	romdataReleaseRom();
-
-	netInit();
-
-	g_ValidGbcRomFound = romdataCheckGbcRom();
-
-	gameInit();
-
-	// Dynamic mod manager: scans mods/ directory, loads manifests, applies config.
-	modmgrInit();
-
-	// Model catalog: cache metadata from g_HeadsAndBodies (no heap needed).
-	// Actual model validation is deferred to catalogValidateAll() after heap init.
-	catalogInit();
-
-	// Phase 2: Initialise heap-allocated stage table (copied from static initialiser).
-	// Must run before assetCatalogRegisterBaseGame() which reads g_Stages[].
-	stageTableInit();
-
-	// D3R: Asset Catalog — string-keyed resolution for all game assets.
-	// 1. Allocate hash table and entry pool
-	// 2. Register base game assets (stages, bodies, heads) with "base:" IDs
-	// 3. Scan mod _components/ directories and register INI-described assets
-	assetCatalogInit();
-	assetCatalogRegisterBaseGame();
-	/* Catalog coverage audit (2026-05-01) Section 3.A closure: register
-	 * the per-stage scene file IDs (bg / tile / pads / setup / mpsetup)
-	 * carried on g_Stages[] as ASSET_MODEL entries with source_filenum
-	 * binding. Without this, romdataFileLoad's catalogResolveFile path
-	 * cannot route mod overrides for stage scene files (a player ship
-	 * a custom map cannot replace its BG geometry, collision data, or
-	 * mission setup script through the standard mod mechanism). See
-	 * assetCatalogRegisterStageSceneFiles docblock for full rationale.
-	 *
-	 * Order: AFTER assetCatalogRegisterBaseGame so g_Stages is populated
-	 * AND ASSET_MAP entries exist; BEFORE catalogLoadInit so the new
-	 * source_filenum bindings land in the s_FilenumOverride[] reverse
-	 * index on its single build pass. */
-	assetCatalogRegisterStageSceneFiles();
-	{
-		const char *modsdir = modmgrGetModsDir();
-		if (modsdir) {
-			assetCatalogScanComponents(modsdir);
-			// D3R-8: Also scan flat bot_variants/ for user-created presets
-			assetCatalogScanBotVariants(modsdir);
-		}
-	}
-	sysLogPrintf(LOG_NOTE, "Asset Catalog: %d entries registered", assetCatalogGetCount());
-
-	// Catalog Gate 3 F1: head manager init. Builds the parallel
-	// s_Heads[152] mirror from g_HeadsAndBodies[] for the parity-period
-	// bridge. F12 swaps the data source to base/headsloader_pool.
-	catalogManagerHeadInit();
-
-	// Catalog Gate 3 Bodies F1: body manager init. Builds the parallel
-	// s_Bodies[152] mirror from g_HeadsAndBodies[] for the parity-period
-	// bridge. F12 swaps the data source to base/bodiesloader_pool.
-	catalogManagerBodyInit();
-
-	// Catalog Gate 3 Arenas F1: arena manager init. Walks ASSET_ARENA
-	// catalog rows and populates s_Arenas[47] for the parity-period
-	// bridge. F12 swaps the data source to base/arenasloader_pool.
-	catalogManagerArenaInit();
-
-	/* Catalog universality pivot Step 5 (2026-05-03): universal directory
-	 * walker is the SOLE catalog row + loader_pool source. Walks
-	 * data/<romid>/<class>/*.pd<ext> for all 13 universality kinds, opens
-	 * each .pd* file (auto-detecting plain JSON vs ZIP compound), parses
-	 * the envelope, registers the catalog row via the existing
-	 * assetCatalogRegister* API, and (for weapon / head / body / arena /
-	 * weapon_animation kinds) feeds the heavyweight loader_pool payload
-	 * via loaderPoolParse*Json. loaderPoolReset / loaderPoolFinalize
-	 * bracket the scan inside loaderWalkerLoadAll.
-	 *
-	 * Non-destructive catalog-row overlay: pool kinds opt out of the
-	 * scaffold's existing-row short-circuit so loader_pool fills even
-	 * for in-binary-baseline ids; the per-kind callbacks themselves
-	 * gate against destructive row overwrite via assetCatalogResolve.
-	 *
-	 * Boot order: AFTER assetCatalogRegisterBaseGame +
-	 * RegisterStageSceneFiles + RegisterWeaponModelFiles + ScanComponents
-	 * (so existing in-binary entries are the bootstrap fallback), AFTER
-	 * romdataInit (so segs/files exist on disk if any per-kind emitter
-	 * needs to re-extract on the same boot), and BEFORE
-	 * catalogBuildRuntimeCaches (so O(1) caches see the populated rows).
-	 *
-	 * After the walker, the per-kind romExtractAllPd* emitters re-fire to
-	 * regenerate per-asset .pd* files when the loader_pool is active --
-	 * this is the round-trip path that keeps disk and pool in sync after
-	 * mod overlays / re-extracts. On a fresh BYOR install with no .pd*
-	 * files, the walker registers nothing and the pool stays inactive;
-	 * the emitters then early-return (loaderPoolIsActive == 0). */
-	{
-		loader_walker_result_t walker_result;
-		loaderWalkerLoadAll(&walker_result);
-		(void)walker_result;
-
-		/* S484-followup wiring: bind weapon hi_model / lo_model filenums
-		 * to ASSET_MODEL rows so the bgun load chain's catalog lookup
-		 * resolves to the correct file. Requires the weapon pool to be
-		 * populated by the walker above. No-op when the pool is empty. */
-		if (loaderPoolIsActive()) {
-			assetCatalogRegisterWeaponModelFiles();
-		}
+	while (!bootProgressIsComplete()) {
+		pdguiBootOverlayPump();
+		/* Cooperative pause when not in dedicated mode; the dedicated
+		 * branch already inserts SDL_Delay inside the no-op pump path. */
 	}
 
-	/* Per-asset .pd<ext> round-trip emitters. Read the now-populated
-	 * loader_pool back into JSON / ZIP compounds at data/<romid>/<class>/.
-	 * Idempotent on subsequent boots (existing files skipped via size
-	 * check). All early-return cleanly when loaderPoolIsActive is 0
-	 * (genuine first BYOR boot with no per-asset content yet). */
-	{
-		s32 wpn_emitted   = romExtractAllPdwpn(0);
-		s32 mesh_emitted  = romExtractAllPdmesh(0);
-		s32 anim_emitted  = romExtractAllPdanim(0);
-		s32 head_emitted  = romExtractAllPdhead(0);
-		s32 body_emitted  = romExtractAllPdbody(0);
-		s32 arena_emitted = romExtractAllPdarena(0);
-		(void)wpn_emitted; (void)mesh_emitted; (void)anim_emitted;
-		(void)head_emitted; (void)body_emitted; (void)arena_emitted;
-	}
+	bootPoolWaitIdle();
 
-	/* Step 3a chr-animation emitter: ZIP compound per chr animation
-	 * entry in segs/animations.bin. Sources from the byte-swapped
-	 * animation segment + table pointers populated by
-	 * preprocessAnimations during romdataInit; does not depend on
-	 * loader_pool. */
-	{
-		s32 chr_anim_emitted  = romExtractAllPdanimChr(0);
-		(void)chr_anim_emitted;
-	}
-
-	/* Step 3 audio + Step 3b font / lang / ui emitters: source from
-	 * disk-migrated segments populated by romdataInit; do not depend
-	 * on loader_pool. .pdui defers actual texture work until GL is up
-	 * via pdguiThemeCheckExtract; the call here is the structural
-	 * placeholder. */
-	{
-		s32 sfx_emitted   = romExtractAllPdsfx(0);
-		s32 voice_emitted = romExtractAllPdvoice(0);
-		s32 song_emitted  = romExtractAllPdsong(0);
-		s32 font_emitted  = romExtractAllPdfont(0);
-		s32 lang_emitted  = romExtractAllPdlang(0);
-		s32 ui_emitted    = romExtractAllPdui(0);
-		(void)sfx_emitted; (void)voice_emitted; (void)song_emitted;
-		(void)font_emitted; (void)lang_emitted; (void)ui_emitted;
-	}
-
-	// Phase 8: Build O(1) runtime→catalog-ID caches (mp body/head, stage, weapon, model).
-	// Must run after all catalog entries are registered.
-	catalogBuildRuntimeCaches();
-
-	// C-4 prerequisite: build filenum/texnum/animnum/soundnum → pool-index reverse-index.
-	// Must run after full catalog population (base game + mod scan).
-	// catalogGetFileOverride() etc. return NULL until this is called.
-	catalogLoadInit();
-
-	// D3R-6: Restore per-component enable state from mods/.modstate.
-	// Must run after scan so entries exist in the catalog to be disabled.
-	modmgrLoadComponentState();
-
-	// Signal modmgr that catalog is populated — rebuilds accessor caches
-	// so modmgrGetArena() etc. read from catalog instead of static arrays.
-	modmgrCatalogChanged();
+	pdguiBootOverlayShutdown();
+	bootPoolShutdown();
+	bootProgressShutdown();
 
 	atexit(cleanup);
 

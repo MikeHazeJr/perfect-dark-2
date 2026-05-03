@@ -2951,6 +2951,51 @@ extern "C" void gfx_end_frame(void) {
     }
 }
 
+/* Engine Phase 2 boot overlay frame.
+ *
+ * Drives a complete frame WITHOUT a game display list.  The boot
+ * overlay (port/fast3d/pdgui_bootoverlay.cpp) calls this from the main
+ * thread once per tick while the worker thread runs the catalog work.
+ * Pairs with videoEndFrame -> gfx_end_frame for swap_buffers_end.
+ *
+ * `draw_overlay_cb` is invoked between ImGui::NewFrame and ImGui::Render
+ * to do its actual ImGui draw calls.  Pass NULL to render an empty
+ * cleared frame (valid; useful as a "ready window" before the worker
+ * has produced its first progress update). */
+extern "C" void gfx_run_boot_overlay_frame(void (*draw_overlay_cb)(void *), void *user) {
+    if (!gfx_wapi || !gfx_rapi) {
+        dropped_frame = true;
+        return;
+    }
+
+    if (!gfx_wapi->start_frame()) {
+        dropped_frame = true;
+        return;
+    }
+    dropped_frame = false;
+
+    gfx_rapi->update_framebuffer_parameters(0, gfx_current_window_dimensions.width,
+                                            gfx_current_window_dimensions.height, 1, false, true, true,
+                                            true);
+    gfx_rapi->start_frame();
+    gfx_rapi->start_draw_to_framebuffer(0, 1);
+    gfx_rapi->clear_framebuffer(true, true);
+    gfx_rapi->end_frame();
+
+    gfx_opengl_reset_for_overlay(gfx_current_window_dimensions.width,
+                                 gfx_current_window_dimensions.height);
+
+    /* ImGui frame is owned by the boot overlay module; it calls
+     * ImGui_ImplOpenGL3_NewFrame / ImGui_ImplSDL2_NewFrame / ImGui::NewFrame
+     * before its draw calls and ImGui::Render / ImGui_ImplOpenGL3_RenderDrawData
+     * after.  Keeps gfx_pc.cpp free of ImGui includes. */
+    if (draw_overlay_cb) {
+        draw_overlay_cb(user);
+    }
+
+    gfx_wapi->swap_buffers_begin();
+}
+
 extern "C" void gfx_set_target_fps(int fps) {
     gfx_wapi->set_target_fps(fps);
 }

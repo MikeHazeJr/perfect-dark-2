@@ -38,6 +38,12 @@
 #include "system.h"
 #include "versioninfo.h"
 
+/* Engine Phase 2 (2026-05-03): per-file progress reporting so the boot
+ * overlay's bar advances during the long verify pass.  bootProgress*
+ * APIs are no-ops when the channel isn't initialised (e.g. dedicated
+ * server, or any future caller that runs the extract path post-boot). */
+#include "boot_progress.h"
+
 /* Pass D (2026-05-02): self-heal hardening surfaces user-facing toasts
  * for hash-mismatch quarantine + recovery outcomes.  Toast headers live
  * in port/fast3d and are not linked into pd-server, so the include
@@ -394,7 +400,15 @@ s32 romExtractAllFiles(void)
         "max_files=%d, target=data/%s/files/)",
         g_RomFileSize, ROMEXTRACT_MAX_FILES, VERSION_ROMID);
 
+    bootProgressUpdate(0, ROMEXTRACT_MAX_FILES);
+
     for (s32 fileNum = 1; fileNum < ROMEXTRACT_MAX_FILES; fileNum++) {
+        /* Update overlay bar every 32 files (cheap mutex; bar is
+         * sampled at 60Hz on the main thread anyway). */
+        if ((fileNum & 0x1f) == 0) {
+            bootProgressUpdate(fileNum, ROMEXTRACT_MAX_FILES);
+        }
+
         u8  *data = romdataFileGetData(fileNum);
         s32  size = romdataFileGetSize(fileNum);
 
@@ -504,7 +518,16 @@ s32 romExtractVerifyAll(void)
     sysLogPrintf(LOG_NOTE, "ROMEXTRACT.VERIFY: scanning data/%s/files/",
                  VERSION_ROMID);
 
+    bootProgressUpdate(0, ROMEXTRACT_MAX_FILES);
+
     for (s32 fileNum = 1; fileNum < ROMEXTRACT_MAX_FILES; fileNum++) {
+        /* SHA-256 hash + sidecar compare per file is the dominant boot
+         * cost (~8s for 2011 files).  Push a progress update every 32
+         * files so the overlay bar visibly advances. */
+        if ((fileNum & 0x1f) == 0) {
+            bootProgressUpdate(fileNum, ROMEXTRACT_MAX_FILES);
+        }
+
         u8  *romData = romdataFileGetData(fileNum);
         s32  romSize = romdataFileGetSize(fileNum);
         if (romData == NULL || romSize <= 0) {
@@ -681,7 +704,11 @@ s32 romExtractAllSegments(void)
         "(segments=%d, target=data/%s/segs/)",
         segCount, VERSION_ROMID);
 
+    bootProgressUpdate(0, segCount);
+
     for (s32 idx = 0; idx < segCount; idx++) {
+        bootProgressUpdate(idx, segCount);
+
         const u8   *data = romdataSegmentGetData(idx);
         u32         size = romdataSegmentGetSize(idx);
         const char *name = romdataSegmentGetName(idx);
@@ -764,7 +791,10 @@ s32 romExtractVerifyAllSegments(void)
         "ROMEXTRACT.SEGS.VERIFY: scanning data/%s/segs/", VERSION_ROMID);
 
     s32 segCount = romdataSegmentCount();
+    bootProgressUpdate(0, segCount);
     for (s32 idx = 0; idx < segCount; idx++) {
+        bootProgressUpdate(idx, segCount);
+
         const u8   *segData = romdataSegmentGetData(idx);
         u32         segSize = romdataSegmentGetSize(idx);
         const char *segName = romdataSegmentGetName(idx);
