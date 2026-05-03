@@ -26,7 +26,7 @@ Fix: update the test path from `context/qc-tests.md` to `_old/qc-tests.md`. Adde
 
 ### Verification
 
-After merge to dev (commit `fa17e662`), built tests via `devtools/build-session.ps1 -Target tests -Session test-pin-fixes2` (PASS 32s, pd-tests.exe 24.9 MB). Ran the three target tests:
+After merge to dev (commit `7c580ee3`), built tests via `devtools/build-session.ps1 -Target tests -Session test-pin-fixes2` (PASS 32s, pd-tests.exe 24.9 MB). Ran the three target tests:
 
 - `swarm debug scenarios enter through match setup`: 10/10 assertions PASS
 - `cutscene lifecycle wiring: central paths all fire scene events`: 20/20 assertions PASS (added 2 new assertions, 1 removed = net +1)
@@ -40,7 +40,7 @@ Subset run with `~[inputlayer]` (skipping the pre-existing inputlayer crash, see
 
 ### Auto-merge
 
-Per standing rule. Worktree commit `706b5319`. Pre-merge dev HEAD `92a723d4`. Post-merge `fa17e662` (ort strategy, no conflicts). 3 files, +15 / -4. Post-merge file line counts match worktree pre-merge exactly (testscenarios.c 316, test_cutscene_layer.cpp 521, test_connectcode.cpp 319).
+Per standing rule. Worktree commit `706b5319`. Pre-merge dev HEAD `92a723d4`. Post-merge `7c580ee3` (ort strategy, no conflicts). 3 files, +15 / -4. Post-merge file line counts match worktree pre-merge exactly (testscenarios.c 316, test_cutscene_layer.cpp 521, test_connectcode.cpp 319).
 
 ### Files touched
 
