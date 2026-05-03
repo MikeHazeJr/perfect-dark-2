@@ -1,5 +1,68 @@
 # Session Log (Active)
 
+## Session S611-step3b-part2 (`gifted-benz-cad936`) - 2026-05-03 - Catalog Universality Pivot Step 3b part 2 (.pdui + theme reader)
+
+Mike's directive: "Get us to completion." Closes the catalog universality writer-side at **13 of 13 kinds emitted** (was 12). Cross-cut UI texture half of Step 3b ships emitter + reader migration in lockstep per the no-half-measures directive.
+
+### Outcome
+
+13 of 13 universality kinds emitted (was 12). Catalog universality writer-side is COMPLETE. Step 4 (universal directory walker) is the next ship; Step 5 (retire `.pdbase` + dead helpers) follows.
+
+- **`port/fast3d/pdgui_theme.cpp`** -- new memory-variant TGA helpers (`s_writeTgaToMem` / `s_loadTgaFromMem`), new canonical `k_PduiEntries[]` table (14 textures collapsing the prior `k_Extracts[]` / `k_UiTextures[]` / `k_Fallbacks[]` triplet into one source of truth), new extern "C" emitter `pdguiThemeEmitPduiZips(int force)` walking the table and writing per-texture `.pdui` ZIP compounds at `data/<romid>/ui/<slug>.pdui` (manifest envelope + `texture.tga` + `texture.tga.sha256`). Each manifest carries `pd_kind="ui"`, `id="base:ui_<name>"`, `texture_count=1`, `theme_count=0`, a `texture` object with width/height/format/data_size + baked-in nineslice insets, and `source_index` provenance.
+- **`port/fast3d/pdgui_theme.cpp`** -- `pdguiThemeLateInit` rewritten to read texture bytes from `.pdui` ZIPs via `modArchiveOpen` + `modArchiveExtractAlloc("texture.tga")` + `s_loadTgaFromMem`, replacing the prior `s_loadTgaTexture(disk_path)` loose-TGA reader. Procedural fallback (`s_registerProceduralTexture`) is unchanged and fires when the ZIP is missing.
+- **`port/fast3d/pdgui_theme.cpp`** -- `pdguiThemeExtractRomTextures` body collapsed to a single delegate call to `pdguiThemeEmitPduiZips(0)`. The legacy loose-files writers (`s_writePng` / `s_writeNinesliceJson` / CRC32 helpers) are now unreferenced and become dead code retained for Step 5 cleanup. `s_writeTga` remains live for `s_generateModernUiTextures` (CLI `--generate-modern-ui` flag).
+- **`port/fast3d/pdgui_theme.cpp`** -- `pdguiThemeCheckExtract` updated to detect missing `.pdui` ZIPs (via new `s_countMissingBaseUiPdui`) instead of missing loose TGAs; on missing-ZIP detection the extract auto-runs and lateInit re-runs to swap procedural fallbacks for the freshly-emitted textures.
+- **`port/src/romextract_pdui.c`** -- thin C wrapper exposing `romExtractAllPdui(s32 force)` that delegates to the C++ emitter via the extern "C" API. Server build returns 0 immediately.
+- **`port/src/romextract_parity_pdui.c`** -- Q-5 structural parity. Re-walks the canonical 14-texture mirror table, opens each `.pdui` ZIP, parses `manifest.json`, asserts envelope + `id` + `texture_count` + `source_index` round-trip the source descriptor. Missing files treated as skip (not failure) because the emitter is deferred to the render-loop trigger on first launch.
+
+Public API: `port/include/romextract_pd.h` gains a Step 3b part 2 block with two prototypes + full docblock explaining the texture-init ordering wrinkle.
+
+Boot wiring: `port/src/main.c` gets a Step 3b part 2 block immediately after the part 1 block, calling `romExtractAllPdui(0)` + `romExtractParityCheckPdui()`. The block is the structural placeholder; on first boot at this point `g_TexGeneralConfigs` is null (texInit runs later in pdmain.c::mainInit), so the emitter returns 0 cleanly and the actual emit fires from `pdguiThemeCheckExtract` in the render-loop fallback. Subsequent boots find the `.pdui` files already on disk and the call is an idempotent skip.
+
+### Why .pdui ships separately from .pdfont / .pdlang (recap)
+
+The `.pdfont` + `.pdlang` emitters wrap raw bytes that are already on disk after Pass A (zero render-path involvement). The `.pdui` emitter must decode N64 textureconfigs through the GL texture system, which depends on `g_TexGeneralConfigs` (populated by `texInit`/`texReset` in `pdmain.c::mainInit`). UI bugs are silent at build time and surface only at runtime; bundling the cross-cut with the raw-payload wrappers would conflate two risk classes per `feedback_complete_unit_shipping`.
+
+### Build verify
+
+Clean four-target build via `devtools/build-session.ps1` AFTER the worktree merge to dev (build-headless.ps1 redirects worktree paths to the main working copy at line 87-91, so verification of new files requires merge-first):
+
+- Client (pd): PASS, 55.2 MB.
+- Updater (pd-updater): PASS, 12.3 MB.
+- Server (pd-server): PASS, 22.4 MB. Server-build short-circuits per `PD_SERVER` guards (no GL context, no UI rendering server-side).
+- Tests (pd-tests): PASS, 24.9 MB.
+
+Two new `.obj` files (`romextract_pdui.c.obj`, `romextract_parity_pdui.c.obj`) compile into the client. No new compile warnings on the new files. Compiler unused-function warnings on the now-orphaned `s_writePng` / `s_writeNinesliceJson` / CRC32 helpers are suppressed at the project level (`-Wno-unused-function` for CXX per `CMakeLists.txt:276`).
+
+### Counts (NTSC final ROM, expected after first launch)
+
+- `.pdui`: 14 textures expected, one ZIP per entry in the canonical `k_PduiEntries[]` table.
+
+### Files added (2 new files)
+
+- `port/src/romextract_pdui.c` (~50 lines, C wrapper)
+- `port/src/romextract_parity_pdui.c` (~240 lines, Q-5 parity)
+
+### Files modified
+
+- `port/fast3d/pdgui_theme.cpp` -- memory-variant TGA helpers + canonical entries table + emitter machinery + lateInit rewrite + ExtractRomTextures collapse + CheckExtract update. Net diff roughly +400 / -250 lines.
+- `port/include/romextract_pd.h` -- 2 new prototypes + Step 3b part 2 docblock (~70 new lines).
+- `port/src/main.c` -- Step 3b part 2 block (~25 new lines) immediately after the Step 3b part 1 block.
+- `context/audits/catalog-universality-pivot-plan-2026-05-02.md` -- Step 3b part 2 SHIPPED section.
+- `context/tasks.md` -- Section 2a bumped from "12 of 13" to "13 of 13"; Step 3b part 2 status line added; Step 5 cleanup list updated to include the .pdui dead helpers.
+- `context/session-log.md` -- this entry (S611-step3b-part2 added at top).
+- `tools/kanban/state.json` -- catalog universality subtask `s050-06` (Step 3 catch-all) marked `done`; Step 4 (`s050-07`) flagged ready.
+
+### Step 4 queue (next ship)
+
+Universal directory walker. Collapse `loaderPdbaseScan` + `assetCatalogRegisterBaseGame` into a single `catalogUniversalScan(romid)` that walks `data/<romid>/<class>/` (and `mods/` and `base/` per tier) and dispatches each `.pd*` file by its `pd_kind` envelope. After Step 4 the catalog reads from the same per-asset compound format whether the source is BYOR-extracted or modder-supplied -- universality is realized end-to-end (writer + reader symmetric).
+
+### Step 5 queue (after Step 4)
+
+Retire `base/*.pdbase` + extractor scripts (`devtools/extract_*_pdbase.py`) + per-class parity checks. Drop legacy loose-files writers in `pdgui_theme.cpp` (`s_writePng`, `s_writeNinesliceJson`, CRC32 helpers) now unreferenced after the .pdui migration. Add grep-guard test pinning to prevent regression.
+
+---
+
 ## Session S610b-step3b-part1 (`frosty-antonelli-fd537f` continuation) - 2026-05-03 - Catalog Universality Pivot Step 3b part 1 (.pdfont + .pdlang)
 
 Mike's directive 2026-05-03: "Get us to completion." Worktree repurposed for Step 3b after Step 3 audio half shipped. Fresh-spawn channel timed out at MCP layer, so the orchestrator routed the continuation back to the same worktree.

@@ -558,14 +558,7 @@ int main(int argc, const char **argv)
 	 * The runtime preprocess (preprocessFont, preprocessLangFile) runs
 	 * on the bytes at load time; this emitter does not duplicate that
 	 * pass so the .pd<kind> byte payload matches what's already on
-	 * disk. Idempotent on subsequent boots.
-	 *
-	 * Step 3b part 2 (.pdui + pdguiThemeExtractRomTextures rewrite +
-	 * pdguiThemeLateInit reader migration) is sized as its own coherent
-	 * unit because it cross-cuts the GL render path; ships in a
-	 * follow-up worktree per the no-half-measures directive (the
-	 * consumer migration must land in lockstep with the emitter, not
-	 * piecewise). */
+	 * disk. Idempotent on subsequent boots. */
 	{
 		s32 font_emitted   = romExtractAllPdfont(0);
 		s32 lang_emitted   = romExtractAllPdlang(0);
@@ -573,6 +566,36 @@ int main(int argc, const char **argv)
 		s32 lang_failures  = romExtractParityCheckPdlang();
 		(void)font_emitted; (void)lang_emitted;
 		(void)font_failures; (void)lang_failures;
+	}
+
+	/* Catalog universality pivot Step 3b part 2 (2026-05-03): emit
+	 * per-asset .pdui ZIP compounds at data/<romid>/ui/. Closes the
+	 * Step 3 / 3a / 3b series at 13 of 13 universality kinds (weapon,
+	 * mesh, animation, head, body, arena, scenario, sfx, voice, song,
+	 * font, lang, ui).
+	 *
+	 * Cross-cut from part 1: the .pdui emitter depends on
+	 * g_TexGeneralConfigs (populated by texInit/texReset in pdmain.c
+	 * mainInit later in the boot sequence). At THIS wiring point the
+	 * texture system is not yet ready -- the call returns 0 cleanly
+	 * (no .pdui files emitted at boot main.c). The actual emit fires
+	 * from the render-loop fallback trigger inside
+	 * pdguiThemeCheckExtract() once GL is up. Subsequent boots find
+	 * the .pdui files already on disk and the call is an idempotent
+	 * skip. The wire here is the structural placeholder that mirrors
+	 * the part 1 / Step 3 / Step 2 / Step 1 emit + parity convention
+	 * so future texture-init reorderings can pick up the emit at
+	 * boot without re-architecting.
+	 *
+	 * Parity at this point similarly skips entries whose .pdui ZIPs
+	 * are not yet on disk; on the second-and-subsequent boots it
+	 * verifies envelope + id + texture_count + source_index round-trip
+	 * the canonical descriptor. */
+	{
+		s32 ui_emitted   = romExtractAllPdui(0);
+		s32 ui_failures  = romExtractParityCheckPdui();
+		(void)ui_emitted;
+		(void)ui_failures;
 	}
 
 	// Phase 8: Build O(1) runtime→catalog-ID caches (mp body/head, stage, weapon, model).

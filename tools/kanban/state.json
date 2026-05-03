@@ -191,10 +191,10 @@
         {"id": "s050-02", "title": "Migrate heads (F1-F13)", "status": "done", "order": 2000, "notes": "catalog_mgr_heads.c + base/heads.pdbase (84 records). Shipped S596."},
         {"id": "s050-03", "title": "Migrate bodies (F1-F13)", "status": "done", "order": 3000, "notes": "catalog_mgr_bodies.c + base/bodies.pdbase (68 records). Shipped S598."},
         {"id": "s050-04", "title": "Migrate arenas + maps (F1-F13)", "status": "done", "order": 4000, "notes": "Manager + base/arenas.pdbase. Shipped S599."},
-        {"id": "s050-05", "title": "Step 3a: Character animations", "status": "backlog", "order": 5000, "notes": ""},
-        {"id": "s050-06", "title": "Step 3: Audio + scenarios + UI + fonts + lang", "status": "backlog", "order": 6000, "notes": ""},
-        {"id": "s050-07", "title": "Step 4: Loader directory walker", "status": "backlog", "order": 7000, "notes": ""},
-        {"id": "s050-08", "title": "Step 5: Retire .pdbase + parity check", "status": "backlog", "order": 8000, "notes": ""}
+        {"id": "s050-05", "title": "Step 3a: Character animations", "status": "done", "order": 5000, "notes": "romextract_pdanim_chr.c + parity. Shipped 2026-05-03 (worktree amazing-torvalds-eadac6)."},
+        {"id": "s050-06", "title": "Step 3: Audio + scenarios + UI + fonts + lang", "status": "done", "order": 6000, "notes": "All 13 of 13 universality kinds emitted. Step 3 audio half (sfx/voice/song) + Step 3b part 1 (font/lang) + Step 3b part 2 (ui) shipped 2026-05-03 across worktrees frosty-antonelli-fd537f and gifted-benz-cad936. Catalog universality writer-side COMPLETE."},
+        {"id": "s050-07", "title": "Step 4: Loader directory walker", "status": "ready", "order": 7000, "notes": "Next ship. Collapse loaderPdbaseScan + assetCatalogRegisterBaseGame into catalogUniversalScan(romid) walking data/<romid>/<class>/ and dispatching by pd_kind envelope."},
+        {"id": "s050-08", "title": "Step 5: Retire .pdbase + parity check + dead helpers", "status": "backlog", "order": 8000, "notes": "Delete base/*.pdbase + extractor scripts. Drop pdgui_theme.cpp legacy writers (s_writePng, s_writeNinesliceJson, CRC32 helpers) now unreferenced after .pdui migration."}
       ]
     },
     {

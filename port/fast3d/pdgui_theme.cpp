@@ -54,6 +54,8 @@
 #include "assetcatalog.h"
 #include "fs.h"
 #include "config.h"
+#include "modarchive.h"
+#include "sha256.h"
 extern "C" {
 #include "modmgr.h"
 }
@@ -636,6 +638,95 @@ static GLuint s_loadTgaTexture(const char *path, uint32_t *out_w, uint32_t *out_
     GLuint tex = s_uploadGLTex(rgba, w, h);
     free(rgba);
     free(data);
+    return tex;
+}
+
+/* Memory-variant TGA loader (Step 3b part 2). Mirrors s_loadTgaTexture
+ * but reads from an in-memory buffer instead of a disk path. Used by
+ * pdguiThemeLateInit to load texture.tga bytes extracted from a .pdui
+ * ZIP via modArchiveExtractAlloc. The caller owns the input buffer
+ * (does not free it). Returns the GL texture id, or 0 on failure. */
+static GLuint s_loadTgaFromMem(const uint8_t *data, uint32_t fileSize,
+                                uint32_t *out_w, uint32_t *out_h)
+{
+    if (!data || fileSize < 18) {
+        sysLogPrintf(LOG_WARNING,
+            "PDGUI theme: in-memory TGA too small (%u bytes)", fileSize);
+        return 0;
+    }
+
+    /* Parse TGA header (mirrors s_loadTgaTexture). */
+    uint8_t  idLen      = data[0];
+    uint8_t  cmapType   = data[1];
+    uint8_t  imageType  = data[2];
+    uint32_t w          = (uint32_t)data[12] | ((uint32_t)data[13] << 8);
+    uint32_t h          = (uint32_t)data[14] | ((uint32_t)data[15] << 8);
+    uint8_t  bpp        = data[16];
+    uint8_t  descriptor = data[17];
+    uint32_t pixelBytes = (uint32_t)(bpp / 8);
+    uint32_t pixelStart = 18u + (uint32_t)idLen;
+    uint32_t expectedSize = pixelStart + w * h * pixelBytes;
+
+    if (imageType != 2 ||
+        cmapType != 0 ||
+        !w || !h ||
+        (bpp != 24 && bpp != 32) ||
+        fileSize < expectedSize) {
+        sysLogPrintf(LOG_WARNING,
+            "PDGUI theme: in-memory TGA unsupported "
+            "(type=%u cmap=%u bpp=%u %ux%u filesize=%u)",
+            imageType, cmapType, bpp, w, h, fileSize);
+        return 0;
+    }
+
+    size_t rgbaBytes = (size_t)w * (size_t)h * 4u;
+    uint8_t *rgba = (uint8_t *)malloc(rgbaBytes);
+    if (!rgba) {
+        sysLogPrintf(LOG_ERROR,
+            "PDGUI theme: in-memory TGA OOM (%zu bytes %ux%u)",
+            rgbaBytes, w, h);
+        return 0;
+    }
+
+    const uint8_t *src = data + pixelStart;
+    uint32_t npix = w * h;
+    if (bpp == 32) {
+        for (uint32_t i = 0; i < npix; i++) {
+            rgba[i * 4 + 0] = src[i * 4 + 2];
+            rgba[i * 4 + 1] = src[i * 4 + 1];
+            rgba[i * 4 + 2] = src[i * 4 + 0];
+            rgba[i * 4 + 3] = src[i * 4 + 3];
+        }
+    } else {
+        for (uint32_t i = 0; i < npix; i++) {
+            rgba[i * 4 + 0] = src[i * 3 + 2];
+            rgba[i * 4 + 1] = src[i * 3 + 1];
+            rgba[i * 4 + 2] = src[i * 3 + 0];
+            rgba[i * 4 + 3] = 0xFF;
+        }
+    }
+
+    bool topDown = (descriptor & 0x20) != 0;
+    if (!topDown) {
+        uint32_t rowBytes = w * 4;
+        uint8_t *rowBuf = (uint8_t *)malloc(rowBytes);
+        if (rowBuf) {
+            for (uint32_t y = 0; y < h / 2; y++) {
+                uint8_t *top = rgba + y * rowBytes;
+                uint8_t *bot = rgba + (h - 1 - y) * rowBytes;
+                memcpy(rowBuf, top, rowBytes);
+                memcpy(top, bot, rowBytes);
+                memcpy(bot, rowBuf, rowBytes);
+            }
+            free(rowBuf);
+        }
+    }
+
+    if (out_w) *out_w = w;
+    if (out_h) *out_h = h;
+
+    GLuint tex = s_uploadGLTex(rgba, w, h);
+    free(rgba);
     return tex;
 }
 
@@ -1714,11 +1805,71 @@ const char *pdguiThemeGetTitleBarStyleName(s32 style)
     }
 }
 
+/* =========================================================================
+ * Catalog universality pivot Step 3b part 2 (2026-05-03):
+ * Canonical .pdui texture table.
+ *
+ * Shared by pdguiThemeLateInit (reader path), pdguiThemeEmitPduiZips
+ * (writer path, defined later in this file), and pdguiThemeCheckExtract
+ * (missing-archive trigger). Old k_Extracts[] / k_UiTextures[] /
+ * k_Fallbacks[] tables fold into this single source of truth.
+ * ========================================================================= */
+
+#define PDUI_OUT_DIR "ui"
+
+struct PduiEntry {
+    const char *catalog_id;   /* base:ui_<name> -- catalog row + filename slug */
+    const char *file_slug;    /* portion after "base:" -- used in .pdui filename */
+    int         tex_index;    /* g_TexGeneralConfigs[] index for ROM extract */
+    const char *proc_name;    /* procedural fallback generator name */
+    uint32_t    proc_w;       /* procedural fallback width  (used if extract fails) */
+    uint32_t    proc_h;       /* procedural fallback height */
+};
+
+static const struct PduiEntry k_PduiEntries[] = {
+    { "base:ui_noise_sm",    "ui_noise_sm",     0, "noise_sm", 16, 16 },
+    { "base:ui_particles",   "ui_particles",    1, "solid",     1,  1 },
+    { "base:ui_noise_lg",    "ui_noise_lg",     2, "noise_lg", 16, 16 },
+    { "base:ui_grad_bar",    "ui_grad_bar",     3, "solid",     2,  8 },
+    { "base:ui_mirror_tile", "ui_mirror_tile",  4, "solid",     8,  8 },
+    { "base:ui_bg_haze",     "ui_bg_haze",      6, "haze",     64, 64 },
+    { "base:ui_dot_tile",    "ui_dot_tile",     7, "solid",     8,  8 },
+    { "base:ui_nuke",        "ui_nuke",        10, "noise_lg", 64, 64 },
+    { "base:ui_bg_alt",      "ui_bg_alt",      11, "noise_lg", 64, 64 },
+    { "base:ui_icon_a",      "ui_icon_a",      34, "solid",    14, 14 },
+    { "base:ui_icon_b",      "ui_icon_b",      35, "solid",    11, 11 },
+    { "base:ui_icon_c",      "ui_icon_c",      36, "solid",    14, 14 },
+    { "base:ui_deco",        "ui_deco",        37, "solid",    32, 32 },
+    { "base:ui_stars",       "ui_stars",       38, "solid",    16, 16 },
+};
+
+#define K_PDUI_ENTRY_COUNT (sizeof(k_PduiEntries) / sizeof(k_PduiEntries[0]))
+
+/* Compute the relative .pdui path for an entry: "data/<romid>/ui/<slug>.pdui".
+ * Output goes into caller-supplied buffer. Returns 1 on success, 0 on
+ * snprintf truncation or null inputs. */
+static int s_pduiRelPath(const struct PduiEntry *e, char *out, size_t out_size)
+{
+    if (!e || !out || !out_size) return 0;
+    int n = snprintf(out, out_size, "%s/%s/%s.pdui",
+                     fsDataDir(), PDUI_OUT_DIR, e->file_slug);
+    return (n > 0 && (size_t)n < out_size) ? 1 : 0;
+}
+
 /**
  * Late init: called after texInit()/texReset() have run.
- * Loads UI textures from data/ui/textures (TGA files extracted from
- * the user-supplied ROM at first launch, BYOR tier) or generates
- * procedural fallbacks.  Registers all theme textures in the catalog.
+ *
+ * Step 3b part 2 (2026-05-03): texture source migrated from loose
+ * data/ui/textures/<name>.tga loose files to per-texture .pdui ZIP
+ * compounds at data/<romid>/ui/<slug>.pdui under the universal
+ * catalog format. Each ZIP carries texture.tga (RGBA32 top-down, from
+ * the .pdui emitter pdguiThemeEmitPduiZips defined later in this
+ * file), opened via modArchiveOpen + modArchiveExtractAlloc and
+ * decoded with s_loadTgaFromMem.
+ *
+ * Procedural fallback (s_registerProceduralTexture) is unchanged and
+ * fires when the .pdui ZIP is missing (first launch before the
+ * render-loop emit trigger fires, or texture's ROM extract failed).
  */
 void pdguiThemeLateInit(void)
 {
@@ -1728,47 +1879,48 @@ void pdguiThemeLateInit(void)
     s_ThemeLateInitDone = true;
 
     sysLogPrintf(LOG_NOTE,
-        "PDGUI theme: late init - loading UI chrome textures from data/ui/textures");
-
-    /* Texture table: catalog_id -> on-disk path -> procedural fallback.
-     * On-disk path is data/ui/textures/<name>.tga (BYOR tier; ROM
-     * extraction populates it at first launch.  See Phase 3 Pass B
-     * Slice 13, 2026-05-02 -- corrected from the initial base/ miss-
-     * classification: ROM-extracted content never ships, so it lives
-     * in the BYOR data/ tier alongside the per-romid segs.)
-     * Procedural fallback fires only when the on-disk file is missing
-     * AND the extraction pass has not yet populated it. */
-    static const struct {
-        const char *catalog_id;
-        const char *disk_path;
-        const char *proc_name;
-        uint32_t    proc_w, proc_h;
-    } k_UiTextures[] = {
-        { "base:ui_bg_haze",    "data/ui/textures/ui_bg_haze.tga",    "haze",     64, 64 },
-        { "base:ui_particles",  "data/ui/textures/ui_particles.tga",  "solid",     1,  1 },
-        { "base:ui_noise_sm",   "data/ui/textures/ui_noise_sm.tga",   "noise_sm", 16, 16 },
-        { "base:ui_noise_lg",   "data/ui/textures/ui_noise_lg.tga",   "noise_lg", 16, 16 },
-        { "base:ui_grad_bar",   "data/ui/textures/ui_grad_bar.tga",   "solid",     2,  8 },
-        { "base:ui_mirror_tile","data/ui/textures/ui_mirror_tile.tga", "solid",     8,  8 },
-        { "base:ui_dot_tile",   "data/ui/textures/ui_dot_tile.tga",   "solid",     8,  8 },
-        { "base:ui_nuke",       "data/ui/textures/ui_nuke.tga",       "noise_lg", 64, 64 },
-        { "base:ui_bg_alt",     "data/ui/textures/ui_bg_alt.tga",     "noise_lg", 64, 64 },
-        { "base:ui_deco",       "data/ui/textures/ui_deco.tga",       "solid",    32, 32 },
-        { "base:ui_icon_a",     "data/ui/textures/ui_icon_a.tga",     "solid",    14, 14 },
-        { "base:ui_icon_b",     "data/ui/textures/ui_icon_b.tga",     "solid",    11, 11 },
-        { "base:ui_icon_c",     "data/ui/textures/ui_icon_c.tga",     "solid",    14, 14 },
-    };
+        "PDGUI theme: late init -- loading UI chrome textures from "
+        "data/<romid>/ui/*.pdui (universal catalog reader)");
 
     unsigned loaded = 0, procedural = 0;
-    for (unsigned i = 0; i < sizeof(k_UiTextures) / sizeof(k_UiTextures[0]); i++) {
-        /* Try loading from mod file first */
-        uint32_t w = 0, h = 0;
-        GLuint gl_id = s_loadTgaTexture(k_UiTextures[i].disk_path, &w, &h);
-        if (gl_id) {
-            sysLogPrintf(LOG_NOTE, "PDGUI theme: '%s' <- disk file (%ux%u)",
-                         k_UiTextures[i].catalog_id, w, h);
+    for (size_t i = 0; i < K_PDUI_ENTRY_COUNT; i++) {
+        const struct PduiEntry *pe = &k_PduiEntries[i];
 
-            asset_entry_t *e = assetCatalogRegister(k_UiTextures[i].catalog_id, ASSET_UI);
+        char rel_path[FS_MAXPATH];
+        s_pduiRelPath(pe, rel_path, sizeof(rel_path));
+
+        GLuint gl_id = 0;
+        uint32_t w = 0, h = 0;
+
+        /* Open the .pdui ZIP and try to read texture.tga. */
+        const char *full = (fsFileSize(rel_path) > 0) ? fsFullPath(rel_path) : NULL;
+        if (full && full[0]) {
+            mod_archive_t *arc = modArchiveOpen(full);
+            if (arc) {
+                s32 tga_idx = modArchiveFindEntry(arc, "texture.tga");
+                if (tga_idx >= 0) {
+                    u32 tga_size = 0;
+                    void *tga_buf = modArchiveExtractAlloc(arc, tga_idx, &tga_size);
+                    if (tga_buf && tga_size >= 18) {
+                        gl_id = s_loadTgaFromMem(
+                            (const uint8_t *)tga_buf, tga_size, &w, &h);
+                    }
+                    if (tga_buf) free(tga_buf);
+                }
+                modArchiveClose(arc);
+            } else {
+                sysLogPrintf(LOG_WARNING,
+                    "PDGUI theme: '%s' modArchiveOpen failed (\"%s\")",
+                    pe->catalog_id, rel_path);
+            }
+        }
+
+        if (gl_id) {
+            sysLogPrintf(LOG_NOTE,
+                "PDGUI theme: '%s' <- .pdui (%ux%u)",
+                pe->catalog_id, w, h);
+
+            asset_entry_t *e = assetCatalogRegister(pe->catalog_id, ASSET_UI);
             if (e) {
                 snprintf(e->category, CATALOG_CATEGORY_LEN, "base");
                 e->bundled = 1; e->enabled = 1;
@@ -1778,16 +1930,16 @@ void pdguiThemeLateInit(void)
                 e->loaded_data = (void *)(uintptr_t)gl_id;
                 e->data_size_bytes = (u32)(w * h * 4u);
             }
-            s_ThemeTexCache[k_UiTextures[i].catalog_id] = gl_id;
-            s_ThemeTexDims[k_UiTextures[i].catalog_id]  = { w, h };
+            s_ThemeTexCache[pe->catalog_id] = gl_id;
+            s_ThemeTexDims[pe->catalog_id]  = { w, h };
             loaded++;
         } else {
-            /* Fallback: generate procedural texture */
+            /* Fallback: generate procedural texture in-memory. The
+             * render-loop trigger in pdguiThemeCheckExtract will emit
+             * the .pdui ZIP later (when g_TexGeneralConfigs is ready)
+             * and re-run this lateInit to swap in the real texture. */
             s_registerProceduralTexture(
-                k_UiTextures[i].catalog_id,
-                k_UiTextures[i].proc_name,
-                k_UiTextures[i].proc_w,
-                k_UiTextures[i].proc_h);
+                pe->catalog_id, pe->proc_name, pe->proc_w, pe->proc_h);
             procedural++;
         }
     }
@@ -1799,8 +1951,9 @@ void pdguiThemeLateInit(void)
     pdguiThemeApplyEnabledModUiTextures();
 
     sysLogPrintf(LOG_NOTE,
-        "PDGUI theme: late init complete — %u from mod, %u procedural",
-        loaded, procedural);
+        "PDGUI theme: late init complete -- %u from .pdui, %u procedural "
+        "(total=%zu)",
+        loaded, procedural, K_PDUI_ENTRY_COUNT);
 }
 
 void pdguiThemeShutdown(void)
@@ -2421,234 +2574,364 @@ static bool s_writeTga(const char *path, const uint8_t *rgba, uint32_t w, uint32
     return true;
 }
 
-void pdguiThemeExtractRomTextures(void)
+/* Memory-variant TGA writer (Step 3b part 2). Mirrors s_writeTga but
+ * emits into a freshly malloc'd buffer instead of FILE*. Caller owns
+ * *out_buf and must free() it. Returns true on success. The output
+ * format is identical to s_writeTga: uncompressed 32-bit BGRA, top-down. */
+static bool s_writeTgaToMem(const uint8_t *rgba, uint32_t w, uint32_t h,
+                             uint8_t **out_buf, uint32_t *out_size)
 {
-    if (!g_TexGeneralConfigs) {
+    if (!rgba || !w || !h || !out_buf || !out_size) return false;
+
+    uint32_t npix = w * h;
+    uint32_t total = 18u + npix * 4u;
+    uint8_t *buf = (uint8_t *)malloc(total);
+    if (!buf) {
         sysLogPrintf(LOG_ERROR,
-            "PDGUI extract: g_TexGeneralConfigs is NULL — texReset() not called");
-        return;
+            "PDGUI emit: OOM allocating %u bytes for in-memory TGA (%ux%u)",
+            total, w, h);
+        return false;
     }
 
-    sysLogPrintf(LOG_NOTE, "PDGUI extract: extracting UI textures from ROM...");
+    /* TGA header: 18 bytes, uncompressed RGBA, top-down */
+    memset(buf, 0, 18);
+    buf[2]  = 2;
+    buf[12] = (uint8_t)(w & 0xFF);
+    buf[13] = (uint8_t)((w >> 8) & 0xFF);
+    buf[14] = (uint8_t)(h & 0xFF);
+    buf[15] = (uint8_t)((h >> 8) & 0xFF);
+    buf[16] = 32;
+    buf[17] = 0x28;
 
-    /* First, ensure the textures we need are decompressed from ROM.
-     * texLoadFromConfig() converts texnum → textureptr via DMA + decompress. */
-
-    /* Load the textures we want to extract */
-    static const int k_IndicesToLoad[] = {
-        0, 1, 2, 3, 4, 6, 7, 10, 11, 34, 35, 36, 37, 38
-    };
-    for (unsigned i = 0; i < sizeof(k_IndicesToLoad) / sizeof(k_IndicesToLoad[0]); i++) {
-        int idx = k_IndicesToLoad[i];
-        struct PdTexConfig *cfg = &g_TexGeneralConfigs[idx];
-        if (!s_isRealPtr(cfg)) {
-            texLoadFromConfig(cfg);
-        }
+    uint8_t *pix = buf + 18;
+    for (uint32_t i = 0; i < npix; i++) {
+        pix[i * 4 + 0] = rgba[i * 4 + 2];  /* B */
+        pix[i * 4 + 1] = rgba[i * 4 + 1];  /* G */
+        pix[i * 4 + 2] = rgba[i * 4 + 0];  /* R */
+        pix[i * 4 + 3] = rgba[i * 4 + 3];  /* A */
     }
 
-    /* Table of textures to extract */
-    static const struct {
-        int         index;
-        const char *filename;
-    } k_Extracts[] = {
-        {  0, "ui_noise_sm"   },
-        {  1, "ui_particles"  },
-        {  2, "ui_noise_lg"   },
-        {  3, "ui_grad_bar"   },
-        {  4, "ui_mirror_tile"},
-        {  6, "ui_bg_haze"    },
-        {  7, "ui_dot_tile"   },
-        { 10, "ui_nuke"       },
-        { 11, "ui_bg_alt"     },
-        { 34, "ui_icon_a"     },
-        { 35, "ui_icon_b"     },
-        { 36, "ui_icon_c"     },
-        { 37, "ui_deco"       },
-        { 38, "ui_stars"      },
-    };
+    *out_buf = buf;
+    *out_size = total;
+    return true;
+}
 
-    static uint8_t s_ExtractBuf[256 * 256 * 4];
-    unsigned extracted = 0;
+/* =========================================================================
+ * Catalog universality pivot Step 3b part 2 (2026-05-03):
+ * .pdui ZIP compound emitter.
+ *
+ * Per-texture .pdui ZIPs at data/<romid>/ui/<id>.pdui replace the loose
+ * data/ui/textures/<name>.{tga,png,9slice.json} writers. Each ZIP carries
+ * manifest envelope (pd_kind="ui", texture_count=1, baked-in nineslice
+ * insets) + texture.tga (RGBA32 top-down, from s_writeTgaToMem) +
+ * texture.tga.sha256 sidecar.
+ *
+ * The reader migration in pdguiThemeLateInit consumes these via
+ * modArchiveOpen + modArchiveExtractAlloc + s_loadTgaFromMem.
+ *
+ * The canonical k_PduiEntries[] table + struct PduiEntry + s_pduiRelPath
+ * helper are hoisted to the pdguiThemeLateInit block earlier in this
+ * file so the reader can reference them by forward visibility. The
+ * emitter functions below (s_decodeUiTexToRgba, s_pduiNinesliceInsets,
+ * s_pduiBuildManifest, s_emitOnePduiZip, pdguiThemeEmitPduiZips) all
+ * consume that same table.
+ *
+ * Per universality-pivot-schemas.md Section 2.11.
+ * Per audits/catalog-universality-pivot-plan-2026-05-02.md Step 3b part 2.
+ * ========================================================================= */
 
-    for (unsigned i = 0; i < sizeof(k_Extracts) / sizeof(k_Extracts[0]); i++) {
-        int idx = k_Extracts[i].index;
-        struct PdTexConfig *cfg = &g_TexGeneralConfigs[idx];
+/* Decode a single ROM-resident texture into an RGBA32 buffer that the
+ * caller owns. Returns NULL if the config is not loaded, the dims are
+ * out of range, or the format is unsupported. *out_w / *out_h carry the
+ * dims on success. */
+static uint8_t *s_decodeUiTexToRgba(const struct PdTexConfig *cfg,
+                                     uint32_t *out_w, uint32_t *out_h)
+{
+    if (!cfg || !s_isRealPtr(cfg)) return NULL;
+    uint32_t w = (uint32_t)cfg->width;
+    uint32_t h = (uint32_t)cfg->height;
+    if (!w || !h || w > 256 || h > 256) return NULL;
 
-        if (!s_isRealPtr(cfg)) {
-            sysLogPrintf(LOG_WARNING,
-                "PDGUI extract: [%d] '%s' — texnum %u not loaded, skipping",
-                idx, k_Extracts[i].filename, cfg->texnum);
-            continue;
-        }
+    uint32_t fmt = (uint32_t)cfg->fmt;
+    uint32_t siz = (uint32_t)cfg->siz;
+    const uint8_t *src = cfg->texptr;
 
-        uint32_t w = (uint32_t)cfg->width;
-        uint32_t h = (uint32_t)cfg->height;
+    size_t rgbaBytes = (size_t)w * (size_t)h * 4u;
+    uint8_t *rgba = (uint8_t *)malloc(rgbaBytes);
+    if (!rgba) return NULL;
+    memset(rgba, 0, rgbaBytes);
 
-        if (!w || !h || w > 256 || h > 256) {
-            sysLogPrintf(LOG_WARNING,
-                "PDGUI extract: [%d] '%s' — bad dims %ux%u",
-                idx, k_Extracts[i].filename, w, h);
-            continue;
-        }
+    bool decoded = true;
+    switch (fmt) {
+    case PD_G_IM_FMT_RGBA:
+        if (siz == PD_G_IM_SIZ_16b) decodeRgba16(src, w, h, rgba);
+        else if (siz == PD_G_IM_SIZ_32b) memcpy(rgba, src, w * h * 4);
+        else decoded = false;
+        break;
+    case PD_G_IM_FMT_IA:
+        if      (siz == PD_G_IM_SIZ_16b) decodeIa16(src, w, h, rgba);
+        else if (siz == PD_G_IM_SIZ_8b)  decodeIa8 (src, w, h, rgba);
+        else if (siz == PD_G_IM_SIZ_4b)  decodeIa4 (src, w, h, rgba);
+        else decoded = false;
+        break;
+    default:
+        decoded = false;
+        break;
+    }
 
-        /* Decode to RGBA32 using our existing decoders */
-        GLuint gl_id = s_decodeAndUpload(cfg, NULL, false);
-        if (!gl_id) {
-            sysLogPrintf(LOG_WARNING,
-                "PDGUI extract: [%d] '%s' — decode failed (fmt=%u siz=%u)",
-                idx, k_Extracts[i].filename, cfg->fmt, cfg->siz);
-            continue;
-        }
+    if (!decoded) {
+        free(rgba);
+        return NULL;
+    }
 
-        /* s_decodeAndUpload allocates a private decode buffer and frees it
-         * on return, so we re-decode into our own s_ExtractBuf for the
-         * TGA writer below. */
-        memset(s_ExtractBuf, 0, sizeof(s_ExtractBuf));
+    if (out_w) *out_w = w;
+    if (out_h) *out_h = h;
+    return rgba;
+}
 
-        uint32_t fmt = (uint32_t)cfg->fmt;
-        uint32_t siz = (uint32_t)cfg->siz;
-        const uint8_t *src = cfg->texptr;
-        bool decoded = true;
+/* Compute the default nineslice insets for a (w, h) texture. Mirrors
+ * the s_writeNinesliceJson formula: 25% from each edge, minimum 2 px. */
+static void s_pduiNinesliceInsets(uint32_t w, uint32_t h,
+                                   int *l, int *r, int *t, int *b)
+{
+    int li = (int)(w * 0.25f); if (li < 2) li = 2;
+    int ti = (int)(h * 0.25f); if (ti < 2) ti = 2;
+    if (l) *l = li;
+    if (r) *r = li;
+    if (t) *t = ti;
+    if (b) *b = ti;
+}
 
-        switch (fmt) {
-        case PD_G_IM_FMT_RGBA:
-            if (siz == PD_G_IM_SIZ_16b) decodeRgba16(src, w, h, s_ExtractBuf);
-            else if (siz == PD_G_IM_SIZ_32b) {
-                memcpy(s_ExtractBuf, src, w * h * 4);
-            }
-            else decoded = false;
-            break;
-        case PD_G_IM_FMT_IA:
-            if      (siz == PD_G_IM_SIZ_16b) decodeIa16(src, w, h, s_ExtractBuf);
-            else if (siz == PD_G_IM_SIZ_8b)  decodeIa8 (src, w, h, s_ExtractBuf);
-            else if (siz == PD_G_IM_SIZ_4b)  decodeIa4 (src, w, h, s_ExtractBuf);
-            else decoded = false;
-            break;
-        default:
-            decoded = false;
-            break;
-        }
+/* Build manifest.json for a single .pdui texture. Per Section 2.11 of
+ * universality-pivot-schemas.md plus the briefing's "baked-in nineslice
+ * insets" rule. Returns the byte length on success, 0 on truncation. */
+static int s_pduiBuildManifest(const struct PduiEntry *e,
+                                uint32_t w, uint32_t h, uint32_t tga_size,
+                                char *out, size_t out_size)
+{
+    int l = 0, r = 0, t = 0, b = 0;
+    s_pduiNinesliceInsets(w, h, &l, &r, &t, &b);
 
-        /* Clean up the GL texture we don't need (extraction only) */
-        glDeleteTextures(1, &gl_id);
+    int n = snprintf(out, out_size,
+        "{\n"
+        "  \"pd_kind\": \"ui\",\n"
+        "  \"pd_schema_version\": 1,\n"
+        "  \"id\": \"%s\",\n"
+        "  \"texture_count\": 1,\n"
+        "  \"theme_count\": 0,\n"
+        "  \"texture\": {\n"
+        "    \"name\": \"%s\",\n"
+        "    \"file\": \"texture.tga\",\n"
+        "    \"width\": %u,\n"
+        "    \"height\": %u,\n"
+        "    \"format\": \"rgba32_top_down\",\n"
+        "    \"data_size\": %u,\n"
+        "    \"nineslice\": {\n"
+        "      \"left\": %d,\n"
+        "      \"right\": %d,\n"
+        "      \"top\": %d,\n"
+        "      \"bottom\": %d,\n"
+        "      \"edgeMode\": \"stretch\",\n"
+        "      \"centerMode\": \"stretch\"\n"
+        "    }\n"
+        "  },\n"
+        "  \"source_index\": %d\n"
+        "}\n",
+        e->catalog_id, e->file_slug,
+        (unsigned)w, (unsigned)h, (unsigned)tga_size,
+        l, r, t, b, e->tex_index);
+    if (n <= 0 || (size_t)n >= out_size) return 0;
+    return n;
+}
 
-        if (!decoded) {
-            sysLogPrintf(LOG_WARNING,
-                "PDGUI extract: [%d] '%s' — unsupported fmt=%u siz=%u for extraction",
-                idx, k_Extracts[i].filename, fmt, siz);
-            continue;
-        }
+/* Emit one .pdui ZIP for a single canonical texture entry. Decodes from
+ * ROM textureconfig, wraps in manifest + TGA + sidecar, atomically
+ * writes via modArchive. Returns 1 written, 0 skipped (idempotent or
+ * texture missing), -1 failure. */
+static int s_emitOnePduiZip(const struct PduiEntry *e, int force_rewrite)
+{
+    if (!e) return -1;
 
-        /* Write TGA */
-        char path[256];
-        snprintf(path, sizeof(path), "data/ui/textures/%s.tga", k_Extracts[i].filename);
+    char rel_path[FS_MAXPATH];
+    if (!s_pduiRelPath(e, rel_path, sizeof(rel_path))) {
+        sysLoudFailf("EXTRACT.PDUI",
+            "snprintf truncated for entry id=\"%s\"", e->catalog_id);
+        return -1;
+    }
 
-        if (s_writeTga(path, s_ExtractBuf, w, h)) {
-            sysLogPrintf(LOG_NOTE,
-                "PDGUI extract: [%d] '%s' %ux%u fmt=%u → %s",
-                idx, k_Extracts[i].filename, w, h, fmt, path);
-            extracted++;
-        }
+    if (!force_rewrite && fsFileSize(rel_path) > 0) {
+        return 0;
+    }
 
-        /* Also write PNG for mod portability */
-        char png_path[256];
-        snprintf(png_path, sizeof(png_path), "data/ui/textures/%s.png", k_Extracts[i].filename);
-        if (s_writePng(png_path, s_ExtractBuf, w, h)) {
-            sysLogPrintf(LOG_NOTE,
-                "PDGUI extract: [%d] '%s' → %s (PNG)", idx, k_Extracts[i].filename, png_path);
-        }
+    /* Decode the ROM texture into an RGBA32 buffer. */
+    if (!g_TexGeneralConfigs) {
+        return 0;  /* texture system not ready; deferred to render-loop trigger */
+    }
+    struct PdTexConfig *cfg = &g_TexGeneralConfigs[e->tex_index];
+    if (!s_isRealPtr(cfg)) {
+        texLoadFromConfig(cfg);
+    }
+    uint32_t w = 0, h = 0;
+    uint8_t *rgba = s_decodeUiTexToRgba(cfg, &w, &h);
+    if (!rgba) {
+        sysLogPrintf(LOG_WARNING,
+            "PDGUI emit: '%s' (idx=%d) -- ROM decode failed; skipping",
+            e->catalog_id, e->tex_index);
+        return 0;
+    }
 
-        /* Write default 9-slice definition for panel-sized textures */
-        if (w >= 16 && h >= 16) {
-            char ns_path[256];
-            snprintf(ns_path, sizeof(ns_path), "data/ui/textures/%s.9slice.json",
-                     k_Extracts[i].filename);
-            if (s_writeNinesliceJson(ns_path, w, h)) {
-                sysLogPrintf(LOG_NOTE,
-                    "PDGUI extract: [%d] '%s' → %s (9-slice def)",
-                    idx, k_Extracts[i].filename, ns_path);
-            }
-        }
+    /* Encode RGBA32 -> TGA in memory. */
+    uint8_t *tga_buf = NULL;
+    uint32_t tga_size = 0;
+    if (!s_writeTgaToMem(rgba, w, h, &tga_buf, &tga_size)) {
+        sysLoudFailf("EXTRACT.PDUI",
+            "TGA encode failed for '%s' (%ux%u)", e->catalog_id, w, h);
+        free(rgba);
+        return -1;
+    }
+    free(rgba);
+
+    /* Build manifest. */
+    char manifest_buf[1024];
+    int manifest_len = s_pduiBuildManifest(e, w, h, tga_size,
+                                            manifest_buf, sizeof(manifest_buf));
+    if (manifest_len <= 0) {
+        sysLoudFailf("EXTRACT.PDUI",
+            "manifest snprintf truncated for '%s'", e->catalog_id);
+        free(tga_buf);
+        return -1;
+    }
+
+    /* SHA-256 sidecar of the TGA bytes. */
+    uint8_t digest[SHA256_DIGEST_SIZE];
+    sha256Hash(tga_buf, (size_t)tga_size, digest);
+    char hex[SHA256_HEX_SIZE + 1];
+    sha256ToHex(digest, hex);
+    hex[SHA256_HEX_SIZE] = '\0';
+    char sidecar[SHA256_HEX_SIZE + 2];
+    snprintf(sidecar, sizeof(sidecar), "%s\n", hex);
+
+    /* Atomic ZIP write. */
+    const char *full = fsFullPath(rel_path);
+    if (!full || !full[0]) {
+        sysLoudFailf("EXTRACT.PDUI",
+            "fsFullPath empty for '%s'", rel_path);
+        free(tga_buf);
+        return -1;
+    }
+
+    mod_archive_writer_t *aw = modArchiveBegin(full);
+    if (!aw) {
+        sysLoudFailf("EXTRACT.PDUI",
+            "modArchiveBegin failed for '%s'", full);
+        free(tga_buf);
+        return -1;
+    }
+
+    if (modArchiveAddFileMem(aw, "manifest.json",
+                              manifest_buf, (uint32_t)manifest_len) != 0) {
+        sysLoudFailf("EXTRACT.PDUI",
+            "AddFileMem manifest.json failed for '%s'", full);
+        modArchiveAbort(aw);
+        free(tga_buf);
+        return -1;
+    }
+    if (modArchiveAddFileMem(aw, "texture.tga",
+                              tga_buf, tga_size) != 0) {
+        sysLoudFailf("EXTRACT.PDUI",
+            "AddFileMem texture.tga failed for '%s'", full);
+        modArchiveAbort(aw);
+        free(tga_buf);
+        return -1;
+    }
+    if (modArchiveAddFileMem(aw, "texture.tga.sha256",
+                              sidecar, (uint32_t)strlen(sidecar)) != 0) {
+        sysLogPrintf(LOG_WARNING,
+            "PDGUI emit: sidecar write failed for '%s' (continuing)", full);
+    }
+
+    if (modArchiveFinish(aw) != 0) {
+        sysLoudFailf("EXTRACT.PDUI",
+            "modArchiveFinish failed for '%s'", full);
+        free(tga_buf);
+        return -1;
+    }
+
+    free(tga_buf);
+    return 1;
+}
+
+/* Public emitter (extern "C"). Walks the canonical .pdui entry table
+ * and emits one ZIP per texture at data/<romid>/ui/<slug>.pdui.
+ * Idempotent: skips files already on disk unless force is non-zero.
+ *
+ * Returns count of newly-written files. Returns 0 (not -1) when the
+ * texture system is not yet ready (g_TexGeneralConfigs == NULL); this
+ * is normal at boot main.c wiring point and the render-loop fallback
+ * trigger handles the actual emit later. -1 reserved for infrastructure
+ * failure (data dir creation). */
+extern "C" int pdguiThemeEmitPduiZips(int force)
+{
+    if (!fsDataDirEnsure()) {
+        sysLoudFailf("EXTRACT.PDUI", "fsDataDirEnsure failed");
+        return -1;
+    }
+
+    char ui_dir[FS_MAXPATH];
+    snprintf(ui_dir, sizeof(ui_dir),
+             "%s/%s", fsDataDir(), PDUI_OUT_DIR);
+    if (!fsCreateDir(ui_dir)) {
+        sysLoudFailf("EXTRACT.PDUI",
+            "fsCreateDir(\"%s\") failed", ui_dir);
+        return -1;
+    }
+
+    if (!g_TexGeneralConfigs) {
+        sysLogPrintf(LOG_NOTE,
+            "PDGUI emit: texture system not ready (g_TexGeneralConfigs NULL); "
+            "deferred to render-loop trigger");
+        return 0;
+    }
+
+    int written = 0;
+    int skipped = 0;
+    int failed = 0;
+
+    for (size_t i = 0; i < K_PDUI_ENTRY_COUNT; i++) {
+        int r = s_emitOnePduiZip(&k_PduiEntries[i], force);
+        if (r > 0)        written++;
+        else if (r == 0)  skipped++;
+        else              failed++;
     }
 
     sysLogPrintf(LOG_NOTE,
-        "PDGUI extract: ROM pass done - %u textures extracted to data/ui/textures/",
-        extracted);
+        "PDGUI emit: pdui written=%d skipped=%d failed=%d total=%zu (out=%s)",
+        written, skipped, failed, K_PDUI_ENTRY_COUNT, ui_dir);
 
-    /* Second pass: generate procedural fallbacks for any TGAs that ROM
-     * extraction didn't produce.  This handles edge cases like textures
-     * whose ROM configs have zero dimensions, are in unsupported formats,
-     * or whose texLoadFromConfig() call didn't fully decompress the data. */
-    static const struct {
-        const char *filename;     /* same as k_Extracts[].filename */
-        const char *proc_name;    /* procedural generator name */
-        uint32_t    w, h;         /* procedural dimensions */
-    } k_Fallbacks[] = {
-        { "ui_noise_sm",    "noise_sm", 16, 16 },
-        { "ui_particles",   "solid",     1,  1 },
-        { "ui_noise_lg",    "noise_lg", 16, 16 },
-        { "ui_grad_bar",    "solid",     2,  8 },
-        { "ui_mirror_tile", "solid",     8,  8 },
-        { "ui_bg_haze",     "haze",     64, 64 },
-        { "ui_dot_tile",    "solid",     8,  8 },
-        { "ui_nuke",        "noise_lg", 64, 64 },
-        { "ui_bg_alt",      "noise_lg", 64, 64 },
-        { "ui_icon_a",      "solid",    14, 14 },
-        { "ui_icon_b",      "solid",    11, 11 },
-        { "ui_icon_c",      "solid",    14, 14 },
-        { "ui_deco",        "solid",    32, 32 },
-        { "ui_stars",       "solid",    16, 16 },
-    };
+    return written;
+}
 
-    unsigned fallback_count = 0;
-    for (unsigned i = 0; i < sizeof(k_Fallbacks) / sizeof(k_Fallbacks[0]); i++) {
-        char path[256];
-        snprintf(path, sizeof(path), "data/ui/textures/%s.tga",
-                 k_Fallbacks[i].filename);
-
-        /* Check if TGA was already written by the ROM extraction pass */
-        u32 probe_sz = 0;
-        void *probe = fsFileLoad(path, &probe_sz);
-        if (probe && probe_sz > 0) {
-            free(probe);
-            continue;  /* Already exists — skip */
-        }
-        if (probe) free(probe);
-
-        /* Generate procedural fallback */
-        uint32_t fw = k_Fallbacks[i].w;
-        uint32_t fh = k_Fallbacks[i].h;
-        GLuint fb_tex = s_generateProceduralTexture(
-            k_Fallbacks[i].proc_name, fw, fh);
-        if (!fb_tex) {
-            sysLogPrintf(LOG_WARNING,
-                "PDGUI extract: fallback generation failed for '%s'",
-                k_Fallbacks[i].filename);
-            continue;
-        }
-
-        /* Read back the GL texture pixels and write TGA */
-        uint8_t *fb_pixels = (uint8_t *)malloc(fw * fh * 4);
-        if (fb_pixels) {
-            glBindTexture(GL_TEXTURE_2D, fb_tex);
-            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, fb_pixels);
-            if (s_writeTga(path, fb_pixels, fw, fh)) {
-                sysLogPrintf(LOG_NOTE,
-                    "PDGUI extract: fallback '%s' %ux%u (%s) → %s",
-                    k_Fallbacks[i].filename, fw, fh,
-                    k_Fallbacks[i].proc_name, path);
-                fallback_count++;
-            }
-            free(fb_pixels);
-        }
-        glDeleteTextures(1, &fb_tex);
+void pdguiThemeExtractRomTextures(void)
+{
+    /* Step 3b part 2 migration (2026-05-03): this function is now a thin
+     * delegate that calls the .pdui ZIP emitter. The previous body wrote
+     * loose data/ui/textures/<name>.{tga,png,9slice.json} files; under the
+     * universality model those are replaced by per-texture .pdui ZIPs at
+     * data/<romid>/ui/<slug>.pdui (one ZIP per texture, manifest envelope
+     * + texture.tga + sha256 sidecar with baked-in nineslice insets).
+     *
+     * Procedural fallback used to also write loose TGAs from this path; in
+     * the new architecture pdguiThemeLateInit handles procedural fallback
+     * in-memory when a .pdui ZIP is missing (no disk write needed). The
+     * legacy static helpers s_writeTga / s_writePng / s_writeNinesliceJson
+     * become unreferenced under the new pipeline and are removed in the
+     * Step 5 retirement pass per the universality-pivot-plan. */
+    if (!g_TexGeneralConfigs) {
+        sysLogPrintf(LOG_ERROR,
+            "PDGUI extract: g_TexGeneralConfigs is NULL -- texReset() not called");
+        return;
     }
-
-    if (fallback_count > 0) {
-        sysLogPrintf(LOG_NOTE,
-            "PDGUI extract: generated %u procedural fallback TGA(s) for "
-            "textures ROM extraction couldn't produce", fallback_count);
-    }
+    (void)pdguiThemeEmitPduiZips(0);
 }
 
 /**
@@ -2725,64 +3008,27 @@ static void s_generateModernUiTextures(void)
     sysLogPrintf(LOG_NOTE, "PDGUI: pd-modern-ui texture generation complete");
 }
 
-/**
- * List of all expected base UI chrome TGA filenames (must stay in sync with
- * k_UiTextures[] in pdguiThemeLateInit and k_Extracts[] in
- * pdguiThemeExtractRomTextures).
- */
-static const char *k_ExpectedBaseUiTgas[] = {
-    "data/ui/textures/ui_bg_haze.tga",
-    "data/ui/textures/ui_particles.tga",
-    "data/ui/textures/ui_noise_sm.tga",
-    "data/ui/textures/ui_noise_lg.tga",
-    "data/ui/textures/ui_grad_bar.tga",
-    "data/ui/textures/ui_mirror_tile.tga",
-    "data/ui/textures/ui_dot_tile.tga",
-    "data/ui/textures/ui_nuke.tga",
-    "data/ui/textures/ui_bg_alt.tga",
-    "data/ui/textures/ui_deco.tga",
-    "data/ui/textures/ui_icon_a.tga",
-    "data/ui/textures/ui_icon_b.tga",
-    "data/ui/textures/ui_icon_c.tga",
-};
-static const unsigned k_NumExpectedBaseUiTgas =
-    sizeof(k_ExpectedBaseUiTgas) / sizeof(k_ExpectedBaseUiTgas[0]);
+/* Step 3b part 2 (2026-05-03): the canonical UI texture list now lives
+ * in k_PduiEntries[] above; the missing-file probes below check for
+ * data/<romid>/ui/<slug>.pdui ZIPs instead of the legacy loose-TGA
+ * paths under data/ui/textures/. The trigger semantics (auto-extract
+ * if any are missing on first launch, then re-run lateInit) are
+ * preserved end-to-end through the migration. */
 
-/**
- * Check if ALL base UI chrome textures exist.  Returns true only if every
- * expected TGA file is present and non-empty.
- */
-static bool s_baseUiTexturesExist(void)
-{
-    for (unsigned i = 0; i < k_NumExpectedBaseUiTgas; i++) {
-        u32 sz = 0;
-        void *probe = fsFileLoad(k_ExpectedBaseUiTgas[i], &sz);
-        if (!probe || sz == 0) {
-            if (probe) free(probe);
-            return false;
-        }
-        free(probe);
-    }
-    return true;
-}
-
-/**
- * Check which individual TGA files are missing and return a count.
- * Fills `missing_mask` bitfield (bit i set = file i missing).
- * max 64 files tracked (more than enough for our 13).
- */
-static unsigned s_countMissingBaseUiTgas(uint64_t *missing_mask)
+/* Compute the missing .pdui count plus a bitfield mask of which entries
+ * are missing (bit i set = entry i missing). max 64 entries tracked --
+ * more than enough for the canonical 14. */
+static unsigned s_countMissingBaseUiPdui(uint64_t *missing_mask)
 {
     uint64_t mask = 0;
     unsigned count = 0;
-    for (unsigned i = 0; i < k_NumExpectedBaseUiTgas && i < 64; i++) {
-        u32 sz = 0;
-        void *probe = fsFileLoad(k_ExpectedBaseUiTgas[i], &sz);
-        if (!probe || sz == 0) {
+    for (size_t i = 0; i < K_PDUI_ENTRY_COUNT && i < 64; i++) {
+        char rel_path[FS_MAXPATH];
+        if (!s_pduiRelPath(&k_PduiEntries[i], rel_path, sizeof(rel_path))
+            || fsFileSize(rel_path) <= 0) {
             mask |= (1ull << i);
             count++;
         }
-        if (probe) free(probe);
     }
     if (missing_mask) *missing_mask = mask;
     return count;
@@ -3193,9 +3439,17 @@ void pdguiChromeInitializeBaseMod(void)
 }
 
 /**
- * Frame check: auto-extract base UI chrome textures from ROM if they don't exist,
- * or run extraction/generation when CLI flags are set.
+ * Frame check: auto-emit base UI chrome .pdui ZIPs from ROM if they
+ * don't exist, or run extraction/generation when CLI flags are set.
  * Called from pdguiRender() each frame until done.
+ *
+ * Step 3b part 2 (2026-05-03): the trigger now checks for missing
+ * .pdui ZIPs at data/<romid>/ui/<slug>.pdui (universal catalog
+ * format) instead of loose data/ui/textures/<name>.tga files. The
+ * emit pipeline writes per-texture ZIPs via pdguiThemeEmitPduiZips
+ * (called through pdguiThemeExtractRomTextures); on success the
+ * lateInit re-runs and the reader path swaps procedural fallbacks
+ * for the freshly-extracted textures.
  */
 void pdguiThemeCheckExtract(void)
 {
@@ -3206,68 +3460,70 @@ void pdguiThemeCheckExtract(void)
 
     s_checked = true;
 
-    /* Auto-extract: if ANY base UI chrome textures are missing, run extraction from
-     * ROM data.  This handles both first-launch (all missing) and partial
-     * extraction (e.g. ui_particles.tga missing while others exist).
-     * The extraction pipeline writes all TGAs, then we reload the theme. */
+    /* Auto-emit: if ANY base UI chrome .pdui ZIPs are missing, run the
+     * emitter. Handles both first-launch (all missing) and partial
+     * extraction (e.g. one texture's .pdui got deleted while others
+     * exist). The emitter writes per-texture ZIPs idempotently, then
+     * we reset late-init so the reader picks them up. */
     {
         uint64_t missing_mask = 0;
-        unsigned n_missing = s_countMissingBaseUiTgas(&missing_mask);
+        unsigned n_missing = s_countMissingBaseUiPdui(&missing_mask);
 
         if (n_missing > 0) {
             sysLogPrintf(LOG_NOTE,
-                "PDGUI theme: %u of %u base UI chrome TGAs missing (mask=0x%llx) - "
-                "auto-extracting from ROM",
-                n_missing, k_NumExpectedBaseUiTgas,
+                "PDGUI theme: %u of %zu base UI chrome .pdui ZIPs missing "
+                "(mask=0x%llx) -- auto-emitting from ROM",
+                n_missing, K_PDUI_ENTRY_COUNT,
                 (unsigned long long)missing_mask);
 
-            /* Log which specific files are missing */
-            for (unsigned i = 0; i < k_NumExpectedBaseUiTgas && i < 64; i++) {
+            /* Log which specific entries are missing. */
+            for (size_t i = 0; i < K_PDUI_ENTRY_COUNT && i < 64; i++) {
                 if (missing_mask & (1ull << i)) {
-                    sysLogPrintf(LOG_NOTE, "  MISSING: %s", k_ExpectedBaseUiTgas[i]);
+                    char rel_path[FS_MAXPATH];
+                    s_pduiRelPath(&k_PduiEntries[i], rel_path, sizeof(rel_path));
+                    sysLogPrintf(LOG_NOTE,
+                        "  MISSING: %s (%s)",
+                        k_PduiEntries[i].catalog_id, rel_path);
                 }
             }
 
-            /* Phase 3 Pass B Slice 13 (2026-05-02, corrected): UI chrome
-             * textures are extracted from the user-supplied ROM at first
-             * launch and now live under data/ui/textures/ (the BYOR tier
-             * alongside per-romid segs), not under mods/ (the user-overlay
-             * tier) and not under base/ (the project-authored tier --
-             * ROM-extracted content never ships).  The mod-manifest write
-             * that previously made base-ui look like a mod is dropped:
-             * data/ is not a mod, and the catalog ID -> path mapping is
-             * owned by k_UiTextures[] in pdguiThemeLateInit. */
-            fsCreateDir("data");
-            fsCreateDir("data/ui");
-            fsCreateDir("data/ui/textures");
+            /* Universality model: ROM-extracted UI assets live at
+             * data/<romid>/ui/<slug>.pdui (one ZIP per texture).
+             * fsDataDirEnsure() handles "data/" + "data/<romid>/"; the
+             * emitter ensures "data/<romid>/ui/". */
+            fsDataDirEnsure();
 
-            /* Extract ROM textures to TGA files (writes ALL textures, not
-             * just missing ones — idempotent overwrites are fine) */
-            pdguiThemeExtractRomTextures();
+            /* Emit per-texture .pdui ZIPs (idempotent skip on existing). */
+            (void)pdguiThemeEmitPduiZips(0);
 
-            /* Verify extraction and report per-file results */
+            /* Verify emit and report per-entry results. */
             uint64_t still_missing = 0;
-            unsigned n_still = s_countMissingBaseUiTgas(&still_missing);
+            unsigned n_still = s_countMissingBaseUiPdui(&still_missing);
             if (n_still == 0) {
                 sysLogPrintf(LOG_NOTE,
-                    "PDGUI theme: extraction verified — all %u TGAs present, "
-                    "reloading theme textures", k_NumExpectedBaseUiTgas);
+                    "PDGUI theme: emit verified -- all %zu .pdui ZIPs "
+                    "present, reloading theme textures", K_PDUI_ENTRY_COUNT);
             } else {
                 sysLogPrintf(LOG_WARNING,
-                    "PDGUI theme: extraction ran but %u TGA(s) still missing "
-                    "(mask=0x%llx) — check ROM data and file permissions",
+                    "PDGUI theme: emit ran but %u .pdui ZIP(s) still missing "
+                    "(mask=0x%llx) -- check ROM data and file permissions",
                     n_still, (unsigned long long)still_missing);
-                for (unsigned i = 0; i < k_NumExpectedBaseUiTgas && i < 64; i++) {
+                for (size_t i = 0; i < K_PDUI_ENTRY_COUNT && i < 64; i++) {
                     if (still_missing & (1ull << i)) {
+                        char rel_path[FS_MAXPATH];
+                        s_pduiRelPath(&k_PduiEntries[i],
+                                       rel_path, sizeof(rel_path));
                         sysLogPrintf(LOG_WARNING,
-                            "  STILL MISSING: %s", k_ExpectedBaseUiTgas[i]);
+                            "  STILL MISSING: %s (%s)",
+                            k_PduiEntries[i].catalog_id, rel_path);
                     }
                 }
             }
 
-            /* Reload theme textures now that TGA files exist (or have been
-             * updated).  Reset the late-init flag so pdguiThemeLateInit()
-             * re-runs and picks up the newly extracted files. */
+            /* Reload theme textures now that .pdui ZIPs exist (or have
+             * been updated). Reset the late-init flag so
+             * pdguiThemeLateInit() re-runs and picks up the freshly
+             * emitted ZIPs through the universal reader path. */
             s_ThemeLateInitDone = false;
             pdguiThemeLateInit();
         }

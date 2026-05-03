@@ -368,6 +368,77 @@ s32 romExtractAllPdlang(s32 force_rewrite);
 s32 romExtractParityCheckPdfont(void);
 s32 romExtractParityCheckPdlang(void);
 
+/* ============================================================
+ * Catalog universality pivot Step 3b part 2 (2026-05-03).
+ *
+ * Per-asset UI texture emitter. Closes the Step 3 / 3a / 3b series
+ * at 13 of 13 universality kinds (weapon, mesh, animation, head,
+ * body, arena, scenario, sfx, voice, song, font, lang, ui).
+ *
+ *   .pdui  ZIP compound (one per UI texture in the canonical
+ *          k_PduiEntries[] table inside port/fast3d/pdgui_theme.cpp;
+ *          14 textures expected for the base game)
+ *
+ * Output paths under data/<romid>/:
+ *   ui/<slug>.pdui
+ *
+ * Where <slug> matches the catalog ID minus the "base:" prefix
+ * (e.g. base:ui_bg_haze -> ui_bg_haze.pdui). Each ZIP contains:
+ *   manifest.json        envelope (pd_kind="ui", texture_count=1,
+ *                        baked-in nineslice insets, source_index)
+ *   texture.tga          uncompressed 32-bit RGBA top-down TGA
+ *   texture.tga.sha256   outer-file SHA-256 sidecar
+ *
+ * Cross-cut from Step 3b part 1: the .pdui pipeline depends on
+ * g_TexGeneralConfigs (populated by texInit/texReset in pdmain.c
+ * mainInit). On the boot main.c block this typically runs before
+ * texInit, so pdguiThemeEmitPduiZips returns 0 cleanly when the
+ * texture system is not yet ready. The actual emit fires from the
+ * render-loop fallback trigger inside pdguiThemeCheckExtract once
+ * GL is up. Subsequent boots find the .pdui files already on disk
+ * and the call is an idempotent skip.
+ *
+ * The reader migration in pdguiThemeLateInit consumes these via
+ * modArchiveOpen + modArchiveExtractAlloc + s_loadTgaFromMem. The
+ * legacy loose-files writers (s_writeTga / s_writePng /
+ * s_writeNinesliceJson) become dead code retired in Step 5.
+ *
+ * Server build: returns 0 immediately. Server has no GL context,
+ * no texture system, no UI rendering.
+ *
+ * Per universality-pivot-schemas.md Section 2.11.
+ * Per audits/catalog-universality-pivot-plan-2026-05-02.md Step 3b
+ * part 2.
+ * ============================================================ */
+
+/* Step 3b part 2: emit one .pdui ZIP per canonical UI texture entry.
+ * Reads from g_TexGeneralConfigs[idx] (populated by texInit), decodes
+ * RGBA32, encodes a top-down 32-bit TGA in memory via s_writeTgaToMem,
+ * and writes a ZIP at data/<romid>/ui/<slug>.pdui via modArchive.
+ *
+ * Idempotent: skips files that already exist with non-zero size unless
+ * force_rewrite is non-zero. Per-file failures emit
+ * LOUDFAIL.EXTRACT.PDUI but do not abort the walk.
+ *
+ * Returns: count of files newly written. Returns 0 (not -1) when the
+ * texture system is not yet ready (g_TexGeneralConfigs == NULL); this
+ * is the normal state at the boot main.c block, and the actual emit
+ * fires later from pdguiThemeCheckExtract in the render-loop fallback
+ * trigger. -1 reserved for infrastructure failure (data dir creation). */
+s32 romExtractAllPdui(s32 force_rewrite);
+
+/* Step 3b part 2 parity check (Q-5 ruling). Re-walks the canonical
+ * 14-texture list, opens each .pdui ZIP, parses manifest.json, and
+ * verifies envelope + id + texture_count + source_index round-trip the
+ * source descriptor. Missing files are treated as skip (not failure)
+ * because the .pdui emitter is deferred to the render-loop on first
+ * launch and parity at the boot main.c block runs before .pdui files
+ * exist. Failures emit LOADER.UNIVERSAL.PARITY_FAIL with diagnostic
+ * detail. Same structural integrity contract as the audio half + part
+ * 1; full field-by-field round-trip arrives at Step 4 with the
+ * universal loader. */
+s32 romExtractParityCheckPdui(void);
+
 #ifdef __cplusplus
 }
 #endif

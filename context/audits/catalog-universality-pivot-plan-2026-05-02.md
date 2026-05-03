@@ -1171,6 +1171,68 @@ After `.pdui`: 13 of 13 emitted. Step 4 (universal directory walker) is the univ
 
 ---
 
+## Step 3b part 2 SHIPPED 2026-05-03 (worktree `gifted-benz-cad936`)
+
+**What landed:** the cross-cut UI texture half of Step 3b. Closes catalog universality at **13 of 13 kinds emitted**. The `.pdui` emitter + reader migration ship together per the no-half-measures directive (the consumer migration in `pdguiThemeLateInit` lands in lockstep with the emitter, not piecewise).
+
+- `port/fast3d/pdgui_theme.cpp` -- new memory-variant TGA helpers `s_writeTgaToMem` / `s_loadTgaFromMem` (mirror `s_writeTga` / `s_loadTgaTexture` but operate on heap buffers instead of `FILE*`); new canonical `k_PduiEntries[]` table (14 textures) folding the prior `k_Extracts[]` / `k_UiTextures[]` / `k_Fallbacks[]` triplet into one source of truth; new `pdguiThemeEmitPduiZips(int force)` extern "C" emitter walking the table and writing per-texture `.pdui` ZIP compounds at `data/<romid>/ui/<slug>.pdui` (manifest envelope + `texture.tga` + `texture.tga.sha256`).
+- `port/fast3d/pdgui_theme.cpp` -- `pdguiThemeLateInit` rewritten to read texture bytes from `.pdui` ZIPs via `modArchiveOpen` + `modArchiveExtractAlloc("texture.tga")` + `s_loadTgaFromMem`, replacing the prior `s_loadTgaTexture(disk_path)` loose-TGA reader. Procedural fallback (`s_registerProceduralTexture`) is unchanged.
+- `port/fast3d/pdgui_theme.cpp` -- `pdguiThemeExtractRomTextures` body collapsed to a single delegate call to `pdguiThemeEmitPduiZips(0)`. Legacy loose-files writers (`s_writeTga` for ROM extract path, `s_writePng`, `s_writeNinesliceJson`, `s_initCrc32` and friends) now unreferenced from the extract path; `s_writeTga` remains live for `s_generateModernUiTextures` (CLI `--generate-modern-ui` flag); the rest are dead code retained for Step 5 cleanup. Compiler unused-function warnings are suppressed at the project level (`-Wno-unused-function` for CXX per CMakeLists.txt:276).
+- `port/fast3d/pdgui_theme.cpp` -- `pdguiThemeCheckExtract` updated to detect missing `.pdui` ZIPs (via new `s_countMissingBaseUiPdui`) instead of missing loose TGAs; on missing-ZIP detection the extract auto-runs and lateInit re-runs to swap procedural fallbacks for the freshly-emitted textures.
+- `port/src/romextract_pdui.c` -- thin C wrapper exposing `romExtractAllPdui(s32 force_rewrite)` that delegates to the C++ emitter via the extern "C" API. Server build returns 0 immediately.
+- `port/src/romextract_parity_pdui.c` -- Q-5 structural parity check. Re-walks the canonical 14-texture mirror table, opens each `.pdui` ZIP, parses `manifest.json`, asserts envelope (`pd_kind="ui"`, `id`, `texture_count=1`, `source_index`) round-trip the source descriptor. Missing files are treated as skip (not failure) because the emitter is deferred to the render-loop trigger on first launch. Failures emit `LOADER.UNIVERSAL.PARITY_FAIL`.
+
+Public API: `port/include/romextract_pd.h` gains a Step 3b part 2 block with two prototypes + full docblock explaining the texture-init ordering wrinkle.
+
+Boot wiring: `port/src/main.c` gets a Step 3b part 2 block immediately after the part 1 block, calling `romExtractAllPdui(0)` + `romExtractParityCheckPdui()`. The block is the structural placeholder that mirrors the part 1 / Step 3 / Step 2 / Step 1 emit + parity convention; on first boot at this point `g_TexGeneralConfigs` is null (texInit runs later in pdmain.c::mainInit), so the emitter returns 0 cleanly and the actual emit fires from `pdguiThemeCheckExtract` in the render-loop fallback. Subsequent boots find the `.pdui` files already on disk and the call is an idempotent skip.
+
+**Why .pdui ships separately from .pdfont / .pdlang (recap):** the `.pdfont` + `.pdlang` emitters wrap raw bytes that are already on disk after Pass A (zero render-path involvement). The `.pdui` emitter must decode N64 textureconfigs through the GL texture system, which depends on `g_TexGeneralConfigs` (populated by `texInit`/`texReset` in `pdmain.c::mainInit`). UI bugs are silent at build time and surface only at runtime; bundling the cross-cut with the raw-payload wrappers would conflate two risk classes per `feedback_complete_unit_shipping`.
+
+**Universality model under .pdui:**
+
+```
+data/<romid>/ui/
+  ui_bg_haze.pdui          ZIP: manifest.json + texture.tga + texture.tga.sha256
+  ui_particles.pdui        same
+  ui_noise_sm.pdui
+  ui_noise_lg.pdui
+  ui_grad_bar.pdui
+  ui_mirror_tile.pdui
+  ui_dot_tile.pdui
+  ui_nuke.pdui
+  ui_bg_alt.pdui
+  ui_icon_a.pdui
+  ui_icon_b.pdui
+  ui_icon_c.pdui
+  ui_deco.pdui
+  ui_stars.pdui
+```
+
+Each `manifest.json` carries the envelope (`pd_kind="ui"`, `pd_schema_version=1`, `id="base:ui_<name>"`), `texture_count=1`, `theme_count=0`, and a `texture` object with `name` / `file` / `width` / `height` / `format="rgba32_top_down"` / `data_size` plus baked-in `nineslice` insets (`left` / `right` / `top` / `bottom` / `edgeMode` / `centerMode`). `source_index` records the `g_TexGeneralConfigs[]` index for round-trip provenance.
+
+**Counts emitted (NTSC final ROM, expected after first launch):**
+
+- `.pdui`: 14 textures expected, one ZIP per entry in `k_PduiEntries[]`.
+
+**Files added (2 new files):**
+
+- `port/src/romextract_pdui.c` (~50 lines, wrapper)
+- `port/src/romextract_parity_pdui.c` (~240 lines)
+
+**Files modified:**
+
+- `port/fast3d/pdgui_theme.cpp` -- new memory-variant TGA helpers + canonical entries table + `s_pduiRelPath` + `s_decodeUiTexToRgba` + `s_pduiNinesliceInsets` + `s_pduiBuildManifest` + `s_emitOnePduiZip` + `pdguiThemeEmitPduiZips` extern "C" emitter; `pdguiThemeLateInit` rewritten to read `.pdui` ZIPs; `pdguiThemeExtractRomTextures` body collapsed to delegate; `pdguiThemeCheckExtract` updated to check `.pdui` paths; `s_countMissingBaseUiPdui` replaces the loose-TGA missing-checkers. Net diff is roughly +400 / -250 lines (legacy walk machinery removed; new universality machinery added).
+- `port/include/romextract_pd.h` -- 2 new prototypes + Step 3b part 2 block (~70 new lines).
+- `port/src/main.c` -- Step 3b part 2 block (~25 new lines) immediately after the Step 3b part 1 block.
+
+**Build verify:** clean four-target via `devtools/build-session.ps1`. PASS for client (55.2 MB), updater (12.3 MB), server (22.4 MB), tests (24.9 MB). Two new `.obj` files (`romextract_pdui.c.obj`, `romextract_parity_pdui.c.obj`) compile into the client; server build short-circuits per `PD_SERVER` guard (no GL context, no UI rendering server-side); tests link without complaint.
+
+**State after this commit:** **13 of 13 universality kinds emitted** (weapon, mesh, animation, head, body, arena, scenario, sfx, voice, song, font, lang, ui). Catalog universality writer-side is COMPLETE.
+
+**Step 4 (next ship):** universal directory walker. `loaderPdbaseScan` retires; replaced with a generic walker that recursively enumerates `data/<romid>/`, `mods/`, and `base/` (whatever subset is appropriate per tier), reads each `.pd*` file's `pd_kind` from its envelope, and dispatches to the right typed registrar. After Step 4 the catalog reads from the same per-asset compound format whether the source is BYOR-extracted or modder-supplied -- universality is realized end-to-end.
+
+---
+
 ## 8. Sentinel
 
 This audit ends here. If a future reader sees content past this line, the document was modified after the original draft.
