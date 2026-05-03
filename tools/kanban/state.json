@@ -13,7 +13,8 @@
     {"id": "networking",        "name": "Networking",        "color": "#ef4444"},
     {"id": "campaign",          "name": "Campaign",          "color": "#a16207"},
     {"id": "social",            "name": "Social",            "color": "#ec4899"},
-    {"id": "tests",             "name": "Tests",             "color": "#10b981"}
+    {"id": "tests",             "name": "Tests",             "color": "#10b981"},
+    {"id": "engine",            "name": "Engine",            "color": "#6366f1"}
   ],
   "columns": ["backlog", "active", "blocked", "done"],
   "columnLabels": {
@@ -615,6 +616,46 @@
       "pillar": "input", "column": "backlog", "order": 30000,
       "priority": 3,
       "notes": "Foundation done via c084 + c089 (this trifecta-2). Spec canonical at grammar doc + binding doc.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+    },
+    {
+      "id": "c100", "title": "Engine Phase 1: fs.c path-buffer refactor",
+      "description": "Prerequisite for any boot-pipeline parallelization. Replace the static-return-buffer contract on fsFullPath / fsDataDir / fsDataPathFor (port/src/fs.c) with (out, outSize) form so concurrent callers do not trash each other's path. Mechanical wide refactor across all 200-400 call sites in src/ + port/. One coherent merge with extensive commit-message context per Mike Q3 (2026-05-03). Build verify clean four-target via queued build tool. Smoke verify clean install boot.",
+      "pillar": "engine", "column": "active", "order": 31000,
+      "priority": 1,
+      "notes": "Approved 2026-05-03 (Q1-Q6 of startup-acceleration design). Spec at context/designs/engine/startup-acceleration.md Phase 1.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+    },
+    {
+      "id": "c101", "title": "Engine Phase 2: thread pool + progress channel + boot overlay (verify still serial)",
+      "description": "Add port/src/boot_pool.{h,c} (SDL_CreateThread-based, manager + N-2 workers per Mike Q1, scaled to physical cores via SDL_GetCPUCount with hyperthreading correction; floor 1 worker, cap 16; pd.ini Boot.WorkerThreads override for diagnostics). Add port/src/boot_progress.{h,c} (thread-safe progress channel with atomic counters + mutex for labels). Add port/fast3d/pdgui_bootoverlay.cpp (plain bottom progress bar + status label, PD-themed via active pdgui_theme color tokens per Mike Q2). Modify port/src/main.c to enter render-loop polling progress until extract done; main thread renders, manager dispatches, workers run extract serially in this phase (single-worker enqueue). Dedicated server skips overlay render but keeps pool active. This phase delivers user-visible UX even before Phase 3's speedup: window becomes responsive, load bar animates.",
+      "pillar": "engine", "column": "backlog", "order": 32000,
+      "priority": 1,
+      "notes": "Sequential after Phase 1 lands on dev (Mike Q6 2026-05-03). Spec at context/designs/engine/startup-acceleration.md Phase 2.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+    },
+    {
+      "id": "c102", "title": "Engine Phase 3: parallel verify pass",
+      "description": "Convert romExtractVerifyAll + romExtractVerifyAllSegments per-file sequential SHA-256 loop into work-queue fan-out via Phase 2 boot pool. Atomic counters (or per-thread accumulator + reduce) for s_AggValidated / s_AggRecovered / s_AggUnrecoverable in port/src/romextract.c. Files are independent; SHA-256 is fully reentrant (port/src/sha256.c stack-local ctx). Target: verify pass drops from 8s sequential to 2-3s on a 6-core machine. Biggest single user-perceived speedup. Smoke verify on clean install (rm data/<romid>/files/) to force full extract+verify cycle.",
+      "pillar": "engine", "column": "backlog", "order": 33000,
+      "priority": 1,
+      "notes": "Sequential after Phase 2 lands on dev (Mike Q6 2026-05-03). Spec at context/designs/engine/startup-acceleration.md Phase 3.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+    },
+    {
+      "id": "c103", "title": "Engine Phase 4: walker + emitter structural concurrency",
+      "description": "Per Mike Q4 2026-05-03 'parallel, built appropriately' (no half-measures). Structural fix to assetCatalog: add fine-grained mutex (or RW lock decided post-audit) around assetCatalogRegister* in port/src/assetcatalog.c. Structural fix to loader_pool: refactor module-scope s_*Used counters + shared scratch into per-thread arena or explicit (ctx) parameter; rewrite loader_pool.c:26 single-thread invariant docblock. Walker fully parallel: per-file parse + register + pool populate runs across all N-2 workers concurrently. Per-asset emitter parallelization within one kind, then kinds in parallel where decoders allow. Audio decoders stay serial at the audio engine. Impact grows after B-318 lands (emitters early-return today).",
+      "pillar": "engine", "column": "backlog", "order": 34000,
+      "priority": 2,
+      "notes": "Sequential after Phase 3 lands on dev (Mike Q6 2026-05-03). Q4 mandates structural fix not tactical patch. Spec at context/designs/engine/startup-acceleration.md Phase 4.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+    },
+    {
+      "id": "c104", "title": "Engine Phase 5: polish + measurements",
+      "description": "Wire timing telemetry into boot_progress so next launch's weights come from previous launch's actual timings. Tune worker count (test 4, 6, 8 on Mike's machine; auto-scaling holds but verify default behavior). Status label polish per feedback_human_readable_ids. Progress bar PD-theme polish via pdgui_theme tokens. Add shutdown log line summarizing boot timing breakdown for telemetry. Append context/audits/startup-acceleration-<date>.md with before/after timing.",
+      "pillar": "engine", "column": "backlog", "order": 35000,
+      "priority": 3,
+      "notes": "Sequential after Phase 4 lands on dev (Mike Q6 2026-05-03). Spec at context/designs/engine/startup-acceleration.md Phase 5.", "flag": null, "flagged_at": null,
       "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
     }
   ]
