@@ -3661,24 +3661,12 @@ static s32 pdguiMainMenuGraphClose(void *userdata)
  * prefer the `freshEntry = frame-gap` pattern used in pdgui_menu_endscreen.cpp
  * (S295 F5) rather than a one-shot bool. */
 
-/* B-131 (2026-04-11): wall-clock tick at which the main menu last appeared.
- * Used to gate the ESC/B close handler: the first MAIN_MENU_CLOSE_GRACE_MS
- * of a new appearance do NOT run the IsKeyPressed(Escape/GamepadFaceRight)
- * close check.  This prevents the open-then-immediately-close race that
- * happens when:
- *   1. User is in a deferred-pop transition (e.g. CI free-roam after backing
- *      out of the main menu once) and the g_CtxImGuiMenu push_tick grace in
- *      inputctx.c fires for SDL_KEYDOWN only — SDL_CONTROLLERBUTTONDOWN is
- *      not grace-guarded so the button-up edge from the OPEN press can
- *      survive into the first !IsWindowAppearing frame of the new menu.
- *   2. ImGui's gamepad / keyboard IsKeyPressed edge-detection fires true on
- *      that frame because the ImGui event queue processed the press AFTER
- *      the new window was marked appearing.
- * The IsWindowAppearing guard alone catches case 2 only when the edge lands
- * on the appearing frame.  The 150 ms timestamp guard catches the case
- * where the edge slips to the frame-after-appearing. */
-static u32 s_MainMenuOpenedTick = 0;
-#define MAIN_MENU_CLOSE_GRACE_MS 150
+/* B-131 (2026-04-11) historical: tracked menu-open wall-clock for a
+ * 150 ms grace that suppressed the cancel handler. Replaced by the
+ * actionmapFlushActionSet({MENU_CANCEL/ACCEPT/USE/CANCEL_USE}) call in
+ * the IsWindowAppearing branch below (2026-05-02 follow-up). The flush
+ * clears the source of stale cancel edges so the broad timestamp grace
+ * is no longer needed and was eating legitimate fast user closes. */
 
 /* Helper: draw PD dialog window frame + title, return content start Y */
 static float drawPdWindowFrame(float dialogX, float dialogY, float dialogW,
@@ -5352,9 +5340,6 @@ static s32 renderMainMenu(struct menudialog *dialog,
         ImGui::SetWindowFocus();
         pdguiMainMenuSetView(0, "window-open"); /* Always open to main menu */
         s_NeedsFocus = true;
-        /* B-131: stamp the open time so the close handler can grace-guard
-         * the first MAIN_MENU_CLOSE_GRACE_MS of this appearance. */
-        s_MainMenuOpenedTick = SDL_GetTicks();
         /* B-131: clear the stale Escape / GamepadFaceRight edges that the
          * opening press queued into ImGui's input queue before this window
          * existed.  Without this, a gamepad B-button or keyboard Escape
@@ -5374,6 +5359,25 @@ static s32 renderMainMenu(struct menudialog *dialog,
         nio.AddKeyEvent(ImGuiKey_GamepadStart, false);
         nio.AddKeyEvent(ImGuiKey_GamepadFaceDown, false);
         nio.AddKeyEvent(ImGuiKey_Enter, false);
+        /* 2026-05-02 fix (input/menu pillar follow-up): also flush the
+         * actionmap-side pressed/released edges for the menu cancel /
+         * accept actions. The AddKeyEvent calls above clear ImGui's
+         * input state, but pdguiMenuCancelPressed / pdguiMenuAcceptPressed
+         * read actionPressed(0, ACTION_MENU_CANCEL/ACCEPT) which queries
+         * the actionmap layer's own per-frame edge flags. Without this
+         * flush, a stale "pressed" edge from the opening press (or the
+         * close press from a recent menu close + reopen cycle) survives
+         * into the new menu's first input-read frame and the cancel
+         * handler eats the user's first intentional close press --
+         * Mike's "press B twice on reopen" symptom. Flushing both
+         * cancel-equivalent and accept-equivalent actions covers both
+         * the close and the auto-select-first-button regressions. */
+        InputAction menuOpenFlushActions[] = {
+            ACTION_MENU_CANCEL, ACTION_MENU_ACCEPT,
+            ACTION_USE,         ACTION_CANCEL_USE,
+        };
+        actionmapFlushActionSet(menuOpenFlushActions,
+                                (s32)(sizeof(menuOpenFlushActions) / sizeof(menuOpenFlushActions[0])));
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu OPEN");
     }
     pdguiMainMenuSetView(s_MenuView, "render-sync");
@@ -5418,40 +5422,25 @@ static s32 renderMainMenu(struct menudialog *dialog,
      * Sub-views (Play, Settings) -> back to top-level
      * Top-level -> close menu entirely (return to CI free-roam)
      *
-     * Guard: skip on the frame the window first appears. When the user
-     * presses B/Escape to close the menu and then reopens it, ImGui's
-     * key state can still report IsKeyPressed=true on the first frame,
-     * which would immediately close the menu again.
+     * Guard: skip on the frame the window first appears. The
+     * actionmapFlushActionSet call at IsWindowAppearing above clears
+     * any stale pressed-edge for ACTION_MENU_CANCEL / ACCEPT / USE /
+     * CANCEL_USE, so the slip-frame race (B-131 timestamp grace was
+     * the prior backstop) cannot fire spuriously here.
      *
-     * B-131 extra guard (2026-04-11): also suppress the close check for
-     * MAIN_MENU_CLOSE_GRACE_MS after the appearance timestamp.  The
-     * IsWindowAppearing guard alone only covers frame N (appearing frame);
-     * if ImGui processes the opening keypress on frame N+1 instead of
-     * frame N (backend / hotswap timing, deferred input pump), the
-     * IsKeyPressed edge fires on N+1 where !IsWindowAppearing is true.
-     * The timestamp guard catches that second-frame case. */
-    u32 nowTick = SDL_GetTicks();
-    u32 sinceOpen = nowTick - s_MainMenuOpenedTick;
-    bool closeGracePending = (sinceOpen < MAIN_MENU_CLOSE_GRACE_MS);
-
-    /* S306 input-bug fix: include the direct title-close channel
-     * alongside the Escape / B-button edges. Fixes the reported bug
-     * where clicking the X on Settings needed two attempts - ImGui's
-     * own nav was eating the first Escape edge before the renderer's
-     * IsKeyPressed saw it. pdguiConsumeTitleClose returns 1 at most
-     * once per X click and resets the flag internally.
-     *
-     * 2026-04-28: the close channel now reads ACTION_CANCEL_USE through
-     * pdgui_nav so keyboard and controller cancel share action-map authority. */
+     * 2026-05-02 fix (input/menu pillar follow-up): the prior
+     * MAIN_MENU_CLOSE_GRACE_MS = 150 ms grace was eating legitimate
+     * fast user closes -- specifically the "press B twice to close on
+     * reopen" symptom Mike reported. The actionmap flush at open is
+     * a more precise replacement: the flush clears the SOURCE of the
+     * stale edge instead of broadly suppressing all cancel input
+     * during a 150 ms window. The B-131 grace is removed. */
     bool titleClose = pdguiConsumeTitleClose() != 0;
     bool actionCancelEdge = pdguiMenuCancelPressed() != 0;
     bool socialSurfaceOpen = pdguiFriendsAnySurfaceIsOpen() != 0;
-    /* titleClose and actionCancelEdge bypass the closeGracePending grace: they
-     * are precise signals (X-button click flag / hardware actionmap edge) that
-     * cannot be spoofed by a queued opening press. */
     if (!ImGui::IsWindowAppearing()
         && !socialSurfaceOpen
-        && (titleClose || (!closeGracePending && actionCancelEdge))) {
+        && (titleClose || actionCancelEdge)) {
         if (s_MenuView != 0) {
             if (s_MenuView == 2) {
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — settings CLOSE (view 2->0)%s",

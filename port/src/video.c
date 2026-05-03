@@ -317,7 +317,16 @@ s32 videoGetVsync(void)
 
 s32 videoGetFramerateLimit(void)
 {
-	vidFramerateLimit = wmAPI->get_target_fps();
+	/* 2026-05-02 fix (input/menu pillar follow-up): return the in-memory
+	 * config value directly instead of querying the wmAPI. The previous
+	 * implementation overwrote vidFramerateLimit with whatever the
+	 * window-manager backend last cached, which could diverge from the
+	 * user's saved choice (e.g., per-frame caps from videoCapFramerate
+	 * or VIDEO_MAX_FPS substitution from videoSetVsync). When configSave
+	 * subsequently wrote the variable to pd.ini, the wmAPI value
+	 * persisted instead of the user's selection -- so framerate did not
+	 * stick across game launches. The variable is the source of truth;
+	 * read it directly. */
 	return vidFramerateLimit;
 }
 
