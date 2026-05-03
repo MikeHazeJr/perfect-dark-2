@@ -13,11 +13,27 @@
 The verbatim JSON ships with two semantics that Mike's 2026-05-03 directive INVERTS:
 
 1. **Player-row LB / RB** in verbatim = "previous / next team first player wrapping" (team-jump). **Project-canonical per Mike Q1** = previous / next tab (universal). This binding doc shows the canonical resolution; the verbatim cells are preserved for reference only.
-2. **Player-row LT / RT** in verbatim = "top / bottom of players list" (list bounds). **Project-canonical per Mike Q2** = section / team / page jump (the team-jump affordance moves here from LB / RB). Again, this binding doc shows the canonical resolution.
+2. **Player-row LT / RT** in verbatim = "top / bottom of players list" (list bounds). **Project-canonical per Mike Q2** = within-panel SkipUp / SkipDown (per Q-A naming, Q-B dynamic walker, Q-C page-jump fallback). On player rows specifically: the team-jump affordance moves here from LB / RB. Action constants: `ACTION_MENU_SKIPUP` / `ACTION_MENU_SKIPDOWN` (per Q-A 2026-05-03; not SECTION_*/GROUP_*).
 
 Quoting Mike's directive: "Source JSON shipped with LB/RB=team-jump, LT/RT=bounds; project-canonical decision per Mike 2026-05-03 INVERTS this -- LB/RB=tab cycle (universal), LT/RT=section/team/page jump."
 
-Every other cell in the binding doc transcribes the verbatim JSON faithfully. Where a cell text below differs from the verbatim, this section explains why.
+## Q4 reconciliation note (2026-05-03 follow-up, INVERTS v2 JSON Y cells)
+
+The verbatim JSON ships with Y bound to "open social menu to allow for invites and whatnot (should have a contextual glyph prompt in the lower right of screen)" on every focusable element of Combat Sim. Mike's Q4 directive (2026-05-03) INVERTS this:
+
+> "The Y-Social menu should be accessible from the Main Menu system and Pause Menu so players can always connect with one another. Glyph in upper right corner docked to the bottom of the Online status, which appears in the same locations (only) as stated above (main menu system and pause menu)"
+
+**Q4 (2026-05-03): Y-Social per-element bindings in v2 JSON SUPERSEDED. Y-Social is restricted to Main Menu + Pause Menu only. On Combat Sim, Y is undefined (no-op).** Per Rule 10 (skip-empty-bindings), an undefined input gets no focus stop, no glyph hint, and no screen-level handler.
+
+Translation for the per-element tables below: every Y cell that says "open social menu to allow for invites and whatnot..." is OVERRIDDEN. Canonical resolution = Y is undefined / no-op on Combat Sim. The pre-existing per-row Y reuse on bot rows for multi-select (`pdgui_menu_room.cpp` ~line 2100, "Ctrl/Shift/Y to multi-select") is a separate per-row reuse of the same physical button and is NOT a Y-Social binding; flagged for c086 follow-up to disambiguate (either remove the per-row Y to honor the universal undefined contract, or document the deviation inline in the source-file header per the grammar doc methodology).
+
+Y-Social rollouts on Main Menu + Pause Menu are tracked in kanban c087 (Main Menu) and c088 (Pause Menu), priority 2 each.
+
+## Q-E reconciliation note (B-double-press regression cohort)
+
+The B-double-press regression fix at commit `9b6d2a9c` (`actionmapFlushActionSet` on menu IsWindowAppearing) stays as-is. Per Mike's Q-E (2026-05-03): "Fix it, if we happen to get a regression later we will go with a deeper protection. It will only break during development, so we will try to avoid the bug by just following standards to prevent it and similar." No preemptive deeper protection is added; no new test cohort. Contract-discipline-based, not test-suite-based. Future regression triggers a deeper protection layer at that point.
+
+Every other cell in the binding doc transcribes the verbatim JSON faithfully. Where a cell text below differs from the verbatim, the corresponding Q-block above explains why.
 
 ## Visual reference
 
@@ -47,7 +63,7 @@ The four top tabs (`tab.combatsim`, `tab.campaign`, `tab.coop`, `tab.editor`) al
 When the focus IS on a tab strip header (entered via D-pad Up from below or by Start where applicable):
 - A: activate tab (switch to its content)
 - B: Rule 4 exit modal
-- Y: Rule 6 social
+- Y: **UNDEFINED on Combat Sim per Q4 (no Rule 6 binding here)**
 - LB / RB: Rule 7 cycle (no-op since already on tab strip; or: cycle to sibling tab)
 - All other inputs: idle per verbatim
 
@@ -75,7 +91,7 @@ All bindings empty per verbatim. Same implementation pattern as section headers.
 
 ### Left-panel interactive rows (13)
 
-All 13 rows share the same shape (D-pad / L-stick column traversal + cross-panel; A activates type-specific; B Rule 4 modal; Y Rule 6 social; LB / RB Rule 7 tab cycle (canonical, NOT in verbatim cells which are empty); LT / RT Rule 8 section-jump (canonical, NOT in verbatim cells); R-stick / sticks-click / Select universally idle; Start universally empty for left-panel rows).
+All 13 rows share the same shape (D-pad / L-stick column traversal + cross-panel; A activates type-specific; B Rule 4 modal; **Y is UNDEFINED on Combat Sim per Q4 inversion (no Rule 6 binding here)**; LB / RB Rule 7 tab cycle (canonical, NOT in verbatim cells which are empty); LT / RT Rule 8 SkipUp/SkipDown (canonical, NOT in verbatim cells; left-panel walker = section-header jump); R-stick / sticks-click / Select universally idle; Start universally empty for left-panel rows).
 
 | ID | Type | A (verbatim) | D-pad U | D-pad D | D-pad R (cross-panel) |
 |----|------|--------------|---------|---------|------------------------|
@@ -96,7 +112,7 @@ For all 12 rows above:
 
 - **B**: bring up 'exit combat simulator' modal (Rule 4)
 - **X**: empty in verbatim. Rule 5 designates X for context menus where applicable; left-panel rows have no designed context menu in v2. **Future fill welcome, not required for v2 conformance.**
-- **Y**: open social menu to allow for invites and whatnot (should have a contextual glyph prompt in the lower right of screen) (Rule 6 + CC4)
+- **Y**: **UNDEFINED on Combat Sim per Q4 (verbatim "open social menu..." cell SUPERSEDED). No Rule 6 binding, no glyph hint. Y-Social lives on Main Menu + Pause Menu only; rollouts in kanban c087 / c088.**
 - **L-stick U/D/L/R**: mirror D-pad (Rule 1, verbatim text identical to D-pad cells)
 - **R-stick U/D/L/R**: empty in verbatim (Rule 2: no enclosing scroll surface for left-panel rows; correct as designed)
 - **L-stick click / R-stick click**: empty (Rule 9 reserved)
@@ -121,7 +137,7 @@ For all 12 rows above:
 | A | Open drop down |
 | B | bring up 'exit combat simulator' modal (Rule 4) |
 | X | empty in verbatim. No designed context menu in v2. |
-| Y | open social menu... (Rule 6) |
+| Y | **UNDEFINED on Combat Sim per Q4 (no Rule 6 here)** |
 | LB | empty in verbatim. **CANONICAL: Rule 7 previous tab cycle.** |
 | RB | empty in verbatim. **CANONICAL: Rule 7 next tab cycle.** |
 | LT | empty in verbatim. **CANONICAL per Q2: above team.1 divider so LT no-op (no grouping above row.teamsort in right panel).** |
@@ -177,7 +193,7 @@ For all 8 player rows:
 | A | select / deselect character (Rule 3) |
 | B | bring up 'exit combat simulator' modal (Rule 4) |
 | X | context menu, change team or set temp character, bot settings, remove bot (Rule 5 per-row overflow) |
-| Y | open social menu... (Rule 6 + CC4) |
+| Y | **UNDEFINED on Combat Sim per Q4 (no Rule 6 binding here)** |
 | Start | move to Start Match button (Rule 9 right-panel pattern) |
 | Select / Back | (empty) (Rule 9 reserved) |
 
@@ -197,7 +213,7 @@ For all 8 player rows:
 | A | add bot if able (Rule 3) | (unchanged) |
 | B | bring up 'exit combat simulator' modal (Rule 4) | (unchanged) |
 | X | context menu (fill, remove all) (Rule 5 per-row overflow) | (unchanged) |
-| Y | open social menu... (Rule 6 + CC4) | (unchanged) |
+| Y | **UNDEFINED on Combat Sim per Q4 (no Rule 6 binding here)** | (unchanged) |
 | LB | (empty) | **CANONICAL: Rule 7 previous tab cycle.** |
 | RB | (empty) | **CANONICAL: Rule 7 next tab cycle.** |
 | LT | (empty) | **CANONICAL per Q2: previous group = jump to last team's first player.** |
@@ -221,7 +237,7 @@ For all 8 player rows:
 | A | start match (Rule 3) |
 | B | bring up 'exit combat simulator' modal (Rule 4) |
 | **X** | **Queue Match (stores an array of match start settings and cycles them as matches end; host can either 'end game' or 'skip match' in their pause menu); display number of queued match settings.** (Rule 5 screen-local feature shortcut; deferred P3 feature -- see grammar doc Deferred section + kanban c081) |
-| Y | open social menu... (Rule 6 + CC4) |
+| Y | **UNDEFINED on Combat Sim per Q4 (no Rule 6 binding here)** |
 | LB | (empty) -> **CANONICAL: Rule 7 previous tab cycle.** |
 | RB | (empty) -> **CANONICAL: Rule 7 next tab cycle.** |
 | LT | (empty) -> **CANONICAL: Rule 8 no-op (footer below all groupings).** |
@@ -240,7 +256,7 @@ For all 8 player rows:
 | **A** | **bring up 'exit combat simulator' modal (Rule 4 A+B convergence -- the link's primary action IS destructive, so A and B converge on the same modal)** |
 | **B** | **bring up 'exit combat simulator' modal (Rule 4 A+B convergence)** |
 | X | (empty) -- no per-row context menu for the back link |
-| Y | open social menu... (Rule 6 + CC4) |
+| Y | **UNDEFINED on Combat Sim per Q4 (no Rule 6 binding here)** |
 | LB | (empty) -> **CANONICAL: Rule 7 previous tab cycle.** |
 | RB | (empty) -> **CANONICAL: Rule 7 next tab cycle.** |
 | LT | (empty) -> **CANONICAL: Rule 8 no-op.** |

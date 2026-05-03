@@ -1,5 +1,71 @@
 # Session Log (Active)
 
+## Session S609-trifecta-2 (`goofy-knuth-0ef04f` continuation) - 2026-05-03 - Q-A/Q-B/Q-C/Q4/Q-E spec follow-up
+
+Mike resolved 5 outstanding spec decisions (Q-A through Q-E) on top of the S609-trifecta foundation that just shipped to dev as `24e9b67e`. All 5 land in this session as one coherent unit per `feedback_complete_unit_shipping`.
+
+### Q-A -- Action constant naming for LT/RT
+
+`ACTION_MENU_SECTION_PREV` / `ACTION_MENU_SECTION_NEXT` renamed to `ACTION_MENU_SKIPUP` / `ACTION_MENU_SKIPDOWN` (skip-noun semantic, "skip past the next chunk" rather than "jump to a typed boundary"). Files updated: [`port/include/actionmap.h`](../port/include/actionmap.h) (enum + comment block), [`port/src/actionmap.cpp`](../port/src/actionmap.cpp) (5 sites: 2 IMC binds in setupMenuDefaults + 2 in setupPauseMenuDefaults + 2 entries in actionIsGameplayOnly classifier), [`port/include/pdgui_nav.h`](../port/include/pdgui_nav.h) (helper decls + comment), [`port/src/pdgui_nav.c`](../port/src/pdgui_nav.c) (helper impls), [`tests/actionmap_pure.h`](../tests/actionmap_pure.h) (mirror enum), [`tests/actionmap_pure.c`](../tests/actionmap_pure.c) (mirror classifier), [`port/fast3d/pdgui_menu_room.cpp`](../port/fast3d/pdgui_menu_room.cpp) (call sites at the SkipUp/SkipDown poll). Numeric values preserved: SKIPUP = 105, SKIPDOWN = 106.
+
+### Q-B -- Dynamic walker contract
+
+Per Mike: "Dynamic walker is the only real choice as we have a fully dynamic system." Each screen exposes a callback (or interface method) that, given current focus, returns the next/previous skip target within the focused panel. No static-metadata fallback as the universal contract. The Combat Sim Room's existing per-row team-jump computation is the reference implementation (walks team boundaries from the sorted unified row list); the contract is documented in grammar doc Rule 8 dynamic-walker block.
+
+### Q-C -- LT/RT page-jump fallback for flat lists
+
+Per Mike: "Page Jump, within the same panel, otherwise no-op." LT/RT NEVER crosses panels (D-pad does cross-panel; LT/RT stays in the focused panel's scroll). For flat scrollable lists with no groups, page-jump by visible-row-count within the panel scroll. Implemented in [`port/fast3d/pdgui_menu_room.cpp`](../port/fast3d/pdgui_menu_room.cpp) renderPlayerPanel: when teamsOff, page-jumps by `kPageRows = 5` rows (approximate visible-row-count heuristic; precise value can be refined). Boundary clamps to first / last row per Rule 1 + Rule 8 no-wrap. New `s_FocusedRowCached` static tracks the focused row index so jumps compute relative to where the user is.
+
+### Q4 -- Y-Social scope inversion (INVERTS v2 JSON)
+
+Per Mike's verbatim 2026-05-03:
+
+> "The Y-Social menu should be accessible from the Main Menu system and Pause Menu so players can always connect with one another. Glyph in upper right corner docked to the bottom of the Online status, which appears in the same locations (only) as stated above (main menu system and pause menu)"
+
+The v2 JSON shipped Y bound to social on every Combat Sim element. Q4 SUPERSEDES that: Y-Social is restricted to Main Menu + in-game Pause Menu only. On Combat Sim / Forge / Settings / etc., Y is undefined per Rule 10 -- no focus stop, no glyph hint. Removed the Y-poll + `pdguiFriendsSocialOpen` call from [`pdgui_menu_room.cpp`](../port/fast3d/pdgui_menu_room.cpp) `pdguiRoomScreenRender`; replaced with a comment block explaining the Q4 reconciliation. Removed the now-dead forward declarations of `pdguiFriendsSocialOpen` / `pdguiFriendsSocialIsOpen`.
+
+Pre-existing per-row Y multi-select on bot rows (room.cpp ~line 2100, "Ctrl/Shift/Y to multi-select") is a SEPARATE per-row reuse of the same physical button (NOT a Y-Social binding); flagged in binding doc Q4 reconciliation for c086 follow-up to disambiguate. Y-Social rollouts on Main Menu (c087) and Pause Menu (c088) added to kanban with priority 2.
+
+### Q-E -- B-double-press regression cohort
+
+Per Mike: "Fix it, if we happen to get a regression later we will go with a deeper protection. It will only break during development, so we will try to avoid the bug by just following standards to prevent it and similar." The 9b6d2a9c fix stays as-is. No new test cohort. Captured in grammar doc Rule 6 edge cases block and binding doc Q-E reconciliation note.
+
+### Doc + memory + kanban updates
+
+- **Grammar doc** ([`menu-input-interaction-grammar.md`](designs/input-menu/menu-input-interaction-grammar.md)): Rule 6 scope tightened to Main Menu + Pause Menu only with the verbatim Q4 quote. Rule 8 rewritten with within-panel constraint, dynamic walker contract, page-jump fallback table, action-map binding section updated to SKIPUP/SKIPDOWN. CC4 reframed for Main+Pause-only scope. Open-decisions section replaced with a Resolved-decisions section spanning Q1 through Q-E. Decision A through E legacy sub-sections removed.
+- **Binding doc** ([`combat-simulator-binding-doc.md`](designs/input-menu/combat-simulator-binding-doc.md)): Q4 reconciliation block added alongside Q1+Q2 block; Q-E reconciliation note added; every Y cell in every per-element table marked **UNDEFINED on Combat Sim per Q4 (no Rule 6 binding here)**.
+- **Memory** (`feedback_universal_input_grammar.md`): rule list updated for Q4 / Q-A / Q-B / Q-C / Q-E. Description field reframed.
+- **Kanban**: c086 description updated for SKIPUP rename + Q4 disambiguation. c087 (Y-Social Main Menu, P2) + c088 (Y-Social Pause Menu, P2) + c089 (this trifecta-2 spec follow-up unit, done) + c090 (codebase sweep, P3) added.
+
+### Files changed (10)
+
+| File | Lines | What |
+|------|-------|------|
+| [`port/include/actionmap.h`](../port/include/actionmap.h) | +14 / -13 | SECTION_PREV/NEXT -> SKIPUP/SKIPDOWN with Q-A/Q-B/Q-C rationale comment |
+| [`port/src/actionmap.cpp`](../port/src/actionmap.cpp) | +10 / -10 | Section_* -> Skip* in 5 sites (binds + classifier) |
+| [`port/include/pdgui_nav.h`](../port/include/pdgui_nav.h) | +14 / -11 | Helper rename + Q-A/Q-B/Q-C rationale |
+| [`port/src/pdgui_nav.c`](../port/src/pdgui_nav.c) | +4 / -4 | Helper impls renamed |
+| [`port/fast3d/pdgui_menu_room.cpp`](../port/fast3d/pdgui_menu_room.cpp) | +96 / -79 | Y -> social removed; helper renamed at call sites; page-jump fallback added in renderPlayerPanel; s_FocusedRowCached added |
+| [`tests/actionmap_pure.h`](../tests/actionmap_pure.h) | +2 / -2 | Mirror enum renamed |
+| [`tests/actionmap_pure.c`](../tests/actionmap_pure.c) | +2 / -2 | Mirror classifier renamed |
+| [`context/designs/input-menu/menu-input-interaction-grammar.md`](designs/input-menu/menu-input-interaction-grammar.md) | +95 / -45 | Rule 6 scope + Rule 8 rewrite + CC4 + Resolved decisions Q-A through Q-E |
+| [`context/designs/input-menu/combat-simulator-binding-doc.md`](designs/input-menu/combat-simulator-binding-doc.md) | +24 / -12 | Q4 + Q-E reconciliation blocks; every Y cell marked UNDEFINED |
+| [`tools/kanban/state.json`](../tools/kanban/state.json) | +37 | c086 description update + c087 + c088 + c089 + c090 |
+
+### Build verify (planned)
+
+Queued via `devtools/build-session.ps1 -Session goofy317x -Target all` after the kanban + context commit. Targets: client + updater + server + tests. Per `feedback_zero_dll`: zero new dynamic deps.
+
+### Auto-merge (planned)
+
+Pre-merge dev HEAD: `24e9b67e` (the trifecta-1 merge). Worktree branch will be at the new code commit + kanban/context commit. Auto-merge to dev with line-count snapshot + post-merge verify per `feedback_auto_merge_by_default`.
+
+### [CONTEXT STATE]
+
+Will surface the `[CONTEXT STATE: turns=N, compactions=N, self-assessment=...]` annotation when this trifecta-2 unit lands and merges to dev.
+
+---
+
 ## Session S609-trifecta (`goofy-knuth-0ef04f`) - 2026-05-03 - Combat Sim B-315 fix + universal grammar foundation (B-317)
 
 Mike's playtest after the v2 grammar doc shipped at `403e7f1f` surfaced three issues that needed to ship as one coherent unit per `feedback_complete_unit_shipping`:

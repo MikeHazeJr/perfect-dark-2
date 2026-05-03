@@ -54,15 +54,22 @@ s32 pdguiMenuTabNextPressed(void);
 s32 pdguiMenuSecondaryPressed(void);
 s32 pdguiMenuTertiaryPressed(void);
 s32 pdguiMenuDeletePressed(void);
-/* Rule 8 (2026-05-03): LT/RT section/group/team/page jump.
- * Per menu-input-interaction-grammar.md Rule 8 + Combat Sim binding spec
- * v2 Q2 inversion. Bound to LT/RT (gamepad) and Home/End (kbd) on the
- * menu and pause-menu IMCs in actionmap.cpp. The "section" semantic is
- * per-menu: previous/next team's first player in player rosters,
- * previous/next section header in long flat lists, page-jump in
- * paginated content. Boundary case: stays on boundary, no wrap. */
-s32 pdguiMenuSectionPrevPressed(void);
-s32 pdguiMenuSectionNextPressed(void);
+/* Rule 8 (2026-05-03): LT/RT skip-up / skip-down.
+ *
+ * Renamed per Mike's Q-A 2026-05-03 from SectionPrev/Next to SkipUp/Down --
+ * the skip-noun semantic emphasises "skip past the next chunk" rather
+ * than "jump to a typed boundary". Bound to LT/RT (gamepad) and Home/End
+ * (kbd) on g_ImcMenu + g_ImcPauseMenu in actionmap.cpp. Each screen
+ * implements a dynamic walker (Mike's Q-B: "Dynamic walker is the only
+ * real choice as we have a fully dynamic system") that, given current
+ * focus, returns the next/previous skip target within the focused panel.
+ * Per Mike's Q-C: page-jump within the same panel is the fallback for
+ * flat lists with no groups; LT/RT NEVER crosses panels (D-pad does
+ * cross-panel; LT/RT stays in the focused panel's scroll). Boundary
+ * case: stays on boundary, no wrap. Idle on screens with neither groups
+ * NOR scroll (per the skip-empty-bindings Rule 10). */
+s32 pdguiMenuSkipUpPressed(void);
+s32 pdguiMenuSkipDownPressed(void);
 s32 pdguiMenuUpRepeat(void);
 s32 pdguiMenuDownRepeat(void);
 s32 pdguiMenuLeftRepeat(void);
