@@ -1775,6 +1775,27 @@ f32 botCalculateMaxSpeed(struct chrdata *chr)
 		}
 	}
 
+	/* S593h-followup-2 (2026-05-02): swarm-test bot speed cap.
+	 * Mike playtest: "the skedar guys in our benchmark are WAY too
+	 * fast right now."
+	 *
+	 * Swarm bots use BOTTYPE_SPEED for the AI hostility profile,
+	 * which lands them at ~14x natural speed. Combined with the
+	 * small body scale (0.35-0.65 weighted toward small) the visual
+	 * speed feels insane. Cap swarm-locked bots to ~5x while
+	 * leaving the OG MP "Speed Simulant" preset
+	 * (mplayer.c:2230 g_BotProfiles entry that also uses
+	 * BOTTYPE_SPEED) at its original 14x balance.
+	 *
+	 * Gated on the CHRHFLAG 0x00040000 swarm-lock marker set by
+	 * port/src/swarm_test.c at spawn. The cap is a hard ceiling
+	 * (min(speed, 5.0)) rather than a multiplier so the
+	 * downstream crouch / near-waypoint reductions below still
+	 * scale relative to a sane base. */
+	if ((chr->hidden & 0x00040000) && speed > 5.0f) {
+		speed = 5.0f;
+	}
+
 	if (botGuessCrouchPos(chr) == CROUCHPOS_SQUAT) {
 		speed *= 0.35f;
 	} else if (botGuessCrouchPos(chr) == CROUCHPOS_DUCK) {
