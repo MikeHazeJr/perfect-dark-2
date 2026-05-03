@@ -33,11 +33,10 @@
 #include "types.h"
 #include "constants.h"
 #include "fs.h"
-#include "catalog_mgr_bodies.h"
-#include "loader_pool.h"
 #include "loader_enum_reverse.h"
 #include "romextract_pd.h"
 #include "system.h"
+#include "bodydata_authored.h"
 
 /* Convert "base:dark_combat" -> "base_dark_combat". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -51,7 +50,7 @@ static void s_idToFilename(const char *id, char *out, size_t n)
 }
 
 /* Emit one .pdbody. Returns 1 written, 0 skipped, -1 failed. */
-static s32 s_emitOneBody(s32 bodynum, const body_data_t *b,
+static s32 s_emitOneBody(const body_authored_record_t *b,
                           const char *out_dir, s32 force_rewrite)
 {
 	const char *catalog_id = b->catalog_id;
@@ -104,10 +103,8 @@ static s32 s_emitOneBody(s32 bodynum, const body_data_t *b,
 
 s32 romExtractAllPdbody(s32 force_rewrite)
 {
-	/* B-318 (2026-05-03): unconditional run with skip-on-existing.
-	 * See romextract_pdwpn.c for rationale. loaderPoolGetBody returns
-	 * NULL when the bodies pool is inactive, so the inner loop emits
-	 * 0 files when there is no source data. */
+	/* BYOR completion (2026-05-03): walks g_BodyData[] from the
+	 * authoring source-of-truth (port/src/bodydata_authored.c). */
 
 	if (!fsDataDirEnsure()) {
 		sysLoudFailf("EXTRACT.PDBODY",
@@ -126,21 +123,17 @@ s32 romExtractAllPdbody(s32 force_rewrite)
 	s32 written = 0;
 	s32 skipped = 0;
 	s32 failed = 0;
-	s32 total = loaderPoolGetBodiesRegistered();
 
-	for (s32 i = 0; i < CATALOG_MGR_BODY_COUNT; i++) {
-		const body_data_t *b = loaderPoolGetBody(i);
-		if (!b) continue;
-		if (b->catalog_id[0] == '\0') continue;
-		s32 r = s_emitOneBody(i, b, bodies_dir, force_rewrite);
-		if (r > 0)      written++;
+	for (s32 i = 0; i < g_BodyDataCount; i++) {
+		s32 r = s_emitOneBody(&g_BodyData[i], bodies_dir, force_rewrite);
+		if (r > 0)       written++;
 		else if (r == 0) skipped++;
-		else              failed++;
+		else             failed++;
 	}
 
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdbody: written=%d skipped=%d failed=%d total=%d",
-		written, skipped, failed, total);
+		written, skipped, failed, g_BodyDataCount);
 
 	return written;
 }

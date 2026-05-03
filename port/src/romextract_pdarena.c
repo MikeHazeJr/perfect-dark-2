@@ -47,8 +47,6 @@
 #include "types.h"
 #include "constants.h"
 #include "fs.h"
-#include "catalog_mgr_arenas.h"
-#include "loader_pool.h"
 #include "loader_enum_reverse.h"
 #include "modarchive.h"
 #include "romextract.h"
@@ -56,6 +54,7 @@
 #include "sha256.h"
 #include "system.h"
 #include "game/stagetable.h"
+#include "arenadata_authored.h"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -145,8 +144,8 @@ static s32 s_addStageBin(mod_archive_writer_t *aw, u16 filenum,
 }
 
 /* Emit one .pdarena JSON. Returns 1 written, 0 skipped, -1 failed. */
-static s32 s_emitOnePdarena(const arena_data_t *a, const char *out_dir,
-                             s32 force_rewrite)
+static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
+                             const char *out_dir, s32 force_rewrite)
 {
 	const char *catalog_id = a->catalog_id;
 	if (!catalog_id || !catalog_id[0]) return 0;
@@ -180,7 +179,7 @@ static s32 s_emitOnePdarena(const arena_data_t *a, const char *out_dir,
 	fputs("  \"pd_kind\": \"arena\",\n", fp);
 	fputs("  \"pd_schema_version\": 1,\n", fp);
 	fprintf(fp, "  \"id\": \"%s\",\n", catalog_id);
-	fprintf(fp, "  \"arena_index\": %d,\n", (s32)a->arena_index);
+	fprintf(fp, "  \"arena_index\": %d,\n", arena_index);
 	fprintf(fp, "  \"slug\": \"%s\",\n", a->slug);
 	fprintf(fp, "  \"category\": \"%s\",\n", a->category);
 	fprintf(fp, "  \"stagenum\": %d,\n", (s32)a->stagenum);
@@ -196,8 +195,8 @@ static s32 s_emitOnePdarena(const arena_data_t *a, const char *out_dir,
 }
 
 /* Emit one .pdscenario ZIP. Returns 1 written, 0 skipped, -1 failed. */
-static s32 s_emitOnePdscenario(const arena_data_t *a, const char *out_dir,
-                                s32 force_rewrite)
+static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
+                                const char *out_dir, s32 force_rewrite)
 {
 	s32 stage_idx = stageGetIndex(a->stagenum);
 	if (stage_idx < 0) {
@@ -302,10 +301,8 @@ static s32 s_emitOnePdscenario(const arena_data_t *a, const char *out_dir,
 
 s32 romExtractAllPdarena(s32 force_rewrite)
 {
-	/* B-318 (2026-05-03): unconditional run with skip-on-existing.
-	 * See romextract_pdwpn.c for rationale. loaderPoolGetArena returns
-	 * NULL when the arenas pool is inactive, so the inner loop emits
-	 * 0 files when there is no source data. */
+	/* BYOR completion (2026-05-03): walks g_ArenaData[] from the
+	 * authoring source-of-truth (port/src/arenadata_authored.c). */
 
 	if (!fsDataDirEnsure()) {
 		sysLoudFailf("EXTRACT.PDARENA",
@@ -335,14 +332,11 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 	s32 scenarios_written = 0;
 	s32 scenarios_skipped = 0;
 	s32 scenarios_failed = 0;
-	s32 total = loaderPoolGetArenasRegistered();
 
-	for (s32 i = 0; i < CATALOG_MGR_ARENA_COUNT; i++) {
-		const arena_data_t *a = loaderPoolGetArena(i);
-		if (!a) continue;
-		if (a->catalog_id[0] == '\0') continue;
+	for (s32 i = 0; i < g_ArenaDataCount; i++) {
+		const arena_authored_record_t *a = &g_ArenaData[i];
 
-		s32 r1 = s_emitOnePdarena(a, arenas_dir, force_rewrite);
+		s32 r1 = s_emitOnePdarena(a, i, arenas_dir, force_rewrite);
 		if (r1 > 0)      arenas_written++;
 		else if (r1 == 0) arenas_skipped++;
 		else              arenas_failed++;
@@ -355,7 +349,7 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdarena: arenas written=%d skipped=%d failed=%d total=%d",
-		arenas_written, arenas_skipped, arenas_failed, total);
+		arenas_written, arenas_skipped, arenas_failed, g_ArenaDataCount);
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdscenario: written=%d skipped=%d failed=%d",
 		scenarios_written, scenarios_skipped, scenarios_failed);

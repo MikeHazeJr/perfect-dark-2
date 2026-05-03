@@ -24,10 +24,10 @@
 #include "types.h"
 #include "constants.h"
 #include "fs.h"
-#include "loader_pool.h"
 #include "loader_enum_reverse.h"
 #include "romextract_pd.h"
 #include "system.h"
+#include "animdata_authored.h"
 
 /* Map struct guncmd::type to mnemonic + arg-format hint. Mirrors the
  * decoder in loader_pool.c::decodeOpcode so that round-trip parity
@@ -70,6 +70,17 @@ static const opcode_meta_t *s_lookupOpMeta(s32 type)
 	return NULL;
 }
 
+/* Resolve a guncmd* anim pointer to its "invanim_*" name via the
+ * g_AnimData[] iteration table. Returns NULL when not found. */
+static const char *s_animNameForCmds(const struct guncmd *cmds)
+{
+	if (!cmds) return NULL;
+	for (s32 i = 0; i < g_AnimDataCount; i++) {
+		if (g_AnimData[i].cmds == cmds) return g_AnimData[i].name;
+	}
+	return NULL;
+}
+
 static void s_writeStrEscaped(FILE *fp, const char *s)
 {
 	fputc('"', fp);
@@ -104,7 +115,7 @@ static void s_emitOpcode(FILE *fp, const struct guncmd *cmd, s32 last)
 			(unsigned)cmd->unk02, (long long)cmd->unk04);
 		break;
 	case OPFMT_U16_ANIMNAME: {
-		const char *aname = loaderPoolAnimationNameForCmds(
+		const char *aname = s_animNameForCmds(
 			(const struct guncmd *)(intptr_t)cmd->unk04);
 		fprintf(fp, ", %u, ", (unsigned)cmd->unk02);
 		s_writeStrEscaped(fp, aname ? aname : "");
@@ -135,7 +146,7 @@ static void s_emitOpcode(FILE *fp, const struct guncmd *cmd, s32 last)
 		break;
 	}
 	case OPFMT_INCLUDE: {
-		const char *aname = loaderPoolAnimationNameForCmds(
+		const char *aname = s_animNameForCmds(
 			(const struct guncmd *)(intptr_t)cmd->unk04);
 		fprintf(fp, ", %u, ", (unsigned)cmd->unk01);
 		s_writeStrEscaped(fp, aname ? aname : "");
@@ -150,16 +161,26 @@ static void s_emitOpcode(FILE *fp, const struct guncmd *cmd, s32 last)
 	fputs(last ? "]\n" : "],\n", fp);
 }
 
+/* Walk a guncmd[] array until GUNCMD_END to count opcodes. */
+static s32 s_countOpcodes(const struct guncmd *cmds)
+{
+	s32 n = 0;
+	if (!cmds) return 0;
+	while (n < 4096) {
+		n++;
+		if (cmds[n - 1].type == GUNCMD_END) break;
+	}
+	return n;
+}
+
 static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 {
-	const char *anim_name = loaderPoolGetAnimationName(anim_idx);
+	if (anim_idx < 0 || anim_idx >= g_AnimDataCount) return 0;
+	const char *anim_name = g_AnimData[anim_idx].name;
 	if (!anim_name || !anim_name[0]) return 0;
 
-	const struct guncmd *cmds = NULL;
-	s32 cmd_count = 0;
-	if (!loaderPoolGetAnimationOpcodes(anim_idx, &cmds, &cmd_count)) {
-		return 0;
-	}
+	const struct guncmd *cmds = g_AnimData[anim_idx].cmds;
+	s32 cmd_count = s_countOpcodes(cmds);
 	if (!cmds || cmd_count <= 0) return 0;
 
 	/* Catalog ID convention: animation names already begin with
@@ -199,10 +220,8 @@ static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 
 s32 romExtractAllPdanim(s32 force_rewrite)
 {
-	/* B-318 (2026-05-03): unconditional run with skip-on-existing.
-	 * See romextract_pdwpn.c for rationale. loaderPoolGetAnimationCount
-	 * returns 0 when pool is inactive, so the inner loop is a no-op and
-	 * emits 0 files. */
+	/* BYOR completion (2026-05-03): walks g_AnimData[] from the
+	 * authoring source-of-truth (port/src/animdata_authored.c). */
 
 	if (!fsDataDirEnsure()) {
 		sysLoudFailf("EXTRACT.PDANIM", "fsDataDirEnsure failed");
@@ -220,18 +239,17 @@ s32 romExtractAllPdanim(s32 force_rewrite)
 	s32 written = 0;
 	s32 skipped = 0;
 	s32 failed = 0;
-	s32 total = loaderPoolGetAnimationCount();
 
-	for (s32 i = 0; i < total; i++) {
+	for (s32 i = 0; i < g_AnimDataCount; i++) {
 		s32 r = s_emitOneAnim(i, anims_dir, force_rewrite);
-		if (r > 0)      written++;
+		if (r > 0)       written++;
 		else if (r == 0) skipped++;
-		else              failed++;
+		else             failed++;
 	}
 
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdanim: written=%d skipped=%d failed=%d total=%d",
-		written, skipped, failed, total);
+		written, skipped, failed, g_AnimDataCount);
 
 	return written;
 }

@@ -30,8 +30,6 @@
 #include "types.h"
 #include "constants.h"
 #include "fs.h"
-#include "catalog_mgr_weapons.h"
-#include "loader_pool.h"
 #include "loader_enum_reverse.h"
 #include "modarchive.h"
 #include "romdata.h"
@@ -39,11 +37,15 @@
 #include "romextract_pd.h"
 #include "sha256.h"
 #include "system.h"
+#include "weapondata_authored.h"
+#include "headdata_authored.h"
+#include "bodydata_authored.h"
 
 /* Track filenums already emitted to avoid duplicate work when multiple
- * weapons share a mesh. Cap matches CATALOG_MGR_WEAPON_COUNT * 2 for
- * hi + lo per weapon plus headroom. */
-#define ROMEXTRACT_PDMESH_SEEN_CAP 256
+ * weapons / heads / bodies share a mesh. Cap covers ~86 weapons * 2
+ * (hi + lo) + 84 head meshes + 68 body meshes + 68 hand meshes plus
+ * dedup headroom. */
+#define ROMEXTRACT_PDMESH_SEEN_CAP 512
 static u16 s_SeenFilenums[ROMEXTRACT_PDMESH_SEEN_CAP];
 static s32 s_SeenCount;
 
@@ -234,9 +236,11 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 
 s32 romExtractAllPdmesh(s32 force_rewrite)
 {
-	/* B-318 (2026-05-03): unconditional run with skip-on-existing.
-	 * See romextract_pdwpn.c for rationale (gate-removal breaks the
-	 * walker deadlock; inner loop tolerates an empty pool). */
+	/* BYOR completion (2026-05-03): walks weapon hi/lo + head mesh +
+	 * body mesh + body hand mesh from the authoring source-of-truth.
+	 * Per schema 2.5, every .pdwpn / .pdhead / .pdbody / .pdbody hand
+	 * field references a .pdmesh entry; this single emitter produces
+	 * the full superset so cross-references resolve. */
 
 	if (!fsDataDirEnsure()) {
 		sysLoudFailf("EXTRACT.PDMESH", "fsDataDirEnsure failed");
@@ -257,21 +261,33 @@ s32 romExtractAllPdmesh(s32 force_rewrite)
 	s32 skipped = 0;
 	s32 failed = 0;
 
-	for (s32 i = 0; i < CATALOG_MGR_WEAPON_COUNT; i++) {
-		const struct weapon *wpn = loaderPoolGetWeapon(i);
+	#define ACC(call) do { s32 _r = (call); \
+		if (_r > 0) written++; else if (_r == 0) skipped++; else failed++; \
+	} while (0)
+
+	/* Weapon meshes (hi/lo). */
+	for (s32 i = 0; i < g_WeaponDataCount; i++) {
+		const struct weapon *wpn = g_WeaponData[i];
 		if (!wpn) continue;
-
-		s32 r;
-		r = s_emitOneMesh(wpn->hi_model, "hi", meshes_dir, force_rewrite);
-		if (r > 0)      written++;
-		else if (r == 0) skipped++;
-		else              failed++;
-
-		r = s_emitOneMesh(wpn->lo_model, "lo", meshes_dir, force_rewrite);
-		if (r > 0)      written++;
-		else if (r == 0) skipped++;
-		else              failed++;
+		ACC(s_emitOneMesh(wpn->hi_model, "hi", meshes_dir, force_rewrite));
+		ACC(s_emitOneMesh(wpn->lo_model, "lo", meshes_dir, force_rewrite));
 	}
+
+	/* Head meshes (CHEAD_*). */
+	for (s32 i = 0; i < g_HeadDataCount; i++) {
+		ACC(s_emitOneMesh(g_HeadData[i].filenum, NULL, meshes_dir, force_rewrite));
+	}
+
+	/* Body meshes (CBODY_*) and first-person hand meshes (GHAND_*). */
+	for (s32 i = 0; i < g_BodyDataCount; i++) {
+		ACC(s_emitOneMesh(g_BodyData[i].filenum, NULL, meshes_dir, force_rewrite));
+		if (g_BodyData[i].handfilenum != 0) {
+			ACC(s_emitOneMesh(g_BodyData[i].handfilenum, "hand",
+				meshes_dir, force_rewrite));
+		}
+	}
+
+	#undef ACC
 
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdmesh: written=%d skipped=%d failed=%d unique_filenums=%d",
