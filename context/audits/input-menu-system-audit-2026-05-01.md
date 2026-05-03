@@ -484,3 +484,26 @@ These items are architecturally significant and should land before code:
 5. **I.3 OG hudmsg removal vs guard.** Simple removal is cleaner; guard via a "is ImGui killfeed active" predicate is more defensive but adds a runtime branch. Default proposal: simple removal since the policy is `imgui-menus-replace-legacy`.
 
 Phase 2 begins after Mike weighs in. Methodology gates and stop conditions remain in effect.
+
+---
+
+## Phase 2 outcome + Combat Simulator binding spec alignment (2026-05-03)
+
+Phase 2's 9-fix sequence shipped 2026-04-27 through 2026-05-03 (commits 56ea32ac, 10ad8ca1, 94aae1b7, b163760c, 10f29f26, plus parallel-session fixes #1, #2, #3, #6). Two follow-up UX bugs (framerate persistence + B-double-press menu reopen) shipped as bundled commit 9b6d2a9c.
+
+The Combat Simulator binding spec v2 (2026-05-03 directive from Mike) is now the canonical universal grammar for menu input. Three artefacts:
+
+- [menu-input-interaction-grammar.md](../designs/input-menu/menu-input-interaction-grammar.md) -- 9-rule universal grammar with cross-cutting invariants (CC1-CC5), Phase 2 fix alignment table, Mike's Q1-Q5 decisions folded in.
+- [combat-simulator-binding-doc.md](../designs/input-menu/combat-simulator-binding-doc.md) -- per-element implementation spec with full per-cell fidelity from verbatim 1085-line JSON, with explicit Q1+Q2 reconciliation block.
+- [combat-simulator-bindings-v2.json](../designs/input-menu/combat-simulator-bindings-v2.json) -- verbatim 1085-line per-element control matrix from Mike's Combat Sim binding tool.
+
+Mike's Q1-Q2 decisions INVERT two cells from the verbatim JSON's player-row bindings:
+
+- **LB / RB**: universal previous / next tab cycle. Verbatim had team-jump on player rows. Canonical decision preserves the existing codebase convention from [pdgui_menu_mainmenu.cpp:1745-1746](../../port/fast3d/pdgui_menu_mainmenu.cpp:1745) (settings tabs IMC) and [pdgui_menu_mainmenu.cpp:4550-4552](../../port/fast3d/pdgui_menu_mainmenu.cpp:4550) (settings handler authority comment).
+- **LT / RT**: universal section / team / page jump (next-larger-grouping-unit advance). Verbatim had list bounds. Team-jump moves here from LB / RB.
+
+This audit's Open Decisions list (items 1-5) is now resolved by the grammar doc; the audit's Phase 2 fix order remains accurate as shipped. Future menu input work consults the grammar doc as canonical source-of-truth; this audit remains the historical record of the gap analysis that motivated v2.
+
+The Queue Match feature (X on Start Match per Rule 5) is logged as kanban card c081 (Input pillar, backlog) for P3 design pass post-grammar-rollout.
+
+Action-map additions confirmed by Mike Q3: `ACTION_MENU_CONTEXT` (X), `ACTION_MENU_SOCIAL` (Y). Recommended for Rule 8: `ACTION_MENU_SECTION_PREV` / `ACTION_MENU_SECTION_NEXT` (Mike to confirm).

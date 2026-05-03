@@ -536,6 +536,14 @@
       "priority": 5,
       "notes": "", "flag": null, "flagged_at": null,
       "created": "2026-05-02T00:00:00Z", "updated": "2026-05-02T00:00:00Z"
+    },
+    {
+      "id": "c081", "title": "Queue Match feature (X on Combat Sim Start Match)",
+      "description": "Universal grammar Rule 5 deferred feature. Stores an array of match start settings and cycles them as matches end. Host can 'end game' or 'skip match' from pause menu. UI badge displays queued count. Design implications: pause menu surface additions, multi-match state machine, queue-config persistence, possible SVC_QUEUE_STATE net message. Defer until universal grammar conformance ships across menus. Source: context/designs/input-menu/menu-input-interaction-grammar.md (Deferred features section).",
+      "pillar": "input", "column": "backlog", "order": 22000,
+      "priority": 4,
+      "notes": "", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
     }
   ]
 }
