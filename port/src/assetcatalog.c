@@ -23,6 +23,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <SDL.h>           /* Engine Phase 4: catalog mutex for parallel walker */
 #include "types.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
@@ -56,6 +57,31 @@ static s32 s_EntryPoolCapacity = 0;            /* allocated capacity */
  * refreshMods).  Consumers cache a local generation and compare to detect
  * stale data without polling the catalog contents. */
 static u32 s_CatalogGeneration = 0;
+
+/* Engine Phase 4 (2026-05-03): single mutex guarding the hash table +
+ * entry pool.  Parallel walker callbacks (loader_walker_*.c) call
+ * assetCatalogResolve / assetCatalogRegister* concurrently, so every
+ * public entry point that touches s_HashTable / s_EntryPool acquires
+ * this mutex.
+ *
+ * Recursion model: typed register wrappers (RegisterMap, RegisterBody,
+ * etc.) hold the lock for the entire body so the entry pointer they
+ * return-fill stays valid across realloc calls from concurrent workers.
+ * Each typed wrapper calls the static `s_registerLocked` helper rather
+ * than re-entering the public `assetCatalogRegister`.  Same pattern for
+ * resolve.
+ *
+ * Leaf mutators that take an `asset_entry_t *` (catalogSetBodyDisplayName,
+ * catalogSetPrimaryFile, etc.) do NOT lock: their caller is already
+ * inside a locked section or holds a stable pointer (boot-time main-
+ * thread call, before walker fan-out).
+ *
+ * Lazy initialisation: assetCatalogInit creates the mutex on first call.
+ * Pre-init usage is no-op-safe (NULL mutex). */
+static SDL_mutex *s_CatalogMutex = NULL;
+
+#define CATALOG_LOCK()    do { if (s_CatalogMutex) SDL_LockMutex(s_CatalogMutex); } while (0)
+#define CATALOG_UNLOCK()  do { if (s_CatalogMutex) SDL_UnlockMutex(s_CatalogMutex); } while (0)
 
 /* ========================================================================
  * Hash Functions
@@ -264,6 +290,16 @@ static s32 getLoadFactor(void)
 
 void assetCatalogInit(void)
 {
+    /* Engine Phase 4: lazy-create the catalog mutex.  We do it here
+     * (not at TU init) so unit tests that exercise the catalog without
+     * SDL_Init still work; SDL_CreateMutex tolerates being called
+     * before SDL_Init for the mutex subsystem. */
+    if (s_CatalogMutex == NULL) {
+        s_CatalogMutex = SDL_CreateMutex();
+    }
+
+    CATALOG_LOCK();
+
     /* Allocate hash table */
     if (s_HashTable != NULL) {
         free(s_HashTable);
@@ -275,6 +311,7 @@ void assetCatalogInit(void)
     if (s_HashTable == NULL) {
         s_HashTableSize = 0;
         s_HashTableCapacity = 0;
+        CATALOG_UNLOCK();
         return;
     }
 
@@ -293,20 +330,25 @@ void assetCatalogInit(void)
 
     if (s_EntryPool == NULL) {
         s_EntryPoolCapacity = 0;
+        CATALOG_UNLOCK();
         return;
     }
 
     /* Zero the pool */
     memset(s_EntryPool, 0, s_EntryPoolCapacity * sizeof(asset_entry_t));
+    CATALOG_UNLOCK();
 }
 
 u32 assetCatalogGetGeneration(void)
 {
+    /* atomic enough; u32 read on any sensible platform is single insn */
     return s_CatalogGeneration;
 }
 
 void assetCatalogClear(void)
 {
+    CATALOG_LOCK();
+
     /* Reset hash table to empty */
     if (s_HashTable != NULL) {
         for (s32 i = 0; i < s_HashTableSize; i++) {
@@ -321,11 +363,16 @@ void assetCatalogClear(void)
 
     s_EntryPoolSize = 0;
     s_CatalogGeneration++;
+
+    CATALOG_UNLOCK();
 }
 
 void assetCatalogClearMods(void)
 {
+    CATALOG_LOCK();
+
     if (s_EntryPool == NULL || s_HashTable == NULL) {
+        CATALOG_UNLOCK();
         return;
     }
 
@@ -359,37 +406,45 @@ void assetCatalogClearMods(void)
     }
 
     s_CatalogGeneration++;
+    CATALOG_UNLOCK();
 }
 
 s32 assetCatalogGetCount(void)
 {
+    CATALOG_LOCK();
     s32 count = 0;
     for (s32 i = 0; i < s_EntryPoolSize; i++) {
         if (s_EntryPool[i].occupied) {
             count++;
         }
     }
+    CATALOG_UNLOCK();
     return count;
 }
 
 s32 assetCatalogGetCountByType(asset_type_e type)
 {
+    CATALOG_LOCK();
     s32 count = 0;
     for (s32 i = 0; i < s_EntryPoolSize; i++) {
         if (s_EntryPool[i].occupied && s_EntryPool[i].type == type) {
             count++;
         }
     }
+    CATALOG_UNLOCK();
     return count;
 }
 
 const asset_entry_t *assetCatalogGetByIndex(s32 index)
 {
-    if (index < 0 || index >= s_EntryPoolSize || !s_EntryPool) {
-        return NULL;
+    CATALOG_LOCK();
+    const asset_entry_t *result = NULL;
+    if (index >= 0 && index < s_EntryPoolSize && s_EntryPool) {
+        const asset_entry_t *e = &s_EntryPool[index];
+        if (e->occupied) result = e;
     }
-    const asset_entry_t *e = &s_EntryPool[index];
-    return e->occupied ? e : NULL;
+    CATALOG_UNLOCK();
+    return result;
 }
 
 s32 assetCatalogGetPoolSize(void)
@@ -401,7 +456,11 @@ s32 assetCatalogGetPoolSize(void)
  * Public API: Registration
  * ======================================================================== */
 
-asset_entry_t *assetCatalogRegister(const char *id, asset_type_e type)
+/* Engine Phase 4: locked-body register helper.  Caller must hold
+ * s_CatalogMutex.  Typed register wrappers below call this directly
+ * under their own lock acquisition so the returned pointer stays
+ * valid across the type-specific field fill. */
+static asset_entry_t *s_registerLocked(const char *id, asset_type_e type)
 {
     if (id == NULL || s_HashTable == NULL || s_EntryPool == NULL) {
         return NULL;
@@ -487,22 +546,28 @@ asset_entry_t *assetCatalogRegister(const char *id, asset_type_e type)
     return entry;
 }
 
+asset_entry_t *assetCatalogRegister(const char *id, asset_type_e type)
+{
+    CATALOG_LOCK();
+    asset_entry_t *entry = s_registerLocked(id, type);
+    CATALOG_UNLOCK();
+    return entry;
+}
+
 asset_entry_t *assetCatalogRegisterMap(const char *id, s32 stagenum,
                                         const char *dirpath)
 {
-    asset_entry_t *entry = assetCatalogRegister(id, ASSET_MAP);
-    if (entry == NULL) {
-        return NULL;
+    CATALOG_LOCK();
+    asset_entry_t *entry = s_registerLocked(id, ASSET_MAP);
+    if (entry) {
+        entry->ext.map.stagenum = stagenum;
+        entry->ext.map.mode = 0;  /* caller will set */
+        if (dirpath != NULL) {
+            strncpy(entry->dirpath, dirpath, FS_MAXPATH - 1);
+            entry->dirpath[FS_MAXPATH - 1] = '\0';
+        }
     }
-
-    entry->ext.map.stagenum = stagenum;
-    entry->ext.map.mode = 0;  /* caller will set */
-
-    if (dirpath != NULL) {
-        strncpy(entry->dirpath, dirpath, FS_MAXPATH - 1);
-        entry->dirpath[FS_MAXPATH - 1] = '\0';
-    }
-
+    CATALOG_UNLOCK();
     return entry;
 }
 
@@ -510,37 +575,33 @@ asset_entry_t *assetCatalogRegisterCharacter(const char *id,
                                              const char *bodyfile,
                                              const char *headfile)
 {
-    asset_entry_t *entry = assetCatalogRegister(id, ASSET_CHARACTER);
-    if (entry == NULL) {
-        return NULL;
+    CATALOG_LOCK();
+    asset_entry_t *entry = s_registerLocked(id, ASSET_CHARACTER);
+    if (entry) {
+        if (bodyfile != NULL) {
+            strncpy(entry->ext.character.bodyfile, bodyfile, FS_MAXPATH - 1);
+            entry->ext.character.bodyfile[FS_MAXPATH - 1] = '\0';
+        }
+        if (headfile != NULL) {
+            strncpy(entry->ext.character.headfile, headfile, FS_MAXPATH - 1);
+            entry->ext.character.headfile[FS_MAXPATH - 1] = '\0';
+        }
+        catalogSetPrimaryFile(entry, entry->ext.character.bodyfile);
     }
-
-    if (bodyfile != NULL) {
-        strncpy(entry->ext.character.bodyfile, bodyfile, FS_MAXPATH - 1);
-        entry->ext.character.bodyfile[FS_MAXPATH - 1] = '\0';
-    }
-    if (headfile != NULL) {
-        strncpy(entry->ext.character.headfile, headfile, FS_MAXPATH - 1);
-        entry->ext.character.headfile[FS_MAXPATH - 1] = '\0';
-    }
-    catalogSetPrimaryFile(entry, entry->ext.character.bodyfile);
-
+    CATALOG_UNLOCK();
     return entry;
 }
 
 asset_entry_t *assetCatalogRegisterSkin(const char *id,
                                         const char *target_id)
 {
-    asset_entry_t *entry = assetCatalogRegister(id, ASSET_SKIN);
-    if (entry == NULL) {
-        return NULL;
-    }
-
-    if (target_id != NULL) {
+    CATALOG_LOCK();
+    asset_entry_t *entry = s_registerLocked(id, ASSET_SKIN);
+    if (entry && target_id != NULL) {
         strncpy(entry->ext.skin.target_id, target_id, CATALOG_ID_LEN - 1);
         entry->ext.skin.target_id[CATALOG_ID_LEN - 1] = '\0';
     }
-
+    CATALOG_UNLOCK();
     return entry;
 }
 
@@ -550,35 +611,33 @@ asset_entry_t *assetCatalogRegisterBotVariant(const char *id,
                                               f32 reaction_time,
                                               f32 aggression)
 {
-    asset_entry_t *entry = assetCatalogRegister(id, ASSET_BOT_VARIANT);
-    if (entry == NULL) {
-        return NULL;
+    CATALOG_LOCK();
+    asset_entry_t *entry = s_registerLocked(id, ASSET_BOT_VARIANT);
+    if (entry) {
+        if (base_type != NULL) {
+            strncpy(entry->ext.bot_variant.base_type, base_type, 31);
+            entry->ext.bot_variant.base_type[31] = '\0';
+        }
+        entry->ext.bot_variant.accuracy = accuracy;
+        entry->ext.bot_variant.reaction_time = reaction_time;
+        entry->ext.bot_variant.aggression = aggression;
     }
-
-    if (base_type != NULL) {
-        strncpy(entry->ext.bot_variant.base_type, base_type, 31);
-        entry->ext.bot_variant.base_type[31] = '\0';
-    }
-    entry->ext.bot_variant.accuracy = accuracy;
-    entry->ext.bot_variant.reaction_time = reaction_time;
-    entry->ext.bot_variant.aggression = aggression;
-
+    CATALOG_UNLOCK();
     return entry;
 }
 
 asset_entry_t *assetCatalogRegisterArena(const char *id, s32 stagenum,
                                           u8 requirefeature, s32 name_langid)
 {
-    asset_entry_t *entry = assetCatalogRegister(id, ASSET_ARENA);
-    if (entry == NULL) {
-        return NULL;
+    CATALOG_LOCK();
+    asset_entry_t *entry = s_registerLocked(id, ASSET_ARENA);
+    if (entry) {
+        entry->ext.arena.stagenum = stagenum;
+        entry->ext.arena.requirefeature = requirefeature;
+        entry->ext.arena.name_langid = name_langid;
+        entry->ext.arena.load_mode = ARENA_LOADMODE_PLAYABLE;
     }
-
-    entry->ext.arena.stagenum = stagenum;
-    entry->ext.arena.requirefeature = requirefeature;
-    entry->ext.arena.name_langid = name_langid;
-    entry->ext.arena.load_mode = ARENA_LOADMODE_PLAYABLE;
-
+    CATALOG_UNLOCK();
     return entry;
 }
 
@@ -586,22 +645,21 @@ asset_entry_t *assetCatalogRegisterBody(const char *id, s16 bodynum,
                                          s16 name_langid, s16 headnum,
                                          u8 requirefeature)
 {
-    asset_entry_t *entry = assetCatalogRegister(id, ASSET_BODY);
-    if (entry == NULL) {
-        return NULL;
+    CATALOG_LOCK();
+    asset_entry_t *entry = s_registerLocked(id, ASSET_BODY);
+    if (entry) {
+        entry->ext.body.bodynum = bodynum;
+        entry->ext.body.name_langid = name_langid;
+        entry->ext.body.headnum = headnum;
+        entry->ext.body.requirefeature = requirefeature;
+        /* B-226: display_name defaults to empty (langbank-backed); callers that
+         * know the correct string call catalogSetBodyDisplayName() after registration. */
+        entry->ext.body.display_name[0] = '\0';
+        /* Issue 10: rig_class defaults to empty; caller sets it via
+         * catalogSetBodyRigClass(). Empty = incompatible with every head. */
+        entry->ext.body.rig_class[0] = '\0';
     }
-
-    entry->ext.body.bodynum = bodynum;
-    entry->ext.body.name_langid = name_langid;
-    entry->ext.body.headnum = headnum;
-    entry->ext.body.requirefeature = requirefeature;
-    /* B-226: display_name defaults to empty (langbank-backed); callers that
-     * know the correct string call catalogSetBodyDisplayName() after registration. */
-    entry->ext.body.display_name[0] = '\0';
-    /* Issue 10: rig_class defaults to empty; caller sets it via
-     * catalogSetBodyRigClass(). Empty = incompatible with every head. */
-    entry->ext.body.rig_class[0] = '\0';
-
+    CATALOG_UNLOCK();
     return entry;
 }
 
@@ -636,15 +694,14 @@ void catalogSetBodyRigClass(asset_entry_t *entry, const char *rig_class)
 asset_entry_t *assetCatalogRegisterHead(const char *id, s16 headnum,
                                          u8 requirefeature)
 {
-    asset_entry_t *entry = assetCatalogRegister(id, ASSET_HEAD);
-    if (entry == NULL) {
-        return NULL;
+    CATALOG_LOCK();
+    asset_entry_t *entry = s_registerLocked(id, ASSET_HEAD);
+    if (entry) {
+        entry->ext.head.headnum = headnum;
+        entry->ext.head.requirefeature = requirefeature;
+        entry->ext.head.rig_class[0] = '\0';
     }
-
-    entry->ext.head.headnum = headnum;
-    entry->ext.head.requirefeature = requirefeature;
-    entry->ext.head.rig_class[0] = '\0';
-
+    CATALOG_UNLOCK();
     return entry;
 }
 
@@ -671,12 +728,16 @@ asset_entry_t *assetCatalogRegisterSfx(const char *id)
 {
     return assetCatalogRegister(id, ASSET_SFX);
 }
+/* (RegisterTextures + RegisterSfx use the public assetCatalogRegister
+ * above so they pick up the lock without further wrapping.) */
 
 /* ========================================================================
  * Public API: Resolution
  * ======================================================================== */
 
-const asset_entry_t *assetCatalogResolve(const char *id)
+/* Engine Phase 4: locked-body resolve helper.  Caller must hold
+ * s_CatalogMutex.  Public wrappers below acquire/release the lock. */
+static const asset_entry_t *s_resolveLocked(const char *id)
 {
     if (id == NULL || s_HashTable == NULL) {
         return NULL;
@@ -703,59 +764,77 @@ const asset_entry_t *assetCatalogResolve(const char *id)
     return entry;
 }
 
+const asset_entry_t *assetCatalogResolve(const char *id)
+{
+    CATALOG_LOCK();
+    const asset_entry_t *entry = s_resolveLocked(id);
+    CATALOG_UNLOCK();
+    return entry;
+}
+
 asset_entry_t *assetCatalogGetMutable(const char *id)
 {
-    if (id == NULL || s_HashTable == NULL) {
-        return NULL;
+    CATALOG_LOCK();
+    asset_entry_t *result = NULL;
+
+    if (id != NULL && s_HashTable != NULL) {
+        u32 id_hash = fnv1a(id);
+        s32 pool_idx = 0;
+        s32 slot = findSlot(id_hash, id, &pool_idx);
+
+        if (slot >= 0 && pool_idx != SENTINEL
+                && pool_idx >= 0 && pool_idx < s_EntryPoolSize) {
+            asset_entry_t *entry = &s_EntryPool[pool_idx];
+            if (entry->occupied) result = entry;
+        }
     }
-
-    u32 id_hash = fnv1a(id);
-    s32 pool_idx = 0;
-    s32 slot = findSlot(id_hash, id, &pool_idx);
-
-    if (slot < 0 || pool_idx == SENTINEL) {
-        return NULL;
-    }
-
-    if (pool_idx < 0 || pool_idx >= s_EntryPoolSize) {
-        return NULL;
-    }
-
-    asset_entry_t *entry = &s_EntryPool[pool_idx];
-    if (!entry->occupied) {
-        return NULL;
-    }
-
-    return entry;
+    CATALOG_UNLOCK();
+    return result;
 }
 
 s32 assetCatalogResolveBodyIndex(const char *id)
 {
-    const asset_entry_t *entry = assetCatalogResolve(id);
-    if (entry == NULL || entry->type != ASSET_CHARACTER) {
-        return -1;
+    /* Public assetCatalogResolve already locks; we just consume the
+     * resolved pointer's runtime_index field while still under that
+     * lock... but the lock is released between the resolve call and
+     * the field read.  In practice runtime_index is set at registration
+     * and never mutated post-walker, so the field read is safe.  If a
+     * concurrent register triggers realloc, we re-resolve under lock. */
+    CATALOG_LOCK();
+    s32 idx = -1;
+    const asset_entry_t *entry = s_resolveLocked(id);
+    if (entry && entry->type == ASSET_CHARACTER) {
+        idx = entry->runtime_index;
     }
-    return entry->runtime_index;
+    CATALOG_UNLOCK();
+    return idx;
 }
 
 s32 assetCatalogResolveStageIndex(const char *id)
 {
-    const asset_entry_t *entry = assetCatalogResolve(id);
-    if (entry == NULL || entry->type != ASSET_MAP) {
-        return -1;
+    CATALOG_LOCK();
+    s32 idx = -1;
+    const asset_entry_t *entry = s_resolveLocked(id);
+    if (entry && entry->type == ASSET_MAP) {
+        idx = entry->runtime_index;
     }
-    return entry->runtime_index;
+    CATALOG_UNLOCK();
+    return idx;
 }
 
 const asset_entry_t *assetCatalogResolveByNetHash(u32 net_hash)
 {
+    CATALOG_LOCK();
+    const asset_entry_t *result = NULL;
     /* Linear scan of entry pool (infrequent, connection-time only) */
     for (s32 i = 0; i < s_EntryPoolSize; i++) {
         if (s_EntryPool[i].occupied && s_EntryPool[i].net_hash == net_hash) {
-            return &s_EntryPool[i];
+            result = &s_EntryPool[i];
+            break;
         }
     }
-    return NULL;
+    CATALOG_UNLOCK();
+    return result;
 }
 
 /* ========================================================================
@@ -769,18 +848,24 @@ void assetCatalogIterateByType(asset_type_e type, asset_iter_fn fn,
      * so disabled mod entries do NOT leak into selectors.  Mirrors the
      * resolve-by-ID semantic at line 697 above.  Modder UIs that legitimately
      * need disabled entries in their listing call
-     * assetCatalogIterateByTypeIncludingDisabled below. */
-    if (fn == NULL || s_EntryPool == NULL) {
-        return;
-    }
-
-    for (s32 i = 0; i < s_EntryPoolSize; i++) {
-        if (s_EntryPool[i].occupied
-                && s_EntryPool[i].enabled
-                && s_EntryPool[i].type == type) {
-            fn(&s_EntryPool[i], userdata);
+     * assetCatalogIterateByTypeIncludingDisabled below.
+     *
+     * Engine Phase 4: lock held throughout iteration.  Callbacks run
+     * under-lock; if a callback re-enters the catalog, that entry point
+     * is locked too -> deadlock on a non-recursive mutex.  No current
+     * caller does that; if a future caller needs nested catalog access,
+     * snapshot the matching entries first and iterate the snapshot. */
+    CATALOG_LOCK();
+    if (fn != NULL && s_EntryPool != NULL) {
+        for (s32 i = 0; i < s_EntryPoolSize; i++) {
+            if (s_EntryPool[i].occupied
+                    && s_EntryPool[i].enabled
+                    && s_EntryPool[i].type == type) {
+                fn(&s_EntryPool[i], userdata);
+            }
         }
     }
+    CATALOG_UNLOCK();
 }
 
 void assetCatalogIterateByTypeIncludingDisabled(asset_type_e type,
@@ -790,32 +875,32 @@ void assetCatalogIterateByTypeIncludingDisabled(asset_type_e type,
     /* Variant for modder UIs (Mod Manager, Modding Hub, Audio Mod author)
      * that need to LIST disabled entries so the user can re-enable them.
      * All other callers must use assetCatalogIterateByType. */
-    if (fn == NULL || s_EntryPool == NULL) {
-        return;
-    }
-
-    for (s32 i = 0; i < s_EntryPoolSize; i++) {
-        if (s_EntryPool[i].occupied && s_EntryPool[i].type == type) {
-            fn(&s_EntryPool[i], userdata);
+    CATALOG_LOCK();
+    if (fn != NULL && s_EntryPool != NULL) {
+        for (s32 i = 0; i < s_EntryPoolSize; i++) {
+            if (s_EntryPool[i].occupied && s_EntryPool[i].type == type) {
+                fn(&s_EntryPool[i], userdata);
+            }
         }
     }
+    CATALOG_UNLOCK();
 }
 
 void assetCatalogIterateByCategory(const char *category, asset_iter_fn fn,
                                     void *userdata)
 {
     /* Same enabled-filter discipline as IterateByType (B-303). */
-    if (category == NULL || fn == NULL || s_EntryPool == NULL) {
-        return;
-    }
-
-    for (s32 i = 0; i < s_EntryPoolSize; i++) {
-        if (s_EntryPool[i].occupied
-                && s_EntryPool[i].enabled
-                && strcmp(s_EntryPool[i].category, category) == 0) {
-            fn(&s_EntryPool[i], userdata);
+    CATALOG_LOCK();
+    if (category != NULL && fn != NULL && s_EntryPool != NULL) {
+        for (s32 i = 0; i < s_EntryPoolSize; i++) {
+            if (s_EntryPool[i].occupied
+                    && s_EntryPool[i].enabled
+                    && strcmp(s_EntryPool[i].category, category) == 0) {
+                fn(&s_EntryPool[i], userdata);
+            }
         }
     }
+    CATALOG_UNLOCK();
 }
 
 /* ========================================================================
@@ -824,23 +909,21 @@ void assetCatalogIterateByCategory(const char *category, asset_iter_fn fn,
 
 s32 assetCatalogHasEntry(const char *id)
 {
-    if (id == NULL || s_HashTable == NULL) {
-        return 0;
+    CATALOG_LOCK();
+    s32 result = 0;
+
+    if (id != NULL && s_HashTable != NULL) {
+        u32 id_hash = fnv1a(id);
+        s32 pool_idx = 0;
+        s32 slot = findSlot(id_hash, id, &pool_idx);
+
+        if (slot >= 0 && pool_idx != SENTINEL
+                && pool_idx >= 0 && pool_idx < s_EntryPoolSize) {
+            result = s_EntryPool[pool_idx].occupied;
+        }
     }
-
-    u32 id_hash = fnv1a(id);
-    s32 pool_idx = 0;
-    s32 slot = findSlot(id_hash, id, &pool_idx);
-
-    if (slot < 0 || pool_idx == SENTINEL) {
-        return 0;
-    }
-
-    if (pool_idx < 0 || pool_idx >= s_EntryPoolSize) {
-        return 0;
-    }
-
-    return s_EntryPool[pool_idx].occupied;
+    CATALOG_UNLOCK();
+    return result;
 }
 
 s32 assetCatalogIsEnabled(const char *id)
@@ -852,21 +935,19 @@ s32 assetCatalogIsEnabled(const char *id)
 s32 assetCatalogGetSkinsForTarget(const char *target_id,
                                    const asset_entry_t **out, s32 maxout)
 {
-    if (target_id == NULL || out == NULL || maxout <= 0) {
-        return 0;
-    }
-
+    CATALOG_LOCK();
     s32 count = 0;
-    for (s32 i = 0; i < s_EntryPoolSize && count < maxout; i++) {
-        if (!s_EntryPool[i].occupied || s_EntryPool[i].type != ASSET_SKIN) {
-            continue;
-        }
-
-        if (strcmp(s_EntryPool[i].ext.skin.target_id, target_id) == 0) {
-            out[count++] = &s_EntryPool[i];
+    if (target_id != NULL && out != NULL && maxout > 0) {
+        for (s32 i = 0; i < s_EntryPoolSize && count < maxout; i++) {
+            if (!s_EntryPool[i].occupied || s_EntryPool[i].type != ASSET_SKIN) {
+                continue;
+            }
+            if (strcmp(s_EntryPool[i].ext.skin.target_id, target_id) == 0) {
+                out[count++] = &s_EntryPool[i];
+            }
         }
     }
-
+    CATALOG_UNLOCK();
     return count;
 }
 
@@ -876,64 +957,84 @@ s32 assetCatalogGetSkinsForTarget(const char *target_id,
 
 void assetCatalogSetEnabled(const char *id, s32 enabled)
 {
-    if (id == NULL || s_HashTable == NULL || s_EntryPool == NULL) {
-        return;
-    }
+    CATALOG_LOCK();
+    if (id != NULL && s_HashTable != NULL && s_EntryPool != NULL) {
+        u32 id_hash = fnv1a(id);
+        s32 pool_idx = 0;
+        s32 slot = findSlot(id_hash, id, &pool_idx);
 
-    u32 id_hash = fnv1a(id);
-    s32 pool_idx = 0;
-    s32 slot = findSlot(id_hash, id, &pool_idx);
-
-    if (slot < 0 || pool_idx == SENTINEL) {
-        return;  /* not found */
-    }
-
-    if (pool_idx >= 0 && pool_idx < s_EntryPoolSize &&
-        s_EntryPool[pool_idx].occupied) {
-        s_EntryPool[pool_idx].enabled = enabled ? 1 : 0;
-        /* Advance REGISTERED → ENABLED on first enable */
-        if (enabled &&
-            s_EntryPool[pool_idx].load_state == ASSET_STATE_REGISTERED) {
-            s_EntryPool[pool_idx].load_state = ASSET_STATE_ENABLED;
+        if (slot >= 0 && pool_idx != SENTINEL
+                && pool_idx >= 0 && pool_idx < s_EntryPoolSize
+                && s_EntryPool[pool_idx].occupied) {
+            s_EntryPool[pool_idx].enabled = enabled ? 1 : 0;
+            /* Advance REGISTERED → ENABLED on first enable */
+            if (enabled &&
+                s_EntryPool[pool_idx].load_state == ASSET_STATE_REGISTERED) {
+                s_EntryPool[pool_idx].load_state = ASSET_STATE_ENABLED;
+            }
         }
     }
+    CATALOG_UNLOCK();
+}
+
+void assetCatalogSetCategoryById(const char *id, const char *category)
+{
+    /* Engine Phase 4: re-resolve under-lock to keep the entry pointer
+     * stable while we copy the category string in.  No-op for missing
+     * id or NULL category. */
+    if (!id || !category) return;
+    CATALOG_LOCK();
+    if (s_HashTable != NULL && s_EntryPool != NULL) {
+        u32 id_hash = fnv1a(id);
+        s32 pool_idx = 0;
+        s32 slot = findSlot(id_hash, id, &pool_idx);
+        if (slot >= 0 && pool_idx != SENTINEL
+                && pool_idx >= 0 && pool_idx < s_EntryPoolSize
+                && s_EntryPool[pool_idx].occupied) {
+            asset_entry_t *entry = &s_EntryPool[pool_idx];
+            size_t n = strlen(category);
+            if (n >= sizeof(entry->category)) n = sizeof(entry->category) - 1;
+            memcpy(entry->category, category, n);
+            entry->category[n] = '\0';
+        }
+    }
+    CATALOG_UNLOCK();
 }
 
 s32 assetCatalogGetUniqueCategories(char out[][CATALOG_CATEGORY_LEN], s32 maxout)
 {
-    if (out == NULL || maxout <= 0 || s_EntryPool == NULL) {
-        return 0;
-    }
-
+    CATALOG_LOCK();
     s32 count = 0;
-    for (s32 i = 0; i < s_EntryPoolSize; i++) {
-        if (!s_EntryPool[i].occupied) {
-            continue;
-        }
+    if (out != NULL && maxout > 0 && s_EntryPool != NULL) {
+        for (s32 i = 0; i < s_EntryPoolSize; i++) {
+            if (!s_EntryPool[i].occupied) {
+                continue;
+            }
 
-        const char *cat = s_EntryPool[i].category;
+            const char *cat = s_EntryPool[i].category;
 
-        /* Skip base category and empty — not user-manageable */
-        if (cat[0] == '\0' || strcmp(cat, "base") == 0) {
-            continue;
-        }
+            /* Skip base category and empty — not user-manageable */
+            if (cat[0] == '\0' || strcmp(cat, "base") == 0) {
+                continue;
+            }
 
-        /* Skip if already in output list */
-        s32 found = 0;
-        for (s32 j = 0; j < count; j++) {
-            if (strcmp(out[j], cat) == 0) {
-                found = 1;
-                break;
+            /* Skip if already in output list */
+            s32 found = 0;
+            for (s32 j = 0; j < count; j++) {
+                if (strcmp(out[j], cat) == 0) {
+                    found = 1;
+                    break;
+                }
+            }
+
+            if (!found && count < maxout) {
+                strncpy(out[count], cat, CATALOG_CATEGORY_LEN - 1);
+                out[count][CATALOG_CATEGORY_LEN - 1] = '\0';
+                count++;
             }
         }
-
-        if (!found && count < maxout) {
-            strncpy(out[count], cat, CATALOG_CATEGORY_LEN - 1);
-            out[count][CATALOG_CATEGORY_LEN - 1] = '\0';
-            count++;
-        }
     }
-
+    CATALOG_UNLOCK();
     return count;
 }
 
@@ -943,44 +1044,39 @@ s32 assetCatalogGetUniqueCategories(char out[][CATALOG_CATEGORY_LEN], s32 maxout
 
 asset_load_state_t assetCatalogGetLoadState(const char *id)
 {
-    if (id == NULL || s_HashTable == NULL || s_EntryPool == NULL) {
-        return ASSET_STATE_REGISTERED;
+    CATALOG_LOCK();
+    asset_load_state_t result = ASSET_STATE_REGISTERED;
+
+    if (id != NULL && s_HashTable != NULL && s_EntryPool != NULL) {
+        u32 id_hash = fnv1a(id);
+        s32 pool_idx = 0;
+        s32 slot = findSlot(id_hash, id, &pool_idx);
+
+        if (slot >= 0 && pool_idx != SENTINEL
+                && pool_idx >= 0 && pool_idx < s_EntryPoolSize
+                && s_EntryPool[pool_idx].occupied) {
+            result = s_EntryPool[pool_idx].load_state;
+        }
     }
-
-    u32 id_hash = fnv1a(id);
-    s32 pool_idx = 0;
-    s32 slot = findSlot(id_hash, id, &pool_idx);
-
-    if (slot < 0 || pool_idx == SENTINEL) {
-        return ASSET_STATE_REGISTERED;  /* not found */
-    }
-
-    if (pool_idx >= 0 && pool_idx < s_EntryPoolSize &&
-        s_EntryPool[pool_idx].occupied) {
-        return s_EntryPool[pool_idx].load_state;
-    }
-
-    return ASSET_STATE_REGISTERED;
+    CATALOG_UNLOCK();
+    return result;
 }
 
 void assetCatalogSetLoadState(const char *id, asset_load_state_t state)
 {
-    if (id == NULL || s_HashTable == NULL || s_EntryPool == NULL) {
-        return;
-    }
+    CATALOG_LOCK();
+    if (id != NULL && s_HashTable != NULL && s_EntryPool != NULL) {
+        u32 id_hash = fnv1a(id);
+        s32 pool_idx = 0;
+        s32 slot = findSlot(id_hash, id, &pool_idx);
 
-    u32 id_hash = fnv1a(id);
-    s32 pool_idx = 0;
-    s32 slot = findSlot(id_hash, id, &pool_idx);
-
-    if (slot < 0 || pool_idx == SENTINEL) {
-        return;  /* not found */
+        if (slot >= 0 && pool_idx != SENTINEL
+                && pool_idx >= 0 && pool_idx < s_EntryPoolSize
+                && s_EntryPool[pool_idx].occupied) {
+            s_EntryPool[pool_idx].load_state = state;
+        }
     }
-
-    if (pool_idx >= 0 && pool_idx < s_EntryPoolSize &&
-        s_EntryPool[pool_idx].occupied) {
-        s_EntryPool[pool_idx].load_state = state;
-    }
+    CATALOG_UNLOCK();
 }
 
 asset_entry_t *assetCatalogRegisterWeapon(const char *id, s32 weapon_id,
@@ -988,23 +1084,22 @@ asset_entry_t *assetCatalogRegisterWeapon(const char *id, s32 weapon_id,
                                            const char *model_file,
                                            s32 dual_wieldable)
 {
-    asset_entry_t *entry = assetCatalogRegister(id, ASSET_WEAPON);
-    if (entry == NULL) {
-        return NULL;
+    CATALOG_LOCK();
+    asset_entry_t *entry = s_registerLocked(id, ASSET_WEAPON);
+    if (entry) {
+        entry->ext.weapon.weapon_id = weapon_id;
+        if (name != NULL) {
+            strncpy(entry->ext.weapon.name, name, 63);
+            entry->ext.weapon.name[63] = '\0';
+        }
+        if (model_file != NULL) {
+            strncpy(entry->ext.weapon.model_file, model_file, 127);
+            entry->ext.weapon.model_file[127] = '\0';
+        }
+        catalogSetPrimaryFile(entry, entry->ext.weapon.model_file);
+        entry->ext.weapon.dual_wieldable = dual_wieldable;
     }
-
-    entry->ext.weapon.weapon_id = weapon_id;
-    if (name != NULL) {
-        strncpy(entry->ext.weapon.name, name, 63);
-        entry->ext.weapon.name[63] = '\0';
-    }
-    if (model_file != NULL) {
-        strncpy(entry->ext.weapon.model_file, model_file, 127);
-        entry->ext.weapon.model_file[127] = '\0';
-    }
-    catalogSetPrimaryFile(entry, entry->ext.weapon.model_file);
-    entry->ext.weapon.dual_wieldable = dual_wieldable;
-
+    CATALOG_UNLOCK();
     return entry;
 }
 
@@ -1013,22 +1108,21 @@ asset_entry_t *assetCatalogRegisterAnimation(const char *id, s32 anim_id,
                                               s32 frame_count,
                                               const char *target_body)
 {
-    asset_entry_t *entry = assetCatalogRegister(id, ASSET_ANIMATION);
-    if (entry == NULL) {
-        return NULL;
+    CATALOG_LOCK();
+    asset_entry_t *entry = s_registerLocked(id, ASSET_ANIMATION);
+    if (entry) {
+        entry->ext.anim.anim_id = anim_id;
+        if (name != NULL) {
+            strncpy(entry->ext.anim.name, name, 63);
+            entry->ext.anim.name[63] = '\0';
+        }
+        entry->ext.anim.frame_count = frame_count;
+        if (target_body != NULL) {
+            strncpy(entry->ext.anim.target_body, target_body, 63);
+            entry->ext.anim.target_body[63] = '\0';
+        }
     }
-
-    entry->ext.anim.anim_id = anim_id;
-    if (name != NULL) {
-        strncpy(entry->ext.anim.name, name, 63);
-        entry->ext.anim.name[63] = '\0';
-    }
-    entry->ext.anim.frame_count = frame_count;
-    if (target_body != NULL) {
-        strncpy(entry->ext.anim.target_body, target_body, 63);
-        entry->ext.anim.target_body[63] = '\0';
-    }
-
+    CATALOG_UNLOCK();
     return entry;
 }
 
@@ -1036,21 +1130,20 @@ asset_entry_t *assetCatalogRegisterTexture(const char *id, s32 texture_id,
                                             s32 width, s32 height, s32 format,
                                             const char *file_path)
 {
-    asset_entry_t *entry = assetCatalogRegister(id, ASSET_TEXTURE);
-    if (entry == NULL) {
-        return NULL;
+    CATALOG_LOCK();
+    asset_entry_t *entry = s_registerLocked(id, ASSET_TEXTURE);
+    if (entry) {
+        entry->ext.texture.texture_id = texture_id;
+        entry->ext.texture.width = width;
+        entry->ext.texture.height = height;
+        entry->ext.texture.format = format;
+        if (file_path != NULL) {
+            strncpy(entry->ext.texture.file_path, file_path, 127);
+            entry->ext.texture.file_path[127] = '\0';
+        }
+        catalogSetPrimaryFile(entry, entry->ext.texture.file_path);
     }
-
-    entry->ext.texture.texture_id = texture_id;
-    entry->ext.texture.width = width;
-    entry->ext.texture.height = height;
-    entry->ext.texture.format = format;
-    if (file_path != NULL) {
-        strncpy(entry->ext.texture.file_path, file_path, 127);
-        entry->ext.texture.file_path[127] = '\0';
-    }
-    catalogSetPrimaryFile(entry, entry->ext.texture.file_path);
-
+    CATALOG_UNLOCK();
     return entry;
 }
 
@@ -1059,24 +1152,23 @@ asset_entry_t *assetCatalogRegisterProp(const char *id, s32 prop_type,
                                          const char *model_file,
                                          u32 flags, f32 health)
 {
-    asset_entry_t *entry = assetCatalogRegister(id, ASSET_PROP);
-    if (entry == NULL) {
-        return NULL;
+    CATALOG_LOCK();
+    asset_entry_t *entry = s_registerLocked(id, ASSET_PROP);
+    if (entry) {
+        entry->ext.prop.prop_type = prop_type;
+        if (name != NULL) {
+            strncpy(entry->ext.prop.name, name, 63);
+            entry->ext.prop.name[63] = '\0';
+        }
+        if (model_file != NULL) {
+            strncpy(entry->ext.prop.model_file, model_file, 127);
+            entry->ext.prop.model_file[127] = '\0';
+        }
+        catalogSetPrimaryFile(entry, entry->ext.prop.model_file);
+        entry->ext.prop.flags = flags;
+        entry->ext.prop.health = health;
     }
-
-    entry->ext.prop.prop_type = prop_type;
-    if (name != NULL) {
-        strncpy(entry->ext.prop.name, name, 63);
-        entry->ext.prop.name[63] = '\0';
-    }
-    if (model_file != NULL) {
-        strncpy(entry->ext.prop.model_file, model_file, 127);
-        entry->ext.prop.model_file[127] = '\0';
-    }
-    catalogSetPrimaryFile(entry, entry->ext.prop.model_file);
-    entry->ext.prop.flags = flags;
-    entry->ext.prop.health = health;
-
+    CATALOG_UNLOCK();
     return entry;
 }
 
@@ -1086,24 +1178,23 @@ asset_entry_t *assetCatalogRegisterGameMode(const char *id, s32 mode_id,
                                              s32 min_players, s32 max_players,
                                              s32 team_based)
 {
-    asset_entry_t *entry = assetCatalogRegister(id, ASSET_GAMEMODE);
-    if (entry == NULL) {
-        return NULL;
+    CATALOG_LOCK();
+    asset_entry_t *entry = s_registerLocked(id, ASSET_GAMEMODE);
+    if (entry) {
+        entry->ext.gamemode.mode_id = mode_id;
+        if (name != NULL) {
+            strncpy(entry->ext.gamemode.name, name, 63);
+            entry->ext.gamemode.name[63] = '\0';
+        }
+        if (description != NULL) {
+            strncpy(entry->ext.gamemode.description, description, 255);
+            entry->ext.gamemode.description[255] = '\0';
+        }
+        entry->ext.gamemode.min_players = min_players;
+        entry->ext.gamemode.max_players = max_players;
+        entry->ext.gamemode.team_based = team_based;
     }
-
-    entry->ext.gamemode.mode_id = mode_id;
-    if (name != NULL) {
-        strncpy(entry->ext.gamemode.name, name, 63);
-        entry->ext.gamemode.name[63] = '\0';
-    }
-    if (description != NULL) {
-        strncpy(entry->ext.gamemode.description, description, 255);
-        entry->ext.gamemode.description[255] = '\0';
-    }
-    entry->ext.gamemode.min_players = min_players;
-    entry->ext.gamemode.max_players = max_players;
-    entry->ext.gamemode.team_based = team_based;
-
+    CATALOG_UNLOCK();
     return entry;
 }
 
@@ -1112,24 +1203,23 @@ asset_entry_t *assetCatalogRegisterAudio(const char *id, s32 sound_id,
                                           s32 duration_ms,
                                           const char *file_path)
 {
-    asset_entry_t *entry = assetCatalogRegister(id, ASSET_AUDIO);
-    if (entry == NULL) {
-        return NULL;
+    CATALOG_LOCK();
+    asset_entry_t *entry = s_registerLocked(id, ASSET_AUDIO);
+    if (entry) {
+        entry->ext.audio.sound_id = sound_id;
+        if (name != NULL) {
+            strncpy(entry->ext.audio.name, name, 63);
+            entry->ext.audio.name[63] = '\0';
+        }
+        entry->ext.audio.category = category;
+        entry->ext.audio.duration_ms = duration_ms;
+        if (file_path != NULL) {
+            strncpy(entry->ext.audio.file_path, file_path, 127);
+            entry->ext.audio.file_path[127] = '\0';
+        }
+        catalogSetPrimaryFile(entry, entry->ext.audio.file_path);
     }
-
-    entry->ext.audio.sound_id = sound_id;
-    if (name != NULL) {
-        strncpy(entry->ext.audio.name, name, 63);
-        entry->ext.audio.name[63] = '\0';
-    }
-    entry->ext.audio.category = category;
-    entry->ext.audio.duration_ms = duration_ms;
-    if (file_path != NULL) {
-        strncpy(entry->ext.audio.file_path, file_path, 127);
-        entry->ext.audio.file_path[127] = '\0';
-    }
-    catalogSetPrimaryFile(entry, entry->ext.audio.file_path);
-
+    CATALOG_UNLOCK();
     return entry;
 }
 
@@ -1138,17 +1228,16 @@ asset_entry_t *assetCatalogRegisterBotProfile(const char *id, s32 type,
                                               s16 name_langid,
                                               u8 requirefeature)
 {
-    asset_entry_t *entry = assetCatalogRegister(id, ASSET_BOT_PROFILE);
-    if (entry == NULL) {
-        return NULL;
+    CATALOG_LOCK();
+    asset_entry_t *entry = s_registerLocked(id, ASSET_BOT_PROFILE);
+    if (entry) {
+        entry->ext.bot_profile.type = type;
+        entry->ext.bot_profile.difficulty = difficulty;
+        entry->ext.bot_profile.body = body;
+        entry->ext.bot_profile.name_langid = name_langid;
+        entry->ext.bot_profile.requirefeature = requirefeature;
     }
-
-    entry->ext.bot_profile.type = type;
-    entry->ext.bot_profile.difficulty = difficulty;
-    entry->ext.bot_profile.body = body;
-    entry->ext.bot_profile.name_langid = name_langid;
-    entry->ext.bot_profile.requirefeature = requirefeature;
-
+    CATALOG_UNLOCK();
     return entry;
 }
 
@@ -1156,23 +1245,22 @@ asset_entry_t *assetCatalogRegisterHud(const char *id, s32 hud_id,
                                         const char *name, s32 element_type,
                                         const char *texture_file)
 {
-    asset_entry_t *entry = assetCatalogRegister(id, ASSET_HUD);
-    if (entry == NULL) {
-        return NULL;
+    CATALOG_LOCK();
+    asset_entry_t *entry = s_registerLocked(id, ASSET_HUD);
+    if (entry) {
+        entry->ext.hud.hud_id = hud_id;
+        if (name != NULL) {
+            strncpy(entry->ext.hud.name, name, 63);
+            entry->ext.hud.name[63] = '\0';
+        }
+        entry->ext.hud.element_type = element_type;
+        if (texture_file != NULL) {
+            strncpy(entry->ext.hud.texture_file, texture_file, 127);
+            entry->ext.hud.texture_file[127] = '\0';
+        }
+        catalogSetPrimaryFile(entry, entry->ext.hud.texture_file);
     }
-
-    entry->ext.hud.hud_id = hud_id;
-    if (name != NULL) {
-        strncpy(entry->ext.hud.name, name, 63);
-        entry->ext.hud.name[63] = '\0';
-    }
-    entry->ext.hud.element_type = element_type;
-    if (texture_file != NULL) {
-        strncpy(entry->ext.hud.texture_file, texture_file, 127);
-        entry->ext.hud.texture_file[127] = '\0';
-    }
-    catalogSetPrimaryFile(entry, entry->ext.hud.texture_file);
-
+    CATALOG_UNLOCK();
     return entry;
 }
 

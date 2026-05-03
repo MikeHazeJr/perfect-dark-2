@@ -27,8 +27,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <SDL.h>
 #include <PR/ultratypes.h>
 
+#include "boot_pool.h"
+#include "boot_progress.h"
 #include "data.h"
 #include "types.h"
 #include "constants.h"
@@ -101,6 +104,33 @@ static s32 s_emitOneBody(const body_authored_record_t *b,
 	return 1;
 }
 
+/* Engine Phase 4: per-body fan-out context. */
+typedef struct {
+	const char  *bodies_dir;
+	s32          force_rewrite;
+	s32          count;
+	SDL_atomic_t written;
+	SDL_atomic_t skipped;
+	SDL_atomic_t failed;
+	SDL_atomic_t processed;
+} pdbody_fanout_ctx_t;
+
+static void s_pdbodyWork(int i, void *user)
+{
+	pdbody_fanout_ctx_t *c = (pdbody_fanout_ctx_t *)user;
+	if (i < 0 || i >= c->count) return;
+
+	s32 r = s_emitOneBody(&g_BodyData[i], c->bodies_dir, c->force_rewrite);
+	if (r > 0)       SDL_AtomicAdd(&c->written, 1);
+	else if (r == 0) SDL_AtomicAdd(&c->skipped, 1);
+	else             SDL_AtomicAdd(&c->failed,  1);
+
+	int done = SDL_AtomicAdd(&c->processed, 1) + 1;
+	if ((done & 0x07) == 0 || done == c->count) {
+		bootProgressUpdate(done, c->count);
+	}
+}
+
 s32 romExtractAllPdbody(s32 force_rewrite)
 {
 	/* BYOR completion (2026-05-03): walks g_BodyData[] from the
@@ -122,16 +152,23 @@ s32 romExtractAllPdbody(s32 force_rewrite)
 		return -1;
 	}
 
-	s32 written = 0;
-	s32 skipped = 0;
-	s32 failed = 0;
+	pdbody_fanout_ctx_t bctx;
+	memset(&bctx, 0, sizeof(bctx));
+	bctx.bodies_dir    = bodies_dir;
+	bctx.force_rewrite = force_rewrite;
+	bctx.count         = g_BodyDataCount;
+	SDL_AtomicSet(&bctx.written,   0);
+	SDL_AtomicSet(&bctx.skipped,   0);
+	SDL_AtomicSet(&bctx.failed,    0);
+	SDL_AtomicSet(&bctx.processed, 0);
 
-	for (s32 i = 0; i < g_BodyDataCount; i++) {
-		s32 r = s_emitOneBody(&g_BodyData[i], bodies_dir, force_rewrite);
-		if (r > 0)       written++;
-		else if (r == 0) skipped++;
-		else             failed++;
-	}
+	bootProgressUpdate(0, g_BodyDataCount);
+	bootPoolForRangeBlocking(0, g_BodyDataCount, s_pdbodyWork, &bctx);
+	bootProgressUpdate(g_BodyDataCount, g_BodyDataCount);
+
+	s32 written = SDL_AtomicGet(&bctx.written);
+	s32 skipped = SDL_AtomicGet(&bctx.skipped);
+	s32 failed  = SDL_AtomicGet(&bctx.failed);
 
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdbody: written=%d skipped=%d failed=%d total=%d",

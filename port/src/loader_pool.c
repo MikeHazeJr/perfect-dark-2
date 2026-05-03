@@ -41,6 +41,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <SDL.h>            /* Engine Phase 4: parser mutex for parallel walker */
 #include "data.h"
 #include "types.h"
 #include "constants.h"
@@ -121,6 +122,28 @@ static s32 s_AnimationsUsed;
 
 static s32 s_LoaderActive;
 static s32 s_WeaponsRegistered;
+
+/* Engine Phase 4 (2026-05-03): single mutex around all parser entry
+ * points + any reader that walks pool counters during parsing.  The
+ * walker fans out per-file work across the boot pool's worker threads;
+ * each worker calls loaderPoolParse*Json into the shared pools and the
+ * shared per-arena counters (s_GuncmdsUsed, s_AmmosUsed, etc.).  Without
+ * the lock, two concurrent parses race on those counters and the arena
+ * memcpy targets overlap.
+ *
+ * Lazy-create at first parse call; finalize/reset/get accessors all
+ * acquire under the same lock to keep snapshot consistency. */
+static SDL_mutex *s_PoolMutex = NULL;
+
+static void s_poolEnsureMutex(void)
+{
+	if (s_PoolMutex == NULL) {
+		s_PoolMutex = SDL_CreateMutex();
+	}
+}
+
+#define POOL_LOCK()    do { if (s_PoolMutex) SDL_LockMutex(s_PoolMutex); } while (0)
+#define POOL_UNLOCK()  do { if (s_PoolMutex) SDL_UnlockMutex(s_PoolMutex); } while (0)
 
 /* Heads / bodies / arenas pools. Populated from per-asset .pdhead /
  * .pdbody / .pdarena envelopes via loaderPoolParse*Json; the catalog
@@ -1791,6 +1814,8 @@ static s32 s_parseOneRecord(const char *json, size_t json_len,
 
 void loaderPoolReset(void)
 {
+	s_poolEnsureMutex();
+	POOL_LOCK();
 	memset(s_Weapons, 0, sizeof(s_Weapons));
 	memset(s_BotPrefs, 0, sizeof(s_BotPrefs));
 	memset(s_WeaponCatalogIds, 0, sizeof(s_WeaponCatalogIds));
@@ -1825,35 +1850,58 @@ void loaderPoolReset(void)
 	s_BodiesRegistered = 0;
 	s_ArenasLoaderActive = 0;
 	s_ArenasRegistered = 0;
+	POOL_UNLOCK();
 }
 
 s32 loaderPoolParseWeaponJson(const char *json, size_t json_len)
 {
-	return s_parseOneRecord(json, json_len, parseWeapon);
+	s_poolEnsureMutex();
+	POOL_LOCK();
+	s32 r = s_parseOneRecord(json, json_len, parseWeapon);
+	POOL_UNLOCK();
+	return r;
 }
 
 s32 loaderPoolParseHeadJson(const char *json, size_t json_len)
 {
-	return s_parseOneRecord(json, json_len, parseHead);
+	s_poolEnsureMutex();
+	POOL_LOCK();
+	s32 r = s_parseOneRecord(json, json_len, parseHead);
+	POOL_UNLOCK();
+	return r;
 }
 
 s32 loaderPoolParseBodyJson(const char *json, size_t json_len)
 {
-	return s_parseOneRecord(json, json_len, parseBody);
+	s_poolEnsureMutex();
+	POOL_LOCK();
+	s32 r = s_parseOneRecord(json, json_len, parseBody);
+	POOL_UNLOCK();
+	return r;
 }
 
 s32 loaderPoolParseArenaJson(const char *json, size_t json_len)
 {
-	return s_parseOneRecord(json, json_len, parseArena);
+	s_poolEnsureMutex();
+	POOL_LOCK();
+	s32 r = s_parseOneRecord(json, json_len, parseArena);
+	POOL_UNLOCK();
+	return r;
 }
 
 s32 loaderPoolParseAnimationJson(const char *json, size_t json_len)
 {
-	return s_parseOneRecord(json, json_len, parseAnimation);
+	s_poolEnsureMutex();
+	POOL_LOCK();
+	s32 r = s_parseOneRecord(json, json_len, parseAnimation);
+	POOL_UNLOCK();
+	return r;
 }
 
 void loaderPoolFinalize(void)
 {
+	s_poolEnsureMutex();
+	POOL_LOCK();
 	/* Seed default fallback aim / noise sentinels (historical
 	 * invaimsettings_default + invnoisesettings_silent values) so
 	 * weapons that did not supply their own settings still have
@@ -1900,6 +1948,7 @@ void loaderPoolFinalize(void)
 	sysLogPrintf(LOG_NOTE,
 		"LOADER.POOL.ARENA.OK: active=%d arenas=%d (expected=%d)",
 		s_ArenasLoaderActive, s_ArenasRegistered, CATALOG_MGR_ARENA_COUNT);
+	POOL_UNLOCK();
 }
 
 /* The pre-Step-5 aggregate-archive scan + per-kind BuildManager helpers

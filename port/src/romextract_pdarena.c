@@ -41,8 +41,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <SDL.h>
 #include <PR/ultratypes.h>
 
+#include "boot_pool.h"
+#include "boot_progress.h"
 #include "data.h"
 #include "types.h"
 #include "constants.h"
@@ -301,6 +304,45 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 	return 1;
 }
 
+/* Engine Phase 4: file-scope fan-out context for the dual-emit pdarena
+ * + pdscenario walk. */
+typedef struct {
+	const char  *arenas_dir;
+	const char  *scenarios_dir;
+	s32          force_rewrite;
+	s32          count;
+	SDL_atomic_t arenas_written;
+	SDL_atomic_t arenas_skipped;
+	SDL_atomic_t arenas_failed;
+	SDL_atomic_t scenarios_written;
+	SDL_atomic_t scenarios_skipped;
+	SDL_atomic_t scenarios_failed;
+	SDL_atomic_t processed;
+} pdarena_fanout_ctx_t;
+
+static void s_pdarenaWork(int i, void *user)
+{
+	pdarena_fanout_ctx_t *c = (pdarena_fanout_ctx_t *)user;
+	if (i < 0 || i >= c->count) return;
+
+	const arena_authored_record_t *a = &g_ArenaData[i];
+
+	s32 r1 = s_emitOnePdarena(a, i, c->arenas_dir, c->force_rewrite);
+	if (r1 > 0)       SDL_AtomicAdd(&c->arenas_written, 1);
+	else if (r1 == 0) SDL_AtomicAdd(&c->arenas_skipped, 1);
+	else              SDL_AtomicAdd(&c->arenas_failed,  1);
+
+	s32 r2 = s_emitOnePdscenario(a, c->scenarios_dir, c->force_rewrite);
+	if (r2 > 0)       SDL_AtomicAdd(&c->scenarios_written, 1);
+	else if (r2 == 0) SDL_AtomicAdd(&c->scenarios_skipped, 1);
+	else              SDL_AtomicAdd(&c->scenarios_failed,  1);
+
+	int done = SDL_AtomicAdd(&c->processed, 1) + 1;
+	if ((done & 0x07) == 0 || done == c->count) {
+		bootProgressUpdate(done, c->count);
+	}
+}
+
 s32 romExtractAllPdarena(s32 force_rewrite)
 {
 	/* BYOR completion (2026-05-03): walks g_ArenaData[] from the
@@ -331,26 +373,30 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 		return -1;
 	}
 
-	s32 arenas_written = 0;
-	s32 arenas_skipped = 0;
-	s32 arenas_failed = 0;
-	s32 scenarios_written = 0;
-	s32 scenarios_skipped = 0;
-	s32 scenarios_failed = 0;
+	pdarena_fanout_ctx_t actx;
+	memset(&actx, 0, sizeof(actx));
+	actx.arenas_dir    = arenas_dir;
+	actx.scenarios_dir = scenarios_dir;
+	actx.force_rewrite = force_rewrite;
+	actx.count         = g_ArenaDataCount;
+	SDL_AtomicSet(&actx.arenas_written,    0);
+	SDL_AtomicSet(&actx.arenas_skipped,    0);
+	SDL_AtomicSet(&actx.arenas_failed,     0);
+	SDL_AtomicSet(&actx.scenarios_written, 0);
+	SDL_AtomicSet(&actx.scenarios_skipped, 0);
+	SDL_AtomicSet(&actx.scenarios_failed,  0);
+	SDL_AtomicSet(&actx.processed,         0);
 
-	for (s32 i = 0; i < g_ArenaDataCount; i++) {
-		const arena_authored_record_t *a = &g_ArenaData[i];
+	bootProgressUpdate(0, g_ArenaDataCount);
+	bootPoolForRangeBlocking(0, g_ArenaDataCount, s_pdarenaWork, &actx);
+	bootProgressUpdate(g_ArenaDataCount, g_ArenaDataCount);
 
-		s32 r1 = s_emitOnePdarena(a, i, arenas_dir, force_rewrite);
-		if (r1 > 0)      arenas_written++;
-		else if (r1 == 0) arenas_skipped++;
-		else              arenas_failed++;
-
-		s32 r2 = s_emitOnePdscenario(a, scenarios_dir, force_rewrite);
-		if (r2 > 0)      scenarios_written++;
-		else if (r2 == 0) scenarios_skipped++;
-		else              scenarios_failed++;
-	}
+	s32 arenas_written    = SDL_AtomicGet(&actx.arenas_written);
+	s32 arenas_skipped    = SDL_AtomicGet(&actx.arenas_skipped);
+	s32 arenas_failed     = SDL_AtomicGet(&actx.arenas_failed);
+	s32 scenarios_written = SDL_AtomicGet(&actx.scenarios_written);
+	s32 scenarios_skipped = SDL_AtomicGet(&actx.scenarios_skipped);
+	s32 scenarios_failed  = SDL_AtomicGet(&actx.scenarios_failed);
 
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdarena: arenas written=%d skipped=%d failed=%d total=%d",

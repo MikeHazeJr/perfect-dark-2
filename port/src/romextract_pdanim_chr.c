@@ -33,8 +33,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <SDL.h>
 #include <PR/ultratypes.h>
 
+#include "boot_pool.h"
+#include "boot_progress.h"
 #include "data.h"
 #include "types.h"
 #include "constants.h"
@@ -270,6 +273,40 @@ static s32 s_emitOneChrAnim(s32 anim_idx,
 	return 1;
 }
 
+/* Engine Phase 4: file-scope fan-out context for chr animations. */
+typedef struct {
+	const struct animtableentry *entries;
+	const u8                    *seg_data;
+	u32                          seg_size;
+	const char                  *anims_dir;
+	s32                          force_rewrite;
+	s32                          count;
+	SDL_atomic_t                 written;
+	SDL_atomic_t                 skipped;
+	SDL_atomic_t                 failed;
+	SDL_atomic_t                 named;
+	SDL_atomic_t                 processed;
+} pdanim_chr_fanout_ctx_t;
+
+static void s_pdanimChrWork(int i, void *user)
+{
+	pdanim_chr_fanout_ctx_t *c = (pdanim_chr_fanout_ctx_t *)user;
+	if (i < 0 || i >= c->count) return;
+
+	s32 r = s_emitOneChrAnim(i, &c->entries[i], c->seg_data, c->seg_size,
+	                         c->anims_dir, c->force_rewrite);
+	if (r > 0)       SDL_AtomicAdd(&c->written, 1);
+	else if (r == 0) SDL_AtomicAdd(&c->skipped, 1);
+	else             SDL_AtomicAdd(&c->failed,  1);
+
+	if (loaderEnumNameForAnimEnum(i)) SDL_AtomicAdd(&c->named, 1);
+
+	int done = SDL_AtomicAdd(&c->processed, 1) + 1;
+	if ((done & 0x3f) == 0 || done == c->count) {
+		bootProgressUpdate(done, c->count);
+	}
+}
+
 s32 romExtractAllPdanimChr(s32 force_rewrite)
 {
 	const u8 *seg_data = NULL;
@@ -326,20 +363,28 @@ s32 romExtractAllPdanimChr(s32 force_rewrite)
 		return -1;
 	}
 
-	s32 written = 0;
-	s32 skipped = 0;
-	s32 failed = 0;
-	s32 named = 0;
+	pdanim_chr_fanout_ctx_t cctx;
+	memset(&cctx, 0, sizeof(cctx));
+	cctx.entries       = entries;
+	cctx.seg_data      = seg_data;
+	cctx.seg_size      = seg_size;
+	cctx.anims_dir     = anims_dir;
+	cctx.force_rewrite = force_rewrite;
+	cctx.count         = (s32)anim_count;
+	SDL_AtomicSet(&cctx.written,   0);
+	SDL_AtomicSet(&cctx.skipped,   0);
+	SDL_AtomicSet(&cctx.failed,    0);
+	SDL_AtomicSet(&cctx.named,     0);
+	SDL_AtomicSet(&cctx.processed, 0);
 
-	for (s32 i = 0; (u32)i < anim_count; i++) {
-		s32 r = s_emitOneChrAnim(i, &entries[i], seg_data, seg_size,
-			anims_dir, force_rewrite);
-		if (r > 0)      written++;
-		else if (r == 0) skipped++;
-		else             failed++;
+	bootProgressUpdate(0, (s32)anim_count);
+	bootPoolForRangeBlocking(0, (int)anim_count, s_pdanimChrWork, &cctx);
+	bootProgressUpdate((s32)anim_count, (s32)anim_count);
 
-		if (loaderEnumNameForAnimEnum(i)) named++;
-	}
+	s32 written = SDL_AtomicGet(&cctx.written);
+	s32 skipped = SDL_AtomicGet(&cctx.skipped);
+	s32 failed  = SDL_AtomicGet(&cctx.failed);
+	s32 named   = SDL_AtomicGet(&cctx.named);
 
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdanim_chr: written=%d skipped=%d failed=%d "

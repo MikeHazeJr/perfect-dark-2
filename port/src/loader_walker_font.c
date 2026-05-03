@@ -8,6 +8,7 @@
  */
 
 #include <stddef.h>
+#include <stdio.h>   /* snprintf */
 #include <string.h>
 #include <PR/ultratypes.h>
 
@@ -24,16 +25,15 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     asset_entry_t *e = assetCatalogRegister(id, ASSET_UI);
     if (!e) return -1;
 
+    /* Engine Phase 4: walker may run from boot-pool workers; build the
+     * "font:<face>" string locally and route the field-fill through the
+     * lock-safe helper. */
     char face[64];
     if (loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "face",
                                      face, sizeof(face))) {
-        const char *prefix = "font:";
-        size_t plen = strlen(prefix);
-        size_t flen = strlen(face);
-        if (plen + flen >= sizeof(e->category)) flen = sizeof(e->category) - plen - 1;
-        memcpy(e->category, prefix, plen);
-        memcpy(e->category + plen, face, flen);
-        e->category[plen + flen] = '\0';
+        char category[CATALOG_CATEGORY_LEN];
+        snprintf(category, sizeof(category), "font:%s", face);
+        assetCatalogSetCategoryById(id, category);
     }
     return 1;
 }

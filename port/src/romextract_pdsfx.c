@@ -42,9 +42,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <SDL.h>
 #include <PR/ultratypes.h>
 #include <PR/libaudio.h>
 
+#include "boot_pool.h"
+#include "boot_progress.h"
 #include "data.h"
 #include "types.h"
 #include "constants.h"
@@ -463,6 +466,68 @@ static s32 s_emitOneSound(s32 sfx_idx,
 	return 1;
 }
 
+/* Engine Phase 4 fan-out context for the pdsfx / pdvoice bank walker.
+ * Lives at file scope so the worker function (which can't be nested
+ * inside the bank walker in standard C) can see the type. */
+typedef struct {
+	const u8           *ctl_data;
+	u32                 ctl_size;
+	const u8           *tbl_data;
+	u32                 tbl_size;
+	const ALInstrument *inst;
+	s32                 sample_rate;
+	pdaudio_walk_mode_t mode;
+	const char         *out_dir;
+	const char         *channel;
+	s32                 force_rewrite;
+	const u8           *voice_cache;
+	s32                 want_voice;
+	s32                 sound_count;
+	SDL_atomic_t        written;
+	SDL_atomic_t        skipped;
+	SDL_atomic_t        failed;
+	SDL_atomic_t        processed;
+} pdsfx_fanout_ctx_t;
+
+static void s_pdsfxWork(int i, void *user)
+{
+	pdsfx_fanout_ctx_t *c = (pdsfx_fanout_ctx_t *)user;
+	if (i < 0 || i >= c->sound_count) return;
+
+	s32 is_voice = c->voice_cache[i] ? 1 : 0;
+
+	if (is_voice != c->want_voice) {
+		SDL_AtomicAdd(&c->skipped, 1);
+		goto progress;
+	}
+
+	u32 snd_off = (u32)(uintptr_t)c->inst->soundArray[i];
+	if (snd_off + sizeof(ALSound) > c->ctl_size) {
+		LOUD_FAILF_RT(c->channel,
+			"sound[%d] offset 0x%x past ctl size 0x%x",
+			i, (unsigned)snd_off, (unsigned)c->ctl_size);
+		SDL_AtomicAdd(&c->failed, 1);
+		goto progress;
+	}
+	const ALSound *snd = (const ALSound *)(c->ctl_data + snd_off);
+
+	s32 r = s_emitOneSound(i, c->ctl_data, c->ctl_size,
+	                        c->tbl_data, c->tbl_size,
+	                        snd, c->sample_rate, c->mode,
+	                        c->out_dir, c->force_rewrite, c->channel);
+	if (r > 0)        SDL_AtomicAdd(&c->written, 1);
+	else if (r == 0)  SDL_AtomicAdd(&c->skipped, 1);
+	else              SDL_AtomicAdd(&c->failed,  1);
+
+progress:
+	{
+		int done = SDL_AtomicAdd(&c->processed, 1) + 1;
+		if ((done & 0x3f) == 0 || done == c->sound_count) {
+			bootProgressUpdate(done, c->sound_count);
+		}
+	}
+}
+
 s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 {
 	const char *channel = (mode == PDAUDIO_WALK_VOICE)
@@ -589,37 +654,39 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 	}
 	s_buildVoiceCache(voice_cache, (u32)sound_count);
 
-	s32 written = 0;
-	s32 skipped = 0;
-	s32 failed  = 0;
+	/* Engine Phase 4: per-sound fan-out.  Each iteration is fully
+	 * independent (separate ZIP file write to a unique slug); the
+	 * shared inputs (ctl_data / tbl_data / inst / voice_cache) are
+	 * read-only across workers.  Counters are atomic so no merge
+	 * step is needed.  Manager thread participates inline via
+	 * bootPoolForRangeBlocking. */
+	pdsfx_fanout_ctx_t fxctx;
+	memset(&fxctx, 0, sizeof(fxctx));
+	fxctx.ctl_data      = ctl_data;
+	fxctx.ctl_size      = ctl_size;
+	fxctx.tbl_data      = tbl_data;
+	fxctx.tbl_size      = tbl_size;
+	fxctx.inst          = inst;
+	fxctx.sample_rate   = sample_rate;
+	fxctx.mode          = mode;
+	fxctx.out_dir       = out_dir;
+	fxctx.channel       = channel;
+	fxctx.force_rewrite = force_rewrite;
+	fxctx.voice_cache   = voice_cache;
+	fxctx.want_voice    = (mode == PDAUDIO_WALK_VOICE) ? 1 : 0;
+	fxctx.sound_count   = sound_count;
+	SDL_AtomicSet(&fxctx.written,   0);
+	SDL_AtomicSet(&fxctx.skipped,   0);
+	SDL_AtomicSet(&fxctx.failed,    0);
+	SDL_AtomicSet(&fxctx.processed, 0);
 
-	for (s32 i = 0; i < sound_count; i++) {
-		s32 is_voice = voice_cache[i] ? 1 : 0;
-		s32 want_voice = (mode == PDAUDIO_WALK_VOICE) ? 1 : 0;
+	bootProgressUpdate(0, sound_count);
+	bootPoolForRangeBlocking(0, sound_count, s_pdsfxWork, &fxctx);
+	bootProgressUpdate(sound_count, sound_count);
 
-		if (is_voice != want_voice) {
-			skipped++;
-			continue;
-		}
-
-		u32 snd_off = s_offsetFromPointer(inst->soundArray[i]);
-		if (snd_off + sizeof(ALSound) > ctl_size) {
-			LOUD_FAILF_RT(channel,
-				"sound[%d] offset 0x%x past ctl size 0x%x",
-				i, (unsigned)snd_off, (unsigned)ctl_size);
-			failed++;
-			continue;
-		}
-		const ALSound *snd = (const ALSound *)(ctl_data + snd_off);
-
-		s32 r = s_emitOneSound(i, ctl_data, ctl_size,
-		                        tbl_data, tbl_size,
-		                        snd, sample_rate, mode,
-		                        out_dir, force_rewrite, channel);
-		if (r > 0)        written++;
-		else if (r == 0)  skipped++;
-		else              failed++;
-	}
+	s32 written = SDL_AtomicGet(&fxctx.written);
+	s32 skipped = SDL_AtomicGet(&fxctx.skipped);
+	s32 failed  = SDL_AtomicGet(&fxctx.failed);
 
 	sysMemFree(voice_cache);
 

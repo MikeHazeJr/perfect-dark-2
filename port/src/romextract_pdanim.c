@@ -18,8 +18,11 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <SDL.h>
 #include <PR/ultratypes.h>
 
+#include "boot_pool.h"
+#include "boot_progress.h"
 #include "data.h"
 #include "types.h"
 #include "constants.h"
@@ -218,6 +221,33 @@ static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 	return 1;
 }
 
+/* Engine Phase 4: per-anim fan-out context. */
+typedef struct {
+	const char  *anims_dir;
+	s32          force_rewrite;
+	s32          count;
+	SDL_atomic_t written;
+	SDL_atomic_t skipped;
+	SDL_atomic_t failed;
+	SDL_atomic_t processed;
+} pdanim_fanout_ctx_t;
+
+static void s_pdanimWork(int i, void *user)
+{
+	pdanim_fanout_ctx_t *c = (pdanim_fanout_ctx_t *)user;
+	if (i < 0 || i >= c->count) return;
+
+	s32 r = s_emitOneAnim(i, c->anims_dir, c->force_rewrite);
+	if (r > 0)       SDL_AtomicAdd(&c->written, 1);
+	else if (r == 0) SDL_AtomicAdd(&c->skipped, 1);
+	else             SDL_AtomicAdd(&c->failed,  1);
+
+	int done = SDL_AtomicAdd(&c->processed, 1) + 1;
+	if ((done & 0x07) == 0 || done == c->count) {
+		bootProgressUpdate(done, c->count);
+	}
+}
+
 s32 romExtractAllPdanim(s32 force_rewrite)
 {
 	/* BYOR completion (2026-05-03): walks g_AnimData[] from the
@@ -238,16 +268,23 @@ s32 romExtractAllPdanim(s32 force_rewrite)
 		return -1;
 	}
 
-	s32 written = 0;
-	s32 skipped = 0;
-	s32 failed = 0;
+	pdanim_fanout_ctx_t actx;
+	memset(&actx, 0, sizeof(actx));
+	actx.anims_dir     = anims_dir;
+	actx.force_rewrite = force_rewrite;
+	actx.count         = g_AnimDataCount;
+	SDL_AtomicSet(&actx.written,   0);
+	SDL_AtomicSet(&actx.skipped,   0);
+	SDL_AtomicSet(&actx.failed,    0);
+	SDL_AtomicSet(&actx.processed, 0);
 
-	for (s32 i = 0; i < g_AnimDataCount; i++) {
-		s32 r = s_emitOneAnim(i, anims_dir, force_rewrite);
-		if (r > 0)       written++;
-		else if (r == 0) skipped++;
-		else             failed++;
-	}
+	bootProgressUpdate(0, g_AnimDataCount);
+	bootPoolForRangeBlocking(0, g_AnimDataCount, s_pdanimWork, &actx);
+	bootProgressUpdate(g_AnimDataCount, g_AnimDataCount);
+
+	s32 written = SDL_AtomicGet(&actx.written);
+	s32 skipped = SDL_AtomicGet(&actx.skipped);
+	s32 failed  = SDL_AtomicGet(&actx.failed);
 
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdanim: written=%d skipped=%d failed=%d total=%d",

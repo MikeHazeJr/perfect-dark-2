@@ -47,8 +47,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <SDL.h>
 #include <PR/ultratypes.h>
 
+#include "boot_pool.h"
+#include "boot_progress.h"
 #include "data.h"
 #include "types.h"
 #include "constants.h"
@@ -259,6 +262,38 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 	return 1;
 }
 
+/* Engine Phase 4: per-lang fan-out context. */
+typedef struct {
+	const char  *locale_tag;
+	const char  *lang_dir;
+	s32          force_rewrite;
+	s32          count;
+	SDL_atomic_t written;
+	SDL_atomic_t skipped;
+	SDL_atomic_t failed;
+	SDL_atomic_t processed;
+} pdlang_fanout_ctx_t;
+
+static void s_pdlangWork(int idx, void *user)
+{
+	pdlang_fanout_ctx_t *c = (pdlang_fanout_ctx_t *)user;
+	if (idx < 0 || idx >= c->count) return;
+
+	/* Bank index is 1-based: idx 0 -> bank 1. */
+	s32 bank = idx + 1;
+	u16 file_id = g_LangFiles[bank];
+	s32 r = s_emitOneLang(bank, c->locale_tag, file_id,
+	                      c->lang_dir, c->force_rewrite);
+	if (r > 0)       SDL_AtomicAdd(&c->written, 1);
+	else if (r == 0) SDL_AtomicAdd(&c->skipped, 1);
+	else             SDL_AtomicAdd(&c->failed,  1);
+
+	int done = SDL_AtomicAdd(&c->processed, 1) + 1;
+	if ((done & 0x07) == 0 || done == c->count) {
+		bootProgressUpdate(done, c->count);
+	}
+}
+
 #endif /* !PD_SERVER */
 
 s32 romExtractAllPdlang(s32 force_rewrite)
@@ -282,24 +317,30 @@ s32 romExtractAllPdlang(s32 force_rewrite)
 		return -1;
 	}
 
-	s32 written = 0;
-	s32 skipped = 0;
-	s32 failed = 0;
-
 	/* For Step 3b initial ship, emit canonical English locale only.
 	 * PAL/JPN extension lands as Step 5 cleanup or a follow-up
 	 * worktree. The catalog ID includes the locale suffix so the
 	 * follow-up's IDs don't collide with these. */
 	const char *locale_tag = "en";
 
-	for (s32 bank = 1; bank <= PDLANG_BANK_MAX; bank++) {
-		u16 file_id = g_LangFiles[bank];
-		s32 r = s_emitOneLang(bank, locale_tag, file_id,
-		                      lang_dir, force_rewrite);
-		if (r > 0)        written++;
-		else if (r == 0)  skipped++;
-		else              failed++;
-	}
+	pdlang_fanout_ctx_t lctx;
+	memset(&lctx, 0, sizeof(lctx));
+	lctx.locale_tag    = locale_tag;
+	lctx.lang_dir      = lang_dir;
+	lctx.force_rewrite = force_rewrite;
+	lctx.count         = PDLANG_BANK_MAX;
+	SDL_AtomicSet(&lctx.written,   0);
+	SDL_AtomicSet(&lctx.skipped,   0);
+	SDL_AtomicSet(&lctx.failed,    0);
+	SDL_AtomicSet(&lctx.processed, 0);
+
+	bootProgressUpdate(0, PDLANG_BANK_MAX);
+	bootPoolForRangeBlocking(0, PDLANG_BANK_MAX, s_pdlangWork, &lctx);
+	bootProgressUpdate(PDLANG_BANK_MAX, PDLANG_BANK_MAX);
+
+	s32 written = SDL_AtomicGet(&lctx.written);
+	s32 skipped = SDL_AtomicGet(&lctx.skipped);
+	s32 failed  = SDL_AtomicGet(&lctx.failed);
 
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdlang: written=%d skipped=%d failed=%d "

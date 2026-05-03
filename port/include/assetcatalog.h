@@ -836,6 +836,14 @@ s32 assetCatalogGetSkinsForTarget(const char *target_id,
  */
 void assetCatalogSetEnabled(const char *id, s32 enabled);
 
+/* Engine Phase 4 (2026-05-03): set entry->category by ID under the
+ * catalog mutex.  Walker callbacks (loader_walker_anim.c, _font.c,
+ * _lang.c) need to fill the category field after registration; doing
+ * so via the entry pointer they just received races with concurrent
+ * pool reallocs from other workers, so they re-resolve under-lock via
+ * this helper instead.  No-op if ID is unknown or category is NULL. */
+void assetCatalogSetCategoryById(const char *id, const char *category);
+
 /* ========================================================================
  * Asset Source API (Direct File Access — Phase 2)
  * ========================================================================

@@ -24,8 +24,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <SDL.h>
 #include <PR/ultratypes.h>
 
+#include "boot_pool.h"
+#include "boot_progress.h"
 #include "data.h"
 #include "types.h"
 #include "constants.h"
@@ -102,13 +105,16 @@ static s32 s_resolveSourceBinPath(u16 filenum, char *out_rel, s32 out_n)
 	return romExtractRelPathForFilenum((s32)filenum, out_rel, out_n);
 }
 
-/* Emit one .pdmesh compound. Returns 1 written, 0 skipped, -1 failed. */
+/* Emit one .pdmesh compound. Returns 1 written, 0 skipped, -1 failed.
+ *
+ * Engine Phase 4: dedup is now done UPSTREAM by the collect-phase in
+ * romExtractAllPdmesh; this function no longer touches s_SeenFilenums.
+ * Callers from parallel workers can invoke this safely on disjoint
+ * (filenum, hint) tuples. */
 static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
                           const char *out_dir, s32 force_rewrite)
 {
 	if (filenum == 0) return 0;
-	if (s_alreadySeen(filenum)) return 0;
-	s_markSeen(filenum);
 
 	char src_rel[FS_MAXPATH];
 	if (s_resolveSourceBinPath(filenum, src_rel, sizeof(src_rel)) <= 0) {
@@ -236,6 +242,71 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	return 1;
 }
 
+/* Engine Phase 4: collect-then-emit pattern.  Phase 1 walks the
+ * authoring tables single-threaded, dedups by filenum into a work
+ * queue.  Phase 2 fans the unique (filenum, hint) tuples across the
+ * boot pool.
+ *
+ * Dedup happens upstream so each worker writes a unique slug; ZIP
+ * writes are independent and thread-safe. */
+
+typedef struct {
+	u16  filenum;
+	char hint[8];   /* "hi", "lo", "hand", or "" */
+} pdmesh_work_t;
+
+typedef struct {
+	const pdmesh_work_t *jobs;
+	s32                  count;
+	const char          *out_dir;
+	s32                  force_rewrite;
+	SDL_atomic_t         written;
+	SDL_atomic_t         skipped;
+	SDL_atomic_t         failed;
+	SDL_atomic_t         processed;
+} pdmesh_fanout_ctx_t;
+
+static void s_pdmeshWork(int idx, void *user)
+{
+	pdmesh_fanout_ctx_t *c = (pdmesh_fanout_ctx_t *)user;
+	if (idx < 0 || idx >= c->count) return;
+
+	const pdmesh_work_t *j = &c->jobs[idx];
+	const char *hint = j->hint[0] ? j->hint : NULL;
+	s32 r = s_emitOneMesh(j->filenum, hint, c->out_dir, c->force_rewrite);
+	if (r > 0)       SDL_AtomicAdd(&c->written, 1);
+	else if (r == 0) SDL_AtomicAdd(&c->skipped, 1);
+	else             SDL_AtomicAdd(&c->failed,  1);
+
+	int done = SDL_AtomicAdd(&c->processed, 1) + 1;
+	if ((done & 0x0f) == 0 || done == c->count) {
+		bootProgressUpdate(done, c->count);
+	}
+}
+
+static s32 s_pdmeshAddWork(pdmesh_work_t *jobs, s32 *job_count, s32 cap,
+                            u16 filenum, const char *hint)
+{
+	if (filenum == 0) return 0;
+	/* Dedup: linear scan; the cap is ~512 so this stays cheap. */
+	for (s32 i = 0; i < *job_count; i++) {
+		if (jobs[i].filenum == filenum) return 0;
+	}
+	if (*job_count >= cap) return 0;
+	jobs[*job_count].filenum = filenum;
+	jobs[*job_count].hint[0] = '\0';
+	if (hint) {
+		size_t hlen = strlen(hint);
+		if (hlen >= sizeof(jobs[*job_count].hint)) {
+			hlen = sizeof(jobs[*job_count].hint) - 1;
+		}
+		memcpy(jobs[*job_count].hint, hint, hlen);
+		jobs[*job_count].hint[hlen] = '\0';
+	}
+	(*job_count)++;
+	return 1;
+}
+
 s32 romExtractAllPdmesh(s32 force_rewrite)
 {
 	/* BYOR completion (2026-05-03): walks weapon hi/lo + head mesh +
@@ -259,39 +330,54 @@ s32 romExtractAllPdmesh(s32 force_rewrite)
 		return -1;
 	}
 
-	s_SeenCount = 0;
+	/* Phase 1: collect unique (filenum, hint) tuples single-threaded.
+	 * Cap matches the pre-Phase-4 dedup cap. */
+	pdmesh_work_t jobs[ROMEXTRACT_PDMESH_SEEN_CAP];
+	s32 job_count = 0;
 
-	s32 written = 0;
-	s32 skipped = 0;
-	s32 failed = 0;
-
-	#define ACC(call) do { s32 _r = (call); \
-		if (_r > 0) written++; else if (_r == 0) skipped++; else failed++; \
-	} while (0)
-
-	/* Weapon meshes (hi/lo). */
 	for (s32 i = 0; i < g_WeaponDataCount; i++) {
 		const struct weapon *wpn = g_WeaponData[i];
 		if (!wpn) continue;
-		ACC(s_emitOneMesh(wpn->hi_model, "hi", meshes_dir, force_rewrite));
-		ACC(s_emitOneMesh(wpn->lo_model, "lo", meshes_dir, force_rewrite));
+		s_pdmeshAddWork(jobs, &job_count, ROMEXTRACT_PDMESH_SEEN_CAP,
+		                wpn->hi_model, "hi");
+		s_pdmeshAddWork(jobs, &job_count, ROMEXTRACT_PDMESH_SEEN_CAP,
+		                wpn->lo_model, "lo");
 	}
-
-	/* Head meshes (CHEAD_*). */
 	for (s32 i = 0; i < g_HeadDataCount; i++) {
-		ACC(s_emitOneMesh(g_HeadData[i].filenum, NULL, meshes_dir, force_rewrite));
+		s_pdmeshAddWork(jobs, &job_count, ROMEXTRACT_PDMESH_SEEN_CAP,
+		                g_HeadData[i].filenum, NULL);
 	}
-
-	/* Body meshes (CBODY_*) and first-person hand meshes (GHAND_*). */
 	for (s32 i = 0; i < g_BodyDataCount; i++) {
-		ACC(s_emitOneMesh(g_BodyData[i].filenum, NULL, meshes_dir, force_rewrite));
+		s_pdmeshAddWork(jobs, &job_count, ROMEXTRACT_PDMESH_SEEN_CAP,
+		                g_BodyData[i].filenum, NULL);
 		if (g_BodyData[i].handfilenum != 0) {
-			ACC(s_emitOneMesh(g_BodyData[i].handfilenum, "hand",
-				meshes_dir, force_rewrite));
+			s_pdmeshAddWork(jobs, &job_count, ROMEXTRACT_PDMESH_SEEN_CAP,
+			                g_BodyData[i].handfilenum, "hand");
 		}
 	}
 
-	#undef ACC
+	/* Phase 2: fan out the per-mesh emit work. */
+	pdmesh_fanout_ctx_t mctx;
+	memset(&mctx, 0, sizeof(mctx));
+	mctx.jobs          = jobs;
+	mctx.count         = job_count;
+	mctx.out_dir       = meshes_dir;
+	mctx.force_rewrite = force_rewrite;
+	SDL_AtomicSet(&mctx.written,   0);
+	SDL_AtomicSet(&mctx.skipped,   0);
+	SDL_AtomicSet(&mctx.failed,    0);
+	SDL_AtomicSet(&mctx.processed, 0);
+
+	bootProgressUpdate(0, job_count);
+	bootPoolForRangeBlocking(0, job_count, s_pdmeshWork, &mctx);
+	bootProgressUpdate(job_count, job_count);
+
+	s32 written = SDL_AtomicGet(&mctx.written);
+	s32 skipped = SDL_AtomicGet(&mctx.skipped);
+	s32 failed  = SDL_AtomicGet(&mctx.failed);
+
+	/* Maintain the legacy s_SeenCount log field for diff parity. */
+	s_SeenCount = job_count;
 
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdmesh: written=%d skipped=%d failed=%d unique_filenums=%d",

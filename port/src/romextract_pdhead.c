@@ -21,8 +21,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <SDL.h>
 #include <PR/ultratypes.h>
 
+#include "boot_pool.h"
+#include "boot_progress.h"
 #include "data.h"
 #include "types.h"
 #include "constants.h"
@@ -88,6 +91,33 @@ static s32 s_emitOneHead(const head_authored_record_t *h,
 	return 1;
 }
 
+/* Engine Phase 4: per-head fan-out context. */
+typedef struct {
+	const char  *heads_dir;
+	s32          force_rewrite;
+	s32          count;
+	SDL_atomic_t written;
+	SDL_atomic_t skipped;
+	SDL_atomic_t failed;
+	SDL_atomic_t processed;
+} pdhead_fanout_ctx_t;
+
+static void s_pdheadWork(int i, void *user)
+{
+	pdhead_fanout_ctx_t *c = (pdhead_fanout_ctx_t *)user;
+	if (i < 0 || i >= c->count) return;
+
+	s32 r = s_emitOneHead(&g_HeadData[i], c->heads_dir, c->force_rewrite);
+	if (r > 0)       SDL_AtomicAdd(&c->written, 1);
+	else if (r == 0) SDL_AtomicAdd(&c->skipped, 1);
+	else             SDL_AtomicAdd(&c->failed,  1);
+
+	int done = SDL_AtomicAdd(&c->processed, 1) + 1;
+	if ((done & 0x07) == 0 || done == c->count) {
+		bootProgressUpdate(done, c->count);
+	}
+}
+
 s32 romExtractAllPdhead(s32 force_rewrite)
 {
 	/* BYOR completion (2026-05-03): walks g_HeadData[] from the
@@ -109,16 +139,23 @@ s32 romExtractAllPdhead(s32 force_rewrite)
 		return -1;
 	}
 
-	s32 written = 0;
-	s32 skipped = 0;
-	s32 failed = 0;
+	pdhead_fanout_ctx_t hctx;
+	memset(&hctx, 0, sizeof(hctx));
+	hctx.heads_dir     = heads_dir;
+	hctx.force_rewrite = force_rewrite;
+	hctx.count         = g_HeadDataCount;
+	SDL_AtomicSet(&hctx.written,   0);
+	SDL_AtomicSet(&hctx.skipped,   0);
+	SDL_AtomicSet(&hctx.failed,    0);
+	SDL_AtomicSet(&hctx.processed, 0);
 
-	for (s32 i = 0; i < g_HeadDataCount; i++) {
-		s32 r = s_emitOneHead(&g_HeadData[i], heads_dir, force_rewrite);
-		if (r > 0)       written++;
-		else if (r == 0) skipped++;
-		else             failed++;
-	}
+	bootProgressUpdate(0, g_HeadDataCount);
+	bootPoolForRangeBlocking(0, g_HeadDataCount, s_pdheadWork, &hctx);
+	bootProgressUpdate(g_HeadDataCount, g_HeadDataCount);
+
+	s32 written = SDL_AtomicGet(&hctx.written);
+	s32 skipped = SDL_AtomicGet(&hctx.skipped);
+	s32 failed  = SDL_AtomicGet(&hctx.failed);
 
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdhead: written=%d skipped=%d failed=%d total=%d",

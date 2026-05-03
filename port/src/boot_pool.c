@@ -263,3 +263,103 @@ void bootPoolWaitIdle(void)
     }
     SDL_UnlockMutex(s_Pool.mutex);
 }
+
+/* Engine Phase 4: per-index range fan-out.  Generic version of the
+ * Phase 3 verify-pass batch.  Manager runs inline so the caller blocks
+ * until every index has been processed; cv_done signals the manager
+ * once every worker has decremented workers_remaining.
+ *
+ * Local batch struct (one per call) so concurrent calls from different
+ * orchestrator phases stay isolated.
+ */
+typedef struct {
+    SDL_mutex          *mutex;
+    SDL_cond           *cv_done;
+    int                 next_index;
+    int                 end_index;
+    int                 workers_remaining;
+    boot_pool_range_fn  fn;
+    void               *user_ctx;
+} boot_range_batch_t;
+
+static void s_rangeWorker(void *arg)
+{
+    boot_range_batch_t *b = (boot_range_batch_t *)arg;
+
+    for (;;) {
+        int idx;
+        SDL_LockMutex(b->mutex);
+        if (b->next_index >= b->end_index) {
+            SDL_UnlockMutex(b->mutex);
+            break;
+        }
+        idx = b->next_index++;
+        SDL_UnlockMutex(b->mutex);
+
+        b->fn(idx, b->user_ctx);
+    }
+
+    SDL_LockMutex(b->mutex);
+    b->workers_remaining--;
+    if (b->workers_remaining == 0) {
+        SDL_CondSignal(b->cv_done);
+    }
+    SDL_UnlockMutex(b->mutex);
+}
+
+void bootPoolForRangeBlocking(int begin, int end,
+                               boot_pool_range_fn fn, void *ctx)
+{
+    if (begin >= end || fn == NULL) {
+        return;
+    }
+
+    /* worker_count = boot pool's thread count (cores - 2 by default).
+     * Floor 1 so minimal-hardware paths still execute correctly: with
+     * worker_count == 1 we dispatch zero parallel workers and the
+     * manager runs everything inline on the calling thread. */
+    int worker_count = bootPoolGetWorkerCount();
+    if (worker_count < 1) {
+        worker_count = 1;
+    }
+
+    /* Cap workers at the range size: spawning more workers than items
+     * just creates idle workers that immediately exit. */
+    int span = end - begin;
+    if (worker_count > span) {
+        worker_count = span;
+    }
+    if (worker_count < 1) {
+        worker_count = 1;
+    }
+
+    boot_range_batch_t b;
+    b.mutex             = SDL_CreateMutex();
+    b.cv_done           = SDL_CreateCond();
+    b.next_index        = begin;
+    b.end_index         = end;
+    b.workers_remaining = worker_count;
+    b.fn                = fn;
+    b.user_ctx          = ctx;
+
+    /* Dispatch (worker_count - 1) parallel workers; manager runs the
+     * last slot inline.  See romExtractVerifyAll for the rationale.
+     *
+     * Pool not initialised (e.g. tests build without pool init): fall
+     * through to the inline run below; the call still completes
+     * synchronously on the caller's thread. */
+    for (int w = 0; w < worker_count - 1; w++) {
+        bootPoolEnqueue(s_rangeWorker, &b);
+    }
+
+    s_rangeWorker(&b);
+
+    SDL_LockMutex(b.mutex);
+    while (b.workers_remaining > 0) {
+        SDL_CondWait(b.cv_done, b.mutex);
+    }
+    SDL_UnlockMutex(b.mutex);
+
+    SDL_DestroyMutex(b.mutex);
+    SDL_DestroyCond(b.cv_done);
+}
