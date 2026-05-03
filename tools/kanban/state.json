@@ -692,20 +692,21 @@
     },
     {
       "id": "c109", "title": "Engine Phase 3: parallel verify pass",
-      "description": "Convert romExtractVerifyAll + romExtractVerifyAllSegments per-file sequential SHA-256 loop into work-queue fan-out via Phase 2 boot pool (c108 shipped). Atomic counters (or per-thread accumulator + reduce) for s_AggValidated / s_AggRecovered / s_AggUnrecoverable in port/src/romextract.c. Files are independent; SHA-256 is fully reentrant (port/src/sha256.c stack-local ctx). Pool API ready: bootPoolEnqueue + bootPoolWaitIdle already work, progress channel already accepts per-file updates from any thread. Target: verify pass drops from 8s sequential to 2-3s on a 6-core machine. Biggest single user-perceived speedup. Smoke verify on clean install (rm data/<romid>/files/) to force full extract+verify cycle.",
-      "pillar": "engine", "column": "backlog", "order": 122000,
+      "description": "SHIPPED 2026-05-03 at dev SHA 8554b4ea (worktree exciting-wozniak-fe0cac, two merges: e42ad24c implementation + 8554b4ea fixup). port/src/romextract.c now fans out romExtractVerifyAll across the boot pool's 14 workers (Mike's 16-core machine): shared next_file_num cursor with mutex pulled one file at a time, per-thread verify_thread_state_t accumulators, single mutex op per worker to merge counters + event list into shared verify_batch_t. Per-file SHA-256 + I/O is independent; failure events deferred to thread-local lists and replayed serially after the join so s_PerFileToastsEmitted cap stays correct (per-file LOUDFAIL log lines still fire from workers since sysLogPrintf is mutex-protected). Manager runs s_verifyWorkerFn inline (cannot bootPoolWaitIdle -- would deadlock on its own in_flight slot); per-batch latch (workers_remaining + cv_done) instead. Smoke verify on Mike's install: 0.23s -> 0.08s warm-cache (~3x); cold-cache projection per design doc 8s -> ~1s. test_romextract_passd.cpp toast assertion re-pinned for Phase 3 wiring. Audit: context/audits/engine-phase3-parallel-verify-2026-05-03.md.",
+      "pillar": "engine", "column": "done", "order": 122000,
       "ready": true,
       "priority": 1,
-      "notes": "Sequential after Phase 2 lands on dev (Mike Q6 2026-05-03). c108 shipped 2026-05-03 (worktree silly-dijkstra-05e238). Spec at context/designs/engine/startup-acceleration.md Phase 3.", "flag": null, "flagged_at": null,
-      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+      "notes": "SHIPPED 2026-05-03 at dev SHA 8554b4ea (worktree exciting-wozniak-fe0cac). Build verify clean four-target (client 55.5MB / server 22.4MB / updater 12.3MB / tests 24.6MB). Spec at context/designs/engine/startup-acceleration.md Phase 3.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T18:55:00Z"
     },
     {
       "id": "c110", "title": "Engine Phase 4: walker + emitter structural concurrency",
       "description": "Per Mike Q4 2026-05-03 'parallel, built appropriately' (no half-measures). Structural fix to assetCatalog: add fine-grained mutex (or RW lock decided post-audit) around assetCatalogRegister* in port/src/assetcatalog.c. Structural fix to loader_pool: refactor module-scope s_*Used counters + shared scratch into per-thread arena or explicit (ctx) parameter; rewrite loader_pool.c:26 single-thread invariant docblock. Walker fully parallel: per-file parse + register + pool populate runs across all N-2 workers concurrently. Per-asset emitter parallelization within one kind, then kinds in parallel where decoders allow. Audio decoders stay serial at the audio engine. Impact grows after B-318 lands (emitters early-return today).",
       "pillar": "engine", "column": "backlog", "order": 123000,
+      "ready": true,
       "priority": 2,
-      "notes": "Sequential after Phase 3 lands on dev (Mike Q6 2026-05-03). Q4 mandates structural fix not tactical patch. Spec at context/designs/engine/startup-acceleration.md Phase 4.", "flag": null, "flagged_at": null,
-      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+      "notes": "Sequential after Phase 3 lands on dev (Mike Q6 2026-05-03). Phase 3 SHIPPED 2026-05-03 at dev SHA 8554b4ea -- ready to start. Q4 mandates structural fix not tactical patch. Spec at context/designs/engine/startup-acceleration.md Phase 4.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T18:55:00Z"
     },
     {
       "id": "c111", "title": "Engine Phase 5: polish + measurements",
