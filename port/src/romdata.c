@@ -739,15 +739,62 @@ s32 romdataReleaseRom(void)
 			return -1;
 		}
 
-		u32 diskSize = 0;
-		u8 *diskData = fsFileLoad(segPath, &diskSize);
-		if (diskData == NULL || diskSize == 0) {
-			sysFatalError("LOAD.PASSC: segment \"%s\" cannot reload from \"%s\" -- "
-			              "first-launch extraction did not produce this file. "
-			              "Reinstall data/%s/segs/.",
-			              seg->name, segPath, VERSION_ROMID);
+		/* Phase 3 Pass C close (S607, B-307): allocate the segment buffer
+		 * with read-ahead padding so consumers that round their copy
+		 * length up (dmaExecWithAutoAlign uses ALIGN16, which over-reads
+		 * by up to 15 bytes; challengeLoadConfig in particular memcpys
+		 * sizeof(struct mpconfig)=0x11f4 from a 0x11e0 segment) stay
+		 * within the heap allocation.
+		 *
+		 * Pre-Pass-C the same code over-read by the same margin into
+		 * g_RomFile, but g_RomFile was a contiguous 32 MB blob so the
+		 * over-read landed inside the next segment's bytes -- harmless.
+		 * Post-Pass-C each segment is its own heap allocation, and the
+		 * over-read walked off the end into unmapped memory.
+		 *
+		 * fsFileLoad's `size + 1` null terminator is not enough.  We
+		 * use sysMemAlloc with PASSC_SEG_PADDING bytes of slack and
+		 * stat + raw fread to fill, instead of fsFileLoad. */
+		const u32 PASSC_SEG_PADDING = 0x40;
+		const char *segFull = fsFullPath(segPath);
+		if (segFull == NULL || segFull[0] == '\0') {
+			sysFatalError("LOAD.PASSC: segment \"%s\" path resolution failed", seg->name);
 			return -1;
 		}
+
+		struct stat segSt;
+		if (stat(segFull, &segSt) != 0 || segSt.st_size <= 0) {
+			sysFatalError("LOAD.PASSC: segment \"%s\" cannot stat \"%s\" -- "
+			              "first-launch extraction did not produce this file. "
+			              "Reinstall data/%s/segs/.",
+			              seg->name, segFull, VERSION_ROMID);
+			return -1;
+		}
+
+		u32 diskSize = (u32)segSt.st_size;
+		u8 *diskData = sysMemAlloc(diskSize + PASSC_SEG_PADDING);
+		if (diskData == NULL) {
+			sysFatalError("LOAD.PASSC: out of memory allocating %u bytes for segment \"%s\"",
+			              diskSize + PASSC_SEG_PADDING, seg->name);
+			return -1;
+		}
+
+		FILE *segF = fopen(segFull, "rb");
+		if (segF == NULL) {
+			sysFatalError("LOAD.PASSC: segment \"%s\" cannot open \"%s\"",
+			              seg->name, segFull);
+			return -1;
+		}
+		size_t segReadN = fread(diskData, 1, diskSize, segF);
+		fclose(segF);
+		if (segReadN != diskSize) {
+			sysFatalError("LOAD.PASSC: segment \"%s\" short read (got=%zu, expected=%u)",
+			              seg->name, segReadN, diskSize);
+			return -1;
+		}
+		/* Zero the read-ahead padding so any over-read returns clean
+		 * zero bytes rather than uninitialised heap. */
+		memset(diskData + diskSize, 0, PASSC_SEG_PADDING);
 
 		if (diskSize != seg->size) {
 			/* Pre-Pass-C the segment may have been preprocess()'d to a
