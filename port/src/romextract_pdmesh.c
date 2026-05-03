@@ -1,7 +1,7 @@
 /**
  * romextract_pdmesh.c -- Catalog universality pivot Step 1 (2026-05-02).
  *
- * Walks the unique set of mesh references from the loader_pdbase weapon
+ * Walks the unique set of mesh references from the loader_pool weapon
  * pool (hi_model + lo_model fields) and emits one .pdmesh ZIP compound
  * per unique mesh at data/<romid>/meshes/<id>.pdmesh.
  *
@@ -31,8 +31,8 @@
 #include "constants.h"
 #include "fs.h"
 #include "catalog_mgr_weapons.h"
-#include "loader_pdbase.h"
-#include "loader_pdbase_enums.h"
+#include "loader_pool.h"
+#include "loader_enum_reverse.h"
 #include "modarchive.h"
 #include "romdata.h"
 #include "romextract.h"
@@ -67,7 +67,7 @@ static void s_markSeen(u16 filenum)
 static void s_synthCatalogId(u16 filenum, const char *hint_suffix,
                               char *out, size_t n)
 {
-	const char *sym = loaderPdbaseNameForFileEnum(filenum);
+	const char *sym = loaderEnumNameForFileEnum(filenum);
 	if (!sym) {
 		snprintf(out, n, "base:rom_g_%04x", (unsigned)filenum);
 		return;
@@ -142,7 +142,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 
 	if (!force_rewrite && fsFileSize(dst_rel) > 0) return 0;
 
-	const char *sym_for_provenance = loaderPdbaseNameForFileEnum(filenum);
+	const char *sym_for_provenance = loaderEnumNameForFileEnum(filenum);
 
 	/* Build manifest.json text in memory. */
 	char manifest_buf[512];
@@ -234,7 +234,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 
 s32 romExtractAllPdmesh(s32 force_rewrite)
 {
-	if (!loaderPdbaseIsActive()) {
+	if (!loaderPoolIsActive()) {
 		sysLogPrintf(LOG_NOTE,
 			"romextract pdmesh: loader not active, skipping");
 		return 0;
@@ -260,7 +260,7 @@ s32 romExtractAllPdmesh(s32 force_rewrite)
 	s32 failed = 0;
 
 	for (s32 i = 0; i < CATALOG_MGR_WEAPON_COUNT; i++) {
-		const struct weapon *wpn = loaderPdbaseGetWeapon(i);
+		const struct weapon *wpn = loaderPoolGetWeapon(i);
 		if (!wpn) continue;
 
 		s32 r;

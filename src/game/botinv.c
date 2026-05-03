@@ -21,9 +21,9 @@
 #include "types.h"
 
 /* S484 F13: g_AibotWeaponPreferences[] retired 2026-04-30. Bot AI
- * preference data per weapon now lives in base/weapons.pdbase
+ * preference data per weapon now lives in the per-asset envelope
  * "bot_pref" sub-struct on each weapon record, parsed by the loader
- * (port/src/loader_pdbase.c) into a manager-owned pool. The accessor
+ * (port/src/loader_pool.c) into a manager-owned pool. The accessor
  * is catalogManagerGetWeaponBotPref() in catalog_mgr_weapons.c.
  *
  * If you grep'd for g_AibotWeaponPreferences after upgrading: every

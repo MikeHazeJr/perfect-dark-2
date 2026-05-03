@@ -17,7 +17,7 @@
  * catalogGetBodyX(bodynum) accessors in assetcatalog_api.c through the
  * manager. F3-F4 migrate the modeldef cache and retire the legacy
  * cache walk. F11-F13 replace the legacy backing table with manager-
- * owned data sourced from base/bodies.pdbase JSON.
+ * owned data sourced from base/bodiesthe per-asset envelope.
  *
  * Logging: every miss path emits a CATALOG.MGR.BODY.MISS: warning so
  * upstream callers can be diagnosed. Every override / load emits the

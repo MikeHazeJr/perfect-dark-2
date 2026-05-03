@@ -1,8 +1,8 @@
 /**
  * loader_walker.h -- Catalog universality pivot Step 4 (2026-05-03).
  *
- * Universal directory walker. Replaces the hardcoded base/*.pdbase scan
- * (loaderPdbaseScan) as the primary catalog row registration path. Walks
+ * Universal directory walker. Replaces the hardcoded the per-asset .pd<ext> envelopes scan
+ * (loaderWalkerLoadAll) as the primary catalog row registration path. Walks
  * data/<romid>/<class>/*.pd<ext> for all 13 universality kinds emitted by
  * Steps 1 / 2 / 3a / 3 / 3b and registers a catalog row per file via the
  * existing assetCatalogRegister* API using the human-readable catalog ID
@@ -18,13 +18,13 @@
  * registrations are last-write-wins, so they overlay the in-binary catalog
  * with the disk-derived rows -- the universality switch.
  *
- * .pdbase parser positioning (per Step 4 directive): loaderPdbaseScan +
- * loaderPdbaseBuild*Manager remain in the boot path as the parity-bounded
- * fallback responsible for populating the heavyweight loader_pdbase pools
+ * the per-asset parser positioning (per Step 4 directive): loaderWalkerLoadAll +
+ * loaderPoolFinalize remain in the boot path as the parity-bounded
+ * fallback responsible for populating the heavyweight loader_pool
  * (s_Weapons[] full records, s_HeadsPool[], s_BodiesPool[], s_ArenasPool[]).
- * Step 5 retires the .pdbase tier entirely once pool population also moves
+ * Step 5 retires the the legacy aggregate tier entirely once pool population also moves
  * onto a per-asset path; until then the walker handles row registration and
- * .pdbase handles pool fill.
+ * loader_pool fills directly from per-asset content.
  *
  * Server build: weapons / heads / bodies / arenas / etc. catalog rows
  * register identically server-side (server already participates in the
@@ -78,7 +78,7 @@ typedef struct {
 s32 loaderWalkerLoadAll(loader_walker_result_t *out);
 
 /* Returns 1 once at least one walker registration has succeeded.
- * Catalog managers + .pdbase fallback gates may consult this to decide
+ * Catalog managers + loader_pool fallback gates may consult this to decide
  * whether to defer to the walker output or re-register from in-binary
  * tables. Cleared only on full process restart. */
 s32 loaderWalkerIsActive(void);

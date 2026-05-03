@@ -243,16 +243,6 @@ typedef struct asset_entry {
              *      arenas so the user can fly around without anything
              *      triggering / dying / cutscenes playing. */
             u8  load_mode;
-            /* Catalog Gate 3 Arenas F7: archive-relative resolution.
-             * Empty until the loader populates them at startup. Non-empty
-             * means the arena record lives in base/arenas.pdbase at the
-             * given offset/size; loader_pdbase populates these at scan
-             * time and the manager s_get checks loaderPdbaseArenasActive
-             * to decide which source to read. Mirrors the heads / bodies
-             * F7 fields. */
-            char pdbase_path[128];
-            u32  pdbase_offset;
-            u32  pdbase_size;
         } arena;
         struct {
             s16 bodynum;               /* global body ID in g_HeadsAndBodies[] */
@@ -280,17 +270,6 @@ typedef struct asset_entry {
              * Future subdivisions (e.g. splitting DEFAULT into neck-variant
              * sub-buckets) land as data edits here; no code changes needed. */
             char rig_class[32];
-            /* Catalog Gate 3 Bodies F7: archive-relative resolution.
-             * Empty string means the body lives in the legacy
-             * g_HeadsAndBodies[] table (parity-period source). Non-empty
-             * means the body record lives in base/bodies.pdbase at the
-             * given offset/size; loader_pdbase populates these at scan
-             * time and the manager s_get checks loaderPdbaseBodiesActive
-             * to decide which source to read.  Mirrors the heads F7
-             * fields. */
-            char pdbase_path[128];
-            u32  pdbase_offset;
-            u32  pdbase_size;
         } body;
         struct {
             s16 headnum;               /* global head ID in g_HeadsAndBodies[] */
@@ -299,14 +278,6 @@ typedef struct asset_entry {
              * -- equality match with a body's rig_class = physically
              * compatible pair. */
             char rig_class[32];
-            /* Catalog Gate 3 F7: pdbase file refs for F11+ data move.
-             * Empty until the loader populates them at startup.  The
-             * manager pool (s_Heads[]) holds the typed payload; these
-             * fields let mod overlays + tooling locate the source
-             * record inside base/heads.pdbase or modid:heads.pdmod. */
-            char pdbase_path[128];     /* path to .pdbase file inside namespace */
-            u32  pdbase_offset;        /* offset within the .pdbase to this record */
-            u32  pdbase_size;          /* record size in bytes (validation) */
         } head;
         struct {
             s32 weapon_id;             /* MPWEAPON_* slot, not runtime WEAPON_* */
@@ -321,13 +292,7 @@ typedef struct asset_entry {
              * Selectors that need damage / fire_rate / ammo type now
              * route through the catalog manager
              * (catalogManagerGetWeaponByIndex(weapon_num)->...) which
-             * is the single source of truth.
-             *
-             * S484 F9: pdbase file refs for F11+ data move. Empty
-             * until the loader populates them at startup. */
-            char pdbase_path[128];     /* path to .pdbase file inside namespace */
-            u32  pdbase_offset;        /* offset within the .pdbase to this record */
-            u32  pdbase_size;          /* record size in bytes (validation) */
+             * is the single source of truth. */
         } weapon;
         struct {
             s32 anim_id;               /* animation table index */

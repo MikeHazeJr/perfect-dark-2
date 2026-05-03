@@ -1,14 +1,14 @@
 /**
  * romextract_pdanim.c -- Catalog universality pivot Step 1 (2026-05-02).
  *
- * Walks the loader_pdbase animation pool and emits one .pdanim JSON
+ * Walks the loader_pool animation pool and emits one .pdanim JSON
  * file per registered weapon animation at
  * data/<romid>/animations/<id>.pdanim.
  *
  * Each .pdanim carries category="weapon_animation" per universality-
  * pivot-schemas.md Section 2.6. Character animations (the segs/
  * animations.bin lump) become Step 3a work; this emitter handles only
- * the gunscript opcode arrays loaded from base/weapons.pdbase.
+ * the gunscript opcode arrays loaded from the per-asset envelope.
  *
  * Per Mike's Q-3 ruling (2026-05-02): character anims are required
  * within catalog scope but ship as a follow-up slice. The .pdanim
@@ -24,13 +24,13 @@
 #include "types.h"
 #include "constants.h"
 #include "fs.h"
-#include "loader_pdbase.h"
-#include "loader_pdbase_enums.h"
+#include "loader_pool.h"
+#include "loader_enum_reverse.h"
 #include "romextract_pd.h"
 #include "system.h"
 
 /* Map struct guncmd::type to mnemonic + arg-format hint. Mirrors the
- * decoder in loader_pdbase.c::decodeOpcode so that round-trip parity
+ * decoder in loader_pool.c::decodeOpcode so that round-trip parity
  * holds (Mike's Q-5 ruling: parity active during Step 1 to validate
  * the .pdwpn / .pdanim emit). */
 typedef enum {
@@ -104,21 +104,21 @@ static void s_emitOpcode(FILE *fp, const struct guncmd *cmd, s32 last)
 			(unsigned)cmd->unk02, (long long)cmd->unk04);
 		break;
 	case OPFMT_U16_ANIMNAME: {
-		const char *aname = loaderPdbaseAnimationNameForCmds(
+		const char *aname = loaderPoolAnimationNameForCmds(
 			(const struct guncmd *)(intptr_t)cmd->unk04);
 		fprintf(fp, ", %u, ", (unsigned)cmd->unk02);
 		s_writeStrEscaped(fp, aname ? aname : "");
 		break;
 	}
 	case OPFMT_U16_SFX: {
-		const char *sname = loaderPdbaseNameForSfxEnum((s32)cmd->unk04);
+		const char *sname = loaderEnumNameForSfxEnum((s32)cmd->unk04);
 		fprintf(fp, ", %u, ", (unsigned)cmd->unk02);
 		if (sname) s_writeStrEscaped(fp, sname);
 		else       fprintf(fp, "%lld", (long long)cmd->unk04);
 		break;
 	}
 	case OPFMT_PLAYANIM: {
-		const char *aname = loaderPdbaseNameForAnimEnum((s32)cmd->unk02);
+		const char *aname = loaderEnumNameForAnimEnum((s32)cmd->unk02);
 		s32 direction = (s32)((cmd->unk04 >> 16) & 0xFFFF);
 		s32 speed     = (s32)(cmd->unk04 & 0xFFFF);
 		fputs(", ", fp);
@@ -135,7 +135,7 @@ static void s_emitOpcode(FILE *fp, const struct guncmd *cmd, s32 last)
 		break;
 	}
 	case OPFMT_INCLUDE: {
-		const char *aname = loaderPdbaseAnimationNameForCmds(
+		const char *aname = loaderPoolAnimationNameForCmds(
 			(const struct guncmd *)(intptr_t)cmd->unk04);
 		fprintf(fp, ", %u, ", (unsigned)cmd->unk01);
 		s_writeStrEscaped(fp, aname ? aname : "");
@@ -152,12 +152,12 @@ static void s_emitOpcode(FILE *fp, const struct guncmd *cmd, s32 last)
 
 static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 {
-	const char *anim_name = loaderPdbaseGetAnimationName(anim_idx);
+	const char *anim_name = loaderPoolGetAnimationName(anim_idx);
 	if (!anim_name || !anim_name[0]) return 0;
 
 	const struct guncmd *cmds = NULL;
 	s32 cmd_count = 0;
-	if (!loaderPdbaseGetAnimationOpcodes(anim_idx, &cmds, &cmd_count)) {
+	if (!loaderPoolGetAnimationOpcodes(anim_idx, &cmds, &cmd_count)) {
 		return 0;
 	}
 	if (!cmds || cmd_count <= 0) return 0;
@@ -199,7 +199,7 @@ static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 
 s32 romExtractAllPdanim(s32 force_rewrite)
 {
-	if (!loaderPdbaseIsActive()) {
+	if (!loaderPoolIsActive()) {
 		sysLogPrintf(LOG_NOTE,
 			"romextract pdanim: loader not active, skipping");
 		return 0;
@@ -221,7 +221,7 @@ s32 romExtractAllPdanim(s32 force_rewrite)
 	s32 written = 0;
 	s32 skipped = 0;
 	s32 failed = 0;
-	s32 total = loaderPdbaseGetAnimationCount();
+	s32 total = loaderPoolGetAnimationCount();
 
 	for (s32 i = 0; i < total; i++) {
 		s32 r = s_emitOneAnim(i, anims_dir, force_rewrite);

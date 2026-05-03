@@ -1315,7 +1315,7 @@ asset_data_handle_t catalogGetModelHandle(s32 modelnum)
 
 /* Catalog Gate 3 Bodies F2: route body field reads through the manager.
  * The manager pool (s_Bodies[]) mirrors g_HeadsAndBodies[] during the
- * F1-F12 parity period; F12 swaps the data source to base/bodies.pdbase.
+ * F1-F12 parity period; F12 swaps the data source to the per-asset envelope.
  * Tier-2 callers (body.c HEADBODYTYPE checks, bot.c speed scaling,
  * botmgr.c voice line gender, chraction.c animation gender, integrated-
  * head guards across the four picker UIs) inherit through these
@@ -1357,7 +1357,7 @@ s32 catalogGetBodyIsComplete(s32 bodynum)
      * The integrated-head invariant (Skedar / Dr Caroll / EyeSpy =>
      * unk00_01 == 1 for body slots) is preserved across the F2 routing:
      * the manager copies unk00_01 from g_HeadsAndBodies during the
-     * parity-period mirror and from base/bodies.pdbase post-F12. */
+     * parity-period mirror and from the per-asset envelope post-F12. */
     const body_data_t *b = catalogManagerGetBodyByIndex(bodynum);
     return b ? (s32)b->unk00_01 : 0;
 }
@@ -1370,7 +1370,7 @@ s32 catalogGetBodyHandFilenum(s32 bodynum)
 
 /* Catalog Gate 3 F2: route head field reads through the manager.
  * The manager pool (s_Heads[]) mirrors g_HeadsAndBodies[] during the
- * F1-F12 parity period; F12 swaps the data source to base/heads.pdbase.
+ * F1-F12 parity period; F12 swaps the data source to the per-asset envelope.
  * Tier-2 callers (body.c HEADBODYTYPE checks, chraction.c, player.c
  * vv_headheight, netmanifest.c) inherit through these accessors without
  * source changes. */

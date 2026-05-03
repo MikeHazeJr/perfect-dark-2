@@ -11,7 +11,7 @@
  * catalogGetBodyX accessors (assetcatalog_api.c) through this manager;
  * F3 / F4 migrate the modeldef cache and retire the legacy walk.
  * F11-F13 replace the legacy backing table with manager-owned data
- * sourced from base/bodies.pdbase JSON.
+ * sourced from base/bodiesthe per-asset envelope.
  *
  * Pure validators live in port/src/catalog_mgr_bodies_pure.c and are
  * pinned by tests/test_catalog_mgr_bodies_api.cpp.
@@ -30,7 +30,7 @@
 #include "assetcatalog.h"
 #include "catalog_mgr_bodies.h"
 #include "catalog_mgr_bodies_pure.h"
-#include "loader_pdbase.h"  /* Catalog Gate 3 Bodies F12: pool-backed source when active */
+#include "loader_pool.h"  /* Catalog Gate 3 Bodies F12: pool-backed source when active */
 
 extern struct headorbody g_HeadsAndBodies[];
 
@@ -77,13 +77,13 @@ static const body_data_t *s_get(s32 bodynum)
 	}
 #if !defined(PD_SERVER)
 	/* Catalog Gate 3 Bodies F12: when the loader is active, the
-	 * .pdbase pool is the source of truth.  Copy the loader-owned
+	 * loader_pool is the source of truth.  Copy the loader-owned
 	 * record into the manager slot (preserving the modeldef cache
 	 * pointer) so all accessors continue to read from s_Bodies[].
 	 * F13 retires the legacy mirror entirely; for now we keep both
 	 * paths so the parity bridge can be exercised. */
-	if (loaderPdbaseBodiesActive()) {
-		const body_data_t *src = loaderPdbaseGetBody(bodynum);
+	if (loaderPoolBodiesActive()) {
+		const body_data_t *src = loaderPoolGetBody(bodynum);
 		if (src) {
 			struct modeldef *md = s_Bodies[bodynum].modeldef;
 			s_Bodies[bodynum] = *src;
@@ -241,7 +241,7 @@ void catalogManagerResetAllBodyModeldefs(void)
 }
 
 /* ========================================================================
- * Registration / unregistration. F12 wires the .pdbase loader through
+ * Registration / unregistration. F12 wires the loader_pool through
  * RegisterBody. Until then these are no-ops with logging so the API is
  * stable for callers that don't care about the load source.
  * ======================================================================== */

@@ -1,7 +1,7 @@
 /**
  * romextract_pdhead.c -- Catalog universality pivot Step 2 (2026-05-03).
  *
- * Walks the loader_pdbase head pool and emits one .pdhead JSON file
+ * Walks the loader_pool head pool and emits one .pdhead JSON file
  * per registered head at data/<romid>/heads/<id>.pdhead.
  *
  * Schema lock-down: context/designs/catalog/universality-pivot-schemas.md
@@ -9,10 +9,10 @@
  *
  * Cross-reference convention for Step 2: the `mesh` field preserves the
  * original FILE_* enum string (resolved via reverse lookup against
- * loader_pdbase_enums.c). Step 4 (universal loader) will swap this to
+ * loader_enum_reverse.c). Step 4 (universal loader) will swap this to
  * a catalog ID once the directory walker is minting the universal
  * mapping. The Step 2 emit format is therefore intermediate and
- * identical to the .pdbase per-row content; this is intentional so the
+ * identical to the per-record envelope content; this is intentional so the
  * parity check at Step 2 is clean.
  *
  * Server build: emitter early-returns 0 (loader not active server-side).
@@ -28,8 +28,8 @@
 #include "constants.h"
 #include "fs.h"
 #include "catalog_mgr_heads.h"
-#include "loader_pdbase.h"
-#include "loader_pdbase_enums.h"
+#include "loader_pool.h"
+#include "loader_enum_reverse.h"
 #include "romextract_pd.h"
 #include "system.h"
 
@@ -52,10 +52,10 @@ static s32 s_emitOneHead(s32 headnum, const head_data_t *h,
 	const char *catalog_id = h->catalog_id;
 	if (!catalog_id || !catalog_id[0]) {
 		/* Pool slot is populated but no catalog ID was captured.
-		 * Skip silently; loader_pdbase only fills catalog_id from the
-		 * .pdbase JSON `id` field, so an empty value means the slot
+		 * Skip silently; loader_pool only fills catalog_id from the
+		 * the per-asset envelope `id` field, so an empty value means the slot
 		 * is a body-side row (unk00_01 == 0 + body filenum) that does
-		 * not have a heads.pdbase entry. */
+		 * not have a headsper-asset envelope. */
 		return 0;
 	}
 
@@ -74,8 +74,8 @@ static s32 s_emitOneHead(s32 headnum, const head_data_t *h,
 		return -1;
 	}
 
-	const char *type_str = loaderPdbaseNameForHeadbodyType(h->type);
-	const char *file_str = loaderPdbaseNameForFileEnum(h->filenum);
+	const char *type_str = loaderEnumNameForHeadbodyType(h->type);
+	const char *file_str = loaderEnumNameForFileEnum(h->filenum);
 
 	fputs("{\n", fp);
 	fputs("  \"pd_kind\": \"head\",\n", fp);
@@ -98,7 +98,7 @@ static s32 s_emitOneHead(s32 headnum, const head_data_t *h,
 
 s32 romExtractAllPdhead(s32 force_rewrite)
 {
-	if (!loaderPdbaseHeadsActive()) {
+	if (!loaderPoolHeadsActive()) {
 		sysLogPrintf(LOG_NOTE,
 			"romextract pdhead: heads loader not active, skipping");
 		return 0;
@@ -121,10 +121,10 @@ s32 romExtractAllPdhead(s32 force_rewrite)
 	s32 written = 0;
 	s32 skipped = 0;
 	s32 failed = 0;
-	s32 total = loaderPdbaseGetHeadsRegistered();
+	s32 total = loaderPoolGetHeadsRegistered();
 
 	for (s32 i = 0; i < CATALOG_MGR_HEAD_COUNT; i++) {
-		const head_data_t *h = loaderPdbaseGetHead(i);
+		const head_data_t *h = loaderPoolGetHead(i);
 		if (!h) continue;
 		if (h->catalog_id[0] == '\0') continue;
 		s32 r = s_emitOneHead(i, h, heads_dir, force_rewrite);

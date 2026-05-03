@@ -673,10 +673,10 @@ set(SRC_SERVER
   ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_bodies.c
   ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_bodies_pure.c
 
-  # Catalog Gate 3 Arenas F1: catalog manager for MP arenas.
-  # The pd-server build includes the manager so loader_pdbase.c
-  # (which links into pd-server's manager-side accessors) compiles
-  # cleanly. Manager has no modeldef cache, no rng dependency.
+  # Catalog manager for MP arenas. The pd-server build includes the
+  # manager so manager-side catalog accessors compile cleanly without
+  # the client-only loader_pool TU. Manager has no modeldef cache, no
+  # rng dependency.
   ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_arenas.c
   ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_arenas_pure.c
 
@@ -854,35 +854,10 @@ if(NINTENDO_SWITCH)
   )
 endif()
 
-# S484 F12.4: deploy base/*.pdbase archives into the runtime data root.
-# fsFileLoad("base/weapons.pdbase", ...) resolves against fsGetBaseDir()
-# (typically "<BuildDir>/data"), so the source-tree base/ files have to
-# be copied into <BuildDir>/data/base/ for the loader to find them.
-#
-# Why per-file add_custom_command(OUTPUT ...) + custom_target(ALL ...) and
-# NOT add_custom_command(TARGET pd POST_BUILD ...): POST_BUILD only fires
-# when the target itself is relinked. An incremental rebuild that doesn't
-# touch any pd source skips POST_BUILD, leaving stale Build/data/base/
-# (this is what bit Mike's first F12 playtest -- pd was already linked,
-# POST_BUILD never ran, the .pdbase deploy was missed). The pattern
-# below makes ninja track each source file as a real dependency: the
-# copy fires whenever the source changes OR the destination is missing.
-if(EXISTS "${CMAKE_SOURCE_DIR}/base")
-  file(GLOB_RECURSE PDBASE_SRC_FILES "${CMAKE_SOURCE_DIR}/base/*")
-  set(PDBASE_DEPLOYED_FILES)
-  foreach(src ${PDBASE_SRC_FILES})
-    file(RELATIVE_PATH rel "${CMAKE_SOURCE_DIR}/base" "${src}")
-    set(dst "${CMAKE_BINARY_DIR}/data/base/${rel}")
-    add_custom_command(OUTPUT "${dst}"
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${src}" "${dst}"
-      DEPENDS "${src}"
-      COMMENT "Deploying base/${rel} -> Build/data/base/${rel}"
-      VERBATIM)
-    list(APPEND PDBASE_DEPLOYED_FILES "${dst}")
-  endforeach()
-  add_custom_target(pdbase_deploy ALL DEPENDS ${PDBASE_DEPLOYED_FILES})
-  add_dependencies(pd pdbase_deploy)
-endif()
+# Catalog universality pivot Step 5 (2026-05-03): the per-asset .pd*
+# walker (loader_walker + loader_pool) is now the sole catalog row + pool
+# source. The pre-Step-5 base/*.pd-base aggregate archive deploy step
+# retired alongside the legacy reader and the source archives.
 
 # Windows: no DLL copy step — all third-party libraries are statically linked.
 # SDL2, zlib, libcurl (+ full TLS chain), libgcc, libstdc++, and libwinpthread
@@ -1023,11 +998,14 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/catalog_mgr_arenas_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_mgr_arenas_api.cpp
 
-  # Catalog Gate 3 Arenas F11 + F12: pin the .pdbase archive shape +
-  # the parser / parity-check static contract. Static-text grep against
-  # base/arenas.pdbase + port/src/loader_pdbase.c + catalog_mgr_arenas.c
-  # + main.c.
-  ${CMAKE_SOURCE_DIR}/tests/test_loader_pdbase_arenas.cpp
+  # Catalog universality pivot Step 5 (2026-05-03): grep-guard for the
+  # retired .pdbase aggregate tier. Walks port/ + src/game/ + devtools/
+  # and asserts no "pdbase" / "loaderPdbase" / "loader_pdbase"
+  # substring remains, plus checks no base/*.pdbase aggregate archive
+  # is checked back in. Catches regressions of the legacy reader, the
+  # extractor scripts, and the asset_entry_t pdbase_path/offset/size
+  # fields.
+  ${CMAKE_SOURCE_DIR}/tests/test_pdbase_retired_audit.cpp
 
   # Catalog Gate 3 Arenas F13: grep-guard test. Pins that no NEW
   # direct g_MpArenas[idx].field reads exist outside the registration
@@ -1049,9 +1027,6 @@ set(SRC_TESTS
   # S484 F3+: pin per-file absence of direct g_Weapons[] reads. The
   # list of audited files grows as each F-step lands.
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_direct_reads_audit.cpp
-
-  # S484 F10: pin the .pdbase loader scaffold's static contract.
-  ${CMAKE_SOURCE_DIR}/tests/test_loader_pdbase_scan.cpp
 
   # Phase 3 Pass B Slice 13: pin UI chrome paths to base/ui/textures.
   # Static-text grep against pdgui_theme.cpp + pdgui_theme.h.  Audit at

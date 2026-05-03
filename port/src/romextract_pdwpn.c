@@ -1,7 +1,7 @@
 /**
  * romextract_pdwpn.c -- Catalog universality pivot Step 1 (2026-05-02).
  *
- * Walks the loader_pdbase weapon pool and emits one .pdwpn JSON file
+ * Walks the loader_pool weapon pool and emits one .pdwpn JSON file
  * per registered weapon at data/<romid>/weapons/<id>.pdwpn.
  *
  * Schema lock-down: context/designs/catalog/universality-pivot-schemas.md
@@ -9,10 +9,10 @@
  *
  * Cross-reference convention for Step 1: hi_model / lo_model / animation
  * fields preserve the original FILE_* and ANIM_* enum strings (resolved
- * via reverse lookup against loader_pdbase_enums.c). Step 4 (universal
+ * via reverse lookup against loader_enum_reverse.c). Step 4 (universal
  * loader) will swap these to catalog IDs once the directory walker is
  * minting the universal mapping. The Step 1 emit format is therefore
- * intermediate and identical to the .pdbase per-row content; this is
+ * intermediate and identical to the per-record envelope content; this is
  * intentional so the parity check at Step 1 is clean.
  *
  * Server build: emitter early-returns 0 (loader not active server-side).
@@ -28,8 +28,8 @@
 #include "constants.h"
 #include "fs.h"
 #include "catalog_mgr_weapons.h"
-#include "loader_pdbase.h"
-#include "loader_pdbase_enums.h"
+#include "loader_pool.h"
+#include "loader_enum_reverse.h"
 #include "romextract_pd.h"
 #include "system.h"
 
@@ -111,7 +111,7 @@ static void jw_field_f32(jw_t *w, const char *key, f32 val, s32 last)
  * else `"key": <int>`. Used for hi_model / lo_model. */
 static void jw_field_file_or_int(jw_t *w, const char *key, s32 val, s32 last)
 {
-	const char *name = loaderPdbaseNameForFileEnum(val);
+	const char *name = loaderEnumNameForFileEnum(val);
 	if (name) jw_field_str(w, key, name, last);
 	else      jw_field_int(w, key, val, last);
 }
@@ -120,7 +120,7 @@ static void jw_field_file_or_int(jw_t *w, const char *key, s32 val, s32 last)
  * else `"key": <int>`. Used for shortname / name / manufacturer / description. */
 static void jw_field_lang_or_int(jw_t *w, const char *key, s32 val, s32 last)
 {
-	const char *name = loaderPdbaseNameForLangEnum(val);
+	const char *name = loaderEnumNameForLangEnum(val);
 	if (name) jw_field_str(w, key, name, last);
 	else      jw_field_int(w, key, val, last);
 }
@@ -129,7 +129,7 @@ static void jw_field_lang_or_int(jw_t *w, const char *key, s32 val, s32 last)
 static void jw_field_anim_ref(jw_t *w, const char *key,
                                const struct guncmd *cmds, s32 last)
 {
-	const char *name = loaderPdbaseAnimationNameForCmds(cmds);
+	const char *name = loaderPoolAnimationNameForCmds(cmds);
 	jw_field_str(w, key, name, last);
 }
 
@@ -266,8 +266,8 @@ static void s_emitWeaponFunc(jw_t *w, const void *func_ptr, s32 last)
 		jw_field_f32(w, "impactforce", sh->impactforce, 0);
 		jw_field_uint(w, "duration60", sh->duration60, 0);
 		/* Q-2 type-tolerance: shootsound accepts any audio kind.
-		 * Step 1 emits SFX_* enum string (matches .pdbase). */
-		const char *sfx = loaderPdbaseNameForSfxEnum(sh->shootsound);
+		 * Step 1 emits SFX_* enum string (matches the source data). */
+		const char *sfx = loaderEnumNameForSfxEnum(sh->shootsound);
 		if (sfx) jw_field_str(w, "shootsound", sfx, 0);
 		else     jw_field_int(w, "shootsound", sh->shootsound, 0);
 		jw_field_uint(w, "penetration", sh->penetration, 1);
@@ -290,7 +290,7 @@ static void s_emitWeaponFunc(jw_t *w, const void *func_ptr, s32 last)
 		jw_field_f32(w, "slidemax",    sh->slidemax, 0);
 		jw_field_f32(w, "impactforce", sh->impactforce, 0);
 		jw_field_uint(w, "duration60", sh->duration60, 0);
-		const char *sfx = loaderPdbaseNameForSfxEnum(sh->shootsound);
+		const char *sfx = loaderEnumNameForSfxEnum(sh->shootsound);
 		if (sfx) jw_field_str(w, "shootsound", sfx, 0);
 		else     jw_field_int(w, "shootsound", sh->shootsound, 0);
 		jw_field_uint(w, "penetration", sh->penetration, 0);
@@ -313,7 +313,7 @@ static void s_emitWeaponFunc(jw_t *w, const void *func_ptr, s32 last)
 		jw_field_f32(w, "slidemax",    sh->slidemax, 0);
 		jw_field_f32(w, "impactforce", sh->impactforce, 0);
 		jw_field_uint(w, "duration60", sh->duration60, 0);
-		const char *sfx = loaderPdbaseNameForSfxEnum(sh->shootsound);
+		const char *sfx = loaderEnumNameForSfxEnum(sh->shootsound);
 		if (sfx) jw_field_str(w, "shootsound", sfx, 0);
 		else     jw_field_int(w, "shootsound", sh->shootsound, 0);
 		jw_field_uint(w, "penetration", sh->penetration, 0);
@@ -539,7 +539,7 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 
 s32 romExtractAllPdwpn(s32 force_rewrite)
 {
-	if (!loaderPdbaseIsActive()) {
+	if (!loaderPoolIsActive()) {
 		sysLogPrintf(LOG_NOTE,
 			"romextract pdwpn: loader not active, skipping");
 		return 0;
@@ -563,13 +563,13 @@ s32 romExtractAllPdwpn(s32 force_rewrite)
 	s32 written = 0;
 	s32 skipped = 0;
 	s32 failed = 0;
-	s32 total = loaderPdbaseGetWeaponsRegistered();
+	s32 total = loaderPoolGetWeaponsRegistered();
 
 	for (s32 i = 0; i < CATALOG_MGR_WEAPON_COUNT; i++) {
-		const struct weapon *wpn = loaderPdbaseGetWeapon(i);
+		const struct weapon *wpn = loaderPoolGetWeapon(i);
 		if (!wpn) continue;
 
-		const char *catalog_id = loaderPdbaseGetWeaponCatalogId(i);
+		const char *catalog_id = loaderPoolGetWeaponCatalogId(i);
 		if (!catalog_id) {
 			/* Pool slot is populated but no catalog ID was captured.
 			 * Fall back to a synthetic ID so emit still produces a
@@ -580,7 +580,7 @@ s32 romExtractAllPdwpn(s32 force_rewrite)
 			catalog_id = synth;
 		}
 
-		const struct aibotweaponpreference *bp = loaderPdbaseGetBotPref(i);
+		const struct aibotweaponpreference *bp = loaderPoolGetBotPref(i);
 		s32 r = s_emitOneWeapon(i, wpn, bp, catalog_id,
 		                        weapons_dir, force_rewrite);
 		if (r > 0)      written++;

@@ -5,7 +5,7 @@
 #include "types.h"
 
 /* S484 F13: invnoisesettings_silent / invaimsettings_default / g_Weapons[]
- * retired 2026-04-30. Weapon data lives in base/weapons.pdbase, accessed
+ * retired 2026-04-30. Weapon data lives in the per-asset envelope, accessed
  * via the catalog manager (port/include/catalog_mgr_weapons.h). */
 
 void invReset(void);

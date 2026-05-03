@@ -304,11 +304,11 @@ int main(int argc, char **argv)
 
     assetCatalogInit();
     assetCatalogRegisterBaseGame();
-    /* S484 F12: dedicated server runs without the manager pool because its
-     * weapon stats path is server_stubs / participant slot handoff only.
-     * The pdbase loader stays client-side (port/src/loader_pdbase.c is in
+    /* Dedicated server runs without the manager pool because its weapon
+     * stats path is server_stubs / participant slot handoff only. The
+     * loader_pool TU stays client-side (port/src/loader_pool.c is in
      * the client build only). If a future server feature needs the typed
-     * weapon payload, add loader_pdbase.c (and its deps) to SRC_SERVER. */
+     * weapon payload, add loader_pool.c (and its deps) to SRC_SERVER. */
     if (!g_NetDedicated) {
         catalogBuildRuntimeCaches();
     }

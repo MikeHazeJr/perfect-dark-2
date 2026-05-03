@@ -16,7 +16,7 @@
  * catalogGetHeadX(headnum) accessors in assetcatalog_api.c through the
  * manager. F3-F6 migrate the modeldef cache and the random-gender pool.
  * F11-F13 replace the legacy backing table with manager-owned data sourced
- * from base/heads.pdbase JSON.
+ * from base/headsthe per-asset envelope.
  *
  * Logging: every miss path emits a CATALOG.MGR.HEAD.MISS: warning so
  * upstream callers can be diagnosed. Every override / load emits the

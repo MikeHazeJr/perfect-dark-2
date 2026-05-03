@@ -11,7 +11,7 @@
  * weaponFindById to call catalogManagerGetWeaponByIndex; F3-F8 migrate
  * remaining direct table accesses through the manager. F11-F13 (next
  * session) replace the legacy backing tables with manager-owned data
- * sourced from .pdbase JSON files.
+ * sourced from the per-asset envelope files.
  *
  * Pure validators live in port/src/catalog_mgr_weapons_pure.c and are
  * pinned by tests/test_catalog_mgr_weapons_api.cpp.
@@ -26,12 +26,12 @@
 #include "assetcatalog.h"
 #include "catalog_mgr_weapons.h"
 #include "catalog_mgr_weapons_pure.h"
-#include "loader_pdbase.h"
+#include "loader_pool.h"
 #include "lang.h"
 
 /* S484 F13: g_Weapons[], g_AibotWeaponPreferences[],
  * invaimsettings_default, and invnoisesettings_silent were retired in
- * favour of the loader's typed pools (port/src/loader_pdbase.c).
+ * favour of the loader's typed pools (port/src/loader_pool.c).
  * Every accessor below now goes through the loader. There is no
  * legacy fallback any more -- the parity-period bridge lived in F12. */
 
@@ -61,7 +61,7 @@ struct weapon *catalogManagerGetWeaponByIndex(s32 weapon_id)
 	/* F13: loader-owned pool is the sole data source. Returns NULL
 	 * if the loader hasn't initialised yet (very early startup) -- the
 	 * caller's existing NULL handling kicks in. */
-	return (struct weapon *)loaderPdbaseGetWeapon(weapon_id);
+	return (struct weapon *)loaderPoolGetWeapon(weapon_id);
 }
 
 struct weapon *catalogManagerGetWeaponAt(s32 iter_index)
@@ -69,7 +69,7 @@ struct weapon *catalogManagerGetWeaponAt(s32 iter_index)
 	if (iter_index < 0 || iter_index >= CATALOG_MGR_WEAPON_COUNT) {
 		return NULL;
 	}
-	return (struct weapon *)loaderPdbaseGetWeapon(iter_index);
+	return (struct weapon *)loaderPoolGetWeapon(iter_index);
 }
 
 struct weapon *catalogManagerGetWeaponById(const char *catalog_id)
@@ -103,12 +103,12 @@ struct weapon *catalogManagerGetWeaponById(const char *catalog_id)
 
 const struct invaimsettings *catalogManagerWeaponDefaultAimSettings(void)
 {
-	return loaderPdbaseGetDefaultAim();
+	return loaderPoolGetDefaultAim();
 }
 
 const struct noisesettings *catalogManagerWeaponDefaultNoiseSettings(void)
 {
-	return loaderPdbaseGetDefaultNoise();
+	return loaderPoolGetDefaultNoise();
 }
 
 void catalogManagerWeaponSetEyespyVariant(eyespy_variant_e variant)
@@ -163,5 +163,5 @@ const struct aibotweaponpreference *catalogManagerGetWeaponBotPref(s32 weapon_id
 			weapon_id, CATALOG_MGR_WEAPON_COUNT);
 		return NULL;
 	}
-	return loaderPdbaseGetBotPref(weapon_id);
+	return loaderPoolGetBotPref(weapon_id);
 }

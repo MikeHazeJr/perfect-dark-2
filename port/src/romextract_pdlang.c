@@ -15,7 +15,7 @@
  *   base:lang_<bank>_<locale>   e.g. base:lang_gun_en, base:lang_propobj_en
  *
  * Bank name derivation: parses the FILE_L<NAME><LOC> enum string
- * via loaderPdbaseNameForFileEnum on g_LangFiles[bank] (the English
+ * via loaderEnumNameForFileEnum on g_LangFiles[bank] (the English
  * canonical entry, which has the form FILE_L<NAME>E). Stripping
  * "FILE_L" prefix and the trailing locale char yields the bank
  * name (e.g. FILE_LGUNE -> "gun").
@@ -53,7 +53,7 @@
 #include "types.h"
 #include "constants.h"
 #include "fs.h"
-#include "loader_pdbase_enums.h"
+#include "loader_enum_reverse.h"
 #include "modarchive.h"
 #include "romdata.h"
 #include "romextract.h"
@@ -130,7 +130,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		return 0;
 	}
 
-	const char *file_sym = loaderPdbaseNameForFileEnum((s32)file_id);
+	const char *file_sym = loaderEnumNameForFileEnum((s32)file_id);
 	char bank_name[64];
 	if (!s_extractBankName(file_sym, bank_name, sizeof(bank_name))
 	    || bank_name[0] == '\0') {

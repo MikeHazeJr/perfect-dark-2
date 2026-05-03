@@ -11,7 +11,7 @@
  * catalogGetHeadX accessors (assetcatalog_api.c) through this manager;
  * F3 / F4 migrate the modeldef cache; F6 retires the random-gender
  * static arrays. F11-F13 replace the legacy backing table with manager-
- * owned data sourced from base/heads.pdbase JSON.
+ * owned data sourced from base/headsthe per-asset envelope.
  *
  * Pure validators live in port/src/catalog_mgr_heads_pure.c and are
  * pinned by tests/test_catalog_mgr_heads_api.cpp.
@@ -31,7 +31,7 @@
 #include "assetcatalog.h"
 #include "catalog_mgr_heads.h"
 #include "catalog_mgr_heads_pure.h"
-#include "loader_pdbase.h"  /* Catalog Gate 3 F12: pool-backed source when active */
+#include "loader_pool.h"  /* Catalog Gate 3 F12: pool-backed source when active */
 
 extern struct headorbody g_HeadsAndBodies[];
 
@@ -75,14 +75,14 @@ static const head_data_t *s_get(s32 headnum)
 		catalogManagerHeadInit();
 	}
 #if !defined(PD_SERVER)
-	/* Catalog Gate 3 F12: when the loader is active, the .pdbase pool
+	/* Catalog Gate 3 F12: when the loader is active, the loader_pool
 	 * is the source of truth.  Copy the loader-owned record into the
 	 * manager slot (preserving the modeldef cache pointer) so all
 	 * accessors continue to read from s_Heads[].  F13 retires the
 	 * legacy mirror entirely; for now we keep both paths so the
 	 * parity bridge can be exercised. */
-	if (loaderPdbaseHeadsActive()) {
-		const head_data_t *src = loaderPdbaseGetHead(headnum);
+	if (loaderPoolHeadsActive()) {
+		const head_data_t *src = loaderPoolGetHead(headnum);
 		if (src) {
 			struct modeldef *md = s_Heads[headnum].modeldef;
 			s_Heads[headnum] = *src;
@@ -90,7 +90,7 @@ static const head_data_t *s_get(s32 headnum)
 			return &s_Heads[headnum];
 		}
 		/* Loader has no record for this slot (e.g. body slot or sentinel
-		 * entry that does not appear in heads.pdbase). Fall through to
+		 * entry that does not appear in the heads envelope). Fall through to
 		 * the legacy mirror so manager iteration over the full 152-slot
 		 * range still produces consistent values for non-head slots. */
 	}
@@ -319,7 +319,7 @@ s32 catalogManagerHeadPickRandomFemale(void)
 #endif
 
 /* ========================================================================
- * Registration / unregistration. F12 wires the .pdbase loader through
+ * Registration / unregistration. F12 wires the loader_pool through
  * RegisterHead. Until then these are no-ops with logging so the API is
  * stable for callers that don't care about the load source.
  * ======================================================================== */

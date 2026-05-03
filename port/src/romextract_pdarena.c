@@ -1,7 +1,7 @@
 /**
  * romextract_pdarena.c -- Catalog universality pivot Step 2 (2026-05-03).
  *
- * Walks the loader_pdbase arena pool and emits TWO files per registered
+ * Walks the loader_pool arena pool and emits TWO files per registered
  * arena per Mike's Q-1 unified-scenario directive:
  *
  *   1. data/<romid>/arenas/<id>.pdarena
@@ -17,7 +17,7 @@
  *      Schema: universality-pivot-schemas.md Section 2.10.
  *
  * Boot order: must run AFTER stageTableInit (g_Stages populated) AND
- * loaderPdbaseBuildArenaManager (arena pool populated) AND
+ * loaderPoolFinalize (arena pool populated) AND
  * romExtractAllFiles (per-stage .bin files extracted to disk).
  *
  * Cross-reference convention for Step 2: the .pdarena `scenario` field
@@ -48,8 +48,8 @@
 #include "constants.h"
 #include "fs.h"
 #include "catalog_mgr_arenas.h"
-#include "loader_pdbase.h"
-#include "loader_pdbase_enums.h"
+#include "loader_pool.h"
+#include "loader_enum_reverse.h"
 #include "modarchive.h"
 #include "romextract.h"
 #include "romextract_pd.h"
@@ -174,7 +174,7 @@ static s32 s_emitOnePdarena(const arena_data_t *a, const char *out_dir,
 		scenario_id[0] = '\0';
 	}
 
-	const char *load_mode_str = loaderPdbaseNameForArenaLoadMode(a->load_mode);
+	const char *load_mode_str = loaderEnumNameForArenaLoadMode(a->load_mode);
 
 	fputs("{\n", fp);
 	fputs("  \"pd_kind\": \"arena\",\n", fp);
@@ -302,7 +302,7 @@ static s32 s_emitOnePdscenario(const arena_data_t *a, const char *out_dir,
 
 s32 romExtractAllPdarena(s32 force_rewrite)
 {
-	if (!loaderPdbaseArenasActive()) {
+	if (!loaderPoolArenasActive()) {
 		sysLogPrintf(LOG_NOTE,
 			"romextract pdarena: arenas loader not active, skipping");
 		return 0;
@@ -336,10 +336,10 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 	s32 scenarios_written = 0;
 	s32 scenarios_skipped = 0;
 	s32 scenarios_failed = 0;
-	s32 total = loaderPdbaseGetArenasRegistered();
+	s32 total = loaderPoolGetArenasRegistered();
 
 	for (s32 i = 0; i < CATALOG_MGR_ARENA_COUNT; i++) {
-		const arena_data_t *a = loaderPdbaseGetArena(i);
+		const arena_data_t *a = loaderPoolGetArena(i);
 		if (!a) continue;
 		if (a->catalog_id[0] == '\0') continue;
 

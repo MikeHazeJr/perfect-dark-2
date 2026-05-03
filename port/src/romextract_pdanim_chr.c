@@ -39,7 +39,7 @@
 #include "types.h"
 #include "constants.h"
 #include "fs.h"
-#include "loader_pdbase_enums.h"
+#include "loader_enum_reverse.h"
 #include "modarchive.h"
 #include "romdata.h"
 #include "romextract.h"
@@ -95,7 +95,7 @@ static void s_lowercaseInto(const char *src, char *out, size_t out_n)
  * Returns 1 if a symbolic name was found, 0 if generated. */
 static s32 s_buildCatalogId(s32 anim_idx, char *out, size_t out_n)
 {
-	const char *sym = loaderPdbaseNameForAnimEnum(anim_idx);
+	const char *sym = loaderEnumNameForAnimEnum(anim_idx);
 	if (sym && sym[0]) {
 		char lowered[96];
 		s_lowercaseInto(sym, lowered, sizeof(lowered));
@@ -173,7 +173,7 @@ static s32 s_emitOneChrAnim(s32 anim_idx,
 	/* Build manifest.json text in memory. Schema fields per Section 2.6
 	 * + provenance hints (source_offset, source_index) for the parity
 	 * check and Step 4 round-trip. */
-	const char *sym = loaderPdbaseNameForAnimEnum(anim_idx);
+	const char *sym = loaderEnumNameForAnimEnum(anim_idx);
 	char manifest_buf[1024];
 	int manifest_len = snprintf(manifest_buf, sizeof(manifest_buf),
 		"{\n"
@@ -335,7 +335,7 @@ s32 romExtractAllPdanimChr(s32 force_rewrite)
 		else if (r == 0) skipped++;
 		else             failed++;
 
-		if (loaderPdbaseNameForAnimEnum(i)) named++;
+		if (loaderEnumNameForAnimEnum(i)) named++;
 	}
 
 	sysLogPrintf(LOG_NOTE,

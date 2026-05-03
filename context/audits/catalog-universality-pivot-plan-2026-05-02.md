@@ -1342,6 +1342,94 @@ After Step 5: catalog universality is COMPLETE (writer + reader symmetric, no .p
 
 ---
 
+## Step 5 SHIPPED 2026-05-03 (worktree `hungry-elgamal-e991de`)
+
+**Catalog Universality COMPLETE.** The legacy aggregate-archive tier retired entirely. The universal directory walker (`loaderWalkerLoadAll`) is now the sole catalog row + heavyweight pool source: it walks `data/<romid>/<class>/*.pd<ext>` for every emitted class, registers a catalog row for every disk-registered ID, AND populates the typed `loader_pool` payload (struct weapon, head_data_t, body_data_t, arena_data_t, gunscript opcodes) by handing each manifest envelope to `loaderPoolParse{Weapon,Head,Body,Arena,Animation}Json`. The .pdbase aggregate parser, the four `BuildManager` helpers, the arena parity check, the canary instrumentation, the legacy texture writers, and the four committed `base/*.pdbase` archives all retired in this single coherent unit.
+
+### Architecture
+
+The pivot's two layers (catalog row + heavyweight pool) now share ONE iteration: per-kind walker callbacks in `loader_walker_{weapon,head,body,arena,anim}.c` register the catalog row only when absent (preserves bootstrap fields like `model_file`) and ALWAYS hand the manifest JSON to the matching `loaderPool` parser, which fills the typed pool slot keyed by the envelope's index field (`weapon_id` / `headnum` / `bodynum` / `arena_index`).
+
+| Walker source | Pool parser | Pool slot key |
+|---|---|---|
+| [loader_walker_weapon.c](../../port/src/loader_walker_weapon.c) | `loaderPoolParseWeaponJson` | envelope `weapon_id` |
+| [loader_walker_head.c](../../port/src/loader_walker_head.c) | `loaderPoolParseHeadJson` | envelope `headnum` |
+| [loader_walker_body.c](../../port/src/loader_walker_body.c) | `loaderPoolParseBodyJson` | envelope `bodynum` |
+| [loader_walker_arena.c](../../port/src/loader_walker_arena.c) | `loaderPoolParseArenaJson` | envelope `arena_index` |
+| [loader_walker_anim.c](../../port/src/loader_walker_anim.c) | `loaderPoolParseAnimationJson` (weapon-anim only) | sequential pool index |
+
+### Walker scaffold change
+
+[`port/include/loader_walker_common.h`](../../port/include/loader_walker_common.h): `loader_walker_kind_desc_t` gains an `always_invoke` flag. The four pool kinds + the animation kind set it to 1 so the scaffold calls `register_fn` even for IDs already in the catalog (so `loaderPool` can populate the typed payload from the per-asset envelope). The nine row-only kinds keep the original Step 4 short-circuit.
+
+### Boot flow (post-Step-5, [port/src/main.c](../../port/src/main.c))
+
+1. `assetCatalogRegisterBaseGame` + `RegisterStageSceneFiles` + `RegisterWeaponModelFiles` + `ScanComponents` register the in-binary catalog baseline.
+2. `catalogManagerHeadInit` + `catalogManagerBodyInit` + `catalogManagerArenaInit` populate the parity-period legacy mirrors.
+3. **`loaderWalkerLoadAll`** walks `data/<romid>/<class>/*.pd<ext>`: registers catalog rows + populates `loader_pool` typed payload. Internally calls `loaderPoolReset` before the scan and `loaderPoolFinalize` after (seeds default aim/noise sentinels, flips the per-kind active flags, emits the `LOADER.POOL.{WEAPON,HEAD,BODY,ARENA}.OK` summary lines).
+4. If `loaderPoolIsActive`, `assetCatalogRegisterWeaponModelFiles` binds weapon hi/lo model filenums to ASSET_MODEL rows.
+5. The per-asset emitters (`romExtractAllPd{wpn,mesh,anim,head,body,arena,anim_chr,sfx,voice,song,font,lang,ui}`) re-fire as the round-trip pass: idempotent skip when files exist on disk; early-return cleanly when `loaderPoolIsActive == 0` (genuine first BYOR install with no `.pd*` content yet).
+
+### What retired
+
+- **`port/include/loader_pdbase.h`** (236 lines), **`port/src/loader_pdbase.c`** (~2400 lines): the .pdbase aggregate parser, the four `loaderPdbaseBuild*Manager` helpers, `loaderPdbaseScan`, `loaderPdbaseRunParityCheckArenas`, the canary instrumentation, the pool-range accessors. Replaced by `port/src/loader_pool.c` (~1900 lines) + `port/include/loader_pool.h` (120 lines) carrying the same parser logic but with a per-asset entry-point shape (`loaderPoolParse*Json` + `loaderPoolReset` + `loaderPoolFinalize`).
+- **`port/include/loader_pdbase_enums.h`** (66 lines), **`port/src/loader_pdbase_enums.c`** (~5500 lines): renamed to `loader_enum_reverse.{h,c}`. Forward resolvers (`loaderEnumResolve*`) consumed internally by `loader_pool.c`; reverse lookups (`loaderEnumNameFor*`) consumed by the per-asset emitters. Tables themselves unchanged.
+- **`port/src/romextract_parity_pd{wpn,head,body,arena,sfx,lang,anim_chr}.c`** (7 files, ~37 KB): pre-Step-5 parity emitters that compared per-asset emit output against the loader_pool source. The loader_pool now reads BACK from per-asset content, so there is no second source left to compare against.
+- **`base/weapons.pdbase`** (288 KB), **`base/heads.pdbase`** (20 KB), **`base/bodies.pdbase`** (22 KB), **`base/arenas.pdbase`** (12 KB): the four pre-extracted aggregate archives.
+- **`devtools/extract_{weapons,heads,bodies,arenas}_pdbase.py`** (~100 KB): the four Python extractors that produced the aggregate archives.
+- **`port/fast3d/pdgui_theme.cpp` legacy writers**: `s_initCrc32`, `s_crc32`, `s_writeBE32`, `s_writeLE16`, `s_writePng`, `s_writeNinesliceJson` (~200 lines). Were dead code post-Step-3b-part-2 .pdui migration; `s_writeTga` + `s_writeTgaFile` + `s_writeTgaToMem` remain alive for the `--generate-modern-ui` CLI flag and the in-memory .pdui ZIP path.
+- **`src/game/bondgun.c` canary instrumentation block** (~85 lines): the S484-followup-3 fire-time crash diagnostic that depended on `loaderPoolGetWeaponFuncsBase/End` + `loaderPoolGetRecoilSettingsBase/End` + `loaderPoolCheckCanaries`. The canary words themselves retired in `loader_pool.c`. Recoil dereference remains gated by the existing `recoilsettings != NULL` check.
+- **`asset_entry_t.ext.{weapon,head,body,arena}.pdbase_path/offset/size`** (12 fields × 144 bytes per row): retired from the catalog struct; zero-init code in `assetCatalogRegisterWeapon` removed. Saves ~70 KB of catalog-row overhead at scale.
+- **`tests/test_loader_pdbase_arenas.cpp`** (158 lines), **`tests/test_loader_pdbase_scan.cpp`** (365 lines): static-text grep tests pinning the deleted parser; replaced by the Step 5 grep-guard.
+- **`CMakeLists.txt` `pdbase_deploy` target**: copied `base/*.pdbase` into `Build/data/base/` at build time. No source archives, no copy step.
+- **`devtools/release.ps1` `base/` copy section**: shipped `base/*.pdbase` into the release zip. Release zip now ships only client + updater + `data/`.
+
+### What was added
+
+- **`port/include/loader_pool.h`** (~120 lines): public API surface for the typed pool. Per-asset Parse* entry points + Reset/Finalize + accessors.
+- **`port/src/loader_pool.c`** (~1900 lines): pool storage + parser logic (parseWeapon, parseHead, parseBody, parseArena, parseAnimation, plus jstream tokenizer + helpers + opcode codec). Lifted from `loader_pdbase.c`; iteration layer replaced by walker-driven `loaderPoolParse*Json` + `loaderPoolFinalize`.
+- **`port/include/loader_enum_reverse.h`** (~46 lines), **`port/src/loader_enum_reverse.c`** (~5500 lines): the enum lookup tables, renamed from `loader_pdbase_enums.{h,c}`. Function names: `loaderPdbase{Resolve,NameFor}*` -> `loaderEnum{Resolve,NameFor}*`.
+- **`tests/test_pdbase_retired_audit.cpp`** (~160 lines): the Step 5 grep-guard. Walks `port/` + `src/game/` + `devtools/` and asserts no `pdbase` / `loaderPdbase` / `loader_pdbase` substring remains; checks no `base/*.pdbase` aggregate file exists at the repo root.
+
+### Boot wiring (loader_walker.c)
+
+`loaderWalkerLoadAll` now brackets the per-kind scan with `loaderPoolReset` (zeros the pools, clears active flags) and `loaderPoolFinalize` (seeds default aim/noise sentinels, flips active flags, emits OK summary lines).
+
+### Build verify
+
+Clean four-target build via `devtools/build-session.ps1` after merging worktree to dev:
+- Client (pd, PerfectDark.exe): PASS, **55.3 MB**
+- Updater (pd-updater, Updater.exe): PASS, **12.3 MB**
+- Server (pd-server, PerfectDarkServer.exe): PASS, **22.4 MB**
+- Tests (pd-tests, pd-tests.exe): PASS, **24.9 MB**
+
+No new compile warnings.
+
+### Files changed
+
+- 4 deletions: `base/{weapons,heads,bodies,arenas}.pdbase` (-29154 lines).
+- 4 deletions: `devtools/extract_{weapons,heads,bodies,arenas}_pdbase.py` (~-100 KB Python).
+- 7 deletions: `port/src/romextract_parity_pd{wpn,head,body,arena,sfx,lang,anim_chr}.c`.
+- 2 deletions: `port/src/loader_pdbase.c` + `port/include/loader_pdbase.h`.
+- 2 deletions: `port/src/loader_pdbase_enums.c` + `port/include/loader_pdbase_enums.h`.
+- 2 deletions: `tests/test_loader_pdbase_{arenas,scan}.cpp`.
+- 4 additions: `port/include/loader_pool.h` + `port/src/loader_pool.c` + `port/include/loader_enum_reverse.h` + `port/src/loader_enum_reverse.c`.
+- 1 addition: `tests/test_pdbase_retired_audit.cpp` (Step 5 grep-guard).
+- 30+ modifications: caller migrations across `port/src/`, `port/include/`, `port/fast3d/`, `src/game/`, `tests/`, `CMakeLists.txt`, `devtools/release.ps1`.
+
+### What is now possible
+
+- Modders deliver `.pd*` files into `data/<romid>/<class>/` (or via `.pdmod` archive) and the walker registers + populates them identically to base content (Step 6 prerequisite landed).
+- In-client mod authoring can copy a `data/<romid>/<class>/<id>.pd<ext>` file as a starter template (Step 7 prerequisite landed).
+- The release pipeline ships the per-asset `data/<romid>/` payload directly; the seed-archive intermediate is gone.
+- The per-asset envelope IS the canonical authoring format end-to-end; there is no second source of truth to keep in sync.
+
+### First-boot regression note (accepted)
+
+A genuine first BYOR install with NO `data/<romid>/<class>/*.pd<ext>` content (fresh source clone, no release bundle, no prior emit pass) leaves `loaderPool*Active` returning 0; weapon access through `catalogManagerGetWeaponByIndex` returns NULL. Mike's existing dev install + the release-bundled `data/` skeleton both carry the per-asset content, so this only affects strict pure-source-fresh users. Future BYOR-from-scratch path can re-architect the per-asset emitters to source from ROM directly (audit Step 6+ lane).
+
+---
+
 ## 8. Sentinel
 
 This audit ends here. If a future reader sees content past this line, the document was modified after the original draft.

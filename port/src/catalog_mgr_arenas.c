@@ -8,8 +8,8 @@
  * Phase 2 (F1-F11): this manager mirrors the catalog row layer for
  * ASSET_ARENA entries. Init walks every ASSET_ARENA catalog row,
  * extracts the typed payload from `e->ext.arena` + `e->category` +
- * `e->id`, and stores it in s_Arenas[]. F12 wires the .pdbase loader
- * via loaderPdbaseArenasActive() check in s_get; F13 retires the
+ * `e->id`, and stores it in s_Arenas[]. F12 wires the loader_pool
+ * via loaderPoolArenasActive() check in s_get; F13 retires the
  * parity bridge.
  *
  * Pure validators live in port/src/catalog_mgr_arenas_pure.c and are
@@ -26,7 +26,7 @@
 #include "assetcatalog.h"
 #include "catalog_mgr_arenas.h"
 #include "catalog_mgr_arenas_pure.h"
-#include "loader_pdbase.h"  /* Catalog Gate 3 Arenas F12: pool-backed source when active */
+#include "loader_pool.h"  /* Catalog Gate 3 Arenas F12: pool-backed source when active */
 
 /* F1 backing pool: a parallel mirror that the manager owns. Populated
  * during init by walking ASSET_ARENA catalog rows; F12 switches the
@@ -90,17 +90,17 @@ static const arena_data_t *s_get(s32 arena_index)
 
 #if !defined(PD_SERVER)
 	/* Catalog Gate 3 Arenas F12: when the loader is active, the
-	 * .pdbase pool is the source of truth. Copy the loader-owned
+	 * loader_pool is the source of truth. Copy the loader-owned
 	 * record into the manager slot so all accessors continue to read
 	 * from s_Arenas[]. F13 retires the legacy mirror entirely; for
 	 * now we keep both paths so the parity bridge can be exercised.
 	 *
-	 * pd-server does not link loader_pdbase.c (no .pdbase reading
+	 * pd-server does not link loader_pool.c (no per-asset reading
 	 * server-side), so this branch compiles out. The catalog-row-
 	 * derived mirror populated at init is the only source on the
 	 * server. */
-	if (loaderPdbaseArenasActive()) {
-		const arena_data_t *src = loaderPdbaseGetArena(arena_index);
+	if (loaderPoolArenasActive()) {
+		const arena_data_t *src = loaderPoolGetArena(arena_index);
 		if (src) {
 			s_Arenas[arena_index] = *src;
 			return &s_Arenas[arena_index];
@@ -209,7 +209,7 @@ const arena_data_t *catalogManagerGetArenaByStagenum(s16 stagenum)
 	return NULL;
 }
 
-/* Registration / unregistration. F12 wires the .pdbase loader through
+/* Registration / unregistration. F12 wires the loader_pool through
  * RegisterArena. Until then these update the live pool and log the
  * override channel. */
 
@@ -262,7 +262,7 @@ void catalogManagerUnregisterArena(const char *id)
 		return;
 	}
 	/* Revert to the catalog-row-derived values (F1 parity). F12 reverts
-	 * to the .pdbase pool entry. */
+	 * to the loader_pool entry. */
 	memset(&s_Arenas[arena_index], 0, sizeof(arena_data_t));
 	s_Arenas[arena_index].arena_index = (s16)arena_index;
 	s_initCollectCb(e, NULL);

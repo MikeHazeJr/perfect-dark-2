@@ -55,7 +55,7 @@
 #include "assetcatalog_scanner.h"
 #include "assetcatalog_load.h"
 #include "assetcatalog_cache.h"
-#include "loader_pdbase.h"
+#include "loader_pool.h"
 #include "loader_walker.h"
 #include "catalog_mgr_heads.h"
 #include "catalog_mgr_bodies.h"
@@ -391,254 +391,101 @@ int main(int argc, const char **argv)
 
 	// Catalog Gate 3 F1: head manager init. Builds the parallel
 	// s_Heads[152] mirror from g_HeadsAndBodies[] for the parity-period
-	// bridge. F12 swaps the data source to base/heads.pdbase pool.
+	// bridge. F12 swaps the data source to base/headsloader_pool.
 	catalogManagerHeadInit();
 
 	// Catalog Gate 3 Bodies F1: body manager init. Builds the parallel
 	// s_Bodies[152] mirror from g_HeadsAndBodies[] for the parity-period
-	// bridge. F12 swaps the data source to base/bodies.pdbase pool.
+	// bridge. F12 swaps the data source to base/bodiesloader_pool.
 	catalogManagerBodyInit();
 
 	// Catalog Gate 3 Arenas F1: arena manager init. Walks ASSET_ARENA
 	// catalog rows and populates s_Arenas[47] for the parity-period
-	// bridge. F12 swaps the data source to base/arenas.pdbase pool.
+	// bridge. F12 swaps the data source to base/arenasloader_pool.
 	catalogManagerArenaInit();
 
-	// S484 F13: scan base/*.pdbase + populate the catalog manager's typed
-	// weapon pools. Manager accessors are pool-backed once
-	// loaderPdbaseBuildWeaponManager succeeds. Parity check from F12 was
-	// retired -- g_Weapons[] no longer exists to compare against.
-	//
-	// Catalog Gate 3 F9: loaderPdbaseScan also looks for heads.pdbase
-	// in the same dir; F12 makes this populate the heads pool too.
-	//
-	// Step 4 positioning (2026-05-03): this loaderPdbaseScan + the four
-	// loaderPdbaseBuild*Manager calls below are the parity-bounded fallback
-	// for the heavyweight loader_pdbase pool population (s_Weapons[] full
-	// records, s_HeadsPool[], s_BodiesPool[], s_ArenasPool[]). Catalog row
-	// registration moves onto the universal walker (loaderWalkerLoadAll)
-	// later in this boot path; this block stays primary for pool fill until
-	// Step 5 retires the .pdbase tier entirely.
-	{
-		loader_pdbase_result_t pdb_result;
-		loaderPdbaseScan("base", &pdb_result);
-		if (pdb_result.weapons_registered > 0) {
-			loaderPdbaseBuildWeaponManager();
-			/* S484-followup (2026-05-01): now that the loader has populated
-			 * the weapon pool, register each weapon's hi_model / lo_model
-			 * filenum as ASSET_MODEL so the bgun load chain's catalog
-			 * lookup (catalogHandleByModelSourceFilenum) actually finds
-			 * them. Without this, weapon-switch loads stall in FLUX
-			 * forever and the fire path falls through to melee. See
-			 * assetCatalogRegisterWeaponModelFiles docblock for full
-			 * rationale. */
-			assetCatalogRegisterWeaponModelFiles();
-		}
-		if (pdb_result.heads_registered > 0) {
-			loaderPdbaseBuildHeadManager();
-		}
-		if (pdb_result.bodies_registered > 0) {
-			loaderPdbaseBuildBodyManager();
-		}
-		if (pdb_result.arenas_registered > 0) {
-			loaderPdbaseBuildArenaManager();
-			/* Catalog Gate 3 Arenas F12: compare loader pool fields
-			 * against ASSET_ARENA catalog rows (which were populated
-			 * from g_MpArenas[] + s_ArenaNames[] + s_ArenaGroupMap[]).
-			 * Mismatches log LOADER.PDBASE.ARENA.PARITY_FAIL: lines.
-			 * F13 retires the parity bridge once Mike's playtest
-			 * confirms PASS. */
-			loaderPdbaseRunParityCheckArenas();
-		}
-	}
-
-	/* Catalog universality pivot Step 1 (2026-05-02): emit per-asset
-	 * .pdwpn / .pdmesh / .pdanim files at data/<romid>/<class>/.
+	/* Catalog universality pivot Step 5 (2026-05-03): universal directory
+	 * walker is the SOLE catalog row + loader_pool source. Walks
+	 * data/<romid>/<class>/*.pd<ext> for all 13 universality kinds, opens
+	 * each .pd* file (auto-detecting plain JSON vs ZIP compound), parses
+	 * the envelope, registers the catalog row via the existing
+	 * assetCatalogRegister* API, and (for weapon / head / body / arena /
+	 * weapon_animation kinds) feeds the heavyweight loader_pool payload
+	 * via loaderPoolParse*Json. loaderPoolReset / loaderPoolFinalize
+	 * bracket the scan inside loaderWalkerLoadAll.
 	 *
-	 * Reads from the loader_pdbase pool populated above; writes per-asset
-	 * compound files in the universality format. Idempotent on subsequent
-	 * boots (existing files skipped via size check). Per Mike's Q-5 ruling
-	 * the parity check runs immediately after to validate the emit; the
-	 * parity period closes at Step 5 when base/*.pdbase retires.
+	 * Non-destructive catalog-row overlay: pool kinds opt out of the
+	 * scaffold's existing-row short-circuit so loader_pool fills even
+	 * for in-binary-baseline ids; the per-kind callbacks themselves
+	 * gate against destructive row overwrite via assetCatalogResolve.
 	 *
-	 * Boot order: loader pools must be populated (above) AND the source
-	 * .bin files must exist on disk (Pass A.2 ran earlier in romdataInit
-	 * area). Both conditions hold here. */
-	{
-		s32 wpn_emitted = romExtractAllPdwpn(0);
-		s32 mesh_emitted = romExtractAllPdmesh(0);
-		s32 anim_emitted = romExtractAllPdanim(0);
-		s32 parity_failures = romExtractParityCheckPdwpn();
-		(void)wpn_emitted; (void)mesh_emitted; (void)anim_emitted;
-		(void)parity_failures;
-	}
-
-	/* Catalog universality pivot Step 2 (2026-05-03): emit per-asset
-	 * .pdhead / .pdbody / .pdarena JSON files plus the unified
-	 * .pdscenario ZIP per Q-1 (one ZIP per arena's playable stage)
-	 * at data/<romid>/heads/, /bodies/, /arenas/, /scenarios/.
+	 * Boot order: AFTER assetCatalogRegisterBaseGame +
+	 * RegisterStageSceneFiles + RegisterWeaponModelFiles + ScanComponents
+	 * (so existing in-binary entries are the bootstrap fallback), AFTER
+	 * romdataInit (so segs/files exist on disk if any per-kind emitter
+	 * needs to re-extract on the same boot), and BEFORE
+	 * catalogBuildRuntimeCaches (so O(1) caches see the populated rows).
 	 *
-	 * Reads from the loader_pdbase head/body/arena pools populated above
-	 * AND from g_Stages[] (populated by stageTableInit earlier in this
-	 * boot path). Per-arena scenario ZIPs reference the per-stage .bin
-	 * files extracted by Pass A.2 / romExtractAllFiles.
-	 *
-	 * Idempotent: existing files skipped via size check. Per Mike's Q-5
-	 * ruling each parity check runs immediately after to validate the
-	 * emit; the parity period closes at Step 5 when base/*.pdbase
-	 * retires. Ship Step 2 fully per Mike's "catalog must be COMPLETE"
-	 * directive (2026-05-03). */
-	{
-		s32 head_emitted    = romExtractAllPdhead(0);
-		s32 body_emitted    = romExtractAllPdbody(0);
-		s32 arena_emitted   = romExtractAllPdarena(0);
-		s32 head_failures   = romExtractParityCheckPdhead();
-		s32 body_failures   = romExtractParityCheckPdbody();
-		s32 arena_failures  = romExtractParityCheckPdarena();
-		(void)head_emitted; (void)body_emitted; (void)arena_emitted;
-		(void)head_failures; (void)body_failures; (void)arena_failures;
-	}
-
-	/* Catalog universality pivot Step 3a (2026-05-03): emit one .pdanim
-	 * ZIP compound per chr animation entry in the segs/animations.bin
-	 * lump, alongside the Step 1 weapon-animation .pdanim files (those
-	 * are plain JSON, category="weapon_animation"; chr anims are ZIPs,
-	 * category="character_animation").
-	 *
-	 * Reads from the byte-swapped in-memory animation segment + table
-	 * pointers established by preprocessAnimations during romdataInit.
-	 * Idempotent on subsequent boots (existing files skipped via size
-	 * check). Per Mike's Q-3 ruling (2026-05-02): "Catalog is not
-	 * complete unless it is COMPLETE. IT IS FOUNDATIONAL TO EVERYTHING."
-	 *
-	 * Boot order: must run AFTER romdataInit (segments + table pointers
-	 * populated and byte-swapped) and AFTER romExtractAllSegments (so
-	 * data/<romid>/segs/animations.bin exists on disk for self-heal
-	 * round trips). Both conditions hold here. */
-	{
-		s32 chr_anim_emitted  = romExtractAllPdanimChr(0);
-		s32 chr_anim_failures = romExtractParityCheckPdanimChr();
-		(void)chr_anim_emitted; (void)chr_anim_failures;
-	}
-
-	/* Catalog universality pivot Step 3 audio half (2026-05-03): emit
-	 * per-asset .pdsfx / .pdvoice / .pdsong ZIP compounds at
-	 * data/<romid>/audio/{sfx,voice,music}/.
-	 *
-	 * Walks the leaf SFX bank (sfxctl + sfxtbl segments) for sfx + voice;
-	 * a leaf goes to .pdsfx if no russ-mapping points it at a voice
-	 * audioconfig slot, .pdvoice otherwise (Slice 10 retag predicate).
-	 * Walks the seqtable in the sequences segment for songs.
-	 *
-	 * Reads from disk-migrated segments populated by romdataInit; the
-	 * preprocess stage (segaudio.c::preprocessALBankFile +
-	 * preprocessSequences) byte-swaps the bank file + seqtable to native
-	 * before this emitter sees them. Idempotent on subsequent boots
-	 * (existing files skipped via size check).
-	 *
-	 * Per Mike's Q-3 ruling: "Catalog is not complete unless it is
-	 * COMPLETE." This block closes the audio side of Step 3.
-	 *
-	 * Per Mike's Q-2: a weapon's shootsound accepts a .pdvoice ID just
-	 * as readily as a .pdsfx one. Voice classification at extract time
-	 * is recoverable -- the playback layer reads pd_kind at resolve
-	 * time and routes to the right decoder. */
-	{
-		s32 sfx_emitted   = romExtractAllPdsfx(0);
-		s32 voice_emitted = romExtractAllPdvoice(0);
-		s32 song_emitted  = romExtractAllPdsong(0);
-		s32 sfx_failures   = romExtractParityCheckPdsfx();
-		s32 voice_failures = romExtractParityCheckPdvoice();
-		s32 song_failures  = romExtractParityCheckPdsong();
-		(void)sfx_emitted; (void)voice_emitted; (void)song_emitted;
-		(void)sfx_failures; (void)voice_failures; (void)song_failures;
-	}
-
-	/* Catalog universality pivot Step 3b part 1 (2026-05-03): emit
-	 * per-asset .pdfont and .pdlang ZIP compounds at
-	 * data/<romid>/fonts/ and data/<romid>/lang/.
-	 *
-	 * Both wrap raw bytes that already exist on disk after Pass A:
-	 *   .pdfont reads data/<romid>/segs/<face>.bin (10 NTSC faces).
-	 *   .pdlang reads data/<romid>/files/<sanitized>.bin per
-	 *           g_LangFiles[bank] for bank in [1..68] (English locale
-	 *           in this NTSC ship; PAL/JPN extension is a follow-up).
-	 *
-	 * The runtime preprocess (preprocessFont, preprocessLangFile) runs
-	 * on the bytes at load time; this emitter does not duplicate that
-	 * pass so the .pd<kind> byte payload matches what's already on
-	 * disk. Idempotent on subsequent boots. */
-	{
-		s32 font_emitted   = romExtractAllPdfont(0);
-		s32 lang_emitted   = romExtractAllPdlang(0);
-		s32 font_failures  = romExtractParityCheckPdfont();
-		s32 lang_failures  = romExtractParityCheckPdlang();
-		(void)font_emitted; (void)lang_emitted;
-		(void)font_failures; (void)lang_failures;
-	}
-
-	/* Catalog universality pivot Step 3b part 2 (2026-05-03): emit
-	 * per-asset .pdui ZIP compounds at data/<romid>/ui/. Closes the
-	 * Step 3 / 3a / 3b series at 13 of 13 universality kinds (weapon,
-	 * mesh, animation, head, body, arena, scenario, sfx, voice, song,
-	 * font, lang, ui).
-	 *
-	 * Cross-cut from part 1: the .pdui emitter depends on
-	 * g_TexGeneralConfigs (populated by texInit/texReset in pdmain.c
-	 * mainInit later in the boot sequence). At THIS wiring point the
-	 * texture system is not yet ready -- the call returns 0 cleanly
-	 * (no .pdui files emitted at boot main.c). The actual emit fires
-	 * from the render-loop fallback trigger inside
-	 * pdguiThemeCheckExtract() once GL is up. Subsequent boots find
-	 * the .pdui files already on disk and the call is an idempotent
-	 * skip. The wire here is the structural placeholder that mirrors
-	 * the part 1 / Step 3 / Step 2 / Step 1 emit + parity convention
-	 * so future texture-init reorderings can pick up the emit at
-	 * boot without re-architecting.
-	 *
-	 * Parity at this point similarly skips entries whose .pdui ZIPs
-	 * are not yet on disk; on the second-and-subsequent boots it
-	 * verifies envelope + id + texture_count + source_index round-trip
-	 * the canonical descriptor. */
-	{
-		s32 ui_emitted   = romExtractAllPdui(0);
-		s32 ui_failures  = romExtractParityCheckPdui();
-		(void)ui_emitted;
-		(void)ui_failures;
-	}
-
-	/* Catalog universality pivot Step 4 (2026-05-03): universal directory
-	 * walker. Now that every per-asset emitter has fired (Steps 1 / 2 / 3a /
-	 * 3 / 3b parts 1+2), data/<romid>/<class>/*.pd<ext> holds the canonical
-	 * per-asset content for all 13 universality kinds.  loaderWalkerLoadAll
-	 * walks each per-class subdirectory, opens each .pd* file (auto-detecting
-	 * plain JSON vs ZIP compound), parses the manifest envelope, and ensures
-	 * a catalog row exists for every disk-registered ID via the existing
-	 * assetCatalogRegister* API.
-	 *
-	 * Non-destructive overlay (Step 4 scope): the scaffold short-circuits
-	 * via assetCatalogResolve before re-registering, so entries already
-	 * created by assetCatalogRegisterBaseGame + RegisterStageSceneFiles +
-	 * RegisterWeaponModelFiles + ScanComponents above are counted as
-	 * "registered" without touching their existing fields. New entries (the
-	 * ~1208 chr animations + any disk-only IDs) get fresh registrations.
-	 *
-	 * .pdbase parser positioning: loaderPdbaseScan + loaderPdbaseBuild*Manager
-	 * earlier in this boot path remain the parity-bounded fallback for the
-	 * heavyweight loader_pdbase pool population (s_Weapons[] full records,
-	 * s_HeadsPool[], s_BodiesPool[], s_ArenasPool[]). The walker handles row
-	 * registration here; pool population stays on .pdbase until Step 5 also
-	 * migrates pool fill onto a per-asset path.
-	 *
-	 * Boot order requirement: AFTER all romExtractAllPd* emitters fire on
-	 * first boot (so the .pd* files exist on disk when the walker scans),
-	 * AFTER assetCatalogRegisterBaseGame (so existing in-binary entries are
-	 * the bootstrap fallback), and BEFORE catalogBuildRuntimeCaches (so the
-	 * O(1) caches see any walker-added rows). */
+	 * After the walker, the per-kind romExtractAllPd* emitters re-fire to
+	 * regenerate per-asset .pd* files when the loader_pool is active --
+	 * this is the round-trip path that keeps disk and pool in sync after
+	 * mod overlays / re-extracts. On a fresh BYOR install with no .pd*
+	 * files, the walker registers nothing and the pool stays inactive;
+	 * the emitters then early-return (loaderPoolIsActive == 0). */
 	{
 		loader_walker_result_t walker_result;
 		loaderWalkerLoadAll(&walker_result);
 		(void)walker_result;
+
+		/* S484-followup wiring: bind weapon hi_model / lo_model filenums
+		 * to ASSET_MODEL rows so the bgun load chain's catalog lookup
+		 * resolves to the correct file. Requires the weapon pool to be
+		 * populated by the walker above. No-op when the pool is empty. */
+		if (loaderPoolIsActive()) {
+			assetCatalogRegisterWeaponModelFiles();
+		}
+	}
+
+	/* Per-asset .pd<ext> round-trip emitters. Read the now-populated
+	 * loader_pool back into JSON / ZIP compounds at data/<romid>/<class>/.
+	 * Idempotent on subsequent boots (existing files skipped via size
+	 * check). All early-return cleanly when loaderPoolIsActive is 0
+	 * (genuine first BYOR boot with no per-asset content yet). */
+	{
+		s32 wpn_emitted   = romExtractAllPdwpn(0);
+		s32 mesh_emitted  = romExtractAllPdmesh(0);
+		s32 anim_emitted  = romExtractAllPdanim(0);
+		s32 head_emitted  = romExtractAllPdhead(0);
+		s32 body_emitted  = romExtractAllPdbody(0);
+		s32 arena_emitted = romExtractAllPdarena(0);
+		(void)wpn_emitted; (void)mesh_emitted; (void)anim_emitted;
+		(void)head_emitted; (void)body_emitted; (void)arena_emitted;
+	}
+
+	/* Step 3a chr-animation emitter: ZIP compound per chr animation
+	 * entry in segs/animations.bin. Sources from the byte-swapped
+	 * animation segment + table pointers populated by
+	 * preprocessAnimations during romdataInit; does not depend on
+	 * loader_pool. */
+	{
+		s32 chr_anim_emitted  = romExtractAllPdanimChr(0);
+		(void)chr_anim_emitted;
+	}
+
+	/* Step 3 audio + Step 3b font / lang / ui emitters: source from
+	 * disk-migrated segments populated by romdataInit; do not depend
+	 * on loader_pool. .pdui defers actual texture work until GL is up
+	 * via pdguiThemeCheckExtract; the call here is the structural
+	 * placeholder. */
+	{
+		s32 sfx_emitted   = romExtractAllPdsfx(0);
+		s32 voice_emitted = romExtractAllPdvoice(0);
+		s32 song_emitted  = romExtractAllPdsong(0);
+		s32 font_emitted  = romExtractAllPdfont(0);
+		s32 lang_emitted  = romExtractAllPdlang(0);
+		s32 ui_emitted    = romExtractAllPdui(0);
+		(void)sfx_emitted; (void)voice_emitted; (void)song_emitted;
+		(void)font_emitted; (void)lang_emitted; (void)ui_emitted;
 	}
 
 	// Phase 8: Build O(1) runtime→catalog-ID caches (mp body/head, stage, weapon, model).

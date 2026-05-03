@@ -33,6 +33,12 @@ typedef struct {
     const char *kind_str;     /* "weapon" / "head" / ... (matches pd_kind field) */
     const char *subdir;       /* "weapons", "audio/sfx", ... (under tier_dir) */
     const char *extension;    /* ".pdwpn" / ".pdmesh" / ... (with leading dot) */
+    /* When non-zero, the scaffold invokes register_fn even if the
+     * catalog row already exists. Set by the four pool kinds (weapon,
+     * head, body, arena) so the callback can populate the loader_pool
+     * payload regardless of how the row was created. Defaults to 0
+     * (Step 4 non-destructive overlay) for the nine row-only kinds. */
+    s32         always_invoke;
 } loader_walker_kind_desc_t;
 
 /* Per-kind result counters. */

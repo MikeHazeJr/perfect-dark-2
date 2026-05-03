@@ -286,16 +286,20 @@ s32 loaderWalkerScanKind(
             goto next;
         }
 
-        /* Step 4 non-destructive overlay: if the catalog already carries
-         * this id (registered by assetCatalogRegisterBaseGame +
-         * RegisterStageSceneFiles + RegisterWeaponModelFiles + ScanComponents
-         * before the walker runs), count it as success without touching the
-         * existing row. The walker's role here is enumerate-and-ensure, not
-         * destructive overwrite -- existing in-binary registrations carry
-         * fields (model_file, langid pairings, etc.) that the .pd* envelope
-         * does not always re-supply. Step 5 retires the in-binary side and
-         * the walker becomes authoritative for all fields. */
-        if (assetCatalogResolve(id_buf) != NULL) {
+        /* Non-destructive overlay (default): if the catalog already
+         * carries this id (registered by assetCatalogRegisterBaseGame +
+         * RegisterStageSceneFiles + RegisterWeaponModelFiles +
+         * ScanComponents before the walker runs), count it as success
+         * without touching the existing row -- existing in-binary
+         * registrations carry fields (model_file, langid pairings,
+         * etc.) the .pd* envelope does not always re-supply.
+         *
+         * Pool kinds (weapon / head / body / arena) opt out via
+         * desc->always_invoke so loader_pool can populate the typed
+         * payload from .pd* content regardless of how the catalog row
+         * was created. Their callbacks must internally guard against
+         * destructive row overwrite (assetCatalogResolve check). */
+        if (!desc->always_invoke && assetCatalogResolve(id_buf) != NULL) {
             local.entries_registered++;
             goto next;
         }

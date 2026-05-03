@@ -52,8 +52,9 @@ s32 assetCatalogRegisterBaseGameExtended(void);
  * as ASSET_MODEL catalog entries with source_filenum binding so the
  * bgun load path's catalog lookup resolves them.
  *
- * Must be called AFTER loaderPdbaseBuildWeaponManager populates the
- * catalog manager's weapon pool. Idempotent and dedupe-safe (skips
+ * Must be called AFTER loaderPoolFinalize flips the weapon pool active
+ * (i.e., after the universal walker has parsed the .pdwpn envelopes
+ * into loader_pool). Idempotent and dedupe-safe (skips
  * any filenum already present as ASSET_MODEL).
  *
  * Returns count of newly-registered weapon model file entries.
