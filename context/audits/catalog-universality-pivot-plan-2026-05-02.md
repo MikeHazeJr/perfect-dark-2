@@ -1120,6 +1120,57 @@ Per Q-2 type-tolerance, misclassification stays recoverable: the audio playback 
 
 ---
 
+## Step 3b part 1 SHIPPED 2026-05-03 (worktree `frosty-antonelli-fd537f` cont)
+
+**What landed:** the raw-payload byte-wrapper side of Step 3b. Two new emitters + two matching parity checks bring catalog universality to **12 of 13 kinds emitted**.
+
+- `port/src/romextract_pdfont.c` -- walks 10 NTSC font face segments (`bankgothic` / `zurich` / `tahoma` / `numeric` / `handelgothic{xs,sm,md,lg}` / `ocra{md,lg}`; + JPN `fontjpn` / `fontjpnsingle` on JPN builds) and emits one `.pdfont` ZIP per face. Reads raw bytes from `data/<romid>/segs/<face>.bin` (Pass A) and wraps with manifest envelope (`pd_kind="font"` / `face` / `data` / `data_size` / `source_segment`). Catalog ID `base:font_<facename>`. The Step 4 universal loader runs `preprocessFont` on the raw bytes at load time so the emitter does not duplicate the preprocess pass.
+- `port/src/romextract_pdlang.c` -- walks `g_LangFiles[1..68]` and emits one `.pdlang` ZIP per bank. Reads raw bytes from `data/<romid>/files/<sanitized>.bin` (Pass A). Bank name extracted from the `FILE_L<NAME>E` enum string via `loaderPdbaseNameForFileEnum` (e.g. `FILE_LGUNE` -> `gun`); falls back to hex bank index for unknown shapes per Q-4 Bucket 2. Stage category derived from bank ID range (banks <= 0x25 are `"stage"`; `GUN`/`PROPOBJ`/`MPWEAPONS` are `"system"`; rest are `"mp_ui"`). Catalog ID `base:lang_<bank>_en` for NTSC; PAL/JPN locale extension folds in as a Step 5 cleanup or follow-up worktree (the catalog ID includes the locale suffix so follow-up IDs do not collide).
+- `port/src/romextract_parity_pdfont.c` and `_pdlang.c` -- Q-5 structural parity per the audio-half pattern. Re-opens each emitted ZIP, parses `manifest.json`, asserts envelope + key scalar fields round-trip the source. `data.bin` entry size matches source file size on disk.
+
+Public API: `port/include/romextract_pd.h` gains four new prototypes inside a Step 3b part 1 block, with full docblocks per the established pattern.
+
+Boot wiring: `port/src/main.c` gets a Step 3b part 1 block immediately after the Step 3 audio block. Emit + parity calls follow the established pattern.
+
+**Build verify:** clean four-target build via `devtools/build-session.ps1`. PASS for client (55.x MB), updater (12.3 MB), server (22.4 MB), tests (24.9 MB). All four new `.obj` files compiled into the client. Server build short-circuits per `PD_SERVER` guards (no font / lang / disk-extracted source files server-side).
+
+**Counts emitted (NTSC final ROM, expected):**
+
+- `.pdfont`: 10 NTSC face segments expected.
+- `.pdlang`: 68 banks * 1 locale (English) = 68 expected.
+
+**Files added (4 new files, ~1131 lines new):**
+
+- `port/src/romextract_pdfont.c` (~230 lines)
+- `port/src/romextract_pdlang.c` (~310 lines)
+- `port/src/romextract_parity_pdfont.c` (~230 lines)
+- `port/src/romextract_parity_pdlang.c` (~280 lines)
+
+**Files modified:**
+
+- `port/include/romextract_pd.h` -- 4 new prototypes + Step 3b part 1 block.
+- `port/src/main.c` -- Step 3b part 1 block (~30 new lines).
+
+**State after this commit:** 12 of 13 universality kinds emitted (weapon, mesh, animation, head, body, arena, scenario, sfx, voice, song, font, lang). Remaining: `.pdui` (Step 3b part 2).
+
+**Why .pdui is split off as Step 3b part 2:**
+
+Per `feedback_complete_unit_shipping`, the `.pdui` emitter is sized as its own coherent unit because the consumer migration (rewriting `pdguiThemeLateInit` to read from `.pdui` ZIPs instead of `data/ui/textures/<name>.tga` loose files) cross-cuts the GL render path. UI bugs are silent at build time and surface only at runtime; bundling that cross-cut with `.pdfont` + `.pdlang` (which are pure raw-bytes-to-ZIP wrappers with zero consumer cross-cut) would conflate two risk classes.
+
+The split mirrors the Step 3 audio half / Step 3b part 1 split: ship coherent risk-class chunks. Audio decoder lineage shipped together; raw-payload wrappers shipped together; the cross-cut piece ships in its own unit.
+
+**Step 3b part 2 queue (next ship):**
+
+- `port/fast3d/pdgui_theme.cpp` rewrite of `pdguiThemeExtractRomTextures` to emit per-texture `.pdui` ZIPs at `data/<romid>/ui/<id>.pdui` instead of the current loose-files writer (TGA + PNG + 9slice.json under `data/ui/textures/`).
+- `port/fast3d/pdgui_theme.cpp` rewrite of `pdguiThemeLateInit` to read texture bytes from `.pdui` ZIPs via `modArchiveOpen` + `modArchiveExtractAlloc`, replacing the current `s_loadTgaTexture(disk_path)` calls. Add memory-variant TGA helper (`s_loadTgaFromMem`) since `s_loadTgaTexture` currently reads from a `FILE *`.
+- `port/src/romextract_pdui.c` thin C wrapper that calls the new C++ emitter via an `extern "C"` API exposed from `pdgui_theme.cpp`.
+- Bake nineslice metadata into the per-texture manifest (deprecate the standalone `.9slice.json` per the schema doc Section 2.11; the existing `parse_theme_json` `nineslice` array reader stays as the authoritative consumer).
+- 14 textures expected (one `.pdui` per entry in `pdguiThemeExtractRomTextures::k_Extracts[]`).
+
+After `.pdui`: 13 of 13 emitted. Step 4 (universal directory walker) is the universality switch.
+
+---
+
 ## 8. Sentinel
 
 This audit ends here. If a future reader sees content past this line, the document was modified after the original draft.

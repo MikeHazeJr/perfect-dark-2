@@ -76,11 +76,13 @@ Per [designs/catalog/universality-pivot-schemas.md](designs/catalog/universality
 
 **Step 3 audio half status (2026-05-03, worktree `frosty-antonelli-fd537f`)**: 10 of 13 kinds emitted. Step 3 audio half ships `.pdsfx` / `.pdvoice` / `.pdsong` ZIP compounds. New files: `port/src/romextract_pdsfx.c` (shared SFX-bank walker), `port/src/romextract_pdvoice.c` (wrapper), `port/src/romextract_pdsong.c`, and three matching `_parity_*.c` siblings, plus `port/src/romextract_pdaudio_internal.h` (private walker glue between sfx + voice). Voice classification reuses the Slice 10 predicate (audioconfig slot in `{1, 2, 3, 47, 48, 60, 62}`). Boot wiring lands in `port/src/main.c` after the Step 3a block. Q-5 parity verifies envelope + `id` + `source_index` + `data_size`/`binlen`/`ziplen` round-trip.
 
+**Step 3b part 1 status (2026-05-03, same worktree continued)**: 12 of 13 kinds emitted. Step 3b part 1 ships `.pdfont` + `.pdlang` ZIP compounds. New files: `port/src/romextract_pdfont.c` (10 NTSC font face segments wrapped raw), `port/src/romextract_pdlang.c` (68 lang banks wrapped raw, English locale only for NTSC ship), and two matching `_parity_*.c` siblings. Boot wiring lands in `port/src/main.c` after the Step 3 audio block. Q-5 parity verifies envelope + `id` + `source_segment`/`source_bank` + `data_size` round-trip.
+
 **Remaining**:
 
-- **Step 3b** (other byte-payload classes): `.pdui` / `.pdfont` / `.pdlang`. Hardest piece is the `.pdui` extractor that retires `pdguiThemeExtractRomTextures`. Recommend a fresh worktree -- different lump shapes from the audio decoder lineage.
+- **Step 3b part 2** (.pdui + theme reader cross-cut): one .pdui ZIP per UI chrome texture (~14 textures), plus rewrite of `pdguiThemeExtractRomTextures` (`port/fast3d/pdgui_theme.cpp:2424`) and `pdguiThemeLateInit` (`port/fast3d/pdgui_theme.cpp:1723`) to read texture bytes from `.pdui` ZIPs via `modArchiveOpen` + `modArchiveExtractAlloc`. Sized as its own coherent unit because the consumer migration cross-cuts the GL render path; UI bugs are silent at build time and benefit from a fresh context window. Recommend a fresh worktree.
 - **Step 4** (universal directory walker): collapse `loaderPdbaseScan` + `assetCatalogRegisterBaseGame` into a single `catalogUniversalScan(romid)` that walks `data/<romid>/<class>/`. Cross-references upgrade from FILE_*/L_*/etc enum strings to true catalog IDs.
-- **Step 5** (retirement): delete `base/*.pdbase` + extractor scripts + parity checks. Add grep-guard test pinning.
+- **Step 5** (retirement): delete `base/*.pdbase` + extractor scripts + parity checks. Add grep-guard test pinning. Roll PAL/JPN locale extension into Step 5 cleanup if not folded earlier.
 
 **Pillar ref**: [pillars/catalog.md](pillars/catalog.md).
 
