@@ -1,5 +1,67 @@
 # Session Log (Active)
 
+## Session (`hardcore-leavitt-20fefd`) - 2026-05-03 - Engine Phase 5: per-launch weight caching + telemetry
+
+Continuation of the Phase 4 ship in the same session per Mike's "Do 4 + 5 and the triage in one go." Phase 5 is polish + measurements: weight self-tuning + a diagnostic `Boot.Telemetry` flag.
+
+### Outcome
+
+Two surgical edits to [port/src/boot_progress.c](../../port/src/boot_progress.c):
+
+1. **Per-launch weight caching**: const `k_PhaseWeight[]` becomes mutable `s_PhaseWeights[]` backed by 22 `Boot.Weight.<phase>` pd.ini keys. `bootProgressBeginPhase` captures `SDL_GetTicks()` per phase; `bootProgressEndPhase` accumulates elapsed_ms; `bootProgressMarkComplete` recomputes per-phase fractions from measurements; configSave at shutdown writes them so the next boot's bar paces from real timings. First-launch behavior unchanged -- pd.ini empty -> defaults stay.
+
+2. **Boot.Telemetry flag**: new `Boot.Telemetry` pd.ini int (default 0) gates a per-phase elapsed-ms log dump at end of boot. Format:
+   ```
+   BOOT_TELEMETRY: total=<ms> workers=<N> phases:
+   BOOT_TELEMETRY:   extract_files   1230ms ( 14.6%)
+   BOOT_TELEMETRY:   verify_files    2345ms ( 27.9%)
+   ...
+   ```
+   Weights are saved unconditionally; the dump is gated for diagnostic builds.
+
+Pool tuning: no code change. Existing `(cores - 2)` formula verified against Phase 3 session log (16-core machine -> 14 workers, floor 1 on minimal hardware).
+
+Overlay polish: no code change. Phase 2 overlay already eased + theme-driven + percentage-bearing per Mike Q2 ("plain is fine, colored with PD colors"); nothing discoverable to add.
+
+### Build verify
+
+Clean four-target via `devtools\build-session.ps1 -Session phase5`:
+
+- Client (pd, PerfectDark.exe): **PASS, 55.5 MB (35s)**
+- Updater (pd-updater, Updater.exe): **PASS, 12.3 MB (2s)**
+- Server (pd-server, PerfectDarkServer.exe): **PASS, 22.4 MB**
+- Tests (pd-tests, pd-tests.exe): **PASS, 24.6 MB (21s)**
+
+No new compile warnings.
+
+### Files modified
+
+- `port/src/boot_progress.c` (+139 / -11 lines).
+- `tools/kanban/state.json` (c111 -> done with SHA ea434127).
+- `context/audits/engine-phase5-polish-telemetry-2026-05-03.md` (new audit).
+
+### Merge trail
+
+- Phase 5 commit + merge to dev: `ea434127` (worktree `hardcore-leavitt-20fefd`).
+- Phase 5 audit + kanban + session-log merge: pending this commit.
+
+### What's now closed
+
+The startup-acceleration arc is complete:
+- Phase 1 `19053489`: fs.c path-buffer refactor.
+- Phase 2 `78b5008a`: thread pool + progress channel + boot overlay.
+- Phase 3 `f1d670e3`: parallel verify pass (~3x speedup measured warm-cache).
+- Phase 4 `55392850`: walker + emitter structural concurrency.
+- Phase 5 `ea434127`: per-launch weight caching + Boot.Telemetry.
+
+The design doc at `context/designs/engine/startup-acceleration.md` can be moved to `_old/designs-shipped/` per `retention.md`.
+
+### Coordination notes
+
+Catalog universality + BYOR + startup acceleration arc all complete this date. Engine pillar reaches a clean checkpoint: walker registers parallelism-safe, per-asset emitters fan out, boot bar self-tunes, telemetry hooks on demand.
+
+---
+
 ## Session (`hardcore-leavitt-20fefd`) - 2026-05-03 - Engine Phase 4: walker + emitter structural concurrency
 
 Mike's directive: "Do 4 + 5 and the triage in one go." Phase 4 is the structural concurrency layer that makes the universal walker + per-asset emitters parallel. Phase 5 (polish + telemetry) ships separately but in the same session.

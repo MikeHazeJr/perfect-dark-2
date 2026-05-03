@@ -709,12 +709,11 @@
     },
     {
       "id": "c111", "title": "Engine Phase 5: polish + measurements",
-      "description": "Wire timing telemetry into boot_progress so next launch's weights come from previous launch's actual timings. Tune worker count (test 4, 6, 8 on Mike's machine; auto-scaling holds but verify default behavior). Status label polish per feedback_human_readable_ids. Progress bar PD-theme polish via pdgui_theme tokens. Add shutdown log line summarizing boot timing breakdown for telemetry. Append context/audits/startup-acceleration-<date>.md with before/after timing.",
-      "pillar": "engine", "column": "backlog", "order": 124000,
-      "ready": true,
+      "description": "SHIPPED 2026-05-03 (hardcore-leavitt-20fefd). Per-launch weight caching: const k_PhaseWeight[] becomes mutable s_PhaseWeights[] backed by 22 Boot.Weight.<phase> pd.ini keys; bootProgressMarkComplete recomputes per-phase fractions from SDL_GetTicks measurements captured between BeginPhase / EndPhase, configSave at shutdown writes them so the next boot's bar paces from real timings instead of hand-calibrated defaults. First-launch unchanged (pd.ini empty -> defaults stay). New Boot.Telemetry pd.ini int flag (default 0) emits a per-phase elapsed-ms log dump at end of boot when set; format: 'BOOT_TELEMETRY: total=<ms> workers=<N> phases:' followed by one line per non-skipped phase. Pool tuning: existing (cores - 2) formula verified (Mike's 16-core box -> 14 workers, floor 1 on minimal hardware). Overlay polish: no change -- Phase 2 overlay already eased + theme-driven + percentage-bearing per Mike's Q2. Build verify clean four-target via build-session.ps1 -Session phase5: client 55.5 MB / updater 12.3 MB / server 22.4 MB / tests 24.6 MB.",
+      "pillar": "engine", "column": "done", "order": 124000,
       "priority": 3,
-      "notes": "Sequential after Phase 4 lands on dev (Mike Q6 2026-05-03). Phase 4 SHIPPED 2026-05-03 at dev SHA 55392850 -- ready to start. Spec at context/designs/engine/startup-acceleration.md Phase 5.", "flag": null, "flagged_at": null,
-      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T19:50:00Z"
+      "notes": "Worktree hardcore-leavitt-20fefd. Merged to dev at SHA ea434127. Audit at context/audits/engine-phase5-polish-telemetry-2026-05-03.md. Startup-acceleration arc COMPLETE; design doc can move to _old/designs-shipped/ per retention.md.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T19:55:00Z"
     },
     {
       "id": "c112", "title": "B-323 post-boot AV in challengesInit (Pass C side-effect, N64-vs-PC stride)",
