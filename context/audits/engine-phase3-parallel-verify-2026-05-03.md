@@ -3,7 +3,9 @@
 **Pillar**: Engine. **Goal**: Startup Phase 3 - Parallel Verify Pass.
 **Kanban card**: `c109` (done). **Spec**: `context/designs/engine/startup-acceleration.md` Phase 3.
 **Worktree**: `exciting-wozniak-fe0cac`. **Predecessor**: `78b5008a` (Phase 2 audit + smoke verify).
-**Merge SHA**: `8554b4ea` (dev HEAD after Phase 3 fixup merge).
+**Merge SHAs**: `e42ad24c` (Phase 3 implementation) + `67b97c4a` (Phase 3 alignment
+fixup).  A B-323 fix from another session (`competent-saha-a202bb`) was merged
+in parallel between the fixup and this audit, advancing dev to `8554b4ea`.
 
 ## What shipped
 
@@ -159,4 +161,9 @@ Kanban: c109 -> done.  c110 (Phase 4) -> ready.
   `e42ad24c` (Merge worktree: Engine Startup Phase 3 -- parallel verify
   pass).
 - Phase 3 fixup (single-space alignment for test pin): `67698abd`
-  (worktree) -> merged to dev as `8554b4ea`.
+  (worktree) -> merged to dev as `67b97c4a` (Merge worktree: Engine
+  Phase 3 fixup -- aggregate alignment).
+- B-323 challengesInit AV fix from `competent-saha-a202bb` merged in
+  parallel between the Phase 3 fixup and this audit, advancing dev
+  HEAD to `8554b4ea`.
+- This audit + kanban update: merged to dev as `d44ded34`.
