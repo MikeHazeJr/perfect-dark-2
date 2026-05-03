@@ -234,11 +234,9 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 
 s32 romExtractAllPdmesh(s32 force_rewrite)
 {
-	if (!loaderPoolIsActive()) {
-		sysLogPrintf(LOG_NOTE,
-			"romextract pdmesh: loader not active, skipping");
-		return 0;
-	}
+	/* B-318 (2026-05-03): unconditional run with skip-on-existing.
+	 * See romextract_pdwpn.c for rationale (gate-removal breaks the
+	 * walker deadlock; inner loop tolerates an empty pool). */
 
 	if (!fsDataDirEnsure()) {
 		sysLoudFailf("EXTRACT.PDMESH", "fsDataDirEnsure failed");

@@ -211,11 +211,11 @@ static bool saveThemeAsMod(const char *name, const char *author)
     char modDir[256];
     snprintf(modDir, sizeof(modDir), "mods/%s", dirName);
 
-    if (fsCreateDir("mods") < 0 && errno != EEXIST) {
+    if (!fsCreateDir("mods")) {
         sysLogPrintf(LOG_WARNING, "Theme editor: cannot create 'mods/' directory (errno %d)", errno);
         return false;
     }
-    if (fsCreateDir(modDir) < 0 && errno != EEXIST) {
+    if (!fsCreateDir(modDir)) {
         sysLogPrintf(LOG_WARNING, "Theme editor: cannot create '%s/' directory (errno %d)", modDir, errno);
         return false;
     }
@@ -424,7 +424,7 @@ static bool saveThemeAsPdmod(const char *name, const char *author)
     dirName[len] = '\0';
     if (!len) return false;
 
-    if (fsCreateDir("mods") < 0 && errno != EEXIST) {
+    if (!fsCreateDir("mods")) {
         sysLogPrintf(LOG_WARNING, "Theme editor: cannot create 'mods/' directory (errno %d)", errno);
         return false;
     }

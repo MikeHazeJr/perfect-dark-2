@@ -500,6 +500,17 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 		return -1;
 	}
 
+	/* B-320 (2026-05-03): create the parent audio/ dir before the leaf
+	 * audio/sfx or audio/voice subdir. _mkdir does not create intermediate
+	 * directories on Windows, so the leaf create silently failed with ENOENT
+	 * pre-fix and every modArchiveBegin downstream blew up. */
+	char audio_parent[FS_MAXPATH];
+	snprintf(audio_parent, sizeof(audio_parent), "%s/audio", fsDataDir());
+	if (!fsCreateDir(audio_parent)) {
+		LOUD_FAILF_RT(channel, "fsCreateDir(\"%s\") failed", audio_parent);
+		return -1;
+	}
+
 	char out_dir[FS_MAXPATH];
 	snprintf(out_dir, sizeof(out_dir), "%s/%s", fsDataDir(), out_subdir);
 	if (!fsCreateDir(out_dir)) {

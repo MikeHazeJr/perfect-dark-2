@@ -1094,11 +1094,11 @@ static bool saveSkinAsMod(const char *displayName, const char *targetBodyId)
     char modDir[256];
     snprintf(modDir, sizeof(modDir), "mods/%s", slug);
 
-    if (fsCreateDir("mods") < 0 && errno != EEXIST) {
+    if (!fsCreateDir("mods")) {
         sysLogPrintf(LOG_WARNING, "skin_editor: cannot create 'mods/' (errno %d)", errno);
         return false;
     }
-    if (fsCreateDir(modDir) < 0 && errno != EEXIST) {
+    if (!fsCreateDir(modDir)) {
         sysLogPrintf(LOG_WARNING, "skin_editor: cannot create '%s' (errno %d)", modDir, errno);
         return false;
     }
@@ -1514,7 +1514,7 @@ static bool exportSkinTemplate(const char *filename, int mode)
     /* Mode 1 = Clean (base texture only) — outBuf already has the composite */
 
     /* Ensure exports/ directory exists */
-    if (fsCreateDir("exports") < 0 && errno != EEXIST) {
+    if (!fsCreateDir("exports")) {
         sysLogPrintf(LOG_WARNING, "skin_editor: cannot create 'exports/' (errno %d)", errno);
         free(outBuf);
         return false;

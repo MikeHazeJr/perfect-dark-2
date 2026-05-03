@@ -302,11 +302,10 @@ static s32 s_emitOnePdscenario(const arena_data_t *a, const char *out_dir,
 
 s32 romExtractAllPdarena(s32 force_rewrite)
 {
-	if (!loaderPoolArenasActive()) {
-		sysLogPrintf(LOG_NOTE,
-			"romextract pdarena: arenas loader not active, skipping");
-		return 0;
-	}
+	/* B-318 (2026-05-03): unconditional run with skip-on-existing.
+	 * See romextract_pdwpn.c for rationale. loaderPoolGetArena returns
+	 * NULL when the arenas pool is inactive, so the inner loop emits
+	 * 0 files when there is no source data. */
 
 	if (!fsDataDirEnsure()) {
 		sysLoudFailf("EXTRACT.PDARENA",

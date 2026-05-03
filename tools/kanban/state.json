@@ -616,6 +616,62 @@
       "priority": 3,
       "notes": "Foundation done via c084 + c089 (this trifecta-2). Spec canonical at grammar doc + binding doc.", "flag": null, "flagged_at": null,
       "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+    },
+    {
+      "id": "c100", "title": "B-318 walker-emitter gate deadlock",
+      "description": "Pool-dependent emitters (pdwpn/pdmesh/pdanim/pdhead/pdbody/pdarena) had loaderPoolIsActive() gate inherited from pre-Step-5 .pdbase semantics that never flips true on clean install. Mike option (c) applied: gate removed, emitters run unconditionally. Inner loops gracefully handle NULL pool slots. Note: gate-removal does NOT solve the upstream empty-pool issue on clean BYOR -- proper fix is pre-ship .pd<ext> files OR add ROM-direct extraction.",
+      "pillar": "catalog", "column": "done", "order": 100000,
+      "priority": 1,
+      "notes": "Shipped 2026-05-03 in gallant-booth-6f996f. Bundled with B-319/320/321/322 per feedback_complete_unit_shipping.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T15:00:00Z", "updated": "2026-05-03T15:00:00Z"
+    },
+    {
+      "id": "c101", "title": "B-319 fsCreateDir return-value semantics",
+      "description": "fsCreateDir returned raw _mkdir/mkdir int (0=success, -1=failure) but ~14 sites used !fsCreateDir(x) which interpreted SUCCESS as failure -- 4 spurious LOUDFAIL warnings at startup. Standardised on 1=success (newly-created OR EEXIST) / 0=failure. Updated 12 sites that used raw POSIX pattern (< 0 && errno != EEXIST and != 0) for consistency.",
+      "pillar": "catalog", "column": "done", "order": 100001,
+      "priority": 2,
+      "notes": "Shipped 2026-05-03 in gallant-booth-6f996f.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T15:00:00Z", "updated": "2026-05-03T15:00:00Z"
+    },
+    {
+      "id": "c102", "title": "B-320 audio emitter parent dir creation",
+      "description": "pdsfx/pdvoice/pdsong write to data/<romid>/audio/{sfx,voice,music} but only created leaf dir. Windows _mkdir does not create intermediate directories so leaf create silently failed and modArchiveBegin failed for all 1545+119 sounds. Each audio emitter now creates audio/ parent before its leaf subdir.",
+      "pillar": "catalog", "column": "done", "order": 100002,
+      "priority": 1,
+      "notes": "Shipped 2026-05-03 in gallant-booth-6f996f.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T15:00:00Z", "updated": "2026-05-03T15:00:00Z"
+    },
+    {
+      "id": "c103", "title": "B-321 install layout flat at install root",
+      "description": "DEFAULT_BASEDIR_NAME changed from \"data\" to \".\" so base dir = install root. Trailing /. stripped at fsInit. release.ps1 data-copy loop refactored to use $DistDir directly (no nested data/ wrapper); base/ and mod source files/ dropped from dist. Target install layout: PerfectDark.exe + Updater.exe + pd.ini + put_your_rom_here.txt + data/<romid>/ + mods/, all at install root.",
+      "pillar": "tooling", "column": "done", "order": 100003,
+      "priority": 2,
+      "notes": "Shipped 2026-05-03 in gallant-booth-6f996f. Existing installs will get new layout on next zip extract.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T15:00:00Z", "updated": "2026-05-03T15:00:00Z"
+    },
+    {
+      "id": "c104", "title": "B-322 put_your_rom_here.txt replaces README.txt",
+      "description": "release.ps1 writes put_your_rom_here.txt directly at install root with rich content folding in the prior data/README.txt: ROM placement, region/format, first-launch behaviour, troubleshooting, install layout reference. data/README.txt dropped from dist.",
+      "pillar": "tooling", "column": "done", "order": 100004,
+      "priority": 3,
+      "notes": "Shipped 2026-05-03 in gallant-booth-6f996f.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T15:00:00Z", "updated": "2026-05-03T15:00:00Z"
+    },
+    {
+      "id": "c105", "title": "Empty-pool-on-clean-BYOR root-cause fix (followup)",
+      "description": "B-318 gate removal breaks the deadlock at the gate level but pool-dependent emitters still emit 0 files on truly clean BYOR install -- there is no source data anywhere (Step 5 retired .pdbase aggregate; no ROM-direct extraction path for weapon/head/body/arena/anim metadata). Two reasonable paths: (1) pre-ship .pd<ext> files in source tree via one-off conversion of recovered .pdbase JSON in .claude/session-builds/*/data/base/*.pdbase; (2) add a ROM-direct extraction path. Without one of these, post-Step-5 fresh installs cannot start a stage.",
+      "pillar": "catalog", "column": "backlog", "order": 110000,
+      "priority": 1,
+      "notes": "Acknowledged in audit doc Step 5 'First-boot regression note (accepted)'. B-318 surfaced this as a critical-path blocker for clean install playtest.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T15:00:00Z", "updated": "2026-05-03T15:00:00Z"
+    },
+    {
+      "id": "c106", "title": "pdvoice skipped=1545 russ-table investigation (followup)",
+      "description": "Mike's playtest log shows pdvoice classifying every sound as is_voice=0 (1545 skipped). Likely g_NumAudioRussMappings empty at emitter call time, or s_audioConfigIsVoice predicate returning 0 for all classes. Independent of B-320 parent-dir fix.",
+      "pillar": "catalog", "column": "backlog", "order": 110001,
+      "priority": 3,
+      "notes": "Surfaced 2026-05-03 during B-320 investigation. Out of scope for the 5-bug ship.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T15:00:00Z", "updated": "2026-05-03T15:00:00Z"
     }
   ]
 }

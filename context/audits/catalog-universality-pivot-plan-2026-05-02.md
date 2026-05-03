@@ -1435,3 +1435,116 @@ A genuine first BYOR install with NO `data/<romid>/<class>/*.pd<ext>` content (f
 This audit ends here. If a future reader sees content past this line, the document was modified after the original draft.
 
 DOC_END_2026-05-02_CATALOG_UNIVERSALITY_PIVOT_PLAN
+
+---
+
+## 9. Post-pivot triage SHIPPED (2026-05-03, gallant-booth-6f996f)
+
+Mike's playtest of the Step 5 build at `~/Downloads/Perfect Dark 2.0/` against `pd-client.log` exposed five distinct issues that needed to ship as one coherent unit per `feedback_complete_unit_shipping`. Per `feedback_no_half_measures`, fixes are structural: defensive fallbacks to legacy paths were rejected.
+
+### Bugs and fixes
+
+#### B-318 -- Walker-emitter gate deadlock (root cause framing)
+
+**Mike's framing**: "These 6 emitters were originally gated by the legacy `.pdbase` loader being active. Step 5 retired `.pdbase` but the gates kept reading the same flag, which now never goes true on clean install -> emitters never run on first launch -> walker has nothing to find on next launch either. Permanent deadlock."
+
+**Reality**: the gate was pragmatically correct under both legacy and Step 5 semantics: don't run round-trip emitters when the pool has no data to emit. The Step 5 semantic shift is real (flag now reflects "walker found .pd<ext> files" rather than ".pdbase aggregate loaded"), but the deadlock framing is partial -- removing the gate breaks the deadlock at the gate level, but the upstream "empty pool on clean BYOR" issue remains: the pool-dependent emitters have no source data to emit FROM on a fresh BYOR install. The legacy `.pdbase` aggregate was retired Step 5; no ROM-direct extraction path exists for weapon/head/body/arena/anim metadata.
+
+**Fix applied**: Mike's option (c) -- explicit unconditional run with skip-on-existing. Gates removed from `romExtractAllPdwpn`, `_pdmesh`, `_pdanim`, `_pdhead`, `_pdbody`, `_pdarena`. Inner loops continue to handle NULL pool slots gracefully (`loaderPoolGetWeapon` etc. return NULL when inactive); on a truly clean install the emitters now correctly emit 0 files instead of failing the gate check.
+
+**File:line references** (post-fix line numbers):
+- `port/src/romextract_pdwpn.c:540-547` -- gate replaced with B-318 docblock.
+- `port/src/romextract_pdmesh.c:235-239` -- same.
+- `port/src/romextract_pdanim.c:200-205` -- same.
+- `port/src/romextract_pdhead.c:99-105` -- same.
+- `port/src/romextract_pdbody.c:105-110` -- same.
+- `port/src/romextract_pdarena.c:303-308` -- same.
+
+**What this does NOT solve**: the upstream empty-pool issue. Pool-dependent catalog manager getters (`catalogManagerGetWeaponByIndex` etc.) still return NULL on a clean BYOR install. Reasonable fixes are:
+
+1. **Pre-ship `.pd<ext>` files in the source tree.** One-off conversion of the recovered `.pdbase` JSON in `.claude/session-builds/*/data/base/*.pdbase` (preserved in dev session-build directories) into per-asset `.pdwpn`, `.pdhead`, `.pdbody`, `.pdarena` files via a Python tool that mirrors the C emitter logic. Commit the output to source; release ships them; first-launch walker reads them; pool populates; game runs.
+2. **Add a ROM-direct extraction path for metadata kinds.** The audit doc already acknowledged this: "Future BYOR-from-scratch path can re-architect the per-asset emitters to source from ROM directly." Bigger project.
+
+Either path is out of scope for this 5-bug ship; tracked as a follow-up under context/tasks.md Section 2b.
+
+#### B-319 -- `fsCreateDir` semantics
+
+`fsCreateDir` returned the raw `_mkdir`/`mkdir` int (0=success, -1=failure). The romextract emitters and pdgui_theme.cpp uichrome path (~14 sites) used `if (!fsCreateDir(x))`, which is the new-convention idiom (1=success). Under the old POSIX semantics those checks fired LOUDFAIL on every directory the game legitimately created; Mike's playtest log shows 4 spurious warnings at startup:
+
+```
+LOUDFAIL.EXTRACT.PDANIM_CHR: fsCreateDir("data/ntsc-final/animations") failed
+LOUDFAIL.EXTRACT.PDFONT: fsCreateDir("data/ntsc-final/fonts") failed
+LOUDFAIL.EXTRACT.PDLANG: fsCreateDir("data/ntsc-final/lang") failed
+LOUDFAIL.EXTRACT.PDUI: fsCreateDir("data/ntsc-final/ui") failed
+```
+
+**Fix**: standardised on the convention already used by `fsDataDirEnsure`. `fsCreateDir` returns 1 on success (newly-created OR EEXIST), 0 on real failure. Updated 12 sites that used the raw POSIX pattern (`< 0 && errno != EEXIST` and `!= 0`) so all callers use one consistent idiom.
+
+**File:line references**:
+- `port/src/fs.c:457-485` -- `fsCreateDir` rewritten with new return semantics + EEXIST acceptance.
+- `port/fast3d/pdgui_menu_moddinghub.cpp:1911,1916,1924,2693,2698,2705`, `pdgui_menu_theme_editor.cpp:214,218,427`, `pdgui_skin_editor.cpp:1097,1101,1517`, `pdgui_menu_audiomod.cpp:345`, `port/src/mpsetups.c:398` -- raw POSIX pattern updated.
+
+#### B-320 -- Audio emitter parent-dir creation
+
+`pdsfx` writes to `data/<romid>/audio/sfx/`, `pdvoice` to `audio/voice/`, `pdsong` to `audio/music/`. The leaf `fsCreateDir` was called but the parent `audio/` was never created -- Windows `_mkdir` does not create intermediate directories, so the leaf create silently failed (now visible post-B-319 fix), and every subsequent `modArchiveBegin` failed with ENOENT.
+
+**Fix**: each audio emitter creates the `audio/` parent before its leaf subdir.
+
+**File:line references**:
+- `port/src/romextract_pdsfx.c:498-518` -- audio/ parent create added.
+- `port/src/romextract_pdsong.c:292-310` -- same.
+
+**Separate signal** (NOT fixed in this ship): `pdvoice skipped=1545` -- every sound classified as is_voice=0. The `s_buildVoiceCache` walks `g_AudioRussMappings` and flags sounds whose `audioconfig_index` is in {1,2,3,47,48,60,62}; if the russ table is empty or `s_audioConfigIsVoice` always returns 0 in Mike's runtime, all 1545 sounds get classified as sfx. Logged as a follow-up.
+
+#### B-321 -- Install layout flat at install root
+
+Mike's `pd-client.log`: `base dir: C:/Users/mikeh/Downloads/Perfect Dark 2.0/data`. Pre-fix `DEFAULT_BASEDIR_NAME = "data"` made the runtime base dir `<install_root>/data/`, and `fsDataDir()` returned `data/<romid>` (relative to base dir), so extracted assets ended up at `<install_root>/data/data/<romid>/...` -- one level too deep. The release zip was structured to match the broken layout: `dist/v.../data/{README.txt, base/, data/<romid>/, mod source files/, mods/, pd.ini, pd.ntsc-final.z64}`.
+
+**Fix**:
+1. `port/src/fs.c:26` -- `DEFAULT_BASEDIR_NAME` changed from `"data"` to `"."`. Base dir now resolves to the EXE directory (install root). Trailing `/.` stripped at fsInit (lines 184-200) so log lines read cleanly.
+2. `devtools/release.ps1` -- data-copy loop refactored to use `$DistDir` directly as the destination root. Files at the top of `Build/data/` (`pd.ini`, `pd.ntsc-final.z64`, etc.) land at install root in the zip. Nested `Build/data/data/<romid>/...` lands at `dist/data/<romid>/...`. Legacy `base/` (Step 5 retirement) and `mod source files/` (dev scratch) excluded; `README.txt` at top of $DataSource also excluded (B-322).
+
+**Target install layout (post-extract)**:
+
+```
+install root/
+├── PerfectDark.exe
+├── Updater.exe
+├── pd.ini
+├── put_your_rom_here.txt        (B-322)
+├── pd.ntsc-final.z64            (when present)
+├── data/<romid>/
+│   ├── files/
+│   ├── segs/
+│   ├── animations/
+│   ├── fonts/
+│   ├── lang/
+│   ├── ui/
+│   └── audio/{sfx,voice,music}/
+└── mods/
+```
+
+#### B-322 -- `put_your_rom_here.txt` replaces `data/README.txt`
+
+Mike's directive: filename should be the call-to-action. `release.ps1` writes `put_your_rom_here.txt` directly at `$DistDir` (install root) with rich content folding in the prior `data/README.txt`: ROM placement, region/format requirements, first-launch behaviour, troubleshooting, install-layout reference. Old `data/README.txt` dropped from the dist via the new exclusion match in the data-copy loop.
+
+**File:line reference**:
+- `devtools/release.ps1:519-585` -- `$readmePath = "$DistDir/put_your_rom_here.txt"` write.
+
+### Build verify
+
+`devtools/build-session.ps1 -Session b318 -Target {all,server,tests}`:
+- Client: PASS, **55.1 MB**
+- Updater: PASS, **12.3 MB**
+- Server: PASS, **22.4 MB**
+- Tests: PASS, **24.6 MB** (compile/link clean; test exec output capture has a separate `run-pd-tests.ps1` harness regression that did not gate this ship)
+
+No new compile warnings.
+
+### Followups (not in scope for this ship)
+
+1. **Empty-pool-on-clean-BYOR root-cause fix** -- pre-ship `.pd<ext>` files OR add ROM-direct extraction. Without one of these, the pool-dependent catalog manager getters return NULL on truly clean install and stage load fails. Mike's existing dev install + the release-bundled `data/` skeleton currently do NOT carry the per-asset content (verified empty in Mike's `Build/data/`), so this affects all post-Step-5 fresh installs.
+2. **`pdvoice skipped=1545`** -- russ table or audioconfig predicate downstream issue.
+3. **`run-pd-tests.ps1` harness** -- `Property 'Count' cannot be found` error blocks suite execution via the wrapper.
+
+DOC_END_2026-05-03_POST_PIVOT_TRIAGE_SHIPPED

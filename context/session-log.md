@@ -1,5 +1,49 @@
 # Session Log (Active)
 
+## Session S614 (`gallant-booth-6f996f`) - 2026-05-03 - Catalog Universality Post-Pivot Triage (B-318/319/320/321/322)
+
+Mike's directive: ship 5 bugs from the playtest of the catalog universality build as ONE coherent unit. Per `feedback_complete_unit_shipping`, all five fixes land in the same commit + auto-merge.
+
+### Bugs shipped
+
+- **B-318** -- Walker-emitter chicken-and-egg deadlock (root cause).  Pool-dependent emitters (pdwpn / pdmesh / pdanim / pdhead / pdbody / pdarena) had `if (!loaderPoolIsActive()) return 0` early-returns that never let the emitters run on clean install.  Mike's option (c) applied: gate removed, emitters run unconditionally; inner loops gracefully handle NULL pool slots.  **Important caveat surfaced**: removing the gate breaks the deadlock at the gate level but does NOT solve the upstream "empty pool on clean BYOR" issue -- pool-dependent emitters still emit 0 files when the walker has nothing to populate the pool from.  Proper future fix is either pre-ship `.pd<ext>` files OR add ROM-direct extraction path; consistent with the Step 5 audit doc's "First-boot regression note (accepted)".
+- **B-319** -- `fsCreateDir` semantics.  Returned raw `_mkdir`/`mkdir` int (0=success, -1=failure) but ~14 call sites under `port/src/romextract_*.c` and `port/fast3d/pdgui_theme.cpp` used `if (!fsCreateDir(x))` which interpreted SUCCESS as failure -- producing 4 spurious `LOUDFAIL.EXTRACT.*` warnings at startup on every dir the game legitimately created.  Standardised on 1=success (newly-created OR EEXIST) / 0=failure; updated 12 sites that used the raw POSIX pattern (`< 0 && errno != EEXIST` and `!= 0`).
+- **B-320** -- Audio emitter parent-dir creation.  `pdsfx`, `pdvoice`, `pdsong` emit under nested `data/<romid>/audio/{sfx,voice,music}` but only created the leaf dir.  Windows `_mkdir` does not create intermediate dirs, so the leaf create failed silently, producing `failed=1545` / `failed=119` from `modArchiveBegin` ENOENT.  Fix: each audio emitter now `fsCreateDir`s the `audio/` parent before the leaf subdir.
+- **B-321** -- Install layout: `data/` and `mods/` flattened to install root.  Pre-fix base dir resolved to `<install_root>/data/`, so `fsDataDir()` returned `data/<romid>` but landed at `<install_root>/data/data/<romid>/...` (one level too deep).  `DEFAULT_BASEDIR_NAME` changed from `"data"` to `"."`; trailing `/.` stripped at fsInit.  `release.ps1` data-copy loop refactored to use `$DistDir` directly (no nested `data/` wrapper); `base/` (Step 5 retired), `mod source files/` (dev scratch), and old `README.txt` dropped from dist via exclusion match.
+- **B-322** -- Retire `data/README.txt` in favour of `put_your_rom_here.txt` at install root.  Filename is the call-to-action; rich content covers ROM placement, region/format, first-launch, troubleshooting, post-extraction install layout.  `release.ps1` writes the file directly; old `data/README.txt` is filtered out of the dist copy.
+
+### Build verify
+
+Clean four-target via `devtools/build-session.ps1 -Session b318 -Target all`, then `-Target server`, then `-Target tests`:
+- Client (pd, PerfectDark.exe): PASS, **55.1 MB**
+- Updater (pd-updater, Updater.exe): PASS, **12.3 MB**
+- Server (pd-server, PerfectDarkServer.exe): PASS, **22.4 MB**
+- Tests (pd-tests, pd-tests.exe): PASS, **24.6 MB**
+
+No new compile warnings.
+
+### Files modified
+
+- `port/src/fs.c` (B-319 + B-321) -- `fsCreateDir` semantics, `DEFAULT_BASEDIR_NAME = "."`, trailing-dot strip in fsInit.
+- `port/src/romextract_pdwpn.c`, `_pdmesh.c`, `_pdanim.c`, `_pdhead.c`, `_pdbody.c`, `_pdarena.c` (B-318) -- gate removal.
+- `port/src/romextract_pdsfx.c`, `_pdsong.c` (B-320) -- audio/ parent-dir create.
+- `port/fast3d/pdgui_menu_moddinghub.cpp`, `_theme_editor.cpp`, `pdgui_skin_editor.cpp`, `pdgui_menu_audiomod.cpp` (B-319) -- raw POSIX pattern updated to new convention.
+- `port/src/mpsetups.c` (B-319) -- `!= 0` updated.
+- `devtools/release.ps1` (B-321 + B-322) -- flatten layout, drop `base/` and `mod source files/`, write `put_your_rom_here.txt` at install root.
+- `context/bugs.md` -- B-318 through B-322 entries added with file:line refs and verify commands.
+- `context/tasks.md` -- post-pivot triage SHIPPED block under Section 2b.
+- `context/session-log.md` -- this entry (S614 added at top).
+- `context/audits/catalog-universality-pivot-plan-2026-05-02.md` -- Post-pivot triage SHIPPED section.
+- `tools/kanban/state.json` -- B-318/319/320/321/322 cards added in done column.
+
+### Followups
+
+- **Empty-pool-on-clean-BYOR**: pool-dependent emitters now run but have no source data on a truly clean install.  Either pre-ship `.pd<ext>` files in the source tree (one-off generation from recovered `.pdbase` archives in `.claude/session-builds/*/data/base/*.pdbase`) OR add a ROM-direct extraction path for weapon/head/body/arena/anim metadata.
+- **`pdvoice skipped=1545`**: every sound classified as is_voice=0 in Mike's playtest log -- russ-table read issue (`g_NumAudioRussMappings` returning 0 or `s_audioConfigIsVoice` always false), independent of the B-320 parent-dir fix.
+- **`run-pd-tests.ps1`**: `Property 'Count' cannot be found` error blocks running the test suite via the wrapper; harness regression to investigate.
+
+---
+
 ## Session S613 (`hungry-elgamal-e991de`) - 2026-05-03 - Catalog Universality Pivot Step 5 (FINAL: retire legacy aggregate tier)
 
 Mike's directive: "Get us to completion." This is the final step of the catalog universality pivot.

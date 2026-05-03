@@ -341,16 +341,12 @@ static bool importAudioFile(const char *filePath, const char *displayName,
     char modDir[FS_MAXPATH];
     snprintf(modDir, sizeof(modDir), "mods/%s", slug);
 
-    /* Create directory */
-    if (fsCreateDir(modDir) != 0) {
-        /* Directory may already exist — that's fine for overwrite */
-        struct stat st;
-        if (stat(modDir, &st) != 0) {
-            snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
-                     "Import failed: could not create directory %s", modDir);
-            s_AudioStatusOk = false;
-            return false;
-        }
+    /* Create directory (idempotent: returns 1 if already exists) */
+    if (!fsCreateDir(modDir)) {
+        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                 "Import failed: could not create directory %s", modDir);
+        s_AudioStatusOk = false;
+        return false;
     }
 
     /* Copy audio file into mod directory */

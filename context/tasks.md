@@ -99,6 +99,22 @@ Per [designs/catalog/universality-pivot-schemas.md](designs/catalog/universality
 
 **Pillar ref**: [pillars/catalog.md](pillars/catalog.md). **Audit**: [audits/catalog-universality-pivot-plan-2026-05-02.md](audits/catalog-universality-pivot-plan-2026-05-02.md) Step 5 SHIPPED entry.
 
+### 2b. Catalog universality post-pivot triage SHIPPED (2026-05-03, gallant-booth-6f996f)
+
+Five-bug coherent ship from Mike's playtest of the Step-5 build (`pd-client.log` at install dir on 2026-05-03).
+
+- **B-318** (HIGH) -- Walker-emitter chicken-and-egg deadlock at the gate level. Pool-dependent emitters (`pdwpn`, `pdmesh`, `pdanim`, `pdhead`, `pdbody`, `pdarena`) had `if (!loaderPoolIsActive()) return 0` early-returns inherited from the pre-Step-5 `.pdbase` flag, which now never flip true on clean install. Mike's option (c) applied: gates removed, emitters run unconditionally; inner loops gracefully handle NULL pool slots. Note: the upstream "empty pool on clean BYOR" issue is NOT solved by gate removal alone -- pool-dependent emitters still emit 0 files when the walker has nothing to populate the pool from. The proper fix (either pre-ship `.pd<ext>` files or add a ROM-direct extraction path) is acknowledged future work consistent with the Step 5 audit doc's "First-boot regression note (accepted)".
+- **B-319** (MED) -- `fsCreateDir` semantics. Returned raw `_mkdir`/`mkdir` int (0=success) but most callers used `if (!fsCreateDir(x))` which interpreted SUCCESS as failure. Standardised on 1=success / 0=failure; updated 12 sites that used the raw POSIX pattern.
+- **B-320** (HIGH) -- Audio emitter parent-dir creation. `pdsfx`, `pdvoice`, `pdsong` emit under `data/<romid>/audio/{sfx,voice,music}` but only created the leaf dir; the `audio/` parent missing on Windows produced 1545 / 1545 / 119 `modArchiveBegin` failures. Fix: each audio emitter now creates the `audio/` parent before its leaf subdir.
+- **B-321** (MED) -- Install layout: `data/` and `mods/` flattened to install root. `DEFAULT_BASEDIR_NAME` changed from `"data"` to `"."` so base dir = EXE directory. Trailing `/.` stripped at fsInit. `release.ps1` data-copy loop refactored to use `$DistDir` directly (no nested `data/` wrapper); `base/` and `mod source files/` dropped from dist via exclusion match.
+- **B-322** (LOW) -- Retire `data/README.txt` in favour of `put_your_rom_here.txt` at install root. Filename is the call-to-action; rich content covers ROM placement, region/format, first-launch, troubleshooting, install layout.
+
+Build verify clean four-target via `build-session.ps1 -Session b318 -Target all/server/tests`: client 55.1 MB, updater 12.3 MB, server 22.4 MB, tests 24.6 MB. Audit: [audits/catalog-universality-pivot-plan-2026-05-02.md](audits/catalog-universality-pivot-plan-2026-05-02.md) "Post-pivot triage SHIPPED" section. Bug ledger entries B-318 through B-322 in [bugs.md](bugs.md).
+
+**Followups (out of scope for this ship):**
+- Empty-pool-on-clean-BYOR root-cause fix (pre-ship `.pd<ext>` files OR add ROM-direct extraction path).
+- `pdvoice skipped=1545` investigation (every sound classified as is_voice=0 -- russ-table read issue independent of parent-dir).
+
 ### 3. Input - Controller Support (Branch 2 Cohorts 5-8)
 
 **Status**: queued after Catalog Gate 3. Per [designs/input/input-universality-and-transitions.md](designs/input/input-universality-and-transitions.md), Cohorts 1-4 shipped (layer types + scene events, layer push/pop, IMC ownership migration, per-player cutscene state). Cohorts 5-8 cover full controller support, menu graph completion, remaining transitional shim retirement.
