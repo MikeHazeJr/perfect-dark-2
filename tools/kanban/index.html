@@ -57,8 +57,28 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .add-card-btn:hover{background:rgba(0,0,0,0.04);border-color:#475569;color:#334155}
 
 /* Card */
-.card{background:white;border-radius:7px;border-left:4px solid #94a3b8;padding:9px 11px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.08);transition:box-shadow 0.15s,transform 0.1s,opacity 0.15s;user-select:none}
+.card{position:relative;background:white;border-radius:7px;border-left:4px solid #94a3b8;padding:9px 11px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.08);transition:box-shadow 0.15s,transform 0.1s,opacity 0.15s;user-select:none}
 .card:hover{box-shadow:0 4px 10px rgba(0,0,0,0.13);transform:translateY(-1px)}
+.card.flagged-star {box-shadow:0 0 0 2px #f59e0b,0 2px 8px rgba(245,158,11,0.25)}
+.card.flagged-alert{box-shadow:0 0 0 2px #ef4444,0 2px 8px rgba(239,68,68,0.25)}
+.card.flagged-watch{box-shadow:0 0 0 2px #8b5cf6,0 2px 8px rgba(139,92,246,0.25)}
+.card.flagged-star:hover {box-shadow:0 0 0 2px #f59e0b,0 4px 12px rgba(245,158,11,0.35)}
+.card.flagged-alert:hover{box-shadow:0 0 0 2px #ef4444,0 4px 12px rgba(239,68,68,0.35)}
+.card.flagged-watch:hover{box-shadow:0 0 0 2px #8b5cf6,0 4px 12px rgba(139,92,246,0.35)}
+
+/* Flag badge */
+.flag-badge{position:absolute;top:6px;right:7px;width:18px;height:18px;border-radius:50%;border:none;cursor:pointer;font-size:0.72rem;font-weight:900;line-height:18px;text-align:center;z-index:10;transition:transform 0.1s,opacity 0.15s;padding:0;opacity:0;background:rgba(148,163,184,0.2);color:#94a3b8}
+.card:hover .flag-badge{opacity:1}
+.flag-badge.flag-active{opacity:1}
+.flag-badge.flag-star {background:#f59e0b;color:white}
+.flag-badge.flag-alert{background:#ef4444;color:white}
+.flag-badge.flag-watch{background:#8b5cf6;color:white}
+.flag-badge:hover{transform:scale(1.2)}
+
+/* Flag filter chip */
+.flag-filter-btn{padding:3px 10px;border-radius:12px;border:1px solid #334155;cursor:pointer;font-size:0.7rem;font-weight:600;background:transparent;color:#64748b;font-family:inherit;transition:all 0.15s;margin-left:4px}
+.flag-filter-btn:hover{border-color:#64748b;color:#94a3b8}
+.flag-filter-btn.active{background:#f59e0b;border-color:#f59e0b;color:white}
 .card.dragging{opacity:0.3;transform:scale(0.97)}
 .card.filtered-out{display:none}
 .card-title{font-size:0.82rem;font-weight:600;color:#1e293b;line-height:1.35}
@@ -297,6 +317,13 @@ const ST_CYCLE = ['backlog', 'active', 'done', 'blocked'];
 
 const COLS = {backlog:'Backlog', active:'Active', blocked:'Blocked', done:'Done'};
 
+const FLAG_CONFIG = {
+  star:  {icon: '★', color: '#f59e0b', label: 'Star',  cls: 'flag-star'},
+  alert: {icon: '!',      color: '#ef4444', label: 'Alert', cls: 'flag-alert'},
+  watch: {icon: '●', color: '#8b5cf6', label: 'Watch', cls: 'flag-watch'}
+};
+const FLAG_CYCLE = [null, 'star', 'alert', 'watch'];
+
 // ---------- state ----------
 
 let state = null;
@@ -305,6 +332,7 @@ let dropTarget = null;
 let draggedSubId = null;   // "cardId:subtaskId"
 let subDropTarget = null;  // {cardId, beforeSubId}
 let filterPillars = new Set();
+let filterFlaggedOnly = false;
 let editingCardId = null;
 let saveTimer = null;
 let inlineEditingPillarId = null;
@@ -406,6 +434,13 @@ function renderFilters() {
     clr.onclick = () => { filterPillars.clear(); render(); };
     bar.appendChild(clr);
   }
+
+  const flagBtn = document.createElement('button');
+  flagBtn.className = 'flag-filter-btn' + (filterFlaggedOnly ? ' active' : '');
+  flagBtn.textContent = filterFlaggedOnly ? '★ Flagged only' : '★ Flagged';
+  flagBtn.title = filterFlaggedOnly ? 'Show all cards' : 'Show flagged cards only';
+  flagBtn.onclick = () => { filterFlaggedOnly = !filterFlaggedOnly; render(); };
+  bar.appendChild(flagBtn);
 }
 
 function renderBoard() {
@@ -416,7 +451,10 @@ function renderBoard() {
 
 function buildColumn(colId) {
   const allCards = sortedCards(state.cards.filter(c => c.column === colId));
-  const visibleCards = allCards.filter(c => filterPillars.size === 0 || filterPillars.has(c.pillar));
+  const visibleCards = allCards.filter(c =>
+    (filterPillars.size === 0 || filterPillars.has(c.pillar)) &&
+    (!filterFlaggedOnly || !!c.flag)
+  );
 
   const col = document.createElement('div');
   col.className = 'column' + (collapseState[colId] ? ' collapsed' : '');
@@ -452,7 +490,9 @@ function buildColumn(colId) {
 
   for (const card of allCards) {
     const cardEl = buildCard(card);
-    if (filterPillars.size > 0 && !filterPillars.has(card.pillar)) cardEl.classList.add('filtered-out');
+    const pillarHidden = filterPillars.size > 0 && !filterPillars.has(card.pillar);
+    const flagHidden = filterFlaggedOnly && !card.flag;
+    if (pillarHidden || flagHidden) cardEl.classList.add('filtered-out');
     wrap.appendChild(cardEl);
   }
   col.appendChild(wrap);
@@ -538,6 +578,16 @@ function buildCard(card) {
       el.appendChild(buildInlineSubtaskList(card));
     }
   }
+
+  // Flag badge (top-right corner, visible on hover or when flagged)
+  const flagCfg = card.flag ? FLAG_CONFIG[card.flag] : null;
+  const fBadge = document.createElement('button');
+  fBadge.className = 'flag-badge' + (flagCfg ? ' flag-active ' + flagCfg.cls : '');
+  fBadge.title = flagCfg ? ('Flagged: ' + flagCfg.label + ' - click to change') : 'Click to flag';
+  fBadge.textContent = flagCfg ? flagCfg.icon : '★';
+  if (flagCfg) el.classList.add('flagged-' + card.flag);
+  fBadge.onclick = e => { e.stopPropagation(); toggleCardFlag(card.id); };
+  el.appendChild(fBadge);
 
   el.onclick = () => openModal(card.id, null);
 
@@ -870,7 +920,7 @@ function saveCard() {
     const order = colCards.length > 0 ? colCards[colCards.length - 1].order + 1000 : 1000;
     const n = now();
     state.cards.push({id: newId(), title, description: desc, pillar: pillarVal,
-      column: colVal, order, priority, notes, subtasks, created: n, updated: n});
+      column: colVal, order, priority, notes, subtasks, flag: null, flagged_at: null, created: n, updated: n});
   }
 
   closeModal();
@@ -883,6 +933,29 @@ function deleteCard() {
   if (!confirm('Delete this card?')) return;
   state.cards = state.cards.filter(c => c.id !== editingCardId);
   closeModal(); render(); scheduleSave();
+}
+
+async function toggleCardFlag(cardId) {
+  const card = getCard(cardId);
+  if (!card) return;
+  const idx = FLAG_CYCLE.indexOf(card.flag || null);
+  const next = FLAG_CYCLE[(idx + 1) % FLAG_CYCLE.length];
+  card.flag = next;
+  card.flagged_at = next ? now() : null;
+  card.updated = now();
+  renderBoard();
+  try {
+    const r = await fetch('/api/cards/' + cardId, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({flag: card.flag, flagged_at: card.flagged_at, updated: card.updated})
+    });
+    if (!r.ok) throw new Error('patch failed');
+    setSaveStatus('saved', 'saved');
+    setTimeout(() => setSaveStatus('', ''), 1200);
+  } catch {
+    scheduleSave();
+  }
 }
 
 // ---------- settings ----------

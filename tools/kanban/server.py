@@ -84,6 +84,44 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
+    def do_PATCH(self):
+        if self.path.startswith("/api/cards/"):
+            card_id = self.path[len("/api/cards/"):]
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length)
+            try:
+                patch = json.loads(body)
+                data = json.loads(read_state())
+                found = False
+                for card in data.get("cards", []):
+                    if card["id"] == card_id:
+                        for k, v in patch.items():
+                            card[k] = v
+                        found = True
+                        break
+                if not found:
+                    self.send_response(404)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_cors()
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": "card not found"}).encode())
+                    return
+                written = write_state(json.dumps(data).encode())
+                print(f"[kanban] PATCH card {card_id} ({len(written)} bytes)")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_cors()
+                self.end_headers()
+                self.wfile.write(b'{"ok":true}')
+            except Exception as exc:
+                print(f"[kanban] patch error: {exc}", file=sys.stderr)
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(exc)}).encode())
+        else:
+            self.send_error(404)
+
 
 if __name__ == "__main__":
     server = HTTPServer(("localhost", PORT), Handler)
