@@ -851,8 +851,8 @@ s32 romExtractVerifyAll(void)
     /* Pass D aggregates: validated = verified + baselined (both clean
      * from the user's perspective; baselined is a one-shot legacy
      * upgrade); recovered = corrected; unrecoverable = failed. */
-    s_AggValidated     += verified + baselined;
-    s_AggRecovered     += corrected;
+    s_AggValidated += verified + baselined;
+    s_AggRecovered += corrected;
     s_AggUnrecoverable += failed;
 
     /* Final progress push so the bar reaches the phase end before
