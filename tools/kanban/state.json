@@ -578,11 +578,43 @@
       "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
     },
     {
-      "id": "c086", "title": "B-317 follow-up: per-element CS bindings + left-panel section-jump",
-      "description": "Downstream pass after the c084 foundation. Implement every per-element binding in combat-simulator-binding-doc.md: per-row X context popups for player rows + Add Bot, left-panel LT/RT section-jump (arena -> gametype -> limits -> weapons -> options), Start jump-to-Start-Match for right-panel rows, A+B convergence on the Back to Menu link, CC4 Y-Social glyph chrome (pdguiSocialGlyph helper + per-menu opt-in), CC2 NavFlattened audit on theme editor, CC5 shared popup builder for right-click + X. Validate Rule 10 skip-empty traversal across every focusable widget. Test_actionmap pin for ACTION_MENU_SECTION_PREV/NEXT classification.",
+      "id": "c086", "title": "B-317 follow-up: per-element CS bindings + left-panel SkipUp/SkipDown walker",
+      "description": "Downstream pass after the c084/c089 foundation + Q-A/Q-B/Q-C/Q4 follow-up. Implement every per-element binding in combat-simulator-binding-doc.md: per-row X context popups for player rows + Add Bot, left-panel SkipUp/SkipDown walker (arena -> gametype -> limits -> weapons -> options section headers), Start jump-to-Start-Match for right-panel rows, A+B convergence on the Back to Menu link, CC2 NavFlattened audit on theme editor, CC5 shared popup builder for right-click + X. Disambiguate the pre-existing per-row Y multi-select binding on bot rows (room.cpp ~line 2100) -- per Q4 Y is undefined on Combat Sim, so either remove the per-row Y or document the deviation in the source-file header. Validate Rule 10 skip-empty traversal across every focusable widget. Test_actionmap pin for ACTION_MENU_SKIPUP/SKIPDOWN classification.",
       "pillar": "input", "column": "backlog", "order": 27000,
       "priority": 3,
-      "notes": "Foundation for this card landed via c084 (worktree bd87a394). Spec at context/designs/input-menu/combat-simulator-binding-doc.md.", "flag": null, "flagged_at": null,
+      "notes": "Foundation landed via c084 (worktree bd87a394) + c089 follow-up Q-A/Q-B/Q-C/Q4 (this trifecta-2). Spec at context/designs/input-menu/combat-simulator-binding-doc.md.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+    },
+    {
+      "id": "c087", "title": "Y-Social binding + glyph + Online-status docking on Main Menu",
+      "description": "Per Mike Q4 (2026-05-03), Y-Social is restricted to Main Menu and Pause Menu only. Bind ACTION_MENU_TERTIARY (Y) at the screen level in pdgui_menu_mainmenu.cpp render entry: poll pdguiMenuTertiaryPressed(), guard with !pdguiFriendsSocialIsOpen(), call pdguiFriendsSocialOpen(). Render the social glyph in the upper-right corner via the new pdguiSocialGlyph() helper, docked to the bottom edge of the Online status indicator (Online status placement defined in mainmenu render; glyph y = status_y + status_height). The shared pdguiSocialGlyph helper lives in port/fast3d/pdgui_glyphs.cpp or a new pdgui_chrome.cpp; the helper takes the (x, y) anchor + scale and renders the [Y] Social pill in PD-themed style.",
+      "pillar": "social", "column": "backlog", "order": 28000,
+      "priority": 2,
+      "notes": "Q4 next-playtest blocker per Mike. Pair with c088 (Pause Menu). Foundation: ACTION_MENU_SOCIAL alias already in actionmap.h.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+    },
+    {
+      "id": "c088", "title": "Y-Social binding + glyph + Online-status docking on Pause Menu",
+      "description": "Per Mike Q4 (2026-05-03), Y-Social is restricted to Main Menu and Pause Menu only. Bind ACTION_MENU_TERTIARY (Y) at the screen level in pdgui_menu_pausemenu.cpp render entry. Render the social glyph in the upper-right corner via the shared pdguiSocialGlyph() helper, docked to the bottom edge of the Online status indicator. Pause menu also benefits from the social access during mid-match coordination. Same helper implementation as c087.",
+      "pillar": "social", "column": "backlog", "order": 28500,
+      "priority": 2,
+      "notes": "Q4 next-playtest blocker per Mike. Pair with c087 (Main Menu).", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+    },
+    {
+      "id": "c089", "title": "Q-A/Q-B/Q-C/Q4/Q-E spec follow-up: SKIPUP rename + Y restriction + page-jump fallback",
+      "description": "Mike's 2026-05-03 follow-up resolutions on the v2 spec, applied as one coherent unit on top of c084 foundation. Q-A: rename ACTION_MENU_SECTION_PREV/NEXT to ACTION_MENU_SKIPUP/SKIPDOWN (skip-noun semantic). Q-B: dynamic walker is the universal contract (no static-metadata fallback). Q-C: LT/RT page-jump within the same panel for flat lists with no groups; LT/RT NEVER crosses panels; no-op when neither groups nor scroll. Q4: Y-Social is RESTRICTED to Main Menu + Pause Menu only (NOT universal across other menus). On Combat Sim, Y is undefined per Rule 10 -- removed the Y -> social wire from pdgui_menu_room.cpp. Q-E: B-double-press regression protection stays as 9b6d2a9c, no test cohort. Page-jump fallback added in renderPlayerPanel for the teamsOff case (page by ~5 rows). Grammar doc Rules 6 + 8 + CC4 updated; binding doc Q4 reconciliation block + every Y cell marked UNDEFINED on CS; memory file updated.",
+      "pillar": "input", "column": "done", "order": 29000,
+      "priority": 2,
+      "notes": "Worktree commit pending. Files: actionmap.h, actionmap.cpp, pdgui_nav.h, pdgui_nav.c, pdgui_menu_room.cpp, actionmap_pure.h/c, menu-input-interaction-grammar.md, combat-simulator-binding-doc.md.", "flag": null, "flagged_at": null,
+      "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
+    },
+    {
+      "id": "c090", "title": "Codebase sweep: migrate inline LB/RB / LT/RT semantics to grammar contract",
+      "description": "Pre-grammar codebase has inline LT/RT and LB/RB raw bindings scattered across menu renderers. Sweep all menu sources (port/fast3d/pdgui_menu_*.cpp) and migrate any inline bumper-cycle / trigger-jump logic to the universal grammar. Specifically: any direct ImGui::IsKeyPressed(GamepadL1/R1) for tab cycle should call pdguiMenuTabPrevPressed/NextPressed; any direct trigger handling should call pdguiMenuSkipUpPressed/SkipDownPressed and consult the screen's dynamic walker. Audit menus listed in grammar doc conformance table: Combat Sim foundation done (c084), Settings (Rule 8 SkipUp/SkipDown for long lists), Mod Manager (already strong), Modding Hub (9-tool toolbar -- consider 4-tab restructure), Theme Editor (CC2 NavFlattened), Agent Editor (Rule 5 X), Lobby/Room rosters (Rule 5 X for right-click parity), Forge editor (CC4 Y-Social DEPRIORITIZED per Q4 -- only verify NO inline Y-social binding on Forge), Weapon-loadout, mppause, endscreen, etc.",
+      "pillar": "input", "column": "backlog", "order": 30000,
+      "priority": 3,
+      "notes": "Foundation done via c084 + c089 (this trifecta-2). Spec canonical at grammar doc + binding doc.", "flag": null, "flagged_at": null,
       "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
     }
   ]

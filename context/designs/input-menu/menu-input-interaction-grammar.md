@@ -130,21 +130,27 @@ The popup's default-focused option is the most-likely action. The same builder h
 
 **Universal application.** Mandatory wherever X has a designed semantic. Audit A.2 entries to convert: room.cpp multi-select (right-click today, X tomorrow), mpsettings.cpp track preview, network.cpp paste (could go to a connect-code context menu), agentselect.cpp copy / delete / default.
 
-### Rule 6 -- Y: Social menu
+### Rule 6 -- Y: Social menu (Main Menu + Pause Menu only per Q4 2026-05-03)
 
-Y opens the Social overlay (friends, party invites, voice chat, recent players) as a top-of-stack modal that does not unwind the menu beneath it. A small persistent "Y :: Social" glyph appears in the lower-right corner of every menu screen advertising the binding.
+Y opens the Social overlay (friends, party invites, voice chat, recent players) as a top-of-stack modal that does not unwind the menu beneath it. A persistent "Y :: Social" glyph is rendered in the upper-right corner of the menu screen, docked to the bottom edge of the Online status indicator.
 
-**Verbatim from JSON:** every focusable element in the Combat Sim menu binds Y to "open social menu to allow for invites and whatnot (should have a contextual glyph prompt in the lower right of screen)". Section headers and dividers leave Y empty per CC1.
+**Verbatim JSON SUPERSEDED by Q4 (2026-05-03):** the v2 JSON ships Y bound to "open social menu to allow for invites and whatnot" on every focusable element of Combat Sim. Mike's Q4 directive INVERTS this:
 
-**Rationale.** Social is the one menu that should be one button away from anywhere. A persistent glyph at the lower-right of every menu screen advertises this so the user does not need to remember.
+> "The Y-Social menu should be accessible from the Main Menu system and Pause Menu so players can always connect with one another. Glyph in upper right corner docked to the bottom of the Online status, which appears in the same locations (only) as stated above (main menu system and pause menu)"
 
-**Scope.** Every menu screen.
+Translation: Y-Social binding lives ONLY on Main Menu screens AND in-game Pause Menu. NOT universal across Combat Sim, Forge, Settings, modmgr, theme editor, agent editor, etc. The glyph follows the same scope (Main Menu + Pause Menu only) and is docked to the bottom of the Online status indicator (which appears in those same two locations only).
+
+**Rationale.** Social is the one menu that should be one button away from anywhere PLAYERS LIKELY CONNECT. The Main Menu and Pause Menu are the natural connection-time touchpoints (pre-match queueing, mid-match recoordination); other in-flight menus (mid-Combat-Sim configuration, mid-Forge editing, mid-Settings adjustment) are focused-task surfaces where Y-as-social would be a stray modal interruption. Per Mike's Q4: keep Y-Social to where it actually serves users.
+
+**Scope.** Main Menu screens AND in-game Pause Menu only. NOT universal across other menus (Combat Sim, Forge, Settings, etc.). On those other screens, Y is undefined -> per Rule 10 (skip-empty-bindings), focus does not stop on Y, no glyph hint is rendered, and Y is no-op at the screen level.
 
 **Edge cases.**
 - Overlay-on-overlay: Y while Social is already open is no-op.
 - Closing Social (B / Esc) returns to the exact prior focus state in the menu beneath.
+- Per-row Y bindings on non-Main / non-Pause screens (e.g. legacy bot-row multi-select Y in pdgui_menu_room.cpp ~line 2100) are pre-existing per-row Y reuses, NOT Rule 6 violations. Disambiguate during the per-element pass: either remove the per-row Y binding (favoring the universal undefined contract) or document the deviation inline. Tracked in c086 follow-up.
+- B-double-press regression note: the B-button-related fix at commit `9b6d2a9c` (framerate persistence + B-double-press menu reopen) is contract-discipline-based, not test-suite-based. Per Mike's Q-E (2026-05-03) "Fix it, if we happen to get a regression later we will go with a deeper protection. It will only break during development, so we will try to avoid the bug by just following standards to prevent it and similar." Honor the documented IsWindowAppearing flush contract; if a regression surfaces, deeper protection is added then.
 
-**Universal application.** Mandatory. Conflicts with current Y bindings -- room.cpp:2023 bot multi-select etc. -- must be resolved by rebinding the conflicting menu off Y. See CC4 for the persistent-glyph rollout.
+**Universal application.** Mandatory for Main Menu + Pause Menu. Forbidden as a screen-level binding for any other menu. The persistent glyph rollout (CC4) follows the same Main+Pause scope.
 
 ### Rule 7 -- LB / RB: previous / next tab (universal)
 
@@ -166,39 +172,57 @@ Y opens the Social overlay (friends, party invites, voice chat, recent players) 
 
 **Universal application.** Mandatory. Player-list menus that previously used LB / RB for team-jump must move team-jump to LT / RT.
 
-### Rule 8 -- LT / RT: section / team / page jump (universal grouping advance)
+### Rule 8 -- LT / RT: skip-up / skip-down (within-panel grouping advance + page-jump fallback)
 
-**Mike's Q2 decision (2026-05-03), CANONICAL:** LT / RT is universal in menus and is a "section-jump" affordance: it advances focus by the **next-larger-than-row grouping unit** available in the current screen's structure. NOT a list-bounds (top / bottom) affordance. The grouping unit is screen-specific:
+**Mike's Q2 decision (2026-05-03) + Q-A naming + Q-B walker + Q-C fallback (all 2026-05-03), CANONICAL:** LT / RT advances focus by the **next-larger-than-row grouping unit** available within the **focused panel**, with a **page-jump fallback** for flat lists. Action constants per Mike's Q-A: `ACTION_MENU_SKIPUP` (LT) and `ACTION_MENU_SKIPDOWN` (RT) -- the skip-noun semantic emphasises "skip past the next chunk" rather than "jump to a typed boundary" (per Mike's Q-A inversion of the SECTION_*/GROUP_* proposals). NOT a list-bounds (top / bottom) affordance.
 
-| Screen structure | LT / RT semantic |
-|------------------|------------------|
+**Within-panel only (per Q-C 2026-05-03):**
+
+> "Page Jump, within the same panel, otherwise no-op."
+
+LT / RT NEVER crosses panels. Cross-panel traversal stays on D-pad (Rule 1). LT / RT operates only inside the panel that owns the current focus. This contract is uniform: the focused panel is the operating frame; what's outside the focused panel is outside Rule 8's scope.
+
+**Per-screen semantics (within the focused panel):**
+
+| Panel structure | LT / RT semantic |
+|--------------------|------------------|
 | Player roster with team dividers | Jump to next / previous team's first player |
 | Long flat list with section headers | Jump to next / previous section header |
 | Paginated content | Advance by page |
-| Single ungrouped scroll | Page-jump (configurable per screen, but never absolute bounds) |
-| No grouping at all | LT / RT no-op |
+| Flat scrollable list, no groups | Page-jump by visible-row-count within the panel scroll |
+| Neither groups NOR scroll | LT / RT no-op (Rule 10 skip-empty: no glyph hint either) |
+
+**Dynamic walker contract (per Q-B 2026-05-03):**
+
+> "Dynamic walker is the only real choice as we have a fully dynamic system."
+
+Each screen exposes a callback (or interface method) that, given the current focus, returns the next/previous skip target within the focused panel. No static-metadata fallback. Every screen owns its own walker. A default helper for fixed-metadata cases (e.g. arrays of `firstRowOfTeam[N]` indices computed during the row build pass) is OK as a convenience implementation, but the universal contract is the dynamic callback. The menu input layer wires the contract once; screens implement the walker as needed for `ACTION_MENU_SKIPUP` / `ACTION_MENU_SKIPDOWN`.
 
 **Reconciliation with the verbatim JSON:** the verbatim JSON ships LT / RT on team.1 player rows as "top of players list" / "bottom of players list" (list bounds). Mike's Q2 INVERTS this: LT / RT on player rows is "previous / next team's first player" (team-jump, the affordance that LB / RB used to host per the v2 author's intent). Note that team.2 player rows in the verbatim already have empty LT / RT, an asymmetry that the canonical decision resolves (both teams get team-jump).
 
-**Rationale.** Long lists are tedious one-row-at-a-time; a designed grouping-jump is a console UX standard. Generalising "next-bigger-grouping-unit" rather than "absolute bounds" means the same physical input does the right thing in every menu without a per-screen specialisation.
+**Rationale.** Long lists are tedious one-row-at-a-time; a designed grouping-jump is a console UX standard. Generalising "skip past the next chunk" rather than "absolute bounds" means the same physical input does the right thing in every menu without a per-screen specialisation. The within-panel constraint (Q-C) prevents LT / RT from racing with D-pad cross-panel traversal -- each input owns one axis of motion.
 
-**Scope.** Every menu where a grouping unit larger than "row" exists.
+**Scope.** Every focused panel. LT / RT are no-op for the screen ENTIRELY when neither the focused panel has groups nor the focused panel scrolls.
 
-**Combat Simulator application:**
-- Tabs (4): no grouping above tabs. LT / RT no-op.
-- Left-panel interactive rows: grouping = section headers. LT / RT jumps to previous / next section header (arena -> gametype -> limits -> weapons -> options).
-- Team Sort Dropdown: above the team.1 divider. LT / RT no-op (no grouping above; or equivalently, jump to first / last player as a sensible defaults if Mike wants).
-- Player rows (p.you, p.joanna, p.bot1 through p.bot6): grouping = team dividers. LT / RT jumps to previous / next team's first player (the affordance the verbatim JSON had on LB / RB).
-- Add Bot: below the last team. LT goes back to last team's first player; RT no-op.
-- Footer (Start Match, Back to Menu link): no grouping. LT / RT no-op.
+**Combat Simulator application (within each panel):**
+- Tabs (4): not a panel. LT / RT no-op when focus is on the tab strip.
+- Left-panel (12 interactive rows + 6 section headers): groups = section headers. LT / RT jumps to next / previous section header within the left panel (arena -> gametype -> limits -> weapons -> options). Cross-panel right side is NOT touched by LT / RT.
+- Right-panel (Team Sort Dropdown above team.1 divider, then player rows split by team dividers, then Add Bot):
+  - On Team Sort: no groups above the team.1 divider in the right panel. LT no-op; RT could optionally jump down to first team's first player as a courtesy (per-screen choice).
+  - On Player rows: groups = team dividers. LT / RT jumps to previous / next team's first player WITHIN the right panel (the affordance the verbatim JSON had on LB / RB).
+  - On Add Bot (below last team): LT goes back to last team's first player; RT no-op (boundary).
+  - When teams are OFF: right panel is a flat scrollable list of players + bots. Page-jump fallback: LT / RT page by visible-row-count.
+- Footer (Start Match, Back to Menu link): not a scrollable panel. LT / RT no-op.
 
-**Action-map binding (NEW).** Add `ACTION_MENU_SECTION_PREV` and `ACTION_MENU_SECTION_NEXT` to [actionmap.h](../../../port/include/actionmap.h) and `g_ImcMenu` defaults; bind LT / RT (and a sensible KB&M default like Home / End or Ctrl+PageUp / Ctrl+PageDown) to these actions. The action-map dispatch handler computes the grouping target via a per-menu-type "group iterator" callback registered alongside the menu's `BeginTabBar` / list construction.
+**Action-map binding (NEW).** `ACTION_MENU_SKIPUP` and `ACTION_MENU_SKIPDOWN` added in `port/include/actionmap.h` (= 105 / 106) per Q-A. Bound to LT / RT (gamepad) and Home / End (kbd) on `g_ImcMenu` + `g_ImcPauseMenu` in `port/src/actionmap.cpp` (`setupMenuDefaults` + `setupPauseMenuDefaults`). Helpers `pdguiMenuSkipUpPressed` / `pdguiMenuSkipDownPressed` exposed in `port/include/pdgui_nav.h`.
 
 **Edge cases.**
-- Grouping unit changes between focus locations (focus is in a player row -> grouping = team; focus moves to a left-panel row -> grouping = section header). Per-frame computation of the grouping target is cheap.
+- Grouping unit changes between focus locations within the focused panel (focus is in a player row -> grouping = team; focus moves to Add Bot -> still in the same panel, walker decides). Per-frame computation of the grouping target is cheap and matches Mike's Q-B dynamic-walker contract.
 - LT at the first group / RT at the last group: stays on boundary, does not wrap (consistent with Rule 1 D-pad U/D no-wrap).
+- Q-C fallback: when the panel has no groups but DOES scroll, page-jump within the panel by visible-row-count. Boundary clamps to first / last row. Visible-row-count can be approximated (e.g. fixed N rows) -- the fallback is "approximate" by design; the no-wrap clamp guarantees it never lands outside the panel.
+- Q-C absolute fallback: when the panel has neither groups NOR scroll, LT / RT is no-op AND Rule 10 (skip-empty-bindings) means no glyph hint is rendered for it on that screen.
 
-**Universal application.** Mandatory. Any existing LT / RT bindings (currently rare in PC port) must align. The action-map additions are the single change point for the rollout.
+**Universal application.** Mandatory. Any existing LT / RT bindings (currently rare in PC port) must align. The action-map additions are the single change point for the rollout. Existing menus that haven't yet implemented a walker should default to the page-jump fallback when their panel scrolls; otherwise no-op until a walker lands.
 
 ### Rule 9 -- Reserved-with-one-shortcut: stick clicks, Start, Select
 
@@ -228,7 +252,7 @@ The remaining four inputs are mostly reserved, with one designed exception:
 
 1. **Mark element non-focusable** when it has no bindings at all -- e.g. section headers, dividers, decorative labels (CC1 generalised). `ImGuiSelectableFlags_Disabled` or the shared `pdguiSectionHeader(...)` helper.
 2. **Per-direction NoNav** when the element is focusable for SOME directions but not others -- the renderer suppresses focus arrival from a direction the element does not respond to. Implementation through an opt-out predicate the menu checks before `ImGui::SetItemDefaultFocus()` / before consuming a navigation event.
-3. **Bindings manifest gate** when the element type has many instances and the empty cells are consistent across instances -- the menu's group-iterator (Rule 8 Decision B) consults the manifest and routes traversal around empty cells.
+3. **Bindings manifest gate** when the element type has many instances and the empty cells are consistent across instances -- the menu's dynamic walker (Rule 8 Q-B) consults the manifest and routes traversal around empty cells.
 
 **Combat Simulator examples (verbatim, post-Q1+Q2):**
 
@@ -265,9 +289,18 @@ Two-panel layouts must mark both children `ImGuiChildFlags_NavFlattened`. Rule 1
 
 Restated from Rule 4 because it is the most-violated invariant in the codebase today. Any menu that B-closes silently with in-progress state is a bug to file in `context/bugs.md` and convert.
 
-### CC4 -- Y-Social glyph always visible at lower-right
+### CC4 -- Y-Social glyph: Main Menu + Pause Menu only (Q4 2026-05-03)
 
-Restated from Rule 6. Implementation: shared `pdguiSocialGlyph()` helper called from each menu's render entry; opt-out flag for menus where the glyph would overlap critical content. Rollout sequence: helper first (1 commit), per-top-level-menu opt-in in batches of approximately 5 menus (multiple commits), final audit pass. The verbatim JSON's Y-Button cell text on every row mentions this glyph explicitly: "should have a contextual glyph prompt in the lower right of screen".
+Restated from Rule 6. Per Mike's Q4 directive (2026-05-03), Y-Social and its glyph live ONLY on Main Menu screens AND in-game Pause Menu. The glyph renders in the upper-right corner of those screens, docked to the bottom edge of the Online status indicator (Online status appears in the same two locations only). NOT universal across other menus -- on Combat Sim, Forge, Settings, modmgr, theme editor, etc., the glyph is NOT rendered AND Y is undefined.
+
+Implementation:
+
+- Shared `pdguiSocialGlyph()` helper renders the glyph; called only from `pdgui_menu_mainmenu.cpp` and `pdgui_menu_pausemenu.cpp` render entries.
+- Online status indicator placement is defined in those two files; the glyph docks to its bottom edge (same horizontal position, glyph y = status_y + status_height).
+- No opt-out flag needed: the helper is opt-in per the two screens.
+- Rollout: kanban c087 (Main Menu Y-Social binding + glyph + status docking) and c088 (Pause Menu Y-Social binding + glyph + status docking), priority 2 each.
+
+The verbatim JSON's Y-Button cell text on every row of Combat Sim mentioned this glyph explicitly ("should have a contextual glyph prompt in the lower right of screen"); Q4 SUPERSEDES that expansion -- the glyph and the binding both restrict to Main + Pause only.
 
 ### CC5 -- Same popup builder backs mouse right-click and controller X
 
@@ -279,9 +312,10 @@ Menus to bring into conformance with this grammar after v2 lands. Listed roughly
 
 | Menu | File | Status today | Required change |
 |------|------|--------------|------------------|
-| Combat Simulator | [pdgui_menu_mpsetup.cpp](../../../port/fast3d/pdgui_menu_mpsetup.cpp) | Reference implementation per this doc | Bind Q1+Q2 canonical resolutions (LB/RB tab-cycle universal, LT/RT section/team/page jump universal). Add CC4 social glyph. |
-| Pause menu | [pdgui_menu_pausemenu.cpp:694-724](../../../port/fast3d/pdgui_menu_pausemenu.cpp:694) | 4 PdPauseButton row, no real BeginTabBar (audit A.2 row 7) | Convert to BeginTabBar; inherit Rule 7 LB/RB tab cycle. |
-| Settings | [pdgui_menu_mainmenu.cpp:4545+](../../../port/fast3d/pdgui_menu_mainmenu.cpp:4545) | Strong; LB/RB outer tab cycle live (line 4550-4552) | Add Rule 6 glyph. Add Rule 9 Start binding for Apply where applicable. Add Rule 8 LT/RT section-jump within long lists. |
+| Combat Simulator | [pdgui_menu_mpsetup.cpp](../../../port/fast3d/pdgui_menu_mpsetup.cpp) | Foundation pass shipped (S609 trifecta) | Q1 (LB/RB tab cycle) inherited. Q2 / Q-A / Q-B / Q-C: SkipUp/SkipDown wired in player panel (team-jump when teamsOn, page-jump when teamsOff). Q4: Y is undefined here -- NOT bound to social. Per-element bindings (X context popups, left-panel section-jump walker, Start jump-to-Start-Match, A+B convergence on Back link) tracked in c086. |
+| Pause menu | [pdgui_menu_pausemenu.cpp:694-724](../../../port/fast3d/pdgui_menu_pausemenu.cpp:694) | 4 PdPauseButton row, no real BeginTabBar (audit A.2 row 7) | Convert to BeginTabBar; inherit Rule 7 LB/RB tab cycle. **Bind Y-Social per Q4 (kanban c088, priority 2).** Render social glyph in upper-right docked to Online status. |
+| Main menu | [pdgui_menu_mainmenu.cpp](../../../port/fast3d/pdgui_menu_mainmenu.cpp) | Top-level main menu surfaces | **Bind Y-Social per Q4 (kanban c087, priority 2).** Render social glyph in upper-right docked to Online status. |
+| Settings | [pdgui_menu_mainmenu.cpp:4545+](../../../port/fast3d/pdgui_menu_mainmenu.cpp:4545) | Strong; LB/RB outer tab cycle live (line 4550-4552) | **Y-Social NOT bound here (Settings is not Main / Pause).** Add Rule 9 Start binding for Apply where applicable. Add Rule 8 LT/RT skip-up/skip-down within long lists. |
 | Settings -> Controls (inner) | [pdgui_menu_mainmenu.cpp:3090, 3125](../../../port/fast3d/pdgui_menu_mainmenu.cpp:3090) | Audit C.5 known issue | Inner KB&M / Controller tab swap goes to D-pad at inner-tab focus. Outer LB / RB stays Settings authority. |
 | Mod Manager | [pdgui_menu_modmgr.cpp](../../../port/fast3d/pdgui_menu_modmgr.cpp) | Strong; bumper tab cycle live | Add Rule 6 glyph. |
 | Modding Hub | [pdgui_menu_moddinghub.cpp](../../../port/fast3d/pdgui_menu_moddinghub.cpp) | 9-tool toolbar with bumper cycle (audit A.5 #3) | Reconsider: 9 tools exceeds Combat Sim's 4-tab ceiling; consider grouping into 4 categories. Out of scope for this rollout. |
@@ -324,42 +358,22 @@ The 9-fix Phase 2 sequence from [input-menu-system-audit-2026-05-01.md](../../au
 
 **Why deferred:** universal grammar conformance (Rules 1-9 across all menus + CC1-CC5) is the foundational platform spec; Queue Match is one feature surface that lands on top of that platform. Should not block grammar rollout.
 
-## Open decisions for Mike
+## Resolved decisions (2026-05-03 trifecta + follow-up)
 
-The following items were resolved by Mike's 2026-05-03 directive (Q1-Q5):
+The following items were resolved by Mike's 2026-05-03 directives:
 
 - **Q1 LB / RB:** Universal previous / next tab. Player-row team-jump moves to LT / RT. Verbatim JSON cells for player-row LB / RB are overridden by canonical decision.
-- **Q2 LT / RT:** Universal section / team / page-jump (next-larger-grouping-unit advance). Player-row "list bounds" verbatim cells are overridden.
-- **Q3 Action-map naming:** `ACTION_MENU_CONTEXT` (X), `ACTION_MENU_SOCIAL` (Y). Add `ACTION_MENU_SECTION_PREV` / `ACTION_MENU_SECTION_NEXT` for Rule 8 LT / RT (this doc proposes the names; Mike to confirm).
-- **Q4 Verbatim JSON:** Ingested at [combat-simulator-bindings-v2.json](combat-simulator-bindings-v2.json); replaced paraphrase-derived JSON in-place; binding doc ([combat-simulator-binding-doc.md](combat-simulator-binding-doc.md)) follows Q1+Q2 decisions, not raw verbatim cells.
-- **Q5 Continue here:** Synthesis completed in this session.
+- **Q2 LT / RT:** Within-panel skip-up / skip-down (was section / team / page-jump in Q2 framing; per Q-A renamed to `SKIPUP` / `SKIPDOWN`; per Q-C constrained to within-panel only). Player-row "list bounds" verbatim cells are overridden.
+- **Q3 Action-map naming:** `ACTION_MENU_CONTEXT` (X) and `ACTION_MENU_SOCIAL` (Y) shipped as `#define` aliases over `ACTION_MENU_SECONDARY` / `ACTION_MENU_TERTIARY` (preserves test/binding compatibility, exposes the rule-named identifiers in source).
+- **Q4 Y-Social scope (2026-05-03 follow-up, INVERTS v2 JSON):** Y-Social is restricted to Main Menu + in-game Pause Menu only. NOT universal across other menus. On other screens, Y is undefined per Rule 10 (no focus stop, no glyph hint). The verbatim JSON's per-element Y bindings on Combat Sim are SUPERSEDED.
+- **Q5 Continue here:** Synthesis completed in S609 trifecta (2026-05-03).
+- **Q-A (2026-05-03 follow-up) Action constant naming for LT/RT:** `ACTION_MENU_SKIPUP` / `ACTION_MENU_SKIPDOWN`. Skip-noun semantic (skip past the next chunk) chosen over SECTION_*/GROUP_* (jump to a typed boundary). Shipped at = 105 / 106.
+- **Q-B (2026-05-03 follow-up) Group/section traversal contract:** Dynamic walker only ("the only real choice as we have a fully dynamic system"). Each screen exposes a callback (or interface method) that, given current focus, returns the next/previous skip target. No static-metadata fallback. Default helper for fixed-metadata cases (e.g. arrays of `firstRowOfTeam[N]`) is OK as a convenience implementation, but the universal contract is the dynamic callback.
+- **Q-C (2026-05-03 follow-up) LT/RT on flat lists with no groups:** Page-jump within the same panel; no-op otherwise. LT/RT NEVER crosses panels (D-pad does cross-panel; LT/RT stays within the focused panel's scroll). Screens with neither groups NOR scroll: LT/RT is no-op AND Rule 10 means no glyph hint is rendered.
+- **Q-D (covered above by Rule 6 update + CC4):** Y-Social glyph in upper-right corner, docked to the bottom of the Online status indicator. Online status + Y-Social glyph appear ONLY on Main Menu + Pause Menu.
+- **Q-E (2026-05-03 follow-up) B-double-press regression cohort:** No preemptive deeper protection. Mike: "Fix it, if we happen to get a regression later we will go with a deeper protection. It will only break during development, so we will try to avoid the bug by just following standards to prevent it and similar." The 9b6d2a9c fix stays as-is. Contract-discipline-based, not test-suite-based. Captured in Rule 6 edge cases.
 
-Remaining items for Mike:
-
-### Decision A -- ACTION_MENU_SECTION_PREV/NEXT naming confirmation
-
-Recommended names per Q3 pattern: `ACTION_MENU_SECTION_PREV`, `ACTION_MENU_SECTION_NEXT`. Alternative: `ACTION_MENU_GROUP_PREV/NEXT`. Mike to confirm before code lands.
-
-### Decision B -- Group-iterator callback design
-
-Per-menu-type "group iterator" callback registered alongside the menu's tab bar / list construction. Two viable approaches:
-
-1. Static metadata: each menu registers `{group_count, group_first_indices[]}` at menu construction; LT / RT looks up the array.
-2. Dynamic walker: a callback `(currentFocus, direction) -> nextFocus` that the menu computes per call.
-
-Recommend (1) for simplicity; static metadata fits Combat Sim's team / section structure cleanly.
-
-### Decision C -- Page-jump fallback for ungrouped scroll
-
-For "single ungrouped scroll" menus (e.g. mod manager content list with no headers), Q2 says "configurable per screen, but never as absolute bounds". Default proposal: page-jump (move N rows forward / back where N = visible row count). Per-screen override via the same group-iterator callback.
-
-### Decision D -- Y-Social glyph rollout sequence
-
-Helper-first then per-menu opt-in rollout in batches of ~5 menus; final audit pass. Recommended kanban card to break out as its own line item.
-
-### Decision E -- B-double-press regression test coverage
-
-The follow-up commit 9b6d2a9c added `actionmapFlushActionSet` on menu IsWindowAppearing. Recommend a pure-C test mirror in `tests/test_actionmap_flush.cpp` to lock the contract.
+(Legacy "Decision A" through "Decision E" sub-sections were superseded by Q-A through Q-E above and removed in the 2026-05-03 trifecta follow-up; see the resolved-decisions list for the canonical answers.)
 
 ## Methodology
 

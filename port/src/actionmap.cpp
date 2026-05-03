@@ -1370,8 +1370,8 @@ s32 actionIsGameplayOnly(InputAction a)
     case ACTION_MENU_SECONDARY:
     case ACTION_MENU_TERTIARY:
     case ACTION_MENU_DELETE:
-    case ACTION_MENU_SECTION_PREV:
-    case ACTION_MENU_SECTION_NEXT:
+    case ACTION_MENU_SKIPUP:
+    case ACTION_MENU_SKIPDOWN:
     case ACTION_VOICE_PTT:
     case ACTION_FORGE_PLACE_CANCEL:
     case ACTION_FORGE_BOT_ADD:
@@ -2685,10 +2685,10 @@ static void setupMenuDefaults(void)
      * mirrors the original verbatim's "list bounds" intent without
      * absolute-bounds semantics. Boundary case: stays on boundary,
      * does not wrap (Rule 1 + Rule 8 alignment). */
-    addBind(imc, ACTION_MENU_SECTION_PREV, VKL_HOME);             /* Previous section/group/team - kbd */
-    addBind(imc, ACTION_MENU_SECTION_PREV, JOY_BTN(0, JOFS_LTRIG)); /* LT trigger */
-    addBind(imc, ACTION_MENU_SECTION_NEXT, VKL_END);              /* Next section/group/team - kbd */
-    addBind(imc, ACTION_MENU_SECTION_NEXT, JOY_BTN(0, JOFS_RTRIG)); /* RT trigger */
+    addBind(imc, ACTION_MENU_SKIPUP, VKL_HOME);             /* Previous section/group/team - kbd */
+    addBind(imc, ACTION_MENU_SKIPUP, JOY_BTN(0, JOFS_LTRIG)); /* LT trigger */
+    addBind(imc, ACTION_MENU_SKIPDOWN, VKL_END);              /* Next section/group/team - kbd */
+    addBind(imc, ACTION_MENU_SKIPDOWN, JOY_BTN(0, JOFS_RTRIG)); /* RT trigger */
     /* S483b (2026-04-27): Tab toggles the Online connectivity sidebar.
      * Bound on menu IMCs only (here + setupPauseMenuDefaults) so pressing
      * Tab during pure gameplay (only g_ImcGameplay active) cannot fire
@@ -2749,10 +2749,10 @@ static void setupPauseMenuDefaults(void)
     /* Rule 8 (2026-05-03): LT / RT section / group / page jump on pause IMC.
      * Mirrors setupMenuDefaults so the binding stays universal across
      * all menu surfaces (paused or main-menu). */
-    addBind(imc, ACTION_MENU_SECTION_PREV, VKL_HOME);             /* Previous section/group/team - kbd */
-    addBind(imc, ACTION_MENU_SECTION_PREV, JOY_BTN(0, JOFS_LTRIG)); /* LT trigger */
-    addBind(imc, ACTION_MENU_SECTION_NEXT, VKL_END);              /* Next section/group/team - kbd */
-    addBind(imc, ACTION_MENU_SECTION_NEXT, JOY_BTN(0, JOFS_RTRIG)); /* RT trigger */
+    addBind(imc, ACTION_MENU_SKIPUP, VKL_HOME);             /* Previous section/group/team - kbd */
+    addBind(imc, ACTION_MENU_SKIPUP, JOY_BTN(0, JOFS_LTRIG)); /* LT trigger */
+    addBind(imc, ACTION_MENU_SKIPDOWN, VKL_END);              /* Next section/group/team - kbd */
+    addBind(imc, ACTION_MENU_SKIPDOWN, JOY_BTN(0, JOFS_RTRIG)); /* RT trigger */
     /* S483b (2026-04-27): Tab toggles the Online connectivity sidebar
      * while paused. See setupMenuDefaults for the design rationale. */
     addBind(imc, ACTION_SOCIAL_TOGGLE, 43);                       /* TAB scancode */

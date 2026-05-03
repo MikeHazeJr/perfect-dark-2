@@ -55,13 +55,16 @@ char *langGet(s32 textid);
 char *langSafe(s32 textid);
 s32 challengeIsFeatureUnlocked(u32 feature);
 
-/* Rule 6 (2026-05-03): Y on any menu opens the Social overlay (friends,
- * party invites, voice, recent players) as top-of-stack without unwinding
- * the underlying menu. The action is wired through ACTION_MENU_SOCIAL
- * (alias of ACTION_MENU_TERTIARY) per Mike's Q3 directive. The actual
- * surface lives in pdgui_friends.cpp. */
-void pdguiFriendsSocialOpen(void);
-s32  pdguiFriendsSocialIsOpen(void);
+/* Rule 6 reconciliation (Q4, 2026-05-03): Y-Social is restricted to
+ * Main Menu + Pause Menu only. Combat Sim does NOT bind Y to social.
+ * Forward declarations of pdguiFriendsSocialOpen / IsOpen previously
+ * lived here; removed after the Y-Social handler at pdguiRoomScreenRender
+ * was deleted per Mike's Q4 inversion. The Y-Social rollout on
+ * Main Menu and Pause Menu is tracked in kanban c087 + c088. The
+ * existing per-row Y (multi-select on bot rows, line ~2100) is a
+ * pre-existing per-row reuse of the same physical button and is
+ * unrelated to Y-Social; flagged in binding doc Q4 reconciliation
+ * for c086 follow-up to disambiguate. */
 
 /* Network mode */
 #define NETMODE_NONE   0
@@ -1952,41 +1955,70 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
         ImGui::TextDisabled("Waiting for players...");
     }
 
-    /* Rule 8 (2026-05-03): consume pending team jump for the player panel.
+    /* Rule 8 (2026-05-03): consume pending skip-up / skip-down for the
+     * player panel. Per Mike's Q-A naming (SkipUp/SkipDown, was
+     * SectionPrev/Next), Q-B (dynamic walker), Q-C (page-jump fallback
+     * within panel; never crosses panels):
      *
-     * When teams are enabled and LT/RT was pressed this frame, walk the
-     * sorted rows to find the first-row index for each team, locate the
-     * currently-focused team via the cached value below, compute the
-     * target team (current +/- direction; clamp to first/last per the
-     * Rule 1 + Rule 8 no-wrap boundary rule), and arm a focus pending
-     * row index that the row loop consumes via SetKeyboardFocusHere
-     * BEFORE its Selectable. When teams are off the jump is a no-op
-     * (no grouping unit larger than "row"). */
+     *   teamsOn  -> walk team boundaries, jump to next/prev team's first
+     *               player. Boundary case: stays on first/last team
+     *               (no wrap).
+     *   teamsOff -> page-jump fallback: jump by visible-row-count rows
+     *               within the panel scroll. Boundary clamps to first/
+     *               last row.
+     *
+     * The cached focus row index (`s_FocusedRowCached`) is updated by
+     * the row loop below via IsItemFocused so the next jump computes
+     * relative to where the user actually is. */
     static s32 s_FocusedTeamCached = -1; /* updated by the row loop below */
+    static s32 s_FocusedRowCached  = -1; /* updated by the row loop below */
     s32 sectionJumpTargetRowIdx = -1;
-    if (teamsOn && rowCount > 0 && s_RoomPlayerSectionJumpPending != 0) {
-        s32 firstRowOfTeam[16];
-        s32 teamCount = 0;
-        s32 prevTeam = -1;
-        for (s32 ri = 0; ri < rowCount && teamCount < 16; ri++) {
-            if (rows[ri].team != prevTeam) {
-                firstRowOfTeam[teamCount++] = ri;
-                prevTeam = rows[ri].team;
-            }
-        }
-        if (teamCount >= 2) {
-            s32 currentTeamSlot = 0;
-            for (s32 t = 0; t < teamCount; t++) {
-                if ((s32)rows[firstRowOfTeam[t]].team == s_FocusedTeamCached) {
-                    currentTeamSlot = t;
-                    break;
+    if (rowCount > 0 && s_RoomPlayerSectionJumpPending != 0) {
+        if (teamsOn) {
+            /* Group walker: skip to next/prev team's first player. */
+            s32 firstRowOfTeam[16];
+            s32 teamCount = 0;
+            s32 prevTeam = -1;
+            for (s32 ri = 0; ri < rowCount && teamCount < 16; ri++) {
+                if (rows[ri].team != prevTeam) {
+                    firstRowOfTeam[teamCount++] = ri;
+                    prevTeam = rows[ri].team;
                 }
             }
-            s32 targetSlot = currentTeamSlot + s_RoomPlayerSectionJumpPending;
-            if (targetSlot < 0) targetSlot = 0;
-            if (targetSlot >= teamCount) targetSlot = teamCount - 1;
-            if (targetSlot != currentTeamSlot) {
-                sectionJumpTargetRowIdx = firstRowOfTeam[targetSlot];
+            if (teamCount >= 2) {
+                s32 currentTeamSlot = 0;
+                for (s32 t = 0; t < teamCount; t++) {
+                    if ((s32)rows[firstRowOfTeam[t]].team == s_FocusedTeamCached) {
+                        currentTeamSlot = t;
+                        break;
+                    }
+                }
+                s32 targetSlot = currentTeamSlot + s_RoomPlayerSectionJumpPending;
+                if (targetSlot < 0) targetSlot = 0;
+                if (targetSlot >= teamCount) targetSlot = teamCount - 1;
+                if (targetSlot != currentTeamSlot) {
+                    sectionJumpTargetRowIdx = firstRowOfTeam[targetSlot];
+                }
+            }
+        } else {
+            /* Q-C page-jump fallback: flat list, no groups. Jump by an
+             * estimate of visible-row-count within the player panel
+             * scroll. ImGui's GetWindowHeight gives the panel content
+             * area; we have ~46 px / row (kHumanRowH 50 px or bot row
+             * ~24 px; 32 px is a reasonable mid-row average for the
+             * page-jump heuristic). The exact stride is not critical --
+             * Mike's Q-C calls for "page-jump by visible-row-count"
+             * which is naturally approximate. The boundary clamp at
+             * first / last row matches the Rule 1 + Rule 8 no-wrap
+             * contract. */
+            const s32 kPageRows = 5;
+            s32 base = (s_FocusedRowCached >= 0 && s_FocusedRowCached < rowCount)
+                       ? s_FocusedRowCached : 0;
+            s32 target = base + (kPageRows * s_RoomPlayerSectionJumpPending);
+            if (target < 0) target = 0;
+            if (target >= rowCount) target = rowCount - 1;
+            if (target != base) {
+                sectionJumpTargetRowIdx = target;
             }
         }
     }
@@ -2653,14 +2685,17 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
         }
         } /* end if (r.isBot) — bot context popup scope */
 
-        /* Rule 8 (2026-05-03): track focused team for the next LT/RT jump.
-         * When ANY widget within this row has focus (the Selectable, the
-         * popup, etc.), cache the row's team so the next section-jump
-         * computes the next/prev relative to the user's current location.
-         * Falls back to team 0 when no row has had focus yet (e.g. fresh
-         * panel entry). */
+        /* Rule 8 (2026-05-03): track focused team + row index for the
+         * next LT/RT skip-up / skip-down. When ANY widget within this
+         * row has focus (the Selectable, the popup, etc.), cache the
+         * row's team and the row index so the next jump computes
+         * relative to where the user actually is. teamsOn uses the team
+         * cache for the group walker; teamsOff uses the row-index cache
+         * for the page-jump fallback (Q-C). Falls back to team 0 / row
+         * 0 when no row has had focus yet (e.g. fresh panel entry). */
         if (ImGui::IsItemFocused()) {
             s_FocusedTeamCached = (s32)r.team;
+            s_FocusedRowCached  = ri;
         }
 
         ImGui::PopID();
@@ -3757,34 +3792,42 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
 
-    /* Rule 6 (2026-05-03): Y opens Social overlay from any menu surface.
-     * Source: menu-input-interaction-grammar.md Rule 6 + Q3 naming. The
-     * Combat Sim binding spec v2 binds Y to "open social menu to allow
-     * for invites and whatnot" on every focusable element; routing the
-     * single Y press at the screen level matches that universal pattern
-     * (no per-element handler required). Idempotent: pdguiFriendsSocialOpen
-     * is a no-op when the social surface is already open. */
-    if (pdguiMenuTertiaryPressed() && !pdguiFriendsSocialIsOpen()) {
-        pdguiFriendsSocialOpen();
-        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-    }
+    /* Rule 6 reconciliation -- Q4 (2026-05-03, Mike's directive):
+     *
+     * The Combat Sim binding spec v2 JSON had Y bound to social on every
+     * focusable element. Mike Q4 INVERTS that: Y-Social is restricted to
+     * the Main Menu and in-game Pause Menu only -- NOT universal across
+     * other menus. On the Combat Sim Room, Y is UNDEFINED. Per Rule 10
+     * (skip-empty-bindings), an undefined input is a no-op AND no glyph
+     * hint is rendered for it.
+     *
+     * Therefore: do NOT poll pdguiMenuTertiaryPressed() (Y) here, do NOT
+     * call pdguiFriendsSocialOpen() from this screen. The Y-Social
+     * binding lives on Main Menu (pdgui_menu_mainmenu.cpp) and Pause
+     * Menu (pdgui_menu_pausemenu.cpp) screens; rollouts tracked in
+     * kanban c087 (Main Menu) and c088 (Pause Menu).
+     *
+     * If a future spec change re-promotes Y-Social to universal, restore
+     * by polling pdguiMenuTertiaryPressed() here and gating on
+     * !pdguiFriendsSocialIsOpen() (idempotent re-open guard). */
 
-    /* Rule 8 (2026-05-03): LT/RT section/team/page jump.
-     * Per Mike's Q2 inversion: LT/RT is the "next-larger-than-row grouping
-     * unit" advance, not absolute list bounds. In the Combat Sim Room the
-     * grouping unit varies by panel:
-     *   - Player panel (right):   previous/next team's first player.
-     *   - Left settings panel:    previous/next section header (downstream).
-     * For v1 of this rollout LT/RT arms a player-panel team jump that
-     * renderPlayerPanel consumes via SetKeyboardFocusHere. Left-panel
-     * section-jump tracks as the next iteration in the same kanban card
-     * because it requires an anchored layout pass that the current single-
-     * BeginChild render does not surface. */
+    /* Rule 8 (2026-05-03): LT/RT skip-up / skip-down.
+     *
+     * Renamed per Mike's Q-A 2026-05-03 from SectionPrev/Next to
+     * SkipUp/Down. Per Mike's Q-B (dynamic walker only): in the Combat
+     * Sim Room the player panel exposes a per-row team-jump walker
+     * (consumed in renderPlayerPanel), and the left settings panel will
+     * expose a section-header walker (downstream, c086). Per Mike's Q-C
+     * (page-jump fallback): if the focused panel has neither groups nor
+     * scroll, LT/RT is no-op; LT/RT NEVER crosses panels (D-pad does).
+     * The current implementation only handles the Combat Sim tab + the
+     * player-panel team-jump path; left-panel section-jump and page-jump
+     * fallback for flat panels is c086. */
     if (s_ActiveTab == 0) {
-        if (pdguiMenuSectionPrevPressed()) {
+        if (pdguiMenuSkipUpPressed()) {
             s_RoomPlayerSectionJumpPending = -1;
             pdguiPlaySound(PDGUI_SND_SWIPE);
-        } else if (pdguiMenuSectionNextPressed()) {
+        } else if (pdguiMenuSkipDownPressed()) {
             s_RoomPlayerSectionJumpPending = +1;
             pdguiPlaySound(PDGUI_SND_SWIPE);
         }

@@ -254,18 +254,21 @@ typedef enum InputAction {
     ACTION_TESTSCEN_CYCLE_PREV,    /* = 103 Pg Dn / DPAD_UP -- previous bot count */
     ACTION_TESTSCEN_VIS_TOGGLE,    /* = 104 I key -- cycle player visibility mode (V taken by VOICE_PTT) */
 
-    /* ---- Menu section / group jump (Rule 8, 2026-05-03) ----
-     * Bound only on menu / pause IMCs to gamepad LT/RT. The menu's
-     * group-iterator (Rule 8 Decision B) determines what "section" means
-     * per screen: previous/next team's first player in player rosters,
-     * previous/next section header in long flat lists, page-jump in
-     * paginated content. Boundary case: stays on boundary, does not wrap
-     * (mirrors Rule 1 D-pad U/D no-wrap). Idle on screens with no grouping
-     * unit larger than "row". Source: menu-input-interaction-grammar.md
-     * Rule 8 + Q1+Q2 inversion of the verbatim Combat Sim binding spec
-     * (LB/RB stays universal tab cycle; LT/RT becomes group jump). */
-    ACTION_MENU_SECTION_PREV,      /* = 105 LT trigger (gamepad) -- previous group */
-    ACTION_MENU_SECTION_NEXT,      /* = 106 RT trigger (gamepad) -- next group */
+    /* ---- Menu skip-up / skip-down (Rule 8, 2026-05-03; renamed per Mike's
+     * Q-A 2026-05-03 from SECTION_PREV/NEXT to SKIPUP/SKIPDOWN) ----
+     * Bound only on menu / pause IMCs to gamepad LT/RT. Each screen
+     * implements a dynamic walker (per Mike's Q-B: "Dynamic walker is
+     * the only real choice as we have a fully dynamic system") that,
+     * given the current focus, returns the next/previous skip target
+     * within the focused panel. Per Mike's Q-C: page-jump within the
+     * same panel is the fallback for flat lists with no groups; LT/RT
+     * never crosses panels (D-pad does cross-panel; LT/RT stays within
+     * the focused panel's scroll). Boundary case: stays on boundary,
+     * does not wrap (mirrors Rule 1 D-pad U/D no-wrap). Idle on screens
+     * with neither groups NOR scroll. Source:
+     * menu-input-interaction-grammar.md Rule 8 + Q-A/Q-B/Q-C inversions. */
+    ACTION_MENU_SKIPUP,            /* = 105 LT trigger (gamepad) -- skip up */
+    ACTION_MENU_SKIPDOWN,          /* = 106 RT trigger (gamepad) -- skip down */
 
     ACTION_COUNT                /* = 107, sentinel - keep last */
 } InputAction;
