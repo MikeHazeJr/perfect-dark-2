@@ -9,6 +9,10 @@
 #include "gfx_rendering_api.h"
 #include "gfx_window_manager_api.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct XYWidthHeight {
     int16_t x, y;
     uint32_t width, height;
@@ -57,5 +61,9 @@ void gfx_resize_framebuffer(int fb, uint32_t width, uint32_t height, int upscale
 void gfx_set_framebuffer(int fb, float noise_scale) ;
 void gfx_reset_framebuffer(void);
 void gfx_copy_framebuffer(int fb_dst, int fb_src, int left, int top, int use_back);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
