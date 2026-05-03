@@ -1,5 +1,75 @@
 # Session Log (Active)
 
+## Session S593h-followup-3 (`distracted-hamilton-430172` continuation) - 2026-05-02 PM - speed bump + 128-256 crash triage + GPU benchmark gaps
+
+Mike's playtest of the prior speed cap landed in the "too slow" zone. Three follow-up items.
+
+### Item 1 -- speed bump (5.0f -> 7.5f)
+
+Mike: "It did slow them down, but too much. They should be about 30% of the way between the two faster (So if it was at 100 and is now at 50, it should be 65-ish)."
+
+The 5.0 -> 14.0 span is 9 units. +30% = +2.7. Landing 7.7, rounded to 7.5f. [src/game/bot.c::botCalculateMaxSpeed](../../src/game/bot.c) cap raised; gate unchanged (CHRHFLAG 0x00040000 swarm-lock). MP "Speed Simulant" preset stays at original 14x.
+
+### Item 2 -- B-307 128-256 crash triage (filed, not patched)
+
+Mike: "Still crashed upon trying to go beyond 128. Have a session investigate the log, patch it if it's simple, or log it."
+
+Examined Mike's most recent rotated log [`Build/pd-client.1.log`](../../Build/pd-client.1.log) (build dev `89376df7` rebuilt against current dev tip after fd3e5e53 + df7f4fc8 landed):
+
+```
+02:19.90 cycle NEXT prev_idx=6 -> idx=7 target=256 (alive_was=128)
+02:19.93 despawn_all freed 128 chrs
+02:20.00 respawn_volume target=256 spawned=256 ok=252 grown=4 failed=0
+02:20.00 post-cycle target=256 actual=256 alive=229 kills=27
+02:20.00 BENCHMARK.SWARM.CPU: SUMMARY count=256 kills=27
+02:20.00 LOG.WPN.DIAG: playerRemoveChrBody player=0 ...
+(log ends, no FATAL / EXCEPTION / AV)
+```
+
+Critical observations:
+- The 256-bot spawn batch ITSELF completes successfully. The post-cycle BENCHMARK SUMMARY emits.
+- The Bodies head_canon WARNING flood from the prior crash signature is GONE -- the S593g-followup data fix took effect (two log lines per spawn instead of three).
+- The crash is in the FIRST FRAME after spawn. Just one playerRemoveChrBody (the per-frame log) fires before the log ends mid-stream.
+- IO-saturation hypothesis no longer applies. This is a code-path bug at >128 alive bots.
+
+No backtrace available; without it the diagnosis is candidate-set only:
+1. chrTickAll on 256 chrs hits NULL deref / pool-bound bug
+2. Bot-AI tick path overruns a static buffer sized for the prior 128-cap engine path
+3. Collision broadphase O(N^2) exhausts a per-frame budget
+4. Memory pressure from 256 model alloc + skel state pushes some allocator state into a bad slot
+
+Filed as **B-307 (MED)** with full repro + workaround "stop ladder at 128". Would need a debug build with SEH stack capture or objdump-decoded crash PC to narrow further -- Mike to decide priority.
+
+### Item 3 -- GPU benchmark gaps filed (B-308 / B-309 / B-310)
+
+Mike: "Also log that the GPU version of our benchmark bot behavior is not correct, hasn't been properly migrated yet, and neither have the collision constraints / spawn upgrades, etc that we applied to the CPU benchmark version. It is part of our Skedar Benchmark phase after catalog completion."
+
+Three new ledger entries:
+
+- **B-308 (LOW)** -- GPU swarm bot AI not properly migrated. CPU side has target acquisition, hostile-team posture, per-frame visibility / LOS short-circuit, power-weapon loadout, COMBATKNIFE for bots, real bot-AI tick path. The GPU pipeline ([port/src/swarm_gpu.cpp](../../port/src/swarm_gpu.cpp)) was scaffolded but never received the AI plumbing.
+- **B-309 (LOW)** -- GPU swarm collision constraints not applied. CPU side got chr->radius / chr->height per-bot scaling, perim-disable swarm-lock, matched cylinder/AABB plumbing. GPU side uses a fixed default radius and doesn't apply per-bot scale to collision geometry.
+- **B-310 (LOW)** -- GPU swarm spawn upgrades not applied. CPU side has volume-spawn picker, 20%-grow-once retry, streaming refill, overlap-spawn fallback. GPU side has none of these and uses a fixed ring layout.
+
+All three tagged "Skedar Benchmark phase, post-catalog completion" per Mike's framing.
+
+### Build verify (queued via build-session.ps1)
+
+| Target | Session | Status |
+|---|---|---|
+| CLIENT | swspd2 | PASS 26s |
+| UPDATER | swspd2 | PASS 1s |
+| SERVER | swspd2s | PASS 9s |
+| TESTS | swspd2t | PASS 20s |
+
+### Auto-merge
+
+Per standing rule. Pre-merge dev HEAD `3d80fc15`. Worktree commit `2ab39ceb`. Post-merge `fd461b82` (ort strategy, no conflicts). 2 files, +16 / -7.
+
+### Files changed (2)
+
+- [src/game/bot.c](../../src/game/bot.c) (cap 5.0f -> 7.5f at swarm-lock gate)
+- [context/bugs.md](bugs.md) (B-307 / B-308 / B-309 / B-310 entries added at top of open list)
+
 ## Session S593h-followup-2 (`distracted-hamilton-430172` continuation) - 2026-05-02 PM - swarm bot speed cap
 
 Mike's directive (verbatim): "the skedar guys in our benchmark are WAY too fast right now. Fix that"
