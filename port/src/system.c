@@ -416,6 +416,22 @@ const LogEntry *sysLogEntryGet(s32 idx)
 
 u32 sysLogEntryGetSequence(void) { return s_LogSequence; }
 
+/* Engine Phase 2 (2026-05-03): mutex around the structured ring buffer
+ * and stdout writes so the boot worker + main thread can log
+ * concurrently without corrupting s_LogRing's head/count or interleaving
+ * file output mid-line.  Lazy-init on first call so log lines emitted
+ * before sysInit (e.g. updaterApplyPending) still work; SDL is
+ * initialized via SDL_MAIN_HANDLED before main(). */
+static SDL_mutex *s_LogMutex = NULL;
+
+static SDL_mutex *sysLogGetMutex(void)
+{
+	if (s_LogMutex == NULL) {
+		s_LogMutex = SDL_CreateMutex();
+	}
+	return s_LogMutex;
+}
+
 void sysLogPrintf(s32 level, const char *fmt, ...)
 {
 	static const char *prefix[] = {
@@ -458,6 +474,9 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
 		snprintf(timestamp, sizeof(timestamp), "[%02d:%05.2f]", mins, secs);
 	}
 
+	SDL_mutex *m = sysLogGetMutex();
+	if (m) SDL_LockMutex(m);
+
 	/* Capture to structured ring buffer */
 	{
 		LogEntry *entry = &s_LogRing[s_LogRingHead];
@@ -486,6 +505,11 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
 	fprintf(fout, "%s %s%s\n", timestamp, pfx, logmsg);
 	fflush(fout);
 
+	if (m) SDL_UnlockMutex(m);
+
+	/* conPrintLn dispatches to the in-game console renderer.  Run
+	 * outside the lock to avoid lock inversion with the renderer's own
+	 * locks, and because conPrintLn already serialises internally. */
 	if ((level & LOGFLAG_NOCON) == 0) {
 		conPrintLn((level & LOGFLAG_SHOWMSG) != 0, logmsg);
 	}

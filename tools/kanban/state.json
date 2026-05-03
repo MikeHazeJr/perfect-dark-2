@@ -684,19 +684,19 @@
     },
     {
       "id": "c108", "title": "Engine Phase 2: thread pool + progress channel + boot overlay (verify still serial)",
-      "description": "Add port/src/boot_pool.{h,c} (SDL_CreateThread-based, manager + N-2 workers per Mike Q1, scaled to physical cores via SDL_GetCPUCount with hyperthreading correction; floor 1 worker, cap 16; pd.ini Boot.WorkerThreads override for diagnostics). Add port/src/boot_progress.{h,c} (thread-safe progress channel with atomic counters + mutex for labels). Add port/fast3d/pdgui_bootoverlay.cpp (plain bottom progress bar + status label, PD-themed via active pdgui_theme color tokens per Mike Q2). Modify port/src/main.c to enter render-loop polling progress until extract done; main thread renders, manager dispatches, workers run extract serially in this phase (single-worker enqueue). Dedicated server skips overlay render but keeps pool active. This phase delivers user-visible UX even before Phase 3's speedup: window becomes responsive, load bar animates.",
-      "pillar": "engine", "column": "backlog", "order": 121000,
-      "ready": true,
+      "description": "SHIPPED 2026-05-03. New files: port/src/boot_pool.{h,c} (SDL_CreateThread-based pool, N=physical_cores-2 workers, floor 1, cap 16, pd.ini Boot.WorkerThreads override, GetLogicalProcessorInformation on Windows for accurate physical-core count); port/src/boot_progress.{h,c} (22-phase enum, thread-safe channel with internal SDL mutex, weight-based 0..1 overall progress); port/fast3d/pdgui_bootoverlay.cpp (plain bottom progress bar + phase label + status label, PD-themed via pdguiGetActivePaletteRaw, ImGui DrawList only no textures, eased fill so 2011-file verify renders smooth, dedicated-server no-op). Render plumbing: gfx_run_boot_overlay_frame helper added to port/fast3d/gfx_pc.cpp + gfx_api.h. Boot reorder: catalog work block (romdataInit through modmgrCatalogChanged) carved out of main() into bootRunCatalogWork on the pool worker; main thread drives pdguiBootOverlayPump at 60Hz until bootProgressIsComplete, then bootPoolWaitIdle + Shutdown trio + atexit + mempHeap as before. Per-file progress hooks added to romextract.c verify + extract loops (every 32 files for files, every segment for segs). sysLogPrintf wrapped in lazy SDL mutex so worker + main thread can log concurrently without corrupting s_LogRing. Verify pass STILL SERIAL (intentional per Phase 2 design); Phase 3 c109 will fan out per-file. Audit: context/audits/engine-phase2-thread-pool-overlay-2026-05-03.md.",
+      "pillar": "engine", "column": "done", "order": 121000,
       "priority": 1,
-      "notes": "Sequential after Phase 1 lands on dev (Mike Q6 2026-05-03). Spec at context/designs/engine/startup-acceleration.md Phase 2.", "flag": null, "flagged_at": null,
+      "notes": "Worktree silly-dijkstra-05e238. SHA pending. Spec at context/designs/engine/startup-acceleration.md Phase 2. Approved 2026-05-03 (Q1-Q6).", "flag": null, "flagged_at": null,
       "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
     },
     {
       "id": "c109", "title": "Engine Phase 3: parallel verify pass",
-      "description": "Convert romExtractVerifyAll + romExtractVerifyAllSegments per-file sequential SHA-256 loop into work-queue fan-out via Phase 2 boot pool. Atomic counters (or per-thread accumulator + reduce) for s_AggValidated / s_AggRecovered / s_AggUnrecoverable in port/src/romextract.c. Files are independent; SHA-256 is fully reentrant (port/src/sha256.c stack-local ctx). Target: verify pass drops from 8s sequential to 2-3s on a 6-core machine. Biggest single user-perceived speedup. Smoke verify on clean install (rm data/<romid>/files/) to force full extract+verify cycle.",
+      "description": "Convert romExtractVerifyAll + romExtractVerifyAllSegments per-file sequential SHA-256 loop into work-queue fan-out via Phase 2 boot pool (c108 shipped). Atomic counters (or per-thread accumulator + reduce) for s_AggValidated / s_AggRecovered / s_AggUnrecoverable in port/src/romextract.c. Files are independent; SHA-256 is fully reentrant (port/src/sha256.c stack-local ctx). Pool API ready: bootPoolEnqueue + bootPoolWaitIdle already work, progress channel already accepts per-file updates from any thread. Target: verify pass drops from 8s sequential to 2-3s on a 6-core machine. Biggest single user-perceived speedup. Smoke verify on clean install (rm data/<romid>/files/) to force full extract+verify cycle.",
       "pillar": "engine", "column": "backlog", "order": 122000,
+      "ready": true,
       "priority": 1,
-      "notes": "Sequential after Phase 2 lands on dev (Mike Q6 2026-05-03). Spec at context/designs/engine/startup-acceleration.md Phase 3.", "flag": null, "flagged_at": null,
+      "notes": "Sequential after Phase 2 lands on dev (Mike Q6 2026-05-03). c108 shipped 2026-05-03 (worktree silly-dijkstra-05e238). Spec at context/designs/engine/startup-acceleration.md Phase 3.", "flag": null, "flagged_at": null,
       "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
     },
     {

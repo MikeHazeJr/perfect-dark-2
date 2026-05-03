@@ -43,6 +43,11 @@ struct GfxRenderingAPI* gfx_get_current_rendering_api(void);
 void gfx_start_frame(void);
 void gfx_run(Gfx* commands);
 void gfx_end_frame(void);
+
+/* Engine Phase 2: drive a boot frame without a game display list.  The
+ * callback runs between ImGui frame begin/end so the boot overlay can
+ * issue ImGui draw calls.  Pair with videoEndFrame for swap finish. */
+void gfx_run_boot_overlay_frame(void (*draw_overlay_cb)(void *user), void *user);
 void gfx_set_target_fps(int);
 void gfx_set_texture_filter(enum FilteringMode mode);
 void gfx_texture_cache_clear(void);
