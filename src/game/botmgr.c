@@ -141,6 +141,14 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
 			chr->headnum = headnum;
 			chr->bodynum = bodynum;
 			chr->race = bodyGetRace(chr->bodynum);
+			/* B-314 (2026-05-03): allocate chr->unk348[] for RACE_ROBOT
+			 * bodies (BODY_CHICROB). propsRenderBeams (propobj.c around
+			 * line 11723) NULL-derefs without it. Solo path
+			 * bodyAllocateChr (body.c) had this inline; the MP bot create
+			 * path here was missing it, crashing on the first render
+			 * frame whenever a Combat Sim bot rolled BODY_CHICROB. The
+			 * helper is a no-op for non-robot bodies. */
+			bodyInitChrBeams(chr, chr->bodynum);
 			chr->flags = CHRFLAG0_CAN_EXAMINE_BODY; // reused flag?
 			chr->flags2 = 0;
 			chr->team = 1 << g_BotConfigsArray[aibotnum].base.team;

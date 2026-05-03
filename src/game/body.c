@@ -161,6 +161,34 @@ u32 bodyGetRace(s32 bodynum)
 	return RACE_HUMAN;
 }
 
+/* B-314 (2026-05-03): centralised allocator for chr->unk348[] fireslot/beam
+ * pair used by RACE_ROBOT chrs (BODY_CHICROB). propsRenderBeams (propobj.c
+ * around line 11723) does `chr->unk348[0]->beam` and `chr->unk348[1]->beam`
+ * for every chr whose CHRRACE() returns RACE_ROBOT. Without this allocation
+ * the deref AVs on the first render frame.
+ *
+ * Mike's 2026-05-03 Combat Sim repro: 31 bots on the Skedar map, two
+ * happened to roll BODY_CHICROB (body=118), neither got unk348[] alloc
+ * because the MP bot path (botmgr.c::botCreate) lacked the init. Crash at
+ * frame=0 of stage 0x32, PC +0x13fdbf inside propsRenderBeams.
+ *
+ * Solo bodyAllocateChr below STILL has the inline alloc historically; this
+ * helper is the single source of truth, callers in botmgr.c and chraction.c
+ * use it too. The helper is a no-op for non-CHICROB bodies so existing
+ * solo-spawn paths can drop the inline check without changing behaviour. */
+void bodyInitChrBeams(struct chrdata *chr, s32 bodynum)
+{
+	if (bodynum != BODY_CHICROB) {
+		return;
+	}
+	chr->unk348[0] = mempAlloc(sizeof(struct fireslotthing), MEMPOOL_STAGE);
+	chr->unk348[1] = mempAlloc(sizeof(struct fireslotthing), MEMPOOL_STAGE);
+	chr->unk348[0]->beam = mempAlloc(ALIGN16(sizeof(struct beam)), MEMPOOL_STAGE);
+	chr->unk348[1]->beam = mempAlloc(ALIGN16(sizeof(struct beam)), MEMPOOL_STAGE);
+	chr->unk348[0]->beam->age = -1;
+	chr->unk348[1]->beam->age = -1;
+}
+
 bool bodyLoad(s32 bodynum)
 {
 	/* SA-5f: lazy-load via catalog; callers ignore return value */
@@ -607,12 +635,13 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 				chr->height = 185;
 				chr->radius = 30;
 			} else if (bodynum == BODY_CHICROB) {
-				chr->unk348[0] = mempAlloc(sizeof(struct fireslotthing), MEMPOOL_STAGE);
-				chr->unk348[1] = mempAlloc(sizeof(struct fireslotthing), MEMPOOL_STAGE);
-				chr->unk348[0]->beam = mempAlloc(ALIGN16(sizeof(struct beam)), MEMPOOL_STAGE);
-				chr->unk348[1]->beam = mempAlloc(ALIGN16(sizeof(struct beam)), MEMPOOL_STAGE);
-				chr->unk348[0]->beam->age = -1;
-				chr->unk348[1]->beam->age = -1;
+				/* B-314: alloc moved to bodyInitChrBeams helper so
+				 * MP bot + AI-spawn paths get the same init. The
+				 * radius/height tweak stays here because it is a
+				 * solo-cmd-spawn footprint preset (MP bots get
+				 * their own per-bot height/radius from chrAllocate
+				 * defaults plus the swarm scale). */
+				bodyInitChrBeams(chr, bodynum);
 				chr->height = 200;
 				chr->radius = 42;
 			}
