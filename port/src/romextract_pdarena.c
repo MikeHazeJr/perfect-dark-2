@@ -133,7 +133,8 @@ static s32 s_addStageBin(mod_archive_writer_t *aw, u16 filenum,
 		return 0;
 	}
 
-	const char *src_full = fsFullPath(src_rel);
+	char src_full_buf[FS_MAXPATH + 1];
+	const char *src_full = fsFullPath(src_rel, src_full_buf, sizeof(src_full_buf));
 	if (!src_full || !src_full[0]) return -1;
 	if (modArchiveAddFileDisk(aw, inner_name, src_full) != 0) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
@@ -221,7 +222,8 @@ static s32 s_emitOnePdscenario(const arena_data_t *a, const char *out_dir,
 
 	if (!force_rewrite && fsFileSize(dst_rel) > 0) return 0;
 
-	const char *dst_full = fsFullPath(dst_rel);
+	char dst_full_buf[FS_MAXPATH + 1];
+	const char *dst_full = fsFullPath(dst_rel, dst_full_buf, sizeof(dst_full_buf));
 	if (!dst_full || !dst_full[0]) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"fsFullPath failed for \"%s\"", dst_rel);
@@ -314,8 +316,11 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 		return -1;
 	}
 
+	char dataDirBuf[FS_MAXPATH + 1];
+	const char *dataDir = fsDataDir(dataDirBuf, sizeof(dataDirBuf));
+
 	char arenas_dir[FS_MAXPATH];
-	snprintf(arenas_dir, sizeof(arenas_dir), "%s/arenas", fsDataDir());
+	snprintf(arenas_dir, sizeof(arenas_dir), "%s/arenas", dataDir);
 	if (!fsCreateDir(arenas_dir)) {
 		sysLoudFailf("EXTRACT.PDARENA",
 			"fsCreateDir(\"%s\") failed", arenas_dir);
@@ -323,7 +328,7 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 	}
 
 	char scenarios_dir[FS_MAXPATH];
-	snprintf(scenarios_dir, sizeof(scenarios_dir), "%s/scenarios", fsDataDir());
+	snprintf(scenarios_dir, sizeof(scenarios_dir), "%s/scenarios", dataDir);
 	if (!fsCreateDir(scenarios_dir)) {
 		sysLoudFailf("EXTRACT.PDARENA",
 			"fsCreateDir(\"%s\") failed", scenarios_dir);

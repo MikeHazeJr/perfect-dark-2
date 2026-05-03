@@ -62,16 +62,11 @@
  * ======================================================================== */
 
 /**
- * getSaveDir -- copy the expanded save directory path into out[size].
- *
- * fsFullPath("$S") expands $S → the configured save directory.
- * The result is copied immediately because fsFullPath uses a static buffer.
+ * getSaveDir -- expand $S into the caller's buffer.
  */
 static void getSaveDir(char *out, s32 size)
 {
-    const char *sd = fsFullPath("$S");
-    strncpy(out, sd, (size_t)(size - 1));
-    out[size - 1] = '\0';
+    fsFullPath("$S", out, (size_t)size);
 }
 
 /**

@@ -127,7 +127,8 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 		return -1;
 	}
 
-	const char *dst_full = fsFullPath(dst_rel);
+	char dst_full_buf[FS_MAXPATH + 1];
+	const char *dst_full = fsFullPath(dst_rel, dst_full_buf, sizeof(dst_full_buf));
 	if (!dst_full || !dst_full[0]) {
 		sysLoudFailf("EXTRACT.PDFONT",
 			"fsFullPath empty for \"%s\"", dst_rel);
@@ -149,7 +150,8 @@ static s32 s_emitOneFont(const char *face, const char *out_dir,
 		return -1;
 	}
 
-	const char *src_full = fsFullPath(src_rel);
+	char src_full_buf[FS_MAXPATH + 1];
+	const char *src_full = fsFullPath(src_rel, src_full_buf, sizeof(src_full_buf));
 	if (!src_full || !src_full[0]) {
 		sysLoudFailf("EXTRACT.PDFONT",
 			"fsFullPath empty for source \"%s\"", src_rel);
@@ -204,9 +206,10 @@ s32 romExtractAllPdfont(s32 force_rewrite)
 		return -1;
 	}
 
+	char dataDirBuf[FS_MAXPATH + 1];
 	char fonts_dir[FS_MAXPATH];
 	snprintf(fonts_dir, sizeof(fonts_dir),
-		"%s/%s", fsDataDir(), PDFONT_OUT_DIR);
+		"%s/%s", fsDataDir(dataDirBuf, sizeof(dataDirBuf)), PDFONT_OUT_DIR);
 	if (!fsCreateDir(fonts_dir)) {
 		sysLoudFailf("EXTRACT.PDFONT",
 			"fsCreateDir(\"%s\") failed", fonts_dir);

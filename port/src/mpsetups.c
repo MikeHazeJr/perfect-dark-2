@@ -390,7 +390,8 @@ static s32 mpsetupSerialize(FILE *f, struct mpsetupfile *setupfile)
 }
 
 static FILE *mpsetupOpenFile(bool write, u8 op) {
-	const char *filename = fsFullPath("$S/" MPSETUP_FILENAME ".bin");
+	char filenameBuf[FS_MAXPATH + 1];
+	const char *filename = fsFullPath("$S/" MPSETUP_FILENAME ".bin", filenameBuf, sizeof(filenameBuf));
 
 	if (op == MPSETUP_OP_EXPORT) {
 		// create export directory if it doesn't exist
@@ -399,10 +400,10 @@ static FILE *mpsetupOpenFile(bool write, u8 op) {
 				return NULL;
 			}
 		}
-		filename = fsFullPath(MPSETUP_EXPORTDIR MPSETUP_FILENAME_EXP ".bin");
+		filename = fsFullPath(MPSETUP_EXPORTDIR MPSETUP_FILENAME_EXP ".bin", filenameBuf, sizeof(filenameBuf));
 	} else if (op == MPSETUP_OP_IMPORT) {
 		// same name as export but different folder
-		filename = fsFullPath("$S/" MPSETUP_FILENAME_EXP ".bin");
+		filename = fsFullPath("$S/" MPSETUP_FILENAME_EXP ".bin", filenameBuf, sizeof(filenameBuf));
 	}
 
 	FILE *f;

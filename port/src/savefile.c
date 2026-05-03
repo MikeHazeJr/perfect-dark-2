@@ -271,13 +271,11 @@ void saveInit(void)
 	if (s_Initialized) return;
 
 	/* Use the same save directory as the existing system ($S expands to save dir) */
-	const char *saveDir = fsFullPath("$S");
-	if (saveDir) {
-		strncpy(s_SaveDir, saveDir, sizeof(s_SaveDir) - 1);
-	} else {
+	fsFullPath("$S", s_SaveDir, sizeof(s_SaveDir));
+	if (!s_SaveDir[0]) {
 		strncpy(s_SaveDir, ".", sizeof(s_SaveDir) - 1);
+		s_SaveDir[sizeof(s_SaveDir) - 1] = '\0';
 	}
-	s_SaveDir[sizeof(s_SaveDir) - 1] = '\0';
 
 	sysLogPrintf(LOG_NOTE, "SAVE: initialized — save dir: %s", s_SaveDir);
 	s_Initialized = 1;

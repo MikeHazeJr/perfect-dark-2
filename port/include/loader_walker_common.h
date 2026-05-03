@@ -81,7 +81,7 @@ typedef s32 (*loader_walker_register_fn)(
  *
  * Returns 0 always. Per-file failures captured in *out_result counters.
  *
- * tier_dir: a directory like fsDataDir() returns ("data/ntsc-final"). */
+ * tier_dir: a directory like fsDataDir(buf, size) writes ("data/ntsc-final"). */
 s32 loaderWalkerScanKind(
     const char                       *tier_dir,
     const loader_walker_kind_desc_t  *desc,

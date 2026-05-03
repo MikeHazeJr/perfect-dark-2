@@ -42,7 +42,8 @@
  */
 static s32 cacheRead(char storedHex[SHA256_HEX_SIZE])
 {
-    const char *path = fsFullPath(CACHE_RELPATH);
+    char pathBuf[FS_MAXPATH + 1];
+    const char *path = fsFullPath(CACHE_RELPATH, pathBuf, sizeof(pathBuf));
     FILE *f = fopen(path, "r");
     if (!f) {
         return 0;
@@ -92,7 +93,8 @@ static s32 cacheRead(char storedHex[SHA256_HEX_SIZE])
  */
 static s32 cacheWrite(const char *romHashHex)
 {
-    const char *path = fsFullPath(CACHE_RELPATH);
+    char pathBuf[FS_MAXPATH + 1];
+    const char *path = fsFullPath(CACHE_RELPATH, pathBuf, sizeof(pathBuf));
     FILE *f = fopen(path, "w");
     if (!f) {
         return 0;
@@ -117,7 +119,8 @@ s32 catalogCacheVerifyRom(const char *romPath, char *romHashHexOut)
      * to the full filesystem path via fsFullPath so this works regardless of
      * the working directory — matches the same resolution fsFileLoad uses. */
     u8 digest[SHA256_DIGEST_SIZE];
-    if (sha256HashFile(fsFullPath(romPath), digest) != 0) {
+    char romPathBuf[FS_MAXPATH + 1];
+    if (sha256HashFile(fsFullPath(romPath, romPathBuf, sizeof(romPathBuf)), digest) != 0) {
         sysLogPrintf(LOG_WARNING,
                      "CATALOG: ROM hash cache: could not hash '%s'", romPath);
         return -1;

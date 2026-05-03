@@ -286,11 +286,15 @@ static inline void osEeepromLoad(const char *fname)
 		FILE *fp = fsFileOpenRead(fname);
 		if (fp) {
 			if (fread(eeprom, 1, EEPROM_SIZE, fp) != EEPROM_SIZE) {
-				sysLogPrintf(LOG_WARNING, "EEPROM: short read from `%s`", fsFullPath(fname));
+				char fullBuf[FS_MAXPATH + 1];
+				sysLogPrintf(LOG_WARNING, "EEPROM: short read from `%s`",
+					fsFullPath(fname, fullBuf, sizeof(fullBuf)));
 			}
 			fsFileFree(fp);
 		} else {
-			sysLogPrintf(LOG_NOTE, "could not read EEPROM from `%s`: %s", fsFullPath(fname), strerror(errno));
+			char fullBuf[FS_MAXPATH + 1];
+			sysLogPrintf(LOG_NOTE, "could not read EEPROM from `%s`: %s",
+				fsFullPath(fname, fullBuf, sizeof(fullBuf)), strerror(errno));
 		}
 	}
 }
@@ -300,11 +304,15 @@ static inline void osEeepromSave(const char *fname)
 	FILE* fp = fsFileOpenWrite(fname);
 	if (fp) {
 		if (fwrite(eeprom, 1, EEPROM_SIZE, fp) != EEPROM_SIZE) {
-			sysLogPrintf(LOG_ERROR, "EEPROM: short write to `%s`", fsFullPath(fname));
+			char fullBuf[FS_MAXPATH + 1];
+			sysLogPrintf(LOG_ERROR, "EEPROM: short write to `%s`",
+				fsFullPath(fname, fullBuf, sizeof(fullBuf)));
 		}
 		fsFileFree(fp);
 	} else {
-		sysLogPrintf(LOG_ERROR, "could not save EEPROM to `%s`: %s", fsFullPath(fname), strerror(errno));
+		char fullBuf[FS_MAXPATH + 1];
+		sysLogPrintf(LOG_ERROR, "could not save EEPROM to `%s`: %s",
+			fsFullPath(fname, fullBuf, sizeof(fullBuf)), strerror(errno));
 	}
 }
 

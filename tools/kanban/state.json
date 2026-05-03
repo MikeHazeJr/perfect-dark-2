@@ -620,16 +620,17 @@
     },
     {
       "id": "c100", "title": "Engine Phase 1: fs.c path-buffer refactor",
-      "description": "Prerequisite for any boot-pipeline parallelization. Replace the static-return-buffer contract on fsFullPath / fsDataDir / fsDataPathFor (port/src/fs.c) with (out, outSize) form so concurrent callers do not trash each other's path. Mechanical wide refactor across all 200-400 call sites in src/ + port/. One coherent merge with extensive commit-message context per Mike Q3 (2026-05-03). Build verify clean four-target via queued build tool. Smoke verify clean install boot.",
-      "pillar": "engine", "column": "active", "order": 31000,
+      "description": "SHIPPED 2026-05-03. fsFullPath / fsDataDir / fsDataPathFor migrated from static-return-buffer to (out, outSize) form across 32 caller files in port/. Mechanical refactor; behavior equivalent. Build verify clean four-target via queued build tool: pd 55.2 MB, pd-updater 12.3 MB, pd-server 22.4 MB, pd-tests 24.6 MB. Pre-existing source-grep test failures (test_uichrome_paths_pin, test_catalog_provider_static) are unrelated (tests don't reference fs symbols). Phase 2 (thread pool + progress channel + boot overlay) ready to start.",
+      "pillar": "engine", "column": "done", "order": 31000,
       "priority": 1,
-      "notes": "Approved 2026-05-03 (Q1-Q6 of startup-acceleration design). Spec at context/designs/engine/startup-acceleration.md Phase 1.", "flag": null, "flagged_at": null,
+      "notes": "Worktree bold-chaplygin-e3b96e. Net delta +276/-223 across 37 files. Spec at context/designs/engine/startup-acceleration.md Phase 1. SHA pending merge to dev.", "flag": null, "flagged_at": null,
       "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"
     },
     {
       "id": "c101", "title": "Engine Phase 2: thread pool + progress channel + boot overlay (verify still serial)",
       "description": "Add port/src/boot_pool.{h,c} (SDL_CreateThread-based, manager + N-2 workers per Mike Q1, scaled to physical cores via SDL_GetCPUCount with hyperthreading correction; floor 1 worker, cap 16; pd.ini Boot.WorkerThreads override for diagnostics). Add port/src/boot_progress.{h,c} (thread-safe progress channel with atomic counters + mutex for labels). Add port/fast3d/pdgui_bootoverlay.cpp (plain bottom progress bar + status label, PD-themed via active pdgui_theme color tokens per Mike Q2). Modify port/src/main.c to enter render-loop polling progress until extract done; main thread renders, manager dispatches, workers run extract serially in this phase (single-worker enqueue). Dedicated server skips overlay render but keeps pool active. This phase delivers user-visible UX even before Phase 3's speedup: window becomes responsive, load bar animates.",
       "pillar": "engine", "column": "backlog", "order": 32000,
+      "ready": true,
       "priority": 1,
       "notes": "Sequential after Phase 1 lands on dev (Mike Q6 2026-05-03). Spec at context/designs/engine/startup-acceleration.md Phase 2.", "flag": null, "flagged_at": null,
       "created": "2026-05-03T00:00:00Z", "updated": "2026-05-03T00:00:00Z"

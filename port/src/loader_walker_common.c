@@ -165,7 +165,8 @@ static s32 s_loadManifest(const char *rel_path,
      * can extract just the "manifest.json" entry. */
     sysMemFree(raw);
 
-    const char *full = fsFullPath(rel_path);
+    char fullBuf[FS_MAXPATH + 1];
+    const char *full = fsFullPath(rel_path, fullBuf, sizeof(fullBuf));
     if (!full || !full[0]) return 0;
 
     mod_archive_t *arc = modArchiveOpen(full);
@@ -224,7 +225,8 @@ s32 loaderWalkerScanKind(
     char dir_path[FS_MAXPATH];
     snprintf(dir_path, sizeof(dir_path), "%s/%s", tier_dir, desc->subdir);
 
-    const char *full_dir = fsFullPath(dir_path);
+    char full_dir_buf[FS_MAXPATH + 1];
+    const char *full_dir = fsFullPath(dir_path, full_dir_buf, sizeof(full_dir_buf));
     if (!full_dir || !full_dir[0]) {
         if (out_result) *out_result = local;
         return 0;

@@ -184,8 +184,9 @@ static s32 serverParseArgs(s32 argc, char **argv)
 static void serverReadIniAdminToken(char *out, size_t outsize)
 {
     out[0] = '\0';
-    const char *path = fsFullPath("$S/server.ini");
-    if (!path) return;
+    char pathBuf[FS_MAXPATH + 1];
+    const char *path = fsFullPath("$S/server.ini", pathBuf, sizeof(pathBuf));
+    if (!path || !path[0]) return;
 
     FILE *f = fopen(path, "r");
     if (!f) return;

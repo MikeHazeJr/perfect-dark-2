@@ -192,7 +192,8 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		return -1;
 	}
 
-	const char *dst_full = fsFullPath(dst_rel);
+	char dst_full_buf[FS_MAXPATH + 1];
+	const char *dst_full = fsFullPath(dst_rel, dst_full_buf, sizeof(dst_full_buf));
 	if (!dst_full || !dst_full[0]) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"fsFullPath empty for \"%s\"", dst_rel);
@@ -214,7 +215,8 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		return -1;
 	}
 
-	const char *src_full = fsFullPath(src_rel);
+	char src_full_buf[FS_MAXPATH + 1];
+	const char *src_full = fsFullPath(src_rel, src_full_buf, sizeof(src_full_buf));
 	if (!src_full || !src_full[0]) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"fsFullPath empty for source \"%s\"", src_rel);
@@ -270,9 +272,10 @@ s32 romExtractAllPdlang(s32 force_rewrite)
 		return -1;
 	}
 
+	char dataDirBuf[FS_MAXPATH + 1];
 	char lang_dir[FS_MAXPATH];
 	snprintf(lang_dir, sizeof(lang_dir),
-		"%s/%s", fsDataDir(), PDLANG_OUT_DIR);
+		"%s/%s", fsDataDir(dataDirBuf, sizeof(dataDirBuf)), PDLANG_OUT_DIR);
 	if (!fsCreateDir(lang_dir)) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"fsCreateDir(\"%s\") failed", lang_dir);

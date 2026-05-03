@@ -124,8 +124,9 @@ s32 serverBansInit(void)
     s_BanCount = 0;
     s_Initialized = 1;
 
-    const char *path = fsFullPath(BANS_FILE_RELPATH);
-    if (!path) {
+    char pathBuf[FS_MAXPATH + 1];
+    const char *path = fsFullPath(BANS_FILE_RELPATH, pathBuf, sizeof(pathBuf));
+    if (!path || !path[0]) {
         sysLogPrintf(LOG_NOTE, "BANS: fsFullPath failed for %s", BANS_FILE_RELPATH);
         return 0;
     }
@@ -157,20 +158,11 @@ s32 serverBansInit(void)
 
 s32 serverBansSave(void)
 {
-    const char *tmp = fsFullPath(BANS_FILE_TMPPATH);
-    const char *final = fsFullPath(BANS_FILE_RELPATH);
-    if (!tmp || !final) return 0;
-
-    /* fsFullPath returns a shared static — copy out before the second call. */
     char tmpPath[FS_MAXPATH + 1];
-    strncpy(tmpPath, tmp, sizeof(tmpPath) - 1);
-    tmpPath[sizeof(tmpPath) - 1] = '\0';
-
-    /* Re-resolve the final path (fsFullPath uses a shared static buffer). */
-    const char *finalResolved = fsFullPath(BANS_FILE_RELPATH);
     char finalPath[FS_MAXPATH + 1];
-    strncpy(finalPath, finalResolved, sizeof(finalPath) - 1);
-    finalPath[sizeof(finalPath) - 1] = '\0';
+    fsFullPath(BANS_FILE_TMPPATH, tmpPath, sizeof(tmpPath));
+    fsFullPath(BANS_FILE_RELPATH, finalPath, sizeof(finalPath));
+    if (!tmpPath[0] || !finalPath[0]) return 0;
 
     FILE *f = fopen(tmpPath, "w");
     if (!f) {

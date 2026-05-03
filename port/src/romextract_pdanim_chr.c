@@ -206,7 +206,8 @@ static s32 s_emitOneChrAnim(s32 anim_idx,
 		return -1;
 	}
 
-	const char *dst_full = fsFullPath(dst_rel);
+	char dst_full_buf[FS_MAXPATH + 1];
+	const char *dst_full = fsFullPath(dst_rel, dst_full_buf, sizeof(dst_full_buf));
 	if (!dst_full || !dst_full[0]) {
 		sysLoudFailf("EXTRACT.PDANIM_CHR",
 			"fsFullPath failed for \"%s\"", dst_rel);
@@ -293,8 +294,10 @@ s32 romExtractAllPdanimChr(s32 force_rewrite)
 		return -1;
 	}
 
+	char dataDirBuf[FS_MAXPATH + 1];
 	char anims_dir[FS_MAXPATH];
-	snprintf(anims_dir, sizeof(anims_dir), "%s/animations", fsDataDir());
+	snprintf(anims_dir, sizeof(anims_dir), "%s/animations",
+		fsDataDir(dataDirBuf, sizeof(dataDirBuf)));
 	if (!fsCreateDir(anims_dir)) {
 		sysLoudFailf("EXTRACT.PDANIM_CHR",
 			"fsCreateDir(\"%s\") failed", anims_dir);

@@ -62,7 +62,8 @@ static stat_entry_t *findOrCreateStat(const char *key)
 
 static void statsLoad(void)
 {
-    const char *path = fsFullPath(STATS_FILE);
+    char pathBuf[FS_MAXPATH + 1];
+    const char *path = fsFullPath(STATS_FILE, pathBuf, sizeof(pathBuf));
     FILE *f = fopen(path, "r");
     if (!f) {
         sysLogPrintf(LOG_NOTE, "STATS: no save file found, starting fresh");
@@ -103,7 +104,8 @@ void statsSave(void)
 {
     if (!s_Dirty && s_NumStats == 0) return;
 
-    const char *path = fsFullPath(STATS_FILE);
+    char pathBuf[FS_MAXPATH + 1];
+    const char *path = fsFullPath(STATS_FILE, pathBuf, sizeof(pathBuf));
     FILE *f = fopen(path, "w");
     if (!f) {
         sysLogPrintf(LOG_WARNING, "STATS: failed to save to %s", path);

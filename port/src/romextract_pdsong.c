@@ -189,7 +189,8 @@ static s32 s_emitOneSong(s32 slot_idx,
 		return -1;
 	}
 
-	const char *dst_full = fsFullPath(dst_rel);
+	char dst_full_buf[FS_MAXPATH + 1];
+	const char *dst_full = fsFullPath(dst_rel, dst_full_buf, sizeof(dst_full_buf));
 	if (!dst_full || !dst_full[0]) {
 		sysLoudFailf("EXTRACT.PDSONG",
 			"fsFullPath empty for \"%s\"", dst_rel);
@@ -294,8 +295,10 @@ s32 romExtractAllPdsong(s32 force_rewrite)
 		return -1;
 	}
 
+	char dataDirBuf[FS_MAXPATH + 1];
 	char out_dir[FS_MAXPATH];
-	snprintf(out_dir, sizeof(out_dir), "%s/%s", fsDataDir(), PDSONG_OUT_DIR);
+	snprintf(out_dir, sizeof(out_dir), "%s/%s",
+		fsDataDir(dataDirBuf, sizeof(dataDirBuf)), PDSONG_OUT_DIR);
 	if (!fsCreateDir(out_dir)) {
 		sysLoudFailf("EXTRACT.PDSONG",
 			"fsCreateDir(\"%s\") failed", out_dir);

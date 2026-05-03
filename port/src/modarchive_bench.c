@@ -110,11 +110,10 @@ static void runStandaloneMigration(void)
 {
 	const char *candidates[4];
 	char buf[4][512];
-	const char *p;
-	p = fsFullPath("$E/../mods"); strncpy(buf[0], p ? p : "", sizeof(buf[0]) - 1); buf[0][sizeof(buf[0]) - 1] = '\0';
+	fsFullPath("$E/../mods", buf[0], sizeof(buf[0]));
 	strncpy(buf[1], "./mods", sizeof(buf[1]) - 1); buf[1][sizeof(buf[1]) - 1] = '\0';
-	p = fsFullPath("$E/mods");    strncpy(buf[2], p ? p : "", sizeof(buf[2]) - 1); buf[2][sizeof(buf[2]) - 1] = '\0';
-	p = fsFullPath("mods");       strncpy(buf[3], p ? p : "", sizeof(buf[3]) - 1); buf[3][sizeof(buf[3]) - 1] = '\0';
+	fsFullPath("$E/mods", buf[2], sizeof(buf[2]));
+	fsFullPath("mods",    buf[3], sizeof(buf[3]));
 	for (s32 i = 0; i < 4; i++) candidates[i] = buf[i];
 
 	for (s32 i = 0; i < 4; i++) {
@@ -156,9 +155,11 @@ void modArchiveRunBenchmark(void)
 	 * fall-back when the engine has not yet finalised its dir layout. */
 	char outPath[FS_MAXPATH + 1];
 	{
+		char saveBuf[FS_MAXPATH + 1];
+		char exeBuf[FS_MAXPATH + 1];
 		const char *candidates[3] = {
-			fsFullPath("$S/bench-pdmod-synthetic.pdmod"),  /* save dir */
-			fsFullPath("$E/bench-pdmod-synthetic.pdmod"),  /* exe dir */
+			fsFullPath("$S/bench-pdmod-synthetic.pdmod", saveBuf, sizeof(saveBuf)),
+			fsFullPath("$E/bench-pdmod-synthetic.pdmod", exeBuf,  sizeof(exeBuf)),
 			"./bench-pdmod-synthetic.pdmod",
 		};
 		outPath[0] = '\0';

@@ -1533,7 +1533,8 @@ static bool exportSkinTemplate(const char *filename, int mode)
     }
 
     /* Resolve to absolute path via fs system (stbi_write_png uses raw fopen) */
-    const char *absPath = fsFullPath(relPath);
+    char absPathBuf[FS_MAXPATH + 1];
+    const char *absPath = fsFullPath(relPath, absPathBuf, sizeof(absPathBuf));
 
     /* Write PNG via stb_image_write */
     s32 result = stbi_write_png(absPath, cw, ch, 4, outBuf, cw * 4);

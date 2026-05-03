@@ -31,7 +31,7 @@ static char saveDir[FS_MAXPATH + 1]; // replaces $S
 static char homeDir[FS_MAXPATH + 1]; // replaces $H
 static char exeDir[FS_MAXPATH + 1];  // replaces $E
 
-// Per-mod directories removed — modmgr now handles dynamic mod resolution
+// Per-mod directories removed; modmgr now handles dynamic mod resolution
 // via modmgrResolvePath() which iterates enabled mods in load order.
 
 
@@ -64,9 +64,18 @@ s32 fsPathIsCwdRelative(const char *path)
 	return (path[0] == '.' && (path[1] == '.' || path[1] == '/' || path[1] == '\\' || path[1] == '\0'));
 }
 
-const char *fsFullPath(const char *relPath)
+const char *fsFullPath(const char *relPath, char *out, size_t outSize)
 {
-	static char pathBuf[FS_MAXPATH + 1];
+	if (out == NULL || outSize == 0) {
+		/* Caller bug. Return the input pointer to keep things sane in
+		 * the rare case a logger calls us with a tiny / NULL buffer. */
+		return relPath ? relPath : "";
+	}
+	out[0] = '\0';
+
+	if (relPath == NULL) {
+		return out;
+	}
 
 	if (relPath[0] == '$') {
 		// expandable placeholder $X; will be replaced with the corresponding path, if any
@@ -79,20 +88,17 @@ const char *fsFullPath(const char *relPath)
 			case 'S': expStr = saveDir; break;
 			default: break;
 		}
-		if (expStr) {
-			const u32 len = strlen(expStr);
-			if (len > 0) {
-				memcpy(pathBuf, expStr, len);
-				strncpy(pathBuf + len, relPath + 2, FS_MAXPATH - len - 1);
-				pathBuf[FS_MAXPATH] = '\0';
-				return pathBuf;
-			}
+		if (expStr && expStr[0]) {
+			snprintf(out, outSize, "%s%s", expStr, relPath + 2);
+			return out;
 		}
-		// couldn't expand anything, return as is
-		return relPath;
+		// couldn't expand anything, copy as-is
+		snprintf(out, outSize, "%s", relPath);
+		return out;
 	} else if (!baseDir[0] || fsPathIsAbsolute(relPath) || fsPathIsCwdRelative(relPath)) {
 		// user explicitly wants working directory or this is an absolute path or we have no baseDir set up yet
-		return relPath;
+		snprintf(out, outSize, "%s", relPath);
+		return out;
 	}
 
 	// path relative to mod or base dir; this will be a read request, so check where the file actually is
@@ -100,42 +106,40 @@ const char *fsFullPath(const char *relPath)
 	// D3R-5: Check catalog component first (standalone, priority over legacy)
 	const char *catResolved = assetCatalogResolvePath(relPath);
 	if (catResolved) {
-		strncpy(pathBuf, catResolved, FS_MAXPATH);
-		pathBuf[FS_MAXPATH] = '\0';
+		snprintf(out, outSize, "%s", catResolved);
 		if (strstr(relPath, "bgdata/")) {
-			sysLogPrintf(LOG_NOTE, "FSPATH: \"%s\" -> CATALOG -> \"%s\"", relPath, pathBuf);
+			sysLogPrintf(LOG_NOTE, "FSPATH: \"%s\" -> CATALOG -> \"%s\"", relPath, out);
 		}
-		return pathBuf;
+		return out;
 	}
 
 	// Try modmgr registry (iterates all enabled mods in load order)
 	const char *modResolved = modmgrResolvePath(relPath);
 	if (modResolved) {
-		strncpy(pathBuf, modResolved, FS_MAXPATH);
-		pathBuf[FS_MAXPATH] = '\0';
+		snprintf(out, outSize, "%s", modResolved);
 		if (strstr(relPath, "bgdata/")) {
-			sysLogPrintf(LOG_NOTE, "FSPATH: \"%s\" -> MODMGR -> \"%s\"", relPath, pathBuf);
+			sysLogPrintf(LOG_NOTE, "FSPATH: \"%s\" -> MODMGR -> \"%s\"", relPath, out);
 		}
-		return pathBuf;
+		return out;
 	}
 
 	// Fall back to legacy modDir (--moddir flag)
 	if (modDir[0]) {
-		snprintf(pathBuf, FS_MAXPATH, "%s/%s", modDir, relPath);
-		if (fsFileSize(pathBuf) >= 0) {
+		snprintf(out, outSize, "%s/%s", modDir, relPath);
+		if (fsFileSize(out) >= 0) {
 			if (strstr(relPath, "bgdata/")) {
-				sysLogPrintf(LOG_NOTE, "FSPATH: \"%s\" -> MODDIR -> \"%s\"", relPath, pathBuf);
+				sysLogPrintf(LOG_NOTE, "FSPATH: \"%s\" -> MODDIR -> \"%s\"", relPath, out);
 			}
-			return pathBuf;
+			return out;
 		}
 	}
 
 	// fall back to basedir
-	snprintf(pathBuf, FS_MAXPATH, "%s/%s", baseDir, relPath);
+	snprintf(out, outSize, "%s/%s", baseDir, relPath);
 	if (strstr(relPath, "bgdata/")) {
-		sysLogPrintf(LOG_NOTE, "FSPATH: \"%s\" -> BASEDIR -> \"%s\"", relPath, pathBuf);
+		sysLogPrintf(LOG_NOTE, "FSPATH: \"%s\" -> BASEDIR -> \"%s\"", relPath, out);
 	}
-	return pathBuf;
+	return out;
 }
 
 s32 fsInit(void)
@@ -166,8 +170,7 @@ s32 fsInit(void)
 			}
 		}
 	}
-	strncpy(baseDir, fsFullPath(path), FS_MAXPATH - 1);
-	baseDir[FS_MAXPATH - 1] = '\0';
+	fsFullPath(path, baseDir, sizeof(baseDir));
 
 	// get path to mod dir and expand it if needed
 	// mod directory is overlaid on top of base directory (legacy --moddir only)
@@ -177,8 +180,7 @@ s32 fsInit(void)
 		if (fsPathIsAbsolute(path) || fsPathIsCwdRelative(path) || path[0] == '$') {
 			// path is explicit; check as-is
 			if (fsFileSize(path) >= 0) {
-				strncpy(modDir, fsFullPath(path), FS_MAXPATH - 1);
-				modDir[FS_MAXPATH - 1] = '\0';
+				fsFullPath(path, modDir, sizeof(modDir));
 			}
 		} else {
 			// path is relative to workdir; try to find it
@@ -186,8 +188,7 @@ s32 fsInit(void)
 			for (s32 i = 0; i < 2 + (portable != 0); ++i) {
 				char *tmp = strFmt("%s/%s", priority[i], path);
 				if (fsFileSize(tmp) >= 0) {
-					strncpy(modDir, fsFullPath(tmp), FS_MAXPATH - 1);
-					modDir[FS_MAXPATH - 1] = '\0';
+					fsFullPath(tmp, modDir, sizeof(modDir));
 					break;
 				}
 			}
@@ -224,8 +225,7 @@ s32 fsInit(void)
 		}
 	}
 
-	strncpy(saveDir, fsFullPath(path), FS_MAXPATH - 1);
-	saveDir[FS_MAXPATH - 1] = '\0';
+	fsFullPath(path, saveDir, sizeof(saveDir));
 
 #ifdef PLATFORM_WIN32
 	/*
@@ -293,7 +293,7 @@ const char *fsGetBaseDir(void)
 
 const char *fsGetModDir(void)
 {
-	// Check modmgr first — return first enabled mod's directory
+	// Check modmgr first; return first enabled mod's directory
 	for (s32 i = 0; i < modmgrGetCount(); i++) {
 		modinfo_t *mod = modmgrGetMod(i);
 		if (mod && mod->enabled && mod->dirpath[0]) {
@@ -327,7 +327,8 @@ s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize)
 		}
 	}
 #endif
-	const char *fullName = fsFullPath(name);
+	char fullBuf[FS_MAXPATH + 1];
+	const char *fullName = fsFullPath(name, fullBuf, sizeof(fullBuf));
 
 	FILE *f = fopen(fullName, "rb");
 	if (!f) {
@@ -376,7 +377,8 @@ void *fsFileLoad(const char *name, u32 *outSize)
 		}
 	}
 #endif
-	const char *fullName = fsFullPath(name);
+	char fullBuf[FS_MAXPATH + 1];
+	const char *fullName = fsFullPath(name, fullBuf, sizeof(fullBuf));
 
 	FILE *f = fopen(fullName, "rb");
 	if (!f) {
@@ -430,7 +432,8 @@ s32 fsFileSize(const char *name)
 		return vfsSize;
 	}
 #endif
-	const char *fullName = fsFullPath(name);
+	char fullBuf[FS_MAXPATH + 1];
+	const char *fullName = fsFullPath(name, fullBuf, sizeof(fullBuf));
 	struct stat st;
 	if (stat(fullName, &st) < 0) {
 		return -1;
@@ -441,12 +444,14 @@ s32 fsFileSize(const char *name)
 
 FILE *fsFileOpenWrite(const char *name)
 {
-	return fopen(fsFullPath(name), "wb");
+	char fullBuf[FS_MAXPATH + 1];
+	return fopen(fsFullPath(name, fullBuf, sizeof(fullBuf)), "wb");
 }
 
 FILE *fsFileOpenRead(const char *name)
 {
-	return fopen(fsFullPath(name), "rb");
+	char fullBuf[FS_MAXPATH + 1];
+	return fopen(fsFullPath(name, fullBuf, sizeof(fullBuf)), "rb");
 }
 
 void fsFileFree(FILE *f)
@@ -456,35 +461,42 @@ void fsFileFree(FILE *f)
 
 s32 fsCreateDir(const char *path)
 {
+	char fullBuf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(path, fullBuf, sizeof(fullBuf));
 #ifdef PLATFORM_WIN32
-	return _mkdir(fsFullPath(path));
+	return _mkdir(full);
 #else
-	return mkdir(fsFullPath(path), 0777);
+	return mkdir(full, 0777);
 #endif
 }
 
-/* Phase 3 Pass A.1 (2026-05-02): data/<romid>/ tier accessors. */
+/* Phase 3 Pass A.1 (2026-05-02): data/<romid>/ tier accessors.
+ * Phase 1 of startup-acceleration (2026-05-03): caller-owned buffers. */
 
-const char *fsDataDir(void)
+const char *fsDataDir(char *out, size_t outSize)
 {
-	static char buf[FS_MAXPATH + 1];
-	snprintf(buf, sizeof(buf), "data/%s", VERSION_ROMID);
-	return buf;
+	if (out == NULL || outSize == 0) {
+		return "";
+	}
+	snprintf(out, outSize, "data/%s", VERSION_ROMID);
+	return out;
 }
 
-const char *fsDataPathFor(const char *rel)
+const char *fsDataPathFor(const char *rel, char *out, size_t outSize)
 {
-	static char buf[FS_MAXPATH + 1];
+	if (out == NULL || outSize == 0) {
+		return "";
+	}
 	if (rel == NULL || rel[0] == '\0') {
-		return fsDataDir();
+		return fsDataDir(out, outSize);
 	}
 	/* Strip leading slash so callers can pass either "files/foo" or
 	 * "/files/foo" and get a consistent result. */
 	while (rel[0] == '/' || rel[0] == '\\') {
 		rel++;
 	}
-	snprintf(buf, sizeof(buf), "data/%s/%s", VERSION_ROMID, rel);
-	return buf;
+	snprintf(out, outSize, "data/%s/%s", VERSION_ROMID, rel);
+	return out;
 }
 
 s32 fsDataDirEnsure(void)
@@ -494,14 +506,16 @@ s32 fsDataDirEnsure(void)
 	 * create intermediate directories.  Both steps are idempotent --
 	 * an existing directory returns success in spirit (errno EEXIST is
 	 * acceptable; we treat the final-path existence as the outcome). */
+	char romidBuf[FS_MAXPATH + 1];
 	const char *parentRel = "data";
-	const char *romidRel = fsDataDir();
+	const char *romidRel = fsDataDir(romidBuf, sizeof(romidBuf));
 	s32 r1 = fsCreateDir(parentRel);
 	s32 r2 = fsCreateDir(romidRel);
 	(void)r1;
 	(void)r2;
 	/* Confirm via stat on the resolved path. */
-	const char *full = fsFullPath(romidRel);
+	char fullBuf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(romidRel, fullBuf, sizeof(fullBuf));
 	struct stat st;
 	if (stat(full, &st) == 0 && S_ISDIR(st.st_mode)) {
 		return 1;
