@@ -301,6 +301,73 @@ s32 romExtractParityCheckPdsfx(void);
 s32 romExtractParityCheckPdvoice(void);
 s32 romExtractParityCheckPdsong(void);
 
+/* ============================================================
+ * Catalog universality pivot Step 3b part 1 (2026-05-03).
+ *
+ * Per-asset emitters for the raw-payload classes that wrap files
+ * already on disk under data/<romid>/{segs,files}/:
+ *   .pdfont  ZIP compound (one per font face/size segment, 10
+ *            segments NTSC -- bankgothic / zurich / tahoma /
+ *            numeric / handelgothic{xs,sm,md,lg} / ocra{md,lg};
+ *            JPN adds fontjpn / fontjpnsingle)
+ *   .pdlang  ZIP compound (one per language string-table bank
+ *            from the g_LangFiles[] table. NTSC English-only ship
+ *            emits 68 entries; PAL/JPN locale extension folds in
+ *            as a Step 5 cleanup or follow-up worktree)
+ *
+ * Output paths under data/<romid>/:
+ *   fonts/<id>.pdfont
+ *   lang/<id>.pdlang
+ *
+ * Catalog ID format follows feedback_human_readable_ids:
+ *   .pdfont  base:font_<facename>      (e.g. base:font_handelgothicsm)
+ *   .pdlang  base:lang_<bank>_<locale> (e.g. base:lang_gun_en)
+ *
+ * Step 3b part 2 (.pdui + pdguiThemeExtractRomTextures rewrite +
+ * pdguiThemeLateInit reader migration) is sized as its own coherent
+ * unit because it cross-cuts the GL render path; ships in a
+ * follow-up worktree.
+ *
+ * Boot order requirement: must run AFTER romdataInit + after
+ * romExtractAllFiles + romExtractAllSegments (the source bytes
+ * must exist on disk for the wrapper to read).
+ *
+ * Server build: each function returns 0 immediately. Fonts are
+ * not used server-side; lang banks are not loaded server-side.
+ * ============================================================ */
+
+/* Step 3b part 1: emit one .pdfont ZIP per font segment. Reads raw
+ * bytes from the disk-migrated data/<romid>/segs/<face>.bin (Pass A)
+ * and wraps them with manifest envelope + provenance. The Step 4
+ * loader runs preprocessFont on the raw bytes at load time; this
+ * emitter does not run preprocess so the .pdfont byte payload is
+ * the same as what's already on disk under segs/.
+ *
+ * Idempotent: skips files that already exist with non-zero size
+ * unless force_rewrite is non-zero. Per-file failures emit
+ * LOUDFAIL.EXTRACT.PDFONT but do not abort the walk.
+ *
+ * Returns: count of files newly written; -1 on infrastructure
+ * failure (data dir creation, etc.). */
+s32 romExtractAllPdfont(s32 force_rewrite);
+
+/* Step 3b part 1: emit one .pdlang ZIP per language string-table
+ * bank. Walks g_LangFiles[1..68], reads raw bytes from
+ * data/<romid>/files/<sanitized>.bin (Pass A), and wraps with
+ * manifest envelope. The Step 4 loader runs preprocessLangFile at
+ * load time. Catalog ID is base:lang_<bank_name>_en for NTSC; PAL
+ * locale extension is a follow-up.
+ *
+ * Returns: count of files newly written; -1 on infrastructure
+ * failure. */
+s32 romExtractAllPdlang(s32 force_rewrite);
+
+/* Step 3b part 1 parity checks (Q-5 ruling). Re-read each emitted
+ * ZIP, verify envelope + key scalar fields round-trip the source.
+ * Same structural integrity contract as the audio half. */
+s32 romExtractParityCheckPdfont(void);
+s32 romExtractParityCheckPdlang(void);
+
 #ifdef __cplusplus
 }
 #endif

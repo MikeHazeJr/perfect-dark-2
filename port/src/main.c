@@ -528,9 +528,7 @@ int main(int argc, const char **argv)
 	 * (existing files skipped via size check).
 	 *
 	 * Per Mike's Q-3 ruling: "Catalog is not complete unless it is
-	 * COMPLETE." This block closes the audio side of Step 3; the
-	 * remaining Step 3 classes (.pdui / .pdfont / .pdlang / .pdscenario)
-	 * ship as Step 3b in a follow-up worktree.
+	 * COMPLETE." This block closes the audio side of Step 3.
 	 *
 	 * Per Mike's Q-2: a weapon's shootsound accepts a .pdvoice ID just
 	 * as readily as a .pdsfx one. Voice classification at extract time
@@ -545,6 +543,36 @@ int main(int argc, const char **argv)
 		s32 song_failures  = romExtractParityCheckPdsong();
 		(void)sfx_emitted; (void)voice_emitted; (void)song_emitted;
 		(void)sfx_failures; (void)voice_failures; (void)song_failures;
+	}
+
+	/* Catalog universality pivot Step 3b part 1 (2026-05-03): emit
+	 * per-asset .pdfont and .pdlang ZIP compounds at
+	 * data/<romid>/fonts/ and data/<romid>/lang/.
+	 *
+	 * Both wrap raw bytes that already exist on disk after Pass A:
+	 *   .pdfont reads data/<romid>/segs/<face>.bin (10 NTSC faces).
+	 *   .pdlang reads data/<romid>/files/<sanitized>.bin per
+	 *           g_LangFiles[bank] for bank in [1..68] (English locale
+	 *           in this NTSC ship; PAL/JPN extension is a follow-up).
+	 *
+	 * The runtime preprocess (preprocessFont, preprocessLangFile) runs
+	 * on the bytes at load time; this emitter does not duplicate that
+	 * pass so the .pd<kind> byte payload matches what's already on
+	 * disk. Idempotent on subsequent boots.
+	 *
+	 * Step 3b part 2 (.pdui + pdguiThemeExtractRomTextures rewrite +
+	 * pdguiThemeLateInit reader migration) is sized as its own coherent
+	 * unit because it cross-cuts the GL render path; ships in a
+	 * follow-up worktree per the no-half-measures directive (the
+	 * consumer migration must land in lockstep with the emitter, not
+	 * piecewise). */
+	{
+		s32 font_emitted   = romExtractAllPdfont(0);
+		s32 lang_emitted   = romExtractAllPdlang(0);
+		s32 font_failures  = romExtractParityCheckPdfont();
+		s32 lang_failures  = romExtractParityCheckPdlang();
+		(void)font_emitted; (void)lang_emitted;
+		(void)font_failures; (void)lang_failures;
 	}
 
 	// Phase 8: Build O(1) runtime→catalog-ID caches (mp body/head, stage, weapon, model).
