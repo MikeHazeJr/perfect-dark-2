@@ -104,11 +104,10 @@ static s32 s_emitOneBody(s32 bodynum, const body_data_t *b,
 
 s32 romExtractAllPdbody(s32 force_rewrite)
 {
-	if (!loaderPoolBodiesActive()) {
-		sysLogPrintf(LOG_NOTE,
-			"romextract pdbody: bodies loader not active, skipping");
-		return 0;
-	}
+	/* B-318 (2026-05-03): unconditional run with skip-on-existing.
+	 * See romextract_pdwpn.c for rationale. loaderPoolGetBody returns
+	 * NULL when the bodies pool is inactive, so the inner loop emits
+	 * 0 files when there is no source data. */
 
 	if (!fsDataDirEnsure()) {
 		sysLoudFailf("EXTRACT.PDBODY",

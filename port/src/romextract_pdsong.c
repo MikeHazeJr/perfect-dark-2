@@ -294,6 +294,17 @@ s32 romExtractAllPdsong(s32 force_rewrite)
 		return -1;
 	}
 
+	/* B-320 (2026-05-03): create the parent audio/ dir before the leaf
+	 * audio/music subdir. _mkdir does not create intermediate directories
+	 * on Windows. */
+	char audio_parent[FS_MAXPATH];
+	snprintf(audio_parent, sizeof(audio_parent), "%s/audio", fsDataDir());
+	if (!fsCreateDir(audio_parent)) {
+		sysLoudFailf("EXTRACT.PDSONG",
+			"fsCreateDir(\"%s\") failed", audio_parent);
+		return -1;
+	}
+
 	char out_dir[FS_MAXPATH];
 	snprintf(out_dir, sizeof(out_dir), "%s/%s", fsDataDir(), PDSONG_OUT_DIR);
 	if (!fsCreateDir(out_dir)) {

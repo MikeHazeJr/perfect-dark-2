@@ -11,9 +11,20 @@
 # Package contents (game zip -- "PerfectDark-v{X.Y.Z}-win64.zip"):
 #   - PerfectDark.exe (game client, fully static -- no runtime DLLs required)
 #   - Updater.exe (standalone GUI updater; recovery path if client self-update breaks)
-#   - data/ folder (skeleton for first-launch ROM extraction, with README.txt)
+#   - pd.ini (default config), put_your_rom_here.txt (BYOR onboarding text)
+#   - data/<romid>/... (skeleton for first-launch ROM extraction; ships any
+#     pre-generated per-asset .pd<ext> seeds present in Build/data)
 #
-# NOT included: pd-server (deprecated), pd-tests (dev-only), ROM files (.z64).
+# B-321 (2026-05-03): the dist root is the install root.  PerfectDark.exe,
+# pd.ini, and put_your_rom_here.txt all live at the top level of the zip
+# alongside data/ and mods/.  Pre-fix, everything was nested inside an extra
+# data/ folder which made fsDataDir() resolve to data/data/<romid>/...
+# (one level too deep).  data/ at install root now contains ONLY the
+# extracted-asset tree (data/<romid>/...).  pd.ini, ROM, and the onboarding
+# text live at install root, NOT inside data/.
+#
+# NOT included: pd-server (deprecated), pd-tests (dev-only), ROM files (.z64),
+# the legacy `base/` (Step 5 retired), `mod source files/`, top-level README.
 # Source code is NOT included -- GitHub auto-generates source archives.
 #
 # Post-release housekeeping:
@@ -433,27 +444,61 @@ if ($hasUpdater) {
     Write-Host "  Updater.exe" -ForegroundColor Gray
 }
 
-# --- Data folder (EXCLUDING *.z64 ROM files) ---
+# --- Data folder + install-root files ---
+#
+# B-321 (2026-05-03): the dist root IS the install root.  Files at the top
+# level of $DataSource (pd.ini, the ROM, etc.) land at install root in the
+# zip; nested data/<romid>/... stays nested.  The legacy `base/` tree (Step 5
+# retired the .pdbase aggregate) and `mod source files/` directories are
+# explicitly excluded.
 
 if ($hasData) {
-    $dataCount = (Get-ChildItem $DataSource -Recurse -File | Where-Object { $_.Extension -ne ".z64" }).Count
-    Write-Host "  Copying data/ ($dataCount files, excluding *.z64 ROM files) ..." -ForegroundColor Gray
-    New-Item -ItemType Directory -Path "$DistDir/data" -Force | Out-Null
+    $dataSourceFull = (Resolve-Path $DataSource).Path
+    $skippedDirs = @{}
+    $copyPlan = @()
 
-    # Copy everything except .z64 files
-    Get-ChildItem $DataSource -Recurse | Where-Object {
-        -not $_.PSIsContainer -and $_.Extension -ne ".z64"
-    } | ForEach-Object {
-        $relativePath = $_.FullName.Substring((Resolve-Path $DataSource).Path.Length + 1)
-        $destPath = Join-Path "$DistDir/data" $relativePath
-        $destDir = Split-Path $destPath -Parent
+    foreach ($file in (Get-ChildItem $DataSource -Recurse -File)) {
+        # Skip ROM files unconditionally (BYOR; user supplies their own).
+        if ($file.Extension -eq ".z64") {
+            continue
+        }
+
+        $relativePath = $file.FullName.Substring($dataSourceFull.Length + 1)
+        $relForward   = $relativePath -replace '\\', '/'
+
+        # Drop legacy / non-shipping trees:
+        #   base/              -- Step 5 retired the .pdbase aggregate.
+        #   mod source files/  -- dev scratch, never shipped.
+        #   README.txt         -- B-322 retired in favour of put_your_rom_here.txt.
+        if ($relForward -match '^(base/|mod source files/|README\.txt$)') {
+            $top = $relForward -split '/' | Select-Object -First 1
+            $skippedDirs[$top] = $true
+            continue
+        }
+
+        # Layout: $DataSource is the install root.  Relative paths under it
+        # stay relative under $DistDir.  Files at the top of Build/data
+        # (e.g. pd.ini) land at install root; files at Build/data/data/<romid>
+        # land at dist/data/<romid>.  No extra wrapping.
+        $copyPlan += [pscustomobject]@{
+            Source      = $file.FullName
+            Destination = $relForward
+        }
+    }
+
+    Write-Host "  Copying $($copyPlan.Count) files (excluding *.z64 ROM files) ..." -ForegroundColor Gray
+    foreach ($entry in $copyPlan) {
+        $destPath = Join-Path $DistDir $entry.Destination
+        $destDir  = Split-Path $destPath -Parent
         if (-not (Test-Path $destDir)) {
             New-Item -ItemType Directory -Path $destDir -Force | Out-Null
         }
-        Copy-Item $_.FullName $destPath
+        Copy-Item $entry.Source $destPath
     }
 
-    # Report excluded ROMs
+    foreach ($k in $skippedDirs.Keys) {
+        Write-Host "    EXCLUDED: $k (legacy retired or non-shipping)" -ForegroundColor DarkYellow
+    }
     $romFiles = Get-ChildItem $DataSource -Filter "*.z64" -Recurse
     if ($romFiles) {
         foreach ($rom in $romFiles) {
@@ -464,58 +509,73 @@ if ($hasData) {
     Write-Host "  data/ -- NOT FOUND (skipped)" -ForegroundColor Yellow
 }
 
-# --- data/README.txt (ROM instructions for end users) ---
+# --- put_your_rom_here.txt (B-322: replaces README.txt) ---
+#
+# Lives at the install root next to PerfectDark.exe so the user sees it
+# the moment they extract the zip -- the filename itself is the call-to-
+# action.  Contents subsume the prior data/README.txt so there is one
+# place to look for ROM-placement instructions.
 
-$readmePath = "$DistDir/data/README.txt"
-if (-not (Test-Path "$DistDir/data")) {
-    New-Item -ItemType Directory -Path "$DistDir/data" -Force | Out-Null
-}
+$readmePath = "$DistDir/put_your_rom_here.txt"
 $readmeContent = @"
-Perfect Dark 2 -- Data Folder
-==============================
+Perfect Dark 2 -- Place your ROM here
+======================================
 
-This folder is used by the game on first launch to extract assets from
-your legally obtained ROM file.
-
-REQUIRED ROM FILE
------------------
-Place your ROM file in this folder with the exact name:
+This file is the placeholder for your ROM.  When you legally obtain a
+copy of Perfect Dark (Nintendo 64, NTSC-Final), put it next to this file
+(install root, beside PerfectDark.exe) and rename it to:
 
     pd.ntsc-final.z64
 
-The ROM must be a .z64 (big-endian) format NTSC-Final ROM. If you have
-a .n64 or .v64 format ROM, convert it to .z64 first using a tool like
-Tool64 or the built-in converter (the game will attempt auto-conversion
-on launch).
+You can delete this text file after the ROM is in place.  The game will
+not run without the ROM.
+
+REQUIRED ROM FILE
+-----------------
+- Region: NTSC-Final (USA).  PAL and JPN ROMs are NOT supported.
+- Format: .z64 (big-endian).  If you have a .n64 or .v64 ROM, convert it
+  to .z64 with a tool like Tool64 first; the game will attempt auto-
+  conversion on launch but a known-good .z64 is the safe path.
+- Exact filename: pd.ntsc-final.z64 (lowercase).
 
 FIRST LAUNCH
 ------------
-When you run PerfectDark.exe for the first time, the game will detect
-the ROM file in this folder and automatically extract the assets it
-needs. This is a one-time process that takes a few seconds.
-
-After extraction completes, the ROM file is no longer needed for normal
-gameplay (but keep it around for re-extraction if you ever need to
-reset your data).
+PerfectDark.exe will detect pd.ntsc-final.z64 at the install root and
+extract the assets it needs into data/ntsc-final/.  This is a one-time
+process that takes a few seconds.  After extraction the ROM is no longer
+required for gameplay; keep it around if you ever need to reset assets.
 
 BRING YOUR OWN ROM (BYOR)
 --------------------------
-Perfect Dark 2 does not include any copyrighted ROM data. You must
-supply your own legally obtained copy of Perfect Dark (N64, NTSC-Final).
+Perfect Dark 2 ships with no copyrighted ROM data.  You must supply your
+own legally obtained copy of Perfect Dark (N64, NTSC-Final).
 
 TROUBLESHOOTING
 ---------------
-- Game won't start: Make sure the ROM file is named exactly
-  "pd.ntsc-final.z64" and placed in this data/ folder.
-- Extraction fails: Verify your ROM is the correct region (NTSC-Final)
-  and format (.z64 big-endian). PAL and JPN ROMs are not supported.
-- Missing assets after update: Re-run extraction by placing the ROM
-  back in this folder and relaunching.
-- Updater issues: Run Updater.exe (included in this release) to
-  download the latest version if in-game self-update fails.
+- Game will not start: confirm the ROM is named exactly pd.ntsc-final.z64
+  and placed at the install root next to PerfectDark.exe.
+- Extraction fails: verify the region (NTSC-Final) and format (.z64
+  big-endian).  PAL and JPN ROMs are not supported.
+- Missing assets after update: re-run extraction by placing the ROM back
+  at the install root and relaunching.
+- Updater issues: run Updater.exe (in this release) to recover.
+
+INSTALL LAYOUT
+--------------
+After first launch with a valid ROM, the install will look like:
+
+    PerfectDark.exe
+    Updater.exe
+    pd.ini                     (config)
+    pd.ntsc-final.z64          (your ROM)
+    data/ntsc-final/           (extracted assets)
+    mods/                      (your installed mods)
+
+The data/ and mods/ folders live at install root next to the executable;
+do not move them to a sub-folder or the game will not find them.
 "@
 Set-Content -LiteralPath $readmePath -Value $readmeContent -Encoding UTF8
-Write-Host "  data/README.txt (ROM instructions)" -ForegroundColor Gray
+Write-Host "  put_your_rom_here.txt (ROM placement instructions)" -ForegroundColor Gray
 
 # ============================================================================
 # Step 2: Create zip archive

@@ -395,7 +395,7 @@ static FILE *mpsetupOpenFile(bool write, u8 op) {
 	if (op == MPSETUP_OP_EXPORT) {
 		// create export directory if it doesn't exist
 		if (fsFileSize(MPSETUP_EXPORTDIR) < 0) {
-			if (fsCreateDir(MPSETUP_EXPORTDIR) != 0) {
+			if (!fsCreateDir(MPSETUP_EXPORTDIR)) {
 				return NULL;
 			}
 		}

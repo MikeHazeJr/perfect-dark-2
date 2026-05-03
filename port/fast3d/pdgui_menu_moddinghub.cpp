@@ -1908,12 +1908,12 @@ static bool chromeToolSaveMod(void)
     /* Chrome mods live under the "UI Chrome" category folder so they are
      * grouped with other UI-chrome mods in the mods/ tree. Recursive scanners
      * (modmgr + theme) pick them up from this nested location. */
-    if (fsCreateDir("mods") < 0 && errno != EEXIST) {
+    if (!fsCreateDir("mods")) {
         snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Could not create mods/");
         s_ChromeStatusOk = false;
         return false;
     }
-    if (fsCreateDir("mods/UI Chrome") < 0 && errno != EEXIST) {
+    if (!fsCreateDir("mods/UI Chrome")) {
         snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Could not create mods/UI Chrome/");
         s_ChromeStatusOk = false;
         return false;
@@ -1921,7 +1921,7 @@ static bool chromeToolSaveMod(void)
 
     char modDir[FS_MAXPATH];
     snprintf(modDir, sizeof(modDir), "mods/UI Chrome/%s", slug);
-    if (fsCreateDir(modDir) < 0 && errno != EEXIST) {
+    if (!fsCreateDir(modDir)) {
         snprintf(s_ChromeStatus, sizeof(s_ChromeStatus), "Could not create %s", modDir);
         s_ChromeStatusOk = false;
         return false;
@@ -2690,19 +2690,19 @@ static bool fontToolSave(void)
         return false;
     }
 
-    if (fsCreateDir("mods") < 0 && errno != EEXIST) {
+    if (!fsCreateDir("mods")) {
         snprintf(s_FontStatus, sizeof(s_FontStatus), "Could not create mods/");
         s_FontStatusOk = false;
         return false;
     }
-    if (fsCreateDir("mods/Fonts") < 0 && errno != EEXIST) {
+    if (!fsCreateDir("mods/Fonts")) {
         snprintf(s_FontStatus, sizeof(s_FontStatus), "Could not create mods/Fonts/");
         s_FontStatusOk = false;
         return false;
     }
     char modDir[FS_MAXPATH];
     snprintf(modDir, sizeof(modDir), "mods/Fonts/%s", slug);
-    if (fsCreateDir(modDir) < 0 && errno != EEXIST) {
+    if (!fsCreateDir(modDir)) {
         snprintf(s_FontStatus, sizeof(s_FontStatus),
                  "Could not create %s", modDir);
         s_FontStatusOk = false;

@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <errno.h>
 #include <stdbool.h>
 #include <PR/ultratypes.h>
 #include "constants.h"
@@ -23,7 +24,21 @@
 #include <direct.h>
 #endif
 
-#define DEFAULT_BASEDIR_NAME "data"
+/* B-321 (2026-05-03): base dir is the install root, not a nested data/ subdir.
+ *
+ * Pre-fix: base dir defaulted to "$E/data" so the runtime resolved everything
+ * relative to <install_root>/data/. The pd.ini, ROM, and put_your_rom_here.txt
+ * lived inside that base dir, and fsDataDir() returned "data/<romid>", which
+ * meant extracted assets ended up at <install_root>/data/data/<romid>/...
+ * (one level too deep). Mike's directive: "the mods and data folders may be
+ * generated in the wrong location, they should be in the install root beside
+ * the executable."
+ *
+ * Post-fix: DEFAULT_BASEDIR_NAME="." so base dir = $E (the EXE directory aka
+ * install root). Now pd.ini and the ROM live next to PerfectDark.exe, and
+ * fsDataDir() resolves to <install_root>/data/<romid>/ which is the natural
+ * location for extracted assets. mods/ likewise lives at install root. */
+#define DEFAULT_BASEDIR_NAME "."
 
 static char baseDir[FS_MAXPATH + 1]; // replaces $B
 static char modDir[FS_MAXPATH + 1];  // replaces $M
@@ -168,6 +183,21 @@ s32 fsInit(void)
 	}
 	strncpy(baseDir, fsFullPath(path), FS_MAXPATH - 1);
 	baseDir[FS_MAXPATH - 1] = '\0';
+
+	/* B-321 (2026-05-03): with DEFAULT_BASEDIR_NAME = ".", the resolved
+	 * path ends in "/." or "\." which is functionally fine but cosmetically
+	 * confusing in log lines and downstream paths.  Strip the trailing
+	 * dot-slash so logs read "base dir: C:/install" instead of
+	 * "base dir: C:/install/." */
+	{
+		size_t bdlen = strlen(baseDir);
+		while (bdlen >= 2
+		    && baseDir[bdlen - 1] == '.'
+		    && (baseDir[bdlen - 2] == '/' || baseDir[bdlen - 2] == '\\')) {
+			baseDir[bdlen - 2] = '\0';
+			bdlen -= 2;
+		}
+	}
 
 	// get path to mod dir and expand it if needed
 	// mod directory is overlaid on top of base directory (legacy --moddir only)
@@ -456,11 +486,33 @@ void fsFileFree(FILE *f)
 
 s32 fsCreateDir(const char *path)
 {
+	/* B-319 (2026-05-03): consistent success semantics. Returns 1 when the
+	 * directory exists at function return -- whether newly created here, or
+	 * already present (EEXIST is a successful idempotent path) -- and 0 only
+	 * when the directory could not be created and does not already exist.
+	 *
+	 * Pre-fix: returned the raw mkdir/_mkdir int (0=success, -1=failure),
+	 * so callers using `if (!fsCreateDir(x))` treated SUCCESS as failure
+	 * and emitted spurious LOUDFAIL warnings on every directory the game
+	 * legitimately created. */
 #ifdef PLATFORM_WIN32
-	return _mkdir(fsFullPath(path));
+	if (_mkdir(fsFullPath(path)) == 0) {
+		return 1;
+	}
 #else
-	return mkdir(fsFullPath(path), 0777);
+	if (mkdir(fsFullPath(path), 0777) == 0) {
+		return 1;
+	}
 #endif
+	if (errno == EEXIST) {
+		/* Already exists -- success-in-spirit per the docblock. Confirm
+		 * it is a directory (not a regular file with the same name). */
+		struct stat st;
+		if (stat(fsFullPath(path), &st) == 0 && S_ISDIR(st.st_mode)) {
+			return 1;
+		}
+	}
+	return 0;
 }
 
 /* Phase 3 Pass A.1 (2026-05-02): data/<romid>/ tier accessors. */

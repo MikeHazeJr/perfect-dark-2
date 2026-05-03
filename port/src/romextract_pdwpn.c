@@ -539,11 +539,13 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 
 s32 romExtractAllPdwpn(s32 force_rewrite)
 {
-	if (!loaderPoolIsActive()) {
-		sysLogPrintf(LOG_NOTE,
-			"romextract pdwpn: loader not active, skipping");
-		return 0;
-	}
+	/* B-318 (2026-05-03): unconditional run with skip-on-existing.
+	 * Was previously gated on loaderPoolIsActive() which only flips true
+	 * after the walker registers >=1 weapon -- a deadlock when the walker
+	 * finds an empty data/<romid>/weapons/ on clean install. Inner loop
+	 * gracefully handles NULL pool slots (loaderPoolGetWeapon returns NULL
+	 * when pool is inactive), so this emits 0 files when there is no source
+	 * data and round-trips when the walker has populated the pool. */
 
 	if (!fsDataDirEnsure()) {
 		sysLoudFailf("EXTRACT.PDWPN",

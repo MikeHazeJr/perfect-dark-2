@@ -199,11 +199,10 @@ static s32 s_emitOneAnim(s32 anim_idx, const char *out_dir, s32 force_rewrite)
 
 s32 romExtractAllPdanim(s32 force_rewrite)
 {
-	if (!loaderPoolIsActive()) {
-		sysLogPrintf(LOG_NOTE,
-			"romextract pdanim: loader not active, skipping");
-		return 0;
-	}
+	/* B-318 (2026-05-03): unconditional run with skip-on-existing.
+	 * See romextract_pdwpn.c for rationale. loaderPoolGetAnimationCount
+	 * returns 0 when pool is inactive, so the inner loop is a no-op and
+	 * emits 0 files. */
 
 	if (!fsDataDirEnsure()) {
 		sysLoudFailf("EXTRACT.PDANIM", "fsDataDirEnsure failed");
