@@ -47,6 +47,28 @@ import re
 import sys
 
 
+# S593g-followup (2026-05-02): bodynums whose body model has the head
+# geometry baked in. The original game's data only flags Dr Caroll
+# (bodynum 107) with unk00_01==1, but the PC port's body.c warning
+# gate (src/game/body.c:416-417) treats unk00_01 as the
+# integrated-head indicator. To make Skedar / EyeSpy / MiniSkedar /
+# SkedarKing match the PC port's existing menu code (mpBodyHasIntegratedHead
+# at src/game/mplayer/setup.c:2457 explicitly lists "Dr Caroll, Eye Spy,
+# Skedar, etc.") and to suppress the head_canon=NULL warning flood that
+# saturated the log during the swarm 256-bot cycle, override unk00_01=1
+# at emission time for these bodynums.
+#
+# Without this override Skedar spawns produce 256 head_canon WARNING lines
+# per cycle change; with 256 fopen/fwrite/fclose calls in one frame the
+# log writer stalls and crashes the spawn flood (Mike's 2026-05-02
+# playtest log ended abruptly at 02:15.50 mid-flood).
+INTEGRATED_HEAD_BODYNUMS = {
+    92,   # Skedar       (FILE_CSKEDAR)
+    108,  # EyeSpy       (FILE_CEYESPY,  named sp_body_108)
+    123,  # MiniSkedar   (FILE_CMINISKEDAR, named sp_body_123)
+    147,  # SkedarKing   (FILE_CSKEDARKING, named sp_body_147)
+}
+
 RE_GHEADSANDBODIES_OPEN = re.compile(r"struct headorbody g_HeadsAndBodies\[\] = \{")
 RE_GMPBODIES_OPEN = re.compile(r"struct mpbody g_MpBodies\[\] = \{")
 RE_S_BASEBODIES_OPEN = re.compile(r"\}\s+s_BaseBodies\[\]\s*=\s*\{")
@@ -363,15 +385,27 @@ def main():
         else:
             unk = e.get("unk00_01", 0)
             if unk == 1 or unk == "1":
-                # head slot, not a body (heads.pdbase handles it)
+                # head slot, not a body (heads.pdbase handles it). The
+                # INTEGRATED_HEAD_BODYNUMS override below does not apply
+                # here because the SP-only branch already filters
+                # canonical heads; the override only re-flags bodies
+                # we KEEP, not ones we drop.
                 continue
             cid = "base:sp_body_%d" % bn
+
+        # S593g-followup unk00_01 override: align the PC port's
+        # data with the body.c integrated-head invariant. See the
+        # INTEGRATED_HEAD_BODYNUMS docblock at the top of this file.
+        unk_raw = e["unk00_01"]
+        unk_value = int(unk_raw) if not isinstance(unk_raw, str) else unk_raw
+        if bn in INTEGRATED_HEAD_BODYNUMS:
+            unk_value = 1
 
         rec = {
             "id": cid,
             "bodynum": bn,
             "ismale": int(e["ismale"]) if not isinstance(e["ismale"], str) else e["ismale"],
-            "unk00_01": int(e["unk00_01"]) if not isinstance(e["unk00_01"], str) else e["unk00_01"],
+            "unk00_01": unk_value,
             "canvaryheight": int(e["canvaryheight"]) if not isinstance(e["canvaryheight"], str) else e["canvaryheight"],
             "type": e["type"],
             "height": e["height"],

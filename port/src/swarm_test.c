@@ -205,15 +205,20 @@ static void swarm_init_bot_config_once(void)
 }
 
 /* S593h (2026-05-01): per-spawn scale chooser. Returns a value in
- * [0.2, 0.6) weighted toward the small end via (rand01)^2. The
+ * [0.35, 0.65) weighted toward the small end via (rand01)^2. The
  * squaring of a uniform [0,1) random push the distribution low so
  * most bots are tiny with occasional larger ones. Per Mike's
  * directive: "I think it would be good to slightly randomize their
- * scale between 0.2 and 0.6, weighted towards smaller." */
+ * scale between 0.2 and 0.6, weighted towards smaller."
+ *
+ * S593h-followup (2026-05-02): Mike playtest "a bit too small".
+ * Range bumped from [0.2, 0.6) to [0.35, 0.65). Squared bias
+ * preserved so most bots cluster near 0.35-0.45 with occasional
+ * larger silhouettes up to 0.65 for visual variety. */
 static f32 swarm_pick_scale(void)
 {
 	f32 r = RANDOMFRAC();
-	return 0.2f + 0.4f * (r * r);
+	return 0.35f + 0.30f * (r * r);
 }
 
 /* Public API: returns 1 if `chr` is a swarm bot (marked with the
