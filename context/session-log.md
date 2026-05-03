@@ -1,5 +1,35 @@
 # Session Log (Active)
 
+## Session S607 (`catalog-slice12-passc`) - 2026-05-03 - B-313 Pass C segment over-read padding
+
+Mike's playtest of the B-306 fix (`54f103eb`) unblocked door modeldef loads but exposed a third Pass C regression on the path to the title screen.  Crash: `0xc0000005` in `memcpy+146` called from `challengeLoadConfig+0x12a -> dmaExecWithAutoAlign+0x43 -> dmaExec+0xf -> dmaStart+0x15 -> bcopy+0x12`.  Boot stack: `mainInit -> challengesInit -> challengeLoad -> challengeLoadConfig -> dmaExecWithAutoAlign(buffer, _mpconfigsSegmentRomStart + confignum * sizeof(struct mpconfig), sizeof(struct mpconfig))`.
+
+### Root cause
+
+`dmaExecWithAutoAlign` (`src/lib/dma.c:115`) rounds the read length up via `ALIGN16`, so a `sizeof(struct mpconfig) = 0x11f4` (4596) request becomes a `0x1200` (4608) memcpy.  The `mpconfigs` segment is only `0x11e0` (4576) bytes, so the consumer over-reads by 32 bytes.
+
+Pre-Pass-C this was harmless because the segment lived inside g_RomFile (a contiguous 32 MB blob) and the over-read landed inside the next segment's bytes.  Post-Pass-C my segment-migration code (`romdataReleaseRom`) reloaded each `SRC_ROM` segment from disk via `fsFileLoad`, which only allocates `size + 1` bytes (a free null-terminator).  The +1 byte was insufficient; the over-read walked into unmapped memory and AV'd.
+
+Same hazard applies to every `dmaExec`/`dmaExecWithAutoAlign` consumer reading from a migrated segment with `ALIGN16`-rounded or struct-sized lengths: `mpstringsX` (`challenge.c`), `fontjpnsingle`/`fontjpnmulti` (`lang.c`), `textureslist` (`texinit.c`), `firingrange` (`training.c`), `_animationsTableRomStart` (`anim.c::animsInit`).  All assume "ROM is one contiguous blob" semantics.
+
+### Fix
+
+When migrating segments to disk-backed heap, allocate via `sysMemAlloc(diskSize + PASSC_SEG_PADDING)` with `PASSC_SEG_PADDING = 0x40` bytes of zero-initialised read-ahead slack, using raw `fopen`+`fread` instead of `fsFileLoad` so the padding is explicit.  64 bytes covers `ALIGN16` (15 max) plus struct-size over-reads (mpconfig is the worst case at 20).
+
+Other Pass C migration paths unaffected: `segNormalised` (preprocess returned heap, e.g. `preprocessFont`/`preprocessALBankFile`) keeps its own buffer sized by the preprocess function; consumers don't over-read those buffers because they were always heap-backed pre-Pass-C and proven against heap-overread.
+
+### Build verify
+
+`pd` 54.8 MB clean (CLIENT 24s).  Binary refreshed at `Build/PerfectDark.exe` (timestamp 00:30).
+
+### Files touched
+
+- [`port/src/romdata.c`](../port/src/romdata.c) (+52 / -5): segment migration uses `sysMemAlloc(diskSize + PASSC_SEG_PADDING)` + raw `fopen`/`fread` instead of `fsFileLoad`.
+
+### Auto-merge
+
+Per standing rule.  Worktree commit `7e7c3e06`.  Merged at `6f9a4a84`.  Post-merge file line counts match worktree exactly.
+
 ## Session S606b (`nervous-wilson-8a55a7`) - 2026-05-02 PM - unblock 3 stale text-pin failures
 
 Mike's directive (verbatim): "And fix our failed test stuff -- not hide it by removing the failing tests, that's a wild decision."
