@@ -33,7 +33,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .btn-clear-filter:hover{color:#94a3b8;border-color:#475569}
 
 /* Board */
-#board{display:flex;gap:14px;padding:14px 18px 14px;overflow-x:auto;overflow-y:hidden;flex:1;align-items:flex-start}
+#board{display:flex;gap:14px;padding:14px 18px;overflow-x:auto;overflow-y:hidden;flex:1;align-items:flex-start}
 
 /* Column */
 .column{border-radius:10px;min-width:275px;width:275px;flex-shrink:0;display:flex;flex-direction:column;max-height:calc(100vh - 110px)}
@@ -57,7 +57,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .add-card-btn:hover{background:rgba(0,0,0,0.04);border-color:#475569;color:#334155}
 
 /* Card */
-.card{background:white;border-radius:7px;border-left:4px solid #94a3b8;padding:9px 11px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.08);transition:box-shadow 0.15s,transform 0.1s,opacity 0.15s;user-select:none;draggable:true}
+.card{background:white;border-radius:7px;border-left:4px solid #94a3b8;padding:9px 11px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.08);transition:box-shadow 0.15s,transform 0.1s,opacity 0.15s;user-select:none}
 .card:hover{box-shadow:0 4px 10px rgba(0,0,0,0.13);transform:translateY(-1px)}
 .card.dragging{opacity:0.3;transform:scale(0.97)}
 .card.filtered-out{display:none}
@@ -67,22 +67,63 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .card-notes{font-size:0.7rem;color:#64748b;font-style:italic;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:228px}
 .column[data-col="done"] .card{opacity:0.72}
 
-/* Drop indicator */
+/* Priority badge */
+.pri-badge{font-size:0.58rem;font-weight:800;padding:1px 5px;border-radius:6px;white-space:nowrap;letter-spacing:0.03em;line-height:1.6}
+.pri-1{background:#ef4444;color:white}
+.pri-2{background:#f97316;color:white}
+.pri-3{background:#eab308;color:#1e293b}
+.pri-4{background:#3b82f6;color:white}
+.pri-5{background:#94a3b8;color:white}
+
+/* Subtask progress bar */
+.st-progress{display:flex;align-items:center;gap:7px;margin-top:7px}
+.st-bar-wrap{flex:1;height:4px;background:#e2e8f0;border-radius:2px;overflow:hidden;cursor:pointer}
+.st-bar-fill{height:100%;border-radius:2px;transition:width 0.25s}
+.st-progress-lbl{font-size:0.65rem;color:#94a3b8;cursor:pointer;white-space:nowrap;user-select:none;transition:color 0.1s}
+.st-progress-lbl:hover{color:#475569}
+
+/* Inline subtask list */
+.subtask-section{margin-top:7px;padding-top:6px;border-top:1px dashed #e2e8f0}
+.subtask-item{display:flex;align-items:center;gap:6px;padding:3px 1px;border-radius:4px;transition:background 0.08s}
+.subtask-item:hover{background:#f1f5f9}
+.subtask-item.st-dragging{opacity:0.25}
+.st-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;cursor:pointer;border:none;padding:0;display:block;transition:transform 0.1s}
+.st-dot:hover{transform:scale(1.35)}
+.st-text{font-size:0.75rem;flex:1;line-height:1.35;color:#374151}
+.st-text.st-done{text-decoration:line-through;color:#94a3b8}
+.st-handle{cursor:grab;color:#cbd5e1;font-size:0.8rem;flex-shrink:0;user-select:none;padding:0 1px}
+.st-handle:hover{color:#94a3b8}
+.st-add-btn{width:100%;padding:3px;background:transparent;border:1px dashed #e2e8f0;border-radius:4px;cursor:pointer;font-size:0.67rem;color:#94a3b8;text-align:center;margin-top:4px;font-family:inherit;transition:all 0.12s}
+.st-add-btn:hover{border-color:#94a3b8;color:#475569;background:#f8fafc}
+.st-drop-line{height:2px;background:#3b82f6;border-radius:1px;margin:1px 0;pointer-events:none}
+
+/* Card drop indicator */
 .drop-line{height:3px;background:#3b82f6;border-radius:2px;margin:1px 0;flex-shrink:0;pointer-events:none}
 
 /* Modal */
 #modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:200;padding:16px}
 #modal-overlay.hidden{display:none}
-#modal{background:white;border-radius:12px;padding:22px;width:100%;max-width:480px;box-shadow:0 24px 64px rgba(0,0,0,0.35);max-height:calc(100vh - 40px);overflow-y:auto}
+#modal{background:white;border-radius:12px;padding:22px;width:100%;max-width:500px;box-shadow:0 24px 64px rgba(0,0,0,0.35);max-height:calc(100vh - 40px);overflow-y:auto}
 #modal h3{font-size:0.95rem;font-weight:700;margin-bottom:16px;color:#1e293b}
 .form-row{margin-bottom:13px}
 .form-row label{display:block;font-size:0.68rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px}
 .form-row input[type="text"],.form-row textarea,.form-row select{width:100%;padding:7px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.875rem;font-family:inherit;color:#1e293b;transition:border-color 0.15s;background:white}
 .form-row input[type="text"]:focus,.form-row textarea:focus,.form-row select:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.12)}
 .form-row textarea{resize:vertical;min-height:65px}
-.form-two-col{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:13px}
+.form-three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:13px}
+.form-three-col .form-row{margin:0}
 .modal-actions{display:flex;gap:8px;margin-top:18px;align-items:center}
 .modal-spacer{flex:1}
+
+/* Modal subtask section */
+.modal-section-head{display:flex;align-items:center;justify-content:space-between;margin:16px 0 8px}
+.modal-section-label{font-size:0.68rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em}
+.modal-st-row{display:flex;align-items:center;gap:7px;margin-bottom:7px}
+.modal-st-sel{width:86px;flex-shrink:0;padding:5px 6px;border:1px solid #cbd5e1;border-radius:5px;font-size:0.78rem;font-family:inherit;color:#1e293b;background:white}
+.modal-st-in{flex:1;padding:5px 8px;border:1px solid #cbd5e1;border-radius:5px;font-size:0.82rem;font-family:inherit;color:#1e293b}
+.modal-st-in:focus,.modal-st-sel:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,0.12)}
+.modal-st-del{background:none;border:1px solid #fca5a5;color:#ef4444;border-radius:4px;padding:2px 7px;font-size:0.7rem;cursor:pointer;flex-shrink:0;font-family:inherit}
+.modal-st-del:hover{background:#fef2f2}
 
 /* Settings panel */
 #settings-panel{position:fixed;right:0;top:0;height:100%;width:310px;background:white;box-shadow:-6px 0 28px rgba(0,0,0,0.18);transform:translateX(100%);transition:transform 0.22s ease;z-index:150;display:flex;flex-direction:column}
@@ -91,7 +132,23 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 .settings-head h3{font-size:0.9rem;font-weight:700;color:#1e293b}
 .settings-close{background:none;border:none;font-size:1.25rem;cursor:pointer;color:#64748b;line-height:1;padding:0 2px}
 .settings-close:hover{color:#1e293b}
+
+/* Sort toggle */
+.settings-sort{padding:11px 14px;border-bottom:1px solid #f1f5f9}
+.settings-sort-hd{font-size:0.68rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px}
+.toggle-row{display:flex;align-items:center;gap:10px}
+.toggle-row label{font-size:0.82rem;color:#334155;cursor:pointer;flex:1}
+.toggle-switch{position:relative;width:36px;height:20px;flex-shrink:0}
+.toggle-switch input{opacity:0;width:0;height:0;position:absolute}
+.toggle-track{position:absolute;inset:0;background:#cbd5e1;border-radius:10px;cursor:pointer;transition:background 0.2s}
+.toggle-knob{position:absolute;top:3px;left:3px;width:14px;height:14px;background:white;border-radius:50%;transition:transform 0.2s;pointer-events:none}
+.toggle-switch input:checked + .toggle-track{background:#3b82f6}
+.toggle-switch input:checked ~ .toggle-knob{transform:translateX(16px)}
+.toggle-note{font-size:0.67rem;color:#94a3b8;margin-top:5px;line-height:1.4}
+
+/* Pillar list */
 .pillar-list{flex:1;overflow-y:auto;padding:10px}
+.settings-pillars-hd{font-size:0.68rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;padding:4px 6px 8px}
 .pillar-row{display:flex;align-items:center;gap:9px;padding:7px 6px;border-radius:6px;transition:background 0.1s}
 .pillar-row:hover{background:#f8fafc}
 .pillar-swatch{width:13px;height:13px;border-radius:3px;flex-shrink:0}
@@ -118,7 +175,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
   <h1>PD2 Board</h1>
   <span id="save-status"></span>
   <div id="header-right">
-    <button class="btn btn-ghost" onclick="openSettings()">Pillars</button>
+    <button class="btn btn-ghost" onclick="openSettings()">Settings</button>
   </div>
 </div>
 
@@ -137,12 +194,12 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
       <label>Description</label>
       <textarea id="f-desc" placeholder="Optional description"></textarea>
     </div>
-    <div class="form-two-col">
-      <div class="form-row" style="margin:0">
+    <div class="form-three-col">
+      <div class="form-row">
         <label>Pillar</label>
         <select id="f-pillar"></select>
       </div>
-      <div class="form-row" style="margin:0">
+      <div class="form-row">
         <label>Column</label>
         <select id="f-col">
           <option value="backlog">Backlog</option>
@@ -151,11 +208,29 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
           <option value="done">Done</option>
         </select>
       </div>
+      <div class="form-row">
+        <label>Priority</label>
+        <select id="f-priority">
+          <option value="">Unset</option>
+          <option value="1">1 - Critical</option>
+          <option value="2">2 - High</option>
+          <option value="3">3 - Medium</option>
+          <option value="4">4 - Low</option>
+          <option value="5">5 - Someday</option>
+        </select>
+      </div>
     </div>
-    <div class="form-row" style="margin-top:13px">
+    <div class="form-row">
       <label>Notes</label>
       <textarea id="f-notes" placeholder="Short notes or links" style="min-height:50px"></textarea>
     </div>
+
+    <div class="modal-section-head">
+      <span class="modal-section-label">Subtasks</span>
+      <button class="btn btn-ghost btn-sm" onclick="addSubtaskRow()">+ Add</button>
+    </div>
+    <div id="modal-st-list"></div>
+
     <div class="modal-actions">
       <button class="btn btn-danger btn-sm" id="modal-delete-btn" onclick="deleteCard()">Delete</button>
       <span class="modal-spacer"></span>
@@ -168,10 +243,24 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 <!-- Settings panel -->
 <div id="settings-panel">
   <div class="settings-head">
-    <h3>Pillars</h3>
+    <h3>Settings</h3>
     <button class="settings-close" onclick="closeSettings()">x</button>
   </div>
-  <div class="pillar-list" id="pillar-list"></div>
+  <div class="settings-sort">
+    <div class="settings-sort-hd">Sorting</div>
+    <div class="toggle-row">
+      <label for="auto-sort-toggle">Auto-sort by priority</label>
+      <label class="toggle-switch">
+        <input type="checkbox" id="auto-sort-toggle" onchange="toggleAutoSort(this.checked)">
+        <div class="toggle-track"></div>
+        <div class="toggle-knob"></div>
+      </label>
+    </div>
+    <div class="toggle-note">When on, Critical cards rise to the top. Drag to override within a priority tier.</div>
+  </div>
+  <div class="pillar-list" id="pillar-list">
+    <div class="settings-pillars-hd">Pillars</div>
+  </div>
   <div class="settings-foot">
     <h4>Add Pillar</h4>
     <div class="add-pillar-form">
@@ -187,25 +276,50 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#1e
 <script>
 'use strict';
 
+// ---------- constants ----------
+
+const PRIORITY = {
+  1: {label: 'Critical', short: 'CRIT', color: '#ef4444'},
+  2: {label: 'High',     short: 'HIGH', color: '#f97316'},
+  3: {label: 'Medium',   short: 'MED',  color: '#eab308'},
+  4: {label: 'Low',      short: 'LOW',  color: '#3b82f6'},
+  5: {label: 'Someday',  short: 'SMDY', color: '#94a3b8'}
+};
+
+const ST_COLORS = {
+  backlog: '#94a3b8',
+  active:  '#3b82f6',
+  blocked: '#ef4444',
+  done:    '#22c55e'
+};
+
+const ST_CYCLE = ['backlog', 'active', 'done', 'blocked'];
+
+const COLS = {backlog:'Backlog', active:'Active', blocked:'Blocked', done:'Done'};
+
+// ---------- state ----------
+
 let state = null;
 let draggedId = null;
 let dropTarget = null;
+let draggedSubId = null;   // "cardId:subtaskId"
+let subDropTarget = null;  // {cardId, beforeSubId}
 let filterPillars = new Set();
 let editingCardId = null;
 let saveTimer = null;
 let inlineEditingPillarId = null;
 
-const COLS = {
-  backlog: 'Backlog',
-  active:  'Active',
-  blocked: 'Blocked',
-  done:    'Done'
-};
-
 const collapseState = (() => {
-  try { return JSON.parse(localStorage.getItem('pd2kb-collapse') || '{}'); }
-  catch { return {}; }
+  try { return JSON.parse(localStorage.getItem('pd2kb-collapse') || '{}'); } catch { return {}; }
 })();
+
+const expandedCards = new Set(
+  (() => { try { return JSON.parse(localStorage.getItem('pd2kb-expanded') || '[]'); } catch { return []; } })()
+);
+
+function saveExpandedState() {
+  localStorage.setItem('pd2kb-expanded', JSON.stringify([...expandedCards]));
+}
 
 // ---------- utils ----------
 
@@ -213,22 +327,35 @@ function newId() {
   return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
-function getPillar(id) {
-  return state.pillars.find(p => p.id === id) || null;
-}
-
-function pillarColor(id) {
-  const p = getPillar(id);
-  return p ? p.color : '#94a3b8';
-}
-
+function getPillar(id) { return state.pillars.find(p => p.id === id) || null; }
+function pillarColor(id) { const p = getPillar(id); return p ? p.color : '#94a3b8'; }
 function now() { return new Date().toISOString(); }
+
+function getCard(id) { return state.cards.find(c => c.id === id) || null; }
+
+function sortedCards(cards) {
+  const auto = state.settings && state.settings.autoSortPriority;
+  return [...cards].sort((a, b) => {
+    if (auto) {
+      const pa = a.priority || 3, pb = b.priority || 3;
+      if (pa !== pb) return pa - pb;
+    }
+    return a.order - b.order;
+  });
+}
+
+function subtaskProgress(card) {
+  const sts = card.subtasks;
+  if (!sts || sts.length === 0) return null;
+  return {done: sts.filter(s => s.status === 'done').length, total: sts.length};
+}
 
 // ---------- API ----------
 
 async function loadState() {
   const r = await fetch('/api/state');
   state = await r.json();
+  if (!state.settings) state.settings = {autoSortPriority: false};
   render();
 }
 
@@ -244,35 +371,25 @@ function scheduleSave() {
       });
       setSaveStatus('saved', 'saved');
       setTimeout(() => setSaveStatus('', ''), 1800);
-    } catch (e) {
-      setSaveStatus('', 'save failed');
-    }
+    } catch { setSaveStatus('', 'save failed'); }
   }, 400);
 }
 
 function setSaveStatus(cls, msg) {
   const el = document.getElementById('save-status');
-  el.className = cls;
-  el.textContent = msg;
+  el.className = cls; el.textContent = msg;
 }
 
 // ---------- render ----------
 
-function render() {
-  renderFilters();
-  renderBoard();
-  renderPillarList();
-}
+function render() { renderFilters(); renderBoard(); renderPillarList(); }
 
 function renderFilters() {
   const bar = document.getElementById('filters');
   bar.innerHTML = '';
-
   const lbl = document.createElement('span');
-  lbl.className = 'filter-label';
-  lbl.textContent = 'Pillar:';
+  lbl.className = 'filter-label'; lbl.textContent = 'Pillar:';
   bar.appendChild(lbl);
-
   for (const p of state.pillars) {
     const btn = document.createElement('button');
     btn.className = 'pillar-btn' + (filterPillars.has(p.id) ? ' active' : '');
@@ -283,11 +400,9 @@ function renderFilters() {
     btn.onclick = () => toggleFilter(p.id);
     bar.appendChild(btn);
   }
-
   if (filterPillars.size > 0) {
     const clr = document.createElement('button');
-    clr.className = 'btn-clear-filter';
-    clr.textContent = 'Clear';
+    clr.className = 'btn-clear-filter'; clr.textContent = 'Clear';
     clr.onclick = () => { filterPillars.clear(); render(); };
     bar.appendChild(clr);
   }
@@ -296,38 +411,25 @@ function renderFilters() {
 function renderBoard() {
   const board = document.getElementById('board');
   board.innerHTML = '';
-  for (const colId of state.columns) {
-    board.appendChild(buildColumn(colId));
-  }
+  for (const colId of state.columns) board.appendChild(buildColumn(colId));
 }
 
 function buildColumn(colId) {
-  const colCards = state.cards
-    .filter(c => c.column === colId)
-    .sort((a, b) => a.order - b.order);
-
-  const visibleCards = colCards.filter(c =>
-    filterPillars.size === 0 || filterPillars.has(c.pillar)
-  );
+  const allCards = sortedCards(state.cards.filter(c => c.column === colId));
+  const visibleCards = allCards.filter(c => filterPillars.size === 0 || filterPillars.has(c.pillar));
 
   const col = document.createElement('div');
   col.className = 'column' + (collapseState[colId] ? ' collapsed' : '');
   col.dataset.col = colId;
 
-  // Header
   const hd = document.createElement('div');
   hd.className = 'col-header';
-
-  const title = document.createElement('span');
-  title.className = 'col-title';
-  title.textContent = COLS[colId] || colId;
-  hd.appendChild(title);
-
+  const titleEl = document.createElement('span');
+  titleEl.className = 'col-title'; titleEl.textContent = COLS[colId] || colId;
+  hd.appendChild(titleEl);
   const cnt = document.createElement('span');
-  cnt.className = 'col-count';
-  cnt.textContent = visibleCards.length;
+  cnt.className = 'col-count'; cnt.textContent = visibleCards.length;
   hd.appendChild(cnt);
-
   const tog = document.createElement('button');
   tog.className = 'col-collapse';
   tog.title = collapseState[colId] ? 'Expand' : 'Collapse';
@@ -338,39 +440,30 @@ function buildColumn(colId) {
     col.classList.toggle('collapsed', !!collapseState[colId]);
     tog.textContent = collapseState[colId] ? '+' : '-';
     tog.title = collapseState[colId] ? 'Expand' : 'Collapse';
-    cnt.textContent = visibleCards.length;
   };
   hd.appendChild(tog);
   col.appendChild(hd);
 
-  // Card list
   const wrap = document.createElement('div');
   wrap.className = 'card-list-wrap';
   wrap.addEventListener('dragover', e => onDragOver(e, colId, wrap));
   wrap.addEventListener('drop', e => onDrop(e, colId));
-  wrap.addEventListener('dragleave', e => {
-    if (!wrap.contains(e.relatedTarget)) clearDropLines(wrap);
-  });
+  wrap.addEventListener('dragleave', e => { if (!wrap.contains(e.relatedTarget)) clearDropLines(wrap); });
 
-  for (const card of colCards) {
+  for (const card of allCards) {
     const cardEl = buildCard(card);
-    if (filterPillars.size > 0 && !filterPillars.has(card.pillar)) {
-      cardEl.classList.add('filtered-out');
-    }
+    if (filterPillars.size > 0 && !filterPillars.has(card.pillar)) cardEl.classList.add('filtered-out');
     wrap.appendChild(cardEl);
   }
   col.appendChild(wrap);
 
-  // Footer
   const ft = document.createElement('div');
   ft.className = 'col-footer';
   const addBtn = document.createElement('button');
-  addBtn.className = 'add-card-btn';
-  addBtn.textContent = '+ Add card';
+  addBtn.className = 'add-card-btn'; addBtn.textContent = '+ Add card';
   addBtn.onclick = () => openModal(null, colId);
   ft.appendChild(addBtn);
   col.appendChild(ft);
-
   return col;
 }
 
@@ -382,32 +475,74 @@ function buildCard(card) {
   el.style.borderLeftColor = pillarColor(card.pillar);
 
   const t = document.createElement('div');
-  t.className = 'card-title';
-  t.textContent = card.title;
+  t.className = 'card-title'; t.textContent = card.title;
   el.appendChild(t);
 
   const meta = document.createElement('div');
   meta.className = 'card-meta';
+
   const p = getPillar(card.pillar);
   if (p) {
     const tag = document.createElement('span');
-    tag.className = 'pillar-tag';
-    tag.style.background = p.color;
-    tag.textContent = p.name;
+    tag.className = 'pillar-tag'; tag.style.background = p.color; tag.textContent = p.name;
     meta.appendChild(tag);
   }
+
+  if (card.priority && PRIORITY[card.priority]) {
+    const pri = PRIORITY[card.priority];
+    const badge = document.createElement('span');
+    badge.className = 'pri-badge pri-' + card.priority;
+    badge.title = pri.label;
+    badge.textContent = pri.short;
+    meta.appendChild(badge);
+  }
+
   el.appendChild(meta);
 
   if (card.notes) {
     const n = document.createElement('div');
-    n.className = 'card-notes';
-    n.textContent = card.notes;
+    n.className = 'card-notes'; n.textContent = card.notes;
     el.appendChild(n);
+  }
+
+  const prog = subtaskProgress(card);
+  if (prog !== null) {
+    const progRow = document.createElement('div');
+    progRow.className = 'st-progress';
+    const pct = prog.total > 0 ? (prog.done / prog.total * 100) : 0;
+    const barWrap = document.createElement('div');
+    barWrap.className = 'st-bar-wrap';
+    const barFill = document.createElement('div');
+    barFill.className = 'st-bar-fill';
+    barFill.style.width = pct + '%';
+    barFill.style.background = pillarColor(card.pillar);
+    barWrap.appendChild(barFill);
+    progRow.appendChild(barWrap);
+    const lbl = document.createElement('span');
+    lbl.className = 'st-progress-lbl';
+    lbl.textContent = prog.done + '/' + prog.total;
+    lbl.title = expandedCards.has(card.id) ? 'Collapse subtasks' : 'Expand subtasks';
+    progRow.appendChild(lbl);
+
+    const toggleExpand = (e) => {
+      e.stopPropagation();
+      if (expandedCards.has(card.id)) { expandedCards.delete(card.id); } else { expandedCards.add(card.id); }
+      saveExpandedState();
+      renderBoard();
+    };
+    barWrap.onclick = toggleExpand;
+    lbl.onclick = toggleExpand;
+    el.appendChild(progRow);
+
+    if (expandedCards.has(card.id)) {
+      el.appendChild(buildInlineSubtaskList(card));
+    }
   }
 
   el.onclick = () => openModal(card.id, null);
 
   el.addEventListener('dragstart', e => {
+    if (draggedSubId) { e.preventDefault(); return; }
     draggedId = card.id;
     el.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
@@ -416,69 +551,175 @@ function buildCard(card) {
 
   el.addEventListener('dragend', () => {
     el.classList.remove('dragging');
-    draggedId = null;
-    dropTarget = null;
+    draggedId = null; dropTarget = null;
     document.querySelectorAll('.drop-line').forEach(d => d.remove());
   });
 
   return el;
 }
 
-// ---------- drag and drop ----------
+function buildInlineSubtaskList(card) {
+  const section = document.createElement('div');
+  section.className = 'subtask-section';
+  section.onclick = e => e.stopPropagation();
+
+  const sorted = [...(card.subtasks || [])].sort((a, b) => a.order - b.order);
+
+  for (const st of sorted) {
+    section.appendChild(buildSubtaskItem(card, st, section));
+  }
+
+  section.addEventListener('dragover', e => {
+    if (!draggedSubId) return;
+    e.preventDefault(); e.stopPropagation();
+    const items = [...section.querySelectorAll('.subtask-item:not(.st-dragging)')];
+    let beforeSubId = null;
+    let insertBefore = null;
+    for (const item of items) {
+      const rect = item.getBoundingClientRect();
+      if (e.clientY < rect.top + rect.height / 2) {
+        beforeSubId = item.dataset.stid;
+        insertBefore = item;
+        break;
+      }
+    }
+    subDropTarget = {cardId: card.id, beforeSubId};
+    section.querySelectorAll('.st-drop-line').forEach(d => d.remove());
+    const line = document.createElement('div'); line.className = 'st-drop-line';
+    if (insertBefore) section.insertBefore(line, insertBefore); else section.appendChild(line);
+  });
+
+  section.addEventListener('drop', e => {
+    if (!draggedSubId) return;
+    e.preventDefault(); e.stopPropagation();
+    if (subDropTarget) {
+      const parts = draggedSubId.split(':');
+      moveSubtask(parts[0], parts[1], subDropTarget.beforeSubId);
+    }
+    section.querySelectorAll('.st-drop-line').forEach(d => d.remove());
+    draggedSubId = null; subDropTarget = null;
+  });
+
+  section.addEventListener('dragleave', e => {
+    if (!section.contains(e.relatedTarget)) section.querySelectorAll('.st-drop-line').forEach(d => d.remove());
+  });
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'st-add-btn'; addBtn.textContent = '+ subtask';
+  addBtn.onclick = e => { e.stopPropagation(); openModal(card.id, null, true); };
+  section.appendChild(addBtn);
+
+  return section;
+}
+
+function buildSubtaskItem(card, st, sectionEl) {
+  const row = document.createElement('div');
+  row.className = 'subtask-item';
+  row.dataset.stid = st.id;
+  row.draggable = true;
+
+  const dot = document.createElement('button');
+  dot.className = 'st-dot';
+  dot.style.background = ST_COLORS[st.status] || '#94a3b8';
+  dot.title = st.status;
+  dot.onclick = e => {
+    e.stopPropagation();
+    const idx = ST_CYCLE.indexOf(st.status);
+    st.status = ST_CYCLE[(idx + 1) % ST_CYCLE.length];
+    dot.style.background = ST_COLORS[st.status];
+    dot.title = st.status;
+    textEl.className = 'st-text' + (st.status === 'done' ? ' st-done' : '');
+    st.updated = now();
+    scheduleSave();
+  };
+  row.appendChild(dot);
+
+  const textEl = document.createElement('span');
+  textEl.className = 'st-text' + (st.status === 'done' ? ' st-done' : '');
+  textEl.textContent = st.title;
+  row.appendChild(textEl);
+
+  const handle = document.createElement('span');
+  handle.className = 'st-handle'; handle.textContent = '::';
+  row.appendChild(handle);
+
+  row.onclick = e => e.stopPropagation();
+
+  row.addEventListener('dragstart', e => {
+    e.stopPropagation();
+    draggedSubId = card.id + ':' + st.id;
+    row.classList.add('st-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', draggedSubId);
+  });
+
+  row.addEventListener('dragend', e => {
+    e.stopPropagation();
+    row.classList.remove('st-dragging');
+    draggedSubId = null; subDropTarget = null;
+    if (sectionEl) sectionEl.querySelectorAll('.st-drop-line').forEach(d => d.remove());
+  });
+
+  return row;
+}
+
+function moveSubtask(cardId, subtaskId, beforeSubId) {
+  const card = getCard(cardId);
+  if (!card || !card.subtasks) return;
+  const st = card.subtasks.find(s => s.id === subtaskId);
+  if (!st) return;
+
+  const others = card.subtasks.filter(s => s.id !== subtaskId).sort((a, b) => a.order - b.order);
+
+  if (beforeSubId === null) {
+    st.order = others.length > 0 ? others[others.length - 1].order + 1000 : 1000;
+  } else {
+    const idx = others.findIndex(s => s.id === beforeSubId);
+    const before = others[idx];
+    const prev = idx > 0 ? others[idx - 1] : null;
+    st.order = prev ? (prev.order + before.order) / 2 : before.order / 2;
+  }
+
+  st.updated = now();
+  renderBoard();
+  scheduleSave();
+}
+
+// ---------- card drag and drop ----------
 
 function onDragOver(e, colId, wrap) {
+  if (draggedSubId) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
-
   const cards = [...wrap.querySelectorAll('.card:not(.dragging):not(.filtered-out)')];
-  let beforeId = null;
-  let insertBefore = null;
-
+  let beforeId = null, insertBefore = null;
   for (const c of cards) {
     const rect = c.getBoundingClientRect();
-    if (e.clientY < rect.top + rect.height / 2) {
-      beforeId = c.dataset.id;
-      insertBefore = c;
-      break;
-    }
+    if (e.clientY < rect.top + rect.height / 2) { beforeId = c.dataset.id; insertBefore = c; break; }
   }
-
   dropTarget = {colId, beforeId};
   clearDropLines(wrap);
-
-  const line = document.createElement('div');
-  line.className = 'drop-line';
-  if (insertBefore) {
-    wrap.insertBefore(line, insertBefore);
-  } else {
-    wrap.appendChild(line);
-  }
+  const line = document.createElement('div'); line.className = 'drop-line';
+  if (insertBefore) wrap.insertBefore(line, insertBefore); else wrap.appendChild(line);
 }
 
 function onDrop(e, colId) {
+  if (draggedSubId) return;
   e.preventDefault();
   if (!draggedId || !dropTarget) return;
   moveCard(draggedId, dropTarget.colId, dropTarget.beforeId);
-  clearDropLines(null);
-  draggedId = null;
-  dropTarget = null;
+  clearDropLines(null); draggedId = null; dropTarget = null;
 }
 
 function clearDropLines(wrap) {
-  const scope = wrap || document;
-  scope.querySelectorAll('.drop-line').forEach(d => d.remove());
+  (wrap || document).querySelectorAll('.drop-line').forEach(d => d.remove());
 }
 
 function moveCard(cardId, toCol, beforeId) {
-  const card = state.cards.find(c => c.id === cardId);
+  const card = getCard(cardId);
   if (!card) return;
-
   card.column = toCol;
-
-  const colCards = state.cards
-    .filter(c => c.id !== cardId && c.column === toCol)
-    .sort((a, b) => a.order - b.order);
-
+  const colCards = sortedCards(state.cards.filter(c => c.id !== cardId && c.column === toCol));
   if (beforeId === null) {
     card.order = colCards.length > 0 ? colCards[colCards.length - 1].order + 1000 : 1000;
   } else {
@@ -487,7 +728,6 @@ function moveCard(cardId, toCol, beforeId) {
     const prev = idx > 0 ? colCards[idx - 1] : null;
     card.order = prev ? (prev.order + before.order) / 2 : before.order / 2;
   }
-
   card.updated = now();
   renderBoard();
   scheduleSave();
@@ -496,33 +736,23 @@ function moveCard(cardId, toCol, beforeId) {
 // ---------- filter ----------
 
 function toggleFilter(pillarId) {
-  if (filterPillars.has(pillarId)) {
-    filterPillars.delete(pillarId);
-  } else {
-    filterPillars.add(pillarId);
-  }
+  if (filterPillars.has(pillarId)) filterPillars.delete(pillarId); else filterPillars.add(pillarId);
   render();
 }
 
 // ---------- modal ----------
 
-function openModal(cardId, defaultColId) {
+function openModal(cardId, defaultColId, focusSubtasks) {
   editingCardId = cardId;
-
-  const overlay = document.getElementById('modal-overlay');
   const isNew = cardId === null;
-
   document.getElementById('modal-title').textContent = isNew ? 'New card' : 'Edit card';
   document.getElementById('modal-delete-btn').style.display = isNew ? 'none' : '';
 
-  // Populate pillar select
   const sel = document.getElementById('f-pillar');
   sel.innerHTML = '';
   for (const p of state.pillars) {
     const opt = document.createElement('option');
-    opt.value = p.id;
-    opt.textContent = p.name;
-    sel.appendChild(opt);
+    opt.value = p.id; opt.textContent = p.name; sel.appendChild(opt);
   }
 
   if (isNew) {
@@ -530,18 +760,69 @@ function openModal(cardId, defaultColId) {
     document.getElementById('f-desc').value = '';
     document.getElementById('f-notes').value = '';
     document.getElementById('f-col').value = defaultColId || 'backlog';
+    document.getElementById('f-priority').value = '';
     sel.value = state.pillars.length > 0 ? state.pillars[0].id : '';
+    renderModalSubtasks([]);
   } else {
-    const card = state.cards.find(c => c.id === cardId);
+    const card = getCard(cardId);
     document.getElementById('f-title').value = card.title;
     document.getElementById('f-desc').value = card.description || '';
     document.getElementById('f-notes').value = card.notes || '';
     document.getElementById('f-col').value = card.column;
+    document.getElementById('f-priority').value = card.priority != null ? card.priority : '';
     sel.value = card.pillar;
+    renderModalSubtasks(card.subtasks || []);
   }
 
-  overlay.classList.remove('hidden');
-  setTimeout(() => document.getElementById('f-title').focus(), 50);
+  document.getElementById('modal-overlay').classList.remove('hidden');
+  if (focusSubtasks) {
+    setTimeout(() => addSubtaskRow(), 50);
+  } else {
+    setTimeout(() => document.getElementById('f-title').focus(), 50);
+  }
+}
+
+function renderModalSubtasks(subtasks) {
+  const list = document.getElementById('modal-st-list');
+  list.innerHTML = '';
+  const sorted = [...subtasks].sort((a, b) => a.order - b.order);
+  for (const st of sorted) appendModalSubtaskRow(st.id, st.title, st.status);
+}
+
+function appendModalSubtaskRow(id, title, status) {
+  const list = document.getElementById('modal-st-list');
+  const row = document.createElement('div');
+  row.className = 'modal-st-row';
+  if (id) row.dataset.stid = id;
+
+  const sel = document.createElement('select');
+  sel.className = 'modal-st-sel';
+  for (const s of ['backlog','active','blocked','done']) {
+    const opt = document.createElement('option');
+    opt.value = s; opt.textContent = s.charAt(0).toUpperCase() + s.slice(1);
+    if (s === (status || 'backlog')) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  row.appendChild(sel);
+
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.className = 'modal-st-in';
+  inp.value = title || ''; inp.placeholder = 'Subtask title';
+  row.appendChild(inp);
+
+  const del = document.createElement('button');
+  del.className = 'modal-st-del'; del.textContent = 'x';
+  del.type = 'button';
+  del.onclick = () => row.remove();
+  row.appendChild(del);
+
+  list.appendChild(row);
+  return inp;
+}
+
+function addSubtaskRow() {
+  const inp = appendModalSubtaskRow(null, '', 'backlog');
+  setTimeout(() => inp.focus(), 30);
 }
 
 function closeModal() {
@@ -555,48 +836,41 @@ function onOverlayClick(e) {
 
 function saveCard() {
   const title = document.getElementById('f-title').value.trim();
-  if (!title) {
-    document.getElementById('f-title').focus();
-    return;
-  }
+  if (!title) { document.getElementById('f-title').focus(); return; }
 
   const colVal = document.getElementById('f-col').value;
   const pillarVal = document.getElementById('f-pillar').value;
   const desc = document.getElementById('f-desc').value.trim();
   const notes = document.getElementById('f-notes').value.trim();
+  const priRaw = document.getElementById('f-priority').value;
+  const priority = priRaw !== '' ? parseInt(priRaw, 10) : null;
+
+  const stRows = [...document.getElementById('modal-st-list').querySelectorAll('.modal-st-row')];
+  const subtasks = stRows.map((row, i) => {
+    const stTitle = row.querySelector('.modal-st-in').value.trim();
+    const stStatus = row.querySelector('.modal-st-sel').value;
+    const stId = row.dataset.stid || newId();
+    return {id: stId, title: stTitle, status: stStatus, order: (i + 1) * 1000, notes: ''};
+  }).filter(s => s.title);
 
   if (editingCardId) {
-    const card = state.cards.find(c => c.id === editingCardId);
+    const card = getCard(editingCardId);
     const prevCol = card.column;
-    card.title = title;
-    card.description = desc;
-    card.notes = notes;
-    card.pillar = pillarVal;
-    card.column = colVal;
+    card.title = title; card.description = desc; card.notes = notes;
+    card.pillar = pillarVal; card.column = colVal;
+    card.priority = priority;
+    card.subtasks = subtasks;
     card.updated = now();
     if (colVal !== prevCol) {
-      const colCards = state.cards
-        .filter(c => c.id !== card.id && c.column === colVal)
-        .sort((a, b) => a.order - b.order);
+      const colCards = sortedCards(state.cards.filter(c => c.id !== card.id && c.column === colVal));
       card.order = colCards.length > 0 ? colCards[colCards.length - 1].order + 1000 : 1000;
     }
   } else {
-    const colCards = state.cards
-      .filter(c => c.column === colVal)
-      .sort((a, b) => a.order - b.order);
+    const colCards = sortedCards(state.cards.filter(c => c.column === colVal));
     const order = colCards.length > 0 ? colCards[colCards.length - 1].order + 1000 : 1000;
     const n = now();
-    state.cards.push({
-      id: newId(),
-      title,
-      description: desc,
-      pillar: pillarVal,
-      column: colVal,
-      order,
-      notes,
-      created: n,
-      updated: n
-    });
+    state.cards.push({id: newId(), title, description: desc, pillar: pillarVal,
+      column: colVal, order, priority, notes, subtasks, created: n, updated: n});
   }
 
   closeModal();
@@ -608,15 +882,15 @@ function deleteCard() {
   if (!editingCardId) return;
   if (!confirm('Delete this card?')) return;
   state.cards = state.cards.filter(c => c.id !== editingCardId);
-  closeModal();
-  render();
-  scheduleSave();
+  closeModal(); render(); scheduleSave();
 }
 
 // ---------- settings ----------
 
 function openSettings() {
   renderPillarList();
+  const toggle = document.getElementById('auto-sort-toggle');
+  if (toggle) toggle.checked = !!(state.settings && state.settings.autoSortPriority);
   document.getElementById('settings-panel').classList.add('open');
 }
 
@@ -625,51 +899,44 @@ function closeSettings() {
   inlineEditingPillarId = null;
 }
 
+function toggleAutoSort(val) {
+  if (!state.settings) state.settings = {};
+  state.settings.autoSortPriority = val;
+  renderBoard();
+  scheduleSave();
+}
+
 function renderPillarList() {
   const list = document.getElementById('pillar-list');
   if (!list || !state) return;
-  list.innerHTML = '';
+  list.innerHTML = '<div class="settings-pillars-hd">Pillars</div>';
 
   for (const p of state.pillars) {
     if (inlineEditingPillarId === p.id) {
       const form = document.createElement('div');
       form.className = 'pillar-inline-edit';
-
       const nameIn = document.createElement('input');
-      nameIn.type = 'text';
-      nameIn.value = p.name;
-      nameIn.id = 'edit-pname-' + p.id;
+      nameIn.type = 'text'; nameIn.value = p.name; nameIn.id = 'edit-pname-' + p.id;
       form.appendChild(nameIn);
-
       const row = document.createElement('div');
       row.className = 'inline-edit-row';
-      const cLbl = document.createElement('label');
-      cLbl.textContent = 'Color';
+      const cLbl = document.createElement('label'); cLbl.textContent = 'Color';
       const cIn = document.createElement('input');
-      cIn.type = 'color';
-      cIn.value = p.color;
-      cIn.id = 'edit-pcolor-' + p.id;
-      row.appendChild(cLbl);
-      row.appendChild(cIn);
+      cIn.type = 'color'; cIn.value = p.color; cIn.id = 'edit-pcolor-' + p.id;
+      row.appendChild(cLbl); row.appendChild(cIn);
       form.appendChild(row);
-
       const actions = document.createElement('div');
       actions.className = 'inline-edit-actions';
       const saveBtn = document.createElement('button');
-      saveBtn.className = 'btn btn-primary btn-sm';
-      saveBtn.textContent = 'Save';
+      saveBtn.className = 'btn btn-primary btn-sm'; saveBtn.textContent = 'Save';
       saveBtn.onclick = () => savePillarEdit(p.id);
       const cancelBtn = document.createElement('button');
-      cancelBtn.className = 'btn btn-ghost btn-sm';
-      cancelBtn.textContent = 'Cancel';
+      cancelBtn.className = 'btn btn-ghost btn-sm'; cancelBtn.textContent = 'Cancel';
       cancelBtn.onclick = () => { inlineEditingPillarId = null; renderPillarList(); };
       const delBtn = document.createElement('button');
-      delBtn.className = 'btn btn-danger btn-sm';
-      delBtn.textContent = 'Delete';
+      delBtn.className = 'btn btn-danger btn-sm'; delBtn.textContent = 'Delete';
       delBtn.onclick = () => deletePillar(p.id);
-      actions.appendChild(saveBtn);
-      actions.appendChild(cancelBtn);
-      actions.appendChild(delBtn);
+      actions.appendChild(saveBtn); actions.appendChild(cancelBtn); actions.appendChild(delBtn);
       form.appendChild(actions);
       list.appendChild(form);
       setTimeout(() => nameIn.focus(), 30);
@@ -677,28 +944,19 @@ function renderPillarList() {
       const cardCount = state.cards.filter(c => c.pillar === p.id).length;
       const row = document.createElement('div');
       row.className = 'pillar-row';
-
       const sw = document.createElement('div');
-      sw.className = 'pillar-swatch';
-      sw.style.background = p.color;
+      sw.className = 'pillar-swatch'; sw.style.background = p.color;
       row.appendChild(sw);
-
       const nm = document.createElement('span');
-      nm.className = 'pillar-row-name';
-      nm.textContent = p.name;
+      nm.className = 'pillar-row-name'; nm.textContent = p.name;
       row.appendChild(nm);
-
       const cnt = document.createElement('span');
-      cnt.className = 'pillar-row-count';
-      cnt.textContent = cardCount;
+      cnt.className = 'pillar-row-count'; cnt.textContent = cardCount;
       row.appendChild(cnt);
-
       const editBtn = document.createElement('button');
-      editBtn.className = 'pillar-edit-btn';
-      editBtn.textContent = 'Edit';
+      editBtn.className = 'pillar-edit-btn'; editBtn.textContent = 'Edit';
       editBtn.onclick = () => { inlineEditingPillarId = p.id; renderPillarList(); };
       row.appendChild(editBtn);
-
       list.appendChild(row);
     }
   }
@@ -710,22 +968,19 @@ function savePillarEdit(pillarId) {
   const name = document.getElementById('edit-pname-' + pillarId).value.trim();
   const color = document.getElementById('edit-pcolor-' + pillarId).value;
   if (!name) return;
-  p.name = name;
-  p.color = color;
+  p.name = name; p.color = color;
   inlineEditingPillarId = null;
-  render();
-  scheduleSave();
+  render(); scheduleSave();
 }
 
 function deletePillar(pillarId) {
   const count = state.cards.filter(c => c.pillar === pillarId).length;
-  if (count > 0 && !confirm(`Delete pillar? ${count} card(s) will lose their pillar assignment.`)) return;
+  if (count > 0 && !confirm(`Delete pillar? ${count} card(s) will lose their pillar.`)) return;
   state.pillars = state.pillars.filter(p => p.id !== pillarId);
   state.cards.forEach(c => { if (c.pillar === pillarId) c.pillar = ''; });
   filterPillars.delete(pillarId);
   inlineEditingPillarId = null;
-  render();
-  scheduleSave();
+  render(); scheduleSave();
 }
 
 function addPillar() {
@@ -733,34 +988,22 @@ function addPillar() {
   const colorEl = document.getElementById('new-pillar-color');
   const name = nameEl.value.trim();
   if (!name) { nameEl.focus(); return; }
-
   const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  if (state.pillars.find(p => p.id === id)) {
-    alert('A pillar with that name already exists.');
-    return;
-  }
-
-  state.pillars.push({ id, name, color: colorEl.value });
+  if (state.pillars.find(p => p.id === id)) { alert('Pillar already exists.'); return; }
+  state.pillars.push({id, name, color: colorEl.value});
   nameEl.value = '';
-  render();
-  scheduleSave();
+  render(); scheduleSave();
 }
 
 // ---------- keyboard ----------
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    if (!document.getElementById('modal-overlay').classList.contains('hidden')) {
-      closeModal();
-    } else {
-      closeSettings();
-    }
+    if (!document.getElementById('modal-overlay').classList.contains('hidden')) closeModal();
+    else closeSettings();
   }
-  if ((e.key === 'Enter') && !document.getElementById('modal-overlay').classList.contains('hidden')) {
-    if (e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'SELECT') {
-      e.preventDefault();
-      saveCard();
-    }
+  if (e.key === 'Enter' && !document.getElementById('modal-overlay').classList.contains('hidden')) {
+    if (e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'SELECT') { e.preventDefault(); saveCard(); }
   }
 });
 
