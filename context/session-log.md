@@ -1,5 +1,70 @@
 # Session Log (Active)
 
+## Session S608 (`stupefied-jemison-6f4e32`) - 2026-05-03 - Catalog universality pivot Step 2 (heads + bodies + arenas + scenarios)
+
+Mike's directive: "Catalog is not complete unless it is COMPLETE." Step 2 of the universality pivot ships the per-asset emitters for the three remaining metadata-class kinds (heads, bodies, arenas) plus the unified `.pdscenario` ZIP per Q-1 (one ZIP per arena's playable stage, bg + tiles + pads + setup + mpsetup + manifest).
+
+### Scope
+
+Per [universality-pivot-schemas.md](designs/catalog/universality-pivot-schemas.md) Sections 2.2 / 2.3 / 2.4 / 2.10 plus the audit's Q-1 unified-scenario ruling and Q-5 parity-period ruling. Step 2 follows the Step 1 weapons emitter pattern (`port/src/romextract_pdwpn.c`) so the parity check at Step 2 stays clean against the live `.pdbase` source until Step 5 retirement.
+
+### Implementation
+
+Six new files under `port/src/` and one new header section:
+
+- [`port/src/romextract_pdhead.c`](../port/src/romextract_pdhead.c) -- walks `loaderPdbaseGetHead(idx)` for `idx in [0, 152)`, emits `data/<romid>/heads/<id>.pdhead` for every entry with a non-empty `catalog_id`. Cross-refs (`mesh` field) preserve the FILE_* enum string via `loaderPdbaseNameForFileEnum`; HEADBODYTYPE_* preserved via the new `loaderPdbaseNameForHeadbodyType`.
+- [`port/src/romextract_pdbody.c`](../port/src/romextract_pdbody.c) -- mirrors the heads emitter for `loaderPdbaseGetBody`. Preserves `canvaryheight` (Skedar per-chr height variance), `unk00_01` integrated-head sentinel (Skedar / Dr Caroll / EyeSpy), and `handfilenum` -> `hand` catalog ID slot.
+- [`port/src/romextract_pdarena.c`](../port/src/romextract_pdarena.c) -- emits BOTH `.pdarena` JSON (Section 2.4) AND `.pdscenario` ZIP (Section 2.10) per arena. The `.pdarena` is the metadata document carrying arena_index / slug / category / stagenum / requirefeature / name_langid / load_mode + a `scenario` catalog ID reference. The `.pdscenario` (built via `modArchiveBegin`/`AddFileMem`/`AddFileDisk`/`Finish`) bundles geometry/tiles/pads/setup/mpsetup binaries from `data/<romid>/files/` plus a manifest.json envelope. SHA-256 sidecars per Section 3.9. Random meta arenas (STAGE_MP_RANDOM_MULTI/SOLO) emit `.pdarena` with `scenario: null` and skip the `.pdscenario` (no stagetable entry). ARENA_LOADMODE_CANVAS preserved per-arena.
+- [`port/src/romextract_parity_pdhead.c`](../port/src/romextract_parity_pdhead.c) -- Q-5 parity check. Re-reads each emitted `.pdhead`, validates envelope (pd_kind, pd_schema_version, id) plus headnum + ismale + height fields against the live loader pool. Reports `LOADER.UNIVERSAL.PARITY_FAIL` per mismatch.
+- [`port/src/romextract_parity_pdbody.c`](../port/src/romextract_parity_pdbody.c) -- bodies parity. Same pattern, additionally checks `canvaryheight` (the body-only carryover field).
+- [`port/src/romextract_parity_pdarena.c`](../port/src/romextract_parity_pdarena.c) -- arenas + scenarios parity. Validates `.pdarena` envelope + arena_index + stagenum + name_langid plus the corresponding `.pdscenario` exists (no internal ZIP inspection -- that becomes Step 4's job).
+
+Header surface:
+
+- [`port/include/loader_pdbase_enums.h`](../port/include/loader_pdbase_enums.h) gains `loaderPdbaseNameForHeadbodyType(s32)` + `loaderPdbaseNameForArenaLoadMode(s32)` reverse lookups.
+- [`port/src/loader_pdbase_enums.c`](../port/src/loader_pdbase_enums.c) implements them inline (small cardinality; mirrors the inline forward resolvers in `loader_pdbase.c::s_resolveHeadbodyType` / `s_resolveArenaLoadMode` so emit/parse round-trip stays consistent during the parity period).
+- [`port/include/romextract_pd.h`](../port/include/romextract_pd.h) adds 6 new function prototypes (`romExtractAllPdhead`/`Pdbody`/`Pdarena` + 3 parity checks) with full docblocks.
+
+Boot wiring in [`port/src/main.c`](../port/src/main.c) adds a Step 2 block immediately after the Step 1 emit block. Order: AFTER `loaderPdbaseBuildHead/Body/ArenaManager` (typed pools active) AND AFTER `stageTableInit` (g_Stages populated for the scenario emitter to read per-stage file IDs). Idempotent on subsequent boots via the existing skip-existing-by-size pattern.
+
+### Build verify
+
+All four targets PASS at session build dir `.claude/session-builds/pivot-step2/`:
+
+- `pd` (PerfectDark.exe) 55 MB CLIENT 26s
+- `pd-server` (PerfectDarkServer.exe) 22.4 MB SERVER 8s
+- `pd-tests` 24.9 MB TESTS 18s
+- `Updater.exe` 12.3 MB UPDATER 1s
+
+Test run: 11505 passed assertions; 4 pre-existing rot failures match S603 memo (test_loader_pdbase_scan.cpp:228/287 + test_catalog_provider_static.cpp:468/537), all outside the Step 2 touch surface. Segfault-on-teardown also pre-existing per the same memo.
+
+### Notes
+
+Storage layout: heads/bodies/arenas land under their own subdirs per schema 3.4; scenarios go to `data/<romid>/scenarios/` (separate from `data/<romid>/arenas/` per the locked layout, even though both kinds describe the same logical thing). The orchestrator's mission scope had a one-line shorthand "data/<romid>/arenas/<arena_id>.pdscenario" that mixed the two; this session honours the locked schema (arenas vs scenarios in separate dirs) since the schema doc is the binding reference.
+
+Cross-reference convention is intermediate: FILE_*/L_GUN_*/SFX_*/etc enum strings preserved verbatim. Step 4's universal directory walker promotes these to true catalog IDs once the discovery layer is mint-time-aware.
+
+Step 2 is COMPLETE per Mike's directive. Three of the eight remaining `.pd*` kinds are now emitted alongside Step 1's three (`weapon` / `mesh` / `animation` -> + `head` / `body` / `arena` / `scenario` = 7 of 13).  Remaining for Step 3a: character animations (Q-3 follow-up).  Remaining for Step 3: `.pdsfx` / `.pdvoice` / `.pdsong` / `.pdui` / `.pdfont` / `.pdlang`.
+
+### Files touched
+
+- [`port/include/loader_pdbase_enums.h`](../port/include/loader_pdbase_enums.h) (+10)
+- [`port/include/romextract_pd.h`](../port/include/romextract_pd.h) (+72)
+- [`port/src/loader_pdbase_enums.c`](../port/src/loader_pdbase_enums.c) (+30)
+- [`port/src/main.c`](../port/src/main.c) (+24)
+- [`port/src/romextract_pdhead.c`](../port/src/romextract_pdhead.c) (NEW, 142 lines)
+- [`port/src/romextract_pdbody.c`](../port/src/romextract_pdbody.c) (NEW, 156 lines)
+- [`port/src/romextract_pdarena.c`](../port/src/romextract_pdarena.c) (NEW, 318 lines)
+- [`port/src/romextract_parity_pdhead.c`](../port/src/romextract_parity_pdhead.c) (NEW, 199 lines)
+- [`port/src/romextract_parity_pdbody.c`](../port/src/romextract_parity_pdbody.c) (NEW, 215 lines)
+- [`port/src/romextract_parity_pdarena.c`](../port/src/romextract_parity_pdarena.c) (NEW, 234 lines)
+
+### Auto-merge
+
+Per worktree merge-to-dev directive.
+
+---
+
 ## Session S607 (`catalog-slice12-passc`) - 2026-05-03 - B-313 Pass C segment over-read padding
 
 Mike's playtest of the B-306 fix (`54f103eb`) unblocked door modeldef loads but exposed a third Pass C regression on the path to the title screen.  Crash: `0xc0000005` in `memcpy+146` called from `challengeLoadConfig+0x12a -> dmaExecWithAutoAlign+0x43 -> dmaExec+0xf -> dmaStart+0x15 -> bcopy+0x12`.  Boot stack: `mainInit -> challengesInit -> challengeLoad -> challengeLoadConfig -> dmaExecWithAutoAlign(buffer, _mpconfigsSegmentRomStart + confignum * sizeof(struct mpconfig), sizeof(struct mpconfig))`.
