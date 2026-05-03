@@ -40,17 +40,20 @@ No backtrace available; without it the diagnosis is candidate-set only:
 
 Filed as **B-307 (MED)** with full repro + workaround "stop ladder at 128". Would need a debug build with SEH stack capture or objdump-decoded crash PC to narrow further -- Mike to decide priority.
 
-### Item 3 -- GPU benchmark gaps filed (B-308 / B-309 / B-310)
+### Item 3 -- GPU benchmark gaps filed (B-308 / B-309 / B-310 / B-311)
 
 Mike: "Also log that the GPU version of our benchmark bot behavior is not correct, hasn't been properly migrated yet, and neither have the collision constraints / spawn upgrades, etc that we applied to the CPU benchmark version. It is part of our Skedar Benchmark phase after catalog completion."
 
-Three new ledger entries:
+Then mid-task, additional finding: "I got a crash with 128 bots on GPU mode, see log and note what happened for when we get back to that side of things."
+
+Four new ledger entries:
 
 - **B-308 (LOW)** -- GPU swarm bot AI not properly migrated. CPU side has target acquisition, hostile-team posture, per-frame visibility / LOS short-circuit, power-weapon loadout, COMBATKNIFE for bots, real bot-AI tick path. The GPU pipeline ([port/src/swarm_gpu.cpp](../../port/src/swarm_gpu.cpp)) was scaffolded but never received the AI plumbing.
 - **B-309 (LOW)** -- GPU swarm collision constraints not applied. CPU side got chr->radius / chr->height per-bot scaling, perim-disable swarm-lock, matched cylinder/AABB plumbing. GPU side uses a fixed default radius and doesn't apply per-bot scale to collision geometry.
 - **B-310 (LOW)** -- GPU swarm spawn upgrades not applied. CPU side has volume-spawn picker, 20%-grow-once retry, streaming refill, overlap-spawn fallback. GPU side has none of these and uses a fixed ring layout.
+- **B-311 (MED)** -- GPU swarm crash at 128-bot cycle. Build/pd-client.log: cycle 4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128 produced corrupted post-cycle state (`alive=-2921 kills=3049`, impossible counts), 1.4 seconds later fast3d emitted `FATAL: Unknown GBI opcode 0xbb0000ff at 000001a830084c60` (display list word `fdbb0000ffff0000`, decoded as G_SETTIMG with uninit texture pointer). Game caught FATAL and shutdown gracefully. Hypothesis: GPU compute pipeline doesn't initialize per-bot display-list buffer correctly above some threshold (>64 in this run). The corrupted alive/kills counter and the garbage DL emerge at the same cycle-tick, suggesting shared scratch buffer or compute-kernel out-of-bounds write. NOT the same bug as B-307 (CPU silent crash); GPU has a clear FATAL signature. Workaround: cap GPU ladder at 64 OR stay on CPU mode.
 
-All three tagged "Skedar Benchmark phase, post-catalog completion" per Mike's framing.
+All four tagged "Skedar Benchmark phase, post-catalog completion" per Mike's framing.
 
 ### Build verify (queued via build-session.ps1)
 
@@ -63,12 +66,14 @@ All three tagged "Skedar Benchmark phase, post-catalog completion" per Mike's fr
 
 ### Auto-merge
 
-Per standing rule. Pre-merge dev HEAD `3d80fc15`. Worktree commit `2ab39ceb`. Post-merge `fd461b82` (ort strategy, no conflicts). 2 files, +16 / -7.
+Two sequential merges per standing rule:
+1. Pre-merge dev HEAD `3d80fc15`. Worktree commit `2ab39ceb`. Post-merge `fd461b82` (ort, no conflicts). 2 files, +16 / -7. Items 1 + 2 + 3 (B-308/309/310).
+2. Pre-merge dev HEAD `e51ba432`. Worktree commit `beb66185`. Post-merge `92a723d4` (ort, no conflicts). 1 file, +1 / -0. Item 4 (B-311 GPU 128-bot FATAL).
 
 ### Files changed (2)
 
 - [src/game/bot.c](../../src/game/bot.c) (cap 5.0f -> 7.5f at swarm-lock gate)
-- [context/bugs.md](bugs.md) (B-307 / B-308 / B-309 / B-310 entries added at top of open list)
+- [context/bugs.md](bugs.md) (B-307 / B-308 / B-309 / B-310 / B-311 entries at top of open list)
 
 ## Session S593h-followup-2 (`distracted-hamilton-430172` continuation) - 2026-05-02 PM - swarm bot speed cap
 
