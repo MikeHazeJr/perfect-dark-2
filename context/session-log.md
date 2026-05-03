@@ -1,5 +1,103 @@
 # Session Log (Active)
 
+## Session S593h-followup-4 (`distracted-hamilton-430172` continuation) - 2026-05-03 - log message audit + B-311 second repro + B-314 chic-robot bot crash
+
+Mike's three-part directive based on the May-03 playtest of two swarm benchmark runs (`first log.log` CPU, `second log.log` GPU) plus a Combat Sim run (`third log.log`). Investigation found Mike's "head_canon flood" framing was off; the actual issues were different. Two coherent merges shipped today.
+
+### Item 1 -- head_canon gate is NOT regressed (no code change required)
+
+Mike's directive: "Restore the S593g integrated-head warning gate. The fix appears to have regressed during the catalog migration churn."
+
+Investigation: `grep "head_canon=NULL"` in BOTH logs returned **zero** matches. The S593g gate at [src/game/body.c:416-417](../../src/game/body.c:416) is intact (`&& !catalogGetBodyIsComplete(bodynum)`). The bodies.pdbase data shipped at fd3e5e53 (S593g-followup) is intact: `unk00_01: 1` for all 5 integrated-head bodies (Skedar 92, DrCaroll 107, EyeSpy 108, MiniSkedar 123, SkedarKing 147). Mike's framing was off; the actual flood is from two OTHER lines.
+
+Recorded as session-log finding so Mike can recalibrate the next playtest interpretation.
+
+### Item 2 -- the actual flood: `→ ROM` lookup messages (Merge 1)
+
+Mike's directive: "Audit `base:skedar (83) → ROM` lookups. After Step 2 of Pass C dropped runtime ROM access, this log line should NOT appear at runtime. ... identify what the line MEANS today and fix the underlying behavior."
+
+Counts in `Build/first log.log`:
+- 4329 `VERBOSE: CATALOG: ... → ROM` lines (LOG_VERBOSE, fires only with VerboseLogging=1 in pd.ini, which Mike has set)
+- 566 `body0f02ce8c: bodynum N (file 0xNNNN) modeldef->scale=N` lines (LOG_NOTE, always fires)
+
+The "→ ROM" notation is **stale post-Pass-C**. Catalog functions return filenums that resolve through `romdataFileLoad` to disk-backed `data/<romid>/files/` per the Pass C extraction. The function behaviour is correct; only the log message text is wrong.
+
+Renamed `→ ROM` to `→ base` at all 9 sites, aligning with the `base:` catalog-id prefix:
+- [port/src/assetcatalog_api.c](../../port/src/assetcatalog_api.c) (3 sites: catalogGetBodyFilenumByIndex, catalogGetHeadFilenumByIndex, catalogGetModelFilenumByModelnum)
+- [port/src/mod.c](../../port/src/mod.c) (4 sites: tex/anim load + entry/not-cataloged variants)
+- [port/src/romdata.c](../../port/src/romdata.c) (2 sites: file load + not-cataloged variant)
+
+Demoted [src/game/body.c:249](../../src/game/body.c:249) `body0f02ce8c` LOG_NOTE to LOG_VERBOSE -- per-spawn diagnostic that fires 256+ times per swarm cycle. Under default `VerboseLogging=0` this drops the per-spawn flood; under verbose-on it still surfaces alongside the renamed `→ base` line.
+
+Extended **B-311 (GPU swarm crash)** with a second repro from `Build/second log.log`: GPU benchmark cycle reached 256 cleanly (`post-cycle target=256 actual=256 alive=256 kills=0`), first frame after spawn the log ended mid-stream with no FATAL emitted -- silent crash class identical to B-307 (CPU side at 256). So B-311 has TWO signatures: (a) FATAL with corrupted counters when GPU compute kernel has accumulated stale state, (b) silent first-frame crash from clean state. Both point at the same root cause: GPU compute pipeline can't safely scale past some count threshold.
+
+**Merge 1**: `0c0352c7` (worktree) -> `08fb5158` (dev). Build verify all 4 targets PASS via swspd2 / swspd2s / swspd2t / swspd2u session.
+
+### Item 3 -- B-314 Combat Sim crash: chic-robot bots in MP / AI spawn paths (Merge 2)
+
+Mike's repro (verbatim, mid-task additional finding): "I also got an exception starting a match. Combat Simulator, added a song mod, set it as the match music, changed my temporary character, added 31 bots, picked Skedar as the map, hit start > exception."
+
+Crash signature in `Build/third log.log`:
+```
+[05:54.99] FATAL: ACCESS_VIOLATION PC=00007ff72bbefdbf (+0x13fdbf) CODE=0xc0000005
+           at frame=0 stage=0x32 (Skedar map)
+```
+
+PC `+0x13fdbf` decodes via addr2line to **`propsRenderBeams` at [src/game/propobj.c:11723](../../src/game/propobj.c:11723)**. Stack: `propsRenderBeams -> lvRender -> mainTick -> mainLoop -> mainProc -> main`.
+
+Breadcrumb ring shows 30 BOT.ALLOC entries (chrnum 1-30) followed by CHR.TICK for slots 0-30. Two bots had `body=118` (BOT.ALLOC chrnum=2 body=118 head=35; chrnum=12 body=118 head=22), matching `BODY_CHICROB = 0x76 = 118`. CHR.TICK breadcrumbs show those slots with `race=4` (RACE_ROBOT).
+
+Root cause: `propsRenderBeams` (propobj.c:11722-11724) dereferences `chr->unk348[0]->beam` and `chr->unk348[1]->beam` for every chr whose `CHRRACE() == RACE_ROBOT`. The `chr->unk348[0/1]` fireslot/beam pair was allocated only at the solo chr-spawn site `bodyAllocateChr` (body.c:609-617 historically). The MP bot-create path (`botmgr.c::botCreate` line 143) and the AI-spawn path (`chraction.c` line 15481) both correctly set `chr->race = bodyGetRace(...)` but lacked the unk348[] init. When a Combat Sim bot rolls a CHICROB body, `chr->unk348[0/1]` stays at the chr-zero-init NULL from chr.c:1347-1348, and `propsRenderBeams` AVs on the first render frame.
+
+Mike's audio-mod / custom-character / Skedar-map context is incidental. The body-pool draw produced body=118 twice; either bot would crash on the first render.
+
+Fix: extracted `bodyInitChrBeams(struct chrdata *chr, s32 bodynum)` helper in body.c (declared in [src/include/game/body.h](../../src/include/game/body.h)). Allocates `unk348[]` + `beam[]` when `bodynum == BODY_CHICROB`, no-op otherwise.
+
+Three call sites:
+1. body.c::bodyAllocateChr (solo) -- replaced inline alloc with helper call
+2. botmgr.c::botCreate (MP) -- added call after race= line
+3. chraction.c (AI spawn) -- added call after race= line
+
+Per Mike's no-half-measures rule: extracted into a single source of truth so future spawn paths cannot accidentally diverge.
+
+**Merge 2**: `aafa1a04` (worktree) -> `62aacd74` (dev). Build verify all 4 targets PASS via b314 / b314s / b314t session.
+
+### Build verify summary (both merges)
+
+| Target | Merge 1 (swspd2) | Merge 2 (b314) |
+|---|---|---|
+| CLIENT | PASS 27s | PASS 28s |
+| UPDATER | PASS 1s | PASS 1s |
+| SERVER | PASS 8s | PASS 9s |
+| TESTS | PASS 18s | PASS 19s |
+
+### Auto-merge sequence (both per standing rule)
+
+1. Pre-merge dev `e889e310` -> worktree `0c0352c7` -> post-merge `08fb5158` (ort, no conflicts). 5 files, +19 / -11.
+2. Pre-merge dev `08fb5158` -> worktree `aafa1a04` -> post-merge `62aacd74` (ort, no conflicts). 5 files, +61 / -6.
+
+### Files changed (10 across 2 merges)
+
+Merge 1 (`→ base` audit + body0f02ce8c demote + B-311 amendment):
+- [port/src/assetcatalog_api.c](../../port/src/assetcatalog_api.c)
+- [port/src/mod.c](../../port/src/mod.c)
+- [port/src/romdata.c](../../port/src/romdata.c)
+- [src/game/body.c](../../src/game/body.c) (LOG_NOTE -> LOG_VERBOSE only)
+- [context/bugs.md](bugs.md) (B-311 amendment)
+
+Merge 2 (B-314 chic-robot fix):
+- [src/include/game/body.h](../../src/include/game/body.h) (helper decl)
+- [src/game/body.c](../../src/game/body.c) (helper impl + replace inline)
+- [src/game/botmgr.c](../../src/game/botmgr.c) (helper call)
+- [src/game/chraction.c](../../src/game/chraction.c) (helper call)
+- [context/bugs.md](bugs.md) (B-314 entry)
+
+### Next playtest should show
+
+- Default-log (`VerboseLogging=0`): no `body0f02ce8c` per-spawn flood, no `→ ROM`/`→ base` lines (LOG_VERBOSE).
+- Verbose-log (`VerboseLogging=1`): same diagnostic content as before but with the renamed `→ base` notation.
+- Combat Sim Skedar map / 31 bots: should start cleanly even when bots roll BODY_CHICROB. Grep `pd-client.log` for `BOT.ALLOC ... body=118` to confirm a CHICROB allocation happened; pre-fix the next render frame AVs at +0x13fdbf, post-fix the match runs to completion.
+
 ## Session S608 (`stupefied-jemison-6f4e32`) - 2026-05-03 - Catalog universality pivot Step 2 (heads + bodies + arenas + scenarios)
 
 Mike's directive: "Catalog is not complete unless it is COMPLETE." Step 2 of the universality pivot ships the per-asset emitters for the three remaining metadata-class kinds (heads, bodies, arenas) plus the unified `.pdscenario` ZIP per Q-1 (one ZIP per arena's playable stage, bg + tiles + pads + setup + mpsetup + manifest).
