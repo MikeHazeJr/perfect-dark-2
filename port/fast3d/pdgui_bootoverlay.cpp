@@ -20,6 +20,11 @@
 
 #include "glad/glad.h"
 
+/* gfx_api.h declares void gfx_run(Gfx* commands), so the translation unit
+ * needs the Gfx type from PR/gbi.h before including the gfx API. */
+#include <PR/ultratypes.h>
+#include <PR/gbi.h>
+
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_sdl2.h"
 #include "imgui/imgui_impl_opengl3.h"
