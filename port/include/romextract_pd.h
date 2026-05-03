@@ -78,6 +78,80 @@ s32 romExtractAllPdanim(s32 force_rewrite);
  */
 s32 romExtractParityCheckPdwpn(void);
 
+/* ============================================================
+ * Catalog universality pivot Step 2 (2026-05-03).
+ *
+ * Per-asset emitters for the metadata-class kinds beyond weapons:
+ *   .pdhead     JSON metadata document (one per registered head)
+ *   .pdbody     JSON metadata document (one per registered body)
+ *   .pdarena    JSON metadata document (one per registered arena)
+ *   .pdscenario ZIP compound (one per arena's playable stage,
+ *                              UNIFIED per Q-1 -- bg + tiles + pads
+ *                              + setup + mpsetup + manifest in one
+ *                              ZIP)
+ *
+ * Output paths under data/<romid>/:
+ *   heads/<id>.pdhead
+ *   bodies/<id>.pdbody
+ *   arenas/<id>.pdarena
+ *   scenarios/<id>.pdscenario
+ *
+ * Where <id> is the catalog ID with the colon replaced by underscore.
+ * For example "base:head_carrington" -> "base_head_carrington.pdhead".
+ *
+ * Boot order requirement: must run AFTER loaderPdbaseScan +
+ * loaderPdbaseBuildHeadManager / BuildBodyManager / BuildArenaManager
+ * (so the typed pools are populated) AND AFTER stageTableInit (so
+ * g_Stages[] is populated for the .pdscenario emitter to read per-stage
+ * file IDs from). Wire alongside Step 1 in port/src/main.c.
+ *
+ * Server build: each function returns 0 immediately (no character/arena
+ * data on the server side; loader is not active).
+ * ============================================================ */
+
+/* Step 2: emit one .pdhead JSON file per registered head (152 slots,
+ * ~30-40 standalone heads expected based on .pdbase contents).
+ * Idempotent: skips files that already exist with non-zero size unless
+ * force_rewrite is non-zero. Per-file failures emit
+ * LOUDFAIL.EXTRACT.PDHEAD but do not abort the walk.
+ *
+ * Returns: count of files newly written; -1 on infrastructure failure
+ * (data dir creation, etc.). */
+s32 romExtractAllPdhead(s32 force_rewrite);
+
+/* Step 2: emit one .pdbody JSON file per registered body (152 slots,
+ * 68 expected based on .pdbase: 63 named bodies + 5 SP fallbacks).
+ * Idempotent. Returns: count of files newly written; -1 on
+ * infrastructure failure. */
+s32 romExtractAllPdbody(s32 force_rewrite);
+
+/* Step 2: emit one .pdarena JSON metadata file per registered arena
+ * AND one .pdscenario ZIP compound per arena's playable stage.
+ *
+ * The .pdarena (Section 2.4) carries arena_index / slug / category /
+ * stagenum / requirefeature / name_langid / load_mode and a `scenario`
+ * catalog ID reference. The .pdscenario (Section 2.10) is the UNIFIED
+ * ZIP per Q-1 carrying geometry / tiles / pads / setup / mpsetup
+ * binaries plus a manifest.json.
+ *
+ * 47 arenas total (CATALOG_MGR_ARENA_COUNT). The CANVAS-mode arenas
+ * (Solo Missions group) carry a stagenum of 0 and have no playable
+ * scene files; for those the .pdarena still emits but the
+ * .pdscenario is skipped (the .pdarena's `scenario` field is null).
+ *
+ * Idempotent. Returns: count of arena files newly written
+ * (.pdarena + .pdscenario both count); -1 on infrastructure failure. */
+s32 romExtractAllPdarena(s32 force_rewrite);
+
+/* Step 2 parity checks (Q-5 ruling). Re-read each emitted file,
+ * verify envelope + key scalar fields against the source loader pool,
+ * emit LOADER.UNIVERSAL.PARITY_FAIL on any disagreement. Same
+ * structural-integrity-only contract as romExtractParityCheckPdwpn;
+ * full field-by-field round-trip arrives at Step 4. */
+s32 romExtractParityCheckPdhead(void);
+s32 romExtractParityCheckPdbody(void);
+s32 romExtractParityCheckPdarena(void);
+
 #ifdef __cplusplus
 }
 #endif

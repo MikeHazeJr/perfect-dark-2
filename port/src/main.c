@@ -464,6 +464,32 @@ int main(int argc, const char **argv)
 		(void)parity_failures;
 	}
 
+	/* Catalog universality pivot Step 2 (2026-05-03): emit per-asset
+	 * .pdhead / .pdbody / .pdarena JSON files plus the unified
+	 * .pdscenario ZIP per Q-1 (one ZIP per arena's playable stage)
+	 * at data/<romid>/heads/, /bodies/, /arenas/, /scenarios/.
+	 *
+	 * Reads from the loader_pdbase head/body/arena pools populated above
+	 * AND from g_Stages[] (populated by stageTableInit earlier in this
+	 * boot path). Per-arena scenario ZIPs reference the per-stage .bin
+	 * files extracted by Pass A.2 / romExtractAllFiles.
+	 *
+	 * Idempotent: existing files skipped via size check. Per Mike's Q-5
+	 * ruling each parity check runs immediately after to validate the
+	 * emit; the parity period closes at Step 5 when base/*.pdbase
+	 * retires. Ship Step 2 fully per Mike's "catalog must be COMPLETE"
+	 * directive (2026-05-03). */
+	{
+		s32 head_emitted    = romExtractAllPdhead(0);
+		s32 body_emitted    = romExtractAllPdbody(0);
+		s32 arena_emitted   = romExtractAllPdarena(0);
+		s32 head_failures   = romExtractParityCheckPdhead();
+		s32 body_failures   = romExtractParityCheckPdbody();
+		s32 arena_failures  = romExtractParityCheckPdarena();
+		(void)head_emitted; (void)body_emitted; (void)arena_emitted;
+		(void)head_failures; (void)body_failures; (void)arena_failures;
+	}
+
 	// Phase 8: Build O(1) runtime→catalog-ID caches (mp body/head, stage, weapon, model).
 	// Must run after all catalog entries are registered.
 	catalogBuildRuntimeCaches();

@@ -5529,3 +5529,35 @@ const char *loaderPdbaseNameForLangEnum(s32 value)
 
 const char *loaderPdbaseNameForFileEnum(s32 value)
 { return reverse_lookup(k_FileEnum, k_FileEnum_count, value); }
+
+/* Catalog universality pivot Step 2 (2026-05-03).
+ *
+ * The HEADBODYTYPE_* / ARENA_LOADMODE_* enum families have small fixed
+ * cardinalities and the .pdbase parser (loader_pdbase.c::s_resolveHeadbodyType,
+ * s_resolveArenaLoadMode) carries the forward mapping inline. We replicate
+ * the same mapping here for the reverse direction so the .pdhead / .pdbody /
+ * .pdarena emitters can stamp symbolic strings into JSON without bridging
+ * back through a header constant table -- the constants.h numbering for
+ * HEADBODYTYPE_MAIAN / _CASS does not match what the .pdbase JSON encodes,
+ * so the emitter MUST use the loader's tables, not constants.h, for parity. */
+const char *loaderPdbaseNameForHeadbodyType(s32 value)
+{
+    switch (value) {
+    case 0: return "HEADBODYTYPE_DEFAULT";
+    case 1: return "HEADBODYTYPE_FEMALE";
+    case 2: return "HEADBODYTYPE_FEMALEGUARD";
+    case 3: return "HEADBODYTYPE_CASS";
+    case 4: return "HEADBODYTYPE_MAIAN";
+    case 5: return "HEADBODYTYPE_MRBLONDE";
+    default: return NULL;
+    }
+}
+
+const char *loaderPdbaseNameForArenaLoadMode(s32 value)
+{
+    switch (value) {
+    case 0: return "ARENA_LOADMODE_PLAYABLE";
+    case 1: return "ARENA_LOADMODE_CANVAS";
+    default: return NULL;
+    }
+}

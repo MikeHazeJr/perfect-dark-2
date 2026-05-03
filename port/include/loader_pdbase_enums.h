@@ -49,6 +49,16 @@ const char *loaderPdbaseNameForSfxEnum(s32 value);
 const char *loaderPdbaseNameForLangEnum(s32 value);
 const char *loaderPdbaseNameForFileEnum(s32 value);
 
+/* Catalog universality pivot Step 2 (2026-05-03): small-cardinality enum
+ * reverse lookups for the .pdhead / .pdbody / .pdarena emitters. The
+ * forward mapping mirrors the inline resolver helpers in
+ * port/src/loader_pdbase.c (s_resolveHeadbodyType, s_resolveArenaLoadMode)
+ * which are the same tables the .pdbase parser uses; keeping the reverse
+ * lookups in lockstep guarantees emit/parse round-trip parity during the
+ * Step 1-4 parity period. */
+const char *loaderPdbaseNameForHeadbodyType(s32 value);
+const char *loaderPdbaseNameForArenaLoadMode(s32 value);
+
 #ifdef __cplusplus
 }
 #endif
