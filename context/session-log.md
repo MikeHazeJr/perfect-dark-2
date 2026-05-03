@@ -1,5 +1,88 @@
 # Session Log (Active)
 
+## Session S612-step4 (`affectionate-hawking-f01503`) - 2026-05-03 - Catalog Universality Pivot Step 4 (universal directory walker)
+
+Mike's directive: "Get us to completion. Step 5 follows immediately." Closes the catalog universality writer-side AND reader-side at the row layer. The .pdbase parser is no longer the catalog row registration authority; the universal directory walker takes that role.
+
+### Outcome
+
+Universal directory walker shipped. The catalog row registration path now reads from the same per-asset compound format whether the source is BYOR-extracted or modder-supplied (post Step 6) -- universality realized end-to-end on the row layer. The `.pdbase` parser remains in the boot flow as the parity-bounded fallback for the heavyweight loader_pdbase pool population (s_Weapons[] full records, s_HeadsPool[], s_BodiesPool[], s_ArenasPool[]); Step 5 retires that tier.
+
+- **`port/include/loader_walker_common.h`** (~110 lines) -- scaffold contract: per-kind descriptor (kind_str / subdir / extension), result counters, register-callback function pointer, `loaderWalkerScanKind` public scan, plus envelope-extraction helpers (`loaderWalkerEnvelopeStr` / `Int` / `StrCopy`).
+- **`port/src/loader_walker_common.c`** (~325 lines) -- iterates one per-kind subdir under `data/<romid>/`, opens each `*.pd<ext>` file via `fsFileLoad`, peeks 2 bytes for ZIP (`PK`) vs plain JSON detection, extracts `manifest.json` from ZIPs via `modArchiveOpen` + `modArchiveExtractAlloc`, parses envelope (`pd_kind` + `id`) with a lightweight key-value extractor, gates duplicate registrations via `assetCatalogResolve`, dispatches to per-kind callback only when row is new. Per-file failures emit `LOUDFAIL.LOAD.UNIVERSAL.PARSE_FAIL` / `LOUDFAIL.LOAD.SCHEMA.KIND_MISMATCH`.
+- **`port/include/loader_walker.h`** (~110 lines) -- aggregate `loader_walker_result_t` (per-kind counters + totals), `loaderWalkerLoadAll(out)` dispatch entry point, `loaderWalkerIsActive()` flag, per-kind scanner declarations.
+- **`port/src/loader_walker.c`** (~150 lines) -- top-level dispatch. Calls each per-kind scanner in dependency order (meshes / anims first, then weapons / heads / bodies / scenarios / arenas, then audio sfx/voice/song, then ui / fonts / lang). Aggregates counters, sets `s_walkerActive` flag, emits `LOADER.UNIVERSAL.SUMMARY` log lines.
+- **13 per-kind walker sources** (`port/src/loader_walker_<kind>.c`, ~30-60 lines each) -- one per universality kind. Each declares a static descriptor + per-kind register callback that calls the matching `assetCatalogRegister*` API with envelope-derived primary fields. Animation walker handles both `weapon_animation` (plain JSON) and `character_animation` (ZIP) via the scaffold's auto-detect.
+
+Boot wiring: `port/src/main.c` Step 4 block immediately after the Step 3b part 2 `.pdui` block and before `catalogBuildRuntimeCaches`. Order rationale: AFTER all `romExtractAllPd*` emitters fire on first boot (so the `.pd*` files exist on disk when the walker scans), AFTER `assetCatalogRegisterBaseGame` (so existing in-binary entries are the bootstrap fallback), BEFORE `catalogBuildRuntimeCaches` (so the O(1) caches see any walker-added rows).
+
+The `.pdbase` parser block (`loaderPdbaseScan` + `loaderPdbaseBuild*Manager`) earlier in the boot path stays primary for pool population. A docblock above the block now positions it as the parity-bounded fallback for Step 5 retirement.
+
+### Non-destructive overlay (Step 4 scope)
+
+The scaffold short-circuits via `assetCatalogResolve(id)` before re-registering. Existing rows created by `assetCatalogRegisterBaseGame` + `RegisterStageSceneFiles` + `RegisterWeaponModelFiles` + `ScanComponents` (which all run earlier in the boot path) are counted as "registered" without touching their existing fields. New rows (the ~1208 chr animations + any disk-only IDs) get fresh registrations from the .pd* envelope.
+
+This preserves bootstrap fields like `model_file` (set by base register to bind the legacy file load chain) that the `.pd*` envelope does not always re-supply. Step 5 retires the in-binary side and the walker becomes authoritative for all fields.
+
+### Walker -> register API mapping
+
+| Kind | Subdir | Extension | Register API | Primary envelope fields |
+|---|---|---|---|---|
+| weapon | weapons | .pdwpn | assetCatalogRegisterWeapon | weapon_id |
+| head | heads | .pdhead | assetCatalogRegisterHead | headnum, requirefeature |
+| body | bodies | .pdbody | assetCatalogRegisterBody | bodynum, requirefeature |
+| arena | arenas | .pdarena | assetCatalogRegisterArena | stagenum, requirefeature, name_langid |
+| mesh | meshes | .pdmesh | assetCatalogRegister(ASSET_MODEL) | (envelope only) |
+| animation | animations | .pdanim | assetCatalogRegisterAnimation | frame_count, target_body, category |
+| sfx | audio/sfx | .pdsfx | assetCatalogRegisterAudio(SFX) | (envelope only) |
+| voice | audio/voice | .pdvoice | assetCatalogRegisterAudio(VOICE) | (envelope only) |
+| song | audio/music | .pdsong | assetCatalogRegisterAudio(MUSIC) | (envelope only) |
+| scenario | scenarios | .pdscenario | assetCatalogRegisterMap | stagenum |
+| ui | ui | .pdui | assetCatalogRegister(ASSET_UI) | (envelope only) |
+| font | fonts | .pdfont | assetCatalogRegister(ASSET_UI) | face |
+| lang | lang | .pdlang | assetCatalogRegister(ASSET_LANG) | category |
+
+### Server build
+
+The walker is unconditional: builds and links into both client and server targets. The server already participates in the catalog (stage / map / mode / mod-distribution semantics), so its catalog rows benefit from the walker's overlay just as the client's do. No `PD_SERVER` guards on any of the 17 new files.
+
+### Build verify
+
+Clean four-target build via `devtools/build-session.ps1` AFTER the worktree merge to dev (build-headless.ps1 redirects worktree paths to the main working copy, so verification of new files requires merge-first). 15 new `.obj` files (1 scaffold + 1 dispatch + 13 per-kind) compile into both client and server. No new compile warnings.
+
+### Files added (15 new files, ~1100 lines)
+
+- `port/include/loader_walker.h`, `port/include/loader_walker_common.h`
+- `port/src/loader_walker.c`, `port/src/loader_walker_common.c`
+- `port/src/loader_walker_weapon.c`, `loader_walker_head.c`, `loader_walker_body.c`, `loader_walker_arena.c`
+- `port/src/loader_walker_mesh.c`, `loader_walker_anim.c`, `loader_walker_scenario.c`
+- `port/src/loader_walker_sfx.c`, `loader_walker_voice.c`, `loader_walker_song.c`
+- `port/src/loader_walker_ui.c`, `loader_walker_font.c`, `loader_walker_lang.c`
+
+### Files modified
+
+- `port/src/main.c` -- Step 4 walker block (~30 new lines) immediately after the Step 3b part 2 block; loader_pdbase docblock updated to position the block as parity-bounded fallback.
+- `context/audits/catalog-universality-pivot-plan-2026-05-02.md` -- Step 4 SHIPPED section.
+- `context/tasks.md` -- Section 2a Remaining bumped: Step 4 SHIPPED, Step 5 ready.
+- `context/session-log.md` -- this entry (S612-step4 added at top).
+- `tools/kanban/state.json` -- catalog universality subtask `s050-07` (Step 4 walker) marked `done`; `s050-08` (Step 5 retirement) flagged `ready`.
+
+### Step 5 queue (next ship)
+
+- Delete `base/weapons.pdbase` / `heads.pdbase` / `bodies.pdbase` / `arenas.pdbase`.
+- Delete `devtools/extract_*_pdbase.py` (4 scripts).
+- Migrate pool population from `loaderPdbaseScan` onto the walker (parse weapon functions / ammos / aim/noise/recoil / partvis / etc. from the per-asset `.pdwpn` envelope content).
+- Drop legacy loose-files writers in `pdgui_theme.cpp` (`s_writePng`, `s_writeNinesliceJson`, CRC32 helpers) now unreferenced after the .pdui migration.
+- Add grep-guard test pinning to prevent regression.
+
+After Step 5: catalog universality is COMPLETE (writer + reader symmetric, no .pdbase tier, walker is sole catalog row + pool source).
+
+### Memory
+
+No new memory entries required. The Step 4 pattern (per-kind walker scaffold + non-destructive overlay) follows the established Step 1-3b pattern of "ship coherent risk-class chunks" + "non-destructive overlay until the migration completes" -- both already encoded in `feedback_complete_unit_shipping` + `feedback_no_half_measures`.
+
+---
+
 ## Session S611-step3b-part2 (`gifted-benz-cad936`) - 2026-05-03 - Catalog Universality Pivot Step 3b part 2 (.pdui + theme reader)
 
 Mike's directive: "Get us to completion." Closes the catalog universality writer-side at **13 of 13 kinds emitted** (was 12). Cross-cut UI texture half of Step 3b ships emitter + reader migration in lockstep per the no-half-measures directive.
