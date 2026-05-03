@@ -68,6 +68,19 @@ Test pin: 9 cases / ~25 assertions in `[catalog][passd]` (`tests/test_romextract
 
 **Remaining catalog queue** (catalog migration COMPLETE; these are post-migration polish, not blocking the lane closure): scenarios / game modes, bot profiles + bot variants -- each gets a design pass + audit + migrate + retire Layer A when scope permits, but the architectural ROM-once-then-disk endpoint is achieved.
 
+### 2a. Catalog Universality Pivot (in flight)
+
+Per [designs/catalog/universality-pivot-schemas.md](designs/catalog/universality-pivot-schemas.md). Schema lock-down (Step 0) at dev `00fdb8b7`. Step 1 (weapons + meshes + weapon-anim emitters) at dev `7e0d0791`. Step 2 (heads + bodies + arenas + scenarios) shipped 2026-05-03 in worktree `stupefied-jemison-6f4e32`: emits `.pdhead` / `.pdbody` / `.pdarena` JSON plus the unified `.pdscenario` ZIP per Q-1 (one ZIP per arena's playable stage; bg + tiles + pads + setup + mpsetup + manifest). Six new files under `port/src/`; reverse-lookup helpers for HEADBODYTYPE_* / ARENA_LOADMODE_* in `loader_pdbase_enums.c`. Q-5 parity checks land alongside each emitter.
+
+**Step 2 status**: 7 of 13 kinds emitted (`weapon` / `mesh` / `animation` from Step 1; `head` / `body` / `arena` / `scenario` from Step 2). Build clean across all four targets; no new test failures.
+
+**Remaining**:
+
+- **Step 3a** (character animations): emitter for character anim frame data in `data/<romid>/segs/animations.bin` per Q-3. ZIP-compound `.pdanim` form.
+- **Step 3** (byte-payload classes): `.pdsfx` / `.pdvoice` / `.pdsong` / `.pdui` / `.pdfont` / `.pdlang`. Hardest piece is the `.pdui` extractor that retires `pdguiThemeExtractRomTextures`.
+- **Step 4** (universal directory walker): collapse `loaderPdbaseScan` + `assetCatalogRegisterBaseGame` into a single `catalogUniversalScan(romid)` that walks `data/<romid>/<class>/`. Cross-references upgrade from FILE_*/L_*/etc enum strings to true catalog IDs.
+- **Step 5** (retirement): delete `base/*.pdbase` + extractor scripts + parity checks. Add grep-guard test pinning.
+
 **Pillar ref**: [pillars/catalog.md](pillars/catalog.md).
 
 ### 3. Input - Controller Support (Branch 2 Cohorts 5-8)

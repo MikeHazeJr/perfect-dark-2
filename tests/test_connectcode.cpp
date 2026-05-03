@@ -275,7 +275,13 @@ TEST_CASE("connectcode QC gate: checklist does not reintroduce raw-IP join expec
         return ss.str();
     };
 
-    const std::string qc = read_file("context/qc-tests.md");
+    /* qc-tests.md was archived to _old/ in commit 7d654073 (Phase 3B
+     * Step 7 context rebuild). Roadmap still relies on this checklist
+     * (see context/roadmap.md). Pin the gate at the archived location
+     * so future revisions of the doc cannot reintroduce raw-IP join
+     * language. If the file is moved back into context/, update the
+     * path here. */
+    const std::string qc = read_file("_old/qc-tests.md");
 
     REQUIRE(qc.find("phonetic or IP code") == std::string::npos);
     REQUIRE(qc.find("Decoded IP:port shown") == std::string::npos);

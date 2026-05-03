@@ -126,7 +126,7 @@ endif()
 # GitHub release prerelease flag, not by the version number itself.
 set(VERSION_SEM_MAJOR 0 CACHE STRING "Semantic version major")
 set(VERSION_SEM_MINOR 0 CACHE STRING "Semantic version minor")
-set(VERSION_SEM_PATCH 189 CACHE STRING "Semantic version revision")
+set(VERSION_SEM_PATCH 190 CACHE STRING "Semantic version revision")
 
 set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}")
 
@@ -486,11 +486,17 @@ endif()
 list(APPEND LIBS "${EXTRA_LIBRARIES}")
 
 # Sources
+#
+# CONFIGURE_DEPENDS makes CMake re-evaluate the glob on every build so new
+# port/src/*.c, port/*.cpp, and src/game/*.c files land in incremental
+# builds without a manual reconfigure. Without this, adding a new emitter
+# (e.g. romextract_pdhead.c during catalog universality pivot Step 2,
+# 2026-05-03) link-fails on a stale Build/ tree because CMake never saw it.
 
-file(GLOB_RECURSE SRC_PORT "${CMAKE_SOURCE_DIR}/port/*.c")
-file(GLOB_RECURSE SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/*.cpp")
+file(GLOB_RECURSE SRC_PORT     CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/*.c")
+file(GLOB_RECURSE SRC_PORT_CXX CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/*.cpp")
 
-file(GLOB_RECURSE SRC_GAME "${CMAKE_SOURCE_DIR}/src/game/*.c")
+file(GLOB_RECURSE SRC_GAME     CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/game/*.c")
 
 file(GLOB SRC_LIB_MP3 "${CMAKE_SOURCE_DIR}/src/lib/mp3/*.c")
 file(GLOB SRC_LIB_NAUDIO "${CMAKE_SOURCE_DIR}/src/lib/naudio/*.c")

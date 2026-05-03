@@ -1,5 +1,326 @@
 # Session Log (Active)
 
+## Session S608 (`stupefied-jemison-6f4e32`) - 2026-05-03 - Catalog universality pivot Step 2 (heads + bodies + arenas + scenarios)
+
+Mike's directive: "Catalog is not complete unless it is COMPLETE." Step 2 of the universality pivot ships the per-asset emitters for the three remaining metadata-class kinds (heads, bodies, arenas) plus the unified `.pdscenario` ZIP per Q-1 (one ZIP per arena's playable stage, bg + tiles + pads + setup + mpsetup + manifest).
+
+### Scope
+
+Per [universality-pivot-schemas.md](designs/catalog/universality-pivot-schemas.md) Sections 2.2 / 2.3 / 2.4 / 2.10 plus the audit's Q-1 unified-scenario ruling and Q-5 parity-period ruling. Step 2 follows the Step 1 weapons emitter pattern (`port/src/romextract_pdwpn.c`) so the parity check at Step 2 stays clean against the live `.pdbase` source until Step 5 retirement.
+
+### Implementation
+
+Six new files under `port/src/` and one new header section:
+
+- [`port/src/romextract_pdhead.c`](../port/src/romextract_pdhead.c) -- walks `loaderPdbaseGetHead(idx)` for `idx in [0, 152)`, emits `data/<romid>/heads/<id>.pdhead` for every entry with a non-empty `catalog_id`. Cross-refs (`mesh` field) preserve the FILE_* enum string via `loaderPdbaseNameForFileEnum`; HEADBODYTYPE_* preserved via the new `loaderPdbaseNameForHeadbodyType`.
+- [`port/src/romextract_pdbody.c`](../port/src/romextract_pdbody.c) -- mirrors the heads emitter for `loaderPdbaseGetBody`. Preserves `canvaryheight` (Skedar per-chr height variance), `unk00_01` integrated-head sentinel (Skedar / Dr Caroll / EyeSpy), and `handfilenum` -> `hand` catalog ID slot.
+- [`port/src/romextract_pdarena.c`](../port/src/romextract_pdarena.c) -- emits BOTH `.pdarena` JSON (Section 2.4) AND `.pdscenario` ZIP (Section 2.10) per arena. The `.pdarena` is the metadata document carrying arena_index / slug / category / stagenum / requirefeature / name_langid / load_mode + a `scenario` catalog ID reference. The `.pdscenario` (built via `modArchiveBegin`/`AddFileMem`/`AddFileDisk`/`Finish`) bundles geometry/tiles/pads/setup/mpsetup binaries from `data/<romid>/files/` plus a manifest.json envelope. SHA-256 sidecars per Section 3.9. Random meta arenas (STAGE_MP_RANDOM_MULTI/SOLO) emit `.pdarena` with `scenario: null` and skip the `.pdscenario` (no stagetable entry). ARENA_LOADMODE_CANVAS preserved per-arena.
+- [`port/src/romextract_parity_pdhead.c`](../port/src/romextract_parity_pdhead.c) -- Q-5 parity check. Re-reads each emitted `.pdhead`, validates envelope (pd_kind, pd_schema_version, id) plus headnum + ismale + height fields against the live loader pool. Reports `LOADER.UNIVERSAL.PARITY_FAIL` per mismatch.
+- [`port/src/romextract_parity_pdbody.c`](../port/src/romextract_parity_pdbody.c) -- bodies parity. Same pattern, additionally checks `canvaryheight` (the body-only carryover field).
+- [`port/src/romextract_parity_pdarena.c`](../port/src/romextract_parity_pdarena.c) -- arenas + scenarios parity. Validates `.pdarena` envelope + arena_index + stagenum + name_langid plus the corresponding `.pdscenario` exists (no internal ZIP inspection -- that becomes Step 4's job).
+
+Header surface:
+
+- [`port/include/loader_pdbase_enums.h`](../port/include/loader_pdbase_enums.h) gains `loaderPdbaseNameForHeadbodyType(s32)` + `loaderPdbaseNameForArenaLoadMode(s32)` reverse lookups.
+- [`port/src/loader_pdbase_enums.c`](../port/src/loader_pdbase_enums.c) implements them inline (small cardinality; mirrors the inline forward resolvers in `loader_pdbase.c::s_resolveHeadbodyType` / `s_resolveArenaLoadMode` so emit/parse round-trip stays consistent during the parity period).
+- [`port/include/romextract_pd.h`](../port/include/romextract_pd.h) adds 6 new function prototypes (`romExtractAllPdhead`/`Pdbody`/`Pdarena` + 3 parity checks) with full docblocks.
+
+Boot wiring in [`port/src/main.c`](../port/src/main.c) adds a Step 2 block immediately after the Step 1 emit block. Order: AFTER `loaderPdbaseBuildHead/Body/ArenaManager` (typed pools active) AND AFTER `stageTableInit` (g_Stages populated for the scenario emitter to read per-stage file IDs). Idempotent on subsequent boots via the existing skip-existing-by-size pattern.
+
+### Build verify
+
+All four targets PASS at session build dir `.claude/session-builds/pivot-step2/`:
+
+- `pd` (PerfectDark.exe) 55 MB CLIENT 26s
+- `pd-server` (PerfectDarkServer.exe) 22.4 MB SERVER 8s
+- `pd-tests` 24.9 MB TESTS 18s
+- `Updater.exe` 12.3 MB UPDATER 1s
+
+Test run: 11505 passed assertions; 4 pre-existing rot failures match S603 memo (test_loader_pdbase_scan.cpp:228/287 + test_catalog_provider_static.cpp:468/537), all outside the Step 2 touch surface. Segfault-on-teardown also pre-existing per the same memo.
+
+### Notes
+
+Storage layout: heads/bodies/arenas land under their own subdirs per schema 3.4; scenarios go to `data/<romid>/scenarios/` (separate from `data/<romid>/arenas/` per the locked layout, even though both kinds describe the same logical thing). The orchestrator's mission scope had a one-line shorthand "data/<romid>/arenas/<arena_id>.pdscenario" that mixed the two; this session honours the locked schema (arenas vs scenarios in separate dirs) since the schema doc is the binding reference.
+
+Cross-reference convention is intermediate: FILE_*/L_GUN_*/SFX_*/etc enum strings preserved verbatim. Step 4's universal directory walker promotes these to true catalog IDs once the discovery layer is mint-time-aware.
+
+Step 2 is COMPLETE per Mike's directive. Three of the eight remaining `.pd*` kinds are now emitted alongside Step 1's three (`weapon` / `mesh` / `animation` -> + `head` / `body` / `arena` / `scenario` = 7 of 13).  Remaining for Step 3a: character animations (Q-3 follow-up).  Remaining for Step 3: `.pdsfx` / `.pdvoice` / `.pdsong` / `.pdui` / `.pdfont` / `.pdlang`.
+
+### Files touched
+
+- [`port/include/loader_pdbase_enums.h`](../port/include/loader_pdbase_enums.h) (+10)
+- [`port/include/romextract_pd.h`](../port/include/romextract_pd.h) (+72)
+- [`port/src/loader_pdbase_enums.c`](../port/src/loader_pdbase_enums.c) (+30)
+- [`port/src/main.c`](../port/src/main.c) (+24)
+- [`port/src/romextract_pdhead.c`](../port/src/romextract_pdhead.c) (NEW, 142 lines)
+- [`port/src/romextract_pdbody.c`](../port/src/romextract_pdbody.c) (NEW, 156 lines)
+- [`port/src/romextract_pdarena.c`](../port/src/romextract_pdarena.c) (NEW, 318 lines)
+- [`port/src/romextract_parity_pdhead.c`](../port/src/romextract_parity_pdhead.c) (NEW, 199 lines)
+- [`port/src/romextract_parity_pdbody.c`](../port/src/romextract_parity_pdbody.c) (NEW, 215 lines)
+- [`port/src/romextract_parity_pdarena.c`](../port/src/romextract_parity_pdarena.c) (NEW, 234 lines)
+
+### Auto-merge
+
+Per worktree merge-to-dev directive.
+
+---
+
+## Session S607 (`catalog-slice12-passc`) - 2026-05-03 - B-313 Pass C segment over-read padding
+
+Mike's playtest of the B-306 fix (`54f103eb`) unblocked door modeldef loads but exposed a third Pass C regression on the path to the title screen.  Crash: `0xc0000005` in `memcpy+146` called from `challengeLoadConfig+0x12a -> dmaExecWithAutoAlign+0x43 -> dmaExec+0xf -> dmaStart+0x15 -> bcopy+0x12`.  Boot stack: `mainInit -> challengesInit -> challengeLoad -> challengeLoadConfig -> dmaExecWithAutoAlign(buffer, _mpconfigsSegmentRomStart + confignum * sizeof(struct mpconfig), sizeof(struct mpconfig))`.
+
+### Root cause
+
+`dmaExecWithAutoAlign` (`src/lib/dma.c:115`) rounds the read length up via `ALIGN16`, so a `sizeof(struct mpconfig) = 0x11f4` (4596) request becomes a `0x1200` (4608) memcpy.  The `mpconfigs` segment is only `0x11e0` (4576) bytes, so the consumer over-reads by 32 bytes.
+
+Pre-Pass-C this was harmless because the segment lived inside g_RomFile (a contiguous 32 MB blob) and the over-read landed inside the next segment's bytes.  Post-Pass-C my segment-migration code (`romdataReleaseRom`) reloaded each `SRC_ROM` segment from disk via `fsFileLoad`, which only allocates `size + 1` bytes (a free null-terminator).  The +1 byte was insufficient; the over-read walked into unmapped memory and AV'd.
+
+Same hazard applies to every `dmaExec`/`dmaExecWithAutoAlign` consumer reading from a migrated segment with `ALIGN16`-rounded or struct-sized lengths: `mpstringsX` (`challenge.c`), `fontjpnsingle`/`fontjpnmulti` (`lang.c`), `textureslist` (`texinit.c`), `firingrange` (`training.c`), `_animationsTableRomStart` (`anim.c::animsInit`).  All assume "ROM is one contiguous blob" semantics.
+
+### Fix
+
+When migrating segments to disk-backed heap, allocate via `sysMemAlloc(diskSize + PASSC_SEG_PADDING)` with `PASSC_SEG_PADDING = 0x40` bytes of zero-initialised read-ahead slack, using raw `fopen`+`fread` instead of `fsFileLoad` so the padding is explicit.  64 bytes covers `ALIGN16` (15 max) plus struct-size over-reads (mpconfig is the worst case at 20).
+
+Other Pass C migration paths unaffected: `segNormalised` (preprocess returned heap, e.g. `preprocessFont`/`preprocessALBankFile`) keeps its own buffer sized by the preprocess function; consumers don't over-read those buffers because they were always heap-backed pre-Pass-C and proven against heap-overread.
+
+### Build verify
+
+`pd` 54.8 MB clean (CLIENT 24s).  Binary refreshed at `Build/PerfectDark.exe` (timestamp 00:30).
+
+### Files touched
+
+- [`port/src/romdata.c`](../port/src/romdata.c) (+52 / -5): segment migration uses `sysMemAlloc(diskSize + PASSC_SEG_PADDING)` + raw `fopen`/`fread` instead of `fsFileLoad`.
+
+### Auto-merge
+
+Per standing rule.  Worktree commit `7e7c3e06`.  Merged at `6f9a4a84`.  Post-merge file line counts match worktree exactly.
+
+## Session S606b (`nervous-wilson-8a55a7`) - 2026-05-02 PM - unblock 3 stale text-pin failures
+
+Mike's directive (verbatim): "And fix our failed test stuff -- not hide it by removing the failing tests, that's a wild decision."
+
+Three pre-existing failures listed at session-log line 257-258 + 1885 (called out as "known noise"). Fixed root cause for each, no test removed/skipped/tag-suppressed.
+
+### Failure 1 -- `test_catalog_provider_static.cpp:580` (testscenarios.c "MP setup/manifest path" pin)
+
+Root cause: comment in [`port/src/testscenarios.c:248-252`](../port/src/testscenarios.c:248) was line-wrapped across "MP\n\t * setup/manifest path", so `swarmBlock.find("MP setup/manifest path")` returned npos. Comment content was intact and correct -- the swarm block does call `matchStart()` to own the MP setup/manifest path; only the line wrap broke the pin. Likely incidental reflow during S594h-Unit-C swarm canvas-arena-reject work.
+
+Fix: reflow the comment so the phrase is contiguous on one line. Moved "MP" from end of line 251 to start of line 252. No semantic change.
+
+### Failure 2 -- `test_cutscene_layer.cpp:330` (netDisconnect SCENE_EVENT_DISCONNECT pin)
+
+Root cause: legitimate refactor. The literal `sceneFire(SCENE_EVENT_DISCONNECT, NULL)` call was centralized out of `netDisconnect()` into [`sceneStageTransitionPrepare()` at port/src/scene_transition.c:41](../port/src/scene_transition.c:41). `netDisconnect` at [port/src/net/net.c:1338](../port/src/net/net.c:1338) now calls `sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_DISCONNECT | SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL, "netDisconnect")`, which triggers the fire transitively. The actual `sceneFire(SCENE_EVENT_DISCONNECT, NULL)` is already pinned by [`test_scene_dispatch.cpp:288`](../tests/test_scene_dispatch.cpp:288).
+
+Fix: replace the literal-call assertion in test_cutscene_layer with two assertions that verify netDisconnect routes through the helper with the disconnect flag (`SCENE_STAGE_TRANSITION_DISCONNECT`) and the helper call (`sceneStageTransitionPrepare(`). Cross-reference comment notes that the fire itself is pinned in test_scene_dispatch. Spirit preserved: disconnect path triggers SCENE_EVENT_DISCONNECT.
+
+### Failure 3 -- `test_connectcode.cpp:272` (qc-tests.md `REQUIRE(in.good())` failure)
+
+Root cause: legitimate file move. `context/qc-tests.md` was archived to `_old/qc-tests.md` in commit `7d654073` (Phase 3B Step 7 context rebuild). File still exists with full content (228 lines, 16541 bytes); the positive pins ("connect code only", "UI never displays the decoded raw IP:port", "Rejected as an invalid connect code") are present at lines 15-17 of `_old/qc-tests.md`. Roadmap and audits still reference the checklist by name, so the gate's intent (no raw-IP join language reintroduction) remains valid.
+
+Fix: update the test path from `context/qc-tests.md` to `_old/qc-tests.md`. Added comment noting the archive location and that future moves back into `context/` should update the path.
+
+### Verification
+
+After merge to dev (commit `7c580ee3`), built tests via `devtools/build-session.ps1 -Target tests -Session test-pin-fixes2` (PASS 32s, pd-tests.exe 24.9 MB). Ran the three target tests:
+
+- `swarm debug scenarios enter through match setup`: 10/10 assertions PASS
+- `cutscene lifecycle wiring: central paths all fire scene events`: 20/20 assertions PASS (added 2 new assertions, 1 removed = net +1)
+- `connectcode QC gate: checklist does not reintroduce raw-IP join expectations`: 8/8 assertions PASS
+
+Subset run with `~[inputlayer]` (skipping the pre-existing inputlayer crash, see B-312 below) shows: only the **4 known pre-existing failures remain** (`test_loader_pdbase_scan.cpp:228, 287` and `test_catalog_provider_static.cpp:468, 537`). My three are off the list. No new failures introduced.
+
+### Discovered (out of scope, logged for follow-up)
+
+**B-312 -- pd-tests segfault when running multiple `[inputlayer]` tests in sequence.** Single test runs pass; full suite SIGSEGVs after `tests/test_input_layer_stack.cpp:264` (test "inputlayer: payload is threaded into on_push" passed) and before/within test at line 267 ("inputlayer: top type returns LAYER_TYPE_COUNT when stack empty"). Crash reproduces in any multi-test invocation that includes both. Likely a state leak between tests (insufficient `resetWorld()` cleanup, stale callback pointer, or similar). Suite was completing on dev before recent input-layer scaffolding commits (last clean reference: session-log:854 "510 cases / 5 pre-existing failures"). Logged at `context/bugs.md` for typed-input-layer follow-up; not part of S606b scope.
+
+### Auto-merge
+
+Per standing rule. Worktree commit `706b5319`. Pre-merge dev HEAD `92a723d4`. Post-merge `7c580ee3` (ort strategy, no conflicts). 3 files, +15 / -4. Post-merge file line counts match worktree pre-merge exactly (testscenarios.c 316, test_cutscene_layer.cpp 521, test_connectcode.cpp 319).
+
+### Files touched
+
+- [`port/src/testscenarios.c`](../port/src/testscenarios.c) -- comment reflow only (line 251-252)
+- [`tests/test_cutscene_layer.cpp`](../tests/test_cutscene_layer.cpp) -- assertion update at line 330 area
+- [`tests/test_connectcode.cpp`](../tests/test_connectcode.cpp) -- file path update at line 278
+
+## Session S593h-followup-3 (`distracted-hamilton-430172` continuation) - 2026-05-02 PM - speed bump + 128-256 crash triage + GPU benchmark gaps
+
+Mike's playtest of the prior speed cap landed in the "too slow" zone. Three follow-up items.
+
+### Item 1 -- speed bump (5.0f -> 7.5f)
+
+Mike: "It did slow them down, but too much. They should be about 30% of the way between the two faster (So if it was at 100 and is now at 50, it should be 65-ish)."
+
+The 5.0 -> 14.0 span is 9 units. +30% = +2.7. Landing 7.7, rounded to 7.5f. [src/game/bot.c::botCalculateMaxSpeed](../../src/game/bot.c) cap raised; gate unchanged (CHRHFLAG 0x00040000 swarm-lock). MP "Speed Simulant" preset stays at original 14x.
+
+### Item 2 -- B-307 128-256 crash triage (filed, not patched)
+
+Mike: "Still crashed upon trying to go beyond 128. Have a session investigate the log, patch it if it's simple, or log it."
+
+Examined Mike's most recent rotated log [`Build/pd-client.1.log`](../../Build/pd-client.1.log) (build dev `89376df7` rebuilt against current dev tip after fd3e5e53 + df7f4fc8 landed):
+
+```
+02:19.90 cycle NEXT prev_idx=6 -> idx=7 target=256 (alive_was=128)
+02:19.93 despawn_all freed 128 chrs
+02:20.00 respawn_volume target=256 spawned=256 ok=252 grown=4 failed=0
+02:20.00 post-cycle target=256 actual=256 alive=229 kills=27
+02:20.00 BENCHMARK.SWARM.CPU: SUMMARY count=256 kills=27
+02:20.00 LOG.WPN.DIAG: playerRemoveChrBody player=0 ...
+(log ends, no FATAL / EXCEPTION / AV)
+```
+
+Critical observations:
+- The 256-bot spawn batch ITSELF completes successfully. The post-cycle BENCHMARK SUMMARY emits.
+- The Bodies head_canon WARNING flood from the prior crash signature is GONE -- the S593g-followup data fix took effect (two log lines per spawn instead of three).
+- The crash is in the FIRST FRAME after spawn. Just one playerRemoveChrBody (the per-frame log) fires before the log ends mid-stream.
+- IO-saturation hypothesis no longer applies. This is a code-path bug at >128 alive bots.
+
+No backtrace available; without it the diagnosis is candidate-set only:
+1. chrTickAll on 256 chrs hits NULL deref / pool-bound bug
+2. Bot-AI tick path overruns a static buffer sized for the prior 128-cap engine path
+3. Collision broadphase O(N^2) exhausts a per-frame budget
+4. Memory pressure from 256 model alloc + skel state pushes some allocator state into a bad slot
+
+Filed as **B-307 (MED)** with full repro + workaround "stop ladder at 128". Would need a debug build with SEH stack capture or objdump-decoded crash PC to narrow further -- Mike to decide priority.
+
+### Item 3 -- GPU benchmark gaps filed (B-308 / B-309 / B-310 / B-311)
+
+Mike: "Also log that the GPU version of our benchmark bot behavior is not correct, hasn't been properly migrated yet, and neither have the collision constraints / spawn upgrades, etc that we applied to the CPU benchmark version. It is part of our Skedar Benchmark phase after catalog completion."
+
+Then mid-task, additional finding: "I got a crash with 128 bots on GPU mode, see log and note what happened for when we get back to that side of things."
+
+Four new ledger entries:
+
+- **B-308 (LOW)** -- GPU swarm bot AI not properly migrated. CPU side has target acquisition, hostile-team posture, per-frame visibility / LOS short-circuit, power-weapon loadout, COMBATKNIFE for bots, real bot-AI tick path. The GPU pipeline ([port/src/swarm_gpu.cpp](../../port/src/swarm_gpu.cpp)) was scaffolded but never received the AI plumbing.
+- **B-309 (LOW)** -- GPU swarm collision constraints not applied. CPU side got chr->radius / chr->height per-bot scaling, perim-disable swarm-lock, matched cylinder/AABB plumbing. GPU side uses a fixed default radius and doesn't apply per-bot scale to collision geometry.
+- **B-310 (LOW)** -- GPU swarm spawn upgrades not applied. CPU side has volume-spawn picker, 20%-grow-once retry, streaming refill, overlap-spawn fallback. GPU side has none of these and uses a fixed ring layout.
+- **B-311 (MED)** -- GPU swarm crash at 128-bot cycle. Build/pd-client.log: cycle 4 -> 8 -> 16 -> 32 -> 48 -> 64 -> 128 produced corrupted post-cycle state (`alive=-2921 kills=3049`, impossible counts), 1.4 seconds later fast3d emitted `FATAL: Unknown GBI opcode 0xbb0000ff at 000001a830084c60` (display list word `fdbb0000ffff0000`, decoded as G_SETTIMG with uninit texture pointer). Game caught FATAL and shutdown gracefully. Hypothesis: GPU compute pipeline doesn't initialize per-bot display-list buffer correctly above some threshold (>64 in this run). The corrupted alive/kills counter and the garbage DL emerge at the same cycle-tick, suggesting shared scratch buffer or compute-kernel out-of-bounds write. NOT the same bug as B-307 (CPU silent crash); GPU has a clear FATAL signature. Workaround: cap GPU ladder at 64 OR stay on CPU mode.
+
+All four tagged "Skedar Benchmark phase, post-catalog completion" per Mike's framing.
+
+### Build verify (queued via build-session.ps1)
+
+| Target | Session | Status |
+|---|---|---|
+| CLIENT | swspd2 | PASS 26s |
+| UPDATER | swspd2 | PASS 1s |
+| SERVER | swspd2s | PASS 9s |
+| TESTS | swspd2t | PASS 20s |
+
+### Auto-merge
+
+Two sequential merges per standing rule:
+1. Pre-merge dev HEAD `3d80fc15`. Worktree commit `2ab39ceb`. Post-merge `fd461b82` (ort, no conflicts). 2 files, +16 / -7. Items 1 + 2 + 3 (B-308/309/310).
+2. Pre-merge dev HEAD `e51ba432`. Worktree commit `beb66185`. Post-merge `92a723d4` (ort, no conflicts). 1 file, +1 / -0. Item 4 (B-311 GPU 128-bot FATAL).
+
+### Files changed (2)
+
+- [src/game/bot.c](../../src/game/bot.c) (cap 5.0f -> 7.5f at swarm-lock gate)
+- [context/bugs.md](bugs.md) (B-307 / B-308 / B-309 / B-310 / B-311 entries at top of open list)
+
+## Session S593h-followup-2 (`distracted-hamilton-430172` continuation) - 2026-05-02 PM - swarm bot speed cap
+
+Mike's directive (verbatim): "the skedar guys in our benchmark are WAY too fast right now. Fix that"
+
+### Investigation
+
+[`botCalculateMaxSpeed`](../../src/game/bot.c:1738) at src/game/bot.c:1738-1789. The function computes `speed = (catalogGetBodyHeight / 159) * 0.002830188 + 1.0` (around 1.003 for Skedar height=159), then applies a type/difficulty multiplier:
+
+- BOTTYPE_TURTLE: 3.5x
+- **BOTTYPE_SPEED: 14.0x** (the swarm config branch)
+- else: difficulty switch (BOTDIFF_MEAT=5.0x ... BOTDIFF_DARK=11.2x)
+
+When `type == BOTTYPE_SPEED`, the difficulty switch is **skipped**. So swarm Skedars run at exactly 14x natural speed -- not the "14x * 11.2x DARK" Mike's framing implied. The "inverse-scale" effect is purely perceptual: smaller bots cover more body-lengths/sec visually but world-units/sec is identical. No code applies a scale-driven speed multiplier.
+
+`grep BOTTYPE_SPEED` returned exactly two consumers:
+
+1. `port/src/swarm_test.c::s_SwarmBotConfig` (the swarm test, intentional).
+2. `src/game/mplayer/mplayer.c:2230` -- the OG MP "Speed Simulant" preset (Mike's existing MP balance).
+
+### Fix shipped (commit 44faea84 + merge df7f4fc8)
+
+Surgical cap gated on the swarm-lock marker `chr->hidden & 0x00040000` (CHRHFLAG set by swarm_test.c at spawn). After the type/difficulty multiplier and before the crouch / near-waypoint reductions:
+
+```c
+if ((chr->hidden & 0x00040000) && speed > 5.0f) {
+    speed = 5.0f;
+}
+```
+
+Hard ceiling rather than a multiplier so downstream reductions (squat 0.35x, duck 0.5x, near-waypoint 0.5x) still scale relative to the capped base. The MP "Speed Simulant" preset keeps its OG 14x balance untouched.
+
+5.0f sits at the midpoint of Mike's suggested 4-6x range; tuneable from the bot.c constant if Mike wants to adjust further after playtest.
+
+### Build verify (queued via build-session.ps1)
+
+| Target | Session | Status |
+|---|---|---|
+| CLIENT | swspd1 | PASS 29s |
+| UPDATER | swspd1 | PASS 1s |
+| SERVER | swspd1s | PASS 8s |
+| TESTS | swspd1t | PASS 17s |
+
+### Auto-merge
+
+Per standing rule. Pre-merge dev HEAD `10627d7e`. Worktree commit `44faea84`. Post-merge `df7f4fc8` (ort strategy, no conflicts). 1 file, +21 / -0. Post-merge file checksum matches worktree exactly.
+
+### Next playtest should show
+
+- Swarm Skedars feel "fast and aggressive" rather than "WAY too fast". Visual perception remains brisk thanks to small-scale rendering, but world-distance closure rate is closer to a normal Hard simulant than a Speed simulant.
+- MP "Speed Simulant" preset (non-swarm) unaffected -- still 14x as Mike's existing balance defines.
+- If Mike wants further tuning, the constant `5.0f` at bot.c:1791 (after this merge) is the single dial.
+
+## Session S593g-followup (`distracted-hamilton-430172` continuation) - 2026-05-02 PM - integrated-head data + scale bump
+
+Mike's 2026-05-02 19:46 playtest crashed transitioning the swarm benchmark from 128 to 256 bots. Build/pd-client.log ended abruptly at 02:15.50 mid-line during a `head_canon=NULL` warning flood (769 lines in 16 seconds). Four findings reported, audited as one coherent restoration.
+
+### Root cause
+
+The S593g body.c warning gate at [src/game/body.c:416](../../src/game/body.c:416) reads `!catalogGetBodyIsComplete(bodynum)` to suppress the warning for integrated-head bodies. The C-side gate is still correct, but the underlying data is wrong: the original game's `g_HeadsAndBodies[]` only marks Dr Caroll (bodynum 107) with `unk00_01==1`. Skedar (92), EyeSpy (108), MiniSkedar (123), and SkedarKing (147) all have integrated head geometry but were flagged `unk00_01==0`.
+
+The S593g session log claimed `Skedar / Dr Caroll / EyeSpy carry unk00_01==1` -- that was an incorrect assumption, and it's why the swarm test (which spawns 256 Skedars per cycle) continued flooding the log even after the gate landed. 256 sysLogPrintf -> fopen/fwrite/fclose calls in one frame is the IO-saturation that crashed the spawn flood.
+
+### Fix shipped (commit 9139f1e8 + merge fd3e5e53)
+
+Two changes as one coherent restoration:
+
+1. [`devtools/extract_bodies_pdbase.py`](../../devtools/extract_bodies_pdbase.py): add `INTEGRATED_HEAD_BODYNUMS = {92, 108, 123, 147}` override set. The extractor reads the original C data verbatim then overrides `unk00_01=1` at emission time for these bodynums.
+2. [`base/bodies.pdbase`](../../base/bodies.pdbase): regenerated. 5 entries now flagged integrated-head (DrCaroll + Skedar + EyeSpy + MiniSkedar + SkedarKing) instead of just DrCaroll.
+
+This aligns the data with the existing PC-port menu code at [src/game/mplayer/setup.c:2457](../../src/game/mplayer/setup.c:2457) which already lists "Dr Caroll, Eye Spy, Skedar, etc." as integrated-head bodies.
+
+### Bot scale bump (same merge)
+
+[`port/src/swarm_test.c::swarm_pick_scale`](../../port/src/swarm_test.c:213): range bumped from `[0.2, 0.6)` to `[0.35, 0.65)`. Squared bias preserved so most bots cluster near 0.35-0.45 with occasional larger silhouettes for visual variety. Per Mike's feedback "a bit too small".
+
+### Other findings audited and confirmed not regressed
+
+- **Weapon equip**: Mike's "broken again" report was a misread of the `TESTSCEN.SWARM.WPN` diag at 01:52.55. masterload=0 was a single-frame snapshot before the load chain ran. By 01:55.31 weapon 22 (FARSIGHT) is fully equipped (`visible=1 inuse=1 state=5 sm=2 masterload=4`) and firing.
+- **`base:skedar (83) -> ROM`**: misleading log line in [port/src/assetcatalog_api.c:1095](../../port/src/assetcatalog_api.c:1095). The `-> ROM` notation means "catalog resolved, returning filenum=N" -- it does NOT indicate runtime ROM hit. Post-Pass-C the runtime ROM is freed at boot. Out of scope for this commit; rename to `:resolved` is a low-priority follow-up.
+- **Falcon 2 secondary text**: fixed by 68fb0ae3 (Phase 2 Commit 4), in dev tip already.
+- **Recoil cross-variant crash**: fixed by eb8ef03f (S484-followup-4), in dev tip already.
+- **Farsight SFX voiceline**: fixed by 614d6484 (S484-followup-5), in dev tip already.
+
+### Build verify (queued via build-session.ps1)
+
+| Target | Session | Status | Notes |
+|---|---|---|---|
+| CLIENT | sweep1 | PASS 28s | PerfectDark.exe |
+| UPDATER | sweep1 | PASS 1s | Updater.exe |
+| SERVER | sweep1s | PASS 8s | 8948d23c link breakage already cleared by recent Pass C / closeout fixes |
+| TESTS | sweep1t | PASS 18s | `[catalog-mgr-body]` filter exit=0 (predicate-only tests, data-independent) |
+
+### Auto-merge
+
+Per standing rule. Pre-merge dev HEAD `75740ec4`. Worktree commit `9139f1e8`. Post-merge `fd3e5e53` (ort strategy, no conflicts). 3 files, +48 / -9. Post-merge file checksums match worktree exactly.
+
+### Next playtest should show
+
+- Zero `head_canon=NULL` WARNINGs during swarm cycle for Skedar / EyeSpy / MiniSkedar / SkedarKing spawns (DrCaroll was already gated).
+- Log no longer terminates abruptly during 256-bot spawn batch.
+- 128 -> 256 cycle transition completes cleanly; cycler reaches 256 alive and recycles back to 4.
+- Bots visibly larger (range 0.35-0.65 vs prior 0.2-0.6).
+
 ## Session S606 (`catalog-slice12-passc`) - 2026-05-02 PM - B-306 Pass C FileProvider preprocess gap
 
 Mike's playtest of the B-305 fix #2 binary unblocked catalog init but surfaced a second crash one boot phase later: `0xc0000005` at PC offset `+0x3ba918` inside `modelPromoteNodeOffsetsToPointers`, called from `setupCreateDoor -> setupLoadModeldef -> modeldefLoadToNewFromHandle -> modeldefLoadFromHandle -> assetLoadToNew`.  Decoded via objdump on the live binary; full stack: `+0x3bab11 modelPromoteOffsetsToPointers`, `+0xf05f9 modeldefFinalizeLoadedWithSizes`, `+0xf07a3 modeldefLoadFromHandle`, `+0xf0993 modeldefLoadToNewFromHandle`, `+0x16e2fd setupLoadModeldef`, `+0x169ddd setupCreateDoor`, `+0x16b4a3 setupCreateProps`, `+0xcaf28 lvReset`.
