@@ -1370,6 +1370,8 @@ s32 actionIsGameplayOnly(InputAction a)
     case ACTION_MENU_SECONDARY:
     case ACTION_MENU_TERTIARY:
     case ACTION_MENU_DELETE:
+    case ACTION_MENU_SECTION_PREV:
+    case ACTION_MENU_SECTION_NEXT:
     case ACTION_VOICE_PTT:
     case ACTION_FORGE_PLACE_CANCEL:
     case ACTION_FORGE_BOT_ADD:
@@ -2670,11 +2672,23 @@ static void setupMenuDefaults(void)
     addBind(imc, ACTION_MENU_TAB_NEXT,VKL_PAGEDOWN);              /* Next tab - kbd */
     addBind(imc, ACTION_MENU_TAB_NEXT,VKL_E);                     /* Next tab - kbd */
     addBind(imc, ACTION_MENU_TAB_NEXT,JOY_BTN(0, JBTN_RB));       /* Next tab - RB */
-    addBind(imc, ACTION_MENU_SECONDARY,VKL_C);                    /* Secondary command - kbd */
-    addBind(imc, ACTION_MENU_SECONDARY,JOY_BTN(0, JBTN_X));       /* Secondary command - X */
-    addBind(imc, ACTION_MENU_TERTIARY,VKL_D);                     /* Tertiary command - kbd */
-    addBind(imc, ACTION_MENU_TERTIARY,JOY_BTN(0, JBTN_Y));        /* Tertiary command - Y */
+    addBind(imc, ACTION_MENU_SECONDARY,VKL_C);                    /* Secondary command - kbd (Rule 5 alias: ACTION_MENU_CONTEXT) */
+    addBind(imc, ACTION_MENU_SECONDARY,JOY_BTN(0, JBTN_X));       /* Secondary command - X (Rule 5 alias: ACTION_MENU_CONTEXT) */
+    addBind(imc, ACTION_MENU_TERTIARY,VKL_D);                     /* Tertiary command - kbd (Rule 6 alias: ACTION_MENU_SOCIAL) */
+    addBind(imc, ACTION_MENU_TERTIARY,JOY_BTN(0, JBTN_Y));        /* Tertiary command - Y (Rule 6 alias: ACTION_MENU_SOCIAL) */
     addBind(imc, ACTION_MENU_DELETE,VK_DELETE);                   /* Delete command - kbd */
+    /* Rule 8 (2026-05-03): LT / RT section / group / page jump.
+     * Universal grouping advance per the Combat Sim binding spec v2 +
+     * Mike's Q1+Q2 inversion (LB/RB stays universal tab cycle; LT/RT
+     * absorbs the team-jump / section-jump role). Implementation per
+     * menu consults its group iterator. KB&M binding via Home/End
+     * mirrors the original verbatim's "list bounds" intent without
+     * absolute-bounds semantics. Boundary case: stays on boundary,
+     * does not wrap (Rule 1 + Rule 8 alignment). */
+    addBind(imc, ACTION_MENU_SECTION_PREV, VKL_HOME);             /* Previous section/group/team - kbd */
+    addBind(imc, ACTION_MENU_SECTION_PREV, JOY_BTN(0, JOFS_LTRIG)); /* LT trigger */
+    addBind(imc, ACTION_MENU_SECTION_NEXT, VKL_END);              /* Next section/group/team - kbd */
+    addBind(imc, ACTION_MENU_SECTION_NEXT, JOY_BTN(0, JOFS_RTRIG)); /* RT trigger */
     /* S483b (2026-04-27): Tab toggles the Online connectivity sidebar.
      * Bound on menu IMCs only (here + setupPauseMenuDefaults) so pressing
      * Tab during pure gameplay (only g_ImcGameplay active) cannot fire
@@ -2727,11 +2741,18 @@ static void setupPauseMenuDefaults(void)
     addBind(imc, ACTION_MENU_TAB_NEXT,VKL_PAGEDOWN);              /* Next tab - kbd */
     addBind(imc, ACTION_MENU_TAB_NEXT,VKL_E);                     /* Next tab - kbd */
     addBind(imc, ACTION_MENU_TAB_NEXT,JOY_BTN(0, JBTN_RB));       /* Next tab - RB */
-    addBind(imc, ACTION_MENU_SECONDARY,VKL_C);                    /* Secondary command - kbd */
-    addBind(imc, ACTION_MENU_SECONDARY,JOY_BTN(0, JBTN_X));       /* Secondary command - X */
-    addBind(imc, ACTION_MENU_TERTIARY,VKL_D);                     /* Tertiary command - kbd */
-    addBind(imc, ACTION_MENU_TERTIARY,JOY_BTN(0, JBTN_Y));        /* Tertiary command - Y */
+    addBind(imc, ACTION_MENU_SECONDARY,VKL_C);                    /* Secondary command - kbd (Rule 5 alias: ACTION_MENU_CONTEXT) */
+    addBind(imc, ACTION_MENU_SECONDARY,JOY_BTN(0, JBTN_X));       /* Secondary command - X (Rule 5 alias: ACTION_MENU_CONTEXT) */
+    addBind(imc, ACTION_MENU_TERTIARY,VKL_D);                     /* Tertiary command - kbd (Rule 6 alias: ACTION_MENU_SOCIAL) */
+    addBind(imc, ACTION_MENU_TERTIARY,JOY_BTN(0, JBTN_Y));        /* Tertiary command - Y (Rule 6 alias: ACTION_MENU_SOCIAL) */
     addBind(imc, ACTION_MENU_DELETE,VK_DELETE);                   /* Delete command - kbd */
+    /* Rule 8 (2026-05-03): LT / RT section / group / page jump on pause IMC.
+     * Mirrors setupMenuDefaults so the binding stays universal across
+     * all menu surfaces (paused or main-menu). */
+    addBind(imc, ACTION_MENU_SECTION_PREV, VKL_HOME);             /* Previous section/group/team - kbd */
+    addBind(imc, ACTION_MENU_SECTION_PREV, JOY_BTN(0, JOFS_LTRIG)); /* LT trigger */
+    addBind(imc, ACTION_MENU_SECTION_NEXT, VKL_END);              /* Next section/group/team - kbd */
+    addBind(imc, ACTION_MENU_SECTION_NEXT, JOY_BTN(0, JOFS_RTRIG)); /* RT trigger */
     /* S483b (2026-04-27): Tab toggles the Online connectivity sidebar
      * while paused. See setupMenuDefaults for the design rationale. */
     addBind(imc, ACTION_SOCIAL_TOGGLE, 43);                       /* TAB scancode */

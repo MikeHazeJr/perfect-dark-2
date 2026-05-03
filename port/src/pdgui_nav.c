@@ -156,6 +156,16 @@ s32 pdguiMenuDeletePressed(void)
     return menuActionPressed(ACTION_MENU_DELETE);
 }
 
+s32 pdguiMenuSectionPrevPressed(void)
+{
+    return menuActionPressed(ACTION_MENU_SECTION_PREV);
+}
+
+s32 pdguiMenuSectionNextPressed(void)
+{
+    return menuActionPressed(ACTION_MENU_SECTION_NEXT);
+}
+
 s32 pdguiMenuUpRepeat(void)
 {
     return pdguiMenuActionRepeat(ACTION_MENU_UP);
