@@ -1,5 +1,89 @@
 # Session Log (Active)
 
+## Session (`exciting-wozniak-fe0cac`) - 2026-05-03 - Engine Phase 3: parallel verify pass
+
+Mike's directive (continuing the startup-acceleration arc): "Phase 3 of startup acceleration. Mike green-lit 2026-05-03 18:20 ET." Phase 2 (thread pool + progress channel + boot overlay) shipped at dev `78b5008a` with 14 workers spawning + overlay visible 5.98s on Mike's machine. Phase 3 is the verify-pass parallelization itself: replace the serial 2011-file SHA-256 loop with fan-out across the boot pool's worker threads. Single coherent unit per `complete-unit-shipping`.
+
+### Outcome
+
+`romExtractVerifyAll` (`port/src/romextract.c:774`) refactored from a serial `for (fileNum = 1; fileNum < ROMEXTRACT_MAX_FILES; fileNum++)` loop into a parallel fan-out via the boot pool. New types: `verify_event_t` (deferred per-file event), `verify_thread_state_t` (per-thread accumulators + event list), `verify_batch_t` (shared cursor + mutex + counters + atomic progress + worker latch). New static helpers: `s_verifyAppendEvent`, `s_verifyOneFile` (extracted body of the original per-file work), `s_verifyWorkerFn` (boot-pool worker that drains the cursor).
+
+Smoke verify on Mike's actual install (`~/Downloads/Perfect Dark 2.0/`):
+- Phase 2 baseline (warm cache): `[00:02.85] -> [00:03.08]` = 0.23s.
+- Phase 3 (warm cache): `[00:03.34] -> [00:03.42]` = 0.08s.
+- Speedup: ~3x with all 14 workers spawning as designed (cores - 2 on a 16-core machine).
+- Cold-cache projection per design doc: 8s -> ~1s. Cold-cache measurement deferred to a session that can drop OS file cache cleanly.
+
+### Threading model
+
+- Shared cursor `next_file_num` (mutex-protected) is the work queue. Workers pull one file at a time -> automatic load balance, no static partitioning.
+- Per-thread `verify_thread_state_t` accumulators in `s_verifyOneFile`. No shared write contention inside the per-file work.
+- Workers merge their counters + event list into the batch under the mutex once their drain ends. One mutex acquisition per worker, not per file.
+- `SDL_atomic_t files_done` for global progress; workers push `bootProgressUpdate` every 32 files. Bar advances visibly without per-file mutex contention on the progress channel.
+- Failure events deferred: workers append `(kind, name, recovered)` to thread-local lists; manager replays them serially after the worker join so the existing `s_PerFileToastsEmitted` cap stays correct. Per-file `LOUDFAIL` log lines still fire from workers since `sysLogPrintf` is mutex-protected.
+- Manager (`bootRunCatalogWork`) runs on a boot-pool worker thread; cannot call `bootPoolWaitIdle` (would deadlock on its own in_flight slot). Per-batch latch (`workers_remaining` + `cv_done`) instead.
+- Manager dispatches `(worker_count - 1)` parallel jobs and runs `s_verifyWorkerFn` inline so the pool is fully saturated. `worker_count == 1` case still drains correctly (manager IS the worker).
+
+### Reentrancy audit (per Phase 1+3 design)
+
+- `sha256HashFile` / `sha256Hash` / `sha256ToHex`: stack-local ctx, own `FILE*`. Safe.
+- `fsFullPath` / `fsFileOpenWrite` / `fsFileLoad`: out-buffer form (Phase 1 refactor). Safe.
+- `sysLoudFailf` / `sysLogPrintf`: mutex-protected. Safe.
+- `sysMemAlloc` / `sysMemFree`: SDL mutex registered at boot. Safe.
+- `romdataFileGetData` / `romdataFileGetSize`: safe AFTER `romExtractAllFiles` loaded every slot (the SRC_UNLOADED branch does not fire on second visit). Verify always runs after extract, so this precondition holds.
+- `rename()` / `mkdir()` on per-file paths: independent across files. Safe.
+
+### Correctness invariants preserved
+
+- Final catalog state IDENTICAL to serial verify (same files corrected, same failures detected, same baseline behavior).
+- Log line format unchanged: `ROMEXTRACT.VERIFY: verified=%d, corrected=%d, baselined=%d, skipped_empty=%d, failed=%d` -- byte-identical with Phase 1/2 output for diff comparability.
+- Aggregator updates (`s_AggValidated` / `s_AggRecovered` / `s_AggUnrecoverable`) unchanged: file path now extracts named locals from the batch so the textual structure matches the segment-side path.
+
+### Test pin update
+
+`tests/test_romextract_passd.cpp` toast-helper assertion re-pinned. The Phase 3 file verify path tags events through `s_verifyAppendEvent(th, "File", ...)` which the manager replays serially; the segment verify path keeps inline `s_emitPerFileRecoverToast("Segment", ...)` calls (only ~12 segments, no parallelism benefit). All 9 `[passd]` cases pass (42 assertions).
+
+### Build verify
+
+Clean four-target via `devtools/build-session.ps1 -Session phase3-verify` against the post-merge dev:
+- Client (pd, PerfectDark.exe): PASS, **55.5 MB** (6s).
+- Server (pd-server, PerfectDarkServer.exe): PASS, **22.4 MB** (2s).
+- Updater (pd-updater, Updater.exe): PASS, **12.3 MB** (1s).
+- Tests (pd-tests, pd-tests.exe): PASS, **24.6 MB** (2s).
+
+Pre-existing failures (uichrome-paths, step5: pdbase substrings, rom-backed catalog provider) are unrelated -- they reference files I did not touch (BYOR-completion in flight) and were already failing on dev pre-Phase-3.
+
+### Worktree-build detour
+
+Investigation: my early `pd-tests` runs returned the OLD test assertion text even after rebuilding. Root cause: `devtools/build-headless.ps1` line 87-92 explicitly redirects worktree paths back to the parent project dir for source -- by design (`# Worktree builds are NEVER allowed -- builds must operate on the main project files`). My worktree edits were invisible to the build until merged into dev. The codebase's intended workflow is: edit + commit in worktree, merge to dev, then build verify against the merged source. Adjusted to that flow; documented for future sessions.
+
+### Files modified
+
+- `port/src/romextract.c` (parallel verify implementation; +~290 lines net).
+- `tests/test_romextract_passd.cpp` (toast-helper test re-pin for Phase 3 wiring).
+- `context/audits/engine-phase3-parallel-verify-2026-05-03.md` (new audit; +160 lines).
+- `tools/kanban/state.json` (c109 -> done with SHA + smoke timing; c110 -> ready).
+
+### Merge trail
+
+- `e42ad24c` Merge worktree: Engine Startup Phase 3 -- parallel verify pass.
+- `67b97c4a` Merge worktree: Engine Phase 3 fixup -- aggregate alignment (single-space test pin alignment).
+- `8554b4ea` (parallel session B-323 fix from `competent-saha-a202bb`).
+- `d44ded34` Merge worktree: Engine Phase 3 SHIPPED -- audit + kanban.
+- `fdca9ea7` Merge worktree: Engine Phase 3 audit SHA fix.
+
+### What is now possible
+
+- Phase 4 (walker + emitter structural concurrency) is unblocked. Q4 mandate: structural fix to `assetCatalogRegister*` (fine-grained mutex or RW lock) + per-thread context for `loaderPoolParse*`. Walker becomes fully parallel; per-asset emitter parallelization within and across kinds. Impact grows after B-318 lands (emitters early-return today). c110 marked ready in kanban.
+
+### Coordination notes
+
+- BYOR completion (`local_1e6cf11f` -> shipped at `ab0a6fe7` via `focused-poitras-97c1d4`) is idle. Not touched.
+- BYOR-regression triage (post-boot AV in `setupCreateProps -> reset functions`) reproduced during smoke verify. Confirmed not caused by Phase 3 (verify pass completes cleanly; crash is later in boot during prop reset). Out of scope per Phase 3 brief; tracked separately by the BYOR triage session.
+- B-323 challengesInit AV fix from `competent-saha-a202bb` merged to dev in parallel between my Phase 3 fixup merge and my audit merge -- noted in the audit's SHA trail and corrected in a follow-up commit.
+
+---
+
 ## Session S616 (`competent-saha-a202bb`) - 2026-05-03 - B-323 post-boot AV in challengesInit (Pass C side-effect)
 
 Mike's directive: triage the post-boot AV from his playtest of `dev 1363ee75`. Prompt framed it as "BYOR completion build still crashes" and pointed at `setupCreateProps -> reset functions`. Both framings were off: the AV is in `challengesInit` (well before any stage load), and Mike's installed binary is PRE-BYOR-completion -- BYOR completion at `ab0a6fe7` did not touch the path that AVs.
