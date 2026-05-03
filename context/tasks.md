@@ -74,9 +74,11 @@ Per [designs/catalog/universality-pivot-schemas.md](designs/catalog/universality
 
 **Step 3a status**: 7 of 13 kinds emitted (`weapon` / `mesh` / `animation` (now complete with both categories) from Steps 1 + 3a; `head` / `body` / `arena` / `scenario` from Step 2). Build clean across all 4 targets (client 55.1 MB, updater 12.3 MB, server 22.4 MB, tests 24.9 MB). Step 3a closes Mike's Q-3 ruling.
 
+**Step 3 audio half status (2026-05-03, worktree `frosty-antonelli-fd537f`)**: 10 of 13 kinds emitted. Step 3 audio half ships `.pdsfx` / `.pdvoice` / `.pdsong` ZIP compounds. New files: `port/src/romextract_pdsfx.c` (shared SFX-bank walker), `port/src/romextract_pdvoice.c` (wrapper), `port/src/romextract_pdsong.c`, and three matching `_parity_*.c` siblings, plus `port/src/romextract_pdaudio_internal.h` (private walker glue between sfx + voice). Voice classification reuses the Slice 10 predicate (audioconfig slot in `{1, 2, 3, 47, 48, 60, 62}`). Boot wiring lands in `port/src/main.c` after the Step 3a block. Q-5 parity verifies envelope + `id` + `source_index` + `data_size`/`binlen`/`ziplen` round-trip.
+
 **Remaining**:
 
-- **Step 3** (byte-payload classes): `.pdsfx` / `.pdvoice` / `.pdsong` / `.pdui` / `.pdfont` / `.pdlang`. Hardest piece is the `.pdui` extractor that retires `pdguiThemeExtractRomTextures`.
+- **Step 3b** (other byte-payload classes): `.pdui` / `.pdfont` / `.pdlang`. Hardest piece is the `.pdui` extractor that retires `pdguiThemeExtractRomTextures`. Recommend a fresh worktree -- different lump shapes from the audio decoder lineage.
 - **Step 4** (universal directory walker): collapse `loaderPdbaseScan` + `assetCatalogRegisterBaseGame` into a single `catalogUniversalScan(romid)` that walks `data/<romid>/<class>/`. Cross-references upgrade from FILE_*/L_*/etc enum strings to true catalog IDs.
 - **Step 5** (retirement): delete `base/*.pdbase` + extractor scripts + parity checks. Add grep-guard test pinning.
 
